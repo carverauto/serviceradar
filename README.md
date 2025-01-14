@@ -6,7 +6,7 @@
 ```
 
 <img width="1470" alt="Screenshot 2025-01-13 at 10 15 22 PM" src="https://github.com/user-attachments/assets/79983463-c7d5-4c76-b030-45a4d05a27fe" />
-<img width="1470" alt="Screenshot 2025-01-13 at 10 15 04 PM" src="https://github.com/user-attachments/assets/5a636de0-736c-4710-8338-7f31acdbb212" />
+<img width="1390" alt="Screenshot 2025-01-14 at 3 31 09 PM" src="https://github.com/user-attachments/assets/9d375957-8de6-4cca-b553-77c1bd45b2cd" />
 <img width="1466" alt="Screenshot 2025-01-14 at 10 29 38 AM" src="https://github.com/user-attachments/assets/9f340d15-671d-42d6-86d0-688975af4f37" />
 
 
