@@ -121,13 +121,6 @@ const DuskDashboard = () => {
               </div>
             </div>
         )}
-
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-semibold mb-2">Raw Details</h3>
-          <pre className="bg-gray-100 p-4 rounded overflow-auto">
-          {JSON.stringify(details, null, 2)}
-        </pre>
-        </div>
       </div>
   );
 };
