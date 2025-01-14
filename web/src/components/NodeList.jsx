@@ -1,5 +1,6 @@
 // src/components/NodeList.jsx
 import React, { useState, useEffect } from 'react';
+import NodeTimeline from './NodeTimeline';
 
 function NodeList() {
   const [nodes, setNodes] = useState([]);
@@ -43,6 +44,7 @@ function NodeList() {
                       ))}
                     </ul>
                   </div>
+                  <NodeTimeline nodeId={node.node_id} />
                 </div>
               </div>
           ))}

@@ -5,6 +5,9 @@ import (
 	"flag"
 	"log"
 	"net"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/mfreeman451/homemon/pkg/cloud"
 	"github.com/mfreeman451/homemon/pkg/cloud/api"
@@ -21,13 +24,13 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	// Create and start API server
-	apiServer := api.NewAPIServer()
-
-	server, err := cloud.NewServer(&config)
+	server, err := cloud.NewServer(config)
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)
 	}
+
+	// Create and start API server
+	apiServer := api.NewAPIServer()
 	server.SetAPIServer(apiServer)
 
 	// Start gRPC server
@@ -38,6 +41,17 @@ func main() {
 
 	grpcServer := grpc.NewServer()
 	proto.RegisterPollerServiceServer(grpcServer, server)
+
+	// Set up signal handling
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		sig := <-sigChan
+		log.Printf("Received signal %v, initiating shutdown", sig)
+		server.Shutdown()
+		grpcServer.GracefulStop()
+	}()
 
 	// Start monitoring goroutine
 	go server.MonitorPollers(context.Background())

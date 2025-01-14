@@ -20,14 +20,39 @@ type Config struct {
 	Webhooks       []alerts.WebhookConfig `json:"webhooks,omitempty"`
 }
 
+type alertState struct {
+	isDown    bool
+	timestamp time.Time
+}
+
 type Server struct {
 	proto.UnimplementedPollerServiceServer
-	mu             sync.RWMutex
-	lastSeen       map[string]time.Time
-	alertThreshold time.Duration
-	// alertFunc      AlertFunc
-	webhooks  []*alerts.WebhookAlerter
-	apiServer *api.APIServer
+	mu                 sync.RWMutex
+	lastSeen           map[string]time.Time
+	alertThreshold     time.Duration
+	webhooks           []*alerts.WebhookAlerter
+	apiServer          *api.APIServer
+	nodeAlertStates    map[string]*alertState
+	serviceAlertStates map[string]*alertState
+	shutdown           chan struct{}
+}
+
+func (s *Server) Shutdown() {
+	if len(s.webhooks) > 0 {
+		alert := alerts.WebhookAlert{
+			Level:     alerts.Warning,
+			Title:     "Cloud Service Stopping",
+			Message:   fmt.Sprintf("HomeMon cloud service shutting down at %s", time.Now().Format(time.RFC3339)),
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			NodeID:    "cloud",
+			Details: map[string]any{
+				"hostname": getHostname(),
+				"pid":      os.Getpid(),
+			},
+		}
+		s.sendAlert(alert)
+	}
+	close(s.shutdown)
 }
 
 func (s *Server) SetAPIServer(api *api.APIServer) {
@@ -36,11 +61,14 @@ func (s *Server) SetAPIServer(api *api.APIServer) {
 	s.apiServer = api
 }
 
-func NewServer(config *Config) (*Server, error) {
+func NewServer(config Config) (*Server, error) {
 	server := &Server{
-		lastSeen:       make(map[string]time.Time),
-		alertThreshold: config.AlertThreshold,
-		webhooks:       make([]*alerts.WebhookAlerter, 0),
+		lastSeen:           make(map[string]time.Time),
+		alertThreshold:     config.AlertThreshold,
+		webhooks:           make([]*alerts.WebhookAlerter, 0),
+		nodeAlertStates:    make(map[string]*alertState),
+		serviceAlertStates: make(map[string]*alertState),
+		shutdown:           make(chan struct{}),
 	}
 
 	// Initialize webhook alerters
@@ -51,9 +79,21 @@ func NewServer(config *Config) (*Server, error) {
 		}
 	}
 
-	// Send startup notification if we have any webhooks configured
+	// Send startup notification after webhooks are initialized
 	if len(server.webhooks) > 0 {
-		server.sendStartupNotification()
+		alert := alerts.WebhookAlert{
+			Level:     alerts.Info,
+			Title:     "Cloud Service Started",
+			Message:   fmt.Sprintf("HomeMon cloud service initialized at %s", time.Now().Format(time.RFC3339)),
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			NodeID:    "cloud",
+			Details: map[string]any{
+				"version":  "1.0.0", // Consider making this configurable
+				"hostname": getHostname(),
+				"pid":      os.Getpid(),
+			},
+		}
+		server.sendAlert(alert)
 	}
 
 	return server, nil
@@ -106,16 +146,43 @@ func LoadConfig(path string) (Config, error) {
 	return config, nil
 }
 
+func getServiceStateKey(nodeID, serviceName string) string {
+	return fmt.Sprintf("%s-%s", nodeID, serviceName)
+}
+
 func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusRequest) (*proto.PollerStatusResponse, error) {
 	s.mu.Lock()
-	s.lastSeen[req.PollerId] = time.Unix(req.Timestamp, 0)
-	s.mu.Unlock()
+	defer s.mu.Unlock()
+
+	now := time.Unix(req.Timestamp, 0)
+	pollerID := req.PollerId
+
+	// Check if this is a recovery
+	if state, exists := s.nodeAlertStates[pollerID]; exists && state.isDown {
+		alert := alerts.WebhookAlert{
+			Level:   alerts.Info,
+			Title:   "Node Recovery",
+			Message: fmt.Sprintf("Node %s is back online after %v", pollerID, time.Since(state.timestamp).Round(time.Second)),
+			NodeID:  pollerID,
+			Details: map[string]any{
+				"hostname":     getHostname(),
+				"downtime":     time.Since(state.timestamp).String(),
+				"recovered_at": now.Format(time.RFC3339),
+			},
+		}
+		log.Printf("Sending recovery alert for node %s", pollerID)
+		s.sendAlert(alert)
+		delete(s.nodeAlertStates, pollerID)
+	}
+
+	// Update last seen time for the poller
+	s.lastSeen[pollerID] = now
 
 	// Create node status for API
 	status := &api.NodeStatus{
-		NodeID:     req.PollerId,
-		IsHealthy:  true, // We'll determine this based on services
-		LastUpdate: time.Unix(req.Timestamp, 0),
+		NodeID:     pollerID,
+		IsHealthy:  true,
+		LastUpdate: now,
 		Services:   make([]api.ServiceStatus, 0, len(req.Services)),
 	}
 
@@ -128,67 +195,68 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 			Type:      svc.Type,
 		}
 
-		// Determine service type and details
-		// In ReportStatus method in pkg/cloud/server.go:
+		// Handle service state and alerts
+		stateKey := getServiceStateKey(pollerID, svc.ServiceName)
+		state, exists := s.serviceAlertStates[stateKey]
 
-		if svc.ServiceName == "dusk" {
-			serviceStatus.Type = "blockchain"
-
-			// Try to parse the message as JSON first
-			var blockDetails interface{}
-			if err := json.Unmarshal([]byte(svc.Message), &blockDetails); err == nil {
-				// If it's valid JSON, use it directly
-				if jsonBytes, err := json.Marshal(blockDetails); err == nil {
-					serviceStatus.Details = jsonBytes
-				}
-			} else {
-				// Create a basic status if parsing failed
-				basicStatus := map[string]interface{}{
-					"status": svc.Message,
-				}
-				if jsonBytes, err := json.Marshal(basicStatus); err == nil {
-					serviceStatus.Details = jsonBytes
-				}
-			}
-
-			// Log the details for debugging
-			log.Printf("Processed Dusk service details: %+v", string(serviceStatus.Details))
-		}
-
-		// Send alerts for unavailable services
 		if !svc.Available {
+			status.IsHealthy = false
+			if !exists || !state.isDown {
+				// Service just went down
+				alert := alerts.WebhookAlert{
+					Level:   alerts.Warning,
+					Title:   fmt.Sprintf("Service Down: %s", svc.ServiceName),
+					Message: fmt.Sprintf("Service %s is unavailable on node %s", svc.ServiceName, pollerID),
+					NodeID:  pollerID,
+					Details: map[string]any{
+						"hostname": getHostname(),
+						"service":  svc.ServiceName,
+						"message":  svc.Message,
+						"type":     svc.Type,
+					},
+				}
+				log.Printf("Sending service down alert for %s on node %s", svc.ServiceName, pollerID)
+				s.sendAlert(alert)
+				s.serviceAlertStates[stateKey] = &alertState{isDown: true, timestamp: time.Now()}
+			}
+		} else if exists && state.isDown {
+			// Service recovered
 			alert := alerts.WebhookAlert{
-				Level:   alerts.Warning,
-				Title:   fmt.Sprintf("Service Down: %s", svc.ServiceName),
-				Message: fmt.Sprintf("Service %s is unavailable on node %s", svc.ServiceName, req.PollerId),
-				NodeID:  req.PollerId,
+				Level:   alerts.Info,
+				Title:   fmt.Sprintf("Service Recovery: %s", svc.ServiceName),
+				Message: fmt.Sprintf("Service %s is back online on node %s", svc.ServiceName, pollerID),
+				NodeID:  pollerID,
 				Details: map[string]any{
-					"service": svc.ServiceName,
-					"message": svc.Message,
-					"type":    svc.Type,
+					"hostname":     getHostname(),
+					"service":      svc.ServiceName,
+					"downtime":     time.Since(state.timestamp).String(),
+					"recovered_at": now.Format(time.RFC3339),
 				},
 			}
+			log.Printf("Sending service recovery alert for %s on node %s", svc.ServiceName, pollerID)
 			s.sendAlert(alert)
+			delete(s.serviceAlertStates, stateKey)
+		}
+
+		// Parse details if they exist in the message
+		if svc.Message != "" {
+			if err := json.Unmarshal([]byte(svc.Message), &serviceStatus.Details); err != nil {
+				// If message isn't JSON, store as basic details
+				basicDetails := map[string]interface{}{
+					"message": svc.Message,
+				}
+				if detailsJson, err := json.Marshal(basicDetails); err == nil {
+					serviceStatus.Details = detailsJson
+				}
+			}
 		}
 
 		status.Services = append(status.Services, serviceStatus)
-
-		// Update overall health status
-		if !svc.Available {
-			status.IsHealthy = false
-		}
 	}
 
-	// If we have an API server, update it
+	// Update API server with new status
 	if s.apiServer != nil {
-		s.apiServer.UpdateNodeStatus(req.PollerId, status)
-	}
-
-	// Log service issues
-	for _, status := range req.Services {
-		if !status.Available {
-			log.Printf("Alert: Service %s is down: %s", status.ServiceName, status.Message)
-		}
+		s.apiServer.UpdateNodeStatus(pollerID, status)
 	}
 
 	return &proto.PollerStatusResponse{Received: true}, nil
@@ -210,22 +278,35 @@ func (s *Server) MonitorPollers(ctx context.Context) {
 
 func (s *Server) checkPollers() {
 	now := time.Now()
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	log.Printf("Checking poller states. Current states: %+v", s.nodeAlertStates)
 
 	for pollerID, lastSeen := range s.lastSeen {
-		if duration := now.Sub(lastSeen); duration > s.alertThreshold {
-			alert := alerts.WebhookAlert{
-				Level:   alerts.Error,
-				Title:   "Node Offline",
-				Message: fmt.Sprintf("Node %s has not reported in %v", pollerID, duration.Round(time.Second)),
-				NodeID:  pollerID,
-				Details: map[string]any{
-					"last_seen": lastSeen,
-					"duration":  duration.String(),
-				},
+		duration := now.Sub(lastSeen)
+		log.Printf("Poller %s last seen %v ago (threshold: %v)", pollerID, duration, s.alertThreshold)
+
+		if duration > s.alertThreshold {
+			if state, exists := s.nodeAlertStates[pollerID]; !exists || !state.isDown {
+				log.Printf("Node %s transitioning to DOWN state", pollerID)
+				alert := alerts.WebhookAlert{
+					Level:   alerts.Error,
+					Title:   "Node Offline",
+					Message: fmt.Sprintf("Node %s has not reported in %v", pollerID, duration.Round(time.Second)),
+					NodeID:  pollerID,
+					Details: map[string]any{
+						"hostname":  getHostname(),
+						"last_seen": lastSeen.Format(time.RFC3339),
+						"duration":  duration.String(),
+					},
+				}
+				s.sendAlert(alert)
+				s.nodeAlertStates[pollerID] = &alertState{
+					isDown:    true,
+					timestamp: now,
+				}
 			}
-			s.sendAlert(alert)
 		}
 	}
 }

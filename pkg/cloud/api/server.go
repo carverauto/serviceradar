@@ -40,10 +40,18 @@ type SystemStatus struct {
 	LastUpdate   time.Time `json:"last_update"`
 }
 
+type NodeHistory struct {
+	NodeID    string
+	Timestamp time.Time
+	IsHealthy bool
+	Services  []ServiceStatus
+}
+
 type APIServer struct {
 	mu            sync.RWMutex
 	nodes         map[string]*NodeStatus
-	statusHistory map[string][]NodeStatus
+	historyMu     sync.RWMutex
+	nodeHistories map[string][]NodeHistory
 	maxHistory    int
 	router        *mux.Router
 }
@@ -51,7 +59,7 @@ type APIServer struct {
 func NewAPIServer() *APIServer {
 	s := &APIServer{
 		nodes:         make(map[string]*NodeStatus),
-		statusHistory: make(map[string][]NodeStatus),
+		nodeHistories: make(map[string][]NodeHistory),
 		maxHistory:    1000,
 		router:        mux.NewRouter(),
 	}
@@ -87,6 +95,9 @@ func (s *APIServer) setupRoutes() {
 	// History endpoint
 	s.router.HandleFunc("/api/nodes/{id}/history", s.getNodeHistory).Methods("GET")
 
+	// Node history endpoint
+	s.router.HandleFunc("/api/nodes/{id}/history", s.getNodeHistory).Methods("GET")
+
 	// Service-specific endpoints
 	s.router.HandleFunc("/api/nodes/{id}/services", s.getNodeServices).Methods("GET")
 	s.router.HandleFunc("/api/nodes/{id}/services/{service}", s.getServiceDetails).Methods("GET")
@@ -109,10 +120,10 @@ type spaHandler struct {
 
 func (h spaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Get the absolute path to prevent directory traversal
-	path := path.Clean(r.URL.Path)
+	p := path.Clean(r.URL.Path)
 
 	// Try to serve the requested file
-	f, err := h.staticFS.Open(strings.TrimPrefix(path, "/"))
+	f, err := h.staticFS.Open(strings.TrimPrefix(p, "/"))
 	if err != nil {
 		// If file not found, serve index.html
 		index, err := h.staticFS.Open(h.indexPath)
@@ -126,22 +137,54 @@ func (h spaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer f.Close()
 
-	http.ServeContent(w, r, path, time.Time{}, f.(io.ReadSeeker))
+	http.ServeContent(w, r, p, time.Time{}, f.(io.ReadSeeker))
 }
 
+func (s *APIServer) UpdateNodeStatus(nodeID string, status *NodeStatus) {
+	s.mu.Lock()
+	s.nodes[nodeID] = status
+	s.mu.Unlock()
+
+	// Add to history
+	s.historyMu.Lock()
+	defer s.historyMu.Unlock()
+
+	history := s.nodeHistories[nodeID]
+	if history == nil {
+		history = make([]NodeHistory, 0)
+	}
+
+	// Add new entry
+	history = append(history, NodeHistory{
+		NodeID:    nodeID,
+		Timestamp: status.LastUpdate,
+		IsHealthy: status.IsHealthy,
+		Services:  status.Services,
+	})
+
+	// Trim if too long
+	if len(history) > s.maxHistory {
+		history = history[len(history)-s.maxHistory:]
+	}
+
+	s.nodeHistories[nodeID] = history
+}
+
+// Add new endpoint for history
 func (s *APIServer) getNodeHistory(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	nodeID := vars["id"]
 
-	s.mu.RLock()
-	history, exists := s.statusHistory[nodeID]
-	s.mu.RUnlock()
+	s.historyMu.RLock()
+	history, exists := s.nodeHistories[nodeID]
+	s.historyMu.RUnlock()
 
 	if !exists {
 		http.Error(w, "Node not found", http.StatusNotFound)
 		return
 	}
 
+	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(history)
 }
 
@@ -150,9 +193,6 @@ func (s *APIServer) getNodes(w http.ResponseWriter, r *http.Request) {
 	nodes := make([]*NodeStatus, 0, len(s.nodes))
 	for _, node := range s.nodes {
 		log.Printf("Node %s services:", node.NodeID)
-		for _, service := range node.Services {
-			log.Printf("  - Service: %+v", service)
-		}
 		nodes = append(nodes, node)
 	}
 	s.mu.RUnlock()
@@ -244,20 +284,6 @@ func (s *APIServer) getServiceDetails(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Error(w, "Service not found", http.StatusNotFound)
-}
-
-func (s *APIServer) UpdateNodeStatus(nodeID string, status *NodeStatus) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	log.Printf("Updating status for node %s: %+v", nodeID, status)
-	s.nodes[nodeID] = status
-
-	// Update history
-	s.statusHistory[nodeID] = append(s.statusHistory[nodeID], *status)
-	if len(s.statusHistory[nodeID]) > s.maxHistory {
-		s.statusHistory[nodeID] = s.statusHistory[nodeID][1:]
-	}
 }
 
 func (s *APIServer) getSystemStatus(w http.ResponseWriter, r *http.Request) {

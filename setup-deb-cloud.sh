@@ -43,6 +43,12 @@ Depends: systemd
 Maintainer: Your Name <your.email@example.com>
 Description: HomeMon cloud service with web interface
  Provides centralized monitoring and web dashboard for HomeMon.
+Config: /etc/homemon/cloud.json
+EOF
+
+# Create conffiles to mark configuration files
+cat > "${PKG_ROOT}/DEBIAN/conffiles" << EOF
+/etc/homemon/cloud.json
 EOF
 
 # Create systemd service file
@@ -62,32 +68,16 @@ RestartSec=10
 WantedBy=multi-user.target
 EOF
 
-# Create default config
-cat > "${PKG_ROOT}/etc/homemon/cloud.json" << EOF
+# Create default config only if we're creating a fresh package
+if [ ! -f "/etc/homemon/cloud.json" ]; then
+    # Create default config file
+    cat > "${PKG_ROOT}/etc/homemon/cloud.json" << EOF
 {
     "listen_addr": ":8090",
-    "alert_threshold": "5m",
-    "webhooks": [
-        {
-            "enabled": false,
-            "url": "https://your-webhook-url",
-            "cooldown": "15m",
-            "headers": [
-                {
-                    "key": "Authorization",
-                    "value": "Bearer your-token"
-                }
-            ]
-        },
-        {
-            "enabled": false,
-            "url": "https://discord.com/api/webhooks/your/webhook",
-            "cooldown": "15m",
-            "template": "{ \"embeds\": [{ \"title\": \"{{.alert.Title}}\", \"description\": \"{{.alert.Message}}\", \"color\": {{if eq .alert.Level \"error\"}}15158332{{else if eq .alert.Level \"warning\"}}16776960{{else}}3447003{{end}}, \"timestamp\": \"{{.alert.Timestamp}}\", \"fields\": [{ \"name\": \"Hostname\", \"value\": \"{{index .alert.Details \"hostname\"}}\", \"inline\": true }, { \"name\": \"PID\", \"value\": \"{{index .alert.Details \"pid\"}}\", \"inline\": true }, { \"name\": \"Version\", \"value\": \"{{index .alert.Details \"version\"}}\", \"inline\": true }] }] }"
-        }
-    ]
+    "alert_threshold": "5m"
 }
 EOF
+fi
 
 # Create postinst script
 cat > "${PKG_ROOT}/DEBIAN/postinst" << EOF

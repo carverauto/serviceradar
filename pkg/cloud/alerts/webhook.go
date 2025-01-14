@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -93,6 +94,9 @@ func (w *WebhookAlerter) Alert(alert WebhookAlert) error {
 
 	w.mu.Lock()
 	defer w.mu.Unlock()
+
+	log.Printf("Processing alert: Level=%s, Title=%s, NodeID=%s",
+		alert.Level, alert.Title, alert.NodeID)
 
 	// Check cooldown
 	if lastAlert, ok := w.lastAlertTimes[alert.NodeID]; ok {
