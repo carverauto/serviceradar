@@ -17,7 +17,7 @@ HomeMon is a distributed network monitoring system designed for home networks. I
 HomeMon consists of three main components:
 - **Agent**: Runs on each monitored host, checking local services
 - **Poller**: Coordinates monitoring activities and reports to the cloud service
-- **Cloud Service**: Handles alerting and monitors the health of pollers
+- **Cloud Service**: Handles alerting and monitors the health of pollers. Includes API and Web UI.
 
 ## Architecture
 
