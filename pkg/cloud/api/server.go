@@ -158,13 +158,6 @@ func (s *APIServer) getNodes(w http.ResponseWriter, r *http.Request) {
 	s.mu.RUnlock()
 
 	w.Header().Set("Content-Type", "application/json")
-	jsonData, err := json.Marshal(nodes)
-	if err != nil {
-		log.Printf("Error marshaling nodes: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
-	log.Printf("Sending nodes data: %s", string(jsonData))
 
 	if err := json.NewEncoder(w).Encode(nodes); err != nil {
 		log.Printf("Error encoding nodes response: %v", err)
