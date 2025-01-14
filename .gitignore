@@ -147,6 +147,7 @@ elements/
 ./agent
 ./cloud
 
+./web/dist/assets
 ./dist
 
 # debian packages

@@ -9,6 +9,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/metadata"
 )
 
 // ExternalChecker implements checker.Checker for external checker processes
@@ -55,17 +56,25 @@ func NewExternalChecker(name, address string) (*ExternalChecker, error) {
 	return checker, nil
 }
 
-// Check implements the checker.Checker interface
 func (e *ExternalChecker) Check(ctx context.Context) (bool, string) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
+	// Create a new context with metadata
+	ctx = metadata.NewOutgoingContext(ctx, metadata.New(nil))
 
-	resp, err := e.client.Check(ctx, &grpc_health_v1.HealthCheckRequest{})
+	var header metadata.MD
+	resp, err := e.client.Check(ctx, &grpc_health_v1.HealthCheckRequest{},
+		grpc.Header(&header)) // Add this to capture headers
 	if err != nil {
 		return false, fmt.Sprintf("Failed to check %s: %v", e.name, err)
 	}
 
 	healthy := resp.Status == grpc_health_v1.HealthCheckResponse_SERVING
+
+	// Extract block details from headers
+	if details := header.Get("block-details"); len(details) > 0 {
+		log.Printf("Received block details: %s", details[0])
+		return healthy, details[0]
+	}
+
 	if !healthy {
 		return false, fmt.Sprintf("%s is not healthy", e.name)
 	}

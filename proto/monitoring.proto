@@ -37,4 +37,5 @@ message ServiceStatus {
   string service_name = 1;
   bool available = 2;
   string message = 3;
+  string type = 4;
 }
