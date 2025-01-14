@@ -25,6 +25,13 @@ type alertState struct {
 	timestamp time.Time
 }
 
+type PersistedState struct {
+	LastSeen        map[string]time.Time   `json:"last_seen"`
+	NodeAlertStates map[string]*alertState `json:"node_alert_states"`
+	ServiceStates   map[string]*alertState `json:"service_states"`
+	LastUpdate      time.Time              `json:"last_update"`
+}
+
 type Server struct {
 	proto.UnimplementedPollerServiceServer
 	mu                 sync.RWMutex
@@ -35,9 +42,83 @@ type Server struct {
 	nodeAlertStates    map[string]*alertState
 	serviceAlertStates map[string]*alertState
 	shutdown           chan struct{}
+	stateFile          string
+}
+
+func (s *Server) saveState() error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	state := PersistedState{
+		LastSeen:        s.lastSeen,
+		NodeAlertStates: s.nodeAlertStates,
+		ServiceStates:   s.serviceAlertStates,
+		LastUpdate:      time.Now(),
+	}
+
+	data, err := json.Marshal(state)
+	if err != nil {
+		return fmt.Errorf("error marshaling state: %w", err)
+	}
+
+	if err := os.WriteFile(s.stateFile, data, 0644); err != nil {
+		return fmt.Errorf("error writing state file: %w", err)
+	}
+
+	return nil
+}
+
+func (s *Server) loadState() error {
+	data, err := os.ReadFile(s.stateFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			log.Printf("No state file found, starting fresh")
+			return nil
+		}
+		return fmt.Errorf("error reading state file: %w", err)
+	}
+
+	var state PersistedState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return fmt.Errorf("error unmarshaling state: %w", err)
+	}
+
+	s.mu.Lock()
+	s.lastSeen = state.LastSeen
+	s.nodeAlertStates = state.NodeAlertStates
+	s.serviceAlertStates = state.ServiceStates
+	s.mu.Unlock()
+
+	// Check for stale nodes during startup
+	for nodeID, lastSeen := range state.LastSeen {
+		if time.Since(lastSeen) > s.alertThreshold {
+			alert := alerts.WebhookAlert{
+				Level: alerts.Warning,
+				Title: "Node Still Offline",
+				Message: fmt.Sprintf("Node %s has not reported since %s (before restart)",
+					nodeID, lastSeen.Format(time.RFC3339)),
+				NodeID: nodeID,
+				Details: map[string]any{
+					"hostname":        getHostname(),
+					"last_seen":       lastSeen.Format(time.RFC3339),
+					"duration":        time.Since(lastSeen).String(),
+					"cloud_restarted": true,
+				},
+			}
+			s.sendAlert(alert)
+		}
+	}
+
+	log.Printf("Loaded state with %d nodes, %d node alerts, %d service alerts",
+		len(state.LastSeen), len(state.NodeAlertStates), len(state.ServiceStates))
+	return nil
 }
 
 func (s *Server) Shutdown() {
+	if err := s.saveState(); err != nil {
+		log.Printf("Error saving state during shutdown: %v", err)
+	}
+
 	if len(s.webhooks) > 0 {
 		alert := alerts.WebhookAlert{
 			Level:     alerts.Warning,
@@ -61,7 +142,40 @@ func (s *Server) SetAPIServer(api *api.APIServer) {
 	s.apiServer = api
 }
 
+// pkg/cloud/server.go
+
+func (s *Server) checkInitialStates() {
+	log.Printf("Checking initial states of all nodes")
+	s.mu.RLock()
+	for pollerID, lastSeen := range s.lastSeen {
+		duration := time.Since(lastSeen)
+		if duration > s.alertThreshold {
+			log.Printf("Node %s found offline during initial check (last seen: %v ago)", pollerID, duration)
+			alert := alerts.WebhookAlert{
+				Level:   alerts.Error,
+				Title:   "Node Offline",
+				Message: fmt.Sprintf("Node %s was found offline during startup (last seen: %v ago)", pollerID, duration.Round(time.Second)),
+				NodeID:  pollerID,
+				Details: map[string]any{
+					"hostname":  getHostname(),
+					"last_seen": lastSeen.Format(time.RFC3339),
+					"duration":  duration.String(),
+					"type":      "initial_check",
+				},
+			}
+			s.nodeAlertStates[pollerID] = &alertState{
+				isDown:    true,
+				timestamp: time.Now(),
+			}
+			s.sendAlert(alert)
+		}
+	}
+	s.mu.RUnlock()
+}
+
 func NewServer(config Config) (*Server, error) {
+	log.Printf("Initializing cloud server with config: %+v", config)
+
 	server := &Server{
 		lastSeen:           make(map[string]time.Time),
 		alertThreshold:     config.AlertThreshold,
@@ -69,18 +183,49 @@ func NewServer(config Config) (*Server, error) {
 		nodeAlertStates:    make(map[string]*alertState),
 		serviceAlertStates: make(map[string]*alertState),
 		shutdown:           make(chan struct{}),
+		stateFile:          "/var/lib/homemon/cloud-state.json", // TODO: add to config to make configurable
+	}
+
+	// Ensure directory exists
+	if err := os.MkdirAll("/var/lib/homemon", 0755); err != nil {
+		return nil, fmt.Errorf("error creating state directory: %w", err)
+	}
+
+	// Load existing state
+	if err := server.loadState(); err != nil {
+		log.Printf("Warning: Failed to load state: %v", err)
 	}
 
 	// Initialize webhook alerters
-	for _, whConfig := range config.Webhooks {
+	for i, whConfig := range config.Webhooks {
+		log.Printf("Processing webhook config %d: enabled=%v", i, whConfig.Enabled)
 		if whConfig.Enabled {
 			alerter := alerts.NewWebhookAlerter(whConfig)
 			server.webhooks = append(server.webhooks, alerter)
+			log.Printf("Added webhook alerter: %+v", whConfig.URL)
 		}
 	}
 
-	// Send startup notification after webhooks are initialized
+	// Start state saving goroutine
+	go func() {
+		ticker := time.NewTicker(1 * time.Minute)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-server.shutdown:
+				return
+			case <-ticker.C:
+				if err := server.saveState(); err != nil {
+					log.Printf("Error saving state: %v", err)
+				}
+			}
+		}
+	}()
+
+	// Send startup notification
 	if len(server.webhooks) > 0 {
+		log.Printf("Sending startup notification to %d webhooks", len(server.webhooks))
 		alert := alerts.WebhookAlert{
 			Level:     alerts.Info,
 			Title:     "Cloud Service Started",
@@ -88,13 +233,19 @@ func NewServer(config Config) (*Server, error) {
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			NodeID:    "cloud",
 			Details: map[string]any{
-				"version":  "1.0.0", // Consider making this configurable
+				"version":  "1.0.0",
 				"hostname": getHostname(),
 				"pid":      os.Getpid(),
 			},
 		}
 		server.sendAlert(alert)
 	}
+
+	// Check initial states after a brief delay to allow for node discovery
+	go func() {
+		time.Sleep(30 * time.Second) // Give nodes a chance to report in
+		server.checkInitialStates()
+	}()
 
 	return server, nil
 }

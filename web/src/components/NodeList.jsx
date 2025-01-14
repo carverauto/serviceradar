@@ -44,7 +44,9 @@ function NodeList() {
                       ))}
                     </ul>
                   </div>
-                  <NodeTimeline nodeId={node.node_id} />
+                  <div className="mt-4">
+                    <NodeTimeline nodeId={node.node_id} />
+                  </div>
                 </div>
               </div>
           ))}

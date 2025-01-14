@@ -87,37 +87,27 @@ func NewWebhookAlerter(config WebhookConfig) *WebhookAlerter {
 	}
 }
 
+// pkg/cloud/alerts/webhook.go
+
 func (w *WebhookAlerter) Alert(alert WebhookAlert) error {
 	if !w.config.Enabled {
+		log.Printf("Webhook alerter disabled, skipping alert: %s", alert.Title)
 		return nil
 	}
 
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	log.Printf("Processing alert: Level=%s, Title=%s, NodeID=%s",
-		alert.Level, alert.Title, alert.NodeID)
-
-	// Check cooldown
-	if lastAlert, ok := w.lastAlertTimes[alert.NodeID]; ok {
-		if time.Since(lastAlert) < w.config.Cooldown {
-			return nil
-		}
-	}
-
-	// Set timestamp if not provided
-	if alert.Timestamp == "" {
-		alert.Timestamp = time.Now().UTC().Format(time.RFC3339)
-	}
+	log.Printf("Preparing to send alert: %s", alert.Title)
 
 	var payload []byte
 	var err error
 
 	if w.config.Template != "" {
-		// Use custom template if provided
+		log.Printf("Using custom template for alert")
 		payload, err = w.applyTemplate(alert)
 	} else {
-		// Use default JSON format
+		log.Printf("Using default JSON format for alert")
 		payload, err = json.Marshal(alert)
 	}
 
@@ -125,6 +115,7 @@ func (w *WebhookAlerter) Alert(alert WebhookAlert) error {
 		return fmt.Errorf("error preparing webhook payload: %w", err)
 	}
 
+	log.Printf("Sending webhook request to: %s", w.config.URL)
 	req, err := http.NewRequest("POST", w.config.URL, bytes.NewBuffer(payload))
 	if err != nil {
 		return fmt.Errorf("error creating request: %w", err)
@@ -154,7 +145,7 @@ func (w *WebhookAlerter) Alert(alert WebhookAlert) error {
 		return fmt.Errorf("webhook returned status %d: %s", resp.StatusCode, string(body))
 	}
 
-	w.lastAlertTimes[alert.NodeID] = time.Now()
+	log.Printf("Successfully sent alert: %s", alert.Title)
 	return nil
 }
 

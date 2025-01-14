@@ -93,6 +93,10 @@ fi
 chown -R homemon:homemon /etc/homemon
 chmod 755 /usr/local/bin/homemon-cloud
 
+mkdir -p "${PKG_ROOT}/var/lib/homemon"
+chown -R homemon:homemon "${PKG_ROOT}/var/lib/homemon"
+chmod 755 "${PKG_ROOT}/var/lib/homemon"
+
 # Enable and start service
 systemctl daemon-reload
 systemctl enable homemon-cloud
