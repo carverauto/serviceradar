@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -28,19 +29,36 @@ type Config struct {
 	ListenAddr  string        `json:"listen_addr"`
 }
 
+type BlockData struct {
+	Height    uint64    `json:"height"`
+	Hash      string    `json:"hash"`
+	Timestamp time.Time `json:"timestamp"`
+	LastSeen  time.Time `json:"last_seen"`
+}
+
 type DuskChecker struct {
-	config     Config
-	ws         *websocket.Conn
-	sessionID  string
-	lastBlock  time.Time
-	mu         sync.RWMutex
-	done       chan struct{}
-	pingTicker *time.Ticker
+	config        Config
+	ws            *websocket.Conn
+	sessionID     string
+	lastBlock     time.Time
+	mu            sync.RWMutex
+	done          chan struct{}
+	pingTicker    *time.Ticker
+	lastBlockData BlockData
+	blockHistory  []BlockData // Keep last N blocks
 }
 
 type HealthServer struct {
 	grpc_health_v1.UnimplementedHealthServer
-	checker *DuskChecker
+	checker   *DuskChecker
+	startTime time.Time
+}
+
+func NewHealthServer(checker *DuskChecker) *HealthServer {
+	return &HealthServer{
+		checker:   checker,
+		startTime: time.Now(),
+	}
 }
 
 func (c *Config) UnmarshalJSON(data []byte) error {
@@ -72,6 +90,14 @@ func (s *HealthServer) Check(ctx context.Context, req *grpc_health_v1.HealthChec
 	s.checker.mu.RLock()
 	defer s.checker.mu.RUnlock()
 
+	// Give 30 seconds grace period during startup
+	if time.Since(s.startTime) < 30*time.Second {
+		log.Printf("Health check during startup grace period (%v elapsed)", time.Since(s.startTime))
+		return &grpc_health_v1.HealthCheckResponse{
+			Status: grpc_health_v1.HealthCheckResponse_SERVING,
+		}, nil
+	}
+
 	if s.checker.ws == nil {
 		return &grpc_health_v1.HealthCheckResponse{
 			Status: grpc_health_v1.HealthCheckResponse_NOT_SERVING,
@@ -94,7 +120,10 @@ func (s *HealthServer) Check(ctx context.Context, req *grpc_health_v1.HealthChec
 		}, nil
 	}
 
-	log.Printf("Health check passed: Last block received %v ago", timeSinceLastBlock)
+	log.Printf("Health check passed: Last block #%d received %v ago",
+		s.checker.lastBlockData.Height,
+		timeSinceLastBlock)
+
 	return &grpc_health_v1.HealthCheckResponse{
 		Status: grpc_health_v1.HealthCheckResponse_SERVING,
 	}, nil
@@ -132,7 +161,7 @@ func main() {
 	}
 
 	grpcServer := grpc.NewServer()
-	healthServer := &HealthServer{checker: checker}
+	healthServer := NewHealthServer(checker)
 	grpc_health_v1.RegisterHealthServer(grpcServer, healthServer)
 	log.Printf("Registered health server")
 
@@ -220,39 +249,65 @@ func (d *DuskChecker) listenForEvents() {
 		default:
 			messageType, data, err := d.ws.ReadMessage()
 			if err != nil {
-				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-					log.Printf("Websocket error: %v", err)
-				}
+				log.Printf("Websocket error: %v", err)
 				return
 			}
 
-			log.Printf("Received websocket message - Type: %d, Length: %d bytes", messageType, len(data))
-
-			// For binary messages (which is what RUES uses according to docs)
 			if messageType == websocket.BinaryMessage {
-				log.Printf("Received binary message. First 100 bytes: %x", data[:min(len(data), 100)])
+				// Skip the first 4 bytes (length prefix)
+				if len(data) < 4 {
+					log.Printf("Received message too short: %d bytes", len(data))
+					continue
+				}
+				jsonData := data[4:] // Skip length prefix
 
-				// According to RUES docs, events are returned as raw binary data
-				// Update the last block time as this indicates we received a block event
+				// First try to find the boundary between the two JSON objects
+				var firstObj struct {
+					ContentLocation string `json:"Content-Location"`
+				}
+				decoder := json.NewDecoder(strings.NewReader(string(jsonData)))
+				if err := decoder.Decode(&firstObj); err != nil {
+					log.Printf("Error parsing content location: %v", err)
+					continue
+				}
+
+				// Now decode the block data
+				var blockData struct {
+					Header struct {
+						Height    uint64 `json:"height"`
+						Hash      string `json:"hash"`
+						Timestamp int64  `json:"timestamp"`
+					} `json:"header"`
+				}
+
+				if err := decoder.Decode(&blockData); err != nil {
+					log.Printf("Error parsing block data: %v", err)
+					continue
+				}
+
 				d.mu.Lock()
 				d.lastBlock = time.Now()
-				d.mu.Unlock()
-				log.Printf("Updated last block time to: %v", d.lastBlock)
-				continue
-			}
+				d.lastBlockData = BlockData{
+					Height:    blockData.Header.Height,
+					Hash:      blockData.Header.Hash,
+					Timestamp: time.Unix(blockData.Header.Timestamp, 0),
+					LastSeen:  time.Now(),
+				}
 
-			// For text messages (debugging)
-			log.Printf("Raw message: %s", string(data))
+				// Keep last 100 blocks
+				if len(d.blockHistory) >= 100 {
+					d.blockHistory = d.blockHistory[1:]
+				}
+				d.blockHistory = append(d.blockHistory, d.lastBlockData)
+				d.mu.Unlock()
+
+				log.Printf("Block processed: Height=%d Hash=%s Timestamp=%v",
+					blockData.Header.Height,
+					blockData.Header.Hash,
+					time.Unix(blockData.Header.Timestamp, 0))
+			}
 		}
 	}
-}
-
-// Helper function for min
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 func loadConfig(path string) (Config, error) {
@@ -268,4 +323,12 @@ func loadConfig(path string) (Config, error) {
 
 	log.Printf("Loaded config with timeout: %v", config.Timeout)
 	return config, nil
+}
+
+func (d *DuskChecker) GetStatusData() json.RawMessage {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	data, _ := json.Marshal(d.lastBlock)
+	return data
 }

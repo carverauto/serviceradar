@@ -23,9 +23,7 @@ func NewServer() *Server {
 func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
 	log.Printf("Checking status of service: %s", req.ServiceName)
 
-	// Create appropriate checker based on request
 	var check checker.Checker
-
 	switch req.ServiceName {
 	case "process":
 		check = &ProcessChecker{ProcessName: req.Details}
@@ -37,11 +35,10 @@ func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*prot
 		}
 
 	case "dusk":
-		// Use cached dusk checker or create a new one
 		s.mu.Lock()
 		if s.duskChecker == nil {
 			log.Printf("Creating new dusk checker")
-			checker, err := NewExternalChecker("dusk", "127.0.0.1:50052")
+			c, err := NewExternalChecker("dusk", "127.0.0.1:50052")
 			if err != nil {
 				s.mu.Unlock()
 				return &proto.StatusResponse{
@@ -49,7 +46,7 @@ func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*prot
 					Message:   fmt.Sprintf("Failed to create dusk checker: %v", err),
 				}, nil
 			}
-			s.duskChecker = checker
+			s.duskChecker = c
 		}
 		check = s.duskChecker
 		s.mu.Unlock()
@@ -62,6 +59,14 @@ func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*prot
 	}
 
 	available, msg := check.Check(ctx)
+
+	// If the checker provides additional status data, include it
+	if provider, ok := check.(checker.StatusProvider); ok {
+		if statusData := provider.GetStatusData(); statusData != nil {
+			msg = string(statusData)
+		}
+	}
+
 	return &proto.StatusResponse{
 		Available: available,
 		Message:   msg,

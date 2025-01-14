@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mfreeman451/homemon/pkg/cloud/api"
 	"github.com/mfreeman451/homemon/proto"
 )
 
@@ -17,6 +18,13 @@ type Server struct {
 	lastSeen       map[string]time.Time
 	alertThreshold time.Duration
 	alertFunc      AlertFunc
+	apiServer      *api.APIServer
+}
+
+func (s *Server) SetAPIServer(api *api.APIServer) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.apiServer = api
 }
 
 func NewServer(alertThreshold time.Duration, alertFunc AlertFunc) *Server {

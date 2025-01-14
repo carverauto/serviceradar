@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/mfreeman451/homemon/pkg/cloud"
+	"github.com/mfreeman451/homemon/pkg/cloud/api"
 	"github.com/mfreeman451/homemon/proto"
 	"google.golang.org/grpc"
 )
@@ -40,6 +41,17 @@ func main() {
 		cancel()
 		server.GracefulStop()
 	}()
+
+	// Create and start API server
+	apiServer := api.NewAPIServer()
+	go func() {
+		if err := apiServer.Start(":8090"); err != nil {
+			log.Printf("API server error: %v", err)
+		}
+	}()
+
+	// Modify cloud server to update API status
+	cloudServer.SetAPIServer(apiServer)
 
 	go cloudServer.MonitorPollers(ctx)
 
