@@ -4,9 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"log"
-	"regexp"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -60,34 +57,34 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 			Name:      svc.ServiceName,
 			Available: svc.Available,
 			Message:   svc.Message,
+			Type:      svc.Type,
 		}
 
 		// Determine service type and details
+		// In ReportStatus method in pkg/cloud/server.go:
+
 		if svc.ServiceName == "dusk" {
 			serviceStatus.Type = "blockchain"
-			// If the message contains block information, parse it
-			if strings.Contains(svc.Message, "Block height=") {
-				details := make(map[string]interface{})
-				// Extract height and other info from message using regex or string parsing
-				// Example message: "Block height=123 hash=abc time=2025-01-14T00:00:00Z"
-				heightMatch := regexp.MustCompile(`height=(\d+)`).FindStringSubmatch(svc.Message)
-				if len(heightMatch) > 1 {
-					if height, err := strconv.ParseUint(heightMatch[1], 10, 64); err == nil {
-						details["Height"] = height
-					}
+
+			// Try to parse the message as JSON first
+			var blockDetails interface{}
+			if err := json.Unmarshal([]byte(svc.Message), &blockDetails); err == nil {
+				// If it's valid JSON, use it directly
+				if jsonBytes, err := json.Marshal(blockDetails); err == nil {
+					serviceStatus.Details = jsonBytes
 				}
-				hashMatch := regexp.MustCompile(`hash=(\w+)`).FindStringSubmatch(svc.Message)
-				if len(hashMatch) > 1 {
-					details["Hash"] = hashMatch[1]
+			} else {
+				// Create a basic status if parsing failed
+				basicStatus := map[string]interface{}{
+					"status": svc.Message,
 				}
-				if detailsJson, err := json.Marshal(details); err == nil {
-					serviceStatus.Details = detailsJson
+				if jsonBytes, err := json.Marshal(basicStatus); err == nil {
+					serviceStatus.Details = jsonBytes
 				}
 			}
-		} else if svc.ServiceName == "process" {
-			serviceStatus.Type = "process"
-		} else if svc.ServiceName == "port" {
-			serviceStatus.Type = "port"
+
+			// Log the details for debugging
+			log.Printf("Processed Dusk service details: %+v", string(serviceStatus.Details))
 		}
 
 		status.Services = append(status.Services, serviceStatus)

@@ -1,92 +1,48 @@
-// src/components/DuskDashboard.jsx
 import React, { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
-function DuskDashboard() {
+const DuskDashboard = () => {
   const [nodeStatus, setNodeStatus] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [nodeId, setNodeId] = useState(null);
   const [error, setError] = useState(null);
+  const [blockHistory, setBlockHistory] = useState([]);
 
-  // Watch for nodeStatus changes (Debug logging)
   useEffect(() => {
-    console.log('Node status updated:', nodeStatus);
-    if (nodeStatus?.Services) {
-      console.log('Dusk service:', nodeStatus.Services.find(s => s.Name === 'dusk'));
-    }
-  }, [nodeStatus]);
-
-  // Update the node finding logic in the useEffect
-  useEffect(() => {
-    const findDuskNode = async () => {
-      console.log('Fetching nodes list...');
+    const fetchData = async () => {
       try {
-        const response = await fetch('/api/nodes');
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const data = await response.json();
-        console.log('Available nodes:', data);
+        // Fetch nodes list
+        const nodesResponse = await fetch('/api/nodes');
+        if (!nodesResponse.ok) throw new Error('Failed to fetch nodes');
+        const nodes = await nodesResponse.json();
 
-        // Detailed logging of the first node's services
-        if (data && data[0]) {
-          console.log('First node services:', data[0].services);
-          data[0].services?.forEach((service, index) => {
-            console.log(`Service ${index}:`, service);
-          });
-        }
+        console.log('Fetched nodes:', nodes);
 
-        // Look for a node with Dusk service
-        const duskNode = data.find(node => {
-          console.log('Checking node services:', node.services);
-          const hasDusk = node.services?.some(service => {
-            console.log('Checking service:', service);
-            return service.name === 'dusk' || service.Name === 'dusk';
-          });
-          console.log('Has Dusk service:', hasDusk);
-          return hasDusk;
-        });
+        // Find the Dusk node
+        const duskNode = nodes.find(node =>
+            node.services?.some(service => service.name === 'dusk')
+        );
+
+        if (!duskNode) {
+          throw new Error('No Dusk node found');
+        }
 
         console.log('Found Dusk node:', duskNode);
 
-        if (duskNode) {
-          setNodeId(duskNode.node_id);
-          console.log('Set node ID to:', duskNode.node_id);
-        } else {
-          console.log('No Dusk node found in data:', data);
-          setError('No Dusk node found in the nodes list');
+        // Get the Dusk service
+        const duskService = duskNode.services.find(s => s.name === 'dusk');
+        console.log('Dusk service:', duskService);
+
+        setNodeStatus(duskService);
+
+        // Try to parse block history from details
+        if (duskService?.details?.history) {
+          setBlockHistory(duskService.details.history);
         }
-      } catch (error) {
-        console.error('Error fetching nodes:', error);
-        setError(error.message);
-      } finally {
+
         setLoading(false);
-      }
-    };
-
-    findDuskNode();
-    const interval = setInterval(findDuskNode, 10000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // Then fetch specific node data
-  useEffect(() => {
-    if (!nodeId) return;
-
-    const fetchData = async () => {
-      console.log(`Fetching data for node: ${nodeId}`);
-      try {
-        const response = await fetch(`/api/nodes/${nodeId}`);
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const data = await response.json();
-        console.log('Received node data:', data);
-        setNodeStatus(data);
-      } catch (error) {
-        console.error('Error fetching node data:', error);
-        setError(error.message);
-      } finally {
+      } catch (err) {
+        console.error('Error fetching data:', err);
+        setError(err.message);
         setLoading(false);
       }
     };
@@ -94,89 +50,86 @@ function DuskDashboard() {
     fetchData();
     const interval = setInterval(fetchData, 10000);
     return () => clearInterval(interval);
-  }, [nodeId]);
+  }, []);
 
   if (loading) {
     return (
-        <div className="flex flex-col items-center justify-center h-96">
-          <p className="text-lg mb-4">Loading...</p>
-          <p className="text-sm text-gray-500">Node ID: {nodeId || 'None'}</p>
+        <div className="flex justify-center items-center h-64">
+          <div className="text-lg">Loading...</div>
         </div>
     );
   }
 
   if (error) {
     return (
-        <div className="flex flex-col items-center justify-center h-96">
-          <p className="text-lg text-red-500 mb-4">Error: {error}</p>
-          <p className="text-sm text-gray-500">Node ID: {nodeId || 'None'}</p>
+        <div className="flex justify-center items-center h-64">
+          <div className="text-red-500 text-lg">{error}</div>
         </div>
     );
   }
 
-  const duskService = nodeStatus?.services?.find(s => s.name === 'dusk');
-  const blockData = duskService?.details ?
-      (typeof duskService.details === 'string' ?
-          JSON.parse(duskService.details) :
-          duskService.details) : null;
+  const details = nodeStatus?.details || {};
+  console.log('Node details:', details);
 
   return (
-      <div className="space-y-4">
-        {/* Status Overview */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="space-y-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="font-bold">Status</h3>
-            <p className="text-2xl">{duskService?.Available ? 'Healthy' : 'Unhealthy'}</p>
+            <h3 className="text-lg font-semibold mb-2">Node Status</h3>
+            <div className={`text-lg ${nodeStatus?.available ? 'text-green-600' : 'text-red-600'}`}>
+              {nodeStatus?.available ? 'Online' : 'Offline'}
+            </div>
           </div>
+
           <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="font-bold">Block Height</h3>
-            <p className="text-2xl">{blockData?.Height || 'N/A'}</p>
+            <h3 className="text-lg font-semibold mb-2">Current Height</h3>
+            <div className="text-lg">{details.height || 'N/A'}</div>
           </div>
+
           <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="font-bold">Last Update</h3>
-            <p className="text-2xl">
-              {nodeStatus?.LastUpdate ?
-                  new Date(nodeStatus.LastUpdate).toLocaleTimeString() :
-                  'N/A'}
-            </p>
-          </div>
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="font-bold">Uptime</h3>
-            <p className="text-2xl">{nodeStatus?.UpTime || 'N/A'}</p>
+            <h3 className="text-lg font-semibold mb-2">Latest Hash</h3>
+            <div className="text-sm font-mono break-all">{details.hash || 'N/A'}</div>
           </div>
         </div>
 
-        {/* Block Height Chart */}
+        {blockHistory.length > 0 && (
+            <div className="bg-white rounded-lg shadow p-6">
+              <h3 className="text-lg font-semibold mb-4">Block Height History</h3>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={blockHistory}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis
+                        dataKey="timestamp"
+                        tickFormatter={(ts) => new Date(ts).toLocaleTimeString()}
+                    />
+                    <YAxis />
+                    <Tooltip
+                        labelFormatter={(ts) => new Date(ts).toLocaleString()}
+                        formatter={(value, name) => [value, name === 'height' ? 'Block Height' : name]}
+                    />
+                    <Legend />
+                    <Line
+                        type="monotone"
+                        dataKey="height"
+                        stroke="#8884d8"
+                        dot={false}
+                        name="Block Height"
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+        )}
+
         <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="font-bold mb-4">Block Height History</h3>
-          <div className="h-80">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart
-                  data={blockData?.blockHistory || []}
-                  margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis
-                    dataKey="timestamp"
-                    tickFormatter={(time) => new Date(time).toLocaleTimeString()}
-                />
-                <YAxis />
-                <Tooltip
-                    labelFormatter={(label) => new Date(label).toLocaleString()}
-                />
-                <Legend />
-                <Line
-                    type="monotone"
-                    dataKey="height"
-                    stroke="#8884d8"
-                    dot={false}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
+          <h3 className="text-lg font-semibold mb-2">Raw Details</h3>
+          <pre className="bg-gray-100 p-4 rounded overflow-auto">
+          {JSON.stringify(details, null, 2)}
+        </pre>
         </div>
       </div>
   );
-}
+};
 
 export default DuskDashboard;

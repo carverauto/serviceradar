@@ -21,6 +21,7 @@ import (
 	"github.com/gorilla/websocket"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/metadata"
 )
 
 type Config struct {
@@ -90,18 +91,30 @@ func (s *HealthServer) Check(ctx context.Context, req *grpc_health_v1.HealthChec
 	s.checker.mu.RLock()
 	defer s.checker.mu.RUnlock()
 
-	// Give 30 seconds grace period during startup
-	if time.Since(s.startTime) < 30*time.Second {
-		log.Printf("Health check during startup grace period (%v elapsed)", time.Since(s.startTime))
-		return &grpc_health_v1.HealthCheckResponse{
-			Status: grpc_health_v1.HealthCheckResponse_SERVING,
-		}, nil
-	}
-
 	if s.checker.ws == nil {
 		return &grpc_health_v1.HealthCheckResponse{
 			Status: grpc_health_v1.HealthCheckResponse_NOT_SERVING,
 		}, fmt.Errorf("no websocket connection established")
+	}
+
+	// Create block details structure
+	blockData := map[string]interface{}{
+		"height":    s.checker.lastBlockData.Height,
+		"hash":      s.checker.lastBlockData.Hash,
+		"timestamp": s.checker.lastBlockData.Timestamp,
+		"last_seen": s.checker.lastBlockData.LastSeen,
+		"history":   s.checker.blockHistory,
+	}
+
+	// Convert to JSON
+	blockDetailsJson, err := json.Marshal(blockData)
+	if err != nil {
+		log.Printf("Error marshaling block details: %v", err)
+	} else {
+		// Create new outgoing metadata
+		md := metadata.Pairs("block-details", string(blockDetailsJson))
+		// Send metadata back as header
+		grpc.SetHeader(ctx, md)
 	}
 
 	if s.checker.lastBlock.IsZero() {
@@ -119,10 +132,6 @@ func (s *HealthServer) Check(ctx context.Context, req *grpc_health_v1.HealthChec
 			Status: grpc_health_v1.HealthCheckResponse_NOT_SERVING,
 		}, nil
 	}
-
-	log.Printf("Health check passed: Last block #%d received %v ago",
-		s.checker.lastBlockData.Height,
-		timeSinceLastBlock)
 
 	return &grpc_health_v1.HealthCheckResponse{
 		Status: grpc_health_v1.HealthCheckResponse_SERVING,
