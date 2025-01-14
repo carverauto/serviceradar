@@ -43,7 +43,7 @@ func main() {
 
 	go cloudServer.MonitorPollers(ctx)
 
-	log.Printf("Cloud server listening on :50052")
+	log.Printf("☁️Cloud server listening on :50052")
 	if err := server.Serve(lis); err != nil {
 		log.Fatalf("failed to serve: %v", err)
 	}

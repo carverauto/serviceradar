@@ -142,3 +142,13 @@ pnpm-lock.yaml
 elements/
 .bin/
 
+# binaries
+./poller
+./agent
+./cloud
+
+./dist
+
+# debian packages
+*.deb
+./homemon-dusk_*

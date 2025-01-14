@@ -1,3 +1,4 @@
+// proto/monitoring.proto
 syntax = "proto3";
 package monitoring;
 
@@ -12,7 +13,9 @@ service PollerService {
 }
 
 message StatusRequest {
-  string service_name = 1;
+  string service_name = 1;  // Type of service to check (process, port, dusk)
+  string details = 2;       // Additional details (e.g., process name)
+  int32 port = 3;          // Port number for port checks
 }
 
 message StatusResponse {

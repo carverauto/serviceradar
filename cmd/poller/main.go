@@ -3,24 +3,38 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"flag"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/mfreeman451/homemon/pkg/poller"
 )
 
+func loadConfig(path string) (poller.Config, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return poller.Config{}, err
+	}
+
+	var config poller.Config
+	if err := json.Unmarshal(data, &config); err != nil {
+		return poller.Config{}, err
+	}
+
+	return config, nil
+}
+
 func main() {
-	config := poller.Config{
-		Agents: map[string]string{
-			"local-agent": "localhost:50051",
-		},
-		CloudAddress: "cloud-service:50052",
-		PollInterval: 30 * time.Second,
-		PollerID:     "home-poller-1",
+	configPath := flag.String("config", "/etc/homemon/poller.json", "Path to config file")
+	flag.Parse()
+
+	config, err := loadConfig(*configPath)
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
 	}
 
 	p, err := poller.New(config)

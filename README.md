@@ -19,7 +19,7 @@ graph TB
         P --> HTTP[HTTP Checks]
         
         subgraph "Agent 1 Checks"
-            A1 --> Nginx[Nginx Status]
+            A1 --> Rusk[Rusk Status]
             A1 --> SSH[SSH Port]
         end
         
@@ -79,6 +79,13 @@ graph TB
 - gRPC tools
 - Access to systemd (for process checking)
 
+**Note**: DUSK node monitoring -- You must configure the ufw firewall on the Ubuntu 
+to allow monitoring traffic on port 50051. To do this, run the following command:
+
+```shell
+sudo ufw allow 50051/tcp
+```
+
 ### Installation
 
 1. Clone the repository:
@@ -99,7 +106,7 @@ go build ./cmd/cloud
 #### Agent Configuration
 ```go
 checkers := map[string]checker.Checker{
-    "nginx": &agent.ProcessChecker{ProcessName: "nginx"},
+    "rusk": &agent.ProcessChecker{ProcessName: "rusk"},
     "ssh":   &agent.PortChecker{Host: "localhost", Port: 22},
 }
 ```
