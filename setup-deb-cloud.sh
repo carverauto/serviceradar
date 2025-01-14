@@ -66,7 +66,26 @@ EOF
 cat > "${PKG_ROOT}/etc/homemon/cloud.json" << EOF
 {
     "listen_addr": ":8090",
-    "alert_threshold": "5m"
+    "alert_threshold": "5m",
+    "webhooks": [
+        {
+            "enabled": true,
+            "url": "https://your-webhook-url",
+            "cooldown": "15m",
+            "headers": [
+                {
+                    "key": "Authorization",
+                    "value": "Bearer your-token"
+                }
+            ]
+        },
+        {
+            "enabled": false,
+            "url": "https://discord.com/api/webhooks/your/webhook",
+            "cooldown": "15m",
+            "template": "... change this to your message template ..."
+        }
+    ]
 }
 EOF
 

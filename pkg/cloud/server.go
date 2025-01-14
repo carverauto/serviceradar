@@ -3,23 +3,31 @@ package cloud
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
+	"os"
 	"sync"
 	"time"
 
+	"github.com/mfreeman451/homemon/pkg/cloud/alerts"
 	"github.com/mfreeman451/homemon/pkg/cloud/api"
 	"github.com/mfreeman451/homemon/proto"
 )
 
-type AlertFunc func(pollerID string, duration time.Duration)
+type Config struct {
+	ListenAddr     string                 `json:"listen_addr"`
+	AlertThreshold time.Duration          `json:"alert_threshold"`
+	Webhooks       []alerts.WebhookConfig `json:"webhooks,omitempty"`
+}
 
 type Server struct {
 	proto.UnimplementedPollerServiceServer
 	mu             sync.RWMutex
 	lastSeen       map[string]time.Time
 	alertThreshold time.Duration
-	alertFunc      AlertFunc
-	apiServer      *api.APIServer
+	// alertFunc      AlertFunc
+	webhooks  []*alerts.WebhookAlerter
+	apiServer *api.APIServer
 }
 
 func (s *Server) SetAPIServer(api *api.APIServer) {
@@ -28,15 +36,70 @@ func (s *Server) SetAPIServer(api *api.APIServer) {
 	s.apiServer = api
 }
 
-func NewServer(alertThreshold time.Duration, alertFunc AlertFunc) *Server {
-	return &Server{
+func NewServer(config *Config) (*Server, error) {
+	server := &Server{
 		lastSeen:       make(map[string]time.Time),
-		alertThreshold: alertThreshold,
-		alertFunc:      alertFunc,
+		alertThreshold: config.AlertThreshold,
+		webhooks:       make([]*alerts.WebhookAlerter, 0),
+	}
+
+	// Initialize webhook alerters
+	for _, whConfig := range config.Webhooks {
+		if whConfig.Enabled {
+			alerter := alerts.NewWebhookAlerter(whConfig)
+			server.webhooks = append(server.webhooks, alerter)
+		}
+	}
+
+	return server, nil
+}
+
+func (s *Server) sendAlert(alert alerts.WebhookAlert) {
+	for _, webhook := range s.webhooks {
+		if err := webhook.Alert(alert); err != nil {
+			log.Printf("Error sending webhook alert: %v", err)
+		}
 	}
 }
 
-// pkg/cloud/server.go
+func (c *Config) UnmarshalJSON(data []byte) error {
+	type Alias Config
+	aux := &struct {
+		AlertThreshold string `json:"alert_threshold"`
+		*Alias
+	}{
+		Alias: (*Alias)(c),
+	}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	// Parse the alert threshold
+	if aux.AlertThreshold != "" {
+		duration, err := time.ParseDuration(aux.AlertThreshold)
+		if err != nil {
+			return fmt.Errorf("invalid alert threshold format: %w", err)
+		}
+		c.AlertThreshold = duration
+	}
+
+	return nil
+}
+
+func LoadConfig(path string) (Config, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return Config{}, fmt.Errorf("failed to read config: %w", err)
+	}
+
+	var config Config
+	if err := json.Unmarshal(data, &config); err != nil {
+		return Config{}, fmt.Errorf("failed to parse config: %w", err)
+	}
+
+	return config, nil
+}
 
 func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusRequest) (*proto.PollerStatusResponse, error) {
 	s.mu.Lock()
@@ -87,6 +150,22 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 			log.Printf("Processed Dusk service details: %+v", string(serviceStatus.Details))
 		}
 
+		// Send alerts for unavailable services
+		if !svc.Available {
+			alert := alerts.WebhookAlert{
+				Level:   alerts.Warning,
+				Title:   fmt.Sprintf("Service Down: %s", svc.ServiceName),
+				Message: fmt.Sprintf("Service %s is unavailable on node %s", svc.ServiceName, req.PollerId),
+				NodeID:  req.PollerId,
+				Details: map[string]any{
+					"service": svc.ServiceName,
+					"message": svc.Message,
+					"type":    svc.Type,
+				},
+			}
+			s.sendAlert(alert)
+		}
+
 		status.Services = append(status.Services, serviceStatus)
 
 		// Update overall health status
@@ -131,9 +210,17 @@ func (s *Server) checkPollers() {
 
 	for pollerID, lastSeen := range s.lastSeen {
 		if duration := now.Sub(lastSeen); duration > s.alertThreshold {
-			if s.alertFunc != nil {
-				s.alertFunc(pollerID, duration)
+			alert := alerts.WebhookAlert{
+				Level:   alerts.Error,
+				Title:   "Node Offline",
+				Message: fmt.Sprintf("Node %s has not reported in %v", pollerID, duration.Round(time.Second)),
+				NodeID:  pollerID,
+				Details: map[string]any{
+					"last_seen": lastSeen,
+					"duration":  duration.String(),
+				},
 			}
+			s.sendAlert(alert)
 		}
 	}
 }
