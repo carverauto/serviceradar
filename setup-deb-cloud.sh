@@ -43,6 +43,12 @@ Depends: systemd
 Maintainer: Your Name <your.email@example.com>
 Description: HomeMon cloud service with web interface
  Provides centralized monitoring and web dashboard for HomeMon.
+Config: /etc/homemon/cloud.json
+EOF
+
+# Create conffiles to mark configuration files
+cat > "${PKG_ROOT}/DEBIAN/conffiles" << EOF
+/etc/homemon/cloud.json
 EOF
 
 # Create systemd service file
@@ -62,13 +68,16 @@ RestartSec=10
 WantedBy=multi-user.target
 EOF
 
-# Create default config
-cat > "${PKG_ROOT}/etc/homemon/cloud.json" << EOF
+# Create default config only if we're creating a fresh package
+if [ ! -f "/etc/homemon/cloud.json" ]; then
+    # Create default config file
+    cat > "${PKG_ROOT}/etc/homemon/cloud.json" << EOF
 {
     "listen_addr": ":8090",
     "alert_threshold": "5m"
 }
 EOF
+fi
 
 # Create postinst script
 cat > "${PKG_ROOT}/DEBIAN/postinst" << EOF
@@ -83,6 +92,10 @@ fi
 # Set permissions
 chown -R homemon:homemon /etc/homemon
 chmod 755 /usr/local/bin/homemon-cloud
+
+mkdir -p "${PKG_ROOT}/var/lib/homemon"
+chown -R homemon:homemon "${PKG_ROOT}/var/lib/homemon"
+chmod 755 "${PKG_ROOT}/var/lib/homemon"
 
 # Enable and start service
 systemctl daemon-reload
