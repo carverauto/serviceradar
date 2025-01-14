@@ -203,6 +203,6 @@ This project is in early development. Features and APIs may change significantly
 - [ ] Add more checker types
 - [ ] Implement secure authentication
 - [ ] Add metrics collection
-- [ ] Create web dashboard
+- [x] Create web dashboard
 - [ ] Add support for custom alert integrations
 - [ ] Implement configuration file support
