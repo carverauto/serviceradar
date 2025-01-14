@@ -170,7 +170,7 @@ config := poller.Config{
             ]
         }
     },
-    "cloud_address": "172.233.208.210:50052",
+    "cloud_address": "cloud-host:50052",
     "poll_interval": "30s",
     "poller_id": "home-poller-1"
 }
