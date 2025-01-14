@@ -69,7 +69,7 @@ cat > "${PKG_ROOT}/etc/homemon/cloud.json" << EOF
     "alert_threshold": "5m",
     "webhooks": [
         {
-            "enabled": true,
+            "enabled": false,
             "url": "https://your-webhook-url",
             "cooldown": "15m",
             "headers": [
@@ -83,7 +83,7 @@ cat > "${PKG_ROOT}/etc/homemon/cloud.json" << EOF
             "enabled": false,
             "url": "https://discord.com/api/webhooks/your/webhook",
             "cooldown": "15m",
-            "template": "... change this to your message template ..."
+            "template": "{ \"embeds\": [{ \"title\": \"{{.alert.Title}}\", \"description\": \"{{.alert.Message}}\", \"color\": {{if eq .alert.Level \"error\"}}15158332{{else if eq .alert.Level \"warning\"}}16776960{{else}}3447003{{end}}, \"timestamp\": \"{{.alert.Timestamp}}\", \"fields\": [{ \"name\": \"Hostname\", \"value\": \"{{index .alert.Details \"hostname\"}}\", \"inline\": true }, { \"name\": \"PID\", \"value\": \"{{index .alert.Details \"pid\"}}\", \"inline\": true }, { \"name\": \"Version\", \"value\": \"{{index .alert.Details \"version\"}}\", \"inline\": true }] }] }"
         }
     ]
 }

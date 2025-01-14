@@ -51,6 +51,11 @@ func NewServer(config *Config) (*Server, error) {
 		}
 	}
 
+	// Send startup notification if we have any webhooks configured
+	if len(server.webhooks) > 0 {
+		server.sendStartupNotification()
+	}
+
 	return server, nil
 }
 
@@ -223,4 +228,29 @@ func (s *Server) checkPollers() {
 			s.sendAlert(alert)
 		}
 	}
+}
+
+func (s *Server) sendStartupNotification() {
+	alert := alerts.WebhookAlert{
+		Level:     alerts.Info,
+		Title:     "Cloud Service Started",
+		Message:   fmt.Sprintf("HomeMon cloud service initialized at %s", time.Now().Format(time.RFC3339)),
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		NodeID:    "cloud",
+		Details: map[string]any{
+			"version":  "1.0.0", // TODO: make this configurable
+			"hostname": getHostname(),
+			"pid":      os.Getpid(),
+		},
+	}
+
+	s.sendAlert(alert)
+}
+
+func getHostname() string {
+	hostname, err := os.Hostname()
+	if err != nil {
+		return "unknown"
+	}
+	return hostname
 }
