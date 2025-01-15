@@ -142,8 +142,10 @@ func (h spaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (s *APIServer) UpdateNodeStatus(nodeID string, status *NodeStatus) {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Update or add the node status
 	s.nodes[nodeID] = status
-	s.mu.Unlock()
 
 	// Add to history
 	s.historyMu.Lock()
@@ -168,6 +170,33 @@ func (s *APIServer) UpdateNodeStatus(nodeID string, status *NodeStatus) {
 	}
 
 	s.nodeHistories[nodeID] = history
+	log.Printf("Updated history for node %s: healthy=%v, history_entries=%d",
+		nodeID, status.IsHealthy, len(history))
+}
+
+func (s *APIServer) getSystemStatus(w http.ResponseWriter, r *http.Request) {
+	s.mu.RLock()
+	status := SystemStatus{
+		TotalNodes:   len(s.nodes),
+		HealthyNodes: 0,
+		LastUpdate:   time.Now(),
+	}
+
+	for _, node := range s.nodes {
+		if node.IsHealthy {
+			status.HealthyNodes++
+		}
+	}
+	s.mu.RUnlock()
+
+	log.Printf("System status: total=%d healthy=%d last_update=%s",
+		status.TotalNodes, status.HealthyNodes, status.LastUpdate.Format(time.RFC3339))
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(status); err != nil {
+		log.Printf("Error encoding system status: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	}
 }
 
 // Add new endpoint for history
@@ -284,25 +313,6 @@ func (s *APIServer) getServiceDetails(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Error(w, "Service not found", http.StatusNotFound)
-}
-
-func (s *APIServer) getSystemStatus(w http.ResponseWriter, r *http.Request) {
-	s.mu.RLock()
-	status := SystemStatus{
-		TotalNodes:   len(s.nodes),
-		HealthyNodes: 0,
-		LastUpdate:   time.Now(),
-	}
-
-	for _, node := range s.nodes {
-		if node.IsHealthy {
-			status.HealthyNodes++
-		}
-	}
-	s.mu.RUnlock()
-
-	log.Printf("System status: %+v", status)
-	json.NewEncoder(w).Encode(status)
 }
 
 func (s *APIServer) Start(addr string) error {
