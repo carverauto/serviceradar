@@ -6,6 +6,7 @@
 |     |  _  |        |  -__|        |  _  |     |
 |__|__|_____|__|__|__|_____|__|__|__|_____|__|__|
 ```
+[![Release HomeMon Packages](https://github.com/mfreeman451/homemon/actions/workflows/release.yml/badge.svg)](https://github.com/mfreeman451/homemon/actions/workflows/release.yml)
 
 HomeMon is a distributed network monitoring system designed for monitoring home infrastructure and services. It provides real-time monitoring of internal services, with cloud-based alerting capabilities to ensure you stay informed even during network or power outages.
 
