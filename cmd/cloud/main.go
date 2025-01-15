@@ -19,12 +19,14 @@ func main() {
 	configPath := flag.String("config", "/etc/homemon/cloud.json", "Path to config file")
 	flag.Parse()
 
+	ctx := context.Background()
+
 	config, err := cloud.LoadConfig(*configPath)
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	server, err := cloud.NewServer(config)
+	server, err := cloud.NewServer(ctx, config)
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)
 	}

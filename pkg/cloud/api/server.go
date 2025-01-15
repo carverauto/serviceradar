@@ -64,6 +64,7 @@ func NewAPIServer() *APIServer {
 		router:        mux.NewRouter(),
 	}
 	s.setupRoutes()
+
 	return s
 }
 
@@ -78,7 +79,7 @@ func (s *APIServer) setupRoutes() {
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 
-			if r.Method == "OPTIONS" {
+			if r.Method == http.MethodOptions {
 				w.WriteHeader(http.StatusOK)
 				return
 			}
@@ -131,11 +132,23 @@ func (h spaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		defer index.Close()
+
+		defer func(index http.File) {
+			err := index.Close()
+			if err != nil {
+				log.Printf("Error closing index file: %v", err)
+			}
+		}(index)
 		http.ServeContent(w, r, h.indexPath, time.Time{}, index.(io.ReadSeeker))
+
 		return
 	}
-	defer f.Close()
+	defer func(f http.File) {
+		err := f.Close()
+		if err != nil {
+			log.Printf("Error closing file: %v", err)
+		}
+	}(f)
 
 	http.ServeContent(w, r, p, time.Time{}, f.(io.ReadSeeker))
 }
@@ -174,7 +187,7 @@ func (s *APIServer) UpdateNodeStatus(nodeID string, status *NodeStatus) {
 		nodeID, status.IsHealthy, len(history))
 }
 
-func (s *APIServer) getSystemStatus(w http.ResponseWriter, r *http.Request) {
+func (s *APIServer) getSystemStatus(w http.ResponseWriter, _ *http.Request) {
 	s.mu.RLock()
 	status := SystemStatus{
 		TotalNodes:   len(s.nodes),
@@ -193,6 +206,7 @@ func (s *APIServer) getSystemStatus(w http.ResponseWriter, r *http.Request) {
 		status.TotalNodes, status.HealthyNodes, status.LastUpdate.Format(time.RFC3339))
 
 	w.Header().Set("Content-Type", "application/json")
+
 	if err := json.NewEncoder(w).Encode(status); err != nil {
 		log.Printf("Error encoding system status: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -214,12 +228,17 @@ func (s *APIServer) getNodeHistory(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(history)
+
+	if err := json.NewEncoder(w).Encode(history); err != nil {
+		log.Printf("Error encoding history response: %v", err)
+		return
+	}
 }
 
-func (s *APIServer) getNodes(w http.ResponseWriter, r *http.Request) {
+func (s *APIServer) getNodes(w http.ResponseWriter, _ *http.Request) {
 	s.mu.RLock()
 	nodes := make([]*NodeStatus, 0, len(s.nodes))
+
 	for _, node := range s.nodes {
 		log.Printf("Node %s services:", node.NodeID)
 		nodes = append(nodes, node)
@@ -231,6 +250,7 @@ func (s *APIServer) getNodes(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(nodes); err != nil {
 		log.Printf("Error encoding nodes response: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
+
 		return
 	}
 }
@@ -249,13 +269,16 @@ func (s *APIServer) getNode(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Node %s not found in nodes map. Available nodes: %v",
 			nodeID, s.getNodeIDs())
 		http.Error(w, "Node not found", http.StatusNotFound)
+
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+
 	if err := json.NewEncoder(w).Encode(node); err != nil {
 		log.Printf("Error encoding node response: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
+
 		return
 	}
 }
@@ -288,6 +311,7 @@ func (s *APIServer) getNodeIDs() []string {
 	for id := range s.nodes {
 		ids = append(ids, id)
 	}
+
 	return ids
 }
 
@@ -307,7 +331,11 @@ func (s *APIServer) getServiceDetails(w http.ResponseWriter, r *http.Request) {
 
 	for _, service := range node.Services {
 		if service.Name == serviceName {
-			json.NewEncoder(w).Encode(service)
+			if err := json.NewEncoder(w).Encode(service); err != nil {
+				http.Error(w, "Error encoding JSON", http.StatusInternalServerError)
+				return
+			}
+
 			return
 		}
 	}
@@ -316,5 +344,15 @@ func (s *APIServer) getServiceDetails(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *APIServer) Start(addr string) error {
-	return http.ListenAndServe(addr, s.router)
+	srv := &http.Server{
+		Addr:         addr,
+		Handler:      s.router,
+		ReadTimeout:  10 * time.Second, // Timeout for reading the entire request, including the body.
+		WriteTimeout: 10 * time.Second, // Timeout for writing the response.
+		IdleTimeout:  60 * time.Second, // Timeout for idle connections waiting in the Keep-Alive state.
+		// Optional: You can also set ReadHeaderTimeout to limit the time for reading request headers
+		// ReadHeaderTimeout: 5 * time.Second,
+	}
+
+	return srv.ListenAndServe()
 }

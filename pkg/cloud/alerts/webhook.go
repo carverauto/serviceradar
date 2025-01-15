@@ -2,6 +2,7 @@ package alerts
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -54,6 +55,7 @@ type WebhookAlerter struct {
 
 func (w *WebhookConfig) UnmarshalJSON(data []byte) error {
 	type Alias WebhookConfig
+
 	aux := &struct {
 		Cooldown string `json:"cooldown"`
 		*Alias
@@ -71,6 +73,7 @@ func (w *WebhookConfig) UnmarshalJSON(data []byte) error {
 		if err != nil {
 			return fmt.Errorf("invalid cooldown format: %w", err)
 		}
+
 		w.Cooldown = duration
 	}
 
@@ -87,19 +90,31 @@ func NewWebhookAlerter(config WebhookConfig) *WebhookAlerter {
 	}
 }
 
-func (w *WebhookAlerter) Alert(alert WebhookAlert) error {
+func (w *WebhookAlerter) Alert(ctx context.Context, alert *WebhookAlert) error { // Now accepts a pointer
 	if !w.config.Enabled {
 		log.Printf("Webhook alerter disabled, skipping alert: %s", alert.Title)
 		return nil
+	}
+
+	// Check for cooldown
+	if w.config.Cooldown > 0 {
+		w.mu.Lock()
+		lastAlertTime, ok := w.lastAlertTimes[alert.Title]
+
+		if ok && time.Since(lastAlertTime) < w.config.Cooldown {
+			log.Printf("Alert '%s' is within cooldown period, skipping.", alert.Title)
+			w.mu.Unlock()
+			return nil
+		}
+
+		w.lastAlertTimes[alert.Title] = time.Now()
+		w.mu.Unlock()
 	}
 
 	// Ensure timestamp is set
 	if alert.Timestamp == "" {
 		alert.Timestamp = time.Now().UTC().Format(time.RFC3339)
 	}
-
-	w.mu.Lock()
-	defer w.mu.Unlock()
 
 	log.Printf("Preparing to send alert: %s", alert.Title)
 
@@ -109,15 +124,26 @@ func (w *WebhookAlerter) Alert(alert WebhookAlert) error {
 	if w.config.Template != "" {
 		log.Printf("Using custom template for alert")
 
+		// Use a template function map for more flexibility
+		funcMap := template.FuncMap{
+			"json": func(v interface{}) (string, error) {
+				b, err := json.Marshal(v)
+				if err != nil {
+					return "", err
+				}
+				return string(b), nil
+			},
+		}
+
 		// Create template with escaping built in
-		tmpl, err := template.New("webhook").Parse(w.config.Template)
+		tmpl, err := template.New("webhook").Funcs(funcMap).Parse(w.config.Template)
 		if err != nil {
 			return fmt.Errorf("error parsing template: %w", err)
 		}
 
 		var buf bytes.Buffer
 		if err := tmpl.Execute(&buf, map[string]interface{}{
-			"alert": alert,
+			"alert": *alert, // Pass the alert by value to the template
 		}); err != nil {
 			return fmt.Errorf("error executing template: %w", err)
 		}
@@ -137,17 +163,20 @@ func (w *WebhookAlerter) Alert(alert WebhookAlert) error {
 	}
 
 	log.Printf("Sending webhook request to: %s", w.config.URL)
-	req, err := http.NewRequest("POST", w.config.URL, bytes.NewBuffer(payload))
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, w.config.URL, bytes.NewBuffer(payload))
 	if err != nil {
 		return fmt.Errorf("error creating request: %w", err)
 	}
 
 	// Set headers
 	hasContentType := false
+
 	for _, header := range w.config.Headers {
-		if strings.ToLower(header.Key) == "content-type" {
+		if strings.EqualFold(header.Key, "content-type") {
 			hasContentType = true
 		}
+
 		req.Header.Set(header.Key, header.Value)
 	}
 
@@ -167,25 +196,6 @@ func (w *WebhookAlerter) Alert(alert WebhookAlert) error {
 	}
 
 	log.Printf("Successfully sent alert: %s", alert.Title)
+
 	return nil
-}
-
-// applyTemplate applies a custom JSON template for different webhook services
-func (w *WebhookAlerter) applyTemplate(alert WebhookAlert) ([]byte, error) {
-	data := map[string]interface{}{
-		"alert":     alert,
-		"timestamp": time.Now().Unix(),
-	}
-
-	tmpl, err := template.New("webhook").Parse(w.config.Template)
-	if err != nil {
-		return nil, fmt.Errorf("error parsing template: %w", err)
-	}
-
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, data); err != nil {
-		return nil, fmt.Errorf("error executing template: %w", err)
-	}
-
-	return buf.Bytes(), nil
 }

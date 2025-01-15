@@ -148,6 +148,7 @@ elements/
 ./cloud
 
 ./web/dist/assets
+./pkg/cloud/api/web/dist
 ./dist
 
 # debian packages

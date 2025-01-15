@@ -63,14 +63,14 @@ func (s *Server) saveState() error {
 		return fmt.Errorf("error marshaling state: %w", err)
 	}
 
-	if err := os.WriteFile(s.stateFile, data, 0644); err != nil {
+	if err := os.WriteFile(s.stateFile, data, 0600); err != nil {
 		return fmt.Errorf("error writing state file: %w", err)
 	}
 
 	return nil
 }
 
-func (s *Server) loadState() error {
+func (s *Server) loadState(ctx context.Context) error {
 	data, err := os.ReadFile(s.stateFile)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -107,7 +107,7 @@ func (s *Server) loadState() error {
 					"cloud_restarted": true,
 				},
 			}
-			s.sendAlert(alert)
+			s.sendAlert(ctx, &alert)
 		}
 	}
 
@@ -116,7 +116,11 @@ func (s *Server) loadState() error {
 	return nil
 }
 
-func (s *Server) Shutdown() {
+func (s *Server) Shutdown(ctx context.Context) {
+	// set a ctx with a timeout to allow for graceful shutdown
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
 	if err := s.saveState(); err != nil {
 		log.Printf("Error saving state during shutdown: %v", err)
 	}
@@ -133,7 +137,7 @@ func (s *Server) Shutdown() {
 				"pid":      os.Getpid(),
 			},
 		}
-		s.sendAlert(alert)
+		s.sendAlert(ctx, &alert)
 	}
 	close(s.shutdown)
 }
@@ -144,7 +148,7 @@ func (s *Server) SetAPIServer(api *api.APIServer) {
 	s.apiServer = api
 }
 
-func (s *Server) checkInitialStates() {
+func (s *Server) checkInitialStates(ctx context.Context) {
 	log.Printf("Checking initial states of all nodes")
 
 	// Use a map to track which nodes we've checked to avoid duplicates
@@ -161,7 +165,7 @@ func (s *Server) checkInitialStates() {
 			// Only send alert if not already tracked as down
 			if _, exists := s.nodeAlertStates[pollerID]; !exists {
 				s.mu.RUnlock()
-				s.markNodeDown(pollerID, time.Now())
+				s.markNodeDown(ctx, pollerID, time.Now())
 				s.mu.RLock()
 			}
 		}
@@ -173,13 +177,13 @@ func (s *Server) checkInitialStates() {
 		if !checkedNodes[pollerID] {
 			if _, exists := s.nodeAlertStates[pollerID]; !exists {
 				log.Printf("Known poller %s has never reported", pollerID)
-				s.markNodeDown(pollerID, time.Now())
+				s.markNodeDown(ctx, pollerID, time.Now())
 			}
 		}
 	}
 }
 
-func NewServer(config Config) (*Server, error) {
+func NewServer(ctx context.Context, config Config) (*Server, error) {
 	log.Printf("Initializing cloud server with config: %+v", config)
 
 	server := &Server{
@@ -199,7 +203,7 @@ func NewServer(config Config) (*Server, error) {
 	}
 
 	// Load existing state
-	if err := server.loadState(); err != nil {
+	if err := server.loadState(ctx); err != nil {
 		log.Printf("Warning: Failed to load state: %v", err)
 	}
 
@@ -245,25 +249,25 @@ func NewServer(config Config) (*Server, error) {
 				"pid":      os.Getpid(),
 			},
 		}
-		server.sendAlert(alert)
+		server.sendAlert(ctx, &alert)
 	}
 
 	// Check initial states after a brief delay to allow for node discovery
 	go func() {
 		time.Sleep(30 * time.Second) // Give nodes a chance to report in
-		server.checkInitialStates()
+		server.checkInitialStates(ctx)
 	}()
 
 	// Start a goroutine that waits 30 seconds, then checks never-reported pollers
 	go func() {
 		time.Sleep(30 * time.Second)
-		server.checkNeverReportedPollers(config)
+		server.checkNeverReportedPollers(ctx, config)
 	}()
 
 	return server, nil
 }
 
-func (s *Server) checkNeverReportedPollers(config Config) {
+func (s *Server) checkNeverReportedPollers(ctx context.Context, config Config) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -287,7 +291,7 @@ func (s *Server) checkNeverReportedPollers(config Config) {
 				},
 			}
 			log.Printf("Sending 'never-reported' alert for poller %s", pollerID)
-			s.sendAlert(alert)
+			s.sendAlert(ctx, &alert)
 
 			// Optionally keep track of it in nodeAlertStates:
 			s.nodeAlertStates[pollerID] = &alertState{
@@ -336,6 +340,7 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 		}
 
 		nodeStatus.Services = append(nodeStatus.Services, svcStatus)
+
 		if !svc.Available {
 			isHealthy = false
 		}
@@ -360,7 +365,7 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 		}
 
 		log.Printf("Sending recovery alert for node '%s'", pollerID)
-		s.sendAlert(alert)
+		s.sendAlert(ctx, &alert)
 		delete(s.nodeAlertStates, pollerID)
 	}
 
@@ -377,7 +382,7 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 	return &proto.PollerStatusResponse{Received: true}, nil
 }
 
-func (s *Server) markNodeDown(pollerID string, now time.Time) {
+func (s *Server) markNodeDown(ctx context.Context, pollerID string, now time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -405,12 +410,12 @@ func (s *Server) markNodeDown(pollerID string, now time.Time) {
 	}
 
 	log.Printf("Sending offline alert for node '%s'", pollerID)
-	s.sendAlert(alert)
+	s.sendAlert(ctx, &alert)
 }
 
-func (s *Server) sendAlert(alert alerts.WebhookAlert) {
+func (s *Server) sendAlert(ctx context.Context, alert *alerts.WebhookAlert) {
 	for _, webhook := range s.webhooks {
-		if err := webhook.Alert(alert); err != nil {
+		if err := webhook.Alert(ctx, alert); err != nil {
 			log.Printf("Error sending webhook alert: %v", err)
 		}
 	}
@@ -457,7 +462,7 @@ func LoadConfig(path string) (Config, error) {
 
 // tryNodeRecovery checks if this poller was marked down, and if so,
 // sends a "Node Recovery" alert and removes it from the down map.
-func (s *Server) tryNodeRecovery(pollerID string, now time.Time) {
+func (s *Server) tryNodeRecovery(ctx context.Context, pollerID string, now time.Time) {
 	if state, exists := s.nodeAlertStates[pollerID]; exists && state.isDown {
 		downtime := time.Since(state.timestamp).Round(time.Second)
 		alert := alerts.WebhookAlert{
@@ -472,7 +477,7 @@ func (s *Server) tryNodeRecovery(pollerID string, now time.Time) {
 			},
 		}
 		log.Printf("Sending recovery alert for node %q", pollerID)
-		s.sendAlert(alert)
+		s.sendAlert(ctx, &alert)
 
 		delete(s.nodeAlertStates, pollerID)
 	}
@@ -481,8 +486,11 @@ func (s *Server) tryNodeRecovery(pollerID string, now time.Time) {
 // processService encapsulates the “service is up/down” logic.
 // It returns the final api.ServiceStatus struct plus a boolean indicating
 // whether the service is healthy.
-func (s *Server) processService(pollerID string, svc *proto.ServiceStatus, now time.Time) (api.ServiceStatus, bool) {
-	// Start building the final API struct
+func (s *Server) processService(
+	ctx context.Context,
+	pollerID string,
+	svc *proto.ServiceStatus,
+	now time.Time) (api.ServiceStatus, bool) {
 	svcStatus := api.ServiceStatus{
 		Name:      svc.ServiceName,
 		Available: svc.Available,
@@ -506,18 +514,18 @@ func (s *Server) processService(pollerID string, svc *proto.ServiceStatus, now t
 
 	// If service is “down,” handle “Service Down” alerts. Otherwise handle recovery.
 	if !svc.Available {
-		s.markServiceDown(pollerID, svcStatus, now)
+		s.markServiceDown(ctx, pollerID, svcStatus, now)
 		return svcStatus, false // unhealthy
 	}
 
 	// Otherwise, service is “up.” If it was previously marked down, mark as recovered.
-	s.markServiceRecoveredIfNeeded(pollerID, svcStatus, now)
+	s.markServiceRecoveredIfNeeded(ctx, pollerID, svcStatus, now)
 	return svcStatus, true // healthy
 }
 
 // markServiceDown checks if the service was "up" before, then flips it to "down"
 // and sends the "Service Down" alert if needed.
-func (s *Server) markServiceDown(pollerID string, svc api.ServiceStatus, now time.Time) {
+func (s *Server) markServiceDown(ctx context.Context, pollerID string, svc api.ServiceStatus, now time.Time) {
 	stateKey := fmt.Sprintf("%s-%s", pollerID, svc.Name)
 	oldState, exists := s.serviceAlertStates[stateKey]
 
@@ -538,13 +546,13 @@ func (s *Server) markServiceDown(pollerID string, svc api.ServiceStatus, now tim
 			},
 		}
 		log.Printf("Sending service down alert for %q on node %q", svc.Name, pollerID)
-		s.sendAlert(alert)
+		s.sendAlert(ctx, &alert)
 	}
 }
 
 // markServiceRecoveredIfNeeded checks if the service was previously “down,”
 // and if so, sends a “Service Recovery” alert and removes it from the down map.
-func (s *Server) markServiceRecoveredIfNeeded(pollerID string, svc api.ServiceStatus, now time.Time) {
+func (s *Server) markServiceRecoveredIfNeeded(ctx context.Context, pollerID string, svc api.ServiceStatus, now time.Time) {
 	stateKey := fmt.Sprintf("%s-%s", pollerID, svc.Name)
 	oldState, exists := s.serviceAlertStates[stateKey]
 	if !exists || !oldState.isDown {
@@ -565,7 +573,7 @@ func (s *Server) markServiceRecoveredIfNeeded(pollerID string, svc api.ServiceSt
 		},
 	}
 	log.Printf("Sending service recovery alert for %q on node %q", svc.Name, pollerID)
-	s.sendAlert(alert)
+	s.sendAlert(ctx, &alert)
 
 	// Remove the service from “down” map.
 	delete(s.serviceAlertStates, stateKey)
@@ -580,12 +588,12 @@ func (s *Server) MonitorPollers(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			s.checkPollers()
+			s.checkPollers(ctx)
 		}
 	}
 }
 
-func (s *Server) checkPollers() {
+func (s *Server) checkPollers(ctx context.Context) {
 	now := time.Now()
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -612,7 +620,7 @@ func (s *Server) checkPollers() {
 					},
 				}
 
-				s.sendAlert(alert)
+				s.sendAlert(ctx, &alert)
 
 				s.nodeAlertStates[pollerID] = &alertState{
 					isDown:    true,
@@ -635,7 +643,7 @@ func (s *Server) checkPollers() {
 	}
 }
 
-func (s *Server) sendStartupNotification() {
+func (s *Server) sendStartupNotification(ctx context.Context) {
 	alert := alerts.WebhookAlert{
 		Level:     alerts.Info,
 		Title:     "Cloud Service Started",
@@ -649,7 +657,7 @@ func (s *Server) sendStartupNotification() {
 		},
 	}
 
-	s.sendAlert(alert)
+	s.sendAlert(ctx, &alert)
 }
 
 func getHostname() string {
