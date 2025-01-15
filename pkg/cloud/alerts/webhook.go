@@ -87,12 +87,15 @@ func NewWebhookAlerter(config WebhookConfig) *WebhookAlerter {
 	}
 }
 
-// pkg/cloud/alerts/webhook.go
-
 func (w *WebhookAlerter) Alert(alert WebhookAlert) error {
 	if !w.config.Enabled {
 		log.Printf("Webhook alerter disabled, skipping alert: %s", alert.Title)
 		return nil
+	}
+
+	// Ensure timestamp is set
+	if alert.Timestamp == "" {
+		alert.Timestamp = time.Now().UTC().Format(time.RFC3339)
 	}
 
 	w.mu.Lock()
@@ -105,14 +108,32 @@ func (w *WebhookAlerter) Alert(alert WebhookAlert) error {
 
 	if w.config.Template != "" {
 		log.Printf("Using custom template for alert")
-		payload, err = w.applyTemplate(alert)
-	} else {
-		log.Printf("Using default JSON format for alert")
-		payload, err = json.Marshal(alert)
-	}
 
-	if err != nil {
-		return fmt.Errorf("error preparing webhook payload: %w", err)
+		// Create template with escaping built in
+		tmpl, err := template.New("webhook").Parse(w.config.Template)
+		if err != nil {
+			return fmt.Errorf("error parsing template: %w", err)
+		}
+
+		var buf bytes.Buffer
+		if err := tmpl.Execute(&buf, map[string]interface{}{
+			"alert": alert,
+		}); err != nil {
+			return fmt.Errorf("error executing template: %w", err)
+		}
+
+		payload = buf.Bytes()
+
+		// Validate the JSON before sending
+		var js json.RawMessage
+		if err := json.Unmarshal(payload, &js); err != nil {
+			return fmt.Errorf("template generated invalid JSON: %w\nPayload: %s", err, payload)
+		}
+	} else {
+		payload, err = json.Marshal(alert)
+		if err != nil {
+			return fmt.Errorf("error marshaling alert: %w", err)
+		}
 	}
 
 	log.Printf("Sending webhook request to: %s", w.config.URL)
@@ -121,7 +142,7 @@ func (w *WebhookAlerter) Alert(alert WebhookAlert) error {
 		return fmt.Errorf("error creating request: %w", err)
 	}
 
-	// Set default content type if not specified in headers
+	// Set headers
 	hasContentType := false
 	for _, header := range w.config.Headers {
 		if strings.ToLower(header.Key) == "content-type" {

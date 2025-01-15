@@ -74,7 +74,8 @@ if [ ! -f "/etc/homemon/cloud.json" ]; then
     cat > "${PKG_ROOT}/etc/homemon/cloud.json" << EOF
 {
     "listen_addr": ":8090",
-    "alert_threshold": "5m"
+    "alert_threshold": "5m",
+    "known_pollers": ["home-poller-1"]
 }
 EOF
 fi
