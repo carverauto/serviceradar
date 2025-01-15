@@ -24,6 +24,11 @@ const (
 	blockHistorySize = 100
 )
 
+var (
+	errSubscriptionFail = fmt.Errorf("subscription failed")
+	errWebsocketError   = fmt.Errorf("websocket error")
+)
+
 type Config struct {
 	NodeAddress string        `json:"node_address"`
 	Timeout     time.Duration `json:"timeout"` // Keep as time.Duration
@@ -94,17 +99,23 @@ func (d *DuskChecker) StartMonitoring() error {
 
 	u := url.URL{Scheme: "ws", Host: d.Config.NodeAddress, Path: "/on"}
 
-	conn, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
+	conn, _, err := websocket.DefaultDialer.Dial(u.String(), nil) //nolint:bodyclose // Closed next
 	if err != nil {
 		return fmt.Errorf("websocket dial failed: %w", err)
 	}
+	defer func(conn *websocket.Conn) {
+		err := conn.Close()
+		if err != nil {
+			log.Printf("Error closing websocket connection: %v", err)
+		}
+	}(conn)
 
 	d.ws = conn
 
 	// Read session ID
 	_, message, err := d.ws.ReadMessage()
 	if err != nil {
-		if err = d.ws.Close(); err != nil {
+		if err := d.ws.Close(); err != nil {
 			return err
 		}
 
@@ -137,11 +148,17 @@ func (d *DuskChecker) StartMonitoring() error {
 	if err != nil {
 		return fmt.Errorf("subscription request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+			log.Printf("Error closing response body: %v", err)
+		}
+	}(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("subscription failed with status %d: %s", resp.StatusCode, string(body))
+		// return fmt.Errorf("subscription failed with status %d: %s", resp.StatusCode, string(body))
+		return fmt.Errorf("monitoring failed: %d %w %s", resp.StatusCode, errSubscriptionFail, string(body))
 	}
 
 	log.Printf("Successfully subscribed to block events")
@@ -154,6 +171,7 @@ func (d *DuskChecker) StartMonitoring() error {
 
 func (d *DuskChecker) listenForEvents() {
 	log.Printf("Starting event listener for websocket connection")
+
 	defer func(ws *websocket.Conn) {
 		err := ws.Close()
 		if err != nil {
@@ -240,7 +258,7 @@ func (s *HealthServer) Check(ctx context.Context, _ *grpc_health_v1.HealthCheckR
 	if s.checker.ws == nil {
 		return &grpc_health_v1.HealthCheckResponse{
 			Status: grpc_health_v1.HealthCheckResponse_NOT_SERVING,
-		}, fmt.Errorf("no websocket connection established")
+		}, errWebsocketError
 	}
 
 	// Create block details structure
