@@ -1,3 +1,4 @@
+// Package grpc pkg/grpc/client.go
 package grpc
 
 import (
@@ -10,6 +11,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/metadata"
 )
 
 const (
@@ -23,11 +25,13 @@ type ClientOption func(*ClientConn)
 
 // ClientConn wraps a gRPC client connection with additional functionality.
 type ClientConn struct {
-	conn         *grpc.ClientConn
-	healthClient grpc_health_v1.HealthClient
-	addr         string
-	maxRetries   int
-	mu           sync.RWMutex
+	conn              *grpc.ClientConn
+	healthClient      grpc_health_v1.HealthClient
+	addr              string
+	maxRetries        int
+	mu                sync.RWMutex
+	lastHealthDetails string
+	lastHealthCheck   time.Time
 }
 
 // NewClient creates a new gRPC client connection.
@@ -48,7 +52,7 @@ func NewClient(ctx context.Context, addr string, opts ...ClientOption) (*ClientC
 	c := &ClientConn{
 		conn:       conn,
 		addr:       addr,
-		maxRetries: 3, // default value
+		maxRetries: defaultMaxRetries,
 	}
 
 	// Apply custom options
@@ -81,20 +85,49 @@ func (c *ClientConn) Close() error {
 
 // CheckHealth checks the health of a specific service.
 func (c *ClientConn) CheckHealth(ctx context.Context, service string) (bool, error) {
+	var header metadata.MD
+
 	resp, err := c.healthClient.Check(ctx, &grpc_health_v1.HealthCheckRequest{
 		Service: service,
-	})
+	}, grpc.Header(&header))
 	if err != nil {
 		return false, fmt.Errorf("health check failed: %w", err)
 	}
 
+	c.mu.Lock()
+
+	// Store any block details we received
+	if details := header.Get("block-details"); len(details) > 0 {
+		c.lastHealthDetails = details[0]
+		c.lastHealthCheck = time.Now()
+		log.Printf("Health check details updated for %s: %s", c.addr, details[0])
+	}
+	c.mu.Unlock()
+
 	return resp.Status == grpc_health_v1.HealthCheckResponse_SERVING, nil
+}
+
+// GetHealthDetails returns the last known health details.
+func (c *ClientConn) GetHealthDetails() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.lastHealthDetails
+}
+
+// GetLastHealthCheck returns the timestamp of the last successful health check.
+func (c *ClientConn) GetLastHealthCheck() time.Time {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.lastHealthCheck
 }
 
 // ClientLoggingInterceptor logs client-side RPC calls.
 func ClientLoggingInterceptor(
 	ctx context.Context,
-	method string, req,
+	method string,
+	req interface{},
 	reply interface{},
 	cc *grpc.ClientConn,
 	invoker grpc.UnaryInvoker,
@@ -122,7 +155,7 @@ func RetryInterceptor(ctx context.Context,
 		if err := invoker(ctx, method, req, reply, cc, opts...); err != nil {
 			lastErr = err
 			log.Printf("gRPC call attempt %d failed: %v", attempt+1, err)
-			time.Sleep(time.Duration(attempt*retryInterceptorAttemptMultiplier) * time.Millisecond)
+			time.Sleep(time.Duration(attempt*retryInterceptorAttemptMultiplier) * retryInterceptorTimeoutDuration)
 
 			continue
 		}

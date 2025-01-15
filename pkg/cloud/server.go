@@ -22,6 +22,12 @@ const (
 	nodeDiscoveryTimeout     = 30 * time.Second
 	nodeNeverReportedTimeout = 30 * time.Second
 	pollerTimeout            = 30 * time.Second
+
+	KB             = 1024
+	MB             = 1024 * KB
+	maxMessageSize = 4 * MB
+
+	defaultStateFile = "/var/lib/homemon/cloud-state.json"
 )
 
 var (
@@ -202,14 +208,6 @@ func (s *Server) checkInitialStates(ctx context.Context) {
 }
 
 func NewServer(ctx context.Context, config Config) (*Server, error) {
-	log.Printf("Initializing cloud server with config: %+v", config)
-
-	// Create gRPC server
-	grpcServer := grpc.NewServer(":50052",
-		grpc.WithMaxRecvSize(4*1024*1024), // 4MB
-		grpc.WithMaxSendSize(4*1024*1024), // 4MB
-	)
-
 	server := &Server{
 		lastSeen:           make(map[string]time.Time),
 		alertThreshold:     config.AlertThreshold,
@@ -217,90 +215,118 @@ func NewServer(ctx context.Context, config Config) (*Server, error) {
 		nodeAlertStates:    make(map[string]*alertState),
 		serviceAlertStates: make(map[string]*alertState),
 		shutdown:           make(chan struct{}),
-		stateFile:          "/var/lib/homemon/cloud-state.json", // TODO: add to config to make configurable
+		stateFile:          defaultStateFile,
 		knownPollers:       config.KnownPollers,
 	}
 
-	proto.RegisterPollerServiceServer(grpcServer, server)
+	// TODO: this should be done with a context..
+	server.initializeGRPCServer()
 
-	// Ensure directory exists
-	if err := os.MkdirAll("/var/lib/homemon", homemonDirPerms); err != nil {
-		return nil, fmt.Errorf("error creating state directory: %w", err)
+	if err := server.initializeStorage(); err != nil {
+		return nil, fmt.Errorf("failed to initialize storage: %w", err)
 	}
 
-	// Load existing state
-	if err := server.loadState(ctx); err != nil {
-		log.Printf("Warning: Failed to load state: %v", err)
-	}
+	server.initializeWebhooks(config.Webhooks)
 
-	// Initialize webhook alerters
-	for i, whConfig := range config.Webhooks {
-		log.Printf("Processing webhook config %d: enabled=%v", i, whConfig.Enabled)
+	server.startBackgroundTasks(ctx)
 
-		if whConfig.Enabled {
-			alerter := alerts.NewWebhookAlerter(whConfig)
-			server.webhooks = append(server.webhooks, alerter)
+	return server, nil
+}
 
-			log.Printf("Added webhook alerter: %+v", whConfig.URL)
-		}
-	}
+func (s *Server) initializeGRPCServer() {
+	grpcServer := grpc.NewServer(":50052",
+		grpc.WithMaxRecvSize(maxMessageSize),
+		grpc.WithMaxSendSize(maxMessageSize),
+	)
 
-	// Start state saving goroutine
-	go func() {
-		ticker := time.NewTicker(1 * time.Minute)
-		defer ticker.Stop()
+	proto.RegisterPollerServiceServer(grpcServer, s)
 
-		for {
-			select {
-			case <-server.shutdown:
-				return
-			case <-ticker.C:
-				if err := server.saveState(); err != nil {
-					log.Printf("Error saving state: %v", err)
-				}
-			}
-		}
-	}()
-
-	// Send startup notification
-	if len(server.webhooks) > 0 {
-		log.Printf("Sending startup notification to %d webhooks", len(server.webhooks))
-
-		alert := alerts.WebhookAlert{
-			Level:     alerts.Info,
-			Title:     "Cloud Service Started",
-			Message:   fmt.Sprintf("HomeMon cloud service initialized at %s", time.Now().Format(time.RFC3339)),
-			Timestamp: time.Now().UTC().Format(time.RFC3339),
-			NodeID:    "cloud",
-			Details: map[string]any{
-				"version":  "1.0.0",
-				"hostname": getHostname(),
-				"pid":      os.Getpid(),
-			},
-		}
-		server.sendAlert(ctx, &alert)
-	}
-
-	// Check initial states after a brief delay to allow for node discovery
-	go func() {
-		time.Sleep(nodeDiscoveryTimeout) // Give nodes a chance to report in
-		server.checkInitialStates(ctx)
-	}()
-
-	// Start a goroutine that waits 30 seconds, then checks never-reported pollers
-	go func() {
-		time.Sleep(nodeNeverReportedTimeout)
-		server.checkNeverReportedPollers(ctx, config)
-	}()
-
-	// Start gRPC server in a goroutine
 	go func() {
 		if err := grpcServer.Start(); err != nil {
 			log.Printf("gRPC server failed: %v", err)
 		}
 	}()
+}
 
-	return server, nil
+func (s *Server) initializeStorage() error {
+	if err := os.MkdirAll("/var/lib/homemon", homemonDirPerms); err != nil {
+		return fmt.Errorf("error creating state directory: %w", err)
+	}
+
+	if err := s.loadState(context.Background()); err != nil {
+		log.Printf("Warning: Failed to load state: %v", err)
+	}
+
+	return nil
+}
+
+func (s *Server) initializeWebhooks(configs []alerts.WebhookConfig) {
+	for i, config := range configs {
+		log.Printf("Processing webhook config %d: enabled=%v", i, config.Enabled)
+
+		if config.Enabled {
+			alerter := alerts.NewWebhookAlerter(config)
+			s.webhooks = append(s.webhooks, alerter)
+
+			log.Printf("Added webhook alerter: %+v", config.URL)
+		}
+	}
+}
+
+func (s *Server) startBackgroundTasks(ctx context.Context) {
+	// Start state saving goroutine
+	go s.stateSavingTask()
+
+	// Send startup notification
+	if len(s.webhooks) > 0 {
+		s.sendStartupNotification(ctx)
+	}
+
+	// Start node monitoring tasks
+	go s.startNodeMonitoring(ctx)
+}
+
+func (s *Server) stateSavingTask() {
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-s.shutdown:
+			return
+		case <-ticker.C:
+			if err := s.saveState(); err != nil {
+				log.Printf("Error saving state: %v", err)
+			}
+		}
+	}
+}
+
+func (s *Server) startNodeMonitoring(ctx context.Context) {
+	// Check initial states after a delay
+	time.Sleep(nodeDiscoveryTimeout)
+	s.checkInitialStates(ctx)
+
+	// Check never-reported pollers
+	time.Sleep(nodeNeverReportedTimeout)
+	s.checkNeverReportedPollers(ctx, Config{KnownPollers: s.knownPollers})
+}
+
+func (s *Server) sendStartupNotification(ctx context.Context) {
+	log.Printf("Sending startup notification to %d webhooks", len(s.webhooks))
+	alert := alerts.WebhookAlert{
+		Level:     alerts.Info,
+		Title:     "Cloud Service Started",
+		Message:   fmt.Sprintf("HomeMon cloud service initialized at %s", time.Now().Format(time.RFC3339)),
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		NodeID:    "cloud",
+		Details: map[string]any{
+			"version":  "1.0.0",
+			"hostname": getHostname(),
+			"pid":      os.Getpid(),
+		},
+	}
+	s.sendAlert(ctx, &alert)
 }
 
 func (s *Server) checkNeverReportedPollers(ctx context.Context, config Config) {

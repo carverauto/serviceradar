@@ -61,12 +61,14 @@ func main() {
 	// Start HTTP server for API and web interface
 	go func() {
 		log.Printf("Starting HTTP server on %s", config.ListenAddr)
+
 		if err := apiServer.Start(config.ListenAddr); err != nil {
 			log.Fatalf("HTTP server failed: %v", err)
 		}
 	}()
 
 	log.Printf("gRPC server listening on :50052")
+
 	if err := grpcServer.Serve(lis); err != nil {
 		log.Fatalf("Failed to serve: %v", err)
 	}

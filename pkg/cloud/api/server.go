@@ -5,12 +5,9 @@ package api
 import (
 	"embed"
 	"encoding/json"
-	"io"
 	"io/fs"
 	"log"
 	"net/http"
-	"path"
-	"strings"
 	"sync"
 	"time"
 
@@ -111,46 +108,6 @@ func (s *APIServer) setupRoutes() {
 	}
 
 	s.router.PathPrefix("/").Handler(http.FileServer(http.FS(fsys)))
-}
-
-type spaHandler struct {
-	staticFS   http.FileSystem
-	indexPath  string
-	staticPath string
-}
-
-func (h spaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// Get the absolute path to prevent directory traversal
-	p := path.Clean(r.URL.Path)
-
-	// Try to serve the requested file
-	f, err := h.staticFS.Open(strings.TrimPrefix(p, "/"))
-	if err != nil {
-		// If file not found, serve index.html
-		index, err := h.staticFS.Open(h.indexPath)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		defer func(index http.File) {
-			err := index.Close()
-			if err != nil {
-				log.Printf("Error closing index file: %v", err)
-			}
-		}(index)
-		http.ServeContent(w, r, h.indexPath, time.Time{}, index.(io.ReadSeeker))
-
-		return
-	}
-	defer func(f http.File) {
-		err := f.Close()
-		if err != nil {
-			log.Printf("Error closing file: %v", err)
-		}
-	}(f)
-
-	http.ServeContent(w, r, p, time.Time{}, f.(io.ReadSeeker))
 }
 
 func (s *APIServer) UpdateNodeStatus(nodeID string, status *NodeStatus) {

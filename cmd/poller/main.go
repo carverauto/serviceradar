@@ -28,9 +28,16 @@ func main() {
 	// Create poller with context
 	p, err := poller.New(ctx, config)
 	if err != nil {
-		log.Fatalf("Failed to create poller: %v", err)
+		log.Printf("Failed to create poller: %v", err)
+		cancel()
 	}
-	defer p.Close()
+
+	defer func(p *poller.Poller) {
+		err := p.Close()
+		if err != nil {
+			log.Printf("Failed to close poller: %v", err)
+		}
+	}(p)
 
 	// Handle shutdown signals
 	sigChan := make(chan os.Signal, 1)
@@ -46,7 +53,8 @@ func main() {
 	select {
 	case err := <-errChan:
 		if err != nil && !errors.Is(err, context.Canceled) {
-			log.Fatalf("Poller failed: %v", err)
+			log.Printf("Poller failed: %v", err)
+			cancel()
 		}
 	case sig := <-sigChan:
 		log.Printf("Received signal %v, shutting down", sig)

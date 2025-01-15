@@ -2,7 +2,6 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"log"
 	"os"
@@ -14,6 +13,11 @@ import (
 	"github.com/mfreeman451/homemon/proto"
 )
 
+const (
+	maxRecvSize = 4 * 1024 * 1024 // 4MB
+	maxSendSize = 4 * 1024 * 1024 // 4MB
+)
+
 func main() {
 	log.Printf("Starting homemon agent...")
 
@@ -23,26 +27,36 @@ func main() {
 	flag.Parse()
 
 	// Create context that can be canceled
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	// ctx, cancel := context.WithCancel(context.Background())
+	// defer cancel()
 
 	// Create gRPC server
 	grpcServer := grpc.NewServer(*listenAddr,
-		grpc.WithMaxRecvSize(4*1024*1024), // 4MB
-		grpc.WithMaxSendSize(4*1024*1024), // 4MB
+		grpc.WithMaxRecvSize(maxRecvSize),
+		grpc.WithMaxSendSize(maxSendSize),
 	)
 
 	// Create agent server
-	server := agent.NewServer(*configDir)
-	defer server.Close()
+	server, err := agent.NewServer(*configDir)
+	if err != nil {
+		log.Fatalf("Failed to create agent server: %v", err)
+	}
+	defer func(server *agent.Server) {
+		err := server.Close()
+		if err != nil {
+			log.Printf("Failed to close agent server: %v", err)
+		}
+	}(server)
 
 	// Register agent service with gRPC server
 	proto.RegisterAgentServiceServer(grpcServer, server)
 
 	// Start gRPC server in a goroutine
 	errChan := make(chan error, 1)
+
 	go func() {
 		log.Printf("gRPC server listening on %s", *listenAddr)
+
 		if err := grpcServer.Start(); err != nil {
 			errChan <- err
 		}
@@ -62,9 +76,6 @@ func main() {
 
 	// Begin graceful shutdown
 	log.Printf("Starting graceful shutdown...")
-
-	// Cancel context to stop any ongoing operations
-	cancel()
 
 	// Stop gRPC server
 	grpcServer.Stop()

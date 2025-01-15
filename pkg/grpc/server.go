@@ -1,4 +1,4 @@
-// pkg/grpc/server.go
+// Package grpc pkg/grpc/server.go
 package grpc
 
 import (
@@ -15,10 +15,15 @@ import (
 	"google.golang.org/grpc/reflection"
 )
 
-// ServerOption is a function type that modifies Server configuration
+// ServerOption is a function type that modifies Server configuration.
 type ServerOption func(*Server)
 
-// Server wraps a gRPC server with additional functionality
+// Errors
+var (
+	errInternalError = fmt.Errorf("internal error")
+)
+
+// Server wraps a gRPC server with additional functionality.
 type Server struct {
 	srv         *grpc.Server
 	healthCheck *health.Server
@@ -27,7 +32,7 @@ type Server struct {
 	services    map[string]struct{}
 }
 
-// NewServer creates a new gRPC server with the provided options
+// NewServer creates a new gRPC server with the provided options.
 func NewServer(addr string, opts ...ServerOption) *Server {
 	// Create server with default interceptors
 	serverOpts := []grpc.ServerOption{
@@ -58,7 +63,7 @@ func NewServer(addr string, opts ...ServerOption) *Server {
 	return s
 }
 
-// WithMaxRecvSize sets the maximum receive message size
+// WithMaxRecvSize sets the maximum receive message size.
 func WithMaxRecvSize(size int) ServerOption {
 	return func(s *Server) {
 		s.srv.GracefulStop()
@@ -66,7 +71,7 @@ func WithMaxRecvSize(size int) ServerOption {
 	}
 }
 
-// WithMaxSendSize sets the maximum send message size
+// WithMaxSendSize sets the maximum send message size.
 func WithMaxSendSize(size int) ServerOption {
 	return func(s *Server) {
 		s.srv.GracefulStop()
@@ -74,7 +79,7 @@ func WithMaxSendSize(size int) ServerOption {
 	}
 }
 
-// RegisterService registers a service with the gRPC server
+// RegisterService registers a service with the gRPC server.
 func (s *Server) RegisterService(desc *grpc.ServiceDesc, impl interface{}) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -84,7 +89,7 @@ func (s *Server) RegisterService(desc *grpc.ServiceDesc, impl interface{}) {
 	s.healthCheck.SetServingStatus(desc.ServiceName, healthpb.HealthCheckResponse_SERVING)
 }
 
-// Start starts the gRPC server
+// Start starts the gRPC server.
 func (s *Server) Start() error {
 	lis, err := net.Listen("tcp", s.addr)
 	if err != nil {
@@ -92,6 +97,7 @@ func (s *Server) Start() error {
 	}
 
 	log.Printf("gRPC server listening on %s", s.addr)
+
 	if err := s.srv.Serve(lis); err != nil {
 		return fmt.Errorf("failed to serve: %w", err)
 	}
@@ -99,7 +105,7 @@ func (s *Server) Start() error {
 	return nil
 }
 
-// Stop gracefully stops the gRPC server
+// Stop gracefully stops the gRPC server.
 func (s *Server) Stop() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -112,7 +118,7 @@ func (s *Server) Stop() {
 	s.srv.GracefulStop()
 }
 
-// LoggingInterceptor logs RPC calls
+// LoggingInterceptor logs RPC calls.
 func LoggingInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 	start := time.Now()
 	resp, err := handler(ctx, req)
@@ -120,16 +126,22 @@ func LoggingInterceptor(ctx context.Context, req interface{}, info *grpc.UnarySe
 		info.FullMethod,
 		time.Since(start),
 		err)
+
 	return resp, err
 }
 
-// RecoveryInterceptor handles panics in RPC handlers
-func RecoveryInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
+// RecoveryInterceptor handles panics in RPC handlers.
+func RecoveryInterceptor(
+	ctx context.Context,
+	req interface{},
+	info *grpc.UnaryServerInfo,
+	handler grpc.UnaryHandler) (resp interface{}, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("Recovered from panic in %s: %v", info.FullMethod, r)
-			err = fmt.Errorf("internal error")
+			err = errInternalError
 		}
 	}()
+
 	return handler(ctx, req)
 }

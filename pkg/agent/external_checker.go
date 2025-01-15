@@ -1,55 +1,56 @@
+// pkg/agent/external_checker.go
 package agent
 
 import (
 	"context"
 	"fmt"
 	"log"
-	"time"
 
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/health/grpc_health_v1"
-	"google.golang.org/grpc/metadata"
+	grpcpkg "github.com/mfreeman451/homemon/pkg/grpc"
 )
 
 // ExternalChecker implements checker.Checker for external checker processes
 type ExternalChecker struct {
-	name       string
-	address    string
-	client     grpc_health_v1.HealthClient
-	connection *grpc.ClientConn
+	name    string
+	address string
+	client  *grpcpkg.ClientConn
 }
 
 // NewExternalChecker creates a new checker that connects to an external process
-func NewExternalChecker(name, address string) (*ExternalChecker, error) {
+func NewExternalChecker(ctx context.Context, name, address string) (*ExternalChecker, error) {
 	log.Printf("Creating new external checker %s at %s", name, address)
 
-	// Create gRPC connection with proper options
-	conn, err := grpc.Dial(
+	// Create client using our gRPC package
+	client, err := grpcpkg.NewClient(
+		ctx,
 		address,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock(),
-		grpc.WithTimeout(5*time.Second),
+		grpcpkg.WithMaxRetries(3),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to external checker: %w", err)
+		return nil, fmt.Errorf("failed to create gRPC client: %w", err)
 	}
 
 	checker := &ExternalChecker{
-		name:       name,
-		address:    address,
-		client:     grpc_health_v1.NewHealthClient(conn),
-		connection: conn,
+		name:    name,
+		address: address,
+		client:  client,
 	}
 
-	// Test the connection
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	_, err = checker.client.Check(ctx, &grpc_health_v1.HealthCheckRequest{})
+	// Initial health check
+	healthy, err := client.CheckHealth(context.Background(), "")
 	if err != nil {
-		conn.Close()
+		err := client.Close()
+		if err != nil {
+			return nil, err
+		}
 		return nil, fmt.Errorf("initial health check failed: %w", err)
+	}
+	if !healthy {
+		err := client.Close()
+		if err != nil {
+			return nil, err
+		}
+		return nil, fmt.Errorf("service is not healthy")
 	}
 
 	log.Printf("Successfully created external checker %s", name)
@@ -57,26 +58,20 @@ func NewExternalChecker(name, address string) (*ExternalChecker, error) {
 }
 
 func (e *ExternalChecker) Check(ctx context.Context) (bool, string) {
-	// Create a new context with metadata
-	ctx = metadata.NewOutgoingContext(ctx, metadata.New(nil))
-
-	var header metadata.MD
-	resp, err := e.client.Check(ctx, &grpc_health_v1.HealthCheckRequest{},
-		grpc.Header(&header)) // Add this to capture headers
+	// Use our client's health check functionality
+	healthy, err := e.client.CheckHealth(ctx, "")
 	if err != nil {
 		return false, fmt.Sprintf("Failed to check %s: %v", e.name, err)
 	}
 
-	healthy := resp.Status == grpc_health_v1.HealthCheckResponse_SERVING
-
-	// Extract block details from headers
-	if details := header.Get("block-details"); len(details) > 0 {
-		log.Printf("Received block details: %s", details[0])
-		return healthy, details[0]
-	}
-
 	if !healthy {
 		return false, fmt.Sprintf("%s is not healthy", e.name)
+	}
+
+	// Get detailed status if available
+	details := e.client.GetHealthDetails()
+	if details != "" {
+		return true, details
 	}
 
 	return true, fmt.Sprintf("%s is healthy", e.name)
@@ -84,8 +79,8 @@ func (e *ExternalChecker) Check(ctx context.Context) (bool, string) {
 
 // Close cleans up the checker's resources
 func (e *ExternalChecker) Close() error {
-	if e.connection != nil {
-		return e.connection.Close()
+	if e.client != nil {
+		return e.client.Close()
 	}
 	return nil
 }

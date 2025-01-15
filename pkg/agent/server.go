@@ -96,7 +96,7 @@ func (s *Server) loadCheckerConfigs() error {
 }
 
 // initializeChecker creates and initializes a checker based on its configuration.
-func (*Server) initializeChecker(name string, conf *CheckerConfig) (checker.Checker, error) {
+func (*Server) initializeChecker(ctx context.Context, name string, conf *CheckerConfig) (checker.Checker, error) {
 	switch conf.Type {
 	case "process":
 		return &ProcessChecker{
@@ -114,7 +114,7 @@ func (*Server) initializeChecker(name string, conf *CheckerConfig) (checker.Chec
 			return nil, fmt.Errorf("gRPC checker %q: %w", name, errGrpcAddressRequired)
 		}
 
-		return NewExternalChecker(name, conf.Address)
+		return NewExternalChecker(ctx, name, conf.Address)
 
 	default:
 		return nil, fmt.Errorf("checker %q: %w", name, errUnknownCheckerType)
@@ -122,7 +122,7 @@ func (*Server) initializeChecker(name string, conf *CheckerConfig) (checker.Chec
 }
 
 // getChecker returns an initialized checker, creating it if necessary.
-func (s *Server) getChecker(serviceName string) (checker.Checker, error) {
+func (s *Server) getChecker(ctx context.Context, serviceName string) (checker.Checker, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -138,7 +138,7 @@ func (s *Server) getChecker(serviceName string) (checker.Checker, error) {
 	}
 
 	// Initialize the checker
-	check, err := s.initializeChecker(serviceName, &conf)
+	check, err := s.initializeChecker(ctx, serviceName, &conf)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to initialize checker: %v", err)
 	}
@@ -153,7 +153,7 @@ func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*prot
 	log.Printf("Checking status of service: %s", req.ServiceName)
 
 	// Get or create the checker
-	check, err := s.getChecker(req.ServiceName)
+	check, err := s.getChecker(ctx, req.ServiceName)
 	if err != nil {
 		return nil, err
 	}
@@ -191,7 +191,7 @@ func (s *Server) ListServices() []string {
 	return services
 }
 
-// Close handles cleanup when the server shuts down
+// Close handles cleanup when the server shuts down.
 func (s *Server) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
