@@ -152,4 +152,9 @@ elements/
 
 # debian packages
 *.deb
-./homemon-dusk_*
+
+# Build outputs
+homemon-dusk_*/
+homemon-poller_*/
+homemon-cloud_*/
+dist/
