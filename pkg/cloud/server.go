@@ -14,6 +14,18 @@ import (
 	"github.com/mfreeman451/homemon/proto"
 )
 
+const (
+	stateFilePerm            = 0600
+	shutdownTimeout          = 10 * time.Second
+	homemonDirPerms          = 0700
+	nodeDiscoveryTimeout     = 30 * time.Second
+	nodeNeverReportedTimeout = 30 * time.Second
+)
+
+var (
+	ErrEmptyPollerID = fmt.Errorf("received empty poller ID")
+)
+
 type Config struct {
 	ListenAddr     string                 `json:"listen_addr"`
 	AlertThreshold time.Duration          `json:"alert_threshold"`
@@ -63,7 +75,7 @@ func (s *Server) saveState() error {
 		return fmt.Errorf("error marshaling state: %w", err)
 	}
 
-	if err := os.WriteFile(s.stateFile, data, 0600); err != nil {
+	if err := os.WriteFile(s.stateFile, data, stateFilePerm); err != nil {
 		return fmt.Errorf("error writing state file: %w", err)
 	}
 
@@ -77,6 +89,7 @@ func (s *Server) loadState(ctx context.Context) error {
 			log.Printf("No state file found, starting fresh")
 			return nil
 		}
+
 		return fmt.Errorf("error reading state file: %w", err)
 	}
 
@@ -113,12 +126,13 @@ func (s *Server) loadState(ctx context.Context) error {
 
 	log.Printf("Loaded state with %d nodes, %d node alerts, %d service alerts",
 		len(state.LastSeen), len(state.NodeAlertStates), len(state.ServiceStates))
+
 	return nil
 }
 
 func (s *Server) Shutdown(ctx context.Context) {
 	// set a ctx with a timeout to allow for graceful shutdown
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, shutdownTimeout)
 	defer cancel()
 
 	if err := s.saveState(); err != nil {
@@ -139,13 +153,14 @@ func (s *Server) Shutdown(ctx context.Context) {
 		}
 		s.sendAlert(ctx, &alert)
 	}
+
 	close(s.shutdown)
 }
 
-func (s *Server) SetAPIServer(api *api.APIServer) {
+func (s *Server) SetAPIServer(a *api.APIServer) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.apiServer = api
+	s.apiServer = a
 }
 
 func (s *Server) checkInitialStates(ctx context.Context) {
@@ -157,6 +172,7 @@ func (s *Server) checkInitialStates(ctx context.Context) {
 	s.mu.RLock()
 	for pollerID, lastSeen := range s.lastSeen {
 		checkedNodes[pollerID] = true
+
 		duration := time.Since(lastSeen)
 		if duration > s.alertThreshold {
 			log.Printf("Node %s found offline during initial check (last seen: %v ago)",
@@ -198,7 +214,7 @@ func NewServer(ctx context.Context, config Config) (*Server, error) {
 	}
 
 	// Ensure directory exists
-	if err := os.MkdirAll("/var/lib/homemon", 0755); err != nil {
+	if err := os.MkdirAll("/var/lib/homemon", homemonDirPerms); err != nil {
 		return nil, fmt.Errorf("error creating state directory: %w", err)
 	}
 
@@ -210,9 +226,11 @@ func NewServer(ctx context.Context, config Config) (*Server, error) {
 	// Initialize webhook alerters
 	for i, whConfig := range config.Webhooks {
 		log.Printf("Processing webhook config %d: enabled=%v", i, whConfig.Enabled)
+
 		if whConfig.Enabled {
 			alerter := alerts.NewWebhookAlerter(whConfig)
 			server.webhooks = append(server.webhooks, alerter)
+
 			log.Printf("Added webhook alerter: %+v", whConfig.URL)
 		}
 	}
@@ -237,6 +255,7 @@ func NewServer(ctx context.Context, config Config) (*Server, error) {
 	// Send startup notification
 	if len(server.webhooks) > 0 {
 		log.Printf("Sending startup notification to %d webhooks", len(server.webhooks))
+
 		alert := alerts.WebhookAlert{
 			Level:     alerts.Info,
 			Title:     "Cloud Service Started",
@@ -254,13 +273,13 @@ func NewServer(ctx context.Context, config Config) (*Server, error) {
 
 	// Check initial states after a brief delay to allow for node discovery
 	go func() {
-		time.Sleep(30 * time.Second) // Give nodes a chance to report in
+		time.Sleep(nodeDiscoveryTimeout) // Give nodes a chance to report in
 		server.checkInitialStates(ctx)
 	}()
 
 	// Start a goroutine that waits 30 seconds, then checks never-reported pollers
 	go func() {
-		time.Sleep(30 * time.Second)
+		time.Sleep(nodeNeverReportedTimeout)
 		server.checkNeverReportedPollers(ctx, config)
 	}()
 
@@ -290,6 +309,7 @@ func (s *Server) checkNeverReportedPollers(ctx context.Context, config Config) {
 					"hostname": getHostname(),
 				},
 			}
+
 			log.Printf("Sending 'never-reported' alert for poller %s", pollerID)
 			s.sendAlert(ctx, &alert)
 
@@ -309,7 +329,7 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 	pollerID := req.PollerId
 	if pollerID == "" {
 		return &proto.PollerStatusResponse{Received: false},
-			fmt.Errorf("received empty poller ID")
+			ErrEmptyPollerID
 	}
 
 	now := time.Unix(req.Timestamp, 0)
@@ -423,6 +443,7 @@ func (s *Server) sendAlert(ctx context.Context, alert *alerts.WebhookAlert) {
 
 func (c *Config) UnmarshalJSON(data []byte) error {
 	type Alias Config
+
 	aux := &struct {
 		AlertThreshold string `json:"alert_threshold"`
 		*Alias
@@ -440,6 +461,7 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 		if err != nil {
 			return fmt.Errorf("invalid alert threshold format: %w", err)
 		}
+
 		c.AlertThreshold = duration
 	}
 
@@ -458,69 +480,6 @@ func LoadConfig(path string) (Config, error) {
 	}
 
 	return config, nil
-}
-
-// tryNodeRecovery checks if this poller was marked down, and if so,
-// sends a "Node Recovery" alert and removes it from the down map.
-func (s *Server) tryNodeRecovery(ctx context.Context, pollerID string, now time.Time) {
-	if state, exists := s.nodeAlertStates[pollerID]; exists && state.isDown {
-		downtime := time.Since(state.timestamp).Round(time.Second)
-		alert := alerts.WebhookAlert{
-			Level:   alerts.Info,
-			Title:   "Node Recovery",
-			Message: fmt.Sprintf("Node %q is back online after %v", pollerID, downtime),
-			NodeID:  pollerID,
-			Details: map[string]any{
-				"hostname":     getHostname(),
-				"downtime":     downtime.String(),
-				"recovered_at": now.Format(time.RFC3339),
-			},
-		}
-		log.Printf("Sending recovery alert for node %q", pollerID)
-		s.sendAlert(ctx, &alert)
-
-		delete(s.nodeAlertStates, pollerID)
-	}
-}
-
-// processService encapsulates the “service is up/down” logic.
-// It returns the final api.ServiceStatus struct plus a boolean indicating
-// whether the service is healthy.
-func (s *Server) processService(
-	ctx context.Context,
-	pollerID string,
-	svc *proto.ServiceStatus,
-	now time.Time) (api.ServiceStatus, bool) {
-	svcStatus := api.ServiceStatus{
-		Name:      svc.ServiceName,
-		Available: svc.Available,
-		Message:   svc.Message,
-		Type:      svc.Type,
-	}
-
-	// Attempt to parse JSON from svc.Message into Details
-	if svc.Message != "" {
-		var raw json.RawMessage
-		if err := json.Unmarshal([]byte(svc.Message), &raw); err == nil {
-			svcStatus.Details = raw
-		} else {
-			// If not valid JSON, just store the raw string in a "message" field
-			fallback := map[string]any{"message": svc.Message}
-			if fbJson, err := json.Marshal(fallback); err == nil {
-				svcStatus.Details = fbJson
-			}
-		}
-	}
-
-	// If service is “down,” handle “Service Down” alerts. Otherwise handle recovery.
-	if !svc.Available {
-		s.markServiceDown(ctx, pollerID, svcStatus, now)
-		return svcStatus, false // unhealthy
-	}
-
-	// Otherwise, service is “up.” If it was previously marked down, mark as recovered.
-	s.markServiceRecoveredIfNeeded(ctx, pollerID, svcStatus, now)
-	return svcStatus, true // healthy
 }
 
 // markServiceDown checks if the service was "up" before, then flips it to "down"
