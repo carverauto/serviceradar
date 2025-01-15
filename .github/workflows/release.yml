@@ -9,42 +9,42 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Go
-      uses: actions/setup-go@v4
-      with:
-        go-version: '1.21'
+      - uses: actions/checkout@v4
 
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y build-essential
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
 
-    - name: Build agent package
-      run: |
-        chmod +x ./setup-deb-agent.sh
-        ./setup-deb-agent.sh
-        mv homemon-dusk_1.0.0.deb homemon-dusk_${GITHUB_REF_NAME}.deb
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential
 
-    - name: Build poller package
-      run: |
-        chmod +x ./setup-deb-poller.sh
-        ./setup-deb-poller.sh
-        mv homemon-poller_1.0.0.deb homemon-poller_${GITHUB_REF_NAME}.deb
+      - name: Build agent package
+        run: |
+          chmod +x ./setup-deb-agent.sh
+          ./setup-deb-agent.sh
+          mv homemon-agent_1.0.0.deb homemon-agent_${GITHUB_REF_NAME}.deb
 
-    - name: Build cloud package
-      run: |
-        chmod +x ./setup-deb-cloud.sh
-        ./setup-deb-cloud.sh
-        mv homemon-cloud_1.0.0.deb homemon-cloud_${GITHUB_REF_NAME}.deb
+      - name: Build poller package
+        run: |
+          chmod +x ./setup-deb-poller.sh
+          ./setup-deb-poller.sh
+          mv homemon-poller_1.0.0.deb homemon-poller_${GITHUB_REF_NAME}.deb
 
-    - name: Upload Release Assets
-      uses: softprops/action-gh-release@v1
-      with:
-        files: |
-          homemon-dusk_*.deb
-          homemon-poller_*.deb
-          homemon-cloud_*.deb
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build cloud package
+        run: |
+          chmod +x ./setup-deb-cloud.sh
+          ./setup-deb-cloud.sh
+          mv homemon-cloud_1.0.0.deb homemon-cloud_${GITHUB_REF_NAME}.deb
+
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            homemon-agent_*.deb
+            homemon-poller_*.deb
+            homemon-cloud_*.deb
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
