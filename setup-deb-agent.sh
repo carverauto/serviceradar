@@ -2,10 +2,14 @@
 # setup-deb-agent.sh
 set -e  # Exit on any error
 
+# Get version from environment or default to 1.0.0
+VERSION=${VERSION:-1.0.0}
+echo "Building homemon-agent version ${VERSION}"
+
 echo "Setting up package structure..."
 
 # Create package directory structure
-PKG_ROOT="homemon-agent_1.0.0"
+PKG_ROOT="homemon-agent_${VERSION}"
 mkdir -p "${PKG_ROOT}/DEBIAN"
 mkdir -p "${PKG_ROOT}/usr/local/bin"
 mkdir -p "${PKG_ROOT}/etc/homemon/checkers"
@@ -22,7 +26,7 @@ echo "Creating package files..."
 # Create control file
 cat > "${PKG_ROOT}/DEBIAN/control" << EOF
 Package: homemon-agent
-Version: 1.0.0
+Version: ${VERSION}
 Section: utils
 Priority: optional
 Architecture: amd64

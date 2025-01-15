@@ -4,8 +4,11 @@ set -e  # Exit on any error
 
 echo "Setting up package structure..."
 
+# Get version from environment or default to 1.0.0
+VERSION=${VERSION:-1.0.0}
+
 # Create package directory structure
-PKG_ROOT="homemon-cloud_1.0.0"
+PKG_ROOT="homemon-cloud_${VERSION}"
 mkdir -p "${PKG_ROOT}/DEBIAN"
 mkdir -p "${PKG_ROOT}/usr/local/bin"
 mkdir -p "${PKG_ROOT}/etc/homemon"
