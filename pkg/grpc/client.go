@@ -44,7 +44,7 @@ func NewClient(ctx context.Context, addr string, opts ...ClientOption) (*ClientC
 		),
 	}
 
-	conn, err := grpc.DialContext(ctx, addr, dialOpts...)
+	conn, err := grpc.DialContext(ctx, addr, dialOpts...) //nolint:staticcheck // Using DialContext is fine through gRPC 1.x
 	if err != nil {
 		return nil, fmt.Errorf("failed to dial: %w", err)
 	}

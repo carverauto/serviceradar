@@ -36,7 +36,7 @@ func main() {
 	server.SetAPIServer(apiServer)
 
 	// Start gRPC server
-	lis, err := net.Listen("tcp", ":50052")
+	lis, err := net.Listen("tcp", config.ListenAddr)
 	if err != nil {
 		log.Fatalf("Failed to listen: %v", err)
 	}
