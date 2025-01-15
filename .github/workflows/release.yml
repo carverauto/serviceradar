@@ -25,19 +25,19 @@ jobs:
         run: |
           chmod +x ./setup-deb-agent.sh
           ./setup-deb-agent.sh
-          mv homemon-agent_1.0.0.deb homemon-agent_${GITHUB_REF_NAME}.deb
+          mv -f homemon-agent_1.0.0.deb homemon-agent_$(echo $GITHUB_REF_NAME | sed 's/^v//').deb
 
       - name: Build poller package
         run: |
           chmod +x ./setup-deb-poller.sh
           ./setup-deb-poller.sh
-          mv homemon-poller_1.0.0.deb homemon-poller_${GITHUB_REF_NAME}.deb
+          mv -f homemon-poller_1.0.0.deb homemon-poller_$(echo $GITHUB_REF_NAME | sed 's/^v//').deb
 
       - name: Build cloud package
         run: |
           chmod +x ./setup-deb-cloud.sh
           ./setup-deb-cloud.sh
-          mv homemon-cloud_1.0.0.deb homemon-cloud_${GITHUB_REF_NAME}.deb
+          mv -f homemon-cloud_1.0.0.deb homemon-cloud_$(echo $GITHUB_REF_NAME | sed 's/^v//').deb
 
       - name: Upload Release Assets
         uses: softprops/action-gh-release@v1
