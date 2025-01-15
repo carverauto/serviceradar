@@ -11,6 +11,7 @@ import (
 
 	"github.com/mfreeman451/homemon/pkg/cloud/alerts"
 	"github.com/mfreeman451/homemon/pkg/cloud/api"
+	"github.com/mfreeman451/homemon/pkg/grpc"
 	"github.com/mfreeman451/homemon/proto"
 )
 
@@ -20,6 +21,7 @@ const (
 	homemonDirPerms          = 0700
 	nodeDiscoveryTimeout     = 30 * time.Second
 	nodeNeverReportedTimeout = 30 * time.Second
+	pollerTimeout            = 30 * time.Second
 )
 
 var (
@@ -202,6 +204,12 @@ func (s *Server) checkInitialStates(ctx context.Context) {
 func NewServer(ctx context.Context, config Config) (*Server, error) {
 	log.Printf("Initializing cloud server with config: %+v", config)
 
+	// Create gRPC server
+	grpcServer := grpc.NewServer(":50052",
+		grpc.WithMaxRecvSize(4*1024*1024), // 4MB
+		grpc.WithMaxSendSize(4*1024*1024), // 4MB
+	)
+
 	server := &Server{
 		lastSeen:           make(map[string]time.Time),
 		alertThreshold:     config.AlertThreshold,
@@ -212,6 +220,8 @@ func NewServer(ctx context.Context, config Config) (*Server, error) {
 		stateFile:          "/var/lib/homemon/cloud-state.json", // TODO: add to config to make configurable
 		knownPollers:       config.KnownPollers,
 	}
+
+	proto.RegisterPollerServiceServer(grpcServer, server)
 
 	// Ensure directory exists
 	if err := os.MkdirAll("/var/lib/homemon", homemonDirPerms); err != nil {
@@ -281,6 +291,13 @@ func NewServer(ctx context.Context, config Config) (*Server, error) {
 	go func() {
 		time.Sleep(nodeNeverReportedTimeout)
 		server.checkNeverReportedPollers(ctx, config)
+	}()
+
+	// Start gRPC server in a goroutine
+	go func() {
+		if err := grpcServer.Start(); err != nil {
+			log.Printf("gRPC server failed: %v", err)
+		}
 	}()
 
 	return server, nil
@@ -482,64 +499,8 @@ func LoadConfig(path string) (Config, error) {
 	return config, nil
 }
 
-// markServiceDown checks if the service was "up" before, then flips it to "down"
-// and sends the "Service Down" alert if needed.
-func (s *Server) markServiceDown(ctx context.Context, pollerID string, svc api.ServiceStatus, now time.Time) {
-	stateKey := fmt.Sprintf("%s-%s", pollerID, svc.Name)
-	oldState, exists := s.serviceAlertStates[stateKey]
-
-	// If it wasn't recorded or wasn't down before, mark it down and alert.
-	if !exists || !oldState.isDown {
-		s.serviceAlertStates[stateKey] = &alertState{isDown: true, timestamp: now}
-
-		alert := alerts.WebhookAlert{
-			Level:   alerts.Warning,
-			Title:   fmt.Sprintf("Service Down: %s", svc.Name),
-			Message: fmt.Sprintf("Service %q is unavailable on node %q", svc.Name, pollerID),
-			NodeID:  pollerID,
-			Details: map[string]any{
-				"hostname": getHostname(),
-				"service":  svc.Name,
-				"message":  svc.Message,
-				"type":     svc.Type,
-			},
-		}
-		log.Printf("Sending service down alert for %q on node %q", svc.Name, pollerID)
-		s.sendAlert(ctx, &alert)
-	}
-}
-
-// markServiceRecoveredIfNeeded checks if the service was previously “down,”
-// and if so, sends a “Service Recovery” alert and removes it from the down map.
-func (s *Server) markServiceRecoveredIfNeeded(ctx context.Context, pollerID string, svc api.ServiceStatus, now time.Time) {
-	stateKey := fmt.Sprintf("%s-%s", pollerID, svc.Name)
-	oldState, exists := s.serviceAlertStates[stateKey]
-	if !exists || !oldState.isDown {
-		return // not previously down, so do nothing
-	}
-
-	downtime := time.Since(oldState.timestamp).Round(time.Second)
-	alert := alerts.WebhookAlert{
-		Level:   alerts.Info,
-		Title:   fmt.Sprintf("Service Recovery: %s", svc.Name),
-		Message: fmt.Sprintf("Service %q is back online on node %q", svc.Name, pollerID),
-		NodeID:  pollerID,
-		Details: map[string]any{
-			"hostname":     getHostname(),
-			"service":      svc.Name,
-			"downtime":     downtime.String(),
-			"recovered_at": now.Format(time.RFC3339),
-		},
-	}
-	log.Printf("Sending service recovery alert for %q on node %q", svc.Name, pollerID)
-	s.sendAlert(ctx, &alert)
-
-	// Remove the service from “down” map.
-	delete(s.serviceAlertStates, stateKey)
-}
-
 func (s *Server) MonitorPollers(ctx context.Context) {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(pollerTimeout)
 	defer ticker.Stop()
 
 	for {
@@ -554,6 +515,7 @@ func (s *Server) MonitorPollers(ctx context.Context) {
 
 func (s *Server) checkPollers(ctx context.Context) {
 	now := time.Now()
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -602,27 +564,11 @@ func (s *Server) checkPollers(ctx context.Context) {
 	}
 }
 
-func (s *Server) sendStartupNotification(ctx context.Context) {
-	alert := alerts.WebhookAlert{
-		Level:     alerts.Info,
-		Title:     "Cloud Service Started",
-		Message:   fmt.Sprintf("HomeMon cloud service initialized at %s", time.Now().Format(time.RFC3339)),
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
-		NodeID:    "cloud",
-		Details: map[string]any{
-			"version":  "1.0.0", // TODO: make this configurable
-			"hostname": getHostname(),
-			"pid":      os.Getpid(),
-		},
-	}
-
-	s.sendAlert(ctx, &alert)
-}
-
 func getHostname() string {
 	hostname, err := os.Hostname()
 	if err != nil {
 		return "unknown"
 	}
+
 	return hostname
 }

@@ -64,6 +64,7 @@ EOF
 cat > "${PKG_ROOT}/etc/homemon/checkers/dusk.json" << EOF
 {
     "name": "dusk",
+    "type": "grpc",
     "node_address": "localhost:8080",
     "timeout": "5m",
     "listen_addr": ":50052"

@@ -51,7 +51,7 @@ func main() {
 	go func() {
 		sig := <-sigChan
 		log.Printf("Received signal %v, initiating shutdown", sig)
-		server.Shutdown()
+		server.Shutdown(ctx)
 		grpcServer.GracefulStop()
 	}()
 
