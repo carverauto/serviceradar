@@ -18,7 +18,6 @@ import (
 // ServerOption is a function type that modifies Server configuration.
 type ServerOption func(*Server)
 
-// Errors
 var (
 	errInternalError = fmt.Errorf("internal error")
 )
@@ -139,6 +138,7 @@ func RecoveryInterceptor(
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("Recovered from panic in %s: %v", info.FullMethod, r)
+
 			err = errInternalError
 		}
 	}()

@@ -170,7 +170,7 @@ func (s *APIServer) getSystemStatus(w http.ResponseWriter, _ *http.Request) {
 	}
 }
 
-// Add new endpoint for history
+// getNodeHistory retrieves the history of a node.
 func (s *APIServer) getNodeHistory(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	nodeID := vars["id"]

@@ -27,9 +27,11 @@ func main() {
 
 	log.Printf("Loading config from: %s", *configFile)
 	config, err := dusk.LoadConfig(*configFile)
+
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
+
 	log.Printf("Loaded config: %+v", config)
 
 	// Create context that can be canceled
@@ -44,7 +46,7 @@ func main() {
 	// Start monitoring Dusk node
 	log.Printf("Starting monitoring...")
 
-	if err := checker.StartMonitoring(); err != nil {
+	if err := checker.StartMonitoring(ctx); err != nil {
 		log.Panicf("Failed to start monitoring: %v", err)
 	}
 
@@ -66,6 +68,7 @@ func main() {
 	// Start gRPC server
 	go func() {
 		log.Printf("Starting gRPC server on %s", config.ListenAddr)
+
 		if err := grpcServer.Start(); err != nil {
 			log.Printf("gRPC server failed: %v", err)
 			cancel() // Cancel context if server fails

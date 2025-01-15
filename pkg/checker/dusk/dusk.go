@@ -93,45 +93,85 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (d *DuskChecker) StartMonitoring() error {
-	// First establish WebSocket connection
+func (d *DuskChecker) StartMonitoring(ctx context.Context) error {
 	log.Printf("Connecting to Dusk node at %s", d.Config.NodeAddress)
 
+	// Establish WebSocket connection
+	wsConn, err := d.establishWebSocketConnection()
+	if err != nil {
+		return fmt.Errorf("websocket connection failed: %w", err)
+	}
+
+	d.ws = wsConn
+
+	// Get session ID
+	sessionID, err := d.getSessionID()
+	if err != nil {
+		return fmt.Errorf("session ID retrieval failed: %w", err)
+	}
+
+	d.sessionID = sessionID
+
+	// Subscribe to block events
+	if err := d.subscribeToBlocks(ctx); err != nil {
+		return fmt.Errorf("block subscription failed: %w", err)
+	}
+
+	// Start listening for events
+	go d.listenForEvents()
+
+	return nil
+}
+
+func (d *DuskChecker) establishWebSocketConnection() (*websocket.Conn, error) {
 	u := url.URL{Scheme: "ws", Host: d.Config.NodeAddress, Path: "/on"}
 
-	conn, _, err := websocket.DefaultDialer.Dial(u.String(), nil) //nolint:bodyclose // Closed next
+	conn, resp, err := websocket.DefaultDialer.Dial(u.String(), nil)
 	if err != nil {
-		return fmt.Errorf("websocket dial failed: %w", err)
-	}
-	defer func(conn *websocket.Conn) {
-		err := conn.Close()
-		if err != nil {
-			log.Printf("Error closing websocket connection: %v", err)
+		if resp != nil {
+			// Even on error, if we got a response, we must close its body
+			closeErr := resp.Body.Close()
+			if closeErr != nil {
+				return nil, fmt.Errorf("failed to close error response: %w", closeErr)
+			}
 		}
-	}(conn)
 
-	d.ws = conn
+		return nil, fmt.Errorf("websocket dial failed: %w", err)
+	}
 
-	// Read session ID
+	// Successful connection upgrade also requires the response body to be closed
+	if resp != nil {
+		closeErr := resp.Body.Close()
+		if closeErr != nil {
+			return nil, fmt.Errorf("failed to close successful response: %w", closeErr)
+		}
+	}
+
+	return conn, nil
+}
+
+func (d *DuskChecker) getSessionID() (string, error) {
 	_, message, err := d.ws.ReadMessage()
 	if err != nil {
-		if err := d.ws.Close(); err != nil {
-			return err
+		closeErr := d.ws.Close()
+		if closeErr != nil {
+			log.Printf("Error closing websocket after session ID failure: %v", closeErr)
 		}
 
-		return fmt.Errorf("failed to read session ID: %w", err)
+		return "", fmt.Errorf("failed to read session ID: %w", err)
 	}
 
-	d.sessionID = string(message)
-	log.Printf("Received session ID: %s", d.sessionID)
+	sessionID := string(message)
+	log.Printf("Received session ID: %s", sessionID)
 
-	// Create HTTP client for subscription
+	return sessionID, nil
+}
+
+func (d *DuskChecker) subscribeToBlocks(ctx context.Context) error {
 	client := &http.Client{}
+	subscribeURL := fmt.Sprintf("http://%s/on/blocks/accepted", d.Config.NodeAddress)
 
-	// Prepare subscription request according to RUES spec
-	subscribeURL := fmt.Sprintf("http://%s/on/blocks/accepted", d.Config.NodeAddress) //+nolint: gosec
-
-	req, err := http.NewRequest(http.MethodGet, subscribeURL, http.NoBody)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, subscribeURL, http.NoBody)
 	if err != nil {
 		return fmt.Errorf("failed to create subscription request: %w", err)
 	}
@@ -143,28 +183,29 @@ func (d *DuskChecker) StartMonitoring() error {
 	log.Printf("Sending subscription request to: %s", subscribeURL)
 	log.Printf("With headers: %v", req.Header)
 
-	// Send subscription request
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("subscription request failed: %w", err)
 	}
-	defer func(Body io.ReadCloser) {
-		err := Body.Close()
-		if err != nil {
-			log.Printf("Error closing response body: %v", err)
+
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			log.Printf("Error closing response body: %v", closeErr)
 		}
-	}(resp.Body)
+	}()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		// return fmt.Errorf("subscription failed with status %d: %s", resp.StatusCode, string(body))
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			log.Printf("Error reading error response body: %v", readErr)
+
+			body = []byte("failed to read error response body")
+		}
+
 		return fmt.Errorf("monitoring failed: %d %w %s", resp.StatusCode, errSubscriptionFail, string(body))
 	}
 
 	log.Printf("Successfully subscribed to block events")
-
-	// Start listening for events
-	go d.listenForEvents()
 
 	return nil
 }

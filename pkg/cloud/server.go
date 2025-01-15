@@ -314,6 +314,7 @@ func (s *Server) startNodeMonitoring(ctx context.Context) {
 
 func (s *Server) sendStartupNotification(ctx context.Context) {
 	log.Printf("Sending startup notification to %d webhooks", len(s.webhooks))
+
 	alert := alerts.WebhookAlert{
 		Level:     alerts.Info,
 		Title:     "Cloud Service Started",

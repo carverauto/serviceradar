@@ -1,4 +1,4 @@
-// pkg/agent/external_checker.go
+// Package agent pkg/agent/external_checker.go
 package agent
 
 import (
@@ -9,14 +9,23 @@ import (
 	grpcpkg "github.com/mfreeman451/homemon/pkg/grpc"
 )
 
-// ExternalChecker implements checker.Checker for external checker processes
+const (
+	maxRetries = 3
+)
+
+var (
+	errHealth        = fmt.Errorf("service is not healthy")
+	errServiceHealth = fmt.Errorf("service is not healthy")
+)
+
+// ExternalChecker implements checker.Checker for external checker processes.
 type ExternalChecker struct {
 	name    string
 	address string
 	client  *grpcpkg.ClientConn
 }
 
-// NewExternalChecker creates a new checker that connects to an external process
+// NewExternalChecker creates a new checker that connects to an external process.
 func NewExternalChecker(ctx context.Context, name, address string) (*ExternalChecker, error) {
 	log.Printf("Creating new external checker %s at %s", name, address)
 
@@ -24,7 +33,7 @@ func NewExternalChecker(ctx context.Context, name, address string) (*ExternalChe
 	client, err := grpcpkg.NewClient(
 		ctx,
 		address,
-		grpcpkg.WithMaxRetries(3),
+		grpcpkg.WithMaxRetries(maxRetries),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create gRPC client: %w", err)
@@ -43,21 +52,25 @@ func NewExternalChecker(ctx context.Context, name, address string) (*ExternalChe
 		if err != nil {
 			return nil, err
 		}
-		return nil, fmt.Errorf("initial health check failed: %w", err)
+
+		return nil, fmt.Errorf("extChecker: %w, err: %w", errHealth, err)
 	}
+
 	if !healthy {
 		err := client.Close()
 		if err != nil {
 			return nil, err
 		}
-		return nil, fmt.Errorf("service is not healthy")
+
+		return nil, errServiceHealth
 	}
 
 	log.Printf("Successfully created external checker %s", name)
+
 	return checker, nil
 }
 
-func (e *ExternalChecker) Check(ctx context.Context) (bool, string) {
+func (e *ExternalChecker) Check(ctx context.Context) (isAccessible bool, statusMsg string) {
 	// Use our client's health check functionality
 	healthy, err := e.client.CheckHealth(ctx, "")
 	if err != nil {
@@ -77,10 +90,11 @@ func (e *ExternalChecker) Check(ctx context.Context) (bool, string) {
 	return true, fmt.Sprintf("%s is healthy", e.name)
 }
 
-// Close cleans up the checker's resources
+// Close cleans up the checker's resources.
 func (e *ExternalChecker) Close() error {
 	if e.client != nil {
 		return e.client.Close()
 	}
+
 	return nil
 }
