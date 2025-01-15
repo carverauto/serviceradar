@@ -118,7 +118,13 @@ chmod 755 "${PKG_ROOT}/DEBIAN/prerm"
 
 echo "Building Debian package..."
 
+# Create release-artifacts directory if it doesn't exist
+mkdir -p release-artifacts
+
 # Build the package
 dpkg-deb --build "${PKG_ROOT}"
 
-echo "Package built: ${PKG_ROOT}.deb"
+# Move the deb file to the release-artifacts directory
+mv "${PKG_ROOT}.deb" "release-artifacts/"
+
+echo "Package built: release-artifacts/${PKG_ROOT}.deb"
