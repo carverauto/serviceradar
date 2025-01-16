@@ -19,12 +19,16 @@ import (
 )
 
 const (
-	defaultTimeout = 30 * time.Second
+	defaultTimeout           = 30 * time.Second
+	grpcConfigurationName    = "grpc"
+	portConfigurationName    = "port"
+	processConfigurationName = "process"
 )
 
 var (
 	errGrpcAddressRequired = errors.New("address is required for gRPC checker")
 	errUnknownCheckerType  = errors.New("unknown checker type")
+	errGrpcMissingConfig   = errors.New("no configuration or address provided for gRPC checker")
 )
 
 type Duration time.Duration
@@ -66,22 +70,28 @@ func NewServer(configDir string) (*Server, error) {
 
 func (d *Duration) UnmarshalJSON(b []byte) error {
 	var s string
+
 	if err := json.Unmarshal(b, &s); err == nil {
 		// user wrote e.g. "5m"
 		parsed, err := time.ParseDuration(s)
 		if err != nil {
 			return err
 		}
+
 		*d = Duration(parsed)
+
 		return nil
 	}
 
 	// fallback to number-of-nanoseconds if needed
 	var n int64
+
 	if err := json.Unmarshal(b, &n); err != nil {
 		return err
 	}
+
 	*d = Duration(time.Duration(n))
+
 	return nil
 }
 
@@ -119,20 +129,23 @@ func (s *Server) loadCheckerConfigs() error {
 }
 
 // initializeChecker creates and initializes a checker based on its configuration.
-func (*Server) initializeChecker(ctx context.Context, serviceName string, serviceType string, conf *CheckerConfig) (checker.Checker, error) {
+func (*Server) initializeChecker(
+	ctx context.Context,
+	serviceName, serviceType string,
+	conf *CheckerConfig) (checker.Checker, error) {
 	switch serviceType {
-	case "process":
+	case processConfigurationName:
 		return &ProcessChecker{
 			ProcessName: serviceName,
 		}, nil
 
-	case "port":
+	case portConfigurationName:
 		return &PortChecker{
 			Host: conf.Address,
 			Port: conf.Port,
 		}, nil
 
-	case "grpc":
+	case grpcConfigurationName:
 		if conf.Address == "" {
 			return nil, fmt.Errorf("gRPC checker %q: %w", serviceName, errGrpcAddressRequired)
 		}
@@ -157,6 +170,7 @@ func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*prot
 	defer cancel()
 
 	available, msg := check.Check(timeoutCtx)
+
 	return &proto.StatusResponse{
 		Available: available,
 		Message:   msg,
@@ -186,29 +200,33 @@ func (s *Server) getChecker(ctx context.Context, req *proto.StatusRequest) (chec
 		if err != nil {
 			return nil, err
 		}
+
 		s.checkers[dynamicKey] = c
+
 		return c, nil
 	}
 
 	// 3) No local config? Check the built-in dynamic types
 	switch req.ServiceType {
-	case "process":
+	case processConfigurationName:
 		pc := &ProcessChecker{
 			ProcessName: req.Details,
 		}
 		s.checkers[dynamicKey] = pc
+
 		return pc, nil
 
-	case "port":
+	case portConfigurationName:
 		host := "127.0.0.1"
 		portChecker := &PortChecker{
 			Host: host,
 			Port: int(req.Port),
 		}
 		s.checkers[dynamicKey] = portChecker
+
 		return portChecker, nil
 
-	case "grpc":
+	case grpcConfigurationName:
 		log.Printf("Handling gRPC checker request: name=%q details=%q",
 			req.GetServiceName(), req.GetDetails())
 
@@ -216,11 +234,14 @@ func (s *Server) getChecker(ctx context.Context, req *proto.StatusRequest) (chec
 		if req.Details != "" {
 			if conf, ok := s.checkerConfs[req.ServiceName]; ok {
 				log.Printf("Found matching config: %+v", conf)
+
 				c, err := s.initializeChecker(ctx, req.ServiceName, req.ServiceType, &conf)
 				if err != nil {
 					return nil, err
 				}
+
 				s.checkers[dynamicKey] = c
+
 				return c, nil
 			}
 
@@ -229,11 +250,13 @@ func (s *Server) getChecker(ctx context.Context, req *proto.StatusRequest) (chec
 			if err != nil {
 				return nil, err
 			}
+
 			s.checkers[dynamicKey] = ec
+
 			return ec, nil
 		}
 
-		return nil, fmt.Errorf("no configuration or address provided for gRPC checker")
+		return nil, errGrpcMissingConfig
 
 	default:
 		return nil, status.Errorf(codes.NotFound, "no config or dynamic checker for: %s", req.ServiceType)

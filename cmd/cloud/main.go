@@ -23,7 +23,7 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	server, err := cloud.NewServer(ctx, config)
+	server, err := cloud.NewServer(ctx, &config)
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)
 	}
@@ -48,6 +48,7 @@ func main() {
 	// Start HTTP server for API and web interface on the configured listen address
 	go func() {
 		log.Printf("Starting HTTP server on %s", config.ListenAddr)
+
 		if err := apiServer.Start(config.ListenAddr); err != nil {
 			log.Fatalf("HTTP server failed: %v", err)
 		}

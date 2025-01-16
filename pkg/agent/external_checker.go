@@ -51,9 +51,10 @@ func NewExternalChecker(ctx context.Context, serviceName, serviceType, address s
 	// Initial health check
 	healthy, err := client.CheckHealth(context.Background(), "")
 	if err != nil {
-		if err := client.Close(); err != nil {
-			return nil, err
+		if closeErr := client.Close(); closeErr != nil {
+			return nil, closeErr
 		}
+
 		return nil, fmt.Errorf("extChecker: %w, err: %w", errHealth, err)
 	}
 
@@ -61,6 +62,7 @@ func NewExternalChecker(ctx context.Context, serviceName, serviceType, address s
 		if err := client.Close(); err != nil {
 			return nil, err
 		}
+
 		return nil, errServiceHealth
 	}
 
@@ -69,31 +71,36 @@ func NewExternalChecker(ctx context.Context, serviceName, serviceType, address s
 	return checker, nil
 }
 
-func (e *ExternalChecker) Check(ctx context.Context) (bool, string) {
+func (e *ExternalChecker) Check(ctx context.Context) (isAccessible bool, statusMsg string) {
 	// First check basic health
 	healthy, err := e.client.CheckHealth(ctx, "")
 	if err != nil {
 		log.Printf("External checker %s: Health check failed: %v", e.serviceName, err)
+
 		return false, fmt.Sprintf("Failed to check %s: %v", e.serviceName, err)
 	}
 
 	if !healthy {
 		log.Printf("External checker %s: Service reported unhealthy", e.serviceName)
+
 		return false, fmt.Sprintf("%s is not healthy", e.serviceName)
 	}
 
 	// Then get block details through AgentService
 	client := proto.NewAgentServiceClient(e.client.GetConnection())
+
 	status, err := client.GetStatus(ctx, &proto.StatusRequest{
 		ServiceName: e.serviceName,
 		ServiceType: e.serviceType,
 	})
 	if err != nil {
 		log.Printf("External checker %s: Failed to get details: %v", e.serviceName, err)
+
 		return true, fmt.Sprintf("%s is healthy but details unavailable", e.serviceName)
 	}
 
 	log.Printf("External checker %s: Received status message: %s", e.serviceName, status.Message)
+
 	return true, status.Message
 }
 

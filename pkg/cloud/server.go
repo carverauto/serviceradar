@@ -208,7 +208,7 @@ func (s *Server) checkInitialStates(ctx context.Context) {
 	}
 }
 
-func NewServer(ctx context.Context, config Config) (*Server, error) {
+func NewServer(ctx context.Context, config *Config) (*Server, error) {
 	server := &Server{
 		lastSeen:           make(map[string]time.Time),
 		alertThreshold:     config.AlertThreshold,
@@ -220,7 +220,7 @@ func NewServer(ctx context.Context, config Config) (*Server, error) {
 		knownPollers:       config.KnownPollers,
 	}
 
-	server.initializeGRPCServer(&config)
+	server.initializeGRPCServer(config)
 
 	if err := server.initializeStorage(); err != nil {
 		return nil, fmt.Errorf("failed to initialize storage: %w", err)
@@ -309,7 +309,7 @@ func (s *Server) startNodeMonitoring(ctx context.Context) {
 
 	// Check never-reported pollers
 	time.Sleep(nodeNeverReportedTimeout)
-	s.checkNeverReportedPollers(ctx, Config{KnownPollers: s.knownPollers})
+	s.checkNeverReportedPollers(ctx, &Config{KnownPollers: s.knownPollers})
 }
 
 func (s *Server) sendStartupNotification(ctx context.Context) {
@@ -330,7 +330,7 @@ func (s *Server) sendStartupNotification(ctx context.Context) {
 	s.sendAlert(ctx, &alert)
 }
 
-func (s *Server) checkNeverReportedPollers(ctx context.Context, config Config) {
+func (s *Server) checkNeverReportedPollers(ctx context.Context, config *Config) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
