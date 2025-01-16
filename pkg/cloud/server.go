@@ -400,6 +400,7 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 			var raw json.RawMessage
 			if err := json.Unmarshal([]byte(svc.Message), &raw); err == nil {
 				svcStatus.Details = raw
+				log.Printf("Successfully parsed Dusk node details for node %s", pollerID)
 			}
 		}
 

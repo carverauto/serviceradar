@@ -11,6 +11,7 @@ import (
 
 	"github.com/mfreeman451/homemon/pkg/checker/dusk"
 	"github.com/mfreeman451/homemon/pkg/grpc"
+	"github.com/mfreeman451/homemon/proto"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
 )
@@ -68,7 +69,10 @@ func main() {
 		log.Fatalf("Failed to register health server: %v", err)
 	}
 
-	log.Printf("Registered health server")
+	blockService := dusk.NewDuskBlockService(checker)
+	proto.RegisterAgentServiceServer(grpcServer.GetGRPCServer(), blockService)
+
+	log.Printf("Registered health check and block data service")
 
 	// Handle shutdown gracefully
 	sigCh := make(chan os.Signal, 1)

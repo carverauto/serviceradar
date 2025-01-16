@@ -7,6 +7,7 @@ import (
 	"log"
 
 	grpcpkg "github.com/mfreeman451/homemon/pkg/grpc"
+	"github.com/mfreeman451/homemon/proto"
 )
 
 const (
@@ -70,24 +71,31 @@ func NewExternalChecker(ctx context.Context, name, address string) (*ExternalChe
 	return checker, nil
 }
 
-func (e *ExternalChecker) Check(ctx context.Context) (isAccessible bool, statusMsg string) {
-	// Use our client's health check functionality
+func (e *ExternalChecker) Check(ctx context.Context) (bool, string) {
+	// First check basic health
 	healthy, err := e.client.CheckHealth(ctx, "")
 	if err != nil {
+		log.Printf("External checker %s: Health check failed: %v", e.name, err)
 		return false, fmt.Sprintf("Failed to check %s: %v", e.name, err)
 	}
 
 	if !healthy {
+		log.Printf("External checker %s: Service reported unhealthy", e.name)
 		return false, fmt.Sprintf("%s is not healthy", e.name)
 	}
 
-	// Get detailed status if available
-	details := e.client.GetHealthDetails()
-	if details != "" {
-		return true, details
+	// Then get block details through AgentService
+	client := proto.NewAgentServiceClient(e.client.GetConnection())
+	status, err := client.GetStatus(ctx, &proto.StatusRequest{
+		ServiceName: "dusk",
+	})
+	if err != nil {
+		log.Printf("External checker %s: Failed to get block details: %v", e.name, err)
+		return true, fmt.Sprintf("%s is healthy but block details unavailable", e.name)
 	}
 
-	return true, fmt.Sprintf("%s is healthy", e.name)
+	log.Printf("External checker %s: Received status message: %s", e.name, status.Message)
+	return true, status.Message
 }
 
 // Close cleans up the checker's resources.

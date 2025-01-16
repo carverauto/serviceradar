@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/mfreeman451/homemon/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/health/grpc_health_v1"
@@ -64,6 +65,59 @@ func NewHealthServer(checker *DuskChecker) *HealthServer {
 	return &HealthServer{
 		checker: checker,
 	}
+}
+
+// DuskBlockService provides block data via gRPC.
+type DuskBlockService struct {
+	proto.UnimplementedAgentServiceServer
+	checker *DuskChecker
+}
+
+func NewDuskBlockService(checker *DuskChecker) *DuskBlockService {
+	return &DuskBlockService{
+		checker: checker,
+	}
+}
+
+// GetStatus implements the AgentService GetStatus method
+func (s *DuskBlockService) GetStatus(ctx context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
+	s.checker.mu.RLock()
+	defer s.checker.mu.RUnlock()
+
+	log.Printf("DuskBlockService.GetStatus called. Last block: Height=%d Hash=%s",
+		s.checker.lastBlockData.Height,
+		s.checker.lastBlockData.Hash)
+
+	if s.checker.ws == nil {
+		return &proto.StatusResponse{
+			Available: false,
+			Message:   "WebSocket connection not established",
+		}, nil
+	}
+
+	// Create block details structure
+	blockData := map[string]interface{}{
+		"height":    s.checker.lastBlockData.Height,
+		"hash":      s.checker.lastBlockData.Hash,
+		"timestamp": s.checker.lastBlockData.Timestamp.Format(time.RFC3339),
+		"last_seen": s.checker.lastBlockData.LastSeen.Format(time.RFC3339),
+	}
+
+	blockDetailsJSON, err := json.Marshal(blockData)
+	if err != nil {
+		log.Printf("Error marshaling block details: %v", err)
+		return &proto.StatusResponse{
+			Available: true,
+			Message:   "Dusk node is healthy but failed to marshal block details",
+		}, nil
+	}
+
+	log.Printf("DuskBlockService: Returning block details: %s", string(blockDetailsJSON))
+
+	return &proto.StatusResponse{
+		Available: true,
+		Message:   string(blockDetailsJSON),
+	}, nil
 }
 
 func (c *Config) UnmarshalJSON(data []byte) error {
@@ -297,21 +351,26 @@ func (s *HealthServer) Check(ctx context.Context, req *grpc_health_v1.HealthChec
 	defer s.checker.mu.RUnlock()
 
 	if s.checker.ws == nil {
+		log.Printf("Health check failed: WebSocket connection not established")
 		return &grpc_health_v1.HealthCheckResponse{
 			Status: grpc_health_v1.HealthCheckResponse_NOT_SERVING,
-		}, fmt.Errorf("websocket connection not established")
+		}, nil
 	}
 
 	// Create block details structure
 	blockData := map[string]interface{}{
 		"height":    s.checker.lastBlockData.Height,
 		"hash":      s.checker.lastBlockData.Hash,
-		"timestamp": s.checker.lastBlockData.Timestamp,
-		"last_seen": s.checker.lastBlockData.LastSeen,
-		"history":   s.checker.blockHistory,
+		"timestamp": s.checker.lastBlockData.Timestamp.Format(time.RFC3339),
+		"last_seen": s.checker.lastBlockData.LastSeen.Format(time.RFC3339),
 	}
 
-	// Convert to JSON
+	// Add detailed logging before sending
+	log.Printf("Preparing block details for health check. Height=%d Hash=%s LastSeen=%v",
+		s.checker.lastBlockData.Height,
+		s.checker.lastBlockData.Hash,
+		s.checker.lastBlockData.LastSeen.Format(time.RFC3339))
+
 	blockDetailsJSON, err := json.Marshal(blockData)
 	if err != nil {
 		log.Printf("Error marshaling block details: %v", err)
@@ -320,24 +379,10 @@ func (s *HealthServer) Check(ctx context.Context, req *grpc_health_v1.HealthChec
 		md := metadata.Pairs("block-details", string(blockDetailsJSON))
 		// Send metadata back as header
 		if err := grpc.SetHeader(ctx, md); err != nil {
-			log.Printf("Error setting header: %v", err)
+			log.Printf("Error setting metadata header: %v", err)
+		} else {
+			log.Printf("Successfully set block details in metadata: %s", string(blockDetailsJSON))
 		}
-	}
-
-	if s.checker.lastBlock.IsZero() {
-		log.Printf("Health check warning: Connected but no blocks received yet. Session ID: %s", s.checker.sessionID)
-		return &grpc_health_v1.HealthCheckResponse{
-			Status: grpc_health_v1.HealthCheckResponse_NOT_SERVING,
-		}, nil
-	}
-
-	timeSinceLastBlock := time.Since(s.checker.lastBlock)
-	if timeSinceLastBlock > s.checker.Config.Timeout {
-		log.Printf("Health check failed: No blocks received in %v. Last block at: %v",
-			timeSinceLastBlock, s.checker.lastBlock.Format(time.RFC3339))
-		return &grpc_health_v1.HealthCheckResponse{
-			Status: grpc_health_v1.HealthCheckResponse_NOT_SERVING,
-		}, nil
 	}
 
 	return &grpc_health_v1.HealthCheckResponse{

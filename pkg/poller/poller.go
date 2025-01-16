@@ -258,10 +258,17 @@ func (p *Poller) poll(ctx context.Context) error {
 	allStatuses := make([]*proto.ServiceStatus, 0)
 
 	for agentName, agentConfig := range p.config.Agents {
+		log.Printf("Polling agent %s...", agentName)
 		statuses, err := p.pollAgent(ctx, agentName, agentConfig)
 		if err != nil {
 			log.Printf("Error polling agent %s: %v", agentName, err)
 			continue
+		}
+
+		// Log each service status
+		for _, status := range statuses {
+			log.Printf("Agent %s service %s status: available=%v message=%s",
+				agentName, status.ServiceName, status.Available, status.Message)
 		}
 
 		allStatuses = append(allStatuses, statuses...)
@@ -280,7 +287,6 @@ func (p *Poller) poll(ctx context.Context) error {
 	}
 
 	log.Printf("Poll cycle completed successfully")
-
 	return nil
 }
 
