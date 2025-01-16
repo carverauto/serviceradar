@@ -392,7 +392,7 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 			Name:      svc.ServiceName,
 			Available: svc.Available,
 			Message:   svc.Message,
-			Type:      svc.Type,
+			Type:      svc.ServiceType,
 		}
 
 		// Try to parse service details if present
