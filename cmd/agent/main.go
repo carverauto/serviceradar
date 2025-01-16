@@ -38,6 +38,7 @@ func main() {
 	hs := health.NewServer()
 	hs.SetServingStatus("AgentService", healthpb.HealthCheckResponse_SERVING)
 	err := grpcServer.RegisterHealthServer(hs)
+
 	if err != nil {
 		log.Fatalf("Failed to register health server: %v", err)
 	}
@@ -47,6 +48,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create agent server: %v", err)
 	}
+
 	defer func(server *agent.Server) {
 		err := server.Close()
 		if err != nil {
@@ -59,8 +61,10 @@ func main() {
 
 	// Start gRPC server in a goroutine
 	errChan := make(chan error, 1)
+
 	go func() {
 		log.Printf("gRPC server listening on %s", *listenAddr)
+
 		if err := grpcServer.Start(); err != nil {
 			errChan <- err
 		}

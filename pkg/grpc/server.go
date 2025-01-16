@@ -19,7 +19,8 @@ import (
 type ServerOption func(*Server)
 
 var (
-	errInternalError = fmt.Errorf("internal error")
+	errInternalError          = fmt.Errorf("internal error")
+	errHealthServerRegistered = fmt.Errorf("health server already registered")
 )
 
 // Server wraps a gRPC server with additional functionality.
@@ -72,17 +73,10 @@ func (s *Server) RegisterHealthServer(healthServer healthpb.HealthServer) error 
 
 	// Only register health server if not already registered
 	if s.healthCheck != nil {
-		return fmt.Errorf("health server already registered")
+		return errHealthServerRegistered
 	}
 
 	healthpb.RegisterHealthServer(s.srv, healthServer)
-
-	// Type assert safely
-	if hs, ok := healthServer.(*health.Server); ok {
-		s.healthCheck = hs
-	} else {
-		return fmt.Errorf("health server is not of expected type")
-	}
 
 	return nil
 }
@@ -167,6 +161,7 @@ func RecoveryInterceptor(
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("Recovered from panic in %s: %v", info.FullMethod, r)
+
 			err = errInternalError
 		}
 	}()

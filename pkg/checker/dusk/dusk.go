@@ -29,7 +29,6 @@ const (
 
 var (
 	errSubscriptionFail = fmt.Errorf("subscription failed")
-	errWebsocketError   = fmt.Errorf("websocket error")
 )
 
 type Config struct {
@@ -79,8 +78,9 @@ func NewDuskBlockService(checker *DuskChecker) *DuskBlockService {
 	}
 }
 
-// GetStatus implements the AgentService GetStatus method
-func (s *DuskBlockService) GetStatus(ctx context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
+// GetStatus implements the AgentService GetStatus method.
+// TODO: clean this up - find a way to use the context or drop those as arguments.
+func (s *DuskBlockService) GetStatus(_ context.Context, _ *proto.StatusRequest) (*proto.StatusResponse, error) {
 	s.checker.mu.RLock()
 	defer s.checker.mu.RUnlock()
 
@@ -106,6 +106,7 @@ func (s *DuskBlockService) GetStatus(ctx context.Context, req *proto.StatusReque
 	blockDetailsJSON, err := json.Marshal(blockData)
 	if err != nil {
 		log.Printf("Error marshaling block details: %v", err)
+
 		return &proto.StatusResponse{
 			Available: true,
 			Message:   "Dusk node is healthy but failed to marshal block details",
@@ -346,12 +347,13 @@ func (d *DuskChecker) listenForEvents() {
 	}
 }
 
-func (s *HealthServer) Check(ctx context.Context, req *grpc_health_v1.HealthCheckRequest) (*grpc_health_v1.HealthCheckResponse, error) {
+func (s *HealthServer) Check(ctx context.Context, _ *grpc_health_v1.HealthCheckRequest) (*grpc_health_v1.HealthCheckResponse, error) {
 	s.checker.mu.RLock()
 	defer s.checker.mu.RUnlock()
 
 	if s.checker.ws == nil {
 		log.Printf("Health check failed: WebSocket connection not established")
+
 		return &grpc_health_v1.HealthCheckResponse{
 			Status: grpc_health_v1.HealthCheckResponse_NOT_SERVING,
 		}, nil
@@ -407,7 +409,7 @@ func LoadConfig(path string) (Config, error) {
 }
 
 // Watch implements the health check watch RPC (required by the interface).
-func (s *HealthServer) Watch(*grpc_health_v1.HealthCheckRequest, grpc_health_v1.Health_WatchServer) error {
+func (*HealthServer) Watch(*grpc_health_v1.HealthCheckRequest, grpc_health_v1.Health_WatchServer) error {
 	return status.Error(codes.Unimplemented, "watch is not implemented")
 }
 

@@ -190,6 +190,7 @@ func (p *Poller) pollAgent(ctx context.Context, agentName string, agentConfig Ag
 					Message:     err.Error(),
 					ServiceType: check.Type,
 				}
+
 				return
 			}
 
@@ -261,6 +262,7 @@ func (p *Poller) poll(ctx context.Context) error {
 
 	for agentName, agentConfig := range p.config.Agents {
 		log.Printf("Polling agent %s...", agentName)
+
 		statuses, err := p.pollAgent(ctx, agentName, agentConfig)
 		if err != nil {
 			log.Printf("Error polling agent %s: %v", agentName, err)
@@ -289,6 +291,7 @@ func (p *Poller) poll(ctx context.Context) error {
 	}
 
 	log.Printf("Poll cycle completed successfully")
+
 	return nil
 }
 

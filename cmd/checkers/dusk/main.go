@@ -28,6 +28,7 @@ func main() {
 	flag.Parse()
 
 	log.Printf("Loading config from: %s", *configFile)
+
 	config, err := dusk.LoadConfig(*configFile)
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
@@ -46,8 +47,10 @@ func main() {
 
 	// Start monitoring Dusk node
 	log.Printf("Starting monitoring...")
+
 	if err := checker.StartMonitoring(ctx); err != nil {
-		log.Fatalf("Failed to start monitoring: %v", err)
+		log.Printf("Failed to start monitoring: %v", err)
+		cancel() // Cancel context if monitoring fails
 	}
 
 	// Create gRPC server with options
@@ -56,17 +59,12 @@ func main() {
 		grpc.WithMaxSendSize(maxSendSize),
 	)
 
-	// Create and register health server
-	//healthServer := dusk.NewHealthServer(checker)
-	//if err := grpcServer.RegisterHealthServer(healthServer); err != nil {
-	//	log.Fatalf("Failed to register health server: %v", err)
-	//}
-
 	hs := health.NewServer()
 	hs.SetServingStatus("dusk-checker", grpc_health_v1.HealthCheckResponse_SERVING)
 
 	if err := grpcServer.RegisterHealthServer(hs); err != nil {
-		log.Fatalf("Failed to register health server: %v", err)
+		log.Printf("Failed to register health server: %v", err)
+		cancel() // Cancel context if health server fails
 	}
 
 	blockService := dusk.NewDuskBlockService(checker)
@@ -81,6 +79,7 @@ func main() {
 	// Start gRPC server
 	go func() {
 		log.Printf("Starting gRPC server on %s", config.ListenAddr)
+
 		if err := grpcServer.Start(); err != nil {
 			log.Printf("gRPC server failed: %v", err)
 			cancel() // Cancel context if server fails
@@ -98,5 +97,6 @@ func main() {
 	// Initiate graceful shutdown
 	close(checker.Done) // Stop the checker
 	grpcServer.Stop()   // Stop the gRPC server
+
 	log.Printf("Shutdown complete")
 }
