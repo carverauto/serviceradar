@@ -119,11 +119,11 @@ func (s *Server) loadCheckerConfigs() error {
 }
 
 // initializeChecker creates and initializes a checker based on its configuration.
-func (*Server) initializeChecker(ctx context.Context, name string, conf *CheckerConfig) (checker.Checker, error) {
-	switch conf.Type {
+func (*Server) initializeChecker(ctx context.Context, serviceName string, serviceType string, conf *CheckerConfig) (checker.Checker, error) {
+	switch serviceType {
 	case "process":
 		return &ProcessChecker{
-			ProcessName: name,
+			ProcessName: serviceName,
 		}, nil
 
 	case "port":
@@ -134,13 +134,13 @@ func (*Server) initializeChecker(ctx context.Context, name string, conf *Checker
 
 	case "grpc":
 		if conf.Address == "" {
-			return nil, fmt.Errorf("gRPC checker %q: %w", name, errGrpcAddressRequired)
+			return nil, fmt.Errorf("gRPC checker %q: %w", serviceName, errGrpcAddressRequired)
 		}
 
-		return NewExternalChecker(ctx, name, conf.Address)
+		return NewExternalChecker(ctx, serviceName, serviceType, conf.Address)
 
 	default:
-		return nil, fmt.Errorf("checker %q: %w", name, errUnknownCheckerType)
+		return nil, fmt.Errorf("checker %q: %w", serviceName, errUnknownCheckerType)
 	}
 }
 
@@ -167,30 +167,22 @@ func (s *Server) getChecker(ctx context.Context, req *proto.StatusRequest) (chec
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	serviceName := req.ServiceName
-
 	// Add debug logging
-	log.Printf("Got checker request: serviceName=%q details=%q port=%d",
-		req.GetServiceName(), req.GetDetails(), req.GetPort())
+	log.Printf("Got checker request: serviceName=%q serviceType=%q details=%q port=%d",
+		req.GetServiceName(), req.GetServiceType(), req.GetDetails(), req.GetPort())
 	log.Printf("Available configs: %v", s.checkerConfs)
 
-	// 1) Already created a dynamic checker? Re-use it
-	//    We'll create a key like "process:rusk" so we can handle multiple
-	//    processes or ports
-	dynamicKey := serviceName
-	if req.Details != "" {
-		dynamicKey += ":" + req.Details
-	} else if req.Port > 0 {
-		dynamicKey += fmt.Sprintf(":p%d", req.Port)
-	}
+	// Create a unique key for the checker
+	dynamicKey := fmt.Sprintf("%s:%s", req.GetServiceType(), req.GetServiceName())
 
+	// 1) Already created a dynamic checker? Re-use it
 	if check, exists := s.checkers[dynamicKey]; exists {
 		return check, nil
 	}
 
-	// 2) If there's a local JSON config for "serviceName," use that
-	if conf, ok := s.checkerConfs[serviceName]; ok {
-		c, err := s.initializeChecker(ctx, serviceName, &conf)
+	// 2) If there's a local JSON config for the service name, use that
+	if conf, ok := s.checkerConfs[req.ServiceName]; ok {
+		c, err := s.initializeChecker(ctx, req.ServiceName, req.ServiceType, &conf)
 		if err != nil {
 			return nil, err
 		}
@@ -199,18 +191,16 @@ func (s *Server) getChecker(ctx context.Context, req *proto.StatusRequest) (chec
 	}
 
 	// 3) No local config? Check the built-in dynamic types
-	switch serviceName {
+	switch req.ServiceType {
 	case "process":
 		pc := &ProcessChecker{
-			ProcessName: req.Details, // e.g. "rusk"
+			ProcessName: req.Details,
 		}
 		s.checkers[dynamicKey] = pc
 		return pc, nil
 
 	case "port":
 		host := "127.0.0.1"
-		// If you wanted host in req.Details, you could parse it here
-		// e.g. host = req.Details if not empty
 		portChecker := &PortChecker{
 			Host: host,
 			Port: int(req.Port),
@@ -219,13 +209,14 @@ func (s *Server) getChecker(ctx context.Context, req *proto.StatusRequest) (chec
 		return portChecker, nil
 
 	case "grpc":
-		log.Printf("Handling gRPC checker request: details=%q", req.GetDetails())
+		log.Printf("Handling gRPC checker request: name=%q details=%q",
+			req.GetServiceName(), req.GetDetails())
 
 		// If we have details, try them first
 		if req.Details != "" {
-			if conf, ok := s.checkerConfs[req.Details]; ok {
+			if conf, ok := s.checkerConfs[req.ServiceName]; ok {
 				log.Printf("Found matching config: %+v", conf)
-				c, err := s.initializeChecker(ctx, req.Details, &conf)
+				c, err := s.initializeChecker(ctx, req.ServiceName, req.ServiceType, &conf)
 				if err != nil {
 					return nil, err
 				}
@@ -234,7 +225,7 @@ func (s *Server) getChecker(ctx context.Context, req *proto.StatusRequest) (chec
 			}
 
 			// If details doesn't match a config name, try as address
-			ec, err := NewExternalChecker(ctx, serviceName, req.Details)
+			ec, err := NewExternalChecker(ctx, req.ServiceName, req.ServiceType, req.Details)
 			if err != nil {
 				return nil, err
 			}
@@ -242,23 +233,10 @@ func (s *Server) getChecker(ctx context.Context, req *proto.StatusRequest) (chec
 			return ec, nil
 		}
 
-		// If no details provided, look for a single gRPC config
-		for name, conf := range s.checkerConfs {
-			if conf.Type == "grpc" {
-				log.Printf("Found gRPC config: %s", name)
-				c, err := s.initializeChecker(ctx, name, &conf)
-				if err != nil {
-					return nil, err
-				}
-				s.checkers[dynamicKey] = c
-				return c, nil
-			}
-		}
-
 		return nil, fmt.Errorf("no configuration or address provided for gRPC checker")
 
 	default:
-		return nil, status.Errorf(codes.NotFound, "no config or dynamic checker for: %s", serviceName)
+		return nil, status.Errorf(codes.NotFound, "no config or dynamic checker for: %s", req.ServiceType)
 	}
 }
 

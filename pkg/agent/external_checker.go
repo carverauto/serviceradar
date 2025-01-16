@@ -21,14 +21,15 @@ var (
 
 // ExternalChecker implements checker.Checker for external checker processes.
 type ExternalChecker struct {
-	name    string
-	address string
-	client  *grpcpkg.ClientConn
+	serviceName string // Name of the service (e.g., "dusk")
+	serviceType string // Type of service (e.g., "grpc")
+	address     string
+	client      *grpcpkg.ClientConn
 }
 
 // NewExternalChecker creates a new checker that connects to an external process.
-func NewExternalChecker(ctx context.Context, name, address string) (*ExternalChecker, error) {
-	log.Printf("Creating new external checker %s at %s", name, address)
+func NewExternalChecker(ctx context.Context, serviceName, serviceType, address string) (*ExternalChecker, error) {
+	log.Printf("Creating new external checker name=%s type=%s at %s", serviceName, serviceType, address)
 
 	// Create client using our gRPC package
 	client, err := grpcpkg.NewClient(
@@ -41,32 +42,29 @@ func NewExternalChecker(ctx context.Context, name, address string) (*ExternalChe
 	}
 
 	checker := &ExternalChecker{
-		name:    name,
-		address: address,
-		client:  client,
+		serviceName: serviceName,
+		serviceType: serviceType,
+		address:     address,
+		client:      client,
 	}
 
 	// Initial health check
 	healthy, err := client.CheckHealth(context.Background(), "")
 	if err != nil {
-		err := client.Close()
-		if err != nil {
+		if err := client.Close(); err != nil {
 			return nil, err
 		}
-
 		return nil, fmt.Errorf("extChecker: %w, err: %w", errHealth, err)
 	}
 
 	if !healthy {
-		err := client.Close()
-		if err != nil {
+		if err := client.Close(); err != nil {
 			return nil, err
 		}
-
 		return nil, errServiceHealth
 	}
 
-	log.Printf("Successfully created external checker %s", name)
+	log.Printf("Successfully created external checker name=%s type=%s", serviceName, serviceType)
 
 	return checker, nil
 }
@@ -75,26 +73,27 @@ func (e *ExternalChecker) Check(ctx context.Context) (bool, string) {
 	// First check basic health
 	healthy, err := e.client.CheckHealth(ctx, "")
 	if err != nil {
-		log.Printf("External checker %s: Health check failed: %v", e.name, err)
-		return false, fmt.Sprintf("Failed to check %s: %v", e.name, err)
+		log.Printf("External checker %s: Health check failed: %v", e.serviceName, err)
+		return false, fmt.Sprintf("Failed to check %s: %v", e.serviceName, err)
 	}
 
 	if !healthy {
-		log.Printf("External checker %s: Service reported unhealthy", e.name)
-		return false, fmt.Sprintf("%s is not healthy", e.name)
+		log.Printf("External checker %s: Service reported unhealthy", e.serviceName)
+		return false, fmt.Sprintf("%s is not healthy", e.serviceName)
 	}
 
 	// Then get block details through AgentService
 	client := proto.NewAgentServiceClient(e.client.GetConnection())
 	status, err := client.GetStatus(ctx, &proto.StatusRequest{
-		ServiceName: "dusk",
+		ServiceName: e.serviceName,
+		ServiceType: e.serviceType,
 	})
 	if err != nil {
-		log.Printf("External checker %s: Failed to get block details: %v", e.name, err)
-		return true, fmt.Sprintf("%s is healthy but block details unavailable", e.name)
+		log.Printf("External checker %s: Failed to get details: %v", e.serviceName, err)
+		return true, fmt.Sprintf("%s is healthy but details unavailable", e.serviceName)
 	}
 
-	log.Printf("External checker %s: Received status message: %s", e.name, status.Message)
+	log.Printf("External checker %s: Received status message: %s", e.serviceName, status.Message)
 	return true, status.Message
 }
 

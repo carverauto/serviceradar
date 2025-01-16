@@ -52,7 +52,8 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 
 // Check represents a service check configuration.
 type Check struct {
-	Type    string `json:"type"`
+	Type    string `json:"service_type"`
+	Name    string `json:"service_name"`
 	Details string `json:"details,omitempty"`
 	Port    int32  `json:"port,omitempty"`
 }
@@ -175,7 +176,8 @@ func (p *Poller) pollAgent(ctx context.Context, agentName string, agentConfig Ag
 			defer wg.Done()
 
 			status, err := client.GetStatus(checkCtx, &proto.StatusRequest{
-				ServiceName: check.Type,
+				ServiceName: check.Name,
+				ServiceType: check.Type,
 				Details:     check.Details,
 				Port:        check.Port,
 			})
@@ -183,19 +185,19 @@ func (p *Poller) pollAgent(ctx context.Context, agentName string, agentConfig Ag
 			if err != nil {
 				errors <- fmt.Errorf("error checking %s: %w", check.Type, err)
 				results <- &proto.ServiceStatus{
-					ServiceName: check.Type,
+					ServiceName: check.Name,
 					Available:   false,
 					Message:     err.Error(),
-					Type:        check.Type,
+					ServiceType: check.Type,
 				}
-
 				return
 			}
+
 			results <- &proto.ServiceStatus{
-				ServiceName: check.Type,
+				ServiceName: check.Name,
 				Available:   status.Available,
 				Message:     status.Message,
-				Type:        check.Type,
+				ServiceType: check.Type,
 			}
 		}(check)
 	}
