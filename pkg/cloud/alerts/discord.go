@@ -2,7 +2,6 @@ package alerts
 
 import "time"
 
-// Discord colors (for reference)
 const (
 	DiscordColorRed    = 15158332 // Error
 	DiscordColorYellow = 16776960 // Warning

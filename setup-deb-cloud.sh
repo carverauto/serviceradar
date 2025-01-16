@@ -43,7 +43,7 @@ Section: utils
 Priority: optional
 Architecture: amd64
 Depends: systemd
-Maintainer: Your Name <your.email@example.com>
+Maintainer: Michael Freeman <mfreeman451@gmail.com>
 Description: HomeMon cloud service with web interface
  Provides centralized monitoring and web dashboard for HomeMon.
 Config: /etc/homemon/cloud.json
@@ -66,6 +66,9 @@ User=homemon
 ExecStart=/usr/local/bin/homemon-cloud -config /etc/homemon/cloud.json
 Restart=always
 RestartSec=10
+TimeoutStopSec=20
+KillMode=mixed
+KillSignal=SIGTERM
 
 [Install]
 WantedBy=multi-user.target

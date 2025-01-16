@@ -1,4 +1,4 @@
-// pkg/poller/poller.go
+// Package poller pkg/poller/poller.go
 package poller
 
 import (
@@ -6,14 +6,25 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
+	"github.com/mfreeman451/homemon/pkg/grpc"
 	"github.com/mfreeman451/homemon/proto"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 )
 
-// Duration is a wrapper around time.Duration for JSON unmarshaling
+const (
+	grpcRetries    = 3
+	defaultTimeout = 30 * time.Second
+)
+
+var (
+	ErrInvalidDuration      = fmt.Errorf("invalid duration")
+	ErrNoConnectionForAgent = fmt.Errorf("no connection found for agent")
+	ErrAgentUnhealthy       = fmt.Errorf("agent is unhealthy")
+)
+
+// Duration is a wrapper around time.Duration for JSON unmarshaling.
 type Duration time.Duration
 
 func (d *Duration) UnmarshalJSON(b []byte) error {
@@ -21,6 +32,7 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 	if err := json.Unmarshal(b, &v); err != nil {
 		return err
 	}
+
 	switch value := v.(type) {
 	case float64:
 		*d = Duration(time.Duration(value))
@@ -29,27 +41,30 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 		if err != nil {
 			return err
 		}
+
 		*d = Duration(tmp)
 	default:
-		return fmt.Errorf("invalid duration")
+		return ErrInvalidDuration
 	}
+
 	return nil
 }
 
-// Check represents a service check configuration
+// Check represents a service check configuration.
 type Check struct {
-	Type    string `json:"type"`
+	Type    string `json:"service_type"`
+	Name    string `json:"service_name"`
 	Details string `json:"details,omitempty"`
 	Port    int32  `json:"port,omitempty"`
 }
 
-// AgentConfig represents configuration for a single agent
+// AgentConfig represents configuration for a single agent.
 type AgentConfig struct {
 	Address string  `json:"address"`
 	Checks  []Check `json:"checks"`
 }
 
-// Config represents the poller configuration
+// Config represents the poller configuration.
 type Config struct {
 	Agents       map[string]AgentConfig `json:"agents"`
 	CloudAddress string                 `json:"cloud_address"`
@@ -57,85 +72,212 @@ type Config struct {
 	PollerID     string                 `json:"poller_id"`
 }
 
-// Poller represents the monitoring poller
+// AgentConnection represents a connection to an agent.
+type AgentConnection struct {
+	client    *grpc.ClientConn
+	agentName string
+}
+
+// Poller represents the monitoring poller.
 type Poller struct {
 	config      Config
 	cloudClient proto.PollerServiceClient
+	grpcClient  *grpc.ClientConn
+	mu          sync.RWMutex
+	agents      map[string]*AgentConnection
 }
 
-func New(config Config) (*Poller, error) {
-	conn, err := grpc.Dial(config.CloudAddress,
-		grpc.WithTransportCredentials(insecure.NewCredentials()))
+func New(ctx context.Context, config Config) (*Poller, error) {
+	// Create gRPC client connection
+	client, err := grpc.NewClient(ctx, config.CloudAddress,
+		grpc.WithMaxRetries(grpcRetries),
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	return &Poller{
+	p := &Poller{
 		config:      config,
-		cloudClient: proto.NewPollerServiceClient(conn),
-	}, nil
-}
-
-func (p *Poller) pollAgent(ctx context.Context, agentName string, agentConfig AgentConfig) ([]*proto.ServiceStatus, error) {
-	log.Printf("Polling agent %s at %s", agentName, agentConfig.Address)
-
-	conn, err := grpc.Dial(agentConfig.Address,
-		grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to agent: %w", err)
+		cloudClient: proto.NewPollerServiceClient(client.GetConnection()),
+		grpcClient:  client,
+		agents:      make(map[string]*AgentConnection),
 	}
-	defer conn.Close()
 
-	client := proto.NewAgentServiceClient(conn)
-	statuses := make([]*proto.ServiceStatus, 0, len(agentConfig.Checks))
-
-	// Check each configured service
-	for _, check := range agentConfig.Checks {
-		log.Printf("Checking %s service on agent %s", check.Type, agentName)
-
-		status, err := client.GetStatus(ctx, &proto.StatusRequest{
-			ServiceName: check.Type,
-			Details:     check.Details,
-			Port:        check.Port,
-		})
+	// Initialize connections to all agents
+	if err := p.initializeAgentConnections(ctx); err != nil {
+		err := client.Close()
 		if err != nil {
-			log.Printf("Error checking service %s on agent %s: %v",
-				check.Type, agentName, err)
-			statuses = append(statuses, &proto.ServiceStatus{
-				ServiceName: check.Type,
-				Available:   false,
-				Message:     err.Error(),
-			})
-			continue
+			return nil, err
 		}
 
-		log.Printf("Service %s status: available=%v, message=%s",
-			check.Type, status.Available, status.Message)
+		return nil, fmt.Errorf("failed to initialize agent connections: %w", err)
+	}
 
-		statuses = append(statuses, &proto.ServiceStatus{
-			ServiceName: check.Type,
-			Available:   status.Available,
-			Message:     status.Message,
-		})
+	return p, nil
+}
+
+// initializeAgentConnections creates connections to all agents.
+func (p *Poller) initializeAgentConnections(ctx context.Context) error {
+	for agentName, agentConfig := range p.config.Agents {
+		client, err := grpc.NewClient(
+			ctx,
+			agentConfig.Address,
+			grpc.WithMaxRetries(grpcRetries),
+		)
+		if err != nil {
+			return fmt.Errorf("failed to connect to agent %s: %w", agentName, err)
+		}
+
+		p.agents[agentName] = &AgentConnection{
+			client:    client,
+			agentName: agentName,
+		}
+	}
+
+	return nil
+}
+
+// pollAgent polls a single agent.
+func (p *Poller) pollAgent(ctx context.Context, agentName string, agentConfig AgentConfig) ([]*proto.ServiceStatus, error) {
+	p.mu.RLock()
+	agent, exists := p.agents[agentName]
+	p.mu.RUnlock()
+
+	if !exists {
+		return nil, fmt.Errorf("pollAgent error: %q - %w", agentName, ErrNoConnectionForAgent)
+	}
+
+	// Check agent health first
+	healthy, err := agent.client.CheckHealth(ctx, "AgentService")
+	if err != nil || !healthy {
+		// Try to reconnect
+		if err := p.reconnectAgent(ctx, agentName, agentConfig); err != nil {
+			return nil, fmt.Errorf("pollAgent error: %q - %w", agentName, ErrAgentUnhealthy)
+		}
+	}
+
+	client := proto.NewAgentServiceClient(agent.client.GetConnection())
+	statuses := make([]*proto.ServiceStatus, 0, len(agentConfig.Checks))
+
+	// Create a channel for collecting results
+	results := make(chan *proto.ServiceStatus, len(agentConfig.Checks))
+	errors := make(chan error, len(agentConfig.Checks))
+
+	// Create a context with timeout for the checks
+	checkCtx, cancel := context.WithTimeout(ctx, defaultTimeout)
+	defer cancel()
+
+	// Launch goroutine for each check
+	var wg sync.WaitGroup
+	for _, check := range agentConfig.Checks {
+		wg.Add(1)
+
+		go func(check Check) {
+			defer wg.Done()
+
+			status, err := client.GetStatus(checkCtx, &proto.StatusRequest{
+				ServiceName: check.Name,
+				ServiceType: check.Type,
+				Details:     check.Details,
+				Port:        check.Port,
+			})
+
+			if err != nil {
+				errors <- fmt.Errorf("error checking %s: %w", check.Type, err)
+				results <- &proto.ServiceStatus{
+					ServiceName: check.Name,
+					Available:   false,
+					Message:     err.Error(),
+					ServiceType: check.Type,
+				}
+				return
+			}
+
+			results <- &proto.ServiceStatus{
+				ServiceName: check.Name,
+				Available:   status.Available,
+				Message:     status.Message,
+				ServiceType: check.Type,
+			}
+		}(check)
+	}
+
+	// Wait for all checks to complete or context to cancel
+	go func() {
+		wg.Wait()
+		close(results)
+		close(errors)
+	}()
+
+	// Collect results
+	for status := range results {
+		statuses = append(statuses, status)
+	}
+
+	// Log any errors
+	for err := range errors {
+		log.Printf("Error polling agent %s: %v", agentName, err)
 	}
 
 	return statuses, nil
 }
 
+// reconnectAgent closes the existing connection and creates a new one.
+func (p *Poller) reconnectAgent(ctx context.Context, agentName string, config AgentConfig) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// Close existing connection if it exists
+	if agent, exists := p.agents[agentName]; exists {
+		err := agent.client.Close()
+		if err != nil {
+			return err
+		}
+	}
+
+	// Create new connection
+	client, err := grpc.NewClient(
+		ctx,
+		config.Address,
+		grpc.WithMaxRetries(grpcRetries),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to reconnect to agent %s: %w", agentName, err)
+	}
+
+	p.agents[agentName] = &AgentConnection{
+		client:    client,
+		agentName: agentName,
+	}
+
+	return nil
+}
+
+// poll performs a single poll cycle.
 func (p *Poller) poll(ctx context.Context) error {
 	log.Printf("Starting poll cycle...")
+
 	allStatuses := make([]*proto.ServiceStatus, 0)
 
 	for agentName, agentConfig := range p.config.Agents {
+		log.Printf("Polling agent %s...", agentName)
 		statuses, err := p.pollAgent(ctx, agentName, agentConfig)
 		if err != nil {
 			log.Printf("Error polling agent %s: %v", agentName, err)
 			continue
 		}
+
+		// Log each service status
+		for _, status := range statuses {
+			log.Printf("Agent %s service %s status: available=%v message=%s",
+				agentName, status.ServiceName, status.Available, status.Message)
+		}
+
 		allStatuses = append(allStatuses, statuses...)
 	}
 
 	log.Printf("Reporting status to cloud service...")
+
 	_, err := p.cloudClient.ReportStatus(ctx, &proto.PollerStatusRequest{
 		Services:  allStatuses,
 		PollerId:  p.config.PollerID,
@@ -150,7 +292,7 @@ func (p *Poller) poll(ctx context.Context) error {
 	return nil
 }
 
-// Start begins the polling loop
+// Start begins the polling loop.
 func (p *Poller) Start(ctx context.Context) error {
 	ticker := time.NewTicker(time.Duration(p.config.PollInterval))
 	defer ticker.Stop()
@@ -172,4 +314,30 @@ func (p *Poller) Start(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+// Close closes all connections.
+func (p *Poller) Close() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// Close cloud client
+	if p.grpcClient != nil {
+		err := p.grpcClient.Close()
+		if err != nil {
+			return err
+		}
+	}
+
+	// Close all agent connections
+	for _, agent := range p.agents {
+		if agent.client != nil {
+			err := agent.client.Close()
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }

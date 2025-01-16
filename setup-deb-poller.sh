@@ -28,7 +28,7 @@ Section: utils
 Priority: optional
 Architecture: amd64
 Depends: systemd
-Maintainer: Your Name <your.email@example.com>
+Maintainer: Michael Freeman <mfreeman451@gmail.com>
 Description: HomeMon poller service
  Poller component for HomeMon monitoring system.
  Collects and forwards monitoring data from agents to cloud service.
@@ -62,15 +62,26 @@ cat > "${PKG_ROOT}/etc/homemon/poller.json" << EOF
 {
     "agents": {
         "local-agent": {
-            "address": "127.0.0.1:50051",
+            "address": "changeme:50051",
             "checks": [
                 {
-                    "type": "dusk"
+                    "service_type": "process",
+                    "service_name": "rusk",
+                    "details": "rusk"
+                },
+                {
+                    "service_type": "port",
+                    "port": 22
+                },
+                {
+                    "service_type": "grpc",
+                    "service_name": "dusk",
+                    "details": "localhost:50052"
                 }
             ]
         }
     },
-    "cloud_address": "localhost:50052",
+    "cloud_address": "changeme:50052",
     "poll_interval": "30s",
     "poller_id": "home-poller-1"
 }
