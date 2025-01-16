@@ -1,3 +1,4 @@
+// Package poller pkg/poller/config.go provides a function to load the configuration from a file.
 package poller
 
 import (

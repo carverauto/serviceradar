@@ -11,6 +11,7 @@ import (
 
 	"github.com/mfreeman451/homemon/pkg/checker/dusk"
 	"github.com/mfreeman451/homemon/pkg/grpc"
+	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
 )
 
@@ -27,7 +28,6 @@ func main() {
 
 	log.Printf("Loading config from: %s", *configFile)
 	config, err := dusk.LoadConfig(*configFile)
-
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
@@ -45,9 +45,8 @@ func main() {
 
 	// Start monitoring Dusk node
 	log.Printf("Starting monitoring...")
-
 	if err := checker.StartMonitoring(ctx); err != nil {
-		log.Panicf("Failed to start monitoring: %v", err)
+		log.Fatalf("Failed to start monitoring: %v", err)
 	}
 
 	// Create gRPC server with options
@@ -56,9 +55,19 @@ func main() {
 		grpc.WithMaxSendSize(maxSendSize),
 	)
 
-	// Register health server
-	healthServer := dusk.NewHealthServer(checker)
-	grpc_health_v1.RegisterHealthServer(grpcServer, healthServer)
+	// Create and register health server
+	//healthServer := dusk.NewHealthServer(checker)
+	//if err := grpcServer.RegisterHealthServer(healthServer); err != nil {
+	//	log.Fatalf("Failed to register health server: %v", err)
+	//}
+
+	hs := health.NewServer()
+	hs.SetServingStatus("dusk-checker", grpc_health_v1.HealthCheckResponse_SERVING)
+
+	if err := grpcServer.RegisterHealthServer(hs); err != nil {
+		log.Fatalf("Failed to register health server: %v", err)
+	}
+
 	log.Printf("Registered health server")
 
 	// Handle shutdown gracefully
@@ -68,7 +77,6 @@ func main() {
 	// Start gRPC server
 	go func() {
 		log.Printf("Starting gRPC server on %s", config.ListenAddr)
-
 		if err := grpcServer.Start(); err != nil {
 			log.Printf("gRPC server failed: %v", err)
 			cancel() // Cancel context if server fails

@@ -36,6 +36,7 @@ var (
 
 type Config struct {
 	ListenAddr     string                 `json:"listen_addr"`
+	GrpcAddr       string                 `json:"grpc_addr"`
 	AlertThreshold time.Duration          `json:"alert_threshold"`
 	Webhooks       []alerts.WebhookConfig `json:"webhooks,omitempty"`
 	KnownPollers   []string               `json:"known_pollers,omitempty"`
@@ -62,7 +63,7 @@ type Server struct {
 	apiServer          *api.APIServer
 	nodeAlertStates    map[string]*alertState
 	serviceAlertStates map[string]*alertState
-	shutdown           chan struct{}
+	ShutdownChan       chan struct{}
 	stateFile          string
 	knownPollers       []string
 }
@@ -139,12 +140,12 @@ func (s *Server) loadState(ctx context.Context) error {
 }
 
 func (s *Server) Shutdown(ctx context.Context) {
-	// set a ctx with a timeout to allow for graceful shutdown
+	// set a ctx with a timeout to allow for graceful Shutdown
 	ctx, cancel := context.WithTimeout(ctx, shutdownTimeout)
 	defer cancel()
 
 	if err := s.saveState(); err != nil {
-		log.Printf("Error saving state during shutdown: %v", err)
+		log.Printf("Error saving state during Shutdown: %v", err)
 	}
 
 	if len(s.webhooks) > 0 {
@@ -162,7 +163,7 @@ func (s *Server) Shutdown(ctx context.Context) {
 		s.sendAlert(ctx, &alert)
 	}
 
-	close(s.shutdown)
+	close(s.ShutdownChan)
 }
 
 func (s *Server) SetAPIServer(a *api.APIServer) {
@@ -214,13 +215,12 @@ func NewServer(ctx context.Context, config Config) (*Server, error) {
 		webhooks:           make([]*alerts.WebhookAlerter, 0),
 		nodeAlertStates:    make(map[string]*alertState),
 		serviceAlertStates: make(map[string]*alertState),
-		shutdown:           make(chan struct{}),
+		ShutdownChan:       make(chan struct{}),
 		stateFile:          defaultStateFile,
 		knownPollers:       config.KnownPollers,
 	}
 
-	// TODO: this should be done with a context..
-	server.initializeGRPCServer()
+	server.initializeGRPCServer(&config)
 
 	if err := server.initializeStorage(); err != nil {
 		return nil, fmt.Errorf("failed to initialize storage: %w", err)
@@ -233,8 +233,8 @@ func NewServer(ctx context.Context, config Config) (*Server, error) {
 	return server, nil
 }
 
-func (s *Server) initializeGRPCServer() {
-	grpcServer := grpc.NewServer(":50052",
+func (s *Server) initializeGRPCServer(config *Config) {
+	grpcServer := grpc.NewServer(config.GrpcAddr,
 		grpc.WithMaxRecvSize(maxMessageSize),
 		grpc.WithMaxSendSize(maxMessageSize),
 	)
@@ -292,7 +292,7 @@ func (s *Server) stateSavingTask() {
 
 	for {
 		select {
-		case <-s.shutdown:
+		case <-s.ShutdownChan:
 			return
 		case <-ticker.C:
 			if err := s.saveState(); err != nil {

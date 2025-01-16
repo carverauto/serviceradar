@@ -11,6 +11,9 @@ import (
 	"github.com/mfreeman451/homemon/pkg/agent"
 	"github.com/mfreeman451/homemon/pkg/grpc"
 	"github.com/mfreeman451/homemon/proto"
+
+	"google.golang.org/grpc/health"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
 
 const (
@@ -26,15 +29,18 @@ func main() {
 	listenAddr := flag.String("listen", ":50051", "gRPC listen address")
 	flag.Parse()
 
-	// Create context that can be canceled
-	// ctx, cancel := context.WithCancel(context.Background())
-	// defer cancel()
-
 	// Create gRPC server
 	grpcServer := grpc.NewServer(*listenAddr,
 		grpc.WithMaxRecvSize(maxRecvSize),
 		grpc.WithMaxSendSize(maxSendSize),
 	)
+
+	hs := health.NewServer()
+	hs.SetServingStatus("AgentService", healthpb.HealthCheckResponse_SERVING)
+	err := grpcServer.RegisterHealthServer(hs)
+	if err != nil {
+		log.Fatalf("Failed to register health server: %v", err)
+	}
 
 	// Create agent server
 	server, err := agent.NewServer(*configDir)
@@ -49,14 +55,12 @@ func main() {
 	}(server)
 
 	// Register agent service with gRPC server
-	proto.RegisterAgentServiceServer(grpcServer, server)
+	proto.RegisterAgentServiceServer(grpcServer.GetGRPCServer(), server)
 
 	// Start gRPC server in a goroutine
 	errChan := make(chan error, 1)
-
 	go func() {
 		log.Printf("gRPC server listening on %s", *listenAddr)
-
 		if err := grpcServer.Start(); err != nil {
 			errChan <- err
 		}
@@ -76,9 +80,6 @@ func main() {
 
 	// Begin graceful shutdown
 	log.Printf("Starting graceful shutdown...")
-
-	// Stop gRPC server
 	grpcServer.Stop()
-
 	log.Printf("Shutdown complete")
 }

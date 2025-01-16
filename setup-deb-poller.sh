@@ -28,7 +28,7 @@ Section: utils
 Priority: optional
 Architecture: amd64
 Depends: systemd
-Maintainer: Your Name <your.email@example.com>
+Maintainer: Michael Freeman <mfreeman451@gmail.com>
 Description: HomeMon poller service
  Poller component for HomeMon monitoring system.
  Collects and forwards monitoring data from agents to cloud service.

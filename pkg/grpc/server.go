@@ -29,12 +29,12 @@ type Server struct {
 	addr        string
 	mu          sync.RWMutex
 	services    map[string]struct{}
+	serverOpts  []grpc.ServerOption // Store server options
 }
 
-// NewServer creates a new gRPC server with the provided options.
 func NewServer(addr string, opts ...ServerOption) *Server {
-	// Create server with default interceptors
-	serverOpts := []grpc.ServerOption{
+	// Initialize with default interceptors
+	defaultOpts := []grpc.ServerOption{
 		grpc.ChainUnaryInterceptor(
 			LoggingInterceptor,
 			RecoveryInterceptor,
@@ -42,10 +42,9 @@ func NewServer(addr string, opts ...ServerOption) *Server {
 	}
 
 	s := &Server{
-		srv:         grpc.NewServer(serverOpts...),
-		healthCheck: health.NewServer(),
-		addr:        addr,
-		services:    make(map[string]struct{}),
+		addr:       addr,
+		services:   make(map[string]struct{}),
+		serverOpts: defaultOpts,
 	}
 
 	// Apply custom options
@@ -53,8 +52,8 @@ func NewServer(addr string, opts ...ServerOption) *Server {
 		opt(s)
 	}
 
-	// Register health check service
-	healthpb.RegisterHealthServer(s.srv, s.healthCheck)
+	// Create the gRPC server with all options
+	s.srv = grpc.NewServer(s.serverOpts...)
 
 	// Enable reflection for debugging
 	reflection.Register(s.srv)
@@ -62,19 +61,43 @@ func NewServer(addr string, opts ...ServerOption) *Server {
 	return s
 }
 
+// GetGRPCServer returns the underlying gRPC server.
+func (s *Server) GetGRPCServer() *grpc.Server {
+	return s.srv
+}
+
+func (s *Server) RegisterHealthServer(healthServer healthpb.HealthServer) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Only register health server if not already registered
+	if s.healthCheck != nil {
+		return fmt.Errorf("health server already registered")
+	}
+
+	healthpb.RegisterHealthServer(s.srv, healthServer)
+
+	// Type assert safely
+	if hs, ok := healthServer.(*health.Server); ok {
+		s.healthCheck = hs
+	} else {
+		return fmt.Errorf("health server is not of expected type")
+	}
+
+	return nil
+}
+
 // WithMaxRecvSize sets the maximum receive message size.
 func WithMaxRecvSize(size int) ServerOption {
 	return func(s *Server) {
-		s.srv.GracefulStop()
-		s.srv = grpc.NewServer(grpc.MaxRecvMsgSize(size))
+		s.serverOpts = append(s.serverOpts, grpc.MaxRecvMsgSize(size))
 	}
 }
 
 // WithMaxSendSize sets the maximum send message size.
 func WithMaxSendSize(size int) ServerOption {
 	return func(s *Server) {
-		s.srv.GracefulStop()
-		s.srv = grpc.NewServer(grpc.MaxSendMsgSize(size))
+		s.serverOpts = append(s.serverOpts, grpc.MaxSendMsgSize(size))
 	}
 }
 
@@ -85,7 +108,11 @@ func (s *Server) RegisterService(desc *grpc.ServiceDesc, impl interface{}) {
 
 	s.services[desc.ServiceName] = struct{}{}
 	s.srv.RegisterService(desc, impl)
-	s.healthCheck.SetServingStatus(desc.ServiceName, healthpb.HealthCheckResponse_SERVING)
+
+	// Only set health status if health check is initialized
+	if s.healthCheck != nil {
+		s.healthCheck.SetServingStatus(desc.ServiceName, healthpb.HealthCheckResponse_SERVING)
+	}
 }
 
 // Start starts the gRPC server.
@@ -109,9 +136,11 @@ func (s *Server) Stop() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Mark all services as not serving
-	for service := range s.services {
-		s.healthCheck.SetServingStatus(service, healthpb.HealthCheckResponse_NOT_SERVING)
+	// Mark all services as not serving if health check is initialized
+	if s.healthCheck != nil {
+		for service := range s.services {
+			s.healthCheck.SetServingStatus(service, healthpb.HealthCheckResponse_NOT_SERVING)
+		}
 	}
 
 	s.srv.GracefulStop()
@@ -138,7 +167,6 @@ func RecoveryInterceptor(
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("Recovered from panic in %s: %v", info.FullMethod, r)
-
 			err = errInternalError
 		}
 	}()

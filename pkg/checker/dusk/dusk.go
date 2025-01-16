@@ -15,8 +15,10 @@ import (
 
 	"github.com/gorilla/websocket"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -55,14 +57,12 @@ type DuskChecker struct {
 
 type HealthServer struct {
 	grpc_health_v1.UnimplementedHealthServer
-	checker   *DuskChecker
-	startTime time.Time
+	checker *DuskChecker
 }
 
 func NewHealthServer(checker *DuskChecker) *HealthServer {
 	return &HealthServer{
-		checker:   checker,
-		startTime: time.Now(),
+		checker: checker,
 	}
 }
 
@@ -292,14 +292,14 @@ func (d *DuskChecker) listenForEvents() {
 	}
 }
 
-func (s *HealthServer) Check(ctx context.Context, _ *grpc_health_v1.HealthCheckRequest) (*grpc_health_v1.HealthCheckResponse, error) {
+func (s *HealthServer) Check(ctx context.Context, req *grpc_health_v1.HealthCheckRequest) (*grpc_health_v1.HealthCheckResponse, error) {
 	s.checker.mu.RLock()
 	defer s.checker.mu.RUnlock()
 
 	if s.checker.ws == nil {
 		return &grpc_health_v1.HealthCheckResponse{
 			Status: grpc_health_v1.HealthCheckResponse_NOT_SERVING,
-		}, errWebsocketError
+		}, fmt.Errorf("websocket connection not established")
 	}
 
 	// Create block details structure
@@ -318,17 +318,14 @@ func (s *HealthServer) Check(ctx context.Context, _ *grpc_health_v1.HealthCheckR
 	} else {
 		// Create new outgoing metadata
 		md := metadata.Pairs("block-details", string(blockDetailsJSON))
-
 		// Send metadata back as header
-		err := grpc.SetHeader(ctx, md)
-		if err != nil {
-			return nil, err
+		if err := grpc.SetHeader(ctx, md); err != nil {
+			log.Printf("Error setting header: %v", err)
 		}
 	}
 
 	if s.checker.lastBlock.IsZero() {
 		log.Printf("Health check warning: Connected but no blocks received yet. Session ID: %s", s.checker.sessionID)
-
 		return &grpc_health_v1.HealthCheckResponse{
 			Status: grpc_health_v1.HealthCheckResponse_NOT_SERVING,
 		}, nil
@@ -338,7 +335,6 @@ func (s *HealthServer) Check(ctx context.Context, _ *grpc_health_v1.HealthCheckR
 	if timeSinceLastBlock > s.checker.Config.Timeout {
 		log.Printf("Health check failed: No blocks received in %v. Last block at: %v",
 			timeSinceLastBlock, s.checker.lastBlock.Format(time.RFC3339))
-
 		return &grpc_health_v1.HealthCheckResponse{
 			Status: grpc_health_v1.HealthCheckResponse_NOT_SERVING,
 		}, nil
@@ -363,6 +359,11 @@ func LoadConfig(path string) (Config, error) {
 	log.Printf("Loaded config with timeout: %v", config.Timeout)
 
 	return config, nil
+}
+
+// Watch implements the health check watch RPC (required by the interface).
+func (s *HealthServer) Watch(*grpc_health_v1.HealthCheckRequest, grpc_health_v1.Health_WatchServer) error {
+	return status.Error(codes.Unimplemented, "watch is not implemented")
 }
 
 func (d *DuskChecker) GetStatusData() json.RawMessage {
