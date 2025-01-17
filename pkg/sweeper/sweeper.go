@@ -98,7 +98,7 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 
 	// Process results as they come in
 	for result := range results {
-		if err := s.store.SaveResult(ctx, result); err != nil {
+		if err := s.store.SaveResult(ctx, &result); err != nil {
 			log.Printf("Failed to save result: %v", err)
 			continue
 		}

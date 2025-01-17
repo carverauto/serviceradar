@@ -7,20 +7,20 @@ import (
 	"time"
 )
 
-// InMemoryStore implements Store interface for temporary storage
+// InMemoryStore implements Store interface for temporary storage.
 type InMemoryStore struct {
 	mu      sync.RWMutex
 	results []Result
 }
 
-// NewInMemoryStore creates a new in-memory store for sweep results
+// NewInMemoryStore creates a new in-memory store for sweep results.
 func NewInMemoryStore() Store {
 	return &InMemoryStore{
 		results: make([]Result, 0),
 	}
 }
 
-func (s *InMemoryStore) SaveResult(_ context.Context, result Result) error {
+func (s *InMemoryStore) SaveResult(_ context.Context, result *Result) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -28,13 +28,14 @@ func (s *InMemoryStore) SaveResult(_ context.Context, result Result) error {
 	for i, existing := range s.results {
 		if existing.Target == result.Target {
 			// Update existing result
-			s.results[i] = result
+			s.results[i] = *result
 			return nil
 		}
 	}
 
 	// Add new result
-	s.results = append(s.results, result)
+	s.results = append(s.results, *result)
+
 	return nil
 }
 
@@ -43,8 +44,9 @@ func (s *InMemoryStore) GetResults(_ context.Context, filter *ResultFilter) ([]R
 	defer s.mu.RUnlock()
 
 	filtered := make([]Result, 0)
+
 	for _, result := range s.results {
-		if s.matchesFilter(result, *filter) {
+		if s.matchesFilter(&result, filter) {
 			filtered = append(filtered, result)
 		}
 	}
@@ -52,11 +54,12 @@ func (s *InMemoryStore) GetResults(_ context.Context, filter *ResultFilter) ([]R
 	return filtered, nil
 }
 
-func (s *InMemoryStore) matchesFilter(result Result, filter ResultFilter) bool {
+func (s *InMemoryStore) matchesFilter(result *Result, filter *ResultFilter) bool {
 	// Check time range if specified
 	if !filter.StartTime.IsZero() && result.LastSeen.Before(filter.StartTime) {
 		return false
 	}
+
 	if !filter.EndTime.IsZero() && result.LastSeen.After(filter.EndTime) {
 		return false
 	}

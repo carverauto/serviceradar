@@ -33,7 +33,7 @@ type Scanner interface {
 // Store defines how sweep results are persisted
 type Store interface {
 	// SaveResult persists a single scan result
-	SaveResult(context.Context, Result) error
+	SaveResult(context.Context, *Result) error
 
 	// GetResults retrieves results matching the filter
 	GetResults(context.Context, *ResultFilter) ([]Result, error)
