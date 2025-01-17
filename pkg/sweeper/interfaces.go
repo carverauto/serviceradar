@@ -36,7 +36,7 @@ type Store interface {
 	SaveResult(context.Context, Result) error
 
 	// GetResults retrieves results matching the filter
-	GetResults(context.Context, ResultFilter) ([]Result, error)
+	GetResults(context.Context, *ResultFilter) ([]Result, error)
 
 	// PruneResults removes results older than the given duration
 	PruneResults(context.Context, time.Duration) error
@@ -69,7 +69,7 @@ type Sweeper interface {
 	Stop() error
 
 	// GetResults retrieves sweep results based on filter
-	GetResults(context.Context, ResultFilter) ([]Result, error)
+	GetResults(context.Context, *ResultFilter) ([]Result, error)
 
 	// GetConfig returns current sweeper configuration
 	GetConfig() Config

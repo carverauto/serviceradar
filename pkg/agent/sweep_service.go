@@ -1,3 +1,4 @@
+// Package agent pkg/agent/sweep_service.go
 package agent
 
 import (
@@ -23,14 +24,8 @@ type SweepService struct {
 
 // NewSweepService creates a new sweep service
 func NewSweepService(config sweeper.Config) (*SweepService, error) {
-	// Create TCP scanner with configuration
-	scanner := sweeper.NewTCPScanner(config.Timeout, config.Concurrency)
-
-	// Create an in-memory store for temporary results
-	store := NewInMemoryStore()
-
-	// Create sweeper instance
-	sw := sweeper.NewSweeper(config, scanner, store)
+	// Create network sweeper instance
+	sw := sweeper.NewNetworkSweeper(config)
 
 	return &SweepService{
 		sweeper: sw,
@@ -38,53 +33,6 @@ func NewSweepService(config sweeper.Config) (*SweepService, error) {
 		config:  config,
 		results: make([]sweeper.Result, 0),
 	}, nil
-}
-
-// InMemoryStore implements sweeper.Store interface for temporary storage
-type InMemoryStore struct {
-	mu      sync.RWMutex
-	results []sweeper.Result
-}
-
-func NewInMemoryStore() *InMemoryStore {
-	return &InMemoryStore{
-		results: make([]sweeper.Result, 0),
-	}
-}
-
-func (s *InMemoryStore) SaveResult(_ context.Context, result sweeper.Result) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.results = append(s.results, result)
-	return nil
-}
-
-func (s *InMemoryStore) GetResults(_ context.Context, filter sweeper.ResultFilter) ([]sweeper.Result, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	filtered := make([]sweeper.Result, 0)
-	for _, result := range s.results {
-		if filter.StartTime.IsZero() || result.LastSeen.After(filter.StartTime) {
-			filtered = append(filtered, result)
-		}
-	}
-	return filtered, nil
-}
-
-func (s *InMemoryStore) PruneResults(_ context.Context, age time.Duration) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	cutoff := time.Now().Add(-age)
-	newResults := make([]sweeper.Result, 0)
-	for _, result := range s.results {
-		if result.LastSeen.After(cutoff) {
-			newResults = append(newResults, result)
-		}
-	}
-	s.results = newResults
-	return nil
 }
 
 func (s *SweepService) Start(ctx context.Context) error {
@@ -103,7 +51,7 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.ServiceStatus, err
 	s.mu.RUnlock()
 
 	// Get latest results
-	results, err := s.sweeper.GetResults(ctx, sweeper.ResultFilter{
+	results, err := s.sweeper.GetResults(ctx, &sweeper.ResultFilter{
 		StartTime: time.Now().Add(-config.Interval),
 	})
 	if err != nil {
@@ -124,23 +72,23 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.ServiceStatus, err
 	}
 
 	// Create sweep status
-	sweepStatus := &proto.SweepServiceStatus{
-		Network:        config.Networks[0],
-		TotalHosts:     int32(len(hostsSeen)),
-		AvailableHosts: int32(len(hostsAvailable)),
-		LastSweep:      time.Now().Unix(),
-		Ports:          make([]*proto.PortStatus, 0, len(portCounts)),
+	status := map[string]interface{}{
+		"network":         config.Networks[0],
+		"total_hosts":     len(hostsSeen),
+		"available_hosts": len(hostsAvailable),
+		"last_sweep":      time.Now().Unix(),
+		"ports":           make([]map[string]interface{}, 0, len(portCounts)),
 	}
 
 	for port, count := range portCounts {
-		sweepStatus.Ports = append(sweepStatus.Ports, &proto.PortStatus{
-			Port:      int32(port),
-			Available: int32(count),
+		status["ports"] = append(status["ports"].([]map[string]interface{}), map[string]interface{}{
+			"port":      port,
+			"available": count,
 		})
 	}
 
 	// Convert to JSON for the service status message
-	statusJSON, err := json.Marshal(sweepStatus)
+	statusJSON, err := json.Marshal(status)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal sweep status: %w", err)
 	}

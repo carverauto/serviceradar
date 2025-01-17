@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/mfreeman451/homemon/pkg/checker"
-	"github.com/mfreeman451/homemon/pkg/db"
 	"github.com/mfreeman451/homemon/pkg/sweeper"
 	"github.com/mfreeman451/homemon/proto"
 	"google.golang.org/grpc/codes"
@@ -65,17 +64,15 @@ type Server struct {
 	checkers     map[string]checker.Checker
 	checkerConfs map[string]CheckerConfig
 	configDir    string
-	db           *db.DB
 	sweepService *SweepService
 }
 
 // NewServer creates a new agent server.
-func NewServer(configDir string, database *db.DB) (*Server, error) {
+func NewServer(configDir string) (*Server, error) {
 	s := &Server{
 		checkers:     make(map[string]checker.Checker),
 		checkerConfs: make(map[string]CheckerConfig),
 		configDir:    configDir,
-		db:           database,
 	}
 
 	if err := s.loadCheckerConfigs(); err != nil {
@@ -112,7 +109,7 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 		return err
 	}
 
-	*d = Duration(time.Duration(n))
+	*d = Duration(n)
 
 	return nil
 }
@@ -147,7 +144,7 @@ func (s *Server) initializeSweepService() error {
 	}
 
 	// Create sweep service
-	sweepService, err := NewSweepService(config, s.db)
+	sweepService, err := NewSweepService(config)
 	if err != nil {
 		return fmt.Errorf("failed to create sweep service: %w", err)
 	}
@@ -258,7 +255,7 @@ func (s *Server) getSweepStatus(ctx context.Context) (*proto.StatusResponse, err
 		}, nil
 	}
 
-	status, err := s.sweepService.GetStatus(ctx)
+	sStatus, err := s.sweepService.GetStatus(ctx)
 	if err != nil {
 		return &proto.StatusResponse{
 			Available: false,
@@ -267,7 +264,7 @@ func (s *Server) getSweepStatus(ctx context.Context) (*proto.StatusResponse, err
 	}
 
 	// Convert sweep status to JSON for the message field
-	statusJSON, err := json.Marshal(status)
+	statusJSON, err := json.Marshal(sStatus)
 	if err != nil {
 		return &proto.StatusResponse{
 			Available: true,
