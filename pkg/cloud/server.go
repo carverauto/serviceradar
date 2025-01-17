@@ -24,7 +24,7 @@ const (
 	nodeDiscoveryTimeout     = 30 * time.Second
 	nodeNeverReportedTimeout = 30 * time.Second
 	pollerTimeout            = 30 * time.Second
-	defaultDbPath            = "/var/lib/homemon/homemon.db"
+	defaultDBPath            = "/var/lib/homemon/homemon.db"
 	KB                       = 1024
 	MB                       = 1024 * KB
 	maxMessageSize           = 4 * MB
@@ -33,7 +33,7 @@ const (
 type Config struct {
 	ListenAddr     string                 `json:"listen_addr"`
 	GrpcAddr       string                 `json:"grpc_addr"`
-	DbPath         string                 `json:"db_path"`
+	DBPath         string                 `json:"db_path"`
 	AlertThreshold time.Duration          `json:"alert_threshold"`
 	Webhooks       []alerts.WebhookConfig `json:"webhooks,omitempty"`
 	KnownPollers   []string               `json:"known_pollers,omitempty"`
@@ -123,11 +123,13 @@ func (s *Server) checkInitialStates(ctx context.Context) {
         FROM nodes 
         ORDER BY last_seen DESC
     `
+
 	rows, err := s.db.Query(querySQL)
 	if err != nil {
 		log.Printf("Error querying nodes: %v", err)
 		return
 	}
+
 	defer func(rows *sql.Rows) {
 		err := rows.Close()
 		if err != nil {
@@ -136,9 +138,12 @@ func (s *Server) checkInitialStates(ctx context.Context) {
 	}(rows)
 
 	checkedNodes := make(map[string]bool)
+
 	for rows.Next() {
 		var nodeID string
+
 		var isHealthy bool
+
 		var lastSeen time.Time
 
 		if err := rows.Scan(&nodeID, &isHealthy, &lastSeen); err != nil {
@@ -167,9 +172,9 @@ func (s *Server) checkInitialStates(ctx context.Context) {
 
 func NewServer(ctx context.Context, config *Config) (*Server, error) {
 	// Use default DB path if not specified
-	dbPath := config.DbPath
+	dbPath := config.DBPath
 	if dbPath == "" {
-		dbPath = defaultDbPath
+		dbPath = defaultDBPath
 	}
 
 	// Ensure the directory exists
@@ -333,7 +338,7 @@ func (s *Server) handleNodeStatusChange(ctx context.Context, pollerID string, is
 	}
 }
 
-func (s *Server) updateApiServiceStatus(pollerID string, svc *proto.ServiceStatus, now time.Time) {
+func (s *Server) updateAPIServiceStatus(pollerID string, svc *proto.ServiceStatus, now time.Time) {
 	apiStatus := api.ServiceStatus{
 		Name:      svc.ServiceName,
 		Available: svc.Available,
@@ -447,8 +452,7 @@ func (s *Server) sendStartupNotification(ctx context.Context) {
 
 	// Get total nodes from database
 	var nodeCount int
-	err := s.db.QueryRow("SELECT COUNT(*) FROM nodes").Scan(&nodeCount)
-	if err != nil {
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM nodes").Scan(&nodeCount); err != nil {
 		log.Printf("Error counting nodes: %v", err)
 	}
 
@@ -477,6 +481,7 @@ func (s *Server) checkNeverReportedPollers(ctx context.Context, config *Config) 
 
 	for _, pollerID := range config.KnownPollers {
 		var exists string
+
 		err := s.db.QueryRow(querySQL, pollerID).Scan(&exists)
 		if errors.Is(err, sql.ErrNoRows) {
 			alert := alerts.WebhookAlert{
@@ -517,8 +522,7 @@ func (s *Server) markNodeDown(ctx context.Context, pollerID string, now time.Tim
     `
 
 	var lastSeen time.Time
-	err := s.db.QueryRow(querySQL, pollerID).Scan(&lastSeen)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+	if err := s.db.QueryRow(querySQL, pollerID).Scan(&lastSeen); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		log.Printf("Error querying last seen time: %v", err)
 	}
 
