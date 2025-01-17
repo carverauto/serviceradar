@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"log"
 	"os"
@@ -29,61 +30,68 @@ func main() {
 	listenAddr := flag.String("listen", ":50051", "gRPC listen address")
 	flag.Parse()
 
-	// Create gRPC server
-	grpcServer := grpc.NewServer(*listenAddr,
-		grpc.WithMaxRecvSize(maxRecvSize),
-		grpc.WithMaxSendSize(maxSendSize),
-	)
+	// Create main context
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	hs := health.NewServer()
-	hs.SetServingStatus("AgentService", healthpb.HealthCheckResponse_SERVING)
-	err := grpcServer.RegisterHealthServer(hs)
-
-	if err != nil {
-		log.Fatalf("Failed to register health server: %v", err)
-	}
-
-	// Create agent server
+	// Create agent server first
 	server, err := agent.NewServer(*configDir)
 	if err != nil {
 		log.Fatalf("Failed to create agent server: %v", err)
 	}
 
-	defer func(server *agent.Server) {
-		err := server.Close()
-		if err != nil {
-			log.Printf("Failed to close agent server: %v", err)
-		}
-	}(server)
+	// Create and configure gRPC server
+	grpcServer := grpc.NewServer(*listenAddr,
+		grpc.WithMaxRecvSize(maxRecvSize),
+		grpc.WithMaxSendSize(maxSendSize),
+	)
 
-	// Register agent service with gRPC server
+	// Setup health check
+	hs := health.NewServer()
+	hs.SetServingStatus("AgentService", healthpb.HealthCheckResponse_SERVING)
+	if err := grpcServer.RegisterHealthServer(hs); err != nil {
+		log.Fatalf("Failed to register health server: %v", err)
+	}
+
+	// Register agent service
 	proto.RegisterAgentServiceServer(grpcServer.GetGRPCServer(), server)
 
-	// Start gRPC server in a goroutine
+	// Start the gRPC server
 	errChan := make(chan error, 1)
-
 	go func() {
-		log.Printf("gRPC server listening on %s", *listenAddr)
-
+		log.Printf("Starting gRPC server on %s", *listenAddr)
 		if err := grpcServer.Start(); err != nil {
 			errChan <- err
 		}
 	}()
 
-	// Handle shutdown signals
+	// Start the agent services
+	if err := server.Start(ctx); err != nil {
+		log.Printf("Warning: Failed to start some agent services: %v", err)
+	}
+
+	// Handle shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	// Wait for shutdown signal or error
 	select {
-	case err := <-errChan:
-		log.Printf("Server error: %v", err)
 	case sig := <-sigChan:
 		log.Printf("Received signal %v, initiating shutdown", sig)
+	case err := <-errChan:
+		log.Printf("Server error: %v, initiating shutdown", err)
 	}
 
 	// Begin graceful shutdown
 	log.Printf("Starting graceful shutdown...")
+
+	// Stop gRPC server
 	grpcServer.Stop()
+
+	// Close agent server
+	if err := server.Close(); err != nil {
+		log.Printf("Error during server shutdown: %v", err)
+	}
+
 	log.Printf("Shutdown complete")
 }

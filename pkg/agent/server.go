@@ -31,7 +31,6 @@ var (
 	errUnknownCheckerType  = errors.New("unknown checker type")
 	errGrpcMissingConfig   = errors.New("no configuration or address provided for gRPC checker")
 	errNoLocalConfig       = errors.New("no local config found")
-	errSweepServiceInit    = errors.New("failed to initialize sweep service")
 )
 
 type Duration time.Duration
@@ -63,7 +62,7 @@ type Server struct {
 	checkers     map[string]checker.Checker
 	checkerConfs map[string]CheckerConfig
 	configDir    string
-	sweepService *SweepService
+	services     []Service
 }
 
 // NewServer creates a new agent server.
@@ -78,12 +77,109 @@ func NewServer(configDir string) (*Server, error) {
 		return nil, fmt.Errorf("failed to load checker configs: %w", err)
 	}
 
-	// Initialize sweep service if configuration exists
-	if err := s.initializeSweepService(); err != nil {
-		return nil, fmt.Errorf("%w: %w", errSweepServiceInit, err)
+	// Load optional services
+	if err := s.loadServices(); err != nil {
+		log.Printf("Warning: some services failed to load: %v", err)
 	}
 
 	return s, nil
+}
+
+// Start starts all registered services
+func (s *Server) Start(ctx context.Context) error {
+	var startupErrs []error
+
+	// Start each service in its own goroutine
+	for _, svc := range s.services {
+		go func(svc Service) {
+			if err := svc.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				startupErrs = append(startupErrs, err)
+				log.Printf("Service startup error: %v", err)
+			}
+		}(svc)
+	}
+
+	// If we want to wait for services to start, we could add a startup channel pattern here
+
+	if len(startupErrs) > 0 {
+		return fmt.Errorf("some services failed to start: %v", startupErrs)
+	}
+
+	return nil
+}
+
+func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
+	// Special handling for sweep status requests
+	if req.ServiceType == "sweep" {
+		return s.getSweepStatus(ctx)
+	}
+
+	// Get the appropriate checker
+	c, err := s.getChecker(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+
+	// Execute the check
+	available, message := c.Check(ctx)
+
+	// Return the status response
+	return &proto.StatusResponse{
+		Available:   available,
+		Message:     message,
+		ServiceName: req.ServiceName,
+		ServiceType: req.ServiceType,
+	}, nil
+}
+
+func loadSweepService(configDir string) (Service, error) {
+	sweepConfigPath := filepath.Join(configDir, "sweep.json")
+
+	// Check if config exists
+	if _, err := os.Stat(sweepConfigPath); os.IsNotExist(err) {
+		return nil, err
+	}
+
+	// Load and parse config
+	data, err := os.ReadFile(sweepConfigPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read sweep config: %w", err)
+	}
+
+	var sweepConfig SweepConfig
+	if err = json.Unmarshal(data, &sweepConfig); err != nil {
+		return nil, fmt.Errorf("failed to parse sweep config: %w", err)
+	}
+
+	// Convert to sweeper.Config
+	config := sweeper.Config{
+		Networks:    sweepConfig.Networks,
+		Ports:       sweepConfig.Ports,
+		Interval:    time.Duration(sweepConfig.Interval),
+		Concurrency: sweepConfig.Concurrency,
+		Timeout:     time.Duration(sweepConfig.Timeout),
+	}
+
+	// Create service
+	return NewSweepService(config)
+}
+
+// loadServices initializes any optional services found in the config directory
+func (s *Server) loadServices() error {
+	// Try to load sweep service if configured
+	sweepService, err := loadSweepService(s.configDir)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("failed to load sweep service: %w", err)
+		}
+	} else if sweepService != nil {
+		s.services = append(s.services, sweepService)
+	}
+
+	// Additional services can be loaded here in the future
+	// Each service should follow the Service interface
+
+	return nil
 }
 
 func (d *Duration) UnmarshalJSON(b []byte) error {
@@ -109,53 +205,6 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 	}
 
 	*d = Duration(n)
-
-	return nil
-}
-
-// initializeSweepService loads sweep configuration and starts the service.
-func (s *Server) initializeSweepService() error {
-	// Look for sweep configuration file
-	sweepConfigPath := filepath.Join(s.configDir, "sweep.json")
-	if _, err := os.Stat(sweepConfigPath); os.IsNotExist(err) {
-		log.Printf("No sweep configuration found at %s, sweep service disabled", sweepConfigPath)
-		return nil
-	}
-
-	// Load sweep configuration
-	data, err := os.ReadFile(sweepConfigPath)
-	if err != nil {
-		return fmt.Errorf("failed to read sweep config: %w", err)
-	}
-
-	var sweepConfig SweepConfig
-	if err = json.Unmarshal(data, &sweepConfig); err != nil {
-		return fmt.Errorf("failed to parse sweep config: %w", err)
-	}
-
-	// Convert to sweeper.Config
-	config := sweeper.Config{
-		Networks:    sweepConfig.Networks,
-		Ports:       sweepConfig.Ports,
-		Interval:    time.Duration(sweepConfig.Interval),
-		Concurrency: sweepConfig.Concurrency,
-		Timeout:     time.Duration(sweepConfig.Timeout),
-	}
-
-	// Create sweep service
-	sweepService, err := NewSweepService(config)
-	if err != nil {
-		return fmt.Errorf("failed to create sweep service: %w", err)
-	}
-
-	// Start the service
-	if err := sweepService.Start(context.Background()); err != nil {
-		return fmt.Errorf("failed to start sweep service: %w", err)
-	}
-
-	s.sweepService = sweepService
-
-	log.Printf("Sweep service initialized with config: %+v", config)
 
 	return nil
 }
@@ -222,59 +271,19 @@ func (*Server) initializeChecker(
 	}
 }
 
-// GetStatus handles status requests for both regular checks and sweep service.
-func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
-	// Handle sweep service status specially
-	if req.ServiceType == "sweep" {
-		return s.getSweepStatus(ctx)
-	}
-
-	// Handle regular service checks
-	check, err := s.getChecker(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-
-	timeoutCtx, cancel := context.WithTimeout(ctx, defaultTimeout)
-	defer cancel()
-
-	available, msg := check.Check(timeoutCtx)
-
-	return &proto.StatusResponse{
-		Available: available,
-		Message:   msg,
-	}, nil
-}
-
 // getSweepStatus handles status requests specifically for the sweep service.
 func (s *Server) getSweepStatus(ctx context.Context) (*proto.StatusResponse, error) {
-	if s.sweepService == nil {
-		return &proto.StatusResponse{
-			Available: false,
-			Message:   "Sweep service not configured",
-		}, nil
+	// Find sweep service among registered services
+	for _, svc := range s.services {
+		if provider, ok := svc.(SweepStatusProvider); ok {
+			return provider.GetStatus(ctx)
+		}
 	}
 
-	sStatus, err := s.sweepService.GetStatus(ctx)
-	if err != nil {
-		return &proto.StatusResponse{
-			Available: false,
-			Message:   fmt.Sprintf("Error getting sweep status: %v", err),
-		}, err
-	}
-
-	// Convert sweep status to JSON for the message field
-	statusJSON, err := json.Marshal(sStatus)
-	if err != nil {
-		return &proto.StatusResponse{
-			Available: true,
-			Message:   fmt.Sprintf("Error encoding sweep status: %v", err),
-		}, err
-	}
-
+	// Return a response indicating sweep service is not configured
 	return &proto.StatusResponse{
-		Available:   true,
-		Message:     string(statusJSON),
+		Available:   false,
+		Message:     "Sweep service not configured",
 		ServiceName: "network_sweep",
 		ServiceType: "sweep",
 	}, nil
@@ -424,30 +433,21 @@ func (s *Server) ListServices() []string {
 	return services
 }
 
-// Close handles cleanup when the server shuts down.
+// Close stops all services and cleans up resources.
 func (s *Server) Close() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	var closeErrs []error
 
-	var lastErr error
+	for _, svc := range s.services {
+		if err := svc.Stop(); err != nil {
+			closeErrs = append(closeErrs, err)
 
-	// Close sweep service if it exists
-	if s.sweepService != nil {
-		if err := s.sweepService.Close(); err != nil {
-			lastErr = fmt.Errorf("failed to close sweep service: %w", err)
-			log.Printf("Error closing sweep service: %v", err)
+			log.Printf("Error stopping service: %v", err)
 		}
 	}
 
-	// Close all checkers
-	for name, check := range s.checkers {
-		if closer, ok := check.(interface{ Close() error }); ok {
-			if err := closer.Close(); err != nil {
-				log.Printf("Error closing checker %s: %v", name, err)
-				lastErr = err
-			}
-		}
+	if len(closeErrs) > 0 {
+		return fmt.Errorf("errors during shutdown: %v", closeErrs)
 	}
 
-	return lastErr
+	return nil
 }

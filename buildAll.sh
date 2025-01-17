@@ -3,7 +3,6 @@
 ./setup-deb-poller.sh
 ./setup-deb-dusk-checker.sh
 ./setup-deb-agent.sh
-./setup-deb-cloud.sh
 
 scp release-artifacts/homemon-poller_1.0.0.deb duskadmin@192.168.2.22:~/
 scp release-artifacts/homemon-agent_1.0.0.deb duskadmin@192.168.2.22:~/

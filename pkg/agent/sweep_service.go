@@ -44,14 +44,19 @@ func (s *SweepService) Stop() error {
 	return s.sweeper.Stop()
 }
 
-func (s *SweepService) GetStatus(ctx context.Context) (*proto.ServiceStatus, error) {
-	s.mu.RLock()
-	config := s.config
-	s.mu.RUnlock()
+func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, error) {
+	if s == nil {
+		return &proto.StatusResponse{
+			Available:   false,
+			Message:     "Sweep service not initialized",
+			ServiceName: "network_sweep",
+			ServiceType: "sweep",
+		}, nil
+	}
 
 	// Get latest results
 	results, err := s.sweeper.GetResults(ctx, &sweeper.ResultFilter{
-		StartTime: time.Now().Add(-config.Interval),
+		StartTime: time.Now().Add(-s.config.Interval),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get sweep results: %w", err)
@@ -64,7 +69,6 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.ServiceStatus, err
 
 	for _, result := range results {
 		hostsSeen[result.Target.Host] = true
-
 		if result.Available {
 			hostsAvailable[result.Target.Host] = true
 			portCounts[result.Target.Port]++
@@ -73,7 +77,7 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.ServiceStatus, err
 
 	// Create sweep status
 	status := map[string]interface{}{
-		"network":         config.Networks[0],
+		"network":         s.config.Networks[0],
 		"total_hosts":     len(hostsSeen),
 		"available_hosts": len(hostsAvailable),
 		"last_sweep":      time.Now().Unix(),
@@ -87,17 +91,17 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.ServiceStatus, err
 		})
 	}
 
-	// Convert to JSON for the service status message
+	// Convert to JSON for the message field
 	statusJSON, err := json.Marshal(status)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal sweep status: %w", err)
 	}
 
-	return &proto.ServiceStatus{
-		ServiceName: "network_sweep",
-		ServiceType: "sweep",
+	return &proto.StatusResponse{
 		Available:   true,
 		Message:     string(statusJSON),
+		ServiceName: "network_sweep",
+		ServiceType: "sweep",
 	}, nil
 }
 
