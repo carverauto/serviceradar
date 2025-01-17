@@ -5,6 +5,7 @@ go 1.23.4
 require (
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.3
+	github.com/mattn/go-sqlite3 v1.14.24
 	google.golang.org/grpc v1.69.4
 	google.golang.org/protobuf v1.36.2
 )

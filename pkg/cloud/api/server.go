@@ -163,7 +163,6 @@ func (s *APIServer) getSystemStatus(w http.ResponseWriter, _ *http.Request) {
 		status.TotalNodes, status.HealthyNodes, status.LastUpdate.Format(time.RFC3339))
 
 	w.Header().Set("Content-Type", "application/json")
-
 	if err := json.NewEncoder(w).Encode(status); err != nil {
 		log.Printf("Error encoding system status: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)

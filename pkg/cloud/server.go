@@ -2,7 +2,9 @@ package cloud
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -11,32 +13,27 @@ import (
 
 	"github.com/mfreeman451/homemon/pkg/cloud/alerts"
 	"github.com/mfreeman451/homemon/pkg/cloud/api"
+	"github.com/mfreeman451/homemon/pkg/db"
 	"github.com/mfreeman451/homemon/pkg/grpc"
 	"github.com/mfreeman451/homemon/proto"
 )
 
 const (
-	stateFilePerm            = 0600
 	shutdownTimeout          = 10 * time.Second
 	homemonDirPerms          = 0700
 	nodeDiscoveryTimeout     = 30 * time.Second
 	nodeNeverReportedTimeout = 30 * time.Second
 	pollerTimeout            = 30 * time.Second
-
-	KB             = 1024
-	MB             = 1024 * KB
-	maxMessageSize = 4 * MB
-
-	defaultStateFile = "/var/lib/homemon/cloud-state.json"
-)
-
-var (
-	ErrEmptyPollerID = fmt.Errorf("received empty poller ID")
+	defaultDbPath            = "/var/lib/homemon/homemon.db"
+	KB                       = 1024
+	MB                       = 1024 * KB
+	maxMessageSize           = 4 * MB
 )
 
 type Config struct {
 	ListenAddr     string                 `json:"listen_addr"`
 	GrpcAddr       string                 `json:"grpc_addr"`
+	DbPath         string                 `json:"db_path"`
 	AlertThreshold time.Duration          `json:"alert_threshold"`
 	Webhooks       []alerts.WebhookConfig `json:"webhooks,omitempty"`
 	KnownPollers   []string               `json:"known_pollers,omitempty"`
@@ -56,96 +53,21 @@ type PersistedState struct {
 
 type Server struct {
 	proto.UnimplementedPollerServiceServer
-	mu                 sync.RWMutex
-	lastSeen           map[string]time.Time
-	alertThreshold     time.Duration
-	webhooks           []*alerts.WebhookAlerter
-	apiServer          *api.APIServer
-	nodeAlertStates    map[string]*alertState
-	serviceAlertStates map[string]*alertState
-	ShutdownChan       chan struct{}
-	stateFile          string
-	knownPollers       []string
-}
-
-func (s *Server) saveState() error {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	state := PersistedState{
-		LastSeen:        s.lastSeen,
-		NodeAlertStates: s.nodeAlertStates,
-		ServiceStates:   s.serviceAlertStates,
-		LastUpdate:      time.Now(),
-	}
-
-	data, err := json.Marshal(state)
-	if err != nil {
-		return fmt.Errorf("error marshaling state: %w", err)
-	}
-
-	if err := os.WriteFile(s.stateFile, data, stateFilePerm); err != nil {
-		return fmt.Errorf("error writing state file: %w", err)
-	}
-
-	return nil
-}
-
-func (s *Server) loadState(ctx context.Context) error {
-	data, err := os.ReadFile(s.stateFile)
-	if err != nil {
-		if os.IsNotExist(err) {
-			log.Printf("No state file found, starting fresh")
-			return nil
-		}
-
-		return fmt.Errorf("error reading state file: %w", err)
-	}
-
-	var state PersistedState
-	if err := json.Unmarshal(data, &state); err != nil {
-		return fmt.Errorf("error unmarshaling state: %w", err)
-	}
-
-	s.mu.Lock()
-	s.lastSeen = state.LastSeen
-	s.nodeAlertStates = state.NodeAlertStates
-	s.serviceAlertStates = state.ServiceStates
-	s.mu.Unlock()
-
-	// Check for stale nodes during startup
-	for nodeID, lastSeen := range state.LastSeen {
-		if time.Since(lastSeen) > s.alertThreshold {
-			alert := alerts.WebhookAlert{
-				Level: alerts.Warning,
-				Title: "Node Still Offline",
-				Message: fmt.Sprintf("Node %s has not reported since %s (before restart)",
-					nodeID, lastSeen.Format(time.RFC3339)),
-				NodeID: nodeID,
-				Details: map[string]any{
-					"hostname":        getHostname(),
-					"last_seen":       lastSeen.Format(time.RFC3339),
-					"duration":        time.Since(lastSeen).String(),
-					"cloud_restarted": true,
-				},
-			}
-			s.sendAlert(ctx, &alert)
-		}
-	}
-
-	log.Printf("Loaded state with %d nodes, %d node alerts, %d service alerts",
-		len(state.LastSeen), len(state.NodeAlertStates), len(state.ServiceStates))
-
-	return nil
+	mu             sync.RWMutex
+	db             *db.DB
+	alertThreshold time.Duration
+	webhooks       []*alerts.WebhookAlerter
+	apiServer      *api.APIServer
+	ShutdownChan   chan struct{}
+	knownPollers   []string
 }
 
 func (s *Server) Shutdown(ctx context.Context) {
-	// set a ctx with a timeout to allow for graceful Shutdown
 	ctx, cancel := context.WithTimeout(ctx, shutdownTimeout)
 	defer cancel()
 
-	if err := s.saveState(); err != nil {
-		log.Printf("Error saving state during Shutdown: %v", err)
+	if err := s.db.Close(); err != nil {
+		log.Printf("Error closing database: %v", err)
 	}
 
 	if len(s.webhooks) > 0 {
@@ -175,62 +97,248 @@ func (s *Server) SetAPIServer(a *api.APIServer) {
 func (s *Server) checkInitialStates(ctx context.Context) {
 	log.Printf("Checking initial states of all nodes")
 
-	// Use a map to track which nodes we've checked to avoid duplicates
+	// Query all nodes from database
+	const querySQL = `
+        SELECT node_id, is_healthy, last_seen 
+        FROM nodes 
+        ORDER BY last_seen DESC
+    `
+	rows, err := s.db.Query(querySQL)
+	if err != nil {
+		log.Printf("Error querying nodes: %v", err)
+		return
+	}
+	defer func(rows *sql.Rows) {
+		err := rows.Close()
+		if err != nil {
+			log.Printf("Error closing rows: %v", err)
+		}
+	}(rows)
+
 	checkedNodes := make(map[string]bool)
+	for rows.Next() {
+		var nodeID string
+		var isHealthy bool
+		var lastSeen time.Time
 
-	s.mu.RLock()
-	for pollerID, lastSeen := range s.lastSeen {
-		checkedNodes[pollerID] = true
+		if err := rows.Scan(&nodeID, &isHealthy, &lastSeen); err != nil {
+			log.Printf("Error scanning node row: %v", err)
+			continue
+		}
 
+		checkedNodes[nodeID] = true
 		duration := time.Since(lastSeen)
+
 		if duration > s.alertThreshold {
 			log.Printf("Node %s found offline during initial check (last seen: %v ago)",
-				pollerID, duration.Round(time.Second))
+				nodeID, duration.Round(time.Second))
 
-			// Only send alert if not already tracked as down
-			if _, exists := s.nodeAlertStates[pollerID]; !exists {
-				s.mu.RUnlock()
-				s.markNodeDown(ctx, pollerID, time.Now())
-				s.mu.RLock()
-			}
+			s.markNodeDown(ctx, nodeID, time.Now())
 		}
 	}
-	s.mu.RUnlock()
 
 	// Check for known pollers that have never reported
 	for _, pollerID := range s.knownPollers {
 		if !checkedNodes[pollerID] {
-			if _, exists := s.nodeAlertStates[pollerID]; !exists {
-				log.Printf("Known poller %s has never reported", pollerID)
-				s.markNodeDown(ctx, pollerID, time.Now())
-			}
+			s.markNodeDown(ctx, pollerID, time.Now())
 		}
 	}
 }
 
 func NewServer(ctx context.Context, config *Config) (*Server, error) {
+	// Use default DB path if not specified
+	dbPath := config.DbPath
+	if dbPath == "" {
+		dbPath = defaultDbPath
+	}
+
+	// Ensure the directory exists
+	if err := os.MkdirAll("/var/lib/homemon", homemonDirPerms); err != nil {
+		return nil, fmt.Errorf("failed to create data directory: %w", err)
+	}
+
+	// Initialize database
+	database, err := db.New(dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize database: %w", err)
+	}
+
 	server := &Server{
-		lastSeen:           make(map[string]time.Time),
-		alertThreshold:     config.AlertThreshold,
-		webhooks:           make([]*alerts.WebhookAlerter, 0),
-		nodeAlertStates:    make(map[string]*alertState),
-		serviceAlertStates: make(map[string]*alertState),
-		ShutdownChan:       make(chan struct{}),
-		stateFile:          defaultStateFile,
-		knownPollers:       config.KnownPollers,
+		db:             database,
+		alertThreshold: config.AlertThreshold,
+		webhooks:       make([]*alerts.WebhookAlerter, 0),
+		ShutdownChan:   make(chan struct{}),
+		knownPollers:   config.KnownPollers,
 	}
 
 	server.initializeGRPCServer(config)
-
-	if err := server.initializeStorage(); err != nil {
-		return nil, fmt.Errorf("failed to initialize storage: %w", err)
-	}
-
 	server.initializeWebhooks(config.Webhooks)
-
 	server.startBackgroundTasks(ctx)
 
 	return server, nil
+}
+
+// ReportStatus handles incoming status reports from pollers
+func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusRequest) (*proto.PollerStatusResponse, error) {
+	if req.PollerId == "" {
+		return nil, fmt.Errorf("empty poller ID")
+	}
+
+	now := time.Unix(req.Timestamp, 0)
+	log.Printf("Processing status report from %s at %s", req.PollerId, now.Format(time.RFC3339))
+
+	// Build API node status while processing
+	apiStatus := &api.NodeStatus{
+		NodeID:     req.PollerId,
+		LastUpdate: now,
+		IsHealthy:  true,
+		Services:   make([]api.ServiceStatus, 0, len(req.Services)),
+	}
+
+	// Process services
+	for _, svc := range req.Services {
+		log.Printf("Service report: node=%s name=%s type=%s available=%v",
+			req.PollerId, svc.ServiceName, svc.ServiceType, svc.Available)
+
+		if !svc.Available {
+			apiStatus.IsHealthy = false
+		}
+
+		// Store in database
+		svcStatus := &db.ServiceStatus{
+			NodeID:      req.PollerId,
+			ServiceName: svc.ServiceName,
+			ServiceType: svc.ServiceType,
+			Available:   svc.Available,
+			Details:     svc.Message,
+			Timestamp:   now,
+		}
+
+		if err := s.db.UpdateServiceStatus(svcStatus); err != nil {
+			log.Printf("Error storing service status: %v", err)
+		}
+
+		// Add to API status
+		apiService := api.ServiceStatus{
+			Name:      svc.ServiceName,
+			Available: svc.Available,
+			Message:   svc.Message,
+			Type:      svc.ServiceType,
+		}
+
+		// Parse detailed status if available
+		if svc.Message != "" {
+			var raw json.RawMessage
+			if err := json.Unmarshal([]byte(svc.Message), &raw); err == nil {
+				apiService.Details = raw
+			}
+		}
+
+		apiStatus.Services = append(apiStatus.Services, apiService)
+	}
+
+	// Store node status in database
+	nodeStatus := &db.NodeStatus{
+		NodeID:    req.PollerId,
+		IsHealthy: apiStatus.IsHealthy,
+		LastSeen:  now,
+	}
+
+	if err := s.db.UpdateNodeStatus(nodeStatus); err != nil {
+		log.Printf("Error storing node status: %v", err)
+		return nil, fmt.Errorf("failed to store node status: %w", err)
+	}
+
+	// Verify storage
+	storedNode, err := s.db.GetNodeStatus(nodeStatus.NodeID)
+	if err != nil {
+		log.Printf("Error reading back node status: %v", err)
+	} else {
+		log.Printf("Verified node storage: id=%s healthy=%v last_seen=%v",
+			storedNode.NodeID, storedNode.IsHealthy, storedNode.LastSeen)
+	}
+
+	// Update API server state
+	if s.apiServer != nil {
+		s.apiServer.UpdateNodeStatus(req.PollerId, apiStatus)
+		log.Printf("Updated API server state for node: %s", req.PollerId)
+	} else {
+		log.Printf("Warning: API server not initialized, state not updated")
+	}
+
+	return &proto.PollerStatusResponse{Received: true}, nil
+}
+
+func (s *Server) handleNodeStatusChange(ctx context.Context, pollerID string, isHealthy bool, now time.Time) {
+	// Get node history to check previous state
+	history, err := s.db.GetNodeHistory(pollerID)
+	if err != nil {
+		log.Printf("Error getting node history: %v", err)
+		return
+	}
+
+	var wasDown bool
+	if len(history) > 1 {
+		wasDown = !history[1].IsHealthy // Check previous state
+	}
+
+	if wasDown && isHealthy {
+		// Node recovery
+		alert := alerts.WebhookAlert{
+			Level:     alerts.Info,
+			Title:     "Node Recovery",
+			Message:   fmt.Sprintf("Node '%s' is back online", pollerID),
+			NodeID:    pollerID,
+			Timestamp: now.UTC().Format(time.RFC3339),
+			Details: map[string]any{
+				"hostname":     getHostname(),
+				"recovered_at": now.Format(time.RFC3339),
+			},
+		}
+		s.sendAlert(ctx, &alert)
+	} else if !wasDown && !isHealthy {
+		// Node went down
+		alert := alerts.WebhookAlert{
+			Level:     alerts.Error,
+			Title:     "Node Offline",
+			Message:   fmt.Sprintf("Node '%s' is offline", pollerID),
+			NodeID:    pollerID,
+			Timestamp: now.UTC().Format(time.RFC3339),
+			Details: map[string]any{
+				"hostname":  getHostname(),
+				"last_seen": now.Format(time.RFC3339),
+			},
+		}
+		s.sendAlert(ctx, &alert)
+	}
+}
+
+func (s *Server) updateApiServiceStatus(pollerID string, svc *proto.ServiceStatus, now time.Time) {
+	apiStatus := api.ServiceStatus{
+		Name:      svc.ServiceName,
+		Available: svc.Available,
+		Message:   svc.Message,
+		Type:      svc.ServiceType,
+	}
+
+	// Try to parse service details if present
+	if svc.Message != "" {
+		var raw json.RawMessage
+		if err := json.Unmarshal([]byte(svc.Message), &raw); err == nil {
+			apiStatus.Details = raw
+		}
+	}
+
+	// Update API state
+	if s.apiServer != nil {
+		nodeStatus := &api.NodeStatus{
+			NodeID:     pollerID,
+			LastUpdate: now,
+			IsHealthy:  true,
+			Services:   []api.ServiceStatus{apiStatus},
+		}
+		s.apiServer.UpdateNodeStatus(pollerID, nodeStatus)
+	}
 }
 
 func (s *Server) initializeGRPCServer(config *Config) {
@@ -248,18 +356,6 @@ func (s *Server) initializeGRPCServer(config *Config) {
 	}()
 }
 
-func (s *Server) initializeStorage() error {
-	if err := os.MkdirAll("/var/lib/homemon", homemonDirPerms); err != nil {
-		return fmt.Errorf("error creating state directory: %w", err)
-	}
-
-	if err := s.loadState(context.Background()); err != nil {
-		log.Printf("Warning: Failed to load state: %v", err)
-	}
-
-	return nil
-}
-
 func (s *Server) initializeWebhooks(configs []alerts.WebhookConfig) {
 	for i, config := range configs {
 		log.Printf("Processing webhook config %d: enabled=%v", i, config.Enabled)
@@ -274,8 +370,8 @@ func (s *Server) initializeWebhooks(configs []alerts.WebhookConfig) {
 }
 
 func (s *Server) startBackgroundTasks(ctx context.Context) {
-	// Start state saving goroutine
-	go s.stateSavingTask()
+	// Start periodic database cleanup
+	go s.periodicCleanup(ctx)
 
 	// Send startup notification
 	if len(s.webhooks) > 0 {
@@ -286,8 +382,9 @@ func (s *Server) startBackgroundTasks(ctx context.Context) {
 	go s.startNodeMonitoring(ctx)
 }
 
-func (s *Server) stateSavingTask() {
-	ticker := time.NewTicker(1 * time.Minute)
+// periodicCleanup runs regular maintenance tasks on the database
+func (s *Server) periodicCleanup(ctx context.Context) {
+	ticker := time.NewTicker(1 * time.Hour)
 	defer ticker.Stop()
 
 	for {
@@ -295,25 +392,45 @@ func (s *Server) stateSavingTask() {
 		case <-s.ShutdownChan:
 			return
 		case <-ticker.C:
-			if err := s.saveState(); err != nil {
-				log.Printf("Error saving state: %v", err)
+			// Clean up old data (keep 7 days by default)
+			if err := s.db.CleanOldData(7 * 24 * time.Hour); err != nil {
+				log.Printf("Error during periodic cleanup: %v", err)
+			}
+
+			// Vacuum the database every 24 hours to reclaim space
+			if time.Now().Hour() == 0 { // Run at midnight
+				if _, err := s.db.Exec("VACUUM"); err != nil {
+					log.Printf("Error vacuuming database: %v", err)
+				}
 			}
 		}
 	}
 }
 
 func (s *Server) startNodeMonitoring(ctx context.Context) {
-	// Check initial states after a delay
+	// Initial delay to allow nodes to report in
 	time.Sleep(nodeDiscoveryTimeout)
+
+	// Check initial states from database
 	s.checkInitialStates(ctx)
 
 	// Check never-reported pollers
 	time.Sleep(nodeNeverReportedTimeout)
 	s.checkNeverReportedPollers(ctx, &Config{KnownPollers: s.knownPollers})
+
+	// Start continuous monitoring
+	go s.MonitorPollers(ctx)
 }
 
 func (s *Server) sendStartupNotification(ctx context.Context) {
 	log.Printf("Sending startup notification to %d webhooks", len(s.webhooks))
+
+	// Get total nodes from database
+	var nodeCount int
+	err := s.db.QueryRow("SELECT COUNT(*) FROM nodes").Scan(&nodeCount)
+	if err != nil {
+		log.Printf("Error counting nodes: %v", err)
+	}
 
 	alert := alerts.WebhookAlert{
 		Level:     alerts.Info,
@@ -322,28 +439,26 @@ func (s *Server) sendStartupNotification(ctx context.Context) {
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		NodeID:    "cloud",
 		Details: map[string]any{
-			"version":  "1.0.0",
-			"hostname": getHostname(),
-			"pid":      os.Getpid(),
+			"version":     "1.0.0",
+			"hostname":    getHostname(),
+			"pid":         os.Getpid(),
+			"total_nodes": nodeCount,
 		},
 	}
 	s.sendAlert(ctx, &alert)
 }
 
 func (s *Server) checkNeverReportedPollers(ctx context.Context, config *Config) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	const querySQL = `
+        SELECT node_id 
+        FROM nodes 
+        WHERE node_id = ?
+    `
 
-	// If your config is stored somewhere accessible, or you store it on the server.
-	// For example, maybe you have s.knownPollers from the config:
-	s.knownPollers = config.KnownPollers
-
-	// We only want to alert if they're *truly* never reported
-	// i.e. not in s.lastSeen at all:
-	for _, pollerID := range s.knownPollers {
-		_, exists := s.lastSeen[pollerID]
-		if !exists {
-			// Trigger an immediate alert that poller never checked in
+	for _, pollerID := range config.KnownPollers {
+		var exists string
+		err := s.db.QueryRow(querySQL, pollerID).Scan(&exists)
+		if errors.Is(err, sql.ErrNoRows) {
 			alert := alerts.WebhookAlert{
 				Level:   alerts.Error,
 				Title:   fmt.Sprintf("Poller Never Reported: %s", pollerID),
@@ -356,110 +471,35 @@ func (s *Server) checkNeverReportedPollers(ctx context.Context, config *Config) 
 
 			log.Printf("Sending 'never-reported' alert for poller %s", pollerID)
 			s.sendAlert(ctx, &alert)
-
-			// Optionally keep track of it in nodeAlertStates:
-			s.nodeAlertStates[pollerID] = &alertState{
-				isDown:    true,
-				timestamp: time.Now(),
-			}
 		}
 	}
-}
-
-func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusRequest) (*proto.PollerStatusResponse, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	pollerID := req.PollerId
-	if pollerID == "" {
-		return &proto.PollerStatusResponse{Received: false},
-			ErrEmptyPollerID
-	}
-
-	now := time.Unix(req.Timestamp, 0)
-	isHealthy := true
-
-	// Build node status for API
-	nodeStatus := &api.NodeStatus{
-		NodeID:     pollerID,
-		LastUpdate: now,
-		Services:   make([]api.ServiceStatus, 0, len(req.Services)),
-	}
-
-	// Process services
-	for _, svc := range req.Services {
-		svcStatus := api.ServiceStatus{
-			Name:      svc.ServiceName,
-			Available: svc.Available,
-			Message:   svc.Message,
-			Type:      svc.ServiceType,
-		}
-
-		// Try to parse service details if present
-		if svc.Message != "" {
-			var raw json.RawMessage
-			if err := json.Unmarshal([]byte(svc.Message), &raw); err == nil {
-				svcStatus.Details = raw
-
-				log.Printf("Successfully parsed Dusk node details for node %s", pollerID)
-			}
-		}
-
-		nodeStatus.Services = append(nodeStatus.Services, svcStatus)
-
-		if !svc.Available {
-			isHealthy = false
-		}
-	}
-
-	nodeStatus.IsHealthy = isHealthy
-
-	// Handle recovery if node was previously down
-	if state, exists := s.nodeAlertStates[pollerID]; exists && state.isDown {
-		downtime := time.Since(state.timestamp).Round(time.Second)
-		alert := alerts.WebhookAlert{
-			Level:     alerts.Info,
-			Title:     "Node Recovery",
-			Message:   fmt.Sprintf("Node '%s' is back online after %v", pollerID, downtime),
-			NodeID:    pollerID,
-			Timestamp: now.UTC().Format(time.RFC3339),
-			Details: map[string]any{
-				"hostname":     getHostname(),
-				"downtime":     downtime.String(),
-				"recovered_at": now.Format(time.RFC3339),
-			},
-		}
-
-		log.Printf("Sending recovery alert for node '%s'", pollerID)
-		s.sendAlert(ctx, &alert)
-		delete(s.nodeAlertStates, pollerID)
-	}
-
-	// Update last seen time
-	s.lastSeen[pollerID] = now
-
-	// Update API state
-	if s.apiServer != nil {
-		log.Printf("Updating API state for node %s: healthy=%v, services=%d",
-			pollerID, nodeStatus.IsHealthy, len(nodeStatus.Services))
-		s.apiServer.UpdateNodeStatus(pollerID, nodeStatus)
-	}
-
-	return &proto.PollerStatusResponse{Received: true}, nil
 }
 
 func (s *Server) markNodeDown(ctx context.Context, pollerID string, now time.Time) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// Check if already marked down
-	if state, exists := s.nodeAlertStates[pollerID]; exists && state.isDown {
-		return
+	// Update node status in database
+	status := &db.NodeStatus{
+		NodeID:    pollerID,
+		IsHealthy: false,
+		LastSeen:  now,
 	}
 
-	s.nodeAlertStates[pollerID] = &alertState{
-		isDown:    true,
-		timestamp: now,
+	if err := s.db.UpdateNodeStatus(status); err != nil {
+		log.Printf("Error updating node down status: %v", err)
+	}
+
+	// Query last known good status
+	const querySQL = `
+        SELECT last_seen 
+        FROM node_history 
+        WHERE node_id = ? AND is_healthy = TRUE 
+        ORDER BY timestamp DESC 
+        LIMIT 1
+    `
+
+	var lastSeen time.Time
+	err := s.db.QueryRow(querySQL, pollerID).Scan(&lastSeen)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		log.Printf("Error querying last seen time: %v", err)
 	}
 
 	alert := alerts.WebhookAlert{
@@ -470,8 +510,8 @@ func (s *Server) markNodeDown(ctx context.Context, pollerID string, now time.Tim
 		Timestamp: now.UTC().Format(time.RFC3339),
 		Details: map[string]any{
 			"hostname":  getHostname(),
-			"last_seen": s.lastSeen[pollerID].Format(time.RFC3339),
-			"duration":  time.Since(s.lastSeen[pollerID]).Round(time.Second).String(),
+			"last_seen": lastSeen.Format(time.RFC3339),
+			"duration":  time.Since(lastSeen).Round(time.Second).String(),
 		},
 	}
 
@@ -538,56 +578,65 @@ func (s *Server) MonitorPollers(ctx context.Context) {
 			return
 		case <-ticker.C:
 			s.checkPollers(ctx)
+		case <-time.After(24 * time.Hour):
+			// Daily cleanup of old data
+			if err := s.db.CleanOldData(7 * 24 * time.Hour); err != nil {
+				log.Printf("Error cleaning old data: %v", err)
+			}
 		}
 	}
 }
 
 func (s *Server) checkPollers(ctx context.Context) {
 	now := time.Now()
+	alertThreshold := now.Add(-s.alertThreshold)
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	const querySQL = `
+        SELECT n.node_id, n.last_seen, n.is_healthy
+        FROM nodes n
+        WHERE n.last_seen < ?
+        AND n.is_healthy = TRUE
+    `
 
-	log.Printf("Checking poller states. Current states: %+v", s.nodeAlertStates)
+	rows, err := s.db.Query(querySQL, alertThreshold)
+	if err != nil {
+		log.Printf("Error querying nodes for status check: %v", err)
+		return
+	}
+	defer func(rows *sql.Rows) {
+		err := rows.Close()
+		if err != nil {
+			log.Printf("Error closing rows: %v", err)
+		}
+	}(rows)
 
-	for pollerID, lastSeen := range s.lastSeen {
+	for rows.Next() {
+		var nodeID string
+		var lastSeen time.Time
+		var isHealthy bool
+
+		if err := rows.Scan(&nodeID, &lastSeen, &isHealthy); err != nil {
+			log.Printf("Error scanning node status: %v", err)
+			continue
+		}
+
 		duration := now.Sub(lastSeen)
-		log.Printf("Poller %s last seen %v ago (threshold: %v)", pollerID, duration, s.alertThreshold)
+		log.Printf("Node %s last seen %v ago (threshold: %v)",
+			nodeID, duration, s.alertThreshold)
 
-		if duration > s.alertThreshold {
-			if state, exists := s.nodeAlertStates[pollerID]; !exists || !state.isDown {
-				log.Printf("Node %s transitioning to DOWN state", pollerID)
+		// If the node was healthy but hasn't been seen recently, mark it down
+		if isHealthy && duration > s.alertThreshold {
+			log.Printf("Node %s transitioning to DOWN state", nodeID)
+			s.markNodeDown(ctx, nodeID, now)
 
-				alert := alerts.WebhookAlert{
-					Level:   alerts.Error,
-					Title:   "Node Offline",
-					Message: fmt.Sprintf("Node %s has not reported in %v", pollerID, duration.Round(time.Second)),
-					NodeID:  pollerID,
-					Details: map[string]any{
-						"hostname":  getHostname(),
-						"last_seen": lastSeen.Format(time.RFC3339),
-						"duration":  duration.String(),
-					},
-				}
-
-				s.sendAlert(ctx, &alert)
-
-				s.nodeAlertStates[pollerID] = &alertState{
-					isDown:    true,
-					timestamp: now,
-				}
-
-				// Build a NodeStatus with IsHealthy=false
+			// Update API state if available
+			if s.apiServer != nil {
 				offlineStatus := &api.NodeStatus{
-					NodeID:     pollerID,
+					NodeID:     nodeID,
 					IsHealthy:  false,
 					LastUpdate: now,
-					Services:   nil, // or empty slice
 				}
-
-				if s.apiServer != nil {
-					s.apiServer.UpdateNodeStatus(pollerID, offlineStatus)
-				}
+				s.apiServer.UpdateNodeStatus(nodeID, offlineStatus)
 			}
 		}
 	}

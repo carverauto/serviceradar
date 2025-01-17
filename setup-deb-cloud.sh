@@ -30,7 +30,8 @@ echo "Building Go binary..."
 
 # Build Go binary with embedded web content
 cd cmd/cloud
-GOOS=linux GOARCH=amd64 go build -o "../../${PKG_ROOT}/usr/local/bin/homemon-cloud"
+#GOOS=linux GOARCH=amd64 go build -o "../../${PKG_ROOT}/usr/local/bin/homemon-cloud"
+CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -o "../../${PKG_ROOT}/usr/local/bin/homemon-cloud"
 cd ../..
 
 echo "Creating package files..."
