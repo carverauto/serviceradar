@@ -1,4 +1,4 @@
-// Package db db/db.go provides SQLite database functionality for HomeMon
+// Package db pkg/db/db.go provides SQLite database functionality for HomeMon
 package db
 
 import (
@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log"
 	"time"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 var (
@@ -29,36 +31,58 @@ const (
 
 	// SQL statements for database initialization.
 	createTablesSQL = `
-		CREATE TABLE IF NOT EXISTS nodes (
-			node_id TEXT PRIMARY KEY,
-			first_seen TIMESTAMP NOT NULL,
-			last_seen TIMESTAMP NOT NULL,
-			is_healthy BOOLEAN NOT NULL
-		);
+	-- Node information
+	CREATE TABLE IF NOT EXISTS nodes (
+		node_id TEXT PRIMARY KEY,
+		first_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		last_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		is_healthy BOOLEAN NOT NULL DEFAULT 0
+	);
 
-		CREATE TABLE IF NOT EXISTS node_history (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			node_id TEXT NOT NULL,
-			timestamp TIMESTAMP NOT NULL,
-			is_healthy BOOLEAN NOT NULL,
-			FOREIGN KEY (node_id) REFERENCES nodes(node_id)
-		);
+	-- Node status history
+	CREATE TABLE IF NOT EXISTS node_history (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		node_id TEXT NOT NULL,
+		timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		is_healthy BOOLEAN NOT NULL DEFAULT 0,
+		FOREIGN KEY (node_id) REFERENCES nodes(node_id) ON DELETE CASCADE
+	);
 
-		CREATE TABLE IF NOT EXISTS service_status (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			node_id TEXT NOT NULL,
-			service_name TEXT NOT NULL,
-			service_type TEXT NOT NULL,
-			available BOOLEAN NOT NULL,
-			details TEXT,
-			timestamp TIMESTAMP NOT NULL,
-			FOREIGN KEY (node_id) REFERENCES nodes(node_id)
-		);
+	-- Service status
+	CREATE TABLE IF NOT EXISTS service_status (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		node_id TEXT NOT NULL,
+		service_name TEXT NOT NULL,
+		service_type TEXT NOT NULL,
+		available BOOLEAN NOT NULL DEFAULT 0,
+		details TEXT,
+		timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		FOREIGN KEY (node_id) REFERENCES nodes(node_id) ON DELETE CASCADE
+	);
 
-		CREATE INDEX IF NOT EXISTS idx_node_history_node_time 
-			ON node_history(node_id, timestamp);
-		CREATE INDEX IF NOT EXISTS idx_service_status_node_time 
-			ON service_status(node_id, timestamp);
+	-- Service history
+	CREATE TABLE IF NOT EXISTS service_history (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		service_status_id INTEGER NOT NULL,
+		timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		available BOOLEAN NOT NULL DEFAULT 0,
+		details TEXT,
+		FOREIGN KEY (service_status_id) REFERENCES service_status(id) ON DELETE CASCADE
+	);
+
+	-- Indexes for better query performance
+	CREATE INDEX IF NOT EXISTS idx_node_history_node_time 
+		ON node_history(node_id, timestamp);
+	CREATE INDEX IF NOT EXISTS idx_service_status_node_time 
+		ON service_status(node_id, timestamp);
+	CREATE INDEX IF NOT EXISTS idx_service_status_type 
+		ON service_status(service_type);
+	CREATE INDEX IF NOT EXISTS idx_service_history_status_time 
+		ON service_history(service_status_id, timestamp);
+
+	-- Enable WAL mode for better concurrent access
+	PRAGMA journal_mode=WAL;
+	PRAGMA foreign_keys=ON;
 	`
 
 	// SQL to trim old history points.
@@ -126,62 +150,82 @@ func (db *DB) initSchema() error {
 	return err
 }
 
-// UpdateNodeStatus updates a node's status and maintains history.
 func (db *DB) UpdateNodeStatus(status *NodeStatus) error {
 	tx, err := db.Begin()
 	if err != nil {
-		return fmt.Errorf("%w: %w", errFailedToBeginTx, err)
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer rollbackOnError(tx, &err)
+
+	err = db.updateExistingNode(tx, status)
+	if errors.Is(err, sql.ErrNoRows) {
+		err = db.insertNewNode(tx, status)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to update node status: %w", err)
 	}
 
-	defer func() {
-		if err != nil {
-			if rbErr := tx.Rollback(); rbErr != nil {
-				log.Printf("failed to rollback: %v", rbErr)
-				err = fmt.Errorf("%w: %w", errFailedToRollback, rbErr)
-			}
-
-			return
-		}
-
-		err = tx.Commit()
-	}()
-
-	// Update or insert node status
-	const upsertNodeSQL = `
-		INSERT INTO nodes (node_id, first_seen, last_seen, is_healthy)
-		VALUES (?, ?, ?, ?)
-		ON CONFLICT(node_id) DO UPDATE SET
-			last_seen = ?,
-			is_healthy = ?
-		WHERE node_id = ?
-	`
-
-	_, err = tx.Exec(upsertNodeSQL,
-		status.NodeID, status.FirstSeen, status.LastSeen, status.IsHealthy,
-		status.LastSeen, status.IsHealthy, status.NodeID)
+	err = db.addNodeHistory(tx, status)
 	if err != nil {
-		return fmt.Errorf("%w node: %w", errFailedToUpsert, err)
+		return fmt.Errorf("failed to add node history: %w", err)
 	}
 
-	// Add history entry
-	const insertHistorySQL = `
-		INSERT INTO node_history (node_id, timestamp, is_healthy)
-		VALUES (?, ?, ?)
-	`
+	return tx.Commit()
+}
 
-	_, err = tx.Exec(insertHistorySQL,
-		status.NodeID, status.LastSeen, status.IsHealthy)
+func (db *DB) updateExistingNode(tx *sql.Tx, status *NodeStatus) error {
+	result, err := tx.Exec(`
+        UPDATE nodes 
+        SET last_seen = ?,
+            is_healthy = ?
+        WHERE node_id = ?
+    `, status.LastSeen, status.IsHealthy, status.NodeID)
 	if err != nil {
-		return fmt.Errorf("%w history: %w", errFailedToInsert, err)
+		return fmt.Errorf("failed to update node: %w", err)
 	}
 
-	// Trim old history points
-	_, err = tx.Exec(trimHistorySQL, status.NodeID, maxHistoryPoints)
+	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("%w history: %w", errFailedToTrim, err)
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
 	}
 
 	return nil
+}
+
+func (db *DB) insertNewNode(tx *sql.Tx, status *NodeStatus) error {
+	_, err := tx.Exec(`
+        INSERT INTO nodes (node_id, first_seen, last_seen, is_healthy)
+        VALUES (?, CURRENT_TIMESTAMP, ?, ?)
+    `, status.NodeID, status.LastSeen, status.IsHealthy)
+
+	if err != nil {
+		return fmt.Errorf("failed to insert node: %w", err)
+	}
+	return nil
+}
+
+func (db *DB) addNodeHistory(tx *sql.Tx, status *NodeStatus) error {
+	_, err := tx.Exec(`
+        INSERT INTO node_history (node_id, timestamp, is_healthy)
+        VALUES (?, ?, ?)
+    `, status.NodeID, status.LastSeen, status.IsHealthy)
+
+	if err != nil {
+		return fmt.Errorf("failed to insert history: %w", err)
+	}
+	return nil
+}
+
+func rollbackOnError(tx *sql.Tx, err *error) {
+	if *err != nil {
+		if rbErr := tx.Rollback(); rbErr != nil {
+			log.Printf("Error rolling back transaction: %v", rbErr)
+		}
+	}
 }
 
 // UpdateServiceStatus updates a service's status.
@@ -205,6 +249,54 @@ func (db *DB) UpdateServiceStatus(status *ServiceStatus) error {
 	}
 
 	return nil
+}
+
+func (db *DB) GetNodeStatus(nodeID string) (*NodeStatus, error) {
+	const query = `
+        SELECT node_id, first_seen, last_seen, is_healthy
+        FROM nodes
+        WHERE node_id = ?
+    `
+
+	var status NodeStatus
+	err := db.QueryRow(query, nodeID).Scan(
+		&status.NodeID,
+		&status.FirstSeen,
+		&status.LastSeen,
+		&status.IsHealthy,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query node status: %w", err)
+	}
+
+	return &status, nil
+}
+
+func (db *DB) GetNodeServices(nodeID string) ([]ServiceStatus, error) {
+	const querySQL = `
+        SELECT service_name, service_type, available, details, timestamp
+        FROM service_status
+        WHERE node_id = ?
+        ORDER BY service_type, service_name
+    `
+
+	rows, err := db.Query(querySQL, nodeID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query services: %w", err)
+	}
+	defer rows.Close()
+
+	var services []ServiceStatus
+	for rows.Next() {
+		var s ServiceStatus
+		s.NodeID = nodeID
+		if err := rows.Scan(&s.ServiceName, &s.ServiceType, &s.Available, &s.Details, &s.Timestamp); err != nil {
+			return nil, fmt.Errorf("failed to scan service: %w", err)
+		}
+		services = append(services, s)
+	}
+
+	return services, nil
 }
 
 // GetNodeHistory retrieves the history for a node.
