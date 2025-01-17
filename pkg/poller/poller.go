@@ -24,6 +24,19 @@ var (
 	ErrAgentUnhealthy       = fmt.Errorf("agent is unhealthy")
 )
 
+type SweepData struct {
+	Network        string       `json:"network"`
+	TotalHosts     int32        `json:"total_hosts"`
+	AvailableHosts int32        `json:"available_hosts"`
+	LastSweep      int64        `json:"last_sweep"`
+	Ports          []PortStatus `json:"ports"`
+}
+
+type PortStatus struct {
+	Port      int32 `json:"port"`
+	Available int32 `json:"available"`
+}
+
 // Duration is a wrapper around time.Duration for JSON unmarshaling.
 type Duration time.Duration
 
@@ -200,6 +213,21 @@ func (p *Poller) pollAgent(ctx context.Context, agentName string, agentConfig Ag
 				Message:     status.Message,
 				ServiceType: check.Type,
 			}
+
+			// Handle sweep service status specially
+			if check.Type == "sweep" {
+				if err := p.handleSweepStatus(status, results); err != nil {
+					errors <- fmt.Errorf("error handling sweep status: %w", err)
+				}
+				return
+			}
+
+			results <- &proto.ServiceStatus{
+				ServiceName: check.Name,
+				Available:   status.Available,
+				Message:     status.Message,
+				ServiceType: check.Type,
+			}
 		}(check)
 	}
 
@@ -221,6 +249,25 @@ func (p *Poller) pollAgent(ctx context.Context, agentName string, agentConfig Ag
 	}
 
 	return statuses, nil
+}
+
+// handleSweepStatus processes sweep service results
+func (p *Poller) handleSweepStatus(status *proto.StatusResponse, results chan<- *proto.ServiceStatus) error {
+	// Parse sweep data from message
+	var sweepData SweepData
+	if err := json.Unmarshal([]byte(status.Message), &sweepData); err != nil {
+		return fmt.Errorf("failed to parse sweep data: %w", err)
+	}
+
+	// Create service status with sweep data
+	results <- &proto.ServiceStatus{
+		ServiceName: "network_sweep",
+		ServiceType: "sweep",
+		Available:   status.Available,
+		Message:     status.Message, // Keep original JSON for cloud processing
+	}
+
+	return nil
 }
 
 // reconnectAgent closes the existing connection and creates a new one.

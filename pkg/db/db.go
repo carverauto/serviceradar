@@ -70,7 +70,31 @@ const (
 		FOREIGN KEY (service_status_id) REFERENCES service_status(id) ON DELETE CASCADE
 	);
 
+	    -- Network sweep results
+    CREATE TABLE IF NOT EXISTS sweep_results (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        poller_id TEXT NOT NULL,
+        network TEXT NOT NULL,
+        total_hosts INTEGER NOT NULL,
+        active_hosts INTEGER NOT NULL,
+        timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (poller_id) REFERENCES nodes(node_id) ON DELETE CASCADE
+    );
+
+    -- Port scan results
+    CREATE TABLE IF NOT EXISTS port_results (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sweep_id INTEGER NOT NULL,
+        port INTEGER NOT NULL,
+        available INTEGER NOT NULL,
+        FOREIGN KEY (sweep_id) REFERENCES sweep_results(id) ON DELETE CASCADE
+    );	
+
 	-- Indexes for better query performance
+	CREATE INDEX IF NOT EXISTS idx_sweep_results_poller_time 
+        ON sweep_results(poller_id, timestamp);
+    CREATE INDEX IF NOT EXISTS idx_port_results_sweep 
+        ON port_results(sweep_id);
 	CREATE INDEX IF NOT EXISTS idx_node_history_node_time 
 		ON node_history(node_id, timestamp);
 	CREATE INDEX IF NOT EXISTS idx_service_status_node_time 
