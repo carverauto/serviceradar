@@ -41,10 +41,11 @@ func generateTargets(config Config) ([]Target, error) {
 	}
 
 	log.Printf("Generated %d total targets", len(targets))
+
 	return targets, nil
 }
 
-// inc increments an IP address
+// inc increments an IP address.
 func inc(ip net.IP) {
 	for j := len(ip) - 1; j >= 0; j-- {
 		ip[j]++

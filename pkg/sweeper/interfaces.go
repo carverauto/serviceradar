@@ -5,13 +5,13 @@ import (
 	"time"
 )
 
-// Target represents a network target to be scanned
+// Target represents a network target to be scanned.
 type Target struct {
 	Host string
 	Port int
 }
 
-// Result represents the outcome of a sweep against a target
+// Result represents the outcome of a sweep against a target.
 type Result struct {
 	Target    Target
 	Available bool
@@ -21,7 +21,7 @@ type Result struct {
 	Error     error
 }
 
-// Scanner defines how to perform network sweeps
+// Scanner defines how to perform network sweeps.
 type Scanner interface {
 	// Scan performs the sweep and returns results through the channel
 	Scan(context.Context, []Target) (<-chan Result, error)
@@ -30,7 +30,7 @@ type Scanner interface {
 	Stop() error
 }
 
-// Store defines how sweep results are persisted
+// Store defines how sweep results are persisted.
 type Store interface {
 	// SaveResult persists a single scan result
 	SaveResult(context.Context, *Result) error
@@ -42,7 +42,7 @@ type Store interface {
 	PruneResults(context.Context, time.Duration) error
 }
 
-// ResultFilter defines criteria for retrieving results
+// ResultFilter defines criteria for retrieving results.
 type ResultFilter struct {
 	Host      string
 	Port      int
@@ -51,7 +51,7 @@ type ResultFilter struct {
 	Available *bool
 }
 
-// Config defines sweeper configuration
+// Config defines sweeper configuration.
 type Config struct {
 	Networks    []string      // CIDR ranges to sweep
 	Ports       []int         // Ports to check
@@ -60,7 +60,7 @@ type Config struct {
 	Timeout     time.Duration // Individual scan timeout
 }
 
-// Sweeper defines the main interface for network sweeping
+// Sweeper defines the main interface for network sweeping.
 type Sweeper interface {
 	// Start begins periodic sweeping based on configuration
 	Start(context.Context) error

@@ -9,6 +9,10 @@ import (
 	"time"
 )
 
+const (
+	pruneOldResultsInterval = 24 * time.Hour
+)
+
 // NetworkSweeper implements the Sweeper interface.
 type NetworkSweeper struct {
 	config  Config
@@ -105,7 +109,7 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 	}
 
 	// Prune old results
-	if err := s.store.PruneResults(ctx, 24*time.Hour); err != nil {
+	if err := s.store.PruneResults(ctx, pruneOldResultsInterval); err != nil {
 		log.Printf("Failed to prune old results: %v", err)
 	}
 

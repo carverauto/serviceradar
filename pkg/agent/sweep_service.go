@@ -14,15 +14,14 @@ import (
 )
 
 type SweepService struct {
-	sweeper  sweeper.Sweeper
-	mu       sync.RWMutex
-	closed   chan struct{}
-	config   sweeper.Config
-	results  []sweeper.Result
-	lastScan time.Time
+	sweeper sweeper.Sweeper
+	mu      sync.RWMutex
+	closed  chan struct{}
+	config  sweeper.Config
+	results []sweeper.Result
 }
 
-// NewSweepService creates a new sweep service
+// NewSweepService creates a new sweep service.
 func NewSweepService(config sweeper.Config) (*SweepService, error) {
 	// Create network sweeper instance
 	sw := sweeper.NewNetworkSweeper(config)
@@ -65,6 +64,7 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.ServiceStatus, err
 
 	for _, result := range results {
 		hostsSeen[result.Target.Host] = true
+
 		if result.Available {
 			hostsAvailable[result.Target.Host] = true
 			portCounts[result.Target.Port]++
@@ -101,16 +101,17 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.ServiceStatus, err
 	}, nil
 }
 
-// UpdateConfig updates the sweep configuration
+// UpdateConfig updates the sweep configuration.
 func (s *SweepService) UpdateConfig(config sweeper.Config) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.config = config
+
 	return s.sweeper.UpdateConfig(config)
 }
 
-// Close implements io.Closer
+// Close implements io.Closer.
 func (s *SweepService) Close() error {
 	return s.Stop()
 }

@@ -47,14 +47,13 @@ type SweepConfig struct {
 
 // CheckerConfig represents the configuration for a checker.
 type CheckerConfig struct {
-	Name         string          `json:"name"`
-	Type         string          `json:"type"`
-	Address      string          `json:"address,omitempty"`
-	Port         int             `json:"port,omitempty"`
-	Timeout      Duration        `json:"timeout,omitempty"`
-	ListenAddr   string          `json:"listen_addr,omitempty"`
-	Additional   json.RawMessage `json:"additional,omitempty"`
-	sweepService *SweepService
+	Name       string          `json:"name"`
+	Type       string          `json:"type"`
+	Address    string          `json:"address,omitempty"`
+	Port       int             `json:"port,omitempty"`
+	Timeout    Duration        `json:"timeout,omitempty"`
+	ListenAddr string          `json:"listen_addr,omitempty"`
+	Additional json.RawMessage `json:"additional,omitempty"`
 }
 
 // Server implements the AgentService interface.
@@ -81,7 +80,7 @@ func NewServer(configDir string) (*Server, error) {
 
 	// Initialize sweep service if configuration exists
 	if err := s.initializeSweepService(); err != nil {
-		return nil, fmt.Errorf("%w: %v", errSweepServiceInit, err)
+		return nil, fmt.Errorf("%w: %w", errSweepServiceInit, err)
 	}
 
 	return s, nil
@@ -114,7 +113,7 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// initializeSweepService loads sweep configuration and starts the service
+// initializeSweepService loads sweep configuration and starts the service.
 func (s *Server) initializeSweepService() error {
 	// Look for sweep configuration file
 	sweepConfigPath := filepath.Join(s.configDir, "sweep.json")
@@ -130,7 +129,7 @@ func (s *Server) initializeSweepService() error {
 	}
 
 	var sweepConfig SweepConfig
-	if err := json.Unmarshal(data, &sweepConfig); err != nil {
+	if err = json.Unmarshal(data, &sweepConfig); err != nil {
 		return fmt.Errorf("failed to parse sweep config: %w", err)
 	}
 
@@ -155,6 +154,7 @@ func (s *Server) initializeSweepService() error {
 	}
 
 	s.sweepService = sweepService
+
 	log.Printf("Sweep service initialized with config: %+v", config)
 
 	return nil
@@ -222,7 +222,7 @@ func (*Server) initializeChecker(
 	}
 }
 
-// GetStatus handles status requests for both regular checks and sweep service
+// GetStatus handles status requests for both regular checks and sweep service.
 func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
 	// Handle sweep service status specially
 	if req.ServiceType == "sweep" {
@@ -246,7 +246,7 @@ func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*prot
 	}, nil
 }
 
-// getSweepStatus handles status requests specifically for the sweep service
+// getSweepStatus handles status requests specifically for the sweep service.
 func (s *Server) getSweepStatus(ctx context.Context) (*proto.StatusResponse, error) {
 	if s.sweepService == nil {
 		return &proto.StatusResponse{
@@ -260,7 +260,7 @@ func (s *Server) getSweepStatus(ctx context.Context) (*proto.StatusResponse, err
 		return &proto.StatusResponse{
 			Available: false,
 			Message:   fmt.Sprintf("Error getting sweep status: %v", err),
-		}, nil
+		}, err
 	}
 
 	// Convert sweep status to JSON for the message field
@@ -269,7 +269,7 @@ func (s *Server) getSweepStatus(ctx context.Context) (*proto.StatusResponse, err
 		return &proto.StatusResponse{
 			Available: true,
 			Message:   fmt.Sprintf("Error encoding sweep status: %v", err),
-		}, nil
+		}, err
 	}
 
 	return &proto.StatusResponse{
