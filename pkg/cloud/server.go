@@ -88,10 +88,30 @@ func (s *Server) Shutdown(ctx context.Context) {
 	close(s.ShutdownChan)
 }
 
-func (s *Server) SetAPIServer(a *api.APIServer) {
+func (s *Server) SetAPIServer(apiServer *api.APIServer) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.apiServer = a
+
+	s.apiServer = apiServer
+
+	// Set up the history handler
+	apiServer.SetNodeHistoryHandler(func(nodeID string) ([]api.NodeHistoryPoint, error) {
+		points, err := s.db.GetNodeHistoryPoints(nodeID, 1000)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get node history: %w", err)
+		}
+
+		// Convert db.NodeHistoryPoint to api.NodeHistoryPoint
+		apiPoints := make([]api.NodeHistoryPoint, len(points))
+		for i, p := range points {
+			apiPoints[i] = api.NodeHistoryPoint{
+				Timestamp: p.Timestamp,
+				IsHealthy: p.IsHealthy,
+			}
+		}
+
+		return apiPoints, nil
+	})
 }
 
 func (s *Server) checkInitialStates(ctx context.Context) {

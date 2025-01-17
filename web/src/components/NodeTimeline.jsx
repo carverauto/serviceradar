@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
@@ -15,11 +14,10 @@ const NodeTimeline = ({ nodeId }) => {
                 const data = await response.json();
 
                 // Transform the history data for the chart
-                const timelineData = data.map(entry => ({
-                    timestamp: new Date(entry.timestamp).getTime(),
-                    status: entry.isHealthy ? 1 : 0,
-                    tooltipTime: new Date(entry.timestamp).toLocaleString(),
-                    services: entry.services || []
+                const timelineData = data.map(point => ({
+                    timestamp: new Date(point.timestamp).getTime(),
+                    status: point.is_healthy ? 1 : 0,
+                    tooltipTime: new Date(point.timestamp).toLocaleString()
                 }));
 
                 setAvailabilityData(timelineData);
@@ -44,16 +42,6 @@ const NodeTimeline = ({ nodeId }) => {
             <div className="bg-white p-4 rounded shadow-lg border">
                 <p className="text-sm font-semibold">{data.tooltipTime}</p>
                 <p className="text-sm">Status: {data.status === 1 ? 'Online' : 'Offline'}</p>
-                {data.services?.length > 0 && (
-                    <div className="mt-2">
-                        <p className="text-xs font-semibold">Services:</p>
-                        {data.services.map((service, idx) => (
-                            <p key={idx} className="text-xs">
-                                {service.name}: {service.available ? 'Available' : 'Unavailable'}
-                            </p>
-                        ))}
-                    </div>
-                )}
             </div>
         );
     };

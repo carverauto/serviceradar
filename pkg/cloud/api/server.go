@@ -44,21 +44,22 @@ type NodeHistory struct {
 	Services  []ServiceStatus
 }
 
+type NodeHistoryPoint struct {
+	Timestamp time.Time `json:"timestamp"`
+	IsHealthy bool      `json:"is_healthy"`
+}
+
 type APIServer struct {
-	mu            sync.RWMutex
-	nodes         map[string]*NodeStatus
-	historyMu     sync.RWMutex
-	nodeHistories map[string][]NodeHistory
-	maxHistory    int
-	router        *mux.Router
+	mu                 sync.RWMutex
+	nodes              map[string]*NodeStatus
+	router             *mux.Router
+	nodeHistoryHandler func(nodeID string) ([]NodeHistoryPoint, error)
 }
 
 func NewAPIServer() *APIServer {
 	s := &APIServer{
-		nodes:         make(map[string]*NodeStatus),
-		nodeHistories: make(map[string][]NodeHistory),
-		maxHistory:    1000,
-		router:        mux.NewRouter(),
+		nodes:  make(map[string]*NodeStatus),
+		router: mux.NewRouter(),
 	}
 	s.setupRoutes()
 
@@ -110,38 +111,42 @@ func (s *APIServer) setupRoutes() {
 	s.router.PathPrefix("/").Handler(http.FileServer(http.FS(fsys)))
 }
 
+func (s *APIServer) SetNodeHistoryHandler(handler func(nodeID string) ([]NodeHistoryPoint, error)) {
+	s.nodeHistoryHandler = handler
+}
+
 func (s *APIServer) UpdateNodeStatus(nodeID string, status *NodeStatus) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Update or add the node status
+	// Update or add the node status in memory for API responses
 	s.nodes[nodeID] = status
 
-	// Add to history
-	s.historyMu.Lock()
-	defer s.historyMu.Unlock()
+	log.Printf("Updated API state for node %s: healthy=%v, services=%d",
+		nodeID, status.IsHealthy, len(status.Services))
+}
 
-	history := s.nodeHistories[nodeID]
-	if history == nil {
-		history = make([]NodeHistory, 0)
+func (s *APIServer) getNodeHistory(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	nodeID := vars["id"]
+
+	if s.nodeHistoryHandler == nil {
+		http.Error(w, "History handler not configured", http.StatusInternalServerError)
+		return
 	}
 
-	// Add new entry
-	history = append(history, NodeHistory{
-		NodeID:    nodeID,
-		Timestamp: status.LastUpdate,
-		IsHealthy: status.IsHealthy,
-		Services:  status.Services,
-	})
-
-	// Trim if too long
-	if len(history) > s.maxHistory {
-		history = history[len(history)-s.maxHistory:]
+	points, err := s.nodeHistoryHandler(nodeID)
+	if err != nil {
+		log.Printf("Error fetching node history: %v", err)
+		http.Error(w, "Failed to fetch history", http.StatusInternalServerError)
+		return
 	}
 
-	s.nodeHistories[nodeID] = history
-	log.Printf("Updated history for node %s: healthy=%v, history_entries=%d",
-		nodeID, status.IsHealthy, len(history))
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(points); err != nil {
+		log.Printf("Error encoding history response: %v", err)
+		http.Error(w, "Error encoding response", http.StatusInternalServerError)
+	}
 }
 
 func (s *APIServer) getSystemStatus(w http.ResponseWriter, _ *http.Request) {
@@ -166,28 +171,6 @@ func (s *APIServer) getSystemStatus(w http.ResponseWriter, _ *http.Request) {
 	if err := json.NewEncoder(w).Encode(status); err != nil {
 		log.Printf("Error encoding system status: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
-	}
-}
-
-// getNodeHistory retrieves the history of a node.
-func (s *APIServer) getNodeHistory(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	nodeID := vars["id"]
-
-	s.historyMu.RLock()
-	history, exists := s.nodeHistories[nodeID]
-	s.historyMu.RUnlock()
-
-	if !exists {
-		http.Error(w, "Node not found", http.StatusNotFound)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-
-	if err := json.NewEncoder(w).Encode(history); err != nil {
-		log.Printf("Error encoding history response: %v", err)
-		return
 	}
 }
 

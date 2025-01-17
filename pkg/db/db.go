@@ -105,6 +105,13 @@ type DB struct {
 	*sql.DB
 }
 
+// NodeHistoryPoint represents a single point in a node's history and is used
+// to represent data out of the database.
+type NodeHistoryPoint struct {
+	Timestamp time.Time `json:"timestamp"`
+	IsHealthy bool      `json:"is_healthy"`
+}
+
 // NodeStatus represents a node's current status.
 type NodeStatus struct {
 	NodeID    string    `json:"node_id"`
@@ -297,6 +304,33 @@ func (db *DB) GetNodeServices(nodeID string) ([]ServiceStatus, error) {
 	}
 
 	return services, nil
+}
+
+func (db *DB) GetNodeHistoryPoints(nodeID string, limit int) ([]NodeHistoryPoint, error) {
+	const query = `
+        SELECT timestamp, is_healthy
+        FROM node_history
+        WHERE node_id = ?
+        ORDER BY timestamp DESC
+        LIMIT ?
+    `
+
+	rows, err := db.Query(query, nodeID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query node history: %w", err)
+	}
+	defer rows.Close()
+
+	var points []NodeHistoryPoint
+	for rows.Next() {
+		var point NodeHistoryPoint
+		if err := rows.Scan(&point.Timestamp, &point.IsHealthy); err != nil {
+			return nil, fmt.Errorf("failed to scan history point: %w", err)
+		}
+		points = append(points, point)
+	}
+
+	return points, nil
 }
 
 // GetNodeHistory retrieves the history for a node.
