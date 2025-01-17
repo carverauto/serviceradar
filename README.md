@@ -11,7 +11,7 @@
 HomeMon is a distributed network monitoring system designed for monitoring home infrastructure and services. It provides real-time monitoring of internal services, with cloud-based alerting capabilities to ensure you stay informed even during network or power outages.
 
 <img width="1470" alt="Screenshot 2025-01-13 at 10 15 22 PM" src="https://github.com/user-attachments/assets/0aa1416d-dec2-4bcd-8df5-00bffcef79ec" />
-<img width="1390" alt="Screenshot 2025-01-14 at 3 31 09 PM" src="https://github.com/user-attachments/assets/6d3085a4-a81c-4e80-a6d5-f5131a2d1a59" />
+<img width="1386" alt="Screenshot 2025-01-16 at 9 48 57 PM" src="https://github.com/user-attachments/assets/f7565610-d583-450d-8ffe-2f4bf63b913a" />
 <img width="1466" alt="Screenshot 2025-01-14 at 10 29 38 AM" src="https://github.com/user-attachments/assets/e0753cb3-08c2-456b-afc1-35c99fac7882" />
 
 ## Architecture
