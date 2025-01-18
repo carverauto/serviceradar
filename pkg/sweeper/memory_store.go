@@ -23,6 +23,151 @@ func NewInMemoryStore() Store {
 	}
 }
 
+func (s *InMemoryStore) SaveHostResult(_ context.Context, result *HostResult) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// For in-memory store, we'll just store the latest host result for each host
+	for i, existingResult := range s.results {
+		if existingResult.Target.Host == result.Host {
+			// Update LastSeen for matching results
+			s.results[i].LastSeen = result.LastSeen
+			if result.Available {
+				s.results[i].Available = true
+			}
+			return nil
+		}
+	}
+
+	return nil
+}
+
+func (s *InMemoryStore) GetHostResults(_ context.Context, filter *ResultFilter) ([]HostResult, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// Group results by host
+	hostMap := make(map[string]*HostResult)
+
+	for _, result := range s.results {
+		if !s.matchesFilter(&result, filter) {
+			continue
+		}
+
+		host, exists := hostMap[result.Target.Host]
+		if !exists {
+			host = &HostResult{
+				Host:        result.Target.Host,
+				FirstSeen:   result.FirstSeen,
+				LastSeen:    result.LastSeen,
+				Available:   false,
+				PortResults: make([]*PortResult, 0),
+			}
+			hostMap[result.Target.Host] = host
+		}
+
+		if result.Available {
+			host.Available = true
+			if result.Target.Mode == ModeTCP {
+				portResult := &PortResult{
+					Port:      result.Target.Port,
+					Available: true,
+					RespTime:  result.RespTime,
+				}
+				host.PortResults = append(host.PortResults, portResult)
+			}
+		}
+
+		// Update timestamps
+		if result.FirstSeen.Before(host.FirstSeen) {
+			host.FirstSeen = result.FirstSeen
+		}
+		if result.LastSeen.After(host.LastSeen) {
+			host.LastSeen = result.LastSeen
+		}
+	}
+
+	// Convert map to slice
+	hosts := make([]HostResult, 0, len(hostMap))
+	for _, host := range hostMap {
+		hosts = append(hosts, *host)
+	}
+
+	return hosts, nil
+}
+
+func (s *InMemoryStore) GetSweepSummary(_ context.Context) (*SweepSummary, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// Get latest results for summary
+	hostMap := make(map[string]*HostResult)
+	portCounts := make(map[int]int)
+	totalHosts := 0
+	var lastSweep time.Time
+
+	for _, result := range s.results {
+		// Track latest sweep time
+		if result.LastSeen.After(lastSweep) {
+			lastSweep = result.LastSeen
+		}
+
+		// Count ports
+		if result.Available && result.Target.Mode == ModeTCP {
+			portCounts[result.Target.Port]++
+		}
+
+		// Group by host
+		host, exists := hostMap[result.Target.Host]
+		if !exists {
+			totalHosts++
+			host = &HostResult{
+				Host:        result.Target.Host,
+				FirstSeen:   result.FirstSeen,
+				LastSeen:    result.LastSeen,
+				Available:   false,
+				PortResults: make([]*PortResult, 0),
+			}
+			hostMap[result.Target.Host] = host
+		}
+
+		if result.Available {
+			host.Available = true
+		}
+	}
+
+	// Count available hosts
+	availableHosts := 0
+	hosts := make([]HostResult, 0, len(hostMap))
+	for _, host := range hostMap {
+		if host.Available {
+			availableHosts++
+		}
+		hosts = append(hosts, *host)
+	}
+
+	// Create port counts
+	ports := make([]PortCount, 0, len(portCounts))
+	for port, count := range portCounts {
+		ports = append(ports, PortCount{
+			Port:      port,
+			Available: count,
+		})
+	}
+
+	// Create summary
+	summary := &SweepSummary{
+		Network:        "", // Will be set by client if needed
+		TotalHosts:     totalHosts,
+		AvailableHosts: availableHosts,
+		LastSweep:      lastSweep,
+		Hosts:          hosts,
+		Ports:          ports,
+	}
+
+	return summary, nil
+}
+
 func (s *InMemoryStore) SaveResult(_ context.Context, result *Result) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
