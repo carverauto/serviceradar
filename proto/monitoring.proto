@@ -42,3 +42,16 @@ message ServiceStatus {
   string message = 3;
   string service_type = 4;
 }
+
+message SweepServiceStatus {
+  string network = 1;         // CIDR range being swept
+  int32 total_hosts = 2;      // Total hosts in range
+  int32 available_hosts = 3;  // Number of responding hosts
+  repeated PortStatus ports = 4;
+  int64 last_sweep = 5;       // Timestamp of last sweep
+}
+
+message PortStatus {
+  int32 port = 1;
+  int32 available = 2;        // Number of hosts with this port open
+}

@@ -71,6 +71,7 @@ cat > "${PKG_ROOT}/etc/homemon/poller.json" << EOF
                 },
                 {
                     "service_type": "port",
+                    "service_name": "SSH",
                     "port": 22
                 },
                 {

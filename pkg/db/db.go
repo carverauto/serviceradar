@@ -8,7 +8,7 @@ import (
 	"log"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "github.com/mattn/go-sqlite3" // SQLite driver
 )
 
 var (
@@ -17,9 +17,6 @@ var (
 	errFailedToScan      = errors.New("failed to scan")
 	errFailedToQuery     = errors.New("failed to query")
 	errFailedToInsert    = errors.New("failed to insert")
-	errFailedToTrim      = errors.New("failed to trim")
-	errFailedToUpsert    = errors.New("failed to upsert node")
-	errFailedToRollback  = errors.New("failed to rollback")
 	errFailedToInit      = errors.New("failed to initialize schema")
 	errFailedToEnableWAL = errors.New("failed to enable WAL mode")
 	errFailedOpenDB      = fmt.Errorf("failed to open database")
@@ -70,7 +67,31 @@ const (
 		FOREIGN KEY (service_status_id) REFERENCES service_status(id) ON DELETE CASCADE
 	);
 
+	    -- Network sweep results
+    CREATE TABLE IF NOT EXISTS sweep_results (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        poller_id TEXT NOT NULL,
+        network TEXT NOT NULL,
+        total_hosts INTEGER NOT NULL,
+        active_hosts INTEGER NOT NULL,
+        timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (poller_id) REFERENCES nodes(node_id) ON DELETE CASCADE
+    );
+
+    -- Port scan results
+    CREATE TABLE IF NOT EXISTS port_results (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sweep_id INTEGER NOT NULL,
+        port INTEGER NOT NULL,
+        available INTEGER NOT NULL,
+        FOREIGN KEY (sweep_id) REFERENCES sweep_results(id) ON DELETE CASCADE
+    );	
+
 	-- Indexes for better query performance
+	CREATE INDEX IF NOT EXISTS idx_sweep_results_poller_time 
+        ON sweep_results(poller_id, timestamp);
+    CREATE INDEX IF NOT EXISTS idx_port_results_sweep 
+        ON port_results(sweep_id);
 	CREATE INDEX IF NOT EXISTS idx_node_history_node_time 
 		ON node_history(node_id, timestamp);
 	CREATE INDEX IF NOT EXISTS idx_service_status_node_time 
@@ -83,20 +104,6 @@ const (
 	-- Enable WAL mode for better concurrent access
 	PRAGMA journal_mode=WAL;
 	PRAGMA foreign_keys=ON;
-	`
-
-	// SQL to trim old history points.
-	trimHistorySQL = `
-		WITH RankedHistory AS (
-			SELECT id,
-				   ROW_NUMBER() OVER (PARTITION BY node_id ORDER BY timestamp DESC) as rn
-			FROM node_history
-			WHERE node_id = ?
-		)
-		DELETE FROM node_history
-		WHERE id IN (
-			SELECT id FROM RankedHistory WHERE rn > ?
-		);
 	`
 )
 
@@ -162,12 +169,13 @@ func (db *DB) UpdateNodeStatus(status *NodeStatus) error {
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer rollbackOnError(tx, &err)
+	defer rollbackOnError(tx, err)
 
 	err = db.updateExistingNode(tx, status)
 	if errors.Is(err, sql.ErrNoRows) {
 		err = db.insertNewNode(tx, status)
 	}
+
 	if err != nil {
 		return fmt.Errorf("failed to update node status: %w", err)
 	}
@@ -180,7 +188,7 @@ func (db *DB) UpdateNodeStatus(status *NodeStatus) error {
 	return tx.Commit()
 }
 
-func (db *DB) updateExistingNode(tx *sql.Tx, status *NodeStatus) error {
+func (*DB) updateExistingNode(tx *sql.Tx, status *NodeStatus) error {
 	result, err := tx.Exec(`
         UPDATE nodes 
         SET last_seen = ?,
@@ -203,32 +211,34 @@ func (db *DB) updateExistingNode(tx *sql.Tx, status *NodeStatus) error {
 	return nil
 }
 
-func (db *DB) insertNewNode(tx *sql.Tx, status *NodeStatus) error {
+func (*DB) insertNewNode(tx *sql.Tx, status *NodeStatus) error {
 	_, err := tx.Exec(`
         INSERT INTO nodes (node_id, first_seen, last_seen, is_healthy)
         VALUES (?, CURRENT_TIMESTAMP, ?, ?)
     `, status.NodeID, status.LastSeen, status.IsHealthy)
 
 	if err != nil {
-		return fmt.Errorf("failed to insert node: %w", err)
+		return fmt.Errorf("%w node: %w", errFailedToInsert, err)
 	}
+
 	return nil
 }
 
-func (db *DB) addNodeHistory(tx *sql.Tx, status *NodeStatus) error {
+func (*DB) addNodeHistory(tx *sql.Tx, status *NodeStatus) error {
 	_, err := tx.Exec(`
         INSERT INTO node_history (node_id, timestamp, is_healthy)
         VALUES (?, ?, ?)
     `, status.NodeID, status.LastSeen, status.IsHealthy)
 
 	if err != nil {
-		return fmt.Errorf("failed to insert history: %w", err)
+		return fmt.Errorf("%w node history: %w", errFailedToInsert, err)
 	}
+
 	return nil
 }
 
-func rollbackOnError(tx *sql.Tx, err *error) {
-	if *err != nil {
+func rollbackOnError(tx *sql.Tx, err error) {
+	if err != nil {
 		if rbErr := tx.Rollback(); rbErr != nil {
 			log.Printf("Error rolling back transaction: %v", rbErr)
 		}
@@ -272,8 +282,9 @@ func (db *DB) GetNodeStatus(nodeID string) (*NodeStatus, error) {
 		&status.LastSeen,
 		&status.IsHealthy,
 	)
+
 	if err != nil {
-		return nil, fmt.Errorf("failed to query node status: %w", err)
+		return nil, fmt.Errorf("%w node status: %w", errFailedToQuery, err)
 	}
 
 	return &status, nil
@@ -287,19 +298,27 @@ func (db *DB) GetNodeServices(nodeID string) ([]ServiceStatus, error) {
         ORDER BY service_type, service_name
     `
 
-	rows, err := db.Query(querySQL, nodeID)
+	rows, err := db.Query(querySQL, nodeID) //nolint:rowserrcheck // rows.Close() is deferred
 	if err != nil {
-		return nil, fmt.Errorf("failed to query services: %w", err)
+		return nil, fmt.Errorf("%w node services: %w", errFailedToQuery, err)
 	}
-	defer rows.Close()
+	defer func(rows *sql.Rows) {
+		err := rows.Close()
+		if err != nil {
+			log.Printf("failed to close rows: %v", err)
+		}
+	}(rows)
 
 	var services []ServiceStatus
+
 	for rows.Next() {
 		var s ServiceStatus
 		s.NodeID = nodeID
+
 		if err := rows.Scan(&s.ServiceName, &s.ServiceType, &s.Available, &s.Details, &s.Timestamp); err != nil {
-			return nil, fmt.Errorf("failed to scan service: %w", err)
+			return nil, fmt.Errorf("%w service row: %w", errFailedToScan, err)
 		}
+
 		services = append(services, s)
 	}
 
@@ -315,18 +334,25 @@ func (db *DB) GetNodeHistoryPoints(nodeID string, limit int) ([]NodeHistoryPoint
         LIMIT ?
     `
 
-	rows, err := db.Query(query, nodeID, limit)
+	rows, err := db.Query(query, nodeID, limit) //nolint:rowserrcheck // rows.Close will check for errors
 	if err != nil {
-		return nil, fmt.Errorf("failed to query node history: %w", err)
+		return nil, fmt.Errorf("%w node history points: %w", errFailedToQuery, err)
 	}
-	defer rows.Close()
+	defer func(rows *sql.Rows) {
+		err := rows.Close()
+		if err != nil {
+			log.Printf("failed to close rows: %v", err)
+		}
+	}(rows)
 
 	var points []NodeHistoryPoint
+
 	for rows.Next() {
 		var point NodeHistoryPoint
 		if err := rows.Scan(&point.Timestamp, &point.IsHealthy); err != nil {
-			return nil, fmt.Errorf("failed to scan history point: %w", err)
+			return nil, fmt.Errorf("%w history point: %w", errFailedToScan, err)
 		}
+
 		points = append(points, point)
 	}
 
@@ -343,7 +369,7 @@ func (db *DB) GetNodeHistory(nodeID string) ([]NodeStatus, error) {
 		LIMIT ?
 	`
 
-	rows, err := db.Query(querySQL, nodeID, maxHistoryPoints)
+	rows, err := db.Query(querySQL, nodeID, maxHistoryPoints) //nolint:rowserrcheck // rows.Close() is deferred
 	if err != nil {
 		return nil, fmt.Errorf("%w node history: %w", errFailedToQuery, err)
 	}
@@ -382,9 +408,9 @@ func (db *DB) GetServiceHistory(nodeID, serviceName string, limit int) ([]Servic
 		LIMIT ?
 	`
 
-	rows, err := db.Query(querySQL, nodeID, serviceName, limit)
+	rows, err := db.Query(querySQL, nodeID, serviceName, limit) //nolint:rowserrcheck // rows.Close will check for errors
 	if err != nil {
-		return nil, fmt.Errorf("failed to query service history: %w", err)
+		return nil, fmt.Errorf("%w service history: %w", errFailedToQuery, err)
 	}
 
 	defer func(rows *sql.Rows) {
@@ -402,7 +428,7 @@ func (db *DB) GetServiceHistory(nodeID, serviceName string, limit int) ([]Servic
 		s.ServiceName = serviceName
 
 		if err := rows.Scan(&s.Timestamp, &s.Available, &s.Details); err != nil {
-			return nil, fmt.Errorf("failed to scan service history row: %w", err)
+			return nil, fmt.Errorf("%w service history row: %w", errFailedToScan, err)
 		}
 
 		history = append(history, s)

@@ -20,35 +20,30 @@ import (
 
 const (
 	shutdownTimeout          = 10 * time.Second
+	oneDay                   = 24 * time.Hour
+	oneWeek                  = 7 * oneDay
 	homemonDirPerms          = 0700
+	nodeHistoryLimit         = 1000
 	nodeDiscoveryTimeout     = 30 * time.Second
 	nodeNeverReportedTimeout = 30 * time.Second
 	pollerTimeout            = 30 * time.Second
-	defaultDbPath            = "/var/lib/homemon/homemon.db"
+	defaultDBPath            = "/var/lib/homemon/homemon.db"
 	KB                       = 1024
 	MB                       = 1024 * KB
 	maxMessageSize           = 4 * MB
 )
 
+var (
+	errEmptyPollerID = errors.New("empty poller ID")
+)
+
 type Config struct {
 	ListenAddr     string                 `json:"listen_addr"`
 	GrpcAddr       string                 `json:"grpc_addr"`
-	DbPath         string                 `json:"db_path"`
+	DBPath         string                 `json:"db_path"`
 	AlertThreshold time.Duration          `json:"alert_threshold"`
 	Webhooks       []alerts.WebhookConfig `json:"webhooks,omitempty"`
 	KnownPollers   []string               `json:"known_pollers,omitempty"`
-}
-
-type alertState struct {
-	isDown    bool
-	timestamp time.Time
-}
-
-type PersistedState struct {
-	LastSeen        map[string]time.Time   `json:"last_seen"`
-	NodeAlertStates map[string]*alertState `json:"node_alert_states"`
-	ServiceStates   map[string]*alertState `json:"service_states"`
-	LastUpdate      time.Time              `json:"last_update"`
 }
 
 type Server struct {
@@ -96,7 +91,7 @@ func (s *Server) SetAPIServer(apiServer *api.APIServer) {
 
 	// Set up the history handler
 	apiServer.SetNodeHistoryHandler(func(nodeID string) ([]api.NodeHistoryPoint, error) {
-		points, err := s.db.GetNodeHistoryPoints(nodeID, 1000)
+		points, err := s.db.GetNodeHistoryPoints(nodeID, nodeHistoryLimit)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get node history: %w", err)
 		}
@@ -123,11 +118,13 @@ func (s *Server) checkInitialStates(ctx context.Context) {
         FROM nodes 
         ORDER BY last_seen DESC
     `
-	rows, err := s.db.Query(querySQL)
+
+	rows, err := s.db.Query(querySQL) //nolint:rowserrcheck // rows.Close() is deferred
 	if err != nil {
 		log.Printf("Error querying nodes: %v", err)
 		return
 	}
+
 	defer func(rows *sql.Rows) {
 		err := rows.Close()
 		if err != nil {
@@ -136,9 +133,12 @@ func (s *Server) checkInitialStates(ctx context.Context) {
 	}(rows)
 
 	checkedNodes := make(map[string]bool)
+
 	for rows.Next() {
 		var nodeID string
+
 		var isHealthy bool
+
 		var lastSeen time.Time
 
 		if err := rows.Scan(&nodeID, &isHealthy, &lastSeen); err != nil {
@@ -167,9 +167,9 @@ func (s *Server) checkInitialStates(ctx context.Context) {
 
 func NewServer(ctx context.Context, config *Config) (*Server, error) {
 	// Use default DB path if not specified
-	dbPath := config.DbPath
+	dbPath := config.DBPath
 	if dbPath == "" {
-		dbPath = defaultDbPath
+		dbPath = defaultDBPath
 	}
 
 	// Ensure the directory exists
@@ -198,10 +198,10 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 	return server, nil
 }
 
-// ReportStatus handles incoming status reports from pollers
-func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusRequest) (*proto.PollerStatusResponse, error) {
+// ReportStatus handles incoming status reports from pollers.
+func (s *Server) ReportStatus(_ context.Context, req *proto.PollerStatusRequest) (*proto.PollerStatusResponse, error) {
 	if req.PollerId == "" {
-		return nil, fmt.Errorf("empty poller ID")
+		return nil, errEmptyPollerID
 	}
 
 	now := time.Unix(req.Timestamp, 0)
@@ -289,78 +289,6 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 	return &proto.PollerStatusResponse{Received: true}, nil
 }
 
-func (s *Server) handleNodeStatusChange(ctx context.Context, pollerID string, isHealthy bool, now time.Time) {
-	// Get node history to check previous state
-	history, err := s.db.GetNodeHistory(pollerID)
-	if err != nil {
-		log.Printf("Error getting node history: %v", err)
-		return
-	}
-
-	var wasDown bool
-	if len(history) > 1 {
-		wasDown = !history[1].IsHealthy // Check previous state
-	}
-
-	if wasDown && isHealthy {
-		// Node recovery
-		alert := alerts.WebhookAlert{
-			Level:     alerts.Info,
-			Title:     "Node Recovery",
-			Message:   fmt.Sprintf("Node '%s' is back online", pollerID),
-			NodeID:    pollerID,
-			Timestamp: now.UTC().Format(time.RFC3339),
-			Details: map[string]any{
-				"hostname":     getHostname(),
-				"recovered_at": now.Format(time.RFC3339),
-			},
-		}
-		s.sendAlert(ctx, &alert)
-	} else if !wasDown && !isHealthy {
-		// Node went down
-		alert := alerts.WebhookAlert{
-			Level:     alerts.Error,
-			Title:     "Node Offline",
-			Message:   fmt.Sprintf("Node '%s' is offline", pollerID),
-			NodeID:    pollerID,
-			Timestamp: now.UTC().Format(time.RFC3339),
-			Details: map[string]any{
-				"hostname":  getHostname(),
-				"last_seen": now.Format(time.RFC3339),
-			},
-		}
-		s.sendAlert(ctx, &alert)
-	}
-}
-
-func (s *Server) updateApiServiceStatus(pollerID string, svc *proto.ServiceStatus, now time.Time) {
-	apiStatus := api.ServiceStatus{
-		Name:      svc.ServiceName,
-		Available: svc.Available,
-		Message:   svc.Message,
-		Type:      svc.ServiceType,
-	}
-
-	// Try to parse service details if present
-	if svc.Message != "" {
-		var raw json.RawMessage
-		if err := json.Unmarshal([]byte(svc.Message), &raw); err == nil {
-			apiStatus.Details = raw
-		}
-	}
-
-	// Update API state
-	if s.apiServer != nil {
-		nodeStatus := &api.NodeStatus{
-			NodeID:     pollerID,
-			LastUpdate: now,
-			IsHealthy:  true,
-			Services:   []api.ServiceStatus{apiStatus},
-		}
-		s.apiServer.UpdateNodeStatus(pollerID, nodeStatus)
-	}
-}
-
 func (s *Server) initializeGRPCServer(config *Config) {
 	grpcServer := grpc.NewServer(config.GrpcAddr,
 		grpc.WithMaxRecvSize(maxMessageSize),
@@ -402,8 +330,8 @@ func (s *Server) startBackgroundTasks(ctx context.Context) {
 	go s.startNodeMonitoring(ctx)
 }
 
-// periodicCleanup runs regular maintenance tasks on the database
-func (s *Server) periodicCleanup(ctx context.Context) {
+// periodicCleanup runs regular maintenance tasks on the database.
+func (s *Server) periodicCleanup(_ context.Context) {
 	ticker := time.NewTicker(1 * time.Hour)
 	defer ticker.Stop()
 
@@ -447,8 +375,7 @@ func (s *Server) sendStartupNotification(ctx context.Context) {
 
 	// Get total nodes from database
 	var nodeCount int
-	err := s.db.QueryRow("SELECT COUNT(*) FROM nodes").Scan(&nodeCount)
-	if err != nil {
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM nodes").Scan(&nodeCount); err != nil {
 		log.Printf("Error counting nodes: %v", err)
 	}
 
@@ -477,6 +404,7 @@ func (s *Server) checkNeverReportedPollers(ctx context.Context, config *Config) 
 
 	for _, pollerID := range config.KnownPollers {
 		var exists string
+
 		err := s.db.QueryRow(querySQL, pollerID).Scan(&exists)
 		if errors.Is(err, sql.ErrNoRows) {
 			alert := alerts.WebhookAlert{
@@ -517,8 +445,7 @@ func (s *Server) markNodeDown(ctx context.Context, pollerID string, now time.Tim
     `
 
 	var lastSeen time.Time
-	err := s.db.QueryRow(querySQL, pollerID).Scan(&lastSeen)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+	if err := s.db.QueryRow(querySQL, pollerID).Scan(&lastSeen); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		log.Printf("Error querying last seen time: %v", err)
 	}
 
@@ -598,9 +525,9 @@ func (s *Server) MonitorPollers(ctx context.Context) {
 			return
 		case <-ticker.C:
 			s.checkPollers(ctx)
-		case <-time.After(24 * time.Hour):
+		case <-time.After(oneDay):
 			// Daily cleanup of old data
-			if err := s.db.CleanOldData(7 * 24 * time.Hour); err != nil {
+			if err := s.db.CleanOldData(oneWeek); err != nil {
 				log.Printf("Error cleaning old data: %v", err)
 			}
 		}
@@ -618,7 +545,7 @@ func (s *Server) checkPollers(ctx context.Context) {
         AND n.is_healthy = TRUE
     `
 
-	rows, err := s.db.Query(querySQL, alertThreshold)
+	rows, err := s.db.Query(querySQL, alertThreshold) //nolint:rowserrcheck // rows.Close() is deferred
 	if err != nil {
 		log.Printf("Error querying nodes for status check: %v", err)
 		return
@@ -632,7 +559,9 @@ func (s *Server) checkPollers(ctx context.Context) {
 
 	for rows.Next() {
 		var nodeID string
+
 		var lastSeen time.Time
+
 		var isHealthy bool
 
 		if err := rows.Scan(&nodeID, &lastSeen, &isHealthy); err != nil {

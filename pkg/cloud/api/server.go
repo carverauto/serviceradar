@@ -139,12 +139,15 @@ func (s *APIServer) getNodeHistory(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("Error fetching node history: %v", err)
 		http.Error(w, "Failed to fetch history", http.StatusInternalServerError)
+
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+
 	if err := json.NewEncoder(w).Encode(points); err != nil {
 		log.Printf("Error encoding history response: %v", err)
+
 		http.Error(w, "Error encoding response", http.StatusInternalServerError)
 	}
 }
@@ -168,8 +171,10 @@ func (s *APIServer) getSystemStatus(w http.ResponseWriter, _ *http.Request) {
 		status.TotalNodes, status.HealthyNodes, status.LastUpdate.Format(time.RFC3339))
 
 	w.Header().Set("Content-Type", "application/json")
+
 	if err := json.NewEncoder(w).Encode(status); err != nil {
 		log.Printf("Error encoding system status: %v", err)
+
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	}
 }
