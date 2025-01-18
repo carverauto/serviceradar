@@ -1,5 +1,5 @@
 # .github/workflows/release.yml
-name: Release HomeMon Packages
+name: Release ServiceRadar Packages
 on:
   release:
     types: [created]

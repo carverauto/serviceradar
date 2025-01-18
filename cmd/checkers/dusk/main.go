@@ -9,9 +9,9 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/mfreeman451/homemon/pkg/checker/dusk"
-	"github.com/mfreeman451/homemon/pkg/grpc"
-	"github.com/mfreeman451/homemon/proto"
+	"github.com/mfreeman451/serviceradar/pkg/checker/dusk"
+	"github.com/mfreeman451/serviceradar/pkg/grpc"
+	"github.com/mfreeman451/serviceradar/proto"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
 )
@@ -24,7 +24,7 @@ const (
 func main() {
 	log.Printf("Starting Dusk checker...")
 
-	configFile := flag.String("config", "/etc/homemon/checkers/dusk.json", "Path to config file")
+	configFile := flag.String("config", "/etc/serviceradar/checkers/dusk.json", "Path to config file")
 	flag.Parse()
 
 	log.Printf("Loading config from: %s", *configFile)

@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package monitoring;
 
-option go_package = "github.com/mfreeman451/homemon/proto";
+option go_package = "github.com/mfreeman451/serviceradar/proto";
 
 service AgentService {
   rpc GetStatus(StatusRequest) returns (StatusResponse) {}

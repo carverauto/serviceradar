@@ -11,23 +11,23 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mfreeman451/homemon/pkg/cloud/alerts"
-	"github.com/mfreeman451/homemon/pkg/cloud/api"
-	"github.com/mfreeman451/homemon/pkg/db"
-	"github.com/mfreeman451/homemon/pkg/grpc"
-	"github.com/mfreeman451/homemon/proto"
+	"github.com/mfreeman451/serviceradar/pkg/cloud/alerts"
+	"github.com/mfreeman451/serviceradar/pkg/cloud/api"
+	"github.com/mfreeman451/serviceradar/pkg/db"
+	"github.com/mfreeman451/serviceradar/pkg/grpc"
+	"github.com/mfreeman451/serviceradar/proto"
 )
 
 const (
 	shutdownTimeout          = 10 * time.Second
 	oneDay                   = 24 * time.Hour
 	oneWeek                  = 7 * oneDay
-	homemonDirPerms          = 0700
+	serviceradarDirPerms     = 0700
 	nodeHistoryLimit         = 1000
 	nodeDiscoveryTimeout     = 30 * time.Second
 	nodeNeverReportedTimeout = 30 * time.Second
 	pollerTimeout            = 30 * time.Second
-	defaultDBPath            = "/var/lib/homemon/homemon.db"
+	defaultDBPath            = "/var/lib/serviceradar/serviceradar.db"
 	KB                       = 1024
 	MB                       = 1024 * KB
 	maxMessageSize           = 4 * MB
@@ -69,7 +69,7 @@ func (s *Server) Shutdown(ctx context.Context) {
 		alert := alerts.WebhookAlert{
 			Level:     alerts.Warning,
 			Title:     "Cloud Service Stopping",
-			Message:   fmt.Sprintf("HomeMon cloud service shutting down at %s", time.Now().Format(time.RFC3339)),
+			Message:   fmt.Sprintf("ServiceRadar cloud service shutting down at %s", time.Now().Format(time.RFC3339)),
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			NodeID:    "cloud",
 			Details: map[string]any{
@@ -173,7 +173,7 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 	}
 
 	// Ensure the directory exists
-	if err := os.MkdirAll("/var/lib/homemon", homemonDirPerms); err != nil {
+	if err := os.MkdirAll("/var/lib/serviceradar", serviceradarDirPerms); err != nil {
 		return nil, fmt.Errorf("failed to create data directory: %w", err)
 	}
 
@@ -382,7 +382,7 @@ func (s *Server) sendStartupNotification(ctx context.Context) {
 	alert := alerts.WebhookAlert{
 		Level:     alerts.Info,
 		Title:     "Cloud Service Started",
-		Message:   fmt.Sprintf("HomeMon cloud service initialized at %s", time.Now().Format(time.RFC3339)),
+		Message:   fmt.Sprintf("ServiceRadar cloud service initialized at %s", time.Now().Format(time.RFC3339)),
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		NodeID:    "cloud",
 		Details: map[string]any{

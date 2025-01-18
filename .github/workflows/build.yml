@@ -1,4 +1,4 @@
-name: Build HomeMon Packages
+name: Build ServiceRadar Packages
 
 on:
   push:
@@ -15,7 +15,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: '1.21'
+          go-version: '1.23'
 
       - name: Install dependencies
         run: |
@@ -29,5 +29,5 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v3
         with:
-          name: homemon-packages
+          name: serviceradar-packages
           path: release-artifacts/*.deb

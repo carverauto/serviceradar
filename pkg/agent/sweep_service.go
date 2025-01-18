@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mfreeman451/homemon/pkg/sweeper"
-	"github.com/mfreeman451/homemon/proto"
+	"github.com/mfreeman451/serviceradar/pkg/sweeper"
+	"github.com/mfreeman451/serviceradar/proto"
 )
 
 type SweepService struct {

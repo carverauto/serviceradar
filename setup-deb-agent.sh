@@ -4,48 +4,48 @@ set -e  # Exit on any error
 
 # Get version from environment or default to 1.0.0
 VERSION=${VERSION:-1.0.0}
-echo "Building homemon-agent version ${VERSION}"
+echo "Building serviceradar-agent version ${VERSION}"
 
 echo "Setting up package structure..."
 
 # Create package directory structure
-PKG_ROOT="homemon-agent_${VERSION}"
+PKG_ROOT="serviceradar-agent_${VERSION}"
 mkdir -p "${PKG_ROOT}/DEBIAN"
 mkdir -p "${PKG_ROOT}/usr/local/bin"
-mkdir -p "${PKG_ROOT}/etc/homemon/checkers"
+mkdir -p "${PKG_ROOT}/etc/serviceradar/checkers"
 mkdir -p "${PKG_ROOT}/lib/systemd/system"
 
 echo "Building Go binaries..."
 
 # Build agent and checker binaries
-GOOS=linux GOARCH=amd64 go build -o "${PKG_ROOT}/usr/local/bin/homemon-agent" ./cmd/agent
+GOOS=linux GOARCH=amd64 go build -o "${PKG_ROOT}/usr/local/bin/serviceradar-agent" ./cmd/agent
 
 echo "Creating package files..."
 
 # Create control file
 cat > "${PKG_ROOT}/DEBIAN/control" << EOF
-Package: homemon-agent
+Package: serviceradar-agent
 Version: ${VERSION}
 Section: utils
 Priority: optional
 Architecture: amd64
 Depends: systemd
 Maintainer: Michael Freeman <mfreeman451@gmail.com>
-Description: HomeMon monitoring agent with Dusk node checker
- This package provides the homemon monitoring agent and
+Description: ServiceRadar monitoring agent with Dusk node checker
+ This package provides the serviceradar monitoring agent and
  a Dusk node checker plugin for monitoring services.
 EOF
 
 # Create systemd service file
-cat > "${PKG_ROOT}/lib/systemd/system/homemon-agent.service" << EOF
+cat > "${PKG_ROOT}/lib/systemd/system/serviceradar-agent.service" << EOF
 [Unit]
-Description=HomeMon Agent Service
+Description=ServiceRadar Agent Service
 After=network.target
 
 [Service]
 Type=simple
-User=homemon
-ExecStart=/usr/local/bin/homemon-agent
+User=serviceradar
+ExecStart=/usr/local/bin/serviceradar-agent
 Restart=always
 RestartSec=10
 
@@ -59,19 +59,19 @@ cat > "${PKG_ROOT}/DEBIAN/postinst" << EOF
 #!/bin/bash
 set -e
 
-# Create homemon user if it doesn't exist
-if ! id -u homemon >/dev/null 2>&1; then
-    useradd --system --no-create-home --shell /usr/sbin/nologin homemon
+# Create serviceradar user if it doesn't exist
+if ! id -u serviceradar >/dev/null 2>&1; then
+    useradd --system --no-create-home --shell /usr/sbin/nologin serviceradar
 fi
 
 # Set permissions
-chown -R homemon:homemon /etc/homemon
-chmod 755 /usr/local/bin/homemon-agent
+chown -R serviceradar:serviceradar /etc/serviceradar
+chmod 755 /usr/local/bin/serviceradar-agent
 
 # Enable and start service
 systemctl daemon-reload
-systemctl enable homemon-agent
-systemctl start homemon-agent
+systemctl enable serviceradar-agent
+systemctl start serviceradar-agent
 
 exit 0
 EOF
@@ -84,8 +84,8 @@ cat > "${PKG_ROOT}/DEBIAN/prerm" << EOF
 set -e
 
 # Stop and disable service
-systemctl stop homemon-agent
-systemctl disable homemon-agent
+systemctl stop serviceradar-agent
+systemctl disable serviceradar-agent
 
 exit 0
 EOF
