@@ -9,9 +9,9 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/mfreeman451/homemon/pkg/agent"
-	"github.com/mfreeman451/homemon/pkg/grpc"
-	"github.com/mfreeman451/homemon/proto"
+	"github.com/mfreeman451/serviceradar/pkg/agent"
+	"github.com/mfreeman451/serviceradar/pkg/grpc"
+	"github.com/mfreeman451/serviceradar/proto"
 
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
@@ -23,10 +23,10 @@ const (
 )
 
 func main() {
-	log.Printf("Starting homemon agent...")
+	log.Printf("Starting serviceradar agent...")
 
 	// Command line flags
-	configDir := flag.String("config", "/etc/homemon/checkers", "Path to checkers config directory")
+	configDir := flag.String("config", "/etc/serviceradar/checkers", "Path to checkers config directory")
 	listenAddr := flag.String("listen", ":50051", "gRPC listen address")
 	flag.Parse()
 

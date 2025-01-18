@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mfreeman451/homemon/pkg/checker"
-	"github.com/mfreeman451/homemon/pkg/sweeper"
-	"github.com/mfreeman451/homemon/proto"
+	"github.com/mfreeman451/serviceradar/pkg/checker"
+	"github.com/mfreeman451/serviceradar/pkg/sweeper"
+	"github.com/mfreeman451/serviceradar/proto"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )

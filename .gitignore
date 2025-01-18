@@ -155,7 +155,7 @@ elements/
 *.deb
 
 # Build outputs
-homemon-dusk_*/
-homemon-poller_*/
-homemon-cloud_*/
+serviceradar-dusk_*/
+serviceradar-poller_*/
+serviceradar-cloud_*/
 dist/

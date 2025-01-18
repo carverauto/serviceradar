@@ -1,4 +1,4 @@
-module github.com/mfreeman451/homemon
+module github.com/mfreeman451/serviceradar
 
 go 1.23.4
 

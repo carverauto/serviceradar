@@ -9,11 +9,11 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/mfreeman451/homemon/pkg/poller"
+	"github.com/mfreeman451/serviceradar/pkg/poller"
 )
 
 func main() {
-	configPath := flag.String("config", "/etc/homemon/poller.json", "Path to config file")
+	configPath := flag.String("config", "/etc/serviceradar/poller.json", "Path to config file")
 	flag.Parse()
 
 	config, err := poller.LoadConfig(*configPath)

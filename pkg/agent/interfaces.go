@@ -3,7 +3,7 @@ package agent
 import (
 	"context"
 
-	"github.com/mfreeman451/homemon/proto"
+	"github.com/mfreeman451/serviceradar/proto"
 )
 
 type Service interface {

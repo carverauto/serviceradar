@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"log"
 
-	grpcpkg "github.com/mfreeman451/homemon/pkg/grpc"
-	"github.com/mfreeman451/homemon/proto"
+	grpcpkg "github.com/mfreeman451/serviceradar/pkg/grpc"
+	"github.com/mfreeman451/serviceradar/proto"
 )
 
 const (

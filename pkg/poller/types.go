@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mfreeman451/homemon/pkg/grpc"
-	"github.com/mfreeman451/homemon/proto"
+	"github.com/mfreeman451/serviceradar/pkg/grpc"
+	"github.com/mfreeman451/serviceradar/proto"
 )
 
 const (

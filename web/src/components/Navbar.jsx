@@ -9,7 +9,7 @@ function Navbar() {
           <div className="flex items-center justify-between">
             <div className="flex items-center">
               <Link to="/" className="text-xl font-bold text-gray-800">
-                HomeMon
+                ServiceRadar
               </Link>
             </div>
             <div className="flex items-center space-x-4">

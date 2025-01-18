@@ -1,14 +1,15 @@
-# HomeMon
+# ServiceRadar
 
 ```
- __                                              
-|  |--.-----.--------.-----.--------.-----.-----.
-|     |  _  |        |  -__|        |  _  |     |
-|__|__|_____|__|__|__|_____|__|__|__|_____|__|__|
+.-----.-----.----.--.--.|__|.----.-----.----.---.-.--|  |.---.-.----.
+|__ --|  -__|   _|  |  ||  ||  __|  -__|   _|  _  |  _  ||  _  |   _|
+|_____|_____|__|  \___/ |__||____|_____|__| |___._|_____||___._|__|  
 ```
-[![Release HomeMon Packages](https://github.com/mfreeman451/homemon/actions/workflows/release.yml/badge.svg)](https://github.com/mfreeman451/homemon/actions/workflows/release.yml)
+[![Release ServiceRadar Packages](https://github.com/mfreeman451/serviceradar/actions/workflows/release.yml/badge.svg)](https://github.com/mfreeman451/serviceradar/actions/workflows/release.yml)
 
-HomeMon is a distributed network monitoring system designed for monitoring home infrastructure and services. It provides real-time monitoring of internal services, with cloud-based alerting capabilities to ensure you stay informed even during network or power outages.
+ServiceRadar is a distributed network monitoring system designed for monitoring infrastructure and services in hard to reach places or constrained environments. 
+It provides real-time monitoring of internal services, with cloud-based alerting capabilities to ensure you stay informed even during network or power outages.
+
 
 <img width="1470" alt="Screenshot 2025-01-13 at 10 15 22 PM" src="https://github.com/user-attachments/assets/0aa1416d-dec2-4bcd-8df5-00bffcef79ec" />
 <img width="1386" alt="Screenshot 2025-01-16 at 9 48 57 PM" src="https://github.com/user-attachments/assets/f7565610-d583-450d-8ffe-2f4bf63b913a" />
@@ -16,7 +17,7 @@ HomeMon is a distributed network monitoring system designed for monitoring home 
 
 ## Architecture
 
-HomeMon uses a distributed architecture with three main components:
+ServiceRadar uses a distributed architecture with three main components:
 
 ```mermaid
 graph TD
@@ -79,14 +80,14 @@ graph TD
 
 ## Installation
 
-HomeMon components are distributed as Debian packages. Each component has its own package:
+ServiceRadar components are distributed as Debian packages. Each component has its own package:
 
 ### Building Packages
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/mfreeman451/homemon.git
-cd homemon
+git clone https://github.com/mfreeman451/serviceradar.git
+cd serviceradar
 ```
 
 2. Build the agent package:
@@ -108,30 +109,30 @@ cd homemon
 
 1. **Agent Installation** (on monitored hosts):
 ```bash
-sudo dpkg -i homemon-dusk_1.0.0.deb  # For Dusk nodes
+sudo dpkg -i serviceradar-dusk_1.0.0.deb  # For Dusk nodes
 # or
-sudo dpkg -i homemon-agent_1.0.0.deb  # For other hosts
+sudo dpkg -i serviceradar-agent_1.0.0.deb  # For other hosts
 ```
 
 2. **Poller Installation** (on any host in your network):
 ```bash
-sudo dpkg -i homemon-poller_1.0.0.deb
+sudo dpkg -i serviceradar-poller_1.0.0.deb
 ```
 
 3. **Cloud Installation** (on a reliable host):
 ```bash
-sudo dpkg -i homemon-cloud_1.0.0.deb
+sudo dpkg -i serviceradar-cloud_1.0.0.deb
 ```
 
 ## Configuration
 
 ### Agent Configuration
 
-Default location: `/etc/homemon/checkers/`
+Default location: `/etc/serviceradar/checkers/`
 
 For Dusk nodes:
 ```json
-# /etc/homemon/checkers/dusk.json
+# /etc/serviceradar/checkers/dusk.json
 {
     "name": "dusk",
     "node_address": "localhost:8080",
@@ -139,7 +140,7 @@ For Dusk nodes:
     "listen_addr": ":50052"
 }
 
-# /etc/homemon/checkers/external.json
+# /etc/serviceradar/checkers/external.json
 {
     "name": "dusk",
     "address": "localhost:50052"
@@ -148,7 +149,7 @@ For Dusk nodes:
 
 ### Poller Configuration
 
-Default location: `/etc/homemon/poller.json`
+Default location: `/etc/serviceradar/poller.json`
 
 ```json
 {
@@ -170,7 +171,7 @@ Default location: `/etc/homemon/poller.json`
 
 ### Cloud Configuration
 
-Default location: `/etc/homemon/cloud.json`
+Default location: `/etc/serviceradar/cloud.json`
 
 ```json
 {
@@ -192,8 +193,8 @@ Default location: `/etc/homemon/cloud.json`
 
 1. **Agent Deployment**:
   - Must run on each host you want to monitor
-  - For Dusk nodes, use the homemon-dusk package
-  - For other hosts, use the homemon-agent package
+  - For Dusk nodes, use the serviceradar-dusk package
+  - For other hosts, use the serviceradar-agent package
   - Requires port 50051 to be accessible to the poller
 
 2. **Poller Deployment**:

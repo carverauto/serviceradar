@@ -8,12 +8,12 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/mfreeman451/homemon/pkg/cloud"
-	"github.com/mfreeman451/homemon/pkg/cloud/api"
+	"github.com/mfreeman451/serviceradar/pkg/cloud"
+	"github.com/mfreeman451/serviceradar/pkg/cloud/api"
 )
 
 func main() {
-	configPath := flag.String("config", "/etc/homemon/cloud.json", "Path to config file")
+	configPath := flag.String("config", "/etc/serviceradar/cloud.json", "Path to config file")
 	flag.Parse()
 
 	ctx := context.Background()

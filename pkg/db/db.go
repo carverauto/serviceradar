@@ -1,4 +1,4 @@
-// Package db pkg/db/db.go provides SQLite database functionality for HomeMon
+// Package db pkg/db/db.go provides SQLite database functionality for ServiceRadar
 package db
 
 import (
