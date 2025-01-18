@@ -44,8 +44,10 @@ func (s *SweepService) Stop() error {
 	return s.sweeper.Stop()
 }
 
+// In pkg/agent/sweep_service.go
 func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, error) {
 	if s == nil {
+		log.Printf("Warning: Sweep service not initialized")
 		return &proto.StatusResponse{
 			Available:   false,
 			Message:     "Sweep service not initialized",
@@ -59,6 +61,7 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, er
 		StartTime: time.Now().Add(-s.config.Interval),
 	})
 	if err != nil {
+		log.Printf("Error getting sweep results: %v", err)
 		return nil, fmt.Errorf("failed to get sweep results: %w", err)
 	}
 
@@ -94,8 +97,11 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, er
 	// Convert to JSON for the message field
 	statusJSON, err := json.Marshal(status)
 	if err != nil {
+		log.Printf("Error marshaling sweep status: %v", err)
 		return nil, fmt.Errorf("failed to marshal sweep status: %w", err)
 	}
+
+	log.Printf("Sending sweep status: %s", string(statusJSON))
 
 	return &proto.StatusResponse{
 		Available:   true,

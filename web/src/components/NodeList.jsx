@@ -118,15 +118,24 @@ function NodeList() {
           </div>
         </div>
 
-        {viewMode === 'network' && currentNodes.map((node) => (
-            node.services?.some(s => s.type === 'sweep') && (
-                <NetworkSweepView
-                    key={node.node_id}
-                    nodeId={node.node_id}
-                    sweepStatus={node.services.find(s => s.type === 'sweep')}
-                />
-            )
-        ))}
+        {viewMode === 'network' && (
+            <div className="space-y-4">
+              {currentNodes.map((node) => {
+                const sweepService = node.services?.find(s => s.type === 'sweep');
+                if (!sweepService) return null;
+
+                console.log('Found sweep service:', { nodeId: node.node_id, service: sweepService });
+
+                return (
+                    <NetworkSweepView
+                        key={`${node.node_id}-sweep`}
+                        nodeId={node.node_id}
+                        service={sweepService}
+                    />
+                );
+              })}
+            </div>
+        )}
 
         {viewMode === 'grid' ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
