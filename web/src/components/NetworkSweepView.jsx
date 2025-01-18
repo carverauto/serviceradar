@@ -14,6 +14,19 @@ const HostDetailsView = ({ host }) => {
                 </span>
             </div>
 
+            {/* ICMP Status */}
+            {host.icmp_status && (
+                <div className="mt-2">
+                    <h5 className="font-medium">ICMP Status</h5>
+                    <div className="ml-4 text-sm">
+                        <div>Response Time: {(host.icmp_status.round_trip / 1e6).toFixed(2)}ms</div>
+                        {host.icmp_status.packet_loss > 0 && (
+                            <div>Packet Loss: {host.icmp_status.packet_loss.toFixed(1)}%</div>
+                        )}
+                    </div>
+                </div>
+            )}
+
             {/* Port Results */}
             {host.port_results && host.port_results.length > 0 && (
                 <div className="mt-2">
@@ -54,6 +67,7 @@ const NetworkSweepView = ({ nodeId, service }) => {
     const [selectedPort, setSelectedPort] = useState(null);
     const [viewMode, setViewMode] = useState('summary');
     const [searchTerm, setSearchTerm] = useState('');
+    const [showOffline, setShowOffline] = useState(false);
 
     // Get sweep details from service
     const sweepDetails = service?.details;
@@ -76,8 +90,9 @@ const NetworkSweepView = ({ nodeId, service }) => {
     const portStats = sweepDetails.ports?.sort((a, b) => b.available - a.available) || [];
     const hosts = sweepDetails.hosts || [];
 
-    // Filter hosts based on search term
+    // Filter hosts based on search term and online status
     const filteredHosts = hosts.filter(host =>
+        (showOffline || host.available) &&
         host.host.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
@@ -113,19 +128,30 @@ const NetworkSweepView = ({ nodeId, service }) => {
                 </div>
 
                 {viewMode === 'hosts' && (
-                    <div className="mt-2">
-                        <input
-                            type="text"
-                            placeholder="Search hosts..."
-                            className="w-full p-2 border rounded"
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                        />
+                    <div className="mt-2 space-y-2">
+                        <div className="flex items-center space-x-4">
+                            <input
+                                type="text"
+                                placeholder="Search hosts..."
+                                className="flex-1 p-2 border rounded"
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                            />
+                            <label className="flex items-center space-x-2">
+                                <input
+                                    type="checkbox"
+                                    checked={showOffline}
+                                    onChange={(e) => setShowOffline(e.target.checked)}
+                                    className="form-checkbox"
+                                />
+                                <span className="text-sm">Show Offline Hosts</span>
+                            </label>
+                        </div>
                     </div>
                 )}
 
                 <div className="text-sm text-gray-500 mt-2">
-                    Last sweep: {new Date(sweepDetails.last_sweep * 1000).toLocaleString()}
+                    Last sweep: {new Date(sweepDetails.last_sweep).toLocaleString()}
                 </div>
             </div>
 
