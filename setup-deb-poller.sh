@@ -4,7 +4,7 @@ set -e  # Exit on any error
 
 echo "Setting up package structure..."
 
-VERSION=${VERSION:-1.0.1}
+VERSION=${VERSION:-1.0.2}
 
 # Create package directory structure
 PKG_ROOT="serviceradar-poller_${VERSION}"
