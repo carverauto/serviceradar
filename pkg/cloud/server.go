@@ -375,6 +375,7 @@ func (s *Server) sendStartupNotification(ctx context.Context) {
 
 	// Get total nodes from database
 	var nodeCount int
+
 	if err := s.db.QueryRow("SELECT COUNT(*) FROM nodes").Scan(&nodeCount); err != nil {
 		log.Printf("Error counting nodes: %v", err)
 	}
@@ -392,6 +393,7 @@ func (s *Server) sendStartupNotification(ctx context.Context) {
 			"total_nodes": nodeCount,
 		},
 	}
+
 	s.sendAlert(ctx, &alert)
 }
 
@@ -418,52 +420,42 @@ func (s *Server) checkNeverReportedPollers(ctx context.Context, config *Config) 
 			}
 
 			log.Printf("Sending 'never-reported' alert for poller %s", pollerID)
+
 			s.sendAlert(ctx, &alert)
 		}
 	}
 }
 
-func (s *Server) markNodeDown(ctx context.Context, pollerID string, now time.Time) {
+func (s *Server) markNodeDown(ctx context.Context, nodeID string, timestamp time.Time) {
 	// Update node status in database
 	status := &db.NodeStatus{
-		NodeID:    pollerID,
+		NodeID:    nodeID,
 		IsHealthy: false,
-		LastSeen:  now,
+		LastSeen:  timestamp,
 	}
 
 	if err := s.db.UpdateNodeStatus(status); err != nil {
 		log.Printf("Error updating node down status: %v", err)
+
+		return
 	}
 
-	// Query last known good status
-	const querySQL = `
-        SELECT last_seen 
-        FROM node_history 
-        WHERE node_id = ? AND is_healthy = TRUE 
-        ORDER BY timestamp DESC 
-        LIMIT 1
-    `
-
-	var lastSeen time.Time
-	if err := s.db.QueryRow(querySQL, pollerID).Scan(&lastSeen); err != nil && !errors.Is(err, sql.ErrNoRows) {
-		log.Printf("Error querying last seen time: %v", err)
-	}
-
-	alert := alerts.WebhookAlert{
+	// Send alert
+	alert := &alerts.WebhookAlert{
 		Level:     alerts.Error,
 		Title:     "Node Offline",
-		Message:   fmt.Sprintf("Node '%s' is offline", pollerID),
-		NodeID:    pollerID,
-		Timestamp: now.UTC().Format(time.RFC3339),
+		Message:   fmt.Sprintf("Node '%s' is offline", nodeID),
+		NodeID:    nodeID,
+		Timestamp: timestamp.UTC().Format(time.RFC3339),
 		Details: map[string]any{
-			"hostname":  getHostname(),
-			"last_seen": lastSeen.Format(time.RFC3339),
-			"duration":  time.Since(lastSeen).Round(time.Second).String(),
+			"hostname": getHostname(),
+			"duration": time.Since(timestamp).String(),
 		},
 	}
 
-	log.Printf("Sending offline alert for node '%s'", pollerID)
-	s.sendAlert(ctx, &alert)
+	log.Printf("Sending offline alert for node '%s'", nodeID)
+
+	s.sendAlert(ctx, alert)
 }
 
 func (s *Server) sendAlert(ctx context.Context, alert *alerts.WebhookAlert) {
@@ -536,18 +528,20 @@ func (s *Server) MonitorPollers(ctx context.Context) {
 
 func (s *Server) checkPollers(ctx context.Context) {
 	now := time.Now()
+
 	alertThreshold := now.Add(-s.alertThreshold)
 
+	// Get all nodes and their current status
 	const querySQL = `
         SELECT n.node_id, n.last_seen, n.is_healthy
         FROM nodes n
-        WHERE n.last_seen < ?
-        AND n.is_healthy = TRUE
+        WHERE n.last_seen < ? AND n.is_healthy = TRUE
     `
 
-	rows, err := s.db.Query(querySQL, alertThreshold) //nolint:rowserrcheck // rows.Close() is deferred
+	rows, err := s.db.Query(querySQL, alertThreshold)
 	if err != nil {
-		log.Printf("Error querying nodes for status check: %v", err)
+		log.Printf("Error querying nodes: %v", err)
+
 		return
 	}
 	defer func(rows *sql.Rows) {
@@ -566,19 +560,21 @@ func (s *Server) checkPollers(ctx context.Context) {
 
 		if err := rows.Scan(&nodeID, &lastSeen, &isHealthy); err != nil {
 			log.Printf("Error scanning node status: %v", err)
+
 			continue
 		}
 
-		duration := now.Sub(lastSeen)
-		log.Printf("Node %s last seen %v ago (threshold: %v)",
-			nodeID, duration, s.alertThreshold)
+		timeSinceLastSeen := now.Sub(lastSeen)
+		log.Printf("Node %s status check: healthy=%v, last_seen=%v ago (threshold: %v)",
+			nodeID, isHealthy, timeSinceLastSeen, s.alertThreshold)
 
 		// If the node was healthy but hasn't been seen recently, mark it down
-		if isHealthy && duration > s.alertThreshold {
-			log.Printf("Node %s transitioning to DOWN state", nodeID)
+		if isHealthy {
+			log.Printf("Node %s transitioning to DOWN state (last seen %v ago)",
+				nodeID, timeSinceLastSeen)
 			s.markNodeDown(ctx, nodeID, now)
 
-			// Update API state if available
+			// Update API server state
 			if s.apiServer != nil {
 				offlineStatus := &api.NodeStatus{
 					NodeID:     nodeID,
@@ -589,6 +585,85 @@ func (s *Server) checkPollers(ctx context.Context) {
 			}
 		}
 	}
+}
+
+func (s *Server) markNodeRecovered(ctx context.Context, nodeID string, timestamp time.Time) {
+	// Get the last downtime before updating status
+	var lastDownTime time.Time
+	err := s.db.QueryRow(`
+        SELECT timestamp 
+        FROM node_history 
+        WHERE node_id = ? AND is_healthy = FALSE 
+        ORDER BY timestamp DESC LIMIT 1`,
+		nodeID).Scan(&lastDownTime)
+	if err != nil {
+		log.Printf("Error getting last downtime: %v", err)
+	}
+
+	// Update node status
+	status := &db.NodeStatus{
+		NodeID:    nodeID,
+		IsHealthy: true,
+		LastSeen:  timestamp,
+	}
+
+	if err := s.db.UpdateNodeStatus(status); err != nil {
+		log.Printf("Error updating node recovery status: %v", err)
+		return
+	}
+
+	// Calculate downtime duration if we have the last downtime
+	var downtimeDuration string
+	if !lastDownTime.IsZero() {
+		downtimeDuration = timestamp.Sub(lastDownTime).String()
+	} else {
+		downtimeDuration = "unknown"
+	}
+
+	// Send recovery alert
+	alert := &alerts.WebhookAlert{
+		Level:     alerts.Info,
+		Title:     "Node Recovered",
+		Message:   fmt.Sprintf("Node '%s' is back online", nodeID),
+		NodeID:    nodeID,
+		Timestamp: timestamp.UTC().Format(time.RFC3339),
+		Details: map[string]any{
+			"hostname":      getHostname(),
+			"downtime":      downtimeDuration,
+			"recovery_time": timestamp.Format(time.RFC3339),
+		},
+	}
+
+	log.Printf("Sending recovery alert for node '%s'", nodeID)
+	s.sendAlert(ctx, alert)
+
+	// Update API server state
+	if s.apiServer != nil {
+		onlineStatus := &api.NodeStatus{
+			NodeID:     nodeID,
+			IsHealthy:  true,
+			LastUpdate: timestamp,
+		}
+		s.apiServer.UpdateNodeStatus(nodeID, onlineStatus)
+	}
+}
+
+func (s *Server) getLastDowntime(nodeID string) time.Time {
+	var downtime time.Time
+	err := s.db.QueryRow(`
+        SELECT timestamp
+        FROM node_history
+        WHERE node_id = ? AND is_healthy = FALSE
+        ORDER BY timestamp DESC
+        LIMIT 1
+    `, nodeID).Scan(&downtime)
+
+	if err != nil {
+		log.Printf("Error getting last downtime for node %s: %v", nodeID, err)
+		return time.Time{} // Return zero time if error
+	}
+
+	return downtime
 }
 
 func getHostname() string {

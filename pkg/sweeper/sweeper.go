@@ -150,39 +150,6 @@ func (s *NetworkSweeper) generateTargets() ([]Target, error) {
 	return allTargets, nil
 }
 
-// inc increments an IP address.
-func inc(ip net.IP) {
-	for j := len(ip) - 1; j >= 0; j-- {
-		ip[j]++
-		if ip[j] > 0 {
-			break
-		}
-	}
-}
-
-// isFirstOrLastAddress checks if the IP is the network or broadcast address.
-func isFirstOrLastAddress(ip net.IP, network *net.IPNet) bool {
-	// Get the IP address as 4-byte slice for IPv4
-	ipv4 := ip.To4()
-	if ipv4 == nil {
-		return false
-	}
-
-	// Check if it's the network address (first address)
-	if ipv4.Equal(ip.Mask(network.Mask)) {
-		return true
-	}
-
-	// Create broadcast address
-	broadcast := make(net.IP, len(ipv4))
-	for i := range ipv4 {
-		broadcast[i] = ipv4[i] | ^network.Mask[i]
-	}
-
-	// Check if it's the broadcast address (last address)
-	return ipv4.Equal(broadcast)
-}
-
 func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 	// Generate targets
 	targets, err := s.generateTargets()
