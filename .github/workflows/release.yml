@@ -26,6 +26,7 @@ jobs:
           ./setup-deb-agent.sh
           ./setup-deb-poller.sh
           ./setup-deb-cloud.sh
+          ./setup-deb-dusk-checker.sh
       - name: List Artifacts (for debugging)
         run: ls -al ./release-artifacts
       - name: Upload Release Assets
