@@ -362,18 +362,17 @@ func (db *DB) GetNodeHistoryPoints(nodeID string, limit int) ([]NodeHistoryPoint
 // GetNodeHistory retrieves the history for a node.
 func (db *DB) GetNodeHistory(nodeID string) ([]NodeStatus, error) {
 	const querySQL = `
-		SELECT timestamp, is_healthy
-		FROM node_history
-		WHERE node_id = ?
-		ORDER BY timestamp DESC
-		LIMIT ?
-	`
+        SELECT timestamp, is_healthy 
+        FROM node_history 
+        WHERE node_id = ? 
+        ORDER BY timestamp DESC 
+        LIMIT ?
+    `
 
-	rows, err := db.Query(querySQL, nodeID, maxHistoryPoints) //nolint:rowserrcheck // rows.Close() is deferred
+	rows, err := db.Query(querySQL, nodeID, maxHistoryPoints)
 	if err != nil {
-		return nil, fmt.Errorf("%w node history: %w", errFailedToQuery, err)
+		return nil, fmt.Errorf("failed to query node history: %w", err)
 	}
-
 	defer func(rows *sql.Rows) {
 		err := rows.Close()
 		if err != nil {
@@ -382,20 +381,34 @@ func (db *DB) GetNodeHistory(nodeID string) ([]NodeStatus, error) {
 	}(rows)
 
 	var history []NodeStatus
-
 	for rows.Next() {
-		var h NodeStatus
-
-		h.NodeID = nodeID
-
-		if err := rows.Scan(&h.LastSeen, &h.IsHealthy); err != nil {
-			return nil, fmt.Errorf("%w history row: %w", errFailedToScan, err)
+		var status NodeStatus
+		status.NodeID = nodeID
+		if err := rows.Scan(&status.LastSeen, &status.IsHealthy); err != nil {
+			return nil, fmt.Errorf("failed to scan history row: %w", err)
 		}
-
-		history = append(history, h)
+		history = append(history, status)
 	}
 
 	return history, nil
+}
+
+func (db *DB) IsNodeOffline(nodeID string, threshold time.Duration) (bool, error) {
+	const querySQL = `
+        SELECT COUNT(*) 
+        FROM nodes n 
+        WHERE n.node_id = ? 
+        AND n.last_seen < datetime('now', ?)
+    `
+
+	var count int
+	thresholdStr := fmt.Sprintf("-%d seconds", int(threshold.Seconds()))
+	err := db.QueryRow(querySQL, nodeID, thresholdStr).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("failed to check node status: %w", err)
+	}
+
+	return count > 0, nil
 }
 
 // GetServiceHistory retrieves the recent history for a service.

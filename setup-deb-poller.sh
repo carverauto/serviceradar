@@ -4,7 +4,7 @@ set -e  # Exit on any error
 
 echo "Setting up package structure..."
 
-VERSION=${VERSION:-1.0.0}
+VERSION=${VERSION:-1.0.1}
 
 # Create package directory structure
 PKG_ROOT="serviceradar-poller_${VERSION}"
@@ -23,7 +23,7 @@ echo "Creating package files..."
 # Create control file
 cat > "${PKG_ROOT}/DEBIAN/control" << EOF
 Package: serviceradar-poller
-Version: 1.0.0
+Version: ${VERSION}
 Section: utils
 Priority: optional
 Architecture: amd64
