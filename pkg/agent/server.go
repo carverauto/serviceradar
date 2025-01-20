@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/mfreeman451/serviceradar/pkg/checker"
-	"github.com/mfreeman451/serviceradar/pkg/sweeper"
+	"github.com/mfreeman451/serviceradar/pkg/models"
 	"github.com/mfreeman451/serviceradar/proto"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -23,15 +23,6 @@ const (
 	grpcConfigurationName    = "grpc"
 	portConfigurationName    = "port"
 	processConfigurationName = "process"
-)
-
-var (
-	errGrpcAddressRequired = errors.New("address is required for gRPC checker")
-	errUnknownCheckerType  = errors.New("unknown checker type")
-	errGrpcMissingConfig   = errors.New("no configuration or address provided for gRPC checker")
-	errNoLocalConfig       = errors.New("no local config found")
-	errShutdown            = errors.New("error while shutting down")
-	errServiceStartup      = errors.New("error while starting services")
 )
 
 type Duration time.Duration
@@ -153,7 +144,7 @@ func loadSweepService(configDir string) (Service, error) {
 	}
 
 	// Convert to sweeper.Config
-	config := &sweeper.Config{
+	config := &models.Config{
 		Networks:    sweepConfig.Networks,
 		Ports:       sweepConfig.Ports,
 		Interval:    time.Duration(sweepConfig.Interval),

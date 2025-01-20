@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log"
 	"time"
+
+	"github.com/mfreeman451/serviceradar/pkg/models"
 )
 
 var (
@@ -24,7 +26,7 @@ type queryBuilder struct {
 	args  []interface{}
 }
 
-func (s *SQLiteStore) SaveResult(ctx context.Context, result *Result) error {
+func (s *SQLiteStore) SaveResult(ctx context.Context, result *models.Result) error {
 	// Use upsert to handle both new and existing results
 	const query = `
         INSERT INTO sweep_results (
@@ -119,8 +121,8 @@ func (qb *queryBuilder) finalize() (queryString string, queryArgs []interface{})
 }
 
 // scanRow scans a single row into a Result struct.
-func scanRow(rows *sql.Rows) (*Result, error) {
-	var r Result
+func scanRow(rows *sql.Rows) (*models.Result, error) {
+	var r models.Result
 
 	var errStr sql.NullString
 
@@ -147,7 +149,7 @@ func scanRow(rows *sql.Rows) (*Result, error) {
 	return &r, nil
 }
 
-func (s *SQLiteStore) GetResults(ctx context.Context, filter *ResultFilter) ([]Result, error) {
+func (s *SQLiteStore) GetResults(ctx context.Context, filter *models.ResultFilter) ([]models.Result, error) {
 	// Build query
 	qb := newQueryBuilder()
 	qb.addHostFilter(filter.Host)
@@ -169,7 +171,7 @@ func (s *SQLiteStore) GetResults(ctx context.Context, filter *ResultFilter) ([]R
 	}(rows)
 
 	// Process results
-	var results []Result
+	var results []models.Result
 
 	for rows.Next() {
 		result, err := scanRow(rows)

@@ -4,18 +4,20 @@ import (
 	"context"
 	"sync"
 	"time"
+
+	"github.com/mfreeman451/serviceradar/pkg/models"
 )
 
 // InMemoryStore implements Store interface for temporary storage.
 type InMemoryStore struct {
 	mu      sync.RWMutex
-	results []Result
+	results []models.Result
 }
 
 // NewInMemoryStore creates a new in-memory store for sweep results.
 func NewInMemoryStore() Store {
 	return &InMemoryStore{
-		results: make([]Result, 0),
+		results: make([]models.Result, 0),
 	}
 }
 
@@ -48,7 +50,7 @@ func (s *InMemoryStore) SaveHostResult(_ context.Context, result *HostResult) er
 }
 
 // GetHostResults returns a slice of HostResult based on the provided filter.
-func (s *InMemoryStore) GetHostResults(_ context.Context, filter *ResultFilter) ([]HostResult, error) {
+func (s *InMemoryStore) GetHostResults(_ context.Context, filter *models.ResultFilter) ([]HostResult, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -76,7 +78,7 @@ func (s *InMemoryStore) GetHostResults(_ context.Context, filter *ResultFilter) 
 		if r.Available {
 			host.Available = true
 
-			if r.Target.Mode == ModeTCP {
+			if r.Target.Mode == models.ModeTCP {
 				portResult := &PortResult{
 					Port:      r.Target.Port,
 					Available: true,
@@ -125,7 +127,7 @@ func (s *InMemoryStore) GetSweepSummary(_ context.Context) (*SweepSummary, error
 		}
 
 		// count ports
-		if r.Available && r.Target.Mode == ModeTCP {
+		if r.Available && r.Target.Mode == models.ModeTCP {
 			portCounts[r.Target.Port]++
 		}
 
@@ -182,7 +184,7 @@ func (s *InMemoryStore) GetSweepSummary(_ context.Context) (*SweepSummary, error
 }
 
 // SaveResult stores (or updates) a Result in memory.
-func (s *InMemoryStore) SaveResult(_ context.Context, result *Result) error {
+func (s *InMemoryStore) SaveResult(_ context.Context, result *models.Result) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -201,11 +203,11 @@ func (s *InMemoryStore) SaveResult(_ context.Context, result *Result) error {
 }
 
 // GetResults returns a list of Results that match the filter.
-func (s *InMemoryStore) GetResults(_ context.Context, filter *ResultFilter) ([]Result, error) {
+func (s *InMemoryStore) GetResults(_ context.Context, filter *models.ResultFilter) ([]models.Result, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	filtered := make([]Result, 0, len(s.results))
+	filtered := make([]models.Result, 0, len(s.results))
 
 	for i := range s.results {
 		r := &s.results[i]
@@ -223,7 +225,7 @@ func (s *InMemoryStore) PruneResults(_ context.Context, age time.Duration) error
 	defer s.mu.Unlock()
 
 	cutoff := time.Now().Add(-age)
-	newResults := make([]Result, 0, len(s.results))
+	newResults := make([]models.Result, 0, len(s.results))
 
 	for i := range s.results {
 		r := &s.results[i]
@@ -238,8 +240,8 @@ func (s *InMemoryStore) PruneResults(_ context.Context, age time.Duration) error
 }
 
 // matchesFilter checks if a Result matches the provided filter.
-func (*InMemoryStore) matchesFilter(result *Result, filter *ResultFilter) bool {
-	checks := []func(*Result, *ResultFilter) bool{
+func (*InMemoryStore) matchesFilter(result *models.Result, filter *models.ResultFilter) bool {
+	checks := []func(*models.Result, *models.ResultFilter) bool{
 		checkTimeRange,
 		checkHost,
 		checkPort,
@@ -256,7 +258,7 @@ func (*InMemoryStore) matchesFilter(result *Result, filter *ResultFilter) bool {
 }
 
 // checkTimeRange verifies if the result falls within the specified time range.
-func checkTimeRange(result *Result, filter *ResultFilter) bool {
+func checkTimeRange(result *models.Result, filter *models.ResultFilter) bool {
 	if !filter.StartTime.IsZero() && result.LastSeen.Before(filter.StartTime) {
 		return false
 	}
@@ -269,16 +271,16 @@ func checkTimeRange(result *Result, filter *ResultFilter) bool {
 }
 
 // checkHost verifies if the result matches the specified host.
-func checkHost(result *Result, filter *ResultFilter) bool {
+func checkHost(result *models.Result, filter *models.ResultFilter) bool {
 	return filter.Host == "" || result.Target.Host == filter.Host
 }
 
 // checkPort verifies if the result matches the specified port.
-func checkPort(result *Result, filter *ResultFilter) bool {
+func checkPort(result *models.Result, filter *models.ResultFilter) bool {
 	return filter.Port == 0 || result.Target.Port == filter.Port
 }
 
 // checkAvailability verifies if the result matches the specified availability.
-func checkAvailability(result *Result, filter *ResultFilter) bool {
+func checkAvailability(result *models.Result, filter *models.ResultFilter) bool {
 	return filter.Available == nil || result.Available == *filter.Available
 }

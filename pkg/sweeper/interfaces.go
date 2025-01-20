@@ -3,13 +3,8 @@ package sweeper
 import (
 	"context"
 	"time"
-)
 
-type SweepMode string
-
-const (
-	ModeTCP  SweepMode = "tcp"
-	ModeICMP SweepMode = "icmp"
+	"github.com/mfreeman451/serviceradar/pkg/models"
 )
 
 // HostResult represents all results for a single host.
@@ -51,19 +46,19 @@ type Sweeper interface {
 	Stop() error
 
 	// GetResults retrieves sweep results based on filter
-	GetResults(context.Context, *ResultFilter) ([]Result, error)
+	GetResults(context.Context, *models.ResultFilter) ([]models.Result, error)
 
 	// GetConfig returns current sweeper configuration
-	GetConfig() Config
+	GetConfig() models.Config
 
 	// UpdateConfig updates sweeper configuration
-	UpdateConfig(Config) error
+	UpdateConfig(models.Config) error
 }
 
 // Scanner defines how to perform network sweeps.
 type Scanner interface {
 	// Scan performs the sweep and returns results through the channel
-	Scan(context.Context, []Target) (<-chan Result, error)
+	Scan(context.Context, []models.Target) (<-chan models.Result, error)
 	// Stop gracefully stops any ongoing scans
 	Stop() error
 }
@@ -71,9 +66,9 @@ type Scanner interface {
 // Store defines storage operations for sweep results.
 type Store interface {
 	// SaveResult persists a single scan result
-	SaveResult(context.Context, *Result) error
+	SaveResult(context.Context, *models.Result) error
 	// GetResults retrieves results matching the filter
-	GetResults(context.Context, *ResultFilter) ([]Result, error)
+	GetResults(context.Context, *models.ResultFilter) ([]models.Result, error)
 	// GetSweepSummary gets the latest sweep summary
 	GetSweepSummary(context.Context) (*SweepSummary, error)
 	// PruneResults removes results older than given duration
@@ -83,7 +78,7 @@ type Store interface {
 // ResultProcessor defines how to process and aggregate sweep results.
 type ResultProcessor interface {
 	// Process takes a Result and updates internal state
-	Process(*Result) error
+	Process(result *models.Result) error
 	// GetSummary returns the current summary of all processed results
 	GetSummary() (*SweepSummary, error)
 	// Reset clears the processor's state
@@ -105,25 +100,7 @@ type SweepService interface {
 	// GetStatus returns current sweep status
 	GetStatus(context.Context) (*SweepSummary, error)
 	// UpdateConfig updates service configuration
-	UpdateConfig(Config) error
-}
-
-// Result represents the outcome of a sweep against a target.
-type Result struct {
-	Target     Target
-	Available  bool
-	FirstSeen  time.Time
-	LastSeen   time.Time
-	RespTime   time.Duration
-	PacketLoss float64
-	Error      error
-}
-
-// Target represents a network target to be scanned.
-type Target struct {
-	Host string
-	Port int
-	Mode SweepMode
+	UpdateConfig(models.Config) error
 }
 
 // SweepSummary provides aggregated sweep results.
@@ -134,24 +111,4 @@ type SweepSummary struct {
 	LastSweep      int64        `json:"last_sweep"` // Unix timestamp
 	Ports          []PortCount  `json:"ports"`
 	Hosts          []HostResult `json:"hosts"`
-}
-
-// Config defines sweeper configuration.
-type Config struct {
-	Networks    []string      `json:"networks"`
-	Ports       []int         `json:"ports"`
-	SweepModes  []SweepMode   `json:"sweep_modes"`
-	Interval    time.Duration `json:"interval"`
-	Concurrency int           `json:"concurrency"`
-	Timeout     time.Duration `json:"timeout"`
-	ICMPCount   int           `json:"icmp_count"`
-}
-
-// ResultFilter defines criteria for retrieving results.
-type ResultFilter struct {
-	Host      string
-	Port      int
-	StartTime time.Time
-	EndTime   time.Time
-	Available *bool
 }

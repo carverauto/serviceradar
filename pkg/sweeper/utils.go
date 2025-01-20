@@ -28,17 +28,6 @@ func GenerateIPsFromCIDR(network string) ([]net.IP, error) {
 	return ips, nil
 }
 
-// ContainsMode checks if a mode is in a list of modes.
-func ContainsMode(modes []SweepMode, mode SweepMode) bool {
-	for _, m := range modes {
-		if m == mode {
-			return true
-		}
-	}
-
-	return false
-}
-
 // inc increments an IP address.
 func inc(ip net.IP) {
 	for j := len(ip) - 1; j >= 0; j-- {

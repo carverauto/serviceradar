@@ -5,6 +5,8 @@ import (
 	"log"
 	"sync"
 	"time"
+
+	"github.com/mfreeman451/serviceradar/pkg/models"
 )
 
 type CombinedScanner struct {
@@ -30,12 +32,12 @@ func (s *CombinedScanner) Stop() error {
 }
 
 type scanTargets struct {
-	tcp  []Target
-	icmp []Target
+	tcp  []models.Target
+	icmp []models.Target
 }
 
-func (s *CombinedScanner) Scan(ctx context.Context, targets []Target) (<-chan Result, error) {
-	results := make(chan Result)
+func (s *CombinedScanner) Scan(ctx context.Context, targets []models.Target) (<-chan models.Result, error) {
+	results := make(chan models.Result)
 	separated := s.separateTargets(targets)
 
 	var wg sync.WaitGroup
@@ -50,14 +52,14 @@ func (s *CombinedScanner) Scan(ctx context.Context, targets []Target) (<-chan Re
 	return results, nil
 }
 
-func (*CombinedScanner) separateTargets(targets []Target) scanTargets {
+func (*CombinedScanner) separateTargets(targets []models.Target) scanTargets {
 	var separated scanTargets
 
 	for _, target := range targets {
 		switch target.Mode {
-		case ModeTCP:
+		case models.ModeTCP:
 			separated.tcp = append(separated.tcp, target)
-		case ModeICMP:
+		case models.ModeICMP:
 			separated.icmp = append(separated.icmp, target)
 		default:
 			log.Printf("Unknown scan mode for target %v: %v", target, target.Mode)
@@ -67,7 +69,7 @@ func (*CombinedScanner) separateTargets(targets []Target) scanTargets {
 	return separated
 }
 
-func (s *CombinedScanner) startScanners(ctx context.Context, wg *sync.WaitGroup, targets scanTargets, results chan<- Result) {
+func (s *CombinedScanner) startScanners(ctx context.Context, wg *sync.WaitGroup, targets scanTargets, results chan<- models.Result) {
 	if len(targets.tcp) > 0 {
 		wg.Add(1)
 
@@ -81,7 +83,7 @@ func (s *CombinedScanner) startScanners(ctx context.Context, wg *sync.WaitGroup,
 	}
 }
 
-func (s *CombinedScanner) runTCPScanner(ctx context.Context, wg *sync.WaitGroup, targets []Target, results chan<- Result) {
+func (s *CombinedScanner) runTCPScanner(ctx context.Context, wg *sync.WaitGroup, targets []models.Target, results chan<- models.Result) {
 	defer wg.Done()
 
 	tcpResults, err := s.tcpScanner.Scan(ctx, targets)
@@ -93,7 +95,7 @@ func (s *CombinedScanner) runTCPScanner(ctx context.Context, wg *sync.WaitGroup,
 	s.processResults(ctx, tcpResults, results)
 }
 
-func (s *CombinedScanner) runICMPScanner(ctx context.Context, wg *sync.WaitGroup, targets []Target, results chan<- Result) {
+func (s *CombinedScanner) runICMPScanner(ctx context.Context, wg *sync.WaitGroup, targets []models.Target, results chan<- models.Result) {
 	defer wg.Done()
 
 	icmpResults, err := s.icmpScanner.Scan(ctx, targets)
@@ -105,7 +107,7 @@ func (s *CombinedScanner) runICMPScanner(ctx context.Context, wg *sync.WaitGroup
 	s.processResults(ctx, icmpResults, results)
 }
 
-func (s *CombinedScanner) processResults(ctx context.Context, scanResults <-chan Result, results chan<- Result) {
+func (s *CombinedScanner) processResults(ctx context.Context, scanResults <-chan models.Result, results chan<- models.Result) {
 	for result := range scanResults {
 		select {
 		case <-ctx.Done():

@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/mfreeman451/serviceradar/pkg/models"
 )
 
 var (
@@ -19,7 +21,7 @@ var (
 
 // NetworkSweeper implements the Sweeper interface.
 type NetworkSweeper struct {
-	config  *Config
+	config  *models.Config
 	scanner *CombinedScanner
 	store   Store
 	mu      sync.RWMutex
@@ -27,7 +29,7 @@ type NetworkSweeper struct {
 }
 
 // NewNetworkSweeper creates a new instance of NetworkSweeper.
-func NewNetworkSweeper(config *Config) *NetworkSweeper {
+func NewNetworkSweeper(config *models.Config) *NetworkSweeper {
 	scanner := NewCombinedScanner(config.Timeout, config.Concurrency, config.ICMPCount)
 	store := NewInMemoryStore()
 
@@ -69,24 +71,26 @@ func (s *NetworkSweeper) Stop() error {
 	return s.scanner.Stop()
 }
 
-func (s *NetworkSweeper) GetResults(ctx context.Context, filter *ResultFilter) ([]Result, error) {
+func (s *NetworkSweeper) GetResults(ctx context.Context, filter *models.ResultFilter) ([]models.Result, error) {
 	return s.store.GetResults(ctx, filter)
 }
 
-func (s *NetworkSweeper) GetConfig() *Config {
+func (s *NetworkSweeper) GetConfig() *models.Config {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	return s.config
 }
 
-func (s *NetworkSweeper) UpdateConfig(config *Config) error {
+func (s *NetworkSweeper) UpdateConfig(config *models.Config) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.config = config
 
 	return nil
 }
+
+type SweepMode models.SweepMode
 
 // UnmarshalJSON implements json.Unmarshaler for SweepMode.
 func (m *SweepMode) UnmarshalJSON(data []byte) error {
@@ -97,9 +101,9 @@ func (m *SweepMode) UnmarshalJSON(data []byte) error {
 
 	switch strings.ToLower(s) {
 	case "tcp":
-		*m = ModeTCP
+		*m = SweepMode(models.ModeTCP)
 	case "icmp":
-		*m = ModeICMP
+		*m = SweepMode(models.ModeICMP)
 	default:
 		return fmt.Errorf("%w: %s", errInvalidSweepMode, s)
 	}
@@ -112,8 +116,8 @@ func (m *SweepMode) MarshalJSON() ([]byte, error) {
 	return json.Marshal(string(*m))
 }
 
-func (s *NetworkSweeper) generateTargets() ([]Target, error) {
-	var allTargets []Target
+func (s *NetworkSweeper) generateTargets() ([]models.Target, error) {
+	var allTargets []models.Target
 
 	for _, network := range s.config.Networks {
 		// First generate all IP addresses
@@ -123,23 +127,23 @@ func (s *NetworkSweeper) generateTargets() ([]Target, error) {
 		}
 
 		// For each IP, create ICMP target if enabled
-		if containsMode(s.config.SweepModes, ModeICMP) {
+		if containsMode(s.config.SweepModes, models.ModeICMP) {
 			for _, ip := range ips {
-				allTargets = append(allTargets, Target{
+				allTargets = append(allTargets, models.Target{
 					Host: ip.String(),
-					Mode: ModeICMP,
+					Mode: models.ModeICMP,
 				})
 			}
 		}
 
 		// For each IP, create TCP targets for each port if enabled
-		if containsMode(s.config.SweepModes, ModeTCP) {
+		if containsMode(s.config.SweepModes, models.ModeTCP) {
 			for _, ip := range ips {
 				for _, port := range s.config.Ports {
-					allTargets = append(allTargets, Target{
+					allTargets = append(allTargets, models.Target{
 						Host: ip.String(),
 						Port: port,
-						Mode: ModeTCP,
+						Mode: models.ModeTCP,
 					})
 				}
 			}
@@ -178,12 +182,12 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 
 		// Log based on scan type
 		switch result.Target.Mode {
-		case ModeICMP:
+		case models.ModeICMP:
 			if result.Available {
 				log.Printf("Host %s responded to ICMP ping (%.2fms)",
 					result.Target.Host, float64(result.RespTime)/float64(time.Millisecond))
 			}
-		case ModeTCP:
+		case models.ModeTCP:
 			if result.Available {
 				log.Printf("Host %s has port %d open (%.2fms)",
 					result.Target.Host, result.Target.Port,
@@ -195,7 +199,7 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 	return nil
 }
 
-func containsMode(modes []SweepMode, mode SweepMode) bool {
+func containsMode(modes []models.SweepMode, mode models.SweepMode) bool {
 	for _, m := range modes {
 		if m == mode {
 			return true
