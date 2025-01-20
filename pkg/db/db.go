@@ -381,12 +381,15 @@ func (db *DB) GetNodeHistory(nodeID string) ([]NodeStatus, error) {
 	}(rows)
 
 	var history []NodeStatus
+
 	for rows.Next() {
 		var status NodeStatus
+
 		status.NodeID = nodeID
 		if err := rows.Scan(&status.LastSeen, &status.IsHealthy); err != nil {
 			return nil, fmt.Errorf("failed to scan history row: %w", err)
 		}
+
 		history = append(history, status)
 	}
 
@@ -402,7 +405,9 @@ func (db *DB) IsNodeOffline(nodeID string, threshold time.Duration) (bool, error
     `
 
 	var count int
+
 	thresholdStr := fmt.Sprintf("-%d seconds", int(threshold.Seconds()))
+
 	err := db.QueryRow(querySQL, nodeID, thresholdStr).Scan(&count)
 	if err != nil {
 		return false, fmt.Errorf("failed to check node status: %w", err)
@@ -437,7 +442,9 @@ func (db *DB) GetServiceHistory(nodeID, serviceName string, limit int) ([]Servic
 
 	for rows.Next() {
 		var s ServiceStatus
+
 		s.NodeID = nodeID
+
 		s.ServiceName = serviceName
 
 		if err := rows.Scan(&s.Timestamp, &s.Available, &s.Details); err != nil {

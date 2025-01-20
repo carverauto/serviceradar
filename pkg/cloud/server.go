@@ -31,10 +31,13 @@ const (
 	KB                       = 1024
 	MB                       = 1024 * KB
 	maxMessageSize           = 4 * MB
+	statusUnknown            = "unknown"
 )
 
 var (
-	errEmptyPollerID = errors.New("empty poller ID")
+	errEmptyPollerID    = errors.New("empty poller ID")
+	errDatabaseError    = errors.New("database error")
+	errInvalidSweepData = errors.New("invalid sweep data")
 )
 
 type Config struct {
@@ -153,14 +156,22 @@ func (s *Server) checkInitialStates(ctx context.Context) {
 			log.Printf("Node %s found offline during initial check (last seen: %v ago)",
 				nodeID, duration.Round(time.Second))
 
-			s.markNodeDown(ctx, nodeID, time.Now())
+			err := s.markNodeDown(ctx, nodeID, time.Now())
+			if err != nil {
+				log.Printf("Error marking node down: %v", err)
+				return
+			}
 		}
 	}
 
 	// Check for known pollers that have never reported
 	for _, pollerID := range s.knownPollers {
 		if !checkedNodes[pollerID] {
-			s.markNodeDown(ctx, pollerID, time.Now())
+			err := s.markNodeDown(ctx, pollerID, time.Now())
+			if err != nil {
+				log.Printf("Error marking node down: %v", err)
+				return
+			}
 		}
 	}
 }
@@ -198,20 +209,6 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 	return server, nil
 }
 
-func processSweepStatus(status *proto.ServiceStatus) (*proto.SweepServiceStatus, error) {
-	var sweepData proto.SweepServiceStatus
-	if err := json.Unmarshal([]byte(status.Message), &sweepData); err != nil {
-		return nil, fmt.Errorf("failed to parse sweep data: %w", err)
-	}
-
-	// If LastSweep is 0 or invalid, use current time
-	if sweepData.LastSweep <= 0 {
-		sweepData.LastSweep = time.Now().Unix()
-	}
-
-	return &sweepData, nil
-}
-
 // ReportStatus handles incoming status reports from pollers.
 func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusRequest) (*proto.PollerStatusResponse, error) {
 	if req.PollerId == "" {
@@ -221,149 +218,300 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 	now := time.Unix(req.Timestamp, 0)
 	log.Printf("Processing status report from %s at %s", req.PollerId, now.Format(time.RFC3339))
 
-	// First check if this node was previously down
+	apiStatus, err := s.processStatusReport(ctx, req, now)
+	if err != nil {
+		return nil, fmt.Errorf("failed to process status report: %w", err)
+	}
+
+	s.updateAPIState(req.PollerId, apiStatus)
+
+	return &proto.PollerStatusResponse{Received: true}, nil
+}
+
+// updateAPIState updates the API server with the latest node status.
+func (s *Server) updateAPIState(pollerID string, apiStatus *api.NodeStatus) {
+	if s.apiServer == nil {
+		log.Printf("Warning: API server not initialized, state not updated")
+
+		return
+	}
+
+	s.apiServer.UpdateNodeStatus(pollerID, apiStatus)
+
+	log.Printf("Updated API server state for node: %s", pollerID)
+}
+
+// getNodeHealthState retrieves the current health state of a node.
+func (s *Server) getNodeHealthState(pollerID string) (bool, error) {
 	var currentState bool
-	err := s.db.QueryRow("SELECT is_healthy FROM nodes WHERE node_id = ?", req.PollerId).Scan(&currentState)
+
+	err := s.db.QueryRow("SELECT is_healthy FROM nodes WHERE node_id = ?", pollerID).Scan(&currentState)
+
+	return currentState, err
+}
+
+func (s *Server) processStatusReport(
+	ctx context.Context, req *proto.PollerStatusRequest, now time.Time) (*api.NodeStatus, error) {
+	currentState, err := s.getNodeHealthState(req.PollerId)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		log.Printf("Error checking node state: %v", err)
 	}
 
-	// Build API node status while processing
-	apiStatus := &api.NodeStatus{
+	apiStatus := s.createNodeStatus(req, now)
+
+	s.processServices(req.PollerId, apiStatus, now)
+
+	if err := s.updateNodeState(ctx, req.PollerId, apiStatus, currentState, now); err != nil {
+		return nil, err
+	}
+
+	return apiStatus, nil
+}
+
+func (*Server) createNodeStatus(req *proto.PollerStatusRequest, now time.Time) *api.NodeStatus {
+	return &api.NodeStatus{
 		NodeID:     req.PollerId,
 		LastUpdate: now,
 		IsHealthy:  true,
 		Services:   make([]api.ServiceStatus, 0, len(req.Services)),
 	}
+}
 
-	// Process services
-	for _, svc := range req.Services {
-		log.Printf("Service report: node=%s name=%s type=%s available=%v",
-			req.PollerId, svc.ServiceName, svc.ServiceType, svc.Available)
-
+func (s *Server) processServices(pollerID string, apiStatus *api.NodeStatus, now time.Time) {
+	for _, svc := range apiStatus.Services {
 		if !svc.Available {
 			apiStatus.IsHealthy = false
 		}
 
-		// Special handling for sweep service
-		if svc.ServiceType == "sweep" {
-			var sweepData proto.SweepServiceStatus
-			if err := json.Unmarshal([]byte(svc.Message), &sweepData); err != nil {
-				log.Printf("Error parsing sweep data: %v", err)
-			} else {
-				// If LastSweep is 0 or invalid, use current time
-				if sweepData.LastSweep <= 0 {
-					sweepData.LastSweep = now.Unix()
-					// Re-encode the sweep data with the fixed timestamp
-					if updatedMessage, err := json.Marshal(sweepData); err == nil {
-						svc.Message = string(updatedMessage)
-					}
-				}
-				log.Printf("Processed sweep data: network=%s hosts=%d/%d lastSweep=%s",
-					sweepData.Network,
-					sweepData.AvailableHosts,
-					sweepData.TotalHosts,
-					time.Unix(sweepData.LastSweep, 0).Format(time.RFC3339))
-			}
-		}
+		if err := s.handleService(pollerID, &svc, now); err != nil {
+			log.Printf("Error handling service %s: %v", svc.Name, err)
 
-		// Store in database
-		svcStatus := &db.ServiceStatus{
-			NodeID:      req.PollerId,
-			ServiceName: svc.ServiceName,
-			ServiceType: svc.ServiceType,
-			Available:   svc.Available,
-			Details:     svc.Message,
-			Timestamp:   now,
+			continue
 		}
+	}
+}
 
-		if err := s.db.UpdateServiceStatus(svcStatus); err != nil {
-			log.Printf("Error storing service status: %v", err)
+func (s *Server) handleService(pollerID string, svc *api.ServiceStatus, now time.Time) error {
+	if svc.Type == "sweep" {
+		if err := s.processSweepData(svc, now); err != nil {
+			return fmt.Errorf("failed to process sweep data: %w", err)
 		}
-
-		// Add to API status
-		apiService := api.ServiceStatus{
-			Name:      svc.ServiceName,
-			Available: svc.Available,
-			Message:   svc.Message,
-			Type:      svc.ServiceType,
-		}
-
-		// Parse detailed status if available
-		if svc.Message != "" {
-			var raw json.RawMessage
-			if err := json.Unmarshal([]byte(svc.Message), &raw); err == nil {
-				apiService.Details = raw
-			}
-		}
-
-		apiStatus.Services = append(apiStatus.Services, apiService)
 	}
 
-	// Store node status in database
+	return s.saveServiceStatus(pollerID, svc, now)
+}
+
+func (*Server) processSweepData(svc *api.ServiceStatus, now time.Time) error {
+	var sweepData proto.SweepServiceStatus
+	if err := json.Unmarshal([]byte(svc.Message), &sweepData); err != nil {
+		return fmt.Errorf("%w: %w", errInvalidSweepData, err)
+	}
+
+	if sweepData.LastSweep <= 0 {
+		sweepData.LastSweep = now.Unix()
+		updatedData := proto.SweepServiceStatus{
+			Network:        sweepData.Network,
+			TotalHosts:     sweepData.TotalHosts,
+			AvailableHosts: sweepData.AvailableHosts,
+			LastSweep:      now.Unix(),
+		}
+
+		updatedMessage, err := json.Marshal(&updatedData)
+		if err != nil {
+			return fmt.Errorf("failed to marshal updated sweep data: %w", err)
+		}
+
+		svc.Message = string(updatedMessage)
+	}
+
+	return nil
+}
+
+func (s *Server) saveServiceStatus(pollerID string, svc *api.ServiceStatus, now time.Time) error {
+	status := &db.ServiceStatus{
+		NodeID:      pollerID,
+		ServiceName: svc.Name,
+		ServiceType: svc.Type,
+		Available:   svc.Available,
+		Details:     svc.Message,
+		Timestamp:   now,
+	}
+
+	if err := s.db.UpdateServiceStatus(status); err != nil {
+		return fmt.Errorf("%w: failed to update service status", errDatabaseError)
+	}
+
+	return nil
+}
+
+// storeNodeStatus updates the node status in the database.
+func (s *Server) storeNodeStatus(pollerID string, isHealthy bool, now time.Time) error {
 	nodeStatus := &db.NodeStatus{
-		NodeID:    req.PollerId,
-		IsHealthy: apiStatus.IsHealthy,
+		NodeID:    pollerID,
+		IsHealthy: isHealthy,
 		LastSeen:  now,
 	}
 
 	if err := s.db.UpdateNodeStatus(nodeStatus); err != nil {
-		log.Printf("Error storing node status: %v", err)
-		return nil, fmt.Errorf("failed to store node status: %w", err)
+		return fmt.Errorf("failed to store node status: %w", err)
 	}
 
-	// Check if this is a recovery (node was previously down but is now reporting as healthy)
-	if err == nil && !currentState && apiStatus.IsHealthy {
-		log.Printf("Node %s has recovered, last seen at %s", req.PollerId, now.Format(time.RFC3339))
+	return nil
+}
 
-		// Get the last downtime for the alert
-		lastDownTime := s.getLastDowntime(req.PollerId)
+// handleNodeRecovery processes a node recovery event.
+func (s *Server) handleNodeRecovery(ctx context.Context, pollerID string, apiStatus *api.NodeStatus, now time.Time) {
+	log.Printf("Node %s has recovered, last seen at %s", pollerID, now.Format(time.RFC3339))
 
-		// Calculate downtime duration
-		var downtimeDuration string
-		if !lastDownTime.IsZero() {
-			downtimeDuration = now.Sub(lastDownTime).String()
-		} else {
-			downtimeDuration = "unknown"
-		}
+	lastDownTime := s.getLastDowntime(pollerID)
 
-		// Send recovery alert
-		alert := &alerts.WebhookAlert{
-			Level:     alerts.Info,
-			Title:     "Node Recovered",
-			Message:   fmt.Sprintf("Node '%s' is back online", req.PollerId),
-			NodeID:    req.PollerId,
-			Timestamp: now.UTC().Format(time.RFC3339),
-			Details: map[string]any{
-				"hostname":      getHostname(),
-				"downtime":      downtimeDuration,
-				"recovery_time": now.Format(time.RFC3339),
-				"services":      len(apiStatus.Services),
-			},
-		}
+	downtimeDuration := statusUnknown
 
-		log.Printf("Sending recovery alert for node '%s'", req.PollerId)
-		s.sendAlert(ctx, alert)
+	if !lastDownTime.IsZero() {
+		downtimeDuration = now.Sub(lastDownTime).String()
 	}
 
-	// Verify storage
-	storedNode, err := s.db.GetNodeStatus(nodeStatus.NodeID)
-	if err != nil {
-		log.Printf("Error reading back node status: %v", err)
-	} else {
-		log.Printf("Verified node storage: id=%s healthy=%v last_seen=%v",
-			storedNode.NodeID, storedNode.IsHealthy, storedNode.LastSeen)
+	alert := &alerts.WebhookAlert{
+		Level:     alerts.Info,
+		Title:     "Node Recovered",
+		Message:   fmt.Sprintf("Node '%s' is back online", pollerID),
+		NodeID:    pollerID,
+		Timestamp: now.UTC().Format(time.RFC3339),
+		Details: map[string]any{
+			"hostname":      getHostname(),
+			"downtime":      downtimeDuration,
+			"recovery_time": now.Format(time.RFC3339),
+			"services":      len(apiStatus.Services),
+		},
 	}
 
-	// Update API server state
+	s.sendAlert(ctx, alert)
+}
+
+func (s *Server) updateNodeState(ctx context.Context, pollerID string, apiStatus *api.NodeStatus, wasHealthy bool, now time.Time) error {
+	if err := s.storeNodeStatus(pollerID, apiStatus.IsHealthy, now); err != nil {
+		return err
+	}
+
+	// Check for recovery
+	if !wasHealthy && apiStatus.IsHealthy {
+		s.handleNodeRecovery(ctx, pollerID, apiStatus, now)
+	}
+
+	return nil
+}
+
+// sendNodeDownAlert sends an alert when a node goes down.
+func (s *Server) sendNodeDownAlert(ctx context.Context, nodeID string, lastSeen time.Time) {
+	alert := &alerts.WebhookAlert{
+		Level:     alerts.Error,
+		Title:     "Node Offline",
+		Message:   fmt.Sprintf("Node '%s' is offline", nodeID),
+		NodeID:    nodeID,
+		Timestamp: lastSeen.UTC().Format(time.RFC3339),
+		Details: map[string]any{
+			"hostname": getHostname(),
+			"duration": time.Since(lastSeen).String(),
+		},
+	}
+
+	s.sendAlert(ctx, alert)
+}
+
+// updateAPINodeStatus updates the node status in the API server.
+func (s *Server) updateAPINodeStatus(nodeID string, isHealthy bool, timestamp time.Time) {
 	if s.apiServer != nil {
-		s.apiServer.UpdateNodeStatus(req.PollerId, apiStatus)
-		log.Printf("Updated API server state for node: %s", req.PollerId)
-	} else {
-		log.Printf("Warning: API server not initialized, state not updated")
+		status := &api.NodeStatus{
+			NodeID:     nodeID,
+			IsHealthy:  isHealthy,
+			LastUpdate: timestamp,
+		}
+		s.apiServer.UpdateNodeStatus(nodeID, status)
+	}
+}
+
+// markNodeDown handles marking a node as down and sending alerts.
+func (s *Server) markNodeDown(ctx context.Context, nodeID string, lastSeen time.Time) error {
+	if err := s.updateNodeDownStatus(nodeID, lastSeen); err != nil {
+		return err
 	}
 
-	return &proto.PollerStatusResponse{Received: true}, nil
+	s.sendNodeDownAlert(ctx, nodeID, lastSeen)
+	s.updateAPINodeStatus(nodeID, false, lastSeen)
+
+	return nil
+}
+
+func (s *Server) updateNodeDownStatus(nodeID string, lastSeen time.Time) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func(tx *sql.Tx) {
+		err := tx.Rollback()
+		if err != nil {
+			log.Printf("Error rolling back transaction: %v", err)
+		}
+	}(tx)
+
+	if err := s.performNodeUpdate(tx, nodeID, lastSeen); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+// checkNodeExists verifies if a node exists in the database.
+func (*Server) checkNodeExists(tx *sql.Tx, nodeID string) (bool, error) {
+	var exists bool
+
+	err := tx.QueryRow("SELECT EXISTS(SELECT 1 FROM nodes WHERE node_id = ?)", nodeID).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("failed to check node existence: %w", err)
+	}
+
+	return exists, nil
+}
+
+// insertNewNode adds a new node to the database.
+func (*Server) insertNewNode(tx *sql.Tx, nodeID string, lastSeen time.Time) error {
+	_, err := tx.Exec(`
+        INSERT INTO nodes (node_id, last_seen, is_healthy)
+        VALUES (?, ?, FALSE)`,
+		nodeID, lastSeen)
+	if err != nil {
+		return fmt.Errorf("failed to insert new node: %w", err)
+	}
+
+	return nil
+}
+
+// updateExistingNode updates an existing node's status.
+func (*Server) updateExistingNode(tx *sql.Tx, nodeID string, lastSeen time.Time) error {
+	_, err := tx.Exec(`
+        UPDATE nodes 
+        SET is_healthy = FALSE, 
+            last_seen = ? 
+        WHERE node_id = ?`,
+		lastSeen, nodeID)
+	if err != nil {
+		return fmt.Errorf("failed to update existing node: %w", err)
+	}
+
+	return nil
+}
+
+func (s *Server) performNodeUpdate(tx *sql.Tx, nodeID string, lastSeen time.Time) error {
+	exists, err := s.checkNodeExists(tx, nodeID)
+	if err != nil {
+		return err
+	}
+
+	if !exists {
+		return s.insertNewNode(tx, nodeID, lastSeen)
+	}
+
+	return s.updateExistingNode(tx, nodeID, lastSeen)
 }
 
 func (s *Server) initializeGRPCServer(config *Config) {
@@ -387,6 +535,7 @@ func (s *Server) initializeWebhooks(configs []alerts.WebhookConfig) {
 
 		if config.Enabled {
 			alerter := alerts.NewWebhookAlerter(config)
+
 			s.webhooks = append(s.webhooks, alerter)
 
 			log.Printf("Added webhook alerter: %+v", config.URL)
@@ -503,100 +652,6 @@ func (s *Server) checkNeverReportedPollers(ctx context.Context, config *Config) 
 	}
 }
 
-func (s *Server) markNodeDown(ctx context.Context, nodeID string, lastSeen time.Time) {
-	// Begin transaction
-	tx, err := s.db.Begin()
-	if err != nil {
-		log.Printf("Error beginning transaction: %v", err)
-		return
-	}
-	defer func() {
-		if err != nil {
-			if rbErr := tx.Rollback(); rbErr != nil {
-				log.Printf("Error rolling back transaction: %v", rbErr)
-			}
-		}
-	}()
-
-	// First check the current state within the transaction
-	var currentState bool
-	err = tx.QueryRow("SELECT is_healthy FROM nodes WHERE node_id = ?", nodeID).Scan(&currentState)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			// Node doesn't exist yet, insert it
-			_, err = tx.Exec(`
-                INSERT INTO nodes (node_id, last_seen, is_healthy)
-                VALUES (?, ?, FALSE)`,
-				nodeID, lastSeen)
-			if err != nil {
-				log.Printf("Error inserting new node: %v", err)
-				return
-			}
-		} else {
-			log.Printf("Error checking current node state: %v", err)
-			return
-		}
-	} else if !currentState {
-		// Node is already marked as down, no need to do anything
-		return
-	} else {
-		// Update existing node
-		_, err = tx.Exec(`
-            UPDATE nodes 
-            SET is_healthy = FALSE, 
-                last_seen = ? 
-            WHERE node_id = ?`,
-			lastSeen, nodeID)
-		if err != nil {
-			log.Printf("Error updating node status: %v", err)
-			return
-		}
-	}
-
-	// Add to node history
-	_, err = tx.Exec(`
-        INSERT INTO node_history (node_id, timestamp, is_healthy)
-        VALUES (?, ?, FALSE)`,
-		nodeID, lastSeen)
-	if err != nil {
-		log.Printf("Error adding node history: %v", err)
-		return
-	}
-
-	// Commit the transaction
-	err = tx.Commit()
-	if err != nil {
-		log.Printf("Error committing transaction: %v", err)
-		return
-	}
-
-	// Send alert only if we successfully updated the database
-	alert := &alerts.WebhookAlert{
-		Level:     alerts.Error,
-		Title:     "Node Offline",
-		Message:   fmt.Sprintf("Node '%s' is offline", nodeID),
-		NodeID:    nodeID,
-		Timestamp: lastSeen.UTC().Format(time.RFC3339),
-		Details: map[string]any{
-			"hostname": getHostname(),
-			"duration": time.Since(lastSeen).String(),
-		},
-	}
-
-	log.Printf("Sending offline alert for node '%s'", nodeID)
-	s.sendAlert(ctx, alert)
-
-	// Update API server state
-	if s.apiServer != nil {
-		offlineStatus := &api.NodeStatus{
-			NodeID:     nodeID,
-			IsHealthy:  false,
-			LastUpdate: lastSeen,
-		}
-		s.apiServer.UpdateNodeStatus(nodeID, offlineStatus)
-	}
-}
-
 func (s *Server) sendAlert(ctx context.Context, alert *alerts.WebhookAlert) {
 	for _, webhook := range s.webhooks {
 		if err := webhook.Alert(ctx, alert); err != nil {
@@ -676,7 +731,7 @@ func (s *Server) checkPollers(ctx context.Context) {
         WHERE n.last_seen < ? AND n.is_healthy = TRUE
     `
 
-	rows, err := s.db.Query(querySQL, alertThreshold)
+	rows, err := s.db.Query(querySQL, alertThreshold) //nolint:rowserrcheck // rows.Close() is deferred
 	if err != nil {
 		log.Printf("Error querying nodes: %v", err)
 		return
@@ -690,7 +745,9 @@ func (s *Server) checkPollers(ctx context.Context) {
 
 	for rows.Next() {
 		var nodeID string
+
 		var lastSeen time.Time
+
 		var isHealthy bool
 
 		if err := rows.Scan(&nodeID, &lastSeen, &isHealthy); err != nil {
@@ -705,7 +762,13 @@ func (s *Server) checkPollers(ctx context.Context) {
 		// Only mark down if the node is currently marked as healthy
 		if isHealthy {
 			log.Printf("Node %s transitioning to DOWN state", nodeID)
-			s.markNodeDown(ctx, nodeID, lastSeen)
+
+			err := s.markNodeDown(ctx, nodeID, lastSeen)
+			if err != nil {
+				log.Printf("Error marking node down: %v", err)
+
+				return
+			}
 
 			// Update API server state
 			if s.apiServer != nil {
@@ -717,80 +780,6 @@ func (s *Server) checkPollers(ctx context.Context) {
 				s.apiServer.UpdateNodeStatus(nodeID, offlineStatus)
 			}
 		}
-	}
-}
-
-func (s *Server) markNodeRecovered(ctx context.Context, nodeID string, timestamp time.Time) {
-	// First check if the node is actually down before marking it as recovered
-	var currentState bool
-	err := s.db.QueryRow("SELECT is_healthy FROM nodes WHERE node_id = ?", nodeID).Scan(&currentState)
-	if err != nil {
-		log.Printf("Error checking current node state: %v", err)
-		return
-	}
-
-	if currentState {
-		// Node is already marked as healthy, no need to send recovery alert
-		return
-	}
-
-	// Get the last downtime before updating status
-	var lastDownTime time.Time
-	err = s.db.QueryRow(`
-        SELECT timestamp 
-        FROM node_history 
-        WHERE node_id = ? AND is_healthy = FALSE 
-        ORDER BY timestamp DESC LIMIT 1`,
-		nodeID).Scan(&lastDownTime)
-	if err != nil {
-		log.Printf("Error getting last downtime: %v", err)
-	}
-
-	// Update node status
-	status := &db.NodeStatus{
-		NodeID:    nodeID,
-		IsHealthy: true,
-		LastSeen:  timestamp,
-	}
-
-	if err := s.db.UpdateNodeStatus(status); err != nil {
-		log.Printf("Error updating node recovery status: %v", err)
-		return
-	}
-
-	// Calculate downtime duration if we have the last downtime
-	var downtimeDuration string
-	if !lastDownTime.IsZero() {
-		downtimeDuration = timestamp.Sub(lastDownTime).String()
-	} else {
-		downtimeDuration = "unknown"
-	}
-
-	// Send recovery alert
-	alert := &alerts.WebhookAlert{
-		Level:     alerts.Info,
-		Title:     "Node Recovered",
-		Message:   fmt.Sprintf("Node '%s' is back online", nodeID),
-		NodeID:    nodeID,
-		Timestamp: timestamp.UTC().Format(time.RFC3339),
-		Details: map[string]any{
-			"hostname":      getHostname(),
-			"downtime":      downtimeDuration,
-			"recovery_time": timestamp.Format(time.RFC3339),
-		},
-	}
-
-	log.Printf("Sending recovery alert for node '%s'", nodeID)
-	s.sendAlert(ctx, alert)
-
-	// Update API server state
-	if s.apiServer != nil {
-		onlineStatus := &api.NodeStatus{
-			NodeID:     nodeID,
-			IsHealthy:  true,
-			LastUpdate: timestamp,
-		}
-		s.apiServer.UpdateNodeStatus(nodeID, onlineStatus)
 	}
 }
 
