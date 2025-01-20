@@ -1,0 +1,23 @@
+name: test
+on: [push]
+permissions:
+  contents: write
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+      - name: setup go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: test
+        run: make test
+      - name: check test coverage
+        uses: vladopajic/go-test-coverage@v2
+        with:
+          config: ./.github/.testcoverage.yml
+          git-branch: badges
+          git-token: ${{ github.ref_name == 'main' && secrets.GITHUB_TOKEN || '' }}
