@@ -27,7 +27,7 @@ jobs:
           ./buildAll.sh
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: serviceradar-packages
           path: release-artifacts/*.deb
