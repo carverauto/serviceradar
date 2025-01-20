@@ -37,21 +37,6 @@ type Poller struct {
 	agents      map[string]*AgentConnection
 }
 
-// SweepData represents network sweep results.
-type SweepData struct {
-	Network        string       `json:"network"`
-	TotalHosts     int32        `json:"total_hosts"`
-	AvailableHosts int32        `json:"available_hosts"`
-	LastSweep      int64        `json:"last_sweep"`
-	Ports          []PortStatus `json:"ports"`
-}
-
-// PortStatus represents port availability information.
-type PortStatus struct {
-	Port      int32 `json:"port"`
-	Available int32 `json:"available"`
-}
-
 // Duration is a wrapper around time.Duration for JSON unmarshaling.
 type Duration time.Duration
 

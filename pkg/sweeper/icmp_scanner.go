@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mfreeman451/serviceradar/pkg/models"
 	"golang.org/x/net/icmp"
 	"golang.org/x/net/ipv4"
 )
@@ -30,7 +31,7 @@ type ICMPScanner struct {
 
 type ICMPWorkerConfig struct {
 	conn     *icmp.PacketConn
-	target   Target
+	target   models.Target
 	attempts int
 	timeout  time.Duration
 }
@@ -54,9 +55,9 @@ func (s *ICMPScanner) Stop() error {
 	return nil
 }
 
-func (s *ICMPScanner) Scan(ctx context.Context, targets []Target) (<-chan Result, error) {
-	results := make(chan Result)
-	targetChan := make(chan Target)
+func (s *ICMPScanner) Scan(ctx context.Context, targets []models.Target) (<-chan models.Result, error) {
+	results := make(chan models.Result)
+	targetChan := make(chan models.Target)
 
 	conn, err := s.createICMPConnection()
 	if err != nil {
@@ -116,7 +117,7 @@ func (*ICMPScanner) createICMPConnection() (*icmp.PacketConn, error) {
 	return icmp.ListenPacket("ip4:icmp", "0.0.0.0")
 }
 
-func (s *ICMPScanner) worker(ctx context.Context, config *ICMPWorkerConfig, targets <-chan Target, results chan<- Result) {
+func (s *ICMPScanner) worker(ctx context.Context, config *ICMPWorkerConfig, targets <-chan models.Target, results chan<- models.Result) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -142,9 +143,9 @@ func (s *ICMPScanner) worker(ctx context.Context, config *ICMPWorkerConfig, targ
 	}
 }
 
-func (s *ICMPScanner) pingHost(ctx context.Context, config *ICMPWorkerConfig) Result {
+func (s *ICMPScanner) pingHost(ctx context.Context, config *ICMPWorkerConfig) models.Result {
 	start := time.Now()
-	result := Result{
+	result := models.Result{
 		Target:    config.target,
 		FirstSeen: start,
 		LastSeen:  start,
@@ -255,15 +256,15 @@ func (*ICMPScanner) sendPing(_ context.Context, config *ICMPWorkerConfig) (bool,
 	return success, elapsed
 }
 
-func (s *ICMPScanner) fallbackScan(ctx context.Context, targets []Target) (<-chan Result, error) {
+func (s *ICMPScanner) fallbackScan(ctx context.Context, targets []models.Target) (<-chan models.Result, error) {
 	// Convert ICMP targets to TCP targets
-	tcpTargets := make([]Target, len(targets))
+	tcpTargets := make([]models.Target, len(targets))
 
 	for i, target := range targets {
-		tcpTargets[i] = Target{
+		tcpTargets[i] = models.Target{
 			Host: target.Host,
 			Port: 80, // Try a common port for host discovery
-			Mode: ModeTCP,
+			Mode: models.ModeTCP,
 		}
 	}
 

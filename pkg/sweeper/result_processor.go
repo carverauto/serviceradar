@@ -3,6 +3,8 @@ package sweeper
 import (
 	"sync"
 	"time"
+
+	"github.com/mfreeman451/serviceradar/pkg/models"
 )
 
 // DefaultProcessor implements ResultProcessor with in-memory state.
@@ -21,7 +23,7 @@ func NewDefaultProcessor() *DefaultProcessor {
 	}
 }
 
-func (p *DefaultProcessor) Process(result *Result) error {
+func (p *DefaultProcessor) Process(result *models.Result) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -31,7 +33,7 @@ func (p *DefaultProcessor) Process(result *Result) error {
 	}
 
 	// Update port counts
-	if result.Available && result.Target.Mode == ModeTCP {
+	if result.Available && result.Target.Mode == models.ModeTCP {
 		p.portCounts[result.Target.Port]++
 	}
 
@@ -52,7 +54,7 @@ func (p *DefaultProcessor) Process(result *Result) error {
 	if result.Available {
 		host.Available = true
 
-		if result.Target.Mode == ModeTCP {
+		if result.Target.Mode == models.ModeTCP {
 			port := &PortResult{
 				Port:      result.Target.Port,
 				Available: true,

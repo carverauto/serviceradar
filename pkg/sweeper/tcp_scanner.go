@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/mfreeman451/serviceradar/pkg/models"
 )
 
 type TCPScanner struct {
@@ -28,9 +30,9 @@ func (s *TCPScanner) Stop() error {
 	return nil
 }
 
-func (s *TCPScanner) Scan(ctx context.Context, targets []Target) (<-chan Result, error) {
-	results := make(chan Result)
-	targetChan := make(chan Target)
+func (s *TCPScanner) Scan(ctx context.Context, targets []models.Target) (<-chan models.Result, error) {
+	results := make(chan models.Result)
+	targetChan := make(chan models.Target)
 
 	var wg sync.WaitGroup
 	// Start worker pool
@@ -64,7 +66,7 @@ func (s *TCPScanner) Scan(ctx context.Context, targets []Target) (<-chan Result,
 	return results, nil
 }
 
-func (s *TCPScanner) worker(ctx context.Context, wg *sync.WaitGroup, targets <-chan Target, results chan<- Result) {
+func (s *TCPScanner) worker(ctx context.Context, wg *sync.WaitGroup, targets <-chan models.Target, results chan<- models.Result) {
 	defer wg.Done()
 
 	for {
@@ -83,9 +85,9 @@ func (s *TCPScanner) worker(ctx context.Context, wg *sync.WaitGroup, targets <-c
 	}
 }
 
-func (s *TCPScanner) scanTarget(ctx context.Context, target Target, results chan<- Result) {
+func (s *TCPScanner) scanTarget(ctx context.Context, target models.Target, results chan<- models.Result) {
 	start := time.Now()
-	result := Result{
+	result := models.Result{
 		Target:    target,
 		FirstSeen: start,
 		LastSeen:  start,

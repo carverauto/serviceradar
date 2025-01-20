@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mfreeman451/serviceradar/pkg/models"
 	"github.com/mfreeman451/serviceradar/pkg/sweeper"
 	"github.com/mfreeman451/serviceradar/proto"
 )
@@ -20,11 +21,11 @@ type SweepService struct {
 	processor sweeper.ResultProcessor
 	mu        sync.RWMutex
 	closed    chan struct{}
-	config    *sweeper.Config
+	config    *models.Config
 }
 
 // NewSweepService creates a new sweep service with default configuration.
-func NewSweepService(config *sweeper.Config) (*SweepService, error) {
+func NewSweepService(config *models.Config) (*SweepService, error) {
 	// Apply default configuration
 	config = applyDefaultConfig(config)
 
@@ -44,12 +45,12 @@ func NewSweepService(config *sweeper.Config) (*SweepService, error) {
 	}, nil
 }
 
-func applyDefaultConfig(config *sweeper.Config) *sweeper.Config {
+func applyDefaultConfig(config *models.Config) *models.Config {
 	// Ensure we have default sweep modes
 	if len(config.SweepModes) == 0 {
-		config.SweepModes = []sweeper.SweepMode{
-			sweeper.ModeTCP,
-			sweeper.ModeICMP,
+		config.SweepModes = []models.SweepMode{
+			models.ModeTCP,
+			models.ModeICMP,
 		}
 	}
 
@@ -200,7 +201,7 @@ func (s *SweepService) GetStatus(_ context.Context) (*proto.StatusResponse, erro
 }
 
 // UpdateConfig updates the sweep configuration.
-func (s *SweepService) UpdateConfig(config *sweeper.Config) error {
+func (s *SweepService) UpdateConfig(config *models.Config) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -216,8 +217,8 @@ func (s *SweepService) Close() error {
 	return s.Stop()
 }
 
-func generateTargets(config *sweeper.Config) ([]sweeper.Target, error) {
-	var targets []sweeper.Target
+func generateTargets(config *models.Config) ([]models.Target, error) {
+	var targets []models.Target
 
 	// For each network
 	for _, network := range config.Networks {
@@ -230,20 +231,20 @@ func generateTargets(config *sweeper.Config) ([]sweeper.Target, error) {
 		// For each IP, create appropriate targets
 		for _, ip := range ips {
 			// Add ICMP target if enabled
-			if sweeper.ContainsMode(config.SweepModes, sweeper.ModeICMP) {
-				targets = append(targets, sweeper.Target{
+			if models.ContainsMode(config.SweepModes, models.ModeICMP) {
+				targets = append(targets, models.Target{
 					Host: ip.String(),
-					Mode: sweeper.ModeICMP,
+					Mode: models.ModeICMP,
 				})
 			}
 
 			// Add TCP targets if enabled
-			if sweeper.ContainsMode(config.SweepModes, sweeper.ModeTCP) {
+			if models.ContainsMode(config.SweepModes, models.ModeTCP) {
 				for _, port := range config.Ports {
-					targets = append(targets, sweeper.Target{
+					targets = append(targets, models.Target{
 						Host: ip.String(),
 						Port: port,
-						Mode: sweeper.ModeTCP,
+						Mode: models.ModeTCP,
 					})
 				}
 			}

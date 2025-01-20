@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/mfreeman451/serviceradar/pkg/grpc"
+	"github.com/mfreeman451/serviceradar/pkg/models"
 	"github.com/mfreeman451/serviceradar/proto"
 )
 
@@ -75,7 +76,7 @@ func (p *Poller) ensureAgentHealth(ctx context.Context, agentName string, config
 
 // processSweepStatus handles sweep status processing.
 func (*Poller) processSweepStatus(status *proto.ServiceStatus) error {
-	var sweepData SweepData
+	var sweepData models.SweepData
 	if err := json.Unmarshal([]byte(status.Message), &sweepData); err != nil {
 		return fmt.Errorf("failed to parse sweep data: %w", err)
 	}
