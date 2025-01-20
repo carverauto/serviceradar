@@ -37,7 +37,8 @@ func main() {
 	// Create agent server first
 	server, err := agent.NewServer(*configDir)
 	if err != nil {
-		log.Fatalf("Failed to create agent server: %v", err)
+		log.Printf("Failed to create agent server: %v", err)
+		cancel()
 	}
 
 	// Create and configure gRPC server
@@ -48,9 +49,13 @@ func main() {
 
 	// Setup health check
 	hs := health.NewServer()
+
 	hs.SetServingStatus("AgentService", healthpb.HealthCheckResponse_SERVING)
+
 	if err := grpcServer.RegisterHealthServer(hs); err != nil {
-		log.Fatalf("Failed to register health server: %v", err)
+		log.Printf("Failed to register health server: %v", err)
+
+		cancel()
 	}
 
 	// Register agent service
@@ -58,8 +63,10 @@ func main() {
 
 	// Start the gRPC server
 	errChan := make(chan error, 1)
+
 	go func() {
 		log.Printf("Starting gRPC server on %s", *listenAddr)
+
 		if err := grpcServer.Start(); err != nil {
 			errChan <- err
 		}

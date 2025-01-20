@@ -20,7 +20,6 @@ import (
 )
 
 const (
-	defaultTimeout           = 30 * time.Second
 	grpcConfigurationName    = "grpc"
 	portConfigurationName    = "port"
 	processConfigurationName = "process"
@@ -31,6 +30,8 @@ var (
 	errUnknownCheckerType  = errors.New("unknown checker type")
 	errGrpcMissingConfig   = errors.New("no configuration or address provided for gRPC checker")
 	errNoLocalConfig       = errors.New("no local config found")
+	errShutdown            = errors.New("error while shutting down")
+	errServiceStartup      = errors.New("error while starting services")
 )
 
 type Duration time.Duration
@@ -85,7 +86,7 @@ func NewServer(configDir string) (*Server, error) {
 	return s, nil
 }
 
-// Start starts all registered services
+// Start starts all registered services.
 func (s *Server) Start(ctx context.Context) error {
 	var startupErrs []error
 
@@ -102,7 +103,7 @@ func (s *Server) Start(ctx context.Context) error {
 	// If we want to wait for services to start, we could add a startup channel pattern here
 
 	if len(startupErrs) > 0 {
-		return fmt.Errorf("some services failed to start: %v", startupErrs)
+		return fmt.Errorf("%w: %v", errServiceStartup, startupErrs)
 	}
 
 	return nil
@@ -152,7 +153,7 @@ func loadSweepService(configDir string) (Service, error) {
 	}
 
 	// Convert to sweeper.Config
-	config := sweeper.Config{
+	config := &sweeper.Config{
 		Networks:    sweepConfig.Networks,
 		Ports:       sweepConfig.Ports,
 		Interval:    time.Duration(sweepConfig.Interval),
@@ -164,7 +165,7 @@ func loadSweepService(configDir string) (Service, error) {
 	return NewSweepService(config)
 }
 
-// loadServices initializes any optional services found in the config directory
+// loadServices initializes any optional services found in the config directory.
 func (s *Server) loadServices() error {
 	// Try to load sweep service if configured
 	sweepService, err := loadSweepService(s.configDir)
@@ -446,7 +447,7 @@ func (s *Server) Close() error {
 	}
 
 	if len(closeErrs) > 0 {
-		return fmt.Errorf("errors during shutdown: %v", closeErrs)
+		return fmt.Errorf("%w: %v", errShutdown, closeErrs)
 	}
 
 	return nil

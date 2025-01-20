@@ -4,6 +4,7 @@ package sweeper
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -12,9 +13,13 @@ import (
 	"time"
 )
 
+var (
+	errInvalidSweepMode = errors.New("invalid sweep mode")
+)
+
 // NetworkSweeper implements the Sweeper interface.
 type NetworkSweeper struct {
-	config  Config
+	config  *Config
 	scanner *CombinedScanner
 	store   Store
 	mu      sync.RWMutex
@@ -22,7 +27,7 @@ type NetworkSweeper struct {
 }
 
 // NewNetworkSweeper creates a new instance of NetworkSweeper.
-func NewNetworkSweeper(config Config) *NetworkSweeper {
+func NewNetworkSweeper(config *Config) *NetworkSweeper {
 	scanner := NewCombinedScanner(config.Timeout, config.Concurrency, config.ICMPCount)
 	store := NewInMemoryStore()
 
@@ -68,14 +73,14 @@ func (s *NetworkSweeper) GetResults(ctx context.Context, filter *ResultFilter) (
 	return s.store.GetResults(ctx, filter)
 }
 
-func (s *NetworkSweeper) GetConfig() Config {
+func (s *NetworkSweeper) GetConfig() *Config {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	return s.config
 }
 
-func (s *NetworkSweeper) UpdateConfig(config Config) error {
+func (s *NetworkSweeper) UpdateConfig(config *Config) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.config = config
@@ -96,7 +101,7 @@ func (m *SweepMode) UnmarshalJSON(data []byte) error {
 	case "icmp":
 		*m = ModeICMP
 	default:
-		return fmt.Errorf("invalid sweep mode: %s", s)
+		return fmt.Errorf("%w: %s", errInvalidSweepMode, s)
 	}
 
 	return nil
@@ -196,6 +201,7 @@ func containsMode(modes []SweepMode, mode SweepMode) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -206,13 +212,16 @@ func generateIPsFromCIDR(network string) ([]net.IP, error) {
 	}
 
 	var ips []net.IP
-	for ip := ip.Mask(ipnet.Mask); ipnet.Contains(ip); inc(ip) {
+
+	for i := ip.Mask(ipnet.Mask); ipnet.Contains(i); inc(i) {
 		// Skip network and broadcast addresses for IPv4
-		if ip.To4() != nil && isFirstOrLastAddress(ip, ipnet) {
+		if i.To4() != nil && isFirstOrLastAddress(i, ipnet) {
 			continue
 		}
-		newIP := make(net.IP, len(ip))
-		copy(newIP, ip)
+
+		newIP := make(net.IP, len(i))
+
+		copy(newIP, i)
 		ips = append(ips, newIP)
 	}
 

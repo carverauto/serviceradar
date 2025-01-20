@@ -1,6 +1,6 @@
 #!/bin/bash
 
-VERSION=${VERSION:-1.0.1}
+VERSION=${VERSION:-1.0.2}
 
 
 ./setup-deb-poller.sh

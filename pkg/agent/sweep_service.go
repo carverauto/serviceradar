@@ -13,18 +13,18 @@ import (
 	"github.com/mfreeman451/serviceradar/proto"
 )
 
-// SweepService implements sweeper.SweepService and provides network scanning capabilities
+// SweepService implements sweeper.SweepService and provides network scanning capabilities.
 type SweepService struct {
 	scanner   sweeper.Scanner
 	store     sweeper.Store
 	processor sweeper.ResultProcessor
 	mu        sync.RWMutex
 	closed    chan struct{}
-	config    sweeper.Config
+	config    *sweeper.Config
 }
 
-// NewSweepService creates a new sweep service with default configuration
-func NewSweepService(config sweeper.Config) (*SweepService, error) {
+// NewSweepService creates a new sweep service with default configuration.
+func NewSweepService(config *sweeper.Config) (*SweepService, error) {
 	// Apply default configuration
 	config = applyDefaultConfig(config)
 
@@ -44,7 +44,7 @@ func NewSweepService(config sweeper.Config) (*SweepService, error) {
 	}, nil
 }
 
-func applyDefaultConfig(config sweeper.Config) sweeper.Config {
+func applyDefaultConfig(config *sweeper.Config) *sweeper.Config {
 	// Ensure we have default sweep modes
 	if len(config.SweepModes) == 0 {
 		config.SweepModes = []sweeper.SweepMode{
@@ -57,9 +57,11 @@ func applyDefaultConfig(config sweeper.Config) sweeper.Config {
 	if config.Timeout == 0 {
 		config.Timeout = 2 * time.Second
 	}
+
 	if config.Concurrency == 0 {
 		config.Concurrency = 100
 	}
+
 	if config.ICMPCount == 0 {
 		config.ICMPCount = 3
 	}
@@ -133,7 +135,8 @@ func (s *SweepService) Stop() error {
 	return s.scanner.Stop()
 }
 
-// identifyService maps common port numbers to service names
+// identifyService maps common port numbers to service names.
+/*
 func identifyService(port int) string {
 	commonPorts := map[int]string{
 		21:   "FTP",
@@ -156,12 +159,15 @@ func identifyService(port int) string {
 	if service, ok := commonPorts[port]; ok {
 		return service
 	}
+
 	return fmt.Sprintf("Port-%d", port)
 }
+*/
 
-func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, error) {
+func (s *SweepService) GetStatus(_ context.Context) (*proto.StatusResponse, error) {
 	if s == nil {
 		log.Printf("Warning: Sweep service not initialized")
+
 		return &proto.StatusResponse{
 			Available:   false,
 			Message:     "Sweep service not initialized",
@@ -194,7 +200,7 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, er
 }
 
 // UpdateConfig updates the sweep configuration.
-func (s *SweepService) UpdateConfig(config sweeper.Config) error {
+func (s *SweepService) UpdateConfig(config *sweeper.Config) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -210,7 +216,7 @@ func (s *SweepService) Close() error {
 	return s.Stop()
 }
 
-func generateTargets(config sweeper.Config) ([]sweeper.Target, error) {
+func generateTargets(config *sweeper.Config) ([]sweeper.Target, error) {
 	var targets []sweeper.Target
 
 	// For each network
