@@ -22,11 +22,12 @@ var (
 
 // NetworkSweeper implements the Sweeper interface.
 type NetworkSweeper struct {
-	config  *models.Config
-	scanner *scan.CombinedScanner
-	store   Store
-	mu      sync.RWMutex
-	done    chan struct{}
+	config    *models.Config
+	scanner   *scan.CombinedScanner
+	store     Store
+	processor ResultProcessor
+	mu        sync.RWMutex
+	done      chan struct{}
 }
 
 func (s *NetworkSweeper) Start(ctx context.Context) error {
@@ -48,7 +49,6 @@ func (s *NetworkSweeper) Start(ctx context.Context) error {
 		case <-ticker.C:
 			if err := s.runSweep(ctx); err != nil {
 				log.Printf("Periodic sweep failed: %v", err)
-				return err
 			}
 		}
 	}
@@ -162,10 +162,14 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 
 	// Process results as they come in
 	for result := range results {
+		// Process the result first
+		if err := s.processor.Process(&result); err != nil {
+			log.Printf("Failed to process result: %v", err)
+		}
+
 		// Store the result
 		if err := s.store.SaveResult(ctx, &result); err != nil {
 			log.Printf("Failed to save result: %v", err)
-			continue
 		}
 
 		// Log based on scan type

@@ -11,9 +11,17 @@ import (
 	"github.com/mfreeman451/serviceradar/pkg/models"
 )
 
+const (
+	dbOperationTimeout = 5 * time.Second
+)
+
 var (
 	errGetResults   = errors.New("error getting results")
 	errPruneResults = errors.New("error pruning results")
+	errScanRow      = errors.New("failed to scan row")
+	errQueryResults = errors.New("failed to query results")
+	errSaveResult   = errors.New("failed to save result")
+	errBeginTx      = errors.New("failed to begin transaction")
 )
 
 type SQLiteStore struct {
@@ -27,6 +35,10 @@ type queryBuilder struct {
 }
 
 func (s *SQLiteStore) SaveResult(ctx context.Context, result *models.Result) error {
+	// Use a context with timeout for database operations
+	ctx, cancel := context.WithTimeout(ctx, dbOperationTimeout)
+	defer cancel()
+
 	// Use upsert to handle both new and existing results
 	const query = `
         INSERT INTO sweep_results (
@@ -59,7 +71,7 @@ func (s *SQLiteStore) SaveResult(ctx context.Context, result *models.Result) err
 	)
 
 	if err != nil {
-		return fmt.Errorf("failed to save result: %w", err)
+		return fmt.Errorf("%w: %v", errSaveResult, err)
 	}
 
 	return nil
@@ -138,7 +150,7 @@ func scanRow(rows *sql.Rows) (*models.Result, error) {
 		&errStr,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to scan row: %w", err)
+		return nil, fmt.Errorf("%w: %v", errScanRow, err)
 	}
 
 	r.RespTime = time.Duration(respTimeNanos)
@@ -150,6 +162,10 @@ func scanRow(rows *sql.Rows) (*models.Result, error) {
 }
 
 func (s *SQLiteStore) GetResults(ctx context.Context, filter *models.ResultFilter) ([]models.Result, error) {
+	// Use a context with timeout
+	ctx, cancel := context.WithTimeout(ctx, dbOperationTimeout)
+	defer cancel()
+
 	// Build query
 	qb := newQueryBuilder()
 	qb.addHostFilter(filter.Host)
@@ -161,7 +177,7 @@ func (s *SQLiteStore) GetResults(ctx context.Context, filter *models.ResultFilte
 	// Execute query
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query results: %w", err)
+		return nil, fmt.Errorf("%w: %v", errQueryResults, err)
 	}
 	defer func(rows *sql.Rows) {
 		err := rows.Close()
@@ -185,16 +201,33 @@ func (s *SQLiteStore) GetResults(ctx context.Context, filter *models.ResultFilte
 	return results, nil
 }
 
+// PruneResults removes results older than the given age.
 func (s *SQLiteStore) PruneResults(ctx context.Context, age time.Duration) error {
+	// Use a context with timeout
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
 	cutoff := time.Now().Add(-age)
 
-	_, err := s.db.ExecContext(ctx,
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("%w: %v", errBeginTx, err)
+	}
+	defer func() {
+		if err != nil {
+			if rbErr := tx.Rollback(); rbErr != nil {
+				log.Printf("Error rolling back transaction: %v", rbErr)
+			}
+		}
+	}()
+
+	_, err = tx.ExecContext(ctx,
 		"DELETE FROM sweep_results WHERE last_seen < ?",
 		cutoff,
 	)
 	if err != nil {
-		return fmt.Errorf("%w %w", errPruneResults, err)
+		return fmt.Errorf("%w: %v", errPruneResults, err)
 	}
 
-	return nil
+	return tx.Commit()
 }

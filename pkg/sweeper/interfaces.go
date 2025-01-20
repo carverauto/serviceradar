@@ -7,6 +7,18 @@ import (
 	"github.com/mfreeman451/serviceradar/pkg/models"
 )
 
+// ResultProcessor defines how to process and aggregate sweep results.
+type ResultProcessor interface {
+	// Process takes a Result and updates internal state.
+	Process(result *models.Result) error
+
+	// GetSummary returns the current summary of all processed results.
+	GetSummary(ctx context.Context) (*models.SweepSummary, error)
+
+	// Reset clears the processor's state.
+	Reset()
+}
+
 // Sweeper defines the main interface for network sweeping.
 type Sweeper interface {
 	// Start begins periodic sweeping based on configuration
@@ -29,10 +41,13 @@ type Sweeper interface {
 type Store interface {
 	// SaveResult persists a single scan result
 	SaveResult(context.Context, *models.Result) error
+
 	// GetResults retrieves results matching the filter
 	GetResults(context.Context, *models.ResultFilter) ([]models.Result, error)
+
 	// GetSweepSummary gets the latest sweep summary
 	GetSweepSummary(context.Context) (*models.SweepSummary, error)
+
 	// PruneResults removes results older than given duration
 	PruneResults(context.Context, time.Duration) error
 }

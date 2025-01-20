@@ -19,7 +19,7 @@ import (
 type SweepService struct {
 	scanner   scan.Scanner
 	store     sweeper.Store
-	processor scan.ResultProcessor
+	processor sweeper.ResultProcessor
 	mu        sync.RWMutex
 	closed    chan struct{}
 	config    *models.Config
@@ -33,9 +33,9 @@ func NewSweepService(config *models.Config) (*SweepService, error) {
 	log.Printf("Creating sweep service with config: %+v", config)
 
 	// Create components
+	processor := sweeper.NewInMemoryProcessor()
 	scanner := scan.NewCombinedScanner(config.Timeout, config.Concurrency, config.ICMPCount)
-	store := sweeper.NewInMemoryStore()
-	processor := sweeper.NewDefaultProcessor()
+	store := sweeper.NewInMemoryStore(processor)
 
 	return &SweepService{
 		scanner:   scanner,
@@ -166,7 +166,7 @@ func identifyService(port int) string {
 }
 */
 
-func (s *SweepService) GetStatus(_ context.Context) (*proto.StatusResponse, error) {
+func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, error) {
 	if s == nil {
 		log.Printf("Warning: Sweep service not initialized")
 
@@ -179,7 +179,7 @@ func (s *SweepService) GetStatus(_ context.Context) (*proto.StatusResponse, erro
 	}
 
 	// Get current summary from processor
-	summary, err := s.processor.GetSummary()
+	summary, err := s.processor.GetSummary(ctx)
 	if err != nil {
 		log.Printf("Error getting sweep summary: %v", err)
 		return nil, fmt.Errorf("failed to get sweep summary: %w", err)

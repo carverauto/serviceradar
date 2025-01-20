@@ -10,14 +10,16 @@ import (
 
 // InMemoryStore implements Store interface for temporary storage.
 type InMemoryStore struct {
-	mu      sync.RWMutex
-	results []models.Result
+	mu        sync.RWMutex
+	results   []models.Result
+	processor ResultProcessor
 }
 
 // NewInMemoryStore creates a new in-memory store for sweep results.
-func NewInMemoryStore() Store {
+func NewInMemoryStore(processor ResultProcessor) Store {
 	return &InMemoryStore{
-		results: make([]models.Result, 0),
+		results:   make([]models.Result, 0),
+		processor: processor,
 	}
 }
 
@@ -184,9 +186,14 @@ func (s *InMemoryStore) GetSweepSummary(_ context.Context) (*models.SweepSummary
 }
 
 // SaveResult stores (or updates) a Result in memory.
-func (s *InMemoryStore) SaveResult(_ context.Context, result *models.Result) error {
+func (s *InMemoryStore) SaveResult(ctx context.Context, result *models.Result) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// Use a context with timeout for potential long-running operations
+	var cancel context.CancelFunc
+	ctx, cancel = context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 
 	for i := range s.results {
 		// if the same target already exists, overwrite
