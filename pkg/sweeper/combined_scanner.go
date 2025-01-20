@@ -1,5 +1,3 @@
-// Package sweeper pkg/sweeper/combined_scanner.go
-
 package sweeper
 
 import (
@@ -31,80 +29,90 @@ func (s *CombinedScanner) Stop() error {
 	return nil
 }
 
+type scanTargets struct {
+	tcp  []Target
+	icmp []Target
+}
+
 func (s *CombinedScanner) Scan(ctx context.Context, targets []Target) (<-chan Result, error) {
 	results := make(chan Result)
-
-	// Separate targets by mode
-	var tcpTargets, icmpTargets []Target
-
-	for _, target := range targets {
-		switch target.Mode {
-		case ModeTCP:
-			tcpTargets = append(tcpTargets, target)
-		case ModeICMP:
-			icmpTargets = append(icmpTargets, target)
-		default:
-			log.Printf("Unknown scan mode for target %v: %v", target, target.Mode)
-		}
-	}
+	separated := s.separateTargets(targets)
 
 	var wg sync.WaitGroup
 
-	// Start TCP scanner if we have TCP targets
-	if len(tcpTargets) > 0 {
-		wg.Add(1)
+	s.startScanners(ctx, &wg, separated, results)
 
-		go func() {
-			defer wg.Done()
-
-			tcpResults, err := s.tcpScanner.Scan(ctx, tcpTargets)
-			if err != nil {
-				log.Printf("TCP scan error: %v", err)
-				return
-			}
-
-			for result := range tcpResults {
-				select {
-				case <-ctx.Done():
-					return
-				case <-s.done:
-					return
-				case results <- result:
-				}
-			}
-		}()
-	}
-
-	// Start ICMP scanner if we have ICMP targets
-	if len(icmpTargets) > 0 {
-		wg.Add(1)
-
-		go func() {
-			defer wg.Done()
-
-			icmpResults, err := s.icmpScanner.Scan(ctx, icmpTargets)
-			if err != nil {
-				log.Printf("ICMP scan error: %v", err)
-				return
-			}
-
-			for result := range icmpResults {
-				select {
-				case <-ctx.Done():
-					return
-				case <-s.done:
-					return
-				case results <- result:
-				}
-			}
-		}()
-	}
-
-	// Close results when all scans complete
 	go func() {
 		wg.Wait()
 		close(results)
 	}()
 
 	return results, nil
+}
+
+func (*CombinedScanner) separateTargets(targets []Target) scanTargets {
+	var separated scanTargets
+
+	for _, target := range targets {
+		switch target.Mode {
+		case ModeTCP:
+			separated.tcp = append(separated.tcp, target)
+		case ModeICMP:
+			separated.icmp = append(separated.icmp, target)
+		default:
+			log.Printf("Unknown scan mode for target %v: %v", target, target.Mode)
+		}
+	}
+
+	return separated
+}
+
+func (s *CombinedScanner) startScanners(ctx context.Context, wg *sync.WaitGroup, targets scanTargets, results chan<- Result) {
+	if len(targets.tcp) > 0 {
+		wg.Add(1)
+
+		go s.runTCPScanner(ctx, wg, targets.tcp, results)
+	}
+
+	if len(targets.icmp) > 0 {
+		wg.Add(1)
+
+		go s.runICMPScanner(ctx, wg, targets.icmp, results)
+	}
+}
+
+func (s *CombinedScanner) runTCPScanner(ctx context.Context, wg *sync.WaitGroup, targets []Target, results chan<- Result) {
+	defer wg.Done()
+
+	tcpResults, err := s.tcpScanner.Scan(ctx, targets)
+	if err != nil {
+		log.Printf("TCP scan error: %v", err)
+		return
+	}
+
+	s.processResults(ctx, tcpResults, results)
+}
+
+func (s *CombinedScanner) runICMPScanner(ctx context.Context, wg *sync.WaitGroup, targets []Target, results chan<- Result) {
+	defer wg.Done()
+
+	icmpResults, err := s.icmpScanner.Scan(ctx, targets)
+	if err != nil {
+		log.Printf("ICMP scan error: %v", err)
+		return
+	}
+
+	s.processResults(ctx, icmpResults, results)
+}
+
+func (s *CombinedScanner) processResults(ctx context.Context, scanResults <-chan Result, results chan<- Result) {
+	for result := range scanResults {
+		select {
+		case <-ctx.Done():
+			return
+		case <-s.done:
+			return
+		case results <- result:
+		}
+	}
 }
