@@ -2,7 +2,6 @@ package sweeper
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
@@ -11,8 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
-
-var errTest = errors.New("test error")
 
 func TestMockSweeper(t *testing.T) {
 	ctrl := gomock.NewController(t)
@@ -28,7 +25,7 @@ func TestMockSweeper(t *testing.T) {
 			Return(nil)
 
 		err := mockSweeper.Start(ctx)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		// Test Stop
 		mockSweeper.EXPECT().
@@ -76,7 +73,7 @@ func TestMockSweeper(t *testing.T) {
 			Return(expectedResults, nil)
 
 		results, err := mockSweeper.GetResults(ctx, filter)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Equal(t, expectedResults, results)
 	})
 
@@ -91,7 +88,7 @@ func TestMockSweeper(t *testing.T) {
 			Return(nil)
 
 		err := mockSweeper.UpdateConfig(newConfig)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 	})
 }
 
@@ -131,11 +128,11 @@ func TestMockResultProcessor(t *testing.T) {
 			Return(expectedSummary, nil)
 
 		summary, err := mockProcessor.GetSummary(ctx)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Equal(t, expectedSummary, summary)
 	})
 
-	t.Run("Reset", func(t *testing.T) {
+	t.Run("Reset", func(*testing.T) {
 		mockProcessor.EXPECT().
 			Reset()
 
@@ -190,7 +187,7 @@ func TestMockStore(t *testing.T) {
 			Return(expectedResults, nil)
 
 		results, err := mockStore.GetResults(ctx, filter)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Equal(t, expectedResults, results)
 	})
 
@@ -217,7 +214,7 @@ func TestMockStore(t *testing.T) {
 			Return(expectedSummary, nil)
 
 		summary, err := mockStore.GetSweepSummary(ctx)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Equal(t, expectedSummary, summary)
 	})
 }
@@ -258,7 +255,7 @@ func TestMockSweepService(t *testing.T) {
 			Return(nil)
 
 		err := mockService.Start(ctx)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		mockService.EXPECT().
 			Stop().
@@ -280,7 +277,7 @@ func TestMockSweepService(t *testing.T) {
 			Return(expectedStatus, nil)
 
 		status, err := mockService.GetStatus(ctx)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Equal(t, expectedStatus, status)
 	})
 
@@ -300,7 +297,7 @@ func TestMockSweepService(t *testing.T) {
 	})
 }
 
-// Helper function to verify gomock matchers
+// Helper function to verify gomock matchers.
 func TestGomockMatchers(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
