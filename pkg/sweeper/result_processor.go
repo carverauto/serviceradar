@@ -10,7 +10,7 @@ import (
 // DefaultProcessor implements ResultProcessor with in-memory state.
 type DefaultProcessor struct {
 	mu            sync.RWMutex
-	hostMap       map[string]*HostResult
+	hostMap       map[string]*models.HostResult
 	portCounts    map[int]int
 	lastSweepTime time.Time
 	totalHosts    int
@@ -18,7 +18,7 @@ type DefaultProcessor struct {
 
 func NewDefaultProcessor() *DefaultProcessor {
 	return &DefaultProcessor{
-		hostMap:    make(map[string]*HostResult),
+		hostMap:    make(map[string]*models.HostResult),
 		portCounts: make(map[int]int),
 	}
 }
@@ -41,12 +41,12 @@ func (p *DefaultProcessor) Process(result *models.Result) error {
 	host, exists := p.hostMap[result.Target.Host]
 	if !exists {
 		p.totalHosts++
-		host = &HostResult{
+		host = &models.HostResult{
 			Host:        result.Target.Host,
 			FirstSeen:   result.FirstSeen,
 			LastSeen:    result.LastSeen,
 			Available:   false,
-			PortResults: make([]*PortResult, 0),
+			PortResults: make([]*models.PortResult, 0),
 		}
 		p.hostMap[result.Target.Host] = host
 	}
@@ -55,7 +55,7 @@ func (p *DefaultProcessor) Process(result *models.Result) error {
 		host.Available = true
 
 		if result.Target.Mode == models.ModeTCP {
-			port := &PortResult{
+			port := &models.PortResult{
 				Port:      result.Target.Port,
 				Available: true,
 				RespTime:  result.RespTime,
@@ -67,13 +67,13 @@ func (p *DefaultProcessor) Process(result *models.Result) error {
 	return nil
 }
 
-func (p *DefaultProcessor) GetSummary() (*SweepSummary, error) {
+func (p *DefaultProcessor) GetSummary() (*models.SweepSummary, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
 	// Count available hosts and prepare host list
 	availableHosts := 0
-	hosts := make([]HostResult, 0, len(p.hostMap))
+	hosts := make([]models.HostResult, 0, len(p.hostMap))
 
 	for _, host := range p.hostMap {
 		if host.Available {
@@ -84,15 +84,15 @@ func (p *DefaultProcessor) GetSummary() (*SweepSummary, error) {
 	}
 
 	// Prepare port counts
-	ports := make([]PortCount, 0, len(p.portCounts))
+	ports := make([]models.PortCount, 0, len(p.portCounts))
 	for port, count := range p.portCounts {
-		ports = append(ports, PortCount{
+		ports = append(ports, models.PortCount{
 			Port:      port,
 			Available: count,
 		})
 	}
 
-	return &SweepSummary{
+	return &models.SweepSummary{
 		TotalHosts:     p.totalHosts,
 		AvailableHosts: availableHosts,
 		LastSweep:      p.lastSweepTime.Unix(),
@@ -105,7 +105,7 @@ func (p *DefaultProcessor) Reset() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	p.hostMap = make(map[string]*HostResult)
+	p.hostMap = make(map[string]*models.HostResult)
 	p.portCounts = make(map[int]int)
 	p.totalHosts = 0
 	p.lastSweepTime = time.Time{}

@@ -10,15 +10,16 @@ import (
 	"time"
 
 	"github.com/mfreeman451/serviceradar/pkg/models"
+	"github.com/mfreeman451/serviceradar/pkg/scan"
 	"github.com/mfreeman451/serviceradar/pkg/sweeper"
 	"github.com/mfreeman451/serviceradar/proto"
 )
 
 // SweepService implements sweeper.SweepService and provides network scanning capabilities.
 type SweepService struct {
-	scanner   sweeper.Scanner
+	scanner   scan.Scanner
 	store     sweeper.Store
-	processor sweeper.ResultProcessor
+	processor scan.ResultProcessor
 	mu        sync.RWMutex
 	closed    chan struct{}
 	config    *models.Config
@@ -32,7 +33,7 @@ func NewSweepService(config *models.Config) (*SweepService, error) {
 	log.Printf("Creating sweep service with config: %+v", config)
 
 	// Create components
-	scanner := sweeper.NewCombinedScanner(config.Timeout, config.Concurrency, config.ICMPCount)
+	scanner := scan.NewCombinedScanner(config.Timeout, config.Concurrency, config.ICMPCount)
 	store := sweeper.NewInMemoryStore()
 	processor := sweeper.NewDefaultProcessor()
 
@@ -223,7 +224,7 @@ func generateTargets(config *models.Config) ([]models.Target, error) {
 	// For each network
 	for _, network := range config.Networks {
 		// Generate IP addresses for the network
-		ips, err := sweeper.GenerateIPsFromCIDR(network)
+		ips, err := scan.GenerateIPsFromCIDR(network)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate IPs for %s: %w", network, err)
 		}

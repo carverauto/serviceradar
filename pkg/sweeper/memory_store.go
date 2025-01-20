@@ -24,7 +24,7 @@ func NewInMemoryStore() Store {
 // SaveHostResult updates the last-seen time (and possibly availability)
 // for the given host. For in-memory store, we'll store the latest host
 // result for each host.
-func (s *InMemoryStore) SaveHostResult(_ context.Context, result *HostResult) error {
+func (s *InMemoryStore) SaveHostResult(_ context.Context, result *models.HostResult) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -50,12 +50,12 @@ func (s *InMemoryStore) SaveHostResult(_ context.Context, result *HostResult) er
 }
 
 // GetHostResults returns a slice of HostResult based on the provided filter.
-func (s *InMemoryStore) GetHostResults(_ context.Context, filter *models.ResultFilter) ([]HostResult, error) {
+func (s *InMemoryStore) GetHostResults(_ context.Context, filter *models.ResultFilter) ([]models.HostResult, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	// group results by host
-	hostMap := make(map[string]*HostResult)
+	hostMap := make(map[string]*models.HostResult)
 
 	for i := range s.results {
 		r := &s.results[i]
@@ -65,12 +65,12 @@ func (s *InMemoryStore) GetHostResults(_ context.Context, filter *models.ResultF
 
 		host, exists := hostMap[r.Target.Host]
 		if !exists {
-			host = &HostResult{
+			host = &models.HostResult{
 				Host:        r.Target.Host,
 				FirstSeen:   r.FirstSeen,
 				LastSeen:    r.LastSeen,
 				Available:   false,
-				PortResults: make([]*PortResult, 0),
+				PortResults: make([]*models.PortResult, 0),
 			}
 			hostMap[r.Target.Host] = host
 		}
@@ -79,7 +79,7 @@ func (s *InMemoryStore) GetHostResults(_ context.Context, filter *models.ResultF
 			host.Available = true
 
 			if r.Target.Mode == models.ModeTCP {
-				portResult := &PortResult{
+				portResult := &models.PortResult{
 					Port:      r.Target.Port,
 					Available: true,
 					RespTime:  r.RespTime,
@@ -99,7 +99,7 @@ func (s *InMemoryStore) GetHostResults(_ context.Context, filter *models.ResultF
 	}
 
 	// Convert map to slice
-	hosts := make([]HostResult, 0, len(hostMap))
+	hosts := make([]models.HostResult, 0, len(hostMap))
 	for _, host := range hostMap {
 		hosts = append(hosts, *host)
 	}
@@ -108,11 +108,11 @@ func (s *InMemoryStore) GetHostResults(_ context.Context, filter *models.ResultF
 }
 
 // GetSweepSummary gathers high-level sweep information.
-func (s *InMemoryStore) GetSweepSummary(_ context.Context) (*SweepSummary, error) {
+func (s *InMemoryStore) GetSweepSummary(_ context.Context) (*models.SweepSummary, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	hostMap := make(map[string]*HostResult)
+	hostMap := make(map[string]*models.HostResult)
 	portCounts := make(map[int]int)
 	totalHosts := 0
 
@@ -135,12 +135,12 @@ func (s *InMemoryStore) GetSweepSummary(_ context.Context) (*SweepSummary, error
 		host, exists := hostMap[r.Target.Host]
 		if !exists {
 			totalHosts++
-			host = &HostResult{
+			host = &models.HostResult{
 				Host:        r.Target.Host,
 				FirstSeen:   r.FirstSeen,
 				LastSeen:    r.LastSeen,
 				Available:   false,
-				PortResults: make([]*PortResult, 0),
+				PortResults: make([]*models.PortResult, 0),
 			}
 			hostMap[r.Target.Host] = host
 		}
@@ -152,7 +152,7 @@ func (s *InMemoryStore) GetSweepSummary(_ context.Context) (*SweepSummary, error
 
 	// Count available hosts
 	availableHosts := 0
-	hosts := make([]HostResult, 0, len(hostMap))
+	hosts := make([]models.HostResult, 0, len(hostMap))
 
 	for _, host := range hostMap {
 		if host.Available {
@@ -163,15 +163,15 @@ func (s *InMemoryStore) GetSweepSummary(_ context.Context) (*SweepSummary, error
 	}
 
 	// Create port counts
-	ports := make([]PortCount, 0, len(portCounts))
+	ports := make([]models.PortCount, 0, len(portCounts))
 	for port, count := range portCounts {
-		ports = append(ports, PortCount{
+		ports = append(ports, models.PortCount{
 			Port:      port,
 			Available: count,
 		})
 	}
 
-	summary := &SweepSummary{
+	summary := &models.SweepSummary{
 		Network:        "",
 		TotalHosts:     totalHosts,
 		AvailableHosts: availableHosts,

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/mfreeman451/serviceradar/pkg/models"
+	"github.com/mfreeman451/serviceradar/pkg/scan"
 )
 
 var (
@@ -22,23 +23,10 @@ var (
 // NetworkSweeper implements the Sweeper interface.
 type NetworkSweeper struct {
 	config  *models.Config
-	scanner *CombinedScanner
+	scanner *scan.CombinedScanner
 	store   Store
 	mu      sync.RWMutex
 	done    chan struct{}
-}
-
-// NewNetworkSweeper creates a new instance of NetworkSweeper.
-func NewNetworkSweeper(config *models.Config) *NetworkSweeper {
-	scanner := NewCombinedScanner(config.Timeout, config.Concurrency, config.ICMPCount)
-	store := NewInMemoryStore()
-
-	return &NetworkSweeper{
-		config:  config,
-		scanner: scanner,
-		store:   store,
-		done:    make(chan struct{}),
-	}
 }
 
 func (s *NetworkSweeper) Start(ctx context.Context) error {
@@ -217,9 +205,9 @@ func generateIPsFromCIDR(network string) ([]net.IP, error) {
 
 	var ips []net.IP
 
-	for i := ip.Mask(ipnet.Mask); ipnet.Contains(i); inc(i) {
+	for i := ip.Mask(ipnet.Mask); ipnet.Contains(i); scan.Inc(i) {
 		// Skip network and broadcast addresses for IPv4
-		if i.To4() != nil && isFirstOrLastAddress(i, ipnet) {
+		if i.To4() != nil && scan.IsFirstOrLastAddress(i, ipnet) {
 			continue
 		}
 

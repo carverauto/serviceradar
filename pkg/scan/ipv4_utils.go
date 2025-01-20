@@ -1,4 +1,4 @@
-package sweeper
+package scan
 
 import (
 	"net"
@@ -13,9 +13,9 @@ func GenerateIPsFromCIDR(network string) ([]net.IP, error) {
 
 	var ips []net.IP
 
-	for i := ip.Mask(ipnet.Mask); ipnet.Contains(i); inc(i) {
+	for i := ip.Mask(ipnet.Mask); ipnet.Contains(i); Inc(i) {
 		// Skip network and broadcast addresses for IPv4
-		if i.To4() != nil && isFirstOrLastAddress(i, ipnet) {
+		if i.To4() != nil && IsFirstOrLastAddress(i, ipnet) {
 			continue
 		}
 
@@ -28,8 +28,8 @@ func GenerateIPsFromCIDR(network string) ([]net.IP, error) {
 	return ips, nil
 }
 
-// inc increments an IP address.
-func inc(ip net.IP) {
+// Inc increments an IP address.
+func Inc(ip net.IP) {
 	for j := len(ip) - 1; j >= 0; j-- {
 		ip[j]++
 
@@ -39,8 +39,8 @@ func inc(ip net.IP) {
 	}
 }
 
-// isFirstOrLastAddress checks if the IP is the network or broadcast address.
-func isFirstOrLastAddress(ip net.IP, network *net.IPNet) bool {
+// IsFirstOrLastAddress checks if the IP is the network or broadcast address.
+func IsFirstOrLastAddress(ip net.IP, network *net.IPNet) bool {
 	// Get the IP address as 4-byte slice for IPv4
 	ipv4 := ip.To4()
 	if ipv4 == nil {

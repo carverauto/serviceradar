@@ -1,4 +1,4 @@
-package sweeper
+package scan
 
 import (
 	"context"
@@ -15,6 +15,7 @@ type TCPScanner struct {
 	timeout     time.Duration
 	concurrency int
 	done        chan struct{}
+	scan        func(context.Context, []models.Target) (<-chan models.Result, error)
 }
 
 func NewTCPScanner(timeout time.Duration, concurrency int) *TCPScanner {
@@ -31,6 +32,10 @@ func (s *TCPScanner) Stop() error {
 }
 
 func (s *TCPScanner) Scan(ctx context.Context, targets []models.Target) (<-chan models.Result, error) {
+	if s.scan != nil {
+		return s.scan(ctx, targets)
+	}
+
 	results := make(chan models.Result)
 	targetChan := make(chan models.Target)
 
