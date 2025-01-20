@@ -1,4 +1,4 @@
-package sweeper
+package scan
 
 import (
 	"context"
