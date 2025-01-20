@@ -71,7 +71,7 @@ func (s *SQLiteStore) SaveResult(ctx context.Context, result *models.Result) err
 	)
 
 	if err != nil {
-		return fmt.Errorf("%w: %v", errSaveResult, err)
+		return fmt.Errorf("%w: %w", errSaveResult, err)
 	}
 
 	return nil
@@ -150,7 +150,7 @@ func scanRow(rows *sql.Rows) (*models.Result, error) {
 		&errStr,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", errScanRow, err)
+		return nil, fmt.Errorf("%w: %w", errScanRow, err)
 	}
 
 	r.RespTime = time.Duration(respTimeNanos)
@@ -177,7 +177,7 @@ func (s *SQLiteStore) GetResults(ctx context.Context, filter *models.ResultFilte
 	// Execute query
 	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", errQueryResults, err)
+		return nil, fmt.Errorf("%w: %w", errQueryResults, err)
 	}
 	defer func(rows *sql.Rows) {
 		err := rows.Close()
@@ -204,15 +204,16 @@ func (s *SQLiteStore) GetResults(ctx context.Context, filter *models.ResultFilte
 // PruneResults removes results older than the given age.
 func (s *SQLiteStore) PruneResults(ctx context.Context, age time.Duration) error {
 	// Use a context with timeout
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, dbOperationTimeout)
 	defer cancel()
 
 	cutoff := time.Now().Add(-age)
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("%w: %v", errBeginTx, err)
+		return fmt.Errorf("%w: %w", errBeginTx, err)
 	}
+
 	defer func() {
 		if err != nil {
 			if rbErr := tx.Rollback(); rbErr != nil {
@@ -226,7 +227,7 @@ func (s *SQLiteStore) PruneResults(ctx context.Context, age time.Duration) error
 		cutoff,
 	)
 	if err != nil {
-		return fmt.Errorf("%w: %v", errPruneResults, err)
+		return fmt.Errorf("%w: %w", errPruneResults, err)
 	}
 
 	return tx.Commit()

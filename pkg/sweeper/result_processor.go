@@ -1,25 +1,50 @@
 package sweeper
 
 import (
+	"context"
 	"sync"
 	"time"
 
 	"github.com/mfreeman451/serviceradar/pkg/models"
 )
 
-// DefaultProcessor implements ResultProcessor with in-memory state.
+type ProcessorLocker interface {
+	RLock()
+	RUnlock()
+}
+
 type DefaultProcessor struct {
+	*BaseProcessor
+}
+
+func NewDefaultProcessor() *DefaultProcessor {
+	return &DefaultProcessor{
+		BaseProcessor: NewBaseProcessor(),
+	}
+}
+
+type BaseProcessor struct {
 	mu            sync.RWMutex
 	hostMap       map[string]*models.HostResult
 	portCounts    map[int]int
 	lastSweepTime time.Time
 	totalHosts    int
+	Locker        ProcessorLocker
 }
 
-func NewDefaultProcessor() *DefaultProcessor {
-	return &DefaultProcessor{
+func (p *BaseProcessor) RLock() {
+	p.mu.RLock()
+}
+
+func (p *BaseProcessor) RUnlock() {
+	p.mu.RUnlock()
+}
+
+func NewBaseProcessor() *BaseProcessor {
+	return &BaseProcessor{
 		hostMap:    make(map[string]*models.HostResult),
 		portCounts: make(map[int]int),
+		Locker:     &sync.RWMutex{}, // Default locker
 	}
 }
 
@@ -67,9 +92,16 @@ func (p *DefaultProcessor) Process(result *models.Result) error {
 	return nil
 }
 
-func (p *DefaultProcessor) GetSummary() (*models.SweepSummary, error) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
+func (p *BaseProcessor) GetSummary(ctx context.Context) (*models.SweepSummary, error) {
+	p.Locker.RLock()
+	defer p.Locker.RUnlock()
+
+	// Check for context cancellation
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
 
 	// Count available hosts and prepare host list
 	availableHosts := 0
