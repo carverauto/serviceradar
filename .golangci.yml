@@ -1,4 +1,6 @@
----
+run:
+  timeout: 5m  # Increase from default 1m to 5m
+
 linters-settings:
   dupl:
     threshold: 100
