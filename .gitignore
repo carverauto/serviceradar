@@ -158,4 +158,4 @@ elements/
 serviceradar-dusk_*/
 serviceradar-poller_*/
 serviceradar-cloud_*/
-dist/
+./dist
