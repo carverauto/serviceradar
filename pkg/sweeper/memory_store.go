@@ -192,13 +192,14 @@ func (s *InMemoryStore) SaveResult(ctx context.Context, result *models.Result) e
 
 	// Use a context with timeout for potential long-running operations
 	var cancel context.CancelFunc
-	ctx, cancel = context.WithTimeout(ctx, 5*time.Second)
+	_, cancel = context.WithTimeout(ctx, dbOperationTimeout)
 	defer cancel()
 
 	for i := range s.results {
 		// if the same target already exists, overwrite
 		if s.results[i].Target == result.Target {
 			s.results[i] = *result
+
 			return nil
 		}
 	}

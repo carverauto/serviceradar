@@ -7,6 +7,8 @@ import (
 	"github.com/mfreeman451/serviceradar/pkg/models"
 )
 
+//go:generate mockgen -destination=mock_sweeper.go -package=sweeper github.com/mfreeman451/serviceradar/pkg/sweeper Sweeper,ResultProcessor,Store,Reporter,SweepService
+
 // ResultProcessor defines how to process and aggregate sweep results.
 type ResultProcessor interface {
 	// Process takes a Result and updates internal state.
