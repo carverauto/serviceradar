@@ -6,6 +6,7 @@ require (
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/mattn/go-sqlite3 v1.14.24
+	go.uber.org/mock v0.5.0
 	golang.org/x/net v0.34.0
 	google.golang.org/grpc v1.69.4
 	google.golang.org/protobuf v1.36.3

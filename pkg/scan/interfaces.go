@@ -6,6 +6,8 @@ import (
 	"github.com/mfreeman451/serviceradar/pkg/models"
 )
 
+//go:generate mockgen -destination=mock_scanner.go -package=scan github.com/mfreeman451/serviceradar/pkg/scan Scanner,ResultProcessor
+
 // Scanner defines how to perform network sweeps.
 type Scanner interface {
 	// Scan performs the sweep and returns results through the channel
