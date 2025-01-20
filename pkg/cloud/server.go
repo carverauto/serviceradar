@@ -259,7 +259,7 @@ func (s *Server) processStatusReport(
 
 	apiStatus := s.createNodeStatus(req, now)
 
-	s.processServices(req.PollerId, apiStatus, now)
+	s.processServices(req.PollerId, apiStatus, req.Services, now)
 
 	if err := s.updateNodeState(ctx, req.PollerId, apiStatus, currentState, now); err != nil {
 		return nil, err
@@ -277,17 +277,32 @@ func (*Server) createNodeStatus(req *proto.PollerStatusRequest, now time.Time) *
 	}
 }
 
-func (s *Server) processServices(pollerID string, apiStatus *api.NodeStatus, now time.Time) {
-	for _, svc := range apiStatus.Services {
+func (s *Server) processServices(pollerID string, apiStatus *api.NodeStatus, services []*proto.ServiceStatus, now time.Time) {
+	for _, svc := range services {
+		apiService := api.ServiceStatus{
+			Name:      svc.ServiceName,
+			Type:      svc.ServiceType,
+			Available: svc.Available,
+			Message:   svc.Message,
+		}
+
 		if !svc.Available {
 			apiStatus.IsHealthy = false
 		}
 
-		if err := s.handleService(pollerID, &svc, now); err != nil {
-			log.Printf("Error handling service %s: %v", svc.Name, err)
-
-			continue
+		// Process JSON details if available
+		if svc.Message != "" {
+			var details json.RawMessage
+			if err := json.Unmarshal([]byte(svc.Message), &details); err == nil {
+				apiService.Details = details
+			}
 		}
+
+		if err := s.handleService(pollerID, &apiService, now); err != nil {
+			log.Printf("Error handling service %s: %v", svc.ServiceName, err)
+		}
+
+		apiStatus.Services = append(apiStatus.Services, apiService)
 	}
 }
 
@@ -613,7 +628,7 @@ func (s *Server) sendStartupNotification(ctx context.Context) {
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		NodeID:    "cloud",
 		Details: map[string]any{
-			"version":     "1.0.1", // TODO: query version from DB
+			"version":     "1.0.2", // TODO: query version from DB
 			"hostname":    getHostname(),
 			"pid":         os.Getpid(),
 			"total_nodes": nodeCount,
