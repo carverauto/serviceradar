@@ -369,7 +369,7 @@ func (db *DB) GetNodeHistory(nodeID string) ([]NodeStatus, error) {
         LIMIT ?
     `
 
-	rows, err := db.Query(querySQL, nodeID, maxHistoryPoints)
+	rows, err := db.Query(querySQL, nodeID, maxHistoryPoints) //nolint:rowserrcheck // rows.Close will check for errors
 	if err != nil {
 		return nil, fmt.Errorf("failed to query node history: %w", err)
 	}

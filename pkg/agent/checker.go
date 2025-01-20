@@ -67,6 +67,7 @@ func (p *PortChecker) Check(ctx context.Context) (isAccessible bool, statusMsg s
 
 	if err = conn.Close(); err != nil {
 		log.Printf("Error closing connection: %v", err)
+
 		return false, "Error closing connection"
 	}
 

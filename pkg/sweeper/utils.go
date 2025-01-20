@@ -13,14 +13,14 @@ func GenerateIPsFromCIDR(network string) ([]net.IP, error) {
 
 	var ips []net.IP
 
-	for ip := ip.Mask(ipnet.Mask); ipnet.Contains(ip); inc(ip) {
+	for i := ip.Mask(ipnet.Mask); ipnet.Contains(i); inc(i) {
 		// Skip network and broadcast addresses for IPv4
-		if ip.To4() != nil && isFirstOrLastAddress(ip, ipnet) {
+		if i.To4() != nil && isFirstOrLastAddress(i, ipnet) {
 			continue
 		}
 
-		newIP := make(net.IP, len(ip))
-		copy(newIP, ip)
+		newIP := make(net.IP, len(i))
+		copy(newIP, i)
 
 		ips = append(ips, newIP)
 	}
@@ -39,7 +39,7 @@ func ContainsMode(modes []SweepMode, mode SweepMode) bool {
 	return false
 }
 
-// inc increments an IP address
+// inc increments an IP address.
 func inc(ip net.IP) {
 	for j := len(ip) - 1; j >= 0; j-- {
 		ip[j]++

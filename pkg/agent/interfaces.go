@@ -11,7 +11,7 @@ type Service interface {
 	Stop() error
 }
 
-// SweepStatusProvider is an interface for services that can provide sweep status
+// SweepStatusProvider is an interface for services that can provide sweep status.
 type SweepStatusProvider interface {
 	GetStatus(context.Context) (*proto.StatusResponse, error)
 }

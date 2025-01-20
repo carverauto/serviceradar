@@ -75,6 +75,7 @@ func (s *InMemoryStore) GetHostResults(_ context.Context, filter *ResultFilter) 
 
 		if r.Available {
 			host.Available = true
+
 			if r.Target.Mode == ModeTCP {
 				portResult := &PortResult{
 					Port:      r.Target.Port,
@@ -89,6 +90,7 @@ func (s *InMemoryStore) GetHostResults(_ context.Context, filter *ResultFilter) 
 		if r.FirstSeen.Before(host.FirstSeen) {
 			host.FirstSeen = r.FirstSeen
 		}
+
 		if r.LastSeen.After(host.LastSeen) {
 			host.LastSeen = r.LastSeen
 		}
@@ -111,6 +113,7 @@ func (s *InMemoryStore) GetSweepSummary(_ context.Context) (*SweepSummary, error
 	hostMap := make(map[string]*HostResult)
 	portCounts := make(map[int]int)
 	totalHosts := 0
+
 	var lastSweep time.Time
 
 	for i := range s.results {
@@ -148,10 +151,12 @@ func (s *InMemoryStore) GetSweepSummary(_ context.Context) (*SweepSummary, error
 	// Count available hosts
 	availableHosts := 0
 	hosts := make([]HostResult, 0, len(hostMap))
+
 	for _, host := range hostMap {
 		if host.Available {
 			availableHosts++
 		}
+
 		hosts = append(hosts, *host)
 	}
 
@@ -191,6 +196,7 @@ func (s *InMemoryStore) SaveResult(_ context.Context, result *Result) error {
 
 	// If not found, append it
 	s.results = append(s.results, *result)
+
 	return nil
 }
 
@@ -207,6 +213,7 @@ func (s *InMemoryStore) GetResults(_ context.Context, filter *ResultFilter) ([]R
 			filtered = append(filtered, *r)
 		}
 	}
+
 	return filtered, nil
 }
 
@@ -224,6 +231,7 @@ func (s *InMemoryStore) PruneResults(_ context.Context, age time.Duration) error
 			newResults = append(newResults, *r)
 		}
 	}
+
 	s.results = newResults
 
 	return nil
@@ -243,6 +251,7 @@ func (*InMemoryStore) matchesFilter(result *Result, filter *ResultFilter) bool {
 			return false
 		}
 	}
+
 	return true
 }
 
@@ -251,9 +260,11 @@ func checkTimeRange(result *Result, filter *ResultFilter) bool {
 	if !filter.StartTime.IsZero() && result.LastSeen.Before(filter.StartTime) {
 		return false
 	}
+
 	if !filter.EndTime.IsZero() && result.LastSeen.After(filter.EndTime) {
 		return false
 	}
+
 	return true
 }
 

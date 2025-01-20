@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// DefaultProcessor implements ResultProcessor with in-memory state
+// DefaultProcessor implements ResultProcessor with in-memory state.
 type DefaultProcessor struct {
 	mu            sync.RWMutex
 	hostMap       map[string]*HostResult
@@ -51,6 +51,7 @@ func (p *DefaultProcessor) Process(result *Result) error {
 
 	if result.Available {
 		host.Available = true
+
 		if result.Target.Mode == ModeTCP {
 			port := &PortResult{
 				Port:      result.Target.Port,
@@ -76,6 +77,7 @@ func (p *DefaultProcessor) GetSummary() (*SweepSummary, error) {
 		if host.Available {
 			availableHosts++
 		}
+
 		hosts = append(hosts, *host)
 	}
 

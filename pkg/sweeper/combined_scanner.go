@@ -27,6 +27,7 @@ func (s *CombinedScanner) Stop() error {
 	close(s.done)
 	_ = s.tcpScanner.Stop()
 	_ = s.icmpScanner.Stop()
+
 	return nil
 }
 
@@ -35,6 +36,7 @@ func (s *CombinedScanner) Scan(ctx context.Context, targets []Target) (<-chan Re
 
 	// Separate targets by mode
 	var tcpTargets, icmpTargets []Target
+
 	for _, target := range targets {
 		switch target.Mode {
 		case ModeTCP:
@@ -51,13 +53,16 @@ func (s *CombinedScanner) Scan(ctx context.Context, targets []Target) (<-chan Re
 	// Start TCP scanner if we have TCP targets
 	if len(tcpTargets) > 0 {
 		wg.Add(1)
+
 		go func() {
 			defer wg.Done()
+
 			tcpResults, err := s.tcpScanner.Scan(ctx, tcpTargets)
 			if err != nil {
 				log.Printf("TCP scan error: %v", err)
 				return
 			}
+
 			for result := range tcpResults {
 				select {
 				case <-ctx.Done():
@@ -73,13 +78,16 @@ func (s *CombinedScanner) Scan(ctx context.Context, targets []Target) (<-chan Re
 	// Start ICMP scanner if we have ICMP targets
 	if len(icmpTargets) > 0 {
 		wg.Add(1)
+
 		go func() {
 			defer wg.Done()
+
 			icmpResults, err := s.icmpScanner.Scan(ctx, icmpTargets)
 			if err != nil {
 				log.Printf("ICMP scan error: %v", err)
 				return
 			}
+
 			for result := range icmpResults {
 				select {
 				case <-ctx.Done():
