@@ -29,19 +29,6 @@ type NetworkSweeper struct {
 	done    chan struct{}
 }
 
-// NewNetworkSweeper creates a new instance of NetworkSweeper.
-func NewNetworkSweeper(config *models.Config) *NetworkSweeper {
-	scanner := scan.NewCombinedScanner(config.Timeout, config.Concurrency, config.ICMPCount)
-	store := NewInMemoryStore()
-
-	return &NetworkSweeper{
-		config:  config,
-		scanner: scanner,
-		store:   store,
-		done:    make(chan struct{}),
-	}
-}
-
 func (s *NetworkSweeper) Start(ctx context.Context) error {
 	ticker := time.NewTicker(s.config.Interval)
 	defer ticker.Stop()

@@ -27,6 +27,7 @@ type ICMPScanner struct {
 	concurrency int
 	count       int
 	done        chan struct{}
+	scan        func(context.Context, []models.Target) (<-chan models.Result, error)
 }
 
 type ICMPWorkerConfig struct {
@@ -56,6 +57,10 @@ func (s *ICMPScanner) Stop() error {
 }
 
 func (s *ICMPScanner) Scan(ctx context.Context, targets []models.Target) (<-chan models.Result, error) {
+	if s.scan != nil {
+		return s.scan(ctx, targets)
+	}
+
 	results := make(chan models.Result)
 	targetChan := make(chan models.Target)
 
