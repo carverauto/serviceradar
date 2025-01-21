@@ -30,14 +30,16 @@ func main() {
 	if err != nil {
 		log.Printf("Failed to create poller: %v", err)
 		cancel()
+		return
 	}
 
-	defer func(p *poller.Poller) {
-		err := p.Close()
-		if err != nil {
+	// Ensure poller is closed after main exits
+	defer func() {
+		log.Printf("Closing poller...")
+		if err := p.Close(); err != nil {
 			log.Printf("Failed to close poller: %v", err)
 		}
-	}(p)
+	}()
 
 	// Handle shutdown signals
 	sigChan := make(chan os.Signal, 1)
@@ -46,7 +48,10 @@ func main() {
 	// Start poller in a goroutine
 	errChan := make(chan error, 1)
 	go func() {
+		log.Printf("Starting poller...")
 		errChan <- p.Start(ctx)
+		log.Printf("Poller Start() goroutine finished")
+		close(errChan) // Ensure channel is closed after Start returns
 	}()
 
 	// Wait for either error or shutdown signal
@@ -57,11 +62,9 @@ func main() {
 			cancel()
 		}
 	case sig := <-sigChan:
-		log.Printf("Received signal %v, shutting down", sig)
+		log.Printf("Received signal %v, initiating shutdown", sig)
 		cancel()
 	}
 
-	// Wait for shutdown to complete
-	<-errChan
 	log.Println("Shutdown complete")
 }

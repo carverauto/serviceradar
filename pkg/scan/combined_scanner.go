@@ -36,6 +36,7 @@ func (s *CombinedScanner) Scan(ctx context.Context, targets []models.Target) (<-
 	if len(targets) == 0 {
 		empty := make(chan models.Result)
 		close(empty)
+
 		return empty, nil
 	}
 
@@ -44,6 +45,7 @@ func (s *CombinedScanner) Scan(ctx context.Context, targets []models.Target) (<-
 	for _, target := range targets {
 		uniqueHosts[target.Host] = struct{}{}
 	}
+
 	totalHosts := len(uniqueHosts)
 
 	separated := s.separateTargets(targets)

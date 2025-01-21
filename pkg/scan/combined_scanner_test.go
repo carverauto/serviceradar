@@ -118,7 +118,7 @@ func TestCombinedScanner_ScanMixed(t *testing.T) {
 	require.NotNil(t, results)
 
 	// Collect results
-	var gotResults []models.Result
+	gotResults := make([]models.Result, 0, len(targets))
 	for result := range results {
 		gotResults = append(gotResults, result)
 	}
@@ -245,14 +245,4 @@ func (m targetModeMatcher) Matches(x interface{}) bool {
 
 func (m targetModeMatcher) String() string {
 	return fmt.Sprintf("targets with mode %s", m.mode)
-}
-
-func assertResultsMatch(t *testing.T, expected, got []models.Result) {
-	t.Helper()
-	require.Equal(t, len(expected), len(got))
-
-	for i := range expected {
-		assert.Equal(t, expected[i].Target, got[i].Target)
-		assert.Equal(t, expected[i].Available, got[i].Available)
-	}
 }

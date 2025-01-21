@@ -152,19 +152,3 @@ func (p *BaseProcessor) GetSummary(ctx context.Context) (*models.SweepSummary, e
 		Hosts:          hosts,
 	}, nil
 }
-
-func (p *DefaultProcessor) Reset() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	// Preserve firstSeenTimes
-	firstSeenTimes := p.firstSeenTimes
-
-	p.hostMap = make(map[string]*models.HostResult)
-	p.portCounts = make(map[int]int)
-	p.totalHosts = 0
-	p.lastSweepTime = time.Time{}
-
-	// Restore firstSeenTimes
-	p.firstSeenTimes = firstSeenTimes
-}

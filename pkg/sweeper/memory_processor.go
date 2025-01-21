@@ -11,7 +11,6 @@ import (
 // InMemoryProcessor implements ResultProcessor with in-memory state.
 type InMemoryProcessor struct {
 	*BaseProcessor
-	firstSeenTimes map[string]time.Time
 }
 
 func NewInMemoryProcessor() ResultProcessor {
@@ -32,90 +31,115 @@ func (p *InMemoryProcessor) RUnlock() {
 }
 
 // Process updates the internal state of the InMemoryProcessor.
+// In pkg/sweeper/memory_processor.go
+
 func (p *InMemoryProcessor) Process(result *models.Result) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	now := time.Now()
+	// Always update the last sweep time, but only if it would be moving forward
+	if now.After(p.lastSweepTime) {
+		p.lastSweepTime = now
+	}
+
+	log.Printf("Processing result with lastSweepTime: %v", p.lastSweepTime.Format(time.RFC3339))
+
 	// Handle total hosts from metadata if available
 	if result.Target.Metadata != nil {
 		if totalHosts, ok := result.Target.Metadata["total_hosts"].(int); ok {
 			p.totalHosts = totalHosts
 		}
 	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
 
-	log.Printf("Processing result: Host=%s, Port=%d, Mode=%s, Available=%v, Response Time=%v",
-		result.Target.Host, result.Target.Port, result.Target.Mode, result.Available, result.RespTime)
-
-	// Always update last sweep time to current time
-	p.lastSweepTime = time.Now()
-
-	// Early return if not a TCP scan or not available
+	// Early return if not a TCP scan
 	if result.Target.Mode != models.ModeTCP {
 		return nil
-	}
-
-	// Update total hosts count (this should happen for every unique host)
-	if _, exists := p.hostMap[result.Target.Host]; !exists {
-		p.totalHosts++
 	}
 
 	// Update host information
 	host, exists := p.hostMap[result.Target.Host]
 	if !exists {
+		// Check/update first seen time
+		firstSeen, hasFirstSeen := p.firstSeenTimes[result.Target.Host]
+		if !hasFirstSeen {
+			firstSeen = now
+			p.firstSeenTimes[result.Target.Host] = firstSeen
+		}
+
 		host = &models.HostResult{
 			Host:        result.Target.Host,
-			FirstSeen:   result.FirstSeen,
-			LastSeen:    result.LastSeen,
+			FirstSeen:   firstSeen,
+			LastSeen:    now,
 			Available:   false,
 			PortResults: make([]*models.PortResult, 0),
 		}
 		p.hostMap[result.Target.Host] = host
+	} else {
+		// Always update LastSeen for existing hosts
+		host.LastSeen = now
 	}
 
-	// Update availability based on TCP scan results
 	if result.Available {
 		host.Available = true
 		p.portCounts[result.Target.Port]++
 
-		// Append port result for TCP mode
 		portResult := &models.PortResult{
 			Port:      result.Target.Port,
-			Available: result.Available,
+			Available: true,
 			RespTime:  result.RespTime,
 		}
 		host.PortResults = append(host.PortResults, portResult)
 	}
 
-	// Update timestamps
-	if result.FirstSeen.Before(host.FirstSeen) {
-		host.FirstSeen = result.FirstSeen
-	}
-
-	if result.LastSeen.After(host.LastSeen) {
-		host.LastSeen = result.LastSeen
-	}
+	// Add debug logging
+	log.Printf("Host %s - FirstSeen: %v, LastSeen: %v, LastSweep: %v",
+		host.Host,
+		host.FirstSeen.Format(time.RFC3339),
+		host.LastSeen.Format(time.RFC3339),
+		p.lastSweepTime.Format(time.RFC3339))
 
 	return nil
 }
+
+// In pkg/sweeper/memory_processor.go
 
 func (p *InMemoryProcessor) GetSummary(ctx context.Context) (*models.SweepSummary, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
-	// Count available hosts
+	// Check for context cancellation
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	// Count available hosts and prepare host list
 	availableHosts := 0
-	offlineHosts := make([]models.HostResult, 0)
-	onlineHosts := make([]models.HostResult, 0)
+	onlineHosts := make([]models.HostResult, 0, len(p.hostMap))
+	offlineHosts := make([]models.HostResult, 0, len(p.hostMap))
 
 	for _, host := range p.hostMap {
 		if host.Available {
 			availableHosts++
+
 			onlineHosts = append(onlineHosts, *host)
 		} else {
 			offlineHosts = append(offlineHosts, *host)
 		}
 	}
 
-	// Sort port counts
+	// Calculate capacity needed for all hosts
+	totalCap := len(onlineHosts) + len(offlineHosts)
+	allHosts := make([]models.HostResult, 0, totalCap)
+
+	// Append online hosts first
+	allHosts = append(allHosts, onlineHosts...)
+	// Then append offline hosts
+	allHosts = append(allHosts, offlineHosts...)
+
+	// Prepare port counts
 	ports := make([]models.PortCount, 0, len(p.portCounts))
 	for port, count := range p.portCounts {
 		ports = append(ports, models.PortCount{
@@ -124,10 +148,6 @@ func (p *InMemoryProcessor) GetSummary(ctx context.Context) (*models.SweepSummar
 		})
 	}
 
-	// Combine online and offline hosts, with offline hosts at the end
-	allHosts := append(onlineHosts, offlineHosts...)
-
-	// Calculate total possible hosts from the CIDR ranges in the scan
 	actualTotalHosts := len(p.hostMap)
 	if actualTotalHosts == 0 {
 		actualTotalHosts = p.totalHosts
