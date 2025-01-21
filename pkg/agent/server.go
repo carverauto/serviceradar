@@ -25,6 +25,10 @@ const (
 	processConfigurationName = "process"
 )
 
+var (
+	errInvalidDuration = errors.New("invalid duration")
+)
+
 type Duration time.Duration
 
 // SweepConfig represents sweep service configuration from JSON.
@@ -206,10 +210,12 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 		if err != nil {
 			return err
 		}
+
 		*d = Duration(tmp)
+
 		return nil
 	default:
-		return fmt.Errorf("invalid duration")
+		return errInvalidDuration
 	}
 }
 

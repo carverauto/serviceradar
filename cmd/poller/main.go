@@ -30,12 +30,14 @@ func main() {
 	if err != nil {
 		log.Printf("Failed to create poller: %v", err)
 		cancel()
+
 		return
 	}
 
 	// Ensure poller is closed after main exits
 	defer func() {
 		log.Printf("Closing poller...")
+
 		if err := p.Close(); err != nil {
 			log.Printf("Failed to close poller: %v", err)
 		}
@@ -50,7 +52,9 @@ func main() {
 	go func() {
 		log.Printf("Starting poller...")
 		errChan <- p.Start(ctx)
+
 		log.Printf("Poller Start() goroutine finished")
+
 		close(errChan) // Ensure channel is closed after Start returns
 	}()
 

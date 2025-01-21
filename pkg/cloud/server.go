@@ -322,8 +322,12 @@ func (*Server) processSweepData(svc *api.ServiceStatus, now time.Time) error {
 		return fmt.Errorf("%w: %w", errInvalidSweepData, err)
 	}
 
+	// If LastSweep is not set or is invalid (0 or negative), use current time
 	if sweepData.LastSweep <= 0 {
+		log.Printf("Invalid or missing LastSweep timestamp (%d), using current time", sweepData.LastSweep)
 		sweepData.LastSweep = now.Unix()
+
+		// Update the message with corrected timestamp
 		updatedData := proto.SweepServiceStatus{
 			Network:        sweepData.Network,
 			TotalHosts:     sweepData.TotalHosts,
@@ -337,6 +341,12 @@ func (*Server) processSweepData(svc *api.ServiceStatus, now time.Time) error {
 		}
 
 		svc.Message = string(updatedMessage)
+
+		log.Printf("Updated sweep data with current timestamp: %v", now.Format(time.RFC3339))
+	} else {
+		// Log the existing timestamp for debugging
+		log.Printf("Processing sweep data with timestamp: %v",
+			time.Unix(sweepData.LastSweep, 0).Format(time.RFC3339))
 	}
 
 	return nil

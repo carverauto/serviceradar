@@ -1,3 +1,4 @@
+// Package sweeper pkg/sweeper/memory_store.go
 package sweeper
 
 import (
@@ -56,57 +57,88 @@ func (s *InMemoryStore) GetHostResults(_ context.Context, filter *models.ResultF
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	// group results by host
 	hostMap := make(map[string]*models.HostResult)
 
+	// First pass: collect base host information
 	for i := range s.results {
 		r := &s.results[i]
 		if !s.matchesFilter(r, filter) {
 			continue
 		}
 
-		host, exists := hostMap[r.Target.Host]
-		if !exists {
-			host = &models.HostResult{
-				Host:        r.Target.Host,
-				FirstSeen:   r.FirstSeen,
-				LastSeen:    r.LastSeen,
-				Available:   false,
-				PortResults: make([]*models.PortResult, 0),
-			}
-			hostMap[r.Target.Host] = host
-		}
+		s.processHostResult(r, hostMap)
+	}
 
-		if r.Available {
-			host.Available = true
+	return s.convertToSlice(hostMap), nil
+}
 
-			if r.Target.Mode == models.ModeTCP {
-				portResult := &models.PortResult{
-					Port:      r.Target.Port,
-					Available: true,
-					RespTime:  r.RespTime,
-				}
-				host.PortResults = append(host.PortResults, portResult)
-			}
-		}
+func (s *InMemoryStore) processHostResult(r *models.Result, hostMap map[string]*models.HostResult) {
+	host := s.getOrCreateHost(r, hostMap)
 
-		// update timestamps
-		if r.FirstSeen.Before(host.FirstSeen) {
-			host.FirstSeen = r.FirstSeen
-		}
-
-		if r.LastSeen.After(host.LastSeen) {
-			host.LastSeen = r.LastSeen
+	if r.Available {
+		host.Available = true
+		if r.Target.Mode == models.ModeTCP {
+			s.processPortResult(host, r)
 		}
 	}
 
-	// Convert map to slice
+	s.updateHostTimestamps(host, r)
+}
+
+func (s *InMemoryStore) getOrCreateHost(r *models.Result, hostMap map[string]*models.HostResult) *models.HostResult {
+	host, exists := hostMap[r.Target.Host]
+	if !exists {
+		host = &models.HostResult{
+			Host:        r.Target.Host,
+			FirstSeen:   r.FirstSeen,
+			LastSeen:    r.LastSeen,
+			Available:   false,
+			PortResults: make([]*models.PortResult, 0),
+		}
+		hostMap[r.Target.Host] = host
+	}
+	return host
+}
+
+func (s *InMemoryStore) processPortResult(host *models.HostResult, r *models.Result) {
+	portResult := s.findPortResult(host, r.Target.Port)
+	if portResult == nil {
+		portResult = &models.PortResult{
+			Port:      r.Target.Port,
+			Available: true,
+			RespTime:  r.RespTime,
+		}
+		host.PortResults = append(host.PortResults, portResult)
+	} else {
+		portResult.Available = true
+		portResult.RespTime = r.RespTime
+	}
+}
+
+func (s *InMemoryStore) findPortResult(host *models.HostResult, port int) *models.PortResult {
+	for _, pr := range host.PortResults {
+		if pr.Port == port {
+			return pr
+		}
+	}
+	return nil
+}
+
+func (s *InMemoryStore) updateHostTimestamps(host *models.HostResult, r *models.Result) {
+	if r.FirstSeen.Before(host.FirstSeen) {
+		host.FirstSeen = r.FirstSeen
+	}
+	if r.LastSeen.After(host.LastSeen) {
+		host.LastSeen = r.LastSeen
+	}
+}
+
+func (s *InMemoryStore) convertToSlice(hostMap map[string]*models.HostResult) []models.HostResult {
 	hosts := make([]models.HostResult, 0, len(hostMap))
 	for _, host := range hostMap {
 		hosts = append(hosts, *host)
 	}
-
-	return hosts, nil
+	return hosts
 }
 
 // GetSweepSummary gathers high-level sweep information.
