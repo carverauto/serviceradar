@@ -163,9 +163,6 @@ func (s *SweepService) performSweep(ctx context.Context) error {
 
 // NewSweepService now creates a persistent service with a single processor instance.
 func NewSweepService(config *models.Config) (*SweepService, error) {
-	// Create persistent processor instance
-	processor := sweeper.NewInMemoryProcessor()
-
 	// Create scanner with config settings
 	scanner := scan.NewCombinedScanner(
 		config.Timeout,
@@ -173,7 +170,10 @@ func NewSweepService(config *models.Config) (*SweepService, error) {
 		config.ICMPCount,
 	)
 
-	// Create store that shares the same processor
+	// Create processor instance (which now handles both processing and storage)
+	processor := sweeper.NewBaseProcessor()
+
+	// Create an in-memory store that references the same processor if needed:
 	store := sweeper.NewInMemoryStore(processor)
 
 	service := &SweepService{
@@ -183,8 +183,6 @@ func NewSweepService(config *models.Config) (*SweepService, error) {
 		config:    config,
 		closed:    make(chan struct{}),
 	}
-
-	log.Printf("Created new sweep service with persistent processor instance")
 
 	return service, nil
 }

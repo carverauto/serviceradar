@@ -85,7 +85,7 @@ func (s *InMemoryStore) processHostResult(r *models.Result, hostMap map[string]*
 	s.updateHostTimestamps(host, r)
 }
 
-func (s *InMemoryStore) getOrCreateHost(r *models.Result, hostMap map[string]*models.HostResult) *models.HostResult {
+func (*InMemoryStore) getOrCreateHost(r *models.Result, hostMap map[string]*models.HostResult) *models.HostResult {
 	host, exists := hostMap[r.Target.Host]
 	if !exists {
 		host = &models.HostResult{
@@ -97,6 +97,7 @@ func (s *InMemoryStore) getOrCreateHost(r *models.Result, hostMap map[string]*mo
 		}
 		hostMap[r.Target.Host] = host
 	}
+
 	return host
 }
 
@@ -115,29 +116,32 @@ func (s *InMemoryStore) processPortResult(host *models.HostResult, r *models.Res
 	}
 }
 
-func (s *InMemoryStore) findPortResult(host *models.HostResult, port int) *models.PortResult {
+func (*InMemoryStore) findPortResult(host *models.HostResult, port int) *models.PortResult {
 	for _, pr := range host.PortResults {
 		if pr.Port == port {
 			return pr
 		}
 	}
+
 	return nil
 }
 
-func (s *InMemoryStore) updateHostTimestamps(host *models.HostResult, r *models.Result) {
+func (*InMemoryStore) updateHostTimestamps(host *models.HostResult, r *models.Result) {
 	if r.FirstSeen.Before(host.FirstSeen) {
 		host.FirstSeen = r.FirstSeen
 	}
+
 	if r.LastSeen.After(host.LastSeen) {
 		host.LastSeen = r.LastSeen
 	}
 }
 
-func (s *InMemoryStore) convertToSlice(hostMap map[string]*models.HostResult) []models.HostResult {
+func (*InMemoryStore) convertToSlice(hostMap map[string]*models.HostResult) []models.HostResult {
 	hosts := make([]models.HostResult, 0, len(hostMap))
 	for _, host := range hostMap {
 		hosts = append(hosts, *host)
 	}
+
 	return hosts
 }
 

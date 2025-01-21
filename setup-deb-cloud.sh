@@ -5,7 +5,7 @@ set -e  # Exit on any error
 echo "Setting up package structure..."
 
 # Get version from environment or default to 1.0.1
-VERSION=${VERSION:-1.0.2}
+VERSION=${VERSION:-1.0.3}
 
 # Create package directory structure
 PKG_ROOT="serviceradar-cloud_${VERSION}"
