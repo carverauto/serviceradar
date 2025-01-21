@@ -2,6 +2,7 @@ package sweeper
 
 import (
 	"context"
+	"log"
 	"sync"
 	"time"
 
@@ -24,12 +25,13 @@ func NewDefaultProcessor() *DefaultProcessor {
 }
 
 type BaseProcessor struct {
-	mu            sync.RWMutex
-	hostMap       map[string]*models.HostResult
-	portCounts    map[int]int
-	lastSweepTime time.Time
-	totalHosts    int
-	Locker        ProcessorLocker
+	mu             sync.RWMutex
+	hostMap        map[string]*models.HostResult
+	portCounts     map[int]int
+	lastSweepTime  time.Time
+	firstSeenTimes map[string]time.Time
+	totalHosts     int
+	Locker         ProcessorLocker
 }
 
 func (p *BaseProcessor) RLock() {
@@ -42,9 +44,10 @@ func (p *BaseProcessor) RUnlock() {
 
 func NewBaseProcessor() *BaseProcessor {
 	return &BaseProcessor{
-		hostMap:    make(map[string]*models.HostResult),
-		portCounts: make(map[int]int),
-		Locker:     &sync.RWMutex{}, // Default locker
+		hostMap:        make(map[string]*models.HostResult),
+		portCounts:     make(map[int]int),
+		firstSeenTimes: make(map[string]time.Time),
+		Locker:         &sync.RWMutex{}, // Default locker
 	}
 }
 
@@ -52,24 +55,33 @@ func (p *DefaultProcessor) Process(result *models.Result) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	// Update last sweep time
-	if result.LastSeen.After(p.lastSweepTime) {
-		p.lastSweepTime = result.LastSeen
+	now := time.Now()
+	p.lastSweepTime = now
+
+	// Handle total hosts from metadata if available
+	if result.Target.Metadata != nil {
+		if totalHosts, ok := result.Target.Metadata["total_hosts"].(int); ok {
+			p.totalHosts = totalHosts
+		}
 	}
 
-	// Update port counts
-	if result.Available && result.Target.Mode == models.ModeTCP {
-		p.portCounts[result.Target.Port]++
+	// Early return if not a TCP scan
+	if result.Target.Mode != models.ModeTCP {
+		return nil
+	}
+
+	// Check/update first seen time
+	if _, exists := p.firstSeenTimes[result.Target.Host]; !exists {
+		p.firstSeenTimes[result.Target.Host] = now
 	}
 
 	// Update host information
 	host, exists := p.hostMap[result.Target.Host]
 	if !exists {
-		p.totalHosts++
 		host = &models.HostResult{
 			Host:        result.Target.Host,
-			FirstSeen:   result.FirstSeen,
-			LastSeen:    result.LastSeen,
+			FirstSeen:   p.firstSeenTimes[result.Target.Host],
+			LastSeen:    now,
 			Available:   false,
 			PortResults: make([]*models.PortResult, 0),
 		}
@@ -78,6 +90,7 @@ func (p *DefaultProcessor) Process(result *models.Result) error {
 
 	if result.Available {
 		host.Available = true
+		p.portCounts[result.Target.Port]++
 
 		if result.Target.Mode == models.ModeTCP {
 			port := &models.PortResult{
@@ -88,6 +101,13 @@ func (p *DefaultProcessor) Process(result *models.Result) error {
 			host.PortResults = append(host.PortResults, port)
 		}
 	}
+
+	// Update LastSeen but preserve FirstSeen
+	host.LastSeen = now
+
+	log.Printf("Processed result for host %s: available=%v mode=%s port=%d firstSeen=%v",
+		result.Target.Host, result.Available, result.Target.Mode, result.Target.Port,
+		p.firstSeenTimes[result.Target.Host])
 
 	return nil
 }
@@ -137,8 +157,14 @@ func (p *DefaultProcessor) Reset() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	// Preserve firstSeenTimes
+	firstSeenTimes := p.firstSeenTimes
+
 	p.hostMap = make(map[string]*models.HostResult)
 	p.portCounts = make(map[int]int)
 	p.totalHosts = 0
 	p.lastSweepTime = time.Time{}
+
+	// Restore firstSeenTimes
+	p.firstSeenTimes = firstSeenTimes
 }

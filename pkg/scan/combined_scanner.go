@@ -30,15 +30,32 @@ func NewCombinedScanner(timeout time.Duration, concurrency, icmpCount int) *Comb
 }
 
 // Scan performs the scanning operation for all targets.
+// In pkg/scan/combined_scanner.go
+
 func (s *CombinedScanner) Scan(ctx context.Context, targets []models.Target) (<-chan models.Result, error) {
 	if len(targets) == 0 {
 		empty := make(chan models.Result)
 		close(empty)
-
 		return empty, nil
 	}
 
+	// Calculate total hosts by counting unique IPs
+	uniqueHosts := make(map[string]struct{})
+	for _, target := range targets {
+		uniqueHosts[target.Host] = struct{}{}
+	}
+	totalHosts := len(uniqueHosts)
+
 	separated := s.separateTargets(targets)
+	log.Printf("Scanning targets - TCP: %d, ICMP: %d, Unique Hosts: %d",
+		len(separated.tcp), len(separated.icmp), totalHosts)
+
+	// Pass total hosts count through result metadata
+	for i := range targets {
+		targets[i].Metadata = map[string]interface{}{
+			"total_hosts": totalHosts,
+		}
+	}
 
 	// Handle single scanner cases
 	if result := s.handleSingleScannerCase(ctx, separated); result != nil {

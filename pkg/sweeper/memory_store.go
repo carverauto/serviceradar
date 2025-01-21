@@ -196,10 +196,11 @@ func (s *InMemoryStore) SaveResult(ctx context.Context, result *models.Result) e
 	defer cancel()
 
 	for i := range s.results {
-		// if the same target already exists, overwrite
-		if s.results[i].Target == result.Target {
+		// Compare individual fields of Target instead of the whole struct
+		if s.results[i].Target.Host == result.Target.Host &&
+			s.results[i].Target.Port == result.Target.Port &&
+			s.results[i].Target.Mode == result.Target.Mode {
 			s.results[i] = *result
-
 			return nil
 		}
 	}

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -105,8 +106,7 @@ func (s *SweepService) performSweep(ctx context.Context) error {
 		return fmt.Errorf("failed to generate targets: %w", err)
 	}
 
-	// Reset processor state
-	s.processor.Reset()
+	log.Printf("Starting sweep with %d targets", len(targets))
 
 	// Start the scan
 	results, err := s.scanner.Scan(ctx, targets)
@@ -114,20 +114,27 @@ func (s *SweepService) performSweep(ctx context.Context) error {
 		return fmt.Errorf("scan failed: %w", err)
 	}
 
+	s.processor.Reset()
+
 	// Process results as they come in
+	var processedCount int
 	for result := range results {
-		// Store the result
-		if err := s.store.SaveResult(ctx, &result); err != nil {
-			log.Printf("Failed to save result: %v", err)
-			continue
-		}
+		processedCount++
 
 		// Process the result
 		if err := s.processor.Process(&result); err != nil {
 			log.Printf("Failed to process result: %v", err)
 			continue
 		}
+
+		// Store the result
+		if err := s.store.SaveResult(ctx, &result); err != nil {
+			log.Printf("Failed to save result: %v", err)
+			continue
+		}
 	}
+
+	log.Printf("Sweep completed: processed %d results", processedCount)
 
 	return nil
 }
@@ -167,32 +174,39 @@ func identifyService(port int) string {
 */
 
 func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, error) {
-	if s == nil {
-		log.Printf("Warning: Sweep service not initialized")
-
-		return &proto.StatusResponse{
-			Available:   false,
-			Message:     "Sweep service not initialized",
-			ServiceName: "network_sweep",
-			ServiceType: "sweep",
-		}, nil
-	}
-
-	// Get current summary from processor
 	summary, err := s.processor.GetSummary(ctx)
 	if err != nil {
 		log.Printf("Error getting sweep summary: %v", err)
 		return nil, fmt.Errorf("failed to get sweep summary: %w", err)
 	}
 
+	if summary.LastSweep == 0 {
+		summary.LastSweep = time.Now().Unix()
+	}
+
 	// Convert to JSON for the message field
-	statusJSON, err := json.Marshal(summary)
+	data := struct {
+		Network        string              `json:"network"`
+		TotalHosts     int                 `json:"total_hosts"`
+		AvailableHosts int                 `json:"available_hosts"`
+		LastSweep      int64               `json:"last_sweep"`
+		Ports          []models.PortCount  `json:"ports"`
+		Hosts          []models.HostResult `json:"hosts"`
+	}{
+		Network:        strings.Join(s.config.Networks, ","),
+		TotalHosts:     summary.TotalHosts,
+		AvailableHosts: summary.AvailableHosts,
+		LastSweep:      summary.LastSweep,
+		Ports:          summary.Ports,
+		Hosts:          summary.Hosts,
+	}
+
+	statusJSON, err := json.Marshal(data)
 	if err != nil {
 		log.Printf("Error marshaling sweep status: %v", err)
 		return nil, fmt.Errorf("failed to marshal sweep status: %w", err)
 	}
 
-	// Return status response
 	return &proto.StatusResponse{
 		Available:   true,
 		Message:     string(statusJSON),
