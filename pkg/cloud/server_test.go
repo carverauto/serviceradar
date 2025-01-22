@@ -8,6 +8,7 @@ import (
 	"github.com/mfreeman451/serviceradar/pkg/cloud/api"
 	"github.com/mfreeman451/serviceradar/proto"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestProcessSweepData(t *testing.T) {
@@ -22,7 +23,7 @@ func TestProcessSweepData(t *testing.T) {
 	}{
 		{
 			name:         "Valid timestamp",
-			inputMessage: `{"network": "192.168.1.0/24", "total_hosts": 10, "available_hosts": 5, "last_sweep": 1678886400}`,
+			inputMessage: `{"network": "192.168.1.0/24", "total_hosts": 10, "available_hosts": 5, "last_sweep": 1678886400}`, // Example timestamp
 			expectedSweep: proto.SweepServiceStatus{
 				Network:        "192.168.1.0/24",
 				TotalHosts:     10,
@@ -49,7 +50,8 @@ func TestProcessSweepData(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
+	for i := range tests {
+		tt := &tests[i] // Correctly get a pointer to the test case
 		t.Run(tt.name, func(t *testing.T) {
 			svc := &api.ServiceStatus{
 				Message: tt.inputMessage,
@@ -60,11 +62,11 @@ func TestProcessSweepData(t *testing.T) {
 			if tt.expectError {
 				assert.Error(t, err)
 			} else {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 
 				var sweepData proto.SweepServiceStatus
 				err = json.Unmarshal([]byte(svc.Message), &sweepData)
-				assert.NoError(t, err)
+				require.NoError(t, err)
 
 				assert.Equal(t, tt.expectedSweep.Network, sweepData.Network)
 				assert.Equal(t, tt.expectedSweep.TotalHosts, sweepData.TotalHosts)
