@@ -25,15 +25,20 @@ const (
 	processConfigurationName = "process"
 )
 
+var (
+	errInvalidDuration = errors.New("invalid duration")
+)
+
 type Duration time.Duration
 
 // SweepConfig represents sweep service configuration from JSON.
 type SweepConfig struct {
-	Networks    []string `json:"networks"`
-	Ports       []int    `json:"ports"`
-	Interval    Duration `json:"interval"`
-	Concurrency int      `json:"concurrency"`
-	Timeout     Duration `json:"timeout"`
+	Networks    []string           `json:"networks"`
+	Ports       []int              `json:"ports"`
+	SweepModes  []models.SweepMode `json:"sweep_modes"`
+	Interval    Duration           `json:"interval"`
+	Concurrency int                `json:"concurrency"`
+	Timeout     Duration           `json:"timeout"`
 }
 
 // CheckerConfig represents the configuration for a checker.
@@ -126,34 +131,49 @@ func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*prot
 
 func loadSweepService(configDir string) (Service, error) {
 	sweepConfigPath := filepath.Join(configDir, "sweep.json")
+	log.Printf("Looking for sweep config at: %s", sweepConfigPath)
 
 	// Check if config exists
 	if _, err := os.Stat(sweepConfigPath); os.IsNotExist(err) {
+		log.Printf("Sweep config not found at %s", sweepConfigPath)
 		return nil, err
 	}
 
 	// Load and parse config
 	data, err := os.ReadFile(sweepConfigPath)
 	if err != nil {
+		log.Printf("Failed to read sweep config: %v", err)
 		return nil, fmt.Errorf("failed to read sweep config: %w", err)
 	}
 
 	var sweepConfig SweepConfig
 	if err = json.Unmarshal(data, &sweepConfig); err != nil {
+		log.Printf("Failed to parse sweep config: %v", err)
 		return nil, fmt.Errorf("failed to parse sweep config: %w", err)
 	}
+
+	log.Printf("Successfully loaded sweep config: %+v", sweepConfig)
 
 	// Convert to sweeper.Config
 	config := &models.Config{
 		Networks:    sweepConfig.Networks,
 		Ports:       sweepConfig.Ports,
+		SweepModes:  sweepConfig.SweepModes,
 		Interval:    time.Duration(sweepConfig.Interval),
 		Concurrency: sweepConfig.Concurrency,
 		Timeout:     time.Duration(sweepConfig.Timeout),
 	}
 
 	// Create service
-	return NewSweepService(config)
+	service, err := NewSweepService(config)
+	if err != nil {
+		log.Printf("Failed to create sweep service: %v", err)
+		return nil, err
+	}
+
+	log.Printf("Successfully created sweep service with config: %+v", config)
+
+	return service, nil
 }
 
 // loadServices initializes any optional services found in the config directory.
@@ -174,31 +194,29 @@ func (s *Server) loadServices() error {
 	return nil
 }
 
+// UnmarshalJSON implements json.Unmarshaler for Duration.
 func (d *Duration) UnmarshalJSON(b []byte) error {
-	var s string
+	var v interface{}
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
 
-	if err := json.Unmarshal(b, &s); err == nil {
-		// user wrote e.g. "5m"
-		parsed, err := time.ParseDuration(s)
+	switch value := v.(type) {
+	case float64:
+		*d = Duration(time.Duration(value))
+		return nil
+	case string:
+		tmp, err := time.ParseDuration(value)
 		if err != nil {
 			return err
 		}
 
-		*d = Duration(parsed)
+		*d = Duration(tmp)
 
 		return nil
+	default:
+		return errInvalidDuration
 	}
-
-	// fallback to number-of-nanoseconds if needed
-	var n int64
-
-	if err := json.Unmarshal(b, &n); err != nil {
-		return err
-	}
-
-	*d = Duration(n)
-
-	return nil
 }
 
 // loadCheckerConfigs loads all checker configurations from the config directory.

@@ -13,99 +13,121 @@ type ProcessorLocker interface {
 	RUnlock()
 }
 
-type DefaultProcessor struct {
-	*BaseProcessor
-}
-
-func NewDefaultProcessor() *DefaultProcessor {
-	return &DefaultProcessor{
-		BaseProcessor: NewBaseProcessor(),
-	}
-}
-
 type BaseProcessor struct {
-	mu            sync.RWMutex
-	hostMap       map[string]*models.HostResult
-	portCounts    map[int]int
-	lastSweepTime time.Time
-	totalHosts    int
-	Locker        ProcessorLocker
-}
-
-func (p *BaseProcessor) RLock() {
-	p.mu.RLock()
-}
-
-func (p *BaseProcessor) RUnlock() {
-	p.mu.RUnlock()
+	mu             sync.RWMutex
+	hostMap        map[string]*models.HostResult
+	portCounts     map[int]int
+	lastSweepTime  time.Time
+	firstSeenTimes map[string]time.Time
+	totalHosts     int
 }
 
 func NewBaseProcessor() *BaseProcessor {
 	return &BaseProcessor{
-		hostMap:    make(map[string]*models.HostResult),
-		portCounts: make(map[int]int),
-		Locker:     &sync.RWMutex{}, // Default locker
+		hostMap:        make(map[string]*models.HostResult),
+		portCounts:     make(map[int]int),
+		firstSeenTimes: make(map[string]time.Time),
 	}
 }
 
-func (p *DefaultProcessor) Process(result *models.Result) error {
+func (p *BaseProcessor) Process(result *models.Result) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	// Update last sweep time
-	if result.LastSeen.After(p.lastSweepTime) {
-		p.lastSweepTime = result.LastSeen
+	now := time.Now()
+	if now.After(p.lastSweepTime) {
+		p.lastSweepTime = now
 	}
 
-	// Update port counts
-	if result.Available && result.Target.Mode == models.ModeTCP {
-		p.portCounts[result.Target.Port]++
-	}
-
-	// Update host information
-	host, exists := p.hostMap[result.Target.Host]
-	if !exists {
-		p.totalHosts++
-		host = &models.HostResult{
-			Host:        result.Target.Host,
-			FirstSeen:   result.FirstSeen,
-			LastSeen:    result.LastSeen,
-			Available:   false,
-			PortResults: make([]*models.PortResult, 0),
+	if result.Target.Metadata != nil {
+		if totalHosts, ok := result.Target.Metadata["total_hosts"].(int); ok {
+			p.totalHosts = totalHosts
 		}
-		p.hostMap[result.Target.Host] = host
 	}
+
+	if result.Target.Mode != models.ModeTCP {
+		return nil
+	}
+
+	host := p.getOrCreateHost(result.Target.Host, now)
+
+	host.LastSeen = now
 
 	if result.Available {
 		host.Available = true
 
-		if result.Target.Mode == models.ModeTCP {
-			port := &models.PortResult{
+		var found bool
+
+		for _, port := range host.PortResults {
+			if port.Port == result.Target.Port {
+				port.RespTime = result.RespTime
+				found = true
+
+				break
+			}
+		}
+
+		if !found {
+			host.PortResults = append(host.PortResults, &models.PortResult{
 				Port:      result.Target.Port,
 				Available: true,
 				RespTime:  result.RespTime,
-			}
-			host.PortResults = append(host.PortResults, port)
+			})
+			p.portCounts[result.Target.Port]++
 		}
 	}
 
 	return nil
 }
 
-func (p *BaseProcessor) GetSummary(ctx context.Context) (*models.SweepSummary, error) {
-	p.Locker.RLock()
-	defer p.Locker.RUnlock()
+func (p *BaseProcessor) getOrCreateHost(hostAddr string, now time.Time) *models.HostResult {
+	host, exists := p.hostMap[hostAddr]
+	if !exists {
+		firstSeen := now
+		if seen, ok := p.firstSeenTimes[hostAddr]; ok {
+			firstSeen = seen
+		} else {
+			p.firstSeenTimes[hostAddr] = firstSeen
+		}
 
-	// Check for context cancellation
+		host = &models.HostResult{
+			Host:        hostAddr,
+			FirstSeen:   firstSeen,
+			LastSeen:    now,
+			Available:   false,
+			PortResults: make([]*models.PortResult, 0),
+		}
+		p.hostMap[hostAddr] = host
+	}
+
+	return host
+}
+
+func (p *BaseProcessor) GetSummary(ctx context.Context) (*models.SweepSummary, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	default:
 	}
 
-	// Count available hosts and prepare host list
+	lastSweep := p.lastSweepTime
+	if lastSweep.IsZero() {
+		lastSweep = time.Now()
+	}
+
 	availableHosts := 0
+	ports := make([]models.PortCount, 0, len(p.portCounts))
 	hosts := make([]models.HostResult, 0, len(p.hostMap))
+
+	for port, count := range p.portCounts {
+		ports = append(ports, models.PortCount{
+			Port:      port,
+			Available: count,
+		})
+	}
 
 	for _, host := range p.hostMap {
 		if host.Available {
@@ -115,30 +137,16 @@ func (p *BaseProcessor) GetSummary(ctx context.Context) (*models.SweepSummary, e
 		hosts = append(hosts, *host)
 	}
 
-	// Prepare port counts
-	ports := make([]models.PortCount, 0, len(p.portCounts))
-	for port, count := range p.portCounts {
-		ports = append(ports, models.PortCount{
-			Port:      port,
-			Available: count,
-		})
+	actualTotalHosts := len(p.hostMap)
+	if actualTotalHosts == 0 {
+		actualTotalHosts = p.totalHosts
 	}
 
 	return &models.SweepSummary{
-		TotalHosts:     p.totalHosts,
+		TotalHosts:     actualTotalHosts,
 		AvailableHosts: availableHosts,
-		LastSweep:      p.lastSweepTime.Unix(),
+		LastSweep:      lastSweep.Unix(),
 		Ports:          ports,
 		Hosts:          hosts,
 	}, nil
-}
-
-func (p *DefaultProcessor) Reset() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	p.hostMap = make(map[string]*models.HostResult)
-	p.portCounts = make(map[int]int)
-	p.totalHosts = 0
-	p.lastSweepTime = time.Time{}
 }

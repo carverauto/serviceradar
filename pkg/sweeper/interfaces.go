@@ -16,9 +16,6 @@ type ResultProcessor interface {
 
 	// GetSummary returns the current summary of all processed results.
 	GetSummary(ctx context.Context) (*models.SweepSummary, error)
-
-	// Reset clears the processor's state.
-	Reset()
 }
 
 // Sweeper defines the main interface for network sweeping.

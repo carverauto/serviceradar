@@ -47,6 +47,8 @@ func TestCombinedScanner_ScanBasic(t *testing.T) {
 }
 
 // TestCombinedScanner_ScanMixed tests scanning with mixed target types.
+// In pkg/scan/combined_scanner_test.go
+
 func TestCombinedScanner_ScanMixed(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -115,13 +117,34 @@ func TestCombinedScanner_ScanMixed(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, results)
 
-	gotResults := make([]models.Result, 0, len(targets)) // Pre-allocate with capacity
+	// Collect results
+	gotResults := make([]models.Result, 0, len(targets))
 	for result := range results {
 		gotResults = append(gotResults, result)
 	}
 
+	// Should get exactly 2 results
 	require.Len(t, gotResults, 2)
-	assertResultsMatch(t, []models.Result{tcpResult, icmpResult}, gotResults)
+
+	// Create maps to match results by mode since order isn't guaranteed
+	expectedMap := map[models.SweepMode]models.Result{
+		models.ModeTCP:  tcpResult,
+		models.ModeICMP: icmpResult,
+	}
+
+	gotMap := map[models.SweepMode]models.Result{}
+	for _, result := range gotResults {
+		gotMap[result.Target.Mode] = result
+	}
+
+	// Compare results by mode
+	for mode, expected := range expectedMap {
+		got, exists := gotMap[mode]
+		if assert.True(t, exists, "Missing result for mode %s", mode) {
+			assert.Equal(t, expected.Target, got.Target, "Target mismatch for mode %s", mode)
+			assert.Equal(t, expected.Available, got.Available, "Availability mismatch for mode %s", mode)
+		}
+	}
 }
 
 // TestCombinedScanner_ScanErrors tests error handling.
@@ -222,14 +245,4 @@ func (m targetModeMatcher) Matches(x interface{}) bool {
 
 func (m targetModeMatcher) String() string {
 	return fmt.Sprintf("targets with mode %s", m.mode)
-}
-
-func assertResultsMatch(t *testing.T, expected, got []models.Result) {
-	t.Helper()
-	require.Equal(t, len(expected), len(got))
-
-	for i := range expected {
-		assert.Equal(t, expected[i].Target, got[i].Target)
-		assert.Equal(t, expected[i].Available, got[i].Available)
-	}
 }

@@ -37,9 +37,11 @@ const (
 
 // Target represents a network target to be scanned.
 type Target struct {
-	Host string
-	Port int
-	Mode SweepMode
+	Host     string
+	Port     int
+	Mode     SweepMode
+	Metadata map[string]interface{} // Additional metadata about the scan
+
 }
 
 // Result represents the outcome of a sweep against a target.

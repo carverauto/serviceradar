@@ -2,8 +2,8 @@
 # setup-deb-agent.sh
 set -e  # Exit on any error
 
-# Get version from environment or default to 1.0.1
-VERSION=${VERSION:-1.0.2}
+# Get version from environment or default to 1.0.3
+VERSION=${VERSION:-1.0.3}
 echo "Building serviceradar-agent version ${VERSION}"
 
 echo "Setting up package structure..."
@@ -67,6 +67,11 @@ fi
 # Set permissions
 chown -R serviceradar:serviceradar /etc/serviceradar
 chmod 755 /usr/local/bin/serviceradar-agent
+
+# Set required capability for ICMP scanning
+if [ -x /usr/local/bin/serviceradar-agent ]; then
+    setcap cap_net_raw+ep /usr/local/bin/serviceradar-agent
+fi
 
 # Enable and start service
 systemctl daemon-reload
