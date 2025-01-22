@@ -62,7 +62,7 @@ cat > "${PKG_ROOT}/etc/serviceradar/poller.json" << EOF
 {
     "agents": {
         "local-agent": {
-            "address": "changeme:50051",
+            "address": "127.0.0.1:50051",
             "checks": [
                 {
                     "service_type": "process",
@@ -77,14 +77,22 @@ cat > "${PKG_ROOT}/etc/serviceradar/poller.json" << EOF
                 {
                     "service_type": "grpc",
                     "service_name": "dusk",
-                    "details": "localhost:50052"
+                    "details": "127.0.0.1:50052"
+                },
+                {
+                    "service_type": "sweep",
+                    "service_name": "network_sweep",
+                    "details": ""
                 }
             ]
         }
     },
     "cloud_address": "changeme:50052",
+    "listen_addr": ":50053",
     "poll_interval": "30s",
-    "poller_id": "home-poller-1"
+    "poller_id": "home-poller-1",
+    "service_name": "PollerService",
+    "service_type": "grpc"
 }
 EOF
 

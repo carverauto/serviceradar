@@ -36,6 +36,10 @@ Description: ServiceRadar monitoring agent with Dusk node checker
  a Dusk node checker plugin for monitoring services.
 EOF
 
+cat > "${PKG_ROOT}/DEBIAN/conffiles" << EOF
+/etc/serviceradar/agent.json
+EOF
+
 # Create systemd service file
 cat > "${PKG_ROOT}/lib/systemd/system/serviceradar-agent.service" << EOF
 [Unit]
@@ -53,6 +57,15 @@ RestartSec=10
 WantedBy=multi-user.target
 EOF
 
+
+cat > "${PKG_ROOT}/etc/serviceradar/agent.json" << EOF
+{
+    "checkers_dir": "/etc/serviceradar/checkers",
+    "listen_addr": ":50051",
+    "service_type": "grpc",
+    "service_name": "AgentService"
+}
+EOF
 
 # Create postinst script
 cat > "${PKG_ROOT}/DEBIAN/postinst" << EOF

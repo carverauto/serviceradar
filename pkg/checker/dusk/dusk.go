@@ -8,12 +8,12 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/mfreeman451/serviceradar/pkg/config"
 	"github.com/mfreeman451/serviceradar/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -30,12 +30,6 @@ const (
 var (
 	errSubscriptionFail = fmt.Errorf("subscription failed")
 )
-
-type Config struct {
-	NodeAddress string        `json:"node_address"`
-	Timeout     time.Duration `json:"timeout"` // Keep as time.Duration
-	ListenAddr  string        `json:"listen_addr"`
-}
 
 type BlockData struct {
 	Height    uint64    `json:"height"`
@@ -79,10 +73,15 @@ func NewDuskBlockService(checker *DuskChecker) *DuskBlockService {
 }
 
 // GetStatus implements the AgentService GetStatus method.
-// TODO: clean this up - find a way to use the context or drop those as arguments.
-func (s *DuskBlockService) GetStatus(_ context.Context, _ *proto.StatusRequest) (*proto.StatusResponse, error) {
+func (s *DuskBlockService) GetStatus(ctx context.Context, _ *proto.StatusRequest) (*proto.StatusResponse, error) {
 	s.checker.mu.RLock()
 	defer s.checker.mu.RUnlock()
+
+	// Cast config.Duration -> time.Duration
+	timeout := time.Duration(s.checker.Config.Timeout)
+
+	_, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 
 	log.Printf("DuskBlockService.GetStatus called. Last block: Height=%d Hash=%s",
 		s.checker.lastBlockData.Height,
@@ -135,14 +134,15 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	// Parse the timeout string into a duration
+	// Parse the timeout string into a time.Duration, then cast it
 	if aux.Timeout != "" {
 		duration, err := time.ParseDuration(aux.Timeout)
 		if err != nil {
 			return fmt.Errorf("invalid timeout format: %w", err)
 		}
 
-		c.Timeout = duration
+		// Cast the parsed time.Duration to config.Duration
+		c.Timeout = config.Duration(duration)
 	}
 
 	return nil
@@ -390,22 +390,6 @@ func (s *HealthServer) Check(ctx context.Context, _ *grpc_health_v1.HealthCheckR
 	return &grpc_health_v1.HealthCheckResponse{
 		Status: grpc_health_v1.HealthCheckResponse_SERVING,
 	}, nil
-}
-
-func LoadConfig(path string) (Config, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return Config{}, fmt.Errorf("failed to read config: %w", err)
-	}
-
-	var config Config
-	if err := json.Unmarshal(data, &config); err != nil {
-		return Config{}, fmt.Errorf("failed to parse config: %w", err)
-	}
-
-	log.Printf("Loaded config with timeout: %v", config.Timeout)
-
-	return config, nil
 }
 
 // Watch implements the health check watch RPC (required by the interface).

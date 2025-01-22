@@ -58,6 +58,196 @@ type Server struct {
 	apiServer      *api.APIServer
 	ShutdownChan   chan struct{}
 	knownPollers   []string
+	grpcServer     *grpc.Server
+}
+
+func NewServer(_ context.Context, config *Config) (*Server, error) {
+	// Use default DB path if not specified
+	dbPath := config.DBPath
+	if dbPath == "" {
+		dbPath = defaultDBPath
+	}
+
+	// Ensure the directory exists
+	if err := os.MkdirAll("/var/lib/serviceradar", serviceradarDirPerms); err != nil {
+		return nil, fmt.Errorf("failed to create data directory: %w", err)
+	}
+
+	// Initialize database
+	database, err := db.New(dbPath)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", errDatabaseError, err)
+	}
+
+	server := &Server{
+		db:             database,
+		alertThreshold: config.AlertThreshold,
+		webhooks:       make([]*alerts.WebhookAlerter, 0),
+		ShutdownChan:   make(chan struct{}),
+		knownPollers:   config.KnownPollers,
+	}
+
+	// Initialize webhooks
+	server.initializeWebhooks(config.Webhooks)
+
+	return server, nil
+}
+
+// Start implements the lifecycle.Service interface.
+func (s *Server) Start(ctx context.Context) error {
+	log.Printf("Starting cloud service...")
+
+	// Start GRPC server
+	if s.grpcServer != nil {
+		go func() {
+			if err := s.grpcServer.Start(); err != nil {
+				log.Printf("gRPC server error: %v", err)
+			}
+		}()
+	}
+
+	// Send startup notification
+	if err := s.sendStartupNotification(ctx); err != nil {
+		log.Printf("Failed to send startup notification: %v", err)
+	}
+
+	// Start periodic cleanup
+	go s.periodicCleanup(ctx)
+
+	// Start node monitoring with proper delays
+	go func() {
+		log.Printf("Starting node monitoring...")
+
+		// Initial delay to allow nodes to report in
+		time.Sleep(nodeDiscoveryTimeout)
+		s.checkInitialStates(ctx)
+
+		// Check never-reported pollers after another delay
+		time.Sleep(nodeNeverReportedTimeout)
+		s.checkNeverReportedPollers(ctx, &Config{KnownPollers: s.knownPollers})
+
+		// Start continuous monitoring
+		s.MonitorPollers(ctx)
+	}()
+
+	return nil
+}
+
+// Stop implements the lifecycle.Service interface.
+func (s *Server) Stop() error {
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+
+	// Send shutdown notification
+	if err := s.sendShutdownNotification(ctx); err != nil {
+		log.Printf("Failed to send shutdown notification: %v", err)
+	}
+
+	// Stop GRPC server if it exists
+	if s.grpcServer != nil {
+		s.grpcServer.Stop()
+	}
+
+	// Close database
+	if err := s.db.Close(); err != nil {
+		log.Printf("Error closing database: %v", err)
+	}
+
+	// Signal all background tasks to stop
+	close(s.ShutdownChan)
+
+	return nil
+}
+
+func (s *Server) sendStartupNotification(ctx context.Context) error {
+	if len(s.webhooks) == 0 {
+		return nil
+	}
+
+	alert := &alerts.WebhookAlert{
+		Level:     alerts.Info,
+		Title:     "Cloud Service Started",
+		Message:   fmt.Sprintf("ServiceRadar cloud service initialized at %s", time.Now().Format(time.RFC3339)),
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		NodeID:    "cloud",
+		Details: map[string]any{
+			"version":  "1.0.2",
+			"hostname": getHostname(),
+		},
+	}
+
+	return s.sendAlert(ctx, alert)
+}
+
+func (s *Server) sendShutdownNotification(ctx context.Context) error {
+	if len(s.webhooks) == 0 {
+		return nil
+	}
+
+	alert := &alerts.WebhookAlert{
+		Level:     alerts.Warning,
+		Title:     "Cloud Service Stopping",
+		Message:   fmt.Sprintf("ServiceRadar cloud service shutting down at %s", time.Now().Format(time.RFC3339)),
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		NodeID:    "cloud",
+		Details: map[string]any{
+			"hostname": getHostname(),
+		},
+	}
+
+	return s.sendAlert(ctx, alert)
+}
+
+// checkPollers is the monitoring function that checks poller health.
+func (s *Server) checkPollers(ctx context.Context) error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	now := time.Now()
+	alertThreshold := now.Add(-s.alertThreshold)
+
+	// Check all known pollers
+	for _, pollerID := range s.knownPollers {
+		if err := s.checkPollerHealth(ctx, pollerID, alertThreshold); err != nil {
+			log.Printf("Error checking poller %s: %v", pollerID, err)
+		}
+	}
+
+	return nil
+}
+
+func (s *Server) checkPollerHealth(ctx context.Context, pollerID string, threshold time.Time) error {
+	// Get last known status
+	var lastSeen time.Time
+
+	var isHealthy bool
+
+	err := s.db.QueryRow(`
+        SELECT last_seen, is_healthy 
+        FROM nodes 
+        WHERE node_id = ?
+    `, pollerID).Scan(&lastSeen, &isHealthy)
+
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("failed to query poller status: %w", err)
+		}
+		// If no rows, treat as never seen
+		lastSeen = time.Time{}
+		isHealthy = false
+	}
+
+	// Check if the poller has gone offline
+	if lastSeen.Before(threshold) && isHealthy {
+		log.Printf("Poller %s appears to be offline (last seen: %v)",
+			pollerID, lastSeen.Format(time.RFC3339))
+
+		if err := s.markNodeDown(ctx, pollerID, lastSeen); err != nil {
+			return fmt.Errorf("failed to mark poller as down: %w", err)
+		}
+	}
+
+	return nil
 }
 
 func (s *Server) Shutdown(ctx context.Context) {
@@ -80,7 +270,13 @@ func (s *Server) Shutdown(ctx context.Context) {
 				"pid":      os.Getpid(),
 			},
 		}
-		s.sendAlert(ctx, &alert)
+
+		err := s.sendAlert(ctx, &alert)
+		if err != nil {
+			log.Printf("Error sending shutdown alert: %v", err)
+
+			return
+		}
 	}
 
 	close(s.ShutdownChan)
@@ -170,43 +366,11 @@ func (s *Server) checkInitialStates(ctx context.Context) {
 			err := s.markNodeDown(ctx, pollerID, time.Now())
 			if err != nil {
 				log.Printf("Error marking node down: %v", err)
+
 				return
 			}
 		}
 	}
-}
-
-func NewServer(ctx context.Context, config *Config) (*Server, error) {
-	// Use default DB path if not specified
-	dbPath := config.DBPath
-	if dbPath == "" {
-		dbPath = defaultDBPath
-	}
-
-	// Ensure the directory exists
-	if err := os.MkdirAll("/var/lib/serviceradar", serviceradarDirPerms); err != nil {
-		return nil, fmt.Errorf("failed to create data directory: %w", err)
-	}
-
-	// Initialize database
-	database, err := db.New(dbPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize database: %w", err)
-	}
-
-	server := &Server{
-		db:             database,
-		alertThreshold: config.AlertThreshold,
-		webhooks:       make([]*alerts.WebhookAlerter, 0),
-		ShutdownChan:   make(chan struct{}),
-		knownPollers:   config.KnownPollers,
-	}
-
-	server.initializeGRPCServer(config)
-	server.initializeWebhooks(config.Webhooks)
-	server.startBackgroundTasks(ctx)
-
-	return server, nil
 }
 
 // ReportStatus handles incoming status reports from pollers.
@@ -410,7 +574,11 @@ func (s *Server) handleNodeRecovery(ctx context.Context, pollerID string, apiSta
 		},
 	}
 
-	s.sendAlert(ctx, alert)
+	err := s.sendAlert(ctx, alert)
+	if err != nil {
+		log.Printf("Error sending recovery alert: %v", err)
+		return
+	}
 }
 
 func (s *Server) updateNodeState(ctx context.Context, pollerID string, apiStatus *api.NodeStatus, wasHealthy bool, now time.Time) error {
@@ -440,7 +608,11 @@ func (s *Server) sendNodeDownAlert(ctx context.Context, nodeID string, lastSeen 
 		},
 	}
 
-	s.sendAlert(ctx, alert)
+	err := s.sendAlert(ctx, alert)
+	if err != nil {
+		log.Printf("Error sending alert: %v", err)
+		return
+	}
 }
 
 // updateAPINodeStatus updates the node status in the API server.
@@ -539,46 +711,17 @@ func (s *Server) performNodeUpdate(tx *sql.Tx, nodeID string, lastSeen time.Time
 	return s.updateExistingNode(tx, nodeID, lastSeen)
 }
 
-func (s *Server) initializeGRPCServer(config *Config) {
-	grpcServer := grpc.NewServer(config.GrpcAddr,
-		grpc.WithMaxRecvSize(maxMessageSize),
-		grpc.WithMaxSendSize(maxMessageSize),
-	)
-
-	proto.RegisterPollerServiceServer(grpcServer, s)
-
-	go func() {
-		if err := grpcServer.Start(); err != nil {
-			log.Printf("gRPC server failed: %v", err)
-		}
-	}()
-}
-
 func (s *Server) initializeWebhooks(configs []alerts.WebhookConfig) {
 	for i, config := range configs {
 		log.Printf("Processing webhook config %d: enabled=%v", i, config.Enabled)
 
 		if config.Enabled {
 			alerter := alerts.NewWebhookAlerter(config)
-
 			s.webhooks = append(s.webhooks, alerter)
 
 			log.Printf("Added webhook alerter: %+v", config.URL)
 		}
 	}
-}
-
-func (s *Server) startBackgroundTasks(ctx context.Context) {
-	// Start periodic database cleanup
-	go s.periodicCleanup(ctx)
-
-	// Send startup notification
-	if len(s.webhooks) > 0 {
-		s.sendStartupNotification(ctx)
-	}
-
-	// Start node monitoring tasks
-	go s.startNodeMonitoring(ctx)
 }
 
 // periodicCleanup runs regular maintenance tasks on the database.
@@ -606,48 +749,6 @@ func (s *Server) periodicCleanup(_ context.Context) {
 	}
 }
 
-func (s *Server) startNodeMonitoring(ctx context.Context) {
-	// Initial delay to allow nodes to report in
-	time.Sleep(nodeDiscoveryTimeout)
-
-	// Check initial states from database
-	s.checkInitialStates(ctx)
-
-	// Check never-reported pollers
-	time.Sleep(nodeNeverReportedTimeout)
-	s.checkNeverReportedPollers(ctx, &Config{KnownPollers: s.knownPollers})
-
-	// Start continuous monitoring
-	go s.MonitorPollers(ctx)
-}
-
-func (s *Server) sendStartupNotification(ctx context.Context) {
-	log.Printf("Sending startup notification to %d webhooks", len(s.webhooks))
-
-	// Get total nodes from database
-	var nodeCount int
-
-	if err := s.db.QueryRow("SELECT COUNT(*) FROM nodes").Scan(&nodeCount); err != nil {
-		log.Printf("Error counting nodes: %v", err)
-	}
-
-	alert := alerts.WebhookAlert{
-		Level:     alerts.Info,
-		Title:     "Cloud Service Started",
-		Message:   fmt.Sprintf("ServiceRadar cloud service initialized at %s", time.Now().Format(time.RFC3339)),
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
-		NodeID:    "cloud",
-		Details: map[string]any{
-			"version":     "1.0.2", // TODO: query version from DB
-			"hostname":    getHostname(),
-			"pid":         os.Getpid(),
-			"total_nodes": nodeCount,
-		},
-	}
-
-	s.sendAlert(ctx, &alert)
-}
-
 func (s *Server) checkNeverReportedPollers(ctx context.Context, config *Config) {
 	const querySQL = `
         SELECT node_id 
@@ -672,15 +773,11 @@ func (s *Server) checkNeverReportedPollers(ctx context.Context, config *Config) 
 
 			log.Printf("Sending 'never-reported' alert for poller %s", pollerID)
 
-			s.sendAlert(ctx, &alert)
-		}
-	}
-}
-
-func (s *Server) sendAlert(ctx context.Context, alert *alerts.WebhookAlert) {
-	for _, webhook := range s.webhooks {
-		if err := webhook.Alert(ctx, alert); err != nil {
-			log.Printf("Error sending webhook alert: %v", err)
+			err := s.sendAlert(ctx, &alert)
+			if err != nil {
+				log.Printf("Error sending 'never-reported' alert: %v", err)
+				return
+			}
 		}
 	}
 }
@@ -735,74 +832,15 @@ func (s *Server) MonitorPollers(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			s.checkPollers(ctx)
+			err := s.checkPollers(ctx)
+			if err != nil {
+				log.Printf("Error checking pollers: %v", err)
+				return
+			}
 		case <-time.After(oneDay):
 			// Daily cleanup of old data
 			if err := s.db.CleanOldData(oneWeek); err != nil {
 				log.Printf("Error cleaning old data: %v", err)
-			}
-		}
-	}
-}
-
-func (s *Server) checkPollers(ctx context.Context) {
-	now := time.Now()
-	alertThreshold := now.Add(-s.alertThreshold)
-
-	// Get all nodes that are currently marked as healthy but haven't been seen recently
-	const querySQL = `
-        SELECT n.node_id, n.last_seen, n.is_healthy
-        FROM nodes n
-        WHERE n.last_seen < ? AND n.is_healthy = TRUE
-    `
-
-	rows, err := s.db.Query(querySQL, alertThreshold) //nolint:rowserrcheck // rows.Close() is deferred
-	if err != nil {
-		log.Printf("Error querying nodes: %v", err)
-		return
-	}
-	defer func(rows *sql.Rows) {
-		err := rows.Close()
-		if err != nil {
-			log.Printf("Error closing rows: %v", err)
-		}
-	}(rows)
-
-	for rows.Next() {
-		var nodeID string
-
-		var lastSeen time.Time
-
-		var isHealthy bool
-
-		if err := rows.Scan(&nodeID, &lastSeen, &isHealthy); err != nil {
-			log.Printf("Error scanning node status: %v", err)
-			continue
-		}
-
-		timeSinceLastSeen := now.Sub(lastSeen)
-		log.Printf("Node %s last seen %v ago (threshold: %v)",
-			nodeID, timeSinceLastSeen, s.alertThreshold)
-
-		// Only mark down if the node is currently marked as healthy
-		if isHealthy {
-			log.Printf("Node %s transitioning to DOWN state", nodeID)
-
-			err := s.markNodeDown(ctx, nodeID, lastSeen)
-			if err != nil {
-				log.Printf("Error marking node down: %v", err)
-
-				return
-			}
-
-			// Update API server state
-			if s.apiServer != nil {
-				offlineStatus := &api.NodeStatus{
-					NodeID:     nodeID,
-					IsHealthy:  false,
-					LastUpdate: now,
-				}
-				s.apiServer.UpdateNodeStatus(nodeID, offlineStatus)
 			}
 		}
 	}
@@ -824,6 +862,16 @@ func (s *Server) getLastDowntime(nodeID string) time.Time {
 	}
 
 	return downtime
+}
+
+func (s *Server) sendAlert(ctx context.Context, alert *alerts.WebhookAlert) error {
+	for _, webhook := range s.webhooks {
+		if err := webhook.Alert(ctx, alert); err != nil {
+			log.Printf("Error sending webhook alert: %v", err)
+		}
+	}
+
+	return nil
 }
 
 func getHostname() string {

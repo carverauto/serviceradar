@@ -2,73 +2,56 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"log"
-	"os"
-	"os/signal"
-	"syscall"
 
+	"github.com/mfreeman451/serviceradar/pkg/config"
+	"github.com/mfreeman451/serviceradar/pkg/grpc"
+	"github.com/mfreeman451/serviceradar/pkg/lifecycle"
 	"github.com/mfreeman451/serviceradar/pkg/poller"
+	"github.com/mfreeman451/serviceradar/proto"
 )
 
 func main() {
-	configPath := flag.String("config", "/etc/serviceradar/poller.json", "Path to config file")
+	if err := run(); err != nil {
+		log.Fatalf("Fatal error: %v", err)
+	}
+}
+
+func run() error {
+	// Parse command line flags
+	configPath := flag.String("config", "/etc/serviceradar/poller.json", "Path to poller config file")
 	flag.Parse()
 
-	config, err := poller.LoadConfig(*configPath)
+	// Load configuration
+	var cfg poller.Config
+	if err := config.LoadAndValidate(*configPath, &cfg); err != nil {
+		return err
+	}
+
+	// Create context for lifecycle management
+	ctx := context.Background()
+
+	// Create poller instance
+	p, err := poller.New(ctx, &cfg)
 	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+		return err
 	}
 
-	// Create context that can be canceled
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	// Register services function
+	registerServices := func(s *grpc.Server) error {
+		// Register poller service if needed
+		proto.RegisterPollerServiceServer(s.GetGRPCServer(), p)
 
-	// Create poller with context
-	p, err := poller.New(ctx, config)
-	if err != nil {
-		log.Printf("Failed to create poller: %v", err)
-		cancel()
-
-		return
+		return nil
 	}
 
-	// Ensure poller is closed after main exits
-	defer func() {
-		log.Printf("Closing poller...")
-
-		if err := p.Close(); err != nil {
-			log.Printf("Failed to close poller: %v", err)
-		}
-	}()
-
-	// Handle shutdown signals
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-	// Start poller in a goroutine
-	errChan := make(chan error, 1)
-	go func() {
-		log.Printf("Starting poller...")
-		errChan <- p.Start(ctx)
-
-		log.Printf("Poller Start() goroutine finished")
-
-		close(errChan) // Ensure channel is closed after Start returns
-	}()
-
-	// Wait for either error or shutdown signal
-	select {
-	case err := <-errChan:
-		if err != nil && !errors.Is(err, context.Canceled) {
-			log.Printf("Poller failed: %v", err)
-			cancel()
-		}
-	case sig := <-sigChan:
-		log.Printf("Received signal %v, initiating shutdown", sig)
-		cancel()
-	}
-
-	log.Println("Shutdown complete")
+	// Run poller with lifecycle management
+	return lifecycle.RunServer(ctx, &lifecycle.ServerOptions{
+		ListenAddr:           cfg.ListenAddr,
+		ServiceName:          cfg.ServiceName,
+		Service:              p,
+		RegisterGRPCServices: []lifecycle.GRPCServiceRegistrar{registerServices},
+		EnableHealthCheck:    true,
+	})
 }

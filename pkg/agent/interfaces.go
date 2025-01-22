@@ -9,6 +9,7 @@ import (
 type Service interface {
 	Start(context.Context) error
 	Stop() error
+	Name() string
 }
 
 // SweepStatusProvider is an interface for services that can provide sweep status.
