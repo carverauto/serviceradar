@@ -63,7 +63,7 @@ cat > "${PKG_ROOT}/etc/serviceradar/agent.json" << EOF
     "checkers_dir": "/etc/serviceradar/checkers",
     "listen_addr": ":50051",
     "service_type": "grpc",
-    "service_name": "agent"
+    "service_name": "AgentService"
 }
 EOF
 

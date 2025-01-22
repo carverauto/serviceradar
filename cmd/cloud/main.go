@@ -58,7 +58,7 @@ func run() error {
 	}
 
 	// Run server with lifecycle management
-	return lifecycle.RunServer(ctx, lifecycle.ServerOptions{
+	return lifecycle.RunServer(ctx, &lifecycle.ServerOptions{
 		ListenAddr:           cfg.GrpcAddr,
 		Service:              server,
 		RegisterGRPCServices: []lifecycle.GRPCServiceRegistrar{registerService},
