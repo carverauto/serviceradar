@@ -14,6 +14,10 @@ import (
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
 
+var (
+	errFailedToLoadConfig = fmt.Errorf("failed to load config")
+)
+
 func main() {
 	if err := run(); err != nil {
 		log.Fatalf("Fatal error: %v", err)
@@ -30,7 +34,7 @@ func run() error {
 	// Load and validate configuration using shared config package
 	var cfg dusk.Config
 	if err := config.LoadAndValidate(*configPath, &cfg); err != nil {
-		return fmt.Errorf("failed to load config: %v", err)
+		return fmt.Errorf("%w: %w", errFailedToLoadConfig, err)
 	}
 
 	// Create the checker
@@ -77,11 +81,13 @@ type duskService struct {
 
 func (s *duskService) Start(ctx context.Context) error {
 	log.Printf("Starting Dusk service...")
+
 	return s.checker.StartMonitoring(ctx)
 }
 
 func (s *duskService) Stop() error {
 	log.Printf("Stopping Dusk service...")
 	close(s.checker.Done)
+
 	return nil
 }

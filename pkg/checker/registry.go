@@ -36,7 +36,7 @@ func (r *checkerRegistry) Register(serviceType string, factory Factory) {
 func (r *checkerRegistry) Get(ctx context.Context, serviceType, serviceName, details string) (Checker, error) {
 	f, ok := r.factories[serviceType]
 	if !ok {
-		return nil, fmt.Errorf("%w: %w", errNoChecker, serviceType)
+		return nil, fmt.Errorf("%w: %s", errNoChecker, serviceType)
 	}
 
 	return f(ctx, serviceName, details)

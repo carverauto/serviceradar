@@ -27,6 +27,7 @@ const (
 
 var (
 	errInvalidDuration = errors.New("invalid duration")
+	errStopping        = errors.New("error stopping services")
 )
 
 type Duration time.Duration
@@ -78,7 +79,7 @@ func (s *Server) Stop() error {
 
 	// Check for errors
 	if len(stopErrs) > 0 {
-		return fmt.Errorf("errors occurred while stopping services: %v", stopErrs)
+		return fmt.Errorf("%w: %v", errStopping, stopErrs)
 	}
 
 	return nil
