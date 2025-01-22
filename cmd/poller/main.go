@@ -1,8 +1,8 @@
+// cmd/poller/main.go
 package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"log"
 	"os"
@@ -13,62 +13,59 @@ import (
 )
 
 func main() {
-	configPath := flag.String("config", "/etc/serviceradar/poller.json", "Path to config file")
+	if err := run(); err != nil {
+		log.Fatalf("Fatal error: %v", err)
+	}
+}
+
+func run() error {
+	// Parse command line flags
+	configPath := flag.String("config", "/etc/serviceradar/poller.json", "Path to poller config file")
 	flag.Parse()
 
-	config, err := poller.LoadConfig(*configPath)
-	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
-	}
-
-	// Create context that can be canceled
+	// Create a cancellable context for shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Create poller with context
-	p, err := poller.New(ctx, config)
+	// Load configuration
+	cfg, err := poller.LoadConfig(*configPath)
 	if err != nil {
-		log.Printf("Failed to create poller: %v", err)
-		cancel()
-
-		return
+		return err
 	}
 
-	// Ensure poller is closed after main exits
-	defer func() {
-		log.Printf("Closing poller...")
-
-		if err := p.Close(); err != nil {
-			log.Printf("Failed to close poller: %v", err)
-		}
-	}()
+	// Create poller instance
+	p, err := poller.New(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	defer p.Close()
 
 	// Handle shutdown signals
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	// Start poller in a goroutine
+	// Start poller in background
 	errChan := make(chan error, 1)
 	go func() {
-		log.Printf("Starting poller...")
-		errChan <- p.Start(ctx)
-
-		log.Printf("Poller Start() goroutine finished")
-
-		close(errChan) // Ensure channel is closed after Start returns
+		defer close(errChan)
+		if err := p.Start(ctx); err != nil {
+			errChan <- err
+		}
 	}()
 
-	// Wait for either error or shutdown signal
+	// Wait for shutdown signal or error
 	select {
-	case err := <-errChan:
-		if err != nil && !errors.Is(err, context.Canceled) {
-			log.Printf("Poller failed: %v", err)
-			cancel()
-		}
 	case sig := <-sigChan:
 		log.Printf("Received signal %v, initiating shutdown", sig)
-		cancel()
+	case err := <-errChan:
+		if err != nil {
+			log.Printf("Poller error: %v", err)
+			return err
+		}
 	}
 
-	log.Println("Shutdown complete")
+	// Initiate graceful shutdown
+	cancel()
+
+	return nil
 }

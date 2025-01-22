@@ -5,100 +5,48 @@ import (
 	"context"
 	"flag"
 	"log"
-	"os"
-	"os/signal"
-	"syscall"
 
 	"github.com/mfreeman451/serviceradar/pkg/agent"
+	"github.com/mfreeman451/serviceradar/pkg/config"
 	"github.com/mfreeman451/serviceradar/pkg/grpc"
+	"github.com/mfreeman451/serviceradar/pkg/lifecycle"
 	"github.com/mfreeman451/serviceradar/proto"
-
-	"google.golang.org/grpc/health"
-	healthpb "google.golang.org/grpc/health/grpc_health_v1"
-)
-
-const (
-	maxRecvSize = 4 * 1024 * 1024 // 4MB
-	maxSendSize = 4 * 1024 * 1024 // 4MB
 )
 
 func main() {
-	log.Printf("Starting serviceradar agent...")
+	if err := run(); err != nil {
+		log.Fatalf("Fatal error: %v", err)
+	}
+}
 
-	// Command line flags
-	configDir := flag.String("config", "/etc/serviceradar/checkers", "Path to checkers config directory")
-	listenAddr := flag.String("listen", ":50051", "gRPC listen address")
+func run() error {
+	// Parse command line flags
+	configPath := flag.String("config", "/etc/serviceradar/agent.json", "Path to agent config file")
 	flag.Parse()
 
-	// Create main context
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	// Load configuration
+	var cfg config.AgentConfig
+	if err := config.LoadAndValidate(*configPath, &cfg); err != nil {
+		return err
+	}
 
-	// Create agent server first
-	server, err := agent.NewServer(*configDir)
+	// Create agent server - it will discover checkers from the CheckersDir
+	server, err := agent.NewServer(cfg.CheckersDir)
 	if err != nil {
-		log.Printf("Failed to create agent server: %v", err)
-		cancel()
+		return err
 	}
 
-	// Create and configure gRPC server
-	grpcServer := grpc.NewServer(*listenAddr,
-		grpc.WithMaxRecvSize(maxRecvSize),
-		grpc.WithMaxSendSize(maxSendSize),
-	)
-
-	// Setup health check
-	hs := health.NewServer()
-
-	hs.SetServingStatus("AgentService", healthpb.HealthCheckResponse_SERVING)
-
-	if err := grpcServer.RegisterHealthServer(hs); err != nil {
-		log.Printf("Failed to register health server: %v", err)
-
-		cancel()
+	// Create gRPC service registrar
+	registerService := func(s *grpc.Server) error {
+		proto.RegisterAgentServiceServer(s.GetGRPCServer(), server)
+		return nil
 	}
 
-	// Register agent service
-	proto.RegisterAgentServiceServer(grpcServer.GetGRPCServer(), server)
-
-	// Start the gRPC server
-	errChan := make(chan error, 1)
-
-	go func() {
-		log.Printf("Starting gRPC server on %s", *listenAddr)
-
-		if err := grpcServer.Start(); err != nil {
-			errChan <- err
-		}
-	}()
-
-	// Start the agent services
-	if err := server.Start(ctx); err != nil {
-		log.Printf("Warning: Failed to start some agent services: %v", err)
-	}
-
-	// Handle shutdown
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-	// Wait for shutdown signal or error
-	select {
-	case sig := <-sigChan:
-		log.Printf("Received signal %v, initiating shutdown", sig)
-	case err := <-errChan:
-		log.Printf("Server error: %v, initiating shutdown", err)
-	}
-
-	// Begin graceful shutdown
-	log.Printf("Starting graceful shutdown...")
-
-	// Stop gRPC server
-	grpcServer.Stop()
-
-	// Close agent server
-	if err := server.Close(); err != nil {
-		log.Printf("Error during server shutdown: %v", err)
-	}
-
-	log.Printf("Shutdown complete")
+	// Run server with lifecycle management
+	return lifecycle.RunServer(context.Background(), lifecycle.ServerOptions{
+		ListenAddr:           cfg.ListenAddr,
+		Service:              server,
+		RegisterGRPCServices: []lifecycle.GRPCServiceRegistrar{registerService},
+		EnableHealthCheck:    true, // Agent needs health checks for poller monitoring
+	})
 }

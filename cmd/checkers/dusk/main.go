@@ -4,16 +4,13 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
-	"os"
-	"os/signal"
-	"syscall"
 
 	"github.com/mfreeman451/serviceradar/pkg/checker/dusk"
 	"github.com/mfreeman451/serviceradar/pkg/grpc"
+	"github.com/mfreeman451/serviceradar/pkg/lifecycle"
 	"github.com/mfreeman451/serviceradar/proto"
-	"google.golang.org/grpc/health"
-	"google.golang.org/grpc/health/grpc_health_v1"
 )
 
 const (
@@ -22,81 +19,63 @@ const (
 )
 
 func main() {
+	if err := run(); err != nil {
+		log.Fatalf("Fatal error: %v", err)
+	}
+}
+
+func run() error {
 	log.Printf("Starting Dusk checker...")
 
-	configFile := flag.String("config", "/etc/serviceradar/checkers/dusk.json", "Path to config file")
+	// Parse command line flags
+	configPath := flag.String("config", "/etc/serviceradar/checkers/dusk.json", "Path to config file")
 	flag.Parse()
 
-	log.Printf("Loading config from: %s", *configFile)
-
-	config, err := dusk.LoadConfig(*configFile)
+	// Load configuration
+	config, err := dusk.LoadConfig(*configPath)
 	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+		return fmt.Errorf("failed to load config: %v", err)
 	}
 
-	log.Printf("Loaded config: %+v", config)
-
-	// Create context that can be canceled
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
+	// Create the checker
 	checker := &dusk.DuskChecker{
 		Config: config,
 		Done:   make(chan struct{}),
 	}
 
-	// Start monitoring Dusk node
-	log.Printf("Starting monitoring...")
-
-	if err := checker.StartMonitoring(ctx); err != nil {
-		log.Printf("Failed to start monitoring: %v", err)
-		cancel() // Cancel context if monitoring fails
-	}
-
-	// Create gRPC server with options
-	grpcServer := grpc.NewServer(config.ListenAddr,
-		grpc.WithMaxRecvSize(maxRecvSize),
-		grpc.WithMaxSendSize(maxSendSize),
-	)
-
-	hs := health.NewServer()
-	hs.SetServingStatus("dusk-checker", grpc_health_v1.HealthCheckResponse_SERVING)
-
-	if err := grpcServer.RegisterHealthServer(hs); err != nil {
-		log.Printf("Failed to register health server: %v", err)
-		cancel() // Cancel context if health server fails
-	}
-
+	// Create block service
 	blockService := dusk.NewDuskBlockService(checker)
-	proto.RegisterAgentServiceServer(grpcServer.GetGRPCServer(), blockService)
 
-	log.Printf("Registered health check and block data service")
-
-	// Handle shutdown gracefully
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-
-	// Start gRPC server
-	go func() {
-		log.Printf("Starting gRPC server on %s", config.ListenAddr)
-
-		if err := grpcServer.Start(); err != nil {
-			log.Printf("gRPC server failed: %v", err)
-			cancel() // Cancel context if server fails
-		}
-	}()
-
-	// Wait for shutdown signal
-	select {
-	case sig := <-sigCh:
-		log.Printf("Received signal %v, shutting down", sig)
-	case <-ctx.Done():
-		log.Printf("Context canceled, shutting down")
+	// Create gRPC service registrar
+	registerService := func(s *grpc.Server) error {
+		proto.RegisterAgentServiceServer(s.GetGRPCServer(), blockService)
+		return nil
 	}
 
-	// Initiate graceful shutdown
-	close(checker.Done) // Stop the checker
-	grpcServer.Stop()   // Stop the gRPC server
+	// Create a wrapper service that implements lifecycle.Service
+	service := &duskService{
+		checker: checker,
+	}
 
-	log.Printf("Shutdown complete")
+	// Run service with lifecycle management
+	return lifecycle.RunServer(context.Background(), lifecycle.ServerOptions{
+		ListenAddr:           config.ListenAddr,
+		Service:              service,
+		RegisterGRPCServices: []lifecycle.GRPCServiceRegistrar{registerService},
+		EnableHealthCheck:    true,
+	})
+}
+
+// duskService wraps the DuskChecker to implement lifecycle.Service
+type duskService struct {
+	checker *dusk.DuskChecker
+}
+
+func (s *duskService) Start(ctx context.Context) error {
+	return s.checker.StartMonitoring(ctx)
+}
+
+func (s *duskService) Stop() error {
+	close(s.checker.Done)
+	return nil
 }

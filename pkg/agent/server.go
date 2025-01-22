@@ -62,6 +62,28 @@ type Server struct {
 	services     []Service
 }
 
+func (s *Server) Stop() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var stopErrs []error
+
+	// Stop all services
+	for _, svc := range s.services {
+		if err := svc.Stop(); err != nil {
+			stopErrs = append(stopErrs, err)
+			log.Printf("Error stopping service: %v", err)
+		}
+	}
+
+	// Check for errors
+	if len(stopErrs) > 0 {
+		return fmt.Errorf("errors occurred while stopping services: %v", stopErrs)
+	}
+
+	return nil
+}
+
 // NewServer creates a new agent server.
 func NewServer(configDir string) (*Server, error) {
 	s := &Server{
