@@ -1,5 +1,3 @@
-// pkg/poller/config.go
-
 package poller
 
 import (
@@ -42,8 +40,12 @@ func (c *Config) Validate() error {
 	if len(c.Agents) == 0 {
 		return fmt.Errorf("at least one agent configuration is required")
 	}
-	if c.PollInterval.Duration == 0 {
-		c.PollInterval = config.Duration{Duration: 30 * time.Second} // default
+
+	// Compare PollInterval to zero by casting to time.Duration
+	if time.Duration(c.PollInterval) == 0 {
+		// Construct a config.Duration from a time.Duration
+		c.PollInterval = config.Duration(30 * time.Second)
 	}
+
 	return nil
 }

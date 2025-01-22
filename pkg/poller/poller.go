@@ -103,12 +103,14 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 
 // Start implements the lifecycle.Service interface.
 func (p *Poller) Start(ctx context.Context) error {
-	ticker := time.NewTicker(p.config.PollInterval.Duration)
+	interval := time.Duration(p.config.PollInterval)
+
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	log.Printf("Starting poller with interval %v", p.config.PollInterval)
+	log.Printf("Starting poller with interval %v", interval)
 
-	// Do initial poll
+	// Initial poll
 	if err := p.poll(ctx); err != nil {
 		log.Printf("Error during initial poll: %v", err)
 	}
