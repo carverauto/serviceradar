@@ -1,4 +1,5 @@
-// Package poller provides functionality for polling agent status
+// Package poller pkg/poller/poller.go
+
 package poller
 
 import (
@@ -10,15 +11,37 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mfreeman451/serviceradar/pkg/checker"
 	"github.com/mfreeman451/serviceradar/pkg/grpc"
 	"github.com/mfreeman451/serviceradar/pkg/models"
 	"github.com/mfreeman451/serviceradar/proto"
 )
 
-var (
-	errClosing = errors.New("error closing")
+const (
+	grpcRetries    = 3
+	defaultTimeout = 30 * time.Second
 )
+
+var (
+	ErrInvalidDuration      = fmt.Errorf("invalid duration")
+	ErrNoConnectionForAgent = fmt.Errorf("no connection found for agent")
+	ErrAgentUnhealthy       = fmt.Errorf("agent is unhealthy")
+	errClosing              = errors.New("error closing")
+)
+
+// AgentConnection represents a connection to an agent.
+type AgentConnection struct {
+	client    *grpc.ClientConn
+	agentName string
+}
+
+// Poller represents the monitoring poller.
+type Poller struct {
+	config      Config
+	cloudClient proto.PollerServiceClient
+	grpcClient  *grpc.ClientConn
+	mu          sync.RWMutex
+	agents      map[string]*AgentConnection
+}
 
 // ServiceCheck manages a single service check operation.
 type ServiceCheck struct {
@@ -27,12 +50,9 @@ type ServiceCheck struct {
 }
 
 // New creates a new poller instance.
-//
-// `reg` is the checker.Registry that the poller will use to create checkers
-// (e.g. "grpc", "dusk", "process", etc.) dynamically.
-func New(ctx context.Context, config Config, reg checker.Registry) (*Poller, error) {
-	// Set up the poller -> cloud gRPC connection, if needed:
-	clientConn, err := grpc.NewClient(ctx, config.CloudAddress,
+func New(ctx context.Context, config Config) (*Poller, error) {
+	// Set up the poller -> cloud gRPC connection
+	client, err := grpc.NewClient(ctx, config.CloudAddress,
 		grpc.WithMaxRetries(grpcRetries),
 	)
 	if err != nil {
@@ -41,146 +61,54 @@ func New(ctx context.Context, config Config, reg checker.Registry) (*Poller, err
 
 	p := &Poller{
 		config:      config,
-		registry:    reg,
-		cloudClient: proto.NewPollerServiceClient(clientConn.GetConnection()),
-		grpcClient:  clientConn,
+		cloudClient: proto.NewPollerServiceClient(client.GetConnection()),
+		grpcClient:  client,
 		agents:      make(map[string]*AgentConnection),
 	}
 
-	// Possibly initialize agent connections
+	// Initialize agent connections
 	if err := p.initializeAgentConnections(ctx); err != nil {
-		_ = clientConn.Close()
+		_ = client.Close()
 		return nil, fmt.Errorf("failed to initialize agent connections: %w", err)
 	}
 
 	return p, nil
 }
 
-// getAgentConnection safely retrieves an agent connection.
-func (p *Poller) getAgentConnection(agentName string) (*AgentConnection, error) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
+// Duration is a wrapper around time.Duration for JSON unmarshaling.
+type Duration time.Duration
 
-	agent, exists := p.agents[agentName]
-	if !exists {
-		return nil, fmt.Errorf("%w: %s", ErrNoConnectionForAgent, agentName)
+func (d *Duration) UnmarshalJSON(b []byte) error {
+	var v interface{}
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
 	}
 
-	return agent, nil
-}
-
-// ensureAgentHealth verifies agent health and reconnects if necessary.
-func (p *Poller) ensureAgentHealth(ctx context.Context, agentName string, config AgentConfig, agent *AgentConnection) error {
-	healthy, err := agent.client.CheckHealth(ctx, "AgentService")
-	if err != nil || !healthy {
-		if err := p.reconnectAgent(ctx, agentName, config); err != nil {
-			return fmt.Errorf("%w: %s (%w)", ErrAgentUnhealthy, agentName, err)
-		}
-	}
-
-	return nil
-}
-
-// executeCheck creates a checker (if applicable) or directly calls agentSvcClient.
-// This is just an example: you might call the agent's GetStatus RPC directly for all checks,
-// or if you want to do local checks (like a "port" or "process" check in poller, which is unusual),
-// you'd use the registry. Usually the agent does these checks, but here's a scenario.
-func (*Poller) executeCheck(ctx context.Context, agentClient proto.AgentServiceClient, c Check) *proto.ServiceStatus {
-	// Example: Some checks might be delegated to the agent's gRPC service:
-	req := &proto.StatusRequest{
-		ServiceName: c.Name,
-		ServiceType: c.Type,
-		Details:     c.Details,
-		Port:        c.Port,
-	}
-
-	resp, err := agentClient.GetStatus(ctx, req)
-	if err != nil {
-		return &proto.ServiceStatus{
-			ServiceName: c.Name,
-			ServiceType: c.Type,
-			Available:   false,
-			Message:     fmt.Sprintf("agent error: %v", err),
-		}
-	}
-
-	return &proto.ServiceStatus{
-		ServiceName: resp.ServiceName,
-		ServiceType: resp.ServiceType,
-		Available:   resp.Available,
-		Message:     resp.Message,
-	}
-}
-
-// processSweepStatus handles sweep status processing.
-func (*Poller) processSweepStatus(status *proto.ServiceStatus) error {
-	var sweepData models.SweepData
-	if err := json.Unmarshal([]byte(status.Message), &sweepData); err != nil {
-		return fmt.Errorf("failed to parse sweep data: %w", err)
-	}
-
-	return nil
-}
-
-// initializeAgentConnections creates initial connections to all agents.
-func (p *Poller) initializeAgentConnections(ctx context.Context) error {
-	for agentName, agentConfig := range p.config.Agents {
-		client, err := grpc.NewClient(
-			ctx,
-			agentConfig.Address,
-			grpc.WithMaxRetries(grpcRetries),
-		)
+	switch value := v.(type) {
+	case float64:
+		*d = Duration(time.Duration(value))
+	case string:
+		tmp, err := time.ParseDuration(value)
 		if err != nil {
-			return fmt.Errorf("failed to connect to agent %s: %w", agentName, err)
+			return err
 		}
 
-		p.agents[agentName] = &AgentConnection{
-			client:    client,
-			agentName: agentName,
-		}
+		*d = Duration(tmp)
+	default:
+		return ErrInvalidDuration
 	}
 
 	return nil
 }
 
-// reconnectAgent closes the existing connection and creates a new one.
-func (p *Poller) reconnectAgent(ctx context.Context, agentName string, config AgentConfig) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	// Close existing connection if it exists
-	if agent, exists := p.agents[agentName]; exists {
-		if err := agent.client.Close(); err != nil {
-			log.Printf("Error closing existing connection for agent %s: %v", agentName, err)
-		}
-	}
-
-	// Create new connection
-	client, err := grpc.NewClient(
-		ctx,
-		config.Address,
-		grpc.WithMaxRetries(grpcRetries),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to reconnect to agent %s: %w", agentName, err)
-	}
-
-	p.agents[agentName] = &AgentConnection{
-		client:    client,
-		agentName: agentName,
-	}
-
-	return nil
-}
-
-// Start begins the polling loop.
+// Start implements the lifecycle.Service interface.
 func (p *Poller) Start(ctx context.Context) error {
-	ticker := time.NewTicker(time.Duration(p.config.PollInterval))
+	ticker := time.NewTicker(p.config.PollInterval.Duration)
 	defer ticker.Stop()
 
 	log.Printf("Starting poller with interval %v", p.config.PollInterval)
 
-	// Do an initial poll
+	// Do initial poll
 	if err := p.poll(ctx); err != nil {
 		log.Printf("Error during initial poll: %v", err)
 	}
@@ -195,6 +123,11 @@ func (p *Poller) Start(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+// Stop implements the lifecycle.Service interface.
+func (p *Poller) Stop() error {
+	return p.Close()
 }
 
 // Close closes all connections.
@@ -225,6 +158,58 @@ func (p *Poller) Close() error {
 	}
 
 	return nil
+}
+
+// AgentPoller manages polling operations for a single agent.
+type AgentPoller struct {
+	client  proto.AgentServiceClient
+	name    string
+	config  AgentConfig
+	timeout time.Duration
+}
+
+func newAgentPoller(name string, config AgentConfig, client proto.AgentServiceClient, timeout time.Duration) *AgentPoller {
+	return &AgentPoller{
+		name:    name,
+		config:  config,
+		client:  client,
+		timeout: timeout,
+	}
+}
+
+// ExecuteChecks runs all configured service checks for the agent.
+func (ap *AgentPoller) ExecuteChecks(ctx context.Context) []*proto.ServiceStatus {
+	checkCtx, cancel := context.WithTimeout(ctx, ap.timeout)
+	defer cancel()
+
+	results := make(chan *proto.ServiceStatus, len(ap.config.Checks))
+	statuses := make([]*proto.ServiceStatus, 0, len(ap.config.Checks))
+
+	var wg sync.WaitGroup
+
+	for _, check := range ap.config.Checks {
+		wg.Add(1)
+
+		go func(check Check) {
+			defer wg.Done()
+
+			svcCheck := newServiceCheck(ap.client, check)
+			results <- svcCheck.execute(checkCtx)
+		}(check)
+	}
+
+	// Close results channel when all checks complete
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Collect results
+	for result := range results {
+		statuses = append(statuses, result)
+	}
+
+	return statuses
 }
 
 func newServiceCheck(client proto.AgentServiceClient, check Check) *ServiceCheck {
@@ -259,51 +244,80 @@ func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
 	}
 }
 
-// AgentPoller manages polling operations for a single agent.
-type AgentPoller struct {
-	client  proto.AgentServiceClient
-	name    string
-	config  AgentConfig
-	timeout time.Duration
-}
+// Connection management methods.
+func (p *Poller) getAgentConnection(agentName string) (*AgentConnection, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 
-// ExecuteChecks runs all configured service checks for the agent.
-func (ap *AgentPoller) ExecuteChecks(ctx context.Context) []*proto.ServiceStatus {
-	checkCtx, cancel := context.WithTimeout(ctx, ap.timeout)
-	defer cancel()
-
-	results := make(chan *proto.ServiceStatus, len(ap.config.Checks))
-	statuses := make([]*proto.ServiceStatus, 0, len(ap.config.Checks))
-
-	var wg sync.WaitGroup
-
-	for _, check := range ap.config.Checks {
-		wg.Add(1)
-
-		go func(check Check) {
-			defer wg.Done()
-
-			svcCheck := newServiceCheck(ap.client, check)
-			results <- svcCheck.execute(checkCtx)
-		}(check)
+	agent, exists := p.agents[agentName]
+	if !exists {
+		return nil, fmt.Errorf("%w: %s", ErrNoConnectionForAgent, agentName)
 	}
 
-	// Close results channel when all checks complete
-	go func() {
-		wg.Wait()
-
-		close(results)
-	}()
-
-	// Collect results
-	for result := range results {
-		statuses = append(statuses, result)
-	}
-
-	return statuses
+	return agent, nil
 }
 
-// poll performs a complete polling cycle across all agents.
+func (p *Poller) ensureAgentHealth(ctx context.Context, agentName string, config AgentConfig, agent *AgentConnection) error {
+	healthy, err := agent.client.CheckHealth(ctx, "AgentService")
+	if err != nil || !healthy {
+		if err := p.reconnectAgent(ctx, agentName, config); err != nil {
+			return fmt.Errorf("%w: %s (%w)", ErrAgentUnhealthy, agentName, err)
+		}
+	}
+
+	return nil
+}
+
+func (p *Poller) reconnectAgent(ctx context.Context, agentName string, config AgentConfig) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// Close existing connection if it exists
+	if agent, exists := p.agents[agentName]; exists {
+		if err := agent.client.Close(); err != nil {
+			log.Printf("Error closing existing connection for agent %s: %v", agentName, err)
+		}
+	}
+
+	// Create new connection
+	client, err := grpc.NewClient(
+		ctx,
+		config.Address,
+		grpc.WithMaxRetries(grpcRetries),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to reconnect to agent %s: %w", agentName, err)
+	}
+
+	p.agents[agentName] = &AgentConnection{
+		client:    client,
+		agentName: agentName,
+	}
+
+	return nil
+}
+
+func (p *Poller) initializeAgentConnections(ctx context.Context) error {
+	for agentName, agentConfig := range p.config.Agents {
+		client, err := grpc.NewClient(
+			ctx,
+			agentConfig.Address,
+			grpc.WithMaxRetries(grpcRetries),
+		)
+		if err != nil {
+			return fmt.Errorf("failed to connect to agent %s: %w", agentName, err)
+		}
+
+		p.agents[agentName] = &AgentConnection{
+			client:    client,
+			agentName: agentName,
+		}
+	}
+
+	return nil
+}
+
+// Poll execution methods.
 func (p *Poller) poll(ctx context.Context) error {
 	var allStatuses []*proto.ServiceStatus
 
@@ -322,31 +336,44 @@ func (p *Poller) poll(ctx context.Context) error {
 	return p.reportToCloud(ctx, allStatuses)
 }
 
-// pollAgent polls a single agent, collecting statuses for each configured check.
 func (p *Poller) pollAgent(ctx context.Context, agentName string, agentConfig AgentConfig) ([]*proto.ServiceStatus, error) {
-	// get or reconnect agent
+	// Get agent connection
 	agent, err := p.getAgentConnection(agentName)
 	if err != nil {
 		return nil, err
 	}
 
+	// Ensure agent is healthy
 	if err := p.ensureAgentHealth(ctx, agentName, agentConfig, agent); err != nil {
 		return nil, err
 	}
 
-	// Create the gRPC client for the agent
-	agentSvcClient := proto.NewAgentServiceClient(agent.client.GetConnection())
+	// Create agent poller
+	client := proto.NewAgentServiceClient(agent.client.GetConnection())
+	poller := newAgentPoller(agentName, agentConfig, client, defaultTimeout)
 
 	// Execute checks
-	var results []*proto.ServiceStatus
+	statuses := poller.ExecuteChecks(ctx)
 
-	for _, c := range agentConfig.Checks {
-		status := p.executeCheck(ctx, agentSvcClient, c)
-
-		results = append(results, status)
+	// Process sweep results if any
+	for _, status := range statuses {
+		if status.ServiceType == "sweep" && status.Available {
+			if err := p.processSweepStatus(status); err != nil {
+				log.Printf("Error processing sweep status for agent %s: %v", agentName, err)
+			}
+		}
 	}
 
-	return results, nil
+	return statuses, nil
+}
+
+func (*Poller) processSweepStatus(status *proto.ServiceStatus) error {
+	var sweepData models.SweepData
+	if err := json.Unmarshal([]byte(status.Message), &sweepData); err != nil {
+		return fmt.Errorf("failed to parse sweep data: %w", err)
+	}
+
+	return nil
 }
 
 func (p *Poller) reportToCloud(ctx context.Context, statuses []*proto.ServiceStatus) error {

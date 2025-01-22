@@ -8,6 +8,10 @@ import (
 	"time"
 )
 
+var (
+	errInvalidDuration = fmt.Errorf("invalid duration")
+)
+
 // Duration is a wrapper around time.Duration that implements JSON marshaling/unmarshaling.
 type Duration struct {
 	time.Duration
@@ -26,13 +30,15 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 		return nil
 	case string:
 		var err error
+
 		d.Duration, err = time.ParseDuration(value)
 		if err != nil {
 			return fmt.Errorf("invalid duration: %w", err)
 		}
+
 		return nil
 	default:
-		return fmt.Errorf("invalid duration type: %T", v)
+		return errInvalidDuration
 	}
 }
 
