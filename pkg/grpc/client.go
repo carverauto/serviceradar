@@ -94,16 +94,6 @@ func (c *ClientConn) CheckHealth(ctx context.Context, service string) (bool, err
 		return false, fmt.Errorf("health check failed: %w", err)
 	}
 
-	c.mu.Lock()
-
-	// Store any block details we received
-	if details := header.Get("block-details"); len(details) > 0 {
-		c.lastHealthDetails = details[0]
-		c.lastHealthCheck = time.Now()
-		log.Printf("Health check details updated for %s: %s", c.addr, details[0])
-	}
-	c.mu.Unlock()
-
 	return resp.Status == grpc_health_v1.HealthCheckResponse_SERVING, nil
 }
 
