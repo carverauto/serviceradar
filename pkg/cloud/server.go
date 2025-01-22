@@ -487,7 +487,7 @@ func (*Server) processSweepData(svc *api.ServiceStatus, now time.Time) error {
 	}
 
 	// If LastSweep is not set or is invalid (0 or negative), use current time
-	if sweepData.LastSweep <= 0 {
+	if sweepData.LastSweep > now.Add(24*time.Hour).Unix() {
 		log.Printf("Invalid or missing LastSweep timestamp (%d), using current time", sweepData.LastSweep)
 		sweepData.LastSweep = now.Unix()
 
