@@ -82,6 +82,7 @@ func setupGRPCServer(addr string, registrars []GRPCServiceRegistrar) *grpc.Serve
 	// Setup health check
 	hs := health.NewServer()
 	hs.SetServingStatus("service", healthpb.HealthCheckResponse_SERVING)
+
 	if err := grpcServer.RegisterHealthServer(hs); err != nil {
 		log.Printf("Failed to register health server: %v", err)
 	}
@@ -110,7 +111,7 @@ func handleShutdown(
 		log.Printf("Received error: %v, initiating shutdown", err)
 		return fmt.Errorf("service error: %w", err)
 	case <-ctx.Done():
-		log.Printf("Context cancelled, initiating shutdown")
+		log.Printf("Context canceled, initiating shutdown")
 		return ctx.Err()
 	}
 

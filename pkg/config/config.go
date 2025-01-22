@@ -12,29 +12,26 @@ var (
 	errInvalidDuration = fmt.Errorf("invalid duration")
 )
 
-// Duration is a wrapper around time.Duration that implements JSON marshaling/unmarshaling.
-type Duration struct {
-	time.Duration
-}
+type Duration time.Duration
 
 func (d *Duration) UnmarshalJSON(b []byte) error {
 	var v interface{}
-
 	if err := json.Unmarshal(b, &v); err != nil {
 		return err
 	}
 
 	switch value := v.(type) {
 	case float64:
-		d.Duration = time.Duration(value)
+		// parse numeric as nanoseconds
+		*d = Duration(time.Duration(value))
 		return nil
 	case string:
-		var err error
-
-		d.Duration, err = time.ParseDuration(value)
+		dur, err := time.ParseDuration(value)
 		if err != nil {
 			return fmt.Errorf("invalid duration: %w", err)
 		}
+
+		*d = Duration(dur)
 
 		return nil
 	default:

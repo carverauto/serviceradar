@@ -15,12 +15,10 @@ import (
 	"github.com/mfreeman451/serviceradar/pkg/cloud/api"
 	"github.com/mfreeman451/serviceradar/pkg/db"
 	"github.com/mfreeman451/serviceradar/pkg/grpc"
-	"github.com/mfreeman451/serviceradar/pkg/monitoring"
 	"github.com/mfreeman451/serviceradar/proto"
 )
 
 const (
-	monitoringInterval       = 5 * time.Minute
 	shutdownTimeout          = 10 * time.Second
 	oneDay                   = 24 * time.Hour
 	oneWeek                  = 7 * oneDay
@@ -58,73 +56,114 @@ type Server struct {
 	alertThreshold time.Duration
 	webhooks       []*alerts.WebhookAlerter
 	apiServer      *api.APIServer
-	monitor        *monitoring.Monitor
-	shutdownChan   chan struct{}
+	ShutdownChan   chan struct{}
 	knownPollers   []string
+	grpcServer     *grpc.Server
 }
 
-func NewServer(ctx context.Context, config *Config) (*Server, error) {
-	database, err := db.New(config.DBPath)
+func NewServer(_ context.Context, config *Config) (*Server, error) {
+	// Use default DB path if not specified
+	dbPath := config.DBPath
+	if dbPath == "" {
+		dbPath = defaultDBPath
+	}
+
+	// Ensure the directory exists
+	if err := os.MkdirAll("/var/lib/serviceradar", serviceradarDirPerms); err != nil {
+		return nil, fmt.Errorf("failed to create data directory: %w", err)
+	}
+
+	// Initialize database
+	database, err := db.New(dbPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to initialize database: %w", err)
+		return nil, fmt.Errorf("%w: %w", errDatabaseError, err)
 	}
 
 	server := &Server{
 		db:             database,
 		alertThreshold: config.AlertThreshold,
 		webhooks:       make([]*alerts.WebhookAlerter, 0),
-		shutdownChan:   make(chan struct{}),
+		ShutdownChan:   make(chan struct{}),
 		knownPollers:   config.KnownPollers,
 	}
 
-	// Initialize monitoring
-	server.monitor = monitoring.NewMonitor(monitoring.MonitorConfig{
-		Interval:       monitoringInterval,
-		AlertThreshold: config.AlertThreshold,
-	})
+	// Initialize GRPC server
+	server.grpcServer = grpc.NewServer(config.GrpcAddr,
+		grpc.WithMaxRecvSize(maxMessageSize),
+		grpc.WithMaxSendSize(maxMessageSize),
+	)
+
+	proto.RegisterPollerServiceServer(server.grpcServer, server)
 
 	// Initialize webhooks
-	if err := server.initializeWebhooks(config.Webhooks); err != nil {
-		return nil, fmt.Errorf("failed to initialize webhooks: %w", err)
-	}
+	server.initializeWebhooks(config.Webhooks)
 
 	return server, nil
 }
 
-// Start implements the lifecycle.Service interface
+// Start implements the lifecycle.Service interface.
 func (s *Server) Start(ctx context.Context) error {
-	if err := s.sendStartupNotification(ctx); err != nil {
-		log.Printf("Failed to send startup notification: %v", err)
-		// Continue anyway, this isn't fatal
+	log.Printf("Starting cloud service...")
+
+	// Start GRPC server
+	if s.grpcServer != nil {
+		go func() {
+			if err := s.grpcServer.Start(); err != nil {
+				log.Printf("gRPC server error: %v", err)
+			}
+		}()
 	}
 
-	// Start monitoring in background
-	go s.monitor.StartMonitoring(ctx, func(ctx context.Context) error {
-		return s.checkPollers(ctx)
-	})
+	// Send startup notification
+	if err := s.sendStartupNotification(ctx); err != nil {
+		log.Printf("Failed to send startup notification: %v", err)
+	}
+
+	// Start periodic cleanup
+	go s.periodicCleanup(ctx)
+
+	// Start node monitoring with proper delays
+	go func() {
+		log.Printf("Starting node monitoring...")
+
+		// Initial delay to allow nodes to report in
+		time.Sleep(nodeDiscoveryTimeout)
+		s.checkInitialStates(ctx)
+
+		// Check never-reported pollers after another delay
+		time.Sleep(nodeNeverReportedTimeout)
+		s.checkNeverReportedPollers(ctx, &Config{KnownPollers: s.knownPollers})
+
+		// Start continuous monitoring
+		s.MonitorPollers(ctx)
+	}()
 
 	return nil
 }
 
-// Stop implements the lifecycle.Service interface
+// Stop implements the lifecycle.Service interface.
 func (s *Server) Stop() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
-
-	// Stop monitoring
-	s.monitor.Stop()
-
-	// Close database
-	if err := s.db.Close(); err != nil {
-		log.Printf("Error closing database: %v", err)
-	}
 
 	// Send shutdown notification
 	if err := s.sendShutdownNotification(ctx); err != nil {
 		log.Printf("Failed to send shutdown notification: %v", err)
 	}
 
-	close(s.shutdownChan)
+	// Stop GRPC server if it exists
+	if s.grpcServer != nil {
+		s.grpcServer.Stop()
+	}
+
+	// Close database
+	if err := s.db.Close(); err != nil {
+		log.Printf("Error closing database: %v", err)
+	}
+
+	// Signal all background tasks to stop
+	close(s.ShutdownChan)
+
 	return nil
 }
 
@@ -167,7 +206,7 @@ func (s *Server) sendShutdownNotification(ctx context.Context) error {
 	return s.sendAlert(ctx, alert)
 }
 
-// checkPollers is the monitoring function that checks poller health
+// checkPollers is the monitoring function that checks poller health.
 func (s *Server) checkPollers(ctx context.Context) error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -179,7 +218,6 @@ func (s *Server) checkPollers(ctx context.Context) error {
 	for _, pollerID := range s.knownPollers {
 		if err := s.checkPollerHealth(ctx, pollerID, alertThreshold); err != nil {
 			log.Printf("Error checking poller %s: %v", pollerID, err)
-			// Continue checking other pollers even if one fails
 		}
 	}
 
@@ -189,6 +227,7 @@ func (s *Server) checkPollers(ctx context.Context) error {
 func (s *Server) checkPollerHealth(ctx context.Context, pollerID string, threshold time.Time) error {
 	// Get last known status
 	var lastSeen time.Time
+
 	var isHealthy bool
 
 	err := s.db.QueryRow(`
@@ -239,14 +278,16 @@ func (s *Server) Shutdown(ctx context.Context) {
 				"pid":      os.Getpid(),
 			},
 		}
+
 		err := s.sendAlert(ctx, &alert)
 		if err != nil {
 			log.Printf("Error sending shutdown alert: %v", err)
+
 			return
 		}
 	}
 
-	close(s.shutdownChan)
+	close(s.ShutdownChan)
 }
 
 func (s *Server) SetAPIServer(apiServer *api.APIServer) {
@@ -678,22 +719,7 @@ func (s *Server) performNodeUpdate(tx *sql.Tx, nodeID string, lastSeen time.Time
 	return s.updateExistingNode(tx, nodeID, lastSeen)
 }
 
-func (s *Server) initializeGRPCServer(config *Config) {
-	grpcServer := grpc.NewServer(config.GrpcAddr,
-		grpc.WithMaxRecvSize(maxMessageSize),
-		grpc.WithMaxSendSize(maxMessageSize),
-	)
-
-	proto.RegisterPollerServiceServer(grpcServer, s)
-
-	go func() {
-		if err := grpcServer.Start(); err != nil {
-			log.Printf("gRPC server failed: %v", err)
-		}
-	}()
-}
-
-func (s *Server) initializeWebhooks(configs []alerts.WebhookConfig) error {
+func (s *Server) initializeWebhooks(configs []alerts.WebhookConfig) {
 	for i, config := range configs {
 		log.Printf("Processing webhook config %d: enabled=%v", i, config.Enabled)
 
@@ -704,25 +730,6 @@ func (s *Server) initializeWebhooks(configs []alerts.WebhookConfig) error {
 			log.Printf("Added webhook alerter: %+v", config.URL)
 		}
 	}
-
-	return nil
-}
-
-func (s *Server) startBackgroundTasks(ctx context.Context) {
-	// Start periodic database cleanup
-	go s.periodicCleanup(ctx)
-
-	// Send startup notification
-	if len(s.webhooks) > 0 {
-		err := s.sendStartupNotification(ctx)
-		if err != nil {
-			log.Printf("Error sending startup notification: %v", err)
-			return
-		}
-	}
-
-	// Start node monitoring tasks
-	go s.startNodeMonitoring(ctx)
 }
 
 // periodicCleanup runs regular maintenance tasks on the database.
@@ -732,7 +739,7 @@ func (s *Server) periodicCleanup(_ context.Context) {
 
 	for {
 		select {
-		case <-s.shutdownChan:
+		case <-s.ShutdownChan:
 			return
 		case <-ticker.C:
 			// Clean up old data (keep 7 days by default)
@@ -748,21 +755,6 @@ func (s *Server) periodicCleanup(_ context.Context) {
 			}
 		}
 	}
-}
-
-func (s *Server) startNodeMonitoring(ctx context.Context) {
-	// Initial delay to allow nodes to report in
-	time.Sleep(nodeDiscoveryTimeout)
-
-	// Check initial states from database
-	s.checkInitialStates(ctx)
-
-	// Check never-reported pollers
-	time.Sleep(nodeNeverReportedTimeout)
-	s.checkNeverReportedPollers(ctx, &Config{KnownPollers: s.knownPollers})
-
-	// Start continuous monitoring
-	go s.MonitorPollers(ctx)
 }
 
 func (s *Server) checkNeverReportedPollers(ctx context.Context, config *Config) {
@@ -884,7 +876,6 @@ func (s *Server) sendAlert(ctx context.Context, alert *alerts.WebhookAlert) erro
 	for _, webhook := range s.webhooks {
 		if err := webhook.Alert(ctx, alert); err != nil {
 			log.Printf("Error sending webhook alert: %v", err)
-			// Continue trying other webhooks
 		}
 	}
 

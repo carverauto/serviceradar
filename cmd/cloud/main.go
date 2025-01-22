@@ -1,4 +1,3 @@
-// cmd/cloud/main.go
 package main
 
 import (
@@ -24,14 +23,17 @@ func run() error {
 	configPath := flag.String("config", "/etc/serviceradar/cloud.json", "Path to cloud config file")
 	flag.Parse()
 
-	// Load configuration using the cloud package's Config type
+	// Load configuration
 	cfg, err := cloud.LoadConfig(*configPath)
 	if err != nil {
 		return err
 	}
 
+	// Create root context for lifecycle management
+	ctx := context.Background()
+
 	// Create cloud server
-	server, err := cloud.NewServer(context.Background(), &cfg)
+	server, err := cloud.NewServer(ctx, &cfg)
 	if err != nil {
 		return err
 	}
@@ -55,8 +57,8 @@ func run() error {
 		return nil
 	}
 
-	// Run gRPC server with lifecycle management
-	return lifecycle.RunServer(context.Background(), lifecycle.ServerOptions{
+	// Run server with lifecycle management
+	return lifecycle.RunServer(ctx, lifecycle.ServerOptions{
 		ListenAddr:           cfg.GrpcAddr,
 		Service:              server,
 		RegisterGRPCServices: []lifecycle.GRPCServiceRegistrar{registerService},

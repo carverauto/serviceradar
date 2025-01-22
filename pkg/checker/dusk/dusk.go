@@ -31,12 +31,6 @@ var (
 	errSubscriptionFail = fmt.Errorf("subscription failed")
 )
 
-type Config struct {
-	NodeAddress string        `json:"node_address"`
-	Timeout     time.Duration `json:"timeout"` // Keep as time.Duration
-	ListenAddr  string        `json:"listen_addr"`
-}
-
 type BlockData struct {
 	Height    uint64    `json:"height"`
 	Hash      string    `json:"hash"`
@@ -79,10 +73,12 @@ func NewDuskBlockService(checker *DuskChecker) *DuskBlockService {
 }
 
 // GetStatus implements the AgentService GetStatus method.
-// TODO: clean this up - find a way to use the context or drop those as arguments.
-func (s *DuskBlockService) GetStatus(_ context.Context, _ *proto.StatusRequest) (*proto.StatusResponse, error) {
+func (s *DuskBlockService) GetStatus(ctx context.Context, _ *proto.StatusRequest) (*proto.StatusResponse, error) {
 	s.checker.mu.RLock()
 	defer s.checker.mu.RUnlock()
+
+	_, cancel := context.WithTimeout(ctx, s.checker.Config.Timeout)
+	defer cancel()
 
 	log.Printf("DuskBlockService.GetStatus called. Last block: Height=%d Hash=%s",
 		s.checker.lastBlockData.Height,
