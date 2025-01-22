@@ -41,7 +41,6 @@ type ServerOptions struct {
 
 // RunServer starts a service with the provided options and handles lifecycle.
 func RunServer(ctx context.Context, opts *ServerOptions) error {
-	// Create cancellable context for graceful shutdown
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -55,6 +54,7 @@ func RunServer(ctx context.Context, opts *ServerOptions) error {
 	go func() {
 		if err := opts.Service.Start(ctx); err != nil {
 			log.Printf("Service error: %v", err)
+
 			errChan <- err
 		}
 	}()
@@ -65,6 +65,7 @@ func RunServer(ctx context.Context, opts *ServerOptions) error {
 
 		if err := grpcServer.Start(); err != nil {
 			log.Printf("gRPC server error: %v", err)
+
 			errChan <- err
 		}
 	}()
@@ -110,9 +111,11 @@ func handleShutdown(
 		log.Printf("Received signal %v, initiating shutdown", sig)
 	case err := <-errChan:
 		log.Printf("Received error: %v, initiating shutdown", err)
+
 		return fmt.Errorf("service error: %w", err)
 	case <-ctx.Done():
 		log.Printf("Context canceled, initiating shutdown")
+
 		return ctx.Err()
 	}
 

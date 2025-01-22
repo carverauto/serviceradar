@@ -59,7 +59,6 @@ type Server struct {
 	ShutdownChan   chan struct{}
 	knownPollers   []string
 	grpcServer     *grpc.Server
-	listenAddr     string
 }
 
 func NewServer(_ context.Context, config *Config) (*Server, error) {
@@ -87,14 +86,6 @@ func NewServer(_ context.Context, config *Config) (*Server, error) {
 		ShutdownChan:   make(chan struct{}),
 		knownPollers:   config.KnownPollers,
 	}
-
-	// Initialize GRPC server
-	//server.grpcServer = grpc.NewServer(config.GrpcAddr,
-	//	grpc.WithMaxRecvSize(maxMessageSize),
-	//	grpc.WithMaxSendSize(maxMessageSize),
-	// )
-
-	// proto.RegisterPollerServiceServer(server.grpcServer, server)
 
 	// Initialize webhooks
 	server.initializeWebhooks(config.Webhooks)
