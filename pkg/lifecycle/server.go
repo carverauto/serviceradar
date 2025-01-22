@@ -33,19 +33,20 @@ type GRPCServiceRegistrar func(*grpc.Server) error
 // ServerOptions holds configuration for creating a server.
 type ServerOptions struct {
 	ListenAddr           string
+	ServiceName          string
 	Service              Service
 	RegisterGRPCServices []GRPCServiceRegistrar
-	EnableHealthCheck    bool // Whether to enable the gRPC health checking service
+	EnableHealthCheck    bool
 }
 
 // RunServer starts a service with the provided options and handles lifecycle.
-func RunServer(ctx context.Context, opts ServerOptions) error {
+func RunServer(ctx context.Context, opts *ServerOptions) error {
 	// Create cancellable context for graceful shutdown
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	// Setup and start gRPC server
-	grpcServer := setupGRPCServer(opts.ListenAddr, opts.RegisterGRPCServices)
+	grpcServer := setupGRPCServer(opts.ListenAddr, opts.ServiceName, opts.RegisterGRPCServices)
 
 	// Create error channel for service errors
 	errChan := make(chan error, 1)
@@ -72,7 +73,7 @@ func RunServer(ctx context.Context, opts ServerOptions) error {
 	return handleShutdown(ctx, cancel, grpcServer, opts.Service, errChan)
 }
 
-func setupGRPCServer(addr string, registrars []GRPCServiceRegistrar) *grpc.Server {
+func setupGRPCServer(addr, serviceName string, registrars []GRPCServiceRegistrar) *grpc.Server {
 	// Create and configure gRPC server
 	grpcServer := grpc.NewServer(addr,
 		grpc.WithMaxRecvSize(MaxRecvSize),
@@ -81,7 +82,7 @@ func setupGRPCServer(addr string, registrars []GRPCServiceRegistrar) *grpc.Serve
 
 	// Setup health check
 	hs := health.NewServer()
-	hs.SetServingStatus("service", healthpb.HealthCheckResponse_SERVING)
+	hs.SetServingStatus(serviceName, healthpb.HealthCheckResponse_SERVING)
 
 	if err := grpcServer.RegisterHealthServer(hs); err != nil {
 		log.Printf("Failed to register health server: %v", err)

@@ -1,4 +1,3 @@
-// cmd/agent/main.go
 package main
 
 import (
@@ -30,23 +29,26 @@ func run() error {
 		return err
 	}
 
-	// Create agent server - it will discover checkers from the CheckersDir
+	// Create agent server
 	server, err := agent.NewServer(cfg.CheckersDir)
 	if err != nil {
 		return err
 	}
 
-	// Create gRPC service registrar
-	registerService := func(s *grpc.Server) error {
+	// Register services function
+	registerServices := func(s *grpc.Server) error {
+		// Register agent service
 		proto.RegisterAgentServiceServer(s.GetGRPCServer(), server)
+
 		return nil
 	}
 
 	// Run server with lifecycle management
-	return lifecycle.RunServer(context.Background(), lifecycle.ServerOptions{
+	return lifecycle.RunServer(context.Background(), &lifecycle.ServerOptions{
 		ListenAddr:           cfg.ListenAddr,
+		ServiceName:          cfg.ServiceName,
 		Service:              server,
-		RegisterGRPCServices: []lifecycle.GRPCServiceRegistrar{registerService},
-		EnableHealthCheck:    true, // Agent needs health checks for poller monitoring
+		RegisterGRPCServices: []lifecycle.GRPCServiceRegistrar{registerServices},
+		EnableHealthCheck:    true,
 	})
 }

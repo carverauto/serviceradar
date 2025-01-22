@@ -129,6 +129,10 @@ func containsMode(modes []models.SweepMode, mode models.SweepMode) bool {
 	return false
 }
 
+func (*SweepService) Name() string {
+	return "network_sweep"
+}
+
 func (s *SweepService) performSweep(ctx context.Context) error {
 	// Generate targets
 	targets, err := s.generateTargets()
@@ -145,7 +149,6 @@ func (s *SweepService) performSweep(ctx context.Context) error {
 	}
 
 	// Process results as they come in
-	// Note: We're no longer resetting the processor here
 	for result := range results {
 		// Process the result
 		if err := s.processor.Process(&result); err != nil {

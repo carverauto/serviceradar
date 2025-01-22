@@ -34,6 +34,8 @@ type Check struct {
 // Config represents poller configuration.
 type Config struct {
 	Agents       map[string]AgentConfig `json:"agents"`
+	ListenAddr   string                 `json:"listen_addr"`
+	ServiceName  string                 `json:"service_name"`
 	CloudAddress string                 `json:"cloud_address"`
 	PollInterval config.Duration        `json:"poll_interval"`
 	PollerID     string                 `json:"poller_id"`

@@ -61,6 +61,7 @@ EOF
 cat > "${PKG_ROOT}/etc/serviceradar/checkers/dusk.json" << EOF
 {
     "name": "dusk",
+    "type": "grpc",
     "node_address": "localhost:8080",
     "timeout": "5m",
     "listen_addr": ":50052"
@@ -71,6 +72,7 @@ EOF
 cat > "${PKG_ROOT}/etc/serviceradar/checkers/external.json" << EOF
 {
     "name": "dusk",
+    "type": "grpc",
     "address": "localhost:50052"
 }
 EOF

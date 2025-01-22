@@ -11,7 +11,6 @@ import (
 	"github.com/mfreeman451/serviceradar/pkg/grpc"
 	"github.com/mfreeman451/serviceradar/pkg/lifecycle"
 	"github.com/mfreeman451/serviceradar/proto"
-	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
 
 var (
@@ -44,16 +43,12 @@ func run() error {
 	}
 
 	// Create health server and block service
-	healthServer := dusk.NewHealthServer(checker)
 	blockService := dusk.NewDuskBlockService(checker)
 
 	// Create gRPC service registrar
 	registerServices := func(s *grpc.Server) error {
 		// Register agent service
 		proto.RegisterAgentServiceServer(s.GetGRPCServer(), blockService)
-
-		// Register health service
-		healthpb.RegisterHealthServer(s.GetGRPCServer(), healthServer)
 
 		return nil
 	}
@@ -67,7 +62,7 @@ func run() error {
 	}
 
 	// Run service with lifecycle management
-	if err := lifecycle.RunServer(context.Background(), opts); err != nil {
+	if err := lifecycle.RunServer(context.Background(), &opts); err != nil {
 		return fmt.Errorf("server error: %w", err)
 	}
 

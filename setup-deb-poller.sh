@@ -83,8 +83,12 @@ cat > "${PKG_ROOT}/etc/serviceradar/poller.json" << EOF
         }
     },
     "cloud_address": "changeme:50052",
+    "listen_addr": ":50053",
     "poll_interval": "30s",
-    "poller_id": "home-poller-1"
+    "poller_id": "home-poller-1",
+    "checkers_dir": "/etc/serviceradar/checkers",
+    "service_type": "grpc",
+    "service_name": "poller"
 }
 EOF
 

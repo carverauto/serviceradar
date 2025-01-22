@@ -43,6 +43,7 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 type AgentConfig struct {
 	CheckersDir string `json:"checkers_dir"` // e.g., /etc/serviceradar/checkers
 	ListenAddr  string `json:"listen_addr"`  // e.g., :50051
+	ServiceName string `json:"service_name"` // e.g., "agent"
 }
 
 // Check represents a generic service check configuration.
