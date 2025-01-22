@@ -78,6 +78,11 @@ cat > "${PKG_ROOT}/etc/serviceradar/poller.json" << EOF
                     "service_type": "grpc",
                     "service_name": "dusk",
                     "details": "127.0.0.1:50052"
+                },
+                {
+                    "service_type": "sweep",
+                    "service_name": "network_sweep",
+                    "details": ""
                 }
             ]
         }
