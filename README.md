@@ -46,7 +46,7 @@ sudo dpkg -i serviceradar-cloud_1.0.3.deb
 ```
 
 #### Optional: Dusk Node Monitoring
-If you're running a Dusk node and want specialized monitoring:
+If you're running a [Dusk](https://dusk.network/) node and want specialized monitoring:
 ```bash
 curl -LO https://github.com/mfreeman451/serviceradar/releases/download/1.0.3/serviceradar-dusk-checker_1.0.3.deb
 sudo dpkg -i serviceradar-dusk-checker_1.0.3.deb
