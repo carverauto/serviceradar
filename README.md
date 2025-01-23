@@ -12,6 +12,7 @@
 ServiceRadar is a distributed network monitoring system designed for monitoring infrastructure and services in hard to reach places or constrained environments. 
 It provides real-time monitoring of internal services, with cloud-based alerting capabilities to ensure you stay informed even during network or power outages.
 
+### Screenshots
 <img width="1388" alt="Screenshot 2025-01-22 at 10 08 55 PM" src="https://github.com/user-attachments/assets/93ebfe58-4cb8-4463-84db-accf68f6c6eb" />
 <img width="1388" alt="Screenshot 2025-01-22 at 10 09 49 PM" src="https://github.com/user-attachments/assets/e593ed6f-386a-4346-ada9-1a7bf539a115" />
 <img width="1388" alt="Screenshot 2025-01-22 at 10 10 00 PM" src="https://github.com/user-attachments/assets/c35df184-e67b-4435-9aa8-864c6ba8be41" />
@@ -22,6 +23,55 @@ It provides real-time monitoring of internal services, with cloud-based alerting
 <img width="1388" alt="Screenshot 2025-01-22 at 10 14 03 PM" src="https://github.com/user-attachments/assets/cb05b486-e16b-43ae-84ac-cbc976d2a813" />
 
 https://docs.dusk.network/operator/overview/
+
+### Installation
+
+ServiceRadar can be installed via direct downloads from GitHub releases.
+
+#### Standard Setup (Recommended)
+Install these components on your monitored host:
+```bash
+# Download and install core components
+curl -LO https://github.com/mfreeman451/serviceradar/releases/download/1.0.3/serviceradar-agent_1.0.3.deb \
+     -O https://github.com/mfreeman451/serviceradar/releases/download/1.0.3/serviceradar-poller_1.0.3.deb
+
+sudo dpkg -i serviceradar-agent_1.0.3.deb serviceradar-poller_1.0.3.deb
+```
+
+On a separate machine (recommended) or the same host:
+```bash
+# Download and install cloud service
+curl -LO https://github.com/mfreeman451/serviceradar/releases/download/1.0.3/serviceradar-cloud_1.0.3.deb
+sudo dpkg -i serviceradar-cloud_1.0.3.deb
+```
+
+#### Optional: Dusk Node Monitoring
+If you're running a Dusk node and want specialized monitoring:
+```bash
+curl -LO https://github.com/mfreeman451/serviceradar/releases/download/1.0.3/serviceradar-dusk-checker_1.0.3.deb
+sudo dpkg -i serviceradar-dusk-checker_1.0.3.deb
+```
+
+#### Distributed Setup
+For larger deployments where components run on different hosts:
+
+1. On monitored hosts:
+```bash
+curl -LO https://github.com/mfreeman451/serviceradar/releases/download/1.0.3/serviceradar-agent_1.0.3.deb
+sudo dpkg -i serviceradar-agent_1.0.3.deb
+```
+
+2. On monitoring host:
+```bash
+curl -LO https://github.com/mfreeman451/serviceradar/releases/download/1.0.3/serviceradar-poller_1.0.3.deb
+sudo dpkg -i serviceradar-poller_1.0.3.deb
+```
+
+3. On cloud host:
+```bash
+curl -LO https://github.com/mfreeman451/serviceradar/releases/download/1.0.3/serviceradar-cloud_1.0.3.deb
+sudo dpkg -i serviceradar-cloud_1.0.3.deb
+```
 
 ## Architecture
 
