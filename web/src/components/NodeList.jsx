@@ -9,6 +9,7 @@ function NodeList() {
   const [currentPage, setCurrentPage] = useState(1);
   const [nodesPerPage] = useState(10);
   const [sortBy, setSortBy] = useState('status'); // 'status', 'name', 'lastUpdate'
+  const [sortOrder, setSortOrder] = useState('asc');
   const [expandedNode, setExpandedNode] = useState(null);
   const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'table'
 
@@ -43,20 +44,37 @@ function NodeList() {
 
     // Apply sorting
     results.sort((a, b) => {
+      let comparison = 0;
+
       switch (sortBy) {
         case 'status':
-          return (b.is_healthy === a.is_healthy) ? 0 : b.is_healthy ? 1 : -1;
+          comparison = (b.is_healthy === a.is_healthy) ? 0 : b.is_healthy ? 1 : -1;
+          break;
         case 'name':
-          return a.node_id.localeCompare(b.node_id);
+          // Extract last octet for IP address comparison
+          const aMatch = a.node_id.match(/(\d+)$/);
+          const bMatch = b.node_id.match(/(\d+)$/);
+          if (aMatch && bMatch) {
+            comparison = parseInt(aMatch[1]) - parseInt(bMatch[1]);
+          } else {
+            comparison = a.node_id.localeCompare(b.node_id);
+          }
+          break;
         case 'lastUpdate':
-          return new Date(b.last_update) - new Date(a.last_update);
+          comparison = new Date(b.last_update) - new Date(a.last_update);
+          break;
         default:
-          return 0;
+          comparison = 0;
       }
+      return sortOrder === 'asc' ? comparison : -comparison;
     });
 
     setFilteredNodes(results);
-  }, [nodes, searchTerm, sortBy]);
+  }, [nodes, searchTerm, sortBy, sortOrder]);
+
+  const toggleSortOrder = () => {
+    setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
+  };
 
   const pageCount = Math.ceil(filteredNodes.length / nodesPerPage);
   const currentNodes = filteredNodes.slice(
@@ -95,6 +113,12 @@ function NodeList() {
               <option value="name">Sort by Name</option>
               <option value="lastUpdate">Sort by Last Update</option>
             </select>
+            <button
+                onClick={toggleSortOrder}
+                className="px-3 py-1 border rounded"
+            >
+              {sortOrder === 'asc' ? '↑' : '↓'}
+            </button>
             <div className="flex gap-2">
               <button
                   onClick={() => setViewMode('grid')}

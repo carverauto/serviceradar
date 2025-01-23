@@ -90,8 +90,24 @@ const NetworkSweepView = ({ nodeId, service }) => {
     const portStats = sweepDetails.ports?.sort((a, b) => b.available - a.available) || [];
     const hosts = sweepDetails.hosts || [];
 
+    const sortHosts = (hosts) => {
+        return hosts.sort((a, b) => {
+            // Extract the last octet from IP addresses
+            const aMatch = a.host.match(/(\d+)$/);
+            const bMatch = b.host.match(/(\d+)$/);
+
+            if (aMatch && bMatch) {
+                return parseInt(aMatch[1]) - parseInt(bMatch[1]);
+            }
+            return a.host.localeCompare(b.host);
+        });
+    };
+
+    // Convert sweepDetails.hosts to array and sort
+    const sortedHosts = sweepDetails?.hosts ? sortHosts([...sweepDetails.hosts]) : [];
+
     // Filter hosts based on search term and online status
-    const filteredHosts = hosts.filter(host =>
+    const filteredHosts = sortedHosts.filter(host =>
         (showOffline || host.available) &&
         host.host.toLowerCase().includes(searchTerm.toLowerCase())
     );
@@ -223,7 +239,6 @@ const NetworkSweepView = ({ nodeId, service }) => {
             {viewMode === 'hosts' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {filteredHosts
-                        .sort((a, b) => b.available - a.available)
                         .map(host => (
                             <HostDetailsView key={host.host} host={host} />
                         ))
