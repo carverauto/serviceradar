@@ -113,45 +113,82 @@ cd serviceradar
 ./setup-deb-cloud.sh
 ```
 
+5. Build the dusk provisioner node package (optional):
+```bash
+./setup-deb-dusk-checker.sh
+```
+
 ### Installation Order and Location
 
 1. **Agent Installation** (on monitored hosts):
 ```bash
-sudo dpkg -i serviceradar-dusk_1.0.0.deb  # For Dusk nodes
+sudo dpkg -i serviceradar-dusk-checker_1.0.3.deb  # For Dusk nodes
 # or
-sudo dpkg -i serviceradar-agent_1.0.0.deb  # For other hosts
+sudo dpkg -i serviceradar-agent_1.0.3.deb  # For other hosts
 ```
 
 2. **Poller Installation** (on any host in your network):
 ```bash
-sudo dpkg -i serviceradar-poller_1.0.0.deb
+sudo dpkg -i serviceradar-poller_1.0.3.deb
 ```
 
 3. **Cloud Installation** (on a reliable host):
 ```bash
-sudo dpkg -i serviceradar-cloud_1.0.0.deb
+sudo dpkg -i serviceradar-cloud_1.0.3.deb
 ```
 
 ## Configuration
 
 ### Agent Configuration
 
-Default location: `/etc/serviceradar/checkers/`
+Default location: ***/etc/serviceradar/***
+
+**/etc/serviceradar/agent.json**
+
+```json
+{
+    "checkers_dir": "/etc/serviceradar/checkers",
+    "listen_addr": ":50051",
+    "service_type": "grpc",
+    "service_name": "AgentService"
+}
+```
 
 For Dusk nodes:
+
+**/etc/serviceradar/checkers/dusk.json**
+
 ```json
-# /etc/serviceradar/checkers/dusk.json
 {
     "name": "dusk",
+    "type": "grpc",
     "node_address": "localhost:8080",
-    "timeout": "5m",
-    "listen_addr": ":50052"
+    "address": "localhost:50052",
+    "listen_addr": ":50052",
+    "timeout": "5m"
 }
+```
+**/etc/serviceradar/checkers/external.json**
 
-# /etc/serviceradar/checkers/external.json
+```json
 {
     "name": "dusk",
     "address": "localhost:50052"
+}
+```
+
+For Network Sweep:
+
+**/etc/serviceradar/checkers/sweep.json**
+
+```json
+{
+    "networks": ["192.168.2.0/24"],
+    "ports": [22, 80, 443, 3306, 5432, 6379, 8080, 8443],
+    "sweep_modes": ["icmp", "tcp"],
+    "interval": "5m",
+    "concurrency": 100,
+    "timeout": "10s"
 }
 ```
 
@@ -161,19 +198,39 @@ Default location: `/etc/serviceradar/poller.json`
 
 ```json
 {
-    "agents": {
-        "local-agent": {
-            "address": "127.0.0.1:50051",
-            "checks": [
-                {
-                    "type": "dusk"
-                }
-            ]
+  "agents": {
+    "local-agent": {
+      "address": "127.0.0.1:50051",
+      "checks": [
+        {
+          "service_type": "process",
+          "service_name": "rusk",
+          "details": "rusk"
+        },
+        {
+          "service_type": "port",
+          "service_name": "SSH",
+          "port": 22
+        },
+        {
+          "service_type": "grpc",
+          "service_name": "dusk",
+          "details": "127.0.0.1:50052"
+        },
+        {
+          "service_type": "sweep",
+          "service_name": "network_sweep",
+          "details": ""
         }
-    },
-    "cloud_address": "cloud-host:50052",
-    "poll_interval": "30s",
-    "poller_id": "home-poller-1"
+      ]
+    }
+  },
+  "cloud_address": "changeme:50052",
+  "listen_addr": ":50053",
+  "poll_interval": "30s",
+  "poller_id": "home-poller-1",
+  "service_name": "PollerService",
+  "service_type": "grpc"
 }
 ```
 
@@ -183,17 +240,29 @@ Default location: `/etc/serviceradar/cloud.json`
 
 ```json
 {
-    "listen_addr": ":8090",
-    "alert_threshold": "5m",
-    "known_pollers": ["home-poller-1"],
-    "webhooks": [
+  "listen_addr": ":8090",
+  "grpc_addr": ":50052",
+  "alert_threshold": "5m",
+  "known_pollers": ["home-poller-1"],
+  "webhooks": [
+    {
+      "enabled": false,
+      "url": "https://your-webhook-url",
+      "cooldown": "15m",
+      "headers": [
         {
-            "enabled": true,
-            "url": "https://discord.com/api/webhooks/your-webhook-url",
-            "cooldown": "15m",
-            "template": "{\"embeds\":[{\"title\":\"{{.alert.Title}}\",\"description\":\"{{.alert.Message}}\",\"color\":{{if eq .alert.Level \"error\"}}15158332{{else if eq .alert.Level \"warning\"}}16776960{{else}}3447003{{end}},\"timestamp\":\"{{.alert.Timestamp}}\",\"fields\":[{\"name\":\"Node ID\",\"value\":\"{{.alert.NodeID}}\",\"inline\":true}{{range $key, $value := .alert.Details}},{\"name\":\"{{$key}}\",\"value\":\"{{$value}}\",\"inline\":true}{{end}}]}]}"
+          "key": "Authorization",
+          "value": "Bearer your-token"
         }
-    ]
+      ]
+    },
+    {
+      "enabled": true,
+      "url": "https://discord.com/api/webhooks/changeme",
+      "cooldown": "15m",
+      "template": "{\"embeds\":[{\"title\":\"{{.alert.Title}}\",\"description\":\"{{.alert.Message}}\",\"color\":{{if eq .alert.Level \"error\"}}15158332{{else if eq .alert.Level \"warning\"}}16776960{{else}}3447003{{end}},\"timestamp\":\"{{.alert.Timestamp}}\",\"fields\":[{\"name\":\"Node ID\",\"value\":\"{{.alert.NodeID}}\",\"inline\":true}{{range $key, $value := .alert.Details}},{\"name\":\"{{$key}}\",\"value\":\"{{$value}}\",\"inline\":true}{{end}}]}]}"
+    }
+  ]
 }
 ```
 
