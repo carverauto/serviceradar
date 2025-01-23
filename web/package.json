@@ -23,7 +23,7 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.2.1",
-    "vite": "^5.0.10",
+    "vite": "^5.4.14",
     "autoprefixer": "^10.4.16",
     "postcss": "^8.4.32"
   }
