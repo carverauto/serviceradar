@@ -32,6 +32,7 @@ const (
 	MB                       = 1024 * KB
 	maxMessageSize           = 4 * MB
 	statusUnknown            = "unknown"
+	sweepService             = "sweep"
 )
 
 var (
@@ -432,7 +433,7 @@ func (s *Server) processStatusReport(
 
 	// Log the processed sweep data
 	for _, svc := range apiStatus.Services {
-		if svc.Type == "sweep" {
+		if svc.Type == sweepService {
 			log.Printf("Processed sweep data for node %s: %s", req.PollerId, svc.Message)
 		}
 	}
@@ -479,7 +480,7 @@ func (s *Server) processServices(pollerID string, apiStatus *api.NodeStatus, ser
 }
 
 func (s *Server) handleService(pollerID string, svc *api.ServiceStatus, now time.Time) error {
-	if svc.Type == "sweep" {
+	if svc.Type == sweepService {
 		if err := s.processSweepData(svc, now); err != nil {
 			return fmt.Errorf("failed to process sweep data: %w", err)
 		}
