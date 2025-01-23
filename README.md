@@ -17,7 +17,7 @@ It provides real-time monitoring of internal services, with cloud-based alerting
 <img width="1388" alt="Screenshot 2025-01-22 at 10 10 00 PM" src="https://github.com/user-attachments/assets/c35df184-e67b-4435-9aa8-864c6ba8be41" />
 <img width="1388" alt="Screenshot 2025-01-22 at 10 10 24 PM" src="https://github.com/user-attachments/assets/9602d93f-7b6c-475a-b106-e2714ab5949a" />
 
-**Monitoring a Dusk Node**
+### Monitoring a Dusk Node
 
 <img width="1388" alt="Screenshot 2025-01-22 at 10 14 03 PM" src="https://github.com/user-attachments/assets/cb05b486-e16b-43ae-84ac-cbc976d2a813" />
 
