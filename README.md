@@ -13,10 +13,10 @@ ServiceRadar is a distributed network monitoring system designed for monitoring 
 It provides real-time monitoring of internal services, with cloud-based alerting capabilities to ensure you stay informed even during network or power outages.
 
 <img width="1388" alt="Screenshot 2025-01-22 at 10 08 55 PM" src="https://github.com/user-attachments/assets/93ebfe58-4cb8-4463-84db-accf68f6c6eb" />
-<img width="1388" alt="Screenshot 2025-01-22 at 9 55 02 PM" src="https://github.com/user-attachments/assets/f76c6526-4d9d-498c-b31a-3a868e196362" />
-<img width="1388" alt="Screenshot 2025-01-22 at 9 52 34 PM" src="https://github.com/user-attachments/assets/8e04f7fc-442f-400f-af00-983ef0fde04d" />
-<img width="1389" alt="Screenshot 2025-01-18 at 11 54 22 AM" src="https://github.com/user-attachments/assets/f6a0b3e1-da93-48f6-9288-887f13d953b0" />
-<img width="1389" alt="Screenshot 2025-01-18 at 11 54 49 AM" src="https://github.com/user-attachments/assets/24a1be84-9af3-4c92-84c1-5cda64af6c01" />
+<img width="1388" alt="Screenshot 2025-01-22 at 10 09 49 PM" src="https://github.com/user-attachments/assets/e593ed6f-386a-4346-ada9-1a7bf539a115" />
+<img width="1388" alt="Screenshot 2025-01-22 at 10 10 00 PM" src="https://github.com/user-attachments/assets/c35df184-e67b-4435-9aa8-864c6ba8be41" />
+<img width="1388" alt="Screenshot 2025-01-22 at 10 10 24 PM" src="https://github.com/user-attachments/assets/9602d93f-7b6c-475a-b106-e2714ab5949a" />
+<img width="1388" alt="Screenshot 2025-01-22 at 10 13 21 PM" src="https://github.com/user-attachments/assets/79fd1c89-055b-4cd4-b5b0-f8c51505bcad" />
 
 **Monitoring a Dusk Node**
 <img width="1389" alt="Screenshot 2025-01-18 at 11 55 09 AM" src="https://github.com/user-attachments/assets/f1383d3b-971b-4a76-aa25-af435adfb1e6" />
