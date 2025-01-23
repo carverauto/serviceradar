@@ -32,6 +32,7 @@ const (
 	MB                       = 1024 * KB
 	maxMessageSize           = 4 * MB
 	statusUnknown            = "unknown"
+	sweepService             = "sweep"
 )
 
 var (
@@ -380,7 +381,8 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 	}
 
 	now := time.Unix(req.Timestamp, 0)
-	log.Printf("Processing status report from %s at %s", req.PollerId, now.Format(time.RFC3339))
+
+	log.Printf("Received status report from %s with timestamp: %s", req.PollerId, now.Format(time.RFC3339))
 
 	apiStatus, err := s.processStatusReport(ctx, req, now)
 	if err != nil {
@@ -429,6 +431,13 @@ func (s *Server) processStatusReport(
 		return nil, err
 	}
 
+	// Log the processed sweep data
+	for _, svc := range apiStatus.Services {
+		if svc.Type == sweepService {
+			log.Printf("Processed sweep data for node %s: %s", req.PollerId, svc.Message)
+		}
+	}
+
 	return apiStatus, nil
 }
 
@@ -471,7 +480,7 @@ func (s *Server) processServices(pollerID string, apiStatus *api.NodeStatus, ser
 }
 
 func (s *Server) handleService(pollerID string, svc *api.ServiceStatus, now time.Time) error {
-	if svc.Type == "sweep" {
+	if svc.Type == sweepService {
 		if err := s.processSweepData(svc, now); err != nil {
 			return fmt.Errorf("failed to process sweep data: %w", err)
 		}
@@ -486,8 +495,10 @@ func (*Server) processSweepData(svc *api.ServiceStatus, now time.Time) error {
 		return fmt.Errorf("%w: %w", errInvalidSweepData, err)
 	}
 
+	log.Printf("Received sweep data with timestamp: %v", time.Unix(sweepData.LastSweep, 0).Format(time.RFC3339))
+
 	// If LastSweep is not set or is invalid (0 or negative), use current time
-	if sweepData.LastSweep <= 0 {
+	if sweepData.LastSweep > now.Add(oneDay).Unix() {
 		log.Printf("Invalid or missing LastSweep timestamp (%d), using current time", sweepData.LastSweep)
 		sweepData.LastSweep = now.Unix()
 
