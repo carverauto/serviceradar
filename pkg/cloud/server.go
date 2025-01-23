@@ -380,7 +380,8 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 	}
 
 	now := time.Unix(req.Timestamp, 0)
-	log.Printf("Processing status report from %s at %s", req.PollerId, now.Format(time.RFC3339))
+
+	log.Printf("Received status report from %s with timestamp: %s", req.PollerId, now.Format(time.RFC3339))
 
 	apiStatus, err := s.processStatusReport(ctx, req, now)
 	if err != nil {
@@ -427,6 +428,13 @@ func (s *Server) processStatusReport(
 
 	if err := s.updateNodeState(ctx, req.PollerId, apiStatus, currentState, now); err != nil {
 		return nil, err
+	}
+
+	// Log the processed sweep data
+	for _, svc := range apiStatus.Services {
+		if svc.Type == "sweep" {
+			log.Printf("Processed sweep data for node %s: %s", req.PollerId, svc.Message)
+		}
 	}
 
 	return apiStatus, nil
@@ -485,6 +493,8 @@ func (*Server) processSweepData(svc *api.ServiceStatus, now time.Time) error {
 	if err := json.Unmarshal([]byte(svc.Message), &sweepData); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidSweepData, err)
 	}
+
+	log.Printf("Received sweep data with timestamp: %v", time.Unix(sweepData.LastSweep, 0).Format(time.RFC3339))
 
 	// If LastSweep is not set or is invalid (0 or negative), use current time
 	if sweepData.LastSweep > now.Add(oneDay).Unix() {

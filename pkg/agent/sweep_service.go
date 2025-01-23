@@ -253,6 +253,8 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, er
 		Hosts:          summary.Hosts,
 	}
 
+	log.Printf("Agent: sweepSummary.LastSweep: %v", time.Unix(summary.LastSweep, 0).Format(time.RFC3339))
+
 	statusJSON, err := json.Marshal(data)
 	if err != nil {
 		log.Printf("Error marshaling sweep status: %v", err)

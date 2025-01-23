@@ -151,7 +151,7 @@ const NetworkSweepView = ({ nodeId, service }) => {
                 )}
 
                 <div className="text-sm text-gray-500 mt-2">
-                    Last sweep: {new Date(sweepDetails.last_sweep).toLocaleString()}
+                    Last sweep: {new Date(sweepDetails.last_sweep * 1000).toLocaleString()}
                 </div>
             </div>
 

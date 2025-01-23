@@ -3,6 +3,7 @@ package sweeper
 
 import (
 	"context"
+	"log"
 	"sync"
 	"time"
 
@@ -217,6 +218,8 @@ func (s *InMemoryStore) GetSweepSummary(_ context.Context) (*models.SweepSummary
 		Hosts:          hosts,
 		Ports:          ports,
 	}
+
+	log.Printf("InMemoryStore GetSweepSummary: LastSweep timestamp: %v", lastSweep.Format(time.RFC3339))
 
 	return summary, nil
 }
