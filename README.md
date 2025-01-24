@@ -10,12 +10,12 @@ It provides real-time monitoring of internal services, with cloud-based alerting
 ### Screenshots
 <img width="1388" alt="Screenshot 2025-01-22 at 10 08 55 PM" src="https://github.com/user-attachments/assets/93ebfe58-4cb8-4463-84db-accf68f6c6eb" />
 <img width="1388" alt="Screenshot 2025-01-22 at 10 09 49 PM" src="https://github.com/user-attachments/assets/e593ed6f-386a-4346-ada9-1a7bf539a115" />
-<img width="1388" alt="Screenshot 2025-01-22 at 10 10 00 PM" src="https://github.com/user-attachments/assets/c35df184-e67b-4435-9aa8-864c6ba8be41" />
-<img width="1388" alt="Screenshot 2025-01-22 at 10 10 24 PM" src="https://github.com/user-attachments/assets/9602d93f-7b6c-475a-b106-e2714ab5949a" />
+<img width="1388" src="https://github.com/user-attachments/assets/c35df184-e67b-4435-9aa8-864c6ba8be41" />
+<img width="1388" src="https://github.com/user-attachments/assets/9602d93f-7b6c-475a-b106-e2714ab5949a" />
 
 ### Monitoring a Dusk Node
 
-<img width="1388" alt="Screenshot 2025-01-22 at 10 14 03 PM" src="https://github.com/user-attachments/assets/cb05b486-e16b-43ae-84ac-cbc976d2a813" />
+<img width="1388" src="https://github.com/user-attachments/assets/cb05b486-e16b-43ae-84ac-cbc976d2a813" />
 
 https://docs.dusk.network/operator/overview/
 
@@ -27,24 +27,24 @@ ServiceRadar can be installed via direct downloads from GitHub releases.
 Install these components on your monitored host:
 ```bash
 # Download and install core components
-curl -LO https://github.com/mfreeman451/serviceradar/releases/download/1.0.3/serviceradar-agent_1.0.4.deb \
-     -O https://github.com/mfreeman451/serviceradar/releases/download/1.0.3/serviceradar-poller_1.0.4.deb
+curl -LO https://github.com/mfreeman451/serviceradar/releases/download/1.0.3/serviceradar-agent_1.0.5.deb \
+     -O https://github.com/mfreeman451/serviceradar/releases/download/1.0.3/serviceradar-poller_1.0.5.deb
 
-sudo dpkg -i serviceradar-agent_1.0.4.deb serviceradar-poller_1.0.4.deb
+sudo dpkg -i serviceradar-agent_1.0.5.deb serviceradar-poller_1.0.5.deb
 ```
 
 On a separate machine (recommended) or the same host:
 ```bash
 # Download and install cloud service
-curl -LO https://github.com/mfreeman451/serviceradar/releases/download/1.0.3/serviceradar-cloud_1.0.4.deb
-sudo dpkg -i serviceradar-cloud_1.0.4.deb
+curl -LO https://github.com/mfreeman451/serviceradar/releases/download/1.0.3/serviceradar-cloud_1.0.5.deb
+sudo dpkg -i serviceradar-cloud_1.0.5.deb
 ```
 
 #### Optional: Dusk Node Monitoring
 If you're running a [Dusk](https://dusk.network/) node and want specialized monitoring:
 ```bash
-curl -LO https://github.com/mfreeman451/serviceradar/releases/download/1.0.4/serviceradar-dusk-checker_1.0.4.deb
-sudo dpkg -i serviceradar-dusk-checker_1.0.4.deb
+curl -LO https://github.com/mfreeman451/serviceradar/releases/download/1.0.5/serviceradar-dusk-checker_1.0.5.deb
+sudo dpkg -i serviceradar-dusk-checker_1.0.5.deb
 ```
 
 #### Distributed Setup
@@ -52,20 +52,20 @@ For larger deployments where components run on different hosts:
 
 1. On monitored hosts:
 ```bash
-curl -LO https://github.com/mfreeman451/serviceradar/releases/download/1.0.4/serviceradar-agent_1.0.4.deb
-sudo dpkg -i serviceradar-agent_1.0.4.deb
+curl -LO https://github.com/mfreeman451/serviceradar/releases/download/1.0.5/serviceradar-agent_1.0.5.deb
+sudo dpkg -i serviceradar-agent_1.0.5.deb
 ```
 
 2. On monitoring host:
 ```bash
-curl -LO https://github.com/mfreeman451/serviceradar/releases/download/1.0.3/serviceradar-poller_1.0.4.deb
-sudo dpkg -i serviceradar-poller_1.0.4.deb
+curl -LO https://github.com/mfreeman451/serviceradar/releases/download/1.0.3/serviceradar-poller_1.0.5.deb
+sudo dpkg -i serviceradar-poller_1.0.5.deb
 ```
 
 3. On cloud host:
 ```bash
-curl -LO https://github.com/mfreeman451/serviceradar/releases/download/1.0.3/serviceradar-cloud_1.0.4.deb
-sudo dpkg -i serviceradar-cloud_1.0.4.deb
+curl -LO https://github.com/mfreeman451/serviceradar/releases/download/1.0.3/serviceradar-cloud_1.0.5.deb
+sudo dpkg -i serviceradar-cloud_1.0.5.deb
 ```
 
 ## Architecture
@@ -167,19 +167,19 @@ cd serviceradar
 
 1. **Agent Installation** (on monitored hosts):
 ```bash
-sudo dpkg -i serviceradar-dusk-checker_1.0.4.deb  # For Dusk nodes
+sudo dpkg -i serviceradar-dusk-checker_1.0.5.deb  # For Dusk nodes
 # or
-sudo dpkg -i serviceradar-agent_1.0.4.deb  # For other hosts
+sudo dpkg -i serviceradar-agent_1.0.5.deb  # For other hosts
 ```
 
 2. **Poller Installation** (on any host in your network):
 ```bash
-sudo dpkg -i serviceradar-poller_1.0.4.deb
+sudo dpkg -i serviceradar-poller_1.0.5.deb
 ```
 
 3. **Cloud Installation** (on a reliable host):
 ```bash
-sudo dpkg -i serviceradar-cloud_1.0.4.deb
+sudo dpkg -i serviceradar-cloud_1.0.5.deb
 ```
 
 ## Configuration
