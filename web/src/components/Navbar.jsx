@@ -1,6 +1,7 @@
 // src/components/Navbar.jsx
 import React from 'react';
 import { Link } from 'react-router-dom';
+import logo from '../../public/serviceRadar.svg';
 
 function Navbar() {
   return (
@@ -8,6 +9,7 @@ function Navbar() {
         <div className="container mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center">
+              <img src={logo} alt="logo" className="w-10 h-10" />
               <Link to="/" className="text-xl font-bold text-gray-800">
                 ServiceRadar
               </Link>
