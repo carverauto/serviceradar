@@ -2,8 +2,8 @@
 # setup-deb-agent.sh
 set -e  # Exit on any error
 
-# Get version from environment or default to 1.0.3
-VERSION=${VERSION:-1.0.3}
+# Get version from environment or default to 1.0.4
+VERSION=${VERSION:-1.0.4}
 echo "Building serviceradar-agent version ${VERSION}"
 
 echo "Setting up package structure..."
