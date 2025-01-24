@@ -3,6 +3,7 @@
 [![Release ServiceRadar Packages](https://github.com/mfreeman451/serviceradar/actions/workflows/release.yml/badge.svg)](https://github.com/mfreeman451/serviceradar/actions/workflows/release.yml)
 [![lint](https://github.com/mfreeman451/serviceradar/actions/workflows/golangci-lint.yml/badge.svg)](https://github.com/mfreeman451/serviceradar/actions/workflows/golangci-lint.yml)
 [![test](https://github.com/mfreeman451/serviceradar/actions/workflows/go-coverage.yml/badge.svg)](https://github.com/mfreeman451/serviceradar/actions/workflows/go-coverage.yml)
+<a href="https://cla-assistant.io/mfreeman451/serviceradar"><img src="https://cla-assistant.io/readme/badge/mfreeman451/serviceradar" alt="CLA assistant" /></a>
 
 ServiceRadar is a distributed network monitoring system designed for monitoring infrastructure and services in hard to reach places or constrained environments. 
 It provides real-time monitoring of internal services, with cloud-based alerting capabilities to ensure you stay informed even during network or power outages.
