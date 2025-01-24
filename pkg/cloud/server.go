@@ -172,7 +172,7 @@ func (s *Server) sendStartupNotification(ctx context.Context) error {
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		NodeID:    "cloud",
 		Details: map[string]any{
-			"version":  "1.0.2",
+			"version":  "1.0.4",
 			"hostname": getHostname(),
 		},
 	}
@@ -429,13 +429,6 @@ func (s *Server) processStatusReport(
 
 	if err := s.updateNodeState(ctx, req.PollerId, apiStatus, currentState, now); err != nil {
 		return nil, err
-	}
-
-	// Log the processed sweep data
-	for _, svc := range apiStatus.Services {
-		if svc.Type == sweepService {
-			log.Printf("Processed sweep data for node %s: %s", req.PollerId, svc.Message)
-		}
 	}
 
 	return apiStatus, nil
