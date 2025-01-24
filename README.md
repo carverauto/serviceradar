@@ -30,7 +30,7 @@ Install these components on your monitored host:
 curl -LO https://github.com/mfreeman451/serviceradar/releases/download/1.0.3/serviceradar-agent_1.0.4.deb \
      -O https://github.com/mfreeman451/serviceradar/releases/download/1.0.3/serviceradar-poller_1.0.4.deb
 
-sudo dpkg -i serviceradar-agent_1.0.3.deb serviceradar-poller_1.0.4.deb
+sudo dpkg -i serviceradar-agent_1.0.4.deb serviceradar-poller_1.0.4.deb
 ```
 
 On a separate machine (recommended) or the same host:
