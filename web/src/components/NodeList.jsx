@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import NodeTimeline from './NodeTimeline';
 import NetworkSweepView from "./NetworkSweepView.jsx";
+import _ from 'lodash';
 
 function NodeList() {
   const [nodes, setNodes] = useState([]);
@@ -79,7 +80,14 @@ function NodeList() {
       try {
         const response = await fetch('/api/nodes');
         const data = await response.json();
-        setNodes(data);
+
+        // Sort nodes immediately after fetching
+        const sortedData = data.sort(sortNodesByName);
+
+        // Only update state if nodes have actually changed
+        if (!_.isEqual(nodes, sortedData)) {
+          setNodes(sortedData);
+        }
       } catch (error) {
         console.error('Error fetching nodes:', error);
       }
@@ -88,7 +96,7 @@ function NodeList() {
     fetchNodes();
     const interval = setInterval(fetchNodes, 10000);
     return () => clearInterval(interval);
-  }, []);
+  }, [nodes, sortNodesByName]);
 
   const toggleSortOrder = useCallback(() => {
     setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc');
