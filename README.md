@@ -13,12 +13,11 @@ It provides real-time monitoring of internal services, with cloud-based alerting
 <img width="1387" alt="Screenshot 2025-01-24 at 1 57 09 PM" src="https://github.com/user-attachments/assets/0a46fef8-3f9a-4769-968c-9a8f39153d86" />
 <img width="1387" alt="Screenshot 2025-01-24 at 1 57 30 PM" src="https://github.com/user-attachments/assets/a89c4b7e-9909-4d6d-80ee-3613be516d83" />
 <img width="1387" alt="Screenshot 2025-01-24 at 1 58 13 PM" src="https://github.com/user-attachments/assets/d6afcd15-7952-4cf3-9132-4142afe6591c" />
-<img width="1386" alt="Screenshot 2025-01-24 at 1 58 44 PM" src="https://github.com/user-attachments/assets/712b78b0-6c5d-43d6-883c-4e87631830dc" />
 
 
 ### Monitoring a Dusk Node
 
-<img width="1388" src="https://github.com/user-attachments/assets/cb05b486-e16b-43ae-84ac-cbc976d2a813" />
+<img width="1386" alt="Screenshot 2025-01-24 at 1 58 44 PM" src="https://github.com/user-attachments/assets/712b78b0-6c5d-43d6-883c-4e87631830dc" />
 
 https://docs.dusk.network/operator/overview/
 
