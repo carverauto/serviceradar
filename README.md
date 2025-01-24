@@ -1,10 +1,5 @@
 # ServiceRadar
 
-```
-.-----.-----.----.--.--.|__|.----.-----.----.---.-.--|  |.---.-.----.
-|__ --|  -__|   _|  |  ||  ||  __|  -__|   _|  _  |  _  ||  _  |   _|
-|_____|_____|__|  \___/ |__||____|_____|__| |___._|_____||___._|__|  
-```
 [![Release ServiceRadar Packages](https://github.com/mfreeman451/serviceradar/actions/workflows/release.yml/badge.svg)](https://github.com/mfreeman451/serviceradar/actions/workflows/release.yml)
 [![lint](https://github.com/mfreeman451/serviceradar/actions/workflows/golangci-lint.yml/badge.svg)](https://github.com/mfreeman451/serviceradar/actions/workflows/golangci-lint.yml)
 [![test](https://github.com/mfreeman451/serviceradar/actions/workflows/go-coverage.yml/badge.svg)](https://github.com/mfreeman451/serviceradar/actions/workflows/go-coverage.yml)
