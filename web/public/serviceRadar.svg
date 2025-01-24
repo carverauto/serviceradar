@@ -20,4 +20,9 @@
   </line>
   <!-- Center dot (smaller and more subtle) -->
   <circle cx="16" cy="16" r="1" fill="#4CAF50" />
+  <!-- Subtle pulse effect -->
+  <circle cx="16" cy="16" r="1" fill="none" stroke="rgba(76, 175, 80, 0.3)" stroke-width="2" stroke-opacity="0.5">
+    <animate attributeName="r" from="1" to="14" dur="1.5s" repeatCount="indefinite" />
+    <animate attributeName="stroke-opacity" from="0.5" to="0" dur="1.5s" repeatCount="indefinite" />
+  </circle>
 </svg>
