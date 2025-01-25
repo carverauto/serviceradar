@@ -21,9 +21,10 @@ message StatusRequest {
 
 message StatusResponse {
   bool available = 1;
-  string message = 2;
+  string message = 2; // Raw data as JSON
   string service_name = 3;
   string service_type = 4;
+  int64 response_time = 5; // Raw response time in nanoseconds
 }
 
 message PollerStatusRequest {
@@ -41,6 +42,7 @@ message ServiceStatus {
   bool available = 2;
   string message = 3;
   string service_type = 4;
+  int64 response_time = 5;
 }
 
 message SweepServiceStatus {

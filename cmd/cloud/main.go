@@ -29,6 +29,8 @@ func run() error {
 		return err
 	}
 
+	log.Printf("cfg: %v", cfg)
+
 	// Create root context for lifecycle management
 	ctx := context.Background()
 
@@ -39,7 +41,7 @@ func run() error {
 	}
 
 	// Create and configure API server
-	apiServer := api.NewAPIServer()
+	apiServer := api.NewAPIServer(server.GetMetricsManager())
 	server.SetAPIServer(apiServer)
 
 	// Start HTTP API server in background

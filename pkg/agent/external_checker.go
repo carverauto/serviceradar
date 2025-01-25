@@ -3,8 +3,10 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
+	"time"
 
 	grpcpkg "github.com/mfreeman451/serviceradar/pkg/grpc"
 	"github.com/mfreeman451/serviceradar/proto"
@@ -76,31 +78,38 @@ func (e *ExternalChecker) Check(ctx context.Context) (isAccessible bool, statusM
 	healthy, err := e.client.CheckHealth(ctx, "")
 	if err != nil {
 		log.Printf("External checker %s: Health check failed: %v", e.serviceName, err)
-
-		return false, fmt.Sprintf("Failed to check %s: %v", e.serviceName, err)
+		return false, fmt.Sprintf("Health check failed: %v", err)
 	}
 
 	if !healthy {
 		log.Printf("External checker %s: Service reported unhealthy", e.serviceName)
-
-		return false, fmt.Sprintf("%s is not healthy", e.serviceName)
+		return false, "Service reported unhealthy"
 	}
 
 	// Then get block details through AgentService
 	client := proto.NewAgentServiceClient(e.client.GetConnection())
 
+	start := time.Now()
 	status, err := client.GetStatus(ctx, &proto.StatusRequest{
 		ServiceName: e.serviceName,
 		ServiceType: e.serviceType,
 	})
+
 	if err != nil {
 		log.Printf("External checker %s: Failed to get details: %v", e.serviceName, err)
 
-		return true, fmt.Sprintf("%s is healthy but details unavailable", e.serviceName)
+		return true, "Service healthy but details unavailable"
 	}
 
-	log.Printf("External checker %s: Received status message: %s", e.serviceName, status.Message)
+	responseTime := time.Since(start).Nanoseconds()
 
+	// Parse status.Message into response structure
+	var details map[string]interface{}
+	if err := json.Unmarshal([]byte(status.Message), &details); err != nil {
+		return true, fmt.Sprintf(`{"response_time": %d, "error": "invalid details format"}`, responseTime)
+	}
+
+	// Pass the details directly in the status message
 	return true, status.Message
 }
 

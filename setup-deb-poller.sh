@@ -4,7 +4,7 @@ set -e  # Exit on any error
 
 echo "Setting up package structure..."
 
-VERSION=${VERSION:-1.0.5}
+VERSION=${VERSION:-1.0.6}
 
 # Create package directory structure
 PKG_ROOT="serviceradar-poller_${VERSION}"
@@ -72,12 +72,16 @@ cat > "${PKG_ROOT}/etc/serviceradar/poller.json" << EOF
                 {
                     "service_type": "port",
                     "service_name": "SSH",
-                    "port": 22
+                    "details": "127.0.0.1:22"
                 },
                 {
                     "service_type": "grpc",
                     "service_name": "dusk",
                     "details": "127.0.0.1:50052"
+                },
+		{
+                    "service_type": "icmp",
+                    "service_name": "ping"
                 },
                 {
                     "service_type": "sweep",
@@ -90,7 +94,7 @@ cat > "${PKG_ROOT}/etc/serviceradar/poller.json" << EOF
     "cloud_address": "changeme:50052",
     "listen_addr": ":50053",
     "poll_interval": "30s",
-    "poller_id": "home-poller-1",
+    "poller_id": "dusk",
     "service_name": "PollerService",
     "service_type": "grpc"
 }

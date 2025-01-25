@@ -4,8 +4,8 @@ set -e  # Exit on any error
 
 echo "Setting up package structure..."
 
-# Get version from environment or default to 1.0.5
-VERSION=${VERSION:-1.0.5}
+# Get version from environment or default to 1.0.6
+VERSION=${VERSION:-1.0.6}
 
 # Create package directory structure
 PKG_ROOT="serviceradar-cloud_${VERSION}"
@@ -81,8 +81,33 @@ if [ ! -f "/etc/serviceradar/cloud.json" ]; then
     cat > "${PKG_ROOT}/etc/serviceradar/cloud.json" << EOF
 {
     "listen_addr": ":8090",
+    "grpc_addr": ":50052",
     "alert_threshold": "5m",
-    "known_pollers": ["home-poller-1"]
+    "known_pollers": ["home-poller-1"],
+    "metrics": {
+        "enabled": true,
+        "retention": 100,
+        "max_nodes": 10000
+    },
+    "webhooks": [
+        {
+            "enabled": false,
+            "url": "https://your-webhook-url",
+            "cooldown": "15m",
+            "headers": [
+                {
+                    "key": "Authorization",
+                    "value": "Bearer your-token"
+                }
+            ]
+        },
+        {
+            "enabled": true,
+            "url": "https://discord.com/api/webhooks/changeme",
+            "cooldown": "15m",
+            "template": "{\"embeds\":[{\"title\":\"{{.alert.Title}}\",\"description\":\"{{.alert.Message}}\",\"color\":{{if eq .alert.Level \"error\"}}15158332{{else if eq .alert.Level \"warning\"}}16776960{{else}}3447003{{end}},\"timestamp\":\"{{.alert.Timestamp}}\",\"fields\":[{\"name\":\"Node ID\",\"value\":\"{{.alert.NodeID}}\",\"inline\":true}{{range $key, $value := .alert.Details}},{\"name\":\"{{$key}}\",\"value\":\"{{$value}}\",\"inline\":true}{{end}}]}]}"
+        }
+    ]
 }
 EOF
 fi

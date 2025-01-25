@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/mfreeman451/serviceradar/pkg/metrics"
+	"github.com/mfreeman451/serviceradar/pkg/models"
 )
 
 type ServiceStatus struct {
@@ -23,12 +25,13 @@ type ServiceStatus struct {
 }
 
 type NodeStatus struct {
-	NodeID     string          `json:"node_id"`
-	IsHealthy  bool            `json:"is_healthy"`
-	LastUpdate time.Time       `json:"last_update"`
-	Services   []ServiceStatus `json:"services"`
-	UpTime     string          `json:"uptime"`
-	FirstSeen  time.Time       `json:"first_seen"`
+	NodeID     string               `json:"node_id"`
+	IsHealthy  bool                 `json:"is_healthy"`
+	LastUpdate time.Time            `json:"last_update"`
+	Services   []ServiceStatus      `json:"services"`
+	UpTime     string               `json:"uptime"`
+	FirstSeen  time.Time            `json:"first_seen"`
+	Metrics    []models.MetricPoint `json:"metrics,omitempty"`
 }
 
 type SystemStatus struct {
@@ -54,12 +57,14 @@ type APIServer struct {
 	nodes              map[string]*NodeStatus
 	router             *mux.Router
 	nodeHistoryHandler func(nodeID string) ([]NodeHistoryPoint, error)
+	metricsManager     *metrics.MetricsManager
 }
 
-func NewAPIServer() *APIServer {
+func NewAPIServer(metricsManager *metrics.MetricsManager) *APIServer {
 	s := &APIServer{
-		nodes:  make(map[string]*NodeStatus),
-		router: mux.NewRouter(),
+		nodes:          make(map[string]*NodeStatus),
+		router:         mux.NewRouter(),
+		metricsManager: metricsManager,
 	}
 	s.setupRoutes()
 
@@ -91,11 +96,11 @@ func (s *APIServer) setupRoutes() {
 	s.router.HandleFunc("/api/nodes/{id}", s.getNode).Methods("GET")
 	s.router.HandleFunc("/api/status", s.getSystemStatus).Methods("GET")
 
-	// History endpoint
-	s.router.HandleFunc("/api/nodes/{id}/history", s.getNodeHistory).Methods("GET")
-
 	// Node history endpoint
 	s.router.HandleFunc("/api/nodes/{id}/history", s.getNodeHistory).Methods("GET")
+
+	// Metrics endpoint
+	s.router.HandleFunc("/api/nodes/{id}/metrics", s.getNodeMetrics).Methods("GET")
 
 	// Service-specific endpoints
 	s.router.HandleFunc("/api/nodes/{id}/services", s.getNodeServices).Methods("GET")
@@ -109,6 +114,29 @@ func (s *APIServer) setupRoutes() {
 	}
 
 	s.router.PathPrefix("/").Handler(http.FileServer(http.FS(fsys)))
+}
+
+func (s *APIServer) getNodeMetrics(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	nodeID := vars["id"]
+
+	if s.metricsManager == nil {
+		http.Error(w, "Metrics not configured", http.StatusInternalServerError)
+		return
+	}
+
+	m := s.metricsManager.GetMetrics(nodeID)
+	if m == nil {
+		http.Error(w, "No metrics found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	if err := json.NewEncoder(w).Encode(m); err != nil {
+		log.Printf("Error encoding metrics response: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	}
 }
 
 func (s *APIServer) SetNodeHistoryHandler(handler func(nodeID string) ([]NodeHistoryPoint, error)) {
@@ -130,6 +158,8 @@ func (s *APIServer) getNodeHistory(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	nodeID := vars["id"]
 
+	log.Printf("Getting node history for: %s", nodeID)
+
 	if s.nodeHistoryHandler == nil {
 		http.Error(w, "History handler not configured", http.StatusInternalServerError)
 		return
@@ -142,6 +172,8 @@ func (s *APIServer) getNodeHistory(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
+
+	log.Printf("Fetched %d history points for node: %s", len(points), nodeID)
 
 	w.Header().Set("Content-Type", "application/json")
 
@@ -206,24 +238,32 @@ func (s *APIServer) getNode(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Getting node status for: %s", nodeID)
 
 	s.mu.RLock()
-	node, exists := s.nodes[nodeID]
-	s.mu.RUnlock()
 
+	node, exists := s.nodes[nodeID]
 	if !exists {
-		log.Printf("Node %s not found in nodes map. Available nodes: %v",
-			nodeID, s.getNodeIDs())
+		s.mu.RUnlock()
+		log.Printf("Node %s not found in nodes map", nodeID)
 		http.Error(w, "Node not found", http.StatusNotFound)
 
 		return
 	}
+
+	// Get metrics if available
+	if s.metricsManager != nil {
+		m := s.metricsManager.GetMetrics(nodeID)
+		if m != nil {
+			node.Metrics = m
+			log.Printf("Attached %d metrics points to node %s response",
+				len(m), nodeID)
+		}
+	}
+	s.mu.RUnlock()
 
 	w.Header().Set("Content-Type", "application/json")
 
 	if err := json.NewEncoder(w).Encode(node); err != nil {
 		log.Printf("Error encoding node response: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
-
-		return
 	}
 }
 
@@ -245,18 +285,6 @@ func (s *APIServer) getNodeServices(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Error encoding JSON", http.StatusInternalServerError)
 		return
 	}
-}
-
-func (s *APIServer) getNodeIDs() []string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	ids := make([]string, 0, len(s.nodes))
-	for id := range s.nodes {
-		ids = append(ids, id)
-	}
-
-	return ids
 }
 
 func (s *APIServer) getServiceDetails(w http.ResponseWriter, r *http.Request) {

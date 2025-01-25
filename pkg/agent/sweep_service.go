@@ -261,11 +261,15 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, er
 		return nil, fmt.Errorf("failed to marshal sweep status: %w", err)
 	}
 
+	// Calculate response time (if needed)
+	responseTime := time.Since(time.Unix(summary.LastSweep, 0)).Nanoseconds()
+
 	return &proto.StatusResponse{
-		Available:   true,
-		Message:     string(statusJSON),
-		ServiceName: "network_sweep",
-		ServiceType: "sweep",
+		Available:    true,
+		Message:      string(statusJSON),
+		ServiceName:  "network_sweep",
+		ServiceType:  "sweep",
+		ResponseTime: responseTime, // Include response time in nanoseconds
 	}, nil
 }
 
