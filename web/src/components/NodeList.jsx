@@ -85,29 +85,12 @@ function NodeList() {
       [sortedNodes, nodesPerPage]
   );
 
-  const fetchNodeHistory = async (nodeId) => {
-    try {
-      const response = await fetch(`/api/nodes/${nodeId}/history`);
-      const data = await response.json();
-      setNodeHistory(prev => ({
-        ...prev,
-        [nodeId]: data
-      }));
-    } catch (error) {
-      console.error('Error fetching node history:', error);
-    }
-  };
-
   useEffect(() => {
     const fetchNodes = async () => {
       try {
         const response = await fetch('/api/nodes');
         const newData = await response.json();
         const sortedData = newData.sort(sortNodesByName);
-
-        newData.forEach(node => {
-          fetchNodeHistory(node.node_id);
-        });
 
         setNodes((prevNodes) => {
           if (!_.isEqual(prevNodes, sortedData)) {
@@ -137,40 +120,20 @@ function NodeList() {
     }));
   }, [nodeHistory]);
 
-  const ServiceStatus = ({ service, history }) => (
+  const ServiceStatus = ({ service, nodeId }) => (
       <div className="flex items-center gap-2 bg-gray-50 rounded p-2">
         <div className="flex items-center gap-1">
-      <span className={`w-1.5 h-1.5 rounded-full ${
-          service.available ? 'bg-green-500' : 'bg-red-500'
-      }`} />
+          <span className={`w-1.5 h-1.5 rounded-full ${service.available ? 'bg-green-500' : 'bg-red-500'}`} />
           <span className="font-medium">{service.name || 'unknown'}</span>
           <span className="text-gray-500">({service.type})</span>
         </div>
         <ServiceSparkline
-            history={history}
+            nodeId={nodeId}
             serviceName={service.name}
+            metrics={nodeHistory[nodeId]?.filter(m => m.service_name === service.name) || []}
         />
       </div>
   );
-
-  const renderSparkline = useCallback((nodeId) => {
-    const data = getSparklineData(nodeId);
-    if (!data.length) return null;
-
-    return (
-        <div className="h-8 w-24">
-          <LineChart width={96} height={32} data={data}>
-            <Line
-                type="monotone"
-                dataKey="value"
-                stroke="#6366f1"
-                dot={false}
-                strokeWidth={1}
-            />
-          </LineChart>
-        </div>
-    );
-  }, [getSparklineData]);
 
   const renderGridView = () => (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -197,6 +160,7 @@ function NodeList() {
                     <ServiceStatus
                         key={`${service.name}-${idx}`}
                         service={service}
+                        nodeId={node.node_id}
                         history={nodeHistory[node.node_id]?.filter(h => h.service_name === service.name) || []}
                     />
                 ))}
@@ -217,20 +181,16 @@ function NodeList() {
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
           <tr>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Node</th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-16">Status</th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-48">Node</th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Services</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Response Times</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Update</th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-64">Response Times</th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-48">Last Update</th>
           </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
           {currentNodes.map((node) => (
-              <tr
-                  key={node.node_id}
-                  onClick={() => setExpandedNode(expandedNode === node.node_id ? null : node.node_id)}
-                  className="hover:bg-gray-50 cursor-pointer"
-              >
+              <tr key={node.node_id}>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className={`w-2 h-2 rounded-full ${
                       node.is_healthy ? 'bg-green-500' : 'bg-red-500'
@@ -246,7 +206,7 @@ function NodeList() {
                     <span className={`w-1.5 h-1.5 rounded-full ${
                         service.available ? 'bg-green-500' : 'bg-red-500'
                     }`} />
-                          <span className="font-medium">{service.name}</span>
+                          <span className="text-sm font-medium">{service.name}</span>
                         </div>
                     ))}
                   </div>
@@ -254,11 +214,18 @@ function NodeList() {
                 <td className="px-6 py-4">
                   <div className="flex flex-col gap-2">
                     {node.services?.map((service, idx) => (
-                        <ServiceSparkline
-                            key={`${service.name}-${idx}`}
-                            history={nodeHistory[node.node_id]?.filter(h => h.service_name === service.name) || []}
-                            serviceName={service.name}
-                        />
+                        <div key={`${service.name}-${idx}`} className="flex items-center justify-between gap-2">
+                          <span className="text-xs text-gray-500 w-24 truncate">{service.name}</span>
+                          <ServiceSparkline
+                              nodeId={node.node_id}
+                              serviceName={service.name}
+                              metrics={nodeHistory[node.node_id]?.filter(m =>
+                                  m.service_name === service.name &&
+                                  m.response_time > 0 &&
+                                  new Date(m.timestamp).getTime() > 0
+                              ) || []}
+                          />
+                        </div>
                     ))}
                   </div>
                 </td>

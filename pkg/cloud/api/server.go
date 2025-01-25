@@ -96,11 +96,11 @@ func (s *APIServer) setupRoutes() {
 	s.router.HandleFunc("/api/nodes/{id}", s.getNode).Methods("GET")
 	s.router.HandleFunc("/api/status", s.getSystemStatus).Methods("GET")
 
-	// History endpoint
-	s.router.HandleFunc("/api/nodes/{id}/history", s.getNodeHistory).Methods("GET")
-
 	// Node history endpoint
 	s.router.HandleFunc("/api/nodes/{id}/history", s.getNodeHistory).Methods("GET")
+
+	// Metrics endpoint
+	s.router.HandleFunc("/api/nodes/{id}/metrics", s.getNodeMetrics).Methods("GET")
 
 	// Service-specific endpoints
 	s.router.HandleFunc("/api/nodes/{id}/services", s.getNodeServices).Methods("GET")
@@ -114,6 +114,28 @@ func (s *APIServer) setupRoutes() {
 	}
 
 	s.router.PathPrefix("/").Handler(http.FileServer(http.FS(fsys)))
+}
+
+func (s *APIServer) getNodeMetrics(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	nodeID := vars["id"]
+
+	if s.metricsManager == nil {
+		http.Error(w, "Metrics not configured", http.StatusInternalServerError)
+		return
+	}
+
+	m := s.metricsManager.GetMetrics(nodeID)
+	if m == nil {
+		http.Error(w, "No metrics found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(m); err != nil {
+		log.Printf("Error encoding metrics response: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	}
 }
 
 func (s *APIServer) SetNodeHistoryHandler(handler func(nodeID string) ([]NodeHistoryPoint, error)) {
@@ -135,6 +157,8 @@ func (s *APIServer) getNodeHistory(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	nodeID := vars["id"]
 
+	log.Printf("Getting node history for: %s", nodeID)
+
 	if s.nodeHistoryHandler == nil {
 		http.Error(w, "History handler not configured", http.StatusInternalServerError)
 		return
@@ -147,6 +171,8 @@ func (s *APIServer) getNodeHistory(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
+
+	log.Printf("Fetched %d history points for node: %s", len(points), nodeID)
 
 	w.Header().Set("Content-Type", "application/json")
 

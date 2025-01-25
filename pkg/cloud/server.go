@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -51,6 +53,7 @@ type Config struct {
 	GrpcAddr       string                 `json:"grpc_addr"`
 	DBPath         string                 `json:"db_path"`
 	AlertThreshold time.Duration          `json:"alert_threshold"`
+	PollerPatterns []string               `json:"poller_patterns"`
 	Webhooks       []alerts.WebhookConfig `json:"webhooks,omitempty"`
 	KnownPollers   []string               `json:"known_pollers,omitempty"`
 	Metrics        Metrics                `json:"metrics"`
@@ -64,7 +67,7 @@ type Server struct {
 	webhooks       []*alerts.WebhookAlerter
 	apiServer      *api.APIServer
 	ShutdownChan   chan struct{}
-	knownPollers   []string
+	pollerPatterns []string
 	grpcServer     *grpc.Server
 	metrics        *metrics.MetricsManager
 }
@@ -109,7 +112,7 @@ func NewServer(_ context.Context, config *Config) (*Server, error) {
 		alertThreshold: config.AlertThreshold,
 		webhooks:       make([]*alerts.WebhookAlerter, 0),
 		ShutdownChan:   make(chan struct{}),
-		knownPollers:   config.KnownPollers,
+		pollerPatterns: config.PollerPatterns,
 		metrics:        metricsManager,
 	}
 
@@ -123,7 +126,6 @@ func NewServer(_ context.Context, config *Config) (*Server, error) {
 func (s *Server) Start(ctx context.Context) error {
 	log.Printf("Starting cloud service...")
 
-	// Start GRPC server
 	if s.grpcServer != nil {
 		go func() {
 			if err := s.grpcServer.Start(); err != nil {
@@ -132,27 +134,20 @@ func (s *Server) Start(ctx context.Context) error {
 		}()
 	}
 
-	// Send startup notification
 	if err := s.sendStartupNotification(ctx); err != nil {
 		log.Printf("Failed to send startup notification: %v", err)
 	}
 
-	// Start periodic cleanup
 	go s.periodicCleanup(ctx)
 
-	// Start node monitoring with proper delays
 	go func() {
 		log.Printf("Starting node monitoring...")
-
-		// Initial delay to allow nodes to report in
 		time.Sleep(nodeDiscoveryTimeout)
 		s.checkInitialStates(ctx)
 
-		// Check never-reported pollers after another delay
 		time.Sleep(nodeNeverReportedTimeout)
-		s.checkNeverReportedPollers(ctx, &Config{KnownPollers: s.knownPollers})
+		s.checkNeverReportedPollers(ctx, nil) // No config needed anymore
 
-		// Start continuous monitoring
 		s.MonitorPollers(ctx)
 	}()
 
@@ -187,6 +182,15 @@ func (s *Server) Stop() error {
 	close(s.ShutdownChan)
 
 	return nil
+}
+
+func (s *Server) isValidPoller(pollerID string) bool {
+	for _, pattern := range s.pollerPatterns {
+		if matched, err := regexp.MatchString(pattern, pollerID); err == nil && matched {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) sendStartupNotification(ctx context.Context) error {
@@ -228,18 +232,35 @@ func (s *Server) sendShutdownNotification(ctx context.Context) error {
 	return s.sendAlert(ctx, alert)
 }
 
-// checkPollers is the monitoring function that checks poller health.
 func (s *Server) checkPollers(ctx context.Context) error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	// Get all nodes from database
+	rows, err := s.db.Query(`SELECT node_id, last_seen, is_healthy FROM nodes`)
+	if err != nil {
+		return fmt.Errorf("failed to query nodes: %w", err)
+	}
+	defer rows.Close()
+
 	now := time.Now()
 	alertThreshold := now.Add(-s.alertThreshold)
 
-	// Check all known pollers
-	for _, pollerID := range s.knownPollers {
-		if err := s.checkPollerHealth(ctx, pollerID, alertThreshold); err != nil {
-			log.Printf("Error checking poller %s: %v", pollerID, err)
+	for rows.Next() {
+		var nodeID string
+		var lastSeen time.Time
+		var isHealthy bool
+
+		if err := rows.Scan(&nodeID, &lastSeen, &isHealthy); err != nil {
+			log.Printf("Error scanning node row: %v", err)
+			continue
+		}
+
+		// Check if node matches any pattern
+		if s.isValidPoller(nodeID) {
+			if err := s.checkPollerHealth(ctx, nodeID, alertThreshold); err != nil {
+				log.Printf("Error checking poller %s: %v", nodeID, err)
+			}
 		}
 	}
 
@@ -323,6 +344,13 @@ func (s *Server) SetAPIServer(apiServer *api.APIServer) {
 			return nil, fmt.Errorf("failed to get node history: %w", err)
 		}
 
+		// debug points
+		log.Printf("Fetched %d history points for node: %s", len(points), nodeID)
+		// log first 20 points
+		for i := 0; i < 20 && i < len(points); i++ {
+			log.Printf("Point %d: %v", i, points[i])
+		}
+
 		apiPoints := make([]api.NodeHistoryPoint, len(points))
 		for i, p := range points {
 			apiPoints[i] = api.NodeHistoryPoint{
@@ -338,33 +366,21 @@ func (s *Server) SetAPIServer(apiServer *api.APIServer) {
 func (s *Server) checkInitialStates(ctx context.Context) {
 	log.Printf("Checking initial states of all nodes")
 
-	// Query all nodes from database
-	const querySQL = `
+	rows, err := s.db.Query(`
         SELECT node_id, is_healthy, last_seen 
         FROM nodes 
+        WHERE node_id REGEXP ?
         ORDER BY last_seen DESC
-    `
-
-	rows, err := s.db.Query(querySQL) //nolint:rowserrcheck // rows.Close() is deferred
+    `, strings.Join(s.pollerPatterns, "|"))
 	if err != nil {
 		log.Printf("Error querying nodes: %v", err)
 		return
 	}
-
-	defer func(rows *sql.Rows) {
-		err := rows.Close()
-		if err != nil {
-			log.Printf("Error closing rows: %v", err)
-		}
-	}(rows)
-
-	checkedNodes := make(map[string]bool)
+	defer rows.Close()
 
 	for rows.Next() {
 		var nodeID string
-
 		var isHealthy bool
-
 		var lastSeen time.Time
 
 		if err := rows.Scan(&nodeID, &isHealthy, &lastSeen); err != nil {
@@ -372,29 +388,13 @@ func (s *Server) checkInitialStates(ctx context.Context) {
 			continue
 		}
 
-		checkedNodes[nodeID] = true
 		duration := time.Since(lastSeen)
-
 		if duration > s.alertThreshold {
 			log.Printf("Node %s found offline during initial check (last seen: %v ago)",
 				nodeID, duration.Round(time.Second))
 
-			err := s.markNodeDown(ctx, nodeID, time.Now())
-			if err != nil {
+			if err := s.markNodeDown(ctx, nodeID, time.Now()); err != nil {
 				log.Printf("Error marking node down: %v", err)
-				return
-			}
-		}
-	}
-
-	// Check for known pollers that have never reported
-	for _, pollerID := range s.knownPollers {
-		if !checkedNodes[pollerID] {
-			err := s.markNodeDown(ctx, pollerID, time.Now())
-			if err != nil {
-				log.Printf("Error marking node down: %v", err)
-
-				return
 			}
 		}
 	}
@@ -759,36 +759,57 @@ func (s *Server) periodicCleanup(_ context.Context) {
 	}
 }
 
-func (s *Server) checkNeverReportedPollers(ctx context.Context, config *Config) {
-	const querySQL = `
+func (s *Server) checkNeverReportedPollers(ctx context.Context, _ *Config) {
+	log.Printf("Checking for unreported nodes matching patterns: %v", s.pollerPatterns)
+
+	// Build SQL pattern for REGEXP
+	combinedPattern := strings.Join(s.pollerPatterns, "|")
+	if combinedPattern == "" {
+		return
+	}
+
+	var unreportedNodes []string
+	rows, err := s.db.Query(`
         SELECT node_id 
         FROM nodes 
-        WHERE node_id = ?
-    `
+        WHERE node_id REGEXP ? AND last_seen = ''`,
+		combinedPattern)
+	if err != nil {
+		log.Printf("Error querying unreported nodes: %v", err)
+		return
+	}
+	defer rows.Close()
 
-	for _, pollerID := range config.KnownPollers {
-		var exists string
-
-		err := s.db.QueryRow(querySQL, pollerID).Scan(&exists)
-		if errors.Is(err, sql.ErrNoRows) {
-			alert := alerts.WebhookAlert{
-				Level:   alerts.Error,
-				Title:   fmt.Sprintf("Poller Never Reported: %s", pollerID),
-				Message: fmt.Sprintf("Expected poller %s has not reported after startup.", pollerID),
-				NodeID:  pollerID,
-				Details: map[string]any{
-					"hostname": getHostname(),
-				},
-			}
-
-			log.Printf("Sending 'never-reported' alert for poller %s", pollerID)
-
-			err := s.sendAlert(ctx, &alert)
-			if err != nil {
-				log.Printf("Error sending 'never-reported' alert: %v", err)
-				return
-			}
+	for rows.Next() {
+		var nodeID string
+		if err := rows.Scan(&nodeID); err != nil {
+			log.Printf("Error scanning node ID: %v", err)
+			continue
 		}
+		unreportedNodes = append(unreportedNodes, nodeID)
+	}
+
+	if len(unreportedNodes) > 0 {
+		s.sendUnreportedNodesAlert(ctx, unreportedNodes)
+	}
+}
+
+func (s *Server) sendUnreportedNodesAlert(ctx context.Context, nodeIDs []string) {
+	alert := &alerts.WebhookAlert{
+		Level:     alerts.Warning,
+		Title:     "Pollers Never Reported",
+		Message:   fmt.Sprintf("%d poller(s) have not reported since startup", len(nodeIDs)),
+		NodeID:    "cloud",
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Details: map[string]any{
+			"hostname":     getHostname(),
+			"poller_ids":   nodeIDs,
+			"poller_count": len(nodeIDs),
+		},
+	}
+
+	if err := s.sendAlert(ctx, alert); err != nil {
+		log.Printf("Error sending unreported nodes alert: %v", err)
 	}
 }
 
