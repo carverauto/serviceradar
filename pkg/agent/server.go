@@ -16,10 +16,8 @@ import (
 	"github.com/mfreeman451/serviceradar/pkg/grpc"
 	"github.com/mfreeman451/serviceradar/pkg/models"
 	"github.com/mfreeman451/serviceradar/proto"
-	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
-	"google.golang.org/grpc/status"
 )
 
 const (
@@ -67,6 +65,7 @@ type Server struct {
 	healthChecker *health.Server
 	grpcServer    *grpc.Server
 	listenAddr    string
+	registry      checker.Registry
 }
 
 func (s *Server) Stop() error {
@@ -100,7 +99,8 @@ func NewServer(configDir string) (*Server, error) {
 		checkerConfs: make(map[string]CheckerConfig),
 		configDir:    configDir,
 		services:     make([]Service, 0),
-		listenAddr:   ":50051", // Default, should come from config
+		listenAddr:   ":50051",
+		registry:     initRegistry(),
 	}
 
 	// Load configurations
@@ -197,9 +197,16 @@ func (s *Server) Start(ctx context.Context) error {
 }
 
 func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
+	log.Printf("Received status request: %+v", req)
+
 	// Special handling for sweep status requests
 	if req.ServiceType == "sweep" {
 		return s.getSweepStatus(ctx)
+	}
+
+	// Validate details field for port checks
+	if req.ServiceType == "port" && req.Details == "" {
+		return nil, fmt.Errorf("details field is required for port checks")
 	}
 
 	// Get the appropriate checker
@@ -258,7 +265,6 @@ func (s *Server) loadCheckerConfigs() error {
 		}
 
 		path := filepath.Join(s.configDir, file.Name())
-
 		data, err := os.ReadFile(path)
 		if err != nil {
 			log.Printf("Warning: Failed to read config file %s: %v", path, err)
@@ -300,86 +306,22 @@ func (s *Server) getChecker(ctx context.Context, req *proto.StatusRequest) (chec
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	dynamicKey := s.getDynamicKey(req)
+	key := fmt.Sprintf("%s:%s", req.GetServiceType(), req.GetServiceName())
 
 	// Return existing checker if available
-	if check, exists := s.checkers[dynamicKey]; exists {
+	if check, exists := s.checkers[key]; exists {
 		return check, nil
 	}
 
-	// Create new checker
-	check, err := s.createChecker(ctx, req)
+	// Create new checker using registry
+	check, err := s.registry.Get(ctx, req.ServiceType, req.ServiceName, req.Details)
 	if err != nil {
 		return nil, err
 	}
 
 	// Cache the checker
-	s.checkers[dynamicKey] = check
-
+	s.checkers[key] = check
 	return check, nil
-}
-
-func (s *Server) createChecker(ctx context.Context, req *proto.StatusRequest) (checker.Checker, error) {
-	// Try to load from config first
-	if conf, ok := s.checkerConfs[req.ServiceName]; ok {
-		return s.createCheckerFromConfig(ctx, req.ServiceName, req.ServiceType, &conf)
-	}
-
-	// Fall back to dynamic checker creation
-	return s.createDynamicChecker(ctx, req)
-}
-
-func (*Server) createCheckerFromConfig(
-	ctx context.Context, serviceName, serviceType string, conf *CheckerConfig) (checker.Checker, error) {
-	log.Printf("Creating checker from config: name=%s type=%s config=%+v", serviceName, serviceType, conf)
-
-	switch serviceType {
-	case processConfigurationName:
-		return &ProcessChecker{ProcessName: serviceName}, nil
-
-	case portConfigurationName:
-		return &PortChecker{
-			Host: conf.Address,
-			Port: conf.Port,
-		}, nil
-
-	case grpcConfigurationName:
-		if conf.Address == "" {
-			return nil, fmt.Errorf("gRPC checker %q: %w", serviceName, errGrpcAddressRequired)
-		}
-
-		return NewExternalChecker(ctx, serviceName, serviceType, conf.Address)
-
-	default:
-		return nil, fmt.Errorf("checker %q: %w", serviceName, errUnknownCheckerType)
-	}
-}
-
-func (*Server) getDynamicKey(req *proto.StatusRequest) string {
-	return fmt.Sprintf("%s:%s", req.GetServiceType(), req.GetServiceName())
-}
-
-func (*Server) createDynamicChecker(ctx context.Context, req *proto.StatusRequest) (checker.Checker, error) {
-	switch req.ServiceType {
-	case processConfigurationName:
-		return &ProcessChecker{ProcessName: req.Details}, nil
-
-	case portConfigurationName:
-		return &PortChecker{
-			Host: "127.0.0.1",
-			Port: int(req.Port),
-		}, nil
-
-	case grpcConfigurationName:
-		if req.Details == "" {
-			return nil, errGrpcMissingConfig
-		}
-
-		return NewExternalChecker(ctx, req.ServiceName, req.ServiceType, req.Details)
-
-	default:
-		return nil, status.Errorf(codes.NotFound, "unsupported checker type: %s", req.ServiceType)
-	}
 }
 
 // ListServices returns a list of configured services.

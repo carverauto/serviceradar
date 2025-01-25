@@ -77,12 +77,12 @@ func ContainsMode(modes []SweepMode, mode SweepMode) bool {
 
 // HostResult represents all results for a single host.
 type HostResult struct {
-	Host        string        `json:"host"`
-	Available   bool          `json:"available"`
-	FirstSeen   time.Time     `json:"first_seen"`
-	LastSeen    time.Time     `json:"last_seen"`
-	ICMPStatus  *ICMPStatus   `json:"icmp_status,omitempty"`
-	PortResults []*PortResult `json:"port_results,omitempty"`
+	Host         string        `json:"host"`
+	Available    bool          `json:"available"`
+	FirstSeen    time.Time     `json:"first_seen"`
+	LastSeen     time.Time     `json:"last_seen"`
+	PortResults  []*PortResult `json:"port_results,omitempty"`
+	ResponseTime time.Duration `json:"response_time"`
 }
 
 // ICMPStatus represents ICMP ping results.

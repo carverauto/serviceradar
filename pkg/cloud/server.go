@@ -900,23 +900,31 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 	}
 
 	// Record metrics for each service
+	// In ReportStatus method
 	if s.metrics != nil {
+		var icmpServices []*proto.ServiceStatus
 		for _, service := range req.Services {
-			err := s.metrics.AddMetric(
-				req.PollerId,
-				timestamp,
-				responseTime,
-				service.ServiceName,
-			)
-			if err != nil {
-				log.Printf("Failed to add metric for service %s: %v",
-					service.ServiceName, err)
-			} else {
-				log.Printf("Added metric for service %s: time=%v response_time=%.2fms",
+			if service.ServiceType == "icmp" {
+				icmpServices = append(icmpServices, service)
+				err := s.metrics.AddMetric(
+					req.PollerId,
+					timestamp,
+					responseTime,
+					service.ServiceName,
+				)
+				if err != nil {
+					log.Printf("Failed to add ICMP metric for %s: %v",
+						service.ServiceName, err)
+					continue
+				}
+				log.Printf("Added ICMP metric for %s: time=%v response_time=%.2fms",
 					service.ServiceName,
 					timestamp.Format(time.RFC3339),
 					float64(responseTime)/float64(time.Millisecond))
 			}
+		}
+		if len(icmpServices) == 0 {
+			log.Printf("No ICMP services found for node %s", req.PollerId)
 		}
 	}
 

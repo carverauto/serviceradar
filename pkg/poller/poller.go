@@ -225,13 +225,20 @@ func newServiceCheck(client proto.AgentServiceClient, check Check) *ServiceCheck
 }
 
 func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
-	status, err := sc.client.GetStatus(ctx, &proto.StatusRequest{
+	req := &proto.StatusRequest{
 		ServiceName: sc.check.Name,
 		ServiceType: sc.check.Type,
 		Details:     sc.check.Details,
-		Port:        sc.check.Port,
-	})
+	}
 
+	// Only include port for port checks
+	if sc.check.Type == "port" {
+		req.Port = sc.check.Port
+	}
+
+	log.Printf("Sending StatusRequest: %+v", req)
+
+	status, err := sc.client.GetStatus(ctx, req)
 	if err != nil {
 		return &proto.ServiceStatus{
 			ServiceName: sc.check.Name,

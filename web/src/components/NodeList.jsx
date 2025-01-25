@@ -184,7 +184,7 @@ function NodeList() {
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-16">Status</th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-48">Node</th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Services</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-64">Response Times</th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-64">ICMP Response Time</th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-48">Last Update</th>
           </tr>
           </thead>
@@ -212,22 +212,19 @@ function NodeList() {
                   </div>
                 </td>
                 <td className="px-6 py-4">
-                  <div className="flex flex-col gap-2">
-                    {node.services?.map((service, idx) => (
-                        <div key={`${service.name}-${idx}`} className="flex items-center justify-between gap-2">
-                          <span className="text-xs text-gray-500 w-24 truncate">{service.name}</span>
-                          <ServiceSparkline
-                              nodeId={node.node_id}
-                              serviceName={service.name}
-                              metrics={nodeHistory[node.node_id]?.filter(m =>
-                                  m.service_name === service.name &&
-                                  m.response_time > 0 &&
-                                  new Date(m.timestamp).getTime() > 0
-                              ) || []}
-                          />
-                        </div>
-                    ))}
-                  </div>
+                  {node.services?.filter(service => service.type === 'icmp').map((service, idx) => (
+                      <div key={`${service.name}-${idx}`} className="flex items-center justify-between gap-2">
+                        <ServiceSparkline
+                            nodeId={node.node_id}
+                            serviceName={service.name}
+                            metrics={nodeHistory[node.node_id]?.filter(m =>
+                                m.service_name === service.name &&
+                                m.response_time > 0 &&
+                                new Date(m.timestamp).getTime() > 0
+                            ) || []}
+                        />
+                      </div>
+                  ))}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                   {new Date(node.last_update).toLocaleString()}
