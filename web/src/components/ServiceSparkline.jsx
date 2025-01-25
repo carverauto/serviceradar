@@ -1,7 +1,58 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { LineChart, Line, YAxis, ResponsiveContainer } from 'recharts';
+import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import _ from 'lodash';
 
-const ResponseTimeSparkline = ({ nodeId, serviceName }) => {
+const MAX_POINTS = 100;
+const POLLING_INTERVAL = 10;
+
+const interpolatePoints = (points) => {
+    if (points.length < 2) return points;
+
+    const result = [];
+    for (let i = 0; i < points.length - 1; i++) {
+        const current = points[i];
+        const next = points[i + 1];
+        const timeDiff = next.timestamp - current.timestamp;
+
+        if (timeDiff > POLLING_INTERVAL * 1000) {
+            const steps = Math.min(Math.floor(timeDiff / (POLLING_INTERVAL * 1000)), 5);
+            const valueStep = (next.value - current.value) / steps;
+            const timeStep = timeDiff / steps;
+
+            result.push(current);
+            for (let j = 1; j < steps; j++) {
+                result.push({
+                    timestamp: current.timestamp + (timeStep * j),
+                    value: current.value + (valueStep * j)
+                });
+            }
+        } else {
+            result.push(current);
+        }
+    }
+    result.push(points[points.length - 1]);
+    return result;
+};
+
+const getTrend = (metrics) => {
+    if (metrics.length < 2) return 'neutral';
+
+    // Get average of first half and second half
+    const half = Math.floor(metrics.length / 2);
+    const firstHalf = metrics.slice(0, half);
+    const secondHalf = metrics.slice(half);
+
+    const firstAvg = _.meanBy(firstHalf, 'value');
+    const secondAvg = _.meanBy(secondHalf, 'value');
+
+    const changePct = ((secondAvg - firstAvg) / firstAvg) * 100;
+
+    if (Math.abs(changePct) < 5) return 'neutral';
+    return changePct > 0 ? 'up' : 'down';
+};
+
+const ServiceSparkline = ({ nodeId, serviceName }) => {
     const [metrics, setMetrics] = useState([]);
 
     useEffect(() => {
@@ -11,15 +62,16 @@ const ResponseTimeSparkline = ({ nodeId, serviceName }) => {
                 if (!response.ok) throw new Error('Failed to fetch metrics');
                 const data = await response.json();
 
-                // Filter metrics for specific service
                 const serviceMetrics = data
                     .filter(m => m.service_name === serviceName)
                     .map(m => ({
                         timestamp: new Date(m.timestamp).getTime(),
-                        value: m.response_time / 1000000 // Convert ns to ms
-                    }));
+                        value: m.response_time / 1000000
+                    }))
+                    .sort((a, b) => a.timestamp - b.timestamp);
 
-                setMetrics(serviceMetrics);
+                const recentMetrics = serviceMetrics.slice(-MAX_POINTS);
+                setMetrics(recentMetrics);
             } catch (error) {
                 console.error('Error fetching metrics:', error);
             }
@@ -27,34 +79,51 @@ const ResponseTimeSparkline = ({ nodeId, serviceName }) => {
 
         if (nodeId && serviceName) {
             fetchMetrics();
-            const interval = setInterval(fetchMetrics, 10000);
+            const interval = setInterval(fetchMetrics, POLLING_INTERVAL * 1000);
             return () => clearInterval(interval);
         }
     }, [nodeId, serviceName]);
 
-    if (!metrics.length) return null;
+    const processedMetrics = useMemo(() => {
+        return interpolatePoints(metrics);
+    }, [metrics]);
+
+    if (!processedMetrics.length) return null;
+
+    const latestValue = processedMetrics[processedMetrics.length - 1]?.value;
+    const trend = getTrend(processedMetrics);
 
     return (
-        <div className="h-8 w-24">
-            <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={metrics}>
-                    <YAxis
-                        type="number"
-                        domain={['dataMin', 'dataMax']}
-                        hide={true}
-                    />
-                    <Line
-                        type="monotone"
-                        dataKey="value"
-                        stroke="#6366f1"
-                        dot={false}
-                        strokeWidth={1}
-                        isAnimationActive={false}
-                    />
-                </LineChart>
-            </ResponsiveContainer>
+        <div className="flex flex-col items-center">
+            <div className="h-8 w-24">
+                <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={processedMetrics}>
+                        <YAxis
+                            type="number"
+                            domain={['dataMin', 'dataMax']}
+                            hide={true}
+                        />
+                        <Line
+                            type="monotone"
+                            dataKey="value"
+                            stroke="#6366f1"
+                            dot={false}
+                            strokeWidth={1}
+                            isAnimationActive={false}
+                        />
+                    </LineChart>
+                </ResponsiveContainer>
+            </div>
+            <div className="flex items-center gap-1 text-xs">
+                <span className="text-gray-600">
+                    {latestValue ? `${latestValue.toFixed(4)}ms` : 'N/A'}
+                </span>
+                {trend === 'up' && <TrendingUp className="h-3 w-3 text-red-500" />}
+                {trend === 'down' && <TrendingDown className="h-3 w-3 text-green-500" />}
+                {trend === 'neutral' && <Minus className="h-3 w-3 text-gray-400" />}
+            </div>
         </div>
     );
 };
 
-export default ResponseTimeSparkline;
+export default ServiceSparkline;

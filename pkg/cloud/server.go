@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -769,6 +770,7 @@ func (s *Server) checkNeverReportedPollers(ctx context.Context, _ *Config) {
 	}
 
 	var unreportedNodes []string
+
 	rows, err := s.db.Query(`
         SELECT node_id 
         FROM nodes 
@@ -778,7 +780,13 @@ func (s *Server) checkNeverReportedPollers(ctx context.Context, _ *Config) {
 		log.Printf("Error querying unreported nodes: %v", err)
 		return
 	}
-	defer rows.Close()
+
+	defer func(rows *sql.Rows) {
+		err := rows.Close()
+		if err != nil {
+			log.Printf("Error closing rows: %v", err)
+		}
+	}(rows)
 
 	for rows.Next() {
 		var nodeID string
@@ -786,6 +794,7 @@ func (s *Server) checkNeverReportedPollers(ctx context.Context, _ *Config) {
 			log.Printf("Error scanning node ID: %v", err)
 			continue
 		}
+
 		unreportedNodes = append(unreportedNodes, nodeID)
 	}
 
@@ -846,9 +855,6 @@ func LoadConfig(path string) (Config, error) {
 		return Config{}, fmt.Errorf("failed to read config: %w", err)
 	}
 
-	// print the raw data
-	log.Printf("Raw data: %s", data)
-
 	var config Config
 	if err := json.Unmarshal(data, &config); err != nil {
 		return Config{}, fmt.Errorf("failed to parse config: %w", err)
@@ -906,6 +912,9 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 		for _, service := range req.Services {
 			if service.ServiceType == "icmp" {
 				icmpServices = append(icmpServices, service)
+				// Parse response time from message
+				timestamp := time.Now()
+				responseTime, _ := strconv.ParseInt(service.Message, 10, 64)
 				err := s.metrics.AddMetric(
 					req.PollerId,
 					timestamp,
@@ -922,9 +931,6 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 					timestamp.Format(time.RFC3339),
 					float64(responseTime)/float64(time.Millisecond))
 			}
-		}
-		if len(icmpServices) == 0 {
-			log.Printf("No ICMP services found for node %s", req.PollerId)
 		}
 	}
 

@@ -15,7 +15,7 @@ type ICMPChecker struct {
 	Count int
 }
 
-func (p *ICMPChecker) Check(ctx context.Context) (bool, string) {
+func (p *ICMPChecker) Check(ctx context.Context) (isDown bool, results string) {
 	scanner := scan.NewCombinedScanner(2*time.Second, 1, p.Count)
 
 	target := models.Target{
@@ -48,5 +48,6 @@ func (p *ICMPChecker) Check(ctx context.Context) (bool, string) {
 	}
 
 	avgResponseTime := totalResponseTime / time.Duration(successfulPings)
-	return true, fmt.Sprintf("%d", avgResponseTime.Nanoseconds()) // Return raw nanoseconds
+
+	return true, fmt.Sprintf("%d", avgResponseTime)
 }

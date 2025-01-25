@@ -42,6 +42,7 @@ message ServiceStatus {
   bool available = 2;
   string message = 3;
   string service_type = 4;
+  int64 response_time = 5;
 }
 
 message SweepServiceStatus {

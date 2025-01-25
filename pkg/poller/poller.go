@@ -231,7 +231,6 @@ func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
 		Details:     sc.check.Details,
 	}
 
-	// Only include port for port checks
 	if sc.check.Type == "port" {
 		req.Port = sc.check.Port
 	}
@@ -248,11 +247,13 @@ func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
 		}
 	}
 
+	// Pass through response_time from the service check
 	return &proto.ServiceStatus{
-		ServiceName: sc.check.Name,
-		Available:   status.Available,
-		Message:     status.Message,
-		ServiceType: sc.check.Type,
+		ServiceName:  sc.check.Name,
+		Available:    status.Available,
+		Message:      status.Message,
+		ServiceType:  sc.check.Type,
+		ResponseTime: status.ResponseTime,
 	}
 }
 

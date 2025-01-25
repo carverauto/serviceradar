@@ -94,8 +94,10 @@ func (e *ExternalChecker) Check(ctx context.Context) (isAccessible bool, statusM
 		ServiceName: e.serviceName,
 		ServiceType: e.serviceType,
 	})
+
 	if err != nil {
 		log.Printf("External checker %s: Failed to get details: %v", e.serviceName, err)
+
 		return true, "Service healthy but details unavailable"
 	}
 
