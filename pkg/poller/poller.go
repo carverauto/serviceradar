@@ -404,6 +404,8 @@ func (*Poller) processSweepStatus(status *proto.ServiceStatus) error {
 }
 
 func (p *Poller) reportToCloud(ctx context.Context, statuses []*proto.ServiceStatus) error {
+	log.Printf("Reporting to cloud: PollerID=%s, Timestamp=%d, Services=%d", p.config.PollerID, time.Now().Unix(), len(statuses))
+
 	_, err := p.cloudClient.ReportStatus(ctx, &proto.PollerStatusRequest{
 		Services:  statuses,
 		PollerId:  p.config.PollerID,

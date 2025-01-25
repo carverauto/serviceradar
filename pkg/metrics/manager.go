@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"log"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -15,13 +16,20 @@ type MetricsManager struct {
 }
 
 func NewMetricsManager(cfg models.MetricsConfig) *MetricsManager {
+	log.Printf("Creating MetricsManager with config: %+v", cfg)
+
 	return &MetricsManager{
 		config: cfg,
 	}
 }
 
 func (m *MetricsManager) AddMetric(nodeID string, timestamp time.Time, responseTime int64, serviceName string) error {
+	log.Printf(
+		"AddMetric called for nodeID: %s, timestamp: %v, responseTime: %d, serviceName: %s",
+		nodeID, timestamp, responseTime, serviceName)
+
 	if !m.config.Enabled {
+		log.Printf("Metrics are disabled")
 		return nil
 	}
 
@@ -47,6 +55,8 @@ func (m *MetricsManager) AddMetric(nodeID string, timestamp time.Time, responseT
 }
 
 func (m *MetricsManager) GetMetrics(nodeID string) []models.MetricPoint {
+	log.Printf("GetMetrics called for nodeID: %s", nodeID)
+
 	// Load the NodeMetrics for this node
 	nodeMetrics, ok := m.nodes.Load(nodeID)
 	if !ok {

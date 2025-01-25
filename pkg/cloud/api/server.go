@@ -260,18 +260,6 @@ func (s *APIServer) getNodeServices(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *APIServer) getNodeIDs() []string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	ids := make([]string, 0, len(s.nodes))
-	for id := range s.nodes {
-		ids = append(ids, id)
-	}
-
-	return ids
-}
-
 func (s *APIServer) getServiceDetails(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	nodeID := vars["id"]

@@ -40,6 +40,12 @@ var (
 	errInvalidSweepData = errors.New("invalid sweep data")
 )
 
+type Metrics struct {
+	Enabled   bool `json:"enabled"`
+	Retention int  `json:"retention"`
+	MaxNodes  int  `json:"max_nodes"`
+}
+
 type Config struct {
 	ListenAddr     string                 `json:"listen_addr"`
 	GrpcAddr       string                 `json:"grpc_addr"`
@@ -47,11 +53,7 @@ type Config struct {
 	AlertThreshold time.Duration          `json:"alert_threshold"`
 	Webhooks       []alerts.WebhookConfig `json:"webhooks,omitempty"`
 	KnownPollers   []string               `json:"known_pollers,omitempty"`
-	Metrics        struct {
-		Enabled   bool `json:"metrics_enabled"`
-		Retention int  `json:"metrics_retention"`
-		MaxNodes  int  `json:"max_nodes"`
-	} `json:"metrics"`
+	Metrics        Metrics                `json:"metrics"`
 }
 
 type Server struct {
@@ -71,9 +73,13 @@ func NewServer(_ context.Context, config *Config) (*Server, error) {
 	if config.Metrics.Retention == 0 {
 		config.Metrics.Retention = 100
 	}
+
 	if config.Metrics.MaxNodes == 0 {
 		config.Metrics.MaxNodes = 10000
 	}
+
+	// log the config.Metrics
+	log.Printf("Metrics config: %+v", config.Metrics)
 
 	metricsManager := metrics.NewMetricsManager(models.MetricsConfig{
 		Enabled:   config.Metrics.Enabled,
@@ -818,6 +824,9 @@ func LoadConfig(path string) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("failed to read config: %w", err)
 	}
+
+	// print the raw data
+	log.Printf("Raw data: %s", data)
 
 	var config Config
 	if err := json.Unmarshal(data, &config); err != nil {
