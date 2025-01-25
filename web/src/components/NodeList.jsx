@@ -3,6 +3,7 @@ import { LineChart, Line } from 'recharts';
 import NodeTimeline from './NodeTimeline';
 import NetworkSweepView from './NetworkSweepView.jsx';
 import _ from 'lodash';
+import ServiceSparkline from "./ServiceSparkline.jsx";
 
 function NodeList() {
   const [nodes, setNodes] = useState([]);
@@ -136,15 +137,21 @@ function NodeList() {
     }));
   }, [nodeHistory]);
 
-  const ServiceStatus = useCallback(({ service }) => (
-      <div className="inline-flex items-center gap-1 bg-gray-50 rounded px-2 py-1 text-sm">
+  const ServiceStatus = ({ service, history }) => (
+      <div className="flex items-center gap-2 bg-gray-50 rounded p-2">
+        <div className="flex items-center gap-1">
       <span className={`w-1.5 h-1.5 rounded-full ${
           service.available ? 'bg-green-500' : 'bg-red-500'
       }`} />
-        <span className="font-medium">{service.name || 'unknown'}</span>
-        <span className="text-gray-500">({service.type})</span>
+          <span className="font-medium">{service.name || 'unknown'}</span>
+          <span className="text-gray-500">({service.type})</span>
+        </div>
+        <ServiceSparkline
+            history={history}
+            serviceName={service.name}
+        />
       </div>
-  ), []);
+  );
 
   const renderSparkline = useCallback((nodeId) => {
     const data = getSparklineData(nodeId);
@@ -181,17 +188,17 @@ function NodeList() {
                   <h3 className="font-medium text-sm">{node.node_id}</h3>
                 </div>
                 <span className="text-xs text-gray-500">
-              {new Date(node.last_update).toLocaleString()}
-            </span>
+            {new Date(node.last_update).toLocaleString()}
+          </span>
               </div>
 
-              <div className="mb-2">
-                {renderSparkline(node.node_id)}
-              </div>
-
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-col gap-2">
                 {node.services?.map((service, idx) => (
-                    <ServiceStatus key={`${service.name}-${idx}`} service={service} />
+                    <ServiceStatus
+                        key={`${service.name}-${idx}`}
+                        service={service}
+                        history={nodeHistory[node.node_id]?.filter(h => h.service_name === service.name) || []}
+                    />
                 ))}
               </div>
 
@@ -212,8 +219,8 @@ function NodeList() {
           <tr>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Node</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">History</th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Services</th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Response Times</th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Update</th>
           </tr>
           </thead>
@@ -229,12 +236,29 @@ function NodeList() {
                       node.is_healthy ? 'bg-green-500' : 'bg-red-500'
                   }`} />
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">{node.node_id}</td>
-                <td className="px-6 py-4 whitespace-nowrap">{renderSparkline(node.node_id)}</td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                  {node.node_id}
+                </td>
                 <td className="px-6 py-4">
                   <div className="flex flex-wrap gap-2">
                     {node.services?.map((service, idx) => (
-                        <ServiceStatus key={`${service.name}-${idx}`} service={service} />
+                        <div key={`${service.name}-${idx}`} className="inline-flex items-center gap-1">
+                    <span className={`w-1.5 h-1.5 rounded-full ${
+                        service.available ? 'bg-green-500' : 'bg-red-500'
+                    }`} />
+                          <span className="font-medium">{service.name}</span>
+                        </div>
+                    ))}
+                  </div>
+                </td>
+                <td className="px-6 py-4">
+                  <div className="flex flex-col gap-2">
+                    {node.services?.map((service, idx) => (
+                        <ServiceSparkline
+                            key={`${service.name}-${idx}`}
+                            history={nodeHistory[node.node_id]?.filter(h => h.service_name === service.name) || []}
+                            serviceName={service.name}
+                        />
                     ))}
                   </div>
                 </td>

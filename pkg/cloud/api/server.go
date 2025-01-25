@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/mfreeman451/serviceradar/pkg/metrics"
+	"github.com/mfreeman451/serviceradar/pkg/models"
 )
 
 type ServiceStatus struct {
@@ -23,12 +25,13 @@ type ServiceStatus struct {
 }
 
 type NodeStatus struct {
-	NodeID     string          `json:"node_id"`
-	IsHealthy  bool            `json:"is_healthy"`
-	LastUpdate time.Time       `json:"last_update"`
-	Services   []ServiceStatus `json:"services"`
-	UpTime     string          `json:"uptime"`
-	FirstSeen  time.Time       `json:"first_seen"`
+	NodeID     string               `json:"node_id"`
+	IsHealthy  bool                 `json:"is_healthy"`
+	LastUpdate time.Time            `json:"last_update"`
+	Services   []ServiceStatus      `json:"services"`
+	UpTime     string               `json:"uptime"`
+	FirstSeen  time.Time            `json:"first_seen"`
+	Metrics    []models.MetricPoint `json:"metrics,omitempty"`
 }
 
 type SystemStatus struct {
@@ -54,12 +57,14 @@ type APIServer struct {
 	nodes              map[string]*NodeStatus
 	router             *mux.Router
 	nodeHistoryHandler func(nodeID string) ([]NodeHistoryPoint, error)
+	metricsManager     *metrics.MetricsManager
 }
 
-func NewAPIServer() *APIServer {
+func NewAPIServer(metricsManager *metrics.MetricsManager) *APIServer {
 	s := &APIServer{
-		nodes:  make(map[string]*NodeStatus),
-		router: mux.NewRouter(),
+		nodes:          make(map[string]*NodeStatus),
+		router:         mux.NewRouter(),
+		metricsManager: metricsManager,
 	}
 	s.setupRoutes()
 
@@ -206,24 +211,32 @@ func (s *APIServer) getNode(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Getting node status for: %s", nodeID)
 
 	s.mu.RLock()
-	node, exists := s.nodes[nodeID]
-	s.mu.RUnlock()
 
+	node, exists := s.nodes[nodeID]
 	if !exists {
-		log.Printf("Node %s not found in nodes map. Available nodes: %v",
-			nodeID, s.getNodeIDs())
+		s.mu.RUnlock()
+		log.Printf("Node %s not found in nodes map", nodeID)
 		http.Error(w, "Node not found", http.StatusNotFound)
 
 		return
 	}
+
+	// Get metrics if available
+	if s.metricsManager != nil {
+		m := s.metricsManager.GetMetrics(nodeID)
+		if m != nil {
+			node.Metrics = m
+			log.Printf("Attached %d metrics points to node %s response",
+				len(m), nodeID)
+		}
+	}
+	s.mu.RUnlock()
 
 	w.Header().Set("Content-Type", "application/json")
 
 	if err := json.NewEncoder(w).Encode(node); err != nil {
 		log.Printf("Error encoding node response: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
-
-		return
 	}
 }
 

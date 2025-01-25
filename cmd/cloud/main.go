@@ -39,7 +39,7 @@ func run() error {
 	}
 
 	// Create and configure API server
-	apiServer := api.NewAPIServer()
+	apiServer := api.NewAPIServer(server.GetMetricsManager())
 	server.SetAPIServer(apiServer)
 
 	// Start HTTP API server in background

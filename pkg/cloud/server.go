@@ -15,6 +15,8 @@ import (
 	"github.com/mfreeman451/serviceradar/pkg/cloud/api"
 	"github.com/mfreeman451/serviceradar/pkg/db"
 	"github.com/mfreeman451/serviceradar/pkg/grpc"
+	"github.com/mfreeman451/serviceradar/pkg/metrics"
+	"github.com/mfreeman451/serviceradar/pkg/models"
 	"github.com/mfreeman451/serviceradar/proto"
 )
 
@@ -28,9 +30,6 @@ const (
 	nodeNeverReportedTimeout = 30 * time.Second
 	pollerTimeout            = 30 * time.Second
 	defaultDBPath            = "/var/lib/serviceradar/serviceradar.db"
-	KB                       = 1024
-	MB                       = 1024 * KB
-	maxMessageSize           = 4 * MB
 	statusUnknown            = "unknown"
 	sweepService             = "sweep"
 )
@@ -48,6 +47,11 @@ type Config struct {
 	AlertThreshold time.Duration          `json:"alert_threshold"`
 	Webhooks       []alerts.WebhookConfig `json:"webhooks,omitempty"`
 	KnownPollers   []string               `json:"known_pollers,omitempty"`
+	Metrics        struct {
+		Enabled   bool `json:"metrics_enabled"`
+		Retention int  `json:"metrics_retention"`
+		MaxNodes  int  `json:"max_nodes"`
+	} `json:"metrics"`
 }
 
 type Server struct {
@@ -60,9 +64,23 @@ type Server struct {
 	ShutdownChan   chan struct{}
 	knownPollers   []string
 	grpcServer     *grpc.Server
+	metrics        *metrics.MetricsManager
 }
 
 func NewServer(_ context.Context, config *Config) (*Server, error) {
+	if config.Metrics.Retention == 0 {
+		config.Metrics.Retention = 100
+	}
+	if config.Metrics.MaxNodes == 0 {
+		config.Metrics.MaxNodes = 10000
+	}
+
+	metricsManager := metrics.NewMetricsManager(models.MetricsConfig{
+		Enabled:   config.Metrics.Enabled,
+		Retention: config.Metrics.Retention,
+		MaxNodes:  config.Metrics.MaxNodes,
+	})
+
 	// Use default DB path if not specified
 	dbPath := config.DBPath
 	if dbPath == "" {
@@ -86,6 +104,7 @@ func NewServer(_ context.Context, config *Config) (*Server, error) {
 		webhooks:       make([]*alerts.WebhookAlerter, 0),
 		ShutdownChan:   make(chan struct{}),
 		knownPollers:   config.KnownPollers,
+		metrics:        metricsManager,
 	}
 
 	// Initialize webhooks
@@ -132,6 +151,10 @@ func (s *Server) Start(ctx context.Context) error {
 	}()
 
 	return nil
+}
+
+func (s *Server) GetMetricsManager() *metrics.MetricsManager {
+	return s.metrics
 }
 
 // Stop implements the lifecycle.Service interface.
@@ -288,15 +311,12 @@ func (s *Server) SetAPIServer(apiServer *api.APIServer) {
 	defer s.mu.Unlock()
 
 	s.apiServer = apiServer
-
-	// Set up the history handler
 	apiServer.SetNodeHistoryHandler(func(nodeID string) ([]api.NodeHistoryPoint, error) {
 		points, err := s.db.GetNodeHistoryPoints(nodeID, nodeHistoryLimit)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get node history: %w", err)
 		}
 
-		// Convert db.NodeHistoryPoint to api.NodeHistoryPoint
 		apiPoints := make([]api.NodeHistoryPoint, len(points))
 		for i, p := range points {
 			apiPoints[i] = api.NodeHistoryPoint{
@@ -372,26 +392,6 @@ func (s *Server) checkInitialStates(ctx context.Context) {
 			}
 		}
 	}
-}
-
-// ReportStatus handles incoming status reports from pollers.
-func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusRequest) (*proto.PollerStatusResponse, error) {
-	if req.PollerId == "" {
-		return nil, errEmptyPollerID
-	}
-
-	now := time.Unix(req.Timestamp, 0)
-
-	log.Printf("Received status report from %s with timestamp: %s", req.PollerId, now.Format(time.RFC3339))
-
-	apiStatus, err := s.processStatusReport(ctx, req, now)
-	if err != nil {
-		return nil, fmt.Errorf("failed to process status report: %w", err)
-	}
-
-	s.updateAPIState(req.PollerId, apiStatus)
-
-	return &proto.PollerStatusResponse{Received: true}, nil
 }
 
 // updateAPIState updates the API server with the latest node status.
@@ -848,6 +848,51 @@ func (s *Server) MonitorPollers(ctx context.Context) {
 			}
 		}
 	}
+}
+
+func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusRequest) (*proto.PollerStatusResponse, error) {
+	if req.PollerId == "" {
+		return nil, errEmptyPollerID
+	}
+
+	now := time.Unix(req.Timestamp, 0)
+	timestamp := time.Now()
+	responseTime := timestamp.Sub(now).Nanoseconds()
+
+	log.Printf("Response time for %s: %d ns (%.2f ms)",
+		req.PollerId,
+		responseTime,
+		float64(responseTime)/float64(time.Millisecond))
+
+	apiStatus, err := s.processStatusReport(ctx, req, now)
+	if err != nil {
+		return nil, fmt.Errorf("failed to process status report: %w", err)
+	}
+
+	// Record metrics for each service
+	if s.metrics != nil {
+		for _, service := range req.Services {
+			err := s.metrics.AddMetric(
+				req.PollerId,
+				timestamp,
+				responseTime,
+				service.ServiceName,
+			)
+			if err != nil {
+				log.Printf("Failed to add metric for service %s: %v",
+					service.ServiceName, err)
+			} else {
+				log.Printf("Added metric for service %s: time=%v response_time=%.2fms",
+					service.ServiceName,
+					timestamp.Format(time.RFC3339),
+					float64(responseTime)/float64(time.Millisecond))
+			}
+		}
+	}
+
+	s.updateAPIState(req.PollerId, apiStatus)
+
+	return &proto.PollerStatusResponse{Received: true}, nil
 }
 
 func (s *Server) getLastDowntime(nodeID string) time.Time {

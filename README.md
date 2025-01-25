@@ -292,6 +292,11 @@ Default location: `/etc/serviceradar/cloud.json`
   "grpc_addr": ":50052",
   "alert_threshold": "5m",
   "known_pollers": ["home-poller-1"],
+  "metrics": {
+    "enabled": true,
+    "retention": 100,
+    "max_nodes": 10000
+  },
   "webhooks": [
     {
       "enabled": false,
