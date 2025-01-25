@@ -20,12 +20,6 @@ import (
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
 
-const (
-	grpcConfigurationName    = "grpc"
-	portConfigurationName    = "port"
-	processConfigurationName = "process"
-)
-
 var (
 	errInvalidDuration  = errors.New("invalid duration")
 	errStoppingServices = errors.New("errors stopping services")
@@ -206,7 +200,7 @@ func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*prot
 
 	// Validate details field for port checks
 	if req.ServiceType == "port" && req.Details == "" {
-		return nil, fmt.Errorf("details field is required for port checks")
+		return nil, errDetailsRequired
 	}
 
 	// Get the appropriate checker
@@ -265,19 +259,23 @@ func (s *Server) loadCheckerConfigs() error {
 		}
 
 		path := filepath.Join(s.configDir, file.Name())
+
 		data, err := os.ReadFile(path)
 		if err != nil {
 			log.Printf("Warning: Failed to read config file %s: %v", path, err)
+
 			continue
 		}
 
 		var conf CheckerConfig
 		if err := json.Unmarshal(data, &conf); err != nil {
 			log.Printf("Warning: Failed to parse config file %s: %v", path, err)
+
 			continue
 		}
 
 		s.checkerConfs[conf.Name] = conf
+
 		log.Printf("Loaded checker config: %s (type: %s)", conf.Name, conf.Type)
 	}
 
@@ -321,6 +319,7 @@ func (s *Server) getChecker(ctx context.Context, req *proto.StatusRequest) (chec
 
 	// Cache the checker
 	s.checkers[key] = check
+
 	return check, nil
 }
 

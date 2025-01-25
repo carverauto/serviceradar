@@ -18,13 +18,12 @@ import (
 
 // SweepService implements sweeper.SweepService and provides network scanning capabilities.
 type SweepService struct {
-	scanner     scan.Scanner
-	store       sweeper.Store
-	processor   sweeper.ResultProcessor
-	mu          sync.RWMutex
-	closed      chan struct{}
-	config      *models.Config
-	lastResults map[string]*models.HostResult
+	scanner   scan.Scanner
+	store     sweeper.Store
+	processor sweeper.ResultProcessor
+	mu        sync.RWMutex
+	closed    chan struct{}
+	config    *models.Config
 }
 
 func applyDefaultConfig(config *models.Config) *models.Config {
@@ -256,30 +255,21 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, er
 
 	log.Printf("Agent: sweepSummary.LastSweep: %v", time.Unix(summary.LastSweep, 0).Format(time.RFC3339))
 
-	// Convert host results to service statuses
-	var statuses []*proto.ServiceStatus
-	for _, host := range summary.Hosts {
-		if host.Available { // Only include if host responded to ICMP
-			statuses = append(statuses, &proto.ServiceStatus{
-				ServiceName: fmt.Sprintf("icmp-%s", host.Host),
-				ServiceType: "icmp",
-				Available:   host.Available,
-				Message:     fmt.Sprintf("Response time: %.2fms", float64(host.ResponseTime)/float64(time.Millisecond)),
-			})
-		}
-	}
-
 	statusJSON, err := json.Marshal(data)
 	if err != nil {
 		log.Printf("Error marshaling sweep status: %v", err)
 		return nil, fmt.Errorf("failed to marshal sweep status: %w", err)
 	}
 
+	// Calculate response time (if needed)
+	responseTime := time.Since(time.Unix(summary.LastSweep, 0)).Nanoseconds()
+
 	return &proto.StatusResponse{
-		Available:   true,
-		Message:     string(statusJSON),
-		ServiceName: "network_sweep",
-		ServiceType: "sweep",
+		Available:    true,
+		Message:      string(statusJSON),
+		ServiceName:  "network_sweep",
+		ServiceType:  "sweep",
+		ResponseTime: responseTime, // Include response time in nanoseconds
 	}, nil
 }
 

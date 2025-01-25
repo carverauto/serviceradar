@@ -191,6 +191,7 @@ func (s *Server) isValidPoller(pollerID string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -238,18 +239,26 @@ func (s *Server) checkPollers(ctx context.Context) error {
 	defer s.mu.RUnlock()
 
 	// Get all nodes from database
+	//nolint:rowserrcheck // rows.Close() is deferred
 	rows, err := s.db.Query(`SELECT node_id, last_seen, is_healthy FROM nodes`)
 	if err != nil {
 		return fmt.Errorf("failed to query nodes: %w", err)
 	}
-	defer rows.Close()
+	defer func(rows *sql.Rows) {
+		err := rows.Close()
+		if err != nil {
+			log.Printf("Error closing rows: %v", err)
+		}
+	}(rows)
 
 	now := time.Now()
 	alertThreshold := now.Add(-s.alertThreshold)
 
 	for rows.Next() {
 		var nodeID string
+
 		var lastSeen time.Time
+
 		var isHealthy bool
 
 		if err := rows.Scan(&nodeID, &lastSeen, &isHealthy); err != nil {
@@ -367,6 +376,7 @@ func (s *Server) SetAPIServer(apiServer *api.APIServer) {
 func (s *Server) checkInitialStates(ctx context.Context) {
 	log.Printf("Checking initial states of all nodes")
 
+	//nolint:rowserrcheck // rows.Close() is deferred
 	rows, err := s.db.Query(`
         SELECT node_id, is_healthy, last_seen 
         FROM nodes 
@@ -377,11 +387,18 @@ func (s *Server) checkInitialStates(ctx context.Context) {
 		log.Printf("Error querying nodes: %v", err)
 		return
 	}
-	defer rows.Close()
+	defer func(rows *sql.Rows) {
+		err := rows.Close()
+		if err != nil {
+			log.Printf("Error closing rows: %v", err)
+		}
+	}(rows)
 
 	for rows.Next() {
 		var nodeID string
+
 		var isHealthy bool
+
 		var lastSeen time.Time
 
 		if err := rows.Scan(&nodeID, &isHealthy, &lastSeen); err != nil {
@@ -771,6 +788,7 @@ func (s *Server) checkNeverReportedPollers(ctx context.Context, _ *Config) {
 
 	var unreportedNodes []string
 
+	//nolint:rowserrcheck // rows.Close() is deferred
 	rows, err := s.db.Query(`
         SELECT node_id 
         FROM nodes 
@@ -886,6 +904,7 @@ func (s *Server) MonitorPollers(ctx context.Context) {
 	}
 }
 
+// ReportStatus implements the PollerServiceServer interface. It processes status reports from pollers.
 func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusRequest) (*proto.PollerStatusResponse, error) {
 	if req.PollerId == "" {
 		return nil, errEmptyPollerID
@@ -905,32 +924,35 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 		return nil, fmt.Errorf("failed to process status report: %w", err)
 	}
 
-	// Record metrics for each service
-	// In ReportStatus method
 	if s.metrics != nil {
-		var icmpServices []*proto.ServiceStatus
 		for _, service := range req.Services {
-			if service.ServiceType == "icmp" {
-				icmpServices = append(icmpServices, service)
-				// Parse response time from message
-				timestamp := time.Now()
-				responseTime, _ := strconv.ParseInt(service.Message, 10, 64)
-				err := s.metrics.AddMetric(
-					req.PollerId,
-					timestamp,
-					responseTime,
-					service.ServiceName,
-				)
-				if err != nil {
-					log.Printf("Failed to add ICMP metric for %s: %v",
-						service.ServiceName, err)
-					continue
-				}
-				log.Printf("Added ICMP metric for %s: time=%v response_time=%.2fms",
-					service.ServiceName,
-					timestamp.Format(time.RFC3339),
-					float64(responseTime)/float64(time.Millisecond))
+			if service.ServiceType != "icmp" {
+				continue
 			}
+
+			// Parse response time from message
+			timestamp := time.Now()
+
+			responseTime, err := strconv.ParseInt(service.Message, 10, 64)
+			if err != nil {
+				log.Printf("Failed to parse response time for ICMP service %s: %v", service.ServiceName, err)
+				continue
+			}
+
+			if err := s.metrics.AddMetric(
+				req.PollerId,
+				timestamp,
+				responseTime,
+				service.ServiceName,
+			); err != nil {
+				log.Printf("Failed to add ICMP metric for %s: %v", service.ServiceName, err)
+				continue
+			}
+
+			log.Printf("Added ICMP metric for %s: time=%v response_time=%.2fms",
+				service.ServiceName,
+				timestamp.Format(time.RFC3339),
+				float64(responseTime)/float64(time.Millisecond))
 		}
 	}
 

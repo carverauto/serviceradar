@@ -15,8 +15,13 @@ type ICMPChecker struct {
 	Count int
 }
 
+const (
+	defaultICMPCount  = 3
+	defaultConcurrent = 1
+)
+
 func (p *ICMPChecker) Check(ctx context.Context) (isDown bool, results string) {
-	scanner := scan.NewCombinedScanner(2*time.Second, 1, p.Count)
+	scanner := scan.NewCombinedScanner(defaultICMPCount*time.Second, defaultConcurrent, p.Count)
 
 	target := models.Target{
 		Host: p.Host,

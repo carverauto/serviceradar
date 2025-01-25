@@ -13,6 +13,10 @@ import (
 	"time"
 )
 
+const (
+	partsForPortDetails = 2
+)
+
 var (
 	// validServiceName ensures service names only contain alphanumeric chars, hyphens, and underscores.
 	validServiceName = regexp.MustCompile(`^[a-zA-Z0-9-_]+$`)
@@ -59,23 +63,24 @@ type PortChecker struct {
 
 func NewPortChecker(details string) (*PortChecker, error) {
 	if details == "" {
-		return nil, fmt.Errorf("details field is required for port checks")
+		return nil, errDetailsRequired
 	}
 
 	// Split the details into host and port
 	parts := strings.Split(details, ":")
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("invalid details format: expected 'host:port'")
+	if len(parts) != partsForPortDetails {
+		return nil, errInvalidDetailsFormat
 	}
 
 	host := parts[0]
+
 	port, err := strconv.Atoi(parts[1])
 	if err != nil {
-		return nil, fmt.Errorf("invalid port: %w", err)
+		return nil, fmt.Errorf("%w: %d", errInvalidPort, port)
 	}
 
 	if port <= 0 || port > 65535 {
-		return nil, fmt.Errorf("invalid port: %d", port)
+		return nil, fmt.Errorf("%w: %d", errInvalidPort, port)
 	}
 
 	return &PortChecker{
@@ -84,22 +89,26 @@ func NewPortChecker(details string) (*PortChecker, error) {
 	}, nil
 }
 
+// Check validates if a port is accessible.
 func (p *PortChecker) Check(ctx context.Context) (isAccessible bool, statusMsg string) {
 	var d net.Dialer
 
 	addr := fmt.Sprintf("%s:%d", p.Host, p.Port)
 
 	start := time.Now()
+
 	conn, err := d.DialContext(ctx, "tcp", addr)
 	if err != nil {
 		return false, fmt.Sprintf(`{"error": "Port %d is not accessible: %v"}`, p.Port, err)
 	}
 
 	responseTime := time.Since(start).Nanoseconds()
+
 	if err = conn.Close(); err != nil {
 		log.Printf("Error closing connection: %v", err)
 		return false, `{"error": "Error closing connection"}`
 	}
 
-	return true, fmt.Sprintf(`{"host": "%s", "port": %d, "response_time": %d}`, p.Host, p.Port, responseTime) // Return raw data
+	// Return raw data
+	return true, fmt.Sprintf(`{"host": "%q", "port": %d, "response_time": %d}`, p.Host, p.Port, responseTime)
 }
