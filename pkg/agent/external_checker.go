@@ -3,6 +3,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"time"
@@ -77,13 +78,11 @@ func (e *ExternalChecker) Check(ctx context.Context) (isAccessible bool, statusM
 	healthy, err := e.client.CheckHealth(ctx, "")
 	if err != nil {
 		log.Printf("External checker %s: Health check failed: %v", e.serviceName, err)
-
 		return false, fmt.Sprintf("Health check failed: %v", err)
 	}
 
 	if !healthy {
 		log.Printf("External checker %s: Service reported unhealthy", e.serviceName)
-
 		return false, "Service reported unhealthy"
 	}
 
@@ -97,13 +96,19 @@ func (e *ExternalChecker) Check(ctx context.Context) (isAccessible bool, statusM
 	})
 	if err != nil {
 		log.Printf("External checker %s: Failed to get details: %v", e.serviceName, err)
-
 		return true, "Service healthy but details unavailable"
 	}
 
 	responseTime := time.Since(start).Nanoseconds()
 
-	return true, fmt.Sprintf(`{"response_time": %d, "status": "%s"}`, responseTime, status.Message) // Return raw data
+	// Parse status.Message into response structure
+	var details map[string]interface{}
+	if err := json.Unmarshal([]byte(status.Message), &details); err != nil {
+		return true, fmt.Sprintf(`{"response_time": %d, "error": "invalid details format"}`, responseTime)
+	}
+
+	// Pass the details directly in the status message
+	return true, status.Message
 }
 
 // Close cleans up the checker's resources.
