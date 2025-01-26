@@ -1,61 +1,81 @@
 package metrics
 
 import (
-	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/mfreeman451/serviceradar/pkg/models"
 )
 
+// metricPoint represents a single metric data point.
 type metricPoint struct {
 	timestamp    int64
 	responseTime int64
 	serviceName  string
 }
 
-type RingBuffer struct {
+// LockFreeRingBuffer is a lock-free ring buffer implementation.
+type LockFreeRingBuffer struct {
 	points []metricPoint
-	pos    int
-	size   int
-	mu     sync.RWMutex
+	pos    int64 // Atomic position counter
+	size   int64
+	pool   sync.Pool
 }
 
+// NewBuffer creates a new MetricStore (e.g., RingBuffer or LockFreeRingBuffer).
 func NewBuffer(size int) MetricStore {
-	return &RingBuffer{
+	return NewLockFreeBuffer(size) // Use LockFreeRingBuffer by default
+}
+
+// NewLockFreeBuffer creates a new LockFreeRingBuffer with the specified size.
+func NewLockFreeBuffer(size int) MetricStore {
+	return &LockFreeRingBuffer{
 		points: make([]metricPoint, size),
-		size:   size,
+		size:   int64(size),
+		pool: sync.Pool{
+			New: func() interface{} {
+				return &models.MetricPoint{}
+			},
+		},
 	}
 }
 
-func (b *RingBuffer) Add(timestamp time.Time, responseTime int64, serviceName string) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+// Add adds a new metric point to the buffer.
+func (b *LockFreeRingBuffer) Add(timestamp time.Time, responseTime int64, serviceName string) {
+	// Atomically increment the position and get the index
+	pos := atomic.AddInt64(&b.pos, 1) - 1
+	idx := pos % b.size
 
-	b.points[b.pos] = metricPoint{
+	// Write the metric point
+	b.points[idx] = metricPoint{
 		timestamp:    timestamp.UnixNano(),
 		responseTime: responseTime,
 		serviceName:  serviceName,
 	}
-
-	b.pos = (b.pos + 1) % b.size
 }
 
-func (b *RingBuffer) GetPoints() []models.MetricPoint {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
+// GetPoints retrieves all metric points from the buffer.
+func (b *LockFreeRingBuffer) GetPoints() []models.MetricPoint {
+	// Load the current position atomically
+	pos := atomic.LoadInt64(&b.pos)
 
 	points := make([]models.MetricPoint, b.size)
-	pos := b.pos
-
-	for i := 0; i < b.size; i++ {
+	for i := int64(0); i < b.size; i++ {
+		// Calculate the index for the current point
 		idx := (pos - i - 1 + b.size) % b.size
 		p := b.points[idx]
-		points[i] = models.MetricPoint{
-			Timestamp:    time.Unix(0, p.timestamp),
-			ResponseTime: p.responseTime,
-			ServiceName:  strings.TrimSpace(p.serviceName),
-		}
+
+		// Get a MetricPoint from the pool
+		mp := b.pool.Get().(*models.MetricPoint)
+		mp.Timestamp = time.Unix(0, p.timestamp)
+		mp.ResponseTime = p.responseTime
+		mp.ServiceName = p.serviceName
+
+		points[i] = *mp
+
+		// Return the MetricPoint to the pool
+		b.pool.Put(mp)
 	}
 
 	return points
