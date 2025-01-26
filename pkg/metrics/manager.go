@@ -35,7 +35,7 @@ func (m *MetricsManager) AddMetric(nodeID string, timestamp time.Time, responseT
 
 	// Load or create the NodeMetrics for this node
 	nodeMetrics, loaded := m.nodes.LoadOrStore(nodeID, &NodeMetrics{
-		buffer: NewMetricBuffer(m.config.Retention),
+		buffer: *NewMetricBuffer(m.config.Retention),
 	})
 
 	// Increment activeNodes counter if this is a new node

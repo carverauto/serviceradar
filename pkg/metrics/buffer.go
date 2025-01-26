@@ -1,5 +1,3 @@
-// Package metrics pkg/metrics/buffer.go
-
 package metrics
 
 import (
@@ -8,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"math/big"
 	"sync"
 	"time"
 
@@ -19,7 +18,7 @@ const (
 )
 
 type NodeMetrics struct {
-	buffer *MetricBuffer
+	buffer MetricBuffer
 	mu     sync.RWMutex // Fine-grained lock for this node
 }
 
@@ -28,7 +27,7 @@ type MetricBuffer struct {
 	pos    int
 	size   int
 	mu     sync.RWMutex
-	pool   sync.Pool // Buffer pool for temporary byte buffers
+	pool   sync.Pool
 }
 
 func NewMetricBuffer(points int) *MetricBuffer {
@@ -55,19 +54,16 @@ func (b *MetricBuffer) Add(timestamp time.Time, responseTime int64, serviceName 
 	// Write data to the buffer
 	if err := binary.Write(buf, binary.LittleEndian, timestamp.UnixNano()); err != nil {
 		log.Printf("Error writing timestamp to buffer: %v", err)
-
 		return fmt.Errorf("failed to write timestamp: %w", err)
 	}
 
 	if err := binary.Write(buf, binary.LittleEndian, responseTime); err != nil {
 		log.Printf("Error writing response time to buffer: %v", err)
-
 		return fmt.Errorf("failed to write response time: %w", err)
 	}
 
 	if _, err := buf.WriteString(serviceName); err != nil {
 		log.Printf("Error writing service name to buffer: %v", err)
-
 		return fmt.Errorf("failed to write service name: %w", err)
 	}
 
@@ -96,9 +92,8 @@ func (b *MetricBuffer) GetPoints() []models.MetricPoint {
 		rt := binary.LittleEndian.Uint64(b.buffer[offset+8:])
 		sn := string(bytes.TrimRight(b.buffer[offset+16:offset+32], "\x00"))
 
-		// Safely handle uint64 to int64 conversion
+		// Safely handle uint64 to int64 conversion using math/big
 		timestamp := safeUint64ToInt64(ts, sn, "timestamp")
-
 		responseTime := safeUint64ToInt64(rt, sn, "response time")
 
 		points[i] = models.MetricPoint{
@@ -111,13 +106,17 @@ func (b *MetricBuffer) GetPoints() []models.MetricPoint {
 	return points
 }
 
-// safeUint64ToInt64 safely converts a uint64 to int64, clamping to math.MaxInt64 if overflow occurs.
+// safeUint64ToInt64 safely converts a uint64 to int64 using math/big.
 func safeUint64ToInt64(value uint64, serviceName, fieldName string) int64 {
-	if value > uint64(math.MaxInt64) {
-		log.Printf("Warning: %s overflow for service '%s': %d (clamped to MaxInt64)", fieldName, serviceName, value)
+	maxInt64 := big.NewInt(math.MaxInt64) // Maximum value for int64
+	val := new(big.Int).SetUint64(value)  // Convert uint64 to big.Int
 
+	// Check if the value exceeds math.MaxInt64
+	if val.Cmp(maxInt64) > 0 {
+		log.Printf("Warning: %s overflow for service '%s': %d (clamped to MaxInt64)", fieldName, serviceName, value)
 		return math.MaxInt64
 	}
 
-	return int64(value)
+	// If the value is within the valid range, convert it to int64
+	return val.Int64()
 }
