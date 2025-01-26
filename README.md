@@ -267,7 +267,8 @@ Default location: `/etc/serviceradar/poller.json`
         },
         {
           "service_type": "icmp",
-          "service_name": "ping"
+          "service_name": "ping",
+          "details": "8.8.8.8"
         },
         {
           "service_type": "sweep",
