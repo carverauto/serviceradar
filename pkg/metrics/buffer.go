@@ -96,24 +96,10 @@ func (b *MetricBuffer) GetPoints() []models.MetricPoint {
 		rt := binary.LittleEndian.Uint64(b.buffer[offset+8:])
 		sn := string(bytes.TrimRight(b.buffer[offset+16:offset+32], "\x00"))
 
-		// Safely convert uint64 to int64 with overflow checks
-		var timestamp, responseTime int64
+		// Safely handle uint64 to int64 conversion
+		timestamp := safeUint64ToInt64(ts, sn, "timestamp")
 
-		if ts > uint64(math.MaxInt64) {
-			log.Printf("Warning: timestamp overflow for service '%s': %d (clamped to MaxInt64)", sn, ts)
-
-			timestamp = math.MaxInt64
-		} else {
-			timestamp = int64(ts)
-		}
-
-		if rt > uint64(math.MaxInt64) {
-			log.Printf("Warning: response time overflow for service '%s': %d (clamped to MaxInt64)", sn, rt)
-
-			responseTime = math.MaxInt64
-		} else {
-			responseTime = int64(rt)
-		}
+		responseTime := safeUint64ToInt64(rt, sn, "response time")
 
 		points[i] = models.MetricPoint{
 			Timestamp:    time.Unix(0, timestamp),
@@ -123,4 +109,15 @@ func (b *MetricBuffer) GetPoints() []models.MetricPoint {
 	}
 
 	return points
+}
+
+// safeUint64ToInt64 safely converts a uint64 to int64, clamping to math.MaxInt64 if overflow occurs.
+func safeUint64ToInt64(value uint64, serviceName, fieldName string) int64 {
+	if value > uint64(math.MaxInt64) {
+		log.Printf("Warning: %s overflow for service '%s': %d (clamped to MaxInt64)", fieldName, serviceName, value)
+
+		return math.MaxInt64
+	}
+
+	return int64(value)
 }
