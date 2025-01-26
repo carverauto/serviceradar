@@ -57,10 +57,10 @@ type APIServer struct {
 	nodes              map[string]*NodeStatus
 	router             *mux.Router
 	nodeHistoryHandler func(nodeID string) ([]NodeHistoryPoint, error)
-	metricsManager     *metrics.MetricsManager
+	metricsManager     metrics.MetricCollector
 }
 
-func NewAPIServer(metricsManager *metrics.MetricsManager) *APIServer {
+func NewAPIServer(metricsManager metrics.MetricCollector) *APIServer {
 	s := &APIServer{
 		nodes:          make(map[string]*NodeStatus),
 		router:         mux.NewRouter(),
@@ -135,6 +135,7 @@ func (s *APIServer) getNodeMetrics(w http.ResponseWriter, r *http.Request) {
 
 	if err := json.NewEncoder(w).Encode(m); err != nil {
 		log.Printf("Error encoding metrics response: %v", err)
+
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	}
 }
