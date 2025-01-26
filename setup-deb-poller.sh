@@ -4,7 +4,7 @@ set -e  # Exit on any error
 
 echo "Setting up package structure..."
 
-VERSION=${VERSION:-1.0.6}
+VERSION=${VERSION:-1.0.7}
 
 # Create package directory structure
 PKG_ROOT="serviceradar-poller_${VERSION}"
@@ -81,7 +81,8 @@ cat > "${PKG_ROOT}/etc/serviceradar/poller.json" << EOF
                 },
 		{
                     "service_type": "icmp",
-                    "service_name": "ping"
+                    "service_name": "ping",
+                    "details": "8.8.8.8"
                 },
                 {
                     "service_type": "sweep",
