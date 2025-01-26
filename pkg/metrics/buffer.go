@@ -96,22 +96,23 @@ func (b *MetricBuffer) GetPoints() []models.MetricPoint {
 		rt := binary.LittleEndian.Uint64(b.buffer[offset+8:])
 		sn := string(bytes.TrimRight(b.buffer[offset+16:offset+32], "\x00"))
 
-		// Safely convert uint64 to int64
-		timestamp := int64(ts)
-		responseTime := int64(rt)
+		// Safely convert uint64 to int64 with overflow checks
+		var timestamp, responseTime int64
 
-		// Check for overflow in timestamp
 		if ts > uint64(math.MaxInt64) {
 			log.Printf("Warning: timestamp overflow for service '%s': %d (clamped to MaxInt64)", sn, ts)
 
 			timestamp = math.MaxInt64
+		} else {
+			timestamp = int64(ts)
 		}
 
-		// Check for overflow in responseTime
 		if rt > uint64(math.MaxInt64) {
 			log.Printf("Warning: response time overflow for service '%s': %d (clamped to MaxInt64)", sn, rt)
 
 			responseTime = math.MaxInt64
+		} else {
+			responseTime = int64(rt)
 		}
 
 		points[i] = models.MetricPoint{
