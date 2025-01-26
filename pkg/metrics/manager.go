@@ -32,6 +32,7 @@ func (m *Manager) AddMetric(nodeID string, timestamp time.Time, responseTime int
 	}
 
 	store.(MetricStore).Add(timestamp, responseTime, serviceName)
+
 	return nil
 }
 
@@ -40,6 +41,7 @@ func (m *Manager) GetMetrics(nodeID string) []models.MetricPoint {
 	if !ok {
 		return nil
 	}
+
 	return store.(MetricStore).GetPoints()
 }
 
