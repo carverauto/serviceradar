@@ -15,6 +15,9 @@ jobs:
           go-version-file: go.mod
       - name: test
         run: make test
+      - name: Run Tests with Coverage
+        run: |
+          go test -coverprofile=cover.out ./...
       - name: check test coverage
         uses: vladopajic/go-test-coverage@v2
         with:
