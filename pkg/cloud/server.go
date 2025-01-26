@@ -70,7 +70,7 @@ type Server struct {
 	ShutdownChan   chan struct{}
 	pollerPatterns []string
 	grpcServer     *grpc.Server
-	metrics        *metrics.MetricsManager
+	metrics        metrics.MetricCollector
 }
 
 func NewServer(_ context.Context, config *Config) (*Server, error) {
@@ -85,7 +85,7 @@ func NewServer(_ context.Context, config *Config) (*Server, error) {
 	// log the config.Metrics
 	log.Printf("Metrics config: %+v", config.Metrics)
 
-	metricsManager := metrics.NewMetricsManager(models.MetricsConfig{
+	metricsManager := metrics.NewManager(models.MetricsConfig{
 		Enabled:   config.Metrics.Enabled,
 		Retention: config.Metrics.Retention,
 		MaxNodes:  config.Metrics.MaxNodes,
@@ -155,7 +155,7 @@ func (s *Server) Start(ctx context.Context) error {
 	return nil
 }
 
-func (s *Server) GetMetricsManager() *metrics.MetricsManager {
+func (s *Server) GetMetricsManager() metrics.MetricCollector {
 	return s.metrics
 }
 
