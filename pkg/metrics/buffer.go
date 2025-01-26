@@ -61,6 +61,7 @@ func (b *LockFreeRingBuffer) GetPoints() []models.MetricPoint {
 	pos := atomic.LoadInt64(&b.pos)
 
 	points := make([]models.MetricPoint, b.size)
+
 	for i := int64(0); i < b.size; i++ {
 		// Calculate the index for the current point
 		idx := (pos - i - 1 + b.size) % b.size

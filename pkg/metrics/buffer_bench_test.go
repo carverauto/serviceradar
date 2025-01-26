@@ -62,6 +62,7 @@ func BenchmarkRingBuffer(b *testing.B) {
 
 	b.Run("Add", func(b *testing.B) {
 		b.ResetTimer()
+
 		for i := 0; i < b.N; i++ {
 			buffer.Add(now, int64(i), "test-service")
 		}
@@ -73,6 +74,7 @@ func BenchmarkRingBuffer(b *testing.B) {
 		}
 
 		b.ResetTimer()
+
 		for i := 0; i < b.N; i++ {
 			_ = buffer.GetPoints()
 		}
@@ -86,6 +88,7 @@ func BenchmarkLockFreeRingBuffer(b *testing.B) {
 
 	b.Run("Add", func(b *testing.B) {
 		b.ResetTimer()
+
 		for i := 0; i < b.N; i++ {
 			buffer.Add(now, int64(i), "test-service")
 		}
@@ -97,6 +100,7 @@ func BenchmarkLockFreeRingBuffer(b *testing.B) {
 		}
 
 		b.ResetTimer()
+
 		for i := 0; i < b.N; i++ {
 			_ = buffer.GetPoints()
 		}
@@ -110,6 +114,7 @@ func BenchmarkChannelBuffer(b *testing.B) {
 
 	b.Run("Add", func(b *testing.B) {
 		b.ResetTimer()
+
 		for i := 0; i < b.N; i++ {
 			buffer.Add(now, int64(i), "test-service")
 		}
@@ -121,6 +126,7 @@ func BenchmarkChannelBuffer(b *testing.B) {
 		}
 
 		b.ResetTimer()
+
 		for i := 0; i < b.N; i++ {
 			_ = buffer.GetPoints()
 		}
@@ -145,6 +151,7 @@ func BenchmarkImplementations(b *testing.B) {
 
 			b.Run("Add", func(b *testing.B) {
 				b.ResetTimer()
+
 				for i := 0; i < b.N; i++ {
 					buffer.Add(now, int64(i), "test-service")
 				}
@@ -156,6 +163,7 @@ func BenchmarkImplementations(b *testing.B) {
 				}
 
 				b.ResetTimer()
+
 				for i := 0; i < b.N; i++ {
 					_ = buffer.GetPoints()
 				}
