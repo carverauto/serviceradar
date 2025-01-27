@@ -9,7 +9,7 @@ function Navbar() {
           <div className="flex items-center justify-between">
             <div className="flex items-center">
               <img src={logo} alt="logo" className="w-10 h-10" />
-              <Link to="/" className="text-xl font-bold text-gray-800">
+              <Link to="/" className="text-xl font-bold text-gray-800 ml-2">
                 ServiceRadar
               </Link>
             </div>
