@@ -371,6 +371,7 @@ func (p *Poller) poll(ctx context.Context) error {
 	return p.reportToCloud(ctx, allStatuses)
 }
 
+// Update pollAgent to use the poller instance correctly
 func (p *Poller) pollAgent(ctx context.Context, agentName string, agentConfig AgentConfig) ([]*proto.ServiceStatus, error) {
 	// Get agent connection
 	agent, err := p.getAgentConnection(agentName)
@@ -387,21 +388,12 @@ func (p *Poller) pollAgent(ctx context.Context, agentName string, agentConfig Ag
 	client := proto.NewAgentServiceClient(agent.client.GetConnection())
 	poller := newAgentPoller(agentName, agentConfig, client, defaultTimeout)
 
-	statuses := make([]*proto.ServiceStatus, 0, len(agentConfig.Checks))
-	for _, check := range agentConfig.Checks {
-		status, err := client.GetStatus(ctx, &proto.StatusRequest{
-			ServiceName: check.Name,
-			ServiceType: check.Type,
-			Details:     check.Details,
-			Port:        check.Port,
-		})
-		if err != nil {
-			log.Printf("Error checking service %s: %v", check.Name, err)
-			continue
-		}
+	// Execute all checks using the poller
+	statuses := poller.ExecuteChecks(ctx)
 
-		// For sweep type services, ensure ICMP data is preserved
-		if check.Type == "sweep" && status.Available {
+	// Process sweep data if present
+	for _, status := range statuses {
+		if status.ServiceType == "sweep" && status.Available {
 			var sweepData map[string]interface{}
 			if err := json.Unmarshal([]byte(status.Message), &sweepData); err != nil {
 				log.Printf("Error parsing sweep data: %v", err)
@@ -420,14 +412,6 @@ func (p *Poller) pollAgent(ctx context.Context, agentName string, agentConfig Ag
 				}
 			}
 		}
-
-		statuses = append(statuses, &proto.ServiceStatus{
-			ServiceName:  status.ServiceName,
-			Available:    status.Available,
-			Message:      status.Message,
-			ServiceType:  status.ServiceType,
-			ResponseTime: status.ResponseTime,
-		})
 	}
 
 	return statuses, nil
