@@ -14,3 +14,5 @@ type MetricsConfig struct {
 	Retention int  `json:"metrics_retention"`
 	MaxNodes  int  `json:"max_nodes"`
 }
+
+const MetricPointSize = 32 // 8 bytes timestamp + 8 bytes response + 16 bytes name

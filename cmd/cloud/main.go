@@ -29,8 +29,6 @@ func run() error {
 		return err
 	}
 
-	log.Printf("cfg: %v", cfg)
-
 	// Create root context for lifecycle management
 	ctx := context.Background()
 
