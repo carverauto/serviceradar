@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	srHttp "github.com/mfreeman451/serviceradar/pkg/http"
 	"github.com/mfreeman451/serviceradar/pkg/metrics"
 	"github.com/mfreeman451/serviceradar/pkg/models"
 )
@@ -71,25 +72,21 @@ func NewAPIServer(metricsManager metrics.MetricCollector) *APIServer {
 	return s
 }
 
+func (s *APIServer) setupStaticFileServing() {
+	fsys, err := fs.Sub(webContent, "web/dist")
+	if err != nil {
+		log.Printf("Error setting up static file serving: %v", err)
+		return
+	}
+	s.router.PathPrefix("/").Handler(http.FileServer(http.FS(fsys)))
+}
+
 //go:embed web/dist/*
 var webContent embed.FS
 
 func (s *APIServer) setupRoutes() {
 	// Add CORS middleware
-	s.router.Use(func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Access-Control-Allow-Origin", "*")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-
-			if r.Method == http.MethodOptions {
-				w.WriteHeader(http.StatusOK)
-				return
-			}
-
-			next.ServeHTTP(w, r)
-		})
-	})
+	s.router.Use(srHttp.CommonMiddleware)
 
 	// Basic endpoints
 	s.router.HandleFunc("/api/nodes", s.getNodes).Methods("GET")
@@ -107,13 +104,7 @@ func (s *APIServer) setupRoutes() {
 	s.router.HandleFunc("/api/nodes/{id}/services/{service}", s.getServiceDetails).Methods("GET")
 
 	// Serve static files
-	fsys, err := fs.Sub(webContent, "web/dist")
-	if err != nil {
-		log.Printf("Error setting up static file serving: %v", err)
-		return
-	}
-
-	s.router.PathPrefix("/").Handler(http.FileServer(http.FS(fsys)))
+	s.setupStaticFileServing()
 }
 
 func (s *APIServer) getNodeMetrics(w http.ResponseWriter, r *http.Request) {
@@ -121,21 +112,21 @@ func (s *APIServer) getNodeMetrics(w http.ResponseWriter, r *http.Request) {
 	nodeID := vars["id"]
 
 	if s.metricsManager == nil {
+		log.Printf("Metrics not configured for node %s", nodeID)
 		http.Error(w, "Metrics not configured", http.StatusInternalServerError)
 		return
 	}
 
 	m := s.metricsManager.GetMetrics(nodeID)
 	if m == nil {
+		log.Printf("No metrics found for node %s", nodeID)
 		http.Error(w, "No metrics found", http.StatusNotFound)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-
 	if err := json.NewEncoder(w).Encode(m); err != nil {
-		log.Printf("Error encoding metrics response: %v", err)
-
+		log.Printf("Error encoding metrics response for node %s: %v", nodeID, err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	}
 }
@@ -144,30 +135,31 @@ func (s *APIServer) SetNodeHistoryHandler(handler func(nodeID string) ([]NodeHis
 	s.nodeHistoryHandler = handler
 }
 
-func (s *APIServer) updateNodeStatus(nodeID string, status *NodeStatus) {
+func (s *APIServer) handleSweepService(svc ServiceStatus) {
+	var sweepData map[string]interface{}
+	if err := json.Unmarshal(svc.Details, &sweepData); err != nil {
+		log.Printf("Error parsing sweep details: %v", err)
+		return
+	}
+
+	if hosts, ok := sweepData["hosts"].([]interface{}); ok {
+		for _, h := range hosts {
+			if host, ok := h.(map[string]interface{}); ok {
+				if icmpStatus, ok := host["icmp_status"].(map[string]interface{}); ok {
+					log.Printf("API exposing ICMP data for host %v: %+v", host["host"], icmpStatus)
+				}
+			}
+		}
+	}
+}
+
+func (s *APIServer) UpdateNodeStatus(nodeID string, status *NodeStatus) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Process sweep services and their ICMP data
 	for _, svc := range status.Services {
 		if svc.Type == "sweep" {
-			var sweepData map[string]interface{}
-			if err := json.Unmarshal(svc.Details, &sweepData); err != nil {
-				log.Printf("Error parsing sweep details: %v", err)
-				continue
-			}
-
-			// Log ICMP data being exposed via API
-			if hosts, ok := sweepData["hosts"].([]interface{}); ok {
-				for _, h := range hosts {
-					if host, ok := h.(map[string]interface{}); ok {
-						if icmpStatus, ok := host["icmp_status"].(map[string]interface{}); ok {
-							log.Printf("API exposing ICMP data for host %v: %+v",
-								host["host"], icmpStatus)
-						}
-					}
-				}
-			}
+			s.handleSweepService(svc)
 		}
 	}
 
@@ -251,38 +243,42 @@ func (s *APIServer) getNodes(w http.ResponseWriter, _ *http.Request) {
 	}
 }
 
+func (s *APIServer) getNodeByID(nodeID string) (*NodeStatus, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	node, exists := s.nodes[nodeID]
+	return node, exists
+}
+
+func (s *APIServer) encodeJSONResponse(w http.ResponseWriter, data interface{}) error {
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		log.Printf("Error encoding JSON response: %v", err)
+		return err
+	}
+	return nil
+}
+
 func (s *APIServer) getNode(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	nodeID := vars["id"]
 
-	log.Printf("Getting node status for: %s", nodeID)
-
-	s.mu.RLock()
-
-	node, exists := s.nodes[nodeID]
+	node, exists := s.getNodeByID(nodeID)
 	if !exists {
-		s.mu.RUnlock()
-		log.Printf("Node %s not found in nodes map", nodeID)
+		log.Printf("Node %s not found", nodeID)
 		http.Error(w, "Node not found", http.StatusNotFound)
-
 		return
 	}
 
-	// Get metrics if available
 	if s.metricsManager != nil {
 		m := s.metricsManager.GetMetrics(nodeID)
 		if m != nil {
 			node.Metrics = m
-			log.Printf("Attached %d metrics points to node %s response",
-				len(m), nodeID)
+			log.Printf("Attached %d metrics points to node %s response", len(m), nodeID)
 		}
 	}
-	s.mu.RUnlock()
 
-	w.Header().Set("Content-Type", "application/json")
-
-	if err := json.NewEncoder(w).Encode(node); err != nil {
-		log.Printf("Error encoding node response: %v", err)
+	if err := s.encodeJSONResponse(w, node); err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	}
 }
