@@ -78,6 +78,7 @@ func (s *APIServer) setupStaticFileServing() {
 		log.Printf("Error setting up static file serving: %v", err)
 		return
 	}
+
 	s.router.PathPrefix("/").Handler(http.FileServer(http.FS(fsys)))
 }
 
@@ -114,6 +115,7 @@ func (s *APIServer) getNodeMetrics(w http.ResponseWriter, r *http.Request) {
 	if s.metricsManager == nil {
 		log.Printf("Metrics not configured for node %s", nodeID)
 		http.Error(w, "Metrics not configured", http.StatusInternalServerError)
+
 		return
 	}
 
@@ -121,12 +123,15 @@ func (s *APIServer) getNodeMetrics(w http.ResponseWriter, r *http.Request) {
 	if m == nil {
 		log.Printf("No metrics found for node %s", nodeID)
 		http.Error(w, "No metrics found", http.StatusNotFound)
+
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+
 	if err := json.NewEncoder(w).Encode(m); err != nil {
 		log.Printf("Error encoding metrics response for node %s: %v", nodeID, err)
+
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	}
 }
@@ -135,7 +140,7 @@ func (s *APIServer) SetNodeHistoryHandler(handler func(nodeID string) ([]NodeHis
 	s.nodeHistoryHandler = handler
 }
 
-func (s *APIServer) handleSweepService(svc ServiceStatus) {
+func (*APIServer) handleSweepService(svc *ServiceStatus) {
 	var sweepData map[string]interface{}
 	if err := json.Unmarshal(svc.Details, &sweepData); err != nil {
 		log.Printf("Error parsing sweep details: %v", err)
@@ -159,7 +164,7 @@ func (s *APIServer) UpdateNodeStatus(nodeID string, status *NodeStatus) {
 
 	for _, svc := range status.Services {
 		if svc.Type == "sweep" {
-			s.handleSweepService(svc)
+			s.handleSweepService(&svc)
 		}
 	}
 
@@ -247,15 +252,19 @@ func (s *APIServer) getNodeByID(nodeID string) (*NodeStatus, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	node, exists := s.nodes[nodeID]
+
 	return node, exists
 }
 
-func (s *APIServer) encodeJSONResponse(w http.ResponseWriter, data interface{}) error {
+func (*APIServer) encodeJSONResponse(w http.ResponseWriter, data interface{}) error {
 	w.Header().Set("Content-Type", "application/json")
+
 	if err := json.NewEncoder(w).Encode(data); err != nil {
 		log.Printf("Error encoding JSON response: %v", err)
+
 		return err
 	}
+
 	return nil
 }
 
@@ -267,6 +276,7 @@ func (s *APIServer) getNode(w http.ResponseWriter, r *http.Request) {
 	if !exists {
 		log.Printf("Node %s not found", nodeID)
 		http.Error(w, "Node not found", http.StatusNotFound)
+
 		return
 	}
 
