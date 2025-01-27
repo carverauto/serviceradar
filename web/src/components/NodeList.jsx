@@ -4,6 +4,7 @@ import NodeTimeline from './NodeTimeline';
 import NetworkSweepView from './NetworkSweepView.jsx';
 import _ from 'lodash';
 import ServiceSparkline from "./ServiceSparkline.jsx";
+import { useNavigate } from 'react-router-dom';
 
 function NodeList() {
   const [nodes, setNodes] = useState([]);
@@ -15,6 +16,8 @@ function NodeList() {
   const [expandedNode, setExpandedNode] = useState(null);
   const [viewMode, setViewMode] = useState('grid');
   const [nodeHistory, setNodeHistory] = useState({});
+  const navigate = useNavigate();
+
 
   const sortNodesByName = useCallback((a, b) => {
     const aMatch = a.node_id.match(/(\d+)$/);
@@ -85,6 +88,10 @@ function NodeList() {
       [sortedNodes, nodesPerPage]
   );
 
+  const handleServiceClick = (nodeId, serviceName) => {
+    navigate(`/service/${nodeId}/${serviceName}`);
+  };
+
   useEffect(() => {
     const fetchNodes = async () => {
       try {
@@ -120,8 +127,11 @@ function NodeList() {
     }));
   }, [nodeHistory]);
 
-  const ServiceStatus = ({ service, nodeId }) => (
-      <div className="flex items-center gap-2 bg-gray-50 rounded p-2">
+  const ServiceStatus = ({ service, nodeId, onServiceClick }) => (
+      <div
+          className="flex items-center gap-2 bg-gray-50 rounded p-2 cursor-pointer hover:bg-gray-100 transition-colors"
+          onClick={() => onServiceClick(nodeId, service.name)}
+      >
         <div className="flex items-center gap-1">
           <span className={`w-1.5 h-1.5 rounded-full ${service.available ? 'bg-green-500' : 'bg-red-500'}`} />
           <span className="font-medium">{service.name || 'unknown'}</span>
@@ -135,13 +145,13 @@ function NodeList() {
       </div>
   );
 
+
   const renderGridView = () => (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {currentNodes.map((node) => (
             <div
                 key={node.node_id}
-                className="bg-white rounded-lg shadow p-4 cursor-pointer hover:shadow-md transition-shadow"
-                onClick={() => setExpandedNode(expandedNode === node.node_id ? null : node.node_id)}
+                className="bg-white rounded-lg shadow p-4"
             >
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
@@ -151,8 +161,8 @@ function NodeList() {
                   <h3 className="font-medium text-sm">{node.node_id}</h3>
                 </div>
                 <span className="text-xs text-gray-500">
-            {new Date(node.last_update).toLocaleString()}
-          </span>
+                            {new Date(node.last_update).toLocaleString()}
+                        </span>
               </div>
 
               <div className="flex flex-col gap-2">
@@ -161,7 +171,7 @@ function NodeList() {
                         key={`${service.name}-${idx}`}
                         service={service}
                         nodeId={node.node_id}
-                        history={nodeHistory[node.node_id]?.filter(h => h.service_name === service.name) || []}
+                        onServiceClick={handleServiceClick}
                     />
                 ))}
               </div>
@@ -202,10 +212,14 @@ function NodeList() {
                 <td className="px-6 py-4">
                   <div className="flex flex-wrap gap-2">
                     {node.services?.map((service, idx) => (
-                        <div key={`${service.name}-${idx}`} className="inline-flex items-center gap-1">
-                    <span className={`w-1.5 h-1.5 rounded-full ${
-                        service.available ? 'bg-green-500' : 'bg-red-500'
-                    }`} />
+                        <div
+                            key={`${service.name}-${idx}`}
+                            className="inline-flex items-center gap-1 cursor-pointer hover:bg-gray-100 p-1 rounded transition-colors"
+                            onClick={() => handleServiceClick(node.node_id, service.name)}
+                        >
+                                            <span className={`w-1.5 h-1.5 rounded-full ${
+                                                service.available ? 'bg-green-500' : 'bg-red-500'
+                                            }`}/>
                           <span className="text-sm font-medium">{service.name}</span>
                         </div>
                     ))}

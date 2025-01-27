@@ -2,8 +2,8 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import Dashboard from './components/Dashboard';
-import DuskDashboard from './components/DuskDashboard';
 import NodeList from './components/NodeList';
+import ServiceDashboard from './components/ServiceDashboard';
 
 function App() {
     return (
@@ -14,7 +14,7 @@ function App() {
                     <Routes>
                         <Route path="/" element={<Dashboard />} />
                         <Route path="/nodes" element={<NodeList />} />
-                        <Route path="/dusk" element={<DuskDashboard />} />
+                        <Route path="/service/:nodeId/:serviceName" element={<ServiceDashboard />} />
                     </Routes>
                 </main>
             </div>
@@ -22,4 +22,4 @@ function App() {
     );
 }
 
-export default App
+export default App;

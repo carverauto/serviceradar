@@ -1,4 +1,3 @@
-// src/components/Navbar.jsx
 import React from 'react';
 import { Link } from 'react-router-dom';
 import logo from '../../public/serviceRadar.svg';
@@ -10,7 +9,7 @@ function Navbar() {
           <div className="flex items-center justify-between">
             <div className="flex items-center">
               <img src={logo} alt="logo" className="w-10 h-10" />
-              <Link to="/" className="text-xl font-bold text-gray-800">
+              <Link to="/" className="text-xl font-bold text-gray-800 ml-2">
                 ServiceRadar
               </Link>
             </div>
@@ -20,9 +19,6 @@ function Navbar() {
               </Link>
               <Link to="/nodes" className="text-gray-600 hover:text-gray-800">
                 Nodes
-              </Link>
-              <Link to="/dusk" className="text-gray-600 hover:text-gray-800">
-                Dusk
               </Link>
             </div>
           </div>
