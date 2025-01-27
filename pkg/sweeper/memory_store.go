@@ -225,28 +225,30 @@ func (s *InMemoryStore) GetSweepSummary(_ context.Context) (*models.SweepSummary
 }
 
 // SaveResult stores (or updates) a Result in memory.
-func (s *InMemoryStore) SaveResult(ctx context.Context, result *models.Result) error {
+func (s *InMemoryStore) SaveResult(_ context.Context, result *models.Result) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Use a context with timeout for potential long-running operations
-	var cancel context.CancelFunc
-	_, cancel = context.WithTimeout(ctx, dbOperationTimeout)
-	defer cancel()
+	// If it's an ICMP result with timing info, ensure we store it
+	if result.Target.Mode == models.ModeICMP && result.Available {
+		log.Printf("Storing ICMP result for host %s: %v response time",
+			result.Target.Host, result.RespTime)
+	}
 
+	// Store/update the result
 	for i := range s.results {
-		// Compare individual fields of Target instead of the whole struct
 		if s.results[i].Target.Host == result.Target.Host &&
-			s.results[i].Target.Port == result.Target.Port &&
 			s.results[i].Target.Mode == result.Target.Mode {
+			// For ICMP, update response time
+			if result.Target.Mode == models.ModeICMP {
+				s.results[i].RespTime = result.RespTime
+			}
 			s.results[i] = *result
 			return nil
 		}
 	}
 
-	// If not found, append it
 	s.results = append(s.results, *result)
-
 	return nil
 }
 

@@ -45,28 +45,40 @@ func (p *BaseProcessor) Process(result *models.Result) error {
 		}
 	}
 
-	if result.Target.Mode != models.ModeTCP {
+	host := p.getOrCreateHost(result.Target.Host, now)
+	host.LastSeen = now
+
+	if !result.Available {
+		if result.Target.Mode == models.ModeICMP {
+			if host.ICMPStatus == nil {
+				host.ICMPStatus = &models.ICMPStatus{}
+			}
+			host.ICMPStatus.PacketLoss = 100
+		}
 		return nil
 	}
 
-	host := p.getOrCreateHost(result.Target.Host, now)
+	host.Available = true
 
-	host.LastSeen = now
+	if result.Target.Mode == models.ModeICMP {
+		if host.ICMPStatus == nil {
+			host.ICMPStatus = &models.ICMPStatus{}
+		}
+		host.ICMPStatus.PacketLoss = 0
+		host.ICMPStatus.RoundTrip = result.RespTime
+		return nil
+	}
 
-	if result.Available {
-		host.Available = true
-
+	if result.Target.Mode == models.ModeTCP {
 		var found bool
-
 		for _, port := range host.PortResults {
 			if port.Port == result.Target.Port {
+				port.Available = true
 				port.RespTime = result.RespTime
 				found = true
-
 				break
 			}
 		}
-
 		if !found {
 			host.PortResults = append(host.PortResults, &models.PortResult{
 				Port:      result.Target.Port,

@@ -253,6 +253,16 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, er
 		Hosts:          summary.Hosts,
 	}
 
+	// Log some debug info about ICMP results
+	for _, host := range data.Hosts {
+		if host.ICMPStatus != nil {
+			log.Printf("Host %s ICMP status: loss=%v%% rtt=%v",
+				host.Host,
+				host.ICMPStatus.PacketLoss,
+				host.ICMPStatus.RoundTrip)
+		}
+	}
+
 	log.Printf("Agent: sweepSummary.LastSweep: %v", time.Unix(summary.LastSweep, 0).Format(time.RFC3339))
 
 	statusJSON, err := json.Marshal(data)
