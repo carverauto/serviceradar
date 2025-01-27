@@ -1,4 +1,3 @@
-// src/components/Navbar.jsx
 import React from 'react';
 import { Link } from 'react-router-dom';
 import logo from '../../public/serviceRadar.svg';
@@ -20,9 +19,6 @@ function Navbar() {
               </Link>
               <Link to="/nodes" className="text-gray-600 hover:text-gray-800">
                 Nodes
-              </Link>
-              <Link to="/dusk" className="text-gray-600 hover:text-gray-800">
-                Dusk
               </Link>
             </div>
           </div>
