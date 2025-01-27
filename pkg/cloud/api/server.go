@@ -144,15 +144,34 @@ func (s *APIServer) SetNodeHistoryHandler(handler func(nodeID string) ([]NodeHis
 	s.nodeHistoryHandler = handler
 }
 
-func (s *APIServer) UpdateNodeStatus(nodeID string, status *NodeStatus) {
+func (s *APIServer) updateNodeStatus(nodeID string, status *NodeStatus) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Update or add the node status in memory for API responses
-	s.nodes[nodeID] = status
+	// Process sweep services and their ICMP data
+	for _, svc := range status.Services {
+		if svc.Type == "sweep" {
+			var sweepData map[string]interface{}
+			if err := json.Unmarshal(svc.Details, &sweepData); err != nil {
+				log.Printf("Error parsing sweep details: %v", err)
+				continue
+			}
 
-	log.Printf("Updated API state for node %s: healthy=%v, services=%d",
-		nodeID, status.IsHealthy, len(status.Services))
+			// Log ICMP data being exposed via API
+			if hosts, ok := sweepData["hosts"].([]interface{}); ok {
+				for _, h := range hosts {
+					if host, ok := h.(map[string]interface{}); ok {
+						if icmpStatus, ok := host["icmp_status"].(map[string]interface{}); ok {
+							log.Printf("API exposing ICMP data for host %v: %+v",
+								host["host"], icmpStatus)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	s.nodes[nodeID] = status
 }
 
 func (s *APIServer) getNodeHistory(w http.ResponseWriter, r *http.Request) {

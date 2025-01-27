@@ -45,47 +45,51 @@ func (p *BaseProcessor) Process(result *models.Result) error {
 		}
 	}
 
+	// Get or create the host entry
 	host := p.getOrCreateHost(result.Target.Host, now)
 	host.LastSeen = now
 
-	if !result.Available {
-		if result.Target.Mode == models.ModeICMP {
-			if host.ICMPStatus == nil {
-				host.ICMPStatus = &models.ICMPStatus{}
-			}
-			host.ICMPStatus.PacketLoss = 100
-		}
-		return nil
-	}
-
-	host.Available = true
-
-	if result.Target.Mode == models.ModeICMP {
+	// Process based on scan mode
+	switch result.Target.Mode {
+	case models.ModeICMP:
 		if host.ICMPStatus == nil {
 			host.ICMPStatus = &models.ICMPStatus{}
 		}
-		host.ICMPStatus.PacketLoss = 0
-		host.ICMPStatus.RoundTrip = result.RespTime
-		return nil
-	}
 
-	if result.Target.Mode == models.ModeTCP {
-		var found bool
-		for _, port := range host.PortResults {
-			if port.Port == result.Target.Port {
-				port.Available = true
-				port.RespTime = result.RespTime
-				found = true
-				break
-			}
+		if result.Available {
+			host.Available = true // Host is considered available if ICMP succeeds
+			host.ICMPStatus.Available = true
+			host.ICMPStatus.PacketLoss = 0
+			host.ICMPStatus.RoundTrip = result.RespTime
+		} else {
+			host.ICMPStatus.Available = false
+			host.ICMPStatus.PacketLoss = 100
+			host.ICMPStatus.RoundTrip = 0
 		}
-		if !found {
-			host.PortResults = append(host.PortResults, &models.PortResult{
-				Port:      result.Target.Port,
-				Available: true,
-				RespTime:  result.RespTime,
-			})
-			p.portCounts[result.Target.Port]++
+
+	case models.ModeTCP:
+		if result.Available {
+			host.Available = true // Host is also considered available if any TCP port responds
+
+			// Update port status
+			var found bool
+			for _, port := range host.PortResults {
+				if port.Port == result.Target.Port {
+					port.Available = true
+					port.RespTime = result.RespTime
+					found = true
+					break
+				}
+			}
+
+			if !found {
+				host.PortResults = append(host.PortResults, &models.PortResult{
+					Port:      result.Target.Port,
+					Available: true,
+					RespTime:  result.RespTime,
+				})
+				p.portCounts[result.Target.Port]++
+			}
 		}
 	}
 

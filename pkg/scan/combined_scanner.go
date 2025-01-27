@@ -29,9 +29,6 @@ func NewCombinedScanner(timeout time.Duration, concurrency, icmpCount int) *Comb
 	}
 }
 
-// Scan performs the scanning operation for all targets.
-// In pkg/scan/combined_scanner.go
-
 func (s *CombinedScanner) Scan(ctx context.Context, targets []models.Target) (<-chan models.Result, error) {
 	if len(targets) == 0 {
 		empty := make(chan models.Result)

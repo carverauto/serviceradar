@@ -387,16 +387,47 @@ func (p *Poller) pollAgent(ctx context.Context, agentName string, agentConfig Ag
 	client := proto.NewAgentServiceClient(agent.client.GetConnection())
 	poller := newAgentPoller(agentName, agentConfig, client, defaultTimeout)
 
-	// Execute checks
-	statuses := poller.ExecuteChecks(ctx)
+	statuses := make([]*proto.ServiceStatus, 0, len(agentConfig.Checks))
+	for _, check := range agentConfig.Checks {
+		status, err := client.GetStatus(ctx, &proto.StatusRequest{
+			ServiceName: check.Name,
+			ServiceType: check.Type,
+			Details:     check.Details,
+			Port:        check.Port,
+		})
+		if err != nil {
+			log.Printf("Error checking service %s: %v", check.Name, err)
+			continue
+		}
 
-	// Process sweep results if any
-	for _, status := range statuses {
-		if status.ServiceType == "sweep" && status.Available {
-			if err := p.processSweepStatus(status); err != nil {
-				log.Printf("Error processing sweep status for agent %s: %v", agentName, err)
+		// For sweep type services, ensure ICMP data is preserved
+		if check.Type == "sweep" && status.Available {
+			var sweepData map[string]interface{}
+			if err := json.Unmarshal([]byte(status.Message), &sweepData); err != nil {
+				log.Printf("Error parsing sweep data: %v", err)
+				continue
+			}
+
+			// Log the sweep data being forwarded
+			if hosts, ok := sweepData["hosts"].([]interface{}); ok {
+				for _, h := range hosts {
+					if host, ok := h.(map[string]interface{}); ok {
+						if icmpStatus, ok := host["icmp_status"].(map[string]interface{}); ok {
+							log.Printf("Forwarding ICMP data for host %v: %+v",
+								host["host"], icmpStatus)
+						}
+					}
+				}
 			}
 		}
+
+		statuses = append(statuses, &proto.ServiceStatus{
+			ServiceName:  status.ServiceName,
+			Available:    status.Available,
+			Message:      status.Message,
+			ServiceType:  status.ServiceType,
+			ResponseTime: status.ResponseTime,
+		})
 	}
 
 	return statuses, nil
