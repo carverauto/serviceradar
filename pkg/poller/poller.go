@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/mfreeman451/serviceradar/pkg/grpc"
-	"github.com/mfreeman451/serviceradar/pkg/models"
 	"github.com/mfreeman451/serviceradar/proto"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
@@ -371,56 +370,53 @@ func (p *Poller) poll(ctx context.Context) error {
 	return p.reportToCloud(ctx, allStatuses)
 }
 
-// Update pollAgent to use the poller instance correctly
 func (p *Poller) pollAgent(ctx context.Context, agentName string, agentConfig AgentConfig) ([]*proto.ServiceStatus, error) {
-	// Get agent connection
 	agent, err := p.getAgentConnection(agentName)
 	if err != nil {
 		return nil, err
 	}
 
-	// Ensure agent is healthy
 	if err := p.ensureAgentHealth(ctx, agentName, agentConfig, agent); err != nil {
 		return nil, err
 	}
 
-	// Create agent poller
 	client := proto.NewAgentServiceClient(agent.client.GetConnection())
 	poller := newAgentPoller(agentName, agentConfig, client, defaultTimeout)
 
-	// Execute all checks using the poller
 	statuses := poller.ExecuteChecks(ctx)
 
-	// Process sweep data if present
-	for _, status := range statuses {
-		if status.ServiceType == "sweep" && status.Available {
-			var sweepData map[string]interface{}
-			if err := json.Unmarshal([]byte(status.Message), &sweepData); err != nil {
-				log.Printf("Error parsing sweep data: %v", err)
-				continue
-			}
-
-			// Log the sweep data being forwarded
-			if hosts, ok := sweepData["hosts"].([]interface{}); ok {
-				for _, h := range hosts {
-					if host, ok := h.(map[string]interface{}); ok {
-						if icmpStatus, ok := host["icmp_status"].(map[string]interface{}); ok {
-							log.Printf("Forwarding ICMP data for host %v: %+v",
-								host["host"], icmpStatus)
-						}
-					}
-				}
-			}
-		}
+	if err := p.processSweepData(statuses); err != nil {
+		log.Printf("Error processing sweep data: %v", err)
 	}
 
 	return statuses, nil
 }
 
-func (*Poller) processSweepStatus(status *proto.ServiceStatus) error {
-	var sweepData models.SweepData
+func (p *Poller) processSweepData(statuses []*proto.ServiceStatus) error {
+	for _, status := range statuses {
+		if status.ServiceType == "sweep" && status.Available {
+			if err := p.processSweepStatus(status); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (p *Poller) processSweepStatus(status *proto.ServiceStatus) error {
+	var sweepData map[string]interface{}
 	if err := json.Unmarshal([]byte(status.Message), &sweepData); err != nil {
-		return fmt.Errorf("failed to parse sweep data: %w", err)
+		return fmt.Errorf("error parsing sweep data: %w", err)
+	}
+
+	if hosts, ok := sweepData["hosts"].([]interface{}); ok {
+		for _, h := range hosts {
+			if host, ok := h.(map[string]interface{}); ok {
+				if icmpStatus, ok := host["icmp_status"].(map[string]interface{}); ok {
+					log.Printf("Forwarding ICMP data for host %v: %+v", host["host"], icmpStatus)
+				}
+			}
+		}
 	}
 
 	return nil

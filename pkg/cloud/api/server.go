@@ -192,11 +192,8 @@ func (s *APIServer) getNodeHistory(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("Fetched %d history points for node: %s", len(points), nodeID)
 
-	w.Header().Set("Content-Type", "application/json")
-
-	if err := json.NewEncoder(w).Encode(points); err != nil {
+	if err := s.encodeJSONResponse(w, points); err != nil {
 		log.Printf("Error encoding history response: %v", err)
-
 		http.Error(w, "Error encoding response", http.StatusInternalServerError)
 	}
 }
@@ -219,11 +216,7 @@ func (s *APIServer) getSystemStatus(w http.ResponseWriter, _ *http.Request) {
 	log.Printf("System status: total=%d healthy=%d last_update=%s",
 		status.TotalNodes, status.HealthyNodes, status.LastUpdate.Format(time.RFC3339))
 
-	w.Header().Set("Content-Type", "application/json")
-
-	if err := json.NewEncoder(w).Encode(status); err != nil {
-		log.Printf("Error encoding system status: %v", err)
-
+	if err := s.encodeJSONResponse(w, status); err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	}
 }
@@ -238,13 +231,8 @@ func (s *APIServer) getNodes(w http.ResponseWriter, _ *http.Request) {
 	}
 	s.mu.RUnlock()
 
-	w.Header().Set("Content-Type", "application/json")
-
-	if err := json.NewEncoder(w).Encode(nodes); err != nil {
-		log.Printf("Error encoding nodes response: %v", err)
+	if err := s.encodeJSONResponse(w, nodes); err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
-
-		return
 	}
 }
 
@@ -306,10 +294,8 @@ func (s *APIServer) getNodeServices(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := json.NewEncoder(w).Encode(node.Services)
-	if err != nil {
-		http.Error(w, "Error encoding JSON", http.StatusInternalServerError)
-		return
+	if err := s.encodeJSONResponse(w, node.Services); err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	}
 }
 
@@ -329,9 +315,8 @@ func (s *APIServer) getServiceDetails(w http.ResponseWriter, r *http.Request) {
 
 	for _, service := range node.Services {
 		if service.Name == serviceName {
-			if err := json.NewEncoder(w).Encode(service); err != nil {
-				http.Error(w, "Error encoding JSON", http.StatusInternalServerError)
-				return
+			if err := s.encodeJSONResponse(w, service); err != nil {
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
 			}
 
 			return

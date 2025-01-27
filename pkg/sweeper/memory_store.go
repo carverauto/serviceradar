@@ -3,7 +3,6 @@ package sweeper
 
 import (
 	"context"
-	"log"
 	"sync"
 	"time"
 
@@ -76,33 +75,19 @@ func (s *InMemoryStore) GetHostResults(_ context.Context, filter *models.ResultF
 func (s *InMemoryStore) processHostResult(r *models.Result, hostMap map[string]*models.HostResult) {
 	host := s.getOrCreateHost(r, hostMap)
 
-	if r.Available {
-		host.Available = true
+	if !r.Available {
 		if r.Target.Mode == models.ModeICMP {
-			// Update ICMP status
-			if host.ICMPStatus == nil {
-				host.ICMPStatus = &models.ICMPStatus{}
-			}
-			host.ICMPStatus.Available = true
-			host.ICMPStatus.PacketLoss = 0
-			host.ICMPStatus.RoundTrip = r.RespTime
+			s.updateICMPStatus(host, r)
+		}
+		return
+	}
 
-			// Log the ICMP metrics being stored
-			log.Printf("Storing ICMP metrics for %s: loss=%.0f%% rtt=%v",
-				host.Host,
-				host.ICMPStatus.PacketLoss,
-				host.ICMPStatus.RoundTrip)
-		} else if r.Target.Mode == models.ModeTCP {
-			s.processPortResult(host, r)
-		}
-	} else if r.Target.Mode == models.ModeICMP {
-		// Even for failed ICMP, update the status
-		if host.ICMPStatus == nil {
-			host.ICMPStatus = &models.ICMPStatus{}
-		}
-		host.ICMPStatus.Available = false
-		host.ICMPStatus.PacketLoss = 100
-		host.ICMPStatus.RoundTrip = 0
+	host.Available = true
+
+	if r.Target.Mode == models.ModeICMP {
+		s.updateICMPStatus(host, r)
+	} else if r.Target.Mode == models.ModeTCP {
+		s.processPortResult(host, r)
 	}
 
 	s.updateHostTimestamps(host, r)
@@ -173,70 +158,82 @@ func (s *InMemoryStore) GetSweepSummary(_ context.Context) (*models.SweepSummary
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	hostMap, portCounts, lastSweep := s.processResults()
+
+	summary := s.buildSummary(hostMap, portCounts, lastSweep)
+	return summary, nil
+}
+
+func (s *InMemoryStore) processResults() (map[string]*models.HostResult, map[int]int, time.Time) {
 	hostMap := make(map[string]*models.HostResult)
 	portCounts := make(map[int]int)
 	var lastSweep time.Time
 
-	// First pass: Process all results
 	for i := range s.results {
 		r := &s.results[i]
-
-		// Track latest sweep time
-		if r.LastSeen.After(lastSweep) {
-			lastSweep = r.LastSeen
-		}
-
-		// Get or create host entry
-		host, exists := hostMap[r.Target.Host]
-		if !exists {
-			host = &models.HostResult{
-				Host:        r.Target.Host,
-				FirstSeen:   r.FirstSeen,
-				LastSeen:    r.LastSeen,
-				Available:   false,
-				PortResults: make([]*models.PortResult, 0),
-				ICMPStatus:  &models.ICMPStatus{},
-			}
-			hostMap[r.Target.Host] = host
-		}
-
-		// Update host based on result type
-		if r.Available {
-			host.Available = true
-
-			switch r.Target.Mode {
-			case models.ModeICMP:
-				host.ICMPStatus.Available = true
-				host.ICMPStatus.RoundTrip = r.RespTime
-				host.ICMPStatus.PacketLoss = 0
-
-			case models.ModeTCP:
-				portCounts[r.Target.Port]++
-				found := false
-				for _, port := range host.PortResults {
-					if port.Port == r.Target.Port {
-						port.Available = true
-						port.RespTime = r.RespTime
-						found = true
-						break
-					}
-				}
-				if !found {
-					host.PortResults = append(host.PortResults, &models.PortResult{
-						Port:      r.Target.Port,
-						Available: true,
-						RespTime:  r.RespTime,
-					})
-				}
-			}
-		} else if r.Target.Mode == models.ModeICMP {
-			host.ICMPStatus.Available = false
-			host.ICMPStatus.PacketLoss = 100
-			host.ICMPStatus.RoundTrip = 0
-		}
+		s.updateLastSweep(r, &lastSweep)
+		s.updateHostAndPortResults(r, hostMap, portCounts)
 	}
 
-	// Build summary
+	return hostMap, portCounts, lastSweep
+}
+
+func (s *InMemoryStore) updateLastSweep(r *models.Result, lastSweep *time.Time) {
+	if r.LastSeen.After(*lastSweep) {
+		*lastSweep = r.LastSeen
+	}
+}
+
+func (s *InMemoryStore) updateHostAndPortResults(r *models.Result, hostMap map[string]*models.HostResult, portCounts map[int]int) {
+	host := s.getOrCreateHost(r, hostMap)
+
+	if r.Available {
+		host.Available = true
+		s.updateHostBasedOnMode(r, host, portCounts)
+	} else if r.Target.Mode == models.ModeICMP {
+		s.updateICMPStatus(host, r)
+	}
+}
+
+func (s *InMemoryStore) updateHostBasedOnMode(r *models.Result, host *models.HostResult, portCounts map[int]int) {
+	switch r.Target.Mode {
+	case models.ModeICMP:
+		s.updateICMPStatus(host, r)
+	case models.ModeTCP:
+		s.updateTCPPortResults(host, r, portCounts)
+	}
+}
+
+func (s *InMemoryStore) updateICMPStatus(host *models.HostResult, r *models.Result) {
+	if host.ICMPStatus == nil {
+		host.ICMPStatus = &models.ICMPStatus{}
+	}
+	host.ICMPStatus.Available = true
+	host.ICMPStatus.RoundTrip = r.RespTime
+	host.ICMPStatus.PacketLoss = 0
+}
+
+func (s *InMemoryStore) updateTCPPortResults(host *models.HostResult, r *models.Result, portCounts map[int]int) {
+	portCounts[r.Target.Port]++
+	found := false
+	for _, port := range host.PortResults {
+		if port.Port == r.Target.Port {
+			port.Available = true
+			port.RespTime = r.RespTime
+			found = true
+			break
+		}
+	}
+	if !found {
+		host.PortResults = append(host.PortResults, &models.PortResult{
+			Port:      r.Target.Port,
+			Available: true,
+			RespTime:  r.RespTime,
+		})
+	}
+}
+
+func (s *InMemoryStore) buildSummary(hostMap map[string]*models.HostResult, portCounts map[int]int, lastSweep time.Time) *models.SweepSummary {
 	availableHosts := 0
 	hosts := make([]models.HostResult, 0, len(hostMap))
 	for _, host := range hostMap {
@@ -260,7 +257,7 @@ func (s *InMemoryStore) GetSweepSummary(_ context.Context) (*models.SweepSummary
 		LastSweep:      lastSweep.Unix(),
 		Hosts:          hosts,
 		Ports:          ports,
-	}, nil
+	}
 }
 
 // SaveResult stores (or updates) a Result in memory.

@@ -34,66 +34,80 @@ func (p *BaseProcessor) Process(result *models.Result) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	p.updateLastSweepTime()
+	p.updateTotalHosts(result)
+
+	host := p.getOrCreateHost(result.Target.Host, time.Now())
+	host.LastSeen = time.Now()
+
+	switch result.Target.Mode {
+	case models.ModeICMP:
+		p.processICMPResult(host, result)
+	case models.ModeTCP:
+		p.processTCPResult(host, result)
+	}
+
+	return nil
+}
+
+func (p *BaseProcessor) updateLastSweepTime() {
 	now := time.Now()
 	if now.After(p.lastSweepTime) {
 		p.lastSweepTime = now
 	}
+}
 
+func (p *BaseProcessor) updateTotalHosts(result *models.Result) {
 	if result.Target.Metadata != nil {
 		if totalHosts, ok := result.Target.Metadata["total_hosts"].(int); ok {
 			p.totalHosts = totalHosts
 		}
 	}
+}
 
-	// Get or create the host entry
-	host := p.getOrCreateHost(result.Target.Host, now)
-	host.LastSeen = now
+func (p *BaseProcessor) processICMPResult(host *models.HostResult, result *models.Result) {
+	if host.ICMPStatus == nil {
+		host.ICMPStatus = &models.ICMPStatus{}
+	}
 
-	// Process based on scan mode
-	switch result.Target.Mode {
-	case models.ModeICMP:
-		if host.ICMPStatus == nil {
-			host.ICMPStatus = &models.ICMPStatus{}
-		}
+	if result.Available {
+		host.Available = true
+		host.ICMPStatus.Available = true
+		host.ICMPStatus.PacketLoss = 0
+		host.ICMPStatus.RoundTrip = result.RespTime
+	} else {
+		host.ICMPStatus.Available = false
+		host.ICMPStatus.PacketLoss = 100
+		host.ICMPStatus.RoundTrip = 0
+	}
+}
 
-		if result.Available {
-			host.Available = true // Host is considered available if ICMP succeeds
-			host.ICMPStatus.Available = true
-			host.ICMPStatus.PacketLoss = 0
-			host.ICMPStatus.RoundTrip = result.RespTime
-		} else {
-			host.ICMPStatus.Available = false
-			host.ICMPStatus.PacketLoss = 100
-			host.ICMPStatus.RoundTrip = 0
-		}
+func (p *BaseProcessor) processTCPResult(host *models.HostResult, result *models.Result) {
+	if result.Available {
+		host.Available = true
+		p.updatePortStatus(host, result)
+	}
+}
 
-	case models.ModeTCP:
-		if result.Available {
-			host.Available = true // Host is also considered available if any TCP port responds
-
-			// Update port status
-			var found bool
-			for _, port := range host.PortResults {
-				if port.Port == result.Target.Port {
-					port.Available = true
-					port.RespTime = result.RespTime
-					found = true
-					break
-				}
-			}
-
-			if !found {
-				host.PortResults = append(host.PortResults, &models.PortResult{
-					Port:      result.Target.Port,
-					Available: true,
-					RespTime:  result.RespTime,
-				})
-				p.portCounts[result.Target.Port]++
-			}
+func (p *BaseProcessor) updatePortStatus(host *models.HostResult, result *models.Result) {
+	var found bool
+	for _, port := range host.PortResults {
+		if port.Port == result.Target.Port {
+			port.Available = true
+			port.RespTime = result.RespTime
+			found = true
+			break
 		}
 	}
 
-	return nil
+	if !found {
+		host.PortResults = append(host.PortResults, &models.PortResult{
+			Port:      result.Target.Port,
+			Available: true,
+			RespTime:  result.RespTime,
+		})
+		p.portCounts[result.Target.Port]++
+	}
 }
 
 func (p *BaseProcessor) getOrCreateHost(hostAddr string, now time.Time) *models.HostResult {
