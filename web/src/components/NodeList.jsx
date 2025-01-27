@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { LineChart, Line } from 'recharts';
 import NodeTimeline from './NodeTimeline';
-import NetworkSweepView from './NetworkSweepView.jsx';
 import _ from 'lodash';
 import ServiceSparkline from "./ServiceSparkline.jsx";
 import { useNavigate } from 'react-router-dom';
@@ -250,22 +249,6 @@ function NodeList() {
       </div>
   );
 
-  const renderNetworkView = () => (
-      <div className="space-y-4">
-        {currentNodes.map((node) => {
-          const sweepService = node.services?.find((s) => s.type === 'sweep');
-          if (!sweepService) return null;
-          return (
-              <NetworkSweepView
-                  key={`${node.node_id}-sweep`}
-                  nodeId={node.node_id}
-                  service={sweepService}
-              />
-          );
-        })}
-      </div>
-  );
-
   return (
       <div className="space-y-4">
         <div className="flex items-center justify-between">
@@ -310,21 +293,12 @@ function NodeList() {
               >
                 Table
               </button>
-              <button
-                  onClick={() => setViewMode('network')}
-                  className={`px-3 py-1 rounded ${
-                      viewMode === 'network' ? 'bg-blue-500 text-white' : 'bg-gray-100'
-                  }`}
-              >
-                Network View
-              </button>
             </div>
           </div>
         </div>
 
         {viewMode === 'grid' && renderGridView()}
         {viewMode === 'table' && renderTableView()}
-        {viewMode === 'network' && renderNetworkView()}
 
         {pageCount > 1 && (
             <div className="flex justify-center gap-2 mt-4">
