@@ -254,6 +254,7 @@ func (s *APIServer) getNode(w http.ResponseWriter, r *http.Request) {
 
 	// Check if it's a known poller
 	isKnown := false
+
 	for _, known := range s.knownPollers {
 		if nodeID == known {
 			isKnown = true

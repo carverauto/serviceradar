@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +22,7 @@ import (
 )
 
 const (
+	downtimeValue            = "unknown"
 	shutdownTimeout          = 10 * time.Second
 	oneDay                   = 24 * time.Hour
 	oneWeek                  = 7 * oneDay
@@ -34,12 +34,15 @@ const (
 	defaultDBPath            = "/var/lib/serviceradar/serviceradar.db"
 	statusUnknown            = "unknown"
 	sweepService             = "sweep"
+	dailyCleanupInterval     = 24 * time.Hour
+	monitorInterval          = 30 * time.Second
 )
 
 var (
-	errEmptyPollerID    = errors.New("empty poller ID")
-	errDatabaseError    = errors.New("database error")
-	errInvalidSweepData = errors.New("invalid sweep data")
+	errEmptyPollerID      = errors.New("empty poller ID")
+	errDatabaseError      = errors.New("database error")
+	errInvalidSweepData   = errors.New("invalid sweep data")
+	errFailedToSendAlerts = errors.New("failed to send alerts")
 )
 
 type Metrics struct {
@@ -198,6 +201,7 @@ func (s *Server) isKnownPoller(pollerID string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -214,6 +218,7 @@ func (s *Server) cleanupUnknownPollers(ctx context.Context) error {
 	placeholders := make([]string, len(s.config.KnownPollers))
 
 	args := make([]interface{}, len(s.config.KnownPollers))
+
 	for i, poller := range s.config.KnownPollers {
 		placeholders[i] = "?"
 		args[i] = poller
@@ -233,16 +238,6 @@ func (s *Server) cleanupUnknownPollers(ctx context.Context) error {
 	}
 
 	return nil
-}
-
-func (s *Server) isValidPoller(pollerID string) bool {
-	for _, pattern := range s.pollerPatterns {
-		if matched, err := regexp.MatchString(pattern, pollerID); err == nil && matched {
-			return true
-		}
-	}
-
-	return false
 }
 
 func (s *Server) sendStartupNotification(ctx context.Context) error {
@@ -282,86 +277,6 @@ func (s *Server) sendShutdownNotification(ctx context.Context) error {
 	}
 
 	return s.sendAlert(ctx, alert)
-}
-
-func (s *Server) checkPollers(ctx context.Context) error {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	// Get all nodes from database
-	//nolint:rowserrcheck // rows.Close() is deferred
-	rows, err := s.db.Query(`SELECT node_id, last_seen, is_healthy FROM nodes`)
-	if err != nil {
-		return fmt.Errorf("failed to query nodes: %w", err)
-	}
-	defer func(rows *sql.Rows) {
-		err := rows.Close()
-		if err != nil {
-			log.Printf("Error closing rows: %v", err)
-		}
-	}(rows)
-
-	now := time.Now()
-	alertThreshold := now.Add(-s.alertThreshold)
-
-	for rows.Next() {
-		var nodeID string
-
-		var lastSeen time.Time
-
-		var isHealthy bool
-
-		if err := rows.Scan(&nodeID, &lastSeen, &isHealthy); err != nil {
-			log.Printf("Error scanning node row: %v", err)
-			continue
-		}
-
-		// Check if node matches any pattern
-		if s.isValidPoller(nodeID) {
-			if err := s.checkPollerHealth(ctx, nodeID, alertThreshold); err != nil {
-				log.Printf("Error checking poller %s: %v", nodeID, err)
-			}
-		}
-	}
-
-	return nil
-}
-
-func (s *Server) checkPollerHealth(ctx context.Context, pollerID string, threshold time.Time) error {
-	// Get last known status
-	var lastSeen time.Time
-
-	var isHealthy bool
-
-	err := s.db.QueryRow(`
-        SELECT last_seen, is_healthy 
-        FROM nodes 
-        WHERE node_id = ?
-    `, pollerID).Scan(&lastSeen, &isHealthy)
-
-	if err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("failed to query poller status: %w", err)
-		}
-		// If no rows, treat as never seen
-		lastSeen = time.Time{}
-		isHealthy = false
-	}
-
-	log.Printf("Checking poller health: id=%s lastSeen=%v threshold=%v isHealthy=%v",
-		pollerID, lastSeen.Format(time.RFC3339), threshold.Format(time.RFC3339), isHealthy)
-
-	// Check if the poller has gone offline
-	if lastSeen.Before(threshold) && isHealthy {
-		log.Printf("Poller %s appears to be offline (last seen: %v)",
-			pollerID, lastSeen.Format(time.RFC3339))
-
-		if err := s.markNodeDown(ctx, pollerID, lastSeen); err != nil {
-			return fmt.Errorf("failed to mark poller as down: %w", err)
-		}
-	}
-
-	return nil
 }
 
 func (s *Server) Shutdown(ctx context.Context) {
@@ -431,9 +346,10 @@ func (s *Server) SetAPIServer(apiServer *api.APIServer) {
 func (s *Server) checkInitialStates(ctx context.Context) {
 	log.Printf("Checking initial states of all nodes")
 
+	likeConditions := make([]string, 0, len(s.pollerPatterns))
+	args := make([]interface{}, 0, len(s.pollerPatterns))
+
 	// Construct the WHERE clause with multiple LIKE conditions
-	var likeConditions []string
-	var args []interface{}
 	for _, pattern := range s.pollerPatterns {
 		likeConditions = append(likeConditions, "node_id LIKE ?")
 		args = append(args, pattern)
@@ -730,6 +646,7 @@ func (s *Server) updateNodeDownStatus(nodeID string, lastSeen time.Time) error {
 
 	// Mark that we don't need rollback before committing
 	needsRollback = false
+
 	return tx.Commit()
 }
 
@@ -824,10 +741,10 @@ func (s *Server) periodicCleanup(_ context.Context) {
 	}
 }
 
-// checkNeverReportedNodes checks for and alerts on nodes that exist but have never reported
+// checkNeverReportedNodes checks for and alerts on nodes that exist but have never reported.
 func (s *Server) checkNeverReportedNodes(ctx context.Context) error {
-	var conditions []string
-	var args []interface{}
+	conditions := make([]string, 0, len(s.pollerPatterns))
+	args := make([]interface{}, 0, len(s.pollerPatterns))
 
 	// Build LIKE conditions for each pattern
 	for _, pattern := range s.pollerPatterns {
@@ -845,16 +762,28 @@ func (s *Server) checkNeverReportedNodes(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("error querying unreported nodes: %w", err)
 	}
-	defer rows.Close()
+	defer func(rows *sql.Rows) {
+		err := rows.Close()
+		if err != nil {
+			log.Printf("Error closing rows: %v", err)
+		}
+	}(rows)
 
 	var unreportedNodes []string
+
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
 			log.Printf("Error scanning node ID: %v", err)
 			continue
 		}
+
 		unreportedNodes = append(unreportedNodes, id)
+	}
+
+	// Check for any errors encountered during iteration
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("error iterating rows: %w", err)
 	}
 
 	if len(unreportedNodes) > 0 {
@@ -985,16 +914,17 @@ func LoadConfig(path string) (Config, error) {
 }
 
 func (s *Server) MonitorPollers(ctx context.Context) {
-	ticker := time.NewTicker(30 * time.Second) // Check every 30 seconds
+	ticker := time.NewTicker(monitorInterval) // Check every 30 seconds
 	defer ticker.Stop()
 
-	cleanupTicker := time.NewTicker(24 * time.Hour)
+	cleanupTicker := time.NewTicker(dailyCleanupInterval)
 	defer cleanupTicker.Stop()
 
 	// Initial checks
 	if err := s.checkNodeStates(ctx); err != nil {
 		log.Printf("Initial state check failed: %v", err)
 	}
+
 	if err := s.checkNeverReportedNodes(ctx); err != nil {
 		log.Printf("Initial never-reported check failed: %v", err)
 	}
@@ -1006,24 +936,48 @@ func (s *Server) MonitorPollers(ctx context.Context) {
 		case <-s.ShutdownChan:
 			return
 		case <-ticker.C:
-			if err := s.checkNodeStates(ctx); err != nil {
-				log.Printf("Node state check failed: %v", err)
-			}
-			if err := s.checkNeverReportedNodes(ctx); err != nil {
-				log.Printf("Never-reported check failed: %v", err)
-			}
+			s.handleMonitorTick(ctx)
 		case <-cleanupTicker.C:
-			if err := s.db.CleanOldData(oneWeek); err != nil {
-				log.Printf("Error cleaning old data: %v", err)
-			}
+			s.handleCleanupTick()
 		}
 	}
 }
 
+// handleMonitorTick handles the logic for the monitor ticker.
+func (s *Server) handleMonitorTick(ctx context.Context) {
+	if err := s.checkNodeStates(ctx); err != nil {
+		log.Printf("Node state check failed: %v", err)
+	}
+
+	if err := s.checkNeverReportedNodes(ctx); err != nil {
+		log.Printf("Never-reported check failed: %v", err)
+	}
+}
+
+// handleCleanupTick handles the logic for the cleanup ticker.
+func (s *Server) handleCleanupTick() {
+	if err := s.performDailyCleanup(); err != nil {
+		log.Printf("Daily cleanup failed: %v", err)
+	}
+}
+
+// performDailyCleanup performs the daily cleanup task.
+func (s *Server) performDailyCleanup() error {
+	log.Println("Performing daily cleanup...")
+
+	if err := s.db.CleanOldData(oneWeek); err != nil {
+		log.Printf("Error cleaning old data: %v", err)
+
+		return err
+	}
+
+	return nil
+}
+
 func (s *Server) checkNodeStates(ctx context.Context) error {
-	// Get all active nodes
-	var conditions []string
-	var args []interface{}
+	// Pre-allocate slices
+	conditions := make([]string, 0, len(s.pollerPatterns))
+	args := make([]interface{}, 0, len(s.pollerPatterns))
 
 	// Build LIKE conditions for each pattern
 	for _, pattern := range s.pollerPatterns {
@@ -1041,13 +995,20 @@ func (s *Server) checkNodeStates(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to query nodes: %w", err)
 	}
-	defer rows.Close()
+	defer func(rows *sql.Rows) {
+		err := rows.Close()
+		if err != nil {
+			log.Printf("Error closing rows: %v", err)
+		}
+	}(rows)
 
 	threshold := time.Now().Add(-s.alertThreshold)
 
 	for rows.Next() {
 		var nodeID string
+
 		var lastSeen time.Time
+
 		var isHealthy bool
 
 		if err := rows.Scan(&nodeID, &lastSeen, &isHealthy); err != nil {
@@ -1071,6 +1032,7 @@ func (s *Server) evaluateNodeHealth(ctx context.Context, nodeID string, lastSeen
 	if isHealthy && lastSeen.Before(threshold) {
 		duration := time.Since(lastSeen).Round(time.Second)
 		log.Printf("Node %s appears to be offline (last seen: %v ago)", nodeID, duration)
+
 		return s.handleNodeDown(ctx, nodeID, lastSeen)
 	}
 
@@ -1085,6 +1047,7 @@ func (s *Server) evaluateNodeHealth(ctx context.Context, nodeID string, lastSeen
 		log.Printf("Node %s may have recovered (last seen: %v ago)",
 			nodeID, time.Since(lastSeen).Round(time.Second))
 		// Let the next status report handle the recovery
+
 		return nil
 	}
 
@@ -1153,10 +1116,11 @@ func (s *Server) updateNodeStatus(nodeID string, isHealthy bool, timestamp time.
 	}
 
 	needsRollback = false
+
 	return tx.Commit()
 }
 
-func (s *Server) updateNodeInTx(tx *sql.Tx, nodeID string, isHealthy bool, timestamp time.Time) error {
+func (*Server) updateNodeInTx(tx *sql.Tx, nodeID string, isHealthy bool, timestamp time.Time) error {
 	// Check if node exists
 	var exists bool
 	if err := tx.QueryRow("SELECT EXISTS(SELECT 1 FROM nodes WHERE node_id = ?)", nodeID).Scan(&exists); err != nil {
@@ -1170,6 +1134,7 @@ func (s *Server) updateNodeInTx(tx *sql.Tx, nodeID string, isHealthy bool, times
                 last_seen = ?
             WHERE node_id = ?
         `, isHealthy, timestamp, nodeID)
+
 		return err
 	}
 
@@ -1178,12 +1143,14 @@ func (s *Server) updateNodeInTx(tx *sql.Tx, nodeID string, isHealthy bool, times
         INSERT INTO nodes (node_id, first_seen, last_seen, is_healthy)
         VALUES (?, ?, ?, ?)
     `, nodeID, timestamp, timestamp, isHealthy)
+
 	return err
 }
 
 func (s *Server) handleNodeRecovery(ctx context.Context, nodeID string, apiStatus *api.NodeStatus, timestamp time.Time) {
 	lastDownTime := s.getLastDowntime(nodeID)
-	downtime := "unknown"
+	downtime := downtimeValue
+
 	if !lastDownTime.IsZero() {
 		downtime = timestamp.Sub(lastDownTime).String()
 	}
@@ -1217,7 +1184,7 @@ func (s *Server) sendAlert(ctx context.Context, alert *alerts.WebhookAlert) erro
 	}
 
 	if len(errs) > 0 {
-		return fmt.Errorf("failed to send alerts: %v", errs)
+		return fmt.Errorf("%w: %v", errFailedToSendAlerts, errs)
 	}
 
 	return nil

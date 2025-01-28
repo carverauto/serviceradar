@@ -19,9 +19,13 @@ import (
 )
 
 const (
-	maxPacketSize      = 1500
-	templateSize       = 8
-	packetReadDeadline = 100 * time.Millisecond
+	scannerShutdownTimeout    = 5 * time.Second
+	maxPacketSize             = 1500
+	templateSize              = 8
+	packetReadDeadline        = 100 * time.Millisecond
+	listenForReplyIdleTimeout = 2 * time.Second
+	setReadDeadlineTimeout    = 100 * time.Millisecond
+	idleTimeoutMultiplier     = 2
 )
 
 var (
@@ -235,6 +239,7 @@ func (s *ICMPScanner) listenForReplies(ctx context.Context) {
 	}
 
 	s.listenerWg.Add(1)
+
 	defer func() {
 		s.closeConn(conn)
 		s.listenerWg.Done()
@@ -243,7 +248,7 @@ func (s *ICMPScanner) listenForReplies(ctx context.Context) {
 	packet := make([]byte, maxPacketSize)
 
 	// Create a timeout timer for idle shutdown
-	idleTimeout := time.NewTimer(s.timeout * 2)
+	idleTimeout := time.NewTimer(s.timeout * idleTimeoutMultiplier)
 	defer idleTimeout.Stop()
 
 	for {
@@ -258,7 +263,7 @@ func (s *ICMPScanner) listenForReplies(ctx context.Context) {
 			return
 		default:
 			// Set read deadline to ensure we don't block forever
-			if err := conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond)); err != nil {
+			if err := conn.SetReadDeadline(time.Now().Add(setReadDeadlineTimeout)); err != nil {
 				continue
 			}
 
@@ -269,12 +274,14 @@ func (s *ICMPScanner) listenForReplies(ctx context.Context) {
 				if errors.As(err, &netErr) && netErr.Timeout() {
 					continue
 				}
+
 				log.Printf("Error reading ICMP packet: %v", err)
+
 				continue
 			}
 
 			// Reset idle timeout since we got a packet
-			idleTimeout.Reset(s.timeout * 2)
+			idleTimeout.Reset(s.timeout * idleTimeoutMultiplier)
 
 			s.processICMPMessage(packet[:n], peer)
 		}
@@ -285,29 +292,6 @@ func (*ICMPScanner) closeConn(conn *icmp.PacketConn) {
 	if err := conn.Close(); err != nil {
 		log.Printf("Failed to close ICMP listener: %v", err)
 	}
-}
-
-func (s *ICMPScanner) handlePacket(conn *icmp.PacketConn, packet []byte) {
-	if err := conn.SetReadDeadline(time.Now().Add(packetReadDeadline)); err != nil {
-		return
-	}
-
-	n, peer, err := conn.ReadFrom(packet)
-	if err != nil {
-		s.handleReadError(err)
-		return
-	}
-
-	s.processICMPMessage(packet[:n], peer)
-}
-
-func (*ICMPScanner) handleReadError(err error) {
-	var netErr net.Error
-	if errors.As(err, &netErr) && netErr.Timeout() {
-		return
-	}
-
-	log.Printf("Error reading ICMP packet: %v", err)
 }
 
 func (s *ICMPScanner) processICMPMessage(data []byte, peer net.Addr) {
@@ -351,7 +335,7 @@ func (s *ICMPScanner) Stop() error {
 	select {
 	case <-done:
 		// Normal shutdown
-	case <-time.After(5 * time.Second):
+	case <-time.After(scannerShutdownTimeout):
 		log.Printf("Warning: ICMP listener shutdown timed out")
 	}
 
@@ -359,6 +343,7 @@ func (s *ICMPScanner) Stop() error {
 		if err := syscall.Close(s.rawSocket); err != nil {
 			return fmt.Errorf("failed to close raw socket: %w", err)
 		}
+
 		s.rawSocket = 0
 	}
 
