@@ -20,17 +20,32 @@ type CombinedScanner struct {
 	done        chan struct{}
 }
 
-// NewCombinedScanner creates a new CombinedScanner instance.
 func NewCombinedScanner(timeout time.Duration, concurrency, icmpCount int) *CombinedScanner {
+	var icmpScanner Scanner
+
+	if icmpCount > 0 {
+		var err error
+
+		icmpConcurrency := concurrency / 4
+
+		if icmpConcurrency < 1 {
+			icmpConcurrency = 1
+		}
+
+		icmpScanner, err = NewICMPScanner(timeout, icmpConcurrency, icmpCount)
+		if err != nil {
+			log.Printf("ICMP scanning not available: %v, falling back to TCP only", err)
+
+			icmpScanner = nil // Explicitly set to nil to be clear
+		}
+	}
+
 	return &CombinedScanner{
 		tcpScanner:  NewTCPScanner(timeout, concurrency),
-		icmpScanner: NewICMPScanner(timeout, concurrency, icmpCount),
+		icmpScanner: icmpScanner,
 		done:        make(chan struct{}),
 	}
 }
-
-// Scan performs the scanning operation for all targets.
-// In pkg/scan/combined_scanner.go
 
 func (s *CombinedScanner) Scan(ctx context.Context, targets []models.Target) (<-chan models.Result, error) {
 	if len(targets) == 0 {
@@ -109,9 +124,13 @@ func (s *CombinedScanner) handleMixedScanners(ctx context.Context, targets scanT
 		return nil, err
 	}
 
-	// Start ICMP scanner if needed
-	if err := s.startICMPScanner(ctx, targets.icmp, &wg, results); err != nil {
-		return nil, err
+	// Start ICMP scanner if available and needed
+	if s.icmpScanner != nil && len(targets.icmp) > 0 {
+		if err := s.startICMPScanner(ctx, targets.icmp, &wg, results); err != nil {
+			return nil, err
+		}
+	} else if len(targets.icmp) > 0 {
+		log.Printf("Skipping ICMP scan of %d targets - ICMP scanner not available", len(targets.icmp))
 	}
 
 	// Close results when both scanners are done

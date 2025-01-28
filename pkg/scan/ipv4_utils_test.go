@@ -8,6 +8,27 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestIsFirstOrLastAddress_IPv6(t *testing.T) {
+	ip := net.ParseIP("2001:db8::1")
+	_, network, err := net.ParseCIDR("2001:db8::/32")
+	require.NoError(t, err)
+
+	result := IsFirstOrLastAddress(ip, network)
+	require.False(t, result, "Expected false for non-first/last IPv6 address")
+}
+
+func TestGenerateIPsFromCIDR_LargeCIDR(t *testing.T) {
+	ips, err := GenerateIPsFromCIDR("192.168.0.0/16")
+	require.NoError(t, err)
+	require.Len(t, ips, 65534, "Expected 65534 IPs for /16 network")
+}
+
+func TestInc_IPv6(t *testing.T) {
+	ip := net.ParseIP("2001:db8::1")
+	Inc(ip)
+	require.Equal(t, "2001:db8::2", ip.String(), "Expected IPv6 address to increment correctly")
+}
+
 func TestGenerateIPsFromCIDR(t *testing.T) {
 	tests := []struct {
 		name      string

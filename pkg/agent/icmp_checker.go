@@ -3,6 +3,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -15,13 +16,15 @@ type ICMPChecker struct {
 	Count int
 }
 
-const (
-	defaultICMPCount  = 3
-	defaultConcurrent = 1
-)
+type ICMPResponse struct {
+	Host         string  `json:"host"`
+	ResponseTime int64   `json:"response_time"` // in nanoseconds
+	PacketLoss   float64 `json:"packet_loss"`
+	Available    bool    `json:"available"`
+}
 
-func (p *ICMPChecker) Check(ctx context.Context) (isDown bool, results string) {
-	scanner := scan.NewCombinedScanner(defaultICMPCount*time.Second, defaultConcurrent, p.Count)
+func (p *ICMPChecker) Check(ctx context.Context) (available bool, response string) {
+	scanner := scan.NewCombinedScanner(time.Duration(p.Count)*time.Second, 1, p.Count)
 
 	target := models.Target{
 		Host: p.Host,
@@ -30,29 +33,33 @@ func (p *ICMPChecker) Check(ctx context.Context) (isDown bool, results string) {
 
 	resultChan, err := scanner.Scan(ctx, []models.Target{target})
 	if err != nil {
-		return false, fmt.Sprintf("ICMP check failed: %v", err)
+		return false, fmt.Sprintf(`{"error": "%v"}`, err)
 	}
 
-	var totalResponseTime time.Duration
-
-	var successfulPings int
-
-	for result := range resultChan {
-		if result.Error != nil {
-			return false, result.Error.Error()
-		}
-
-		if result.Available {
-			totalResponseTime += result.RespTime
-			successfulPings++
-		}
+	// Take first result as we only sent one target
+	var result models.Result
+	for r := range resultChan {
+		result = r
+		break
 	}
 
-	if successfulPings == 0 {
-		return false, "No successful ICMP replies"
+	// Format response
+	responseStruct := struct {
+		Host         string  `json:"host"`
+		ResponseTime int64   `json:"response_time"` // in nanoseconds
+		PacketLoss   float64 `json:"packet_loss"`
+		Available    bool    `json:"available"`
+	}{
+		Host:         p.Host,
+		ResponseTime: result.RespTime.Nanoseconds(),
+		PacketLoss:   result.PacketLoss,
+		Available:    result.Available,
 	}
 
-	avgResponseTime := totalResponseTime / time.Duration(successfulPings)
+	jsonResponse, err := json.Marshal(responseStruct)
+	if err != nil {
+		return false, fmt.Sprintf(`{"error": "Failed to marshal response: %v"}`, err)
+	}
 
-	return true, fmt.Sprintf("%d", avgResponseTime)
+	return result.Available, string(jsonResponse)
 }

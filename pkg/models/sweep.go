@@ -82,6 +82,7 @@ type HostResult struct {
 	FirstSeen    time.Time     `json:"first_seen"`
 	LastSeen     time.Time     `json:"last_seen"`
 	PortResults  []*PortResult `json:"port_results,omitempty"`
+	ICMPStatus   *ICMPStatus   `json:"icmp_status,omitempty"`
 	ResponseTime time.Duration `json:"response_time"`
 }
 

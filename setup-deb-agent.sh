@@ -83,7 +83,7 @@ chmod 755 /usr/local/bin/serviceradar-agent
 
 # Set required capability for ICMP scanning
 if [ -x /usr/local/bin/serviceradar-agent ]; then
-    setcap cap_net_raw+ep /usr/local/bin/serviceradar-agent
+    setcap cap_net_raw=+ep /usr/local/bin/serviceradar-agent
 fi
 
 # Enable and start service

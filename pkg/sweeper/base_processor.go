@@ -34,50 +34,87 @@ func (p *BaseProcessor) Process(result *models.Result) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	p.updateLastSweepTime()
+	p.updateTotalHosts(result)
+
+	host := p.getOrCreateHost(result.Target.Host, time.Now())
+	host.LastSeen = time.Now()
+
+	switch result.Target.Mode {
+	case models.ModeICMP:
+		p.processICMPResult(host, result)
+	case models.ModeTCP:
+		p.processTCPResult(host, result)
+	}
+
+	return nil
+}
+
+func (p *BaseProcessor) updateLastSweepTime() {
 	now := time.Now()
 	if now.After(p.lastSweepTime) {
 		p.lastSweepTime = now
 	}
+}
 
+func (p *BaseProcessor) updateTotalHosts(result *models.Result) {
 	if result.Target.Metadata != nil {
 		if totalHosts, ok := result.Target.Metadata["total_hosts"].(int); ok {
 			p.totalHosts = totalHosts
 		}
 	}
+}
 
-	if result.Target.Mode != models.ModeTCP {
-		return nil
+func (*BaseProcessor) processICMPResult(host *models.HostResult, result *models.Result) {
+	if host.ICMPStatus == nil {
+		host.ICMPStatus = &models.ICMPStatus{}
 	}
-
-	host := p.getOrCreateHost(result.Target.Host, now)
-
-	host.LastSeen = now
 
 	if result.Available {
 		host.Available = true
+		host.ICMPStatus.Available = true
+		host.ICMPStatus.PacketLoss = 0
+		host.ICMPStatus.RoundTrip = result.RespTime
+	} else {
+		host.ICMPStatus.Available = false
+		host.ICMPStatus.PacketLoss = 100
+		host.ICMPStatus.RoundTrip = 0
+	}
 
-		var found bool
+	// Set the overall response time for the host
+	if result.RespTime > 0 {
+		host.ResponseTime = result.RespTime
+	}
+}
 
-		for _, port := range host.PortResults {
-			if port.Port == result.Target.Port {
-				port.RespTime = result.RespTime
-				found = true
+func (p *BaseProcessor) processTCPResult(host *models.HostResult, result *models.Result) {
+	if result.Available {
+		host.Available = true
+		p.updatePortStatus(host, result)
+	}
+}
 
-				break
-			}
-		}
+func (p *BaseProcessor) updatePortStatus(host *models.HostResult, result *models.Result) {
+	var found bool
 
-		if !found {
-			host.PortResults = append(host.PortResults, &models.PortResult{
-				Port:      result.Target.Port,
-				Available: true,
-				RespTime:  result.RespTime,
-			})
-			p.portCounts[result.Target.Port]++
+	for _, port := range host.PortResults {
+		if port.Port == result.Target.Port {
+			port.Available = true
+			port.RespTime = result.RespTime
+			found = true
+
+			break
 		}
 	}
 
-	return nil
+	if !found {
+		host.PortResults = append(host.PortResults, &models.PortResult{
+			Port:      result.Target.Port,
+			Available: true,
+			RespTime:  result.RespTime,
+		})
+		p.portCounts[result.Target.Port]++
+	}
 }
 
 func (p *BaseProcessor) getOrCreateHost(hostAddr string, now time.Time) *models.HostResult {

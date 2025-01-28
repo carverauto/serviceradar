@@ -5,6 +5,7 @@ package api
 import (
 	"embed"
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"log"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	srHttp "github.com/mfreeman451/serviceradar/pkg/http"
 	"github.com/mfreeman451/serviceradar/pkg/metrics"
 	"github.com/mfreeman451/serviceradar/pkg/models"
 )
@@ -71,25 +73,22 @@ func NewAPIServer(metricsManager metrics.MetricCollector) *APIServer {
 	return s
 }
 
+func (s *APIServer) setupStaticFileServing() {
+	fsys, err := fs.Sub(webContent, "web/dist")
+	if err != nil {
+		log.Printf("Error setting up static file serving: %v", err)
+		return
+	}
+
+	s.router.PathPrefix("/").Handler(http.FileServer(http.FS(fsys)))
+}
+
 //go:embed web/dist/*
 var webContent embed.FS
 
 func (s *APIServer) setupRoutes() {
 	// Add CORS middleware
-	s.router.Use(func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Access-Control-Allow-Origin", "*")
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-
-			if r.Method == http.MethodOptions {
-				w.WriteHeader(http.StatusOK)
-				return
-			}
-
-			next.ServeHTTP(w, r)
-		})
-	})
+	s.router.Use(srHttp.CommonMiddleware)
 
 	// Basic endpoints
 	s.router.HandleFunc("/api/nodes", s.getNodes).Methods("GET")
@@ -107,13 +106,7 @@ func (s *APIServer) setupRoutes() {
 	s.router.HandleFunc("/api/nodes/{id}/services/{service}", s.getServiceDetails).Methods("GET")
 
 	// Serve static files
-	fsys, err := fs.Sub(webContent, "web/dist")
-	if err != nil {
-		log.Printf("Error setting up static file serving: %v", err)
-		return
-	}
-
-	s.router.PathPrefix("/").Handler(http.FileServer(http.FS(fsys)))
+	s.setupStaticFileServing()
 }
 
 func (s *APIServer) getNodeMetrics(w http.ResponseWriter, r *http.Request) {
@@ -121,20 +114,24 @@ func (s *APIServer) getNodeMetrics(w http.ResponseWriter, r *http.Request) {
 	nodeID := vars["id"]
 
 	if s.metricsManager == nil {
+		log.Printf("Metrics not configured for node %s", nodeID)
 		http.Error(w, "Metrics not configured", http.StatusInternalServerError)
+
 		return
 	}
 
 	m := s.metricsManager.GetMetrics(nodeID)
 	if m == nil {
+		log.Printf("No metrics found for node %s", nodeID)
 		http.Error(w, "No metrics found", http.StatusNotFound)
+
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 
 	if err := json.NewEncoder(w).Encode(m); err != nil {
-		log.Printf("Error encoding metrics response: %v", err)
+		log.Printf("Error encoding metrics response for node %s: %v", nodeID, err)
 
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	}
@@ -144,15 +141,72 @@ func (s *APIServer) SetNodeHistoryHandler(handler func(nodeID string) ([]NodeHis
 	s.nodeHistoryHandler = handler
 }
 
+func (*APIServer) handleSweepService(svc *ServiceStatus) {
+	sweepData, err := parseSweepDetails(svc.Details)
+	if err != nil {
+		log.Printf("Error parsing sweep details: %v", err)
+		return
+	}
+
+	processHosts(sweepData)
+}
+
+// parseSweepDetails unmarshals the sweep details JSON into a map.
+func parseSweepDetails(details []byte) (map[string]interface{}, error) {
+	var sweepData map[string]interface{}
+	if err := json.Unmarshal(details, &sweepData); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal sweep details: %w", err)
+	}
+
+	return sweepData, nil
+}
+
+// processHosts processes the hosts in the sweep data.
+func processHosts(sweepData map[string]interface{}) {
+	hosts, ok := sweepData["hosts"].([]interface{})
+	if !ok {
+		return
+	}
+
+	for _, h := range hosts {
+		host, ok := h.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		processICMPStatus(host)
+	}
+}
+
+// processICMPStatus processes the ICMP status for a host.
+func processICMPStatus(host map[string]interface{}) {
+	icmpStatus, ok := host["icmp_status"].(map[string]interface{})
+	if !ok {
+		return
+	}
+
+	// Log ICMP round-trip time if it exists
+	if rt, exists := icmpStatus["round_trip"].(float64); exists {
+		log.Printf("Host %v ICMP RTT: %.2fms",
+			host["host"],
+			float64(rt)/float64(time.Millisecond))
+	}
+
+	// Log the full ICMP status
+	log.Printf("Host %v ICMP status: %+v", host["host"], icmpStatus)
+}
+
 func (s *APIServer) UpdateNodeStatus(nodeID string, status *NodeStatus) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Update or add the node status in memory for API responses
-	s.nodes[nodeID] = status
+	for _, svc := range status.Services {
+		if svc.Type == "sweep" {
+			s.handleSweepService(&svc)
+		}
+	}
 
-	log.Printf("Updated API state for node %s: healthy=%v, services=%d",
-		nodeID, status.IsHealthy, len(status.Services))
+	s.nodes[nodeID] = status
 }
 
 func (s *APIServer) getNodeHistory(w http.ResponseWriter, r *http.Request) {
@@ -176,11 +230,8 @@ func (s *APIServer) getNodeHistory(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("Fetched %d history points for node: %s", len(points), nodeID)
 
-	w.Header().Set("Content-Type", "application/json")
-
-	if err := json.NewEncoder(w).Encode(points); err != nil {
+	if err := s.encodeJSONResponse(w, points); err != nil {
 		log.Printf("Error encoding history response: %v", err)
-
 		http.Error(w, "Error encoding response", http.StatusInternalServerError)
 	}
 }
@@ -203,11 +254,7 @@ func (s *APIServer) getSystemStatus(w http.ResponseWriter, _ *http.Request) {
 	log.Printf("System status: total=%d healthy=%d last_update=%s",
 		status.TotalNodes, status.HealthyNodes, status.LastUpdate.Format(time.RFC3339))
 
-	w.Header().Set("Content-Type", "application/json")
-
-	if err := json.NewEncoder(w).Encode(status); err != nil {
-		log.Printf("Error encoding system status: %v", err)
-
+	if err := s.encodeJSONResponse(w, status); err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	}
 }
@@ -222,48 +269,52 @@ func (s *APIServer) getNodes(w http.ResponseWriter, _ *http.Request) {
 	}
 	s.mu.RUnlock()
 
+	if err := s.encodeJSONResponse(w, nodes); err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	}
+}
+
+func (s *APIServer) getNodeByID(nodeID string) (*NodeStatus, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	node, exists := s.nodes[nodeID]
+
+	return node, exists
+}
+
+func (*APIServer) encodeJSONResponse(w http.ResponseWriter, data interface{}) error {
 	w.Header().Set("Content-Type", "application/json")
 
-	if err := json.NewEncoder(w).Encode(nodes); err != nil {
-		log.Printf("Error encoding nodes response: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		log.Printf("Error encoding JSON response: %v", err)
 
-		return
+		return err
 	}
+
+	return nil
 }
 
 func (s *APIServer) getNode(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	nodeID := vars["id"]
 
-	log.Printf("Getting node status for: %s", nodeID)
-
-	s.mu.RLock()
-
-	node, exists := s.nodes[nodeID]
+	node, exists := s.getNodeByID(nodeID)
 	if !exists {
-		s.mu.RUnlock()
-		log.Printf("Node %s not found in nodes map", nodeID)
+		log.Printf("Node %s not found", nodeID)
 		http.Error(w, "Node not found", http.StatusNotFound)
 
 		return
 	}
 
-	// Get metrics if available
 	if s.metricsManager != nil {
 		m := s.metricsManager.GetMetrics(nodeID)
 		if m != nil {
 			node.Metrics = m
-			log.Printf("Attached %d metrics points to node %s response",
-				len(m), nodeID)
+			log.Printf("Attached %d metrics points to node %s response", len(m), nodeID)
 		}
 	}
-	s.mu.RUnlock()
 
-	w.Header().Set("Content-Type", "application/json")
-
-	if err := json.NewEncoder(w).Encode(node); err != nil {
-		log.Printf("Error encoding node response: %v", err)
+	if err := s.encodeJSONResponse(w, node); err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	}
 }
@@ -281,10 +332,8 @@ func (s *APIServer) getNodeServices(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := json.NewEncoder(w).Encode(node.Services)
-	if err != nil {
-		http.Error(w, "Error encoding JSON", http.StatusInternalServerError)
-		return
+	if err := s.encodeJSONResponse(w, node.Services); err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	}
 }
 
@@ -304,9 +353,8 @@ func (s *APIServer) getServiceDetails(w http.ResponseWriter, r *http.Request) {
 
 	for _, service := range node.Services {
 		if service.Name == serviceName {
-			if err := json.NewEncoder(w).Encode(service); err != nil {
-				http.Error(w, "Error encoding JSON", http.StatusInternalServerError)
-				return
+			if err := s.encodeJSONResponse(w, service); err != nil {
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
 			}
 
 			return

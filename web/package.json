@@ -1,6 +1,6 @@
 {
   "name": "serviceradar-web",
-  "version": "1.0.2",
+  "version": "1.0.8",
   "private": true,
   "type": "module",
   "dependencies": {
@@ -23,9 +23,9 @@
     "serve": "vite preview"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.2.1",
-    "autoprefixer": "^10.4.16",
-    "postcss": "^8.4.32",
-    "vite": "^5.4.14"
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.5.1",
+    "vite": "^6.0.11"
   }
 }
