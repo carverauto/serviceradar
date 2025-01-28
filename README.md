@@ -9,7 +9,7 @@ ServiceRadar is a distributed network monitoring system designed for infrastruct
 It provides real-time monitoring of internal services, with cloud-based alerting capabilities to ensure you stay informed even during network or power outages.
 
 ### Screenshots
-<img width="1387" alt="Screenshot 2025-01-24 at 1 56 23 PM" src="https://github.com/user-attachments/assets/c5632d2a-eb66-47dd-908c-bf5e093c2a3e" />
+<img width="1391" alt="Screenshot 2025-01-27 at 11 02 49 PM" src="https://github.com/user-attachments/assets/b9582b77-91ea-47f9-b5c9-663f9b9666c9" />
 <img width="1393" alt="Screenshot 2025-01-26 at 12 10 58 AM" src="https://github.com/user-attachments/assets/59cb83a7-825e-4724-8d54-1bcc2cedfb7d" />
 <img width="1393" alt="Screenshot 2025-01-26 at 12 10 31 AM" src="https://github.com/user-attachments/assets/20c81f10-8fa3-46db-963b-f40d55fb3569" />
 <img width="1391" alt="Screenshot 2025-01-27 at 11 00 26 PM" src="https://github.com/user-attachments/assets/9606dcf7-7968-4b6a-8ede-4177bf73cfe6" />
