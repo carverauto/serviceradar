@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import NetworkSweepView from './NetworkSweepView';
+import { PingStatus } from './NetworkStatus';
+
 
 const ServiceDashboard = () => {
     const { nodeId, serviceName } = useParams();
@@ -143,6 +145,16 @@ const ServiceDashboard = () => {
                     service={serviceData}
                     standalone={true}
                 />
+            );
+        }
+
+        // Handle ICMP service type
+        if (serviceData.type === 'icmp') {
+            return (
+                <div className="bg-white rounded-lg shadow p-6">
+                    <h3 className="text-lg font-semibold mb-4">ICMP Status</h3>
+                    <PingStatus details={serviceData.message} />
+                </div>
             );
         }
 
