@@ -176,7 +176,7 @@ func (s *ICMPScanner) buildTemplate() {
 // calculateChecksum calculates the ICMP checksum for a byte slice.
 // The checksum is the one's complement of the sum of the 16-bit integers in the data.
 // If the data has an odd length, the last byte is padded with zero.
-func (s *ICMPScanner) calculateChecksum(data []byte) uint16 {
+func (*ICMPScanner) calculateChecksum(data []byte) uint16 {
 	var (
 		sum    uint32
 		length = len(data)
@@ -201,7 +201,7 @@ func (s *ICMPScanner) calculateChecksum(data []byte) uint16 {
 	}
 
 	// Return one's complement
-	return uint16(^sum) // Take one's complement of uint32 sum, then convert to uint16
+	return uint16(^sum) //nolint:gosec    // Take one's complement of uint32 sum, then convert to uint16
 }
 
 func (s *ICMPScanner) sendPing(ip net.IP) error {
