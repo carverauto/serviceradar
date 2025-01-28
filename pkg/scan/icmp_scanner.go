@@ -219,10 +219,12 @@ func (s *ICMPScanner) listenForReplies(ctx context.Context) {
 			if msg.Type == ipv4.ICMPTypeEchoReply {
 				s.mu.Lock()
 				ipStr := peer.String()
+
 				if resp, exists := s.responses[ipStr]; exists {
 					resp.received++
 					resp.lastSeen = time.Now()
 				}
+
 				s.mu.Unlock()
 			}
 		}
@@ -231,10 +233,13 @@ func (s *ICMPScanner) listenForReplies(ctx context.Context) {
 
 func (s *ICMPScanner) Stop() error {
 	close(s.done)
+
 	if s.rawSocket != 0 {
 		if err := syscall.Close(s.rawSocket); err != nil {
 			return fmt.Errorf("failed to close raw socket: %w", err)
 		}
+		s.rawSocket = 0 // Mark the socket as closed
 	}
+
 	return nil
 }

@@ -166,6 +166,11 @@ func (s *SweepService) performSweep(ctx context.Context) error {
 
 // NewSweepService now creates a persistent service with a single processor instance.
 func NewSweepService(config *models.Config) (*SweepService, error) {
+	// Apply default configuration
+	if config.ICMPCount <= 0 {
+		config.ICMPCount = 3 // Set reasonable default for ICMP ping count
+	}
+
 	// Create scanner with config settings
 	scanner := scan.NewCombinedScanner(
 		config.Timeout,

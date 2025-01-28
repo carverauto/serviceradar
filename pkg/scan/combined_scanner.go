@@ -21,10 +21,10 @@ type CombinedScanner struct {
 }
 
 func NewCombinedScanner(timeout time.Duration, concurrency, icmpCount int) *CombinedScanner {
-	var icmpScanner *ICMPScanner
-	var err error
+	var icmpScanner Scanner
 
-	if icmpCount > 0 { // Only attempt to create ICMPScanner if icmpCount is valid
+	if icmpCount > 0 {
+		var err error
 		icmpConcurrency := concurrency / 4
 		if icmpConcurrency < 1 {
 			icmpConcurrency = 1
@@ -33,12 +33,13 @@ func NewCombinedScanner(timeout time.Duration, concurrency, icmpCount int) *Comb
 		icmpScanner, err = NewICMPScanner(timeout, icmpConcurrency, icmpCount)
 		if err != nil {
 			log.Printf("ICMP scanning not available: %v, falling back to TCP only", err)
+			icmpScanner = nil // Explicitly set to nil to be clear
 		}
 	}
 
 	return &CombinedScanner{
 		tcpScanner:  NewTCPScanner(timeout, concurrency),
-		icmpScanner: icmpScanner, // Assign icmpScanner even if it's nil due to an error
+		icmpScanner: icmpScanner,
 		done:        make(chan struct{}),
 	}
 }
