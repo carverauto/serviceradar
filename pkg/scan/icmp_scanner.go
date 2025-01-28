@@ -173,29 +173,35 @@ func (s *ICMPScanner) buildTemplate() {
 	binary.BigEndian.PutUint16(s.template[templateChecksum:], s.calculateChecksum(s.template))
 }
 
-func (*ICMPScanner) calculateChecksum(data []byte) uint16 {
-	const (
-		wordSize     = 2      // Size of a 16-bit word in bytes
-		maxUint16    = 0xffff // Maximum value of a uint16
-		bitShift     = 16     // Number of bits to shift for carry calculation
-		checksumMask = 0xffff // Mask to extract the lower 16 bits
+// calculateChecksum calculates the ICMP checksum for a byte slice.
+// The checksum is the one's complement of the sum of the 16-bit integers in the data.
+// If the data has an odd length, the last byte is padded with zero.
+func (s *ICMPScanner) calculateChecksum(data []byte) uint16 {
+	var (
+		sum    uint32
+		length = len(data)
+		index  int
 	)
 
-	var checksum uint32
-
-	// Sum all 16-bit words in the data
-	for i := 0; i < len(data); i += wordSize {
-		// Combine two bytes into a 16-bit word and add to the checksum
-		checksum += uint32(data[i])<<8 | uint32(data[i+1])
+	// Main loop sums up 16-bit words
+	for length > 1 {
+		sum += uint32(data[index])<<8 | uint32(data[index+1])
+		index += 2
+		length -= 2
 	}
 
-	// Add carry bits until the checksum fits into 16 bits
-	for checksum > maxUint16 {
-		checksum = (checksum >> bitShift) + (checksum & checksumMask)
+	// Add left-over byte, if any, padded by zero
+	if length > 0 {
+		sum += uint32(data[index]) << 8 // Pad with a zero byte
 	}
 
-	// Return the one's complement of the checksum
-	return ^uint16(checksum)
+	// Fold 32-bit sum into 16 bits
+	for sum>>16 != 0 {
+		sum = (sum & 0xFFFF) + (sum >> 16)
+	}
+
+	// Return one's complement
+	return uint16(^sum) // Take one's complement of uint32 sum, then convert to uint16
 }
 
 func (s *ICMPScanner) sendPing(ip net.IP) error {
