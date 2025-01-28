@@ -12,6 +12,7 @@ It provides real-time monitoring of internal services, with cloud-based alerting
 <img width="1391" alt="Screenshot 2025-01-27 at 11 02 49 PM" src="https://github.com/user-attachments/assets/b9582b77-91ea-47f9-b5c9-663f9b9666c9" />
 <img width="1391" alt="Screenshot 2025-01-27 at 11 03 39 PM" src="https://github.com/user-attachments/assets/def8a71a-cf2c-4279-ad23-98e5d7460c78" />
 <img width="1391" alt="Screenshot 2025-01-27 at 11 04 53 PM" src="https://github.com/user-attachments/assets/d4f5aac3-9850-414a-ab59-cd49b469e77b" />
+<img width="1391" alt="Screenshot 2025-01-27 at 11 39 21 PM" src="https://github.com/user-attachments/assets/e135572c-b0ea-49cd-8ac3-ac78b5ade612" />
 <img width="1391" alt="Screenshot 2025-01-27 at 11 00 26 PM" src="https://github.com/user-attachments/assets/9606dcf7-7968-4b6a-8ede-4177bf73cfe6" />
 <img width="1391" alt="Screenshot 2025-01-27 at 11 01 22 PM" src="https://github.com/user-attachments/assets/6b245a93-f3f7-485c-b512-e232b2660bdc" />
 
