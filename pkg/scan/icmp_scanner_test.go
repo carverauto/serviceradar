@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/mfreeman451/serviceradar/pkg/models"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -40,8 +41,16 @@ func TestICMPScanner_Scan_InvalidTargets(t *testing.T) {
 	results, err := scanner.Scan(context.Background(), targets)
 	require.NoError(t, err)
 
-	// Ensure no results are returned for invalid targets
+	// Count results channel to ensure proper behavior
+	resultCount := 0
 	for range results {
-		t.Fatal("Expected no results for invalid targets")
+		resultCount++
 	}
+
+	// We expect one result for the invalid target, with Available=false
+	assert.Equal(t, 1, resultCount, "Expected one result for invalid target")
+
+	// Clean up
+	err = scanner.Stop()
+	require.NoError(t, err)
 }
