@@ -9,7 +9,6 @@ import (
 	"log"
 	"os"
 	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -930,19 +929,24 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 				continue
 			}
 
-			// Parse response time from message
-			timestamp := time.Now()
+			// Parse the ping response
+			var pingResult struct {
+				Host         string  `json:"host"`
+				ResponseTime int64   `json:"response_time"`
+				PacketLoss   float64 `json:"packet_loss"`
+				Available    bool    `json:"available"`
+			}
 
-			responseTime, err := strconv.ParseInt(service.Message, 10, 64)
-			if err != nil {
-				log.Printf("Failed to parse response time for ICMP service %s: %v", service.ServiceName, err)
+			if err := json.Unmarshal([]byte(service.Message), &pingResult); err != nil {
+				log.Printf("Failed to parse ICMP response for service %s: %v", service.ServiceName, err)
 				continue
 			}
 
+			// Add metric with the actual response time
 			if err := s.metrics.AddMetric(
 				req.PollerId,
-				timestamp,
-				responseTime,
+				time.Now(),
+				pingResult.ResponseTime,
 				service.ServiceName,
 			); err != nil {
 				log.Printf("Failed to add ICMP metric for %s: %v", service.ServiceName, err)
@@ -951,8 +955,8 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 
 			log.Printf("Added ICMP metric for %s: time=%v response_time=%.2fms",
 				service.ServiceName,
-				timestamp.Format(time.RFC3339),
-				float64(responseTime)/float64(time.Millisecond))
+				time.Now().Format(time.RFC3339),
+				float64(pingResult.ResponseTime)/float64(time.Millisecond))
 		}
 	}
 

@@ -61,7 +61,13 @@ func (p *ICMPChecker) Check(ctx context.Context) (bool, string) {
 		avgResponseTime = totalResponseTime.Nanoseconds() / int64(successfulPings)
 	}
 
-	response := ICMPResponse{
+	// Format response as strictly formatted JSON
+	response := struct {
+		Host         string  `json:"host"`
+		ResponseTime int64   `json:"response_time"` // in nanoseconds
+		PacketLoss   float64 `json:"packet_loss"`
+		Available    bool    `json:"available"`
+	}{
 		Host:         p.Host,
 		ResponseTime: avgResponseTime,
 		PacketLoss:   packetLoss,
