@@ -9,19 +9,67 @@ import (
 	"github.com/mfreeman451/serviceradar/pkg/models"
 )
 
+const (
+	defaultCleanupInterval = 5 * time.Minute
+	defaultMaxResults      = 1000
+)
+
 // InMemoryStore implements Store interface for temporary storage.
 type InMemoryStore struct {
-	mu        sync.RWMutex
-	results   []models.Result
-	processor ResultProcessor
+	mu          sync.RWMutex
+	results     []models.Result
+	processor   ResultProcessor
+	maxResults  int
+	cleanupDone chan struct{}
 }
 
 // NewInMemoryStore creates a new in-memory store for sweep results.
 func NewInMemoryStore(processor ResultProcessor) Store {
-	return &InMemoryStore{
-		results:   make([]models.Result, 0),
-		processor: processor,
+	store := &InMemoryStore{
+		results:     make([]models.Result, 0),
+		processor:   processor,
+		maxResults:  defaultMaxResults,
+		cleanupDone: make(chan struct{}),
 	}
+
+	// Start cleanup goroutine
+	go store.periodicCleanup()
+
+	return store
+}
+
+func (s *InMemoryStore) periodicCleanup() {
+	ticker := time.NewTicker(defaultCleanupInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-s.cleanupDone:
+			return
+		case <-ticker.C:
+			s.cleanOldResults()
+		}
+	}
+}
+
+func (s *InMemoryStore) cleanOldResults() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Keep only the most recent results
+	if len(s.results) > s.maxResults {
+		// Calculate how many to remove
+		removeCount := len(s.results) - s.maxResults
+
+		// Keep the most recent results (which are at the end)
+		s.results = s.results[removeCount:]
+	}
+}
+
+func (s *InMemoryStore) Close() error {
+	close(s.cleanupDone)
+
+	return nil
 }
 
 // SaveHostResult updates the last-seen time (and possibly availability)
