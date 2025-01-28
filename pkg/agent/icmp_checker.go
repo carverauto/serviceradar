@@ -23,7 +23,7 @@ type ICMPResponse struct {
 	Available    bool    `json:"available"`
 }
 
-func (p *ICMPChecker) Check(ctx context.Context) (bool, string) {
+func (p *ICMPChecker) Check(ctx context.Context) (available bool, response string) {
 	scanner := scan.NewCombinedScanner(time.Duration(p.Count)*time.Second, 1, p.Count)
 
 	target := models.Target{
@@ -44,7 +44,7 @@ func (p *ICMPChecker) Check(ctx context.Context) (bool, string) {
 	}
 
 	// Format response
-	response := struct {
+	responseStruct := struct {
 		Host         string  `json:"host"`
 		ResponseTime int64   `json:"response_time"` // in nanoseconds
 		PacketLoss   float64 `json:"packet_loss"`
@@ -56,7 +56,7 @@ func (p *ICMPChecker) Check(ctx context.Context) (bool, string) {
 		Available:    result.Available,
 	}
 
-	jsonResponse, err := json.Marshal(response)
+	jsonResponse, err := json.Marshal(responseStruct)
 	if err != nil {
 		return false, fmt.Sprintf(`{"error": "Failed to marshal response: %v"}`, err)
 	}

@@ -65,7 +65,7 @@ func (p *BaseProcessor) updateTotalHosts(result *models.Result) {
 	}
 }
 
-func (p *BaseProcessor) processICMPResult(host *models.HostResult, result *models.Result) {
+func (*BaseProcessor) processICMPResult(host *models.HostResult, result *models.Result) {
 	if host.ICMPStatus == nil {
 		host.ICMPStatus = &models.ICMPStatus{}
 	}
@@ -96,11 +96,13 @@ func (p *BaseProcessor) processTCPResult(host *models.HostResult, result *models
 
 func (p *BaseProcessor) updatePortStatus(host *models.HostResult, result *models.Result) {
 	var found bool
+
 	for _, port := range host.PortResults {
 		if port.Port == result.Target.Port {
 			port.Available = true
 			port.RespTime = result.RespTime
 			found = true
+
 			break
 		}
 	}

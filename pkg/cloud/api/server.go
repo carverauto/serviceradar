@@ -5,6 +5,7 @@ package api
 import (
 	"embed"
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"log"
 	"net/http"
@@ -140,28 +141,59 @@ func (s *APIServer) SetNodeHistoryHandler(handler func(nodeID string) ([]NodeHis
 	s.nodeHistoryHandler = handler
 }
 
-func (s *APIServer) handleSweepService(svc *ServiceStatus) {
-	var sweepData map[string]interface{}
-	if err := json.Unmarshal(svc.Details, &sweepData); err != nil {
+func (*APIServer) handleSweepService(svc *ServiceStatus) {
+	sweepData, err := parseSweepDetails(svc.Details)
+	if err != nil {
 		log.Printf("Error parsing sweep details: %v", err)
 		return
 	}
 
-	if hosts, ok := sweepData["hosts"].([]interface{}); ok {
-		for _, h := range hosts {
-			if host, ok := h.(map[string]interface{}); ok {
-				if icmpStatus, ok := host["icmp_status"].(map[string]interface{}); ok {
-					// Convert round_trip to float64 if it exists
-					if rt, exists := icmpStatus["round_trip"].(float64); exists {
-						log.Printf("Host %v ICMP RTT: %.2fms",
-							host["host"],
-							float64(rt)/float64(time.Millisecond))
-					}
-					log.Printf("Host %v ICMP status: %+v", host["host"], icmpStatus)
-				}
-			}
-		}
+	processHosts(sweepData)
+}
+
+// parseSweepDetails unmarshals the sweep details JSON into a map.
+func parseSweepDetails(details []byte) (map[string]interface{}, error) {
+	var sweepData map[string]interface{}
+	if err := json.Unmarshal(details, &sweepData); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal sweep details: %w", err)
 	}
+
+	return sweepData, nil
+}
+
+// processHosts processes the hosts in the sweep data.
+func processHosts(sweepData map[string]interface{}) {
+	hosts, ok := sweepData["hosts"].([]interface{})
+	if !ok {
+		return
+	}
+
+	for _, h := range hosts {
+		host, ok := h.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		processICMPStatus(host)
+	}
+}
+
+// processICMPStatus processes the ICMP status for a host.
+func processICMPStatus(host map[string]interface{}) {
+	icmpStatus, ok := host["icmp_status"].(map[string]interface{})
+	if !ok {
+		return
+	}
+
+	// Log ICMP round-trip time if it exists
+	if rt, exists := icmpStatus["round_trip"].(float64); exists {
+		log.Printf("Host %v ICMP RTT: %.2fms",
+			host["host"],
+			float64(rt)/float64(time.Millisecond))
+	}
+
+	// Log the full ICMP status
+	log.Printf("Host %v ICMP status: %+v", host["host"], icmpStatus)
 }
 
 func (s *APIServer) UpdateNodeStatus(nodeID string, status *NodeStatus) {

@@ -400,10 +400,11 @@ func (p *Poller) processSweepData(statuses []*proto.ServiceStatus) error {
 			}
 		}
 	}
+
 	return nil
 }
 
-func (p *Poller) processSweepStatus(status *proto.ServiceStatus) error {
+func (*Poller) processSweepStatus(status *proto.ServiceStatus) error {
 	var sweepData map[string]interface{}
 	if err := json.Unmarshal([]byte(status.Message), &sweepData); err != nil {
 		return fmt.Errorf("error parsing sweep data: %w", err)

@@ -18,6 +18,17 @@ import (
 	"golang.org/x/net/ipv4"
 )
 
+const (
+	maxPacketSize      = 1500
+	templateSize       = 8
+	packetReadDeadline = 100 * time.Millisecond
+)
+
+var (
+	errInvalidSocket     = errors.New("invalid socket")
+	errInvalidParameters = errors.New("invalid parameters: timeout, concurrency, and count must be greater than zero")
+)
+
 type ICMPScanner struct {
 	timeout     time.Duration
 	concurrency int
@@ -41,7 +52,7 @@ type pingResponse struct {
 func NewICMPScanner(timeout time.Duration, concurrency, count int) (*ICMPScanner, error) {
 	// Validate parameters before proceeding
 	if timeout <= 0 || concurrency <= 0 || count <= 0 {
-		return nil, fmt.Errorf("invalid parameters: timeout, concurrency, and count must be greater than zero")
+		return nil, errInvalidParameters
 	}
 
 	// Set default values if necessary
@@ -64,7 +75,7 @@ func NewICMPScanner(timeout time.Duration, concurrency, count int) (*ICMPScanner
 	// Create raw socket
 	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_RAW, syscall.IPPROTO_ICMP)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create raw socket: %w", err)
+		return nil, fmt.Errorf("%w: %w", errInvalidSocket, err)
 	}
 
 	s.rawSocket = fd
@@ -76,7 +87,7 @@ func NewICMPScanner(timeout time.Duration, concurrency, count int) (*ICMPScanner
 
 func (s *ICMPScanner) Scan(ctx context.Context, targets []models.Target) (<-chan models.Result, error) {
 	if s.rawSocket == -1 {
-		return nil, fmt.Errorf("invalid socket")
+		return nil, errInvalidSocket
 	}
 
 	results := make(chan models.Result)
@@ -124,11 +135,15 @@ func (s *ICMPScanner) Scan(ctx context.Context, targets []models.Target) (<-chan
 
 			// Calculate results
 			s.mu.RLock()
+
 			resp := s.responses[target.Host]
+
 			var avgResponseTime time.Duration
+
 			if resp.received > 0 {
 				avgResponseTime = resp.totalTime / time.Duration(resp.received)
 			}
+
 			packetLoss := float64(resp.sent-resp.received) / float64(resp.sent) * 100
 			s.mu.RUnlock()
 
@@ -145,30 +160,60 @@ func (s *ICMPScanner) Scan(ctx context.Context, targets []models.Target) (<-chan
 	return results, nil
 }
 
+const (
+	templateIDOffset = 4
+	templateChecksum = 2
+)
+
 func (s *ICMPScanner) buildTemplate() {
-	s.template = make([]byte, 8)
+	const (
+		templateMask = 0xffff
+	)
+
+	s.template = make([]byte, templateSize)
 	s.template[0] = 8 // Echo Request
 	s.template[1] = 0 // Code 0
 
 	// Add identifier
-	id := uint16(os.Getpid() & 0xffff)
-	binary.BigEndian.PutUint16(s.template[4:], id)
+	id := uint16(os.Getpid() & templateMask) //nolint:gosec // the mask is used to ensure the ID fits in 16 bits
+	binary.BigEndian.PutUint16(s.template[templateIDOffset:], id)
 
 	// Calculate checksum
-	binary.BigEndian.PutUint16(s.template[2:], s.calculateChecksum(s.template))
+	binary.BigEndian.PutUint16(s.template[templateChecksum:], s.calculateChecksum(s.template))
 }
 
-func (s *ICMPScanner) calculateChecksum(data []byte) uint16 {
-	var sum uint32
-	for i := 0; i < len(data); i += 2 {
-		sum += uint32(data[i])<<8 | uint32(data[i+1])
+func (*ICMPScanner) calculateChecksum(data []byte) uint16 {
+	const (
+		wordSize     = 2      // Size of a 16-bit word in bytes
+		maxUint16    = 0xffff // Maximum value of a uint16
+		bitShift     = 16     // Number of bits to shift for carry calculation
+		checksumMask = 0xffff // Mask to extract the lower 16 bits
+	)
+
+	var checksum uint32
+
+	// Sum all 16-bit words in the data
+	for i := 0; i < len(data); i += wordSize {
+		// Combine two bytes into a 16-bit word and add to the checksum
+		checksum += uint32(data[i])<<8 | uint32(data[i+1])
 	}
-	sum = (sum >> 16) + (sum & 0xffff)
-	return ^uint16(sum)
+
+	// Add carry bits until the checksum fits into 16 bits
+	for checksum > maxUint16 {
+		checksum = (checksum >> bitShift) + (checksum & checksumMask)
+	}
+
+	// Return the one's complement of the checksum
+	return ^uint16(checksum)
 }
 
 func (s *ICMPScanner) sendPing(ip net.IP) error {
-	var addr [4]byte
+	const (
+		addrSize = 4
+	)
+
+	var addr [addrSize]byte
+
 	copy(addr[:], ip.To4())
 
 	dest := syscall.SockaddrInet4{
@@ -190,9 +235,10 @@ func (s *ICMPScanner) listenForReplies(ctx context.Context) {
 		log.Printf("Failed to start ICMP listener: %v", err)
 		return
 	}
-	defer conn.Close()
+	defer s.closeConn(conn)
 
-	packet := make([]byte, 1500)
+	packet := make([]byte, maxPacketSize)
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -200,38 +246,62 @@ func (s *ICMPScanner) listenForReplies(ctx context.Context) {
 		case <-s.done:
 			return
 		default:
-			if err := conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond)); err != nil {
-				continue
-			}
+			s.handlePacket(conn, packet)
+		}
+	}
+}
 
-			n, peer, err := conn.ReadFrom(packet)
-			if err != nil {
-				var netErr net.Error
-				if errors.As(err, &netErr) && netErr.Timeout() {
-					continue
-				}
-				log.Printf("Error reading ICMP packet: %v", err)
-				continue
-			}
+func (*ICMPScanner) closeConn(conn *icmp.PacketConn) {
+	if err := conn.Close(); err != nil {
+		log.Printf("Failed to close ICMP listener: %v", err)
+	}
+}
 
-			msg, err := icmp.ParseMessage(1, packet[:n])
-			if err != nil {
-				continue
-			}
+func (s *ICMPScanner) handlePacket(conn *icmp.PacketConn, packet []byte) {
+	if err := conn.SetReadDeadline(time.Now().Add(packetReadDeadline)); err != nil {
+		return
+	}
 
-			if msg.Type == ipv4.ICMPTypeEchoReply {
-				s.mu.Lock()
-				ipStr := peer.String()
-				if resp, exists := s.responses[ipStr]; exists {
-					resp.received++
-					resp.lastSeen = time.Now()
-					// Calculate RTT from sendTime
-					if !resp.sendTime.IsZero() {
-						resp.totalTime += time.Since(resp.sendTime)
-					}
-				}
-				s.mu.Unlock()
-			}
+	n, peer, err := conn.ReadFrom(packet)
+	if err != nil {
+		s.handleReadError(err)
+		return
+	}
+
+	s.processICMPMessage(packet[:n], peer)
+}
+
+func (*ICMPScanner) handleReadError(err error) {
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return
+	}
+
+	log.Printf("Error reading ICMP packet: %v", err)
+}
+
+func (s *ICMPScanner) processICMPMessage(data []byte, peer net.Addr) {
+	msg, err := icmp.ParseMessage(1, data)
+	if err != nil {
+		return
+	}
+
+	if msg.Type == ipv4.ICMPTypeEchoReply {
+		s.updateResponse(peer.String())
+	}
+}
+
+func (s *ICMPScanner) updateResponse(ipStr string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if resp, exists := s.responses[ipStr]; exists {
+		resp.received++
+
+		resp.lastSeen = time.Now()
+
+		if !resp.sendTime.IsZero() {
+			resp.totalTime += time.Since(resp.sendTime)
 		}
 	}
 }
