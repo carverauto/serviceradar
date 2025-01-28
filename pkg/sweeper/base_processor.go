@@ -80,6 +80,11 @@ func (p *BaseProcessor) processICMPResult(host *models.HostResult, result *model
 		host.ICMPStatus.PacketLoss = 100
 		host.ICMPStatus.RoundTrip = 0
 	}
+
+	// Set the overall response time for the host
+	if result.RespTime > 0 {
+		host.ResponseTime = result.RespTime
+	}
 }
 
 func (p *BaseProcessor) processTCPResult(host *models.HostResult, result *models.Result) {

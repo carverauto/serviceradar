@@ -237,8 +237,21 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, er
 		return nil, fmt.Errorf("failed to get sweep summary: %w", err)
 	}
 
-	if summary.LastSweep == 0 {
-		summary.LastSweep = time.Now().Unix()
+	// For each host in the summary, properly format ICMP status
+	for i := range summary.Hosts {
+		host := &summary.Hosts[i]
+		if host.ICMPStatus != nil {
+			log.Printf("Processing ICMP status for host %s: available=%v rtt=%v loss=%v",
+				host.Host,
+				host.ICMPStatus.Available,
+				host.ICMPStatus.RoundTrip,
+				host.ICMPStatus.PacketLoss)
+
+			// Ensure RoundTrip is properly set in nanoseconds
+			if host.ICMPStatus.Available {
+				host.ResponseTime = host.ICMPStatus.RoundTrip
+			}
+		}
 	}
 
 	// Convert to JSON for the message field
@@ -258,33 +271,17 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, er
 		Hosts:          summary.Hosts,
 	}
 
-	// Log some debug info about ICMP results
-	for _, host := range data.Hosts {
-		if host.ICMPStatus != nil {
-			log.Printf("Host %s ICMP status: loss=%v%% rtt=%v",
-				host.Host,
-				host.ICMPStatus.PacketLoss,
-				host.ICMPStatus.RoundTrip)
-		}
-	}
-
-	log.Printf("Agent: sweepSummary.LastSweep: %v", time.Unix(summary.LastSweep, 0).Format(time.RFC3339))
-
 	statusJSON, err := json.Marshal(data)
 	if err != nil {
-		log.Printf("Error marshaling sweep status: %v", err)
 		return nil, fmt.Errorf("failed to marshal sweep status: %w", err)
 	}
-
-	// Calculate response time (if needed)
-	responseTime := time.Since(time.Unix(summary.LastSweep, 0)).Nanoseconds()
 
 	return &proto.StatusResponse{
 		Available:    true,
 		Message:      string(statusJSON),
 		ServiceName:  "network_sweep",
 		ServiceType:  "sweep",
-		ResponseTime: responseTime, // Include response time in nanoseconds
+		ResponseTime: time.Since(time.Unix(summary.LastSweep, 0)).Nanoseconds(),
 	}, nil
 }
 

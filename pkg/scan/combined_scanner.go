@@ -25,7 +25,9 @@ func NewCombinedScanner(timeout time.Duration, concurrency, icmpCount int) *Comb
 
 	if icmpCount > 0 {
 		var err error
+
 		icmpConcurrency := concurrency / 4
+
 		if icmpConcurrency < 1 {
 			icmpConcurrency = 1
 		}
@@ -33,6 +35,7 @@ func NewCombinedScanner(timeout time.Duration, concurrency, icmpCount int) *Comb
 		icmpScanner, err = NewICMPScanner(timeout, icmpConcurrency, icmpCount)
 		if err != nil {
 			log.Printf("ICMP scanning not available: %v, falling back to TCP only", err)
+
 			icmpScanner = nil // Explicitly set to nil to be clear
 		}
 	}
@@ -111,7 +114,9 @@ func (s *CombinedScanner) handleSingleScannerCase(ctx context.Context, targets s
 // handleMixedScanners manages scanning with both TCP and ICMP scanners.
 func (s *CombinedScanner) handleMixedScanners(ctx context.Context, targets scanTargets) (<-chan models.Result, error) {
 	results := make(chan models.Result)
+
 	var wg sync.WaitGroup
+
 	errChan := make(chan error, errorChannelSize)
 
 	// Start TCP scanner if needed

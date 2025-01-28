@@ -33,6 +33,7 @@ type pingResponse struct {
 	received  int
 	totalTime time.Duration
 	lastSeen  time.Time
+	sendTime  time.Time
 }
 
 func NewICMPScanner(timeout time.Duration, concurrency, count int) (*ICMPScanner, error) {
@@ -178,6 +179,12 @@ func (s *ICMPScanner) sendPing(ip net.IP) error {
 		Addr: addr,
 	}
 
+	s.mu.Lock()
+	if resp, exists := s.responses[ip.String()]; exists {
+		resp.sendTime = time.Now()
+	}
+	s.mu.Unlock()
+
 	return syscall.Sendto(s.rawSocket, s.template, 0, &dest)
 }
 
@@ -219,12 +226,14 @@ func (s *ICMPScanner) listenForReplies(ctx context.Context) {
 			if msg.Type == ipv4.ICMPTypeEchoReply {
 				s.mu.Lock()
 				ipStr := peer.String()
-
 				if resp, exists := s.responses[ipStr]; exists {
 					resp.received++
 					resp.lastSeen = time.Now()
+					// Calculate RTT from sendTime
+					if !resp.sendTime.IsZero() {
+						resp.totalTime += time.Since(resp.sendTime)
+					}
 				}
-
 				s.mu.Unlock()
 			}
 		}
@@ -238,6 +247,7 @@ func (s *ICMPScanner) Stop() error {
 		if err := syscall.Close(s.rawSocket); err != nil {
 			return fmt.Errorf("failed to close raw socket: %w", err)
 		}
+
 		s.rawSocket = 0 // Mark the socket as closed
 	}
 

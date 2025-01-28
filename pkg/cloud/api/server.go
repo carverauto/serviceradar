@@ -140,7 +140,7 @@ func (s *APIServer) SetNodeHistoryHandler(handler func(nodeID string) ([]NodeHis
 	s.nodeHistoryHandler = handler
 }
 
-func (*APIServer) handleSweepService(svc *ServiceStatus) {
+func (s *APIServer) handleSweepService(svc *ServiceStatus) {
 	var sweepData map[string]interface{}
 	if err := json.Unmarshal(svc.Details, &sweepData); err != nil {
 		log.Printf("Error parsing sweep details: %v", err)
@@ -151,7 +151,13 @@ func (*APIServer) handleSweepService(svc *ServiceStatus) {
 		for _, h := range hosts {
 			if host, ok := h.(map[string]interface{}); ok {
 				if icmpStatus, ok := host["icmp_status"].(map[string]interface{}); ok {
-					log.Printf("API exposing ICMP data for host %v: %+v", host["host"], icmpStatus)
+					// Convert round_trip to float64 if it exists
+					if rt, exists := icmpStatus["round_trip"].(float64); exists {
+						log.Printf("Host %v ICMP RTT: %.2fms",
+							host["host"],
+							float64(rt)/float64(time.Millisecond))
+					}
+					log.Printf("Host %v ICMP status: %+v", host["host"], icmpStatus)
 				}
 			}
 		}
