@@ -3,6 +3,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -15,13 +16,15 @@ type ICMPChecker struct {
 	Count int
 }
 
-const (
-	defaultICMPCount  = 3
-	defaultConcurrent = 1
-)
+type ICMPResponse struct {
+	Host         string  `json:"host"`
+	ResponseTime int64   `json:"response_time"` // in nanoseconds
+	PacketLoss   float64 `json:"packet_loss"`
+	Available    bool    `json:"available"`
+}
 
-func (p *ICMPChecker) Check(ctx context.Context) (isDown bool, results string) {
-	scanner := scan.NewCombinedScanner(defaultICMPCount*time.Second, defaultConcurrent, p.Count)
+func (p *ICMPChecker) Check(ctx context.Context) (bool, string) {
+	scanner := scan.NewCombinedScanner(time.Duration(p.Count)*time.Second, 1, p.Count)
 
 	target := models.Target{
 		Host: p.Host,
@@ -30,16 +33,16 @@ func (p *ICMPChecker) Check(ctx context.Context) (isDown bool, results string) {
 
 	resultChan, err := scanner.Scan(ctx, []models.Target{target})
 	if err != nil {
-		return false, fmt.Sprintf("ICMP check failed: %v", err)
+		return false, fmt.Sprintf(`{"error": "%v"}`, err)
 	}
 
 	var totalResponseTime time.Duration
-
 	var successfulPings int
+	var packetLoss float64
 
 	for result := range resultChan {
 		if result.Error != nil {
-			return false, result.Error.Error()
+			return false, fmt.Sprintf(`{"error": "%v"}`, result.Error)
 		}
 
 		if result.Available {
@@ -48,11 +51,27 @@ func (p *ICMPChecker) Check(ctx context.Context) (isDown bool, results string) {
 		}
 	}
 
-	if successfulPings == 0 {
-		return false, "No successful ICMP replies"
+	if p.Count > 0 {
+		packetLoss = float64(p.Count-successfulPings) / float64(p.Count) * 100
 	}
 
-	avgResponseTime := totalResponseTime / time.Duration(successfulPings)
+	available := successfulPings > 0
+	avgResponseTime := int64(0)
+	if successfulPings > 0 {
+		avgResponseTime = totalResponseTime.Nanoseconds() / int64(successfulPings)
+	}
 
-	return true, fmt.Sprintf("%d", avgResponseTime)
+	response := ICMPResponse{
+		Host:         p.Host,
+		ResponseTime: avgResponseTime,
+		PacketLoss:   packetLoss,
+		Available:    available,
+	}
+
+	jsonResponse, err := json.Marshal(response)
+	if err != nil {
+		return false, fmt.Sprintf(`{"error": "Failed to marshal response: %v"}`, err)
+	}
+
+	return available, string(jsonResponse)
 }

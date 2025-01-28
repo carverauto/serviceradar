@@ -36,6 +36,12 @@ type pingResponse struct {
 }
 
 func NewICMPScanner(timeout time.Duration, concurrency, count int) (*ICMPScanner, error) {
+	// Validate parameters before proceeding
+	if timeout <= 0 || concurrency <= 0 || count <= 0 {
+		return nil, fmt.Errorf("invalid parameters: timeout, concurrency, and count must be greater than zero")
+	}
+
+	// Set default values if necessary
 	if count <= 0 {
 		count = 3
 	}
@@ -52,6 +58,7 @@ func NewICMPScanner(timeout time.Duration, concurrency, count int) (*ICMPScanner
 		responses:   make(map[string]*pingResponse),
 	}
 
+	// Create raw socket
 	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_RAW, syscall.IPPROTO_ICMP)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create raw socket: %w", err)
@@ -65,6 +72,10 @@ func NewICMPScanner(timeout time.Duration, concurrency, count int) (*ICMPScanner
 }
 
 func (s *ICMPScanner) Scan(ctx context.Context, targets []models.Target) (<-chan models.Result, error) {
+	if s.rawSocket == -1 {
+		return nil, fmt.Errorf("invalid socket")
+	}
+
 	results := make(chan models.Result)
 	rateLimit := time.Second / time.Duration(s.concurrency)
 
@@ -121,7 +132,7 @@ func (s *ICMPScanner) Scan(ctx context.Context, targets []models.Target) (<-chan
 			if resp.received > 0 {
 				avgResponseTime = resp.totalTime / time.Duration(resp.received)
 			} else {
-				avgResponseTime = 0
+				avgResponseTime = -1 // Indicate no successful responses with -1
 			}
 
 			results <- models.Result{

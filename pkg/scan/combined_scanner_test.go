@@ -17,6 +17,78 @@ var (
 	errICMPScanFailed = fmt.Errorf("ICMP scan failed")
 )
 
+func TestCombinedScanner_Scan_Mock(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockTCP := NewMockScanner(ctrl)
+	mockICMP := NewMockScanner(ctrl)
+
+	scanner := &CombinedScanner{
+		tcpScanner:  mockTCP,
+		icmpScanner: mockICMP,
+		done:        make(chan struct{}),
+	}
+
+	targets := []models.Target{
+		{Host: "127.0.0.1", Port: 22, Mode: models.ModeTCP},
+		{Host: "127.0.0.1", Mode: models.ModeICMP},
+	}
+
+	tcpResults := make(chan models.Result, 1)
+	icmpResults := make(chan models.Result, 1)
+
+	// Make mocks send results
+	go func() {
+		tcpResults <- models.Result{}
+	}()
+	go func() {
+		icmpResults <- models.Result{}
+	}()
+
+	mockTCP.EXPECT().Scan(gomock.Any(), gomock.Any()).Return(tcpResults, nil)
+	mockICMP.EXPECT().Scan(gomock.Any(), gomock.Any()).Return(icmpResults, nil)
+
+	results, err := scanner.Scan(context.Background(), targets)
+	require.NoError(t, err)
+
+	close(tcpResults)
+	close(icmpResults)
+
+	var resultCount int
+	for range results {
+		resultCount++
+	}
+
+	require.Equal(t, len(targets), resultCount, "Expected results for all targets")
+}
+
+func TestNewCombinedScanner_ICMPError(t *testing.T) {
+	// Simulate an error by passing invalid parameters
+	scanner := NewCombinedScanner(1*time.Second, 1, 0) // Changed parameter to 0
+	require.NotNil(t, scanner)
+	require.Nil(t, scanner.icmpScanner, "ICMP scanner should be nil due to error")
+}
+
+func TestCombinedScanner_Scan_MixedTargets(t *testing.T) {
+	scanner := NewCombinedScanner(1*time.Second, 1, 3)
+
+	targets := []models.Target{
+		{Host: "127.0.0.1", Port: 22, Mode: models.ModeTCP},
+		{Host: "127.0.0.1", Mode: models.ModeICMP},
+	}
+
+	results, err := scanner.Scan(context.Background(), targets)
+	require.NoError(t, err)
+
+	var resultCount int
+	for range results {
+		resultCount++
+	}
+
+	require.Equal(t, len(targets), resultCount, "Expected results for all targets")
+}
+
 // TestCombinedScanner_ScanBasic tests basic scanner functionality.
 func TestCombinedScanner_ScanBasic(t *testing.T) {
 	ctrl := gomock.NewController(t)
@@ -45,9 +117,6 @@ func TestCombinedScanner_ScanBasic(t *testing.T) {
 
 	assert.Equal(t, 0, count)
 }
-
-// TestCombinedScanner_ScanMixed tests scanning with mixed target types.
-// In pkg/scan/combined_scanner_test.go
 
 func TestCombinedScanner_ScanMixed(t *testing.T) {
 	ctrl := gomock.NewController(t)

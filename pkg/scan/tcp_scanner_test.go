@@ -10,6 +10,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestTCPScanner_HighConcurrency(t *testing.T) {
+	scanner := NewTCPScanner(1*time.Second, 100)
+
+	targets := make([]models.Target, 1000)
+	for i := 0; i < 1000; i++ {
+		targets[i] = models.Target{Host: "127.0.0.1", Port: 22 + i, Mode: models.ModeTCP}
+	}
+
+	results, err := scanner.Scan(context.Background(), targets)
+	require.NoError(t, err)
+
+	var resultCount int
+	for range results {
+		resultCount++
+	}
+
+	require.Equal(t, len(targets), resultCount, "Expected results for all targets")
+}
+
 func TestTCPScanner_Scan(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -53,5 +72,33 @@ func TestTCPScanner_Scan(t *testing.T) {
 				assert.NotZero(t, result.RespTime)
 			}
 		})
+	}
+}
+
+func TestTCPScanner_Stop(t *testing.T) {
+	scanner := NewTCPScanner(1*time.Second, 1)
+	err := scanner.Stop()
+	require.NoError(t, err)
+
+	// Ensure the done channel is closed
+	_, ok := <-scanner.done
+	require.False(t, ok, "done channel should be closed")
+}
+
+func TestTCPScanner_Scan_ContextCancellation(t *testing.T) {
+	scanner := NewTCPScanner(1*time.Second, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	targets := []models.Target{
+		{Host: "127.0.0.1", Port: 22, Mode: models.ModeTCP},
+	}
+
+	results, err := scanner.Scan(ctx, targets)
+	require.NoError(t, err)
+
+	// Ensure no results are returned
+	for range results {
+		t.Fatal("Expected no results due to context cancellation")
 	}
 }
