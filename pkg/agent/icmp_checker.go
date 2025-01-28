@@ -36,32 +36,14 @@ func (p *ICMPChecker) Check(ctx context.Context) (bool, string) {
 		return false, fmt.Sprintf(`{"error": "%v"}`, err)
 	}
 
-	var totalResponseTime time.Duration
-	var successfulPings int
-	var packetLoss float64
-
-	for result := range resultChan {
-		if result.Error != nil {
-			return false, fmt.Sprintf(`{"error": "%v"}`, result.Error)
-		}
-
-		if result.Available {
-			totalResponseTime += result.RespTime
-			successfulPings++
-		}
+	// Take first result as we only sent one target
+	var result models.Result
+	for r := range resultChan {
+		result = r
+		break
 	}
 
-	if p.Count > 0 {
-		packetLoss = float64(p.Count-successfulPings) / float64(p.Count) * 100
-	}
-
-	available := successfulPings > 0
-	avgResponseTime := int64(0)
-	if successfulPings > 0 {
-		avgResponseTime = totalResponseTime.Nanoseconds() / int64(successfulPings)
-	}
-
-	// Format response as strictly formatted JSON
+	// Format response
 	response := struct {
 		Host         string  `json:"host"`
 		ResponseTime int64   `json:"response_time"` // in nanoseconds
@@ -69,9 +51,9 @@ func (p *ICMPChecker) Check(ctx context.Context) (bool, string) {
 		Available    bool    `json:"available"`
 	}{
 		Host:         p.Host,
-		ResponseTime: avgResponseTime,
-		PacketLoss:   packetLoss,
-		Available:    available,
+		ResponseTime: result.RespTime.Nanoseconds(),
+		PacketLoss:   result.PacketLoss,
+		Available:    result.Available,
 	}
 
 	jsonResponse, err := json.Marshal(response)
@@ -79,5 +61,5 @@ func (p *ICMPChecker) Check(ctx context.Context) (bool, string) {
 		return false, fmt.Sprintf(`{"error": "Failed to marshal response: %v"}`, err)
 	}
 
-	return available, string(jsonResponse)
+	return result.Available, string(jsonResponse)
 }

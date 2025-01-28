@@ -34,6 +34,8 @@ type pingResponse struct {
 	totalTime time.Duration
 	lastSeen  time.Time
 	sendTime  time.Time
+	dropped   int
+	sent      int
 }
 
 func NewICMPScanner(timeout time.Duration, concurrency, count int) (*ICMPScanner, error) {
@@ -91,11 +93,6 @@ func (s *ICMPScanner) Scan(ctx context.Context, targets []models.Target) (<-chan
 				continue
 			}
 
-			ip := net.ParseIP(target.Host)
-			if ip == nil {
-				continue
-			}
-
 			// Initialize response for this target
 			s.mu.Lock()
 			if _, exists := s.responses[target.Host]; !exists {
@@ -103,7 +100,7 @@ func (s *ICMPScanner) Scan(ctx context.Context, targets []models.Target) (<-chan
 			}
 			s.mu.Unlock()
 
-			// Send pings
+			// Send pings and track sent count
 			for i := 0; i < s.count; i++ {
 				select {
 				case <-ctx.Done():
@@ -111,36 +108,35 @@ func (s *ICMPScanner) Scan(ctx context.Context, targets []models.Target) (<-chan
 				case <-s.done:
 					return
 				default:
-					if err := s.sendPing(ip); err != nil {
+					s.mu.Lock()
+					s.responses[target.Host].sent++
+					s.mu.Unlock()
+
+					if err := s.sendPing(net.ParseIP(target.Host)); err != nil {
 						log.Printf("Error sending ping to %s: %v", target.Host, err)
-						continue
+						s.mu.Lock()
+						s.responses[target.Host].dropped++
+						s.mu.Unlock()
 					}
 				}
 				time.Sleep(rateLimit)
 			}
 
-			// Get results
+			// Calculate results
 			s.mu.RLock()
 			resp := s.responses[target.Host]
-			s.mu.RUnlock()
-
-			if resp == nil {
-				resp = &pingResponse{} // Ensure resp is never nil
-			}
-
-			// Calculate average response time only if there were successful pings
 			var avgResponseTime time.Duration
 			if resp.received > 0 {
 				avgResponseTime = resp.totalTime / time.Duration(resp.received)
-			} else {
-				avgResponseTime = -1 // Indicate no successful responses with -1
 			}
+			packetLoss := float64(resp.sent-resp.received) / float64(resp.sent) * 100
+			s.mu.RUnlock()
 
 			results <- models.Result{
 				Target:     target,
 				Available:  resp.received > 0,
 				RespTime:   avgResponseTime,
-				PacketLoss: float64(s.count-resp.received) / float64(s.count) * 100,
+				PacketLoss: packetLoss,
 				LastSeen:   resp.lastSeen,
 			}
 		}
