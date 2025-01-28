@@ -5,7 +5,6 @@ package api
 import (
 	"embed"
 	"encoding/json"
-	"fmt"
 	"io/fs"
 	"log"
 	"net/http"
@@ -60,6 +59,7 @@ type APIServer struct {
 	router             *mux.Router
 	nodeHistoryHandler func(nodeID string) ([]NodeHistoryPoint, error)
 	metricsManager     metrics.MetricCollector
+	knownPollers       []string
 }
 
 func NewAPIServer(metricsManager metrics.MetricCollector) *APIServer {
@@ -141,70 +141,9 @@ func (s *APIServer) SetNodeHistoryHandler(handler func(nodeID string) ([]NodeHis
 	s.nodeHistoryHandler = handler
 }
 
-func (*APIServer) handleSweepService(svc *ServiceStatus) {
-	sweepData, err := parseSweepDetails(svc.Details)
-	if err != nil {
-		log.Printf("Error parsing sweep details: %v", err)
-		return
-	}
-
-	processHosts(sweepData)
-}
-
-// parseSweepDetails unmarshals the sweep details JSON into a map.
-func parseSweepDetails(details []byte) (map[string]interface{}, error) {
-	var sweepData map[string]interface{}
-	if err := json.Unmarshal(details, &sweepData); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal sweep details: %w", err)
-	}
-
-	return sweepData, nil
-}
-
-// processHosts processes the hosts in the sweep data.
-func processHosts(sweepData map[string]interface{}) {
-	hosts, ok := sweepData["hosts"].([]interface{})
-	if !ok {
-		return
-	}
-
-	for _, h := range hosts {
-		host, ok := h.(map[string]interface{})
-		if !ok {
-			continue
-		}
-
-		processICMPStatus(host)
-	}
-}
-
-// processICMPStatus processes the ICMP status for a host.
-func processICMPStatus(host map[string]interface{}) {
-	icmpStatus, ok := host["icmp_status"].(map[string]interface{})
-	if !ok {
-		return
-	}
-
-	// Log ICMP round-trip time if it exists
-	if rt, exists := icmpStatus["round_trip"].(float64); exists {
-		log.Printf("Host %v ICMP RTT: %.2fms",
-			host["host"],
-			float64(rt)/float64(time.Millisecond))
-	}
-
-	// Log the full ICMP status
-	log.Printf("Host %v ICMP status: %+v", host["host"], icmpStatus)
-}
-
 func (s *APIServer) UpdateNodeStatus(nodeID string, status *NodeStatus) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	for _, svc := range status.Services {
-		if svc.Type == "sweep" {
-			s.handleSweepService(&svc)
-		}
-	}
 
 	s.nodes[nodeID] = status
 }
@@ -261,17 +200,32 @@ func (s *APIServer) getSystemStatus(w http.ResponseWriter, _ *http.Request) {
 
 func (s *APIServer) getNodes(w http.ResponseWriter, _ *http.Request) {
 	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// Preallocate the slice with the correct length
 	nodes := make([]*NodeStatus, 0, len(s.nodes))
 
-	for _, node := range s.nodes {
-		log.Printf("Node %s services:", node.NodeID)
-		nodes = append(nodes, node)
+	// Append all map values to the slice
+	for id, node := range s.nodes {
+		// Only include known pollers
+		for _, known := range s.knownPollers {
+			if id == known {
+				nodes = append(nodes, node)
+				break
+			}
+		}
 	}
-	s.mu.RUnlock()
 
+	// Encode and send the response
 	if err := s.encodeJSONResponse(w, nodes); err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	}
+}
+
+func (s *APIServer) SetKnownPollers(knownPollers []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.knownPollers = knownPollers
 }
 
 func (s *APIServer) getNodeByID(nodeID string) (*NodeStatus, bool) {
@@ -297,6 +251,20 @@ func (*APIServer) encodeJSONResponse(w http.ResponseWriter, data interface{}) er
 func (s *APIServer) getNode(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	nodeID := vars["id"]
+
+	// Check if it's a known poller
+	isKnown := false
+	for _, known := range s.knownPollers {
+		if nodeID == known {
+			isKnown = true
+			break
+		}
+	}
+
+	if !isKnown {
+		http.Error(w, "Node not found", http.StatusNotFound)
+		return
+	}
 
 	node, exists := s.getNodeByID(nodeID)
 	if !exists {

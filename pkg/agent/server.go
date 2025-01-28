@@ -29,12 +29,16 @@ type Duration time.Duration
 
 // SweepConfig represents sweep service configuration from JSON.
 type SweepConfig struct {
-	Networks    []string           `json:"networks"`
-	Ports       []int              `json:"ports"`
-	SweepModes  []models.SweepMode `json:"sweep_modes"`
-	Interval    Duration           `json:"interval"`
-	Concurrency int                `json:"concurrency"`
-	Timeout     Duration           `json:"timeout"`
+	MaxTargets    int
+	MaxGoroutines int
+	BatchSize     int
+	MemoryLimit   int64
+	Networks      []string           `json:"networks"`
+	Ports         []int              `json:"ports"`
+	SweepModes    []models.SweepMode `json:"sweep_modes"`
+	Interval      Duration           `json:"interval"`
+	Concurrency   int                `json:"concurrency"`
+	Timeout       Duration           `json:"timeout"`
 }
 
 // CheckerConfig represents the configuration for a checker.

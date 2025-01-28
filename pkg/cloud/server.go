@@ -70,6 +70,7 @@ type Server struct {
 	pollerPatterns []string
 	grpcServer     *grpc.Server
 	metrics        metrics.MetricCollector
+	config         *Config
 }
 
 func NewServer(_ context.Context, config *Config) (*Server, error) {
@@ -114,6 +115,7 @@ func NewServer(_ context.Context, config *Config) (*Server, error) {
 		ShutdownChan:   make(chan struct{}),
 		pollerPatterns: config.PollerPatterns,
 		metrics:        metricsManager,
+		config:         config,
 	}
 
 	// Initialize webhooks
@@ -125,6 +127,11 @@ func NewServer(_ context.Context, config *Config) (*Server, error) {
 // Start implements the lifecycle.Service interface.
 func (s *Server) Start(ctx context.Context) error {
 	log.Printf("Starting cloud service...")
+
+	// Clean up any unknown pollers first
+	if err := s.cleanupUnknownPollers(ctx); err != nil {
+		log.Printf("Warning: Failed to clean up unknown pollers: %v", err)
+	}
 
 	if s.grpcServer != nil {
 		go func() {
@@ -184,6 +191,50 @@ func (s *Server) Stop() error {
 	return nil
 }
 
+func (s *Server) isKnownPoller(pollerID string) bool {
+	// Use the config values directly where needed
+	for _, known := range s.config.KnownPollers {
+		if known == pollerID {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Server) cleanupUnknownPollers(ctx context.Context) error {
+	if len(s.config.KnownPollers) == 0 {
+		return nil // No filtering if no known pollers specified
+	}
+
+	// set a timer on the context to ensure we don't run indefinitely
+	_, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+
+	// Build a query with placeholders for known pollers
+	placeholders := make([]string, len(s.config.KnownPollers))
+
+	args := make([]interface{}, len(s.config.KnownPollers))
+	for i, poller := range s.config.KnownPollers {
+		placeholders[i] = "?"
+		args[i] = poller
+	}
+
+	// Delete all nodes not in known_pollers
+	query := fmt.Sprintf("DELETE FROM nodes WHERE node_id NOT IN (%s)",
+		strings.Join(placeholders, ","))
+
+	result, err := s.db.Exec(query, args...)
+	if err != nil {
+		return fmt.Errorf("failed to cleanup unknown pollers: %w", err)
+	}
+
+	if rows, err := result.RowsAffected(); err == nil && rows > 0 {
+		log.Printf("Cleaned up %d unknown poller(s) from database", rows)
+	}
+
+	return nil
+}
+
 func (s *Server) isValidPoller(pollerID string) bool {
 	for _, pattern := range s.pollerPatterns {
 		if matched, err := regexp.MatchString(pattern, pollerID); err == nil && matched {
@@ -206,7 +257,7 @@ func (s *Server) sendStartupNotification(ctx context.Context) error {
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		NodeID:    "cloud",
 		Details: map[string]any{
-			"version":  "1.0.8",
+			"version":  "1.0.9",
 			"hostname": getHostname(),
 		},
 	}
@@ -297,6 +348,9 @@ func (s *Server) checkPollerHealth(ctx context.Context, pollerID string, thresho
 		isHealthy = false
 	}
 
+	log.Printf("Checking poller health: id=%s lastSeen=%v threshold=%v isHealthy=%v",
+		pollerID, lastSeen.Format(time.RFC3339), threshold.Format(time.RFC3339), isHealthy)
+
 	// Check if the poller has gone offline
 	if lastSeen.Before(threshold) && isHealthy {
 		log.Printf("Poller %s appears to be offline (last seen: %v)",
@@ -347,6 +401,8 @@ func (s *Server) SetAPIServer(apiServer *api.APIServer) {
 	defer s.mu.Unlock()
 
 	s.apiServer = apiServer
+	apiServer.SetKnownPollers(s.config.KnownPollers)
+
 	apiServer.SetNodeHistoryHandler(func(nodeID string) ([]api.NodeHistoryPoint, error) {
 		points, err := s.db.GetNodeHistoryPoints(nodeID, nodeHistoryLimit)
 		if err != nil {
@@ -375,15 +431,33 @@ func (s *Server) SetAPIServer(apiServer *api.APIServer) {
 func (s *Server) checkInitialStates(ctx context.Context) {
 	log.Printf("Checking initial states of all nodes")
 
-	//nolint:rowserrcheck // rows.Close() is deferred
-	rows, err := s.db.Query(`
+	// Construct the WHERE clause with multiple LIKE conditions
+	var likeConditions []string
+	var args []interface{}
+	for _, pattern := range s.pollerPatterns {
+		likeConditions = append(likeConditions, "node_id LIKE ?")
+		args = append(args, pattern)
+	}
+
+	// Base query without WHERE clause
+	query := `
         SELECT node_id, is_healthy, last_seen 
         FROM nodes 
-        WHERE node_id REGEXP ?
-        ORDER BY last_seen DESC
-    `, strings.Join(s.pollerPatterns, "|"))
+    `
+
+	// Add WHERE clause only if there are conditions
+	if len(likeConditions) > 0 {
+		query += fmt.Sprintf("WHERE %s ", strings.Join(likeConditions, " OR "))
+	}
+
+	// Add ORDER BY clause
+	query += "ORDER BY last_seen DESC"
+
+	//nolint:rowserrcheck // rows.Close() is deferred
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		log.Printf("Error querying nodes: %v", err)
+
 		return
 	}
 	defer func(rows *sql.Rows) {
@@ -402,6 +476,7 @@ func (s *Server) checkInitialStates(ctx context.Context) {
 
 		if err := rows.Scan(&nodeID, &isHealthy, &lastSeen); err != nil {
 			log.Printf("Error scanning node row: %v", err)
+
 			continue
 		}
 
@@ -575,39 +650,6 @@ func (s *Server) storeNodeStatus(pollerID string, isHealthy bool, now time.Time)
 	return nil
 }
 
-// handleNodeRecovery processes a node recovery event.
-func (s *Server) handleNodeRecovery(ctx context.Context, pollerID string, apiStatus *api.NodeStatus, now time.Time) {
-	log.Printf("Node %s has recovered, last seen at %s", pollerID, now.Format(time.RFC3339))
-
-	lastDownTime := s.getLastDowntime(pollerID)
-
-	downtimeDuration := statusUnknown
-
-	if !lastDownTime.IsZero() {
-		downtimeDuration = now.Sub(lastDownTime).String()
-	}
-
-	alert := &alerts.WebhookAlert{
-		Level:     alerts.Info,
-		Title:     "Node Recovered",
-		Message:   fmt.Sprintf("Node '%s' is back online", pollerID),
-		NodeID:    pollerID,
-		Timestamp: now.UTC().Format(time.RFC3339),
-		Details: map[string]any{
-			"hostname":      getHostname(),
-			"downtime":      downtimeDuration,
-			"recovery_time": now.Format(time.RFC3339),
-			"services":      len(apiStatus.Services),
-		},
-	}
-
-	err := s.sendAlert(ctx, alert)
-	if err != nil {
-		log.Printf("Error sending recovery alert: %v", err)
-		return
-	}
-}
-
 func (s *Server) updateNodeState(ctx context.Context, pollerID string, apiStatus *api.NodeStatus, wasHealthy bool, now time.Time) error {
 	if err := s.storeNodeStatus(pollerID, apiStatus.IsHealthy, now); err != nil {
 		return err
@@ -671,17 +713,23 @@ func (s *Server) updateNodeDownStatus(nodeID string, lastSeen time.Time) error {
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer func(tx *sql.Tx) {
-		err := tx.Rollback()
-		if err != nil {
-			log.Printf("Error rolling back transaction: %v", err)
+
+	// Create a flag to track if we need to rollback
+	needsRollback := true
+	defer func() {
+		if needsRollback {
+			if rbErr := tx.Rollback(); rbErr != nil && !errors.Is(rbErr, sql.ErrTxDone) {
+				log.Printf("Error rolling back transaction: %v", rbErr)
+			}
 		}
-	}(tx)
+	}()
 
 	if err := s.performNodeUpdate(tx, nodeID, lastSeen); err != nil {
 		return err
 	}
 
+	// Mark that we don't need rollback before committing
+	needsRollback = false
 	return tx.Commit()
 }
 
@@ -774,6 +822,62 @@ func (s *Server) periodicCleanup(_ context.Context) {
 			}
 		}
 	}
+}
+
+// checkNeverReportedNodes checks for and alerts on nodes that exist but have never reported
+func (s *Server) checkNeverReportedNodes(ctx context.Context) error {
+	var conditions []string
+	var args []interface{}
+
+	// Build LIKE conditions for each pattern
+	for _, pattern := range s.pollerPatterns {
+		conditions = append(conditions, "node_id LIKE ?")
+		args = append(args, pattern)
+	}
+
+	// Construct query with LIKE conditions
+	query := `SELECT node_id FROM nodes WHERE last_seen = ''`
+	if len(conditions) > 0 {
+		query += " AND (" + strings.Join(conditions, " OR ") + ")"
+	}
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return fmt.Errorf("error querying unreported nodes: %w", err)
+	}
+	defer rows.Close()
+
+	var unreportedNodes []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			log.Printf("Error scanning node ID: %v", err)
+			continue
+		}
+		unreportedNodes = append(unreportedNodes, id)
+	}
+
+	if len(unreportedNodes) > 0 {
+		alert := &alerts.WebhookAlert{
+			Level:     alerts.Warning,
+			Title:     "Pollers Never Reported",
+			Message:   fmt.Sprintf("%d poller(s) have not reported since startup", len(unreportedNodes)),
+			NodeID:    "cloud",
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Details: map[string]any{
+				"hostname":     getHostname(),
+				"poller_ids":   unreportedNodes,
+				"poller_count": len(unreportedNodes),
+			},
+		}
+
+		if err := s.sendAlert(ctx, alert); err != nil {
+			log.Printf("Error sending unreported nodes alert: %v", err)
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (s *Server) checkNeverReportedPollers(ctx context.Context, _ *Config) {
@@ -881,21 +985,34 @@ func LoadConfig(path string) (Config, error) {
 }
 
 func (s *Server) MonitorPollers(ctx context.Context) {
-	ticker := time.NewTicker(pollerTimeout)
+	ticker := time.NewTicker(30 * time.Second) // Check every 30 seconds
 	defer ticker.Stop()
+
+	cleanupTicker := time.NewTicker(24 * time.Hour)
+	defer cleanupTicker.Stop()
+
+	// Initial checks
+	if err := s.checkNodeStates(ctx); err != nil {
+		log.Printf("Initial state check failed: %v", err)
+	}
+	if err := s.checkNeverReportedNodes(ctx); err != nil {
+		log.Printf("Initial never-reported check failed: %v", err)
+	}
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-s.ShutdownChan:
+			return
 		case <-ticker.C:
-			err := s.checkPollers(ctx)
-			if err != nil {
-				log.Printf("Error checking pollers: %v", err)
-				return
+			if err := s.checkNodeStates(ctx); err != nil {
+				log.Printf("Node state check failed: %v", err)
 			}
-		case <-time.After(oneDay):
-			// Daily cleanup of old data
+			if err := s.checkNeverReportedNodes(ctx); err != nil {
+				log.Printf("Never-reported check failed: %v", err)
+			}
+		case <-cleanupTicker.C:
 			if err := s.db.CleanOldData(oneWeek); err != nil {
 				log.Printf("Error cleaning old data: %v", err)
 			}
@@ -903,10 +1020,219 @@ func (s *Server) MonitorPollers(ctx context.Context) {
 	}
 }
 
+func (s *Server) checkNodeStates(ctx context.Context) error {
+	// Get all active nodes
+	var conditions []string
+	var args []interface{}
+
+	// Build LIKE conditions for each pattern
+	for _, pattern := range s.pollerPatterns {
+		conditions = append(conditions, "node_id LIKE ?")
+		args = append(args, pattern)
+	}
+
+	// Construct query with LIKE conditions
+	query := `SELECT node_id, last_seen, is_healthy FROM nodes`
+	if len(conditions) > 0 {
+		query += " WHERE " + strings.Join(conditions, " OR ")
+	}
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return fmt.Errorf("failed to query nodes: %w", err)
+	}
+	defer rows.Close()
+
+	threshold := time.Now().Add(-s.alertThreshold)
+
+	for rows.Next() {
+		var nodeID string
+		var lastSeen time.Time
+		var isHealthy bool
+
+		if err := rows.Scan(&nodeID, &lastSeen, &isHealthy); err != nil {
+			log.Printf("Error scanning node row: %v", err)
+			continue
+		}
+
+		if err := s.evaluateNodeHealth(ctx, nodeID, lastSeen, isHealthy, threshold); err != nil {
+			log.Printf("Error evaluating node %s health: %v", nodeID, err)
+		}
+	}
+
+	return rows.Err()
+}
+
+func (s *Server) evaluateNodeHealth(ctx context.Context, nodeID string, lastSeen time.Time, isHealthy bool, threshold time.Time) error {
+	log.Printf("Evaluating node health: id=%s lastSeen=%v isHealthy=%v threshold=%v",
+		nodeID, lastSeen.Format(time.RFC3339), isHealthy, threshold.Format(time.RFC3339))
+
+	// Case 1: Node was healthy but hasn't been seen recently
+	if isHealthy && lastSeen.Before(threshold) {
+		duration := time.Since(lastSeen).Round(time.Second)
+		log.Printf("Node %s appears to be offline (last seen: %v ago)", nodeID, duration)
+		return s.handleNodeDown(ctx, nodeID, lastSeen)
+	}
+
+	// Case 2: Node is healthy and reporting within threshold
+	if isHealthy && !lastSeen.Before(threshold) {
+		// Everything is fine, no action needed
+		return nil
+	}
+
+	// Case 3: Node is marked unhealthy but has reported recently
+	if !isHealthy && !lastSeen.Before(threshold) {
+		log.Printf("Node %s may have recovered (last seen: %v ago)",
+			nodeID, time.Since(lastSeen).Round(time.Second))
+		// Let the next status report handle the recovery
+		return nil
+	}
+
+	return nil
+}
+
+func (s *Server) handleNodeDown(ctx context.Context, nodeID string, lastSeen time.Time) error {
+	if err := s.updateNodeStatus(nodeID, false, lastSeen); err != nil {
+		return fmt.Errorf("failed to update node status: %w", err)
+	}
+
+	// Send alert
+	alert := &alerts.WebhookAlert{
+		Level:     alerts.Error,
+		Title:     "Node Offline",
+		Message:   fmt.Sprintf("Node '%s' is offline", nodeID),
+		NodeID:    nodeID,
+		Timestamp: lastSeen.UTC().Format(time.RFC3339),
+		Details: map[string]any{
+			"hostname": getHostname(),
+			"duration": time.Since(lastSeen).String(),
+		},
+	}
+
+	if err := s.sendAlert(ctx, alert); err != nil {
+		log.Printf("Failed to send down alert: %v", err)
+	}
+
+	// Update API state
+	if s.apiServer != nil {
+		s.apiServer.UpdateNodeStatus(nodeID, &api.NodeStatus{
+			NodeID:     nodeID,
+			IsHealthy:  false,
+			LastUpdate: lastSeen,
+		})
+	}
+
+	return nil
+}
+func (s *Server) updateNodeStatus(nodeID string, isHealthy bool, timestamp time.Time) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+
+	needsRollback := true
+	defer func() {
+		if needsRollback {
+			if rbErr := tx.Rollback(); rbErr != nil && !errors.Is(rbErr, sql.ErrTxDone) {
+				log.Printf("Error rolling back transaction: %v", rbErr)
+			}
+		}
+	}()
+
+	// Update node status
+	if err := s.updateNodeInTx(tx, nodeID, isHealthy, timestamp); err != nil {
+		return err
+	}
+
+	// Add history entry
+	if _, err := tx.Exec(`
+        INSERT INTO node_history (node_id, timestamp, is_healthy)
+        VALUES (?, ?, ?)
+    `, nodeID, timestamp, isHealthy); err != nil {
+		return fmt.Errorf("failed to insert history: %w", err)
+	}
+
+	needsRollback = false
+	return tx.Commit()
+}
+
+func (s *Server) updateNodeInTx(tx *sql.Tx, nodeID string, isHealthy bool, timestamp time.Time) error {
+	// Check if node exists
+	var exists bool
+	if err := tx.QueryRow("SELECT EXISTS(SELECT 1 FROM nodes WHERE node_id = ?)", nodeID).Scan(&exists); err != nil {
+		return fmt.Errorf("failed to check node existence: %w", err)
+	}
+
+	if exists {
+		_, err := tx.Exec(`
+            UPDATE nodes 
+            SET is_healthy = ?,
+                last_seen = ?
+            WHERE node_id = ?
+        `, isHealthy, timestamp, nodeID)
+		return err
+	}
+
+	// Insert new node
+	_, err := tx.Exec(`
+        INSERT INTO nodes (node_id, first_seen, last_seen, is_healthy)
+        VALUES (?, ?, ?, ?)
+    `, nodeID, timestamp, timestamp, isHealthy)
+	return err
+}
+
+func (s *Server) handleNodeRecovery(ctx context.Context, nodeID string, apiStatus *api.NodeStatus, timestamp time.Time) {
+	lastDownTime := s.getLastDowntime(nodeID)
+	downtime := "unknown"
+	if !lastDownTime.IsZero() {
+		downtime = timestamp.Sub(lastDownTime).String()
+	}
+
+	alert := &alerts.WebhookAlert{
+		Level:     alerts.Info,
+		Title:     "Node Recovered",
+		Message:   fmt.Sprintf("Node '%s' is back online", nodeID),
+		NodeID:    nodeID,
+		Timestamp: timestamp.UTC().Format(time.RFC3339),
+		Details: map[string]any{
+			"hostname":      getHostname(),
+			"downtime":      downtime,
+			"recovery_time": timestamp.Format(time.RFC3339),
+			"services":      len(apiStatus.Services),
+		},
+	}
+
+	if err := s.sendAlert(ctx, alert); err != nil {
+		log.Printf("Failed to send recovery alert: %v", err)
+	}
+}
+
+func (s *Server) sendAlert(ctx context.Context, alert *alerts.WebhookAlert) error {
+	var errs []error
+
+	for _, webhook := range s.webhooks {
+		if err := webhook.Alert(ctx, alert); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("failed to send alerts: %v", errs)
+	}
+
+	return nil
+}
+
 // ReportStatus implements the PollerServiceServer interface. It processes status reports from pollers.
 func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusRequest) (*proto.PollerStatusResponse, error) {
 	if req.PollerId == "" {
 		return nil, errEmptyPollerID
+	}
+
+	// Add check for known pollers
+	if !s.isKnownPoller(req.PollerId) {
+		log.Printf("Ignoring status report from unknown poller: %s", req.PollerId)
+		return &proto.PollerStatusResponse{Received: true}, nil
 	}
 
 	now := time.Unix(req.Timestamp, 0)
@@ -981,16 +1307,6 @@ func (s *Server) getLastDowntime(nodeID string) time.Time {
 	}
 
 	return downtime
-}
-
-func (s *Server) sendAlert(ctx context.Context, alert *alerts.WebhookAlert) error {
-	for _, webhook := range s.webhooks {
-		if err := webhook.Alert(ctx, alert); err != nil {
-			log.Printf("Error sending webhook alert: %v", err)
-		}
-	}
-
-	return nil
 }
 
 func getHostname() string {

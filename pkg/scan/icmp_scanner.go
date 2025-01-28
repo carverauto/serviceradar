@@ -38,6 +38,7 @@ type ICMPScanner struct {
 	template    []byte
 	responses   map[string]*pingResponse
 	mu          sync.RWMutex
+	listenerWg  sync.WaitGroup
 }
 
 type pingResponse struct {
@@ -232,9 +233,18 @@ func (s *ICMPScanner) listenForReplies(ctx context.Context) {
 		log.Printf("Failed to start ICMP listener: %v", err)
 		return
 	}
-	defer s.closeConn(conn)
+
+	s.listenerWg.Add(1)
+	defer func() {
+		s.closeConn(conn)
+		s.listenerWg.Done()
+	}()
 
 	packet := make([]byte, maxPacketSize)
+
+	// Create a timeout timer for idle shutdown
+	idleTimeout := time.NewTimer(s.timeout * 2)
+	defer idleTimeout.Stop()
 
 	for {
 		select {
@@ -242,8 +252,31 @@ func (s *ICMPScanner) listenForReplies(ctx context.Context) {
 			return
 		case <-s.done:
 			return
+		case <-idleTimeout.C:
+			// If we've been idle too long, shut down
+			log.Printf("ICMP listener idle timeout, shutting down")
+			return
 		default:
-			s.handlePacket(conn, packet)
+			// Set read deadline to ensure we don't block forever
+			if err := conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond)); err != nil {
+				continue
+			}
+
+			n, peer, err := conn.ReadFrom(packet)
+			if err != nil {
+				// Handle timeout by continuing
+				var netErr net.Error
+				if errors.As(err, &netErr) && netErr.Timeout() {
+					continue
+				}
+				log.Printf("Error reading ICMP packet: %v", err)
+				continue
+			}
+
+			// Reset idle timeout since we got a packet
+			idleTimeout.Reset(s.timeout * 2)
+
+			s.processICMPMessage(packet[:n], peer)
 		}
 	}
 }
@@ -304,14 +337,29 @@ func (s *ICMPScanner) updateResponse(ipStr string) {
 }
 
 func (s *ICMPScanner) Stop() error {
+	// Signal shutdown
 	close(s.done)
+
+	// Wait for listener with timeout
+	done := make(chan struct{})
+	go func() {
+		s.listenerWg.Wait()
+		close(done)
+	}()
+
+	// Wait with timeout
+	select {
+	case <-done:
+		// Normal shutdown
+	case <-time.After(5 * time.Second):
+		log.Printf("Warning: ICMP listener shutdown timed out")
+	}
 
 	if s.rawSocket != 0 {
 		if err := syscall.Close(s.rawSocket); err != nil {
 			return fmt.Errorf("failed to close raw socket: %w", err)
 		}
-
-		s.rawSocket = 0 // Mark the socket as closed
+		s.rawSocket = 0
 	}
 
 	return nil
