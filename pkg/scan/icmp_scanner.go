@@ -55,15 +55,6 @@ func NewICMPScanner(timeout time.Duration, concurrency, count int) (*ICMPScanner
 		return nil, errInvalidParameters
 	}
 
-	// Set default values if necessary
-	if count <= 0 {
-		count = 3
-	}
-
-	if concurrency <= 0 {
-		concurrency = 1
-	}
-
 	s := &ICMPScanner{
 		timeout:     timeout,
 		concurrency: concurrency,
