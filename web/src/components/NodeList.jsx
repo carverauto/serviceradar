@@ -17,7 +17,6 @@ function NodeList() {
   const [nodeHistory, setNodeHistory] = useState({});
   const navigate = useNavigate();
 
-
   const sortNodesByName = useCallback((a, b) => {
     const aMatch = a.node_id.match(/(\d+)$/);
     const bMatch = b.node_id.match(/(\d+)$/);
@@ -118,50 +117,68 @@ function NodeList() {
     setSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
   }, []);
 
-  const getSparklineData = useCallback((nodeId) => {
-    const history = nodeHistory[nodeId] || [];
-    return history.map(point => ({
-      value: point.is_healthy ? 1 : 0,
-      timestamp: new Date(point.timestamp).getTime()
-    }));
-  }, [nodeHistory]);
+  const getSparklineData = useCallback(
+      (nodeId) => {
+        const history = nodeHistory[nodeId] || [];
+        return history.map((point) => ({
+          value: point.is_healthy ? 1 : 0,
+          timestamp: new Date(point.timestamp).getTime(),
+        }));
+      },
+      [nodeHistory]
+  );
 
   const ServiceStatus = ({ service, nodeId, onServiceClick }) => (
       <div
-          className="flex items-center gap-2 bg-gray-50 rounded p-2 cursor-pointer hover:bg-gray-100 transition-colors"
+          className="flex items-center gap-2 bg-gray-50 dark:bg-gray-700 rounded p-2 cursor-pointer
+                 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
           onClick={() => onServiceClick(nodeId, service.name)}
       >
         <div className="flex items-center gap-1">
-          <span className={`w-1.5 h-1.5 rounded-full ${service.available ? 'bg-green-500' : 'bg-red-500'}`} />
-          <span className="font-medium">{service.name || 'unknown'}</span>
-          <span className="text-gray-500">({service.type})</span>
+        <span
+            className={`w-1.5 h-1.5 rounded-full ${
+                service.available ? 'bg-green-500' : 'bg-red-500'
+            }`}
+        />
+          <span className="font-medium text-gray-800 dark:text-gray-100">
+          {service.name || 'unknown'}
+        </span>
+          <span className="text-gray-500 dark:text-gray-400">
+          ({service.type})
+        </span>
         </div>
         <ServiceSparkline
             nodeId={nodeId}
             serviceName={service.name}
-            metrics={nodeHistory[nodeId]?.filter(m => m.service_name === service.name) || []}
+            metrics={
+                nodeHistory[nodeId]?.filter((m) => m.service_name === service.name) ||
+                []
+            }
         />
       </div>
   );
-
 
   const renderGridView = () => (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {currentNodes.map((node) => (
             <div
                 key={node.node_id}
-                className="bg-white rounded-lg shadow p-4"
+                className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 transition-colors"
             >
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
-                  <div className={`w-2 h-2 rounded-full ${
-                      node.is_healthy ? 'bg-green-500' : 'bg-red-500'
-                  }`} />
-                  <h3 className="font-medium text-sm">{node.node_id}</h3>
+                  <div
+                      className={`w-2 h-2 rounded-full ${
+                          node.is_healthy ? 'bg-green-500' : 'bg-red-500'
+                      }`}
+                  />
+                  <h3 className="font-medium text-sm text-gray-800 dark:text-gray-100">
+                    {node.node_id}
+                  </h3>
                 </div>
-                <span className="text-xs text-gray-500">
-                            {new Date(node.last_update).toLocaleString()}
-                        </span>
+                <span className="text-xs text-gray-500 dark:text-gray-400">
+              {new Date(node.last_update).toLocaleString()}
+            </span>
               </div>
 
               <div className="flex flex-col gap-2">
@@ -186,26 +203,53 @@ function NodeList() {
   );
 
   const renderTableView = () => (
-      <div className="bg-white rounded-lg shadow overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-x-auto transition-colors">
+        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+          <thead className="bg-gray-50 dark:bg-gray-700">
           <tr>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-16">Status</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-48">Node</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Services</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-64">ICMP Response Time</th>
-            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-48">Last Update</th>
+            <th
+                className="px-6 py-3 text-left text-xs font-medium
+                         text-gray-500 dark:text-gray-300 uppercase tracking-wider w-16"
+            >
+              Status
+            </th>
+            <th
+                className="px-6 py-3 text-left text-xs font-medium
+                         text-gray-500 dark:text-gray-300 uppercase tracking-wider w-48"
+            >
+              Node
+            </th>
+            <th
+                className="px-6 py-3 text-left text-xs font-medium
+                         text-gray-500 dark:text-gray-300 uppercase tracking-wider"
+            >
+              Services
+            </th>
+            <th
+                className="px-6 py-3 text-left text-xs font-medium
+                         text-gray-500 dark:text-gray-300 uppercase tracking-wider w-64"
+            >
+              ICMP Response Time
+            </th>
+            <th
+                className="px-6 py-3 text-left text-xs font-medium
+                         text-gray-500 dark:text-gray-300 uppercase tracking-wider w-48"
+            >
+              Last Update
+            </th>
           </tr>
           </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
+          <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
           {currentNodes.map((node) => (
               <tr key={node.node_id}>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  <div className={`w-2 h-2 rounded-full ${
-                      node.is_healthy ? 'bg-green-500' : 'bg-red-500'
-                  }`} />
+                  <div
+                      className={`w-2 h-2 rounded-full ${
+                          node.is_healthy ? 'bg-green-500' : 'bg-red-500'
+                      }`}
+                  />
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-800 dark:text-gray-100">
                   {node.node_id}
                 </td>
                 <td className="px-6 py-4">
@@ -213,33 +257,50 @@ function NodeList() {
                     {node.services?.map((service, idx) => (
                         <div
                             key={`${service.name}-${idx}`}
-                            className="inline-flex items-center gap-1 cursor-pointer hover:bg-gray-100 p-1 rounded transition-colors"
-                            onClick={() => handleServiceClick(node.node_id, service.name)}
+                            className="inline-flex items-center gap-1 cursor-pointer
+                                 hover:bg-gray-100 dark:hover:bg-gray-700 p-1 rounded transition-colors"
+                            onClick={() =>
+                                handleServiceClick(node.node_id, service.name)
+                            }
                         >
-                                            <span className={`w-1.5 h-1.5 rounded-full ${
-                                                service.available ? 'bg-green-500' : 'bg-red-500'
-                                            }`}/>
-                          <span className="text-sm font-medium">{service.name}</span>
+                      <span
+                          className={`w-1.5 h-1.5 rounded-full ${
+                              service.available ? 'bg-green-500' : 'bg-red-500'
+                          }`}
+                      />
+                          <span className="text-sm font-medium text-gray-800 dark:text-gray-100">
+                        {service.name}
+                      </span>
                         </div>
                     ))}
                   </div>
                 </td>
                 <td className="px-6 py-4">
-                  {node.services?.filter(service => service.type === 'icmp').map((service, idx) => (
-                      <div key={`${service.name}-${idx}`} className="flex items-center justify-between gap-2">
-                        <ServiceSparkline
-                            nodeId={node.node_id}
-                            serviceName={service.name}
-                            metrics={nodeHistory[node.node_id]?.filter(m =>
-                                m.service_name === service.name &&
-                                m.response_time > 0 &&
-                                new Date(m.timestamp).getTime() > 0
-                            ) || []}
-                        />
-                      </div>
-                  ))}
+                  {node.services
+                      ?.filter((service) => service.type === 'icmp')
+                      .map((service, idx) => (
+                          <div
+                              key={`${service.name}-${idx}`}
+                              className="flex items-center justify-between gap-2"
+                          >
+                            <ServiceSparkline
+                                nodeId={node.node_id}
+                                serviceName={service.name}
+                                metrics={
+                                    nodeHistory[node.node_id]?.filter(
+                                        (m) =>
+                                            m.service_name === service.name &&
+                                            m.response_time > 0 &&
+                                            new Date(m.timestamp).getTime() > 0
+                                    ) || []
+                                }
+                            />
+                          </div>
+                      ))}
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                <td className="px-6 py-4 whitespace-nowrap text-sm
+                             text-gray-500 dark:text-gray-400"
+                >
                   {new Date(node.last_update).toLocaleString()}
                 </td>
               </tr>
@@ -250,21 +311,27 @@ function NodeList() {
   );
 
   return (
-      <div className="space-y-4">
+      <div className="space-y-4 transition-colors text-gray-800 dark:text-gray-100">
+        {/* Header row */}
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-bold">Nodes ({sortedNodes.length})</h2>
           <div className="flex gap-4">
             <input
                 type="text"
                 placeholder="Search nodes..."
-                className="px-3 py-1 border rounded"
+                className="px-3 py-1 border rounded text-gray-800 dark:text-gray-200
+                       dark:bg-gray-800 dark:border-gray-600
+                       placeholder-gray-500 dark:placeholder-gray-400
+                       focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
             />
             <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value)}
-                className="px-3 py-1 border rounded"
+                className="px-3 py-1 border rounded text-gray-800 dark:text-gray-200
+                       dark:bg-gray-800 dark:border-gray-600
+                       focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors"
             >
               <option value="name">Sort by Name</option>
               <option value="status">Sort by Status</option>
@@ -272,23 +339,29 @@ function NodeList() {
             </select>
             <button
                 onClick={toggleSortOrder}
-                className="px-3 py-1 border rounded"
+                className="px-3 py-1 border rounded text-gray-800 dark:text-gray-200
+                       dark:bg-gray-800 dark:border-gray-600
+                       hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
             >
               {sortOrder === 'asc' ? '↑' : '↓'}
             </button>
             <div className="flex gap-2">
               <button
                   onClick={() => setViewMode('grid')}
-                  className={`px-3 py-1 rounded ${
-                      viewMode === 'grid' ? 'bg-blue-500 text-white' : 'bg-gray-100'
+                  className={`px-3 py-1 rounded transition-colors ${
+                      viewMode === 'grid'
+                          ? 'bg-blue-500 text-white'
+                          : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-100'
                   }`}
               >
                 Grid
               </button>
               <button
                   onClick={() => setViewMode('table')}
-                  className={`px-3 py-1 rounded ${
-                      viewMode === 'table' ? 'bg-blue-500 text-white' : 'bg-gray-100'
+                  className={`px-3 py-1 rounded transition-colors ${
+                      viewMode === 'table'
+                          ? 'bg-blue-500 text-white'
+                          : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-100'
                   }`}
               >
                 Table
@@ -297,17 +370,21 @@ function NodeList() {
           </div>
         </div>
 
+        {/* Main content */}
         {viewMode === 'grid' && renderGridView()}
         {viewMode === 'table' && renderTableView()}
 
+        {/* Pagination */}
         {pageCount > 1 && (
             <div className="flex justify-center gap-2 mt-4">
               {[...Array(pageCount)].map((_, i) => (
                   <button
                       key={i}
                       onClick={() => setCurrentPage(i + 1)}
-                      className={`px-3 py-1 rounded ${
-                          currentPage === i + 1 ? 'bg-blue-500 text-white' : 'bg-gray-100'
+                      className={`px-3 py-1 rounded transition-colors ${
+                          currentPage === i + 1
+                              ? 'bg-blue-500 text-white'
+                              : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-100'
                       }`}
                   >
                     {i + 1}

@@ -1,9 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import {
+    LineChart,
+    Line,
+    XAxis,
+    YAxis,
+    CartesianGrid,
+    Tooltip,
+    Legend,
+    ResponsiveContainer,
+} from 'recharts';
 import NetworkSweepView from './NetworkSweepView';
 import { PingStatus } from './NetworkStatus';
-
 
 const ServiceDashboard = () => {
     const { nodeId, serviceName } = useParams();
@@ -23,13 +31,13 @@ const ServiceDashboard = () => {
                 const nodes = await nodesResponse.json();
 
                 // Find the specific node
-                const node = nodes.find(n => n.node_id === nodeId);
+                const node = nodes.find((n) => n.node_id === nodeId);
                 if (!node) {
                     throw new Error('Node not found');
                 }
 
                 // Find the specific service
-                const service = node.services?.find(s => s.name === serviceName);
+                const service = node.services?.find((s) => s.name === serviceName);
                 if (!service) {
                     throw new Error('Service not found');
                 }
@@ -40,7 +48,9 @@ const ServiceDashboard = () => {
                 const metricsResponse = await fetch(`/api/nodes/${nodeId}/metrics`);
                 if (metricsResponse.ok) {
                     const metrics = await metricsResponse.json();
-                    const serviceMetrics = metrics.filter(m => m.service_name === serviceName);
+                    const serviceMetrics = metrics.filter(
+                        (m) => m.service_name === serviceName
+                    );
                     setMetricsData(serviceMetrics);
                 }
 
@@ -62,11 +72,13 @@ const ServiceDashboard = () => {
         const ranges = {
             '1h': 60 * 60 * 1000,
             '6h': 6 * 60 * 60 * 1000,
-            '24h': 24 * 60 * 60 * 1000
+            '24h': 24 * 60 * 60 * 1000,
         };
 
         const timeLimit = now - ranges[range];
-        return data.filter(point => new Date(point.timestamp).getTime() >= timeLimit);
+        return data.filter(
+            (point) => new Date(point.timestamp).getTime() >= timeLimit
+        );
     };
 
     const renderMetricsChart = () => {
@@ -74,26 +86,28 @@ const ServiceDashboard = () => {
 
         // Convert metrics data for the chart and filter by time range
         const chartData = filterDataByTimeRange(
-            metricsData.map(metric => ({
+            metricsData.map((metric) => ({
                 timestamp: new Date(metric.timestamp).getTime(),
-                response_time: metric.response_time / 1000000, // Convert to milliseconds
+                response_time: metric.response_time / 1000000, // Convert nanoseconds to ms
             })),
             selectedTimeRange
         );
 
         return (
-            <div className="bg-white rounded-lg shadow p-6">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 transition-colors">
                 <div className="flex justify-between items-center mb-4">
-                    <h3 className="text-lg font-semibold">Response Time</h3>
+                    <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100">
+                        Response Time
+                    </h3>
                     <div className="flex gap-2">
-                        {['1h', '6h', '24h'].map(range => (
+                        {['1h', '6h', '24h'].map((range) => (
                             <button
                                 key={range}
                                 onClick={() => setSelectedTimeRange(range)}
-                                className={`px-3 py-1 rounded ${
+                                className={`px-3 py-1 rounded transition-colors ${
                                     selectedTimeRange === range
                                         ? 'bg-blue-500 text-white'
-                                        : 'bg-gray-100'
+                                        : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-100'
                                 }`}
                             >
                                 {range}
@@ -111,10 +125,7 @@ const ServiceDashboard = () => {
                                 domain={['auto', 'auto']}
                                 tickFormatter={(ts) => new Date(ts).toLocaleTimeString()}
                             />
-                            <YAxis
-                                unit="ms"
-                                domain={['auto', 'auto']}
-                            />
+                            <YAxis unit="ms" domain={['auto', 'auto']} />
                             <Tooltip
                                 labelFormatter={(ts) => new Date(ts).toLocaleString()}
                                 formatter={(value) => [`${value.toFixed(2)} ms`, 'Response Time']}
@@ -140,19 +151,17 @@ const ServiceDashboard = () => {
         // Handle sweep service type
         if (serviceData.type === 'sweep') {
             return (
-                <NetworkSweepView
-                    nodeId={nodeId}
-                    service={serviceData}
-                    standalone={true}
-                />
+                <NetworkSweepView nodeId={nodeId} service={serviceData} standalone />
             );
         }
 
         // Handle ICMP service type
         if (serviceData.type === 'icmp') {
             return (
-                <div className="bg-white rounded-lg shadow p-6">
-                    <h3 className="text-lg font-semibold mb-4">ICMP Status</h3>
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 transition-colors">
+                    <h3 className="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-100">
+                        ICMP Status
+                    </h3>
                     <PingStatus details={serviceData.message} />
                 </div>
             );
@@ -161,9 +170,10 @@ const ServiceDashboard = () => {
         // Handle other service types with their details
         let details;
         try {
-            details = typeof serviceData.details === 'string'
-                ? JSON.parse(serviceData.details)
-                : serviceData.details;
+            details =
+                typeof serviceData.details === 'string'
+                    ? JSON.parse(serviceData.details)
+                    : serviceData.details;
         } catch (e) {
             console.error('Error parsing service details:', e);
             return null;
@@ -176,15 +186,23 @@ const ServiceDashboard = () => {
                 {Object.entries(details)
                     .filter(([key]) => key !== 'history')
                     .map(([key, value]) => (
-                        <div key={key} className="bg-white rounded-lg shadow p-6">
-                            <h3 className="text-lg font-semibold mb-2">
-                                {key.split('_').map(word =>
-                                    word.charAt(0).toUpperCase() + word.slice(1)
-                                ).join(' ')}
+                        <div
+                            key={key}
+                            className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 transition-colors"
+                        >
+                            <h3 className="text-lg font-semibold mb-2 text-gray-800 dark:text-gray-100">
+                                {key
+                                    .split('_')
+                                    .map(
+                                        (word) => word.charAt(0).toUpperCase() + word.slice(1)
+                                    )
+                                    .join(' ')}
                             </h3>
-                            <div className="text-lg break-all">
+                            <div className="text-lg break-all text-gray-700 dark:text-gray-100">
                                 {typeof value === 'boolean'
-                                    ? (value ? 'Yes' : 'No')
+                                    ? value
+                                        ? 'Yes'
+                                        : 'No'
                                     : value}
                             </div>
                         </div>
@@ -196,7 +214,9 @@ const ServiceDashboard = () => {
     if (loading) {
         return (
             <div className="flex justify-center items-center h-64">
-                <div className="text-lg">Loading...</div>
+                <div className="text-lg text-gray-800 dark:text-gray-100 transition-colors">
+                    Loading...
+                </div>
             </div>
         );
     }
@@ -204,35 +224,42 @@ const ServiceDashboard = () => {
     if (error) {
         return (
             <div className="flex justify-center items-center h-64">
-                <div className="text-red-500 text-lg">{error}</div>
+                <div className="text-red-500 dark:text-red-400 text-lg transition-colors">
+                    {error}
+                </div>
             </div>
         );
     }
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-6 transition-colors">
             {/* Header */}
             <div className="flex justify-between items-center">
-                <h2 className="text-2xl font-bold">
+                <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100">
                     {serviceName} Service Status
                 </h2>
                 <button
                     onClick={() => navigate('/nodes')}
-                    className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded"
+                    className="px-4 py-2 bg-gray-100 dark:bg-gray-700 dark:text-gray-100
+                     hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
                 >
                     Back to Nodes
                 </button>
             </div>
 
             {/* Main Status */}
-            <div className="bg-white rounded-lg shadow p-6">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 transition-colors">
                 <div className="flex items-center justify-between">
-                    <h3 className="text-lg font-semibold">Service Status</h3>
-                    <div className={`px-3 py-1 rounded ${
-                        serviceData?.available
-                            ? 'bg-green-100 text-green-800'
-                            : 'bg-red-100 text-red-800'
-                    }`}>
+                    <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100">
+                        Service Status
+                    </h3>
+                    <div
+                        className={`px-3 py-1 rounded transition-colors ${
+                            serviceData?.available
+                                ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100'
+                                : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100'
+                        }`}
+                    >
                         {serviceData?.available ? 'Online' : 'Offline'}
                     </div>
                 </div>

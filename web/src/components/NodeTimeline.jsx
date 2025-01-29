@@ -1,5 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import {
+    LineChart,
+    Line,
+    XAxis,
+    YAxis,
+    CartesianGrid,
+    Tooltip,
+    ResponsiveContainer,
+} from 'recharts';
 
 const NodeTimeline = ({ nodeId }) => {
     const [availabilityData, setAvailabilityData] = useState([]);
@@ -14,10 +22,10 @@ const NodeTimeline = ({ nodeId }) => {
                 const data = await response.json();
 
                 // Transform the history data for the chart
-                const timelineData = data.map(point => ({
+                const timelineData = data.map((point) => ({
                     timestamp: new Date(point.timestamp).getTime(),
                     status: point.is_healthy ? 1 : 0,
-                    tooltipTime: new Date(point.timestamp).toLocaleString()
+                    tooltipTime: new Date(point.timestamp).toLocaleString(),
                 }));
 
                 setAvailabilityData(timelineData);
@@ -39,9 +47,11 @@ const NodeTimeline = ({ nodeId }) => {
 
         const data = payload[0].payload;
         return (
-            <div className="bg-white p-4 rounded shadow-lg border">
+            <div className="bg-white dark:bg-gray-700 p-4 rounded shadow-lg border dark:border-gray-600 dark:text-gray-100">
                 <p className="text-sm font-semibold">{data.tooltipTime}</p>
-                <p className="text-sm">Status: {data.status === 1 ? 'Online' : 'Offline'}</p>
+                <p className="text-sm">
+                    Status: {data.status === 1 ? 'Online' : 'Offline'}
+                </p>
             </div>
         );
     };
@@ -55,8 +65,10 @@ const NodeTimeline = ({ nodeId }) => {
     }
 
     return (
-        <div className="bg-white rounded-lg shadow p-4">
-            <h3 className="text-lg font-semibold mb-4">Node Availability Timeline</h3>
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 transition-colors">
+            <h3 className="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-100">
+                Node Availability Timeline
+            </h3>
             <div className="h-48">
                 <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={availabilityData}>
@@ -70,7 +82,7 @@ const NodeTimeline = ({ nodeId }) => {
                         <YAxis
                             domain={[0, 1]}
                             ticks={[0, 1]}
-                            tickFormatter={(value) => value === 1 ? 'Online' : 'Offline'}
+                            tickFormatter={(value) => (value === 1 ? 'Online' : 'Offline')}
                         />
                         <Tooltip content={<CustomTooltip />} />
                         <Line

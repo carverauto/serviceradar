@@ -1,5 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from 'recharts';
 
 const DuskDashboard = () => {
   const [nodeStatus, setNodeStatus] = useState(null);
@@ -18,8 +27,8 @@ const DuskDashboard = () => {
         console.log('Fetched nodes:', nodes);
 
         // Find the Dusk node
-        const duskNode = nodes.find(node =>
-            node.services?.some(service => service.name === 'dusk')
+        const duskNode = nodes.find((node) =>
+            node.services?.some((service) => service.name === 'dusk')
         );
 
         if (!duskNode) {
@@ -29,7 +38,7 @@ const DuskDashboard = () => {
         console.log('Found Dusk node:', duskNode);
 
         // Get the Dusk service
-        const duskService = duskNode.services.find(s => s.name === 'dusk');
+        const duskService = duskNode.services.find((s) => s.name === 'dusk');
         console.log('Dusk service:', duskService);
 
         setNodeStatus(duskService);
@@ -55,7 +64,9 @@ const DuskDashboard = () => {
   if (loading) {
     return (
         <div className="flex justify-center items-center h-64">
-          <div className="text-lg">Loading...</div>
+          <div className="text-lg dark:text-gray-100 transition-colors">
+            Loading...
+          </div>
         </div>
     );
   }
@@ -63,7 +74,9 @@ const DuskDashboard = () => {
   if (error) {
     return (
         <div className="flex justify-center items-center h-64">
-          <div className="text-red-500 text-lg">{error}</div>
+          <div className="text-red-500 dark:text-red-400 text-lg transition-colors">
+            {error}
+          </div>
         </div>
     );
   }
@@ -72,41 +85,71 @@ const DuskDashboard = () => {
   console.log('Node details:', details);
 
   return (
-      <div className="space-y-6">
+      <div className="space-y-6 transition-colors">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-semibold mb-2">Node Status</h3>
-            <div className={`text-lg ${nodeStatus?.available ? 'text-green-600' : 'text-red-600'}`}>
+          {/* Card 1: Node Status */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 transition-colors">
+            <h3 className="text-lg font-semibold mb-2 text-gray-800 dark:text-gray-100">
+              Node Status
+            </h3>
+            <div
+                className={`text-lg transition-colors ${
+                    nodeStatus?.available
+                        ? 'text-green-600 dark:text-green-400'
+                        : 'text-red-600 dark:text-red-400'
+                }`}
+            >
               {nodeStatus?.available ? 'Online' : 'Offline'}
             </div>
           </div>
 
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-semibold mb-2">Current Height</h3>
-            <div className="text-lg">{details.height || 'N/A'}</div>
+          {/* Card 2: Current Height */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 transition-colors">
+            <h3 className="text-lg font-semibold mb-2 text-gray-800 dark:text-gray-100">
+              Current Height
+            </h3>
+            <div className="text-lg text-gray-800 dark:text-gray-100">
+              {details.height || 'N/A'}
+            </div>
           </div>
 
-          <div className="bg-white rounded-lg shadow p-6">
-            <h3 className="text-lg font-semibold mb-2">Latest Hash</h3>
-            <div className="text-sm font-mono break-all">{details.hash || 'N/A'}</div>
+          {/* Card 3: Latest Hash */}
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 transition-colors">
+            <h3 className="text-lg font-semibold mb-2 text-gray-800 dark:text-gray-100">
+              Latest Hash
+            </h3>
+            <div className="text-sm font-mono break-all text-gray-700 dark:text-gray-200">
+              {details.hash || 'N/A'}
+            </div>
           </div>
         </div>
 
+        {/* Block History Chart */}
         {blockHistory.length > 0 && (
-            <div className="bg-white rounded-lg shadow p-6">
-              <h3 className="text-lg font-semibold mb-4">Block Height History</h3>
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 transition-colors">
+              <h3 className="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-100">
+                Block Height History
+              </h3>
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={blockHistory}>
-                    <CartesianGrid strokeDasharray="3 3" />
+                    <CartesianGrid
+                        strokeDasharray="3 3"
+                        // Optionally adjust stroke color for dark mode
+                        stroke="#ccc"
+                    />
                     <XAxis
                         dataKey="timestamp"
                         tickFormatter={(ts) => new Date(ts).toLocaleTimeString()}
+                        // For dark mode, consider override. Recharts doesn't read tailwind classes directly.
                     />
                     <YAxis />
                     <Tooltip
                         labelFormatter={(ts) => new Date(ts).toLocaleString()}
-                        formatter={(value, name) => [value, name === 'height' ? 'Block Height' : name]}
+                        formatter={(value, name) => [
+                          value,
+                          name === 'height' ? 'Block Height' : name,
+                        ]}
                     />
                     <Legend />
                     <Line
