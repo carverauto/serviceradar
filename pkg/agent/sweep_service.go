@@ -124,27 +124,32 @@ func (s *SweepService) Start(ctx context.Context) error {
 	}
 }
 
+// Replace the generateTargets function in pkg/agent/sweep_service.go with this version:
+// Replace the generateTargets function in pkg/agent/sweep_service.go with this version:
 func (s *SweepService) generateTargets() ([]models.Target, error) {
 	var allTargets []models.Target
-
-	// Track total unique IPs for logging
 	uniqueIPs := make(map[string]struct{})
+	globalTotalHosts := 0
 
 	for _, network := range s.config.Networks {
 		// Parse the CIDR
-		_, ipNet, err := net.ParseCIDR(network)
+		ip, ipNet, err := net.ParseCIDR(network)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse CIDR %s: %w", network, err)
 		}
 
-		// Generate IPs - include ALL addresses in range including network/broadcast
-		var ips []net.IP
-		for ip := cloneIP(ipNet.IP); ipNet.Contains(ip); incrementIP(ip) {
-			ips = append(ips, cloneIP(ip))
+		// Calculate total hosts for this network
+		ones, bits := ipNet.Mask.Size()
+		var networkSize int
+		if ones == 32 {
+			networkSize = 1 // /32 network is just one host
+		} else {
+			networkSize = (1 << (bits - ones)) - 2 // Subtract network and broadcast for non-/32
 		}
+		globalTotalHosts += networkSize
 
-		// Add targets for each IP
-		for _, ip := range ips {
+		// For /32, just add the single IP
+		if ones == 32 {
 			ipStr := ip.String()
 			uniqueIPs[ipStr] = struct{}{}
 
@@ -154,7 +159,8 @@ func (s *SweepService) generateTargets() ([]models.Target, error) {
 					Host: ipStr,
 					Mode: models.ModeICMP,
 					Metadata: map[string]interface{}{
-						"network": network,
+						"network":     network,
+						"total_hosts": globalTotalHosts,
 					},
 				})
 			}
@@ -167,7 +173,47 @@ func (s *SweepService) generateTargets() ([]models.Target, error) {
 						Port: port,
 						Mode: models.ModeTCP,
 						Metadata: map[string]interface{}{
-							"network": network,
+							"network":     network,
+							"total_hosts": globalTotalHosts,
+						},
+					})
+				}
+			}
+			continue
+		}
+
+		// For non-/32 networks, iterate through the range
+		for ip := incrementIP(cloneIP(ipNet.IP)); ipNet.Contains(ip); incrementIP(ip) {
+			// Skip network and broadcast addresses
+			if isFirstOrLastAddress(ip, ipNet) {
+				continue
+			}
+
+			ipStr := ip.String()
+			uniqueIPs[ipStr] = struct{}{}
+
+			// Add ICMP target if enabled
+			if containsMode(s.config.SweepModes, models.ModeICMP) {
+				allTargets = append(allTargets, models.Target{
+					Host: ipStr,
+					Mode: models.ModeICMP,
+					Metadata: map[string]interface{}{
+						"network":     network,
+						"total_hosts": globalTotalHosts,
+					},
+				})
+			}
+
+			// Add TCP targets for each port if enabled
+			if containsMode(s.config.SweepModes, models.ModeTCP) {
+				for _, port := range s.config.Ports {
+					allTargets = append(allTargets, models.Target{
+						Host: ipStr,
+						Port: port,
+						Mode: models.ModeTCP,
+						Metadata: map[string]interface{}{
+							"network":     network,
+							"total_hosts": globalTotalHosts,
 						},
 					})
 				}
@@ -175,14 +221,47 @@ func (s *SweepService) generateTargets() ([]models.Target, error) {
 		}
 	}
 
-	log.Printf("Generated %d targets across %d networks (%d unique IPs, %d ports, modes: %v)",
+	log.Printf("Generated %d targets (%d unique IPs, total hosts: %d, ports: %d, modes: %v)",
 		len(allTargets),
-		len(s.config.Networks),
 		len(uniqueIPs),
+		globalTotalHosts,
 		len(s.config.Ports),
 		s.config.SweepModes)
 
 	return allTargets, nil
+}
+
+// Helper function to check if an IP is a network or broadcast address
+func isFirstOrLastAddress(ip net.IP, network *net.IPNet) bool {
+	if ip.Equal(network.IP) {
+		return true
+	}
+
+	// Calculate broadcast address
+	broadcast := make(net.IP, len(network.IP))
+	for i := range network.IP {
+		broadcast[i] = network.IP[i] | ^network.Mask[i]
+	}
+
+	return ip.Equal(broadcast)
+}
+
+// Helper function to clone an IP address
+func cloneIP(ip net.IP) net.IP {
+	clone := make(net.IP, len(ip))
+	copy(clone, ip)
+	return clone
+}
+
+// Helper function to increment an IP address
+func incrementIP(ip net.IP) net.IP {
+	for i := len(ip) - 1; i >= 0; i-- {
+		ip[i]++
+		if ip[i] != 0 {
+			break
+		}
+	}
+	return ip
 }
 
 func (s *SweepService) performSweep(ctx context.Context) error {
@@ -338,22 +417,6 @@ func (s *SweepService) UpdateConfig(config models.Config) error {
 	s.config = newConfig
 
 	return nil
-}
-
-// Helper functions for IP address manipulation
-func cloneIP(ip net.IP) net.IP {
-	clone := make(net.IP, len(ip))
-	copy(clone, ip)
-	return clone
-}
-
-func incrementIP(ip net.IP) {
-	for i := len(ip) - 1; i >= 0; i-- {
-		ip[i]++
-		if ip[i] != 0 {
-			break
-		}
-	}
 }
 
 func containsMode(modes []models.SweepMode, mode models.SweepMode) bool {
