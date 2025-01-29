@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e
 
+export VERSION=${VERSION}
+
 # Build the builder image
 docker build -t serviceradar-builder -f Dockerfile.build .
 

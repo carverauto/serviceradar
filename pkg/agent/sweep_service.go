@@ -1,4 +1,3 @@
-// Package agent pkg/agent/sweep_service.go
 package agent
 
 import (
@@ -6,6 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -16,7 +18,13 @@ import (
 	"github.com/mfreeman451/serviceradar/proto"
 )
 
-// SweepService implements sweeper.SweepService and provides network scanning capabilities.
+const (
+	cidr32       = 32
+	networkStart = 1
+	networkNext  = 2
+)
+
+// SweepService implements sweeper.SweepService for network scanning.
 type SweepService struct {
 	scanner   scan.Scanner
 	store     sweeper.Store
@@ -26,7 +34,50 @@ type SweepService struct {
 	config    *models.Config
 }
 
+// ScanStats holds statistics for a network sweep.
+type ScanStats struct {
+	totalResults int
+	successCount int
+	icmpSuccess  int
+	tcpSuccess   int
+	uniqueHosts  map[string]struct{}
+	startTime    time.Time
+}
+
+// NewSweepService creates a new sweep service with the provided configuration.
+func NewSweepService(config *models.Config) (Service, error) {
+	// Apply default configuration
+	config = applyDefaultConfig(config)
+
+	// Create scanner with config settings
+	scanner := scan.NewCombinedScanner(
+		config.Timeout,
+		config.Concurrency,
+		config.ICMPCount,
+	)
+
+	// Create processor instance
+	processor := sweeper.NewBaseProcessor()
+
+	// Create an in-memory store
+	store := sweeper.NewInMemoryStore(processor)
+
+	service := &SweepService{
+		scanner:   scanner,
+		store:     store,
+		processor: processor,
+		config:    config,
+		closed:    make(chan struct{}),
+	}
+
+	return service, nil
+}
+
 func applyDefaultConfig(config *models.Config) *models.Config {
+	if config == nil {
+		config = &models.Config{}
+	}
+
 	// Ensure we have default sweep modes
 	if len(config.SweepModes) == 0 {
 		config.SweepModes = []models.SweepMode{
@@ -37,7 +88,7 @@ func applyDefaultConfig(config *models.Config) *models.Config {
 
 	// Set reasonable defaults
 	if config.Timeout == 0 {
-		config.Timeout = 2 * time.Second
+		config.Timeout = 10 * time.Second
 	}
 
 	if config.Concurrency == 0 {
@@ -48,9 +99,14 @@ func applyDefaultConfig(config *models.Config) *models.Config {
 		config.ICMPCount = 3
 	}
 
+	if config.Interval == 0 {
+		config.Interval = 5 * time.Minute
+	}
+
 	return config
 }
 
+// Start launches the periodic sweeps.
 func (s *SweepService) Start(ctx context.Context) error {
 	ticker := time.NewTicker(s.config.Interval)
 	defer ticker.Stop()
@@ -58,6 +114,7 @@ func (s *SweepService) Start(ctx context.Context) error {
 	// Do initial sweep
 	if err := s.performSweep(ctx); err != nil {
 		log.Printf("Initial sweep failed: %v", err)
+
 		return err
 	}
 
@@ -75,64 +132,7 @@ func (s *SweepService) Start(ctx context.Context) error {
 	}
 }
 
-func (s *SweepService) generateTargets() ([]models.Target, error) {
-	var allTargets []models.Target
-
-	for _, network := range s.config.Networks {
-		// First generate all IP addresses
-		ips, err := scan.GenerateIPsFromCIDR(network)
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate IPs for %s: %w", network, err)
-		}
-
-		// For each IP, create ICMP target if enabled
-		if containsMode(s.config.SweepModes, models.ModeICMP) {
-			for _, ip := range ips {
-				allTargets = append(allTargets, models.Target{
-					Host: ip.String(),
-					Mode: models.ModeICMP,
-				})
-			}
-		}
-
-		// For each IP, create TCP targets for each port if enabled
-		if containsMode(s.config.SweepModes, models.ModeTCP) {
-			for _, ip := range ips {
-				for _, port := range s.config.Ports {
-					allTargets = append(allTargets, models.Target{
-						Host: ip.String(),
-						Port: port,
-						Mode: models.ModeTCP,
-					})
-				}
-			}
-		}
-	}
-
-	log.Printf("Generated %d targets from %d networks (%d ports, modes: %v)",
-		len(allTargets),
-		len(s.config.Networks),
-		len(s.config.Ports),
-		s.config.SweepModes)
-
-	return allTargets, nil
-}
-
-// Helper function to check if a mode is in the list of modes.
-func containsMode(modes []models.SweepMode, mode models.SweepMode) bool {
-	for _, m := range modes {
-		if m == mode {
-			return true
-		}
-	}
-
-	return false
-}
-
-func (*SweepService) Name() string {
-	return "network_sweep"
-}
-
+// performSweep is split into smaller functions to reduce complexity.
 func (s *SweepService) performSweep(ctx context.Context) error {
 	// Generate targets
 	targets, err := s.generateTargets()
@@ -140,7 +140,8 @@ func (s *SweepService) performSweep(ctx context.Context) error {
 		return fmt.Errorf("failed to generate targets: %w", err)
 	}
 
-	log.Printf("Starting sweep with %d targets", len(targets))
+	stats := newScanStats()
+	logStartSweep(stats.startTime)
 
 	// Start the scan
 	results, err := s.scanner.Scan(ctx, targets)
@@ -148,113 +149,286 @@ func (s *SweepService) performSweep(ctx context.Context) error {
 		return fmt.Errorf("scan failed: %w", err)
 	}
 
-	// Process results as they come in
-	for result := range results {
-		// Process the result
-		if err := s.processor.Process(&result); err != nil {
-			log.Printf("Failed to process result: %v", err)
-		}
+	// Process results
+	s.processScanResults(ctx, results, stats)
 
-		// Store the result
-		if err := s.store.SaveResult(ctx, &result); err != nil {
-			log.Printf("Failed to save result: %v", err)
-		}
-	}
+	// Final statistics logging
+	s.logScanCompletion(stats)
 
 	return nil
 }
 
-// NewSweepService now creates a persistent service with a single processor instance.
-func NewSweepService(config *models.Config) (*SweepService, error) {
-	// Apply default configuration
-	if config.ICMPCount <= 0 {
-		config.ICMPCount = 3 // Set reasonable default for ICMP ping count
+// generateTargets is split into smaller helpers to reduce cognitive complexity.
+func (s *SweepService) generateTargets() ([]models.Target, error) {
+	var allTargets []models.Target
+
+	uniqueIPs := make(map[string]struct{})
+	globalTotalHosts := 0
+
+	for _, networkCIDR := range s.config.Networks {
+		networkTargets, err := s.generateTargetsForNetwork(networkCIDR, &globalTotalHosts, uniqueIPs)
+		if err != nil {
+			return nil, err
+		}
+
+		allTargets = append(allTargets, networkTargets...)
 	}
 
-	// Create scanner with config settings
-	scanner := scan.NewCombinedScanner(
-		config.Timeout,
-		config.Concurrency,
-		config.ICMPCount,
-	)
+	log.Printf("Generated %d targets (%d unique IPs, total hosts: %d, ports: %d, modes: %v)",
+		len(allTargets),
+		len(uniqueIPs),
+		globalTotalHosts,
+		len(s.config.Ports),
+		s.config.SweepModes)
 
-	// Create processor instance (which now handles both processing and storage)
-	processor := sweeper.NewBaseProcessor()
-
-	// Create an in-memory store that references the same processor if needed:
-	store := sweeper.NewInMemoryStore(processor)
-
-	service := &SweepService{
-		scanner:   scanner,
-		store:     store,
-		processor: processor,
-		config:    config,
-		closed:    make(chan struct{}),
-	}
-
-	return service, nil
+	return allTargets, nil
 }
 
+// generateTargetsForNetwork parses a single CIDR, enumerates its IPs, and builds targets.
+func (s *SweepService) generateTargetsForNetwork(
+	networkCIDR string,
+	globalTotalHosts *int,
+	uniqueIPs map[string]struct{},
+) ([]models.Target, error) {
+	ip, ipNet, err := net.ParseCIDR(networkCIDR)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse CIDR %s: %w", networkCIDR, err)
+	}
+
+	ones, bits := ipNet.Mask.Size()
+	networkSize := calculateNetworkSize(ones, bits)
+	*globalTotalHosts += networkSize
+
+	if ones == cidr32 {
+		// Just one IP (/32)
+		return s.generateSingleHostTargets(ip, networkCIDR, *globalTotalHosts, uniqueIPs), nil
+	}
+
+	// Enumerate non-/32
+	return s.generateRangeTargets(ipNet, networkCIDR, *globalTotalHosts, uniqueIPs), nil
+}
+
+// generateSingleHostTargets returns the targets for a /32 network.
+func (s *SweepService) generateSingleHostTargets(
+	ip net.IP,
+	networkCIDR string,
+	totalHosts int,
+	uniqueIPs map[string]struct{},
+) []models.Target {
+	ipStr := ip.String()
+	uniqueIPs[ipStr] = struct{}{}
+
+	return s.buildTargets(ipStr, networkCIDR, totalHosts)
+}
+
+// generateRangeTargets enumerates addresses in a given net.IPNet, skipping
+// network and broadcast addresses, then builds the target list.
+func (s *SweepService) generateRangeTargets(
+	ipNet *net.IPNet,
+	networkCIDR string,
+	totalHosts int,
+	uniqueIPs map[string]struct{},
+) []models.Target {
+	var targets []models.Target
+
+	for addr := incrementIP(cloneIP(ipNet.IP)); ipNet.Contains(addr); incrementIP(addr) {
+		if isFirstOrLastAddress(addr, ipNet) {
+			continue
+		}
+
+		ipStr := addr.String()
+		uniqueIPs[ipStr] = struct{}{}
+
+		targets = append(targets, s.buildTargets(ipStr, networkCIDR, totalHosts)...)
+	}
+
+	return targets
+}
+
+// buildTargets creates ICMP/TCP targets for a single IP.
+func (s *SweepService) buildTargets(ipStr, network string, totalHosts int) []models.Target {
+	var targets []models.Target
+
+	if containsMode(s.config.SweepModes, models.ModeICMP) {
+		targets = append(targets, models.Target{
+			Host: ipStr,
+			Mode: models.ModeICMP,
+			Metadata: map[string]interface{}{
+				"network":     network,
+				"total_hosts": totalHosts,
+			},
+		})
+	}
+
+	if containsMode(s.config.SweepModes, models.ModeTCP) {
+		for _, port := range s.config.Ports {
+			targets = append(targets, models.Target{
+				Host: ipStr,
+				Port: port,
+				Mode: models.ModeTCP,
+				Metadata: map[string]interface{}{
+					"network":     network,
+					"total_hosts": totalHosts,
+				},
+			})
+		}
+	}
+
+	return targets
+}
+
+// processScanResults pulls results from the channel and updates stats/store.
+func (s *SweepService) processScanResults(ctx context.Context, results <-chan models.Result, stats *ScanStats) {
+	for result := range results {
+		updateStats(stats, &result)
+		s.handleResult(ctx, &result)
+	}
+}
+
+// handleResult handles post-scan steps: processing, storing, and logging.
+func (s *SweepService) handleResult(ctx context.Context, result *models.Result) {
+	if err := s.processor.Process(result); err != nil {
+		log.Printf("Failed to process result: %v", err)
+
+		return
+	}
+
+	if err := s.store.SaveResult(ctx, result); err != nil {
+		log.Printf("Failed to save result: %v", err)
+
+		return
+	}
+
+	s.logSuccessfulResult(result)
+}
+
+// logSuccessfulResult logs successful (Available) results.
+func (*SweepService) logSuccessfulResult(result *models.Result) {
+	if !result.Available {
+		return
+	}
+
+	switch result.Target.Mode {
+	case models.ModeICMP:
+		log.Printf("Host %s responded to ICMP ping (%.2fms) - Network: %s",
+			result.Target.Host,
+			float64(result.RespTime)/float64(time.Millisecond),
+			result.Target.Metadata["network"])
+	case models.ModeTCP:
+		log.Printf("Host %s has port %d open (%.2fms) - Network: %s",
+			result.Target.Host,
+			result.Target.Port,
+			float64(result.RespTime)/float64(time.Millisecond),
+			result.Target.Metadata["network"])
+	}
+}
+
+// newScanStats initializes ScanStats for a new sweep.
+func newScanStats() *ScanStats {
+	return &ScanStats{
+		uniqueHosts: make(map[string]struct{}),
+		startTime:   time.Now(),
+	}
+}
+
+// logStartSweep logs the beginning of a sweep.
+func logStartSweep(start time.Time) {
+	log.Printf("Starting network sweep at %s", start.Format(time.RFC3339))
+}
+
+// logScanCompletion logs final sweep statistics.
+func (*SweepService) logScanCompletion(stats *ScanStats) {
+	scanDuration := time.Since(stats.startTime)
+	log.Printf("Sweep completed in %.2f seconds: %d total results, %d successful (%d ICMP, %d TCP), %d unique hosts",
+		scanDuration.Seconds(),
+		stats.totalResults,
+		stats.successCount,
+		stats.icmpSuccess,
+		stats.tcpSuccess,
+		len(stats.uniqueHosts))
+}
+
+// calculateNetworkSize calculates how many usable IP addresses exist in the subnet.
+func calculateNetworkSize(ones, bits int) int {
+	if ones == cidr32 {
+		return networkStart
+	}
+
+	// Subtract network and broadcast addresses for typical subnets
+	return (networkStart << (bits - ones)) - networkNext
+}
+
+// isFirstOrLastAddress checks if IP is the network or broadcast address.
+func isFirstOrLastAddress(ip net.IP, network *net.IPNet) bool {
+	if ip.Equal(network.IP) {
+		return true
+	}
+
+	// Calculate broadcast address
+	broadcast := make(net.IP, len(network.IP))
+	for i := range network.IP {
+		broadcast[i] = network.IP[i] | ^network.Mask[i]
+	}
+
+	return ip.Equal(broadcast)
+}
+
+// cloneIP returns a copy of the given net.IP.
+func cloneIP(ip net.IP) net.IP {
+	clone := make(net.IP, len(ip))
+	copy(clone, ip)
+
+	return clone
+}
+
+// incrementIP increments an IP address by one.
+func incrementIP(ip net.IP) net.IP {
+	for i := len(ip) - 1; i >= 0; i-- {
+		ip[i]++
+		if ip[i] != 0 {
+			break
+		}
+	}
+
+	return ip
+}
+
+// updateStats updates statistics for each scan result.
+func updateStats(stats *ScanStats, result *models.Result) {
+	stats.totalResults++
+
+	if result.Available {
+		stats.successCount++
+		stats.uniqueHosts[result.Target.Host] = struct{}{}
+
+		switch result.Target.Mode {
+		case models.ModeICMP:
+			stats.icmpSuccess++
+		case models.ModeTCP:
+			stats.tcpSuccess++
+		}
+	}
+}
+
+// Stop stops any in-progress scans and closes the service.
 func (s *SweepService) Stop() error {
 	close(s.closed)
 
 	return s.scanner.Stop()
 }
 
-// identifyService maps common port numbers to service names.
-/*
-func identifyService(port int) string {
-	commonPorts := map[int]string{
-		21:   "FTP",
-		22:   "SSH",
-		23:   "Telnet",
-		25:   "SMTP",
-		53:   "DNS",
-		80:   "HTTP",
-		110:  "POP3",
-		143:  "IMAP",
-		443:  "HTTPS",
-		3306: "MySQL",
-		5432: "PostgreSQL",
-		6379: "Redis",
-		8080: "HTTP-Alt",
-		8443: "HTTPS-Alt",
-		9000: "Kadcast", // Dusk network port
-	}
-
-	if service, ok := commonPorts[port]; ok {
-		return service
-	}
-
-	return fmt.Sprintf("Port-%d", port)
+// Name returns the service name.
+func (*SweepService) Name() string {
+	return "network_sweep"
 }
-*/
 
+// GetStatus returns a status summary of the sweep.
 func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, error) {
 	summary, err := s.processor.GetSummary(ctx)
 	if err != nil {
-		log.Printf("Error getting sweep summary: %v", err)
 		return nil, fmt.Errorf("failed to get sweep summary: %w", err)
 	}
 
-	// For each host in the summary, properly format ICMP status
-	for i := range summary.Hosts {
-		host := &summary.Hosts[i]
-		if host.ICMPStatus != nil {
-			log.Printf("Processing ICMP status for host %s: available=%v rtt=%v loss=%v",
-				host.Host,
-				host.ICMPStatus.Available,
-				host.ICMPStatus.RoundTrip,
-				host.ICMPStatus.PacketLoss)
-
-			// Ensure RoundTrip is properly set in nanoseconds
-			if host.ICMPStatus.Available {
-				host.ResponseTime = host.ICMPStatus.RoundTrip
-			}
-		}
-	}
-
-	// Convert to JSON for the message field
 	data := struct {
 		Network        string              `json:"network"`
 		TotalHosts     int                 `json:"total_hosts"`
@@ -271,10 +445,30 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, er
 		Hosts:          summary.Hosts,
 	}
 
+	// Sort hosts based on IP address numeric values
+	sort.Slice(data.Hosts, func(i, j int) bool {
+		ip1Parts := strings.Split(data.Hosts[i].Host, ".")
+		ip2Parts := strings.Split(data.Hosts[j].Host, ".")
+
+		for k := 0; k < 4; k++ {
+			n1, _ := strconv.Atoi(ip1Parts[k])
+			n2, _ := strconv.Atoi(ip2Parts[k])
+
+			if n1 != n2 {
+				return n1 < n2
+			}
+		}
+
+		return false
+	})
+
 	statusJSON, err := json.Marshal(data)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal sweep status: %w", err)
 	}
+
+	// Log the response data for debugging
+	log.Printf("Sweep status response: %s", string(statusJSON))
 
 	return &proto.StatusResponse{
 		Available:    true,
@@ -285,19 +479,24 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, er
 	}, nil
 }
 
-// UpdateConfig updates the sweep configuration.
+// UpdateConfig applies new configuration and resets default values as needed.
 func (s *SweepService) UpdateConfig(config *models.Config) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Apply default configuration
-	config = applyDefaultConfig(config)
-	s.config = config
+	newConfig := applyDefaultConfig(config)
+	s.config = newConfig
 
 	return nil
 }
 
-// Close implements io.Closer.
-func (s *SweepService) Close() error {
-	return s.Stop()
+// containsMode checks if the mode slice includes a specific SweepMode.
+func containsMode(modes []models.SweepMode, mode models.SweepMode) bool {
+	for _, m := range modes {
+		if m == mode {
+			return true
+		}
+	}
+
+	return false
 }

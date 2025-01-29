@@ -1,6 +1,20 @@
 import React, { useState } from 'react';
 import ExportButton from './ExportButton';
 
+const compareIPAddresses = (ip1, ip2) => {
+    // Split IPs into their octets and convert to numbers
+    const ip1Parts = ip1.split('.').map(Number);
+    const ip2Parts = ip2.split('.').map(Number);
+
+    // Compare each octet
+    for (let i = 0; i < 4; i++) {
+        if (ip1Parts[i] !== ip2Parts[i]) {
+            return ip1Parts[i] - ip2Parts[i];
+        }
+    }
+    return 0;
+};
+
 // Host details subcomponent with ICMP and port results
 const HostDetailsView = ({ host }) => {
     const formatResponseTime = (ns) => {
@@ -79,15 +93,11 @@ const NetworkSweepView = ({ nodeId, service, standalone = false }) => {
         : service.details;
 
     // Sort and filter hosts
-    const sortHosts = (hosts) => {
-        return [...hosts].sort((a, b) => {
-            const aMatch = a.host.match(/(\d+)$/);
-            const bMatch = b.host.match(/(\d+)$/);
-            if (aMatch && bMatch) {
-                return parseInt(aMatch[1]) - parseInt(bMatch[1]);
-            }
-            return a.host.localeCompare(b.host);
-        });
+    const sortAndFilterHosts = (hosts) => {
+        if (!hosts) return [];
+        return [...hosts]
+            .filter(host => host.host.toLowerCase().includes(searchTerm.toLowerCase()))
+            .sort((a, b) => compareIPAddresses(a.host, b.host));
     };
 
     // Get responding hosts only
@@ -116,7 +126,7 @@ const NetworkSweepView = ({ nodeId, service, standalone = false }) => {
 
     // Filter and sort hosts for display
     const filteredHosts = sweepDetails.hosts
-        ? sortHosts(respondingHosts).filter(host =>
+        ? sortAndFilterHosts(respondingHosts).filter(host =>
             host.host.toLowerCase().includes(searchTerm.toLowerCase())
         )
         : [];
