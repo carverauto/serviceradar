@@ -468,9 +468,6 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, er
 		return nil, fmt.Errorf("failed to marshal sweep status: %w", err)
 	}
 
-	// Log the response data for debugging
-	log.Printf("Sweep status response: %s", string(statusJSON))
-
 	return &proto.StatusResponse{
 		Available:    true,
 		Message:      string(statusJSON),

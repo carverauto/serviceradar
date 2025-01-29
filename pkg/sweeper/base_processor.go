@@ -2,6 +2,7 @@ package sweeper
 
 import (
 	"context"
+	"log"
 	"sync"
 	"time"
 
@@ -21,6 +22,7 @@ type BaseProcessor struct {
 	firstSeenTimes map[string]time.Time
 	totalHosts     int
 	hostResultPool sync.Pool
+	portResultPool sync.Pool
 	portCount      int // Number of ports being scanned
 	config         *models.Config
 }
@@ -28,8 +30,7 @@ type BaseProcessor struct {
 func NewBaseProcessor(config *models.Config) *BaseProcessor {
 	portCount := len(config.Ports)
 	if portCount == 0 {
-		// Default to a reasonable size if no ports specified
-		portCount = 100 // Increased default given typical usage
+		portCount = 100
 	}
 
 	p := &BaseProcessor{
@@ -40,13 +41,17 @@ func NewBaseProcessor(config *models.Config) *BaseProcessor {
 		config:         config,
 	}
 
-	// Initialize the pool with capacity for all ports
+	// Initialize host result pool
 	p.hostResultPool.New = func() interface{} {
 		return &models.HostResult{
-			// For 2300+ ports, we might want to start smaller and grow as needed
-			// to avoid allocating max size for hosts with few open ports
-			PortResults: make([]*models.PortResult, 0, portCount/4),
+			// Start with a smaller initial capacity
+			PortResults: make([]*models.PortResult, 0, 16),
 		}
+	}
+
+	// Initialize port result pool
+	p.portResultPool.New = func() interface{} {
+		return &models.PortResult{}
 	}
 
 	return p
@@ -109,12 +114,33 @@ func (*BaseProcessor) processICMPResult(host *models.HostResult, result *models.
 }
 
 func (p *BaseProcessor) processTCPResult(host *models.HostResult, result *models.Result) {
-	if result.Available {
-		host.Available = true
+	if !result.Available {
+		return
+	}
 
-		// Grow capacity if needed, but only for hosts that actually have open ports
+	host.Available = true
+
+	// Find or create port result using pool
+	var portResult *models.PortResult
+	var found bool
+
+	for _, pr := range host.PortResults {
+		if pr.Port == result.Target.Port {
+			portResult = pr
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		portResult = p.portResultPool.Get().(*models.PortResult)
+		portResult.Port = result.Target.Port
+		portResult.Available = true
+		portResult.RespTime = result.RespTime
+
+		// Only grow slice if absolutely necessary
 		if len(host.PortResults) == cap(host.PortResults) {
-			// Double capacity until we reach portCount
+			// Use gradual growth to avoid large allocations
 			newCap := cap(host.PortResults) * 2
 			if newCap > p.portCount {
 				newCap = p.portCount
@@ -124,33 +150,16 @@ func (p *BaseProcessor) processTCPResult(host *models.HostResult, result *models
 			host.PortResults = newResults
 		}
 
-		p.updatePortStatus(host, result)
+		host.PortResults = append(host.PortResults, portResult)
+		p.portCounts[result.Target.Port]++
+	} else {
+		// Update existing port result
+		portResult.Available = true
+		portResult.RespTime = result.RespTime
 	}
 }
 
 // Cleanup releases all resources and returns objects to the pool.
-func (p *BaseProcessor) cleanup() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	// Return all host results to the pool and clear maps
-	for k, host := range p.hostMap {
-		// Clear sensitive data
-		host.Host = ""
-		host.PortResults = host.PortResults[:0]
-		host.ICMPStatus = nil
-
-		// Return to pool
-		p.hostResultPool.Put(host)
-		delete(p.hostMap, k)
-	}
-
-	// Clear other maps and state
-	p.portCounts = make(map[int]int)
-	p.firstSeenTimes = make(map[string]time.Time)
-	p.totalHosts = 0
-	p.lastSweepTime = time.Time{}
-}
 
 func (p *BaseProcessor) updatePortStatus(host *models.HostResult, result *models.Result) {
 	found := false
@@ -178,20 +187,12 @@ func (p *BaseProcessor) updatePortStatus(host *models.HostResult, result *models
 func (p *BaseProcessor) getOrCreateHost(hostAddr string, now time.Time) *models.HostResult {
 	host, exists := p.hostMap[hostAddr]
 	if !exists {
-		// Get from pool or create new
 		host = p.hostResultPool.Get().(*models.HostResult)
 
 		// Reset the host result to initial state
 		host.Host = hostAddr
 		host.Available = false
-
-		// Start with existing capacity, will grow if needed
-		if cap(host.PortResults) < p.portCount {
-			// Rare case: pool provided an object with insufficient capacity
-			host.PortResults = make([]*models.PortResult, 0, p.portCount/4)
-		} else {
-			host.PortResults = host.PortResults[:0]
-		}
+		host.PortResults = host.PortResults[:0]
 		host.ICMPStatus = nil
 		host.ResponseTime = 0
 
@@ -260,30 +261,81 @@ func (p *BaseProcessor) GetSummary(ctx context.Context) (*models.SweepSummary, e
 }
 
 func (p *BaseProcessor) UpdateConfig(config *models.Config) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
+	// First update the configuration
 	newPortCount := len(config.Ports)
 	if newPortCount == 0 {
 		newPortCount = 100
 	}
 
-	// Only update if port count changes significantly
+	log.Printf("Updating port count from %d to %d", p.portCount, newPortCount)
+
+	// Create new pool outside the lock
+	newPool := sync.Pool{
+		New: func() interface{} {
+			return &models.HostResult{
+				// Start with 25% capacity, will grow if needed
+				PortResults: make([]*models.PortResult, 0, newPortCount/4),
+			}
+		},
+	}
+
+	// Take lock only for the update
+	p.mu.Lock()
 	if newPortCount != p.portCount {
 		p.portCount = newPortCount
 		p.config = config
+		p.hostResultPool = newPool
+	}
+	p.mu.Unlock()
 
-		// Create new pool with updated capacity
-		p.hostResultPool = sync.Pool{
-			New: func() interface{} {
-				return &models.HostResult{
-					// Start with 25% capacity, will grow if needed
-					PortResults: make([]*models.PortResult, 0, newPortCount/4),
-				}
-			},
-		}
-
-		// Clean up existing results to use new pool
+	// Clean up after releasing the lock
+	if newPortCount != p.portCount {
+		log.Printf("Cleaning up existing results")
 		p.cleanup()
 	}
+}
+
+// cleanup now uses its own locking
+func (p *BaseProcessor) cleanup() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	log.Printf("Starting cleanup")
+
+	// Get all hosts to clean up
+	hostsToClean := make([]*models.HostResult, 0, len(p.hostMap))
+	for _, host := range p.hostMap {
+		hostsToClean = append(hostsToClean, host)
+	}
+
+	// Reset maps first
+	p.hostMap = make(map[string]*models.HostResult)
+	p.portCounts = make(map[int]int)
+	p.firstSeenTimes = make(map[string]time.Time)
+	p.totalHosts = 0
+	p.lastSweepTime = time.Time{}
+
+	// Clean up hosts outside the lock
+	p.mu.Unlock()
+	for _, host := range hostsToClean {
+		// Clean up port results
+		for _, pr := range host.PortResults {
+			// Reset and return port result to pool
+			pr.Port = 0
+			pr.Available = false
+			pr.RespTime = 0
+			pr.Service = ""
+			p.portResultPool.Put(pr)
+		}
+
+		// Reset and return host result to pool
+		host.Host = ""
+		host.PortResults = host.PortResults[:0]
+		host.ICMPStatus = nil
+		host.ResponseTime = 0
+		p.hostResultPool.Put(host)
+	}
+	p.mu.Lock() // Re-acquire lock before returning (due to defer)
+
+	log.Printf("Cleanup complete")
 }

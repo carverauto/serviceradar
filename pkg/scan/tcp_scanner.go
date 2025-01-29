@@ -32,29 +32,51 @@ func (s *TCPScanner) Stop() error {
 }
 
 func (s *TCPScanner) Scan(ctx context.Context, targets []models.Target) (<-chan models.Result, error) {
-	results := make(chan models.Result)
-	targetChan := make(chan models.Target, s.concurrency) // Buffered channel to help prevent blocking
+	results := make(chan models.Result, len(targets)) // Buffer all potential results
+	targetChan := make(chan models.Target, s.concurrency)
+
+	// Create context that we can cancel if we need to stop early
+	scanCtx, cancel := context.WithCancel(ctx)
+
+	// Ensure cleanup on error
+	var err error
+	defer func() {
+		if err != nil {
+			cancel()
+		}
+	}()
 
 	var wg sync.WaitGroup
-
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel() // Ensure cancellation on error
 
 	// Start worker pool
 	for i := 0; i < s.concurrency; i++ {
 		wg.Add(1)
-
-		go s.worker(ctx, targetChan, results, &wg)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case target, ok := <-targetChan:
+					if !ok {
+						return
+					}
+					s.scanTarget(scanCtx, target, results)
+				case <-scanCtx.Done():
+					return
+				case <-s.done:
+					return
+				}
+			}
+		}()
 	}
 
-	// Feed targets in a separate goroutine
+	// Feed targets
 	go func() {
 		defer close(targetChan)
 
 		for _, target := range targets {
 			select {
 			case targetChan <- target:
-			case <-ctx.Done():
+			case <-scanCtx.Done():
 				return
 			case <-s.done:
 				return
@@ -62,32 +84,14 @@ func (s *TCPScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 		}
 	}()
 
-	// Close results when all workers are done
+	// Wait for completion and close results
 	go func() {
 		wg.Wait()
+		cancel() // Cleanup context
 		close(results)
 	}()
 
 	return results, nil
-}
-
-func (s *TCPScanner) worker(ctx context.Context, targets <-chan models.Target, results chan<- models.Result, wg *sync.WaitGroup) {
-	defer wg.Done()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-s.done:
-			return
-		case target, ok := <-targets:
-			if !ok {
-				return
-			}
-
-			s.scanTarget(ctx, target, results)
-		}
-	}
 }
 
 func (s *TCPScanner) scanTarget(ctx context.Context, target models.Target, results chan<- models.Result) {
@@ -104,27 +108,25 @@ func (s *TCPScanner) scanTarget(ctx context.Context, target models.Target, resul
 
 	// Try to connect
 	var d net.Dialer
-
 	addr := net.JoinHostPort(target.Host, strconv.Itoa(target.Port))
 
 	conn, err := d.DialContext(connCtx, "tcp", addr)
-
 	result.RespTime = time.Since(start)
+
 	if err != nil {
 		result.Error = err
 		result.Available = false
 	} else {
 		result.Available = true
-
 		if err := conn.Close(); err != nil {
-			log.Print("Error closing connection: ", err)
-			return
+			log.Printf("Error closing connection: %v", err)
 		}
 	}
 
+	// Send result with proper context handling
 	select {
+	case results <- result:
 	case <-ctx.Done():
 	case <-s.done:
-	case results <- result:
 	}
 }
