@@ -16,6 +16,12 @@ import (
 	"github.com/mfreeman451/serviceradar/pkg/scan"
 )
 
+const (
+	cidr32              = 32
+	networkAndBroadcast = 2
+	maxInt              = int(^uint(0) >> 1) // maxInt is the maximum value of int on the current platform
+)
+
 var (
 	errInvalidSweepMode = errors.New("invalid sweep mode")
 )
@@ -104,78 +110,24 @@ func (m *SweepMode) MarshalJSON() ([]byte, error) {
 	return json.Marshal(string(*m))
 }
 
-// generateTargets generates a list of targets based on the current configuration.
 func (s *NetworkSweeper) generateTargets() ([]models.Target, error) {
-	// Pre-calculate capacity to avoid reallocations
-	totalIPs := 0
-	for _, network := range s.config.Networks {
-		_, ipnet, err := net.ParseCIDR(network)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse CIDR %s: %w", network, err)
-		}
-		ones, bits := ipnet.Mask.Size()
-		// Calculate network size (2^(32-ones) - 2 for IPv4)
-		// Subtract 2 to account for network and broadcast addresses
-		if ones < 32 { // Not a /32
-			totalIPs += 1<<uint(bits-ones) - 2
-		} else {
-			totalIPs++ // Single host for /32
-		}
-	}
-
-	// Calculate total targets based on enabled modes
-	targetCapacity := 0
-	if containsMode(s.config.SweepModes, models.ModeICMP) {
-		targetCapacity += totalIPs
-	}
-	if containsMode(s.config.SweepModes, models.ModeTCP) {
-		targetCapacity += totalIPs * len(s.config.Ports)
+	// Calculate total targets and unique IPs
+	targetCapacity, uniqueIPs, err := s.calculateTargetCapacity()
+	if err != nil {
+		return nil, fmt.Errorf("failed to calculate target capacity: %w", err)
 	}
 
 	// Pre-allocate slice with calculated capacity
 	allTargets := make([]models.Target, 0, targetCapacity)
 
-	uniqueIPs := make(map[string]struct{}, totalIPs)
-
+	// Generate targets for each network
 	for _, network := range s.config.Networks {
-		// Generate IPs for this network
-		ips, err := generateIPsFromCIDR(network)
+		targets, err := s.generateTargetsForNetwork(network, uniqueIPs)
 		if err != nil {
-			return nil, fmt.Errorf("failed to generate IPs for %s: %w", network, err)
+			return nil, fmt.Errorf("failed to generate targets for network %s: %w", network, err)
 		}
 
-		// Process each IP address
-		for _, ip := range ips {
-			ipStr := ip.String()
-			uniqueIPs[ipStr] = struct{}{}
-
-			// Add ICMP target if enabled
-			if containsMode(s.config.SweepModes, models.ModeICMP) {
-				allTargets = append(allTargets, models.Target{
-					Host: ipStr,
-					Mode: models.ModeICMP,
-					Metadata: map[string]interface{}{
-						"network":     network,
-						"total_hosts": totalIPs,
-					},
-				})
-			}
-
-			// Add TCP targets if enabled
-			if containsMode(s.config.SweepModes, models.ModeTCP) {
-				for _, port := range s.config.Ports {
-					allTargets = append(allTargets, models.Target{
-						Host: ipStr,
-						Port: port,
-						Mode: models.ModeTCP,
-						Metadata: map[string]interface{}{
-							"network":     network,
-							"total_hosts": totalIPs,
-						},
-					})
-				}
-			}
-		}
+		allTargets = append(allTargets, targets...)
 	}
 
 	log.Printf("Generated %d targets (%d unique IPs, %d ports, modes: %v)",
@@ -185,6 +137,91 @@ func (s *NetworkSweeper) generateTargets() ([]models.Target, error) {
 		s.config.SweepModes)
 
 	return allTargets, nil
+}
+
+func (s *NetworkSweeper) calculateTargetCapacity() (targetCap int, uniqueIPs map[string]struct{}, err error) {
+	var totalIPs uint64 // Use uint64 to avoid overflow
+
+	u := make(map[string]struct{}) // uniqueIPs
+
+	for _, network := range s.config.Networks {
+		_, ipnet, err := net.ParseCIDR(network)
+		if err != nil {
+			return 0, nil, fmt.Errorf("failed to parse CIDR %s: %w", network, err)
+		}
+
+		ones, bits := ipnet.Mask.Size()
+		// Ensure that the shift operation is safe by checking the number of bits
+		if bits-ones > 64 {
+			return 0, nil, fmt.Errorf("CIDR mask %s is too large to calculate network size", network)
+		}
+		networkSize := uint64(1) << uint64(bits-ones) // Total IPs in the network
+
+		if ones < cidr32 { // Not a /32
+			networkSize -= networkAndBroadcast // Subtract network and broadcast addresses
+		}
+
+		totalIPs += networkSize
+	}
+
+	// Calculate target capacity based on enabled modes
+	var targetCapacity uint64 // Use uint64 for intermediate calculations
+	if containsMode(s.config.SweepModes, models.ModeICMP) {
+		targetCapacity += totalIPs
+	}
+
+	if containsMode(s.config.SweepModes, models.ModeTCP) {
+		targetCapacity += totalIPs * uint64(len(s.config.Ports))
+	}
+
+	// Check if targetCapacity exceeds the maximum value of int
+	if targetCapacity > uint64(maxInt) {
+		return 0, nil, fmt.Errorf("target capacity %d exceeds maximum int value %d", targetCapacity, maxInt)
+	}
+
+	return int(targetCapacity), u, nil
+}
+
+// generateTargetsForNetwork generates targets for a specific network.
+func (s *NetworkSweeper) generateTargetsForNetwork(network string, uniqueIPs map[string]struct{}) ([]models.Target, error) {
+	ips, err := generateIPsFromCIDR(network)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate IPs for %s: %w", network, err)
+	}
+
+	var targets []models.Target
+
+	for _, ip := range ips {
+		ipStr := ip.String()
+		uniqueIPs[ipStr] = struct{}{}
+
+		// Add ICMP target if enabled
+		if containsMode(s.config.SweepModes, models.ModeICMP) {
+			targets = append(targets, models.Target{
+				Host: ipStr,
+				Mode: models.ModeICMP,
+				Metadata: map[string]interface{}{
+					"network": network,
+				},
+			})
+		}
+
+		// Add TCP targets if enabled
+		if containsMode(s.config.SweepModes, models.ModeTCP) {
+			for _, port := range s.config.Ports {
+				targets = append(targets, models.Target{
+					Host: ipStr,
+					Port: port,
+					Mode: models.ModeTCP,
+					Metadata: map[string]interface{}{
+						"network": network,
+					},
+				})
+			}
+		}
+	}
+
+	return targets, nil
 }
 
 func (s *NetworkSweeper) runSweep(ctx context.Context) error {

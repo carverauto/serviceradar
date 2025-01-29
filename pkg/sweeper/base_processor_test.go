@@ -3,6 +3,7 @@ package sweeper
 import (
 	"fmt"
 	"log"
+	"math/big"
 	"runtime"
 	"sync"
 	"testing"
@@ -12,14 +13,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func getMemStats() runtime.MemStats {
-	var mem runtime.MemStats
-
-	runtime.ReadMemStats(&mem)
-
-	return mem
-}
 
 func TestBaseProcessor_MemoryManagement(t *testing.T) {
 	// Create a large port configuration
@@ -159,11 +152,14 @@ func TestBaseProcessor_MemoryManagement(t *testing.T) {
 
 		runtime.ReadMemStats(&memAfter)
 
-		// Memory should be mostly released
-		memDiff := int64(memAfter.HeapAlloc - memBefore.HeapAlloc)
+		// Calculate memory difference safely using math/big
+		memDiff := new(big.Int).Sub(
+			new(big.Int).SetUint64(memAfter.HeapAlloc),
+			new(big.Int).SetUint64(memBefore.HeapAlloc),
+		)
 
-		t.Logf("Memory difference after cleanup: %d bytes", memDiff)
-		assert.Less(t, memDiff, int64(1*1024*1024),
+		t.Logf("Memory difference after cleanup: %s bytes", memDiff.String())
+		assert.Negative(t, memDiff.Cmp(big.NewInt(1*1024*1024)),
 			"Memory should be mostly released after cleanup")
 	})
 }
@@ -181,6 +177,7 @@ func TestBaseProcessor_ConcurrentAccess(t *testing.T) {
 
 	t.Run("Concurrent Processing", func(t *testing.T) {
 		var wg sync.WaitGroup
+
 		numGoroutines := 100
 		resultsPerRoutine := 100
 
@@ -190,8 +187,10 @@ func TestBaseProcessor_ConcurrentAccess(t *testing.T) {
 		// Launch multiple goroutines to process results concurrently
 		for i := 0; i < numGoroutines; i++ {
 			wg.Add(1)
+
 			go func(routineID int) {
 				defer wg.Done()
+
 				for j := 0; j < resultsPerRoutine; j++ {
 					result := &models.Result{
 						Target: models.Target{
@@ -218,10 +217,12 @@ func TestBaseProcessor_ConcurrentAccess(t *testing.T) {
 		for err := range errorChan {
 			errors = append(errors, err)
 		}
+
 		assert.Empty(t, errors, "No errors should occur during concurrent processing")
 
 		// Verify results
 		assert.Len(t, processor.hostMap, numGoroutines, "Should have expected number of hosts")
+
 		for _, host := range processor.hostMap {
 			assert.NotNil(t, host)
 			// Each host should have some port results
@@ -299,6 +300,7 @@ func TestBaseProcessor_ResourceCleanup(t *testing.T) {
 
 		// Second batch
 		reusedCount := 0
+
 		for i := 0; i < 10; i++ {
 			result := &models.Result{
 				Target: models.Target{
@@ -318,7 +320,7 @@ func TestBaseProcessor_ResourceCleanup(t *testing.T) {
 		}
 
 		// We should see some reuse of objects from the pool
-		assert.Greater(t, reusedCount, 0, "Should reuse some objects from the pool")
+		assert.Positive(t, reusedCount, "Should reuse some objects from the pool")
 	})
 }
 
@@ -399,7 +401,7 @@ func TestBaseProcessor_ConfigurationUpdates(t *testing.T) {
 		processor.mu.RLock()
 		defer processor.mu.RUnlock()
 
-		assert.Equal(t, 20, len(processor.hostMap), "Should have 20 hosts total")
+		assert.Len(t, processor.hostMap, 20, "Should have 20 hosts total")
 
 		// Check port result capacities
 		for _, host := range processor.hostMap {

@@ -211,6 +211,7 @@ func (s *ICMPScanner) sendPing(ip net.IP) error {
 	const addrSize = 4
 
 	var addr [addrSize]byte
+
 	copy(addr[:], ip.To4())
 
 	dest := syscall.SockaddrInet4{
@@ -239,6 +240,7 @@ func (s *ICMPScanner) listenForReplies(ctx context.Context) {
 	}(conn)
 
 	buffer := make([]byte, maxPacketSize)
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -255,10 +257,12 @@ func (s *ICMPScanner) listenForReplies(ctx context.Context) {
 				if !os.IsTimeout(err) {
 					log.Printf("Error reading ICMP packet: %v", err)
 				}
+
 				continue
 			}
 
 			ipStr := peer.String()
+
 			value, ok := s.responses.Load(ipStr)
 			if !ok {
 				continue
@@ -283,11 +287,14 @@ func (*ICMPScanner) closeConn(conn *icmp.PacketConn) {
 
 func (s *ICMPScanner) Stop() error {
 	close(s.done)
+
 	if s.rawSocket != 0 {
 		if err := syscall.Close(s.rawSocket); err != nil {
 			return fmt.Errorf("failed to close raw socket: %w", err)
 		}
+
 		s.rawSocket = 0
 	}
+
 	return nil
 }

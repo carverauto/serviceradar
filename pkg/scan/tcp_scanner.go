@@ -51,14 +51,17 @@ func (s *TCPScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 	// Start worker pool
 	for i := 0; i < s.concurrency; i++ {
 		wg.Add(1)
+
 		go func() {
 			defer wg.Done()
+
 			for {
 				select {
 				case target, ok := <-targetChan:
 					if !ok {
 						return
 					}
+
 					s.scanTarget(scanCtx, target, results)
 				case <-scanCtx.Done():
 					return
@@ -108,6 +111,7 @@ func (s *TCPScanner) scanTarget(ctx context.Context, target models.Target, resul
 
 	// Try to connect
 	var d net.Dialer
+
 	addr := net.JoinHostPort(target.Host, strconv.Itoa(target.Port))
 
 	conn, err := d.DialContext(connCtx, "tcp", addr)
@@ -118,6 +122,7 @@ func (s *TCPScanner) scanTarget(ctx context.Context, target models.Target, resul
 		result.Available = false
 	} else {
 		result.Available = true
+
 		if err := conn.Close(); err != nil {
 			log.Printf("Error closing connection: %v", err)
 		}

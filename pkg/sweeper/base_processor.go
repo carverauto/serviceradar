@@ -9,6 +9,11 @@ import (
 	"github.com/mfreeman451/serviceradar/pkg/models"
 )
 
+const (
+	startingBufferSize = 16
+	portCountDivisor   = 4
+)
+
 type BaseProcessor struct {
 	mu             sync.RWMutex
 	hostMap        map[string]*models.HostResult
@@ -16,7 +21,7 @@ type BaseProcessor struct {
 	lastSweepTime  time.Time
 	firstSeenTimes map[string]time.Time
 	totalHosts     int
-	hostResultPool sync.Pool
+	hostResultPool *sync.Pool
 	portResultPool sync.Pool
 	portCount      int // Number of ports being scanned
 	config         *models.Config
@@ -39,7 +44,7 @@ func NewBaseProcessor(config *models.Config) *BaseProcessor {
 	// Initialize host result pool
 	p.hostResultPool.New = func() interface{} {
 		return &models.HostResult{
-			PortResults: make([]*models.PortResult, 0, 16), // Start with reasonable capacity
+			PortResults: make([]*models.PortResult, 0, startingBufferSize), // Start with reasonable capacity
 		}
 	}
 
@@ -61,11 +66,11 @@ func (p *BaseProcessor) UpdateConfig(config *models.Config) {
 	log.Printf("Updating port count from %d to %d", p.portCount, newPortCount)
 
 	// Create new pool outside the lock
-	newPool := sync.Pool{
+	newPool := &sync.Pool{
 		New: func() interface{} {
 			return &models.HostResult{
 				// Start with 25% capacity, will grow if needed
-				PortResults: make([]*models.PortResult, 0, newPortCount/4),
+				PortResults: make([]*models.PortResult, 0, newPortCount/portCountDivisor),
 			}
 		},
 	}
@@ -86,7 +91,6 @@ func (p *BaseProcessor) UpdateConfig(config *models.Config) {
 	}
 }
 
-// cleanup now uses its own locking
 func (p *BaseProcessor) cleanup() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -108,6 +112,7 @@ func (p *BaseProcessor) cleanup() {
 
 	// Clean up hosts outside the lock
 	p.mu.Unlock()
+
 	for _, host := range hostsToClean {
 		// Clean up port results
 		for _, pr := range host.PortResults {
@@ -124,8 +129,10 @@ func (p *BaseProcessor) cleanup() {
 		host.PortResults = host.PortResults[:0]
 		host.ICMPStatus = nil
 		host.ResponseTime = 0
+
 		p.hostResultPool.Put(host)
 	}
+
 	p.mu.Lock() // Re-acquire lock before returning (due to defer)
 
 	log.Printf("Cleanup complete")
@@ -203,6 +210,7 @@ func (p *BaseProcessor) updatePortStatus(host *models.HostResult, result *models
 			port.Available = true
 			port.RespTime = result.RespTime
 			found = true
+
 			break
 		}
 	}
@@ -242,6 +250,7 @@ func (p *BaseProcessor) getOrCreateHost(hostAddr string, now time.Time) *models.
 
 		p.hostMap[hostAddr] = host
 	}
+
 	return host
 }
 
@@ -275,6 +284,7 @@ func (p *BaseProcessor) GetSummary(ctx context.Context) (*models.SweepSummary, e
 		if host.Available {
 			availableHosts++
 		}
+
 		hosts = append(hosts, *host)
 	}
 

@@ -13,7 +13,7 @@ import (
 	"google.golang.org/grpc"
 )
 
-// TestNoSecurityProvider tests the NoSecurityProvider implementation
+// TestNoSecurityProvider tests the NoSecurityProvider implementation.
 func TestNoSecurityProvider(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -66,13 +66,24 @@ func TestTLSProvider(t *testing.T) {
 		require.NotNil(t, provider)
 		assert.NotNil(t, provider.clientCreds)
 		assert.NotNil(t, provider.serverCreds)
-		defer provider.Close()
+
+		defer func(provider *TLSProvider) {
+			err := provider.Close()
+			if err != nil {
+				t.Fatalf("Expected Close to succeed, got error: %v", err)
+			}
+		}(provider)
 	})
 
 	t.Run("GetClientCredentials", func(t *testing.T) {
 		provider, err := NewTLSProvider(config)
 		require.NoError(t, err)
-		defer provider.Close()
+		defer func(provider *TLSProvider) {
+			err := provider.Close()
+			if err != nil {
+				t.Fatalf("Expected Close to succeed, got error: %v", err)
+			}
+		}(provider)
 
 		opt, err := provider.GetClientCredentials(ctx)
 		require.NoError(t, err)
@@ -86,7 +97,12 @@ func TestTLSProvider(t *testing.T) {
 	t.Run("GetServerCredentials", func(t *testing.T) {
 		provider, err := NewTLSProvider(config)
 		require.NoError(t, err)
-		defer provider.Close()
+		defer func(provider *TLSProvider) {
+			err := provider.Close()
+			if err != nil {
+				t.Fatalf("Expected Close to succeed, got error: %v", err)
+			}
+		}(provider)
 
 		opt, err := provider.GetServerCredentials(ctx)
 		require.NoError(t, err)
@@ -109,7 +125,7 @@ func TestTLSProvider(t *testing.T) {
 	})
 }
 
-// TestMTLSProvider tests the MTLSProvider implementation
+// TestMTLSProvider tests the MTLSProvider implementation.
 func TestMTLSProvider(t *testing.T) {
 	tmpDir := t.TempDir()
 	setupTestCertificates(t, tmpDir)
@@ -129,30 +145,45 @@ func TestMTLSProvider(t *testing.T) {
 		require.NotNil(t, provider)
 		assert.NotNil(t, provider.clientCreds)
 		assert.NotNil(t, provider.serverCreds)
-		defer provider.Close()
+
+		defer func(provider *MTLSProvider) {
+			err := provider.Close()
+			if err != nil {
+				t.Fatalf("Expected Close to succeed, got error: %v", err)
+			}
+		}(provider)
 	})
 
 	t.Run("GetClientCredentials", func(t *testing.T) {
 		provider, err := NewMTLSProvider(config)
 		require.NoError(t, err)
-		defer provider.Close()
+		defer func(provider *MTLSProvider) {
+			err = provider.Close()
+			if err != nil {
+				t.Fatalf("Expected Close to succeed, got error: %v", err)
+			}
+		}(provider)
 
 		opt, err := provider.GetClientCredentials(ctx)
 		require.NoError(t, err)
 		require.NotNil(t, opt)
-
-		// Verify it's a DialOption
-		_, ok := opt.(grpc.DialOption)
-		assert.True(t, ok)
 	})
 
 	t.Run("MissingClientCerts", func(t *testing.T) {
 		// Remove client certificates
-		os.Remove(filepath.Join(tmpDir, "client.crt"))
-		os.Remove(filepath.Join(tmpDir, "client.key"))
+		err := os.Remove(filepath.Join(tmpDir, "client.crt"))
+		if err != nil {
+			return
+		}
+
+		err = os.Remove(filepath.Join(tmpDir, "client.key"))
+		if err != nil {
+			return
+		}
 
 		provider, err := NewMTLSProvider(config)
-		assert.Error(t, err)
+
+		require.Error(t, err)
 		assert.Nil(t, provider)
 	})
 }
@@ -183,9 +214,15 @@ func TestSpiffeProvider(t *testing.T) {
 			// Otherwise, fail the test with the error
 			t.Fatalf("Expected NewSpiffeProvider to succeed, got error: %v", err)
 		}
+
 		assert.NotNil(t, provider)
+
 		if provider != nil {
-			provider.Close()
+			err := provider.Close()
+			if err != nil {
+				t.Fatalf("Expected Close to succeed, got error: %v", err)
+				return
+			}
 		}
 	})
 
@@ -196,12 +233,12 @@ func TestSpiffeProvider(t *testing.T) {
 		}
 
 		provider, err := NewSpiffeProvider(invalidConfig)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Nil(t, provider)
 	})
 }
 
-// TestNewSecurityProvider tests the factory function for creating security providers
+// TestNewSecurityProvider tests the factory function for creating security providers.
 func TestNewSecurityProvider(t *testing.T) {
 	tmpDir := t.TempDir()
 	setupTestCertificates(t, tmpDir)
@@ -258,16 +295,18 @@ func TestNewSecurityProvider(t *testing.T) {
 
 			provider, err := NewSecurityProvider(tt.config)
 			if tt.expectError {
-				assert.Error(t, err)
+				require.Error(t, err)
 				assert.Nil(t, provider)
+
 				return
 			}
-			assert.NoError(t, err)
+
+			require.NoError(t, err)
 			assert.NotNil(t, provider)
 
 			// Test basic provider operations if not expecting error
 			opt, err := provider.GetClientCredentials(ctx)
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			assert.NotNil(t, opt)
 
 			err = provider.Close()
@@ -276,7 +315,6 @@ func TestNewSecurityProvider(t *testing.T) {
 	}
 }
 
-// Helper functions for test certificates
 func setupTestCertificates(t *testing.T, dir string) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "ca.crt"), []byte(testCACert), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "server.crt"), []byte(testServerCert), 0644))
@@ -289,6 +327,7 @@ func setupClientCertificates(t *testing.T, dir string) {
 }
 
 // Test certificates for testing purposes only - DO NOT USE IN PRODUCTION
+
 const (
 	testCACert = `-----BEGIN CERTIFICATE-----
 MIIBcjCCARegAwIBAgIRANgz6QVQQNQEThHH8NLdXw4wCgYIKoZIzj0EAwIwEjEQ

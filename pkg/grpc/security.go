@@ -156,40 +156,47 @@ func (p *SpiffeProvider) GetClientCredentials(ctx context.Context) (grpc.DialOpt
 	return grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)), nil
 }
 
-func (p *SpiffeProvider) GetServerCredentials(ctx context.Context) (grpc.ServerOption, error) {
+func (p *SpiffeProvider) GetServerCredentials(_ context.Context) (grpc.ServerOption, error) {
 	// Create TLS config for server with authorized SPIFFE ID pattern
 	// This authorizes any ID in our trust domain
 	authorizer := tlsconfig.AuthorizeAny()
+
 	if p.config.TrustDomain != "" {
 		trustDomain, err := spiffeid.TrustDomainFromString(p.config.TrustDomain)
 		if err != nil {
 			return nil, fmt.Errorf("invalid trust domain: %w", err)
 		}
+
 		authorizer = tlsconfig.AuthorizeMemberOf(trustDomain)
 	}
 
 	tlsConfig := tlsconfig.MTLSServerConfig(p.source, p.source, authorizer)
+
 	return grpc.Creds(credentials.NewTLS(tlsConfig)), nil
 }
 
 func (p *SpiffeProvider) Close() error {
 	var err error
+
 	p.closeOnce.Do(func() {
 		if p.source != nil {
 			err := p.source.Close()
 			if err != nil {
 				err = fmt.Errorf("failed to close X.509 source: %w", err)
+
 				return
 			}
 		}
+
 		if p.client != nil {
 			err = p.client.Close()
 		}
 	})
+
 	return err
 }
 
-// NewSecurityProvider creates the appropriate security provider based on mode
+// NewSecurityProvider creates the appropriate security provider based on mode.
 func NewSecurityProvider(config *SecurityConfig) (SecurityProvider, error) {
 	switch config.Mode {
 	case SecurityModeNone:
@@ -212,6 +219,7 @@ func NewSecurityProvider(config *SecurityConfig) (SecurityProvider, error) {
 func loadTLSCredentials(config *SecurityConfig, mutual bool) (credentials.TransportCredentials, error) {
 	// Load certificate authority
 	caFile := filepath.Join(config.CertDir, "ca.crt")
+
 	caCert, err := os.ReadFile(caFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read CA cert: %w", err)
@@ -225,6 +233,7 @@ func loadTLSCredentials(config *SecurityConfig, mutual bool) (credentials.Transp
 	// Load server certificates
 	serverCert := filepath.Join(config.CertDir, "server.crt")
 	serverKey := filepath.Join(config.CertDir, "server.key")
+
 	cert, err := tls.LoadX509KeyPair(serverCert, serverKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load server cert/key: %w", err)
