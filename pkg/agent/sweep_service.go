@@ -57,7 +57,7 @@ func NewSweepService(config *models.Config) (Service, error) {
 	)
 
 	// Create processor instance
-	processor := sweeper.NewBaseProcessor()
+	processor := sweeper.NewBaseProcessor(config)
 
 	// Create an in-memory store
 	store := sweeper.NewInMemoryStore(processor)
@@ -159,6 +159,7 @@ func (s *SweepService) performSweep(ctx context.Context) error {
 }
 
 // generateTargets is split into smaller helpers to reduce cognitive complexity.
+// TODO: investigate further refactoring to reduce complexity, maybe pre-allocation
 func (s *SweepService) generateTargets() ([]models.Target, error) {
 	var allTargets []models.Target
 

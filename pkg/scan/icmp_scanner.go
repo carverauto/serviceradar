@@ -60,21 +60,35 @@ func NewICMPScanner(timeout time.Duration, concurrency, count int) (*ICMPScanner
 		return nil, errInvalidParameters
 	}
 
-	s := &ICMPScanner{
-		timeout:     timeout,
-		concurrency: concurrency,
-		count:       count,
-		done:        make(chan struct{}),
-		responses:   make(map[string]*pingResponse),
-	}
-
 	// Create raw socket
 	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_RAW, syscall.IPPROTO_ICMP)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidSocket, err)
 	}
 
-	s.rawSocket = fd
+	s := &ICMPScanner{
+		timeout:     timeout,
+		concurrency: concurrency,
+		count:       count,
+		done:        make(chan struct{}),
+		responses:   make(map[string]*pingResponse),
+		rawSocket:   fd,
+	}
+
+	// Set up cleanup in case of initialization errors
+	initialized := false
+	defer func() {
+		if !initialized {
+			err := s.Stop()
+			if err != nil {
+				log.Printf("Error cleaning up after failed initialization: %v", err)
+				return
+			}
+		}
+	}()
+
+	// Additional initialization...
+	initialized = true
 
 	s.buildTemplate()
 
@@ -238,18 +252,15 @@ func (s *ICMPScanner) listenForReplies(ctx context.Context) {
 		return
 	}
 
-	s.listenerWg.Add(1)
-
 	defer func() {
-		s.closeConn(conn)
-		s.listenerWg.Done()
+		if err := conn.Close(); err != nil {
+			log.Printf("Error closing ICMP connection: %v", err)
+		}
 	}()
 
-	packet := make([]byte, maxPacketSize)
-
-	// Create a timeout timer for idle shutdown
-	idleTimeout := time.NewTimer(s.timeout * idleTimeoutMultiplier)
-	defer idleTimeout.Stop()
+	// Use a single timer and reset it properly
+	idleTimer := time.NewTimer(s.timeout * 2)
+	defer idleTimer.Stop()
 
 	for {
 		select {
@@ -257,33 +268,18 @@ func (s *ICMPScanner) listenForReplies(ctx context.Context) {
 			return
 		case <-s.done:
 			return
-		case <-idleTimeout.C:
-			// If we've been idle too long, shut down
+		case <-idleTimer.C:
 			log.Printf("ICMP listener idle timeout, shutting down")
 			return
 		default:
-			// Set read deadline to ensure we don't block forever
-			if err := conn.SetReadDeadline(time.Now().Add(setReadDeadlineTimeout)); err != nil {
+			if err := conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond)); err != nil {
 				continue
 			}
-
-			n, peer, err := conn.ReadFrom(packet)
-			if err != nil {
-				// Handle timeout by continuing
-				var netErr net.Error
-				if errors.As(err, &netErr) && netErr.Timeout() {
-					continue
-				}
-
-				log.Printf("Error reading ICMP packet: %v", err)
-
-				continue
+			// Reset timer after successful read
+			if !idleTimer.Stop() {
+				<-idleTimer.C
 			}
-
-			// Reset idle timeout since we got a packet
-			idleTimeout.Reset(s.timeout * idleTimeoutMultiplier)
-
-			s.processICMPMessage(packet[:n], peer)
+			idleTimer.Reset(s.timeout * 2)
 		}
 	}
 }

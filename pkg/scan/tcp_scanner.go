@@ -15,7 +15,7 @@ type TCPScanner struct {
 	timeout     time.Duration
 	concurrency int
 	done        chan struct{}
-	scan        func(context.Context, []models.Target) (<-chan models.Result, error)
+	// scan        func(context.Context, []models.Target) (<-chan models.Result, error)
 }
 
 func NewTCPScanner(timeout time.Duration, concurrency int) *TCPScanner {
@@ -32,32 +32,32 @@ func (s *TCPScanner) Stop() error {
 }
 
 func (s *TCPScanner) Scan(ctx context.Context, targets []models.Target) (<-chan models.Result, error) {
-	if s.scan != nil {
-		return s.scan(ctx, targets)
-	}
-
 	results := make(chan models.Result)
-	targetChan := make(chan models.Target)
+	targetChan := make(chan models.Target, s.concurrency) // Buffered channel to help prevent blocking
 
 	var wg sync.WaitGroup
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel() // Ensure cancellation on error
+
 	// Start worker pool
 	for i := 0; i < s.concurrency; i++ {
 		wg.Add(1)
 
-		go s.worker(ctx, &wg, targetChan, results)
+		go s.worker(ctx, targetChan, results, &wg)
 	}
 
-	// Feed targets to workers
+	// Feed targets in a separate goroutine
 	go func() {
 		defer close(targetChan)
 
 		for _, target := range targets {
 			select {
+			case targetChan <- target:
 			case <-ctx.Done():
 				return
 			case <-s.done:
 				return
-			case targetChan <- target:
 			}
 		}
 	}()
@@ -71,7 +71,7 @@ func (s *TCPScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 	return results, nil
 }
 
-func (s *TCPScanner) worker(ctx context.Context, wg *sync.WaitGroup, targets <-chan models.Target, results chan<- models.Result) {
+func (s *TCPScanner) worker(ctx context.Context, targets <-chan models.Target, results chan<- models.Result, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	for {

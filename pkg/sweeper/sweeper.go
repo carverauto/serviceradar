@@ -104,43 +104,83 @@ func (m *SweepMode) MarshalJSON() ([]byte, error) {
 	return json.Marshal(string(*m))
 }
 
+// generateTargets generates a list of targets based on the current configuration.
 func (s *NetworkSweeper) generateTargets() ([]models.Target, error) {
-	var allTargets []models.Target
+	// Pre-calculate capacity to avoid reallocations
+	totalIPs := 0
+	for _, network := range s.config.Networks {
+		_, ipnet, err := net.ParseCIDR(network)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse CIDR %s: %w", network, err)
+		}
+		ones, bits := ipnet.Mask.Size()
+		// Calculate network size (2^(32-ones) - 2 for IPv4)
+		// Subtract 2 to account for network and broadcast addresses
+		if ones < 32 { // Not a /32
+			totalIPs += 1<<uint(bits-ones) - 2
+		} else {
+			totalIPs++ // Single host for /32
+		}
+	}
+
+	// Calculate total targets based on enabled modes
+	targetCapacity := 0
+	if containsMode(s.config.SweepModes, models.ModeICMP) {
+		targetCapacity += totalIPs
+	}
+	if containsMode(s.config.SweepModes, models.ModeTCP) {
+		targetCapacity += totalIPs * len(s.config.Ports)
+	}
+
+	// Pre-allocate slice with calculated capacity
+	allTargets := make([]models.Target, 0, targetCapacity)
+
+	uniqueIPs := make(map[string]struct{}, totalIPs)
 
 	for _, network := range s.config.Networks {
-		// First generate all IP addresses
+		// Generate IPs for this network
 		ips, err := generateIPsFromCIDR(network)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate IPs for %s: %w", network, err)
 		}
 
-		// For each IP, create ICMP target if enabled
-		if containsMode(s.config.SweepModes, models.ModeICMP) {
-			for _, ip := range ips {
+		// Process each IP address
+		for _, ip := range ips {
+			ipStr := ip.String()
+			uniqueIPs[ipStr] = struct{}{}
+
+			// Add ICMP target if enabled
+			if containsMode(s.config.SweepModes, models.ModeICMP) {
 				allTargets = append(allTargets, models.Target{
-					Host: ip.String(),
+					Host: ipStr,
 					Mode: models.ModeICMP,
+					Metadata: map[string]interface{}{
+						"network":     network,
+						"total_hosts": totalIPs,
+					},
 				})
 			}
-		}
 
-		// For each IP, create TCP targets for each port if enabled
-		if containsMode(s.config.SweepModes, models.ModeTCP) {
-			for _, ip := range ips {
+			// Add TCP targets if enabled
+			if containsMode(s.config.SweepModes, models.ModeTCP) {
 				for _, port := range s.config.Ports {
 					allTargets = append(allTargets, models.Target{
-						Host: ip.String(),
+						Host: ipStr,
 						Port: port,
 						Mode: models.ModeTCP,
+						Metadata: map[string]interface{}{
+							"network":     network,
+							"total_hosts": totalIPs,
+						},
 					})
 				}
 			}
 		}
 	}
 
-	log.Printf("Generated %d targets (%d IPs, %d ports, modes: %v)",
+	log.Printf("Generated %d targets (%d unique IPs, %d ports, modes: %v)",
 		len(allTargets),
-		len(allTargets)/(len(s.config.Ports)+1),
+		len(uniqueIPs),
 		len(s.config.Ports),
 		s.config.SweepModes)
 
