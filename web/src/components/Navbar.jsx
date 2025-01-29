@@ -8,7 +8,7 @@ function Navbar() {
         <div className="container mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center">
-              <img src={logo} alt="logo" className="w-10 h-10" />
+              <img src={logo} alt="logo" className="w-10 h-10 drop-shadow-lg" />
               <Link to="/" className="text-xl font-bold text-gray-800 ml-2">
                 ServiceRadar
               </Link>
