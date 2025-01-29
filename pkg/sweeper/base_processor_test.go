@@ -347,7 +347,6 @@ func TestBaseProcessor_ConfigurationUpdates(t *testing.T) {
 				},
 				Available: true,
 			}
-			log.Printf("Processing result: %v", result)
 			err := processor.Process(result)
 			require.NoError(t, err, "Processing with initial config should succeed")
 		}
@@ -355,7 +354,9 @@ func TestBaseProcessor_ConfigurationUpdates(t *testing.T) {
 		// Verify initial state
 		processor.mu.RLock()
 		initialHosts := len(processor.hostMap)
+
 		var initialCapacity int
+
 		for _, host := range processor.hostMap {
 			initialCapacity = cap(host.PortResults)
 			break
@@ -375,11 +376,7 @@ func TestBaseProcessor_ConfigurationUpdates(t *testing.T) {
 			newConfig.Ports[i] = i + 1
 		}
 
-		log.Printf("Updating config to: %v", newConfig)
-
 		processor.UpdateConfig(newConfig)
-
-		log.Printf("Updated config: %v", processor.config)
 
 		// Verify config update
 		assert.Equal(t, 2300, processor.portCount, "Port count should be updated")
