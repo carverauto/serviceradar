@@ -23,8 +23,8 @@ const interpolatePoints = (points) => {
             result.push(current);
             for (let j = 1; j < steps; j++) {
                 result.push({
-                    timestamp: current.timestamp + (timeStep * j),
-                    value: current.value + (valueStep * j)
+                    timestamp: current.timestamp + timeStep * j,
+                    value: current.value + valueStep * j,
                 });
             }
         } else {
@@ -63,10 +63,10 @@ const ServiceSparkline = ({ nodeId, serviceName }) => {
                 const data = await response.json();
 
                 const serviceMetrics = data
-                    .filter(m => m.service_name === serviceName)
-                    .map(m => ({
+                    .filter((m) => m.service_name === serviceName)
+                    .map((m) => ({
                         timestamp: new Date(m.timestamp).getTime(),
-                        value: m.response_time / 1000000
+                        value: m.response_time / 1000000,
                     }))
                     .sort((a, b) => a.timestamp - b.timestamp);
 
@@ -94,19 +94,15 @@ const ServiceSparkline = ({ nodeId, serviceName }) => {
     const trend = getTrend(processedMetrics);
 
     return (
-        <div className="flex flex-col items-center">
+        <div className="flex flex-col items-center transition-colors">
             <div className="h-8 w-24">
                 <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={processedMetrics}>
-                        <YAxis
-                            type="number"
-                            domain={['dataMin', 'dataMax']}
-                            hide={true}
-                        />
+                        <YAxis type="number" domain={['dataMin', 'dataMax']} hide />
                         <Line
                             type="monotone"
                             dataKey="value"
-                            stroke="#6366f1"
+                            stroke="#6366f1" // If you want a different stroke in dark mode, do inline logic or props
                             dot={false}
                             strokeWidth={1}
                             isAnimationActive={false}
@@ -114,13 +110,13 @@ const ServiceSparkline = ({ nodeId, serviceName }) => {
                     </LineChart>
                 </ResponsiveContainer>
             </div>
-            <div className="flex items-center gap-1 text-xs">
-                <span className="text-gray-600">
-                    {latestValue ? `${latestValue.toFixed(4)}ms` : 'N/A'}
-                </span>
-                {trend === 'up' && <TrendingUp className="h-3 w-3 text-red-500" />}
-                {trend === 'down' && <TrendingDown className="h-3 w-3 text-green-500" />}
-                {trend === 'neutral' && <Minus className="h-3 w-3 text-gray-400" />}
+            <div className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300">
+        <span>
+          {latestValue ? `${latestValue.toFixed(4)}ms` : 'N/A'}
+        </span>
+                {trend === 'up' && <TrendingUp className="h-3 w-3 text-red-500 dark:text-red-400" />}
+                {trend === 'down' && <TrendingDown className="h-3 w-3 text-green-500 dark:text-green-400" />}
+                {trend === 'neutral' && <Minus className="h-3 w-3 text-gray-400 dark:text-gray-500" />}
             </div>
         </div>
     );
