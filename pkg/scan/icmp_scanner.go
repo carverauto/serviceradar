@@ -10,22 +10,18 @@ import (
 	"net"
 	"os"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/mfreeman451/serviceradar/pkg/models"
 	"golang.org/x/net/icmp"
-	"golang.org/x/net/ipv4"
 )
 
 const (
-	scannerShutdownTimeout    = 5 * time.Second
-	maxPacketSize             = 1500
-	templateSize              = 8
-	packetReadDeadline        = 100 * time.Millisecond
-	listenForReplyIdleTimeout = 2 * time.Second
-	setReadDeadlineTimeout    = 100 * time.Millisecond
-	idleTimeoutMultiplier     = 2
+	maxPacketSize      = 1500
+	templateSize       = 8
+	packetReadDeadline = 100 * time.Millisecond
 )
 
 var (
@@ -40,30 +36,27 @@ type ICMPScanner struct {
 	done        chan struct{}
 	rawSocket   int
 	template    []byte
-	responses   map[string]*pingResponse
-	mu          sync.RWMutex
+	responses   sync.Map
 	listenerWg  sync.WaitGroup
 }
 
 type pingResponse struct {
-	received  int
-	totalTime time.Duration
-	lastSeen  time.Time
-	sendTime  time.Time
-	dropped   int
-	sent      int
+	received  atomic.Int32
+	totalTime atomic.Int64
+	lastSeen  atomic.Value
+	sendTime  atomic.Value
+	dropped   atomic.Int32
+	sent      atomic.Int32
 }
 
 func NewICMPScanner(timeout time.Duration, concurrency, count int) (*ICMPScanner, error) {
-	// Validate parameters before proceeding
 	if timeout <= 0 || concurrency <= 0 || count <= 0 {
 		return nil, errInvalidParameters
 	}
 
-	// Create raw socket
 	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_RAW, syscall.IPPROTO_ICMP)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", errInvalidSocket, err)
+		return nil, fmt.Errorf("failed to create socket: %w", err)
 	}
 
 	s := &ICMPScanner{
@@ -71,24 +64,8 @@ func NewICMPScanner(timeout time.Duration, concurrency, count int) (*ICMPScanner
 		concurrency: concurrency,
 		count:       count,
 		done:        make(chan struct{}),
-		responses:   make(map[string]*pingResponse),
 		rawSocket:   fd,
 	}
-
-	// Set up cleanup in case of initialization errors
-	initialized := false
-	defer func() {
-		if !initialized {
-			err := s.Stop()
-			if err != nil {
-				log.Printf("Error cleaning up after failed initialization: %v", err)
-				return
-			}
-		}
-	}()
-
-	// Additional initialization...
-	initialized = true
 
 	s.buildTemplate()
 
@@ -100,7 +77,7 @@ func (s *ICMPScanner) Scan(ctx context.Context, targets []models.Target) (<-chan
 		return nil, errInvalidSocket
 	}
 
-	results := make(chan models.Result)
+	results := make(chan models.Result, len(targets))
 	rateLimit := time.Second / time.Duration(s.concurrency)
 
 	// Start listener
@@ -114,12 +91,11 @@ func (s *ICMPScanner) Scan(ctx context.Context, targets []models.Target) (<-chan
 				continue
 			}
 
-			// Initialize response for this target
-			s.mu.Lock()
-			if _, exists := s.responses[target.Host]; !exists {
-				s.responses[target.Host] = &pingResponse{}
-			}
-			s.mu.Unlock()
+			// Initialize response tracking for this target
+			resp := &pingResponse{}
+			resp.lastSeen.Store(time.Time{})
+			resp.sendTime.Store(time.Time{})
+			s.responses.Store(target.Host, resp)
 
 			// Send pings and track sent count
 			for i := 0; i < s.count; i++ {
@@ -129,40 +105,48 @@ func (s *ICMPScanner) Scan(ctx context.Context, targets []models.Target) (<-chan
 				case <-s.done:
 					return
 				default:
-					s.mu.Lock()
-					s.responses[target.Host].sent++
-					s.mu.Unlock()
+					resp.sent.Add(1)
 
 					if err := s.sendPing(net.ParseIP(target.Host)); err != nil {
 						log.Printf("Error sending ping to %s: %v", target.Host, err)
-						s.mu.Lock()
-						s.responses[target.Host].dropped++
-						s.mu.Unlock()
+						resp.dropped.Add(1)
 					}
 				}
 				time.Sleep(rateLimit)
 			}
 
-			// Calculate results
-			s.mu.RLock()
-
-			resp := s.responses[target.Host]
-
-			var avgResponseTime time.Duration
-
-			if resp.received > 0 {
-				avgResponseTime = resp.totalTime / time.Duration(resp.received)
+			// Get final results
+			value, ok := s.responses.Load(target.Host)
+			if !ok {
+				continue
 			}
 
-			packetLoss := float64(resp.sent-resp.received) / float64(resp.sent) * 100
-			s.mu.RUnlock()
+			resp = value.(*pingResponse)
+			received := resp.received.Load()
+			sent := resp.sent.Load()
+			totalTime := resp.totalTime.Load()
+			lastSeen := resp.lastSeen.Load().(time.Time)
 
-			results <- models.Result{
+			var avgResponseTime time.Duration
+			if received > 0 {
+				avgResponseTime = time.Duration(totalTime) / time.Duration(received)
+			}
+
+			packetLoss := float64(sent-received) / float64(sent) * 100
+
+			select {
+			case results <- models.Result{
 				Target:     target,
-				Available:  resp.received > 0,
+				Available:  received > 0,
 				RespTime:   avgResponseTime,
 				PacketLoss: packetLoss,
-				LastSeen:   resp.lastSeen,
+				LastSeen:   lastSeen,
+				FirstSeen:  time.Now(),
+			}:
+			case <-ctx.Done():
+				return
+			case <-s.done:
+				return
 			}
 		}
 	}()
@@ -224,23 +208,19 @@ func (*ICMPScanner) calculateChecksum(data []byte) uint16 {
 }
 
 func (s *ICMPScanner) sendPing(ip net.IP) error {
-	const (
-		addrSize = 4
-	)
+	const addrSize = 4
 
 	var addr [addrSize]byte
-
 	copy(addr[:], ip.To4())
 
 	dest := syscall.SockaddrInet4{
 		Addr: addr,
 	}
 
-	s.mu.Lock()
-	if resp, exists := s.responses[ip.String()]; exists {
-		resp.sendTime = time.Now()
+	if value, ok := s.responses.Load(ip.String()); ok {
+		resp := value.(*pingResponse)
+		resp.sendTime.Store(time.Now())
 	}
-	s.mu.Unlock()
 
 	return syscall.Sendto(s.rawSocket, s.template, 0, &dest)
 }
@@ -251,35 +231,46 @@ func (s *ICMPScanner) listenForReplies(ctx context.Context) {
 		log.Printf("Failed to start ICMP listener: %v", err)
 		return
 	}
-
-	defer func() {
-		if err := conn.Close(); err != nil {
-			log.Printf("Error closing ICMP connection: %v", err)
+	defer func(conn *icmp.PacketConn) {
+		err := conn.Close()
+		if err != nil {
+			log.Printf("Failed to close ICMP listener: %v", err)
 		}
-	}()
+	}(conn)
 
-	// Use a single timer and reset it properly
-	idleTimer := time.NewTimer(s.timeout * 2)
-	defer idleTimer.Stop()
-
+	buffer := make([]byte, maxPacketSize)
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-s.done:
 			return
-		case <-idleTimer.C:
-			log.Printf("ICMP listener idle timeout, shutting down")
-			return
 		default:
-			if err := conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond)); err != nil {
+			if err := conn.SetReadDeadline(time.Now().Add(packetReadDeadline)); err != nil {
 				continue
 			}
-			// Reset timer after successful read
-			if !idleTimer.Stop() {
-				<-idleTimer.C
+
+			_, peer, err := conn.ReadFrom(buffer)
+			if err != nil {
+				if !os.IsTimeout(err) {
+					log.Printf("Error reading ICMP packet: %v", err)
+				}
+				continue
 			}
-			idleTimer.Reset(s.timeout * 2)
+
+			ipStr := peer.String()
+			value, ok := s.responses.Load(ipStr)
+			if !ok {
+				continue
+			}
+
+			resp := value.(*pingResponse)
+			resp.received.Add(1)
+
+			now := time.Now()
+			sendTime := resp.sendTime.Load().(time.Time)
+			resp.totalTime.Add(now.Sub(sendTime).Nanoseconds())
+			resp.lastSeen.Store(now)
 		}
 	}
 }
@@ -290,58 +281,13 @@ func (*ICMPScanner) closeConn(conn *icmp.PacketConn) {
 	}
 }
 
-func (s *ICMPScanner) processICMPMessage(data []byte, peer net.Addr) {
-	msg, err := icmp.ParseMessage(1, data)
-	if err != nil {
-		return
-	}
-
-	if msg.Type == ipv4.ICMPTypeEchoReply {
-		s.updateResponse(peer.String())
-	}
-}
-
-func (s *ICMPScanner) updateResponse(ipStr string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if resp, exists := s.responses[ipStr]; exists {
-		resp.received++
-
-		resp.lastSeen = time.Now()
-
-		if !resp.sendTime.IsZero() {
-			resp.totalTime += time.Since(resp.sendTime)
-		}
-	}
-}
-
 func (s *ICMPScanner) Stop() error {
-	// Signal shutdown
 	close(s.done)
-
-	// Wait for listener with timeout
-	done := make(chan struct{})
-	go func() {
-		s.listenerWg.Wait()
-		close(done)
-	}()
-
-	// Wait with timeout
-	select {
-	case <-done:
-		// Normal shutdown
-	case <-time.After(scannerShutdownTimeout):
-		log.Printf("Warning: ICMP listener shutdown timed out")
-	}
-
 	if s.rawSocket != 0 {
 		if err := syscall.Close(s.rawSocket); err != nil {
 			return fmt.Errorf("failed to close raw socket: %w", err)
 		}
-
 		s.rawSocket = 0
 	}
-
 	return nil
 }
