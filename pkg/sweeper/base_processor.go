@@ -146,10 +146,6 @@ func (p *BaseProcessor) Process(result *models.Result) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	// Log entry point of each result for debugging
-	log.Printf("Processing result for host %s mode %s (available: %v)",
-		result.Target.Host, result.Target.Mode, result.Available)
-
 	p.updateLastSweepTime()
 	p.updateTotalHosts(result)
 
@@ -171,7 +167,7 @@ func (p *BaseProcessor) Process(result *models.Result) error {
 	return nil
 }
 
-func (p *BaseProcessor) processICMPResult(host *models.HostResult, result *models.Result) {
+func (*BaseProcessor) processICMPResult(host *models.HostResult, result *models.Result) {
 	// Always initialize ICMPStatus
 	if host.ICMPStatus == nil {
 		host.ICMPStatus = &models.ICMPStatus{}
@@ -234,6 +230,7 @@ func (p *BaseProcessor) GetSummary(ctx context.Context) (*models.SweepSummary, e
 		if host.ICMPStatus != nil && host.ICMPStatus.Available {
 			icmpHosts++
 		}
+
 		hosts = append(hosts, *host)
 	}
 
@@ -326,52 +323,4 @@ func (p *BaseProcessor) getOrCreateHost(hostAddr string, now time.Time) *models.
 	}
 
 	return host
-}
-
-func (p *BaseProcessor) GetSummary(ctx context.Context) (*models.SweepSummary, error) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
-	}
-
-	lastSweep := p.lastSweepTime
-	if lastSweep.IsZero() {
-		lastSweep = time.Now()
-	}
-
-	availableHosts := 0
-	ports := make([]models.PortCount, 0, len(p.portCounts))
-	hosts := make([]models.HostResult, 0, len(p.hostMap))
-
-	for port, count := range p.portCounts {
-		ports = append(ports, models.PortCount{
-			Port:      port,
-			Available: count,
-		})
-	}
-
-	for _, host := range p.hostMap {
-		if host.Available {
-			availableHosts++
-		}
-
-		hosts = append(hosts, *host)
-	}
-
-	actualTotalHosts := len(p.hostMap)
-	if actualTotalHosts == 0 {
-		actualTotalHosts = p.totalHosts
-	}
-
-	return &models.SweepSummary{
-		TotalHosts:     actualTotalHosts,
-		AvailableHosts: availableHosts,
-		LastSweep:      lastSweep.Unix(),
-		Ports:          ports,
-		Hosts:          hosts,
-	}, nil
 }

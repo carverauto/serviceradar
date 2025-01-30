@@ -44,50 +44,111 @@ type NetworkSweeper struct {
 }
 
 func (s *NetworkSweeper) Start(ctx context.Context) error {
-	// Track start time for logging
-	startTime := time.Now()
-	log.Printf("Starting NetworkSweeper with interval: %v", s.config.Interval)
-
 	// Do initial sweep
 	if err := s.runSweep(ctx); err != nil {
 		log.Printf("Initial sweep failed: %v", err)
 		return err
 	}
 
+	// Create ticker after initial sweep
 	ticker := time.NewTicker(s.config.Interval)
 	defer ticker.Stop()
 
+	// Update last sweep time
 	s.mu.Lock()
 	s.lastSweep = time.Now()
 	s.mu.Unlock()
 
+	log.Printf("Starting sweep cycle with interval: %v", s.config.Interval)
+
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("NetworkSweeper stopping after running for %v", time.Since(startTime))
 			return ctx.Err()
 		case <-s.done:
-			log.Printf("NetworkSweeper done signal received after %v", time.Since(startTime))
 			return nil
 		case <-ticker.C:
-			s.mu.RLock()
-			timeSinceLastSweep := time.Since(s.lastSweep)
-			s.mu.RUnlock()
-
-			// Enforce minimum interval
-			if timeSinceLastSweep < s.config.Interval {
-				log.Printf("Skipping sweep, last one was %v ago (interval: %v)",
-					timeSinceLastSweep.Round(time.Second),
-					s.config.Interval)
-				continue
-			}
-
-			// Run sweep and update last sweep time
 			if err := s.runSweep(ctx); err != nil {
 				log.Printf("Periodic sweep failed: %v", err)
 			}
 		}
 	}
+}
+
+func (s *NetworkSweeper) runSweep(ctx context.Context) error {
+	s.mu.RLock()
+	lastSweepTime := s.lastSweep
+	interval := s.config.Interval
+	s.mu.RUnlock()
+
+	// Check if enough time has passed
+	if time.Since(lastSweepTime) < interval {
+		log.Printf("Skipping sweep, not enough time elapsed since last sweep")
+		return nil
+	}
+
+	sweepStart := time.Now()
+	log.Printf("Starting network sweep at %v", sweepStart.Format(time.RFC3339))
+
+	// Generate targets
+	targets, err := s.generateTargets()
+	if err != nil {
+		return fmt.Errorf("failed to generate targets: %w", err)
+	}
+
+	// Start the scan
+	results, err := s.scanner.Scan(ctx, targets)
+	if err != nil {
+		return fmt.Errorf("scan failed: %w", err)
+	}
+
+	// Track stats without locks
+	icmpSuccess := 0
+	tcpSuccess := 0
+	totalResults := 0
+	uniqueHosts := make(map[string]struct{})
+
+	// Process results
+	for result := range results {
+		if err := s.processor.Process(&result); err != nil {
+			log.Printf("Failed to process result: %v", err)
+			continue
+		}
+
+		if err := s.store.SaveResult(ctx, &result); err != nil {
+			log.Printf("Failed to save result: %v", err)
+			continue
+		}
+
+		// Update stats
+		totalResults++
+		uniqueHosts[result.Target.Host] = struct{}{}
+
+		if result.Available {
+			switch result.Target.Mode {
+			case models.ModeICMP:
+				icmpSuccess++
+				log.Printf("Host %s responded to ICMP ping (%.2fms)",
+					result.Target.Host, float64(result.RespTime)/float64(time.Millisecond))
+			case models.ModeTCP:
+				tcpSuccess++
+				log.Printf("Host %s has port %d open (%.2fms)",
+					result.Target.Host, result.Target.Port,
+					float64(result.RespTime)/float64(time.Millisecond))
+			}
+		}
+	}
+
+	// Update last sweep time
+	s.mu.Lock()
+	s.lastSweep = sweepStart
+	s.mu.Unlock()
+
+	duration := time.Since(sweepStart)
+	log.Printf("Sweep completed in %.2f seconds: %d total results, %d successful (%d ICMP, %d TCP), %d unique hosts",
+		duration.Seconds(), totalResults, icmpSuccess+tcpSuccess, icmpSuccess, tcpSuccess, len(uniqueHosts))
+
+	return nil
 }
 
 func (s *NetworkSweeper) Stop() error {
@@ -273,81 +334,6 @@ func (s *NetworkSweeper) generateTargetsForNetwork(network string, uniqueIPs map
 	}
 
 	return targets, nil
-}
-
-func (s *NetworkSweeper) runSweep(ctx context.Context) error {
-	// Start timing the sweep
-	sweepStart := time.Now()
-
-	// Generate targets
-	targets, err := s.generateTargets()
-	if err != nil {
-		return fmt.Errorf("failed to generate targets: %w", err)
-	}
-
-	log.Printf("Starting network sweep at %v", sweepStart.Format(time.RFC3339))
-
-	// Start the scan
-	results, err := s.scanner.Scan(ctx, targets)
-	if err != nil {
-		return fmt.Errorf("scan failed: %w", err)
-	}
-
-	// Track statistics while processing results
-	var stats struct {
-		total     int
-		success   int
-		icmp      int
-		tcp       int
-		unique    map[string]struct{}
-		processed int64
-		start     time.Time
-	}
-	stats.unique = make(map[string]struct{})
-	stats.start = time.Now()
-
-	// Process results as they come in
-	for result := range results {
-		stats.total++
-		stats.unique[result.Target.Host] = struct{}{}
-
-		if result.Available {
-			stats.success++
-			switch result.Target.Mode {
-			case models.ModeICMP:
-				stats.icmp++
-				log.Printf("Host %s responded to ICMP ping (%.2fms)",
-					result.Target.Host, float64(result.RespTime)/float64(time.Millisecond))
-			case models.ModeTCP:
-				stats.tcp++
-				log.Printf("Host %s has port %d open (%.2fms)",
-					result.Target.Host, result.Target.Port,
-					float64(result.RespTime)/float64(time.Millisecond))
-			}
-		}
-
-		// Process and store the result
-		if err := s.processor.Process(&result); err != nil {
-			log.Printf("Failed to process result: %v", err)
-		}
-		if err := s.store.SaveResult(ctx, &result); err != nil {
-			log.Printf("Failed to save result: %v", err)
-		}
-
-		stats.processed++
-	}
-
-	// Update last sweep time
-	s.mu.Lock()
-	s.lastSweep = sweepStart
-	s.mu.Unlock()
-
-	// Log comprehensive sweep summary
-	duration := time.Since(sweepStart)
-	log.Printf("Sweep completed in %.2f seconds: %d total results, %d successful (%d ICMP, %d TCP), %d unique hosts",
-		duration.Seconds(), stats.total, stats.success, stats.icmp, stats.tcp, len(stats.unique))
-
-	return nil
 }
 
 func containsMode(modes []models.SweepMode, mode models.SweepMode) bool {
