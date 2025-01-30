@@ -263,6 +263,7 @@ func TestNewSecurityProvider(t *testing.T) {
 			if tt.expectError {
 				require.Error(t, err)
 				assert.Nil(t, provider)
+
 				return
 			}
 

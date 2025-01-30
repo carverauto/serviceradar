@@ -15,7 +15,22 @@ import (
 )
 
 func TestBaseProcessor_MemoryManagement(t *testing.T) {
-	// Create a large port configuration
+	config := createLargePortConfig()
+
+	t.Run("Memory Usage with Many Hosts Few Ports", func(t *testing.T) {
+		testMemoryUsageWithManyHostsFewPorts(t, config)
+	})
+
+	t.Run("Memory Usage with Few Hosts Many Ports", func(t *testing.T) {
+		testMemoryUsageWithFewHostsManyPorts(t, config)
+	})
+
+	t.Run("Memory Release After Cleanup", func(t *testing.T) {
+		testMemoryReleaseAfterCleanup(t, config)
+	})
+}
+
+func createLargePortConfig() *models.Config {
 	config := &models.Config{
 		Ports: make([]int, 2300),
 	}
@@ -23,145 +38,125 @@ func TestBaseProcessor_MemoryManagement(t *testing.T) {
 		config.Ports[i] = i + 1
 	}
 
-	t.Run("Memory Usage with Many Hosts Few Ports", func(t *testing.T) {
-		processor := NewBaseProcessor(config)
-		defer processor.cleanup()
+	return config
+}
 
-		// Force garbage collection before test
-		runtime.GC()
+func testMemoryUsageWithManyHostsFewPorts(t *testing.T, config *models.Config) {
+	t.Helper()
 
-		// Record initial memory usage
-		var memBefore runtime.MemStats
+	processor := NewBaseProcessor(config)
+	defer processor.cleanup()
 
-		runtime.ReadMemStats(&memBefore)
+	runtime.GC() // Force garbage collection before test
 
-		// Process 1000 hosts with only 1-2 ports each
-		for i := 0; i < 1000; i++ {
-			host := &models.Result{
-				Target: models.Target{
-					Host: fmt.Sprintf("192.168.1.%d", i%255),
-					Port: i%2 + 1,
-					Mode: models.ModeTCP,
-				},
-				Available: true,
-				RespTime:  time.Millisecond * 10,
-			}
+	var memBefore runtime.MemStats
+
+	runtime.ReadMemStats(&memBefore)
+
+	// Process 1000 hosts with only 1-2 ports each
+	for i := 0; i < 1000; i++ {
+		host := createHost(i%255, i%2+1)
+		err := processor.Process(host)
+		require.NoError(t, err)
+	}
+
+	runtime.GC() // Force garbage collection before measurement
+
+	var memAfter runtime.MemStats
+
+	runtime.ReadMemStats(&memAfter)
+
+	memGrowth := memAfter.Alloc - memBefore.Alloc
+	t.Logf("Memory growth: %d bytes", memGrowth)
+	assert.Less(t, memGrowth, uint64(10*1024*1024), "Memory growth should be less than 10MB")
+}
+
+func testMemoryUsageWithFewHostsManyPorts(t *testing.T, config *models.Config) {
+	t.Helper()
+
+	processor := NewBaseProcessor(config)
+	defer processor.cleanup()
+
+	runtime.GC() // Force garbage collection before test
+
+	var memBefore runtime.MemStats
+
+	runtime.ReadMemStats(&memBefore)
+
+	// Process 10 hosts with many ports each
+	for i := 0; i < 10; i++ {
+		for port := 1; port <= 1000; port++ {
+			host := createHost(i, port)
 			err := processor.Process(host)
 			require.NoError(t, err)
 		}
 
-		// Force garbage collection before measurement
-		runtime.GC()
-
-		// Get memory usage after processing
-		var memAfter runtime.MemStats
-
-		runtime.ReadMemStats(&memAfter)
-
-		// Check memory growth - should be relatively small despite many hosts
-		memGrowth := memAfter.Alloc - memBefore.Alloc
-		t.Logf("Memory growth: %d bytes", memGrowth)
-		assert.Less(t, memGrowth, uint64(10*1024*1024), "Memory growth should be less than 10MB")
-	})
-
-	t.Run("Memory Usage with Few Hosts Many Ports", func(t *testing.T) {
-		processor := NewBaseProcessor(config)
-		defer processor.cleanup()
-
-		// Force garbage collection before test
-		runtime.GC()
-
-		var memBefore runtime.MemStats
-
-		runtime.ReadMemStats(&memBefore)
-
-		// Process 10 hosts with many ports each
-		for i := 0; i < 10; i++ {
-			for port := 1; port <= 1000; port++ {
-				host := &models.Result{
-					Target: models.Target{
-						Host: fmt.Sprintf("192.168.1.%d", i),
-						Port: port,
-						Mode: models.ModeTCP,
-					},
-					Available: true,
-					RespTime:  time.Millisecond * 10,
-				}
-				err := processor.Process(host)
-				require.NoError(t, err)
-			}
-
-			// Force intermediate GC to prevent memory spikes
-			if i%2 == 0 {
-				runtime.GC()
-			}
+		// Force intermediate GC to prevent memory spikes
+		if i%2 == 0 {
+			runtime.GC()
 		}
+	}
 
-		// Force garbage collection before measurement
-		runtime.GC()
+	runtime.GC() // Force garbage collection before measurement
 
-		var memAfter runtime.MemStats
+	var memAfter runtime.MemStats
 
-		runtime.ReadMemStats(&memAfter)
+	runtime.ReadMemStats(&memAfter)
 
-		// Use HeapAlloc for more accurate memory measurement
-		memGrowth := memAfter.HeapAlloc - memBefore.HeapAlloc
-		t.Logf("Memory growth with many ports: %d bytes", memGrowth)
+	memGrowth := memAfter.HeapAlloc - memBefore.HeapAlloc
+	t.Logf("Memory growth with many ports: %d bytes", memGrowth)
 
-		// Increased the limit slightly since we're dealing with many ports
-		const maxMemoryGrowth = 75 * 1024 * 1024 // 75MB
+	const maxMemoryGrowth = 75 * 1024 * 1024 // 75MB
 
-		assert.Less(t, memGrowth, uint64(maxMemoryGrowth),
-			"Memory growth should be less than 75MB")
-	})
+	assert.Less(t, memGrowth, uint64(maxMemoryGrowth), "Memory growth should be less than 75MB")
+}
 
-	t.Run("Memory Release After Cleanup", func(t *testing.T) {
-		processor := NewBaseProcessor(config)
+func testMemoryReleaseAfterCleanup(t *testing.T, config *models.Config) {
+	t.Helper()
 
-		// Force GC before test
-		runtime.GC()
+	processor := NewBaseProcessor(config)
 
-		var memBefore runtime.MemStats
+	runtime.GC() // Force GC before test
 
-		runtime.ReadMemStats(&memBefore)
+	var memBefore runtime.MemStats
 
-		// Process a moderate amount of data
-		for i := 0; i < 100; i++ {
-			for port := 1; port <= 100; port++ {
-				host := &models.Result{
-					Target: models.Target{
-						Host: fmt.Sprintf("192.168.1.%d", i),
-						Port: port,
-						Mode: models.ModeTCP,
-					},
-					Available: true,
-					RespTime:  time.Millisecond * 10,
-				}
-				err := processor.Process(host)
-				require.NoError(t, err)
-			}
+	runtime.ReadMemStats(&memBefore)
+
+	// Process a moderate amount of data
+	for i := 0; i < 100; i++ {
+		for port := 1; port <= 100; port++ {
+			host := createHost(i, port)
+			err := processor.Process(host)
+			require.NoError(t, err)
 		}
+	}
 
-		// Call cleanup
-		processor.cleanup()
+	processor.cleanup() // Call cleanup
+	runtime.GC()        // Force GC after cleanup
 
-		// Force GC after cleanup
-		runtime.GC()
+	var memAfter runtime.MemStats
 
-		var memAfter runtime.MemStats
+	runtime.ReadMemStats(&memAfter)
 
-		runtime.ReadMemStats(&memAfter)
+	memDiff := new(big.Int).Sub(
+		new(big.Int).SetUint64(memAfter.HeapAlloc),
+		new(big.Int).SetUint64(memBefore.HeapAlloc),
+	)
 
-		// Calculate memory difference safely using math/big
-		memDiff := new(big.Int).Sub(
-			new(big.Int).SetUint64(memAfter.HeapAlloc),
-			new(big.Int).SetUint64(memBefore.HeapAlloc),
-		)
+	t.Logf("Memory difference after cleanup: %s bytes", memDiff.String())
+	assert.Negative(t, memDiff.Cmp(big.NewInt(1*1024*1024)), "Memory should be mostly released after cleanup")
+}
 
-		t.Logf("Memory difference after cleanup: %s bytes", memDiff.String())
-		assert.Negative(t, memDiff.Cmp(big.NewInt(1*1024*1024)),
-			"Memory should be mostly released after cleanup")
-	})
+func createHost(hostIndex, port int) *models.Result {
+	return &models.Result{
+		Target: models.Target{
+			Host: fmt.Sprintf("192.168.1.%d", hostIndex),
+			Port: port,
+			Mode: models.ModeTCP,
+		},
+		Available: true,
+		RespTime:  time.Millisecond * 10,
+	}
 }
 
 func TestBaseProcessor_ConcurrentAccess(t *testing.T) {

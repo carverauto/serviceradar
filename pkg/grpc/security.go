@@ -19,8 +19,10 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-// SecurityMode defines the type of security to use.
-type SecurityMode string
+var (
+	errFailedToAddCACert   = fmt.Errorf("failed to add CA cert to pool")
+	errUnknownSecurityMode = fmt.Errorf("unknown security mode")
+)
 
 const (
 	SecurityModeNone   SecurityMode = "none"
@@ -28,6 +30,9 @@ const (
 	SecurityModeSpiffe SecurityMode = "spiffe"
 	SecurityModeMTLS   SecurityMode = "mtls"
 )
+
+// SecurityMode defines the type of security to use.
+type SecurityMode string
 
 // SecurityConfig holds common security configuration.
 type SecurityConfig struct {
@@ -213,13 +218,14 @@ func NewSecurityProvider(config *SecurityConfig) (SecurityProvider, error) {
 		return NewSpiffeProvider(config)
 
 	default:
-		return nil, fmt.Errorf("unknown security mode: %s", config.Mode)
+		return nil, fmt.Errorf("%w: %s", errUnknownSecurityMode, config.Mode)
 	}
 }
 
 func loadTLSCredentials(config *SecurityConfig, mutual bool) (credentials.TransportCredentials, error) {
 	// Load certificate authority
 	caFile := filepath.Join(config.CertDir, "ca.crt")
+
 	caCert, err := os.ReadFile(caFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read CA cert: %w", err)
@@ -227,7 +233,7 @@ func loadTLSCredentials(config *SecurityConfig, mutual bool) (credentials.Transp
 
 	certPool := x509.NewCertPool()
 	if !certPool.AppendCertsFromPEM(caCert) {
-		return nil, fmt.Errorf("failed to add CA cert to pool")
+		return nil, errFailedToAddCACert
 	}
 
 	// Load server certificates

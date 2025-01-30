@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// generateTestCertificates creates a CA, server, and client certificates for testing
+// generateTestCertificates creates a CA, server, and client certificates for testing.
 func generateTestCertificates(t *testing.T, dir string) {
 	t.Helper()
 
@@ -100,6 +100,7 @@ func generateTestCertificates(t *testing.T, dir string) {
 
 func savePEMCertificate(t *testing.T, path string, derBytes []byte) {
 	t.Helper()
+
 	certPEM := pem.EncodeToMemory(&pem.Block{
 		Type:  "CERTIFICATE",
 		Bytes: derBytes,
@@ -110,6 +111,7 @@ func savePEMCertificate(t *testing.T, path string, derBytes []byte) {
 
 func savePEMPrivateKey(t *testing.T, path string, key *ecdsa.PrivateKey) {
 	t.Helper()
+
 	keyBytes, err := x509.MarshalECPrivateKey(key)
 	require.NoError(t, err, "Failed to marshal private key")
 

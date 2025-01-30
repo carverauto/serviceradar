@@ -19,9 +19,10 @@ import (
 )
 
 const (
-	maxPacketSize      = 1500
-	templateSize       = 8
-	packetReadDeadline = 100 * time.Millisecond
+	maxPacketSize        = 1500
+	templateSize         = 8
+	packetReadDeadline   = 100 * time.Millisecond
+	packetLossMultiplier = 100
 )
 
 var (
@@ -162,7 +163,7 @@ func calculateAvgResponseTime(totalTime, received int64) time.Duration {
 
 func calculatePacketLoss(sent, received int64) float64 {
 	if sent > 0 {
-		return float64(sent-received) / float64(sent) * 100
+		return float64(sent-received) / float64(sent) * packetLossMultiplier
 	}
 
 	return 0
