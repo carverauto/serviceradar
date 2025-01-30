@@ -220,7 +220,6 @@ func NewSecurityProvider(config *SecurityConfig) (SecurityProvider, error) {
 func loadTLSCredentials(config *SecurityConfig, mutual bool) (credentials.TransportCredentials, error) {
 	// Load certificate authority
 	caFile := filepath.Join(config.CertDir, "ca.crt")
-
 	caCert, err := os.ReadFile(caFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read CA cert: %w", err)
@@ -244,11 +243,23 @@ func loadTLSCredentials(config *SecurityConfig, mutual bool) (credentials.Transp
 	tlsConfig := &tls.Config{
 		Certificates: []tls.Certificate{cert},
 		RootCAs:      certPool,
+		MinVersion:   tls.VersionTLS13,
 	}
 
 	if mutual {
 		tlsConfig.ClientCAs = certPool
 		tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
+
+		// For mTLS, also load client certificates
+		clientCert := filepath.Join(config.CertDir, "client.crt")
+		clientKey := filepath.Join(config.CertDir, "client.key")
+
+		clientPair, err := tls.LoadX509KeyPair(clientCert, clientKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load client cert/key: %w", err)
+		}
+
+		tlsConfig.Certificates = append(tlsConfig.Certificates, clientPair)
 	}
 
 	return credentials.NewTLS(tlsConfig), nil

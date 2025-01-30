@@ -117,6 +117,7 @@ func (p *BaseProcessor) cleanup() {
 
 	// Clean up hosts outside the lock
 	p.mu.Unlock()
+
 	for _, host := range hostsToClean {
 		// Clean up port results
 		for _, pr := range host.PortResults {
@@ -135,6 +136,7 @@ func (p *BaseProcessor) cleanup() {
 		host.ResponseTime = 0
 		p.hostResultPool.Put(host)
 	}
+
 	p.mu.Lock() // Re-acquire lock before returning (due to defer)
 
 	log.Printf("Cleanup complete")
@@ -212,6 +214,7 @@ func (p *BaseProcessor) updatePortStatus(host *models.HostResult, result *models
 			port.Available = true
 			port.RespTime = result.RespTime
 			found = true
+
 			break
 		}
 	}
@@ -251,6 +254,7 @@ func (p *BaseProcessor) getOrCreateHost(hostAddr string, now time.Time) *models.
 
 		p.hostMap[hostAddr] = host
 	}
+
 	return host
 }
 
@@ -284,6 +288,7 @@ func (p *BaseProcessor) GetSummary(ctx context.Context) (*models.SweepSummary, e
 		if host.Available {
 			availableHosts++
 		}
+
 		hosts = append(hosts, *host)
 	}
 
