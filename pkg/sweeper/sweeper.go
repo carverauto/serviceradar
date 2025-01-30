@@ -40,11 +40,13 @@ type NetworkSweeper struct {
 	processor ResultProcessor
 	mu        sync.RWMutex
 	done      chan struct{}
+	lastSweep time.Time // Track last sweep time
 }
 
 func (s *NetworkSweeper) Start(ctx context.Context) error {
-	ticker := time.NewTicker(s.config.Interval)
-	defer ticker.Stop()
+	// Track start time for logging
+	startTime := time.Now()
+	log.Printf("Starting NetworkSweeper with interval: %v", s.config.Interval)
 
 	// Do initial sweep
 	if err := s.runSweep(ctx); err != nil {
@@ -52,13 +54,35 @@ func (s *NetworkSweeper) Start(ctx context.Context) error {
 		return err
 	}
 
+	ticker := time.NewTicker(s.config.Interval)
+	defer ticker.Stop()
+
+	s.mu.Lock()
+	s.lastSweep = time.Now()
+	s.mu.Unlock()
+
 	for {
 		select {
 		case <-ctx.Done():
+			log.Printf("NetworkSweeper stopping after running for %v", time.Since(startTime))
 			return ctx.Err()
 		case <-s.done:
+			log.Printf("NetworkSweeper done signal received after %v", time.Since(startTime))
 			return nil
 		case <-ticker.C:
+			s.mu.RLock()
+			timeSinceLastSweep := time.Since(s.lastSweep)
+			s.mu.RUnlock()
+
+			// Enforce minimum interval
+			if timeSinceLastSweep < s.config.Interval {
+				log.Printf("Skipping sweep, last one was %v ago (interval: %v)",
+					timeSinceLastSweep.Round(time.Second),
+					s.config.Interval)
+				continue
+			}
+
+			// Run sweep and update last sweep time
 			if err := s.runSweep(ctx); err != nil {
 				log.Printf("Periodic sweep failed: %v", err)
 			}
@@ -252,11 +276,16 @@ func (s *NetworkSweeper) generateTargetsForNetwork(network string, uniqueIPs map
 }
 
 func (s *NetworkSweeper) runSweep(ctx context.Context) error {
+	// Start timing the sweep
+	sweepStart := time.Now()
+
 	// Generate targets
 	targets, err := s.generateTargets()
 	if err != nil {
 		return fmt.Errorf("failed to generate targets: %w", err)
 	}
+
+	log.Printf("Starting network sweep at %v", sweepStart.Format(time.RFC3339))
 
 	// Start the scan
 	results, err := s.scanner.Scan(ctx, targets)
@@ -264,33 +293,59 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 		return fmt.Errorf("scan failed: %w", err)
 	}
 
+	// Track statistics while processing results
+	var stats struct {
+		total     int
+		success   int
+		icmp      int
+		tcp       int
+		unique    map[string]struct{}
+		processed int64
+		start     time.Time
+	}
+	stats.unique = make(map[string]struct{})
+	stats.start = time.Now()
+
 	// Process results as they come in
 	for result := range results {
-		// Process the result first
-		if err := s.processor.Process(&result); err != nil {
-			log.Printf("Failed to process result: %v", err)
-		}
+		stats.total++
+		stats.unique[result.Target.Host] = struct{}{}
 
-		// Store the result
-		if err := s.store.SaveResult(ctx, &result); err != nil {
-			log.Printf("Failed to save result: %v", err)
-		}
-
-		// Log based on scan type
-		switch result.Target.Mode {
-		case models.ModeICMP:
-			if result.Available {
+		if result.Available {
+			stats.success++
+			switch result.Target.Mode {
+			case models.ModeICMP:
+				stats.icmp++
 				log.Printf("Host %s responded to ICMP ping (%.2fms)",
 					result.Target.Host, float64(result.RespTime)/float64(time.Millisecond))
-			}
-		case models.ModeTCP:
-			if result.Available {
+			case models.ModeTCP:
+				stats.tcp++
 				log.Printf("Host %s has port %d open (%.2fms)",
 					result.Target.Host, result.Target.Port,
 					float64(result.RespTime)/float64(time.Millisecond))
 			}
 		}
+
+		// Process and store the result
+		if err := s.processor.Process(&result); err != nil {
+			log.Printf("Failed to process result: %v", err)
+		}
+		if err := s.store.SaveResult(ctx, &result); err != nil {
+			log.Printf("Failed to save result: %v", err)
+		}
+
+		stats.processed++
 	}
+
+	// Update last sweep time
+	s.mu.Lock()
+	s.lastSweep = sweepStart
+	s.mu.Unlock()
+
+	// Log comprehensive sweep summary
+	duration := time.Since(sweepStart)
+	log.Printf("Sweep completed in %.2f seconds: %d total results, %d successful (%d ICMP, %d TCP), %d unique hosts",
+		duration.Seconds(), stats.total, stats.success, stats.icmp, stats.tcp, len(stats.unique))
 
 	return nil
 }

@@ -146,6 +146,10 @@ func (p *BaseProcessor) Process(result *models.Result) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	// Log entry point of each result for debugging
+	log.Printf("Processing result for host %s mode %s (available: %v)",
+		result.Target.Host, result.Target.Mode, result.Available)
+
 	p.updateLastSweepTime()
 	p.updateTotalHosts(result)
 
@@ -154,7 +158,12 @@ func (p *BaseProcessor) Process(result *models.Result) error {
 
 	switch result.Target.Mode {
 	case models.ModeICMP:
+		// Log before ICMP processing
+		log.Printf("Processing ICMP result for %s (available: %v, response time: %v)",
+			result.Target.Host, result.Available, result.RespTime)
+
 		p.processICMPResult(host, result)
+
 	case models.ModeTCP:
 		p.processTCPResult(host, result)
 	}
@@ -162,26 +171,13 @@ func (p *BaseProcessor) Process(result *models.Result) error {
 	return nil
 }
 
-func (p *BaseProcessor) updateLastSweepTime() {
-	now := time.Now()
-	if now.After(p.lastSweepTime) {
-		p.lastSweepTime = now
-	}
-}
-
-func (p *BaseProcessor) updateTotalHosts(result *models.Result) {
-	if result.Target.Metadata != nil {
-		if totalHosts, ok := result.Target.Metadata["total_hosts"].(int); ok {
-			p.totalHosts = totalHosts
-		}
-	}
-}
-
-func (*BaseProcessor) processICMPResult(host *models.HostResult, result *models.Result) {
+func (p *BaseProcessor) processICMPResult(host *models.HostResult, result *models.Result) {
+	// Always initialize ICMPStatus
 	if host.ICMPStatus == nil {
 		host.ICMPStatus = &models.ICMPStatus{}
 	}
 
+	// Update availability and response time
 	if result.Available {
 		host.Available = true
 		host.ICMPStatus.Available = true
@@ -196,6 +192,80 @@ func (*BaseProcessor) processICMPResult(host *models.HostResult, result *models.
 	// Set the overall response time for the host
 	if result.RespTime > 0 {
 		host.ResponseTime = result.RespTime
+	}
+
+	// Log after processing
+	log.Printf("Updated ICMP status for %s: available=%v, roundtrip=%v",
+		host.Host, host.ICMPStatus.Available, host.ICMPStatus.RoundTrip)
+}
+
+func (p *BaseProcessor) GetSummary(ctx context.Context) (*models.SweepSummary, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	lastSweep := p.lastSweepTime
+	if lastSweep.IsZero() {
+		lastSweep = time.Now()
+	}
+
+	availableHosts := 0
+	icmpHosts := 0 // Track ICMP-responding hosts
+	ports := make([]models.PortCount, 0, len(p.portCounts))
+	hosts := make([]models.HostResult, 0, len(p.hostMap))
+
+	for port, count := range p.portCounts {
+		ports = append(ports, models.PortCount{
+			Port:      port,
+			Available: count,
+		})
+	}
+
+	for _, host := range p.hostMap {
+		if host.Available {
+			availableHosts++
+		}
+		// Count ICMP-responding hosts
+		if host.ICMPStatus != nil && host.ICMPStatus.Available {
+			icmpHosts++
+		}
+		hosts = append(hosts, *host)
+	}
+
+	log.Printf("Summary stats - Total hosts: %d, Available: %d, ICMP responding: %d",
+		len(p.hostMap), availableHosts, icmpHosts)
+
+	actualTotalHosts := len(p.hostMap)
+	if actualTotalHosts == 0 {
+		actualTotalHosts = p.totalHosts
+	}
+
+	return &models.SweepSummary{
+		TotalHosts:     actualTotalHosts,
+		AvailableHosts: availableHosts,
+		LastSweep:      lastSweep.Unix(),
+		Ports:          ports,
+		Hosts:          hosts,
+	}, nil
+}
+
+func (p *BaseProcessor) updateLastSweepTime() {
+	now := time.Now()
+	if now.After(p.lastSweepTime) {
+		p.lastSweepTime = now
+	}
+}
+
+func (p *BaseProcessor) updateTotalHosts(result *models.Result) {
+	if result.Target.Metadata != nil {
+		if totalHosts, ok := result.Target.Metadata["total_hosts"].(int); ok {
+			p.totalHosts = totalHosts
+		}
 	}
 }
 
