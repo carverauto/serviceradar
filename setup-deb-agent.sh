@@ -2,7 +2,7 @@
 # setup-deb-agent.sh
 set -e  # Exit on any error
 
-VERSION=${VERSION:-1.0.11}
+VERSION=${VERSION:-1.0.12}
 echo "Building serviceradar-agent version ${VERSION}"
 
 echo "Setting up package structure..."
