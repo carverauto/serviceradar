@@ -52,6 +52,7 @@ func (s *CombinedScanner) Scan(ctx context.Context, targets []models.Target) (<-
 	if len(targets) == 0 {
 		empty := make(chan models.Result)
 		close(empty)
+
 		return empty, nil
 	}
 
@@ -64,6 +65,7 @@ func (s *CombinedScanner) Scan(ctx context.Context, targets []models.Target) (<-
 	for _, target := range targetsCopy {
 		uniqueHosts[target.Host] = struct{}{}
 	}
+
 	totalHosts := len(uniqueHosts)
 
 	// Separate targets based on the copy
@@ -76,12 +78,15 @@ func (s *CombinedScanner) Scan(ctx context.Context, targets []models.Target) (<-
 		if separated.tcp[i].Metadata == nil {
 			separated.tcp[i].Metadata = make(map[string]interface{})
 		}
+
 		separated.tcp[i].Metadata["total_hosts"] = totalHosts
 	}
+
 	for i := range separated.icmp {
 		if separated.icmp[i].Metadata == nil {
 			separated.icmp[i].Metadata = make(map[string]interface{})
 		}
+
 		separated.icmp[i].Metadata["total_hosts"] = totalHosts
 	}
 
@@ -96,18 +101,23 @@ func (s *CombinedScanner) Scan(ctx context.Context, targets []models.Target) (<-
 
 func (s *CombinedScanner) handleMixedScanners(ctx context.Context, targets scanTargets) (<-chan models.Result, error) {
 	results := make(chan models.Result, len(targets.tcp)+len(targets.icmp))
+
 	var wg sync.WaitGroup
 
 	// Start TCP scanner if needed
 	if len(targets.tcp) > 0 {
 		wg.Add(1)
+
 		go func(tcpTargets []models.Target) {
 			defer wg.Done()
+
 			tcpResults, err := s.tcpScanner.Scan(ctx, tcpTargets)
 			if err != nil {
 				log.Printf("TCP scan error: %v", err)
+
 				return
 			}
+
 			s.forwardResults(ctx, tcpResults, results)
 		}(targets.tcp)
 	}
@@ -115,13 +125,16 @@ func (s *CombinedScanner) handleMixedScanners(ctx context.Context, targets scanT
 	// Start ICMP scanner if available and needed
 	if s.icmpScanner != nil && len(targets.icmp) > 0 {
 		wg.Add(1)
+
 		go func(icmpTargets []models.Target) {
 			defer wg.Done()
+
 			icmpResults, err := s.icmpScanner.Scan(ctx, icmpTargets)
 			if err != nil {
 				log.Printf("ICMP scan error: %v", err)
 				return
 			}
+
 			s.forwardResults(ctx, icmpResults, results)
 		}(targets.icmp)
 	}

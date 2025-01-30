@@ -41,6 +41,7 @@ func TestCombinedScanner_Scan_Mock(t *testing.T) {
 
 	// Create wait group to synchronize result sending
 	var wg sync.WaitGroup
+
 	wg.Add(2)
 
 	// Make mocks send results
