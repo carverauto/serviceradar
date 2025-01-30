@@ -57,7 +57,7 @@ func NewSweepService(config *models.Config) (Service, error) {
 	)
 
 	// Create processor instance
-	processor := sweeper.NewBaseProcessor()
+	processor := sweeper.NewBaseProcessor(config)
 
 	// Create an in-memory store
 	store := sweeper.NewInMemoryStore(processor)
@@ -466,9 +466,6 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, er
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal sweep status: %w", err)
 	}
-
-	// Log the response data for debugging
-	log.Printf("Sweep status response: %s", string(statusJSON))
 
 	return &proto.StatusResponse{
 		Available:    true,
