@@ -154,10 +154,6 @@ func (p *BaseProcessor) Process(result *models.Result) error {
 
 	switch result.Target.Mode {
 	case models.ModeICMP:
-		// Log before ICMP processing
-		log.Printf("Processing ICMP result for %s (available: %v, response time: %v)",
-			result.Target.Host, result.Available, result.RespTime)
-
 		p.processICMPResult(host, result)
 
 	case models.ModeTCP:
@@ -189,10 +185,6 @@ func (*BaseProcessor) processICMPResult(host *models.HostResult, result *models.
 	if result.RespTime > 0 {
 		host.ResponseTime = result.RespTime
 	}
-
-	// Log after processing
-	log.Printf("Updated ICMP status for %s: available=%v, roundtrip=%v",
-		host.Host, host.ICMPStatus.Available, host.ICMPStatus.RoundTrip)
 }
 
 func (p *BaseProcessor) GetSummary(ctx context.Context) (*models.SweepSummary, error) {

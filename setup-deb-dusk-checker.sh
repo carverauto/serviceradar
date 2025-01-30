@@ -4,7 +4,7 @@ set -e  # Exit on any error
 
 echo "Setting up package structure..."
 
-VERSION=${VERSION:-1.0.11}
+VERSION=${VERSION:-1.0.12}
 
 # Create package directory structure
 PKG_ROOT="serviceradar-dusk-checker_${VERSION}"
@@ -52,6 +52,8 @@ User=serviceradar
 ExecStart=/usr/local/bin/dusk-checker -config /etc/serviceradar/checkers/dusk.json
 Restart=always
 RestartSec=10
+LimitNPROC=512
+LimitNOFILE=65535
 
 [Install]
 WantedBy=multi-user.target
