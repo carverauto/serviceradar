@@ -3,6 +3,7 @@ package scan
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -38,12 +39,28 @@ func TestCombinedScanner_Scan_Mock(t *testing.T) {
 	tcpResults := make(chan models.Result, 1)
 	icmpResults := make(chan models.Result, 1)
 
+	// Create wait group to synchronize result sending
+	var wg sync.WaitGroup
+
+	wg.Add(2)
+
 	// Make mocks send results
 	go func() {
-		tcpResults <- models.Result{}
+		defer wg.Done()
+		tcpResults <- models.Result{
+			Target:    targets[0],
+			Available: true,
+		}
+		close(tcpResults)
 	}()
+
 	go func() {
-		icmpResults <- models.Result{}
+		defer wg.Done()
+		icmpResults <- models.Result{
+			Target:    targets[1],
+			Available: true,
+		}
+		close(icmpResults)
 	}()
 
 	mockTCP.EXPECT().Scan(gomock.Any(), gomock.Any()).Return(tcpResults, nil)
@@ -52,8 +69,8 @@ func TestCombinedScanner_Scan_Mock(t *testing.T) {
 	results, err := scanner.Scan(context.Background(), targets)
 	require.NoError(t, err)
 
-	close(tcpResults)
-	close(icmpResults)
+	// Wait for result sending to complete
+	wg.Wait()
 
 	var resultCount int
 	for range results {
