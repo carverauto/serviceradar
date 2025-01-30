@@ -52,6 +52,8 @@ User=serviceradar
 ExecStart=/usr/local/bin/dusk-checker -config /etc/serviceradar/checkers/dusk.json
 Restart=always
 RestartSec=10
+LimitNPROC=512
+LimitNOFILE=65535
 
 [Install]
 WantedBy=multi-user.target

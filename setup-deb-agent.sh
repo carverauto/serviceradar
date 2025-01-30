@@ -51,6 +51,8 @@ User=serviceradar
 ExecStart=/usr/local/bin/serviceradar-agent
 Restart=always
 RestartSec=10
+LimitNPROC=512
+LimitNOFILE=65535
 
 [Install]
 WantedBy=multi-user.target
