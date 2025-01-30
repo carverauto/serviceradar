@@ -52,6 +52,6 @@ func (m *Monitor) StartMonitoring(ctx context.Context, check func(context.Contex
 }
 
 // Stop stops the monitoring.
-func (m *Monitor) Stop() {
+func (m *Monitor) Stop(_ context.Context) {
 	close(m.done)
 }

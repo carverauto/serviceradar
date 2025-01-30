@@ -12,6 +12,7 @@ import (
 
 const (
 	errorChannelSize = 2
+	stopTimer        = 5 * time.Second
 )
 
 type CombinedScanner struct {
@@ -217,10 +218,14 @@ func (s *CombinedScanner) forwardResults(ctx context.Context, in <-chan models.R
 	}
 }
 
-func (s *CombinedScanner) Stop() error {
+func (s *CombinedScanner) Stop(ctx context.Context) error {
+	// setup a timeout on the context
+	shutdownCtx, cancel := context.WithTimeout(ctx, stopTimer)
+	defer cancel()
+
 	close(s.done)
-	_ = s.tcpScanner.Stop()
-	_ = s.icmpScanner.Stop()
+	_ = s.tcpScanner.Stop(shutdownCtx)
+	_ = s.icmpScanner.Stop(shutdownCtx)
 
 	return nil
 }

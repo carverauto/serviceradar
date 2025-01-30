@@ -8,6 +8,7 @@ import (
 	"github.com/mfreeman451/serviceradar/pkg/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
 func TestTCPScanner_HighConcurrency(t *testing.T) {
@@ -76,8 +77,13 @@ func TestTCPScanner_Scan(t *testing.T) {
 }
 
 func TestTCPScanner_Stop(t *testing.T) {
+	ctrl, ctx := gomock.WithContext(context.Background(), t)
+	defer ctrl.Finish()
+
+	// create a test context from gomock
+
 	scanner := NewTCPScanner(1*time.Second, 1)
-	err := scanner.Stop()
+	err := scanner.Stop(ctx)
 	require.NoError(t, err)
 
 	// Ensure the done channel is closed

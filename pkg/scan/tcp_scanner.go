@@ -26,8 +26,12 @@ func NewTCPScanner(timeout time.Duration, concurrency int) *TCPScanner {
 	}
 }
 
-func (s *TCPScanner) Stop() error {
+func (s *TCPScanner) Stop(ctx context.Context) error {
+	_, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+
 	close(s.done)
+
 	return nil
 }
 

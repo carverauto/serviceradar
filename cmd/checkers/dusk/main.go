@@ -80,7 +80,7 @@ func (s *duskService) Start(ctx context.Context) error {
 	return s.checker.StartMonitoring(ctx)
 }
 
-func (s *duskService) Stop() error {
+func (s *duskService) Stop(_ context.Context) error {
 	log.Printf("Stopping Dusk service...")
 	close(s.checker.Done)
 

@@ -119,7 +119,7 @@ func TestCombinedScanner_ScanBasic(t *testing.T) {
 }
 
 func TestCombinedScanner_ScanMixed(t *testing.T) {
-	ctrl := gomock.NewController(t)
+	ctrl, ctx := gomock.WithContext(context.Background(), t)
 	defer ctrl.Finish()
 
 	mockTCP := NewMockScanner(ctrl)
@@ -170,8 +170,8 @@ func TestCombinedScanner_ScanMixed(t *testing.T) {
 		Scan(gomock.Any(), matchTargets(models.ModeICMP)).
 		Return(icmpResults, nil)
 
-	mockTCP.EXPECT().Stop().Return(nil).AnyTimes()
-	mockICMP.EXPECT().Stop().Return(nil).AnyTimes()
+	mockTCP.EXPECT().Stop(ctx).Return(nil).AnyTimes()
+	mockICMP.EXPECT().Stop(ctx).Return(nil).AnyTimes()
 
 	scanner := &CombinedScanner{
 		tcpScanner:  mockTCP,
@@ -218,7 +218,7 @@ func TestCombinedScanner_ScanMixed(t *testing.T) {
 
 // TestCombinedScanner_ScanErrors tests error handling.
 func TestCombinedScanner_ScanErrors(t *testing.T) {
-	ctrl := gomock.NewController(t)
+	ctrl, ctx := gomock.WithContext(context.Background(), t)
 	defer ctrl.Finish()
 
 	tests := []struct {
@@ -237,8 +237,8 @@ func TestCombinedScanner_ScanErrors(t *testing.T) {
 				mockTCP.EXPECT().
 					Scan(gomock.Any(), gomock.Any()).
 					Return(nil, errTCPScanFailed)
-				mockTCP.EXPECT().Stop().Return(nil).AnyTimes()
-				mockICMP.EXPECT().Stop().Return(nil).AnyTimes()
+				mockTCP.EXPECT().Stop(ctx).Return(nil).AnyTimes()
+				mockICMP.EXPECT().Stop(ctx).Return(nil).AnyTimes()
 			},
 			wantErr:    true,
 			wantErrStr: "TCP scan error: TCP scan failed",
@@ -252,8 +252,8 @@ func TestCombinedScanner_ScanErrors(t *testing.T) {
 				mockICMP.EXPECT().
 					Scan(gomock.Any(), gomock.Any()).
 					Return(nil, errICMPScanFailed)
-				mockTCP.EXPECT().Stop().Return(nil).AnyTimes()
-				mockICMP.EXPECT().Stop().Return(nil).AnyTimes()
+				mockTCP.EXPECT().Stop(ctx).Return(nil).AnyTimes()
+				mockICMP.EXPECT().Stop(ctx).Return(nil).AnyTimes()
 			},
 			wantErr:    true,
 			wantErrStr: "ICMP scan error: ICMP scan failed",
