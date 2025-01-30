@@ -17,8 +17,8 @@ type metricPoint struct {
 
 // LockFreeRingBuffer is a lock-free ring buffer implementation.
 type LockFreeRingBuffer struct {
-	points []metricPoint
-	pos    int64 // Atomic position counter
+	points []atomic.Pointer[metricPoint]
+	pos    atomic.Int64
 	size   int64
 	pool   sync.Pool
 }
@@ -30,8 +30,8 @@ func NewBuffer(size int) MetricStore {
 
 // NewLockFreeBuffer creates a new LockFreeRingBuffer with the specified size.
 func NewLockFreeBuffer(size int) MetricStore {
-	return &LockFreeRingBuffer{
-		points: make([]metricPoint, size),
+	rb := &LockFreeRingBuffer{
+		points: make([]atomic.Pointer[metricPoint], size),
 		size:   int64(size),
 		pool: sync.Pool{
 			New: func() interface{} {
@@ -39,33 +39,47 @@ func NewLockFreeBuffer(size int) MetricStore {
 			},
 		},
 	}
+
+	// Initialize atomic pointers
+	for i := range rb.points {
+		rb.points[i].Store(new(metricPoint))
+	}
+
+	return rb
 }
 
 // Add adds a new metric point to the buffer.
 func (b *LockFreeRingBuffer) Add(timestamp time.Time, responseTime int64, serviceName string) {
-	// Atomically increment the position and get the index
-	pos := atomic.AddInt64(&b.pos, 1) - 1
-	idx := pos % b.size
-
-	// Write the metric point
-	b.points[idx] = metricPoint{
+	// Create new point
+	newPoint := &metricPoint{
 		timestamp:    timestamp.UnixNano(),
 		responseTime: responseTime,
 		serviceName:  serviceName,
 	}
+
+	// Atomically increment the position and get the index
+	pos := b.pos.Add(1) - 1
+	idx := pos % b.size
+
+	// Atomically store the new point
+	b.points[idx].Store(newPoint)
 }
 
 // GetPoints retrieves all metric points from the buffer.
 func (b *LockFreeRingBuffer) GetPoints() []models.MetricPoint {
 	// Load the current position atomically
-	pos := atomic.LoadInt64(&b.pos)
-
+	pos := b.pos.Load()
 	points := make([]models.MetricPoint, b.size)
 
 	for i := int64(0); i < b.size; i++ {
 		// Calculate the index for the current point
 		idx := (pos - i - 1 + b.size) % b.size
-		p := b.points[idx]
+
+		// Atomically load the point
+		p := b.points[idx].Load()
+		if p == nil {
+			continue
+		}
 
 		// Get a MetricPoint from the pool
 		mp := b.pool.Get().(*models.MetricPoint)
