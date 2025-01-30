@@ -20,7 +20,6 @@ const (
 	cidr32              = 32
 	networkAndBroadcast = 2
 	maxInt              = int(^uint(0) >> 1) // maxInt is the maximum value of int on the current platform
-	bitCount            = 64
 	bitsBeforeOverflow  = 63
 )
 
@@ -128,10 +127,12 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 			switch result.Target.Mode {
 			case models.ModeICMP:
 				icmpSuccess++
+
 				log.Printf("Host %s responded to ICMP ping (%.2fms)",
 					result.Target.Host, float64(result.RespTime)/float64(time.Millisecond))
 			case models.ModeTCP:
 				tcpSuccess++
+
 				log.Printf("Host %s has port %d open (%.2fms)",
 					result.Target.Host, result.Target.Port,
 					float64(result.RespTime)/float64(time.Millisecond))
