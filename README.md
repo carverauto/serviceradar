@@ -9,17 +9,16 @@ ServiceRadar is a distributed network monitoring system designed for infrastruct
 It provides real-time monitoring of internal services, with cloud-based alerting capabilities to ensure you stay informed even during network or power outages.
 
 ### Screenshots
-<img width="1391" alt="Screenshot 2025-01-27 at 11 02 49 PM" src="https://github.com/user-attachments/assets/b9582b77-91ea-47f9-b5c9-663f9b9666c9" />
-<img width="1391" alt="Screenshot 2025-01-27 at 11 03 39 PM" src="https://github.com/user-attachments/assets/def8a71a-cf2c-4279-ad23-98e5d7460c78" />
-<img width="1391" alt="Screenshot 2025-01-27 at 11 04 53 PM" src="https://github.com/user-attachments/assets/d4f5aac3-9850-414a-ab59-cd49b469e77b" />
-<img width="1391" alt="Screenshot 2025-01-27 at 11 39 21 PM" src="https://github.com/user-attachments/assets/e135572c-b0ea-49cd-8ac3-ac78b5ade612" />
-<img width="1391" alt="Screenshot 2025-01-27 at 11 00 26 PM" src="https://github.com/user-attachments/assets/9606dcf7-7968-4b6a-8ede-4177bf73cfe6" />
-<img width="1391" alt="Screenshot 2025-01-27 at 11 01 22 PM" src="https://github.com/user-attachments/assets/6b245a93-f3f7-485c-b512-e232b2660bdc" />
+<img width="1393" alt="Screenshot 2025-01-29 at 8 50 35 PM" src="https://github.com/user-attachments/assets/d51bbed5-ce6f-4144-9ae7-64b1a1b14200" />
+<img width="1393" alt="Screenshot 2025-01-29 at 8 50 53 PM" src="https://github.com/user-attachments/assets/76d740a0-c171-492c-aa87-5a368b3732ce" />
+<img width="1393" alt="Screenshot 2025-01-29 at 8 51 13 PM" src="https://github.com/user-attachments/assets/28ad0871-f28b-403a-a861-2bfebb3bd15b" />
+<img width="1393" alt="Screenshot 2025-01-29 at 8 51 34 PM" src="https://github.com/user-attachments/assets/c927529a-7e32-458f-bce9-bf1946422935" />
+<img width="1393" alt="Screenshot 2025-01-29 at 8 52 08 PM" src="https://github.com/user-attachments/assets/f5d91f50-4371-486f-ad52-8520b40b1a52" />
+<img width="1393" alt="Screenshot 2025-01-29 at 8 52 37 PM" src="https://github.com/user-attachments/assets/8c156fd0-a221-4363-a853-ea063284a287" />
 
 ### Monitoring a Dusk Node
 
-<img width="1391" alt="Screenshot 2025-01-27 at 11 01 58 PM" src="https://github.com/user-attachments/assets/4061b9d3-d80d-4086-a353-68b8e838c4c9" />
-
+<img width="1393" alt="Screenshot 2025-01-29 at 8 53 04 PM" src="https://github.com/user-attachments/assets/1bbbb530-0934-42cb-bb17-d123f1842ad9" />
 
 https://docs.dusk.network/operator/overview/
 
