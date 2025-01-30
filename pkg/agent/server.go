@@ -66,7 +66,7 @@ type Server struct {
 	registry      checker.Registry
 }
 
-func (s *Server) Stop() error {
+func (s *Server) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -74,14 +74,14 @@ func (s *Server) Stop() error {
 
 	// Stop services
 	for _, svc := range s.services {
-		if err := svc.Stop(); err != nil {
+		if err := svc.Stop(ctx); err != nil {
 			errs = append(errs, fmt.Errorf("failed to stop service %s: %w", svc.Name(), err))
 		}
 	}
 
 	// Stop gRPC server
 	if s.grpcServer != nil {
-		s.grpcServer.Stop()
+		s.grpcServer.Stop(ctx)
 	}
 
 	if len(errs) > 0 {
@@ -341,11 +341,11 @@ func (s *Server) ListServices() []string {
 }
 
 // Close stops all services and cleans up resources.
-func (s *Server) Close() error {
+func (s *Server) Close(ctx context.Context) error {
 	var closeErrs []error
 
 	for _, svc := range s.services {
-		if err := svc.Stop(); err != nil {
+		if err := svc.Stop(ctx); err != nil {
 			closeErrs = append(closeErrs, err)
 
 			log.Printf("Error stopping service: %v", err)

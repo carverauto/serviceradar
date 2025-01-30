@@ -319,7 +319,11 @@ func (s *ICMPScanner) sendPing(ip net.IP) error {
 	return syscall.Sendto(s.rawSocket, s.template, 0, &dest)
 }
 
-func (s *ICMPScanner) Stop() error {
+func (s *ICMPScanner) Stop(ctx context.Context) error {
+	// setup a timeout on the context
+	_, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+
 	close(s.done)
 
 	if s.rawSocket != 0 {

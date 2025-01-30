@@ -411,10 +411,10 @@ func updateStats(stats *ScanStats, result *models.Result) {
 }
 
 // Stop stops any in-progress scans and closes the service.
-func (s *SweepService) Stop() error {
+func (s *SweepService) Stop(ctx context.Context) error {
 	close(s.closed)
 
-	return s.scanner.Stop()
+	return s.scanner.Stop(ctx)
 }
 
 // Name returns the service name.

@@ -24,7 +24,7 @@ const (
 // Service defines the interface that all services must implement.
 type Service interface {
 	Start(context.Context) error
-	Stop() error
+	Stop(context.Context) error
 }
 
 // GRPCServiceRegistrar is a function type for registering gRPC services.
@@ -127,10 +127,10 @@ func handleShutdown(
 	cancel()
 
 	// Stop gRPC server
-	grpcServer.Stop()
+	grpcServer.Stop(ctx)
 
 	// Stop the service
-	if err := svc.Stop(); err != nil {
+	if err := svc.Stop(ctx); err != nil {
 		log.Printf("Error during service shutdown: %v", err)
 
 		return fmt.Errorf("shutdown error: %w", err)

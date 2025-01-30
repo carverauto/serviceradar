@@ -51,7 +51,7 @@ func NewExternalChecker(ctx context.Context, serviceName, serviceType, address s
 	}
 
 	// Initial health check
-	healthy, err := client.CheckHealth(context.Background(), "")
+	healthy, err := client.CheckHealth(ctx, "")
 	if err != nil {
 		if closeErr := client.Close(); closeErr != nil {
 			return nil, closeErr

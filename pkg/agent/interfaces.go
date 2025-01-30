@@ -8,7 +8,7 @@ import (
 
 type Service interface {
 	Start(context.Context) error
-	Stop() error
+	Stop(ctx context.Context) error
 	Name() string
 }
 

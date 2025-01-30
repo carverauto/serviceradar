@@ -152,9 +152,9 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 	return nil
 }
 
-func (s *NetworkSweeper) Stop() error {
+func (s *NetworkSweeper) Stop(ctx context.Context) error {
 	close(s.done)
-	return s.scanner.Stop()
+	return s.scanner.Stop(ctx)
 }
 
 func (s *NetworkSweeper) GetResults(ctx context.Context, filter *models.ResultFilter) ([]models.Result, error) {

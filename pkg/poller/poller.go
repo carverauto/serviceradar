@@ -19,6 +19,7 @@ import (
 const (
 	grpcRetries    = 3
 	defaultTimeout = 30 * time.Second
+	stopTimeout    = 10 * time.Second
 )
 
 var (
@@ -130,7 +131,11 @@ func (p *Poller) Start(ctx context.Context) error {
 }
 
 // Stop implements the lifecycle.Service interface.
-func (p *Poller) Stop() error {
+func (p *Poller) Stop(ctx context.Context) error {
+	// set a timeout on the context
+	_, cancel := context.WithTimeout(ctx, stopTimeout)
+	defer cancel()
+
 	return p.Close()
 }
 

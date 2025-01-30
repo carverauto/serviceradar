@@ -8,6 +8,7 @@ import (
 	"github.com/mfreeman451/serviceradar/pkg/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
 func TestICMPChecksum(t *testing.T) {
@@ -66,6 +67,9 @@ func TestICMPScanner_SocketError(t *testing.T) {
 }
 
 func TestICMPScanner_Scan_InvalidTargets(t *testing.T) {
+	ctrl, ctx := gomock.WithContext(context.Background(), t)
+	defer ctrl.Finish()
+
 	scanner, err := NewICMPScanner(1*time.Second, 1, 3)
 	require.NoError(t, err)
 
@@ -86,6 +90,6 @@ func TestICMPScanner_Scan_InvalidTargets(t *testing.T) {
 	assert.Equal(t, 1, resultCount, "Expected one result for invalid target")
 
 	// Clean up
-	err = scanner.Stop()
+	err = scanner.Stop(ctx)
 	require.NoError(t, err)
 }

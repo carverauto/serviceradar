@@ -169,8 +169,8 @@ func (s *Server) GetMetricsManager() metrics.MetricCollector {
 }
 
 // Stop implements the lifecycle.Service interface.
-func (s *Server) Stop() error {
-	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+func (s *Server) Stop(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, shutdownTimeout)
 	defer cancel()
 
 	// Send shutdown notification
@@ -180,7 +180,7 @@ func (s *Server) Stop() error {
 
 	// Stop GRPC server if it exists
 	if s.grpcServer != nil {
-		s.grpcServer.Stop()
+		s.grpcServer.Stop(ctx)
 	}
 
 	// Close database

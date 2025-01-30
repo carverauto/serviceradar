@@ -23,6 +23,10 @@ var (
 	errHealthServerRegistered = fmt.Errorf("health server already registered")
 )
 
+const (
+	shutdownTimer = 5 * time.Second
+)
+
 // Server wraps a gRPC server with additional functionality.
 type Server struct {
 	srv         *grpc.Server
@@ -126,9 +130,13 @@ func (s *Server) Start() error {
 }
 
 // Stop gracefully stops the gRPC server.
-func (s *Server) Stop() {
+func (s *Server) Stop(ctx context.Context) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// set a timeout on the context
+	_, cancel := context.WithTimeout(ctx, shutdownTimer)
+	defer cancel()
 
 	// Mark all services as not serving if health check is initialized
 	if s.healthCheck != nil {
