@@ -3,6 +3,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -14,15 +15,17 @@ import (
 )
 
 const (
-	partsForPortDetails = 2
+	partsForPortDetails  = 2
+	maxProcessNameLength = 256
 )
 
 var (
 	// validServiceName ensures service names only contain alphanumeric chars, hyphens, and underscores.
-	validServiceName = regexp.MustCompile(`^[a-zA-Z0-9-_]+$`)
+	validServiceName = regexp.MustCompile(`^[a-zA-Z0-9\-_.]+$`)
 
 	// Common errors.
-	errInvalidProcessName = fmt.Errorf("invalid process name")
+	errInvalidProcessName = errors.New("invalid process name")
+	errInvalidCharacters  = errors.New("contains invalid characters (only alphanumeric, hyphens, underscores, and periods are allowed)")
 )
 
 type ProcessChecker struct {
@@ -30,8 +33,13 @@ type ProcessChecker struct {
 }
 
 func (p *ProcessChecker) validateProcessName() error {
+	if len(p.ProcessName) > maxProcessNameLength {
+		return fmt.Errorf("%w: process name too long (max %d characters)",
+			errInvalidProcessName, maxProcessNameLength)
+	}
+
 	if !validServiceName.MatchString(p.ProcessName) {
-		return fmt.Errorf("%w: %s", errInvalidProcessName, p.ProcessName)
+		return fmt.Errorf("%w: %s", errInvalidCharacters, p.ProcessName)
 	}
 
 	return nil
