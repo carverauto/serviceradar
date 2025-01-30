@@ -1,4 +1,4 @@
-// Package grpc provides secure gRPC communication options
+// Package grpc pkg/grpc/security.go provides secure gRPC communication options
 package grpc
 
 import (
@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -18,7 +19,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-// SecurityMode defines the type of security to use
+// SecurityMode defines the type of security to use.
 type SecurityMode string
 
 const (
@@ -28,7 +29,7 @@ const (
 	SecurityModeMTLS   SecurityMode = "mtls"
 )
 
-// SecurityConfig holds common security configuration
+// SecurityConfig holds common security configuration.
 type SecurityConfig struct {
 	Mode           SecurityMode
 	CertDir        string
@@ -37,22 +38,22 @@ type SecurityConfig struct {
 	WorkloadSocket string // For SPIFFE
 }
 
-// NoSecurityProvider implements SecurityProvider with no security (development only)
+// NoSecurityProvider implements SecurityProvider with no security (development only).
 type NoSecurityProvider struct{}
 
-func (p *NoSecurityProvider) GetClientCredentials(ctx context.Context) (grpc.DialOption, error) {
+func (*NoSecurityProvider) GetClientCredentials(context.Context) (grpc.DialOption, error) {
 	return grpc.WithTransportCredentials(insecure.NewCredentials()), nil
 }
 
-func (p *NoSecurityProvider) GetServerCredentials(ctx context.Context) (grpc.ServerOption, error) {
+func (*NoSecurityProvider) GetServerCredentials(context.Context) (grpc.ServerOption, error) {
 	return grpc.Creds(insecure.NewCredentials()), nil
 }
 
-func (p *NoSecurityProvider) Close() error {
+func (*NoSecurityProvider) Close() error {
 	return nil
 }
 
-// TLSProvider implements SecurityProvider with basic TLS
+// TLSProvider implements SecurityProvider with basic TLS.
 type TLSProvider struct {
 	config      *SecurityConfig
 	clientCreds credentials.TransportCredentials
@@ -77,15 +78,15 @@ func NewTLSProvider(config *SecurityConfig) (*TLSProvider, error) {
 	}, nil
 }
 
-func (p *TLSProvider) GetClientCredentials(ctx context.Context) (grpc.DialOption, error) {
+func (p *TLSProvider) GetClientCredentials(context.Context) (grpc.DialOption, error) {
 	return grpc.WithTransportCredentials(p.clientCreds), nil
 }
 
-func (p *TLSProvider) GetServerCredentials(ctx context.Context) (grpc.ServerOption, error) {
+func (p *TLSProvider) GetServerCredentials(context.Context) (grpc.ServerOption, error) {
 	return grpc.Creds(p.serverCreds), nil
 }
 
-func (p *TLSProvider) Close() error {
+func (*TLSProvider) Close() error {
 	return nil
 }
 
@@ -143,7 +144,7 @@ func NewSpiffeProvider(config *SecurityConfig) (*SpiffeProvider, error) {
 	}, nil
 }
 
-func (p *SpiffeProvider) GetClientCredentials(ctx context.Context) (grpc.DialOption, error) {
+func (p *SpiffeProvider) GetClientCredentials(_ context.Context) (grpc.DialOption, error) {
 	// Get expected server ID
 	serverID, err := spiffeid.FromString(p.config.TrustDomain)
 	if err != nil {
@@ -180,9 +181,9 @@ func (p *SpiffeProvider) Close() error {
 
 	p.closeOnce.Do(func() {
 		if p.source != nil {
-			err := p.source.Close()
+			err = p.source.Close()
 			if err != nil {
-				err = fmt.Errorf("failed to close X.509 source: %w", err)
+				log.Printf("Failed to close X.509 source: %v", err)
 
 				return
 			}

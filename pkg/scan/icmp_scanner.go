@@ -37,16 +37,15 @@ type ICMPScanner struct {
 	rawSocket   int
 	template    []byte
 	responses   sync.Map
-	listenerWg  sync.WaitGroup
 }
 
 type pingResponse struct {
-	received  atomic.Int32
+	received  atomic.Int64
 	totalTime atomic.Int64
 	lastSeen  atomic.Value
 	sendTime  atomic.Value
-	dropped   atomic.Int32
-	sent      atomic.Int32
+	dropped   atomic.Int64
+	sent      atomic.Int64
 }
 
 func NewICMPScanner(timeout time.Duration, concurrency, count int) (*ICMPScanner, error) {
@@ -92,13 +91,46 @@ func (s *ICMPScanner) Scan(ctx context.Context, targets []models.Target) (<-chan
 			}
 
 			// Initialize response tracking for this target
-			resp := &pingResponse{}
-			resp.lastSeen.Store(time.Time{})
-			resp.sendTime.Store(time.Time{})
-			s.responses.Store(target.Host, resp)
+			resp := s.initializeResponseTracking(target.Host)
 
 			// Send pings and track sent count
-			for i := 0; i < s.count; i++ {
+			s.sendPings(ctx, target.Host, resp, rateLimit)
+
+			// Get final results and send to the results channel
+			s.sendResults(ctx, results, target)
+		}
+	}()
+
+	return results, nil
+}
+
+// initializeResponseTracking initializes response tracking for a target.
+func (s *ICMPScanner) initializeResponseTracking(host string) *pingResponse {
+	resp := &pingResponse{
+		lastSeen: atomic.Value{},
+		sendTime: atomic.Value{},
+	}
+	resp.lastSeen.Store(time.Time{})
+	resp.sendTime.Store(time.Time{})
+	s.responses.Store(host, resp)
+
+	return resp
+}
+
+// sendPings sends ICMP pings to the target and tracks sent/dropped packets.
+func (s *ICMPScanner) sendPings(ctx context.Context, host string, resp *pingResponse, rateLimit time.Duration) {
+	var wg sync.WaitGroup
+
+	workerCount := s.concurrency
+
+	// Create a worker pool
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+
+			for j := 0; j < s.count/workerCount; j++ {
 				select {
 				case <-ctx.Done():
 					return
@@ -107,51 +139,66 @@ func (s *ICMPScanner) Scan(ctx context.Context, targets []models.Target) (<-chan
 				default:
 					resp.sent.Add(1)
 
-					if err := s.sendPing(net.ParseIP(target.Host)); err != nil {
-						log.Printf("Error sending ping to %s: %v", target.Host, err)
+					if err := s.sendPing(net.ParseIP(host)); err != nil {
+						log.Printf("Error sending ping to %s: %v", host, err)
 						resp.dropped.Add(1)
 					}
 				}
 				time.Sleep(rateLimit)
 			}
+		}()
+	}
 
-			// Get final results
-			value, ok := s.responses.Load(target.Host)
-			if !ok {
-				continue
-			}
+	wg.Wait()
+}
 
-			resp = value.(*pingResponse)
-			received := resp.received.Load()
-			sent := resp.sent.Load()
-			totalTime := resp.totalTime.Load()
-			lastSeen := resp.lastSeen.Load().(time.Time)
+func calculateAvgResponseTime(totalTime, received int64) time.Duration {
+	if received > 0 {
+		return time.Duration(totalTime) / time.Duration(received)
+	}
 
-			var avgResponseTime time.Duration
-			if received > 0 {
-				avgResponseTime = time.Duration(totalTime) / time.Duration(received)
-			}
+	return 0
+}
 
-			packetLoss := float64(sent-received) / float64(sent) * 100
+func calculatePacketLoss(sent, received int64) float64 {
+	if sent > 0 {
+		return float64(sent-received) / float64(sent) * 100
+	}
 
-			select {
-			case results <- models.Result{
-				Target:     target,
-				Available:  received > 0,
-				RespTime:   avgResponseTime,
-				PacketLoss: packetLoss,
-				LastSeen:   lastSeen,
-				FirstSeen:  time.Now(),
-			}:
-			case <-ctx.Done():
-				return
-			case <-s.done:
-				return
-			}
-		}
-	}()
+	return 0
+}
 
-	return results, nil
+// sendResults calculates and sends the final results for a target.
+func (s *ICMPScanner) sendResults(ctx context.Context, results chan<- models.Result, target models.Target) {
+	value, ok := s.responses.Load(target.Host)
+	if !ok {
+		return
+	}
+
+	resp := value.(*pingResponse)
+
+	received := resp.received.Load()
+	sent := resp.sent.Load()
+	totalTime := resp.totalTime.Load()
+	lastSeen := resp.lastSeen.Load().(time.Time)
+
+	avgResponseTime := calculateAvgResponseTime(totalTime, received)
+	packetLoss := calculatePacketLoss(sent, received)
+
+	select {
+	case results <- models.Result{
+		Target:     target,
+		Available:  received > 0,
+		RespTime:   avgResponseTime,
+		PacketLoss: packetLoss,
+		LastSeen:   lastSeen,
+		FirstSeen:  time.Now(),
+	}:
+	case <-ctx.Done():
+		return
+	case <-s.done:
+		return
+	}
 }
 
 const (
@@ -276,12 +323,6 @@ func (s *ICMPScanner) listenForReplies(ctx context.Context) {
 			resp.totalTime.Add(now.Sub(sendTime).Nanoseconds())
 			resp.lastSeen.Store(now)
 		}
-	}
-}
-
-func (*ICMPScanner) closeConn(conn *icmp.PacketConn) {
-	if err := conn.Close(); err != nil {
-		log.Printf("Failed to close ICMP listener: %v", err)
 	}
 }
 

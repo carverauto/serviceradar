@@ -20,10 +20,16 @@ const (
 	cidr32              = 32
 	networkAndBroadcast = 2
 	maxInt              = int(^uint(0) >> 1) // maxInt is the maximum value of int on the current platform
+	bitCount            = 64
+	bitsBeforeOverflow  = 63
 )
 
 var (
 	errInvalidSweepMode = errors.New("invalid sweep mode")
+	errTargetCapacity   = errors.New("target capacity overflowed")
+	errNetworkCapacity  = errors.New("error calculating network capacity")
+	errInvalidCIDRMask  = errors.New("invalid CIDR mask")
+	errCIDRMaskTooLarge = errors.New("CIDR mask is too large to calculate network size")
 )
 
 // NetworkSweeper implements the Sweeper interface.
@@ -140,46 +146,67 @@ func (s *NetworkSweeper) generateTargets() ([]models.Target, error) {
 }
 
 func (s *NetworkSweeper) calculateTargetCapacity() (targetCap int, uniqueIPs map[string]struct{}, err error) {
-	var totalIPs uint64 // Use uint64 to avoid overflow
-
-	u := make(map[string]struct{}) // uniqueIPs
+	u := make(map[string]struct{})
+	targetCapacity := 0
 
 	for _, network := range s.config.Networks {
-		_, ipnet, err := net.ParseCIDR(network)
+		capacity, err := calculateNetworkCapacity(network, s.config.SweepModes, len(s.config.Ports))
 		if err != nil {
-			return 0, nil, fmt.Errorf("failed to parse CIDR %s: %w", network, err)
+			return 0, nil, fmt.Errorf("%w for network %s: %w", errNetworkCapacity, network, err)
 		}
 
-		ones, bits := ipnet.Mask.Size()
-		// Ensure that the shift operation is safe by checking the number of bits
-		if bits-ones > 64 {
-			return 0, nil, fmt.Errorf("CIDR mask %s is too large to calculate network size", network)
-		}
-		networkSize := uint64(1) << uint64(bits-ones) // Total IPs in the network
-
-		if ones < cidr32 { // Not a /32
-			networkSize -= networkAndBroadcast // Subtract network and broadcast addresses
+		// Check for overflow before adding
+		if targetCapacity > maxInt-capacity {
+			return 0, nil, errTargetCapacity
 		}
 
-		totalIPs += networkSize
+		targetCapacity += capacity
 	}
 
-	// Calculate target capacity based on enabled modes
-	var targetCapacity uint64 // Use uint64 for intermediate calculations
-	if containsMode(s.config.SweepModes, models.ModeICMP) {
-		targetCapacity += totalIPs
+	return targetCapacity, u, nil
+}
+
+// calculateNetworkCapacity calculates the target capacity for a single network.
+func calculateNetworkCapacity(network string, sweepModes []models.SweepMode, numPorts int) (int, error) {
+	_, ipnet, err := net.ParseCIDR(network)
+	if err != nil {
+		return 0, fmt.Errorf("%w %s: %w", errInvalidCIDRMask, network, err)
 	}
 
-	if containsMode(s.config.SweepModes, models.ModeTCP) {
-		targetCapacity += totalIPs * uint64(len(s.config.Ports))
+	ones, bits := ipnet.Mask.Size()
+	if bits < ones {
+		return 0, fmt.Errorf("%w %s: bits (%d) < ones (%d)", errInvalidCIDRMask, network, bits, ones)
 	}
 
-	// Check if targetCapacity exceeds the maximum value of int
-	if targetCapacity > uint64(maxInt) {
-		return 0, nil, fmt.Errorf("target capacity %d exceeds maximum int value %d", targetCapacity, maxInt)
+	shift := bits - ones
+
+	// Ensure the shift is within a safe range
+	if shift > bitsBeforeOverflow { // 63 because 1 << 64 would overflow on 64-bit systems
+		return 0, fmt.Errorf("%w %s", errCIDRMaskTooLarge, network)
 	}
 
-	return int(targetCapacity), u, nil
+	// Calculate network size, considering /32
+	networkSize := 1 << shift
+	if ones < cidr32 {
+		networkSize -= networkAndBroadcast
+	}
+
+	// Calculate target capacity for the network based on enabled modes
+	capacity := 0
+	if containsMode(sweepModes, models.ModeICMP) {
+		capacity += networkSize
+	}
+
+	if containsMode(sweepModes, models.ModeTCP) {
+		// Check for overflow before multiplying
+		if numPorts > 0 && networkSize > maxInt/numPorts {
+			return 0, fmt.Errorf("%w", errTargetCapacity)
+		}
+
+		capacity += networkSize * numPorts
+	}
+
+	return capacity, nil
 }
 
 // generateTargetsForNetwork generates targets for a specific network.

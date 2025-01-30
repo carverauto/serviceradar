@@ -7,7 +7,15 @@ import (
 	"strings"
 )
 
-// CertificateManager helps manage TLS certificates
+const (
+	certManagerPerms = 0700
+)
+
+var (
+	errMissingCerts = fmt.Errorf("missing certificates")
+)
+
+// CertificateManager helps manage TLS certificates.
 type CertificateManager struct {
 	config *SecurityConfig
 }
@@ -17,7 +25,7 @@ func NewCertificateManager(config *SecurityConfig) *CertificateManager {
 }
 
 func (cm *CertificateManager) EnsureCertificateDirectory() error {
-	return os.MkdirAll(cm.config.CertDir, 0700)
+	return os.MkdirAll(cm.config.CertDir, certManagerPerms)
 }
 
 func (cm *CertificateManager) ValidateCertificates(mutual bool) error {
@@ -27,15 +35,17 @@ func (cm *CertificateManager) ValidateCertificates(mutual bool) error {
 	}
 
 	var missing []string
+
 	for _, file := range required {
 		path := filepath.Join(cm.config.CertDir, file)
+
 		if _, err := os.Stat(path); os.IsNotExist(err) {
 			missing = append(missing, file)
 		}
 	}
 
 	if len(missing) > 0 {
-		return fmt.Errorf("missing certificates: %s", strings.Join(missing, ", "))
+		return fmt.Errorf("%w %s", errMissingCerts, strings.Join(missing, ", "))
 	}
 
 	return nil

@@ -22,7 +22,7 @@ type BaseProcessor struct {
 	firstSeenTimes map[string]time.Time
 	totalHosts     int
 	hostResultPool *sync.Pool
-	portResultPool sync.Pool
+	portResultPool *sync.Pool
 	portCount      int // Number of ports being scanned
 	config         *models.Config
 }
@@ -33,24 +33,29 @@ func NewBaseProcessor(config *models.Config) *BaseProcessor {
 		portCount = 100
 	}
 
+	// Create pools before initializing the processor
+	hostPool := &sync.Pool{
+		New: func() interface{} {
+			return &models.HostResult{
+				PortResults: make([]*models.PortResult, 0, startingBufferSize),
+			}
+		},
+	}
+
+	portPool := &sync.Pool{
+		New: func() interface{} {
+			return &models.PortResult{}
+		},
+	}
+
 	p := &BaseProcessor{
 		hostMap:        make(map[string]*models.HostResult),
 		portCounts:     make(map[int]int),
 		firstSeenTimes: make(map[string]time.Time),
 		portCount:      portCount,
 		config:         config,
-	}
-
-	// Initialize host result pool
-	p.hostResultPool.New = func() interface{} {
-		return &models.HostResult{
-			PortResults: make([]*models.PortResult, 0, startingBufferSize), // Start with reasonable capacity
-		}
-	}
-
-	// Initialize port result pool
-	p.portResultPool.New = func() interface{} {
-		return &models.PortResult{}
+		hostResultPool: hostPool,
+		portResultPool: portPool,
 	}
 
 	return p
@@ -112,7 +117,6 @@ func (p *BaseProcessor) cleanup() {
 
 	// Clean up hosts outside the lock
 	p.mu.Unlock()
-
 	for _, host := range hostsToClean {
 		// Clean up port results
 		for _, pr := range host.PortResults {
@@ -129,10 +133,8 @@ func (p *BaseProcessor) cleanup() {
 		host.PortResults = host.PortResults[:0]
 		host.ICMPStatus = nil
 		host.ResponseTime = 0
-
 		p.hostResultPool.Put(host)
 	}
-
 	p.mu.Lock() // Re-acquire lock before returning (due to defer)
 
 	log.Printf("Cleanup complete")
@@ -210,7 +212,6 @@ func (p *BaseProcessor) updatePortStatus(host *models.HostResult, result *models
 			port.Available = true
 			port.RespTime = result.RespTime
 			found = true
-
 			break
 		}
 	}
@@ -250,7 +251,6 @@ func (p *BaseProcessor) getOrCreateHost(hostAddr string, now time.Time) *models.
 
 		p.hostMap[hostAddr] = host
 	}
-
 	return host
 }
 
@@ -284,7 +284,6 @@ func (p *BaseProcessor) GetSummary(ctx context.Context) (*models.SweepSummary, e
 		if host.Available {
 			availableHosts++
 		}
-
 		hosts = append(hosts, *host)
 	}
 

@@ -24,10 +24,6 @@ func TestNoSecurityProvider(t *testing.T) {
 		opt, err := provider.GetClientCredentials(ctx)
 		require.NoError(t, err)
 		require.NotNil(t, opt)
-
-		// Check that it's a DialOption
-		_, ok := opt.(grpc.DialOption)
-		assert.True(t, ok)
 	})
 
 	t.Run("GetServerCredentials", func(t *testing.T) {
@@ -47,7 +43,7 @@ func TestNoSecurityProvider(t *testing.T) {
 	})
 }
 
-// TestTLSProvider tests the TLSProvider implementation
+// TestTLSProvider tests the TLSProvider implementation.
 func TestTLSProvider(t *testing.T) {
 	tmpDir := t.TempDir()
 	setupTestCertificates(t, tmpDir)
@@ -79,7 +75,7 @@ func TestTLSProvider(t *testing.T) {
 		provider, err := NewTLSProvider(config)
 		require.NoError(t, err)
 		defer func(provider *TLSProvider) {
-			err := provider.Close()
+			err = provider.Close()
 			if err != nil {
 				t.Fatalf("Expected Close to succeed, got error: %v", err)
 			}
@@ -88,17 +84,13 @@ func TestTLSProvider(t *testing.T) {
 		opt, err := provider.GetClientCredentials(ctx)
 		require.NoError(t, err)
 		require.NotNil(t, opt)
-
-		// Verify it's a DialOption
-		_, ok := opt.(grpc.DialOption)
-		assert.True(t, ok)
 	})
 
 	t.Run("GetServerCredentials", func(t *testing.T) {
 		provider, err := NewTLSProvider(config)
 		require.NoError(t, err)
 		defer func(provider *TLSProvider) {
-			err := provider.Close()
+			err = provider.Close()
 			if err != nil {
 				t.Fatalf("Expected Close to succeed, got error: %v", err)
 			}
@@ -120,7 +112,7 @@ func TestTLSProvider(t *testing.T) {
 		}
 
 		provider, err := NewTLSProvider(invalidConfig)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Nil(t, provider)
 	})
 }
@@ -316,13 +308,15 @@ func TestNewSecurityProvider(t *testing.T) {
 }
 
 func setupTestCertificates(t *testing.T, dir string) {
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "ca.crt"), []byte(testCACert), 0644))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "server.crt"), []byte(testServerCert), 0644))
+	t.Helper()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "ca.crt"), []byte(testCACert), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "server.crt"), []byte(testServerCert), 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "server.key"), []byte(testServerKey), 0600))
 }
 
 func setupClientCertificates(t *testing.T, dir string) {
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "client.crt"), []byte(testClientCert), 0644))
+	t.Helper()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "client.crt"), []byte(testClientCert), 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "client.key"), []byte(testClientKey), 0600))
 }
 
