@@ -197,6 +197,7 @@ func (*CombinedScanner) separateTargets(targets []models.Target) scanTargets {
 }
 
 func (s *CombinedScanner) forwardResults(ctx context.Context, in <-chan models.Result, out chan<- models.Result) {
+	defer close(out)
 	for {
 		select {
 		case result, ok := <-in:
@@ -207,12 +208,8 @@ func (s *CombinedScanner) forwardResults(ctx context.Context, in <-chan models.R
 			case out <- result:
 			case <-ctx.Done():
 				return
-			case <-s.done:
-				return
 			}
 		case <-ctx.Done():
-			return
-		case <-s.done:
 			return
 		}
 	}
