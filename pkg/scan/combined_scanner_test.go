@@ -102,9 +102,10 @@ func TestCombinedScanner_Scan_MixedTargets(t *testing.T) {
 	var resultCount int
 	for result := range results {
 		resultCount++
+
 		if result.Target.Mode == models.ModeICMP && !result.Available {
 			t.Log("ICMP scanning not available, skipping ICMP result check")
-		
+
 			continue
 		}
 	}
