@@ -170,19 +170,19 @@ cd serviceradar
 
 1. **Agent Installation** (on monitored hosts):
 ```bash
-sudo dpkg -i serviceradar-dusk-checker_1.0.12.deb  # For Dusk nodes
+sudo dpkg -i serviceradar-dusk-checker_1.0.14.deb  # For Dusk nodes
 # or
-sudo dpkg -i serviceradar-agent_1.0.12.deb  # For other hosts
+sudo dpkg -i serviceradar-agent_1.0.14.deb  # For other hosts
 ```
 
 2. **Poller Installation** (on any host in your network):
 ```bash
-sudo dpkg -i serviceradar-poller_1.0.12.deb
+sudo dpkg -i serviceradar-poller_1.0.14.deb
 ```
 
 3. **Cloud Installation** (on a reliable host):
 ```bash
-sudo dpkg -i serviceradar-cloud_1.0.12.deb
+sudo dpkg -i serviceradar-cloud_1.0.14.deb
 ```
 
 ## Configuration
