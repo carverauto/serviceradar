@@ -152,10 +152,12 @@ func TestCombinedScanner_Scan_MixedTargets(t *testing.T) {
 
 	// Collect results with timeout
 	var gotResults []models.Result
+
 	resultsDone := make(chan struct{})
 
 	go func() {
 		defer close(resultsDone)
+
 		for result := range results {
 			gotResults = append(gotResults, result)
 		}

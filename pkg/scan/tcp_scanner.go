@@ -271,8 +271,10 @@ func (s *TCPScanner) scanTarget(ctx context.Context, target models.Target, resul
 		case results <- result:
 		case <-ctx.Done():
 		}
+
 		return
 	}
+
 	defer s.pool.put(address, conn)
 
 	result.RespTime = time.Since(result.FirstSeen)

@@ -10,14 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const (
-	combinedScannerTimeout = 5 * time.Second
-	combinedScannerConc    = 10
-	combinedScannerMaxIdle = 10
-	combinedScannerMaxLife = 10 * time.Minute
-	combinedScannerIdle    = 5 * time.Minute
-)
-
 func TestTCPScanner_HighConcurrency(t *testing.T) {
 	t.Parallel()
 
@@ -40,13 +32,14 @@ func TestTCPScanner_HighConcurrency(t *testing.T) {
 	resultsChan, err := scanner.Scan(ctx, targets)
 	require.NoError(t, err)
 
-	var results []models.Result
+	results := make([]models.Result, 0, numTargets)
+
 	for result := range resultsChan {
 		results = append(results, result)
 	}
 
 	// Verify we got responses for all targets
-	require.Equal(t, numTargets, len(results))
+	require.Len(t, results, numTargets)
 
 	// Clean up
 	err = scanner.Stop(context.Background())

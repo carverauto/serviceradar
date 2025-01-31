@@ -29,12 +29,14 @@ func TestGenerateIPsFromCIDR_LargeCIDR(t *testing.T) {
 
 	ips, err := GenerateIPsFromCIDR("192.168.0.0/16")
 	require.NoError(t, err)
+	require.NotNil(t, ips, "Expected IPs to be generated, but got nil error: %v", err)
 
 	// In test mode, should return limited set
 	require.Len(t, ips, 1000, "Expected limited number of IPs for large range in test mode")
 
 	// Verify IPs are valid and unique
 	seen := make(map[string]bool)
+
 	for _, ip := range ips {
 		ipStr := ip.String()
 		require.False(t, seen[ipStr], "Found duplicate IP: %s", ipStr)
@@ -79,7 +81,6 @@ func TestGenerateIPsFromCIDR_SmallRange(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt // Capture range variable
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -90,6 +91,7 @@ func TestGenerateIPsFromCIDR_SmallRange(t *testing.T) {
 			}
 
 			require.NoError(t, err)
+			require.NotNil(t, ips, "Expected IPs to be generated, but got nil error: %v", err)
 			require.Len(t, ips, tt.wantCount)
 
 			// Verify IPs are valid
@@ -138,7 +140,6 @@ func TestIsFirstOrLastAddress(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt // Capture range variable
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -178,7 +179,6 @@ func TestInc(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt // Capture range variable
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -187,49 +187,6 @@ func TestInc(t *testing.T) {
 
 			Inc(ipCopy)
 			assert.Equal(t, tt.want.String(), ipCopy.String())
-		})
-	}
-}
-
-func TestGenerateIPsFromCIDR(t *testing.T) {
-	tests := []struct {
-		name      string
-		cidr      string
-		wantCount int
-		wantErr   bool
-	}{
-		{
-			name:      "valid /30 network",
-			cidr:      "192.168.1.0/30",
-			wantCount: 2, // Excluding network and broadcast addresses
-			wantErr:   false,
-		},
-		{
-			name:      "invalid CIDR",
-			cidr:      "invalid",
-			wantCount: 0,
-			wantErr:   true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ips, err := GenerateIPsFromCIDR(tt.cidr)
-
-			if tt.wantErr {
-				require.Error(t, err)
-				return
-			}
-
-			require.NoError(t, err)
-			assert.Len(t, ips, tt.wantCount)
-
-			if len(ips) > 0 {
-				// Verify they are valid IPs
-				for _, ip := range ips {
-					assert.NotNil(t, ip.To4())
-				}
-			}
 		})
 	}
 }

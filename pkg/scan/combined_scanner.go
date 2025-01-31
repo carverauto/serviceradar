@@ -102,7 +102,6 @@ func (s *CombinedScanner) Scan(ctx context.Context, targets []models.Target) (<-
 }
 
 const (
-	errorChannelSize  = 2
 	workerChannelSize = 2
 )
 
@@ -114,6 +113,7 @@ type scanWorker struct {
 
 func (s *CombinedScanner) handleMixedScanners(ctx context.Context, targets scanTargets) (<-chan models.Result, error) {
 	results := make(chan models.Result, len(targets.tcp)+len(targets.icmp))
+
 	var wg sync.WaitGroup
 
 	// Set up workers for each scanner type
@@ -123,11 +123,14 @@ func (s *CombinedScanner) handleMixedScanners(ctx context.Context, targets scanT
 	for _, w := range workers {
 		if len(w.targets) > 0 {
 			wg.Add(1)
+
 			go func(worker scanWorker) {
 				defer wg.Done()
+
 				scanResults, err := worker.scanner.Scan(ctx, worker.targets)
 				if err != nil {
 					log.Printf("Error from %s scanner: %v", worker.name, err)
+
 					return
 				}
 
@@ -180,59 +183,6 @@ func (s *CombinedScanner) setupWorkers(targets scanTargets) []scanWorker {
 	}
 
 	return workers
-}
-
-func (s *CombinedScanner) runScanWorker(
-	ctx context.Context,
-	worker scanWorker,
-	wg *sync.WaitGroup,
-	results chan<- models.Result,
-	resultsClosed <-chan struct{},
-	errCh chan<- error,
-) {
-	defer wg.Done()
-
-	scanResults, err := worker.scanner.Scan(ctx, worker.targets)
-
-	if err != nil {
-		select {
-		case errCh <- fmt.Errorf("%s scan error: %w", worker.name, err):
-		default:
-		}
-
-		return
-	}
-
-	s.forwardWorkerResults(ctx, scanResults, results, resultsClosed)
-}
-
-func (s *CombinedScanner) forwardWorkerResults(
-	ctx context.Context,
-	in <-chan models.Result,
-	results chan<- models.Result,
-	resultsClosed <-chan struct{},
-) {
-	for {
-		select {
-		case result, ok := <-in:
-			if !ok {
-				return
-			}
-			select {
-			case <-resultsClosed:
-				return
-			case <-ctx.Done():
-				return
-			case results <- result:
-			}
-		case <-ctx.Done():
-			return
-		case <-resultsClosed:
-			return
-		case <-s.done:
-			return
-		}
-	}
 }
 
 type scanResult struct {
