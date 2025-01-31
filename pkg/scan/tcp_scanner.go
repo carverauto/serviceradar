@@ -2,6 +2,7 @@ package scan
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"log"
@@ -13,7 +14,8 @@ import (
 )
 
 const (
-	numShards = 32 // Experiment with different values
+	numShards    = 32 // Experiment with different values
+	readDeadline = 100 * time.Millisecond
 )
 
 // connEntry represents a connection in the pool along with its last used timestamp.
@@ -278,7 +280,7 @@ func (s *TCPScanner) scanTarget(ctx context.Context, target models.Target, resul
 	defer s.pool.put(address, conn)
 
 	result.RespTime = time.Since(result.FirstSeen)
-	result.Available = s.checkConnection(conn, &result)
+	result.Available = s.checkConnection(conn)
 
 	select {
 	case results <- result:
@@ -286,34 +288,50 @@ func (s *TCPScanner) scanTarget(ctx context.Context, target models.Target, resul
 	}
 }
 
-func (*TCPScanner) checkConnection(conn net.Conn, result *models.Result) bool {
+func (*TCPScanner) checkConnection(conn net.Conn) bool {
 	tcpConn, ok := conn.(*net.TCPConn)
 	if !ok {
-		return true // or handle non-TCP connections appropriately
+		return true // Accept non-TCP connections as valid
 	}
 
-	_ = tcpConn.SetReadDeadline(time.Now().Add(1 * time.Millisecond)) // Short read deadline
-	defer func(tcpConn *net.TCPConn, t time.Time) {
-		err := tcpConn.SetReadDeadline(t)
-		if err != nil {
-			log.Printf("Error resetting read deadline: %v", err)
-		}
-	}(tcpConn, time.Time{}) // Reset deadline on exit
-
-	var one [1]byte
-
-	_, err := tcpConn.Read(one[:])
+	// Set a longer read deadline (100ms) to avoid false negatives
+	err := tcpConn.SetReadDeadline(time.Now().Add(readDeadline))
 	if err != nil {
-		result.Error = fmt.Errorf("connection returned by pool is not valid: %w", err)
-
+		log.Printf("Error setting read deadline: %v", err)
 		return false
 	}
 
-	// Connection is still open but no data was read (successful read)
-	return true
+	defer func() {
+		if err = tcpConn.SetReadDeadline(time.Time{}); err != nil {
+			log.Printf("Error resetting read deadline: %v", err)
+		}
+	}()
+
+	// Try to read a single byte
+	buf := make([]byte, 1)
+	_, err = tcpConn.Read(buf)
+
+	// Connection is considered valid if:
+	// 1. Read succeeds (some services send banner)
+	// 2. Read times out (most common for services that wait for client)
+	// 3. Connection is closed by remote (service accepts and closes)
+	if err != nil {
+		var netErr net.Error
+		if errors.As(err, &netErr) && netErr.Timeout() {
+			return true // Timeout is expected and indicates port is open
+		}
+
+		if err.Error() == "EOF" {
+			return true // EOF means connection was accepted then closed
+		}
+	}
+
+	return err == nil // If no error, read succeeded
 }
 
 func (s *TCPScanner) Stop(context.Context) error {
-	s.pool.close()
+	if s.pool != nil {
+		s.pool.close()
+	}
 	return nil
 }
