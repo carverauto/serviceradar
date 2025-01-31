@@ -39,28 +39,27 @@ func TestCombinedScanner_Scan_Mock(t *testing.T) {
 	tcpResults := make(chan models.Result, 1)
 	icmpResults := make(chan models.Result, 1)
 
-	// Create wait group to synchronize result sending
+	// Use WaitGroup to ensure results are sent before closing channels
 	var wg sync.WaitGroup
 
 	wg.Add(2)
 
-	// Make mocks send results
 	go func() {
 		defer wg.Done()
+		defer close(tcpResults)
 		tcpResults <- models.Result{
 			Target:    targets[0],
 			Available: true,
 		}
-		close(tcpResults)
 	}()
 
 	go func() {
 		defer wg.Done()
+		defer close(icmpResults)
 		icmpResults <- models.Result{
 			Target:    targets[1],
 			Available: true,
 		}
-		close(icmpResults)
 	}()
 
 	mockTCP.EXPECT().Scan(gomock.Any(), gomock.Any()).Return(tcpResults, nil)
@@ -69,10 +68,12 @@ func TestCombinedScanner_Scan_Mock(t *testing.T) {
 	results, err := scanner.Scan(context.Background(), targets)
 	require.NoError(t, err)
 
-	// Wait for result sending to complete
+	// Wait for all results to be sent
 	wg.Wait()
 
+	// Collect results
 	var resultCount int
+
 	for range results {
 		resultCount++
 	}
