@@ -269,7 +269,6 @@ func (d *DuskChecker) subscribeToBlocks(ctx context.Context) error {
 func (d *DuskChecker) listenForEvents() {
 	log.Printf("Starting event listener for websocket connection")
 
-	// Good: You already have proper websocket cleanup in a defer
 	defer func(ws *websocket.Conn) {
 		err := ws.Close()
 		if err != nil {
@@ -277,7 +276,6 @@ func (d *DuskChecker) listenForEvents() {
 		}
 	}(d.ws)
 
-	// Consider adding read deadline to prevent blocked reads
 	readTimeout := 30 * time.Second
 
 	for {
@@ -285,7 +283,6 @@ func (d *DuskChecker) listenForEvents() {
 		case <-d.Done:
 			return
 		default:
-			// Set read deadline for this iteration
 			if err := d.ws.SetReadDeadline(time.Now().Add(readTimeout)); err != nil {
 				log.Printf("Failed to set read deadline: %v", err)
 				return
