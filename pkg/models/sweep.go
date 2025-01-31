@@ -26,6 +26,9 @@ type Config struct {
 	Concurrency int           `json:"concurrency"`
 	Timeout     time.Duration `json:"timeout"`
 	ICMPCount   int           `json:"icmp_count"`
+	MaxIdle     int           `json:"max_idle"`
+	MaxLifetime time.Duration `json:"max_lifetime"`
+	IdleTimeout time.Duration `json:"idle_timeout"`
 }
 
 type SweepMode string
