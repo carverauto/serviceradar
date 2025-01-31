@@ -53,7 +53,7 @@ builds:
       - -s -w -X main.version={{.Version}}
     hooks:
       pre:
-        - ./scripts/buildCloud.sh {{ .Version }}
+        - ./scripts/build-cloud.sh {{ .Version }}
 
 nfpms:
   - id: agent
