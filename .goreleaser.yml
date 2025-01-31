@@ -3,7 +3,6 @@ project_name: serviceradar
 before:
   hooks:
     - go mod tidy
-    - ./scripts/build-web.sh
 
 builds:
   - id: agent
@@ -54,7 +53,7 @@ builds:
       - -s -w -X main.version={{.Version}}
     hooks:
       pre:
-        - ./scripts/build-cloud.sh {{ .Version }}
+        - ./scripts/buildCloud.sh {{ .Version }}
 
 nfpms:
   - id: agent
@@ -72,14 +71,14 @@ nfpms:
     dependencies:
       - systemd
     contents:
-      - src: packaging/agent/systemd/serviceradar-agent.service
+      - src: ./packaging/agent/systemd/serviceradar-agent.service
         dst: /lib/systemd/system/serviceradar-agent.service
-      - src: packaging/agent/config/agent.json
+      - src: ./packaging/agent/config/agent.json
         dst: /etc/serviceradar/agent.json
         type: config
     scripts:
-      postinstall: packaging/agent/scripts/postinstall.sh
-      preremove: packaging/agent/scripts/preremove.sh
+      postinstall: ./packaging/agent/scripts/postinstall.sh
+      preremove: ./packaging/agent/scripts/preremove.sh
 
   - id: poller
     package_name: serviceradar-poller
@@ -96,14 +95,14 @@ nfpms:
     dependencies:
       - systemd
     contents:
-      - src: packaging/poller/systemd/serviceradar-poller.service
+      - src: ./packaging/poller/systemd/serviceradar-poller.service
         dst: /lib/systemd/system/serviceradar-poller.service
-      - src: packaging/poller/config/poller.json
+      - src: ./packaging/poller/config/poller.json
         dst: /etc/serviceradar/poller.json
         type: config
     scripts:
-      postinstall: packaging/poller/scripts/postinstall.sh
-      preremove: packaging/poller/scripts/preremove.sh
+      postinstall: ./packaging/poller/scripts/postinstall.sh
+      preremove: ./packaging/poller/scripts/preremove.sh
 
   - id: cloud
     package_name: serviceradar-cloud
@@ -122,17 +121,17 @@ nfpms:
     contents:
       - src: dist/cloud_linux_amd64_v1/serviceradar-cloud
         dst: /usr/local/bin/serviceradar-cloud
-      - src: packaging/cloud/systemd/serviceradar-cloud.service
+      - src: ./packaging/cloud/systemd/serviceradar-cloud.service
         dst: /lib/systemd/system/serviceradar-cloud.service
-      - src: packaging/cloud/config/cloud.json
+      - src: ./packaging/cloud/config/cloud.json
         dst: /etc/serviceradar/cloud.json
         type: config
       - src: pkg/cloud/api/web/dist
         dst: /usr/local/share/serviceradar-cloud/web/dist
         type: "tree"
     scripts:
-      postinstall: packaging/cloud/scripts/postinstall.sh
-      preremove: packaging/cloud/scripts/preremove.sh
+      postinstall: ./packaging/cloud/scripts/postinstall.sh
+      preremove: ./packaging/cloud/scripts/preremove.sh
 
   - id: dusk-checker
     package_name: serviceradar-dusk-checker
@@ -149,15 +148,15 @@ nfpms:
     dependencies:
       - systemd
     contents:
-      - src: packaging/dusk/config/dusk.json
+      - src: ./packaging/dusk/config/dusk.json
         dst: /etc/serviceradar/checkers/dusk.json
         type: config
-      - src: packaging/dusk/config/external.json
+      - src: ./packaging/dusk/config/external.json
         dst: /etc/serviceradar/checkers/external.json
         type: config
     scripts:
-      postinstall: packaging/dusk/scripts/postinstall.sh
-      preremove: packaging/dusk/scripts/preremove.sh
+      postinstall: ./packaging/dusk/scripts/postinstall.sh
+      preremove: ./packaging/dusk/scripts/preremove.sh
 
 release:
   github:
@@ -169,16 +168,16 @@ release:
   header: |
     # ServiceRadar {{ .Version }}
     Release of ServiceRadar monitoring system.
-    
+
     ## Components
     - serviceradar-dusk-checker: Agent package for monitoring Dusk nodes
     - serviceradar-agent: Agent performs checks, collects information from external checkers (dusk)
     - serviceradar-poller: Network poller for collecting monitoring data from Agent
     - serviceradar-cloud: Cloud service with web interface and alerts
-    
+
     ## Installation
     See the [README.md](README.md) for detailed installation instructions.
-    
+
     ### Quick Start
     ```bash
     # On Agents:

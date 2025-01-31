@@ -4,34 +4,30 @@ permissions:
   contents: read
   pull-requests: read
   checks: write
-
 jobs:
   lint:
     name: lint
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: checkout
         uses: actions/checkout@v4
-
-      - name: Setup Go
+      - name: setup go
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
           node-version: '18'
           cache: 'npm'
           cache-dependency-path: 'web/package-lock.json'
-
       - name: Build web UI
         run: ./scripts/build-web.sh
-
-      - name: Run golangci-lint
+      - name: Move web artifacts
+        run:  mkdir -p pkg/cloud/api/web/ && cp -r web/dist pkg/cloud/api/web/
+      - name: golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
           version: v1.60.3
-
-      - name: Check go mod tidy
+      - name: go mod tidy check
         uses: katexochen/go-tidy-check@v2
