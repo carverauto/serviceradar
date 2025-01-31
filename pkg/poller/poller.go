@@ -172,6 +172,8 @@ func (p *Poller) Stop(ctx context.Context) error {
 func (p *Poller) Close() error {
 	var errs []error
 
+	p.closeOnce.Do(func() { close(p.done) })
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -419,42 +421,7 @@ func (p *Poller) pollAgent(ctx context.Context, agentName string, agentConfig Ag
 
 	statuses := poller.ExecuteChecks(ctx)
 
-	if err := p.processSweepData(statuses); err != nil {
-		log.Printf("Error processing sweep data: %v", err)
-	}
-
 	return statuses, nil
-}
-
-func (p *Poller) processSweepData(statuses []*proto.ServiceStatus) error {
-	for _, status := range statuses {
-		if status.ServiceType == "sweep" && status.Available {
-			if err := p.processSweepStatus(status); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
-}
-
-func (*Poller) processSweepStatus(status *proto.ServiceStatus) error {
-	var sweepData map[string]interface{}
-	if err := json.Unmarshal([]byte(status.Message), &sweepData); err != nil {
-		return fmt.Errorf("error parsing sweep data: %w", err)
-	}
-
-	if hosts, ok := sweepData["hosts"].([]interface{}); ok {
-		for _, h := range hosts {
-			if host, ok := h.(map[string]interface{}); ok {
-				if icmpStatus, ok := host["icmp_status"].(map[string]interface{}); ok {
-					log.Printf("Forwarding ICMP data for host %v: %+v", host["host"], icmpStatus)
-				}
-			}
-		}
-	}
-
-	return nil
 }
 
 func (p *Poller) reportToCloud(ctx context.Context, statuses []*proto.ServiceStatus) error {
