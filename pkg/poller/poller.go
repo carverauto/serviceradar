@@ -44,6 +44,7 @@ type Poller struct {
 	grpcClient  *grpc.ClientConn
 	mu          sync.RWMutex
 	agents      map[string]*AgentConnection
+	done        chan struct{} // Add this field
 }
 
 // ServiceCheck manages a single service check operation.
@@ -67,6 +68,7 @@ func New(ctx context.Context, config *Config) (*Poller, error) {
 		cloudClient: proto.NewPollerServiceClient(client.GetConnection()),
 		grpcClient:  client,
 		agents:      make(map[string]*AgentConnection),
+		done:        make(chan struct{}),
 	}
 
 	// Initialize agent connections
@@ -132,19 +134,44 @@ func (p *Poller) Start(ctx context.Context) error {
 
 // Stop implements the lifecycle.Service interface.
 func (p *Poller) Stop(ctx context.Context) error {
-	// set a timeout on the context
 	_, cancel := context.WithTimeout(ctx, stopTimeout)
 	defer cancel()
 
-	return p.Close()
-}
-
-// Close closes all connections.
-func (p *Poller) Close() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	// Signal all goroutines to stop
+	close(p.done)
+
+	// Close cloud client first
+	if p.cloudClient != nil {
+		if err := p.grpcClient.Close(); err != nil {
+			log.Printf("Error closing cloud client: %v", err)
+		}
+	}
+
+	// Wait for any active agent connections to finish
+	for name, agent := range p.agents {
+		if agent.client != nil {
+			if err := agent.client.Close(); err != nil {
+				log.Printf("Error closing agent connection %s: %v", name, err)
+			}
+		}
+	}
+
+	// Clear the maps to prevent any lingering references
+	p.agents = make(map[string]*AgentConnection)
+	p.cloudClient = nil
+
+	return nil
+}
+
+// Close handles cleanup of resources.
+func (p *Poller) Close() error {
 	var errs []error
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
 	// Close cloud client
 	if p.grpcClient != nil {
