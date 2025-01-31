@@ -281,6 +281,9 @@ func (d *DuskChecker) listenForEvents() {
 	for {
 		select {
 		case <-d.Done:
+			if err := d.ws.Close(); err != nil {
+				log.Printf("Error closing websocket connection: %v", err)
+			}
 			return
 		default:
 			if err := d.ws.SetReadDeadline(time.Now().Add(readTimeout)); err != nil {

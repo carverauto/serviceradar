@@ -114,9 +114,6 @@ type scanWorker struct {
 
 func (s *CombinedScanner) handleMixedScanners(ctx context.Context, targets scanTargets) (<-chan models.Result, error) {
 	results := make(chan models.Result, len(targets.tcp)+len(targets.icmp))
-	resultsClosed := make(chan struct{})
-	errCh := make(chan error, errorChannelSize)
-
 	var wg sync.WaitGroup
 
 	// Set up workers for each scanner type
@@ -126,26 +123,41 @@ func (s *CombinedScanner) handleMixedScanners(ctx context.Context, targets scanT
 	for _, w := range workers {
 		if len(w.targets) > 0 {
 			wg.Add(1)
+			go func(worker scanWorker) {
+				defer wg.Done()
+				scanResults, err := worker.scanner.Scan(ctx, worker.targets)
+				if err != nil {
+					log.Printf("Error from %s scanner: %v", worker.name, err)
+					return
+				}
 
-			go s.runScanWorker(ctx, w, &wg, results, resultsClosed, errCh)
+				// Forward results
+				for {
+					select {
+					case result, ok := <-scanResults:
+						if !ok {
+							return
+						}
+						select {
+						case results <- result:
+						case <-ctx.Done():
+							return
+						}
+					case <-ctx.Done():
+						return
+					}
+				}
+			}(w)
 		}
 	}
 
-	// Handle cleanup
+	// Close results when all workers are done
 	go func() {
 		wg.Wait()
-		close(resultsClosed)
 		close(results)
 	}()
 
-	// Check for immediate errors
-	select {
-	case err := <-errCh:
-		close(resultsClosed)
-		return results, err
-	default:
-		return results, nil
-	}
+	return results, nil
 }
 
 func (s *CombinedScanner) setupWorkers(targets scanTargets) []scanWorker {
