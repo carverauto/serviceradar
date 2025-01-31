@@ -172,6 +172,8 @@ func (p *Poller) Stop(ctx context.Context) error {
 func (p *Poller) Close() error {
 	var errs []error
 
+	p.closeOnce.Do(func() { close(p.done) })
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
