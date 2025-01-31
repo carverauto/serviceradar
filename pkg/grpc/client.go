@@ -11,6 +11,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
 )
 
@@ -18,6 +19,8 @@ const (
 	defaultMaxRetries                 = 3
 	retryInterceptorTimeoutDuration   = 100 * time.Millisecond
 	retryInterceptorAttemptMultiplier = 100
+	grpcKeepAliveTime                 = 10 * time.Second
+	grpcKeepAliveTimeout              = 5 * time.Second
 )
 
 // ClientOption allows customization of the client.
@@ -42,6 +45,11 @@ func NewClient(ctx context.Context, addr string, opts ...ClientOption) (*ClientC
 			ClientLoggingInterceptor,
 			RetryInterceptor,
 		),
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:                grpcKeepAliveTime,    // send pings every 10 seconds
+			Timeout:             grpcKeepAliveTimeout, // wait 5 second for ping ack
+			PermitWithoutStream: true,                 // send pings even without active streams
+		}),
 	}
 
 	conn, err := grpc.DialContext(ctx, addr, dialOpts...) //nolint:staticcheck // Using DialContext is fine through gRPC 1.x

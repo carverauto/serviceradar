@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Define the version of the packages
-VERSION=${VERSION:-1.0.10}
+VERSION=${VERSION:-1.0.18}
 
 # Define the list of remote machines
 MACHINES=("192.168.2.10" "192.168.2.11" "192.168.2.12")
