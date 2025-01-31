@@ -44,7 +44,8 @@ type Poller struct {
 	grpcClient  *grpc.ClientConn
 	mu          sync.RWMutex
 	agents      map[string]*AgentConnection
-	done        chan struct{} // Add this field
+	done        chan struct{}
+	closeOnce   sync.Once
 }
 
 // ServiceCheck manages a single service check operation.
@@ -137,11 +138,12 @@ func (p *Poller) Stop(ctx context.Context) error {
 	_, cancel := context.WithTimeout(ctx, stopTimeout)
 	defer cancel()
 
+	p.closeOnce.Do(func() {
+		close(p.done) // Close channel first
+	})
+
 	p.mu.Lock()
 	defer p.mu.Unlock()
-
-	// Signal all goroutines to stop
-	close(p.done)
 
 	// Close cloud client first
 	if p.cloudClient != nil {
