@@ -13,6 +13,11 @@ const (
 	broadcastOctet           = 4
 )
 
+var (
+	errInvalidIP   = fmt.Errorf("not an IPv4 address")
+	errInvalidMask = fmt.Errorf("invalid mask")
+)
+
 // parseAndValidateCIDR parses a CIDR string and performs basic validation.
 func parseAndValidateCIDR(network string) (net.IP, *net.IPNet, error) {
 	ip, ipnet, err := net.ParseCIDR(network)
@@ -23,8 +28,9 @@ func parseAndValidateCIDR(network string) (net.IP, *net.IPNet, error) {
 	// Ensure IPv4.
 	ip = ip.To4()
 	if ip == nil {
-		return nil, nil, fmt.Errorf("not an IPv4 address")
+		return nil, nil, errInvalidIP
 	}
+
 	ipnet.IP = ip
 
 	return ip, ipnet, nil
@@ -39,11 +45,12 @@ func calculateNetworkSize(ipnet *net.IPNet) (totalSize, usableSize int, err erro
 
 	sizeBits := bits - ones
 	if sizeBits < 0 {
-		return 0, 0, fmt.Errorf("invalid mask: ones (%d) > bits (%d)", ones, bits)
+		return 0, 0, fmt.Errorf("invalid mask: %w, ones (%d) > bits (%d)", errInvalidMask, ones, bits)
 	}
 
 	totalSize = 1 << uint(sizeBits)
 	usableSize = totalSize - networkStartAndBroadcast
+
 	return totalSize, usableSize, nil
 }
 
@@ -52,6 +59,7 @@ func applyTestModeLimit(usableSize int) int {
 	if testing.Testing() && usableSize > networkSizeLimit {
 		return networkSizeLimit
 	}
+
 	return usableSize
 }
 
@@ -85,6 +93,7 @@ func GenerateIPsFromCIDR(network string) ([]net.IP, error) {
 		if !ipnet.Contains(currentIP) {
 			break
 		}
+
 		if shouldSkipIP(currentIP, ipnet) {
 			Inc(currentIP)
 			continue
@@ -114,9 +123,11 @@ func IsNetworkAddress(ip net.IP, network *net.IPNet) bool {
 func IsBroadcastAddress(ip net.IP, network *net.IPNet) bool {
 	broadcast := make(net.IP, len(network.IP))
 	copy(broadcast, network.IP)
+
 	for i := 0; i < len(network.IP); i++ {
 		broadcast[i] |= ^network.Mask[i]
 	}
+
 	return ip.Equal(broadcast)
 }
 
