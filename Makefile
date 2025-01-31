@@ -35,3 +35,18 @@ view-coverage:
 	go test ./... -coverprofile=./cover.all.profile -covermode=atomic -coverpkg=./...
 	go tool cover -html=cover.all.profile -o=cover.html
 	xdg-open cover.html
+
+# Create a new release
+release:
+	@echo "Creating release $(NEXT_VERSION)"
+	@git tag -a $(NEXT_VERSION) -m "Release $(NEXT_VERSION)"
+	@git push origin $(NEXT_VERSION)
+
+# Test release locally
+test-release:
+	goreleaser release --snapshot --clean --skip-publish
+
+# Show current version
+version:
+	@echo "Current version: $(VERSION)"
+	@echo "Next version: $(NEXT_VERSION)"

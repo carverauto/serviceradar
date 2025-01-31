@@ -1,37 +1,39 @@
-# .github/workflows/release.yml
-name: Release ServiceRadar Packages
+name: Release
 on:
-  release:
-    types: [created]
-permissions:
-  contents: write
+  push:
+    tags:
+      - 'v*'
+
 jobs:
-  build:
+  goreleaser:
     runs-on: ubuntu-latest
-    env:
-      VERSION: ${{ github.ref_name }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: '1.23'
+
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential
-      - name: Build packages
-        run: |
-          chmod +x setup-deb-*.sh
-          ./setup-deb-agent.sh
-          ./setup-deb-poller.sh
-          ./setup-deb-cloud.sh
-          ./setup-deb-dusk-checker.sh
-      - name: List Artifacts (for debugging)
-        run: ls -al ./release-artifacts
-      - name: Upload Release Assets
-        uses: softprops/action-gh-release@v2
+          sudo apt-get install -y build-essential gcc libc6-dev libsqlite3-dev
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
         with:
-          files: release-artifacts/*.deb
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: 'web/package-lock.json'
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v5
+        with:
+          version: latest
+          args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

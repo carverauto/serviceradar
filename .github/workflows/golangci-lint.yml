@@ -1,11 +1,8 @@
 name: lint
 on: [push]
 permissions:
-  # Required: allow read access to the content for analysis.
   contents: read
-  # Optional: allow read access to pull request. Use with `only-new-issues` option.
   pull-requests: read
-  # Optional: allow write access to checks to allow the action to annotate code in the PR.
   checks: write
 jobs:
   lint:
@@ -18,6 +15,16 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: 'web/package-lock.json'
+      - name: Build web UI
+        run: ./scripts/build-web.sh
+      - name: Move web artifacts
+        run:  mkdir -p pkg/cloud/api/web/ && cp -r web/dist pkg/cloud/api/web/
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
