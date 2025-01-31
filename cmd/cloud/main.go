@@ -43,11 +43,17 @@ func run() error {
 	server.SetAPIServer(apiServer)
 
 	// Start HTTP API server in background
+	errCh := make(chan error, 1)
+
 	go func() {
 		log.Printf("Starting HTTP API server on %s", cfg.ListenAddr)
 
 		if err := apiServer.Start(cfg.ListenAddr); err != nil {
-			log.Printf("HTTP API server error: %v", err)
+			select {
+			case errCh <- err:
+			default:
+				log.Printf("HTTP API server error: %v", err)
+			}
 		}
 	}()
 
