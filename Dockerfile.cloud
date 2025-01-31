@@ -1,0 +1,34 @@
+# Stage 1: Build the web UI
+FROM --platform=linux/amd64 node:18-bullseye AS web-builder
+
+WORKDIR /web-build
+
+COPY web/package*.json ./
+RUN npm install
+COPY web/ .
+RUN npm run build
+
+# Stage 2: Build the Go binary
+FROM --platform=linux/amd64 golang:1.23-bullseye
+
+WORKDIR /src
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    libc6-dev \
+    libsqlite3-dev
+
+# Copy go mod files first for better caching
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy the rest of the source
+COPY . .
+
+# Copy the built web UI from the previous stage
+COPY --from=web-builder /web-build/dist ./pkg/cloud/api/web/dist
+
+# Build the cloud service
+RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 \
+    go build -o serviceradar-cloud ./cmd/cloud

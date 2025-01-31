@@ -1,18 +1,12 @@
-name: Release ServiceRadar Packages
-
+name: Release
 on:
-  release:
-    types: [created]
-
-permissions:
-  contents: write
-  packages: write
+  push:
+    tags:
+      - 'v*'
 
 jobs:
   goreleaser:
     runs-on: ubuntu-latest
-    env:
-      VERSION: ${{ github.ref_name }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -22,41 +16,24 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version: '1.23'
 
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential
+          sudo apt-get install -y build-essential gcc libc6-dev libsqlite3-dev
 
-      # Legacy build process (can be removed once GoReleaser is fully tested)
-      - name: Build packages (Legacy)
-        run: |
-          chmod +x setup-deb-*.sh
-          ./setup-deb-agent.sh
-          ./setup-deb-poller.sh
-          ./setup-deb-cloud.sh
-          ./setup-deb-dusk-checker.sh
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: 'web/package-lock.json'
 
-      # New GoReleaser process
       - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v4
+        uses: goreleaser/goreleaser-action@v5
         with:
           version: latest
           args: release --clean
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: List Artifacts (for debugging)
-        run: |
-          echo "Legacy artifacts:"
-          ls -al ./release-artifacts
-          echo "GoReleaser artifacts:"
-          ls -al ./dist
-
-      - name: Upload Legacy Release Assets
-        uses: softprops/action-gh-release@v2
-        with:
-          files: release-artifacts/*.deb
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -3,6 +3,7 @@ project_name: serviceradar
 before:
   hooks:
     - go mod tidy
+    - ./scripts/build-web.sh
 
 builds:
   - id: agent
@@ -41,22 +42,19 @@ builds:
     ldflags:
       - -s -w -X main.version={{.Version}}
 
-dockers:
-  - id: cloud
-    goos: linux
-    goarch: amd64
-    image_templates:
-      - "ghcr.io/mfreeman451/serviceradar-cloud:{{ .Version }}"
-      - "ghcr.io/mfreeman451/serviceradar-cloud:latest"
-    dockerfile: Dockerfile.build
-    build_flag_templates:
-      - "--platform=linux/amd64"
-    extra_files:
-      - web
-      - cmd/cloud
-      - pkg/cloud
-      - go.mod
-      - go.sum
+  - id: serviceradar-cloud
+    main: ./cmd/cloud/main.go
+    binary: serviceradar-cloud
+    dir: .
+    goos:
+      - linux
+    goarch:
+      - amd64
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    hooks:
+      pre:
+        - ./scripts/build-cloud.sh {{ .Version }}
 
 nfpms:
   - id: agent
@@ -106,6 +104,35 @@ nfpms:
     scripts:
       postinstall: packaging/poller/scripts/postinstall.sh
       preremove: packaging/poller/scripts/preremove.sh
+
+  - id: cloud
+    package_name: serviceradar-cloud
+    file_name_template: "{{ .PackageName }}_{{ .Version }}"
+    builds:
+      - serviceradar-cloud
+    vendor: ServiceRadar
+    homepage: https://github.com/mfreeman451/serviceradar
+    maintainer: Michael Freeman <mfreeman451@gmail.com>
+    description: ServiceRadar Cloud Component
+    license: MIT
+    formats:
+      - deb
+    dependencies:
+      - systemd
+    contents:
+      - src: dist/cloud_linux_amd64_v1/serviceradar-cloud
+        dst: /usr/local/bin/serviceradar-cloud
+      - src: packaging/cloud/systemd/serviceradar-cloud.service
+        dst: /lib/systemd/system/serviceradar-cloud.service
+      - src: packaging/cloud/config/cloud.json
+        dst: /etc/serviceradar/cloud.json
+        type: config
+      - src: pkg/cloud/api/web/dist
+        dst: /usr/local/share/serviceradar-cloud/web/dist
+        type: "tree"
+    scripts:
+      postinstall: packaging/cloud/scripts/postinstall.sh
+      preremove: packaging/cloud/scripts/preremove.sh
 
   - id: dusk-checker
     package_name: serviceradar-dusk-checker
