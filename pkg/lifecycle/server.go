@@ -53,9 +53,11 @@ func RunServer(ctx context.Context, opts *ServerOptions) error {
 	// Start the service
 	go func() {
 		if err := opts.Service.Start(ctx); err != nil {
-			log.Printf("Service error: %v", err)
-
-			errChan <- err
+			select {
+			case errChan <- err:
+			default:
+				log.Printf("Service error: %v", err)
+			}
 		}
 	}()
 
@@ -64,9 +66,11 @@ func RunServer(ctx context.Context, opts *ServerOptions) error {
 		log.Printf("Starting gRPC server on %s", opts.ListenAddr)
 
 		if err := grpcServer.Start(); err != nil {
-			log.Printf("gRPC server error: %v", err)
-
-			errChan <- err
+			select {
+			case errChan <- err:
+			default:
+				log.Printf("gRPC server error: %v", err)
+			}
 		}
 	}()
 

@@ -137,9 +137,15 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 
 	if s.grpcServer != nil {
+		errCh := make(chan error, 1)
+
 		go func() {
 			if err := s.grpcServer.Start(); err != nil {
-				log.Printf("gRPC server error: %v", err)
+				select {
+				case errCh <- err:
+				default:
+					log.Printf("gRPC server error: %v", err)
+				}
 			}
 		}()
 	}
