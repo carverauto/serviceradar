@@ -11,8 +11,7 @@ import (
 )
 
 const (
-	errorChannelSize = 2
-	stopTimer        = 5 * time.Second
+	stopTimer = 5 * time.Second
 )
 
 type CombinedScanner struct {
@@ -99,53 +98,126 @@ func (s *CombinedScanner) Scan(ctx context.Context, targets []models.Target) (<-
 	return s.handleMixedScanners(ctx, separated)
 }
 
+const (
+	errorChannelSize  = 2
+	workerChannelSize = 2
+)
+
+type scanWorker struct {
+	scanner Scanner
+	targets []models.Target
+	name    string
+}
+
 func (s *CombinedScanner) handleMixedScanners(ctx context.Context, targets scanTargets) (<-chan models.Result, error) {
 	results := make(chan models.Result, len(targets.tcp)+len(targets.icmp))
+	resultsClosed := make(chan struct{})
+	errCh := make(chan error, errorChannelSize)
 
 	var wg sync.WaitGroup
 
-	// Start TCP scanner if needed
-	if len(targets.tcp) > 0 {
-		wg.Add(1)
+	// Set up workers for each scanner type
+	workers := s.setupWorkers(targets)
 
-		go func(tcpTargets []models.Target) {
-			defer wg.Done()
+	// Start workers
+	for _, w := range workers {
+		if len(w.targets) > 0 {
+			wg.Add(1)
 
-			tcpResults, err := s.tcpScanner.Scan(ctx, tcpTargets)
-			if err != nil {
-				log.Printf("TCP scan error: %v", err)
-
-				return
-			}
-
-			s.forwardResults(ctx, tcpResults, results)
-		}(targets.tcp)
+			go s.runScanWorker(ctx, w, &wg, results, resultsClosed, errCh)
+		}
 	}
 
-	// Start ICMP scanner if available and needed
-	if s.icmpScanner != nil && len(targets.icmp) > 0 {
-		wg.Add(1)
-
-		go func(icmpTargets []models.Target) {
-			defer wg.Done()
-
-			icmpResults, err := s.icmpScanner.Scan(ctx, icmpTargets)
-			if err != nil {
-				log.Printf("ICMP scan error: %v", err)
-				return
-			}
-
-			s.forwardResults(ctx, icmpResults, results)
-		}(targets.icmp)
-	}
-
-	// Wait for completion in a separate goroutine
+	// Handle cleanup
 	go func() {
 		wg.Wait()
+		close(resultsClosed)
 		close(results)
 	}()
 
-	return results, nil
+	// Check for immediate errors
+	select {
+	case err := <-errCh:
+		close(resultsClosed)
+		return results, err
+	default:
+		return results, nil
+	}
+}
+
+func (s *CombinedScanner) setupWorkers(targets scanTargets) []scanWorker {
+	workers := make([]scanWorker, 0, workerChannelSize)
+
+	if len(targets.tcp) > 0 {
+		workers = append(workers, scanWorker{
+			scanner: s.tcpScanner,
+			targets: targets.tcp,
+			name:    "TCP",
+		})
+	}
+
+	if s.icmpScanner != nil && len(targets.icmp) > 0 {
+		workers = append(workers, scanWorker{
+			scanner: s.icmpScanner,
+			targets: targets.icmp,
+			name:    "ICMP",
+		})
+	}
+
+	return workers
+}
+
+func (s *CombinedScanner) runScanWorker(
+	ctx context.Context,
+	worker scanWorker,
+	wg *sync.WaitGroup,
+	results chan<- models.Result,
+	resultsClosed <-chan struct{},
+	errCh chan<- error,
+) {
+	defer wg.Done()
+
+	scanResults, err := worker.scanner.Scan(ctx, worker.targets)
+
+	if err != nil {
+		select {
+		case errCh <- fmt.Errorf("%s scan error: %w", worker.name, err):
+		default:
+		}
+
+		return
+	}
+
+	s.forwardWorkerResults(ctx, scanResults, results, resultsClosed)
+}
+
+func (s *CombinedScanner) forwardWorkerResults(
+	ctx context.Context,
+	in <-chan models.Result,
+	results chan<- models.Result,
+	resultsClosed <-chan struct{},
+) {
+	for {
+		select {
+		case result, ok := <-in:
+			if !ok {
+				return
+			}
+			select {
+			case <-resultsClosed:
+				return
+			case <-ctx.Done():
+				return
+			case results <- result:
+			}
+		case <-ctx.Done():
+			return
+		case <-resultsClosed:
+			return
+		case <-s.done:
+			return
+		}
+	}
 }
 
 type scanResult struct {
@@ -194,25 +266,6 @@ func (*CombinedScanner) separateTargets(targets []models.Target) scanTargets {
 	}
 
 	return separated
-}
-
-func (s *CombinedScanner) forwardResults(ctx context.Context, in <-chan models.Result, out chan<- models.Result) {
-	defer close(out)
-	for {
-		select {
-		case result, ok := <-in:
-			if !ok {
-				return
-			}
-			select {
-			case out <- result:
-			case <-ctx.Done():
-				return
-			}
-		case <-ctx.Done():
-			return
-		}
-	}
 }
 
 func (s *CombinedScanner) Stop(ctx context.Context) error {
