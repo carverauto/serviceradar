@@ -163,6 +163,38 @@ func (p *BaseProcessor) Process(result *models.Result) error {
 	return nil
 }
 
+func (p *BaseProcessor) processTCPResult(host *models.HostResult, result *models.Result) {
+	if result.Available {
+		p.updatePortStatus(host, result)
+	}
+}
+
+func (p *BaseProcessor) updatePortStatus(host *models.HostResult, result *models.Result) {
+	found := false
+
+	for i := range host.PortResults {
+		if host.PortResults[i].Port == result.Target.Port {
+			// Update existing port result
+			host.PortResults[i].Available = result.Available
+			host.PortResults[i].RespTime = result.RespTime
+			found = true
+
+			break
+		}
+	}
+
+	if !found {
+		// Create a new PortResult and add it to the host
+		portResult := &models.PortResult{
+			Port:      result.Target.Port,
+			Available: result.Available,
+			RespTime:  result.RespTime,
+		}
+		host.PortResults = append(host.PortResults, portResult)
+		p.portCounts[result.Target.Port]++
+	}
+}
+
 func (*BaseProcessor) processICMPResult(host *models.HostResult, result *models.Result) {
 	// Always initialize ICMPStatus
 	if host.ICMPStatus == nil {
@@ -255,37 +287,6 @@ func (p *BaseProcessor) updateTotalHosts(result *models.Result) {
 		if totalHosts, ok := result.Target.Metadata["total_hosts"].(int); ok {
 			p.totalHosts = totalHosts
 		}
-	}
-}
-
-func (p *BaseProcessor) processTCPResult(host *models.HostResult, result *models.Result) {
-	if result.Available {
-		host.Available = true
-		p.updatePortStatus(host, result)
-	}
-}
-
-func (p *BaseProcessor) updatePortStatus(host *models.HostResult, result *models.Result) {
-	var found bool
-
-	for _, port := range host.PortResults {
-		if port.Port == result.Target.Port {
-			port.Available = true
-			port.RespTime = result.RespTime
-			found = true
-
-			break
-		}
-	}
-
-	if !found {
-		portResult := p.portResultPool.Get().(*models.PortResult)
-		portResult.Port = result.Target.Port
-		portResult.Available = true
-		portResult.RespTime = result.RespTime
-
-		host.PortResults = append(host.PortResults, portResult)
-		p.portCounts[result.Target.Port]++
 	}
 }
 

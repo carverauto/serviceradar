@@ -23,8 +23,24 @@ type ICMPResponse struct {
 	Available    bool    `json:"available"`
 }
 
+const (
+	combinedScannerTimeout = 5 * time.Second
+	combinedScannerConc    = 10
+	combinedScannerICMP    = 1
+	combinedScannerMaxIdle = 10
+	combinedScannerMaxLife = 10 * time.Minute
+	combinedScannerIdle    = 5 * time.Minute
+)
+
 func (p *ICMPChecker) Check(ctx context.Context) (available bool, response string) {
-	scanner := scan.NewCombinedScanner(time.Duration(p.Count)*time.Second, 1, p.Count)
+	scanner := scan.NewCombinedScanner(
+		combinedScannerTimeout,
+		combinedScannerConc,
+		combinedScannerICMP,
+		combinedScannerMaxIdle,
+		combinedScannerMaxLife,
+		combinedScannerIdle,
+	)
 
 	target := models.Target{
 		Host: p.Host,

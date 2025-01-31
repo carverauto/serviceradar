@@ -54,6 +54,9 @@ func NewSweepService(config *models.Config) (Service, error) {
 		config.Timeout,
 		config.Concurrency,
 		config.ICMPCount,
+		config.MaxIdle,
+		config.MaxLifetime,
+		config.IdleTimeout,
 	)
 
 	// Create processor instance

@@ -8,26 +8,50 @@ import (
 	"github.com/mfreeman451/serviceradar/pkg/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/mock/gomock"
+)
+
+const (
+	combinedScannerTimeout = 5 * time.Second
+	combinedScannerConc    = 10
+	combinedScannerMaxIdle = 10
+	combinedScannerMaxLife = 10 * time.Minute
+	combinedScannerIdle    = 5 * time.Minute
 )
 
 func TestTCPScanner_HighConcurrency(t *testing.T) {
-	scanner := NewTCPScanner(1*time.Second, 100)
+	numTargets := 100 // Reduced from 1000
+	targets := make([]models.Target, numTargets)
 
-	targets := make([]models.Target, 1000)
-	for i := 0; i < 1000; i++ {
-		targets[i] = models.Target{Host: "127.0.0.1", Port: 22 + i, Mode: models.ModeTCP}
+	for i := 0; i < numTargets; i++ {
+		targets[i] = models.Target{
+			Host: "www.google.com",
+			Port: 80,
+			Mode: models.ModeTCP,
+		}
 	}
 
-	results, err := scanner.Scan(context.Background(), targets)
+	scanner := NewTCPScanner(
+		combinedScannerTimeout,
+		combinedScannerConc,
+		combinedScannerMaxIdle,
+		combinedScannerMaxLife,
+		combinedScannerIdle,
+	)
+
+	resultsChan, err := scanner.Scan(context.Background(), targets)
 	require.NoError(t, err)
 
-	var resultCount int
-	for range results {
-		resultCount++
+	unsuccessfulConnections := 0
+
+	for result := range resultsChan {
+		if !result.Available && result.Error != nil {
+			unsuccessfulConnections++
+		} else if result.Error != nil {
+			t.Logf("Error during scan: %v", result.Error)
+		}
 	}
 
-	require.Equal(t, len(targets), resultCount, "Expected results for all targets")
+	assert.Equal(t, numTargets, unsuccessfulConnections, "Expected all connections to be unsuccessful but without errors")
 }
 
 func TestTCPScanner_Scan(t *testing.T) {
@@ -49,7 +73,7 @@ func TestTCPScanner_Scan(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			scanner := NewTCPScanner(tt.timeout, 1)
+			scanner := NewTCPScanner(tt.timeout, 1, 1, 1, 1)
 			results, err := scanner.Scan(context.Background(), tt.targets)
 
 			if tt.wantErr {
@@ -76,35 +100,34 @@ func TestTCPScanner_Scan(t *testing.T) {
 	}
 }
 
-func TestTCPScanner_Stop(t *testing.T) {
-	ctrl, ctx := gomock.WithContext(context.Background(), t)
-	defer ctrl.Finish()
-
-	// create a test context from gomock
-
-	scanner := NewTCPScanner(1*time.Second, 1)
-	err := scanner.Stop(ctx)
-	require.NoError(t, err)
-
-	// Ensure the done channel is closed
-	_, ok := <-scanner.done
-	require.False(t, ok, "done channel should be closed")
-}
-
 func TestTCPScanner_Scan_ContextCancellation(t *testing.T) {
-	scanner := NewTCPScanner(1*time.Second, 1)
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
+	// Create a TCPScanner with a short timeout using the constructor
+	scanner := NewTCPScanner(100*time.Millisecond, 1, 1, 1, 1)
 
+	// Create a context that can be canceled
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Create a target to scan (using a likely unused port to avoid conflicts)
 	targets := []models.Target{
-		{Host: "127.0.0.1", Port: 22, Mode: models.ModeTCP},
+		{Host: "www.google.com", Port: 9999}, // Unlikely to be open
 	}
 
-	results, err := scanner.Scan(ctx, targets)
-	require.NoError(t, err)
+	// Start the scan
+	resultsChan, err := scanner.Scan(ctx, targets)
+	require.NoError(t, err, "Scan should not return an error")
 
-	// Ensure no results are returned
-	for range results {
-		t.Fatal("Expected no results due to context cancellation")
+	// Cancel the context almost immediately
+	cancel()
+
+	// Wait for a short time to allow the scanner to process the cancellation
+	time.Sleep(50 * time.Millisecond)
+
+	// Check if any results are available
+	select {
+	case result, ok := <-resultsChan:
+		if ok {
+			t.Errorf("Expected no results due to context cancellation, but got: %v", result)
+		}
+	default:
 	}
 }

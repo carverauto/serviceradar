@@ -83,13 +83,13 @@ func TestCombinedScanner_Scan_Mock(t *testing.T) {
 
 func TestNewCombinedScanner_ICMPError(t *testing.T) {
 	// Simulate an error by passing invalid parameters
-	scanner := NewCombinedScanner(1*time.Second, 1, 0) // Changed parameter to 0
+	scanner := NewCombinedScanner(1*time.Second, 1, 0, 1, 1, 1)
 	require.NotNil(t, scanner)
 	require.Nil(t, scanner.icmpScanner, "ICMP scanner should be nil due to error")
 }
 
 func TestCombinedScanner_Scan_MixedTargets(t *testing.T) {
-	scanner := NewCombinedScanner(1*time.Second, 1, 3)
+	scanner := NewCombinedScanner(1*time.Second, 1, 3, 1, 1, 1)
 
 	targets := []models.Target{
 		{Host: "127.0.0.1", Port: 22, Mode: models.ModeTCP},
