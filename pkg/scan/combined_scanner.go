@@ -20,7 +20,10 @@ type CombinedScanner struct {
 	done        chan struct{}
 }
 
-func NewCombinedScanner(timeout time.Duration, concurrency, icmpCount int, maxIdle int, maxLifetime, idleTimeout time.Duration) *CombinedScanner {
+func NewCombinedScanner(
+	timeout time.Duration,
+	concurrency, icmpCount, maxIdle int,
+	maxLifetime, idleTimeout time.Duration) *CombinedScanner {
 	var icmpScanner Scanner
 
 	if icmpCount > 0 {

@@ -131,9 +131,11 @@ func (p *connectionPool) cleanup(address string) {
 				if err := entries[i].conn.Close(); err != nil {
 					log.Printf("Error closing connection: %v", err)
 				}
+
 				shard.connections[address] = append(entries[:i], entries[i+1:]...) // Remove expired connection
 			}
 		}
+
 		if len(shard.connections[address]) == 0 {
 			delete(shard.connections, address) // Remove entry if no connections are left
 		}
@@ -152,7 +154,9 @@ func (p *connectionPool) close() {
 				}
 			}
 		}
+
 		shard.connections = make(map[string][]*connEntry)
+
 		shard.mu.Unlock()
 	}
 }
@@ -164,7 +168,7 @@ type TCPScanner struct {
 	pool        *connectionPool
 }
 
-func NewTCPScanner(timeout time.Duration, concurrency int, maxIdle int, maxLifetime, idleTimeout time.Duration) *TCPScanner {
+func NewTCPScanner(timeout time.Duration, concurrency, maxIdle int, maxLifetime, idleTimeout time.Duration) *TCPScanner {
 	dialer := &net.Dialer{
 		Timeout: timeout,
 	}
@@ -207,6 +211,7 @@ func (s *TCPScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 				return
 			}
 		}
+
 		close(targetChan) // Close the target channel to signal workers to stop
 	}()
 
@@ -234,37 +239,55 @@ func (s *TCPScanner) scanTarget(ctx context.Context, target models.Target, resul
 	if err != nil {
 		result.Error = err
 		result.Available = false
-	} else {
-		result.Available = true
-		// Check if connection is still valid after getting from pool
-		if tcpConn, ok := conn.(*net.TCPConn); ok {
-			_ = tcpConn.SetReadDeadline(time.Now().Add(1 * time.Millisecond)) // Short read deadline
+		sendResult(ctx, results, &result) // Send result and return early
 
-			var one [1]byte
-			if _, err := tcpConn.Read(one[:]); err == nil {
-				// Connection is still open but no data was read, reset deadline
-				_ = tcpConn.SetReadDeadline(time.Time{})
-			} else {
-				result.Available = false
-				result.Error = fmt.Errorf("connection returned by pool is not valid: %w", err)
-			}
-		}
-
-		s.pool.put(address, conn)
-
-		defer func() {
-			if err := conn.Close(); err != nil {
-				// Log the error or handle it appropriately
-				log.Printf("Error closing connection: %v", err)
-			}
-		}()
+		return
 	}
 
-	// Send result with proper context handling
+	defer func() {
+		if err := conn.Close(); err != nil {
+			log.Printf("Error closing connection: %v", err)
+		}
+	}()
+
+	result.Available = s.checkConnection(conn, &result)
+	s.pool.put(address, conn)
+
+	sendResult(ctx, results, &result) // Send result
+}
+
+func sendResult(ctx context.Context, results chan<- models.Result, result *models.Result) {
 	select {
-	case results <- result:
+	case results <- *result:
 	case <-ctx.Done():
 	}
+}
+
+func (*TCPScanner) checkConnection(conn net.Conn, result *models.Result) bool {
+	tcpConn, ok := conn.(*net.TCPConn)
+	if !ok {
+		return true // or handle non-TCP connections appropriately
+	}
+
+	_ = tcpConn.SetReadDeadline(time.Now().Add(1 * time.Millisecond)) // Short read deadline
+	defer func(tcpConn *net.TCPConn, t time.Time) {
+		err := tcpConn.SetReadDeadline(t)
+		if err != nil {
+			log.Printf("Error resetting read deadline: %v", err)
+		}
+	}(tcpConn, time.Time{}) // Reset deadline on exit
+
+	var one [1]byte
+
+	_, err := tcpConn.Read(one[:])
+	if err != nil {
+		result.Error = fmt.Errorf("connection returned by pool is not valid: %w", err)
+
+		return false
+	}
+
+	// Connection is still open but no data was read (successful read)
+	return true
 }
 
 func (s *TCPScanner) Stop(context.Context) error {

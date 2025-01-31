@@ -252,48 +252,35 @@ func TestBaseProcessor_ResourceCleanup(t *testing.T) {
 	}
 
 	t.Run("Cleanup After Processing", func(t *testing.T) {
-		// Add a timeout to the test
-		timeout := time.After(5 * time.Second)
-		done := make(chan bool)
+		processor := NewBaseProcessor(config)
 
-		go func() {
-			processor := NewBaseProcessor(config)
-
-			// Process some results
-			for i := 0; i < 100; i++ {
-				result := &models.Result{
-					Target: models.Target{
-						Host: fmt.Sprintf("192.168.1.%d", i),
-						Port: i%2300 + 1,
-						Mode: models.ModeTCP,
-					},
-					Available: true,
-					RespTime:  time.Millisecond * 10,
-				}
-				err := processor.Process(result)
-				require.NoError(t, err)
+		// Process some results
+		for i := 0; i < 100; i++ {
+			result := &models.Result{
+				Target: models.Target{
+					Host: fmt.Sprintf("192.168.1.%d", i),
+					Port: i%2300 + 1,
+					Mode: models.ModeTCP,
+				},
+				Available: true,
+				RespTime:  time.Millisecond * 10,
 			}
-
-			// Verify we have data
-			assert.NotEmpty(t, processor.hostMap)
-			assert.NotEmpty(t, processor.portCounts)
-
-			// Cleanup
-			processor.cleanup()
-
-			// Verify everything is cleaned up
-			assert.Empty(t, processor.hostMap)
-			assert.Empty(t, processor.portCounts)
-			assert.Empty(t, processor.firstSeenTimes)
-			assert.True(t, processor.lastSweepTime.IsZero())
-			done <- true
-		}()
-
-		select {
-		case <-timeout:
-			t.Fatal("Test timed out")
-		case <-done:
+			err := processor.Process(result)
+			require.NoError(t, err) // Use require here, as we are in the main test goroutine
 		}
+
+		// Verify we have data
+		assert.NotEmpty(t, processor.hostMap)
+		assert.NotEmpty(t, processor.portCounts)
+
+		// Cleanup
+		processor.cleanup()
+
+		// Verify everything is cleaned up
+		assert.Empty(t, processor.hostMap)
+		assert.Empty(t, processor.portCounts)
+		assert.Empty(t, processor.firstSeenTimes)
+		assert.True(t, processor.lastSweepTime.IsZero())
 	})
 
 	t.Run("Pool Reuse", func(t *testing.T) {
