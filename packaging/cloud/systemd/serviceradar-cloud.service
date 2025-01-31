@@ -1,0 +1,16 @@
+[Unit]
+Description=ServiceRadar Cloud Service
+After=network.target
+
+[Service]
+Type=simple
+User=serviceradar
+ExecStart=/usr/local/bin/serviceradar-cloud -config /etc/serviceradar/cloud.json
+Restart=always
+RestartSec=10
+TimeoutStopSec=20
+KillMode=mixed
+KillSignal=SIGTERM
+
+[Install]
+WantedBy=multi-user.target

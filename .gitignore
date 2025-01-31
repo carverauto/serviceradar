@@ -157,5 +157,5 @@ elements/
 serviceradar-dusk_*/
 serviceradar-poller_*/
 serviceradar-cloud_*/
-./dist
+/dist/
 /pkg/cloud/api/web/dist/assets/

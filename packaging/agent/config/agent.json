@@ -1,0 +1,6 @@
+{
+    "checkers_dir": "/etc/serviceradar/checkers",
+    "listen_addr": ":50051",
+    "service_type": "grpc",
+    "service_name": "AgentService"
+}
