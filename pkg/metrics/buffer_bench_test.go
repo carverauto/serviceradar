@@ -171,3 +171,14 @@ func BenchmarkImplementations(b *testing.B) {
 		})
 	}
 }
+
+func (b *ChannelBuffer) GetLastPoint() *models.MetricPoint {
+	points := b.GetPoints()
+	if len(points) == 0 {
+		return nil
+	}
+
+	lastPoint := points[len(points)-1]
+
+	return &lastPoint
+}

@@ -156,6 +156,9 @@ func (s *Server) Start(ctx context.Context) error {
 
 	go s.periodicCleanup(ctx)
 
+	// Start metrics cleanup
+	go s.runMetricsCleanup(ctx)
+
 	go func() {
 		log.Printf("Starting node monitoring...")
 		time.Sleep(nodeDiscoveryTimeout)
@@ -172,6 +175,26 @@ func (s *Server) Start(ctx context.Context) error {
 
 func (s *Server) GetMetricsManager() metrics.MetricCollector {
 	return s.metrics
+}
+
+func (s *Server) runMetricsCleanup(ctx context.Context) {
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if s.metrics != nil {
+				if manager, ok := s.metrics.(*metrics.Manager); ok {
+					manager.CleanupStaleNodes(oneWeek)
+				} else {
+					log.Printf("Error: s.metrics is not of type *metrics.Manager")
+				}
+			}
+		}
+	}
 }
 
 // Stop implements the lifecycle.Service interface.
