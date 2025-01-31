@@ -95,3 +95,25 @@ func (b *LockFreeRingBuffer) GetPoints() []models.MetricPoint {
 
 	return points
 }
+
+func (b *LockFreeRingBuffer) GetLastPoint() *models.MetricPoint {
+	pos := b.pos.Load() - 1
+	if pos < 0 {
+		return nil
+	}
+
+	idx := pos % b.size
+	point := b.points[idx].Load()
+
+	if point == nil {
+		return nil
+	}
+
+	mp := &models.MetricPoint{
+		Timestamp:    time.Unix(0, point.timestamp),
+		ResponseTime: point.responseTime,
+		ServiceName:  point.serviceName,
+	}
+
+	return mp
+}
