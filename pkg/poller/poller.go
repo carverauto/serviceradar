@@ -134,8 +134,7 @@ func (p *Poller) Start(ctx context.Context) error {
 
 // Stop implements the lifecycle.Service interface.
 func (p *Poller) Stop(ctx context.Context) error {
-	// Create timeout context for shutdown
-	ctx, cancel := context.WithTimeout(ctx, stopTimeout)
+	_, cancel := context.WithTimeout(ctx, stopTimeout)
 	defer cancel()
 
 	p.mu.Lock()
@@ -167,7 +166,7 @@ func (p *Poller) Stop(ctx context.Context) error {
 	return nil
 }
 
-// Close handles cleanup of resources
+// Close handles cleanup of resources.
 func (p *Poller) Close() error {
 	var errs []error
 
