@@ -1,6 +1,7 @@
 package dusk
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -8,7 +9,6 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"strings"
 	"sync"
 	"time"
 
@@ -29,6 +29,7 @@ const (
 
 var (
 	errSubscriptionFail = fmt.Errorf("subscription failed")
+	errMsgTooShort      = fmt.Errorf("message too short")
 )
 
 type BlockData struct {
@@ -268,6 +269,7 @@ func (d *DuskChecker) subscribeToBlocks(ctx context.Context) error {
 func (d *DuskChecker) listenForEvents() {
 	log.Printf("Starting event listener for websocket connection")
 
+	// Good: You already have proper websocket cleanup in a defer
 	defer func(ws *websocket.Conn) {
 		err := ws.Close()
 		if err != nil {
@@ -275,76 +277,103 @@ func (d *DuskChecker) listenForEvents() {
 		}
 	}(d.ws)
 
+	// Consider adding read deadline to prevent blocked reads
+	readTimeout := 30 * time.Second
+
 	for {
 		select {
 		case <-d.Done:
 			return
 		default:
-			messageType, data, err := d.ws.ReadMessage()
-			if err != nil {
-				log.Printf("Websocket error: %v", err)
+			// Set read deadline for this iteration
+			if err := d.ws.SetReadDeadline(time.Now().Add(readTimeout)); err != nil {
+				log.Printf("Failed to set read deadline: %v", err)
 				return
 			}
 
-			if messageType == websocket.BinaryMessage {
-				// Skip the first 4 bytes (length prefix)
-				if len(data) < lengthPrefixSize {
-					log.Printf("Received message too short: %d bytes", len(data))
-					continue
+			messageType, data, err := d.ws.ReadMessage()
+			if err != nil {
+				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+					log.Printf("Unexpected websocket closure: %v", err)
+				} else {
+					log.Printf("Websocket error: %v", err)
 				}
 
-				jsonData := data[lengthPrefixSize:] // Skip length prefix
+				return
+			}
 
-				// First try to find the boundary between the two JSON objects
-				var firstObj struct {
-					ContentLocation string `json:"Content-Location"`
-				}
+			if messageType != websocket.BinaryMessage {
+				continue
+			}
 
-				decoder := json.NewDecoder(strings.NewReader(string(jsonData)))
-
-				if err := decoder.Decode(&firstObj); err != nil {
-					log.Printf("Error parsing content location: %v", err)
-					continue
-				}
-
-				// Now decode the block data
-				var blockData struct {
-					Header struct {
-						Height    uint64 `json:"height"`
-						Hash      string `json:"hash"`
-						Timestamp int64  `json:"timestamp"`
-					} `json:"header"`
-				}
-
-				if err := decoder.Decode(&blockData); err != nil {
-					log.Printf("Error parsing block data: %v", err)
-					continue
-				}
-
-				d.mu.Lock()
-				d.lastBlock = time.Now()
-				d.lastBlockData = BlockData{
-					Height:    blockData.Header.Height,
-					Hash:      blockData.Header.Hash,
-					Timestamp: time.Unix(blockData.Header.Timestamp, 0),
-					LastSeen:  time.Now(),
-				}
-
-				// Keep last 100 blocks
-				if len(d.blockHistory) >= blockHistorySize {
-					d.blockHistory = d.blockHistory[1:]
-				}
-
-				d.blockHistory = append(d.blockHistory, d.lastBlockData)
-				d.mu.Unlock()
-
-				log.Printf("Block processed: Height=%d Hash=%s Timestamp=%v",
-					blockData.Header.Height,
-					blockData.Header.Hash,
-					time.Unix(blockData.Header.Timestamp, 0))
+			if err := d.processMessage(data); err != nil {
+				log.Printf("Error processing message: %v", err)
+				// Don't return here - continue processing messages
+				continue
 			}
 		}
 	}
+}
+
+func (d *DuskChecker) processMessage(data []byte) error {
+	// Check message length
+	if len(data) < lengthPrefixSize {
+		return fmt.Errorf("%w: %d bytes", errMsgTooShort, len(data))
+	}
+
+	jsonData := data[lengthPrefixSize:] // Skip length prefix
+
+	// Use a buffered reader to avoid string conversion
+	decoder := json.NewDecoder(bytes.NewReader(jsonData))
+
+	// First try to find the boundary between the two JSON objects
+	var firstObj struct {
+		ContentLocation string `json:"Content-Location"`
+	}
+
+	if err := decoder.Decode(&firstObj); err != nil {
+		return fmt.Errorf("error parsing content location: %w", err)
+	}
+
+	// Now decode the block data
+	var blockData struct {
+		Header struct {
+			Height    uint64 `json:"height"`
+			Hash      string `json:"hash"`
+			Timestamp int64  `json:"timestamp"`
+		} `json:"header"`
+	}
+
+	if err := decoder.Decode(&blockData); err != nil {
+		return fmt.Errorf("error parsing block data: %w", err)
+	}
+
+	// Use a shorter lock duration by preparing data before locking
+	newBlockData := BlockData{
+		Height:    blockData.Header.Height,
+		Hash:      blockData.Header.Hash,
+		Timestamp: time.Unix(blockData.Header.Timestamp, 0),
+		LastSeen:  time.Now(),
+	}
+
+	d.mu.Lock()
+	d.lastBlock = time.Now()
+	d.lastBlockData = newBlockData
+
+	// Keep last 100 blocks
+	if len(d.blockHistory) >= blockHistorySize {
+		d.blockHistory = d.blockHistory[1:]
+	}
+
+	d.blockHistory = append(d.blockHistory, newBlockData)
+	d.mu.Unlock()
+
+	log.Printf("Block processed: Height=%d Hash=%s Timestamp=%v",
+		blockData.Header.Height,
+		blockData.Header.Hash,
+		time.Unix(blockData.Header.Timestamp, 0))
+
+	return nil
 }
 
 func (s *HealthServer) Check(ctx context.Context, _ *grpc_health_v1.HealthCheckRequest) (*grpc_health_v1.HealthCheckResponse, error) {
