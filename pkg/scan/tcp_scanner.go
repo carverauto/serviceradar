@@ -333,5 +333,6 @@ func (s *TCPScanner) Stop(context.Context) error {
 	if s.pool != nil {
 		s.pool.close()
 	}
+
 	return nil
 }
