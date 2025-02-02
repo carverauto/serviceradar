@@ -239,11 +239,10 @@ func NewSecurityProvider(ctx context.Context, config *SecurityConfig) (SecurityP
 	}
 }
 
-func loadTLSCredentials(config *SecurityConfig, isServer bool) (credentials.TransportCredentials, error) { // Added isServer flag
-	// Load certificate authority
-	log.Printf("config %s", config)
+func loadTLSCredentials(config *SecurityConfig, isServer bool) (credentials.TransportCredentials, error) {
+	// Load CA certificate
+	log.Printf("Config: %s", config)
 	caFile := filepath.Join(config.CertDir, "ca.crt")
-
 	log.Printf("Loading CA certificate from: %s", caFile)
 
 	caCert, err := os.ReadFile(caFile)
@@ -256,52 +255,49 @@ func loadTLSCredentials(config *SecurityConfig, isServer bool) (credentials.Tran
 		return nil, errFailedToAddCACert
 	}
 
-	// Load server certificates (only for server side)
-	var serverCertPath, serverKeyPath string
-	if isServer { // Load server certs only for server
-		serverCertPath = filepath.Join(config.CertDir, "server.crt")
-		serverKeyPath = filepath.Join(config.CertDir, "server.key")
-
-		log.Printf("Loading server certificates from: %s, %s", serverCertPath, serverKeyPath)
-	}
-
-	// Configure TLS
+	// Set up basic TLS config
 	tlsConfig := &tls.Config{
-		RootCAs:    certPool, // CA for verifying server cert (client) and client certs (server)
+		RootCAs:    certPool,
 		MinVersion: tls.VersionTLS13,
 	}
 
-	if isServer { // Server-side configuration
-		log.Printf("Setting up server-side security")
+	// Configure server-side settings
+	if isServer {
+		serverCertPath := filepath.Join(config.CertDir, "server.crt")
+		serverKeyPath := filepath.Join(config.CertDir, "server.key")
+		log.Printf("Loading server certificates from: %s, %s", serverCertPath, serverKeyPath)
 
 		cert, err := tls.LoadX509KeyPair(serverCertPath, serverKeyPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load server cert/key: %w", err)
 		}
 
-		tlsConfig.Certificates = []tls.Certificate{cert} // Server's own cert
+		tlsConfig.Certificates = []tls.Certificate{cert}
 
-		if mutual := config.Mode == SecurityModeMTLS; mutual { // Only for mTLS
+		if config.Mode == SecurityModeMTLS {
 			tlsConfig.ClientCAs = certPool
 			tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
 		}
-	} else { // Client-side configuration (TLS or mTLS)
-		if mutual := config.Mode == SecurityModeMTLS; mutual { // Only for mTLS client needs client cert
-			clientCert := filepath.Join(config.CertDir, "client.crt")
-			clientKey := filepath.Join(config.CertDir, "client.key")
-			log.Printf("Loading client certificates from: %s, %s", clientCert, clientKey)
 
-			clientPair, err := tls.LoadX509KeyPair(clientCert, clientKey)
-			if err != nil {
-				return nil, fmt.Errorf("failed to load client cert/key: %w", err)
-			}
+		return credentials.NewTLS(tlsConfig), nil
+	}
 
-			tlsConfig.Certificates = []tls.Certificate{clientPair} // Client's own cert
+	// Client-side configuration
+	if config.Mode == SecurityModeMTLS {
+		clientCert := filepath.Join(config.CertDir, "client.crt")
+		clientKey := filepath.Join(config.CertDir, "client.key")
+		log.Printf("Loading client certificates from: %s, %s", clientCert, clientKey)
+
+		clientPair, err := tls.LoadX509KeyPair(clientCert, clientKey)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load client cert/key: %w", err)
 		}
 
-		if config.ServerName != "" { // For TLS/mTLS, if server name is provided, verify it
-			tlsConfig.ServerName = config.ServerName
-		}
+		tlsConfig.Certificates = []tls.Certificate{clientPair}
+	}
+
+	if config.ServerName != "" {
+		tlsConfig.ServerName = config.ServerName
 	}
 
 	return credentials.NewTLS(tlsConfig), nil

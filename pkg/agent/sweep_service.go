@@ -22,6 +22,7 @@ const (
 	cidr32       = 32
 	networkStart = 1
 	networkNext  = 2
+	sweepTimeout = 2 * time.Minute
 )
 
 // SweepService implements sweeper.SweepService for network scanning.
@@ -102,11 +103,10 @@ func (s *SweepService) Start(ctx context.Context) error {
 	}
 }
 
-// pkg/agent/sweep_service.go
-
+// performSweep performs a network sweep with the current configuration.
 func (s *SweepService) performSweep(ctx context.Context) error {
 	// Create a timeout context for the sweep operation
-	sweepCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	sweepCtx, cancel := context.WithTimeout(ctx, sweepTimeout)
 	defer cancel()
 
 	log.Printf("Starting sweep with context: %p", sweepCtx)
@@ -136,7 +136,6 @@ func (s *SweepService) performSweep(ctx context.Context) error {
 	return nil
 }
 
-// Modified to return an error
 func (s *SweepService) processScanResults(ctx context.Context, results <-chan models.Result, stats *ScanStats) error {
 	for {
 		select {
@@ -146,10 +145,11 @@ func (s *SweepService) processScanResults(ctx context.Context, results <-chan mo
 			if !ok {
 				return nil // Channel closed normally
 			}
+
 			if err := s.handleResult(ctx, &result); err != nil {
 				log.Printf("Error handling result: %v", err)
-				// Continue processing other results
 			}
+
 			updateStats(stats, &result)
 		}
 	}
@@ -165,6 +165,7 @@ func (s *SweepService) handleResult(ctx context.Context, result *models.Result) 
 	}
 
 	s.logSuccessfulResult(result)
+
 	return nil
 }
 

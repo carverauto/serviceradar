@@ -13,7 +13,7 @@ func TestICMPScanner_Scan_InvalidTargets(t *testing.T) {
 		{Host: "invalid.host", Mode: models.ModeICMP},
 	}
 
-	results, err := scanner.Scan(context.Background(), targets)
+	results, err := scanner.Scan(ctx, targets)
 	require.NoError(t, err)
 
 	// Count results channel to ensure proper behavior

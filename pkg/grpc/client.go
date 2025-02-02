@@ -58,7 +58,7 @@ func NewClient(ctx context.Context, addr string, opts ...ClientOption) (*ClientC
 		return nil, fmt.Errorf("failed to create dial options: %w", err)
 	}
 
-	conn, err := grpc.DialContext(ctx, addr, dialOpts...)
+	conn, err := grpc.DialContext(ctx, addr, dialOpts...) //nolint:staticcheck // ignore warning for DialContext
 	if err != nil {
 		return nil, fmt.Errorf("failed to dial: %w", err)
 	}
@@ -186,6 +186,7 @@ func RetryInterceptor(ctx context.Context,
 			lastErr = err
 			log.Printf("gRPC call attempt %d failed: %v", attempt+1, err)
 			time.Sleep(time.Duration(attempt*retryInterceptorAttemptMultiplier) * retryInterceptorTimeoutDuration)
+
 			continue
 		}
 
