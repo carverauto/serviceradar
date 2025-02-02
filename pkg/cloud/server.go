@@ -60,6 +60,7 @@ type Config struct {
 	Webhooks       []alerts.WebhookConfig `json:"webhooks,omitempty"`
 	KnownPollers   []string               `json:"known_pollers,omitempty"`
 	Metrics        Metrics                `json:"metrics"`
+	Security       *grpc.SecurityConfig   `json:"security"`
 }
 
 type Server struct {

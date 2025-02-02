@@ -47,13 +47,13 @@ Description=ServiceRadar Poller Service
 After=network.target
 
 [Service]
+LimitNOFILE=65535
+LimitNPROC=65535
 Type=simple
 User=serviceradar
 ExecStart=/usr/local/bin/serviceradar-poller -config /etc/serviceradar/poller.json
 Restart=always
 RestartSec=10
-LimitNPROC=512
-LimitNOFILE=65535
 
 [Install]
 WantedBy=multi-user.target

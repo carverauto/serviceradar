@@ -59,6 +59,7 @@ func run() error {
 		Service:              &duskService{checker: checker},
 		RegisterGRPCServices: []lifecycle.GRPCServiceRegistrar{registerServices},
 		EnableHealthCheck:    true,
+		Security:             cfg.Security,
 	}
 
 	// Run service with lifecycle management

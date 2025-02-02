@@ -22,6 +22,7 @@ const (
 	cidr32       = 32
 	networkStart = 1
 	networkNext  = 2
+	sweepTimeout = 2 * time.Minute
 )
 
 // SweepService implements sweeper.SweepService for network scanning.
@@ -76,39 +77,6 @@ func NewSweepService(config *models.Config) (Service, error) {
 	return service, nil
 }
 
-func applyDefaultConfig(config *models.Config) *models.Config {
-	if config == nil {
-		config = &models.Config{}
-	}
-
-	// Ensure we have default sweep modes
-	if len(config.SweepModes) == 0 {
-		config.SweepModes = []models.SweepMode{
-			models.ModeTCP,
-			models.ModeICMP,
-		}
-	}
-
-	// Set reasonable defaults
-	if config.Timeout == 0 {
-		config.Timeout = 10 * time.Second
-	}
-
-	if config.Concurrency == 0 {
-		config.Concurrency = 100
-	}
-
-	if config.ICMPCount == 0 {
-		config.ICMPCount = 3
-	}
-
-	if config.Interval == 0 {
-		config.Interval = 5 * time.Minute
-	}
-
-	return config
-}
-
 // Start launches the periodic sweeps.
 func (s *SweepService) Start(ctx context.Context) error {
 	ticker := time.NewTicker(s.config.Interval)
@@ -135,33 +103,118 @@ func (s *SweepService) Start(ctx context.Context) error {
 	}
 }
 
-// performSweep is split into smaller functions to reduce complexity.
+// performSweep performs a network sweep with the current configuration.
 func (s *SweepService) performSweep(ctx context.Context) error {
+	// Create a timeout context for the sweep operation
+	sweepCtx, cancel := context.WithTimeout(ctx, sweepTimeout)
+	defer cancel()
+
+	log.Printf("Starting sweep with context: %p", sweepCtx)
+
 	// Generate targets
 	targets, err := s.generateTargets()
 	if err != nil {
 		return fmt.Errorf("failed to generate targets: %w", err)
 	}
 
-	stats := newScanStats()
-	logStartSweep(stats.startTime)
-
-	// Start the scan
-	results, err := s.scanner.Scan(ctx, targets)
+	// Start the scan with the timeout context
+	results, err := s.scanner.Scan(sweepCtx, targets)
 	if err != nil {
 		return fmt.Errorf("scan failed: %w", err)
 	}
 
-	// Process results
-	s.processScanResults(ctx, results, stats)
+	stats := newScanStats()
 
-	// Final statistics logging
+	// Process results with the parent context
+	if err := s.processScanResults(ctx, results, stats); err != nil {
+		return fmt.Errorf("failed to process scan results: %w", err)
+	}
+
+	// Log completion stats
 	s.logScanCompletion(stats)
 
 	return nil
 }
 
-// generateTargets is split into smaller helpers to reduce cognitive complexity.
+func (s *SweepService) processScanResults(ctx context.Context, results <-chan models.Result, stats *ScanStats) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case result, ok := <-results:
+			if !ok {
+				return nil // Channel closed normally
+			}
+
+			if err := s.handleResult(ctx, &result); err != nil {
+				log.Printf("Error handling result: %v", err)
+			}
+
+			updateStats(stats, &result)
+		}
+	}
+}
+
+func (s *SweepService) handleResult(ctx context.Context, result *models.Result) error {
+	if err := s.processor.Process(result); err != nil {
+		return fmt.Errorf("failed to process result: %w", err)
+	}
+
+	if err := s.store.SaveResult(ctx, result); err != nil {
+		return fmt.Errorf("failed to save result: %w", err)
+	}
+
+	s.logSuccessfulResult(result)
+
+	return nil
+}
+
+func applyDefaultConfig(config *models.Config) *models.Config {
+	if config == nil {
+		config = &models.Config{}
+	}
+
+	// Set sweep modes if not configured
+	if len(config.SweepModes) == 0 {
+		config.SweepModes = []models.SweepMode{
+			models.ModeTCP,
+			models.ModeICMP,
+		}
+	}
+
+	// Conservative defaults
+	if config.Timeout == 0 {
+		config.Timeout = 5 * time.Second // Per-operation timeout
+	}
+
+	if config.Concurrency == 0 {
+		config.Concurrency = 25 // Reduced from 100
+	}
+
+	if config.ICMPCount == 0 {
+		config.ICMPCount = 2 // Reduced from 3
+	}
+
+	if config.Interval == 0 {
+		config.Interval = 15 * time.Minute // Increased from 5 minutes
+	}
+
+	// Connection pool settings
+	if config.MaxIdle == 0 {
+		config.MaxIdle = 5
+	}
+
+	if config.MaxLifetime == 0 {
+		config.MaxLifetime = 10 * time.Minute
+	}
+
+	if config.IdleTimeout == 0 {
+		config.IdleTimeout = 30 * time.Second
+	}
+
+	return config
+}
+
 func (s *SweepService) generateTargets() ([]models.Target, error) {
 	var allTargets []models.Target
 
@@ -280,31 +333,6 @@ func (s *SweepService) buildTargets(ipStr, network string, totalHosts int) []mod
 	return targets
 }
 
-// processScanResults pulls results from the channel and updates stats/store.
-func (s *SweepService) processScanResults(ctx context.Context, results <-chan models.Result, stats *ScanStats) {
-	for result := range results {
-		updateStats(stats, &result)
-		s.handleResult(ctx, &result)
-	}
-}
-
-// handleResult handles post-scan steps: processing, storing, and logging.
-func (s *SweepService) handleResult(ctx context.Context, result *models.Result) {
-	if err := s.processor.Process(result); err != nil {
-		log.Printf("Failed to process result: %v", err)
-
-		return
-	}
-
-	if err := s.store.SaveResult(ctx, result); err != nil {
-		log.Printf("Failed to save result: %v", err)
-
-		return
-	}
-
-	s.logSuccessfulResult(result)
-}
-
 // logSuccessfulResult logs successful (Available) results.
 func (*SweepService) logSuccessfulResult(result *models.Result) {
 	if !result.Available {
@@ -332,11 +360,6 @@ func newScanStats() *ScanStats {
 		uniqueHosts: make(map[string]struct{}),
 		startTime:   time.Now(),
 	}
-}
-
-// logStartSweep logs the beginning of a sweep.
-func logStartSweep(start time.Time) {
-	log.Printf("Starting network sweep at %s", start.Format(time.RFC3339))
 }
 
 // logScanCompletion logs final sweep statistics.

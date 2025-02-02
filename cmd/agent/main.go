@@ -50,5 +50,6 @@ func run() error {
 		Service:              server,
 		RegisterGRPCServices: []lifecycle.GRPCServiceRegistrar{registerServices},
 		EnableHealthCheck:    true,
+		Security:             cfg.Security,
 	})
 }

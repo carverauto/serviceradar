@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc"
 )
 
@@ -72,7 +73,12 @@ func TestTLSProvider(t *testing.T) {
 	t.Run("GetClientCredentials", func(t *testing.T) {
 		provider, err := NewTLSProvider(config)
 		require.NoError(t, err)
-		defer provider.Close()
+		defer func(provider *TLSProvider) {
+			err = provider.Close()
+			if err != nil {
+				t.Fatalf("Expected Close to succeed, got error: %v", err)
+			}
+		}(provider)
 
 		opt, err := provider.GetClientCredentials(ctx)
 		require.NoError(t, err)
@@ -82,7 +88,12 @@ func TestTLSProvider(t *testing.T) {
 	t.Run("GetServerCredentials", func(t *testing.T) {
 		provider, err := NewTLSProvider(config)
 		require.NoError(t, err)
-		defer provider.Close()
+		defer func(provider *TLSProvider) {
+			err = provider.Close()
+			if err != nil {
+				t.Fatalf("Expected Close to succeed, got error: %v", err)
+			}
+		}(provider)
 
 		opt, err := provider.GetServerCredentials(ctx)
 		require.NoError(t, err)
@@ -124,13 +135,23 @@ func TestMTLSProvider(t *testing.T) {
 		assert.NotNil(t, provider.clientCreds)
 		assert.NotNil(t, provider.serverCreds)
 
-		defer provider.Close()
+		defer func(provider *MTLSProvider) {
+			err := provider.Close()
+			if err != nil {
+				t.Fatalf("Expected Close to succeed, got error: %v", err)
+			}
+		}(provider)
 	})
 
 	t.Run("GetClientCredentials", func(t *testing.T) {
 		provider, err := NewMTLSProvider(config)
 		require.NoError(t, err)
-		defer provider.Close()
+		defer func(provider *MTLSProvider) {
+			err = provider.Close()
+			if err != nil {
+				t.Fatalf("Expected Close to succeed, got error: %v", err)
+			}
+		}(provider)
 
 		opt, err := provider.GetClientCredentials(ctx)
 		require.NoError(t, err)
@@ -153,6 +174,9 @@ func TestMTLSProvider(t *testing.T) {
 
 // TestSpiffeProvider tests the SpiffeProvider implementation.
 func TestSpiffeProvider(t *testing.T) {
+	ctrl, ctx := gomock.WithContext(context.Background(), t)
+	defer ctrl.Finish()
+
 	// Skip if no SPIFFE workload API is available
 	if _, err := os.Stat("/run/spire/sockets/agent.sock"); os.IsNotExist(err) {
 		t.Skip("Skipping SPIFFE tests - no workload API available")
@@ -168,7 +192,7 @@ func TestSpiffeProvider(t *testing.T) {
 	}
 
 	t.Run("NewSpiffeProvider", func(t *testing.T) {
-		provider, err := NewSpiffeProvider(config)
+		provider, err := NewSpiffeProvider(ctx, config)
 		if err != nil {
 			// If we get a connection refused, skip the test
 			if strings.Contains(err.Error(), "connection refused") {
@@ -195,7 +219,7 @@ func TestSpiffeProvider(t *testing.T) {
 			TrustDomain: "invalid trust domain",
 		}
 
-		provider, err := NewSpiffeProvider(invalidConfig)
+		provider, err := NewSpiffeProvider(ctx, invalidConfig)
 		require.Error(t, err)
 		assert.Nil(t, provider)
 	})
@@ -259,7 +283,7 @@ func TestNewSecurityProvider(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
-			provider, err := NewSecurityProvider(tt.config)
+			provider, err := NewSecurityProvider(ctx, tt.config)
 			if tt.expectError {
 				require.Error(t, err)
 				assert.Nil(t, provider)

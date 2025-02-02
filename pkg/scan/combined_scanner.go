@@ -2,6 +2,7 @@ package scan
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -10,8 +11,13 @@ import (
 	"github.com/mfreeman451/serviceradar/pkg/models"
 )
 
+var (
+	errScannerStop = errors.New("scanner stop error")
+)
+
 const (
-	stopTimer = 5 * time.Second
+	errChannelSize = 2
+	timeAfter      = 10 * time.Millisecond
 )
 
 type CombinedScanner struct {
@@ -20,6 +26,7 @@ type CombinedScanner struct {
 	done        chan struct{}
 }
 
+// NewCombinedScanner creates a new CombinedScanner, which can scan both TCP and ICMP targets.
 func NewCombinedScanner(
 	timeout time.Duration,
 	concurrency, icmpCount, maxIdle int,
@@ -50,6 +57,7 @@ func NewCombinedScanner(
 	}
 }
 
+// Scan starts scanning and returns a results channel or an error immediately if any underlying scanner returns an error.
 func (s *CombinedScanner) Scan(ctx context.Context, targets []models.Target) (<-chan models.Result, error) {
 	if len(targets) == 0 {
 		empty := make(chan models.Result)
@@ -58,156 +66,137 @@ func (s *CombinedScanner) Scan(ctx context.Context, targets []models.Target) (<-
 		return empty, nil
 	}
 
-	// Deep copy targets to avoid concurrent modification issues
-	targetsCopy := make([]models.Target, len(targets))
-	copy(targetsCopy, targets)
+	// Create a scan context we control.
+	scanCtx, scanCancel := context.WithCancel(ctx)
 
-	// Calculate total hosts based on the copy to avoid modifying the original targets
-	uniqueHosts := make(map[string]struct{})
-	for _, target := range targetsCopy {
-		uniqueHosts[target.Host] = struct{}{}
-	}
+	// Channel for scan results.
+	results := make(chan models.Result, len(targets))
+	// Channel for immediate error reporting.
+	errCh := make(chan error, errChannelSize) // one per scanner at most
 
-	totalHosts := len(uniqueHosts)
-
-	// Separate targets based on the copy
-	separated := s.separateTargets(targetsCopy)
-	log.Printf("Scanning targets - TCP: %d, ICMP: %d, Unique Hosts: %d",
-		len(separated.tcp), len(separated.icmp), totalHosts)
-
-	// Add total hosts to metadata in a safe way
-	for i := range separated.tcp {
-		if separated.tcp[i].Metadata == nil {
-			separated.tcp[i].Metadata = make(map[string]interface{})
-		}
-
-		separated.tcp[i].Metadata["total_hosts"] = totalHosts
-	}
-
-	for i := range separated.icmp {
-		if separated.icmp[i].Metadata == nil {
-			separated.icmp[i].Metadata = make(map[string]interface{})
-		}
-
-		separated.icmp[i].Metadata["total_hosts"] = totalHosts
-	}
-
-	// Handle single scanner cases
-	if result := s.handleSingleScannerCase(ctx, separated); result != nil {
-		return result.resultChan, result.err
-	}
-
-	// Handle mixed scanner case
-	return s.handleMixedScanners(ctx, separated)
-}
-
-const (
-	workerChannelSize = 2
-)
-
-type scanWorker struct {
-	scanner Scanner
-	targets []models.Target
-	name    string
-}
-
-func (s *CombinedScanner) handleMixedScanners(ctx context.Context, targets scanTargets) (<-chan models.Result, error) {
-	results := make(chan models.Result, len(targets.tcp)+len(targets.icmp))
+	// Separate targets into TCP and ICMP.
+	separated := s.separateTargets(targets)
+	log.Printf("Processing targets - TCP: %d, ICMP: %d", len(separated.tcp), len(separated.icmp))
 
 	var wg sync.WaitGroup
 
-	// Set up workers for each scanner type
-	workers := s.setupWorkers(targets)
+	// Start TCP scanning, if needed.
+	if len(separated.tcp) > 0 {
+		wg.Add(1)
 
-	// Start workers
-	for _, w := range workers {
-		if len(w.targets) > 0 {
-			wg.Add(1)
-
-			go func(worker scanWorker) {
-				defer wg.Done()
-
-				scanResults, err := worker.scanner.Scan(ctx, worker.targets)
-				if err != nil {
-					log.Printf("Error from %s scanner: %v", worker.name, err)
-
-					return
-				}
-
-				// Forward results
-				for {
-					select {
-					case result, ok := <-scanResults:
-						if !ok {
-							return
-						}
-						select {
-						case results <- result:
-						case <-ctx.Done():
-							return
-						}
-					case <-ctx.Done():
-						return
-					}
-				}
-			}(w)
-		}
+		go func() {
+			defer wg.Done()
+			s.processTargetsWithError(scanCtx, s.tcpScanner, "TCP", separated.tcp, results, errCh)
+		}()
 	}
 
-	// Close results when all workers are done
+	// Start ICMP scanning, if needed.
+	if len(separated.icmp) > 0 {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+			s.processTargetsWithError(scanCtx, s.icmpScanner, "ICMP", separated.icmp, results, errCh)
+		}()
+	}
+
+	// Monitor parent context or scanner done channel.
+	go func() {
+		select {
+		case <-ctx.Done():
+			scanCancel()
+		case <-s.done:
+			scanCancel()
+		}
+	}()
+
+	// Check briefly for immediate errors.
+	select {
+	case err := <-errCh:
+		scanCancel()
+		wg.Wait()
+		close(results)
+
+		return nil, err
+	case <-time.After(timeAfter):
+	}
+
+	// Close results channel when all workers are done.
 	go func() {
 		wg.Wait()
+		scanCancel() // signal completion
 		close(results)
 	}()
 
 	return results, nil
 }
 
-func (s *CombinedScanner) setupWorkers(targets scanTargets) []scanWorker {
-	workers := make([]scanWorker, 0, workerChannelSize)
+// processTargetsWithError wraps the common processing logic and reports an error if scanner fails.
+func (*CombinedScanner) processTargetsWithError(
+	ctx context.Context,
+	scanner Scanner,
+	scannerName string,
+	targets []models.Target,
+	results chan<- models.Result,
+	errCh chan<- error,
+) {
+	if scanner == nil {
+		log.Printf("%s scanner not available", scannerName)
 
-	if len(targets.tcp) > 0 {
-		workers = append(workers, scanWorker{
-			scanner: s.tcpScanner,
-			targets: targets.tcp,
-			name:    "TCP",
-		})
+		return
 	}
 
-	if s.icmpScanner != nil && len(targets.icmp) > 0 {
-		workers = append(workers, scanWorker{
-			scanner: s.icmpScanner,
-			targets: targets.icmp,
-			name:    "ICMP",
-		})
-	}
-
-	return workers
-}
-
-type scanResult struct {
-	resultChan <-chan models.Result
-	err        error
-}
-
-// handleSingleScannerCase handles cases where only one type of scanner is needed.
-func (s *CombinedScanner) handleSingleScannerCase(ctx context.Context, targets scanTargets) *scanResult {
-	if len(targets.tcp) > 0 && len(targets.icmp) == 0 {
-		results, err := s.tcpScanner.Scan(ctx, targets.tcp)
-		if err != nil {
-			return &scanResult{nil, fmt.Errorf("TCP scan error: %w", err)}
+	scanResults, err := scanner.Scan(ctx, targets)
+	if err != nil {
+		err = fmt.Errorf("%s scan error: %w", scannerName, err)
+		// Use a guard clause to report the error if possible.
+		select {
+		case errCh <- err:
+		default:
 		}
 
-		return &scanResult{results, nil}
+		return
 	}
 
-	if len(targets.icmp) > 0 && len(targets.tcp) == 0 {
-		results, err := s.icmpScanner.Scan(ctx, targets.icmp)
-		if err != nil {
-			return &scanResult{nil, fmt.Errorf("ICMP scan error: %w", err)}
+	for {
+		select {
+		case <-ctx.Done():
+			log.Printf("%s scanner context canceled", scannerName)
+			return
+		case result, ok := <-scanResults:
+			if !ok {
+				return
+			}
+			select {
+			case results <- result:
+			case <-ctx.Done():
+				return
+			}
 		}
+	}
+}
 
-		return &scanResult{results, nil}
+// Stop ensures clean shutdown.
+func (s *CombinedScanner) Stop(ctx context.Context) error {
+	log.Printf("CombinedScanner.Stop called")
+	close(s.done)
+
+	var errs []error
+
+	if s.tcpScanner != nil {
+		if err := s.tcpScanner.Stop(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("TCP scanner stop error: %w", err))
+		}
+	}
+
+	if s.icmpScanner != nil {
+		if err := s.icmpScanner.Stop(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("%w - %w", errScannerStop, err))
+		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("%w - %v", errScannerStop, errs)
 	}
 
 	return nil
@@ -231,18 +220,6 @@ func (*CombinedScanner) separateTargets(targets []models.Target) scanTargets {
 	}
 
 	return separated
-}
-
-func (s *CombinedScanner) Stop(ctx context.Context) error {
-	// setup a timeout on the context
-	shutdownCtx, cancel := context.WithTimeout(ctx, stopTimer)
-	defer cancel()
-
-	close(s.done)
-	_ = s.tcpScanner.Stop(shutdownCtx)
-	_ = s.icmpScanner.Stop(shutdownCtx)
-
-	return nil
 }
 
 type scanTargets struct {

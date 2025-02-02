@@ -36,11 +36,15 @@ type SecurityMode string
 
 // SecurityConfig holds common security configuration.
 type SecurityConfig struct {
-	Mode           SecurityMode
-	CertDir        string
-	ServerName     string
-	TrustDomain    string // For SPIFFE
-	WorkloadSocket string // For SPIFFE
+	Mode           SecurityMode `json:"mode"`
+	CertDir        string       `json:"cert_dir"`
+	ServerName     string       `json:"server_name,omitempty"`
+	TrustDomain    string       `json:"trust_domain,omitempty"`    // For SPIFFE
+	WorkloadSocket string       `json:"workload_socket,omitempty"` // For SPIFFE
+}
+
+func (c *SecurityConfig) String() string {
+	return fmt.Sprintf("{mode: %s, cert_dir: %s}", c.Mode, c.CertDir)
 }
 
 // NoSecurityProvider implements SecurityProvider with no security (development only).
@@ -76,10 +80,24 @@ func NewTLSProvider(config *SecurityConfig) (*TLSProvider, error) {
 		return nil, fmt.Errorf("failed to load server creds: %w", err)
 	}
 
+	log.Printf("Muh server Creds: %v", serverCreds)
+	log.Printf("Muh client Creds: %v", clientCreds)
+
 	return &TLSProvider{
 		config:      config,
 		clientCreds: clientCreds,
 		serverCreds: serverCreds,
+	}, nil
+}
+
+func NewMTLSProvider(config *SecurityConfig) (*MTLSProvider, error) {
+	tlsProvider, err := NewTLSProvider(config)
+	if err != nil {
+		return nil, err
+	}
+
+	return &MTLSProvider{
+		TLSProvider: *tlsProvider,
 	}, nil
 }
 
@@ -100,17 +118,6 @@ type MTLSProvider struct {
 	TLSProvider
 }
 
-func NewMTLSProvider(config *SecurityConfig) (*MTLSProvider, error) {
-	tlsProvider, err := NewTLSProvider(config)
-	if err != nil {
-		return nil, err
-	}
-
-	return &MTLSProvider{
-		TLSProvider: *tlsProvider,
-	}, nil
-}
-
 // SpiffeProvider implements SecurityProvider using SPIFFE workload API.
 type SpiffeProvider struct {
 	config    *SecurityConfig
@@ -119,7 +126,7 @@ type SpiffeProvider struct {
 	closeOnce sync.Once
 }
 
-func NewSpiffeProvider(config *SecurityConfig) (*SpiffeProvider, error) {
+func NewSpiffeProvider(ctx context.Context, config *SecurityConfig) (*SpiffeProvider, error) {
 	if config.WorkloadSocket == "" {
 		config.WorkloadSocket = "unix:/run/spire/sockets/agent.sock"
 	}
@@ -135,7 +142,7 @@ func NewSpiffeProvider(config *SecurityConfig) (*SpiffeProvider, error) {
 
 	// Create X.509 source
 	source, err := workloadapi.NewX509Source(
-		context.Background(),
+		ctx,
 		workloadapi.WithClient(client),
 	)
 	if err != nil {
@@ -203,28 +210,40 @@ func (p *SpiffeProvider) Close() error {
 }
 
 // NewSecurityProvider creates the appropriate security provider based on mode.
-func NewSecurityProvider(config *SecurityConfig) (SecurityProvider, error) {
+func NewSecurityProvider(ctx context.Context, config *SecurityConfig) (SecurityProvider, error) {
+	if config == nil {
+		log.Printf("No security config provided, using no security")
+		return &NoSecurityProvider{}, nil
+	}
+
+	log.Printf("Creating security provider with mode: %s, cert_dir: %s", config.Mode, config.CertDir)
+
 	switch config.Mode {
 	case SecurityModeNone:
 		return &NoSecurityProvider{}, nil
 
 	case SecurityModeTLS:
+		log.Printf("Setting up TLS security")
 		return NewTLSProvider(config)
 
 	case SecurityModeMTLS:
+		log.Printf("Setting up mTLS security")
 		return NewMTLSProvider(config)
 
 	case SecurityModeSpiffe:
-		return NewSpiffeProvider(config)
+		log.Printf("Setting up SPIFFE security")
+		return NewSpiffeProvider(ctx, config)
 
 	default:
 		return nil, fmt.Errorf("%w: %s", errUnknownSecurityMode, config.Mode)
 	}
 }
 
-func loadTLSCredentials(config *SecurityConfig, mutual bool) (credentials.TransportCredentials, error) {
-	// Load certificate authority
+func loadTLSCredentials(config *SecurityConfig, isServer bool) (credentials.TransportCredentials, error) {
+	// Load CA certificate
+	log.Printf("Config: %s", config)
 	caFile := filepath.Join(config.CertDir, "ca.crt")
+	log.Printf("Loading CA certificate from: %s", caFile)
 
 	caCert, err := os.ReadFile(caFile)
 	if err != nil {
@@ -236,36 +255,49 @@ func loadTLSCredentials(config *SecurityConfig, mutual bool) (credentials.Transp
 		return nil, errFailedToAddCACert
 	}
 
-	// Load server certificates
-	serverCert := filepath.Join(config.CertDir, "server.crt")
-	serverKey := filepath.Join(config.CertDir, "server.key")
-
-	cert, err := tls.LoadX509KeyPair(serverCert, serverKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load server cert/key: %w", err)
-	}
-
-	// Configure TLS
+	// Set up basic TLS config
 	tlsConfig := &tls.Config{
-		Certificates: []tls.Certificate{cert},
-		RootCAs:      certPool,
-		MinVersion:   tls.VersionTLS13,
+		RootCAs:    certPool,
+		MinVersion: tls.VersionTLS13,
 	}
 
-	if mutual {
-		tlsConfig.ClientCAs = certPool
-		tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
+	// Configure server-side settings
+	if isServer {
+		serverCertPath := filepath.Join(config.CertDir, "server.crt")
+		serverKeyPath := filepath.Join(config.CertDir, "server.key")
+		log.Printf("Loading server certificates from: %s, %s", serverCertPath, serverKeyPath)
 
-		// For mTLS, also load client certificates
+		cert, err := tls.LoadX509KeyPair(serverCertPath, serverKeyPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load server cert/key: %w", err)
+		}
+
+		tlsConfig.Certificates = []tls.Certificate{cert}
+
+		if config.Mode == SecurityModeMTLS {
+			tlsConfig.ClientCAs = certPool
+			tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
+		}
+
+		return credentials.NewTLS(tlsConfig), nil
+	}
+
+	// Client-side configuration
+	if config.Mode == SecurityModeMTLS {
 		clientCert := filepath.Join(config.CertDir, "client.crt")
 		clientKey := filepath.Join(config.CertDir, "client.key")
+		log.Printf("Loading client certificates from: %s, %s", clientCert, clientKey)
 
 		clientPair, err := tls.LoadX509KeyPair(clientCert, clientKey)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load client cert/key: %w", err)
 		}
 
-		tlsConfig.Certificates = append(tlsConfig.Certificates, clientPair)
+		tlsConfig.Certificates = []tls.Certificate{clientPair}
+	}
+
+	if config.ServerName != "" {
+		tlsConfig.ServerName = config.ServerName
 	}
 
 	return credentials.NewTLS(tlsConfig), nil

@@ -1,4 +1,3 @@
-// Package lifecycle pkg/lifecycle/server.go
 package lifecycle
 
 import (
@@ -37,6 +36,7 @@ type ServerOptions struct {
 	Service              Service
 	RegisterGRPCServices []GRPCServiceRegistrar
 	EnableHealthCheck    bool
+	Security             *grpc.SecurityConfig
 }
 
 // RunServer starts a service with the provided options and handles lifecycle.
@@ -45,7 +45,10 @@ func RunServer(ctx context.Context, opts *ServerOptions) error {
 	defer cancel()
 
 	// Setup and start gRPC server
-	grpcServer := setupGRPCServer(opts.ListenAddr, opts.ServiceName, opts.RegisterGRPCServices)
+	grpcServer, err := setupGRPCServer(ctx, opts.ListenAddr, opts.ServiceName, opts.RegisterGRPCServices, opts.Security)
+	if err != nil {
+		return fmt.Errorf("failed to setup gRPC server: %w", err)
+	}
 
 	// Create error channel for service errors
 	errChan := make(chan error, 1)
@@ -78,12 +81,41 @@ func RunServer(ctx context.Context, opts *ServerOptions) error {
 	return handleShutdown(ctx, cancel, grpcServer, opts.Service, errChan)
 }
 
-func setupGRPCServer(addr, serviceName string, registrars []GRPCServiceRegistrar) *grpc.Server {
-	// Create and configure gRPC server
-	grpcServer := grpc.NewServer(addr,
+func setupGRPCServer(
+	ctx context.Context,
+	addr, serviceName string,
+	registrars []GRPCServiceRegistrar,
+	security *grpc.SecurityConfig) (*grpc.Server, error) {
+	// Setup server options
+	serverOpts := []grpc.ServerOption{
 		grpc.WithMaxRecvSize(MaxRecvSize),
 		grpc.WithMaxSendSize(MaxSendSize),
-	)
+	}
+
+	// Setup security if configured
+	if security != nil {
+		log.Printf("Running in Secure mode")
+
+		provider, err := grpc.NewSecurityProvider(ctx, security)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create security provider: %w", err)
+		}
+
+		creds, err := provider.GetServerCredentials(ctx)
+		if err != nil {
+			err := provider.Close()
+			if err != nil {
+				return nil, err
+			}
+
+			return nil, fmt.Errorf("failed to get server credentials: %w", err)
+		}
+
+		serverOpts = append(serverOpts, grpc.WithServerOptions(creds))
+	}
+
+	// Create and configure gRPC server
+	grpcServer := grpc.NewServer(addr, serverOpts...)
 
 	// Setup health check
 	hs := health.NewServer()
@@ -100,7 +132,7 @@ func setupGRPCServer(addr, serviceName string, registrars []GRPCServiceRegistrar
 		}
 	}
 
-	return grpcServer
+	return grpcServer, nil
 }
 
 func handleShutdown(
@@ -115,11 +147,9 @@ func handleShutdown(
 		log.Printf("Received signal %v, initiating shutdown", sig)
 	case err := <-errChan:
 		log.Printf("Received error: %v, initiating shutdown", err)
-
 		return fmt.Errorf("service error: %w", err)
 	case <-ctx.Done():
 		log.Printf("Context canceled, initiating shutdown")
-
 		return ctx.Err()
 	}
 
@@ -131,12 +161,11 @@ func handleShutdown(
 	cancel()
 
 	// Stop gRPC server
-	grpcServer.Stop(ctx)
+	grpcServer.Stop(shutdownCtx)
 
 	// Stop the service
-	if err := svc.Stop(ctx); err != nil {
+	if err := svc.Stop(shutdownCtx); err != nil {
 		log.Printf("Error during service shutdown: %v", err)
-
 		return fmt.Errorf("shutdown error: %w", err)
 	}
 

@@ -425,6 +425,10 @@ func (p *Poller) pollAgent(ctx context.Context, agentName string, agentConfig Ag
 }
 
 func (p *Poller) reportToCloud(ctx context.Context, statuses []*proto.ServiceStatus) error {
+	if p == nil && p.grpcClient == nil {
+		log.Println("Poller or client is nil")
+	}
+
 	log.Printf("Reporting to cloud: PollerID=%s, Timestamp=%d, Services=%d", p.config.PollerID, time.Now().Unix(), len(statuses))
 
 	_, err := p.cloudClient.ReportStatus(ctx, &proto.PollerStatusRequest{
