@@ -59,7 +59,6 @@ func NewCombinedScanner(
 
 // Scan starts scanning and returns a results channel or an error immediately if any underlying scanner returns an error.
 func (s *CombinedScanner) Scan(ctx context.Context, targets []models.Target) (<-chan models.Result, error) {
-
 	if len(targets) == 0 {
 		empty := make(chan models.Result)
 		close(empty)
