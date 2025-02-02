@@ -247,8 +247,9 @@ func (p *bufferPool) get() []byte {
 	return p.pool.Get().([]byte)
 }
 
+// put returns a byte slice to the pool.
 func (p *bufferPool) put(buf []byte) {
-	p.pool.Put(buf) //nolint: SA6002 // Ignoring SA6002: Performance impact of interface boxing is likely minimal for byte slices in sync.Pool.
+	p.pool.Put(buf[:0]) //nolint:staticcheck // Explicitly ignore SA6002 for this specific case
 }
 
 // NewICMPScanner creates a new ICMP scanner.
