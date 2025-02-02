@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
 
 	"github.com/mfreeman451/serviceradar/pkg/agent"
@@ -30,26 +31,26 @@ func run() error {
 	}
 
 	// Create agent server
-	server, err := agent.NewServer(cfg.CheckersDir)
+	server, err := agent.NewServer(*configPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create server: %w", err)
 	}
 
-	// Register services function
-	registerServices := func(s *grpc.Server) error {
-		// Register agent service
-		proto.RegisterAgentServiceServer(s.GetGRPCServer(), server)
-
-		return nil
+	// Create server options
+	opts := &lifecycle.ServerOptions{
+		ListenAddr:        server.ListenAddr(),
+		ServiceName:       "AgentService",
+		Service:           server,
+		EnableHealthCheck: true,
+		RegisterGRPCServices: []lifecycle.GRPCServiceRegistrar{
+			func(s *grpc.Server) error {
+				proto.RegisterAgentServiceServer(s.GetGRPCServer(), server)
+				return nil
+			},
+		},
+		Security: server.SecurityConfig(),
 	}
 
 	// Run server with lifecycle management
-	return lifecycle.RunServer(context.Background(), &lifecycle.ServerOptions{
-		ListenAddr:           cfg.ListenAddr,
-		ServiceName:          cfg.ServiceName,
-		Service:              server,
-		RegisterGRPCServices: []lifecycle.GRPCServiceRegistrar{registerServices},
-		EnableHealthCheck:    true,
-		Security:             cfg.Security,
-	})
+	return lifecycle.RunServer(context.Background(), opts)
 }

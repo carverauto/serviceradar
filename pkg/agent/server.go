@@ -21,8 +21,13 @@ import (
 )
 
 var (
-	errInvalidDuration  = errors.New("invalid duration")
-	errStoppingServices = errors.New("errors stopping services")
+	errInvalidDuration = errors.New("invalid duration")
+	errServerShutdown  = errors.New("server shutdown error")
+)
+
+const (
+	defaultShutdownTimeout   = 10 * time.Second
+	defaultErrChanBufferSize = 10
 )
 
 type Duration time.Duration
@@ -52,6 +57,12 @@ type CheckerConfig struct {
 	Additional json.RawMessage `json:"additional,omitempty"`
 }
 
+// ServerConfig holds the agent server configuration.
+type ServerConfig struct {
+	ListenAddr string               `json:"listen_addr"`
+	Security   *grpc.SecurityConfig `json:"security"`
+}
+
 // Server implements the AgentService interface.
 type Server struct {
 	proto.UnimplementedAgentServiceServer
@@ -64,33 +75,23 @@ type Server struct {
 	grpcServer    *grpc.Server
 	listenAddr    string
 	registry      checker.Registry
+	errChan       chan error
+	wg            sync.WaitGroup
+	done          chan struct{} // Signal for shutdown
+	config        *ServerConfig
 }
 
-func (s *Server) Stop(ctx context.Context) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	var errs []error
-
-	// Stop services
-	for _, svc := range s.services {
-		if err := svc.Stop(ctx); err != nil {
-			errs = append(errs, fmt.Errorf("failed to stop service %s: %w", svc.Name(), err))
-		}
-	}
-
-	// Stop gRPC server
-	if s.grpcServer != nil {
-		s.grpcServer.Stop(ctx)
-	}
-
-	if len(errs) > 0 {
-		return fmt.Errorf("%w: %v", errStoppingServices, errs)
-	}
-
-	return nil
+// ServiceError represents an error from a specific service.
+type ServiceError struct {
+	ServiceName string
+	Err         error
 }
 
+func (e *ServiceError) Error() string {
+	return fmt.Sprintf("service %s error: %v", e.ServiceName, e.Err)
+}
+
+// NewServer creates a new agent server instance.
 func NewServer(configDir string) (*Server, error) {
 	s := &Server{
 		checkers:     make(map[string]checker.Checker),
@@ -99,6 +100,8 @@ func NewServer(configDir string) (*Server, error) {
 		services:     make([]Service, 0),
 		listenAddr:   ":50051",
 		registry:     initRegistry(),
+		errChan:      make(chan error, defaultErrChanBufferSize),
+		done:         make(chan struct{}),
 	}
 
 	// Load configurations
@@ -169,8 +172,11 @@ func (*Server) loadSweepService(configPath string) (Service, error) {
 	return service, nil
 }
 
+// Start implements the lifecycle.Service interface.
 func (s *Server) Start(ctx context.Context) error {
-	// Initialize gRPC server
+	log.Printf("Starting agent service...")
+
+	// Initialize gRPC server (but don't start it - lifecycle package will do that)
 	s.grpcServer = grpc.NewServer(s.listenAddr)
 
 	// Register our agent service
@@ -182,6 +188,14 @@ func (s *Server) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to register health server: %w", err)
 	}
 
+	// Start error collector
+	s.wg.Add(1)
+
+	go func() {
+		defer s.wg.Done()
+		go s.collectErrors(ctx)
+	}()
+
 	// Start services
 	for _, svc := range s.services {
 		if err := svc.Start(ctx); err != nil {
@@ -192,6 +206,76 @@ func (s *Server) Start(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// Stop implements the lifecycle.Service interface.
+func (s *Server) Stop(ctx context.Context) error {
+	log.Printf("Stopping agent service...")
+
+	// Signal shutdown
+	select {
+	case <-s.done: // Already closed
+	default:
+		close(s.done)
+	}
+
+	// Stop all services
+	var stopErrors []error
+
+	for _, svc := range s.services {
+		if err := s.stopService(ctx, svc); err != nil {
+			stopErrors = append(stopErrors, err)
+		}
+	}
+
+	// Wait for all background goroutines to finish
+	s.wg.Wait()
+
+	if len(stopErrors) > 0 {
+		return fmt.Errorf("%w: %w", errServerShutdown, errors.Join(stopErrors...))
+	}
+
+	return nil
+}
+
+func (s *Server) stopService(ctx context.Context, svc Service) error {
+	log.Printf("Stopping service: %s", svc.Name())
+
+	// Create timeout context for service shutdown
+	shutdownCtx, cancel := context.WithTimeout(ctx, defaultShutdownTimeout)
+	defer cancel()
+
+	if err := svc.Stop(shutdownCtx); err != nil {
+		return &ServiceError{
+			ServiceName: svc.Name(),
+			Err:         err,
+		}
+	}
+
+	s.healthChecker.SetServingStatus(svc.Name(), healthpb.HealthCheckResponse_NOT_SERVING)
+
+	return nil
+}
+
+func (s *Server) ListenAddr() string {
+	return s.config.ListenAddr
+}
+
+func (s *Server) SecurityConfig() *grpc.SecurityConfig {
+	return s.config.Security
+}
+
+func (s *Server) collectErrors(ctx context.Context) {
+	for {
+		select {
+		case err := <-s.errChan:
+			log.Printf("Error collected: %v", err)
+		case <-ctx.Done():
+			return
+		case <-s.done:
+			return
+		}
+	}
 }
 
 func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
@@ -340,21 +424,14 @@ func (s *Server) ListServices() []string {
 	return services
 }
 
-// Close stops all services and cleans up resources.
+// Close performs final cleanup.
 func (s *Server) Close(ctx context.Context) error {
-	var closeErrs []error
-
-	for _, svc := range s.services {
-		if err := svc.Stop(ctx); err != nil {
-			closeErrs = append(closeErrs, err)
-
-			log.Printf("Error stopping service: %v", err)
-		}
+	if err := s.Stop(ctx); err != nil {
+		log.Printf("Error during stop: %v", err)
+		return err
 	}
 
-	if len(closeErrs) > 0 {
-		return fmt.Errorf("%w: %v", errShutdown, closeErrs)
-	}
+	close(s.errChan)
 
 	return nil
 }
