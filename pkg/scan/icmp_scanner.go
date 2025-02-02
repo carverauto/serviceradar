@@ -249,7 +249,7 @@ func (p *bufferPool) get() []byte {
 
 // put returns a byte slice to the pool.
 func (p *bufferPool) put(buf []byte) {
-	p.pool.Put(buf[:0]) //nolint:staticcheck // Explicitly ignore SA6002 for this specific case
+	p.pool.Put(buf) //nolint:staticcheck // Explicitly ignore SA6002 for this specific case
 }
 
 // NewICMPScanner creates a new ICMP scanner.
