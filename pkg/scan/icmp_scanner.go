@@ -248,7 +248,7 @@ func (p *bufferPool) get() []byte {
 }
 
 func (p *bufferPool) put(buf []byte) {
-	p.pool.Put(&buf)
+	p.pool.Put(buf) //nolint: SA6002 // Ignoring SA6002: Performance impact of interface boxing is likely minimal for byte slices in sync.Pool.
 }
 
 // NewICMPScanner creates a new ICMP scanner.
@@ -507,7 +507,7 @@ func (s *ICMPScanner) listenForReplies(ctx context.Context) {
 	}
 
 	// Create extended timeout context for listener
-	listenerCtx, cancel := context.WithTimeout(context.Background(),
+	listenerCtx, cancel := context.WithTimeout(ctx,
 		s.timeout*defaultListenerTimeoutMultipler)
 	defer cancel()
 
