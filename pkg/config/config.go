@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"time"
+
+	"github.com/mfreeman451/serviceradar/pkg/grpc"
 )
 
 var (
@@ -41,9 +43,10 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 
 // AgentConfig represents the configuration for an agent instance.
 type AgentConfig struct {
-	CheckersDir string `json:"checkers_dir"` // e.g., /etc/serviceradar/checkers
-	ListenAddr  string `json:"listen_addr"`  // e.g., :50051
-	ServiceName string `json:"service_name"` // e.g., "agent"
+	CheckersDir string               `json:"checkers_dir"` // e.g., /etc/serviceradar/checkers
+	ListenAddr  string               `json:"listen_addr"`  // e.g., :50051
+	ServiceName string               `json:"service_name"` // e.g., "agent"
+	Security    *grpc.SecurityConfig `json:"security"`
 }
 
 // Check represents a generic service check configuration.

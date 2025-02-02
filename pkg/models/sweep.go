@@ -56,6 +56,7 @@ type Result struct {
 	RespTime   time.Duration
 	PacketLoss float64
 	Error      error
+	Metadata   map[string]interface{}
 }
 
 // ResultFilter defines criteria for retrieving results.

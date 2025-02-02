@@ -85,6 +85,13 @@ func (s *Server) RegisterHealthServer(healthServer healthpb.HealthServer) error 
 	return nil
 }
 
+// WithServerOptions adds gRPC server options.
+func WithServerOptions(opt ...grpc.ServerOption) ServerOption {
+	return func(s *Server) {
+		s.serverOpts = append(s.serverOpts, opt...)
+	}
+}
+
 // WithMaxRecvSize sets the maximum receive message size.
 func WithMaxRecvSize(size int) ServerOption {
 	return func(s *Server) {

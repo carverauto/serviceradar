@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/mfreeman451/serviceradar/pkg/config"
+	"github.com/mfreeman451/serviceradar/pkg/grpc"
 )
 
 var (
@@ -39,6 +40,7 @@ type Config struct {
 	CloudAddress string                 `json:"cloud_address"`
 	PollInterval config.Duration        `json:"poll_interval"`
 	PollerID     string                 `json:"poller_id"`
+	Security     *grpc.SecurityConfig   `json:"security"`
 }
 
 // Validate implements config.Validator interface.

@@ -1,4 +1,4 @@
-// Package grpc pkg/grpc/client.go
+// Package grpc - gRPC client with mTLS support
 package grpc
 
 import (
@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
@@ -35,30 +34,12 @@ type ClientConn struct {
 	mu                sync.RWMutex
 	lastHealthDetails string
 	lastHealthCheck   time.Time
+	securityProvider  SecurityProvider
 }
 
 // NewClient creates a new gRPC client connection.
 func NewClient(ctx context.Context, addr string, opts ...ClientOption) (*ClientConn, error) {
-	dialOpts := []grpc.DialOption{
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithChainUnaryInterceptor(
-			ClientLoggingInterceptor,
-			RetryInterceptor,
-		),
-		grpc.WithKeepaliveParams(keepalive.ClientParameters{
-			Time:                grpcKeepAliveTime,    // send pings every 10 seconds
-			Timeout:             grpcKeepAliveTimeout, // wait 5 second for ping ack
-			PermitWithoutStream: true,                 // send pings even without active streams
-		}),
-	}
-
-	conn, err := grpc.DialContext(ctx, addr, dialOpts...) //nolint:staticcheck // Using DialContext is fine through gRPC 1.x
-	if err != nil {
-		return nil, fmt.Errorf("failed to dial: %w", err)
-	}
-
 	c := &ClientConn{
-		conn:       conn,
 		addr:       addr,
 		maxRetries: defaultMaxRetries,
 	}
@@ -67,6 +48,22 @@ func NewClient(ctx context.Context, addr string, opts ...ClientOption) (*ClientC
 	for _, opt := range opts {
 		opt(c)
 	}
+	// Default to NoSecurityProvider if none is specified
+	if c.securityProvider == nil {
+		c.securityProvider = &NoSecurityProvider{}
+	}
+
+	dialOpts, err := c.createDialOptions(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create dial options: %w", err)
+	}
+
+	conn, err := grpc.DialContext(ctx, addr, dialOpts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to dial: %w", err)
+	}
+
+	c.conn = conn
 
 	// Initialize health client
 	c.healthClient = grpc_health_v1.NewHealthClient(conn)
@@ -74,10 +71,39 @@ func NewClient(ctx context.Context, addr string, opts ...ClientOption) (*ClientC
 	return c, nil
 }
 
+func (c *ClientConn) createDialOptions(ctx context.Context) ([]grpc.DialOption, error) {
+	creds, err := c.securityProvider.GetClientCredentials(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get client credentials: %w", err)
+	}
+
+	dialOpts := []grpc.DialOption{
+		creds,
+		grpc.WithChainUnaryInterceptor(
+			ClientLoggingInterceptor,
+			RetryInterceptor,
+		),
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:                grpcKeepAliveTime,
+			Timeout:             grpcKeepAliveTimeout,
+			PermitWithoutStream: true,
+		}),
+	}
+
+	return dialOpts, nil
+}
+
 // WithMaxRetries sets the maximum number of retry attempts.
 func WithMaxRetries(retries int) ClientOption {
 	return func(c *ClientConn) {
 		c.maxRetries = retries
+	}
+}
+
+// WithSecurityProvider sets the security provider for the client.
+func WithSecurityProvider(provider SecurityProvider) ClientOption {
+	return func(c *ClientConn) {
+		c.securityProvider = provider
 	}
 }
 
@@ -88,6 +114,12 @@ func (c *ClientConn) GetConnection() *grpc.ClientConn {
 
 // Close closes the client connection.
 func (c *ClientConn) Close() error {
+	if c.securityProvider != nil {
+		if err := c.securityProvider.Close(); err != nil {
+			log.Printf("Failed to close security provider: %v", err)
+		}
+	}
+
 	return c.conn.Close()
 }
 
@@ -154,7 +186,6 @@ func RetryInterceptor(ctx context.Context,
 			lastErr = err
 			log.Printf("gRPC call attempt %d failed: %v", attempt+1, err)
 			time.Sleep(time.Duration(attempt*retryInterceptorAttemptMultiplier) * retryInterceptorTimeoutDuration)
-
 			continue
 		}
 

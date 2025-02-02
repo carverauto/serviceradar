@@ -259,7 +259,7 @@ func TestNewSecurityProvider(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
-			provider, err := NewSecurityProvider(tt.config)
+			provider, err := NewSecurityProvider(ctx, tt.config)
 			if tt.expectError {
 				require.Error(t, err)
 				assert.Nil(t, provider)

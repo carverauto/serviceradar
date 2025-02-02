@@ -50,55 +50,163 @@ func NewCombinedScanner(
 	}
 }
 
+// pkg/scan/combined_scanner.go
+
 func (s *CombinedScanner) Scan(ctx context.Context, targets []models.Target) (<-chan models.Result, error) {
+	// Add debug logging for context
+	log.Printf("CombinedScanner.Scan starting with context: %p", ctx)
+	defer log.Printf("CombinedScanner.Scan complete with context: %p", ctx)
+
 	if len(targets) == 0 {
 		empty := make(chan models.Result)
 		close(empty)
-
 		return empty, nil
 	}
 
-	// Deep copy targets to avoid concurrent modification issues
-	targetsCopy := make([]models.Target, len(targets))
-	copy(targetsCopy, targets)
+	// Create a new context with cancellation that we control
+	scanCtx, scanCancel := context.WithCancel(ctx)
 
-	// Calculate total hosts based on the copy to avoid modifying the original targets
-	uniqueHosts := make(map[string]struct{})
-	for _, target := range targetsCopy {
-		uniqueHosts[target.Host] = struct{}{}
-	}
+	// Create buffered results channel
+	results := make(chan models.Result, len(targets))
 
-	totalHosts := len(uniqueHosts)
-
-	// Separate targets based on the copy
-	separated := s.separateTargets(targetsCopy)
-	log.Printf("Scanning targets - TCP: %d, ICMP: %d, Unique Hosts: %d",
-		len(separated.tcp), len(separated.icmp), totalHosts)
-
-	// Add total hosts to metadata in a safe way
-	for i := range separated.tcp {
-		if separated.tcp[i].Metadata == nil {
-			separated.tcp[i].Metadata = make(map[string]interface{})
+	// Start a goroutine to monitor parent context
+	go func() {
+		select {
+		case <-ctx.Done():
+			log.Printf("Parent context cancelled: %v", ctx.Err())
+			scanCancel()
+		case <-s.done:
+			log.Printf("Scanner stopped")
+			scanCancel()
 		}
+	}()
 
-		separated.tcp[i].Metadata["total_hosts"] = totalHosts
+	// Start another goroutine to handle cleanup
+	go func() {
+		<-scanCtx.Done()
+		log.Printf("Scan context cancelled, cleaning up resources")
+		// Ensure results channel is closed after all work is done
+		defer close(results)
+
+		// Additional cleanup if needed
+	}()
+
+	// Process targets
+	separated := s.separateTargets(targets)
+	log.Printf("Processing targets - TCP: %d, ICMP: %d", len(separated.tcp), len(separated.icmp))
+
+	// Start the scanners
+	var wg sync.WaitGroup
+
+	if len(separated.tcp) > 0 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s.processTCPTargets(scanCtx, separated.tcp, results)
+		}()
 	}
 
-	for i := range separated.icmp {
-		if separated.icmp[i].Metadata == nil {
-			separated.icmp[i].Metadata = make(map[string]interface{})
+	if len(separated.icmp) > 0 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s.processICMPTargets(scanCtx, separated.icmp, results)
+		}()
+	}
+
+	// Wait for completion in a separate goroutine
+	go func() {
+		wg.Wait()
+		scanCancel() // Signal completion
+	}()
+
+	return results, nil
+}
+
+func (s *CombinedScanner) processTCPTargets(ctx context.Context, targets []models.Target, results chan<- models.Result) {
+	if s.tcpScanner == nil {
+		log.Printf("TCP scanner not available")
+		return
+	}
+
+	tcpResults, err := s.tcpScanner.Scan(ctx, targets)
+	if err != nil {
+		log.Printf("TCP scan error: %v", err)
+		return
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Printf("TCP scanner context cancelled")
+			return
+		case result, ok := <-tcpResults:
+			if !ok {
+				return
+			}
+			select {
+			case results <- result:
+			case <-ctx.Done():
+				return
+			}
 		}
+	}
+}
 
-		separated.icmp[i].Metadata["total_hosts"] = totalHosts
+func (s *CombinedScanner) processICMPTargets(ctx context.Context, targets []models.Target, results chan<- models.Result) {
+	if s.icmpScanner == nil {
+		log.Printf("ICMP scanner not available")
+		return
 	}
 
-	// Handle single scanner cases
-	if result := s.handleSingleScannerCase(ctx, separated); result != nil {
-		return result.resultChan, result.err
+	icmpResults, err := s.icmpScanner.Scan(ctx, targets)
+	if err != nil {
+		log.Printf("ICMP scan error: %v", err)
+		return
 	}
 
-	// Handle mixed scanner case
-	return s.handleMixedScanners(ctx, separated)
+	for {
+		select {
+		case <-ctx.Done():
+			log.Printf("ICMP scanner context cancelled")
+			return
+		case result, ok := <-icmpResults:
+			if !ok {
+				return
+			}
+			select {
+			case results <- result:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}
+}
+
+// Stop ensures clean shutdown
+func (s *CombinedScanner) Stop(ctx context.Context) error {
+	log.Printf("CombinedScanner.Stop called")
+	close(s.done)
+
+	var errs []error
+
+	if s.tcpScanner != nil {
+		if err := s.tcpScanner.Stop(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("TCP scanner stop error: %w", err))
+		}
+	}
+
+	if s.icmpScanner != nil {
+		if err := s.icmpScanner.Stop(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("ICMP scanner stop error: %w", err))
+		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("scanner stop errors: %v", errs)
+	}
+
+	return nil
 }
 
 const (
@@ -119,6 +227,12 @@ func (s *CombinedScanner) handleMixedScanners(ctx context.Context, targets scanT
 	// Set up workers for each scanner type
 	workers := s.setupWorkers(targets)
 
+	log.Printf("handleMixedScanners: starting with context: %p", ctx) // Log context
+
+	// Use a separate context for each worker to handle early cancellation
+	workerCtx, cancelWorkers := context.WithCancel(ctx)
+	defer cancelWorkers() // Ensure workers are canceled if we exit early
+
 	// Start workers
 	for _, w := range workers {
 		if len(w.targets) > 0 {
@@ -127,26 +241,17 @@ func (s *CombinedScanner) handleMixedScanners(ctx context.Context, targets scanT
 			go func(worker scanWorker) {
 				defer wg.Done()
 
-				scanResults, err := worker.scanner.Scan(ctx, worker.targets)
+				scanResults, err := worker.scanner.Scan(workerCtx, worker.targets)
 				if err != nil {
 					log.Printf("Error from %s scanner: %v", worker.name, err)
-
 					return
 				}
 
 				// Forward results
-				for {
+				for result := range scanResults {
 					select {
-					case result, ok := <-scanResults:
-						if !ok {
-							return
-						}
-						select {
-						case results <- result:
-						case <-ctx.Done():
-							return
-						}
-					case <-ctx.Done():
+					case results <- result:
+					case <-workerCtx.Done(): // Stop forwarding if the worker context is done
 						return
 					}
 				}
@@ -231,18 +336,6 @@ func (*CombinedScanner) separateTargets(targets []models.Target) scanTargets {
 	}
 
 	return separated
-}
-
-func (s *CombinedScanner) Stop(ctx context.Context) error {
-	// setup a timeout on the context
-	shutdownCtx, cancel := context.WithTimeout(ctx, stopTimer)
-	defer cancel()
-
-	close(s.done)
-	_ = s.tcpScanner.Stop(shutdownCtx)
-	_ = s.icmpScanner.Stop(shutdownCtx)
-
-	return nil
 }
 
 type scanTargets struct {
