@@ -10,6 +10,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/mfreeman451/serviceradar/pkg/models"
@@ -70,29 +71,90 @@ func (s *NetworkSweeper) Start(ctx context.Context) error {
 			if err := s.runSweep(ctx); err != nil {
 				log.Printf("Periodic sweep failed: %v", err)
 			}
+			// Update last sweep time after each periodic sweep
+			s.mu.Lock()
+			s.lastSweep = time.Now()
+			s.mu.Unlock()
 		}
 	}
 }
 
-func (s *NetworkSweeper) runSweep(ctx context.Context) error {
-	s.mu.RLock()
-	lastSweepTime := s.lastSweep
-	interval := s.config.Interval
-	s.mu.RUnlock()
-
-	// Check if enough time has passed
-	if time.Since(lastSweepTime) < interval {
-		log.Printf("Skipping sweep, not enough time elapsed since last sweep")
-		return nil
+// generateTargets generates a list of targets to scan.
+func (s *NetworkSweeper) generateTargets() ([]models.Target, error) {
+	// Calculate total targets and unique IPs
+	targetCapacity, uniqueIPs, err := s.calculateTargetCapacity()
+	if err != nil {
+		return nil, fmt.Errorf("failed to calculate target capacity: %w", err)
 	}
 
-	sweepStart := time.Now()
-	log.Printf("Starting network sweep at %v", sweepStart.Format(time.RFC3339))
+	// Pre-allocate slice with calculated capacity
+	allTargets := make([]models.Target, 0, targetCapacity)
 
+	// Generate targets for each network
+	for _, network := range s.config.Networks {
+		targets, err := s.generateTargetsForNetwork(network, uniqueIPs)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate targets for network %s: %w", network, err)
+		}
+
+		allTargets = append(allTargets, targets...)
+	}
+
+	log.Printf("Generated %d targets (%d unique IPs, %d ports, modes: %v)",
+		len(allTargets),
+		len(uniqueIPs),
+		len(s.config.Ports),
+		s.config.SweepModes,
+	)
+
+	return allTargets, nil
+}
+
+// processResults processes scan results until the results channel is closed or the context is canceled.
+func (s *NetworkSweeper) processResults(ctx context.Context, results <-chan models.Result) (
+	icmpSuccess int64, tcpSuccess int64, totalResults int64, uniqueHosts map[string]struct{},
+) {
+	uniqueHosts = make(map[string]struct{})
+
+	for {
+		select {
+		case <-ctx.Done():
+			return icmpSuccess, tcpSuccess, totalResults, uniqueHosts
+		case result, ok := <-results:
+			if !ok {
+				return icmpSuccess, tcpSuccess, totalResults, uniqueHosts
+			}
+
+			atomic.AddInt64(&totalResults, 1)
+
+			uniqueHosts[result.Target.Host] = struct{}{}
+
+			if err := s.processResult(ctx, &result); err != nil {
+				// Log but continue processing other results
+				log.Printf("Error processing result: %v", err)
+
+				continue
+			}
+
+			// Update success counters
+			if result.Available {
+				switch result.Target.Mode {
+				case models.ModeICMP:
+					atomic.AddInt64(&icmpSuccess, 1)
+				case models.ModeTCP:
+					atomic.AddInt64(&tcpSuccess, 1)
+				}
+			}
+		}
+	}
+}
+
+// runSweep performs a network sweep, scanning targets and processing results.
+func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 	// Generate targets
 	targets, err := s.generateTargets()
 	if err != nil {
-		return fmt.Errorf("failed to generate targets: %w", err)
+		return err // Error already wrapped in generateTargets
 	}
 
 	// Start the scan
@@ -101,53 +163,30 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 		return fmt.Errorf("scan failed: %w", err)
 	}
 
-	// Track stats without locks
-	icmpSuccess := 0
-	tcpSuccess := 0
-	totalResults := 0
-	uniqueHosts := make(map[string]struct{})
-
 	// Process results
-	for result := range results {
-		if err := s.processor.Process(&result); err != nil {
-			log.Printf("Failed to process result: %v", err)
-			continue
-		}
+	icmpSuccess, tcpSuccess, totalResults, uniqueHosts := s.processResults(ctx, results)
 
-		if err := s.store.SaveResult(ctx, &result); err != nil {
-			log.Printf("Failed to save result: %v", err)
-			continue
-		}
-
-		// Update stats
-		totalResults++
-		uniqueHosts[result.Target.Host] = struct{}{}
-
-		if result.Available {
-			switch result.Target.Mode {
-			case models.ModeICMP:
-				icmpSuccess++
-
-				log.Printf("Host %s responded to ICMP ping (%.2fms)",
-					result.Target.Host, float64(result.RespTime)/float64(time.Millisecond))
-			case models.ModeTCP:
-				tcpSuccess++
-
-				log.Printf("Host %s has port %d open (%.2fms)",
-					result.Target.Host, result.Target.Port,
-					float64(result.RespTime)/float64(time.Millisecond))
-			}
-		}
+	// Check for context cancellation after processing results
+	if ctx.Err() != nil {
+		return ctx.Err()
 	}
 
-	// Update last sweep time
-	s.mu.Lock()
-	s.lastSweep = sweepStart
-	s.mu.Unlock()
+	log.Printf("Sweep completed: %d total results, %d successful (%d ICMP, %d TCP), %d unique hosts",
+		totalResults, icmpSuccess+tcpSuccess, icmpSuccess, tcpSuccess, len(uniqueHosts))
 
-	duration := time.Since(sweepStart)
-	log.Printf("Sweep completed in %.2f seconds: %d total results, %d successful (%d ICMP, %d TCP), %d unique hosts",
-		duration.Seconds(), totalResults, icmpSuccess+tcpSuccess, icmpSuccess, tcpSuccess, len(uniqueHosts))
+	return nil
+}
+
+func (s *NetworkSweeper) processResult(ctx context.Context, result *models.Result) error {
+	// Process with processor
+	if err := s.processor.Process(result); err != nil {
+		return fmt.Errorf("processor error: %w", err)
+	}
+
+	// Save to store
+	if err := s.store.SaveResult(ctx, result); err != nil {
+		return fmt.Errorf("store error: %w", err)
+	}
 
 	return nil
 }
@@ -200,35 +239,6 @@ func (m *SweepMode) UnmarshalJSON(data []byte) error {
 // MarshalJSON implements json.Marshaler for SweepMode.
 func (m *SweepMode) MarshalJSON() ([]byte, error) {
 	return json.Marshal(string(*m))
-}
-
-func (s *NetworkSweeper) generateTargets() ([]models.Target, error) {
-	// Calculate total targets and unique IPs
-	targetCapacity, uniqueIPs, err := s.calculateTargetCapacity()
-	if err != nil {
-		return nil, fmt.Errorf("failed to calculate target capacity: %w", err)
-	}
-
-	// Pre-allocate slice with calculated capacity
-	allTargets := make([]models.Target, 0, targetCapacity)
-
-	// Generate targets for each network
-	for _, network := range s.config.Networks {
-		targets, err := s.generateTargetsForNetwork(network, uniqueIPs)
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate targets for network %s: %w", network, err)
-		}
-
-		allTargets = append(allTargets, targets...)
-	}
-
-	log.Printf("Generated %d targets (%d unique IPs, %d ports, modes: %v)",
-		len(allTargets),
-		len(uniqueIPs),
-		len(s.config.Ports),
-		s.config.SweepModes)
-
-	return allTargets, nil
 }
 
 func (s *NetworkSweeper) calculateTargetCapacity() (targetCap int, uniqueIPs map[string]struct{}, err error) {
