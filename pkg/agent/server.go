@@ -92,7 +92,7 @@ func (e *ServiceError) Error() string {
 }
 
 // NewServer creates a new agent server instance.
-func NewServer(configDir string) (*Server, error) {
+func NewServer(configDir string, cfg *ServerConfig) (*Server, error) {
 	s := &Server{
 		checkers:     make(map[string]checker.Checker),
 		checkerConfs: make(map[string]CheckerConfig),
@@ -102,6 +102,7 @@ func NewServer(configDir string) (*Server, error) {
 		registry:     initRegistry(),
 		errChan:      make(chan error, defaultErrChanBufferSize),
 		done:         make(chan struct{}),
+		config:       cfg,
 	}
 
 	// Load configurations

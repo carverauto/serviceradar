@@ -31,7 +31,10 @@ func run() error {
 	}
 
 	// Create agent server
-	server, err := agent.NewServer(*configPath)
+	server, err := agent.NewServer(cfg.CheckersDir, &agent.ServerConfig{
+		ListenAddr: cfg.ListenAddr,
+		Security:   cfg.Security,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to create server: %w", err)
 	}
