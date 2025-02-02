@@ -247,8 +247,9 @@ func (p *bufferPool) get() []byte {
 	return p.pool.Get().([]byte)
 }
 
+// put returns a byte slice to the pool.
 func (p *bufferPool) put(buf []byte) {
-	p.pool.Put(&buf)
+	p.pool.Put(buf) //nolint:staticcheck // Explicitly ignore SA6002 for this specific case
 }
 
 // NewICMPScanner creates a new ICMP scanner.
@@ -507,7 +508,7 @@ func (s *ICMPScanner) listenForReplies(ctx context.Context) {
 	}
 
 	// Create extended timeout context for listener
-	listenerCtx, cancel := context.WithTimeout(context.Background(),
+	listenerCtx, cancel := context.WithTimeout(ctx,
 		s.timeout*defaultListenerTimeoutMultipler)
 	defer cancel()
 
