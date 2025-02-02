@@ -14,10 +14,11 @@ import (
 )
 
 const (
-	defaultCleanupInterval = 30 * time.Second
-	defaultMaxLifetime     = 10 * time.Minute
-	defaultIdleTimeout     = 1 * time.Minute
-	defaultReadDeadline    = 100 * time.Millisecond
+	defaultCleanupInterval  = 30 * time.Second
+	defaultMaxLifetime      = 10 * time.Minute
+	defaultIdleTimeout      = 1 * time.Minute
+	defaultReadDeadline     = 100 * time.Millisecond
+	defaultDNSLookupTimeout = 200 * time.Millisecond
 )
 
 // connEntry represents a connection in the pool.
@@ -214,6 +215,14 @@ func NewTCPScanner(timeout time.Duration, concurrency, maxIdle int, maxLifetime,
 	dialer := &net.Dialer{
 		Timeout:   timeout,
 		KeepAlive: 30 * time.Second,
+		Resolver: &net.Resolver{
+			PreferGo: true,
+			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+				// Use a very short timeout for DNS lookups.
+				d := net.Dialer{Timeout: defaultDNSLookupTimeout}
+				return d.DialContext(ctx, network, address)
+			},
+		},
 	}
 
 	return &TCPScanner{
