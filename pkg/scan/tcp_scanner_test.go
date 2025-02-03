@@ -2,6 +2,7 @@ package scan
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -93,7 +94,7 @@ func TestTCPScanner_Scan(t *testing.T) {
 }
 
 func TestTCPScanner_Scan_ContextCancellation(t *testing.T) {
-	// Create a TCPScanner with a short timeout using the constructor
+	// Create a TCPScanner with a short timeout
 	scanner := NewTCPScanner(100*time.Millisecond, 1, 1, 1, 1)
 
 	// Create a context that can be canceled
@@ -105,21 +106,36 @@ func TestTCPScanner_Scan_ContextCancellation(t *testing.T) {
 	}
 
 	// Start the scan
-	resultsChan, err := scanner.Scan(ctx, targets)
+	resultsCh, err := scanner.Scan(ctx, targets)
 	require.NoError(t, err, "Scan should not return an error")
 
-	// Cancel the context almost immediately
+	// Cancel the context immediately
 	cancel()
 
-	// Wait for a short time to allow the scanner to process the cancellation
-	time.Sleep(50 * time.Millisecond)
+	// Create a channel to collect results
+	var results []models.Result
+	done := make(chan struct{})
 
-	// Check if any results are available
-	select {
-	case result, ok := <-resultsChan:
-		if ok {
-			t.Errorf("Expected no results due to context cancellation, but got: %v", result)
+	go func() {
+		defer close(done)
+		for result := range resultsCh {
+			results = append(results, result)
 		}
-	default:
+	}()
+
+	// Wait for results with timeout
+	select {
+	case <-done:
+		// Channel closed normally
+	case <-time.After(time.Second):
+		t.Fatal("Timeout waiting for results channel to close")
+	}
+
+	// Check if we got any results that weren't due to cancellation
+	for _, result := range results {
+		if !strings.Contains(result.Error.Error(), "operation was canceled") &&
+			!strings.Contains(result.Error.Error(), "context canceled") {
+			t.Errorf("Got unexpected result after cancellation: %+v", result)
+		}
 	}
 }

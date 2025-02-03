@@ -57,82 +57,7 @@ func NewCombinedScanner(
 	}
 }
 
-// Scan starts scanning and returns a results channel or an error immediately if any underlying scanner returns an error.
-func (s *CombinedScanner) Scan(ctx context.Context, targets []models.Target) (<-chan models.Result, error) {
-	if len(targets) == 0 {
-		empty := make(chan models.Result)
-		close(empty)
-
-		return empty, nil
-	}
-
-	// Create a scan context we control.
-	scanCtx, scanCancel := context.WithCancel(ctx)
-
-	// Channel for scan results.
-	results := make(chan models.Result, len(targets))
-	// Channel for immediate error reporting.
-	errCh := make(chan error, errChannelSize) // one per scanner at most
-
-	// Separate targets into TCP and ICMP.
-	separated := s.separateTargets(targets)
-	log.Printf("Processing targets - TCP: %d, ICMP: %d", len(separated.tcp), len(separated.icmp))
-
-	var wg sync.WaitGroup
-
-	// Start TCP scanning, if needed.
-	if len(separated.tcp) > 0 {
-		wg.Add(1)
-
-		go func() {
-			defer wg.Done()
-			s.processTargetsWithError(scanCtx, s.tcpScanner, "TCP", separated.tcp, results, errCh)
-		}()
-	}
-
-	// Start ICMP scanning, if needed.
-	if len(separated.icmp) > 0 {
-		wg.Add(1)
-
-		go func() {
-			defer wg.Done()
-			s.processTargetsWithError(scanCtx, s.icmpScanner, "ICMP", separated.icmp, results, errCh)
-		}()
-	}
-
-	// Monitor parent context or scanner done channel.
-	go func() {
-		select {
-		case <-ctx.Done():
-			scanCancel()
-		case <-s.done:
-			scanCancel()
-		}
-	}()
-
-	// Check briefly for immediate errors.
-	select {
-	case err := <-errCh:
-		scanCancel()
-		wg.Wait()
-		close(results)
-
-		return nil, err
-	case <-time.After(timeAfter):
-	}
-
-	// Close results channel when all workers are done.
-	go func() {
-		wg.Wait()
-		scanCancel() // signal completion
-		close(results)
-	}()
-
-	return results, nil
-}
-
-// processTargetsWithError wraps the common processing logic and reports an error if scanner fails.
-func (*CombinedScanner) processTargetsWithError(
+func (s *CombinedScanner) processTargetsWithError(
 	ctx context.Context,
 	scanner Scanner,
 	scannerName string,
@@ -142,26 +67,23 @@ func (*CombinedScanner) processTargetsWithError(
 ) {
 	if scanner == nil {
 		log.Printf("%s scanner not available", scannerName)
-
 		return
 	}
 
 	scanResults, err := scanner.Scan(ctx, targets)
 	if err != nil {
 		err = fmt.Errorf("%s scan error: %w", scannerName, err)
-		// Use a guard clause to report the error if possible.
+		// Send error or drop it if channel is full
 		select {
 		case errCh <- err:
 		default:
 		}
-
 		return
 	}
 
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("%s scanner context canceled", scannerName)
 			return
 		case result, ok := <-scanResults:
 			if !ok {
@@ -176,27 +98,153 @@ func (*CombinedScanner) processTargetsWithError(
 	}
 }
 
-// Stop ensures clean shutdown.
+// Scan starts scanning and returns a results channel or an error immediately if any underlying scanner returns an error.
+func (s *CombinedScanner) Scan(ctx context.Context, targets []models.Target) (<-chan models.Result, error) {
+	if len(targets) == 0 {
+		empty := make(chan models.Result)
+		close(empty)
+		return empty, nil
+	}
+
+	// Create buffered channels
+	results := make(chan models.Result, len(targets))
+	errCh := make(chan error, 2)
+
+	// Create a context that we can cancel
+	scanCtx, cancel := context.WithCancel(ctx)
+
+	// Start scanning
+	separated := s.separateTargets(targets)
+	log.Printf("Processing targets - TCP: %d, ICMP: %d", len(separated.tcp), len(separated.icmp))
+
+	var wg sync.WaitGroup
+
+	// Start TCP scanning if needed
+	if len(separated.tcp) > 0 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := s.processTCPTargets(scanCtx, separated.tcp, results); err != nil {
+				select {
+				case errCh <- fmt.Errorf("TCP scan error: %w", err):
+				default:
+				}
+			}
+		}()
+	}
+
+	// Start ICMP scanning if needed
+	if len(separated.icmp) > 0 && s.icmpScanner != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := s.processICMPTargets(scanCtx, separated.icmp, results); err != nil {
+				select {
+				case errCh <- fmt.Errorf("ICMP scan error: %w", err):
+				default:
+				}
+			}
+		}()
+	}
+
+	// Start cleanup goroutine
+	go func() {
+		// Wait for all scanners to finish
+		wg.Wait()
+
+		// Check for errors
+		select {
+		case err := <-errCh:
+			cancel()
+			log.Printf("Scan error detected: %v", err)
+		case <-ctx.Done():
+			log.Println("Context cancelled")
+		case <-s.done:
+			log.Println("Scanner stopped")
+		default:
+			log.Println("Scan completed successfully")
+		}
+
+		// Always close results channel after all scanners are done
+		close(results)
+		cancel()
+	}()
+
+	// Check for immediate errors
+	select {
+	case err := <-errCh:
+		cancel()
+		return nil, err
+	case <-time.After(10 * time.Millisecond):
+		return results, nil
+	}
+}
+
+func (s *CombinedScanner) processTCPTargets(ctx context.Context, targets []models.Target, results chan<- models.Result) error {
+	scanResults, err := s.tcpScanner.Scan(ctx, targets)
+	if err != nil {
+		return err
+	}
+
+	return s.forwardResults(ctx, scanResults, results)
+}
+
+func (s *CombinedScanner) processICMPTargets(ctx context.Context, targets []models.Target, results chan<- models.Result) error {
+	scanResults, err := s.icmpScanner.Scan(ctx, targets)
+	if err != nil {
+		return err
+	}
+
+	return s.forwardResults(ctx, scanResults, results)
+}
+
+func (s *CombinedScanner) forwardResults(ctx context.Context, input <-chan models.Result, output chan<- models.Result) error {
+	for {
+		select {
+		case result, ok := <-input:
+			if !ok {
+				return nil
+			}
+			select {
+			case output <- result:
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-s.done:
+				return nil
+			}
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-s.done:
+			return nil
+		}
+	}
+}
+
+// Stop gracefully stops any ongoing scans.
 func (s *CombinedScanner) Stop(ctx context.Context) error {
-	log.Printf("CombinedScanner.Stop called")
+	log.Println("CombinedScanner.Stop called")
+
+	// Signal all scanners to stop
 	close(s.done)
 
 	var errs []error
 
+	// Stop TCP scanner
 	if s.tcpScanner != nil {
 		if err := s.tcpScanner.Stop(ctx); err != nil {
 			errs = append(errs, fmt.Errorf("TCP scanner stop error: %w", err))
 		}
 	}
 
+	// Stop ICMP scanner
 	if s.icmpScanner != nil {
 		if err := s.icmpScanner.Stop(ctx); err != nil {
-			errs = append(errs, fmt.Errorf("%w - %w", errScannerStop, err))
+			errs = append(errs, fmt.Errorf("ICMP scanner stop error: %w", err))
 		}
 	}
 
 	if len(errs) > 0 {
-		return fmt.Errorf("%w - %v", errScannerStop, errs)
+		return fmt.Errorf("errors during stop: %v", errs)
 	}
 
 	return nil

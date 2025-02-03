@@ -30,58 +30,36 @@ type connEntry struct {
 
 // connectionPool manages a pool of reusable TCP connections with proper lifecycle management.
 type connectionPool struct {
-	mu            sync.RWMutex
-	connections   map[string][]*connEntry
-	maxIdle       int
-	maxLifetime   time.Duration
-	idleTimeout   time.Duration
-	cleanupTicker *time.Ticker
-	done          chan struct{}
+	mu          sync.RWMutex
+	connections map[string][]*connEntry
+	maxIdle     int
+	maxLifetime time.Duration
+	idleTimeout time.Duration
+	cleaner     *cleanupManager
+	closeOnce   sync.Once
 }
 
 // newConnectionPool creates a new connection pool with proper lifecycle management.
 func newConnectionPool(maxIdle int, maxLifetime, idleTimeout time.Duration) *connectionPool {
-	if maxLifetime == 0 {
-		maxLifetime = defaultMaxLifetime
-	}
-
-	if idleTimeout == 0 {
-		idleTimeout = defaultIdleTimeout
-	}
-
-	pool := &connectionPool{
+	p := &connectionPool{
 		connections: make(map[string][]*connEntry),
 		maxIdle:     maxIdle,
 		maxLifetime: maxLifetime,
 		idleTimeout: idleTimeout,
-		done:        make(chan struct{}),
 	}
 
-	// Start the cleanup goroutine
-	pool.startCleanup()
+	p.cleaner = newCleanupManager(defaultCleanupInterval, p.cleanup)
+	p.cleaner.start()
 
-	return pool
-}
-
-// startCleanup starts a background goroutine to clean up stale connections.
-func (p *connectionPool) startCleanup() {
-	p.cleanupTicker = time.NewTicker(defaultCleanupInterval)
-
-	go func() {
-		for {
-			select {
-			case <-p.done:
-				return
-			case <-p.cleanupTicker.C:
-				p.cleanup()
-			}
-		}
-	}()
+	return p
 }
 
 // cleanup removes stale connections from the pool.
 func (p *connectionPool) cleanup() {
-	p.mu.Lock()
+	if !p.mu.TryLock() {
+		// If we can't get the lock immediately, skip this cleanup cycle
+		return
+	}
 	defer p.mu.Unlock()
 
 	now := time.Now()
@@ -96,7 +74,6 @@ func (p *connectionPool) cleanup() {
 				if err := entry.conn.Close(); err != nil {
 					log.Printf("Error closing stale connection: %v", err)
 				}
-
 				continue
 			}
 
@@ -180,27 +157,21 @@ func (p *connectionPool) put(address string, conn net.Conn) {
 
 // close closes all connections in the pool and stops the cleanup goroutine.
 func (p *connectionPool) close() {
-	// Stop the cleanup goroutine
-	if p.cleanupTicker != nil {
-		p.cleanupTicker.Stop()
-	}
+	p.closeOnce.Do(func() {
+		if p.cleaner != nil {
+			p.cleaner.stop()
+		}
 
-	close(p.done)
+		p.mu.Lock()
+		defer p.mu.Unlock()
 
-	// Close all connections
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	for _, entries := range p.connections {
-		for _, entry := range entries {
-			if err := entry.conn.Close(); err != nil {
-				log.Printf("Error closing connection during pool shutdown: %v", err)
+		for _, entries := range p.connections {
+			for _, entry := range entries {
+				entry.conn.Close()
 			}
 		}
-	}
-
-	// Clear the map
-	p.connections = make(map[string][]*connEntry)
+		p.connections = nil
+	})
 }
 
 // TCPScanner implementation using the improved connection pool.
@@ -251,20 +222,28 @@ func (s *TCPScanner) scanTarget(ctx context.Context, target models.Target, resul
 	// Try to get a connection from the pool.
 	conn, err := s.pool.get(scanCtx, s.dialer, address)
 	if err != nil {
+		// If context is cancelled, don't send result
+		if scanCtx.Err() != nil {
+			return
+		}
+
 		result.Error = err
 		result.Available = false
-		s.sendResultOrCleanup(ctx, results, &result, conn)
 
+		select {
+		case results <- result:
+		case <-ctx.Done():
+		}
 		return
 	}
 
 	// Use a flag to decide whether the connection should be returned to the pool.
 	var success bool
 	defer func() {
-		if success {
+		if success && ctx.Err() == nil {
 			s.pool.put(address, conn)
 		} else {
-			s.closeConn(conn, "scan failure")
+			s.closeConn(conn, "scan failure or context canceled")
 		}
 	}()
 
@@ -275,7 +254,11 @@ func (s *TCPScanner) scanTarget(ctx context.Context, target models.Target, resul
 	success = true
 
 	// Send the result; if context cancellation is detected, close the connection.
-	s.sendResultOrCleanup(ctx, results, &result, conn)
+	select {
+	case results <- result:
+	case <-ctx.Done():
+		return
+	}
 }
 
 // sendResultOrCleanup sends the result on the results channel. If the context is done,

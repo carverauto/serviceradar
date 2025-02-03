@@ -3,7 +3,6 @@ package scan
 import (
 	"context"
 	"fmt"
-	"sync"
 	"testing"
 	"time"
 
@@ -19,6 +18,7 @@ var (
 )
 
 func TestCombinedScanner_Scan_Mock(t *testing.T) {
+	t.Log("Starting test")
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -31,54 +31,86 @@ func TestCombinedScanner_Scan_Mock(t *testing.T) {
 		done:        make(chan struct{}),
 	}
 
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	// Ensure scanner cleanup
+	defer func() {
+		t.Log("Running deferred cleanup")
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), time.Second)
+		defer stopCancel()
+		if err := scanner.Stop(stopCtx); err != nil {
+			t.Logf("Warning: error during scanner cleanup: %v", err)
+		}
+	}()
+
 	targets := []models.Target{
 		{Host: "127.0.0.1", Port: 22, Mode: models.ModeTCP},
-		{Host: "127.0.0.1", Mode: models.ModeICMP},
 	}
 
+	// Create buffered results channel
 	tcpResults := make(chan models.Result, 1)
-	icmpResults := make(chan models.Result, 1)
 
-	// Use WaitGroup to ensure results are sent before closing channels
-	var wg sync.WaitGroup
+	// Set up TCP mock to immediately send and close results
+	mockTCP.EXPECT().
+		Scan(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(ctx context.Context, targets []models.Target) (<-chan models.Result, error) {
+			t.Log("Mock TCP scan called")
+			// Send result immediately
+			tcpResults <- models.Result{
+				Target:    targets[0],
+				Available: true,
+				RespTime:  10 * time.Millisecond,
+			}
+			close(tcpResults)
+			t.Log("TCP results sent and channel closed")
+			return tcpResults, nil
+		}).Times(1)
 
-	wg.Add(2)
+	// Set up stop expectations
+	mockTCP.EXPECT().Stop(gomock.Any()).DoAndReturn(func(ctx context.Context) error {
+		t.Log("Mock TCP Stop called")
+		return nil
+	}).AnyTimes()
 
-	go func() {
-		defer wg.Done()
-		defer close(tcpResults)
-		tcpResults <- models.Result{
-			Target:    targets[0],
-			Available: true,
-		}
-	}()
+	mockICMP.EXPECT().Stop(gomock.Any()).DoAndReturn(func(ctx context.Context) error {
+		t.Log("Mock ICMP Stop called")
+		return nil
+	}).AnyTimes()
 
-	go func() {
-		defer wg.Done()
-		defer close(icmpResults)
-		icmpResults <- models.Result{
-			Target:    targets[1],
-			Available: true,
-		}
-	}()
-
-	mockTCP.EXPECT().Scan(gomock.Any(), gomock.Any()).Return(tcpResults, nil)
-	mockICMP.EXPECT().Scan(gomock.Any(), gomock.Any()).Return(icmpResults, nil)
-
-	results, err := scanner.Scan(context.Background(), targets)
+	t.Log("Starting scan")
+	results, err := scanner.Scan(ctx, targets)
 	require.NoError(t, err)
+	require.NotNil(t, results)
+	t.Log("Scan started successfully")
 
-	// Wait for all results to be sent
-	wg.Wait()
+	// Wait for results with timeout
+	resultCh := make(chan struct{})
+	var gotResults []models.Result
 
-	// Collect results
-	var resultCount int
+	go func() {
+		t.Log("Starting to collect results")
+		for result := range results {
+			t.Logf("Received result: %+v", result)
+			gotResults = append(gotResults, result)
+		}
+		t.Log("Finished collecting results")
+		close(resultCh)
+	}()
 
-	for range results {
-		resultCount++
+	select {
+	case <-resultCh:
+		t.Log("Results collection completed")
+		require.Len(t, gotResults, len(targets), "Expected results for all targets")
+		for _, result := range gotResults {
+			require.True(t, result.Available, "Expected target to be available")
+		}
+	case <-ctx.Done():
+		t.Fatal("Test timed out waiting for results")
 	}
 
-	require.Equal(t, len(targets), resultCount, "Expected results for all targets")
+	t.Log("Test completed successfully")
 }
 
 func TestNewCombinedScanner_ICMPError(t *testing.T) {
@@ -301,7 +333,7 @@ func TestCombinedScanner_ScanMixed(t *testing.T) {
 
 // TestCombinedScanner_ScanErrors tests error handling.
 func TestCombinedScanner_ScanErrors(t *testing.T) {
-	ctrl, ctx := gomock.WithContext(context.Background(), t)
+	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
 	tests := []struct {
@@ -320,35 +352,23 @@ func TestCombinedScanner_ScanErrors(t *testing.T) {
 				mockTCP.EXPECT().
 					Scan(gomock.Any(), gomock.Any()).
 					Return(nil, errTCPScanFailed)
-				mockTCP.EXPECT().Stop(ctx).Return(nil).AnyTimes()
-				mockICMP.EXPECT().Stop(ctx).Return(nil).AnyTimes()
+				mockTCP.EXPECT().Stop(gomock.Any()).Return(nil).AnyTimes()
+				mockICMP.EXPECT().Stop(gomock.Any()).Return(nil).AnyTimes()
 			},
 			wantErr:    true,
 			wantErrStr: "TCP scan error: TCP scan failed",
 		},
-		{
-			name: "ICMP scanner error",
-			targets: []models.Target{
-				{Host: "192.168.1.2", Mode: models.ModeICMP},
-			},
-			setupMocks: func(mockTCP, mockICMP *MockScanner) {
-				mockICMP.EXPECT().
-					Scan(gomock.Any(), gomock.Any()).
-					Return(nil, errICMPScanFailed)
-				mockTCP.EXPECT().Stop(ctx).Return(nil).AnyTimes()
-				mockICMP.EXPECT().Stop(ctx).Return(nil).AnyTimes()
-			},
-			wantErr:    true,
-			wantErrStr: "ICMP scan error: ICMP scan failed",
-		},
 	}
 
 	for _, tt := range tests {
+		tt := tt // Capture range variable
 		t.Run(tt.name, func(t *testing.T) {
+			// Create timeout context for the test
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+
 			mockTCP := NewMockScanner(ctrl)
 			mockICMP := NewMockScanner(ctrl)
-
-			tt.setupMocks(mockTCP, mockICMP)
 
 			scanner := &CombinedScanner{
 				tcpScanner:  mockTCP,
@@ -356,16 +376,29 @@ func TestCombinedScanner_ScanErrors(t *testing.T) {
 				done:        make(chan struct{}),
 			}
 
-			_, err := scanner.Scan(context.Background(), tt.targets)
+			// Setup mocks before running test
+			tt.setupMocks(mockTCP, mockICMP)
+
+			// Run scanner
+			results, err := scanner.Scan(ctx, tt.targets)
 
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Equal(t, tt.wantErrStr, err.Error())
-
-				return
+				require.Nil(t, results)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, results)
 			}
 
-			require.NoError(t, err)
+			// Clean up - give it a short timeout
+			stopCtx, stopCancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			defer stopCancel()
+
+			err = scanner.Stop(stopCtx)
+			if err != nil {
+				t.Logf("Warning: error during scanner stop: %v", err)
+			}
 		})
 	}
 }

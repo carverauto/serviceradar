@@ -54,6 +54,7 @@ func TestSocketPool(t *testing.T) {
 		defer pool.close()
 
 		var wg sync.WaitGroup
+
 		numGoroutines := 10
 
 		successCount := atomic.Int32{}
@@ -62,6 +63,7 @@ func TestSocketPool(t *testing.T) {
 
 		for i := 0; i < numGoroutines; i++ {
 			wg.Add(1)
+
 			go func() {
 				defer wg.Done()
 
@@ -73,12 +75,14 @@ func TestSocketPool(t *testing.T) {
 						otherErrorCount.Add(1)
 						t.Errorf("Unexpected error: %v", err)
 					}
+
 					return
 				}
 
 				if conn == nil {
 					t.Error("Got nil connection with no error")
 					otherErrorCount.Add(1)
+
 					return
 				}
 
@@ -96,8 +100,8 @@ func TestSocketPool(t *testing.T) {
 		wg.Wait()
 
 		// Verify results
-		assert.Equal(t, int32(0), otherErrorCount.Load(), "Should not have any unexpected errors")
-		assert.True(t, successCount.Load() > 0, "Should have some successful socket acquisitions")
+		assert.Equal(t, int32(0), otherErrorCount.Load(), "Should not have any unexpected errors")          // Modified line 104
+		assert.Greater(t, successCount.Load(), int32(0), "Should have some successful socket acquisitions") // Modified line 105
 		assert.True(t, poolFullCount.Load() > 0, "Should have some pool-full conditions")
 		assert.Equal(t, int32(numGoroutines), successCount.Load()+poolFullCount.Load(),
 			"Total attempts should equal number of goroutines")
@@ -151,65 +155,91 @@ func TestICMPScanner(t *testing.T) {
 		// Get another buffer (should reuse the one we put back)
 		buf2 := pool.get()
 		require.NotNil(t, buf2)
-		require.Equal(t, 1500, len(buf2))
+		require.Len(t, buf2, 1500)
 	})
 }
 
 func TestICMPScannerGracefulShutdown(t *testing.T) {
-	scanner, err := NewICMPScanner(time.Second, 5, 3)
+	t.Parallel()
+
+	scanner, err := NewICMPScanner(100*time.Millisecond, 5, 3)
 	require.NoError(t, err)
 
-	// Create cancel context for the test
-	ctx, cancel := context.WithCancel(context.Background())
+	// Create a parent context with timeout
+	parentCtx, parentCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer parentCancel()
+
+	// Create scan context as child of parent
+	ctx, cancel := context.WithTimeout(parentCtx, 500*time.Millisecond)
 	defer cancel()
 
-	// Start scan in background
+	// Start scan
 	resultsCh, err := scanner.Scan(ctx, []models.Target{
 		{Host: "127.0.0.1", Mode: models.ModeICMP},
 	})
 	require.NoError(t, err)
 
-	// Wait a bit to ensure scanning has started
-	time.Sleep(100 * time.Millisecond)
+	// Track results in background
+	var results []models.Result
+	resultsDone := make(chan struct{})
 
-	// Create a channel to track completion of result processing
-	done := make(chan struct{})
 	go func() {
-		defer close(done)
-		for range resultsCh {
-			// Drain results until channel is closed
+		defer close(resultsDone)
+		for result := range resultsCh {
+			t.Logf("Received result: %+v", result)
+			results = append(results, result)
 		}
+		t.Log("Results channel closed")
 	}()
 
-	// Cancel the context
+	// Wait a short time for some results
+	select {
+	case <-time.After(100 * time.Millisecond):
+		// Continue with shutdown
+	case <-parentCtx.Done():
+		t.Fatal("Parent context timed out")
+	}
+
+	// Create stop context
+	stopCtx, stopCancel := context.WithTimeout(parentCtx, 500*time.Millisecond)
+	defer stopCancel()
+
+	// Cancel scan context to trigger shutdown
 	cancel()
 
 	// Stop the scanner
-	err = scanner.Stop(context.Background())
-	require.NoError(t, err)
+	err = scanner.Stop(stopCtx)
+	require.NoError(t, err, "Stop should not return error")
 
-	// Wait for result processing to complete with timeout
+	// Wait for results channel to close
 	select {
-	case <-done:
-		// Success - results channel was closed and goroutine finished // UPDATED ASSERTION
-	case <-time.After(2 * time.Second):
-		t.Fatal("Timeout waiting for results channel to close")
+	case <-resultsDone:
+		t.Log("Results channel closed successfully")
+	case <-parentCtx.Done():
+		t.Fatal("Parent context timed out waiting for results")
+	}
+
+	// Verify we got at least one result
+	if len(results) > 0 {
+		require.Equal(t, "127.0.0.1", results[0].Target.Host)
 	}
 }
 
-// Helper function to validate atomic operations are working correctly
 func TestAtomicOperations(t *testing.T) {
 	t.Run("Socket Use Counter", func(t *testing.T) {
 		entry := &socketEntry{}
+
 		var wg sync.WaitGroup
 
 		// Simulate concurrent increments
 		for i := 0; i < 100; i++ {
 			wg.Add(1)
+
 			go func() {
 				defer wg.Done()
 				entry.inUse.Add(1)
 			}()
+
 		}
 
 		// Simulate concurrent decrements
