@@ -14,6 +14,52 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestBaseProcessor_Cleanup(t *testing.T) {
+	// Initialize the processor with a sample config
+	config := &models.Config{
+		Ports: []int{443, 8080, 80}, // Using some ports, including 443 and 8080
+	}
+	processor := NewBaseProcessor(config)
+
+	// Simulate processing of results for ports 443 and 8080
+	result1 := &models.Result{
+		Target: models.Target{
+			Host: "192.168.1.1",
+			Port: 443,
+			Mode: models.ModeTCP,
+		},
+		Available: true,
+		RespTime:  time.Millisecond * 10,
+	}
+
+	result2 := &models.Result{
+		Target: models.Target{
+			Host: "192.168.1.2",
+			Port: 8080,
+			Mode: models.ModeTCP,
+		},
+		Available: true,
+		RespTime:  time.Millisecond * 15,
+	}
+
+	// Process the results
+	err := processor.Process(result1)
+	require.NoError(t, err)
+
+	err = processor.Process(result2)
+	require.NoError(t, err)
+
+	// Check the portCounts before cleanup
+	assert.Equal(t, 1, processor.portCounts[443], "Expected port 443 to have 1 count")
+	assert.Equal(t, 1, processor.portCounts[8080], "Expected port 8080 to have 1 count")
+
+	// Call cleanup
+	processor.cleanup()
+
+	// Verify that portCounts are cleared after cleanup
+	assert.Empty(t, processor.portCounts, "Expected portCounts to be empty after cleanup")
+}
+
 func TestBaseProcessor_MemoryManagement(t *testing.T) {
 	config := createLargePortConfig()
 

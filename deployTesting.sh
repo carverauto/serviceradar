@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # Define the version of the packages
-VERSION=${VERSION:-1.0.14}
+VERSION=${VERSION:-1.0.16}
 
 # Define the list of remote machines
-MACHINES=("192.168.2.10" "192.168.2.11" "192.168.2.12")
+MACHINES=("192.168.2.10" "192.168.2.11" "192.168.2.12" "192.168.2.68")
 
 # Define the list of packages to be deployed
 PACKAGES=("serviceradar-agent" "serviceradar-poller")

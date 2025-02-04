@@ -100,30 +100,24 @@ func (p *BaseProcessor) UpdateConfig(config *models.Config) {
 
 func (p *BaseProcessor) cleanup() {
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	log.Printf("Starting cleanup")
-
-	// Get all hosts to clean up
 	hostsToClean := make([]*models.HostResult, 0, len(p.hostMap))
+
 	for _, host := range p.hostMap {
 		hostsToClean = append(hostsToClean, host)
 	}
 
-	// Reset maps first
+	// Reset internal maps, including portCounts.
 	p.hostMap = make(map[string]*models.HostResult)
-	p.portCounts = make(map[int]int)
+	p.portCounts = make(map[int]int) // Explicitly reset the portCounts map
 	p.firstSeenTimes = make(map[string]time.Time)
 	p.totalHosts = 0
 	p.lastSweepTime = time.Time{}
 
-	// Clean up hosts outside the lock
 	p.mu.Unlock()
 
+	// Perform cleanup outside of the lock
 	for _, host := range hostsToClean {
-		// Clean up port results
 		for _, pr := range host.PortResults {
-			// Reset and return port result to pool
 			pr.Port = 0
 			pr.Available = false
 			pr.RespTime = 0
@@ -131,15 +125,13 @@ func (p *BaseProcessor) cleanup() {
 			p.portResultPool.Put(pr)
 		}
 
-		// Reset and return host result to pool
 		host.Host = ""
 		host.PortResults = host.PortResults[:0]
 		host.ICMPStatus = nil
 		host.ResponseTime = 0
+
 		p.hostResultPool.Put(host)
 	}
-
-	p.mu.Lock() // Re-acquire lock before returning (due to defer)
 
 	log.Printf("Cleanup complete")
 }
