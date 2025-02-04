@@ -31,7 +31,6 @@ type TCPScanner struct {
 	dialer      *net.Dialer
 	done        chan struct{}
 	closeOnce   sync.Once
-	mu          sync.Mutex
 }
 
 // connEntry represents a connection in the pool.
@@ -87,6 +86,7 @@ func (p *connectionPool) cleanup() {
 				if err := entry.conn.Close(); err != nil {
 					log.Printf("Error closing stale connection: %v", err)
 				}
+
 				continue
 			}
 
@@ -180,9 +180,13 @@ func (p *connectionPool) close() {
 
 		for _, entries := range p.connections {
 			for _, entry := range entries {
-				entry.conn.Close()
+				err := entry.conn.Close()
+				if err != nil {
+					return
+				}
 			}
 		}
+
 		p.connections = nil
 	})
 }
@@ -216,18 +220,23 @@ func (s *TCPScanner) scanTarget(ctx context.Context, target models.Target, resul
 		LastSeen:  time.Now(),
 	}
 
+	// Create connection with shorter timeout
+	connCtx, cancel := context.WithTimeout(ctx, s.timeout/2)
+	defer cancel()
+
 	address := fmt.Sprintf("%s:%d", target.Host, target.Port)
 
-	// Try to get a connection from the pool
-	conn, err := s.pool.get(ctx, s.dialer, address)
+	conn, err := s.pool.get(connCtx, s.dialer, address)
 	if err != nil {
-		result.Error = err
-		result.Available = false
-
-		select {
-		case results <- result:
-		case <-ctx.Done():
+		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+			result.Error = err
+			result.Available = false
+			select {
+			case results <- result:
+			case <-ctx.Done():
+			}
 		}
+
 		return
 	}
 
@@ -249,6 +258,7 @@ func (s *TCPScanner) scanTarget(ctx context.Context, target models.Target, resul
 	select {
 	case results <- result:
 		if result.Available {
+			// Only log successful connections
 			log.Printf("Host %s has port %d open (%.2fms)",
 				target.Host, target.Port, float64(result.RespTime.Microseconds())/1000)
 		}
@@ -256,8 +266,8 @@ func (s *TCPScanner) scanTarget(ctx context.Context, target models.Target, resul
 	}
 }
 
-// closeConn safely closes a connection and logs any errors
-func (s *TCPScanner) closeConn(conn net.Conn, reason string) {
+// closeConn safely closes a connection and logs any errors.
+func (*TCPScanner) closeConn(conn net.Conn, reason string) {
 	if conn != nil {
 		if err := conn.Close(); err != nil && !strings.Contains(err.Error(), "use of closed network connection") {
 			log.Printf("Error closing connection (%s): %v", reason, err)
@@ -265,7 +275,7 @@ func (s *TCPScanner) closeConn(conn net.Conn, reason string) {
 	}
 }
 
-func (s *TCPScanner) checkConnection(conn net.Conn) bool {
+func (*TCPScanner) checkConnection(conn net.Conn) bool {
 	tcpConn, ok := conn.(*net.TCPConn)
 	if !ok {
 		return true // Accept non-TCP connections as valid
@@ -276,6 +286,7 @@ func (s *TCPScanner) checkConnection(conn net.Conn) bool {
 		if !strings.Contains(err.Error(), "use of closed network connection") {
 			log.Printf("Error setting read deadline: %v", err)
 		}
+
 		return false
 	}
 
@@ -304,6 +315,7 @@ func (s *TCPScanner) checkConnection(conn net.Conn) bool {
 		if errors.Is(err, io.EOF) {
 			return true
 		}
+
 		return false
 	}
 
@@ -326,6 +338,7 @@ func (s *TCPScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 	if len(targets) == 0 {
 		results := make(chan models.Result)
 		close(results)
+
 		return results, nil
 	}
 
@@ -464,7 +477,7 @@ func (s *TCPScanner) processTargets(ctx context.Context, targets []models.Target
 	targetWg.Wait()
 }
 
-func (s *TCPScanner) Stop(ctx context.Context) error {
+func (s *TCPScanner) Stop(context.Context) error {
 	log.Println("TCP Scanner Stop called")
 
 	s.closeOnce.Do(func() {

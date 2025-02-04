@@ -429,7 +429,6 @@ func (*ICMPScanner) calculateChecksum(data []byte) uint16 {
 func (s *ICMPScanner) Scan(ctx context.Context, targets []models.Target) (<-chan models.Result, error) {
 	// Filter for ICMP targets only
 	icmpTargets := make([]models.Target, 0)
-
 	for _, target := range targets {
 		if target.Mode == models.ModeICMP {
 			icmpTargets = append(icmpTargets, target)
@@ -439,30 +438,31 @@ func (s *ICMPScanner) Scan(ctx context.Context, targets []models.Target) (<-chan
 	if len(icmpTargets) == 0 {
 		results := make(chan models.Result)
 		close(results)
-
 		return results, nil
 	}
 
 	// Create buffered results channel
 	results := make(chan models.Result, len(icmpTargets))
 
-	// Calculate rate limit
-	rateLimit := time.Second / time.Duration(s.concurrency)
-
-	// Create scan context
+	// Create scan context with cancel
 	scanCtx, cancel := context.WithCancel(ctx)
 
-	// Create WaitGroup for all goroutines
+	// Create WaitGroup for tracking all goroutines
 	var wg sync.WaitGroup
 
-	// Start the listener
+	// Create atomic counter for processed targets
+	processedTargets := atomic.Int32{}
+
+	// Start the listener first
 	listenerReady := make(chan struct{})
 	listenerErr := make(chan error, 1)
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if err := s.listenForReplies(scanCtx, listenerReady); err != nil && !errors.Is(err, context.Canceled) {
+		if err := s.listenForReplies(scanCtx, listenerReady); err != nil &&
+			!errors.Is(err, context.Canceled) &&
+			!errors.Is(err, context.DeadlineExceeded) {
 			select {
 			case listenerErr <- err:
 			default:
@@ -484,50 +484,76 @@ func (s *ICMPScanner) Scan(ctx context.Context, targets []models.Target) (<-chan
 		return nil, ctx.Err()
 	}
 
-	// Start cleanup goroutine
-	go func() {
-		defer cancel()
-		defer close(results)
-
-		// Wait for all goroutines or cancellation
-		done := make(chan struct{})
-		go func() {
-			wg.Wait()
-			close(done)
-		}()
-
-		select {
-		case <-done:
-			log.Println("ICMP scan completed successfully")
-		case <-ctx.Done():
-			log.Println("ICMP scan stopping due to context cancellation")
-		case <-s.done:
-			log.Println("ICMP scan stopping due to scanner shutdown")
-		}
-	}()
-
 	// Start target processing
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if err := s.processTargets(scanCtx, icmpTargets, results, rateLimit); err != nil && !errors.Is(err, context.Canceled) {
-			log.Printf("Error processing targets: %v", err)
+		s.processTargets(scanCtx, icmpTargets, results, &processedTargets)
+	}()
+
+	// Start cleanup goroutine
+	go func() {
+		// Create channel for completion notification
+		processDone := make(chan struct{})
+		go func() {
+			wg.Wait()
+			close(processDone)
+		}()
+
+		// Wait for either completion or cancellation
+		select {
+		case <-processDone:
+			targetCount := processedTargets.Load()
+			if targetCount > 0 {
+				log.Printf("ICMP scan completed successfully, processed %d targets", targetCount)
+			} else {
+				log.Println("ICMP scan completed with no targets processed")
+			}
+		case <-ctx.Done():
+			// Don't log context cancellation as an error if we got results
+			targetCount := processedTargets.Load()
+			if targetCount > 0 {
+				log.Printf("ICMP scan stopping after processing %d targets", targetCount)
+			} else {
+				log.Println("ICMP scan cancelled before processing any targets")
+			}
+		case <-s.done:
+			log.Println("ICMP scan stopping due to scanner shutdown")
 		}
+
+		// Cancel context and wait for processing to complete
+		cancel()
+
+		// Wait again with timeout to ensure cleanup
+		cleanupTimer := time.NewTimer(s.timeout)
+		defer cleanupTimer.Stop()
+
+		select {
+		case <-processDone:
+			// Processing completed normally
+		case <-cleanupTimer.C:
+			log.Println("Warning: ICMP scan cleanup timed out")
+		}
+
+		// Now it's safe to close the results channel
+		close(results)
 	}()
 
 	return results, nil
 }
 
-func (s *ICMPScanner) processTargets(ctx context.Context, targets []models.Target, results chan<- models.Result, rateLimit time.Duration) error {
+func (s *ICMPScanner) processTargets(ctx context.Context, targets []models.Target, results chan<- models.Result, processed *atomic.Int32) {
 	log.Println("Starting processTargets")
 	defer log.Println("processTargets completed")
 
-	limiter := rate.NewLimiter(rate.Every(time.Second/time.Duration(s.concurrency)), s.concurrency)
+	// Calculate rate limit
+	rateLimit := time.Second / time.Duration(s.concurrency)
+	limiter := rate.NewLimiter(rate.Every(rateLimit), s.concurrency)
 
 	for i := 0; i < len(targets); i += s.concurrency {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return
 		default:
 		}
 
@@ -552,6 +578,7 @@ func (s *ICMPScanner) processTargets(ctx context.Context, targets []models.Targe
 				}
 
 				s.sendPingsToTarget(ctx, target, rateLimit)
+				processed.Add(1)
 			}(target)
 		}
 
@@ -569,12 +596,11 @@ func (s *ICMPScanner) processTargets(ctx context.Context, targets []models.Targe
 				s.sendResultsForTarget(ctx, results, target)
 			}
 		case <-ctx.Done():
-			return ctx.Err()
+			return
 		case <-s.done:
-			return nil
+			return
 		}
 	}
-	return nil
 }
 
 func (s *ICMPScanner) listenForReplies(ctx context.Context, ready chan<- struct{}) error {
