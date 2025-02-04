@@ -13,13 +13,13 @@ import (
 )
 
 var (
-	errTCPScanFailed  = fmt.Errorf("TCP scan failed")
-	errICMPScanFailed = fmt.Errorf("ICMP scan failed")
+	errTCPScanFailed = fmt.Errorf("TCP scan failed")
 )
 
 func TestCombinedScanner_Scan_Mock(t *testing.T) {
 	t.Log("Starting test")
 	ctrl := gomock.NewController(t)
+
 	defer ctrl.Finish()
 
 	mockTCP := NewMockScanner(ctrl)
@@ -31,28 +31,73 @@ func TestCombinedScanner_Scan_Mock(t *testing.T) {
 		done:        make(chan struct{}),
 	}
 
-	// Create context with timeout
+	// Create a context with timeout.
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	// Ensure scanner cleanup
-	defer func() {
-		t.Log("Running deferred cleanup")
-		stopCtx, stopCancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-		defer stopCancel()
-		if err := scanner.Stop(stopCtx); err != nil {
-			t.Logf("Warning: error stopping scanner: %v", err)
-		}
-	}()
+	// Ensure scanner cleanup.
+	defer cleanupScanner(t, scanner)
 
 	targets := []models.Target{
 		{Host: "127.0.0.1", Port: 22, Mode: models.ModeTCP},
 	}
 
-	// Set up mock expectations
 	tcpResults := make(chan models.Result, 1)
 	mockComplete := make(chan struct{})
 
+	// Set up mock expectations in a helper.
+	setupMockExpectations(t, mockTCP, mockICMP, tcpResults, mockComplete)
+
+	t.Log("Starting scan")
+
+	results, err := scanner.Scan(ctx, targets)
+
+	require.NoError(t, err)
+	require.NotNil(t, results)
+
+	t.Log("Scan started successfully")
+
+	// Collect results in a goroutine.
+	var gotResults []models.Result
+
+	resultsDone := make(chan struct{})
+
+	go func() {
+		t.Log("Starting to collect results")
+
+		defer close(resultsDone)
+
+		for result := range results {
+			t.Logf("Received result: %+v", result)
+			gotResults = append(gotResults, result)
+		}
+
+		t.Log("Finished collecting results")
+	}()
+
+	// Wait for results, a mock-completion signal, or a timeout.
+	select {
+	case <-resultsDone:
+		require.Len(t, gotResults, len(targets), "Expected one result")
+		require.True(t, gotResults[0].Available, "Expected target to be available")
+		t.Log("Test completed successfully")
+	case <-mockComplete:
+		// Allow a grace period for the results channel to close.
+		select {
+		case <-resultsDone:
+			require.Len(t, gotResults, len(targets), "Expected one result")
+			require.True(t, gotResults[0].Available, "Expected target to be available")
+			t.Log("Test completed successfully after grace period")
+		case <-time.After(100 * time.Millisecond):
+			t.Fatal("Test timed out waiting for results channel to close")
+		}
+	case <-ctx.Done():
+		t.Fatal("Test timed out waiting for results")
+	}
+}
+
+func setupMockExpectations(t *testing.T,
+	mockTCP, mockICMP *MockScanner, tcpResults chan models.Result, mockComplete chan struct{}) {
 	mockTCP.EXPECT().
 		Scan(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(ctx context.Context, targets []models.Target) (<-chan models.Result, error) {
@@ -87,46 +132,16 @@ func TestCombinedScanner_Scan_Mock(t *testing.T) {
 			t.Log("Mock ICMP Stop called")
 			return nil
 		}).AnyTimes()
+}
 
-	// Start scan
-	t.Log("Starting scan")
-	results, err := scanner.Scan(ctx, targets)
-	require.NoError(t, err)
-	require.NotNil(t, results)
-	t.Log("Scan started successfully")
+func cleanupScanner(t *testing.T, scanner *CombinedScanner) {
+	t.Log("Running deferred cleanup")
 
-	// Collect results
-	var gotResults []models.Result
-	resultsDone := make(chan struct{})
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer stopCancel()
 
-	go func() {
-		t.Log("Starting to collect results")
-		defer close(resultsDone)
-		for result := range results {
-			t.Logf("Received result: %+v", result)
-			gotResults = append(gotResults, result)
-		}
-		t.Log("Finished collecting results")
-	}()
-
-	// Wait for either results or timeout with more detailed logging
-	select {
-	case <-resultsDone:
-		require.Len(t, gotResults, len(targets), "Expected one result")
-		require.True(t, gotResults[0].Available, "Expected target to be available")
-		t.Log("Test completed successfully")
-	case <-mockComplete:
-		// Give a small grace period for results channel to close
-		select {
-		case <-resultsDone:
-			require.Len(t, gotResults, len(targets), "Expected one result")
-			require.True(t, gotResults[0].Available, "Expected target to be available")
-			t.Log("Test completed successfully after grace period")
-		case <-time.After(100 * time.Millisecond):
-			t.Fatal("Test timed out waiting for results channel to close")
-		}
-	case <-ctx.Done():
-		t.Fatal("Test timed out waiting for results")
+	if err := scanner.Stop(stopCtx); err != nil {
+		t.Logf("Warning: error stopping scanner: %v", err)
 	}
 }
 
@@ -378,7 +393,6 @@ func TestCombinedScanner_ScanErrors(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		tt := tt // Capture range variable
 		t.Run(tt.name, func(t *testing.T) {
 			// Create timeout context for the test
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)

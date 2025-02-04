@@ -11,15 +11,6 @@ import (
 	"github.com/mfreeman451/serviceradar/pkg/models"
 )
 
-var (
-	errScannerStop = errors.New("scanner stop error")
-)
-
-const (
-	errChannelSize = 2
-	timeAfter      = 10 * time.Millisecond
-)
-
 type CombinedScanner struct {
 	tcpScanner  Scanner
 	icmpScanner Scanner
@@ -122,8 +113,10 @@ func (s *CombinedScanner) Scan(ctx context.Context, targets []models.Target) (<-
 	// Start TCP scanning if needed
 	if len(separated.tcp) > 0 && s.tcpScanner != nil {
 		wg.Add(1)
+
 		go func() {
 			defer wg.Done()
+
 			s.processTargetsWithError(scanCtx, s.tcpScanner, "TCP", separated.tcp, results, errCh)
 		}()
 	}
@@ -131,8 +124,10 @@ func (s *CombinedScanner) Scan(ctx context.Context, targets []models.Target) (<-
 	// Start ICMP scanning if needed
 	if len(separated.icmp) > 0 && s.icmpScanner != nil {
 		wg.Add(1)
+
 		go func() {
 			defer wg.Done()
+
 			s.processTargetsWithError(scanCtx, s.icmpScanner, "ICMP", separated.icmp, results, errCh)
 		}()
 	}
@@ -168,8 +163,10 @@ func (s *CombinedScanner) Scan(ctx context.Context, targets []models.Target) (<-
 	case err := <-errCh:
 		if err != nil && !errors.Is(err, context.Canceled) {
 			cancel()
+
 			return nil, err
 		}
+
 		return results, nil
 	case <-time.After(10 * time.Millisecond):
 		return results, nil

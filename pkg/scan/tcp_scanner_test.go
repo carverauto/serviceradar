@@ -25,7 +25,12 @@ func TestTCPScanner_HighConcurrency(t *testing.T) {
 	}
 
 	scanner := NewTCPScanner(100*time.Millisecond, 10, 10, time.Second, time.Second)
-	defer scanner.Stop(context.Background())
+	defer func(scanner *TCPScanner, ctx context.Context) {
+		err := scanner.Stop(ctx)
+		if err != nil {
+			t.Logf("Warning: error stopping scanner: %v", err)
+		}
+	}(scanner, context.Background())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -34,10 +39,12 @@ func TestTCPScanner_HighConcurrency(t *testing.T) {
 	require.NoError(t, err)
 
 	var results []models.Result
+
 	resultsDone := make(chan struct{})
 
 	go func() {
 		defer close(resultsDone)
+
 		for result := range resultsChan {
 			results = append(results, result)
 		}
@@ -65,6 +72,7 @@ func TestTCPScanner_Scan(t *testing.T) {
 		defer func() {
 			stopCtx, stopCancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			defer stopCancel()
+
 			if err := scanner.Stop(stopCtx); err != nil {
 				t.Logf("Warning: error stopping scanner: %v", err)
 			}
@@ -81,10 +89,12 @@ func TestTCPScanner_Scan(t *testing.T) {
 
 		// Collect results with timeout
 		var gotResults []models.Result
+
 		resultsDone := make(chan struct{})
 
 		go func() {
 			defer close(resultsDone)
+
 			for result := range results {
 				gotResults = append(gotResults, result)
 			}
@@ -94,6 +104,7 @@ func TestTCPScanner_Scan(t *testing.T) {
 		select {
 		case <-resultsDone:
 			require.Len(t, gotResults, len(targets))
+
 			for _, result := range gotResults {
 				require.Equal(t, "127.0.0.1", result.Target.Host)
 				require.Equal(t, 22, result.Target.Port)
@@ -126,10 +137,12 @@ func TestTCPScanner_Scan_ContextCancellation(t *testing.T) {
 
 	// Create a channel to collect results
 	var results []models.Result
+
 	done := make(chan struct{})
 
 	go func() {
 		defer close(done)
+
 		for result := range resultsCh {
 			results = append(results, result)
 		}

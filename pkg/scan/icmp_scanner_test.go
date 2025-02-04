@@ -100,8 +100,8 @@ func TestSocketPool(t *testing.T) {
 		wg.Wait()
 
 		// Verify results
-		assert.Equal(t, int32(0), otherErrorCount.Load(), "Should not have any unexpected errors")          // Modified line 104
-		assert.Greater(t, successCount.Load(), int32(0), "Should have some successful socket acquisitions") // Modified line 105
+		assert.Equal(t, int32(0), otherErrorCount.Load(), "Should not have any unexpected errors") // Modified line 104
+		assert.Positive(t, successCount.Load(), "Should have some successful socket acquisitions")
 		assert.True(t, poolFullCount.Load() > 0, "Should have some pool-full conditions")
 		assert.Equal(t, int32(numGoroutines), successCount.Load()+poolFullCount.Load(),
 			"Total attempts should equal number of goroutines")
@@ -147,7 +147,7 @@ func TestICMPScanner(t *testing.T) {
 		// Get buffer
 		buf := pool.get()
 		require.NotNil(t, buf)
-		require.Equal(t, 1500, len(buf))
+		require.Len(t, buf, 1500)
 
 		// Return buffer
 		pool.put(buf)
@@ -181,14 +181,17 @@ func TestICMPScannerGracefulShutdown(t *testing.T) {
 
 	// Track results in background
 	var results []models.Result
+
 	resultsDone := make(chan struct{})
 
 	go func() {
 		defer close(resultsDone)
+
 		for result := range resultsCh {
 			t.Logf("Received result: %+v", result)
 			results = append(results, result)
 		}
+
 		t.Log("Results channel closed")
 	}()
 
