@@ -214,51 +214,61 @@ func NewTCPScanner(timeout time.Duration, concurrency, maxIdle int, maxLifetime,
 }
 
 func (s *TCPScanner) scanTarget(ctx context.Context, target models.Target, results chan<- models.Result) {
+	// Initialize result
 	result := models.Result{
 		Target:    target,
 		FirstSeen: time.Now(),
 		LastSeen:  time.Now(),
 	}
 
-	// Create connection with shorter timeout
+	// Create a shorter timeout context for dialing
 	connCtx, cancel := context.WithTimeout(ctx, s.timeout/2)
 	defer cancel()
 
 	address := fmt.Sprintf("%s:%d", target.Host, target.Port)
-
 	conn, err := s.pool.get(connCtx, s.dialer, address)
 	if err != nil {
-		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-			result.Error = err
-			result.Available = false
-			select {
-			case results <- result:
-			case <-ctx.Done():
-			}
-		}
-
+		s.handleDialError(ctx, err, &result, results)
 		return
 	}
 
+	// Flag to track successful connection for cleanup purposes.
 	success := false
-	defer func() {
-		if success && ctx.Err() == nil {
-			s.pool.put(address, conn)
-		} else {
-			s.closeConn(conn, "scan completion")
-		}
-	}()
+	defer s.cleanupConnection(ctx, address, conn, &success)
 
+	// Check connection and record response time.
 	startTime := time.Now()
 	result.Available = s.checkConnection(conn)
 	result.RespTime = time.Since(startTime)
-
 	success = result.Available
 
+	s.dispatchResult(ctx, results, &result, target)
+}
+
+func (s *TCPScanner) handleDialError(ctx context.Context, err error, result *models.Result, results chan<- models.Result) {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return
+	}
+	result.Error = err
+	result.Available = false
 	select {
-	case results <- result:
+	case results <- *result:
+	case <-ctx.Done():
+	}
+}
+
+func (s *TCPScanner) cleanupConnection(ctx context.Context, address string, conn net.Conn, success *bool) {
+	if *success && ctx.Err() == nil {
+		s.pool.put(address, conn)
+	} else {
+		s.closeConn(conn, "scan completion")
+	}
+}
+
+func (s *TCPScanner) dispatchResult(ctx context.Context, results chan<- models.Result, result *models.Result, target models.Target) {
+	select {
+	case results <- *result:
 		if result.Available {
-			// Only log successful connections
 			log.Printf("Host %s has port %d open (%.2fms)",
 				target.Host, target.Port, float64(result.RespTime.Microseconds())/1000)
 		}
@@ -312,6 +322,7 @@ func (*TCPScanner) checkConnection(conn net.Conn) bool {
 		if errors.As(err, &netErr) && netErr.Timeout() {
 			return true
 		}
+
 		if errors.Is(err, io.EOF) {
 			return true
 		}
@@ -484,6 +495,7 @@ func (s *TCPScanner) Stop(context.Context) error {
 		if s.done != nil {
 			close(s.done)
 		}
+
 		if s.pool != nil {
 			s.pool.close()
 		}
