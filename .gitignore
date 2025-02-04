@@ -162,3 +162,23 @@ serviceradar-cloud_*/
 # Coverage files
 cover.long.profile
 cover.short.profile
+
+# Ignore deployment scripts if not needed
+deployCerts.sh
+
+# Ignore build artifacts and distribution directories
+dist/
+packaging/dist/
+
+# Ignore temporary or local databases
+identifier.sqlite
+
+# Ignore diff files
+p1.diff
+
+# Ignore specific asset directories that you don’t need in the repository
+pkg/cloud/api/web/dist/favicons/
+
+# Ignore versioned build outputs
+serviceradar-agent_*
+serviceradar-dusk-checker_*
