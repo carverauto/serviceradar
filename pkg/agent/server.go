@@ -393,7 +393,7 @@ func (s *Server) getChecker(ctx context.Context, req *proto.StatusRequest) (chec
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	key := fmt.Sprintf("%s:%s", req.GetServiceType(), req.GetServiceName())
+	key := fmt.Sprintf("%s:%s:%s", req.GetServiceType(), req.GetServiceName(), req.GetDetails())
 
 	// Return existing checker if available
 	if check, exists := s.checkers[key]; exists {
