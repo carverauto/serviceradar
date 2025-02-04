@@ -156,7 +156,6 @@ func (*socketPool) createSocket(now time.Time) (*socketEntry, error) {
 }
 
 // recycleSocket finds an idle socket, closes it, and recreates it.
-// recycleSocket finds an idle socket, closes it, and recreates it.
 func (p *socketPool) recycleSocket(now time.Time) (*socketEntry, error) {
 	for _, entry := range p.sockets {
 		if entry.inUse.Load() != 0 || entry.closed.Load() {
@@ -309,7 +308,7 @@ func NewICMPScanner(timeout time.Duration, concurrency, count int) (*ICMPScanner
 		socketPool:    newSocketPool(defaultMaxSockets, defaultMaxSocketAge, defaultMaxIdleTime),
 		bufferPool:    newBufferPool(maxPacketSize),
 		done:          make(chan struct{}),
-		closeDoneOnce: sync.Once{}, // ADDED
+		closeDoneOnce: sync.Once{},
 		responses:     sync.Map{},
 	}
 
