@@ -81,6 +81,8 @@ func (p *BaseProcessor) UpdateConfig(config *models.Config) {
 	}
 
 	// Take lock only for the update
+	oldPortCount := p.portCount
+
 	p.mu.Lock()
 	if newPortCount != p.portCount {
 		p.portCount = newPortCount
@@ -89,8 +91,7 @@ func (p *BaseProcessor) UpdateConfig(config *models.Config) {
 	}
 	p.mu.Unlock()
 
-	// Clean up after releasing the lock
-	if newPortCount != p.portCount {
+	if newPortCount != oldPortCount {
 		log.Printf("Cleaning up existing results")
 		p.cleanup()
 	}
