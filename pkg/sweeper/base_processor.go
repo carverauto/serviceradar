@@ -81,6 +81,8 @@ func (p *BaseProcessor) UpdateConfig(config *models.Config) {
 	}
 
 	// Take lock only for the update
+	oldPortCount := p.portCount
+
 	p.mu.Lock()
 	if newPortCount != p.portCount {
 		p.portCount = newPortCount
@@ -89,10 +91,10 @@ func (p *BaseProcessor) UpdateConfig(config *models.Config) {
 	}
 	p.mu.Unlock()
 
-	// Clean up after releasing the lock
-	if newPortCount != p.portCount {
-		log.Printf("Cleaning up existing results")
-		p.cleanup()
+	// Only cleanup if you actually want to flush out stale data.
+	// In this case, we want to preserve existing hosts so we don’t call cleanup.
+	if newPortCount != oldPortCount {
+		log.Printf("Port count updated from %d to %d (preserving existing host data)", oldPortCount, newPortCount)
 	}
 }
 
