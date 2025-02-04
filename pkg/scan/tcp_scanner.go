@@ -361,10 +361,11 @@ func (s *TCPScanner) processTargets(ctx context.Context, targets []models.Target
 	targetWg.Wait()
 }
 
-func (s *TCPScanner) processSingleTarget(ctx context.Context, target models.Target, sem chan struct{}, results chan<- models.Result, wg *sync.WaitGroup) {
+func (s *TCPScanner) processSingleTarget(
+	ctx context.Context, target models.Target, sem chan struct{}, results chan<- models.Result, wg *sync.WaitGroup) {
 	defer wg.Done()
 
-	// Acquire semaphore or exit if context is cancelled.
+	// Acquire semaphore or exit if context is canceled.
 	select {
 	case sem <- struct{}{}:
 		defer func() { <-sem }()
@@ -388,7 +389,7 @@ func (s *TCPScanner) processSingleTarget(ctx context.Context, target models.Targ
 	if err != nil {
 		result.Error = err
 		result.Available = false
-		s.sendResult(ctx, results, result)
+		s.sendResult(ctx, results, &result)
 
 		return
 	}
@@ -407,7 +408,7 @@ func (s *TCPScanner) processSingleTarget(ctx context.Context, target models.Targ
 	result.RespTime = time.Since(startTime)
 	success = result.Available
 
-	s.sendResult(ctx, results, result)
+	s.sendResult(ctx, results, &result)
 
 	if result.Available {
 		log.Printf("Host %s has port %d open (%.2fms)",
@@ -416,9 +417,9 @@ func (s *TCPScanner) processSingleTarget(ctx context.Context, target models.Targ
 	}
 }
 
-func (*TCPScanner) sendResult(ctx context.Context, results chan<- models.Result, result models.Result) {
+func (*TCPScanner) sendResult(ctx context.Context, results chan<- models.Result, result *models.Result) {
 	select {
-	case results <- result:
+	case results <- *result:
 	case <-ctx.Done():
 	}
 }

@@ -190,6 +190,8 @@ func (p *socketPool) recycleSocket(now time.Time) (*socketEntry, error) {
 
 // socketWithReleaseFunc returns the socket connection along with a release function
 // that decrements the in-use counter and updates the last used timestamp.
+//
+//nolint:unparam // error is reserved for future use; currently always nil.
 func (*socketPool) socketWithReleaseFunc(entry *socketEntry) (*icmp.PacketConn, func(), error) {
 	// Create a copy of entry for use in the closure to avoid race conditions.
 	e := entry
@@ -684,7 +686,7 @@ func (s *ICMPScanner) processBatch(
 func (s *ICMPScanner) listenForReplies(ctx context.Context, ready chan<- struct{}) error {
 	defer log.Println("listenForReplies complete")
 
-	// Get a socket from the pool
+	// Get a socket from the pool.
 	conn, release, err := s.socketPool.getSocket()
 	if err != nil {
 		close(ready)
@@ -692,10 +694,10 @@ func (s *ICMPScanner) listenForReplies(ctx context.Context, ready chan<- struct{
 	}
 	defer release()
 
-	// Signal that we're ready to receive
+	// Signal that we're ready to receive.
 	close(ready)
 
-	// Create buffer for reading
+	// Create buffer for reading.
 	buffer := s.bufferPool.get()
 	defer s.bufferPool.put(buffer)
 
@@ -706,36 +708,63 @@ func (s *ICMPScanner) listenForReplies(ctx context.Context, ready chan<- struct{
 		case <-s.done:
 			return nil
 		default:
-			if err := conn.SetReadDeadline(time.Now().Add(packetReadDeadline)); err != nil {
-				if !strings.Contains(err.Error(), "use of closed network connection") {
-					return fmt.Errorf("set deadline failed: %w", err)
-				}
-
-				return nil
+			// Read one ICMP message.
+			msg, peer, err := s.readOneMessage(conn, buffer)
+			if err != nil {
+				// Fatal error during read: return immediately.
+				return err
 			}
 
-			n, peer, err := conn.ReadFrom(buffer)
-			if err != nil {
-				if !strings.Contains(err.Error(), "use of closed network connection") &&
-					!strings.Contains(err.Error(), "i/o timeout") {
-					continue
-				}
-				// Don't return on timeout, just continue
-				continue
-			}
-
-			msg, err := s.parseICMPMessage(buffer[:n])
-			if err != nil {
+			if msg == nil {
+				// Non-fatal error or no valid message received; continue.
 				continue
 			}
 
 			if msg.Type != ipv4.ICMPTypeEchoReply {
+				// Not an echo reply; ignore.
 				continue
 			}
 
 			s.processICMPReply(peer)
 		}
 	}
+}
+
+// readOneMessage performs one iteration of reading and parsing an ICMP message.
+// It returns (msg, peer, nil) on success, or (nil, nil, err) for fatal errors.
+// For nonfatal errors (e.g. i/o timeout or parse errors) it returns (nil, nil, nil)
+// so that the caller can simply continue the loop.
+func (s *ICMPScanner) readOneMessage(conn *icmp.PacketConn, buffer []byte) (*icmp.Message, net.Addr, error) {
+	// Set read deadline.
+	if err := conn.SetReadDeadline(time.Now().Add(packetReadDeadline)); err != nil {
+		if !strings.Contains(err.Error(), "use of closed network connection") {
+			return nil, nil, fmt.Errorf("set deadline failed: %w", err)
+		}
+
+		return nil, nil, err
+	}
+
+	// Read from the connection.
+	n, peer, err := conn.ReadFrom(buffer)
+	if err != nil {
+		// If the error is not a closed connection or timeout, return it.
+		if !strings.Contains(err.Error(), "use of closed network connection") &&
+			!strings.Contains(err.Error(), "i/o timeout") {
+			return nil, nil, err
+		}
+
+		// For timeout or closed connection errors, return nil so the loop can continue.
+		return nil, nil, nil
+	}
+
+	// Parse the ICMP message.
+	msg, err := s.parseICMPMessage(buffer[:n])
+	if err != nil {
+		// Non-fatal: ignore parse errors.
+		return nil, nil, nil
+	}
+
+	return msg, peer, nil
 }
 
 func (s *ICMPScanner) Stop(ctx context.Context) error {

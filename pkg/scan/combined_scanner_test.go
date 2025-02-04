@@ -98,6 +98,7 @@ func TestCombinedScanner_Scan_Mock(t *testing.T) {
 
 func setupMockExpectations(t *testing.T,
 	mockTCP, mockICMP *MockScanner, tcpResults chan models.Result, mockComplete chan struct{}) {
+	t.Helper()
 	mockTCP.EXPECT().
 		Scan(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(ctx context.Context, targets []models.Target) (<-chan models.Result, error) {
@@ -121,20 +122,21 @@ func setupMockExpectations(t *testing.T,
 
 	mockTCP.EXPECT().
 		Stop(gomock.Any()).
-		DoAndReturn(func(ctx context.Context) error {
+		DoAndReturn(func(context.Context) error {
 			t.Log("Mock TCP Stop called")
 			return nil
 		}).AnyTimes()
 
 	mockICMP.EXPECT().
 		Stop(gomock.Any()).
-		DoAndReturn(func(ctx context.Context) error {
+		DoAndReturn(func(context.Context) error {
 			t.Log("Mock ICMP Stop called")
 			return nil
 		}).AnyTimes()
 }
 
 func cleanupScanner(t *testing.T, scanner *CombinedScanner) {
+	t.Helper()
 	t.Log("Running deferred cleanup")
 
 	stopCtx, stopCancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
