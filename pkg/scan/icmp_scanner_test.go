@@ -103,7 +103,7 @@ func TestSocketPool(t *testing.T) {
 		assert.Equal(t, int32(0), otherErrorCount.Load(), "Should not have any unexpected errors") // Modified line 104
 		assert.Positive(t, successCount.Load(), "Should have some successful socket acquisitions")
 		assert.Positive(t, poolFullCount.Load(), "Should have some pool-full conditions")
-		assert.Equal(t, int32(numGoroutines), successCount.Load()+poolFullCount.Load(),
+		assert.Equal(t, numGoroutines, int(successCount.Load()+poolFullCount.Load()),
 			"Total attempts should equal number of goroutines")
 	})
 }
