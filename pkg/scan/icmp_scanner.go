@@ -35,6 +35,7 @@ const (
 var (
 	errInvalidParameters        = errors.New("invalid parameters: timeout, concurrency, and count must be greater than zero")
 	errNoAvailableSocketsInPool = errors.New("no available sockets in pool")
+	errScannerStopped           = errors.New("scanner stopped")
 )
 
 type pingResponse struct {
@@ -457,15 +458,8 @@ func (*ICMPScanner) calculateChecksum(data []byte) uint16 {
 // Scan implements the Scanner interface.
 // It performs ICMP scanning of the provided targets and returns results through a channel.
 func (s *ICMPScanner) Scan(ctx context.Context, targets []models.Target) (<-chan models.Result, error) {
-	// Filter for ICMP targets only
-	icmpTargets := make([]models.Target, 0)
-
-	for _, target := range targets {
-		if target.Mode == models.ModeICMP {
-			icmpTargets = append(icmpTargets, target)
-		}
-	}
-
+	// 1. Filter for ICMP targets.
+	icmpTargets := s.filterICMPTargets(targets)
 	if len(icmpTargets) == 0 {
 		results := make(chan models.Result)
 		close(results)
@@ -473,41 +467,22 @@ func (s *ICMPScanner) Scan(ctx context.Context, targets []models.Target) (<-chan
 		return results, nil
 	}
 
-	// Create buffered results channel
+	// 2. Create buffered results channel.
 	results := make(chan models.Result, len(icmpTargets))
 
-	// Create scan context with cancel
+	// 3. Create a cancellable scan context.
 	scanCtx, cancel := context.WithCancel(ctx)
 
-	// Create WaitGroup for tracking all goroutines
+	// 4. Create a WaitGroup and atomic counter for tracking progress.
 	var wg sync.WaitGroup
 
-	// Create atomic counter for processed targets
 	processedTargets := atomic.Int32{}
 
-	// Start the listener first
-	listenerReady := make(chan struct{})
-	listenerErr := make(chan error, 1)
-
-	wg.Add(1)
-
-	go func() {
-		defer wg.Done()
-
-		if err := s.listenForReplies(scanCtx, listenerReady); err != nil &&
-			!errors.Is(err, context.Canceled) &&
-			!errors.Is(err, context.DeadlineExceeded) {
-			select {
-			case listenerErr <- err:
-			default:
-			}
-		}
-	}()
-
-	// Wait for listener setup
+	// 5. Start the listener and wait for it to be ready.
+	listenerReady, listenerErr := s.startListener(scanCtx, &wg)
 	select {
 	case <-listenerReady:
-		// Listener is ready
+		// Listener is ready.
 	case err := <-listenerErr:
 		cancel()
 		close(results)
@@ -520,25 +495,70 @@ func (s *ICMPScanner) Scan(ctx context.Context, targets []models.Target) (<-chan
 		return nil, ctx.Err()
 	}
 
-	// Start target processing
+	// 6. Start processing the targets.
+	wg.Add(1)
+
+	go func() {
+		defer wg.Done()
+		s.processTargets(scanCtx, icmpTargets, results, &processedTargets)
+	}()
+
+	// 7. Start the cleanup routine.
+	s.startCleanup(ctx, &wg, &processedTargets, cancel, results)
+
+	return results, nil
+}
+
+func (*ICMPScanner) filterICMPTargets(targets []models.Target) []models.Target {
+	var icmpTargets []models.Target
+
+	for _, target := range targets {
+		if target.Mode == models.ModeICMP {
+			icmpTargets = append(icmpTargets, target)
+		}
+	}
+
+	return icmpTargets
+}
+
+func (s *ICMPScanner) startListener(ctx context.Context, wg *sync.WaitGroup) (channel chan struct{}, errorChan chan error) {
+	listenerReady := make(chan struct{})
+	listenerErr := make(chan error, 1)
+
 	wg.Add(1)
 
 	go func() {
 		defer wg.Done()
 
-		s.processTargets(scanCtx, icmpTargets, results, &processedTargets)
+		if err := s.listenForReplies(ctx, listenerReady); err != nil &&
+			!errors.Is(err, context.Canceled) &&
+			!errors.Is(err, context.DeadlineExceeded) {
+			// Non-blocking send.
+			select {
+			case listenerErr <- err:
+			default:
+			}
+		}
 	}()
 
-	// Start cleanup goroutine
+	return listenerReady, listenerErr
+}
+
+func (s *ICMPScanner) startCleanup(
+	ctx context.Context,
+	wg *sync.WaitGroup,
+	processedTargets *atomic.Int32,
+	cancel context.CancelFunc,
+	results chan models.Result) {
 	go func() {
-		// Create channel for completion notification
+		// Create a channel to signal when all processing is done.
 		processDone := make(chan struct{})
 		go func() {
 			wg.Wait()
 			close(processDone)
 		}()
 
-		// Wait for either completion or cancellation
+		// Wait for processing completion, cancellation, or scanner shutdown.
 		select {
 		case <-processDone:
 			targetCount := processedTargets.Load()
@@ -548,7 +568,6 @@ func (s *ICMPScanner) Scan(ctx context.Context, targets []models.Target) (<-chan
 				log.Println("ICMP scan completed with no targets processed")
 			}
 		case <-ctx.Done():
-			// Don't log context cancellation as an error if we got results
 			targetCount := processedTargets.Load()
 			if targetCount > 0 {
 				log.Printf("ICMP scan stopping after processing %d targets", targetCount)
@@ -559,25 +578,22 @@ func (s *ICMPScanner) Scan(ctx context.Context, targets []models.Target) (<-chan
 			log.Println("ICMP scan stopping due to scanner shutdown")
 		}
 
-		// Cancel context and wait for processing to complete
+		// Cancel the scan and wait for processing to finish.
 		cancel()
 
-		// Wait again with timeout to ensure cleanup
+		// Ensure cleanup completes with a timeout.
 		cleanupTimer := time.NewTimer(s.timeout)
 		defer cleanupTimer.Stop()
-
 		select {
 		case <-processDone:
-			// Processing completed normally
+			// Processing completed normally.
 		case <-cleanupTimer.C:
 			log.Println("Warning: ICMP scan cleanup timed out")
 		}
 
-		// Now it's safe to close the results channel
+		// Safe to close the results channel.
 		close(results)
 	}()
-
-	return results, nil
 }
 
 func (s *ICMPScanner) processTargets(ctx context.Context, targets []models.Target, results chan<- models.Result, processed *atomic.Int32) {
@@ -601,6 +617,7 @@ func (s *ICMPScanner) processTargets(ctx context.Context, targets []models.Targe
 		if end > len(targets) {
 			end = len(targets)
 		}
+
 		batch := targets[i:end]
 
 		// Process the current batch. If processing fails (e.g. due to context cancellation),
@@ -612,12 +629,19 @@ func (s *ICMPScanner) processTargets(ctx context.Context, targets []models.Targe
 }
 
 // processBatch handles sending pings to a batch of targets and then processing their results.
-func (s *ICMPScanner) processBatch(ctx context.Context, batch []models.Target, results chan<- models.Result, limiter *rate.Limiter, rateLimit time.Duration, processed *atomic.Int32) error {
+func (s *ICMPScanner) processBatch(
+	ctx context.Context,
+	batch []models.Target,
+	results chan<- models.Result,
+	limiter *rate.Limiter,
+	rateLimit time.Duration,
+	processed *atomic.Int32) error {
 	var batchWg sync.WaitGroup
 
 	// Launch goroutines for each target in the batch.
 	for _, target := range batch {
 		batchWg.Add(1)
+
 		go func(target models.Target) {
 			defer batchWg.Done()
 			// Wait for rate limiter permission.
@@ -625,6 +649,7 @@ func (s *ICMPScanner) processBatch(ctx context.Context, batch []models.Target, r
 				if !errors.Is(err, context.Canceled) {
 					log.Printf("Rate limiter error for target %s: %v", target.Host, err)
 				}
+
 				return
 			}
 			// Send pings and count the processed target.
@@ -647,11 +672,12 @@ func (s *ICMPScanner) processBatch(ctx context.Context, batch []models.Target, r
 		for _, target := range batch {
 			s.sendResultsForTarget(ctx, results, target)
 		}
+
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-s.done:
-		return errors.New("scanner stopped")
+		return errScannerStopped
 	}
 }
 

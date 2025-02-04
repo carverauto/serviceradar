@@ -63,28 +63,48 @@ func (s *CombinedScanner) processTargetsWithError(
 
 	scanResults, err := scanner.Scan(ctx, targets)
 	if err != nil && !errors.Is(err, context.Canceled) {
-		select {
-		case errCh <- fmt.Errorf("%s scan error: %w", scannerName, err):
-		default:
-		}
+		s.reportScanError(scannerName, err, errCh)
 		return
 	}
 
-	// Forward results until channel closes or context cancelled
+	s.forwardScanResults(ctx, scanResults, results)
+}
+
+// reportScanError sends the scanner error to the error channel.
+func (*CombinedScanner) reportScanError(scannerName string, err error, errCh chan<- error) {
+	select {
+	case errCh <- fmt.Errorf("%s scan error: %w", scannerName, err):
+	default:
+	}
+}
+
+// forwardScanResults reads results from scanResults and sends them to results,
+// stopping if the channel closes or the context is canceled.
+func (*CombinedScanner) forwardScanResults(
+	ctx context.Context, scanResults <-chan models.Result, results chan<- models.Result) {
 	for {
 		select {
+		case <-ctx.Done():
+			return
 		case result, ok := <-scanResults:
 			if !ok {
 				return
 			}
-			select {
-			case results <- result:
-			case <-ctx.Done():
+
+			if !sendResult(ctx, results, &result) {
 				return
 			}
-		case <-ctx.Done():
-			return
 		}
+	}
+}
+
+// sendResult attempts to send a result on the results channel or aborts if the context is done.
+func sendResult(ctx context.Context, results chan<- models.Result, result *models.Result) bool {
+	select {
+	case results <- *result:
+		return true
+	case <-ctx.Done():
+		return false
 	}
 }
 
@@ -93,6 +113,7 @@ func (s *CombinedScanner) Scan(ctx context.Context, targets []models.Target) (<-
 	if len(targets) == 0 {
 		empty := make(chan models.Result)
 		close(empty)
+
 		return empty, nil
 	}
 
@@ -173,24 +194,6 @@ func (s *CombinedScanner) Scan(ctx context.Context, targets []models.Target) (<-
 	}
 }
 
-func (s *CombinedScanner) processTCPTargets(ctx context.Context, targets []models.Target, results chan<- models.Result) error {
-	scanResults, err := s.tcpScanner.Scan(ctx, targets)
-	if err != nil {
-		return err
-	}
-
-	return s.forwardResults(ctx, scanResults, results)
-}
-
-func (s *CombinedScanner) processICMPTargets(ctx context.Context, targets []models.Target, results chan<- models.Result) error {
-	scanResults, err := s.icmpScanner.Scan(ctx, targets)
-	if err != nil {
-		return err
-	}
-
-	return s.forwardResults(ctx, scanResults, results)
-}
-
 func (s *CombinedScanner) forwardResults(ctx context.Context, input <-chan models.Result, output chan<- models.Result) error {
 	for {
 		select {
@@ -237,6 +240,7 @@ func (s *CombinedScanner) Stop(ctx context.Context) error {
 	if len(errs) > 0 {
 		return fmt.Errorf("errors during stop: %v", errs)
 	}
+
 	return nil
 }
 

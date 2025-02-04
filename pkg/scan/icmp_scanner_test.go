@@ -102,7 +102,7 @@ func TestSocketPool(t *testing.T) {
 		// Verify results
 		assert.Equal(t, int32(0), otherErrorCount.Load(), "Should not have any unexpected errors") // Modified line 104
 		assert.Positive(t, successCount.Load(), "Should have some successful socket acquisitions")
-		assert.True(t, poolFullCount.Load() > 0, "Should have some pool-full conditions")
+		assert.Positive(t, poolFullCount.Load(), "Should have some pool-full conditions")
 		assert.Equal(t, int32(numGoroutines), successCount.Load()+poolFullCount.Load(),
 			"Total attempts should equal number of goroutines")
 	})
@@ -242,7 +242,6 @@ func TestAtomicOperations(t *testing.T) {
 				defer wg.Done()
 				entry.inUse.Add(1)
 			}()
-
 		}
 
 		// Simulate concurrent decrements

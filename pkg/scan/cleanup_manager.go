@@ -22,6 +22,7 @@ func newCleanupManager(interval time.Duration, cleanup func()) *cleanupManager {
 
 func (m *cleanupManager) start() {
 	m.wg.Add(1)
+
 	go func() {
 		defer m.wg.Done()
 		defer m.ticker.Stop()

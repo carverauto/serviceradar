@@ -17,8 +17,6 @@ import (
 
 const (
 	defaultCleanupInterval  = 30 * time.Second
-	defaultMaxLifetime      = 10 * time.Minute
-	defaultIdleTimeout      = 1 * time.Minute
 	defaultReadDeadline     = 100 * time.Millisecond
 	defaultDNSLookupTimeout = 200 * time.Millisecond
 )
@@ -290,6 +288,7 @@ func (s *TCPScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 
 	// Start processing goroutine
 	wg.Add(1)
+
 	go func() {
 		defer wg.Done()
 		s.processTargets(scanCtx, targets, results)
@@ -333,17 +332,20 @@ func (s *TCPScanner) Scan(ctx context.Context, targets []models.Target) (<-chan 
 	return results, nil
 }
 
+const microsecondsPerMillisecond = 1000.0
+
 func (s *TCPScanner) processTargets(ctx context.Context, targets []models.Target, results chan<- models.Result) {
 	log.Println("Starting TCP target processing")
 	defer log.Println("TCP target processing completed")
 
-	// Create semaphore for concurrency control
+	// Create semaphore for concurrency control.
 	sem := make(chan struct{}, s.concurrency)
 
-	// Create WaitGroup for tracking target processing
+	// WaitGroup for tracking target processing.
 	var targetWg sync.WaitGroup
 
 	for _, target := range targets {
+		// Exit early if context is canceled.
 		select {
 		case <-ctx.Done():
 			return
@@ -352,69 +354,73 @@ func (s *TCPScanner) processTargets(ctx context.Context, targets []models.Target
 
 		targetWg.Add(1)
 
-		go func(target models.Target) {
-			defer targetWg.Done()
-
-			// Acquire semaphore or return on context done
-			select {
-			case sem <- struct{}{}:
-				defer func() { <-sem }()
-			case <-ctx.Done():
-				return
-			}
-
-			// Create connection with timeout
-			connCtx, connCancel := context.WithTimeout(ctx, s.timeout)
-			defer connCancel()
-
-			result := models.Result{
-				Target:    target,
-				FirstSeen: time.Now(),
-				LastSeen:  time.Now(),
-			}
-
-			address := fmt.Sprintf("%s:%d", target.Host, target.Port)
-			conn, err := s.pool.get(connCtx, s.dialer, address)
-
-			if err != nil {
-				result.Error = err
-				result.Available = false
-				select {
-				case results <- result:
-				case <-ctx.Done():
-				}
-
-				return
-			}
-
-			success := false
-			defer func() {
-				if success && ctx.Err() == nil {
-					s.pool.put(address, conn)
-				} else {
-					s.closeConn(conn, "scan completion")
-				}
-			}()
-
-			startTime := time.Now()
-			result.Available = s.checkConnection(conn)
-			result.RespTime = time.Since(startTime)
-
-			success = result.Available
-
-			select {
-			case results <- result:
-				if result.Available {
-					log.Printf("Host %s has port %d open (%.2fms)",
-						target.Host, target.Port, float64(result.RespTime.Microseconds())/1000)
-				}
-			case <-ctx.Done():
-			}
-		}(target)
+		go s.processSingleTarget(ctx, target, sem, results, &targetWg)
 	}
 
-	// Wait for all targets to complete
+	// Wait for all target processing goroutines to finish.
 	targetWg.Wait()
+}
+
+func (s *TCPScanner) processSingleTarget(ctx context.Context, target models.Target, sem chan struct{}, results chan<- models.Result, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	// Acquire semaphore or exit if context is cancelled.
+	select {
+	case sem <- struct{}{}:
+		defer func() { <-sem }()
+	case <-ctx.Done():
+		return
+	}
+
+	// Create a connection with a timeout.
+	connCtx, connCancel := context.WithTimeout(ctx, s.timeout)
+	defer connCancel()
+
+	result := models.Result{
+		Target:    target,
+		FirstSeen: time.Now(),
+		LastSeen:  time.Now(),
+	}
+
+	address := fmt.Sprintf("%s:%d", target.Host, target.Port)
+
+	conn, err := s.pool.get(connCtx, s.dialer, address)
+	if err != nil {
+		result.Error = err
+		result.Available = false
+		s.sendResult(ctx, results, result)
+
+		return
+	}
+
+	success := false
+	defer func() {
+		if success && ctx.Err() == nil {
+			s.pool.put(address, conn)
+		} else {
+			s.closeConn(conn, "scan completion")
+		}
+	}()
+
+	startTime := time.Now()
+	result.Available = s.checkConnection(conn)
+	result.RespTime = time.Since(startTime)
+	success = result.Available
+
+	s.sendResult(ctx, results, result)
+
+	if result.Available {
+		log.Printf("Host %s has port %d open (%.2fms)",
+			target.Host, target.Port,
+			float64(result.RespTime.Microseconds())/microsecondsPerMillisecond)
+	}
+}
+
+func (*TCPScanner) sendResult(ctx context.Context, results chan<- models.Result, result models.Result) {
+	select {
+	case results <- result:
+	case <-ctx.Done():
+	}
 }
 
 func (s *TCPScanner) Stop(context.Context) error {
