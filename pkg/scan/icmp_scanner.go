@@ -86,32 +86,6 @@ type bufferPool struct {
 	pool sync.Pool
 }
 
-// doCleanup performs the actual cleanup with lock already held
-func (p *socketPool) doCleanup() {
-	now := time.Now()
-	validSockets := make([]*socketEntry, 0, len(p.sockets))
-
-	for _, entry := range p.sockets {
-		if entry.closed.Load() {
-			continue
-		}
-
-		lastUsed := entry.lastUsed.Load().(time.Time)
-		if now.Sub(entry.createdAt) > p.maxAge ||
-			now.Sub(lastUsed) > p.maxIdle {
-			if err := entry.conn.Close(); err != nil {
-				log.Printf("Error closing stale socket: %v", err)
-			}
-			entry.closed.Store(true)
-			continue
-		}
-
-		validSockets = append(validSockets, entry)
-	}
-
-	p.sockets = validSockets
-}
-
 func (p *socketPool) getSocket() (*icmp.PacketConn, func(), error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -475,10 +449,10 @@ func (s *ICMPScanner) Scan(ctx context.Context, targets []models.Target) (<-chan
 	// Calculate rate limit
 	rateLimit := time.Second / time.Duration(s.concurrency)
 
-	// Create cancellable context
+	// Create scan context
 	scanCtx, cancel := context.WithCancel(ctx)
 
-	// Create WaitGroup to track all goroutines
+	// Create WaitGroup for all goroutines
 	var wg sync.WaitGroup
 
 	// Start the listener
@@ -488,7 +462,7 @@ func (s *ICMPScanner) Scan(ctx context.Context, targets []models.Target) (<-chan
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if err := s.listenForReplies(scanCtx, listenerReady); err != nil {
+		if err := s.listenForReplies(scanCtx, listenerReady); err != nil && !errors.Is(err, context.Canceled) {
 			select {
 			case listenerErr <- err:
 			default:
@@ -496,7 +470,7 @@ func (s *ICMPScanner) Scan(ctx context.Context, targets []models.Target) (<-chan
 		}
 	}()
 
-	// Wait for listener to be ready or context to be cancelled
+	// Wait for listener setup
 	select {
 	case <-listenerReady:
 		// Listener is ready
@@ -515,7 +489,7 @@ func (s *ICMPScanner) Scan(ctx context.Context, targets []models.Target) (<-chan
 		defer cancel()
 		defer close(results)
 
-		// Wait for all goroutines to complete
+		// Wait for all goroutines or cancellation
 		done := make(chan struct{})
 		go func() {
 			wg.Wait()
@@ -524,35 +498,37 @@ func (s *ICMPScanner) Scan(ctx context.Context, targets []models.Target) (<-chan
 
 		select {
 		case <-done:
-			log.Println("ICMP scan completed normally")
+			log.Println("ICMP scan completed successfully")
 		case <-ctx.Done():
-			log.Println("ICMP scan context cancelled")
+			log.Println("ICMP scan stopping due to context cancellation")
 		case <-s.done:
-			log.Println("ICMP scanner stopped")
+			log.Println("ICMP scan stopping due to scanner shutdown")
 		}
 	}()
 
-	// Start the target processing
+	// Start target processing
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		s.processTargets(scanCtx, icmpTargets, results, rateLimit)
+		if err := s.processTargets(scanCtx, icmpTargets, results, rateLimit); err != nil && !errors.Is(err, context.Canceled) {
+			log.Printf("Error processing targets: %v", err)
+		}
 	}()
 
 	return results, nil
 }
 
-func (s *ICMPScanner) processTargets(ctx context.Context, targets []models.Target, results chan<- models.Result, rateLimit time.Duration) {
+func (s *ICMPScanner) processTargets(ctx context.Context, targets []models.Target, results chan<- models.Result, rateLimit time.Duration) error {
 	log.Println("Starting processTargets")
+	defer log.Println("processTargets completed")
 
-	// Create rate limiter for the entire scan
 	limiter := rate.NewLimiter(rate.Every(time.Second/time.Duration(s.concurrency)), s.concurrency)
 
-	// Process targets in batches
 	for i := 0; i < len(targets); i += s.concurrency {
-		// Check context before starting each batch
-		if ctx.Err() != nil {
-			return
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
 		}
 
 		end := i + s.concurrency
@@ -561,17 +537,17 @@ func (s *ICMPScanner) processTargets(ctx context.Context, targets []models.Targe
 		}
 
 		batch := targets[i:end]
-
 		var batchWg sync.WaitGroup
+
 		for _, target := range batch {
 			batchWg.Add(1)
-
 			go func(target models.Target) {
 				defer batchWg.Done()
 
-				// Wait for rate limiter
 				if err := limiter.Wait(ctx); err != nil {
-					log.Printf("Rate limiter error for target %s: %v", target.Host, err)
+					if !errors.Is(err, context.Canceled) {
+						log.Printf("Rate limiter error for target %s: %v", target.Host, err)
+					}
 					return
 				}
 
@@ -579,7 +555,7 @@ func (s *ICMPScanner) processTargets(ctx context.Context, targets []models.Targe
 			}(target)
 		}
 
-		// Wait for batch to complete or context to be cancelled
+		// Wait for batch with timeout
 		done := make(chan struct{})
 		go func() {
 			batchWg.Wait()
@@ -588,20 +564,17 @@ func (s *ICMPScanner) processTargets(ctx context.Context, targets []models.Targe
 
 		select {
 		case <-done:
-			// Batch completed normally
+			// Process batch results
+			for _, target := range batch {
+				s.sendResultsForTarget(ctx, results, target)
+			}
 		case <-ctx.Done():
-			return
+			return ctx.Err()
 		case <-s.done:
-			return
-		}
-
-		// Process results for this batch
-		for _, target := range batch {
-			s.sendResultsForTarget(ctx, results, target)
+			return nil
 		}
 	}
-
-	log.Println("processTargets completed")
+	return nil
 }
 
 func (s *ICMPScanner) listenForReplies(ctx context.Context, ready chan<- struct{}) error {

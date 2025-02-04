@@ -5,8 +5,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,6 +22,17 @@ const (
 	defaultReadDeadline     = 100 * time.Millisecond
 	defaultDNSLookupTimeout = 200 * time.Millisecond
 )
+
+// TCPScanner implementation using the improved connection pool.
+type TCPScanner struct {
+	timeout     time.Duration
+	concurrency int
+	pool        *connectionPool
+	dialer      *net.Dialer
+	done        chan struct{}
+	closeOnce   sync.Once
+	mu          sync.Mutex
+}
 
 // connEntry represents a connection in the pool.
 type connEntry struct {
@@ -174,14 +187,6 @@ func (p *connectionPool) close() {
 	})
 }
 
-// TCPScanner implementation using the improved connection pool.
-type TCPScanner struct {
-	timeout     time.Duration
-	concurrency int
-	pool        *connectionPool
-	dialer      *net.Dialer
-}
-
 func NewTCPScanner(timeout time.Duration, concurrency, maxIdle int, maxLifetime, idleTimeout time.Duration) *TCPScanner {
 	dialer := &net.Dialer{
 		Timeout:   timeout,
@@ -189,7 +194,6 @@ func NewTCPScanner(timeout time.Duration, concurrency, maxIdle int, maxLifetime,
 		Resolver: &net.Resolver{
 			PreferGo: true,
 			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-				// Use a very short timeout for DNS lookups.
 				d := net.Dialer{Timeout: defaultDNSLookupTimeout}
 				return d.DialContext(ctx, network, address)
 			},
@@ -201,32 +205,22 @@ func NewTCPScanner(timeout time.Duration, concurrency, maxIdle int, maxLifetime,
 		concurrency: concurrency,
 		pool:        newConnectionPool(maxIdle, maxLifetime, idleTimeout),
 		dialer:      dialer,
+		done:        make(chan struct{}), // Initialize the done channel
 	}
 }
 
-// scanTarget performs a TCP scan of a single target with proper connection handling.
 func (s *TCPScanner) scanTarget(ctx context.Context, target models.Target, results chan<- models.Result) {
-	// Initialize the result with the target and timestamp information.
 	result := models.Result{
 		Target:    target,
 		FirstSeen: time.Now(),
 		LastSeen:  time.Now(),
 	}
 
-	// Create a timeout context for this scan.
-	scanCtx, cancel := context.WithTimeout(ctx, s.timeout)
-	defer cancel()
-
 	address := fmt.Sprintf("%s:%d", target.Host, target.Port)
 
-	// Try to get a connection from the pool.
-	conn, err := s.pool.get(scanCtx, s.dialer, address)
+	// Try to get a connection from the pool
+	conn, err := s.pool.get(ctx, s.dialer, address)
 	if err != nil {
-		// If context is cancelled, don't send result
-		if scanCtx.Err() != nil {
-			return
-		}
-
 		result.Error = err
 		result.Available = false
 
@@ -237,28 +231,83 @@ func (s *TCPScanner) scanTarget(ctx context.Context, target models.Target, resul
 		return
 	}
 
-	// Use a flag to decide whether the connection should be returned to the pool.
-	var success bool
+	success := false
 	defer func() {
 		if success && ctx.Err() == nil {
 			s.pool.put(address, conn)
 		} else {
-			s.closeConn(conn, "scan failure or context canceled")
+			s.closeConn(conn, "scan completion")
 		}
 	}()
 
-	// Do the actual scan.
-	result.RespTime = time.Since(result.FirstSeen)
+	startTime := time.Now()
 	result.Available = s.checkConnection(conn)
+	result.RespTime = time.Since(startTime)
 
-	success = true
+	success = result.Available
 
-	// Send the result; if context cancellation is detected, close the connection.
 	select {
 	case results <- result:
+		if result.Available {
+			log.Printf("Host %s has port %d open (%.2fms)",
+				target.Host, target.Port, float64(result.RespTime.Microseconds())/1000)
+		}
 	case <-ctx.Done():
-		return
 	}
+}
+
+// closeConn safely closes a connection and logs any errors
+func (s *TCPScanner) closeConn(conn net.Conn, reason string) {
+	if conn != nil {
+		if err := conn.Close(); err != nil && !strings.Contains(err.Error(), "use of closed network connection") {
+			log.Printf("Error closing connection (%s): %v", reason, err)
+		}
+	}
+}
+
+func (s *TCPScanner) checkConnection(conn net.Conn) bool {
+	tcpConn, ok := conn.(*net.TCPConn)
+	if !ok {
+		return true // Accept non-TCP connections as valid
+	}
+
+	// Set read deadline
+	if err := tcpConn.SetReadDeadline(time.Now().Add(defaultReadDeadline)); err != nil {
+		if !strings.Contains(err.Error(), "use of closed network connection") {
+			log.Printf("Error setting read deadline: %v", err)
+		}
+		return false
+	}
+
+	// Reset deadline after we're done
+	defer func() {
+		if err := tcpConn.SetReadDeadline(time.Time{}); err != nil {
+			if !strings.Contains(err.Error(), "use of closed network connection") {
+				log.Printf("Error resetting read deadline: %v", err)
+			}
+		}
+	}()
+
+	// Try to read a single byte
+	buf := make([]byte, 1)
+	_, err := tcpConn.Read(buf)
+
+	// Connection is considered valid if:
+	// 1. Read succeeds (service sends banner)
+	// 2. Read times out (most services wait for client)
+	// 3. Connection is closed by remote (accepts and closes)
+	if err != nil {
+		var netErr net.Error
+		if errors.As(err, &netErr) && netErr.Timeout() {
+			return true
+		}
+		if errors.Is(err, io.EOF) {
+			return true
+		}
+		return false
+	}
+
+	return true
 }
 
 // sendResultOrCleanup sends the result on the results channel. If the context is done,
@@ -272,117 +321,160 @@ func (s *TCPScanner) sendResultOrCleanup(
 	}
 }
 
-// closeConn attempts to close the given connection and logs any error.
-func (*TCPScanner) closeConn(conn net.Conn, reason string) {
-	if conn != nil {
-		if err := conn.Close(); err != nil {
-			log.Printf("Error closing connection (%s): %v", reason, err)
-		}
-	}
-}
-
-func (*TCPScanner) checkConnection(conn net.Conn) bool {
-	tcpConn, ok := conn.(*net.TCPConn)
-	if !ok {
-		return true // Accept non-TCP connections as valid
-	}
-
-	// Set a longer read deadline (100ms) to avoid false negatives
-	err := tcpConn.SetReadDeadline(time.Now().Add(defaultReadDeadline))
-	if err != nil {
-		log.Printf("Error setting read deadline: %v", err)
-
-		return false
-	}
-
-	defer func() {
-		if err = tcpConn.SetReadDeadline(time.Time{}); err != nil {
-			log.Printf("Error resetting read deadline: %v", err)
-		}
-	}()
-
-	// Try to read a single byte
-	buf := make([]byte, 1)
-	_, err = tcpConn.Read(buf)
-
-	// Connection is considered valid if:
-	// 1. Read succeeds (some services send banner)
-	// 2. Read times out (most common for services that wait for client)
-	// 3. Connection is closed by remote (service accepts and closes)
-	if err != nil {
-		var netErr net.Error
-		if errors.As(err, &netErr) && netErr.Timeout() {
-			return true // Timeout is expected and indicates port is open
-		}
-
-		if err.Error() == "EOF" {
-			return true // EOF means connection was accepted then closed
-		}
-	}
-
-	return err == nil // If no error, read succeeded
-}
-
 // Scan performs TCP scans for multiple targets concurrently.
 func (s *TCPScanner) Scan(ctx context.Context, targets []models.Target) (<-chan models.Result, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
+	if len(targets) == 0 {
+		results := make(chan models.Result)
+		close(results)
+		return results, nil
 	}
 
-	// Create buffered channel for results
+	// Create buffered results channel
 	results := make(chan models.Result, len(targets))
 
-	// Create semaphore for concurrency control
-	semaphore := make(chan struct{}, s.concurrency)
-
-	// Create wait group to track worker completion
-	var wg sync.WaitGroup
-
-	// Create separate context that can be canceled
+	// Create scan context
 	scanCtx, cancel := context.WithCancel(ctx)
 
-	// Start worker goroutine
+	// Create WaitGroup for all goroutines
+	var wg sync.WaitGroup
+
+	// Start processing goroutine
+	wg.Add(1)
 	go func() {
-		defer close(results) // Ensure channel is closed when workers are done
-		defer cancel()       // Ensure context is canceled
+		defer wg.Done()
+		s.processTargets(scanCtx, targets, results)
+	}()
 
-		for _, target := range targets {
-			// Check if context was canceled
-			if scanCtx.Err() != nil {
-				return
-			}
+	// Start cleanup goroutine
+	go func() {
+		// Set up done notification channels
+		processDone := make(chan struct{})
+		go func() {
+			wg.Wait()
+			close(processDone)
+		}()
 
-			// Add to wait group before starting goroutine
-			wg.Add(1)
-
-			// Start worker goroutine
-			go func(target models.Target) {
-				defer wg.Done()
-
-				// Acquire semaphore
-				select {
-				case semaphore <- struct{}{}:
-					defer func() { <-semaphore }()
-				case <-scanCtx.Done():
-					return
-				}
-
-				s.scanTarget(scanCtx, target, results)
-			}(target)
+		// Wait for either completion or cancellation
+		select {
+		case <-processDone:
+			log.Println("TCP scan completed successfully")
+		case <-scanCtx.Done():
+			log.Println("TCP scan stopping due to context cancellation")
+		case <-s.done:
+			log.Println("TCP scan stopping due to scanner shutdown")
 		}
 
-		// Wait for all workers to complete
-		wg.Wait()
+		// Cancel context and wait for processing to complete
+		cancel()
+
+		// Wait again with timeout to ensure cleanup
+		cleanupTimer := time.NewTimer(s.timeout)
+		select {
+		case <-processDone:
+			// Processing completed normally
+		case <-cleanupTimer.C:
+			log.Println("Warning: TCP scan cleanup timed out")
+		}
+
+		// Safe to close results channel now
+		close(results)
 	}()
 
 	return results, nil
 }
 
-// Stop gracefully shuts down the scanner.
-func (s *TCPScanner) Stop(context.Context) error {
-	if s.pool != nil {
-		s.pool.close()
+func (s *TCPScanner) processTargets(ctx context.Context, targets []models.Target, results chan<- models.Result) {
+	log.Println("Starting TCP target processing")
+	defer log.Println("TCP target processing completed")
+
+	// Create semaphore for concurrency control
+	sem := make(chan struct{}, s.concurrency)
+
+	// Create WaitGroup for tracking target processing
+	var targetWg sync.WaitGroup
+
+	for _, target := range targets {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		targetWg.Add(1)
+		go func(target models.Target) {
+			defer targetWg.Done()
+
+			// Acquire semaphore or return on context done
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				return
+			}
+
+			// Create connection with timeout
+			connCtx, connCancel := context.WithTimeout(ctx, s.timeout)
+			defer connCancel()
+
+			result := models.Result{
+				Target:    target,
+				FirstSeen: time.Now(),
+				LastSeen:  time.Now(),
+			}
+
+			address := fmt.Sprintf("%s:%d", target.Host, target.Port)
+			conn, err := s.pool.get(connCtx, s.dialer, address)
+			if err != nil {
+				result.Error = err
+				result.Available = false
+				select {
+				case results <- result:
+				case <-ctx.Done():
+				}
+				return
+			}
+
+			success := false
+			defer func() {
+				if success && ctx.Err() == nil {
+					s.pool.put(address, conn)
+				} else {
+					s.closeConn(conn, "scan completion")
+				}
+			}()
+
+			startTime := time.Now()
+			result.Available = s.checkConnection(conn)
+			result.RespTime = time.Since(startTime)
+
+			success = result.Available
+
+			select {
+			case results <- result:
+				if result.Available {
+					log.Printf("Host %s has port %d open (%.2fms)",
+						target.Host, target.Port, float64(result.RespTime.Microseconds())/1000)
+				}
+			case <-ctx.Done():
+			}
+		}(target)
 	}
+
+	// Wait for all targets to complete
+	targetWg.Wait()
+}
+
+func (s *TCPScanner) Stop(ctx context.Context) error {
+	log.Println("TCP Scanner Stop called")
+
+	s.closeOnce.Do(func() {
+		if s.done != nil {
+			close(s.done)
+		}
+		if s.pool != nil {
+			s.pool.close()
+		}
+	})
 
 	return nil
 }

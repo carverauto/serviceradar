@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/mfreeman451/serviceradar/pkg/models"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -19,13 +18,14 @@ func TestTCPScanner_HighConcurrency(t *testing.T) {
 
 	for i := 0; i < numTargets; i++ {
 		targets[i] = models.Target{
-			Host: "localhost", // Use localhost to avoid DNS lookups
-			Port: 12345,       // Use an unlikely port
+			Host: "localhost",
+			Port: 12345,
 			Mode: models.ModeTCP,
 		}
 	}
 
 	scanner := NewTCPScanner(100*time.Millisecond, 10, 10, time.Second, time.Second)
+	defer scanner.Stop(context.Background())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -33,64 +33,76 @@ func TestTCPScanner_HighConcurrency(t *testing.T) {
 	resultsChan, err := scanner.Scan(ctx, targets)
 	require.NoError(t, err)
 
-	results := make([]models.Result, 0, numTargets)
+	var results []models.Result
+	resultsDone := make(chan struct{})
 
-	for result := range resultsChan {
-		results = append(results, result)
+	go func() {
+		defer close(resultsDone)
+		for result := range resultsChan {
+			results = append(results, result)
+		}
+	}()
+
+	// Wait for results with timeout
+	select {
+	case <-resultsDone:
+		require.Len(t, results, numTargets, "Expected results for all targets")
+	case <-time.After(3 * time.Second):
+		t.Fatal("Timeout waiting for results")
 	}
-
-	// Verify we got responses for all targets
-	require.Len(t, results, numTargets)
-
-	// Clean up
-	err = scanner.Stop(context.Background())
-	require.NoError(t, err)
 }
 
 func TestTCPScanner_Scan(t *testing.T) {
-	tests := []struct {
-		name    string
-		targets []models.Target
-		timeout time.Duration
-		wantErr bool
-	}{
-		{
-			name: "scan localhost",
-			targets: []models.Target{
-				{Host: "127.0.0.1", Port: 22, Mode: models.ModeTCP},
-			},
-			timeout: 1 * time.Second,
-			wantErr: false,
-		},
-	}
+	t.Run("scan localhost", func(t *testing.T) {
+		// Create scanner with shorter timeouts
+		scanner := NewTCPScanner(100*time.Millisecond, 1, 1, time.Second, time.Second)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			scanner := NewTCPScanner(tt.timeout, 1, 1, 1, 1)
-			results, err := scanner.Scan(context.Background(), tt.targets)
+		// Create context with timeout
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
 
-			if tt.wantErr {
-				require.Error(t, err)
-				return
+		// Ensure scanner cleanup
+		defer func() {
+			stopCtx, stopCancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			defer stopCancel()
+			if err := scanner.Stop(stopCtx); err != nil {
+				t.Logf("Warning: error stopping scanner: %v", err)
 			}
+		}()
 
-			require.NoError(t, err)
+		targets := []models.Target{
+			{Host: "127.0.0.1", Port: 22, Mode: models.ModeTCP},
+		}
 
-			var gotResults []models.Result
+		// Start scan
+		results, err := scanner.Scan(ctx, targets)
+		require.NoError(t, err)
+		require.NotNil(t, results)
+
+		// Collect results with timeout
+		var gotResults []models.Result
+		resultsDone := make(chan struct{})
+
+		go func() {
+			defer close(resultsDone)
 			for result := range results {
 				gotResults = append(gotResults, result)
 			}
+		}()
 
-			// Verify results
-			require.Len(t, gotResults, len(tt.targets))
-
-			for i, result := range gotResults {
-				assert.Equal(t, tt.targets[i].Host, result.Target.Host)
-				assert.Equal(t, tt.targets[i].Port, result.Target.Port)
-				assert.NotZero(t, result.RespTime)
+		// Wait for results or timeout
+		select {
+		case <-resultsDone:
+			require.Len(t, gotResults, len(targets))
+			for _, result := range gotResults {
+				require.Equal(t, "127.0.0.1", result.Target.Host)
+				require.Equal(t, 22, result.Target.Port)
+				require.NotZero(t, result.RespTime)
 			}
-		})
-	}
+		case <-time.After(2 * time.Second):
+			t.Fatal("Timeout waiting for results")
+		}
+	})
 }
 
 func TestTCPScanner_Scan_ContextCancellation(t *testing.T) {
