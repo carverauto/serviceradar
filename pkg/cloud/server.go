@@ -66,10 +66,10 @@ type Config struct {
 type Server struct {
 	proto.UnimplementedPollerServiceServer
 	mu             sync.RWMutex
-	db             *db.DB
+	db             db.Service
 	alertThreshold time.Duration
-	webhooks       []*alerts.WebhookAlerter
-	apiServer      *api.APIServer
+	webhooks       []alerts.AlertService
+	apiServer      api.Service
 	ShutdownChan   chan struct{}
 	pollerPatterns []string
 	grpcServer     *grpc.Server
@@ -115,7 +115,7 @@ func NewServer(_ context.Context, config *Config) (*Server, error) {
 	server := &Server{
 		db:             database,
 		alertThreshold: config.AlertThreshold,
-		webhooks:       make([]*alerts.WebhookAlerter, 0),
+		webhooks:       make([]alerts.AlertService, 0),
 		ShutdownChan:   make(chan struct{}),
 		pollerPatterns: config.PollerPatterns,
 		metrics:        metricsManager,
@@ -126,6 +126,19 @@ func NewServer(_ context.Context, config *Config) (*Server, error) {
 	server.initializeWebhooks(config.Webhooks)
 
 	return server, nil
+}
+
+func (s *Server) initializeWebhooks(configs []alerts.WebhookConfig) {
+	for i, config := range configs {
+		log.Printf("Processing webhook config %d: enabled=%v", i, config.Enabled)
+
+		if config.Enabled {
+			alerter := alerts.NewWebhookAlerter(config)
+			s.webhooks = append(s.webhooks, alerter)
+
+			log.Printf("Added webhook alerter: %+v", config.URL)
+		}
+	}
 }
 
 // Start implements the lifecycle.Service interface.
@@ -157,21 +170,27 @@ func (s *Server) Start(ctx context.Context) error {
 
 	go s.periodicCleanup(ctx)
 
-	// Start metrics cleanup
 	go s.runMetricsCleanup(ctx)
 
-	go func() {
-		log.Printf("Starting node monitoring...")
-		time.Sleep(nodeDiscoveryTimeout)
-		s.checkInitialStates(ctx)
-
-		time.Sleep(nodeNeverReportedTimeout)
-		s.checkNeverReportedPollers(ctx, nil) // No config needed anymore
-
-		s.MonitorPollers(ctx)
-	}()
+	go s.monitorNodes(ctx)
 
 	return nil
+}
+
+// monitorNodes runs the main node monitoring loop.
+func (s *Server) monitorNodes(ctx context.Context) {
+	log.Printf("Starting node monitoring...")
+
+	time.Sleep(nodeDiscoveryTimeout)
+
+	// Initial checks
+	s.checkInitialStates(ctx)
+
+	time.Sleep(nodeNeverReportedTimeout)
+	s.checkNeverReportedPollers(ctx)
+
+	// Start monitoring loop
+	s.MonitorPollers(ctx)
 }
 
 func (s *Server) GetMetricsManager() metrics.MetricCollector {
@@ -341,7 +360,7 @@ func (s *Server) Shutdown(ctx context.Context) {
 	close(s.ShutdownChan)
 }
 
-func (s *Server) SetAPIServer(apiServer *api.APIServer) {
+func (s *Server) SetAPIServer(apiServer api.Service) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -733,19 +752,6 @@ func (s *Server) performNodeUpdate(tx *sql.Tx, nodeID string, lastSeen time.Time
 	return s.updateExistingNode(tx, nodeID, lastSeen)
 }
 
-func (s *Server) initializeWebhooks(configs []alerts.WebhookConfig) {
-	for i, config := range configs {
-		log.Printf("Processing webhook config %d: enabled=%v", i, config.Enabled)
-
-		if config.Enabled {
-			alerter := alerts.NewWebhookAlerter(config)
-			s.webhooks = append(s.webhooks, alerter)
-
-			log.Printf("Added webhook alerter: %+v", config.URL)
-		}
-	}
-}
-
 // periodicCleanup runs regular maintenance tasks on the database.
 func (s *Server) periodicCleanup(_ context.Context) {
 	ticker := time.NewTicker(1 * time.Hour)
@@ -839,7 +845,7 @@ func (s *Server) checkNeverReportedNodes(ctx context.Context) error {
 	return nil
 }
 
-func (s *Server) checkNeverReportedPollers(ctx context.Context, _ *Config) {
+func (s *Server) checkNeverReportedPollers(ctx context.Context) {
 	log.Printf("Checking for unreported nodes matching patterns: %v", s.pollerPatterns)
 
 	// Build SQL pattern for REGEXP

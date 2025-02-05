@@ -138,7 +138,7 @@ type ServiceStatus struct {
 }
 
 // New creates a new database connection and initializes the schema.
-func New(dbPath string) (*DB, error) {
+func New(dbPath string) (Service, error) {
 	sqlDB, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errFailedOpenDB, err)

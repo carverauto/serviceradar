@@ -103,6 +103,10 @@ func NewWebhookAlerter(config WebhookConfig) *WebhookAlerter {
 	}
 }
 
+func (w *WebhookAlerter) IsEnabled() bool {
+	return w.config.Enabled
+}
+
 func (w *WebhookAlerter) getTemplateFuncs() template.FuncMap {
 	return template.FuncMap{
 		"json": func(v interface{}) (string, error) {
@@ -121,7 +125,7 @@ func (w *WebhookAlerter) getTemplateFuncs() template.FuncMap {
 }
 
 func (w *WebhookAlerter) Alert(ctx context.Context, alert *WebhookAlert) error {
-	if !w.config.Enabled {
+	if !w.IsEnabled() {
 		log.Printf("Webhook alerter disabled, skipping alert: %s", alert.Title)
 		return errWebhookDisabled
 	}
