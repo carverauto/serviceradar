@@ -20,7 +20,6 @@ var (
 	errFailedToInit      = errors.New("failed to initialize schema")
 	errFailedToEnableWAL = errors.New("failed to enable WAL mode")
 	errFailedOpenDB      = errors.New("failed to open database")
-	ErrDatabaseError     = errors.New("database error")
 )
 
 const (
@@ -113,31 +112,6 @@ type DB struct {
 	*sql.DB
 }
 
-// NodeHistoryPoint represents a single point in a node's history and is used
-// to represent data out of the database.
-type NodeHistoryPoint struct {
-	Timestamp time.Time `json:"timestamp"`
-	IsHealthy bool      `json:"is_healthy"`
-}
-
-// NodeStatus represents a node's current status.
-type NodeStatus struct {
-	NodeID    string    `json:"node_id"`
-	IsHealthy bool      `json:"is_healthy"`
-	FirstSeen time.Time `json:"first_seen"`
-	LastSeen  time.Time `json:"last_seen"`
-}
-
-// ServiceStatus represents a service's status.
-type ServiceStatus struct {
-	NodeID      string    `json:"node_id"`
-	ServiceName string    `json:"service_name"`
-	ServiceType string    `json:"service_type"`
-	Available   bool      `json:"available"`
-	Details     string    `json:"details"`
-	Timestamp   time.Time `json:"timestamp"`
-}
-
 // New creates a new database connection and initializes the schema.
 func New(dbPath string) (Service, error) {
 	sqlDB, err := sql.Open("sqlite3", dbPath)
@@ -156,6 +130,34 @@ func New(dbPath string) (Service, error) {
 	}
 
 	return db, nil
+}
+
+func (db *DB) Begin() (Transaction, error) {
+	tx, err := db.DB.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("begin transaction: %w", err)
+	}
+	return &SQLTx{tx}, nil
+}
+
+func (db *DB) Exec(query string, args ...interface{}) (Result, error) {
+	result, err := db.DB.Exec(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("exec query: %w", err)
+	}
+	return &SQLResult{result}, nil
+}
+
+func (db *DB) Query(query string, args ...interface{}) (Rows, error) {
+	rows, err := db.DB.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query: %w", err)
+	}
+	return &SQLRows{rows}, nil
+}
+
+func (db *DB) QueryRow(query string, args ...interface{}) Row {
+	return &SQLRow{db.DB.QueryRow(query, args...)}
 }
 
 // initSchema creates the database tables if they don't exist.
@@ -189,20 +191,21 @@ func (db *DB) UpdateNodeStatus(status *NodeStatus) error {
 	return tx.Commit()
 }
 
-func (*DB) updateExistingNode(tx *sql.Tx, status *NodeStatus) error {
+// Rewrite the above function using our interface
+func (*DB) updateExistingNode(tx Transaction, status *NodeStatus) error {
 	result, err := tx.Exec(`
-        UPDATE nodes 
-        SET last_seen = ?,
-            is_healthy = ?
-        WHERE node_id = ?
-    `, status.LastSeen, status.IsHealthy, status.NodeID)
+		UPDATE nodes 
+		SET last_seen = ?,
+			is_healthy = ?
+		WHERE node_id = ?
+	`, status.LastSeen, status.IsHealthy, status.NodeID)
 	if err != nil {
-		return fmt.Errorf("failed to update node: %w", err)
+		return fmt.Errorf("%w node: %w", ErrFailedToInsert, err)
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("failed to get rows affected: %w", err)
+		return fmt.Errorf("%w rows affected: %w", ErrFailedToInsert, err)
 	}
 
 	if rowsAffected == 0 {
@@ -212,7 +215,7 @@ func (*DB) updateExistingNode(tx *sql.Tx, status *NodeStatus) error {
 	return nil
 }
 
-func (*DB) insertNewNode(tx *sql.Tx, status *NodeStatus) error {
+func (*DB) insertNewNode(tx Transaction, status *NodeStatus) error {
 	_, err := tx.Exec(`
         INSERT INTO nodes (node_id, first_seen, last_seen, is_healthy)
         VALUES (?, CURRENT_TIMESTAMP, ?, ?)
@@ -225,7 +228,7 @@ func (*DB) insertNewNode(tx *sql.Tx, status *NodeStatus) error {
 	return nil
 }
 
-func (*DB) addNodeHistory(tx *sql.Tx, status *NodeStatus) error {
+func (*DB) addNodeHistory(tx Transaction, status *NodeStatus) error {
 	_, err := tx.Exec(`
         INSERT INTO node_history (node_id, timestamp, is_healthy)
         VALUES (?, ?, ?)
@@ -238,7 +241,8 @@ func (*DB) addNodeHistory(tx *sql.Tx, status *NodeStatus) error {
 	return nil
 }
 
-func rollbackOnError(tx *sql.Tx, err error) {
+// rewrite the above function but using our interface
+func rollbackOnError(tx Transaction, err error) {
 	if err != nil {
 		if rbErr := tx.Rollback(); rbErr != nil {
 			log.Printf("Error rolling back transaction: %v", rbErr)

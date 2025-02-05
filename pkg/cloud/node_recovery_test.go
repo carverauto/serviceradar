@@ -2,6 +2,7 @@ package cloud
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -43,7 +44,7 @@ func TestNodeRecoveryManager_ProcessRecovery(t *testing.T) {
 		{
 			name:          "db_error",
 			nodeID:        "test-node",
-			dbError:       db.ErrDatabaseError,
+			dbError:       errors.New("db error"),
 			expectedError: "get node status",
 		},
 	}
@@ -55,22 +56,17 @@ func TestNodeRecoveryManager_ProcessRecovery(t *testing.T) {
 
 			mockDB := db.NewMockService(ctrl)
 			mockAlerter := alerts.NewMockAlertService(ctrl)
+			mockTx := db.NewMockTransaction(ctrl)
 
-			// Setup expectations
-			mockDB.EXPECT().
-				GetNodeStatus(tt.nodeID).
-				Return(tt.currentStatus, tt.dbError)
+			// Setup mock expectations
+			mockDB.EXPECT().GetNodeStatus(tt.nodeID).Return(tt.currentStatus, tt.dbError)
 
 			if tt.currentStatus != nil && !tt.currentStatus.IsHealthy {
-				mockDB.EXPECT().
-					UpdateNodeStatus(gomock.Any()).
-					Return(nil)
-			}
+				mockDB.EXPECT().UpdateNodeStatus(gomock.Any()).Return(nil)
 
-			if tt.expectAlert {
-				mockAlerter.EXPECT().
-					Alert(gomock.Any(), gomock.Any()).
-					Return(nil)
+				if tt.expectAlert {
+					mockAlerter.EXPECT().Alert(gomock.Any(), gomock.Any()).Return(nil)
+				}
 			}
 
 			mgr := &NodeRecoveryManager{
@@ -107,7 +103,6 @@ func TestNodeRecoveryManager_SendRecoveryAlert(t *testing.T) {
 			assert.Equal(t, "Node Recovered", alert.Title)
 			assert.Equal(t, "test-node", alert.NodeID)
 			assert.Equal(t, "test-host", alert.Details["hostname"])
-
 			return nil
 		})
 

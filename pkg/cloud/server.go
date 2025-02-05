@@ -1125,17 +1125,31 @@ func (m *NodeRecoveryManager) processRecovery(ctx context.Context, nodeID string
 		}
 	}(tx)
 
-	if recovered, err := m.updateNodeState(ctx, tx, nodeID, lastSeen); err != nil {
-		return err
-	} else if !recovered {
-		return nil // Node was already healthy
+	status, err := m.db.GetNodeStatus(nodeID)
+	if err != nil {
+		return fmt.Errorf("get node status: %w", err)
+	}
+
+	if status.IsHealthy {
+		return nil // Node is already healthy
+	}
+
+	// Update node status
+	status.IsHealthy = true
+	status.LastSeen = lastSeen
+	if err := m.db.UpdateNodeStatus(status); err != nil {
+		return fmt.Errorf("update node status: %w", err)
+	}
+
+	if err := m.sendRecoveryAlert(ctx, nodeID, lastSeen); err != nil {
+		return fmt.Errorf("send recovery alert: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit transaction: %w", err)
 	}
 
-	return m.sendRecoveryAlert(ctx, nodeID, lastSeen)
+	return nil
 }
 
 // updateNodeState handles the database state transition.
@@ -1182,7 +1196,6 @@ func (*NodeRecoveryManager) updateNodeRecords(tx db.Transaction, nodeID string, 
 
 // sendRecoveryAlert handles alert creation and sending.
 func (m *NodeRecoveryManager) sendRecoveryAlert(ctx context.Context, nodeID string, lastSeen time.Time) error {
-	hostname := m.getHostname()
 	alert := &alerts.WebhookAlert{
 		Level:     alerts.Info,
 		Title:     "Node Recovered",
@@ -1190,7 +1203,7 @@ func (m *NodeRecoveryManager) sendRecoveryAlert(ctx context.Context, nodeID stri
 		NodeID:    nodeID,
 		Timestamp: lastSeen.UTC().Format(time.RFC3339),
 		Details: map[string]any{
-			"hostname":      hostname,
+			"hostname":      m.getHostname(),
 			"recovery_time": lastSeen.Format(time.RFC3339),
 		},
 	}
