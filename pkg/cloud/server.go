@@ -1101,23 +1101,63 @@ func (s *Server) getNodeStatus(nodeID string) (*db.NodeStatus, error) {
 }
 
 func (s *Server) handlePotentialRecovery(ctx context.Context, nodeID string, lastSeen time.Time) error {
-	// First check if the node is actually healthy via status
-	currentStatus, err := s.getNodeStatus(nodeID)
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+
+	needsRollback := true
+	defer func() {
+		if needsRollback {
+			if rbErr := tx.Rollback(); rbErr != nil && !errors.Is(rbErr, sql.ErrTxDone) {
+				log.Printf("Error rolling back transaction: %v", rbErr)
+			}
+		}
+	}()
+
+	// Get current status within transaction
+	var isCurrentlyHealthy bool
+	err = tx.QueryRow(`
+        SELECT is_healthy 
+        FROM nodes 
+        WHERE node_id = ? 
+        FOR UPDATE`, // Lock the row
+		nodeID).Scan(&isCurrentlyHealthy)
 	if err != nil {
 		return fmt.Errorf("failed to get node status: %w", err)
 	}
 
-	// If node is already marked healthy, no need to do anything
-	if currentStatus.IsHealthy {
-		return nil
+	// If node is already marked healthy, commit and return
+	if isCurrentlyHealthy {
+		needsRollback = false
+		return tx.Commit()
 	}
 
-	// Update node status to healthy
-	if err := s.updateNodeStatus(nodeID, true, lastSeen); err != nil {
+	// Update node status to healthy within transaction
+	if _, err := tx.Exec(`
+        UPDATE nodes 
+        SET is_healthy = TRUE,
+            last_seen = ?
+        WHERE node_id = ?`,
+		lastSeen, nodeID); err != nil {
 		return fmt.Errorf("failed to update node status: %w", err)
 	}
 
-	// Create recovery alert
+	// Add history entry within same transaction
+	if _, err := tx.Exec(`
+        INSERT INTO node_history (node_id, timestamp, is_healthy)
+        VALUES (?, ?, TRUE)`,
+		nodeID, lastSeen); err != nil {
+		return fmt.Errorf("failed to insert history: %w", err)
+	}
+
+	// Commit transaction
+	needsRollback = false
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	// Only send alert after successful state change
 	alert := &alerts.WebhookAlert{
 		Level:     alerts.Info,
 		Title:     "Node Recovered",
@@ -1130,9 +1170,9 @@ func (s *Server) handlePotentialRecovery(ctx context.Context, nodeID string, las
 		},
 	}
 
-	// Send the alert
 	if err := s.sendAlert(ctx, alert); err != nil {
 		log.Printf("Failed to send recovery alert: %v", err)
+		// Don't return error here as the state change was successful
 	}
 
 	return nil
