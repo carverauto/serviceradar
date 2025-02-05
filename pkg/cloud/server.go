@@ -1074,11 +1074,59 @@ func (s *Server) evaluateNodeHealth(ctx context.Context, nodeID string, lastSeen
 
 	// Case 3: Node is marked unhealthy but has reported recently
 	if !isHealthy && !lastSeen.Before(threshold) {
-		log.Printf("Node %s may have recovered (last seen: %v ago)",
-			nodeID, time.Since(lastSeen).Round(time.Second))
-		// Let the next status report handle the recovery
+		return s.handlePotentialRecovery(ctx, nodeID, lastSeen)
+	}
 
+	return nil
+}
+
+func (s *Server) getNodeStatus(nodeID string) (*db.NodeStatus, error) {
+	var status db.NodeStatus
+
+	err := s.db.QueryRow(`
+        SELECT node_id, is_healthy, first_seen, last_seen 
+        FROM nodes 
+        WHERE node_id = ?`, nodeID).Scan(&status.NodeID, &status.IsHealthy, &status.FirstSeen, &status.LastSeen)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get node status: %w", err)
+	}
+
+	return &status, nil
+}
+
+func (s *Server) handlePotentialRecovery(ctx context.Context, nodeID string, lastSeen time.Time) error {
+	// First check if the node is actually healthy via status
+	currentStatus, err := s.getNodeStatus(nodeID)
+	if err != nil {
+		return fmt.Errorf("failed to get node status: %w", err)
+	}
+
+	// If node is already marked healthy, no need to do anything
+	if currentStatus.IsHealthy {
 		return nil
+	}
+
+	// Update node status to healthy
+	if err := s.updateNodeStatus(nodeID, true, lastSeen); err != nil {
+		return fmt.Errorf("failed to update node status: %w", err)
+	}
+
+	// Create recovery alert
+	alert := &alerts.WebhookAlert{
+		Level:     alerts.Info,
+		Title:     "Node Recovered",
+		Message:   fmt.Sprintf("Node '%s' is back online", nodeID),
+		NodeID:    nodeID,
+		Timestamp: lastSeen.UTC().Format(time.RFC3339),
+		Details: map[string]any{
+			"hostname":      getHostname(),
+			"recovery_time": lastSeen.Format(time.RFC3339),
+		},
+	}
+
+	// Send the alert
+	if err := s.sendAlert(ctx, alert); err != nil {
+		log.Printf("Failed to send recovery alert: %v", err)
 	}
 
 	return nil
