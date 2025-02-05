@@ -19,7 +19,8 @@ var (
 	errFailedToInsert    = errors.New("failed to insert")
 	errFailedToInit      = errors.New("failed to initialize schema")
 	errFailedToEnableWAL = errors.New("failed to enable WAL mode")
-	errFailedOpenDB      = fmt.Errorf("failed to open database")
+	errFailedOpenDB      = errors.New("failed to open database")
+	ErrDatabaseError     = errors.New("database error")
 )
 
 const (
