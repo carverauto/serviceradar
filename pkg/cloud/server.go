@@ -9,13 +9,11 @@ import (
 	"log"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/mfreeman451/serviceradar/pkg/cloud/alerts"
 	"github.com/mfreeman451/serviceradar/pkg/cloud/api"
 	"github.com/mfreeman451/serviceradar/pkg/db"
-	"github.com/mfreeman451/serviceradar/pkg/grpc"
 	"github.com/mfreeman451/serviceradar/pkg/metrics"
 	"github.com/mfreeman451/serviceradar/pkg/models"
 	"github.com/mfreeman451/serviceradar/proto"
@@ -36,45 +34,6 @@ const (
 	dailyCleanupInterval     = 24 * time.Hour
 	monitorInterval          = 30 * time.Second
 )
-
-var (
-	errEmptyPollerID      = errors.New("empty poller ID")
-	errDatabaseError      = errors.New("database error")
-	errInvalidSweepData   = errors.New("invalid sweep data")
-	errFailedToSendAlerts = errors.New("failed to send alerts")
-)
-
-type Metrics struct {
-	Enabled   bool `json:"enabled"`
-	Retention int  `json:"retention"`
-	MaxNodes  int  `json:"max_nodes"`
-}
-
-type Config struct {
-	ListenAddr     string                 `json:"listen_addr"`
-	GrpcAddr       string                 `json:"grpc_addr"`
-	DBPath         string                 `json:"db_path"`
-	AlertThreshold time.Duration          `json:"alert_threshold"`
-	PollerPatterns []string               `json:"poller_patterns"`
-	Webhooks       []alerts.WebhookConfig `json:"webhooks,omitempty"`
-	KnownPollers   []string               `json:"known_pollers,omitempty"`
-	Metrics        Metrics                `json:"metrics"`
-	Security       *grpc.SecurityConfig   `json:"security"`
-}
-
-type Server struct {
-	proto.UnimplementedPollerServiceServer
-	mu             sync.RWMutex
-	db             db.Service
-	alertThreshold time.Duration
-	webhooks       []alerts.AlertService
-	apiServer      api.Service
-	ShutdownChan   chan struct{}
-	pollerPatterns []string
-	grpcServer     *grpc.Server
-	metrics        metrics.MetricCollector
-	config         *Config
-}
 
 func NewServer(_ context.Context, config *Config) (*Server, error) {
 	if config.Metrics.Retention == 0 {
@@ -1060,89 +1019,10 @@ func (s *Server) evaluateNodeHealth(ctx context.Context, nodeID string, lastSeen
 	return nil
 }
 
-// NodeRecoveryManager handles node recovery state transitions.
-type NodeRecoveryManager struct {
-	db          db.Service
-	alerter     alerts.AlertService
-	getHostname func() string
-}
-
-func newNodeRecoveryManager(d db.Service, alerter alerts.AlertService) *NodeRecoveryManager {
-	return &NodeRecoveryManager{
-		db:      d,
-		alerter: alerter,
-		getHostname: func() string {
-			hostname, err := os.Hostname()
-			if err != nil {
-				return statusUnknown
-			}
-			return hostname
-		},
-	}
-}
-
 // handlePotentialRecovery simplified to coordinate the recovery process.
 func (s *Server) handlePotentialRecovery(ctx context.Context, nodeID string, lastSeen time.Time) error {
 	mgr := newNodeRecoveryManager(s.db, s.webhooks[0])
 	return mgr.processRecovery(ctx, nodeID, lastSeen)
-}
-
-// processRecovery handles the recovery state transition.
-func (m *NodeRecoveryManager) processRecovery(ctx context.Context, nodeID string, lastSeen time.Time) error {
-	tx, err := m.db.Begin()
-	if err != nil {
-		return fmt.Errorf("begin transaction: %w", err)
-	}
-	defer func(tx db.Transaction) {
-		err = tx.Rollback()
-		if err != nil {
-			log.Printf("Error rolling back transaction: %v", err)
-		}
-	}(tx)
-
-	status, err := m.db.GetNodeStatus(nodeID)
-	if err != nil {
-		return fmt.Errorf("get node status: %w", err)
-	}
-
-	if status.IsHealthy {
-		return nil // Node is already healthy
-	}
-
-	// Update node status
-	status.IsHealthy = true
-	status.LastSeen = lastSeen
-
-	if err := m.db.UpdateNodeStatus(status); err != nil {
-		return fmt.Errorf("update node status: %w", err)
-	}
-
-	if err := m.sendRecoveryAlert(ctx, nodeID, lastSeen); err != nil {
-		return fmt.Errorf("send recovery alert: %w", err)
-	}
-
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit transaction: %w", err)
-	}
-
-	return nil
-}
-
-// sendRecoveryAlert handles alert creation and sending.
-func (m *NodeRecoveryManager) sendRecoveryAlert(ctx context.Context, nodeID string, lastSeen time.Time) error {
-	alert := &alerts.WebhookAlert{
-		Level:     alerts.Info,
-		Title:     "Node Recovered",
-		Message:   fmt.Sprintf("Node '%s' is back online", nodeID),
-		NodeID:    nodeID,
-		Timestamp: lastSeen.UTC().Format(time.RFC3339),
-		Details: map[string]any{
-			"hostname":      m.getHostname(),
-			"recovery_time": lastSeen.Format(time.RFC3339),
-		},
-	}
-
-	return m.alerter.Alert(ctx, alert)
 }
 
 func (s *Server) handleNodeDown(ctx context.Context, nodeID string, lastSeen time.Time) error {

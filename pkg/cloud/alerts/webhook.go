@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -15,12 +16,12 @@ import (
 )
 
 var (
-	errWebhookDisabled   = fmt.Errorf("webhook alerter is disabled")
-	errWebhookCooldown   = fmt.Errorf("alert is within cooldown period")
-	errInvalidJSON       = fmt.Errorf("invalid JSON generated")
-	errWebhookStatus     = fmt.Errorf("webhook returned non-200 status")
-	errTemplateParse     = fmt.Errorf("template parsing failed")
-	errTemplateExecution = fmt.Errorf("template execution failed")
+	errWebhookDisabled   = errors.New("webhook alerter is disabled")
+	ErrWebhookCooldown   = errors.New("alert is within cooldown period")
+	errInvalidJSON       = errors.New("invalid JSON generated")
+	errWebhookStatus     = errors.New("webhook returned non-200 status")
+	errTemplateParse     = errors.New("template parsing failed")
+	errTemplateExecution = errors.New("template execution failed")
 )
 
 type WebhookConfig struct {
@@ -157,7 +158,7 @@ func (w *WebhookAlerter) checkCooldown(alertTitle string) error {
 	lastAlertTime, exists := w.lastAlertTimes[alertTitle]
 	if exists && time.Since(lastAlertTime) < w.config.Cooldown {
 		log.Printf("Alert '%s' is within cooldown period, skipping", alertTitle)
-		return errWebhookCooldown
+		return ErrWebhookCooldown
 	}
 
 	w.lastAlertTimes[alertTitle] = time.Now()
