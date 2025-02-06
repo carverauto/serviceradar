@@ -110,8 +110,6 @@ func TestNodeRecoveryManager_ProcessRecovery_WithCooldown(t *testing.T) {
 				assert.ErrorContains(t, err, tt.expectError)
 			} else if errors.Is(tt.alertError, alerts.ErrWebhookCooldown) {
 				assert.NoError(t, err)
-			} else {
-				assert.NoError(t, err)
 			}
 		})
 	}
@@ -217,6 +215,7 @@ func TestNodeRecoveryManager_SendRecoveryAlert(t *testing.T) {
 			assert.Equal(t, "test-node", alert.NodeID)
 			assert.Equal(t, "test-host", alert.Details["hostname"])
 			assert.Contains(t, alert.Message, "test-node")
+
 			return nil
 		})
 
