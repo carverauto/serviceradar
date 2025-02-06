@@ -10,7 +10,6 @@ package db
 
 import (
 	"database/sql"
-	"fmt"
 	"log"
 )
 
@@ -46,6 +45,10 @@ func (tx *SQLTx) Exec(query string, args ...interface{}) (Result, error) {
 func (tx *SQLTx) Query(query string, args ...interface{}) (Rows, error) {
 	rows, err := tx.Tx.Query(query, args...)
 	if err != nil {
+		return nil, err
+	}
+
+	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 
@@ -90,8 +93,9 @@ func FromRows(rows Rows) (*sql.Rows, error) {
 func ToTx(tx Transaction) (*sql.Tx, error) {
 	sqlTx, ok := tx.(*SQLTx)
 	if !ok {
-		return nil, fmt.Errorf("invalid transaction type: expected *SQLTx")
+		return nil, ErrInvalidTransaction
 	}
+
 	return sqlTx.Tx, nil
 }
 
@@ -106,7 +110,7 @@ func CloseRows(rows Rows) {
 func ToRows(r Rows) (*sql.Rows, error) {
 	sqlRows, ok := r.(*SQLRows)
 	if !ok {
-		return nil, fmt.Errorf("invalid rows type: expected *SQLRows")
+		return nil, ErrInvalidRowsType
 	}
 
 	return sqlRows.Rows, nil

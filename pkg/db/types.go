@@ -2,13 +2,13 @@ package db
 
 import "time"
 
-// NodeHistoryPoint represents a single point in a node's history
+// NodeHistoryPoint represents a single point in a node's history.
 type NodeHistoryPoint struct {
 	Timestamp time.Time `json:"timestamp"`
 	IsHealthy bool      `json:"is_healthy"`
 }
 
-// NodeStatus represents a node's current status
+// NodeStatus represents a node's current status.
 type NodeStatus struct {
 	NodeID    string    `json:"node_id"`
 	IsHealthy bool      `json:"is_healthy"`
@@ -16,7 +16,7 @@ type NodeStatus struct {
 	LastSeen  time.Time `json:"last_seen"`
 }
 
-// ServiceStatus represents a service's status
+// ServiceStatus represents a service's status.
 type ServiceStatus struct {
 	NodeID      string    `json:"node_id"`
 	ServiceName string    `json:"service_name"`

@@ -5,14 +5,14 @@ package db
 import "errors"
 
 var (
-	// Core database errors
+	// Core database errors.
 
 	ErrDatabaseError      = errors.New("database error")
 	ErrInvalidTransaction = errors.New("invalid transaction type")
 	ErrInvalidRows        = errors.New("invalid rows type")
 	ErrInvalidResult      = errors.New("invalid result type")
 
-	// Operation errors
+	// Operation errors.
 
 	ErrFailedToClean     = errors.New("failed to clean")
 	ErrFailedToBeginTx   = errors.New("failed to begin transaction")
@@ -22,4 +22,7 @@ var (
 	ErrFailedToInit      = errors.New("failed to initialize schema")
 	ErrFailedToEnableWAL = errors.New("failed to enable WAL mode")
 	ErrFailedOpenDB      = errors.New("failed to open database")
+
+	ErrInvalidTransactionType = errors.New("invalid transaction type: expected *SQLTx")
+	ErrInvalidRowsType        = errors.New("invalid rows type: expected *SQLRows")
 )
