@@ -63,11 +63,13 @@ type AlertKey struct {
 }
 
 type WebhookAlerter struct {
-	config         WebhookConfig
-	client         *http.Client
-	LastAlertTimes map[AlertKey]time.Time
-	mu             sync.RWMutex
-	bufferPool     *sync.Pool
+	config             WebhookConfig
+	client             *http.Client
+	LastAlertTimes     map[AlertKey]time.Time
+	NodeDownStates     map[string]bool
+	ServiceAlertStates map[string]bool
+	Mu                 sync.RWMutex
+	bufferPool         *sync.Pool
 }
 
 func (w *WebhookConfig) UnmarshalJSON(data []byte) error {
@@ -104,12 +106,20 @@ func NewWebhookAlerter(config WebhookConfig) *WebhookAlerter {
 			Timeout: 10 * time.Second,
 		},
 		LastAlertTimes: make(map[AlertKey]time.Time),
+		NodeDownStates: make(map[string]bool),
 		bufferPool: &sync.Pool{
 			New: func() interface{} {
 				return new(bytes.Buffer)
 			},
 		},
 	}
+}
+
+func (w *WebhookAlerter) MarkServiceAsRecovered(nodeID string) {
+	w.Mu.Lock()
+	defer w.Mu.Unlock()
+
+	w.ServiceAlertStates[nodeID] = false
 }
 
 func (w *WebhookAlerter) IsEnabled() bool {
@@ -137,9 +147,29 @@ func (w *WebhookAlerter) getTemplateFuncs() template.FuncMap {
 func (w *WebhookAlerter) Alert(ctx context.Context, alert *WebhookAlert) error {
 	if !w.IsEnabled() {
 		log.Printf("Webhook alerter disabled, skipping alert: %s", alert.Title)
+
 		return errWebhookDisabled
 	}
 
+	// Only check NodeDownStates for "Node Offline" alerts.
+	if alert.Title == "Node Offline" {
+		w.Mu.RLock()
+		if w.NodeDownStates[alert.NodeID] {
+			w.Mu.RUnlock()
+			log.Printf("Skipping duplicate 'Node Offline' alert for node: %s", alert.NodeID)
+
+			return nil // Or return a specific error if you want to track this
+		}
+
+		w.Mu.RUnlock()
+
+		//If we got here, it is a valid down alert.
+		w.Mu.Lock()
+		w.NodeDownStates[alert.NodeID] = true
+		w.Mu.Unlock()
+	}
+
+	// Always check cooldown (using the correct AlertKey, with ServiceName).
 	if err := w.CheckCooldown(alert.NodeID, alert.Title, alert.ServiceName); err != nil {
 		return err
 	}
@@ -156,14 +186,23 @@ func (w *WebhookAlerter) Alert(ctx context.Context, alert *WebhookAlert) error {
 	return w.sendRequest(ctx, payload)
 }
 
+func (w *WebhookAlerter) MarkNodeAsRecovered(nodeID string) {
+	w.Mu.Lock()
+	defer w.Mu.Unlock()
+
+	w.NodeDownStates[nodeID] = false
+
+	log.Printf("Marked Node: %v as recovered in the webhook alerter", nodeID)
+}
+
 // CheckCooldown checks if an alert is within its cooldown period.
 func (w *WebhookAlerter) CheckCooldown(nodeID, alertTitle, serviceName string) error {
 	if w.config.Cooldown <= 0 {
 		return nil
 	}
 
-	w.mu.Lock()
-	defer w.mu.Unlock()
+	w.Mu.Lock()
+	defer w.Mu.Unlock()
 
 	key := AlertKey{NodeID: nodeID, Title: alertTitle, ServiceName: serviceName}
 
