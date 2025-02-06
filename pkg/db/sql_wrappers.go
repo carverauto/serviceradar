@@ -8,34 +8,38 @@
 // FromRows, FromResult, and FromRow functions convert back to the concrete types when needed.
 package db
 
-import "database/sql"
+import (
+	"database/sql"
+	"fmt"
+	"log"
+)
 
-// SQLRow wraps sql.Row to implement Row interface
+// SQLRow wraps sql.Row to implement Row interface.
 type SQLRow struct {
 	*sql.Row
 }
 
-// SQLRows wraps sql.Rows to implement Rows interface
+// SQLRows wraps sql.Rows to implement Rows interface.
 type SQLRows struct {
 	*sql.Rows
 }
 
-// SQLResult wraps sql.Result to implement Result interface
+// SQLResult wraps sql.Result to implement Result interface.
 type SQLResult struct {
 	sql.Result
 }
 
-// SQLTx wraps sql.Tx to implement Transaction interface
+// SQLTx wraps sql.Tx to implement Transaction interface.
 type SQLTx struct {
 	*sql.Tx
 }
 
-// Ensure SQLTx implements Transaction interface
 func (tx *SQLTx) Exec(query string, args ...interface{}) (Result, error) {
 	result, err := tx.Tx.Exec(query, args...)
 	if err != nil {
 		return nil, err
 	}
+
 	return &SQLResult{result}, nil
 }
 
@@ -44,6 +48,7 @@ func (tx *SQLTx) Query(query string, args ...interface{}) (Rows, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return &SQLRows{rows}, nil
 }
 
@@ -51,13 +56,8 @@ func (tx *SQLTx) QueryRow(query string, args ...interface{}) Row {
 	return &SQLRow{tx.Tx.QueryRow(query, args...)}
 }
 
-// Implement adapter methods to convert from concrete SQL types to interfaces
 func ToTransaction(tx *sql.Tx) Transaction {
 	return &SQLTx{tx}
-}
-
-func ToRows(rows *sql.Rows) Rows {
-	return &SQLRows{rows}
 }
 
 func ToResult(result sql.Result) Result {
@@ -68,12 +68,12 @@ func ToRow(row *sql.Row) Row {
 	return &SQLRow{row}
 }
 
-// Convert back to concrete types when needed
 func FromTransaction(tx Transaction) (*sql.Tx, error) {
 	sqlTx, ok := tx.(*SQLTx)
 	if !ok {
 		return nil, ErrInvalidTransaction
 	}
+
 	return sqlTx.Tx, nil
 }
 
@@ -82,5 +82,32 @@ func FromRows(rows Rows) (*sql.Rows, error) {
 	if !ok {
 		return nil, ErrInvalidRows
 	}
+
+	return sqlRows.Rows, nil
+}
+
+// ToTx converts from our interface type back to concrete sql.Tx when needed.
+func ToTx(tx Transaction) (*sql.Tx, error) {
+	sqlTx, ok := tx.(*SQLTx)
+	if !ok {
+		return nil, fmt.Errorf("invalid transaction type: expected *SQLTx")
+	}
+	return sqlTx.Tx, nil
+}
+
+// CloseRows safely closes a Rows type and logs any error.
+func CloseRows(rows Rows) {
+	if err := rows.Close(); err != nil {
+		log.Printf("failed to close rows: %v", err)
+	}
+}
+
+// ToRows converts from our interface type back to concrete sql.Rows when needed.
+func ToRows(r Rows) (*sql.Rows, error) {
+	sqlRows, ok := r.(*SQLRows)
+	if !ok {
+		return nil, fmt.Errorf("invalid rows type: expected *SQLRows")
+	}
+
 	return sqlRows.Rows, nil
 }

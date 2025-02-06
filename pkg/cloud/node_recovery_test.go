@@ -58,7 +58,13 @@ func TestNodeRecoveryManager_ProcessRecovery(t *testing.T) {
 			mockAlerter := alerts.NewMockAlertService(ctrl)
 			mockTx := db.NewMockTransaction(ctrl)
 
-			// Setup mock expectations
+			// Mock Begin() call
+			mockDB.EXPECT().Begin().Return(mockTx, nil)
+
+			// Mock Rollback() as it's in a defer
+			mockTx.EXPECT().Rollback().Return(nil).AnyTimes()
+
+			// Mock GetNodeStatus
 			mockDB.EXPECT().GetNodeStatus(tt.nodeID).Return(tt.currentStatus, tt.dbError)
 
 			if tt.currentStatus != nil && !tt.currentStatus.IsHealthy {
@@ -66,6 +72,8 @@ func TestNodeRecoveryManager_ProcessRecovery(t *testing.T) {
 
 				if tt.expectAlert {
 					mockAlerter.EXPECT().Alert(gomock.Any(), gomock.Any()).Return(nil)
+					// Mock the successful commit
+					mockTx.EXPECT().Commit().Return(nil)
 				}
 			}
 

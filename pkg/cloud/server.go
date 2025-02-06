@@ -424,12 +424,7 @@ func (s *Server) checkInitialStates(ctx context.Context) {
 
 		return
 	}
-	defer func(rows *sql.Rows) {
-		err := rows.Close()
-		if err != nil {
-			log.Printf("Error closing rows: %v", err)
-		}
-	}(rows)
+	defer db.CloseRows(rows)
 
 	for rows.Next() {
 		var nodeID string
@@ -677,23 +672,21 @@ func (s *Server) updateNodeDownStatus(nodeID string, lastSeen time.Time) error {
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-
-	// Create a flag to track if we need to rollback
-	needsRollback := true
-	defer func() {
-		if needsRollback {
-			if rbErr := tx.Rollback(); rbErr != nil && !errors.Is(rbErr, sql.ErrTxDone) {
-				log.Printf("Error rolling back transaction: %v", rbErr)
-			}
+	defer func(tx db.Transaction) {
+		err := tx.Rollback()
+		if err != nil {
+			log.Printf("Error rolling back transaction: %v", err)
 		}
-	}()
+	}(tx)
 
-	if err := s.performNodeUpdate(tx, nodeID, lastSeen); err != nil {
-		return err
+	sqlTx, err := db.ToTx(tx)
+	if err != nil {
+		return fmt.Errorf("invalid transaction: %w", err)
 	}
 
-	// Mark that we don't need rollback before committing
-	needsRollback = false
+	if err := s.performNodeUpdate(sqlTx, nodeID, lastSeen); err != nil {
+		return err
+	}
 
 	return tx.Commit()
 }
@@ -797,12 +790,7 @@ func (s *Server) checkNeverReportedNodes(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("error querying unreported nodes: %w", err)
 	}
-	defer func(rows *sql.Rows) {
-		err := rows.Close()
-		if err != nil {
-			log.Printf("Error closing rows: %v", err)
-		}
-	}(rows)
+	defer db.CloseRows(rows)
 
 	var unreportedNodes []string
 
@@ -865,13 +853,7 @@ func (s *Server) checkNeverReportedPollers(ctx context.Context) {
 		log.Printf("Error querying unreported nodes: %v", err)
 		return
 	}
-
-	defer func(rows *sql.Rows) {
-		err := rows.Close()
-		if err != nil {
-			log.Printf("Error closing rows: %v", err)
-		}
-	}(rows)
+	defer db.CloseRows(rows)
 
 	for rows.Next() {
 		var nodeID string
@@ -1030,12 +1012,7 @@ func (s *Server) checkNodeStates(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to query nodes: %w", err)
 	}
-	defer func(rows *sql.Rows) {
-		err := rows.Close()
-		if err != nil {
-			log.Printf("Error closing rows: %v", err)
-		}
-	}(rows)
+	defer db.CloseRows(rows)
 
 	threshold := time.Now().Add(-s.alertThreshold)
 
@@ -1118,7 +1095,7 @@ func (m *NodeRecoveryManager) processRecovery(ctx context.Context, nodeID string
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
 	}
-	defer func(tx *sql.Tx) {
+	defer func(tx db.Transaction) {
 		err := tx.Rollback()
 		if err != nil {
 			log.Printf("Error rolling back transaction: %v", err)
@@ -1249,18 +1226,20 @@ func (s *Server) updateNodeStatus(nodeID string, isHealthy bool, timestamp time.
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-
-	needsRollback := true
-	defer func() {
-		if needsRollback {
-			if rbErr := tx.Rollback(); rbErr != nil && !errors.Is(rbErr, sql.ErrTxDone) {
-				log.Printf("Error rolling back transaction: %v", rbErr)
-			}
+	defer func(tx db.Transaction) {
+		err := tx.Rollback()
+		if err != nil {
+			log.Printf("Error rolling back transaction: %v", err)
 		}
-	}()
+	}(tx)
+
+	sqlTx, err := db.ToTx(tx)
+	if err != nil {
+		return fmt.Errorf("invalid transaction: %w", err)
+	}
 
 	// Update node status
-	if err := s.updateNodeInTx(tx, nodeID, isHealthy, timestamp); err != nil {
+	if err := s.updateNodeInTx(sqlTx, nodeID, isHealthy, timestamp); err != nil {
 		return err
 	}
 
@@ -1271,8 +1250,6 @@ func (s *Server) updateNodeStatus(nodeID string, isHealthy bool, timestamp time.
     `, nodeID, timestamp, isHealthy); err != nil {
 		return fmt.Errorf("failed to insert history: %w", err)
 	}
-
-	needsRollback = false
 
 	return tx.Commit()
 }

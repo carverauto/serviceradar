@@ -137,6 +137,7 @@ func (db *DB) Begin() (Transaction, error) {
 	if err != nil {
 		return nil, fmt.Errorf("begin transaction: %w", err)
 	}
+
 	return &SQLTx{tx}, nil
 }
 
@@ -145,6 +146,7 @@ func (db *DB) Exec(query string, args ...interface{}) (Result, error) {
 	if err != nil {
 		return nil, fmt.Errorf("exec query: %w", err)
 	}
+
 	return &SQLResult{result}, nil
 }
 
@@ -153,6 +155,11 @@ func (db *DB) Query(query string, args ...interface{}) (Rows, error) {
 	if err != nil {
 		return nil, fmt.Errorf("query: %w", err)
 	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows error: %w", err)
+	}
+
 	return &SQLRows{rows}, nil
 }
 
@@ -191,7 +198,7 @@ func (db *DB) UpdateNodeStatus(status *NodeStatus) error {
 	return tx.Commit()
 }
 
-// Rewrite the above function using our interface
+// Rewrite the above function using our interface.
 func (*DB) updateExistingNode(tx Transaction, status *NodeStatus) error {
 	result, err := tx.Exec(`
 		UPDATE nodes 
@@ -241,7 +248,6 @@ func (*DB) addNodeHistory(tx Transaction, status *NodeStatus) error {
 	return nil
 }
 
-// rewrite the above function but using our interface
 func rollbackOnError(tx Transaction, err error) {
 	if err != nil {
 		if rbErr := tx.Rollback(); rbErr != nil {
@@ -303,16 +309,11 @@ func (db *DB) GetNodeServices(nodeID string) ([]ServiceStatus, error) {
         ORDER BY service_type, service_name
     `
 
-	rows, err := db.Query(querySQL, nodeID) //nolint:rowserrcheck // rows.Close() is deferred
+	rows, err := db.Query(querySQL, nodeID)
 	if err != nil {
 		return nil, fmt.Errorf("%w node services: %w", errFailedToQuery, err)
 	}
-	defer func(rows *sql.Rows) {
-		err := rows.Close()
-		if err != nil {
-			log.Printf("failed to close rows: %v", err)
-		}
-	}(rows)
+	defer CloseRows(rows)
 
 	var services []ServiceStatus
 
@@ -339,16 +340,11 @@ func (db *DB) GetNodeHistoryPoints(nodeID string, limit int) ([]NodeHistoryPoint
         LIMIT ?
     `
 
-	rows, err := db.Query(query, nodeID, limit) //nolint:rowserrcheck // rows.Close will check for errors
+	rows, err := db.Query(query, nodeID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("%w node history points: %w", errFailedToQuery, err)
 	}
-	defer func(rows *sql.Rows) {
-		err := rows.Close()
-		if err != nil {
-			log.Printf("failed to close rows: %v", err)
-		}
-	}(rows)
+	defer CloseRows(rows)
 
 	var points []NodeHistoryPoint
 
@@ -374,16 +370,11 @@ func (db *DB) GetNodeHistory(nodeID string) ([]NodeStatus, error) {
         LIMIT ?
     `
 
-	rows, err := db.Query(querySQL, nodeID, maxHistoryPoints) //nolint:rowserrcheck // rows.Close will check for errors
+	rows, err := db.Query(querySQL, nodeID, maxHistoryPoints)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query node history: %w", err)
 	}
-	defer func(rows *sql.Rows) {
-		err := rows.Close()
-		if err != nil {
-			log.Printf("failed to close rows: %v", err)
-		}
-	}(rows)
+	defer CloseRows(rows)
 
 	var history []NodeStatus
 
@@ -431,17 +422,11 @@ func (db *DB) GetServiceHistory(nodeID, serviceName string, limit int) ([]Servic
 		LIMIT ?
 	`
 
-	rows, err := db.Query(querySQL, nodeID, serviceName, limit) //nolint:rowserrcheck // rows.Close will check for errors
+	rows, err := db.Query(querySQL, nodeID, serviceName, limit)
 	if err != nil {
 		return nil, fmt.Errorf("%w service history: %w", errFailedToQuery, err)
 	}
-
-	defer func(rows *sql.Rows) {
-		err := rows.Close()
-		if err != nil {
-			log.Printf("failed to close rows: %v", err)
-		}
-	}(rows)
+	defer CloseRows(rows)
 
 	var history []ServiceStatus
 
