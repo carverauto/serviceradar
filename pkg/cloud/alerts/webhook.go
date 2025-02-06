@@ -163,7 +163,7 @@ func (w *WebhookAlerter) Alert(ctx context.Context, alert *WebhookAlert) error {
 
 		w.Mu.RUnlock()
 
-		//If we got here, it is a valid down alert.
+		// If we got here, it is a valid down alert.
 		w.Mu.Lock()
 		w.NodeDownStates[alert.NodeID] = true
 		w.Mu.Unlock()
