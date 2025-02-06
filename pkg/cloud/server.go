@@ -1067,9 +1067,9 @@ type NodeRecoveryManager struct {
 	getHostname func() string
 }
 
-func newNodeRecoveryManager(db db.Service, alerter alerts.AlertService) *NodeRecoveryManager {
+func newNodeRecoveryManager(d db.Service, alerter alerts.AlertService) *NodeRecoveryManager {
 	return &NodeRecoveryManager{
-		db:      db,
+		db:      d,
 		alerter: alerter,
 		getHostname: func() string {
 			hostname, err := os.Hostname()
