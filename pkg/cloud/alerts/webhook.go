@@ -54,10 +54,16 @@ type WebhookAlert struct {
 	Details   map[string]any `json:"details,omitempty"`
 }
 
+// AlertKey combines nodeID and title to make a unique key for cooldown tracking.
+type AlertKey struct {
+	NodeID string
+	Title  string
+}
+
 type WebhookAlerter struct {
 	config         WebhookConfig
 	client         *http.Client
-	lastAlertTimes map[string]time.Time
+	LastAlertTimes map[AlertKey]time.Time
 	mu             sync.RWMutex
 	bufferPool     *sync.Pool
 }
@@ -95,7 +101,7 @@ func NewWebhookAlerter(config WebhookConfig) *WebhookAlerter {
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
-		lastAlertTimes: make(map[string]time.Time),
+		LastAlertTimes: make(map[AlertKey]time.Time),
 		bufferPool: &sync.Pool{
 			New: func() interface{} {
 				return new(bytes.Buffer)
@@ -125,13 +131,14 @@ func (w *WebhookAlerter) getTemplateFuncs() template.FuncMap {
 	}
 }
 
+// Alert sends an alert through the webhook
 func (w *WebhookAlerter) Alert(ctx context.Context, alert *WebhookAlert) error {
 	if !w.IsEnabled() {
 		log.Printf("Webhook alerter disabled, skipping alert: %s", alert.Title)
 		return errWebhookDisabled
 	}
 
-	if err := w.checkCooldown(alert.Title); err != nil {
+	if err := w.CheckCooldown(alert.NodeID, alert.Title); err != nil {
 		return err
 	}
 
@@ -147,7 +154,8 @@ func (w *WebhookAlerter) Alert(ctx context.Context, alert *WebhookAlert) error {
 	return w.sendRequest(ctx, payload)
 }
 
-func (w *WebhookAlerter) checkCooldown(alertTitle string) error {
+// CheckCooldown checks if an alert is within its cooldown period.
+func (w *WebhookAlerter) CheckCooldown(nodeID, alertTitle string) error {
 	if w.config.Cooldown <= 0 {
 		return nil
 	}
@@ -155,13 +163,16 @@ func (w *WebhookAlerter) checkCooldown(alertTitle string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	lastAlertTime, exists := w.lastAlertTimes[alertTitle]
+	key := AlertKey{NodeID: nodeID, Title: alertTitle}
+
+	lastAlertTime, exists := w.LastAlertTimes[key]
 	if exists && time.Since(lastAlertTime) < w.config.Cooldown {
-		log.Printf("Alert '%s' is within cooldown period, skipping", alertTitle)
+		log.Printf("Alert '%s' for node '%s' is within cooldown period, skipping", alertTitle, nodeID)
+
 		return ErrWebhookCooldown
 	}
 
-	w.lastAlertTimes[alertTitle] = time.Now()
+	w.LastAlertTimes[key] = time.Now()
 
 	return nil
 }

@@ -997,57 +997,79 @@ func (s *Server) evaluateNodeHealth(ctx context.Context, nodeID string, lastSeen
 	log.Printf("Evaluating node health: id=%s lastSeen=%v isHealthy=%v threshold=%v",
 		nodeID, lastSeen.Format(time.RFC3339), isHealthy, threshold.Format(time.RFC3339))
 
-	// Case 1: Node hasn't been seen recently (truly offline)
-	if lastSeen.Before(threshold) {
+	// Case 1: Node was healthy but hasn't been seen recently (went down)
+	if isHealthy && lastSeen.Before(threshold) {
 		duration := time.Since(lastSeen).Round(time.Second)
 		log.Printf("Node %s appears to be offline (last seen: %v ago)", nodeID, duration)
 		return s.handleNodeDown(ctx, nodeID, lastSeen)
 	}
 
-	// Case 2: Node is reporting but has service failures
-	if !isHealthy {
-		// Get service statuses to determine if this is a partial failure
-		services, err := s.db.GetNodeServices(nodeID)
-		if err != nil {
-			return fmt.Errorf("failed to get services: %w", err)
-		}
-
-		// Count available vs total services
-		total := len(services)
-		available := 0
-		for _, svc := range services {
-			if svc.Available {
-				available++
-			}
-		}
-
-		// Only send service failure alerts, not node recovery alerts
-		if available < total && available > 0 {
-			alert := &alerts.WebhookAlert{
-				Level:     alerts.Warning,
-				Title:     "Service Failure",
-				Message:   fmt.Sprintf("Node '%s' has %d/%d services available", nodeID, available, total),
-				NodeID:    nodeID,
-				Timestamp: time.Now().UTC().Format(time.RFC3339),
-				Details: map[string]any{
-					"hostname":           getHostname(),
-					"available_services": available,
-					"total_services":     total,
-					"last_seen":          lastSeen.Format(time.RFC3339),
-				},
-			}
-			if err := s.sendAlert(ctx, alert); err != nil && !errors.Is(err, alerts.ErrWebhookCooldown) {
-				log.Printf("Failed to send service failure alert: %v", err)
-			}
-			return nil
-		}
+	// Case 2: Node is healthy and reporting within threshold
+	if isHealthy && !lastSeen.Before(threshold) {
+		// Everything is fine, no action needed
+		return nil
 	}
 
-	// Case 3: Node was previously down but is now reporting
-	if !isHealthy && lastSeen.After(threshold) {
+	// Case 3: Node is unhealthy (service failures) but still reporting
+	if !isHealthy && !lastSeen.Before(threshold) {
+		// Only check services if we haven't recently sent an alert
+		if s.shouldCheckServices(nodeID) {
+			if err := s.checkServiceStatus(ctx, nodeID, lastSeen); err != nil {
+				log.Printf("Error checking service status: %v", err)
+			}
+		}
 		return s.handlePotentialRecovery(ctx, nodeID, lastSeen)
 	}
 
+	return nil
+}
+
+// shouldCheckServices uses the webhook alerter's cooldown to avoid frequent service checks.
+func (s *Server) shouldCheckServices(nodeID string) bool {
+	for _, webhook := range s.webhooks {
+		if alerter, ok := webhook.(*alerts.WebhookAlerter); ok {
+			if err := alerter.CheckCooldown(nodeID, "Service Failure"); err == nil {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// checkServiceStatus handles service status alerts with proper cooldown
+func (s *Server) checkServiceStatus(ctx context.Context, nodeID string, lastSeen time.Time) error {
+	services, err := s.db.GetNodeServices(nodeID)
+	if err != nil {
+		return fmt.Errorf("failed to get services: %w", err)
+	}
+
+	total := len(services)
+	available := 0
+	for _, svc := range services {
+		if svc.Available {
+			available++
+		}
+	}
+
+	// Only alert if some services are down but not all
+	if available < total && available > 0 {
+		alert := &alerts.WebhookAlert{
+			Level:     alerts.Warning,
+			Title:     "Service Failure",
+			Message:   fmt.Sprintf("Node '%s' has %d/%d services available", nodeID, available, total),
+			NodeID:    nodeID,
+			Timestamp: time.Now().UTC().Format(time.RFC3339),
+			Details: map[string]any{
+				"hostname":           getHostname(),
+				"available_services": available,
+				"total_services":     total,
+				"last_seen":          lastSeen.Format(time.RFC3339),
+			},
+		}
+		if err := s.sendAlert(ctx, alert); err != nil && !errors.Is(err, alerts.ErrWebhookCooldown) {
+			log.Printf("Failed to send service failure alert: %v", err)
+		}
+	}
 	return nil
 }
 
