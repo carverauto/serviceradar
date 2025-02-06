@@ -30,7 +30,6 @@ const (
 	nodeHistoryLimit         = 1000
 	nodeDiscoveryTimeout     = 30 * time.Second
 	nodeNeverReportedTimeout = 30 * time.Second
-	pollerTimeout            = 30 * time.Second
 	defaultDBPath            = "/var/lib/serviceradar/serviceradar.db"
 	statusUnknown            = "unknown"
 	sweepService             = "sweep"
@@ -418,19 +417,13 @@ func (s *Server) checkInitialStates(ctx context.Context) {
 	// Add ORDER BY clause
 	query += "ORDER BY last_seen DESC"
 
-	//nolint:rowserrcheck // rows.Close() is deferred
 	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		log.Printf("Error querying nodes: %v", err)
 
 		return
 	}
-	defer func(rows *sql.Rows) {
-		err := rows.Close()
-		if err != nil {
-			log.Printf("Error closing rows: %v", err)
-		}
-	}(rows)
+	defer db.CloseRows(rows)
 
 	for rows.Next() {
 		var nodeID string
@@ -678,23 +671,21 @@ func (s *Server) updateNodeDownStatus(nodeID string, lastSeen time.Time) error {
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-
-	// Create a flag to track if we need to rollback
-	needsRollback := true
-	defer func() {
-		if needsRollback {
-			if rbErr := tx.Rollback(); rbErr != nil && !errors.Is(rbErr, sql.ErrTxDone) {
-				log.Printf("Error rolling back transaction: %v", rbErr)
-			}
+	defer func(tx db.Transaction) {
+		err = tx.Rollback()
+		if err != nil {
+			log.Printf("Error rolling back transaction: %v", err)
 		}
-	}()
+	}(tx)
 
-	if err := s.performNodeUpdate(tx, nodeID, lastSeen); err != nil {
-		return err
+	sqlTx, err := db.ToTx(tx)
+	if err != nil {
+		return fmt.Errorf("invalid transaction: %w", err)
 	}
 
-	// Mark that we don't need rollback before committing
-	needsRollback = false
+	if err := s.performNodeUpdate(sqlTx, nodeID, lastSeen); err != nil {
+		return err
+	}
 
 	return tx.Commit()
 }
@@ -798,12 +789,7 @@ func (s *Server) checkNeverReportedNodes(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("error querying unreported nodes: %w", err)
 	}
-	defer func(rows *sql.Rows) {
-		err := rows.Close()
-		if err != nil {
-			log.Printf("Error closing rows: %v", err)
-		}
-	}(rows)
+	defer db.CloseRows(rows)
 
 	var unreportedNodes []string
 
@@ -856,7 +842,6 @@ func (s *Server) checkNeverReportedPollers(ctx context.Context) {
 
 	var unreportedNodes []string
 
-	//nolint:rowserrcheck // rows.Close() is deferred
 	rows, err := s.db.Query(`
         SELECT node_id 
         FROM nodes 
@@ -866,13 +851,7 @@ func (s *Server) checkNeverReportedPollers(ctx context.Context) {
 		log.Printf("Error querying unreported nodes: %v", err)
 		return
 	}
-
-	defer func(rows *sql.Rows) {
-		err := rows.Close()
-		if err != nil {
-			log.Printf("Error closing rows: %v", err)
-		}
-	}(rows)
+	defer db.CloseRows(rows)
 
 	for rows.Next() {
 		var nodeID string
@@ -1031,12 +1010,7 @@ func (s *Server) checkNodeStates(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to query nodes: %w", err)
 	}
-	defer func(rows *sql.Rows) {
-		err := rows.Close()
-		if err != nil {
-			log.Printf("Error closing rows: %v", err)
-		}
-	}(rows)
+	defer db.CloseRows(rows)
 
 	threshold := time.Now().Add(-s.alertThreshold)
 
@@ -1086,38 +1060,76 @@ func (s *Server) evaluateNodeHealth(ctx context.Context, nodeID string, lastSeen
 	return nil
 }
 
-func (s *Server) getNodeStatus(nodeID string) (*db.NodeStatus, error) {
-	var status db.NodeStatus
-
-	err := s.db.QueryRow(`
-        SELECT node_id, is_healthy, first_seen, last_seen 
-        FROM nodes 
-        WHERE node_id = ?`, nodeID).Scan(&status.NodeID, &status.IsHealthy, &status.FirstSeen, &status.LastSeen)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get node status: %w", err)
-	}
-
-	return &status, nil
+// NodeRecoveryManager handles node recovery state transitions.
+type NodeRecoveryManager struct {
+	db          db.Service
+	alerter     alerts.AlertService
+	getHostname func() string
 }
 
+func newNodeRecoveryManager(d db.Service, alerter alerts.AlertService) *NodeRecoveryManager {
+	return &NodeRecoveryManager{
+		db:      d,
+		alerter: alerter,
+		getHostname: func() string {
+			hostname, err := os.Hostname()
+			if err != nil {
+				return statusUnknown
+			}
+			return hostname
+		},
+	}
+}
+
+// handlePotentialRecovery simplified to coordinate the recovery process.
 func (s *Server) handlePotentialRecovery(ctx context.Context, nodeID string, lastSeen time.Time) error {
-	// First check if the node is actually healthy via status
-	currentStatus, err := s.getNodeStatus(nodeID)
+	mgr := newNodeRecoveryManager(s.db, s.webhooks[0])
+	return mgr.processRecovery(ctx, nodeID, lastSeen)
+}
+
+// processRecovery handles the recovery state transition.
+func (m *NodeRecoveryManager) processRecovery(ctx context.Context, nodeID string, lastSeen time.Time) error {
+	tx, err := m.db.Begin()
 	if err != nil {
-		return fmt.Errorf("failed to get node status: %w", err)
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer func(tx db.Transaction) {
+		err = tx.Rollback()
+		if err != nil {
+			log.Printf("Error rolling back transaction: %v", err)
+		}
+	}(tx)
+
+	status, err := m.db.GetNodeStatus(nodeID)
+	if err != nil {
+		return fmt.Errorf("get node status: %w", err)
 	}
 
-	// If node is already marked healthy, no need to do anything
-	if currentStatus.IsHealthy {
-		return nil
+	if status.IsHealthy {
+		return nil // Node is already healthy
 	}
 
-	// Update node status to healthy
-	if err := s.updateNodeStatus(nodeID, true, lastSeen); err != nil {
-		return fmt.Errorf("failed to update node status: %w", err)
+	// Update node status
+	status.IsHealthy = true
+	status.LastSeen = lastSeen
+
+	if err := m.db.UpdateNodeStatus(status); err != nil {
+		return fmt.Errorf("update node status: %w", err)
 	}
 
-	// Create recovery alert
+	if err := m.sendRecoveryAlert(ctx, nodeID, lastSeen); err != nil {
+		return fmt.Errorf("send recovery alert: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+// sendRecoveryAlert handles alert creation and sending.
+func (m *NodeRecoveryManager) sendRecoveryAlert(ctx context.Context, nodeID string, lastSeen time.Time) error {
 	alert := &alerts.WebhookAlert{
 		Level:     alerts.Info,
 		Title:     "Node Recovered",
@@ -1125,17 +1137,12 @@ func (s *Server) handlePotentialRecovery(ctx context.Context, nodeID string, las
 		NodeID:    nodeID,
 		Timestamp: lastSeen.UTC().Format(time.RFC3339),
 		Details: map[string]any{
-			"hostname":      getHostname(),
+			"hostname":      m.getHostname(),
 			"recovery_time": lastSeen.Format(time.RFC3339),
 		},
 	}
 
-	// Send the alert
-	if err := s.sendAlert(ctx, alert); err != nil {
-		log.Printf("Failed to send recovery alert: %v", err)
-	}
-
-	return nil
+	return m.alerter.Alert(ctx, alert)
 }
 
 func (s *Server) handleNodeDown(ctx context.Context, nodeID string, lastSeen time.Time) error {
@@ -1176,18 +1183,20 @@ func (s *Server) updateNodeStatus(nodeID string, isHealthy bool, timestamp time.
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-
-	needsRollback := true
-	defer func() {
-		if needsRollback {
-			if rbErr := tx.Rollback(); rbErr != nil && !errors.Is(rbErr, sql.ErrTxDone) {
-				log.Printf("Error rolling back transaction: %v", rbErr)
-			}
+	defer func(tx db.Transaction) {
+		err = tx.Rollback()
+		if err != nil {
+			log.Printf("Error rolling back transaction: %v", err)
 		}
-	}()
+	}(tx)
+
+	sqlTx, err := db.ToTx(tx)
+	if err != nil {
+		return fmt.Errorf("invalid transaction: %w", err)
+	}
 
 	// Update node status
-	if err := s.updateNodeInTx(tx, nodeID, isHealthy, timestamp); err != nil {
+	if err := s.updateNodeInTx(sqlTx, nodeID, isHealthy, timestamp); err != nil {
 		return err
 	}
 
@@ -1198,8 +1207,6 @@ func (s *Server) updateNodeStatus(nodeID string, isHealthy bool, timestamp time.
     `, nodeID, timestamp, isHealthy); err != nil {
 		return fmt.Errorf("failed to insert history: %w", err)
 	}
-
-	needsRollback = false
 
 	return tx.Commit()
 }
@@ -1363,7 +1370,7 @@ func (s *Server) getLastDowntime(nodeID string) time.Time {
 func getHostname() string {
 	hostname, err := os.Hostname()
 	if err != nil {
-		return "unknown"
+		return statusUnknown
 	}
 
 	return hostname

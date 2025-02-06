@@ -1,23 +1,48 @@
-// Package db pkg/db/interfaces.go
-
-//go:generate mockgen -destination=mock_db.go -package=db github.com/mfreeman451/serviceradar/pkg/db Service,TransactionManager,Transaction
-
 package db
 
 import (
-	"database/sql"
 	"time"
 )
+
+//go:generate mockgen -destination=mock_db.go -package=db github.com/mfreeman451/serviceradar/pkg/db Row,Result,Rows,Transaction,Service
+
+// Row represents a database row.
+type Row interface {
+	Scan(dest ...interface{}) error
+}
+
+// Result represents the result of a database operation.
+type Result interface {
+	LastInsertId() (int64, error)
+	RowsAffected() (int64, error)
+}
+
+// Rows represents multiple database rows.
+type Rows interface {
+	Next() bool
+	Scan(dest ...interface{}) error
+	Close() error
+	Err() error
+}
+
+// Transaction represents operations that can be performed within a database transaction.
+type Transaction interface {
+	Exec(query string, args ...interface{}) (Result, error)
+	Query(query string, args ...interface{}) (Rows, error)
+	QueryRow(query string, args ...interface{}) Row
+	Commit() error
+	Rollback() error
+}
 
 // Service represents all database operations.
 type Service interface {
 	// Core database operations.
 
-	Begin() (*sql.Tx, error)
+	Begin() (Transaction, error)
 	Close() error
-	Exec(query string, args ...interface{}) (sql.Result, error)
-	Query(query string, args ...interface{}) (*sql.Rows, error)
-	QueryRow(query string, args ...interface{}) *sql.Row
+	Exec(query string, args ...interface{}) (Result, error)
+	Query(query string, args ...interface{}) (Rows, error)
+	QueryRow(query string, args ...interface{}) Row
 
 	// Node operations.
 
@@ -36,18 +61,4 @@ type Service interface {
 	// Maintenance operations.
 
 	CleanOldData(retentionPeriod time.Duration) error
-}
-
-// TransactionManager represents database transaction operations.
-type TransactionManager interface {
-	Begin() (*sql.Tx, error)
-	Commit() error
-	Rollback() error
-}
-
-// Transaction represents operations that can be performed within a database transaction.
-type Transaction interface {
-	Exec(query string, args ...interface{}) (sql.Result, error)
-	Query(query string, args ...interface{}) (*sql.Rows, error)
-	QueryRow(query string, args ...interface{}) *sql.Row
 }
