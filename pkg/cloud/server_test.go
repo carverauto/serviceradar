@@ -5,11 +5,94 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mfreeman451/serviceradar/pkg/cloud/alerts"
 	"github.com/mfreeman451/serviceradar/pkg/cloud/api"
 	"github.com/mfreeman451/serviceradar/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func setupAlerter(cooldown time.Duration, setupFunc func(*alerts.WebhookAlerter)) *alerts.WebhookAlerter {
+	alerter := alerts.NewWebhookAlerter(alerts.WebhookConfig{
+		Enabled:  true,
+		Cooldown: cooldown,
+	})
+
+	if setupFunc != nil {
+		setupFunc(alerter)
+	}
+
+	return alerter
+}
+
+func TestWebhookAlerter_FirstAlertNoCooldown(t *testing.T) {
+	alerter := setupAlerter(time.Minute, nil)
+	err := alerter.CheckCooldown("test-node", "Service Failure", "service-1")
+	assert.NoError(t, err, "First alert should not be in cooldown")
+}
+
+func TestWebhookAlerter_RepeatAlertInCooldown(t *testing.T) {
+	alerter := setupAlerter(time.Minute, func(w *alerts.WebhookAlerter) {
+		key := alerts.AlertKey{NodeID: "test-node", Title: "Service Failure", ServiceName: "service-1"}
+		w.LastAlertTimes[key] = time.Now()
+	})
+	err := alerter.CheckCooldown("test-node", "Service Failure", "service-1")
+	assert.ErrorIs(t, err, alerts.ErrWebhookCooldown, "Repeat alert within cooldown should return error")
+}
+
+func TestWebhookAlerter_DifferentNodeSameAlert(t *testing.T) {
+	alerter := setupAlerter(time.Minute, func(w *alerts.WebhookAlerter) {
+		key := alerts.AlertKey{NodeID: "test-node", Title: "Service Failure", ServiceName: "service-1"}
+		w.LastAlertTimes[key] = time.Now()
+	})
+	err := alerter.CheckCooldown("other-node", "Service Failure", "service-1")
+	assert.NoError(t, err, "Different node should not be affected by other node's cooldown")
+}
+
+func TestWebhookAlerter_SameNodeDifferentAlert(t *testing.T) {
+	alerter := setupAlerter(time.Minute, func(w *alerts.WebhookAlerter) {
+		key := alerts.AlertKey{NodeID: "test-node", Title: "Service Failure", ServiceName: "service-1"}
+		w.LastAlertTimes[key] = time.Now()
+	})
+	err := alerter.CheckCooldown("test-node", "Node Recovery", "") // Different title
+	assert.NoError(t, err, "Different alert type should not be affected by other alert's cooldown")
+}
+
+func TestWebhookAlerter_AfterCooldownPeriod(t *testing.T) {
+	alerter := setupAlerter(time.Microsecond, func(w *alerts.WebhookAlerter) {
+		key := alerts.AlertKey{NodeID: "test-node", Title: "Service Failure", ServiceName: "service-1"}
+		w.LastAlertTimes[key] = time.Now().Add(-time.Second)
+	})
+	err := alerter.CheckCooldown("test-node", "Service Failure", "service-1")
+	assert.NoError(t, err, "Alert after cooldown period should not return error")
+}
+
+func TestWebhookAlerter_CooldownDisabled(t *testing.T) {
+	alerter := setupAlerter(0, func(w *alerts.WebhookAlerter) {
+		key := alerts.AlertKey{NodeID: "test-node", Title: "Service Failure", ServiceName: "service-1"}
+		w.LastAlertTimes[key] = time.Now()
+	})
+	err := alerter.CheckCooldown("test-node", "Service Failure", "service-1")
+	assert.NoError(t, err, "Alert should not be blocked when cooldown is disabled")
+}
+
+func TestWebhookAlerter_SameNodeSameAlertDifferentService(t *testing.T) {
+	alerter := setupAlerter(time.Minute, func(w *alerts.WebhookAlerter) {
+		key := alerts.AlertKey{NodeID: "test-node", Title: "Service Failure", ServiceName: "service-1"}
+		w.LastAlertTimes[key] = time.Now()
+	})
+	err := alerter.CheckCooldown("test-node", "Service Failure", "service-2") // Different service
+	assert.NoError(t, err, "Different service on same node should not be affected by cooldown")
+}
+
+func TestWebhookAlerter_SameNodeServiceFailureThenNodeOffline(t *testing.T) {
+	alerter := setupAlerter(time.Minute, func(w *alerts.WebhookAlerter) {
+		key := alerts.AlertKey{NodeID: "test-node", Title: "Service Failure", ServiceName: "service-1"}
+		w.LastAlertTimes[key] = time.Now()
+	})
+	err := alerter.CheckCooldown("test-node", "Node Offline", "") // Different title, no service
+	assert.NoError(t, err, "Node Offline alert should not be blocked by Service Failure cooldown")
+}
 
 func TestProcessSweepData(t *testing.T) {
 	server := &Server{}

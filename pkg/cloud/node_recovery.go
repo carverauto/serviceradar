@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"os"
 	"time"
 
 	"github.com/mfreeman451/serviceradar/pkg/cloud/alerts"
@@ -17,20 +16,6 @@ type NodeRecoveryManager struct {
 	db          db.Service
 	alerter     alerts.AlertService
 	getHostname func() string
-}
-
-func newNodeRecoveryManager(d db.Service, alerter alerts.AlertService) *NodeRecoveryManager {
-	return &NodeRecoveryManager{
-		db:      d,
-		alerter: alerter,
-		getHostname: func() string {
-			hostname, err := os.Hostname()
-			if err != nil {
-				return statusUnknown
-			}
-			return hostname
-		},
-	}
 }
 
 func (m *NodeRecoveryManager) processRecovery(ctx context.Context, nodeID string, lastSeen time.Time) error {

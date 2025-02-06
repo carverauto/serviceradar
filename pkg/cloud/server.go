@@ -20,7 +20,6 @@ import (
 )
 
 const (
-	downtimeValue            = "unknown"
 	shutdownTimeout          = 10 * time.Second
 	oneDay                   = 24 * time.Hour
 	oneWeek                  = 7 * oneDay
@@ -142,7 +141,7 @@ func (s *Server) monitorNodes(ctx context.Context) {
 	time.Sleep(nodeDiscoveryTimeout)
 
 	// Initial checks
-	s.checkInitialStates(ctx)
+	s.checkInitialStates()
 
 	time.Sleep(nodeNeverReportedTimeout)
 	s.checkNeverReportedPollers(ctx)
@@ -350,7 +349,7 @@ func (s *Server) SetAPIServer(apiServer api.Service) {
 	})
 }
 
-func (s *Server) checkInitialStates(ctx context.Context) {
+func (s *Server) checkInitialStates() {
 	log.Printf("Checking initial states of all nodes")
 
 	likeConditions := make([]string, 0, len(s.pollerPatterns))
@@ -393,7 +392,6 @@ func (s *Server) checkInitialStates(ctx context.Context) {
 
 		if err := rows.Scan(&nodeID, &isHealthy, &lastSeen); err != nil {
 			log.Printf("Error scanning node row: %v", err)
-
 			continue
 		}
 
@@ -401,10 +399,6 @@ func (s *Server) checkInitialStates(ctx context.Context) {
 		if duration > s.alertThreshold {
 			log.Printf("Node %s found offline during initial check (last seen: %v ago)",
 				nodeID, duration.Round(time.Second))
-
-			if err := s.markNodeDown(ctx, nodeID, time.Now()); err != nil {
-				log.Printf("Error marking node down: %v", err)
-			}
 		}
 	}
 }
@@ -459,6 +453,8 @@ func (*Server) createNodeStatus(req *proto.PollerStatusRequest, now time.Time) *
 }
 
 func (s *Server) processServices(pollerID string, apiStatus *api.NodeStatus, services []*proto.ServiceStatus, now time.Time) {
+	allServicesAvailable := true
+
 	for _, svc := range services {
 		apiService := api.ServiceStatus{
 			Name:      svc.ServiceName,
@@ -468,7 +464,7 @@ func (s *Server) processServices(pollerID string, apiStatus *api.NodeStatus, ser
 		}
 
 		if !svc.Available {
-			apiStatus.IsHealthy = false
+			allServicesAvailable = false // If ANY service is unavailable, set to false
 		}
 
 		// Process JSON details if available
@@ -485,6 +481,9 @@ func (s *Server) processServices(pollerID string, apiStatus *api.NodeStatus, ser
 
 		apiStatus.Services = append(apiStatus.Services, apiService)
 	}
+
+	// Only set IsHealthy based on ALL services.
+	apiStatus.IsHealthy = allServicesAvailable
 }
 
 func (s *Server) handleService(pollerID string, svc *api.ServiceStatus, now time.Time) error {
@@ -578,128 +577,6 @@ func (s *Server) updateNodeState(ctx context.Context, pollerID string, apiStatus
 	}
 
 	return nil
-}
-
-// sendNodeDownAlert sends an alert when a node goes down.
-func (s *Server) sendNodeDownAlert(ctx context.Context, nodeID string, lastSeen time.Time) {
-	alert := &alerts.WebhookAlert{
-		Level:     alerts.Error,
-		Title:     "Node Offline",
-		Message:   fmt.Sprintf("Node '%s' is offline", nodeID),
-		NodeID:    nodeID,
-		Timestamp: lastSeen.UTC().Format(time.RFC3339),
-		Details: map[string]any{
-			"hostname": getHostname(),
-			"duration": time.Since(lastSeen).String(),
-		},
-	}
-
-	err := s.sendAlert(ctx, alert)
-	if err != nil {
-		log.Printf("Error sending alert: %v", err)
-		return
-	}
-}
-
-// updateAPINodeStatus updates the node status in the API server.
-func (s *Server) updateAPINodeStatus(nodeID string, isHealthy bool, timestamp time.Time) {
-	if s.apiServer != nil {
-		status := &api.NodeStatus{
-			NodeID:     nodeID,
-			IsHealthy:  isHealthy,
-			LastUpdate: timestamp,
-		}
-		s.apiServer.UpdateNodeStatus(nodeID, status)
-	}
-}
-
-// markNodeDown handles marking a node as down and sending alerts.
-func (s *Server) markNodeDown(ctx context.Context, nodeID string, lastSeen time.Time) error {
-	if err := s.updateNodeDownStatus(nodeID, lastSeen); err != nil {
-		return err
-	}
-
-	s.sendNodeDownAlert(ctx, nodeID, lastSeen)
-	s.updateAPINodeStatus(nodeID, false, lastSeen)
-
-	return nil
-}
-
-func (s *Server) updateNodeDownStatus(nodeID string, lastSeen time.Time) error {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer func(tx db.Transaction) {
-		err = tx.Rollback()
-		if err != nil {
-			log.Printf("Error rolling back transaction: %v", err)
-		}
-	}(tx)
-
-	sqlTx, err := db.ToTx(tx)
-	if err != nil {
-		return fmt.Errorf("invalid transaction: %w", err)
-	}
-
-	if err := s.performNodeUpdate(sqlTx, nodeID, lastSeen); err != nil {
-		return err
-	}
-
-	return tx.Commit()
-}
-
-// checkNodeExists verifies if a node exists in the database.
-func (*Server) checkNodeExists(tx *sql.Tx, nodeID string) (bool, error) {
-	var exists bool
-
-	err := tx.QueryRow("SELECT EXISTS(SELECT 1 FROM nodes WHERE node_id = ?)", nodeID).Scan(&exists)
-	if err != nil {
-		return false, fmt.Errorf("failed to check node existence: %w", err)
-	}
-
-	return exists, nil
-}
-
-// insertNewNode adds a new node to the database.
-func (*Server) insertNewNode(tx *sql.Tx, nodeID string, lastSeen time.Time) error {
-	_, err := tx.Exec(`
-        INSERT INTO nodes (node_id, last_seen, is_healthy)
-        VALUES (?, ?, FALSE)`,
-		nodeID, lastSeen)
-	if err != nil {
-		return fmt.Errorf("failed to insert new node: %w", err)
-	}
-
-	return nil
-}
-
-// updateExistingNode updates an existing node's status.
-func (*Server) updateExistingNode(tx *sql.Tx, nodeID string, lastSeen time.Time) error {
-	_, err := tx.Exec(`
-        UPDATE nodes 
-        SET is_healthy = FALSE, 
-            last_seen = ? 
-        WHERE node_id = ?`,
-		lastSeen, nodeID)
-	if err != nil {
-		return fmt.Errorf("failed to update existing node: %w", err)
-	}
-
-	return nil
-}
-
-func (s *Server) performNodeUpdate(tx *sql.Tx, nodeID string, lastSeen time.Time) error {
-	exists, err := s.checkNodeExists(tx, nodeID)
-	if err != nil {
-		return err
-	}
-
-	if !exists {
-		return s.insertNewNode(tx, nodeID, lastSeen)
-	}
-
-	return s.updateExistingNode(tx, nodeID, lastSeen)
 }
 
 // periodicCleanup runs regular maintenance tasks on the database.
@@ -982,10 +859,13 @@ func (s *Server) checkNodeStates(ctx context.Context) error {
 
 		if err := rows.Scan(&nodeID, &lastSeen, &isHealthy); err != nil {
 			log.Printf("Error scanning node row: %v", err)
+
 			continue
 		}
 
-		if err := s.evaluateNodeHealth(ctx, nodeID, lastSeen, isHealthy, threshold); err != nil {
+		err := s.evaluateNodeHealth(ctx, nodeID, lastSeen, isHealthy, threshold)
+		if err != nil {
+			// Only log errors, don't propagate service-related issues
 			log.Printf("Error evaluating node %s health: %v", nodeID, err)
 		}
 	}
@@ -993,11 +873,12 @@ func (s *Server) checkNodeStates(ctx context.Context) error {
 	return rows.Err()
 }
 
-func (s *Server) evaluateNodeHealth(ctx context.Context, nodeID string, lastSeen time.Time, isHealthy bool, threshold time.Time) error {
+func (s *Server) evaluateNodeHealth(
+	ctx context.Context, nodeID string, lastSeen time.Time, isHealthy bool, threshold time.Time) error {
 	log.Printf("Evaluating node health: id=%s lastSeen=%v isHealthy=%v threshold=%v",
 		nodeID, lastSeen.Format(time.RFC3339), isHealthy, threshold.Format(time.RFC3339))
 
-	// Case 1: Node was healthy but hasn't been seen recently
+	// Case 1: Node was healthy but hasn't been seen recently (went down)
 	if isHealthy && lastSeen.Before(threshold) {
 		duration := time.Since(lastSeen).Round(time.Second)
 		log.Printf("Node %s appears to be offline (last seen: %v ago)", nodeID, duration)
@@ -1005,24 +886,40 @@ func (s *Server) evaluateNodeHealth(ctx context.Context, nodeID string, lastSeen
 		return s.handleNodeDown(ctx, nodeID, lastSeen)
 	}
 
-	// Case 2: Node is healthy and reporting within threshold
+	// Case 2: Node is healthy and reporting within threshold - DO NOTHING
 	if isHealthy && !lastSeen.Before(threshold) {
-		// Everything is fine, no action needed
 		return nil
 	}
 
-	// Case 3: Node is marked unhealthy but has reported recently
-	if !isHealthy && !lastSeen.Before(threshold) {
-		return s.handlePotentialRecovery(ctx, nodeID, lastSeen)
+	// Case 3: Node is reporting but its status might have changed
+	if !lastSeen.Before(threshold) {
+		// Get the current health status
+		currentHealth, err := s.getNodeHealthState(nodeID)
+		if err != nil {
+			log.Printf("Error getting current health state for node %s: %v", nodeID, err)
+
+			return fmt.Errorf("failed to get current health state: %w", err)
+		}
+
+		// ONLY handle potential recovery - do not send service alerts here
+		if !isHealthy && currentHealth {
+			return s.handlePotentialRecovery(ctx, nodeID, lastSeen)
+		}
 	}
 
 	return nil
 }
 
-// handlePotentialRecovery simplified to coordinate the recovery process.
 func (s *Server) handlePotentialRecovery(ctx context.Context, nodeID string, lastSeen time.Time) error {
-	mgr := newNodeRecoveryManager(s.db, s.webhooks[0])
-	return mgr.processRecovery(ctx, nodeID, lastSeen)
+	apiStatus := &api.NodeStatus{
+		NodeID:     nodeID,
+		LastUpdate: lastSeen,
+		Services:   make([]api.ServiceStatus, 0),
+	}
+
+	s.handleNodeRecovery(ctx, nodeID, apiStatus, lastSeen)
+
+	return nil
 }
 
 func (s *Server) handleNodeDown(ctx context.Context, nodeID string, lastSeen time.Time) error {
@@ -1119,24 +1016,25 @@ func (*Server) updateNodeInTx(tx *sql.Tx, nodeID string, isHealthy bool, timesta
 }
 
 func (s *Server) handleNodeRecovery(ctx context.Context, nodeID string, apiStatus *api.NodeStatus, timestamp time.Time) {
-	lastDownTime := s.getLastDowntime(nodeID)
-	downtime := downtimeValue
-
-	if !lastDownTime.IsZero() {
-		downtime = timestamp.Sub(lastDownTime).String()
+	// Reset the "down" state in the alerter *before* sending the alert.
+	for _, webhook := range s.webhooks {
+		if alerter, ok := webhook.(*alerts.WebhookAlerter); ok {
+			alerter.MarkNodeAsRecovered(nodeID)
+			alerter.MarkServiceAsRecovered(nodeID)
+		}
 	}
 
 	alert := &alerts.WebhookAlert{
-		Level:     alerts.Info,
-		Title:     "Node Recovered",
-		Message:   fmt.Sprintf("Node '%s' is back online", nodeID),
-		NodeID:    nodeID,
-		Timestamp: timestamp.UTC().Format(time.RFC3339),
+		Level:       alerts.Info,
+		Title:       "Node Recovered",
+		Message:     fmt.Sprintf("Node '%s' is back online", nodeID),
+		NodeID:      nodeID,
+		Timestamp:   timestamp.UTC().Format(time.RFC3339),
+		ServiceName: "", // Ensure ServiceName is empty for node-level alerts
 		Details: map[string]any{
 			"hostname":      getHostname(),
-			"downtime":      downtime,
 			"recovery_time": timestamp.Format(time.RFC3339),
-			"services":      len(apiStatus.Services),
+			"services":      len(apiStatus.Services), //  This might be 0, which is fine.
 		},
 	}
 
@@ -1147,6 +1045,8 @@ func (s *Server) handleNodeRecovery(ctx context.Context, nodeID string, apiStatu
 
 func (s *Server) sendAlert(ctx context.Context, alert *alerts.WebhookAlert) error {
 	var errs []error
+
+	log.Printf("Sending alert: %s", alert.Message)
 
 	for _, webhook := range s.webhooks {
 		if err := webhook.Alert(ctx, alert); err != nil {
@@ -1227,24 +1127,6 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 	s.updateAPIState(req.PollerId, apiStatus)
 
 	return &proto.PollerStatusResponse{Received: true}, nil
-}
-
-func (s *Server) getLastDowntime(nodeID string) time.Time {
-	var downtime time.Time
-	err := s.db.QueryRow(`
-        SELECT timestamp
-        FROM node_history
-        WHERE node_id = ? AND is_healthy = FALSE
-        ORDER BY timestamp DESC
-        LIMIT 1
-    `, nodeID).Scan(&downtime)
-
-	if err != nil {
-		log.Printf("Error getting last downtime for node %s: %v", nodeID, err)
-		return time.Time{} // Return zero time if error
-	}
-
-	return downtime
 }
 
 func getHostname() string {
