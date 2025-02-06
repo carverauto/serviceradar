@@ -1033,26 +1033,59 @@ func (s *Server) shouldCheckServices(nodeID string) bool {
 			}
 		}
 	}
+
 	return false
 }
 
-// checkServiceStatus handles service status alerts with proper cooldown
+// checkServiceStatus handles service status alerts with proper cooldown.
 func (s *Server) checkServiceStatus(ctx context.Context, nodeID string, lastSeen time.Time) error {
+	// Get current services
 	services, err := s.db.GetNodeServices(nodeID)
 	if err != nil {
 		return fmt.Errorf("failed to get services: %w", err)
 	}
 
+	// Get previous service states
+	previousServices, err := s.db.GetServiceHistory(nodeID, "", 1) // Empty service name to get all services
+	if err != nil {
+		log.Printf("Error getting previous service states: %v", err)
+	}
+
+	// Create maps for current and previous states
+	currentStates := make(map[string]bool)
+	previousStates := make(map[string]bool)
+
 	total := len(services)
 	available := 0
+
 	for _, svc := range services {
+		currentStates[svc.ServiceName] = svc.Available
+
 		if svc.Available {
 			available++
 		}
 	}
 
-	// Only alert if some services are down but not all
-	if available < total && available > 0 {
+	// Build previous states map
+	for _, svc := range previousServices {
+		previousStates[svc.ServiceName] = svc.Available
+	}
+
+	// Check if the state has changed
+	stateChanged := false
+
+	for name, current := range currentStates {
+		previous, exists := previousStates[name]
+
+		if !exists || previous != current {
+			stateChanged = true
+
+			break
+		}
+	}
+
+	// Only send alert if state changed and some (but not all) services are down
+	if stateChanged && available < total && available > 0 {
 		alert := &alerts.WebhookAlert{
 			Level:     alerts.Warning,
 			Title:     "Service Failure",
@@ -1066,10 +1099,12 @@ func (s *Server) checkServiceStatus(ctx context.Context, nodeID string, lastSeen
 				"last_seen":          lastSeen.Format(time.RFC3339),
 			},
 		}
+
 		if err := s.sendAlert(ctx, alert); err != nil && !errors.Is(err, alerts.ErrWebhookCooldown) {
 			log.Printf("Failed to send service failure alert: %v", err)
 		}
 	}
+
 	return nil
 }
 
@@ -1201,6 +1236,8 @@ func (s *Server) handleNodeRecovery(ctx context.Context, nodeID string, apiStatu
 
 func (s *Server) sendAlert(ctx context.Context, alert *alerts.WebhookAlert) error {
 	var errs []error
+
+	log.Printf("Sending alert: %s", alert.Message)
 
 	for _, webhook := range s.webhooks {
 		if err := webhook.Alert(ctx, alert); err != nil {
