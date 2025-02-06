@@ -997,22 +997,54 @@ func (s *Server) evaluateNodeHealth(ctx context.Context, nodeID string, lastSeen
 	log.Printf("Evaluating node health: id=%s lastSeen=%v isHealthy=%v threshold=%v",
 		nodeID, lastSeen.Format(time.RFC3339), isHealthy, threshold.Format(time.RFC3339))
 
-	// Case 1: Node was healthy but hasn't been seen recently
-	if isHealthy && lastSeen.Before(threshold) {
+	// Case 1: Node hasn't been seen recently (truly offline)
+	if lastSeen.Before(threshold) {
 		duration := time.Since(lastSeen).Round(time.Second)
 		log.Printf("Node %s appears to be offline (last seen: %v ago)", nodeID, duration)
-
 		return s.handleNodeDown(ctx, nodeID, lastSeen)
 	}
 
-	// Case 2: Node is healthy and reporting within threshold
-	if isHealthy && !lastSeen.Before(threshold) {
-		// Everything is fine, no action needed
-		return nil
+	// Case 2: Node is reporting but has service failures
+	if !isHealthy {
+		// Get service statuses to determine if this is a partial failure
+		services, err := s.db.GetNodeServices(nodeID)
+		if err != nil {
+			return fmt.Errorf("failed to get services: %w", err)
+		}
+
+		// Count available vs total services
+		total := len(services)
+		available := 0
+		for _, svc := range services {
+			if svc.Available {
+				available++
+			}
+		}
+
+		// Only send service failure alerts, not node recovery alerts
+		if available < total && available > 0 {
+			alert := &alerts.WebhookAlert{
+				Level:     alerts.Warning,
+				Title:     "Service Failure",
+				Message:   fmt.Sprintf("Node '%s' has %d/%d services available", nodeID, available, total),
+				NodeID:    nodeID,
+				Timestamp: time.Now().UTC().Format(time.RFC3339),
+				Details: map[string]any{
+					"hostname":           getHostname(),
+					"available_services": available,
+					"total_services":     total,
+					"last_seen":          lastSeen.Format(time.RFC3339),
+				},
+			}
+			if err := s.sendAlert(ctx, alert); err != nil && !errors.Is(err, alerts.ErrWebhookCooldown) {
+				log.Printf("Failed to send service failure alert: %v", err)
+			}
+			return nil
+		}
 	}
 
-	// Case 3: Node is marked unhealthy but has reported recently
-	if !isHealthy && !lastSeen.Before(threshold) {
+	// Case 3: Node was previously down but is now reporting
+	if !isHealthy && lastSeen.After(threshold) {
 		return s.handlePotentialRecovery(ctx, nodeID, lastSeen)
 	}
 

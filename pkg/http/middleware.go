@@ -1,7 +1,6 @@
 package httpx
 
 import (
-	"log"
 	"net/http"
 )
 
@@ -20,7 +19,8 @@ func CommonMiddleware(next http.Handler) http.Handler {
 		}
 
 		// You might also add a request logging line:
-		log.Printf("[HTTP] %s %s", r.Method, r.URL.Path)
+		// TODO: should log for debug only
+		// log.Printf("[HTTP] %s %s", r.Method, r.URL.Path)
 
 		next.ServeHTTP(w, r)
 	})
