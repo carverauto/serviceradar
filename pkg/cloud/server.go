@@ -982,6 +982,7 @@ func (s *Server) checkNodeStates(ctx context.Context) error {
 
 		if err := rows.Scan(&nodeID, &lastSeen, &isHealthy); err != nil {
 			log.Printf("Error scanning node row: %v", err)
+
 			continue
 		}
 
@@ -1001,117 +1002,145 @@ func (s *Server) evaluateNodeHealth(ctx context.Context, nodeID string, lastSeen
 	if isHealthy && lastSeen.Before(threshold) {
 		duration := time.Since(lastSeen).Round(time.Second)
 		log.Printf("Node %s appears to be offline (last seen: %v ago)", nodeID, duration)
+
 		return s.handleNodeDown(ctx, nodeID, lastSeen)
 	}
 
 	// Case 2: Node is healthy and reporting within threshold
 	if isHealthy && !lastSeen.Before(threshold) {
-		// Everything is fine, no action needed
 		return nil
 	}
 
 	// Case 3: Node is unhealthy (service failures) but still reporting
 	if !isHealthy && !lastSeen.Before(threshold) {
-		// Only check services if we haven't recently sent an alert
-		if s.shouldCheckServices(nodeID) {
-			if err := s.checkServiceStatus(ctx, nodeID, lastSeen); err != nil {
-				log.Printf("Error checking service status: %v", err)
-			}
+		if err := s.checkServiceStatus(ctx, nodeID, lastSeen); err != nil {
+			log.Printf("Error checking service status: %v", err)
 		}
-		return s.handlePotentialRecovery(ctx, nodeID, lastSeen)
+
+		return s.handlePotentialRecovery(ctx, nodeID, lastSeen) // Corrected call
 	}
 
 	return nil
 }
 
-// shouldCheckServices uses the webhook alerter's cooldown to avoid frequent service checks.
-func (s *Server) shouldCheckServices(nodeID string) bool {
-	for _, webhook := range s.webhooks {
-		if alerter, ok := webhook.(*alerts.WebhookAlerter); ok {
-			if err := alerter.CheckCooldown(nodeID, "Service Failure"); err == nil {
-				return true
-			}
+// checkServiceStatus handles service status alerts with proper cooldown.
+func (s *Server) checkServiceStatus(ctx context.Context, nodeID string, lastSeen time.Time) error {
+	currentServices, err := s.db.GetNodeServices(nodeID)
+	if err != nil {
+		return fmt.Errorf("failed to get current services: %w", err)
+	}
+
+	previousServices, err := s.db.GetServiceHistory(nodeID, "", 1)
+	if err != nil {
+		log.Printf("Error getting previous service states: %v", err)
+		//  treat an error getting history as if there's no history.
+		previousServices = []db.ServiceStatus{}
+	}
+
+	changedService := s.findChangedService(currentServices, previousServices)
+
+	if changedService != "" && s.shouldSendServiceAlert(currentServices) {
+		if err := s.sendServiceFailureAlert(ctx, nodeID, lastSeen, currentServices, changedService); err != nil {
+			// already logged inside sendServiceFailureAlert
+			return err
 		}
 	}
 
-	return false
+	return nil
 }
 
-// checkServiceStatus handles service status alerts with proper cooldown.
-func (s *Server) checkServiceStatus(ctx context.Context, nodeID string, lastSeen time.Time) error {
-	// Get current services
-	services, err := s.db.GetNodeServices(nodeID)
-	if err != nil {
-		return fmt.Errorf("failed to get services: %w", err)
-	}
-
-	// Get previous service states
-	previousServices, err := s.db.GetServiceHistory(nodeID, "", 1) // Empty service name to get all services
-	if err != nil {
-		log.Printf("Error getting previous service states: %v", err)
-	}
-
-	// Create maps for current and previous states
-	currentStates := make(map[string]bool)
+// findChangedService finds the first service that changed state from available to unavailable.
+func (*Server) findChangedService(current, previous []db.ServiceStatus) string {
 	previousStates := make(map[string]bool)
+	for _, svc := range previous {
+		previousStates[svc.ServiceName] = svc.Available
+	}
 
-	total := len(services)
+	for _, svc := range current {
+		if prevAvailable, ok := previousStates[svc.ServiceName]; ok {
+			if prevAvailable && !svc.Available { // Changed from available to unavailable
+				return svc.ServiceName
+			}
+		} else if !svc.Available { // New and unavailable service
+			return svc.ServiceName
+		}
+	}
+
+	return "" // No changed service found
+}
+
+// shouldSendServiceAlert determines if a service alert should be sent.
+func (*Server) shouldSendServiceAlert(currentServices []db.ServiceStatus) bool {
+	total := len(currentServices)
 	available := 0
 
-	for _, svc := range services {
-		currentStates[svc.ServiceName] = svc.Available
-
+	for _, svc := range currentServices {
 		if svc.Available {
 			available++
 		}
 	}
 
-	// Build previous states map
-	for _, svc := range previousServices {
-		previousStates[svc.ServiceName] = svc.Available
-	}
+	// Only send if state changed and SOME services are down.
+	return available < total && available > 0
+}
 
-	// Check if the state has changed
-	stateChanged := false
+// sendServiceFailureAlert constructs and sends the service failure alert.
+func (s *Server) sendServiceFailureAlert(
+	ctx context.Context,
+	nodeID string,
+	lastSeen time.Time,
+	currentServices []db.ServiceStatus,
+	changedServiceName string) error {
+	total := len(currentServices)
+	available := 0
 
-	for name, current := range currentStates {
-		previous, exists := previousStates[name]
-
-		if !exists || previous != current {
-			stateChanged = true
-
-			break
+	for _, svc := range currentServices {
+		if svc.Available {
+			available++
 		}
 	}
 
-	// Only send alert if state changed and some (but not all) services are down
-	if stateChanged && available < total && available > 0 {
-		alert := &alerts.WebhookAlert{
-			Level:     alerts.Warning,
-			Title:     "Service Failure",
-			Message:   fmt.Sprintf("Node '%s' has %d/%d services available", nodeID, available, total),
-			NodeID:    nodeID,
-			Timestamp: time.Now().UTC().Format(time.RFC3339),
-			Details: map[string]any{
-				"hostname":           getHostname(),
-				"available_services": available,
-				"total_services":     total,
-				"last_seen":          lastSeen.Format(time.RFC3339),
-			},
-		}
+	alert := &alerts.WebhookAlert{
+		Level:       alerts.Warning,
+		Title:       "Service Failure",
+		Message:     fmt.Sprintf("Node '%s' has %d/%d services available", nodeID, available, total),
+		NodeID:      nodeID,
+		ServiceName: changedServiceName, // Set the service name here
+		Timestamp:   time.Now().UTC().Format(time.RFC3339),
+		Details: map[string]any{
+			"hostname":           getHostname(),
+			"available_services": available,
+			"total_services":     total,
+			"last_seen":          lastSeen.Format(time.RFC3339),
+		},
+	}
 
-		if err := s.sendAlert(ctx, alert); err != nil && !errors.Is(err, alerts.ErrWebhookCooldown) {
-			log.Printf("Failed to send service failure alert: %v", err)
-		}
+	if err := s.sendAlert(ctx, alert); err != nil && !errors.Is(err, alerts.ErrWebhookCooldown) {
+		log.Printf("Failed to send service failure alert: %v", err)
+
+		return fmt.Errorf("failed to send service failure alert: %w", err) // now we return this
 	}
 
 	return nil
 }
 
-// handlePotentialRecovery simplified to coordinate the recovery process.
 func (s *Server) handlePotentialRecovery(ctx context.Context, nodeID string, lastSeen time.Time) error {
-	mgr := newNodeRecoveryManager(s.db, s.webhooks[0])
-	return mgr.processRecovery(ctx, nodeID, lastSeen)
+	// Get the most up-to-date node status from the database
+	status, err := s.db.GetNodeStatus(nodeID)
+	if err != nil {
+		return fmt.Errorf("failed to get node status: %w", err)
+	}
+
+	apiStatus := &api.NodeStatus{
+		NodeID:     nodeID,
+		IsHealthy:  status.IsHealthy, // Use the *actual* health status
+		LastUpdate: lastSeen,
+		Services:   make([]api.ServiceStatus, 0),
+	}
+
+	s.handleNodeRecovery(ctx, nodeID, apiStatus, lastSeen)
+
+	return nil
 }
 
 func (s *Server) handleNodeDown(ctx context.Context, nodeID string, lastSeen time.Time) error {
@@ -1216,11 +1245,12 @@ func (s *Server) handleNodeRecovery(ctx context.Context, nodeID string, apiStatu
 	}
 
 	alert := &alerts.WebhookAlert{
-		Level:     alerts.Info,
-		Title:     "Node Recovered",
-		Message:   fmt.Sprintf("Node '%s' is back online", nodeID),
-		NodeID:    nodeID,
-		Timestamp: timestamp.UTC().Format(time.RFC3339),
+		Level:       alerts.Info,
+		Title:       "Node Recovered",
+		Message:     fmt.Sprintf("Node '%s' is back online", nodeID),
+		NodeID:      nodeID,
+		Timestamp:   timestamp.UTC().Format(time.RFC3339),
+		ServiceName: "", // Ensure ServiceName is empty for node-level alerts
 		Details: map[string]any{
 			"hostname":      getHostname(),
 			"downtime":      downtime,

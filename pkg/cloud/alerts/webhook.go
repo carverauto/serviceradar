@@ -46,18 +46,20 @@ const (
 )
 
 type WebhookAlert struct {
-	Level     AlertLevel     `json:"level"`
-	Title     string         `json:"title"`
-	Message   string         `json:"message"`
-	Timestamp string         `json:"timestamp"`
-	NodeID    string         `json:"node_id"`
-	Details   map[string]any `json:"details,omitempty"`
+	Level       AlertLevel     `json:"level"`
+	Title       string         `json:"title"`
+	Message     string         `json:"message"`
+	Timestamp   string         `json:"timestamp"`
+	NodeID      string         `json:"node_id"`
+	ServiceName string         `json:"service_name,omitempty"`
+	Details     map[string]any `json:"details,omitempty"`
 }
 
 // AlertKey combines nodeID and title to make a unique key for cooldown tracking.
 type AlertKey struct {
-	NodeID string
-	Title  string
+	NodeID      string
+	Title       string
+	ServiceName string
 }
 
 type WebhookAlerter struct {
@@ -131,14 +133,14 @@ func (w *WebhookAlerter) getTemplateFuncs() template.FuncMap {
 	}
 }
 
-// Alert sends an alert through the webhook
+// Alert sends an alert through the webhook.
 func (w *WebhookAlerter) Alert(ctx context.Context, alert *WebhookAlert) error {
 	if !w.IsEnabled() {
 		log.Printf("Webhook alerter disabled, skipping alert: %s", alert.Title)
 		return errWebhookDisabled
 	}
 
-	if err := w.CheckCooldown(alert.NodeID, alert.Title); err != nil {
+	if err := w.CheckCooldown(alert.NodeID, alert.Title, alert.ServiceName); err != nil {
 		return err
 	}
 
@@ -155,7 +157,7 @@ func (w *WebhookAlerter) Alert(ctx context.Context, alert *WebhookAlert) error {
 }
 
 // CheckCooldown checks if an alert is within its cooldown period.
-func (w *WebhookAlerter) CheckCooldown(nodeID, alertTitle string) error {
+func (w *WebhookAlerter) CheckCooldown(nodeID, alertTitle, serviceName string) error {
 	if w.config.Cooldown <= 0 {
 		return nil
 	}
@@ -163,7 +165,7 @@ func (w *WebhookAlerter) CheckCooldown(nodeID, alertTitle string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	key := AlertKey{NodeID: nodeID, Title: alertTitle}
+	key := AlertKey{NodeID: nodeID, Title: alertTitle, ServiceName: serviceName}
 
 	lastAlertTime, exists := w.LastAlertTimes[key]
 	if exists && time.Since(lastAlertTime) < w.config.Cooldown {

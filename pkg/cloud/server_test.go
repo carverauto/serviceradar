@@ -12,106 +12,86 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestWebhookAlerter_CheckCooldown(t *testing.T) {
-	tests := []struct {
-		name        string
-		nodeID      string
-		alertTitle  string
-		cooldown    time.Duration
-		setupFunc   func(*alerts.WebhookAlerter)
-		wantError   error
-		description string
-	}{
-		{
-			name:        "first_alert_no_cooldown",
-			nodeID:      "test-node",
-			alertTitle:  "Service Failure",
-			cooldown:    time.Minute,
-			wantError:   nil,
-			description: "First alert should not be in cooldown",
-		},
-		{
-			name:       "repeat_alert_in_cooldown",
-			nodeID:     "test-node",
-			alertTitle: "Service Failure",
-			cooldown:   time.Minute,
-			setupFunc: func(w *alerts.WebhookAlerter) {
-				key := alerts.AlertKey{NodeID: "test-node", Title: "Service Failure"}
-				w.LastAlertTimes[key] = time.Now()
-			},
-			wantError:   alerts.ErrWebhookCooldown,
-			description: "Repeat alert within cooldown period should return error",
-		},
-		{
-			name:       "different_node_same_alert",
-			nodeID:     "other-node",
-			alertTitle: "Service Failure",
-			cooldown:   time.Minute,
-			setupFunc: func(w *alerts.WebhookAlerter) {
-				key := alerts.AlertKey{NodeID: "test-node", Title: "Service Failure"}
-				w.LastAlertTimes[key] = time.Now()
-			},
-			wantError:   nil,
-			description: "Different node should not be affected by other node's cooldown",
-		},
-		{
-			name:       "same_node_different_alert",
-			nodeID:     "test-node",
-			alertTitle: "Node Recovery",
-			cooldown:   time.Minute,
-			setupFunc: func(w *alerts.WebhookAlerter) {
-				key := alerts.AlertKey{NodeID: "test-node", Title: "Service Failure"}
-				w.LastAlertTimes[key] = time.Now()
-			},
-			wantError:   nil,
-			description: "Different alert type should not be affected by other alert's cooldown",
-		},
-		{
-			name:       "after_cooldown_period",
-			nodeID:     "test-node",
-			alertTitle: "Service Failure",
-			cooldown:   time.Microsecond,
-			setupFunc: func(w *alerts.WebhookAlerter) {
-				key := alerts.AlertKey{NodeID: "test-node", Title: "Service Failure"}
-				w.LastAlertTimes[key] = time.Now().Add(-time.Second)
-			},
-			wantError:   nil,
-			description: "Alert after cooldown period should not return error",
-		},
-		{
-			name:       "cooldown_disabled",
-			nodeID:     "test-node",
-			alertTitle: "Service Failure",
-			cooldown:   0,
-			setupFunc: func(w *alerts.WebhookAlerter) {
-				key := alerts.AlertKey{NodeID: "test-node", Title: "Service Failure"}
-				w.LastAlertTimes[key] = time.Now()
-			},
-			wantError:   nil,
-			description: "Alert should not be blocked when cooldown is disabled",
-		},
+func setupAlerter(cooldown time.Duration, setupFunc func(*alerts.WebhookAlerter)) *alerts.WebhookAlerter {
+	alerter := alerts.NewWebhookAlerter(alerts.WebhookConfig{
+		Enabled:  true,
+		Cooldown: cooldown,
+	})
+
+	if setupFunc != nil {
+		setupFunc(alerter)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			alerter := alerts.NewWebhookAlerter(alerts.WebhookConfig{
-				Enabled:  true,
-				Cooldown: tt.cooldown,
-			})
+	return alerter
+}
 
-			if tt.setupFunc != nil {
-				tt.setupFunc(alerter)
-			}
+func TestWebhookAlerter_FirstAlertNoCooldown(t *testing.T) {
+	alerter := setupAlerter(time.Minute, nil)
+	err := alerter.CheckCooldown("test-node", "Service Failure", "service-1")
+	assert.NoError(t, err, "First alert should not be in cooldown")
+}
 
-			err := alerter.CheckCooldown(tt.nodeID, tt.alertTitle)
+func TestWebhookAlerter_RepeatAlertInCooldown(t *testing.T) {
+	alerter := setupAlerter(time.Minute, func(w *alerts.WebhookAlerter) {
+		key := alerts.AlertKey{NodeID: "test-node", Title: "Service Failure", ServiceName: "service-1"}
+		w.LastAlertTimes[key] = time.Now()
+	})
+	err := alerter.CheckCooldown("test-node", "Service Failure", "service-1")
+	assert.ErrorIs(t, err, alerts.ErrWebhookCooldown, "Repeat alert within cooldown should return error")
+}
 
-			if tt.wantError != nil {
-				assert.ErrorIs(t, err, tt.wantError, tt.description)
-			} else {
-				assert.NoError(t, err, tt.description)
-			}
-		})
-	}
+func TestWebhookAlerter_DifferentNodeSameAlert(t *testing.T) {
+	alerter := setupAlerter(time.Minute, func(w *alerts.WebhookAlerter) {
+		key := alerts.AlertKey{NodeID: "test-node", Title: "Service Failure", ServiceName: "service-1"}
+		w.LastAlertTimes[key] = time.Now()
+	})
+	err := alerter.CheckCooldown("other-node", "Service Failure", "service-1")
+	assert.NoError(t, err, "Different node should not be affected by other node's cooldown")
+}
+
+func TestWebhookAlerter_SameNodeDifferentAlert(t *testing.T) {
+	alerter := setupAlerter(time.Minute, func(w *alerts.WebhookAlerter) {
+		key := alerts.AlertKey{NodeID: "test-node", Title: "Service Failure", ServiceName: "service-1"}
+		w.LastAlertTimes[key] = time.Now()
+	})
+	err := alerter.CheckCooldown("test-node", "Node Recovery", "") // Different title
+	assert.NoError(t, err, "Different alert type should not be affected by other alert's cooldown")
+}
+
+func TestWebhookAlerter_AfterCooldownPeriod(t *testing.T) {
+	alerter := setupAlerter(time.Microsecond, func(w *alerts.WebhookAlerter) {
+		key := alerts.AlertKey{NodeID: "test-node", Title: "Service Failure", ServiceName: "service-1"}
+		w.LastAlertTimes[key] = time.Now().Add(-time.Second)
+	})
+	err := alerter.CheckCooldown("test-node", "Service Failure", "service-1")
+	assert.NoError(t, err, "Alert after cooldown period should not return error")
+}
+
+func TestWebhookAlerter_CooldownDisabled(t *testing.T) {
+	alerter := setupAlerter(0, func(w *alerts.WebhookAlerter) {
+		key := alerts.AlertKey{NodeID: "test-node", Title: "Service Failure", ServiceName: "service-1"}
+		w.LastAlertTimes[key] = time.Now()
+	})
+	err := alerter.CheckCooldown("test-node", "Service Failure", "service-1")
+	assert.NoError(t, err, "Alert should not be blocked when cooldown is disabled")
+}
+
+func TestWebhookAlerter_SameNodeSameAlertDifferentService(t *testing.T) {
+	alerter := setupAlerter(time.Minute, func(w *alerts.WebhookAlerter) {
+		key := alerts.AlertKey{NodeID: "test-node", Title: "Service Failure", ServiceName: "service-1"}
+		w.LastAlertTimes[key] = time.Now()
+	})
+	err := alerter.CheckCooldown("test-node", "Service Failure", "service-2") // Different service
+	assert.NoError(t, err, "Different service on same node should not be affected by cooldown")
+}
+
+func TestWebhookAlerter_SameNodeServiceFailureThenNodeOffline(t *testing.T) {
+	alerter := setupAlerter(time.Minute, func(w *alerts.WebhookAlerter) {
+		key := alerts.AlertKey{NodeID: "test-node", Title: "Service Failure", ServiceName: "service-1"}
+		w.LastAlertTimes[key] = time.Now()
+	})
+	err := alerter.CheckCooldown("test-node", "Node Offline", "") // Different title, no service
+	assert.NoError(t, err, "Node Offline alert should not be blocked by Service Failure cooldown")
 }
 
 func TestProcessSweepData(t *testing.T) {
