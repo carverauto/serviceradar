@@ -42,6 +42,7 @@ var (
 	errDatabaseError      = errors.New("database error")
 	errInvalidSweepData   = errors.New("invalid sweep data")
 	errFailedToSendAlerts = errors.New("failed to send alerts")
+	errWebhookCooldown    = errors.New("webhook cooldown")
 )
 
 type Metrics struct {
@@ -1113,12 +1114,19 @@ func (m *NodeRecoveryManager) processRecovery(ctx context.Context, nodeID string
 	status.IsHealthy = true
 	status.LastSeen = lastSeen
 
+	// Update the database BEFORE trying to send the alert
 	if err := m.db.UpdateNodeStatus(status); err != nil {
 		return fmt.Errorf("update node status: %w", err)
 	}
 
+	// Try to send the alert, but don't fail the recovery if it's just rate limited
 	if err := m.sendRecoveryAlert(ctx, nodeID, lastSeen); err != nil {
-		return fmt.Errorf("send recovery alert: %w", err)
+		if errors.Is(err, errWebhookCooldown) {
+			// Log the cooldown but proceed with the recovery
+			log.Printf("Recovery alert for node %s rate limited, but node marked as recovered", nodeID)
+		} else {
+			return fmt.Errorf("send recovery alert: %w", err)
+		}
 	}
 
 	if err := tx.Commit(); err != nil {
