@@ -417,7 +417,6 @@ func (s *Server) checkInitialStates(ctx context.Context) {
 	// Add ORDER BY clause
 	query += "ORDER BY last_seen DESC"
 
-	//nolint:rowserrcheck // rows.Close() is deferred
 	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		log.Printf("Error querying nodes: %v", err)
@@ -673,7 +672,7 @@ func (s *Server) updateNodeDownStatus(nodeID string, lastSeen time.Time) error {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer func(tx db.Transaction) {
-		err := tx.Rollback()
+		err = tx.Rollback()
 		if err != nil {
 			log.Printf("Error rolling back transaction: %v", err)
 		}
@@ -843,7 +842,6 @@ func (s *Server) checkNeverReportedPollers(ctx context.Context) {
 
 	var unreportedNodes []string
 
-	//nolint:rowserrcheck // rows.Close() is deferred
 	rows, err := s.db.Query(`
         SELECT node_id 
         FROM nodes 
@@ -1096,7 +1094,7 @@ func (m *NodeRecoveryManager) processRecovery(ctx context.Context, nodeID string
 		return fmt.Errorf("begin transaction: %w", err)
 	}
 	defer func(tx db.Transaction) {
-		err := tx.Rollback()
+		err = tx.Rollback()
 		if err != nil {
 			log.Printf("Error rolling back transaction: %v", err)
 		}
@@ -1114,6 +1112,7 @@ func (m *NodeRecoveryManager) processRecovery(ctx context.Context, nodeID string
 	// Update node status
 	status.IsHealthy = true
 	status.LastSeen = lastSeen
+
 	if err := m.db.UpdateNodeStatus(status); err != nil {
 		return fmt.Errorf("update node status: %w", err)
 	}
@@ -1124,48 +1123,6 @@ func (m *NodeRecoveryManager) processRecovery(ctx context.Context, nodeID string
 
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit transaction: %w", err)
-	}
-
-	return nil
-}
-
-// updateNodeState handles the database state transition.
-func (m *NodeRecoveryManager) updateNodeState(
-	_ context.Context, tx db.Transaction, nodeID string, lastSeen time.Time) (bool, error) {
-	var isHealthy bool
-	err := tx.QueryRow(`SELECT is_healthy FROM nodes WHERE node_id = ? FOR UPDATE`, nodeID).Scan(&isHealthy)
-
-	if err != nil {
-		return false, fmt.Errorf("get node state: %w", err)
-	}
-
-	if isHealthy {
-		return false, nil
-	}
-
-	if err := m.updateNodeRecords(tx, nodeID, lastSeen); err != nil {
-		return false, err
-	}
-
-	return true, nil
-}
-
-// updateNodeRecords updates both the node state and history.
-func (*NodeRecoveryManager) updateNodeRecords(tx db.Transaction, nodeID string, lastSeen time.Time) error {
-	_, err := tx.Exec(`
-        UPDATE nodes 
-        SET is_healthy = TRUE,
-            last_seen = ?
-        WHERE node_id = ?`, lastSeen, nodeID)
-	if err != nil {
-		return fmt.Errorf("update node: %w", err)
-	}
-
-	_, err = tx.Exec(`
-        INSERT INTO node_history (node_id, timestamp, is_healthy)
-        VALUES (?, ?, TRUE)`, nodeID, lastSeen)
-	if err != nil {
-		return fmt.Errorf("insert history: %w", err)
 	}
 
 	return nil
@@ -1227,7 +1184,7 @@ func (s *Server) updateNodeStatus(nodeID string, isHealthy bool, timestamp time.
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer func(tx db.Transaction) {
-		err := tx.Rollback()
+		err = tx.Rollback()
 		if err != nil {
 			log.Printf("Error rolling back transaction: %v", err)
 		}

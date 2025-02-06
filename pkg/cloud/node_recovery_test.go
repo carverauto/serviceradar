@@ -2,7 +2,6 @@ package cloud
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
@@ -44,7 +43,7 @@ func TestNodeRecoveryManager_ProcessRecovery(t *testing.T) {
 		{
 			name:          "db_error",
 			nodeID:        "test-node",
-			dbError:       errors.New("db error"),
+			dbError:       db.ErrDatabaseError,
 			expectedError: "get node status",
 		},
 	}
@@ -111,6 +110,7 @@ func TestNodeRecoveryManager_SendRecoveryAlert(t *testing.T) {
 			assert.Equal(t, "Node Recovered", alert.Title)
 			assert.Equal(t, "test-node", alert.NodeID)
 			assert.Equal(t, "test-host", alert.Details["hostname"])
+
 			return nil
 		})
 
