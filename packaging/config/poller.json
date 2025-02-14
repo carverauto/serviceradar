@@ -1,0 +1,34 @@
+{
+    "agents": {
+        "local-agent": {
+            "address": "127.0.0.1:50051",
+            "checks": [
+                {
+                    "service_type": "port",
+                    "service_name": "SSH",
+                    "details": "127.0.0.1:22"
+                },
+                {
+                    "service_type": "icmp",
+                    "service_name": "ping",
+                    "details": "8.8.8.8"
+                },
+                {
+                    "service_type": "sweep",
+                    "service_name": "network_sweep",
+                    "details": ""
+                }
+            ]
+        }
+    },
+    "cloud_address": "127.0.0.1:50052",
+    "listen_addr": ":50053",
+    "poll_interval": "30s",
+    "poller_id": "default-poller",
+    "service_name": "PollerService",
+    "service_type": "grpc",
+    "security": {
+        "mode": "none",
+        "cert_dir": "/etc/serviceradar/certs"
+    }
+}

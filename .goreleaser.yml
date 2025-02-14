@@ -151,9 +151,6 @@ nfpms:
       - src: ./packaging/dusk/config/dusk.json
         dst: /etc/serviceradar/checkers/dusk.json
         type: config
-      - src: ./packaging/dusk/config/external.json
-        dst: /etc/serviceradar/checkers/external.json
-        type: config
     scripts:
       postinstall: ./packaging/dusk/scripts/postinstall.sh
       preremove: ./packaging/dusk/scripts/preremove.sh

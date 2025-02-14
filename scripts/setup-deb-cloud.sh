@@ -16,7 +16,7 @@ mkdir -p "${PKG_ROOT}/lib/systemd/system"
 echo "Building web interface..."
 
 # Build web interface
-cd web
+cd ../web
 npm install
 npm run build
 cd ..
@@ -29,7 +29,6 @@ echo "Building Go binary..."
 
 # Build Go binary with embedded web content
 cd cmd/cloud
-#GOOS=linux GOARCH=amd64 go build -o "../../${PKG_ROOT}/usr/local/bin/serviceradar-cloud"
 CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -o "../../${PKG_ROOT}/usr/local/bin/serviceradar-cloud"
 cd ../..
 

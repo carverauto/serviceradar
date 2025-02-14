@@ -1,4 +1,4 @@
-FROM --platform=linux/amd64 golang:1.23-bullseye
+FROM --platform=linux/amd64 golang:1.24-bullseye
 
 # Install Node.js and npm
 RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \

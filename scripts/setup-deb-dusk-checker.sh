@@ -4,7 +4,7 @@ set -e  # Exit on any error
 
 echo "Setting up package structure..."
 
-VERSION=${VERSION:-1.0.12}
+VERSION=${VERSION:-1.0.16}
 
 # Create package directory structure
 PKG_ROOT="serviceradar-dusk-checker_${VERSION}"
@@ -16,7 +16,7 @@ mkdir -p "${PKG_ROOT}/lib/systemd/system"
 echo "Building Go binary..."
 
 # Build dusk checker binary
-GOOS=linux GOARCH=amd64 go build -o "${PKG_ROOT}/usr/local/bin/dusk-checker" ./cmd/checkers/dusk
+GOOS=linux GOARCH=amd64 go build -o "${PKG_ROOT}/usr/local/bin/dusk-checker" ../cmd/checkers/dusk
 
 echo "Creating package files..."
 
@@ -121,12 +121,12 @@ chmod 755 "${PKG_ROOT}/DEBIAN/prerm"
 echo "Building Debian package..."
 
 # Create release-artifacts directory if it doesn't exist
-mkdir -p release-artifacts
+mkdir -p ../release-artifacts
 
 # Build the package
 dpkg-deb --build "${PKG_ROOT}"
 
 # Move the deb file to the release-artifacts directory
-mv "${PKG_ROOT}.deb" "release-artifacts/"
+mv "${PKG_ROOT}.deb" "../release-artifacts/"
 
 echo "Package built: release-artifacts/${PKG_ROOT}.deb"

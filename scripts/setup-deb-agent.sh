@@ -17,7 +17,7 @@ mkdir -p "${PKG_ROOT}/lib/systemd/system"
 echo "Building Go binaries..."
 
 # Build agent and checker binaries
-GOOS=linux GOARCH=amd64 go build -o "${PKG_ROOT}/usr/local/bin/serviceradar-agent" ./cmd/agent
+GOOS=linux GOARCH=amd64 go build -o "${PKG_ROOT}/usr/local/bin/serviceradar-agent" ../cmd/agent
 
 echo "Creating package files..."
 
@@ -114,12 +114,12 @@ chmod 755 "${PKG_ROOT}/DEBIAN/prerm"
 echo "Building Debian package..."
 
 # Create release-artifacts directory if it doesn't exist
-mkdir -p release-artifacts
+mkdir -p ../release-artifacts
 
 # Build the package
 dpkg-deb --build "${PKG_ROOT}"
 
 # Move the deb file to the release-artifacts directory
-mv "${PKG_ROOT}.deb" "release-artifacts/"
+mv "${PKG_ROOT}.deb" "../release-artifacts/"
 
 echo "Package built: release-artifacts/${PKG_ROOT}.deb"

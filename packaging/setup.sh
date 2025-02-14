@@ -52,8 +52,6 @@ for script in setup-deb-*.sh; do
         "dusk-checker")
             # Extract dusk configuration
             awk '/cat > "\${PKG_ROOT}\/etc\/serviceradar\/checkers\/dusk.json"/,/^EOF/' "$script" | sed '1d;$d' > "packaging/dusk/config/dusk.json"
-            # Extract external configuration
-            awk '/cat > "\${PKG_ROOT}\/etc\/serviceradar\/checkers\/external.json"/,/^EOF/' "$script" | sed '1d;$d' > "packaging/dusk/config/external.json"
             ;;
     esac
 done
