@@ -163,9 +163,6 @@ serviceradar-cloud_*/
 cover.long.profile
 cover.short.profile
 
-# Ignore deployment scripts if not needed
-deployCerts.sh
-
 # Ignore build artifacts and distribution directories
 dist/
 packaging/dist/

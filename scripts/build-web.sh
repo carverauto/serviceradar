@@ -4,7 +4,7 @@ set -e
 echo "Building web interface..."
 
 # Build web interface
-cd web
+cd ../web
 npm install
 npm run build
 cd ..
