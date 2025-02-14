@@ -16,6 +16,7 @@ Provides centralized monitoring and web dashboard for ServiceRadar.
 %install
 mkdir -p %{buildroot}/usr/local/bin
 mkdir -p %{buildroot}/etc/serviceradar
+mkdir -p %{buildroot}/etc/serviceradar/checkers/sweep
 mkdir -p %{buildroot}/lib/systemd/system
 mkdir -p %{buildroot}/var/lib/serviceradar
 
@@ -23,11 +24,13 @@ mkdir -p %{buildroot}/var/lib/serviceradar
 install -m 755 %{_builddir}/serviceradar-cloud %{buildroot}/usr/local/bin/
 install -m 644 %{_sourcedir}/systemd/serviceradar-cloud.service %{buildroot}/lib/systemd/system/serviceradar-cloud.service
 install -m 644 %{_sourcedir}/config/cloud.json %{buildroot}/etc/serviceradar/
+install -m 644 %{_sourcedir}/config/checkers/sweep/sweep.json %{buildroot}/etc/serviceradar/checkers/sweep/
 
 
 %files
 %attr(0755, root, root) /usr/local/bin/serviceradar-cloud
 %config(noreplace) %attr(0644, serviceradar, serviceradar) /etc/serviceradar/cloud.json
+%config(noreplace) %attr(0644, serviceradar, serviceradar) /etc/serviceradar/checkers/sweep/sweep.json
 %attr(0644, root, root) /lib/systemd/system/serviceradar-cloud.service
 %dir %attr(0755, root, root) /etc/serviceradar
 %dir %attr(0755, serviceradar, serviceradar) /var/lib/serviceradar
@@ -40,6 +43,22 @@ fi
 
 %post
 %systemd_post serviceradar-cloud.service
+
+# Check if firewalld is running
+if systemctl is-active firewalld.service >/dev/null 2>&1; then
+    firewall-cmd --permanent --add-port=8090/tcp --zone=public >/dev/null 2>&1 # Adjust zone
+    firewall-cmd --reload >/dev/null 2>&1
+    logger "Configured firewalld for ServiceRadar (port 8090/tcp, zone public)."
+else
+    logger "Firewalld is not running. Skipping firewall configuration."
+fi
+
+# SELinux (if needed)
+if getenforce | grep -q "Enforcing"; then
+    semanage -a -t http_port_t -p tcp 8090 >/dev/null 2>&1
+    restorecon -Rv /usr/local/bin/serviceradar-cloud # Adjust path
+    logger "Configured SELinux for ServiceRadar (port 8090/tcp)."
+fi
 
 %preun
 %systemd_preun serviceradar-cloud.service
