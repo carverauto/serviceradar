@@ -47,7 +47,9 @@ RUN rpmdev-setuptree
 
 # Copy built artifacts and spec files
 COPY --from=go-builder /src/serviceradar-cloud /root/rpmbuild/BUILD/
+COPY packaging/config/*.json /root/rpmbuild/SOURCES/config/
 COPY packaging/specs/serviceradar-cloud.spec /root/rpmbuild/SPECS/
+COPY packaging/cloud/systemd/serviceradar-cloud.service /root/rpmbuild/SOURCES/systemd/
 COPY scripts/setup-rpm-*.sh /build/
 
 # Set default version (can be overridden at build time)
