@@ -46,6 +46,22 @@ chmod 755 /usr/local/bin/serviceradar-agent
 # Set required capability for ICMP scanning
 setcap cap_net_raw=+ep /usr/local/bin/serviceradar-agent
 
+# Check if firewalld is running
+if systemctl is-active firewalld.service >/dev/null 2>&1; then
+    firewall-cmd --permanent --add-port=8090/tcp --zone=public >/dev/null 2>&1 # Adjust zone
+    firewall-cmd --reload >/dev/null 2>&1
+    logger "Configured firewalld for ServiceRadar (port 8090/tcp, zone public)."
+else
+    logger "Firewalld is not running. Skipping firewall configuration."
+fi
+
+# SELinux (if needed)
+if getenforce | grep -q "Enforcing"; then
+    semanage -a -t http_port_t -p tcp 8090 >/dev/null 2>&1
+    restorecon -Rv /usr/local/bin/serviceradar-cloud # Adjust path
+    logger "Configured SELinux for ServiceRadar (port 8090/tcp)."
+fi
+
 %preun
 %systemd_preun serviceradar-agent.service
 
