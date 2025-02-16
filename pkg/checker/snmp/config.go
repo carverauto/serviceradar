@@ -21,21 +21,6 @@ const (
 	maxTargetNameLength = 128
 )
 
-var (
-	errNodeAddressRequired = fmt.Errorf("node_address is required")
-	errListenAddrRequired  = fmt.Errorf("listen_addr is required")
-	errNoTargets           = fmt.Errorf("at least one target must be configured")
-	errInvalidInterval     = fmt.Errorf("interval must be at least %v", minInterval)
-	errNoOIDs              = fmt.Errorf("at least one OID must be configured")
-	errInvalidOID          = fmt.Errorf("invalid OID format")
-	errInvalidTargetName   = fmt.Errorf("invalid target name")
-	errDuplicateTargetName = fmt.Errorf("duplicate target name")
-	errInvalidHostAddress  = fmt.Errorf("invalid host address")
-	errInvalidDataType     = fmt.Errorf("invalid data type")
-	errInvalidScale        = fmt.Errorf("scale factor must be greater than 0")
-	errEmptyOIDName        = fmt.Errorf("OID name cannot be empty")
-)
-
 // Config represents SNMP checker configuration.
 type Config struct {
 	NodeAddress string               `json:"node_address"`
@@ -185,11 +170,11 @@ func validateOIDConfig(oid *OIDConfig, oidNames map[string]bool) error {
 	}
 
 	if len(oid.Name) > maxOIDNameLength {
-		return fmt.Errorf("OID name too long: max %d characters", maxOIDNameLength)
+		return fmt.Errorf("%w %s", errOIDNameTooLong, oid.Name)
 	}
 
 	if oidNames[oid.Name] {
-		return fmt.Errorf("duplicate OID name: %s", oid.Name)
+		return fmt.Errorf("%w %s", errOIDDuplicate, oid.Name)
 	}
 
 	oidNames[oid.Name] = true

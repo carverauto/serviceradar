@@ -3,7 +3,6 @@ package snmp
 
 import (
 	"encoding/json"
-	"fmt"
 	"time"
 )
 
@@ -50,7 +49,7 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 
 		return nil
 	default:
-		return fmt.Errorf("invalid duration")
+		return errInvalidDuration
 	}
 }
 

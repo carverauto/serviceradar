@@ -1,8 +1,41 @@
 package snmp
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 var (
+	errInvalidDuration = errors.New("invalid duration")
+
+	// Config error types.
+	errOIDNameTooLong      = errors.New("OID name is too long")
+	errOIDDuplicate        = errors.New("duplicate OID name")
+	errNodeAddressRequired = fmt.Errorf("node_address is required")
+	errListenAddrRequired  = fmt.Errorf("listen_addr is required")
+	errNoTargets           = fmt.Errorf("at least one target must be configured")
+	errNoOIDs              = fmt.Errorf("at least one OID must be configured")
+	errInvalidOID          = fmt.Errorf("invalid OID format")
+	errInvalidTargetName   = fmt.Errorf("invalid target name")
+	errDuplicateTargetName = fmt.Errorf("duplicate target name")
+	errInvalidHostAddress  = fmt.Errorf("invalid host address")
+	errInvalidDataType     = fmt.Errorf("invalid data type")
+	errInvalidScale        = fmt.Errorf("scale factor must be greater than 0")
+	errEmptyOIDName        = fmt.Errorf("OID name cannot be empty")
+
+	// Service error types.
+
+	ErrStoppingCollectors       = errors.New("errors stopping collectors")
+	ErrTargetExists             = errors.New("target already exists")
+	ErrTargetNotFound           = errors.New("target not found")
+	ErrInvalidServiceType       = errors.New("invalid service type")
+	errFailedToCreateCollector  = errors.New("failed to create collector")
+	errFailedToCreateAggregator = errors.New("failed to create aggregator")
+	errFailedToStartCollector   = errors.New("failed to start collector")
+	errFailedToStopCollector    = errors.New("failed to stop collector")
+	errInvalidConfig            = errors.New("invalid configuration")
+	errFailedToInitTarget       = errors.New("failed to initialize target")
+
 	// Client error types.
 
 	ErrNotImplemented         = errors.New("not implemented")
@@ -30,4 +63,10 @@ var (
 	ErrInvalidBooleanType  = errors.New("unexpected type for boolean")
 	ErrInvalidBytesType    = errors.New("expected uint64 for bytes")
 	ErrInvalidStringType   = errors.New("unexpected type for string")
+
+	// Aggregator error types.
+	errUnsupportedAggregateType = errors.New("unsupported aggregate type")
+	errNoDataFound              = errors.New("no data found for OID")
+	errNoDataPointsInterval     = errors.New("no data points in interval for OID")
+	errNoPointsAggregate        = errors.New("no points to aggregate")
 )

@@ -82,7 +82,7 @@ func (a *SNMPAggregator) GetAggregatedData(oidName string, interval Interval) (*
 	a.mu.RUnlock()
 
 	if !exists {
-		return nil, fmt.Errorf("no data found for OID %s", oidName)
+		return nil, fmt.Errorf("%w: %s", errNoDataFound, oidName)
 	}
 
 	// Get the time range for the interval
@@ -91,7 +91,7 @@ func (a *SNMPAggregator) GetAggregatedData(oidName string, interval Interval) (*
 	// Get points within the time range
 	points := series.getPointsInRange(timeRange)
 	if len(points) == 0 {
-		return nil, fmt.Errorf("no data points in interval for OID %s", oidName)
+		return nil, fmt.Errorf("%w: %s", errNoDataPointsInterval, oidName)
 	}
 
 	// Aggregate the points
@@ -126,7 +126,7 @@ func (a *SNMPAggregator) getTimeRange(interval Interval) time.Duration {
 
 func (a *SNMPAggregator) aggregatePoints(points []DataPoint, aggType AggregateType) (*DataPoint, error) {
 	if len(points) == 0 {
-		return nil, fmt.Errorf("no points to aggregate")
+		return nil, errNoPointsAggregate
 	}
 
 	var result DataPoint
@@ -146,7 +146,7 @@ func (a *SNMPAggregator) aggregatePoints(points []DataPoint, aggType AggregateTy
 	case AggregateCount:
 		result.Value = len(points)
 	default:
-		return nil, fmt.Errorf("unsupported aggregate type: %v", aggType)
+		return nil, fmt.Errorf("%w: %d", errUnsupportedAggregateType, aggType)
 	}
 
 	return &result, nil

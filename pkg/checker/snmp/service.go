@@ -13,6 +13,10 @@ import (
 	"github.com/mfreeman451/serviceradar/proto"
 )
 
+const (
+	defaultServiceStatusTimeout = 5 * time.Second
+)
+
 // SNMPService implements both the Service interface and proto.AgentServiceServer.
 type SNMPService struct {
 	proto.UnimplementedAgentServiceServer
@@ -24,13 +28,12 @@ type SNMPService struct {
 	collectorFactory  CollectorFactory
 	aggregatorFactory AggregatorFactory
 	status            map[string]TargetStatus
-	lastCheck         time.Time
 }
 
 // NewSNMPService creates a new SNMP monitoring service.
 func NewSNMPService(config *Config) (*SNMPService, error) {
 	if err := config.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid configuration: %w", err)
+		return nil, fmt.Errorf("%w: %w", errInvalidConfig, err)
 	}
 
 	service := &SNMPService{
@@ -83,7 +86,7 @@ func (s *SNMPService) Stop() error {
 	s.aggregators = make(map[string]Aggregator)
 
 	if len(errs) > 0 {
-		return fmt.Errorf("errors stopping collectors: %v", errs)
+		return fmt.Errorf("%w: %v", ErrStoppingCollectors, errs)
 	}
 
 	return nil
@@ -95,12 +98,12 @@ func (s *SNMPService) AddTarget(target *Target) error {
 	defer s.mu.Unlock()
 
 	if _, exists := s.collectors[target.Name]; exists {
-		return fmt.Errorf("target %s already exists", target.Name)
+		return fmt.Errorf("%w: %s", ErrTargetExists, target.Name)
 	}
 
 	ctx := context.Background()
 	if err := s.initializeTarget(ctx, target); err != nil {
-		return fmt.Errorf("failed to initialize target %s: %w", target.Name, err)
+		return fmt.Errorf("%w: %s", errFailedToInitTarget, target.Name)
 	}
 
 	return nil
@@ -113,11 +116,11 @@ func (s *SNMPService) RemoveTarget(targetName string) error {
 
 	collector, exists := s.collectors[targetName]
 	if !exists {
-		return fmt.Errorf("target %s not found", targetName)
+		return fmt.Errorf("%w: %s", ErrTargetNotFound, targetName)
 	}
 
 	if err := collector.Stop(); err != nil {
-		return fmt.Errorf("failed to stop collector for target %s: %w", targetName, err)
+		return fmt.Errorf("%w: %s", errFailedToStopCollector, targetName)
 	}
 
 	delete(s.collectors, targetName)
@@ -144,8 +147,12 @@ func (s *SNMPService) GetStatus() (map[string]TargetStatus, error) {
 // This is the gRPC endpoint for status requests.
 func (s *SNMPService) GetServiceStatus(ctx context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
 	if req.ServiceType != "snmp" {
-		return nil, fmt.Errorf("invalid service type: %s", req.ServiceType)
+		return nil, fmt.Errorf("%w: %s", ErrInvalidServiceType, req.ServiceType)
 	}
+
+	// set a context with timeout
+	_, cancel := context.WithTimeout(ctx, defaultServiceStatusTimeout)
+	defer cancel()
 
 	status, err := s.GetStatus()
 	if err != nil {
@@ -188,18 +195,18 @@ func (s *SNMPService) initializeTarget(ctx context.Context, target *Target) erro
 	// Create collector
 	collector, err := s.collectorFactory.CreateCollector(target)
 	if err != nil {
-		return fmt.Errorf("failed to create collector: %w", err)
+		return fmt.Errorf("%w: %s", errFailedToCreateCollector, target.Name)
 	}
 
 	// Create aggregator
 	aggregator, err := s.aggregatorFactory.CreateAggregator(time.Duration(target.Interval))
 	if err != nil {
-		return fmt.Errorf("failed to create aggregator: %w", err)
+		return fmt.Errorf("%w: %s", errFailedToCreateAggregator, target.Name)
 	}
 
 	// Start collector
 	if err := collector.Start(ctx); err != nil {
-		return fmt.Errorf("failed to start collector: %w", err)
+		return fmt.Errorf("%w: %s", errFailedToStartCollector, target.Name)
 	}
 
 	// Store components
