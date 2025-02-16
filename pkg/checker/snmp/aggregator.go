@@ -9,8 +9,8 @@ import (
 )
 
 const (
-	oneDay = 24 * time.Hour
-	defaultDataPointSize
+	oneDay               = 24 * time.Hour
+	defaultDataPointSize = 100
 )
 
 // TimeSeriesData holds time-series data points for an OID.
