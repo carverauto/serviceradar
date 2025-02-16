@@ -8,74 +8,86 @@ import (
 	"log"
 	"sync"
 	"time"
-
-	"github.com/gosnmp/gosnmp"
 )
 
-// Collector handles SNMP data collection for a target.
-type Collector struct {
+// SNMPCollector implements the Collector interface
+type SNMPCollector struct {
 	target     *Target
-	client     *gosnmp.GoSNMP
+	client     SNMPClient
 	dataChan   chan DataPoint
+	errorChan  chan error
 	done       chan struct{}
+	closeOnce  sync.Once
+	mu         sync.RWMutex
+	status     TargetStatus
 	bufferPool *sync.Pool
 }
 
-func NewCollector(target *Target) (*Collector, error) {
-	client := &gosnmp.GoSNMP{
-		Target:    target.Host,
-		Port:      target.Port,
-		Community: target.Community,
-		Version:   gosnmp.Version2c, // Default to v2c
-		Timeout:   time.Duration(target.Timeout),
-		Retries:   target.Retries,
+// NewCollector creates a new SNMP collector for a target
+func NewCollector(target *Target) (Collector, error) {
+	if err := validateTarget(target); err != nil {
+		return nil, fmt.Errorf("invalid target configuration: %w", err)
 	}
 
-	// Set SNMP version based on config
-	switch target.Version {
-	case Version1:
-		client.Version = gosnmp.Version1
-	case Version2c:
-		client.Version = gosnmp.Version2c
-	case Version3:
-		// TODO: Add SNMPv3 configuration
-		return nil, fmt.Errorf("SNMPv3 not yet implemented")
+	// Initialize the SNMP client
+	client, err := newSNMPClient(target)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create SNMP client: %w", err)
 	}
 
-	return &Collector{
-		target:   target,
-		client:   client,
-		dataChan: make(chan DataPoint, len(target.OIDs)),
-		done:     make(chan struct{}),
+	collector := &SNMPCollector{
+		target:    target,
+		client:    client,
+		dataChan:  make(chan DataPoint, len(target.OIDs)*2), // Buffer for 2 polls per OID
+		errorChan: make(chan error, 10),
+		done:      make(chan struct{}),
+		status: TargetStatus{
+			OIDStatus: make(map[string]OIDStatus),
+		},
 		bufferPool: &sync.Pool{
 			New: func() interface{} {
 				return make([]byte, 0, 1024)
 			},
 		},
-	}, nil
-}
-
-func (c *Collector) Start(ctx context.Context) error {
-	if err := c.client.Connect(); err != nil {
-		return fmt.Errorf("failed to connect: %w", err)
 	}
 
+	return collector, nil
+}
+
+// Start implements the Collector interface
+func (c *SNMPCollector) Start(ctx context.Context) error {
+	// Connect to the SNMP device
+	if err := c.client.Connect(); err != nil {
+		return fmt.Errorf("failed to connect to target %s: %w", c.target.Name, err)
+	}
+
+	// Start collection goroutine
 	go c.collect(ctx)
 
-	return nil
-}
-
-func (c *Collector) Stop() error {
-	close(c.done)
-	err := c.client.Conn.Close()
-	if err != nil {
-		return err
-	}
+	// Start error handling goroutine
+	go c.handleErrors(ctx)
 
 	return nil
 }
 
-func (c *Collector) collect(ctx context.Context) {
+// Stop implements the Collector interface
+func (c *SNMPCollector) Stop() error {
+	c.closeOnce.Do(func() {
+		close(c.done)
+		if err := c.client.Close(); err != nil {
+			log.Printf("Error closing SNMP client for target %s: %v", c.target.Name, err)
+		}
+	})
+	return nil
+}
+
+// GetResults implements the Collector interface
+func (c *SNMPCollector) GetResults() <-chan DataPoint {
+	return c.dataChan
+}
+
+// collect runs the main collection loop
+func (c *SNMPCollector) collect(ctx context.Context) {
 	ticker := time.NewTicker(time.Duration(c.target.Interval))
 	defer ticker.Stop()
 
@@ -86,60 +98,77 @@ func (c *Collector) collect(ctx context.Context) {
 		case <-c.done:
 			return
 		case <-ticker.C:
-			if err := c.pollOIDs(ctx); err != nil {
-				log.Printf("Error polling OIDs for %s: %v", c.target.Name, err)
+			if err := c.pollTarget(ctx); err != nil {
+				select {
+				case c.errorChan <- err:
+				default:
+					log.Printf("Error channel full, dropping error: %v", err)
+				}
 			}
 		}
 	}
 }
 
-func (c *Collector) pollOIDs(ctx context.Context) error {
+// pollTarget performs a single poll of all OIDs for the target
+func (c *SNMPCollector) pollTarget(ctx context.Context) error {
 	oids := make([]string, len(c.target.OIDs))
 	for i, oid := range c.target.OIDs {
 		oids[i] = oid.OID
 	}
 
-	result, err := c.client.Get(oids)
+	// Get SNMP data
+	results, err := c.client.Get(oids)
 	if err != nil {
-		return fmt.Errorf("SNMP get failed: %w", err)
+		c.updateStatus(false, err.Error())
+		return fmt.Errorf("SNMP get failed for target %s: %w", c.target.Name, err)
 	}
 
-	for _, variable := range result.Variables {
-		if err := c.processVariable(ctx, variable); err != nil {
-			log.Printf("Error processing variable %s: %v", variable.Name, err)
+	c.updateStatus(true, "")
+
+	// Process each result
+	for oid, value := range results {
+		if err := c.processResult(ctx, oid, value); err != nil {
+			log.Printf("Error processing result for OID %s: %v", oid, err)
 		}
 	}
 
 	return nil
 }
 
-func (c *Collector) processVariable(ctx context.Context, variable gosnmp.SnmpPDU) error {
-	// Find the OID config for this variable
+// processResult handles a single OID result
+func (c *SNMPCollector) processResult(ctx context.Context, oid string, value interface{}) error {
+	// Find OID config
 	var oidConfig *OIDConfig
-	for _, oid := range c.target.OIDs {
-		if oid.OID == variable.Name {
-			oidConfig = &oid
+	for _, cfg := range c.target.OIDs {
+		if cfg.OID == oid {
+			oidConfig = &cfg
 			break
 		}
 	}
 
 	if oidConfig == nil {
-		return fmt.Errorf("no configuration found for OID %s", variable.Name)
+		return fmt.Errorf("no configuration found for OID %s", oid)
 	}
 
-	value, err := c.convertValue(variable, oidConfig)
+	// Convert value based on type
+	converted, err := c.convertValue(value, oidConfig)
 	if err != nil {
-		return fmt.Errorf("failed to convert value: %w", err)
+		return fmt.Errorf("value conversion failed: %w", err)
 	}
 
-	data := DataPoint{
+	// Create data point
+	point := DataPoint{
 		OIDName:   oidConfig.Name,
+		Value:     converted,
 		Timestamp: time.Now(),
-		Value:     value,
 	}
 
+	// Update OID status
+	c.updateOIDStatus(oidConfig.Name, point)
+
+	// Send data point
 	select {
-	case c.dataChan <- data:
+	case c.dataChan <- point:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
@@ -148,41 +177,115 @@ func (c *Collector) processVariable(ctx context.Context, variable gosnmp.SnmpPDU
 	}
 }
 
-func (c *Collector) convertValue(variable gosnmp.SnmpPDU, config *OIDConfig) (interface{}, error) {
-	var value interface{}
-
+// convertValue converts an SNMP value based on the OID configuration
+func (c *SNMPCollector) convertValue(value interface{}, config *OIDConfig) (interface{}, error) {
 	switch config.DataType {
 	case TypeCounter:
-		value = uint64(gosnmp.ToBigInt(variable.Value).Uint64())
-		if config.Delta {
-			// TODO: Implement delta calculation
-		}
+		return c.convertCounter(value, config.Scale)
 	case TypeGauge:
-		value = uint64(gosnmp.ToBigInt(variable.Value).Uint64())
+		return c.convertGauge(value, config.Scale)
 	case TypeBoolean:
-		value = variable.Value.(int) != 0
+		return c.convertBoolean(value)
 	case TypeBytes:
-		value = uint64(gosnmp.ToBigInt(variable.Value).Uint64())
+		return c.convertBytes(value, config.Scale)
 	case TypeString:
-		value = string(variable.Value.([]byte))
+		return c.convertString(value)
 	default:
 		return nil, fmt.Errorf("unsupported data type: %v", config.DataType)
 	}
-
-	// Apply scaling if configured
-	if config.Scale != 0 && config.Scale != 1 {
-		switch v := value.(type) {
-		case uint64:
-			value = float64(v) * config.Scale
-		case float64:
-			value = v * config.Scale
-		}
-	}
-
-	return value, nil
 }
 
-// GetResults returns a channel that provides data points.
-func (c *Collector) GetResults() <-chan DataPoint {
-	return c.dataChan
+// handleErrors processes errors from the collection process
+func (c *SNMPCollector) handleErrors(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-c.done:
+			return
+		case err := <-c.errorChan:
+			log.Printf("Error collecting from target %s: %v", c.target.Name, err)
+			// Could implement retry logic or alert generation here
+		}
+	}
+}
+
+// updateStatus updates the collector's status
+func (c *SNMPCollector) updateStatus(available bool, errorMsg string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.status.Available = available
+	c.status.LastPoll = time.Now()
+	c.status.Error = errorMsg
+}
+
+// updateOIDStatus updates the status for a specific OID
+func (c *SNMPCollector) updateOIDStatus(oidName string, point DataPoint) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	status := c.status.OIDStatus[oidName]
+	status.LastValue = point.Value
+	status.LastUpdate = point.Timestamp
+	c.status.OIDStatus[oidName] = status
+}
+
+// GetStatus returns the current status of the collector
+func (c *SNMPCollector) GetStatus() TargetStatus {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.status
+}
+
+// Value conversion helper methods
+func (c *SNMPCollector) convertCounter(value interface{}, scale float64) (uint64, error) {
+	v, ok := value.(uint64)
+	if !ok {
+		return 0, fmt.Errorf("expected uint64 for counter, got %T", value)
+	}
+	return uint64(float64(v) * scale), nil
+}
+
+func (c *SNMPCollector) convertGauge(value interface{}, scale float64) (float64, error) {
+	switch v := value.(type) {
+	case uint64:
+		return float64(v) * scale, nil
+	case int64:
+		return float64(v) * scale, nil
+	case float64:
+		return v * scale, nil
+	default:
+		return 0, fmt.Errorf("unexpected type for gauge: %T", value)
+	}
+}
+
+func (c *SNMPCollector) convertBoolean(value interface{}) (bool, error) {
+	switch v := value.(type) {
+	case int:
+		return v != 0, nil
+	case bool:
+		return v, nil
+	default:
+		return false, fmt.Errorf("unexpected type for boolean: %T", value)
+	}
+}
+
+func (c *SNMPCollector) convertBytes(value interface{}, scale float64) (uint64, error) {
+	v, ok := value.(uint64)
+	if !ok {
+		return 0, fmt.Errorf("expected uint64 for bytes, got %T", value)
+	}
+	return uint64(float64(v) * scale), nil
+}
+
+func (c *SNMPCollector) convertString(value interface{}) (string, error) {
+	switch v := value.(type) {
+	case []byte:
+		return string(v), nil
+	case string:
+		return v, nil
+	default:
+		return "", fmt.Errorf("unexpected type for string: %T", value)
+	}
 }
