@@ -70,8 +70,11 @@ type PortChecker struct {
 }
 
 func NewPortChecker(details string) (*PortChecker, error) {
+	log.Printf("Creating new port checker with details: %s", details)
+
 	if details == "" {
-		return nil, errDetailsRequired
+		log.Printf("NewPortChecker: %v", errDetailsRequiredPorts)
+		return nil, errDetailsRequiredPorts
 	}
 
 	// Split the details into host and port
@@ -90,6 +93,8 @@ func NewPortChecker(details string) (*PortChecker, error) {
 	if port <= 0 || port > 65535 {
 		return nil, fmt.Errorf("%w: %d", errInvalidPort, port)
 	}
+
+	log.Printf("Successfully created port checker for %s:%d", host, port)
 
 	return &PortChecker{
 		Host: host,

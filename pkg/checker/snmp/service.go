@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"sync"
 	"time"
 
 	"github.com/mfreeman451/serviceradar/proto"
@@ -17,17 +16,29 @@ const (
 	defaultServiceStatusTimeout = 5 * time.Second
 )
 
-// SNMPService implements both the Service interface and proto.AgentServiceServer.
-type SNMPService struct {
-	proto.UnimplementedAgentServiceServer
-	collectors        map[string]Collector
-	aggregators       map[string]Aggregator
-	config            *Config
-	mu                sync.RWMutex
-	done              chan struct{}
-	collectorFactory  CollectorFactory
-	aggregatorFactory AggregatorFactory
-	status            map[string]TargetStatus
+func (s *SNMPService) Check(ctx context.Context) (bool, string) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	_, cancel := context.WithTimeout(ctx, defaultServiceStatusTimeout)
+	defer cancel()
+
+	// If no targets are configured, the service is not available
+	if len(s.collectors) == 0 {
+		return false, "no targets configured"
+	}
+
+	// Check each target's status
+	for name, collector := range s.collectors {
+		status := collector.GetStatus()
+
+		// If any target is unavailable, the service is considered unavailable
+		if !status.Available {
+			return false, fmt.Sprintf("target %s is unavailable: %s", name, status.Error)
+		}
+	}
+
+	return true, ""
 }
 
 // NewSNMPService creates a new SNMP monitoring service.
@@ -42,10 +53,11 @@ func NewSNMPService(config *Config) (*SNMPService, error) {
 		config:      config,
 		done:        make(chan struct{}),
 		status:      make(map[string]TargetStatus),
-		// Use default factories if none provided
-		collectorFactory:  &defaultCollectorFactory{},
-		aggregatorFactory: &defaultAggregatorFactory{},
 	}
+
+	// Create collector factory with database service
+	service.collectorFactory = &defaultCollectorFactory{}
+	service.aggregatorFactory = &defaultAggregatorFactory{}
 
 	return service, nil
 }
@@ -282,8 +294,24 @@ func (s *SNMPService) handleDataPoint(targetName string, point DataPoint, aggreg
 		status.LastPoll = point.Timestamp
 		s.status[targetName] = status
 
-		log.Printf("Updated status for target %s, OID %s: %v",
-			targetName, point.OIDName, point.Value)
+		// Create message for service status
+		message := map[string]interface{}{
+			"oid_name":  point.OIDName,
+			"value":     point.Value,
+			"timestamp": point.Timestamp,
+			"data_type": point.DataType,
+			"scale":     point.Scale,
+			"delta":     point.Delta,
+		}
+
+		messageJSON, err := json.Marshal(message)
+		if err != nil {
+			log.Printf("Error marshaling data point: %v", err)
+			return
+		}
+
+		log.Printf("Updated status for target %s, OID %s: %s",
+			targetName, point.OIDName, string(messageJSON))
 	}
 }
 

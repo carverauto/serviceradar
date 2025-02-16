@@ -4,6 +4,8 @@ import "errors"
 
 var (
 	errInvalidPort          = errors.New("invalid port")
-	errDetailsRequired      = errors.New("details field is required for port checks")
+	errDetailsRequiredPorts = errors.New("details field is required for port checks")
+	errDetailsRequiredGRPC  = errors.New("details field is required for gRPC checks")
+	errDetailsRequiredSNMP  = errors.New("details field is required for SNMP checks")
 	errInvalidDetailsFormat = errors.New("invalid details format: expected 'host:port'")
 )

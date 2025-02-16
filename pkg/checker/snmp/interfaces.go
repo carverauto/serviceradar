@@ -17,6 +17,7 @@ type Collector interface {
 	Stop() error
 	// GetResults returns a channel that provides data points
 	GetResults() <-chan DataPoint
+	GetStatus() TargetStatus
 }
 
 // Aggregator defines how to aggregate collected SNMP data.
@@ -41,29 +42,6 @@ type Service interface {
 	RemoveTarget(targetName string) error
 	// GetStatus returns the current status of all monitored targets
 	GetStatus() (map[string]TargetStatus, error)
-}
-
-// TargetStatus represents the current status of an SNMP target.
-type TargetStatus struct {
-	Available bool                 `json:"available"`
-	LastPoll  time.Time            `json:"last_poll"`
-	OIDStatus map[string]OIDStatus `json:"oid_status"`
-	Error     string               `json:"error,omitempty"`
-}
-
-// OIDStatus represents the current status of an OID.
-type OIDStatus struct {
-	LastValue  interface{} `json:"last_value"`
-	LastUpdate time.Time   `json:"last_update"`
-	ErrorCount int         `json:"error_count"`
-	LastError  string      `json:"last_error,omitempty"`
-}
-
-// DataPoint represents a single collected data point.
-type DataPoint struct {
-	OIDName   string      `json:"oid_name"`
-	Value     interface{} `json:"value"`
-	Timestamp time.Time   `json:"timestamp"`
 }
 
 // CollectorFactory creates SNMP collectors.

@@ -6,6 +6,15 @@ import (
 
 //go:generate mockgen -destination=mock_db.go -package=db github.com/mfreeman451/serviceradar/pkg/db Row,Result,Rows,Transaction,Service
 
+// TimeseriesMetric represents a generic timeseries datapoint
+type TimeseriesMetric struct {
+	Name      string      `json:"name"`
+	Value     string      `json:"value"` // Store as string for flexibility
+	Type      string      `json:"type"`  // Metric type identifier
+	Timestamp time.Time   `json:"timestamp"`
+	Metadata  interface{} `json:"metadata"` // Additional type-specific metadata
+}
+
 // Row represents a database row.
 type Row interface {
 	Scan(dest ...interface{}) error
@@ -61,4 +70,10 @@ type Service interface {
 	// Maintenance operations.
 
 	CleanOldData(retentionPeriod time.Duration) error
+
+	// Generic timeseries methods
+
+	StoreMetric(nodeID string, metric *TimeseriesMetric) error
+	GetMetrics(nodeID, metricName string, start, end time.Time) ([]TimeseriesMetric, error)
+	GetMetricsByType(nodeID, metricType string, start, end time.Time) ([]TimeseriesMetric, error)
 }

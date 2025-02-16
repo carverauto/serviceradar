@@ -40,10 +40,22 @@ func initRegistry() checker.Registry {
 	// Register the gRPC checker
 	registry.Register("grpc", func(ctx context.Context, serviceName, details string) (checker.Checker, error) {
 		if details == "" {
-			return nil, errDetailsRequired
+			return nil, errDetailsRequiredGRPC
 		}
 
 		return NewExternalChecker(ctx, serviceName, "grpc", details)
+	})
+
+	registry.Register("snmp", func(ctx context.Context, serviceName, details string) (checker.Checker, error) {
+		if details == "" {
+			return nil, errDetailsRequiredSNMP
+		}
+
+		// Parse the address from details
+		addr := details
+		return &SNMPChecker{
+			address: addr,
+		}, nil
 	})
 
 	return registry

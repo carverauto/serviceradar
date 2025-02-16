@@ -16,26 +16,12 @@ const (
 	defaultDataChanBufferMultiplier = 2
 )
 
-// SNMPCollector implements the Collector interface.
-type SNMPCollector struct {
-	target     *Target
-	client     SNMPClient
-	dataChan   chan DataPoint
-	errorChan  chan error
-	done       chan struct{}
-	closeOnce  sync.Once
-	mu         sync.RWMutex
-	status     TargetStatus
-	bufferPool *sync.Pool
-}
-
 // NewCollector creates a new SNMP collector for a target.
 func NewCollector(target *Target) (Collector, error) {
 	if err := validateTarget(target); err != nil {
 		return nil, fmt.Errorf("%w %w", ErrInvalidTargetConfig, err)
 	}
 
-	// Initialize the SNMP client
 	client, err := newSNMPClient(target)
 	if err != nil {
 		return nil, fmt.Errorf("%w %w", ErrSNMPConnect, err)
@@ -44,7 +30,7 @@ func NewCollector(target *Target) (Collector, error) {
 	collector := &SNMPCollector{
 		target:    target,
 		client:    client,
-		dataChan:  make(chan DataPoint, len(target.OIDs)*defaultDataChanBufferMultiplier), // Buffer for 2 polls per OID
+		dataChan:  make(chan DataPoint, len(target.OIDs)*defaultDataChanBufferMultiplier),
 		errorChan: make(chan error, defaultErrorChan),
 		done:      make(chan struct{}),
 		status: TargetStatus{
@@ -148,40 +134,29 @@ func (c *SNMPCollector) pollTarget(ctx context.Context) error {
 
 // processResult handles a single OID result.
 func (c *SNMPCollector) processResult(ctx context.Context, oid string, value interface{}) error {
-	// Find OID config
-	var oidConfig *OIDConfig
-
-	for _, cfg := range c.target.OIDs {
-		if cfg.OID == oid {
-			oidConfig = &cfg
-
-			break
-		}
-	}
-
+	oidConfig := c.findOIDConfig(oid)
 	if oidConfig == nil {
 		return fmt.Errorf("%w %s", ErrNoOIDConfig, oid)
 	}
 
-	// Convert value based on type
 	converted, err := c.convertValue(value, oidConfig)
 	if err != nil {
 		return fmt.Errorf("%w - %w", ErrSNMPConvert, err)
 	}
 
-	// Create data point
+	// Create data point with the proper fields
 	point := DataPoint{
 		OIDName:   oidConfig.Name,
 		Value:     converted,
 		Timestamp: time.Now(),
+		DataType:  oidConfig.DataType,
+		Scale:     oidConfig.Scale,
+		Delta:     oidConfig.Delta,
 	}
-
-	log.Printf("Collected data point for %s: %v", point.OIDName, point.Value)
 
 	// Update OID status
 	c.updateOIDStatus(oidConfig.Name, point)
 
-	// Send data point
 	select {
 	case c.dataChan <- point:
 		return nil
@@ -193,18 +168,21 @@ func (c *SNMPCollector) processResult(ctx context.Context, oid string, value int
 }
 
 // convertValue converts an SNMP value based on the OID configuration.
+// Update convertValue to handle interface{} return
 func (c *SNMPCollector) convertValue(value interface{}, config *OIDConfig) (interface{}, error) {
 	switch config.DataType {
 	case TypeCounter:
-		return c.convertCounter(value, config.Scale)
+		return c.convertCounter(value)
 	case TypeGauge:
-		return c.convertGauge(value, config.Scale)
+		return c.convertGauge(value)
 	case TypeBoolean:
 		return c.convertBoolean(value)
 	case TypeBytes:
-		return c.convertBytes(value, config.Scale)
+		return c.convertBytes(value)
 	case TypeString:
 		return c.convertString(value)
+	case TypeFloat:
+		return c.convertFloat(value)
 	default:
 		return nil, fmt.Errorf("%w %v", ErrUnsupportedDataType, config.DataType)
 	}
@@ -255,24 +233,73 @@ func (c *SNMPCollector) GetStatus() TargetStatus {
 }
 
 // convertCounter converts a counter value to a uint64.
-func (*SNMPCollector) convertCounter(value interface{}, scale float64) (uint64, error) {
-	v, ok := value.(uint64)
-	if !ok {
-		return 0, fmt.Errorf("%w %T", ErrInvalidCounterType, value)
+func (*SNMPCollector) convertCounter(value interface{}) (uint64, error) {
+	switch v := value.(type) {
+	case uint64:
+		return v, nil
+	case uint32:
+		return uint64(v), nil
+	case int64:
+		if v < 0 {
+			return 0, fmt.Errorf("%w: negative value", ErrInvalidCounterType)
+		}
+		return uint64(v), nil
+	case int32:
+		if v < 0 {
+			return 0, fmt.Errorf("%w: negative value", ErrInvalidCounterType)
+		}
+		return uint64(v), nil
+	case float64:
+		if v < 0 {
+			return 0, fmt.Errorf("%w: negative value", ErrInvalidCounterType)
+		}
+		return uint64(v), nil
+	default:
+		return 0, fmt.Errorf("%w: %T", ErrInvalidCounterType, value)
 	}
+}
 
-	return uint64(float64(v) * scale), nil
+func (*SNMPCollector) convertFloat(value interface{}) (float64, error) {
+	switch v := value.(type) {
+	case float64:
+		return v, nil
+	case float32:
+		return float64(v), nil
+	case int64:
+		return float64(v), nil
+	case int32:
+		return float64(v), nil
+	case uint64:
+		return float64(v), nil
+	case uint32:
+		return float64(v), nil
+	default:
+		return 0, fmt.Errorf("%w: %T", ErrInvalidFloatType, value)
+	}
+}
+
+func (c *SNMPCollector) findOIDConfig(oid string) *OIDConfig {
+	for _, cfg := range c.target.OIDs {
+		if cfg.OID == oid {
+			return &cfg
+		}
+	}
+	return nil
 }
 
 // convertGauge converts a gauge value to a float64.
-func (*SNMPCollector) convertGauge(value interface{}, scale float64) (float64, error) {
+func (*SNMPCollector) convertGauge(value interface{}) (float64, error) {
 	switch v := value.(type) {
 	case uint64:
-		return float64(v) * scale, nil
+		return float64(v), nil
 	case int64:
-		return float64(v) * scale, nil
+		return float64(v), nil
 	case float64:
-		return v * scale, nil
+		return v, nil
+	case uint32:
+		return float64(v), nil
+	case int32:
+		return float64(v), nil
 	default:
 		return 0, fmt.Errorf("%w %T", ErrInvalidGaugeType, value)
 	}
@@ -291,13 +318,21 @@ func (*SNMPCollector) convertBoolean(value interface{}) (bool, error) {
 }
 
 // convertBytes converts a byte value to a uint64.
-func (*SNMPCollector) convertBytes(value interface{}, scale float64) (uint64, error) {
-	v, ok := value.(uint64)
-	if !ok {
+
+func (*SNMPCollector) convertBytes(value interface{}) (uint64, error) {
+	switch v := value.(type) {
+	case uint64:
+		return v, nil
+	case uint32:
+		return uint64(v), nil
+	case int64:
+		if v < 0 {
+			return 0, fmt.Errorf("%w: negative value", ErrInvalidBytesType)
+		}
+		return uint64(v), nil
+	default:
 		return 0, fmt.Errorf("%w %T", ErrInvalidBytesType, value)
 	}
-
-	return uint64(float64(v) * scale), nil
 }
 
 // convertString converts a string value to a string.
