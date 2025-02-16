@@ -174,8 +174,10 @@ func (s *SNMPClientImpl) convertVariable(variable gosnmp.SnmpPDU) (interface{}, 
 	switch variable.Type {
 	case gosnmp.OctetString:
 		return string(variable.Value.([]byte)), nil
-	case gosnmp.Integer, gosnmp.Counter32, gosnmp.Gauge32:
+	case gosnmp.Integer:
 		return variable.Value.(int), nil
+	case gosnmp.Counter32, gosnmp.Gauge32:
+		return uint64(variable.Value.(uint)), nil
 	case gosnmp.Counter64:
 		return variable.Value.(uint64), nil
 	case gosnmp.IPAddress:
