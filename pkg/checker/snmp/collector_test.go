@@ -24,7 +24,8 @@ func TestCollector_WithMocks(t *testing.T) {
 			setupMock: func(mc *MockCollector) {
 				dataChan := make(chan DataPoint, 1)
 				mc.EXPECT().Start(gomock.Any()).Return(nil)
-				mc.EXPECT().GetResults().Return((<-chan DataPoint)(dataChan)).AnyTimes()
+				// mc.EXPECT().GetResults().Return((<-chan DataPoint)(dataChan)).AnyTimes()
+				mc.EXPECT().GetResults().Return(dataChan).AnyTimes()
 				mc.EXPECT().Stop().Return(nil)
 			},
 			runTest: func(mc *MockCollector) error {
