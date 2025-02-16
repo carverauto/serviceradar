@@ -36,7 +36,6 @@ func TestSNMPService(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	// Create test configuration
 	config := &Config{
 		NodeAddress: "localhost:50051",
 		ListenAddr:  ":50052",
@@ -60,20 +59,28 @@ func TestSNMPService(t *testing.T) {
 		},
 	}
 
-	t.Run("NewSNMPService", func(t *testing.T) {
+	t.Run("NewSNMPService", testNewSNMPService(config))
+	t.Run("Start and Stop Service", testStartStopService(ctrl, config))
+	t.Run("AddTarget", testAddTarget(ctrl, config))
+	t.Run("RemoveTarget", testRemoveTarget(ctrl, config))
+	t.Run("GetStatus", testGetStatus(config))
+}
+
+func testNewSNMPService(config *Config) func(t *testing.T) {
+	return func(t *testing.T) {
 		service, err := NewSNMPService(config)
 		require.NoError(t, err)
 		require.NotNil(t, service)
 		assert.NotNil(t, service.collectors)
 		assert.NotNil(t, service.aggregators)
-	})
+	}
+}
 
-	t.Run("Start and Stop Service", func(t *testing.T) {
-		// Create mocks
+func testStartStopService(ctrl *gomock.Controller, config *Config) func(t *testing.T) {
+	return func(t *testing.T) {
 		mockCollector := NewMockCollector(ctrl)
 		mockAggregator := NewMockAggregator(ctrl)
 
-		// Create mock factories
 		mocks := &mockFactories{
 			collectorFactory: &mockCollectorFactory{
 				collector: mockCollector,
@@ -83,37 +90,32 @@ func TestSNMPService(t *testing.T) {
 			},
 		}
 
-		// Create service with mock factories
 		service, err := NewSNMPService(config)
 		require.NoError(t, err)
 
-		// Replace factories with mocks
 		service.collectorFactory = mocks.collectorFactory
 		service.aggregatorFactory = mocks.aggregatorFactory
 
-		// Set up mock expectations
 		dataChan := make(chan DataPoint)
 
 		mockCollector.EXPECT().Start(gomock.Any()).Return(nil)
 		mockCollector.EXPECT().GetResults().Return(dataChan)
 		mockCollector.EXPECT().Stop().Return(nil)
 
-		// Test Start
 		ctx := context.Background()
 		err = service.Start(ctx)
 		require.NoError(t, err)
 
-		// Test Stop
 		err = service.Stop()
 		require.NoError(t, err)
-	})
+	}
+}
 
-	t.Run("AddTarget", func(t *testing.T) {
-		// Create mocks
+func testAddTarget(ctrl *gomock.Controller, config *Config) func(t *testing.T) {
+	return func(t *testing.T) {
 		mockCollector := NewMockCollector(ctrl)
 		mockAggregator := NewMockAggregator(ctrl)
 
-		// Create mock factories
 		mocks := &mockFactories{
 			collectorFactory: &mockCollectorFactory{
 				collector: mockCollector,
@@ -123,11 +125,9 @@ func TestSNMPService(t *testing.T) {
 			},
 		}
 
-		// Create service with mock factories
 		service, err := NewSNMPService(config)
 		require.NoError(t, err)
 
-		// Replace factories with mocks
 		service.collectorFactory = mocks.collectorFactory
 		service.aggregatorFactory = mocks.aggregatorFactory
 
@@ -147,7 +147,6 @@ func TestSNMPService(t *testing.T) {
 			},
 		}
 
-		// Set up mock expectations for new target
 		dataChan := make(chan DataPoint)
 
 		mockCollector.EXPECT().Start(gomock.Any()).Return(nil)
@@ -156,12 +155,13 @@ func TestSNMPService(t *testing.T) {
 		err = service.AddTarget(newTarget)
 		require.NoError(t, err)
 
-		// Verify target was added
 		_, exists := service.collectors[newTarget.Name]
 		assert.True(t, exists)
-	})
+	}
+}
 
-	t.Run("RemoveTarget", func(t *testing.T) {
+func testRemoveTarget(ctrl *gomock.Controller, config *Config) func(t *testing.T) {
+	return func(t *testing.T) {
 		mockCollector := NewMockCollector(ctrl)
 		service := &SNMPService{
 			collectors:  make(map[string]Collector),
@@ -173,19 +173,18 @@ func TestSNMPService(t *testing.T) {
 		targetName := "test-target"
 		service.collectors[targetName] = mockCollector
 
-		// Set up mock expectations
 		mockCollector.EXPECT().Stop().Return(nil)
 
-		// Test removing target
 		err := service.RemoveTarget(targetName)
 		require.NoError(t, err)
 
-		// Verify target was removed
 		_, exists := service.collectors[targetName]
 		assert.False(t, exists)
-	})
+	}
+}
 
-	t.Run("GetStatus", func(t *testing.T) {
+func testGetStatus(config *Config) func(t *testing.T) {
+	return func(t *testing.T) {
 		service := &SNMPService{
 			collectors:  make(map[string]Collector),
 			aggregators: make(map[string]Aggregator),
@@ -210,5 +209,5 @@ func TestSNMPService(t *testing.T) {
 		assert.NotNil(t, status)
 		assert.Contains(t, status, "test-target")
 		assert.True(t, status["test-target"].Available)
-	})
+	}
 }

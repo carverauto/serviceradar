@@ -99,7 +99,7 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-func (c *Config) validateTarget(target *Target, targetNames map[string]bool) error {
+func (*Config) validateTarget(target *Target, targetNames map[string]bool) error {
 	// Validate target name
 	if err := validateTargetName(target.Name, targetNames); err != nil {
 		return err

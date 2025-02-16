@@ -187,24 +187,54 @@ func (s *SNMPClientImpl) handleError(err error) {
 const defaultTimeTickDuration = time.Second / 100
 
 // convertVariable converts an SNMP variable to the appropriate Go type.
-func (s *SNMPClientImpl) convertVariable(variable gosnmp.SnmpPDU) (interface{}, error) {
+func (*SNMPClientImpl) convertVariable(variable gosnmp.SnmpPDU) (interface{}, error) {
 	switch variable.Type {
-	case gosnmp.OctetString:
-		return string(variable.Value.([]byte)), nil
+	// Handling the known types in gosnmp.Asn1BER
+	case gosnmp.Boolean:
+		return variable.Value.(bool), nil
+	case gosnmp.BitString:
+		return variable.Value, nil // Needs custom decoding
+	case gosnmp.Null:
+		return nil, nil
+	case gosnmp.ObjectDescription:
+		return string(variable.Value.(byte)), nil
+	case gosnmp.Opaque:
+		return variable.Value, nil // Needs custom decoding
+	case gosnmp.NsapAddress:
+		return variable.Value, nil
+	case gosnmp.Uinteger32:
+		return uint64(variable.Value.(uint)), nil
+	case gosnmp.OpaqueFloat:
+		return variable.Value.(float32), nil
+	case gosnmp.OpaqueDouble:
+		return variable.Value.(float64), nil
+	case gosnmp.NoSuchObject:
+		return nil, fmt.Errorf("SNMP NoSuchObject")
+	case gosnmp.NoSuchInstance:
+		return nil, fmt.Errorf("SNMP NoSuchInstance")
+	case gosnmp.EndOfMibView:
+		return nil, fmt.Errorf("SNMP EndOfMibView")
+	// Removed duplicate case for gosnmp.UnknownType
+	case gosnmp.UnknownType:
+		return nil, fmt.Errorf("SNMP UnknownType")
+	// Handling other types
 	case gosnmp.Integer:
 		return variable.Value.(int), nil
+	case gosnmp.OctetString:
+		return string(variable.Value.(byte)), nil
+	case gosnmp.ObjectIdentifier:
+		return variable.Value.(string), nil
+	case gosnmp.IPAddress:
+		return variable.Value.(string), nil
 	case gosnmp.Counter32, gosnmp.Gauge32:
 		return uint64(variable.Value.(uint)), nil
 	case gosnmp.Counter64:
 		return variable.Value.(uint64), nil
-	case gosnmp.IPAddress:
-		return variable.Value.(string), nil
-	case gosnmp.ObjectIdentifier:
-		return variable.Value.(string), nil
 	case gosnmp.TimeTicks:
 		return time.Duration(variable.Value.(uint32)) * defaultTimeTickDuration, nil
+	// Default case for unsupported types
 	default:
-		return nil, fmt.Errorf("unsupported SNMP type: %v", variable.Type)
+		return nil, fmt.Errorf("unsupported SNMP type: %v, Value: %v", variable.Type, variable.Value)
 	}
 }
 

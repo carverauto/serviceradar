@@ -59,6 +59,9 @@ func (s *HealthServer) Check(ctx context.Context, _ *grpc_health_v1.HealthCheckR
 
 	log.Printf("SNMP HealthServer Check called")
 
+	_, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+
 	// TODO: implement this by calling SNMPGet methods and stuffing
 	// data into metadata and returning it through the gRPC response
 

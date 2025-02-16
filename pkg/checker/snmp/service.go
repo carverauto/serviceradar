@@ -266,7 +266,7 @@ func (s *SNMPService) handleDataPoint(targetName string, point DataPoint, aggreg
 // defaultCollectorFactory implements CollectorFactory.
 type defaultCollectorFactory struct{}
 
-func (f *defaultCollectorFactory) CreateCollector(target *Target) (Collector, error) {
+func (*defaultCollectorFactory) CreateCollector(target *Target) (Collector, error) {
 	return NewCollector(target)
 }
 
@@ -274,6 +274,6 @@ func (f *defaultCollectorFactory) CreateCollector(target *Target) (Collector, er
 type defaultAggregatorFactory struct{}
 
 // CreateAggregator creates a new Aggregator with the given interval.
-func (f *defaultAggregatorFactory) CreateAggregator(interval time.Duration) (Aggregator, error) {
+func (*defaultAggregatorFactory) CreateAggregator(interval time.Duration) (Aggregator, error) {
 	return NewAggregator(interval), nil
 }

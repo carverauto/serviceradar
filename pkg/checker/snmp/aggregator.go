@@ -260,7 +260,7 @@ func (a *SNMPAggregator) calculateSum(points []DataPoint) interface{} {
 	return sum
 }
 
-func (a *SNMPAggregator) toFloat64(v interface{}) float64 {
+func (*SNMPAggregator) toFloat64(v interface{}) float64 {
 	switch value := v.(type) {
 	case int64:
 		return float64(value)
