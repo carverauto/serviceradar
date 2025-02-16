@@ -33,7 +33,7 @@ func (e *SNMPError) Error() string {
 
 func newSNMPClient(target *Target) (SNMPClient, error) {
 	if err := validateTarget(target); err != nil {
-		return nil, fmt.Errorf("invalid target: %w", err)
+		return nil, fmt.Errorf("%w: %w", ErrInvalidTargetConfig, err)
 	}
 
 	client := &gosnmp.GoSNMP{
@@ -53,9 +53,9 @@ func newSNMPClient(target *Target) (SNMPClient, error) {
 	case Version2c:
 		client.Version = gosnmp.Version2c
 	case Version3:
-		return nil, fmt.Errorf("SNMPv3 not yet implemented")
+		return nil, ErrNotImplemented
 	default:
-		return nil, fmt.Errorf("unsupported SNMP version: %s", target.Version)
+		return nil, fmt.Errorf("%w: %v", ErrUnsupportedSNMPVersion, target.Version)
 	}
 
 	return &SNMPClientImpl{
@@ -188,54 +188,138 @@ const defaultTimeTickDuration = time.Second / 100
 
 // convertVariable converts an SNMP variable to the appropriate Go type.
 func (*SNMPClientImpl) convertVariable(variable gosnmp.SnmpPDU) (interface{}, error) {
-	switch variable.Type {
-	// Handling the known types in gosnmp.Asn1BER
-	case gosnmp.Boolean:
-		return variable.Value.(bool), nil
-	case gosnmp.BitString:
-		return variable.Value, nil // Needs custom decoding
-	case gosnmp.Null:
-		return nil, nil
-	case gosnmp.ObjectDescription:
-		return string(variable.Value.(byte)), nil
-	case gosnmp.Opaque:
-		return variable.Value, nil // Needs custom decoding
-	case gosnmp.NsapAddress:
-		return variable.Value, nil
-	case gosnmp.Uinteger32:
-		return uint64(variable.Value.(uint)), nil
-	case gosnmp.OpaqueFloat:
-		return variable.Value.(float32), nil
-	case gosnmp.OpaqueDouble:
-		return variable.Value.(float64), nil
-	case gosnmp.NoSuchObject:
-		return nil, fmt.Errorf("SNMP NoSuchObject")
-	case gosnmp.NoSuchInstance:
-		return nil, fmt.Errorf("SNMP NoSuchInstance")
-	case gosnmp.EndOfMibView:
-		return nil, fmt.Errorf("SNMP EndOfMibView")
-	// Removed duplicate case for gosnmp.UnknownType
-	case gosnmp.UnknownType:
-		return nil, fmt.Errorf("SNMP UnknownType")
-	// Handling other types
-	case gosnmp.Integer:
-		return variable.Value.(int), nil
-	case gosnmp.OctetString:
-		return string(variable.Value.(byte)), nil
-	case gosnmp.ObjectIdentifier:
-		return variable.Value.(string), nil
-	case gosnmp.IPAddress:
-		return variable.Value.(string), nil
-	case gosnmp.Counter32, gosnmp.Gauge32:
-		return uint64(variable.Value.(uint)), nil
-	case gosnmp.Counter64:
-		return variable.Value.(uint64), nil
-	case gosnmp.TimeTicks:
-		return time.Duration(variable.Value.(uint32)) * defaultTimeTickDuration, nil
-	// Default case for unsupported types
-	default:
-		return nil, fmt.Errorf("unsupported SNMP type: %v, Value: %v", variable.Type, variable.Value)
+	// Map of SNMP types to conversion functions
+	conversionMap := map[gosnmp.Asn1BER]func(gosnmp.SnmpPDU) interface{}{
+		gosnmp.Boolean:           convertBoolean,
+		gosnmp.BitString:         convertBitString,
+		gosnmp.Null:              convertNull,
+		gosnmp.ObjectDescription: convertObjectDescription,
+		gosnmp.Opaque:            convertOpaque,
+		gosnmp.NsapAddress:       convertNsapAddress,
+		gosnmp.Uinteger32:        convertUinteger32,
+		gosnmp.OpaqueFloat:       convertOpaqueFloat,
+		gosnmp.OpaqueDouble:      convertOpaqueDouble,
+		gosnmp.Integer:           convertInteger,
+		gosnmp.OctetString:       convertOctetString,
+		gosnmp.ObjectIdentifier:  convertObjectIdentifier,
+		gosnmp.IPAddress:         convertIPAddress,
+		gosnmp.Counter32:         convertCounter32Gauge32,
+		gosnmp.Gauge32:           convertCounter32Gauge32,
+		gosnmp.Counter64:         convertCounter64,
+		gosnmp.TimeTicks:         convertTimeTicks,
 	}
+
+	// Check for types that need an error return
+	if variable.Type == gosnmp.NoSuchObject {
+		return convertNoSuchObject(variable)
+	}
+
+	if variable.Type == gosnmp.NoSuchInstance {
+		return convertNoSuchInstance(variable)
+	}
+
+	if variable.Type == gosnmp.EndOfMibView {
+		return convertEndOfMibView(variable)
+	}
+
+	// Check for EndOfContents and UnknownType explicitly
+	if variable.Type == gosnmp.UnknownType {
+		return convertEndOfContents(variable)
+	}
+
+	// Look up the appropriate conversion function
+	if convertFunc, found := conversionMap[variable.Type]; found {
+		return convertFunc(variable), nil
+	}
+
+	// Handle the case where the type is not in the map
+	return nil, fmt.Errorf("%w: %v", ErrUnsupportedSNMPType, variable.Type)
+}
+
+func convertBoolean(variable gosnmp.SnmpPDU) interface{} {
+	return variable.Value.(bool)
+}
+
+func convertBitString(variable gosnmp.SnmpPDU) interface{} {
+	return variable.Value // Needs custom decoding
+}
+
+func convertNull(gosnmp.SnmpPDU) interface{} {
+	return nil
+}
+
+func convertObjectDescription(variable gosnmp.SnmpPDU) interface{} {
+	return string(variable.Value.(byte))
+}
+
+func convertOpaque(variable gosnmp.SnmpPDU) interface{} {
+	return variable.Value // Needs custom decoding
+}
+
+func convertNsapAddress(variable gosnmp.SnmpPDU) interface{} {
+	return variable.Value
+}
+
+func convertUinteger32(variable gosnmp.SnmpPDU) interface{} {
+	return uint64(variable.Value.(uint))
+}
+
+func convertOpaqueFloat(variable gosnmp.SnmpPDU) interface{} {
+	return variable.Value.(float32)
+}
+
+func convertOpaqueDouble(variable gosnmp.SnmpPDU) interface{} {
+	return variable.Value.(float64)
+}
+
+func convertInteger(variable gosnmp.SnmpPDU) interface{} {
+	return variable.Value.(int)
+}
+
+func convertOctetString(variable gosnmp.SnmpPDU) interface{} {
+	return string(variable.Value.(byte))
+}
+
+func convertObjectIdentifier(variable gosnmp.SnmpPDU) interface{} {
+	return variable.Value.(string)
+}
+
+func convertIPAddress(variable gosnmp.SnmpPDU) interface{} {
+	return variable.Value.(string)
+}
+
+func convertCounter32Gauge32(variable gosnmp.SnmpPDU) interface{} {
+	return uint64(variable.Value.(uint))
+}
+
+func convertCounter64(variable gosnmp.SnmpPDU) interface{} {
+	return variable.Value.(uint64)
+}
+
+func convertTimeTicks(variable gosnmp.SnmpPDU) interface{} {
+	return time.Duration(variable.Value.(uint32)) * defaultTimeTickDuration
+}
+
+// Add the missing conversion functions.
+func convertNoSuchObject(gosnmp.SnmpPDU) (interface{}, error) {
+	return nil, ErrSNMPNoSuchObject
+}
+
+func convertNoSuchInstance(gosnmp.SnmpPDU) (interface{}, error) {
+	return nil, ErrSNMPNoSuchInstance
+}
+
+func convertEndOfMibView(gosnmp.SnmpPDU) (interface{}, error) {
+	return nil, ErrSNMPEndOfMibView
+}
+
+// Handle the combined case for EndOfContents and UnknownType.
+func convertEndOfContents(variable gosnmp.SnmpPDU) (interface{}, error) {
+	if variable.Type == gosnmp.UnknownType {
+		return nil, ErrSNMPUnknownType
+	}
+
+	return nil, ErrSNMPEndOfContents
 }
 
 const defaultSNMPPort = 161
@@ -243,11 +327,11 @@ const defaultSNMPPort = 161
 // validateTarget performs basic validation of target configuration.
 func validateTarget(target *Target) error {
 	if target == nil {
-		return fmt.Errorf("target configuration is nil")
+		return ErrNilTargetConfig
 	}
 
 	if target.Host == "" {
-		return fmt.Errorf("target host is required")
+		return ErrTargetHostRequired
 	}
 
 	if target.Port == 0 {
