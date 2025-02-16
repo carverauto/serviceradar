@@ -30,28 +30,6 @@ type Config struct {
 	Targets     []Target             `json:"targets"`
 }
 
-// Target represents a device to monitor via SNMP.
-type Target struct {
-	Name      string      `json:"name"`
-	Host      string      `json:"host"`
-	Port      uint16      `json:"port"`
-	Community string      `json:"community"`
-	Version   SNMPVersion `json:"version"`
-	Interval  Duration    `json:"interval"`
-	Timeout   Duration    `json:"timeout"`
-	Retries   int         `json:"retries"`
-	OIDs      []OIDConfig `json:"oids"`
-}
-
-// OIDConfig represents an OID to monitor.
-type OIDConfig struct {
-	OID      string   `json:"oid"`
-	Name     string   `json:"name"`
-	DataType DataType `json:"type"`
-	Scale    float64  `json:"scale,omitempty"` // For scaling values (e.g., bytes to megabytes)
-	Delta    bool     `json:"delta,omitempty"` // Calculate change between samples
-}
-
 // Validate implements config.Validator interface.
 func (c *Config) Validate() error {
 	if c.NodeAddress == "" {

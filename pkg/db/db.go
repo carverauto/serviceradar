@@ -87,6 +87,18 @@ const (
         FOREIGN KEY (sweep_id) REFERENCES sweep_results(id) ON DELETE CASCADE
     );	
 
+	-- Timeseries metrics table
+    CREATE TABLE IF NOT EXISTS timeseries_metrics (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        node_id TEXT NOT NULL,
+        metric_name TEXT NOT NULL,
+        metric_type TEXT NOT NULL,
+        value TEXT NOT NULL,
+        metadata TEXT,         -- JSON field for type-specific metadata
+        timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (node_id) REFERENCES nodes(node_id) ON DELETE CASCADE
+    );
+
 	-- Indexes for better query performance
 	CREATE INDEX IF NOT EXISTS idx_sweep_results_poller_time 
         ON sweep_results(poller_id, timestamp);
@@ -100,6 +112,14 @@ const (
 		ON service_status(service_type);
 	CREATE INDEX IF NOT EXISTS idx_service_history_status_time 
 		ON service_history(service_status_id, timestamp);
+
+	 -- Indexes for timeseries data
+    CREATE INDEX IF NOT EXISTS idx_metrics_node_name 
+		ON timeseries_metrics(node_id, metric_name);
+    CREATE INDEX IF NOT EXISTS idx_metrics_type 
+		ON timeseries_metrics(metric_type);
+    CREATE INDEX IF NOT EXISTS idx_metrics_timestamp 
+		ON timeseries_metrics(timestamp);
 
 	-- Enable WAL mode for better concurrent access
 	PRAGMA journal_mode=WAL;
@@ -445,44 +465,4 @@ func (db *DB) GetServiceHistory(nodeID, serviceName string, limit int) ([]Servic
 	}
 
 	return history, nil
-}
-
-// CleanOldData removes data older than the retention period.
-func (db *DB) CleanOldData(retentionPeriod time.Duration) error {
-	cutoff := time.Now().Add(-retentionPeriod)
-
-	tx, err := db.Begin()
-	if err != nil {
-		return fmt.Errorf("%w: %w", errFailedToBeginTx, err)
-	}
-
-	defer func() {
-		if err != nil {
-			if rbErr := tx.Rollback(); rbErr != nil {
-				log.Printf("failed to rollback: %v", rbErr)
-			}
-
-			return
-		}
-
-		err = tx.Commit()
-	}()
-
-	// Clean up node history
-	if _, err := tx.Exec(
-		"DELETE FROM node_history WHERE timestamp < ?",
-		cutoff,
-	); err != nil {
-		return fmt.Errorf("%w node history %w", errFailedToClean, err)
-	}
-
-	// Clean up service status
-	if _, err := tx.Exec(
-		"DELETE FROM service_status WHERE timestamp < ?",
-		cutoff,
-	); err != nil {
-		return fmt.Errorf("%w service status: %w", errFailedToClean, err)
-	}
-
-	return nil
 }

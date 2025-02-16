@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -55,6 +56,7 @@ type CheckerConfig struct {
 	Timeout    Duration        `json:"timeout,omitempty"`
 	ListenAddr string          `json:"listen_addr,omitempty"`
 	Additional json.RawMessage `json:"additional,omitempty"`
+	Details    json.RawMessage `json:"details,omitempty"`
 }
 
 // ServerConfig holds the agent server configuration.
@@ -287,11 +289,6 @@ func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*prot
 		return s.getSweepStatus(ctx)
 	}
 
-	// Validate details field for port checks
-	if req.ServiceType == "port" && req.Details == "" {
-		return nil, errDetailsRequired
-	}
-
 	// Get the appropriate checker
 	c, err := s.getChecker(ctx, req)
 	if err != nil {
@@ -348,23 +345,31 @@ func (s *Server) loadCheckerConfigs() error {
 		}
 
 		path := filepath.Join(s.configDir, file.Name())
-
 		data, err := os.ReadFile(path)
 		if err != nil {
 			log.Printf("Warning: Failed to read config file %s: %v", path, err)
-
 			continue
 		}
 
+		// Special handling for SNMP config
+		if strings.HasPrefix(file.Name(), "snmp") {
+			var conf CheckerConfig
+			conf.Name = "snmp-" + strings.TrimSuffix(file.Name(), ".json")
+			conf.Type = "snmp"
+			conf.Additional = json.RawMessage(data) // Use the entire file as Additional
+			s.checkerConfs[conf.Name] = conf
+			log.Printf("Loaded SNMP checker config: %s", conf.Name)
+			continue
+		}
+
+		// Handle other configs normally
 		var conf CheckerConfig
 		if err := json.Unmarshal(data, &conf); err != nil {
 			log.Printf("Warning: Failed to parse config file %s: %v", path, err)
-
 			continue
 		}
 
 		s.checkerConfs[conf.Name] = conf
-
 		log.Printf("Loaded checker config: %s (type: %s)", conf.Name, conf.Type)
 	}
 
@@ -393,6 +398,11 @@ func (s *Server) getChecker(ctx context.Context, req *proto.StatusRequest) (chec
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	log.Printf("Getting checker for request - Type: %s, Name: %s, Details: %s",
+		req.GetServiceType(),
+		req.GetServiceName(),
+		req.GetDetails())
+
 	key := fmt.Sprintf("%s:%s:%s", req.GetServiceType(), req.GetServiceName(), req.GetDetails())
 
 	// Return existing checker if available
@@ -400,8 +410,13 @@ func (s *Server) getChecker(ctx context.Context, req *proto.StatusRequest) (chec
 		return check, nil
 	}
 
+	// Use the details from the request
+	details := req.GetDetails()
+
+	log.Printf("Creating new checker with details: %s", details)
+
 	// Create new checker using registry
-	check, err := s.registry.Get(ctx, req.ServiceType, req.ServiceName, req.Details)
+	check, err := s.registry.Get(ctx, req.ServiceType, req.ServiceName, details)
 	if err != nil {
 		return nil, err
 	}

@@ -6,7 +6,8 @@ import (
 )
 
 var (
-	errInvalidDuration = errors.New("invalid duration")
+	errInvalidDuration  = errors.New("invalid duration")
+	ErrInvalidFloatType = errors.New("invalid float type")
 
 	// Config error types.
 	errOIDNameTooLong      = errors.New("OID name is too long")
