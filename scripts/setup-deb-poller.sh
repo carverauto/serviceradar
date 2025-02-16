@@ -16,7 +16,7 @@ mkdir -p "${PKG_ROOT}/lib/systemd/system"
 echo "Building Go binary..."
 
 # Build poller binary
-GOOS=linux GOARCH=amd64 go build -o "${PKG_ROOT}/usr/local/bin/serviceradar-poller" ../cmd/poller
+GOOS=linux GOARCH=amd64 go build -o "${PKG_ROOT}/usr/local/bin/serviceradar-poller" ./cmd/poller
 
 echo "Creating package files..."
 
@@ -150,6 +150,6 @@ mkdir -p release-artifacts
 dpkg-deb --build "${PKG_ROOT}"
 
 # Move the deb file to the release-artifacts directory
-mv "${PKG_ROOT}.deb" "../release-artifacts/"
+mv "${PKG_ROOT}.deb" "./release-artifacts/"
 
 echo "Package built: release-artifacts/${PKG_ROOT}.deb"

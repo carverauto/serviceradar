@@ -16,7 +16,7 @@ mkdir -p "${PKG_ROOT}/lib/systemd/system"
 echo "Building web interface..."
 
 # Build web interface
-cd ../web
+cd ./web
 npm install
 npm run build
 cd ..

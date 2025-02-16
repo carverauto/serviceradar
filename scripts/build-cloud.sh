@@ -9,12 +9,12 @@ fi
 echo "Building cloud component version ${VERSION}"
 
 # Ensure output directory exists
-mkdir -p ../dist/cloud_linux_amd64_v1
+mkdir -p ./dist/cloud_linux_amd64_v1
 
 # Build using Docker
-docker build -f ../Dockerfile.cloud \
+docker build -f ./Dockerfile.cloud \
   --build-arg VERSION="${VERSION}" \
-  -t serviceradar-cloud-build:${VERSION} ../.
+  -t serviceradar-cloud-build:${VERSION} .
 
 # Extract binary
 CONTAINER_ID=$(docker create serviceradar-cloud-build:${VERSION})

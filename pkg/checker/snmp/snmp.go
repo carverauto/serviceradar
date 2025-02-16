@@ -20,7 +20,7 @@ type Poller struct {
 }
 
 type PollerService struct {
-	proto.UnimplementedPollerServiceServer
+	proto.UnimplementedAgentServiceServer
 	checker *Poller
 }
 
