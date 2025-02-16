@@ -300,7 +300,6 @@ func convertTimeTicks(variable gosnmp.SnmpPDU) interface{} {
 	return time.Duration(variable.Value.(uint32)) * defaultTimeTickDuration
 }
 
-// Add the missing conversion functions.
 func convertNoSuchObject(gosnmp.SnmpPDU) (interface{}, error) {
 	return nil, ErrSNMPNoSuchObject
 }
@@ -321,8 +320,6 @@ func convertEndOfContents(variable gosnmp.SnmpPDU) (interface{}, error) {
 
 	return nil, ErrSNMPEndOfContents
 }
-
-const defaultSNMPPort = 161
 
 // validateTarget performs basic validation of target configuration.
 func validateTarget(target *Target) error {

@@ -20,7 +20,7 @@ type mockCollectorFactory struct {
 	collector *MockCollector
 }
 
-func (f *mockCollectorFactory) CreateCollector(target *Target) (Collector, error) {
+func (f *mockCollectorFactory) CreateCollector(*Target) (Collector, error) {
 	return f.collector, nil
 }
 
@@ -28,7 +28,7 @@ type mockAggregatorFactory struct {
 	aggregator *MockAggregator
 }
 
-func (f *mockAggregatorFactory) CreateAggregator(interval time.Duration) (Aggregator, error) {
+func (f *mockAggregatorFactory) CreateAggregator(time.Duration) (Aggregator, error) {
 	return f.aggregator, nil
 }
 
