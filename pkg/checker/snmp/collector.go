@@ -1,4 +1,4 @@
-// pkg/checker/snmp/collector.go
+// Package snmp pkg/checker/snmp/collector.go
 
 package snmp
 

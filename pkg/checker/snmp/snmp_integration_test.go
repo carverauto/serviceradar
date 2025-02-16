@@ -1,6 +1,7 @@
 //go:build integration
 // +build integration
 
+// Package snmp pkg/checker/snmp/snmp_integration_test.go
 package snmp
 
 import (

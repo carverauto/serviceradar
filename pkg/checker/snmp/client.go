@@ -1,4 +1,4 @@
-// pkg/checker/snmp/client.go
+// Package snmp pkg/checker/snmp/client.go
 
 package snmp
 
@@ -10,7 +10,7 @@ import (
 	"github.com/gosnmp/gosnmp"
 )
 
-// SNMPClientImpl implements the SNMPClient interface using gosnmp
+// SNMPClientImpl implements the SNMPClient interface using gosnmp.
 type SNMPClientImpl struct {
 	client     *gosnmp.GoSNMP
 	target     *Target
@@ -20,7 +20,7 @@ type SNMPClientImpl struct {
 	reconnects int
 }
 
-// SNMPError wraps SNMP-specific errors with additional context
+// SNMPError wraps SNMP-specific errors with additional context.
 type SNMPError struct {
 	Op      string
 	Target  string
@@ -64,7 +64,7 @@ func newSNMPClient(target *Target) (SNMPClient, error) {
 	}, nil
 }
 
-// Connect implements SNMPClient interface
+// Connect implements SNMPClient interface.
 func (s *SNMPClientImpl) Connect() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -86,7 +86,7 @@ func (s *SNMPClientImpl) Connect() error {
 	return nil
 }
 
-// Get implements SNMPClient interface
+// Get implements SNMPClient interface.
 func (s *SNMPClientImpl) Get(oids []string) (map[string]interface{}, error) {
 	s.mu.Lock()
 	if !s.connected {
@@ -138,7 +138,7 @@ func (s *SNMPClientImpl) Get(oids []string) (map[string]interface{}, error) {
 	return allResults, nil
 }
 
-// Close implements SNMPClient interface
+// Close implements SNMPClient interface.
 func (s *SNMPClientImpl) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -147,19 +147,25 @@ func (s *SNMPClientImpl) Close() error {
 		return nil
 	}
 
-	s.client.Conn.Close()
+	err := s.client.Conn.Close()
+	if err != nil {
+		return err
+	}
+
 	s.connected = false
+
 	return nil
 }
 
-// GetLastError returns the last error encountered
+// GetLastError returns the last error encountered.
 func (s *SNMPClientImpl) GetLastError() error {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
 	return s.lastError
 }
 
-// handleError processes SNMP errors and manages reconnection
+// handleError processes SNMP errors and manages reconnection.
 func (s *SNMPClientImpl) handleError(err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -169,7 +175,7 @@ func (s *SNMPClientImpl) handleError(err error) {
 	s.reconnects++
 }
 
-// convertVariable converts an SNMP variable to the appropriate Go type
+// convertVariable converts an SNMP variable to the appropriate Go type.
 func (s *SNMPClientImpl) convertVariable(variable gosnmp.SnmpPDU) (interface{}, error) {
 	switch variable.Type {
 	case gosnmp.OctetString:
@@ -191,7 +197,7 @@ func (s *SNMPClientImpl) convertVariable(variable gosnmp.SnmpPDU) (interface{}, 
 	}
 }
 
-// validateTarget performs basic validation of target configuration
+// validateTarget performs basic validation of target configuration.
 func validateTarget(target *Target) error {
 	if target == nil {
 		return fmt.Errorf("target configuration is nil")

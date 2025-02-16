@@ -1,4 +1,4 @@
-// pkg/checker/snmp/interfaces.go
+// Package snmp pkg/checker/snmp/interfaces.go
 
 package snmp
 

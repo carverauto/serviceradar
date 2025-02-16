@@ -1,3 +1,4 @@
+// Package snmp pkg/checker/snmp/snmp.go
 package snmp
 
 import (

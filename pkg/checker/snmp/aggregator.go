@@ -1,4 +1,4 @@
-// pkg/checker/snmp/aggregator.go
+// Package snmp pkg/checker/snmp/aggregator.go
 
 package snmp
 
