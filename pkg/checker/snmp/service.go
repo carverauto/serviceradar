@@ -55,8 +55,13 @@ func (s *SNMPService) Start(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	log.Printf("Starting SNMP Service with %d targets", len(s.config.Targets))
+
 	// Initialize collectors for each target
 	for _, target := range s.config.Targets {
+		log.Printf("Initializing target %s (%s) with %d OIDs",
+			target.Name, target.Host, len(target.OIDs))
+
 		if err := s.initializeTarget(ctx, &target); err != nil {
 			return fmt.Errorf("failed to initialize target %s: %w", target.Name, err)
 		}
@@ -192,11 +197,16 @@ func (s *SNMPService) GetServiceStatus(ctx context.Context, req *proto.StatusReq
 
 // initializeTarget sets up collector and aggregator for a target.
 func (s *SNMPService) initializeTarget(ctx context.Context, target *Target) error {
+	log.Printf("Creating collector for target %s", target.Name)
+
 	// Create collector
 	collector, err := s.collectorFactory.CreateCollector(target)
 	if err != nil {
 		return fmt.Errorf("%w: %s", errFailedToCreateCollector, target.Name)
 	}
+
+	log.Printf("Creating aggregator for target %s with interval %v",
+		target.Name, time.Duration(target.Interval))
 
 	// Create aggregator
 	aggregator, err := s.aggregatorFactory.CreateAggregator(time.Duration(target.Interval))
@@ -208,6 +218,8 @@ func (s *SNMPService) initializeTarget(ctx context.Context, target *Target) erro
 	if err := collector.Start(ctx); err != nil {
 		return fmt.Errorf("%w: %s", errFailedToStartCollector, target.Name)
 	}
+
+	log.Printf("Started collector for target %s", target.Name)
 
 	// Store components
 	s.collectors[target.Name] = collector
@@ -222,6 +234,8 @@ func (s *SNMPService) initializeTarget(ctx context.Context, target *Target) erro
 
 	// Start processing results
 	go s.processResults(ctx, target.Name, collector, aggregator)
+
+	log.Printf("Successfully initialized target %s", target.Name)
 
 	return nil
 }
@@ -267,6 +281,9 @@ func (s *SNMPService) handleDataPoint(targetName string, point DataPoint, aggreg
 
 		status.LastPoll = point.Timestamp
 		s.status[targetName] = status
+
+		log.Printf("Updated status for target %s, OID %s: %v",
+			targetName, point.OIDName, point.Value)
 	}
 }
 
