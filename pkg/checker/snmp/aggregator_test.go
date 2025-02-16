@@ -68,6 +68,7 @@ func TestAggregator_WithMocks(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.setupMock()
 			err := tt.testFunction()
+
 			if tt.expectedError {
 				assert.Error(t, err)
 			} else {

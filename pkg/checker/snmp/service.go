@@ -13,7 +13,7 @@ import (
 	"github.com/mfreeman451/serviceradar/proto"
 )
 
-// SNMPService implements both the Service interface and proto.AgentServiceServer
+// SNMPService implements both the Service interface and proto.AgentServiceServer.
 type SNMPService struct {
 	proto.UnimplementedAgentServiceServer
 	collectors        map[string]Collector
@@ -27,7 +27,7 @@ type SNMPService struct {
 	lastCheck         time.Time
 }
 
-// NewSNMPService creates a new SNMP monitoring service
+// NewSNMPService creates a new SNMP monitoring service.
 func NewSNMPService(config *Config) (*SNMPService, error) {
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid configuration: %w", err)
@@ -47,7 +47,7 @@ func NewSNMPService(config *Config) (*SNMPService, error) {
 	return service, nil
 }
 
-// Start implements the Service interface
+// Start implements the Service interface.
 func (s *SNMPService) Start(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -60,10 +60,11 @@ func (s *SNMPService) Start(ctx context.Context) error {
 	}
 
 	log.Printf("SNMP Service started with %d targets", len(s.collectors))
+
 	return nil
 }
 
-// Stop implements the Service interface
+// Stop implements the Service interface.
 func (s *SNMPService) Stop() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -71,6 +72,7 @@ func (s *SNMPService) Stop() error {
 	close(s.done)
 
 	var errs []error
+
 	for name, collector := range s.collectors {
 		if err := collector.Stop(); err != nil {
 			errs = append(errs, fmt.Errorf("failed to stop collector %s: %w", name, err))
@@ -87,7 +89,7 @@ func (s *SNMPService) Stop() error {
 	return nil
 }
 
-// AddTarget implements the Service interface
+// AddTarget implements the Service interface.
 func (s *SNMPService) AddTarget(target *Target) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -104,7 +106,7 @@ func (s *SNMPService) AddTarget(target *Target) error {
 	return nil
 }
 
-// RemoveTarget implements the Service interface
+// RemoveTarget implements the Service interface.
 func (s *SNMPService) RemoveTarget(targetName string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -125,7 +127,7 @@ func (s *SNMPService) RemoveTarget(targetName string) error {
 	return nil
 }
 
-// GetStatus implements the Service interface
+// GetStatus implements the Service interface.
 func (s *SNMPService) GetStatus() (map[string]TargetStatus, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -164,9 +166,11 @@ func (s *SNMPService) GetServiceStatus(ctx context.Context, req *proto.StatusReq
 
 	// Determine overall availability
 	available := true
+
 	for _, targetStatus := range status {
 		if !targetStatus.Available {
 			available = false
+
 			break
 		}
 	}
@@ -179,7 +183,7 @@ func (s *SNMPService) GetServiceStatus(ctx context.Context, req *proto.StatusReq
 	}, nil
 }
 
-// initializeTarget sets up collector and aggregator for a target
+// initializeTarget sets up collector and aggregator for a target.
 func (s *SNMPService) initializeTarget(ctx context.Context, target *Target) error {
 	// Create collector
 	collector, err := s.collectorFactory.CreateCollector(target)
@@ -215,7 +219,7 @@ func (s *SNMPService) initializeTarget(ctx context.Context, target *Target) erro
 	return nil
 }
 
-// processResults handles the data points from a collector
+// processResults handles the data points from a collector.
 func (s *SNMPService) processResults(ctx context.Context, targetName string, collector Collector, aggregator Aggregator) {
 	results := collector.GetResults()
 
@@ -229,12 +233,13 @@ func (s *SNMPService) processResults(ctx context.Context, targetName string, col
 			if !ok {
 				return
 			}
+
 			s.handleDataPoint(targetName, point, aggregator)
 		}
 	}
 }
 
-// handleDataPoint processes a single data point
+// handleDataPoint processes a single data point.
 func (s *SNMPService) handleDataPoint(targetName string, point DataPoint, aggregator Aggregator) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -247,25 +252,28 @@ func (s *SNMPService) handleDataPoint(targetName string, point DataPoint, aggreg
 		if status.OIDStatus == nil {
 			status.OIDStatus = make(map[string]OIDStatus)
 		}
+
 		status.OIDStatus[point.OIDName] = OIDStatus{
 			LastValue:  point.Value,
 			LastUpdate: point.Timestamp,
 		}
+
 		status.LastPoll = point.Timestamp
 		s.status[targetName] = status
 	}
 }
 
-// defaultCollectorFactory implements CollectorFactory
+// defaultCollectorFactory implements CollectorFactory.
 type defaultCollectorFactory struct{}
 
 func (f *defaultCollectorFactory) CreateCollector(target *Target) (Collector, error) {
 	return NewCollector(target)
 }
 
-// defaultAggregatorFactory implements AggregatorFactory
+// defaultAggregatorFactory implements AggregatorFactory.
 type defaultAggregatorFactory struct{}
 
+// CreateAggregator creates a new Aggregator with the given interval.
 func (f *defaultAggregatorFactory) CreateAggregator(interval time.Duration) (Aggregator, error) {
 	return NewAggregator(interval), nil
 }

@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// SNMPVersion represents supported SNMP versions
+// SNMPVersion represents supported SNMP versions.
 type SNMPVersion string
 
 const (
@@ -16,7 +16,7 @@ const (
 	Version3  SNMPVersion = "v3"
 )
 
-// DataType represents the type of data being collected
+// DataType represents the type of data being collected.
 type DataType string
 
 const (
@@ -27,7 +27,7 @@ const (
 	TypeString  DataType = "string"
 )
 
-// Duration is a wrapper for time.Duration that implements JSON marshaling
+// Duration is a wrapper for time.Duration that implements JSON marshaling.
 type Duration time.Duration
 
 func (d *Duration) UnmarshalJSON(b []byte) error {
@@ -45,14 +45,16 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 		if err != nil {
 			return err
 		}
+
 		*d = Duration(tmp)
+
 		return nil
 	default:
 		return fmt.Errorf("invalid duration")
 	}
 }
 
-// Interval represents a time interval for data aggregation
+// Interval represents a time interval for data aggregation.
 type Interval string
 
 const (

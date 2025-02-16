@@ -45,7 +45,7 @@ type Config struct {
 	Targets     []Target             `json:"targets"`
 }
 
-// Target represents a device to monitor via SNMP
+// Target represents a device to monitor via SNMP.
 type Target struct {
 	Name      string      `json:"name"`
 	Host      string      `json:"host"`
@@ -58,7 +58,7 @@ type Target struct {
 	OIDs      []OIDConfig `json:"oids"`
 }
 
-// OIDConfig represents an OID to monitor
+// OIDConfig represents an OID to monitor.
 type OIDConfig struct {
 	OID      string   `json:"oid"`
 	Name     string   `json:"name"`
@@ -151,6 +151,7 @@ func validateTargetName(name string, targetNames map[string]bool) error {
 	if targetNames[name] {
 		return errDuplicateTargetName
 	}
+
 	targetNames[name] = true
 
 	// Only allow alphanumeric, hyphens, and underscores
@@ -182,12 +183,15 @@ func validateOIDConfig(oid *OIDConfig, oidNames map[string]bool) error {
 	if oid.Name == "" {
 		return errEmptyOIDName
 	}
+
 	if len(oid.Name) > maxOIDNameLength {
 		return fmt.Errorf("OID name too long: max %d characters", maxOIDNameLength)
 	}
+
 	if oidNames[oid.Name] {
 		return fmt.Errorf("duplicate OID name: %s", oid.Name)
 	}
+
 	oidNames[oid.Name] = true
 
 	// Validate OID format
@@ -204,6 +208,7 @@ func validateOIDConfig(oid *OIDConfig, oidNames map[string]bool) error {
 	if oid.Scale < 0 {
 		return errInvalidScale
 	}
+
 	if oid.Scale == 0 {
 		oid.Scale = 1.0 // Set default scale
 	}
@@ -230,6 +235,7 @@ func isValidOID(oid string) bool {
 		if part == "" {
 			return false
 		}
+
 		for _, r := range part {
 			if r < '0' || r > '9' {
 				return false
@@ -240,6 +246,7 @@ func isValidOID(oid string) bool {
 	return true
 }
 
+// isValidDataType checks if the data type is valid.
 func isValidDataType(dt DataType) bool {
 	switch dt {
 	case TypeCounter, TypeGauge, TypeBoolean, TypeBytes, TypeString:

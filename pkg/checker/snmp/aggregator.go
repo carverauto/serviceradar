@@ -8,14 +8,19 @@ import (
 	"time"
 )
 
-// TimeSeriesData holds time-series data points for an OID
+const (
+	oneDay = 24 * time.Hour
+	defaultDataPointSize
+)
+
+// TimeSeriesData holds time-series data points for an OID.
 type TimeSeriesData struct {
 	points  []DataPoint
 	maxSize int
 	mu      sync.RWMutex
 }
 
-// SNMPAggregator implements the Aggregator interface
+// SNMPAggregator implements the Aggregator interface.
 type SNMPAggregator struct {
 	interval time.Duration
 	data     map[string]*TimeSeriesData // map[oidName]*TimeSeriesData
@@ -23,7 +28,7 @@ type SNMPAggregator struct {
 	maxSize  int
 }
 
-// AggregateType defines different types of aggregation
+// AggregateType defines different types of aggregation.
 type AggregateType int
 
 const (
@@ -39,7 +44,7 @@ const (
 	minInterval          = 5 * time.Second
 )
 
-// NewAggregator creates a new SNMPAggregator
+// NewAggregator creates a new SNMPAggregator.
 func NewAggregator(interval time.Duration) Aggregator {
 	if interval < minInterval {
 		interval = minInterval
@@ -52,7 +57,7 @@ func NewAggregator(interval time.Duration) Aggregator {
 	}
 }
 
-// AddPoint implements Aggregator interface
+// AddPoint implements Aggregator interface.
 func (a *SNMPAggregator) AddPoint(point DataPoint) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -61,7 +66,7 @@ func (a *SNMPAggregator) AddPoint(point DataPoint) {
 	series, exists := a.data[point.OIDName]
 	if !exists {
 		series = &TimeSeriesData{
-			points:  make([]DataPoint, 0, 100),
+			points:  make([]DataPoint, 0, defaultDataPointSize),
 			maxSize: a.maxSize,
 		}
 		a.data[point.OIDName] = series
@@ -70,7 +75,7 @@ func (a *SNMPAggregator) AddPoint(point DataPoint) {
 	series.addPoint(point)
 }
 
-// GetAggregatedData implements Aggregator interface
+// GetAggregatedData implements Aggregator interface.
 func (a *SNMPAggregator) GetAggregatedData(oidName string, interval Interval) (*DataPoint, error) {
 	a.mu.RLock()
 	series, exists := a.data[oidName]
@@ -93,7 +98,7 @@ func (a *SNMPAggregator) GetAggregatedData(oidName string, interval Interval) (*
 	return a.aggregatePoints(points, AggregateAvg)
 }
 
-// Reset implements Aggregator interface
+// Reset implements Aggregator interface.
 func (a *SNMPAggregator) Reset() {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -106,8 +111,6 @@ func (a *SNMPAggregator) Reset() {
 	}
 }
 
-// Internal helper methods
-
 func (a *SNMPAggregator) getTimeRange(interval Interval) time.Duration {
 	switch interval {
 	case Minute:
@@ -115,7 +118,7 @@ func (a *SNMPAggregator) getTimeRange(interval Interval) time.Duration {
 	case Hour:
 		return time.Hour
 	case Day:
-		return 24 * time.Hour
+		return oneDay
 	default:
 		return a.interval
 	}
@@ -127,6 +130,7 @@ func (a *SNMPAggregator) aggregatePoints(points []DataPoint, aggType AggregateTy
 	}
 
 	var result DataPoint
+
 	result.OIDName = points[0].OIDName
 	result.Timestamp = points[len(points)-1].Timestamp // Use latest timestamp
 
@@ -148,8 +152,6 @@ func (a *SNMPAggregator) aggregatePoints(points []DataPoint, aggType AggregateTy
 	return &result, nil
 }
 
-// TimeSeriesData methods
-
 func (ts *TimeSeriesData) addPoint(point DataPoint) {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
@@ -163,26 +165,31 @@ func (ts *TimeSeriesData) addPoint(point DataPoint) {
 	}
 }
 
+// getPointsInRange returns all points within the given duration.
 func (ts *TimeSeriesData) getPointsInRange(duration time.Duration) []DataPoint {
 	ts.mu.RLock()
 	defer ts.mu.RUnlock()
 
 	cutoff := time.Now().Add(-duration)
+
 	var result []DataPoint
 
 	// Find first point within range using binary search
 	idx := ts.findFirstPointAfter(cutoff)
 	if idx >= 0 {
 		result = make([]DataPoint, len(ts.points)-idx)
+
 		copy(result, ts.points[idx:])
 	}
 
 	return result
 }
 
+// findFirstPointAfter returns the index of the first point after the given time.
 func (ts *TimeSeriesData) findFirstPointAfter(t time.Time) int {
 	left, right := 0, len(ts.points)
 
+	// Binary search
 	for left < right {
 		mid := (left + right) / 2
 		if ts.points[mid].Timestamp.Before(t) {
@@ -195,6 +202,7 @@ func (ts *TimeSeriesData) findFirstPointAfter(t time.Time) int {
 	if left == len(ts.points) {
 		return -1
 	}
+
 	return left
 }
 
@@ -204,9 +212,11 @@ func (a *SNMPAggregator) calculateAverage(points []DataPoint) interface{} {
 	switch v := points[0].Value.(type) {
 	case int64, uint64, float64:
 		sum := 0.0
+
 		for _, p := range points {
 			sum += a.toFloat64(p.Value)
 		}
+
 		return sum / float64(len(points))
 	default:
 		return v // For non-numeric types, return the latest value
@@ -214,32 +224,39 @@ func (a *SNMPAggregator) calculateAverage(points []DataPoint) interface{} {
 }
 
 func (a *SNMPAggregator) calculateMin(points []DataPoint) interface{} {
-	min := a.toFloat64(points[0].Value)
+	minPoints := a.toFloat64(points[0].Value)
+
 	for _, p := range points[1:] {
 		v := a.toFloat64(p.Value)
-		if v < min {
-			min = v
+
+		if v < minPoints {
+			minPoints = v
 		}
 	}
-	return min
+
+	return minPoints
 }
 
 func (a *SNMPAggregator) calculateMax(points []DataPoint) interface{} {
-	max := a.toFloat64(points[0].Value)
+	pointsMax := a.toFloat64(points[0].Value)
+
 	for _, p := range points[1:] {
 		v := a.toFloat64(p.Value)
-		if v > max {
-			max = v
+		if v > pointsMax {
+			pointsMax = v
 		}
 	}
-	return max
+
+	return pointsMax
 }
 
 func (a *SNMPAggregator) calculateSum(points []DataPoint) interface{} {
 	sum := 0.0
+
 	for _, p := range points {
 		sum += a.toFloat64(p.Value)
 	}
+
 	return sum
 }
 

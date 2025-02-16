@@ -79,10 +79,12 @@ func (s *SNMPClientImpl) Connect() error {
 			Target:  s.target.Host,
 			Wrapped: err,
 		}
+
 		return s.lastError
 	}
 
 	s.connected = true
+
 	return nil
 }
 
@@ -92,18 +94,22 @@ func (s *SNMPClientImpl) Get(oids []string) (map[string]interface{}, error) {
 	if !s.connected {
 		if err := s.client.Connect(); err != nil {
 			s.mu.Unlock()
+
 			return nil, &SNMPError{
 				Op:      "connect",
 				Target:  s.target.Host,
 				Wrapped: err,
 			}
 		}
+
 		s.connected = true
 	}
+
 	s.mu.Unlock()
 
 	// Split OIDs into chunks of MaxOids size
 	var allResults = make(map[string]interface{})
+
 	for i := 0; i < len(oids); i += gosnmp.MaxOids {
 		end := i + gosnmp.MaxOids
 		if end > len(oids) {
@@ -111,9 +117,11 @@ func (s *SNMPClientImpl) Get(oids []string) (map[string]interface{}, error) {
 		}
 
 		chunk := oids[i:end]
+
 		result, err := s.client.Get(chunk)
 		if err != nil {
 			s.handleError(err)
+
 			return nil, &SNMPError{
 				Op:      "get",
 				Target:  s.target.Host,
@@ -131,6 +139,7 @@ func (s *SNMPClientImpl) Get(oids []string) (map[string]interface{}, error) {
 					Wrapped: err,
 				}
 			}
+
 			allResults[variable.Name] = value
 		}
 	}
@@ -175,6 +184,8 @@ func (s *SNMPClientImpl) handleError(err error) {
 	s.reconnects++
 }
 
+const defaultTimeTickDuration = time.Second / 100
+
 // convertVariable converts an SNMP variable to the appropriate Go type.
 func (s *SNMPClientImpl) convertVariable(variable gosnmp.SnmpPDU) (interface{}, error) {
 	switch variable.Type {
@@ -191,11 +202,13 @@ func (s *SNMPClientImpl) convertVariable(variable gosnmp.SnmpPDU) (interface{}, 
 	case gosnmp.ObjectIdentifier:
 		return variable.Value.(string), nil
 	case gosnmp.TimeTicks:
-		return time.Duration(variable.Value.(uint32)) * time.Second / 100, nil
+		return time.Duration(variable.Value.(uint32)) * defaultTimeTickDuration, nil
 	default:
 		return nil, fmt.Errorf("unsupported SNMP type: %v", variable.Type)
 	}
 }
+
+const defaultSNMPPort = 161
 
 // validateTarget performs basic validation of target configuration.
 func validateTarget(target *Target) error {
@@ -208,15 +221,15 @@ func validateTarget(target *Target) error {
 	}
 
 	if target.Port == 0 {
-		target.Port = 161 // Default SNMP port
+		target.Port = defaultPort
 	}
 
 	if target.Timeout == 0 {
-		target.Timeout = Duration(5 * time.Second) // Default timeout
+		target.Timeout = Duration(defaultTimeout)
 	}
 
 	if target.Retries == 0 {
-		target.Retries = 3 // Default retries
+		target.Retries = defaultRetries
 	}
 
 	return nil

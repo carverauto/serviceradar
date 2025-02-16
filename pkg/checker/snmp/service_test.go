@@ -93,6 +93,7 @@ func TestSNMPService(t *testing.T) {
 
 		// Set up mock expectations
 		dataChan := make(chan DataPoint)
+
 		mockCollector.EXPECT().Start(gomock.Any()).Return(nil)
 		mockCollector.EXPECT().GetResults().Return(dataChan)
 		mockCollector.EXPECT().Stop().Return(nil)
@@ -148,6 +149,7 @@ func TestSNMPService(t *testing.T) {
 
 		// Set up mock expectations for new target
 		dataChan := make(chan DataPoint)
+
 		mockCollector.EXPECT().Start(gomock.Any()).Return(nil)
 		mockCollector.EXPECT().GetResults().Return(dataChan)
 
@@ -204,6 +206,7 @@ func TestSNMPService(t *testing.T) {
 
 		status, err := service.GetStatus()
 		require.NoError(t, err)
+
 		assert.NotNil(t, status)
 		assert.Contains(t, status, "test-target")
 		assert.True(t, status["test-target"].Available)
