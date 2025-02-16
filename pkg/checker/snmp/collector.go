@@ -119,6 +119,8 @@ func (c *SNMPCollector) collect(ctx context.Context) {
 
 // pollTarget performs a single poll of all OIDs for the target.
 func (c *SNMPCollector) pollTarget(ctx context.Context) error {
+	log.Printf("Polling target %s (%s) for %d OIDs", c.target.Name, c.target.Host, len(c.target.OIDs))
+
 	oids := make([]string, len(c.target.OIDs))
 	for i, oid := range c.target.OIDs {
 		oids[i] = oid.OID
@@ -131,6 +133,7 @@ func (c *SNMPCollector) pollTarget(ctx context.Context) error {
 		return fmt.Errorf("%w - %w", ErrSNMPGet, err)
 	}
 
+	log.Printf("Successfully polled target %s, processing %d results", c.target.Name, len(results))
 	c.updateStatus(true, "")
 
 	// Process each result
@@ -172,6 +175,8 @@ func (c *SNMPCollector) processResult(ctx context.Context, oid string, value int
 		Value:     converted,
 		Timestamp: time.Now(),
 	}
+
+	log.Printf("Collected data point for %s: %v", point.OIDName, point.Value)
 
 	// Update OID status
 	c.updateOIDStatus(oidConfig.Name, point)
