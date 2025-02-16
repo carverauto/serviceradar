@@ -32,13 +32,13 @@ type SNMPCollector struct {
 // NewCollector creates a new SNMP collector for a target.
 func NewCollector(target *Target) (Collector, error) {
 	if err := validateTarget(target); err != nil {
-		return nil, fmt.Errorf("invalid target configuration: %w", err)
+		return nil, fmt.Errorf("%w %w", ErrInvalidTargetConfig, err)
 	}
 
 	// Initialize the SNMP client
 	client, err := newSNMPClient(target)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create SNMP client: %w", err)
+		return nil, fmt.Errorf("%w %w", ErrSNMPConnect, err)
 	}
 
 	collector := &SNMPCollector{
@@ -64,7 +64,7 @@ func NewCollector(target *Target) (Collector, error) {
 func (c *SNMPCollector) Start(ctx context.Context) error {
 	// Connect to the SNMP device
 	if err := c.client.Connect(); err != nil {
-		return fmt.Errorf("failed to connect to target %s: %w", c.target.Name, err)
+		return fmt.Errorf("%w - %w", ErrSNMPConnect, err)
 	}
 
 	// Start collection goroutine
@@ -128,7 +128,7 @@ func (c *SNMPCollector) pollTarget(ctx context.Context) error {
 	results, err := c.client.Get(oids)
 	if err != nil {
 		c.updateStatus(false, err.Error())
-		return fmt.Errorf("SNMP get failed for target %s: %w", c.target.Name, err)
+		return fmt.Errorf("%w - %w", ErrSNMPGet, err)
 	}
 
 	c.updateStatus(true, "")
@@ -157,13 +157,13 @@ func (c *SNMPCollector) processResult(ctx context.Context, oid string, value int
 	}
 
 	if oidConfig == nil {
-		return fmt.Errorf("no configuration found for OID %s", oid)
+		return fmt.Errorf("%w %s", ErrNoOIDConfig, oid)
 	}
 
 	// Convert value based on type
 	converted, err := c.convertValue(value, oidConfig)
 	if err != nil {
-		return fmt.Errorf("value conversion failed: %w", err)
+		return fmt.Errorf("%w - %w", ErrSNMPConvert, err)
 	}
 
 	// Create data point
@@ -183,7 +183,7 @@ func (c *SNMPCollector) processResult(ctx context.Context, oid string, value int
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-c.done:
-		return fmt.Errorf("collector stopped")
+		return ErrCollectorStopped
 	}
 }
 
@@ -201,7 +201,7 @@ func (c *SNMPCollector) convertValue(value interface{}, config *OIDConfig) (inte
 	case TypeString:
 		return c.convertString(value)
 	default:
-		return nil, fmt.Errorf("unsupported data type: %v", config.DataType)
+		return nil, fmt.Errorf("%w %v", ErrUnsupportedDataType, config.DataType)
 	}
 }
 
@@ -253,7 +253,7 @@ func (c *SNMPCollector) GetStatus() TargetStatus {
 func (*SNMPCollector) convertCounter(value interface{}, scale float64) (uint64, error) {
 	v, ok := value.(uint64)
 	if !ok {
-		return 0, fmt.Errorf("expected uint64 for counter, got %T", value)
+		return 0, fmt.Errorf("%w %T", ErrInvalidCounterType, value)
 	}
 
 	return uint64(float64(v) * scale), nil
@@ -269,7 +269,7 @@ func (*SNMPCollector) convertGauge(value interface{}, scale float64) (float64, e
 	case float64:
 		return v * scale, nil
 	default:
-		return 0, fmt.Errorf("unexpected type for gauge: %T", value)
+		return 0, fmt.Errorf("%w %T", ErrInvalidGaugeType, value)
 	}
 }
 
@@ -281,7 +281,7 @@ func (*SNMPCollector) convertBoolean(value interface{}) (bool, error) {
 	case bool:
 		return v, nil
 	default:
-		return false, fmt.Errorf("unexpected type for boolean: %T", value)
+		return false, fmt.Errorf("%w %T", ErrInvalidBooleanType, value)
 	}
 }
 
@@ -289,7 +289,7 @@ func (*SNMPCollector) convertBoolean(value interface{}) (bool, error) {
 func (*SNMPCollector) convertBytes(value interface{}, scale float64) (uint64, error) {
 	v, ok := value.(uint64)
 	if !ok {
-		return 0, fmt.Errorf("expected uint64 for bytes, got %T", value)
+		return 0, fmt.Errorf("%w %T", ErrInvalidBytesType, value)
 	}
 
 	return uint64(float64(v) * scale), nil
@@ -303,6 +303,6 @@ func (*SNMPCollector) convertString(value interface{}) (string, error) {
 	case string:
 		return v, nil
 	default:
-		return "", fmt.Errorf("unexpected type for string: %T", value)
+		return "", fmt.Errorf("%w %T", ErrInvalidStringType, value)
 	}
 }
