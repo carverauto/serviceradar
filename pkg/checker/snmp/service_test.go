@@ -185,27 +185,33 @@ func testRemoveTarget(ctrl *gomock.Controller, config *Config) func(t *testing.T
 
 func testGetStatus(config *Config) func(t *testing.T) {
 	return func(t *testing.T) {
-		service := &SNMPService{
-			collectors:  make(map[string]Collector),
-			aggregators: make(map[string]Aggregator),
-			config:      config,
-			status: map[string]TargetStatus{
-				"test-target": {
-					Available: true,
-					LastPoll:  time.Now(),
-					OIDStatus: map[string]OIDStatus{
-						"sysUptime": {
-							LastValue:  uint64(123456),
-							LastUpdate: time.Now(),
-						},
-					},
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		// Create mock collector
+		mockCollector := NewMockCollector(ctrl)
+		mockCollector.EXPECT().GetStatus().Return(TargetStatus{
+			Available: true,
+			LastPoll:  time.Now(),
+			OIDStatus: map[string]OIDStatus{
+				"sysUptime": {
+					LastValue:  uint64(123456),
+					LastUpdate: time.Now(),
 				},
 			},
+		}).AnyTimes()
+
+		// Create service with mock collector
+		service := &SNMPService{
+			collectors:  map[string]Collector{"test-target": mockCollector},
+			aggregators: make(map[string]Aggregator),
+			config:      config,
+			status:      make(map[string]TargetStatus),
 		}
 
+		// Test GetStatus
 		status, err := service.GetStatus(context.Background())
 		require.NoError(t, err)
-
 		assert.NotNil(t, status)
 		assert.Contains(t, status, "test-target")
 		assert.True(t, status["test-target"].Available)
