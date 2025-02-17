@@ -242,7 +242,8 @@ The config below is just an example, you will want to change or update this to m
 Example below is to poll the primary WAN interface on a Ubiquiti Dream Pro.
 
 **/etc/serviceradar/checkers/snmp.json**
-```
+
+```json
 {
   "node_address": "localhost:50051",
   "listen_addr": ":50054",
