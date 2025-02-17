@@ -26,7 +26,8 @@ It provides real-time monitoring of internal services, with cloud-based alerting
 
 <img width="1393" alt="Screenshot 2025-01-29 at 8 51 34 PM" src="https://github.com/user-attachments/assets/c927529a-7e32-458f-bce9-bf1946422935" />
 
-**Network Scan**
+**Network Scan**:
+
 <img width="1393" alt="Screenshot 2025-01-29 at 8 52 08 PM" src="https://github.com/user-attachments/assets/f5d91f50-4371-486f-ad52-8520b40b1a52" />
 
 <img width="1393" alt="Screenshot 2025-01-29 at 8 52 37 PM" src="https://github.com/user-attachments/assets/8c156fd0-a221-4363-a853-ea063284a287" />
