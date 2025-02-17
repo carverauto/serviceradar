@@ -21,13 +21,29 @@ func NewSNMPManager(db db.Service) SNMPManager {
 }
 
 // GetSNMPMetrics fetches SNMP metrics from the database for a given node
+// Update GetSNMPMetrics function in pkg/checker/snmp/snmp.go
 func (s *SNMPMetricsManager) GetSNMPMetrics(nodeID string, startTime, endTime time.Time) ([]db.SNMPMetric, error) {
 	log.Printf("Fetching SNMP metrics for node %s from %v to %v", nodeID, startTime, endTime)
 
 	query := `
-        SELECT oid_name, value, value_type, timestamp, scale, is_delta
+        SELECT 
+            metric_name as oid_name,  -- Map metric_name to oid_name
+            value,
+            metric_type as value_type,
+            timestamp,
+            COALESCE(
+                json_extract(metadata, '$.scale'),
+                1.0
+            ) as scale,
+            COALESCE(
+                json_extract(metadata, '$.is_delta'),
+                0
+            ) as is_delta
         FROM timeseries_metrics
-        WHERE node_id = ? AND metric_type = 'snmp' AND timestamp BETWEEN ? AND ?
+        WHERE node_id = ? 
+        AND metric_type = 'snmp' 
+        AND timestamp BETWEEN ? AND ?
+        ORDER BY timestamp ASC
     `
 
 	rows, err := s.db.Query(query, nodeID, startTime, endTime)
@@ -50,6 +66,10 @@ func (s *SNMPMetricsManager) GetSNMPMetrics(nodeID string, startTime, endTime ti
 			return nil, fmt.Errorf("failed to scan SNMP metric: %w", err)
 		}
 		metrics = append(metrics, metric)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %w", err)
 	}
 
 	log.Printf("Retrieved %d SNMP metrics for node %s", len(metrics), nodeID)

@@ -12,6 +12,7 @@ import {
 } from 'recharts';
 import NetworkSweepView from './NetworkSweepView';
 import { PingStatus } from './NetworkStatus';
+import SNMPDashboard from "./SNMPDashboard.jsx";
 
 const ServiceDashboard = () => {
     const { nodeId, serviceName } = useParams();
@@ -147,6 +148,11 @@ const ServiceDashboard = () => {
 
     const renderServiceContent = () => {
         if (!serviceData) return null;
+
+        // Handle SNMP service type
+        if (serviceData.type === 'snmp') {
+            return <SNMPDashboard nodeId={nodeId} serviceName={serviceName} />;
+        }
 
         // Handle sweep service type
         if (serviceData.type === 'sweep') {
