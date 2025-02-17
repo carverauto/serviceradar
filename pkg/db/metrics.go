@@ -4,11 +4,14 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"time"
 )
 
 // StoreMetric stores a timeseries metric in the database
 func (db *DB) StoreMetric(nodeID string, metric *TimeseriesMetric) error {
+	log.Printf("Storing metric: %v", metric)
+
 	// Convert metadata to JSON if present
 	var metadataJSON sql.NullString
 	if metric.Metadata != nil {
@@ -35,6 +38,8 @@ func (db *DB) StoreMetric(nodeID string, metric *TimeseriesMetric) error {
 	if err != nil {
 		return fmt.Errorf("failed to store metric: %w", err)
 	}
+
+	log.Printf("Stored metric: %v", metric)
 
 	return nil
 }

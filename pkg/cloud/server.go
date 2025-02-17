@@ -484,7 +484,6 @@ func (s *Server) processServices(pollerID string, apiStatus *api.NodeStatus, ser
 				log.Printf("Raw message: %s", svc.Message)
 			} else {
 				apiService.Details = details
-				log.Printf("Service Details for %s [%s]: %s", svc.ServiceName, svc.ServiceType, string(details))
 
 				// Check if this is an SNMP service and store metrics
 				if svc.ServiceType == "snmp" {
@@ -510,60 +509,50 @@ func (s *Server) processServices(pollerID string, apiStatus *api.NodeStatus, ser
 
 // processSNMPMetrics extracts and stores SNMP metrics from service details.
 func (s *Server) processSNMPMetrics(nodeID string, details json.RawMessage, timestamp time.Time) error {
-	// Parse SNMP data
-	var snmpData struct {
-		Metrics []struct {
-			OID     string      `json:"oid"`
-			Name    string      `json:"name"`
-			Value   interface{} `json:"value"`
-			Type    string      `json:"type"`
-			Scale   float64     `json:"scale"`
-			IsDelta bool        `json:"is_delta"`
-		} `json:"metrics"`
+	log.Printf("Processing SNMP metrics for node %s", nodeID)
+
+	// Parse the outer structure which contains target-specific data
+	var snmpData map[string]struct {
+		Available bool                     `json:"available"`
+		LastPoll  string                   `json:"last_poll"`
+		OIDStatus map[string]OIDStatusData `json:"oid_status"`
 	}
 
 	if err := json.Unmarshal(details, &snmpData); err != nil {
 		return fmt.Errorf("failed to parse SNMP data: %w", err)
 	}
 
-	// Store each metric
-	for _, m := range snmpData.Metrics {
-		// Create metadata
-		metadata := map[string]interface{}{
-			"oid":      m.OID,
-			"scale":    m.Scale,
-			"is_delta": m.IsDelta,
-		}
+	// Process each target's data
+	for targetName, targetData := range snmpData {
+		log.Printf("Processing target %s with %d OIDs", targetName, len(targetData.OIDStatus))
 
-		// Convert value to string for storage
-		var valueStr string
-		switch v := m.Value.(type) {
-		case string:
-			valueStr = v
-		case float64:
-			valueStr = fmt.Sprintf("%f", v)
-		case int:
-			valueStr = fmt.Sprintf("%d", v)
-		case bool:
-			valueStr = fmt.Sprintf("%v", v)
-		default:
-			valueStr = fmt.Sprintf("%v", v)
-		}
+		// Process each OID's data
+		for oidName, oidStatus := range targetData.OIDStatus {
+			// Create metadata
+			metadata := map[string]interface{}{
+				"target_name": targetName,
+				"last_poll":   targetData.LastPoll,
+			}
 
-		// Create metric
-		metric := &db.TimeseriesMetric{
-			Name:      m.Name,
-			Value:     valueStr,
-			Type:      "snmp",
-			Timestamp: timestamp,
-			Metadata:  metadata,
-		}
+			// Convert the value to string for storage
+			valueStr := fmt.Sprintf("%v", oidStatus.LastValue)
 
-		// Store in database
-		if err := s.db.StoreMetric(nodeID, metric); err != nil {
-			log.Printf("Error storing SNMP metric %s for node %s: %v", m.Name, nodeID, err)
+			// Create metric
+			metric := &db.TimeseriesMetric{
+				Name:      oidName,
+				Value:     valueStr,
+				Type:      "snmp",
+				Timestamp: timestamp,
+				Metadata:  metadata,
+			}
 
-			continue
+			log.Printf("Storing SNMP metric %s for node %s, value: %s", oidName, nodeID, valueStr)
+
+			// Store in database
+			if err := s.db.StoreMetric(nodeID, metric); err != nil {
+				log.Printf("Error storing SNMP metric %s for node %s: %v", oidName, nodeID, err)
+				continue
+			}
 		}
 	}
 

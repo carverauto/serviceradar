@@ -46,3 +46,11 @@ type Server struct {
 	snmpManager    snmp.SNMPManager
 	config         *Config
 }
+
+// OIDStatusData represents the structure of OID status data.
+type OIDStatusData struct {
+	LastValue  interface{} `json:"last_value"`
+	LastUpdate string      `json:"last_update"`
+	ErrorCount int         `json:"error_count"`
+	LastError  string      `json:"last_error,omitempty"`
+}
