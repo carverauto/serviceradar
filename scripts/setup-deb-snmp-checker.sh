@@ -132,6 +132,6 @@ mkdir -p ../release-artifacts
 dpkg-deb --build "${PKG_ROOT}"
 
 # Move the deb file to the release-artifacts directory
-mv "${PKG_ROOT}.deb" "./release-artifacts/"
+mv "${PKG_ROOT}.deb" "../release-artifacts/"
 
 echo "Package built: release-artifacts/${PKG_ROOT}.deb"
