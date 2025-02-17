@@ -29,12 +29,14 @@ func NewSNMPChecker(address string) (checker.Checker, error) {
 	// Check if config file exists
 	if _, err := os.Stat(configPath); err != nil {
 		log.Printf("Config file error: %v", err)
+
 		return nil, fmt.Errorf("config file error: %w", err)
 	}
 
 	var cfg snmp.Config
 	if err := config.LoadAndValidate(configPath, &cfg); err != nil {
 		log.Printf("Failed to load SNMP config: %v", err)
+
 		return nil, fmt.Errorf("failed to load SNMP config: %w", err)
 	}
 
@@ -53,6 +55,7 @@ func NewSNMPChecker(address string) (checker.Checker, error) {
 	service, err := snmp.NewSNMPService(&cfg)
 	if err != nil {
 		log.Printf("Failed to create SNMP service: %v", err)
+
 		return nil, fmt.Errorf("failed to create SNMP service: %w", err)
 	}
 
@@ -69,9 +72,11 @@ func NewSNMPChecker(address string) (checker.Checker, error) {
 	log.Printf("Successfully created SNMP checker for %s", address)
 
 	// Start the SNMP Service
-	ctx := context.Background() // Or use a more appropriate context
+	// TODO: stop using context.Background() and pass in a real context
+	ctx := context.Background()
 	if err := service.Start(ctx); err != nil {
 		log.Printf("Failed to start SNMP service: %v", err)
+
 		return nil, fmt.Errorf("failed to start SNMP service: %w", err)
 	}
 
@@ -83,6 +88,7 @@ func (c *SNMPChecker) Check(ctx context.Context) (bool, string) {
 	statusResponse, err := c.pollerService.GetStatus(ctx, &proto.StatusRequest{})
 	if err != nil {
 		log.Printf("Failed to get status: %v", err)
+
 		return false, fmt.Sprintf("Failed to get status: %v", err)
 	}
 
@@ -93,5 +99,6 @@ func (c *SNMPChecker) Close() error {
 	if c.service != nil {
 		return c.service.Stop()
 	}
+
 	return nil
 }

@@ -68,6 +68,7 @@ func (s *PollerService) GetStatus(ctx context.Context, _ *proto.StatusRequest) (
 
 	// Determine overall availability based on target statuses
 	available := true
+
 	for _, targetStatus := range statusMap {
 		if !targetStatus.Available {
 			available = false
@@ -92,9 +93,6 @@ func (s *HealthServer) Check(ctx context.Context, _ *grpc_health_v1.HealthCheckR
 
 	_, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
-
-	// TODO: implement this by calling SNMPGet methods and stuffing
-	// data into metadata and returning it through the gRPC response
 
 	return &grpc_health_v1.HealthCheckResponse{
 		Status: grpc_health_v1.HealthCheckResponse_SERVING,

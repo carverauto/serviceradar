@@ -14,11 +14,13 @@ func (db *DB) StoreMetric(nodeID string, metric *TimeseriesMetric) error {
 
 	// Convert metadata to JSON if present
 	var metadataJSON sql.NullString
+
 	if metric.Metadata != nil {
 		metadata, err := json.Marshal(metric.Metadata)
 		if err != nil {
 			return fmt.Errorf("failed to marshal metadata: %w", err)
 		}
+
 		metadataJSON.String = string(metadata)
 		metadataJSON.Valid = true
 	}
@@ -88,12 +90,12 @@ func (db *DB) GetMetricsByType(nodeID, metricType string, start, end time.Time) 
 	return db.scanMetrics(rows)
 }
 
-// Helper function to scan metric rows
-func (db *DB) scanMetrics(rows Rows) ([]TimeseriesMetric, error) {
+func (*DB) scanMetrics(rows Rows) ([]TimeseriesMetric, error) {
 	var metrics []TimeseriesMetric
 
 	for rows.Next() {
 		var metric TimeseriesMetric
+
 		var metadataJSON sql.NullString
 
 		err := rows.Scan(
@@ -110,9 +112,11 @@ func (db *DB) scanMetrics(rows Rows) ([]TimeseriesMetric, error) {
 		// Parse metadata JSON if present
 		if metadataJSON.Valid {
 			var metadata interface{}
+
 			if err := json.Unmarshal([]byte(metadataJSON.String), &metadata); err != nil {
 				return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
 			}
+
 			metric.Metadata = metadata
 		}
 

@@ -243,16 +243,19 @@ func (*SNMPCollector) convertCounter(value interface{}) (uint64, error) {
 		if v < 0 {
 			return 0, fmt.Errorf("%w: negative value", ErrInvalidCounterType)
 		}
+
 		return uint64(v), nil
 	case int32:
 		if v < 0 {
 			return 0, fmt.Errorf("%w: negative value", ErrInvalidCounterType)
 		}
+
 		return uint64(v), nil
 	case float64:
 		if v < 0 {
 			return 0, fmt.Errorf("%w: negative value", ErrInvalidCounterType)
 		}
+
 		return uint64(v), nil
 	default:
 		return 0, fmt.Errorf("%w: %T", ErrInvalidCounterType, value)
@@ -284,6 +287,7 @@ func (c *SNMPCollector) findOIDConfig(oid string) *OIDConfig {
 			return &cfg
 		}
 	}
+
 	return nil
 }
 
@@ -329,6 +333,7 @@ func (*SNMPCollector) convertBytes(value interface{}) (uint64, error) {
 		if v < 0 {
 			return 0, fmt.Errorf("%w: negative value", ErrInvalidBytesType)
 		}
+
 		return uint64(v), nil
 	default:
 		return 0, fmt.Errorf("%w %T", ErrInvalidBytesType, value)

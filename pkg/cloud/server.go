@@ -479,6 +479,7 @@ func (s *Server) processServices(pollerID string, apiStatus *api.NodeStatus, ser
 		// Process JSON details if available
 		if svc.Message != "" {
 			var details json.RawMessage
+
 			if err := json.Unmarshal([]byte(svc.Message), &details); err != nil {
 				log.Printf("Error unmarshaling service details for %s: %v", svc.ServiceName, err)
 				log.Printf("Raw message: %s", svc.Message)
@@ -488,6 +489,7 @@ func (s *Server) processServices(pollerID string, apiStatus *api.NodeStatus, ser
 				// Check if this is an SNMP service and store metrics
 				if svc.ServiceType == "snmp" {
 					log.Printf("Found SNMP service, attempting to process metrics for node %s", pollerID)
+
 					if err := s.processSNMPMetrics(pollerID, details, now); err != nil {
 						log.Printf("Error processing SNMP metrics for node %s: %v", pollerID, err)
 					}
@@ -551,6 +553,7 @@ func (s *Server) processSNMPMetrics(nodeID string, details json.RawMessage, time
 			// Store in database
 			if err := s.db.StoreMetric(nodeID, metric); err != nil {
 				log.Printf("Error storing SNMP metric %s for node %s: %v", oidName, nodeID, err)
+
 				continue
 			}
 		}
@@ -571,6 +574,7 @@ func (s *Server) handleService(pollerID string, svc *api.ServiceStatus, now time
 
 func (*Server) processSweepData(svc *api.ServiceStatus, now time.Time) error {
 	var sweepData proto.SweepServiceStatus
+
 	if err := json.Unmarshal([]byte(svc.Message), &sweepData); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidSweepData, err)
 	}

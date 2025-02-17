@@ -57,6 +57,7 @@ type Duration time.Duration
 
 func (d *Duration) UnmarshalJSON(b []byte) error {
 	var v interface{}
+
 	if err := json.Unmarshal(b, &v); err != nil {
 		return err
 	}
@@ -64,13 +65,16 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 	switch value := v.(type) {
 	case float64:
 		*d = Duration(time.Duration(value))
+
 		return nil
 	case string:
 		tmp, err := time.ParseDuration(value)
 		if err != nil {
 			return err
 		}
+
 		*d = Duration(tmp)
+
 		return nil
 	default:
 		return errInvalidDuration
