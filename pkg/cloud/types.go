@@ -54,3 +54,13 @@ type OIDStatusData struct {
 	ErrorCount int         `json:"error_count"`
 	LastError  string      `json:"last_error,omitempty"`
 }
+
+// ServiceStatus represents the status of a monitored service.
+type ServiceStatus struct {
+	NodeID      string
+	ServiceName string
+	ServiceType string
+	Available   bool
+	Details     string
+	Timestamp   time.Time
+}

@@ -6,7 +6,6 @@ package cloud
 
 import (
 	"context"
-	"time"
 
 	"github.com/mfreeman451/serviceradar/pkg/cloud/api"
 	"github.com/mfreeman451/serviceradar/pkg/metrics"
@@ -18,16 +17,6 @@ type NodeService interface {
 	UpdateNodeStatus(nodeID string, status *api.NodeStatus) error
 	GetNodeHistory(nodeID string, limit int) ([]api.NodeHistoryPoint, error)
 	CheckNodeHealth(nodeID string) (bool, error)
-}
-
-// ServiceStatus represents the status of a monitored service.
-type ServiceStatus struct {
-	NodeID      string
-	ServiceName string
-	ServiceType string
-	Available   bool
-	Details     string
-	Timestamp   time.Time
 }
 
 // CloudService represents the main cloud service functionality.

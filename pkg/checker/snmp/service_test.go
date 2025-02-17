@@ -203,7 +203,7 @@ func testGetStatus(config *Config) func(t *testing.T) {
 			},
 		}
 
-		status, err := service.GetStatus()
+		status, err := service.GetStatus(context.Background())
 		require.NoError(t, err)
 
 		assert.NotNil(t, status)
