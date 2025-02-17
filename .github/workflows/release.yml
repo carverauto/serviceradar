@@ -27,12 +27,10 @@ jobs:
           ./scripts/setup-deb-cloud.sh
           ./scripts/setup-deb-dusk-checker.sh
       - name: List Artifacts (for debugging)
-        run: |
-         ls -al ../release-artifacts
-         ls -al ./release-artifacts
+        run: ls -al ./release-artifacts
       - name: Upload Release Assets
         uses: softprops/action-gh-release@v2
         with:
-          files: ../release-artifacts/*.deb
+          files: ./release-artifacts/*.deb
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
