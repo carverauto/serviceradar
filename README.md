@@ -10,16 +10,20 @@ It provides real-time monitoring of internal services, with cloud-based alerting
 
 ### Screenshots
 
-**Dashboard**
+**Dashboard**:
+
 <img width="1393" alt="Screenshot 2025-01-29 at 8 50 35 PM" src="https://github.com/user-attachments/assets/d51bbed5-ce6f-4144-9ae7-64b1a1b14200" />
 
-**Node List**
+**Node List**:
+
 <img width="1393" alt="Screenshot 2025-01-29 at 8 51 14 PM" src="https://github.com/user-attachments/assets/28ad0871-f28b-403a-a861-2bfebb3bd15b" />
 
-**SNMP Poller**
+**SNMP Poller**:
+
 <img width="1381" alt="Screenshot 2025-02-17 at 12 32 15 PM" src="https://github.com/user-attachments/assets/2aa0e63a-5473-4716-b4f7-d9860327e0cb" />
 
-**ICMP Test**
+**ICMP Test**:
+
 <img width="1393" alt="Screenshot 2025-01-29 at 8 51 34 PM" src="https://github.com/user-attachments/assets/c927529a-7e32-458f-bce9-bf1946422935" />
 
 **Network Scan**
