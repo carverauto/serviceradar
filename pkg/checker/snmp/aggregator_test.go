@@ -31,9 +31,10 @@ func TestAggregator_WithMocks(t *testing.T) {
 		{
 			name: "successful aggregation",
 			setupMock: func() {
+				// AddPoint expects a pointer to DataPoint
 				mockAggregator.EXPECT().
-					AddPoint(gomock.Any()).
-					Do(func(point DataPoint) {
+					AddPoint(&testPoint).
+					Do(func(point *DataPoint) {
 						assert.Equal(t, testPoint.OIDName, point.OIDName)
 						assert.Equal(t, testPoint.Value, point.Value)
 					})
@@ -43,7 +44,7 @@ func TestAggregator_WithMocks(t *testing.T) {
 					Return(&testPoint, nil)
 			},
 			testFunction: func() error {
-				mockAggregator.AddPoint(testPoint)
+				mockAggregator.AddPoint(&testPoint)
 				_, err := mockAggregator.GetAggregatedData(testPoint.OIDName, Minute)
 				return err
 			},

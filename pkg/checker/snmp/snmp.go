@@ -1,90 +1,79 @@
-// Package snmp pkg/checker/snmp/snmp.go
 package snmp
 
 import (
-	"context"
-	"encoding/json"
+	"fmt"
 	"log"
-	"sync"
 	"time"
 
-	"github.com/mfreeman451/serviceradar/proto"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/health/grpc_health_v1"
-	"google.golang.org/grpc/status"
+	"github.com/mfreeman451/serviceradar/pkg/db"
 )
 
-type Poller struct {
-	Config Config
-	mu     sync.RWMutex
+// SNMPMetricsManager implements the SNMPManager interface for handling SNMP metrics.
+type SNMPMetricsManager struct {
+	db db.Service
 }
 
-type PollerService struct {
-	proto.UnimplementedAgentServiceServer
-	checker *Poller
+// NewSNMPManager creates a new SNMPManager instance.
+func NewSNMPManager(db db.Service) SNMPManager {
+	return &SNMPMetricsManager{
+		db: db,
+	}
 }
 
-func NewSNMPPollerService(checker *Poller) *PollerService {
-	return &PollerService{checker: checker}
-}
+// GetSNMPMetrics fetches SNMP metrics from the database for a given node.
+func (s *SNMPMetricsManager) GetSNMPMetrics(nodeID string, startTime, endTime time.Time) ([]db.SNMPMetric, error) {
+	log.Printf("Fetching SNMP metrics for node %s from %v to %v", nodeID, startTime, endTime)
 
-type HealthServer struct {
-	grpc_health_v1.UnimplementedHealthServer
-	checker *Poller
-}
+	query := `
+        SELECT 
+            metric_name as oid_name,  -- Map metric_name to oid_name
+            value,
+            metric_type as value_type,
+            timestamp,
+            COALESCE(
+                json_extract(metadata, '$.scale'),
+                1.0
+            ) as scale,
+            COALESCE(
+                json_extract(metadata, '$.is_delta'),
+                0
+            ) as is_delta
+        FROM timeseries_metrics
+        WHERE node_id = ? 
+        AND metric_type = 'snmp' 
+        AND timestamp BETWEEN ? AND ?
+        ORDER BY timestamp ASC
+    `
 
-// GetStatus implements the AgentService GetStatus method.
-func (s *PollerService) GetStatus(ctx context.Context, _ *proto.StatusRequest) (*proto.StatusResponse, error) {
-	s.checker.mu.RLock()
-	defer s.checker.mu.RUnlock()
+	rows, err := s.db.Query(query, nodeID, startTime, endTime)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query SNMP metrics: %w", err)
+	}
+	defer db.CloseRows(rows)
 
-	// Cast config.Duration -> time.Duration
-	timeout := time.Duration(s.checker.Config.Timeout)
+	var metrics []db.SNMPMetric
 
-	_, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
+	for rows.Next() {
+		var metric db.SNMPMetric
+		if err := rows.Scan(
+			&metric.OIDName,
+			&metric.Value,
+			&metric.ValueType,
+			&metric.Timestamp,
+			&metric.Scale,
+			&metric.IsDelta,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan SNMP metric: %w", err)
+		}
 
-	log.Printf("SNMP GetStatus called")
+		metrics = append(metrics, metric)
+	}
 
-	return &proto.StatusResponse{
-		Available: true,
-		Message:   "Unimplemented",
-	}, nil
-}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %w", err)
+	}
 
-// Check implements the HealthServer Check method.
-func (s *HealthServer) Check(ctx context.Context, _ *grpc_health_v1.HealthCheckRequest) (*grpc_health_v1.HealthCheckResponse, error) {
-	s.checker.mu.RLock()
-	defer s.checker.mu.RUnlock()
+	log.Printf("Retrieved %d SNMP metrics for node %s", len(metrics), nodeID)
 
-	log.Printf("SNMP HealthServer Check called")
-
-	_, cancel := context.WithTimeout(ctx, time.Second)
-	defer cancel()
-
-	// TODO: implement this by calling SNMPGet methods and stuffing
-	// data into metadata and returning it through the gRPC response
-
-	return &grpc_health_v1.HealthCheckResponse{
-		Status: grpc_health_v1.HealthCheckResponse_SERVING,
-	}, nil
-}
-
-// Watch implements the HealthServer Watch method.
-func (s *HealthServer) Watch(_ *grpc_health_v1.HealthCheckRequest, _ grpc_health_v1.Health_WatchServer) error {
-	s.checker.mu.RLock()
-	defer s.checker.mu.RUnlock()
-
-	log.Printf("SNMP HealthServer Watch called")
-
-	return status.Error(codes.Unimplemented, "Watch is not implemented")
-}
-
-// GetStatusData implements the AgentService GetStatusData method.
-func (s *Poller) GetStatusData() json.RawMessage {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	// TODO: implement this
-	return nil
+	return metrics, nil
 }

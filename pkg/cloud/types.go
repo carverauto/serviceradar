@@ -4,6 +4,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mfreeman451/serviceradar/pkg/checker/snmp"
 	"github.com/mfreeman451/serviceradar/pkg/cloud/alerts"
 	"github.com/mfreeman451/serviceradar/pkg/cloud/api"
 	"github.com/mfreeman451/serviceradar/pkg/db"
@@ -27,6 +28,7 @@ type Config struct {
 	Webhooks       []alerts.WebhookConfig `json:"webhooks,omitempty"`
 	KnownPollers   []string               `json:"known_pollers,omitempty"`
 	Metrics        Metrics                `json:"metrics"`
+	SNMP           snmp.Config            `json:"snmp"`
 	Security       *grpc.SecurityConfig   `json:"security"`
 }
 
@@ -41,5 +43,24 @@ type Server struct {
 	pollerPatterns []string
 	grpcServer     *grpc.Server
 	metrics        metrics.MetricCollector
+	snmpManager    snmp.SNMPManager
 	config         *Config
+}
+
+// OIDStatusData represents the structure of OID status data.
+type OIDStatusData struct {
+	LastValue  interface{} `json:"last_value"`
+	LastUpdate string      `json:"last_update"`
+	ErrorCount int         `json:"error_count"`
+	LastError  string      `json:"last_error,omitempty"`
+}
+
+// ServiceStatus represents the status of a monitored service.
+type ServiceStatus struct {
+	NodeID      string
+	ServiceName string
+	ServiceType string
+	Available   bool
+	Details     string
+	Timestamp   time.Time
 }

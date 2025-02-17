@@ -6,8 +6,7 @@ import (
 	"time"
 )
 
-// Update CleanOldData in pkg/db/db.go
-
+// CleanOldData removes old data from the database.
 func (db *DB) CleanOldData(retentionPeriod time.Duration) error {
 	cutoff := time.Now().Add(-retentionPeriod)
 
@@ -21,8 +20,10 @@ func (db *DB) CleanOldData(retentionPeriod time.Duration) error {
 			if rbErr := tx.Rollback(); rbErr != nil {
 				log.Printf("failed to rollback: %v", rbErr)
 			}
+
 			return
 		}
+
 		err = tx.Commit()
 	}()
 

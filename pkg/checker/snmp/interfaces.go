@@ -5,9 +5,11 @@ package snmp
 import (
 	"context"
 	"time"
+
+	"github.com/mfreeman451/serviceradar/pkg/db"
 )
 
-//go:generate mockgen -destination=mock_snmp.go -package=snmp github.com/mfreeman451/serviceradar/pkg/checker/snmp Collector,Aggregator,Service
+//go:generate mockgen -destination=mock_snmp.go -package=snmp github.com/mfreeman451/serviceradar/pkg/checker/snmp Collector,Aggregator,Service,CollectorFactory,AggregatorFactory,SNMPClient,SNMPManager,DataStore
 
 // Collector defines how to collect SNMP data from a target.
 type Collector interface {
@@ -23,7 +25,7 @@ type Collector interface {
 // Aggregator defines how to aggregate collected SNMP data.
 type Aggregator interface {
 	// AddPoint adds a new data point for aggregation
-	AddPoint(point DataPoint)
+	AddPoint(point *DataPoint)
 	// GetAggregatedData retrieves aggregated data for a given OID and interval
 	GetAggregatedData(oidName string, interval Interval) (*DataPoint, error)
 	// Reset clears all aggregated data
@@ -41,7 +43,7 @@ type Service interface {
 	// RemoveTarget stops monitoring a target
 	RemoveTarget(targetName string) error
 	// GetStatus returns the current status of all monitored targets
-	GetStatus() (map[string]TargetStatus, error)
+	GetStatus(context.Context) (map[string]TargetStatus, error)
 }
 
 // CollectorFactory creates SNMP collectors.
@@ -66,6 +68,12 @@ type SNMPClient interface {
 	Close() error
 }
 
+// SNMPManager defines the interface for managing SNMP data.
+type SNMPManager interface {
+	// GetSNMPMetrics fetches SNMP metrics from the database for a given node.
+	GetSNMPMetrics(nodeID string, startTime, endTime time.Time) ([]db.SNMPMetric, error)
+}
+
 // DataStore defines how to store SNMP data.
 type DataStore interface {
 	// Store stores a data point
@@ -74,12 +82,4 @@ type DataStore interface {
 	Query(filter DataFilter) ([]DataPoint, error)
 	// Cleanup removes old data
 	Cleanup(age time.Duration) error
-}
-
-// DataFilter defines criteria for querying stored data.
-type DataFilter struct {
-	OIDName   string
-	StartTime time.Time
-	EndTime   time.Time
-	Limit     int
 }

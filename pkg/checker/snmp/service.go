@@ -16,7 +16,7 @@ const (
 	defaultServiceStatusTimeout = 5 * time.Second
 )
 
-func (s *SNMPService) Check(ctx context.Context) (bool, string) {
+func (s *SNMPService) Check(ctx context.Context) (status bool, msg string) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -118,6 +118,9 @@ func (s *SNMPService) AddTarget(target *Target) error {
 		return fmt.Errorf("%w: %s", ErrTargetExists, target.Name)
 	}
 
+	// TODO: need to pass down the context, we tried to fix
+	// this before and ended up breaking the metric dataflow.
+	// Best guess is that we have a short lived timeout on the parent context.
 	ctx := context.Background()
 	if err := s.initializeTarget(ctx, target); err != nil {
 		return fmt.Errorf("%w: %s", errFailedToInitTarget, target.Name)
@@ -148,13 +151,27 @@ func (s *SNMPService) RemoveTarget(targetName string) error {
 }
 
 // GetStatus implements the Service interface.
-func (s *SNMPService) GetStatus() (map[string]TargetStatus, error) {
+func (s *SNMPService) GetStatus(_ context.Context) (map[string]TargetStatus, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	status := make(map[string]TargetStatus, len(s.status))
-	for name, targetStatus := range s.status {
-		status[name] = targetStatus
+	log.Printf("SNMP GetStatus called with %d collectors", len(s.collectors))
+
+	status := make(map[string]TargetStatus)
+
+	// Check each collector's status
+	for name, collector := range s.collectors {
+		log.Printf("Getting status for collector: %s", name)
+
+		collectorStatus := collector.GetStatus()
+		log.Printf("Collector %s status: %+v", name, collectorStatus)
+
+		status[name] = collectorStatus
+	}
+
+	if len(status) == 0 {
+		log.Printf("No SNMP status found, checking configuration...")
+		log.Printf("Config: %+v", s.config)
 	}
 
 	return status, nil
@@ -171,7 +188,7 @@ func (s *SNMPService) GetServiceStatus(ctx context.Context, req *proto.StatusReq
 	_, cancel := context.WithTimeout(ctx, defaultServiceStatusTimeout)
 	defer cancel()
 
-	status, err := s.GetStatus()
+	status, err := s.GetStatus(ctx)
 	if err != nil {
 		return &proto.StatusResponse{
 			Available: false,
@@ -267,13 +284,13 @@ func (s *SNMPService) processResults(ctx context.Context, targetName string, col
 				return
 			}
 
-			s.handleDataPoint(targetName, point, aggregator)
+			s.handleDataPoint(targetName, &point, aggregator)
 		}
 	}
 }
 
 // handleDataPoint processes a single data point.
-func (s *SNMPService) handleDataPoint(targetName string, point DataPoint, aggregator Aggregator) {
+func (s *SNMPService) handleDataPoint(targetName string, point *DataPoint, aggregator Aggregator) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

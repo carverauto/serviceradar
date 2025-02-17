@@ -4,20 +4,23 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"time"
 )
 
-// Add to pkg/db/db.go
-
-// StoreMetric stores a timeseries metric in the database
+// StoreMetric stores a timeseries metric in the database.
 func (db *DB) StoreMetric(nodeID string, metric *TimeseriesMetric) error {
+	log.Printf("Storing metric: %v", metric)
+
 	// Convert metadata to JSON if present
 	var metadataJSON sql.NullString
+
 	if metric.Metadata != nil {
 		metadata, err := json.Marshal(metric.Metadata)
 		if err != nil {
 			return fmt.Errorf("failed to marshal metadata: %w", err)
 		}
+
 		metadataJSON.String = string(metadata)
 		metadataJSON.Valid = true
 	}
@@ -38,18 +41,19 @@ func (db *DB) StoreMetric(nodeID string, metric *TimeseriesMetric) error {
 		return fmt.Errorf("failed to store metric: %w", err)
 	}
 
+	log.Printf("Stored metric: %v", metric)
+
 	return nil
 }
 
-// GetMetrics retrieves metrics for a specific node and metric name
+// GetMetrics retrieves metrics for a specific node and metric name.
 func (db *DB) GetMetrics(nodeID, metricName string, start, end time.Time) ([]TimeseriesMetric, error) {
 	rows, err := db.Query(`
         SELECT metric_name, metric_type, value, metadata, timestamp
         FROM timeseries_metrics
         WHERE node_id = ? 
         AND metric_name = ?
-        AND timestamp BETWEEN ? AND ?
-        ORDER BY timestamp ASC`,
+        AND timestamp BETWEEN ? AND ?`,
 		nodeID,
 		metricName,
 		start,
@@ -63,15 +67,14 @@ func (db *DB) GetMetrics(nodeID, metricName string, start, end time.Time) ([]Tim
 	return db.scanMetrics(rows)
 }
 
-// GetMetricsByType retrieves metrics for a specific node and metric type
+// GetMetricsByType retrieves metrics for a specific node and metric type.
 func (db *DB) GetMetricsByType(nodeID, metricType string, start, end time.Time) ([]TimeseriesMetric, error) {
 	rows, err := db.Query(`
         SELECT metric_name, metric_type, value, metadata, timestamp
         FROM timeseries_metrics
         WHERE node_id = ? 
         AND metric_type = ?
-        AND timestamp BETWEEN ? AND ?
-        ORDER BY timestamp ASC`,
+        AND timestamp BETWEEN ? AND ?`,
 		nodeID,
 		metricType,
 		start,
@@ -85,12 +88,12 @@ func (db *DB) GetMetricsByType(nodeID, metricType string, start, end time.Time) 
 	return db.scanMetrics(rows)
 }
 
-// Helper function to scan metric rows
-func (db *DB) scanMetrics(rows Rows) ([]TimeseriesMetric, error) {
+func (*DB) scanMetrics(rows Rows) ([]TimeseriesMetric, error) {
 	var metrics []TimeseriesMetric
 
 	for rows.Next() {
 		var metric TimeseriesMetric
+
 		var metadataJSON sql.NullString
 
 		err := rows.Scan(
@@ -107,9 +110,11 @@ func (db *DB) scanMetrics(rows Rows) ([]TimeseriesMetric, error) {
 		// Parse metadata JSON if present
 		if metadataJSON.Valid {
 			var metadata interface{}
+
 			if err := json.Unmarshal([]byte(metadataJSON.String), &metadata); err != nil {
 				return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
 			}
+
 			metric.Metadata = metadata
 		}
 

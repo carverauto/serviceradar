@@ -57,6 +57,7 @@ type Duration time.Duration
 
 func (d *Duration) UnmarshalJSON(b []byte) error {
 	var v interface{}
+
 	if err := json.Unmarshal(b, &v); err != nil {
 		return err
 	}
@@ -64,20 +65,23 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 	switch value := v.(type) {
 	case float64:
 		*d = Duration(time.Duration(value))
+
 		return nil
 	case string:
 		tmp, err := time.ParseDuration(value)
 		if err != nil {
 			return err
 		}
+
 		*d = Duration(tmp)
+
 		return nil
 	default:
 		return errInvalidDuration
 	}
 }
 
-// DataPoint represents a single collected data point
+// DataPoint represents a single collected data point.
 type DataPoint struct {
 	OIDName   string      `json:"oid_name"`
 	Value     interface{} `json:"value"`
@@ -136,4 +140,13 @@ type TargetStatus struct {
 	LastPoll  time.Time            `json:"last_poll"`
 	OIDStatus map[string]OIDStatus `json:"oid_status"`
 	Error     string               `json:"error,omitempty"`
+	Target    *Target              `json:"-"`
+}
+
+// DataFilter defines criteria for querying stored data.
+type DataFilter struct {
+	OIDName   string
+	StartTime time.Time
+	EndTime   time.Time
+	Limit     int
 }

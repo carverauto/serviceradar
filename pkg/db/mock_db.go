@@ -394,6 +394,36 @@ func (mr *MockServiceMockRecorder) Exec(query any, args ...any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Exec", reflect.TypeOf((*MockService)(nil).Exec), varargs...)
 }
 
+// GetMetrics mocks base method.
+func (m *MockService) GetMetrics(nodeID, metricName string, start, end time.Time) ([]TimeseriesMetric, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetMetrics", nodeID, metricName, start, end)
+	ret0, _ := ret[0].([]TimeseriesMetric)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetMetrics indicates an expected call of GetMetrics.
+func (mr *MockServiceMockRecorder) GetMetrics(nodeID, metricName, start, end any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMetrics", reflect.TypeOf((*MockService)(nil).GetMetrics), nodeID, metricName, start, end)
+}
+
+// GetMetricsByType mocks base method.
+func (m *MockService) GetMetricsByType(nodeID, metricType string, start, end time.Time) ([]TimeseriesMetric, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetMetricsByType", nodeID, metricType, start, end)
+	ret0, _ := ret[0].([]TimeseriesMetric)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetMetricsByType indicates an expected call of GetMetricsByType.
+func (mr *MockServiceMockRecorder) GetMetricsByType(nodeID, metricType, start, end any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMetricsByType", reflect.TypeOf((*MockService)(nil).GetMetricsByType), nodeID, metricType, start, end)
+}
+
 // GetNodeHistory mocks base method.
 func (m *MockService) GetNodeHistory(nodeID string) ([]NodeStatus, error) {
 	m.ctrl.T.Helper()
@@ -521,6 +551,20 @@ func (mr *MockServiceMockRecorder) QueryRow(query any, args ...any) *gomock.Call
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{query}, args...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "QueryRow", reflect.TypeOf((*MockService)(nil).QueryRow), varargs...)
+}
+
+// StoreMetric mocks base method.
+func (m *MockService) StoreMetric(nodeID string, metric *TimeseriesMetric) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "StoreMetric", nodeID, metric)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// StoreMetric indicates an expected call of StoreMetric.
+func (mr *MockServiceMockRecorder) StoreMetric(nodeID, metric any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreMetric", reflect.TypeOf((*MockService)(nil).StoreMetric), nodeID, metric)
 }
 
 // UpdateNodeStatus mocks base method.

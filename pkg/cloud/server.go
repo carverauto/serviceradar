@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mfreeman451/serviceradar/pkg/checker/snmp"
 	"github.com/mfreeman451/serviceradar/pkg/cloud/alerts"
 	"github.com/mfreeman451/serviceradar/pkg/cloud/api"
 	"github.com/mfreeman451/serviceradar/pkg/db"
@@ -76,6 +77,7 @@ func NewServer(_ context.Context, config *Config) (*Server, error) {
 		ShutdownChan:   make(chan struct{}),
 		pollerPatterns: config.PollerPatterns,
 		metrics:        metricsManager,
+		snmpManager:    snmp.NewSNMPManager(database),
 		config:         config,
 	}
 
@@ -152,6 +154,10 @@ func (s *Server) monitorNodes(ctx context.Context) {
 
 func (s *Server) GetMetricsManager() metrics.MetricCollector {
 	return s.metrics
+}
+
+func (s *Server) GetSNMPManager() snmp.SNMPManager {
+	return s.snmpManager
 }
 
 func (s *Server) runMetricsCleanup(ctx context.Context) {
@@ -258,7 +264,7 @@ func (s *Server) sendStartupNotification(ctx context.Context) error {
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		NodeID:    "cloud",
 		Details: map[string]any{
-			"version":  "1.0.16",
+			"version":  "1.0.17",
 			"hostname": getHostname(),
 		},
 	}
@@ -456,6 +462,9 @@ func (s *Server) processServices(pollerID string, apiStatus *api.NodeStatus, ser
 	allServicesAvailable := true
 
 	for _, svc := range services {
+		log.Printf("Processing service %s for node %s", svc.ServiceName, pollerID)
+		log.Printf("Service type: %s, Message length: %d", svc.ServiceType, len(svc.Message))
+
 		apiService := api.ServiceStatus{
 			Name:      svc.ServiceName,
 			Type:      svc.ServiceType,
@@ -464,14 +473,43 @@ func (s *Server) processServices(pollerID string, apiStatus *api.NodeStatus, ser
 		}
 
 		if !svc.Available {
-			allServicesAvailable = false // If ANY service is unavailable, set to false
+			allServicesAvailable = false
 		}
 
-		// Process JSON details if available
-		if svc.Message != "" {
-			var details json.RawMessage
-			if err := json.Unmarshal([]byte(svc.Message), &details); err == nil {
-				apiService.Details = details
+		if svc.Message == "" {
+			log.Printf("No message content for service %s", svc.ServiceName)
+
+			if err := s.handleService(pollerID, &apiService, now); err != nil {
+				log.Printf("Error handling service %s: %v", svc.ServiceName, err)
+			}
+
+			apiStatus.Services = append(apiStatus.Services, apiService)
+
+			continue // Skip to the next service
+		}
+
+		var details json.RawMessage // Declare details here, outside the if block
+
+		if err := json.Unmarshal([]byte(svc.Message), &details); err != nil {
+			log.Printf("Error unmarshaling service details for %s: %v", svc.ServiceName, err)
+			log.Printf("Raw message: %s", svc.Message)
+
+			if err := s.handleService(pollerID, &apiService, now); err != nil {
+				log.Printf("Error handling service %s: %v", svc.ServiceName, err)
+			}
+
+			apiStatus.Services = append(apiStatus.Services, apiService)
+
+			continue // Skip to the next service
+		}
+
+		apiService.Details = details // Now details is in scope
+
+		if svc.ServiceType == "snmp" {
+			log.Printf("Found SNMP service, attempting to process metrics for node %s", pollerID)
+
+			if err := s.processSNMPMetrics(pollerID, details, now); err != nil { // details is also available here
+				log.Printf("Error processing SNMP metrics for node %s: %v", pollerID, err)
 			}
 		}
 
@@ -482,8 +520,60 @@ func (s *Server) processServices(pollerID string, apiStatus *api.NodeStatus, ser
 		apiStatus.Services = append(apiStatus.Services, apiService)
 	}
 
-	// Only set IsHealthy based on ALL services.
 	apiStatus.IsHealthy = allServicesAvailable
+}
+
+// processSNMPMetrics extracts and stores SNMP metrics from service details.
+func (s *Server) processSNMPMetrics(nodeID string, details json.RawMessage, timestamp time.Time) error {
+	log.Printf("Processing SNMP metrics for node %s", nodeID)
+
+	// Parse the outer structure which contains target-specific data
+	var snmpData map[string]struct {
+		Available bool                     `json:"available"`
+		LastPoll  string                   `json:"last_poll"`
+		OIDStatus map[string]OIDStatusData `json:"oid_status"`
+	}
+
+	if err := json.Unmarshal(details, &snmpData); err != nil {
+		return fmt.Errorf("failed to parse SNMP data: %w", err)
+	}
+
+	// Process each target's data
+	for targetName, targetData := range snmpData {
+		log.Printf("Processing target %s with %d OIDs", targetName, len(targetData.OIDStatus))
+
+		// Process each OID's data
+		for oidName, oidStatus := range targetData.OIDStatus {
+			// Create metadata
+			metadata := map[string]interface{}{
+				"target_name": targetName,
+				"last_poll":   targetData.LastPoll,
+			}
+
+			// Convert the value to string for storage
+			valueStr := fmt.Sprintf("%v", oidStatus.LastValue)
+
+			// Create metric
+			metric := &db.TimeseriesMetric{
+				Name:      oidName,
+				Value:     valueStr,
+				Type:      "snmp",
+				Timestamp: timestamp,
+				Metadata:  metadata,
+			}
+
+			log.Printf("Storing SNMP metric %s for node %s, value: %s", oidName, nodeID, valueStr)
+
+			// Store in database
+			if err := s.db.StoreMetric(nodeID, metric); err != nil {
+				log.Printf("Error storing SNMP metric %s for node %s: %v", oidName, nodeID, err)
+
+				continue
+			}
+		}
+	}
+
+	return nil
 }
 
 func (s *Server) handleService(pollerID string, svc *api.ServiceStatus, now time.Time) error {
@@ -498,6 +588,7 @@ func (s *Server) handleService(pollerID string, svc *api.ServiceStatus, now time
 
 func (*Server) processSweepData(svc *api.ServiceStatus, now time.Time) error {
 	var sweepData proto.SweepServiceStatus
+
 	if err := json.Unmarshal([]byte(svc.Message), &sweepData); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidSweepData, err)
 	}
