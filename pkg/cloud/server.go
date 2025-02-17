@@ -476,27 +476,39 @@ func (s *Server) processServices(pollerID string, apiStatus *api.NodeStatus, ser
 			allServicesAvailable = false
 		}
 
-		// Process JSON details if available
-		if svc.Message != "" {
-			var details json.RawMessage
-
-			if err := json.Unmarshal([]byte(svc.Message), &details); err != nil {
-				log.Printf("Error unmarshaling service details for %s: %v", svc.ServiceName, err)
-				log.Printf("Raw message: %s", svc.Message)
-			} else {
-				apiService.Details = details
-
-				// Check if this is an SNMP service and store metrics
-				if svc.ServiceType == "snmp" {
-					log.Printf("Found SNMP service, attempting to process metrics for node %s", pollerID)
-
-					if err := s.processSNMPMetrics(pollerID, details, now); err != nil {
-						log.Printf("Error processing SNMP metrics for node %s: %v", pollerID, err)
-					}
-				}
-			}
-		} else {
+		if svc.Message == "" {
 			log.Printf("No message content for service %s", svc.ServiceName)
+			if err := s.handleService(pollerID, &apiService, now); err != nil {
+				log.Printf("Error handling service %s: %v", svc.ServiceName, err)
+			}
+
+			apiStatus.Services = append(apiStatus.Services, apiService)
+
+			continue // Skip to the next service
+		}
+
+		var details json.RawMessage // Declare details here, outside the if block
+
+		if err := json.Unmarshal([]byte(svc.Message), &details); err != nil {
+			log.Printf("Error unmarshaling service details for %s: %v", svc.ServiceName, err)
+			log.Printf("Raw message: %s", svc.Message)
+
+			if err := s.handleService(pollerID, &apiService, now); err != nil {
+				log.Printf("Error handling service %s: %v", svc.ServiceName, err)
+			}
+
+			apiStatus.Services = append(apiStatus.Services, apiService)
+
+			continue // Skip to the next service
+		}
+
+		apiService.Details = details // Now details is in scope
+
+		if svc.ServiceType == "snmp" {
+			log.Printf("Found SNMP service, attempting to process metrics for node %s", pollerID)
+			if err := s.processSNMPMetrics(pollerID, details, now); err != nil { // details is also available here
+				log.Printf("Error processing SNMP metrics for node %s: %v", pollerID, err)
+			}
 		}
 
 		if err := s.handleService(pollerID, &apiService, now); err != nil {

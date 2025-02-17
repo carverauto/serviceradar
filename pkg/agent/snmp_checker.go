@@ -13,6 +13,10 @@ import (
 	"github.com/mfreeman451/serviceradar/proto"
 )
 
+const (
+	defaultConfigPath = "/etc/serviceradar/checkers"
+)
+
 // SNMPChecker implements the checker.Checker interface
 type SNMPChecker struct {
 	service       *snmp.SNMPService
@@ -23,7 +27,7 @@ type SNMPChecker struct {
 func NewSNMPChecker(address string) (checker.Checker, error) {
 	log.Printf("Creating new SNMP checker for address: %s", address)
 
-	configPath := filepath.Join("/etc/serviceradar/checkers", "snmp.json")
+	configPath := filepath.Join(defaultConfigPath, "snmp.json")
 	log.Printf("Loading SNMP config from: %s", configPath)
 
 	// Check if config file exists
@@ -83,7 +87,7 @@ func NewSNMPChecker(address string) (checker.Checker, error) {
 	return c, nil
 }
 
-func (c *SNMPChecker) Check(ctx context.Context) (bool, string) {
+func (c *SNMPChecker) Check(ctx context.Context) (status bool, msg string) {
 	// Call the GetStatus function on pollerService and return values
 	statusResponse, err := c.pollerService.GetStatus(ctx, &proto.StatusRequest{})
 	if err != nil {

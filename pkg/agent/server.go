@@ -317,6 +317,7 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 	switch value := v.(type) {
 	case float64:
 		*d = Duration(time.Duration(value))
+
 		return nil
 	case string:
 		tmp, err := time.ParseDuration(value)
@@ -345,9 +346,11 @@ func (s *Server) loadCheckerConfigs() error {
 		}
 
 		path := filepath.Join(s.configDir, file.Name())
+
 		data, err := os.ReadFile(path)
 		if err != nil {
 			log.Printf("Warning: Failed to read config file %s: %v", path, err)
+
 			continue
 		}
 
@@ -357,8 +360,10 @@ func (s *Server) loadCheckerConfigs() error {
 			conf.Name = "snmp-" + strings.TrimSuffix(file.Name(), ".json")
 			conf.Type = "snmp"
 			conf.Additional = json.RawMessage(data) // Use the entire file as Additional
+
 			s.checkerConfs[conf.Name] = conf
 			log.Printf("Loaded SNMP checker config: %s", conf.Name)
+
 			continue
 		}
 
@@ -366,6 +371,7 @@ func (s *Server) loadCheckerConfigs() error {
 		var conf CheckerConfig
 		if err := json.Unmarshal(data, &conf); err != nil {
 			log.Printf("Warning: Failed to parse config file %s: %v", path, err)
+
 			continue
 		}
 
