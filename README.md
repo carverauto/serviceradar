@@ -12,11 +12,11 @@ It provides real-time monitoring of internal services, with cloud-based alerting
 
 **Dashboard**:
 
-<img width="1393" alt="Screenshot 2025-01-29 at 8 50 35 PM" src="https://github.com/user-attachments/assets/d51bbed5-ce6f-4144-9ae7-64b1a1b14200" />
+<img width="1387" alt="Screenshot 2025-02-17 at 12 38 27 PM" src="https://github.com/user-attachments/assets/4d886335-2a22-4559-9487-d96af47b6656" />
 
 **Node List**:
 
-<img width="1393" alt="Screenshot 2025-01-29 at 8 51 14 PM" src="https://github.com/user-attachments/assets/28ad0871-f28b-403a-a861-2bfebb3bd15b" />
+<img width="1387" alt="Screenshot 2025-02-17 at 12 38 57 PM" src="https://github.com/user-attachments/assets/0cd3e4c2-a90b-43c1-90b8-9a85f5b48d06" />
 
 **SNMP Poller**:
 
