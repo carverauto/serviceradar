@@ -59,6 +59,13 @@ curl -LO https://github.com/mfreeman451/serviceradar/releases/download/1.0.17/se
 sudo dpkg -i serviceradar-cloud_1.0.17.deb
 ```
 
+#### Optional: SNMP Polling
+Download and install the SNMP checker to collect and visualize metrics:
+```bash
+curl -LO https://github.com/mfreeman451/serviceradar/releases/download/1.0.17/serviceradar-snmp-checker_1.0.17.deb
+sudo dpkg -i serviceradar-snmp-checker_1.0.17.deb
+```
+
 #### Optional: Dusk Node Monitoring
 If you're running a [Dusk](https://dusk.network/) node and want specialized monitoring:
 ```bash
@@ -182,6 +189,11 @@ cd serviceradar
 ./setup-deb-dusk-checker.sh
 ```
 
+6. Build the SNMP checker (optional):
+```bash
+./setup-deb-snmp-checker.sh
+```
+
 ### Installation Order and Location
 
 1. **Agent Installation** (on monitored hosts):
@@ -201,6 +213,11 @@ sudo dpkg -i serviceradar-poller_1.0.17.deb
 sudo dpkg -i serviceradar-cloud_1.0.17.deb
 ```
 
+4. **SNMP Poller** (Optional):
+```bash
+sudo dpkg -i serviceradar-snmp-checker_1.0.17.deb
+```
+
 ## Configuration
 
 ### Agent Configuration
@@ -215,6 +232,40 @@ Default location: ***/etc/serviceradar/***
     "listen_addr": ":50051",
     "service_type": "grpc",
     "service_name": "AgentService"
+}
+```
+
+For SNMP Polling:
+
+The config below is just an example, you will want to change or update this to match your environment.
+
+Example below is to poll the primary WAN interface on a Ubiquiti Dream Pro.
+
+**/etc/serviceradar/checkers/snmp.json**
+```
+{
+  "node_address": "localhost:50051",
+  "listen_addr": ":50054",
+  "timeout": "5m",
+  "targets": [
+    {
+      "name": "test-router",
+      "host": "192.168.1.1",
+      "port": 161,
+      "community": "public",
+      "version": "v2c",
+      "interval": "30s",
+      "retries": 2,
+      "oids": [
+        {
+          "oid": ".1.3.6.1.2.1.2.2.1.10.4",
+          "name": "ifInOctets_4",
+          "type": "counter",
+          "scale": 1.0
+        }
+      ]
+    }
+  ]
 }
 ```
 
