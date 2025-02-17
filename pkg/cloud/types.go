@@ -4,6 +4,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mfreeman451/serviceradar/pkg/checker/snmp"
 	"github.com/mfreeman451/serviceradar/pkg/cloud/alerts"
 	"github.com/mfreeman451/serviceradar/pkg/cloud/api"
 	"github.com/mfreeman451/serviceradar/pkg/db"
@@ -27,6 +28,7 @@ type Config struct {
 	Webhooks       []alerts.WebhookConfig `json:"webhooks,omitempty"`
 	KnownPollers   []string               `json:"known_pollers,omitempty"`
 	Metrics        Metrics                `json:"metrics"`
+	SNMP           snmp.Config            `json:"snmp"`
 	Security       *grpc.SecurityConfig   `json:"security"`
 }
 
@@ -41,5 +43,6 @@ type Server struct {
 	pollerPatterns []string
 	grpcServer     *grpc.Server
 	metrics        metrics.MetricCollector
+	snmpManager    snmp.SNMPManager
 	config         *Config
 }

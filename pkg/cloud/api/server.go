@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/mfreeman451/serviceradar/pkg/checker/snmp"
+	"github.com/mfreeman451/serviceradar/pkg/db"
 	srHttp "github.com/mfreeman451/serviceradar/pkg/http"
 	"github.com/mfreeman451/serviceradar/pkg/metrics"
 	"github.com/mfreeman451/serviceradar/pkg/models"
@@ -59,18 +61,42 @@ type APIServer struct {
 	router             *mux.Router
 	nodeHistoryHandler func(nodeID string) ([]NodeHistoryPoint, error)
 	metricsManager     metrics.MetricCollector
+	snmpManager        snmp.SNMPManager
+	db                 db.Service
 	knownPollers       []string
 }
 
-func NewAPIServer(metricsManager metrics.MetricCollector) *APIServer {
+func NewAPIServer(options ...func(server *APIServer)) *APIServer {
 	s := &APIServer{
-		nodes:          make(map[string]*NodeStatus),
-		router:         mux.NewRouter(),
-		metricsManager: metricsManager,
+		nodes:  make(map[string]*NodeStatus),
+		router: mux.NewRouter(),
 	}
+
+	for _, o := range options {
+		o(s)
+	}
+
 	s.setupRoutes()
 
 	return s
+}
+
+func WithMetricsManager(m metrics.MetricCollector) func(server *APIServer) {
+	return func(server *APIServer) {
+		server.metricsManager = m
+	}
+}
+
+func WithSNMPManager(m snmp.SNMPManager) func(server *APIServer) {
+	return func(server *APIServer) {
+		server.snmpManager = m
+	}
+}
+
+func WithDB(db db.Service) func(server *APIServer) {
+	return func(server *APIServer) {
+		server.db = db
+	}
 }
 
 func (s *APIServer) setupStaticFileServing() {
@@ -105,8 +131,57 @@ func (s *APIServer) setupRoutes() {
 	s.router.HandleFunc("/api/nodes/{id}/services", s.getNodeServices).Methods("GET")
 	s.router.HandleFunc("/api/nodes/{id}/services/{service}", s.getServiceDetails).Methods("GET")
 
+	// SNMP endpoints
+	s.router.HandleFunc("/api/nodes/{id}/snmp", s.getSNMPData).Methods("GET")
+
 	// Serve static files
 	s.setupStaticFileServing()
+}
+
+// getSNMPData retrieves SNMP data for a specific node.
+func (s *APIServer) getSNMPData(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	nodeID := vars["id"]
+
+	// Get start and end times from query parameters
+	startStr := r.URL.Query().Get("start")
+	endStr := r.URL.Query().Get("end")
+
+	if startStr == "" || endStr == "" {
+		http.Error(w, "start and end parameters are required", http.StatusBadRequest)
+
+		return
+	}
+
+	startTime, err := time.Parse(time.RFC3339, startStr)
+	if err != nil {
+		http.Error(w, "Invalid start time format", http.StatusBadRequest)
+
+		return
+	}
+
+	endTime, err := time.Parse(time.RFC3339, endStr)
+	if err != nil {
+		http.Error(w, "Invalid end time format", http.StatusBadRequest)
+
+		return
+	}
+
+	// Use the injected snmpManager to fetch SNMP metrics
+	snmpMetrics, err := s.snmpManager.GetSNMPMetrics(nodeID, startTime, endTime)
+	if err != nil {
+		log.Printf("Error fetching SNMP data for node %s: %v", nodeID, err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json") //moved before the Encode
+
+	if err := json.NewEncoder(w).Encode(snmpMetrics); err != nil {
+		log.Printf("Error encoding SNMP data response for node %s: %v", nodeID, err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	}
 }
 
 func (s *APIServer) getNodeMetrics(w http.ResponseWriter, r *http.Request) {

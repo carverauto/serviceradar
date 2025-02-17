@@ -136,4 +136,13 @@ type TargetStatus struct {
 	LastPoll  time.Time            `json:"last_poll"`
 	OIDStatus map[string]OIDStatus `json:"oid_status"`
 	Error     string               `json:"error,omitempty"`
+	Target    *Target              `json:"-"`
+}
+
+// DataFilter defines criteria for querying stored data.
+type DataFilter struct {
+	OIDName   string
+	StartTime time.Time
+	EndTime   time.Time
+	Limit     int
 }

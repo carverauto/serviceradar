@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mfreeman451/serviceradar/pkg/checker/snmp"
 	"github.com/mfreeman451/serviceradar/pkg/cloud/alerts"
 	"github.com/mfreeman451/serviceradar/pkg/cloud/api"
 	"github.com/mfreeman451/serviceradar/pkg/db"
@@ -76,6 +77,7 @@ func NewServer(_ context.Context, config *Config) (*Server, error) {
 		ShutdownChan:   make(chan struct{}),
 		pollerPatterns: config.PollerPatterns,
 		metrics:        metricsManager,
+		snmpManager:    snmp.NewSNMPManager(database),
 		config:         config,
 	}
 
@@ -152,6 +154,10 @@ func (s *Server) monitorNodes(ctx context.Context) {
 
 func (s *Server) GetMetricsManager() metrics.MetricCollector {
 	return s.metrics
+}
+
+func (s *Server) GetSNMPManager() snmp.SNMPManager {
+	return s.snmpManager
 }
 
 func (s *Server) runMetricsCleanup(ctx context.Context) {
@@ -456,6 +462,9 @@ func (s *Server) processServices(pollerID string, apiStatus *api.NodeStatus, ser
 	allServicesAvailable := true
 
 	for _, svc := range services {
+		log.Printf("Processing service %s for node %s", svc.ServiceName, pollerID)
+		log.Printf("Service type: %s, Message length: %d", svc.ServiceType, len(svc.Message))
+
 		apiService := api.ServiceStatus{
 			Name:      svc.ServiceName,
 			Type:      svc.ServiceType,
@@ -464,15 +473,29 @@ func (s *Server) processServices(pollerID string, apiStatus *api.NodeStatus, ser
 		}
 
 		if !svc.Available {
-			allServicesAvailable = false // If ANY service is unavailable, set to false
+			allServicesAvailable = false
 		}
 
 		// Process JSON details if available
 		if svc.Message != "" {
 			var details json.RawMessage
-			if err := json.Unmarshal([]byte(svc.Message), &details); err == nil {
+			if err := json.Unmarshal([]byte(svc.Message), &details); err != nil {
+				log.Printf("Error unmarshaling service details for %s: %v", svc.ServiceName, err)
+				log.Printf("Raw message: %s", svc.Message)
+			} else {
 				apiService.Details = details
+				log.Printf("Service Details for %s [%s]: %s", svc.ServiceName, svc.ServiceType, string(details))
+
+				// Check if this is an SNMP service and store metrics
+				if svc.ServiceType == "snmp" {
+					log.Printf("Found SNMP service, attempting to process metrics for node %s", pollerID)
+					if err := s.processSNMPMetrics(pollerID, details, now); err != nil {
+						log.Printf("Error processing SNMP metrics for node %s: %v", pollerID, err)
+					}
+				}
 			}
+		} else {
+			log.Printf("No message content for service %s", svc.ServiceName)
 		}
 
 		if err := s.handleService(pollerID, &apiService, now); err != nil {
@@ -482,8 +505,69 @@ func (s *Server) processServices(pollerID string, apiStatus *api.NodeStatus, ser
 		apiStatus.Services = append(apiStatus.Services, apiService)
 	}
 
-	// Only set IsHealthy based on ALL services.
 	apiStatus.IsHealthy = allServicesAvailable
+}
+
+// processSNMPMetrics extracts and stores SNMP metrics from service details.
+func (s *Server) processSNMPMetrics(nodeID string, details json.RawMessage, timestamp time.Time) error {
+	// Parse SNMP data
+	var snmpData struct {
+		Metrics []struct {
+			OID     string      `json:"oid"`
+			Name    string      `json:"name"`
+			Value   interface{} `json:"value"`
+			Type    string      `json:"type"`
+			Scale   float64     `json:"scale"`
+			IsDelta bool        `json:"is_delta"`
+		} `json:"metrics"`
+	}
+
+	if err := json.Unmarshal(details, &snmpData); err != nil {
+		return fmt.Errorf("failed to parse SNMP data: %w", err)
+	}
+
+	// Store each metric
+	for _, m := range snmpData.Metrics {
+		// Create metadata
+		metadata := map[string]interface{}{
+			"oid":      m.OID,
+			"scale":    m.Scale,
+			"is_delta": m.IsDelta,
+		}
+
+		// Convert value to string for storage
+		var valueStr string
+		switch v := m.Value.(type) {
+		case string:
+			valueStr = v
+		case float64:
+			valueStr = fmt.Sprintf("%f", v)
+		case int:
+			valueStr = fmt.Sprintf("%d", v)
+		case bool:
+			valueStr = fmt.Sprintf("%v", v)
+		default:
+			valueStr = fmt.Sprintf("%v", v)
+		}
+
+		// Create metric
+		metric := &db.TimeseriesMetric{
+			Name:      m.Name,
+			Value:     valueStr,
+			Type:      "snmp",
+			Timestamp: timestamp,
+			Metadata:  metadata,
+		}
+
+		// Store in database
+		if err := s.db.StoreMetric(nodeID, metric); err != nil {
+			log.Printf("Error storing SNMP metric %s for node %s: %v", m.Name, nodeID, err)
+
+			continue
+		}
+	}
+
+	return nil
 }
 
 func (s *Server) handleService(pollerID string, svc *api.ServiceStatus, now time.Time) error {

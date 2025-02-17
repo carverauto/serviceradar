@@ -43,7 +43,7 @@ func run() error {
 	}
 
 	// Create and register block service
-	snmpAgentService := snmp.NewSNMPPollerService(&snmp.Poller{Config: cfg})
+	snmpAgentService := snmp.NewSNMPPollerService(&snmp.Poller{Config: cfg}, service)
 
 	// Create gRPC service registrar
 	registerServices := func(s *grpc.Server) error {

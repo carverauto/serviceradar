@@ -148,13 +148,27 @@ func (s *SNMPService) RemoveTarget(targetName string) error {
 }
 
 // GetStatus implements the Service interface.
-func (s *SNMPService) GetStatus() (map[string]TargetStatus, error) {
+func (s *SNMPService) GetStatus(_ context.Context) (map[string]TargetStatus, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	status := make(map[string]TargetStatus, len(s.status))
-	for name, targetStatus := range s.status {
-		status[name] = targetStatus
+	log.Printf("SNMP GetStatus called with %d collectors", len(s.collectors))
+
+	status := make(map[string]TargetStatus)
+
+	// Check each collector's status
+	for name, collector := range s.collectors {
+		log.Printf("Getting status for collector: %s", name)
+
+		collectorStatus := collector.GetStatus()
+		log.Printf("Collector %s status: %+v", name, collectorStatus)
+
+		status[name] = collectorStatus
+	}
+
+	if len(status) == 0 {
+		log.Printf("No SNMP status found, checking configuration...")
+		log.Printf("Config: %+v", s.config)
 	}
 
 	return status, nil
@@ -171,7 +185,7 @@ func (s *SNMPService) GetServiceStatus(ctx context.Context, req *proto.StatusReq
 	_, cancel := context.WithTimeout(ctx, defaultServiceStatusTimeout)
 	defer cancel()
 
-	status, err := s.GetStatus()
+	status, err := s.GetStatus(ctx)
 	if err != nil {
 		return &proto.StatusResponse{
 			Available: false,
@@ -250,6 +264,25 @@ func (s *SNMPService) initializeTarget(ctx context.Context, target *Target) erro
 	log.Printf("Successfully initialized target %s", target.Name)
 
 	return nil
+}
+
+func (s *SNMPService) updateOIDStatus(targetName string, status *TargetStatus, point DataPoint) {
+	if status.OIDStatus == nil {
+		status.OIDStatus = make(map[string]OIDStatus)
+	}
+
+	// Find the target configuration
+	for _, target := range s.config.Targets {
+		if target.Name == targetName {
+			status.SetTarget(&target)
+			break
+		}
+	}
+
+	oidStatus := status.OIDStatus[point.OIDName]
+	oidStatus.LastValue = point.Value
+	oidStatus.LastUpdate = point.Timestamp
+	status.OIDStatus[point.OIDName] = oidStatus
 }
 
 // processResults handles the data points from a collector.

@@ -38,8 +38,11 @@ func run() error {
 		return err
 	}
 
-	// Create and configure API server
-	apiServer := api.NewAPIServer(server.GetMetricsManager())
+	apiServer := api.NewAPIServer(
+		api.WithMetricsManager(server.GetMetricsManager()),
+		api.WithSNMPManager(server.GetSNMPManager()),
+	)
+
 	server.SetAPIServer(apiServer)
 
 	// Start HTTP API server in background

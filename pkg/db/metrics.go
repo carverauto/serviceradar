@@ -7,8 +7,6 @@ import (
 	"time"
 )
 
-// Add to pkg/db/db.go
-
 // StoreMetric stores a timeseries metric in the database
 func (db *DB) StoreMetric(nodeID string, metric *TimeseriesMetric) error {
 	// Convert metadata to JSON if present
