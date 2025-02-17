@@ -22,11 +22,10 @@ jobs:
           sudo apt-get install -y build-essential
       - name: Build packages
         run: |
-          chmod +x setup-deb-*.sh
-          ./setup-deb-agent.sh
-          ./setup-deb-poller.sh
-          ./setup-deb-cloud.sh
-          ./setup-deb-dusk-checker.sh
+          ./scripts/setup-deb-agent.sh
+          ./scripts/setup-deb-poller.sh
+          ./scripts/setup-deb-cloud.sh
+          ./scripts/setup-deb-dusk-checker.sh
       - name: List Artifacts (for debugging)
         run: ls -al ./release-artifacts
       - name: Upload Release Assets

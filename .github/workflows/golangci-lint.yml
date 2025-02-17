@@ -28,6 +28,6 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
-          version: v1.60.3
+          version: v1.64.5
       - name: go mod tidy check
         uses: katexochen/go-tidy-check@v2
