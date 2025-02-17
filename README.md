@@ -241,6 +241,17 @@ The config below is just an example, you will want to change or update this to m
 
 Example below is to poll the primary WAN interface on a Ubiquiti Dream Pro.
 
+On the Agent we need to configure the `external.json` file so it knows to talk to the SNMP checker.
+The agent and the checkers typically are co-located on the same server.
+
+**/etc/serviceradar/checkers/external.json**
+```json
+{
+    "name": "snmp",
+    "address": "localhost:50054"
+}
+```
+
 **/etc/serviceradar/checkers/snmp.json**
 
 ```json
