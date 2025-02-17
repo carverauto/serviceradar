@@ -54,6 +54,20 @@ func (mr *MockCollectorMockRecorder) GetResults() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetResults", reflect.TypeOf((*MockCollector)(nil).GetResults))
 }
 
+// GetStatus mocks base method.
+func (m *MockCollector) GetStatus() TargetStatus {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetStatus")
+	ret0, _ := ret[0].(TargetStatus)
+	return ret0
+}
+
+// GetStatus indicates an expected call of GetStatus.
+func (mr *MockCollectorMockRecorder) GetStatus() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetStatus", reflect.TypeOf((*MockCollector)(nil).GetStatus))
+}
+
 // Start mocks base method.
 func (m *MockCollector) Start(ctx context.Context) error {
 	m.ctrl.T.Helper()
@@ -184,18 +198,18 @@ func (mr *MockServiceMockRecorder) AddTarget(target any) *gomock.Call {
 }
 
 // GetStatus mocks base method.
-func (m *MockService) GetStatus() (map[string]TargetStatus, error) {
+func (m *MockService) GetStatus(arg0 context.Context) (map[string]TargetStatus, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetStatus")
+	ret := m.ctrl.Call(m, "GetStatus", arg0)
 	ret0, _ := ret[0].(map[string]TargetStatus)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetStatus indicates an expected call of GetStatus.
-func (mr *MockServiceMockRecorder) GetStatus() *gomock.Call {
+func (mr *MockServiceMockRecorder) GetStatus(arg0 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetStatus", reflect.TypeOf((*MockService)(nil).GetStatus))
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetStatus", reflect.TypeOf((*MockService)(nil).GetStatus), arg0)
 }
 
 // RemoveTarget mocks base method.

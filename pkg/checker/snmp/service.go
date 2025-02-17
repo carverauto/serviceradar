@@ -118,6 +118,9 @@ func (s *SNMPService) AddTarget(target *Target) error {
 		return fmt.Errorf("%w: %s", ErrTargetExists, target.Name)
 	}
 
+	// TODO: need to pass down the context, we tried to fix
+	// this before and ended up breaking the metric dataflow.
+	// Best guess is that we have a short lived timeout on the parent context.
 	ctx := context.Background()
 	if err := s.initializeTarget(ctx, target); err != nil {
 		return fmt.Errorf("%w: %s", errFailedToInitTarget, target.Name)
