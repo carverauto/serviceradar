@@ -25,7 +25,7 @@ type Collector interface {
 // Aggregator defines how to aggregate collected SNMP data.
 type Aggregator interface {
 	// AddPoint adds a new data point for aggregation
-	AddPoint(point DataPoint)
+	AddPoint(point *DataPoint)
 	// GetAggregatedData retrieves aggregated data for a given OID and interval
 	GetAggregatedData(oidName string, interval Interval) (*DataPoint, error)
 	// Reset clears all aggregated data

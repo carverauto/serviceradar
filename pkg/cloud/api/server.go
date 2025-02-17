@@ -176,7 +176,7 @@ func (s *APIServer) getSNMPData(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json") //moved before the Encode
+	w.Header().Set("Content-Type", "application/json")
 
 	if err := json.NewEncoder(w).Encode(snmpMetrics); err != nil {
 		log.Printf("Error encoding SNMP data response for node %s: %v", nodeID, err)

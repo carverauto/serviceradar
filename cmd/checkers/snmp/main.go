@@ -5,12 +5,17 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/mfreeman451/serviceradar/pkg/checker/snmp"
 	"github.com/mfreeman451/serviceradar/pkg/config"
 	"github.com/mfreeman451/serviceradar/pkg/grpc"
 	"github.com/mfreeman451/serviceradar/pkg/lifecycle"
 	"github.com/mfreeman451/serviceradar/proto"
+)
+
+const (
+	defaultSNMPStopTimeout = 10 * time.Second
 )
 
 var (
@@ -70,17 +75,22 @@ func run() error {
 	return nil
 }
 
-// snmpService wraps the SNMPService to implement lifecycle.Service
+// snmpService wraps the SNMPService to implement lifecycle.Service.
 type snmpService struct {
 	service *snmp.SNMPService
 }
 
 func (s *snmpService) Start(ctx context.Context) error {
 	log.Printf("Starting SNMP service...")
+
 	return s.service.Start(ctx)
 }
 
 func (s *snmpService) Stop(ctx context.Context) error {
 	log.Printf("Stopping SNMP service...")
+
+	_, cancel := context.WithTimeout(ctx, defaultSNMPStopTimeout)
+	defer cancel()
+
 	return s.service.Stop()
 }

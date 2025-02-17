@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// StoreMetric stores a timeseries metric in the database
+// StoreMetric stores a timeseries metric in the database.
 func (db *DB) StoreMetric(nodeID string, metric *TimeseriesMetric) error {
 	log.Printf("Storing metric: %v", metric)
 
@@ -46,15 +46,14 @@ func (db *DB) StoreMetric(nodeID string, metric *TimeseriesMetric) error {
 	return nil
 }
 
-// GetMetrics retrieves metrics for a specific node and metric name
+// GetMetrics retrieves metrics for a specific node and metric name.
 func (db *DB) GetMetrics(nodeID, metricName string, start, end time.Time) ([]TimeseriesMetric, error) {
 	rows, err := db.Query(`
         SELECT metric_name, metric_type, value, metadata, timestamp
         FROM timeseries_metrics
         WHERE node_id = ? 
         AND metric_name = ?
-        AND timestamp BETWEEN ? AND ?
-        ORDER BY timestamp ASC`,
+        AND timestamp BETWEEN ? AND ?`,
 		nodeID,
 		metricName,
 		start,
@@ -68,15 +67,14 @@ func (db *DB) GetMetrics(nodeID, metricName string, start, end time.Time) ([]Tim
 	return db.scanMetrics(rows)
 }
 
-// GetMetricsByType retrieves metrics for a specific node and metric type
+// GetMetricsByType retrieves metrics for a specific node and metric type.
 func (db *DB) GetMetricsByType(nodeID, metricType string, start, end time.Time) ([]TimeseriesMetric, error) {
 	rows, err := db.Query(`
         SELECT metric_name, metric_type, value, metadata, timestamp
         FROM timeseries_metrics
         WHERE node_id = ? 
         AND metric_type = ?
-        AND timestamp BETWEEN ? AND ?
-        ORDER BY timestamp ASC`,
+        AND timestamp BETWEEN ? AND ?`,
 		nodeID,
 		metricType,
 		start,

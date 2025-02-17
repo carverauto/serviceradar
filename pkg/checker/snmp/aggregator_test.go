@@ -43,7 +43,7 @@ func TestAggregator_WithMocks(t *testing.T) {
 					Return(&testPoint, nil)
 			},
 			testFunction: func() error {
-				mockAggregator.AddPoint(testPoint)
+				mockAggregator.AddPoint(&testPoint)
 				_, err := mockAggregator.GetAggregatedData(testPoint.OIDName, Minute)
 				return err
 			},

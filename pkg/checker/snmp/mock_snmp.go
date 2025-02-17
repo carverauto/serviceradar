@@ -121,7 +121,7 @@ func (m *MockAggregator) EXPECT() *MockAggregatorMockRecorder {
 }
 
 // AddPoint mocks base method.
-func (m *MockAggregator) AddPoint(point DataPoint) {
+func (m *MockAggregator) AddPoint(point *DataPoint) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "AddPoint", point)
 }

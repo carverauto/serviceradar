@@ -478,6 +478,7 @@ func (s *Server) processServices(pollerID string, apiStatus *api.NodeStatus, ser
 
 		if svc.Message == "" {
 			log.Printf("No message content for service %s", svc.ServiceName)
+
 			if err := s.handleService(pollerID, &apiService, now); err != nil {
 				log.Printf("Error handling service %s: %v", svc.ServiceName, err)
 			}
@@ -506,6 +507,7 @@ func (s *Server) processServices(pollerID string, apiStatus *api.NodeStatus, ser
 
 		if svc.ServiceType == "snmp" {
 			log.Printf("Found SNMP service, attempting to process metrics for node %s", pollerID)
+
 			if err := s.processSNMPMetrics(pollerID, details, now); err != nil { // details is also available here
 				log.Printf("Error processing SNMP metrics for node %s: %v", pollerID, err)
 			}

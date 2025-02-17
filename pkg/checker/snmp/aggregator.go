@@ -58,7 +58,7 @@ func NewAggregator(interval time.Duration) Aggregator {
 }
 
 // AddPoint implements Aggregator interface.
-func (a *SNMPAggregator) AddPoint(point DataPoint) {
+func (a *SNMPAggregator) AddPoint(point *DataPoint) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -152,12 +152,12 @@ func (a *SNMPAggregator) aggregatePoints(points []DataPoint, aggType AggregateTy
 	return &result, nil
 }
 
-func (ts *TimeSeriesData) addPoint(point DataPoint) {
+func (ts *TimeSeriesData) addPoint(point *DataPoint) {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
 
 	// Add new point
-	ts.points = append(ts.points, point)
+	ts.points = append(ts.points, *point)
 
 	// Remove oldest points if we exceed maxSize
 	if len(ts.points) > ts.maxSize {

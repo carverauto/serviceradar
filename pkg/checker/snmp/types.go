@@ -81,7 +81,7 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 	}
 }
 
-// DataPoint represents a single collected data point
+// DataPoint represents a single collected data point.
 type DataPoint struct {
 	OIDName   string      `json:"oid_name"`
 	Value     interface{} `json:"value"`

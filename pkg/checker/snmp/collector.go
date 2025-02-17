@@ -155,7 +155,7 @@ func (c *SNMPCollector) processResult(ctx context.Context, oid string, value int
 	}
 
 	// Update OID status
-	c.updateOIDStatus(oidConfig.Name, point)
+	c.updateOIDStatus(oidConfig.Name, &point)
 
 	select {
 	case c.dataChan <- point:
@@ -168,7 +168,6 @@ func (c *SNMPCollector) processResult(ctx context.Context, oid string, value int
 }
 
 // convertValue converts an SNMP value based on the OID configuration.
-// Update convertValue to handle interface{} return
 func (c *SNMPCollector) convertValue(value interface{}, config *OIDConfig) (interface{}, error) {
 	switch config.DataType {
 	case TypeCounter:
@@ -213,7 +212,7 @@ func (c *SNMPCollector) updateStatus(available bool, errorMsg string) {
 }
 
 // updateOIDStatus updates the status for a specific OID.
-func (c *SNMPCollector) updateOIDStatus(oidName string, point DataPoint) {
+func (c *SNMPCollector) updateOIDStatus(oidName string, point *DataPoint) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 

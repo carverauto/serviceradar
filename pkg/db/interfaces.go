@@ -1,3 +1,4 @@
+// Package db pkg/db/interfaces.go
 package db
 
 import (
@@ -6,7 +7,7 @@ import (
 
 //go:generate mockgen -destination=mock_db.go -package=db github.com/mfreeman451/serviceradar/pkg/db Row,Result,Rows,Transaction,Service
 
-// TimeseriesMetric represents a generic timeseries datapoint
+// TimeseriesMetric represents a generic timeseries datapoint.
 type TimeseriesMetric struct {
 	Name      string      `json:"name"`
 	Value     string      `json:"value"` // Store as string for flexibility

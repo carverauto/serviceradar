@@ -17,7 +17,7 @@ const (
 	defaultConfigPath = "/etc/serviceradar/checkers"
 )
 
-// SNMPChecker implements the checker.Checker interface
+// SNMPChecker implements the checker.Checker interface.
 type SNMPChecker struct {
 	service       *snmp.SNMPService
 	config        *snmp.Config

@@ -16,7 +16,7 @@ const (
 	defaultServiceStatusTimeout = 5 * time.Second
 )
 
-func (s *SNMPService) Check(ctx context.Context) (bool, string) {
+func (s *SNMPService) Check(ctx context.Context) (status bool, msg string) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -269,25 +269,6 @@ func (s *SNMPService) initializeTarget(ctx context.Context, target *Target) erro
 	return nil
 }
 
-func (s *SNMPService) updateOIDStatus(targetName string, status *TargetStatus, point DataPoint) {
-	if status.OIDStatus == nil {
-		status.OIDStatus = make(map[string]OIDStatus)
-	}
-
-	// Find the target configuration
-	for _, target := range s.config.Targets {
-		if target.Name == targetName {
-			status.SetTarget(&target)
-			break
-		}
-	}
-
-	oidStatus := status.OIDStatus[point.OIDName]
-	oidStatus.LastValue = point.Value
-	oidStatus.LastUpdate = point.Timestamp
-	status.OIDStatus[point.OIDName] = oidStatus
-}
-
 // processResults handles the data points from a collector.
 func (s *SNMPService) processResults(ctx context.Context, targetName string, collector Collector, aggregator Aggregator) {
 	results := collector.GetResults()
@@ -303,13 +284,13 @@ func (s *SNMPService) processResults(ctx context.Context, targetName string, col
 				return
 			}
 
-			s.handleDataPoint(targetName, point, aggregator)
+			s.handleDataPoint(targetName, &point, aggregator)
 		}
 	}
 }
 
 // handleDataPoint processes a single data point.
-func (s *SNMPService) handleDataPoint(targetName string, point DataPoint, aggregator Aggregator) {
+func (s *SNMPService) handleDataPoint(targetName string, point *DataPoint, aggregator Aggregator) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

@@ -1,10 +1,14 @@
 // Package snmp pkg/checker/snmp/target_status.go
 package snmp
 
+const (
+	defaultUnknown = "unknown"
+)
+
 // GetDataType returns the data type for the given OID.
 func (ts *TargetStatus) GetDataType(oidName string) string {
 	if ts.Target == nil {
-		return "unknown"
+		return defaultUnknown
 	}
 
 	for _, oid := range ts.Target.OIDs {
@@ -13,7 +17,7 @@ func (ts *TargetStatus) GetDataType(oidName string) string {
 		}
 	}
 
-	return "unknown"
+	return defaultUnknown
 }
 
 // GetScale returns the scale factor for the given OID.

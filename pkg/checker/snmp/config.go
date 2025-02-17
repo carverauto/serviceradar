@@ -212,7 +212,7 @@ func isValidOID(oid string) bool {
 // isValidDataType checks if the data type is valid.
 func isValidDataType(dt DataType) bool {
 	switch dt {
-	case TypeCounter, TypeGauge, TypeBoolean, TypeBytes, TypeString:
+	case TypeCounter, TypeGauge, TypeBoolean, TypeBytes, TypeString, TypeFloat:
 		return true
 	default:
 		return false
