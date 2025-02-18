@@ -17,6 +17,7 @@ const (
 	defaultInterval     = 60 * time.Second
 	defaultRetries      = 3
 	defaultPort         = 161
+	defaultMaxPoints    = 1000
 	maxOIDNameLength    = 64
 	maxTargetNameLength = 128
 )
@@ -56,6 +57,11 @@ func (c *Config) Validate() error {
 	for i := range c.Targets {
 		if err := c.validateTarget(&c.Targets[i], targetNames); err != nil {
 			return fmt.Errorf("target %d: %w", i+1, err)
+		}
+
+		// set max data points
+		if c.Targets[i].MaxPoints == 0 {
+			c.Targets[i].MaxPoints = defaultMaxPoints
 		}
 	}
 

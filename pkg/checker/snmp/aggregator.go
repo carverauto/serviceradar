@@ -40,12 +40,11 @@ const (
 )
 
 const (
-	defaultMaxDataPoints = 1000
-	minInterval          = 5 * time.Second
+	minInterval = 5 * time.Second
 )
 
 // NewAggregator creates a new SNMPAggregator.
-func NewAggregator(interval time.Duration) Aggregator {
+func NewAggregator(interval time.Duration, maxDataPoints int) Aggregator {
 	if interval < minInterval {
 		interval = minInterval
 	}
@@ -53,7 +52,7 @@ func NewAggregator(interval time.Duration) Aggregator {
 	return &SNMPAggregator{
 		interval: interval,
 		data:     make(map[string]*TimeSeriesData),
-		maxSize:  defaultMaxDataPoints,
+		maxSize:  maxDataPoints,
 	}
 }
 

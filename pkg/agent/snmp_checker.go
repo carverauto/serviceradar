@@ -47,7 +47,8 @@ func NewSNMPChecker(address string) (checker.Checker, error) {
 	log.Printf("Loaded SNMP config: NodeAddress=%s, ListenAddr=%s, Targets=%d",
 		cfg.NodeAddress, cfg.ListenAddr, len(cfg.Targets))
 
-	for i, target := range cfg.Targets {
+	for i := range cfg.Targets {
+		target := &cfg.Targets[i]
 		log.Printf("Target %d: Name=%s Host=%s Port=%d OIDs=%d",
 			i, target.Name, target.Host, target.Port, len(target.OIDs))
 	}

@@ -55,7 +55,7 @@ type CollectorFactory interface {
 // AggregatorFactory creates data aggregators.
 type AggregatorFactory interface {
 	// CreateAggregator creates a new aggregator
-	CreateAggregator(interval time.Duration) (Aggregator, error)
+	CreateAggregator(interval time.Duration, maxPoints int) (Aggregator, error)
 }
 
 // SNMPClient defines the interface for SNMP communication.

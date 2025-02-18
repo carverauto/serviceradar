@@ -11,27 +11,6 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-type mockFactories struct {
-	collectorFactory  *mockCollectorFactory
-	aggregatorFactory *mockAggregatorFactory
-}
-
-type mockCollectorFactory struct {
-	collector *MockCollector
-}
-
-func (f *mockCollectorFactory) CreateCollector(*Target) (Collector, error) {
-	return f.collector, nil
-}
-
-type mockAggregatorFactory struct {
-	aggregator *MockAggregator
-}
-
-func (f *mockAggregatorFactory) CreateAggregator(time.Duration) (Aggregator, error) {
-	return f.aggregator, nil
-}
-
 func TestSNMPService(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -63,7 +42,7 @@ func TestSNMPService(t *testing.T) {
 	t.Run("Start and Stop Service", testStartStopService(ctrl, config))
 	t.Run("AddTarget", testAddTarget(ctrl, config))
 	t.Run("RemoveTarget", testRemoveTarget(ctrl, config))
-	t.Run("GetStatus", testGetStatus(config))
+	t.Run("GetStatus", testGetStatus(ctrl, config))
 }
 
 func testNewSNMPService(config *Config) func(t *testing.T) {
@@ -78,34 +57,42 @@ func testNewSNMPService(config *Config) func(t *testing.T) {
 
 func testStartStopService(ctrl *gomock.Controller, config *Config) func(t *testing.T) {
 	return func(t *testing.T) {
+		// Create mock collector factory and mock collector
+		mockCollectorFactory := NewMockCollectorFactory(ctrl)
 		mockCollector := NewMockCollector(ctrl)
+
+		// Create mock aggregator factory and mock aggregator
+		mockAggregatorFactory := NewMockAggregatorFactory(ctrl)
 		mockAggregator := NewMockAggregator(ctrl)
 
-		mocks := &mockFactories{
-			collectorFactory: &mockCollectorFactory{
-				collector: mockCollector,
-			},
-			aggregatorFactory: &mockAggregatorFactory{
-				aggregator: mockAggregator,
-			},
-		}
-
+		// Create service with mocks
 		service, err := NewSNMPService(config)
 		require.NoError(t, err)
 
-		service.collectorFactory = mocks.collectorFactory
-		service.aggregatorFactory = mocks.aggregatorFactory
+		service.collectorFactory = mockCollectorFactory
+		service.aggregatorFactory = mockAggregatorFactory
 
 		dataChan := make(chan DataPoint)
+
+		// Set up expectations
+		mockCollectorFactory.EXPECT().
+			CreateCollector(gomock.Any()).
+			Return(mockCollector, nil)
+
+		mockAggregatorFactory.EXPECT().
+			CreateAggregator(gomock.Any(), defaultMaxPoints).
+			Return(mockAggregator, nil)
 
 		mockCollector.EXPECT().Start(gomock.Any()).Return(nil)
 		mockCollector.EXPECT().GetResults().Return(dataChan)
 		mockCollector.EXPECT().Stop().Return(nil)
 
+		// Test start
 		ctx := context.Background()
 		err = service.Start(ctx)
 		require.NoError(t, err)
 
+		// Test stop
 		err = service.Stop()
 		require.NoError(t, err)
 	}
@@ -113,23 +100,20 @@ func testStartStopService(ctrl *gomock.Controller, config *Config) func(t *testi
 
 func testAddTarget(ctrl *gomock.Controller, config *Config) func(t *testing.T) {
 	return func(t *testing.T) {
+		// Create mock factories
+		mockCollectorFactory := NewMockCollectorFactory(ctrl)
+		mockAggregatorFactory := NewMockAggregatorFactory(ctrl)
+
+		// Create mock collector and aggregator
 		mockCollector := NewMockCollector(ctrl)
 		mockAggregator := NewMockAggregator(ctrl)
 
-		mocks := &mockFactories{
-			collectorFactory: &mockCollectorFactory{
-				collector: mockCollector,
-			},
-			aggregatorFactory: &mockAggregatorFactory{
-				aggregator: mockAggregator,
-			},
-		}
-
+		// Create service with mocks
 		service, err := NewSNMPService(config)
 		require.NoError(t, err)
 
-		service.collectorFactory = mocks.collectorFactory
-		service.aggregatorFactory = mocks.aggregatorFactory
+		service.collectorFactory = mockCollectorFactory
+		service.aggregatorFactory = mockAggregatorFactory
 
 		newTarget := &Target{
 			Name:      "new-target",
@@ -138,6 +122,7 @@ func testAddTarget(ctrl *gomock.Controller, config *Config) func(t *testing.T) {
 			Community: "public",
 			Version:   Version2c,
 			Interval:  Duration(30 * time.Second),
+			MaxPoints: defaultMaxPoints, // Explicitly set MaxPoints to match config default
 			OIDs: []OIDConfig{
 				{
 					OID:      ".1.3.6.1.2.1.1.3.0",
@@ -149,9 +134,24 @@ func testAddTarget(ctrl *gomock.Controller, config *Config) func(t *testing.T) {
 
 		dataChan := make(chan DataPoint)
 
-		mockCollector.EXPECT().Start(gomock.Any()).Return(nil)
-		mockCollector.EXPECT().GetResults().Return(dataChan)
+		// Set up expectations in order with specific parameter matching
+		mockCollectorFactory.EXPECT().
+			CreateCollector(newTarget).
+			Return(mockCollector, nil)
 
+		mockAggregatorFactory.EXPECT().
+			CreateAggregator(time.Duration(newTarget.Interval), newTarget.MaxPoints).
+			Return(mockAggregator, nil)
+
+		mockCollector.EXPECT().
+			Start(gomock.Any()).
+			Return(nil)
+
+		mockCollector.EXPECT().
+			GetResults().
+			Return(dataChan)
+
+		// Test adding target
 		err = service.AddTarget(context.Background(), newTarget)
 		require.NoError(t, err)
 
@@ -183,11 +183,8 @@ func testRemoveTarget(ctrl *gomock.Controller, config *Config) func(t *testing.T
 	}
 }
 
-func testGetStatus(config *Config) func(t *testing.T) {
+func testGetStatus(ctrl *gomock.Controller, config *Config) func(t *testing.T) {
 	return func(t *testing.T) {
-		ctrl := gomock.NewController(t)
-		defer ctrl.Finish()
-
 		// Create mock collector
 		mockCollector := NewMockCollector(ctrl)
 		mockCollector.EXPECT().GetStatus().Return(TargetStatus{
