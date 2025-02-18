@@ -186,17 +186,17 @@ func (m *MockService) EXPECT() *MockServiceMockRecorder {
 }
 
 // AddTarget mocks base method.
-func (m *MockService) AddTarget(target *Target) error {
+func (m *MockService) AddTarget(ctx context.Context, target *Target) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AddTarget", target)
+	ret := m.ctrl.Call(m, "AddTarget", ctx, target)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // AddTarget indicates an expected call of AddTarget.
-func (mr *MockServiceMockRecorder) AddTarget(target any) *gomock.Call {
+func (mr *MockServiceMockRecorder) AddTarget(ctx, target any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddTarget", reflect.TypeOf((*MockService)(nil).AddTarget), target)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddTarget", reflect.TypeOf((*MockService)(nil).AddTarget), ctx, target)
 }
 
 // GetStatus mocks base method.
