@@ -7,7 +7,6 @@ import (
 	"log"
 	"net"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -77,16 +76,33 @@ func NewSweepService(config *models.Config) (Service, error) {
 	return service, nil
 }
 
+const (
+	defaultMaxRetries    = 3
+	defaultRetryInterval = 5 * time.Second
+)
+
 // Start launches the periodic sweeps.
 func (s *SweepService) Start(ctx context.Context) error {
 	ticker := time.NewTicker(s.config.Interval)
 	defer ticker.Stop()
 
-	// Do initial sweep
-	if err := s.performSweep(ctx); err != nil {
-		log.Printf("Initial sweep failed: %v", err)
+	// Retry initial sweep with backoff
+	retryInterval := defaultRetryInterval
 
-		return err
+	for i := 0; i < defaultMaxRetries; i++ {
+		err := s.performSweep(ctx)
+		if err == nil {
+			break // Success
+		}
+
+		log.Printf("Initial sweep failed (attempt %d/%d): %v", i+1, defaultMaxRetries, err)
+
+		if i == defaultMaxRetries-1 {
+			return fmt.Errorf("initial sweep failed after %d retries: %w", defaultMaxRetries, err)
+		}
+
+		time.Sleep(defaultRetryInterval)
+		retryInterval *= 2 // Exponential backoff
 	}
 
 	for {
@@ -125,8 +141,8 @@ func (s *SweepService) performSweep(ctx context.Context) error {
 
 	stats := newScanStats()
 
-	// Process results with the parent context
-	if err := s.processScanResults(ctx, results, stats); err != nil {
+	// Process results with the same context
+	if err := s.processScanResults(sweepCtx, results, stats); err != nil {
 		return fmt.Errorf("failed to process scan results: %w", err)
 	}
 
@@ -471,22 +487,24 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, er
 		Hosts:          summary.Hosts,
 	}
 
-	// Sort hosts based on IP address numeric values
-	sort.Slice(data.Hosts, func(i, j int) bool {
-		ip1Parts := strings.Split(data.Hosts[i].Host, ".")
-		ip2Parts := strings.Split(data.Hosts[j].Host, ".")
+	// Sort hosts using IPSorter
+	ips := make([]string, 0, len(data.Hosts))
+	for _, host := range data.Hosts {
+		ips = append(ips, host.Host)
+	}
+	sort.Sort(IPSorter(ips))
 
-		for k := 0; k < 4; k++ {
-			n1, _ := strconv.Atoi(ip1Parts[k])
-			n2, _ := strconv.Atoi(ip2Parts[k])
-
-			if n1 != n2 {
-				return n1 < n2
+	// Rebuild sorted Hosts slice
+	sortedHosts := make([]models.HostResult, 0, len(data.Hosts))
+	for _, ip := range ips {
+		for _, host := range data.Hosts {
+			if host.Host == ip {
+				sortedHosts = append(sortedHosts, host)
+				break
 			}
 		}
-
-		return false
-	})
+	}
+	data.Hosts = sortedHosts
 
 	statusJSON, err := json.Marshal(data)
 	if err != nil {
