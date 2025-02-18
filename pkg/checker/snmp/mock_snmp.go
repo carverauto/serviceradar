@@ -320,18 +320,18 @@ func (m *MockAggregatorFactory) EXPECT() *MockAggregatorFactoryMockRecorder {
 }
 
 // CreateAggregator mocks base method.
-func (m *MockAggregatorFactory) CreateAggregator(interval time.Duration) (Aggregator, error) {
+func (m *MockAggregatorFactory) CreateAggregator(interval time.Duration, maxPoints int) (Aggregator, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CreateAggregator", interval)
+	ret := m.ctrl.Call(m, "CreateAggregator", interval, maxPoints)
 	ret0, _ := ret[0].(Aggregator)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // CreateAggregator indicates an expected call of CreateAggregator.
-func (mr *MockAggregatorFactoryMockRecorder) CreateAggregator(interval any) *gomock.Call {
+func (mr *MockAggregatorFactoryMockRecorder) CreateAggregator(interval, maxPoints any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateAggregator", reflect.TypeOf((*MockAggregatorFactory)(nil).CreateAggregator), interval)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateAggregator", reflect.TypeOf((*MockAggregatorFactory)(nil).CreateAggregator), interval, maxPoints)
 }
 
 // MockSNMPClient is a mock of SNMPClient interface.

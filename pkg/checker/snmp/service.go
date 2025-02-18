@@ -69,12 +69,13 @@ func (s *SNMPService) Start(ctx context.Context) error {
 
 	log.Printf("Starting SNMP Service with %d targets", len(s.config.Targets))
 
-	// Initialize collectors for each target
-	for _, target := range s.config.Targets {
+	// Initialize collectors for each target using indexing to avoid copying
+	for i := range s.config.Targets {
+		target := &s.config.Targets[i] // Get pointer to target
 		log.Printf("Initializing target %s (%s) with %d OIDs",
 			target.Name, target.Host, len(target.OIDs))
 
-		if err := s.initializeTarget(ctx, &target); err != nil {
+		if err := s.initializeTarget(ctx, target); err != nil {
 			return fmt.Errorf("failed to initialize target %s: %w", target.Name, err)
 		}
 	}
@@ -234,7 +235,7 @@ func (s *SNMPService) initializeTarget(ctx context.Context, target *Target) erro
 		target.Name, time.Duration(target.Interval))
 
 	// Create aggregator
-	aggregator, err := s.aggregatorFactory.CreateAggregator(time.Duration(target.Interval))
+	aggregator, err := s.aggregatorFactory.CreateAggregator(time.Duration(target.Interval), target.MaxPoints)
 	if err != nil {
 		return fmt.Errorf("%w: %s", errFailedToCreateAggregator, target.Name)
 	}
@@ -338,7 +339,7 @@ func (*defaultCollectorFactory) CreateCollector(target *Target) (Collector, erro
 // defaultAggregatorFactory implements AggregatorFactory.
 type defaultAggregatorFactory struct{}
 
-// CreateAggregator creates a new Aggregator with the given interval.
-func (*defaultAggregatorFactory) CreateAggregator(interval time.Duration) (Aggregator, error) {
-	return NewAggregator(interval), nil
+// CreateAggregator creates a new Aggregator with the given interval and max points per series to store.
+func (*defaultAggregatorFactory) CreateAggregator(interval time.Duration, maxPoints int) (Aggregator, error) {
+	return NewAggregator(interval, maxPoints), nil
 }

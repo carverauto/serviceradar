@@ -102,6 +102,7 @@ type Target struct {
 	Timeout   Duration    `json:"timeout"`
 	Retries   int         `json:"retries"`
 	OIDs      []OIDConfig `json:"oids"`
+	MaxPoints int         `json:"max_points"`
 }
 
 // OIDConfig represents an OID to monitor.

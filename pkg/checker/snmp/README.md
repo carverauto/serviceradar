@@ -39,6 +39,7 @@ Manages data retention
       "version": "v2c",
       "interval": "30s",
       "retries": 2,
+      "max_points": 1000,
       "oids": [
         {
           "oid": ".1.3.6.1.2.1.2.2.1.10.1",
