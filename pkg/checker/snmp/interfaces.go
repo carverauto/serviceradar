@@ -39,7 +39,7 @@ type Service interface {
 	// Stop halts the SNMP monitoring service
 	Stop() error
 	// AddTarget adds a new SNMP target to monitor
-	AddTarget(target *Target) error
+	AddTarget(ctx context.Context, target *Target) error
 	// RemoveTarget stops monitoring a target
 	RemoveTarget(targetName string) error
 	// GetStatus returns the current status of all monitored targets

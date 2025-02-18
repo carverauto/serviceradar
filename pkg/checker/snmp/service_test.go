@@ -152,7 +152,7 @@ func testAddTarget(ctrl *gomock.Controller, config *Config) func(t *testing.T) {
 		mockCollector.EXPECT().Start(gomock.Any()).Return(nil)
 		mockCollector.EXPECT().GetResults().Return(dataChan)
 
-		err = service.AddTarget(newTarget)
+		err = service.AddTarget(context.Background(), newTarget)
 		require.NoError(t, err)
 
 		_, exists := service.collectors[newTarget.Name]
