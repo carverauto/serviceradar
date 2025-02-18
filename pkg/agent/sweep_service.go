@@ -102,6 +102,7 @@ func (s *SweepService) Start(ctx context.Context) error {
 		}
 
 		time.Sleep(defaultRetryInterval)
+
 		retryInterval *= 2 // Exponential backoff
 	}
 
@@ -489,21 +490,26 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, er
 
 	// Sort hosts using IPSorter
 	ips := make([]string, 0, len(data.Hosts))
+
 	for _, host := range data.Hosts {
 		ips = append(ips, host.Host)
 	}
+
 	sort.Sort(IPSorter(ips))
 
 	// Rebuild sorted Hosts slice
 	sortedHosts := make([]models.HostResult, 0, len(data.Hosts))
+
 	for _, ip := range ips {
 		for _, host := range data.Hosts {
 			if host.Host == ip {
 				sortedHosts = append(sortedHosts, host)
+
 				break
 			}
 		}
 	}
+
 	data.Hosts = sortedHosts
 
 	statusJSON, err := json.Marshal(data)
