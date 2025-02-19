@@ -22,6 +22,7 @@ type SNMPChecker struct {
 	service       *snmp.SNMPService
 	config        *snmp.Config
 	pollerService *snmp.PollerService
+	done          chan struct{} // Signal for shutdown
 }
 
 func NewSNMPChecker(address string) (checker.Checker, error) {
@@ -72,18 +73,30 @@ func NewSNMPChecker(address string) (checker.Checker, error) {
 		service:       service,
 		config:        &cfg,
 		pollerService: pollerService, // Store the poller service
+		done:          make(chan struct{}),
 	}
 
 	log.Printf("Successfully created SNMP checker for %s", address)
 
-	// Start the SNMP Service
-	// TODO: stop using context.Background() and pass in a real context
-	ctx := context.Background()
+	// Start the service with a background context and link it to the done channel
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		// Tie the context cancellation to the done channel
+		select {
+		case <-c.done:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+
 	if err := service.Start(ctx); err != nil {
 		log.Printf("Failed to start SNMP service: %v", err)
+		cancel() // Cancel immediately on failure
 
 		return nil, fmt.Errorf("failed to start SNMP service: %w", err)
 	}
+
+	log.Printf("Successfully created SNMP checker for %s", address)
 
 	return c, nil
 }
@@ -101,6 +114,14 @@ func (c *SNMPChecker) Check(ctx context.Context) (status bool, msg string) {
 }
 
 func (c *SNMPChecker) Close() error {
+	// Signal shutdown via the done channel
+	select {
+	case <-c.done:
+		// Already closed
+	default:
+		close(c.done)
+	}
+
 	if c.service != nil {
 		return c.service.Stop()
 	}

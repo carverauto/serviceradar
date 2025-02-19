@@ -85,15 +85,18 @@ func (s *SNMPService) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop implements the Service interface.
 func (s *SNMPService) Stop() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	close(s.done)
+	select {
+	case <-s.done:
+		// Already stopped
+	default:
+		close(s.done)
+	}
 
 	var errs []error
-
 	for name, collector := range s.collectors {
 		if err := collector.Stop(); err != nil {
 			errs = append(errs, fmt.Errorf("failed to stop collector %s: %w", name, err))
