@@ -215,14 +215,12 @@ func (s *Server) Start(ctx context.Context) error {
 func (s *Server) Stop(ctx context.Context) error {
 	log.Printf("Stopping agent service...")
 
-	// Signal shutdown
 	select {
-	case <-s.done: // Already closed
+	case <-s.done:
 	default:
 		close(s.done)
 	}
 
-	// Stop all services
 	var stopErrors []error
 
 	for _, svc := range s.services {
@@ -231,7 +229,6 @@ func (s *Server) Stop(ctx context.Context) error {
 		}
 	}
 
-	// Wait for all background goroutines to finish
 	s.wg.Wait()
 
 	if len(stopErrors) > 0 {
