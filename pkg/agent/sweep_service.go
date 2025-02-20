@@ -391,14 +391,26 @@ func (*SweepService) logScanCompletion(stats *ScanStats) {
 		len(stats.uniqueHosts))
 }
 
+const (
+	defaultCIDR31  = 31
+	defaultRFC3021 = 2
+)
+
 // calculateNetworkSize calculates how many usable IP addresses exist in the subnet.
 func calculateNetworkSize(ones, bits int) int {
 	if ones == cidr32 {
-		return networkStart
+		return networkStart // Single host for /32
 	}
 
-	// Subtract network and broadcast addresses for typical subnets
-	return (networkStart << (bits - ones)) - networkNext
+	if ones == defaultCIDR31 {
+		return defaultRFC3021 // Special case: RFC 3021 allows both IPs to be used in /31
+	}
+
+	// For all other networks, total addresses = 2^(32-ones)
+	// Subtract 2 for network and broadcast addresses (except for /31)
+	totalAddresses := 1 << (bits - ones)
+
+	return totalAddresses - networkNext // Subtract network and broadcast addresses
 }
 
 // isFirstOrLastAddress checks if IP is the network or broadcast address.

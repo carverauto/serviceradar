@@ -6,6 +6,8 @@ import (
 	"github.com/mfreeman451/serviceradar/proto"
 )
 
+//go:generate mockgen -destination=mock_agent.go -package=agent github.com/mfreeman451/serviceradar/pkg/agent Service,SweepStatusProvider
+
 type Service interface {
 	Start(context.Context) error
 	Stop(ctx context.Context) error
