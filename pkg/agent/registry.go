@@ -47,12 +47,12 @@ func initRegistry() checker.Registry {
 	})
 
 	// Register the SNMP checker
-	registry.Register("snmp", func(_ context.Context, _, details string) (checker.Checker, error) {
+	registry.Register("snmp", func(ctx context.Context, _, details string) (checker.Checker, error) {
 		if details == "" {
 			return nil, errDetailsRequiredSNMP
 		}
 
-		return NewSNMPChecker(details)
+		return NewSNMPChecker(ctx, details)
 	})
 
 	return registry
