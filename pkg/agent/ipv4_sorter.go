@@ -15,23 +15,39 @@ func (s IPSorter) Less(i, j int) bool {
 	ip1 := net.ParseIP(s[i])
 	ip2 := net.ParseIP(s[j])
 
-	// Handle nil cases (invalid IPs) by falling back to string comparison
-	if ip1 == nil || ip2 == nil {
+	// Handle invalid IPs
+	if ip1 == nil && ip2 == nil {
+		// Both invalid, sort alphabetically
 		return s[i] < s[j]
 	}
+	if ip1 == nil {
+		// First is invalid, should come first
+		return true
+	}
+	if ip2 == nil {
+		// Second is invalid, should not come first
+		return false
+	}
 
-	// Convert to 4-byte representation for IPv4
+	// Both are valid IPs, convert to IPv4
 	ip1 = ip1.To4()
 	ip2 = ip2.To4()
 
-	if ip1 == nil || ip2 == nil {
+	// Handle non-IPv4 addresses
+	if ip1 == nil && ip2 == nil {
 		return s[i] < s[j]
 	}
+	if ip1 == nil {
+		return true
+	}
+	if ip2 == nil {
+		return false
+	}
 
-	// Compare each byte
-	for i := 0; i < 4; i++ {
-		if ip1[i] != ip2[i] {
-			return ip1[i] < ip2[i]
+	// Compare IPv4 addresses byte by byte
+	for k := 0; k < 4; k++ {
+		if ip1[k] != ip2[k] {
+			return ip1[k] < ip2[k]
 		}
 	}
 

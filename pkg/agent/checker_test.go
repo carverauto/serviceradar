@@ -131,79 +131,80 @@ func TestNewPortChecker(t *testing.T) {
 
 func TestIPv4Sorter(t *testing.T) {
 	tests := []struct {
-		name  string
-		ips   []string
-		check func([]string) bool
+		name     string
+		input    []string
+		expected []string
 	}{
 		{
 			name: "mixed IPs",
-			ips: []string{
+			input: []string{
 				"192.168.1.2",
 				"192.168.1.1",
 				"10.0.0.1",
 				"172.16.0.1",
 			},
-			check: func(sorted []string) bool {
-				// Verify 10.0.0.1 comes before 172.16.0.1
-				pos10 := -1
-				pos172 := -1
-				for i, ip := range sorted {
-					if ip == "10.0.0.1" {
-						pos10 = i
-					}
-					if ip == "172.16.0.1" {
-						pos172 = i
-					}
-				}
-				return pos10 != -1 && pos172 != -1 && pos10 < pos172
+			expected: []string{
+				"10.0.0.1",
+				"172.16.0.1",
+				"192.168.1.1",
+				"192.168.1.2",
 			},
 		},
 		{
 			name: "same subnet",
-			ips: []string{
+			input: []string{
 				"192.168.1.10",
 				"192.168.1.2",
 				"192.168.1.1",
 			},
-			check: func(sorted []string) bool {
-				// Verify ascending order
-				for i := 0; i < len(sorted)-1; i++ {
-					ip1 := net.ParseIP(sorted[i])
-					ip2 := net.ParseIP(sorted[i+1])
-					if ip1 == nil || ip2 == nil {
-						return false
-					}
-					if !lessThanIP(ip1, ip2) && !ip1.Equal(ip2) {
-						return false
-					}
-				}
-				return true
+			expected: []string{
+				"192.168.1.1",
+				"192.168.1.2",
+				"192.168.1.10",
 			},
 		},
 		{
 			name: "invalid IPs handled",
-			ips: []string{
+			input: []string{
 				"192.168.1.1",
 				"invalid",
 				"192.168.1.2",
+				"bad.ip",
 			},
-			check: func(sorted []string) bool {
-				// Invalid IPs should be sorted first
-				return sorted[0] == "invalid"
+			expected: []string{
+				"bad.ip",
+				"invalid",
+				"192.168.1.1",
+				"192.168.1.2",
+			},
+		},
+		{
+			name: "mixed valid and invalid",
+			input: []string{
+				"192.168.1.1",
+				"invalid2",
+				"10.0.0.1",
+				"invalid1",
+			},
+			expected: []string{
+				"invalid1",
+				"invalid2",
+				"10.0.0.1",
+				"192.168.1.1",
 			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			sorter := IPSorter(tt.ips)
-			require.Equal(t, len(tt.ips), sorter.Len())
+			sorter := IPSorter(tt.input)
+			require.Equal(t, len(tt.input), sorter.Len())
 
 			// Sort the IPs
 			sort.Sort(sorter)
 
-			// Run the test-specific checks
-			assert.True(t, tt.check([]string(sorter)), "Sorting check failed")
+			// Verify the sort result
+			assert.Equal(t, tt.expected, []string(sorter), "Incorrect sort order")
 
 			// Test Swap functionality
 			if len(sorter) >= 2 {
