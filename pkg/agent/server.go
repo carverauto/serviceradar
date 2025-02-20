@@ -222,6 +222,7 @@ func (s *Server) Stop(ctx context.Context) error {
 	}
 
 	var stopErrors []error
+
 	for _, svc := range s.services {
 		if err := s.stopService(ctx, svc); err != nil {
 			stopErrors = append(stopErrors, err)

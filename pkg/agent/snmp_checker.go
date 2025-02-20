@@ -80,6 +80,7 @@ func NewSNMPChecker(address string) (checker.Checker, error) {
 
 	// Start the service with a background context and link it to the done channel
 	ctx, cancel := context.WithCancel(context.Background())
+
 	go func() {
 		// Tie the context cancellation to the done channel
 		select {
