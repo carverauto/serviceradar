@@ -38,12 +38,13 @@ func TestNewSweepService(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			svc, err := NewSweepService(tt.config)
 			if tt.wantErr {
-				assert.Error(t, err)
+				require.Error(t, err)
 				assert.Nil(t, svc)
+
 				return
 			}
 
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			assert.NotNil(t, svc)
 
 			// Test service name
@@ -62,6 +63,8 @@ func TestApplyDefaultConfig(t *testing.T) {
 			name:  "nil config",
 			input: nil,
 			verify: func(t *testing.T, config *models.Config) {
+				t.Helper()
+
 				assert.NotNil(t, config)
 				assert.Equal(t, 5*time.Second, config.Timeout)
 				assert.Equal(t, 25, config.Concurrency)
@@ -82,6 +85,7 @@ func TestApplyDefaultConfig(t *testing.T) {
 				Interval:    30 * time.Minute,
 			},
 			verify: func(t *testing.T, config *models.Config) {
+				t.Helper()
 				assert.Equal(t, 10*time.Second, config.Timeout)
 				assert.Equal(t, 50, config.Concurrency)
 				assert.Equal(t, 5, config.ICMPCount)
@@ -158,7 +162,7 @@ func TestGenerateTargets(t *testing.T) {
 				return
 			}
 
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			assert.Len(t, targets, tt.wantCount)
 
 			// Verify target properties

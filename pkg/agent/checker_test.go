@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"net"
 	"sort"
 	"testing"
 
@@ -53,6 +52,7 @@ func TestProcessChecker_ValidateProcessName(t *testing.T) {
 			checker := &ProcessChecker{
 				ProcessName: tt.process,
 			}
+
 			err := checker.validateProcessName()
 			if tt.wantError {
 				assert.Error(t, err)
@@ -116,8 +116,9 @@ func TestNewPortChecker(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			checker, err := NewPortChecker(tt.details)
 			if tt.wantError {
-				assert.Error(t, err)
+				require.Error(t, err)
 				assert.Nil(t, checker)
+
 				return
 			}
 
@@ -217,18 +218,6 @@ func TestIPv4Sorter(t *testing.T) {
 	}
 }
 
-func lessThanIP(ip1, ip2 net.IP) bool {
-	for i := 0; i < len(ip1); i++ {
-		if ip1[i] < ip2[i] {
-			return true
-		}
-		if ip1[i] > ip2[i] {
-			return false
-		}
-	}
-	return false
-}
-
 func TestICMPChecker(t *testing.T) {
 	tests := []struct {
 		name string
@@ -254,8 +243,8 @@ func TestICMPChecker(t *testing.T) {
 			ctx := context.Background()
 			available, response := checker.Check(ctx)
 
-			// We can't reliably test the actual ping result as it depends on the network
-			// but we can verify the response format
+			// We can't reliably test the actual ping result as it depends on the
+			// network, but we can verify the response format
 			assert.NotEmpty(t, response)
 			assert.Contains(t, response, tt.host)
 
@@ -298,14 +287,16 @@ func TestExternalChecker(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
+
 			checker, err := NewExternalChecker(ctx, tt.serviceName, tt.serviceType, tt.address)
 			if tt.wantErr {
-				assert.Error(t, err)
+				require.Error(t, err)
 				assert.Nil(t, checker)
+
 				return
 			}
 
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			assert.NotNil(t, checker)
 
 			// Test Close
@@ -339,12 +330,13 @@ func TestSNMPChecker(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			checker, err := NewSNMPChecker(tt.address)
 			if tt.wantErr {
-				assert.Error(t, err)
+				require.Error(t, err)
 				assert.Nil(t, checker)
+
 				return
 			}
 
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			assert.NotNil(t, checker)
 		})
 	}

@@ -74,7 +74,7 @@ func TestNewServer(t *testing.T) {
 				err = os.WriteFile(
 					filepath.Join(sweepDir, "sweep.json"),
 					data,
-					0644,
+					0600,
 				)
 				require.NoError(t, err)
 			},
@@ -90,8 +90,9 @@ func TestNewServer(t *testing.T) {
 
 			server, err := NewServer(tt.configDir, tt.config)
 			if tt.wantErr {
-				assert.Error(t, err)
+				require.Error(t, err)
 				assert.Nil(t, server)
+
 				return
 			}
 
@@ -110,7 +111,7 @@ func TestServerGetStatus(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "serviceradar-test")
 	require.NoError(t, err)
 	defer func(path string) {
-		err := os.RemoveAll(path)
+		err = os.RemoveAll(path)
 		if err != nil {
 			t.Logf("failed to remove temporary directory: %s", err)
 		}
@@ -133,6 +134,7 @@ func TestServerGetStatus(t *testing.T) {
 			},
 			wantErr: false,
 			checkStatus: func(t *testing.T, resp *proto.StatusResponse) {
+				t.Helper()
 				assert.False(t, resp.Available)
 				assert.Equal(t, "Sweep service not configured", resp.Message)
 				assert.Equal(t, "network_sweep", resp.ServiceName)
@@ -147,6 +149,7 @@ func TestServerGetStatus(t *testing.T) {
 			},
 			wantErr: false,
 			checkStatus: func(t *testing.T, resp *proto.StatusResponse) {
+				t.Helper()
 				assert.NotNil(t, resp)
 				assert.Equal(t, "port", resp.ServiceType)
 				assert.Equal(t, "test-port", resp.ServiceName)
@@ -174,7 +177,7 @@ func TestServerLifecycle(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "serviceradar-test")
 	require.NoError(t, err)
 	defer func(path string) {
-		err := os.RemoveAll(path)
+		err = os.RemoveAll(path)
 		if err != nil {
 			t.Logf("failed to remove temporary directory: %s", err)
 		}
@@ -187,15 +190,15 @@ func TestServerLifecycle(t *testing.T) {
 	// Test Start
 	ctx := context.Background()
 	err = server.Start(ctx)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Test Stop
 	err = server.Stop(ctx)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Test Close
 	err = server.Close(ctx)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 }
 
 func TestServerListServices(t *testing.T) {
@@ -203,7 +206,7 @@ func TestServerListServices(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "serviceradar-test")
 	require.NoError(t, err)
 	defer func(path string) {
-		err := os.RemoveAll(path)
+		err = os.RemoveAll(path)
 		if err != nil {
 			t.Logf("failed to remove temporary directory: %s", err)
 		}
@@ -223,7 +226,7 @@ func TestServerListServices(t *testing.T) {
 	err = os.WriteFile(
 		filepath.Join(tmpDir, "test-checker.json"),
 		data,
-		0644,
+		0600,
 	)
 	require.NoError(t, err)
 

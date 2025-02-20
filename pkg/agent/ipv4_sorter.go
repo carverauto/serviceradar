@@ -43,8 +43,10 @@ func handleInvalidIPs(ip1, ip2 net.IP, ip1Str, ip2Str string) *bool {
 			// Invalid IPs come first
 			result = ip1 == nil
 		}
+
 		return &result
 	}
+
 	return nil
 }
 
@@ -58,6 +60,7 @@ func compareIPv4(ip1, ip2 net.IP, ip1Str, ip2Str string) bool {
 		if ip1v4 == nil && ip2v4 == nil {
 			return ip1Str < ip2Str
 		}
+
 		return ip1v4 == nil
 	}
 
@@ -72,5 +75,6 @@ func compareBytes(ip1, ip2 net.IP) bool {
 			return ip1[i] < ip2[i]
 		}
 	}
+
 	return false
 }
