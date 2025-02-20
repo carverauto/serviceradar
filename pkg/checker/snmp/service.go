@@ -97,6 +97,7 @@ func (s *SNMPService) Stop() error {
 	}
 
 	var errs []error
+
 	for name, collector := range s.collectors {
 		if err := collector.Stop(); err != nil {
 			errs = append(errs, fmt.Errorf("failed to stop collector %s: %w", name, err))
