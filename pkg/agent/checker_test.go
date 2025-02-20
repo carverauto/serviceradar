@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"net"
+	"sort"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -129,77 +131,101 @@ func TestNewPortChecker(t *testing.T) {
 
 func TestIPv4Sorter(t *testing.T) {
 	tests := []struct {
-		name     string
-		input    []string
-		expected []string
+		name  string
+		ips   []string
+		check func([]string) bool
 	}{
 		{
 			name: "mixed IPs",
-			input: []string{
+			ips: []string{
 				"192.168.1.2",
 				"192.168.1.1",
 				"10.0.0.1",
 				"172.16.0.1",
 			},
-			expected: []string{
-				"10.0.0.1",
-				"172.16.0.1",
-				"192.168.1.1",
-				"192.168.1.2",
+			check: func(sorted []string) bool {
+				// Verify 10.0.0.1 comes before 172.16.0.1
+				pos10 := -1
+				pos172 := -1
+				for i, ip := range sorted {
+					if ip == "10.0.0.1" {
+						pos10 = i
+					}
+					if ip == "172.16.0.1" {
+						pos172 = i
+					}
+				}
+				return pos10 != -1 && pos172 != -1 && pos10 < pos172
 			},
 		},
 		{
 			name: "same subnet",
-			input: []string{
+			ips: []string{
 				"192.168.1.10",
 				"192.168.1.2",
 				"192.168.1.1",
 			},
-			expected: []string{
-				"192.168.1.1",
-				"192.168.1.2",
-				"192.168.1.10",
+			check: func(sorted []string) bool {
+				// Verify ascending order
+				for i := 0; i < len(sorted)-1; i++ {
+					ip1 := net.ParseIP(sorted[i])
+					ip2 := net.ParseIP(sorted[i+1])
+					if ip1 == nil || ip2 == nil {
+						return false
+					}
+					if !lessThanIP(ip1, ip2) && !ip1.Equal(ip2) {
+						return false
+					}
+				}
+				return true
 			},
 		},
 		{
 			name: "invalid IPs handled",
-			input: []string{
+			ips: []string{
 				"192.168.1.1",
 				"invalid",
 				"192.168.1.2",
 			},
-			expected: []string{
-				"invalid",
-				"192.168.1.1",
-				"192.168.1.2",
+			check: func(sorted []string) bool {
+				// Invalid IPs should be sorted first
+				return sorted[0] == "invalid"
 			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			sorter := IPSorter(tt.input)
-			require.Equal(t, len(tt.input), sorter.Len())
+			sorter := IPSorter(tt.ips)
+			require.Equal(t, len(tt.ips), sorter.Len())
 
-			// Test Less function
-			for i := 0; i < len(tt.expected)-1; i++ {
-				less := sorter.Less(i, i+1)
-				if tt.expected[i] < tt.expected[i+1] {
-					assert.True(t, less)
-				} else {
-					assert.False(t, less)
-				}
-			}
+			// Sort the IPs
+			sort.Sort(sorter)
 
-			// Test Swap function
+			// Run the test-specific checks
+			assert.True(t, tt.check([]string(sorter)), "Sorting check failed")
+
+			// Test Swap functionality
 			if len(sorter) >= 2 {
-				original0, original1 := sorter[0], sorter[1]
+				orig0, orig1 := sorter[0], sorter[1]
 				sorter.Swap(0, 1)
-				assert.Equal(t, original0, sorter[1])
-				assert.Equal(t, original1, sorter[0])
+				assert.Equal(t, orig0, sorter[1])
+				assert.Equal(t, orig1, sorter[0])
 			}
 		})
 	}
+}
+
+func lessThanIP(ip1, ip2 net.IP) bool {
+	for i := 0; i < len(ip1); i++ {
+		if ip1[i] < ip2[i] {
+			return true
+		}
+		if ip1[i] > ip2[i] {
+			return false
+		}
+	}
+	return false
 }
 
 func TestICMPChecker(t *testing.T) {

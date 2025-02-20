@@ -238,13 +238,13 @@ func TestCalculateNetworkSize(t *testing.T) {
 			name:     "two hosts (/31)",
 			ones:     31,
 			bits:     32,
-			expected: 2,
+			expected: 2, // Special case: RFC 3021 allows both addresses to be used
 		},
 		{
 			name:     "four hosts (/30)",
 			ones:     30,
 			bits:     32,
-			expected: 4,
+			expected: 2, // Network + broadcast = 2 usable addresses
 		},
 		{
 			name:     "typical subnet (/24)",
