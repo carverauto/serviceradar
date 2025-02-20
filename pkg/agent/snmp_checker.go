@@ -35,7 +35,7 @@ type SNMPChecker struct {
 }
 
 // NewSNMPChecker creates a new SNMP checker that connects to an external SNMP checker process.
-func NewSNMPChecker(address string) (checker.Checker, error) {
+func NewSNMPChecker(ctx context.Context, address string) (checker.Checker, error) {
 	log.Printf("Creating new SNMP checker client for address: %s", address)
 
 	// Load configuration
@@ -51,7 +51,7 @@ func NewSNMPChecker(address string) (checker.Checker, error) {
 
 	// Create gRPC client connection to the SNMP checker process
 	client, err := grpc.NewClient(
-		context.Background(),
+		ctx,
 		address,
 		grpc.WithMaxRetries(grpcRetries),
 	)
