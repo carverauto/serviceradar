@@ -94,6 +94,10 @@ curl -LO https://github.com/mfreeman451/serviceradar/releases/download/1.0.19/se
 sudo dpkg -i serviceradar-cloud_1.0.19.deb
 ```
 
+## Security
+
+[mTLS Setup](tls/README.md)
+
 ## Architecture
 
 ServiceRadar uses a distributed architecture with three main components:
@@ -228,12 +232,24 @@ Default location: ***/etc/serviceradar/***
 
 ```json
 {
-    "checkers_dir": "/etc/serviceradar/checkers",
-    "listen_addr": ":50051",
-    "service_type": "grpc",
-    "service_name": "AgentService"
+  "checkers_dir": "/etc/serviceradar/checkers",
+  "listen_addr": ":50051",
+  "service_type": "grpc",
+  "service_name": "AgentService",
+  "security": {
+    "mode": "none",
+    "cert_dir": "/etc/serviceradar/certs",
+    "server_name": "changeme",
+    "role": "agent"
+  }
 }
 ```
+
+For mTLS security:
+
+* Set `mode` to `mtls`
+* Set `server_name` to the hostname/IP address of the poller (IMPORTANT, this should line up with whats in your tls/csr.json)
+* Set `listen_addr` to the hostname/IP address
 
 For SNMP Polling:
 
@@ -252,13 +268,23 @@ The agent and the checkers typically are co-located on the same server.
 }
 ```
 
+For mTLS Security:
+
+* Change address to the hostname/IP address of the SNMP checker, eg. `192.168.2.22:50054`
+
 **/etc/serviceradar/checkers/snmp.json**
 
 ```json
 {
   "node_address": "localhost:50051",
   "listen_addr": ":50054",
-  "timeout": "5m",
+  "security": {
+    "server_name": "changeme",
+    "mode": "none",
+    "role": "checker",
+    "cert_dir": "/etc/serviceradar/certs"
+  },
+  "timeout": "30s",
   "targets": [
     {
       "name": "test-router",
@@ -281,20 +307,38 @@ The agent and the checkers typically are co-located on the same server.
 }
 ```
 
+For mTLS Security:
+
+* Change `mode` to `mtls`
+* Change `server_name` to the hostname/IP address of the agent, eg. `192.168.2.22:50054`
+* Change `listen_addr` to the hostname/IP address, eg. `192.168.2.22:50054`
+
 For Dusk nodes:
 
 **/etc/serviceradar/checkers/dusk.json**
 
 ```json
 {
-    "name": "dusk",
-    "type": "grpc",
-    "node_address": "localhost:8080",
-    "address": "localhost:50052",
-    "listen_addr": ":50052",
-    "timeout": "5m"
+  "name": "dusk",
+  "type": "grpc",
+  "node_address": "localhost:8080",
+  "address": "localhost:50052",
+  "listen_addr": ":50052",
+  "timeout": "5m",
+  "security": {
+    "mode": "none",
+    "cert_dir": "/etc/serviceradar/certs",
+    "role": "checker"
+  }
 }
 ```
+
+For mTLS Security:
+
+* Change `mode` to `mtls`
+* Change `address` to the hostname/IP address of the Dusk node, eg. `192.168.2.22:50052`
+* Change `listen_addr` to the hostname/IP address, eg. `192.168.2.22:50052`
+
 **/etc/serviceradar/checkers/external.json**
 
 ```json
@@ -306,16 +350,16 @@ For Dusk nodes:
 
 For Network Sweep:
 
-**/etc/serviceradar/checkers/sweep.json**
+**/etc/serviceradar/checkers/sweep/sweep.json**
 
 ```json
 {
-    "networks": ["192.168.2.0/24"],
-    "ports": [22, 80, 443, 3306, 5432, 6379, 8080, 8443],
-    "sweep_modes": ["icmp", "tcp"],
-    "interval": "5m",
-    "concurrency": 100,
-    "timeout": "10s"
+  "networks": ["192.168.2.0/24", "192.168.3.1/32"],
+  "ports": [22, 80, 443, 3306, 5432, 6379, 8080, 8443],
+  "sweep_modes": ["icmp", "tcp"],
+  "interval": "5m",
+  "concurrency": 100,
+  "timeout": "10s"
 }
 ```
 
@@ -327,7 +371,11 @@ Default location: `/etc/serviceradar/poller.json`
 {
   "agents": {
     "local-agent": {
-      "address": "127.0.0.1:50051",
+      "address": "localhost:50051",
+      "security": {
+        "server_name": "changeme",
+        "mode": "none"
+      },
       "checks": [
         {
           "service_type": "process",
@@ -342,7 +390,12 @@ Default location: `/etc/serviceradar/poller.json`
         {
           "service_type": "grpc",
           "service_name": "dusk",
-          "details": "127.0.0.1:50052"
+          "details": "localhost:50052"
+        },
+        {
+          "service_type": "snmp",
+          "service_name": "snmp",
+          "details": "localhost:50054"
         },
         {
           "service_type": "icmp",
@@ -362,9 +415,23 @@ Default location: `/etc/serviceradar/poller.json`
   "poll_interval": "30s",
   "poller_id": "dusk",
   "service_name": "PollerService",
-  "service_type": "grpc"
+  "service_type": "grpc",
+  "security": {
+    "mode": "none",
+    "cert_dir": "/etc/serviceradar/certs",
+    "server_name": "changeme",
+    "role": "poller"
+  }
 }
 ```
+
+**Note**: Make sure you update the `cloud_address` to the hostname/IP address of the cloud service.
+
+For mTLS Security:
+* Change `mode` to `mtls`
+* Change `server_name` to the hostname/IP address of the cloud service, eg. `172.233.208.110`
+* Change `local_agent/address` to the hostname/IP address of the agent, eg. `192.168.2.22:50051`
+* Change `listen_addr` to the hostname/IP address, eg. `192.168.2.22:50053`
 
 ### Cloud Configuration
 
@@ -380,6 +447,11 @@ Default location: `/etc/serviceradar/cloud.json`
     "enabled": true,
     "retention": 100,
     "max_nodes": 10000
+  },
+  "security": {
+    "mode": "none",
+    "cert_dir": "/etc/serviceradar/certs",
+    "role": "cloud"
   },
   "webhooks": [
     {
@@ -402,6 +474,9 @@ Default location: `/etc/serviceradar/cloud.json`
   ]
 }
 ```
+
+For mTLS Security:
+* Change `mode` to `mtls`
 
 ## Deployment Recommendations
 
