@@ -4,7 +4,7 @@ set -e  # Exit on any error
 
 echo "Setting up package structure..."
 
-VERSION=${VERSION:-1.0.18}
+VERSION=${VERSION:-1.0.19}
 
 # Create package directory structure
 PKG_ROOT="serviceradar-dusk-checker_${VERSION}"
@@ -67,7 +67,12 @@ cat > "${PKG_ROOT}/etc/serviceradar/checkers/dusk.json" << EOF
     "node_address": "localhost:8080",
     "address": "localhost:50052",
     "listen_addr": ":50052",
-    "timeout": "5m"
+    "timeout": "5m",
+    "security": {
+        "mode": "none",
+        "cert_dir": "/etc/serviceradar/certs",
+        "role": "checker"
+    }
 }
 EOF
 

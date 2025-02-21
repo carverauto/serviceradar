@@ -2,7 +2,7 @@
 # setup-deb-snmp-checker.sh
 set -e  # Exit on any error
 
-VERSION=${VERSION:-1.0.18}
+VERSION=${VERSION:-1.0.19}
 echo "Building serviceradar-snmp-checker version ${VERSION}"
 
 echo "Setting up package structure..."
@@ -62,7 +62,13 @@ cat > "${PKG_ROOT}/etc/serviceradar/checkers/snmp.json" << EOF
 {
   "node_address": "localhost:50051",
   "listen_addr": ":50054",
-  "timeout": "5m",
+  "security": {
+	  "server_name": "changeme",
+	  "mode": "none",
+	  "role": "checker",
+	  "cert_dir": "/etc/serviceradar/certs"
+  },
+  "timeout": "30s",
   "targets": [
     {
       "name": "test-router",

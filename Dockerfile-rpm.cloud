@@ -55,7 +55,7 @@ COPY packaging/cloud/systemd/serviceradar-cloud.service /root/rpmbuild/SOURCES/s
 COPY scripts/setup-rpm-*.sh /build/
 
 # Set default version (can be overridden at build time)
-ARG VERSION=1.0.18
+ARG VERSION=1.0.19
 ARG RELEASE=1
 
 # Build the RPM

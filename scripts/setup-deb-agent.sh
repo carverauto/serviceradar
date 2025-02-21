@@ -2,7 +2,7 @@
 # setup-deb-agent.sh
 set -e  # Exit on any error
 
-VERSION=${VERSION:-1.0.18}
+VERSION=${VERSION:-1.0.19}
 echo "Building serviceradar-agent version ${VERSION}"
 
 echo "Setting up package structure..."
@@ -64,7 +64,13 @@ cat > "${PKG_ROOT}/etc/serviceradar/agent.json" << EOF
     "checkers_dir": "/etc/serviceradar/checkers",
     "listen_addr": ":50051",
     "service_type": "grpc",
-    "service_name": "AgentService"
+    "service_name": "AgentService",
+    "security": {
+        "mode": "none",
+        "cert_dir": "/etc/serviceradar/certs",
+        "server_name": "changeme",
+        "role": "agent"
+    }
 }
 EOF
 

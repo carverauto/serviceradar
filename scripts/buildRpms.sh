@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-export VERSION=${VERSION:-1.0.18}
+export VERSION=${VERSION:-1.0.19}
 export RELEASE=${RELEASE:-1}
 
 # Create directories if they don't exist

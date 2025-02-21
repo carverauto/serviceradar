@@ -8,6 +8,11 @@
         "retention": 100,
         "max_nodes": 10000
     },
+    "security": {
+        "mode": "none",
+        "cert_dir": "/etc/serviceradar/certs",
+        "role": "cloud"
+    },
     "webhooks": [
         {
             "enabled": false,
