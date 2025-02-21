@@ -178,7 +178,7 @@ func TestNewSecurityProvider(t *testing.T) {
 				Mode:       SecurityModeMTLS,
 				CertDir:    tmpDir,
 				ServerName: "localhost",
-				Role:       "server",
+				Role:       "poller",
 			},
 			expectError: false,
 		},

@@ -20,11 +20,6 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-var (
-	errFailedToAddCACert   = fmt.Errorf("failed to add CA cert to pool")
-	errUnknownSecurityMode = fmt.Errorf("unknown security mode")
-)
-
 const (
 	SecurityModeNone   models.SecurityMode = "none"
 	SecurityModeSpiffe models.SecurityMode = "spiffe"
@@ -58,7 +53,7 @@ type MTLSProvider struct {
 
 func NewMTLSProvider(config *models.SecurityConfig) (*MTLSProvider, error) {
 	if config == nil {
-		return nil, fmt.Errorf("security config is required for mTLS")
+		return nil, errSecurityConfigRequired
 	}
 
 	provider := &MTLSProvider{
@@ -78,7 +73,7 @@ func NewMTLSProvider(config *models.SecurityConfig) (*MTLSProvider, error) {
 	case models.RoleChecker:
 		provider.needsServer = true // Only accepts connections
 	default:
-		return nil, fmt.Errorf("invalid service role: %s", config.Role)
+		return nil, fmt.Errorf("%w: %s", errInvalidServiceRole, config.Role)
 	}
 
 	log.Printf("Initializing mTLS provider - Role: %s, NeedsClient: %v, NeedsServer: %v",
@@ -89,14 +84,14 @@ func NewMTLSProvider(config *models.SecurityConfig) (*MTLSProvider, error) {
 	if provider.needsClient {
 		provider.clientCreds, err = loadClientCredentials(config)
 		if err != nil {
-			return nil, fmt.Errorf("failed to load client credentials: %w", err)
+			return nil, fmt.Errorf("%w: %v", errFailedToLoadClientCreds, err)
 		}
 	}
 
 	if provider.needsServer {
 		provider.serverCreds, err = loadServerCredentials(config)
 		if err != nil {
-			return nil, fmt.Errorf("failed to load server credentials: %w", err)
+			return nil, fmt.Errorf("%w: %v", errFailedToLoadServerCreds, err)
 		}
 	}
 
@@ -105,9 +100,11 @@ func NewMTLSProvider(config *models.SecurityConfig) (*MTLSProvider, error) {
 
 func (p *MTLSProvider) Close() error {
 	var err error
+
 	p.closeOnce.Do(func() {
 		// Cleanup if needed
 	})
+
 	return err
 }
 
@@ -120,19 +117,20 @@ func loadClientCredentials(config *models.SecurityConfig) (credentials.Transport
 
 	certificate, err := tls.LoadX509KeyPair(clientCert, clientKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load client certificate from %s: %w", clientCert, err)
+		return nil, fmt.Errorf("%w: %v", errFailedToLoadClientCert, err)
 	}
 
 	// Load CA certificate
 	caFile := filepath.Join(config.CertDir, "root.pem")
+
 	caCert, err := os.ReadFile(caFile)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read CA certificate from %s: %w", caFile, err)
+		return nil, fmt.Errorf("%w: %v", errFailedToReadCACert, err)
 	}
 
 	caPool := x509.NewCertPool()
 	if !caPool.AppendCertsFromPEM(caCert) {
-		return nil, fmt.Errorf("failed to append CA certificate from %s", caFile)
+		return nil, fmt.Errorf("%w: %v", errFailedToAppendCACert, err)
 	}
 
 	tlsConfig := &tls.Config{
@@ -156,19 +154,20 @@ func loadServerCredentials(config *models.SecurityConfig) (credentials.Transport
 
 	certificate, err := tls.LoadX509KeyPair(serverCert, serverKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load server certificate from %s: %w", serverCert, err)
+		return nil, fmt.Errorf("%w: %v", errFailedToLoadServerCert, err)
 	}
 
 	// Load CA certificate for client verification
 	caFile := filepath.Join(config.CertDir, "root.pem")
+
 	caCert, err := os.ReadFile(caFile)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read CA certificate from %s: %w", caFile, err)
+		return nil, fmt.Errorf("%w: %v", errFailedToReadCACert, err)
 	}
 
 	caPool := x509.NewCertPool()
 	if !caPool.AppendCertsFromPEM(caCert) {
-		return nil, fmt.Errorf("failed to append CA certificate from %s", caFile)
+		return nil, fmt.Errorf("%w: %v", errFailedToAppendCACert, err)
 	}
 
 	tlsConfig := &tls.Config{
@@ -183,14 +182,14 @@ func loadServerCredentials(config *models.SecurityConfig) (credentials.Transport
 
 func (p *MTLSProvider) GetClientCredentials(ctx context.Context) (grpc.DialOption, error) {
 	if !p.needsClient {
-		return nil, fmt.Errorf("this service is not configured as a client")
+		return nil, errServiceNotClient
 	}
 	return grpc.WithTransportCredentials(p.clientCreds), nil
 }
 
 func (p *MTLSProvider) GetServerCredentials(context.Context) (grpc.ServerOption, error) {
 	if !p.needsServer {
-		return nil, fmt.Errorf("this service is not configured as a server")
+		return nil, errServiceNotServer
 	}
 	return grpc.Creds(p.serverCreds), nil
 }
@@ -214,7 +213,7 @@ func NewSpiffeProvider(ctx context.Context, config *models.SecurityConfig) (*Spi
 		workloadapi.WithAddr(config.WorkloadSocket),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create workload API client: %w", err)
+		return nil, fmt.Errorf("%w: %v", errFailedWorkloadAPIClient, err)
 	}
 
 	// Create X.509 source
@@ -223,7 +222,7 @@ func NewSpiffeProvider(ctx context.Context, config *models.SecurityConfig) (*Spi
 		workloadapi.WithClient(client),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create X.509 source: %w", err)
+		return nil, fmt.Errorf("%w: %v", errFailedToCreateX509Source, err)
 	}
 
 	return &SpiffeProvider{
@@ -237,7 +236,7 @@ func (p *SpiffeProvider) GetClientCredentials(_ context.Context) (grpc.DialOptio
 	// Get expected server ID
 	serverID, err := spiffeid.FromString(p.config.TrustDomain)
 	if err != nil {
-		return nil, fmt.Errorf("invalid server SPIFFE ID: %w", err)
+		return nil, fmt.Errorf("%w: %v", errInvalidServerSPIFFEID, err)
 	}
 
 	// Create TLS config for client
@@ -254,7 +253,7 @@ func (p *SpiffeProvider) GetServerCredentials(_ context.Context) (grpc.ServerOpt
 	if p.config.TrustDomain != "" {
 		trustDomain, err := spiffeid.TrustDomainFromString(p.config.TrustDomain)
 		if err != nil {
-			return nil, fmt.Errorf("invalid trust domain: %w", err)
+			return nil, fmt.Errorf("%w: %v", errInvalidTrustDomain, err)
 		}
 
 		authorizer = tlsconfig.AuthorizeMemberOf(trustDomain)
@@ -301,6 +300,6 @@ func NewSecurityProvider(ctx context.Context, config *models.SecurityConfig) (Se
 	case SecurityModeMTLS:
 		return NewMTLSProvider(config)
 	default:
-		return nil, fmt.Errorf("unsupported security mode: %s", config.Mode)
+		return nil, fmt.Errorf("%w: %s", errUnknownSecurityMode, config.Mode)
 	}
 }
