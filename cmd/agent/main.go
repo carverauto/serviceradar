@@ -5,19 +5,13 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"os"
 
 	"github.com/mfreeman451/serviceradar/pkg/agent"
 	"github.com/mfreeman451/serviceradar/pkg/config"
 	"github.com/mfreeman451/serviceradar/pkg/grpc"
 	"github.com/mfreeman451/serviceradar/pkg/lifecycle"
 	"github.com/mfreeman451/serviceradar/proto"
-	"google.golang.org/grpc/grpclog"
 )
-
-func init() {
-	grpclog.SetLoggerV2(grpclog.NewLoggerV2(os.Stderr, os.Stderr, os.Stderr))
-}
 
 func main() {
 	if err := run(); err != nil {
