@@ -3,6 +3,7 @@ package grpc
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -174,10 +175,12 @@ func TestNewSecurityProvider(t *testing.T) {
 		{
 			name: "MTLS",
 			config: &models.SecurityConfig{
-				Mode:    SecurityModeMTLS,
-				CertDir: tmpDir,
+				Mode:       SecurityModeMTLS,
+				CertDir:    tmpDir,
+				ServerName: "localhost",
+				Role:       "server",
 			},
-			expectError: false, // Should now pass with generated client certs
+			expectError: false,
 		},
 		/*
 			{
@@ -223,4 +226,63 @@ func TestNewSecurityProvider(t *testing.T) {
 			assert.NoError(t, err)
 		})
 	}
+}
+
+// generateTestCertificatesWithCFSSL uses cfssl to generate real test certificates
+func generateTestCertificatesWithCFSSL(t *testing.T, dir string) {
+	t.Helper()
+
+	// Write cfssl config
+	cfssl := []byte(`{
+        "signing": {
+            "default": {
+                "expiry": "24h"
+            },
+            "profiles": {
+                "server": {
+                    "usages": ["signing", "key encipherment", "server auth"],
+                    "expiry": "24h"
+                },
+                "client": {
+                    "usages": ["signing", "key encipherment", "client auth"],
+                    "expiry": "24h"
+                }
+            }
+        }
+    }`)
+
+	csr := []byte(`{
+        "hosts": ["localhost", "127.0.0.1"],
+        "key": {
+            "algo": "ecdsa",
+            "size": 256
+        },
+        "names": [{
+            "O": "Test Organization"
+        }]
+    }`)
+
+	cfssljsonPath := filepath.Join(dir, "cfssl.json")
+	csrPath := filepath.Join(dir, "csr.json")
+
+	require.NoError(t, os.WriteFile(cfssljsonPath, cfssl, 0644))
+	require.NoError(t, os.WriteFile(csrPath, csr, 0644))
+
+	// Generate CA
+	cmd := exec.Command("cfssl", "genkey", "-initca", csrPath)
+	cmd.Dir = dir
+	output, err := cmd.CombinedOutput()
+	require.NoError(t, err, "Failed to generate CA: %s", output)
+
+	// Generate server cert
+	cmd = exec.Command("cfssl", "gencert", "-ca", "ca.pem", "-ca-key", "ca-key.pem", "-config", "cfssl.json", "-profile", "server", csrPath)
+	cmd.Dir = dir
+	output, err = cmd.CombinedOutput()
+	require.NoError(t, err, "Failed to generate server cert: %s", output)
+
+	// Generate client cert
+	cmd = exec.Command("cfssl", "gencert", "-ca", "ca.pem", "-ca-key", "ca-key.pem", "-config", "cfssl.json", "-profile", "client", csrPath)
+	cmd.Dir = dir
+	output, err = cmd.CombinedOutput()
+	require.NoError(t, err, "Failed to generate client cert: %s", output)
 }
