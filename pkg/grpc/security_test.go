@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mfreeman451/serviceradar/pkg/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -51,7 +52,7 @@ func TestMTLSProvider(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	config := &SecurityConfig{
+	config := &models.SecurityConfig{
 		Mode:    SecurityModeMTLS,
 		CertDir: tmpDir,
 	}
@@ -113,7 +114,7 @@ func TestSpiffeProvider(t *testing.T) {
 	_, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	config := &SecurityConfig{
+	config := &models.SecurityConfig{
 		Mode:           SecurityModeSpiffe,
 		TrustDomain:    "example.org",
 		WorkloadSocket: "unix:/run/spire/sockets/agent.sock",
@@ -142,7 +143,7 @@ func TestSpiffeProvider(t *testing.T) {
 	})
 
 	t.Run("InvalidTrustDomain", func(t *testing.T) {
-		invalidConfig := &SecurityConfig{
+		invalidConfig := &models.SecurityConfig{
 			Mode:        SecurityModeSpiffe,
 			TrustDomain: "invalid trust domain",
 		}
@@ -160,19 +161,19 @@ func TestNewSecurityProvider(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		config      *SecurityConfig
+		config      *models.SecurityConfig
 		expectError bool
 	}{
 		{
 			name: "NoSecurity",
-			config: &SecurityConfig{
+			config: &models.SecurityConfig{
 				Mode: SecurityModeNone,
 			},
 			expectError: false,
 		},
 		{
 			name: "MTLS",
-			config: &SecurityConfig{
+			config: &models.SecurityConfig{
 				Mode:    SecurityModeMTLS,
 				CertDir: tmpDir,
 			},
@@ -190,7 +191,7 @@ func TestNewSecurityProvider(t *testing.T) {
 		*/
 		{
 			name: "Invalid Mode",
-			config: &SecurityConfig{
+			config: &models.SecurityConfig{
 				Mode: "invalid",
 			},
 			expectError: true,
