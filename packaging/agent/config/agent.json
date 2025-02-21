@@ -2,5 +2,11 @@
     "checkers_dir": "/etc/serviceradar/checkers",
     "listen_addr": ":50051",
     "service_type": "grpc",
-    "service_name": "AgentService"
+    "service_name": "AgentService",
+    "security": {
+        "mode": "none",
+        "cert_dir": "/etc/serviceradar/certs",
+        "server_name": "changeme",
+        "role": "agent"
+    }
 }

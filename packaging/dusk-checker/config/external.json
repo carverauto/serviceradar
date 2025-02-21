@@ -1,0 +1,5 @@
+{
+    "name": "dusk",
+    "type": "grpc",
+    "address": "localhost:50052"
+}

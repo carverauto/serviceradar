@@ -2,6 +2,10 @@
     "agents": {
         "local-agent": {
             "address": "127.0.0.1:50051",
+            "security": {
+                "server_name": "changeme",
+                "mode": "none"
+            },
             "checks": [
                 {
                     "service_type": "process",
@@ -36,5 +40,11 @@
     "poll_interval": "30s",
     "poller_id": "dusk",
     "service_name": "PollerService",
-    "service_type": "grpc"
+    "service_type": "grpc",
+    "security": {
+        "mode": "none",
+        "cert_dir": "/etc/serviceradar/certs",
+        "server_name": "changeme",
+        "role": "poller"
+    }
 }
