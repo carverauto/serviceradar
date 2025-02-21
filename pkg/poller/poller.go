@@ -200,11 +200,11 @@ func (p *Poller) Close() error {
 type AgentPoller struct {
 	client  proto.AgentServiceClient
 	name    string
-	config  AgentConfig
+	config  *AgentConfig
 	timeout time.Duration
 }
 
-func newAgentPoller(name string, config AgentConfig, client proto.AgentServiceClient, timeout time.Duration) *AgentPoller {
+func newAgentPoller(name string, config *AgentConfig, client proto.AgentServiceClient, timeout time.Duration) *AgentPoller {
 	return &AgentPoller{
 		name:    name,
 		config:  config,
@@ -301,7 +301,7 @@ func (p *Poller) getAgentConnection(agentName string) (*AgentConnection, error) 
 	return agent, nil
 }
 
-func (p *Poller) ensureAgentHealth(ctx context.Context, agentName string, config AgentConfig, agent *AgentConnection) error {
+func (p *Poller) ensureAgentHealth(ctx context.Context, agentName string, config *AgentConfig, agent *AgentConnection) error {
 	healthy, err := agent.client.CheckHealth(ctx, "AgentService")
 	if err != nil || !healthy {
 		if err := p.reconnectAgent(ctx, agentName, config); err != nil {
@@ -312,7 +312,7 @@ func (p *Poller) ensureAgentHealth(ctx context.Context, agentName string, config
 	return nil
 }
 
-func (p *Poller) reconnectAgent(ctx context.Context, agentName string, config AgentConfig) error {
+func (p *Poller) reconnectAgent(ctx context.Context, agentName string, config *AgentConfig) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -387,7 +387,9 @@ func (p *Poller) connectToCloud(ctx context.Context) error {
 }
 
 func (p *Poller) initializeAgentConnections(ctx context.Context) error {
-	for agentName, agentConfig := range p.config.Agents {
+	for agentName := range p.config.Agents {
+		agentConfig := p.config.Agents[agentName] // Access the value directly
+
 		// Create connection config for this agent
 		connConfig := &grpc.ConnectionConfig{
 			Address: agentConfig.Address,
@@ -425,12 +427,13 @@ func (p *Poller) initializeAgentConnections(ctx context.Context) error {
 func (p *Poller) poll(ctx context.Context) error {
 	var allStatuses []*proto.ServiceStatus
 
-	for agentName, agentConfig := range p.config.Agents {
+	for agentName := range p.config.Agents {
+		agentConfig := p.config.Agents[agentName] // Access the value directly
+
 		conn, err := p.getAgentConnection(agentName)
 		if err != nil {
-			if err = p.reconnectAgent(ctx, agentName, agentConfig); err != nil {
+			if err = p.reconnectAgent(ctx, agentName, &agentConfig); err != nil {
 				log.Printf("Failed to reconnect to agent %s: %v", agentName, err)
-
 				continue
 			}
 
@@ -440,17 +443,15 @@ func (p *Poller) poll(ctx context.Context) error {
 		// Check health before polling
 		healthy, err := conn.client.CheckHealth(ctx, "AgentService")
 		if err != nil || !healthy {
-			if err = p.reconnectAgent(ctx, agentName, agentConfig); err != nil {
+			if err = p.reconnectAgent(ctx, agentName, &agentConfig); err != nil {
 				log.Printf("Agent %s unhealthy: %v", agentName, err)
-
 				continue
 			}
 		}
 
-		statuses, err := p.pollAgent(ctx, agentName, agentConfig)
+		statuses, err := p.pollAgent(ctx, agentName, &agentConfig)
 		if err != nil {
 			log.Printf("Error polling agent %s: %v", agentName, err)
-
 			continue
 		}
 
@@ -460,7 +461,7 @@ func (p *Poller) poll(ctx context.Context) error {
 	return p.reportToCloud(ctx, allStatuses)
 }
 
-func (p *Poller) pollAgent(ctx context.Context, agentName string, agentConfig AgentConfig) ([]*proto.ServiceStatus, error) {
+func (p *Poller) pollAgent(ctx context.Context, agentName string, agentConfig *AgentConfig) ([]*proto.ServiceStatus, error) {
 	agent, err := p.getAgentConnection(agentName)
 	if err != nil {
 		return nil, err

@@ -228,7 +228,7 @@ func TestNewSecurityProvider(t *testing.T) {
 	}
 }
 
-// generateTestCertificatesWithCFSSL uses cfssl to generate real test certificates
+// generateTestCertificatesWithCFSSL uses cfssl to generate real test certificates.
 func generateTestCertificatesWithCFSSL(t *testing.T, dir string) {
 	t.Helper()
 
@@ -265,8 +265,8 @@ func generateTestCertificatesWithCFSSL(t *testing.T, dir string) {
 	cfssljsonPath := filepath.Join(dir, "cfssl.json")
 	csrPath := filepath.Join(dir, "csr.json")
 
-	require.NoError(t, os.WriteFile(cfssljsonPath, cfssl, 0644))
-	require.NoError(t, os.WriteFile(csrPath, csr, 0644))
+	require.NoError(t, os.WriteFile(cfssljsonPath, cfssl, 0600))
+	require.NoError(t, os.WriteFile(csrPath, csr, 0600))
 
 	// Generate CA
 	cmd := exec.Command("cfssl", "genkey", "-initca", csrPath)

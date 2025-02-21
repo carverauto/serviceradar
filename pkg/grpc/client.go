@@ -47,7 +47,7 @@ type ClientConn struct {
 // NewClient creates a new gRPC client connection.
 func NewClient(ctx context.Context, connConfig *ConnectionConfig, opts ...ClientOption) (*ClientConn, error) {
 	if connConfig == nil {
-		return nil, fmt.Errorf("connection config is required")
+		return nil, errConnectionConfigRequired
 	}
 
 	c := &ClientConn{
@@ -67,6 +67,7 @@ func NewClient(ctx context.Context, connConfig *ConnectionConfig, opts ...Client
 		if err != nil {
 			return nil, fmt.Errorf("failed to create security provider: %w", err)
 		}
+
 		c.securityProvider = provider
 	}
 
@@ -81,7 +82,7 @@ func NewClient(ctx context.Context, connConfig *ConnectionConfig, opts ...Client
 	}
 
 	// Use the connection config's address
-	conn, err := grpc.DialContext(ctx, connConfig.Address, dialOpts...)
+	conn, err := grpc.DialContext(ctx, connConfig.Address, dialOpts...) //nolint:staticcheck //Ignore deprecation warning
 	if err != nil {
 		return nil, fmt.Errorf("failed to dial %s: %w", connConfig.Address, err)
 	}
@@ -123,7 +124,6 @@ func RetryInterceptor(ctx context.Context,
 	cc *grpc.ClientConn,
 	invoker grpc.UnaryInvoker,
 	opts ...grpc.CallOption) error {
-
 	var lastErr error
 
 	for attempt := 0; attempt < defaultMaxRetries; attempt++ {
@@ -139,6 +139,7 @@ func RetryInterceptor(ctx context.Context,
 				continue
 			}
 		}
+
 		return nil
 	}
 

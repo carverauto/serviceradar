@@ -23,12 +23,14 @@ import (
 
 var (
 	errInvalidDuration = errors.New("invalid duration")
-	errServerShutdown  = errors.New("server shutdown error")
 )
 
 const (
-	defaultShutdownTimeout   = 10 * time.Second
 	defaultErrChanBufferSize = 10
+	defaultTimeout           = 30 * time.Second
+	jsonSuffix               = ".json"
+	snmpPrefix               = "snmp"
+	grpcType                 = "grpc"
 )
 
 type Duration time.Duration
@@ -78,13 +80,12 @@ type Server struct {
 	listenAddr    string
 	registry      checker.Registry
 	errChan       chan error
-	wg            sync.WaitGroup
 	done          chan struct{} // Signal for shutdown
 	config        *ServerConfig
 	connections   map[string]*CheckerConnection
 }
 
-// CheckerConnection represents a connection to a checker service
+// CheckerConnection represents a connection to a checker service.
 type CheckerConnection struct {
 	client      *grpc.ClientConn
 	serviceName string
@@ -208,6 +209,7 @@ func (s *Server) Start(ctx context.Context) error {
 		if err := svc.Start(ctx); err != nil {
 			return fmt.Errorf("failed to start service %s: %w", svc.Name(), err)
 		}
+
 		s.healthChecker.SetServingStatus(svc.Name(), healthpb.HealthCheckResponse_SERVING)
 	}
 
@@ -233,25 +235,6 @@ func (s *Server) Stop(ctx context.Context) error {
 	return nil
 }
 
-func (s *Server) stopService(ctx context.Context, svc Service) error {
-	log.Printf("Stopping service: %s", svc.Name())
-
-	// Create timeout context for service shutdown
-	shutdownCtx, cancel := context.WithTimeout(ctx, defaultShutdownTimeout)
-	defer cancel()
-
-	if err := svc.Stop(shutdownCtx); err != nil {
-		return &ServiceError{
-			ServiceName: svc.Name(),
-			Err:         err,
-		}
-	}
-
-	s.healthChecker.SetServingStatus(svc.Name(), healthpb.HealthCheckResponse_NOT_SERVING)
-
-	return nil
-}
-
 func (s *Server) ListenAddr() string {
 	return s.config.ListenAddr
 }
@@ -260,21 +243,8 @@ func (s *Server) SecurityConfig() *models.SecurityConfig {
 	return s.config.Security
 }
 
-func (s *Server) collectErrors(ctx context.Context) {
-	for {
-		select {
-		case err := <-s.errChan:
-			log.Printf("Error collected: %v", err)
-		case <-ctx.Done():
-			return
-		case <-s.done:
-			return
-		}
-	}
-}
-
 // loadCheckerConfig loads and parses a single checker configuration file.
-func (s *Server) loadCheckerConfig(path string) (CheckerConfig, error) {
+func (*Server) loadCheckerConfig(path string) (CheckerConfig, error) {
 	var conf CheckerConfig
 
 	data, err := os.ReadFile(path)
@@ -283,10 +253,11 @@ func (s *Server) loadCheckerConfig(path string) (CheckerConfig, error) {
 	}
 
 	// Handle special case for SNMP config files
-	if strings.HasPrefix(filepath.Base(path), "snmp") {
-		conf.Name = "snmp-" + strings.TrimSuffix(filepath.Base(path), ".json")
-		conf.Type = "snmp"
+	if strings.HasPrefix(filepath.Base(path), snmpPrefix) {
+		conf.Name = "snmp-" + strings.TrimSuffix(filepath.Base(path), jsonSuffix)
+		conf.Type = snmpPrefix
 		conf.Additional = data // Use the entire file as Additional
+
 		return conf, nil
 	}
 
@@ -297,11 +268,11 @@ func (s *Server) loadCheckerConfig(path string) (CheckerConfig, error) {
 
 	// Set default timeout if not specified
 	if conf.Timeout == 0 {
-		conf.Timeout = Duration(30 * time.Second)
+		conf.Timeout = Duration(defaultTimeout)
 	}
 
 	// For gRPC checkers, ensure we have an address
-	if conf.Type == "grpc" && conf.Address == "" {
+	if conf.Type == grpcType && conf.Address == "" {
 		conf.Address = conf.ListenAddr // Use listen address as fallback
 	}
 
@@ -320,23 +291,26 @@ func (s *Server) initializeCheckers(ctx context.Context) error {
 	s.connections = make(map[string]*CheckerConnection)
 
 	for _, file := range files {
-		if filepath.Ext(file.Name()) != ".json" {
+		if filepath.Ext(file.Name()) != jsonSuffix {
 			continue
 		}
 
 		config, err := s.loadCheckerConfig(filepath.Join(s.configDir, file.Name()))
 		if err != nil {
 			log.Printf("Warning: Failed to load checker config %s: %v", file.Name(), err)
+
 			continue
 		}
 
-		if config.Type == "grpc" {
+		if config.Type == grpcType {
 			// For gRPC checkers, establish connection
-			conn, err := s.connectToChecker(ctx, config)
+			conn, err := s.connectToChecker(ctx, &config)
 			if err != nil {
 				log.Printf("Warning: Failed to connect to checker %s: %v", config.Name, err)
+
 				continue
 			}
+
 			s.connections[config.Name] = conn
 		}
 
@@ -347,7 +321,7 @@ func (s *Server) initializeCheckers(ctx context.Context) error {
 	return nil
 }
 
-func (s *Server) connectToChecker(ctx context.Context, checkerConfig CheckerConfig) (*CheckerConnection, error) {
+func (s *Server) connectToChecker(ctx context.Context, checkerConfig *CheckerConfig) (*CheckerConnection, error) {
 	// Create connection config for this checker
 	connConfig := &grpc.ConnectionConfig{
 		Address: checkerConfig.Address,
@@ -365,7 +339,7 @@ func (s *Server) connectToChecker(ctx context.Context, checkerConfig CheckerConf
 	client, err := grpc.NewClient(
 		ctx,
 		connConfig,
-		grpc.WithMaxRetries(3),
+		grpc.WithMaxRetries(defaultMaxRetries),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to checker %s: %w", checkerConfig.Name, err)

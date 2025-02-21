@@ -41,7 +41,7 @@ func (*NoSecurityProvider) Close() error {
 	return nil
 }
 
-// MTLSProvider implements SecurityProvider with mutual TLS
+// MTLSProvider implements SecurityProvider with mutual TLS.
 type MTLSProvider struct {
 	config      *models.SecurityConfig
 	clientCreds credentials.TransportCredentials
@@ -84,14 +84,14 @@ func NewMTLSProvider(config *models.SecurityConfig) (*MTLSProvider, error) {
 	if provider.needsClient {
 		provider.clientCreds, err = loadClientCredentials(config)
 		if err != nil {
-			return nil, fmt.Errorf("%w: %v", errFailedToLoadClientCreds, err)
+			return nil, fmt.Errorf("%w: %w", errFailedToLoadClientCreds, err)
 		}
 	}
 
 	if provider.needsServer {
 		provider.serverCreds, err = loadServerCredentials(config)
 		if err != nil {
-			return nil, fmt.Errorf("%w: %v", errFailedToLoadServerCreds, err)
+			return nil, fmt.Errorf("%w: %w", errFailedToLoadServerCreds, err)
 		}
 	}
 
@@ -117,7 +117,7 @@ func loadClientCredentials(config *models.SecurityConfig) (credentials.Transport
 
 	certificate, err := tls.LoadX509KeyPair(clientCert, clientKey)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", errFailedToLoadClientCert, err)
+		return nil, fmt.Errorf("%w: %w", errFailedToLoadClientCert, err)
 	}
 
 	// Load CA certificate
@@ -125,12 +125,12 @@ func loadClientCredentials(config *models.SecurityConfig) (credentials.Transport
 
 	caCert, err := os.ReadFile(caFile)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", errFailedToReadCACert, err)
+		return nil, fmt.Errorf("%w: %w", errFailedToReadCACert, err)
 	}
 
 	caPool := x509.NewCertPool()
 	if !caPool.AppendCertsFromPEM(caCert) {
-		return nil, fmt.Errorf("%w: %v", errFailedToAppendCACert, err)
+		return nil, fmt.Errorf("%w: %w", errFailedToAppendCACert, err)
 	}
 
 	tlsConfig := &tls.Config{
@@ -154,7 +154,7 @@ func loadServerCredentials(config *models.SecurityConfig) (credentials.Transport
 
 	certificate, err := tls.LoadX509KeyPair(serverCert, serverKey)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", errFailedToLoadServerCert, err)
+		return nil, fmt.Errorf("%w: %w", errFailedToLoadServerCert, err)
 	}
 
 	// Load CA certificate for client verification
@@ -162,12 +162,12 @@ func loadServerCredentials(config *models.SecurityConfig) (credentials.Transport
 
 	caCert, err := os.ReadFile(caFile)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", errFailedToReadCACert, err)
+		return nil, fmt.Errorf("%w: %w", errFailedToReadCACert, err)
 	}
 
 	caPool := x509.NewCertPool()
 	if !caPool.AppendCertsFromPEM(caCert) {
-		return nil, fmt.Errorf("%w: %v", errFailedToAppendCACert, err)
+		return nil, fmt.Errorf("%w: %w", errFailedToAppendCACert, err)
 	}
 
 	tlsConfig := &tls.Config{
@@ -180,10 +180,11 @@ func loadServerCredentials(config *models.SecurityConfig) (credentials.Transport
 	return credentials.NewTLS(tlsConfig), nil
 }
 
-func (p *MTLSProvider) GetClientCredentials(ctx context.Context) (grpc.DialOption, error) {
+func (p *MTLSProvider) GetClientCredentials(_ context.Context) (grpc.DialOption, error) {
 	if !p.needsClient {
 		return nil, errServiceNotClient
 	}
+
 	return grpc.WithTransportCredentials(p.clientCreds), nil
 }
 
@@ -191,6 +192,7 @@ func (p *MTLSProvider) GetServerCredentials(context.Context) (grpc.ServerOption,
 	if !p.needsServer {
 		return nil, errServiceNotServer
 	}
+
 	return grpc.Creds(p.serverCreds), nil
 }
 
@@ -213,7 +215,7 @@ func NewSpiffeProvider(ctx context.Context, config *models.SecurityConfig) (*Spi
 		workloadapi.WithAddr(config.WorkloadSocket),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", errFailedWorkloadAPIClient, err)
+		return nil, fmt.Errorf("%w: %w", errFailedWorkloadAPIClient, err)
 	}
 
 	// Create X.509 source
@@ -222,7 +224,7 @@ func NewSpiffeProvider(ctx context.Context, config *models.SecurityConfig) (*Spi
 		workloadapi.WithClient(client),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", errFailedToCreateX509Source, err)
+		return nil, fmt.Errorf("%w: %w", errFailedToCreateX509Source, err)
 	}
 
 	return &SpiffeProvider{
@@ -236,7 +238,7 @@ func (p *SpiffeProvider) GetClientCredentials(_ context.Context) (grpc.DialOptio
 	// Get expected server ID
 	serverID, err := spiffeid.FromString(p.config.TrustDomain)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", errInvalidServerSPIFFEID, err)
+		return nil, fmt.Errorf("%w: %w", errInvalidServerSPIFFEID, err)
 	}
 
 	// Create TLS config for client
@@ -253,7 +255,7 @@ func (p *SpiffeProvider) GetServerCredentials(_ context.Context) (grpc.ServerOpt
 	if p.config.TrustDomain != "" {
 		trustDomain, err := spiffeid.TrustDomainFromString(p.config.TrustDomain)
 		if err != nil {
-			return nil, fmt.Errorf("%w: %v", errInvalidTrustDomain, err)
+			return nil, fmt.Errorf("%w: %w", errInvalidTrustDomain, err)
 		}
 
 		authorizer = tlsconfig.AuthorizeMemberOf(trustDomain)
@@ -286,7 +288,7 @@ func (p *SpiffeProvider) Close() error {
 }
 
 // NewSecurityProvider creates the appropriate security provider based on mode.
-func NewSecurityProvider(ctx context.Context, config *models.SecurityConfig) (SecurityProvider, error) {
+func NewSecurityProvider(_ context.Context, config *models.SecurityConfig) (SecurityProvider, error) {
 	if config == nil {
 		log.Printf("No security config provided, using no security")
 		return &NoSecurityProvider{}, nil

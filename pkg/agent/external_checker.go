@@ -69,6 +69,7 @@ func NewExternalChecker(ctx context.Context, serviceName, serviceType, address s
 		if closeErr := client.Close(); closeErr != nil {
 			return nil, closeErr
 		}
+
 		return nil, fmt.Errorf("extChecker: %w, err: %w", errHealth, err)
 	}
 
@@ -76,6 +77,7 @@ func NewExternalChecker(ctx context.Context, serviceName, serviceType, address s
 		if err := client.Close(); err != nil {
 			return nil, err
 		}
+
 		return nil, errServiceHealth
 	}
 

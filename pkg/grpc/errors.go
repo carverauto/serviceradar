@@ -20,4 +20,5 @@ var (
 	errFailedToCreateX509Source = errors.New("failed to create X.509 source")
 	errInvalidServerSPIFFEID    = errors.New("invalid server SPIFFE ID")
 	errInvalidTrustDomain       = errors.New("invalid trust domain")
+	errConnectionConfigRequired = errors.New("connection config required")
 )
