@@ -328,7 +328,7 @@ func TestSNMPChecker(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			checker, err := NewSNMPChecker(tt.address)
+			checker, err := NewSNMPChecker(context.Background(), tt.address)
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Nil(t, checker)

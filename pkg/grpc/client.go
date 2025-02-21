@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mfreeman451/serviceradar/pkg/models"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/keepalive"
@@ -22,6 +23,11 @@ const (
 	grpcKeepAliveTimeout              = 5 * time.Second
 )
 
+type ConnectionConfig struct {
+	Address  string                `json:"address"`
+	Security models.SecurityConfig `json:"security,omitempty"`
+}
+
 // ClientOption allows customization of the client.
 type ClientOption func(*ClientConn)
 
@@ -35,20 +41,37 @@ type ClientConn struct {
 	lastHealthDetails string
 	lastHealthCheck   time.Time
 	securityProvider  SecurityProvider
+	connectionConfig  *ConnectionConfig
 }
 
 // NewClient creates a new gRPC client connection.
-func NewClient(ctx context.Context, addr string, opts ...ClientOption) (*ClientConn, error) {
+func NewClient(ctx context.Context, connConfig *ConnectionConfig, opts ...ClientOption) (*ClientConn, error) {
+	if connConfig == nil {
+		return nil, errConnectionConfigRequired
+	}
+
 	c := &ClientConn{
-		addr:       addr,
-		maxRetries: defaultMaxRetries,
+		addr:             connConfig.Address,
+		maxRetries:       defaultMaxRetries,
+		connectionConfig: connConfig,
 	}
 
 	// Apply custom options
 	for _, opt := range opts {
 		opt(c)
 	}
-	// Default to NoSecurityProvider if none is specified
+
+	// If no security provider specified, create one from the connection config
+	if c.securityProvider == nil && connConfig.Security.Mode != "" {
+		provider, err := NewSecurityProvider(ctx, &connConfig.Security)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create security provider: %w", err)
+		}
+
+		c.securityProvider = provider
+	}
+
+	// Default to NoSecurityProvider if none specified
 	if c.securityProvider == nil {
 		c.securityProvider = &NoSecurityProvider{}
 	}
@@ -58,15 +81,16 @@ func NewClient(ctx context.Context, addr string, opts ...ClientOption) (*ClientC
 		return nil, fmt.Errorf("failed to create dial options: %w", err)
 	}
 
-	conn, err := grpc.DialContext(ctx, addr, dialOpts...) //nolint:staticcheck // ignore warning for DialContext
+	// Use the connection config's address
+	conn, err := grpc.DialContext(ctx, connConfig.Address, dialOpts...) //nolint:staticcheck //Ignore deprecation warning
 	if err != nil {
-		return nil, fmt.Errorf("failed to dial: %w", err)
+		return nil, fmt.Errorf("failed to dial %s: %w", connConfig.Address, err)
 	}
 
 	c.conn = conn
-
-	// Initialize health client
 	c.healthClient = grpc_health_v1.NewHealthClient(conn)
+
+	log.Printf("Created new gRPC client connection to %s", connConfig.Address)
 
 	return c, nil
 }
@@ -91,6 +115,35 @@ func (c *ClientConn) createDialOptions(ctx context.Context) ([]grpc.DialOption, 
 	}
 
 	return dialOpts, nil
+}
+
+// RetryInterceptor implements retry logic for failed calls.
+func RetryInterceptor(ctx context.Context,
+	method string,
+	req, reply interface{},
+	cc *grpc.ClientConn,
+	invoker grpc.UnaryInvoker,
+	opts ...grpc.CallOption) error {
+	var lastErr error
+
+	for attempt := 0; attempt < defaultMaxRetries; attempt++ {
+		if err := invoker(ctx, method, req, reply, cc, opts...); err != nil {
+			lastErr = err
+			log.Printf("gRPC call attempt %d failed: %v", attempt+1, err)
+			// Exponential backoff
+			delay := time.Duration(attempt*retryInterceptorAttemptMultiplier) * retryInterceptorTimeoutDuration
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(delay):
+				continue
+			}
+		}
+
+		return nil
+	}
+
+	return fmt.Errorf("all retry attempts failed: %w", lastErr)
 }
 
 // WithMaxRetries sets the maximum number of retry attempts.
@@ -170,28 +223,4 @@ func ClientLoggingInterceptor(
 		err)
 
 	return err
-}
-
-// RetryInterceptor implements retry logic for failed calls.
-func RetryInterceptor(ctx context.Context,
-	method string,
-	req, reply interface{},
-	cc *grpc.ClientConn,
-	invoker grpc.UnaryInvoker,
-	opts ...grpc.CallOption) error {
-	var lastErr error
-
-	for attempt := 0; attempt < defaultMaxRetries; attempt++ {
-		if err := invoker(ctx, method, req, reply, cc, opts...); err != nil {
-			lastErr = err
-			log.Printf("gRPC call attempt %d failed: %v", attempt+1, err)
-			time.Sleep(time.Duration(attempt*retryInterceptorAttemptMultiplier) * retryInterceptorTimeoutDuration)
-
-			continue
-		}
-
-		return nil
-	}
-
-	return fmt.Errorf("all retry attempts failed: %w", lastErr)
 }

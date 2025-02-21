@@ -10,6 +10,7 @@ import (
 	"github.com/mfreeman451/serviceradar/pkg/db"
 	"github.com/mfreeman451/serviceradar/pkg/grpc"
 	"github.com/mfreeman451/serviceradar/pkg/metrics"
+	"github.com/mfreeman451/serviceradar/pkg/models"
 	"github.com/mfreeman451/serviceradar/proto"
 )
 
@@ -29,7 +30,7 @@ type Config struct {
 	KnownPollers   []string               `json:"known_pollers,omitempty"`
 	Metrics        Metrics                `json:"metrics"`
 	SNMP           snmp.Config            `json:"snmp"`
-	Security       *grpc.SecurityConfig   `json:"security"`
+	Security       *models.SecurityConfig `json:"security"`
 }
 
 type Server struct {

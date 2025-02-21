@@ -17,6 +17,8 @@ import (
 )
 
 // generateTestCertificates creates a CA, server, and client certificates for testing.
+// In generate_certs_test.go
+
 func generateTestCertificates(t *testing.T, dir string) {
 	t.Helper()
 
@@ -40,9 +42,9 @@ func generateTestCertificates(t *testing.T, dir string) {
 	caCertDER, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, &caKey.PublicKey, caKey)
 	require.NoError(t, err, "Failed to create CA certificate")
 
-	// Save CA certificate
-	savePEMCertificate(t, filepath.Join(dir, "ca.crt"), caCertDER)
-	savePEMPrivateKey(t, filepath.Join(dir, "ca.key"), caKey)
+	// Save CA certificate and key with .pem extension
+	savePEMCertificate(t, filepath.Join(dir, "root.pem"), caCertDER)
+	savePEMPrivateKey(t, filepath.Join(dir, "root-key.pem"), caKey)
 
 	// Generate server certificate
 	serverKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -63,9 +65,9 @@ func generateTestCertificates(t *testing.T, dir string) {
 	serverCertDER, err := x509.CreateCertificate(rand.Reader, serverTemplate, caTemplate, &serverKey.PublicKey, caKey)
 	require.NoError(t, err, "Failed to create server certificate")
 
-	// Save server certificate and key
-	savePEMCertificate(t, filepath.Join(dir, "server.crt"), serverCertDER)
-	savePEMPrivateKey(t, filepath.Join(dir, "server.key"), serverKey)
+	// Save server certificate and key with .pem extension
+	savePEMCertificate(t, filepath.Join(dir, "server.pem"), serverCertDER)
+	savePEMPrivateKey(t, filepath.Join(dir, "server-key.pem"), serverKey)
 
 	// Generate client certificate for mTLS
 	clientKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -85,12 +87,19 @@ func generateTestCertificates(t *testing.T, dir string) {
 	clientCertDER, err := x509.CreateCertificate(rand.Reader, clientTemplate, caTemplate, &clientKey.PublicKey, caKey)
 	require.NoError(t, err, "Failed to create client certificate")
 
-	// Save client certificate and key
-	savePEMCertificate(t, filepath.Join(dir, "client.crt"), clientCertDER)
-	savePEMPrivateKey(t, filepath.Join(dir, "client.key"), clientKey)
+	// Save client certificate and key with .pem extension
+	savePEMCertificate(t, filepath.Join(dir, "client.pem"), clientCertDER)
+	savePEMPrivateKey(t, filepath.Join(dir, "client-key.pem"), clientKey)
 
 	// Verify all files exist
-	files := []string{"ca.crt", "ca.key", "server.crt", "server.key", "client.crt", "client.key"}
+	files := []string{
+		"root.pem",
+		"root-key.pem",
+		"server.pem",
+		"server-key.pem",
+		"client.pem",
+		"client-key.pem",
+	}
 	for _, file := range files {
 		path := filepath.Join(dir, file)
 		_, err := os.Stat(path)

@@ -42,7 +42,6 @@ func (s *SNMPMetricsManager) GetSNMPMetrics(nodeID string, startTime, endTime ti
         WHERE node_id = ? 
         AND metric_type = 'snmp' 
         AND timestamp BETWEEN ? AND ?
-        ORDER BY timestamp ASC
     `
 
 	rows, err := s.db.Query(query, nodeID, startTime, endTime)

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mfreeman451/serviceradar/pkg/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -44,78 +45,6 @@ func TestNoSecurityProvider(t *testing.T) {
 	})
 }
 
-// TestTLSProvider tests the TLSProvider implementation.
-func TestTLSProvider(t *testing.T) {
-	tmpDir := t.TempDir()
-	generateTestCertificates(t, tmpDir)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	config := &SecurityConfig{
-		Mode:    SecurityModeTLS,
-		CertDir: tmpDir,
-	}
-
-	t.Run("NewTLSProvider", func(t *testing.T) {
-		provider, err := NewTLSProvider(config)
-		require.NoError(t, err)
-		require.NotNil(t, provider)
-		assert.NotNil(t, provider.clientCreds)
-		assert.NotNil(t, provider.serverCreds)
-
-		defer func() {
-			err := provider.Close()
-			require.NoError(t, err)
-		}()
-	})
-
-	t.Run("GetClientCredentials", func(t *testing.T) {
-		provider, err := NewTLSProvider(config)
-		require.NoError(t, err)
-		defer func(provider *TLSProvider) {
-			err = provider.Close()
-			if err != nil {
-				t.Fatalf("Expected Close to succeed, got error: %v", err)
-			}
-		}(provider)
-
-		opt, err := provider.GetClientCredentials(ctx)
-		require.NoError(t, err)
-		require.NotNil(t, opt)
-	})
-
-	t.Run("GetServerCredentials", func(t *testing.T) {
-		provider, err := NewTLSProvider(config)
-		require.NoError(t, err)
-		defer func(provider *TLSProvider) {
-			err = provider.Close()
-			if err != nil {
-				t.Fatalf("Expected Close to succeed, got error: %v", err)
-			}
-		}(provider)
-
-		opt, err := provider.GetServerCredentials(ctx)
-		require.NoError(t, err)
-		require.NotNil(t, opt)
-
-		s := grpc.NewServer(opt)
-		defer s.Stop()
-		assert.NotNil(t, s)
-	})
-
-	t.Run("InvalidCertificates", func(t *testing.T) {
-		invalidConfig := &SecurityConfig{
-			Mode:    SecurityModeTLS,
-			CertDir: "/nonexistent",
-		}
-
-		provider, err := NewTLSProvider(invalidConfig)
-		require.Error(t, err)
-		assert.Nil(t, provider)
-	})
-}
-
 func TestMTLSProvider(t *testing.T) {
 	tmpDir := t.TempDir()
 	generateTestCertificates(t, tmpDir)
@@ -123,9 +52,10 @@ func TestMTLSProvider(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	config := &SecurityConfig{
+	config := &models.SecurityConfig{
 		Mode:    SecurityModeMTLS,
 		CertDir: tmpDir,
+		Role:    models.RolePoller,
 	}
 
 	t.Run("NewMTLSProvider", func(t *testing.T) {
@@ -159,14 +89,33 @@ func TestMTLSProvider(t *testing.T) {
 	})
 
 	t.Run("MissingClientCerts", func(t *testing.T) {
-		// Remove client certificates
-		err := os.Remove(filepath.Join(tmpDir, "client.crt"))
+		// Make a copy of the directory without client certs
+		var err error
+
+		noCertDir := filepath.Join(t.TempDir(), "no-client-certs")
+
+		err = os.MkdirAll(noCertDir, 0755)
 		require.NoError(t, err)
 
-		err = os.Remove(filepath.Join(tmpDir, "client.key"))
-		require.NoError(t, err)
+		// Copy only server and CA certs
+		for _, file := range []string{"root.pem", "server.pem", "server-key.pem"} {
+			var content []byte
 
-		provider, err := NewMTLSProvider(config)
+			srcPath := filepath.Join(tmpDir, file)
+			dstPath := filepath.Join(noCertDir, file)
+			content, err = os.ReadFile(srcPath)
+			require.NoError(t, err)
+			err = os.WriteFile(dstPath, content, 0600)
+			require.NoError(t, err)
+		}
+
+		noCertConfig := &models.SecurityConfig{
+			Mode:    SecurityModeMTLS,
+			CertDir: noCertDir,
+			Role:    models.RolePoller,
+		}
+
+		provider, err := NewMTLSProvider(noCertConfig)
 		require.Error(t, err)
 		assert.Nil(t, provider)
 	})
@@ -185,7 +134,7 @@ func TestSpiffeProvider(t *testing.T) {
 	_, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	config := &SecurityConfig{
+	config := &models.SecurityConfig{
 		Mode:           SecurityModeSpiffe,
 		TrustDomain:    "example.org",
 		WorkloadSocket: "unix:/run/spire/sockets/agent.sock",
@@ -214,7 +163,7 @@ func TestSpiffeProvider(t *testing.T) {
 	})
 
 	t.Run("InvalidTrustDomain", func(t *testing.T) {
-		invalidConfig := &SecurityConfig{
+		invalidConfig := &models.SecurityConfig{
 			Mode:        SecurityModeSpiffe,
 			TrustDomain: "invalid trust domain",
 		}
@@ -226,38 +175,31 @@ func TestSpiffeProvider(t *testing.T) {
 }
 
 // TestNewSecurityProvider tests the factory function for creating security providers.
-// TestNewSecurityProvider tests the factory function for creating security providers.
 func TestNewSecurityProvider(t *testing.T) {
 	tmpDir := t.TempDir()
 	generateTestCertificates(t, tmpDir)
 
 	tests := []struct {
 		name        string
-		config      *SecurityConfig
+		config      *models.SecurityConfig
 		expectError bool
 	}{
 		{
 			name: "NoSecurity",
-			config: &SecurityConfig{
+			config: &models.SecurityConfig{
 				Mode: SecurityModeNone,
 			},
 			expectError: false,
 		},
 		{
-			name: "TLS",
-			config: &SecurityConfig{
-				Mode:    SecurityModeTLS,
-				CertDir: tmpDir,
+			name: "MTLS",
+			config: &models.SecurityConfig{
+				Mode:       SecurityModeMTLS,
+				CertDir:    tmpDir,
+				ServerName: "localhost",
+				Role:       "poller",
 			},
 			expectError: false,
-		},
-		{
-			name: "MTLS",
-			config: &SecurityConfig{
-				Mode:    SecurityModeMTLS,
-				CertDir: tmpDir,
-			},
-			expectError: false, // Should now pass with generated client certs
 		},
 		/*
 			{
@@ -271,7 +213,7 @@ func TestNewSecurityProvider(t *testing.T) {
 		*/
 		{
 			name: "Invalid Mode",
-			config: &SecurityConfig{
+			config: &models.SecurityConfig{
 				Mode: "invalid",
 			},
 			expectError: true,
@@ -304,3 +246,65 @@ func TestNewSecurityProvider(t *testing.T) {
 		})
 	}
 }
+
+// generateTestCertificatesWithCFSSL uses cfssl to generate real test certificates.
+/*
+func generateTestCertificatesWithCFSSL(t *testing.T, dir string) {
+	t.Helper()
+
+	// Write cfssl config
+	cfssl := []byte(`{
+        "signing": {
+            "default": {
+                "expiry": "24h"
+            },
+            "profiles": {
+                "server": {
+                    "usages": ["signing", "key encipherment", "server auth"],
+                    "expiry": "24h"
+                },
+                "client": {
+                    "usages": ["signing", "key encipherment", "client auth"],
+                    "expiry": "24h"
+                }
+            }
+        }
+    }`)
+
+	csr := []byte(`{
+        "hosts": ["localhost", "127.0.0.1"],
+        "key": {
+            "algo": "ecdsa",
+            "size": 256
+        },
+        "names": [{
+            "O": "Test Organization"
+        }]
+    }`)
+
+	cfssljsonPath := filepath.Join(dir, "cfssl.json")
+	csrPath := filepath.Join(dir, "csr.json")
+
+	require.NoError(t, os.WriteFile(cfssljsonPath, cfssl, 0600))
+	require.NoError(t, os.WriteFile(csrPath, csr, 0600))
+
+	// Generate CA
+	cmd := exec.Command("cfssl", "genkey", "-initca", csrPath)
+	cmd.Dir = dir
+	output, err := cmd.CombinedOutput()
+	require.NoError(t, err, "Failed to generate CA: %s", output)
+
+	// Generate server cert
+	cmd = exec.Command("cfssl", "gencert", "-ca", "ca.pem", "-ca-key", "ca-key.pem", "-config", "cfssl.json", "-profile", "server", csrPath)
+	cmd.Dir = dir
+	output, err = cmd.CombinedOutput()
+	require.NoError(t, err, "Failed to generate server cert: %s", output)
+
+	// Generate client cert
+	cmd = exec.Command("cfssl", "gencert", "-ca", "ca.pem", "-ca-key", "ca-key.pem", "-config", "cfssl.json", "-profile", "client", csrPath)
+	cmd.Dir = dir
+	output, err = cmd.CombinedOutput()
+	require.NoError(t, err, "Failed to generate client cert: %s", output)
+}
+
+*/

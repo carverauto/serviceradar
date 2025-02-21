@@ -42,7 +42,7 @@ func run() error {
 	// Create server options
 	opts := &lifecycle.ServerOptions{
 		ListenAddr:        server.ListenAddr(),
-		ServiceName:       "AgentService",
+		ServiceName:       cfg.ServiceName,
 		Service:           server,
 		EnableHealthCheck: true,
 		RegisterGRPCServices: []lifecycle.GRPCServiceRegistrar{

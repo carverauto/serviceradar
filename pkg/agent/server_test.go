@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/mfreeman451/serviceradar/pkg/checker"
-	"github.com/mfreeman451/serviceradar/pkg/grpc"
 	"github.com/mfreeman451/serviceradar/pkg/models"
 	"github.com/mfreeman451/serviceradar/proto"
 	"github.com/stretchr/testify/assert"
@@ -30,7 +29,7 @@ func TestNewServer(t *testing.T) {
 	// Create test configuration
 	config := &ServerConfig{
 		ListenAddr: ":50051",
-		Security:   &grpc.SecurityConfig{},
+		Security:   &models.SecurityConfig{},
 	}
 
 	tests := []struct {

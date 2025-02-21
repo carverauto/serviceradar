@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/mfreeman451/serviceradar/pkg/config"
-	"github.com/mfreeman451/serviceradar/pkg/grpc"
+	"github.com/mfreeman451/serviceradar/pkg/models"
 )
 
 const (
@@ -24,11 +24,11 @@ const (
 
 // Config represents SNMP checker configuration.
 type Config struct {
-	NodeAddress string               `json:"node_address"`
-	Timeout     config.Duration      `json:"timeout"`
-	ListenAddr  string               `json:"listen_addr"`
-	Security    *grpc.SecurityConfig `json:"security"`
-	Targets     []Target             `json:"targets"`
+	NodeAddress string                 `json:"node_address"`
+	Timeout     config.Duration        `json:"timeout"`
+	ListenAddr  string                 `json:"listen_addr"`
+	Security    *models.SecurityConfig `json:"security"`
+	Targets     []Target               `json:"targets"`
 }
 
 // Validate implements config.Validator interface.

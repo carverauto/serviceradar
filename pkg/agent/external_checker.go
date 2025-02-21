@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	grpcpkg "github.com/mfreeman451/serviceradar/pkg/grpc"
+	"github.com/mfreeman451/serviceradar/pkg/models"
 	"github.com/mfreeman451/serviceradar/proto"
 )
 
@@ -33,10 +35,21 @@ type ExternalChecker struct {
 func NewExternalChecker(ctx context.Context, serviceName, serviceType, address string) (*ExternalChecker, error) {
 	log.Printf("Creating new external checker name=%s type=%s at %s", serviceName, serviceType, address)
 
+	// Create connection config
+	connConfig := &grpcpkg.ConnectionConfig{
+		Address: address,
+		Security: models.SecurityConfig{
+			Mode:       "mtls",
+			CertDir:    "/etc/serviceradar/certs",      // TODO: Make configurable
+			ServerName: strings.Split(address, ":")[0], // Use hostname part
+			Role:       "agent",
+		},
+	}
+
 	// Create client using our gRPC package
 	client, err := grpcpkg.NewClient(
 		ctx,
-		address,
+		connConfig,
 		grpcpkg.WithMaxRetries(maxRetries),
 	)
 	if err != nil {
