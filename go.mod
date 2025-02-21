@@ -3,6 +3,7 @@ module github.com/mfreeman451/serviceradar
 go 1.24
 
 require (
+	github.com/google/s2a-go v0.1.9
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/gosnmp/gosnmp v1.38.0

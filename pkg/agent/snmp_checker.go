@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/mfreeman451/serviceradar/pkg/checker/snmp"
 	"github.com/mfreeman451/serviceradar/pkg/config"
 	"github.com/mfreeman451/serviceradar/pkg/grpc"
+	"github.com/mfreeman451/serviceradar/pkg/models"
 	"github.com/mfreeman451/serviceradar/proto"
 )
 
@@ -49,10 +51,21 @@ func NewSNMPChecker(ctx context.Context, address string) (checker.Checker, error
 		return nil, fmt.Errorf("failed to load SNMP config: %w", err)
 	}
 
+	// Create connection config for SNMP checker
+	connConfig := &grpc.ConnectionConfig{
+		Address: address,
+		Security: models.SecurityConfig{
+			Mode:       "mtls",
+			CertDir:    "/etc/serviceradar/certs",
+			ServerName: strings.Split(address, ":")[0], // Use hostname part
+			Role:       "agent",
+		},
+	}
+
 	// Create gRPC client connection to the SNMP checker process
 	client, err := grpc.NewClient(
 		ctx,
-		address,
+		connConfig,
 		grpc.WithMaxRetries(grpcRetries),
 	)
 	if err != nil {

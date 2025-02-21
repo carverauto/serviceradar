@@ -4,13 +4,19 @@ import (
 	"context"
 	"flag"
 	"log"
+	"os"
 
 	"github.com/mfreeman451/serviceradar/pkg/cloud"
 	"github.com/mfreeman451/serviceradar/pkg/cloud/api"
 	"github.com/mfreeman451/serviceradar/pkg/grpc"
 	"github.com/mfreeman451/serviceradar/pkg/lifecycle"
 	"github.com/mfreeman451/serviceradar/proto"
+	"google.golang.org/grpc/grpclog"
 )
+
+func init() {
+	grpclog.SetLoggerV2(grpclog.NewLoggerV2(os.Stderr, os.Stderr, os.Stderr))
+}
 
 func main() {
 	if err := run(); err != nil {

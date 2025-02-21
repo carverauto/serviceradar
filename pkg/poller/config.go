@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/mfreeman451/serviceradar/pkg/config"
-	"github.com/mfreeman451/serviceradar/pkg/grpc"
+	"github.com/mfreeman451/serviceradar/pkg/models"
 )
 
 var (
@@ -20,8 +20,9 @@ const (
 
 // AgentConfig represents configuration for a single agent.
 type AgentConfig struct {
-	Address string  `json:"address"`
-	Checks  []Check `json:"checks"`
+	Address  string                `json:"address"`
+	Checks   []Check               `json:"checks"`
+	Security models.SecurityConfig `json:"security"` // Per-agent security config
 }
 
 // Check represents a service check configuration.
@@ -40,7 +41,7 @@ type Config struct {
 	CloudAddress string                 `json:"cloud_address"`
 	PollInterval config.Duration        `json:"poll_interval"`
 	PollerID     string                 `json:"poller_id"`
-	Security     *grpc.SecurityConfig   `json:"security"`
+	Security     *models.SecurityConfig `json:"security"`
 }
 
 // Validate implements config.Validator interface.

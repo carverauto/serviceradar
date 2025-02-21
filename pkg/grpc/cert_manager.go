@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/mfreeman451/serviceradar/pkg/models"
 )
 
 const (
@@ -17,10 +19,10 @@ var (
 
 // CertificateManager helps manage TLS certificates.
 type CertificateManager struct {
-	config *SecurityConfig
+	config *models.SecurityConfig
 }
 
-func NewCertificateManager(config *SecurityConfig) *CertificateManager {
+func NewCertificateManager(config *models.SecurityConfig) *CertificateManager {
 	return &CertificateManager{config: config}
 }
 

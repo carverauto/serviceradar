@@ -1,0 +1,23 @@
+{
+  "key": {
+    "algo": "ecdsa",
+    "size": 256
+  },
+  "names": [
+    {
+      "O": "ServiceRadar",
+      "OU": "Operations",
+      "L": "Your Location",
+      "ST": "Your State",
+      "C": "US"
+    }
+  ],
+  "CN": "serviceradar",
+  "hosts": [
+    "192.168.2.22",
+    "192.168.2.10",
+    "192.168.2.11",
+    "192.168.2.12",
+    "172.233.208.210"
+  ]
+}

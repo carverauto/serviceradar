@@ -4,13 +4,19 @@ import (
 	"context"
 	"flag"
 	"log"
+	"os"
 
 	"github.com/mfreeman451/serviceradar/pkg/config"
 	"github.com/mfreeman451/serviceradar/pkg/grpc"
 	"github.com/mfreeman451/serviceradar/pkg/lifecycle"
 	"github.com/mfreeman451/serviceradar/pkg/poller"
 	"github.com/mfreeman451/serviceradar/proto"
+	"google.golang.org/grpc/grpclog"
 )
+
+func init() {
+	grpclog.SetLoggerV2(grpclog.NewLoggerV2(os.Stderr, os.Stderr, os.Stderr))
+}
 
 func main() {
 	if err := run(); err != nil {
@@ -45,6 +51,8 @@ func run() error {
 
 		return nil
 	}
+
+	log.Printf("Cfg: %v", cfg)
 
 	// Run poller with lifecycle management
 	return lifecycle.RunServer(ctx, &lifecycle.ServerOptions{

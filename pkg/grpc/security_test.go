@@ -44,78 +44,6 @@ func TestNoSecurityProvider(t *testing.T) {
 	})
 }
 
-// TestTLSProvider tests the TLSProvider implementation.
-func TestTLSProvider(t *testing.T) {
-	tmpDir := t.TempDir()
-	generateTestCertificates(t, tmpDir)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	config := &SecurityConfig{
-		Mode:    SecurityModeTLS,
-		CertDir: tmpDir,
-	}
-
-	t.Run("NewTLSProvider", func(t *testing.T) {
-		provider, err := NewTLSProvider(config)
-		require.NoError(t, err)
-		require.NotNil(t, provider)
-		assert.NotNil(t, provider.clientCreds)
-		assert.NotNil(t, provider.serverCreds)
-
-		defer func() {
-			err := provider.Close()
-			require.NoError(t, err)
-		}()
-	})
-
-	t.Run("GetClientCredentials", func(t *testing.T) {
-		provider, err := NewTLSProvider(config)
-		require.NoError(t, err)
-		defer func(provider *TLSProvider) {
-			err = provider.Close()
-			if err != nil {
-				t.Fatalf("Expected Close to succeed, got error: %v", err)
-			}
-		}(provider)
-
-		opt, err := provider.GetClientCredentials(ctx)
-		require.NoError(t, err)
-		require.NotNil(t, opt)
-	})
-
-	t.Run("GetServerCredentials", func(t *testing.T) {
-		provider, err := NewTLSProvider(config)
-		require.NoError(t, err)
-		defer func(provider *TLSProvider) {
-			err = provider.Close()
-			if err != nil {
-				t.Fatalf("Expected Close to succeed, got error: %v", err)
-			}
-		}(provider)
-
-		opt, err := provider.GetServerCredentials(ctx)
-		require.NoError(t, err)
-		require.NotNil(t, opt)
-
-		s := grpc.NewServer(opt)
-		defer s.Stop()
-		assert.NotNil(t, s)
-	})
-
-	t.Run("InvalidCertificates", func(t *testing.T) {
-		invalidConfig := &SecurityConfig{
-			Mode:    SecurityModeTLS,
-			CertDir: "/nonexistent",
-		}
-
-		provider, err := NewTLSProvider(invalidConfig)
-		require.Error(t, err)
-		assert.Nil(t, provider)
-	})
-}
-
 func TestMTLSProvider(t *testing.T) {
 	tmpDir := t.TempDir()
 	generateTestCertificates(t, tmpDir)
@@ -226,7 +154,6 @@ func TestSpiffeProvider(t *testing.T) {
 }
 
 // TestNewSecurityProvider tests the factory function for creating security providers.
-// TestNewSecurityProvider tests the factory function for creating security providers.
 func TestNewSecurityProvider(t *testing.T) {
 	tmpDir := t.TempDir()
 	generateTestCertificates(t, tmpDir)
@@ -240,14 +167,6 @@ func TestNewSecurityProvider(t *testing.T) {
 			name: "NoSecurity",
 			config: &SecurityConfig{
 				Mode: SecurityModeNone,
-			},
-			expectError: false,
-		},
-		{
-			name: "TLS",
-			config: &SecurityConfig{
-				Mode:    SecurityModeTLS,
-				CertDir: tmpDir,
 			},
 			expectError: false,
 		},

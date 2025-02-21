@@ -5,15 +5,15 @@ import (
 	"time"
 
 	"github.com/mfreeman451/serviceradar/pkg/config"
-	"github.com/mfreeman451/serviceradar/pkg/grpc"
+	"github.com/mfreeman451/serviceradar/pkg/models"
 )
 
 // Config represents Dusk checker configuration.
 type Config struct {
-	NodeAddress string               `json:"node_address"`
-	Timeout     config.Duration      `json:"timeout"`
-	ListenAddr  string               `json:"listen_addr"`
-	Security    *grpc.SecurityConfig `json:"security"`
+	NodeAddress string                 `json:"node_address"`
+	Timeout     config.Duration        `json:"timeout"`
+	ListenAddr  string                 `json:"listen_addr"`
+	Security    *models.SecurityConfig `json:"security"`
 }
 
 const (

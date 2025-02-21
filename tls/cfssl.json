@@ -1,0 +1,42 @@
+{
+  "signing": {
+    "default": {
+      "expiry": "87600h"
+    },
+    "profiles": {
+      "rootca": {
+        "usages": [
+          "signing",
+          "digital signature",
+          "key encipherment",
+          "cert sign",
+          "crl sign",
+          "server auth",
+          "client auth"
+        ],
+        "ca_constraint": {
+          "is_ca": true
+        },
+        "expiry": "87600h"
+      },
+      "server": {
+        "usages": [
+          "signing",
+          "digital signing",
+          "key encipherment",
+          "server auth"
+        ],
+        "expiry": "87600h"
+      },
+      "client": {
+        "usages": [
+          "signing",
+          "digital signature",
+          "key encipherment",
+          "client auth"
+        ],
+        "expiry": "87600h"
+      }
+    }
+  }
+}

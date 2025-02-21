@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/mfreeman451/serviceradar/pkg/grpc"
+	"github.com/mfreeman451/serviceradar/pkg/models"
 	"github.com/mfreeman451/serviceradar/proto"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
@@ -56,25 +57,20 @@ type ServiceCheck struct {
 
 // New creates a new poller instance.
 func New(ctx context.Context, config *Config) (*Poller, error) {
-	// Set up the poller -> cloud gRPC connection
-	client, err := grpc.NewClient(ctx, config.CloudAddress,
-		grpc.WithMaxRetries(grpcRetries),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create cloud client: %w", err)
+	p := &Poller{
+		config: *config,
+		agents: make(map[string]*AgentConnection),
+		done:   make(chan struct{}),
 	}
 
-	p := &Poller{
-		config:      *config,
-		cloudClient: proto.NewPollerServiceClient(client.GetConnection()),
-		grpcClient:  client,
-		agents:      make(map[string]*AgentConnection),
-		done:        make(chan struct{}),
+	// Connect to cloud service
+	if err := p.connectToCloud(ctx); err != nil {
+		return nil, fmt.Errorf("failed to connect to cloud service: %w", err)
 	}
 
 	// Initialize agent connections
 	if err := p.initializeAgentConnections(ctx); err != nil {
-		_ = client.Close()
+		_ = p.grpcClient.Close()
 		return nil, fmt.Errorf("failed to initialize agent connections: %w", err)
 	}
 
@@ -327,10 +323,24 @@ func (p *Poller) reconnectAgent(ctx context.Context, agentName string, config Ag
 		}
 	}
 
+	// Create connection config for this agent
+	connConfig := &grpc.ConnectionConfig{
+		Address: config.Address,
+		Security: models.SecurityConfig{
+			Mode:       p.config.Security.Mode,
+			CertDir:    p.config.Security.CertDir,
+			ServerName: config.Security.ServerName, // Use agent-specific server name
+			Role:       "poller",
+		},
+	}
+
+	log.Printf("Reconnecting to agent %s at %s (server name: %s)",
+		agentName, config.Address, config.Security.ServerName)
+
 	// Create new connection
 	client, err := grpc.NewClient(
 		ctx,
-		config.Address,
+		connConfig,
 		grpc.WithMaxRetries(grpcRetries),
 	)
 	if err != nil {
@@ -346,11 +356,55 @@ func (p *Poller) reconnectAgent(ctx context.Context, agentName string, config Ag
 	return nil
 }
 
+func (p *Poller) connectToCloud(ctx context.Context) error {
+	// Create connection config for cloud service
+	cloudConfig := &grpc.ConnectionConfig{
+		Address: p.config.CloudAddress,
+		Security: models.SecurityConfig{
+			Mode:       p.config.Security.Mode,
+			CertDir:    p.config.Security.CertDir,
+			ServerName: p.config.Security.ServerName, // Use main server name for cloud
+			Role:       "poller",
+		},
+	}
+
+	log.Printf("Connecting to cloud service at %s (server name: %s)",
+		p.config.CloudAddress, p.config.Security.ServerName)
+
+	client, err := grpc.NewClient(
+		ctx,
+		cloudConfig,
+		grpc.WithMaxRetries(grpcRetries),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create cloud client: %w", err)
+	}
+
+	p.grpcClient = client
+	p.cloudClient = proto.NewPollerServiceClient(client.GetConnection())
+
+	return nil
+}
+
 func (p *Poller) initializeAgentConnections(ctx context.Context) error {
 	for agentName, agentConfig := range p.config.Agents {
+		// Create connection config for this agent
+		connConfig := &grpc.ConnectionConfig{
+			Address: agentConfig.Address,
+			Security: models.SecurityConfig{
+				Mode:       p.config.Security.Mode,
+				CertDir:    p.config.Security.CertDir,
+				ServerName: agentConfig.Security.ServerName, // Use agent-specific server name
+				Role:       "poller",
+			},
+		}
+
+		log.Printf("Connecting to agent %s at %s (server name: %s)",
+			agentName, agentConfig.Address, agentConfig.Security.ServerName)
+
 		client, err := grpc.NewClient(
 			ctx,
-			agentConfig.Address,
+			connConfig,
 			grpc.WithMaxRetries(grpcRetries),
 		)
 		if err != nil {

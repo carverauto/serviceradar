@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/mfreeman451/serviceradar/pkg/grpc"
+	"github.com/mfreeman451/serviceradar/pkg/models"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
@@ -36,13 +37,15 @@ type ServerOptions struct {
 	Service              Service
 	RegisterGRPCServices []GRPCServiceRegistrar
 	EnableHealthCheck    bool
-	Security             *grpc.SecurityConfig
+	Security             *models.SecurityConfig
 }
 
 // RunServer starts a service with the provided options and handles lifecycle.
 func RunServer(ctx context.Context, opts *ServerOptions) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+
+	log.Printf("*** Starting service %s", opts.ServiceName)
 
 	// Setup and start gRPC server
 	grpcServer, err := setupGRPCServer(ctx, opts.ListenAddr, opts.ServiceName, opts.RegisterGRPCServices, opts.Security)
@@ -85,7 +88,7 @@ func setupGRPCServer(
 	ctx context.Context,
 	addr, serviceName string,
 	registrars []GRPCServiceRegistrar,
-	security *grpc.SecurityConfig) (*grpc.Server, error) {
+	security *models.SecurityConfig) (*grpc.Server, error) {
 	// Setup server options
 	serverOpts := []grpc.ServerOption{
 		grpc.WithMaxRecvSize(MaxRecvSize),
@@ -95,6 +98,8 @@ func setupGRPCServer(
 	// Setup security if configured
 	if security != nil {
 		log.Printf("Running in Secure mode")
+
+		log.Printf("Security config: %v", security)
 
 		provider, err := grpc.NewSecurityProvider(ctx, security)
 		if err != nil {
