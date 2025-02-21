@@ -97,10 +97,6 @@ func setupGRPCServer(
 
 	// Setup security if configured
 	if security != nil {
-		log.Printf("Running in Secure mode")
-
-		log.Printf("Security config: %v", security)
-
 		provider, err := grpc.NewSecurityProvider(ctx, security)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create security provider: %w", err)
