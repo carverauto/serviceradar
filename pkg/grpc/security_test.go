@@ -3,7 +3,6 @@ package grpc
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -229,6 +228,7 @@ func TestNewSecurityProvider(t *testing.T) {
 }
 
 // generateTestCertificatesWithCFSSL uses cfssl to generate real test certificates.
+/*
 func generateTestCertificatesWithCFSSL(t *testing.T, dir string) {
 	t.Helper()
 
@@ -286,3 +286,5 @@ func generateTestCertificatesWithCFSSL(t *testing.T, dir string) {
 	output, err = cmd.CombinedOutput()
 	require.NoError(t, err, "Failed to generate client cert: %s", output)
 }
+
+*/
