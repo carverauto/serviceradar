@@ -45,8 +45,6 @@ func RunServer(ctx context.Context, opts *ServerOptions) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	log.Printf("*** Starting service %s", opts.ServiceName)
-
 	// Setup and start gRPC server
 	grpcServer, err := setupGRPCServer(ctx, opts.ListenAddr, opts.ServiceName, opts.RegisterGRPCServices, opts.Security)
 	if err != nil {
@@ -167,6 +165,7 @@ func handleShutdown(
 	// Stop the service
 	if err := svc.Stop(shutdownCtx); err != nil {
 		log.Printf("Error during service shutdown: %v", err)
+
 		return fmt.Errorf("shutdown error: %w", err)
 	}
 

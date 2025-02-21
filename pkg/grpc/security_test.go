@@ -90,15 +90,20 @@ func TestMTLSProvider(t *testing.T) {
 
 	t.Run("MissingClientCerts", func(t *testing.T) {
 		// Make a copy of the directory without client certs
+		var err error
+
 		noCertDir := filepath.Join(t.TempDir(), "no-client-certs")
-		err := os.MkdirAll(noCertDir, 0755)
+
+		err = os.MkdirAll(noCertDir, 0755)
 		require.NoError(t, err)
 
 		// Copy only server and CA certs
 		for _, file := range []string{"root.pem", "server.pem", "server-key.pem"} {
+			var content []byte
+
 			srcPath := filepath.Join(tmpDir, file)
 			dstPath := filepath.Join(noCertDir, file)
-			content, err := os.ReadFile(srcPath)
+			content, err = os.ReadFile(srcPath)
 			require.NoError(t, err)
 			err = os.WriteFile(dstPath, content, 0600)
 			require.NoError(t, err)
