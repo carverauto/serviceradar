@@ -175,27 +175,27 @@ cd serviceradar
 
 2. Build the agent package:
 ```bash
-./setup-deb-agent.sh
+./scripts/setup-deb-agent.sh
 ```
 
 3. Build the poller package:
 ```bash
-./setup-deb-poller.sh
+./scripts/setup-deb-poller.sh
 ```
 
 4. Build the cloud package:
 ```bash
-./setup-deb-cloud.sh
+./scripts/setup-deb-cloud.sh
 ```
 
 5. Build the dusk provisioner node package (optional):
 ```bash
-./setup-deb-dusk-checker.sh
+./scripts/setup-deb-dusk-checker.sh
 ```
 
 6. Build the SNMP checker (optional):
 ```bash
-./setup-deb-snmp-checker.sh
+./scripts/setup-deb-snmp-checker.sh
 ```
 
 ### Installation Order and Location
