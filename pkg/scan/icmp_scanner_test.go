@@ -3,8 +3,8 @@ package scan
 import (
 	"context"
 	"errors"
+	"net"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -46,66 +46,6 @@ func TestICMPChecksum(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestSocketPool(t *testing.T) {
-	t.Run("Concurrent Access", func(t *testing.T) {
-		pool := newSocketPool(5, time.Minute, time.Minute)
-		defer pool.close()
-
-		var wg sync.WaitGroup
-
-		numGoroutines := 10
-
-		successCount := atomic.Int32{}
-		poolFullCount := atomic.Int32{}
-		otherErrorCount := atomic.Int32{}
-
-		for i := 0; i < numGoroutines; i++ {
-			wg.Add(1)
-
-			go func() {
-				defer wg.Done()
-
-				conn, release, err := pool.getSocket()
-				if err != nil {
-					if errors.Is(err, errNoAvailableSocketsInPool) {
-						poolFullCount.Add(1)
-					} else {
-						otherErrorCount.Add(1)
-						t.Errorf("Unexpected error: %v", err)
-					}
-
-					return
-				}
-
-				if conn == nil {
-					t.Error("Got nil connection with no error")
-					otherErrorCount.Add(1)
-
-					return
-				}
-
-				// Just verify the connection exists
-				successCount.Add(1)
-
-				// Simulate some work without touching the connection
-				time.Sleep(10 * time.Millisecond)
-
-				// Release the socket back to the pool
-				release()
-			}()
-		}
-
-		wg.Wait()
-
-		// Verify results
-		assert.Equal(t, int32(0), otherErrorCount.Load(), "Should not have any unexpected errors") // Modified line 104
-		assert.Positive(t, successCount.Load(), "Should have some successful socket acquisitions")
-		assert.Positive(t, poolFullCount.Load(), "Should have some pool-full conditions")
-		assert.Equal(t, numGoroutines, int(successCount.Load()+poolFullCount.Load()),
-			"Total attempts should equal number of goroutines")
-	})
 }
 
 func TestICMPScanner(t *testing.T) {
@@ -259,4 +199,47 @@ func TestAtomicOperations(t *testing.T) {
 		// Final count should be 0
 		assert.Equal(t, int32(0), entry.inUse.Load())
 	})
+}
+
+// mockConn is a minimal interface for the socket pool's connection needs in tests.
+type mockConn interface {
+	Close() error
+	WriteTo([]byte, net.Addr) (int, error)
+	ReadFrom([]byte) (int, net.Addr, error)
+	SetReadDeadline(t time.Time) error
+}
+
+// mockPacketConn implements mockConn for testing.
+type mockPacketConn struct {
+	closed bool
+	mu     sync.Mutex
+}
+
+func (m *mockPacketConn) Close() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.closed = true
+	return nil
+}
+
+func (m *mockPacketConn) WriteTo([]byte, net.Addr) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed {
+		return 0, errors.New("connection closed")
+	}
+	return 0, nil
+}
+
+func (m *mockPacketConn) ReadFrom([]byte) (int, net.Addr, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed {
+		return 0, nil, errors.New("connection closed")
+	}
+	return 0, nil, nil
+}
+
+func (m *mockPacketConn) SetReadDeadline(t time.Time) error {
+	return nil
 }

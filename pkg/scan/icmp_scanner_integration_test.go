@@ -22,6 +22,102 @@ func skipIfNotIntegration(t *testing.T) {
 	}
 }
 
+func TestSocketPool(t *testing.T) {
+	skipIfNotIntegration(t)
+
+	t.Run("Concurrent Access", func(t *testing.T) {
+		pool := newSocketPool(5, defaultMaxSocketAge, defaultMaxIdleTime)
+		defer pool.close()
+
+		var wg sync.WaitGroup
+		numGoroutines := 15
+		successCount := atomic.Int32{}
+		poolFullCount := atomic.Int32{}
+		otherErrorCount := atomic.Int32{}
+
+		for i := 0; i < numGoroutines; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+
+				conn, release, err := pool.getSocket()
+				if err != nil {
+					if errors.Is(err, errNoAvailableSocketsInPool) {
+						poolFullCount.Add(1)
+					} else {
+						otherErrorCount.Add(1)
+						t.Errorf("Unexpected error: %v", err)
+					}
+					return
+				}
+
+				if conn == nil {
+					t.Error("Got nil connection with no error")
+					otherErrorCount.Add(1)
+					return
+				}
+
+				successCount.Add(1)
+				// Simulate brief usage without sleep
+				_ = conn.SetReadDeadline(time.Now().Add(1 * time.Millisecond))
+				release()
+			}()
+		}
+
+		wg.Wait()
+
+		assert.Equal(t, int32(0), otherErrorCount.Load(), "Should not have any unexpected errors")
+		assert.Equal(t, int32(5), successCount.Load(), "Should have exactly maxSockets successful acquisitions")
+		assert.Equal(t, int32(numGoroutines-5), poolFullCount.Load(), "Should have pool-full conditions for excess goroutines")
+		assert.Equal(t, numGoroutines, int(successCount.Load()+poolFullCount.Load()), "Total attempts should equal number of goroutines")
+	})
+
+	t.Run("Socket Recycling", func(t *testing.T) {
+		pool := newSocketPool(1, 1*time.Millisecond, defaultMaxIdleTime)
+		defer pool.close()
+
+		// Get an initial socket to populate the pool
+		conn, release, err := pool.getSocket()
+		require.NoError(t, err)
+		require.NotNil(t, conn)
+		initialCreatedAt := pool.sockets[0].createdAt
+		release()
+
+		// Force cleanup to mark the socket as stale
+		pool.cleanup()
+
+		// Get a new socket, which should recycle or create a new one
+		conn, release, err = pool.getSocket()
+		require.NoError(t, err, "Should not error when requesting a new socket after cleanup")
+		require.NotNil(t, conn, "Connection should not be nil")
+		assert.Equal(t, 1, len(pool.sockets), "Should still have one socket")
+		assert.True(t, pool.sockets[0].createdAt.After(initialCreatedAt), "New socket should have a newer creation time")
+		assert.False(t, pool.sockets[0].closed.Load(), "Socket should not be closed")
+		release()
+	})
+
+	t.Run("Pool Closure", func(t *testing.T) {
+		pool := newSocketPool(2, defaultMaxSocketAge, defaultMaxIdleTime)
+		defer pool.close()
+
+		// Populate with two sockets
+		for i := 0; i < 2; i++ {
+			conn, release, err := pool.getSocket()
+			require.NoError(t, err)
+			require.NotNil(t, conn)
+			release()
+		}
+
+		pool.close()
+
+		for _, entry := range pool.sockets {
+			assert.True(t, entry.closed.Load(), "All sockets should be closed")
+		}
+		assert.Nil(t, pool.cleaner, "Cleaner should be stopped")
+		assert.Nil(t, pool.sockets, "Sockets slice should be nil after close")
+	})
+}
+
 func TestICMPScannerIntegration(t *testing.T) {
 	skipIfNotIntegration(t)
 
