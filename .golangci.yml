@@ -1,5 +1,5 @@
 run:
-  timeout: 5m  # Increase from default 1m to 5m
+  timeout: 5m
 
 linters-settings:
   dupl:
@@ -34,8 +34,6 @@ linters-settings:
     min-complexity: 10
   goimports:
     local-prefixes: github.com/golangci/golangci-lint
-  golint:
-    min-confidence: 0
   mnd:
     checks:
       - argument
@@ -52,8 +50,6 @@ linters-settings:
           - (gofr.dev/pkg/gofr/Logger).Errorf
   lll:
     line-length: 140
-  maligned:
-    suggest-new: true
   misspell:
     locale: US
   nolintlint:
@@ -148,9 +144,6 @@ linters:
   # - godox  # Disabling because we need TODO lines at this stage of project.
   # - testpackage # We also need to do unit test for unexported functions. And adding _internal in all files is cumbersome.
 
-
-service:
-  golangci-lint-version: 1.59.x
 
 issues:
   # exclude-use-default: false
