@@ -1,12 +1,14 @@
-//go:build icmp_integration_test
+//go:build integration
+// +build integration
 
-// Package scan pkg/scan/icmp_scanner_integration_test.go
 package scan
 
 import (
 	"context"
+	"errors"
 	"os"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -22,13 +24,114 @@ func skipIfNotIntegration(t *testing.T) {
 	}
 }
 
+func TestSocketPool(t *testing.T) {
+	skipIfNotIntegration(t)
+
+	t.Run("Concurrent Access", func(t *testing.T) {
+		pool := newSocketPool(5, defaultMaxSocketAge, defaultMaxIdleTime)
+		defer pool.close()
+
+		var wg sync.WaitGroup
+		numGoroutines := 15
+		successCount := atomic.Int32{}
+		poolFullCount := atomic.Int32{}
+		otherErrorCount := atomic.Int32{}
+
+		for i := 0; i < numGoroutines; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+
+				conn, release, err := pool.getSocket()
+				if err != nil {
+					if errors.Is(err, errNoAvailableSocketsInPool) {
+						poolFullCount.Add(1)
+					} else {
+						otherErrorCount.Add(1)
+						t.Errorf("Unexpected error: %v", err)
+					}
+					return
+				}
+
+				if conn == nil {
+					t.Error("Got nil connection with no error")
+					otherErrorCount.Add(1)
+					return
+				}
+
+				successCount.Add(1)
+				// Simulate brief usage without sleep
+				_ = conn.SetReadDeadline(time.Now().Add(1 * time.Millisecond))
+				release()
+			}()
+		}
+
+		wg.Wait()
+
+		assert.Equal(t, int32(0), otherErrorCount.Load(), "Should not have any unexpected errors")
+		assert.Equal(t, int32(5), successCount.Load(), "Should have exactly maxSockets successful acquisitions")
+		assert.Equal(t, int32(numGoroutines-5), poolFullCount.Load(), "Should have pool-full conditions for excess goroutines")
+		assert.Equal(t, numGoroutines, int(successCount.Load()+poolFullCount.Load()), "Total attempts should equal number of goroutines")
+	})
+
+	t.Run("Socket Recycling", func(t *testing.T) {
+		pool := newSocketPool(1, 1*time.Millisecond, defaultMaxIdleTime)
+		defer pool.close()
+
+		// Get an initial socket to populate the pool
+		conn, release, err := pool.getSocket()
+		require.NoError(t, err)
+		require.NotNil(t, conn)
+		initialCreatedAt := pool.sockets[0].createdAt
+		release()
+
+		// Force cleanup to mark the socket as stale
+		pool.cleanup()
+
+		// Get a new socket, which should recycle or create a new one
+		conn, release, err = pool.getSocket()
+		require.NoError(t, err, "Should not error when requesting a new socket after cleanup")
+		require.NotNil(t, conn, "Connection should not be nil")
+		assert.Equal(t, 1, len(pool.sockets), "Should still have one socket")
+		assert.True(t, pool.sockets[0].createdAt.After(initialCreatedAt), "New socket should have a newer creation time")
+		assert.False(t, pool.sockets[0].closed.Load(), "Socket should not be closed")
+		release()
+	})
+
+	t.Run("Pool Closure", func(t *testing.T) {
+		pool := newSocketPool(2, defaultMaxSocketAge, defaultMaxIdleTime)
+		defer pool.close()
+
+		// Populate with two sockets
+		for i := 0; i < 2; i++ {
+			conn, release, err := pool.getSocket()
+			require.NoError(t, err)
+			require.NotNil(t, conn)
+			release()
+		}
+
+		pool.close()
+
+		for _, entry := range pool.sockets {
+			assert.True(t, entry.closed.Load(), "All sockets should be closed")
+		}
+		assert.Nil(t, pool.cleaner, "Cleaner should be stopped")
+		assert.Nil(t, pool.sockets, "Sockets slice should be nil after close")
+	})
+}
+
 func TestICMPScannerIntegration(t *testing.T) {
 	skipIfNotIntegration(t)
 
 	t.Run("Local Host Ping", func(t *testing.T) {
 		scanner, err := NewICMPScanner(time.Second, 1, 3)
 		require.NoError(t, err)
-		defer scanner.Stop(context.Background())
+		defer func(scanner *ICMPScanner, ctx context.Context) {
+			err := scanner.Stop(ctx)
+			if err != nil {
+				t.Errorf("Failed to stop scanner: %v", err)
+			}
+		}(scanner, context.Background())
 
 		ctx := context.Background()
 		targets := []models.Target{
@@ -56,7 +159,12 @@ func TestICMPScannerIntegration(t *testing.T) {
 	t.Run("Multiple Target Scan", func(t *testing.T) {
 		scanner, err := NewICMPScanner(5*time.Second, 2, 3)
 		require.NoError(t, err)
-		defer scanner.Stop(context.Background())
+		defer func(scanner *ICMPScanner, ctx context.Context) {
+			err := scanner.Stop(ctx)
+			if err != nil {
+				t.Errorf("Failed to stop scanner: %v", err)
+			}
+		}(scanner, context.Background())
 
 		ctx := context.Background()
 		targets := []models.Target{
@@ -94,7 +202,12 @@ func TestICMPScannerIntegration(t *testing.T) {
 	t.Run("Stress Test", func(t *testing.T) {
 		scanner, err := NewICMPScanner(30*time.Second, 5, 2)
 		require.NoError(t, err)
-		defer scanner.Stop(context.Background())
+		defer func(scanner *ICMPScanner, ctx context.Context) {
+			err := scanner.Stop(ctx)
+			if err != nil {
+				t.Errorf("Failed to stop scanner: %v", err)
+			}
+		}(scanner, context.Background())
 
 		ctx := context.Background()
 
@@ -193,10 +306,10 @@ func TestSocketPoolStress(t *testing.T) {
 	close(errCh)
 
 	// Check for errors
-	var errors []error
+	var e []error
 	for err := range errCh {
-		errors = append(errors, err)
+		e = append(e, err)
 	}
 
-	assert.Empty(t, errors, "Expected no errors during stress test")
+	assert.Empty(t, e, "Expected no errors during stress test")
 }

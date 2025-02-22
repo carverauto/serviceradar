@@ -2,9 +2,7 @@ package scan
 
 import (
 	"context"
-	"errors"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -46,66 +44,6 @@ func TestICMPChecksum(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestSocketPool(t *testing.T) {
-	t.Run("Concurrent Access", func(t *testing.T) {
-		pool := newSocketPool(5, time.Minute, time.Minute)
-		defer pool.close()
-
-		var wg sync.WaitGroup
-
-		numGoroutines := 10
-
-		successCount := atomic.Int32{}
-		poolFullCount := atomic.Int32{}
-		otherErrorCount := atomic.Int32{}
-
-		for i := 0; i < numGoroutines; i++ {
-			wg.Add(1)
-
-			go func() {
-				defer wg.Done()
-
-				conn, release, err := pool.getSocket()
-				if err != nil {
-					if errors.Is(err, errNoAvailableSocketsInPool) {
-						poolFullCount.Add(1)
-					} else {
-						otherErrorCount.Add(1)
-						t.Errorf("Unexpected error: %v", err)
-					}
-
-					return
-				}
-
-				if conn == nil {
-					t.Error("Got nil connection with no error")
-					otherErrorCount.Add(1)
-
-					return
-				}
-
-				// Just verify the connection exists
-				successCount.Add(1)
-
-				// Simulate some work without touching the connection
-				time.Sleep(10 * time.Millisecond)
-
-				// Release the socket back to the pool
-				release()
-			}()
-		}
-
-		wg.Wait()
-
-		// Verify results
-		assert.Equal(t, int32(0), otherErrorCount.Load(), "Should not have any unexpected errors") // Modified line 104
-		assert.Positive(t, successCount.Load(), "Should have some successful socket acquisitions")
-		assert.Positive(t, poolFullCount.Load(), "Should have some pool-full conditions")
-		assert.Equal(t, numGoroutines, int(successCount.Load()+poolFullCount.Load()),
-			"Total attempts should equal number of goroutines")
-	})
 }
 
 func TestICMPScanner(t *testing.T) {

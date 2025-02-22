@@ -1,10 +1,9 @@
-name: test
+name: go-coverage
 on: [push]
 permissions:
   contents: write
 jobs:
-  test:
-    name: test
+  coverage:
     runs-on: ubuntu-latest
     steps:
       - name: checkout
@@ -13,8 +12,6 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - name: test
-        run: make test
       - name: Run Tests with Coverage
         run: |
           go test -coverprofile=cover.out ./...
