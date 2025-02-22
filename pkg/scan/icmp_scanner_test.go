@@ -2,8 +2,6 @@ package scan
 
 import (
 	"context"
-	"errors"
-	"net"
 	"sync"
 	"testing"
 	"time"
@@ -199,47 +197,4 @@ func TestAtomicOperations(t *testing.T) {
 		// Final count should be 0
 		assert.Equal(t, int32(0), entry.inUse.Load())
 	})
-}
-
-// mockConn is a minimal interface for the socket pool's connection needs in tests.
-type mockConn interface {
-	Close() error
-	WriteTo([]byte, net.Addr) (int, error)
-	ReadFrom([]byte) (int, net.Addr, error)
-	SetReadDeadline(t time.Time) error
-}
-
-// mockPacketConn implements mockConn for testing.
-type mockPacketConn struct {
-	closed bool
-	mu     sync.Mutex
-}
-
-func (m *mockPacketConn) Close() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.closed = true
-	return nil
-}
-
-func (m *mockPacketConn) WriteTo([]byte, net.Addr) (int, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.closed {
-		return 0, errors.New("connection closed")
-	}
-	return 0, nil
-}
-
-func (m *mockPacketConn) ReadFrom([]byte) (int, net.Addr, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.closed {
-		return 0, nil, errors.New("connection closed")
-	}
-	return 0, nil, nil
-}
-
-func (m *mockPacketConn) SetReadDeadline(t time.Time) error {
-	return nil
 }
