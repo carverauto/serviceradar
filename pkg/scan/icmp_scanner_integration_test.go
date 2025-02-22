@@ -1,12 +1,14 @@
-//go:build icmp_integration_test
+//go:build integration
+// +build integration
 
-// Package scan pkg/scan/icmp_scanner_integration_test.go
 package scan
 
 import (
 	"context"
+	"errors"
 	"os"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -124,7 +126,12 @@ func TestICMPScannerIntegration(t *testing.T) {
 	t.Run("Local Host Ping", func(t *testing.T) {
 		scanner, err := NewICMPScanner(time.Second, 1, 3)
 		require.NoError(t, err)
-		defer scanner.Stop(context.Background())
+		defer func(scanner *ICMPScanner, ctx context.Context) {
+			err := scanner.Stop(ctx)
+			if err != nil {
+				t.Errorf("Failed to stop scanner: %v", err)
+			}
+		}(scanner, context.Background())
 
 		ctx := context.Background()
 		targets := []models.Target{
@@ -152,7 +159,12 @@ func TestICMPScannerIntegration(t *testing.T) {
 	t.Run("Multiple Target Scan", func(t *testing.T) {
 		scanner, err := NewICMPScanner(5*time.Second, 2, 3)
 		require.NoError(t, err)
-		defer scanner.Stop(context.Background())
+		defer func(scanner *ICMPScanner, ctx context.Context) {
+			err := scanner.Stop(ctx)
+			if err != nil {
+				t.Errorf("Failed to stop scanner: %v", err)
+			}
+		}(scanner, context.Background())
 
 		ctx := context.Background()
 		targets := []models.Target{
@@ -190,7 +202,12 @@ func TestICMPScannerIntegration(t *testing.T) {
 	t.Run("Stress Test", func(t *testing.T) {
 		scanner, err := NewICMPScanner(30*time.Second, 5, 2)
 		require.NoError(t, err)
-		defer scanner.Stop(context.Background())
+		defer func(scanner *ICMPScanner, ctx context.Context) {
+			err := scanner.Stop(ctx)
+			if err != nil {
+				t.Errorf("Failed to stop scanner: %v", err)
+			}
+		}(scanner, context.Background())
 
 		ctx := context.Background()
 
@@ -289,10 +306,10 @@ func TestSocketPoolStress(t *testing.T) {
 	close(errCh)
 
 	// Check for errors
-	var errors []error
+	var e []error
 	for err := range errCh {
-		errors = append(errors, err)
+		e = append(e, err)
 	}
 
-	assert.Empty(t, errors, "Expected no errors during stress test")
+	assert.Empty(t, e, "Expected no errors during stress test")
 }

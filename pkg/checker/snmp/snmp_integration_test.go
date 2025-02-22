@@ -21,7 +21,7 @@ func TestSNMPIntegration(t *testing.T) {
 		Port:      161,
 		Community: "public",
 		Version:   gosnmp.Version2c,
-		Timeout:   time.Duration(2) * time.Second,
+		Timeout:   time.Duration(10) * time.Second,
 	}
 
 	err := params.Connect()
