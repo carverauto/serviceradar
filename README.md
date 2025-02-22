@@ -2,7 +2,8 @@
 
 [![Release ServiceRadar Packages](https://github.com/mfreeman451/serviceradar/actions/workflows/release.yml/badge.svg)](https://github.com/mfreeman451/serviceradar/actions/workflows/release.yml)
 [![lint](https://github.com/mfreeman451/serviceradar/actions/workflows/golangci-lint.yml/badge.svg)](https://github.com/mfreeman451/serviceradar/actions/workflows/golangci-lint.yml)
-[![test](https://github.com/mfreeman451/serviceradar/actions/workflows/go-coverage.yml/badge.svg)](https://github.com/mfreeman451/serviceradar/actions/workflows/go-coverage.yml)
+[![tests](https://github.com/mfreeman451/serviceradar/actions/workflows/tests.yml/badge.svg)](https://github.com/mfreeman451/serviceradar/actions/workflows/tests.yml)
+[![go-test-coverage](https://github.com/mfreeman451/serviceradar/actions/workflows/go-coverage.yml/badge.svg)](https://github.com/mfreeman451/serviceradar/actions/workflows/go-coverage.yml)
 <a href="https://cla-assistant.io/mfreeman451/serviceradar"><img src="https://cla-assistant.io/readme/badge/mfreeman451/serviceradar" alt="CLA assistant" /></a>
 
 ServiceRadar is a distributed network monitoring system designed for infrastructure and services in hard to reach places or constrained environments. 
