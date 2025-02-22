@@ -2,6 +2,48 @@
 
 This guide explains how to set up mutual TLS (mTLS) security for ServiceRadar, from certificate generation through deployment.
 
+```mermaid
+graph TB
+subgraph "Agent Node"
+AG[Agent<br/>Role: Server<br/>:50051]
+SNMPCheck[SNMP Checker<br/>:50054]
+DuskCheck[Dusk Checker<br/>:50052]
+SweepCheck[Network Sweep]
+
+        AG --> SNMPCheck
+        AG --> DuskCheck
+        AG --> SweepCheck
+    end
+    
+    subgraph "Poller Service"
+        PL[Poller<br/>Role: Client+Server<br/>:50053]
+    end
+    
+    subgraph "Cloud Service"
+        CL[Cloud Service<br/>Role: Server<br/>:50052]
+        DB[(Database)]
+        API[HTTP API<br/>:8090]
+        
+        CL --> DB
+        CL --> API
+    end
+    
+    %% Client connections from Poller
+    PL -->|mTLS Client| AG
+    PL -->|mTLS Client| CL
+    
+    %% Server connections to Poller
+    HC1[Health Checks] -->|mTLS Client| PL
+    
+    classDef server fill:#e1f5fe,stroke:#01579b
+    classDef client fill:#f3e5f5,stroke:#4a148c
+    classDef dual fill:#fff3e0,stroke:#e65100
+    
+    class AG,CL server
+    class PL dual
+    class SNMPCheck,DuskCheck,SweepCheck client
+```
+
 ## Certificate Overview
 
 ServiceRadar uses the following certificate files:
