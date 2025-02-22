@@ -251,26 +251,7 @@ For mTLS security:
 * Set `server_name` to the hostname/IP address of the poller (IMPORTANT, this should line up with whats in your tls/csr.json)
 * Set `listen_addr` to the hostname/IP address
 
-For SNMP Polling:
-
-The config below is just an example, you will want to change or update this to match your environment.
-
-Example below is to poll the primary WAN interface on a Ubiquiti Dream Pro.
-
-On the Agent we need to configure the `external.json` file so it knows to talk to the SNMP checker.
-The agent and the checkers typically are co-located on the same server.
-
-**/etc/serviceradar/checkers/external.json**
-```json
-{
-    "name": "snmp",
-    "address": "localhost:50054"
-}
-```
-
-For mTLS Security:
-
-* Change address to the hostname/IP address of the SNMP checker, eg. `192.168.2.22:50054`
+#### SNMP Polling
 
 **/etc/serviceradar/checkers/snmp.json**
 
@@ -338,15 +319,6 @@ For mTLS Security:
 * Change `mode` to `mtls`
 * Change `address` to the hostname/IP address of the Dusk node, eg. `192.168.2.22:50052`
 * Change `listen_addr` to the hostname/IP address, eg. `192.168.2.22:50052`
-
-**/etc/serviceradar/checkers/external.json**
-
-```json
-{
-    "name": "dusk",
-    "address": "localhost:50052"
-}
-```
 
 For Network Sweep:
 
