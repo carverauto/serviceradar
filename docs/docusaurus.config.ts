@@ -13,7 +13,7 @@ const config: Config = {
   url: 'https://docs.serviceradar.cloud',
   // Set the /<baseUrl>/ pathname under which your site is served
   // For GitHub pages deployment, it is often '/<projectName>/'
-  baseUrl: '/serviceradar/',
+  baseUrl: '',
 
   // GitHub pages deployment config.
   // If you aren't using GitHub pages, you don't need these.
@@ -42,6 +42,7 @@ const config: Config = {
           // editUrl:
           //  'https://github.com/facebook/docusaurus/tree/main/packages/create-docusaurus/templates/shared/',
         },
+        /*
         blog: {
           showReadingTime: true,
           feedOptions: {
@@ -57,6 +58,7 @@ const config: Config = {
           onInlineAuthors: 'warn',
           onUntruncatedBlogPosts: 'warn',
         },
+         */
         theme: {
           customCss: './src/css/custom.css',
         },
@@ -80,7 +82,9 @@ const config: Config = {
           position: 'left',
           label: 'Tutorial',
         },
+          /*
         {to: '/blog', label: 'Blog', position: 'left'},
+           */
         {
           href: 'https://github.com/carverauto/serviceradar',
           label: 'GitHub',
@@ -116,10 +120,12 @@ const config: Config = {
         {
           title: 'More',
           items: [
+              /*
             {
               label: 'Blog',
               to: '/blog',
             },
+               */
             {
               label: 'GitHub',
               href: 'https://github.com/carverauto/serviceradar',
