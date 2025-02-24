@@ -1,8 +1,0 @@
-{
-    "networks": ["192.168.2.0/24"],
-    "ports": [22, 80, 443, 3306, 5432, 6379, 8080, 8443],
-    "sweep_modes": ["icmp", "tcp"],
-    "interval": "5m",
-    "concurrency": 100,
-    "timeout": "10s"
-}
