@@ -3,16 +3,18 @@
 package api
 
 import (
-	"embed"
 	"encoding/json"
-	"io/fs"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/mfreeman451/serviceradar/pkg/checker/snmp"
+	"github.com/mfreeman451/serviceradar/pkg/cloud/api/web"
 	"github.com/mfreeman451/serviceradar/pkg/db"
 	srHttp "github.com/mfreeman451/serviceradar/pkg/http"
 	"github.com/mfreeman451/serviceradar/pkg/metrics"
@@ -99,19 +101,6 @@ func WithDB(db db.Service) func(server *APIServer) {
 	}
 }
 
-func (s *APIServer) setupStaticFileServing() {
-	fsys, err := fs.Sub(webContent, "web/dist")
-	if err != nil {
-		log.Printf("Error setting up static file serving: %v", err)
-		return
-	}
-
-	s.router.PathPrefix("/").Handler(http.FileServer(http.FS(fsys)))
-}
-
-//go:embed web/dist/*
-var webContent embed.FS
-
 func (s *APIServer) setupRoutes() {
 	// Add CORS middleware
 	s.router.Use(srHttp.CommonMiddleware)
@@ -134,8 +123,24 @@ func (s *APIServer) setupRoutes() {
 	// SNMP endpoints
 	s.router.HandleFunc("/api/nodes/{id}/snmp", s.getSNMPData).Methods("GET")
 
-	// Serve static files
-	s.setupStaticFileServing()
+	// Configure static file serving
+	staticFilesPath := web.GetStaticFilesPath()
+	fileServer := http.FileServer(http.Dir(staticFilesPath))
+
+	s.router.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Check if file exists
+		path := filepath.Join(staticFilesPath, r.URL.Path)
+		_, err := os.Stat(path)
+
+		// If file doesn't exist or is a directory (and not root), serve index.html
+		if os.IsNotExist(err) || (r.URL.Path != "/" && strings.HasSuffix(r.URL.Path, "/")) {
+			http.ServeFile(w, r, filepath.Join(staticFilesPath, "index.html"))
+			return
+		}
+
+		// Otherwise serve the requested file
+		fileServer.ServeHTTP(w, r)
+	})
 }
 
 // getSNMPData retrieves SNMP data for a specific node.
@@ -408,13 +413,19 @@ func (s *APIServer) getServiceDetails(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "Service not found", http.StatusNotFound)
 }
 
+const (
+	defaultReadTimeout  = 10 * time.Second
+	defaultWriteTimeout = 10 * time.Second
+	defaultIdleTimeout  = 60 * time.Second
+)
+
 func (s *APIServer) Start(addr string) error {
 	srv := &http.Server{
 		Addr:         addr,
 		Handler:      s.router,
-		ReadTimeout:  10 * time.Second, // Timeout for reading the entire request, including the body.
-		WriteTimeout: 10 * time.Second, // Timeout for writing the response.
-		IdleTimeout:  60 * time.Second, // Timeout for idle connections waiting in the Keep-Alive state.
+		ReadTimeout:  defaultReadTimeout,  // Timeout for reading the entire request, including the body.
+		WriteTimeout: defaultWriteTimeout, // Timeout for writing the response.
+		IdleTimeout:  defaultIdleTimeout,  // Timeout for idle connections waiting in the Keep-Alive state.
 		// Optional: You can also set ReadHeaderTimeout to limit the time for reading request headers
 		// ReadHeaderTimeout: 5 * time.Second,
 	}

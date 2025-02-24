@@ -1,50 +1,30 @@
-# .github/workflows/release.yml
-name: Release ServiceRadar Packages
+# .github/workflows/container-build.yml
+name: Build and Push Containers
 on:
-  release:
-    types: [created]
-permissions:
-  contents: write
-  packages: write
-jobs:
-  build-packages:
-    runs-on: ubuntu-latest
-    env:
-      VERSION: ${{ github.ref_name }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.24'
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential
-      - name: Build packages
-        run: |
-          ./scripts/setup-deb-agent.sh
-          ./scripts/setup-deb-poller.sh
-          ./scripts/setup-deb-cloud.sh
-          ./scripts/setup-deb-dusk-checker.sh
-          ./scripts/setup-deb-snmp-checker.sh
-      - name: List Artifacts (for debugging)
-        run: ls -al ./release-artifacts
-      - name: Upload Release Assets
-        uses: softprops/action-gh-release@v2
-        with:
-          files: ./release-artifacts/*.deb
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '*.md'
+      - 'docs/**'
+      - '.github/**'
+      - '!.github/workflows/container-build.yml'
 
+permissions:
+  contents: read
+  packages: write
+
+jobs:
   build-containers:
     runs-on: ubuntu-latest
-    needs: build-packages
     env:
-      VERSION: ${{ github.ref_name }}
+      VERSION: latest
       KO_DOCKER_REPO: ghcr.io/carverauto/serviceradar
     steps:
       - uses: actions/checkout@v4
+      - name: Extract short SHA
+        id: vars
+        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -80,7 +60,7 @@ jobs:
           GOFLAGS="-tags=containers" ko build \
             --platform=linux/amd64,linux/arm64 \
             --base-import-paths \
-            --tags=${VERSION},latest \
+            --tags=sha-${{ steps.vars.outputs.sha_short }},latest \
             --bare \
             --image-refs=image-refs.txt \
             ./cmd/agent \

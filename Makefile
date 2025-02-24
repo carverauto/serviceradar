@@ -8,6 +8,11 @@ GOLANGCI_LINT_VERSION ?= v1.64.5
 VERSION ?= $(shell git describe --tags --always)
 NEXT_VERSION ?= $(shell git describe --tags --abbrev=0 | awk -F. '{$$NF = $$NF + 1;} 1' | sed 's/ /./g')
 
+# Container configuration
+REGISTRY ?= ghcr.io/carverauto/serviceradar
+KO_DOCKER_REPO ?= $(REGISTRY)
+PLATFORMS ?= linux/amd64,linux/arm64
+
 # Colors for pretty printing
 COLOR_RESET = \033[0m
 COLOR_BOLD = \033[1m
@@ -75,6 +80,59 @@ version: ## Show current and next version
 clean: ## Clean up build artifacts
 	@echo "$(COLOR_BOLD)Cleaning up build artifacts$(COLOR_RESET)"
 	@rm -f cover.*.profile cover.html
+	@rm -rf bin/
+
+.PHONY: build
+build: ## Build all binaries
+	@echo "$(COLOR_BOLD)Building all binaries$(COLOR_RESET)"
+	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-agent cmd/agent/main.go
+	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-poller cmd/poller/main.go
+	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-dusk-checker cmd/checkers/dusk/main.go
+	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-cloud cmd/cloud/main.go
+	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-snmp-checker cmd/checkers/snmp/main.go
+
+.PHONY: build-web
+build-web: ## Build web UI
+	@echo "$(COLOR_BOLD)Building web UI$(COLOR_RESET)"
+	@./scripts/build-web.sh
+	@mkdir -p pkg/cloud/api/web/
+	@cp -r web/dist pkg/cloud/api/web/
+
+.PHONY: kodata-prep
+kodata-prep: build-web ## Prepare kodata directories
+	@echo "$(COLOR_BOLD)Preparing kodata directories$(COLOR_RESET)"
+	@mkdir -p cmd/cloud/.kodata
+	@cp -r pkg/cloud/api/web/dist cmd/cloud/.kodata/web
+
+.PHONY: container-build
+container-build: kodata-prep ## Build container images with ko
+	@echo "$(COLOR_BOLD)Building container images with ko$(COLOR_RESET)"
+	@GOFLAGS="-tags=containers" KO_DOCKER_REPO=$(KO_DOCKER_REPO) ko build \
+		--platform=$(PLATFORMS) \
+		--base-import-paths \
+		--tags=$(VERSION) \
+		--bare \
+		--image-refs=image-refs.txt \
+		./cmd/agent \
+		./cmd/poller \
+		./cmd/cloud \
+		./cmd/checkers/dusk \
+		./cmd/checkers/snmp
+
+.PHONY: container-push
+container-push: kodata-prep ## Build and push container images with ko
+	@echo "$(COLOR_BOLD)Building and pushing container images with ko$(COLOR_RESET)"
+	@GOFLAGS="-tags=containers" KO_DOCKER_REPO=$(KO_DOCKER_REPO) ko build \
+		--platform=$(PLATFORMS) \
+		--base-import-paths \
+		--tags=$(VERSION),latest \
+		--bare \
+		--image-refs=image-refs.txt \
+		./cmd/agent \
+		./cmd/poller \
+		./cmd/cloud \
+		./cmd/checkers/dusk \
+		./cmd/checkers/snmp
 
 # Docusaurus commands
 .PHONY: docs-start
