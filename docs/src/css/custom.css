@@ -1,88 +1,30 @@
 /**
- * ServiceRadar documentation styles
+ * Any CSS included here will be global. The classic template
+ * bundles Infima by default. Infima is a CSS framework designed to
+ * work well for content-centric websites.
  */
 
+/* You can override the default Infima variables here. */
 :root {
-  --ifm-color-primary: #4f46e5;
-  --ifm-color-primary-dark: #4338ca;
-  --ifm-color-primary-darker: #3730a3;
-  --ifm-color-primary-darkest: #312e81;
-  --ifm-color-primary-light: #6366f1;
-  --ifm-color-primary-lighter: #818cf8;
-  --ifm-color-primary-lightest: #a5b4fc;
+  --ifm-color-primary: #2e8555;
+  --ifm-color-primary-dark: #29784c;
+  --ifm-color-primary-darker: #277148;
+  --ifm-color-primary-darkest: #205d3b;
+  --ifm-color-primary-light: #33925d;
+  --ifm-color-primary-lighter: #359962;
+  --ifm-color-primary-lightest: #3cad6e;
   --ifm-code-font-size: 95%;
   --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
-
-  /* Additional custom variables */
-  --ifm-navbar-background-color: #ffffff;
-  --ifm-navbar-link-color: #4b5563;
-  --ifm-navbar-link-hover-color: var(--ifm-color-primary);
-  --ifm-footer-background-color: #f9fafb;
 }
 
-/* Dark mode colors */
+/* For readability concerns, you should choose a lighter palette in dark mode. */
 [data-theme='dark'] {
-  --ifm-color-primary: #6366f1;
-  --ifm-color-primary-dark: #4f46e5;
-  --ifm-color-primary-darker: #4338ca;
-  --ifm-color-primary-darkest: #3730a3;
-  --ifm-color-primary-light: #818cf8;
-  --ifm-color-primary-lighter: #a5b4fc;
-  --ifm-color-primary-lightest: #c7d2fe;
+  --ifm-color-primary: #25c2a0;
+  --ifm-color-primary-dark: #21af90;
+  --ifm-color-primary-darker: #1fa588;
+  --ifm-color-primary-darkest: #1a8870;
+  --ifm-color-primary-light: #29d5b0;
+  --ifm-color-primary-lighter: #32d8b4;
+  --ifm-color-primary-lightest: #4fddbf;
   --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
-
-  --ifm-navbar-background-color: #1f2937;
-  --ifm-navbar-link-color: #9ca3af;
-  --ifm-navbar-link-hover-color: var(--ifm-color-primary-lighter);
-  --ifm-footer-background-color: #111827;
-}
-
-/* Hero section styles */
-.hero--primary {
-  --ifm-hero-background-color: #ffffff;
-  --ifm-hero-text-color: #111827;
-  background: linear-gradient(135deg, #fff 0%, #f3f4f6 100%);
-  padding: 4rem 0;
-}
-
-[data-theme='dark'] .hero--primary {
-  --ifm-hero-background-color: #111827;
-  --ifm-hero-text-color: #ffffff;
-  background: linear-gradient(135deg, #1f2937 0%, #111827 100%);
-}
-
-.hero__title {
-  font-size: 3rem;
-  font-weight: 700;
-}
-
-.hero__subtitle {
-  font-size: 1.5rem;
-  color: var(--ifm-color-emphasis-700);
-}
-
-/* Custom button styles */
-.button--secondary {
-  background-color: var(--ifm-color-primary);
-  border-color: var(--ifm-color-primary);
-  color: white;
-  transition: all 0.2s ease;
-}
-
-.button--secondary:hover {
-  background-color: var(--ifm-color-primary-dark);
-  border-color: var(--ifm-color-primary-dark);
-  color: white;
-  transform: translateY(-1px);
-}
-
-/* Feature section styles */
-.features {
-  padding: 2rem 0;
-  width: 100%;
-}
-
-.featureSvg {
-  height: 200px;
-  width: 200px;
 }
