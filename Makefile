@@ -2,7 +2,7 @@
 GO ?= go
 GOBIN ?= $$($(GO) env GOPATH)/bin
 GOLANGCI_LINT ?= $(GOBIN)/golangci-lint
-GOLANGCI_LINT_VERSION ?= v1.60.3
+GOLANGCI_LINT_VERSION ?= v1.64.5
 
 # Version configuration
 VERSION ?= $(shell git describe --tags --always)
