@@ -1,0 +1,30 @@
+{
+  "node_address": "localhost:50051",
+  "listen_addr": ":50054",
+  "security": {
+	  "server_name": "changeme",
+	  "mode": "none",
+	  "role": "checker",
+	  "cert_dir": "/etc/serviceradar/certs"
+  },
+  "timeout": "30s",
+  "targets": [
+    {
+      "name": "test-router",
+      "host": "192.168.1.1",
+      "port": 161,
+      "community": "public",
+      "version": "v2c",
+      "interval": "30s",
+      "retries": 2,
+      "oids": [
+        {
+          "oid": ".1.3.6.1.2.1.2.2.1.10.4",
+          "name": "ifInOctets_4",
+          "type": "counter",
+          "scale": 1.0
+        }
+      ]
+    }
+  ]
+}

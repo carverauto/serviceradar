@@ -1,0 +1,18 @@
+#!/bin/bash
+set -e
+
+# Create serviceradar user if it doesn't exist
+if ! id -u serviceradar >/dev/null 2>&1; then
+    useradd --system --no-create-home --shell /usr/sbin/nologin serviceradar
+fi
+
+# Set permissions
+chown -R serviceradar:serviceradar /etc/serviceradar
+chmod 755 /usr/local/bin/serviceradar-snmp-checker
+
+# Enable and start service
+systemctl daemon-reload
+systemctl enable serviceradar-snmp-checker
+systemctl start serviceradar-snmp-checker
+
+exit 0

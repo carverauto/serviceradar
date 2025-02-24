@@ -179,3 +179,9 @@ pkg/cloud/api/web/dist/favicons/
 # Ignore versioned build outputs
 serviceradar-agent_*
 serviceradar-dusk-checker_*
+
+*.rpm
+
+tls/client.csr
+tls/root.csr
+tls/server.csr
