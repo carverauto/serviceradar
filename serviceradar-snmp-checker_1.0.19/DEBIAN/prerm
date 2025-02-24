@@ -1,0 +1,8 @@
+#!/bin/bash
+set -e
+
+# Stop and disable service
+systemctl stop serviceradar-snmp-checker
+systemctl disable serviceradar-snmp-checker
+
+exit 0

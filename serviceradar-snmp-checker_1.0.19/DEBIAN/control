@@ -1,0 +1,9 @@
+Package: serviceradar-snmp-checker
+Version: 1.0.19
+Section: utils
+Priority: optional
+Architecture: amd64
+Depends: systemd
+Maintainer: Michael Freeman <mfreeman451@gmail.com>
+Description: ServiceRadar SNMP poller
+ This package provides the serviceradar SNMP checker plugin for monitoring services.
