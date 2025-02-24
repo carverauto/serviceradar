@@ -108,32 +108,20 @@ kodata-prep: build-web ## Prepare kodata directories
 .PHONY: container-build
 container-build: kodata-prep ## Build container images with ko
 	@echo "$(COLOR_BOLD)Building container images with ko$(COLOR_RESET)"
-	@GOFLAGS="-tags=containers" KO_DOCKER_REPO=$(KO_DOCKER_REPO) ko build \
-		--platform=$(PLATFORMS) \
-		--base-import-paths \
-		--tags=$(VERSION) \
-		--bare \
-		--image-refs=image-refs.txt \
-		./cmd/agent \
-		./cmd/poller \
-		./cmd/cloud \
-		./cmd/checkers/dusk \
-		./cmd/checkers/snmp
+	@cd cmd/agent && KO_DOCKER_REPO=$(KO_DOCKER_REPO) GOFLAGS="-tags=containers" ko build --bare --platform=$(PLATFORMS) --tags=$(VERSION) .
+	@cd cmd/poller && KO_DOCKER_REPO=$(KO_DOCKER_REPO) GOFLAGS="-tags=containers" ko build --bare --platform=$(PLATFORMS) --tags=$(VERSION) .
+	@cd cmd/cloud && KO_DOCKER_REPO=$(KO_DOCKER_REPO) GOFLAGS="-tags=containers" ko build --bare --platform=$(PLATFORMS) --tags=$(VERSION) .
+	@cd cmd/checkers/dusk && KO_DOCKER_REPO=$(KO_DOCKER_REPO) GOFLAGS="-tags=containers" ko build --bare --platform=$(PLATFORMS) --tags=$(VERSION) .
+	@cd cmd/checkers/snmp && KO_DOCKER_REPO=$(KO_DOCKER_REPO) GOFLAGS="-tags=containers" ko build --bare --platform=$(PLATFORMS) --tags=$(VERSION) .
 
 .PHONY: container-push
 container-push: kodata-prep ## Build and push container images with ko
 	@echo "$(COLOR_BOLD)Building and pushing container images with ko$(COLOR_RESET)"
-	@GOFLAGS="-tags=containers" KO_DOCKER_REPO=$(KO_DOCKER_REPO) ko build \
-		--platform=$(PLATFORMS) \
-		--base-import-paths \
-		--tags=$(VERSION),latest \
-		--bare \
-		--image-refs=image-refs.txt \
-		./cmd/agent \
-		./cmd/poller \
-		./cmd/cloud \
-		./cmd/checkers/dusk \
-		./cmd/checkers/snmp
+	@cd cmd/agent && KO_DOCKER_REPO=$(KO_DOCKER_REPO) GOFLAGS="-tags=containers" ko build --bare --platform=$(PLATFORMS) --tags=$(VERSION),latest .
+	@cd cmd/poller && KO_DOCKER_REPO=$(KO_DOCKER_REPO) GOFLAGS="-tags=containers" ko build --bare --platform=$(PLATFORMS) --tags=$(VERSION),latest .
+	@cd cmd/cloud && KO_DOCKER_REPO=$(KO_DOCKER_REPO) GOFLAGS="-tags=containers" ko build --bare --platform=$(PLATFORMS) --tags=$(VERSION),latest .
+	@cd cmd/checkers/dusk && KO_DOCKER_REPO=$(KO_DOCKER_REPO) GOFLAGS="-tags=containers" ko build --bare --platform=$(PLATFORMS) --tags=$(VERSION),latest .
+	@cd cmd/checkers/snmp && KO_DOCKER_REPO=$(KO_DOCKER_REPO) GOFLAGS="-tags=containers" ko build --bare --platform=$(PLATFORMS) --tags=$(VERSION),latest .
 
 # Build Debian packages
 .PHONY: deb-agent
