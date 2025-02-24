@@ -81,6 +81,7 @@ clean: ## Clean up build artifacts
 	@echo "$(COLOR_BOLD)Cleaning up build artifacts$(COLOR_RESET)"
 	@rm -f cover.*.profile cover.html
 	@rm -rf bin/
+	@rm -rf serviceradar-*_* release-artifacts/
 
 .PHONY: build
 build: ## Build all binaries
@@ -133,6 +134,45 @@ container-push: kodata-prep ## Build and push container images with ko
 		./cmd/cloud \
 		./cmd/checkers/dusk \
 		./cmd/checkers/snmp
+
+# Build Debian packages
+.PHONY: deb-agent
+deb-agent: build-web ## Build the agent Debian package
+	@echo "$(COLOR_BOLD)Building agent Debian package$(COLOR_RESET)"
+	@./scripts/setup-deb-agent.sh
+
+.PHONY: deb-poller
+deb-poller: build-web ## Build the poller Debian package
+	@echo "$(COLOR_BOLD)Building poller Debian package$(COLOR_RESET)"
+	@./scripts/setup-deb-poller.sh
+
+.PHONY: deb-cloud
+deb-cloud: build-web ## Build the cloud Debian package (standard)
+	@echo "$(COLOR_BOLD)Building cloud Debian package$(COLOR_RESET)"
+	@VERSION=$(VERSION) ./scripts/setup-deb-cloud.sh
+
+.PHONY: deb-cloud-container
+deb-cloud-container: build-web ## Build the cloud Debian package with container support
+	@echo "$(COLOR_BOLD)Building cloud Debian package with container support$(COLOR_RESET)"
+	@VERSION=$(VERSION) BUILD_TAGS=containers ./scripts/setup-deb-cloud.sh
+
+.PHONY: deb-dusk
+deb-dusk: ## Build the Dusk checker Debian package
+	@echo "$(COLOR_BOLD)Building Dusk checker Debian package$(COLOR_RESET)"
+	@./scripts/setup-deb-dusk-checker.sh
+
+.PHONY: deb-snmp
+deb-snmp: ## Build the SNMP checker Debian package
+	@echo "$(COLOR_BOLD)Building SNMP checker Debian package$(COLOR_RESET)"
+	@./scripts/setup-deb-snmp-checker.sh
+
+.PHONY: deb-all
+deb-all: deb-agent deb-poller deb-cloud deb-dusk deb-snmp ## Build all Debian packages
+	@echo "$(COLOR_BOLD)All Debian packages built$(COLOR_RESET)"
+
+.PHONY: deb-all-container
+deb-all-container: deb-agent deb-poller deb-cloud-container deb-dusk deb-snmp ## Build all Debian packages with container support for cloud
+	@echo "$(COLOR_BOLD)All Debian packages built (with container support for cloud)$(COLOR_RESET)"
 
 # Docusaurus commands
 .PHONY: docs-start

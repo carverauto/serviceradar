@@ -3,18 +3,16 @@
 package api
 
 import (
+	"embed"
 	"encoding/json"
+	"io/fs"
 	"log"
 	"net/http"
-	"os"
-	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/mfreeman451/serviceradar/pkg/checker/snmp"
-	"github.com/mfreeman451/serviceradar/pkg/cloud/api/web"
 	"github.com/mfreeman451/serviceradar/pkg/db"
 	srHttp "github.com/mfreeman451/serviceradar/pkg/http"
 	"github.com/mfreeman451/serviceradar/pkg/metrics"
@@ -101,6 +99,22 @@ func WithDB(db db.Service) func(server *APIServer) {
 	}
 }
 
+//go:embed web/dist/*
+var webContent embed.FS
+
+// setupStaticFileServing configures static file serving for the embedded web files.
+func (s *APIServer) setupStaticFileServing() {
+	// Setting up static file serving using the embedded FS
+	// This is used for non-containerized builds
+	fsys, err := fs.Sub(webContent, "web/dist")
+	if err != nil {
+		log.Printf("Error setting up static file serving: %v", err)
+		return
+	}
+
+	s.router.PathPrefix("/").Handler(http.FileServer(http.FS(fsys)))
+}
+
 func (s *APIServer) setupRoutes() {
 	// Add CORS middleware
 	s.router.Use(srHttp.CommonMiddleware)
@@ -123,24 +137,9 @@ func (s *APIServer) setupRoutes() {
 	// SNMP endpoints
 	s.router.HandleFunc("/api/nodes/{id}/snmp", s.getSNMPData).Methods("GET")
 
-	// Configure static file serving
-	staticFilesPath := web.GetStaticFilesPath()
-	fileServer := http.FileServer(http.Dir(staticFilesPath))
-
-	s.router.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Check if file exists
-		path := filepath.Join(staticFilesPath, r.URL.Path)
-		_, err := os.Stat(path)
-
-		// If file doesn't exist or is a directory (and not root), serve index.html
-		if os.IsNotExist(err) || (r.URL.Path != "/" && strings.HasSuffix(r.URL.Path, "/")) {
-			http.ServeFile(w, r, filepath.Join(staticFilesPath, "index.html"))
-			return
-		}
-
-		// Otherwise serve the requested file
-		fileServer.ServeHTTP(w, r)
-	})
+	// Configure static file serving based on build tags
+	// This is managed via build tags in a separate file
+	s.configureStaticServing()
 }
 
 // getSNMPData retrieves SNMP data for a specific node.
