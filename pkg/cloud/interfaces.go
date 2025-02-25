@@ -1,14 +1,14 @@
 // Package cloud pkg/cloud/interfaces.go
 
-//go:generate mockgen -destination=mock_server.go -package=cloud github.com/mfreeman451/serviceradar/pkg/cloud NodeService,CloudService
+//go:generate mockgen -destination=mock_server.go -package=cloud github.com/carverauto/serviceradar/pkg/cloud NodeService,CloudService
 
 package cloud
 
 import (
 	"context"
 
-	"github.com/mfreeman451/serviceradar/pkg/cloud/api"
-	"github.com/mfreeman451/serviceradar/pkg/metrics"
+	"github.com/carverauto/serviceradar/pkg/cloud/api"
+	"github.com/carverauto/serviceradar/pkg/metrics"
 )
 
 // NodeService represents node-related operations.

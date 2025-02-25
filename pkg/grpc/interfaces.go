@@ -6,7 +6,7 @@ import (
 	"google.golang.org/grpc"
 )
 
-//go:generate mockgen -destination=mock_grpc.go -package=grpc github.com/mfreeman451/serviceradar/pkg/grpc SecurityProvider
+//go:generate mockgen -destination=mock_grpc.go -package=grpc github.com/carverauto/serviceradar/pkg/grpc SecurityProvider
 
 // SecurityProvider defines the interface for gRPC security providers.
 type SecurityProvider interface {

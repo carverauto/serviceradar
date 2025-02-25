@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mfreeman451/serviceradar/proto"
+	"github.com/carverauto/serviceradar/proto"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/status"

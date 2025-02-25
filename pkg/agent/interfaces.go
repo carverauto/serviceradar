@@ -3,10 +3,10 @@ package agent
 import (
 	"context"
 
-	"github.com/mfreeman451/serviceradar/proto"
+	"github.com/carverauto/serviceradar/proto"
 )
 
-//go:generate mockgen -destination=mock_agent.go -package=agent github.com/mfreeman451/serviceradar/pkg/agent Service,SweepStatusProvider
+//go:generate mockgen -destination=mock_agent.go -package=agent github.com/carverauto/serviceradar/pkg/agent Service,SweepStatusProvider
 
 type Service interface {
 	Start(context.Context) error

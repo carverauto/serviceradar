@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mfreeman451/serviceradar/pkg/models"
-	"github.com/mfreeman451/serviceradar/pkg/scan"
-	"github.com/mfreeman451/serviceradar/pkg/sweeper"
-	"github.com/mfreeman451/serviceradar/proto"
+	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/scan"
+	"github.com/carverauto/serviceradar/pkg/sweeper"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 const (

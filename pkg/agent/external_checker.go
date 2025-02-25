@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	grpcpkg "github.com/mfreeman451/serviceradar/pkg/grpc"
-	"github.com/mfreeman451/serviceradar/pkg/models"
-	"github.com/mfreeman451/serviceradar/proto"
+	grpcpkg "github.com/carverauto/serviceradar/pkg/grpc"
+	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 const (

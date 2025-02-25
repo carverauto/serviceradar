@@ -9,7 +9,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/mfreeman451/serviceradar/proto"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 const (

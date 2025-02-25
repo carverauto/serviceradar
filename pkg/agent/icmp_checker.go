@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mfreeman451/serviceradar/pkg/models"
-	"github.com/mfreeman451/serviceradar/pkg/scan"
+	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/scan"
 )
 
 type ICMPChecker struct {

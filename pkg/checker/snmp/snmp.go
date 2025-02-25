@@ -5,7 +5,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/mfreeman451/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/db"
 )
 
 // SNMPMetricsManager implements the SNMPManager interface for handling SNMP metrics.

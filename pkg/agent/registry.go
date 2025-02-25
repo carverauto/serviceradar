@@ -4,7 +4,7 @@ package agent
 import (
 	"context"
 
-	"github.com/mfreeman451/serviceradar/pkg/checker"
+	"github.com/carverauto/serviceradar/pkg/checker"
 )
 
 func initRegistry() checker.Registry {

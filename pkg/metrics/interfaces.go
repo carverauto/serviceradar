@@ -3,10 +3,10 @@ package metrics
 import (
 	"time"
 
-	"github.com/mfreeman451/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-//go:generate mockgen -destination=mock_buffer.go -package=metrics github.com/mfreeman451/serviceradar/pkg/metrics MetricStore,MetricCollector
+//go:generate mockgen -destination=mock_buffer.go -package=metrics github.com/carverauto/serviceradar/pkg/metrics MetricStore,MetricCollector
 
 type MetricStore interface {
 	Add(timestamp time.Time, responseTime int64, serviceName string)

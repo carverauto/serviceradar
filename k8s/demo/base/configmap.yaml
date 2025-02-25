@@ -128,7 +128,12 @@ data:
       "timeout": "10s"
     } 
 
-  snmp-checker.json: |
+  external.json: |
+    {
+      "enabled": true
+    }
+
+  snmp.json: |
     {
       "node_address": "localhost:50051",
       "listen_addr": ":50054",

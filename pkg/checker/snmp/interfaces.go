@@ -6,10 +6,10 @@ import (
 	"context"
 	"time"
 
-	"github.com/mfreeman451/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/db"
 )
 
-//go:generate mockgen -destination=mock_snmp.go -package=snmp github.com/mfreeman451/serviceradar/pkg/checker/snmp Collector,Aggregator,Service,CollectorFactory,AggregatorFactory,SNMPClient,SNMPManager,DataStore
+//go:generate mockgen -destination=mock_snmp.go -package=snmp github.com/carverauto/serviceradar/pkg/checker/snmp Collector,Aggregator,Service,CollectorFactory,AggregatorFactory,SNMPClient,SNMPManager,DataStore
 
 // Collector defines how to collect SNMP data from a target.
 type Collector interface {

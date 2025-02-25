@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/mfreeman451/serviceradar/pkg/cloud/api/web"
+	"github.com/carverauto/serviceradar/pkg/cloud/api/web"
 )
 
 // configureStaticServing sets up static file serving for container mode
