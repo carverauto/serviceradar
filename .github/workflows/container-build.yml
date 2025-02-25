@@ -61,7 +61,6 @@ jobs:
             --platform=linux/amd64,linux/arm64 \
             --base-import-paths \
             --tags=sha-${{ steps.vars.outputs.sha_short }},latest \
-            --bare \
             --image-refs=image-refs.txt \
             ./cmd/agent \
             ./cmd/poller \
