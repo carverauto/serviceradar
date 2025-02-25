@@ -1,0 +1,79 @@
+# base/serviceradar-cloud.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-cloud
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: serviceradar-cloud
+  template:
+    metadata:
+      labels:
+        app: serviceradar-cloud
+    spec:
+      imagePullSecrets:
+        - name: ghcr-io-cred
+      containers:
+      - name: cloud
+        image: ghcr.io/carverauto/serviceradar/serviceradar-cloud:latest
+        ports:
+        - containerPort: 8080
+          name: http
+        - containerPort: 50051
+          name: grpc
+        volumeMounts:
+        - name: serviceradar-config
+          mountPath: /etc/serviceradar
+        - name: serviceradar-data
+          mountPath: /var/lib/serviceradar
+        env:
+        - name: SERVICERADAR_LISTEN_ADDR
+          value: ":8080"
+        - name: SERVICERADAR_GRPC_ADDR
+          value: ":50051"
+        - name: SERVICERADAR_CONFIG_PATH
+          value: "/etc/serviceradar/cloud.json"
+        - name: SERVICERADAR_DB_PATH
+          value: "/var/lib/serviceradar/serviceradar.db"
+        resources:
+          limits:
+            cpu: "1"
+            memory: "512Mi"
+          requests:
+            cpu: "200m"
+            memory: "256Mi"
+      volumes:
+      - name: serviceradar-config
+        configMap:
+          name: serviceradar-config
+      - name: serviceradar-data
+        persistentVolumeClaim:
+          claimName: serviceradar-cloud-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-cloud
+spec:
+  selector:
+    app: serviceradar-cloud
+  ports:
+  - name: http
+    port: 8080
+    targetPort: http
+  - name: grpc
+    port: 50051
+    targetPort: grpc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: serviceradar-cloud-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi

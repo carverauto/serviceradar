@@ -1,0 +1,45 @@
+# base/serviceradar-agent.yaml
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: serviceradar-agent
+spec:
+  selector:
+    matchLabels:
+      app: serviceradar-agent
+  template:
+    metadata:
+      labels:
+        app: serviceradar-agent
+    spec:
+      hostNetwork: true
+      imagePullSecrets:
+        - name: ghcr-io-cred
+      containers:
+      - name: agent
+        image: ghcr.io/carverauto/serviceradar/serviceradar-agent:latest
+        volumeMounts:
+        - name: serviceradar-config
+          mountPath: /etc/serviceradar
+        env:
+        - name: SERVICERADAR_CONFIG_PATH
+          value: "/etc/serviceradar/agent.json"
+        - name: SERVICERADAR_POLLER_ADDR
+          value: "serviceradar-poller:8080"
+        - name: SERVICERADAR_NODE_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        securityContext:
+          privileged: true
+        resources:
+          limits:
+            cpu: "200m"
+            memory: "128Mi"
+          requests:
+            cpu: "100m"
+            memory: "64Mi"
+      volumes:
+      - name: serviceradar-config
+        configMap:
+          name: serviceradar-config

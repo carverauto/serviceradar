@@ -1,0 +1,8 @@
+# overlays/demo/namespace.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo
+  labels:
+    name: demo
+    environment: demo

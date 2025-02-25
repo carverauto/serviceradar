@@ -1,0 +1,38 @@
+# overlays/demo/patches/resources.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-cloud
+spec:
+  template:
+    spec:
+      containers:
+      - name: cloud
+        resources:
+          limits:
+            cpu: "500m"
+            memory: "256Mi"
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: serviceradar-cloud-data
+spec:
+  resources:
+    requests:
+      storage: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-cloud
+spec:
+  type: NodePort
+  ports:
+  - name: http
+    port: 8080
+    targetPort: http
+    nodePort: 30080

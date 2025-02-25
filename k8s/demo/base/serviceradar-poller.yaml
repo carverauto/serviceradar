@@ -1,0 +1,43 @@
+# base/serviceradar-poller.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-poller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: serviceradar-poller
+  template:
+    metadata:
+      labels:
+        app: serviceradar-poller
+    spec:
+      imagePullSecrets:
+        - name: ghcr-io-cred
+      containers:
+      - name: poller
+        image: ghcr.io/carverauto/serviceradar/serviceradar-poller:latest
+        volumeMounts:
+        - name: serviceradar-config
+          mountPath: /etc/serviceradar
+        env:
+        - name: SERVICERADAR_CONFIG_PATH
+          value: "/etc/serviceradar/poller.json"
+        - name: SERVICERADAR_CLOUD_ADDR
+          value: "serviceradar-cloud:50051"
+        - name: SERVICERADAR_NODE_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        resources:
+          limits:
+            cpu: "500m"
+            memory: "256Mi"
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+      volumes:
+      - name: serviceradar-config
+        configMap:
+          name: serviceradar-config
