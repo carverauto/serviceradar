@@ -1,0 +1,161 @@
+# base/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: serviceradar-config
+data:
+  cloud.json: |
+    {
+      "listen_addr": ":8090",
+      "grpc_addr": ":50052",
+      "db_path": "/var/lib/serviceradar/serviceradar.db",
+      "alert_threshold": "5m",
+      "known_pollers": ["demo-poller"],
+      "metrics": {
+      "enabled": true,
+      "retention": 100,
+      "max_nodes": 10000
+        },
+        "security": {
+          "mode": "mtls",
+          "cert_dir": "/etc/serviceradar/certs",
+          "role": "cloud"
+        },
+        "webhooks": [
+          {
+            "enabled": false,
+            "url": "https://your-webhook-url",
+            "cooldown": "15m",
+            "headers": [
+              {
+                "key": "Authorization",
+                "value": "Bearer your-token"
+              }
+            ]
+          },
+          {
+            "enabled": true,
+            "url": "https://discord.com/api/webhooks/1328806609710878730/hquu9vJUHZ9n1EaYQG8fqec6eHrLckXmzp8u0VjTzuE_gRXhArTuiX1ROrpw6MFlICLy",
+            "cooldown": "15m",
+            "template": "{\"embeds\":[{\"title\":\"{{.alert.Title}}\",\"description\":\"{{.alert.Message}}\",\"color\":{{if eq .alert.Level \"error\"}}15158332{{else if eq .alert.Level \"warning\"}}16776960{{else}}3447003{{end}},\"timestamp\":\"{{.alert.Timestamp}}\",\"fields\":[{\"name\":\"Node ID\",\"value\":\"{{.alert.NodeID}}\",\"inline\":true}{{range $key, $value := .alert.Details}},{\"name\":\"{{$key}}\",\"value\":\"{{$value}}\",\"inline\":true}{{end}}]}]}"
+          }
+        ]
+    }
+
+  poller.json: |
+    {
+      "agents": {
+        "local-agent": {
+          "address": "localhost:50051",
+          "security": {
+            "server_name": "demo.serviceradar.cloud",
+            "mode": "none"
+          },
+          "checks": [
+            {
+              "service_type": "port",
+              "service_name": "SSH",
+              "details": "127.0.0.1:22"
+            },
+            {
+              "service_type": "snmp",
+              "service_name": "snmp",
+              "details": "localhost:50054"
+            },
+            {
+              "service_type": "icmp",
+              "service_name": "ping",
+              "details": "8.8.8.8"
+            },
+            {
+              "service_type": "sweep",
+              "service_name": "network_sweep",
+              "details": ""
+            }
+          ]
+        }
+      },
+      "cloud_address": "demo.serviceradar.cloud:50052",
+      "listen_addr": "localhost:50053",
+      "poll_interval": "30s",
+      "poller_id": "demo-poller",
+      "service_name": "PollerService",
+      "service_type": "grpc",
+          "security": {
+            "mode": "none",
+            "cert_dir": "/etc/serviceradar/certs",
+            "server_name": "demo.serviceradar.cloud",
+            "role": "poller"
+          }
+    }
+
+  agent.json: |
+    {
+      "checkers_dir": "/etc/serviceradar/checkers",
+      "listen_addr": ":50051",
+      "service_type": "grpc",
+      "service_name": "AgentService",
+      "security": {
+        "mode": "none",
+        "cert_dir": "/etc/serviceradar/certs",
+        "server_name": "demo.serviceradar.cloud",
+        "role": "agent"
+      }
+    }
+
+  sweep.json: |
+    {
+      "networks": [
+          "192.168.2.0/24",
+          "192.168.3.1/32"
+      ],
+      "ports": [
+        22,
+        80,
+        443,
+        3306,
+        5432,
+        6379,
+        8080,
+        8443
+      ],
+      "sweep_modes": [
+        "icmp",
+        "tcp"
+      ],
+      "interval": "5m",
+      "concurrency": 100,
+      "timeout": "10s"
+    } 
+
+  snmp-checker.json: |
+    {
+      "node_address": "localhost:50051",
+      "listen_addr": ":50054",
+      "security": {
+        "server_name": "serviceradar-demo",
+        "mode": "none",
+        "role": "checker",
+        "cert_dir": "/etc/serviceradar/certs"
+      },
+      "timeout": "30s",
+      "targets": [
+        {
+          "name": "test-router",
+          "host": "192.168.1.1",
+          "port": 161,
+          "community": "public",
+          "version": "v2c",
+          "interval": "30s",
+          "retries": 2,
+          "oids": [
+            {
+              "oid": ".1.3.6.1.2.1.2.2.1.10.4",
+              "name": "ifInOctets_4",
+              "type": "counter",
+              "scale": 1.0
+            }
+          ]
+        }
+      ]
+    }

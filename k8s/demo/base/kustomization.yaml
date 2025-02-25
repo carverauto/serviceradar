@@ -1,0 +1,13 @@
+# base/kustomization.yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - serviceradar-agent.yaml
+  - serviceradar-poller.yaml
+  - serviceradar-cloud.yaml
+  - serviceradar-snmp-checker.yaml
+  - configmap.yaml
+
+commonLabels:
+  app.kubernetes.io/part-of: serviceradar

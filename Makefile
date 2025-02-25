@@ -107,10 +107,10 @@ kodata-prep: build-web ## Prepare kodata directories
 
 .PHONY: container-build
 container-build: kodata-prep ## Build container images with ko
-	@echo "$(COLOR_BOLD)Building container images with ko$(COLOR_RESET)"
+	@echo "$(COLOR_BOLD)Building container images with ko (broken on arm64)$(COLOR_RESET)"
 	@cd cmd/agent && KO_DOCKER_REPO=$(KO_DOCKER_REPO)/serviceradar-agent GOFLAGS="-tags=containers" ko build --platform=$(PLATFORMS) --tags=$(VERSION) --bare .
 	@cd cmd/poller && KO_DOCKER_REPO=$(KO_DOCKER_REPO)/serviceradar-poller GOFLAGS="-tags=containers" ko build --platform=$(PLATFORMS) --tags=$(VERSION) --bare .
-	@cd cmd/cloud && KO_DOCKER_REPO=$(KO_DOCKER_REPO)/serviceradar-cloud GOFLAGS="-tags=containers" ko build --platform=$(PLATFORMS) --tags=$(VERSION) --bare .
+	@cd cmd/cloud && KO_DOCKER_REPO=$(KO_DOCKER_REPO)/serviceradar-cloud GOFLAGS="-tags=containers" CGO_ENABLED=1 ko build --platform=$(PLATFORMS) --tags=$(VERSION) --bare --builder=docker .
 	@cd cmd/checkers/dusk && KO_DOCKER_REPO=$(KO_DOCKER_REPO)/serviceradar-dusk-checker GOFLAGS="-tags=containers" ko build --platform=$(PLATFORMS) --tags=$(VERSION) --bare .
 	@cd cmd/checkers/snmp && KO_DOCKER_REPO=$(KO_DOCKER_REPO)/serviceradar-snmp-checker GOFLAGS="-tags=containers" ko build --platform=$(PLATFORMS) --tags=$(VERSION) --bare .
 
