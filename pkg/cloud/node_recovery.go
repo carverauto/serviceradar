@@ -7,8 +7,8 @@ import (
 	"log"
 	"time"
 
-	"github.com/mfreeman451/serviceradar/pkg/cloud/alerts"
-	"github.com/mfreeman451/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/cloud/alerts"
+	"github.com/carverauto/serviceradar/pkg/db"
 )
 
 // NodeRecoveryManager handles node recovery state transitions.

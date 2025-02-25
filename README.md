@@ -1,10 +1,10 @@
 # ServiceRadar
 
-[![releases](https://github.com/mfreeman451/serviceradar/actions/workflows/release.yml/badge.svg)](https://github.com/mfreeman451/serviceradar/actions/workflows/release.yml)
-[![linter](https://github.com/mfreeman451/serviceradar/actions/workflows/golangci-lint.yml/badge.svg)](https://github.com/mfreeman451/serviceradar/actions/workflows/golangci-lint.yml)
-[![tests](https://github.com/mfreeman451/serviceradar/actions/workflows/tests.yml/badge.svg)](https://github.com/mfreeman451/serviceradar/actions/workflows/tests.yml)
-[![coverage](https://github.com/mfreeman451/serviceradar/actions/workflows/go-coverage.yml/badge.svg)](https://github.com/mfreeman451/serviceradar/actions/workflows/go-coverage.yml)
-<a href="https://cla-assistant.io/mfreeman451/serviceradar"><img src="https://cla-assistant.io/readme/badge/mfreeman451/serviceradar" alt="CLA assistant" /></a>
+[![releases](https://github.com/carverauto/serviceradar/actions/workflows/release.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/release.yml)
+[![linter](https://github.com/carverauto/serviceradar/actions/workflows/golangci-lint.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/golangci-lint.yml)
+[![tests](https://github.com/carverauto/serviceradar/actions/workflows/tests.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/tests.yml)
+[![coverage](https://github.com/carverauto/serviceradar/actions/workflows/go-coverage.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/go-coverage.yml)
+<a href="https://cla-assistant.io/carverauto/serviceradar"><img src="https://cla-assistant.io/readme/badge/carverauto/serviceradar" alt="CLA assistant" /></a>
 
 ServiceRadar is a distributed network monitoring system designed for infrastructure and services in hard to reach places or constrained environments. 
 It provides real-time monitoring of internal services, with cloud-based alerting capabilities to ensure you stay informed even during network or power outages.
@@ -47,8 +47,8 @@ ServiceRadar can be installed via direct downloads from GitHub releases.
 Install these components on your monitored host:
 ```bash
 # Download and install core components
-curl -LO https://github.com/mfreeman451/serviceradar/releases/download/1.0.19/serviceradar-agent_1.0.19.deb \
-     -O https://github.com/mfreeman451/serviceradar/releases/download/1.0.19/serviceradar-poller_1.0.19.deb
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.19/serviceradar-agent_1.0.19.deb \
+     -O https://github.com/carverauto/serviceradar/releases/download/1.0.19/serviceradar-poller_1.0.19.deb
 
 sudo dpkg -i serviceradar-agent_1.0.19.deb serviceradar-poller_1.0.19.deb
 ```
@@ -56,21 +56,21 @@ sudo dpkg -i serviceradar-agent_1.0.19.deb serviceradar-poller_1.0.19.deb
 On a separate machine (recommended) or the same host:
 ```bash
 # Download and install cloud service
-curl -LO https://github.com/mfreeman451/serviceradar/releases/download/1.0.19/serviceradar-cloud_1.0.19.deb
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.19/serviceradar-cloud_1.0.19.deb
 sudo dpkg -i serviceradar-cloud_1.0.19.deb
 ```
 
 #### Optional: SNMP Polling
 Download and install the SNMP checker to collect and visualize metrics:
 ```bash
-curl -LO https://github.com/mfreeman451/serviceradar/releases/download/1.0.19/serviceradar-snmp-checker_1.0.19.deb
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.19/serviceradar-snmp-checker_1.0.19.deb
 sudo dpkg -i serviceradar-snmp-checker_1.0.19.deb
 ```
 
 #### Optional: Dusk Node Monitoring
 If you're running a [Dusk](https://dusk.network/) node and want specialized monitoring:
 ```bash
-curl -LO https://github.com/mfreeman451/serviceradar/releases/download/1.0.19/serviceradar-dusk-checker_1.0.19.deb
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.19/serviceradar-dusk-checker_1.0.19.deb
 sudo dpkg -i serviceradar-dusk-checker_1.0.19.deb
 ```
 
@@ -79,19 +79,19 @@ For larger deployments where components run on different hosts:
 
 1. On monitored hosts:
 ```bash
-curl -LO https://github.com/mfreeman451/serviceradar/releases/download/1.0.19/serviceradar-agent_1.0.19.deb
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.19/serviceradar-agent_1.0.19.deb
 sudo dpkg -i serviceradar-agent_1.0.19.deb
 ```
 
 2. On monitoring host:
 ```bash
-curl -LO https://github.com/mfreeman451/serviceradar/releases/download/1.0.19/serviceradar-poller_1.0.19.deb
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.19/serviceradar-poller_1.0.19.deb
 sudo dpkg -i serviceradar-poller_1.0.19.deb
 ```
 
 3. On cloud host:
 ```bash
-curl -LO https://github.com/mfreeman451/serviceradar/releases/download/1.0.19/serviceradar-cloud_1.0.19.deb
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.19/serviceradar-cloud_1.0.19.deb
 sudo dpkg -i serviceradar-cloud_1.0.19.deb
 ```
 
@@ -170,7 +170,7 @@ ServiceRadar components are distributed as Debian packages. Each component has i
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/mfreeman451/serviceradar.git
+git clone https://github.com/carverauto/serviceradar.git
 cd serviceradar
 ```
 

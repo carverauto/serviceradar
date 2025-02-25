@@ -1,6 +1,6 @@
 // Package alerts pkg/cloud/alerts/interfaces.go
 
-//go:generate mockgen -destination=mock_alerts.go -package=alerts github.com/mfreeman451/serviceradar/pkg/cloud/alerts AlertService
+//go:generate mockgen -destination=mock_alerts.go -package=alerts github.com/carverauto/serviceradar/pkg/cloud/alerts AlertService
 
 package alerts
 

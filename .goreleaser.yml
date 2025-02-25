@@ -62,7 +62,7 @@ nfpms:
     builds:
       - agent
     vendor: ServiceRadar
-    homepage: https://github.com/mfreeman451/serviceradar
+    homepage: https://github.com/carverauto/serviceradar
     maintainer: Michael Freeman <mfreeman451@gmail.com>
     description: ServiceRadar Agent Component
     license: MIT
@@ -86,7 +86,7 @@ nfpms:
     builds:
       - poller
     vendor: ServiceRadar
-    homepage: https://github.com/mfreeman451/serviceradar
+    homepage: https://github.com/carverauto/serviceradar
     maintainer: Michael Freeman <mfreeman451@gmail.com>
     description: ServiceRadar Poller Component
     license: MIT
@@ -110,7 +110,7 @@ nfpms:
     builds:
       - serviceradar-cloud
     vendor: ServiceRadar
-    homepage: https://github.com/mfreeman451/serviceradar
+    homepage: https://github.com/carverauto/serviceradar
     maintainer: Michael Freeman <mfreeman451@gmail.com>
     description: ServiceRadar Cloud Component
     license: MIT
@@ -139,7 +139,7 @@ nfpms:
     builds:
       - dusk-checker
     vendor: ServiceRadar
-    homepage: https://github.com/mfreeman451/serviceradar
+    homepage: https://github.com/carverauto/serviceradar
     maintainer: Michael Freeman <mfreeman451@gmail.com>
     description: ServiceRadar Dusk Checker Component
     license: MIT

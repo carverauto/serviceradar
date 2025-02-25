@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mfreeman451/serviceradar/proto"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 // Interval represents a time interval for data aggregation.

@@ -7,11 +7,11 @@ import (
 	"log"
 	"time"
 
-	"github.com/mfreeman451/serviceradar/pkg/checker/snmp"
-	"github.com/mfreeman451/serviceradar/pkg/config"
-	"github.com/mfreeman451/serviceradar/pkg/grpc"
-	"github.com/mfreeman451/serviceradar/pkg/lifecycle"
-	"github.com/mfreeman451/serviceradar/proto"
+	"github.com/carverauto/serviceradar/pkg/checker/snmp"
+	"github.com/carverauto/serviceradar/pkg/config"
+	"github.com/carverauto/serviceradar/pkg/grpc"
+	"github.com/carverauto/serviceradar/pkg/lifecycle"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 const (

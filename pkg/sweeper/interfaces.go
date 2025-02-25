@@ -4,10 +4,10 @@ import (
 	"context"
 	"time"
 
-	"github.com/mfreeman451/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-//go:generate mockgen -destination=mock_sweeper.go -package=sweeper github.com/mfreeman451/serviceradar/pkg/sweeper Sweeper,ResultProcessor,Store,Reporter,SweepService
+//go:generate mockgen -destination=mock_sweeper.go -package=sweeper github.com/carverauto/serviceradar/pkg/sweeper Sweeper,ResultProcessor,Store,Reporter,SweepService
 
 // ResultProcessor defines how to process and aggregate sweep results.
 type ResultProcessor interface {

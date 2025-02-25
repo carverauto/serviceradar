@@ -186,3 +186,6 @@ serviceradar-snmp-checker_*
 tls/client.csr
 tls/root.csr
 tls/server.csr
+
+# Ko build system for Go
+.kodata

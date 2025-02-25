@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mfreeman451/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -29,10 +29,10 @@ func TestMockSweeper(t *testing.T) {
 
 		// Test Stop
 		mockSweeper.EXPECT().
-			Stop().
+			Stop(ctx).
 			Return(nil)
 
-		err = mockSweeper.Stop()
+		err = mockSweeper.Stop(ctx)
 		assert.NoError(t, err)
 	})
 
@@ -130,13 +130,6 @@ func TestMockResultProcessor(t *testing.T) {
 		summary, err := mockProcessor.GetSummary(ctx)
 		require.NoError(t, err)
 		assert.Equal(t, expectedSummary, summary)
-	})
-
-	t.Run("Reset", func(*testing.T) {
-		mockProcessor.EXPECT().
-			Reset()
-
-		mockProcessor.Reset()
 	})
 }
 

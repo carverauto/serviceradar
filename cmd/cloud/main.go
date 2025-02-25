@@ -5,11 +5,11 @@ import (
 	"flag"
 	"log"
 
-	"github.com/mfreeman451/serviceradar/pkg/cloud"
-	"github.com/mfreeman451/serviceradar/pkg/cloud/api"
-	"github.com/mfreeman451/serviceradar/pkg/grpc"
-	"github.com/mfreeman451/serviceradar/pkg/lifecycle"
-	"github.com/mfreeman451/serviceradar/proto"
+	"github.com/carverauto/serviceradar/pkg/cloud"
+	"github.com/carverauto/serviceradar/pkg/cloud/api"
+	"github.com/carverauto/serviceradar/pkg/grpc"
+	"github.com/carverauto/serviceradar/pkg/lifecycle"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 func main() {

@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mfreeman451/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

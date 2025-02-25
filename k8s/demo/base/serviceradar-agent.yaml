@@ -15,31 +15,48 @@ spec:
       hostNetwork: true
       imagePullSecrets:
         - name: ghcr-io-cred
+      initContainers:
+        - name: init-checkers
+          image: busybox:1.36
+          command: ['sh', '-c', '
+          mkdir -p /etc/serviceradar/checkers/sweep && 
+          cp /config/snmp.json /etc/serviceradar/checkers/snmp.json &&
+          cp /config/external.json /etc/serviceradar/checkers/external.json
+        ']
+          volumeMounts:
+            - name: serviceradar-config
+              mountPath: /config
+            - name: checkers-dir
+              mountPath: /etc/serviceradar/checkers
       containers:
-      - name: agent
-        image: ghcr.io/carverauto/serviceradar/serviceradar-agent:latest
-        volumeMounts:
-        - name: serviceradar-config
-          mountPath: /etc/serviceradar
-        env:
-        - name: SERVICERADAR_CONFIG_PATH
-          value: "/etc/serviceradar/agent.json"
-        - name: SERVICERADAR_POLLER_ADDR
-          value: "serviceradar-poller:8080"
-        - name: SERVICERADAR_NODE_ID
-          valueFrom:
-            fieldRef:
-              fieldPath: spec.nodeName
-        securityContext:
-          privileged: true
-        resources:
-          limits:
-            cpu: "200m"
-            memory: "128Mi"
-          requests:
-            cpu: "100m"
-            memory: "64Mi"
+        - name: agent
+          image: ghcr.io/carverauto/serviceradar/serviceradar-agent:latest
+          volumeMounts:
+            - name: serviceradar-config
+              mountPath: /etc/serviceradar
+            - name: checkers-dir
+              mountPath: /etc/serviceradar/checkers
+          env:
+            - name: SERVICERADAR_CONFIG_PATH
+              value: "/etc/serviceradar/agent.json"
+            - name: SERVICERADAR_POLLER_ADDR
+              value: "serviceradar-poller:8080"
+            - name: SERVICERADAR_NODE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          securityContext:
+            privileged: true
+          resources:
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+            requests:
+              cpu: "100m"
+              memory: "64Mi"
       volumes:
-      - name: serviceradar-config
-        configMap:
-          name: serviceradar-config
+        - name: serviceradar-config
+          configMap:
+            name: serviceradar-config
+        - name: checkers-dir
+          emptyDir: {}

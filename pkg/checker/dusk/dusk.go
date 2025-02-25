@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/config"
+	"github.com/carverauto/serviceradar/proto"
 	"github.com/gorilla/websocket"
-	"github.com/mfreeman451/serviceradar/pkg/config"
-	"github.com/mfreeman451/serviceradar/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/health/grpc_health_v1"

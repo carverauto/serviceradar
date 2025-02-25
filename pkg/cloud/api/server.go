@@ -11,12 +11,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/checker/snmp"
+	"github.com/carverauto/serviceradar/pkg/db"
+	srHttp "github.com/carverauto/serviceradar/pkg/http"
+	"github.com/carverauto/serviceradar/pkg/metrics"
+	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/gorilla/mux"
-	"github.com/mfreeman451/serviceradar/pkg/checker/snmp"
-	"github.com/mfreeman451/serviceradar/pkg/db"
-	srHttp "github.com/mfreeman451/serviceradar/pkg/http"
-	"github.com/mfreeman451/serviceradar/pkg/metrics"
-	"github.com/mfreeman451/serviceradar/pkg/models"
 )
 
 type ServiceStatus struct {

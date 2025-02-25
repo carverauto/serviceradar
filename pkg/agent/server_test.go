@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mfreeman451/serviceradar/pkg/checker"
-	"github.com/mfreeman451/serviceradar/pkg/models"
-	"github.com/mfreeman451/serviceradar/proto"
+	"github.com/carverauto/serviceradar/pkg/checker"
+	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

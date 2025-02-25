@@ -13,10 +13,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mfreeman451/serviceradar/pkg/checker"
-	"github.com/mfreeman451/serviceradar/pkg/grpc"
-	"github.com/mfreeman451/serviceradar/pkg/models"
-	"github.com/mfreeman451/serviceradar/proto"
+	"github.com/carverauto/serviceradar/pkg/checker"
+	"github.com/carverauto/serviceradar/pkg/grpc"
+	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/proto"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )

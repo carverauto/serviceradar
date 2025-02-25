@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mfreeman451/serviceradar/pkg/config"
-	"github.com/mfreeman451/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/config"
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 const (

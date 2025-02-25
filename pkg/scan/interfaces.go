@@ -3,10 +3,10 @@ package scan
 import (
 	"context"
 
-	"github.com/mfreeman451/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-//go:generate mockgen -destination=mock_scanner.go -package=scan github.com/mfreeman451/serviceradar/pkg/scan Scanner,ResultProcessor
+//go:generate mockgen -destination=mock_scanner.go -package=scan github.com/carverauto/serviceradar/pkg/scan Scanner,ResultProcessor
 
 // Scanner defines how to perform network sweeps.
 type Scanner interface {

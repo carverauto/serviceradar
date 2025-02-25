@@ -1,4 +1,4 @@
-module github.com/mfreeman451/serviceradar
+module github.com/carverauto/serviceradar
 
 go 1.24
 

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mfreeman451/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/models"
 	"go.uber.org/mock/gomock"
 )
 

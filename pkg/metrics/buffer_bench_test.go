@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mfreeman451/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 // ChannelBuffer is a channel-based buffer implementation.
