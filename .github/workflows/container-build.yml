@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       VERSION: latest
-      KO_DOCKER_REPO: ghcr.io/carverauto/serviceradar
+      BASE_REPO: ghcr.io/carverauto/serviceradar
     steps:
       - uses: actions/checkout@v4
       - name: Extract short SHA
@@ -53,17 +53,41 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and push container images
         run: |
-          # Set up ko repository
-          export KO_DOCKER_REPO=ghcr.io/carverauto/serviceradar
-          
-          # Build and push container images for all components
-          GOFLAGS="-tags=containers" ko build \
+          # Build and push agent
+          cd cmd/agent
+          KO_DOCKER_REPO=${{ env.BASE_REPO }}/serviceradar-agent GOFLAGS="-tags=containers" ko build \
             --platform=linux/amd64,linux/arm64 \
-            --base-import-paths \
             --tags=sha-${{ steps.vars.outputs.sha_short }},latest \
-            --image-refs=image-refs.txt \
-            ./cmd/agent \
-            ./cmd/poller \
-            ./cmd/cloud \
-            ./cmd/checkers/dusk \
-            ./cmd/checkers/snmp
+            --bare .
+          cd ../..
+          
+          # Build and push poller
+          cd cmd/poller
+          KO_DOCKER_REPO=${{ env.BASE_REPO }}/serviceradar-poller GOFLAGS="-tags=containers" ko build \
+            --platform=linux/amd64,linux/arm64 \
+            --tags=sha-${{ steps.vars.outputs.sha_short }},latest \
+            --bare .
+          cd ../..
+          
+          # Build and push cloud
+          cd cmd/cloud
+          KO_DOCKER_REPO=${{ env.BASE_REPO }}/serviceradar-cloud GOFLAGS="-tags=containers" ko build \
+            --platform=linux/amd64,linux/arm64 \
+            --tags=sha-${{ steps.vars.outputs.sha_short }},latest \
+            --bare .
+          cd ../..
+          
+          # Build and push dusk checker
+          cd cmd/checkers/dusk
+          KO_DOCKER_REPO=${{ env.BASE_REPO }}/serviceradar-dusk-checker GOFLAGS="-tags=containers" ko build \
+            --platform=linux/amd64,linux/arm64 \
+            --tags=sha-${{ steps.vars.outputs.sha_short }},latest \
+            --bare .
+          cd ../../..
+          
+          # Build and push snmp checker
+          cd cmd/checkers/snmp
+          KO_DOCKER_REPO=${{ env.BASE_REPO }}/serviceradar-snmp-checker GOFLAGS="-tags=containers" ko build \
+            --platform=linux/amd64,linux/arm64 \
+            --tags=sha-${{ steps.vars.outputs.sha_short }},latest \
+            --bare .
