@@ -108,32 +108,20 @@ kodata-prep: build-web ## Prepare kodata directories
 .PHONY: container-build
 container-build: kodata-prep ## Build container images with ko
 	@echo "$(COLOR_BOLD)Building container images with ko$(COLOR_RESET)"
-	@GOFLAGS="-tags=containers" KO_DOCKER_REPO=$(KO_DOCKER_REPO) ko build \
-		--platform=$(PLATFORMS) \
-		--base-import-paths \
-		--tags=$(VERSION) \
-		--bare \
-		--image-refs=image-refs.txt \
-		./cmd/agent \
-		./cmd/poller \
-		./cmd/cloud \
-		./cmd/checkers/dusk \
-		./cmd/checkers/snmp
+	@cd cmd/agent && KO_DOCKER_REPO=$(KO_DOCKER_REPO)/serviceradar-agent GOFLAGS="-tags=containers" ko build --platform=$(PLATFORMS) --tags=$(VERSION) --bare .
+	@cd cmd/poller && KO_DOCKER_REPO=$(KO_DOCKER_REPO)/serviceradar-poller GOFLAGS="-tags=containers" ko build --platform=$(PLATFORMS) --tags=$(VERSION) --bare .
+	@cd cmd/cloud && KO_DOCKER_REPO=$(KO_DOCKER_REPO)/serviceradar-cloud GOFLAGS="-tags=containers" ko build --platform=$(PLATFORMS) --tags=$(VERSION) --bare .
+	@cd cmd/checkers/dusk && KO_DOCKER_REPO=$(KO_DOCKER_REPO)/serviceradar-dusk-checker GOFLAGS="-tags=containers" ko build --platform=$(PLATFORMS) --tags=$(VERSION) --bare .
+	@cd cmd/checkers/snmp && KO_DOCKER_REPO=$(KO_DOCKER_REPO)/serviceradar-snmp-checker GOFLAGS="-tags=containers" ko build --platform=$(PLATFORMS) --tags=$(VERSION) --bare .
 
 .PHONY: container-push
 container-push: kodata-prep ## Build and push container images with ko
 	@echo "$(COLOR_BOLD)Building and pushing container images with ko$(COLOR_RESET)"
-	@GOFLAGS="-tags=containers" KO_DOCKER_REPO=$(KO_DOCKER_REPO) ko build \
-		--platform=$(PLATFORMS) \
-		--base-import-paths \
-		--tags=$(VERSION),latest \
-		--bare \
-		--image-refs=image-refs.txt \
-		./cmd/agent \
-		./cmd/poller \
-		./cmd/cloud \
-		./cmd/checkers/dusk \
-		./cmd/checkers/snmp
+	@cd cmd/agent && KO_DOCKER_REPO=$(KO_DOCKER_REPO)/serviceradar-agent GOFLAGS="-tags=containers" ko build --platform=$(PLATFORMS) --tags=$(VERSION),latest --bare .
+	@cd cmd/poller && KO_DOCKER_REPO=$(KO_DOCKER_REPO)/serviceradar-poller GOFLAGS="-tags=containers" ko build --platform=$(PLATFORMS) --tags=$(VERSION),latest --bare .
+	@cd cmd/cloud && KO_DOCKER_REPO=$(KO_DOCKER_REPO)/serviceradar-cloud GOFLAGS="-tags=containers" ko build --platform=$(PLATFORMS) --tags=$(VERSION),latest --bare .
+	@cd cmd/checkers/dusk && KO_DOCKER_REPO=$(KO_DOCKER_REPO)/serviceradar-dusk-checker GOFLAGS="-tags=containers" ko build --platform=$(PLATFORMS) --tags=$(VERSION),latest --bare .
+	@cd cmd/checkers/snmp && KO_DOCKER_REPO=$(KO_DOCKER_REPO)/serviceradar-snmp-checker GOFLAGS="-tags=containers" ko build --platform=$(PLATFORMS) --tags=$(VERSION),latest --bare .
 
 # Build Debian packages
 .PHONY: deb-agent

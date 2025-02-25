@@ -1,42 +1,52 @@
 defaultBaseImage: cgr.dev/chainguard/static:latest
 
 builds:
-  - id: serviceradar-agent
+  - id: agent
     dir: ./cmd/agent
     main: ./cmd/agent
     env:
       - CGO_ENABLED=0
+    flags:
+      - -tags=containers
     ldflags:
       - -s -w -X main.version={{.Env.VERSION}}
 
-  - id: serviceradar-poller
+  - id: poller
     dir: ./cmd/poller
     main: ./cmd/poller
     env:
       - CGO_ENABLED=0
+    flags:
+      - -tags=containers
     ldflags:
       - -s -w -X main.version={{.Env.VERSION}}
 
-  - id: serviceradar-cloud
+  - id: cloud
     dir: ./cmd/cloud
     main: ./cmd/cloud
     env:
       - CGO_ENABLED=0
+    flags:
+      - -tags=containers
     ldflags:
       - -s -w -X main.version={{.Env.VERSION}}
 
-  - id: serviceradar-dusk-checker
+  - id: dusk-checker
     dir: ./cmd/checkers/dusk
     main: ./cmd/checkers/dusk
     env:
       - CGO_ENABLED=0
+    flags:
+      - -tags=containers
     ldflags:
       - -s -w -X main.version={{.Env.VERSION}}
 
-  - id: serviceradar-snmp-checker
+  - id: snmp-checker
     dir: ./cmd/checkers/snmp
     main: ./cmd/checkers/snmp
     env:
       - CGO_ENABLED=0
+    flags:
+      - -tags=containers
     ldflags:
       - -s -w -X main.version={{.Env.VERSION}}
