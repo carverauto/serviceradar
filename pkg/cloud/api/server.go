@@ -116,8 +116,14 @@ func (s *APIServer) setupStaticFileServing() {
 }
 
 func (s *APIServer) setupRoutes() {
-	// Add CORS middleware
-	s.router.Use(srHttp.CommonMiddleware)
+	// Create a middleware chain
+	middlewareChain := func(next http.Handler) http.Handler {
+		// Order matters: first API key check, then CORS headers
+		return srHttp.CommonMiddleware(srHttp.APIKeyMiddleware(next))
+	}
+
+	// Add middleware to router
+	s.router.Use(middlewareChain)
 
 	// Basic endpoints
 	s.router.HandleFunc("/api/nodes", s.getNodes).Methods("GET")
