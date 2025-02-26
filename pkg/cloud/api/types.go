@@ -57,4 +57,5 @@ type APIServer struct {
 	snmpManager        snmp.SNMPManager
 	db                 db.Service
 	knownPollers       []string
+	apiKey             string
 }

@@ -19,13 +19,14 @@ func NewAPIServer(options ...func(server *APIServer)) *APIServer {
 	s := &APIServer{
 		nodes:  make(map[string]*NodeStatus),
 		router: mux.NewRouter(),
+		apiKey: "", // Default empty API key
 	}
 
 	for _, o := range options {
 		o(s)
 	}
 
-	s.setupRoutes()
+	s.setupRoutes(s.apiKey)
 
 	return s
 }
@@ -42,16 +43,23 @@ func WithSNMPManager(m snmp.SNMPManager) func(server *APIServer) {
 	}
 }
 
+func WithAPIKey(apiKey string) func(server *APIServer) {
+	return func(server *APIServer) {
+		server.apiKey = apiKey
+	}
+}
+
 func WithDB(db db.Service) func(server *APIServer) {
 	return func(server *APIServer) {
 		server.db = db
 	}
 }
-func (s *APIServer) setupRoutes() {
+
+func (s *APIServer) setupRoutes(apiKey string) {
 	// Create a middleware chain
 	middlewareChain := func(next http.Handler) http.Handler {
 		// Order matters: first API key check, then CORS headers
-		return srHttp.CommonMiddleware(srHttp.APIKeyMiddleware(next))
+		return srHttp.CommonMiddleware(srHttp.APIKeyMiddleware(apiKey)(next))
 	}
 
 	// Add middleware to router
