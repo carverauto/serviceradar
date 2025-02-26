@@ -3,9 +3,7 @@
 package api
 
 import (
-	"embed"
 	"encoding/json"
-	"io/fs"
 	"log"
 	"net/http"
 	"sync"
@@ -98,23 +96,6 @@ func WithDB(db db.Service) func(server *APIServer) {
 		server.db = db
 	}
 }
-
-//go:embed web/dist/*
-var webContent embed.FS
-
-// setupStaticFileServing configures static file serving for the embedded web files.
-func (s *APIServer) setupStaticFileServing() {
-	// Setting up static file serving using the embedded FS
-	// This is used for non-containerized builds
-	fsys, err := fs.Sub(webContent, "web/dist")
-	if err != nil {
-		log.Printf("Error setting up static file serving: %v", err)
-		return
-	}
-
-	s.router.PathPrefix("/").Handler(http.FileServer(http.FS(fsys)))
-}
-
 func (s *APIServer) setupRoutes() {
 	// Create a middleware chain
 	middlewareChain := func(next http.Handler) http.Handler {
@@ -142,10 +123,6 @@ func (s *APIServer) setupRoutes() {
 
 	// SNMP endpoints
 	s.router.HandleFunc("/api/nodes/{id}/snmp", s.getSNMPData).Methods("GET")
-
-	// Configure static file serving based on build tags
-	// This is managed via build tags in a separate file
-	s.configureStaticServing()
 }
 
 // getSNMPData retrieves SNMP data for a specific node.
