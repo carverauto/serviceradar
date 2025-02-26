@@ -5,7 +5,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"strings"
 )
 
 // CommonMiddleware returns an http.Handler that sets up typical
@@ -19,12 +18,9 @@ func CommonMiddleware(next http.Handler) http.Handler {
 		if r.Method == http.MethodOptions {
 			// Preflight request response
 			w.WriteHeader(http.StatusOK)
+
 			return
 		}
-
-		// You might also add a request logging line:
-		// TODO: should log for debug only
-		// log.Printf("[HTTP] %s %s", r.Method, r.URL.Path)
 
 		next.ServeHTTP(w, r)
 	})
@@ -38,13 +34,6 @@ func APIKeyMiddleware(next http.Handler) http.Handler {
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Skip API key check for static file requests
-		if isStaticFileRequest(r.URL.Path) {
-			next.ServeHTTP(w, r)
-
-			return
-		}
-
 		// Skip API key check if it's not configured (development mode)
 		if apiKey == "" {
 			next.ServeHTTP(w, r)
@@ -68,19 +57,4 @@ func APIKeyMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
-}
-
-// isStaticFileRequest returns true if the request is for static content.
-func isStaticFileRequest(path string) bool {
-	// Skip API key check for static files (adjust as needed)
-	staticExtensions := []string{".js", ".css", ".html", ".png", ".jpg", ".svg", ".ico", ".woff", ".woff2"}
-
-	for _, ext := range staticExtensions {
-		if strings.HasSuffix(path, ext) {
-			return true
-		}
-	}
-
-	// Also skip for the root path (which serves index.html)
-	return path == "/"
 }
