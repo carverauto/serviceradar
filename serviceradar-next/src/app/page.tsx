@@ -2,9 +2,6 @@
 import { Suspense } from 'react';
 import Dashboard from '../components/Dashboard';
 
-export const revalidate = 0; // Revalidate this page every 30 seconds
-
-// Async function to fetch data on the server
 async function fetchStatus() {
     try {
         // When running on the server, use the full backend URL

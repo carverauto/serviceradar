@@ -202,34 +202,6 @@ function NodeList({ initialNodes = [] }) {
       </div>
   );
 
-  function ServiceStatus({ service, nodeId, onServiceClick }) {
-    return (
-        <div
-            className="flex items-center gap-2 bg-gray-50 dark:bg-gray-700 rounded p-2 cursor-pointer
-               hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
-            onClick={() => onServiceClick(nodeId, service.name)}
-        >
-          <div className="flex items-center gap-1">
-          <span
-              className={`w-1.5 h-1.5 rounded-full ${
-                  service.available ? 'bg-green-500' : 'bg-red-500'
-              }`}
-          />
-            <span className="font-medium text-gray-800 dark:text-gray-100">
-            {service.name || 'unknown'}
-          </span>
-            <span className="text-gray-500 dark:text-gray-400">
-            ({service.type})
-          </span>
-          </div>
-          <ServiceSparkline
-              nodeId={nodeId}
-              serviceName={service.name}
-          />
-        </div>
-    );
-  }
-
   function renderTableView() {
     return (
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-x-auto transition-colors">

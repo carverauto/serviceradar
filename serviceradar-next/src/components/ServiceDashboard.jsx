@@ -1,21 +1,20 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-    LineChart,
-    Line,
     XAxis,
     YAxis,
-    CartesianGrid,
     Tooltip,
     Legend,
+    Line,
+    LineChart,
+    CartesianGrid,
     ResponsiveContainer,
 } from 'recharts';
 import NetworkSweepView from './NetworkSweepView';
 import { PingStatus } from './NetworkStatus';
 import SNMPDashboard from './SNMPDashboard';
-import { fetchWithCache } from '../lib/api';
 
 const ServiceDashboard = ({
                               nodeId,
@@ -26,68 +25,14 @@ const ServiceDashboard = ({
                               initialError = null,
                           }) => {
     const router = useRouter();
-    const [serviceData, setServiceData] = useState(initialService);
-    const [metricsData, setMetricsData] = useState(initialMetrics);
-    const [snmpData, setSnmpData] = useState(initialSnmpData);
-    const [loading, setLoading] = useState(!initialService && !initialError);
-    const [error, setError] = useState(initialError);
+    const [serviceData ] = useState(initialService);
+    const [metricsData] = useState(initialMetrics);
+    const [snmpData] = useState(initialSnmpData);
+    const [loading] = useState(!initialService && !initialError);
+    const [error] = useState(initialError);
     const [selectedTimeRange, setSelectedTimeRange] = useState('1h');
 
-    const refreshInterval = 30000;
-
-    const fetchData = useCallback(async () => {
-        try {
-            if (initialService && initialMetrics.length > 0 && initialSnmpData.length > 0 && !initialError) {
-                setServiceData(initialService);
-                setMetricsData(initialMetrics);
-                setSnmpData(initialSnmpData);
-                setLoading(false);
-                return;
-            }
-
-            setLoading(true);
-
-            console.log("Fetching nodes...");
-            const nodes = await fetchWithCache('/api/nodes');
-            console.log("Nodes fetched:", nodes.length);
-
-            const node = nodes.find((n) => n.node_id === nodeId);
-            if (!node) throw new Error('Node not found');
-
-            const service = node.services?.find((s) => s.name === serviceName);
-            if (!service) throw new Error('Service not found');
-
-            setServiceData(service);
-
-            console.log("Fetching metrics...");
-            const metrics = await fetchWithCache(`/api/nodes/${nodeId}/metrics`);
-            const serviceMetrics = metrics.filter((m) => m.service_name === serviceName);
-            console.log("Metrics fetched:", serviceMetrics.length);
-            setMetricsData(serviceMetrics);
-
-            if (service.type === 'snmp') {
-                console.log("Fetching SNMP data...");
-                const end = new Date();
-                const start = new Date();
-                start.setHours(end.getHours() - 1);
-                const snmpResponse = await fetchWithCache(
-                    `/api/nodes/${nodeId}/snmp?start=${start.toISOString()}&end=${end.toISOString()}`
-                );
-                console.log("SNMP data fetched:", snmpResponse.length);
-                setSnmpData(snmpResponse);
-            }
-
-            setLoading(false);
-            setError(null);
-        } catch (err) {
-            console.error('Error fetching data:', err);
-            setError(err.message);
-            setLoading(false);
-        }
-    }, [nodeId, serviceName, initialService, initialMetrics, initialSnmpData, initialError]);
-
     useEffect(() => {
-        console.log("ServiceDashboard mounted", { nodeId, serviceName, snmpDataLength: initialSnmpData.length });
         return () => console.log("ServiceDashboard unmounted");
     }, [nodeId, serviceName, initialSnmpData]);
 
@@ -285,8 +230,6 @@ const ServiceDashboard = ({
             </div>
         );
     }
-
-    console.log("ServiceDashboard rendered", { snmpDataLength: snmpData.length });
 
     return (
         <div className="space-y-6 transition-colors">
