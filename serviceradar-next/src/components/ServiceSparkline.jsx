@@ -7,7 +7,7 @@ import _ from 'lodash';
 import { useAPIData } from '../lib/api';
 
 const MAX_POINTS = 100;
-const POLLING_INTERVAL = 30000; // 30 seconds
+const POLLING_INTERVAL = 10000; // 10 seconds
 
 const ServiceSparkline = React.memo(({ nodeId, serviceName, initialMetrics = [] }) => {
     const { data: metrics, error, isLoading } = useAPIData(
@@ -58,8 +58,6 @@ const ServiceSparkline = React.memo(({ nodeId, serviceName, initialMetrics = [] 
     useEffect(() => {
         setError(error); // Sync error state with useAPIData
     }, [error]);
-
-    console.log("ServiceSparkline rendered", { nodeId, serviceName, metricsLength: metrics?.length, isLoading, error: errorState });
 
     if (isLoading && !processedMetrics.length) {
         return <div className="flex flex-col items-center transition-colors h-8 w-24">

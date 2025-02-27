@@ -35,8 +35,6 @@ async function fetchNodes() {
 export default async function NodesPage() {
     const initialNodes = await fetchNodes();
 
-    console.log("NodesPage rendered with initialNodes length:", initialNodes.length);
-
     return (
         <div>
             <Suspense fallback={<div className="flex justify-center items-center h-64">
