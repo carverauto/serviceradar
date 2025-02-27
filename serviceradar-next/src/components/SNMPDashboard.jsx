@@ -1,8 +1,5 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import {
-    LineChart, Line, XAxis, YAxis, CartesianGrid,
-    Tooltip, Legend, ResponsiveContainer
-} from 'recharts';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
+import {CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis} from 'recharts';
 
 const SNMPDashboard = ({ nodeId, serviceName }) => {
     const [snmpData, setSNMPData] = useState([]);
@@ -18,22 +15,14 @@ const SNMPDashboard = ({ nodeId, serviceName }) => {
     const fetchingRef = useRef(false);
     const timerId = useRef(null);
 
-    // Calculate rate between two counter values
-    const calculateRate = useCallback((current, previous, timeDiff) => {
-        if (!previous || !current || timeDiff <= 0) return 0;
-
-        const valueDiff = current - previous;
-        return valueDiff / timeDiff;
-    }, []);
-
     // Process SNMP counter data to show rates instead of raw values
     const processCounterData = useCallback((data) => {
         if (!data || data.length < 2) return data || [];
 
         try {
             // Process the data points to calculate rates
-            const processedData = data.map((point, index) => {
-                if (index === 0) return { ...point, rate: 0 };
+            return data.map((point, index) => {
+                if (index === 0) return {...point, rate: 0};
 
                 const prevPoint = data[index - 1];
                 const timeDiff = (new Date(point.timestamp) - new Date(prevPoint.timestamp)) / 1000;
@@ -56,8 +45,6 @@ const SNMPDashboard = ({ nodeId, serviceName }) => {
                     rate: rate
                 };
             });
-
-            return processedData;
         } catch (error) {
             console.error("Error processing counter data:", error);
             return data;

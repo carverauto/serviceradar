@@ -1,12 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   LineChart,
-  Line,
-  XAxis,
-  YAxis,
   CartesianGrid,
-  Tooltip,
-  Legend,
   ResponsiveContainer,
 } from 'recharts';
 
@@ -82,7 +77,6 @@ const DuskDashboard = () => {
   }
 
   const details = nodeStatus?.details || {};
-  console.log('Node details:', details);
 
   return (
       <div className="space-y-6 transition-colors">

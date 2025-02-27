@@ -3,8 +3,6 @@
 
 import React, { useState, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import _ from 'lodash';
-import NodeTimeline from './NodeTimeline';
 import ServiceSparkline from "./ServiceSparkline";
 import { useAPIData } from '@/lib/api';
 
@@ -15,7 +13,6 @@ function NodeList({ initialNodes = [] }) {
   const [nodesPerPage] = useState(10);
   const [sortBy, setSortBy] = useState('name');
   const [sortOrder, setSortOrder] = useState('asc');
-  const [viewMode, setViewMode] = useState('table');
 
   // Use the improved API client with 30 second polling instead of 10
   const { data: nodes, error, isLoading } = useAPIData('/api/nodes', initialNodes, 30000);
@@ -182,7 +179,7 @@ function NodeList({ initialNodes = [] }) {
         )}
 
         {/* Main content */}
-        {viewMode === 'table' && renderTableView()}
+        {renderTableView()}
 
         {/* Pagination */}
         {pageCount > 1 && (
@@ -204,34 +201,6 @@ function NodeList({ initialNodes = [] }) {
         )}
       </div>
   );
-
-  function ServiceStatus({ service, nodeId, onServiceClick }) {
-    return (
-        <div
-            className="flex items-center gap-2 bg-gray-50 dark:bg-gray-700 rounded p-2 cursor-pointer
-               hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors"
-            onClick={() => onServiceClick(nodeId, service.name)}
-        >
-          <div className="flex items-center gap-1">
-          <span
-              className={`w-1.5 h-1.5 rounded-full ${
-                  service.available ? 'bg-green-500' : 'bg-red-500'
-              }`}
-          />
-            <span className="font-medium text-gray-800 dark:text-gray-100">
-            {service.name || 'unknown'}
-          </span>
-            <span className="text-gray-500 dark:text-gray-400">
-            ({service.type})
-          </span>
-          </div>
-          <ServiceSparkline
-              nodeId={nodeId}
-              serviceName={service.name}
-          />
-        </div>
-    );
-  }
 
   function renderTableView() {
     return (
