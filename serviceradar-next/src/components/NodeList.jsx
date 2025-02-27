@@ -179,7 +179,7 @@ function NodeList({ initialNodes = [] }) {
         )}
 
         {/* Main content */}
-        {renderTableView()};
+        {renderTableView()}
 
         {/* Pagination */}
         {pageCount > 1 && (
