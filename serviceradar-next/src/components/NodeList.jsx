@@ -178,6 +178,9 @@ function NodeList({ initialNodes = [] }) {
             </div>
         )}
 
+        {/* Main content */}
+        {renderTableView()};
+
         {/* Pagination */}
         {pageCount > 1 && (
             <div className="flex justify-center gap-2 mt-4">
