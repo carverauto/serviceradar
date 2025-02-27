@@ -6,7 +6,7 @@ import { useAPIData } from '@/lib/api';
 
 function Dashboard({ initialData = null }) {
     // Use improved API client with caching - refresh every 30 seconds instead of 10
-    const { data: systemStatus, error, isLoading } = useAPIData('/api/status', initialData, 30000);
+    const { data: systemStatus, error, isLoading } = useAPIData('/api/status', initialData, 10000);
 
     if (isLoading && !systemStatus) {
         return (

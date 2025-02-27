@@ -14,8 +14,7 @@ function NodeList({ initialNodes = [] }) {
   const [sortBy, setSortBy] = useState('name');
   const [sortOrder, setSortOrder] = useState('asc');
 
-  // Use the improved API client with 30 second polling instead of 10
-  const { data: nodes, error, isLoading } = useAPIData('/api/nodes', initialNodes, 30000);
+  const { data: nodes, error, isLoading } = useAPIData('/api/nodes', initialNodes, 10000);
 
   const sortNodesByName = useCallback((a, b) => {
     const aMatch = a.node_id.match(/(\d+)$/);
