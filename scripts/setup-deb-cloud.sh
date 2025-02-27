@@ -4,7 +4,7 @@ set -e  # Exit on any error
 
 echo "Setting up package structure..."
 
-VERSION=${VERSION:-1.0.19}
+VERSION=${VERSION:-1.0.20}
 BUILD_TAGS=${BUILD_TAGS:-""}
 
 # Create package directory structure
@@ -13,28 +13,28 @@ mkdir -p "${PKG_ROOT}/DEBIAN"
 mkdir -p "${PKG_ROOT}/usr/local/bin"
 mkdir -p "${PKG_ROOT}/etc/serviceradar"
 mkdir -p "${PKG_ROOT}/lib/systemd/system"
-mkdir -p "${PKG_ROOT}/usr/local/share/serviceradar-cloud/web"
+#mkdir -p "${PKG_ROOT}/usr/local/share/serviceradar-cloud/web"
 
-echo "Building web interface..."
+#echo "Building web interface..."
 
 # Build web interface if not already built
-if [ ! -d "web/dist" ]; then
-    cd ./web
-    npm install
-    npm run build
-    cd ..
-fi
+#if [ ! -d "web/dist" ]; then
+#    cd ./web
+#    npm install
+#    npm run build
+#    cd ..
+#fi
 
 # Create a directory for the embedded content
-mkdir -p pkg/cloud/api/web
-cp -r web/dist pkg/cloud/api/web/
+#mkdir -p pkg/cloud/api/web
+#cp -r web/dist pkg/cloud/api/web/
 
 # Only copy web assets to package directory for container builds
 # For non-container builds, they're embedded in the binary
-if [[ "$BUILD_TAGS" == *"containers"* ]]; then
-    cp -r web/dist "${PKG_ROOT}/usr/local/share/serviceradar-cloud/web/"
-    echo "Copied web assets for container build"
-fi
+#if [[ "$BUILD_TAGS" == *"containers"* ]]; then
+#    cp -r web/dist "${PKG_ROOT}/usr/local/share/serviceradar-cloud/web/"
+#    echo "Copied web assets for container build"
+#fi
 
 echo "Building Go binary..."
 
@@ -153,10 +153,10 @@ chown -R serviceradar:serviceradar /var/lib/serviceradar
 chmod 755 /var/lib/serviceradar
 
 # Set permissions for web assets
-if [ -d "/usr/local/share/serviceradar-cloud/web" ]; then
-    chown -R serviceradar:serviceradar /usr/local/share/serviceradar-cloud
-    chmod -R 755 /usr/local/share/serviceradar-cloud
-fi
+#if [ -d "/usr/local/share/serviceradar-cloud/web" ]; then
+#    chown -R serviceradar:serviceradar /usr/local/share/serviceradar-cloud
+#    chmod -R 755 /usr/local/share/serviceradar-cloud
+#fi
 
 # Enable and start service
 systemctl daemon-reload

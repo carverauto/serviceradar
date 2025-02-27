@@ -133,6 +133,7 @@ jspm_packages/
 lib
 .idea
 .bin
+bin
 
 pnpm-lock.yaml
 

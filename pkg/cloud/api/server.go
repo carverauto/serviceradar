@@ -3,80 +3,30 @@
 package api
 
 import (
-	"embed"
 	"encoding/json"
-	"io/fs"
 	"log"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/checker/snmp"
 	"github.com/carverauto/serviceradar/pkg/db"
 	srHttp "github.com/carverauto/serviceradar/pkg/http"
 	"github.com/carverauto/serviceradar/pkg/metrics"
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/gorilla/mux"
 )
-
-type ServiceStatus struct {
-	Name      string          `json:"name"`
-	Available bool            `json:"available"`
-	Message   string          `json:"message"`
-	Type      string          `json:"type"`    // e.g., "process", "port", "blockchain", etc.
-	Details   json.RawMessage `json:"details"` // Flexible field for service-specific data
-}
-
-type NodeStatus struct {
-	NodeID     string               `json:"node_id"`
-	IsHealthy  bool                 `json:"is_healthy"`
-	LastUpdate time.Time            `json:"last_update"`
-	Services   []ServiceStatus      `json:"services"`
-	UpTime     string               `json:"uptime"`
-	FirstSeen  time.Time            `json:"first_seen"`
-	Metrics    []models.MetricPoint `json:"metrics,omitempty"`
-}
-
-type SystemStatus struct {
-	TotalNodes   int       `json:"total_nodes"`
-	HealthyNodes int       `json:"healthy_nodes"`
-	LastUpdate   time.Time `json:"last_update"`
-}
-
-type NodeHistory struct {
-	NodeID    string
-	Timestamp time.Time
-	IsHealthy bool
-	Services  []ServiceStatus
-}
-
-type NodeHistoryPoint struct {
-	Timestamp time.Time `json:"timestamp"`
-	IsHealthy bool      `json:"is_healthy"`
-}
-
-type APIServer struct {
-	mu                 sync.RWMutex
-	nodes              map[string]*NodeStatus
-	router             *mux.Router
-	nodeHistoryHandler func(nodeID string) ([]NodeHistoryPoint, error)
-	metricsManager     metrics.MetricCollector
-	snmpManager        snmp.SNMPManager
-	db                 db.Service
-	knownPollers       []string
-}
 
 func NewAPIServer(options ...func(server *APIServer)) *APIServer {
 	s := &APIServer{
 		nodes:  make(map[string]*NodeStatus),
 		router: mux.NewRouter(),
+		apiKey: "", // Default empty API key
 	}
 
 	for _, o := range options {
 		o(s)
 	}
 
-	s.setupRoutes()
+	s.setupRoutes(s.apiKey)
 
 	return s
 }
@@ -93,33 +43,23 @@ func WithSNMPManager(m snmp.SNMPManager) func(server *APIServer) {
 	}
 }
 
+func WithAPIKey(apiKey string) func(server *APIServer) {
+	return func(server *APIServer) {
+		server.apiKey = apiKey
+	}
+}
+
 func WithDB(db db.Service) func(server *APIServer) {
 	return func(server *APIServer) {
 		server.db = db
 	}
 }
 
-//go:embed web/dist/*
-var webContent embed.FS
-
-// setupStaticFileServing configures static file serving for the embedded web files.
-func (s *APIServer) setupStaticFileServing() {
-	// Setting up static file serving using the embedded FS
-	// This is used for non-containerized builds
-	fsys, err := fs.Sub(webContent, "web/dist")
-	if err != nil {
-		log.Printf("Error setting up static file serving: %v", err)
-		return
-	}
-
-	s.router.PathPrefix("/").Handler(http.FileServer(http.FS(fsys)))
-}
-
-func (s *APIServer) setupRoutes() {
+func (s *APIServer) setupRoutes(apiKey string) {
 	// Create a middleware chain
 	middlewareChain := func(next http.Handler) http.Handler {
 		// Order matters: first API key check, then CORS headers
-		return srHttp.CommonMiddleware(srHttp.APIKeyMiddleware(next))
+		return srHttp.CommonMiddleware(srHttp.APIKeyMiddleware(apiKey)(next))
 	}
 
 	// Add middleware to router
@@ -142,10 +82,6 @@ func (s *APIServer) setupRoutes() {
 
 	// SNMP endpoints
 	s.router.HandleFunc("/api/nodes/{id}/snmp", s.getSNMPData).Methods("GET")
-
-	// Configure static file serving based on build tags
-	// This is managed via build tags in a separate file
-	s.configureStaticServing()
 }
 
 // getSNMPData retrieves SNMP data for a specific node.
@@ -296,6 +232,7 @@ func (s *APIServer) getNodes(w http.ResponseWriter, _ *http.Request) {
 		for _, known := range s.knownPollers {
 			if id == known {
 				nodes = append(nodes, node)
+
 				break
 			}
 		}

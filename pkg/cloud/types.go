@@ -31,6 +31,7 @@ type Config struct {
 	Metrics        Metrics                `json:"metrics"`
 	SNMP           snmp.Config            `json:"snmp"`
 	Security       *models.SecurityConfig `json:"security"`
+	APIKey         string                 `json:"api_key,omitempty"`
 }
 
 type Server struct {
