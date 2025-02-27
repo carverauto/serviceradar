@@ -2,8 +2,6 @@
 import { Suspense } from 'react';
 import NodeList from '../../components/NodeList';
 
-export const revalidate = 30; // Increase revalidation time from 10 to 30 seconds
-
 // Async function to fetch data on the server with API key authentication
 async function fetchNodes() {
     try {
@@ -36,6 +34,8 @@ async function fetchNodes() {
 
 export default async function NodesPage() {
     const initialNodes = await fetchNodes();
+
+    console.log("NodesPage rendered with initialNodes length:", initialNodes.length);
 
     return (
         <div>
