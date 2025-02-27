@@ -3,8 +3,6 @@
 
 import React, { useState, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import _ from 'lodash';
-import NodeTimeline from './NodeTimeline';
 import ServiceSparkline from "./ServiceSparkline";
 import { useAPIData } from '@/lib/api';
 
