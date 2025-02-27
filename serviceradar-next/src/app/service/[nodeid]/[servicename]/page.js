@@ -2,7 +2,7 @@
 import { Suspense } from 'react';
 import ServiceDashboard from '../../../../components/ServiceDashboard';
 
-export const revalidate = 30;
+export const revalidate = 0;
 
 async function fetchServiceData(nodeId, serviceName) {
     try {
@@ -11,11 +11,13 @@ async function fetchServiceData(nodeId, serviceName) {
 
         const nodesResponse = await fetch(`${backendUrl}/api/nodes`, {
             headers: { 'X-API-Key': apiKey },
-            next: { revalidate: 30 },
+            cache: 'no-store', // Prevent caching on the server
         });
+
         if (!nodesResponse.ok) {
             throw new Error(`Nodes API request failed: ${nodesResponse.status}`);
         }
+
         const nodes = await nodesResponse.json();
 
         const node = nodes.find((n) => n.node_id === nodeId);
