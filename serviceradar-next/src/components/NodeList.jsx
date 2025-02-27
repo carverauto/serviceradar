@@ -13,7 +13,6 @@ function NodeList({ initialNodes = [] }) {
   const [nodesPerPage] = useState(10);
   const [sortBy, setSortBy] = useState('name');
   const [sortOrder, setSortOrder] = useState('asc');
-  const [viewMode, setViewMode] = useState('table');
 
   // Use the improved API client with 30 second polling instead of 10
   const { data: nodes, error, isLoading } = useAPIData('/api/nodes', initialNodes, 30000);
@@ -178,9 +177,6 @@ function NodeList({ initialNodes = [] }) {
               </p>
             </div>
         )}
-
-        {/* Main content */}
-        {viewMode === 'table' && renderTableView()}
 
         {/* Pagination */}
         {pageCount > 1 && (
