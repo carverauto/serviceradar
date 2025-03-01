@@ -1,9 +1,8 @@
 'use client';
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import ServiceSparkline from "./ServiceSparkline";
-import { useEffect } from 'react';
 
 function NodeList({ initialNodes = [], serviceMetrics = {} }) {
   const router = useRouter();
@@ -14,16 +13,16 @@ function NodeList({ initialNodes = [], serviceMetrics = {} }) {
   const [sortOrder, setSortOrder] = useState('asc');
   const [nodes, setNodes] = useState(initialNodes);
 
-  // Update from new props when initialNodes changes
+  // Update nodes when initialNodes changes
   useEffect(() => {
     setNodes(initialNodes);
   }, [initialNodes]);
 
   // Set up auto-refresh
   useEffect(() => {
-    const refreshInterval = 30000; // 30 seconds
+    const refreshInterval = 10000; // 10 seconds (sync with ServiceSparkline)
     const timer = setInterval(() => {
-      router.refresh(); // Trigger a server-side refresh
+      router.refresh(); // Trigger server-side re-fetch of nodes/page.js
     }, refreshInterval);
 
     return () => clearInterval(timer);
@@ -66,9 +65,7 @@ function NodeList({ initialNodes = [], serviceMetrics = {} }) {
         sortedResults.sort((a, b) =>
             b.is_healthy === a.is_healthy
                 ? sortNodesByName(a, b)
-                : b.is_healthy
-                    ? 1
-                    : -1
+                : b.is_healthy ? 1 : -1
         );
         break;
       case 'name':
@@ -117,19 +114,14 @@ function NodeList({ initialNodes = [], serviceMetrics = {} }) {
             <input
                 type="text"
                 placeholder="Search nodes..."
-                className="px-3 py-1 border rounded text-gray-800 dark:text-gray-200
-                   dark:bg-gray-800 dark:border-gray-600
-                   placeholder-gray-500 dark:placeholder-gray-400
-                   focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors"
+                className="px-3 py-1 border rounded text-gray-800 dark:text-gray-200 dark:bg-gray-800 dark:border-gray-600 placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
             />
             <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value)}
-                className="px-3 py-1 border rounded text-gray-800 dark:text-gray-200
-                   dark:bg-gray-800 dark:border-gray-600
-                   focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors"
+                className="px-3 py-1 border rounded text-gray-800 dark:text-gray-200 dark:bg-gray-800 dark:border-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors"
             >
               <option value="name">Sort by Name</option>
               <option value="status">Sort by Status</option>
@@ -137,9 +129,7 @@ function NodeList({ initialNodes = [], serviceMetrics = {} }) {
             </select>
             <button
                 onClick={toggleSortOrder}
-                className="px-3 py-1 border rounded text-gray-800 dark:text-gray-200
-                   dark:bg-gray-800 dark:border-gray-600
-                   hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                className="px-3 py-1 border rounded text-gray-800 dark:text-gray-200 dark:bg-gray-800 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
             >
               {sortOrder === 'asc' ? '↑' : '↓'}
             </button>
@@ -161,21 +151,11 @@ function NodeList({ initialNodes = [], serviceMetrics = {} }) {
           <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
             <thead className="bg-gray-50 dark:bg-gray-700">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider w-16">
-                Status
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider w-48">
-                Node
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                Services
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider w-64">
-                ICMP Response Time
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider w-48">
-                Last Update
-              </th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider w-16">Status</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider w-48">Node</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Services</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider w-64">ICMP Response Time</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider w-48">Last Update</th>
             </tr>
             </thead>
             <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
@@ -184,9 +164,7 @@ function NodeList({ initialNodes = [], serviceMetrics = {} }) {
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className={`w-2 h-2 rounded-full ${node.is_healthy ? 'bg-green-500' : 'bg-red-500'}`} />
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-800 dark:text-gray-100">
-                    {node.node_id}
-                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-800 dark:text-gray-100">{node.node_id}</td>
                   <td className="px-6 py-4">
                     <div className="flex flex-wrap gap-2">
                       {node.services?.map((service, idx) => (
@@ -196,9 +174,7 @@ function NodeList({ initialNodes = [], serviceMetrics = {} }) {
                               onClick={() => handleServiceClick(node.node_id, service.name)}
                           >
                             <span className={`w-1.5 h-1.5 rounded-full ${service.available ? 'bg-green-500' : 'bg-red-500'}`} />
-                            <span className="text-sm font-medium text-gray-800 dark:text-gray-100">
-                              {service.name}
-                            </span>
+                            <span className="text-sm font-medium text-gray-800 dark:text-gray-100">{service.name}</span>
                           </div>
                       ))}
                     </div>
@@ -209,7 +185,6 @@ function NodeList({ initialNodes = [], serviceMetrics = {} }) {
                         .map((service, idx) => {
                           const metricKey = `${node.node_id}-${service.name}`;
                           const metricsForService = serviceMetrics[metricKey] || [];
-
                           return (
                               <div key={`${service.name}-${idx}`} className="flex items-center justify-between gap-2">
                                 <ServiceSparkline
@@ -237,11 +212,7 @@ function NodeList({ initialNodes = [], serviceMetrics = {} }) {
                   <button
                       key={i}
                       onClick={() => setCurrentPage(i + 1)}
-                      className={`px-3 py-1 rounded transition-colors ${
-                          currentPage === i + 1
-                              ? 'bg-blue-500 text-white'
-                              : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-100'
-                      }`}
+                      className={`px-3 py-1 rounded transition-colors ${currentPage === i + 1 ? 'bg-blue-500 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-100'}`}
                   >
                     {i + 1}
                   </button>

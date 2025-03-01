@@ -1,25 +1,28 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { LineChart, Line, YAxis, ResponsiveContainer } from 'recharts';
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import _ from 'lodash';
 import { useRouter } from 'next/navigation';
-import { useEffect } from 'react';
 
 const MAX_POINTS = 100;
+const REFRESH_INTERVAL = 10000; // 10 seconds
 
 const ServiceSparkline = React.memo(({ nodeId, serviceName, initialMetrics = [] }) => {
-    console.log(`ServiceSparkline rendering for ${nodeId}/${serviceName} with ${initialMetrics.length} metrics`);
     const router = useRouter();
-    // Use the initialMetrics that were passed in from the server
-    const [metrics] = useState(initialMetrics);
+    const [metrics, setMetrics] = useState(initialMetrics);
 
-    // Set up periodic refresh to get new data from server
+    // Update metrics when initialMetrics changes from server
+    useEffect(() => {
+        setMetrics(initialMetrics);
+    }, [initialMetrics]);
+
+    // Set up periodic refresh to trigger server-side data update
     useEffect(() => {
         const interval = setInterval(() => {
-            router.refresh(); // This triggers a server-side refresh
-        }, 10000); // Refresh every 30 seconds
+            router.refresh(); // Triggers server-side re-fetch of nodes/page.js
+        }, REFRESH_INTERVAL);
 
         return () => clearInterval(interval);
     }, [router]);
