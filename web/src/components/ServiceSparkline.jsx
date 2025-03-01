@@ -10,6 +10,7 @@ import { useEffect } from 'react';
 const MAX_POINTS = 100;
 
 const ServiceSparkline = React.memo(({ nodeId, serviceName, initialMetrics = [] }) => {
+    console.log(`ServiceSparkline rendering for ${nodeId}/${serviceName} with ${initialMetrics.length} metrics`);
     const router = useRouter();
     // Use the initialMetrics that were passed in from the server
     const [metrics] = useState(initialMetrics);
@@ -24,7 +25,12 @@ const ServiceSparkline = React.memo(({ nodeId, serviceName, initialMetrics = [] 
     }, [router]);
 
     const processedMetrics = useMemo(() => {
-        if (!metrics || metrics.length === 0) return [];
+        if (!metrics || metrics.length === 0) {
+            console.log(`No metrics available for ${nodeId}/${serviceName}`);
+            return [];
+        }
+
+        console.log(`Processing ${metrics.length} metrics for ${nodeId}/${serviceName}`);
 
         const serviceMetrics = metrics
             .filter((m) => m.service_name === serviceName)
@@ -35,12 +41,14 @@ const ServiceSparkline = React.memo(({ nodeId, serviceName, initialMetrics = [] 
             .sort((a, b) => a.timestamp - b.timestamp)
             .slice(-MAX_POINTS); // Limit to recent points
 
+        console.log(`Filtered to ${serviceMetrics.length} service-specific metrics`);
+
         if (serviceMetrics.length < 5) return serviceMetrics;
 
         // Downsample for performance
         const step = Math.max(1, Math.floor(serviceMetrics.length / 20));
         return serviceMetrics.filter((_, i) => i % step === 0 || i === serviceMetrics.length - 1);
-    }, [metrics, serviceName]);
+    }, [metrics, serviceName, nodeId]);
 
     const trend = useMemo(() => {
         if (processedMetrics.length < 5) return 'neutral';
