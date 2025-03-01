@@ -50,37 +50,6 @@ EOF
 # Create conffiles to mark configuration files
 cat > "${PKG_ROOT}/DEBIAN/conffiles" << EOF
 /etc/serviceradar/cloud.json
-/etc/nginx/conf.d/serviceradar-cloud.conf
-EOF
-
-# Create nginx configuration
-cat > "${PKG_ROOT}/etc/nginx/conf.d/serviceradar-cloud.conf" << EOF
-# ServiceRadar Cloud API - Nginx Configuration
-# This is for API-only access. If you have the web UI installed,
-# its configuration will take precedence.
-
-server {
-    listen 80;
-    server_name _; # Catch-all server name (use your domain if you have one)
-
-    access_log /var/log/nginx/serviceradar-cloud.access.log;
-    error_log /var/log/nginx/serviceradar-cloud.error.log;
-
-    # API endpoints
-    location /api/ {
-        proxy_pass http://localhost:8090;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-    }
-
-    # Root redirect to API documentation or status page
-    location = / {
-        return 200 'ServiceRadar API is running. Install serviceradar-web package for the UI.';
-        add_header Content-Type text/plain;
-    }
-}
 EOF
 
 # Create systemd service file
