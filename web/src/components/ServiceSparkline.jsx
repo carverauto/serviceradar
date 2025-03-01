@@ -19,7 +19,7 @@ const ServiceSparkline = React.memo(({ nodeId, serviceName, initialMetrics = [] 
     useEffect(() => {
         const interval = setInterval(() => {
             router.refresh(); // This triggers a server-side refresh
-        }, 30000); // Refresh every 30 seconds
+        }, 10000); // Refresh every 30 seconds
 
         return () => clearInterval(interval);
     }, [router]);

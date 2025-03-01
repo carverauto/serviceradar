@@ -44,9 +44,6 @@ func NewServer(_ context.Context, config *Config) (*Server, error) {
 		config.Metrics.MaxNodes = 10000
 	}
 
-	// log the config.Metrics
-	log.Printf("Metrics config: %+v", config.Metrics)
-
 	metricsManager := metrics.NewManager(models.MetricsConfig{
 		Enabled:   config.Metrics.Enabled,
 		Retention: config.Metrics.Retention,
@@ -336,13 +333,6 @@ func (s *Server) SetAPIServer(apiServer api.Service) {
 			return nil, fmt.Errorf("failed to get node history: %w", err)
 		}
 
-		// debug points
-		log.Printf("Fetched %d history points for node: %s", len(points), nodeID)
-		// log first 20 points
-		for i := 0; i < 20 && i < len(points); i++ {
-			log.Printf("Point %d: %v", i, points[i])
-		}
-
 		apiPoints := make([]api.NodeHistoryPoint, len(points))
 		for i, p := range points {
 			apiPoints[i] = api.NodeHistoryPoint{
@@ -356,8 +346,6 @@ func (s *Server) SetAPIServer(apiServer api.Service) {
 }
 
 func (s *Server) checkInitialStates() {
-	log.Printf("Checking initial states of all nodes")
-
 	likeConditions := make([]string, 0, len(s.pollerPatterns))
 	args := make([]interface{}, 0, len(s.pollerPatterns))
 
@@ -562,8 +550,6 @@ func (s *Server) processSNMPMetrics(nodeID string, details json.RawMessage, time
 				Metadata:  metadata,
 			}
 
-			log.Printf("Storing SNMP metric %s for node %s, value: %s", oidName, nodeID, valueStr)
-
 			// Store in database
 			if err := s.db.StoreMetric(nodeID, metric); err != nil {
 				log.Printf("Error storing SNMP metric %s for node %s: %v", oidName, nodeID, err)
@@ -592,8 +578,6 @@ func (*Server) processSweepData(svc *api.ServiceStatus, now time.Time) error {
 	if err := json.Unmarshal([]byte(svc.Message), &sweepData); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidSweepData, err)
 	}
-
-	log.Printf("Received sweep data with timestamp: %v", time.Unix(sweepData.LastSweep, 0).Format(time.RFC3339))
 
 	// If LastSweep is not set or is invalid (0 or negative), use current time
 	if sweepData.LastSweep > now.Add(oneDay).Unix() {
