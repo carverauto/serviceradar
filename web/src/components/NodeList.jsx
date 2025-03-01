@@ -1,10 +1,9 @@
 // src/components/NodeList.jsx
 'use client';
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import ServiceSparkline from "./ServiceSparkline";
-import { useAPIData } from '@/lib/api';
 
 function NodeList({ initialNodes = [] }) {
   const router = useRouter();
@@ -13,8 +12,23 @@ function NodeList({ initialNodes = [] }) {
   const [nodesPerPage] = useState(10);
   const [sortBy, setSortBy] = useState('name');
   const [sortOrder, setSortOrder] = useState('asc');
+  // Use initialNodes directly instead of fetching
+  const [nodes, setNodes] = useState(initialNodes);
 
-  const { data: nodes, error, isLoading } = useAPIData('/api/nodes', initialNodes, 10000);
+  // Add auto-refresh functionality
+  useEffect(() => {
+    // Update from new props when initialNodes changes
+    setNodes(initialNodes);
+  }, [initialNodes]);
+
+  // Optional: Add page refresh
+  useEffect(() => {
+    const interval = setInterval(() => {
+      router.refresh(); // Trigger server-side refetch
+    }, 30000); // Every 30 seconds
+
+    return () => clearInterval(interval);
+  }, [router]);
 
   const sortNodesByName = useCallback((a, b) => {
     const aMatch = a.node_id.match(/(\d+)$/);
@@ -95,39 +109,6 @@ function NodeList({ initialNodes = [] }) {
     setSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'));
   }, []);
 
-  // Error State
-  if (error) {
-    return (
-        <div className="bg-red-50 dark:bg-red-900 p-4 rounded-lg text-red-600 dark:text-red-200">
-          <h3 className="font-bold mb-2">Error Loading Nodes</h3>
-          <p>{error}</p>
-        </div>
-    );
-  }
-
-  // Loading State
-  if (isLoading && (!nodes || nodes.length === 0)) {
-    return (
-        <div className="space-y-4">
-          <div className="flex justify-between">
-            <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-32 animate-pulse"></div>
-            <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-48 animate-pulse"></div>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {[...Array(6)].map((_, i) => (
-                <div key={i} className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 animate-pulse">
-                  <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-2/3 mb-4"></div>
-                  <div className="space-y-2">
-                    <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded"></div>
-                    <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded"></div>
-                  </div>
-                </div>
-            ))}
-          </div>
-        </div>
-    );
-  }
-
   // Regular Component Content
   return (
       <div className="space-y-4 transition-colors text-gray-800 dark:text-gray-100">
@@ -168,7 +149,7 @@ function NodeList({ initialNodes = [] }) {
         </div>
 
         {/* Content placeholder when no nodes are found */}
-        {sortedNodes.length === 0 && !isLoading && (
+        {sortedNodes.length === 0 && (
             <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-8 text-center">
               <h3 className="text-xl font-semibold mb-2">No nodes found</h3>
               <p className="text-gray-500 dark:text-gray-400">
@@ -286,11 +267,13 @@ function NodeList({ initialNodes = [] }) {
                               <ServiceSparkline
                                   nodeId={node.node_id}
                                   serviceName={service.name}
+                                  // Pass the metrics directly from node.metrics, making sure it exists
+                                  initialMetrics={node.metrics ? node.metrics[service.name] || [] : []}
                               />
                             </div>
                         ))}
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm
+                 <td className="px-6 py-4 whitespace-nowrap text-sm
                            text-gray-500 dark:text-gray-400"
                   >
                     {new Date(node.last_update).toLocaleString()}

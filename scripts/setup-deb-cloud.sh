@@ -1,5 +1,5 @@
 #!/bin/bash
-# setup-deb-cloud.sh
+# setup-deb-cloud.sh - UPDATED
 set -e  # Exit on any error
 
 echo "Setting up package structure..."
@@ -61,6 +61,7 @@ After=network.target
 [Service]
 Type=simple
 User=serviceradar
+EnvironmentFile=/etc/serviceradar/api.env
 ExecStart=/usr/local/bin/serviceradar-cloud -config /etc/serviceradar/cloud.json
 Restart=always
 RestartSec=10
@@ -136,26 +137,14 @@ mkdir -p /var/lib/serviceradar
 chown -R serviceradar:serviceradar /var/lib/serviceradar
 chmod 755 /var/lib/serviceradar
 
-# Configure Nginx
-# Only enable if serviceradar-web is not installed
-if [ ! -f /etc/nginx/conf.d/serviceradar-web.conf ] && [ ! -f /etc/nginx/sites-enabled/serviceradar-web.conf ]; then
-    echo "Configuring Nginx for API-only access..."
-
-    # Disable default site if it exists
-    if [ -f /etc/nginx/sites-enabled/default ]; then
-        rm -f /etc/nginx/sites-enabled/default
-    fi
-
-    # Create symbolic link if Nginx uses sites-enabled pattern
-    if [ -d /etc/nginx/sites-enabled ]; then
-        ln -sf /etc/nginx/conf.d/serviceradar-cloud.conf /etc/nginx/sites-enabled/
-    fi
-
-    # Test and reload Nginx
-    nginx -t || { echo "Warning: Nginx configuration test failed. Please check your configuration."; }
-    systemctl reload nginx || systemctl restart nginx || echo "Warning: Failed to reload/restart Nginx."
-else
-    echo "Detected serviceradar-web configuration, skipping API-only Nginx setup."
+# Generate API key if it doesn't exist
+if [ ! -f "/etc/serviceradar/api.env" ]; then
+    echo "Generating API key..."
+    API_KEY=\$(openssl rand -hex 32)
+    echo "API_KEY=\$API_KEY" > /etc/serviceradar/api.env
+    chmod 600 /etc/serviceradar/api.env
+    chown serviceradar:serviceradar /etc/serviceradar/api.env
+    echo "API key generated and stored in /etc/serviceradar/api.env"
 fi
 
 # Enable and start service
@@ -182,17 +171,6 @@ set -e
 systemctl stop serviceradar-cloud || true
 systemctl disable serviceradar-cloud || true
 
-# Remove Nginx symlink if exists and if it's our configuration
-if [ -f /etc/nginx/sites-enabled/serviceradar-cloud.conf ]; then
-    rm -f /etc/nginx/sites-enabled/serviceradar-cloud.conf
-
-    # Reload Nginx if running
-    if systemctl is-active --quiet nginx; then
-        systemctl reload nginx || true
-    fi
-fi
-
-exit 0
 EOF
 
 chmod 755 "${PKG_ROOT}/DEBIAN/prerm"

@@ -1,5 +1,5 @@
 #!/bin/bash
-# setup-deb-web.sh
+# setup-deb-web.sh - UPDATED
 set -e  # Exit on any error
 
 echo "Setting up package structure for Next.js web interface..."
@@ -25,8 +25,7 @@ if ! grep -q '"next": ' package.json; then
   exit 1
 fi
 
-# Install dependencies with pnpm
-#npm install -g pnpm
+# Install dependencies with npm
 npm install
 
 # Build the Next.js application
@@ -38,18 +37,14 @@ echo "Copying Next.js standalone build to package..."
 cp -r .next/standalone/* "../${PKG_ROOT}/usr/local/share/serviceradar-web/"
 cp -r .next/standalone/.next "../${PKG_ROOT}/usr/local/share/serviceradar-web/"
 
-# Ensure styled-jsx is properly included
-mkdir -p "../${PKG_ROOT}/usr/local/share/serviceradar-web/node_modules/styled-jsx/dist"
-cp -r node_modules/styled-jsx/dist/* "../${PKG_ROOT}/usr/local/share/serviceradar-web/node_modules/styled-jsx/dist/"
-cp node_modules/styled-jsx/package.json "../${PKG_ROOT}/usr/local/share/serviceradar-web/node_modules/styled-jsx/"
+# Make sure static files are copied
+mkdir -p "../${PKG_ROOT}/usr/local/share/serviceradar-web/.next/static"
+cp -r .next/static "../${PKG_ROOT}/usr/local/share/serviceradar-web/.next/"
 
 # Copy public files if they exist
 if [ -d "public" ]; then
   cp -r public "../${PKG_ROOT}/usr/local/share/serviceradar-web/"
 fi
-
-# Cleanup temp directory
-rm -rf "$TEMP_DIR"
 
 cd ..
 
@@ -93,7 +88,7 @@ server {
 
     # Main app - proxy all requests to Next.js
     location / {
-        proxy_pass http://localhost:3000;
+        proxy_pass http://127.0.0.1:3000;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
@@ -136,6 +131,7 @@ User=serviceradar
 WorkingDirectory=/usr/local/share/serviceradar-web
 Environment=NODE_ENV=production
 Environment=PORT=3000
+EnvironmentFile=/etc/serviceradar/api.env
 ExecStart=/usr/bin/node server.js
 Restart=always
 RestartSec=10
@@ -173,6 +169,17 @@ chown -R serviceradar:serviceradar /etc/serviceradar/web.json
 chmod 755 /usr/local/share/serviceradar-web
 chmod 644 /etc/serviceradar/web.json
 
+# Check for API key from cloud package
+if [ ! -f "/etc/serviceradar/api.env" ]; then
+    echo "WARNING: API key file not found. The serviceradar-cloud package should be installed first."
+    echo "Creating a temporary API key file..."
+    API_KEY=\$(openssl rand -hex 32)
+    echo "API_KEY=\$API_KEY" > /etc/serviceradar/api.env
+    chmod 600 /etc/serviceradar/api.env
+    chown serviceradar:serviceradar /etc/serviceradar/api.env
+    echo "For proper functionality, please reinstall serviceradar-cloud package."
+fi
+
 # Configure Nginx
 if [ -f /etc/nginx/sites-enabled/default ]; then
     echo "Disabling default Nginx site..."
@@ -197,7 +204,6 @@ systemctl start serviceradar-web || echo "Failed to start service, please check 
 echo "ServiceRadar Web Interface installed successfully!"
 echo "Web UI is running on port 3000"
 echo "Nginx configured as reverse proxy - you can access the UI at http://localhost/"
-echo "Note: For full functionality, install the serviceradar-cloud package"
 
 exit 0
 EOF
