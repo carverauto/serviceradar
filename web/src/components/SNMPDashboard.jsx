@@ -1,4 +1,3 @@
-// src/components/SNMPDashboard.jsx
 'use client';
 
 import React, {useCallback, useState, useEffect} from 'react';
@@ -12,21 +11,6 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [] }) => {
     const [timeRange, setTimeRange] = useState('1h');
     const [selectedMetric, setSelectedMetric] = useState(null);
     const [availableMetrics, setAvailableMetrics] = useState([]);
-
-    // Add auto-refresh
-    useEffect(() => {
-        const refreshInterval = 30000; // 30 seconds
-        const timer = setInterval(() => {
-            router.refresh(); // Trigger a server-side refresh
-        }, refreshInterval);
-
-        return () => clearInterval(timer);
-    }, [router]);
-
-    // Update data when initialData changes
-    useEffect(() => {
-        setSNMPData(initialData);
-    }, [initialData]);
 
     // Process SNMP counter data to show rates instead of raw values
     const processCounterData = useCallback((data) => {
@@ -64,38 +48,36 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [] }) => {
         }
     }, []);
 
+    // Set up auto-refresh from server
+    useEffect(() => {
+        const refreshInterval = 30000; // 30 seconds
+        const timer = setInterval(() => {
+            router.refresh(); // Trigger a server-side refresh
+        }, refreshInterval);
+
+        return () => clearInterval(timer);
+    }, [router]);
+
     // Initialize metrics and selection
     useEffect(() => {
-        if (snmpData.length > 0) {
-            // Extract unique OID names
-            const metrics = [...new Set(snmpData.map(item => item.oid_name))];
+        if (initialData.length > 0) {
+            setSNMPData(initialData);
 
+            // Extract unique OID names
+            const metrics = [...new Set(initialData.map(item => item.oid_name))];
             setAvailableMetrics(metrics);
 
-            // Set default selected metric
             if (!selectedMetric && metrics.length > 0) {
                 setSelectedMetric(metrics[0]);
             }
         }
-    }, [snmpData, selectedMetric]);
+    }, [initialData, selectedMetric]);
 
     // Process metric data when selected metric changes
     useEffect(() => {
         if (snmpData.length > 0 && selectedMetric) {
             try {
-                const metricData = snmpData.filter(item => item.oid_name === selectedMetric);
-                const processed = processCounterData(metricData);
-                setProcessedData(processed);
-            } catch (err) {
-                console.error('Error processing metric data:', err);
-            }
-        }
-    }, [selectedMetric, snmpData, processCounterData]);
-
-    // Filter data based on time range
-    useEffect(() => {
-        if (snmpData.length > 0 && selectedMetric) {
-            try {
+                // Filter by time range
                 const end = new Date();
                 const start = new Date();
 
@@ -119,14 +101,26 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [] }) => {
                     return timestamp >= start && timestamp <= end;
                 });
 
+                // Filter by selected metric
                 const metricData = timeFilteredData.filter(item => item.oid_name === selectedMetric);
+
+                // Process the data
                 const processed = processCounterData(metricData);
                 setProcessedData(processed);
             } catch (err) {
-                console.error('Error processing time-filtered data:', err);
+                console.error('Error processing metric data:', err);
             }
         }
-    }, [timeRange, selectedMetric, snmpData, processCounterData]);
+    }, [selectedMetric, snmpData, timeRange, processCounterData]);
+
+    // When time range changes, refresh the page to get new data from server
+    const handleTimeRangeChange = (range) => {
+        setTimeRange(range);
+        // For significant time range changes, refresh data from server
+        if (range === '24h' || (timeRange === '24h' && range !== '24h')) {
+            router.refresh();
+        }
+    };
 
     const formatRate = (rate) => {
         if (rate === undefined || rate === null || isNaN(rate)) return "N/A";
@@ -144,7 +138,7 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [] }) => {
     };
 
     // Empty data state
-    if (!snmpData.length) {
+    if (!initialData.length) {
         return (
             <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
                 <h3 className="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-200">
@@ -157,11 +151,11 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [] }) => {
         );
     }
 
-    if (!processedData.length) {
+    if (!processedData.length && selectedMetric) {
         return (
             <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
                 <h3 className="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-200">
-                    No SNMP Data Available
+                    No Data Available
                 </h3>
                 <p className="text-gray-600 dark:text-gray-400">
                     No metrics found for the selected time range and OID.
@@ -174,7 +168,7 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [] }) => {
                         {['1h', '6h', '24h'].map((range) => (
                             <button
                                 key={range}
-                                onClick={() => setTimeRange(range)}
+                                onClick={() => handleTimeRangeChange(range)}
                                 className={`px-3 py-1 rounded transition-colors ${
                                     timeRange === range
                                         ? 'bg-blue-500 text-white'
@@ -211,7 +205,7 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [] }) => {
                         {['1h', '6h', '24h'].map((range) => (
                             <button
                                 key={range}
-                                onClick={() => setTimeRange(range)}
+                                onClick={() => handleTimeRangeChange(range)}
                                 className={`px-3 py-1 rounded transition-colors ${
                                     timeRange === range
                                         ? 'bg-blue-500 text-white'

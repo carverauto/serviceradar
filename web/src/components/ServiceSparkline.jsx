@@ -4,12 +4,24 @@ import React, { useState, useMemo } from 'react';
 import { LineChart, Line, YAxis, ResponsiveContainer } from 'recharts';
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import _ from 'lodash';
+import { useRouter } from 'next/navigation';
+import { useEffect } from 'react';
 
 const MAX_POINTS = 100;
 
 const ServiceSparkline = React.memo(({ nodeId, serviceName, initialMetrics = [] }) => {
-    // Use initialMetrics directly instead of fetching via API
+    const router = useRouter();
+    // Use the initialMetrics that were passed in from the server
     const [metrics] = useState(initialMetrics);
+
+    // Set up periodic refresh to get new data from server
+    useEffect(() => {
+        const interval = setInterval(() => {
+            router.refresh(); // This triggers a server-side refresh
+        }, 30000); // Refresh every 30 seconds
+
+        return () => clearInterval(interval);
+    }, [router]);
 
     const processedMetrics = useMemo(() => {
         if (!metrics || metrics.length === 0) return [];
