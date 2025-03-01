@@ -15,6 +15,7 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "recharts": "^2.15.1",
+    "styled-jsx": "^5.1.6",
     "tailwindcss-animate": "^1.0.7",
     "xlsx": "^0.18.5"
   },

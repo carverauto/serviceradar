@@ -12,29 +12,8 @@ PKG_ROOT="serviceradar-cloud_${VERSION}"
 mkdir -p "${PKG_ROOT}/DEBIAN"
 mkdir -p "${PKG_ROOT}/usr/local/bin"
 mkdir -p "${PKG_ROOT}/etc/serviceradar"
+mkdir -p "${PKG_ROOT}/etc/nginx/conf.d"
 mkdir -p "${PKG_ROOT}/lib/systemd/system"
-#mkdir -p "${PKG_ROOT}/usr/local/share/serviceradar-cloud/web"
-
-#echo "Building web interface..."
-
-# Build web interface if not already built
-#if [ ! -d "web/dist" ]; then
-#    cd ./web
-#    npm install
-#    npm run build
-#    cd ..
-#fi
-
-# Create a directory for the embedded content
-#mkdir -p pkg/cloud/api/web
-#cp -r web/dist pkg/cloud/api/web/
-
-# Only copy web assets to package directory for container builds
-# For non-container builds, they're embedded in the binary
-#if [[ "$BUILD_TAGS" == *"containers"* ]]; then
-#    cp -r web/dist "${PKG_ROOT}/usr/local/share/serviceradar-cloud/web/"
-#    echo "Copied web assets for container build"
-#fi
 
 echo "Building Go binary..."
 
@@ -59,22 +38,55 @@ Version: ${VERSION}
 Section: utils
 Priority: optional
 Architecture: amd64
-Depends: systemd
+Depends: systemd, nginx
+Recommends: serviceradar-web
 Maintainer: Michael Freeman <mfreeman451@gmail.com>
-Description: ServiceRadar cloud service with web interface
- Provides centralized monitoring and web dashboard for ServiceRadar.
+Description: ServiceRadar cloud API service
+ Provides centralized monitoring and API server for ServiceRadar monitoring system.
+ Includes Nginx configuration for API access.
 Config: /etc/serviceradar/cloud.json
 EOF
 
 # Create conffiles to mark configuration files
 cat > "${PKG_ROOT}/DEBIAN/conffiles" << EOF
 /etc/serviceradar/cloud.json
+/etc/nginx/conf.d/serviceradar-cloud.conf
+EOF
+
+# Create nginx configuration
+cat > "${PKG_ROOT}/etc/nginx/conf.d/serviceradar-cloud.conf" << EOF
+# ServiceRadar Cloud API - Nginx Configuration
+# This is for API-only access. If you have the web UI installed,
+# its configuration will take precedence.
+
+server {
+    listen 80;
+    server_name _; # Catch-all server name (use your domain if you have one)
+
+    access_log /var/log/nginx/serviceradar-cloud.access.log;
+    error_log /var/log/nginx/serviceradar-cloud.error.log;
+
+    # API endpoints
+    location /api/ {
+        proxy_pass http://localhost:8090;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+
+    # Root redirect to API documentation or status page
+    location = / {
+        return 200 'ServiceRadar API is running. Install serviceradar-web package for the UI.';
+        add_header Content-Type text/plain;
+    }
+}
 EOF
 
 # Create systemd service file
 cat > "${PKG_ROOT}/lib/systemd/system/serviceradar-cloud.service" << EOF
 [Unit]
-Description=ServiceRadar Cloud Service
+Description=ServiceRadar Cloud API Service
 After=network.target
 
 [Service]
@@ -91,10 +103,8 @@ KillSignal=SIGTERM
 WantedBy=multi-user.target
 EOF
 
-# Create default config only if we're creating a fresh package
-if [ ! -f "/etc/serviceradar/cloud.json" ]; then
-    # Create default config file
-    cat > "${PKG_ROOT}/etc/serviceradar/cloud.json" << EOF
+# Create default config file
+cat > "${PKG_ROOT}/etc/serviceradar/cloud.json" << EOF
 {
     "listen_addr": ":8090",
     "grpc_addr": ":50052",
@@ -131,12 +141,17 @@ if [ ! -f "/etc/serviceradar/cloud.json" ]; then
     ]
 }
 EOF
-fi
 
 # Create postinst script
 cat > "${PKG_ROOT}/DEBIAN/postinst" << EOF
 #!/bin/bash
 set -e
+
+# Check for Nginx
+if ! command -v nginx >/dev/null 2>&1; then
+    echo "ERROR: Nginx is required but not installed. Please install nginx and try again."
+    exit 1
+fi
 
 # Create serviceradar user if it doesn't exist
 if ! id -u serviceradar >/dev/null 2>&1; then
@@ -152,16 +167,37 @@ mkdir -p /var/lib/serviceradar
 chown -R serviceradar:serviceradar /var/lib/serviceradar
 chmod 755 /var/lib/serviceradar
 
-# Set permissions for web assets
-#if [ -d "/usr/local/share/serviceradar-cloud/web" ]; then
-#    chown -R serviceradar:serviceradar /usr/local/share/serviceradar-cloud
-#    chmod -R 755 /usr/local/share/serviceradar-cloud
-#fi
+# Configure Nginx
+# Only enable if serviceradar-web is not installed
+if [ ! -f /etc/nginx/conf.d/serviceradar-web.conf ] && [ ! -f /etc/nginx/sites-enabled/serviceradar-web.conf ]; then
+    echo "Configuring Nginx for API-only access..."
+
+    # Disable default site if it exists
+    if [ -f /etc/nginx/sites-enabled/default ]; then
+        rm -f /etc/nginx/sites-enabled/default
+    fi
+
+    # Create symbolic link if Nginx uses sites-enabled pattern
+    if [ -d /etc/nginx/sites-enabled ]; then
+        ln -sf /etc/nginx/conf.d/serviceradar-cloud.conf /etc/nginx/sites-enabled/
+    fi
+
+    # Test and reload Nginx
+    nginx -t || { echo "Warning: Nginx configuration test failed. Please check your configuration."; }
+    systemctl reload nginx || systemctl restart nginx || echo "Warning: Failed to reload/restart Nginx."
+else
+    echo "Detected serviceradar-web configuration, skipping API-only Nginx setup."
+fi
 
 # Enable and start service
 systemctl daemon-reload
 systemctl enable serviceradar-cloud
 systemctl start serviceradar-cloud || echo "Failed to start service, please check the logs"
+
+echo "ServiceRadar Cloud API service installed successfully!"
+echo "API is running on port 8090"
+echo "Accessible via Nginx at http://localhost/api/"
+echo "For a complete UI experience, install the serviceradar-web package."
 
 exit 0
 EOF
@@ -177,6 +213,16 @@ set -e
 systemctl stop serviceradar-cloud || true
 systemctl disable serviceradar-cloud || true
 
+# Remove Nginx symlink if exists and if it's our configuration
+if [ -f /etc/nginx/sites-enabled/serviceradar-cloud.conf ]; then
+    rm -f /etc/nginx/sites-enabled/serviceradar-cloud.conf
+
+    # Reload Nginx if running
+    if systemctl is-active --quiet nginx; then
+        systemctl reload nginx || true
+    fi
+fi
+
 exit 0
 EOF
 
@@ -187,8 +233,8 @@ echo "Building Debian package..."
 # Create release-artifacts directory if it doesn't exist
 mkdir -p ./release-artifacts
 
-# Build the package
-dpkg-deb --build "${PKG_ROOT}"
+# Build the package with root-owner-group to avoid ownership warnings
+dpkg-deb --root-owner-group --build "${PKG_ROOT}"
 
 # Move the deb file to the release-artifacts directory
 mv "${PKG_ROOT}.deb" "./release-artifacts/"
