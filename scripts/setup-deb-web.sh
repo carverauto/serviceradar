@@ -36,7 +36,7 @@ npm run build
 # Copy the Next.js standalone build
 echo "Copying Next.js standalone build to package..."
 cp -r .next/standalone/* "../${PKG_ROOT}/usr/local/share/serviceradar-web/"
-cp -r .next/static "../${PKG_ROOT}/usr/local/share/serviceradar-web/.next/"
+cp -r .next/standalone/.next "../${PKG_ROOT}/usr/local/share/serviceradar-web/"
 
 # Ensure styled-jsx is properly included
 mkdir -p "../${PKG_ROOT}/usr/local/share/serviceradar-web/node_modules/styled-jsx/dist"
