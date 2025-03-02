@@ -26,6 +26,7 @@ jobs:
           ./scripts/setup-deb-agent.sh
           ./scripts/setup-deb-poller.sh
           ./scripts/setup-deb-cloud.sh
+          ./scripts/setup-deb-web.sh
           ./scripts/setup-deb-dusk-checker.sh
           ./scripts/setup-deb-snmp-checker.sh
       - name: List Artifacts (for debugging)
