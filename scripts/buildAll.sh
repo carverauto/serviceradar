@@ -1,6 +1,6 @@
 #!/bin/bash
 
-VERSION=${VERSION:-1.0.19}
+VERSION=${VERSION:-1.0.20}
 
 
 ./scripts/setup-deb-agent.sh
