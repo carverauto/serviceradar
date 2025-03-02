@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/checker/snmp"
-	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/metrics"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/gorilla/mux"
@@ -55,7 +54,5 @@ type APIServer struct {
 	nodeHistoryHandler func(nodeID string) ([]NodeHistoryPoint, error)
 	metricsManager     metrics.MetricCollector
 	snmpManager        snmp.SNMPManager
-	db                 db.Service
 	knownPollers       []string
-	apiKey             string
 }
