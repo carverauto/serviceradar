@@ -22,6 +22,4 @@ const nextConfig: NextConfig = {
     }
 };
 
-console.log('Next.js configuration loaded with API_KEY length:', process.env.API_KEY)
-
 export default nextConfig;
