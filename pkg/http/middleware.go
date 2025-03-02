@@ -49,9 +49,6 @@ func APIKeyMiddleware(apiKeyParam string) func(next http.Handler) http.Handler {
 				return
 			}
 
-			// print out the full request header
-			log.Printf("Request Header: %v", r.Header)
-
 			// Check API key in header or query parameter
 			requestKey := r.Header.Get("X-API-Key")
 			if requestKey == "" {
