@@ -4,22 +4,36 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { LineChart, Line, YAxis, ResponsiveContainer } from 'recharts';
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import _ from 'lodash';
-import { useAPIData } from '../lib/api';
+import { useRouter } from 'next/navigation';
 
 const MAX_POINTS = 100;
-const POLLING_INTERVAL = 10000; // 10 seconds
+const REFRESH_INTERVAL = 10000; // 10 seconds
 
 const ServiceSparkline = React.memo(({ nodeId, serviceName, initialMetrics = [] }) => {
-    const { data: metrics, error, isLoading } = useAPIData(
-        `/api/nodes/${nodeId}/metrics`,
-        initialMetrics,
-        POLLING_INTERVAL
-    );
+    const router = useRouter();
+    const [metrics, setMetrics] = useState(initialMetrics);
 
-    const [errorState, setError] = useState(error); // Handle initial error state
+    // Update metrics when initialMetrics changes from server
+    useEffect(() => {
+        setMetrics(initialMetrics);
+    }, [initialMetrics]);
+
+    // Set up periodic refresh to trigger server-side data update
+    useEffect(() => {
+        const interval = setInterval(() => {
+            router.refresh(); // Triggers server-side re-fetch of nodes/page.js
+        }, REFRESH_INTERVAL);
+
+        return () => clearInterval(interval);
+    }, [router]);
 
     const processedMetrics = useMemo(() => {
-        if (!metrics || metrics.length === 0) return [];
+        if (!metrics || metrics.length === 0) {
+            console.log(`No metrics available for ${nodeId}/${serviceName}`);
+            return [];
+        }
+
+        console.log(`Processing ${metrics.length} metrics for ${nodeId}/${serviceName}`);
 
         const serviceMetrics = metrics
             .filter((m) => m.service_name === serviceName)
@@ -30,12 +44,14 @@ const ServiceSparkline = React.memo(({ nodeId, serviceName, initialMetrics = [] 
             .sort((a, b) => a.timestamp - b.timestamp)
             .slice(-MAX_POINTS); // Limit to recent points
 
+        console.log(`Filtered to ${serviceMetrics.length} service-specific metrics`);
+
         if (serviceMetrics.length < 5) return serviceMetrics;
 
         // Downsample for performance
         const step = Math.max(1, Math.floor(serviceMetrics.length / 20));
         return serviceMetrics.filter((_, i) => i % step === 0 || i === serviceMetrics.length - 1);
-    }, [metrics, serviceName]);
+    }, [metrics, serviceName, nodeId]);
 
     const trend = useMemo(() => {
         if (processedMetrics.length < 5) return 'neutral';
@@ -55,18 +71,8 @@ const ServiceSparkline = React.memo(({ nodeId, serviceName, initialMetrics = [] 
         return changePct > 0 ? 'up' : 'down';
     }, [processedMetrics]);
 
-    useEffect(() => {
-        setError(error); // Sync error state with useAPIData
-    }, [error]);
-
-    if (isLoading && !processedMetrics.length) {
-        return <div className="flex flex-col items-center transition-colors h-8 w-24">
-            <div className="h-8 w-24 bg-gray-100 dark:bg-gray-700 animate-pulse rounded"></div>
-        </div>;
-    }
-
-    if (errorState) {
-        return <div className="text-xs text-red-500 dark:text-red-400">Error</div>;
+    if (processedMetrics.length === 0) {
+        return <div className="text-xs text-gray-600 dark:text-gray-300">No data</div>;
     }
 
     const latestValue = processedMetrics[processedMetrics.length - 1]?.value || 0;
@@ -98,6 +104,6 @@ const ServiceSparkline = React.memo(({ nodeId, serviceName, initialMetrics = [] 
     );
 });
 
-ServiceSparkline.displayName = 'ServiceSparkline'; // Helpful for debugging
+ServiceSparkline.displayName = 'ServiceSparkline';
 
 export default ServiceSparkline;

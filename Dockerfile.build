@@ -9,6 +9,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
         libsqlite3-dev \
         make \
         nodejs \
+        iproute2 \
     && rm -rf /var/lib/apt/lists/*
 
 # Verify installations

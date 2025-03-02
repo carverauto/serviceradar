@@ -41,7 +41,6 @@ func run() error {
 	apiServer := api.NewAPIServer(
 		api.WithMetricsManager(server.GetMetricsManager()),
 		api.WithSNMPManager(server.GetSNMPManager()),
-		api.WithAPIKey(cfg.APIKey), // Pass the API key from config
 	)
 
 	server.SetAPIServer(apiServer)

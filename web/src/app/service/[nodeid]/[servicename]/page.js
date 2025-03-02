@@ -9,9 +9,10 @@ async function fetchServiceData(nodeId, serviceName) {
         const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8090';
         const apiKey = process.env.API_KEY || '';
 
+        // Fetch node info
         const nodesResponse = await fetch(`${backendUrl}/api/nodes`, {
             headers: { 'X-API-Key': apiKey },
-            cache: 'no-store', // Prevent caching on the server
+            cache: 'no-store',
         });
 
         if (!nodesResponse.ok) {
@@ -19,42 +20,46 @@ async function fetchServiceData(nodeId, serviceName) {
         }
 
         const nodes = await nodesResponse.json();
-
         const node = nodes.find((n) => n.node_id === nodeId);
+
         if (!node) return { error: 'Node not found' };
 
         const service = node.services?.find((s) => s.name === serviceName);
         if (!service) return { error: 'Service not found' };
 
+        // Fetch metrics
         let metrics = [];
         try {
             const metricsResponse = await fetch(`${backendUrl}/api/nodes/${nodeId}/metrics`, {
                 headers: { 'X-API-Key': apiKey },
-                next: { revalidate: 30 },
+                cache: 'no-store',
             });
+
             if (!metricsResponse.ok) {
-                console.error(`Metrics API failed: ${metricsResponse.status} - ${await metricsResponse.text()}`);
+                console.error(`Metrics API failed: ${metricsResponse.status}`);
             } else {
                 metrics = await metricsResponse.json();
             }
         } catch (metricsError) {
             console.error('Error fetching metrics data:', metricsError);
         }
+
         const serviceMetrics = metrics.filter((m) => m.service_name === serviceName);
 
+        // Fetch SNMP data if needed
         let snmpData = [];
         if (service.type === 'snmp') {
             try {
                 const end = new Date();
                 const start = new Date();
-                start.setHours(end.getHours() - 1);
+                start.setHours(end.getHours() - 24); // Get 24h of data for initial load
 
                 const snmpUrl = `${backendUrl}/api/nodes/${nodeId}/snmp?start=${start.toISOString()}&end=${end.toISOString()}`;
                 console.log("Fetching SNMP from:", snmpUrl);
 
                 const snmpResponse = await fetch(snmpUrl, {
                     headers: { 'X-API-Key': apiKey },
-                    next: { revalidate: 30 },
+                    cache: 'no-store',
                 });
 
                 if (!snmpResponse.ok) {
@@ -62,6 +67,7 @@ async function fetchServiceData(nodeId, serviceName) {
                     console.error(`SNMP API failed: ${snmpResponse.status} - ${errorText}`);
                     throw new Error(`SNMP API request failed: ${snmpResponse.status} - ${errorText}`);
                 }
+
                 snmpData = await snmpResponse.json();
                 console.log("SNMP data fetched:", snmpData.length);
             } catch (snmpError) {

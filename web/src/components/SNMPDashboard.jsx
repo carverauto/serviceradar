@@ -1,19 +1,16 @@
-import React, {useCallback, useEffect, useRef, useState} from 'react';
-import {CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis} from 'recharts';
+'use client';
 
-const SNMPDashboard = ({ nodeId, serviceName }) => {
-    const [snmpData, setSNMPData] = useState([]);
+import React, {useCallback, useState, useEffect} from 'react';
+import {CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis} from 'recharts';
+import { useRouter } from 'next/navigation';
+
+const SNMPDashboard = ({ nodeId, serviceName, initialData = [] }) => {
+    const router = useRouter();
+    const [snmpData, setSNMPData] = useState(initialData);
     const [processedData, setProcessedData] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(null);
     const [timeRange, setTimeRange] = useState('1h');
     const [selectedMetric, setSelectedMetric] = useState(null);
     const [availableMetrics, setAvailableMetrics] = useState([]);
-
-    // Use refs to prevent state updates during render cycles
-    const dataRef = useRef(snmpData);
-    const fetchingRef = useRef(false);
-    const timerId = useRef(null);
 
     // Process SNMP counter data to show rates instead of raw values
     const processCounterData = useCallback((data) => {
@@ -51,144 +48,79 @@ const SNMPDashboard = ({ nodeId, serviceName }) => {
         }
     }, []);
 
-    // The main data fetching function - separated to avoid re-creation on every render
-    const fetchSNMPData = useCallback(async () => {
-        // Prevent concurrent fetches
-        if (fetchingRef.current) return;
-        fetchingRef.current = true;
+    // Set up auto-refresh from server
+    useEffect(() => {
+        const refreshInterval = 30000; // 30 seconds
+        const timer = setInterval(() => {
+            router.refresh(); // Trigger a server-side refresh
+        }, refreshInterval);
 
-        try {
-            // Only show loading on initial fetch
-            if (!dataRef.current.length) {
-                setLoading(true);
-            }
+        return () => clearInterval(timer);
+    }, [router]);
 
-            const end = new Date();
-            const start = new Date();
-
-            switch (timeRange) {
-                case '1h':
-                    start.setHours(end.getHours() - 1);
-                    break;
-                case '6h':
-                    start.setHours(end.getHours() - 6);
-                    break;
-                case '24h':
-                    start.setHours(end.getHours() - 24);
-                    break;
-                default:
-                    start.setHours(end.getHours() - 1);
-            }
-
-            // Directly use fetch to avoid any potential issues with the cache
-            const response = await fetch(
-                `/api/nodes/${nodeId}/snmp?start=${start.toISOString()}&end=${end.toISOString()}`,
-                {
-                    headers: {
-                        'X-API-Key': process.env.NEXT_PUBLIC_API_KEY || '',
-                        'Cache-Control': 'no-cache'
-                    },
-                    cache: 'no-store'
-                }
-            );
-
-            if (!response.ok) {
-                throw new Error(`Server returned ${response.status} ${response.statusText}`);
-            }
-
-            const data = await response.json();
-
-            // Handle empty or invalid data
-            if (!data || !Array.isArray(data)) {
-                console.warn("Received invalid SNMP data format");
-                fetchingRef.current = false;
-                return;
-            }
-
-            // Don't update state if component is unmounting or not mounted
-            if (!dataRef.current) return;
+    // Initialize metrics and selection
+    useEffect(() => {
+        if (initialData.length > 0) {
+            setSNMPData(initialData);
 
             // Extract unique OID names
-            const metrics = [...new Set(data.map(item => item.oid_name))];
-
-            // Update our state safely
-            setSNMPData(data);
-            dataRef.current = data;
+            const metrics = [...new Set(initialData.map(item => item.oid_name))];
             setAvailableMetrics(metrics);
 
             if (!selectedMetric && metrics.length > 0) {
                 setSelectedMetric(metrics[0]);
             }
-
-            setLoading(false);
-            setError(null);
-        } catch (err) {
-            console.error('Error fetching SNMP data:', err);
-
-            // Only show error if we don't have any data yet
-            if (!dataRef.current.length) {
-                setError(err.message || "Failed to fetch SNMP data");
-                setLoading(false);
-            }
-        } finally {
-            fetchingRef.current = false;
         }
-    }, [nodeId, timeRange, selectedMetric]);
-
-    // Initial data load
-    useEffect(() => {
-        // Reset state when parameters change
-        setSNMPData([]);
-        dataRef.current = [];
-        setLoading(true);
-        setError(null);
-
-        fetchSNMPData().catch(err => console.error("Initial fetch error:", err));
-
-        return () => {
-            // Clear any pending timers on unmount
-            if (timerId.current) clearTimeout(timerId.current);
-        };
-    }, [fetchSNMPData, nodeId, timeRange]);
-
-    // Set up polling - in a separate effect to avoid interfering with data fetching
-    useEffect(() => {
-        const pollInterval = 30000; // 30 seconds
-
-        // Set up polling with manual setTimeout instead of setInterval
-        const pollData = () => {
-            fetchSNMPData()
-                .catch(err => console.error("Poll error:", err))
-                .finally(() => {
-                    // Only schedule next poll if component is still mounted
-                    if (dataRef.current !== null) {
-                        timerId.current = setTimeout(pollData, pollInterval);
-                    }
-                });
-        };
-
-        // Start polling
-        timerId.current = setTimeout(pollData, pollInterval);
-
-        // Clean up on unmount
-        return () => {
-            dataRef.current = null; // Signal that we're unmounting
-            if (timerId.current) clearTimeout(timerId.current);
-        };
-    }, [fetchSNMPData]);
+    }, [initialData, selectedMetric]);
 
     // Process metric data when selected metric changes
     useEffect(() => {
         if (snmpData.length > 0 && selectedMetric) {
             try {
-                const metricData = snmpData.filter(item => item.oid_name === selectedMetric);
+                // Filter by time range
+                const end = new Date();
+                const start = new Date();
+
+                switch (timeRange) {
+                    case '1h':
+                        start.setHours(end.getHours() - 1);
+                        break;
+                    case '6h':
+                        start.setHours(end.getHours() - 6);
+                        break;
+                    case '24h':
+                        start.setHours(end.getHours() - 24);
+                        break;
+                    default:
+                        start.setHours(end.getHours() - 1);
+                }
+
+                // Filter by time range
+                const timeFilteredData = snmpData.filter(item => {
+                    const timestamp = new Date(item.timestamp);
+                    return timestamp >= start && timestamp <= end;
+                });
+
+                // Filter by selected metric
+                const metricData = timeFilteredData.filter(item => item.oid_name === selectedMetric);
+
+                // Process the data
                 const processed = processCounterData(metricData);
                 setProcessedData(processed);
             } catch (err) {
                 console.error('Error processing metric data:', err);
             }
         }
-    }, [selectedMetric, snmpData, processCounterData]);
+    }, [selectedMetric, snmpData, timeRange, processCounterData]);
+
+    // When time range changes, refresh the page to get new data from server
+    const handleTimeRangeChange = (range) => {
+        setTimeRange(range);
+        // For significant time range changes, refresh data from server
+        if (range === '24h' || (timeRange === '24h' && range !== '24h')) {
+            router.refresh();
+        }
+    };
 
     const formatRate = (rate) => {
         if (rate === undefined || rate === null || isNaN(rate)) return "N/A";
@@ -205,46 +137,25 @@ const SNMPDashboard = ({ nodeId, serviceName }) => {
         }
     };
 
-    // Error state
-    if (error) {
-        return (
-            <div className="bg-red-50 dark:bg-red-900 p-6 rounded-lg text-red-600 dark:text-red-200">
-                <h3 className="font-bold mb-2">Error Loading SNMP Data</h3>
-                <p>{error}</p>
-                <button
-                    onClick={() => {
-                        setError(null);
-                        setLoading(true);
-                        fetchSNMPData().catch(err => {
-                            setError(err.message);
-                            setLoading(false);
-                        });
-                    }}
-                    className="mt-4 px-4 py-2 bg-red-100 dark:bg-red-800 text-red-800 dark:text-red-100 rounded hover:bg-red-200 dark:hover:bg-red-700"
-                >
-                    Retry
-                </button>
-            </div>
-        );
-    }
-
-    // Loading state
-    if (loading) {
-        return (
-            <div className="flex justify-center items-center h-64">
-                <div className="text-lg text-gray-800 dark:text-gray-100">
-                    Loading SNMP data...
-                </div>
-            </div>
-        );
-    }
-
     // Empty data state
-    if (!processedData.length) {
+    if (!initialData.length) {
         return (
             <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
                 <h3 className="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-200">
                     No SNMP Data Available
+                </h3>
+                <p className="text-gray-600 dark:text-gray-400">
+                    No metrics found for this service.
+                </p>
+            </div>
+        );
+    }
+
+    if (!processedData.length && selectedMetric) {
+        return (
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+                <h3 className="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-200">
+                    No Data Available
                 </h3>
                 <p className="text-gray-600 dark:text-gray-400">
                     No metrics found for the selected time range and OID.
@@ -257,7 +168,7 @@ const SNMPDashboard = ({ nodeId, serviceName }) => {
                         {['1h', '6h', '24h'].map((range) => (
                             <button
                                 key={range}
-                                onClick={() => setTimeRange(range)}
+                                onClick={() => handleTimeRangeChange(range)}
                                 className={`px-3 py-1 rounded transition-colors ${
                                     timeRange === range
                                         ? 'bg-blue-500 text-white'
@@ -294,7 +205,7 @@ const SNMPDashboard = ({ nodeId, serviceName }) => {
                         {['1h', '6h', '24h'].map((range) => (
                             <button
                                 key={range}
-                                onClick={() => setTimeRange(range)}
+                                onClick={() => handleTimeRangeChange(range)}
                                 className={`px-3 py-1 rounded transition-colors ${
                                     timeRange === range
                                         ? 'bg-blue-500 text-white'

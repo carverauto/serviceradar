@@ -3,9 +3,10 @@
 VERSION=${VERSION:-1.0.19}
 
 
-./scripts/setup-deb-poller.sh
-./scripts/setup-deb-dusk-checker.sh
 ./scripts/setup-deb-agent.sh
+./scripts/setup-deb-poller.sh
+./scripts/setup-deb-web.sh
+./scripts/setup-deb-dusk-checker.sh
 ./scripts/setup-deb-snmp-checker.sh
 
 scp ./release-artifacts/serviceradar-poller_${VERSION}.deb duskadmin@192.168.2.22:~/
