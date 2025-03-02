@@ -45,8 +45,6 @@ func WithSNMPManager(m snmp.SNMPManager) func(server *APIServer) {
 func (s *APIServer) setupRoutes() {
 	// Create a middleware chain
 	middlewareChain := func(next http.Handler) http.Handler {
-		log.Printf("SERVER API_KEY: %s", os.Getenv("API_KEY"))
-
 		// Order matters: first API key check, then CORS headers
 		return srHttp.CommonMiddleware(srHttp.APIKeyMiddleware(os.Getenv("API_KEY"))(next))
 	}
@@ -162,8 +160,6 @@ func (s *APIServer) getNodeHistory(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	nodeID := vars["id"]
 
-	log.Printf("Getting node history for: %s", nodeID)
-
 	if s.nodeHistoryHandler == nil {
 		http.Error(w, "History handler not configured", http.StatusInternalServerError)
 		return
@@ -176,8 +172,6 @@ func (s *APIServer) getNodeHistory(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
-
-	log.Printf("Fetched %d history points for node: %s", len(points), nodeID)
 
 	if err := s.encodeJSONResponse(w, points); err != nil {
 		log.Printf("Error encoding history response: %v", err)
@@ -280,7 +274,6 @@ func (s *APIServer) getNode(w http.ResponseWriter, r *http.Request) {
 
 	node, exists := s.getNodeByID(nodeID)
 	if !exists {
-		log.Printf("Node %s not found", nodeID)
 		http.Error(w, "Node not found", http.StatusNotFound)
 
 		return
