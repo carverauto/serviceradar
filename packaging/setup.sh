@@ -20,7 +20,7 @@ set -e
 echo "Creating packaging structure..."
 
 # Create packaging structure
-mkdir -p packaging/{agent,poller,cloud,dusk}/{config,systemd,scripts}
+mkdir -p packaging/{agent,poller,core,dusk}/{config,systemd,scripts}
 
 # Function to get component directory name
 get_component_dir() {
@@ -57,12 +57,12 @@ for script in setup-deb-*.sh; do
             awk '/cat > "\${PKG_ROOT}\/lib\/systemd\/system\/serviceradar-poller.service"/,/^EOF/' "$script" | sed '1d;$d' > "packaging/poller/systemd/serviceradar-poller.service"
             ;;
 
-        "cloud")
-            # Extract cloud configuration
-            awk '/cat > "\${PKG_ROOT}\/etc\/serviceradar\/cloud.json"/,/^EOF/' "$script" | sed '1d;$d' > "packaging/cloud/config/cloud.json"
+        "core")
+            # Extract core configuration
+            awk '/cat > "\${PKG_ROOT}\/etc\/serviceradar\/core.json"/,/^EOF/' "$script" | sed '1d;$d' > "packaging/core/config/core.json"
 
             # Extract systemd service
-            awk '/cat > "\${PKG_ROOT}\/lib\/systemd\/system\/serviceradar-cloud.service"/,/^EOF/' "$script" | sed '1d;$d' > "packaging/cloud/systemd/serviceradar-cloud.service"
+            awk '/cat > "\${PKG_ROOT}\/lib\/systemd\/system\/serviceradar-core.service"/,/^EOF/' "$script" | sed '1d;$d' > "packaging/core/systemd/serviceradar-core.service"
             ;;
 
         "dusk-checker")
@@ -73,7 +73,7 @@ for script in setup-deb-*.sh; do
 done
 
 # Create postinstall and preremove scripts for each component
-for component_dir in agent poller cloud dusk; do
+for component_dir in agent poller core dusk; do
     echo "Creating install scripts for $component_dir..."
 
     # Create postinstall script

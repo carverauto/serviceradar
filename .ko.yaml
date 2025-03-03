@@ -35,9 +35,9 @@ builds:
     ldflags:
       - -s -w -X main.version={{.Env.VERSION}}
 
-  - id: cloud
-    dir: ./cmd/cloud
-    main: ./cmd/cloud
+  - id: core
+    dir: ./cmd/core
+    main: ./cmd/core
     env:
       - CGO_ENABLED=0
     flags:

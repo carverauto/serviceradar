@@ -103,30 +103,23 @@ build: ## Build all binaries
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-agent cmd/agent/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-poller cmd/poller/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-dusk-checker cmd/checkers/dusk/main.go
-	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-cloud cmd/cloud/main.go
+	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-core cmd/core/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-snmp-checker cmd/checkers/snmp/main.go
-
-.PHONY: build-web
-build-web: ## Build web UI
-	@echo "$(COLOR_BOLD)Building web UI$(COLOR_RESET)"
-	@./scripts/build-web.sh
-	@mkdir -p pkg/cloud/api/web/
-	@cp -r web/dist pkg/cloud/api/web/
 
 .PHONY: kodata-prep
 kodata-prep: build-web ## Prepare kodata directories
 	@echo "$(COLOR_BOLD)Preparing kodata directories$(COLOR_RESET)"
-	@mkdir -p cmd/cloud/.kodata
-	@cp -r pkg/cloud/api/web/dist cmd/cloud/.kodata/web
+	@mkdir -p cmd/core/.kodata
+	@cp -r pkg/core/api/web/dist cmd/core/.kodata/web
 
 .PHONY: container-build
 container-build: kodata-prep ## Build container images with ko
 	@echo "$(COLOR_BOLD)Building container images with ko$(COLOR_RESET)"
 	@cd cmd/agent && KO_DOCKER_REPO=$(KO_DOCKER_REPO)/serviceradar-agent GOFLAGS="-tags=containers" ko build --platform=$(PLATFORMS) --tags=$(VERSION) --bare .
 	@cd cmd/poller && KO_DOCKER_REPO=$(KO_DOCKER_REPO)/serviceradar-poller GOFLAGS="-tags=containers" ko build --platform=$(PLATFORMS) --tags=$(VERSION) --bare .
-	@echo "$(COLOR_BOLD)Building cloud container with CGO using Docker (amd64 only)$(COLOR_RESET)"
+	@echo "$(COLOR_BOLD)Building core container with CGO using Docker (amd64 only)$(COLOR_RESET)"
 	@docker buildx build --platform=linux/amd64 -f Dockerfile.build \
-		-t $(KO_DOCKER_REPO)/serviceradar-cloud:$(VERSION) \
+		-t $(KO_DOCKER_REPO)/serviceradar-core:$(VERSION) \
 		--build-arg VERSION=$(VERSION) \
 		--build-arg BUILD_TAGS=containers \
 		--push .
@@ -138,10 +131,10 @@ container-push: kodata-prep ## Build and push container images with ko
 	@echo "$(COLOR_BOLD)Building and pushing container images with ko$(COLOR_RESET)"
 	@cd cmd/agent && KO_DOCKER_REPO=$(KO_DOCKER_REPO)/serviceradar-agent GOFLAGS="-tags=containers" ko build --platform=$(PLATFORMS) --tags=$(VERSION),latest --bare .
 	@cd cmd/poller && KO_DOCKER_REPO=$(KO_DOCKER_REPO)/serviceradar-poller GOFLAGS="-tags=containers" ko build --platform=$(PLATFORMS) --tags=$(VERSION),latest --bare .
-	@echo "$(COLOR_BOLD)Building and pushing cloud container with CGO using Docker (amd64 only)$(COLOR_RESET)"
+	@echo "$(COLOR_BOLD)Building and pushing core container with CGO using Docker (amd64 only)$(COLOR_RESET)"
 	@docker buildx build --platform=linux/amd64 -f Dockerfile.build \
-		-t $(KO_DOCKER_REPO)/serviceradar-cloud:$(VERSION) \
-		-t $(KO_DOCKER_REPO)/serviceradar-cloud:latest \
+		-t $(KO_DOCKER_REPO)/serviceradar-core:$(VERSION) \
+		-t $(KO_DOCKER_REPO)/serviceradar-core:latest \
 		--build-arg VERSION=$(VERSION) \
 		--build-arg BUILD_TAGS=containers \
 		--push .
@@ -159,15 +152,15 @@ deb-poller: build-web ## Build the poller Debian package
 	@echo "$(COLOR_BOLD)Building poller Debian package$(COLOR_RESET)"
 	@./scripts/setup-deb-poller.sh
 
-.PHONY: deb-cloud
-deb-cloud: build-web ## Build the cloud Debian package (standard)
-	@echo "$(COLOR_BOLD)Building cloud Debian package$(COLOR_RESET)"
-	@VERSION=$(VERSION) ./scripts/setup-deb-cloud.sh
+.PHONY: deb-core
+deb-core: build-web ## Build the core Debian package (standard)
+	@echo "$(COLOR_BOLD)Building core Debian package$(COLOR_RESET)"
+	@VERSION=$(VERSION) ./scripts/setup-deb-core.sh
 
-.PHONY: deb-cloud-container
-deb-cloud-container: build-web ## Build the cloud Debian package with container support
-	@echo "$(COLOR_BOLD)Building cloud Debian package with container support$(COLOR_RESET)"
-	@VERSION=$(VERSION) BUILD_TAGS=containers ./scripts/setup-deb-cloud.sh
+.PHONY: deb-core-container
+deb-core-container: build-web ## Build the core Debian package with container support
+	@echo "$(COLOR_BOLD)Building core Debian package with container support$(COLOR_RESET)"
+	@VERSION=$(VERSION) BUILD_TAGS=containers ./scripts/setup-deb-core.sh
 
 .PHONY: deb-dusk
 deb-dusk: ## Build the Dusk checker Debian package
@@ -180,12 +173,12 @@ deb-snmp: ## Build the SNMP checker Debian package
 	@./scripts/setup-deb-snmp-checker.sh
 
 .PHONY: deb-all
-deb-all: deb-agent deb-poller deb-cloud deb-dusk deb-snmp ## Build all Debian packages
+deb-all: deb-agent deb-poller deb-core deb-dusk deb-snmp ## Build all Debian packages
 	@echo "$(COLOR_BOLD)All Debian packages built$(COLOR_RESET)"
 
 .PHONY: deb-all-container
-deb-all-container: deb-agent deb-poller deb-cloud-container deb-dusk deb-snmp ## Build all Debian packages with container support for cloud
-	@echo "$(COLOR_BOLD)All Debian packages built (with container support for cloud)$(COLOR_RESET)"
+deb-all-container: deb-agent deb-poller deb-core-container deb-dusk deb-snmp ## Build all Debian packages with container support for core
+	@echo "$(COLOR_BOLD)All Debian packages built (with container support for core)$(COLOR_RESET)"
 
 # Docusaurus commands
 .PHONY: docs-start

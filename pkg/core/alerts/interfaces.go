@@ -14,13 +14,21 @@
  * limitations under the License.
  */
 
-package cloud
+// Package alerts pkg/core/alerts/interfaces.go
 
-import "errors"
+//go:generate mockgen -destination=mock_alerts.go -package=alerts github.com/carverauto/serviceradar/pkg/core/alerts AlertService
 
-var (
-	errEmptyPollerID      = errors.New("empty poller ID")
-	errDatabaseError      = errors.New("database error")
-	errInvalidSweepData   = errors.New("invalid sweep data")
-	errFailedToSendAlerts = errors.New("failed to send alerts")
+package alerts
+
+import (
+	"context"
 )
+
+// AlertService defines the interface for alert implementations.
+type AlertService interface {
+	// Alert sends an alert through the service
+	Alert(ctx context.Context, alert *WebhookAlert) error
+
+	// IsEnabled returns whether the alerter is enabled
+	IsEnabled() bool
+}

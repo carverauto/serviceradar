@@ -27,7 +27,7 @@ mkdir -p release-artifacts/${VERSION}/rpm
 usage() {
     echo "Usage: $0 [component]"
     echo "Components:"
-    echo "  cloud        - Build cloud service RPM"
+    echo "  core         - Build core service RPM"
     echo "  agent        - Build agent service RPM"
     echo "  poller       - Build poller service RPM"
     echo "  dusk-checker - Build dusk checker RPM"
@@ -35,20 +35,20 @@ usage() {
     exit 1
 }
 
-# Function to build cloud component (uses full Dockerfile)
-build_cloud() {
-    echo "Building cloud component..."
+# Function to build core component (uses full Dockerfile)
+build_core() {
+    echo "Building core component..."
     docker build \
         --platform linux/amd64 \
         --build-arg VERSION="${VERSION}" \
         --build-arg RELEASE="${RELEASE}" \
-        -f Dockerfile-rpm.cloud \
-        -t serviceradar-rpm-cloud \
+        -f Dockerfile-rpm.core \
+        -t serviceradar-rpm-core \
         .
 
     # Extract RPM from the container
     tmp_dir=$(mktemp -d)
-    container_id=$(docker create serviceradar-rpm-cloud)
+    container_id=$(docker create serviceradar-rpm-core)
     docker cp $container_id:/rpms/. "$tmp_dir/"
     docker rm $container_id
 
@@ -109,14 +109,14 @@ fi
 
 # Process build request
 case $1 in
-    cloud)
-        build_cloud
+    core)
+        build_core
         ;;
     agent|poller|dusk-checker)
         build_component "$1"
         ;;
     all)
-        build_cloud
+        build_core
         build_component "agent"
         build_component "poller"
         build_component "dusk-checker"

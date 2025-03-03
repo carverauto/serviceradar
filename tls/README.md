@@ -19,8 +19,8 @@ SweepCheck[Network Sweep]
         PL[Poller<br/>Role: Client+Server<br/>:50053]
     end
     
-    subgraph "Cloud Service"
-        CL[Cloud Service<br/>Role: Server<br/>:50052]
+    subgraph "Core Service"
+        CL[Core Service<br/>Role: Server<br/>:50052]
         DB[(Database)]
         API[HTTP API<br/>:8090]
         
@@ -135,13 +135,13 @@ ServiceRadar components need different certificates based on their role:
 
 - **Poller** (RolePoller)
     - Needs all certificates (client + server)
-    - Acts as both client (connecting to agents/cloud) and server (health checks)
+    - Acts as both client (connecting to agents/core) and server (health checks)
 
 - **Agent** (RoleAgent)
     - Needs all certificates (client + server)
     - Acts as server (accepting poller connections) and client (connecting to checkers)
 
-- **Cloud** (RoleCloud)
+- **Core** (RoleCore)
     - Needs only server certificates
     - Acts as server only (accepting connections)
 
@@ -160,7 +160,7 @@ sudo chmod 700 /etc/serviceradar/certs
 
 2. Install certificates based on role:
 
-For cloud/checker (server-only):
+For core/checker (server-only):
 ```bash
 sudo cp root.pem server*.pem /etc/serviceradar/certs/
 ```
@@ -179,7 +179,7 @@ sudo chmod 600 /etc/serviceradar/certs/*-key.pem
 
 ### Expected Directory Structure
 
-Server-only deployment (Cloud/Checker):
+Server-only deployment (Core/Checker):
 ```bash
 /etc/serviceradar/certs/
 ├── root.pem           (644)
@@ -204,7 +204,7 @@ Verify your installation with:
 ls -la /etc/serviceradar/certs/
 ```
 
-Example output (cloud instance):
+Example output (Core instance):
 ```
 total 20
 drwx------ 2 serviceradar serviceradar 4096 Feb 21 20:46 .

@@ -14,14 +14,13 @@
  * limitations under the License.
  */
 
-package api
+package core
 
-//go:generate mockgen -destination=mock_api_server.go -package=api github.com/carverauto/serviceradar/pkg/cloud/api Service
+import "errors"
 
-// Service represents the API server functionality.
-type Service interface {
-	Start(addr string) error
-	UpdateNodeStatus(nodeID string, status *NodeStatus)
-	SetNodeHistoryHandler(handler func(nodeID string) ([]NodeHistoryPoint, error))
-	SetKnownPollers(knownPollers []string)
-}
+var (
+	errEmptyPollerID      = errors.New("empty poller ID")
+	errDatabaseError      = errors.New("database error")
+	errInvalidSweepData   = errors.New("invalid sweep data")
+	errFailedToSendAlerts = errors.New("failed to send alerts")
+)

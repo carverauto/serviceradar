@@ -31,7 +31,7 @@ Depends: systemd
 Maintainer: Michael Freeman <mfreeman451@gmail.com>
 Description: ServiceRadar poller service
  Poller component for ServiceRadar monitoring system.
- Collects and forwards monitoring data from agents to cloud service.
+ Collects and forwards monitoring data from agents to core service.
 Config: /etc/serviceradar/poller.json
 EOF
 
@@ -94,7 +94,7 @@ cat > "${PKG_ROOT}/etc/serviceradar/poller.json" << EOF
             ]
         }
     },
-    "cloud_address": "changeme:50052",
+    "core_address": "changeme:50052",
     "listen_addr": ":50053",
     "poll_interval": "30s",
     "poller_id": "dusk",

@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-// pkg/cloud/api/server.go
+// pkg/core/api/server.go
 
 package api
 

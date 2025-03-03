@@ -69,7 +69,7 @@ type Store interface {
 
 // Reporter defines how to report sweep results.
 type Reporter interface {
-	// Report sends a summary somewhere (e.g., to a cloud service)
+	// Report sends a summary somewhere (e.g., to a core service)
 	Report(context.Context, *models.SweepSummary) error
 }
 

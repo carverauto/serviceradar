@@ -38,7 +38,7 @@ usage() {
     echo "  --host HOST               Install to remote host (requires SSH access)"
     echo
     echo "Components:"
-    echo "  cloud                     Build cloud API service"
+    echo "  core                      Build core API service"
     echo "  web                       Build web UI"
     echo "  poller                    Build poller service"
     echo "  agent                     Build agent service"
@@ -47,9 +47,9 @@ usage() {
     echo
     echo "Examples:"
     echo "  $0 --all                  Build all components"
-    echo "  $0 cloud web              Build cloud and web components"
+    echo "  $0 core web              Build core and web components"
     echo "  $0 --all --install        Build and install all components locally"
-    echo "  $0 cloud web --install --host user@server  Build and install on remote host"
+    echo "  $0 core web --install --host user@server  Build and install on remote host"
     echo
     exit 1
 }
@@ -80,7 +80,7 @@ while [[ $# -gt 0 ]]; do
             TARGET_HOST="$2"
             shift 2
             ;;
-        cloud|web|poller|agent|dusk-checker|snmp-checker)
+        core|web|poller|agent|dusk-checker|snmp-checker)
             COMPONENTS+=("$1")
             shift
             ;;
@@ -93,7 +93,7 @@ done
 
 # Check if we should build all components
 if [ "$BUILD_ALL" = true ]; then
-    COMPONENTS=("cloud" "web" "poller" "agent" "dusk-checker" "snmp-checker")
+    COMPONENTS=("core" "web" "poller" "agent" "dusk-checker" "snmp-checker")
 fi
 
 # If no components specified, show usage
@@ -114,8 +114,8 @@ build_component() {
     echo "========================================="
     
     case $component in
-        cloud)
-            ./scripts/setup-deb-cloud.sh
+        core)
+            ./scripts/setup-deb-core.sh
             ;;
         web)
             ./scripts/setup-deb-web.sh
@@ -153,8 +153,8 @@ install_packages() {
         local package_name
         
         case $component in
-            cloud)
-                package_name="serviceradar-cloud_${VERSION}.deb"
+            core)
+                package_name="serviceradar-core${VERSION}.deb"
                 ;;
             web)
                 package_name="serviceradar-web_${VERSION}.deb"

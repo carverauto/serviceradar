@@ -21,7 +21,7 @@
             ]
         }
     },
-    "cloud_address": "127.0.0.1:50052",
+    "core_address": "127.0.0.1:50052",
     "listen_addr": ":50053",
     "poll_interval": "30s",
     "poller_id": "default-poller",

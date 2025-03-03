@@ -14,21 +14,14 @@
  * limitations under the License.
  */
 
-// Package alerts pkg/cloud/alerts/interfaces.go
+package api
 
-//go:generate mockgen -destination=mock_alerts.go -package=alerts github.com/carverauto/serviceradar/pkg/cloud/alerts AlertService
+//go:generate mockgen -destination=mock_api_server.go -package=api github.com/carverauto/serviceradar/pkg/core/api Service
 
-package alerts
-
-import (
-	"context"
-)
-
-// AlertService defines the interface for alert implementations.
-type AlertService interface {
-	// Alert sends an alert through the service
-	Alert(ctx context.Context, alert *WebhookAlert) error
-
-	// IsEnabled returns whether the alerter is enabled
-	IsEnabled() bool
+// Service represents the API server functionality.
+type Service interface {
+	Start(addr string) error
+	UpdateNodeStatus(nodeID string, status *NodeStatus)
+	SetNodeHistoryHandler(handler func(nodeID string) ([]NodeHistoryPoint, error))
+	SetKnownPollers(knownPollers []string)
 }

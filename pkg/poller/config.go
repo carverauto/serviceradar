@@ -27,7 +27,7 @@ import (
 var (
 	errAgentAddressRequired = fmt.Errorf("agent address is required")
 	errPollerIDRequired     = fmt.Errorf("poller id is required")
-	errCloudAddressRequired = fmt.Errorf("cloud address is required")
+	errCoreAddressRequired  = fmt.Errorf("core address is required")
 )
 
 const (
@@ -54,7 +54,7 @@ type Config struct {
 	Agents       map[string]AgentConfig `json:"agents"`
 	ListenAddr   string                 `json:"listen_addr"`
 	ServiceName  string                 `json:"service_name"`
-	CloudAddress string                 `json:"cloud_address"`
+	CoreAddress  string                 `json:"core_address"`
 	PollInterval config.Duration        `json:"poll_interval"`
 	PollerID     string                 `json:"poller_id"`
 	Security     *models.SecurityConfig `json:"security"`
@@ -62,8 +62,8 @@ type Config struct {
 
 // Validate implements config.Validator interface.
 func (c *Config) Validate() error {
-	if c.CloudAddress == "" {
-		return errCloudAddressRequired
+	if c.CoreAddress == "" {
+		return errCoreAddressRequired
 	}
 
 	if c.PollerID == "" {

@@ -14,16 +14,15 @@
  * limitations under the License.
  */
 
-// Package cloud pkg/cloud/interfaces.go
+// Package core pkg/core/interfaces.go
+//go:generate mockgen -destination=mock_server.go -package=core github.com/carverauto/serviceradar/pkg/core NodeService,CoreService
 
-//go:generate mockgen -destination=mock_server.go -package=cloud github.com/carverauto/serviceradar/pkg/cloud NodeService,CloudService
-
-package cloud
+package core
 
 import (
 	"context"
 
-	"github.com/carverauto/serviceradar/pkg/cloud/api"
+	"github.com/carverauto/serviceradar/pkg/core/api"
 	"github.com/carverauto/serviceradar/pkg/metrics"
 )
 
@@ -35,8 +34,8 @@ type NodeService interface {
 	CheckNodeHealth(nodeID string) (bool, error)
 }
 
-// CloudService represents the main cloud service functionality.
-type CloudService interface {
+// CoreService represents the main core service functionality.
+type CoreService interface {
 	Start(ctx context.Context) error
 	Stop(ctx context.Context) error
 	ReportStatus(ctx context.Context, nodeID string, status *api.NodeStatus) error

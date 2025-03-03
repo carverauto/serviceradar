@@ -42,7 +42,7 @@ Edit `/etc/serviceradar/poller.json`:
       ]
     }
   },
-  "cloud_address": "changeme:50052",
+  "core_address": "changeme:50052",
   "listen_addr": ":50053",
   "poll_interval": "30s",
   "poller_id": "my-poller",
@@ -50,12 +50,12 @@ Edit `/etc/serviceradar/poller.json`:
 }
 ```
 
-* Set `cloud_address` to your cloud service’s hostname/IP.
+* Set `core_address` to your core service’s hostname/IP.
 * Adjust `agents` to list your monitored hosts.
 
 ## Cloud Configuration
 
-Edit `/etc/serviceradar/cloud.json`:
+Edit `/etc/serviceradar/core.json`:
 
 ```json
 {

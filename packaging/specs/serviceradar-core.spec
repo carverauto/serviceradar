@@ -1,14 +1,14 @@
-Name:           serviceradar-cloud
+Name:           serviceradar-core
 Version:        %{version}
 Release:        %{release}%{?dist}
-Summary:        ServiceRadar cloud service with web interface
+Summary:        ServiceRadar core service with web interface
 License:        Proprietary
 
 BuildRequires:  systemd
 Requires:       systemd
 %{?systemd_requires}
 
-Source: systemd/serviceradar-cloud.service  # Corrected: Added Source tag
+Source: systemd/serviceradar-core.service
 
 %description
 Provides centralized monitoring and web dashboard for ServiceRadar.
@@ -21,17 +21,17 @@ mkdir -p %{buildroot}/lib/systemd/system
 mkdir -p %{buildroot}/var/lib/serviceradar
 
 
-install -m 755 %{_builddir}/serviceradar-cloud %{buildroot}/usr/local/bin/
-install -m 644 %{_sourcedir}/systemd/serviceradar-cloud.service %{buildroot}/lib/systemd/system/serviceradar-cloud.service
-install -m 644 %{_sourcedir}/config/cloud.json %{buildroot}/etc/serviceradar/
+install -m 755 %{_builddir}/serviceradar-core %{buildroot}/usr/local/bin/
+install -m 644 %{_sourcedir}/systemd/serviceradar-core.service %{buildroot}/lib/systemd/system/serviceradar-core.service
+install -m 644 %{_sourcedir}/config/core.json %{buildroot}/etc/serviceradar/
 install -m 644 %{_sourcedir}/config/checkers/sweep/sweep.json %{buildroot}/etc/serviceradar/checkers/sweep/
 
 
 %files
-%attr(0755, root, root) /usr/local/bin/serviceradar-cloud
-%config(noreplace) %attr(0644, serviceradar, serviceradar) /etc/serviceradar/cloud.json
+%attr(0755, root, root) /usr/local/bin/serviceradar-core
+%config(noreplace) %attr(0644, serviceradar, serviceradar) /etc/serviceradar/core.json
 %config(noreplace) %attr(0644, serviceradar, serviceradar) /etc/serviceradar/checkers/sweep/sweep.json
-%attr(0644, root, root) /lib/systemd/system/serviceradar-cloud.service
+%attr(0644, root, root) /lib/systemd/system/serviceradar-core.service
 %dir %attr(0755, root, root) /etc/serviceradar
 %dir %attr(0755, serviceradar, serviceradar) /var/lib/serviceradar
 
@@ -42,7 +42,7 @@ if ! id -u serviceradar >/dev/null 2>&1; then
 fi
 
 %post
-%systemd_post serviceradar-cloud.service
+%systemd_post serviceradar-core.service
 
 # Check if firewalld is running
 if systemctl is-active firewalld.service >/dev/null 2>&1; then
@@ -56,12 +56,12 @@ fi
 # SELinux (if needed)
 if getenforce | grep -q "Enforcing"; then
     semanage -a -t http_port_t -p tcp 8090 >/dev/null 2>&1
-    restorecon -Rv /usr/local/bin/serviceradar-cloud # Adjust path
+    restorecon -Rv /usr/local/bin/serviceradar-core
     logger "Configured SELinux for ServiceRadar (port 8090/tcp)."
 fi
 
 %preun
-%systemd_preun serviceradar-cloud.service
+%systemd_preun serviceradar-core.service
 
 %postun
-%systemd_postun_with_restart serviceradar-cloud.service
+%systemd_postun_with_restart serviceradar-core.service

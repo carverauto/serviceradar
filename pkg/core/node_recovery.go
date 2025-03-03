@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package cloud
+package core
 
 import (
 	"context"
@@ -23,7 +23,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/cloud/alerts"
+	"github.com/carverauto/serviceradar/pkg/core/alerts"
 	"github.com/carverauto/serviceradar/pkg/db"
 )
 

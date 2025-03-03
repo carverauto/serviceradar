@@ -79,12 +79,12 @@ func NewMTLSProvider(config *models.SecurityConfig) (*MTLSProvider, error) {
 	// Determine which credentials are needed based on role
 	switch config.Role {
 	case models.RolePoller:
-		provider.needsClient = true // For connecting to Agent and Cloud
+		provider.needsClient = true // For connecting to Agent and Core
 		provider.needsServer = true // For health check endpoints
 	case models.RoleAgent:
 		provider.needsClient = true // For connecting to checkers
 		provider.needsServer = true // For accepting poller connections
-	case models.RoleCloud:
+	case models.RoleCore:
 		provider.needsServer = true // Only accepts connections
 	case models.RoleChecker:
 		provider.needsServer = true // Only accepts connections

@@ -21,8 +21,8 @@ import (
 	"flag"
 	"log"
 
-	"github.com/carverauto/serviceradar/pkg/cloud"
-	"github.com/carverauto/serviceradar/pkg/cloud/api"
+	"github.com/carverauto/serviceradar/pkg/core"
+	"github.com/carverauto/serviceradar/pkg/core/api"
 	"github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/proto"
@@ -36,11 +36,11 @@ func main() {
 
 func run() error {
 	// Parse command line flags
-	configPath := flag.String("config", "/etc/serviceradar/cloud.json", "Path to cloud config file")
+	configPath := flag.String("config", "/etc/serviceradar/core.json", "Path to core config file")
 	flag.Parse()
 
 	// Load configuration
-	cfg, err := cloud.LoadConfig(*configPath)
+	cfg, err := core.LoadConfig(*configPath)
 	if err != nil {
 		return err
 	}
@@ -48,8 +48,8 @@ func run() error {
 	// Create root context for lifecycle management
 	ctx := context.Background()
 
-	// Create cloud server
-	server, err := cloud.NewServer(ctx, &cfg)
+	// Create core server
+	server, err := core.NewServer(ctx, &cfg)
 	if err != nil {
 		return err
 	}

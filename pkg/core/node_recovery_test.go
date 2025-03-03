@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package cloud
+package core
 
 import (
 	"context"
@@ -22,7 +22,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/cloud/alerts"
+	"github.com/carverauto/serviceradar/pkg/core/alerts"
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"

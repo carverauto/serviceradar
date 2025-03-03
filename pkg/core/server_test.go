@@ -14,15 +14,15 @@
  * limitations under the License.
  */
 
-package cloud
+package core
 
 import (
 	"encoding/json"
 	"testing"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/cloud/alerts"
-	"github.com/carverauto/serviceradar/pkg/cloud/api"
+	"github.com/carverauto/serviceradar/pkg/core/alerts"
+	"github.com/carverauto/serviceradar/pkg/core/api"
 	"github.com/carverauto/serviceradar/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

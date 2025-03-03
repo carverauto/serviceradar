@@ -41,11 +41,11 @@ RUN go mod download
 COPY . .
 
 # Copy the built web UI from the previous stage
-COPY --from=web-builder /web-build/dist ./pkg/cloud/api/web/dist
+COPY --from=web-builder /web-build/dist ./pkg/core/api/web/dist
 
-# Build the cloud service
+# Build the core service
 RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 \
-    go build -o serviceradar-cloud ./cmd/cloud
+    go build -o serviceradar-core ./cmd/core
 
 # Stage 3: Create RPM
 FROM --platform=linux/amd64 rockylinux:9 AS rpm-builder
@@ -60,12 +60,12 @@ RUN dnf install -y \
 RUN rpmdev-setuptree
 
 # Copy built artifacts and spec files
-COPY --from=go-builder /src/serviceradar-cloud /root/rpmbuild/BUILD/
+COPY --from=go-builder /src/serviceradar-core /root/rpmbuild/BUILD/
 COPY packaging/config/*.json /root/rpmbuild/SOURCES/config/
-# TODO: fix this, sweep.json is part of agent NOT cloud.g
+# TODO: fix this, sweep.json is part of agent NOT core
 COPY packaging/config/checkers/sweep/sweep.json /root/rpmbuild/SOURCES/config/checkers/sweep/
-COPY packaging/specs/serviceradar-cloud.spec /root/rpmbuild/SPECS/
-COPY packaging/cloud/systemd/serviceradar-cloud.service /root/rpmbuild/SOURCES/systemd/
+COPY packaging/specs/serviceradar-core.spec /root/rpmbuild/SPECS/
+COPY packaging/core/systemd/serviceradar-core.service /root/rpmbuild/SOURCES/systemd/
 COPY scripts/setup-rpm-*.sh /build/
 
 # Set default version (can be overridden at build time)
@@ -76,7 +76,7 @@ ARG RELEASE=1
 RUN rpmbuild -bb \
     --define "version ${VERSION}" \
     --define "release ${RELEASE}" \
-    /root/rpmbuild/SPECS/serviceradar-cloud.spec
+    /root/rpmbuild/SPECS/serviceradar-core.spec
 
 # Stage 4: Create a minimal image with just the RPM
 FROM --platform=linux/amd64 rockylinux:9

@@ -27,7 +27,7 @@ type ServiceRole string
 const (
 	RolePoller  ServiceRole = "poller"  // Client and Server
 	RoleAgent   ServiceRole = "agent"   // Server only
-	RoleCloud   ServiceRole = "cloud"   // Server only
+	RoleCore    ServiceRole = "core"    // Server only
 	RoleChecker ServiceRole = "checker" // Server only (for SNMP, Dusk checkers)
 )
 

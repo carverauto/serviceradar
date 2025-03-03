@@ -1,6 +1,5 @@
 #!/bin/bash
 
-
 # Copyright 2025 Carver Automation Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,15 +14,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# buildCloud.sh - Build the cloud package for ServiceRadar
+# build-core.sh - Build the core package for ServiceRadar
 set -e
 
-export VERSION=${VERSION}
+VERSION=$1
+if [ -z "$VERSION" ]; then
+  VERSION="dev"
+fi
 
-# Build the builder image
-docker build -t serviceradar-builder -f ./Dockerfile.build .
+echo "Building core component version ${VERSION}"
 
-# Run just the cloud package build in the container
-docker run --rm -v $(pwd):/build serviceradar-builder ./scripts/setup-deb-cloud.sh
+# Ensure output directory exists
+mkdir -p ./dist/core_linux_amd64_v1
 
-echo "Build completed. Check release-artifacts/ directory for the cloud package."
+# Build using Docker
+docker build -f ./Dockerfile.core \
+  --build-arg VERSION="${VERSION}" \
+  -t serviceradar-core-build:${VERSION} .
+
+# Extract binary
+CONTAINER_ID=$(docker create serviceradar-core-build:${VERSION})
+docker cp ${CONTAINER_ID}:/src/serviceradar-core dist/core_linux_amd64_v1/
+docker rm ${CONTAINER_ID}
+
+echo "Core build complete"

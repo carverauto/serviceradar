@@ -55,9 +55,9 @@ builds:
     ldflags:
       - -s -w -X main.version={{.Version}}
 
-  - id: serviceradar-cloud
-    main: ./cmd/cloud/main.go
-    binary: serviceradar-cloud
+  - id: serviceradar-core
+    main: ./cmd/core/main.go
+    binary: serviceradar-core
     dir: .
     goos:
       - linux
@@ -67,7 +67,7 @@ builds:
       - -s -w -X main.version={{.Version}}
     hooks:
       pre:
-        - ./scripts/build-cloud.sh {{ .Version }}
+        - ./scripts/build-core.sh {{ .Version }}
 
 nfpms:
   - id: agent
@@ -118,34 +118,34 @@ nfpms:
       postinstall: ./packaging/poller/scripts/postinstall.sh
       preremove: ./packaging/poller/scripts/preremove.sh
 
-  - id: cloud
-    package_name: serviceradar-cloud
+  - id: core
+    package_name: serviceradar-core
     file_name_template: "{{ .PackageName }}_{{ .Version }}"
     builds:
-      - serviceradar-cloud
+      - serviceradar-core
     vendor: ServiceRadar
     homepage: https://github.com/carverauto/serviceradar
     maintainer: Michael Freeman <mfreeman451@gmail.com>
-    description: ServiceRadar Cloud Component
+    description: ServiceRadar Core Component
     license: MIT
     formats:
       - deb
     dependencies:
       - systemd
     contents:
-      - src: dist/cloud_linux_amd64_v1/serviceradar-cloud
-        dst: /usr/local/bin/serviceradar-cloud
-      - src: ./packaging/cloud/systemd/serviceradar-cloud.service
-        dst: /lib/systemd/system/serviceradar-cloud.service
-      - src: ./packaging/cloud/config/cloud.json
-        dst: /etc/serviceradar/cloud.json
+      - src: dist/core_linux_amd64_v1/serviceradar-core
+        dst: /usr/local/bin/serviceradar-core
+      - src: ./packaging/core/systemd/serviceradar-core.service
+        dst: /lib/systemd/system/serviceradar-core.service
+      - src: ./packaging/core/config/core.json
+        dst: /etc/serviceradar/core.json
         type: config
-      - src: pkg/cloud/api/web/dist
-        dst: /usr/local/share/serviceradar-cloud/web/dist
+      - src: pkg/core/api/web/dist
+        dst: /usr/local/share/serviceradar-core/web/dist
         type: "tree"
     scripts:
-      postinstall: ./packaging/cloud/scripts/postinstall.sh
-      preremove: ./packaging/cloud/scripts/preremove.sh
+      postinstall: ./packaging/core/scripts/postinstall.sh
+      preremove: ./packaging/core/scripts/preremove.sh
 
   - id: dusk-checker
     package_name: serviceradar-dusk-checker
@@ -184,7 +184,7 @@ release:
     - serviceradar-dusk-checker: Agent package for monitoring Dusk nodes
     - serviceradar-agent: Agent performs checks, collects information from external checkers (dusk)
     - serviceradar-poller: Network poller for collecting monitoring data from Agent
-    - serviceradar-cloud: Cloud service with web interface and alerts
+    - serviceradar-core: Core service with web interface and alerts
 
     ## Installation
     See the [README.md](README.md) for detailed installation instructions.
@@ -197,8 +197,8 @@ release:
     sudo dpkg -i serviceradar-dusk-checker_{{ .Version }}.deb
     # On monitoring host (can co-locate with agent):
     sudo dpkg -i serviceradar-poller_{{ .Version }}.deb
-    # On cloud host (can co-locate with poller+agent):
-    sudo dpkg -i serviceradar-cloud_{{ .Version }}.deb
+    # On core host (can co-locate with poller+agent):
+    sudo dpkg -i serviceradar-core_{{ .Version }}.deb
     ```
 
 changelog:

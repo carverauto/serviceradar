@@ -11,7 +11,7 @@
     "security": {
         "mode": "none",
         "cert_dir": "/etc/serviceradar/certs",
-        "role": "cloud"
+        "role": "core"
     },
     "webhooks": [
         {
