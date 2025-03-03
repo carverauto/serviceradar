@@ -28,8 +28,8 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/checker/snmp"
-	"github.com/carverauto/serviceradar/pkg/cloud/alerts"
-	"github.com/carverauto/serviceradar/pkg/cloud/api"
+	"github.com/carverauto/serviceradar/pkg/core/alerts"
+	"github.com/carverauto/serviceradar/pkg/core/api"
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/metrics"
 	"github.com/carverauto/serviceradar/pkg/models"

@@ -14,9 +14,9 @@
  * limitations under the License.
  */
 
-// Package alerts pkg/cloud/alerts/interfaces.go
+// Package alerts pkg/core/alerts/interfaces.go
 
-//go:generate mockgen -destination=mock_alerts.go -package=alerts github.com/carverauto/serviceradar/pkg/cloud/alerts AlertService
+//go:generate mockgen -destination=mock_alerts.go -package=alerts github.com/carverauto/serviceradar/pkg/core/alerts AlertService
 
 package alerts
 
