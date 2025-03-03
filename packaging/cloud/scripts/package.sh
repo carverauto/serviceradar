@@ -1,5 +1,5 @@
 #!/bin/bash
-# setup-deb-cloud.sh
+# setup-deb-core.sh
 set -e  # Exit on any error
 
 echo "Setting up package structure..."
@@ -7,7 +7,7 @@ echo "Setting up package structure..."
 VERSION=${VERSION:-1.0.12}
 
 # Create package directory structure
-PKG_ROOT="serviceradar-cloud_${VERSION}"
+PKG_ROOT="serviceradar-core${VERSION}"
 mkdir -p "${PKG_ROOT}/DEBIAN"
 mkdir -p "${PKG_ROOT}/usr/local/bin"
 mkdir -p "${PKG_ROOT}/etc/serviceradar"
@@ -22,48 +22,48 @@ npm run build
 cd ..
 
 # Create a directory for the embedded content
-mkdir -p pkg/cloud/api/web
-cp -r web/dist pkg/cloud/api/web/
+mkdir -p pkg/core/api/web
+cp -r web/dist pkg/core/api/web/
 
 echo "Building Go binary..."
 
 # Build Go binary with embedded web content
-cd cmd/cloud
-#GOOS=linux GOARCH=amd64 go build -o "../../${PKG_ROOT}/usr/local/bin/serviceradar-cloud"
-CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -o "../../${PKG_ROOT}/usr/local/bin/serviceradar-cloud"
+cd cmd/core
+#GOOS=linux GOARCH=amd64 go build -o "../../${PKG_ROOT}/usr/local/bin/serviceradar-core"
+CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -o "../../${PKG_ROOT}/usr/local/bin/serviceradar-core"
 cd ../..
 
 echo "Creating package files..."
 
 # Create control file
 cat > "${PKG_ROOT}/DEBIAN/control" << EOF
-Package: serviceradar-cloud
+Package: serviceradar-core
 Version: ${VERSION}
 Section: utils
 Priority: optional
 Architecture: amd64
 Depends: systemd
 Maintainer: Michael Freeman <mfreeman451@gmail.com>
-Description: ServiceRadar cloud service with web interface
+Description: ServiceRadar core service with web interface
  Provides centralized monitoring and web dashboard for ServiceRadar.
-Config: /etc/serviceradar/cloud.json
+Config: /etc/serviceradar/core.json
 EOF
 
 # Create conffiles to mark configuration files
 cat > "${PKG_ROOT}/DEBIAN/conffiles" << EOF
-/etc/serviceradar/cloud.json
+/etc/serviceradar/core.json
 EOF
 
 # Create systemd service file
-cat > "${PKG_ROOT}/lib/systemd/system/serviceradar-cloud.service" << EOF
+cat > "${PKG_ROOT}/lib/systemd/system/serviceradar-core.service" << EOF
 [Unit]
-Description=ServiceRadar Cloud Service
+Description=ServiceRadar Core Service
 After=network.target
 
 [Service]
 Type=simple
 User=serviceradar
-ExecStart=/usr/local/bin/serviceradar-cloud -config /etc/serviceradar/cloud.json
+ExecStart=/usr/local/bin/serviceradar-core -config /etc/serviceradar/core.json
 Restart=always
 RestartSec=10
 TimeoutStopSec=20
@@ -75,9 +75,9 @@ WantedBy=multi-user.target
 EOF
 
 # Create default config only if we're creating a fresh package
-if [ ! -f "/etc/serviceradar/cloud.json" ]; then
+if [ ! -f "/etc/serviceradar/core.json" ]; then
     # Create default config file
-    cat > "${PKG_ROOT}/etc/serviceradar/cloud.json" << EOF
+    cat > "${PKG_ROOT}/etc/serviceradar/core.json" << EOF
 {
     "listen_addr": ":8090",
     "grpc_addr": ":50052",
@@ -123,7 +123,7 @@ fi
 
 # Set permissions
 chown -R serviceradar:serviceradar /etc/serviceradar
-chmod 755 /usr/local/bin/serviceradar-cloud
+chmod 755 /usr/local/bin/serviceradar-core
 
 mkdir -p "${PKG_ROOT}/var/lib/serviceradar"
 chown -R serviceradar:serviceradar "${PKG_ROOT}/var/lib/serviceradar"
@@ -131,8 +131,8 @@ chmod 755 "${PKG_ROOT}/var/lib/serviceradar"
 
 # Enable and start service
 systemctl daemon-reload
-systemctl enable serviceradar-cloud
-systemctl start serviceradar-cloud
+systemctl enable serviceradar-core
+systemctl start serviceradar-core
 
 exit 0
 EOF
@@ -145,8 +145,8 @@ cat > "${PKG_ROOT}/DEBIAN/prerm" << EOF
 set -e
 
 # Stop and disable service
-systemctl stop serviceradar-cloud
-systemctl disable serviceradar-cloud
+systemctl stop serviceradar-core
+systemctl disable serviceradar-core
 
 exit 0
 EOF

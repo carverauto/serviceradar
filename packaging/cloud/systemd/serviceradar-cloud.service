@@ -1,11 +1,11 @@
 [Unit]
-Description=ServiceRadar Cloud Service
+Description=ServiceRadar Core Service
 After=network.target
 
 [Service]
 Type=simple
 User=serviceradar
-ExecStart=/usr/local/bin/serviceradar-cloud -config /etc/serviceradar/cloud.json
+ExecStart=/usr/local/bin/serviceradar-core -config /etc/serviceradar/core.json
 Restart=always
 RestartSec=10
 TimeoutStopSec=20

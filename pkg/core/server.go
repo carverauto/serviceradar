@@ -115,7 +115,7 @@ func (s *Server) initializeWebhooks(configs []alerts.WebhookConfig) {
 
 // Start implements the lifecycle.Service interface.
 func (s *Server) Start(ctx context.Context) error {
-	log.Printf("Starting cloud service...")
+	log.Printf("Starting core service...")
 
 	// Clean up any unknown pollers first
 	if err := s.cleanupUnknownPollers(ctx); err != nil {
@@ -272,10 +272,10 @@ func (s *Server) sendStartupNotification(ctx context.Context) error {
 
 	alert := &alerts.WebhookAlert{
 		Level:     alerts.Info,
-		Title:     "Cloud Service Started",
-		Message:   fmt.Sprintf("ServiceRadar cloud service initialized at %s", time.Now().Format(time.RFC3339)),
+		Title:     "Core Service Started",
+		Message:   fmt.Sprintf("ServiceRadar core service initialized at %s", time.Now().Format(time.RFC3339)),
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
-		NodeID:    "cloud",
+		NodeID:    "core",
 		Details: map[string]any{
 			"version":  "1.0.20",
 			"hostname": getHostname(),
@@ -292,10 +292,10 @@ func (s *Server) sendShutdownNotification(ctx context.Context) error {
 
 	alert := &alerts.WebhookAlert{
 		Level:     alerts.Warning,
-		Title:     "Cloud Service Stopping",
-		Message:   fmt.Sprintf("ServiceRadar cloud service shutting down at %s", time.Now().Format(time.RFC3339)),
+		Title:     "Core Service Stopping",
+		Message:   fmt.Sprintf("ServiceRadar core service shutting down at %s", time.Now().Format(time.RFC3339)),
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
-		NodeID:    "cloud",
+		NodeID:    "core",
 		Details: map[string]any{
 			"hostname": getHostname(),
 		},
@@ -315,10 +315,10 @@ func (s *Server) Shutdown(ctx context.Context) {
 	if len(s.webhooks) > 0 {
 		alert := alerts.WebhookAlert{
 			Level:     alerts.Warning,
-			Title:     "Cloud Service Stopping",
-			Message:   fmt.Sprintf("ServiceRadar cloud service shutting down at %s", time.Now().Format(time.RFC3339)),
+			Title:     "Core Service Stopping",
+			Message:   fmt.Sprintf("ServiceRadar core service shutting down at %s", time.Now().Format(time.RFC3339)),
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
-			NodeID:    "cloud",
+			NodeID:    "core",
 			Details: map[string]any{
 				"hostname": getHostname(),
 				"pid":      os.Getpid(),
@@ -740,7 +740,7 @@ func (s *Server) checkNeverReportedNodes(ctx context.Context) error {
 			Level:     alerts.Warning,
 			Title:     "Pollers Never Reported",
 			Message:   fmt.Sprintf("%d poller(s) have not reported since startup", len(unreportedNodes)),
-			NodeID:    "cloud",
+			NodeID:    "core",
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			Details: map[string]any{
 				"hostname":     getHostname(),
@@ -800,7 +800,7 @@ func (s *Server) sendUnreportedNodesAlert(ctx context.Context, nodeIDs []string)
 		Level:     alerts.Warning,
 		Title:     "Pollers Never Reported",
 		Message:   fmt.Sprintf("%d poller(s) have not reported since startup", len(nodeIDs)),
-		NodeID:    "cloud",
+		NodeID:    "core",
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		Details: map[string]any{
 			"hostname":     getHostname(),

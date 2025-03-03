@@ -55,13 +55,13 @@ type AgentConnection struct {
 // Poller represents the monitoring poller.
 type Poller struct {
 	proto.UnimplementedPollerServiceServer
-	config      Config
-	cloudClient proto.PollerServiceClient
-	grpcClient  *grpc.ClientConn
-	mu          sync.RWMutex
-	agents      map[string]*AgentConnection
-	done        chan struct{}
-	closeOnce   sync.Once
+	config     Config
+	coreClient proto.PollerServiceClient
+	grpcClient *grpc.ClientConn
+	mu         sync.RWMutex
+	agents     map[string]*AgentConnection
+	done       chan struct{}
+	closeOnce  sync.Once
 }
 
 // ServiceCheck manages a single service check operation.
@@ -78,9 +78,9 @@ func New(ctx context.Context, config *Config) (*Poller, error) {
 		done:   make(chan struct{}),
 	}
 
-	// Connect to cloud service
-	if err := p.connectToCloud(ctx); err != nil {
-		return nil, fmt.Errorf("failed to connect to cloud service: %w", err)
+	// Connect to core service
+	if err := p.connectToCore(ctx); err != nil {
+		return nil, fmt.Errorf("failed to connect to core service: %w", err)
 	}
 
 	// Initialize agent connections
@@ -156,10 +156,10 @@ func (p *Poller) Stop(ctx context.Context) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	// Close cloud client first
-	if p.cloudClient != nil {
+	// Close core client first
+	if p.coreClient != nil {
 		if err := p.grpcClient.Close(); err != nil {
-			log.Printf("Error closing cloud client: %v", err)
+			log.Printf("Error closing core client: %v", err)
 		}
 	}
 
@@ -174,7 +174,7 @@ func (p *Poller) Stop(ctx context.Context) error {
 
 	// Clear the maps to prevent any lingering references
 	p.agents = make(map[string]*AgentConnection)
-	p.cloudClient = nil
+	p.coreClient = nil
 
 	return nil
 }
@@ -188,10 +188,10 @@ func (p *Poller) Close() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	// Close cloud client
+	// Close core client
 	if p.grpcClient != nil {
 		if err := p.grpcClient.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("error closing cloud client: %w", err))
+			errs = append(errs, fmt.Errorf("error closing core client: %w", err))
 		}
 	}
 
@@ -371,32 +371,32 @@ func (p *Poller) reconnectAgent(ctx context.Context, agentName string, config *A
 	return nil
 }
 
-func (p *Poller) connectToCloud(ctx context.Context) error {
-	// Create connection config for cloud service
-	cloudConfig := &grpc.ConnectionConfig{
-		Address: p.config.CloudAddress,
+func (p *Poller) connectToCore(ctx context.Context) error {
+	// Create connection config for core service
+	coreConfig := &grpc.ConnectionConfig{
+		Address: p.config.CoreAddress,
 		Security: models.SecurityConfig{
 			Mode:       p.config.Security.Mode,
 			CertDir:    p.config.Security.CertDir,
-			ServerName: p.config.Security.ServerName, // Use main server name for cloud
+			ServerName: p.config.Security.ServerName, // Use main server name for core
 			Role:       "poller",
 		},
 	}
 
-	log.Printf("Connecting to cloud service at %s (server name: %s)",
-		p.config.CloudAddress, p.config.Security.ServerName)
+	log.Printf("Connecting to core service at %s (server name: %s)",
+		p.config.CoreAddress, p.config.Security.ServerName)
 
 	client, err := grpc.NewClient(
 		ctx,
-		cloudConfig,
+		coreConfig,
 		grpc.WithMaxRetries(grpcRetries),
 	)
 	if err != nil {
-		return fmt.Errorf("failed to create cloud client: %w", err)
+		return fmt.Errorf("failed to create core client: %w", err)
 	}
 
 	p.grpcClient = client
-	p.cloudClient = proto.NewPollerServiceClient(client.GetConnection())
+	p.coreClient = proto.NewPollerServiceClient(client.GetConnection())
 
 	return nil
 }
@@ -473,7 +473,7 @@ func (p *Poller) poll(ctx context.Context) error {
 		allStatuses = append(allStatuses, statuses...)
 	}
 
-	return p.reportToCloud(ctx, allStatuses)
+	return p.reportToCore(ctx, allStatuses)
 }
 
 func (p *Poller) pollAgent(ctx context.Context, agentName string, agentConfig *AgentConfig) ([]*proto.ServiceStatus, error) {
@@ -494,21 +494,15 @@ func (p *Poller) pollAgent(ctx context.Context, agentName string, agentConfig *A
 	return statuses, nil
 }
 
-func (p *Poller) reportToCloud(ctx context.Context, statuses []*proto.ServiceStatus) error {
-	if p == nil && p.grpcClient == nil {
-		log.Println("Poller or client is nil")
-	}
-
-	log.Printf("Reporting to cloud: PollerID=%s, Timestamp=%d, Services=%d", p.config.PollerID, time.Now().Unix(), len(statuses))
-
-	_, err := p.cloudClient.ReportStatus(ctx, &proto.PollerStatusRequest{
+func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStatus) error {
+	_, err := p.coreClient.ReportStatus(ctx, &proto.PollerStatusRequest{
 		Services:  statuses,
 		PollerId:  p.config.PollerID,
 		Timestamp: time.Now().Unix(),
 	})
 
 	if err != nil {
-		return fmt.Errorf("failed to report status to cloud: %w", err)
+		return fmt.Errorf("failed to report status to core: %w", err)
 	}
 
 	return nil

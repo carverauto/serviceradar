@@ -41,8 +41,8 @@ RUN go mod download
 COPY . .
 
 # Copy the built web UI from the previous stage
-COPY --from=web-builder /web-build/dist ./pkg/cloud/api/web/dist
+COPY --from=web-builder /web-build/dist ./pkg/core/api/web/dist
 
-# Build the cloud service
+# Build the core service
 RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 \
-    go build -o serviceradar-cloud ./cmd/cloud
+    go build -o serviceradar-core ./cmd/core

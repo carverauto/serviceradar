@@ -66,6 +66,6 @@ jobs:
             --bare --verbose .
           cd ../..
           # Uncomment after agent works
-          # cd cmd/cloud
-          # KO_DOCKER_REPO=${{ env.BASE_REPO }}/serviceradar-cloud CGO_ENABLED=1 GOFLAGS="-tags=containers" ko build ...
+          # cd cmd/core
+          # KO_DOCKER_REPO=${{ env.BASE_REPO }}/serviceradar-core CGO_ENABLED=1 GOFLAGS="-tags=containers" ko build ...
           # (add other components)

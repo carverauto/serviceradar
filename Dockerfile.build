@@ -39,4 +39,4 @@ RUN go mod download
 COPY . .
 
 # Default command - but we'll override this in build.sh
-CMD ["./setup-deb-cloud.sh"]
+CMD ["./setup-deb-core.sh"]

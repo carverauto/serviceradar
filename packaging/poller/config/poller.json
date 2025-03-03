@@ -35,7 +35,7 @@
             ]
         }
     },
-    "cloud_address": "changeme:50052",
+    "core_address": "changeme:50052",
     "listen_addr": ":50053",
     "poll_interval": "30s",
     "poller_id": "dusk",

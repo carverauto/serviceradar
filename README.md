@@ -55,9 +55,9 @@ sudo dpkg -i serviceradar-agent_1.0.20.deb serviceradar-poller_1.0.20.deb
 
 On a separate machine (recommended) or the same host:
 ```bash
-# Download and install cloud service
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.20/serviceradar-cloud_1.0.20.deb
-sudo dpkg -i serviceradar-cloud_1.0.20.deb
+# Download and install core service
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.20/serviceradar-core_1.0.20.deb
+sudo dpkg -i serviceradar-core_1.0.20.deb
 ```
 
 #### Optional: SNMP Polling
@@ -89,10 +89,10 @@ curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.20/ser
 sudo dpkg -i serviceradar-poller_1.0.20.deb
 ```
 
-3. On cloud host:
+3. On core host:
 ```bash
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.20/serviceradar-cloud_1.0.20.deb
-sudo dpkg -i serviceradar-cloud_1.0.20.deb
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.20/serviceradar-core.0.20.deb
+sudo dpkg -i serviceradar-core.0.20.deb
 ```
 
 ## Security
@@ -128,7 +128,7 @@ graph TD
     end
     
     subgraph "Cloud/Internet"
-        P --> CS[Cloud Service]
+        P --> CS[Core Service]
         CS --> WH[Webhook Alerts]
         WH --> Discord[Discord]
         WH --> Custom[Custom Webhooks]
@@ -153,10 +153,10 @@ graph TD
   - Coordinates monitoring activities
   - Can run on the same host as an agent or separately
   - Polls agents at configurable intervals
-  - Reports status to cloud service
-  - Multiple pollers can report to the same cloud service
+  - Reports status to core service
+  - Multiple pollers can report to the same core service
 
-3. **Cloud Service** (runs on a reliable host)
+3. **Core Service** (runs on a reliable host)
   - Receives reports from pollers
   - Provides web dashboard
   - Sends alerts via webhooks (Discord, etc.)
@@ -184,9 +184,9 @@ cd serviceradar
 ./scripts/setup-deb-poller.sh
 ```
 
-4. Build the cloud package:
+4. Build the core package:
 ```bash
-./scripts/setup-deb-cloud.sh
+./scripts/setup-deb-core.sh
 ```
 
 5. Build the dusk provisioner node package (optional):
@@ -215,7 +215,7 @@ sudo dpkg -i serviceradar-poller_1.0.20.deb
 
 3. **Cloud Installation** (on a reliable host):
 ```bash
-sudo dpkg -i serviceradar-cloud_1.0.20.deb
+sudo dpkg -i serviceradar-core.0.20.deb
 ```
 
 4. **SNMP Poller** (Optional):
@@ -383,7 +383,7 @@ Default location: `/etc/serviceradar/poller.json`
       ]
     }
   },
-  "cloud_address": "changeme:50052",
+  "core_address": "changeme:50052",
   "listen_addr": ":50053",
   "poll_interval": "30s",
   "poller_id": "dusk",
@@ -398,17 +398,17 @@ Default location: `/etc/serviceradar/poller.json`
 }
 ```
 
-**Note**: Make sure you update the `cloud_address` to the hostname/IP address of the cloud service.
+**Note**: Make sure you update the `core_address` to the hostname/IP address of the core service.
 
 For mTLS Security:
 * Change `mode` to `mtls`
-* Change `server_name` to the hostname/IP address of the cloud service, eg. `172.233.208.110`
+* Change `server_name` to the hostname/IP address of the core service, eg. `172.233.208.110`
 * Change `local_agent/address` to the hostname/IP address of the agent, eg. `192.168.2.22:50051`
 * Change `listen_addr` to the hostname/IP address, eg. `192.168.2.22:50053`
 
-### Cloud Configuration
+### Core Configuration
 
-Default location: `/etc/serviceradar/cloud.json`
+Default location: `/etc/serviceradar/core.json`
 
 ```json
 {
@@ -424,7 +424,7 @@ Default location: `/etc/serviceradar/cloud.json`
   "security": {
     "mode": "none",
     "cert_dir": "/etc/serviceradar/certs",
-    "role": "cloud"
+    "role": "core"
   },
   "webhooks": [
     {
@@ -462,11 +462,11 @@ For mTLS Security:
 2. **Poller Deployment**:
   - Can run on the same host as an agent or separately
   - Must be able to reach all agents
-  - Must be able to reach the cloud service
-  - Multiple pollers can report to the same cloud service
+  - Must be able to reach the core service
+  - Multiple pollers can report to the same core service
   - Each poller needs a unique poller_id
 
-3. **Cloud Service Deployment**:
+3. **Core Service Deployment**:
   - Should run on a reliable host outside your network
   - Needs to be accessible by all pollers
   - Provides web interface on port 8090
@@ -481,14 +481,14 @@ If you're using UFW (Ubuntu's Uncomplicated Firewall), here are the required rul
 sudo ufw allow 50051/tcp  # For agent gRPC server
 sudo ufw allow 50052/tcp  # For Dusk checker (if applicable)
 
-# On cloud host
+# On core host
 sudo ufw allow 50052/tcp  # For poller connections
 sudo ufw allow 8090/tcp   # For web interface
 ```
 
 ## Web Interface
 
-The web interface is available at `http://cloud-host:8090` and provides:
+The web interface is available at `http://core-host:8090` and provides:
 - Overall system status
 - Individual node status
 - Service status for each node

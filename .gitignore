@@ -145,7 +145,7 @@ elements/
 # binaries
 ./poller
 ./agent
-./cloud
+./core
 
 ./web/dist/assets
 ./dist
@@ -157,6 +157,8 @@ elements/
 serviceradar-dusk_*/
 serviceradar-poller_*/
 serviceradar-cloud_*/
+serviceradar-core*/
+serviceradar-web*/
 /pkg/cloud/api/web/dist/assets/
 
 # Coverage files

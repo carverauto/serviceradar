@@ -39,7 +39,7 @@ jobs:
         run: |
           ./scripts/setup-deb-agent.sh
           ./scripts/setup-deb-poller.sh
-          ./scripts/setup-deb-cloud.sh
+          ./scripts/setup-deb-core.sh
           ./scripts/setup-deb-web.sh
           ./scripts/setup-deb-dusk-checker.sh
           ./scripts/setup-deb-snmp-checker.sh
@@ -76,10 +76,10 @@ jobs:
         run: ./scripts/build-web.sh
       - name: Move web artifacts
         run: |
-          mkdir -p pkg/cloud/api/web/
-          cp -r web/dist pkg/cloud/api/web/
-          mkdir -p cmd/cloud/.kodata
-          cp -r web/dist cmd/cloud/.kodata/web
+          mkdir -p pkg/core/api/web/
+          cp -r web/dist pkg/core/api/web/
+          mkdir -p cmd/core/.kodata
+          cp -r web/dist cmd/core/.kodata/web
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -100,6 +100,6 @@ jobs:
             --image-refs=image-refs.txt \
             ./cmd/agent \
             ./cmd/poller \
-            ./cmd/cloud \
+            ./cmd/core \
             ./cmd/checkers/dusk \
             ./cmd/checkers/snmp

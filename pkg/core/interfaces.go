@@ -34,7 +34,7 @@ type NodeService interface {
 	CheckNodeHealth(nodeID string) (bool, error)
 }
 
-// CoreService represents the main cloud service functionality.
+// CoreService represents the main core service functionality.
 type CoreService interface {
 	Start(ctx context.Context) error
 	Stop(ctx context.Context) error

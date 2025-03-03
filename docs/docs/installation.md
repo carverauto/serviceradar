@@ -18,11 +18,11 @@ curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.20/ser
 sudo dpkg -i serviceradar-agent_1.0.20.deb serviceradar-poller_1.0.20.deb
 ```
 
-On a separate machine (recommended) or the same host for the cloud service:
+On a separate machine (recommended) or the same host for the core service:
 
 ```bash
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.20/serviceradar-cloud_1.0.20.deb
-sudo dpkg -i serviceradar-cloud_1.0.20.deb
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.20/serviceradar-core.0.20.deb
+sudo dpkg -i serviceradar-core.0.20.deb
 ```
 
 ## Optional Components
@@ -63,9 +63,9 @@ curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.20/ser
 sudo dpkg -i serviceradar-poller_1.0.20.deb
 ```
 
-3. On cloud host:
+3. On core host:
 
 ```bash
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.20/serviceradar-cloud_1.0.20.deb
-sudo dpkg -i serviceradar-cloud_1.0.20.deb
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.20/serviceradar-core.0.20.deb
+sudo dpkg -i serviceradar-core.0.20.deb
 ```

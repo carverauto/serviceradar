@@ -73,7 +73,6 @@ cd ..
 echo "Creating necessary directories..."
 mkdir -p release-artifacts
 mkdir -p bin
-mkdir -p pkg/cloud/api/web
 
 # Build web UI
 echo "Building web UI..."
@@ -81,15 +80,10 @@ cd web
 pnpm run build
 cd ..
 
-# Copy web UI to embedded location
-echo "Setting up web assets for embedding..."
-cp -r web/dist pkg/cloud/api/web/
-
 if [[ "$1" == "containers" ]]; then
     # Set up kodata directory
     echo "Setting up kodata directory for container builds..."
-    mkdir -p cmd/cloud/.kodata
-    cp -r web/dist cmd/cloud/.kodata/web
+    mkdir -p cmd/core/.kodata
 
     echo "Build environment for containerized builds is ready!"
 else
@@ -100,10 +94,10 @@ echo "You can now run:"
 if [[ "$1" == "containers" ]]; then
     echo "  - 'make container-build' to build container images"
     echo "  - 'make container-push' to build and push container images"
-    echo "  - 'make deb-cloud-container' to build the cloud Debian package with container support"
+    echo "  - 'make deb-core-container' to build the core Debian package with container support"
     echo "  - 'make deb-all-container' to build all Debian packages with container support"
 else
     echo "  - 'make build' to build all binaries"
-    echo "  - 'make deb-cloud' to build the cloud Debian package"
+    echo "  - 'make deb-core' to build the core Debian package"
     echo "  - 'make deb-all' to build all Debian packages"
 fi

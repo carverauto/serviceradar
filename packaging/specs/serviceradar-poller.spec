@@ -10,7 +10,7 @@ Requires:       systemd
 
 %description
 Poller component for ServiceRadar monitoring system.
-Collects and forwards monitoring data from agents to cloud service.
+Collects and forwards monitoring data from agents to core service.
 
 %install
 mkdir -p %{buildroot}/usr/local/bin

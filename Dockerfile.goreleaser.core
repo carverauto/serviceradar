@@ -37,9 +37,9 @@ COPY . .
 
 # Build web interface
 RUN cd web && npm install && npm run build \
-    && mkdir -p /src/pkg/cloud/api/web \
-    && cp -r dist /src/pkg/cloud/api/web/
+    && mkdir -p /src/pkg/core/api/web \
+    && cp -r dist /src/pkg/core/api/web/
 
-# Build the cloud service
+# Build the core service
 RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 \
-    go build -o serviceradar-cloud ./cmd/cloud
+    go build -o serviceradar-core ./cmd/core

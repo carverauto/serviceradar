@@ -36,7 +36,7 @@ func main() {
 
 func run() error {
 	// Parse command line flags
-	configPath := flag.String("config", "/etc/serviceradar/cloud.json", "Path to cloud config file")
+	configPath := flag.String("config", "/etc/serviceradar/core.json", "Path to core config file")
 	flag.Parse()
 
 	// Load configuration
@@ -48,7 +48,7 @@ func run() error {
 	// Create root context for lifecycle management
 	ctx := context.Background()
 
-	// Create cloud server
+	// Create core server
 	server, err := core.NewServer(ctx, &cfg)
 	if err != nil {
 		return err
