@@ -18,7 +18,7 @@
 
 //go:generate mockgen -destination=mock_server.go -package=cloud github.com/carverauto/serviceradar/pkg/cloud NodeService,CloudService
 
-package cloud
+package core
 
 import (
 	"context"

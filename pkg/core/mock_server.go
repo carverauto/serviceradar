@@ -7,7 +7,7 @@
 //
 
 // Package cloud is a generated GoMock package.
-package cloud
+package core
 
 import (
 	context "context"

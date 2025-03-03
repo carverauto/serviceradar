@@ -21,8 +21,8 @@ import (
 	"flag"
 	"log"
 
-	"github.com/carverauto/serviceradar/pkg/cloud"
-	"github.com/carverauto/serviceradar/pkg/cloud/api"
+	"github.com/carverauto/serviceradar/pkg/core"
+	"github.com/carverauto/serviceradar/pkg/core/api"
 	"github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/proto"
@@ -40,7 +40,7 @@ func run() error {
 	flag.Parse()
 
 	// Load configuration
-	cfg, err := cloud.LoadConfig(*configPath)
+	cfg, err := core.LoadConfig(*configPath)
 	if err != nil {
 		return err
 	}
@@ -49,7 +49,7 @@ func run() error {
 	ctx := context.Background()
 
 	// Create cloud server
-	server, err := cloud.NewServer(ctx, &cfg)
+	server, err := core.NewServer(ctx, &cfg)
 	if err != nil {
 		return err
 	}

@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package cloud
+package core
 
 import "errors"
 
