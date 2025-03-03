@@ -1,4 +1,4 @@
-/*-
+/*
  * Copyright 2025 Carver Automation Corporation.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+// Package metrics provides metric storage and retrieval functionality.
 package metrics
 
 import (
