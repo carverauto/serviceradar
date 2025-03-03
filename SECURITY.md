@@ -16,7 +16,7 @@ We take security seriously and appreciate your help in keeping our project safe.
 
 ### How to Report
 - **Email**: Send a detailed report to [security@serviceradar.cloud](mailto:security@serviceradar.cloud).  
-- **Discord**: Alternatively, you can contact us directly via our [official Discord server]([insert Discord invite link here](https://discord.gg/dq6qRcmN)). Please DM a member of the security team or a project maintainer.
+- **Discord**: Alternatively, you can contact us directly via our [official Discord server](https://discord.gg/dq6qRcmN). Please DM a member of the security team or a project maintainer.
 
 ### What to Include
 - A clear description of the vulnerability.
