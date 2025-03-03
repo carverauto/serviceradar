@@ -1,4 +1,4 @@
-/*-
+/*
  * Copyright 2025 Carver Automation Corporation.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+// Package db provides data models for the database service.
 package db
 
 import "time"
