@@ -32,7 +32,7 @@ jobs:
           go-version: '1.24'
 
       - name: Setup ko
-        uses: ko-build/setup-ko@v0.6
+        uses: ko-build/setup-ko@v0.8
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3

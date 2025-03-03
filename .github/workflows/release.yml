@@ -57,7 +57,7 @@ jobs:
           cache: 'npm'
           cache-dependency-path: 'web/package-lock.json'
       - name: Setup ko
-        uses: ko-build/setup-ko@v0.6
+        uses: ko-build/setup-ko@v0.8
       - name: Build web UI
         run: ./scripts/build-web.sh
       - name: Move web artifacts
