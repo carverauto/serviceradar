@@ -39,6 +39,7 @@ const ServiceDashboard = ({
                               initialMetrics = [],
                               initialSnmpData = [],
                               initialError = null,
+                              initialTimeRange = '1h',
                           }) => {
     const router = useRouter();
     const [serviceData ] = useState(initialService);
@@ -161,6 +162,7 @@ const ServiceDashboard = ({
                     nodeId={nodeId}
                     serviceName={serviceName}
                     initialData={snmpData}
+                    initialTimeRange={initialTimeRange}
                 />
             );
         }

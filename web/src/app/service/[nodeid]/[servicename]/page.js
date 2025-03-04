@@ -20,7 +20,7 @@ import ServiceDashboard from '../../../../components/ServiceDashboard';
 
 export const revalidate = 0;
 
-async function fetchServiceData(nodeId, serviceName) {
+async function fetchServiceData(nodeId, serviceName, timeRange = '1h') {
     try {
         const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8090';
         const apiKey = process.env.API_KEY || '';
@@ -68,7 +68,21 @@ async function fetchServiceData(nodeId, serviceName) {
             try {
                 const end = new Date();
                 const start = new Date();
-                start.setHours(end.getHours() - 24); // Get 24h of data for initial load
+
+                // Adjust start time based on timeRange
+                switch (timeRange) {
+                    case '1h':
+                        start.setHours(end.getHours() - 1);
+                        break;
+                    case '6h':
+                        start.setHours(end.getHours() - 6);
+                        break;
+                    case '24h':
+                        start.setHours(end.getHours() - 24);
+                        break;
+                    default:
+                        start.setHours(end.getHours() - 1);
+                }
 
                 const snmpUrl = `${backendUrl}/api/nodes/${nodeId}/snmp?start=${start.toISOString()}&end=${end.toISOString()}`;
                 console.log("Fetching SNMP from:", snmpUrl);
@@ -91,7 +105,7 @@ async function fetchServiceData(nodeId, serviceName) {
             }
         }
 
-        return { service, metrics: serviceMetrics, snmpData };
+        return { service, metrics: serviceMetrics, snmpData, timeRange };
     } catch (err) {
         console.error('Error fetching data:', err);
         return { error: err.message };
@@ -107,13 +121,15 @@ export async function generateMetadata({ params }) {
 
 export default async function Page({ params }) {
     const { nodeid, servicename } = await params;
-    const initialData = await fetchServiceData(nodeid, servicename);
+    const timeRange = searchParams?.timeRange || '1h'; // Get timeRange from query params
+    const initialData = await fetchServiceData(nodeid, servicename, timeRange);
 
     console.log("Page fetched data:", {
         service: !!initialData.service,
         metricsLength: initialData.metrics?.length,
         snmpDataLength: initialData.snmpData?.length,
         error: initialData.error,
+        timeRange: initialData.timeRange,
     });
 
     return (
@@ -132,6 +148,7 @@ export default async function Page({ params }) {
                     initialMetrics={initialData.metrics || []}
                     initialSnmpData={initialData.snmpData || []}
                     initialError={initialData.error}
+                    initialTimeRange={initialData.timeRange || '1h'}
                 />
             </Suspense>
         </div>

@@ -16,15 +16,16 @@
 
 'use client';
 
-import React, {useCallback, useState, useEffect} from 'react';
-import {CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis} from 'recharts';
-import { useRouter } from 'next/navigation';
+import React, { useCallback, useState, useEffect } from 'react';
+import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { useRouter, useSearchParams } from 'next/navigation';
 
-const SNMPDashboard = ({ nodeId, serviceName, initialData = [] }) => {
+const SNMPDashboard = ({ nodeId, serviceName, initialData = [], initialTimeRange = '1h' }) => {
     const router = useRouter();
+    const searchParams = useSearchParams();
     const [snmpData, setSNMPData] = useState(initialData);
     const [processedData, setProcessedData] = useState([]);
-    const [timeRange, setTimeRange] = useState('1h');
+    const [timeRange, setTimeRange] = useState(searchParams.get('timeRange') || initialTimeRange);
     const [selectedMetric, setSelectedMetric] = useState(null);
     const [availableMetrics, setAvailableMetrics] = useState([]);
 
@@ -33,18 +34,15 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [] }) => {
         if (!data || data.length < 2) return data || [];
 
         try {
-            // Process the data points to calculate rates
             return data.map((point, index) => {
-                if (index === 0) return {...point, rate: 0};
+                if (index === 0) return { ...point, rate: 0 };
 
                 const prevPoint = data[index - 1];
                 const timeDiff = (new Date(point.timestamp) - new Date(prevPoint.timestamp)) / 1000;
 
-                // Safely parse values
                 const currentValue = parseFloat(point.value) || 0;
                 const prevValue = parseFloat(prevPoint.value) || 0;
 
-                // Handle counter wrapping
                 let rate = 0;
                 if (currentValue >= prevValue) {
                     rate = (currentValue - prevValue) / timeDiff;
@@ -55,7 +53,7 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [] }) => {
 
                 return {
                     ...point,
-                    rate: rate
+                    rate: rate,
                 };
             });
         } catch (error) {
@@ -64,39 +62,24 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [] }) => {
         }
     }, []);
 
-    // Set up auto-refresh from server
-    useEffect(() => {
-        const refreshInterval = 30000; // 30 seconds
-        const timer = setInterval(() => {
-            router.refresh(); // Trigger a server-side refresh
-        }, refreshInterval);
-
-        return () => clearInterval(timer);
-    }, [router]);
-
     // Initialize metrics and selection
     useEffect(() => {
         if (initialData.length > 0) {
             setSNMPData(initialData);
-
-            // Extract unique OID names
             const metrics = [...new Set(initialData.map(item => item.oid_name))];
             setAvailableMetrics(metrics);
-
             if (!selectedMetric && metrics.length > 0) {
                 setSelectedMetric(metrics[0]);
             }
         }
     }, [initialData, selectedMetric]);
 
-    // Process metric data when selected metric changes
+    // Process metric data when dependencies change
     useEffect(() => {
         if (snmpData.length > 0 && selectedMetric) {
             try {
-                // Filter by time range
                 const end = new Date();
                 const start = new Date();
-
                 switch (timeRange) {
                     case '1h':
                         start.setHours(end.getHours() - 1);
@@ -111,16 +94,12 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [] }) => {
                         start.setHours(end.getHours() - 1);
                 }
 
-                // Filter by time range
                 const timeFilteredData = snmpData.filter(item => {
                     const timestamp = new Date(item.timestamp);
                     return timestamp >= start && timestamp <= end;
                 });
 
-                // Filter by selected metric
                 const metricData = timeFilteredData.filter(item => item.oid_name === selectedMetric);
-
-                // Process the data
                 const processed = processCounterData(metricData);
                 setProcessedData(processed);
             } catch (err) {
@@ -129,31 +108,23 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [] }) => {
         }
     }, [selectedMetric, snmpData, timeRange, processCounterData]);
 
-    // When time range changes, refresh the page to get new data from server
     const handleTimeRangeChange = (range) => {
         setTimeRange(range);
-        // For significant time range changes, refresh data from server
-        if (range === '24h' || (timeRange === '24h' && range !== '24h')) {
-            router.refresh();
-        }
+        // Update URL without full refresh
+        const params = new URLSearchParams(searchParams);
+        params.set('timeRange', range);
+        router.push(`/service/${nodeId}/${serviceName}?${params.toString()}`, { scroll: false });
     };
 
     const formatRate = (rate) => {
         if (rate === undefined || rate === null || isNaN(rate)) return "N/A";
-
         const absRate = Math.abs(rate);
-        if (absRate >= 1000000000) {
-            return `${(rate / 1000000000).toFixed(2)} GB/s`;
-        } else if (absRate >= 1000000) {
-            return `${(rate / 1000000).toFixed(2)} MB/s`;
-        } else if (absRate >= 1000) {
-            return `${(rate / 1000).toFixed(2)} KB/s`;
-        } else {
-            return `${rate.toFixed(2)} B/s`;
-        }
+        if (absRate >= 1000000000) return `${(rate / 1000000000).toFixed(2)} GB/s`;
+        else if (absRate >= 1000000) return `${(rate / 1000000).toFixed(2)} MB/s`;
+        else if (absRate >= 1000) return `${(rate / 1000).toFixed(2)} KB/s`;
+        else return `${rate.toFixed(2)} B/s`;
     };
 
-    // Empty data state
     if (!initialData.length) {
         return (
             <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
@@ -202,19 +173,15 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [] }) => {
 
     return (
         <div className="space-y-6">
-            {/* Controls */}
             <div className="flex justify-between items-center bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
                 <div className="flex gap-4">
                     <select
                         value={selectedMetric || ''}
                         onChange={(e) => setSelectedMetric(e.target.value)}
-                        className="px-3 py-2 border rounded text-gray-800 dark:text-gray-200
-                     dark:bg-gray-700 dark:border-gray-600"
+                        className="px-3 py-2 border rounded text-gray-800 dark:text-gray-200 dark:bg-gray-700 dark:border-gray-600"
                     >
                         {availableMetrics.map(metric => (
-                            <option key={metric} value={metric}>
-                                {metric}
-                            </option>
+                            <option key={metric} value={metric}>{metric}</option>
                         ))}
                     </select>
                     <div className="flex gap-2">
@@ -235,7 +202,6 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [] }) => {
                 </div>
             </div>
 
-            {/* Chart */}
             {processedData.length > 0 && (
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
                     <div className="h-96">
@@ -255,7 +221,7 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [] }) => {
                                     labelFormatter={(ts) => new Date(ts).toLocaleString()}
                                     formatter={(value, name) => [
                                         formatRate(value),
-                                        name === 'rate' ? 'Transfer Rate' : name
+                                        name === 'rate' ? 'Transfer Rate' : name,
                                     ]}
                                 />
                                 <Legend />
@@ -273,7 +239,6 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [] }) => {
                 </div>
             )}
 
-            {/* Latest Values Table */}
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
                 <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                     <thead className="bg-gray-50 dark:bg-gray-700">
@@ -295,11 +260,8 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [] }) => {
                             const metricData = processCounterData(
                                 snmpData.filter(item => item.oid_name === metric)
                             );
-
                             if (!metricData || !metricData.length) return null;
-
                             const latestDataPoint = metricData[metricData.length - 1];
-
                             return latestDataPoint ? (
                                 <tr key={metric}>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800 dark:text-gray-200">
