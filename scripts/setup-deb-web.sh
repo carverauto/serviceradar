@@ -19,7 +19,7 @@ set -e  # Exit on any error
 
 echo "Setting up package structure for Next.js web interface..."
 
-VERSION=${VERSION:-1.0.20}
+VERSION=${VERSION:-1.0.21}
 
 # Create package directory structure
 PKG_ROOT="serviceradar-web_${VERSION}"
@@ -84,7 +84,7 @@ server {
     access_log /var/log/nginx/serviceradar-web.access.log;
     error_log /var/log/nginx/serviceradar-web.error.log;
 
-    # API proxy (assumes serviceradar-cloud package is installed)
+    # API proxy (assumes serviceradar-core package is installed)
     location /api/ {
         proxy_pass http://localhost:8090;
         proxy_set_header Host \$host;
@@ -120,7 +120,7 @@ Section: utils
 Priority: optional
 Architecture: amd64
 Depends: systemd, nodejs (>= 16.0.0), nginx
-Recommends: serviceradar-cloud
+Recommends: serviceradar-core
 Maintainer: Michael Freeman <mfreeman451@gmail.com>
 Description: ServiceRadar web interface
  Next.js web interface for the ServiceRadar monitoring system.
@@ -184,15 +184,15 @@ chown -R serviceradar:serviceradar /etc/serviceradar/web.json
 chmod 755 /usr/local/share/serviceradar-web
 chmod 644 /etc/serviceradar/web.json
 
-# Check for API key from cloud package
+# Check for API key from core package
 if [ ! -f "/etc/serviceradar/api.env" ]; then
-    echo "WARNING: API key file not found. The serviceradar-cloud package should be installed first."
+    echo "WARNING: API key file not found. The serviceradar-core package should be installed first."
     echo "Creating a temporary API key file..."
     API_KEY=\$(openssl rand -hex 32)
     echo "API_KEY=\$API_KEY" > /etc/serviceradar/api.env
     chmod 600 /etc/serviceradar/api.env
     chown serviceradar:serviceradar /etc/serviceradar/api.env
-    echo "For proper functionality, please reinstall serviceradar-cloud package."
+    echo "For proper functionality, please reinstall serviceradar-core package."
 fi
 
 # Configure Nginx

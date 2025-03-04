@@ -19,7 +19,7 @@ set -e  # Exit on any error
 
 echo "Setting up package structure..."
 
-VERSION=${VERSION:-1.0.20}
+VERSION=${VERSION:-1.0.21}
 BUILD_TAGS=${BUILD_TAGS:-""}
 
 # Create package directory structure
