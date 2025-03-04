@@ -277,7 +277,7 @@ func (s *Server) sendStartupNotification(ctx context.Context) error {
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		NodeID:    "core",
 		Details: map[string]any{
-			"version":  "1.0.20",
+			"version":  "1.0.21",
 			"hostname": getHostname(),
 		},
 	}

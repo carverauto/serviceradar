@@ -75,7 +75,7 @@ To update images, edit the `kustomization.yaml` in your overlay directory:
 ```yaml
 images:
 - name: ghcr.io/carverauto/serviceradar/serviceradar-agent
-  newTag: v1.0.20  # Change to desired version
+  newTag: v1.0.21  # Change to desired version
 ```
 
 ## Troubleshooting

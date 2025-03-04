@@ -47,31 +47,31 @@ ServiceRadar can be installed via direct downloads from GitHub releases.
 Install these components on your monitored host:
 ```bash
 # Download and install core components
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.20/serviceradar-agent_1.0.20.deb \
-     -O https://github.com/carverauto/serviceradar/releases/download/1.0.20/serviceradar-poller_1.0.20.deb
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.21/serviceradar-agent_1.0.21.deb \
+     -O https://github.com/carverauto/serviceradar/releases/download/1.0.21/serviceradar-poller_1.0.21.deb
 
-sudo dpkg -i serviceradar-agent_1.0.20.deb serviceradar-poller_1.0.20.deb
+sudo dpkg -i serviceradar-agent_1.0.21.deb serviceradar-poller_1.0.21.deb
 ```
 
 On a separate machine (recommended) or the same host:
 ```bash
 # Download and install core service
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.20/serviceradar-core_1.0.20.deb
-sudo dpkg -i serviceradar-core_1.0.20.deb
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.21/serviceradar-core_1.0.21.deb
+sudo dpkg -i serviceradar-core_1.0.21.deb
 ```
 
 #### Optional: SNMP Polling
 Download and install the SNMP checker to collect and visualize metrics:
 ```bash
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.20/serviceradar-snmp-checker_1.0.20.deb
-sudo dpkg -i serviceradar-snmp-checker_1.0.20.deb
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.21/serviceradar-snmp-checker_1.0.21.deb
+sudo dpkg -i serviceradar-snmp-checker_1.0.21.deb
 ```
 
 #### Optional: Dusk Node Monitoring
 If you're running a [Dusk](https://dusk.network/) node and want specialized monitoring:
 ```bash
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.20/serviceradar-dusk-checker_1.0.20.deb
-sudo dpkg -i serviceradar-dusk-checker_1.0.20.deb
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.21/serviceradar-dusk-checker_1.0.21.deb
+sudo dpkg -i serviceradar-dusk-checker_1.0.21.deb
 ```
 
 #### Distributed Setup
@@ -79,19 +79,19 @@ For larger deployments where components run on different hosts:
 
 1. On monitored hosts:
 ```bash
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.20/serviceradar-agent_1.0.20.deb
-sudo dpkg -i serviceradar-agent_1.0.20.deb
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.21/serviceradar-agent_1.0.21.deb
+sudo dpkg -i serviceradar-agent_1.0.21.deb
 ```
 
 2. On monitoring host:
 ```bash
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.20/serviceradar-poller_1.0.20.deb
-sudo dpkg -i serviceradar-poller_1.0.20.deb
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.21/serviceradar-poller_1.0.21.deb
+sudo dpkg -i serviceradar-poller_1.0.21.deb
 ```
 
 3. On core host:
 ```bash
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.20/serviceradar-core.0.20.deb
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.21/serviceradar-core.0.20.deb
 sudo dpkg -i serviceradar-core.0.20.deb
 ```
 
@@ -203,24 +203,24 @@ cd serviceradar
 
 1. **Agent Installation** (on monitored hosts):
 ```bash
-sudo dpkg -i serviceradar-dusk-checker_1.0.20.deb  # For Dusk nodes
+sudo dpkg -i serviceradar-dusk-checker_1.0.21.deb  # For Dusk nodes
 # or
-sudo dpkg -i serviceradar-agent_1.0.20.deb  # For other hosts
+sudo dpkg -i serviceradar-agent_1.0.21.deb  # For other hosts
 ```
 
 2. **Poller Installation** (on any host in your network):
 ```bash
-sudo dpkg -i serviceradar-poller_1.0.20.deb
+sudo dpkg -i serviceradar-poller_1.0.21.deb
 ```
 
-3. **Cloud Installation** (on a reliable host):
+3. **Core Installation** (on a reliable host):
 ```bash
-sudo dpkg -i serviceradar-core.0.20.deb
+sudo dpkg -i serviceradar-core.1.0.21.deb
 ```
 
 4. **SNMP Poller** (Optional):
 ```bash
-sudo dpkg -i serviceradar-snmp-checker_1.0.20.deb
+sudo dpkg -i serviceradar-snmp-checker_1.0.21.deb
 ```
 
 ## Configuration
