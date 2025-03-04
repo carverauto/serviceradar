@@ -18,6 +18,28 @@
 import { Suspense } from 'react';
 import Dashboard from '../components/Dashboard';
 
+interface ServiceDetails {
+    response_time?: number;
+    packet_loss?: number;
+    available?: boolean;
+    round_trip?: number;
+    [key: string]: unknown;
+}
+
+interface Service {
+    name: string;
+    type: string;
+    available: boolean;
+    details?: ServiceDetails | string;
+}
+
+interface Node {
+    node_id: string;
+    is_healthy: boolean;
+    last_update: string;
+    services?: Service[];
+}
+
 // This runs only on the server
 async function fetchStatus() {
     try {
@@ -51,7 +73,7 @@ async function fetchStatus() {
             throw new Error(`Nodes API request failed: ${nodesResponse.status}`);
         }
 
-        const nodesData = await nodesResponse.json();
+        const nodesData: Node[] = await nodesResponse.json();
 
         // Calculate service statistics
         let totalServices = 0;
@@ -59,11 +81,11 @@ async function fetchStatus() {
         let totalResponseTime = 0;
         let servicesWithResponseTime = 0;
 
-        nodesData.forEach(node => {
+        nodesData.forEach((node: Node) => {
             if (node.services && Array.isArray(node.services)) {
                 totalServices += node.services.length;
 
-                node.services.forEach(service => {
+                node.services.forEach((service: Service) => {
                     if (!service.available) {
                         offlineServices++;
                     }
