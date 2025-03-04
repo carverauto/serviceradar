@@ -16,6 +16,7 @@
 
 import { useState } from 'react';
 import ExportButton from './ExportButton';
+import { Filter, Search, ChevronDown, ChevronUp } from 'lucide-react';
 
 const compareIPAddresses = (ip1, ip2) => {
     // Split IPs into their octets and convert to numbers
@@ -33,87 +34,104 @@ const compareIPAddresses = (ip1, ip2) => {
 
 // Host details subcomponent with ICMP and port results
 const HostDetailsView = ({ host }) => {
+    const [expanded, setExpanded] = useState(false);
+
     const formatResponseTime = (ns) => {
         if (!ns || ns === 0) return 'N/A';
         const ms = ns / 1000000; // Convert nanoseconds to milliseconds
         return `${ms.toFixed(2)}ms`;
     };
 
+    const toggleExpanded = () => {
+        setExpanded(!expanded);
+    };
+
     return (
         <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow transition-colors">
             <div className="flex justify-between items-center">
-                <h4 className="text-lg font-semibold text-gray-800 dark:text-gray-200">
+                <h4 className="text-base sm:text-lg font-semibold text-gray-800 dark:text-gray-200">
                     {host.host}
                 </h4>
-                <span
-                    className={`px-2 py-1 rounded ${
-                        host.available
-                            ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100'
-                            : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100'
-                    }`}
-                >
-          {host.available ? 'Online' : 'Offline'}
-        </span>
+                <div className="flex items-center gap-2">
+                    <span
+                        className={`px-2 py-1 text-xs sm:text-sm rounded transition-colors ${
+                            host.available
+                                ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100'
+                                : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100'
+                        }`}
+                    >
+                        {host.available ? 'Online' : 'Offline'}
+                    </span>
+                    <button
+                        onClick={toggleExpanded}
+                        className="p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 sm:hidden"
+                    >
+                        {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                    </button>
+                </div>
             </div>
 
-            {/* ICMP Status Section */}
-            {host.icmp_status && (
-                <div className="mt-3 bg-gray-50 dark:bg-gray-700 p-3 rounded transition-colors">
-                    <h5 className="font-medium mb-2 text-gray-800 dark:text-gray-200">
-                        ICMP Status
-                    </h5>
-                    <div className="grid grid-cols-2 gap-2 text-sm">
-                        <div>
-              <span className="text-gray-600 dark:text-gray-400">
-                Response Time:
-              </span>
-                            <span className="ml-2 font-medium text-gray-800 dark:text-gray-200">
-                {formatResponseTime(host.icmp_status.round_trip)}
-              </span>
-                        </div>
-                        <div>
-              <span className="text-gray-600 dark:text-gray-400">
-                Packet Loss:
-              </span>
-                            <span className="ml-2 font-medium text-gray-800 dark:text-gray-200">
-                {host.icmp_status.packet_loss}%
-              </span>
+            {/* Always visible on desktop, toggle on mobile */}
+            <div className={`mt-3 ${expanded ? 'block' : 'hidden sm:block'}`}>
+                {/* ICMP Status Section */}
+                {host.icmp_status && (
+                    <div className="mt-3 bg-gray-50 dark:bg-gray-700 p-3 rounded transition-colors">
+                        <h5 className="font-medium mb-2 text-gray-800 dark:text-gray-200">
+                            ICMP Status
+                        </h5>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+                            <div>
+                                <span className="text-gray-600 dark:text-gray-400">
+                                    Response Time:
+                                </span>
+                                <span className="ml-2 font-medium text-gray-800 dark:text-gray-200">
+                                    {formatResponseTime(host.icmp_status.round_trip)}
+                                </span>
+                            </div>
+                            <div>
+                                <span className="text-gray-600 dark:text-gray-400">
+                                    Packet Loss:
+                                </span>
+                                <span className="ml-2 font-medium text-gray-800 dark:text-gray-200">
+                                    {host.icmp_status.packet_loss}%
+                                </span>
+                            </div>
                         </div>
                     </div>
-                </div>
-            )}
+                )}
 
-            {/* Port Results */}
-            {host.port_results?.length > 0 && (
-                <div className="mt-4">
-                    <h5 className="font-medium text-gray-800 dark:text-gray-200">
-                        Open Ports
-                    </h5>
-                    <div className="grid grid-cols-2 gap-2 mt-2">
-                        {host.port_results
-                            .filter((port) => port.available)
-                            .map((port) => (
-                                <div
-                                    key={port.port}
-                                    className="text-sm bg-gray-50 dark:bg-gray-700 p-2 rounded transition-colors"
-                                >
-                  <span className="font-medium text-gray-800 dark:text-gray-200">
-                    Port {port.port}
-                  </span>
-                                    {port.service && (
-                                        <span className="text-gray-600 dark:text-gray-400 ml-1">
-                      ({port.service})
-                    </span>
-                                    )}
-                                </div>
-                            ))}
+                {/* Port Results */}
+                {host.port_results?.length > 0 && (
+                    <div className="mt-4">
+                        <h5 className="font-medium text-gray-800 dark:text-gray-200">
+                            Open Ports
+                        </h5>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+                            {host.port_results
+                                .filter((port) => port.available)
+                                .map((port) => (
+                                    <div
+                                        key={port.port}
+                                        className="text-sm bg-gray-50 dark:bg-gray-700 p-2 rounded transition-colors"
+                                    >
+                                        <span className="font-medium text-gray-800 dark:text-gray-200">
+                                            Port {port.port}
+                                        </span>
+                                        {port.service && (
+                                            <span className="text-gray-600 dark:text-gray-400 ml-1">
+                                                ({port.service})
+                                            </span>
+                                        )}
+                                    </div>
+                                ))}
+                        </div>
                     </div>
-                </div>
-            )}
+                )}
 
-            <div className="mt-4 text-xs text-gray-500 dark:text-gray-400">
-                <div>First seen: {new Date(host.first_seen).toLocaleString()}</div>
-                <div>Last seen: {new Date(host.last_seen).toLocaleString()}</div>
+                <div className="mt-4 text-xs text-gray-500 dark:text-gray-400">
+                    <div>First seen: {new Date(host.first_seen).toLocaleString()}</div>
+                    <div>Last seen: {new Date(host.last_seen).toLocaleString()}</div>
+                </div>
             </div>
         </div>
     );
@@ -122,6 +140,7 @@ const HostDetailsView = ({ host }) => {
 const NetworkSweepView = ({ nodeId, service, standalone = false }) => {
     const [viewMode, setViewMode] = useState('summary');
     const [searchTerm, setSearchTerm] = useState('');
+    const [showFilters, setShowFilters] = useState(false);
 
     // Parse sweep details from service
     const sweepDetails =
@@ -152,12 +171,6 @@ const NetworkSweepView = ({ nodeId, service, standalone = false }) => {
                 host.icmp_status?.round_trip > 0 &&
                 host.icmp_status?.round_trip < 10000000;
 
-            if (hasICMPResponse) {
-                console.log(`Host ${host.host} has valid ICMP response:`, host.icmp_status);
-            } else if (host.icmp_status) {
-                console.log(`Host ${host.host} has invalid ICMP response:`, host.icmp_status);
-            }
-
             return hasOpenPorts || hasICMPResponse;
         });
     };
@@ -170,6 +183,10 @@ const NetworkSweepView = ({ nodeId, service, standalone = false }) => {
             host.host.toLowerCase().includes(searchTerm.toLowerCase())
         )
         : [];
+
+    const toggleFilters = () => {
+        setShowFilters(!showFilters);
+    };
 
     return (
         <div
@@ -186,7 +203,7 @@ const NetworkSweepView = ({ nodeId, service, standalone = false }) => {
                         : ''
                 }`}
             >
-                <div className="flex justify-between items-center mb-4">
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
                     <div>
                         <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200">
                             Network Sweep: {sweepDetails.network}
@@ -196,8 +213,8 @@ const NetworkSweepView = ({ nodeId, service, standalone = false }) => {
                             responding
                         </p>
                     </div>
-                    <div className="flex items-center gap-4">
-                        <div className="space-x-2">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
+                        <div className="flex flex-wrap gap-2">
                             <button
                                 onClick={() => setViewMode('summary')}
                                 className={`px-3 py-1 rounded transition-colors ${
@@ -219,21 +236,36 @@ const NetworkSweepView = ({ nodeId, service, standalone = false }) => {
                                 Host Details
                             </button>
                         </div>
-                        <ExportButton sweepDetails={sweepDetails} />
+                        <div className="hidden sm:block">
+                            <ExportButton sweepDetails={sweepDetails} />
+                        </div>
                     </div>
                 </div>
 
                 {viewMode === 'hosts' && (
-                    <div className="flex items-center gap-4 mt-4">
-                        <input
-                            type="text"
-                            placeholder="Search hosts..."
-                            className="flex-1 p-2 border rounded text-gray-700 dark:text-gray-200 dark:bg-gray-800 border-gray-300 dark:border-gray-600"
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                        />
+                    <div className="flex items-center gap-2 mt-4">
+                        <div className="relative flex-1">
+                            <input
+                                type="text"
+                                placeholder="Search hosts..."
+                                className="w-full p-2 border rounded text-gray-700 dark:text-gray-200 dark:bg-gray-800 border-gray-300 dark:border-gray-600 pl-8"
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                            />
+                            <Search className="absolute left-2 top-2.5 h-4 w-4 text-gray-400" />
+                        </div>
+                        <button
+                            onClick={toggleFilters}
+                            className="sm:hidden p-2 border rounded text-gray-700 dark:text-gray-200 dark:bg-gray-800 border-gray-300 dark:border-gray-600"
+                        >
+                            <Filter className="h-4 w-4" />
+                        </button>
                     </div>
                 )}
+
+                <div className="sm:hidden mt-4">
+                    <ExportButton sweepDetails={sweepDetails} />
+                </div>
 
                 <div className="text-sm text-gray-500 dark:text-gray-400 mt-2">
                     Last sweep: {new Date(sweepDetails.last_sweep * 1000).toLocaleString()}
@@ -246,13 +278,13 @@ const NetworkSweepView = ({ nodeId, service, standalone = false }) => {
                     <h4 className="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-200">
                         ICMP Status Summary
                     </h4>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         {/* ICMP Responding */}
                         <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded transition-colors">
                             <div className="text-sm text-gray-600 dark:text-gray-400">
                                 ICMP Responding
                             </div>
-                            <div className="text-2xl font-bold text-gray-800 dark:text-gray-100">
+                            <div className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-gray-100">
                                 {
                                     respondingHosts.filter(
                                         (h) =>
@@ -260,8 +292,8 @@ const NetworkSweepView = ({ nodeId, service, standalone = false }) => {
                                     ).length
                                 }
                                 <span className="text-sm text-gray-500 dark:text-gray-300 ml-2">
-                  hosts
-                </span>
+                                    hosts
+                                </span>
                             </div>
                         </div>
 
@@ -270,7 +302,7 @@ const NetworkSweepView = ({ nodeId, service, standalone = false }) => {
                             <div className="text-sm text-gray-600 dark:text-gray-400">
                                 Average Response Time
                             </div>
-                            <div className="text-2xl font-bold text-gray-800 dark:text-gray-100">
+                            <div className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-gray-100">
                                 {(() => {
                                     const respondingToICMP = respondingHosts.filter(
                                         (h) =>
@@ -296,7 +328,7 @@ const NetworkSweepView = ({ nodeId, service, standalone = false }) => {
                             <div className="text-sm text-gray-600 dark:text-gray-400">
                                 Open Services
                             </div>
-                            <div className="text-2xl font-bold text-gray-800 dark:text-gray-100">
+                            <div className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-gray-100">
                                 {respondingHosts.reduce(
                                     (acc, host) =>
                                         acc +
@@ -305,8 +337,8 @@ const NetworkSweepView = ({ nodeId, service, standalone = false }) => {
                                     0
                                 )}
                                 <span className="text-sm text-gray-500 dark:text-gray-300 ml-2">
-                  ports
-                </span>
+                                    ports
+                                </span>
                             </div>
                         </div>
                     </div>
@@ -322,7 +354,7 @@ const NetworkSweepView = ({ nodeId, service, standalone = false }) => {
                             : ''
                     }`}
                 >
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                         {sweepDetails.ports
                             ?.sort((a, b) => b.available - a.available)
                             .map((port) => (
