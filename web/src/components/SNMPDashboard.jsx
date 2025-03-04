@@ -28,6 +28,25 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [], initialTimeRange
     const [timeRange, setTimeRange] = useState(searchParams.get('timeRange') || initialTimeRange);
     const [selectedMetric, setSelectedMetric] = useState(null);
     const [availableMetrics, setAvailableMetrics] = useState([]);
+    const [chartHeight, setChartHeight] = useState(384); // Default height
+
+    // Adjust chart height based on screen size
+    useEffect(() => {
+        const handleResize = () => {
+            const width = window.innerWidth;
+            if (width < 640) { // small screens
+                setChartHeight(250);
+            } else if (width < 1024) { // medium screens
+                setChartHeight(300);
+            } else { // large screens
+                setChartHeight(384);
+            }
+        };
+
+        handleResize(); // Initial call
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
 
     // Process SNMP counter data to show rates instead of raw values
     const processCounterData = useCallback((data) => {
@@ -127,7 +146,7 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [], initialTimeRange
 
     if (!initialData.length) {
         return (
-            <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+            <div className="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-lg shadow">
                 <h3 className="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-200">
                     No SNMP Data Available
                 </h3>
@@ -140,7 +159,7 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [], initialTimeRange
 
     if (!processedData.length && selectedMetric) {
         return (
-            <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
+            <div className="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-lg shadow">
                 <h3 className="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-200">
                     No Data Available
                 </h3>
@@ -172,39 +191,39 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [], initialTimeRange
     }
 
     return (
-        <div className="space-y-6">
-            <div className="flex justify-between items-center bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
-                <div className="flex gap-4">
+        <div className="space-y-4 sm:space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
+                <div className="w-full sm:w-auto">
                     <select
                         value={selectedMetric || ''}
                         onChange={(e) => setSelectedMetric(e.target.value)}
-                        className="px-3 py-2 border rounded text-gray-800 dark:text-gray-200 dark:bg-gray-700 dark:border-gray-600"
+                        className="w-full px-3 py-2 border rounded text-gray-800 dark:text-gray-200 dark:bg-gray-700 dark:border-gray-600"
                     >
                         {availableMetrics.map(metric => (
                             <option key={metric} value={metric}>{metric}</option>
                         ))}
                     </select>
-                    <div className="flex gap-2">
-                        {['1h', '6h', '24h'].map((range) => (
-                            <button
-                                key={range}
-                                onClick={() => handleTimeRangeChange(range)}
-                                className={`px-3 py-1 rounded transition-colors ${
-                                    timeRange === range
-                                        ? 'bg-blue-500 text-white'
-                                        : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-100'
-                                }`}
-                            >
-                                {range}
-                            </button>
-                        ))}
-                    </div>
+                </div>
+                <div className="flex gap-2">
+                    {['1h', '6h', '24h'].map((range) => (
+                        <button
+                            key={range}
+                            onClick={() => handleTimeRangeChange(range)}
+                            className={`px-3 py-1 rounded transition-colors ${
+                                timeRange === range
+                                    ? 'bg-blue-500 text-white'
+                                    : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-100'
+                            }`}
+                        >
+                            {range}
+                        </button>
+                    ))}
                 </div>
             </div>
 
             {processedData.length > 0 && (
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
-                    <div className="h-96">
+                    <div style={{ height: `${chartHeight}px` }}>
                         <ResponsiveContainer width="100%" height="100%">
                             <LineChart data={processedData}>
                                 <CartesianGrid strokeDasharray="3 3" />
@@ -239,17 +258,20 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [], initialTimeRange
                 </div>
             )}
 
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-x-auto">
+                <div className="p-4 sm:hidden text-gray-700 dark:text-gray-300 text-sm">
+                    <p>Swipe left/right to view all metrics data</p>
+                </div>
                 <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                     <thead className="bg-gray-50 dark:bg-gray-700">
                     <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                        <th className="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                             Metric Name
                         </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                        <th className="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                             Current Rate
                         </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                        <th className="px-4 sm:px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                             Last Update
                         </th>
                     </tr>
@@ -264,13 +286,13 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [], initialTimeRange
                             const latestDataPoint = metricData[metricData.length - 1];
                             return latestDataPoint ? (
                                 <tr key={metric}>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800 dark:text-gray-200">
+                                    <td className="px-4 sm:px-6 py-4 whitespace-nowrap text-sm text-gray-800 dark:text-gray-200">
                                         {metric}
                                     </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800 dark:text-gray-200">
+                                    <td className="px-4 sm:px-6 py-4 whitespace-nowrap text-sm text-gray-800 dark:text-gray-200">
                                         {formatRate(latestDataPoint.rate)}
                                     </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800 dark:text-gray-200">
+                                    <td className="px-4 sm:px-6 py-4 whitespace-nowrap text-sm text-gray-800 dark:text-gray-200">
                                         {new Date(latestDataPoint.timestamp).toLocaleString()}
                                     </td>
                                 </tr>

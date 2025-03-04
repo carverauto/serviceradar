@@ -31,6 +31,7 @@ import {
 import NetworkSweepView from './NetworkSweepView';
 import { PingStatus } from './NetworkStatus';
 import SNMPDashboard from './SNMPDashboard';
+import { ArrowLeft } from 'lucide-react';
 
 const ServiceDashboard = ({
                               nodeId,
@@ -42,12 +43,31 @@ const ServiceDashboard = ({
                               initialTimeRange = '1h',
                           }) => {
     const router = useRouter();
-    const [serviceData ] = useState(initialService);
+    const [serviceData] = useState(initialService);
     const [metricsData] = useState(initialMetrics);
     const [snmpData] = useState(initialSnmpData);
     const [loading] = useState(!initialService && !initialError);
     const [error] = useState(initialError);
-    const [selectedTimeRange, setSelectedTimeRange] = useState('1h');
+    const [selectedTimeRange, setSelectedTimeRange] = useState(initialTimeRange);
+    const [chartHeight, setChartHeight] = useState(256);
+
+    // Adjust chart height based on screen size
+    useEffect(() => {
+        const handleResize = () => {
+            const width = window.innerWidth;
+            if (width < 640) { // small screens
+                setChartHeight(200);
+            } else if (width < 1024) { // medium screens
+                setChartHeight(220);
+            } else { // large screens
+                setChartHeight(256);
+            }
+        };
+
+        handleResize(); // Initial call
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
 
     useEffect(() => {
         return () => console.log("ServiceDashboard unmounted");
@@ -77,8 +97,8 @@ const ServiceDashboard = ({
 
         if (chartData.length === 0) {
             return (
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 transition-colors">
-                    <div className="flex justify-between items-center mb-4">
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 sm:p-6 transition-colors">
+                    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 gap-2">
                         <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Response Time</h3>
                         <div className="flex gap-2">
                             {['1h', '6h', '24h'].map((range) => (
@@ -96,7 +116,7 @@ const ServiceDashboard = ({
                             ))}
                         </div>
                     </div>
-                    <div className="h-64 flex items-center justify-center text-gray-500 dark:text-gray-400">
+                    <div className="h-32 sm:h-64 flex items-center justify-center text-gray-500 dark:text-gray-400">
                         No data available for the selected time range
                     </div>
                 </div>
@@ -104,8 +124,8 @@ const ServiceDashboard = ({
         }
 
         return (
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 transition-colors">
-                <div className="flex justify-between items-center mb-4">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 sm:p-6 transition-colors">
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 gap-2">
                     <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Response Time</h3>
                     <div className="flex gap-2">
                         {['1h', '6h', '24h'].map((range) => (
@@ -123,7 +143,7 @@ const ServiceDashboard = ({
                         ))}
                     </div>
                 </div>
-                <div className="h-64">
+                <div className="h-48 sm:h-64">
                     <ResponsiveContainer width="100%" height="100%">
                         <LineChart data={chartData}>
                             <CartesianGrid strokeDasharray="3 3" />
@@ -173,7 +193,7 @@ const ServiceDashboard = ({
 
         if (serviceData.type === 'icmp') {
             return (
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 transition-colors">
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 sm:p-6 transition-colors">
                     <h3 className="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-100">ICMP Status</h3>
                     <PingStatus details={serviceData.message} />
                 </div>
@@ -193,18 +213,18 @@ const ServiceDashboard = ({
         if (!details) return null;
 
         return (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {Object.entries(details)
                     .filter(([key]) => key !== 'history')
                     .map(([key, value]) => (
                         <div
                             key={key}
-                            className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 transition-colors"
+                            className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 sm:p-6 transition-colors"
                         >
                             <h3 className="text-lg font-semibold mb-2 text-gray-800 dark:text-gray-100">
                                 {key.split('_').map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
                             </h3>
-                            <div className="text-lg break-all text-gray-700 dark:text-gray-100">
+                            <div className="text-base sm:text-lg break-all text-gray-700 dark:text-gray-100">
                                 {typeof value === 'boolean' ? (value ? 'Yes' : 'No') : value}
                             </div>
                         </div>
@@ -217,18 +237,18 @@ const ServiceDashboard = ({
         return (
             <div className="space-y-4">
                 <div className="flex justify-between items-center">
-                    <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-64 animate-pulse"></div>
-                    <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-32 animate-pulse"></div>
+                    <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-32 sm:w-64 animate-pulse"></div>
+                    <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-20 sm:w-32 animate-pulse"></div>
                 </div>
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-                    <div className="h-6 bg-gray-200 dark:bg-gray-700 rounded w-40 mb-4 animate-pulse"></div>
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 sm:p-6">
+                    <div className="h-6 bg-gray-200 dark:bg-gray-700 rounded w-24 sm:w-40 mb-4 animate-pulse"></div>
                     <div className="flex justify-between">
-                        <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-24 animate-pulse"></div>
+                        <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-16 sm:w-24 animate-pulse"></div>
                     </div>
                 </div>
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-                    <div className="h-6 bg-gray-200 dark:bg-gray-700 rounded w-40 mb-4 animate-pulse"></div>
-                    <div className="h-64 bg-gray-100 dark:bg-gray-700 rounded animate-pulse"></div>
+                <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 sm:p-6">
+                    <div className="h-6 bg-gray-200 dark:bg-gray-700 rounded w-24 sm:w-40 mb-4 animate-pulse"></div>
+                    <div className="h-32 sm:h-64 bg-gray-100 dark:bg-gray-700 rounded animate-pulse"></div>
                 </div>
             </div>
         );
@@ -236,13 +256,14 @@ const ServiceDashboard = ({
 
     if (error) {
         return (
-            <div className="bg-red-50 dark:bg-red-900 p-6 rounded-lg shadow text-red-600 dark:text-red-200">
+            <div className="bg-red-50 dark:bg-red-900 p-4 sm:p-6 rounded-lg shadow text-red-600 dark:text-red-200">
                 <h2 className="text-xl font-bold mb-4">Error Loading Service</h2>
-                <p>{error}</p>
+                <p className="mb-4">{error}</p>
                 <button
                     onClick={() => router.push('/nodes')}
-                    className="mt-4 px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-100 hover:bg-gray-300 dark:hover:bg-gray-600 rounded transition-colors"
+                    className="mt-2 px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-100 hover:bg-gray-300 dark:hover:bg-gray-600 rounded transition-colors flex items-center"
                 >
+                    <ArrowLeft className="mr-2 h-4 w-4" />
                     Back to Nodes
                 </button>
             </div>
@@ -250,19 +271,20 @@ const ServiceDashboard = ({
     }
 
     return (
-        <div className="space-y-6 transition-colors">
-            <div className="flex justify-between items-center">
-                <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100">
+        <div className="space-y-4 sm:space-y-6 transition-colors">
+            <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
+                <h2 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-gray-100">
                     {serviceName} Service Status
                 </h2>
                 <button
                     onClick={() => router.push('/nodes')}
-                    className="px-4 py-2 bg-gray-100 dark:bg-gray-700 dark:text-gray-100 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
+                    className="px-4 py-2 bg-gray-100 dark:bg-gray-700 dark:text-gray-100 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors flex items-center self-start"
                 >
+                    <ArrowLeft className="mr-2 h-4 w-4" />
                     Back to Nodes
                 </button>
             </div>
-            <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 transition-colors">
+            <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 sm:p-6 transition-colors">
                 <div className="flex items-center justify-between">
                     <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Service Status</h3>
                     <div
