@@ -119,7 +119,7 @@ export async function generateMetadata({ params }) {
     };
 }
 
-export default async function Page({ params }) {
+export default async function Page({ params, searchParams }) {
     const { nodeid, servicename } = await params;
     const timeRange = searchParams?.timeRange || '1h'; // Get timeRange from query params
     const initialData = await fetchServiceData(nodeid, servicename, timeRange);
