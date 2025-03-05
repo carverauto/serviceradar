@@ -75,6 +75,7 @@ async function fetchNodesWithMetrics() {
 
         return { nodes, serviceMetrics };
     } catch (error) {
+        console.error('Error fetching nodes:', error);
         return { nodes: [], serviceMetrics: {} };
     }
 }
