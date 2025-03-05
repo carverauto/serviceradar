@@ -36,56 +36,20 @@ ServiceRadar consists of four main components:
 3. **Core Service** - Receives reports from pollers, provides API, and sends alerts
 4. **Web UI** - Provides a modern dashboard interface with Nginx as a reverse proxy
 
-```mermaid
-graph TD
-    subgraph "User Access"
-        Browser[Web Browser]
-    end
+For a detailed explanation of the architecture, see the [Architecture](./architecture.md) page.
 
-    subgraph "Service Layer"
-        WebUI[Web UI<br>:80/nginx]
-        CoreAPI[Core Service<br>:8090/:50052]
-        WebUI -->|API calls<br>w/key auth| CoreAPI
-        Browser -->|HTTP/HTTPS| WebUI
-    end
 
-    subgraph "Monitoring Layer"
-        Poller1[Poller 1<br>:50053]
-        Poller2[Poller 2<br>:50053]
-        CoreAPI ---|gRPC<br>bidirectional| Poller1
-        CoreAPI ---|gRPC<br>bidirectional| Poller2
-    end
 
-    subgraph "Target Infrastructure"
-        Agent1[Agent 1<br>:50051]
-        Agent2[Agent 2<br>:50051]
-        Agent3[Agent 3<br>:50051]
-        
-        Poller1 ---|gRPC<br>checks| Agent1
-        Poller1 ---|gRPC<br>checks| Agent2
-        Poller2 ---|gRPC<br>checks| Agent3
-        
-        Agent1 --- Service1[Services<br>Processes<br>Ports]
-        Agent2 --- Service2[Services<br>Processes<br>Ports]
-        Agent3 --- Service3[Services<br>Processes<br>Ports]
-    end
+## Security Features
 
-    subgraph "Alerting"
-        CoreAPI -->|Webhooks| Discord[Discord]
-        CoreAPI -->|Webhooks| Other[Other<br>Services]
-    end
+ServiceRadar is designed with security in mind:
 
-    style Browser fill:#f9f,stroke:#333,stroke-width:1px
-    style WebUI fill:#b9c,stroke:#333,stroke-width:1px
-    style CoreAPI fill:#9bc,stroke:#333,stroke-width:2px
-    style Poller1 fill:#adb,stroke:#333,stroke-width:1px
-    style Poller2 fill:#adb,stroke:#333,stroke-width:1px
-    style Agent1 fill:#fd9,stroke:#333,stroke-width:1px
-    style Agent2 fill:#fd9,stroke:#333,stroke-width:1px
-    style Agent3 fill:#fd9,stroke:#333,stroke-width:1px
-    style Discord fill:#c9d,stroke:#333,stroke-width:1px
-    style Other fill:#c9d,stroke:#333,stroke-width:1px
-```
+1. **mTLS Authentication** - Secure communication between components using mutual TLS
+2. **API Key Authentication** - Secure API access for the web interface
+3. **Role-Based Access** - Different components have different security roles
+4. **Nginx Reverse Proxy** - Secure web access with configurable firewall rules
+
+For more details, see the [TLS Security](./tls-security.md) and [Architecture](./architecture.md) documentation.
 
 ## Getting Started
 
@@ -95,5 +59,6 @@ Navigate through our documentation to get ServiceRadar up and running:
 2. **[Configuration Basics](./configuration.md)** - Configure your ServiceRadar deployment
 3. **[TLS Security](./tls-security.md)** - Secure your ServiceRadar communications
 4. **[Web UI Configuration](./web-ui.md)** - Set up the web interface and dashboard
+5. **[Architecture](./architecture.md)** - Understand the system architecture
 
 Or jump straight to the [Installation Guide](./installation.md) to get started with ServiceRadar.

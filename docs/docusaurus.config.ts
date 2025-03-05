@@ -9,27 +9,27 @@ const config: Config = {
   tagline: 'ServiceRadar Docs',
   favicon: 'img/favicon.ico',
 
-  // Set the production url of your site here
   url: 'https://docs.serviceradar.cloud',
-  // Set the /<baseUrl>/ pathname under which your site is served
-  // For GitHub pages deployment, it is often '/<projectName>/'
-  baseUrl: '',
+  baseUrl: '/serviceradar/',
 
-  // GitHub pages deployment config.
-  // If you aren't using GitHub pages, you don't need these.
-  organizationName: 'carverauto', // Usually your GitHub org/user name.
-  projectName: 'serviceradar', // Usually your repo name.
+  organizationName: 'carverauto',
+  projectName: 'serviceradar',
 
   onBrokenLinks: 'throw',
   onBrokenMarkdownLinks: 'warn',
 
-  // Even if you don't use internationalization, you can use this field to set
-  // useful metadata like html lang. For example, if your site is Chinese, you
-  // may want to replace "en" with "zh-Hans".
   i18n: {
     defaultLocale: 'en',
     locales: ['en'],
   },
+
+  // Add markdown configuration with Mermaid enabled
+  markdown: {
+    mermaid: true,
+  },
+
+  // Add theme-mermaid to the themes array
+  themes: ['@docusaurus/theme-mermaid'],
 
   presets: [
     [
@@ -37,28 +37,7 @@ const config: Config = {
       {
         docs: {
           sidebarPath: './sidebars.ts',
-          // Please change this to your repo.
-          // Remove this to remove the "edit this page" links.
-          // editUrl:
-          //  'https://github.com/facebook/docusaurus/tree/main/packages/create-docusaurus/templates/shared/',
         },
-        /*
-        blog: {
-          showReadingTime: true,
-          feedOptions: {
-            type: ['rss', 'atom'],
-            xslt: true,
-          },
-          // Please change this to your repo.
-          // Remove this to remove the "edit this page" links.
-          // editUrl:
-          //  'https://github.com/facebook/docusaurus/tree/main/packages/create-docusaurus/templates/shared/',
-          // Useful options to enforce blogging best practices
-          onInlineTags: 'warn',
-          onInlineAuthors: 'warn',
-          onUntruncatedBlogPosts: 'warn',
-        },
-         */
         theme: {
           customCss: './src/css/custom.css',
         },
@@ -67,7 +46,6 @@ const config: Config = {
   ],
 
   themeConfig: {
-    // Replace with your project's social card
     image: 'img/serviceradar-social-card.png',
     navbar: {
       title: 'ServiceRadar',
@@ -82,9 +60,6 @@ const config: Config = {
           position: 'left',
           label: 'Tutorial',
         },
-          /*
-        {to: '/blog', label: 'Blog', position: 'left'},
-           */
         {
           href: 'https://github.com/carverauto/serviceradar',
           label: 'GitHub',
@@ -120,12 +95,6 @@ const config: Config = {
         {
           title: 'More',
           items: [
-              /*
-            {
-              label: 'Blog',
-              to: '/blog',
-            },
-               */
             {
               label: 'GitHub',
               href: 'https://github.com/carverauto/serviceradar',
@@ -138,6 +107,26 @@ const config: Config = {
     prism: {
       theme: prismThemes.github,
       darkTheme: prismThemes.dracula,
+    },
+    // Optional: Add Mermaid theme configuration
+    mermaid: {
+      theme: { light: 'neutral', dark: 'base' },
+      options: {
+        themeVariables: {
+          primaryColor: '#10b981',
+          primaryTextColor: '#ffffff',
+          primaryBorderColor: '#047857',
+          lineColor: '#6ee7b7',
+          secondaryColor: '#059669',
+          secondaryTextColor: '#ffffff',
+          tertiaryColor: '#34d399',
+          tertiaryTextColor: '#1f2937',
+          background: '#1f2937',
+          mainBkg: '#10b981',
+          textColor: '#d1fae5',
+          darkMode: true
+        }
+      }
     },
   } satisfies Preset.ThemeConfig,
 };
