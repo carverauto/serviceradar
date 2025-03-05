@@ -57,6 +57,12 @@ Documentation topics include:
 - Dusk node monitoring
 - And more...
 
+## Try it
+
+Connect to our live-system. This system may contain previews of upcoming builds.
+
+**[https://demo.serviceradar.cloud](https://demo.serviceradar.cloud)**
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
