@@ -36,7 +36,7 @@ ServiceRadar consists of four main components:
 3. **Core Service** - Receives reports from pollers, provides API, and sends alerts
 4. **Web UI** - Provides a modern dashboard interface with Nginx as a reverse proxy
 
-For a detailed explanation of the architecture, see the [Architecture](./architecture.md) page.
+For a detailed explanation of the architecture, please see the [Architecture](./architecture.md) page.
 
 
 
