@@ -5,14 +5,14 @@ on:
   push:
     branches: [main]
     paths:
-      - 'docs/**'              # Trigger on changes to docs directory
+      - 'docs/**'
       - '.github/workflows/deploy-pages.yml'
-  workflow_dispatch:         # Allow manual triggering
+  workflow_dispatch:
 
 permissions:
-  contents: read             # To read repository contents
-  pages: write              # To deploy to Pages
-  id-token: write           # To verify deployment source
+  contents: read
+  pages: write
+  id-token: write
 
 jobs:
   build:
@@ -25,21 +25,24 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: 'docs/package-lock.json'  # Assumes package-lock.json is in docs/
+          cache: 'pnpm'  # Enable pnpm caching
+          cache-dependency-path: 'docs/pnpm-lock.yaml'
+
+      - name: Install pnpm
+        run: npm install -g pnpm  # Install pnpm globally
 
       - name: Install Docusaurus dependencies
         working-directory: ./docs
-        run: npm ci
+        run: pnpm install  # Use --frozen-lockfile once lock file is synced
 
       - name: Build Docusaurus site
         working-directory: ./docs
-        run: npm run build
+        run: pnpm run build
 
       - name: Upload GitHub Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./docs/build     # Default Docusaurus build output directory
+          path: ./docs/build
 
   deploy:
     needs: build
