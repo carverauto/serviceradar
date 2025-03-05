@@ -38,7 +38,6 @@ async function fetchNodesWithMetrics() {
         }
 
         const nodes = await nodesResponse.json();
-        console.log(`Fetched ${nodes.length} nodes`);
 
         // Create metrics lookup object
         const serviceMetrics = {};
@@ -48,7 +47,6 @@ async function fetchNodesWithMetrics() {
             const icmpServices = node.services?.filter(s => s.type === 'icmp') || [];
 
             if (icmpServices.length > 0) {
-                console.log(`Node ${node.node_id} has ${icmpServices.length} ICMP services`);
 
                 // Fetch all metrics for this node (one fetch per node is more efficient)
                 try {
@@ -58,19 +56,16 @@ async function fetchNodesWithMetrics() {
                     });
 
                     if (!metricsResponse.ok) {
-                        console.error(`Metrics API failed for ${node.node_id}: ${metricsResponse.status}`);
                         continue;
                     }
 
                     const allNodeMetrics = await metricsResponse.json();
-                    console.log(`Received ${allNodeMetrics.length} metrics for ${node.node_id}`);
 
                     // Filter and organize metrics for each ICMP service
                     for (const service of icmpServices) {
                         const serviceMetricsData = allNodeMetrics.filter(m => m.service_name === service.name);
                         const key = `${node.node_id}-${service.name}`;
                         serviceMetrics[key] = serviceMetricsData;
-                        console.log(`${key}: Filtered ${serviceMetricsData.length} metrics`);
                     }
                 } catch (error) {
                     console.error(`Error fetching metrics for ${node.node_id}:`, error);
@@ -80,7 +75,6 @@ async function fetchNodesWithMetrics() {
 
         return { nodes, serviceMetrics };
     } catch (error) {
-        console.error('Error fetching nodes data:', error);
         return { nodes: [], serviceMetrics: {} };
     }
 }
@@ -88,9 +82,6 @@ async function fetchNodesWithMetrics() {
 export default async function NodesPage() {
     // Fetch all required data from the server
     const { nodes, serviceMetrics } = await fetchNodesWithMetrics();
-
-    // Log the metrics data for debugging
-    console.log(`Fetched ${Object.keys(serviceMetrics).length} service metric sets`);
 
     return (
         <div>

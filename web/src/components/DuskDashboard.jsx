@@ -35,8 +35,6 @@ const DuskDashboard = () => {
         if (!nodesResponse.ok) throw new Error('Failed to fetch nodes');
         const nodes = await nodesResponse.json();
 
-        console.log('Fetched nodes:', nodes);
-
         // Find the Dusk node
         const duskNode = nodes.find((node) =>
             node.services?.some((service) => service.name === 'dusk')
@@ -46,11 +44,8 @@ const DuskDashboard = () => {
           throw new Error('No Dusk node found');
         }
 
-        console.log('Found Dusk node:', duskNode);
-
         // Get the Dusk service
         const duskService = duskNode.services.find((s) => s.name === 'dusk');
-        console.log('Dusk service:', duskService);
 
         setNodeStatus(duskService);
 
@@ -61,7 +56,6 @@ const DuskDashboard = () => {
 
         setLoading(false);
       } catch (err) {
-        console.error('Error fetching data:', err);
         setError(err.message);
         setLoading(false);
       }

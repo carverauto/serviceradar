@@ -121,16 +121,9 @@ export async function generateMetadata({ params }) {
 
 export default async function Page({ params, searchParams }) {
     const { nodeid, servicename } = await params;
-    const timeRange = searchParams?.timeRange || '1h'; // Get timeRange from query params
+    const timeRangeValue = await searchParams;
+    const timeRange = timeRangeValue?.timeRange || '1h';
     const initialData = await fetchServiceData(nodeid, servicename, timeRange);
-
-    console.log("Page fetched data:", {
-        service: !!initialData.service,
-        metricsLength: initialData.metrics?.length,
-        snmpDataLength: initialData.snmpData?.length,
-        error: initialData.error,
-        timeRange: initialData.timeRange,
-    });
 
     return (
         <div>
