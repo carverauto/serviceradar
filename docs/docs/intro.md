@@ -36,57 +36,56 @@ ServiceRadar consists of four main components:
 3. **Core Service** - Receives reports from pollers, provides API, and sends alerts
 4. **Web UI** - Provides a modern dashboard interface with Nginx as a reverse proxy
 
-![ServiceRadar Architecture](/img/architecture.png)
-
-## System Architecture
-
-ServiceRadar uses a distributed architecture that allows for flexible deployment across different networks and environments:
-
 ```mermaid
 graph TD
-    subgraph "Monitored Host"
-        A[Agent] --> P1[Process Checker]
-        A --> P2[Port Checker]
-        A --> P3[Dusk Checker]
+    subgraph "User Access"
+        Browser[Web Browser]
     end
 
-    subgraph "Local Network"
-        P[Poller] --> A
-        P --> A2[Agent 2]
-        P --> HTTP[HTTP Checks]
-        
-        subgraph "Agent 2 Host"
-            A2 --> R[Redis Status]
-            A2 --> M[MySQL Status]
-        end
-        
-        subgraph "Direct Checks"
-            HTTP --> WebApp[Web Application]
-            HTTP --> API[API Endpoint]
-        end
+    subgraph "Service Layer"
+        WebUI[Web UI<br>:80/nginx]
+        CoreAPI[Core Service<br>:8090/:50052]
+        WebUI -->|API calls<br>w/key auth| CoreAPI
+        Browser -->|HTTP/HTTPS| WebUI
     end
-    
-    subgraph "Cloud/Internet"
-        P --> CS[Core Service]
-        CS --> WH[Webhook Alerts]
-        WH --> Discord[Discord]
-        WH --> Custom[Custom Webhooks]
-        
-        subgraph "Web Interface"
-            CS --> UI[Web UI]
-            Browser[Browser] --> UI
-        end
+
+    subgraph "Monitoring Layer"
+        Poller1[Poller 1<br>:50053]
+        Poller2[Poller 2<br>:50053]
+        CoreAPI ---|gRPC<br>bidirectional| Poller1
+        CoreAPI ---|gRPC<br>bidirectional| Poller2
     end
+
+    subgraph "Target Infrastructure"
+        Agent1[Agent 1<br>:50051]
+        Agent2[Agent 2<br>:50051]
+        Agent3[Agent 3<br>:50051]
+        
+        Poller1 ---|gRPC<br>checks| Agent1
+        Poller1 ---|gRPC<br>checks| Agent2
+        Poller2 ---|gRPC<br>checks| Agent3
+        
+        Agent1 --- Service1[Services<br>Processes<br>Ports]
+        Agent2 --- Service2[Services<br>Processes<br>Ports]
+        Agent3 --- Service3[Services<br>Processes<br>Ports]
+    end
+
+    subgraph "Alerting"
+        CoreAPI -->|Webhooks| Discord[Discord]
+        CoreAPI -->|Webhooks| Other[Other<br>Services]
+    end
+
+    style Browser fill:#f9f,stroke:#333,stroke-width:1px
+    style WebUI fill:#b9c,stroke:#333,stroke-width:1px
+    style CoreAPI fill:#9bc,stroke:#333,stroke-width:2px
+    style Poller1 fill:#adb,stroke:#333,stroke-width:1px
+    style Poller2 fill:#adb,stroke:#333,stroke-width:1px
+    style Agent1 fill:#fd9,stroke:#333,stroke-width:1px
+    style Agent2 fill:#fd9,stroke:#333,stroke-width:1px
+    style Agent3 fill:#fd9,stroke:#333,stroke-width:1px
+    style Discord fill:#c9d,stroke:#333,stroke-width:1px
+    style Other fill:#c9d,stroke:#333,stroke-width:1px
 ```
-
-## Security Features
-
-ServiceRadar is designed with security in mind:
-
-1. **mTLS Authentication** - Secure communication between components using mutual TLS
-2. **API Key Authentication** - Secure API access for the web interface
-3. **Role-Based Access** - Different components have different security roles
-4. **Nginx Reverse Proxy** - Secure web access with configurable firewall rules
 
 ## Getting Started
 
