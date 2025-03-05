@@ -124,14 +124,6 @@ export default async function Page({ params, searchParams }) {
     const timeRange = searchParams?.timeRange || '1h'; // Get timeRange from query params
     const initialData = await fetchServiceData(nodeid, servicename, timeRange);
 
-    console.log("Page fetched data:", {
-        service: !!initialData.service,
-        metricsLength: initialData.metrics?.length,
-        snmpDataLength: initialData.snmpData?.length,
-        error: initialData.error,
-        timeRange: initialData.timeRange,
-    });
-
     return (
         <div>
             <Suspense
