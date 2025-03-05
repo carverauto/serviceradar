@@ -25,21 +25,16 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'pnpm'
-          cache-dependency-path: 'docs/pnpm-lock.yaml'
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 'latest'  # Or specify a version like '9.12.2' if needed
+          cache: 'npm'
+          cache-dependency-path: 'docs/package-lock.json'
 
       - name: Install Docusaurus dependencies
         working-directory: ./docs
-        run: pnpm install
+        run: npm install
 
       - name: Build Docusaurus site
         working-directory: ./docs
-        run: pnpm run build
+        run: npm run build
 
       - name: Upload GitHub Pages artifact
         uses: actions/upload-pages-artifact@v3
