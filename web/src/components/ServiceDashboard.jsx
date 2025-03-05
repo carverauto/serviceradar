@@ -100,21 +100,6 @@ const ServiceDashboard = ({
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 sm:p-6 transition-colors">
                     <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 gap-2">
                         <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Response Time</h3>
-                        <div className="flex gap-2">
-                            {['1h', '6h', '24h'].map((range) => (
-                                <button
-                                    key={range}
-                                    onClick={() => setSelectedTimeRange(range)}
-                                    className={`px-3 py-1 rounded transition-colors ${
-                                        selectedTimeRange === range
-                                            ? 'bg-blue-500 text-white'
-                                            : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-100'
-                                    }`}
-                                >
-                                    {range}
-                                </button>
-                            ))}
-                        </div>
                     </div>
                     <div className="h-32 sm:h-64 flex items-center justify-center text-gray-500 dark:text-gray-400">
                         No data available for the selected time range
@@ -127,21 +112,6 @@ const ServiceDashboard = ({
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 sm:p-6 transition-colors">
                 <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 gap-2">
                     <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Response Time</h3>
-                    <div className="flex gap-2">
-                        {['1h', '6h', '24h'].map((range) => (
-                            <button
-                                key={range}
-                                onClick={() => setSelectedTimeRange(range)}
-                                className={`px-3 py-1 rounded transition-colors ${
-                                    selectedTimeRange === range
-                                        ? 'bg-blue-500 text-white'
-                                        : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-100'
-                                }`}
-                            >
-                                {range}
-                            </button>
-                        ))}
-                    </div>
                 </div>
                 <div className="h-48 sm:h-64">
                     <ResponsiveContainer width="100%" height="100%">
