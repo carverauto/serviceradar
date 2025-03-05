@@ -246,9 +246,6 @@ func (d *DuskChecker) subscribeToBlocks(ctx context.Context) error {
 	req.Header.Set("Rusk-Version", "1.0")
 	req.Header.Set("Rusk-Session-Id", d.sessionID)
 
-	log.Printf("Sending subscription request to: %s", subscribeURL)
-	log.Printf("With headers: %v", req.Header)
-
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("subscription request failed: %w", err)
