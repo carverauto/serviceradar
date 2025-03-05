@@ -10,7 +10,7 @@ const config: Config = {
   favicon: 'img/favicon.ico',
 
   url: 'https://docs.serviceradar.cloud',
-  baseUrl: '/serviceradar/',
+  baseUrl: '',
 
   organizationName: 'carverauto',
   projectName: 'serviceradar',
