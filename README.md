@@ -59,7 +59,7 @@ Documentation topics include:
 
 ## Try it
 
-Connect to our live-system. This system may contain previews of upcoming builds.
+Connect to our live-system. This instance is part of our continuous-deployment system and may contain previews of upcoming builds or features, or may not work at all.
 
 **[https://demo.serviceradar.cloud](https://demo.serviceradar.cloud)**
 
