@@ -1,4 +1,4 @@
-# Copyright 2025 Carver Automation Corporation.
+# Copyright 2023 Carver Automation Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,17 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Stage 1: Build the web UI
-FROM --platform=linux/amd64 node:18-bullseye AS web-builder
-
-WORKDIR /web-build
-
-COPY web/package*.json ./
-RUN npm install
-COPY web/ .
-RUN npm run build
-
-# Stage 2: Build the Go binary
+# Stage 1: Build the Go binary
 FROM --platform=linux/amd64 golang:1.24-bullseye AS go-builder
 
 WORKDIR /src
@@ -40,14 +30,11 @@ RUN go mod download
 # Copy the rest of the source
 COPY . .
 
-# Copy the built web UI from the previous stage
-COPY --from=web-builder /web-build/dist ./pkg/core/api/web/dist
-
 # Build the core service
 RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 \
     go build -o serviceradar-core ./cmd/core
 
-# Stage 3: Create RPM
+# Stage 2: Create RPM
 FROM --platform=linux/amd64 rockylinux:9 AS rpm-builder
 
 # Install RPM build tools
@@ -59,14 +46,16 @@ RUN dnf install -y \
 # Set up RPM build environment
 RUN rpmdev-setuptree
 
+# Create necessary directories
+RUN mkdir -p /root/rpmbuild/SOURCES/config/checkers/sweep \
+    /root/rpmbuild/SOURCES/systemd
+
 # Copy built artifacts and spec files
 COPY --from=go-builder /src/serviceradar-core /root/rpmbuild/BUILD/
-COPY packaging/config/*.json /root/rpmbuild/SOURCES/config/
-# TODO: fix this, sweep.json is part of agent NOT core
-COPY packaging/config/checkers/sweep/sweep.json /root/rpmbuild/SOURCES/config/checkers/sweep/
+COPY packaging/core/config/core.json /root/rpmbuild/SOURCES/config/
+COPY packaging/core/config/checkers/sweep/sweep.json /root/rpmbuild/SOURCES/config/checkers/sweep/
 COPY packaging/specs/serviceradar-core.spec /root/rpmbuild/SPECS/
 COPY packaging/core/systemd/serviceradar-core.service /root/rpmbuild/SOURCES/systemd/
-COPY scripts/setup-rpm-*.sh /build/
 
 # Set default version (can be overridden at build time)
 ARG VERSION=1.0.21
@@ -78,7 +67,7 @@ RUN rpmbuild -bb \
     --define "release ${RELEASE}" \
     /root/rpmbuild/SPECS/serviceradar-core.spec
 
-# Stage 4: Create a minimal image with just the RPM
+# Stage 3: Create a minimal image with just the RPM
 FROM --platform=linux/amd64 rockylinux:9
 WORKDIR /rpms
 COPY --from=rpm-builder /root/rpmbuild/RPMS/*/*.rpm .

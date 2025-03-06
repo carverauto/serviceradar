@@ -1,0 +1,17 @@
+[Unit]
+Description=ServiceRadar Web Interface
+After=network.target
+
+[Service]
+Type=simple
+User=serviceradar
+WorkingDirectory=/usr/local/share/serviceradar-web
+Environment=NODE_ENV=production
+Environment=PORT=3000
+EnvironmentFile=/etc/serviceradar/api.env
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

@@ -21,7 +21,7 @@ permissions:
   contents: write
   packages: write
 jobs:
-  build-packages:
+  build-deb-packages:
     runs-on: ubuntu-latest
     env:
       VERSION: ${{ github.ref_name }}
@@ -35,7 +35,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential
-      - name: Build packages
+      - name: Build DEB packages
         run: |
           ./scripts/setup-deb-agent.sh
           ./scripts/setup-deb-poller.sh
@@ -45,16 +45,104 @@ jobs:
           ./scripts/setup-deb-snmp-checker.sh
       - name: List Artifacts (for debugging)
         run: ls -al ./release-artifacts
-      - name: Upload Release Assets
+      - name: Upload DEB Release Assets
         uses: softprops/action-gh-release@v2
         with:
           files: ./release-artifacts/*.deb
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  build-rpm-packages:
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Docker
+        uses: docker/setup-buildx-action@v3
+      - name: Create output directory
+        run: |
+          mkdir -p ./release-artifacts/rpm
+      - name: Build Core RPM
+        run: |
+          docker build \
+            --platform linux/amd64 \
+            --build-arg VERSION="${VERSION}" \
+            --build-arg RELEASE="1" \
+            -f Dockerfile-rpm.core \
+            -t serviceradar-rpm-core \
+            .
+          docker create --name core-container serviceradar-rpm-core
+          docker cp core-container:/rpms/. ./release-artifacts/rpm/
+          docker rm core-container
+      - name: Build Web RPM
+        run: |
+          docker build \
+            --platform linux/amd64 \
+            --build-arg VERSION="${VERSION}" \
+            --build-arg RELEASE="1" \
+            --build-arg COMPONENT="web" \
+            --build-arg BINARY_PATH="./cmd/web" \
+            -f Dockerfile.rpm.web \
+            -t serviceradar-rpm-web \
+            .
+          docker create --name web-container serviceradar-rpm-web
+          docker cp web-container:/rpms/. ./release-artifacts/rpm/
+          docker rm web-container
+      - name: Build Agent RPM
+        run: |
+          docker build \
+            --platform linux/amd64 \
+            --build-arg VERSION="${VERSION}" \
+            --build-arg RELEASE="1" \
+            --build-arg COMPONENT="agent" \
+            --build-arg BINARY_PATH="./cmd/agent" \
+            -f Dockerfile.rpm.simple \
+            -t serviceradar-rpm-agent \
+            .
+          docker create --name agent-container serviceradar-rpm-agent
+          docker cp agent-container:/rpms/. ./release-artifacts/rpm/
+          docker rm agent-container
+      - name: Build Poller RPM
+        run: |
+          docker build \
+            --platform linux/amd64 \
+            --build-arg VERSION="${VERSION}" \
+            --build-arg RELEASE="1" \
+            --build-arg COMPONENT="poller" \
+            --build-arg BINARY_PATH="./cmd/poller" \
+            -f Dockerfile.rpm.simple \
+            -t serviceradar-rpm-poller \
+            .
+          docker create --name poller-container serviceradar-rpm-poller
+          docker cp poller-container:/rpms/. ./release-artifacts/rpm/
+          docker rm poller-container
+      - name: Build Dusk-Checker RPM
+        run: |
+          docker build \
+            --platform linux/amd64 \
+            --build-arg VERSION="${VERSION}" \
+            --build-arg RELEASE="1" \
+            --build-arg COMPONENT="dusk-checker" \
+            --build-arg BINARY_PATH="./cmd/checkers/dusk" \
+            -f Dockerfile.rpm.simple \
+            -t serviceradar-rpm-dusk-checker \
+            .
+          docker create --name dusk-container serviceradar-rpm-dusk-checker
+          docker cp dusk-container:/rpms/. ./release-artifacts/rpm/
+          docker rm dusk-container
+      - name: List RPM Artifacts (for debugging)
+        run: ls -al ./release-artifacts/rpm
+      - name: Upload RPM Release Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ./release-artifacts/rpm/*.rpm
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   build-containers:
     runs-on: ubuntu-latest
-    needs: build-packages
+    needs: [build-deb-packages, build-rpm-packages]
     env:
       VERSION: ${{ github.ref_name }}
       KO_DOCKER_REPO: ghcr.io/carverauto/serviceradar
