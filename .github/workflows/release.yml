@@ -117,20 +117,6 @@ jobs:
           docker create --name poller-container serviceradar-rpm-poller
           docker cp poller-container:/rpms/. ./release-artifacts/rpm/
           docker rm poller-container
-      - name: Build Dusk-Checker RPM
-        run: |
-          docker build \
-            --platform linux/amd64 \
-            --build-arg VERSION="${VERSION}" \
-            --build-arg RELEASE="1" \
-            --build-arg COMPONENT="dusk-checker" \
-            --build-arg BINARY_PATH="./cmd/checkers/dusk" \
-            -f Dockerfile.rpm.simple \
-            -t serviceradar-rpm-dusk-checker \
-            .
-          docker create --name dusk-container serviceradar-rpm-dusk-checker
-          docker cp dusk-container:/rpms/. ./release-artifacts/rpm/
-          docker rm dusk-container
       - name: List RPM Artifacts (for debugging)
         run: ls -al ./release-artifacts/rpm
       - name: Upload RPM Release Assets
