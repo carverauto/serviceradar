@@ -23,9 +23,7 @@ ARG COMPONENT
 ARG BINARY_PATH
 
 # Build with the correct output name
-RUN if [ "${COMPONENT}" = "dusk-checker" ]; then \
-    GOOS=linux GOARCH=amd64 go build -o "/build-out/dusk-checker" "$BINARY_PATH"; \
-    elif [ "${COMPONENT}" = "snmp-checker" ]; then \
+RUN if [ "${COMPONENT}" = "snmp-checker" ]; then \
     GOOS=linux GOARCH=amd64 go build -o "/build-out/serviceradar-snmp-checker" "$BINARY_PATH"; \
     else \
     GOOS=linux GOARCH=amd64 go build -o "/build-out/serviceradar-${COMPONENT}" "$BINARY_PATH"; \
