@@ -90,7 +90,7 @@ RUN echo "=== Files in SOURCES/systemd ===" && \
     ls -la /root/rpmbuild/SOURCES/config/checkers/ || echo "No files in checkers"
 
 # Set default version (can be overridden at build time)
-ARG VERSION=1.0.21
+ARG VERSION=1.0.22
 ARG RELEASE=1
 
 # Build the RPM package

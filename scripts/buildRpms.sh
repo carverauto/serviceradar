@@ -17,7 +17,7 @@
 # buildRpms.sh - Build RPM packages for ServiceRadar
 set -e
 
-export VERSION=${VERSION:-1.0.21}
+export VERSION=${VERSION:-1.0.22}
 export RELEASE=${RELEASE:-1}
 
 # Create directories if they don't exist
