@@ -74,7 +74,7 @@ COPY packaging/web/systemd/serviceradar-web.service /root/rpmbuild/SOURCES/syste
 COPY packaging/specs/serviceradar-web.spec /root/rpmbuild/SPECS/
 
 # Set default version (can be overridden at build time)
-ARG VERSION=1.0.21
+ARG VERSION=1.0.22
 ARG RELEASE=1
 
 # Build the RPM with verbose output for debugging
