@@ -182,7 +182,10 @@ RUN dnf install -y --nogpgcheck \
 RUN rpmdev-setuptree
 
 # Create source directories
-RUN mkdir -p /root/rpmbuild/SOURCES/systemd /root/rpmbuild/SOURCES/config /root/rpmbuild/SOURCES/lib64
+RUN mkdir -p /root/rpmbuild/SOURCES/systemd \
+    /root/rpmbuild/SOURCES/config \
+    /root/rpmbuild/SOURCES/lib64 \
+    /root/rpmbuild/SOURCES/scripts
 
 # Copy libvips shared libraries (only versioned .so files)
 COPY --from=libvips-builder /usr/lib64/libvips.so.42.12.7 /root/rpmbuild/SOURCES/lib64/
@@ -201,44 +204,47 @@ RUN mkdir -p /root/rpmbuild/BUILD/web
 # Copy built web app
 COPY --from=web-builder /web-output/ /root/rpmbuild/BUILD/web/
 
-# Copy config files
+# Copy the existing spec file and all config files from the packaging directory
 COPY packaging/specs/serviceradar-web.spec /root/rpmbuild/SPECS/
 COPY packaging/web/config/web.json /root/rpmbuild/SOURCES/config/
 COPY packaging/web/config/nginx.conf /root/rpmbuild/SOURCES/config/nginx.conf
 COPY packaging/web/systemd/serviceradar-web.service /root/rpmbuild/SOURCES/systemd/
+COPY packaging/web/scripts/* /root/rpmbuild/SOURCES/scripts/
 
 # Set default version (can be overridden at build time)
 ARG VERSION=1.0.22
 ARG RELEASE=1
 
-# Build the RPM with modified spec file that includes libvips
-RUN echo "Creating custom spec file with libvips bundled..." && \
-    cp /root/rpmbuild/SPECS/serviceradar-web.spec /root/rpmbuild/SPECS/serviceradar-web-bundled.spec && \
-    sed -i '/mkdir -p %{buildroot}\/etc\/nginx\/conf.d/a mkdir -p %{buildroot}/usr/lib/serviceradar/web' /root/rpmbuild/SPECS/serviceradar-web-bundled.spec && \
-    # Remove the line that installs to /usr/local/share to avoid duplicate files
-    sed -i '/^cp -r \/root\/rpmbuild\/BUILD\/web\/.*\/usr\/local\/share\/serviceradar-web\//d' /root/rpmbuild/SPECS/serviceradar-web-bundled.spec && \
-    # Install only to /usr/lib/serviceradar/web
-    sed -i '/Install systemd service/i # Copy web files\ncp -r /root/rpmbuild/BUILD/web/* %{buildroot}/usr/lib/serviceradar/web/\ncp -r /root/rpmbuild/BUILD/web/.next %{buildroot}/usr/lib/serviceradar/web/' /root/rpmbuild/SPECS/serviceradar-web-bundled.spec && \
-    sed -i '/mkdir -p %{buildroot}\/etc\/nginx\/conf.d/a mkdir -p %{buildroot}/usr/lib64' /root/rpmbuild/SPECS/serviceradar-web-bundled.spec && \
-    sed -i '/Install systemd service/i cp -P /root/rpmbuild/SOURCES/lib64/libvips*.so* %{buildroot}/usr/lib64/' /root/rpmbuild/SPECS/serviceradar-web-bundled.spec && \
-    # Update the files section to include all Next.js files
-    sed -i '/%files/a %dir %attr(0755, serviceradar, serviceradar) /usr/lib/serviceradar\n%dir %attr(0755, serviceradar, serviceradar) /usr/lib/serviceradar/web\n/usr/lib/serviceradar/web/*\n/usr/lib/serviceradar/web/.next\n/usr/lib/serviceradar/web/.next/*\n/usr/lib/serviceradar/web/.next/static\n/usr/lib/serviceradar/web/.next/static/*\n/usr/lib/serviceradar/web/.next/server\n/usr/lib/serviceradar/web/.next/server/*\n%attr(0755, root, root) /usr/lib64/libvips*.so*' /root/rpmbuild/SPECS/serviceradar-web-bundled.spec && \
-    sed -i '/^%post/a /sbin/ldconfig\n\n# Debug: Check if .next directory exists\necho "Checking installation directory structure:"\nls -la /usr/lib/serviceradar/web/\nls -la /usr/lib/serviceradar/web/.next/ || echo "WARNING: .next directory missing or empty"' /root/rpmbuild/SPECS/serviceradar-web-bundled.spec && \
-    sed -i '/^%postun/a /sbin/ldconfig' /root/rpmbuild/SPECS/serviceradar-web-bundled.spec && \
-    sed -i '/Requires: *libvips/d' /root/rpmbuild/SPECS/serviceradar-web-bundled.spec && \
-    sed -i '/Requires: *systemd/a Requires: fftw-libs-double\nRequires: giflib\nRequires: lcms2\nRequires: libtiff\nRequires: orc\nRequires: libwebp\nRequires: nodejs' /root/rpmbuild/SPECS/serviceradar-web-bundled.spec
+# Modify the spec file to fix the path issues
+RUN sed -i 's|mkdir -p %{buildroot}/usr/local/share/serviceradar-web|mkdir -p %{buildroot}/usr/lib/serviceradar/web|g' /root/rpmbuild/SPECS/serviceradar-web.spec && \
+    sed -i 's|cp -r %{_builddir}/web/\* %{buildroot}/usr/local/share/serviceradar-web/|cp -r %{_builddir}/web/* %{buildroot}/usr/lib/serviceradar/web/|g' /root/rpmbuild/SPECS/serviceradar-web.spec && \
+    sed -i 's|cp -r %{_builddir}/web/.next %{buildroot}/usr/local/share/serviceradar-web/|cp -r %{_builddir}/web/.next %{buildroot}/usr/lib/serviceradar/web/|g' /root/rpmbuild/SPECS/serviceradar-web.spec && \
+    sed -i 's|%attr(0755, serviceradar, serviceradar) /usr/local/share/serviceradar-web|%attr(0755, serviceradar, serviceradar) /usr/lib/serviceradar/web|g' /root/rpmbuild/SPECS/serviceradar-web.spec && \
+    sed -i '/^%install/a mkdir -p %{buildroot}/usr/lib64\ncp -P /root/rpmbuild/SOURCES/lib64/libvips*.so* %{buildroot}/usr/lib64/' /root/rpmbuild/SPECS/serviceradar-web.spec && \
+    sed -i '/^%files/a %attr(-, root, root) /usr/lib64/libvips*.so*' /root/rpmbuild/SPECS/serviceradar-web.spec
 
-# Add special wildcard handling to make sure all .next files are packaged
-RUN echo "# Force include all .next directory files with wildcard" >> /root/rpmbuild/SPECS/serviceradar-web-bundled.spec && \
-    echo "%define _unpackaged_files_terminate_build 0" >> /root/rpmbuild/SPECS/serviceradar-web-bundled.spec
+# Completely disable the %clean section to avoid any issues
+RUN sed -i 's/^%clean$/%clean\nexit 0/' /root/rpmbuild/SPECS/serviceradar-web.spec
+
+# Also create our lib/serviceradar/web directory for the files
+RUN sed -i '/^%pre/a # Create the directory structure\nmkdir -p /usr/lib/serviceradar/web' /root/rpmbuild/SPECS/serviceradar-web.spec
+
+# Update our installation check to look in the right place
+RUN sed -i 's|echo "Checking installation directory structure:"|echo "Checking installation directory structure in /usr/lib/serviceradar/web:"|g' /root/rpmbuild/SPECS/serviceradar-web.spec
 
 # Build the RPM with QA_RPATHS to ignore standard RPATHs
+# Use --noclean to skip the clean phase entirely
 RUN export QA_RPATHS=$((0x0001|0x0010)) && \
     rpmbuild -bb \
+    --noclean \
     --define "version ${VERSION}" \
     --define "release ${RELEASE}" \
-    --nodeps \
-    /root/rpmbuild/SPECS/serviceradar-web-bundled.spec
+    --define "_sourcedir /root/rpmbuild/SOURCES" \
+    --define "_builddir /root/rpmbuild/BUILD" \
+    --define "_rpmdir /root/rpmbuild/RPMS" \
+    --undefine=_disable_source_fetch \
+    --nocheck \
+    /root/rpmbuild/SPECS/serviceradar-web.spec
 
 # Final stage to store RPM
 FROM rockylinux:9
