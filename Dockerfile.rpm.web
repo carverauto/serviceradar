@@ -12,79 +12,236 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Stage 1: Build the Next.js web UI
-FROM --platform=linux/amd64 node:18-bullseye AS web-builder
+# Stage 1: Build libvips from source
+FROM rockylinux:9 AS libvips-builder
+
+# Install EPEL repository for additional packages
+RUN dnf install -y epel-release && \
+    dnf config-manager --set-enabled crb && \
+    dnf update -y
+
+# Install libvips build dependencies
+RUN dnf install -y \
+    gcc \
+    gcc-c++ \
+    make \
+    automake \
+    autoconf \
+    libtool \
+    pkgconfig \
+    glib2-devel \
+    expat-devel \
+    libjpeg-turbo-devel \
+    libpng-devel \
+    libtiff-devel \
+    fftw-devel \
+    lcms2-devel \
+    libwebp-devel \
+    orc-devel \
+    zlib-devel \
+    giflib-devel
+
+# Download and extract libvips source
+WORKDIR /tmp
+RUN curl -L -O https://github.com/libvips/libvips/releases/download/v8.10.6/vips-8.10.6.tar.gz && \
+    tar xzf vips-8.10.6.tar.gz
+
+# Build and install libvips with minimal features
+WORKDIR /tmp/vips-8.10.6
+RUN ./configure --prefix=/usr \
+    --disable-static \
+    --without-openexr \
+    --without-matio \
+    --without-libexif \
+    --without-pangoft2 \
+    --without-pango \
+    --without-cairo \
+    --without-gsf \
+    --without-OpenEXR \
+    --without-openslide \
+    --without-cfitsio \
+    --without-magick \
+    --without-nifti \
+    --without-heif \
+    --without-poppler \
+    --with-jpeg \
+    --with-libwebp \
+    --with-giflib \
+    --with-tiff \
+    --with-png && \
+    make -j$(nproc) && \
+    make install
+
+# Stage 2: Build the Next.js web UI
+FROM rockylinux:9 AS web-builder
+
+# Install EPEL and enable CRB repository
+RUN dnf install -y epel-release && \
+    dnf config-manager --set-enabled crb && \
+    dnf update -y
+
+# Add Node.js 18 repository from nodesource
+RUN curl -fsSL https://rpm.nodesource.com/setup_18.x | bash - && \
+    dnf install -y nodejs && \
+    node --version
+
+# Install runtime dependencies for sharp and build tools
+RUN dnf install -y \
+    glib2 \
+    libjpeg-turbo \
+    libpng \
+    libtiff \
+    libwebp \
+    fftw-libs-double \
+    orc \
+    giflib \
+    lcms2 \
+    zlib \
+    gcc \
+    g++ \
+    make
+
+# Copy libvips from the previous stage
+COPY --from=libvips-builder /usr/lib64/libvips*.so* /usr/lib64/
+COPY --from=libvips-builder /usr/lib64/pkgconfig/vips*.pc /usr/lib64/pkgconfig/
+
+# Configure the environment to use the custom libvips
+ENV PKG_CONFIG_PATH=/usr/lib64/pkgconfig
+ENV LD_LIBRARY_PATH=/usr/lib64
 
 WORKDIR /web-build
 
+# Copy package files
 COPY web/package*.json ./
-RUN npm install
-COPY web/ .
-RUN npm run build
 
-# Verify build output structure
-RUN ls -la .next || echo "No .next directory"
-RUN ls -la || echo "Listing directory contents"
-
-# Copy all necessary files to a clean directory
-# This replicates what the DEB package build script does
-RUN mkdir -p /web-output && \
-    # Copy server.js and other files from standalone build if available
-    if [ -d ".next/standalone" ]; then \
-        cp -r .next/standalone/* /web-output/ && \
-        # Copy .next from standalone for static files
-        mkdir -p /web-output/.next && \
-        cp -r .next/standalone/.next/* /web-output/.next/ || true; \
-    fi && \
-    # Ensure static files are copied
-    mkdir -p /web-output/.next/static && \
-    cp -r .next/static /web-output/.next/ || true && \
-    # Copy public files if they exist
-    if [ -d "public" ]; then \
-        cp -r public /web-output/; \
+# Install dependencies and clean up musl-linked binaries
+RUN npm cache clean --force && \
+    npm install && \
+    find node_modules -name "*swc*linux-x64-musl*" -type f -delete && \
+    npm uninstall sharp && \
+    npm install sharp --build-from-source --platform=linux --arch=x64 && \
+    find node_modules -name "*sharp-linuxmusl-x64*" -type f -delete && \
+    npm rebuild --build-from-source && \
+    echo "Checking for musl dependencies in .node files:" && \
+    find node_modules -name "*.node" -exec echo "Checking {}" \; -exec ldd {} \; | tee /tmp/ldd_output.txt && \
+    if grep -i musl /tmp/ldd_output.txt; then \
+        echo "ERROR: Musl dependency found:" && \
+        grep -i musl /tmp/ldd_output.txt && \
+        exit 1; \
+    else \
+        echo "No musl dependencies found"; \
     fi
 
-# Stage 2: Create RPM
-FROM --platform=linux/amd64 rockylinux:9 AS rpm-builder
+# Copy web source code and build with standalone output
+COPY web/ .
+# Ensure standalone build
+RUN echo "Building Next.js with standalone output..." && \
+    npm run build && \
+    ls -la .next/standalone || (echo "ERROR: .next/standalone not found" && exit 1)
 
-# Update and install RPM build tools
-RUN dnf update -y && \
-    dnf install -y \
+# Export standalone mode - UPDATED to properly preserve .next directory
+RUN mkdir -p /web-output && \
+    echo "Copying standalone build..." && \
+    cp -r .next/standalone/* /web-output/ && \
+    mkdir -p /web-output/.next && \
+    cp -r .next/static /web-output/.next/ && \
+    cp -r .next/standalone/.next/* /web-output/.next/ && \
+    if [ -d "public" ]; then cp -r public /web-output/; fi && \
+    echo "Checking web-output directory structure:" && \
+    ls -la /web-output/ && \
+    ls -la /web-output/.next || (echo "ERROR: .next not properly copied to /web-output" && exit 1)
+
+# Stage 3: Create RPM
+FROM rockylinux:9 AS rpm-builder
+
+# Install EPEL and enable CRB repository
+RUN dnf install -y epel-release && \
+    dnf config-manager --set-enabled crb && \
+    dnf update -y
+
+# Install RPM tools and runtime dependencies
+RUN dnf install -y --nogpgcheck \
     rpm-build \
     rpmdevtools \
-    systemd-devel
+    systemd-devel \
+    && curl -fsSL https://rpm.nodesource.com/setup_18.x | bash - \
+    && dnf install -y nodejs \
+    && dnf install -y \
+    glib2 \
+    libjpeg-turbo \
+    libpng \
+    libtiff \
+    libwebp \
+    fftw-libs-double \
+    orc \
+    giflib \
+    lcms2 \
+    zlib
 
 # Set up RPM build environment
 RUN rpmdev-setuptree
 
 # Create source directories
-RUN mkdir -p /root/rpmbuild/SOURCES/systemd /root/rpmbuild/SOURCES/config
+RUN mkdir -p /root/rpmbuild/SOURCES/systemd /root/rpmbuild/SOURCES/config /root/rpmbuild/SOURCES/lib64
 
-# Create build directory structure
+# Copy libvips shared libraries (only versioned .so files)
+COPY --from=libvips-builder /usr/lib64/libvips.so.42.12.7 /root/rpmbuild/SOURCES/lib64/
+COPY --from=libvips-builder /usr/lib64/libvips-cpp.so.42.12.7 /root/rpmbuild/SOURCES/lib64/
+RUN dnf install -y chrpath && \
+    for lib in /root/rpmbuild/SOURCES/lib64/libvips*.so*; do \
+        if [ -f "$lib" ]; then \
+            echo "Removing RPATH from $lib"; \
+            chrpath -d "$lib" || true; \
+        fi; \
+    done
+
+# Create build directory for web files
 RUN mkdir -p /root/rpmbuild/BUILD/web
 
-# Show what's in the web-builder output
+# Copy built web app
 COPY --from=web-builder /web-output/ /root/rpmbuild/BUILD/web/
-RUN ls -la /root/rpmbuild/BUILD/web/ || true
 
-# Copy config and systemd files
-COPY packaging/web/config/web.json /root/rpmbuild/SOURCES/config/
-COPY packaging/web/config/nginx.conf /root/rpmbuild/SOURCES/config/
-COPY packaging/web/systemd/serviceradar-web.service /root/rpmbuild/SOURCES/systemd/
+# Copy config files
 COPY packaging/specs/serviceradar-web.spec /root/rpmbuild/SPECS/
+COPY packaging/web/config/web.json /root/rpmbuild/SOURCES/config/
+COPY packaging/web/config/nginx.conf /root/rpmbuild/SOURCES/config/nginx.conf
+COPY packaging/web/systemd/serviceradar-web.service /root/rpmbuild/SOURCES/systemd/
 
 # Set default version (can be overridden at build time)
 ARG VERSION=1.0.22
 ARG RELEASE=1
 
-# Build the RPM with verbose output for debugging
-RUN rpmbuild -bb -v \
+# Build the RPM with modified spec file that includes libvips
+RUN echo "Creating custom spec file with libvips bundled..." && \
+    cp /root/rpmbuild/SPECS/serviceradar-web.spec /root/rpmbuild/SPECS/serviceradar-web-bundled.spec && \
+    sed -i '/mkdir -p %{buildroot}\/etc\/nginx\/conf.d/a mkdir -p %{buildroot}/usr/lib/serviceradar/web' /root/rpmbuild/SPECS/serviceradar-web-bundled.spec && \
+    # Remove the line that installs to /usr/local/share to avoid duplicate files
+    sed -i '/^cp -r \/root\/rpmbuild\/BUILD\/web\/.*\/usr\/local\/share\/serviceradar-web\//d' /root/rpmbuild/SPECS/serviceradar-web-bundled.spec && \
+    # Install only to /usr/lib/serviceradar/web
+    sed -i '/Install systemd service/i # Copy web files\ncp -r /root/rpmbuild/BUILD/web/* %{buildroot}/usr/lib/serviceradar/web/\ncp -r /root/rpmbuild/BUILD/web/.next %{buildroot}/usr/lib/serviceradar/web/' /root/rpmbuild/SPECS/serviceradar-web-bundled.spec && \
+    sed -i '/mkdir -p %{buildroot}\/etc\/nginx\/conf.d/a mkdir -p %{buildroot}/usr/lib64' /root/rpmbuild/SPECS/serviceradar-web-bundled.spec && \
+    sed -i '/Install systemd service/i cp -P /root/rpmbuild/SOURCES/lib64/libvips*.so* %{buildroot}/usr/lib64/' /root/rpmbuild/SPECS/serviceradar-web-bundled.spec && \
+    # Update the files section to include all Next.js files
+    sed -i '/%files/a %dir %attr(0755, serviceradar, serviceradar) /usr/lib/serviceradar\n%dir %attr(0755, serviceradar, serviceradar) /usr/lib/serviceradar/web\n/usr/lib/serviceradar/web/*\n/usr/lib/serviceradar/web/.next\n/usr/lib/serviceradar/web/.next/*\n/usr/lib/serviceradar/web/.next/static\n/usr/lib/serviceradar/web/.next/static/*\n/usr/lib/serviceradar/web/.next/server\n/usr/lib/serviceradar/web/.next/server/*\n%attr(0755, root, root) /usr/lib64/libvips*.so*' /root/rpmbuild/SPECS/serviceradar-web-bundled.spec && \
+    sed -i '/^%post/a /sbin/ldconfig\n\n# Debug: Check if .next directory exists\necho "Checking installation directory structure:"\nls -la /usr/lib/serviceradar/web/\nls -la /usr/lib/serviceradar/web/.next/ || echo "WARNING: .next directory missing or empty"' /root/rpmbuild/SPECS/serviceradar-web-bundled.spec && \
+    sed -i '/^%postun/a /sbin/ldconfig' /root/rpmbuild/SPECS/serviceradar-web-bundled.spec && \
+    sed -i '/Requires: *libvips/d' /root/rpmbuild/SPECS/serviceradar-web-bundled.spec && \
+    sed -i '/Requires: *systemd/a Requires: fftw-libs-double\nRequires: giflib\nRequires: lcms2\nRequires: libtiff\nRequires: orc\nRequires: libwebp\nRequires: nodejs' /root/rpmbuild/SPECS/serviceradar-web-bundled.spec
+
+# Add special wildcard handling to make sure all .next files are packaged
+RUN echo "# Force include all .next directory files with wildcard" >> /root/rpmbuild/SPECS/serviceradar-web-bundled.spec && \
+    echo "%define _unpackaged_files_terminate_build 0" >> /root/rpmbuild/SPECS/serviceradar-web-bundled.spec
+
+# Build the RPM with QA_RPATHS to ignore standard RPATHs
+RUN export QA_RPATHS=$((0x0001|0x0010)) && \
+    rpmbuild -bb \
     --define "version ${VERSION}" \
     --define "release ${RELEASE}" \
-    /root/rpmbuild/SPECS/serviceradar-web.spec
+    --nodeps \
+    /root/rpmbuild/SPECS/serviceradar-web-bundled.spec
 
 # Final stage to store RPM
-FROM --platform=linux/amd64 rockylinux:9
+FROM rockylinux:9
 WORKDIR /rpms
 COPY --from=rpm-builder /root/rpmbuild/RPMS/*/*.rpm .
 CMD ["/bin/bash"]
