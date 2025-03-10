@@ -47,6 +47,9 @@ async function fetchStatus() {
         const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8090';
         const apiKey = process.env.API_KEY || '';
 
+        console.log(`Fetching ${backendUrl} ...`);
+        console.log(`API Key: ${apiKey}`);
+
         // Fetch basic status
         const response = await fetch(`${backendUrl}/api/status`, {
             headers: {
