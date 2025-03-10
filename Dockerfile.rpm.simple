@@ -79,6 +79,12 @@ RUN mkdir -p /root/rpmbuild/SOURCES/config/checkers && \
     echo "SNMP checker config not found (only needed for snmp-checker component)"; \
     fi
 
+# Create selinux source directory
+RUN mkdir -p /root/rpmbuild/SOURCES/selinux
+
+# Copy SELinux policy
+COPY packaging/selinux/serviceradar-nginx.te /root/rpmbuild/SOURCES/selinux/
+
 # List files for debugging
 RUN echo "=== Files in SOURCES/systemd ===" && \
     ls -la /root/rpmbuild/SOURCES/systemd/ && \
