@@ -209,9 +209,10 @@ rpm-core: rpm-prep ## Build the core RPM package
 .PHONY: rpm-web
 rpm-web: rpm-prep ## Build the web RPM package
 	@echo "$(COLOR_BOLD)Building web RPM package$(COLOR_RESET)"
-	@docker build \
+	@VERSION_CLEAN=$$(echo "$(VERSION)" | sed 's/-/_/g'); \
+	docker build \
 		--platform linux/amd64 \
-		--build-arg VERSION="$(VERSION)" \
+		--build-arg VERSION="$$VERSION_CLEAN" \
 		--build-arg RELEASE="$(RELEASE)" \
 		-f Dockerfile.rpm.web \
 		-t serviceradar-rpm-web \

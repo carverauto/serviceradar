@@ -69,7 +69,7 @@ RUN ./configure --prefix=/usr \
     --with-giflib \
     --with-tiff \
     --with-png && \
-    make -j$(nproc) && \
+    make -j2 && \
     make install
 
 # Stage 2: Build the Next.js web UI
