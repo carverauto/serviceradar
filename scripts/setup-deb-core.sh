@@ -94,7 +94,7 @@ cat > "${PKG_ROOT}/etc/serviceradar/core.json" << EOF
     "listen_addr": ":8090",
     "grpc_addr": ":50052",
     "alert_threshold": "5m",
-    "known_pollers": ["home-poller-1"],
+    "known_pollers": ["default-poller"],
     "metrics": {
         "enabled": true,
         "retention": 100,

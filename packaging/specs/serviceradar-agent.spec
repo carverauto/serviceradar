@@ -46,6 +46,15 @@ chmod 755 /usr/local/bin/serviceradar-agent
 # Set required capability for ICMP scanning
 setcap cap_net_raw=+ep /usr/local/bin/serviceradar-agent
 
+# Enable and start service
+systemctl daemon-reload
+systemctl enable serviceradar-agent.service
+systemctl start serviceradar-agent.service
+
+# Verify the service started successfully
+if ! systemctl is-active --quiet serviceradar-agent.service; then  # or serviceradar-poller.service
+    echo "WARNING: Failed to start service. Check logs with: journalctl -xeu serviceradar-agent.service"
+fi
 
 
 %preun

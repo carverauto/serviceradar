@@ -5,7 +5,7 @@ After=network.target
 [Service]
 Type=simple
 User=serviceradar
-WorkingDirectory=/usr/local/share/serviceradar-web
+WorkingDirectory=/usr/lib/serviceradar/web
 Environment=NODE_ENV=production
 Environment=PORT=3000
 EnvironmentFile=/etc/serviceradar/api.env

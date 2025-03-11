@@ -6,6 +6,7 @@ After=network.target
 Type=simple
 User=serviceradar
 ExecStart=/usr/local/bin/serviceradar-core -config /etc/serviceradar/core.json
+EnvironmentFile=/etc/serviceradar/api.env
 Restart=always
 RestartSec=10
 TimeoutStopSec=20

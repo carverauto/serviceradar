@@ -17,6 +17,8 @@
 // src/app/page.tsx (Server Component)
 import { Suspense } from 'react';
 import Dashboard from '../components/Dashboard';
+import { env } from 'next-runtime-env';
+import { unstable_noStore as noStore } from 'next/cache';
 
 interface ServiceDetails {
     response_time?: number;
@@ -42,10 +44,12 @@ interface Node {
 
 // This runs only on the server
 async function fetchStatus() {
+    noStore();
+
     try {
         // Direct server-to-server call with API key
-        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8090';
-        const apiKey = process.env.API_KEY || '';
+        const backendUrl = env('NEXT_PUBLIC_BACKEND_URL') || 'http://localhost:8090';
+        const apiKey = env('API_KEY') || '';
 
         // Fetch basic status
         const response = await fetch(`${backendUrl}/api/status`, {
