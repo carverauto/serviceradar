@@ -40,6 +40,11 @@ fi
 chown -R serviceradar:serviceradar /etc/serviceradar
 chmod 755 /usr/local/bin/serviceradar-poller
 
+# Enable and start service
+systemctl daemon-reload
+systemctl enable serviceradar-poller.service
+systemctl start serviceradar-poller.service
+
 %preun
 %systemd_preun serviceradar-poller.service
 
