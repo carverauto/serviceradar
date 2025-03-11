@@ -15,7 +15,7 @@
 # limitations under the License.
 
 # buildAll.sh - Build all packages for ServiceRadar
-VERSION=${VERSION:-1.0.22}
+VERSION=${VERSION:-1.0.23}
 
 ./scripts/setup-deb-agent.sh
 ./scripts/setup-deb-poller.sh

@@ -75,7 +75,7 @@ RUN echo "=== Files in SOURCES directories ===" && \
     ls -la /root/rpmbuild/SOURCES/selinux/ 2>/dev/null || echo "No selinux directory"
 
 # Set default version (can be overridden at build time)
-ARG VERSION=1.0.22
+ARG VERSION=1.0.23
 ARG RELEASE=1
 
 # Process version to be RPM compatible (replace hyphens with underscores)

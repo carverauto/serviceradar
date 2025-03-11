@@ -17,7 +17,7 @@
 # setup-deb-snmp-checker.sh
 set -e  # Exit on any error
 
-VERSION=${VERSION:-1.0.22}
+VERSION=${VERSION:-1.0.23}
 echo "Building serviceradar-snmp-checker version ${VERSION}"
 
 echo "Setting up package structure..."

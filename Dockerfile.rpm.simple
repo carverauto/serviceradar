@@ -101,7 +101,7 @@ RUN if [ -f "/root/rpmbuild/SPECS/serviceradar-${COMPONENT}.spec" ]; then \
 fi
 
 # Set version (with RPM-compatible format)
-ARG VERSION=1.0.22
+ARG VERSION=1.0.23
 ARG RELEASE=1
 
 # Process version to be RPM compatible (replace hyphens with underscores)

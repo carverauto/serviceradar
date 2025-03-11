@@ -216,7 +216,7 @@ RUN cp -v /root/rpmbuild/SOURCES/packaging/specs/serviceradar-web.spec /root/rpm
     cp -v /root/rpmbuild/SOURCES/packaging/selinux/*.te /root/rpmbuild/SOURCES/selinux/ 2>/dev/null || echo "No SELinux policies found"
 
 # Set default version (can be overridden at build time)
-ARG VERSION=1.0.22
+ARG VERSION=1.0.23
 ARG RELEASE=1
 
 # Modify the spec file to fix the path issues
