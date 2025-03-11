@@ -23,9 +23,6 @@ mkdir -p %{buildroot}/etc/serviceradar
 mkdir -p %{buildroot}/etc/nginx/conf.d
 mkdir -p %{buildroot}/etc/serviceradar/selinux
 
-# Install selinux policy file
-install -m 644 %{_sourcedir}/selinux/serviceradar-nginx.te %{buildroot}/etc/serviceradar/selinux/
-
 # Copy all web files - handle with wildcard to avoid errors if some files don't exist
 cp -r %{_builddir}/web/* %{buildroot}/usr/lib/serviceradar/web/ 2>/dev/null || :
 cp -r %{_builddir}/web/.next %{buildroot}/usr/lib/serviceradar/web/ 2>/dev/null || :
@@ -45,7 +42,6 @@ install -m 644 %{_sourcedir}/selinux/serviceradar-nginx.te %{buildroot}/etc/serv
 %attr(0644, root, root) /lib/systemd/system/serviceradar-web.service
 %attr(0644, root, root) /etc/serviceradar/selinux/serviceradar-nginx.te
 %dir %attr(0755, root, root) /etc/serviceradar
-%attr(0644, root, root) /etc/serviceradar/selinux/serviceradar-nginx.te
 %dir %attr(0755, root, root) /etc/serviceradar/selinux
 
 %pre
@@ -67,7 +63,11 @@ fi
 
 # Enable CodeReady Builder repository for Oracle Linux
 if grep -q "Oracle Linux" /etc/os-release; then
-    dnf config-manager --set-enabled ol9_codeready_builder || true
+    if command -v /usr/bin/crb >/dev/null 2>&1; then
+        /usr/bin/crb enable
+    else
+        dnf config-manager --set-enabled ol9_codeready_builder || true
+    fi
 fi
 
 # Check for Node.js 20 and enable if needed
@@ -81,9 +81,13 @@ if [ ! -f "/etc/serviceradar/api.env" ]; then
     echo "WARNING: API key file not found. Creating temporary API key..."
     API_KEY=$(openssl rand -hex 32)
     echo "API_KEY=$API_KEY" > /etc/serviceradar/api.env
-    chmod 644 /etc/serviceradar/api.env
+    chmod 640 /etc/serviceradar/api.env
     chown serviceradar:serviceradar /etc/serviceradar/api.env
     echo "For proper functionality, please install serviceradar-core package."
+else
+    # Fix permissions on existing API key file
+    chmod 640 /etc/serviceradar/api.env
+    chown serviceradar:serviceradar /etc/serviceradar/api.env
 fi
 
 # Configure SELinux if available
@@ -98,6 +102,7 @@ if command -v setsebool >/dev/null 2>&1 && command -v semanage >/dev/null 2>&1; 
 
     # Configure port types
     semanage port -a -t http_port_t -p tcp 3000 || semanage port -m -t http_port_t -p tcp 3000
+    semanage port -a -t http_port_t -p tcp 8090 || semanage port -m -t http_port_t -p tcp 8090
 
     # Apply SELinux policy module
     if [ -f "/etc/serviceradar/selinux/serviceradar-nginx.te" ] && [ "$(getenforce)" = "Enforcing" ]; then
@@ -122,6 +127,11 @@ fi
 if systemctl is-active --quiet nginx; then
     systemctl reload nginx || systemctl restart nginx || echo "Warning: Failed to reload/restart Nginx."
 fi
+
+# Ensure web service is enabled and started
+systemctl daemon-reload
+systemctl enable serviceradar-web
+systemctl start serviceradar-web || echo "Failed to start service, please check logs with: journalctl -xeu serviceradar-web"
 
 %preun
 %systemd_preun serviceradar-web.service

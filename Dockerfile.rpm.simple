@@ -39,6 +39,7 @@ RUN dnf update -y && \
     rpmdevtools \
     systemd-devel \
     libcap-devel \
+    policycoreutils-python-utils \
     gcc \
     make
 
@@ -48,59 +49,69 @@ RUN rpmdev-setuptree
 # Create necessary directories
 RUN mkdir -p /root/rpmbuild/SOURCES/systemd \
     /root/rpmbuild/SOURCES/config \
-    /root/rpmbuild/SOURCES/config/checkers
-
-# Copy entire packaging directory to handle missing files gracefully
-COPY packaging /tmp/packaging/
+    /root/rpmbuild/SOURCES/config/checkers \
+    /root/rpmbuild/SOURCES/selinux
 
 # Copy built binary
 ARG COMPONENT
 COPY --from=builder /build-out/* /root/rpmbuild/BUILD/
 
+# Copy entire packaging directory for organization and completeness
+COPY packaging /root/rpmbuild/SOURCES/packaging/
+
 # Copy spec file
 COPY packaging/specs/serviceradar-${COMPONENT}.spec /root/rpmbuild/SPECS/
 
-# Use shell copy commands instead of COPY directive
-RUN if [ -f "/tmp/packaging/${COMPONENT}/systemd/serviceradar-${COMPONENT}.service" ]; then \
-    cp "/tmp/packaging/${COMPONENT}/systemd/serviceradar-${COMPONENT}.service" /root/rpmbuild/SOURCES/systemd/; \
-    else \
-    echo "Service file not found!"; \
-    fi
+# Copy service files from packaging
+RUN cp -v /root/rpmbuild/SOURCES/packaging/${COMPONENT}/systemd/serviceradar-${COMPONENT}.service /root/rpmbuild/SOURCES/systemd/ || echo "Warning: Service file not found!"
 
 # Copy configuration files
-RUN mkdir -p /root/rpmbuild/SOURCES/config/checkers && \
-    if [ -d "/tmp/packaging/config" ]; then \
-    find /tmp/packaging/config -type f -name "*.json" -maxdepth 1 -exec cp {} /root/rpmbuild/SOURCES/config/ \; || echo "No main config files"; \
-    fi && \
-    if [ "${COMPONENT}" = "snmp-checker" ] && [ -f "/tmp/packaging/${COMPONENT}/config/checkers/snmp.json" ]; then \
-    cp "/tmp/packaging/${COMPONENT}/config/checkers/snmp.json" /root/rpmbuild/SOURCES/config/checkers/; \
-    echo "Copied SNMP config file."; \
-    else \
-    echo "SNMP checker config not found (only needed for snmp-checker component)"; \
-    fi
+RUN cp -v /root/rpmbuild/SOURCES/packaging/${COMPONENT}/config/* /root/rpmbuild/SOURCES/config/ 2>/dev/null || echo "No component-specific config files found" && \
+    cp -v /root/rpmbuild/SOURCES/packaging/config/${COMPONENT}.json /root/rpmbuild/SOURCES/config/ 2>/dev/null || echo "No global config file found for ${COMPONENT}"
 
-# Create selinux source directory
-RUN mkdir -p /root/rpmbuild/SOURCES/selinux
+# Copy special configuration for checkers
+RUN if [ "${COMPONENT}" = "snmp-checker" ]; then \
+    mkdir -p /root/rpmbuild/SOURCES/config/checkers && \
+    cp -v /root/rpmbuild/SOURCES/packaging/snmp-checker/config/checkers/snmp.json /root/rpmbuild/SOURCES/config/checkers/ || \
+    echo "SNMP checker config not found"; \
+fi
 
 # Copy SELinux policy
-COPY packaging/selinux/serviceradar-nginx.te /root/rpmbuild/SOURCES/selinux/
+RUN cp -v /root/rpmbuild/SOURCES/packaging/selinux/*.te /root/rpmbuild/SOURCES/selinux/ 2>/dev/null || echo "No SELinux policies found"
 
 # List files for debugging
 RUN echo "=== Files in SOURCES/systemd ===" && \
     ls -la /root/rpmbuild/SOURCES/systemd/ && \
     echo "=== Files in SOURCES/config ===" && \
     ls -la /root/rpmbuild/SOURCES/config/ && \
+    echo "=== No scripts directory (by design) ===" && \
+    echo "=== Files in SOURCES/selinux ===" && \
+    ls -la /root/rpmbuild/SOURCES/selinux/ 2>/dev/null || echo "No SELinux directory" && \
     echo "=== Files in SOURCES/config/checkers ===" && \
-    ls -la /root/rpmbuild/SOURCES/config/checkers/ || echo "No files in checkers"
+    ls -la /root/rpmbuild/SOURCES/config/checkers/ 2>/dev/null || echo "No checkers directory"
 
-# Set default version (can be overridden at build time)
+# DON'T modify the spec file to include external scripts - they won't be available post-install
+# Instead, we should make sure all necessary post-installation commands are directly in the spec file
+RUN if [ -f "/root/rpmbuild/SPECS/serviceradar-${COMPONENT}.spec" ]; then \
+    # Only add the chmod for the API key file if needed
+    if ! grep -q "chmod.*api.env" /root/rpmbuild/SPECS/serviceradar-${COMPONENT}.spec; then \
+        sed -i '/%post/a chmod 640 /etc/serviceradar/api.env 2>/dev/null || true' /root/rpmbuild/SPECS/serviceradar-${COMPONENT}.spec; \
+    fi; \
+    echo "Updated spec file with permissions fix only"; \
+fi
+
+# Set version (with RPM-compatible format)
 ARG VERSION=1.0.22
 ARG RELEASE=1
 
-# Build the RPM package
-RUN rpmbuild -bb \
-    --define "version ${VERSION}" \
+# Process version to be RPM compatible (replace hyphens with underscores)
+RUN RPM_VERSION=$(echo ${VERSION} | sed 's/-/_/g') && \
+    echo "Original VERSION: ${VERSION}" && \
+    echo "RPM-compatible VERSION: ${RPM_VERSION}" && \
+    rpmbuild -bb \
+    --define "version ${RPM_VERSION}" \
     --define "release ${RELEASE}" \
+    --define "component_dir ${COMPONENT}" \
     /root/rpmbuild/SPECS/serviceradar-${COMPONENT}.spec
 
 # Final stage to store RPM

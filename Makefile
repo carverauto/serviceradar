@@ -187,6 +187,7 @@ deb-all-container: deb-agent deb-poller deb-core-container deb-web deb-dusk deb-
 	@echo "$(COLOR_BOLD)All Debian packages built (with container support for core)$(COLOR_RESET)"
 
 # Build RPM packages
+
 .PHONY: rpm-prep
 rpm-prep: ## Prepare directory structure for RPM building
 	@echo "$(COLOR_BOLD)Preparing RPM build environment$(COLOR_RESET)"
@@ -195,9 +196,10 @@ rpm-prep: ## Prepare directory structure for RPM building
 .PHONY: rpm-core
 rpm-core: rpm-prep ## Build the core RPM package
 	@echo "$(COLOR_BOLD)Building core RPM package$(COLOR_RESET)"
-	@docker build \
+	@VERSION_CLEAN=$$(echo "$(VERSION)" | sed 's/-/_/g'); \
+	docker build \
 		--platform linux/amd64 \
-		--build-arg VERSION="$(VERSION)" \
+		--build-arg VERSION="$$VERSION_CLEAN" \
 		--build-arg RELEASE="$(RELEASE)" \
 		-f Dockerfile-rpm.core \
 		-t serviceradar-rpm-core \
@@ -205,6 +207,57 @@ rpm-core: rpm-prep ## Build the core RPM package
 	@docker create --name temp-core-container serviceradar-rpm-core
 	@docker cp temp-core-container:/rpms/. ./release-artifacts/rpm/
 	@docker rm temp-core-container
+
+.PHONY: rpm-agent
+rpm-agent: rpm-prep ## Build the agent RPM package
+	@echo "$(COLOR_BOLD)Building agent RPM package$(COLOR_RESET)"
+	@VERSION_CLEAN=$$(echo "$(VERSION)" | sed 's/-/_/g'); \
+	docker build \
+		--platform linux/amd64 \
+		--build-arg VERSION="$$VERSION_CLEAN" \
+		--build-arg RELEASE="$(RELEASE)" \
+		--build-arg COMPONENT="agent" \
+		--build-arg BINARY_PATH="./cmd/agent" \
+		-f Dockerfile.rpm.simple \
+		-t serviceradar-rpm-agent \
+		.
+	@docker create --name temp-agent-container serviceradar-rpm-agent
+	@docker cp temp-agent-container:/rpms/. ./release-artifacts/rpm/
+	@docker rm temp-agent-container
+
+.PHONY: rpm-poller
+rpm-poller: rpm-prep ## Build the poller RPM package
+	@echo "$(COLOR_BOLD)Building poller RPM package$(COLOR_RESET)"
+	@VERSION_CLEAN=$$(echo "$(VERSION)" | sed 's/-/_/g'); \
+	docker build \
+		--platform linux/amd64 \
+		--build-arg VERSION="$$VERSION_CLEAN" \
+		--build-arg RELEASE="$(RELEASE)" \
+		--build-arg COMPONENT="poller" \
+		--build-arg BINARY_PATH="./cmd/poller" \
+		-f Dockerfile.rpm.simple \
+		-t serviceradar-rpm-poller \
+		.
+	@docker create --name temp-poller-container serviceradar-rpm-poller
+	@docker cp temp-poller-container:/rpms/. ./release-artifacts/rpm/
+	@docker rm temp-poller-container
+
+.PHONY: rpm-snmp
+rpm-snmp: rpm-prep ## Build the SNMP checker RPM package
+	@echo "$(COLOR_BOLD)Building SNMP checker RPM package$(COLOR_RESET)"
+	@VERSION_CLEAN=$$(echo "$(VERSION)" | sed 's/-/_/g'); \
+	docker build \
+		--platform linux/amd64 \
+		--build-arg VERSION="$$VERSION_CLEAN" \
+		--build-arg RELEASE="$(RELEASE)" \
+		--build-arg COMPONENT="snmp-checker" \
+		--build-arg BINARY_PATH="./cmd/checkers/snmp" \
+		-f Dockerfile.rpm.simple \
+		-t serviceradar-rpm-snmp-checker \
+		.
+	@docker create --name temp-snmp-container serviceradar-rpm-snmp-checker
+	@docker cp temp-snmp-container:/rpms/. ./release-artifacts/rpm/
+	@docker rm temp-snmp-container
 
 .PHONY: rpm-web
 rpm-web: rpm-prep ## Build the web RPM package
@@ -221,72 +274,8 @@ rpm-web: rpm-prep ## Build the web RPM package
 	@docker cp temp-web-container:/rpms/. ./release-artifacts/rpm/
 	@docker rm temp-web-container
 
-.PHONY: rpm-agent
-rpm-agent: rpm-prep ## Build the agent RPM package
-	@echo "$(COLOR_BOLD)Building agent RPM package$(COLOR_RESET)"
-	@docker build \
-		--platform linux/amd64 \
-		--build-arg VERSION="$(VERSION)" \
-		--build-arg RELEASE="$(RELEASE)" \
-		--build-arg COMPONENT="agent" \
-		--build-arg BINARY_PATH="./cmd/agent" \
-		-f Dockerfile.rpm.simple \
-		-t serviceradar-rpm-agent \
-		.
-	@docker create --name temp-agent-container serviceradar-rpm-agent
-	@docker cp temp-agent-container:/rpms/. ./release-artifacts/rpm/
-	@docker rm temp-agent-container
-
-.PHONY: rpm-poller
-rpm-poller: rpm-prep ## Build the poller RPM package
-	@echo "$(COLOR_BOLD)Building poller RPM package$(COLOR_RESET)"
-	@docker build \
-		--platform linux/amd64 \
-		--build-arg VERSION="$(VERSION)" \
-		--build-arg RELEASE="$(RELEASE)" \
-		--build-arg COMPONENT="poller" \
-		--build-arg BINARY_PATH="./cmd/poller" \
-		-f Dockerfile.rpm.simple \
-		-t serviceradar-rpm-poller \
-		.
-	@docker create --name temp-poller-container serviceradar-rpm-poller
-	@docker cp temp-poller-container:/rpms/. ./release-artifacts/rpm/
-	@docker rm temp-poller-container
-
-.PHONY: rpm-dusk
-rpm-dusk: rpm-prep ## Build the dusk checker RPM package
-	@echo "$(COLOR_BOLD)Building dusk checker RPM package$(COLOR_RESET)"
-	@docker build \
-		--platform linux/amd64 \
-		--build-arg VERSION="$(VERSION)" \
-		--build-arg RELEASE="$(RELEASE)" \
-		--build-arg COMPONENT="dusk-checker" \
-		--build-arg BINARY_PATH="./cmd/checkers/dusk" \
-		-f Dockerfile.rpm.simple \
-		-t serviceradar-rpm-dusk-checker \
-		.
-	@docker create --name temp-dusk-container serviceradar-rpm-dusk-checker
-	@docker cp temp-dusk-container:/rpms/. ./release-artifacts/rpm/
-	@docker rm temp-dusk-container
-
-.PHONY: rpm-snmp
-rpm-snmp: rpm-prep ## Build the SNMP checker RPM package
-	@echo "$(COLOR_BOLD)Building SNMP checker RPM package$(COLOR_RESET)"
-	@docker build \
-		--platform linux/amd64 \
-		--build-arg VERSION="$(VERSION)" \
-		--build-arg RELEASE="$(RELEASE)" \
-		--build-arg COMPONENT="snmp-checker" \
-		--build-arg BINARY_PATH="./cmd/checkers/snmp" \
-		-f Dockerfile.rpm.simple \
-		-t serviceradar-rpm-snmp-checker \
-		.
-	@docker create --name temp-snmp-container serviceradar-rpm-snmp-checker
-	@docker cp temp-snmp-container:/rpms/. ./release-artifacts/rpm/
-	@docker rm temp-snmp-container
-
 .PHONY: rpm-all
-rpm-all: rpm-core rpm-web rpm-agent rpm-poller rpm-dusk rpm-snmp ## Build all RPM packages
+rpm-all: rpm-core rpm-web rpm-agent rpm-poller rpm-snmp ## Build all RPM packages
 	@echo "$(COLOR_BOLD)All RPM packages built$(COLOR_RESET)"
 
 # Docusaurus commands

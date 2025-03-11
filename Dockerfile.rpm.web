@@ -186,7 +186,6 @@ RUN rpmdev-setuptree
 RUN mkdir -p /root/rpmbuild/SOURCES/systemd \
     /root/rpmbuild/SOURCES/config \
     /root/rpmbuild/SOURCES/lib64 \
-    /root/rpmbuild/SOURCES/scripts \
     /root/rpmbuild/SOURCES/selinux
 
 # Copy libvips shared libraries (only versioned .so files)
@@ -206,44 +205,36 @@ RUN mkdir -p /root/rpmbuild/BUILD/web
 # Copy built web app
 COPY --from=web-builder /web-output/ /root/rpmbuild/BUILD/web/
 
-# Copy the existing spec file and all config files from the packaging directory
-COPY packaging/specs/serviceradar-web.spec /root/rpmbuild/SPECS/
-COPY packaging/web/config/web.json /root/rpmbuild/SOURCES/config/
-COPY packaging/web/config/nginx.conf /root/rpmbuild/SOURCES/config/nginx.conf
-COPY packaging/web/systemd/serviceradar-web.service /root/rpmbuild/SOURCES/systemd/
-COPY packaging/web/scripts/* /root/rpmbuild/SOURCES/scripts/
-COPY packaging/selinux/*.te /root/rpmbuild/SOURCES/selinux/
+# Copy the entire packaging directory for reference
+COPY packaging /root/rpmbuild/SOURCES/packaging/
+
+# Copy files from packaging directory to expected locations
+RUN cp -v /root/rpmbuild/SOURCES/packaging/specs/serviceradar-web.spec /root/rpmbuild/SPECS/ && \
+    cp -v /root/rpmbuild/SOURCES/packaging/web/config/web.json /root/rpmbuild/SOURCES/config/ && \
+    cp -v /root/rpmbuild/SOURCES/packaging/web/config/nginx.conf /root/rpmbuild/SOURCES/config/nginx.conf && \
+    cp -v /root/rpmbuild/SOURCES/packaging/web/systemd/serviceradar-web.service /root/rpmbuild/SOURCES/systemd/ && \
+    cp -v /root/rpmbuild/SOURCES/packaging/selinux/*.te /root/rpmbuild/SOURCES/selinux/ 2>/dev/null || echo "No SELinux policies found"
 
 # Set default version (can be overridden at build time)
 ARG VERSION=1.0.22
 ARG RELEASE=1
 
-# Modify the spec file to fix the path issues and add SELinux policy
+# Modify the spec file to fix the path issues
 RUN sed -i 's|mkdir -p %{buildroot}/usr/local/share/serviceradar-web|mkdir -p %{buildroot}/usr/lib/serviceradar/web|g' /root/rpmbuild/SPECS/serviceradar-web.spec && \
     sed -i 's|cp -r %{_builddir}/web/\* %{buildroot}/usr/local/share/serviceradar-web/|cp -r %{_builddir}/web/* %{buildroot}/usr/lib/serviceradar/web/|g' /root/rpmbuild/SPECS/serviceradar-web.spec && \
     sed -i 's|cp -r %{_builddir}/web/.next %{buildroot}/usr/local/share/serviceradar-web/|cp -r %{_builddir}/web/.next %{buildroot}/usr/lib/serviceradar/web/|g' /root/rpmbuild/SPECS/serviceradar-web.spec && \
     sed -i 's|%attr(0755, serviceradar, serviceradar) /usr/local/share/serviceradar-web|%attr(0755, serviceradar, serviceradar) /usr/lib/serviceradar/web|g' /root/rpmbuild/SPECS/serviceradar-web.spec && \
-    sed -i '/^%install/a mkdir -p %{buildroot}/usr/lib64\ncp -P /root/rpmbuild/SOURCES/lib64/libvips*.so* %{buildroot}/usr/lib64/\nmkdir -p %{buildroot}/etc/serviceradar/selinux\ninstall -m 644 %{_sourcedir}/selinux/serviceradar-nginx.te %{buildroot}/etc/serviceradar/selinux/' /root/rpmbuild/SPECS/serviceradar-web.spec && \
-    sed -i '/^%files/a %attr(0644, root, root) /etc/serviceradar/selinux/serviceradar-nginx.te\n%dir %attr(0755, root, root) /etc/serviceradar/selinux\n%attr(-, root, root) /usr/lib64/libvips*.so*' /root/rpmbuild/SPECS/serviceradar-web.spec
+    sed -i '/^%install/a mkdir -p %{buildroot}/usr/lib64\ncp -P /root/rpmbuild/SOURCES/lib64/libvips*.so* %{buildroot}/usr/lib64/' /root/rpmbuild/SPECS/serviceradar-web.spec && \
+    sed -i '/^%files/a %attr(-, root, root) /usr/lib64/libvips*.so*' /root/rpmbuild/SPECS/serviceradar-web.spec
 
-# Add SELinux configuration to post-install scripts
-RUN sed -i '/^%post/a # Configure SELinux if available\nif command -v setsebool >/dev/null 2>\\&1 \\&\\& command -v semanage >/dev/null 2>\\&1; then\n    # Install SELinux utilities if needed\n    if ! command -v checkmodule >/dev/null 2>\\&1; then\n        dnf install -y policycoreutils-python-utils\n    fi\n    \n    # Allow Nginx to connect to network services\n    setsebool -P httpd_can_network_connect 1\n    \n    # Configure port types\n    semanage port -a -t http_port_t -p tcp 3000 || semanage port -m -t http_port_t -p tcp 3000\n    semanage port -a -t http_port_t -p tcp 8090 || semanage port -m -t http_port_t -p tcp 8090\n    \n    # Apply SELinux policy module if in enforcing mode\n    if [ "$(getenforce)" = "Enforcing" ]; then\n        checkmodule -M -m -o /tmp/serviceradar-nginx.mod /etc/serviceradar/selinux/serviceradar-nginx.te\n        semodule_package -o /tmp/serviceradar-nginx.pp -m /tmp/serviceradar-nginx.mod\n        semodule -i /tmp/serviceradar-nginx.pp\n        rm -f /tmp/serviceradar-nginx.mod /tmp/serviceradar-nginx.pp\n    fi\nfi' /root/rpmbuild/SPECS/serviceradar-web.spec
-
-# Completely disable the %clean section to avoid any issues
-RUN sed -i 's/^%clean$/%clean\nexit 0/' /root/rpmbuild/SPECS/serviceradar-web.spec
-
-# Also create our lib/serviceradar/web directory for the files
-RUN sed -i '/^%pre/a # Create the directory structure\nmkdir -p /usr/lib/serviceradar/web' /root/rpmbuild/SPECS/serviceradar-web.spec
-
-# Update our installation check to look in the right place
-RUN sed -i 's|echo "Checking installation directory structure:"|echo "Checking installation directory structure in /usr/lib/serviceradar/web:"|g' /root/rpmbuild/SPECS/serviceradar-web.spec
-
-# Build the RPM with QA_RPATHS to ignore standard RPATHs
-# Use --noclean to skip the clean phase entirely
+# Process version to be RPM compatible (replace hyphens with underscores)
 RUN export QA_RPATHS=$((0x0001|0x0010)) && \
+    RPM_VERSION=$(echo ${VERSION} | sed 's/-/_/g') && \
+    echo "Original VERSION: ${VERSION}" && \
+    echo "RPM-compatible VERSION: ${RPM_VERSION}" && \
     rpmbuild -bb \
     --noclean \
-    --define "version ${VERSION}" \
+    --define "version ${RPM_VERSION}" \
     --define "release ${RELEASE}" \
     --define "_sourcedir /root/rpmbuild/SOURCES" \
     --define "_builddir /root/rpmbuild/BUILD" \

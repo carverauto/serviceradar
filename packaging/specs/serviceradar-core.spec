@@ -66,7 +66,11 @@ fi
 
 # Enable CodeReady Builder repository for Oracle Linux
 if grep -q "Oracle Linux" /etc/os-release; then
-    dnf config-manager --set-enabled ol9_codeready_builder || true
+    if command -v /usr/bin/crb >/dev/null 2>&1; then
+        /usr/bin/crb enable
+    else
+        dnf config-manager --set-enabled ol9_codeready_builder || true
+    fi
 fi
 
 # Generate API key if it doesn't exist
@@ -74,9 +78,13 @@ if [ ! -f "/etc/serviceradar/api.env" ]; then
     echo "Generating API key..."
     API_KEY=$(openssl rand -hex 32)
     echo "API_KEY=$API_KEY" > /etc/serviceradar/api.env
-    chmod 644 /etc/serviceradar/api.env
+    chmod 640 /etc/serviceradar/api.env
     chown serviceradar:serviceradar /etc/serviceradar/api.env
     echo "API key generated and stored in /etc/serviceradar/api.env"
+else
+    # Make sure existing API key has correct permissions
+    chmod 640 /etc/serviceradar/api.env
+    chown serviceradar:serviceradar /etc/serviceradar/api.env
 fi
 
 # Configure SELinux if available
@@ -97,7 +105,7 @@ if command -v setsebool >/dev/null 2>&1 && command -v semanage >/dev/null 2>&1; 
     if [ "$(getenforce)" = "Enforcing" ]; then
         checkmodule -M -m -o /tmp/serviceradar-core.mod /etc/serviceradar/selinux/serviceradar-core.te
         semodule_package -o /tmp/serviceradar-core.pp -m /tmp/serviceradar-core.mod
-        semanage -i /tmp/serviceradar-core.pp
+        semodule -i /tmp/serviceradar-core.pp
         rm -f /tmp/serviceradar-core.mod /tmp/serviceradar-core.pp
     fi
 
@@ -132,7 +140,15 @@ echo "ServiceRadar Core API service installed successfully!"
 echo "API is running on port 8090"
 
 %preun
-%systemd_preun serviceradar-core.service
+# Stop and disable service
+if [ $1 -eq 0 ]; then
+    # Only on complete uninstall, not on upgrade
+    systemctl stop serviceradar-core >/dev/null 2>&1 || :
+    systemctl disable serviceradar-core >/dev/null 2>&1 || :
+fi
 
 %postun
-%systemd_postun_with_restart serviceradar-core.service
+# Restart the service on upgrade
+if [ $1 -ge 1 ]; then
+    systemctl try-restart serviceradar-core >/dev/null 2>&1 || :
+fi

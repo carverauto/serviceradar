@@ -37,33 +37,53 @@ RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 \
 # Stage 2: Create RPM
 FROM --platform=linux/amd64 rockylinux:9 AS rpm-builder
 
-# Install RPM build tools
+# Install RPM build tools and dependencies
 RUN dnf install -y \
     rpm-build \
     rpmdevtools \
-    systemd-devel
+    systemd-devel \
+    policycoreutils-python-utils
 
 # Set up RPM build environment
 RUN rpmdev-setuptree
 
 # Create necessary directories
 RUN mkdir -p /root/rpmbuild/SOURCES/config/checkers/sweep \
-    /root/rpmbuild/SOURCES/systemd
+    /root/rpmbuild/SOURCES/systemd \
+    /root/rpmbuild/SOURCES/selinux
 
-# Copy built artifacts and spec files
+# Copy built binary
 COPY --from=go-builder /src/serviceradar-core /root/rpmbuild/BUILD/
-COPY packaging/core/config/core.json /root/rpmbuild/SOURCES/config/
-COPY packaging/core/config/checkers/sweep/sweep.json /root/rpmbuild/SOURCES/config/checkers/sweep/
+
+# Copy entire packaging directory for reference
+COPY packaging /root/rpmbuild/SOURCES/packaging/
+
+# Copy spec file - use a known good one
 COPY packaging/specs/serviceradar-core.spec /root/rpmbuild/SPECS/
-COPY packaging/core/systemd/serviceradar-core.service /root/rpmbuild/SOURCES/systemd/
+
+# Copy required files from packaging structure
+RUN cp -v /root/rpmbuild/SOURCES/packaging/core/config/core.json /root/rpmbuild/SOURCES/config/ && \
+    cp -v /root/rpmbuild/SOURCES/packaging/core/config/checkers/sweep/sweep.json /root/rpmbuild/SOURCES/config/checkers/sweep/ && \
+    cp -v /root/rpmbuild/SOURCES/packaging/core/systemd/serviceradar-core.service /root/rpmbuild/SOURCES/systemd/ && \
+    cp -v /root/rpmbuild/SOURCES/packaging/selinux/*.te /root/rpmbuild/SOURCES/selinux/ 2>/dev/null || echo "No SELinux policies found"
+
+# List copied files for debugging
+RUN echo "=== Files in SOURCES directories ===" && \
+    ls -la /root/rpmbuild/SOURCES/systemd/ && \
+    ls -la /root/rpmbuild/SOURCES/config/ && \
+    ls -la /root/rpmbuild/SOURCES/config/checkers/sweep/ && \
+    ls -la /root/rpmbuild/SOURCES/selinux/ 2>/dev/null || echo "No selinux directory"
 
 # Set default version (can be overridden at build time)
 ARG VERSION=1.0.22
 ARG RELEASE=1
 
-# Build the RPM
-RUN rpmbuild -bb \
-    --define "version ${VERSION}" \
+# Process version to be RPM compatible (replace hyphens with underscores)
+RUN RPM_VERSION=$(echo ${VERSION} | sed 's/-/_/g') && \
+    echo "Original VERSION: ${VERSION}" && \
+    echo "RPM-compatible VERSION: ${RPM_VERSION}" && \
+    rpmbuild -bb \
+    --define "version ${RPM_VERSION}" \
     --define "release ${RELEASE}" \
     /root/rpmbuild/SPECS/serviceradar-core.spec
 
