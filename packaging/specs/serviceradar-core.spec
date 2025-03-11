@@ -140,9 +140,8 @@ echo "ServiceRadar Core API service installed successfully!"
 echo "API is running on port 8090"
 
 %preun
-# Stop and disable service
+# Stop and disable service if this is a complete uninstall (not an upgrade)
 if [ $1 -eq 0 ]; then
-    # Only on complete uninstall, not on upgrade
     systemctl stop serviceradar-core >/dev/null 2>&1 || :
     systemctl disable serviceradar-core >/dev/null 2>&1 || :
 fi

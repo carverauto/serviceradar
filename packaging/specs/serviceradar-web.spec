@@ -123,9 +123,20 @@ if systemctl is-active --quiet firewalld; then
     firewall-cmd --reload
 fi
 
-# Configure Nginx
+# Configure and start Nginx
+systemctl enable nginx
 if systemctl is-active --quiet nginx; then
+    # Nginx is running, reload the configuration
     systemctl reload nginx || systemctl restart nginx || echo "Warning: Failed to reload/restart Nginx."
+else
+    # Nginx is not running, start it
+    systemctl start nginx || echo "Warning: Failed to start Nginx. Check logs with: journalctl -xeu nginx"
+fi
+
+# Verify Nginx is running
+if ! systemctl is-active --quiet nginx; then
+    echo "ERROR: Nginx is not running after configuration. Check for configuration errors with: nginx -t"
+    nginx -t
 fi
 
 # Ensure web service is enabled and started
