@@ -15,13 +15,14 @@
 # Stage 1: Build libvips from source
 FROM rockylinux:9 AS libvips-builder
 
-# Install EPEL repository for additional packages
+# Install EPEL repository and update
 RUN dnf install -y epel-release && \
     dnf config-manager --set-enabled crb && \
+    dnf clean all && \
     dnf update -y
 
-# Install libvips build dependencies
-RUN dnf install -y \
+# Install libvips build dependencies with --skip-broken
+RUN dnf install -y --skip-broken \
     gcc \
     gcc-c++ \
     make \
@@ -78,6 +79,7 @@ FROM rockylinux:9 AS web-builder
 # Install EPEL and enable CRB repository
 RUN dnf install -y epel-release && \
     dnf config-manager --set-enabled crb && \
+    dnf clean all && \
     dnf update -y
 
 # Add Node.js 18 repository from nodesource
@@ -86,7 +88,7 @@ RUN curl -fsSL https://rpm.nodesource.com/setup_18.x | bash - && \
     node --version
 
 # Install runtime dependencies for sharp and build tools
-RUN dnf install -y \
+RUN dnf install -y --skip-broken \
     glib2 \
     libjpeg-turbo \
     libpng \
@@ -157,17 +159,18 @@ FROM rockylinux:9 AS rpm-builder
 # Install EPEL and enable CRB repository
 RUN dnf install -y epel-release && \
     dnf config-manager --set-enabled crb && \
+    dnf clean all && \
     dnf update -y
 
 # Install RPM tools and runtime dependencies
-RUN dnf install -y --nogpgcheck \
+RUN dnf install -y --skip-broken \
     rpm-build \
     rpmdevtools \
     systemd-devel \
     policycoreutils-python-utils \
     && curl -fsSL https://rpm.nodesource.com/setup_18.x | bash - \
     && dnf install -y nodejs \
-    && dnf install -y \
+    && dnf install -y --skip-broken \
     glib2 \
     libjpeg-turbo \
     libpng \
@@ -191,7 +194,7 @@ RUN mkdir -p /root/rpmbuild/SOURCES/systemd \
 # Copy libvips shared libraries (only versioned .so files)
 COPY --from=libvips-builder /usr/lib64/libvips.so.42.12.7 /root/rpmbuild/SOURCES/lib64/
 COPY --from=libvips-builder /usr/lib64/libvips-cpp.so.42.12.7 /root/rpmbuild/SOURCES/lib64/
-RUN dnf install -y chrpath && \
+RUN dnf install -y --skip-broken chrpath && \
     for lib in /root/rpmbuild/SOURCES/lib64/libvips*.so*; do \
         if [ -f "$lib" ]; then \
             echo "Removing RPATH from $lib"; \
