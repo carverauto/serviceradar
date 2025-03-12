@@ -142,6 +142,9 @@ const NetworkSweepView = ({ nodeId, service, standalone = false }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [showFilters, setShowFilters] = useState(false);
 
+    console.log("service", service);
+    console.log("service.details", service.details);
+
     // Parse sweep details from service
     const sweepDetails =
         typeof service.details === 'string'

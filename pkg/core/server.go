@@ -468,6 +468,7 @@ func (s *Server) processServices(pollerID string, apiStatus *api.NodeStatus, ser
 	for _, svc := range services {
 		log.Printf("Processing service %s for node %s", svc.ServiceName, pollerID)
 		log.Printf("Service type: %s, Message length: %d", svc.ServiceType, len(svc.Message))
+		log.Println("Service message:", svc.Message)
 
 		apiService := api.ServiceStatus{
 			Name:      svc.ServiceName,
