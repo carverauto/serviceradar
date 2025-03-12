@@ -158,18 +158,21 @@ const NetworkSweepView = ({ nodeId, service, standalone = false }) => {
             .sort((a, b) => compareIPAddresses(a.host, b.host));
     };
 
-    // Get responding hosts only
+    // Get hosts that are responding
     const getRespondingHosts = (hosts) => {
         if (!hosts) return [];
 
         return hosts.filter((host) => {
+            // If the host is explicitly marked as available, include it
+            if (host.available) {
+                return true;
+            }
+
+            // Check for available port results
             const hasOpenPorts = host.port_results?.some((port) => port.available);
 
-            const hasICMPResponse =
-                host.icmp_status?.available &&
-                host.icmp_status?.packet_loss === 0 &&
-                host.icmp_status?.round_trip > 0 &&
-                host.icmp_status?.round_trip < 10000000;
+            // Simpler ICMP check that doesn't impose arbitrary time limits
+            const hasICMPResponse = host.icmp_status?.available === true;
 
             return hasOpenPorts || hasICMPResponse;
         });
@@ -204,14 +207,18 @@ const NetworkSweepView = ({ nodeId, service, standalone = false }) => {
                 }`}
             >
                 <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
-                    <div>
-                        <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200">
-                            Network Sweep: {sweepDetails.network}
-                        </h3>
-                        <p className="text-sm text-gray-600 dark:text-gray-400">
-                            {respondingHosts.length} of {sweepDetails.total_hosts} hosts
-                            responding
-                        </p>
+                    <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-3">
+                        Network Sweep:
+                    </h3>
+                    <div className="flex flex-wrap gap-2 mb-4">
+                        {sweepDetails.network.split(',').map((network, index) => (
+                            <span
+                                key={index}
+                                className="text-sm bg-gray-100 dark:bg-gray-700 rounded-md px-3 py-1.5 inline-block"
+                            >
+                                {network}
+                            </span>
+                        ))}
                     </div>
                     <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
                         <div className="flex flex-wrap gap-2">
@@ -237,7 +244,7 @@ const NetworkSweepView = ({ nodeId, service, standalone = false }) => {
                             </button>
                         </div>
                         <div className="hidden sm:block">
-                            <ExportButton sweepDetails={sweepDetails} />
+                            <ExportButton sweepDetails={sweepDetails}/>
                         </div>
                     </div>
                 </div>
