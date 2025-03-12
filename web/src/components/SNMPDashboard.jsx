@@ -20,6 +20,8 @@ import React, { useCallback, useState, useEffect } from 'react';
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { useRouter, useSearchParams } from 'next/navigation';
 
+const REFRESH_INTERVAL = 10000; // 10 seconds, matching other components
+
 const SNMPDashboard = ({ nodeId, serviceName, initialData = [], initialTimeRange = '1h' }) => {
     const router = useRouter();
     const searchParams = useSearchParams();
@@ -47,6 +49,68 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [], initialTimeRange
         window.addEventListener('resize', handleResize);
         return () => window.removeEventListener('resize', handleResize);
     }, []);
+
+    // Set up periodic data refresh without hard refreshes
+    useEffect(() => {
+        const fetchUpdatedData = async () => {
+            try {
+                // Use relative URL to respect Next.js API routes which handle proxying
+                const end = new Date();
+                const start = new Date();
+
+                // Adjust start time based on current timeRange
+                switch (timeRange) {
+                    case '1h':
+                        start.setHours(end.getHours() - 1);
+                        break;
+                    case '6h':
+                        start.setHours(end.getHours() - 6);
+                        break;
+                    case '24h':
+                        start.setHours(end.getHours() - 24);
+                        break;
+                    default:
+                        start.setHours(end.getHours() - 1);
+                }
+
+                // Use relative URL to leverage Next.js API routes and rewrites
+                const snmpUrl = `/api/nodes/${nodeId}/snmp?start=${start.toISOString()}&end=${end.toISOString()}`;
+
+                console.log('Fetching SNMP data from:', snmpUrl);
+
+                const response = await fetch(snmpUrl);
+
+                if (response.ok) {
+                    const newData = await response.json();
+                    if (newData && Array.isArray(newData)) {
+                        setSNMPData(newData);
+                        console.log(`Updated SNMP data with ${newData.length} records`);
+                    }
+                } else {
+                    console.warn('Failed to refresh SNMP data:', response.status, response.statusText);
+                }
+            } catch (error) {
+                console.error('Error refreshing SNMP data:', error);
+                // Silent fail - don't disturb the user experience on refresh errors
+            }
+        };
+
+        // Don't fetch immediately if we already have initialData
+        if (snmpData.length === 0) {
+            fetchUpdatedData();
+        }
+
+        // Set up interval for periodic updates
+        const interval = setInterval(fetchUpdatedData, REFRESH_INTERVAL);
+        return () => clearInterval(interval);
+    }, [nodeId, timeRange, snmpData.length]);
+
+    // Update SNMP data when initialData changes from server
+    useEffect(() => {
+        if (initialData && initialData.length > 0) {
+            setSNMPData(initialData);
+        }
+    }, [initialData]);
 
     // Process SNMP counter data to show rates instead of raw values
     const processCounterData = useCallback((data) => {
@@ -83,15 +147,14 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [], initialTimeRange
 
     // Initialize metrics and selection
     useEffect(() => {
-        if (initialData.length > 0) {
-            setSNMPData(initialData);
-            const metrics = [...new Set(initialData.map(item => item.oid_name))];
+        if (snmpData.length > 0) {
+            const metrics = [...new Set(snmpData.map(item => item.oid_name))];
             setAvailableMetrics(metrics);
             if (!selectedMetric && metrics.length > 0) {
                 setSelectedMetric(metrics[0]);
             }
         }
-    }, [initialData, selectedMetric]);
+    }, [snmpData, selectedMetric]);
 
     // Process metric data when dependencies change
     useEffect(() => {
@@ -144,7 +207,7 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [], initialTimeRange
         else return `${rate.toFixed(2)} B/s`;
     };
 
-    if (!initialData.length) {
+    if (!snmpData.length) {
         return (
             <div className="bg-white dark:bg-gray-800 p-4 sm:p-6 rounded-lg shadow">
                 <h3 className="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-200">
