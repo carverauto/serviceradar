@@ -37,8 +37,10 @@ RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 \
 # Stage 2: Create RPM
 FROM --platform=linux/amd64 rockylinux:9 AS rpm-builder
 
-# Install RPM build tools and dependencies
-RUN dnf install -y \
+# Install RPM build tools and dependencies with clean and skip-broken
+RUN dnf clean all && \
+    dnf update -y && \
+    dnf install -y --skip-broken \
     rpm-build \
     rpmdevtools \
     systemd-devel \
