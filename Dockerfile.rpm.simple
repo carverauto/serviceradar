@@ -33,8 +33,10 @@ RUN if [ "${COMPONENT}" = "snmp-checker" ]; then \
 FROM rockylinux:9 AS rpm-builder
 
 # Update and install RPM build tools and build dependencies
-RUN dnf update -y && \
-    dnf install -y --nogpgcheck \
+# Add clean all and skip-broken
+RUN dnf clean all && \
+    dnf update -y && \
+    dnf install -y --nogpgcheck --skip-broken \
     rpm-build \
     rpmdevtools \
     systemd-devel \
