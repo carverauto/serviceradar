@@ -135,6 +135,7 @@ const ServiceDashboard = ({
                                 stroke="#8884d8"
                                 dot={false}
                                 name="Response Time"
+                                isAnimationActive={false} // Disable animation during updates
                             />
                         </LineChart>
                     </ResponsiveContainer>
@@ -165,7 +166,11 @@ const ServiceDashboard = ({
             return (
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 sm:p-6 transition-colors">
                     <h3 className="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-100">ICMP Status</h3>
-                    <PingStatus details={serviceData.message} />
+                    <PingStatus
+                        details={serviceData.message}
+                        nodeId={nodeId}
+                        serviceName={serviceName}
+                    />
                 </div>
             );
         }

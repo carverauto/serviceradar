@@ -14,7 +14,13 @@
  * limitations under the License.
  */
 
-import React from 'react';
+'use client';
+
+import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+
+// Constants
+const REFRESH_INTERVAL = 10000; // 10 seconds to match other components
 
 // Helper functions for formatting
 const formatResponseTime = (time) => {
@@ -27,18 +33,44 @@ const formatPacketLoss = (loss) => {
     return `${loss.toFixed(1)}%`;
 };
 
-// Individual ping status component
-const PingStatus = ({ details }) => {
-    const getPingDetails = () => {
+// Individual ping status component with auto-refresh
+const PingStatus = ({ details, nodeId, serviceName }) => {
+    const router = useRouter();
+    const [pingData, setPingData] = useState(null);
+    const [isLoading, setIsLoading] = useState(true);
+
+    // Initialize from props
+    useEffect(() => {
         try {
-            return typeof details === 'string' ? JSON.parse(details) : details;
+            const parsedDetails = typeof details === 'string' ? JSON.parse(details) : details;
+            setPingData(parsedDetails);
+            setIsLoading(false);
         } catch (e) {
             console.error('Error parsing ping details:', e);
-            return null;
+            setPingData(null);
+            setIsLoading(false);
         }
-    };
+    }, [details]);
 
-    const pingData = getPingDetails();
+    // Set up auto-refresh using router.refresh()
+    useEffect(() => {
+        if (!nodeId || !serviceName) return; // Skip if we don't have IDs for direct refresh
+
+        const interval = setInterval(() => {
+            router.refresh(); // This will trigger a server-side refetch
+        }, REFRESH_INTERVAL);
+
+        return () => clearInterval(interval);
+    }, [router, nodeId, serviceName]);
+
+    if (isLoading) {
+        return (
+            <div className="grid grid-cols-2 gap-2 text-sm transition-colors">
+                <div className="font-medium text-gray-600 dark:text-gray-400">Loading ping data...</div>
+                <div className="h-4 w-32 bg-gray-200 dark:bg-gray-700 animate-pulse rounded"></div>
+            </div>
+        );
+    }
 
     if (!pingData) {
         return (
@@ -70,6 +102,12 @@ const PingStatus = ({ details }) => {
             >
                 {pingData.available ? 'Available' : 'Unavailable'}
             </div>
+
+            {(nodeId && serviceName) && (
+                <div className="col-span-2 mt-2 text-xs text-gray-500 dark:text-gray-400">
+                    Auto-refreshing data
+                </div>
+            )}
         </div>
     );
 };
