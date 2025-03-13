@@ -24,7 +24,8 @@ import {
     Tooltip,
     Legend,
     Line,
-    LineChart,
+    Area,
+    AreaChart,
     CartesianGrid,
     ResponsiveContainer,
 } from 'recharts';
@@ -115,7 +116,7 @@ const ServiceDashboard = ({
                 </div>
                 <div className="h-48 sm:h-64">
                     <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={chartData}>
+                        <AreaChart data={chartData}>
                             <CartesianGrid strokeDasharray="3 3" />
                             <XAxis
                                 dataKey="timestamp"
@@ -129,15 +130,23 @@ const ServiceDashboard = ({
                                 formatter={(value) => [`${value.toFixed(2)} ms`, 'Response Time']}
                             />
                             <Legend />
-                            <Line
+                            <defs>
+                                <linearGradient id="responseTimeGradient" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="5%" stopColor="#8884d8" stopOpacity={0.8}/>
+                                    <stop offset="95%" stopColor="#8884d8" stopOpacity={0.2}/>
+                                </linearGradient>
+                            </defs>
+                            <Area
                                 type="monotone"
                                 dataKey="response_time"
                                 stroke="#8884d8"
+                                strokeWidth={2}
+                                fill="url(#responseTimeGradient)"
                                 dot={false}
                                 name="Response Time"
                                 isAnimationActive={false} // Disable animation during updates
                             />
-                        </LineChart>
+                        </AreaChart>
                     </ResponsiveContainer>
                 </div>
             </div>
