@@ -55,7 +55,6 @@ const DuskDashboard = ({ initialDuskService = null, nodeId, initialError = null 
 
       if (details?.history && Array.isArray(details.history)) {
         setBlockHistory(details.history);
-        console.log(`Updated block history with ${details.history.length} points`);
       }
 
       return details;
@@ -84,7 +83,6 @@ const DuskDashboard = ({ initialDuskService = null, nodeId, initialError = null 
     setRefreshing(true);
 
     try {
-      console.log(`Fetching fresh Dusk data for node ${nodeId}`);
       const response = await fetch(`/api/nodes`, {
         cache: 'no-store',
         headers: {
@@ -117,7 +115,6 @@ const DuskDashboard = ({ initialDuskService = null, nodeId, initialError = null 
       setLastUpdated(new Date());
       setError(null);
 
-      console.log(`Successfully refreshed Dusk data at ${new Date().toISOString()}`);
     } catch (err) {
       console.error('Error fetching Dusk data:', err);
       setError(err.message);
@@ -130,29 +127,23 @@ const DuskDashboard = ({ initialDuskService = null, nodeId, initialError = null 
   useEffect(() => {
     if (!autoRefreshEnabled) return;
 
-    console.log(`Setting up auto-refresh interval (${AUTO_REFRESH_INTERVAL}ms)`);
-
     const intervalId = setInterval(() => {
-      console.log('Auto-refresh triggered');
       fetchDuskData();
     }, AUTO_REFRESH_INTERVAL);
 
     return () => {
-      console.log('Cleaning up auto-refresh interval');
       clearInterval(intervalId);
     };
   }, [fetchDuskData, autoRefreshEnabled]);
 
   // Manual refresh handler
   const handleManualRefresh = () => {
-    console.log('Manual refresh triggered');
     fetchDuskData();
   };
 
   // Toggle auto-refresh
   const toggleAutoRefresh = () => {
     setAutoRefreshEnabled(!autoRefreshEnabled);
-    console.log(`Auto-refresh ${!autoRefreshEnabled ? 'enabled' : 'disabled'}`);
   };
 
   // Handler to go back to nodes list
