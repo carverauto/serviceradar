@@ -100,8 +100,8 @@ const ServiceSparkline = React.memo(({ nodeId, serviceName, initialMetrics = [] 
                     <AreaChart data={processedMetrics}>
                         <defs>
                             <linearGradient id={`sparkline-gradient-${nodeId}-${serviceName}`} x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%" stopColor="#6366f1" stopOpacity={0.6} />
-                                <stop offset="95%" stopColor="#6366f1" stopOpacity={0.1} />
+                                <stop offset="5%" stopColor="#6366f1" stopOpacity={0.8} />
+                                <stop offset="95%" stopColor="#6366f1" stopOpacity={0.2} />
                             </linearGradient>
                         </defs>
                         <YAxis type="number" domain={['dataMin', 'dataMax']} hide />
