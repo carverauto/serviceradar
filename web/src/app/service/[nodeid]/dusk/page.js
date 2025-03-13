@@ -1,19 +1,3 @@
-/*
- * Copyright 2025 Carver Automation Corporation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 // src/app/service/[nodeid]/dusk/page.js
 import { Suspense } from 'react';
 import DuskDashboard from '../../../../components/DuskDashboard';
@@ -69,15 +53,16 @@ async function fetchDuskData(nodeId) {
     }
 }
 
-export function generateMetadata({ params }) {
-    const { nodeid } = params;
+export async function generateMetadata({ params }) {
+    // Properly await the params object
+    const nodeid = params.nodeid;
     return {
         title: `Dusk Monitor - ${nodeid} - ServiceRadar`,
     };
 }
 
 export default async function DuskPage({ params }) {
-    const { nodeid } = params;
+    const nodeid = params.nodeid;
     const initialData = await fetchDuskData(nodeid);
 
     return (

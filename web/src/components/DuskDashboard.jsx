@@ -76,69 +76,28 @@ const DuskDashboard = ({ initialDuskService = null, nodeId, initialError = null 
     }
   }, [initialDuskService, initialError, parseServiceDetails]);
 
-  // Fetch fresh data function
-  const fetchDuskData = useCallback(async () => {
-    if (!nodeId) return;
-
-    setRefreshing(true);
-
-    try {
-      const response = await fetch(`/api/nodes`, {
-        cache: 'no-store',
-        headers: {
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache',
-          'Expires': '0'
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error(`API request failed: ${response.status}`);
-      }
-
-      const nodes = await response.json();
-      const node = nodes.find(n => n.node_id === nodeId);
-
-      if (!node) {
-        throw new Error(`Node ${nodeId} not found`);
-      }
-
-      const duskService = node.services?.find(s => s.name === 'dusk');
-
-      if (!duskService) {
-        throw new Error('Dusk service not found on this node');
-      }
-
-      // Update state with new data
-      setNodeStatus(duskService);
-      parseServiceDetails(duskService);
-      setLastUpdated(new Date());
-      setError(null);
-
-    } catch (err) {
-      console.error('Error fetching Dusk data:', err);
-      setError(err.message);
-    } finally {
-      setRefreshing(false);
-    }
-  }, [nodeId, parseServiceDetails]);
-
-  // Set up auto-refresh
+  // Set up auto-refresh using router.refresh()
   useEffect(() => {
     if (!autoRefreshEnabled) return;
 
+    setRefreshing(true);
     const intervalId = setInterval(() => {
-      fetchDuskData();
+      router.refresh(); // This triggers a server-side refetch
+      setRefreshing(false);
+      setLastUpdated(new Date());
     }, AUTO_REFRESH_INTERVAL);
 
     return () => {
       clearInterval(intervalId);
     };
-  }, [fetchDuskData, autoRefreshEnabled]);
+  }, [router, autoRefreshEnabled]);
 
   // Manual refresh handler
   const handleManualRefresh = () => {
-    fetchDuskData();
+    setRefreshing(true);
+    router.refresh();
+    setRefreshing(false);
+    setLastUpdated(new Date());
   };
 
   // Toggle auto-refresh
@@ -239,6 +198,27 @@ const DuskDashboard = ({ initialDuskService = null, nodeId, initialError = null 
               Dusk Node Monitor - {nodeId}
             </h2>
           </div>
+
+          <div className="flex items-center gap-2">
+            <button
+                onClick={handleManualRefresh}
+                className="p-2 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                disabled={refreshing}
+            >
+              <RefreshCw className={`h-5 w-5 ${refreshing ? 'animate-spin' : ''}`} />
+              <span className="sr-only">Refresh Data</span>
+            </button>
+            <button
+                onClick={toggleAutoRefresh}
+                className={`px-3 py-1 rounded text-sm ${
+                    autoRefreshEnabled
+                        ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100'
+                        : 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+                }`}
+            >
+              {autoRefreshEnabled ? 'Auto-refresh On' : 'Auto-refresh Off'}
+            </button>
+          </div>
         </div>
 
         {/* Error Alert */}
@@ -296,19 +276,14 @@ const DuskDashboard = ({ initialDuskService = null, nodeId, initialError = null 
           </div>
         </div>
 
-        {/* Auto-refresh and Last Updated Indicator */}
-        <div className="flex justify-between items-center text-xs text-gray-500 dark:text-gray-400">
+        {/* Last Updated Indicator */}
+        <div className="flex justify-end items-center text-xs text-gray-500 dark:text-gray-400">
           <div className={refreshing ? 'text-blue-500 dark:text-blue-400' : 'invisible'}>
             <RefreshCw className="inline-block h-3 w-3 mr-1 animate-spin" />
             Refreshing data...
           </div>
-          <div className="flex items-center gap-2">
-            <div className={autoRefreshEnabled ? 'text-green-500 dark:text-green-400' : 'text-gray-400 dark:text-gray-600'}>
-              {autoRefreshEnabled ? '(Auto-refresh enabled)' : '(Auto-refresh disabled)'}
-            </div>
-            <div>
-              Last updated: {lastUpdated.toLocaleString()}
-            </div>
+          <div>
+            Last updated: {lastUpdated.toLocaleString()}
           </div>
         </div>
       </div>
