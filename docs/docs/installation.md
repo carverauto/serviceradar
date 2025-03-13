@@ -13,26 +13,26 @@ Install these components on your monitored host:
 
 ```bash
 # Download and install agent and poller components
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.24/serviceradar-agent_1.0.24.deb \
-     -O https://github.com/carverauto/serviceradar/releases/download/1.0.24/serviceradar-poller_1.0.24.deb
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.25/serviceradar-agent_1.0.25.deb \
+     -O https://github.com/carverauto/serviceradar/releases/download/1.0.25/serviceradar-poller_1.0.25.deb
 
-sudo dpkg -i serviceradar-agent_1.0.24.deb serviceradar-poller_1.0.24.deb
+sudo dpkg -i serviceradar-agent_1.0.25.deb serviceradar-poller_1.0.25.deb
 ```
 
 On a separate machine (recommended) or the same host for the core service:
 
 ```bash
 # Download and install core service
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.24/serviceradar-core_1.0.24.deb
-sudo dpkg -i serviceradar-core_1.0.24.deb
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.25/serviceradar-core_1.0.25.deb
+sudo dpkg -i serviceradar-core_1.0.25.deb
 ```
 
 To install the web UI (dashboard):
 
 ```bash
 # Download and install web UI
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.24/serviceradar-web_1.0.24.deb
-sudo dpkg -i serviceradar-web_1.0.24.deb
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.25/serviceradar-web_1.0.25.deb
+sudo dpkg -i serviceradar-web_1.0.25.deb
 ```
 
 ## Optional Components
@@ -42,8 +42,8 @@ sudo dpkg -i serviceradar-web_1.0.24.deb
 For collecting and visualizing metrics from network devices:
 
 ```bash
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.24/serviceradar-snmp-checker_1.0.24.deb
-sudo dpkg -i serviceradar-snmp-checker_1.0.24.deb
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.25/serviceradar-snmp-checker_1.0.25.deb
+sudo dpkg -i serviceradar-snmp-checker_1.0.25.deb
 ```
 
 ## Dusk Node Monitoring
@@ -51,8 +51,8 @@ sudo dpkg -i serviceradar-snmp-checker_1.0.24.deb
 For specialized monitoring of [Dusk Network](https://dusk.network/) nodes:
 
 ```bash
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.24/serviceradar-dusk-checker_1.0.24.deb
-sudo dpkg -i serviceradar-dusk-checker_1.0.24.deb
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.25/serviceradar-dusk-checker_1.0.25.deb
+sudo dpkg -i serviceradar-dusk-checker_1.0.25.deb
 ```
 
 ## Distributed Setup
@@ -62,22 +62,22 @@ For larger deployments, install components on separate hosts:
 1. **On monitored hosts** (install only the agent):
 
 ```bash
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.24/serviceradar-agent_1.0.24.deb
-sudo dpkg -i serviceradar-agent_1.0.24.deb
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.25/serviceradar-agent_1.0.25.deb
+sudo dpkg -i serviceradar-agent_1.0.25.deb
 ```
 
 2. **On monitoring host** (install the poller):
 
 ```bash
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.24/serviceradar-poller_1.0.24.deb
-sudo dpkg -i serviceradar-poller_1.0.24.deb
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.25/serviceradar-poller_1.0.25.deb
+sudo dpkg -i serviceradar-poller_1.0.25.deb
 ```
 
 3. **On core host** (install the core service):
 
 ```bash
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.24/serviceradar-core_1.0.24.deb
-sudo dpkg -i serviceradar-core_1.0.24.deb
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.25/serviceradar-core_1.0.25.deb
+sudo dpkg -i serviceradar-core_1.0.25.deb
 ```
 
 ## Verification
@@ -151,10 +151,10 @@ sudo dnf install -y nginx
 Download the latest ServiceRadar RPM packages from the releases page:
 
 ```bash
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.24/serviceradar-core-1.0.24-1.el9.x86_64.rpm
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.24/serviceradar-web-1.0.24-1.el9.x86_64.rpm
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.24/serviceradar-agent-1.0.24-1.el9.x86_64.rpm
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.24/serviceradar-poller-1.0.24-1.el9.x86_64.rpm
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.25/serviceradar-core-1.0.25-1.el9.x86_64.rpm
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.25/serviceradar-web-1.0.25-1.el9.x86_64.rpm
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.25/serviceradar-agent-1.0.25-1.el9.x86_64.rpm
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.25/serviceradar-poller-1.0.25-1.el9.x86_64.rpm
 ```
 
 ## 2. Install Core Service
@@ -162,7 +162,7 @@ curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.24/ser
 The core service provides the central API and database for ServiceRadar:
 
 ```bash
-sudo dnf install -y ./serviceradar-core-1.0.24-1.el9.x86_64.rpm
+sudo dnf install -y ./serviceradar-core-1.0.25-1.el9.x86_64.rpm
 ```
 
 ## 3. Install Web UI
@@ -170,7 +170,7 @@ sudo dnf install -y ./serviceradar-core-1.0.24-1.el9.x86_64.rpm
 The web UI provides a dashboard interface:
 
 ```bash
-sudo dnf install -y ./serviceradar-web-1.0.24-1.el9.x86_64.rpm
+sudo dnf install -y ./serviceradar-web-1.0.25-1.el9.x86_64.rpm
 ```
 
 ## 4. Install Agent and Poller
@@ -178,8 +178,8 @@ sudo dnf install -y ./serviceradar-web-1.0.24-1.el9.x86_64.rpm
 On each monitored host:
 
 ```bash
-sudo dnf install -y ./serviceradar-agent-1.0.24-1.el9.x86_64.rpm
-sudo dnf install -y ./serviceradar-poller-1.0.24-1.el9.x86_64.rpm
+sudo dnf install -y ./serviceradar-agent-1.0.25-1.el9.x86_64.rpm
+sudo dnf install -y ./serviceradar-poller-1.0.25-1.el9.x86_64.rpm
 ```
 
 # Post-Installation Configuration
