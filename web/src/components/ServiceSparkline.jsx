@@ -17,7 +17,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { LineChart, Line, YAxis, ResponsiveContainer } from 'recharts';
+import { AreaChart, Area, YAxis, ResponsiveContainer } from 'recharts';
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import _ from 'lodash';
 import { useRouter } from 'next/navigation';
@@ -97,17 +97,25 @@ const ServiceSparkline = React.memo(({ nodeId, serviceName, initialMetrics = [] 
         <div className="flex flex-col items-center transition-colors">
             <div className="h-8 w-24">
                 <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={processedMetrics}>
+                    <AreaChart data={processedMetrics}>
+                        <defs>
+                            <linearGradient id={`sparkline-gradient-${nodeId}-${serviceName}`} x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor="#6366f1" stopOpacity={0.6} />
+                                <stop offset="95%" stopColor="#6366f1" stopOpacity={0.1} />
+                            </linearGradient>
+                        </defs>
                         <YAxis type="number" domain={['dataMin', 'dataMax']} hide />
-                        <Line
+                        <Area
                             type="monotone"
                             dataKey="value"
                             stroke="#6366f1"
+                            strokeWidth={1.5}
+                            fill={`url(#sparkline-gradient-${nodeId}-${serviceName})`}
+                            baseValue="dataMin"
                             dot={false}
-                            strokeWidth={1}
                             isAnimationActive={false}
                         />
-                    </LineChart>
+                    </AreaChart>
                 </ResponsiveContainer>
             </div>
             <div className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300">
