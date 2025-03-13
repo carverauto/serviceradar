@@ -1,22 +1,6 @@
-/*
- * Copyright 2025 Carver Automation Corporation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import ExportButton from './ExportButton';
-import { Filter, Search, ChevronDown, ChevronUp } from 'lucide-react';
+import { Filter, Search, ChevronDown, ChevronUp, Info, X } from 'lucide-react';
 
 const compareIPAddresses = (ip1, ip2) => {
     // Split IPs into their octets and convert to numbers
@@ -141,12 +125,32 @@ const NetworkSweepView = ({ nodeId, service, standalone = false }) => {
     const [viewMode, setViewMode] = useState('summary');
     const [searchTerm, setSearchTerm] = useState('');
     const [showFilters, setShowFilters] = useState(false);
+    const [currentPage, setCurrentPage] = useState(1);
+    const [networkSearchTerm, setNetworkSearchTerm] = useState('');
+    const [showNetworkInfo, setShowNetworkInfo] = useState(false);
+    const hostsPerPage = 10;
 
     // Parse sweep details from service
-    const sweepDetails =
-        typeof service.details === 'string'
-            ? JSON.parse(service.details)
-            : service.details;
+    const sweepDetails = typeof service.details === 'string'
+        ? JSON.parse(service.details)
+        : service.details;
+
+    // Network list handling
+    const networks = useMemo(() => {
+        if (!sweepDetails?.network) return [];
+        return sweepDetails.network.split(',');
+    }, [sweepDetails]);
+
+    // Network count for UI display
+    const networkCount = networks.length;
+
+    // Filtered networks based on search
+    const filteredNetworks = useMemo(() => {
+        if (networkSearchTerm === '') return networks.slice(0, 5); // Just show first 5 by default
+        return networks.filter(network =>
+            network.toLowerCase().includes(networkSearchTerm.toLowerCase())
+        ).slice(0, 10); // Show max of 10 matches
+    }, [networks, networkSearchTerm]);
 
     // Sort and filter hosts
     const sortAndFilterHosts = (hosts) => {
@@ -187,6 +191,15 @@ const NetworkSweepView = ({ nodeId, service, standalone = false }) => {
         )
         : [];
 
+    // Paginate filtered hosts for display
+    const paginatedHosts = useMemo(() => {
+        const startIndex = (currentPage - 1) * hostsPerPage;
+        return filteredHosts.slice(startIndex, startIndex + hostsPerPage);
+    }, [filteredHosts, currentPage]);
+
+    // Calculate total pages for pagination
+    const totalPages = Math.ceil(filteredHosts.length / hostsPerPage);
+
     const toggleFilters = () => {
         setShowFilters(!showFilters);
     };
@@ -207,19 +220,25 @@ const NetworkSweepView = ({ nodeId, service, standalone = false }) => {
                 }`}
             >
                 <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 mb-4">
-                    <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-3">
-                        Network Sweep:
-                    </h3>
-                    <div className="flex flex-wrap gap-2 mb-4">
-                        {sweepDetails.network.split(',').map((network, index) => (
-                            <span
-                                key={index}
-                                className="text-sm bg-gray-100 dark:bg-gray-700 rounded-md px-3 py-1.5 inline-block"
-                            >
-                                {network}
+                    <div>
+                        <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">
+                            Network Sweep
+                        </h3>
+
+                        {/* Network Summary with Toggle */}
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm text-gray-600 dark:text-gray-400">
+                                {networkCount} {networkCount === 1 ? 'network' : 'networks'} scanned
                             </span>
-                        ))}
+                            <button
+                                onClick={() => setShowNetworkInfo(!showNetworkInfo)}
+                                className="text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                            >
+                                <Info size={16} />
+                            </button>
+                        </div>
                     </div>
+
                     <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
                         <div className="flex flex-wrap gap-2">
                             <button
@@ -249,6 +268,64 @@ const NetworkSweepView = ({ nodeId, service, standalone = false }) => {
                     </div>
                 </div>
 
+                {/* Network Information Panel (Collapsible) */}
+                {showNetworkInfo && (
+                    <div className="bg-blue-50 dark:bg-blue-900/30 p-4 rounded-lg mb-4 relative">
+                        <button
+                            onClick={() => setShowNetworkInfo(false)}
+                            className="absolute top-2 right-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                        >
+                            <X size={16} />
+                        </button>
+
+                        <h4 className="text-md font-medium text-gray-800 dark:text-gray-200 mb-2">
+                            Networks Being Monitored
+                        </h4>
+
+                        {/* Network Search */}
+                        <div className="relative mb-3">
+                            <input
+                                type="text"
+                                placeholder="Search networks..."
+                                className="w-full px-3 py-2 border rounded text-gray-700 dark:text-gray-200 dark:bg-gray-800 border-gray-300 dark:border-gray-600 pl-8"
+                                value={networkSearchTerm}
+                                onChange={(e) => setNetworkSearchTerm(e.target.value)}
+                            />
+                            <Search className="absolute left-2 top-2.5 h-4 w-4 text-gray-400" />
+                        </div>
+
+                        {/* Network List */}
+                        <div className="max-h-40 overflow-y-auto bg-white dark:bg-gray-800 rounded p-2 mb-2">
+                            {filteredNetworks.length > 0 ? (
+                                <ul className="list-disc list-inside">
+                                    {filteredNetworks.map((network, index) => (
+                                        <li key={index} className="text-sm text-gray-700 dark:text-gray-300 py-1">
+                                            {network}
+                                        </li>
+                                    ))}
+                                </ul>
+                            ) : (
+                                <p className="text-sm text-gray-500 dark:text-gray-400 italic">
+                                    No matching networks found
+                                </p>
+                            )}
+                        </div>
+
+                        {/* Show count of total vs displayed */}
+                        {networkSearchTerm === '' && networkCount > 5 && (
+                            <p className="text-xs text-gray-500 dark:text-gray-400">
+                                Showing 5 of {networkCount} networks. Use the search to find specific networks.
+                            </p>
+                        )}
+
+                        {networkSearchTerm !== '' && filteredNetworks.length < networkCount && (
+                            <p className="text-xs text-gray-500 dark:text-gray-400">
+                                Showing {filteredNetworks.length} of {networkCount} networks matching "{networkSearchTerm}".
+                            </p>
+                        )}
+                    </div>
+                )}
+
                 {viewMode === 'hosts' && (
                     <div className="flex items-center gap-2 mt-4">
                         <div className="relative flex-1">
@@ -257,7 +334,10 @@ const NetworkSweepView = ({ nodeId, service, standalone = false }) => {
                                 placeholder="Search hosts..."
                                 className="w-full p-2 border rounded text-gray-700 dark:text-gray-200 dark:bg-gray-800 border-gray-300 dark:border-gray-600 pl-8"
                                 value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
+                                onChange={(e) => {
+                                    setSearchTerm(e.target.value);
+                                    setCurrentPage(1); // Reset to first page on search
+                                }}
                             />
                             <Search className="absolute left-2 top-2.5 h-4 w-4 text-gray-400" />
                         </div>
@@ -390,11 +470,55 @@ const NetworkSweepView = ({ nodeId, service, standalone = false }) => {
                     </div>
                 </div>
             ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {filteredHosts.map((host) => (
-                        <HostDetailsView key={host.host} host={host} />
-                    ))}
-                </div>
+                <>
+                    {/* Host Detail Cards */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {paginatedHosts.map((host) => (
+                            <HostDetailsView key={host.host} host={host} />
+                        ))}
+                    </div>
+
+                    {/* Pagination Controls */}
+                    {totalPages > 1 && (
+                        <div className="flex justify-center mt-4">
+                            <div className="flex items-center space-x-2">
+                                <button
+                                    onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                                    disabled={currentPage === 1}
+                                    className={`px-3 py-1 rounded ${
+                                        currentPage === 1
+                                            ? 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'
+                                            : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
+                                    }`}
+                                >
+                                    Previous
+                                </button>
+
+                                <div className="text-sm text-gray-600 dark:text-gray-400">
+                                    Page {currentPage} of {totalPages}
+                                </div>
+
+                                <button
+                                    onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                                    disabled={currentPage === totalPages}
+                                    className={`px-3 py-1 rounded ${
+                                        currentPage === totalPages
+                                            ? 'bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed'
+                                            : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600'
+                                    }`}
+                                >
+                                    Next
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Results Count */}
+                    <div className="text-center text-sm text-gray-500 dark:text-gray-400">
+                        Showing {filteredHosts.length > 0 ? (currentPage - 1) * hostsPerPage + 1 : 0}-
+                        {Math.min(currentPage * hostsPerPage, filteredHosts.length)} of {filteredHosts.length} hosts
+                    </div>
+                </>
             )}
         </div>
     );
