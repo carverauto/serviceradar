@@ -117,6 +117,20 @@ jobs:
           docker create --name poller-container serviceradar-rpm-poller
           docker cp poller-container:/rpms/. ./release-artifacts/rpm/
           docker rm poller-container
+      - name: Build SNMP Checker RPM
+        run: |
+          docker build \
+            --platform linux/amd64 \
+            --build-arg VERSION="${VERSION}" \
+            --build-arg RELEASE="1" \
+            --build-arg COMPONENT="poller" \
+            --build-arg BINARY_PATH="./cmd/checkers/snmp" \
+            -f Dockerfile.rpm.simple \
+            -t serviceradar-rpm-snmp-checker\
+            .
+          docker create --name snmp-checker-container serviceradar-rpm-snmp-checker
+          docker cp snmp-checker-container:/rpms/. ./release-artifacts/rpm/
+          docker rm snmp-checker-container
       - name: List RPM Artifacts (for debugging)
         run: ls -al ./release-artifacts/rpm
       - name: Upload RPM Release Assets
