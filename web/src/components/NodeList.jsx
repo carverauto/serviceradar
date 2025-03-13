@@ -19,7 +19,7 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import ServiceSparkline from "./ServiceSparkline";
-import { Filter, ArrowUp, ArrowDown } from 'lucide-react';
+import { Filter, ArrowUp, ArrowDown, CheckCircle, XCircle } from 'lucide-react';
 
 // Node Card for Mobile View
 const NodeCard = ({ node, serviceMetrics, handleServiceClick }) => {
@@ -27,7 +27,11 @@ const NodeCard = ({ node, serviceMetrics, handleServiceClick }) => {
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 mb-4 transition-colors">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center">
-            <span className={`w-2 h-2 rounded-full ${node.is_healthy ? 'bg-green-500' : 'bg-red-500'} mr-2`} />
+            {node.is_healthy ? (
+                <CheckCircle className="w-4 h-4 text-green-500 mr-2" aria-hidden="true" />
+            ) : (
+                <XCircle className="w-4 h-4 text-red-500 mr-2" aria-hidden="true" />
+            )}
             <h3 className="font-medium text-gray-800 dark:text-gray-100">{node.node_id}</h3>
           </div>
           <span className="text-xs text-gray-500 dark:text-gray-400">
@@ -43,8 +47,14 @@ const NodeCard = ({ node, serviceMetrics, handleServiceClick }) => {
                     key={`${service.name}-${idx}`}
                     className="inline-flex items-center gap-1 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 p-1 rounded transition-colors"
                     onClick={() => handleServiceClick(node.node_id, service.name)}
+                    role="button"
+                    aria-label={`${service.name} (${service.available ? 'Online' : 'Offline'})`}
                 >
-                  <span className={`w-1.5 h-1.5 rounded-full ${service.available ? 'bg-green-500' : 'bg-red-500'}`} />
+                  {service.available ? (
+                      <CheckCircle className="w-3 h-3 text-green-500" aria-hidden="true" />
+                  ) : (
+                      <XCircle className="w-3 h-3 text-red-500" aria-hidden="true" />
+                  )}
                   <span className="text-sm font-medium text-gray-800 dark:text-gray-100">{service.name}</span>
                 </div>
             ))}
@@ -211,12 +221,14 @@ function NodeList({ initialNodes = [], serviceMetrics = {} }) {
                   className="w-full px-3 py-1 border rounded text-gray-800 dark:text-gray-200 dark:bg-gray-800 dark:border-gray-600 placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
+                  aria-label="Search nodes"
               />
             </div>
             <button
                 onClick={toggleFilters}
                 className="md:hidden px-3 py-1 border rounded text-gray-800 dark:text-gray-200 dark:bg-gray-800 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
                 aria-label="Filters"
+                aria-expanded={showFilters}
             >
               <Filter size={16} />
             </button>
@@ -226,11 +238,12 @@ function NodeList({ initialNodes = [], serviceMetrics = {} }) {
         {/* Filters section - always visible on desktop, toggleable on mobile */}
         {(showFilters || window.innerWidth >= 768) && (
             <div className="flex flex-col sm:flex-row sm:items-center gap-2 py-2 bg-white dark:bg-gray-800 rounded-lg shadow px-4 transition-colors">
-              <label className="text-sm font-medium">Sort by:</label>
+              <label className="text-sm font-medium" id="sort-by-label">Sort by:</label>
               <select
                   value={sortBy}
                   onChange={(e) => setSortBy(e.target.value)}
                   className="px-3 py-1 border rounded text-gray-800 dark:text-gray-200 dark:bg-gray-800 dark:border-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors"
+                  aria-labelledby="sort-by-label"
               >
                 <option value="name">Name</option>
                 <option value="status">Status</option>
@@ -239,6 +252,7 @@ function NodeList({ initialNodes = [], serviceMetrics = {} }) {
               <button
                   onClick={toggleSortOrder}
                   className="px-3 py-1 border rounded text-gray-800 dark:text-gray-200 dark:bg-gray-800 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                  aria-label={`Sort ${sortOrder === 'asc' ? 'ascending' : 'descending'}`}
               >
                 {sortOrder === 'asc' ? <ArrowUp size={16} /> : <ArrowDown size={16} />}
               </button>
@@ -269,21 +283,31 @@ function NodeList({ initialNodes = [], serviceMetrics = {} }) {
 
         {/* Desktop View */}
         <div className="hidden md:block bg-white dark:bg-gray-800 rounded-lg shadow overflow-x-auto transition-colors">
-          <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+          <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700" aria-label="Nodes and services">
             <thead className="bg-gray-50 dark:bg-gray-700">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider w-16">Status</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider w-48">Node</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Services</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider w-64">ICMP Response Time</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider w-48">Last Update</th>
+              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider w-16">Status</th>
+              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider w-48">Node</th>
+              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Services</th>
+              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider w-64">ICMP Response Time</th>
+              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider w-48">Last Update</th>
             </tr>
             </thead>
             <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
             {currentNodes.map((node) => (
                 <tr key={node.node_id}>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className={`w-2 h-2 rounded-full ${node.is_healthy ? 'bg-green-500' : 'bg-red-500'}`} />
+                    {node.is_healthy ? (
+                        <span className="flex items-center" aria-label="Online">
+                        <CheckCircle className="w-4 h-4 text-green-500" />
+                        <span className="sr-only">Online</span>
+                      </span>
+                    ) : (
+                        <span className="flex items-center" aria-label="Offline">
+                        <XCircle className="w-4 h-4 text-red-500" />
+                        <span className="sr-only">Offline</span>
+                      </span>
+                    )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-800 dark:text-gray-100">{node.node_id}</td>
                   <td className="px-6 py-4">
@@ -293,8 +317,21 @@ function NodeList({ initialNodes = [], serviceMetrics = {} }) {
                               key={`${service.name}-${idx}`}
                               className="inline-flex items-center gap-1 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 p-1 rounded transition-colors"
                               onClick={() => handleServiceClick(node.node_id, service.name)}
+                              role="button"
+                              aria-label={`${service.name} (${service.available ? 'Online' : 'Offline'})`}
+                              tabIndex={0}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  e.preventDefault();
+                                  handleServiceClick(node.node_id, service.name);
+                                }
+                              }}
                           >
-                            <span className={`w-1.5 h-1.5 rounded-full ${service.available ? 'bg-green-500' : 'bg-red-500'}`} />
+                            {service.available ? (
+                                <CheckCircle className="w-3 h-3 text-green-500" aria-hidden="true" />
+                            ) : (
+                                <XCircle className="w-3 h-3 text-red-500" aria-hidden="true" />
+                            )}
                             <span className="text-sm font-medium text-gray-800 dark:text-gray-100">{service.name}</span>
                           </div>
                       ))}
@@ -328,7 +365,7 @@ function NodeList({ initialNodes = [], serviceMetrics = {} }) {
 
         {/* Pagination */}
         {pageCount > 1 && (
-            <div className="flex justify-center flex-wrap gap-2 mt-4">
+            <nav className="flex justify-center flex-wrap gap-2 mt-4" aria-label="Pagination">
               {[...Array(pageCount)].map((_, i) => (
                   <button
                       key={i}
@@ -338,11 +375,13 @@ function NodeList({ initialNodes = [], serviceMetrics = {} }) {
                               ? 'bg-blue-500 text-white'
                               : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-100'
                       }`}
+                      aria-label={`Page ${i + 1}`}
+                      aria-current={currentPage === i + 1 ? 'page' : undefined}
                   >
                     {i + 1}
                   </button>
               ))}
-            </div>
+            </nav>
         )}
       </div>
   );
