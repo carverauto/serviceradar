@@ -1,27 +1,12 @@
-/*
- * Copyright 2025 Carver Automation Corporation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 package scan
 
 import (
 	"context"
 	"fmt"
+	"log"
 	"net"
-	"os"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -29,241 +14,331 @@ import (
 	"golang.org/x/net/ipv4"
 )
 
-// ICMPScanner implements a scanner for ICMP echo requests
-type ICMPScanner struct {
+const (
+	defaultICMPRateLimit = 1000 // packets per second
+	defaultICMPTimeout   = 5 * time.Second
+	batchInterval        = 10 * time.Millisecond
+)
+
+type ICMPSweeper struct {
+	rateLimit   int
 	timeout     time.Duration
-	count       int
-	concurrency int
+	identifier  int
+	rawSocketFD int
+	conn        *icmp.PacketConn
+	mu          sync.Mutex
+	results     map[string]models.Result
 	cancel      context.CancelFunc
-	cancelMu    sync.Mutex
 }
 
-// NewICMPScanner creates a new ICMP scanner
-func NewICMPScanner(timeout time.Duration, count int) Scanner {
-	// Set default values if not provided
+var _ Scanner = (*ICMPSweeper)(nil)
+
+// NewICMPSweeper creates a new scanner for ICMP sweeping
+func NewICMPSweeper(timeout time.Duration, rateLimit int) (*ICMPSweeper, error) {
 	if timeout == 0 {
-		timeout = 5 * time.Second
+		timeout = defaultICMPTimeout
 	}
-	if count == 0 {
-		count = 1
+	if rateLimit == 0 {
+		rateLimit = defaultICMPRateLimit
 	}
 
-	return &ICMPScanner{
-		timeout:     timeout,
-		count:       count,
-		concurrency: 20, // Default concurrency
+	// Create identifier for this scanner instance
+	identifier := int(time.Now().UnixNano() % 65536)
+
+	// Create raw socket for sending
+	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_RAW, syscall.IPPROTO_ICMP)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create raw socket: %w", err)
 	}
+
+	// Create listener for receiving
+	conn, err := icmp.ListenPacket("ip4:icmp", "0.0.0.0")
+	if err != nil {
+		syscall.Close(fd)
+		return nil, fmt.Errorf("failed to create ICMP listener: %w", err)
+	}
+
+	s := &ICMPSweeper{
+		rateLimit:   rateLimit,
+		timeout:     timeout,
+		identifier:  identifier,
+		rawSocketFD: fd,
+		conn:        conn,
+		results:     make(map[string]models.Result),
+	}
+
+	return s, nil
 }
 
-// Scan performs an ICMP scan on the provided targets
-func (s *ICMPScanner) Scan(ctx context.Context, targets []models.Target) (<-chan models.Result, error) {
-	// Filter to keep only ICMP targets
-	icmpTargets := make([]models.Target, 0, len(targets))
-	for _, target := range targets {
-		if target.Mode == models.ModeICMP {
-			icmpTargets = append(icmpTargets, target)
-		}
-	}
-
+// Scan performs the ICMP sweep and returns results
+func (s *ICMPSweeper) Scan(ctx context.Context, targets []models.Target) (<-chan models.Result, error) {
+	icmpTargets := filterICMPTargets(targets)
 	if len(icmpTargets) == 0 {
-		// No ICMP targets to scan, return empty channel
-		resultCh := make(chan models.Result)
-		close(resultCh)
-		return resultCh, nil
+		ch := make(chan models.Result)
+		close(ch)
+		return ch, nil
 	}
 
-	// Create a new cancellable context
 	scanCtx, cancel := context.WithCancel(ctx)
-
-	s.cancelMu.Lock()
 	s.cancel = cancel
-	s.cancelMu.Unlock()
 
-	// Create buffered result channel
-	resultCh := make(chan models.Result, 1000)
+	resultCh := make(chan models.Result, len(icmpTargets))
 
-	// Create buffered work channel
-	workCh := make(chan models.Target, s.concurrency*2)
+	// Reset results map for this scan
+	s.mu.Lock()
+	s.results = make(map[string]models.Result)
+	s.mu.Unlock()
 
-	// Start worker pool
-	var wg sync.WaitGroup
-	for i := 0; i < s.concurrency; i++ {
-		wg.Add(1)
-		go func(workerID int) {
-			defer wg.Done()
-			s.worker(scanCtx, workCh, resultCh)
-		}(i)
-	}
-
-	// Send targets to work channel
+	// Start listener goroutine
+	listenerDone := make(chan struct{})
 	go func() {
-		defer close(workCh)
-		for _, target := range icmpTargets {
-			select {
-			case <-scanCtx.Done():
-				return
-			case workCh <- target:
-				// Target sent to worker
-			}
-		}
+		defer close(listenerDone)
+		s.listenForReplies(scanCtx, icmpTargets)
 	}()
 
-	// Close result channel when all workers are done
+	// Start sender goroutine
+	senderDone := make(chan struct{})
 	go func() {
-		wg.Wait()
-		close(resultCh)
+		defer close(senderDone)
+		s.sendPings(scanCtx, icmpTargets)
+	}()
+
+	// Process results after scanning is done or timeout
+	go func() {
+		defer close(resultCh)
+
+		// Wait for sender to finish or context to be canceled
+		select {
+		case <-senderDone:
+			// Wait for all replies or timeout
+			timer := time.NewTimer(s.timeout)
+			select {
+			case <-timer.C:
+				// Timeout reached
+			case <-scanCtx.Done():
+				if !timer.Stop() {
+					<-timer.C
+				}
+			}
+		case <-scanCtx.Done():
+			// Context canceled
+		}
+
+		// Stop the listener
+		cancel()
+		<-listenerDone
+
+		// Process and send results
+		s.processResults(icmpTargets, resultCh)
 	}()
 
 	return resultCh, nil
 }
 
-// worker processes ICMP scanning tasks
-func (s *ICMPScanner) worker(ctx context.Context, workCh <-chan models.Target, resultCh chan<- models.Result) {
+// sendPings sends ICMP echo requests to all targets with rate limiting
+func (s *ICMPSweeper) sendPings(ctx context.Context, targets []models.Target) {
+	packetsPerInterval := s.rateLimit / int(1000/batchInterval.Milliseconds())
+	if packetsPerInterval < 1 {
+		packetsPerInterval = 1
+	}
+
+	log.Printf("Sending ICMP pings to %d targets (rate: %d/sec, batch: %d)",
+		len(targets), s.rateLimit, packetsPerInterval)
+
+	// Build echo request template only once
+	echoRequest := &icmp.Echo{
+		ID:   s.identifier,
+		Seq:  1,
+		Data: []byte("ping"),
+	}
+
+	msg := icmp.Message{
+		Type: ipv4.ICMPTypeEcho,
+		Code: 0,
+		Body: echoRequest,
+	}
+
+	data, err := msg.Marshal(nil)
+	if err != nil {
+		log.Printf("Error marshaling ICMP message: %v", err)
+		return
+	}
+
+	ticker := time.NewTicker(batchInterval)
+	defer ticker.Stop()
+
+	targetIndex := 0
+	for range ticker.C {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			// Determine batch size for this interval
+			batchEnd := targetIndex + packetsPerInterval
+			if batchEnd > len(targets) {
+				batchEnd = len(targets)
+			}
+
+			// Process this batch
+			for i := targetIndex; i < batchEnd; i++ {
+				target := targets[i]
+				ipAddr := net.ParseIP(target.Host)
+				if ipAddr == nil || ipAddr.To4() == nil {
+					log.Printf("Invalid IPv4 address: %s", target.Host)
+					continue
+				}
+
+				// Prepare sockaddr
+				var addr [4]byte
+				copy(addr[:], ipAddr.To4())
+				sockaddr := &syscall.SockaddrInet4{Addr: addr}
+
+				// Send packet
+				err := syscall.Sendto(s.rawSocketFD, data, 0, sockaddr)
+				if err != nil {
+					log.Printf("Error sending ICMP to %s: %v", target.Host, err)
+				}
+
+				// Record initial result (will be updated if response received)
+				s.mu.Lock()
+				s.results[target.Host] = models.Result{
+					Target:     target,
+					Available:  false,
+					FirstSeen:  time.Now(),
+					LastSeen:   time.Now(),
+					PacketLoss: 100,
+				}
+				// print result
+				fmt.Println(s.results[target.Host])
+				s.mu.Unlock()
+			}
+
+			targetIndex = batchEnd
+			if targetIndex >= len(targets) {
+				return
+			}
+		}
+	}
+}
+
+// listenForReplies listens for and processes ICMP echo replies
+func (s *ICMPSweeper) listenForReplies(ctx context.Context, targets []models.Target) {
+	// Create a map for faster lookup of target hosts
+	targetMap := make(map[string]struct{})
+	for _, t := range targets {
+		targetMap[t.Host] = struct{}{}
+	}
+
+	buf := make([]byte, 1500)
+
+	// Set a reasonable read deadline so we don't block indefinitely
+	readDeadline := 100 * time.Millisecond
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case target, ok := <-workCh:
-			if !ok {
-				// Work channel closed
-				return
-			}
-
-			// Create result object
-			result := models.Result{
-				Target:    target,
-				Available: false,
-				FirstSeen: time.Now(),
-				LastSeen:  time.Now(),
-			}
-
-			// Ping the host
-			available, respTime, packetLoss, err := s.pingHost(ctx, target.Host)
-
-			// Update result
-			result.Available = available
-			result.RespTime = respTime
-			result.PacketLoss = packetLoss
-			if err != nil {
-				result.Error = err
-			}
-
-			// Send result
-			select {
-			case <-ctx.Done():
-				return
-			case resultCh <- result:
-				// Result sent successfully
-			}
-		}
-	}
-}
-
-// pingHost sends ICMP echo requests to a host
-func (s *ICMPScanner) pingHost(ctx context.Context, host string) (bool, time.Duration, float64, error) {
-	// Resolve hostname to IP address
-	ipAddr, err := net.ResolveIPAddr("ip4", host)
-	if err != nil {
-		return false, 0, 100.0, fmt.Errorf("failed to resolve host %s: %w", host, err)
-	}
-
-	// Create ICMP connection
-	conn, err := icmp.ListenPacket("ip4:icmp", "0.0.0.0")
-	if err != nil {
-		return false, 0, 100.0, fmt.Errorf("failed to create ICMP connection: %w", err)
-	}
-	defer conn.Close()
-
-	// Create message
-	message := icmp.Message{
-		Type: ipv4.ICMPTypeEcho,
-		Code: 0,
-		Body: &icmp.Echo{
-			ID:   os.Getpid() & 0xffff,
-			Seq:  1,
-			Data: []byte("ServiceRadar ICMP probe"),
-		},
-	}
-
-	// Marshal message
-	binary, err := message.Marshal(nil)
-	if err != nil {
-		return false, 0, 100.0, fmt.Errorf("failed to marshal ICMP message: %w", err)
-	}
-
-	// Track successful pings and response times
-	var successCount int
-	var totalRTT time.Duration
-
-	// Send multiple pings based on count configuration
-	for i := 0; i < s.count; i++ {
-		// Check if context is done
-		select {
-		case <-ctx.Done():
-			return false, 0, 100.0, ctx.Err()
 		default:
-			// Continue
-		}
-
-		// Set read deadline
-		err = conn.SetReadDeadline(time.Now().Add(s.timeout))
-		if err != nil {
-			return false, 0, 100.0, fmt.Errorf("failed to set read deadline: %w", err)
-		}
-
-		// Send ping
-		start := time.Now()
-		_, err = conn.WriteTo(binary, ipAddr)
-		if err != nil {
-			return false, 0, 100.0, fmt.Errorf("failed to send ICMP packet: %w", err)
-		}
-
-		// Receive reply
-		reply := make([]byte, 1500)
-		n, _, err := conn.ReadFrom(reply)
-		if err != nil {
-			// If timeout, continue to next ping
-			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			s.conn.SetReadDeadline(time.Now().Add(readDeadline))
+			n, addr, err := s.conn.ReadFrom(buf)
+			if err != nil {
+				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					// Just a timeout, continue to next read
+					continue
+				}
+				log.Printf("Error reading ICMP reply: %v", err)
 				continue
 			}
-			return false, 0, 100.0, fmt.Errorf("failed to receive ICMP reply: %w", err)
-		}
 
-		// Calculate RTT
-		rtt := time.Since(start)
-		totalRTT += rtt
+			// Get the source IP
+			ip := addr.String()
 
-		// Parse reply
-		parsedReply, err := icmp.ParseMessage(ipv4.ICMPTypeEcho.Protocol(), reply[:n])
-		if err != nil {
-			continue
-		}
+			// Check if this is one of our targets
+			if _, ok := targetMap[ip]; !ok {
+				// Not our target, ignore
+				continue
+			}
 
-		// Check if it's an echo reply
-		if parsedReply.Type == ipv4.ICMPTypeEchoReply {
-			successCount++
+			// Parse the message
+			msg, err := icmp.ParseMessage(1, buf[:n])
+			if err != nil {
+				log.Printf("Error parsing ICMP message from %s: %v", ip, err)
+				continue
+			}
+
+			// We only care about echo replies
+			if msg.Type != ipv4.ICMPTypeEchoReply {
+				continue
+			}
+
+			// Check if it's our echo (matching identifier)
+			echo, ok := msg.Body.(*icmp.Echo)
+			if !ok || echo.ID != s.identifier {
+				continue
+			}
+
+			// This is a valid reply to our ping
+			s.mu.Lock()
+			if result, ok := s.results[ip]; ok {
+				result.Available = true
+				result.RespTime = time.Since(result.FirstSeen)
+				result.PacketLoss = 0
+				result.LastSeen = time.Now()
+				s.results[ip] = result
+			}
+			s.mu.Unlock()
 		}
 	}
-
-	// Calculate results
-	if successCount > 0 {
-		packetLoss := 100.0 * float64(s.count-successCount) / float64(s.count)
-		avgRTT := totalRTT / time.Duration(successCount)
-		return true, avgRTT, packetLoss, nil
-	}
-
-	return false, 0, 100.0, nil
 }
 
-// Stop terminates the scanner
-func (s *ICMPScanner) Stop(ctx context.Context) error {
-	s.cancelMu.Lock()
-	defer s.cancelMu.Unlock()
+// processResults sends final results to the result channel
+func (s *ICMPSweeper) processResults(targets []models.Target, ch chan<- models.Result) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
+	// Send all results to the channel
+	for _, target := range targets {
+		if result, ok := s.results[target.Host]; ok {
+			ch <- result
+		} else {
+			// If we somehow don't have a result for this target, create a default one
+			ch <- models.Result{
+				Target:     target,
+				Available:  false,
+				PacketLoss: 100,
+				FirstSeen:  time.Now(),
+				LastSeen:   time.Now(),
+			}
+		}
+	}
+}
+
+// Stop stops the scanner and releases resources
+func (s *ICMPSweeper) Stop(ctx context.Context) error {
 	if s.cancel != nil {
 		s.cancel()
-		s.cancel = nil
+	}
+
+	// Close the connection and socket
+	if s.conn != nil {
+		s.conn.Close()
+	}
+
+	if s.rawSocketFD != 0 {
+		syscall.Close(s.rawSocketFD)
+		s.rawSocketFD = 0
 	}
 
 	return nil
+}
+
+// filterICMPTargets filters only ICMP targets from the given slice
+func filterICMPTargets(targets []models.Target) []models.Target {
+	var filtered []models.Target
+	for _, t := range targets {
+		if t.Mode == models.ModeICMP {
+			filtered = append(filtered, t)
+		}
+	}
+	return filtered
 }

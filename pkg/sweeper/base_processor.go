@@ -31,16 +31,17 @@ const (
 )
 
 type BaseProcessor struct {
-	mu             sync.RWMutex
-	hostMap        map[string]*models.HostResult
-	portCounts     map[int]int
-	lastSweepTime  time.Time
-	firstSeenTimes map[string]time.Time
-	totalHosts     int
-	hostResultPool *sync.Pool
-	portResultPool *sync.Pool
-	portCount      int // Number of ports being scanned
-	config         *models.Config
+	mu                sync.RWMutex
+	hostMap           map[string]*models.HostResult
+	portCounts        map[int]int
+	lastSweepTime     time.Time
+	firstSeenTimes    map[string]time.Time
+	totalHosts        int
+	hostResultPool    *sync.Pool
+	portResultPool    *sync.Pool
+	portCount         int // Number of ports being scanned
+	config            *models.Config
+	processedNetworks map[string]bool // Track which networks we've already processed
 }
 
 func NewBaseProcessor(config *models.Config) *BaseProcessor {
@@ -295,9 +296,25 @@ func (p *BaseProcessor) updateLastSweepTime() {
 }
 
 func (p *BaseProcessor) updateTotalHosts(result *models.Result) {
+	// Only update the totalHosts value if we don't already have one
+	// or if we specifically get a network-wide value
 	if result.Target.Metadata != nil {
 		if totalHosts, ok := result.Target.Metadata["total_hosts"].(int); ok {
-			p.totalHosts = totalHosts
+			if networkName, hasNetwork := result.Target.Metadata["network"].(string); hasNetwork {
+				// Check if we've already processed this network
+				if p.processedNetworks == nil {
+					p.processedNetworks = make(map[string]bool)
+				}
+
+				// Only update totalHosts once per network to prevent multiple updates
+				if !p.processedNetworks[networkName] {
+					p.processedNetworks[networkName] = true
+					p.totalHosts = totalHosts
+				}
+			} else if p.totalHosts == 0 {
+				// Fallback if no network is specified but we don't have a value yet
+				p.totalHosts = totalHosts
+			}
 		}
 	}
 }

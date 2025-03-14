@@ -44,13 +44,9 @@ func initRegistry() checker.Registry {
 	registry.Register("icmp", func(_ context.Context, _, details string) (checker.Checker, error) {
 		host := details
 		if host == "" {
-			host = "127.0.0.1" // Default to localhost if no host specified
+			host = "127.0.0.1"
 		}
-
-		return &ICMPChecker{
-			Host:  host,
-			Count: 3, // Default ICMP count
-		}, nil
+		return NewICMPChecker(host)
 	})
 
 	// Register the gRPC checker
