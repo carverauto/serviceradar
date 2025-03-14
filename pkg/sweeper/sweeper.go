@@ -112,18 +112,14 @@ func (s *NetworkSweeper) Start(ctx context.Context) error {
 	}
 }
 
-// runSweep executes a single network sweep.
 func (s *NetworkSweeper) runSweep(ctx context.Context) error {
-	// Get the current time for logging
-	startTime := time.Now()
-
 	// Generate targets from config
 	targets, err := s.generateTargets()
 	if err != nil {
 		return fmt.Errorf("failed to generate targets: %w", err)
 	}
 
-	// Split targets by mode for appropriate scanners
+	// Split targets by mode
 	var icmpTargets, tcpTargets []models.Target
 	for _, t := range targets {
 		switch t.Mode {
@@ -137,66 +133,83 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 	log.Printf("Starting sweep with %d ICMP targets and %d TCP targets",
 		len(icmpTargets), len(tcpTargets))
 
-	// Run ICMP scan if we have targets
-	var icmpSuccess, tcpSuccess, totalResults int
-	uniqueHosts := make(map[string]struct{})
+	// Create waitgroup for parallel execution
+	var wg sync.WaitGroup
 
+	// Run ICMP scan in a goroutine
+	var icmpResults <-chan models.Result
+	var icmpErr error
 	if len(icmpTargets) > 0 {
-		log.Printf("Running ICMP scan...")
-		icmpResults, err := s.icmpScanner.Scan(ctx, icmpTargets)
-		if err != nil {
-			return fmt.Errorf("ICMP scan failed: %w", err)
-		}
-
-		// Process ICMP results
-		for result := range icmpResults {
-			totalResults++
-			uniqueHosts[result.Target.Host] = struct{}{}
-
-			if err := s.processResult(ctx, &result); err != nil {
-				log.Printf("Failed to process ICMP result for %s: %v", result.Target.Host, err)
-				continue
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			log.Printf("Running ICMP scan...")
+			icmpResults, icmpErr = s.icmpScanner.Scan(ctx, icmpTargets)
+			if icmpErr != nil {
+				log.Printf("ICMP scan failed: %v", icmpErr)
+				return
 			}
 
-			if result.Available {
-				icmpSuccess++
+			// Process ICMP results
+			icmpCount := 0
+			icmpSuccess := 0
+			for result := range icmpResults {
+				icmpCount++
+				if err := s.processResult(ctx, &result); err != nil {
+					log.Printf("Failed to process ICMP result: %v", err)
+					continue
+				}
+				if result.Available {
+					icmpSuccess++
+				}
 			}
-		}
-		log.Printf("ICMP scan complete: %d results, %d successful", totalResults, icmpSuccess)
+			log.Printf("ICMP scan complete: %d results, %d successful", icmpCount, icmpSuccess)
+		}()
 	}
 
-	// Run TCP scan if we have targets
+	// Run TCP scan in a goroutine
+	var tcpResults <-chan models.Result
+	var tcpErr error
 	if len(tcpTargets) > 0 {
-		log.Printf("Running TCP scan...")
-		tcpResults, err := s.tcpScanner.Scan(ctx, tcpTargets)
-		if err != nil {
-			return fmt.Errorf("TCP scan failed: %w", err)
-		}
-
-		// Process TCP results
-		tcpTotal := 0
-		for result := range tcpResults {
-			totalResults++
-			tcpTotal++
-			uniqueHosts[result.Target.Host] = struct{}{}
-
-			if err := s.processResult(ctx, &result); err != nil {
-				log.Printf("Failed to process TCP result for %s:%d: %v",
-					result.Target.Host, result.Target.Port, err)
-				continue
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			log.Printf("Running TCP scan...")
+			tcpResults, tcpErr = s.tcpScanner.Scan(ctx, tcpTargets)
+			if tcpErr != nil {
+				log.Printf("TCP scan failed: %v", tcpErr)
+				return
 			}
 
-			if result.Available {
-				tcpSuccess++
+			// Process TCP results
+			tcpCount := 0
+			tcpSuccess := 0
+			for result := range tcpResults {
+				tcpCount++
+				if err := s.processResult(ctx, &result); err != nil {
+					log.Printf("Failed to process TCP result: %v", err)
+					continue
+				}
+				if result.Available {
+					tcpSuccess++
+				}
 			}
-		}
-		log.Printf("TCP scan complete: %d results, %d successful", tcpTotal, tcpSuccess)
+			log.Printf("TCP scan complete: %d results, %d successful", tcpCount, tcpSuccess)
+		}()
 	}
 
-	duration := time.Since(startTime)
-	log.Printf("Sweep completed in %v: %d results, %d successful (%d ICMP, %d TCP), %d unique hosts",
-		duration, totalResults, icmpSuccess+tcpSuccess, icmpSuccess, tcpSuccess, len(uniqueHosts))
+	// Wait for both scans to complete
+	wg.Wait()
 
+	// Check for errors
+	if icmpErr != nil {
+		return icmpErr
+	}
+	if tcpErr != nil {
+		return tcpErr
+	}
+
+	log.Printf("Sweep completed successfully")
 	return nil
 }
 
