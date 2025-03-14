@@ -34,11 +34,10 @@ import (
 )
 
 const (
-	defaultErrChanBufferSize = 10
-	defaultTimeout           = 30 * time.Second
-	jsonSuffix               = ".json"
-	snmpPrefix               = "snmp"
-	grpcType                 = "grpc"
+	defaultTimeout = 30 * time.Second
+	jsonSuffix     = ".json"
+	snmpPrefix     = "snmp"
+	grpcType       = "grpc"
 )
 
 func NewServer(configDir string, cfg *ServerConfig) (*Server, error) {
@@ -105,15 +104,19 @@ func (s *Server) loadSweepService(configPath string) (Service, error) {
 	}
 
 	log.Printf("Loaded sweep service with config: %+v", config)
+
 	return service, nil
 }
 
 func (s *Server) Start(ctx context.Context) error {
 	log.Printf("Starting agent service...")
+
 	if err := s.initializeCheckers(ctx); err != nil {
 		return fmt.Errorf("failed to initialize checkers: %w", err)
 	}
+
 	log.Printf("Found %d services to start", len(s.services))
+
 	for i, svc := range s.services {
 		log.Printf("Starting service #%d: %s", i, svc.Name())
 		go func(svc Service) { // Run in goroutine to avoid blocking
@@ -124,22 +127,27 @@ func (s *Server) Start(ctx context.Context) error {
 			}
 		}(svc)
 	}
+
 	return nil
 }
 
 func (s *Server) Stop(_ context.Context) error {
 	log.Printf("Stopping agent service...")
+
 	for _, svc := range s.services {
 		if err := svc.Stop(context.Background()); err != nil {
 			log.Printf("Failed to stop service %s: %v", svc.Name(), err)
 		}
 	}
+
 	for name, conn := range s.connections {
 		if err := conn.client.Close(); err != nil {
 			log.Printf("Error closing connection to checker %s: %v", name, err)
 		}
 	}
+
 	close(s.done)
+
 	return nil
 }
 
@@ -157,6 +165,7 @@ func (e *ServiceError) Error() string {
 
 func (*Server) loadCheckerConfig(path string) (CheckerConfig, error) {
 	var conf CheckerConfig
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return conf, fmt.Errorf("failed to read config file %s: %w", path, err)
@@ -166,6 +175,7 @@ func (*Server) loadCheckerConfig(path string) (CheckerConfig, error) {
 		conf.Name = "snmp-" + strings.TrimSuffix(filepath.Base(path), jsonSuffix)
 		conf.Type = snmpPrefix
 		conf.Additional = data
+
 		return conf, nil
 	}
 
@@ -182,6 +192,7 @@ func (*Server) loadCheckerConfig(path string) (CheckerConfig, error) {
 	}
 
 	log.Printf("Loaded checker config from %s: %+v", path, conf)
+
 	return conf, nil
 }
 
@@ -201,6 +212,7 @@ func (s *Server) initializeCheckers(ctx context.Context) error {
 		config, err := s.loadCheckerConfig(filepath.Join(s.configDir, file.Name()))
 		if err != nil {
 			log.Printf("Warning: Failed to load checker config %s: %v", file.Name(), err)
+
 			continue
 		}
 
@@ -208,12 +220,14 @@ func (s *Server) initializeCheckers(ctx context.Context) error {
 			conn, err := s.connectToChecker(ctx, &config)
 			if err != nil {
 				log.Printf("Warning: Failed to connect to checker %s: %v", config.Name, err)
+
 				continue
 			}
 			s.connections[config.Name] = conn
 		}
 
 		s.checkerConfs[config.Name] = config
+
 		log.Printf("Loaded checker config: %s (type: %s)", config.Name, config.Type)
 	}
 
@@ -225,11 +239,13 @@ func (s *Server) connectToChecker(ctx context.Context, checkerConfig *CheckerCon
 		Address:    checkerConfig.Address,
 		MaxRetries: 3,
 	}
+
 	if s.config.Security != nil {
 		provider, err := grpc.NewSecurityProvider(ctx, s.config.Security)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create security provider: %w", err)
 		}
+
 		clientCfg.SecurityProvider = provider
 	}
 
@@ -258,13 +274,16 @@ func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*prot
 				if err != nil {
 					return nil, fmt.Errorf("ICMP check failed: %w", err)
 				}
+
 				resp := &ICMPResponse{
 					Host:         result.Target.Host,
 					ResponseTime: result.RespTime.Nanoseconds(),
 					PacketLoss:   result.PacketLoss,
 					Available:    result.Available,
 				}
+
 				jsonResp, _ := json.Marshal(resp)
+
 				return &proto.StatusResponse{
 					Available:    result.Available,
 					Message:      string(jsonResp),
@@ -287,6 +306,7 @@ func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*prot
 	}
 
 	available, message := c.Check(ctx)
+
 	return &proto.StatusResponse{
 		Available:   available,
 		Message:     message,
@@ -310,6 +330,7 @@ func (s *Server) loadCheckerConfigs() error {
 		data, err := os.ReadFile(path)
 		if err != nil {
 			log.Printf("Warning: Failed to read config file %s: %v", path, err)
+
 			continue
 		}
 
@@ -318,14 +339,17 @@ func (s *Server) loadCheckerConfigs() error {
 			conf.Name = "snmp-" + strings.TrimSuffix(file.Name(), ".json")
 			conf.Type = "snmp"
 			conf.Additional = data
+
 			s.checkerConfs[conf.Name] = conf
 			log.Printf("Loaded SNMP checker config: %s", conf.Name)
+
 			continue
 		}
 
 		var conf CheckerConfig
 		if err := json.Unmarshal(data, &conf); err != nil {
 			log.Printf("Warning: Failed to parse config file %s: %v", path, err)
+
 			continue
 		}
 
@@ -372,6 +396,7 @@ func (s *Server) getChecker(ctx context.Context, req *proto.StatusRequest) (chec
 	}
 
 	s.checkers[key] = check
+
 	return check, nil
 }
 
@@ -383,14 +408,18 @@ func (s *Server) ListServices() []string {
 	for name := range s.checkerConfs {
 		services = append(services, name)
 	}
+
 	return services
 }
 
 func (s *Server) Close(ctx context.Context) error {
 	if err := s.Stop(ctx); err != nil {
 		log.Printf("Error during stop: %v", err)
+
 		return err
 	}
+
 	close(s.errChan)
+
 	return nil
 }

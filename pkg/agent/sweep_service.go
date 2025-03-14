@@ -30,7 +30,6 @@ type SweepService struct {
 
 func NewSweepService(config *models.Config) (Service, error) {
 	config = applyDefaultConfig(config)
-	log.Printf("Creating sweep service with config: %+v", config)
 	processor := sweeper.NewBaseProcessor(config)
 	store := sweeper.NewInMemoryStore(processor)
 
@@ -49,16 +48,19 @@ func NewSweepService(config *models.Config) (Service, error) {
 
 func (s *SweepService) Start(ctx context.Context) error {
 	log.Printf("Starting sweep service with interval %v", s.config.Interval)
+
 	err := s.sweeper.Start(ctx)
 	if err != nil {
 		log.Printf("Failed to start sweeper: %v", err)
 	}
+
 	return err
 }
 
 func (s *SweepService) Stop(ctx context.Context) error {
 	log.Printf("Stopping sweep service")
 	close(s.closed)
+
 	return s.sweeper.Stop(ctx)
 }
 
@@ -69,17 +71,21 @@ func (s *SweepService) Name() string {
 func (s *SweepService) UpdateConfig(config *models.Config) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	newConfig := applyDefaultConfig(config)
 	s.config = newConfig
+
 	log.Printf("Updated sweep config: %+v", newConfig)
 	return s.sweeper.UpdateConfig(*newConfig)
 }
 
 func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, error) {
 	log.Printf("Fetching sweep status")
+
 	summary, err := s.sweeper.GetResults(ctx, &models.ResultFilter{})
 	if err != nil {
 		log.Printf("Failed to get sweep results: %v", err)
+
 		return nil, fmt.Errorf("failed to get sweep summary: %w", err)
 	}
 
@@ -117,6 +123,7 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, er
 	statusJSON, err := json.Marshal(data)
 	if err != nil {
 		log.Printf("Failed to marshal status: %v", err)
+
 		return nil, fmt.Errorf("failed to marshal sweep status: %w", err)
 	}
 
@@ -239,10 +246,6 @@ func (s *SweepService) CheckICMP(ctx context.Context, host string) (*models.Resu
 		result = r
 		break // Expecting one result
 	}
-
-	// Log the result for debugging, but don’t process or store it here
-	log.Printf("ICMP check for %s: Available=%v, RespTime=%v, Error=%v",
-		host, result.Available, result.RespTime, result.Error)
 
 	return &result, nil
 }

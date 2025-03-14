@@ -161,6 +161,7 @@ func (s *ICMPSweeper) sendPings(ctx context.Context, targets []models.Target) {
 	data, err := msg.Marshal(nil)
 	if err != nil {
 		log.Printf("Error marshaling ICMP message: %v", err)
+
 		return
 	}
 
@@ -185,6 +186,7 @@ func (s *ICMPSweeper) sendPings(ctx context.Context, targets []models.Target) {
 				ipAddr := net.ParseIP(target.Host)
 				if ipAddr == nil || ipAddr.To4() == nil {
 					log.Printf("Invalid IPv4 address: %s", target.Host)
+
 					continue
 				}
 
@@ -247,6 +249,7 @@ func (s *ICMPSweeper) listenForReplies(ctx context.Context, targets []models.Tar
 					continue
 				}
 				log.Printf("Error reading ICMP reply: %v", err)
+
 				continue
 			}
 
@@ -263,6 +266,7 @@ func (s *ICMPSweeper) listenForReplies(ctx context.Context, targets []models.Tar
 			msg, err := icmp.ParseMessage(1, buf[:n])
 			if err != nil {
 				log.Printf("Error parsing ICMP message from %s: %v", ip, err)
+
 				continue
 			}
 

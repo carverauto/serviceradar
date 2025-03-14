@@ -64,6 +64,7 @@ func (s *NetworkSweeper) Start(ctx context.Context) error {
 
 	// Run initial sweep with a timeout
 	log.Printf("Running initial sweep...")
+
 	initialCtx, initialCancel := context.WithTimeout(ctx, scanTimeout)
 	if err := s.runSweep(initialCtx); err != nil {
 		initialCancel()
@@ -89,9 +90,11 @@ func (s *NetworkSweeper) Start(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			log.Printf("Context canceled, stopping sweeper")
+
 			return ctx.Err()
 		case <-s.done:
 			log.Printf("Received done signal, stopping sweeper")
+
 			return nil
 		case t := <-ticker.C:
 			log.Printf("Ticker fired at %v, starting periodic sweep", t.Format(time.RFC3339))
@@ -147,6 +150,7 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 			icmpResults, icmpErr = s.icmpScanner.Scan(ctx, icmpTargets)
 			if icmpErr != nil {
 				log.Printf("ICMP scan failed: %v", icmpErr)
+
 				return
 			}
 
@@ -157,6 +161,7 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 				icmpCount++
 				if err := s.processResult(ctx, &result); err != nil {
 					log.Printf("Failed to process ICMP result: %v", err)
+
 					continue
 				}
 				if result.Available {
@@ -170,11 +175,15 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 	// Run TCP scan in a goroutine
 	var tcpResults <-chan models.Result
 	var tcpErr error
+
 	if len(tcpTargets) > 0 {
 		wg.Add(1)
+
 		go func() {
 			defer wg.Done()
+
 			log.Printf("Running TCP scan...")
+
 			tcpResults, tcpErr = s.tcpScanner.Scan(ctx, tcpTargets)
 			if tcpErr != nil {
 				log.Printf("TCP scan failed: %v", tcpErr)
@@ -252,6 +261,7 @@ func (s *NetworkSweeper) Stop(ctx context.Context) error {
 // GetResults retrieves sweep results based on filter.
 func (s *NetworkSweeper) GetResults(ctx context.Context, filter *models.ResultFilter) ([]models.Result, error) {
 	log.Printf("Getting results with filter: %+v", filter)
+
 	return s.store.GetResults(ctx, filter)
 }
 
@@ -259,6 +269,7 @@ func (s *NetworkSweeper) GetResults(ctx context.Context, filter *models.ResultFi
 func (s *NetworkSweeper) GetConfig() models.Config {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
 	return *s.config
 }
 
@@ -266,8 +277,10 @@ func (s *NetworkSweeper) GetConfig() models.Config {
 func (s *NetworkSweeper) UpdateConfig(config models.Config) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	log.Printf("Updating sweeper config: %+v", config)
 	s.config = &config
+
 	return nil
 }
 
@@ -327,5 +340,6 @@ func containsMode(modes []models.SweepMode, mode models.SweepMode) bool {
 			return true
 		}
 	}
+
 	return false
 }

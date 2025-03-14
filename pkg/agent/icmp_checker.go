@@ -15,11 +15,13 @@ func NewICMPChecker(host string) (*ICMPChecker, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ICMP scanner: %w", err)
 	}
+
 	return &ICMPChecker{Host: host, scanner: scanner}, nil
 }
 
 func (p *ICMPChecker) Check(ctx context.Context) (bool, string) {
 	target := models.Target{Host: p.Host, Mode: models.ModeICMP}
+
 	resultChan, err := p.scanner.Scan(ctx, []models.Target{target})
 	if err != nil {
 		return false, fmt.Sprintf(`{"error": "%v"}`, err)
@@ -28,6 +30,7 @@ func (p *ICMPChecker) Check(ctx context.Context) (bool, string) {
 	var result models.Result
 	for r := range resultChan {
 		result = r
+
 		break
 	}
 
@@ -37,7 +40,9 @@ func (p *ICMPChecker) Check(ctx context.Context) (bool, string) {
 		PacketLoss:   result.PacketLoss,
 		Available:    result.Available,
 	}
+
 	jsonResp, _ := json.Marshal(resp)
+
 	return result.Available, string(jsonResp)
 }
 
