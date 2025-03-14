@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-// Package agent pkg/agent/external_checker.go
 package agent
 
 import (
@@ -23,9 +22,10 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
-	grpcpkg "github.com/carverauto/serviceradar/pkg/grpc"
+	"github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 )
@@ -39,44 +39,59 @@ var (
 	errServiceHealth = fmt.Errorf("service is not healthy")
 )
 
+const (
+	// Initial health check interval
+	initialHealthCheckInterval = 10 * time.Second
+	// Max health check interval when backing off
+	maxHealthCheckInterval = 5 * time.Minute
+	// How much to increase interval after each failure
+	backoffFactor = 2.0
+)
+
 // ExternalChecker implements checker.Checker for external checker processes.
 type ExternalChecker struct {
-	serviceName string // Name of the service (e.g., "dusk")
-	serviceType string // Type of service (e.g., "grpc")
-	address     string
-	client      *grpcpkg.ClientConn
+	serviceName         string
+	serviceType         string
+	address             string
+	client              *grpc.Client
+	healthCheckMu       sync.Mutex
+	healthCheckInterval time.Duration
+	lastHealthCheck     time.Time
+	healthStatus        bool
 }
 
 // NewExternalChecker creates a new checker that connects to an external process.
 func NewExternalChecker(ctx context.Context, serviceName, serviceType, address string) (*ExternalChecker, error) {
 	log.Printf("Creating new external checker name=%s type=%s at %s", serviceName, serviceType, address)
 
-	// Create connection config
-	connConfig := &grpcpkg.ConnectionConfig{
-		Address: address,
-		Security: models.SecurityConfig{
-			Mode:       "mtls",
-			CertDir:    "/etc/serviceradar/certs",      // TODO: Make configurable
-			ServerName: strings.Split(address, ":")[0], // Use hostname part
-			Role:       "agent",
-		},
+	clientCfg := grpc.ClientConfig{
+		Address:    address,
+		MaxRetries: maxRetries,
 	}
+	security := models.SecurityConfig{
+		Mode:       "mtls",
+		CertDir:    "/etc/serviceradar/certs", // TODO: Make configurable
+		ServerName: strings.Split(address, ":")[0],
+		Role:       "agent",
+	}
+	provider, err := grpc.NewSecurityProvider(ctx, &security)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create security provider: %w", err)
+	}
+	clientCfg.SecurityProvider = provider
 
-	// Create client using our gRPC package
-	client, err := grpcpkg.NewClient(
-		ctx,
-		connConfig,
-		grpcpkg.WithMaxRetries(maxRetries),
-	)
+	client, err := grpc.NewClient(ctx, clientCfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create gRPC client: %w", err)
 	}
 
 	checker := &ExternalChecker{
-		serviceName: serviceName,
-		serviceType: serviceType,
-		address:     address,
-		client:      client,
+		serviceName:         serviceName,
+		serviceType:         serviceType,
+		address:             address,
+		client:              client,
+		healthCheckInterval: initialHealthCheckInterval,
+		lastHealthCheck:     time.Time{},
 	}
 
 	// Initial health check
@@ -85,7 +100,6 @@ func NewExternalChecker(ctx context.Context, serviceName, serviceType, address s
 		if closeErr := client.Close(); closeErr != nil {
 			return nil, closeErr
 		}
-
 		return nil, fmt.Errorf("extChecker: %w, err: %w", errHealth, err)
 	}
 
@@ -93,60 +107,79 @@ func NewExternalChecker(ctx context.Context, serviceName, serviceType, address s
 		if err := client.Close(); err != nil {
 			return nil, err
 		}
-
 		return nil, errServiceHealth
 	}
 
 	log.Printf("Successfully created external checker name=%s type=%s", serviceName, serviceType)
-
 	return checker, nil
 }
 
 func (e *ExternalChecker) Check(ctx context.Context) (isAccessible bool, statusMsg string) {
-	// First check basic health
-	healthy, err := e.client.CheckHealth(ctx, "")
-	if err != nil {
-		log.Printf("External checker %s: Health check failed: %v", e.serviceName, err)
-		return false, fmt.Sprintf("Health check failed: %v", err)
+	e.healthCheckMu.Lock()
+
+	// Simplified: Rely on gRPC library for connection management
+	now := time.Now()
+	needHealthCheck := e.lastHealthCheck.IsZero() || now.Sub(e.lastHealthCheck) >= e.healthCheckInterval
+
+	if !needHealthCheck {
+		cachedStatus := e.healthStatus
+		e.healthCheckMu.Unlock()
+
+		if !cachedStatus {
+			return false, "Service unhealthy (cached status)"
+		}
+	} else {
+		e.healthCheckMu.Unlock()
+
+		healthy, err := e.client.CheckHealth(ctx, "")
+		e.healthCheckMu.Lock()
+		e.lastHealthCheck = now
+		e.healthStatus = healthy && err == nil
+
+		if !healthy || err != nil {
+			e.healthCheckInterval = time.Duration(float64(e.healthCheckInterval) * backoffFactor)
+			if e.healthCheckInterval > maxHealthCheckInterval {
+				e.healthCheckInterval = maxHealthCheckInterval
+			}
+		} else {
+			e.healthCheckInterval = initialHealthCheckInterval
+		}
+		e.healthCheckMu.Unlock()
+
+		if err != nil {
+			log.Printf("External checker %s: Health check failed: %v", e.serviceName, err)
+			return false, fmt.Sprintf("Health check failed: %v", err)
+		}
+		if !healthy {
+			log.Printf("External checker %s: Service reported unhealthy", e.serviceName)
+			return false, "Service reported unhealthy"
+		}
 	}
 
-	if !healthy {
-		log.Printf("External checker %s: Service reported unhealthy", e.serviceName)
-		return false, "Service reported unhealthy"
-	}
-
-	// Then get block details through AgentService
+	// Proceed with getting details through AgentService
 	client := proto.NewAgentServiceClient(e.client.GetConnection())
-
 	start := time.Now()
 	status, err := client.GetStatus(ctx, &proto.StatusRequest{
 		ServiceName: e.serviceName,
 		ServiceType: e.serviceType,
 	})
-
 	if err != nil {
 		log.Printf("External checker %s: Failed to get details: %v", e.serviceName, err)
-
 		return true, "Service healthy but details unavailable"
 	}
 
 	responseTime := time.Since(start).Nanoseconds()
-
-	// Parse status.Message into response structure
 	var details map[string]interface{}
 	if err := json.Unmarshal([]byte(status.Message), &details); err != nil {
 		return true, fmt.Sprintf(`{"response_time": %d, "error": "invalid details format"}`, responseTime)
 	}
 
-	// Pass the details directly in the status message
 	return true, status.Message
 }
 
-// Close cleans up the checker's resources.
 func (e *ExternalChecker) Close() error {
 	if e.client != nil {
 		return e.client.Close()
 	}
-
 	return nil
 }

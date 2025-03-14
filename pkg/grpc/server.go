@@ -19,6 +19,7 @@ package grpc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -28,6 +29,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
 )
 
@@ -37,6 +39,7 @@ type ServerOption func(*Server)
 var (
 	errInternalError          = fmt.Errorf("internal error")
 	errHealthServerRegistered = fmt.Errorf("health server already registered")
+	errServerStopped          = errors.New("server stopped")
 )
 
 const (
@@ -45,14 +48,16 @@ const (
 
 // Server wraps a gRPC server with additional functionality.
 type Server struct {
-	srv         *grpc.Server
-	healthCheck *health.Server
-	addr        string
-	mu          sync.RWMutex
-	services    map[string]struct{}
-	serverOpts  []grpc.ServerOption // Store server options
+	srv              *grpc.Server
+	healthCheck      *health.Server
+	addr             string
+	mu               sync.RWMutex
+	services         map[string]struct{}
+	serverOpts       []grpc.ServerOption // Store server options
+	healthRegistered bool
 }
 
+// NewServer creates a new gRPC server with the given configuration
 func NewServer(addr string, opts ...ServerOption) *Server {
 	// Initialize with default interceptors
 	defaultOpts := []grpc.ServerOption{
@@ -60,12 +65,24 @@ func NewServer(addr string, opts ...ServerOption) *Server {
 			LoggingInterceptor,
 			RecoveryInterceptor,
 		),
+		grpc.KeepaliveParams(keepalive.ServerParameters{
+			MaxConnectionIdle:     10 * time.Minute,
+			MaxConnectionAge:      24 * time.Hour,
+			MaxConnectionAgeGrace: 5 * time.Minute,
+			Time:                  120 * time.Second,
+			Timeout:               20 * time.Second,
+		}),
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			MinTime:             120 * time.Second,
+			PermitWithoutStream: true,
+		}),
 	}
 
 	s := &Server{
-		addr:       addr,
-		services:   make(map[string]struct{}),
-		serverOpts: defaultOpts,
+		addr:             addr,
+		services:         make(map[string]struct{}),
+		serverOpts:       defaultOpts,
+		healthRegistered: false,
 	}
 
 	// Apply custom options
@@ -75,6 +92,9 @@ func NewServer(addr string, opts ...ServerOption) *Server {
 
 	// Create the gRPC server with all options
 	s.srv = grpc.NewServer(s.serverOpts...)
+
+	// Create health service but don't register yet
+	s.healthCheck = health.NewServer()
 
 	// Enable reflection for debugging
 	reflection.Register(s.srv)
@@ -87,17 +107,22 @@ func (s *Server) GetGRPCServer() *grpc.Server {
 	return s.srv
 }
 
-func (s *Server) RegisterHealthServer(healthServer healthpb.HealthServer) error {
+// GetHealthCheck returns the health server instance
+func (s *Server) GetHealthCheck() *health.Server {
+	return s.healthCheck
+}
+
+// RegisterHealthServer registers the health server if not already registered
+func (s *Server) RegisterHealthServer() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	// Only register health server if not already registered
-	if s.healthCheck != nil {
+	if s.healthRegistered {
+		log.Printf("Health server already registered, skipping")
 		return errHealthServerRegistered
 	}
-
-	healthpb.RegisterHealthServer(s.srv, healthServer)
-
+	log.Printf("Registering health server for %s", s.addr)
+	healthpb.RegisterHealthServer(s.srv, s.healthCheck)
+	s.healthRegistered = true
 	return nil
 }
 
@@ -138,6 +163,13 @@ func (s *Server) RegisterService(desc *grpc.ServiceDesc, impl interface{}) {
 
 // Start starts the gRPC server.
 func (s *Server) Start() error {
+	// Register health service before starting if not already registered
+	if !s.healthRegistered && s.healthCheck != nil {
+		if err := s.RegisterHealthServer(); err != nil {
+			log.Printf("Warning: %v", err)
+		}
+	}
+
 	lis, err := net.Listen("tcp", s.addr)
 	if err != nil {
 		return fmt.Errorf("failed to listen: %w", err)
@@ -145,7 +177,7 @@ func (s *Server) Start() error {
 
 	log.Printf("gRPC server listening on %s", s.addr)
 
-	if err := s.srv.Serve(lis); err != nil {
+	if err := s.srv.Serve(lis); err != nil && !errors.Is(err, errServerStopped) {
 		return fmt.Errorf("failed to serve: %w", err)
 	}
 
@@ -168,7 +200,20 @@ func (s *Server) Stop(ctx context.Context) {
 		}
 	}
 
-	s.srv.GracefulStop()
+	// Give some time for graceful shutdown
+	stopped := make(chan struct{})
+	go func() {
+		s.srv.GracefulStop()
+		close(stopped)
+	}()
+
+	select {
+	case <-stopped:
+		log.Printf("gRPC server stopped gracefully")
+	case <-time.After(shutdownTimer):
+		log.Printf("gRPC server shutdown timed out, forcing stop")
+		s.srv.Stop()
+	}
 }
 
 // LoggingInterceptor logs RPC calls.

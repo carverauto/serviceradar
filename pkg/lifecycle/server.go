@@ -22,12 +22,13 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/models"
-	"google.golang.org/grpc/health"
+	ggrpc "google.golang.org/grpc" // Alias to avoid naming conflict
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
 
@@ -44,7 +45,8 @@ type Service interface {
 }
 
 // GRPCServiceRegistrar is a function type for registering gRPC services.
-type GRPCServiceRegistrar func(*grpc.Server) error
+// Changed to take *ggrpc.Server directly since that's what services need.
+type GRPCServiceRegistrar func(*ggrpc.Server) error
 
 // ServerOptions holds configuration for creating a server.
 type ServerOptions struct {
@@ -62,7 +64,7 @@ func RunServer(ctx context.Context, opts *ServerOptions) error {
 	defer cancel()
 
 	// Setup and start gRPC server
-	grpcServer, err := setupGRPCServer(ctx, opts.ListenAddr, opts.ServiceName, opts.RegisterGRPCServices, opts.Security)
+	grpcServer, err := setupGRPCServer(ctx, opts)
 	if err != nil {
 		return fmt.Errorf("failed to setup gRPC server: %w", err)
 	}
@@ -73,24 +75,15 @@ func RunServer(ctx context.Context, opts *ServerOptions) error {
 	// Start the service
 	go func() {
 		if err := opts.Service.Start(ctx); err != nil {
-			select {
-			case errChan <- err:
-			default:
-				log.Printf("Service error: %v", err)
-			}
+			errChan <- fmt.Errorf("service start failed: %w", err)
 		}
 	}()
 
 	// Start gRPC server
 	go func() {
 		log.Printf("Starting gRPC server on %s", opts.ListenAddr)
-
 		if err := grpcServer.Start(); err != nil {
-			select {
-			case errChan <- err:
-			default:
-				log.Printf("gRPC server error: %v", err)
-			}
+			errChan <- fmt.Errorf("gRPC server failed: %w", err)
 		}
 	}()
 
@@ -98,52 +91,97 @@ func RunServer(ctx context.Context, opts *ServerOptions) error {
 	return handleShutdown(ctx, cancel, grpcServer, opts.Service, errChan)
 }
 
-func setupGRPCServer(
-	ctx context.Context,
-	addr, serviceName string,
-	registrars []GRPCServiceRegistrar,
-	security *models.SecurityConfig) (*grpc.Server, error) {
-	// Setup server options
+func setupGRPCServer(ctx context.Context, opts *ServerOptions) (*grpc.Server, error) {
+	// Debug logging for security configuration
+	if opts.Security != nil {
+		log.Printf("Security configuration: Mode=%s, CertDir=%s, Role=%s",
+			opts.Security.Mode,
+			opts.Security.CertDir,
+			opts.Security.Role)
+	} else {
+		log.Printf("WARNING: No security configuration provided")
+	}
+
+	// Create security provider if configured
+	var securityProvider grpc.SecurityProvider
+	if opts.Security != nil {
+		var err error
+
+		// Deep copy security config to ensure it's not modified elsewhere
+		secConfig := &models.SecurityConfig{
+			Mode:           opts.Security.Mode,
+			CertDir:        opts.Security.CertDir,
+			Role:           opts.Security.Role,
+			ServerName:     opts.Security.ServerName,
+			WorkloadSocket: opts.Security.WorkloadSocket,
+			TrustDomain:    opts.Security.TrustDomain,
+		}
+
+		// Validate that the mode is properly set
+		if secConfig.Mode == "" {
+			log.Printf("WARNING: Security mode is empty, defaulting to 'none'")
+			secConfig.Mode = "none"
+		} else {
+			log.Printf("Using security mode: %s", secConfig.Mode)
+
+			// Normalize mode to lowercase for consistent comparison
+			modeStr := strings.ToLower(string(secConfig.Mode))
+			secConfig.Mode = models.SecurityMode(modeStr)
+		}
+
+		securityProvider, err = grpc.NewSecurityProvider(ctx, secConfig)
+		if err != nil {
+			log.Printf("ERROR creating security provider: %v", err)
+			return nil, fmt.Errorf("failed to create security provider: %w", err)
+		}
+		log.Printf("Successfully created security provider")
+	} else {
+		log.Printf("No security configuration provided, using no security")
+		securityProvider = &grpc.NoSecurityProvider{}
+	}
+
+	// Configure server options
 	serverOpts := []grpc.ServerOption{
 		grpc.WithMaxRecvSize(MaxRecvSize),
 		grpc.WithMaxSendSize(MaxSendSize),
 	}
 
-	// Setup security if configured
-	if security != nil {
-		provider, err := grpc.NewSecurityProvider(ctx, security)
+	// Add security if provided
+	if securityProvider != nil {
+		serverCreds, err := securityProvider.GetServerCredentials(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create security provider: %w", err)
-		}
-
-		creds, err := provider.GetServerCredentials(ctx)
-		if err != nil {
-			err := provider.Close()
-			if err != nil {
-				return nil, err
-			}
-
+			log.Printf("ERROR getting server credentials: %v", err)
+			_ = securityProvider.Close() // Cleanup on failure
 			return nil, fmt.Errorf("failed to get server credentials: %w", err)
 		}
-
-		serverOpts = append(serverOpts, grpc.WithServerOptions(creds))
+		serverOpts = append(serverOpts, grpc.WithServerOptions(serverCreds))
+		log.Printf("Added server credentials to gRPC options")
 	}
 
-	// Create and configure gRPC server
-	grpcServer := grpc.NewServer(addr, serverOpts...)
-
-	// Setup health check
-	hs := health.NewServer()
-	hs.SetServingStatus(serviceName, healthpb.HealthCheckResponse_SERVING)
-
-	if err := grpcServer.RegisterHealthServer(hs); err != nil {
-		log.Printf("Failed to register health server: %v", err)
-	}
+	// Create the server with the new API
+	grpcServer := grpc.NewServer(opts.ListenAddr, serverOpts...)
+	log.Printf("Created gRPC server with address: %s", opts.ListenAddr)
 
 	// Register all provided services
-	for _, register := range registrars {
-		if err := register(grpcServer); err != nil {
+	underlyingServer := grpcServer.GetGRPCServer()
+	for _, register := range opts.RegisterGRPCServices {
+		if err := register(underlyingServer); err != nil {
 			log.Printf("Failed to register gRPC service: %v", err)
+		}
+	}
+
+	// Setup health check if enabled - register through the server's RegisterHealthServer method
+	if opts.EnableHealthCheck {
+		if err := grpcServer.RegisterHealthServer(); err != nil {
+			log.Printf("Warning: Failed to register health server: %v", err)
+		} else {
+			log.Printf("Successfully registered health server")
+		}
+
+		// Set serving status for the service
+		if healthCheck := grpcServer.GetHealthCheck(); healthCheck != nil {
+			healthCheck.SetServingStatus(opts.ServiceName, healthpb.HealthCheckResponse_SERVING)
+			log.Printf("Set health status to SERVING for service: %s", opts.ServiceName)
 		}
 	}
 
@@ -151,7 +189,12 @@ func setupGRPCServer(
 }
 
 func handleShutdown(
-	ctx context.Context, cancel context.CancelFunc, grpcServer *grpc.Server, svc Service, errChan chan error) error {
+	ctx context.Context,
+	cancel context.CancelFunc,
+	grpcServer *grpc.Server,
+	svc Service,
+	errChan chan error,
+) error {
 	// Setup signal handling
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -162,7 +205,7 @@ func handleShutdown(
 		log.Printf("Received signal %v, initiating shutdown", sig)
 	case err := <-errChan:
 		log.Printf("Received error: %v, initiating shutdown", err)
-		return fmt.Errorf("service error: %w", err)
+		return err
 	case <-ctx.Done():
 		log.Printf("Context canceled, initiating shutdown")
 		return ctx.Err()
@@ -175,18 +218,27 @@ func handleShutdown(
 	// Cancel main context
 	cancel()
 
-	// Stop gRPC server
-	grpcServer.Stop(shutdownCtx)
+	// Stop gRPC server and service
+	errChanShutdown := make(chan error, 2)
+	go func() {
+		// Stop doesn't return an error anymore, just call it
+		grpcServer.Stop(shutdownCtx)
+	}()
+	go func() {
+		if err := svc.Stop(shutdownCtx); err != nil {
+			errChanShutdown <- fmt.Errorf("service stop failed: %w", err)
+		}
+	}()
 
-	// Stop the service
-	if err := svc.Stop(shutdownCtx); err != nil {
-		log.Printf("Error during service shutdown: %v", err)
-
-		return fmt.Errorf("shutdown error: %w", err)
+	// Wait for shutdown to complete or timeout
+	select {
+	case <-shutdownCtx.Done():
+		log.Printf("Shutdown timed out")
+		return fmt.Errorf("shutdown timed out after %v", ShutdownTimeout)
+	case err := <-errChanShutdown:
+		return err
+	case <-time.After(100 * time.Millisecond): // Give a bit of time for any potential errors
+		// If no errors after the wait, consider shutdown successful
+		return nil
 	}
-
-	// Wait for shutdown context
-	<-shutdownCtx.Done()
-
-	return nil
 }

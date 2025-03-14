@@ -24,9 +24,9 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/agent"
 	"github.com/carverauto/serviceradar/pkg/config"
-	"github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/proto"
+	"google.golang.org/grpc" // For the underlying gRPC server type
 )
 
 func main() {
@@ -62,8 +62,8 @@ func run() error {
 		Service:           server,
 		EnableHealthCheck: true,
 		RegisterGRPCServices: []lifecycle.GRPCServiceRegistrar{
-			func(s *grpc.Server) error {
-				proto.RegisterAgentServiceServer(s.GetGRPCServer(), server)
+			func(s *grpc.Server) error { // s is *google.golang.org/grpc.Server due to lifecycle update
+				proto.RegisterAgentServiceServer(s, server)
 				return nil
 			},
 		},
