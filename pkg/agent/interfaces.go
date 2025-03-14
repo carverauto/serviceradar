@@ -29,7 +29,7 @@ type Service interface {
 	Start(context.Context) error
 	Stop(ctx context.Context) error
 	Name() string
-	UpdateConfig(*models.Config) error // Added for dynamic config updates
+	UpdateConfig(config *models.Config) error // Added for dynamic config updates
 }
 
 // SweepStatusProvider is an interface for services that can provide sweep status.

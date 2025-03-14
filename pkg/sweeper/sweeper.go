@@ -69,10 +69,10 @@ func (s *NetworkSweeper) Start(ctx context.Context) error {
 	if err := s.runSweep(initialCtx); err != nil {
 		initialCancel()
 		log.Printf("Initial sweep failed: %v", err)
-		// Continue anyway - we'll try again on the next tick
 	} else {
 		log.Printf("Initial sweep completed successfully")
 	}
+
 	initialCancel()
 
 	s.mu.Lock()
@@ -142,6 +142,7 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 	// Run ICMP scan in a goroutine
 	var icmpResults <-chan models.Result
 	var icmpErr error
+
 	if len(icmpTargets) > 0 {
 		wg.Add(1)
 		go func() {
@@ -157,6 +158,7 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 			// Process ICMP results
 			icmpCount := 0
 			icmpSuccess := 0
+
 			for result := range icmpResults {
 				icmpCount++
 				if err := s.processResult(ctx, &result); err != nil {
@@ -174,6 +176,7 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 
 	// Run TCP scan in a goroutine
 	var tcpResults <-chan models.Result
+
 	var tcpErr error
 
 	if len(tcpTargets) > 0 {
@@ -193,16 +196,21 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 			// Process TCP results
 			tcpCount := 0
 			tcpSuccess := 0
+
 			for result := range tcpResults {
 				tcpCount++
+
 				if err := s.processResult(ctx, &result); err != nil {
 					log.Printf("Failed to process TCP result: %v", err)
+
 					continue
 				}
+
 				if result.Available {
 					tcpSuccess++
 				}
 			}
+
 			log.Printf("TCP scan complete: %d results, %d successful", tcpCount, tcpSuccess)
 		}()
 	}
@@ -219,6 +227,7 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 	}
 
 	log.Printf("Sweep completed successfully")
+
 	return nil
 }
 
@@ -274,12 +283,12 @@ func (s *NetworkSweeper) GetConfig() models.Config {
 }
 
 // UpdateConfig updates sweeper configuration.
-func (s *NetworkSweeper) UpdateConfig(config models.Config) error {
+func (s *NetworkSweeper) UpdateConfig(config *models.Config) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	log.Printf("Updating sweeper config: %+v", config)
-	s.config = &config
+	s.config = config
 
 	return nil
 }

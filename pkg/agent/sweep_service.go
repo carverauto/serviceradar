@@ -76,6 +76,7 @@ func (s *SweepService) UpdateConfig(config *models.Config) error {
 	s.config = newConfig
 
 	log.Printf("Updated sweep config: %+v", newConfig)
+
 	return s.sweeper.UpdateConfig(*newConfig)
 }
 
@@ -140,21 +141,27 @@ func applyDefaultConfig(config *models.Config) *models.Config {
 	if config == nil {
 		config = &models.Config{}
 	}
+
 	if len(config.SweepModes) == 0 {
 		config.SweepModes = []models.SweepMode{models.ModeICMP, models.ModeTCP}
 	}
+
 	if config.Timeout == 0 {
 		config.Timeout = 5 * time.Second
 	}
+
 	if config.Concurrency == 0 {
 		config.Concurrency = 20
 	}
+
 	if config.Interval == 0 {
 		config.Interval = 5 * time.Minute
 	}
+
 	if config.ICMPRateLimit == 0 {
 		config.ICMPRateLimit = 1000
 	}
+
 	return config
 }
 
@@ -177,15 +184,19 @@ func newScanStats() *ScanStats {
 
 func aggregatePorts(results []models.Result) []models.PortCount {
 	portMap := make(map[int]int)
+
 	for _, r := range results {
 		if r.Target.Mode == models.ModeTCP && r.Available {
 			portMap[r.Target.Port]++
 		}
 	}
+
 	var ports []models.PortCount
+
 	for port, count := range portMap {
 		ports = append(ports, models.PortCount{Port: port, Available: count})
 	}
+
 	return ports
 }
 
@@ -202,8 +213,10 @@ func aggregateHosts(results []models.Result) []models.HostResult {
 			}
 			hostMap[r.Target.Host] = h
 		}
+
 		if r.Available {
 			h.Available = true
+
 			if r.Target.Mode == models.ModeICMP {
 				h.ICMPStatus = &models.ICMPStatus{Available: true, RoundTrip: r.RespTime}
 			} else if r.Target.Mode == models.ModeTCP {
@@ -215,10 +228,13 @@ func aggregateHosts(results []models.Result) []models.HostResult {
 			}
 		}
 	}
+
 	var hosts []models.HostResult
+
 	for _, h := range hostMap {
 		hosts = append(hosts, *h)
 	}
+
 	return hosts
 }
 
@@ -229,6 +245,7 @@ func (s *SweepService) CheckICMP(ctx context.Context, host string) (*models.Resu
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ICMP scanner: %w", err)
 	}
+
 	defer func() {
 		if stopErr := icmpScanner.Stop(ctx); stopErr != nil {
 			log.Printf("Failed to stop ICMP scanner: %v", stopErr)
@@ -236,12 +253,14 @@ func (s *SweepService) CheckICMP(ctx context.Context, host string) (*models.Resu
 	}()
 
 	target := models.Target{Host: host, Mode: models.ModeICMP}
+
 	results, err := icmpScanner.Scan(ctx, []models.Target{target})
 	if err != nil {
 		return nil, fmt.Errorf("ICMP scan failed: %w", err)
 	}
 
 	var result models.Result
+
 	for r := range results {
 		result = r
 		break // Expecting one result
