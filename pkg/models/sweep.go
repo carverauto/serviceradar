@@ -36,16 +36,28 @@ type PortStatus struct {
 
 // Config defines sweeper configuration.
 type Config struct {
-	Networks    []string      `json:"networks"`
-	Ports       []int         `json:"ports"`
-	SweepModes  []SweepMode   `json:"sweep_modes"`
-	Interval    time.Duration `json:"interval"`
-	Concurrency int           `json:"concurrency"`
-	Timeout     time.Duration `json:"timeout"`
-	ICMPCount   int           `json:"icmp_count"`
-	MaxIdle     int           `json:"max_idle"`
-	MaxLifetime time.Duration `json:"max_lifetime"`
-	IdleTimeout time.Duration `json:"idle_timeout"`
+	Networks     []string      `json:"networks"`
+	Ports        []int         `json:"ports"`
+	SweepModes   []SweepMode   `json:"sweep_modes"`
+	Interval     time.Duration `json:"interval"`
+	Concurrency  int           `json:"concurrency"`
+	Timeout      time.Duration `json:"timeout"`
+	ICMPCount    int           `json:"icmp_count"`
+	MaxIdle      int           `json:"max_idle"`
+	MaxLifetime  time.Duration `json:"max_lifetime"`
+	IdleTimeout  time.Duration `json:"idle_timeout"`
+	ICMPSettings struct {
+		RateLimit int // Packets per second
+		Timeout   time.Duration
+		MaxBatch  int
+	}
+	TCPSettings struct {
+		Concurrency int
+		Timeout     time.Duration
+		MaxBatch    int
+	}
+	EnableHighPerformanceICMP bool `json:"high_perf_icmp,omitempty"`
+	ICMPRateLimit             int  `json:"icmp_rate_limit,omitempty"`
 }
 
 type SweepMode string

@@ -268,11 +268,13 @@ func (p *BaseProcessor) GetSummary(ctx context.Context) (*models.SweepSummary, e
 		hosts = append(hosts, *host)
 	}
 
-	log.Printf("Summary stats - Total hosts: %d, Available: %d, ICMP responding: %d",
-		len(p.hostMap), availableHosts, icmpHosts)
+	log.Printf("Summary stats - Total hosts: %d, Available: %d, ICMP responding: %d, Actual total defined in config: %d",
+		len(p.hostMap), availableHosts, icmpHosts, p.totalHosts)
 
-	actualTotalHosts := len(p.hostMap)
-	if actualTotalHosts == 0 {
+	// Here's the important change - don't use the network size from config if we have actual data
+	actualTotalHosts := p.totalHosts
+	if len(p.hostMap) > 0 {
+		// We have some processed hosts, but we want to report the real total from config
 		actualTotalHosts = p.totalHosts
 	}
 

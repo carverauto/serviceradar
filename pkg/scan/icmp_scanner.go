@@ -18,831 +18,252 @@ package scan
 
 import (
 	"context"
-	"encoding/binary"
-	"errors"
 	"fmt"
-	"log"
 	"net"
 	"os"
-	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 	"golang.org/x/net/icmp"
 	"golang.org/x/net/ipv4"
-	"golang.org/x/time/rate"
 )
 
-const (
-	maxPacketSize       = 1500
-	templateSize        = 8
-	defaultMaxSocketAge = 10 * time.Minute
-	defaultMaxIdleTime  = 1 * time.Minute
-	packetReadDeadline  = 100 * time.Millisecond
-	cleanupInterval     = 30 * time.Second
-	icmpProtocol        = 1 // Protocol number for ICMP.
-	defaultMaxSockets   = 10
-	templateIDOffset    = 4
-	templateChecksum    = 2
-)
-
-var (
-	errInvalidParameters        = errors.New("invalid parameters: timeout, concurrency, and count must be greater than zero")
-	errNoAvailableSocketsInPool = errors.New("no available sockets in pool")
-	errScannerStopped           = errors.New("scanner stopped")
-)
-
-type pingResponse struct {
-	received  atomic.Int64
-	totalTime atomic.Int64
-	lastSeen  atomic.Value
-	sendTime  atomic.Value
-	dropped   atomic.Int64
-	sent      atomic.Int64
-}
-
-// socketEntry represents a pooled socket with metadata.
-type socketEntry struct {
-	conn      *icmp.PacketConn
-	createdAt time.Time
-	lastUsed  atomic.Value
-	inUse     atomic.Int32
-	closed    atomic.Bool
-}
-
-// socketPool manages a collection of ICMP sockets with lifecycle tracking.
-type socketPool struct {
-	mu         sync.RWMutex
-	sockets    []*socketEntry
-	maxAge     time.Duration
-	maxIdle    time.Duration
-	maxSockets int
-	cleaner    *cleanupManager
-	closeOnce  sync.Once
-}
-
+// ICMPScanner implements a scanner for ICMP echo requests
 type ICMPScanner struct {
-	timeout       time.Duration
-	concurrency   int
-	count         int
-	socketPool    *socketPool
-	bufferPool    *bufferPool
-	done          chan struct{}
-	closeDoneOnce sync.Once // ADDED
-	template      []byte
-	responses     sync.Map
+	timeout     time.Duration
+	count       int
+	concurrency int
+	cancel      context.CancelFunc
+	cancelMu    sync.Mutex
 }
 
-// bufferPool manages a pool of reusable byte buffers.
-type bufferPool struct {
-	pool sync.Pool
-}
-
-func (p *socketPool) getSocket() (*icmp.PacketConn, func(), error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	now := time.Now()
-
-	// 1. Try to find an available socket.
-	if entry, ok := p.findAvailableSocket(now); ok {
-		return p.socketWithReleaseFunc(entry)
+// NewICMPScanner creates a new ICMP scanner
+func NewICMPScanner(timeout time.Duration, count int) Scanner {
+	// Set default values if not provided
+	if timeout == 0 {
+		timeout = 5 * time.Second
+	}
+	if count == 0 {
+		count = 1
 	}
 
-	// 2. Create a new socket if the pool is not full.
-	if len(p.sockets) < p.maxSockets {
-		entry, err := p.createSocket(now)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		p.sockets = append(p.sockets, entry)
-
-		return p.socketWithReleaseFunc(entry)
-	}
-
-	// 3. Try to recycle an idle socket.
-	entry, err := p.recycleSocket(now)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return p.socketWithReleaseFunc(entry)
-}
-
-// findAvailableSocket iterates over the pool and returns a socketEntry
-// that is not closed, within age limits, and currently not in use.
-func (p *socketPool) findAvailableSocket(now time.Time) (*socketEntry, bool) {
-	for _, entry := range p.sockets {
-		if entry.closed.Load() {
-			continue
-		}
-
-		lastUsed := entry.lastUsed.Load().(time.Time)
-		if now.Sub(entry.createdAt) <= p.maxAge &&
-			now.Sub(lastUsed) <= p.maxIdle &&
-			entry.inUse.Load() == 0 {
-			entry.lastUsed.Store(now)
-			entry.inUse.Add(1)
-
-			return entry, true
-		}
-	}
-
-	return nil, false
-}
-
-// createSocket creates a new socketEntry and initializes its fields.
-func (*socketPool) createSocket(now time.Time) (*socketEntry, error) {
-	conn, err := icmp.ListenPacket("ip4:icmp", "0.0.0.0")
-	if err != nil {
-		return nil, err
-	}
-
-	entry := &socketEntry{
-		conn:      conn,
-		createdAt: now,
-	}
-	entry.lastUsed.Store(now)
-	entry.inUse.Store(1)
-
-	return entry, nil
-}
-
-// recycleSocket finds an idle socket, closes it, and recreates it.
-func (p *socketPool) recycleSocket(now time.Time) (*socketEntry, error) {
-	for _, entry := range p.sockets {
-		if entry.inUse.Load() != 0 || entry.closed.Load() {
-			continue
-		}
-
-		// Close the old socket.
-		if err := entry.conn.Close(); err != nil {
-			log.Printf("Error closing old socket: %v", err)
-		}
-
-		entry.closed.Store(true)
-
-		// Create a new socket.
-		conn, err := icmp.ListenPacket("ip4:icmp", "0.0.0.0")
-		if err != nil {
-			return nil, err
-		}
-
-		entry.conn = conn
-		entry.createdAt = now
-		entry.lastUsed.Store(now)
-		entry.closed.Store(false)
-		entry.inUse.Store(1)
-
-		return entry, nil
-	}
-
-	return nil, errNoAvailableSocketsInPool
-}
-
-// socketWithReleaseFunc returns the socket connection along with a release function
-// that decrements the in-use counter and updates the last used timestamp.
-//
-//nolint:unparam // error is reserved for future use; currently always nil.
-func (*socketPool) socketWithReleaseFunc(entry *socketEntry) (*icmp.PacketConn, func(), error) {
-	// Create a copy of entry for use in the closure to avoid race conditions.
-	e := entry
-	release := func() {
-		e.inUse.Add(-1)
-		e.lastUsed.Store(time.Now())
-	}
-
-	return e.conn, release, nil
-}
-
-func newSocketPool(maxSockets int, maxAge, maxIdle time.Duration) *socketPool {
-	p := &socketPool{
-		sockets:    make([]*socketEntry, 0, maxSockets),
-		maxAge:     maxAge,
-		maxIdle:    maxIdle,
-		maxSockets: maxSockets,
-	}
-
-	p.cleaner = newCleanupManager(cleanupInterval, p.cleanup)
-	p.cleaner.start()
-
-	return p
-}
-
-// cleanup removes stale sockets from the pool.
-func (p *socketPool) cleanup() {
-	if !p.mu.TryLock() {
-		// If we can't get the lock immediately, skip this cleanup cycle
-		return
-	}
-	defer p.mu.Unlock()
-
-	now := time.Now()
-	validSockets := make([]*socketEntry, 0, len(p.sockets))
-
-	for _, entry := range p.sockets {
-		if entry.closed.Load() {
-			continue
-		}
-
-		lastUsed := entry.lastUsed.Load().(time.Time)
-		if now.Sub(entry.createdAt) > p.maxAge ||
-			now.Sub(lastUsed) > p.maxIdle {
-			if err := entry.conn.Close(); err != nil {
-				log.Printf("Error closing stale socket: %v", err)
-			}
-
-			entry.closed.Store(true)
-
-			continue
-		}
-
-		validSockets = append(validSockets, entry)
-	}
-
-	p.sockets = validSockets
-}
-
-// close cleans up all sockets in the pool.
-func (p *socketPool) close() {
-	p.closeOnce.Do(func() {
-		if p.cleaner != nil {
-			p.cleaner.stop()
-		}
-
-		p.mu.Lock()
-		defer p.mu.Unlock()
-
-		for _, entry := range p.sockets {
-			if !entry.closed.Load() {
-				err := entry.conn.Close()
-				if err != nil {
-					return
-				}
-
-				entry.closed.Store(true)
-			}
-		}
-
-		p.sockets = nil
-	})
-}
-
-// newBufferPool creates a new buffer pool.
-func newBufferPool(bufferSize int) *bufferPool {
-	return &bufferPool{
-		pool: sync.Pool{
-			New: func() interface{} {
-				return make([]byte, bufferSize)
-			},
-		},
+	return &ICMPScanner{
+		timeout:     timeout,
+		count:       count,
+		concurrency: 20, // Default concurrency
 	}
 }
 
-func (p *bufferPool) get() []byte {
-	return p.pool.Get().([]byte)
-}
-
-// put returns a byte slice to the pool.
-func (p *bufferPool) put(buf []byte) {
-	p.pool.Put(buf) //nolint:staticcheck // Explicitly ignore SA6002 for this specific case
-}
-
-// NewICMPScanner creates a new ICMP scanner.
-func NewICMPScanner(timeout time.Duration, concurrency, count int) (*ICMPScanner, error) {
-	if timeout <= 0 || concurrency <= 0 || count <= 0 {
-		return nil, errInvalidParameters
-	}
-
-	scanner := &ICMPScanner{
-		timeout:       timeout,
-		concurrency:   concurrency,
-		count:         count,
-		socketPool:    newSocketPool(defaultMaxSockets, defaultMaxSocketAge, defaultMaxIdleTime),
-		bufferPool:    newBufferPool(maxPacketSize),
-		done:          make(chan struct{}),
-		closeDoneOnce: sync.Once{},
-		responses:     sync.Map{},
-	}
-
-	scanner.buildTemplate()
-
-	return scanner, nil
-}
-
-func (s *ICMPScanner) buildTemplate() {
-	const (
-		templateMask = 0xffff
-	)
-
-	s.template = make([]byte, templateSize)
-	s.template[0] = 8 // Echo Request
-	s.template[1] = 0 // Code 0
-
-	// Add identifier
-	id := uint16(os.Getpid() & templateMask) //nolint:gosec // the mask is used to ensure the ID fits in 16 bits
-	binary.BigEndian.PutUint16(s.template[templateIDOffset:], id)
-
-	// Calculate checksum
-	binary.BigEndian.PutUint16(s.template[templateChecksum:], s.calculateChecksum(s.template))
-}
-
-// sendPing sends an ICMP echo request to the target IP.
-func (s *ICMPScanner) sendPing(ip net.IP) error {
-	// Get a socket from the pool
-	conn, release, err := s.socketPool.getSocket()
-	if err != nil {
-		return fmt.Errorf("failed to get socket from pool: %w", err)
-	}
-	defer release() // Always release the socket when done
-
-	dest := &net.IPAddr{IP: ip}
-
-	// Update send time if we're tracking this target
-	if value, ok := s.responses.Load(ip.String()); ok {
-		resp := value.(*pingResponse)
-		resp.sendTime.Store(time.Now())
-	}
-
-	// Send the ICMP packet
-	_, err = conn.WriteTo(s.template, dest)
-	if err != nil {
-		return fmt.Errorf("failed to send ICMP packet: %w", err)
-	}
-
-	return nil
-}
-
-func (s *ICMPScanner) sendPingsToTarget(ctx context.Context, target models.Target, rateLimit time.Duration) {
-	resp := &pingResponse{}
-	resp.lastSeen.Store(time.Time{})
-	resp.sendTime.Store(time.Now())
-	s.responses.Store(target.Host, resp)
-
-	for i := 0; i < s.count; i++ {
-		select {
-		case <-ctx.Done():
-			return
-		case <-s.done:
-			return
-		default:
-			resp.sent.Add(1)
-
-			if err := s.sendPing(net.ParseIP(target.Host)); err != nil {
-				log.Printf("Error sending ping to %s: %v", target.Host, err)
-				resp.dropped.Add(1)
-			}
-
-			time.Sleep(rateLimit)
-		}
-	}
-}
-
-// sendResultsForTarget processes and sends results for a target.
-func (s *ICMPScanner) sendResultsForTarget(ctx context.Context, results chan<- models.Result, target models.Target) {
-	value, ok := s.responses.Load(target.Host)
-	if !ok {
-		return
-	}
-
-	resp := value.(*pingResponse)
-	received := resp.received.Load()
-	sent := resp.sent.Load()
-	totalTime := resp.totalTime.Load()
-	lastSeen := resp.lastSeen.Load().(time.Time)
-
-	avgResponseTime := time.Duration(0)
-	if received > 0 {
-		avgResponseTime = time.Duration(totalTime) / time.Duration(received)
-	}
-
-	packetLoss := float64(0)
-	if sent > 0 {
-		packetLoss = float64(sent-received) / float64(sent) * 100
-	}
-
-	result := models.Result{
-		Target:     target,
-		Available:  received > 0,
-		RespTime:   avgResponseTime,
-		PacketLoss: packetLoss,
-		LastSeen:   lastSeen,
-		FirstSeen:  time.Now(),
-	}
-
-	select {
-	case results <- result:
-	case <-ctx.Done():
-		return
-	case <-s.done:
-		return
-	}
-
-	s.responses.Delete(target.Host)
-}
-
-func (*ICMPScanner) calculateChecksum(data []byte) uint16 {
-	var (
-		sum    uint32
-		length = len(data)
-		index  int
-	)
-
-	// Main loop sums up 16-bit words
-	for length > 1 {
-		sum += uint32(data[index])<<8 | uint32(data[index+1])
-		index += 2
-		length -= 2
-	}
-
-	// Add left-over byte, if any, padded by zero
-	if length > 0 {
-		sum += uint32(data[index]) << 8 // Pad with a zero byte
-	}
-
-	// Fold 32-bit sum into 16 bits
-	for sum>>16 != 0 {
-		sum = (sum & 0xFFFF) + (sum >> 16)
-	}
-
-	// Return one's complement
-	return uint16(^sum) //nolint:gosec    // Take one's complement of uint32 sum, then convert to uint16
-}
-
-// Scan implements the Scanner interface.
-// It performs ICMP scanning of the provided targets and returns results through a channel.
+// Scan performs an ICMP scan on the provided targets
 func (s *ICMPScanner) Scan(ctx context.Context, targets []models.Target) (<-chan models.Result, error) {
-	// 1. Filter for ICMP targets.
-	icmpTargets := s.filterICMPTargets(targets)
-	if len(icmpTargets) == 0 {
-		results := make(chan models.Result)
-		close(results)
-
-		return results, nil
-	}
-
-	// 2. Create buffered results channel.
-	results := make(chan models.Result, len(icmpTargets))
-
-	// 3. Create a cancellable scan context.
-	scanCtx, cancel := context.WithCancel(ctx)
-
-	// 4. Create a WaitGroup and atomic counter for tracking progress.
-	var wg sync.WaitGroup
-
-	processedTargets := atomic.Int32{}
-
-	// 5. Start the listener and wait for it to be ready.
-	listenerReady, listenerErr := s.startListener(scanCtx, &wg)
-	select {
-	case <-listenerReady:
-		// Listener is ready.
-	case err := <-listenerErr:
-		cancel()
-		close(results)
-
-		return nil, fmt.Errorf("listener setup failed: %w", err)
-	case <-scanCtx.Done():
-		cancel()
-		close(results)
-
-		return nil, ctx.Err()
-	}
-
-	// 6. Start processing the targets.
-	wg.Add(1)
-
-	go func() {
-		defer wg.Done()
-		s.processTargets(scanCtx, icmpTargets, results, &processedTargets)
-	}()
-
-	// 7. Start the cleanup routine.
-	s.startCleanup(ctx, &wg, &processedTargets, cancel, results)
-
-	return results, nil
-}
-
-func (*ICMPScanner) filterICMPTargets(targets []models.Target) []models.Target {
-	var icmpTargets []models.Target
-
+	// Filter to keep only ICMP targets
+	icmpTargets := make([]models.Target, 0, len(targets))
 	for _, target := range targets {
 		if target.Mode == models.ModeICMP {
 			icmpTargets = append(icmpTargets, target)
 		}
 	}
 
-	return icmpTargets
-}
+	if len(icmpTargets) == 0 {
+		// No ICMP targets to scan, return empty channel
+		resultCh := make(chan models.Result)
+		close(resultCh)
+		return resultCh, nil
+	}
 
-func (s *ICMPScanner) startListener(ctx context.Context, wg *sync.WaitGroup) (channel chan struct{}, errorChan chan error) {
-	listenerReady := make(chan struct{})
-	listenerErr := make(chan error, 1)
+	// Create a new cancellable context
+	scanCtx, cancel := context.WithCancel(ctx)
 
-	wg.Add(1)
+	s.cancelMu.Lock()
+	s.cancel = cancel
+	s.cancelMu.Unlock()
 
+	// Create buffered result channel
+	resultCh := make(chan models.Result, 1000)
+
+	// Create buffered work channel
+	workCh := make(chan models.Target, s.concurrency*2)
+
+	// Start worker pool
+	var wg sync.WaitGroup
+	for i := 0; i < s.concurrency; i++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			s.worker(scanCtx, workCh, resultCh)
+		}(i)
+	}
+
+	// Send targets to work channel
 	go func() {
-		defer wg.Done()
-
-		if err := s.listenForReplies(ctx, listenerReady); err != nil &&
-			!errors.Is(err, context.Canceled) &&
-			!errors.Is(err, context.DeadlineExceeded) {
-			// Non-blocking send.
+		defer close(workCh)
+		for _, target := range icmpTargets {
 			select {
-			case listenerErr <- err:
-			default:
-			}
-		}
-	}()
-
-	return listenerReady, listenerErr
-}
-
-func (s *ICMPScanner) startCleanup(
-	ctx context.Context,
-	wg *sync.WaitGroup,
-	processedTargets *atomic.Int32,
-	cancel context.CancelFunc,
-	results chan models.Result) {
-	go func() {
-		// Create a channel to signal when all processing is done.
-		processDone := make(chan struct{})
-		go func() {
-			wg.Wait()
-			close(processDone)
-		}()
-
-		// Wait for processing completion, cancellation, or scanner shutdown.
-		select {
-		case <-processDone:
-			targetCount := processedTargets.Load()
-			if targetCount > 0 {
-				log.Printf("ICMP scan completed successfully, processed %d targets", targetCount)
-			} else {
-				log.Println("ICMP scan completed with no targets processed")
-			}
-		case <-ctx.Done():
-			targetCount := processedTargets.Load()
-			if targetCount > 0 {
-				log.Printf("ICMP scan stopping after processing %d targets", targetCount)
-			} else {
-				log.Println("ICMP scan canceled before processing any targets")
-			}
-		case <-s.done:
-			log.Println("ICMP scan stopping due to scanner shutdown")
-		}
-
-		// Cancel the scan and wait for processing to finish.
-		cancel()
-
-		// Ensure cleanup completes with a timeout.
-		cleanupTimer := time.NewTimer(s.timeout)
-		defer cleanupTimer.Stop()
-		select {
-		case <-processDone:
-			// Processing completed normally.
-		case <-cleanupTimer.C:
-			log.Println("Warning: ICMP scan cleanup timed out")
-		}
-
-		// Safe to close the results channel.
-		close(results)
-	}()
-}
-
-func (s *ICMPScanner) processTargets(ctx context.Context, targets []models.Target, results chan<- models.Result, processed *atomic.Int32) {
-	log.Println("Starting processTargets")
-	defer log.Println("processTargets completed")
-
-	// Calculate rate limit.
-	rateLimit := time.Second / time.Duration(s.concurrency)
-	limiter := rate.NewLimiter(rate.Every(rateLimit), s.concurrency)
-
-	// Process targets in batches.
-	for i := 0; i < len(targets); i += s.concurrency {
-		// Abort if context is canceled.
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-
-		end := i + s.concurrency
-		if end > len(targets) {
-			end = len(targets)
-		}
-
-		batch := targets[i:end]
-
-		// Process the current batch. If processing fails (e.g. due to context cancellation),
-		// return early.
-		if err := s.processBatch(ctx, batch, results, limiter, rateLimit, processed); err != nil {
-			return
-		}
-	}
-}
-
-// processBatch handles sending pings to a batch of targets and then processing their results.
-func (s *ICMPScanner) processBatch(
-	ctx context.Context,
-	batch []models.Target,
-	results chan<- models.Result,
-	limiter *rate.Limiter,
-	rateLimit time.Duration,
-	processed *atomic.Int32) error {
-	var batchWg sync.WaitGroup
-
-	// Launch goroutines for each target in the batch.
-	for _, target := range batch {
-		batchWg.Add(1)
-
-		go func(target models.Target) {
-			defer batchWg.Done()
-			// Wait for rate limiter permission.
-			if err := limiter.Wait(ctx); err != nil {
-				if !errors.Is(err, context.Canceled) {
-					log.Printf("Rate limiter error for target %s: %v", target.Host, err)
-				}
-
+			case <-scanCtx.Done():
 				return
+			case workCh <- target:
+				// Target sent to worker
 			}
-			// Send pings and count the processed target.
-			s.sendPingsToTarget(ctx, target, rateLimit)
-			processed.Add(1)
-		}(target)
-	}
-
-	// Wait for all goroutines in the batch to complete.
-	done := make(chan struct{})
-	go func() {
-		batchWg.Wait()
-		close(done)
+		}
 	}()
 
-	// Wait for batch completion or cancellation.
-	select {
-	case <-done:
-		// Process batch results.
-		for _, target := range batch {
-			s.sendResultsForTarget(ctx, results, target)
-		}
+	// Close result channel when all workers are done
+	go func() {
+		wg.Wait()
+		close(resultCh)
+	}()
 
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-s.done:
-		return errScannerStopped
-	}
+	return resultCh, nil
 }
 
-func (s *ICMPScanner) listenForReplies(ctx context.Context, ready chan<- struct{}) error {
-	defer log.Println("listenForReplies complete")
-
-	// Get a socket from the pool.
-	conn, release, err := s.socketPool.getSocket()
-	if err != nil {
-		close(ready)
-		return fmt.Errorf("failed to get socket: %w", err)
-	}
-	defer release()
-
-	// Signal that we're ready to receive.
-	close(ready)
-
-	// Create buffer for reading.
-	buffer := s.bufferPool.get()
-	defer s.bufferPool.put(buffer)
-
+// worker processes ICMP scanning tasks
+func (s *ICMPScanner) worker(ctx context.Context, workCh <-chan models.Target, resultCh chan<- models.Result) {
 	for {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
-		case <-s.done:
-			return nil
-		default:
-			// Read one ICMP message.
-			msg, peer, err := s.readOneMessage(conn, buffer)
+			return
+		case target, ok := <-workCh:
+			if !ok {
+				// Work channel closed
+				return
+			}
+
+			// Create result object
+			result := models.Result{
+				Target:    target,
+				Available: false,
+				FirstSeen: time.Now(),
+				LastSeen:  time.Now(),
+			}
+
+			// Ping the host
+			available, respTime, packetLoss, err := s.pingHost(ctx, target.Host)
+
+			// Update result
+			result.Available = available
+			result.RespTime = respTime
+			result.PacketLoss = packetLoss
 			if err != nil {
-				// Fatal error during read: return immediately.
-				return err
+				result.Error = err
 			}
 
-			if msg == nil {
-				// Non-fatal error or no valid message received; continue.
-				continue
+			// Send result
+			select {
+			case <-ctx.Done():
+				return
+			case resultCh <- result:
+				// Result sent successfully
 			}
-
-			if msg.Type != ipv4.ICMPTypeEchoReply {
-				// Not an echo reply; ignore.
-				continue
-			}
-
-			s.processICMPReply(peer)
 		}
 	}
 }
 
-// readOneMessage performs one iteration of reading and parsing an ICMP message.
-// It returns (msg, peer, nil) on success, or (nil, nil, err) for fatal errors.
-// For nonfatal errors (e.g. i/o timeout or parse errors) it returns (nil, nil, nil)
-// so that the caller can simply continue the loop.
-func (s *ICMPScanner) readOneMessage(conn *icmp.PacketConn, buffer []byte) (*icmp.Message, net.Addr, error) {
-	// Set read deadline.
-	if err := conn.SetReadDeadline(time.Now().Add(packetReadDeadline)); err != nil {
-		if !strings.Contains(err.Error(), "use of closed network connection") {
-			return nil, nil, fmt.Errorf("set deadline failed: %w", err)
+// pingHost sends ICMP echo requests to a host
+func (s *ICMPScanner) pingHost(ctx context.Context, host string) (bool, time.Duration, float64, error) {
+	// Resolve hostname to IP address
+	ipAddr, err := net.ResolveIPAddr("ip4", host)
+	if err != nil {
+		return false, 0, 100.0, fmt.Errorf("failed to resolve host %s: %w", host, err)
+	}
+
+	// Create ICMP connection
+	conn, err := icmp.ListenPacket("ip4:icmp", "0.0.0.0")
+	if err != nil {
+		return false, 0, 100.0, fmt.Errorf("failed to create ICMP connection: %w", err)
+	}
+	defer conn.Close()
+
+	// Create message
+	message := icmp.Message{
+		Type: ipv4.ICMPTypeEcho,
+		Code: 0,
+		Body: &icmp.Echo{
+			ID:   os.Getpid() & 0xffff,
+			Seq:  1,
+			Data: []byte("ServiceRadar ICMP probe"),
+		},
+	}
+
+	// Marshal message
+	binary, err := message.Marshal(nil)
+	if err != nil {
+		return false, 0, 100.0, fmt.Errorf("failed to marshal ICMP message: %w", err)
+	}
+
+	// Track successful pings and response times
+	var successCount int
+	var totalRTT time.Duration
+
+	// Send multiple pings based on count configuration
+	for i := 0; i < s.count; i++ {
+		// Check if context is done
+		select {
+		case <-ctx.Done():
+			return false, 0, 100.0, ctx.Err()
+		default:
+			// Continue
 		}
 
-		return nil, nil, err
-	}
-
-	// Read from the connection.
-	n, peer, err := conn.ReadFrom(buffer)
-	if err != nil {
-		// If the error is not a closed connection or timeout, return it.
-		if !strings.Contains(err.Error(), "use of closed network connection") &&
-			!strings.Contains(err.Error(), "i/o timeout") {
-			return nil, nil, err
+		// Set read deadline
+		err = conn.SetReadDeadline(time.Now().Add(s.timeout))
+		if err != nil {
+			return false, 0, 100.0, fmt.Errorf("failed to set read deadline: %w", err)
 		}
 
-		// For timeout or closed connection errors, return nil so the loop can continue.
-		return nil, nil, nil
+		// Send ping
+		start := time.Now()
+		_, err = conn.WriteTo(binary, ipAddr)
+		if err != nil {
+			return false, 0, 100.0, fmt.Errorf("failed to send ICMP packet: %w", err)
+		}
+
+		// Receive reply
+		reply := make([]byte, 1500)
+		n, _, err := conn.ReadFrom(reply)
+		if err != nil {
+			// If timeout, continue to next ping
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				continue
+			}
+			return false, 0, 100.0, fmt.Errorf("failed to receive ICMP reply: %w", err)
+		}
+
+		// Calculate RTT
+		rtt := time.Since(start)
+		totalRTT += rtt
+
+		// Parse reply
+		parsedReply, err := icmp.ParseMessage(ipv4.ICMPTypeEcho.Protocol(), reply[:n])
+		if err != nil {
+			continue
+		}
+
+		// Check if it's an echo reply
+		if parsedReply.Type == ipv4.ICMPTypeEchoReply {
+			successCount++
+		}
 	}
 
-	// Parse the ICMP message.
-	msg, err := s.parseICMPMessage(buffer[:n])
-	if err != nil {
-		// Non-fatal: ignore parse errors.
-		return nil, nil, nil
+	// Calculate results
+	if successCount > 0 {
+		packetLoss := 100.0 * float64(s.count-successCount) / float64(s.count)
+		avgRTT := totalRTT / time.Duration(successCount)
+		return true, avgRTT, packetLoss, nil
 	}
 
-	return msg, peer, nil
+	return false, 0, 100.0, nil
 }
 
+// Stop terminates the scanner
 func (s *ICMPScanner) Stop(ctx context.Context) error {
-	log.Println("ICMPScanner Stop called")
+	s.cancelMu.Lock()
+	defer s.cancelMu.Unlock()
 
-	// Signal all goroutines to stop
-	s.closeDoneOnce.Do(func() {
-		close(s.done)
-	})
-
-	// Create channel for cleanup completion
-	cleanupDone := make(chan struct{})
-
-	// Start cleanup in background
-	go func() {
-		if s.socketPool != nil {
-			s.socketPool.close()
-		}
-
-		close(cleanupDone)
-	}()
-
-	// Wait for cleanup with timeout
-	select {
-	case <-cleanupDone:
-		return nil
-	case <-ctx.Done():
-		return fmt.Errorf("cleanup timed out: %w", ctx.Err())
-	}
-}
-
-// processICMPReply processes the received ICMP reply.
-func (s *ICMPScanner) processICMPReply(peer net.Addr) {
-	ipStr := peer.String()
-
-	value, ok := s.responses.Load(ipStr)
-	if !ok {
-		return
+	if s.cancel != nil {
+		s.cancel()
+		s.cancel = nil
 	}
 
-	resp := value.(*pingResponse)
-
-	// Update response metrics
-	now := time.Now()
-
-	resp.received.Add(1)
-
-	if sendTime, ok := resp.sendTime.Load().(time.Time); ok {
-		resp.totalTime.Add(now.Sub(sendTime).Nanoseconds())
-	}
-
-	resp.lastSeen.Store(now)
-
-	log.Printf("Received ICMP reply from %s (response time: %.2fms)",
-		ipStr, float64(now.Sub(resp.sendTime.Load().(time.Time)).Nanoseconds())/float64(time.Millisecond))
-}
-
-func (*ICMPScanner) parseICMPMessage(buffer []byte) (*icmp.Message, error) {
-	// Use the protocol number directly for ICMP
-	msg, err := icmp.ParseMessage(icmpProtocol, buffer)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse ICMP message: %w", err)
-	}
-
-	return msg, nil
+	return nil
 }

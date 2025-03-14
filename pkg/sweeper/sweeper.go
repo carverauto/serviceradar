@@ -194,13 +194,18 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 }
 
 func (s *NetworkSweeper) processResult(ctx context.Context, result *models.Result) error {
+	// Create a new context with short timeout for processing a single result
+	// This ensures one slow result can't block the entire process
+	processCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+
 	// Process with processor
 	if err := s.processor.Process(result); err != nil {
 		return fmt.Errorf("processor error: %w", err)
 	}
 
-	// Save to store
-	if err := s.store.SaveResult(ctx, result); err != nil {
+	// Save to store with timeout context
+	if err := s.store.SaveResult(processCtx, result); err != nil {
 		return fmt.Errorf("store error: %w", err)
 	}
 
