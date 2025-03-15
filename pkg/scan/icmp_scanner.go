@@ -339,6 +339,11 @@ func (s *ICMPSweeper) processReply(reply struct {
 	addr net.Addr
 	data []byte
 }, targetMap map[string]struct{}) error {
+	if reply.addr == nil {
+		// Timeout or invalid reply, skip processing
+		return nil
+	}
+
 	ip := reply.addr.String()
 
 	// Verify this is one of our targets
@@ -350,7 +355,6 @@ func (s *ICMPSweeper) processReply(reply struct {
 	msg, err := icmp.ParseMessage(1, reply.data)
 	if err != nil {
 		log.Printf("Error parsing ICMP message from %s: %v", ip, err)
-
 		return err
 	}
 
