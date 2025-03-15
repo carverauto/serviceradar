@@ -38,6 +38,7 @@ func TestNewICMPSweeper(t *testing.T) {
 				t.Errorf("NewICMPSweeper() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
+
 			if s == nil {
 				t.Fatal("NewICMPSweeper() returned nil")
 			}
@@ -46,6 +47,7 @@ func TestNewICMPSweeper(t *testing.T) {
 			if expectedTimeout == 0 {
 				expectedTimeout = defaultICMPTimeout
 			}
+
 			if s.timeout != expectedTimeout {
 				t.Errorf("timeout = %v, want %v", s.timeout, expectedTimeout)
 			}
@@ -54,6 +56,7 @@ func TestNewICMPSweeper(t *testing.T) {
 			if expectedRateLimit == 0 {
 				expectedRateLimit = defaultICMPRateLimit
 			}
+
 			if s.rateLimit != expectedRateLimit {
 				t.Errorf("rateLimit = %v, want %v", s.rateLimit, expectedRateLimit)
 			}
@@ -71,7 +74,13 @@ func TestICMPSweeper_Scan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create ICMPSweeper: %v", err)
 	}
-	defer sweeper.Stop(context.Background())
+
+	defer func(sweeper *ICMPSweeper, ctx context.Context) {
+		err = sweeper.Stop(ctx)
+		if err != nil {
+			t.Errorf("Failed to stop ICMPSweeper: %v", err)
+		}
+	}(sweeper, context.Background())
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -87,7 +96,7 @@ func TestICMPSweeper_Scan(t *testing.T) {
 		t.Fatalf("Scan() error = %v", err)
 	}
 
-	var results []models.Result
+	results := make([]models.Result, 0, len(targets))
 	for result := range resultCh {
 		results = append(results, result)
 	}
@@ -101,10 +110,8 @@ func TestICMPSweeper_Scan(t *testing.T) {
 	for _, r := range results {
 		if r.Available {
 			t.Logf("Note: %s was reachable; test assumes unreachable targets", r.Target.Host)
-		} else {
-			if r.PacketLoss != 100 {
-				t.Errorf("Expected 100%% packet loss for %s, got %f", r.Target.Host, r.PacketLoss)
-			}
+		} else if r.PacketLoss != 100 {
+			t.Errorf("Expected 100%% packet loss for %s, got %f", r.Target.Host, r.PacketLoss)
 		}
 	}
 }
@@ -119,6 +126,7 @@ func TestCalculatePacketsPerInterval(t *testing.T) {
 	}
 
 	sweeper.rateLimit = 50
+
 	packets = sweeper.calculatePacketsPerInterval()
 	if packets != 1 { // Minimum is 1
 		t.Errorf("calculatePacketsPerInterval() = %d, want 1 for low rate", packets)
@@ -130,6 +138,7 @@ func TestProcessResults(t *testing.T) {
 		results: make(map[string]models.Result),
 		mu:      sync.Mutex{},
 	}
+
 	targets := []models.Target{
 		{Host: "8.8.8.8", Mode: models.ModeICMP},
 		{Host: "1.1.1.1", Mode: models.ModeICMP},
@@ -149,7 +158,7 @@ func TestProcessResults(t *testing.T) {
 	sweeper.processResults(targets, resultCh)
 	close(resultCh)
 
-	var results []models.Result
+	results := make([]models.Result, 0, len(targets))
 	for r := range resultCh {
 		results = append(results, r)
 	}
@@ -162,6 +171,7 @@ func TestProcessResults(t *testing.T) {
 		if r.Target.Host == "8.8.8.8" && !r.Available {
 			t.Errorf("Expected 8.8.8.8 to be available")
 		}
+
 		if r.Target.Host == "1.1.1.1" && r.Available {
 			t.Errorf("Expected 1.1.1.1 to be unavailable")
 		}
@@ -194,6 +204,4 @@ func TestICMPSweeper_Stop(t *testing.T) {
 	default:
 		t.Errorf("Context not canceled after Stop()")
 	}
-
-	// Note: conn is closed but not set to nil, which is fine per current implementation
 }

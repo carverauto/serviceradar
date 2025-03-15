@@ -2,7 +2,7 @@ package scan
 
 import (
 	"context"
-	"errors"
+	"log"
 	"net"
 	"sync"
 	"testing"
@@ -38,9 +38,11 @@ func TestNewTCPSweeper(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := NewTCPSweeper(tt.timeout, tt.concurrency)
+
 			if s.timeout != tt.wantTimeout {
 				t.Errorf("timeout = %v, want %v", s.timeout, tt.wantTimeout)
 			}
+
 			if s.concurrency != tt.wantConc {
 				t.Errorf("concurrency = %v, want %v", s.concurrency, tt.wantConc)
 			}
@@ -50,6 +52,7 @@ func TestNewTCPSweeper(t *testing.T) {
 
 func TestTCPSweeper_Scan(t *testing.T) {
 	s := NewTCPSweeper(1*time.Second, 2)
+
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -64,7 +67,7 @@ func TestTCPSweeper_Scan(t *testing.T) {
 		t.Fatalf("Scan() error = %v", err)
 	}
 
-	var results []models.Result
+	results := make([]models.Result, 0, len(targets))
 	for r := range resultCh {
 		results = append(results, r)
 	}
@@ -107,9 +110,11 @@ func TestTCPSweeper_checkPort(t *testing.T) {
 			if avail != tt.wantAvail {
 				t.Errorf("checkPort() avail = %v, want %v", avail, tt.wantAvail)
 			}
+
 			if (err != nil) != tt.wantErr {
 				t.Errorf("checkPort() err = %v, wantErr %v", err, tt.wantErr)
 			}
+
 			if tt.wantAvail && rtt <= 0 {
 				t.Errorf("Expected positive RTT for available port, got %v", rtt)
 			}
@@ -119,6 +124,7 @@ func TestTCPSweeper_checkPort(t *testing.T) {
 
 func TestTCPSweeper_worker(t *testing.T) {
 	s := NewTCPSweeper(1*time.Second, 2)
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -130,23 +136,28 @@ func TestTCPSweeper_worker(t *testing.T) {
 	close(workCh)
 
 	var wg sync.WaitGroup
+
 	wg.Add(1)
+
 	go func() {
 		defer wg.Done()
+
 		s.worker(ctx, workCh, resultCh)
 	}()
 
 	wg.Wait()
 	close(resultCh)
-
 	result := <-resultCh
+
 	// Compare fields explicitly since != isn't defined for structs
 	if result.Target.Host != target.Host || result.Target.Port != target.Port || result.Target.Mode != target.Mode {
 		t.Errorf("worker processed wrong target: got %+v, want %+v", result.Target, target)
 	}
+
 	if result.Available {
 		t.Errorf("Expected unavailable result for port 9999 in test env")
 	}
+
 	if result.Error == nil {
 		t.Errorf("Expected an error for unreachable port")
 	}
@@ -190,19 +201,19 @@ func TestFilterTCPTargets(t *testing.T) {
 	}
 }
 
-// MockDialerFunc is a type for mocking net.DialTimeout
+// MockDialerFunc is a type for mocking net.DialTimeout.
 type MockDialerFunc func(network, address string, timeout time.Duration) (net.Conn, error)
 
 type mockConn struct{}
 
-func (m *mockConn) Close() error                     { return nil }
-func (m *mockConn) Read([]byte) (n int, err error)   { return 0, nil }
-func (m *mockConn) Write([]byte) (n int, err error)  { return 0, nil }
-func (m *mockConn) LocalAddr() net.Addr              { return nil }
-func (m *mockConn) RemoteAddr() net.Addr             { return nil }
-func (m *mockConn) SetDeadline(time.Time) error      { return nil }
-func (m *mockConn) SetReadDeadline(time.Time) error  { return nil }
-func (m *mockConn) SetWriteDeadline(time.Time) error { return nil }
+func (*mockConn) Close() error                     { return nil }
+func (*mockConn) Read([]byte) (n int, err error)   { return 0, nil }
+func (*mockConn) Write([]byte) (n int, err error)  { return 0, nil }
+func (*mockConn) LocalAddr() net.Addr              { return nil }
+func (*mockConn) RemoteAddr() net.Addr             { return nil }
+func (*mockConn) SetDeadline(time.Time) error      { return nil }
+func (*mockConn) SetReadDeadline(time.Time) error  { return nil }
+func (*mockConn) SetWriteDeadline(time.Time) error { return nil }
 
 func TestTCPSweeper_checkPort_Mocked(t *testing.T) {
 	s := NewTCPSweeper(1*time.Second, 2)
@@ -216,7 +227,7 @@ func TestTCPSweeper_checkPort_Mocked(t *testing.T) {
 	}{
 		{
 			name: "successful connection",
-			dialer: func(network, address string, timeout time.Duration) (net.Conn, error) {
+			dialer: func(_, _ string, _ time.Duration) (net.Conn, error) {
 				return &mockConn{}, nil
 			},
 			wantAvail: true,
@@ -224,8 +235,8 @@ func TestTCPSweeper_checkPort_Mocked(t *testing.T) {
 		},
 		{
 			name: "connection refused",
-			dialer: func(network, address string, timeout time.Duration) (net.Conn, error) {
-				return nil, errors.New("connection refused")
+			dialer: func(_, _ string, _ time.Duration) (net.Conn, error) {
+				return nil, errConnnectionRefused
 			},
 			wantAvail: false,
 			wantErr:   true,
@@ -235,13 +246,15 @@ func TestTCPSweeper_checkPort_Mocked(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Instead of overriding net.DialTimeout, we'll call a modified checkPort with the mock dialer
-			avail, rtt, err := s.checkPortWithDialer(ctx, "localhost", 8080, tt.dialer)
+			avail, rtt, err := s.checkPortWithDialer(ctx, t, "localhost", 8080, tt.dialer)
 			if avail != tt.wantAvail {
 				t.Errorf("checkPortWithDialer() avail = %v, want %v", avail, tt.wantAvail)
 			}
+
 			if (err != nil) != tt.wantErr {
 				t.Errorf("checkPortWithDialer() err = %v, wantErr %v", err, tt.wantErr)
 			}
+
 			if tt.wantAvail && rtt <= 0 {
 				t.Errorf("Expected positive RTT for available port, got %v", rtt)
 			}
@@ -249,8 +262,15 @@ func TestTCPSweeper_checkPort_Mocked(t *testing.T) {
 	}
 }
 
-// checkPortWithDialer is a test helper that allows injecting a dialer
-func (s *TCPSweeper) checkPortWithDialer(ctx context.Context, host string, port int, dialer MockDialerFunc) (bool, time.Duration, error) {
+// checkPortWithDialer is a test helper that allows injecting a dialer.
+func (s *TCPSweeper) checkPortWithDialer(
+	ctx context.Context,
+	t *testing.T,
+	host string,
+	port int,
+	dialer MockDialerFunc) (bool, time.Duration, error) {
+	t.Helper()
+
 	_, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
@@ -264,7 +284,8 @@ func (s *TCPSweeper) checkPortWithDialer(ctx context.Context, host string, port 
 	defer func(conn net.Conn) {
 		err := conn.Close()
 		if err != nil {
-			// Normally log this, but for test we'll ignore
+			log.Printf("failed to close connection: %v", err)
+			t.Errorf("failed to close connection: %v", err)
 		}
 	}(conn)
 
