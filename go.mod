@@ -3,9 +3,12 @@ module github.com/carverauto/serviceradar
 go 1.24
 
 require (
+	github.com/dgrijalva/jwt-go v3.2.0+incompatible
+	github.com/golang-jwt/jwt/v4 v4.2.0
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/gosnmp/gosnmp v1.39.0
+	github.com/markbates/goth v1.80.0
 	github.com/mattn/go-sqlite3 v1.14.24
 	github.com/spiffe/go-spiffe/v2 v2.5.0
 	github.com/stretchr/testify v1.10.0
@@ -23,6 +26,7 @@ require (
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/zeebo/errs v1.4.0 // indirect
 	golang.org/x/crypto v0.36.0 // indirect
+	golang.org/x/oauth2 v0.28.0 // indirect
 	golang.org/x/sys v0.31.0 // indirect
 	golang.org/x/text v0.23.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250313205543-e70fdf4c4cb4 // indirect

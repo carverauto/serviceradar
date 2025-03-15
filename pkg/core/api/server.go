@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/checker/snmp"
+	"github.com/carverauto/serviceradar/pkg/core/auth"
 	srHttp "github.com/carverauto/serviceradar/pkg/http"
 	"github.com/carverauto/serviceradar/pkg/metrics"
 	"github.com/gorilla/mux"
@@ -44,6 +45,12 @@ func NewAPIServer(options ...func(server *APIServer)) *APIServer {
 	s.setupRoutes()
 
 	return s
+}
+
+func WithAuthService(auth auth.AuthService) func(server *APIServer) {
+	return func(server *APIServer) {
+		server.authService = auth
+	}
 }
 
 func WithMetricsManager(m metrics.MetricCollector) func(server *APIServer) {
@@ -68,23 +75,34 @@ func (s *APIServer) setupRoutes() {
 	// Add middleware to router
 	s.router.Use(middlewareChain)
 
+	// Public routes
+	s.router.HandleFunc("/auth/login", s.handleLocalLogin).Methods("POST")
+	s.router.HandleFunc("/auth/refresh", s.handleRefreshToken).Methods("POST")
+	s.router.HandleFunc("/auth/{provider}", s.handleOAuthBegin).Methods("GET")
+	s.router.HandleFunc("/auth/{provider}/callback", s.handleOAuthCallback).Methods("GET")
+
+	protected := s.router.PathPrefix("/api").Subrouter()
+	protected.Use(auth.AuthMiddleware(s.authService))
+
+	protected.HandleFunc("/nodes", s.getNodes).Methods("GET")
+
 	// Basic endpoints
-	s.router.HandleFunc("/api/nodes", s.getNodes).Methods("GET")
-	s.router.HandleFunc("/api/nodes/{id}", s.getNode).Methods("GET")
-	s.router.HandleFunc("/api/status", s.getSystemStatus).Methods("GET")
+	protected.HandleFunc("/api/nodes", s.getNodes).Methods("GET")
+	protected.HandleFunc("/api/nodes/{id}", s.getNode).Methods("GET")
+	protected.HandleFunc("/api/status", s.getSystemStatus).Methods("GET")
 
 	// Node history endpoint
-	s.router.HandleFunc("/api/nodes/{id}/history", s.getNodeHistory).Methods("GET")
+	protected.HandleFunc("/api/nodes/{id}/history", s.getNodeHistory).Methods("GET")
 
 	// Metrics endpoint
-	s.router.HandleFunc("/api/nodes/{id}/metrics", s.getNodeMetrics).Methods("GET")
+	protected.HandleFunc("/api/nodes/{id}/metrics", s.getNodeMetrics).Methods("GET")
 
 	// Service-specific endpoints
-	s.router.HandleFunc("/api/nodes/{id}/services", s.getNodeServices).Methods("GET")
-	s.router.HandleFunc("/api/nodes/{id}/services/{service}", s.getServiceDetails).Methods("GET")
+	protected.HandleFunc("/api/nodes/{id}/services", s.getNodeServices).Methods("GET")
+	protected.HandleFunc("/api/nodes/{id}/services/{service}", s.getServiceDetails).Methods("GET")
 
 	// SNMP endpoints
-	s.router.HandleFunc("/api/nodes/{id}/snmp", s.getSNMPData).Methods("GET")
+	protected.HandleFunc("/api/nodes/{id}/snmp", s.getSNMPData).Methods("GET")
 }
 
 // getSNMPData retrieves SNMP data for a specific node.

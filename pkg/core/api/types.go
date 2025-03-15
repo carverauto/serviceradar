@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/checker/snmp"
+	"github.com/carverauto/serviceradar/pkg/core/auth"
 	"github.com/carverauto/serviceradar/pkg/metrics"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/gorilla/mux"
@@ -71,4 +72,5 @@ type APIServer struct {
 	metricsManager     metrics.MetricCollector
 	snmpManager        snmp.SNMPManager
 	knownPollers       []string
+	authService        auth.AuthService
 }
