@@ -273,29 +273,32 @@ func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*prot
 
 	if req.ServiceType == "icmp" && req.Details != "" {
 		for _, svc := range s.services {
-			if sweepSvc, ok := svc.(*SweepService); ok {
-				result, err := sweepSvc.CheckICMP(ctx, req.Details)
-				if err != nil {
-					return nil, fmt.Errorf("ICMP check failed: %w", err)
-				}
-
-				resp := &ICMPResponse{
-					Host:         result.Target.Host,
-					ResponseTime: result.RespTime.Nanoseconds(),
-					PacketLoss:   result.PacketLoss,
-					Available:    result.Available,
-				}
-
-				jsonResp, _ := json.Marshal(resp)
-
-				return &proto.StatusResponse{
-					Available:    result.Available,
-					Message:      string(jsonResp),
-					ServiceName:  "icmp_check",
-					ServiceType:  "icmp",
-					ResponseTime: result.RespTime.Nanoseconds(),
-				}, nil
+			sweepSvc, ok := svc.(*SweepService)
+			if !ok {
+				continue // Skip if svc is not a SweepService
 			}
+
+			result, err := sweepSvc.CheckICMP(ctx, req.Details)
+			if err != nil {
+				return nil, fmt.Errorf("ICMP check failed: %w", err)
+			}
+
+			resp := &ICMPResponse{
+				Host:         result.Target.Host,
+				ResponseTime: result.RespTime.Nanoseconds(),
+				PacketLoss:   result.PacketLoss,
+				Available:    result.Available,
+			}
+
+			jsonResp, _ := json.Marshal(resp)
+
+			return &proto.StatusResponse{
+				Available:    result.Available,
+				Message:      string(jsonResp),
+				ServiceName:  "icmp_check",
+				ServiceType:  "icmp",
+				ResponseTime: result.RespTime.Nanoseconds(),
+			}, nil
 		}
 		return nil, fmt.Errorf("no sweep service available for ICMP check")
 	}

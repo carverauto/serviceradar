@@ -146,7 +146,7 @@ func (e *ExternalChecker) canUseCachedStatus() bool {
 		now.Sub(e.lastHealthCheck) < e.healthCheckInterval
 }
 
-func (e *ExternalChecker) handleCachedStatus() (bool, string) {
+func (e *ExternalChecker) handleCachedStatus() (isAccessible bool, statusMsg string) {
 	e.healthCheckMu.Lock()
 	defer e.healthCheckMu.Unlock()
 
@@ -179,7 +179,7 @@ func (e *ExternalChecker) performHealthCheck(ctx context.Context) (bool, error) 
 	return healthy, err
 }
 
-func (e *ExternalChecker) handleHealthCheckFailure(err error) (bool, string) {
+func (e *ExternalChecker) handleHealthCheckFailure(err error) (isAccessible bool, statusMsg string) {
 	if err != nil {
 		log.Printf("External checker %s: Health check failed: %v", e.serviceName, err)
 		return false, fmt.Sprintf("Health check failed: %v", err)
@@ -188,7 +188,7 @@ func (e *ExternalChecker) handleHealthCheckFailure(err error) (bool, string) {
 	return false, "Service reported unhealthy"
 }
 
-func (e *ExternalChecker) getServiceDetails(ctx context.Context) (bool, string) {
+func (e *ExternalChecker) getServiceDetails(ctx context.Context) (isAccessible bool, statusMsg string) {
 	client := proto.NewAgentServiceClient(e.client.GetConnection())
 	start := time.Now()
 
