@@ -30,6 +30,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/checker/snmp"
 	"github.com/carverauto/serviceradar/pkg/core/alerts"
 	"github.com/carverauto/serviceradar/pkg/core/api"
+	"github.com/carverauto/serviceradar/pkg/core/auth"
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/metrics"
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -83,6 +84,22 @@ func NewServer(_ context.Context, config *Config) (*Server, error) {
 		return nil, fmt.Errorf("%w: %w", errDatabaseError, err)
 	}
 
+	authConfig := &models.AuthConfig{
+		JWTSecret:     "your-secret-key", // Load from env or config
+		JWTExpiration: 24 * time.Hour,
+		CallbackURL:   "http://localhost:8080/auth/callback",
+		LocalUsers: map[string]string{
+			"admin": "$2a$10$...hashedpassword...", // Use bcrypt to hash passwords
+		},
+		SSOProviders: map[string]models.SSOConfig{
+			"google": {
+				ClientID:     "your-google-client-id",
+				ClientSecret: "your-google-secret",
+				Scopes:       []string{"email", "profile"},
+			},
+		},
+	}
+
 	server := &Server{
 		db:             database,
 		alertThreshold: config.AlertThreshold,
@@ -92,6 +109,7 @@ func NewServer(_ context.Context, config *Config) (*Server, error) {
 		metrics:        metricsManager,
 		snmpManager:    snmp.NewSNMPManager(database),
 		config:         config,
+		authService:    auth.NewAuth(authConfig, database),
 	}
 
 	// Initialize webhooks
