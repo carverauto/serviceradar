@@ -84,7 +84,7 @@ func NewServer(_ context.Context, config *Config) (*Server, error) {
 		return nil, fmt.Errorf("%w: %w", errDatabaseError, err)
 	}
 
-	authConfig := &models.AuthConfig{ // Changed to auth.AuthConfig since it’s in pkg/core/auth
+	authConfig := &models.AuthConfig{
 		JWTSecret:     os.Getenv("JWT_SECRET"),
 		JWTExpiration: 24 * time.Hour,
 		CallbackURL:   os.Getenv("AUTH_CALLBACK_URL"), // e.g., "http://localhost:8080/auth"
@@ -136,7 +136,6 @@ func (s *Server) initializeWebhooks(configs []alerts.WebhookConfig) {
 }
 
 // Start implements the lifecycle.Service interface.
-
 func (s *Server) Start(ctx context.Context) error {
 	log.Printf("Starting core service...")
 
