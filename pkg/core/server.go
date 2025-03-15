@@ -84,20 +84,24 @@ func NewServer(_ context.Context, config *Config) (*Server, error) {
 		return nil, fmt.Errorf("%w: %w", errDatabaseError, err)
 	}
 
-	authConfig := &models.AuthConfig{
-		JWTSecret:     "your-secret-key", // Load from env or config
+	authConfig := &models.AuthConfig{ // Changed to auth.AuthConfig since it’s in pkg/core/auth
+		JWTSecret:     os.Getenv("JWT_SECRET"),
 		JWTExpiration: 24 * time.Hour,
-		CallbackURL:   "http://localhost:8080/auth/callback",
+		CallbackURL:   os.Getenv("AUTH_CALLBACK_URL"), // e.g., "http://localhost:8080/auth"
 		LocalUsers: map[string]string{
-			"admin": "$2a$10$...hashedpassword...", // Use bcrypt to hash passwords
+			"admin": os.Getenv("ADMIN_PASSWORD_HASH"), // Pre-hashed with bcrypt
 		},
 		SSOProviders: map[string]models.SSOConfig{
 			"google": {
-				ClientID:     "your-google-client-id",
-				ClientSecret: "your-google-secret",
+				ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
+				ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
 				Scopes:       []string{"email", "profile"},
 			},
 		},
+	}
+
+	if authConfig.JWTSecret == "" {
+		return nil, fmt.Errorf("JWT_SECRET environment variable is required")
 	}
 
 	server := &Server{
