@@ -207,11 +207,7 @@ func TestServerLifecycle(t *testing.T) {
 	err = server.Start(ctx)
 	require.NoError(t, err)
 
-	// Test Stop
-	err = server.Stop(ctx)
-	require.NoError(t, err)
-
-	// Test Close
+	// Test Close (includes Stop)
 	err = server.Close(ctx)
 	require.NoError(t, err)
 }
