@@ -122,6 +122,7 @@ func (s *TCPSweeper) checkPort(ctx context.Context, host string, port int) (bool
 
 	defer func(conn net.Conn) {
 		err := conn.Close()
+
 		if err != nil {
 			log.Printf("failed to close connection: %v", err)
 		}
