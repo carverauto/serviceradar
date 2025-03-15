@@ -12,8 +12,17 @@ import (
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/markbates/goth"
+	"github.com/markbates/goth/providers/github"
 	"github.com/markbates/goth/providers/google"
 	"golang.org/x/crypto/bcrypt"
+)
+
+var (
+	errInvalidCreds = errors.New("invalid credentials")
+)
+
+const (
+	defaultTimeout = 5 * time.Second
 )
 
 type Auth struct {
@@ -29,7 +38,10 @@ func NewAuth(config *models.AuthConfig, db db.Service) *Auth {
 			goth.UseProviders(
 				google.New(ssoConfig.ClientID, ssoConfig.ClientSecret, config.CallbackURL+"/auth/"+provider+"/callback", ssoConfig.Scopes...),
 			)
-			// Add more providers here (github, facebook, etc.)
+		case "github":
+			goth.UseProviders(
+				github.New(ssoConfig.ClientID, ssoConfig.ClientSecret, config.CallbackURL+"/auth/"+provider+"/callback", ssoConfig.Scopes...),
+			)
 		}
 	}
 
@@ -39,11 +51,11 @@ func NewAuth(config *models.AuthConfig, db db.Service) *Auth {
 func (a *Auth) LoginLocal(ctx context.Context, username, password string) (*models.Token, error) {
 	storedHash, ok := a.config.LocalUsers[username]
 	if !ok {
-		return nil, errors.New("user not found")
+		return nil, db.ErrUserNotFound
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(password)); err != nil {
-		return nil, errors.New("invalid credentials")
+		return nil, errInvalidCreds
 	}
 
 	user := &models.User{
@@ -56,13 +68,17 @@ func (a *Auth) LoginLocal(ctx context.Context, username, password string) (*mode
 	return a.generateAndStoreToken(ctx, user)
 }
 
-func (a *Auth) BeginOAuth(_ context.Context, provider string) (string, error) {
+const (
+	defaultRandStringLength = 32
+)
+
+func (*Auth) BeginOAuth(_ context.Context, provider string) (string, error) {
 	p, err := goth.GetProvider(provider)
 	if err != nil {
 		return "", fmt.Errorf("provider not supported: %w", err)
 	}
 
-	session, err := p.BeginAuth(randString(32))
+	session, err := p.BeginAuth(randString(defaultRandStringLength))
 	if err != nil {
 		return "", fmt.Errorf("failed to begin auth: %w", err)
 	}
@@ -75,7 +91,7 @@ func (a *Auth) BeginOAuth(_ context.Context, provider string) (string, error) {
 	return url, nil
 }
 
-func (a *Auth) CompleteOAuth(ctx context.Context, provider string, gothUser goth.User) (*models.Token, error) {
+func (a *Auth) CompleteOAuth(ctx context.Context, provider string, gothUser *goth.User) (*models.Token, error) {
 	user := &models.User{
 		ID:       gothUser.UserID,
 		Email:    gothUser.Email,
@@ -101,7 +117,7 @@ func (a *Auth) RefreshToken(ctx context.Context, refreshToken string) (*models.T
 	return a.generateAndStoreToken(ctx, user)
 }
 
-func (a *Auth) VerifyToken(ctx context.Context, token string) (*models.User, error) {
+func (a *Auth) VerifyToken(_ context.Context, token string) (*models.User, error) {
 	claims, err := ParseJWT(token, a.config.JWTSecret)
 	if err != nil {
 		return nil, fmt.Errorf("invalid token: %w", err)
@@ -115,6 +131,9 @@ func (a *Auth) VerifyToken(ctx context.Context, token string) (*models.User, err
 }
 
 func (a *Auth) generateAndStoreToken(ctx context.Context, user *models.User) (*models.Token, error) {
+	_, cancel := context.WithTimeout(ctx, defaultTimeout)
+	defer cancel()
+
 	token, err := GenerateTokenPair(user, a.config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate token: %w", err)
@@ -131,11 +150,13 @@ func (a *Auth) generateAndStoreToken(ctx context.Context, user *models.User) (*m
 
 func generateUserID(username string) string {
 	hash := sha256.Sum256([]byte(username + time.Now().String()))
+
 	return base64.URLEncoding.EncodeToString(hash[:])
 }
 
 func randString(n int) string {
 	b := make([]byte, n)
 	_, _ = rand.Read(b)
+
 	return base64.URLEncoding.EncodeToString(b)
 }

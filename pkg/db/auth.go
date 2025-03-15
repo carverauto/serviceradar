@@ -24,11 +24,13 @@ func (db *DB) StoreUser(user *models.User) error {
 	if err != nil {
 		return fmt.Errorf("failed to store user: %w", err)
 	}
+
 	return nil
 }
 
 func (db *DB) GetUserByID(id string) (*models.User, error) {
 	user := &models.User{}
+
 	err := db.QueryRow(`
         SELECT id, email, name, provider, created_at, updated_at
         FROM users WHERE id = ?
@@ -36,8 +38,10 @@ func (db *DB) GetUserByID(id string) (*models.User, error) {
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrUserNotFound
 	}
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
+
 	return user, nil
 }
