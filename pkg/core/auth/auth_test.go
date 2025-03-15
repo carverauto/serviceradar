@@ -108,11 +108,12 @@ func TestLoginLocal(t *testing.T) {
 			token, err := a.LoginLocal(ctx, tt.username, tt.password)
 
 			if tt.expectedError {
-				assert.Error(t, err)
+				require.Error(t, err)
+
 				if tt.username == "unknown" {
-					assert.ErrorIs(t, err, db.ErrUserNotFound)
+					require.ErrorIs(t, err, db.ErrUserNotFound)
 				} else {
-					assert.ErrorIs(t, err, errInvalidCreds)
+					require.ErrorIs(t, err, errInvalidCreds)
 				}
 
 				assert.Nil(t, token)
@@ -124,7 +125,7 @@ func TestLoginLocal(t *testing.T) {
 
 				// Verify token contents
 				claims, err := ParseJWT(token.AccessToken, config.JWTSecret)
-				assert.NoError(t, err, "Token parsing should succeed")
+				require.NoError(t, err, "Token parsing should succeed")
 				assert.Equal(t, tt.username, claims.Email, "Email should match username")
 				assert.Equal(t, "local", claims.Provider, "Provider should be local")
 			}
@@ -173,10 +174,10 @@ func TestBeginOAuth(t *testing.T) {
 			url, err := a.BeginOAuth(context.Background(), tt.provider)
 
 			if tt.expectError {
-				assert.Error(t, err)
+				require.Error(t, err)
 				assert.Empty(t, url)
 			} else {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 				assert.NotEmpty(t, url)
 				assert.Contains(t, url, "google")
 			}
@@ -207,13 +208,13 @@ func TestCompleteOAuth(t *testing.T) {
 
 	token, err := a.CompleteOAuth(context.Background(), "google", &gothUser)
 
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, token)
 	assert.NotEmpty(t, token.AccessToken)
 	assert.NotEmpty(t, token.RefreshToken)
 
 	claims, err := ParseJWT(token.AccessToken, config.JWTSecret)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "123", claims.UserID)
 	assert.Equal(t, "test@example.com", claims.Email)
 	assert.Equal(t, "google", claims.Provider)
@@ -244,14 +245,14 @@ func TestRefreshToken(t *testing.T) {
 
 	// Test refresh
 	newToken, err := a.RefreshToken(context.Background(), initialToken.RefreshToken)
-	assert.NoError(t, err, "Refresh should succeed")
+	require.NoError(t, err, "Refresh should succeed")
 	assert.NotNil(t, newToken, "New token should not be nil")
 	assert.NotEmpty(t, newToken.AccessToken, "New access token should not be empty")
 	assert.NotEmpty(t, newToken.RefreshToken, "New refresh token should not be empty")
 
 	// Verify the new token is valid and preserves user data
 	newClaims, err := ParseJWT(newToken.AccessToken, config.JWTSecret)
-	assert.NoError(t, err, "Should parse new token")
+	require.NoError(t, err, "Should parse new token")
 	assert.Equal(t, user.ID, newClaims.UserID, "UserID should be preserved")
 	assert.Equal(t, user.Email, newClaims.Email, "Email should be preserved")
 	assert.Equal(t, user.Provider, newClaims.Provider, "Provider should be preserved")
@@ -287,7 +288,7 @@ func TestVerifyToken(t *testing.T) {
 	require.NoError(t, err)
 
 	verifiedUser, err := a.VerifyToken(context.Background(), tokenPair.AccessToken)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, verifiedUser)
 	assert.Equal(t, user.ID, verifiedUser.ID)
 	assert.Equal(t, user.Email, verifiedUser.Email)
@@ -296,10 +297,4 @@ func TestVerifyToken(t *testing.T) {
 	// Test invalid token
 	_, err = a.VerifyToken(context.Background(), "invalid.token.here")
 	assert.Error(t, err)
-}
-
-// Helper function to generate a bcrypt hash for testing
-func generateBcryptHash(password string) string {
-	hash, _ := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	return string(hash)
 }
