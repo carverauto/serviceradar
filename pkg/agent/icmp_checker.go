@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -62,7 +63,12 @@ func (p *ICMPChecker) Check(ctx context.Context) (isAccessible bool, statusMsg s
 		Available:    result.Available,
 	}
 
-	jsonResp, _ := json.Marshal(resp)
+	jsonResp, err := json.Marshal(resp)
+	if err != nil {
+		log.Printf("failed to marshal ICMP response: %v", err)
+
+		return false, fmt.Sprintf(`{"error": "%v"}`, err)
+	}
 
 	return result.Available, string(jsonResp)
 }
