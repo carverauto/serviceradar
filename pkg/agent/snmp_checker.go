@@ -69,16 +69,19 @@ func NewSNMPChecker(ctx context.Context, address string) (checker.Checker, error
 		Address:    address,
 		MaxRetries: grpcRetries,
 	}
+
 	security := models.SecurityConfig{
 		Mode:       "mtls",
 		CertDir:    "/etc/serviceradar/certs",
 		ServerName: strings.Split(address, ":")[0],
 		Role:       "agent",
 	}
+
 	provider, err := grpc.NewSecurityProvider(ctx, &security)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create security provider: %w", err)
 	}
+
 	clientCfg.SecurityProvider = provider
 
 	client, err := grpc.NewClient(ctx, clientCfg)

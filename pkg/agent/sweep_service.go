@@ -15,10 +15,6 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
-const (
-	sweepTimeout = 10 * time.Minute
-)
-
 // SweepService implements sweeper.SweepService for network scanning.
 type SweepService struct {
 	sweeper sweeper.Sweeper
@@ -64,7 +60,7 @@ func (s *SweepService) Stop(ctx context.Context) error {
 	return s.sweeper.Stop(ctx)
 }
 
-func (s *SweepService) Name() string {
+func (*SweepService) Name() string {
 	return "network_sweep"
 }
 
@@ -77,7 +73,7 @@ func (s *SweepService) UpdateConfig(config *models.Config) error {
 
 	log.Printf("Updated sweep config: %+v", newConfig)
 
-	return s.sweeper.UpdateConfig(*newConfig)
+	return s.sweeper.UpdateConfig(newConfig)
 }
 
 func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, error) {
@@ -92,7 +88,8 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, er
 
 	lastSweep := time.Now().Unix()
 	if len(summary) > 0 {
-		for _, r := range summary {
+		for i := range summary {
+			r := &summary[i] // Use a pointer to avoid copying
 			if r.LastSeen.Unix() > lastSweep {
 				lastSweep = r.LastSeen.Unix()
 			}
@@ -119,6 +116,7 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, er
 		DefinedCIDRs:   len(s.config.Networks),
 		UniqueIPs:      s.stats.uniqueIPs,
 	}
+
 	s.mu.RUnlock()
 
 	statusJSON, err := json.Marshal(data)
@@ -166,10 +164,7 @@ func applyDefaultConfig(config *models.Config) *models.Config {
 }
 
 type ScanStats struct {
-	totalResults int
 	successCount int
-	icmpSuccess  int
-	tcpSuccess   int
 	uniqueHosts  map[string]struct{}
 	uniqueIPs    int
 	startTime    time.Time
@@ -185,13 +180,16 @@ func newScanStats() *ScanStats {
 func aggregatePorts(results []models.Result) []models.PortCount {
 	portMap := make(map[int]int)
 
-	for _, r := range results {
+	// Count TCP results first
+	for i := range results {
+		r := &results[i] // Use a pointer to avoid copying
 		if r.Target.Mode == models.ModeTCP && r.Available {
 			portMap[r.Target.Port]++
 		}
 	}
 
-	var ports []models.PortCount
+	// Pre-allocate with exact size since we know the number of unique ports
+	ports := make([]models.PortCount, 0, len(portMap))
 
 	for port, count := range portMap {
 		ports = append(ports, models.PortCount{Port: port, Available: count})
@@ -202,7 +200,10 @@ func aggregatePorts(results []models.Result) []models.PortCount {
 
 func aggregateHosts(results []models.Result) []models.HostResult {
 	hostMap := make(map[string]*models.HostResult)
-	for _, r := range results {
+	// Use indexing instead of range to avoid copying
+	for i := range results {
+		r := &results[i] // Use a pointer to the struct
+
 		h, ok := hostMap[r.Target.Host]
 		if !ok {
 			h = &models.HostResult{
@@ -211,6 +212,7 @@ func aggregateHosts(results []models.Result) []models.HostResult {
 				LastSeen:    r.LastSeen,
 				PortResults: []*models.PortResult{},
 			}
+
 			hostMap[r.Target.Host] = h
 		}
 
@@ -229,7 +231,8 @@ func aggregateHosts(results []models.Result) []models.HostResult {
 		}
 	}
 
-	var hosts []models.HostResult
+	// Pre-allocate with exact size since we know the number of unique hosts
+	hosts := make([]models.HostResult, 0, len(hostMap))
 
 	for _, h := range hostMap {
 		hosts = append(hosts, *h)

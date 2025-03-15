@@ -108,14 +108,16 @@ func (c *Client) Close() error {
 	return c.conn.Close()
 }
 
-// RetryInterceptor provides basic retry logic
+// RetryInterceptor provides basic retry logic.
 func RetryInterceptor(maxRetries int) grpc.UnaryClientInterceptor {
 	return func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 		var lastErr error
+
 		backoff := 1 * time.Second
 
 		for attempt := 0; attempt < maxRetries; attempt++ {
 			start := time.Now()
+
 			err := invoker(ctx, method, req, reply, cc, opts...)
 			log.Printf("gRPC call: %s attempt: %d duration: %v error: %v",
 				method, attempt+1, time.Since(start), err)
@@ -139,6 +141,7 @@ func RetryInterceptor(maxRetries int) grpc.UnaryClientInterceptor {
 				}
 			}
 		}
+
 		return fmt.Errorf("all %d retries failed: %w", maxRetries, lastErr)
 	}
 }

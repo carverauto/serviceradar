@@ -34,10 +34,11 @@ import (
 )
 
 const (
-	defaultTimeout = 30 * time.Second
-	jsonSuffix     = ".json"
-	snmpPrefix     = "snmp"
-	grpcType       = "grpc"
+	defaultTimeout     = 30 * time.Second
+	jsonSuffix         = ".json"
+	snmpPrefix         = "snmp"
+	grpcType           = "grpc"
+	defaultErrChansize = 10
 )
 
 func NewServer(configDir string, cfg *ServerConfig) (*Server, error) {
@@ -48,7 +49,7 @@ func NewServer(configDir string, cfg *ServerConfig) (*Server, error) {
 		services:     make([]Service, 0),
 		listenAddr:   cfg.ListenAddr,
 		registry:     initRegistry(),
-		errChan:      make(chan error, 10),
+		errChan:      make(chan error, defaultErrChansize),
 		done:         make(chan struct{}),
 		config:       cfg,
 		connections:  make(map[string]*CheckerConnection),
@@ -68,6 +69,7 @@ func (s *Server) loadConfigurations() error {
 
 	sweepConfigPath := filepath.Join(s.configDir, "sweep", "sweep.json")
 	service, err := s.loadSweepService(sweepConfigPath)
+
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("failed to load sweep service: %w", err)
 	}
@@ -85,6 +87,7 @@ func (s *Server) loadSweepService(configPath string) (Service, error) {
 	}
 
 	var sweepConfig SweepConfig
+
 	if err = json.Unmarshal(data, &sweepConfig); err != nil {
 		return nil, fmt.Errorf("failed to parse sweep config: %w", err)
 	}
@@ -119,6 +122,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 	for i, svc := range s.services {
 		log.Printf("Starting service #%d: %s", i, svc.Name())
+
 		go func(svc Service) { // Run in goroutine to avoid blocking
 			if err := svc.Start(ctx); err != nil {
 				log.Printf("Failed to start service %s: %v", svc.Name(), err)
@@ -327,6 +331,7 @@ func (s *Server) loadCheckerConfigs() error {
 		}
 
 		path := filepath.Join(s.configDir, file.Name())
+
 		data, err := os.ReadFile(path)
 		if err != nil {
 			log.Printf("Warning: Failed to read config file %s: %v", path, err)
@@ -336,11 +341,13 @@ func (s *Server) loadCheckerConfigs() error {
 
 		if strings.HasPrefix(file.Name(), "snmp") {
 			var conf CheckerConfig
+
 			conf.Name = "snmp-" + strings.TrimSuffix(file.Name(), ".json")
 			conf.Type = "snmp"
 			conf.Additional = data
 
 			s.checkerConfs[conf.Name] = conf
+
 			log.Printf("Loaded SNMP checker config: %s", conf.Name)
 
 			continue
@@ -354,6 +361,7 @@ func (s *Server) loadCheckerConfigs() error {
 		}
 
 		s.checkerConfs[conf.Name] = conf
+
 		log.Printf("Loaded checker config: %s (type: %s)", conf.Name, conf.Type)
 	}
 

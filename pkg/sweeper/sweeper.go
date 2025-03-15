@@ -115,14 +115,42 @@ func (s *NetworkSweeper) Start(ctx context.Context) error {
 	}
 }
 
+// scanAndProcess runs a scan and processes its results
+func (s *NetworkSweeper) scanAndProcess(ctx context.Context, wg *sync.WaitGroup,
+	scanner scan.Scanner, targets []models.Target, scanType string) error {
+	defer wg.Done()
+
+	log.Printf("Running %s scan...", scanType)
+
+	results, err := scanner.Scan(ctx, targets)
+	if err != nil {
+		log.Printf("%s scan failed: %v", scanType, err)
+		return err
+	}
+
+	count := 0
+	success := 0
+	for result := range results {
+		count++
+		if err := s.processResult(ctx, &result); err != nil {
+			log.Printf("Failed to process %s result: %v", scanType, err)
+			continue
+		}
+		if result.Available {
+			success++
+		}
+	}
+	log.Printf("%s scan complete: %d results, %d successful", scanType, count, success)
+	return nil
+}
+
+// Modified runSweep
 func (s *NetworkSweeper) runSweep(ctx context.Context) error {
-	// Generate targets from config
 	targets, err := s.generateTargets()
 	if err != nil {
 		return fmt.Errorf("failed to generate targets: %w", err)
 	}
 
-	// Split targets by mode
 	var icmpTargets, tcpTargets []models.Target
 	for _, t := range targets {
 		switch t.Mode {
@@ -136,89 +164,25 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 	log.Printf("Starting sweep with %d ICMP targets and %d TCP targets",
 		len(icmpTargets), len(tcpTargets))
 
-	// Create waitgroup for parallel execution
 	var wg sync.WaitGroup
-
-	// Run ICMP scan in a goroutine
-	var icmpResults <-chan models.Result
-	var icmpErr error
+	var icmpErr, tcpErr error
 
 	if len(icmpTargets) > 0 {
 		wg.Add(1)
 		go func() {
-			defer wg.Done()
-			log.Printf("Running ICMP scan...")
-			icmpResults, icmpErr = s.icmpScanner.Scan(ctx, icmpTargets)
-			if icmpErr != nil {
-				log.Printf("ICMP scan failed: %v", icmpErr)
-
-				return
-			}
-
-			// Process ICMP results
-			icmpCount := 0
-			icmpSuccess := 0
-
-			for result := range icmpResults {
-				icmpCount++
-				if err := s.processResult(ctx, &result); err != nil {
-					log.Printf("Failed to process ICMP result: %v", err)
-
-					continue
-				}
-				if result.Available {
-					icmpSuccess++
-				}
-			}
-			log.Printf("ICMP scan complete: %d results, %d successful", icmpCount, icmpSuccess)
+			icmpErr = s.scanAndProcess(ctx, &wg, s.icmpScanner, icmpTargets, "ICMP")
 		}()
 	}
-
-	// Run TCP scan in a goroutine
-	var tcpResults <-chan models.Result
-
-	var tcpErr error
 
 	if len(tcpTargets) > 0 {
 		wg.Add(1)
-
 		go func() {
-			defer wg.Done()
-
-			log.Printf("Running TCP scan...")
-
-			tcpResults, tcpErr = s.tcpScanner.Scan(ctx, tcpTargets)
-			if tcpErr != nil {
-				log.Printf("TCP scan failed: %v", tcpErr)
-				return
-			}
-
-			// Process TCP results
-			tcpCount := 0
-			tcpSuccess := 0
-
-			for result := range tcpResults {
-				tcpCount++
-
-				if err := s.processResult(ctx, &result); err != nil {
-					log.Printf("Failed to process TCP result: %v", err)
-
-					continue
-				}
-
-				if result.Available {
-					tcpSuccess++
-				}
-			}
-
-			log.Printf("TCP scan complete: %d results, %d successful", tcpCount, tcpSuccess)
+			tcpErr = s.scanAndProcess(ctx, &wg, s.tcpScanner, tcpTargets, "TCP")
 		}()
 	}
 
-	// Wait for both scans to complete
 	wg.Wait()
 
-	// Check for errors
 	if icmpErr != nil {
 		return icmpErr
 	}
@@ -227,14 +191,17 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 	}
 
 	log.Printf("Sweep completed successfully")
-
 	return nil
 }
+
+const (
+	defaultResultTimeout = 500 * time.Millisecond
+)
 
 // processResult processes a single scan result.
 func (s *NetworkSweeper) processResult(ctx context.Context, result *models.Result) error {
 	// Create a timeout context to prevent blocking
-	ctx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	ctx, cancel := context.WithTimeout(ctx, defaultResultTimeout)
 	defer cancel()
 
 	// Process through processor first

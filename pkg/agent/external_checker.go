@@ -68,16 +68,20 @@ func NewExternalChecker(ctx context.Context, serviceName, serviceType, address s
 		Address:    address,
 		MaxRetries: maxRetries,
 	}
+
 	security := models.SecurityConfig{
 		Mode:       "mtls",
 		CertDir:    "/etc/serviceradar/certs", // TODO: Make configurable
 		ServerName: strings.Split(address, ":")[0],
 		Role:       "agent",
 	}
+
 	provider, err := grpc.NewSecurityProvider(ctx, &security)
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to create security provider: %w", err)
 	}
+
 	clientCfg.SecurityProvider = provider
 
 	client, err := grpc.NewClient(ctx, clientCfg)
@@ -100,6 +104,7 @@ func NewExternalChecker(ctx context.Context, serviceName, serviceType, address s
 		if closeErr := client.Close(); closeErr != nil {
 			return nil, closeErr
 		}
+
 		return nil, fmt.Errorf("extChecker: %w, err: %w", errHealth, err)
 	}
 
@@ -107,58 +112,86 @@ func NewExternalChecker(ctx context.Context, serviceName, serviceType, address s
 		if err := client.Close(); err != nil {
 			return nil, err
 		}
+
 		return nil, errServiceHealth
 	}
 
 	log.Printf("Successfully created external checker name=%s type=%s", serviceName, serviceType)
+
 	return checker, nil
 }
 
 func (e *ExternalChecker) Check(ctx context.Context) (isAccessible bool, statusMsg string) {
-	e.healthCheckMu.Lock()
-
-	// Simplified: Rely on gRPC library for connection management
-	now := time.Now()
-	needHealthCheck := e.lastHealthCheck.IsZero() || now.Sub(e.lastHealthCheck) >= e.healthCheckInterval
-
-	if !needHealthCheck {
-		cachedStatus := e.healthStatus
-		e.healthCheckMu.Unlock()
-
-		if !cachedStatus {
-			return false, "Service unhealthy (cached status)"
-		}
-	} else {
-		e.healthCheckMu.Unlock()
-
-		healthy, err := e.client.CheckHealth(ctx, "")
-		e.healthCheckMu.Lock()
-		e.lastHealthCheck = now
-		e.healthStatus = healthy && err == nil
-
-		if !healthy || err != nil {
-			e.healthCheckInterval = time.Duration(float64(e.healthCheckInterval) * backoffFactor)
-			if e.healthCheckInterval > maxHealthCheckInterval {
-				e.healthCheckInterval = maxHealthCheckInterval
-			}
-		} else {
-			e.healthCheckInterval = initialHealthCheckInterval
-		}
-		e.healthCheckMu.Unlock()
-
-		if err != nil {
-			log.Printf("External checker %s: Health check failed: %v", e.serviceName, err)
-			return false, fmt.Sprintf("Health check failed: %v", err)
-		}
-		if !healthy {
-			log.Printf("External checker %s: Service reported unhealthy", e.serviceName)
-			return false, "Service reported unhealthy"
-		}
+	// Check if we can use cached status first
+	if e.canUseCachedStatus() {
+		return e.handleCachedStatus()
 	}
 
-	// Proceed with getting details through AgentService
+	// Perform health check if needed
+	healthy, err := e.performHealthCheck(ctx)
+	if !healthy || err != nil {
+		return e.handleHealthCheckFailure(err)
+	}
+
+	// Get service details
+	return e.getServiceDetails(ctx)
+}
+
+func (e *ExternalChecker) canUseCachedStatus() bool {
+	e.healthCheckMu.Lock()
+	defer e.healthCheckMu.Unlock()
+
+	now := time.Now()
+	return !e.lastHealthCheck.IsZero() &&
+		now.Sub(e.lastHealthCheck) < e.healthCheckInterval
+}
+
+func (e *ExternalChecker) handleCachedStatus() (bool, string) {
+	e.healthCheckMu.Lock()
+	defer e.healthCheckMu.Unlock()
+
+	if !e.healthStatus {
+		return false, "Service unhealthy (cached status)"
+	}
+	return true, "" // Will proceed to get details in original flow
+}
+
+func (e *ExternalChecker) performHealthCheck(ctx context.Context) (bool, error) {
+	e.healthCheckMu.Lock()
+	defer e.healthCheckMu.Unlock()
+
+	healthy, err := e.client.CheckHealth(ctx, "")
+	now := time.Now()
+	e.lastHealthCheck = now
+	e.healthStatus = healthy && err == nil
+
+	if healthy && err == nil {
+		e.healthCheckInterval = initialHealthCheckInterval
+		return true, nil
+	}
+
+	// If we reach here, either unhealthy or error occurred
+	e.healthCheckInterval = time.Duration(float64(e.healthCheckInterval) * backoffFactor)
+	if e.healthCheckInterval > maxHealthCheckInterval {
+		e.healthCheckInterval = maxHealthCheckInterval
+	}
+
+	return healthy, err
+}
+
+func (e *ExternalChecker) handleHealthCheckFailure(err error) (bool, string) {
+	if err != nil {
+		log.Printf("External checker %s: Health check failed: %v", e.serviceName, err)
+		return false, fmt.Sprintf("Health check failed: %v", err)
+	}
+	log.Printf("External checker %s: Service reported unhealthy", e.serviceName)
+	return false, "Service reported unhealthy"
+}
+
+func (e *ExternalChecker) getServiceDetails(ctx context.Context) (bool, string) {
 	client := proto.NewAgentServiceClient(e.client.GetConnection())
 	start := time.Now()
+
 	status, err := client.GetStatus(ctx, &proto.StatusRequest{
 		ServiceName: e.serviceName,
 		ServiceType: e.serviceType,
@@ -169,6 +202,7 @@ func (e *ExternalChecker) Check(ctx context.Context) (isAccessible bool, statusM
 	}
 
 	responseTime := time.Since(start).Nanoseconds()
+
 	var details map[string]interface{}
 	if err := json.Unmarshal([]byte(status.Message), &details); err != nil {
 		return true, fmt.Sprintf(`{"response_time": %d, "error": "invalid details format"}`, responseTime)

@@ -53,6 +53,7 @@ func run() error {
 
 	// Load and validate configuration using shared config package
 	var cfg snmp.Config
+
 	if err := config.LoadAndValidate(*configPath, &cfg); err != nil {
 		return fmt.Errorf("%w: %w", errFailedToLoadConfig, err)
 	}
@@ -69,6 +70,7 @@ func run() error {
 	// Create gRPC service registrar
 	registerServices := func(s *grpc.Server) error { // s is *google.golang.org/grpc.Server due to lifecycle update
 		proto.RegisterAgentServiceServer(s, snmpAgentService)
+
 		return nil
 	}
 
@@ -96,12 +98,15 @@ type snmpService struct {
 
 func (s *snmpService) Start(ctx context.Context) error {
 	log.Printf("Starting SNMP service...")
+
 	return s.service.Start(ctx)
 }
 
 func (s *snmpService) Stop(ctx context.Context) error {
 	log.Printf("Stopping SNMP service...")
-	ctx, cancel := context.WithTimeout(ctx, defaultSNMPStopTimeout)
+
+	_, cancel := context.WithTimeout(ctx, defaultSNMPStopTimeout)
 	defer cancel()
+
 	return s.service.Stop()
 }

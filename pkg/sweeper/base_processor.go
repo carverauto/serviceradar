@@ -132,7 +132,7 @@ func (p *BaseProcessor) cleanup() {
 
 	p.mu.Unlock()
 
-	// Perform cleanup outside of the lock
+	// Perform cleanup outside.
 	for _, host := range hostsToClean {
 		for _, pr := range host.PortResults {
 			pr.Port = 0
@@ -295,28 +295,50 @@ func (p *BaseProcessor) updateLastSweepTime() {
 	}
 }
 
+// updateTotalHosts updates the totalHosts value based on result metadata
 func (p *BaseProcessor) updateTotalHosts(result *models.Result) {
-	// Only update the totalHosts value if we don't already have one
-	// or if we specifically get a network-wide value
-	if result.Target.Metadata != nil {
-		if totalHosts, ok := result.Target.Metadata["total_hosts"].(int); ok {
-			if networkName, hasNetwork := result.Target.Metadata["network"].(string); hasNetwork {
-				// Check if we've already processed this network
-				if p.processedNetworks == nil {
-					p.processedNetworks = make(map[string]bool)
-				}
-
-				// Only update totalHosts once per network to prevent multiple updates
-				if !p.processedNetworks[networkName] {
-					p.processedNetworks[networkName] = true
-					p.totalHosts = totalHosts
-				}
-			} else if p.totalHosts == 0 {
-				// Fallback if no network is specified but we don't have a value yet
-				p.totalHosts = totalHosts
-			}
-		}
+	if !p.hasMetadata(result) {
+		return
 	}
+
+	totalHosts, ok := p.getTotalHostsFromMetadata(result)
+	if !ok {
+		return
+	}
+
+	if p.shouldUpdateNetworkTotal(result) {
+		p.updateNetworkTotal(result, totalHosts)
+	} else if p.totalHosts == 0 {
+		p.totalHosts = totalHosts
+	}
+}
+
+func (p *BaseProcessor) hasMetadata(result *models.Result) bool {
+	return result.Target.Metadata != nil
+}
+
+func (p *BaseProcessor) getTotalHostsFromMetadata(result *models.Result) (int, bool) {
+	totalHosts, ok := result.Target.Metadata["total_hosts"].(int)
+	return totalHosts, ok
+}
+
+func (p *BaseProcessor) shouldUpdateNetworkTotal(result *models.Result) bool {
+	networkName, hasNetwork := result.Target.Metadata["network"].(string)
+	if !hasNetwork {
+		return false
+	}
+
+	if p.processedNetworks == nil {
+		p.processedNetworks = make(map[string]bool)
+	}
+
+	return !p.processedNetworks[networkName]
+}
+
+func (p *BaseProcessor) updateNetworkTotal(result *models.Result, totalHosts int) {
+	networkName := result.Target.Metadata["network"].(string) // Safe due to prior check
+	p.processedNetworks[networkName] = true
+	p.totalHosts = totalHosts
 }
 
 func (p *BaseProcessor) getOrCreateHost(hostAddr string, now time.Time) *models.HostResult {

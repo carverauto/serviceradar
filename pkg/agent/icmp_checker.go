@@ -10,8 +10,13 @@ import (
 	"github.com/carverauto/serviceradar/pkg/scan"
 )
 
+const (
+	defaultICMPSweeperTimeout   = 5 * time.Second
+	defaultICMPSweeperRateLimit = 1000
+)
+
 func NewICMPChecker(host string) (*ICMPChecker, error) {
-	scanner, err := scan.NewICMPSweeper(5*time.Second, 1000)
+	scanner, err := scan.NewICMPSweeper(defaultICMPSweeperTimeout, defaultICMPSweeperRateLimit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ICMP scanner: %w", err)
 	}
