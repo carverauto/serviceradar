@@ -15,31 +15,37 @@ func (s *APIServer) handleLocalLogin(w http.ResponseWriter, r *http.Request) {
 		Username string `json:"username"`
 		Password string `json:"password"`
 	}
+
 	if err := json.NewDecoder(r.Body).Decode(&creds); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
+
 		return
 	}
 
 	token, err := s.authService.LoginLocal(r.Context(), creds.Username, creds.Password)
 	if err != nil {
 		http.Error(w, "login failed: "+err.Error(), http.StatusUnauthorized)
+
 		return
 	}
 
 	if err := s.encodeJSONResponse(w, token); err != nil {
 		log.Printf("Error encoding login response: %v", err)
 		http.Error(w, "login failed", http.StatusInternalServerError)
+
 		return
 	}
 }
 
-func (s *APIServer) handleOAuthBegin(w http.ResponseWriter, r *http.Request) {
+func (*APIServer) handleOAuthBegin(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
+
 	provider := vars["provider"]
 
 	// Check if the provider is valid
 	if _, err := goth.GetProvider(provider); err != nil {
 		http.Error(w, "OAuth provider not supported", http.StatusBadRequest)
+
 		return
 	}
 
@@ -49,6 +55,7 @@ func (s *APIServer) handleOAuthBegin(w http.ResponseWriter, r *http.Request) {
 
 func (s *APIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
+
 	provider := vars["provider"]
 
 	// Complete the OAuth flow using gothic
@@ -56,6 +63,7 @@ func (s *APIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		log.Printf("OAuth callback failed for provider %s: %v", provider, err)
 		http.Error(w, "OAuth callback failed: "+err.Error(), http.StatusInternalServerError)
+
 		return
 	}
 
@@ -64,12 +72,14 @@ func (s *APIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		log.Printf("Token generation failed for provider %s: %v", provider, err)
 		http.Error(w, "Token generation failed", http.StatusInternalServerError)
+
 		return
 	}
 
 	if err := s.encodeJSONResponse(w, token); err != nil {
 		log.Printf("Error encoding token response: %v", err)
 		http.Error(w, "Token generation failed", http.StatusInternalServerError)
+
 		return
 	}
 }

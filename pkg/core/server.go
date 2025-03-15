@@ -101,7 +101,7 @@ func NewServer(_ context.Context, config *Config) (*Server, error) {
 	}
 
 	if authConfig.JWTSecret == "" {
-		return nil, fmt.Errorf("JWT_SECRET environment variable is required")
+		return nil, errJWTSecretRequired
 	}
 
 	server := &Server{

@@ -23,4 +23,5 @@ var (
 	errDatabaseError      = errors.New("database error")
 	errInvalidSweepData   = errors.New("invalid sweep data")
 	errFailedToSendAlerts = errors.New("failed to send alerts")
+	errJWTSecretRequired  = errors.New("JWT_SECRET environment variable is required")
 )
