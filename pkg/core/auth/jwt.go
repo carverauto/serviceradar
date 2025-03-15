@@ -3,7 +3,7 @@ package auth
 import (
 	"time"
 
-	"github.com/dgrijalva/jwt-go"
+	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/golang-jwt/jwt/v4"
 )
 
@@ -11,17 +11,17 @@ type Claims struct {
 	UserID   string `json:"user_id"`
 	Email    string `json:"email"`
 	Provider string `json:"provider"`
-	jwt.StandardClaims
+	jwt.RegisteredClaims
 }
 
-func GenerateJWT(user *User, secret string, expiration time.Duration) (string, error) {
+func GenerateJWT(user *models.User, secret string, expiration time.Duration) (string, error) {
 	claims := Claims{
 		UserID:   user.ID,
 		Email:    user.Email,
 		Provider: user.Provider,
-		StandardClaims: jwt.StandardClaims{
-			ExpiresAt: time.Now().Add(expiration).Unix(),
-			IssuedAt:  time.Now().Unix(),
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(expiration)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}
 
@@ -43,7 +43,7 @@ func ParseJWT(tokenString string, secret string) (*Claims, error) {
 	return nil, jwt.ErrSignatureInvalid
 }
 
-func GenerateTokenPair(user *User, config *AuthConfig) (*Token, error) {
+func GenerateTokenPair(user *models.User, config *models.AuthConfig) (*models.Token, error) {
 	accessToken, err := GenerateJWT(user, config.JWTSecret, config.JWTExpiration)
 	if err != nil {
 		return nil, err
@@ -54,7 +54,7 @@ func GenerateTokenPair(user *User, config *AuthConfig) (*Token, error) {
 		return nil, err
 	}
 
-	return &Token{
+	return &models.Token{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
 		ExpiresAt:    time.Now().Add(config.JWTExpiration),
