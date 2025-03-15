@@ -108,6 +108,7 @@ func (s *NetworkSweeper) Start(ctx context.Context) error {
 			} else {
 				log.Printf("Periodic sweep completed successfully")
 			}
+
 			sweepCancel()
 
 			s.mu.Lock()
@@ -197,11 +198,13 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 	if icmpErr != nil {
 		return icmpErr
 	}
+
 	if tcpErr != nil {
 		return tcpErr
 	}
 
 	log.Printf("Sweep completed successfully")
+
 	return nil
 }
 

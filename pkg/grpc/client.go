@@ -12,14 +12,14 @@ import (
 	"google.golang.org/grpc/keepalive"
 )
 
-// ClientConfig holds configuration for the gRPC client
+// ClientConfig holds configuration for the gRPC client.
 type ClientConfig struct {
 	Address          string
 	SecurityProvider SecurityProvider
 	MaxRetries       int
 }
 
-// Client manages a gRPC client connection
+// Client manages a gRPC client connection.
 type Client struct {
 	conn   *grpc.ClientConn
 	health grpc_health_v1.HealthClient
@@ -28,16 +28,17 @@ type Client struct {
 	closed bool
 }
 
-// NewClient creates a new gRPC client
+// NewClient creates a new gRPC client.
 func NewClient(ctx context.Context, cfg ClientConfig) (*Client, error) {
 	if cfg.Address == "" {
-		return nil, fmt.Errorf("address is required")
+		return nil, errAddressRequired
 	}
 
 	// Default to no security if none provided
 	if cfg.SecurityProvider == nil {
 		cfg.SecurityProvider = &NoSecurityProvider{}
 	}
+
 	if cfg.MaxRetries == 0 {
 		cfg.MaxRetries = 3
 	}
@@ -76,21 +77,22 @@ func createDialOptions(ctx context.Context, cfg ClientConfig) ([]grpc.DialOption
 	}, nil
 }
 
-// GetConnection returns the underlying gRPC connection
+// GetConnection returns the underlying gRPC connection.
 func (c *Client) GetConnection() *grpc.ClientConn {
 	return c.conn
 }
 
-// CheckHealth performs a health check on the specified service
+// CheckHealth performs a health check on the specified service.
 func (c *Client) CheckHealth(ctx context.Context, service string) (bool, error) {
 	resp, err := c.health.Check(ctx, &grpc_health_v1.HealthCheckRequest{Service: service})
 	if err != nil {
 		return false, fmt.Errorf("health check failed: %w", err)
 	}
+
 	return resp.Status == grpc_health_v1.HealthCheckResponse_SERVING, nil
 }
 
-// Close shuts down the client connection
+// Close shuts down the client connection.
 func (c *Client) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -105,12 +107,14 @@ func (c *Client) Close() error {
 			log.Printf("Failed to close security provider: %v", err)
 		}
 	}
+
 	return c.conn.Close()
 }
 
 // RetryInterceptor provides basic retry logic.
 func RetryInterceptor(maxRetries int) grpc.UnaryClientInterceptor {
-	return func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+	return func(ctx context.Context, method string, req, reply interface{},
+		cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 		var lastErr error
 
 		backoff := 1 * time.Second
@@ -127,6 +131,7 @@ func RetryInterceptor(maxRetries int) grpc.UnaryClientInterceptor {
 			}
 
 			lastErr = err
+
 			if attempt == maxRetries-1 {
 				break
 			}

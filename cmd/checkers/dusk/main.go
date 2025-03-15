@@ -64,6 +64,7 @@ func run() error {
 	// Create gRPC service registrar
 	registerServices := func(s *grpc.Server) error { // s is *google.golang.org/grpc.Server due to lifecycle update
 		proto.RegisterAgentServiceServer(s, blockService)
+
 		return nil
 	}
 
@@ -91,11 +92,14 @@ type duskService struct {
 
 func (s *duskService) Start(ctx context.Context) error {
 	log.Printf("Starting Dusk service...")
+
 	return s.checker.StartMonitoring(ctx)
 }
 
 func (s *duskService) Stop(_ context.Context) error {
 	log.Printf("Stopping Dusk service...")
+
 	close(s.checker.Done)
+
 	return nil
 }

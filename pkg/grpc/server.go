@@ -57,7 +57,7 @@ type Server struct {
 	healthRegistered bool
 }
 
-// NewServer creates a new gRPC server with the given configuration
+// NewServer creates a new gRPC server with the given configuration.
 func NewServer(addr string, opts ...ServerOption) *Server {
 	// Initialize with default interceptors
 	defaultOpts := []grpc.ServerOption{
@@ -107,22 +107,27 @@ func (s *Server) GetGRPCServer() *grpc.Server {
 	return s.srv
 }
 
-// GetHealthCheck returns the health server instance
+// GetHealthCheck returns the health server instance.
 func (s *Server) GetHealthCheck() *health.Server {
 	return s.healthCheck
 }
 
-// RegisterHealthServer registers the health server if not already registered
+// RegisterHealthServer registers the health server if not already registered.
 func (s *Server) RegisterHealthServer() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	if s.healthRegistered {
 		log.Printf("Health server already registered, skipping")
+
 		return errHealthServerRegistered
 	}
+
 	log.Printf("Registering health server for %s", s.addr)
+
 	healthpb.RegisterHealthServer(s.srv, s.healthCheck)
 	s.healthRegistered = true
+
 	return nil
 }
 

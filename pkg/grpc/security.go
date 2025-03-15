@@ -124,7 +124,7 @@ func (p *MTLSProvider) Close() error {
 	return err
 }
 
-// loadTLSCredentials loads TLS credentials with customizable parameters
+// loadTLSCredentials loads TLS credentials with customizable parameters.
 func loadTLSCredentials(
 	config *models.SecurityConfig,
 	certFile, keyFile string,
@@ -174,12 +174,12 @@ func loadTLSCredentials(
 	return credentials.NewTLS(tlsConfig), nil
 }
 
-// loadClientCredentials loads client TLS credentials
+// loadClientCredentials loads client TLS credentials.
 func loadClientCredentials(config *models.SecurityConfig) (credentials.TransportCredentials, error) {
 	return loadTLSCredentials(config, "client.pem", "client-key.pem", false)
 }
 
-// loadServerCredentials loads server TLS credentials
+// loadServerCredentials loads server TLS credentials.
 func loadServerCredentials(config *models.SecurityConfig) (credentials.TransportCredentials, error) {
 	return loadTLSCredentials(config, "server.pem", "server-key.pem", true)
 }

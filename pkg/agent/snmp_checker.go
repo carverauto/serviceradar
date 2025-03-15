@@ -122,8 +122,11 @@ func (c *SNMPChecker) Check(ctx context.Context) (available bool, msg string) {
 
 func (c *SNMPChecker) Start(ctx context.Context) error {
 	c.wg.Add(1)
+
 	go c.healthCheckLoop(ctx)
+
 	log.Printf("Started SNMP checker monitoring")
+
 	return nil
 }
 
@@ -191,5 +194,6 @@ func (c *SNMPChecker) checkHealth(ctx context.Context) error {
 	}
 
 	log.Printf("SNMP service health check passed")
+
 	return nil
 }

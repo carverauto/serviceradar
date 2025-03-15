@@ -46,6 +46,7 @@ func initRegistry() checker.Registry {
 		if host == "" {
 			host = "127.0.0.1"
 		}
+
 		return NewICMPChecker(host)
 	})
 

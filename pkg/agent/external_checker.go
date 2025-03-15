@@ -40,11 +40,11 @@ var (
 )
 
 const (
-	// Initial health check interval
+	// Initial health check interval.
 	initialHealthCheckInterval = 10 * time.Second
-	// Max health check interval when backing off
+	// Max health check interval when backing off.
 	maxHealthCheckInterval = 5 * time.Minute
-	// How much to increase interval after each failure
+	// How much to increase interval after each failure.
 	backoffFactor = 2.0
 )
 
@@ -142,6 +142,7 @@ func (e *ExternalChecker) canUseCachedStatus() bool {
 	defer e.healthCheckMu.Unlock()
 
 	now := time.Now()
+
 	return !e.lastHealthCheck.IsZero() &&
 		now.Sub(e.lastHealthCheck) < e.healthCheckInterval
 }
@@ -153,6 +154,7 @@ func (e *ExternalChecker) handleCachedStatus() (isAccessible bool, statusMsg str
 	if !e.healthStatus {
 		return false, "Service unhealthy (cached status)"
 	}
+
 	return true, "" // Will proceed to get details in original flow
 }
 
@@ -167,6 +169,7 @@ func (e *ExternalChecker) performHealthCheck(ctx context.Context) (bool, error) 
 
 	if healthy && err == nil {
 		e.healthCheckInterval = initialHealthCheckInterval
+
 		return true, nil
 	}
 
@@ -182,9 +185,12 @@ func (e *ExternalChecker) performHealthCheck(ctx context.Context) (bool, error) 
 func (e *ExternalChecker) handleHealthCheckFailure(err error) (isAccessible bool, statusMsg string) {
 	if err != nil {
 		log.Printf("External checker %s: Health check failed: %v", e.serviceName, err)
+
 		return false, fmt.Sprintf("Health check failed: %v", err)
 	}
+
 	log.Printf("External checker %s: Service reported unhealthy", e.serviceName)
+
 	return false, "Service reported unhealthy"
 }
 
@@ -196,8 +202,10 @@ func (e *ExternalChecker) getServiceDetails(ctx context.Context) (isAccessible b
 		ServiceName: e.serviceName,
 		ServiceType: e.serviceType,
 	})
+
 	if err != nil {
 		log.Printf("External checker %s: Failed to get details: %v", e.serviceName, err)
+
 		return true, "Service healthy but details unavailable"
 	}
 
@@ -215,5 +223,6 @@ func (e *ExternalChecker) Close() error {
 	if e.client != nil {
 		return e.client.Close()
 	}
+
 	return nil
 }

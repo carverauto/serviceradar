@@ -19,7 +19,6 @@ type Server struct {
 	checkerConfs map[string]CheckerConfig
 	configDir    string
 	services     []Service
-	grpcServer   *grpc.Server
 	listenAddr   string
 	registry     checker.Registry
 	errChan      chan error
@@ -53,7 +52,7 @@ type CheckerConfig struct {
 	Details    json.RawMessage `json:"details,omitempty"`
 }
 
-// ServerConfig holds the configuration for the agent server
+// ServerConfig holds the configuration for the agent server.
 type ServerConfig struct {
 	ListenAddr string                 `json:"listen_addr"`
 	Security   *models.SecurityConfig `json:"security"`
@@ -88,6 +87,7 @@ type ICMPResponse struct {
 // UnmarshalJSON implements the json.Unmarshaler interface to allow parsing of a Duration from a JSON string or number.
 func (d *Duration) UnmarshalJSON(b []byte) error {
 	var v interface{}
+
 	if err := json.Unmarshal(b, &v); err != nil {
 		return err
 	}
@@ -95,13 +95,16 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 	switch value := v.(type) {
 	case float64:
 		*d = Duration(time.Duration(value))
+
 		return nil
 	case string:
 		tmp, err := time.ParseDuration(value)
 		if err != nil {
 			return err
 		}
+
 		*d = Duration(tmp)
+
 		return nil
 	default:
 		return errInvalidDuration

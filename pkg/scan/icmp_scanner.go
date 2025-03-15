@@ -34,6 +34,10 @@ type ICMPSweeper struct {
 
 var _ Scanner = (*ICMPSweeper)(nil)
 
+const (
+	defaultIdentifierMod = 65536
+)
+
 // NewICMPSweeper creates a new scanner for ICMP sweeping.
 func NewICMPSweeper(timeout time.Duration, rateLimit int) (*ICMPSweeper, error) {
 	if timeout == 0 {
@@ -45,7 +49,7 @@ func NewICMPSweeper(timeout time.Duration, rateLimit int) (*ICMPSweeper, error) 
 	}
 
 	// Create identifier for this scanner instance
-	identifier := int(time.Now().UnixNano() % 65536)
+	identifier := int(time.Now().UnixNano() % defaultIdentifierMod)
 
 	// Create raw socket for sending
 	fd, err := syscall.Socket(syscall.AF_INET, syscall.SOCK_RAW, syscall.IPPROTO_ICMP)
@@ -61,6 +65,7 @@ func NewICMPSweeper(timeout time.Duration, rateLimit int) (*ICMPSweeper, error) 
 			log.Printf("Failed to close ICMP listener: %v", err)
 			return nil, err
 		}
+
 		return nil, fmt.Errorf("failed to create ICMP listener: %w", err)
 	}
 
@@ -132,10 +137,7 @@ func (s *ICMPSweeper) Scan(ctx context.Context, targets []models.Target) (<-chan
 				}
 			}
 		case <-scanCtx.Done():
-			// Context canceled
 		}
-
-		// Stop the listener
 		cancel()
 		<-listenerDone
 
@@ -163,9 +165,13 @@ func (s *ICMPSweeper) sendPings(ctx context.Context, targets []models.Target) {
 	s.sendBatches(ctx, targets, data, packetsPerInterval)
 }
 
+const (
+	defaultRateLimitDivisor = 1000
+)
+
 // calculatePacketsPerInterval determines the batch size based on rate limit.
 func (s *ICMPSweeper) calculatePacketsPerInterval() int {
-	packets := s.rateLimit / int(1000/batchInterval.Milliseconds())
+	packets := s.rateLimit / int(defaultRateLimitDivisor/batchInterval.Milliseconds())
 	if packets < 1 {
 		return 1
 	}
@@ -194,6 +200,7 @@ func (s *ICMPSweeper) sendBatches(ctx context.Context, targets []models.Target, 
 	defer ticker.Stop()
 
 	targetIndex := 0
+
 	for range ticker.C {
 		if ctx.Err() != nil {
 			return
@@ -210,7 +217,7 @@ func (s *ICMPSweeper) sendBatches(ctx context.Context, targets []models.Target, 
 }
 
 // calculateBatchEnd determines the end index for the current batch.
-func (s *ICMPSweeper) calculateBatchEnd(index, batchSize, totalTargets int) int {
+func (*ICMPSweeper) calculateBatchEnd(index, batchSize, totalTargets int) int {
 	end := index + batchSize
 	if end > totalTargets {
 		return totalTargets
@@ -267,7 +274,7 @@ const (
 	defaultReadDeadline = 100 * time.Millisecond
 )
 
-// listenForReplies listens for and processes ICMP echo replies
+// listenForReplies listens for and processes ICMP echo replies.
 func (s *ICMPSweeper) listenForReplies(ctx context.Context, targets []models.Target) {
 	targetMap := make(map[string]struct{})
 	for _, t := range targets {
@@ -275,6 +282,7 @@ func (s *ICMPSweeper) listenForReplies(ctx context.Context, targets []models.Tar
 	}
 
 	buf := make([]byte, defaultBytesRead)
+
 	const readDeadline = defaultReadDeadline
 
 	for {
@@ -308,6 +316,7 @@ func (s *ICMPSweeper) readReply(buf []byte) (reply struct {
 	n, addr, err := s.conn.ReadFrom(buf)
 	if err != nil {
 		var netErr net.Error
+
 		if errors.As(err, &netErr) && netErr.Timeout() {
 			return reply, nil // Timeout is not an error in this context
 		}
@@ -316,6 +325,7 @@ func (s *ICMPSweeper) readReply(buf []byte) (reply struct {
 
 		return reply, err
 	}
+
 	return struct {
 		n    int
 		addr net.Addr
@@ -410,6 +420,7 @@ func (s *ICMPSweeper) Stop(_ context.Context) error {
 
 			return err
 		}
+
 		s.rawSocketFD = 0
 	}
 

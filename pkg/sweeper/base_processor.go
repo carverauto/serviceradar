@@ -295,7 +295,7 @@ func (p *BaseProcessor) updateLastSweepTime() {
 	}
 }
 
-// updateTotalHosts updates the totalHosts value based on result metadata
+// updateTotalHosts updates the totalHosts value based on result metadata.
 func (p *BaseProcessor) updateTotalHosts(result *models.Result) {
 	if !p.hasMetadata(result) {
 		return
@@ -313,12 +313,13 @@ func (p *BaseProcessor) updateTotalHosts(result *models.Result) {
 	}
 }
 
-func (p *BaseProcessor) hasMetadata(result *models.Result) bool {
+func (*BaseProcessor) hasMetadata(result *models.Result) bool {
 	return result.Target.Metadata != nil
 }
 
-func (p *BaseProcessor) getTotalHostsFromMetadata(result *models.Result) (int, bool) {
+func (*BaseProcessor) getTotalHostsFromMetadata(result *models.Result) (int, bool) {
 	totalHosts, ok := result.Target.Metadata["total_hosts"].(int)
+
 	return totalHosts, ok
 }
 

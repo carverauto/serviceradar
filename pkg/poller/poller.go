@@ -107,10 +107,12 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 		if err != nil {
 			return err
 		}
+
 		*d = Duration(tmp)
 	default:
 		return ErrInvalidDuration
 	}
+
 	return nil
 }
 
@@ -338,11 +340,13 @@ func (p *Poller) reconnectAgent(ctx context.Context, agentName string, config *A
 		Address:    config.Address,
 		MaxRetries: grpcRetries,
 	}
+
 	if p.config.Security != nil {
 		provider, err := grpc.NewSecurityProvider(ctx, p.config.Security)
 		if err != nil {
 			return fmt.Errorf("failed to create security provider: %w", err)
 		}
+
 		clientCfg.SecurityProvider = provider
 	}
 
@@ -368,11 +372,13 @@ func (p *Poller) connectToCore(ctx context.Context) error {
 		Address:    p.config.CoreAddress,
 		MaxRetries: grpcRetries,
 	}
+
 	if p.config.Security != nil {
 		provider, err := grpc.NewSecurityProvider(ctx, p.config.Security)
 		if err != nil {
 			return fmt.Errorf("failed to create security provider: %w", err)
 		}
+
 		clientCfg.SecurityProvider = provider
 	}
 
@@ -398,11 +404,13 @@ func (p *Poller) initializeAgentConnections(ctx context.Context) error {
 			Address:    agentConfig.Address,
 			MaxRetries: grpcRetries,
 		}
+
 		if p.config.Security != nil {
 			provider, err := grpc.NewSecurityProvider(ctx, p.config.Security)
 			if err != nil {
 				return fmt.Errorf("failed to create security provider for agent %s: %w", agentName, err)
 			}
+
 			clientCfg.SecurityProvider = provider
 		}
 
@@ -436,6 +444,7 @@ func (p *Poller) poll(ctx context.Context) error {
 				log.Printf("Failed to reconnect to agent %s: %v", agentName, err)
 				continue
 			}
+
 			conn, _ = p.getAgentConnection(agentName)
 		}
 
@@ -444,6 +453,7 @@ func (p *Poller) poll(ctx context.Context) error {
 		if err != nil || !healthy {
 			if err = p.reconnectAgent(ctx, agentName, &agentConfig); err != nil {
 				log.Printf("Agent %s unhealthy: %v", agentName, err)
+
 				continue
 			}
 		}
@@ -451,6 +461,7 @@ func (p *Poller) poll(ctx context.Context) error {
 		statuses, err := p.pollAgent(ctx, agentName, &agentConfig)
 		if err != nil {
 			log.Printf("Error polling agent %s: %v", agentName, err)
+
 			continue
 		}
 
@@ -460,7 +471,10 @@ func (p *Poller) poll(ctx context.Context) error {
 	return p.reportToCore(ctx, allStatuses)
 }
 
-func (p *Poller) pollAgent(ctx context.Context, agentName string, agentConfig *AgentConfig) ([]*proto.ServiceStatus, error) {
+func (p *Poller) pollAgent(
+	ctx context.Context,
+	agentName string,
+	agentConfig *AgentConfig) ([]*proto.ServiceStatus, error) {
 	agent, err := p.getAgentConnection(agentName)
 	if err != nil {
 		return nil, err

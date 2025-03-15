@@ -73,6 +73,7 @@ func (s *Server) loadConfigurations() error {
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("failed to load sweep service: %w", err)
 	}
+
 	if service != nil {
 		s.services = append(s.services, service)
 	}
@@ -80,7 +81,7 @@ func (s *Server) loadConfigurations() error {
 	return nil
 }
 
-func (s *Server) loadSweepService(configPath string) (Service, error) {
+func (*Server) loadSweepService(configPath string) (Service, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return nil, err
@@ -227,6 +228,7 @@ func (s *Server) initializeCheckers(ctx context.Context) error {
 
 				continue
 			}
+
 			s.connections[config.Name] = conn
 		}
 
@@ -268,6 +270,11 @@ func (s *Server) connectToChecker(ctx context.Context, checkerConfig *CheckerCon
 	}, nil
 }
 
+var (
+	errNoSweepService = errors.New("no sweep service available for ICMP check")
+	errICMPCheck      = errors.New("ICMP check failed")
+)
+
 func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
 	log.Printf("Received status request: %+v", req)
 
@@ -280,7 +287,7 @@ func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*prot
 
 			result, err := sweepSvc.CheckICMP(ctx, req.Details)
 			if err != nil {
-				return nil, fmt.Errorf("ICMP check failed: %w", err)
+				return nil, fmt.Errorf("%w: %w", errICMPCheck, err)
 			}
 
 			resp := &ICMPResponse{
@@ -300,7 +307,8 @@ func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*prot
 				ResponseTime: result.RespTime.Nanoseconds(),
 			}, nil
 		}
-		return nil, fmt.Errorf("no sweep service available for ICMP check")
+
+		return nil, errNoSweepService
 	}
 
 	if req.ServiceType == "sweep" {

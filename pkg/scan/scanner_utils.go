@@ -9,22 +9,23 @@ import (
 // ExpandCIDR expands a CIDR notation into a slice of IP addresses.
 // Skips network and broadcast addresses for non-/32 networks.
 func ExpandCIDR(cidr string) ([]string, error) {
-	ip, ipnet, err := net.ParseCIDR(cidr)
+	baseIP, ipnet, err := net.ParseCIDR(cidr) // Renamed outer "ip" to "baseIP"
 	if err != nil {
 		return nil, err
 	}
 
 	var ips []string
-	for ip := ip.Mask(ipnet.Mask); ipnet.Contains(ip); incIP(ip) {
+
+	for currentIP := baseIP.Mask(ipnet.Mask); ipnet.Contains(currentIP); incIP(currentIP) { // Renamed loop "ip" to "currentIP"
 		// Skip network and broadcast addresses for IPv4 non-/32
 		ones, _ := ipnet.Mask.Size()
-		if ip.To4() != nil && ones != 32 {
-			if ip.Equal(ipnet.IP) || isBroadcast(ip, ipnet) {
+		if currentIP.To4() != nil && ones != 32 {
+			if currentIP.Equal(ipnet.IP) || isBroadcast(currentIP, ipnet) {
 				continue
 			}
 		}
 
-		ips = append(ips, ip.String())
+		ips = append(ips, currentIP.String())
 	}
 
 	return ips, nil

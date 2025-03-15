@@ -34,6 +34,10 @@ func NewTCPSweeper(timeout time.Duration, concurrency int) *TCPSweeper {
 	}
 }
 
+const (
+	defaultConcurrencyMultiplier = 2
+)
+
 func (s *TCPSweeper) Scan(ctx context.Context, targets []models.Target) (<-chan models.Result, error) {
 	tcpTargets := filterTCPTargets(targets)
 	if len(tcpTargets) == 0 {
@@ -47,7 +51,7 @@ func (s *TCPSweeper) Scan(ctx context.Context, targets []models.Target) (<-chan 
 	s.cancel = cancel
 
 	resultCh := make(chan models.Result, len(tcpTargets))
-	workCh := make(chan models.Target, s.concurrency*2)
+	workCh := make(chan models.Target, s.concurrency*defaultConcurrencyMultiplier)
 
 	var wg sync.WaitGroup
 
@@ -106,7 +110,7 @@ func (s *TCPSweeper) worker(ctx context.Context, workCh <-chan models.Target, re
 }
 
 func (s *TCPSweeper) checkPort(ctx context.Context, host string, port int) (bool, time.Duration, error) {
-	ctx, cancel := context.WithTimeout(ctx, s.timeout)
+	_, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
 	start := time.Now()

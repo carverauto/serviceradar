@@ -87,9 +87,11 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, er
 	}
 
 	lastSweep := time.Now().Unix()
+
 	if len(summary) > 0 {
 		for i := range summary {
 			r := &summary[i] // Use a pointer to avoid copying
+
 			if r.LastSeen.Unix() > lastSweep {
 				lastSweep = r.LastSeen.Unix()
 			}
