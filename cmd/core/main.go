@@ -45,8 +45,6 @@ func run() error {
 		return err
 	}
 
-	log.Printf("Config security: %+v", cfg.Security)
-
 	// Create root context for lifecycle management
 	ctx := context.Background()
 
