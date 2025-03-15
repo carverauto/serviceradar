@@ -31,16 +31,17 @@ const (
 )
 
 type BaseProcessor struct {
-	mu             sync.RWMutex
-	hostMap        map[string]*models.HostResult
-	portCounts     map[int]int
-	lastSweepTime  time.Time
-	firstSeenTimes map[string]time.Time
-	totalHosts     int
-	hostResultPool *sync.Pool
-	portResultPool *sync.Pool
-	portCount      int // Number of ports being scanned
-	config         *models.Config
+	mu                sync.RWMutex
+	hostMap           map[string]*models.HostResult
+	portCounts        map[int]int
+	lastSweepTime     time.Time
+	firstSeenTimes    map[string]time.Time
+	totalHosts        int
+	hostResultPool    *sync.Pool
+	portResultPool    *sync.Pool
+	portCount         int // Number of ports being scanned
+	config            *models.Config
+	processedNetworks map[string]bool // Track which networks we've already processed
 }
 
 func NewBaseProcessor(config *models.Config) *BaseProcessor {
@@ -131,7 +132,7 @@ func (p *BaseProcessor) cleanup() {
 
 	p.mu.Unlock()
 
-	// Perform cleanup outside of the lock
+	// Perform cleanup outside.
 	for _, host := range hostsToClean {
 		for _, pr := range host.PortResults {
 			pr.Port = 0
@@ -268,11 +269,13 @@ func (p *BaseProcessor) GetSummary(ctx context.Context) (*models.SweepSummary, e
 		hosts = append(hosts, *host)
 	}
 
-	log.Printf("Summary stats - Total hosts: %d, Available: %d, ICMP responding: %d",
-		len(p.hostMap), availableHosts, icmpHosts)
+	log.Printf("Summary stats - Total hosts: %d, Available: %d, ICMP responding: %d, Actual total defined in config: %d",
+		len(p.hostMap), availableHosts, icmpHosts, p.totalHosts)
 
-	actualTotalHosts := len(p.hostMap)
-	if actualTotalHosts == 0 {
+	// Here's the important change - don't use the network size from config if we have actual data
+	actualTotalHosts := p.totalHosts
+	if len(p.hostMap) > 0 {
+		// We have some processed hosts, but we want to report the real total from config
 		actualTotalHosts = p.totalHosts
 	}
 
@@ -292,12 +295,51 @@ func (p *BaseProcessor) updateLastSweepTime() {
 	}
 }
 
+// updateTotalHosts updates the totalHosts value based on result metadata.
 func (p *BaseProcessor) updateTotalHosts(result *models.Result) {
-	if result.Target.Metadata != nil {
-		if totalHosts, ok := result.Target.Metadata["total_hosts"].(int); ok {
-			p.totalHosts = totalHosts
-		}
+	if !p.hasMetadata(result) {
+		return
 	}
+
+	totalHosts, ok := p.getTotalHostsFromMetadata(result)
+	if !ok {
+		return
+	}
+
+	if p.shouldUpdateNetworkTotal(result) {
+		p.updateNetworkTotal(result, totalHosts)
+	} else if p.totalHosts == 0 {
+		p.totalHosts = totalHosts
+	}
+}
+
+func (*BaseProcessor) hasMetadata(result *models.Result) bool {
+	return result.Target.Metadata != nil
+}
+
+func (*BaseProcessor) getTotalHostsFromMetadata(result *models.Result) (int, bool) {
+	totalHosts, ok := result.Target.Metadata["total_hosts"].(int)
+
+	return totalHosts, ok
+}
+
+func (p *BaseProcessor) shouldUpdateNetworkTotal(result *models.Result) bool {
+	networkName, hasNetwork := result.Target.Metadata["network"].(string)
+	if !hasNetwork {
+		return false
+	}
+
+	if p.processedNetworks == nil {
+		p.processedNetworks = make(map[string]bool)
+	}
+
+	return !p.processedNetworks[networkName]
+}
+
+func (p *BaseProcessor) updateNetworkTotal(result *models.Result, totalHosts int) {
+	networkName := result.Target.Metadata["network"].(string) // Safe due to prior check
+	p.processedNetworks[networkName] = true
+	p.totalHosts = totalHosts
 }
 
 func (p *BaseProcessor) getOrCreateHost(hostAddr string, now time.Time) *models.HostResult {

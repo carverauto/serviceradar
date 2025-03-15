@@ -22,10 +22,10 @@ import (
 	"log"
 
 	"github.com/carverauto/serviceradar/pkg/config"
-	"github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/poller"
 	"github.com/carverauto/serviceradar/proto"
+	"google.golang.org/grpc" // For the underlying gRPC server type
 )
 
 func main() {
@@ -55,10 +55,8 @@ func run() error {
 	}
 
 	// Register services function
-	registerServices := func(s *grpc.Server) error {
-		// Register poller service if needed
-		proto.RegisterPollerServiceServer(s.GetGRPCServer(), p)
-
+	registerServices := func(s *grpc.Server) error { // s is *google.golang.org/grpc.Server due to lifecycle update
+		proto.RegisterPollerServiceServer(s, p)
 		return nil
 	}
 

@@ -25,9 +25,9 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/checker/snmp"
 	"github.com/carverauto/serviceradar/pkg/config"
-	"github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/proto"
+	"google.golang.org/grpc" // For the underlying gRPC server type
 )
 
 const (
@@ -53,6 +53,7 @@ func run() error {
 
 	// Load and validate configuration using shared config package
 	var cfg snmp.Config
+
 	if err := config.LoadAndValidate(*configPath, &cfg); err != nil {
 		return fmt.Errorf("%w: %w", errFailedToLoadConfig, err)
 	}
@@ -67,9 +68,8 @@ func run() error {
 	snmpAgentService := snmp.NewSNMPPollerService(&snmp.Poller{Config: cfg}, service)
 
 	// Create gRPC service registrar
-	registerServices := func(s *grpc.Server) error {
-		// Register agent service
-		proto.RegisterAgentServiceServer(s.GetGRPCServer(), snmpAgentService)
+	registerServices := func(s *grpc.Server) error { // s is *google.golang.org/grpc.Server due to lifecycle update
+		proto.RegisterAgentServiceServer(s, snmpAgentService)
 
 		return nil
 	}

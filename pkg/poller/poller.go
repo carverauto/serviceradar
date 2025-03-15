@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-// Package poller pkg/poller/poller.go
 package poller
 
 import (
@@ -27,7 +26,6 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/grpc"
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
@@ -47,7 +45,7 @@ var (
 
 // AgentConnection represents a connection to an agent.
 type AgentConnection struct {
-	client       *grpc.ClientConn
+	client       *grpc.Client // Updated to use grpc.Client
 	agentName    string
 	healthClient healthpb.HealthClient
 }
@@ -57,7 +55,7 @@ type Poller struct {
 	proto.UnimplementedPollerServiceServer
 	config     Config
 	coreClient proto.PollerServiceClient
-	grpcClient *grpc.ClientConn
+	grpcClient *grpc.Client // Updated to use grpc.Client
 	mu         sync.RWMutex
 	agents     map[string]*AgentConnection
 	done       chan struct{}
@@ -293,7 +291,6 @@ func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
 		}
 	}
 
-	// Pass through response_time from the service check
 	return &proto.ServiceStatus{
 		ServiceName:  sc.check.Name,
 		Available:    status.Available,
@@ -338,26 +335,24 @@ func (p *Poller) reconnectAgent(ctx context.Context, agentName string, config *A
 		}
 	}
 
-	// Create connection config for this agent
-	connConfig := &grpc.ConnectionConfig{
-		Address: config.Address,
-		Security: models.SecurityConfig{
-			Mode:       p.config.Security.Mode,
-			CertDir:    p.config.Security.CertDir,
-			ServerName: config.Security.ServerName, // Use agent-specific server name
-			Role:       "poller",
-		},
+	// Use ClientConfig instead of ConnectionConfig
+	clientCfg := grpc.ClientConfig{
+		Address:    config.Address,
+		MaxRetries: grpcRetries,
 	}
 
-	log.Printf("Reconnecting to agent %s at %s (server name: %s)",
-		agentName, config.Address, config.Security.ServerName)
+	if p.config.Security != nil {
+		provider, err := grpc.NewSecurityProvider(ctx, p.config.Security)
+		if err != nil {
+			return fmt.Errorf("failed to create security provider: %w", err)
+		}
 
-	// Create new connection
-	client, err := grpc.NewClient(
-		ctx,
-		connConfig,
-		grpc.WithMaxRetries(grpcRetries),
-	)
+		clientCfg.SecurityProvider = provider
+	}
+
+	log.Printf("Reconnecting to agent %s at %s", agentName, config.Address)
+
+	client, err := grpc.NewClient(ctx, clientCfg)
 	if err != nil {
 		return fmt.Errorf("failed to reconnect to agent %s: %w", agentName, err)
 	}
@@ -372,25 +367,24 @@ func (p *Poller) reconnectAgent(ctx context.Context, agentName string, config *A
 }
 
 func (p *Poller) connectToCore(ctx context.Context) error {
-	// Create connection config for core service
-	coreConfig := &grpc.ConnectionConfig{
-		Address: p.config.CoreAddress,
-		Security: models.SecurityConfig{
-			Mode:       p.config.Security.Mode,
-			CertDir:    p.config.Security.CertDir,
-			ServerName: p.config.Security.ServerName, // Use main server name for core
-			Role:       "poller",
-		},
+	// Use ClientConfig instead of ConnectionConfig
+	clientCfg := grpc.ClientConfig{
+		Address:    p.config.CoreAddress,
+		MaxRetries: grpcRetries,
 	}
 
-	log.Printf("Connecting to core service at %s (server name: %s)",
-		p.config.CoreAddress, p.config.Security.ServerName)
+	if p.config.Security != nil {
+		provider, err := grpc.NewSecurityProvider(ctx, p.config.Security)
+		if err != nil {
+			return fmt.Errorf("failed to create security provider: %w", err)
+		}
 
-	client, err := grpc.NewClient(
-		ctx,
-		coreConfig,
-		grpc.WithMaxRetries(grpcRetries),
-	)
+		clientCfg.SecurityProvider = provider
+	}
+
+	log.Printf("Connecting to core service at %s", p.config.CoreAddress)
+
+	client, err := grpc.NewClient(ctx, clientCfg)
 	if err != nil {
 		return fmt.Errorf("failed to create core client: %w", err)
 	}
@@ -403,27 +397,26 @@ func (p *Poller) connectToCore(ctx context.Context) error {
 
 func (p *Poller) initializeAgentConnections(ctx context.Context) error {
 	for agentName := range p.config.Agents {
-		agentConfig := p.config.Agents[agentName] // Access the value directly
+		agentConfig := p.config.Agents[agentName]
 
-		// Create connection config for this agent
-		connConfig := &grpc.ConnectionConfig{
-			Address: agentConfig.Address,
-			Security: models.SecurityConfig{
-				Mode:       p.config.Security.Mode,
-				CertDir:    p.config.Security.CertDir,
-				ServerName: agentConfig.Security.ServerName, // Use agent-specific server name
-				Role:       "poller",
-			},
+		// Use ClientConfig instead of ConnectionConfig
+		clientCfg := grpc.ClientConfig{
+			Address:    agentConfig.Address,
+			MaxRetries: grpcRetries,
 		}
 
-		log.Printf("Connecting to agent %s at %s (server name: %s)",
-			agentName, agentConfig.Address, agentConfig.Security.ServerName)
+		if p.config.Security != nil {
+			provider, err := grpc.NewSecurityProvider(ctx, p.config.Security)
+			if err != nil {
+				return fmt.Errorf("failed to create security provider for agent %s: %w", agentName, err)
+			}
 
-		client, err := grpc.NewClient(
-			ctx,
-			connConfig,
-			grpc.WithMaxRetries(grpcRetries),
-		)
+			clientCfg.SecurityProvider = provider
+		}
+
+		log.Printf("Connecting to agent %s at %s", agentName, agentConfig.Address)
+
+		client, err := grpc.NewClient(ctx, clientCfg)
 		if err != nil {
 			return fmt.Errorf("failed to connect to agent %s: %w", agentName, err)
 		}
@@ -443,7 +436,7 @@ func (p *Poller) poll(ctx context.Context) error {
 	var allStatuses []*proto.ServiceStatus
 
 	for agentName := range p.config.Agents {
-		agentConfig := p.config.Agents[agentName] // Access the value directly
+		agentConfig := p.config.Agents[agentName]
 
 		conn, err := p.getAgentConnection(agentName)
 		if err != nil {
@@ -460,6 +453,7 @@ func (p *Poller) poll(ctx context.Context) error {
 		if err != nil || !healthy {
 			if err = p.reconnectAgent(ctx, agentName, &agentConfig); err != nil {
 				log.Printf("Agent %s unhealthy: %v", agentName, err)
+
 				continue
 			}
 		}
@@ -467,6 +461,7 @@ func (p *Poller) poll(ctx context.Context) error {
 		statuses, err := p.pollAgent(ctx, agentName, &agentConfig)
 		if err != nil {
 			log.Printf("Error polling agent %s: %v", agentName, err)
+
 			continue
 		}
 
@@ -476,7 +471,10 @@ func (p *Poller) poll(ctx context.Context) error {
 	return p.reportToCore(ctx, allStatuses)
 }
 
-func (p *Poller) pollAgent(ctx context.Context, agentName string, agentConfig *AgentConfig) ([]*proto.ServiceStatus, error) {
+func (p *Poller) pollAgent(
+	ctx context.Context,
+	agentName string,
+	agentConfig *AgentConfig) ([]*proto.ServiceStatus, error) {
 	agent, err := p.getAgentConnection(agentName)
 	if err != nil {
 		return nil, err

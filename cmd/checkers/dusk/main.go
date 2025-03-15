@@ -24,9 +24,9 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/checker/dusk"
 	"github.com/carverauto/serviceradar/pkg/config"
-	"github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/proto"
+	"google.golang.org/grpc" // For the underlying gRPC server type
 )
 
 var (
@@ -62,9 +62,8 @@ func run() error {
 	blockService := dusk.NewDuskBlockService(checker)
 
 	// Create gRPC service registrar
-	registerServices := func(s *grpc.Server) error {
-		// Register agent service
-		proto.RegisterAgentServiceServer(s.GetGRPCServer(), blockService)
+	registerServices := func(s *grpc.Server) error { // s is *google.golang.org/grpc.Server due to lifecycle update
+		proto.RegisterAgentServiceServer(s, blockService)
 
 		return nil
 	}
@@ -99,6 +98,7 @@ func (s *duskService) Start(ctx context.Context) error {
 
 func (s *duskService) Stop(_ context.Context) error {
 	log.Printf("Stopping Dusk service...")
+
 	close(s.checker.Done)
 
 	return nil

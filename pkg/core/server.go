@@ -114,6 +114,7 @@ func (s *Server) initializeWebhooks(configs []alerts.WebhookConfig) {
 }
 
 // Start implements the lifecycle.Service interface.
+
 func (s *Server) Start(ctx context.Context) error {
 	log.Printf("Starting core service...")
 
@@ -145,6 +146,33 @@ func (s *Server) Start(ctx context.Context) error {
 	go s.runMetricsCleanup(ctx)
 
 	go s.monitorNodes(ctx)
+
+	return nil
+}
+
+// Stop gracefully shuts down the server.
+func (s *Server) Stop(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, shutdownTimeout)
+	defer cancel()
+
+	// Send shutdown notification
+	if err := s.sendShutdownNotification(ctx); err != nil {
+		log.Printf("Failed to send shutdown notification: %v", err)
+	}
+
+	// Stop GRPC server if it exists
+	if s.grpcServer != nil {
+		// Stop no longer returns an error, just call it
+		s.grpcServer.Stop(ctx)
+	}
+
+	// Close database
+	if err := s.db.Close(); err != nil {
+		log.Printf("Error closing database: %v", err)
+	}
+
+	// Signal all background tasks to stop
+	close(s.ShutdownChan)
 
 	return nil
 }
@@ -191,32 +219,6 @@ func (s *Server) runMetricsCleanup(ctx context.Context) {
 			}
 		}
 	}
-}
-
-// Stop implements the lifecycle.Service interface.
-func (s *Server) Stop(ctx context.Context) error {
-	ctx, cancel := context.WithTimeout(ctx, shutdownTimeout)
-	defer cancel()
-
-	// Send shutdown notification
-	if err := s.sendShutdownNotification(ctx); err != nil {
-		log.Printf("Failed to send shutdown notification: %v", err)
-	}
-
-	// Stop GRPC server if it exists
-	if s.grpcServer != nil {
-		s.grpcServer.Stop(ctx)
-	}
-
-	// Close database
-	if err := s.db.Close(); err != nil {
-		log.Printf("Error closing database: %v", err)
-	}
-
-	// Signal all background tasks to stop
-	close(s.ShutdownChan)
-
-	return nil
 }
 
 func (s *Server) isKnownPoller(pollerID string) bool {
@@ -848,8 +850,14 @@ func LoadConfig(path string) (Config, error) {
 	}
 
 	var config Config
+
 	if err := json.Unmarshal(data, &config); err != nil {
 		return Config{}, fmt.Errorf("failed to parse config: %w", err)
+	}
+
+	if config.Security != nil {
+		log.Printf("Security config: Mode=%s, CertDir=%s, Role=%s",
+			config.Security.Mode, config.Security.CertDir, config.Security.Role)
 	}
 
 	return config, nil
@@ -1051,6 +1059,7 @@ func (s *Server) updateNodeStatus(nodeID string, isHealthy bool, timestamp time.
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
+
 	defer func(tx db.Transaction) {
 		err = tx.Rollback()
 		if err != nil {
@@ -1161,6 +1170,7 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 	// Add check for known pollers
 	if !s.isKnownPoller(req.PollerId) {
 		log.Printf("Ignoring status report from unknown poller: %s", req.PollerId)
+
 		return &proto.PollerStatusResponse{Received: true}, nil
 	}
 
@@ -1194,6 +1204,7 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 
 			if err := json.Unmarshal([]byte(service.Message), &pingResult); err != nil {
 				log.Printf("Failed to parse ICMP response for service %s: %v", service.ServiceName, err)
+
 				continue
 			}
 
@@ -1205,6 +1216,7 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 				service.ServiceName,
 			); err != nil {
 				log.Printf("Failed to add ICMP metric for %s: %v", service.ServiceName, err)
+
 				continue
 			}
 

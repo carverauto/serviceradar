@@ -19,6 +19,7 @@ package sweeper
 
 import (
 	"context"
+	"log"
 	"sync"
 	"time"
 
@@ -26,8 +27,8 @@ import (
 )
 
 const (
-	defaultCleanupInterval = 5 * time.Minute
-	defaultMaxResults      = 1000
+	defaultCleanupInterval = 10 * time.Minute
+	defaultMaxResults      = 10000
 )
 
 // InMemoryStore implements Store interface for temporary storage.
@@ -37,6 +38,7 @@ type InMemoryStore struct {
 	processor   ResultProcessor
 	maxResults  int
 	cleanupDone chan struct{}
+	lastCleanup time.Time
 }
 
 // NewInMemoryStore creates a new in-memory store for sweep results.
@@ -72,13 +74,19 @@ func (s *InMemoryStore) cleanOldResults() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Keep only the most recent results
-	if len(s.results) > s.maxResults {
-		// Calculate how many to remove
-		removeCount := len(s.results) - s.maxResults
+	resultCount := len(s.results)
+	// Only clean if we exceed the threshold by a significant margin
+	if resultCount > s.maxResults*2 {
+		// Calculate how many to remove - keep 75% of max
+		targetCount := s.maxResults * 3 / 4
+		removeCount := resultCount - targetCount
+
+		log.Printf("Cleaning old results: current=%d, target=%d, removing=%d",
+			resultCount, targetCount, removeCount)
 
 		// Keep the most recent results (which are at the end)
 		s.results = s.results[removeCount:]
+		s.lastCleanup = time.Now()
 	}
 }
 

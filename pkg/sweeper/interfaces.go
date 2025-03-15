@@ -49,7 +49,7 @@ type Sweeper interface {
 	GetConfig() models.Config
 
 	// UpdateConfig updates sweeper configuration
-	UpdateConfig(models.Config) error
+	UpdateConfig(*models.Config) error
 }
 
 // Store defines storage operations for sweep results.

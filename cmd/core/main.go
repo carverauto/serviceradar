@@ -23,9 +23,9 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/core"
 	"github.com/carverauto/serviceradar/pkg/core/api"
-	"github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/proto"
+	"google.golang.org/grpc"
 )
 
 func main() {
@@ -78,7 +78,7 @@ func run() error {
 
 	// Create gRPC service registrar
 	registerService := func(s *grpc.Server) error {
-		proto.RegisterPollerServiceServer(s.GetGRPCServer(), server)
+		proto.RegisterPollerServiceServer(s, server)
 		return nil
 	}
 

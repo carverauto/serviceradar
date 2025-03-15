@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-// Package agent pkg/agent/server.go
 package agent
 
 import (
@@ -26,114 +25,36 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/checker"
 	"github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
-	"google.golang.org/grpc/health"
-	healthpb "google.golang.org/grpc/health/grpc_health_v1"
-)
-
-var (
-	errInvalidDuration = errors.New("invalid duration")
 )
 
 const (
-	defaultErrChanBufferSize = 10
-	defaultTimeout           = 30 * time.Second
-	jsonSuffix               = ".json"
-	snmpPrefix               = "snmp"
-	grpcType                 = "grpc"
+	defaultTimeout     = 30 * time.Second
+	jsonSuffix         = ".json"
+	snmpPrefix         = "snmp"
+	grpcType           = "grpc"
+	defaultErrChansize = 10
 )
 
-type Duration time.Duration
-
-// SweepConfig represents sweep service configuration from JSON.
-type SweepConfig struct {
-	MaxTargets    int
-	MaxGoroutines int
-	BatchSize     int
-	MemoryLimit   int64
-	Networks      []string           `json:"networks"`
-	Ports         []int              `json:"ports"`
-	SweepModes    []models.SweepMode `json:"sweep_modes"`
-	Interval      Duration           `json:"interval"`
-	Concurrency   int                `json:"concurrency"`
-	Timeout       Duration           `json:"timeout"`
-}
-
-// CheckerConfig represents the configuration for a checker.
-type CheckerConfig struct {
-	Name       string          `json:"name"`
-	Type       string          `json:"type"`
-	Address    string          `json:"address,omitempty"`
-	Port       int             `json:"port,omitempty"`
-	Timeout    Duration        `json:"timeout,omitempty"`
-	ListenAddr string          `json:"listen_addr,omitempty"`
-	Additional json.RawMessage `json:"additional,omitempty"`
-	Details    json.RawMessage `json:"details,omitempty"`
-}
-
-// ServerConfig holds the agent server configuration.
-type ServerConfig struct {
-	ListenAddr string                 `json:"listen_addr"`
-	Security   *models.SecurityConfig `json:"security"`
-}
-
-// Server implements the AgentService interface.
-type Server struct {
-	proto.UnimplementedAgentServiceServer
-	mu            sync.RWMutex
-	checkers      map[string]checker.Checker
-	checkerConfs  map[string]CheckerConfig
-	configDir     string
-	services      []Service
-	healthChecker *health.Server
-	grpcServer    *grpc.Server
-	listenAddr    string
-	registry      checker.Registry
-	errChan       chan error
-	done          chan struct{} // Signal for shutdown
-	config        *ServerConfig
-	connections   map[string]*CheckerConnection
-}
-
-// CheckerConnection represents a connection to a checker service.
-type CheckerConnection struct {
-	client      *grpc.ClientConn
-	serviceName string
-	serviceType string
-	address     string
-}
-
-// ServiceError represents an error from a specific service.
-type ServiceError struct {
-	ServiceName string
-	Err         error
-}
-
-func (e *ServiceError) Error() string {
-	return fmt.Sprintf("service %s error: %v", e.ServiceName, e.Err)
-}
-
-// NewServer creates a new agent server instance.
 func NewServer(configDir string, cfg *ServerConfig) (*Server, error) {
 	s := &Server{
 		checkers:     make(map[string]checker.Checker),
 		checkerConfs: make(map[string]CheckerConfig),
 		configDir:    configDir,
 		services:     make([]Service, 0),
-		listenAddr:   ":50051",
+		listenAddr:   cfg.ListenAddr,
 		registry:     initRegistry(),
-		errChan:      make(chan error, defaultErrChanBufferSize),
+		errChan:      make(chan error, defaultErrChansize),
 		done:         make(chan struct{}),
 		config:       cfg,
+		connections:  make(map[string]*CheckerConnection),
 	}
 
-	// Load configurations
 	if err := s.loadConfigurations(); err != nil {
 		return nil, fmt.Errorf("failed to load configurations: %w", err)
 	}
@@ -142,23 +63,15 @@ func NewServer(configDir string, cfg *ServerConfig) (*Server, error) {
 }
 
 func (s *Server) loadConfigurations() error {
-	// Load checker configs
 	if err := s.loadCheckerConfigs(); err != nil {
 		return fmt.Errorf("failed to load checker configs: %w", err)
 	}
 
-	// Load sweep service if configured
 	sweepConfigPath := filepath.Join(s.configDir, "sweep", "sweep.json")
-
 	service, err := s.loadSweepService(sweepConfigPath)
-	if err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("failed to load sweep service: %w", err)
-		}
-		// If file doesn't exist, just log and continue
-		log.Printf("No sweep service config found at %s", sweepConfigPath)
 
-		return nil
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("failed to load sweep service: %w", err)
 	}
 
 	if service != nil {
@@ -169,18 +82,17 @@ func (s *Server) loadConfigurations() error {
 }
 
 func (*Server) loadSweepService(configPath string) (Service, error) {
-	// Load and parse config file
 	data, err := os.ReadFile(configPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read sweep config: %w", err)
+		return nil, err
 	}
 
 	var sweepConfig SweepConfig
+
 	if err = json.Unmarshal(data, &sweepConfig); err != nil {
 		return nil, fmt.Errorf("failed to parse sweep config: %w", err)
 	}
 
-	// Convert to models.Config
 	config := &models.Config{
 		Networks:    sweepConfig.Networks,
 		Ports:       sweepConfig.Ports,
@@ -190,63 +102,56 @@ func (*Server) loadSweepService(configPath string) (Service, error) {
 		Timeout:     time.Duration(sweepConfig.Timeout),
 	}
 
-	// Create and return service
 	service, err := NewSweepService(config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sweep service: %w", err)
 	}
 
-	log.Printf("Successfully created sweep service with config: %+v", config)
+	log.Printf("Loaded sweep service with config: %+v", config)
 
 	return service, nil
 }
 
-// Start implements the lifecycle.Service interface.
 func (s *Server) Start(ctx context.Context) error {
 	log.Printf("Starting agent service...")
 
-	// Initialize checkers first
 	if err := s.initializeCheckers(ctx); err != nil {
 		return fmt.Errorf("failed to initialize checkers: %w", err)
 	}
 
-	// Initialize gRPC server (but don't start it - lifecycle package will do that)
-	s.grpcServer = grpc.NewServer(s.listenAddr)
+	log.Printf("Found %d services to start", len(s.services))
 
-	// Register our agent service
-	proto.RegisterAgentServiceServer(s.grpcServer.GetGRPCServer(), s)
+	for i, svc := range s.services {
+		log.Printf("Starting service #%d: %s", i, svc.Name())
 
-	// Create and register health service
-	s.healthChecker = health.NewServer()
-	healthpb.RegisterHealthServer(s.grpcServer.GetGRPCServer(), s.healthChecker)
-
-	// Start services
-	for _, svc := range s.services {
-		if err := svc.Start(ctx); err != nil {
-			return fmt.Errorf("failed to start service %s: %w", svc.Name(), err)
-		}
-
-		s.healthChecker.SetServingStatus(svc.Name(), healthpb.HealthCheckResponse_SERVING)
+		go func(svc Service) { // Run in goroutine to avoid blocking
+			if err := svc.Start(ctx); err != nil {
+				log.Printf("Failed to start service %s: %v", svc.Name(), err)
+			} else {
+				log.Printf("Service %s started successfully", svc.Name())
+			}
+		}(svc)
 	}
 
 	return nil
 }
 
-// Stop implements the lifecycle.Service interface.
-func (s *Server) Stop(ctx context.Context) error {
+func (s *Server) Stop(_ context.Context) error {
 	log.Printf("Stopping agent service...")
 
-	// Close all checker connections
+	for _, svc := range s.services {
+		if err := svc.Stop(context.Background()); err != nil {
+			log.Printf("Failed to stop service %s: %v", svc.Name(), err)
+		}
+	}
+
 	for name, conn := range s.connections {
 		if err := conn.client.Close(); err != nil {
 			log.Printf("Error closing connection to checker %s: %v", name, err)
 		}
 	}
 
-	// Close gRPC server and other resources
-	if s.grpcServer != nil {
-		s.grpcServer.Stop(ctx)
-	}
+	close(s.done)
 
 	return nil
 }
@@ -259,7 +164,10 @@ func (s *Server) SecurityConfig() *models.SecurityConfig {
 	return s.config.Security
 }
 
-// loadCheckerConfig loads and parses a single checker configuration file.
+func (e *ServiceError) Error() string {
+	return fmt.Sprintf("service %s error: %v", e.ServiceName, e.Err)
+}
+
 func (*Server) loadCheckerConfig(path string) (CheckerConfig, error) {
 	var conf CheckerConfig
 
@@ -268,28 +176,24 @@ func (*Server) loadCheckerConfig(path string) (CheckerConfig, error) {
 		return conf, fmt.Errorf("failed to read config file %s: %w", path, err)
 	}
 
-	// Handle special case for SNMP config files
 	if strings.HasPrefix(filepath.Base(path), snmpPrefix) {
 		conf.Name = "snmp-" + strings.TrimSuffix(filepath.Base(path), jsonSuffix)
 		conf.Type = snmpPrefix
-		conf.Additional = data // Use the entire file as Additional
+		conf.Additional = data
 
 		return conf, nil
 	}
 
-	// Parse standard checker configs
 	if err := json.Unmarshal(data, &conf); err != nil {
 		return conf, fmt.Errorf("failed to parse config file %s: %w", path, err)
 	}
 
-	// Set default timeout if not specified
 	if conf.Timeout == 0 {
 		conf.Timeout = Duration(defaultTimeout)
 	}
 
-	// For gRPC checkers, ensure we have an address
 	if conf.Type == grpcType && conf.Address == "" {
-		conf.Address = conf.ListenAddr // Use listen address as fallback
+		conf.Address = conf.ListenAddr
 	}
 
 	log.Printf("Loaded checker config from %s: %+v", path, conf)
@@ -298,7 +202,6 @@ func (*Server) loadCheckerConfig(path string) (CheckerConfig, error) {
 }
 
 func (s *Server) initializeCheckers(ctx context.Context) error {
-	// Load checker configurations
 	files, err := os.ReadDir(s.configDir)
 	if err != nil {
 		return fmt.Errorf("failed to read config directory: %w", err)
@@ -319,7 +222,6 @@ func (s *Server) initializeCheckers(ctx context.Context) error {
 		}
 
 		if config.Type == grpcType {
-			// For gRPC checkers, establish connection
 			conn, err := s.connectToChecker(ctx, &config)
 			if err != nil {
 				log.Printf("Warning: Failed to connect to checker %s: %v", config.Name, err)
@@ -331,6 +233,7 @@ func (s *Server) initializeCheckers(ctx context.Context) error {
 		}
 
 		s.checkerConfs[config.Name] = config
+
 		log.Printf("Loaded checker config: %s (type: %s)", config.Name, config.Type)
 	}
 
@@ -338,25 +241,23 @@ func (s *Server) initializeCheckers(ctx context.Context) error {
 }
 
 func (s *Server) connectToChecker(ctx context.Context, checkerConfig *CheckerConfig) (*CheckerConnection, error) {
-	// Create connection config for this checker
-	connConfig := &grpc.ConnectionConfig{
-		Address: checkerConfig.Address,
-		Security: models.SecurityConfig{
-			Mode:       s.config.Security.Mode,
-			CertDir:    s.config.Security.CertDir,
-			ServerName: strings.Split(checkerConfig.Address, ":")[0], // Use hostname part of address
-			Role:       "agent",
-		},
+	clientCfg := grpc.ClientConfig{
+		Address:    checkerConfig.Address,
+		MaxRetries: 3,
 	}
 
-	log.Printf("Connecting to checker service %s at %s (server name: %s)",
-		checkerConfig.Name, checkerConfig.Address, connConfig.Security.ServerName)
+	if s.config.Security != nil {
+		provider, err := grpc.NewSecurityProvider(ctx, s.config.Security)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create security provider: %w", err)
+		}
 
-	client, err := grpc.NewClient(
-		ctx,
-		connConfig,
-		grpc.WithMaxRetries(defaultMaxRetries),
-	)
+		clientCfg.SecurityProvider = provider
+	}
+
+	log.Printf("Connecting to checker service %s at %s", checkerConfig.Name, checkerConfig.Address)
+
+	client, err := grpc.NewClient(ctx, clientCfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to checker %s: %w", checkerConfig.Name, err)
 	}
@@ -369,24 +270,58 @@ func (s *Server) connectToChecker(ctx context.Context, checkerConfig *CheckerCon
 	}, nil
 }
 
+var (
+	errNoSweepService = errors.New("no sweep service available for ICMP check")
+	errICMPCheck      = errors.New("ICMP check failed")
+)
+
 func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
 	log.Printf("Received status request: %+v", req)
 
-	// Special handling for sweep status requests
+	if req.ServiceType == "icmp" && req.Details != "" {
+		for _, svc := range s.services {
+			sweepSvc, ok := svc.(*SweepService)
+			if !ok {
+				continue // Skip if svc is not a SweepService
+			}
+
+			result, err := sweepSvc.CheckICMP(ctx, req.Details)
+			if err != nil {
+				return nil, fmt.Errorf("%w: %w", errICMPCheck, err)
+			}
+
+			resp := &ICMPResponse{
+				Host:         result.Target.Host,
+				ResponseTime: result.RespTime.Nanoseconds(),
+				PacketLoss:   result.PacketLoss,
+				Available:    result.Available,
+			}
+
+			jsonResp, _ := json.Marshal(resp)
+
+			return &proto.StatusResponse{
+				Available:    result.Available,
+				Message:      string(jsonResp),
+				ServiceName:  "icmp_check",
+				ServiceType:  "icmp",
+				ResponseTime: result.RespTime.Nanoseconds(),
+			}, nil
+		}
+
+		return nil, errNoSweepService
+	}
+
 	if req.ServiceType == "sweep" {
 		return s.getSweepStatus(ctx)
 	}
 
-	// Get the appropriate checker
 	c, err := s.getChecker(ctx, req)
 	if err != nil {
 		return nil, err
 	}
 
-	// Execute the check
 	available, message := c.Check(ctx)
 
-	// Return the status response
 	return &proto.StatusResponse{
 		Available:   available,
 		Message:     message,
@@ -395,33 +330,6 @@ func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*prot
 	}, nil
 }
 
-// UnmarshalJSON implements json.Unmarshaler for Duration.
-func (d *Duration) UnmarshalJSON(b []byte) error {
-	var v interface{}
-	if err := json.Unmarshal(b, &v); err != nil {
-		return err
-	}
-
-	switch value := v.(type) {
-	case float64:
-		*d = Duration(time.Duration(value))
-
-		return nil
-	case string:
-		tmp, err := time.ParseDuration(value)
-		if err != nil {
-			return err
-		}
-
-		*d = Duration(tmp)
-
-		return nil
-	default:
-		return errInvalidDuration
-	}
-}
-
-// loadCheckerConfigs loads all checker configurations from the config directory.
 func (s *Server) loadCheckerConfigs() error {
 	files, err := os.ReadDir(s.configDir)
 	if err != nil {
@@ -442,20 +350,20 @@ func (s *Server) loadCheckerConfigs() error {
 			continue
 		}
 
-		// Special handling for SNMP config
 		if strings.HasPrefix(file.Name(), "snmp") {
 			var conf CheckerConfig
+
 			conf.Name = "snmp-" + strings.TrimSuffix(file.Name(), ".json")
 			conf.Type = "snmp"
-			conf.Additional = data // Use the entire file as Additional
+			conf.Additional = data
 
 			s.checkerConfs[conf.Name] = conf
+
 			log.Printf("Loaded SNMP checker config: %s", conf.Name)
 
 			continue
 		}
 
-		// Handle other configs normally
 		var conf CheckerConfig
 		if err := json.Unmarshal(data, &conf); err != nil {
 			log.Printf("Warning: Failed to parse config file %s: %v", path, err)
@@ -464,22 +372,20 @@ func (s *Server) loadCheckerConfigs() error {
 		}
 
 		s.checkerConfs[conf.Name] = conf
+
 		log.Printf("Loaded checker config: %s (type: %s)", conf.Name, conf.Type)
 	}
 
 	return nil
 }
 
-// getSweepStatus handles status requests specifically for the sweep service.
 func (s *Server) getSweepStatus(ctx context.Context) (*proto.StatusResponse, error) {
-	// Find sweep service among registered services
 	for _, svc := range s.services {
 		if provider, ok := svc.(SweepStatusProvider); ok {
 			return provider.GetStatus(ctx)
 		}
 	}
 
-	// Return a response indicating sweep service is not configured
 	return &proto.StatusResponse{
 		Available:   false,
 		Message:     "Sweep service not configured",
@@ -493,35 +399,26 @@ func (s *Server) getChecker(ctx context.Context, req *proto.StatusRequest) (chec
 	defer s.mu.Unlock()
 
 	log.Printf("Getting checker for request - Type: %s, Name: %s, Details: %s",
-		req.GetServiceType(),
-		req.GetServiceName(),
-		req.GetDetails())
+		req.GetServiceType(), req.GetServiceName(), req.GetDetails())
 
 	key := fmt.Sprintf("%s:%s:%s", req.GetServiceType(), req.GetServiceName(), req.GetDetails())
-
-	// Return existing checker if available
 	if check, exists := s.checkers[key]; exists {
 		return check, nil
 	}
 
-	// Use the details from the request
 	details := req.GetDetails()
-
 	log.Printf("Creating new checker with details: %s", details)
 
-	// Create new checker using registry
 	check, err := s.registry.Get(ctx, req.ServiceType, req.ServiceName, details)
 	if err != nil {
 		return nil, err
 	}
 
-	// Cache the checker
 	s.checkers[key] = check
 
 	return check, nil
 }
 
-// ListServices returns a list of configured services.
 func (s *Server) ListServices() []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -534,10 +431,10 @@ func (s *Server) ListServices() []string {
 	return services
 }
 
-// Close performs final cleanup.
 func (s *Server) Close(ctx context.Context) error {
 	if err := s.Stop(ctx); err != nil {
 		log.Printf("Error during stop: %v", err)
+
 		return err
 	}
 

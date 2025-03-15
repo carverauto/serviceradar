@@ -41,10 +41,9 @@ const (
 	grpcRetries       = 3
 )
 
-// SNMPChecker implements the checker.Checker interface for SNMP monitoring.
 type SNMPChecker struct {
 	config      *snmp.Config
-	client      *grpc.ClientConn
+	client      *grpc.Client // Updated to use grpc.Client
 	agentClient proto.AgentServiceClient
 	interval    time.Duration
 	mu          sync.RWMutex
@@ -52,11 +51,9 @@ type SNMPChecker struct {
 	done        chan struct{}
 }
 
-// NewSNMPChecker creates a new SNMP checker that connects to an external SNMP checker process.
 func NewSNMPChecker(ctx context.Context, address string) (checker.Checker, error) {
 	log.Printf("Creating new SNMP checker client for address: %s", address)
 
-	// Load configuration
 	configPath := filepath.Join(defaultConfigPath, "snmp.json")
 	if _, err := os.Stat(configPath); err != nil {
 		return nil, fmt.Errorf("config file error: %w", err)
@@ -67,31 +64,33 @@ func NewSNMPChecker(ctx context.Context, address string) (checker.Checker, error
 		return nil, fmt.Errorf("failed to load SNMP config: %w", err)
 	}
 
-	// Create connection config for SNMP checker
-	connConfig := &grpc.ConnectionConfig{
-		Address: address,
-		Security: models.SecurityConfig{
-			Mode:       "mtls",
-			CertDir:    "/etc/serviceradar/certs",
-			ServerName: strings.Split(address, ":")[0], // Use hostname part
-			Role:       "agent",
-		},
+	// Use ClientConfig instead of ConnectionConfig
+	clientCfg := grpc.ClientConfig{
+		Address:    address,
+		MaxRetries: grpcRetries,
 	}
 
-	// Create gRPC client connection to the SNMP checker process
-	client, err := grpc.NewClient(
-		ctx,
-		connConfig,
-		grpc.WithMaxRetries(grpcRetries),
-	)
+	security := models.SecurityConfig{
+		Mode:       "mtls",
+		CertDir:    "/etc/serviceradar/certs",
+		ServerName: strings.Split(address, ":")[0],
+		Role:       "agent",
+	}
+
+	provider, err := grpc.NewSecurityProvider(ctx, &security)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create security provider: %w", err)
+	}
+
+	clientCfg.SecurityProvider = provider
+
+	client, err := grpc.NewClient(ctx, clientCfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create gRPC client: %w", err)
 	}
 
-	// Create agent service client
 	agentClient := proto.NewAgentServiceClient(client.GetConnection())
 
-	// Create checker instance
 	c := &SNMPChecker{
 		config:      &cfg,
 		client:      client,
@@ -103,32 +102,27 @@ func NewSNMPChecker(ctx context.Context, address string) (checker.Checker, error
 	return c, nil
 }
 
-// Check implements the checker.Checker interface.
 func (c *SNMPChecker) Check(ctx context.Context) (available bool, msg string) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	// Create check request
 	req := &proto.StatusRequest{
 		ServiceType: "snmp",
 		ServiceName: "snmp",
 	}
 
-	// Get status through agent service
 	resp, err := c.agentClient.GetStatus(ctx, req)
 	if err != nil {
 		log.Printf("Failed to get SNMP status: %v", err)
-
 		return false, fmt.Sprintf("Failed to get status: %v", err)
 	}
 
 	return resp.Available, resp.Message
 }
 
-// Start begins health checking of the SNMP service.
 func (c *SNMPChecker) Start(ctx context.Context) error {
-	// Start health checking loop
 	c.wg.Add(1)
+
 	go c.healthCheckLoop(ctx)
 
 	log.Printf("Started SNMP checker monitoring")
@@ -136,18 +130,13 @@ func (c *SNMPChecker) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop gracefully shuts down the checker.
 func (c *SNMPChecker) Stop(ctx context.Context) error {
 	log.Printf("Stopping SNMP checker...")
-
-	// Signal health check loop to stop
 	close(c.done)
 
-	// Wait for health checking to complete with timeout
 	done := make(chan struct{})
 	go func() {
 		c.wg.Wait()
-
 		close(done)
 	}()
 
@@ -158,7 +147,6 @@ func (c *SNMPChecker) Stop(ctx context.Context) error {
 		return fmt.Errorf("timeout waiting for SNMP checker to stop: %w", ctx.Err())
 	}
 
-	// Close gRPC client
 	if err := c.client.Close(); err != nil {
 		return fmt.Errorf("failed to close gRPC client: %w", err)
 	}
@@ -166,14 +154,12 @@ func (c *SNMPChecker) Stop(ctx context.Context) error {
 	return nil
 }
 
-// healthCheckLoop runs the main health checking loop.
 func (c *SNMPChecker) healthCheckLoop(ctx context.Context) {
 	defer c.wg.Done()
 
 	ticker := time.NewTicker(c.interval)
 	defer ticker.Stop()
 
-	// Do initial health check
 	if err := c.checkHealth(ctx); err != nil {
 		log.Printf("Initial SNMP health check failed: %v", err)
 	}
@@ -194,13 +180,10 @@ func (c *SNMPChecker) healthCheckLoop(ctx context.Context) {
 	}
 }
 
-// checkHealth performs a single health check.
 func (c *SNMPChecker) checkHealth(ctx context.Context) error {
-	// Create timeout context for this check
 	checkCtx, cancel := context.WithTimeout(ctx, time.Duration(c.config.Timeout))
 	defer cancel()
 
-	// Check if the SNMP service is healthy
 	healthy, err := c.client.CheckHealth(checkCtx, "")
 	if err != nil {
 		return fmt.Errorf("health check failed: %w", err)
