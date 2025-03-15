@@ -28,10 +28,14 @@ type NetworkSweeper struct {
 	lastSweep   time.Time
 }
 
+var (
+	errNilConfig = fmt.Errorf("config cannot be nil")
+)
+
 // NewNetworkSweeper creates a new scanner for network sweeping.
 func NewNetworkSweeper(config *models.Config, store Store, processor ResultProcessor) (*NetworkSweeper, error) {
 	if config == nil {
-		return nil, fmt.Errorf("config cannot be nil")
+		return nil, errNilConfig
 	}
 
 	// Initialize scanners
@@ -39,6 +43,7 @@ func NewNetworkSweeper(config *models.Config, store Store, processor ResultProce
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ICMP scanner: %w", err)
 	}
+
 	tcpScanner := scan.NewTCPSweeper(config.Timeout, config.Concurrency)
 
 	// Default interval if not set
@@ -61,9 +66,6 @@ func NewNetworkSweeper(config *models.Config, store Store, processor ResultProce
 // Start begins periodic sweeping based on configuration.
 func (s *NetworkSweeper) Start(ctx context.Context) error {
 	log.Printf("Starting network sweeper with interval %v", s.config.Interval)
-
-	// Run initial sweep with a timeout
-	log.Printf("Running initial sweep...")
 
 	initialCtx, initialCancel := context.WithTimeout(ctx, scanTimeout)
 	if err := s.runSweep(initialCtx); err != nil {
@@ -115,7 +117,7 @@ func (s *NetworkSweeper) Start(ctx context.Context) error {
 	}
 }
 
-// scanAndProcess runs a scan and processes its results
+// scanAndProcess runs a scan and processes its results.
 func (s *NetworkSweeper) scanAndProcess(ctx context.Context, wg *sync.WaitGroup,
 	scanner scan.Scanner, targets []models.Target, scanType string) error {
 	defer wg.Done()
@@ -125,26 +127,31 @@ func (s *NetworkSweeper) scanAndProcess(ctx context.Context, wg *sync.WaitGroup,
 	results, err := scanner.Scan(ctx, targets)
 	if err != nil {
 		log.Printf("%s scan failed: %v", scanType, err)
+
 		return err
 	}
 
 	count := 0
 	success := 0
+
 	for result := range results {
 		count++
+
 		if err := s.processResult(ctx, &result); err != nil {
 			log.Printf("Failed to process %s result: %v", scanType, err)
 			continue
 		}
+
 		if result.Available {
 			success++
 		}
 	}
+
 	log.Printf("%s scan complete: %d results, %d successful", scanType, count, success)
+
 	return nil
 }
 
-// Modified runSweep
 func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 	targets, err := s.generateTargets()
 	if err != nil {
@@ -152,6 +159,7 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 	}
 
 	var icmpTargets, tcpTargets []models.Target
+
 	for _, t := range targets {
 		switch t.Mode {
 		case models.ModeICMP:
@@ -165,10 +173,12 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 		len(icmpTargets), len(tcpTargets))
 
 	var wg sync.WaitGroup
+
 	var icmpErr, tcpErr error
 
 	if len(icmpTargets) > 0 {
 		wg.Add(1)
+
 		go func() {
 			icmpErr = s.scanAndProcess(ctx, &wg, s.icmpScanner, icmpTargets, "ICMP")
 		}()
@@ -176,6 +186,7 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 
 	if len(tcpTargets) > 0 {
 		wg.Add(1)
+
 		go func() {
 			tcpErr = s.scanAndProcess(ctx, &wg, s.tcpScanner, tcpTargets, "TCP")
 		}()

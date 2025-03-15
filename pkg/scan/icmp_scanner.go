@@ -2,6 +2,7 @@ package scan
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -230,6 +231,7 @@ func (s *ICMPSweeper) sendPingToTarget(target models.Target, data []byte) {
 	ipAddr := net.ParseIP(target.Host)
 	if ipAddr == nil || ipAddr.To4() == nil {
 		log.Printf("Invalid IPv4 address: %s", target.Host)
+
 		return
 	}
 
@@ -260,6 +262,11 @@ func (s *ICMPSweeper) recordInitialResult(target models.Target) {
 	fmt.Println(s.results[target.Host])
 }
 
+const (
+	defaultBytesRead    = 1500
+	defaultReadDeadline = 100 * time.Millisecond
+)
+
 // listenForReplies listens for and processes ICMP echo replies
 func (s *ICMPSweeper) listenForReplies(ctx context.Context, targets []models.Target) {
 	targetMap := make(map[string]struct{})
@@ -267,8 +274,8 @@ func (s *ICMPSweeper) listenForReplies(ctx context.Context, targets []models.Tar
 		targetMap[t.Host] = struct{}{}
 	}
 
-	buf := make([]byte, 1500)
-	const readDeadline = 100 * time.Millisecond
+	buf := make([]byte, defaultBytesRead)
+	const readDeadline = defaultReadDeadline
 
 	for {
 		if ctx.Err() != nil {
@@ -277,6 +284,7 @@ func (s *ICMPSweeper) listenForReplies(ctx context.Context, targets []models.Tar
 
 		if err := s.conn.SetReadDeadline(time.Now().Add(readDeadline)); err != nil {
 			log.Printf("Error setting read deadline: %v", err)
+
 			continue
 		}
 
@@ -291,7 +299,7 @@ func (s *ICMPSweeper) listenForReplies(ctx context.Context, targets []models.Tar
 	}
 }
 
-// readReply reads an ICMP reply from the connection
+// readReply reads an ICMP reply from the connection.
 func (s *ICMPSweeper) readReply(buf []byte) (reply struct {
 	n    int
 	addr net.Addr
@@ -299,10 +307,13 @@ func (s *ICMPSweeper) readReply(buf []byte) (reply struct {
 }, err error) {
 	n, addr, err := s.conn.ReadFrom(buf)
 	if err != nil {
-		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+		var netErr net.Error
+		if errors.As(err, &netErr) && netErr.Timeout() {
 			return reply, nil // Timeout is not an error in this context
 		}
+
 		log.Printf("Error reading ICMP reply: %v", err)
+
 		return reply, err
 	}
 	return struct {
@@ -312,7 +323,7 @@ func (s *ICMPSweeper) readReply(buf []byte) (reply struct {
 	}{n, addr, buf[:n]}, nil
 }
 
-// processReply processes a valid ICMP reply
+// processReply processes a valid ICMP reply.
 func (s *ICMPSweeper) processReply(reply struct {
 	n    int
 	addr net.Addr
@@ -329,6 +340,7 @@ func (s *ICMPSweeper) processReply(reply struct {
 	msg, err := icmp.ParseMessage(1, reply.data)
 	if err != nil {
 		log.Printf("Error parsing ICMP message from %s: %v", ip, err)
+
 		return err
 	}
 
@@ -341,6 +353,7 @@ func (s *ICMPSweeper) processReply(reply struct {
 	// Update the result
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	if result, ok := s.results[ip]; ok {
 		result.Available = true
 		result.RespTime = time.Since(result.FirstSeen)
@@ -352,7 +365,7 @@ func (s *ICMPSweeper) processReply(reply struct {
 	return nil
 }
 
-// processResults sends final results to the result channel
+// processResults sends final results to the result channel.
 func (s *ICMPSweeper) processResults(targets []models.Target, ch chan<- models.Result) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -374,32 +387,44 @@ func (s *ICMPSweeper) processResults(targets []models.Target, ch chan<- models.R
 	}
 }
 
-// Stop stops the scanner and releases resources
-func (s *ICMPSweeper) Stop(ctx context.Context) error {
+// Stop stops the scanner and releases resources.
+func (s *ICMPSweeper) Stop(_ context.Context) error {
 	if s.cancel != nil {
 		s.cancel()
 	}
 
 	// Close the connection and socket
 	if s.conn != nil {
-		s.conn.Close()
+		err := s.conn.Close()
+		if err != nil {
+			log.Printf("Error closing ICMP connection: %v", err)
+
+			return err
+		}
 	}
 
 	if s.rawSocketFD != 0 {
-		syscall.Close(s.rawSocketFD)
+		err := syscall.Close(s.rawSocketFD)
+		if err != nil {
+			log.Printf("Error closing raw socket: %v", err)
+
+			return err
+		}
 		s.rawSocketFD = 0
 	}
 
 	return nil
 }
 
-// filterICMPTargets filters only ICMP targets from the given slice
+// filterICMPTargets filters only ICMP targets from the given slice.
 func filterICMPTargets(targets []models.Target) []models.Target {
 	var filtered []models.Target
+
 	for _, t := range targets {
 		if t.Mode == models.ModeICMP {
 			filtered = append(filtered, t)
 		}
 	}
+
 	return filtered
 }

@@ -24,7 +24,7 @@ func NewICMPChecker(host string) (*ICMPChecker, error) {
 	return &ICMPChecker{Host: host, scanner: scanner}, nil
 }
 
-func (p *ICMPChecker) Check(ctx context.Context) (bool, string) {
+func (p *ICMPChecker) Check(ctx context.Context) (isAccessible bool, statusMsg string) {
 	target := models.Target{Host: p.Host, Mode: models.ModeICMP}
 
 	resultChan, err := p.scanner.Scan(ctx, []models.Target{target})
