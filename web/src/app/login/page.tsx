@@ -39,6 +39,7 @@ export default function LoginPage() {
         try {
             await login(username, password);
         } catch (err) {
+            console.log(err);
             setError('Login failed. Please check your credentials.');
         }
     };
