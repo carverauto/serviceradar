@@ -19,6 +19,8 @@ package db
 
 import (
 	"time"
+
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 //go:generate mockgen -destination=mock_db.go -package=db github.com/carverauto/serviceradar/pkg/db Row,Result,Rows,Transaction,Service
@@ -93,4 +95,9 @@ type Service interface {
 	StoreMetric(nodeID string, metric *TimeseriesMetric) error
 	GetMetrics(nodeID, metricName string, start, end time.Time) ([]TimeseriesMetric, error)
 	GetMetricsByType(nodeID, metricType string, start, end time.Time) ([]TimeseriesMetric, error)
+
+	// Auth
+
+	StoreUser(user *models.User) error
+	GetUserByID(id string) (*models.User, error)
 }

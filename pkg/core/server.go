@@ -30,6 +30,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/checker/snmp"
 	"github.com/carverauto/serviceradar/pkg/core/alerts"
 	"github.com/carverauto/serviceradar/pkg/core/api"
+	"github.com/carverauto/serviceradar/pkg/core/auth"
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/metrics"
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -83,6 +84,26 @@ func NewServer(_ context.Context, config *Config) (*Server, error) {
 		return nil, fmt.Errorf("%w: %w", errDatabaseError, err)
 	}
 
+	authConfig := &models.AuthConfig{
+		JWTSecret:     os.Getenv("JWT_SECRET"),
+		JWTExpiration: 24 * time.Hour,
+		CallbackURL:   os.Getenv("AUTH_CALLBACK_URL"), // e.g., "http://localhost:8080/auth"
+		LocalUsers: map[string]string{
+			"admin": os.Getenv("ADMIN_PASSWORD_HASH"), // Pre-hashed with bcrypt
+		},
+		SSOProviders: map[string]models.SSOConfig{
+			"google": {
+				ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
+				ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
+				Scopes:       []string{"email", "profile"},
+			},
+		},
+	}
+
+	if authConfig.JWTSecret == "" {
+		return nil, errJWTSecretRequired
+	}
+
 	server := &Server{
 		db:             database,
 		alertThreshold: config.AlertThreshold,
@@ -92,6 +113,7 @@ func NewServer(_ context.Context, config *Config) (*Server, error) {
 		metrics:        metricsManager,
 		snmpManager:    snmp.NewSNMPManager(database),
 		config:         config,
+		authService:    auth.NewAuth(authConfig, database),
 	}
 
 	// Initialize webhooks
@@ -114,7 +136,6 @@ func (s *Server) initializeWebhooks(configs []alerts.WebhookConfig) {
 }
 
 // Start implements the lifecycle.Service interface.
-
 func (s *Server) Start(ctx context.Context) error {
 	log.Printf("Starting core service...")
 

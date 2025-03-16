@@ -13,6 +13,7 @@ import (
 	reflect "reflect"
 	time "time"
 
+	models "github.com/carverauto/serviceradar/pkg/models"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -499,6 +500,21 @@ func (mr *MockServiceMockRecorder) GetServiceHistory(nodeID, serviceName, limit 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetServiceHistory", reflect.TypeOf((*MockService)(nil).GetServiceHistory), nodeID, serviceName, limit)
 }
 
+// GetUserByID mocks base method.
+func (m *MockService) GetUserByID(id string) (*models.User, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetUserByID", id)
+	ret0, _ := ret[0].(*models.User)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetUserByID indicates an expected call of GetUserByID.
+func (mr *MockServiceMockRecorder) GetUserByID(id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUserByID", reflect.TypeOf((*MockService)(nil).GetUserByID), id)
+}
+
 // IsNodeOffline mocks base method.
 func (m *MockService) IsNodeOffline(nodeID string, threshold time.Duration) (bool, error) {
 	m.ctrl.T.Helper()
@@ -565,6 +581,20 @@ func (m *MockService) StoreMetric(nodeID string, metric *TimeseriesMetric) error
 func (mr *MockServiceMockRecorder) StoreMetric(nodeID, metric any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreMetric", reflect.TypeOf((*MockService)(nil).StoreMetric), nodeID, metric)
+}
+
+// StoreUser mocks base method.
+func (m *MockService) StoreUser(user *models.User) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "StoreUser", user)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// StoreUser indicates an expected call of StoreUser.
+func (mr *MockServiceMockRecorder) StoreUser(user any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreUser", reflect.TypeOf((*MockService)(nil).StoreUser), user)
 }
 
 // UpdateNodeStatus mocks base method.
