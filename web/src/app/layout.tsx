@@ -14,12 +14,11 @@
  * limitations under the License.
  */
 
-// app/layout.tsx
+// src/app/layout.tsx
 import './globals.css';
 import { Inter } from 'next/font/google';
 import { Providers } from './providers';
-import { ReactNode } from 'react';
-import { PublicEnvScript } from 'next-runtime-env';
+import { AuthProvider } from '@/components/AuthProvider';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -28,15 +27,10 @@ export const metadata = {
     description: 'Monitor your network services',
 };
 
-interface RootLayoutProps {
-    children: ReactNode;
-}
-
-export default function RootLayout({ children }: RootLayoutProps) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
     return (
         <html lang="en" suppressHydrationWarning>
         <head>
-            <PublicEnvScript />
             <link rel="icon" type="image/png" sizes="32x32" href="/favicons/favicon-32x32.png" />
             <link rel="icon" type="image/png" sizes="16x16" href="/favicons/favicon-16x16.png" />
             <link rel="shortcut icon" href="/favicons/favicon.ico" />
@@ -44,9 +38,11 @@ export default function RootLayout({ children }: RootLayoutProps) {
             <link rel="manifest" href="/favicons/site.webmanifest" />
         </head>
         <body className={inter.className}>
-        <Providers>
-            {children}
-        </Providers>
+        <AuthProvider>
+            <Providers>
+                {children}
+            </Providers>
+        </AuthProvider>
         </body>
         </html>
     );

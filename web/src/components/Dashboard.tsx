@@ -14,21 +14,22 @@
  * limitations under the License.
  */
 
-// src/components/Dashboard.jsx - Client Component
+// src/components/Dashboard.tsx - Client Component
 'use client';
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { CircleDot, Server, Rss, ArrowRight, Clock, Monitor, Activity } from 'lucide-react';
 import Link from 'next/link';
+import { SystemStatus } from '@/types';
 
-function Dashboard({ initialData = null }) {
+function Dashboard({ initialData }: { initialData: SystemStatus | null }) {
     const router = useRouter();
-    const [data, setData] = useState(initialData);
+    const [data] = useState<SystemStatus | null>(initialData);
     const [stats, setStats] = useState({
         totalServices: 0,
         offlineServices: 0,
-        responseTime: 0
+        responseTime: 0,
     });
 
     useEffect(() => {
@@ -36,7 +37,7 @@ function Dashboard({ initialData = null }) {
             setStats({
                 totalServices: initialData.service_stats.total_services || 0,
                 offlineServices: initialData.service_stats.offline_services || 0,
-                responseTime: initialData.service_stats.avg_response_time || 0
+                responseTime: initialData.service_stats.avg_response_time || 0,
             });
         }
     }, [initialData]);
@@ -45,7 +46,7 @@ function Dashboard({ initialData = null }) {
         router.push('/nodes');
     };
 
-    if (!initialData) {
+    if (!data) {
         return (
             <div className="bg-red-50 dark:bg-red-900 p-4 rounded-lg text-red-600 dark:text-red-200">
                 <h3 className="font-bold mb-2">Error Loading Dashboard</h3>
@@ -55,8 +56,8 @@ function Dashboard({ initialData = null }) {
     }
 
     // Calculate percentage of healthy nodes
-    const healthPercentage = initialData.total_nodes > 0
-        ? Math.round((initialData.healthy_nodes / initialData.total_nodes) * 100)
+    const healthPercentage = data.total_nodes > 0
+        ? Math.round((data.healthy_nodes / data.total_nodes) * 100)
         : 0;
 
     // Calculate percentage of available services
@@ -71,8 +72,8 @@ function Dashboard({ initialData = null }) {
                 <div className="p-6 pb-0">
                     <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100 mb-2">System Status</h2>
                     <p className="text-sm text-gray-600 dark:text-gray-400">
-                        Last updated: {initialData.last_update
-                        ? new Date(initialData.last_update).toLocaleString()
+                        Last updated: {data.last_update
+                        ? new Date(data.last_update).toLocaleString()
                         : 'N/A'}
                     </p>
                 </div>
@@ -110,12 +111,12 @@ function Dashboard({ initialData = null }) {
                         </h3>
                         <div className="flex items-center">
                             <p className="text-2xl font-bold text-gray-700 dark:text-gray-100 mr-2">
-                                {initialData.total_nodes || 0}
+                                {data.total_nodes || 0}
                             </p>
                             <ArrowRight className="h-4 w-4 text-gray-400 dark:text-gray-500 group-hover:transform group-hover:translate-x-1 transition-transform" />
                         </div>
                         <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                            {initialData.healthy_nodes || 0} healthy
+                            {data.healthy_nodes || 0} healthy
                         </p>
                     </div>
                 </div>
@@ -125,20 +126,25 @@ function Dashboard({ initialData = null }) {
                     <div className="p-3 rounded-full bg-purple-100 dark:bg-purple-900 mr-4">
                         <Activity className="h-6 w-6 text-purple-600 dark:text-purple-300" />
                     </div>
-                    <div>
+                    <div className="flex-1">
                         <h3 className="font-bold text-gray-800 dark:text-gray-100">
                             Services
                         </h3>
-                        <p className="text-2xl font-bold text-gray-700 dark:text-gray-100">
-                            {stats.totalServices || 0}
-                        </p>
+                        <div className="flex items-center justify-between">
+                            <p className="text-2xl font-bold text-gray-700 dark:text-gray-100">
+                                {stats.totalServices || 0}
+                            </p>
+                            <span className={`text-sm font-medium ${serviceHealthPercentage > 80 ? 'text-green-600 dark:text-green-400' : serviceHealthPercentage > 50 ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'}`}>
+                                {serviceHealthPercentage}%
+                            </span>
+                        </div>
                         <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
                             {stats.offlineServices || 0} offline
                         </p>
                     </div>
                 </div>
 
-                {/* Card 3 - Last Update */}
+                {/* Card 3 - Response Time */}
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 transition-colors flex items-center">
                     <div className="p-3 rounded-full bg-green-100 dark:bg-green-900 mr-4">
                         <Rss className="h-6 w-6 text-green-600 dark:text-green-300" />
