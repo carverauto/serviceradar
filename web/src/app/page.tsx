@@ -14,70 +14,22 @@
  * limitations under the License.
  */
 
-// src/app/page.tsx (Server Component)
+// src/app/page.tsx (server-side)
 import { Suspense } from 'react';
-import Dashboard from '../components/Dashboard';
-import { env } from 'next-runtime-env';
+import DashboardWrapper from '@/components/DashboardWrapper';
+import { fetchFromAPI } from '@/lib/api';
+import { SystemStatus, ServiceDetails, Service, Node } from '@/types';
 import { unstable_noStore as noStore } from 'next/cache';
 
-interface ServiceDetails {
-    response_time?: number;
-    packet_loss?: number;
-    available?: boolean;
-    round_trip?: number;
-    [key: string]: unknown;
-}
-
-interface Service {
-    name: string;
-    type: string;
-    available: boolean;
-    details?: ServiceDetails | string;
-}
-
-interface Node {
-    node_id: string;
-    is_healthy: boolean;
-    last_update: string;
-    services?: Service[];
-}
-
-// This runs only on the server
-async function fetchStatus() {
+async function fetchStatus(token?: string): Promise<SystemStatus | null> {
     noStore();
 
     try {
-        // Direct server-to-server call with API key
-        const backendUrl = env('NEXT_PUBLIC_BACKEND_URL') || 'http://localhost:8090';
-        const apiKey = env('API_KEY') || '';
+        const statusData = await fetchFromAPI<SystemStatus>('/status', token);
+        if (!statusData) throw new Error('Failed to fetch status');
 
-        // Fetch basic status
-        const response = await fetch(`${backendUrl}/api/status`, {
-            headers: {
-                'X-API-Key': apiKey
-            },
-            cache: 'no-store' // For fresh data on each request
-        });
-
-        if (!response.ok) {
-            throw new Error(`Status API request failed: ${response.status}`);
-        }
-
-        const statusData = await response.json();
-
-        // Fetch all nodes to calculate service stats
-        const nodesResponse = await fetch(`${backendUrl}/api/nodes`, {
-            headers: {
-                'X-API-Key': apiKey
-            },
-            cache: 'no-store'
-        });
-
-        if (!nodesResponse.ok) {
-            throw new Error(`Nodes API request failed: ${nodesResponse.status}`);
-        }
-
-        const nodesData: Node[] = await nodesResponse.json();
+        const nodesData = await fetchFromAPI<Node[]>('/nodes', token);
+        if (!nodesData) throw new Error('Failed to fetch nodes');
 
         // Calculate service statistics
         let totalServices = 0;
@@ -94,12 +46,11 @@ async function fetchStatus() {
                         offlineServices++;
                     }
 
-                    // For ICMP services, collect response time data
                     if (service.type === 'icmp' && service.details) {
                         try {
                             const details = typeof service.details === 'string'
                                 ? JSON.parse(service.details)
-                                : service.details;
+                                : service.details as ServiceDetails;
 
                             if (details && details.response_time) {
                                 totalResponseTime += details.response_time;
@@ -113,19 +64,17 @@ async function fetchStatus() {
             }
         });
 
-        // Calculate average response time
         const avgResponseTime = servicesWithResponseTime > 0
             ? totalResponseTime / servicesWithResponseTime
             : 0;
 
-        // Add service stats to the data
         return {
             ...statusData,
             service_stats: {
                 total_services: totalServices,
                 offline_services: offlineServices,
-                avg_response_time: avgResponseTime
-            }
+                avg_response_time: avgResponseTime,
+            },
         };
     } catch (error) {
         console.error('Error fetching status:', error);
@@ -133,17 +82,15 @@ async function fetchStatus() {
     }
 }
 
-// Server Component
 export default async function HomePage() {
-    // Data fetching happens server-side
-    const initialData = await fetchStatus();
+    // Fetch initial data server-side without token (rely on middleware for API key)
+    const initialData: SystemStatus | null = await fetchStatus();
 
     return (
         <div>
             <h1 className="text-2xl font-bold mb-6">Dashboard</h1>
             <Suspense fallback={<div>Loading dashboard...</div>}>
-                {/* Pass pre-fetched data to client component */}
-                <Dashboard initialData={initialData} />
+                <DashboardWrapper initialData={initialData} />
             </Suspense>
         </div>
     );

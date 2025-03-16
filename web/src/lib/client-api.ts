@@ -14,13 +14,16 @@
  * limitations under the License.
  */
 
-// src/lib/api.js - improved version with caching
+// src/lib/client-api.ts - client-side utilities with caching and TypeScript
+'use client';
+
 import { useState, useEffect, useRef } from "react";
-import { env } from 'next-runtime-env';
+import { SystemStatus } from '@/types';
+import { CacheableData } from './api'; // Import from server-side api.ts
 
 // Cache store
-const apiCache = new Map();
-const pendingRequests = new Map();
+const apiCache = new Map<string, { data: CacheableData; timestamp: number }>();
+const pendingRequests = new Map<string, Promise<CacheableData>>();
 
 // Cache expiration time (in milliseconds)
 const CACHE_EXPIRY = 5000; // 5 seconds
@@ -28,9 +31,14 @@ const CACHE_EXPIRY = 5000; // 5 seconds
 /**
  * Client-side fetching with caching
  */
-export function useAPIData(endpoint, initialData, refreshInterval = 10000) {
-    const [data, setData] = useState(initialData);
-    const [error, setError] = useState(null);
+export function useAPIData(
+    endpoint: string,
+    initialData: SystemStatus | null,
+    token?: string,
+    refreshInterval = 10000
+) {
+    const [data, setData] = useState<SystemStatus | null>(initialData);
+    const [error, setError] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(!initialData);
 
     // To track if the component is still mounted
@@ -43,23 +51,24 @@ export function useAPIData(endpoint, initialData, refreshInterval = 10000) {
 
     useEffect(() => {
         const apiUrl = endpoint.startsWith('/api/') ? endpoint : `/api/${endpoint}`;
-        let intervalId;
+        let intervalId: NodeJS.Timeout;
 
         const fetchData = async () => {
             if (!isMounted.current) return;
 
             try {
                 setIsLoading(true);
-                const result = await fetchWithCache(apiUrl);
+                const result = await fetchWithCache(apiUrl, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
 
                 if (isMounted.current) {
-                    setData(result);
+                    // Type assertion since useAPIData is specifically for SystemStatus
+                    setData(result as SystemStatus);
                     setIsLoading(false);
                 }
             } catch (err) {
                 if (isMounted.current) {
                     console.error(`Error fetching ${apiUrl}:`, err);
-                    setError(err.message);
+                    setError((err as Error).message);
                     setIsLoading(false);
                 }
             }
@@ -68,7 +77,7 @@ export function useAPIData(endpoint, initialData, refreshInterval = 10000) {
         // Initial fetch
         fetchData();
 
-        // Set up polling with a more reasonable interval
+        // Set up polling
         if (refreshInterval) {
             intervalId = setInterval(fetchData, refreshInterval);
         }
@@ -76,7 +85,7 @@ export function useAPIData(endpoint, initialData, refreshInterval = 10000) {
         return () => {
             if (intervalId) clearInterval(intervalId);
         };
-    }, [endpoint, refreshInterval]);
+    }, [endpoint, refreshInterval, token]);
 
     return { data, error, isLoading };
 }
@@ -84,19 +93,19 @@ export function useAPIData(endpoint, initialData, refreshInterval = 10000) {
 /**
  * Fetch with caching and request deduplication
  */
-export async function fetchWithCache(endpoint, options = {}) {
+export async function fetchWithCache(endpoint: string, options: RequestInit = {}): Promise<SystemStatus> {
     const apiUrl = endpoint.startsWith('/api/') ? endpoint : `/api/${endpoint}`;
     const cacheKey = `${apiUrl}-${JSON.stringify(options)}`;
 
     // Check if we have a cached response that's still valid
     const cachedData = apiCache.get(cacheKey);
     if (cachedData && cachedData.timestamp > Date.now() - CACHE_EXPIRY) {
-        return cachedData.data;
+        return cachedData.data as SystemStatus; // Type assertion for specific use case
     }
 
     // Check if we already have a pending request for this URL
     if (pendingRequests.has(cacheKey)) {
-        return pendingRequests.get(cacheKey);
+        return pendingRequests.get(cacheKey)! as Promise<SystemStatus>;
     }
 
     // Create a new request and store it
@@ -105,7 +114,7 @@ export async function fetchWithCache(endpoint, options = {}) {
             // Store in cache
             apiCache.set(cacheKey, {
                 data,
-                timestamp: Date.now()
+                timestamp: Date.now(),
             });
             // Remove from pending requests
             pendingRequests.delete(cacheKey);
@@ -118,31 +127,31 @@ export async function fetchWithCache(endpoint, options = {}) {
         });
 
     // Store the pending request
-    pendingRequests.set(cacheKey, fetchPromise);
+    pendingRequests.set(cacheKey, fetchPromise as Promise<CacheableData>);
 
     return fetchPromise;
 }
 
 /**
- * Simple fetch with API key
+ * Simple fetch with API key and optional token
  */
-export async function fetchAPI(endpoint, customOptions = {}) {
+export async function fetchAPI(endpoint: string, customOptions: RequestInit = {}): Promise<SystemStatus> {
     const apiUrl = endpoint.startsWith('/api/') ? endpoint : `/api/${endpoint}`;
 
-    const defaultOptions = {
+    const defaultOptions: RequestInit = {
         headers: {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
         },
-        cache: 'no-store'
+        cache: 'no-store' as RequestCache,
     };
 
-    const options = {
+    const options: RequestInit = {
         ...defaultOptions,
         ...customOptions,
         headers: {
             ...defaultOptions.headers,
-            ...(customOptions.headers || {})
-        }
+            ...(customOptions.headers || {}),
+        },
     };
 
     const response = await fetch(apiUrl, options);
@@ -155,27 +164,3 @@ export async function fetchAPI(endpoint, customOptions = {}) {
 
     return response.json();
 }
-
-/**
- * Server-side fetching for Next.js server components
- */
-export async function fetchFromAPI(endpoint) {
-    const apiKey = env('API_KEY');
-    const baseUrl = env('NEXT_PUBLIC_BACKEND_URL') || 'http://localhost:8090';
-    const apiUrl = endpoint.startsWith('/api/') ? endpoint : `/api/${endpoint}`;
-    const url = new URL(apiUrl, baseUrl).toString();
-
-    const response = await fetch(url, {
-        headers: {
-            'X-API-Key': apiKey
-        },
-        cache: 'no-store'
-    });
-
-    if (!response.ok) {
-        throw new Error(`API request failed: ${response.status}`);
-    }
-
-    return response.json();
-}
-
