@@ -1,5 +1,3 @@
-'use client';
-
 /*
  * Copyright 2025 Carver Automation Corporation.
  *
@@ -15,6 +13,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';

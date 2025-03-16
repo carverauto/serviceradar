@@ -19,31 +19,54 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { env } from 'next-runtime-env';
 
-export function middleware(request: NextRequest) {
-    // Only apply to api routes
-    if (request.nextUrl.pathname.startsWith('/api/')) {
-        // Get API key using next-runtime-env
-        const apiKey = env('API_KEY') || '';
+export async function middleware(request: NextRequest) {
+    const isAuthEnabled = process.env.NEXT_PUBLIC_AUTH_ENABLED === 'true';
+    const apiKey = env('API_KEY') || '';
 
-        // Clone the request headers
-        const requestHeaders = new Headers(request.headers);
+    // Clone the request headers
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set('X-API-Key', apiKey);
 
-        // Add the API key header
-        requestHeaders.set('X-API-Key', apiKey);
-
-        console.log(`[Middleware] Adding API key to request: ${request.nextUrl.pathname}`);
-
-        // Return a new response with the API key header
+    // Handle public paths (no auth required)
+    const publicPaths = ['/login', '/auth'];
+    if (publicPaths.some(path => request.nextUrl.pathname.startsWith(path))) {
         return NextResponse.next({
-            request: {
-                headers: requestHeaders,
-            },
+            request: { headers: requestHeaders },
         });
     }
 
-    return NextResponse.next();
+    // If auth is enabled, check for token
+    if (isAuthEnabled) {
+        const token = request.headers.get('Authorization')?.replace('Bearer ', '');
+        if (!token && !request.nextUrl.pathname.startsWith('/login')) {
+            return NextResponse.redirect(new URL('/login', request.url));
+        }
+
+        if (token) {
+            try {
+                const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/status`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'X-API-Key': apiKey,
+                    },
+                });
+
+                if (!response.ok) {
+                    return NextResponse.redirect(new URL('/login', request.url));
+                }
+            } catch (error) {
+                console.error('Token verification failed:', error);
+                return NextResponse.redirect(new URL('/login', request.url));
+            }
+        }
+    }
+
+    // Proceed with the request, ensuring API key is always included
+    return NextResponse.next({
+        request: { headers: requestHeaders },
+    });
 }
 
 export const config = {
-    matcher: '/api/:path*',
+    matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
 };
