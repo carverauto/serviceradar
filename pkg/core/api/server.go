@@ -82,27 +82,18 @@ func (s *APIServer) setupRoutes() {
 	s.router.HandleFunc("/auth/{provider}/callback", s.handleOAuthCallback).Methods("GET")
 
 	protected := s.router.PathPrefix("/api").Subrouter()
-	protected.Use(auth.AuthMiddleware(s.authService))
+	if os.Getenv("AUTH_ENABLED") == "true" {
+		protected.Use(auth.AuthMiddleware(s.authService))
+	}
 
 	protected.HandleFunc("/nodes", s.getNodes).Methods("GET")
-
-	// Basic endpoints
-	protected.HandleFunc("/api/nodes", s.getNodes).Methods("GET")
-	protected.HandleFunc("/api/nodes/{id}", s.getNode).Methods("GET")
-	protected.HandleFunc("/api/status", s.getSystemStatus).Methods("GET")
-
-	// Node history endpoint
-	protected.HandleFunc("/api/nodes/{id}/history", s.getNodeHistory).Methods("GET")
-
-	// Metrics endpoint
-	protected.HandleFunc("/api/nodes/{id}/metrics", s.getNodeMetrics).Methods("GET")
-
-	// Service-specific endpoints
-	protected.HandleFunc("/api/nodes/{id}/services", s.getNodeServices).Methods("GET")
-	protected.HandleFunc("/api/nodes/{id}/services/{service}", s.getServiceDetails).Methods("GET")
-
-	// SNMP endpoints
-	protected.HandleFunc("/api/nodes/{id}/snmp", s.getSNMPData).Methods("GET")
+	protected.HandleFunc("/nodes/{id}", s.getNode).Methods("GET")
+	protected.HandleFunc("/status", s.getSystemStatus).Methods("GET")
+	protected.HandleFunc("/nodes/{id}/history", s.getNodeHistory).Methods("GET")
+	protected.HandleFunc("/nodes/{id}/metrics", s.getNodeMetrics).Methods("GET")
+	protected.HandleFunc("/nodes/{id}/services", s.getNodeServices).Methods("GET")
+	protected.HandleFunc("/nodes/{id}/services/{service}", s.getServiceDetails).Methods("GET")
+	protected.HandleFunc("/nodes/{id}/snmp", s.getSNMPData).Methods("GET")
 }
 
 // getSNMPData retrieves SNMP data for a specific node.
