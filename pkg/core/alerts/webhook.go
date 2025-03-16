@@ -121,8 +121,9 @@ func NewWebhookAlerter(config WebhookConfig) *WebhookAlerter {
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
-		LastAlertTimes: make(map[AlertKey]time.Time),
-		NodeDownStates: make(map[string]bool),
+		LastAlertTimes:     make(map[AlertKey]time.Time),
+		NodeDownStates:     make(map[string]bool),
+		ServiceAlertStates: make(map[string]bool),
 		bufferPool: &sync.Pool{
 			New: func() interface{} {
 				return new(bytes.Buffer)
