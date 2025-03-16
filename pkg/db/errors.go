@@ -41,4 +41,8 @@ var (
 
 	ErrInvalidTransactionType = errors.New("invalid transaction type: expected *SQLTx")
 	ErrInvalidRowsType        = errors.New("invalid rows type: expected *SQLRows")
+
+	// Auth.
+
+	ErrUserNotFound = errors.New("user not found")
 )
