@@ -1,24 +1,9 @@
-/*
- * Copyright 2025 Carver Automation Corporation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 // src/components/AuthProvider.tsx
 'use client';
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { env } from 'next-runtime-env';
 
 interface AuthContextType {
     token: string | null;
@@ -36,13 +21,70 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const [token, setToken] = useState<string | null>(null);
     const [user, setUser] = useState<{ id: string; email: string; provider: string } | null>(null);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
-    const [isAuthEnabled, setIsAuthEnabled] = useState(false); // Toggle for auth requirement
+    const [isAuthEnabled, setIsAuthEnabled] = useState(false);
     const router = useRouter();
 
+    const logout = useCallback(() => {
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('refreshToken');
+        setToken(null);
+        setUser(null);
+        setIsAuthenticated(false);
+        router.push('/login');
+    }, [router]); // Dependency: router
+
+    const refreshToken = useCallback(async () => {
+        const refreshTokenValue = localStorage.getItem('refreshToken');
+        if (!refreshTokenValue) {
+            logout();
+            return;
+        }
+
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/refresh`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ refreshToken: refreshTokenValue }),
+        });
+
+        if (!response.ok) {
+            logout();
+            throw new Error('Token refresh failed');
+        }
+
+        const data = await response.json();
+        localStorage.setItem('accessToken', data.accessToken);
+        localStorage.setItem('refreshToken', data.refreshToken);
+        setToken(data.accessToken);
+        const verifiedUser = await verifyToken(data.accessToken);
+        setUser(verifiedUser);
+        setIsAuthenticated(true);
+    }, [logout]); // Dependency: logout (since it calls logout)
+
+    const verifyToken = async (token: string) => {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/status`, {
+            headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (!response.ok) throw new Error('Token verification failed');
+
+        const base64Url = token.split('.')[1];
+        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        const jsonPayload = decodeURIComponent(
+            atob(base64)
+                .split('')
+                .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+                .join('')
+        );
+        return JSON.parse(jsonPayload);
+    };
+
     useEffect(() => {
-        // Check if auth is enabled via environment variable or config
-        const authEnabled = process.env.NEXT_PUBLIC_AUTH_ENABLED === 'true';
+        const authEnabled = env('NEXT_PUBLIC_AUTH_ENABLED') === 'true';
         setIsAuthEnabled(authEnabled);
+
+        console.log('PROCESS.ENV:', process.env.NEXT_PUBLIC_AUTH_ENABLED);
+        console.log('ENV', env('NEXT_PUBLIC_AUTH_ENABLED'));
+        console.log("Auth enabled:", authEnabled);
 
         if (!authEnabled) return;
 
@@ -53,7 +95,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     setToken(storedToken);
                     setUser(verifiedUser);
                     setIsAuthenticated(true);
-                    refreshToken().catch(() => logout()); // Refresh on load
+                    refreshToken().catch(() => logout());
                 })
                 .catch(() => {
                     localStorage.removeItem('accessToken');
@@ -62,7 +104,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     router.push('/login');
                 });
         }
-    }, []);
+    }, [router, refreshToken, logout]);
 
     const login = async (username: string, password: string) => {
         try {
@@ -86,61 +128,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             console.error('Login error:', error);
             throw error;
         }
-    };
-
-    const logout = () => {
-        localStorage.removeItem('accessToken');
-        localStorage.removeItem('refreshToken');
-        setToken(null);
-        setUser(null);
-        setIsAuthenticated(false);
-        router.push('/login');
-    };
-
-    const refreshToken = async () => {
-        const refreshToken = localStorage.getItem('refreshToken');
-        if (!refreshToken) {
-            logout();
-            return;
-        }
-
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/refresh`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ refreshToken }),
-        });
-
-        if (!response.ok) {
-            logout();
-            throw new Error('Token refresh failed');
-        }
-
-        const data = await response.json();
-        localStorage.setItem('accessToken', data.accessToken);
-        localStorage.setItem('refreshToken', data.refreshToken);
-        setToken(data.accessToken);
-        const verifiedUser = await verifyToken(data.accessToken);
-        setUser(verifiedUser);
-        setIsAuthenticated(true);
-    };
-
-    const verifyToken = async (token: string) => {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/status`, {
-            headers: { Authorization: `Bearer ${token}` },
-        });
-
-        if (!response.ok) throw new Error('Token verification failed');
-
-        // Decode token client-side (simplified, assumes JWT structure)
-        const base64Url = token.split('.')[1];
-        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-        const jsonPayload = decodeURIComponent(
-            atob(base64)
-                .split('')
-                .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
-                .join('')
-        );
-        return JSON.parse(jsonPayload);
     };
 
     return (

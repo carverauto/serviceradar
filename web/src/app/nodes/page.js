@@ -24,7 +24,7 @@ export const revalidate = 0;
 // Server component that fetches all data needed
 async function fetchNodesWithMetrics() {
     try {
-        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8090';
+        const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090';
         const apiKey = process.env.API_KEY || '';
 
         // Fetch all nodes first

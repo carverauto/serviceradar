@@ -136,6 +136,10 @@ RUN npm cache clean --force && \
 
 # Copy web source code and build with standalone output
 COPY web/ .
+
+# Cleanup old build files
+RUN rm -rf .next
+
 # Ensure standalone build
 RUN echo "Building Next.js with standalone output..." && \
     npm run build && \
