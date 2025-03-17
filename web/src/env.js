@@ -20,8 +20,8 @@ import { createRuntimeEnv } from 'next-runtime-env';
 // Create environment with server runtime variables
 export const env = createRuntimeEnv({
   // List the server-only variables you need access to
-  serverOnly: ['API_KEY'],
+  serverOnly: ['API_KEY', 'AUTH_ENABLED'],
   
   // Optional: List any client-side variables
-  clientSide: ['NEXT_PUBLIC_BACKEND_URL', 'NEXT_PUBLIC_API_URL', 'NEXT_PUBLIC_AUTH_ENABLED']
+  clientSide: ['NEXT_PUBLIC_API_URL', 'NEXT_PUBLIC_AUTH_ENABLED', 'AUTH_ENABLED'],
 });

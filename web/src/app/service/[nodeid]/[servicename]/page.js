@@ -22,7 +22,7 @@ export const revalidate = 0;
 
 async function fetchServiceData(nodeId, serviceName, timeRange = '1h') {
     try {
-        const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8090';
+        const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090';
         const apiKey = process.env.API_KEY || '';
 
         // Fetch node info
