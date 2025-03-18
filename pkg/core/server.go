@@ -84,22 +84,49 @@ func NewServer(_ context.Context, config *Config) (*Server, error) {
 		return nil, fmt.Errorf("%w: %w", errDatabaseError, err)
 	}
 
+	// Initialize authConfig with defaults from config.Auth
 	authConfig := &models.AuthConfig{
 		JWTSecret:     os.Getenv("JWT_SECRET"),
 		JWTExpiration: 24 * time.Hour,
-		CallbackURL:   os.Getenv("AUTH_CALLBACK_URL"), // e.g., "http://localhost:8080/auth"
-		LocalUsers: map[string]string{
-			"admin": os.Getenv("ADMIN_PASSWORD_HASH"), // Pre-hashed with bcrypt
-		},
-		SSOProviders: map[string]models.SSOConfig{
-			"google": {
-				ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
-				ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
-				Scopes:       []string{"email", "profile"},
-			},
-		},
+		CallbackURL:   os.Getenv("AUTH_CALLBACK_URL"),
+		LocalUsers:    make(map[string]string),
+		SSOProviders:  make(map[string]models.SSOConfig),
 	}
 
+	// Populate authConfig from config.Auth if provided
+	if config.Auth != nil {
+		if config.Auth.JWTSecret != "" {
+			authConfig.JWTSecret = config.Auth.JWTSecret
+		}
+		if config.Auth.JWTExpiration != 0 {
+			authConfig.JWTExpiration = config.Auth.JWTExpiration
+		}
+		if config.Auth.CallbackURL != "" {
+			authConfig.CallbackURL = config.Auth.CallbackURL
+		}
+		if config.Auth.LocalUsers != nil {
+			for user, hash := range config.Auth.LocalUsers {
+				authConfig.LocalUsers[user] = hash
+			}
+		}
+		if config.Auth.SSOProviders != nil {
+			for provider, ssoConfig := range config.Auth.SSOProviders {
+				authConfig.SSOProviders[provider] = ssoConfig
+			}
+		}
+	}
+
+	// Override LocalUsers["admin"] with environment variable if set and not empty
+	if envHash := os.Getenv("ADMIN_PASSWORD_HASH"); envHash != "" {
+		authConfig.LocalUsers["admin"] = envHash
+	}
+
+	// Validate that admin user has a valid hash
+	if hash, ok := authConfig.LocalUsers["admin"]; !ok || hash == "" {
+		return nil, fmt.Errorf("no valid password hash provided for admin user")
+	}
+
+	// Validate JWTSecret
 	if authConfig.JWTSecret == "" {
 		return nil, errJWTSecretRequired
 	}
@@ -220,6 +247,10 @@ func (s *Server) GetMetricsManager() metrics.MetricCollector {
 
 func (s *Server) GetSNMPManager() snmp.SNMPManager {
 	return s.snmpManager
+}
+
+func (s *Server) GetAuth() *auth.Auth {
+	return s.authService
 }
 
 func (s *Server) runMetricsCleanup(ctx context.Context) {
@@ -837,33 +868,6 @@ func (s *Server) sendUnreportedNodesAlert(ctx context.Context, nodeIDs []string)
 	}
 }
 
-func (c *Config) UnmarshalJSON(data []byte) error {
-	type Alias Config
-
-	aux := &struct {
-		AlertThreshold string `json:"alert_threshold"`
-		*Alias
-	}{
-		Alias: (*Alias)(c),
-	}
-
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return err
-	}
-
-	// Parse the alert threshold
-	if aux.AlertThreshold != "" {
-		duration, err := time.ParseDuration(aux.AlertThreshold)
-		if err != nil {
-			return fmt.Errorf("invalid alert threshold format: %w", err)
-		}
-
-		c.AlertThreshold = duration
-	}
-
-	return nil
-}
-
 func LoadConfig(path string) (Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -879,6 +883,10 @@ func LoadConfig(path string) (Config, error) {
 	if config.Security != nil {
 		log.Printf("Security config: Mode=%s, CertDir=%s, Role=%s",
 			config.Security.Mode, config.Security.CertDir, config.Security.Role)
+	}
+
+	if config.Auth != nil {
+		log.Printf("Auth config: JWTSecret=%s, LocalUsers=%v", config.Auth.JWTSecret, config.Auth.LocalUsers)
 	}
 
 	return config, nil

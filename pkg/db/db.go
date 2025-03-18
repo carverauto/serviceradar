@@ -115,6 +115,16 @@ const (
         FOREIGN KEY (node_id) REFERENCES nodes(node_id) ON DELETE CASCADE
     );
 
+	-- Users table for authentication
+    CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        email TEXT NOT NULL UNIQUE,
+        name TEXT,
+        provider TEXT NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
 	-- Indexes for better query performance
 	CREATE INDEX IF NOT EXISTS idx_sweep_results_poller_time 
         ON sweep_results(poller_id, timestamp);
@@ -136,6 +146,10 @@ const (
 		ON timeseries_metrics(metric_type);
     CREATE INDEX IF NOT EXISTS idx_metrics_timestamp 
 		ON timeseries_metrics(timestamp);
+
+	-- Index for users table
+    CREATE INDEX IF NOT EXISTS idx_users_email 
+        ON users(email);
 
 	-- Enable WAL mode for better concurrent access
 	PRAGMA journal_mode=WAL;

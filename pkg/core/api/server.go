@@ -67,13 +67,20 @@ func WithSNMPManager(m snmp.SNMPManager) func(server *APIServer) {
 
 func (s *APIServer) setupRoutes() {
 	// Create a middleware chain
-	middlewareChain := func(next http.Handler) http.Handler {
-		// Order matters: first API key check, then CORS headers
-		return srHttp.CommonMiddleware(srHttp.APIKeyMiddleware(os.Getenv("API_KEY"))(next))
-	}
 
+	// middlewareChain := func(next http.Handler) http.Handler {
+	//	// Order matters: first API key check, then CORS headers
+	//	return srHttp.CommonMiddleware(srHttp.APIKeyMiddleware(os.Getenv("API_KEY"))(next))
+	//}
 	// Add middleware to router
-	s.router.Use(middlewareChain)
+	// s.router.Use(middlewareChain)
+
+	// Apply CORS to all routes first
+	s.router.Use(srHttp.CommonMiddleware)
+
+	// API key middleware for all routes
+	s.router.Use(srHttp.APIKeyMiddleware(os.Getenv("API_KEY")))
+
 
 	// Public routes
 	s.router.HandleFunc("/auth/login", s.handleLocalLogin).Methods("POST")

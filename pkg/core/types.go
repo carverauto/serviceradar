@@ -17,6 +17,7 @@
 package core
 
 import (
+	"encoding/json"
 	"sync"
 	"time"
 
@@ -48,6 +49,7 @@ type Config struct {
 	Metrics        Metrics                `json:"metrics"`
 	SNMP           snmp.Config            `json:"snmp"`
 	Security       *models.SecurityConfig `json:"security"`
+	Auth           *models.AuthConfig     `json:"auth,omitempty"`
 }
 
 type Server struct {
@@ -82,4 +84,28 @@ type ServiceStatus struct {
 	Available   bool
 	Details     string
 	Timestamp   time.Time
+}
+
+func (c *Config) UnmarshalJSON(data []byte) error {
+	type Alias Config
+	aux := struct {
+		AlertThreshold string `json:"alert_threshold"`
+		*Alias
+	}{
+		Alias: (*Alias)(c),
+	}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	if aux.AlertThreshold != "" {
+		duration, err := time.ParseDuration(aux.AlertThreshold)
+		if err != nil {
+			return err
+		}
+		c.AlertThreshold = duration
+	}
+
+	return nil
 }

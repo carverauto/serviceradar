@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/db"
@@ -49,12 +50,20 @@ func NewAuth(config *models.AuthConfig, db db.Service) *Auth {
 }
 
 func (a *Auth) LoginLocal(ctx context.Context, username, password string) (*models.Token, error) {
+	// lets do some debug logging here
+	log.Printf("us3rname: %s, password: %s\n", username, password)
+
+	// print config
+	log.Println("LocalUsers Config: ", a.config.LocalUsers)
+
 	storedHash, ok := a.config.LocalUsers[username]
 	if !ok {
 		return nil, db.ErrUserNotFound
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(password)); err != nil {
+		log.Printf("Bcrypt comparison failed: %v", err)
+
 		return nil, errInvalidCreds
 	}
 
@@ -65,7 +74,19 @@ func (a *Auth) LoginLocal(ctx context.Context, username, password string) (*mode
 		Provider: "local",
 	}
 
-	return a.generateAndStoreToken(ctx, user)
+	log.Println("User:", user)
+
+	// return a.generateAndStoreToken(ctx, user)
+	token, err := a.generateAndStoreToken(ctx, user)
+	if err != nil {
+		log.Printf("Token generation failed for %s: %v", username, err)
+
+		return nil, fmt.Errorf("failed to generate token: %w", err)
+	}
+
+	log.Printf("Login successful for %s, token: %s", username, token.AccessToken)
+
+	return token, nil
 }
 
 const (
@@ -149,8 +170,7 @@ func (a *Auth) generateAndStoreToken(ctx context.Context, user *models.User) (*m
 }
 
 func generateUserID(username string) string {
-	hash := sha256.Sum256([]byte(username + time.Now().String()))
-
+	hash := sha256.Sum256([]byte(username))
 	return base64.URLEncoding.EncodeToString(hash[:])
 }
 
