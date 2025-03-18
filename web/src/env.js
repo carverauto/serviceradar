@@ -23,5 +23,5 @@ export const env = createRuntimeEnv({
   serverOnly: ['API_KEY', 'AUTH_ENABLED'],
   
   // Optional: List any client-side variables
-  clientSide: ['NEXT_PUBLIC_API_URL', 'NEXT_PUBLIC_AUTH_ENABLED', 'AUTH_ENABLED'],
+  clientSide: ['NEXT_PUBLIC_API_URL'],
 });
