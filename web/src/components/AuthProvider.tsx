@@ -1,9 +1,25 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 // src/components/AuthProvider.tsx
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { env } from 'next-runtime-env';
+import { useAuthFlag } from '@/hooks/useAuthFlag';
 
 interface AuthContextType {
     token: string | null;
@@ -21,7 +37,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const [token, setToken] = useState<string | null>(null);
     const [user, setUser] = useState<{ id: string; email: string; provider: string } | null>(null);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
-    const [isAuthEnabled, setIsAuthEnabled] = useState(false);
+    const { isAuthEnabled, error: authFlagError } = useAuthFlag();
     const router = useRouter();
 
     const logout = useCallback(() => {
@@ -31,7 +47,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser(null);
         setIsAuthenticated(false);
         router.push('/login');
-    }, [router]); // Dependency: router
+    }, [router]);
 
     const refreshToken = useCallback(async () => {
         const refreshTokenValue = localStorage.getItem('refreshToken');
@@ -58,7 +74,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const verifiedUser = await verifyToken(data.accessToken);
         setUser(verifiedUser);
         setIsAuthenticated(true);
-    }, [logout]); // Dependency: logout (since it calls logout)
+    }, [logout]);
 
     const verifyToken = async (token: string) => {
         const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/status`, {
@@ -79,14 +95,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     useEffect(() => {
-        const authEnabled = env('NEXT_PUBLIC_AUTH_ENABLED') === 'true';
-        setIsAuthEnabled(authEnabled);
+        if (isAuthEnabled === null) return; // Wait until the flag is fetched
 
-        console.log('PROCESS.ENV:', process.env.NEXT_PUBLIC_AUTH_ENABLED);
-        console.log('ENV', env('NEXT_PUBLIC_AUTH_ENABLED'));
-        console.log("Auth enabled:", authEnabled);
-
-        if (!authEnabled) return;
+        if (!isAuthEnabled) {
+            setIsAuthenticated(true); // If auth is disabled, assume authenticated
+            return;
+        }
 
         const storedToken = localStorage.getItem('accessToken');
         if (storedToken) {
@@ -104,7 +118,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     router.push('/login');
                 });
         }
-    }, [router, refreshToken, logout]);
+    }, [router, refreshToken, logout, isAuthEnabled]);
 
     const login = async (username: string, password: string) => {
         try {
@@ -129,6 +143,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             throw error;
         }
     };
+
+    if (authFlagError) {
+        return <div>Error loading authentication status: {authFlagError}</div>;
+    }
+
+    if (isAuthEnabled === null) {
+        return <div>Loading authentication status...</div>;
+    }
 
     return (
         <AuthContext.Provider value={{ token, user, login, logout, refreshToken, isAuthenticated, isAuthEnabled }}>
