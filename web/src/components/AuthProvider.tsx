@@ -17,8 +17,9 @@
 // src/components/AuthProvider.tsx
 'use client';
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAuthFlag } from '@/hooks/useAuthFlag';
 
 interface AuthContextType {
     token: string | null;
@@ -36,15 +37,70 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const [token, setToken] = useState<string | null>(null);
     const [user, setUser] = useState<{ id: string; email: string; provider: string } | null>(null);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
-    const [isAuthEnabled, setIsAuthEnabled] = useState(false); // Toggle for auth requirement
+    const { isAuthEnabled, error: authFlagError } = useAuthFlag();
     const router = useRouter();
 
-    useEffect(() => {
-        // Check if auth is enabled via environment variable or config
-        const authEnabled = process.env.NEXT_PUBLIC_AUTH_ENABLED === 'true';
-        setIsAuthEnabled(authEnabled);
+    const logout = useCallback(() => {
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('refreshToken');
+        setToken(null);
+        setUser(null);
+        setIsAuthenticated(false);
+        router.push('/login');
+    }, [router]);
 
-        if (!authEnabled) return;
+    const refreshToken = useCallback(async () => {
+        const refreshTokenValue = localStorage.getItem('refreshToken');
+        if (!refreshTokenValue) {
+            logout();
+            return;
+        }
+
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/refresh`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ refreshToken: refreshTokenValue }),
+        });
+
+        if (!response.ok) {
+            logout();
+            throw new Error('Token refresh failed');
+        }
+
+        const data = await response.json();
+        localStorage.setItem('accessToken', data.accessToken);
+        localStorage.setItem('refreshToken', data.refreshToken);
+        setToken(data.accessToken);
+        const verifiedUser = await verifyToken(data.accessToken);
+        setUser(verifiedUser);
+        setIsAuthenticated(true);
+    }, [logout]);
+
+    const verifyToken = async (token: string) => {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/status`, {
+            headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (!response.ok) throw new Error('Token verification failed');
+
+        const base64Url = token.split('.')[1];
+        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        const jsonPayload = decodeURIComponent(
+            atob(base64)
+                .split('')
+                .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+                .join('')
+        );
+        return JSON.parse(jsonPayload);
+    };
+
+    useEffect(() => {
+        if (isAuthEnabled === null) return; // Wait until the flag is fetched
+
+        if (!isAuthEnabled) {
+            setIsAuthenticated(true); // If auth is disabled, assume authenticated
+            return;
+        }
 
         const storedToken = localStorage.getItem('accessToken');
         if (storedToken) {
@@ -53,7 +109,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     setToken(storedToken);
                     setUser(verifiedUser);
                     setIsAuthenticated(true);
-                    refreshToken().catch(() => logout()); // Refresh on load
+                    refreshToken().catch(() => logout());
                 })
                 .catch(() => {
                     localStorage.removeItem('accessToken');
@@ -62,7 +118,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     router.push('/login');
                 });
         }
-    }, []);
+    }, [router, refreshToken, logout, isAuthEnabled]);
 
     const login = async (username: string, password: string) => {
         try {
@@ -88,60 +144,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
     };
 
-    const logout = () => {
-        localStorage.removeItem('accessToken');
-        localStorage.removeItem('refreshToken');
-        setToken(null);
-        setUser(null);
-        setIsAuthenticated(false);
-        router.push('/login');
-    };
+    if (authFlagError) {
+        return <div>Error loading authentication status: {authFlagError}</div>;
+    }
 
-    const refreshToken = async () => {
-        const refreshToken = localStorage.getItem('refreshToken');
-        if (!refreshToken) {
-            logout();
-            return;
-        }
-
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/refresh`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ refreshToken }),
-        });
-
-        if (!response.ok) {
-            logout();
-            throw new Error('Token refresh failed');
-        }
-
-        const data = await response.json();
-        localStorage.setItem('accessToken', data.accessToken);
-        localStorage.setItem('refreshToken', data.refreshToken);
-        setToken(data.accessToken);
-        const verifiedUser = await verifyToken(data.accessToken);
-        setUser(verifiedUser);
-        setIsAuthenticated(true);
-    };
-
-    const verifyToken = async (token: string) => {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/status`, {
-            headers: { Authorization: `Bearer ${token}` },
-        });
-
-        if (!response.ok) throw new Error('Token verification failed');
-
-        // Decode token client-side (simplified, assumes JWT structure)
-        const base64Url = token.split('.')[1];
-        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-        const jsonPayload = decodeURIComponent(
-            atob(base64)
-                .split('')
-                .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
-                .join('')
-        );
-        return JSON.parse(jsonPayload);
-    };
+    if (isAuthEnabled === null) {
+        return <div>Loading authentication status...</div>;
+    }
 
     return (
         <AuthContext.Provider value={{ token, user, login, logout, refreshToken, isAuthenticated, isAuthEnabled }}>

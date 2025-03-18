@@ -21,7 +21,7 @@ import { SystemStatus, Node } from '@/types';
 // Server-side fetching for Next.js server components with generic return type
 export async function fetchFromAPI<T>(endpoint: string, token?: string): Promise<T | null> {
     const apiKey = env('API_KEY') || '';
-    const baseUrl = env('NEXT_PUBLIC_BACKEND_URL') || 'http://localhost:8090';
+    const baseUrl = env('NEXT_PUBLIC_API_URL') || 'http://localhost:8090';
     const apiUrl = endpoint.startsWith('/api/') ? endpoint : `/api/${endpoint}`;
     const url = new URL(apiUrl, baseUrl).toString();
 

@@ -49,8 +49,6 @@ const ServiceSparkline = React.memo(({ nodeId, serviceName, initialMetrics = [] 
             return [];
         }
 
-        console.log(`Processing ${metrics.length} metrics for ${nodeId}/${serviceName}`);
-
         const serviceMetrics = metrics
             .filter((m) => m.service_name === serviceName)
             .map((m) => ({
@@ -59,8 +57,6 @@ const ServiceSparkline = React.memo(({ nodeId, serviceName, initialMetrics = [] 
             }))
             .sort((a, b) => a.timestamp - b.timestamp)
             .slice(-MAX_POINTS); // Limit to recent points
-
-        console.log(`Filtered to ${serviceMetrics.length} service-specific metrics`);
 
         if (serviceMetrics.length < 5) return serviceMetrics;
 
