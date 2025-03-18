@@ -25,8 +25,6 @@ async function fetchDuskData(nodeId) {
         const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090';
         const apiKey = process.env.API_KEY || '';
 
-        console.log(`Fetching Dusk data for node ${nodeId}`);
-
         // Fetch node info
         const nodesResponse = await fetch(`${backendUrl}/api/nodes`, {
             headers: { 'X-API-Key': apiKey },
@@ -61,7 +59,6 @@ async function fetchDuskData(nodeId) {
             console.error('Error fetching metrics data:', metricsError);
         }
 
-        console.log(`Successfully fetched Dusk service for node ${nodeId}`);
         return { duskService, metrics };
     } catch (err) {
         console.error('Error fetching data:', err);

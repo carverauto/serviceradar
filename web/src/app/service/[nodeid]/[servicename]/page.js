@@ -85,7 +85,6 @@ async function fetchServiceData(nodeId, serviceName, timeRange = '1h') {
                 }
 
                 const snmpUrl = `${backendUrl}/api/nodes/${nodeId}/snmp?start=${start.toISOString()}&end=${end.toISOString()}`;
-                console.log("Fetching SNMP from:", snmpUrl);
 
                 const snmpResponse = await fetch(snmpUrl, {
                     headers: { 'X-API-Key': apiKey },
@@ -99,7 +98,6 @@ async function fetchServiceData(nodeId, serviceName, timeRange = '1h') {
                 }
 
                 snmpData = await snmpResponse.json();
-                console.log("SNMP data fetched:", snmpData.length);
             } catch (snmpError) {
                 console.error('Error fetching SNMP data:', snmpError);
             }
