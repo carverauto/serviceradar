@@ -20,7 +20,7 @@ const nextConfig: NextConfig = {
     reactStrictMode: true,
     output: "standalone",
     async rewrites() {
-        const backendUrl = process.env.BACKEND_URL || 'http://localhost:8090';
+        const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090';
         return [
             {
                 source: '/api/:path*',
@@ -29,9 +29,7 @@ const nextConfig: NextConfig = {
         ];
     },
     env: {
-        NEXT_PUBLIC_AUTH_ENABLED: process.env.NEXT_PUBLIC_AUTH_ENABLED || 'false',
         NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090',
-        NEXT_PUBLIC_BACKEND_URL: process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:8090/',
     },
     serverRuntimeConfig: {
         // Will only be available on the server side

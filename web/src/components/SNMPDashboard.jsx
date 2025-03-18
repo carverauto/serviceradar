@@ -124,7 +124,6 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [], initialTimeRange
                 }
 
                 const snmpUrl = `/api/nodes/${nodeId}/snmp?start=${start.toISOString()}&end=${end.toISOString()}`;
-                console.log('Fetching SNMP data from:', snmpUrl);
 
                 const response = await fetch(snmpUrl);
 
@@ -132,7 +131,6 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [], initialTimeRange
                     const newData = await response.json();
                     if (newData && Array.isArray(newData)) {
                         setSNMPData(newData);
-                        console.log(`Updated SNMP data with ${newData.length} records`);
                     }
                 } else {
                     console.warn('Failed to refresh SNMP data:', response.status, response.statusText);

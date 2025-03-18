@@ -20,7 +20,7 @@ import type { NextRequest } from 'next/server';
 import { env } from 'next-runtime-env';
 
 export async function middleware(request: NextRequest) {
-    const isAuthEnabled = process.env.NEXT_PUBLIC_AUTH_ENABLED === 'true';
+    const isAuthEnabled = env('AUTH_ENABLED') === 'true';
     const apiKey = env('API_KEY') || '';
 
     // Clone the request headers
@@ -44,7 +44,7 @@ export async function middleware(request: NextRequest) {
 
         if (token) {
             try {
-                const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/status`, {
+                const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/status`, {
                     headers: {
                         'Authorization': `Bearer ${token}`,
                         'X-API-Key': apiKey,
