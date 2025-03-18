@@ -123,7 +123,7 @@ jobs:
             --platform linux/amd64 \
             --build-arg VERSION="${VERSION}" \
             --build-arg RELEASE="1" \
-            --build-arg COMPONENT="poller" \
+            --build-arg COMPONENT="snmp-checker" \
             --build-arg BINARY_PATH="./cmd/checkers/snmp" \
             -f Dockerfile.rpm.simple \
             -t serviceradar-rpm-snmp-checker\

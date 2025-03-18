@@ -73,18 +73,36 @@ if grep -q "Oracle Linux" /etc/os-release; then
     fi
 fi
 
-# Generate API key if it doesn't exist
+# Ensure api.env exists and has API_KEY and JWT_SECRET
 if [ ! -f "/etc/serviceradar/api.env" ]; then
-    echo "Generating API key..."
+    echo "Generating new api.env with API_KEY and JWT_SECRET..."
     API_KEY=$(openssl rand -hex 32)
+    JWT_SECRET=$(openssl rand -hex 32)
     echo "API_KEY=$API_KEY" > /etc/serviceradar/api.env
+    echo "JWT_SECRET=$JWT_SECRET" >> /etc/serviceradar/api.env
+    echo "AUTH_ENABLED=false" >> /etc/serviceradar/api.env
     chmod 640 /etc/serviceradar/api.env
     chown serviceradar:serviceradar /etc/serviceradar/api.env
-    echo "API key generated and stored in /etc/serviceradar/api.env"
+    echo "New API key and JWT_SECRET generated and stored in /etc/serviceradar/api.env"
 else
-    # Make sure existing API key has correct permissions
-    chmod 640 /etc/serviceradar/api.env
-    chown serviceradar:serviceradar /etc/serviceradar/api.env
+    # Check if JWT_SECRET is missing and add it
+    if ! grep -q "^JWT_SECRET=" /etc/serviceradar/api.env; then
+        echo "Adding JWT_SECRET to existing api.env..."
+        JWT_SECRET=$(openssl rand -hex 32)
+        echo "JWT_SECRET=$JWT_SECRET" >> /etc/serviceradar/api.env
+        chmod 640 /etc/serviceradar/api.env
+        chown serviceradar:serviceradar /etc/serviceradar/api.env
+        echo "JWT_SECRET added to /etc/serviceradar/api.env"
+    fi
+
+    # Check if AUTH_ENABLED is missing and add it
+    if ! grep -q "^AUTH_ENABLED=" /etc/serviceradar/api.env; then
+        echo "Adding AUTH_ENABLED to existing api.env..."
+        echo "AUTH_ENABLED=false" >> /etc/serviceradar/api.env
+        chmod 640 /etc/serviceradar/api.env
+        chown serviceradar:serviceradar /etc/serviceradar/api.env
+        echo "AUTH_ENABLED added to /etc/serviceradar/api.env"
+    fi
 fi
 
 # Configure SELinux if available
