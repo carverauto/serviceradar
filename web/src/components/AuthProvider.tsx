@@ -19,7 +19,6 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuthFlag } from '@/hooks/useAuthFlag';
 
 interface AuthContextType {
     token: string | null;
@@ -28,7 +27,6 @@ interface AuthContextType {
     logout: () => void;
     refreshToken: () => Promise<void>;
     isAuthenticated: boolean;
-    isAuthEnabled: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -37,12 +35,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const [token, setToken] = useState<string | null>(null);
     const [user, setUser] = useState<{ id: string; email: string; provider: string } | null>(null);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
-    const { isAuthEnabled, error: authFlagError } = useAuthFlag();
     const router = useRouter();
 
     const logout = useCallback(() => {
-        localStorage.removeItem('accessToken');
-        localStorage.removeItem('refreshToken');
+        document.cookie = 'accessToken=; Max-Age=0; path=/';
+        document.cookie = 'refreshToken=; Max-Age=0; path=/';
         setToken(null);
         setUser(null);
         setIsAuthenticated(false);
@@ -50,7 +47,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }, [router]);
 
     const refreshToken = useCallback(async () => {
-        const refreshTokenValue = localStorage.getItem('refreshToken');
+        const refreshTokenValue = document.cookie.split('; ')
+            .find(row => row.startsWith('refreshToken='))
+            ?.split('=')[1];
+
         if (!refreshTokenValue) {
             logout();
             return;
@@ -68,8 +68,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
 
         const data = await response.json();
-        localStorage.setItem('accessToken', data.accessToken);
-        localStorage.setItem('refreshToken', data.refreshToken);
+        document.cookie = `accessToken=${data.accessToken}; path=/; max-age=${24 * 60 * 60}`;
+        document.cookie = `refreshToken=${data.refreshToken}; path=/; max-age=${7 * 24 * 60 * 60}`;
         setToken(data.accessToken);
         const verifiedUser = await verifyToken(data.accessToken);
         setUser(verifiedUser);
@@ -95,14 +95,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     useEffect(() => {
-        if (isAuthEnabled === null) return; // Wait until the flag is fetched
+        const storedToken = document.cookie.split('; ')
+            .find(row => row.startsWith('accessToken='))
+            ?.split('=')[1];
 
-        if (!isAuthEnabled) {
-            setIsAuthenticated(true); // If auth is disabled, assume authenticated
-            return;
-        }
-
-        const storedToken = localStorage.getItem('accessToken');
         if (storedToken) {
             verifyToken(storedToken)
                 .then((verifiedUser) => {
@@ -112,13 +108,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     refreshToken().catch(() => logout());
                 })
                 .catch(() => {
-                    localStorage.removeItem('accessToken');
-                    localStorage.removeItem('refreshToken');
+                    document.cookie = 'accessToken=; Max-Age=0; path=/';
+                    document.cookie = 'refreshToken=; Max-Age=0; path=/';
                     setIsAuthenticated(false);
                     router.push('/login');
                 });
         }
-    }, [router, refreshToken, logout, isAuthEnabled]);
+    }, [router, refreshToken, logout]);
 
     const login = async (username: string, password: string) => {
         try {
@@ -131,8 +127,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             if (!response.ok) throw new Error('Login failed');
 
             const data = await response.json();
-            localStorage.setItem('accessToken', data.accessToken);
-            localStorage.setItem('refreshToken', data.refreshToken);
+            document.cookie = `accessToken=${data.accessToken}; path=/; max-age=${24 * 60 * 60}`;
+            document.cookie = `refreshToken=${data.refreshToken}; path=/; max-age=${7 * 24 * 60 * 60}`;
             setToken(data.accessToken);
             const verifiedUser = await verifyToken(data.accessToken);
             setUser(verifiedUser);
@@ -144,16 +140,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
     };
 
-    if (authFlagError) {
-        return <div>Error loading authentication status: {authFlagError}</div>;
-    }
-
-    if (isAuthEnabled === null) {
-        return <div>Loading authentication status...</div>;
-    }
-
     return (
-        <AuthContext.Provider value={{ token, user, login, logout, refreshToken, isAuthenticated, isAuthEnabled }}>
+        <AuthContext.Provider value={{ token, user, login, logout, refreshToken, isAuthenticated }}>
             {children}
         </AuthContext.Provider>
     );

@@ -1,19 +1,3 @@
-/*
- * Copyright 2025 Carver Automation Corporation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 // src/middleware.ts
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
@@ -22,49 +6,59 @@ import { env } from 'next-runtime-env';
 export async function middleware(request: NextRequest) {
     const isAuthEnabled = env('AUTH_ENABLED') === 'true';
     const apiKey = env('API_KEY') || '';
-
-    // Clone the request headers
     const requestHeaders = new Headers(request.headers);
-    requestHeaders.set('X-API-Key', apiKey);
 
-    // Handle public paths (no auth required)
+    // Debug log to verify environment
+    console.log('Middleware - AUTH_ENABLED:', isAuthEnabled, 'Path:', request.nextUrl.pathname);
+
+    // Public paths don’t need auth
     const publicPaths = ['/login', '/auth'];
     if (publicPaths.some(path => request.nextUrl.pathname.startsWith(path))) {
-        return NextResponse.next({
-            request: { headers: requestHeaders },
-        });
+        if (apiKey && !isAuthEnabled) {
+            requestHeaders.set('X-API-Key', apiKey);
+        }
+        return NextResponse.next({ request: { headers: requestHeaders } });
     }
 
-    // If auth is enabled, check for token
     if (isAuthEnabled) {
-        const token = request.headers.get('Authorization')?.replace('Bearer ', '');
-        if (!token && !request.nextUrl.pathname.startsWith('/login')) {
+        // Check for token in cookies or Authorization header
+        const token = request.cookies.get('accessToken')?.value ||
+            request.headers.get('Authorization')?.replace('Bearer ', '');
+
+        if (!token) {
+            console.log('No token found, redirecting to /login');
             return NextResponse.redirect(new URL('/login', request.url));
         }
 
-        if (token) {
-            try {
-                const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/status`, {
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'X-API-Key': apiKey,
-                    },
-                });
+        // Verify token with backend
+        try {
+            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/status`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    // Don’t send API key when AUTH_ENABLED=true
+                },
+            });
 
-                if (!response.ok) {
-                    return NextResponse.redirect(new URL('/login', request.url));
-                }
-            } catch (error) {
-                console.error('Token verification failed:', error);
+            if (!response.ok) {
+                console.log('Token invalid, redirecting to /login');
                 return NextResponse.redirect(new URL('/login', request.url));
             }
+
+            requestHeaders.set('Authorization', `Bearer ${token}`);
+        } catch (error) {
+            console.error('Token verification failed:', error);
+            return NextResponse.redirect(new URL('/login', request.url));
         }
+    } else {
+        // Use API key only when AUTH_ENABLED=false
+        if (!apiKey) {
+            console.log('No API key provided and AUTH_ENABLED=false, redirecting to /login');
+            return NextResponse.redirect(new URL('/login', request.url));
+        }
+        requestHeaders.set('X-API-Key', apiKey);
     }
 
-    // Proceed with the request, ensuring API key is always included
-    return NextResponse.next({
-        request: { headers: requestHeaders },
-    });
+    return NextResponse.next({ request: { headers: requestHeaders } });
 }
 
 export const config = {

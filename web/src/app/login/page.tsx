@@ -19,27 +19,20 @@
 
 import { useState } from 'react';
 import { useAuth } from '@/components/AuthProvider';
-import { useRouter } from 'next/navigation';
 
 export default function LoginPage() {
-    const { login, isAuthEnabled } = useAuth();
+    const { login } = useAuth(); // Removed isAuthEnabled
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
-    const router = useRouter();
-
-    if (!isAuthEnabled) {
-        router.push('/');
-        return null;
-    }
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setError('');
         try {
             await login(username, password);
+            // No need to redirect here; login() already handles it
         } catch (err) {
-            // TODO: remove this before production
             console.log(err);
             setError('Login failed. Please check your credentials.');
         }
