@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/db"
@@ -49,10 +50,14 @@ func NewAuth(config *models.AuthConfig, db db.Service) *Auth {
 }
 
 func (a *Auth) LoginLocal(ctx context.Context, username, password string) (*models.Token, error) {
+	log.Printf("LoginLocal: %s, pass: %s", username, password)
+
 	storedHash, ok := a.config.LocalUsers[username]
 	if !ok {
 		return nil, db.ErrUserNotFound
 	}
+
+	log.Printf("Stored hash for %s: %s", username, storedHash)
 
 	if err := bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(password)); err != nil {
 		return nil, errInvalidCreds
@@ -64,6 +69,8 @@ func (a *Auth) LoginLocal(ctx context.Context, username, password string) (*mode
 		Name:     username,
 		Provider: "local",
 	}
+
+	log.Println("User:", user)
 
 	return a.generateAndStoreToken(ctx, user)
 }

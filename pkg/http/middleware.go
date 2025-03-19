@@ -2,34 +2,23 @@
 package http
 
 import (
+	"log"
 	"net/http"
-	"os"
-	"strings"
 )
 
 func CommonMiddleware(next http.Handler) http.Handler {
+	log.Println("CommonMiddleware")
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Set CORS headers
-		origin := r.Header.Get("Origin")
-		allowedOrigins := []string{"http://localhost:3000", "https://demo.serviceradar.cloud"}
-		allowAll := os.Getenv("CORS_ALLOW_ALL") == "true"
+		// log request
+		log.Printf("%s %s %s", r.RemoteAddr, r.Method, r.URL.Path)
 
-		if allowAll {
-			w.Header().Set("Access-Control-Allow-Origin", "*")
-		} else {
-			for _, allowed := range allowedOrigins {
-				if origin == allowed {
-					w.Header().Set("Access-Control-Allow-Origin", origin)
-					break
-				}
-			}
-		}
-
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Origin", "*") // For testing; restrict in prod if needed
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key")
-		w.Header().Set("Access-Control-Allow-Credentials", "true") // If using cookies
+		w.Header().Set("Access-Control-Max-Age", "3600")           // Cache preflight for 1 hour
+		w.Header().Set("Access-Control-Allow-Credentials", "true") // For cookies
 
-		// Handle preflight OPTIONS request
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusOK)
 			return
@@ -39,18 +28,17 @@ func CommonMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func APIKeyMiddleware(expectedKey string) func(http.Handler) http.Handler {
+func APIKeyMiddleware(apiKey string) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Skip API key check for /auth routes
-			if strings.HasPrefix(r.URL.Path, "/auth") {
-				next.ServeHTTP(w, r)
-				return
+			requestKey := r.Header.Get("X-API-Key")
+			if requestKey == "" {
+				requestKey = r.URL.Query().Get("api_key")
 			}
-
-			apiKey := r.Header.Get("X-API-Key")
-			if expectedKey != "" && apiKey != expectedKey {
-				http.Error(w, "Unauthorized: Invalid API key", http.StatusUnauthorized)
+			log.Printf("API-KEY received: %s", requestKey)
+			if requestKey == "" || (apiKey != "" && requestKey != apiKey) {
+				log.Printf("Unauthorized API access attempt: %s %s", r.Method, r.URL.Path)
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 				return
 			}
 			next.ServeHTTP(w, r)

@@ -17,6 +17,8 @@
 package core
 
 import (
+	"encoding/json"
+	"fmt"
 	"sync"
 	"time"
 
@@ -48,8 +50,58 @@ type Config struct {
 	Metrics        Metrics                `json:"metrics"`
 	SNMP           snmp.Config            `json:"snmp"`
 	Security       *models.SecurityConfig `json:"security"`
+	Auth           *models.AuthConfig     `json:"auth,omitempty"`
 }
 
+func (c *Config) UnmarshalJSON(data []byte) error {
+	type Alias Config
+
+	aux := &struct {
+		AlertThreshold string `json:"alert_threshold"`
+		Auth           *struct {
+			JWTSecret     string                      `json:"jwt_secret"`
+			JWTExpiration string                      `json:"jwt_expiration"`
+			LocalUsers    map[string]string           `json:"local_users"`
+			CallbackURL   string                      `json:"callback_url,omitempty"`
+			SSOProviders  map[string]models.SSOConfig `json:"sso_providers,omitempty"`
+		} `json:"auth"`
+		*Alias
+	}{
+		Alias: (*Alias)(c),
+	}
+
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+
+	// Parse the alert threshold
+	if aux.AlertThreshold != "" {
+		duration, err := time.ParseDuration(aux.AlertThreshold)
+		if err != nil {
+			return fmt.Errorf("invalid alert threshold format: %w", err)
+		}
+		c.AlertThreshold = duration
+	}
+
+	// Parse the auth section
+	if aux.Auth != nil {
+		c.Auth = &models.AuthConfig{
+			JWTSecret:    aux.Auth.JWTSecret,
+			LocalUsers:   aux.Auth.LocalUsers,
+			CallbackURL:  aux.Auth.CallbackURL,
+			SSOProviders: aux.Auth.SSOProviders,
+		}
+		if aux.Auth.JWTExpiration != "" {
+			duration, err := time.ParseDuration(aux.Auth.JWTExpiration)
+			if err != nil {
+				return fmt.Errorf("invalid jwt_expiration format: %w", err)
+			}
+			c.Auth.JWTExpiration = duration
+		}
+	}
+
+	return nil
+}
 type Server struct {
 	proto.UnimplementedPollerServiceServer
 	mu             sync.RWMutex

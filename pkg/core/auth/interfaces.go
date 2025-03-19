@@ -12,7 +12,7 @@ import (
 type AuthService interface {
 	LoginLocal(ctx context.Context, username, password string) (*models.Token, error)
 	BeginOAuth(ctx context.Context, provider string) (string, error)
-	CompleteOAuth(ctx context.Context, provider string, user goth.User) (*models.Token, error)
+	CompleteOAuth(ctx context.Context, provider string, user *goth.User) (*models.Token, error)
 	RefreshToken(ctx context.Context, refreshToken string) (*models.Token, error)
 	VerifyToken(ctx context.Context, token string) (*models.User, error)
 }

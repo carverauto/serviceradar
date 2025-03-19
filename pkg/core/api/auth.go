@@ -10,31 +10,31 @@ import (
 	"github.com/markbates/goth/gothic"
 )
 
+// Ensure handleLocalLogin handles OPTIONS
 func (s *APIServer) handleLocalLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	var creds struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
 	}
-
 	if err := json.NewDecoder(r.Body).Decode(&creds); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
-
 		return
 	}
-
 	token, err := s.authService.LoginLocal(r.Context(), creds.Username, creds.Password)
 	if err != nil {
 		http.Error(w, "login failed: "+err.Error(), http.StatusUnauthorized)
-
 		return
 	}
-
 	if err := s.encodeJSONResponse(w, token); err != nil {
 		log.Printf("Error encoding login response: %v", err)
 		http.Error(w, "login failed", http.StatusInternalServerError)
-
 		return
 	}
+	log.Printf("Login response sent for %s", creds.Username)
 }
 
 func (*APIServer) handleOAuthBegin(w http.ResponseWriter, r *http.Request) {
@@ -68,7 +68,7 @@ func (s *APIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Generate JWT token using your auth service
-	token, err := s.authService.CompleteOAuth(r.Context(), provider, gothUser)
+	token, err := s.authService.CompleteOAuth(r.Context(), provider, &gothUser)
 	if err != nil {
 		log.Printf("Token generation failed for provider %s: %v", provider, err)
 		http.Error(w, "Token generation failed", http.StatusInternalServerError)
