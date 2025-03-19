@@ -14,32 +14,29 @@
  * limitations under the License.
  */
 
-// src/lib/api.ts - server-side utilities with TypeScript
-import { env } from 'next-runtime-env';
+// web/src/lib/api.ts - server-side utilities with TypeScript
 import { SystemStatus, Node } from '@/types';
 
-// Server-side fetching for Next.js server components with generic return type
 export async function fetchFromAPI<T>(endpoint: string, token?: string): Promise<T | null> {
-    const apiKey = env('API_KEY') || '';
-    const baseUrl = env('NEXT_PUBLIC_API_URL') || 'http://localhost:8090';
-    const apiUrl = endpoint.startsWith('/api/') ? endpoint : `/api/${endpoint}`;
-    const url = new URL(apiUrl, baseUrl).toString();
+    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090';
+    const normalizedEndpoint = endpoint.replace(/^\/+/, ''); // Remove leading slashes
+    const apiUrl = normalizedEndpoint.startsWith('auth/') || normalizedEndpoint.startsWith('api/')
+        ? `${baseUrl}/${normalizedEndpoint}`
+        : `${baseUrl}/api/${normalizedEndpoint}`;
 
-    const headers: HeadersInit = {};
-    if (apiKey) {
-        headers['X-API-Key'] = apiKey;
-    }
-    if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-    }
+    const headers: HeadersInit = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
 
     try {
-        const response = await fetch(url, {
+        console.log(`Fetching from: ${apiUrl}`);
+        const response = await fetch(apiUrl, {
             headers,
             cache: 'no-store',
+            credentials: 'include', // Include cookies for auth
         });
 
         if (!response.ok) {
+            console.error(`API request failed: ${response.status} - ${await response.text()}`);
             throw new Error(`API request failed: ${response.status}`);
         }
 

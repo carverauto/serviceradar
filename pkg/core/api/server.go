@@ -19,16 +19,15 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
 	"log"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/checker/snmp"
 	"github.com/carverauto/serviceradar/pkg/core/auth"
+	srHttp "github.com/carverauto/serviceradar/pkg/http"
 	"github.com/carverauto/serviceradar/pkg/metrics"
 	"github.com/gorilla/mux"
 )
@@ -68,50 +67,13 @@ func WithSNMPManager(m snmp.SNMPManager) func(server *APIServer) {
 
 func (s *APIServer) setupRoutes() {
 	middlewareChain := func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			authEnabled := os.Getenv("AUTH_ENABLED") == "true"
-			authHeader := r.Header.Get("Authorization")
-			apiKey := r.Header.Get("X-API-Key")
-			expectedKey := os.Getenv("API_KEY")
-
-			if authEnabled {
-				// Require Bearer token when AUTH_ENABLED=true
-				if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
-					http.Error(w, "Unauthorized: Bearer token required", http.StatusUnauthorized)
-
-					return
-				}
-
-				if s.authService != nil {
-					token := strings.TrimPrefix(authHeader, "Bearer ")
-
-					user, err := s.authService.VerifyToken(r.Context(), token)
-					if err != nil {
-						http.Error(w, "Unauthorized: Invalid token", http.StatusUnauthorized)
-
-						return
-					}
-
-					ctx := context.WithValue(r.Context(), auth.UserKey, user)
-					next.ServeHTTP(w, r.WithContext(ctx))
-
-					return
-				}
-			} else {
-				// Use API key when AUTH_ENABLED=false
-				if apiKey == "" || (expectedKey != "" && apiKey != expectedKey) {
-					http.Error(w, "Unauthorized: Valid API key required", http.StatusUnauthorized)
-					return
-				}
-
-				next.ServeHTTP(w, r)
-			}
-		})
+		// Order matters: CORS first, then API key/auth checks
+		return srHttp.CommonMiddleware(srHttp.APIKeyMiddleware(os.Getenv("API_KEY"))(next))
 	}
 
 	s.router.Use(middlewareChain)
 
-	// Public routes (no auth required)
+	// Public routes
 	s.router.HandleFunc("/auth/login", s.handleLocalLogin).Methods("POST")
 	s.router.HandleFunc("/auth/refresh", s.handleRefreshToken).Methods("POST")
 	s.router.HandleFunc("/auth/{provider}", s.handleOAuthBegin).Methods("GET")
@@ -119,6 +81,10 @@ func (s *APIServer) setupRoutes() {
 
 	// Protected routes
 	protected := s.router.PathPrefix("/api").Subrouter()
+	if os.Getenv("AUTH_ENABLED") == "true" && s.authService != nil {
+		protected.Use(auth.AuthMiddleware(s.authService))
+	}
+
 	protected.HandleFunc("/nodes", s.getNodes).Methods("GET")
 	protected.HandleFunc("/nodes/{id}", s.getNode).Methods("GET")
 	protected.HandleFunc("/status", s.getSystemStatus).Methods("GET")

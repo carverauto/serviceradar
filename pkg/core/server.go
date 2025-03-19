@@ -88,16 +88,25 @@ func NewServer(_ context.Context, config *Config) (*Server, error) {
 		JWTSecret:     os.Getenv("JWT_SECRET"),
 		JWTExpiration: 24 * time.Hour,
 		CallbackURL:   os.Getenv("AUTH_CALLBACK_URL"), // e.g., "http://localhost:8080/auth"
-		LocalUsers: map[string]string{
-			"admin": os.Getenv("ADMIN_PASSWORD_HASH"), // Pre-hashed with bcrypt
-		},
-		SSOProviders: map[string]models.SSOConfig{
-			"google": {
-				ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
-				ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
-				Scopes:       []string{"email", "profile"},
-			},
-		},
+		LocalUsers:    make(map[string]string),
+	}
+
+	// Override with config file values if present
+	if config.Auth != nil {
+		if config.Auth.JWTSecret != "" {
+			authConfig.JWTSecret = config.Auth.JWTSecret
+		}
+		if config.Auth.JWTExpiration != 0 {
+			authConfig.JWTExpiration = config.Auth.JWTExpiration
+		}
+		if len(config.Auth.LocalUsers) > 0 {
+			authConfig.LocalUsers = config.Auth.LocalUsers
+		}
+	} else {
+		// Fallback to environment variable if no auth section in config
+		if adminHash := os.Getenv("ADMIN_PASSWORD_HASH"); adminHash != "" {
+			authConfig.LocalUsers["admin"] = adminHash
+		}
 	}
 
 	if authConfig.JWTSecret == "" {
@@ -837,31 +846,8 @@ func (s *Server) sendUnreportedNodesAlert(ctx context.Context, nodeIDs []string)
 	}
 }
 
-func (c *Config) UnmarshalJSON(data []byte) error {
-	type Alias Config
-
-	aux := &struct {
-		AlertThreshold string `json:"alert_threshold"`
-		*Alias
-	}{
-		Alias: (*Alias)(c),
-	}
-
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return err
-	}
-
-	// Parse the alert threshold
-	if aux.AlertThreshold != "" {
-		duration, err := time.ParseDuration(aux.AlertThreshold)
-		if err != nil {
-			return fmt.Errorf("invalid alert threshold format: %w", err)
-		}
-
-		c.AlertThreshold = duration
-	}
-
-	return nil
+func (s *Server) GetAuth() *auth.Auth {
+	return s.authService
 }
 
 func LoadConfig(path string) (Config, error) {

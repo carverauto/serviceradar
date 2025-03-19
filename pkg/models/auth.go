@@ -20,11 +20,11 @@ type Token struct {
 }
 
 type AuthConfig struct {
-	JWTSecret     string
-	JWTExpiration time.Duration
-	CallbackURL   string
-	LocalUsers    map[string]string // username:password hash
-	SSOProviders  map[string]SSOConfig
+	JWTSecret     string 				`json:"jwt_secret"`
+	JWTExpiration time.Duration 		`json:"jwt_expiration"`
+	CallbackURL   string 				`json:"callback_url"`
+	LocalUsers    map[string]string 	`json:"local_users"`
+	SSOProviders  map[string]SSOConfig 	`json:"sso_providers"`
 }
 
 type SSOConfig struct {
