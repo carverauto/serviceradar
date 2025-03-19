@@ -1,72 +1,51 @@
-/*
- * Copyright 2025 Carver Automation Corporation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-// src/middleware.ts
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { env } from 'next-runtime-env';
+
+// The API key should be accessible through server runtime config
+const API_KEY = process.env.API_KEY || '';
 
 export async function middleware(request: NextRequest) {
-    const isAuthEnabled = env('AUTH_ENABLED') === 'true';
-    const apiKey = env('API_KEY') || '';
+    console.log("Middleware triggered for:", request.method, request.nextUrl.pathname);
 
-    // Clone the request headers
-    const requestHeaders = new Headers(request.headers);
-    requestHeaders.set('X-API-Key', apiKey);
-
-    // Handle public paths (no auth required)
-    const publicPaths = ['/login', '/auth'];
-    if (publicPaths.some(path => request.nextUrl.pathname.startsWith(path))) {
-        return NextResponse.next({
-            request: { headers: requestHeaders },
+    // Handle OPTIONS preflight requests
+    if (request.method === 'OPTIONS') {
+        return new NextResponse(null, {
+            status: 200,
+            headers: {
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+                'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-API-Key',
+            },
         });
     }
 
-    // If auth is enabled, check for token
-    if (isAuthEnabled) {
-        const token = request.headers.get('Authorization')?.replace('Bearer ', '');
-        if (!token && !request.nextUrl.pathname.startsWith('/login')) {
-            return NextResponse.redirect(new URL('/login', request.url));
-        }
+    // Clone and modify headers - ALWAYS add API key
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set('X-API-Key', API_KEY);
+    console.log("Setting API Key header:", API_KEY ? "Key set (not shown)" : "No key available");
 
-        if (token) {
-            try {
-                const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/status`, {
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'X-API-Key': apiKey,
-                    },
-                });
-
-                if (!response.ok) {
-                    return NextResponse.redirect(new URL('/login', request.url));
-                }
-            } catch (error) {
-                console.error('Token verification failed:', error);
-                return NextResponse.redirect(new URL('/login', request.url));
+    // Log all headers for debugging (in dev only)
+    if (process.env.NODE_ENV === 'development') {
+        console.log("Request headers:");
+        requestHeaders.forEach((value, key) => {
+            if (key !== 'x-api-key') { // Don't log the actual API key
+                console.log(`${key}: ${value}`);
+            } else {
+                console.log("x-api-key: [PRESENT]");
             }
-        }
+        });
     }
 
-    // Proceed with the request, ensuring API key is always included
+    console.log("Original URL:", request.url);
+    console.log("Next URL:", request.nextUrl.href);
+
+    // Forward the request with modified headers
     return NextResponse.next({
         request: { headers: requestHeaders },
     });
 }
 
+// Match all routes
 export const config = {
     matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
 };

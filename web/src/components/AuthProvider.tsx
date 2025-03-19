@@ -1,19 +1,3 @@
-/*
- * Copyright 2025 Carver Automation Corporation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 // src/components/AuthProvider.tsx
 'use client';
 
@@ -56,7 +40,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             return;
         }
 
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/refresh`, {
+        const response = await fetch('/auth/refresh', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ refreshToken: refreshTokenValue }),
@@ -77,7 +61,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }, [logout]);
 
     const verifyToken = async (token: string) => {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/status`, {
+        const response = await fetch('/api/status', {
             headers: { Authorization: `Bearer ${token}` },
         });
 
@@ -95,10 +79,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     useEffect(() => {
-        if (isAuthEnabled === null) return; // Wait until the flag is fetched
+        if (isAuthEnabled === null) return;
 
         if (!isAuthEnabled) {
-            setIsAuthenticated(true); // If auth is disabled, assume authenticated
+            setIsAuthenticated(true);
             return;
         }
 
@@ -122,8 +106,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const login = async (username: string, password: string) => {
         try {
-            console.log(process.env.NEXT_PUBLIC_API_URL)
-
             const response = await fetch('/auth/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },

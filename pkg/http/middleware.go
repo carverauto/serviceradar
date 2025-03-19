@@ -27,9 +27,10 @@ import (
 // headers (CORS, etc.) before calling the next handler.
 func CommonMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Origin", "*") // For prod: "http://localhost:3000"
 		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type,Authorization,X-API-Key")
+		w.Header().Set("Access-Control-Max-Age", "3600") // Cache preflight for 1 hour
 
 		if r.Method == http.MethodOptions {
 			// Preflight request response
@@ -70,6 +71,8 @@ func APIKeyMiddleware(apiKeyParam string) func(next http.Handler) http.Handler {
 			if requestKey == "" {
 				requestKey = r.URL.Query().Get("api_key")
 			}
+
+			log.Println("API-KEY: ", requestKey)
 
 			// Validate API key
 			if requestKey == "" || requestKey != apiKey {
