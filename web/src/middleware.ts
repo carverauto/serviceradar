@@ -37,6 +37,19 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
+  const isPublicPath =
+    request.nextUrl.pathname.startsWith("/api/") ||
+    request.nextUrl.pathname.startsWith("/auth/") ||
+    publicPaths.some((path) => request.nextUrl.pathname.startsWith(path));
+
+  if (isPublicPath) {
+    const requestHeaders = new Headers(request.headers);
+    if (apiKey) {
+      requestHeaders.set("X-API-Key", apiKey);
+    }
+    return NextResponse.next({ request: { headers: requestHeaders } });
+  }
+
   const requestHeaders = new Headers(request.headers);
   const token =
     request.cookies.get("accessToken")?.value ||
