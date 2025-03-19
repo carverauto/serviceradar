@@ -25,8 +25,13 @@ export async function fetchFromAPI<T>(endpoint: string, token?: string): Promise
     const apiUrl = endpoint.startsWith('/api/') ? endpoint : `/api/${endpoint}`;
     const url = new URL(apiUrl, baseUrl).toString();
 
-    const headers: HeadersInit = { 'X-API-Key': apiKey };
-    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const headers: HeadersInit = {};
+    if (apiKey) {
+        headers['X-API-Key'] = apiKey;
+    }
+    if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+    }
 
     try {
         const response = await fetch(url, {

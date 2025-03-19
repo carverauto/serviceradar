@@ -19,15 +19,16 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/checker/snmp"
 	"github.com/carverauto/serviceradar/pkg/core/auth"
-	srHttp "github.com/carverauto/serviceradar/pkg/http"
 	"github.com/carverauto/serviceradar/pkg/metrics"
 	"github.com/gorilla/mux"
 )
@@ -66,26 +67,58 @@ func WithSNMPManager(m snmp.SNMPManager) func(server *APIServer) {
 }
 
 func (s *APIServer) setupRoutes() {
-	// Create a middleware chain
 	middlewareChain := func(next http.Handler) http.Handler {
-		// Order matters: first API key check, then CORS headers
-		return srHttp.CommonMiddleware(srHttp.APIKeyMiddleware(os.Getenv("API_KEY"))(next))
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			authEnabled := os.Getenv("AUTH_ENABLED") == "true"
+			authHeader := r.Header.Get("Authorization")
+			apiKey := r.Header.Get("X-API-Key")
+			expectedKey := os.Getenv("API_KEY")
+
+			if authEnabled {
+				// Require Bearer token when AUTH_ENABLED=true
+				if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+					http.Error(w, "Unauthorized: Bearer token required", http.StatusUnauthorized)
+
+					return
+				}
+
+				if s.authService != nil {
+					token := strings.TrimPrefix(authHeader, "Bearer ")
+
+					user, err := s.authService.VerifyToken(r.Context(), token)
+					if err != nil {
+						http.Error(w, "Unauthorized: Invalid token", http.StatusUnauthorized)
+
+						return
+					}
+
+					ctx := context.WithValue(r.Context(), auth.UserKey, user)
+					next.ServeHTTP(w, r.WithContext(ctx))
+
+					return
+				}
+			} else {
+				// Use API key when AUTH_ENABLED=false
+				if apiKey == "" || (expectedKey != "" && apiKey != expectedKey) {
+					http.Error(w, "Unauthorized: Valid API key required", http.StatusUnauthorized)
+					return
+				}
+
+				next.ServeHTTP(w, r)
+			}
+		})
 	}
 
-	// Add middleware to router
 	s.router.Use(middlewareChain)
 
-	// Public routes
+	// Public routes (no auth required)
 	s.router.HandleFunc("/auth/login", s.handleLocalLogin).Methods("POST")
 	s.router.HandleFunc("/auth/refresh", s.handleRefreshToken).Methods("POST")
 	s.router.HandleFunc("/auth/{provider}", s.handleOAuthBegin).Methods("GET")
 	s.router.HandleFunc("/auth/{provider}/callback", s.handleOAuthCallback).Methods("GET")
 
+	// Protected routes
 	protected := s.router.PathPrefix("/api").Subrouter()
-	if os.Getenv("AUTH_ENABLED") == "true" {
-		protected.Use(auth.AuthMiddleware(s.authService))
-	}
-
 	protected.HandleFunc("/nodes", s.getNodes).Methods("GET")
 	protected.HandleFunc("/nodes/{id}", s.getNode).Methods("GET")
 	protected.HandleFunc("/status", s.getSystemStatus).Methods("GET")
@@ -94,6 +127,17 @@ func (s *APIServer) setupRoutes() {
 	protected.HandleFunc("/nodes/{id}/services", s.getNodeServices).Methods("GET")
 	protected.HandleFunc("/nodes/{id}/services/{service}", s.getServiceDetails).Methods("GET")
 	protected.HandleFunc("/nodes/{id}/snmp", s.getSNMPData).Methods("GET")
+}
+
+func (s *APIServer) getAuthStatus(w http.ResponseWriter, r *http.Request) {
+	status := struct {
+		AuthEnabled bool `json:"auth_enabled"`
+	}{
+		AuthEnabled: os.Getenv("AUTH_ENABLED") == "true",
+	}
+	if err := s.encodeJSONResponse(w, status); err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	}
 }
 
 // getSNMPData retrieves SNMP data for a specific node.
