@@ -7,7 +7,6 @@ import { Suspense } from "react";
 import { cookies } from "next/headers";
 import NodeList from "../../components/NodeList";
 
-// Disable static generation, always fetch latest data
 export const revalidate = 0;
 
 async function fetchNodesWithMetrics(token?: string) {
@@ -28,7 +27,6 @@ async function fetchNodesWithMetrics(token?: string) {
     }
 
     const nodes = await nodesResponse.json();
-
     const serviceMetrics: { [key: string]: any[] } = {};
 
     for (const node of nodes) {
@@ -74,7 +72,7 @@ async function fetchNodesWithMetrics(token?: string) {
 }
 
 export default async function NodesPage() {
-  const cookieStore = cookies();
+  const cookieStore = await cookies(); // Await cookies()
   const token = cookieStore.get("accessToken")?.value;
   const { nodes, serviceMetrics } = await fetchNodesWithMetrics(token);
 
