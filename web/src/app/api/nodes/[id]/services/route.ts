@@ -1,10 +1,8 @@
 // src/app/api/nodes/[id]/services/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import { Service } from "@/types/types";
 
-export async function GET(
-  req: NextRequest,
-  { params }: { params: { id: string } },
-) {
+export async function GET(req: NextRequest, { params }) {
   const nodeId = params.id;
   const apiKey = process.env.API_KEY || "";
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090";
@@ -22,7 +20,10 @@ export async function GET(
     // Add Authorization header if it exists
     if (authHeader) {
       headers["Authorization"] = authHeader;
+      console.log(`Forwarding services request with authorization: ${authHeader}`);
     }
+
+    console.log(`Requesting services for node ${nodeId} from: ${apiUrl}/api/nodes/${nodeId}/services`);
 
     // Forward request to Go API
     const response = await fetch(`${apiUrl}/api/nodes/${nodeId}/services`, {
@@ -45,20 +46,20 @@ export async function GET(
       }
 
       return NextResponse.json(
-        { error: "Failed to fetch services", details: errorMessage },
-        { status },
+          { error: "Failed to fetch services", details: errorMessage },
+          { status },
       );
     }
 
     // Return successful response
-    const data = await response.json();
+    const data: Service[] = await response.json();
     return NextResponse.json(data);
   } catch (error) {
     console.error(`Error fetching services for node ${nodeId}:`, error);
 
     return NextResponse.json(
-      { error: "Internal server error while fetching services" },
-      { status: 500 },
+        { error: "Internal server error while fetching services" },
+        { status: 500 },
     );
   }
 }
