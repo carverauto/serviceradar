@@ -2,8 +2,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Service } from "@/types/types";
 
-export async function GET(req: NextRequest, props) {
-  const params = await props.params;
+// Define the props type for the nested dynamic route
+interface RouteProps {
+  params: Promise<{ id: string; service: string }>; // params is a Promise due to async nature
+}
+
+export async function GET(req: NextRequest, props: RouteProps) {
+  const params = await props.params; // Await the params Promise
   const nodeId = params.id;
   const serviceName = params.service;
   const apiKey = process.env.API_KEY || "";
