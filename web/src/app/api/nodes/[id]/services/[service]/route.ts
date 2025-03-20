@@ -2,7 +2,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Service } from "@/types/types";
 
-export async function GET(req: NextRequest, { params }) {
+export async function GET(req: NextRequest, props) {
+  const params = await props.params;
   const nodeId = params.id;
   const serviceName = params.service;
   const apiKey = process.env.API_KEY || "";

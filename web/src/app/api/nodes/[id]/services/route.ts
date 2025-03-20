@@ -2,7 +2,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Service } from "@/types/types";
 
-export async function GET(req: NextRequest, { params }) {
+export async function GET(req: NextRequest, props) {
+  const params = await props.params;
   const nodeId = params.id;
   const apiKey = process.env.API_KEY || "";
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090";

@@ -63,7 +63,7 @@ async function fetchStatus(token?: string): Promise<SystemStatus | null> {
 }
 
 export default async function HomePage() {
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   const token = cookieStore.get("accessToken")?.value;
   const initialData = await fetchStatus(token);
 
