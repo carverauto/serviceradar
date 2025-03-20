@@ -20,7 +20,7 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "./AuthProvider";
 import Dashboard from "./Dashboard";
-import { SystemStatus } from "@/types";
+import { SystemStatus } from "@/types/types";
 
 export default function DashboardWrapper({
   initialData,
