@@ -1,4 +1,4 @@
-// src/app/api/auth-status/route.ts
+// src/app/api/auth/status/route.ts
 import { NextResponse } from "next/server";
 
 export async function GET() {

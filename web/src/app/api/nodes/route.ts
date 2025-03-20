@@ -20,6 +20,11 @@ export async function GET(req: NextRequest) {
       headers["Authorization"] = authHeader;
     }
 
+    console.log(
+      `Forwarding request to: ${apiUrl}/api/nodes with headers:`,
+      headers,
+    );
+
     // Forward to your Go API
     const response = await fetch(`${apiUrl}/api/nodes`, {
       headers,

@@ -15,29 +15,57 @@
  */
 
 // src/components/DashboardWrapper.tsx (client-side)
-'use client';
+"use client";
 
-import { useEffect, useState } from 'react';
-import { useAuth } from './AuthProvider';
-import Dashboard from './Dashboard';
-import { fetchWithCache } from '@/lib/client-api';
-import { SystemStatus } from '@/types';
+import { useEffect, useState } from "react";
+import { useAuth } from "./AuthProvider";
+import Dashboard from "./Dashboard";
+import { SystemStatus } from "@/types";
 
-export default function DashboardWrapper({ initialData }: { initialData: SystemStatus | null }) {
-    const { token } = useAuth(); // Removed isAuthEnabled
-    const [data, setData] = useState<SystemStatus | null>(initialData);
+export default function DashboardWrapper({
+  initialData,
+}: {
+  initialData: SystemStatus | null;
+}) {
+  const { token } = useAuth();
+  const [data, setData] = useState<SystemStatus | null>(initialData);
 
-    useEffect(() => {
-        if (token) {
-            // Refetch with token if available
-            fetchWithCache('/status', { headers: { Authorization: `Bearer ${token}` } })
-                .then(updatedData => {
-                    if (updatedData) setData(updatedData);
-                })
-                .catch(err => console.error('Error refetching with token:', err));
+  useEffect(() => {
+    async function fetchData() {
+      if (token) {
+        try {
+          console.log("Fetching dashboard data with token");
+
+          // Direct fetch from the Next.js API route
+          const response = await fetch("/api/status", {
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            cache: "no-store",
+            credentials: "include",
+          });
+
+          if (!response.ok) {
+            throw new Error(`API request failed: ${response.status}`);
+          }
+
+          const updatedData = await response.json();
+          setData(updatedData);
+        } catch (err) {
+          console.error("Error fetching dashboard data:", err);
         }
-        // If no token, rely on initialData or API key from middleware
-    }, [token]);
+      }
+    }
 
-    return <Dashboard initialData={data} />;
+    fetchData();
+
+    // Optional: Set up a polling interval
+    const intervalId = setInterval(fetchData, 10000); // Every 10 seconds
+
+    // Clean up interval on unmount
+    return () => clearInterval(intervalId);
+  }, [token]);
+
+  return <Dashboard initialData={data} />;
 }
