@@ -1,10 +1,9 @@
 // src/app/api/nodes/[id]/metrics/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import { ServiceMetric } from "@/types/types";
 
-export async function GET(
-  req: NextRequest,
-  { params }: { params: { id: string } },
-) {
+// Define the response type
+export async function GET(req: NextRequest, { params }) {
   const nodeId = params.id;
   const apiKey = process.env.API_KEY || "";
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090";
@@ -22,14 +21,10 @@ export async function GET(
     // Add Authorization header if it exists
     if (authHeader) {
       headers["Authorization"] = authHeader;
-      console.log(
-        `Forwarding metrics request with authorization: ${authHeader}`,
-      );
+      console.log(`Forwarding metrics request with authorization: ${authHeader}`);
     }
 
-    console.log(
-      `Requesting metrics for node ${nodeId} from: ${apiUrl}/api/nodes/${nodeId}/metrics`,
-    );
+    console.log(`Requesting metrics for node ${nodeId} from: ${apiUrl}/api/nodes/${nodeId}/metrics`);
 
     // Forward request to Go API
     const response = await fetch(`${apiUrl}/api/nodes/${nodeId}/metrics`, {
@@ -53,20 +48,20 @@ export async function GET(
 
       // Return error response
       return NextResponse.json(
-        { error: "Failed to fetch metrics", details: errorMessage },
-        { status },
+          { error: "Failed to fetch metrics", details: errorMessage },
+          { status },
       );
     }
 
     // Return successful response
-    const data = await response.json();
+    const data: ServiceMetric[] = await response.json();
     return NextResponse.json(data);
   } catch (error) {
     console.error(`Error fetching metrics for node ${nodeId}:`, error);
 
     return NextResponse.json(
-      { error: "Internal server error while fetching metrics" },
-      { status: 500 },
+        { error: "Internal server error while fetching metrics" },
+        { status: 500 },
     );
   }
 }
