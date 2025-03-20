@@ -6,18 +6,23 @@
 import { Suspense } from "react";
 import { cookies } from "next/headers";
 import NodeList from "../../components/NodeList";
+import { ServiceMetric, Node } from "@/types";
 
 export const revalidate = 0;
 
-async function fetchNodesWithMetrics(token?: string) {
+async function fetchNodesWithMetrics(token?: string): Promise<{
+  nodes: Node[];
+  serviceMetrics: { [key: string]: ServiceMetric[] };
+}> {
   try {
-    const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090";
+    const backendUrl =
+      process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090";
     const apiKey = process.env.API_KEY || "";
 
     const nodesResponse = await fetch("http://localhost:3000/api/nodes", {
       headers: {
         "X-API-Key": apiKey,
-        ...(token ? { "Authorization": `Bearer ${token}` } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       cache: "no-store",
     });
@@ -26,11 +31,12 @@ async function fetchNodesWithMetrics(token?: string) {
       throw new Error(`Nodes API request failed: ${nodesResponse.status}`);
     }
 
-    const nodes = await nodesResponse.json();
-    const serviceMetrics: { [key: string]: any[] } = {};
+    const nodes: Node[] = await nodesResponse.json();
+    const serviceMetrics: { [key: string]: ServiceMetric[] } = {};
 
     for (const node of nodes) {
-      const icmpServices = node.services?.filter((s: any) => s.type === "icmp") || [];
+      const icmpServices =
+        node.services?.filter((s) => s.type === "icmp") || [];
 
       if (icmpServices.length > 0) {
         try {
@@ -39,7 +45,7 @@ async function fetchNodesWithMetrics(token?: string) {
             {
               headers: {
                 "X-API-Key": apiKey,
-                ...(token ? { "Authorization": `Bearer ${token}` } : {}),
+                ...(token ? { Authorization: `Bearer ${token}` } : {}),
               },
               cache: "no-store",
             },
@@ -49,11 +55,11 @@ async function fetchNodesWithMetrics(token?: string) {
             continue;
           }
 
-          const allNodeMetrics = await metricsResponse.json();
+          const allNodeMetrics: ServiceMetric[] = await metricsResponse.json();
 
           for (const service of icmpServices) {
             const serviceMetricsData = allNodeMetrics.filter(
-              (m: any) => m.service_name === service.name,
+              (m) => m.service_name === service.name,
             );
             const key = `${node.node_id}-${service.name}`;
             serviceMetrics[key] = serviceMetricsData;

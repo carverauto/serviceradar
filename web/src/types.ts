@@ -15,36 +15,43 @@
  */
 
 export interface ServiceDetails {
-    response_time?: number;
-    packet_loss?: number;
-    available?: boolean;
-    round_trip?: number;
-    [key: string]: unknown;
+  response_time?: number;
+  packet_loss?: number;
+  available?: boolean;
+  round_trip?: number;
+  [key: string]: unknown;
 }
 
 export interface Service {
-    name: string;
-    type: string;
-    available: boolean;
-    details?: ServiceDetails | string;
+  name: string;
+  type: string;
+  available: boolean;
+  details?: ServiceDetails | string;
 }
 
 export interface Node {
-    node_id: string;
-    is_healthy: boolean;
-    last_update: string;
-    services?: Service[];
+  node_id: string;
+  is_healthy: boolean;
+  last_update: string;
+  services?: Service[];
 }
 
 export interface ServiceStats {
-    total_services: number;
-    offline_services: number;
-    avg_response_time: number;
+  total_services: number;
+  offline_services: number;
+  avg_response_time: number;
+}
+
+export interface ServiceMetric {
+  service_name: string;
+  timestamp: string; // ISO string format
+  response_time: number; // Assuming nanoseconds or milliseconds
+  [key: string]: unknown; // Allow additional fields if needed
 }
 
 export interface SystemStatus {
-    total_nodes: number;
-    healthy_nodes: number;
-    last_update: string;
-    service_stats: ServiceStats;
+  total_nodes: number;
+  healthy_nodes: number;
+  last_update: string;
+  service_stats: ServiceStats;
 }
