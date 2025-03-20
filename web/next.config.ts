@@ -20,6 +20,8 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   output: "standalone",
   async rewrites() {
+    console.log("NEXT_PUBLIC_API_URL:", process.env.NEXT_PUBLIC_API_URL);
+
     const backendUrl =
       process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090";
     return [
