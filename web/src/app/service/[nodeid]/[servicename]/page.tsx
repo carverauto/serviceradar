@@ -10,8 +10,8 @@ type Params = Promise<{ nodeid: string; servicename: string }>;
 
 // Define props type
 interface PageProps {
-    params: Params;
-    searchParams: { timeRange?: string };
+    params: Promise<Params>;
+    searchParams: Promise<{ timeRange?: string }>;
 }
 
 export const revalidate = 0;
@@ -92,9 +92,11 @@ export async function generateMetadata({ params }: { params: Params }) {
 }
 
 // Update the Page component to await params
-export default async function Page({ params, searchParams }: PageProps) {
+export default async function Page(props: PageProps) {
+    const { params, searchParams }  = props
     const { nodeid, servicename } = await params; // Await the params
-    const timeRange = searchParams.timeRange || "1h";
+    const resolvedSearchParams = await searchParams;
+    const timeRange = resolvedSearchParams.timeRange || "1h";
     const cookieStore = await cookies(); // Await the cookies() promise
     const token = cookieStore.get("accessToken")?.value;
     const initialData = await fetchServiceData(nodeid, servicename, timeRange, token);

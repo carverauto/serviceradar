@@ -66,7 +66,8 @@ async function fetchDuskData(nodeId) {
     }
 }
 
-export async function generateMetadata({ params }) {
+export async function generateMetadata(props) {
+    const params = await props.params;
     // Properly await the params object
     const nodeid = params.nodeid;
     return {
@@ -74,7 +75,8 @@ export async function generateMetadata({ params }) {
     };
 }
 
-export default async function DuskPage({ params }) {
+export default async function DuskPage(props) {
+    const params = await props.params;
     const nodeid = params.nodeid;
     const initialData = await fetchDuskData(nodeid);
 
