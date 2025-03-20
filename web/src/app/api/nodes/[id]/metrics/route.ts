@@ -47,7 +47,7 @@ export async function GET(
         const errorText = await response.text();
         console.error(`Metrics API error (${status}): ${errorText}`);
         errorMessage = errorText;
-      } catch (e) {
+      } catch {
         errorMessage = `Status code: ${status}`;
       }
 
