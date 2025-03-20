@@ -22,16 +22,14 @@ const nextConfig: NextConfig = {
   async rewrites() {
     console.log("NEXT_PUBLIC_API_URL:", process.env.NEXT_PUBLIC_API_URL);
 
-    const backendUrl =
-      process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090";
     return [
       {
-        source: "/auth/:path*",
-        destination: `${backendUrl}/auth/:path*`,
+        source: '/api/:path*',
+        destination: `${process.env.NEXT_PUBLIC_API_URL}/api/:path*`,
       },
       {
-        source: "/api/:path*",
-        destination: `${backendUrl}/api/:path*`,
+        source: '/auth/:path*',
+        destination: `${process.env.NEXT_PUBLIC_API_URL}/auth/:path*`,
       },
     ];
   },

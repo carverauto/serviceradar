@@ -18,13 +18,22 @@
 import { SystemStatus, Node } from "@/types/types";
 
 export async function fetchFromAPI<T>(
-  endpoint: string,
-  token?: string,
+    endpoint: string,
+    token?: string,
 ): Promise<T | null> {
   const normalizedEndpoint = endpoint.replace(/^\/+/, "");
-  // Use full URL in server-side context; client-side will resolve it naturally
-  const baseUrl = typeof window === "undefined" ? "http://localhost:3000" : "";
-  const apiUrl = `${baseUrl}/api/${normalizedEndpoint}`;
+
+  // Handle both server and client side URL construction properly
+  let apiUrl: string;
+
+  if (typeof window === "undefined") {
+    // Server-side: Use a fully qualified URL or environment variable
+    const baseApiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090";
+    apiUrl = `${baseApiUrl}/api/${normalizedEndpoint}`;
+  } else {
+    // Client-side: Use relative URL path
+    apiUrl = `/api/${normalizedEndpoint}`;
+  }
 
   const headers: HeadersInit = { "Content-Type": "application/json" };
   const apiKey = process.env.API_KEY;
@@ -36,6 +45,7 @@ export async function fetchFromAPI<T>(
   }
 
   console.log("Fetching from:", apiUrl, "with headers:", headers);
+
   try {
     const response = await fetch(apiUrl, {
       headers,
