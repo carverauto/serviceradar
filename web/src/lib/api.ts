@@ -15,36 +15,45 @@
  */
 
 // web/src/lib/api.ts - server-side utilities with TypeScript
-import { SystemStatus, Node } from '@/types';
+import { SystemStatus, Node } from "@/types";
 
-export async function fetchFromAPI<T>(endpoint: string, token?: string): Promise<T | null> {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090';
-    const normalizedEndpoint = endpoint.replace(/^\/+/, ''); // Remove leading slashes
-    const apiUrl = normalizedEndpoint.startsWith('auth/') || normalizedEndpoint.startsWith('api/')
-        ? `${baseUrl}/${normalizedEndpoint}`
-        : `${baseUrl}/api/${normalizedEndpoint}`;
+export async function fetchFromAPI<T>(
+  endpoint: string,
+  token?: string,
+): Promise<T | null> {
+  const normalizedEndpoint = endpoint.replace(/^\/+/, "");
+  // Use full URL in server-side context; client-side will resolve it naturally
+  const baseUrl = typeof window === "undefined" ? "http://localhost:3000" : "";
+  const apiUrl = `${baseUrl}/api/${normalizedEndpoint}`;
 
-    const headers: HeadersInit = { 'Content-Type': 'application/json' };
-    if (token) headers['Authorization'] = `Bearer ${token}`;
+  const headers: HeadersInit = { "Content-Type": "application/json" };
+  const apiKey = process.env.API_KEY;
+  if (apiKey) {
+    headers["X-API-Key"] = apiKey;
+  }
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
 
-    try {
-        console.log(`Fetching from: ${apiUrl}`);
-        const response = await fetch(apiUrl, {
-            headers,
-            cache: 'no-store',
-            credentials: 'include', // Include cookies for auth
-        });
+  console.log("Fetching from:", apiUrl, "with headers:", headers);
+  try {
+    const response = await fetch(apiUrl, {
+      headers,
+      cache: "no-store",
+      credentials: "include",
+    });
 
-        if (!response.ok) {
-            console.error(`API request failed: ${response.status} - ${await response.text()}`);
-            throw new Error(`API request failed: ${response.status}`);
-        }
-
-        return response.json();
-    } catch (error) {
-        console.error('Error fetching from API:', error);
-        return null;
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`API request failed: ${response.status} - ${errorText}`);
+      throw new Error(`API request failed: ${response.status}`);
     }
+
+    return response.json();
+  } catch (error) {
+    console.error("Error fetching from API:", error);
+    return null;
+  }
 }
 
 // Union type for cacheable data (exported for client-api.ts)
