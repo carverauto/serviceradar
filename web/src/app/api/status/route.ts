@@ -1,0 +1,56 @@
+// src/app/api/status/route.ts
+import { NextRequest, NextResponse } from "next/server";
+
+export async function GET(req: NextRequest) {
+  const apiKey = process.env.API_KEY || "";
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090";
+
+  try {
+    // Get the authorization header if it exists
+    const authHeader = req.headers.get("Authorization");
+
+    // Create headers with API key
+    const headers: HeadersInit = {
+      "Content-Type": "application/json",
+      "X-API-Key": apiKey,
+    };
+
+    // Add Authorization header if present
+    if (authHeader) {
+      headers["Authorization"] = authHeader;
+    }
+
+    console.log(
+      `Forwarding to backend: ${apiUrl}/api/status with headers`,
+      headers,
+    );
+
+    // Forward to your Go API
+    const response = await fetch(`${apiUrl}/api/status`, {
+      headers,
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      console.error(`Status API failed with status ${response.status}`);
+      const errorText = await response.text();
+      console.error(`Error details: ${errorText}`);
+
+      return NextResponse.json(
+        { error: "Failed to fetch status" },
+        { status: response.status },
+      );
+    }
+
+    // Forward the successful response
+    const data = await response.json();
+    return NextResponse.json(data);
+  } catch (error) {
+    console.error("Error fetching status:", error);
+
+    return NextResponse.json(
+      { error: "Internal server error while fetching status" },
+      { status: 500 },
+    );
+  }
+}
