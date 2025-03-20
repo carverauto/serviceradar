@@ -26,7 +26,8 @@ async function fetchServiceData(
         const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090";
         const apiKey = process.env.API_KEY || "";
 
-        const nodesResponse = await fetch("http://localhost:3000/api/nodes", {
+        // Use relative URL for the API route
+        const nodesResponse = await fetch("/api/nodes", {
             headers: {
                 "X-API-Key": apiKey,
                 ...(token ? { Authorization: `Bearer ${token}` } : {}),
