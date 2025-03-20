@@ -2,8 +2,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Service } from "@/types/types";
 
-export async function GET(req: NextRequest, props) {
-  const params = await props.params;
+// Define the props type for the dynamic route
+interface RouteProps {
+  params: Promise<{ id: string }>; // params is a Promise due to async nature
+}
+
+export async function GET(req: NextRequest, props: RouteProps) {
+  const params = await props.params; // Await the params Promise
   const nodeId = params.id;
   const apiKey = process.env.API_KEY || "";
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090";
