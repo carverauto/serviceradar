@@ -1,12 +1,11 @@
 /*
  * Copyright 2025 Carver Automation Corporation.
- * ... (license header unchanged)
  */
 
 import { Suspense } from "react";
 import { cookies } from "next/headers";
 import NodeList from "../../components/NodeList";
-import { ServiceMetric, Node } from "@/types";
+import { ServiceMetric, Node } from "@/types/types";
 
 export const revalidate = 0;
 

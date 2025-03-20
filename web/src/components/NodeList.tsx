@@ -20,7 +20,7 @@ import React, { useState, useMemo, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import ServiceSparkline from "./ServiceSparkline";
 import { Filter, ArrowUp, ArrowDown, CheckCircle, XCircle } from "lucide-react";
-import { Node, ServiceMetric, Service } from "@/types";
+import { Node, ServiceMetric, Service } from "@/types/types";
 
 // Define props interface for NodeList
 interface NodeListProps {

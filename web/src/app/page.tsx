@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { fetchFromAPI } from "@/lib/api";
-import { SystemStatus, Node } from "@/types";
+import { SystemStatus, Node } from "@/types/types";
 import { unstable_noStore as noStore } from "next/cache";
 import DashboardWrapper from "@/components/DashboardWrapper";
 import { Suspense } from "react";
