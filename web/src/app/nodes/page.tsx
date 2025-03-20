@@ -1,0 +1,96 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ * ... (license header unchanged)
+ */
+
+import { Suspense } from "react";
+import { cookies } from "next/headers";
+import NodeList from "../../components/NodeList";
+
+// Disable static generation, always fetch latest data
+export const revalidate = 0;
+
+async function fetchNodesWithMetrics(token?: string) {
+  try {
+    const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090";
+    const apiKey = process.env.API_KEY || "";
+
+    const nodesResponse = await fetch("http://localhost:3000/api/nodes", {
+      headers: {
+        "X-API-Key": apiKey,
+        ...(token ? { "Authorization": `Bearer ${token}` } : {}),
+      },
+      cache: "no-store",
+    });
+
+    if (!nodesResponse.ok) {
+      throw new Error(`Nodes API request failed: ${nodesResponse.status}`);
+    }
+
+    const nodes = await nodesResponse.json();
+
+    const serviceMetrics: { [key: string]: any[] } = {};
+
+    for (const node of nodes) {
+      const icmpServices = node.services?.filter((s: any) => s.type === "icmp") || [];
+
+      if (icmpServices.length > 0) {
+        try {
+          const metricsResponse = await fetch(
+            `${backendUrl}/api/nodes/${node.node_id}/metrics`,
+            {
+              headers: {
+                "X-API-Key": apiKey,
+                ...(token ? { "Authorization": `Bearer ${token}` } : {}),
+              },
+              cache: "no-store",
+            },
+          );
+
+          if (!metricsResponse.ok) {
+            continue;
+          }
+
+          const allNodeMetrics = await metricsResponse.json();
+
+          for (const service of icmpServices) {
+            const serviceMetricsData = allNodeMetrics.filter(
+              (m: any) => m.service_name === service.name,
+            );
+            const key = `${node.node_id}-${service.name}`;
+            serviceMetrics[key] = serviceMetricsData;
+          }
+        } catch (error) {
+          console.error(`Error fetching metrics for ${node.node_id}:`, error);
+        }
+      }
+    }
+
+    return { nodes, serviceMetrics };
+  } catch (error) {
+    console.error("Error fetching nodes:", error);
+    return { nodes: [], serviceMetrics: {} };
+  }
+}
+
+export default async function NodesPage() {
+  const cookieStore = cookies();
+  const token = cookieStore.get("accessToken")?.value;
+  const { nodes, serviceMetrics } = await fetchNodesWithMetrics(token);
+
+  return (
+    <div>
+      <Suspense
+        fallback={
+          <div className="flex justify-center items-center h-64">
+            <div className="text-lg text-gray-600 dark:text-gray-300">
+              Loading nodes...
+            </div>
+          </div>
+        }
+      >
+        <NodeList initialNodes={nodes} serviceMetrics={serviceMetrics} />
+      </Suspense>
+    </div>
+  );
+}
