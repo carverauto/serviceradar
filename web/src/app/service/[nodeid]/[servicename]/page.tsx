@@ -4,6 +4,7 @@ import ServiceDashboard from "../../../../components/ServiceDashboard";
 import { cookies } from "next/headers";
 import { Node, ServiceMetric } from "@/types/types";
 import { SnmpDataPoint } from "@/types/snmp";
+import { getApiUrl } from "@/lib/urlUtils";
 
 // Define the params type as a Promise
 type Params = Promise<{ nodeid: string; servicename: string }>;
@@ -26,8 +27,10 @@ async function fetchServiceData(
         const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090";
         const apiKey = process.env.API_KEY || "";
 
+        const nodesUrl = getApiUrl("nodes");
+
         // Use relative URL for the API route
-        const nodesResponse = await fetch("/api/nodes", {
+        const nodesResponse = await fetch(nodesUrl, {
             headers: {
                 "X-API-Key": apiKey,
                 ...(token ? { Authorization: `Bearer ${token}` } : {}),
