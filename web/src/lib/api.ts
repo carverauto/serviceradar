@@ -15,7 +15,7 @@
  */
 
 // web/src/lib/api.ts - server-side utilities with TypeScript
-import { SystemStatus, Node } from "@/types";
+import { SystemStatus, Node } from "@/types/types";
 
 export async function fetchFromAPI<T>(
   endpoint: string,

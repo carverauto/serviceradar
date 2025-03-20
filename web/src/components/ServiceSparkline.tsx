@@ -21,7 +21,7 @@ import { AreaChart, Area, YAxis, ResponsiveContainer } from 'recharts';
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import _ from 'lodash';
 import { useRouter } from 'next/navigation';
-import { ServiceMetric } from '@/types';
+import { ServiceMetric } from '@/types/types';
 
 
 const MAX_POINTS = 100;

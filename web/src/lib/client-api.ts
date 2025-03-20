@@ -18,7 +18,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { SystemStatus } from "@/types";
+import { SystemStatus } from "@/types/types";
 import { CacheableData } from "./api"; // Import from server-side api.ts
 
 // Cache store
