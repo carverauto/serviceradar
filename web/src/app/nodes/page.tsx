@@ -14,11 +14,28 @@ async function fetchNodesWithMetrics(token?: string): Promise<{
   serviceMetrics: { [key: string]: ServiceMetric[] };
 }> {
   try {
-    const backendUrl =
-      process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090";
+    // For server-side fetches in production
+    let baseUrl;
+    let nodesUrl;
+
+    if (typeof window === "undefined") {
+      // Server-side context - need absolute URL
+      baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090";
+
+      // Ensure URL has protocol
+      if (!baseUrl.startsWith('http')) {
+        baseUrl = `http://${baseUrl}`;
+      }
+
+      nodesUrl = `${baseUrl}/api/nodes`;
+    } else {
+      // Client-side context - can use relative URL
+      nodesUrl = "/api/nodes";
+    }
+
     const apiKey = process.env.API_KEY || "";
 
-    const nodesResponse = await fetch("http://localhost:3000/api/nodes", {
+    const nodesResponse = await fetch(nodesUrl, {
       headers: {
         "X-API-Key": apiKey,
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -35,19 +52,22 @@ async function fetchNodesWithMetrics(token?: string): Promise<{
 
     for (const node of nodes) {
       const icmpServices =
-        node.services?.filter((s) => s.type === "icmp") || [];
+          node.services?.filter((s) => s.type === "icmp") || [];
 
       if (icmpServices.length > 0) {
         try {
+          // Use the same baseUrl construct for metrics
+          const metricsUrl = `${baseUrl}/api/nodes/${node.node_id}/metrics`;
+
           const metricsResponse = await fetch(
-            `${backendUrl}/api/nodes/${node.node_id}/metrics`,
-            {
-              headers: {
-                "X-API-Key": apiKey,
-                ...(token ? { Authorization: `Bearer ${token}` } : {}),
+              metricsUrl,
+              {
+                headers: {
+                  "X-API-Key": apiKey,
+                  ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                },
+                cache: "no-store",
               },
-              cache: "no-store",
-            },
           );
 
           if (!metricsResponse.ok) {
@@ -58,7 +78,7 @@ async function fetchNodesWithMetrics(token?: string): Promise<{
 
           for (const service of icmpServices) {
             const serviceMetricsData = allNodeMetrics.filter(
-              (m) => m.service_name === service.name,
+                (m) => m.service_name === service.name,
             );
             const key = `${node.node_id}-${service.name}`;
             serviceMetrics[key] = serviceMetricsData;
