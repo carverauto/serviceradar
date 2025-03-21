@@ -80,6 +80,7 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 		if err != nil {
 			return fmt.Errorf("invalid alert threshold format: %w", err)
 		}
+
 		c.AlertThreshold = duration
 	}
 
@@ -91,17 +92,20 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 			CallbackURL:  aux.Auth.CallbackURL,
 			SSOProviders: aux.Auth.SSOProviders,
 		}
+
 		if aux.Auth.JWTExpiration != "" {
 			duration, err := time.ParseDuration(aux.Auth.JWTExpiration)
 			if err != nil {
 				return fmt.Errorf("invalid jwt_expiration format: %w", err)
 			}
+
 			c.Auth.JWTExpiration = duration
 		}
 	}
 
 	return nil
 }
+
 type Server struct {
 	proto.UnimplementedPollerServiceServer
 	mu             sync.RWMutex

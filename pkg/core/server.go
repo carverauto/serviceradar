@@ -53,82 +53,117 @@ const (
 )
 
 func NewServer(_ context.Context, config *Config) (*Server, error) {
-	if config.Metrics.Retention == 0 {
-		config.Metrics.Retention = 100
-	}
+	// Set default config values
+	normalizedConfig := normalizeConfig(config)
 
-	if config.Metrics.MaxNodes == 0 {
-		config.Metrics.MaxNodes = 10000
-	}
-
+	// Initialize metrics manager
 	metricsManager := metrics.NewManager(models.MetricsConfig{
-		Enabled:   config.Metrics.Enabled,
-		Retention: config.Metrics.Retention,
-		MaxNodes:  config.Metrics.MaxNodes,
+		Enabled:   normalizedConfig.Metrics.Enabled,
+		Retention: normalizedConfig.Metrics.Retention,
+		MaxNodes:  normalizedConfig.Metrics.MaxNodes,
 	})
 
-	// Use default DB path if not specified
-	dbPath := config.DBPath
-	if dbPath == "" {
-		dbPath = defaultDBPath
-	}
+	// Initialize database
+	dbPath := getDBPath(normalizedConfig.DBPath)
 
-	// Ensure the directory exists
-	if err := os.MkdirAll("/var/lib/serviceradar", serviceradarDirPerms); err != nil {
+	if err := ensureDataDirectory(); err != nil {
 		return nil, fmt.Errorf("failed to create data directory: %w", err)
 	}
 
-	// Initialize database
 	database, err := db.New(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errDatabaseError, err)
 	}
 
+	// Initialize auth config
+	authConfig, err := initializeAuthConfig(normalizedConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create server instance
+	server := &Server{
+		db:             database,
+		alertThreshold: normalizedConfig.AlertThreshold,
+		webhooks:       make([]alerts.AlertService, 0),
+		ShutdownChan:   make(chan struct{}),
+		pollerPatterns: normalizedConfig.PollerPatterns,
+		metrics:        metricsManager,
+		snmpManager:    snmp.NewSNMPManager(database),
+		config:         normalizedConfig,
+		authService:    auth.NewAuth(authConfig, database),
+	}
+
+	server.initializeWebhooks(normalizedConfig.Webhooks)
+
+	return server, nil
+}
+
+func normalizeConfig(config *Config) *Config {
+	normalized := *config // Shallow copy
+	if normalized.Metrics.Retention == 0 {
+		normalized.Metrics.Retention = 100
+	}
+
+	if normalized.Metrics.MaxNodes == 0 {
+		normalized.Metrics.MaxNodes = 10000
+	}
+
+	return &normalized
+}
+
+func getDBPath(configPath string) string {
+	if configPath == "" {
+		return defaultDBPath
+	}
+
+	return configPath
+}
+
+func ensureDataDirectory() error {
+	return os.MkdirAll("/var/lib/serviceradar", serviceradarDirPerms)
+}
+
+func initializeAuthConfig(config *Config) (*models.AuthConfig, error) {
 	authConfig := &models.AuthConfig{
 		JWTSecret:     os.Getenv("JWT_SECRET"),
 		JWTExpiration: 24 * time.Hour,
-		CallbackURL:   os.Getenv("AUTH_CALLBACK_URL"), // e.g., "http://localhost:8080/auth"
+		CallbackURL:   os.Getenv("AUTH_CALLBACK_URL"),
 		LocalUsers:    make(map[string]string),
 	}
 
-	// Override with config file values if present
+	// Apply config overrides
 	if config.Auth != nil {
-		if config.Auth.JWTSecret != "" {
-			authConfig.JWTSecret = config.Auth.JWTSecret
-		}
-		if config.Auth.JWTExpiration != 0 {
-			authConfig.JWTExpiration = config.Auth.JWTExpiration
-		}
-		if len(config.Auth.LocalUsers) > 0 {
-			authConfig.LocalUsers = config.Auth.LocalUsers
-		}
+		applyAuthOverrides(authConfig, config.Auth)
 	} else {
-		// Fallback to environment variable if no auth section in config
-		if adminHash := os.Getenv("ADMIN_PASSWORD_HASH"); adminHash != "" {
-			authConfig.LocalUsers["admin"] = adminHash
-		}
+		applyDefaultAdminUser(authConfig)
 	}
 
 	if authConfig.JWTSecret == "" {
 		return nil, errJWTSecretRequired
 	}
 
-	server := &Server{
-		db:             database,
-		alertThreshold: config.AlertThreshold,
-		webhooks:       make([]alerts.AlertService, 0),
-		ShutdownChan:   make(chan struct{}),
-		pollerPatterns: config.PollerPatterns,
-		metrics:        metricsManager,
-		snmpManager:    snmp.NewSNMPManager(database),
-		config:         config,
-		authService:    auth.NewAuth(authConfig, database),
+	return authConfig, nil
+}
+
+func applyAuthOverrides(authConfig, configAuth *models.AuthConfig) {
+	if configAuth.JWTSecret != "" {
+		authConfig.JWTSecret = configAuth.JWTSecret
 	}
 
-	// Initialize webhooks
-	server.initializeWebhooks(config.Webhooks)
+	if configAuth.JWTExpiration != 0 {
+		authConfig.JWTExpiration = configAuth.JWTExpiration
+	}
 
-	return server, nil
+	if len(configAuth.LocalUsers) > 0 {
+		authConfig.LocalUsers = configAuth.LocalUsers
+	}
+}
+
+func applyDefaultAdminUser(authConfig *models.AuthConfig) {
+	if adminHash := os.Getenv("ADMIN_PASSWORD_HASH"); adminHash != "" {
+		authConfig.LocalUsers["admin"] = adminHash
+	}
 }
 
 func (s *Server) initializeWebhooks(configs []alerts.WebhookConfig) {

@@ -160,6 +160,7 @@ serviceradar-cloud_*/
 serviceradar-core*/
 serviceradar-web*/
 /pkg/cloud/api/web/dist/assets/
+cmd/cli/
 
 # Coverage files
 cover.long.profile
