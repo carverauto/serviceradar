@@ -99,14 +99,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const logout = () => {
+  const logout = useCallback(() => {
     document.cookie = "accessToken=; Max-Age=0; path=/";
     document.cookie = "refreshToken=; Max-Age=0; path=/";
     setToken(null);
     setUser(null);
     setIsAuthenticated(false);
     router.push("/login");
-  };
+  }, [router]);
 
   const refreshToken = useCallback(async () => {
     const refreshTokenValue = document.cookie
