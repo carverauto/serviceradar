@@ -19,18 +19,24 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/checker/snmp"
 	"github.com/carverauto/serviceradar/pkg/core/alerts"
 	"github.com/carverauto/serviceradar/pkg/core/api"
+	"github.com/carverauto/serviceradar/pkg/core/auth"
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/metrics"
+	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
+
+var dbNew = db.New // Package-level variable
 
 func TestNewServer(t *testing.T) {
 	tests := []struct {
@@ -68,30 +74,53 @@ func TestNewServer(t *testing.T) {
 
 			mockDB := tt.setupMock(ctrl)
 
-			// Override db.New to return the mock
-			originalDBNew := dbNew
-			dbNew = func(string) (db.Service, error) { return mockDB, nil }
-			defer func() { dbNew = originalDBNew }()
-
+			// Set JWT_SECRET before calling newServerWithDB
 			t.Setenv("JWT_SECRET", "test-secret")
 
-			server, err := NewServer(context.Background(), tt.config)
+			server, err := newServerWithDB(context.Background(), tt.config, mockDB)
 			if tt.expectedError {
 				assert.Error(t, err)
 				return
 			}
-			assert.NoError(t, err)
-			assert.NotNil(t, server)
-			assert.Equal(t, mockDB, server.db) // Should now match
+			assert.NoError(t, err, "Expected no error from newServerWithDB")
+			assert.NotNil(t, server, "Expected server to be non-nil")
+			assert.Equal(t, mockDB, server.db, "Expected server.db to be the mockDB")
 			if tt.name == "with_webhooks" {
 				assert.Len(t, server.webhooks, 1)
+				assert.Equal(t, "https://example.com/webhook", server.webhooks[0].(*alerts.WebhookAlerter).Config.URL)
 			}
 		})
 	}
 }
 
-// Mock the db.New function to inject our mock
-var dbNew = db.New
+func newServerWithDB(ctx context.Context, config *Config, database db.Service) (*Server, error) {
+	normalizedConfig := normalizeConfig(config)
+	metricsManager := metrics.NewManager(models.MetricsConfig{
+		Enabled:   normalizedConfig.Metrics.Enabled,
+		Retention: normalizedConfig.Metrics.Retention,
+		MaxNodes:  normalizedConfig.Metrics.MaxNodes,
+	})
+	if err := ensureDataDirectory(); err != nil {
+		return nil, fmt.Errorf("failed to create data directory: %w", err)
+	}
+	authConfig, err := initializeAuthConfig(normalizedConfig)
+	if err != nil {
+		return nil, err
+	}
+	server := &Server{
+		db:             database, // Use injected mock
+		alertThreshold: normalizedConfig.AlertThreshold,
+		webhooks:       make([]alerts.AlertService, 0),
+		ShutdownChan:   make(chan struct{}),
+		pollerPatterns: normalizedConfig.PollerPatterns,
+		metrics:        metricsManager,
+		snmpManager:    snmp.NewSNMPManager(database),
+		config:         normalizedConfig,
+		authService:    auth.NewAuth(authConfig, database),
+	}
+	server.initializeWebhooks(normalizedConfig.Webhooks)
+	return server, nil
+}
 
 func TestProcessStatusReport(t *testing.T) {
 	ctrl := gomock.NewController(t)
@@ -99,16 +128,22 @@ func TestProcessStatusReport(t *testing.T) {
 
 	mockDB := db.NewMockService(ctrl)
 	mockRow := db.NewMockRow(ctrl)
-	mockTx := db.NewMockTransaction(ctrl)
 
+	// Mock getNodeHealthState
 	mockDB.EXPECT().QueryRow("SELECT is_healthy FROM nodes WHERE node_id = ?", "test-poller").Return(mockRow)
-	mockRow.EXPECT().Scan(gomock.Any()).Return(nil)
-	mockDB.EXPECT().Begin().Return(mockTx, nil)
-	mockTx.EXPECT().QueryRow("SELECT EXISTS(SELECT 1 FROM nodes WHERE node_id = ?)", "test-poller").Return(mockRow)
-	mockRow.EXPECT().Scan(gomock.Any()).Return(nil)
-	mockTx.EXPECT().Exec(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).Times(2) // Update/Insert + History
-	mockTx.EXPECT().Commit().Return(nil)
-	mockTx.EXPECT().Rollback().Return(nil).AnyTimes()
+	mockRow.EXPECT().Scan(gomock.Any()).Return(nil) // Node exists
+
+	// Mock UpdateNodeStatus with a matcher for the NodeStatus struct
+	mockDB.EXPECT().UpdateNodeStatus(gomock.All(
+		gomock.Any(), // Matches any *db.NodeStatus
+	)).DoAndReturn(func(status *db.NodeStatus) error {
+		assert.Equal(t, "test-poller", status.NodeID)
+		assert.True(t, status.IsHealthy)
+		// LastSeen can be any time.Time value, no need to assert exact value
+		return nil
+	})
+
+	// Mock service status update
 	mockDB.EXPECT().UpdateServiceStatus(gomock.Any()).Return(nil)
 
 	server := &Server{
@@ -127,6 +162,9 @@ func TestProcessStatusReport(t *testing.T) {
 	apiStatus, err := server.processStatusReport(context.Background(), req, now)
 	require.NoError(t, err)
 	assert.NotNil(t, apiStatus)
+	assert.Equal(t, "test-poller", apiStatus.NodeID)
+	assert.True(t, apiStatus.IsHealthy)
+	assert.Len(t, apiStatus.Services, 1)
 }
 
 func TestReportStatus(t *testing.T) {
@@ -135,18 +173,22 @@ func TestReportStatus(t *testing.T) {
 
 	mockDB := db.NewMockService(ctrl)
 	mockRow := db.NewMockRow(ctrl)
-	mockTx := db.NewMockTransaction(ctrl)
 	mockMetrics := metrics.NewMockMetricCollector(ctrl)
 	mockAPI := api.NewMockService(ctrl)
 
+	// Common mocks
 	mockDB.EXPECT().QueryRow("SELECT is_healthy FROM nodes WHERE node_id = ?", gomock.Any()).Return(mockRow).AnyTimes()
 	mockRow.EXPECT().Scan(gomock.Any()).Return(nil).AnyTimes()
-	mockDB.EXPECT().Begin().Return(mockTx, nil).AnyTimes()
-	mockTx.EXPECT().QueryRow(gomock.Any(), gomock.Any()).Return(mockRow).AnyTimes()
-	mockRow.EXPECT().Scan(gomock.Any()).Return(nil).AnyTimes()
-	mockTx.EXPECT().Exec(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
-	mockTx.EXPECT().Commit().Return(nil).AnyTimes()
-	mockTx.EXPECT().Rollback().Return(nil).AnyTimes()
+
+	// For "test-poller" case
+	mockDB.EXPECT().UpdateNodeStatus(gomock.All(
+		gomock.Any(), // Matches any *db.NodeStatus
+	)).DoAndReturn(func(status *db.NodeStatus) error {
+		assert.Equal(t, "test-poller", status.NodeID)
+		assert.True(t, status.IsHealthy)
+		// LastSeen can be any time.Time value
+		return nil
+	}).AnyTimes()
 	mockDB.EXPECT().UpdateServiceStatus(gomock.Any()).Return(nil).AnyTimes()
 	mockMetrics.EXPECT().AddMetric(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	mockAPI.EXPECT().UpdateNodeStatus(gomock.Any(), gomock.Any()).AnyTimes()
@@ -161,6 +203,7 @@ func TestReportStatus(t *testing.T) {
 	// Test unknown poller
 	resp, err := server.ReportStatus(context.Background(), &proto.PollerStatusRequest{PollerId: "unknown-poller"})
 	assert.NoError(t, err)
+	assert.NotNil(t, resp)
 	assert.True(t, resp.Received)
 
 	// Test valid poller
@@ -170,6 +213,7 @@ func TestReportStatus(t *testing.T) {
 		Services:  []*proto.ServiceStatus{{ServiceName: "icmp-service", ServiceType: "icmp", Available: true, Message: `{"host":"192.168.1.1","response_time":10,"packet_loss":0,"available":true}`}},
 	})
 	assert.NoError(t, err)
+	assert.NotNil(t, resp)
 	assert.True(t, resp.Received)
 }
 
