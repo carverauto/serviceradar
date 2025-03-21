@@ -18,7 +18,7 @@
 set -e
 
 # Define package version
-VERSION=${VERSION:-1.0.26}
+VERSION=${VERSION:-1.0.27}
 
 # Create the directory structure
 mkdir -p web-build
