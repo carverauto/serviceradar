@@ -34,8 +34,6 @@ export default function DashboardWrapper({
     async function fetchData() {
       if (token) {
         try {
-          console.log("Fetching dashboard data with token");
-
           // Direct fetch from the Next.js API route
           const response = await fetch("/api/status", {
             headers: {
