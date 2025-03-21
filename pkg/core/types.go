@@ -51,6 +51,7 @@ type Config struct {
 	SNMP           snmp.Config            `json:"snmp"`
 	Security       *models.SecurityConfig `json:"security"`
 	Auth           *models.AuthConfig     `json:"auth,omitempty"`
+	CORS           models.CORSConfig      `json:"cors,omitempty"`
 }
 
 func (c *Config) UnmarshalJSON(data []byte) error {
