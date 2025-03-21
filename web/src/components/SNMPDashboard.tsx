@@ -20,6 +20,7 @@ import React, { useCallback, useState, useEffect, useMemo } from 'react';
 import { CartesianGrid, Legend, Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { SnmpDataPoint } from '@/types/snmp';
+import { useAuth } from '@/components/AuthProvider';
 
 // Define props interface
 interface SNMPDashboardProps {
@@ -57,6 +58,7 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
                                                      }) => {
     const router = useRouter();
     const searchParams = useSearchParams();
+    const { token } = useAuth(); // Get authentication token from AuthProvider
     const [snmpData, setSNMPData] = useState<SnmpDataPoint[]>(initialData);
     const [processedData, setProcessedData] = useState<ProcessedSnmpDataPoint[]>([]);
     const [combinedData, setCombinedData] = useState<CombinedDataPoint[]>([]);
@@ -147,8 +149,22 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
                         start.setHours(end.getHours() - 1);
                 }
 
+                // Use the Next.js API routes instead of direct calls
                 const snmpUrl = `/api/nodes/${nodeId}/snmp?start=${start.toISOString()}&end=${end.toISOString()}`;
-                const response = await fetch(snmpUrl);
+
+                // Include the authorization token
+                const headers: HeadersInit = {
+                    'Content-Type': 'application/json',
+                };
+
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
+
+                const response = await fetch(snmpUrl, {
+                    headers,
+                    cache: 'no-store',
+                });
 
                 if (response.ok) {
                     const newData: SnmpDataPoint[] = await response.json();
@@ -169,7 +185,7 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
 
         const interval = setInterval(fetchUpdatedData, REFRESH_INTERVAL);
         return () => clearInterval(interval);
-    }, [nodeId, timeRange, snmpData.length]);
+    }, [nodeId, timeRange, snmpData.length, token]);
 
     // Update SNMP data when initialData changes from server
     useEffect(() => {
