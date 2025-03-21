@@ -36,20 +36,13 @@ export async function GET(req: NextRequest) {
       headers["Authorization"] = authHeader;
     }
 
-    console.log(
-      `Forwarding request to: ${apiUrl}/api/nodes with headers:`,
-      headers,
-    );
-
     // Forward to your Go API
     const response = await fetch(`${apiUrl}/api/nodes`, {
       headers,
     });
 
     if (!response.ok) {
-      console.error(`Nodes API failed with status ${response.status}`);
-      const errorText = await response.text();
-      console.error(`Error details: ${errorText}`);
+      // const errorText = await response.text();
 
       return NextResponse.json(
         { error: "Failed to fetch nodes" },
