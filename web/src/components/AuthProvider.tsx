@@ -57,7 +57,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       .then((res) => res.json())
       .then((data) => {
         setIsAuthEnabled(data.authEnabled);
-        console.log("Auth enabled status:", data.authEnabled);
       })
       .catch((err) => {
         console.error("Failed to fetch auth status:", err);
@@ -172,7 +171,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const login = async (username: string, password: string) => {
     try {
-      console.log(`Attempting login for user: ${username}`);
 
       // Use the Next.js API route that will add the API key
       const response = await fetch("/api/auth/login", {
