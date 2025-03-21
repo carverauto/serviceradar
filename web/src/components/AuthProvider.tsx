@@ -131,6 +131,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       const data = await response.json();
+      // const data = await response.json() as { access_token?: string; refresh_token?: string; accessToken?: string; refreshToken?: string };
       const accessToken = data.access_token || data.accessToken;
       const newRefreshToken = data.refresh_token || data.refreshToken;
 
