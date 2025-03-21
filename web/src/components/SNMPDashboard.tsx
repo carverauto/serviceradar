@@ -341,12 +341,12 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
         }
 
         const colorPalette = [
-            { stroke: '#4f46e5', fill: '#818cf8' },
-            { stroke: '#22c55e', fill: '#86efac' },
-            { stroke: '#ef4444', fill: '#fca5a5' },
-            { stroke: '#f59e0b', fill: '#fcd34d' },
-            { stroke: '#06b6d4', fill: '#67e8f9' },
-            { stroke: '#8b5cf6', fill: '#c4b5fd' },
+            { stroke: '#4f46e5', fill: '#818cf8' }, // Indigo
+            { stroke: '#22c55e', fill: '#86efac' }, // Green
+            { stroke: '#ef4444', fill: '#fca5a5' }, // Red
+            { stroke: '#f59e0b', fill: '#fcd34d' }, // Amber
+            { stroke: '#06b6d4', fill: '#67e8f9' }, // Cyan
+            { stroke: '#8b5cf6', fill: '#c4b5fd' }, // Purple
         ];
 
         return colorPalette[index % colorPalette.length];
