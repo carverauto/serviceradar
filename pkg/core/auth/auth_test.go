@@ -111,6 +111,7 @@ func TestLoginLocal(t *testing.T) {
 			if len(tt.configUsers) > 0 && tt.configUsers["admin"] == "" {
 				hash, err := bcrypt.GenerateFromPassword([]byte("password123"), costForTest)
 				require.NoError(t, err)
+
 				tt.configUsers["admin"] = string(hash)
 			}
 

@@ -36,8 +36,6 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-var dbNew = db.New // Package-level variable
-
 func TestNewServer(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -80,11 +78,14 @@ func TestNewServer(t *testing.T) {
 			server, err := newServerWithDB(context.Background(), tt.config, mockDB)
 			if tt.expectedError {
 				assert.Error(t, err)
+
 				return
 			}
-			assert.NoError(t, err, "Expected no error from newServerWithDB")
+
+			require.NoError(t, err, "Expected no error from newServerWithDB")
 			assert.NotNil(t, server, "Expected server to be non-nil")
 			assert.Equal(t, mockDB, server.db, "Expected server.db to be the mockDB")
+
 			if tt.name == "with_webhooks" {
 				assert.Len(t, server.webhooks, 1)
 				assert.Equal(t, "https://example.com/webhook", server.webhooks[0].(*alerts.WebhookAlerter).Config.URL)
@@ -93,20 +94,23 @@ func TestNewServer(t *testing.T) {
 	}
 }
 
-func newServerWithDB(ctx context.Context, config *Config, database db.Service) (*Server, error) {
+func newServerWithDB(_ context.Context, config *Config, database db.Service) (*Server, error) {
 	normalizedConfig := normalizeConfig(config)
 	metricsManager := metrics.NewManager(models.MetricsConfig{
 		Enabled:   normalizedConfig.Metrics.Enabled,
 		Retention: normalizedConfig.Metrics.Retention,
 		MaxNodes:  normalizedConfig.Metrics.MaxNodes,
 	})
+
 	if err := ensureDataDirectory(); err != nil {
 		return nil, fmt.Errorf("failed to create data directory: %w", err)
 	}
+
 	authConfig, err := initializeAuthConfig(normalizedConfig)
 	if err != nil {
 		return nil, err
 	}
+
 	server := &Server{
 		db:             database, // Use injected mock
 		alertThreshold: normalizedConfig.AlertThreshold,
@@ -118,7 +122,9 @@ func newServerWithDB(ctx context.Context, config *Config, database db.Service) (
 		config:         normalizedConfig,
 		authService:    auth.NewAuth(authConfig, database),
 	}
+
 	server.initializeWebhooks(normalizedConfig.Webhooks)
+
 	return server, nil
 }
 
@@ -156,7 +162,14 @@ func TestProcessStatusReport(t *testing.T) {
 	req := &proto.PollerStatusRequest{
 		PollerId:  "test-poller",
 		Timestamp: now.Unix(),
-		Services:  []*proto.ServiceStatus{{ServiceName: "test-service", ServiceType: "process", Available: true, Message: `{"status":"running","pid":1234}`}},
+		Services: []*proto.ServiceStatus{
+			{
+				ServiceName: "test-service",
+				ServiceType: "process",
+				Available:   true,
+				Message:     `{"status":"running","pid":1234}`,
+			},
+		},
 	}
 
 	apiStatus, err := server.processStatusReport(context.Background(), req, now)
@@ -186,6 +199,7 @@ func TestReportStatus(t *testing.T) {
 	)).DoAndReturn(func(status *db.NodeStatus) error {
 		assert.Equal(t, "test-poller", status.NodeID)
 		assert.True(t, status.IsHealthy)
+
 		// LastSeen can be any time.Time value
 		return nil
 	}).AnyTimes()
@@ -202,7 +216,7 @@ func TestReportStatus(t *testing.T) {
 
 	// Test unknown poller
 	resp, err := server.ReportStatus(context.Background(), &proto.PollerStatusRequest{PollerId: "unknown-poller"})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, resp)
 	assert.True(t, resp.Received)
 
@@ -210,9 +224,16 @@ func TestReportStatus(t *testing.T) {
 	resp, err = server.ReportStatus(context.Background(), &proto.PollerStatusRequest{
 		PollerId:  "test-poller",
 		Timestamp: time.Now().Unix(),
-		Services:  []*proto.ServiceStatus{{ServiceName: "icmp-service", ServiceType: "icmp", Available: true, Message: `{"host":"192.168.1.1","response_time":10,"packet_loss":0,"available":true}`}},
+		Services: []*proto.ServiceStatus{
+			{
+				ServiceName: "icmp-service",
+				ServiceType: "icmp",
+				Available:   true,
+				Message:     `{"host":"192.168.1.1","response_time":10,"packet_loss":0,"available":true}`,
+			},
+		},
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, resp)
 	assert.True(t, resp.Received)
 }
@@ -256,7 +277,8 @@ func TestProcessSweepData(t *testing.T) {
 		},
 	}
 
-	for _, tt := range tests {
+	for i := 0; i < len(tests); i++ {
+		tt := &tests[i] // Take a pointer to the struct
 		t.Run(tt.name, func(t *testing.T) {
 			svc := &api.ServiceStatus{
 				Message: tt.inputMessage,
@@ -277,9 +299,8 @@ func TestProcessSweepData(t *testing.T) {
 				assert.Equal(t, tt.expectedSweep.TotalHosts, sweepData.TotalHosts)
 				assert.Equal(t, tt.expectedSweep.AvailableHosts, sweepData.AvailableHosts)
 
-				// For timestamps, compare with a small delta to account for processing time
 				if tt.expectedSweep.LastSweep == now.Unix() {
-					assert.InDelta(t, tt.expectedSweep.LastSweep, sweepData.LastSweep, 5) // Allow 5 seconds difference
+					assert.InDelta(t, tt.expectedSweep.LastSweep, sweepData.LastSweep, 5)
 				} else {
 					assert.Equal(t, tt.expectedSweep.LastSweep, sweepData.LastSweep)
 				}
@@ -323,6 +344,7 @@ func TestProcessSNMPMetrics(t *testing.T) {
 	}`
 
 	var details json.RawMessage
+
 	err := json.Unmarshal([]byte(detailsJSON), &details)
 	require.NoError(t, err)
 
