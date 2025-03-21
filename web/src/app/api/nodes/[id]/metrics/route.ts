@@ -15,8 +15,8 @@
  */
 
 // src/app/api/nodes/[id]/metrics/route.ts
-import { NextRequest, NextResponse } from "next/server";
-import { ServiceMetric } from "@/types/types";
+import {NextRequest, NextResponse} from "next/server";
+import {ServiceMetric} from "@/types/types";
 
 // Define the props type for the dynamic route
 interface RouteProps {
@@ -43,10 +43,7 @@ export async function GET(req: NextRequest, props: RouteProps) {
     // Add Authorization header if it exists
     if (authHeader) {
       headers["Authorization"] = authHeader;
-      console.log(`Forwarding metrics request with authorization: ${authHeader}`);
     }
-
-    console.log(`Requesting metrics for node ${nodeId} from: ${apiUrl}/api/nodes/${nodeId}/metrics`);
 
     // Forward request to Go API
     const response = await fetch(`${apiUrl}/api/nodes/${nodeId}/metrics`, {
@@ -61,9 +58,7 @@ export async function GET(req: NextRequest, props: RouteProps) {
       let errorMessage: string;
 
       try {
-        const errorText = await response.text();
-        console.error(`Metrics API error (${status}): ${errorText}`);
-        errorMessage = errorText;
+        errorMessage = await response.text();
       } catch {
         errorMessage = `Status code: ${status}`;
       }
