@@ -14,75 +14,92 @@
  * limitations under the License.
  */
 
-'use client';
+"use client";
 
-import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import React, { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import {
     XAxis,
     YAxis,
     Tooltip,
     Legend,
-    Line,
     Area,
     AreaChart,
     CartesianGrid,
     ResponsiveContainer,
-} from 'recharts';
-import NetworkSweepView from './NetworkSweepView';
-import { PingStatus } from './NetworkStatus';
-import SNMPDashboard from './SNMPDashboard';
-import { ArrowLeft } from 'lucide-react';
+} from "recharts";
+import NetworkSweepView from "./NetworkSweepView";
+import { PingStatus } from "./NetworkStatus";
+import SNMPDashboard from "./SNMPDashboard";
+import { ArrowLeft } from "lucide-react";
+import { Service, ServiceMetric, ServiceDetails } from "@/types/types";
+import { SnmpDataPoint } from "@/types/snmp";
 
-const ServiceDashboard = ({
-                              nodeId,
-                              serviceName,
-                              initialService = null,
-                              initialMetrics = [],
-                              initialSnmpData = [],
-                              initialError = null,
-                              initialTimeRange = '1h',
-                          }) => {
+// Define props interface
+interface ServiceDashboardProps {
+    nodeId: string;
+    serviceName: string;
+    initialService?: Service | null;
+    initialMetrics?: ServiceMetric[];
+    initialSnmpData?: SnmpDataPoint[];
+    initialError?: string | null;
+    initialTimeRange?: string;
+}
+
+const ServiceDashboard: React.FC<ServiceDashboardProps> = ({
+                                                               nodeId,
+                                                               serviceName,
+                                                               initialService = null,
+                                                               initialMetrics = [],
+                                                               initialSnmpData = [],
+                                                               initialError = null,
+                                                               initialTimeRange = "1h",
+                                                           }) => {
     const router = useRouter();
-    const [serviceData] = useState(initialService);
-    const [metricsData] = useState(initialMetrics);
-    const [snmpData] = useState(initialSnmpData);
+    const [serviceData] = useState<Service | null>(initialService);
+    const [metricsData] = useState<ServiceMetric[]>(initialMetrics);
+    const [snmpData] = useState<SnmpDataPoint[]>(initialSnmpData);
     const [loading] = useState(!initialService && !initialError);
-    const [error] = useState(initialError);
-    const [selectedTimeRange, setSelectedTimeRange] = useState(initialTimeRange);
-    const [chartHeight, setChartHeight] = useState(256);
+    const [error] = useState<string | null>(initialError);
+    const [selectedTimeRange] = useState<string>(initialTimeRange);
+    const [chartHeight, setChartHeight] = useState<number>(256);
 
     // Adjust chart height based on screen size
     useEffect(() => {
         const handleResize = () => {
             const width = window.innerWidth;
-            if (width < 640) { // small screens
+            if (width < 640) {
                 setChartHeight(200);
-            } else if (width < 1024) { // medium screens
+            } else if (width < 1024) {
                 setChartHeight(220);
-            } else { // large screens
+            } else {
                 setChartHeight(256);
             }
         };
 
-        handleResize(); // Initial call
-        window.addEventListener('resize', handleResize);
-        return () => window.removeEventListener('resize', handleResize);
+        handleResize();
+        window.addEventListener("resize", handleResize);
+        return () => window.removeEventListener("resize", handleResize);
     }, []);
 
     useEffect(() => {
         return () => console.log("ServiceDashboard unmounted");
     }, [nodeId, serviceName, initialSnmpData]);
 
-    const filterDataByTimeRange = (data, range) => {
+    const filterDataByTimeRange = (
+        data: { timestamp: string; response_time: number }[],
+        range: string,
+    ) => {
         const now = Date.now();
-        const ranges = {
-            '1h': 60 * 60 * 1000,
-            '6h': 6 * 60 * 60 * 1000,
-            '24h': 24 * 60 * 60 * 1000,
+        const ranges: { [key: string]: number } = {
+            "1h": 60 * 60 * 1000,
+            "6h": 6 * 60 * 60 * 1000,
+            "24h": 24 * 60 * 60 * 1000,
         };
         const timeLimit = now - ranges[range];
-        return data.filter((point) => new Date(point.timestamp).getTime() >= timeLimit);
+        return data.filter(
+            (point) => new Date(point.timestamp).getTime() >= timeLimit,
+        );
     };
 
     const renderMetricsChart = () => {
@@ -90,17 +107,22 @@ const ServiceDashboard = ({
 
         const chartData = filterDataByTimeRange(
             metricsData.map((metric) => ({
-                timestamp: new Date(metric.timestamp).getTime(),
+                timestamp: metric.timestamp,
                 response_time: metric.response_time / 1000000,
             })),
-            selectedTimeRange
-        );
+            selectedTimeRange,
+        ).map((data) => ({
+            timestamp: new Date(data.timestamp).getTime(),
+            response_time: data.response_time,
+        }));
 
         if (chartData.length === 0) {
             return (
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 sm:p-6 transition-colors">
                     <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 gap-2">
-                        <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Response Time</h3>
+                        <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100">
+                            Response Time
+                        </h3>
                     </div>
                     <div className="h-32 sm:h-64 flex items-center justify-center text-gray-500 dark:text-gray-400">
                         No data available for the selected time range
@@ -112,28 +134,39 @@ const ServiceDashboard = ({
         return (
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 sm:p-6 transition-colors">
                 <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 gap-2">
-                    <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Response Time</h3>
+                    <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100">
+                        Response Time
+                    </h3>
                 </div>
-                <div className="h-48 sm:h-64">
+                <div style={{ height: `${chartHeight}px` }} className="h-48 sm:h-64">
                     <ResponsiveContainer width="100%" height="100%">
                         <AreaChart data={chartData}>
                             <CartesianGrid strokeDasharray="3 3" />
                             <XAxis
                                 dataKey="timestamp"
                                 type="number"
-                                domain={['auto', 'auto']}
+                                domain={["auto", "auto"]}
                                 tickFormatter={(ts) => new Date(ts).toLocaleTimeString()}
                             />
-                            <YAxis unit="ms" domain={['auto', 'auto']} />
+                            <YAxis unit="ms" domain={["auto", "auto"]} />
                             <Tooltip
                                 labelFormatter={(ts) => new Date(ts).toLocaleString()}
-                                formatter={(value) => [`${value.toFixed(2)} ms`, 'Response Time']}
+                                formatter={(value: number) => [
+                                    `${value.toFixed(2)} ms`,
+                                    "Response Time",
+                                ]}
                             />
                             <Legend />
                             <defs>
-                                <linearGradient id="responseTimeGradient" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="5%" stopColor="#8884d8" stopOpacity={0.8}/>
-                                    <stop offset="95%" stopColor="#8884d8" stopOpacity={0.2}/>
+                                <linearGradient
+                                    id="responseTimeGradient"
+                                    x1="0"
+                                    y1="0"
+                                    x2="0"
+                                    y2="1"
+                                >
+                                    <stop offset="5%" stopColor="#8884d8" stopOpacity={0.8} />
+                                    <stop offset="95%" stopColor="#8884d8" stopOpacity={0.2} />
                                 </linearGradient>
                             </defs>
                             <Area
@@ -144,7 +177,7 @@ const ServiceDashboard = ({
                                 fill="url(#responseTimeGradient)"
                                 dot={false}
                                 name="Response Time"
-                                isAnimationActive={false} // Disable animation during updates
+                                isAnimationActive={false}
                             />
                         </AreaChart>
                     </ResponsiveContainer>
@@ -156,7 +189,7 @@ const ServiceDashboard = ({
     const renderServiceContent = () => {
         if (!serviceData) return null;
 
-        if (serviceData.type === 'snmp') {
+        if (serviceData.type === "snmp") {
             return (
                 <SNMPDashboard
                     nodeId={nodeId}
@@ -167,16 +200,20 @@ const ServiceDashboard = ({
             );
         }
 
-        if (serviceData.type === 'sweep') {
-            return <NetworkSweepView nodeId={nodeId} service={serviceData} standalone />;
+        if (serviceData.type === "sweep") {
+            return (
+                <NetworkSweepView nodeId={nodeId} service={serviceData} standalone />
+            );
         }
 
-        if (serviceData.type === 'icmp') {
+        if (serviceData.type === "icmp") {
             return (
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 sm:p-6 transition-colors">
-                    <h3 className="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-100">ICMP Status</h3>
+                    <h3 className="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-100">
+                        ICMP Status
+                    </h3>
                     <PingStatus
-                        details={serviceData.message}
+                        details={serviceData.details ?? ''} // Provide default empty string if undefined
                         nodeId={nodeId}
                         serviceName={serviceName}
                     />
@@ -184,13 +221,14 @@ const ServiceDashboard = ({
             );
         }
 
-        let details;
+        let details: ServiceDetails = {};
         try {
-            details = typeof serviceData.details === 'string'
-                ? JSON.parse(serviceData.details)
-                : serviceData.details;
+            details =
+                typeof serviceData.details === "string"
+                    ? JSON.parse(serviceData.details)
+                    : (serviceData.details as ServiceDetails) || {};
         } catch (e) {
-            console.error('Error parsing service details:', e);
+            console.error("Error parsing service details:", e);
             return null;
         }
 
@@ -199,17 +237,24 @@ const ServiceDashboard = ({
         return (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {Object.entries(details)
-                    .filter(([key]) => key !== 'history')
+                    .filter(([key]) => key !== "history")
                     .map(([key, value]) => (
                         <div
                             key={key}
                             className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 sm:p-6 transition-colors"
                         >
                             <h3 className="text-lg font-semibold mb-2 text-gray-800 dark:text-gray-100">
-                                {key.split('_').map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}
+                                {key
+                                    .split("_")
+                                    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+                                    .join(" ")}
                             </h3>
                             <div className="text-base sm:text-lg break-all text-gray-700 dark:text-gray-100">
-                                {typeof value === 'boolean' ? (value ? 'Yes' : 'No') : value}
+                                {typeof value === "boolean"
+                                    ? value
+                                        ? "Yes"
+                                        : "No"
+                                    : String(value)}
                             </div>
                         </div>
                     ))}
@@ -244,7 +289,7 @@ const ServiceDashboard = ({
                 <h2 className="text-xl font-bold mb-4">Error Loading Service</h2>
                 <p className="mb-4">{error}</p>
                 <button
-                    onClick={() => router.push('/nodes')}
+                    onClick={() => router.push("/nodes")}
                     className="mt-2 px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-100 hover:bg-gray-300 dark:hover:bg-gray-600 rounded transition-colors flex items-center"
                 >
                     <ArrowLeft className="mr-2 h-4 w-4" />
@@ -261,7 +306,7 @@ const ServiceDashboard = ({
                     {serviceName} Service Status
                 </h2>
                 <button
-                    onClick={() => router.push('/nodes')}
+                    onClick={() => router.push("/nodes")}
                     className="px-4 py-2 bg-gray-100 dark:bg-gray-700 dark:text-gray-100 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors flex items-center self-start"
                 >
                     <ArrowLeft className="mr-2 h-4 w-4" />
@@ -270,15 +315,17 @@ const ServiceDashboard = ({
             </div>
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 sm:p-6 transition-colors">
                 <div className="flex items-center justify-between">
-                    <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100">Service Status</h3>
+                    <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100">
+                        Service Status
+                    </h3>
                     <div
                         className={`px-3 py-1 rounded transition-colors ${
                             serviceData?.available
-                                ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100'
-                                : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100'
+                                ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100"
+                                : "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100"
                         }`}
                     >
-                        {serviceData?.available ? 'Online' : 'Offline'}
+                        {serviceData?.available ? "Online" : "Offline"}
                     </div>
                 </div>
             </div>

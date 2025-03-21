@@ -55,8 +55,10 @@ func run() error {
 	}
 
 	apiServer := api.NewAPIServer(
+		cfg.CORS,
 		api.WithMetricsManager(server.GetMetricsManager()),
 		api.WithSNMPManager(server.GetSNMPManager()),
+		api.WithAuthService(server.GetAuth()),
 	)
 
 	server.SetAPIServer(apiServer)

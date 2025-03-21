@@ -160,6 +160,7 @@ serviceradar-cloud_*/
 serviceradar-core*/
 serviceradar-web*/
 /pkg/cloud/api/web/dist/assets/
+cmd/cli/
 
 # Coverage files
 cover.long.profile
@@ -182,6 +183,7 @@ pkg/cloud/api/web/dist/favicons/
 serviceradar-agent_*
 serviceradar-dusk-checker_*
 serviceradar-snmp-checker_*
+serviceradar-web_*
 
 *.rpm
 
@@ -191,3 +193,4 @@ tls/server.csr
 
 # Ko build system for Go
 .kodata
+

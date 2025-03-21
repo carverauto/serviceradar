@@ -21,7 +21,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { CircleDot, Server, Rss, ArrowRight, Clock, Monitor, Activity } from 'lucide-react';
 import Link from 'next/link';
-import { SystemStatus } from '@/types';
+import { SystemStatus } from '@/types/types';
 
 function Dashboard({ initialData }: { initialData: SystemStatus | null }) {
     const router = useRouter();

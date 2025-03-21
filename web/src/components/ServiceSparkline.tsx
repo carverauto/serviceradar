@@ -21,11 +21,20 @@ import { AreaChart, Area, YAxis, ResponsiveContainer } from 'recharts';
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import _ from 'lodash';
 import { useRouter } from 'next/navigation';
+import { ServiceMetric } from '@/types/types';
+
 
 const MAX_POINTS = 100;
 const REFRESH_INTERVAL = 10000; // 10 seconds
 
-const ServiceSparkline = React.memo(({ nodeId, serviceName, initialMetrics = [] }) => {
+interface ServiceSparklineProps {
+  nodeId: string;
+  serviceName: string;
+  initialMetrics?: ServiceMetric[];
+}
+
+const ServiceSparkline = React.memo(
+  ({ nodeId, serviceName, initialMetrics = [] }: ServiceSparklineProps) => {
     const router = useRouter();
     const [metrics, setMetrics] = useState(initialMetrics);
 
