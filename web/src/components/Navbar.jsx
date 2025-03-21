@@ -34,7 +34,7 @@ function Navbar() {
   const closeMobileMenu = () => setMobileMenuOpen(false);
 
   return (
-      <nav className="bg-white dark:bg-gray-800 shadow-lg transition-colors" onClick={(e) => console.log("Navbar clicked", e)}>
+      <nav className="bg-white dark:bg-gray-800 shadow-lg transition-colors">
         <div className="container mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center">
