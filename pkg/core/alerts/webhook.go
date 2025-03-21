@@ -79,7 +79,7 @@ type AlertKey struct {
 }
 
 type WebhookAlerter struct {
-	config             WebhookConfig
+	Config             WebhookConfig
 	client             *http.Client
 	LastAlertTimes     map[AlertKey]time.Time
 	NodeDownStates     map[string]bool
@@ -117,7 +117,7 @@ func (w *WebhookConfig) UnmarshalJSON(data []byte) error {
 
 func NewWebhookAlerter(config WebhookConfig) *WebhookAlerter {
 	return &WebhookAlerter{
-		config: config,
+		Config: config,
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
@@ -140,7 +140,7 @@ func (w *WebhookAlerter) MarkServiceAsRecovered(nodeID string) {
 }
 
 func (w *WebhookAlerter) IsEnabled() bool {
-	return w.config.Enabled
+	return w.Config.Enabled
 }
 
 func (w *WebhookAlerter) getTemplateFuncs() template.FuncMap {
@@ -214,7 +214,7 @@ func (w *WebhookAlerter) MarkNodeAsRecovered(nodeID string) {
 
 // CheckCooldown checks if an alert is within its cooldown period.
 func (w *WebhookAlerter) CheckCooldown(nodeID, alertTitle, serviceName string) error {
-	if w.config.Cooldown <= 0 {
+	if w.Config.Cooldown <= 0 {
 		return nil
 	}
 
@@ -224,7 +224,7 @@ func (w *WebhookAlerter) CheckCooldown(nodeID, alertTitle, serviceName string) e
 	key := AlertKey{NodeID: nodeID, Title: alertTitle, ServiceName: serviceName}
 
 	lastAlertTime, exists := w.LastAlertTimes[key]
-	if exists && time.Since(lastAlertTime) < w.config.Cooldown {
+	if exists && time.Since(lastAlertTime) < w.Config.Cooldown {
 		log.Printf("Alert '%s' for node '%s' is within cooldown period, skipping", alertTitle, nodeID)
 
 		return ErrWebhookCooldown
@@ -244,7 +244,7 @@ func (*WebhookAlerter) ensureTimestamp(alert *WebhookAlert) error {
 }
 
 func (w *WebhookAlerter) preparePayload(alert *WebhookAlert) ([]byte, error) {
-	if w.config.Template == "" {
+	if w.Config.Template == "" {
 		buf := w.bufferPool.Get().(*bytes.Buffer)
 		buf.Reset()
 		defer w.bufferPool.Put(buf)
@@ -263,7 +263,7 @@ func (w *WebhookAlerter) preparePayload(alert *WebhookAlert) ([]byte, error) {
 func (w *WebhookAlerter) executeTemplate(alert *WebhookAlert) ([]byte, error) {
 	tmpl, err := template.New("webhook").
 		Funcs(w.getTemplateFuncs()).
-		Parse(w.config.Template)
+		Parse(w.Config.Template)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errTemplateParse, err)
 	}
@@ -292,7 +292,7 @@ func (w *WebhookAlerter) sendRequest(ctx context.Context, payload []byte) error 
 
 	buf.Write(payload)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, w.config.URL, buf)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, w.Config.URL, buf)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -326,7 +326,7 @@ func (w *WebhookAlerter) sendRequest(ctx context.Context, payload []byte) error 
 func (w *WebhookAlerter) setHeaders(req *http.Request) {
 	hasContentType := false
 
-	for _, header := range w.config.Headers {
+	for _, header := range w.Config.Headers {
 		if strings.EqualFold(header.Key, "content-type") {
 			hasContentType = true
 		}

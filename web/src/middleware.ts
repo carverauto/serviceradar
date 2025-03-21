@@ -14,59 +14,70 @@
  * limitations under the License.
  */
 
-// src/middleware.ts
-import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server';
-import { env } from 'next-runtime-env';
+// web/src/middleware.ts
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { env } from "next-runtime-env";
 
 export async function middleware(request: NextRequest) {
-    const isAuthEnabled = env('AUTH_ENABLED') === 'true';
-    const apiKey = env('API_KEY') || '';
+  const apiKey = env("API_KEY") || "";
+  const isAuthEnabled = env("AUTH_ENABLED") === "true";
 
-    // Clone the request headers
-    const requestHeaders = new Headers(request.headers);
-    requestHeaders.set('X-API-Key', apiKey);
-
-    // Handle public paths (no auth required)
-    const publicPaths = ['/login', '/auth'];
-    if (publicPaths.some(path => request.nextUrl.pathname.startsWith(path))) {
-        return NextResponse.next({
-            request: { headers: requestHeaders },
-        });
-    }
-
-    // If auth is enabled, check for token
-    if (isAuthEnabled) {
-        const token = request.headers.get('Authorization')?.replace('Bearer ', '');
-        if (!token && !request.nextUrl.pathname.startsWith('/login')) {
-            return NextResponse.redirect(new URL('/login', request.url));
-        }
-
-        if (token) {
-            try {
-                const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/status`, {
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'X-API-Key': apiKey,
-                    },
-                });
-
-                if (!response.ok) {
-                    return NextResponse.redirect(new URL('/login', request.url));
-                }
-            } catch (error) {
-                console.error('Token verification failed:', error);
-                return NextResponse.redirect(new URL('/login', request.url));
-            }
-        }
-    }
-
-    // Proceed with the request, ensuring API key is always included
-    return NextResponse.next({
-        request: { headers: requestHeaders },
+  // Handle OPTIONS preflight
+  if (request.method === "OPTIONS") {
+    return new NextResponse(null, {
+      status: 200,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+        "Access-Control-Allow-Headers":
+          "Content-Type, Authorization, X-API-Key",
+      },
     });
+  }
+
+  // Public paths and static assets
+  const publicPaths = ["/login", "/auth", "/serviceRadar.svg", "/favicons"];
+  if (publicPaths.some((path) => request.nextUrl.pathname.startsWith(path))) {
+    const requestHeaders = new Headers(request.headers);
+    if (apiKey && !isAuthEnabled) {
+      requestHeaders.set("X-API-Key", apiKey);
+    }
+    return NextResponse.next({ request: { headers: requestHeaders } });
+  }
+
+  const isPublicPath =
+    request.nextUrl.pathname.startsWith("/api/") ||
+    request.nextUrl.pathname.startsWith("/auth/") ||
+    publicPaths.some((path) => request.nextUrl.pathname.startsWith(path));
+
+  if (isPublicPath) {
+    const requestHeaders = new Headers(request.headers);
+    if (apiKey) {
+      requestHeaders.set("X-API-Key", apiKey);
+    }
+    return NextResponse.next({ request: { headers: requestHeaders } });
+  }
+
+  const requestHeaders = new Headers(request.headers);
+  const token =
+    request.cookies.get("accessToken")?.value ||
+    request.headers.get("Authorization")?.replace("Bearer ", "");
+
+  if (isAuthEnabled) {
+    if (!token) {
+      return NextResponse.redirect(new URL("/login", request.url));
+    }
+    requestHeaders.set("Authorization", `Bearer ${token}`);
+  } else if (apiKey) {
+    requestHeaders.set("X-API-Key", apiKey);
+  }
+
+  return NextResponse.next({
+    request: { headers: requestHeaders },
+  });
 }
 
 export const config = {
-    matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+  matcher: ["/((?!_next/static|_next/image).*)"], // Exclude _next/static and _next/image
 };

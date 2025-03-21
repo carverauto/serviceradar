@@ -14,35 +14,52 @@
  * limitations under the License.
  */
 
-// src/lib/api.ts - server-side utilities with TypeScript
-import { env } from 'next-runtime-env';
-import { SystemStatus, Node } from '@/types';
+// web/src/lib/api.ts - server-side utilities with TypeScript
+import { SystemStatus, Node } from "@/types/types";
 
-// Server-side fetching for Next.js server components with generic return type
-export async function fetchFromAPI<T>(endpoint: string, token?: string): Promise<T | null> {
-    const apiKey = env('API_KEY') || '';
-    const baseUrl = env('NEXT_PUBLIC_API_URL') || 'http://localhost:8090';
-    const apiUrl = endpoint.startsWith('/api/') ? endpoint : `/api/${endpoint}`;
-    const url = new URL(apiUrl, baseUrl).toString();
+export async function fetchFromAPI<T>(
+    endpoint: string,
+    token?: string,
+): Promise<T | null> {
+  const normalizedEndpoint = endpoint.replace(/^\/+/, "");
 
-    const headers: HeadersInit = { 'X-API-Key': apiKey };
-    if (token) headers['Authorization'] = `Bearer ${token}`;
+  // Handle both server and client side URL construction properly
+  let apiUrl: string;
 
-    try {
-        const response = await fetch(url, {
-            headers,
-            cache: 'no-store',
-        });
+  if (typeof window === "undefined") {
+    // Server-side: Use a fully qualified URL or environment variable
+    const baseApiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090";
+    apiUrl = `${baseApiUrl}/api/${normalizedEndpoint}`;
+  } else {
+    // Client-side: Use relative URL path
+    apiUrl = `/api/${normalizedEndpoint}`;
+  }
 
-        if (!response.ok) {
-            throw new Error(`API request failed: ${response.status}`);
-        }
+  const headers: HeadersInit = { "Content-Type": "application/json" };
+  const apiKey = process.env.API_KEY;
+  if (apiKey) {
+    headers["X-API-Key"] = apiKey;
+  }
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
 
-        return response.json();
-    } catch (error) {
-        console.error('Error fetching from API:', error);
-        return null;
+  try {
+    const response = await fetch(apiUrl, {
+      headers,
+      cache: "no-store",
+      credentials: "include",
+    });
+
+    if (!response.ok) {
+      throw new Error(`API request failed: ${response.status}`);
     }
+
+    return response.json();
+  } catch (error) {
+    console.error("Error fetching from API:", error);
+    return null;
+  }
 }
 
 // Union type for cacheable data (exported for client-api.ts)

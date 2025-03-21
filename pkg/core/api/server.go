@@ -29,13 +29,15 @@ import (
 	"github.com/carverauto/serviceradar/pkg/core/auth"
 	srHttp "github.com/carverauto/serviceradar/pkg/http"
 	"github.com/carverauto/serviceradar/pkg/metrics"
+	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/gorilla/mux"
 )
 
-func NewAPIServer(options ...func(server *APIServer)) *APIServer {
+func NewAPIServer(config models.CORSConfig, options ...func(server *APIServer)) *APIServer {
 	s := &APIServer{
-		nodes:  make(map[string]*NodeStatus),
-		router: mux.NewRouter(),
+		nodes:      make(map[string]*NodeStatus),
+		router:     mux.NewRouter(),
+		corsConfig: config,
 	}
 
 	for _, o := range options {
@@ -66,13 +68,16 @@ func WithSNMPManager(m snmp.SNMPManager) func(server *APIServer) {
 }
 
 func (s *APIServer) setupRoutes() {
-	// Create a middleware chain
-	middlewareChain := func(next http.Handler) http.Handler {
-		// Order matters: first API key check, then CORS headers
-		return srHttp.CommonMiddleware(srHttp.APIKeyMiddleware(os.Getenv("API_KEY"))(next))
+	corsConfig := models.CORSConfig{
+		AllowedOrigins:   s.corsConfig.AllowedOrigins,
+		AllowCredentials: s.corsConfig.AllowCredentials,
 	}
 
-	// Add middleware to router
+	middlewareChain := func(next http.Handler) http.Handler {
+		// Order matters: CORS first, then API key/auth checks
+		return srHttp.CommonMiddleware(srHttp.APIKeyMiddleware(os.Getenv("API_KEY"))(next), corsConfig)
+	}
+
 	s.router.Use(middlewareChain)
 
 	// Public routes
@@ -81,8 +86,9 @@ func (s *APIServer) setupRoutes() {
 	s.router.HandleFunc("/auth/{provider}", s.handleOAuthBegin).Methods("GET")
 	s.router.HandleFunc("/auth/{provider}/callback", s.handleOAuthCallback).Methods("GET")
 
+	// Protected routes
 	protected := s.router.PathPrefix("/api").Subrouter()
-	if os.Getenv("AUTH_ENABLED") == "true" {
+	if os.Getenv("AUTH_ENABLED") == "true" && s.authService != nil {
 		protected.Use(auth.AuthMiddleware(s.authService))
 	}
 

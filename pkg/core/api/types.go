@@ -73,4 +73,5 @@ type APIServer struct {
 	snmpManager        snmp.SNMPManager
 	knownPollers       []string
 	authService        auth.AuthService
+	corsConfig         models.CORSConfig
 }

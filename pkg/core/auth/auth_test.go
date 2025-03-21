@@ -1,3 +1,19 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 // pkg/core/auth/auth_test.go
 package auth
 
@@ -15,6 +31,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// TestNewAuth verifies the constructor correctly initializes the Auth service.
 func TestNewAuth(t *testing.T) {
 	config := &models.AuthConfig{
 		JWTSecret:     "test-secret",
@@ -39,7 +56,12 @@ func TestNewAuth(t *testing.T) {
 	assert.Equal(t, mockDB, auth.db)
 }
 
+// TestLoginLocal tests the local login authentication flow.
 func TestLoginLocal(t *testing.T) {
+	// We'll use MinCost directly in our hash generation
+	// Can't modify DefaultCost as it's not addressable
+	costForTest := bcrypt.MinCost
+
 	tests := []struct {
 		name           string
 		username       string
@@ -54,7 +76,8 @@ func TestLoginLocal(t *testing.T) {
 			username: "admin",
 			password: "password123",
 			configUsers: map[string]string{
-				"admin": "", // We'll set this properly in the test
+				// We'll set this properly in the test setup
+				"admin": "",
 			},
 			expectedUserID: generateUserID("admin"),
 		},
@@ -63,7 +86,8 @@ func TestLoginLocal(t *testing.T) {
 			username: "admin",
 			password: "wrongpass",
 			configUsers: map[string]string{
-				"admin": "", // We'll set this properly in the test
+				// We'll set this properly in the test setup
+				"admin": "",
 			},
 			expectedError: true,
 		},
@@ -83,9 +107,9 @@ func TestLoginLocal(t *testing.T) {
 
 			mockDB := db.NewMockService(ctrl)
 
-			// Generate a proper bcrypt hash for the password
-			if len(tt.configUsers) > 0 {
-				hash, err := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
+			// Pre-compute bcrypt hashes with the lower cost
+			if len(tt.configUsers) > 0 && tt.configUsers["admin"] == "" {
+				hash, err := bcrypt.GenerateFromPassword([]byte("password123"), costForTest)
 				require.NoError(t, err)
 
 				tt.configUsers["admin"] = string(hash)
@@ -104,7 +128,9 @@ func TestLoginLocal(t *testing.T) {
 
 			a := NewAuth(config, mockDB)
 
-			ctx := context.Background()
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+
 			token, err := a.LoginLocal(ctx, tt.username, tt.password)
 
 			if tt.expectedError {

@@ -17,24 +17,30 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-    reactStrictMode: true,
-    output: "standalone",
-    async rewrites() {
-        const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090';
-        return [
-            {
-                source: '/api/:path*',
-                destination: `${backendUrl}/api/:path*`,
-            },
-        ];
-    },
-    env: {
-        NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8090',
-    },
-    serverRuntimeConfig: {
-        // Will only be available on the server side
-        apiKey: process.env.API_KEY || '',
-    }
+  reactStrictMode: true,
+  output: "standalone",
+  async rewrites() {
+    console.log("NEXT_PUBLIC_API_URL:", process.env.NEXT_PUBLIC_API_URL);
+
+    return [
+      {
+        source: '/api/:path*',
+        destination: `${process.env.NEXT_PUBLIC_API_URL}/api/:path*`,
+      },
+      {
+        source: '/auth/:path*',
+        destination: `${process.env.NEXT_PUBLIC_API_URL}/auth/:path*`,
+      },
+    ];
+  },
+  env: {
+    NEXT_PUBLIC_API_URL:
+      process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090",
+  },
+  serverRuntimeConfig: {
+    // Will only be available on the server side
+    apiKey: process.env.API_KEY || "",
+  },
 };
 
 export default nextConfig;

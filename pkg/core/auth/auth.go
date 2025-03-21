@@ -1,3 +1,19 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package auth
 
 import (
@@ -60,7 +76,7 @@ func (a *Auth) LoginLocal(ctx context.Context, username, password string) (*mode
 
 	user := &models.User{
 		ID:       generateUserID(username),
-		Email:    username, // Or fetch from DB if you store emails
+		Email:    username, // Or fetch from DB if we decide to store emails.
 		Name:     username,
 		Provider: "local",
 	}
@@ -149,7 +165,7 @@ func (a *Auth) generateAndStoreToken(ctx context.Context, user *models.User) (*m
 }
 
 func generateUserID(username string) string {
-	hash := sha256.Sum256([]byte(username + time.Now().String()))
+	hash := sha256.Sum256([]byte(username))
 
 	return base64.URLEncoding.EncodeToString(hash[:])
 }

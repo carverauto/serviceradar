@@ -101,7 +101,7 @@ const (
         port INTEGER NOT NULL,
         available INTEGER NOT NULL,
         FOREIGN KEY (sweep_id) REFERENCES sweep_results(id) ON DELETE CASCADE
-    );	
+    );
 
 	-- Timeseries metrics table
     CREATE TABLE IF NOT EXISTS timeseries_metrics (
@@ -115,27 +115,41 @@ const (
         FOREIGN KEY (node_id) REFERENCES nodes(node_id) ON DELETE CASCADE
     );
 
+   	-- Users table for authentication
+    CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        email TEXT NOT NULL UNIQUE,
+        name TEXT,
+        provider TEXT NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
 	-- Indexes for better query performance
-	CREATE INDEX IF NOT EXISTS idx_sweep_results_poller_time 
+	CREATE INDEX IF NOT EXISTS idx_sweep_results_poller_time
         ON sweep_results(poller_id, timestamp);
-    CREATE INDEX IF NOT EXISTS idx_port_results_sweep 
+    CREATE INDEX IF NOT EXISTS idx_port_results_sweep
         ON port_results(sweep_id);
-	CREATE INDEX IF NOT EXISTS idx_node_history_node_time 
+	CREATE INDEX IF NOT EXISTS idx_node_history_node_time
 		ON node_history(node_id, timestamp);
-	CREATE INDEX IF NOT EXISTS idx_service_status_node_time 
+	CREATE INDEX IF NOT EXISTS idx_service_status_node_time
 		ON service_status(node_id, timestamp);
-	CREATE INDEX IF NOT EXISTS idx_service_status_type 
+	CREATE INDEX IF NOT EXISTS idx_service_status_type
 		ON service_status(service_type);
-	CREATE INDEX IF NOT EXISTS idx_service_history_status_time 
+	CREATE INDEX IF NOT EXISTS idx_service_history_status_time
 		ON service_history(service_status_id, timestamp);
 
 	 -- Indexes for timeseries data
-    CREATE INDEX IF NOT EXISTS idx_metrics_node_name 
+    CREATE INDEX IF NOT EXISTS idx_metrics_node_name
 		ON timeseries_metrics(node_id, metric_name);
-    CREATE INDEX IF NOT EXISTS idx_metrics_type 
+    CREATE INDEX IF NOT EXISTS idx_metrics_type
 		ON timeseries_metrics(metric_type);
-    CREATE INDEX IF NOT EXISTS idx_metrics_timestamp 
+    CREATE INDEX IF NOT EXISTS idx_metrics_timestamp
 		ON timeseries_metrics(timestamp);
+
+	-- Index for users table
+    CREATE INDEX IF NOT EXISTS idx_users_email
+        ON users(email);
 
 	-- Enable WAL mode for better concurrent access
 	PRAGMA journal_mode=WAL;
@@ -237,7 +251,7 @@ func (db *DB) UpdateNodeStatus(status *NodeStatus) error {
 // Rewrite the above function using our interface.
 func (*DB) updateExistingNode(tx Transaction, status *NodeStatus) error {
 	result, err := tx.Exec(`
-		UPDATE nodes 
+		UPDATE nodes
 		SET last_seen = ?,
 			is_healthy = ?
 		WHERE node_id = ?
@@ -295,7 +309,7 @@ func rollbackOnError(tx Transaction, err error) {
 // UpdateServiceStatus updates a service's status.
 func (db *DB) UpdateServiceStatus(status *ServiceStatus) error {
 	const insertSQL = `
-		INSERT INTO service_status 
+		INSERT INTO service_status
 			(node_id, service_name, service_type, available, details, timestamp)
 		VALUES (?, ?, ?, ?, ?, ?)
 	`
@@ -399,10 +413,10 @@ func (db *DB) GetNodeHistoryPoints(nodeID string, limit int) ([]NodeHistoryPoint
 // GetNodeHistory retrieves the history for a node.
 func (db *DB) GetNodeHistory(nodeID string) ([]NodeStatus, error) {
 	const querySQL = `
-        SELECT timestamp, is_healthy 
-        FROM node_history 
-        WHERE node_id = ? 
-        ORDER BY timestamp DESC 
+        SELECT timestamp, is_healthy
+        FROM node_history
+        WHERE node_id = ?
+        ORDER BY timestamp DESC
         LIMIT ?
     `
 
@@ -430,9 +444,9 @@ func (db *DB) GetNodeHistory(nodeID string) ([]NodeStatus, error) {
 
 func (db *DB) IsNodeOffline(nodeID string, threshold time.Duration) (bool, error) {
 	const querySQL = `
-        SELECT COUNT(*) 
-        FROM nodes n 
-        WHERE n.node_id = ? 
+        SELECT COUNT(*)
+        FROM nodes n
+        WHERE n.node_id = ?
         AND n.last_seen < datetime('now', ?)
     `
 

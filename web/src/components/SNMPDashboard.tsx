@@ -17,47 +17,75 @@
 'use client';
 
 import React, { useCallback, useState, useEffect, useMemo } from 'react';
-import { CartesianGrid, Legend, Line, LineChart, AreaChart, Area, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { CartesianGrid, Legend, Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { SnmpDataPoint } from '@/types/snmp';
+
+// Define props interface
+interface SNMPDashboardProps {
+    nodeId: string;
+    serviceName: string;
+    initialData?: SnmpDataPoint[];
+    initialTimeRange?: string;
+}
+
+// Define types for processed data
+interface ProcessedSnmpDataPoint extends SnmpDataPoint {
+    rate: number;
+}
+
+// Define type for combined data
+interface CombinedDataPoint {
+    timestamp: number;
+    [key: string]: number; // Dynamic metric keys with rate values
+}
+
+// Define type for metric group
+interface MetricGroup {
+    baseKey: string;
+    metrics: string[];
+    hasPair: boolean;
+}
 
 const REFRESH_INTERVAL = 10000; // 10 seconds, matching other components
 
-const SNMPDashboard = ({ nodeId, serviceName, initialData = [], initialTimeRange = '1h' }) => {
+const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
+                                                         nodeId,
+                                                         serviceName,
+                                                         initialData = [],
+                                                         initialTimeRange = '1h',
+                                                     }) => {
     const router = useRouter();
     const searchParams = useSearchParams();
-    const [snmpData, setSNMPData] = useState(initialData);
-    const [processedData, setProcessedData] = useState([]);
-    const [combinedData, setCombinedData] = useState([]);
-    const [timeRange, setTimeRange] = useState(searchParams.get('timeRange') || initialTimeRange);
-    const [selectedMetric, setSelectedMetric] = useState(null);
-    const [availableMetrics, setAvailableMetrics] = useState([]);
-    const [chartHeight, setChartHeight] = useState(384); // Default height
-    const [viewMode, setViewMode] = useState('combined'); // Default to combined view
+    const [snmpData, setSNMPData] = useState<SnmpDataPoint[]>(initialData);
+    const [processedData, setProcessedData] = useState<ProcessedSnmpDataPoint[]>([]);
+    const [combinedData, setCombinedData] = useState<CombinedDataPoint[]>([]);
+    const [timeRange, setTimeRange] = useState<string>(searchParams.get('timeRange') || initialTimeRange);
+    const [selectedMetric, setSelectedMetric] = useState<string | null>(null);
+    const [availableMetrics, setAvailableMetrics] = useState<string[]>([]);
+    const [chartHeight, setChartHeight] = useState<number>(384); // Default height
+    const [viewMode, setViewMode] = useState<'combined' | 'single'>('combined'); // Default to combined view
 
     // Improved metric label formatting
-    const getMetricLabel = useCallback((metric) => {
-        // Handle if* metrics
+    const getMetricLabel = useCallback((metric: string): string => {
         const ifMatch = metric.match(/(if)(In|Out)(Octets|Errors|Discards|Packets)_(\d+)/i);
         if (ifMatch) {
-            const [_, prefix, direction, type, interfaceId] = ifMatch;
+            const [, , direction, type] = ifMatch;
             return `${direction === 'In' ? '↓ Inbound' : '↑ Outbound'} ${type}`;
         }
-        return metric; // Default to original name
+        return metric;
     }, []);
 
     // Analyze the metrics to discover related pairs
-    const metricGroups = useMemo(() => {
+    const metricGroups = useMemo((): MetricGroup[] => {
         if (!availableMetrics.length) return [];
 
-        // Group metrics by their base names (without In/Out prefixes)
-        const groups = {};
+        const groups: { [key: string]: string[] } = {};
 
-        // Pattern matching for common interface metrics
-        availableMetrics.forEach(metric => {
-            // Look for ifInOctets_X and ifOutOctets_X patterns
-            let match = metric.match(/(if)(In|Out)(Octets|Errors|Discards|Packets)_(\d+)/i);
+        availableMetrics.forEach((metric) => {
+            const match = metric.match(/(if)(In|Out)(Octets|Errors|Discards|Packets)_(\d+)/i);
             if (match) {
-                const [_, prefix, direction, type, interface_id] = match;
+                const [, prefix, , type, interface_id] = match;
                 const baseKey = `${prefix}${type}_${interface_id}`;
                 if (!groups[baseKey]) {
                     groups[baseKey] = [];
@@ -66,37 +94,34 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [], initialTimeRange
                 return;
             }
 
-            // Look for other common patterns
-            // If no recognized pattern, treat as standalone
             if (!Object.values(groups).flat().includes(metric)) {
                 groups[metric] = [metric];
             }
         });
 
-        // Filter to only include groups with multiple metrics
         return Object.entries(groups)
             .map(([baseKey, metrics]) => ({
                 baseKey,
                 metrics,
-                hasPair: metrics.length > 1
+                hasPair: metrics.length > 1,
             }))
-            .sort((a, b) => b.hasPair - a.hasPair); // Sort paired groups first
+            .sort((a, b) => (b.hasPair ? 1 : 0) - (a.hasPair ? 1 : 0));
     }, [availableMetrics]);
 
     // Adjust chart height based on screen size
     useEffect(() => {
         const handleResize = () => {
             const width = window.innerWidth;
-            if (width < 640) { // small screens
+            if (width < 640) {
                 setChartHeight(250);
-            } else if (width < 1024) { // medium screens
+            } else if (width < 1024) {
                 setChartHeight(300);
-            } else { // large screens
+            } else {
                 setChartHeight(384);
             }
         };
 
-        handleResize(); // Initial call
+        handleResize();
         window.addEventListener('resize', handleResize);
         return () => window.removeEventListener('resize', handleResize);
     }, []);
@@ -108,7 +133,6 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [], initialTimeRange
                 const end = new Date();
                 const start = new Date();
 
-                // Adjust start time based on current timeRange
                 switch (timeRange) {
                     case '1h':
                         start.setHours(end.getHours() - 1);
@@ -124,12 +148,11 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [], initialTimeRange
                 }
 
                 const snmpUrl = `/api/nodes/${nodeId}/snmp?start=${start.toISOString()}&end=${end.toISOString()}`;
-
                 const response = await fetch(snmpUrl);
 
                 if (response.ok) {
-                    const newData = await response.json();
-                    if (newData && Array.isArray(newData)) {
+                    const newData: SnmpDataPoint[] = await response.json();
+                    if (Array.isArray(newData)) {
                         setSNMPData(newData);
                     }
                 } else {
@@ -140,12 +163,10 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [], initialTimeRange
             }
         };
 
-        // Don't fetch immediately if we already have initialData
         if (snmpData.length === 0) {
             fetchUpdatedData();
         }
 
-        // Set up interval for periodic updates
         const interval = setInterval(fetchUpdatedData, REFRESH_INTERVAL);
         return () => clearInterval(interval);
     }, [nodeId, timeRange, snmpData.length]);
@@ -158,25 +179,24 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [], initialTimeRange
     }, [initialData]);
 
     // Process SNMP counter data to show rates instead of raw values
-    const processCounterData = useCallback((data) => {
-        if (!data || data.length < 2) return data || [];
+    const processCounterData = useCallback((data: SnmpDataPoint[]): ProcessedSnmpDataPoint[] => {
+        if (!data || data.length < 2) return data as ProcessedSnmpDataPoint[] || [];
 
         try {
             return data.map((point, index) => {
                 if (index === 0) return { ...point, rate: 0 };
 
                 const prevPoint = data[index - 1];
-                const timeDiff = (new Date(point.timestamp) - new Date(prevPoint.timestamp)) / 1000;
+                const timeDiff = (new Date(point.timestamp).getTime() - new Date(prevPoint.timestamp).getTime()) / 1000;
                 if (timeDiff <= 0) return { ...point, rate: 0 };
 
-                const currentValue = parseFloat(point.value) || 0;
-                const prevValue = parseFloat(prevPoint.value) || 0;
+                const currentValue = parseFloat(point.value as string) || 0;
+                const prevValue = parseFloat(prevPoint.value as string) || 0;
 
                 let rate = 0;
                 if (currentValue >= prevValue) {
                     rate = (currentValue - prevValue) / timeDiff;
                 } else {
-                    // Handle counter wrap for both 32-bit and 64-bit counters
                     const is32Bit = prevValue < 4294967295;
                     const maxVal = is32Bit ? 4294967295 : Number.MAX_SAFE_INTEGER;
                     rate = ((maxVal - prevValue) + currentValue) / timeDiff;
@@ -184,12 +204,12 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [], initialTimeRange
 
                 return {
                     ...point,
-                    rate: rate,
+                    rate,
                 };
             });
         } catch (error) {
             console.error("Error processing counter data:", error);
-            return data;
+            return data as ProcessedSnmpDataPoint[];
         }
     }, []);
 
@@ -199,9 +219,7 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [], initialTimeRange
             const metrics = [...new Set(snmpData.map(item => item.oid_name))];
             setAvailableMetrics(metrics);
 
-            // Set default selected metric if none selected yet
             if (!selectedMetric && metrics.length > 0) {
-                // Default to first metric
                 setSelectedMetric(metrics[0]);
             }
         }
@@ -266,18 +284,15 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [], initialTimeRange
                     return timestamp >= start && timestamp <= end;
                 });
 
-                // Process metrics in the first group (preferring groups with pairs)
                 const activeGroup = metricGroups[0];
                 const metricsToShow = activeGroup.metrics;
 
-                // Build combined data points with all metrics from selected group
-                const allMetricsData = {};
+                const allMetricsData: { [key: number]: CombinedDataPoint } = {};
 
                 metricsToShow.forEach(metric => {
                     const metricData = timeFilteredData.filter(item => item.oid_name === metric);
                     const processed = processCounterData(metricData);
 
-                    // Add to the combined data structure
                     processed.forEach(point => {
                         const timestamp = new Date(point.timestamp).getTime();
                         if (!allMetricsData[timestamp]) {
@@ -287,14 +302,11 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [], initialTimeRange
                     });
                 });
 
-                // Convert to array and sort by timestamp
                 const combinedArray = Object.values(allMetricsData)
                     .sort((a, b) => a.timestamp - b.timestamp);
 
                 setCombinedData(combinedArray);
 
-                // Also set the selected metric to the first one in the group
-                // so the single view works if user switches
                 if (metricsToShow.length > 0 && (!selectedMetric || !metricsToShow.includes(selectedMetric))) {
                     setSelectedMetric(metricsToShow[0]);
                 }
@@ -304,15 +316,14 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [], initialTimeRange
         }
     }, [snmpData, timeRange, viewMode, processCounterData, metricGroups, selectedMetric]);
 
-    const handleTimeRangeChange = (range) => {
+    const handleTimeRangeChange = (range: string) => {
         setTimeRange(range);
-        // Update URL without full refresh
-        const params = new URLSearchParams(searchParams);
+        const params = new URLSearchParams(searchParams.toString());
         params.set('timeRange', range);
         router.push(`/service/${nodeId}/${serviceName}?${params.toString()}`, { scroll: false });
     };
 
-    const formatRate = (rate) => {
+    const formatRate = (rate: number | undefined | null): string => {
         if (rate === undefined || rate === null || isNaN(rate)) return "N/A";
         const absRate = Math.abs(rate);
         if (absRate >= 1000000000) return `${(rate / 1000000000).toFixed(2)} GB/s`;
@@ -321,29 +332,21 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [], initialTimeRange
         else return `${rate.toFixed(2)} B/s`;
     };
 
-    // Get colors for metrics - with high contrast for stacked areas
-    const getMetricColor = (metric, index) => {
+    const getMetricColor = (metric: string, index: number): { stroke: string; fill: string } => {
         if (metric.includes('In')) {
-            return {
-                stroke: '#4f46e5',
-                fill: '#818cf8'
-            };
+            return { stroke: '#4f46e5', fill: '#818cf8' };
         }
         if (metric.includes('Out')) {
-            return {
-                stroke: '#22c55e',
-                fill: '#86efac'
-            };
+            return { stroke: '#22c55e', fill: '#86efac' };
         }
 
-        // Fallback colors
         const colorPalette = [
             { stroke: '#4f46e5', fill: '#818cf8' }, // Indigo
             { stroke: '#22c55e', fill: '#86efac' }, // Green
             { stroke: '#ef4444', fill: '#fca5a5' }, // Red
             { stroke: '#f59e0b', fill: '#fcd34d' }, // Amber
             { stroke: '#06b6d4', fill: '#67e8f9' }, // Cyan
-            { stroke: '#8b5cf6', fill: '#c4b5fd' }  // Purple
+            { stroke: '#8b5cf6', fill: '#c4b5fd' }, // Purple
         ];
 
         return colorPalette[index % colorPalette.length];
@@ -431,9 +434,7 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [], initialTimeRange
     return (
         <div className="space-y-4 sm:space-y-6">
             <div className="flex flex-row items-center justify-between gap-3 bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
-                {/* Compact toggle and metric selector */}
                 <div className="flex items-center gap-3">
-                    {/* Simple toggle switch instead of buttons */}
                     <div className="flex items-center">
                         <label className="relative inline-flex items-center cursor-pointer">
                             <input
@@ -444,12 +445,11 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [], initialTimeRange
                             />
                             <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-500"></div>
                             <span className="ml-2 text-sm font-medium text-gray-800 dark:text-gray-300">
-                                {viewMode === 'combined' ? 'Combined' : 'Single'}
-                            </span>
+                {viewMode === 'combined' ? 'Combined' : 'Single'}
+              </span>
                         </label>
                     </div>
 
-                    {/* Compact single-metric selector */}
                     {viewMode === 'single' && (
                         <select
                             value={selectedMetric || ''}
@@ -462,7 +462,6 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [], initialTimeRange
                         </select>
                     )}
 
-                    {/* Visually subtle combined metric indicator */}
                     {viewMode === 'combined' && metricGroups.length > 0 && (
                         <div className="text-xs italic text-gray-500 dark:text-gray-400">
                             {metricGroups[0].metrics.map(metric => getMetricLabel(metric)).join(' + ')}
@@ -470,7 +469,6 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [], initialTimeRange
                     )}
                 </div>
 
-                {/* Time range selector - more compact */}
                 <div className="flex items-center">
                     <div className="bg-gray-100 dark:bg-gray-700 rounded-lg flex text-sm">
                         {['1h', '6h', '24h'].map((range) => (
@@ -490,7 +488,6 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [], initialTimeRange
                 </div>
             </div>
 
-            {/* Combined View Chart - Using AreaChart instead of LineChart for stacked areas */}
             {viewMode === 'combined' && combinedData.length > 0 && (
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
                     <div style={{ height: `${chartHeight}px` }}>
@@ -508,22 +505,14 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [], initialTimeRange
                                 />
                                 <Tooltip
                                     labelFormatter={(ts) => new Date(ts).toLocaleString()}
-                                    formatter={(value, name) => [
+                                    formatter={(value: number, name: string) => [
                                         formatRate(value),
-                                        getMetricLabel(name)
+                                        getMetricLabel(name),
                                     ]}
                                 />
-                                <Legend
-                                    formatter={(value) => getMetricLabel(value)}
-                                />
-                                {/* Sort metrics to ensure consistent stacking order - Outbound (first) at bottom, Inbound on top */}
+                                <Legend formatter={(value) => getMetricLabel(value)} />
                                 {metricGroups[0]?.metrics
-                                    .sort((a, b) => {
-                                        // Sort so "In" metrics are last (displayed on top)
-                                        if (a.includes('In') && !b.includes('In')) return 1;
-                                        if (!a.includes('In') && b.includes('In')) return -1;
-                                        return 0;
-                                    })
+                                    .sort((a, b) => (a.includes('In') && !b.includes('In') ? 1 : !a.includes('In') && b.includes('In') ? -1 : 0))
                                     .map((metric, index) => {
                                         const colors = getMetricColor(metric, index);
                                         return (
@@ -533,20 +522,18 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [], initialTimeRange
                                                 dataKey={metric}
                                                 stroke={colors.stroke}
                                                 fill={colors.fill}
-                                                stackId="1" // All areas with same stackId will be stacked
+                                                stackId="1"
                                                 name={metric}
                                                 isAnimationActive={false}
                                             />
                                         );
-                                    })
-                                }
+                                    })}
                             </AreaChart>
                         </ResponsiveContainer>
                     </div>
                 </div>
             )}
 
-            {/* Single Metric Chart */}
             {viewMode === 'single' && processedData.length > 0 && (
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
                     <div style={{ height: `${chartHeight}px` }}>
@@ -564,7 +551,7 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [], initialTimeRange
                                 />
                                 <Tooltip
                                     labelFormatter={(ts) => new Date(ts).toLocaleString()}
-                                    formatter={(value, name) => [
+                                    formatter={(value: number, name: string) => [
                                         formatRate(value),
                                         name === 'rate' ? 'Transfer Rate' : name,
                                     ]}
@@ -585,7 +572,6 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [], initialTimeRange
                 </div>
             )}
 
-            {/* Metrics Summary Table */}
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-x-auto">
                 <div className="p-4 sm:hidden text-gray-700 dark:text-gray-300 text-sm">
                     <p>Swipe left/right to view all metrics data</p>
@@ -607,9 +593,7 @@ const SNMPDashboard = ({ nodeId, serviceName, initialData = [], initialTimeRange
                     <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                     {availableMetrics.map(metric => {
                         try {
-                            const metricData = processCounterData(
-                                snmpData.filter(item => item.oid_name === metric)
-                            );
+                            const metricData = processCounterData(snmpData.filter(item => item.oid_name === metric));
                             if (!metricData || !metricData.length) return null;
                             const latestDataPoint = metricData[metricData.length - 1];
                             return latestDataPoint ? (
