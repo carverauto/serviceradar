@@ -7,7 +7,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
 
-    // Forward to your Go API with API key
+    // Forward to golang API with API key
     const response = await fetch(`${apiUrl}/auth/login`, {
       method: "POST",
       headers: {
