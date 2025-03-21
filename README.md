@@ -24,13 +24,13 @@ ServiceRadar can be installed via direct downloads from GitHub releases:
 
 ```bash
 # Download and install core components
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.26/serviceradar-agent_1.0.26.deb \
-     -O https://github.com/carverauto/serviceradar/releases/download/1.0.26/serviceradar-poller_1.0.26.deb \
-     -O https://github.com/carverauto/serviceradar/releases/download/1.0.26/serviceradar-core_1.0.26.deb \
-     -O https://github.com/carverauto/serviceradar/releases/download/1.0.26/serviceradar-web_1.0.26.deb
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.27/serviceradar-agent_1.0.27.deb \
+     -O https://github.com/carverauto/serviceradar/releases/download/1.0.27/serviceradar-poller_1.0.27.deb \
+     -O https://github.com/carverauto/serviceradar/releases/download/1.0.27/serviceradar-core_1.0.27.deb \
+     -O https://github.com/carverauto/serviceradar/releases/download/1.0.27/serviceradar-web_1.0.27.deb
 
 # Install components as needed
-sudo dpkg -i serviceradar-agent_1.0.26.deb serviceradar-poller_1.0.26.deb serviceradar-core_1.0.26.deb serviceradar-web_1.0.26.deb
+sudo dpkg -i serviceradar-agent_1.0.27.deb serviceradar-poller_1.0.27.deb serviceradar-core_1.0.27.deb serviceradar-web_1.0.27.deb
 ```
 
 ## Architecture Overview
