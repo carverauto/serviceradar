@@ -36,11 +36,6 @@ export async function GET(req: NextRequest) {
       headers["Authorization"] = authHeader;
     }
 
-    console.log(
-      `Forwarding to backend: ${apiUrl}/api/status with headers`,
-      headers,
-    );
-
     // Forward to your Go API
     const response = await fetch(`${apiUrl}/api/status`, {
       headers,
@@ -48,10 +43,6 @@ export async function GET(req: NextRequest) {
     });
 
     if (!response.ok) {
-      console.error(`Status API failed with status ${response.status}`);
-      const errorText = await response.text();
-      console.error(`Error details: ${errorText}`);
-
       return NextResponse.json(
         { error: "Failed to fetch status" },
         { status: response.status },
