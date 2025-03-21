@@ -1096,30 +1096,26 @@ func (s *Server) handleNodeDown(ctx context.Context, nodeID string, lastSeen tim
 
 	return nil
 }
+
 func (s *Server) updateNodeStatus(nodeID string, isHealthy bool, timestamp time.Time) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 
-	defer func(tx db.Transaction) {
-		err = tx.Rollback()
+	defer func() {
 		if err != nil {
-			log.Printf("Error rolling back transaction: %v", err)
+			if rbErr := tx.Rollback(); rbErr != nil {
+				log.Printf("Error rolling back transaction: %v", rbErr)
+			}
 		}
-	}(tx)
+	}()
 
-	sqlTx, err := db.ToTx(tx)
-	if err != nil {
-		return fmt.Errorf("invalid transaction: %w", err)
-	}
-
-	// Update node status
-	if err := s.updateNodeInTx(sqlTx, nodeID, isHealthy, timestamp); err != nil {
+	// Use Transaction interface directly instead of converting to *sql.Tx
+	if err := s.updateNodeInTx(tx, nodeID, isHealthy, timestamp); err != nil {
 		return err
 	}
 
-	// Add history entry
 	if _, err := tx.Exec(`
         INSERT INTO node_history (node_id, timestamp, is_healthy)
         VALUES (?, ?, ?)
@@ -1130,7 +1126,7 @@ func (s *Server) updateNodeStatus(nodeID string, isHealthy bool, timestamp time.
 	return tx.Commit()
 }
 
-func (*Server) updateNodeInTx(tx *sql.Tx, nodeID string, isHealthy bool, timestamp time.Time) error {
+func (*Server) updateNodeInTx(tx db.Transaction, nodeID string, isHealthy bool, timestamp time.Time) error {
 	// Check if node exists
 	var exists bool
 	if err := tx.QueryRow("SELECT EXISTS(SELECT 1 FROM nodes WHERE node_id = ?)", nodeID).Scan(&exists); err != nil {
