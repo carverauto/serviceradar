@@ -98,7 +98,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
       const data = await response.json();
 
-      // Handle different field naming between your API and frontend
+      // Handle different field naming between API and frontend
       const accessToken = data.access_token || data.accessToken;
       const refreshToken = data.refresh_token || data.refreshToken;
 
@@ -183,7 +183,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error("Login error response:", errorText);
         throw new Error(`Login failed: ${errorText}`);
       }
 
@@ -208,8 +207,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         setUser(verifiedUser);
         setIsAuthenticated(true);
         router.push("/nodes");
-      } catch (verifyError) {
-        console.error("Token verification error:", verifyError);
+      } catch  {
         throw new Error("Invalid token received");
       }
     } catch (error) {
@@ -238,5 +236,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) throw new Error("useAuth must be used within an AuthProvider");
+
   return context;
 };
