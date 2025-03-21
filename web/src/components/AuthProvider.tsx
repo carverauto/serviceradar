@@ -17,7 +17,7 @@
 // src/components/AuthProvider.tsx
 'use client';
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, {createContext, useContext, useState, useEffect, useCallback} from 'react';
 import { useRouter } from 'next/navigation';
 
 interface AuthContextType {
@@ -108,9 +108,45 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     router.push("/login");
   };
 
-  const refreshToken = async () => {
-    // ... (unchanged) ...
-  };
+  const refreshToken = useCallback(async () => {
+    const refreshTokenValue = document.cookie
+        .split("; ")
+        .find((row) => row.startsWith("refreshToken="))
+        ?.split("=")[1];
+
+    if (!refreshTokenValue) {
+      logout();
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/auth/refresh", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh_token: refreshTokenValue }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Token refresh failed");
+      }
+
+      const data = await response.json();
+      const accessToken = data.access_token || data.accessToken;
+      const newRefreshToken = data.refresh_token || data.refreshToken;
+
+
+      document.cookie = `accessToken=${accessToken}; path=/; max-age=${24 * 60 * 60}; Secure; SameSite=Strict`;
+      document.cookie = `refreshToken=${newRefreshToken}; path=/; max-age=${7 * 24 * 60 * 60}; Secure; SameSite=Strict`;
+
+      setToken(accessToken);
+      const verifiedUser = await verifyToken(accessToken);
+      setUser(verifiedUser);
+      setIsAuthenticated(true);
+    } catch (error) {
+      console.error("Error refreshing token:", error);
+      logout();
+    }
+  }, [logout]);
 
   const verifyToken = async (token: string) => {
     try {
