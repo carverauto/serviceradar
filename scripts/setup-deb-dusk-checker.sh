@@ -19,7 +19,7 @@ set -e  # Exit on any error
 
 echo "Setting up package structure..."
 
-VERSION=${VERSION:-1.0.26}
+VERSION=${VERSION:-1.0.27}
 
 # Create package directory structure
 PKG_ROOT="serviceradar-dusk-checker_${VERSION}"
