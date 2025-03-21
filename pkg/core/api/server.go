@@ -95,17 +95,6 @@ func (s *APIServer) setupRoutes() {
 	protected.HandleFunc("/nodes/{id}/snmp", s.getSNMPData).Methods("GET")
 }
 
-func (s *APIServer) getAuthStatus(w http.ResponseWriter, r *http.Request) {
-	status := struct {
-		AuthEnabled bool `json:"auth_enabled"`
-	}{
-		AuthEnabled: os.Getenv("AUTH_ENABLED") == "true",
-	}
-	if err := s.encodeJSONResponse(w, status); err != nil {
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-	}
-}
-
 // getSNMPData retrieves SNMP data for a specific node.
 func (s *APIServer) getSNMPData(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
