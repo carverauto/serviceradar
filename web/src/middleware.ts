@@ -23,13 +23,6 @@ export async function middleware(request: NextRequest) {
   const apiKey = env("API_KEY") || "";
   const isAuthEnabled = env("AUTH_ENABLED") === "true";
 
-  console.log(
-    "Middleware triggered for:",
-    request.method,
-    request.nextUrl.pathname,
-  );
-  console.log("AUTH_ENABLED:", isAuthEnabled, "API_KEY:", apiKey);
-
   // Handle OPTIONS preflight
   if (request.method === "OPTIONS") {
     return new NextResponse(null, {
@@ -73,16 +66,12 @@ export async function middleware(request: NextRequest) {
 
   if (isAuthEnabled) {
     if (!token) {
-      console.log("No token found, redirecting to /login");
       return NextResponse.redirect(new URL("/login", request.url));
     }
     requestHeaders.set("Authorization", `Bearer ${token}`);
   } else if (apiKey) {
     requestHeaders.set("X-API-Key", apiKey);
   }
-
-  console.log("Headers being sent to backend:");
-  requestHeaders.forEach((value, key) => console.log(`${key}: ${value}`));
 
   return NextResponse.next({
     request: { headers: requestHeaders },
