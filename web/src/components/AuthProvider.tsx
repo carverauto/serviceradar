@@ -56,7 +56,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setToken(storedToken);
             setUser(verifiedUser);
             setIsAuthenticated(true);
-            console.log("Initial token check, redirecting to /");
             router.push("/");
           })
           .catch(() => {
@@ -79,7 +78,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         throw new Error(`Login failed: ${response.status} - ${errorText}`);
       }
       const data = await response.json();
-      console.log("Login response:", data);
 
       const accessToken = data.access_token || data.accessToken;
       const refreshToken = data.refresh_token || data.refreshToken;
@@ -92,7 +90,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setToken(accessToken);
 
       const verifiedUser = await verifyToken(accessToken);
-      console.log("Verified user:", verifiedUser);
       setUser(verifiedUser);
       setIsAuthenticated(true);
       // Let LoginPage handle the redirect
