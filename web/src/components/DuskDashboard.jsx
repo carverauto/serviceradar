@@ -29,12 +29,14 @@ import {
   ResponsiveContainer
 } from 'recharts';
 import { RefreshCw, AlertCircle, ArrowLeft } from 'lucide-react';
+import { useAuth } from '@/components/AuthProvider';
 
 // Constants
 const AUTO_REFRESH_INTERVAL = 10000; // 10 seconds, matching other components
 
 const DuskDashboard = ({ initialDuskService = null, nodeId, initialError = null }) => {
   const router = useRouter();
+  const { token } = useAuth(); // Get authentication token
   const [nodeStatus, setNodeStatus] = useState(initialDuskService);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(initialError);
@@ -76,28 +78,67 @@ const DuskDashboard = ({ initialDuskService = null, nodeId, initialError = null 
     }
   }, [initialDuskService, initialError, parseServiceDetails]);
 
-  // Set up auto-refresh using router.refresh()
+  // Function to fetch latest service data
+  const fetchLatestData = useCallback(async () => {
+    if (!nodeId) return;
+
+    try {
+      setRefreshing(true);
+
+      // Create headers with authentication token if available
+      const headers = {
+        'Content-Type': 'application/json',
+      };
+
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      // Use the Next.js API routes
+      const response = await fetch(`/api/nodes/${nodeId}/services/dusk`, {
+        headers,
+        cache: 'no-store',
+      });
+
+      if (!response.ok) {
+        throw new Error(`Service data request failed: ${response.status}`);
+      }
+
+      const serviceData = await response.json();
+      setNodeStatus(serviceData);
+      parseServiceDetails(serviceData);
+      setLastUpdated(new Date());
+      setError(null);
+    } catch (err) {
+      console.error('Error fetching dusk service data:', err);
+      setError(err.message || 'Failed to fetch service data');
+    } finally {
+      setRefreshing(false);
+    }
+  }, [nodeId, token, parseServiceDetails]);
+
+  // Set up auto-refresh using router.refresh() and manual data fetching
   useEffect(() => {
     if (!autoRefreshEnabled) return;
 
-    setRefreshing(true);
     const intervalId = setInterval(() => {
-      router.refresh(); // This triggers a server-side refetch
-      setRefreshing(false);
-      setLastUpdated(new Date());
+      // Use Next.js router refresh to trigger server-side refetch
+      router.refresh();
+
+      // Also directly fetch the latest data
+      fetchLatestData();
     }, AUTO_REFRESH_INTERVAL);
 
     return () => {
       clearInterval(intervalId);
     };
-  }, [router, autoRefreshEnabled]);
+  }, [router, autoRefreshEnabled, fetchLatestData]);
 
   // Manual refresh handler
   const handleManualRefresh = () => {
     setRefreshing(true);
     router.refresh();
-    setRefreshing(false);
-    setLastUpdated(new Date());
+    fetchLatestData();
   };
 
   // Toggle auto-refresh
