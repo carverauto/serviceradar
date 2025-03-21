@@ -182,6 +182,7 @@ pkg/cloud/api/web/dist/favicons/
 serviceradar-agent_*
 serviceradar-dusk-checker_*
 serviceradar-snmp-checker_*
+serviceradar-web_*
 
 *.rpm
 
@@ -191,3 +192,4 @@ tls/server.csr
 
 # Ko build system for Go
 .kodata
+
