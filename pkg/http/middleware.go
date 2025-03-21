@@ -27,24 +27,27 @@ import (
 func CommonMiddleware(next http.Handler, corsConfig models.CORSConfig) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
-		allowed := false
 
+		// If there's no Origin header, this isn't a CORS request - let it through
+		if origin == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		allowed := false
 		// Check if the request origin is in the allowed list
 		for _, allowedOrigin := range corsConfig.AllowedOrigins {
 			if allowedOrigin == origin || allowedOrigin == "*" {
 				allowed = true
-
 				w.Header().Set("Access-Control-Allow-Origin", origin)
-
 				break
 			}
 		}
 
 		if !allowed {
-			// If origin isn't allowed, don't set ACAO header and proceed (or reject based on our policy)
-			log.Printf("CORS: Origin %s not allowed", origin)
+			// Log the rejected origin
+			log.Printf("CORS: Origin %s not allowed. Allowed origins: %v", origin, corsConfig.AllowedOrigins)
 			http.Error(w, "Origin not allowed", http.StatusForbidden)
-
 			return
 		}
 
@@ -60,7 +63,6 @@ func CommonMiddleware(next http.Handler, corsConfig models.CORSConfig) http.Hand
 
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusOK)
-
 			return
 		}
 
