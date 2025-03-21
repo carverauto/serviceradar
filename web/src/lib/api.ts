@@ -44,8 +44,6 @@ export async function fetchFromAPI<T>(
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  console.log("Fetching from:", apiUrl, "with headers:", headers);
-
   try {
     const response = await fetch(apiUrl, {
       headers,
@@ -54,8 +52,6 @@ export async function fetchFromAPI<T>(
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`API request failed: ${response.status} - ${errorText}`);
       throw new Error(`API request failed: ${response.status}`);
     }
 
