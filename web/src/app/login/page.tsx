@@ -18,10 +18,12 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation'; // Import useRouter
 import { useAuth } from '@/components/AuthProvider';
 
 export default function LoginPage() {
-    const { login } = useAuth(); // Removed isAuthEnabled
+    const { login } = useAuth();
+    const router = useRouter(); // Local router instance
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
@@ -31,7 +33,13 @@ export default function LoginPage() {
         setError('');
         try {
             await login(username, password);
-            // No need to redirect here; login() already handles it
+            router.push("/"); // Redirect here
+            setTimeout(() => {
+                if (window.location.pathname !== "/") {
+                    console.log("Fallback redirect triggered");
+                    window.location.href = "/";
+                }
+            }, 500); // Give router.push a moment to work
         } catch (err) {
             console.log(err);
             setError('Login failed. Please check your credentials.');
