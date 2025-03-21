@@ -34,10 +34,6 @@ echo "Building Next.js application..."
 # Build Next.js application
 cd ./web
 
-
-# Clean up any existing build files
-rm -rf .next
-
 # Ensure package.json contains the right scripts and dependencies
 if ! grep -q '"next": ' package.json; then
   echo "ERROR: This doesn't appear to be a Next.js app. Check your web directory."
