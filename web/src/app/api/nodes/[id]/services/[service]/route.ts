@@ -15,8 +15,8 @@
  */
 
 // src/app/api/nodes/[id]/services/[service]/route.ts
-import { NextRequest, NextResponse } from "next/server";
-import { Service } from "@/types/types";
+import {NextRequest, NextResponse} from "next/server";
+import {Service} from "@/types/types";
 
 // Define the props type for the nested dynamic route
 interface RouteProps {
@@ -43,10 +43,7 @@ export async function GET(req: NextRequest, props: RouteProps) {
     // Add Authorization header if it exists
     if (authHeader) {
       headers["Authorization"] = authHeader;
-      console.log(`Forwarding service details request with authorization: ${authHeader}`);
     }
-
-    console.log(`Requesting service details for ${nodeId}/${serviceName} from: ${apiUrl}/api/nodes/${nodeId}/services/${serviceName}`);
 
     // Forward request to Go API
     const response = await fetch(
@@ -64,9 +61,7 @@ export async function GET(req: NextRequest, props: RouteProps) {
       let errorMessage: string;
 
       try {
-        const errorText = await response.text();
-        console.error(`Service details API error (${status}): ${errorText}`);
-        errorMessage = errorText;
+        errorMessage = await response.text();
       } catch {
         errorMessage = `Status code: ${status}`;
       }
@@ -80,9 +75,7 @@ export async function GET(req: NextRequest, props: RouteProps) {
     // Return successful response
     const data: Service = await response.json();
     return NextResponse.json(data);
-  } catch (error) {
-    console.error(`Error fetching service ${serviceName} for node ${nodeId}:`, error);
-
+  } catch {
     return NextResponse.json(
         { error: "Internal server error while fetching service details" },
         { status: 500 },
