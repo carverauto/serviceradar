@@ -3,7 +3,6 @@ use log::{debug, error, info, warn};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
-use tokio::time::{self, Duration};
 
 use crate::config::TargetConfig;
 use crate::rperf::{RPerfResult, RPerfRunner};
@@ -13,7 +12,7 @@ pub struct TargetPoller {
     config: TargetConfig,
     default_poll_interval: u64,
     last_result: Arc<Mutex<Option<RPerfResult>>>,
-    task_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
+    pub task_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
 }
 
 impl TargetPoller {
@@ -31,45 +30,41 @@ impl TargetPoller {
     }
 
     pub async fn start(&mut self) -> Result<()> {
-        let poll_interval = self.config.poll_interval.max(1);
         let config = self.config.clone();
         let last_result = self.last_result.clone();
 
         let handle = tokio::spawn(async move {
             info!("Starting poller for target: {}", config.name);
-            
-            loop {
-                let runner = RPerfRunner::from_target_config(&config);
-                debug!("Running rperf client test for target: {}", config.name); // Moved debug log here
-                match runner.run_test().await {
-                    Ok(result) => {
-                        if result.success {
-                            info!(
-                                "Test for target '{}' completed successfully: {:.2} Mbps",
-                                config.name,
-                                result.summary.bits_per_second / 1_000_000.0
-                            );
-                        } else {
-                            warn!(
-                                "Test for target '{}' failed: {}",
-                                config.name,
-                                result.error.as_deref().unwrap_or("Unknown error")
-                            );
-                        }
-                        *last_result.lock().await = Some(result);
+            let runner = RPerfRunner::from_target_config(&config);
+            debug!("Running rperf client test for target: {}", config.name);
+            match runner.run_test().await {
+                Ok(result) => {
+                    if result.success {
+                        info!(
+                            "Test for target '{}' completed successfully: {:.2} Mbps",
+                            config.name,
+                            result.summary.bits_per_second / 1_000_000.0
+                        );
+                    } else {
+                        warn!(
+                            "Test for target '{}' failed: {}",
+                            config.name,
+                            result.error.as_deref().unwrap_or("Unknown error")
+                        );
                     }
-                    Err(e) => {
-                        error!("Error running test for target '{}': {}", config.name, e);
-                        *last_result.lock().await = Some(RPerfResult {
-                            success: false,
-                            error: Some(e.to_string()),
-                            results_json: String::new(),
-                            summary: Default::default(),
-                        });
-                    }
+                    *last_result.lock().await = Some(result);
                 }
-                time::sleep(Duration::from_secs(poll_interval)).await;
+                Err(e) => {
+                    error!("Error running test for target '{}': {}", config.name, e);
+                    *last_result.lock().await = Some(RPerfResult {
+                        success: false,
+                        error: Some(e.to_string()),
+                        results_json: String::new(),
+                        summary: Default::default(),
+                    });
+                }
             }
+            info!("Poller for target '{}' completed", config.name);
         });
 
         *self.task_handle.lock().await = Some(handle);
