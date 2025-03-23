@@ -37,15 +37,11 @@ async fn main() -> Result<()> {
     // Start the server
     let server_handle = server.start().await?;
     info!("rperf gRPC server started");
-    
-    // Wait for signal and ensure clean shutdown
+
     signal::ctrl_c().await?;
     info!("Shutdown signal received, stopping server...");
-    
-    // Explicitly kill rperf client
-    rperf::client::kill();
+    rperf::client::kill(); // Ensure clients stop
     server_handle.stop().await?;
     info!("Server stopped gracefully");
-
     Ok(())
 }
