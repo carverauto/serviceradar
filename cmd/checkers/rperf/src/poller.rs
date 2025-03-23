@@ -3,6 +3,7 @@ use log::{debug, error, info, warn};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
+use tokio::time::Duration;
 
 use crate::config::TargetConfig;
 use crate::rperf::{RPerfResult, RPerfRunner};
@@ -33,38 +34,48 @@ impl TargetPoller {
         let config = self.config.clone();
         let last_result = self.last_result.clone();
 
+        // In poller.rs, in the start() method:
         let handle = tokio::spawn(async move {
             info!("Starting poller for target: {}", config.name);
-            let runner = RPerfRunner::from_target_config(&config);
-            debug!("Running rperf client test for target: {}", config.name);
-            match runner.run_test().await {
-                Ok(result) => {
-                    if result.success {
-                        info!(
-                            "Test for target '{}' completed successfully: {:.2} Mbps",
-                            config.name,
-                            result.summary.bits_per_second / 1_000_000.0
-                        );
-                    } else {
-                        warn!(
-                            "Test for target '{}' failed: {}",
-                            config.name,
-                            result.error.as_deref().unwrap_or("Unknown error")
-                        );
+            
+            loop {
+                debug!("Running rperf client test for target: {}", config.name);
+                let runner = RPerfRunner::from_target_config(&config);
+                
+                match runner.run_test().await {
+                    Ok(result) => {
+                        if result.success {
+                            info!(
+                                "Test for target '{}' completed successfully: {:.2} Mbps",
+                                config.name,
+                                result.summary.bits_per_second / 1_000_000.0
+                            );
+                            debug!("Complete JSON results: {}", result.results_json);
+                        } else {
+                            warn!(
+                                "Test for target '{}' failed: {}",
+                                config.name,
+                                result.error.as_deref().unwrap_or("Unknown error")
+                            );
+                        }
+                        *last_result.lock().await = Some(result);
                     }
-                    *last_result.lock().await = Some(result);
+                    Err(e) => {
+                        error!("Error running test for target '{}': {}", config.name, e);
+                        *last_result.lock().await = Some(RPerfResult {
+                            success: false,
+                            error: Some(e.to_string()),
+                            results_json: String::new(),
+                            summary: Default::default(),
+                        });
+                    }
                 }
-                Err(e) => {
-                    error!("Error running test for target '{}': {}", config.name, e);
-                    *last_result.lock().await = Some(RPerfResult {
-                        success: false,
-                        error: Some(e.to_string()),
-                        results_json: String::new(),
-                        summary: Default::default(),
-                    });
-                }
+                
+                // Sleep for the polling interval before running the next test
+                let sleep_duration = Duration::from_secs(config.poll_interval);
+                debug!("Sleeping for {}s before next test", config.poll_interval);
+                tokio::time::sleep(sleep_duration).await;
             }
-            info!("Poller for target '{}' completed", config.name);
         });
 
         *self.task_handle.lock().await = Some(handle);
