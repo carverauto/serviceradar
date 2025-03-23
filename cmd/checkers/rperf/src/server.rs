@@ -19,31 +19,30 @@ use rperf_service::{
     StatusRequest, StatusResponse, TestRequest, TestResponse, TestSummary,
 };
 
-/// Server handle for graceful shutdown
 pub struct ServerHandle {
     join_handle: JoinHandle<Result<()>>,
+    pollers: Arc<Mutex<Vec<TargetPoller>>>,
 }
 
 impl ServerHandle {
-    /// Stop the server gracefully
     pub async fn stop(self) -> Result<()> {
-        // Cancel the task and wait for it to finish
         self.join_handle.abort();
+        for poller in self.pollers.lock().await.iter_mut() {
+            poller.stop().await?;
+        }
         match self.join_handle.await {
-            Ok(_) => Ok(()),
+            Ok(result) => result,
             Err(e) if e.is_cancelled() => Ok(()),
             Err(e) => Err(anyhow::anyhow!("Server task failed: {}", e)),
         }
     }
 }
 
-/// The rperf gRPC server implementation
 pub struct RPerfServer {
     config: Arc<Config>,
     target_pollers: Arc<Mutex<Vec<TargetPoller>>>,
 }
 
-/// Implementation of the gRPC service
 #[derive(Debug)]
 pub struct RPerfServiceImpl {
     config: Arc<Config>,
@@ -51,55 +50,62 @@ pub struct RPerfServiceImpl {
 }
 
 impl RPerfServer {
-    /// Create a new server instance
     pub fn new(config: Arc<Config>) -> Result<Self> {
         let target_pollers = Arc::new(Mutex::new(Vec::new()));
-        
         Ok(RPerfServer {
             config,
             target_pollers,
         })
     }
-    
-    /// Start the server and return a handle for shutdown
+
     pub async fn start(&self) -> Result<ServerHandle> {
         let addr: SocketAddr = self.config.listen_addr.parse()
             .context("Failed to parse listen address")?;
             
         info!("Starting rperf gRPC server on {}", addr);
         
-        // Initialize all target pollers
-        for target_config in &self.config.targets {
-            let poller = TargetPoller::new(
-                target_config.clone(),
-                self.config.default_poll_interval,
-            );
-            self.target_pollers.lock().await.push(poller);
+        let mut poller_handles = Vec::new();
+        {
+            let mut pollers = self.target_pollers.lock().await;
+            for target_config in &self.config.targets {
+                let mut poller = TargetPoller::new(
+                    target_config.clone(),
+                    self.config.default_poll_interval,
+                );
+                poller.start().await?;
+                if let Some(handle) = poller.task_handle.lock().await.take() {
+                    poller_handles.push(handle);
+                }
+                pollers.push(poller);
+            }
         }
-        
-        // Start all pollers
-        for poller in self.target_pollers.lock().await.iter_mut() {
-            poller.start().await?;
-        }
-        
-        // Create the service implementation
+
         let service = RPerfServiceImpl {
             config: self.config.clone(),
             target_pollers: self.target_pollers.clone(),
         };
-        
-        // Start the gRPC server in a separate task
+
         let join_handle = tokio::spawn(async move {
             Server::builder()
                 .add_service(RPerfServiceServer::new(service))
                 .serve(addr)
                 .await
                 .context("gRPC server error")?;
-                
+
+            // Wait for all poller tasks to complete
+            for handle in poller_handles {
+                if let Err(e) = handle.await {
+                    error!("Poller task failed: {}", e);
+                }
+            }
+            info!("All poller tasks completed, shutting down server");
             Ok(())
         });
-        
-        Ok(ServerHandle { join_handle })
+
+        Ok(ServerHandle {
+            join_handle,
+            pollers: self.target_pollers.clone(),
+        })
     }
 }
 
@@ -112,15 +118,11 @@ impl RPerfService for RPerfServiceImpl {
         let req = request.into_inner();
         info!("Received test request for target: {}", req.target_address);
         
-        // Create an rperf runner for this test
         let rperf_req = RPerfRunner::from_grpc_request(req);
         
-        // Execute the test
         match rperf_req.run_test().await {
             Ok(result) => {
                 info!("Test completed successfully");
-                
-                // Convert result to response
                 let response = TestResponse {
                     success: result.success,
                     error: result.error.unwrap_or_default(),
@@ -137,7 +139,6 @@ impl RPerfService for RPerfServiceImpl {
                         jitter_ms: result.summary.jitter_ms,
                     }),
                 };
-                
                 Ok(Response::new(response))
             },
             Err(e) => {
@@ -153,7 +154,6 @@ impl RPerfService for RPerfServiceImpl {
     ) -> Result<Response<StatusResponse>, Status> {
         info!("Received status request");
         
-        // Get pollers status
         let pollers = self.target_pollers.lock().await;
         let mut message = String::new();
         
