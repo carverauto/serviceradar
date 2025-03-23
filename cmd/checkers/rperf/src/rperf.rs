@@ -1,5 +1,5 @@
 use anyhow::Result;
-use log::{debug, error};
+use log::{debug, error, warn};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -225,7 +225,7 @@ impl RPerfRunner {
             self.target_address, self.port, self.protocol);
     
         // Execute rperf in a blocking task
-        tokio::task::spawn_blocking({
+        let result = tokio::task::spawn_blocking({
             let output = Arc::clone(&output);
             move || {
                 let mut args = vec![
@@ -269,32 +269,19 @@ impl RPerfRunner {
                     args.extend_from_slice(&["--receive-buffer", &receive_buffer_str]);
                 }
     
-                debug!("Running rperf test with args: {:?}", args);
-                
                 // Run rperf client with the shared output buffer and convert the error type
+                debug!("Running rperf test with args: {:?}", args);
                 rperf::run_client_with_output(args, output.clone()).map_err(|e| anyhow::anyhow!("{}", e))
             }
         })
         .await??;
-        
-        // Wait a moment to ensure all output is captured
+
         tokio::time::sleep(Duration::from_millis(100)).await;
-    
-        // After the rperf client has completed, get the output
+
         let output_buffer = output.lock().unwrap().clone();
         let output_str = String::from_utf8(output_buffer)
             .map_err(|e| anyhow::anyhow!("Failed to convert output to UTF-8: {}", e))?;
-            
-        debug!("Output buffer size: {}", output_str.len());
-        
-        // Log output details
-        if output_str.len() < 1000 {
-            debug!("Complete rperf output: '{}'", output_str);
-        } else {
-            debug!("rperf output (truncated): '{:.1000}...'", output_str);
-        }
-        
-        // Check for empty output
+
         if output_str.trim().is_empty() {
             error!("Received empty output from rperf");
             return Ok(RPerfResult {
@@ -304,8 +291,11 @@ impl RPerfRunner {
                 summary: Default::default(),
             });
         }
-    
-        // Call the standalone parse_rperf_output function with the second protocol clone
-        parse_rperf_output(output_str, &protocol_for_parse)
+
+        let parsed_result = parse_rperf_output(output_str.clone(), &protocol_for_parse)?;
+        if !parsed_result.success {
+            warn!("rperf test failed: {:?}", parsed_result.error);
+        }
+        Ok(parsed_result) 
     }
 }
