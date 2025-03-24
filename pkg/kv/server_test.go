@@ -11,6 +11,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 	ggrpc "google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -19,7 +20,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// Define a dummy AuthInfo for testing
+// Define a dummy AuthInfo for testing.
 type dummyAuthInfo struct{}
 
 func (dummyAuthInfo) AuthType() string {
@@ -50,7 +51,7 @@ func TestRBAC(t *testing.T) {
 		s := &Server{config: config}
 		ctx := context.Background() // No peer info
 		_, err := s.extractIdentity(ctx)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Equal(t, status.Code(err), codes.Unauthenticated)
 		assert.Contains(t, err.Error(), "no peer info available; mTLS required")
 	})
@@ -61,7 +62,7 @@ func TestRBAC(t *testing.T) {
 		p := &peer.Peer{AuthInfo: dummyAuthInfo{}}
 		ctx := peer.NewContext(context.Background(), p)
 		_, err := s.extractIdentity(ctx)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Equal(t, status.Code(err), codes.Unauthenticated)
 		assert.Contains(t, err.Error(), "mTLS authentication required")
 	})
@@ -77,7 +78,7 @@ func TestRBAC(t *testing.T) {
 		p := &peer.Peer{AuthInfo: tlsInfo}
 		ctx := peer.NewContext(context.Background(), p)
 		identity, err := s.extractIdentity(ctx)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Equal(t, "CN=reader-client", identity)
 	})
 
@@ -114,7 +115,7 @@ func TestRBAC(t *testing.T) {
 	t.Run("AuthorizeMethod_Reader_Put_Denied", func(t *testing.T) {
 		s := &Server{config: config}
 		err := s.authorizeMethod("/proto.KVService/Put", RoleReader)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Equal(t, status.Code(err), codes.PermissionDenied)
 		assert.Contains(t, err.Error(), "role reader cannot access /proto.KVService/Put")
 	})
@@ -122,7 +123,7 @@ func TestRBAC(t *testing.T) {
 	t.Run("AuthorizeMethod_UnknownMethod", func(t *testing.T) {
 		s := &Server{config: config}
 		err := s.authorizeMethod("/proto.KVService/Unknown", RoleWriter)
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Equal(t, status.Code(err), codes.Unimplemented)
 		assert.Contains(t, err.Error(), "method /proto.KVService/Unknown not recognized")
 	})
@@ -166,7 +167,7 @@ func TestRBAC(t *testing.T) {
 		p := &peer.Peer{AuthInfo: tlsInfo}
 		ctx := peer.NewContext(context.Background(), p)
 		err := s.checkRBAC(ctx, "/proto.KVService/Put")
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Equal(t, status.Code(err), codes.PermissionDenied)
 	})
 
@@ -181,7 +182,7 @@ func TestRBAC(t *testing.T) {
 		p := &peer.Peer{AuthInfo: tlsInfo}
 		ctx := peer.NewContext(context.Background(), p)
 		err := s.checkRBAC(ctx, "/proto.KVService/Get")
-		assert.Error(t, err)
+		require.Error(t, err)
 		assert.Equal(t, status.Code(err), codes.PermissionDenied)
 		assert.Contains(t, err.Error(), "identity CN=unknown-client not authorized")
 	})
@@ -203,8 +204,12 @@ func TestRBAC(t *testing.T) {
 			return s.Get(ctx, req.(*proto.GetRequest))
 		}
 
-		resp, err := s.rbacInterceptor(ctx, &proto.GetRequest{Key: "test-key"}, &ggrpc.UnaryServerInfo{FullMethod: "/proto.KVService/Get"}, handler)
-		assert.NoError(t, err)
+		resp, err := s.rbacInterceptor(
+			ctx,
+			&proto.GetRequest{Key: "test-key"},
+			&ggrpc.UnaryServerInfo{FullMethod: "/proto.KVService/Get"},
+			handler)
+		require.NoError(t, err)
 		assert.NotNil(t, resp)
 		getResp, ok := resp.(*proto.GetResponse)
 		assert.True(t, ok)
@@ -223,12 +228,16 @@ func TestRBAC(t *testing.T) {
 		p := &peer.Peer{AuthInfo: tlsInfo}
 		ctx := peer.NewContext(context.Background(), p)
 
-		handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		handler := func(_ context.Context, _ interface{}) (interface{}, error) {
 			return nil, nil // Shouldn’t reach here
 		}
 
-		_, err := s.rbacInterceptor(ctx, &proto.PutRequest{Key: "test-key", Value: []byte("value")}, &ggrpc.UnaryServerInfo{FullMethod: "/proto.KVService/Put"}, handler)
-		assert.Error(t, err)
+		_, err := s.rbacInterceptor(
+			ctx,
+			&proto.PutRequest{Key: "test-key", Value: []byte("value")},
+			&ggrpc.UnaryServerInfo{FullMethod: "/proto.KVService/Put"},
+			handler)
+		require.Error(t, err)
 		assert.Equal(t, status.Code(err), codes.PermissionDenied)
 	})
 }
