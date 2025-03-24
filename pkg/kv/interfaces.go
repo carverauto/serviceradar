@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+//go:generate mockgen -destination=mock_kv.go -package=kv github.com/carverauto/serviceradar/pkg/kv KVStore
+
 package kv
 
 import (
