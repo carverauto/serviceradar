@@ -24,7 +24,6 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/config/kv"
 	"github.com/carverauto/serviceradar/pkg/grpc"
-	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/proto"
 	ggrpc "google.golang.org/grpc" // Alias for Google's gRPC
 	"google.golang.org/grpc/codes"
