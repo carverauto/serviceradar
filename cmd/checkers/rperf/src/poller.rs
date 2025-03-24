@@ -5,6 +5,7 @@ use tokio::time::{Duration, Instant};
 use crate::config::TargetConfig;
 use crate::rperf::{RPerfResult, RPerfRunner};
 
+#[derive(Debug)] // Add this
 pub struct TargetPoller {
     config: TargetConfig,
     runner: RPerfRunner,
