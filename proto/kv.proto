@@ -1,0 +1,79 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+syntax "proto3";
+
+package proto;
+
+option go_package = "github.com/carverauto/serviceradar/proto";
+
+// KVService provides a gRPC interface for key-value store operations.
+service KVService {
+  // Get retrieves the value for a given key.
+  rpc Get(GetRequest) returns (GetResponse) {}
+
+  // Put stores a value for a given key with an optional TTL.
+  rpc Put(PutRequest) returns (PutResponse) {}
+
+  // Delete removes a key and its value from the store.
+  rpc Delete(DeleteRequest) returns (DeleteResponse) {}
+
+  // Watch streams updates for a specific key.
+  rpc Watch(WatchRequest) returns (stream WatchResponse) {}
+}
+
+// GetRequest is the request message for the Get operation.
+message GetRequest {
+  string key = 1;
+}
+
+// GetResponse is the response message for the Get operation.
+message GetResponse {
+  bytes value = 1;  // The value associated with the key, empty if not found
+  bool found = 2;   // Indicates if the key was found
+}
+
+// PutRequest is the request message for the Put operation.
+message PutRequest {
+  string key = 1;
+  bytes value = 2;
+  int64 ttl_seconds = 3;  // TTL in seconds, 0 for no expiration
+}
+
+// PutResponse is the response message for the Put operation.
+message PutResponse {
+  // Empty for now; could add status or version info later
+}
+
+// DeleteRequest is the request message for the Delete operation.
+message DeleteRequest {
+  string key = 1;
+}
+
+// DeleteResponse is the response message for the Delete operation.
+message DeleteResponse {
+  // Empty for now; could add confirmation later
+}
+
+// WatchRequest is the request message for the Watch operation.
+message WatchRequest {
+  string key = 1;
+}
+
+// WatchResponse is the response message streamed by the Watch operation.
+message WatchResponse {
+  bytes value = 1;  // The updated value, empty if key was deleted
+}
