@@ -18,6 +18,11 @@ GOBIN ?= $$($(GO) env GOPATH)/bin
 GOLANGCI_LINT ?= $(GOBIN)/golangci-lint
 GOLANGCI_LINT_VERSION ?= v1.64.5
 
+# Rust configuration
+CARGO ?= cargo
+RUSTFMT ?= rustfmt
+RUST_BUILD_DIR ?= cmd/rperf-plugin/target/release
+
 # Version configuration
 VERSION ?= $(shell git describe --tags --always)
 NEXT_VERSION ?= $(shell git describe --tags --abbrev=0 | awk -F. '{$$NF = $$NF + 1;} 1' | sed 's/ /./g')
@@ -45,6 +50,8 @@ tidy: ## Tidy and format Go code
 	@echo "$(COLOR_BOLD)Tidying Go modules and formatting code$(COLOR_RESET)"
 	@$(GO) mod tidy
 	@$(GO) fmt ./...
+	@echo "$(COLOR_BOLD)Formatting Rust code$(COLOR_RESET)"
+	@cd cmd/rperf-plugin && $(RUSTFMT) src/*.rs
 
 .PHONY: get-golangcilint
 get-golangcilint: ## Install golangci-lint
@@ -53,15 +60,19 @@ get-golangcilint: ## Install golangci-lint
 
 .PHONY: lint
 lint: get-golangcilint ## Run linting checks
-	@echo "$(COLOR_BOLD)Running linter$(COLOR_RESET)"
+	@echo "$(COLOR_BOLD)Running Go linter$(COLOR_RESET)"
 	@$(GOLANGCI_LINT) run ./...
+	@echo "$(COLOR_BOLD)Running Rust linter$(COLOR_RESET)"
+	@cd cmd/rperf-plugin && $(CARGO) clippy -- -D warnings
 
 .PHONY: test
 test: ## Run all tests with coverage
-	@echo "$(COLOR_BOLD)Running short tests$(COLOR_RESET)"
+	@echo "$(COLOR_BOLD)Running Go short tests$(COLOR_RESET)"
 	@$(GO) test -timeout=3s -race -count=10 -failfast -shuffle=on -short ./... -coverprofile=./cover.short.profile -covermode=atomic -coverpkg=./...
-	@echo "$(COLOR_BOLD)Running long tests$(COLOR_RESET)"
+	@echo "$(COLOR_BOLD)Running Go long tests$(COLOR_RESET)"
 	@$(GO) test -timeout=10s -race -count=1 -failfast -shuffle=on ./... -coverprofile=./cover.long.profile -covermode=atomic -coverpkg=./...
+	@echo "$(COLOR_BOLD)Running Rust tests$(COLOR_RESET)"
+	@cd cmd/rperf-plugin && $(CARGO) test
 
 .PHONY: check-coverage
 check-coverage: test ## Check test coverage against thresholds
@@ -97,15 +108,29 @@ clean: ## Clean up build artifacts
 	@rm -f cover.*.profile cover.html
 	@rm -rf bin/
 	@rm -rf serviceradar-*_* release-artifacts/
+	@cd cmd/rperf-plugin && $(CARGO) clean
+
+.PHONY: generate-proto
+generate-proto: ## Generate Go and Rust code from protobuf definitions
+	@echo "$(COLOR_BOLD)Generating Go code from protobuf definitions$(COLOR_RESET)"
+	@protoc -I=proto \
+		--go_out=proto --go_opt=paths=source_relative \
+		--go-grpc_out=proto --go-grpc_opt=paths=source_relative \
+		proto/rperf/rperf.proto
+	@echo "$(COLOR_BOLD)Generated Go protobuf code$(COLOR_RESET)"
 
 .PHONY: build
-build: ## Build all binaries
+build: generate-proto ## Build all binaries
 	@echo "$(COLOR_BOLD)Building all binaries$(COLOR_RESET)"
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-agent cmd/agent/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-poller cmd/poller/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-dusk-checker cmd/checkers/dusk/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-core cmd/core/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-snmp-checker cmd/checkers/snmp/main.go
+	@echo "$(COLOR_BOLD)Building Rust rperf plugin$(COLOR_RESET)"
+	@cd cmd/rperf-plugin && $(CARGO) build --release
+	@mkdir -p bin
+	@cp $(RUST_BUILD_DIR)/rperf-plugin bin/serviceradar-rperf-checker
 
 .PHONY: kodata-prep
 kodata-prep: build-web ## Prepare kodata directories
@@ -126,6 +151,11 @@ container-build: kodata-prep ## Build container images with ko
 		--push .
 	@cd cmd/checkers/dusk && KO_DOCKER_REPO=$(KO_DOCKER_REPO)/serviceradar-dusk-checker GOFLAGS="-tags=containers" ko build --platform=$(PLATFORMS) --tags=$(VERSION) --bare .
 	@cd cmd/checkers/snmp && KO_DOCKER_REPO=$(KO_DOCKER_REPO)/serviceradar-snmp-checker GOFLAGS="-tags=containers" ko build --platform=$(PLATFORMS) --tags=$(VERSION) --bare .
+	@echo "$(COLOR_BOLD)Building rperf checker container$(COLOR_RESET)"
+	@docker buildx build --platform linux/amd64 -f cmd/rperf-plugin/Dockerfile \
+		-t $(KO_DOCKER_REPO)/serviceradar-rperf-checker:$(VERSION) \
+		--build-arg VERSION=$(VERSION) \
+		.
 
 .PHONY: container-push
 container-push: kodata-prep ## Build and push container images with ko
@@ -141,6 +171,12 @@ container-push: kodata-prep ## Build and push container images with ko
 		--push .
 	@cd cmd/checkers/dusk && KO_DOCKER_REPO=$(KO_DOCKER_REPO)/serviceradar-dusk-checker GOFLAGS="-tags=containers" ko build --platform=$(PLATFORMS) --tags=$(VERSION),latest --bare .
 	@cd cmd/checkers/snmp && KO_DOCKER_REPO=$(KO_DOCKER_REPO)/serviceradar-snmp-checker GOFLAGS="-tags=containers" ko build --platform=$(PLATFORMS) --tags=$(VERSION),latest --bare .
+	@echo "$(COLOR_BOLD)Building and pushing rperf checker container$(COLOR_RESET)"
+	@docker buildx build --platform linux/amd64 -f cmd/rperf-plugin/Dockerfile \
+		-t $(KO_DOCKER_REPO)/serviceradar-rperf-checker:$(VERSION) \
+		-t $(KO_DOCKER_REPO)/serviceradar-rperf-checker:latest \
+		--build-arg VERSION=$(VERSION) \
+		--push .
 
 # Build Debian packages
 .PHONY: deb-agent
@@ -178,12 +214,17 @@ deb-snmp: ## Build the SNMP checker Debian package
 	@echo "$(COLOR_BOLD)Building SNMP checker Debian package$(COLOR_RESET)"
 	@./scripts/setup-deb-snmp-checker.sh
 
+.PHONY: deb-rperf
+deb-rperf: ## Build the RPerf checker Debian package
+	@echo "$(COLOR_BOLD)Building RPerf checker Debian package$(COLOR_RESET)"
+	@VERSION=$(VERSION) ./scripts/setup-deb-rperf-checker.sh
+
 .PHONY: deb-all
-deb-all: deb-agent deb-poller deb-core deb-web deb-dusk deb-snmp ## Build all Debian packages
+deb-all: deb-agent deb-poller deb-core deb-web deb-dusk deb-snmp deb-rperf ## Build all Debian packages
 	@echo "$(COLOR_BOLD)All Debian packages built$(COLOR_RESET)"
 
 .PHONY: deb-all-container
-deb-all-container: deb-agent deb-poller deb-core-container deb-web deb-dusk deb-snmp ## Build all Debian packages with container support for core
+deb-all-container: deb-agent deb-poller deb-core-container deb-web deb-dusk deb-snmp deb-rperf ## Build all Debian packages with container support for core
 	@echo "$(COLOR_BOLD)All Debian packages built (with container support for core)$(COLOR_RESET)"
 
 # Build RPM packages
@@ -259,6 +300,23 @@ rpm-snmp: rpm-prep ## Build the SNMP checker RPM package
 	@docker cp temp-snmp-container:/rpms/. ./release-artifacts/rpm/
 	@docker rm temp-snmp-container
 
+.PHONY: rpm-rperf
+rpm-rperf: rpm-prep ## Build the RPerf checker RPM package
+	@echo "$(COLOR_BOLD)Building RPerf checker RPM package$(COLOR_RESET)"
+	@VERSION_CLEAN=$$(echo "$(VERSION)" | sed 's/-/_/g'); \
+	docker build \
+		--platform linux/amd64 \
+		--build-arg VERSION="$$VERSION_CLEAN" \
+		--build-arg RELEASE="$(RELEASE)" \
+		--build-arg COMPONENT="rperf-checker" \
+		--build-arg BINARY_PATH="./cmd/rperf-plugin" \
+		-f Dockerfile.rpm.rust \
+		-t serviceradar-rpm-rperf-checker \
+		.
+	@docker create --name temp-rperf-container serviceradar-rpm-rperf-checker
+	@docker cp temp-rperf-container:/rpms/. ./release-artifacts/rpm/
+	@docker rm temp-rperf-container
+
 .PHONY: rpm-web
 rpm-web: rpm-prep ## Build the web RPM package
 	@echo "$(COLOR_BOLD)Building web RPM package$(COLOR_RESET)"
@@ -275,7 +333,7 @@ rpm-web: rpm-prep ## Build the web RPM package
 	@docker rm temp-web-container
 
 .PHONY: rpm-all
-rpm-all: rpm-core rpm-web rpm-agent rpm-poller rpm-snmp ## Build all RPM packages
+rpm-all: rpm-core rpm-web rpm-agent rpm-poller rpm-snmp rpm-rperf ## Build all RPM packages
 	@echo "$(COLOR_BOLD)All RPM packages built$(COLOR_RESET)"
 
 # Docusaurus commands
@@ -311,6 +369,19 @@ build-web: ## Build the Next.js web interface
 	@cd web && npm install && npm run build
 	@mkdir -p pkg/core/api/web
 	@cp -r web/dist pkg/core/api/web/
+
+# RPerf plugin specific targets
+.PHONY: build-rperf
+build-rperf: generate-proto ## Build only the rperf plugin
+	@echo "$(COLOR_BOLD)Building Rust rperf plugin$(COLOR_RESET)"
+	@cd cmd/rperf-plugin && $(CARGO) build --release
+	@mkdir -p bin
+	@cp $(RUST_BUILD_DIR)/rperf-plugin bin/serviceradar-rperf-checker
+
+.PHONY: run-rperf
+run-rperf: build-rperf ## Run the rperf plugin
+	@echo "$(COLOR_BOLD)Running rperf plugin$(COLOR_RESET)"
+	@./bin/serviceradar-rperf-checker $(ARGS)
 
 # Default target
 .DEFAULT_GOAL := help

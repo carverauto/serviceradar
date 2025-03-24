@@ -1,0 +1,66 @@
+syntax = "proto3";
+
+package rperf;
+
+option go_package = "github.com/carverauto/serviceradar/cmd/checkers/rperf/src/proto/rperf";
+
+// The RPerf service definition
+service RPerfService {
+  // RunTest starts a network test and returns results
+  rpc RunTest(TestRequest) returns (TestResponse) {}
+  
+  // GetStatus returns the current status of the service
+  rpc GetStatus(StatusRequest) returns (StatusResponse) {}
+}
+
+// Test request parameters
+message TestRequest {
+  string target_address = 1;    // The server to connect to
+  uint32 port = 2;              // The port to connect to
+  string protocol = 3;          // "tcp" or "udp"
+  bool reverse = 4;             // Whether to run in reverse mode
+  uint64 bandwidth = 5;         // Target bandwidth in bytes/sec
+  double duration = 6;          // Test duration in seconds
+  uint32 parallel = 7;          // Number of parallel streams
+  uint32 length = 8;            // Length of buffer to use
+  uint32 omit = 9;              // Seconds to omit from the start
+  bool no_delay = 10;           // Use TCP no-delay option
+  uint32 send_buffer = 11;      // Socket send buffer size
+  uint32 receive_buffer = 12;   // Socket receive buffer size
+  double send_interval = 13;    // Send interval in seconds
+}
+
+// Test response with results
+message TestResponse {
+  bool success = 1;             // Whether the test completed successfully
+  string error = 2;             // Error message, if any
+  string results_json = 3;      // Full results in JSON format
+  
+  // Summary metrics
+  TestSummary summary = 4;
+}
+
+// Summary of test results
+message TestSummary {
+  double duration = 1;          // Test duration in seconds
+  uint64 bytes_sent = 2;        // Total bytes sent
+  uint64 bytes_received = 3;    // Total bytes received
+  double bits_per_second = 4;   // Throughput in bits per second
+  
+  // UDP-specific fields
+  uint64 packets_sent = 5;      // UDP packets sent
+  uint64 packets_received = 6;  // UDP packets received
+  uint64 packets_lost = 7;      // UDP packets lost
+  double loss_percent = 8;      // Packet loss percentage
+  double jitter_ms = 9;         // Jitter in milliseconds
+}
+
+// Status request (empty for now)
+message StatusRequest {}
+
+// Status response with service info
+message StatusResponse {
+  bool available = 1;           // Whether the service is available
+  string version = 2;           // Version information
+  string message = 3;           // Additional status information
+}

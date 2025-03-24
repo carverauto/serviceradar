@@ -1,0 +1,132 @@
+FROM rockylinux:9 as builder
+
+ARG VERSION=0.1.0
+ARG RELEASE=1
+ARG COMPONENT=rperf-checker
+ARG BINARY_PATH=./cmd/rperf-plugin
+
+# Install build dependencies
+RUN dnf install -y rpm-build rpmdevtools dnf-plugins-core git gcc make \
+    && dnf config-manager --set-enabled crb \
+    && dnf install -y rust cargo protobuf-compiler \
+    && rpmdev-setuptree
+
+# Install Go (required for protoc plugin)
+RUN curl -L -o /tmp/go.tar.gz https://go.dev/dl/go1.21.6.linux-amd64.tar.gz \
+    && tar -C /usr/local -xzf /tmp/go.tar.gz \
+    && rm /tmp/go.tar.gz
+ENV PATH="/usr/local/go/bin:${PATH}"
+
+# Install protoc plugins
+RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@latest \
+    && go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+ENV PATH="/root/go/bin:${PATH}"
+
+# Copy source code
+WORKDIR /src
+COPY . .
+
+# Generate protobuf code
+RUN protoc -I=proto \
+    --go_out=proto --go_opt=paths=source_relative \
+    --go-grpc_out=proto --go-grpc_opt=paths=source_relative \
+    proto/rperf/rperf.proto
+
+# Build the Rust binary
+WORKDIR /src/${BINARY_PATH}
+RUN cargo build --release
+
+# Create the RPM spec file
+WORKDIR /root/rpmbuild
+RUN cat > SPECS/serviceradar-${COMPONENT}.spec << EOF
+Name:           serviceradar-${COMPONENT}
+Version:        ${VERSION}
+Release:        ${RELEASE}%{?dist}
+Summary:        ServiceRadar RPerf Checker
+
+License:        Apache-2.0
+URL:            https://github.com/carverauto/serviceradar
+
+BuildRequires:  systemd
+Requires:       rperf
+
+%description
+ServiceRadar RPerf network performance test checker plugin
+
+%install
+mkdir -p %{buildroot}%{_bindir}
+mkdir -p %{buildroot}%{_unitdir}
+mkdir -p %{buildroot}%{_sysconfdir}/serviceradar/checkers
+cp /src/${BINARY_PATH}/target/release/rperf-plugin %{buildroot}%{_bindir}/serviceradar-${COMPONENT}
+cat > %{buildroot}%{_unitdir}/serviceradar-${COMPONENT}.service << 'EOS'
+[Unit]
+Description=ServiceRadar RPerf Checker
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/serviceradar-${COMPONENT} --address 0.0.0.0:50051 --rperf-path /usr/bin/rperf
+Restart=on-failure
+User=serviceradar
+Group=serviceradar
+
+[Install]
+WantedBy=multi-user.target
+EOS
+
+cat > %{buildroot}%{_sysconfdir}/serviceradar/checkers/rperf.json << 'EOC'
+{
+  "type": "rperf",
+  "config": {
+    "server_address": "localhost:50051",
+    "target_address": "example.com",
+    "port": 5201,
+    "protocol": "tcp",
+    "timeout": "1m",
+    "bandwidth": 100000000,
+    "duration": 10.0,
+    "parallel": 4,
+    "test_interval": "1h",
+    "security": {
+      "tls_enabled": false
+    }
+  }
+}
+EOC
+
+%files
+%attr(755, root, root) %{_bindir}/serviceradar-${COMPONENT}
+%{_unitdir}/serviceradar-${COMPONENT}.service
+%config(noreplace) %{_sysconfdir}/serviceradar/checkers/rperf.json
+
+%pre
+getent group serviceradar >/dev/null || groupadd -r serviceradar
+getent passwd serviceradar >/dev/null || \
+    useradd -r -g serviceradar -d /var/lib/serviceradar -s /sbin/nologin \
+    -c "ServiceRadar user" serviceradar
+exit 0
+
+%post
+%systemd_post serviceradar-${COMPONENT}.service
+
+%preun
+%systemd_preun serviceradar-${COMPONENT}.service
+
+%postun
+%systemd_postun_with_restart serviceradar-${COMPONENT}.service
+
+%changelog
+* $(date "+%a %b %d %Y") Builder <builder@carverauto.com> - ${VERSION}-${RELEASE}
+- Automated build for version ${VERSION}
+EOF
+
+# Build the RPM
+RUN rpmbuild -bb SPECS/serviceradar-${COMPONENT}.spec
+
+# Copy the RPM to /rpms
+RUN mkdir -p /rpms && \
+    cp /root/rpmbuild/RPMS/*/serviceradar-${COMPONENT}-*.rpm /rpms/
+
+# Final image just to provide the RPM
+FROM scratch
+COPY --from=builder /rpms/ /rpms/
