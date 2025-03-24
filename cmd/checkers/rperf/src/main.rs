@@ -1,23 +1,24 @@
 use anyhow::{Context, Result};
-use log::info;
-use rperf_grpc::config::Config;
-use rperf_grpc::server::RPerfServer;
+use clap::{App, Arg};
+use log::{info, warn};
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::signal;
-use clap::{App, Arg};
 
-fn main() -> Result<()> {
+use rperf_grpc::config::Config;
+use rperf_grpc::server::RPerfServer;
+
+#[tokio::main]
+async fn main() -> Result<()> {
     // Initialize logging
     env_logger::init_from_env(
         env_logger::Env::default().filter_or(env_logger::DEFAULT_FILTER_ENV, "info"),
     );
 
-    // Define command-line arguments with clap v2
+    // Define command-line arguments using the same clap version as rperf
     let matches = App::new("rperf-grpc")
-        .version("0.1.0")
-        .author("Your Name <your.email@example.com>")
-        .about("rperf gRPC checker for ServiceRadar")
+        .version(env!("CARGO_PKG_VERSION"))
+        .author(env!("CARGO_PKG_AUTHORS"))
+        .about("gRPC checker for running rperf network performance tests")
         .arg(Arg::with_name("config")
             .short("c")
             .long("config")
@@ -36,24 +37,30 @@ fn main() -> Result<()> {
     let config = Config::from_file(&config_path)
         .context("Failed to load configuration")?;
 
-    // Run the server (blocking in v2 style, we'll handle async separately)
-    let runtime = tokio::runtime::Runtime::new()?;
-    runtime.block_on(async {
-        // Create the server instance
-        let server = RPerfServer::new(Arc::new(config))
-            .context("Failed to create rperf server")?;
+    // Print configuration summary
+    info!("Loaded configuration with {} targets", config.targets.len());
+    info!("Server will listen on {}", config.listen_addr);
 
-        // Start the server
-        let server_handle = server.start().await?;
-        info!("rperf gRPC server started");
+    // Create the server instance
+    let server = RPerfServer::new(Arc::new(config))
+        .context("Failed to create rperf server")?;
 
-        signal::ctrl_c().await?;
-        info!("Shutdown signal received, stopping server...");
-        rperf::client::kill(); // Ensure clients stop
-        server_handle.stop().await?;
-        info!("Server stopped gracefully");
-        Ok::<(), anyhow::Error>(())
-    })?;
+    // Start the server
+    let server_handle = server.start().await?;
+    info!("rperf gRPC server started");
+
+    // Wait for shutdown signal
+    tokio::signal::ctrl_c().await?;
+    info!("Shutdown signal received, stopping server...");
+
+    // Ensure any running clients stop
+    rperf::client::kill();
+
+    // Stop the server gracefully
+    match server_handle.stop().await {
+        Ok(_) => info!("Server stopped gracefully"),
+        Err(e) => warn!("Error during server shutdown: {}", e),
+    }
 
     Ok(())
 }

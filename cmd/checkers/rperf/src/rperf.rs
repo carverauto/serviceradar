@@ -1,15 +1,12 @@
 use anyhow::Result;
-use log::{debug, error, warn};
+use log::{debug, error, info};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
-use clap::{App, ArgMatches, Arg};
-
-use std::process::Command;
-use std::time::Duration;
+use std::vec::Vec;
 
 use crate::config::TargetConfig;
 use crate::server::rperf_service::TestRequest;
-use rperf::client;
+use rperf::{run_client_with_output, TestResults};
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct RPerfSummary {
@@ -32,10 +29,10 @@ pub struct RPerfResult {
     pub summary: RPerfSummary,
 }
 
-fn parse_rperf_output(output: String, protocol: &str) -> Result<RPerfResult> {
-    debug!("Parsing rperf output: '{}'", output);
-    
-    if output.trim().is_empty() {
+fn parse_rperf_output(output: &[u8], protocol: &str) -> Result<RPerfResult> {
+    debug!("Parsing rperf output");
+
+    if output.is_empty() {
         error!("Received empty output from rperf");
         return Ok(RPerfResult {
             success: false,
@@ -45,20 +42,41 @@ fn parse_rperf_output(output: String, protocol: &str) -> Result<RPerfResult> {
         });
     }
 
-    let json_value: serde_json::Value = match serde_json::from_str(&output) {
+    // Convert binary output to string
+    let output_str = String::from_utf8_lossy(output).to_string();
+
+    // Parse the JSON output
+    let json_value: serde_json::Value = match serde_json::from_str(&output_str) {
         Ok(value) => value,
         Err(e) => {
             error!("Failed to parse JSON: {}", e);
-            error!("Raw output: {}", output);
+            error!("Raw output: {}", output_str);
             return Ok(RPerfResult {
                 success: false,
                 error: Some(format!("Failed to parse rperf JSON output: {}", e)),
-                results_json: output,
+                results_json: output_str,
                 summary: Default::default(),
             });
         }
     };
 
+    // Extract the success status
+    let success = match json_value.get("success") {
+        Some(s) => s.as_bool().unwrap_or(false),
+        None => false,
+    };
+
+    // If test failed, return early
+    if !success {
+        return Ok(RPerfResult {
+            success: false,
+            error: Some("Test reported failure".to_string()),
+            results_json: output_str,
+            summary: Default::default(),
+        });
+    }
+
+    // Extract summary data
     let summary_data = match &json_value["summary"] {
         serde_json::Value::Object(obj) => obj,
         _ => {
@@ -67,7 +85,7 @@ fn parse_rperf_output(output: String, protocol: &str) -> Result<RPerfResult> {
             return Ok(RPerfResult {
                 success: false,
                 error: Some("Invalid JSON structure: missing summary object".to_string()),
-                results_json: output,
+                results_json: output_str,
                 summary: Default::default(),
             });
         }
@@ -75,10 +93,12 @@ fn parse_rperf_output(output: String, protocol: &str) -> Result<RPerfResult> {
 
     let mut summary = RPerfSummary::default();
 
+    // Extract duration data
     if let Some(duration) = summary_data.get("duration_send").or_else(|| summary_data.get("duration_receive")) {
         summary.duration = duration.as_f64().unwrap_or_default();
     }
 
+    // Extract bytes data
     if let Some(bytes) = summary_data.get("bytes_sent") {
         summary.bytes_sent = bytes.as_u64().unwrap_or_default();
     }
@@ -87,11 +107,13 @@ fn parse_rperf_output(output: String, protocol: &str) -> Result<RPerfResult> {
         summary.bytes_received = bytes.as_u64().unwrap_or_default();
     }
 
+    // Calculate bits per second
     if summary.duration > 0.0 {
         let bytes = summary.bytes_received.max(summary.bytes_sent);
         summary.bits_per_second = (bytes as f64 * 8.0) / summary.duration;
     }
 
+    // Extract UDP-specific data if applicable
     if protocol == "udp" {
         if let Some(packets) = summary_data.get("packets_sent") {
             summary.packets_sent = packets.as_u64().unwrap_or_default();
@@ -112,7 +134,7 @@ fn parse_rperf_output(output: String, protocol: &str) -> Result<RPerfResult> {
     Ok(RPerfResult {
         success: true,
         error: None,
-        results_json: output,
+        results_json: output_str,
         summary,
     })
 }
@@ -170,58 +192,95 @@ impl RPerfRunner {
         }
     }
 
-
     pub async fn run_test(&self) -> Result<RPerfResult> {
-        debug!("Preparing to run rperf test to {}:{} with protocol {}", 
-            self.target_address, self.port, self.protocol);
+        debug!("Running rperf test to {}:{} with protocol {}", 
+        self.target_address, self.port, self.protocol);
 
-        let mut cmd = Command::new("./target/release/rperf"); // Adjust path as needed
-        cmd.arg("--client").arg(&self.target_address)
-        .arg("--port").arg(self.port.to_string())
-        .arg("--format").arg("json")
-        .arg("--time").arg(self.duration.to_string())
-        .arg("--parallel").arg(self.parallel.to_string())
-        .arg("--omit").arg(self.omit.to_string())
-        .arg("--send-interval").arg(self.send_interval.to_string())
-        .arg("--bandwidth").arg(self.bandwidth.to_string())
-        .arg("--length").arg(self.length.to_string())
-        .arg("--send-buffer").arg(self.send_buffer.to_string())
-        .arg("--receive-buffer").arg(self.receive_buffer.to_string());
+        // Store all owned Strings in a Vec
+        let mut owned_args: Vec<String> = vec![
+            "--client".to_string(),
+            self.target_address.clone(),
+            "--port".to_string(),
+            self.port.to_string(),
+            "--format".to_string(),
+            "json".to_string(),
+            "--time".to_string(),
+            self.duration.to_string(),
+            "--parallel".to_string(),
+            self.parallel.to_string(),
+            "--omit".to_string(),
+            self.omit.to_string(),
+            "--send-interval".to_string(),
+            self.send_interval.to_string(),
+            "--bandwidth".to_string(),
+            self.bandwidth.to_string(),
+        ];
+
+        if self.length > 0 {
+            owned_args.push("--length".to_string());
+            owned_args.push(self.length.to_string());
+        }
+
+        owned_args.push("--send-buffer".to_string());
+        owned_args.push(self.send_buffer.to_string());
+        owned_args.push("--receive-buffer".to_string());
+        owned_args.push(self.receive_buffer.to_string());
 
         if self.protocol == "udp" {
-            cmd.arg("--udp");
+            owned_args.push("--udp".to_string());
         }
         if self.reverse {
-            cmd.arg("--reverse");
+            owned_args.push("--reverse".to_string());
         }
         if self.no_delay {
-            cmd.arg("--no-delay");
+            owned_args.push("--no-delay".to_string());
         }
 
-        debug!("Executing rperf command: {:?}", cmd);
-        let output = tokio::time::timeout(Duration::from_secs((self.duration + 5.0) as u64), async {
-            cmd.output()
-        }).await.map_err(|_| anyhow::anyhow!("Test timed out"))?;
+        debug!("Prepared owned arguments: {:?}", owned_args);
 
-        match output {
-            Ok(output) => {
-                if output.status.success() {
-                    let output_str = String::from_utf8(output.stdout)
-                        .map_err(|e| anyhow::anyhow!("Failed to convert output to UTF-8: {}", e))?;
-                    debug!("Raw output: {}", output_str);
-                    parse_rperf_output(output_str, &self.protocol)
-                } else {
-                    let error_str = String::from_utf8_lossy(&output.stderr).to_string();
-                    debug!("Command failed with error: {}", error_str);
-                    Ok(RPerfResult {
-                        success: false,
-                        error: Some(error_str),
-                        results_json: String::new(),
-                        summary: Default::default(),
-                    })
+        let output_buffer = Arc::new(Mutex::new(Vec::new()));
+        let output_clone = output_buffer.clone();
+
+        // Move owned_args into the closure and create args there
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs((self.duration + 10.0) as u64),
+            tokio::task::spawn_blocking(move || {
+                // Create args inside the closure after moving owned_args
+                let args: Vec<&str> = owned_args.iter().map(|s| s.as_str()).collect();
+                debug!("Executing rperf with args: {:?}", args);
+                run_client_with_output(args, output_clone)
+                    .map_err(|e| anyhow::anyhow!("rperf execution failed: {}", e))
+            })
+        ).await;
+
+        match result {
+            Ok(join_result) => match join_result {
+                Ok(Ok(_)) => {
+                    let output = output_buffer.lock().unwrap().clone();
+                    parse_rperf_output(&output, &self.protocol)
                 }
+                Ok(Err(e)) => Ok(RPerfResult {
+                    success: false,
+                    error: Some(format!("rperf test execution failed: {}", e)),
+                    results_json: String::new(),
+                    summary: Default::default(),
+                }),
+                Err(e) => Ok(RPerfResult {
+                    success: false,
+                    error: Some(format!("Task panic: {}", e)),
+                    results_json: String::new(),
+                    summary: Default::default(),
+                }),
             },
-            Err(e) => Err(anyhow::anyhow!("Failed to execute rperf: {}", e)),
+            Err(_) => {
+                rperf::client::kill();
+                Ok(RPerfResult {
+                    success: false,
+                    error: Some("Test timed out".to_string()),
+                    results_json: String::new(),
+                    summary: Default::default(),
+                })
+            }
         }
     }
 }
