@@ -90,6 +90,7 @@ func (s *Server) Stop(ctx context.Context) error {
 	log.Printf("Stopping KV service")
 
 	s.grpc.Stop(ctx)
+
 	if err := s.store.Close(); err != nil {
 		log.Printf("Failed to close KV store: %v", err)
 	}
@@ -144,6 +145,7 @@ func (s *Server) Watch(req *proto.WatchRequest, stream proto.KVService_WatchServ
 			if !ok {
 				return nil
 			}
+
 			err := stream.Send(&proto.WatchResponse{Value: value})
 			if err != nil {
 				return status.Errorf(codes.Internal, "failed to send watch update: %v", err)
@@ -153,7 +155,11 @@ func (s *Server) Watch(req *proto.WatchRequest, stream proto.KVService_WatchServ
 }
 
 // rbacInterceptor enforces RBAC for unary RPCs.
-func (s *Server) rbacInterceptor(ctx context.Context, req interface{}, info *ggrpc.UnaryServerInfo, handler ggrpc.UnaryHandler) (interface{}, error) {
+func (s *Server) rbacInterceptor(
+	ctx context.Context,
+	req interface{},
+	info *ggrpc.UnaryServerInfo,
+	handler ggrpc.UnaryHandler) (interface{}, error) {
 	if err := s.checkRBAC(ctx, info.FullMethod); err != nil {
 		return nil, err
 	}
@@ -162,7 +168,11 @@ func (s *Server) rbacInterceptor(ctx context.Context, req interface{}, info *ggr
 }
 
 // rbacStreamInterceptor enforces RBAC for streaming RPCs.
-func (s *Server) rbacStreamInterceptor(srv interface{}, ss ggrpc.ServerStream, info *ggrpc.StreamServerInfo, handler ggrpc.StreamHandler) error {
+func (s *Server) rbacStreamInterceptor(
+	srv interface{},
+	ss ggrpc.ServerStream,
+	info *ggrpc.StreamServerInfo,
+	handler ggrpc.StreamHandler) error {
 	if err := s.checkRBAC(ss.Context(), info.FullMethod); err != nil {
 		return err
 	}
