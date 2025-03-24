@@ -19,6 +19,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
 
 	"github.com/carverauto/serviceradar/pkg/config"
@@ -26,6 +27,10 @@ import (
 	"github.com/carverauto/serviceradar/pkg/poller"
 	"github.com/carverauto/serviceradar/proto"
 	"google.golang.org/grpc" // For the underlying gRPC server type
+)
+
+var (
+	errFailedToLoadConfig = fmt.Errorf("failed to load config")
 )
 
 func main() {
@@ -39,14 +44,18 @@ func run() error {
 	configPath := flag.String("config", "/etc/serviceradar/poller.json", "Path to poller config file")
 	flag.Parse()
 
-	// Load configuration
-	var cfg poller.Config
-	if err := config.LoadAndValidate(*configPath, &cfg); err != nil {
-		return err
-	}
-
-	// Create context for lifecycle management
+	// Setup a context we can use for loading the config and running the server
 	ctx := context.Background()
+
+	// Initialize configuration loader
+	cfgLoader := config.NewConfig()
+
+	// Load configuration with context
+	var cfg poller.Config
+
+	if err := cfgLoader.LoadAndValidate(ctx, *configPath, &cfg); err != nil {
+		return fmt.Errorf("%w: %w", errFailedToLoadConfig, err)
+	}
 
 	// Create poller instance
 	p, err := poller.New(ctx, &cfg)
