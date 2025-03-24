@@ -69,8 +69,10 @@ func NewNatsStore(ctx context.Context, natsURL, bucket string, ttl time.Duration
 	}, nil
 }
 
-func (n *NatsStore) Get(ctx context.Context, key string) ([]byte, bool, error) {
-	entry, err := n.kv.Get(ctx, key)
+func (n *NatsStore) Get(ctx context.Context, key string) (value []byte, found bool, err error) {
+	var entry jetstream.KeyValueEntry
+
+	entry, err = n.kv.Get(ctx, key)
 	if errors.Is(err, jetstream.ErrKeyNotFound) {
 		return nil, false, nil
 	}
@@ -82,16 +84,10 @@ func (n *NatsStore) Get(ctx context.Context, key string) ([]byte, bool, error) {
 	return entry.Value(), true, nil
 }
 
-func (n *NatsStore) Put(ctx context.Context, key string, value []byte, ttl time.Duration) error {
+func (n *NatsStore) Put(ctx context.Context, key string, value []byte, _ time.Duration) error {
 	_, err := n.kv.Put(ctx, key, value) // No opts, TTL is bucket-level
 	if err != nil {
 		return fmt.Errorf("failed to put key %s: %w", key, err)
-	}
-
-	if ttl > 0 {
-		// Note: Per-key TTL isn't directly supported in the current API.
-		// If needed, we could implement a workaround (e.g., schedule a delete).
-		// For now, rely on bucket-level TTL set in NewNatsStore.
 	}
 
 	return nil
@@ -113,37 +109,59 @@ func (n *NatsStore) Watch(ctx context.Context, key string) (<-chan []byte, error
 	}
 
 	ch := make(chan []byte, 1)
-
-	go func() {
-		defer func(watcher jetstream.KeyWatcher) {
-			err := watcher.Stop()
-			if err != nil {
-				log.Println("failed to stop watcher for key", key, err)
-			}
-		}(watcher)
-		defer close(ch)
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-n.ctx.Done():
-				return
-			case update := <-watcher.Updates():
-				if update == nil {
-					continue
-				}
-				select {
-				case ch <- update.Value():
-				case <-ctx.Done():
-					return
-				case <-n.ctx.Done():
-					return
-				}
-			}
-		}
-	}()
+	go n.handleWatchUpdates(ctx, key, watcher, ch)
 
 	return ch, nil
+}
+
+// handleWatchUpdates processes updates from the watcher and sends them to the channel.
+func (n *NatsStore) handleWatchUpdates(ctx context.Context, key string, watcher jetstream.KeyWatcher, ch chan<- []byte) {
+	defer func() {
+		if err := watcher.Stop(); err != nil {
+			log.Printf("failed to stop watcher for key %s: %v", key, err)
+		}
+
+		close(ch)
+	}()
+
+	for {
+		update := n.waitForUpdate(ctx, watcher)
+		if update == nil {
+			return // Context canceled or watcher closed
+		}
+
+		if !n.sendUpdate(ctx, ch, update.Value()) {
+			return // Context canceled or channel closed
+		}
+	}
+}
+
+// waitForUpdate waits for the next update or context cancellation.
+func (n *NatsStore) waitForUpdate(ctx context.Context, watcher jetstream.KeyWatcher) jetstream.KeyValueEntry {
+	select {
+	case <-ctx.Done():
+		return nil
+	case <-n.ctx.Done():
+		return nil
+	case update, ok := <-watcher.Updates():
+		if !ok || update == nil {
+			return nil
+		}
+
+		return update
+	}
+}
+
+// sendUpdate attempts to send the value to the channel, respecting context cancellation.
+func (n *NatsStore) sendUpdate(ctx context.Context, ch chan<- []byte, value []byte) bool {
+	select {
+	case ch <- value:
+		return true
+	case <-ctx.Done():
+		return false
+	case <-n.ctx.Done():
+		return false
+	}
 }
 
 func (n *NatsStore) Close() error {
@@ -152,6 +170,6 @@ func (n *NatsStore) Close() error {
 	return nil
 }
 
-// Ensure NatsStore implements both interfaces
+// Ensure NatsStore implements both interfaces.
 var _ configkv.KVStore = (*NatsStore)(nil)
 var _ KVStore = (*NatsStore)(nil)
