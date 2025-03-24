@@ -245,20 +245,25 @@ func TestRBACInterceptor(t *testing.T) {
 func TestRBACStreamInterceptor(t *testing.T) {
 	t.Run("Reader_Watch", func(t *testing.T) {
 		s, mockStore := setupServer(t)
+
 		cert := &x509.Certificate{Subject: pkix.Name{CommonName: "reader-client"}}
+
 		tlsInfo := credentials.TLSInfo{
 			State: tls.ConnectionState{PeerCertificates: []*x509.Certificate{cert}},
 		}
+
 		p := &peer.Peer{AuthInfo: tlsInfo}
+
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		defer cancel()
+
 		ctx = peer.NewContext(ctx, p)
 
 		watchChan := make(chan []byte, 1)
 		mockStore.EXPECT().Watch(gomock.Any(), "test-key").Return(watchChan, nil)
 
 		stream := &mockWatchServer{ctx: ctx}
-		handler := func(_ interface{}, ss ggrpc.ServerStream) error {
+		handler := func(_ interface{}, _ ggrpc.ServerStream) error {
 			return s.Watch(&proto.WatchRequest{Key: "test-key"}, stream)
 		}
 
@@ -291,13 +296,13 @@ type mockWatchServer struct {
 	ctx context.Context
 }
 
-func (m *mockWatchServer) Send(*proto.WatchResponse) error { return nil }
-func (m *mockWatchServer) SetHeader(metadata.MD) error     { return nil }
-func (m *mockWatchServer) SendHeader(metadata.MD) error    { return nil }
-func (m *mockWatchServer) SetTrailer(metadata.MD)          {}
-func (m *mockWatchServer) Context() context.Context        { return m.ctx }
-func (m *mockWatchServer) SendMsg(interface{}) error       { return nil }
-func (m *mockWatchServer) RecvMsg(interface{}) error       { return nil }
+func (*mockWatchServer) Send(*proto.WatchResponse) error { return nil }
+func (*mockWatchServer) SetHeader(metadata.MD) error     { return nil }
+func (*mockWatchServer) SendHeader(metadata.MD) error    { return nil }
+func (*mockWatchServer) SetTrailer(metadata.MD)          {}
+func (m *mockWatchServer) Context() context.Context      { return m.ctx }
+func (*mockWatchServer) SendMsg(interface{}) error       { return nil }
+func (*mockWatchServer) RecvMsg(interface{}) error       { return nil }
 
 func TestEmptyRBACConfig(t *testing.T) {
 	s := &Server{config: Config{RBAC: struct {
