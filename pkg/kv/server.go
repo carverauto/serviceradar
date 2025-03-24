@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+// Package kv pkg/kv/server.go
 package kv
 
 import (
