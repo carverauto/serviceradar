@@ -197,35 +197,25 @@ impl RPerfRunner {
         debug!("Running rperf test to {}:{} with protocol {}", 
         self.target_address, self.port, self.protocol);
 
-        // Store all owned Strings in a Vec
         let mut owned_args: Vec<String> = vec![
-            "--client".to_string(),
-            self.target_address.clone(),
-            "--port".to_string(),
-            self.port.to_string(),
-            "--format".to_string(),
-            "json".to_string(),
-            "--time".to_string(),
-            self.duration.to_string(),
-            "--parallel".to_string(),
-            self.parallel.to_string(),
-            "--omit".to_string(),
-            self.omit.to_string(),
-            "--send-interval".to_string(),
-            self.send_interval.to_string(),
-            "--bandwidth".to_string(),
-            self.bandwidth.to_string(),
+            "rperf".to_string(),  // Add program name
+            // Combine --client and its value
+            format!("--client={}", self.target_address),
+            format!("--port={}", self.port),
+            "--format=json".to_string(),
+            format!("--time={}", self.duration),
+            format!("--parallel={}", self.parallel),
+            format!("--omit={}", self.omit),
+            format!("--send-interval={}", self.send_interval),
+            format!("--bandwidth={}", self.bandwidth),
         ];
 
         if self.length > 0 {
-            owned_args.push("--length".to_string());
-            owned_args.push(self.length.to_string());
+            owned_args.push(format!("--length={}", self.length));
         }
 
-        owned_args.push("--send-buffer".to_string());
-        owned_args.push(self.send_buffer.to_string());
-        owned_args.push("--receive-buffer".to_string());
-        owned_args.push(self.receive_buffer.to_string());
+        owned_args.push(format!("--send-buffer={}", self.send_buffer));
+        owned_args.push(format!("--receive-buffer={}", self.receive_buffer));
 
         if self.protocol == "udp" {
             owned_args.push("--udp".to_string());
@@ -237,18 +227,16 @@ impl RPerfRunner {
             owned_args.push("--no-delay".to_string());
         }
 
-        debug!("Prepared owned arguments: {:?}", owned_args);
+        let args: Vec<&str> = owned_args.iter().map(|s| s.as_str()).collect();
+        debug!("Executing rperf with args: {:?}", args);
 
         let output_buffer = Arc::new(Mutex::new(Vec::new()));
         let output_clone = output_buffer.clone();
 
-        // Move owned_args into the closure and create args there
         let result = tokio::time::timeout(
             std::time::Duration::from_secs((self.duration + 10.0) as u64),
             tokio::task::spawn_blocking(move || {
-                // Create args inside the closure after moving owned_args
                 let args: Vec<&str> = owned_args.iter().map(|s| s.as_str()).collect();
-                debug!("Executing rperf with args: {:?}", args);
                 run_client_with_output(args, output_clone)
                     .map_err(|e| anyhow::anyhow!("rperf execution failed: {}", e))
             })

@@ -22,12 +22,12 @@ use rperf_service::{
 };
 
 #[derive(Debug)]
-pub struct RPerfServer {
+pub struct RPerfTestOrchestrator { // Was RPerfServer
     config: Arc<Config>,
     target_pollers: Arc<Mutex<Vec<TargetPoller>>>,
 }
 
-impl RPerfServer {
+impl RPerfTestOrchestrator {
     pub fn new(config: Arc<Config>) -> Result<Self> {
         let mut pollers = Vec::new();
         for target in &config.targets {
@@ -44,7 +44,7 @@ impl RPerfServer {
         let addr: SocketAddr = self.config.listen_addr.parse()
             .context("Failed to parse listen address")?;
 
-        info!("Starting rperf gRPC server on {}", addr);
+        info!("Starting gRPC test orchestrator on {}", addr);
 
         let pollers = self.target_pollers.clone();
         let poller_handle = tokio::spawn(async move {

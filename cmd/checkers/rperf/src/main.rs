@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use rperf_grpc::config::Config;
-use rperf_grpc::server::RPerfServer;
+use rperf_grpc::server::RPerfTestOrchestrator;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -42,7 +42,7 @@ async fn main() -> Result<()> {
     info!("Server will listen on {}", config.listen_addr);
 
     // Create the server instance
-    let server = RPerfServer::new(Arc::new(config))
+    let server = RPerfTestOrchestrator::new(Arc::new(config))
         .context("Failed to create rperf server")?;
 
     // Start the server
