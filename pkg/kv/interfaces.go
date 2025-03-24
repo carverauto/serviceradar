@@ -16,6 +16,7 @@
 
 //go:generate mockgen -destination=mock_kv.go -package=kv github.com/carverauto/serviceradar/pkg/kv KVStore
 
+// Package kv pkg/kv/interfaces.go
 package kv
 
 import (
