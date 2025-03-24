@@ -16,7 +16,14 @@
 
 package config
 
+import "context"
+
 // Validator interface for configurations that need validation.
 type Validator interface {
 	Validate() error
+}
+
+// ConfigLoader interface for loading configurations from a KV store.
+type ConfigLoader interface {
+	Load(ctx context.Context, path string, dst interface{}) error
 }
