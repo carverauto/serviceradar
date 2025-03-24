@@ -1,0 +1,45 @@
+{
+  "listen_addr": "127.0.0.1:50055",
+  "security": {
+    "tls_enabled": false,
+    "cert_file": null,
+    "key_file": null
+  },
+  "default_poll_interval": 300,
+  "targets": [
+    {
+      "name": "Local TCP Test",
+      "address": "127.0.0.1",
+      "port": 5199,
+      "protocol": "tcp",
+      "reverse": false,
+      "bandwidth": 1000000,
+      "duration": 10.0,
+      "parallel": 1,
+      "length": 0,
+      "omit": 1,
+      "no_delay": true,
+      "send_buffer": 0,
+      "receive_buffer": 0,
+      "send_interval": 0.05,
+      "poll_interval": 300
+    },
+    {
+      "name": "Local UDP Test",
+      "address": "127.0.0.1",
+      "port": 5199,
+      "protocol": "udp",
+      "reverse": false,
+      "bandwidth": 1000000,
+      "duration": 5.0,
+      "parallel": 1,
+      "length": 1024,
+      "omit": 0,
+      "no_delay": false,
+      "send_buffer": 0,
+      "receive_buffer": 0,
+      "send_interval": 0.05,
+      "poll_interval": 600
+    }
+  ]
+}
