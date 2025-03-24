@@ -60,6 +60,7 @@ func NewServer(cfg Config, store kv.KVStore) (*Server, error) {
 	creds, err := secProvider.GetServerCredentials(context.Background())
 	if err != nil {
 		_ = secProvider.Close()
+
 		return nil, fmt.Errorf("failed to get server credentials: %w", err)
 	}
 
@@ -67,28 +68,32 @@ func NewServer(cfg Config, store kv.KVStore) (*Server, error) {
 		s.config.ListenAddr,
 		grpc.WithServerOptions(
 			creds,
-			grpc.UnaryInterceptor(s.rbacInterceptor),
-			grpc.StreamInterceptor(s.rbacStreamInterceptor),
+			ggrpc.UnaryInterceptor(s.rbacInterceptor),
+			ggrpc.StreamInterceptor(s.rbacStreamInterceptor),
 		),
 	)
 
 	proto.RegisterKVServiceServer(s.grpc.GetGRPCServer(), s)
+
 	return s, nil
 }
 
 // Start implements lifecycle.Service.Start.
 func (s *Server) Start(ctx context.Context) error {
 	log.Printf("Starting KV service on %s", s.config.ListenAddr)
+
 	return s.grpc.Start()
 }
 
 // Stop implements lifecycle.Service.Stop.
 func (s *Server) Stop(ctx context.Context) error {
 	log.Printf("Stopping KV service")
+
 	s.grpc.Stop(ctx)
 	if err := s.store.Close(); err != nil {
 		log.Printf("Failed to close KV store: %v", err)
 	}
+
 	return nil
 }
 
@@ -98,16 +103,19 @@ func (s *Server) Get(ctx context.Context, req *proto.GetRequest) (*proto.GetResp
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to get key %s: %v", req.Key, err)
 	}
+
 	return &proto.GetResponse{Value: value, Found: found}, nil
 }
 
 // Put implements the Put RPC.
 func (s *Server) Put(ctx context.Context, req *proto.PutRequest) (*proto.PutResponse, error) {
 	ttl := time.Duration(req.TtlSeconds) * time.Second
+
 	err := s.store.Put(ctx, req.Key, req.Value, ttl)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to put key %s: %v", req.Key, err)
 	}
+
 	return &proto.PutResponse{}, nil
 }
 
@@ -117,6 +125,7 @@ func (s *Server) Delete(ctx context.Context, req *proto.DeleteRequest) (*proto.D
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to delete key %s: %v", req.Key, err)
 	}
+
 	return &proto.DeleteResponse{}, nil
 }
 
@@ -133,7 +142,7 @@ func (s *Server) Watch(req *proto.WatchRequest, stream proto.KVService_WatchServ
 			return nil
 		case value, ok := <-watchChan:
 			if !ok {
-				return nil // Channel closed
+				return nil
 			}
 			err := stream.Send(&proto.WatchResponse{Value: value})
 			if err != nil {
@@ -148,6 +157,7 @@ func (s *Server) rbacInterceptor(ctx context.Context, req interface{}, info *ggr
 	if err := s.checkRBAC(ctx, info.FullMethod); err != nil {
 		return nil, err
 	}
+
 	return handler(ctx, req)
 }
 
@@ -156,6 +166,7 @@ func (s *Server) rbacStreamInterceptor(srv interface{}, ss ggrpc.ServerStream, i
 	if err := s.checkRBAC(ss.Context(), info.FullMethod); err != nil {
 		return err
 	}
+
 	return handler(srv, ss)
 }
 
@@ -193,6 +204,7 @@ func (s *Server) checkRBAC(ctx context.Context, method string) error {
 	}
 
 	log.Printf("Authorized %s with role %s for %s", identity, role, method)
+
 	return nil
 }
 
@@ -203,5 +215,6 @@ func (s *Server) getRoleForIdentity(identity string) Role {
 			return rule.Role
 		}
 	}
+
 	return ""
 }
