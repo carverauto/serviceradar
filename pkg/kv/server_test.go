@@ -20,20 +20,19 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// Define a dummy AuthInfo for testing.
+// dummyAuthInfo is a test implementation of credentials.AuthInfo.
 type dummyAuthInfo struct{}
 
 func (dummyAuthInfo) AuthType() string {
 	return "dummy"
 }
 
-func TestRBAC(t *testing.T) {
+// setupServer creates a Server instance with a mock KVStore and common config.
+func setupServer(t *testing.T) (*Server, *MockKVStore) {
+	t.Helper()
+
 	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
 	mockStore := NewMockKVStore(ctrl)
-
-	// Common config for tests
 	config := Config{
 		ListenAddr: "localhost:50051",
 		Security:   &models.SecurityConfig{},
@@ -47,33 +46,34 @@ func TestRBAC(t *testing.T) {
 		},
 	}
 
-	t.Run("ExtractIdentity_NoPeerInfo", func(t *testing.T) {
-		s := &Server{config: config}
-		ctx := context.Background() // No peer info
+	return &Server{config: config, store: mockStore}, mockStore
+}
+
+func TestExtractIdentity(t *testing.T) {
+	t.Run("NoPeerInfo", func(t *testing.T) {
+		s, _ := setupServer(t)
+		ctx := context.Background()
 		_, err := s.extractIdentity(ctx)
 		require.Error(t, err)
-		assert.Equal(t, status.Code(err), codes.Unauthenticated)
+		assert.Equal(t, codes.Unauthenticated, status.Code(err))
 		assert.Contains(t, err.Error(), "no peer info available; mTLS required")
 	})
 
-	t.Run("ExtractIdentity_NoTLS", func(t *testing.T) {
-		s := &Server{config: config}
-		// Simulate a peer with non-TLS AuthInfo
+	t.Run("NoTLS", func(t *testing.T) {
+		s, _ := setupServer(t)
 		p := &peer.Peer{AuthInfo: dummyAuthInfo{}}
 		ctx := peer.NewContext(context.Background(), p)
 		_, err := s.extractIdentity(ctx)
 		require.Error(t, err)
-		assert.Equal(t, status.Code(err), codes.Unauthenticated)
+		assert.Equal(t, codes.Unauthenticated, status.Code(err))
 		assert.Contains(t, err.Error(), "mTLS authentication required")
 	})
 
-	t.Run("ExtractIdentity_ValidTLS", func(t *testing.T) {
-		s := &Server{config: config}
+	t.Run("ValidTLS", func(t *testing.T) {
+		s, _ := setupServer(t)
 		cert := &x509.Certificate{Subject: pkix.Name{CommonName: "reader-client"}}
 		tlsInfo := credentials.TLSInfo{
-			State: tls.ConnectionState{
-				PeerCertificates: []*x509.Certificate{cert},
-			},
+			State: tls.ConnectionState{PeerCertificates: []*x509.Certificate{cert}},
 		}
 		p := &peer.Peer{AuthInfo: tlsInfo}
 		ctx := peer.NewContext(context.Background(), p)
@@ -81,60 +81,62 @@ func TestRBAC(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "CN=reader-client", identity)
 	})
+}
 
-	t.Run("GetRoleForIdentity_Reader", func(t *testing.T) {
-		s := &Server{config: config}
+func TestGetRoleForIdentity(t *testing.T) {
+	s, _ := setupServer(t)
+
+	t.Run("Reader", func(t *testing.T) {
 		role := s.getRoleForIdentity("CN=reader-client")
 		assert.Equal(t, RoleReader, role)
 	})
 
-	t.Run("GetRoleForIdentity_Writer", func(t *testing.T) {
-		s := &Server{config: config}
+	t.Run("Writer", func(t *testing.T) {
 		role := s.getRoleForIdentity("CN=writer-client")
 		assert.Equal(t, RoleWriter, role)
 	})
 
-	t.Run("GetRoleForIdentity_Unknown", func(t *testing.T) {
-		s := &Server{config: config}
+	t.Run("Unknown", func(t *testing.T) {
 		role := s.getRoleForIdentity("CN=unknown-client")
 		assert.Equal(t, Role(""), role)
 	})
+}
 
-	t.Run("AuthorizeMethod_Reader_Get", func(t *testing.T) {
-		s := &Server{config: config}
+func TestAuthorizeMethod(t *testing.T) {
+	s, _ := setupServer(t)
+
+	t.Run("Reader_Get", func(t *testing.T) {
 		err := s.authorizeMethod("/proto.KVService/Get", RoleReader)
 		assert.NoError(t, err)
 	})
 
-	t.Run("AuthorizeMethod_Writer_Put", func(t *testing.T) {
-		s := &Server{config: config}
+	t.Run("Writer_Put", func(t *testing.T) {
 		err := s.authorizeMethod("/proto.KVService/Put", RoleWriter)
 		assert.NoError(t, err)
 	})
 
-	t.Run("AuthorizeMethod_Reader_Put_Denied", func(t *testing.T) {
-		s := &Server{config: config}
+	t.Run("Reader_Put_Denied", func(t *testing.T) {
 		err := s.authorizeMethod("/proto.KVService/Put", RoleReader)
 		require.Error(t, err)
-		assert.Equal(t, status.Code(err), codes.PermissionDenied)
+		assert.Equal(t, codes.PermissionDenied, status.Code(err))
 		assert.Contains(t, err.Error(), "role reader cannot access /proto.KVService/Put")
 	})
 
-	t.Run("AuthorizeMethod_UnknownMethod", func(t *testing.T) {
-		s := &Server{config: config}
+	t.Run("UnknownMethod", func(t *testing.T) {
 		err := s.authorizeMethod("/proto.KVService/Unknown", RoleWriter)
 		require.Error(t, err)
-		assert.Equal(t, status.Code(err), codes.Unimplemented)
+		assert.Equal(t, codes.Unimplemented, status.Code(err))
 		assert.Contains(t, err.Error(), "method /proto.KVService/Unknown not recognized")
 	})
+}
 
-	t.Run("CheckRBAC_Reader_Get", func(t *testing.T) {
-		s := &Server{config: config}
+func TestCheckRBAC(t *testing.T) {
+	s, _ := setupServer(t)
+
+	t.Run("Reader_Get", func(t *testing.T) {
 		cert := &x509.Certificate{Subject: pkix.Name{CommonName: "reader-client"}}
 		tlsInfo := credentials.TLSInfo{
-			State: tls.ConnectionState{
-				PeerCertificates: []*x509.Certificate{cert},
-			},
+			State: tls.ConnectionState{PeerCertificates: []*x509.Certificate{cert}},
 		}
 		p := &peer.Peer{AuthInfo: tlsInfo}
 		ctx := peer.NewContext(context.Background(), p)
@@ -142,13 +144,10 @@ func TestRBAC(t *testing.T) {
 		assert.NoError(t, err)
 	})
 
-	t.Run("CheckRBAC_Writer_Delete", func(t *testing.T) {
-		s := &Server{config: config}
+	t.Run("Writer_Delete", func(t *testing.T) {
 		cert := &x509.Certificate{Subject: pkix.Name{CommonName: "writer-client"}}
 		tlsInfo := credentials.TLSInfo{
-			State: tls.ConnectionState{
-				PeerCertificates: []*x509.Certificate{cert},
-			},
+			State: tls.ConnectionState{PeerCertificates: []*x509.Certificate{cert}},
 		}
 		p := &peer.Peer{AuthInfo: tlsInfo}
 		ctx := peer.NewContext(context.Background(), p)
@@ -156,44 +155,38 @@ func TestRBAC(t *testing.T) {
 		assert.NoError(t, err)
 	})
 
-	t.Run("CheckRBAC_Reader_Put_Denied", func(t *testing.T) {
-		s := &Server{config: config}
+	t.Run("Reader_Put_Denied", func(t *testing.T) {
 		cert := &x509.Certificate{Subject: pkix.Name{CommonName: "reader-client"}}
 		tlsInfo := credentials.TLSInfo{
-			State: tls.ConnectionState{
-				PeerCertificates: []*x509.Certificate{cert},
-			},
+			State: tls.ConnectionState{PeerCertificates: []*x509.Certificate{cert}},
 		}
 		p := &peer.Peer{AuthInfo: tlsInfo}
 		ctx := peer.NewContext(context.Background(), p)
 		err := s.checkRBAC(ctx, "/proto.KVService/Put")
 		require.Error(t, err)
-		assert.Equal(t, status.Code(err), codes.PermissionDenied)
+		assert.Equal(t, codes.PermissionDenied, status.Code(err))
 	})
 
-	t.Run("CheckRBAC_UnknownIdentity", func(t *testing.T) {
-		s := &Server{config: config}
+	t.Run("UnknownIdentity", func(t *testing.T) {
 		cert := &x509.Certificate{Subject: pkix.Name{CommonName: "unknown-client"}}
 		tlsInfo := credentials.TLSInfo{
-			State: tls.ConnectionState{
-				PeerCertificates: []*x509.Certificate{cert},
-			},
+			State: tls.ConnectionState{PeerCertificates: []*x509.Certificate{cert}},
 		}
 		p := &peer.Peer{AuthInfo: tlsInfo}
 		ctx := peer.NewContext(context.Background(), p)
 		err := s.checkRBAC(ctx, "/proto.KVService/Get")
 		require.Error(t, err)
-		assert.Equal(t, status.Code(err), codes.PermissionDenied)
+		assert.Equal(t, codes.PermissionDenied, status.Code(err))
 		assert.Contains(t, err.Error(), "identity CN=unknown-client not authorized")
 	})
+}
 
-	t.Run("RBACInterceptor_Reader_Get", func(t *testing.T) {
-		s := &Server{config: config, store: mockStore}
+func TestRBACInterceptor(t *testing.T) {
+	t.Run("Reader_Get", func(t *testing.T) {
+		s, mockStore := setupServer(t)
 		cert := &x509.Certificate{Subject: pkix.Name{CommonName: "reader-client"}}
 		tlsInfo := credentials.TLSInfo{
-			State: tls.ConnectionState{
-				PeerCertificates: []*x509.Certificate{cert},
-			},
+			State: tls.ConnectionState{PeerCertificates: []*x509.Certificate{cert}},
 		}
 		p := &peer.Peer{AuthInfo: tlsInfo}
 		ctx := peer.NewContext(context.Background(), p)
@@ -208,7 +201,8 @@ func TestRBAC(t *testing.T) {
 			ctx,
 			&proto.GetRequest{Key: "test-key"},
 			&ggrpc.UnaryServerInfo{FullMethod: "/proto.KVService/Get"},
-			handler)
+			handler,
+		)
 		require.NoError(t, err)
 		assert.NotNil(t, resp)
 		getResp, ok := resp.(*proto.GetResponse)
@@ -217,13 +211,11 @@ func TestRBAC(t *testing.T) {
 		assert.True(t, getResp.Found)
 	})
 
-	t.Run("RBACInterceptor_Reader_Put_Denied", func(t *testing.T) {
-		s := &Server{config: config}
+	t.Run("Reader_Put_Denied", func(t *testing.T) {
+		s, _ := setupServer(t)
 		cert := &x509.Certificate{Subject: pkix.Name{CommonName: "reader-client"}}
 		tlsInfo := credentials.TLSInfo{
-			State: tls.ConnectionState{
-				PeerCertificates: []*x509.Certificate{cert},
-			},
+			State: tls.ConnectionState{PeerCertificates: []*x509.Certificate{cert}},
 		}
 		p := &peer.Peer{AuthInfo: tlsInfo}
 		ctx := peer.NewContext(context.Background(), p)
@@ -236,8 +228,9 @@ func TestRBAC(t *testing.T) {
 			ctx,
 			&proto.PutRequest{Key: "test-key", Value: []byte("value")},
 			&ggrpc.UnaryServerInfo{FullMethod: "/proto.KVService/Put"},
-			handler)
+			handler,
+		)
 		require.Error(t, err)
-		assert.Equal(t, status.Code(err), codes.PermissionDenied)
+		assert.Equal(t, codes.PermissionDenied, status.Code(err))
 	})
 }
