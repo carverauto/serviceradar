@@ -7,19 +7,21 @@ authors = ["Your Name <your.email@example.com>"]
 license = "Apache-2.0"
 
 [dependencies]
-rperf = { path = "/Users/mfreeman/src/rperf" }
+# Local path to rperf library - update this path as needed
+rperf = "0.1.17"
 
-tonic = "0.12.3"
-prost = "0.13.5"
 tokio = { version = "1.28", features = ["rt-multi-thread", "macros", "sync", "time", "signal"] }
-futures = "0.3"
 
+prost = "0.11"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 log = "0.4"
-env_logger = "0.11.7"
+env_logger = "0.10"
+tonic = "0.4"
+
+# Use the same clap version as rperf to avoid conflicts
 clap = "~2.33.3"
 anyhow = "1.0"
 
 [build-dependencies]
-tonic-build = "0.12.3"
+tonic-build = "0.9"
