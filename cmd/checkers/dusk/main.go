@@ -54,6 +54,7 @@ func run() error {
 
 	// Load configuration with context
 	var cfg dusk.Config
+
 	if err := cfgLoader.LoadAndValidate(ctx, *configPath, &cfg); err != nil {
 		return fmt.Errorf("%w: %w", errFailedToLoadConfig, err)
 	}
@@ -97,11 +98,13 @@ type duskService struct {
 
 func (s *duskService) Start(ctx context.Context) error {
 	log.Printf("Starting Dusk service...")
+
 	return s.checker.StartMonitoring(ctx)
 }
 
 func (s *duskService) Stop(_ context.Context) error {
 	log.Printf("Stopping Dusk service...")
 	close(s.checker.Done)
+
 	return nil
 }

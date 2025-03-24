@@ -93,6 +93,7 @@ func (c *Config) loadAndValidateWithSource(ctx context.Context, path string, cfg
 	source := strings.ToLower(os.Getenv("CONFIG_SOURCE"))
 
 	var loader ConfigLoader
+
 	if source == configSourceKV {
 		if c.kvStore == nil {
 			return errKVStoreNotSet
