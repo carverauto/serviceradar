@@ -27,8 +27,6 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 	ggrpc "google.golang.org/grpc" // Alias for Google's gRPC
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 )
 
@@ -43,7 +41,7 @@ type Server struct {
 // NewServer creates a new KV service server with the given KVStore.
 func NewServer(cfg Config, store kv.KVStore) (*Server, error) {
 	if store == nil {
-		return nil, fmt.Errorf("KVStore is required")
+		return nil, errKVStoreRequired
 	}
 
 	s := &Server{
@@ -79,7 +77,7 @@ func NewServer(cfg Config, store kv.KVStore) (*Server, error) {
 }
 
 // Start implements lifecycle.Service.Start.
-func (s *Server) Start(ctx context.Context) error {
+func (s *Server) Start(_ context.Context) error {
 	log.Printf("Starting KV service on %s", s.config.ListenAddr)
 
 	return s.grpc.Start()
@@ -152,79 +150,4 @@ func (s *Server) Watch(req *proto.WatchRequest, stream proto.KVService_WatchServ
 			}
 		}
 	}
-}
-
-// rbacInterceptor enforces RBAC for unary RPCs.
-func (s *Server) rbacInterceptor(
-	ctx context.Context,
-	req interface{},
-	info *ggrpc.UnaryServerInfo,
-	handler ggrpc.UnaryHandler) (interface{}, error) {
-	if err := s.checkRBAC(ctx, info.FullMethod); err != nil {
-		return nil, err
-	}
-
-	return handler(ctx, req)
-}
-
-// rbacStreamInterceptor enforces RBAC for streaming RPCs.
-func (s *Server) rbacStreamInterceptor(
-	srv interface{},
-	ss ggrpc.ServerStream,
-	info *ggrpc.StreamServerInfo,
-	handler ggrpc.StreamHandler) error {
-	if err := s.checkRBAC(ss.Context(), info.FullMethod); err != nil {
-		return err
-	}
-
-	return handler(srv, ss)
-}
-
-// checkRBAC verifies the caller’s role against the method.
-func (s *Server) checkRBAC(ctx context.Context, method string) error {
-	p, ok := peer.FromContext(ctx)
-	if !ok || p.AuthInfo == nil {
-		return status.Error(codes.Unauthenticated, "no peer info available; mTLS required")
-	}
-
-	tlsInfo, ok := p.AuthInfo.(credentials.TLSInfo)
-	if !ok || len(tlsInfo.State.PeerCertificates) == 0 {
-		return status.Error(codes.Unauthenticated, "mTLS authentication required")
-	}
-
-	cert := tlsInfo.State.PeerCertificates[0]
-	identity := cert.Subject.String()
-
-	role := s.getRoleForIdentity(identity)
-	if role == "" {
-		return status.Errorf(codes.PermissionDenied, "identity %s not authorized", identity)
-	}
-
-	switch method {
-	case "/proto.KVService/Get", "/proto.KVService/Watch":
-		if role != RoleReader && role != RoleWriter {
-			return status.Errorf(codes.PermissionDenied, "role %s cannot access %s", role, method)
-		}
-	case "/proto.KVService/Put", "/proto.KVService/Delete":
-		if role != RoleWriter {
-			return status.Errorf(codes.PermissionDenied, "role %s cannot modify KV store", role)
-		}
-	default:
-		return status.Errorf(codes.Unimplemented, "method %s not recognized", method)
-	}
-
-	log.Printf("Authorized %s with role %s for %s", identity, role, method)
-
-	return nil
-}
-
-// getRoleForIdentity looks up the role for a given identity.
-func (s *Server) getRoleForIdentity(identity string) Role {
-	for _, rule := range s.config.RBAC.Roles {
-		if rule.Identity == identity {
-			return rule.Role
-		}
-	}
-
-	return ""
 }
