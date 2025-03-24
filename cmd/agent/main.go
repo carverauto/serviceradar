@@ -40,9 +40,13 @@ func run() error {
 	configPath := flag.String("config", "/etc/serviceradar/agent.json", "Path to agent config file")
 	flag.Parse()
 
-	// Load configuration
+	// Initialize configuration loader
+	cfgLoader := config.NewConfig()
+
+	// Load configuration with context
 	var cfg config.AgentConfig
-	if err := config.LoadAndValidate(*configPath, &cfg); err != nil {
+
+	if err := cfgLoader.LoadAndValidate(context.Background(), *configPath, &cfg); err != nil {
 		return err
 	}
 
