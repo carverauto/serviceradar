@@ -6,14 +6,18 @@ Proposed
 
 ## Context
 
-ServiceRadar currently relies on static JSON configuration files for target management, which presents limitations when scaling to handle large device inventories. As the number of devices that need to be monitored increases, several challenges emerge:
+ServiceRadar agents currently rely on static JSON configuration files, which presents significant limitations for operational flexibility and scalability. This static approach creates several challenges:
 
-- Performance bottlenecks when parsing large JSON files
-- Difficulties in maintaining synchronized states across components
-- Limited ability to dynamically update targets without service restarts
-- No clear path for integrating with large external device inventories
+- Configuration changes require service restarts, causing disruption to monitoring
+- Performance bottlenecks when parsing large JSON files, especially with growing device inventories
+- Difficulties in maintaining synchronized configurations across distributed components
+- No mechanism for dynamic updates or real-time configuration changes
+- Limited ability to integrate with external systems that manage large inventories
+- Operational overhead when managing configuration across multiple agents and checkers
 
-We need a solution that enables dynamic, scalable target management while maintaining ServiceRadar's existing architecture patterns and data flow, with zero changes to existing agent components.
+This impacts all agent plugins (checkers), not just the sweep service, as each relies on static configuration files that cannot be updated without service disruption.
+
+We need a solution that enables dynamic, scalable configuration management while maintaining ServiceRadar's existing architecture patterns and data flow, with zero changes to existing agent components.
 
 ## Decision
 
@@ -68,15 +72,18 @@ Additionally, we will create synchronization services that will:
 
 ### Positive
 
-- Enables dynamic updating of target configurations without service restarts
-- Scales to support large device inventories
+- Enables dynamic updating of configurations for all agent plugins without service restarts
+- Improves operational efficiency by eliminating restart-related downtime
+- Scales to support large configurations and device inventories
+- Supports real-time configuration updates for any agent checker
 - Maintains the existing one-way data flow: agent → poller → core
 - Provides a path for integration with external systems via the KV abstraction
 - Uses consistent technology (gRPC) for all service communications
 - Embedded NATS JetStream simplifies deployment with no external dependencies
 - **Requires zero changes to agent, poller, and core components**
 - **Configuration source is fully abstracted within pkg/config**
-- **Agents remain completely agnostic of configuration source**
+- **All agent plugins remain completely agnostic of configuration source**
+- **Creates a foundation for future dynamic configuration features**
 
 ### Negative
 
@@ -120,9 +127,11 @@ Additionally, we will create synchronization services that will:
 
 ### Agent Impact
 
-- **No Changes Required**: The agent continues to call `config.LoadAndValidate("/path/to/sweep.json", &config)` as before
+- **No Changes Required**: All agent plugins continue to call `config.LoadAndValidate("/path/to/config.json", &config)` as before
 - **Transparent Source Selection**: `pkg/config` handles whether data comes from file or KV
 - **Backward Compatibility**: Existing deployments continue to work without modification
+- **Universal Benefit**: All checkers (sweep, HTTP, DNS, etc.) gain dynamic configuration capabilities
+- **Operational Improvement**: Configuration can be updated in production without service disruption
 
 ## Testing Approach
 
