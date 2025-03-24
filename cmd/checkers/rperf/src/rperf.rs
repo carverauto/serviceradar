@@ -139,6 +139,7 @@ fn parse_rperf_output(output: &[u8], protocol: &str) -> Result<RPerfResult> {
     })
 }
 
+#[derive(Debug)]
 pub struct RPerfRunner {
     target_address: String,
     port: u16,
