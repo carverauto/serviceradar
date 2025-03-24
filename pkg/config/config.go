@@ -14,18 +14,43 @@
  * limitations under the License.
  */
 
-// Package config pkg/config/config.go
 package config
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"strings"
+
+	"github.com/carverauto/serviceradar/pkg/config/kv"
 )
 
 var (
-	errInvalidDuration = fmt.Errorf("invalid duration")
+	errInvalidDuration     = fmt.Errorf("invalid duration")
+	errKVStoreNotSet       = errors.New("KV store not initialized for CONFIG_SOURCE=kv; call SetKVStore first")
+	errInvalidConfigSource = errors.New("invalid CONFIG_SOURCE value")
+	errLoadConfigFailed    = errors.New("failed to load configuration")
 )
+
+const (
+	configSourceKV   = "kv"
+	configSourceFile = "file"
+)
+
+// Config holds the configuration loading dependencies.
+type Config struct {
+	kvStore       kv.KVStore
+	defaultLoader ConfigLoader
+}
+
+// NewConfig initializes a new Config instance with a default file loader.
+func NewConfig() *Config {
+	return &Config{
+		defaultLoader: &FileConfigLoader{},
+	}
+}
 
 // LoadFile is a generic helper that loads a JSON file from path into
 // the struct pointed to by dst.
@@ -35,7 +60,8 @@ func LoadFile(path string, dst interface{}) error {
 		return fmt.Errorf("failed to read file '%s': %w", path, err)
 	}
 
-	if err := json.Unmarshal(data, dst); err != nil {
+	err = json.Unmarshal(data, dst)
+	if err != nil {
 		return fmt.Errorf("failed to unmarshal JSON from '%s': %w", path, err)
 	}
 
@@ -44,17 +70,58 @@ func LoadFile(path string, dst interface{}) error {
 
 // ValidateConfig validates a configuration if it implements Validator.
 func ValidateConfig(cfg interface{}) error {
-	if v, ok := cfg.(Validator); ok {
-		return v.Validate()
+	v, ok := cfg.(Validator)
+	if !ok {
+		return nil
 	}
 
-	return nil
+	return v.Validate()
 }
 
-// LoadAndValidate loads a configuration file and validates it if possible.
-func LoadAndValidate(path string, cfg interface{}) error {
-	if err := LoadFile(path, cfg); err != nil {
+// LoadAndValidate loads a configuration and validates it if possible.
+func (c *Config) LoadAndValidate(ctx context.Context, path string, cfg interface{}) error {
+	return c.loadAndValidateWithSource(ctx, path, cfg)
+}
+
+// SetKVStore sets the KV store to be used when CONFIG_SOURCE=kv.
+func (c *Config) SetKVStore(store kv.KVStore) {
+	c.kvStore = store
+}
+
+// loadAndValidateWithSource loads and validates config using the appropriate loader.
+func (c *Config) loadAndValidateWithSource(ctx context.Context, path string, cfg interface{}) error {
+	source := strings.ToLower(os.Getenv("CONFIG_SOURCE"))
+
+	var loader ConfigLoader
+
+	if source == configSourceKV {
+		if c.kvStore == nil {
+			return errKVStoreNotSet
+		}
+
+		loader = NewKVConfigLoader(c.kvStore)
+	}
+
+	if source == configSourceFile || source == "" {
+		loader = c.defaultLoader
+	}
+
+	if loader == nil {
+		return fmt.Errorf("%w: %s (expected '%s' or '%s')", errInvalidConfigSource, source, configSourceFile, configSourceKV)
+	}
+
+	err := loader.Load(ctx, path, cfg)
+	if err == nil {
+		return ValidateConfig(cfg)
+	}
+
+	if source != configSourceKV {
 		return err
+	}
+
+	err = c.defaultLoader.Load(ctx, path, cfg)
+	if err != nil {
+		return fmt.Errorf("%w from KV: %w, and from fallback file: %w", errLoadConfigFailed, err, err)
 	}
 
 	return ValidateConfig(cfg)
