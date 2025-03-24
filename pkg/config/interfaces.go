@@ -16,7 +16,9 @@
 
 package config
 
-import "context"
+import (
+	"context"
+)
 
 // Validator interface for configurations that need validation.
 type Validator interface {

@@ -46,9 +46,16 @@ func run() error {
 	configPath := flag.String("config", "/etc/serviceradar/checkers/dusk.json", "Path to config file")
 	flag.Parse()
 
-	// Load and validate configuration using shared config package
+	// Setup a context we can use for loading the config and running the server
+	ctx := context.Background()
+
+	// Initialize configuration loader
+	cfgLoader := config.NewConfig()
+
+	// Load configuration with context
 	var cfg dusk.Config
-	if err := config.LoadAndValidate(*configPath, &cfg); err != nil {
+
+	if err := cfgLoader.LoadAndValidate(ctx, *configPath, &cfg); err != nil {
 		return fmt.Errorf("%w: %w", errFailedToLoadConfig, err)
 	}
 
@@ -64,7 +71,6 @@ func run() error {
 	// Create gRPC service registrar
 	registerServices := func(s *grpc.Server) error { // s is *google.golang.org/grpc.Server due to lifecycle update
 		proto.RegisterAgentServiceServer(s, blockService)
-
 		return nil
 	}
 
@@ -78,7 +84,7 @@ func run() error {
 	}
 
 	// Run service with lifecycle management
-	if err := lifecycle.RunServer(context.Background(), &opts); err != nil {
+	if err := lifecycle.RunServer(ctx, &opts); err != nil {
 		return fmt.Errorf("server error: %w", err)
 	}
 
@@ -98,7 +104,6 @@ func (s *duskService) Start(ctx context.Context) error {
 
 func (s *duskService) Stop(_ context.Context) error {
 	log.Printf("Stopping Dusk service...")
-
 	close(s.checker.Done)
 
 	return nil
