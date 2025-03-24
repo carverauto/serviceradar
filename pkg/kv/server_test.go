@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"testing"
+	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
@@ -16,6 +17,7 @@ import (
 	ggrpc "google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 )
@@ -104,6 +106,11 @@ func TestGetRoleForIdentity(t *testing.T) {
 
 func TestAuthorizeMethod(t *testing.T) {
 	s, _ := setupServer(t)
+
+	t.Run("Writer_Watch", func(t *testing.T) {
+		err := s.authorizeMethod("/proto.KVService/Watch", RoleWriter)
+		assert.NoError(t, err)
+	})
 
 	t.Run("Reader_Get", func(t *testing.T) {
 		err := s.authorizeMethod("/proto.KVService/Get", RoleReader)
@@ -233,4 +240,79 @@ func TestRBACInterceptor(t *testing.T) {
 		require.Error(t, err)
 		assert.Equal(t, codes.PermissionDenied, status.Code(err))
 	})
+}
+
+func TestRBACStreamInterceptor(t *testing.T) {
+	t.Run("Reader_Watch", func(t *testing.T) {
+		s, mockStore := setupServer(t)
+
+		cert := &x509.Certificate{Subject: pkix.Name{CommonName: "reader-client"}}
+
+		tlsInfo := credentials.TLSInfo{
+			State: tls.ConnectionState{PeerCertificates: []*x509.Certificate{cert}},
+		}
+
+		p := &peer.Peer{AuthInfo: tlsInfo}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+
+		ctx = peer.NewContext(ctx, p)
+
+		watchChan := make(chan []byte, 1)
+		mockStore.EXPECT().Watch(gomock.Any(), "test-key").Return(watchChan, nil)
+
+		stream := &mockWatchServer{ctx: ctx}
+		handler := func(_ interface{}, _ ggrpc.ServerStream) error {
+			return s.Watch(&proto.WatchRequest{Key: "test-key"}, stream)
+		}
+
+		err := s.rbacStreamInterceptor(nil, stream, &ggrpc.StreamServerInfo{FullMethod: "/proto.KVService/Watch"}, handler)
+		require.NoError(t, err)
+	})
+
+	t.Run("Reader_Put_Denied", func(t *testing.T) {
+		s, _ := setupServer(t)
+		cert := &x509.Certificate{Subject: pkix.Name{CommonName: "reader-client"}}
+		tlsInfo := credentials.TLSInfo{
+			State: tls.ConnectionState{PeerCertificates: []*x509.Certificate{cert}},
+		}
+		p := &peer.Peer{AuthInfo: tlsInfo}
+		ctx := peer.NewContext(context.Background(), p)
+
+		stream := &mockWatchServer{ctx: ctx}
+		handler := func(_ interface{}, _ ggrpc.ServerStream) error {
+			return nil // Shouldn’t reach here
+		}
+
+		err := s.rbacStreamInterceptor(nil, stream, &ggrpc.StreamServerInfo{FullMethod: "/proto.KVService/Put"}, handler)
+		require.Error(t, err)
+		assert.Equal(t, codes.PermissionDenied, status.Code(err))
+	})
+}
+
+// mockWatchServer implements proto.KVService_WatchServer for testing.
+type mockWatchServer struct {
+	ctx context.Context
+}
+
+func (*mockWatchServer) Send(*proto.WatchResponse) error { return nil }
+func (*mockWatchServer) SetHeader(metadata.MD) error     { return nil }
+func (*mockWatchServer) SendHeader(metadata.MD) error    { return nil }
+func (*mockWatchServer) SetTrailer(metadata.MD)          {}
+func (m *mockWatchServer) Context() context.Context      { return m.ctx }
+func (*mockWatchServer) SendMsg(interface{}) error       { return nil }
+func (*mockWatchServer) RecvMsg(interface{}) error       { return nil }
+
+func TestEmptyRBACConfig(t *testing.T) {
+	s := &Server{config: Config{RBAC: struct {
+		Roles []RBACRule `json:"roles"`
+	}(struct{ Roles []RBACRule }{})}}
+	cert := &x509.Certificate{Subject: pkix.Name{CommonName: "reader-client"}}
+	tlsInfo := credentials.TLSInfo{State: tls.ConnectionState{PeerCertificates: []*x509.Certificate{cert}}}
+	p := &peer.Peer{AuthInfo: tlsInfo}
+	ctx := peer.NewContext(context.Background(), p)
+	err := s.checkRBAC(ctx, "/proto.KVService/Get")
+	require.Error(t, err)
+	assert.Equal(t, codes.PermissionDenied, status.Code(err))
 }
