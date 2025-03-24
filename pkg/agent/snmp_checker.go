@@ -60,9 +60,13 @@ func NewSNMPChecker(ctx context.Context, address string) (checker.Checker, error
 	}
 
 	var cfg snmp.Config
-	if err := config.LoadAndValidate(configPath, &cfg); err != nil {
+	cfgLoader := config.NewConfig()
+	if err := cfgLoader.LoadAndValidate(ctx, configPath, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to load SNMP config: %w", err)
 	}
+	//if err := config.LoadAndValidate(configPath, &cfg); err != nil {
+	//	return nil, fmt.Errorf("failed to load SNMP config: %w", err)
+	//}
 
 	// Use ClientConfig instead of ConnectionConfig
 	clientCfg := grpc.ClientConfig{
