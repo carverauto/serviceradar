@@ -19,6 +19,7 @@ package config
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -27,8 +28,29 @@ import (
 )
 
 var (
-	errInvalidDuration = fmt.Errorf("invalid duration")
+	errInvalidDuration     = fmt.Errorf("invalid duration")
+	errKVStoreNotSet       = errors.New("KV store not initialized for CONFIG_SOURCE=kv; call SetKVStore first")
+	errInvalidConfigSource = errors.New("invalid CONFIG_SOURCE value")
+	errLoadConfigFailed    = errors.New("failed to load configuration")
 )
+
+const (
+	configSourceKV   = "kv"
+	configSourceFile = "file"
+)
+
+// Config holds the configuration loading dependencies.
+type Config struct {
+	kvStore       kv.KVStore
+	defaultLoader ConfigLoader
+}
+
+// NewConfig initializes a new Config instance with a default file loader.
+func NewConfig() *Config {
+	return &Config{
+		defaultLoader: &FileConfigLoader{},
+	}
+}
 
 // LoadFile is a generic helper that loads a JSON file from path into
 // the struct pointed to by dst.
@@ -38,7 +60,8 @@ func LoadFile(path string, dst interface{}) error {
 		return fmt.Errorf("failed to read file '%s': %w", path, err)
 	}
 
-	if err := json.Unmarshal(data, dst); err != nil {
+	err = json.Unmarshal(data, dst)
+	if err != nil {
 		return fmt.Errorf("failed to unmarshal JSON from '%s': %w", path, err)
 	}
 
@@ -47,44 +70,57 @@ func LoadFile(path string, dst interface{}) error {
 
 // ValidateConfig validates a configuration if it implements Validator.
 func ValidateConfig(cfg interface{}) error {
-	if v, ok := cfg.(Validator); ok {
-		return v.Validate()
+	v, ok := cfg.(Validator)
+	if !ok {
+		return nil
 	}
-	return nil
+
+	return v.Validate()
 }
 
-// LoaderFactory defines a function that creates a ConfigLoader.
-type LoaderFactory func() (ConfigLoader, error)
+// LoadAndValidate loads a configuration and validates it if possible.
+func (c *Config) LoadAndValidate(ctx context.Context, path string, cfg interface{}) error {
+	return c.loadAndValidateWithSource(ctx, path, cfg)
+}
 
-// LoadAndValidate loads a configuration from the specified source and validates it if possible.
-// The loader is determined by the CONFIG_SOURCE environment variable ("file" or "kv").
-// If the KV loader fails, it falls back to the file-based loader.
-func LoadAndValidate(ctx context.Context, path string, cfg interface{}, kvStore kv.KVStore) error {
+// SetKVStore sets the KV store to be used when CONFIG_SOURCE=kv.
+func (c *Config) SetKVStore(store kv.KVStore) {
+	c.kvStore = store
+}
+
+// loadAndValidateWithSource loads and validates config using the appropriate loader.
+func (c *Config) loadAndValidateWithSource(ctx context.Context, path string, cfg interface{}) error {
 	source := strings.ToLower(os.Getenv("CONFIG_SOURCE"))
-	var loader ConfigLoader
 
-	switch source {
-	case "kv":
-		if kvStore == nil {
-			return fmt.Errorf("KV store not provided for CONFIG_SOURCE=kv")
+	var loader ConfigLoader
+	if source == configSourceKV {
+		if c.kvStore == nil {
+			return errKVStoreNotSet
 		}
-		loader = NewKVConfigLoader(kvStore)
-	case "file", "":
-		loader = &FileConfigLoader{}
-	default:
-		return fmt.Errorf("invalid CONFIG_SOURCE value: %s (expected 'file' or 'kv')", source)
+
+		loader = NewKVConfigLoader(c.kvStore)
 	}
 
-	// Attempt to load with the selected loader
+	if source == configSourceFile || source == "" {
+		loader = c.defaultLoader
+	}
+
+	if loader == nil {
+		return fmt.Errorf("%w: %s (expected '%s' or '%s')", errInvalidConfigSource, source, configSourceFile, configSourceKV)
+	}
+
 	err := loader.Load(ctx, path, cfg)
-	if err != nil && source == "kv" {
-		// Fallback to file-based loading if KV fails
-		fallbackLoader := &FileConfigLoader{}
-		if fallbackErr := fallbackLoader.Load(ctx, path, cfg); fallbackErr != nil {
-			return fmt.Errorf("failed to load config from KV (%v) and fallback file (%v)", err, fallbackErr)
-		}
-	} else if err != nil {
+	if err == nil {
+		return ValidateConfig(cfg)
+	}
+
+	if source != configSourceKV {
 		return err
+	}
+
+	err = c.defaultLoader.Load(ctx, path, cfg)
+	if err != nil {
+		return fmt.Errorf("%w from KV: %w, and from fallback file: %w", errLoadConfigFailed, err, err)
 	}
 
 	return ValidateConfig(cfg)
