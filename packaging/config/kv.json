@@ -1,0 +1,22 @@
+{
+  "listen_addr": ":50054",
+  "nats_url": "nats://localhost:4222",
+  "security": {
+    "mode": "mtls",
+    "cert_dir": "/etc/serviceradar/certs",
+    "server_name": "kv.serviceradar",
+    "role": "server"
+  },
+  "rbac": {
+    "roles": [
+      {
+        "identity": "CN=sync.serviceradar,O=Carver Automation",
+        "role": "writer"
+      },
+      {
+        "identity": "CN=agent.serviceradar,O=Carver Automation",
+        "role": "reader"
+      }
+    ]
+  }
+}
