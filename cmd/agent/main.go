@@ -40,13 +40,16 @@ func run() error {
 	configPath := flag.String("config", "/etc/serviceradar/agent.json", "Path to agent config file")
 	flag.Parse()
 
+	// setup a context we can use for loading the config and running the server
+	ctx := context.Background()
+
 	// Initialize configuration loader
 	cfgLoader := config.NewConfig()
 
 	// Load configuration with context
 	var cfg config.AgentConfig
 
-	if err := cfgLoader.LoadAndValidate(context.Background(), *configPath, &cfg); err != nil {
+	if err := cfgLoader.LoadAndValidate(ctx, *configPath, &cfg); err != nil {
 		return err
 	}
 
@@ -75,5 +78,5 @@ func run() error {
 	}
 
 	// Run server with lifecycle management
-	return lifecycle.RunServer(context.Background(), opts)
+	return lifecycle.RunServer(ctx, opts)
 }

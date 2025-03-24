@@ -46,10 +46,13 @@ func run() error {
 	configPath := flag.String("config", "/etc/serviceradar/checkers/dusk.json", "Path to config file")
 	flag.Parse()
 
-	// Load and validate configuration using shared config package
-	var cfg dusk.Config
-	if err := config.LoadAndValidate(*configPath, &cfg); err != nil {
-		return fmt.Errorf("%w: %w", errFailedToLoadConfig, err)
+	// Initialize configuration loader
+	cfgLoader := config.NewConfig()
+
+	// Load configuration with context
+	var cfg config.AgentConfig
+	if err := cfgLoader.LoadAndValidate(context.Background(), *configPath, &cfg); err != nil {
+		return err
 	}
 
 	// Create the checker
