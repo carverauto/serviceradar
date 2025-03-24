@@ -14,13 +14,16 @@
  * limitations under the License.
  */
 
-// Package config pkg/config/config.go
 package config
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
+
+	"github.com/carverauto/serviceradar/pkg/config/kv"
 )
 
 var (
@@ -47,13 +50,40 @@ func ValidateConfig(cfg interface{}) error {
 	if v, ok := cfg.(Validator); ok {
 		return v.Validate()
 	}
-
 	return nil
 }
 
-// LoadAndValidate loads a configuration file and validates it if possible.
-func LoadAndValidate(path string, cfg interface{}) error {
-	if err := LoadFile(path, cfg); err != nil {
+// LoaderFactory defines a function that creates a ConfigLoader.
+type LoaderFactory func() (ConfigLoader, error)
+
+// LoadAndValidate loads a configuration from the specified source and validates it if possible.
+// The loader is determined by the CONFIG_SOURCE environment variable ("file" or "kv").
+// If the KV loader fails, it falls back to the file-based loader.
+func LoadAndValidate(ctx context.Context, path string, cfg interface{}, kvStore kv.KVStore) error {
+	source := strings.ToLower(os.Getenv("CONFIG_SOURCE"))
+	var loader ConfigLoader
+
+	switch source {
+	case "kv":
+		if kvStore == nil {
+			return fmt.Errorf("KV store not provided for CONFIG_SOURCE=kv")
+		}
+		loader = NewKVConfigLoader(kvStore)
+	case "file", "":
+		loader = &FileConfigLoader{}
+	default:
+		return fmt.Errorf("invalid CONFIG_SOURCE value: %s (expected 'file' or 'kv')", source)
+	}
+
+	// Attempt to load with the selected loader
+	err := loader.Load(ctx, path, cfg)
+	if err != nil && source == "kv" {
+		// Fallback to file-based loading if KV fails
+		fallbackLoader := &FileConfigLoader{}
+		if fallbackErr := fallbackLoader.Load(ctx, path, cfg); fallbackErr != nil {
+			return fmt.Errorf("failed to load config from KV (%v) and fallback file (%v)", err, fallbackErr)
+		}
+	} else if err != nil {
 		return err
 	}
 
