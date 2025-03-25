@@ -1,0 +1,61 @@
+---
+slug: welcome-to-serviceradar
+title: Welcome to the ServiceRadar Blog
+authors: mfreeman
+tags: [welcome, serviceradar, network-monitoring, cloud, zero-trust, zero-touch]
+---
+
+We’re thrilled to launch the ServiceRadar blog—a space where we’ll share updates, insights, and technical deep dives about our distributed network monitoring application, ServiceRadar. Whether you’re a network administrator, a DevOps engineer, or just curious about cutting-edge monitoring solutions, this blog will keep you in the loop on how ServiceRadar is evolving to meet the challenges of modern infrastructure.
+
+This is the beginning of a journey to explore how ServiceRadar empowers you to monitor services in hard-to-reach places or constrained environments with real-time insights and robust alerting. Let’s dive into what ServiceRadar is all about and what you can expect from this blog.
+
+<!-- truncate -->
+
+## What is ServiceRadar?
+
+ServiceRadar is a distributed network monitoring system built from the ground up to tackle the complexities of today’s infrastructure. It’s designed to keep an eye on your internal services—whether they’re running on-premise, in the cloud, or in remote locations—while delivering cloud-based alerting to ensure you’re always informed, even during network outages or power disruptions.
+
+Our project is driven by a few core goals:
+- **Real-Time Visibility**: Provide instant insights into service health, from processes and ports to SNMP-enabled network devices.
+- **Resilience**: Ensure monitoring continues seamlessly, even in unreliable or constrained environments.
+- **Security**: Leverage modern principles like mutual TLS (mTLS) and API key authentication to keep your data safe.
+- **Scalability**: Support everything from small setups to large, distributed deployments with ease.
+
+At its heart, ServiceRadar consists of four key components:
+1. **Agent**: Runs on your monitored hosts, collecting service status via gRPC.
+2. **Poller**: Coordinates monitoring across agents and networks.
+3. **Core Service**: Processes data, powers the API, and triggers alerts.
+4. **Web UI**: Delivers a sleek, modern dashboard for visualizing your infrastructure.
+
+Want to know more? Check out our [Architecture documentation](https://docs.serviceradar.io/docs/architecture) for a detailed breakdown.
+
+## Built for the Cloud, Rooted in Zero-Trust
+
+ServiceRadar isn’t just another monitoring tool—it’s a cloud-native solution designed with contemporary principles in mind. Here’s what sets it apart:
+
+### Cloud-Native Design
+ServiceRadar embraces a distributed, stateless architecture that thrives in cloud environments. Whether you’re running it on a single host or across a fleet of servers, its components communicate efficiently via gRPC, and the Web UI leverages Next.js for a fast, server-side rendered experience. This flexibility means you can deploy it where it makes sense for your setup—be it a minimal all-in-one install or a high-availability cluster.
+
+### Zero-Trust Security
+Security isn’t an afterthought—it’s baked into ServiceRadar’s DNA. We implement zero-trust principles through mutual TLS (mTLS) authentication between components, ensuring that every connection is verified and encrypted. The Web UI talks to the Core Service via a secure API key, and Nginx acts as a reverse proxy to keep things locked down. Curious about the details? Our [TLS Security guide](https://docs.serviceradar.io/docs/tls-security) walks you through it.
+
+### Zero-Touch Deployment (The Vision)
+Our ultimate goal is to make ServiceRadar as hands-off as possible. We’re working toward a zero-touch configuration deployment system—imagine spinning up a new agent or poller with minimal manual setup. While we’re not fully there yet, features like automatic API key generation and pre-configured Debian/RHEL packages are steps in that direction. Stay tuned as we refine this process to streamline your experience even further.
+
+## What’s Next for ServiceRadar?
+
+This blog will be your go-to resource for:
+- **Announcements**: New releases, features, and updates.
+- **Tutorials**: Step-by-step guides on setup, configuration, and advanced use cases.
+- **Deep Dives**: Technical explorations of ServiceRadar’s internals and design decisions.
+- **Community Spotlight**: Stories from users and contributors shaping the project.
+
+We’re just getting started. In the coming weeks, expect posts on setting up your first ServiceRadar instance, securing it with mTLS, and integrating it with tools like Discord for alerting. Have a topic you’d like us to cover? Let us know on [X](https://x.com/mfreeman451) or [GitHub](https://github.com/carverauto/serviceradar)!
+
+## Get Involved
+
+ServiceRadar is an open-source project, and we’d love for you to join us. Whether you’re deploying it in your network, contributing code, or sharing feedback, your input helps us grow. Head over to our [GitHub repository](https://github.com/carverauto/serviceradar) to get started, or dive into the [Installation Guide](https://docs.serviceradar.io/docs/installation) to spin up your own instance today.
+
+Thanks for joining us on this journey. Here’s to keeping your services in sight, no matter where they are!
+
+— Michael Freeman, Open Source Software Engineer
