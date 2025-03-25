@@ -42,152 +42,31 @@ sudo dpkg -i serviceradar-web_1.0.27.deb
 #### NATS JetStream for KV Store (Optional)
 
 ServiceRadar can use NATS JetStream as a key-value (KV) store for dynamic configuration management,
-enabling real-time updates without service restarts. This requires two components:
+enabling real-time updates without service restarts.
 
-1. The NATS Server binary
-2. ServiceRadar's NATS configuration package
+##### Installing NATS with ServiceRadar
 
-##### Step 1: Install the NATS Server
-
-First, download and install the official NATS Server package:
+The `serviceradar-nats` package provides everything needed for NATS JetStream including the NATS server binary,
+configuration files, systemd service, and appropriate directory setup:
 
 ```bash
-# Download the NATS Server Debian package
-curl -LO https://github.com/nats-io/nats-server/releases/download/v2.11.0/nats-server-v2.11.0-amd64.deb
-
-# Install the package
-sudo dpkg -i nats-server-v2.11.0-amd64.deb
-```
-
-This installs the NATS Server binary to `/usr/bin/nats-server` but does not start the service automatically.
-
-##### Step 2: Set Up NATS Server with `serviceradar-nats`
-
-The `serviceradar-nats` package provides the necessary configuration files, systemd service, and directory setup to enable
-NATS Server to start automatically with mTLS enabled.
-
-```bash
-# Download and install the serviceradar-nats package
+# Download and install the serviceradar-nats package (Debian/Ubuntu)
 curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.27/serviceradar-nats_1.0.27.deb
 sudo dpkg -i serviceradar-nats_1.0.27.deb
 ```
 
 The serviceradar-nats package automatically:
-* Creates a configuration file at /etc/nats/nats-server.conf with mTLS enabled
-* Sets up a hardened systemd service (nats.service) to manage the NATS Server
-* Creates necessary directories (/var/lib/nats/jetstream for JetStream data, /var/log/nats for logs)
-* Configures permissions for the nats user
+* Installs the NATS Server binary in `/usr/bin/nats-server`
+* Creates a configuration file at `/etc/nats-server.conf` with mTLS enabled
+* Sets up a hardened systemd service (`serviceradar-nats.service`) to manage the NATS Server
+* Creates necessary directories (`/var/lib/nats/jetstream` for JetStream data, `/var/log/nats` for logs)
+* Creates and configures the nats user with appropriate permissions
+* Configures the nats user to access ServiceRadar certificates if available
 
 Verify the NATS Server is running:
 
 ```bash
-sudo systemctl status nats
-```
-
-##### Alternative: Manual NATS Server Configuration
-
-If you prefer to configure NATS Server manually, you can create the configuration file and set up the service yourself:
-
-1. Create the configuration file:
-
-```bash
-sudo mkdir -p /etc/nats
-sudo touch /etc/nats/nats-server.conf
-```
-
-2. Add the following configuration:
-
-```
-# NATS Server Configuration for ServiceRadar
-jetstream {
-    store_dir: "/var/lib/nats/jetstream"
-}
-
-server_name: nats-serviceradar
-listen: 127.0.0.1:4222  # Default to localhost only for security
-
-# TLS Configuration
-tls {
-    cert_file: "/etc/serviceradar/certs/nats-server.pem"
-    key_file: "/etc/serviceradar/certs/nats-server-key.pem"
-    ca_file: "/etc/serviceradar/certs/root.pem"
-    verify: true
-}
-```
-
-3. Create a hardened systemd service file:
-
-```bash
-sudo touch /etc/systemd/system/nats.service
-```
-
-4. Add the following service definition with proper security hardening:
-
-```
-[Unit]
-Description=NATS Server for ServiceRadar
-After=network-online.target ntp.service
-
-[Service]
-Type=simple
-ExecStart=/usr/bin/nats-server -c /etc/nats/nats-server.conf
-ExecReload=/bin/kill -s HUP $MAINPID
-ExecStop=/bin/kill -s SIGINT $MAINPID
-
-User=nats
-Group=nats
-
-Restart=always
-RestartSec=5
-KillSignal=SIGUSR2
-LimitNOFILE=800000
-
-# Security hardening
-CapabilityBoundingSet=
-LockPersonality=true
-MemoryDenyWriteExecute=true
-NoNewPrivileges=true
-PrivateDevices=true
-PrivateTmp=true
-PrivateUsers=true
-ProcSubset=pid
-ProtectClock=true
-ProtectControlGroups=true
-ProtectHome=true
-ProtectHostname=true
-ProtectKernelLogs=true
-ProtectKernelModules=true
-ProtectKernelTunables=true
-ProtectSystem=strict
-ReadOnlyPaths=
-RestrictAddressFamilies=AF_INET AF_INET6
-RestrictNamespaces=true
-RestrictRealtime=true
-RestrictSUIDSGID=true
-SystemCallFilter=@system-service ~@privileged ~@resources
-UMask=0077
-
-# Specific writable paths
-ReadWritePaths=/var/lib/nats
-
-[Install]
-WantedBy=multi-user.target
-Alias=nats.service
-```
-
-5. Create the nats user and necessary directories:
-
-```bash
-sudo useradd -r -s /bin/false nats
-sudo mkdir -p /var/lib/nats/jetstream /var/log/nats
-sudo chown -R nats:nats /var/lib/nats /var/log/nats
-```
-
-6. Start and enable the service:
-
-```bash
-sudo systemctl enable nats
-sudo systemctl start nats
+sudo systemctl status serviceradar-nats
 ```
 
 ##### Install ServiceRadar KV Service
@@ -198,8 +77,6 @@ To enable the KV store functionality in ServiceRadar, install the `serviceradar-
 curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.27/serviceradar-kv_1.0.27.deb
 sudo dpkg -i serviceradar-kv_1.0.27.deb
 ```
-
-> **Security Note:** By default, the NATS Server is configured to listen only on the loopback interface (127.0.0.1) for security, preventing external network access. ServiceRadar's KV service communicates with NATS Server locally, so you don't need to open port 4222 in your firewall unless NATS Server needs to be accessed from other hosts. This configuration significantly enhances the security of your deployment.
 
 #### SNMP Monitoring
 
