@@ -37,7 +37,90 @@ sudo dpkg -i serviceradar-web_1.0.27.deb
 
 ## Optional Components
 
-## SNMP Polling
+### NATS JetStream for KV Store (Optional)
+
+ServiceRadar can use NATS JetStream as a key-value (KV) store for dynamic configuration management. 
+This requires installing the NATS Server and configuring it with mTLS for secure communication.
+
+#### Install NATS Server
+
+Download and install the pre-built NATS Server package:
+
+```bash
+# Download the NATS Server Debian package
+curl -LO https://github.com/nats-io/nats-server/releases/download/v2.11.0/nats-server-v2.11.0-amd64.deb
+
+# Install the package
+sudo dpkg -i nats-server-v2.11.0-amd64.deb
+```
+
+#### Configure NATS Server
+
+1. Create the NATS configuration directory and log directory:
+
+```bash
+sudo mkdir -p /etc/nats /var/log/nats /var/lib/nats/jetstream
+sudo chown nats:nats /var/log/nats /var/lib/nats/jetstream
+sudo chmod 755 /var/log/nats /var/lib/nats/jetstream
+```
+
+2. Create the NATS Server configuration file at /etc/nats/nats-server.conf:
+
+```bash
+sudo nano /etc/nats/nats-server.conf
+```
+
+Add the following configuration:
+
+```
+# NATS Server Configuration for ServiceRadar KV Store
+
+port: 4222
+
+jetstream {
+  store_dir: /var/lib/nats/jetstream
+  max_memory_store: 10G
+  max_file_store: 50G
+}
+
+tls {
+  cert_file: "/etc/serviceradar/certs/server.pem"
+  key_file: "/etc/serviceradar/certs/server-key.pem"
+  ca_file: "/etc/serviceradar/certs/root.pem"
+  verify: true
+  verify_and_map: true
+}
+
+logfile: "/var/log/nats/nats.log"
+loglevel: "info"
+
+system_account: "SYS"
+```
+
+3. Start the NATS Server:
+
+```bash
+sudo systemctl enable nats
+sudo systemctl start nats
+```
+
+4. Verify the NATS Server is running:
+
+```bash
+sudo systemctl status nats
+```
+
+#### Install ServiceRadar KV Service
+
+To enable the KV store functionality in ServiceRadar, install the `serviceradar-kv` package:
+
+```bash
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.28/serviceradar-kv_1.0.28.deb
+sudo dpkg -i serviceradar-kv_1.0.28.deb
+```
+
+
+### SNMP Polling
 
 For collecting and visualizing metrics from network devices:
 
@@ -46,7 +129,7 @@ curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.27/ser
 sudo dpkg -i serviceradar-snmp-checker_1.0.27.deb
 ```
 
-## Dusk Node Monitoring
+### Dusk Node Monitoring
 
 For specialized monitoring of [Dusk Network](https://dusk.network/) nodes:
 
@@ -93,6 +176,12 @@ systemctl status serviceradar-poller
 
 # Check core status
 systemctl status serviceradar-core
+
+# Check NATS Server status (if installed)
+systemctl status nats
+
+# Check KV service status (if installed)
+systemctl status serviceradar-kv
 ```
 
 ## Firewall Configuration
@@ -110,6 +199,10 @@ sudo ufw allow 8090/tcp   # For API (internal use)
 
 # If running web UI
 sudo ufw allow 80/tcp     # For web interface
+
+# If using NATS JetStream for KV store
+sudo ufw allow 4222/tcp   # For NATS Server
+sudo ufw allow 50054/tcp  # For serviceradar-kv gRPC service
 ```
 
 # ServiceRadar Installation Guide for Oracle Linux/RHEL
@@ -182,6 +275,31 @@ sudo dnf install -y ./serviceradar-agent-1.0.27-1.el9.x86_64.rpm
 sudo dnf install -y ./serviceradar-poller-1.0.27-1.el9.x86_64.rpm
 ```
 
+## 5. Optional Components
+
+### Install NATS Server for KV Store (Optional)
+
+If you plan to use NATS JetStream as a KV store for dynamic configuration:
+
+```bash
+# Download the NATS Server RPM package
+curl -LO https://github.com/nats-io/nats-server/releases/download/v2.11.0/nats-server-v2.11.0-amd64.rpm
+
+# Install the package
+sudo dnf install -y ./nats-server-v2.11.0-amd64.rpm
+```
+
+Follow the same configuration steps as described in the Debian section above to set up /etc/nats/nats-server.conf with mTLS.
+
+### Install ServiceRadar KV Service (Optional)
+
+To enable the KV store functionality:
+
+```bash
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.27/serviceradar-kv-1.0.27-1.el9.x86_64.rpm
+sudo dnf install -y ./serviceradar-kv-1.0.27-1.el9.x86_64.rpm
+```
+
 # Post-Installation Configuration
 
 ## Firewall Configuration
@@ -199,6 +317,8 @@ sudo firewall-cmd --permanent --add-port=3000/tcp
 sudo firewall-cmd --permanent --add-port=50051/tcp
 sudo firewall-cmd --permanent --add-port=50052/tcp
 sudo firewall-cmd --permanent --add-port=50053/tcp
+sudo firewall-cmd --permanent --add-port=4222/tcp  # For NATS Server
+sudo firewall-cmd --permanent --add-port=50054/tcp # For serviceradar-kv
 sudo firewall-cmd --reload
 ```
 
@@ -216,6 +336,8 @@ sudo setsebool -P httpd_can_network_connect 1
 # Configure port types
 sudo semanage port -a -t http_port_t -p tcp 8090 || sudo semanage port -m -t http_port_t -p tcp 8090
 sudo semanage port -a -t http_port_t -p tcp 3000 || sudo semanage port -m -t http_port_t -p tcp 3000
+sudo semanage port -a -t http_port_t -p tcp 4222 || sudo semanage port -m -t http_port_t -p tcp 4222
+sudo semanage port -a -t http_port_t -p tcp 50054 || sudo semanage port -m -t http_port_t -p tcp 50054
 ```
 
 ## Verify Services
@@ -237,6 +359,12 @@ sudo systemctl status serviceradar-agent
 
 # Check poller (on monitored host)
 sudo systemctl status serviceradar-poller
+
+# Check NATS Server (if installed)
+sudo systemctl status nats
+
+# Check KV service (if installed)
+sudo systemctl status serviceradar-kv
 ```
 
 ## Accessing the Dashboard
@@ -263,6 +391,9 @@ sudo journalctl -xeu serviceradar-web
 # Check Nginx logs
 sudo cat /var/log/nginx/error.log
 sudo cat /var/log/nginx/serviceradar-web.error.log
+
+# Check NATS Server logs (if installed)
+sudo cat /var/log/nats/nats.log
 ```
 
 ## SELinux Issues
@@ -314,12 +445,28 @@ sudo dnf module enable -y nodejs:20
 sudo dnf install -y nodejs
 ```
 
+## NATS Connection Issues
+
+If the `serviceradar-kv` service cannot connect to NATS:
+
+```bash
+# Check NATS Server logs
+sudo cat /var/log/nats/nats.log
+
+# Test NATS connection
+nats server check --server nats://localhost:4222
+
+# Verify certificates are in place
+ls -la /etc/serviceradar/certs/
+```
+
 ## Uninstallation
 
 If needed, you can uninstall ServiceRadar components:
 
 ```bash
 sudo dnf remove -y serviceradar-core serviceradar-web serviceradar-agent serviceradar-poller
+sudo dnf remove -y nats-server
 ```
 
 ---

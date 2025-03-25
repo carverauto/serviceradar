@@ -8,14 +8,7 @@ VERSION=${VERSION:-1.0.12}
 # Create package directory structure
 PKG_ROOT="serviceradar-nats${VERSION}"
 mkdir -p "${PKG_ROOT}/DEBIAN"
-mkdir -p "${PKG_ROOT}/usr/local/bin"
-mkdir -p "${PKG_ROOT}/etc/serviceradar"
 mkdir -p "${PKG_ROOT}/lib/systemd/system"
-
-echo "Building Go binary..."
-
-# Build NATS binary
-GOOS=linux GOARCH=amd64 go build -o "${PKG_ROOT}/usr/sbin/nats-server" ./cmd/nats
 
 echo "Creating package files..."
 
@@ -53,7 +46,7 @@ After=network-online.target ntp.service
 [Service]
 Type=simple
 EnvironmentFile=-/etc/default/nats-server
-ExecStart=/usr/sbin/nats-server -c /etc/nats-server.conf
+ExecStart=/usr/bin/nats-server -c /etc/nats-server.conf
 ExecReload=/bin/kill -s HUP $MAINPID
 ExecStop=/bin/kill -s SIGINT $MAINPID
 
@@ -132,7 +125,9 @@ EOF
 
 # Create default config only if we're creating a fresh package
 cat > "${PKG_ROOT}/etc/nats-server.conf" << EOF
-something else here
+jetstream {
+   store_dir=nats
+}
 EOF
 
 # Create postinst script
@@ -147,7 +142,7 @@ fi
 
 # Set permissions
 chown nats:nats /etc/nats-server.conf
-chmod 755 /usr/sbin/nats-server
+chmod 755 /usr/bin/nats-server
 
 # Enable and start service
 systemctl daemon-reload

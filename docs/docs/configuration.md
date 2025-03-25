@@ -199,6 +199,12 @@ For monitoring network devices via SNMP, edit `/etc/serviceradar/checkers/snmp.j
 }
 ```
 
+### NATS JetStream Configuration
+
+If you’ve installed the NATS Server for the KV store, its configuration is located at `/etc/nats/nats-server.conf`. 
+The default configuration provided during installation includes mTLS and JetStream support:
+
+
 ### Dusk Node Checker
 
 For monitoring Dusk nodes, edit `/etc/serviceradar/checkers/dusk.json`:
