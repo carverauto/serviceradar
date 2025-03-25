@@ -1,19 +1,44 @@
-facebook:
-  label: Facebook
-  permalink: /facebook
-  description: Facebook tag description
+netauto:
+    label: Network Automation
+    permalink: /netauto
+    description: Network Automation tag description
 
-hello:
-  label: Hello
-  permalink: /hello
-  description: Hello tag description
+nms:
+    label: Network Management Systems
+    permalink: /nms
+    description: Network Management System tag description
 
-docusaurus:
-  label: Docusaurus
-  permalink: /docusaurus
-  description: Docusaurus tag description
+observability:
+    label: Observability
+    permalink: /observability
+    description: Observability tag description
 
-hola:
-  label: Hola
-  permalink: /hola
-  description: Hola tag description
+performance:
+    label: Performance
+    permalink: /performance
+    description: Performance tag description
+
+monitoring:
+    label: Monitoring
+    permalink: /monitoring
+    description: Monitoring tag description
+
+security:
+    label: Security
+    permalink: /security
+    description: Security tag description
+
+cloud:
+    label: Cloud
+    permalink: /cloud
+    description: Cloud tag description
+
+zero-touch:
+    label: Zero Touch Provisioning
+    permalink: /zero-touch
+    description: Zero Touch Provisioning tag description
+
+zero-trust:
+    label: Zero Trust
+    permalink: /zero-trust
+    description: Zero Trust tag description
