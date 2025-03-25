@@ -59,7 +59,7 @@ curl -LO https://github.com/nats-io/nats-server/releases/download/v2.11.0/nats-s
 sudo dpkg -i nats-server-v2.11.0-amd64.deb
 ```
 
-This installs the NATS Server binary to `/usr/sbin/nats-server` but does not start the service automatically.
+This installs the NATS Server binary to `/usr/bin/nats-server` but does not start the service automatically.
 
 ##### Step 2: Set Up NATS Server with `serviceradar-nats`
 
@@ -130,7 +130,7 @@ After=network-online.target ntp.service
 
 [Service]
 Type=simple
-ExecStart=/usr/sbin/nats-server -c /etc/nats/nats-server.conf
+ExecStart=/usr/bin/nats-server -c /etc/nats/nats-server.conf
 ExecReload=/bin/kill -s HUP $MAINPID
 ExecStop=/bin/kill -s SIGINT $MAINPID
 
@@ -411,7 +411,7 @@ curl -LO https://github.com/nats-io/nats-server/releases/download/v2.11.0/nats-s
 sudo dnf install -y ./nats-server-v2.11.0-amd64.rpm
 ```
 
-This installs the NATS Server binary to `/usr/sbin/nats-server` but does not start the service automatically.
+This installs the NATS Server binary to `/usr/bin/nats-server` but does not start the service automatically.
 
 ##### Step 2: Set Up NATS Server with `serviceradar-nats`
 

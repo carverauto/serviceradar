@@ -277,7 +277,7 @@ sudo systemctl restart serviceradar-kv
     - `identity`: Certificate subject that identifies the client
     - `role`: Role assigned to the client ("reader" or "writer")
 
-### Enable KV Store for Agents
+### Enable KV Store for Agents (Future Feature)
 
 To configure agents to use the KV store for dynamic configuration, you need to set the `CONFIG_SOURCE` environment variable in the agent's systemd service. This allows the agent to receive configuration updates from the KV store without requiring a restart.
 
