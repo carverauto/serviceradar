@@ -36,7 +36,7 @@ usage() {
     exit 1
 }
 
-# Function to build core component (uses full Dockerfile)
+# Function to build core component
 build_core() {
     echo "Building core component..."
     docker build \
@@ -58,23 +58,27 @@ build_core() {
     rm -rf "$tmp_dir"
 }
 
-# Function to build other components using simple Dockerfile
+# Function to build other components
 build_component() {
     local component=$1
     local binary_path=""
+    local dockerfile=""
 
     case $component in
         agent)
             binary_path="./cmd/agent"
+            dockerfile="Dockerfile.rpm.simple"
             ;;
         poller)
             binary_path="./cmd/poller"
+            dockerfile="Dockerfile.rpm.simple"
             ;;
         nats)
-            binary_path=""  # No binary needed, just config
+            dockerfile="Dockerfile.rpm.nats"
             ;;
         dusk-checker)
             binary_path="./cmd/checkers/dusk"
+            dockerfile="Dockerfile.rpm.simple"
             ;;
         *)
             echo "Unknown component: $component"
@@ -87,17 +91,17 @@ build_component() {
         --platform linux/amd64 \
         --build-arg VERSION="${VERSION}" \
         --build-arg RELEASE="${RELEASE}" \
-        --build-arg COMPONENT="${component}" \
-        --build-arg BINARY_PATH="${binary_path}" \
-        -f Dockerfile.rpm.simple \
+        ${binary_path:+--build-arg BINARY_PATH="${binary_path}"} \
+        ${component:+--build-arg COMPONENT="${component}"} \
+        -f "$dockerfile" \
         -t "serviceradar-rpm-${component}" \
         .
 
     # Extract RPM from the container
     tmp_dir=$(mktemp -d)
-    docker create --name temp-container "serviceradar-rpm-${component}"
-    docker cp temp-container:/rpms/. "$tmp_dir/"
-    docker rm temp-container
+    container_id=$(docker create "serviceradar-rpm-${component}")
+    docker cp $container_id:/rpms/. "$tmp_dir/"
+    docker rm $container_id
 
     # Move RPM to release directory
     find "$tmp_dir" -name "*.rpm" -exec cp {} release-artifacts/${VERSION}/rpm/ \;
@@ -116,11 +120,8 @@ case $1 in
     core)
         build_core
         ;;
-    agent|poller|dusk-checker)
+    agent|poller|dusk-checker|nats)
         build_component "$1"
-        ;;
-    nats)
-        build_component "nats"
         ;;
     all)
         build_core
