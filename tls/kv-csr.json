@@ -1,0 +1,5 @@
+{
+  "hosts": ["kv.serviceradar", "localhost", "127.0.0.1", "<kv-server-ip>"],
+  "key": {"algo": "ecdsa", "size": 256},
+  "names": [{"C": "US", "ST": "Your State", "L": "Your Location", "O": "ServiceRadar", "OU": "Operations", "CN": "kv.serviceradar"}]
+}

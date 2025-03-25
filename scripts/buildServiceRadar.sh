@@ -42,6 +42,7 @@ usage() {
     echo "  web                       Build web UI"
     echo "  poller                    Build poller service"
     echo "  agent                     Build agent service"
+    echo "  nats                      Build NATS configuration package"
     echo "  dusk-checker              Build dusk checker"
     echo "  snmp-checker              Build SNMP checker"
     echo
@@ -80,7 +81,7 @@ while [[ $# -gt 0 ]]; do
             TARGET_HOST="$2"
             shift 2
             ;;
-        core|web|poller|agent|dusk-checker|snmp-checker)
+        core|web|poller|agent|nats|dusk-checker|snmp-checker)
             COMPONENTS+=("$1")
             shift
             ;;
@@ -93,7 +94,7 @@ done
 
 # Check if we should build all components
 if [ "$BUILD_ALL" = true ]; then
-    COMPONENTS=("core" "web" "poller" "agent" "dusk-checker" "snmp-checker")
+    COMPONENTS=("core" "web" "poller" "agent" "nats" "dusk-checker" "snmp-checker")
 fi
 
 # If no components specified, show usage
@@ -125,6 +126,9 @@ build_component() {
             ;;
         agent)
             ./scripts/setup-deb-agent.sh
+            ;;
+        nats)
+            ./scripts/setup-deb-nats.sh
             ;;
         dusk-checker)
             ./scripts/setup-deb-dusk-checker.sh
@@ -164,6 +168,9 @@ install_packages() {
                 ;;
             agent)
                 package_name="serviceradar-agent_${VERSION}.deb"
+                ;;
+            nats)
+                package_name="serviceradar-nats_${VERSION}.deb"
                 ;;
             dusk-checker)
                 package_name="serviceradar-dusk-checker_${VERSION}.deb"
