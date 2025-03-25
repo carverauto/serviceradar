@@ -4,19 +4,19 @@
   "security": {
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
-    "server_name": "kv.serviceradar",
-    "role": "server"
+    "server_name": "server.serviceradar",
+    "role": "server",
+    "tls": {
+      "cert_file": "server.pem",
+      "key_file": "server-key.pem",
+      "ca_file": "root.pem",
+      "client_ca_file": "root.pem"
+    }
   },
   "rbac": {
     "roles": [
-      {
-        "identity": "CN=sync.serviceradar,O=Carver Automation",
-        "role": "writer"
-      },
-      {
-        "identity": "CN=agent.serviceradar,O=Carver Automation",
-        "role": "reader"
-      }
+      {"identity": "CN=sync.serviceradar,O=ServiceRadar", "role": "writer"},
+      {"identity": "CN=agent.serviceradar,O=ServiceRadar", "role": "reader"}
     ]
   }
 }

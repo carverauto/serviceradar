@@ -30,6 +30,7 @@ usage() {
     echo "  core         - Build core service RPM"
     echo "  agent        - Build agent service RPM"
     echo "  poller       - Build poller service RPM"
+    echo "  nats         - Build NATS RPM"
     echo "  dusk-checker - Build dusk checker RPM"
     echo "  all          - Build all components"
     exit 1
@@ -68,6 +69,9 @@ build_component() {
             ;;
         poller)
             binary_path="./cmd/poller"
+            ;;
+        nats)
+            binary_path=""  # No binary needed, just config
             ;;
         dusk-checker)
             binary_path="./cmd/checkers/dusk"
@@ -115,10 +119,14 @@ case $1 in
     agent|poller|dusk-checker)
         build_component "$1"
         ;;
+    nats)
+        build_component "nats"
+        ;;
     all)
         build_core
         build_component "agent"
         build_component "poller"
+        build_component "nats"
         build_component "dusk-checker"
         ;;
     *)
