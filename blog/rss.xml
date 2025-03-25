@@ -4,84 +4,62 @@
         <title>ServiceRadar Blog</title>
         <link>https://docs.serviceradar.cloud/blog</link>
         <description>ServiceRadar Blog</description>
-        <lastBuildDate>Thu, 26 Aug 2021 00:00:00 GMT</lastBuildDate>
+        <lastBuildDate>Mon, 24 Mar 2025 00:00:00 GMT</lastBuildDate>
         <docs>https://validator.w3.org/feed/docs/rss2.html</docs>
         <generator>https://github.com/jpmonette/feed</generator>
         <language>en</language>
         <item>
-            <title><![CDATA[Welcome]]></title>
-            <link>https://docs.serviceradar.cloud/blog/welcome</link>
-            <guid>https://docs.serviceradar.cloud/blog/welcome</guid>
-            <pubDate>Thu, 26 Aug 2021 00:00:00 GMT</pubDate>
-            <description><![CDATA[Docusaurus blogging features are powered by the blog plugin.]]></description>
-            <content:encoded><![CDATA[<p><a href="https://docusaurus.io/docs/blog" target="_blank" rel="noopener noreferrer">Docusaurus blogging features</a> are powered by the <a href="https://docusaurus.io/docs/api/plugins/@docusaurus/plugin-content-blog" target="_blank" rel="noopener noreferrer">blog plugin</a>.</p>
-<p>Here are a few tips you might find useful.</p>
-<p>Simply add Markdown files (or folders) to the <code>blog</code> directory.</p>
-<p>Regular blog authors can be added to <code>authors.yml</code>.</p>
-<p>The blog post date can be extracted from filenames, such as:</p>
+            <title><![CDATA[Welcome to the ServiceRadar Blog]]></title>
+            <link>https://docs.serviceradar.cloud/blog/welcome-to-serviceradar</link>
+            <guid>https://docs.serviceradar.cloud/blog/welcome-to-serviceradar</guid>
+            <pubDate>Mon, 24 Mar 2025 00:00:00 GMT</pubDate>
+            <description><![CDATA[We’re thrilled to launch the ServiceRadar blog—a space where we’ll share updates, insights, and technical deep dives about our distributed network monitoring application, ServiceRadar. Whether you’re a network administrator, a DevOps engineer, or just curious about cutting-edge monitoring solutions, this blog will keep you in the loop on how ServiceRadar is evolving to meet the challenges of modern infrastructure.]]></description>
+            <content:encoded><![CDATA[<p>We’re thrilled to launch the ServiceRadar blog—a space where we’ll share updates, insights, and technical deep dives about our distributed network monitoring application, ServiceRadar. Whether you’re a network administrator, a DevOps engineer, or just curious about cutting-edge monitoring solutions, this blog will keep you in the loop on how ServiceRadar is evolving to meet the challenges of modern infrastructure.</p>
+<p>This is the beginning of a journey to explore how ServiceRadar empowers you to monitor services in hard-to-reach places or constrained environments with real-time insights and robust alerting. Let’s dive into what ServiceRadar is all about and what you can expect from this blog.</p>
+<h2 class="anchor anchorWithStickyNavbar_fAd0" id="what-is-serviceradar">What is ServiceRadar?<a href="https://docs.serviceradar.cloud/blog/welcome-to-serviceradar#what-is-serviceradar" class="hash-link" aria-label="Direct link to What is ServiceRadar?" title="Direct link to What is ServiceRadar?">​</a></h2>
+<p>ServiceRadar is a distributed network monitoring system built from the ground up to tackle the complexities of today’s infrastructure. It’s designed to keep an eye on your internal services—whether they’re running on-premise, in the cloud, or in remote locations—while delivering cloud-based alerting to ensure you’re always informed, even during network outages or power disruptions.</p>
+<p>Our project is driven by a few core goals:</p>
 <ul>
-<li><code>2019-05-30-welcome.md</code></li>
-<li><code>2019-05-30-welcome/index.md</code></li>
+<li><strong>Real-Time Visibility</strong>: Provide instant insights into service health, from processes and ports to SNMP-enabled network devices.</li>
+<li><strong>Resilience</strong>: Ensure monitoring continues seamlessly, even in unreliable or constrained environments.</li>
+<li><strong>Security</strong>: Leverage modern principles like mutual TLS (mTLS) and API key authentication to keep your data safe.</li>
+<li><strong>Scalability</strong>: Support everything from small setups to large, distributed deployments with ease.</li>
 </ul>
-<p>A blog post folder can be convenient to co-locate blog post images:</p>
-<p><img decoding="async" loading="lazy" alt="Docusaurus Plushie" src="https://docs.serviceradar.cloud/assets/images/docusaurus-plushie-banner-a60f7593abca1e3eef26a9afa244e4fb.jpeg" width="1500" height="500" class="img__G2c"></p>
-<p>The blog supports tags as well!</p>
-<p><strong>And if you don't want a blog</strong>: just delete this directory, and use <code>blog: false</code> in your Docusaurus config.</p>]]></content:encoded>
-            <category>Facebook</category>
-            <category>Hello</category>
-            <category>Docusaurus</category>
-        </item>
-        <item>
-            <title><![CDATA[MDX Blog Post]]></title>
-            <link>https://docs.serviceradar.cloud/blog/mdx-blog-post</link>
-            <guid>https://docs.serviceradar.cloud/blog/mdx-blog-post</guid>
-            <pubDate>Sun, 01 Aug 2021 00:00:00 GMT</pubDate>
-            <description><![CDATA[Blog posts support Docusaurus Markdown features, such as MDX.]]></description>
-            <content:encoded><![CDATA[<p>Blog posts support <a href="https://docusaurus.io/docs/markdown-features" target="_blank" rel="noopener noreferrer">Docusaurus Markdown features</a>, such as <a href="https://mdxjs.com/" target="_blank" rel="noopener noreferrer">MDX</a>.</p>
-<div class="theme-admonition theme-admonition-tip admonition_kCc1 alert alert--success"><div class="admonitionHeading_WWyw"><span class="admonitionIcon_tH_p"><svg viewBox="0 0 12 16"><path fill-rule="evenodd" d="M6.5 0C3.48 0 1 2.19 1 5c0 .92.55 2.25 1 3 1.34 2.25 1.78 2.78 2 4v1h5v-1c.22-1.22.66-1.75 2-4 .45-.75 1-2.08 1-3 0-2.81-2.48-5-5.5-5zm3.64 7.48c-.25.44-.47.8-.67 1.11-.86 1.41-1.25 2.06-1.45 3.23-.02.05-.02.11-.02.17H5c0-.06 0-.13-.02-.17-.2-1.17-.59-1.83-1.45-3.23-.2-.31-.42-.67-.67-1.11C2.44 6.78 2 5.65 2 5c0-2.2 2.02-4 4.5-4 1.22 0 2.36.42 3.22 1.19C10.55 2.94 11 3.94 11 5c0 .66-.44 1.78-.86 2.48zM4 14h5c-.23 1.14-1.3 2-2.5 2s-2.27-.86-2.5-2z"></path></svg></span>tip</div><div class="admonitionContent_lI_Q"><p>Use the power of React to create interactive blog posts.</p></div></div>
-<!-- -->
-<p>For example, use JSX to create an interactive button:</p>
-<div class="language-js codeBlockContainer_HTPM theme-code-block" style="--prism-color:#393A34;--prism-background-color:#f6f8fa"><div class="codeBlockContent_OwhC"><pre tabindex="0" class="prism-code language-js codeBlock_QQmy thin-scrollbar" style="color:#393A34;background-color:#f6f8fa"><code class="codeBlockLines_piqd"><span class="token-line" style="color:#393A34"><span class="token operator" style="color:#393A34">&lt;</span><span class="token plain">button onClick</span><span class="token operator" style="color:#393A34">=</span><span class="token punctuation" style="color:#393A34">{</span><span class="token punctuation" style="color:#393A34">(</span><span class="token punctuation" style="color:#393A34">)</span><span class="token plain"> </span><span class="token arrow operator" style="color:#393A34">=&gt;</span><span class="token plain"> </span><span class="token function" style="color:#d73a49">alert</span><span class="token punctuation" style="color:#393A34">(</span><span class="token string" style="color:#e3116c">'button clicked!'</span><span class="token punctuation" style="color:#393A34">)</span><span class="token punctuation" style="color:#393A34">}</span><span class="token operator" style="color:#393A34">&gt;</span><span class="token maybe-class-name">Click</span><span class="token plain"> me</span><span class="token operator" style="color:#393A34">!</span><span class="token operator" style="color:#393A34">&lt;</span><span class="token operator" style="color:#393A34">/</span><span class="token plain">button</span><span class="token operator" style="color:#393A34">&gt;</span><br></span></code></pre><div class="buttonGroup_n6sy"><button type="button" aria-label="Copy code to clipboard" title="Copy" class="clean-btn"><span class="copyButtonIcons_GuCM" aria-hidden="true"><svg viewBox="0 0 24 24" class="copyButtonIcon_KWtG"><path fill="currentColor" d="M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z"></path></svg><svg viewBox="0 0 24 24" class="copyButtonSuccessIcon_nnIb"><path fill="currentColor" d="M21,7L9,19L3.5,13.5L4.91,12.09L9,16.17L19.59,5.59L21,7Z"></path></svg></span></button></div></div></div>
-<button>Click me!</button>]]></content:encoded>
-            <category>Docusaurus</category>
-        </item>
-        <item>
-            <title><![CDATA[Long Blog Post]]></title>
-            <link>https://docs.serviceradar.cloud/blog/long-blog-post</link>
-            <guid>https://docs.serviceradar.cloud/blog/long-blog-post</guid>
-            <pubDate>Wed, 29 May 2019 00:00:00 GMT</pubDate>
-            <description><![CDATA[This is the summary of a very long blog post,]]></description>
-            <content:encoded><![CDATA[<p>This is the summary of a very long blog post,</p>
-<p>Use a <code>&lt;!--</code> <code>truncate</code> <code>--&gt;</code> comment to limit blog post size in the list view.</p>
-<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Pellentesque elementum dignissim ultricies. Fusce rhoncus ipsum tempor eros aliquam consequat. Lorem ipsum dolor sit amet</p>
-<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Pellentesque elementum dignissim ultricies. Fusce rhoncus ipsum tempor eros aliquam consequat. Lorem ipsum dolor sit amet</p>
-<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Pellentesque elementum dignissim ultricies. Fusce rhoncus ipsum tempor eros aliquam consequat. Lorem ipsum dolor sit amet</p>
-<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Pellentesque elementum dignissim ultricies. Fusce rhoncus ipsum tempor eros aliquam consequat. Lorem ipsum dolor sit amet</p>
-<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Pellentesque elementum dignissim ultricies. Fusce rhoncus ipsum tempor eros aliquam consequat. Lorem ipsum dolor sit amet</p>
-<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Pellentesque elementum dignissim ultricies. Fusce rhoncus ipsum tempor eros aliquam consequat. Lorem ipsum dolor sit amet</p>
-<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Pellentesque elementum dignissim ultricies. Fusce rhoncus ipsum tempor eros aliquam consequat. Lorem ipsum dolor sit amet</p>
-<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Pellentesque elementum dignissim ultricies. Fusce rhoncus ipsum tempor eros aliquam consequat. Lorem ipsum dolor sit amet</p>
-<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Pellentesque elementum dignissim ultricies. Fusce rhoncus ipsum tempor eros aliquam consequat. Lorem ipsum dolor sit amet</p>
-<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Pellentesque elementum dignissim ultricies. Fusce rhoncus ipsum tempor eros aliquam consequat. Lorem ipsum dolor sit amet</p>
-<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Pellentesque elementum dignissim ultricies. Fusce rhoncus ipsum tempor eros aliquam consequat. Lorem ipsum dolor sit amet</p>
-<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Pellentesque elementum dignissim ultricies. Fusce rhoncus ipsum tempor eros aliquam consequat. Lorem ipsum dolor sit amet</p>
-<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Pellentesque elementum dignissim ultricies. Fusce rhoncus ipsum tempor eros aliquam consequat. Lorem ipsum dolor sit amet</p>
-<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Pellentesque elementum dignissim ultricies. Fusce rhoncus ipsum tempor eros aliquam consequat. Lorem ipsum dolor sit amet</p>
-<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Pellentesque elementum dignissim ultricies. Fusce rhoncus ipsum tempor eros aliquam consequat. Lorem ipsum dolor sit amet</p>
-<p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Pellentesque elementum dignissim ultricies. Fusce rhoncus ipsum tempor eros aliquam consequat. Lorem ipsum dolor sit amet</p>]]></content:encoded>
-            <category>Hello</category>
-            <category>Docusaurus</category>
-        </item>
-        <item>
-            <title><![CDATA[First Blog Post]]></title>
-            <link>https://docs.serviceradar.cloud/blog/first-blog-post</link>
-            <guid>https://docs.serviceradar.cloud/blog/first-blog-post</guid>
-            <pubDate>Tue, 28 May 2019 00:00:00 GMT</pubDate>
-            <description><![CDATA[Lorem ipsum dolor sit amet...]]></description>
-            <content:encoded><![CDATA[<p>Lorem ipsum dolor sit amet...</p>
-<p>...consectetur adipiscing elit. Pellentesque elementum dignissim ultricies. Fusce rhoncus ipsum tempor eros aliquam consequat. Lorem ipsum dolor sit amet</p>]]></content:encoded>
-            <category>Hola</category>
-            <category>Docusaurus</category>
+<p>At its heart, ServiceRadar consists of four key components:</p>
+<ol>
+<li><strong>Agent</strong>: Runs on your monitored hosts, collecting service status via gRPC.</li>
+<li><strong>Poller</strong>: Coordinates monitoring across agents and networks.</li>
+<li><strong>Core Service</strong>: Processes data, powers the API, and triggers alerts.</li>
+<li><strong>Web UI</strong>: Delivers a sleek, modern dashboard for visualizing your infrastructure.</li>
+</ol>
+<p>Want to know more? Check out our <a href="https://docs.serviceradar.io/docs/architecture" target="_blank" rel="noopener noreferrer">Architecture documentation</a> for a detailed breakdown.</p>
+<h2 class="anchor anchorWithStickyNavbar_fAd0" id="built-for-the-cloud-rooted-in-zero-trust">Built for the Cloud, Rooted in Zero-Trust<a href="https://docs.serviceradar.cloud/blog/welcome-to-serviceradar#built-for-the-cloud-rooted-in-zero-trust" class="hash-link" aria-label="Direct link to Built for the Cloud, Rooted in Zero-Trust" title="Direct link to Built for the Cloud, Rooted in Zero-Trust">​</a></h2>
+<p>ServiceRadar isn’t just another monitoring tool—it’s a cloud-native solution designed with contemporary principles in mind. Here’s what sets it apart:</p>
+<h3 class="anchor anchorWithStickyNavbar_fAd0" id="cloud-native-design">Cloud-Native Design<a href="https://docs.serviceradar.cloud/blog/welcome-to-serviceradar#cloud-native-design" class="hash-link" aria-label="Direct link to Cloud-Native Design" title="Direct link to Cloud-Native Design">​</a></h3>
+<p>ServiceRadar embraces a distributed, stateless architecture that thrives in cloud environments. Whether you’re running it on a single host or across a fleet of servers, its components communicate efficiently via gRPC, and the Web UI leverages Next.js for a fast, server-side rendered experience. This flexibility means you can deploy it where it makes sense for your setup—be it a minimal all-in-one install or a high-availability cluster.</p>
+<h3 class="anchor anchorWithStickyNavbar_fAd0" id="zero-trust-security">Zero-Trust Security<a href="https://docs.serviceradar.cloud/blog/welcome-to-serviceradar#zero-trust-security" class="hash-link" aria-label="Direct link to Zero-Trust Security" title="Direct link to Zero-Trust Security">​</a></h3>
+<p>Security isn’t an afterthought—it’s baked into ServiceRadar’s DNA. We implement zero-trust principles through mutual TLS (mTLS) authentication between components, ensuring that every connection is verified and encrypted. The Web UI talks to the Core Service via a secure API key, and Nginx acts as a reverse proxy to keep things locked down. Curious about the details? Our <a href="https://docs.serviceradar.io/docs/tls-security" target="_blank" rel="noopener noreferrer">TLS Security guide</a> walks you through it.</p>
+<h3 class="anchor anchorWithStickyNavbar_fAd0" id="zero-touch-deployment-the-vision">Zero-Touch Deployment (The Vision)<a href="https://docs.serviceradar.cloud/blog/welcome-to-serviceradar#zero-touch-deployment-the-vision" class="hash-link" aria-label="Direct link to Zero-Touch Deployment (The Vision)" title="Direct link to Zero-Touch Deployment (The Vision)">​</a></h3>
+<p>Our ultimate goal is to make ServiceRadar as hands-off as possible. We’re working toward a zero-touch configuration deployment system—imagine spinning up a new agent or poller with minimal manual setup. While we’re not fully there yet, features like automatic API key generation and pre-configured Debian/RHEL packages are steps in that direction. Stay tuned as we refine this process to streamline your experience even further.</p>
+<h2 class="anchor anchorWithStickyNavbar_fAd0" id="whats-next-for-serviceradar">What’s Next for ServiceRadar?<a href="https://docs.serviceradar.cloud/blog/welcome-to-serviceradar#whats-next-for-serviceradar" class="hash-link" aria-label="Direct link to What’s Next for ServiceRadar?" title="Direct link to What’s Next for ServiceRadar?">​</a></h2>
+<p>This blog will be your go-to resource for:</p>
+<ul>
+<li><strong>Announcements</strong>: New releases, features, and updates.</li>
+<li><strong>Tutorials</strong>: Step-by-step guides on setup, configuration, and advanced use cases.</li>
+<li><strong>Deep Dives</strong>: Technical explorations of ServiceRadar’s internals and design decisions.</li>
+<li><strong>Community Spotlight</strong>: Stories from users and contributors shaping the project.</li>
+</ul>
+<p>We’re just getting started. In the coming weeks, expect posts on setting up your first ServiceRadar instance, securing it with mTLS, and integrating it with tools like Discord for alerting. Have a topic you’d like us to cover? Let us know on <a href="https://x.com/mfreeman451" target="_blank" rel="noopener noreferrer">X</a> or <a href="https://github.com/carverauto/serviceradar" target="_blank" rel="noopener noreferrer">GitHub</a>!</p>
+<h2 class="anchor anchorWithStickyNavbar_fAd0" id="get-involved">Get Involved<a href="https://docs.serviceradar.cloud/blog/welcome-to-serviceradar#get-involved" class="hash-link" aria-label="Direct link to Get Involved" title="Direct link to Get Involved">​</a></h2>
+<p>ServiceRadar is an open-source project, and we’d love for you to join us. Whether you’re deploying it in your network, contributing code, or sharing feedback, your input helps us grow. Head over to our <a href="https://github.com/carverauto/serviceradar" target="_blank" rel="noopener noreferrer">GitHub repository</a> to get started, or dive into the <a href="https://docs.serviceradar.io/docs/installation" target="_blank" rel="noopener noreferrer">Installation Guide</a> to spin up your own instance today.</p>
+<p>Thanks for joining us on this journey. Here’s to keeping your services in sight, no matter where they are!</p>
+<p>— Michael Freeman, Open Source Software Engineer</p>]]></content:encoded>
+            <category>welcome</category>
+            <category>serviceradar</category>
+            <category>network-monitoring</category>
+            <category>Cloud</category>
+            <category>Zero Trust</category>
+            <category>Zero Touch Provisioning</category>
         </item>
     </channel>
 </rss>
