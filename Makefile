@@ -283,6 +283,23 @@ rpm-poller: rpm-prep ## Build the poller RPM package
 	@docker cp temp-poller-container:/rpms/. ./release-artifacts/rpm/
 	@docker rm temp-poller-container
 
+.PHONY: rpm-nats
+rpm-nats: rpm-prep ## Build the NATS RPM package
+	@echo "$(COLOR_BOLD)Building NATS JetStream RPM package$(COLOR_RESET)"
+	@VERSION_CLEAN=$$(echo "$(VERSION)" | sed 's/-/_/g'); \
+    docker build \
+        --platform linux/amd64 \
+        --build-arg VERSION="$$VERSION_CLEAN" \
+        --build-arg RELEASE="$(RELEASE)" \
+		--build-arg COMPONENT="nats" \
+        -f Dockerfile.rpm.nats \
+        -t serviceradar-rpm-nats \
+        .
+
+	@docker create --name temp-nats-container serviceradar-rpm-nats
+	@docker cp temp-nats-container:/rpms/. ./release-artifacts/rpm/
+	@docker rm temp-nats-container
+
 .PHONY: rpm-snmp
 rpm-snmp: rpm-prep ## Build the SNMP checker RPM package
 	@echo "$(COLOR_BOLD)Building SNMP checker RPM package$(COLOR_RESET)"
@@ -333,7 +350,7 @@ rpm-web: rpm-prep ## Build the web RPM package
 	@docker rm temp-web-container
 
 .PHONY: rpm-all
-rpm-all: rpm-core rpm-web rpm-agent rpm-poller rpm-snmp rpm-rperf ## Build all RPM packages
+rpm-all: rpm-core rpm-web rpm-agent rpm-poller rpm-nats rpm-snmp rpm-rperf ## Build all RPM packages
 	@echo "$(COLOR_BOLD)All RPM packages built$(COLOR_RESET)"
 
 # Docusaurus commands

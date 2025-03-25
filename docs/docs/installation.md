@@ -401,19 +401,7 @@ sudo dnf install -y ./serviceradar-core-1.0.27-1.el9.x86_64.rpm
 
 If you plan to use NATS JetStream as a KV store for dynamic configuration:
 
-##### Step 1: Install the NATS Server
-
-```bash
-# Download the NATS Server RPM package
-curl -LO https://github.com/nats-io/nats-server/releases/download/v2.11.0/nats-server-v2.11.0-amd64.rpm
-
-# Install the package
-sudo dnf install -y ./nats-server-v2.11.0-amd64.rpm
-```
-
-This installs the NATS Server binary to `/usr/bin/nats-server` but does not start the service automatically.
-
-##### Step 2: Set Up NATS Server with `serviceradar-nats`
+##### Step 1: Install the NATS Server with `serviceradar-nats`
 
 The `serviceradar-nats` package provides the necessary configuration files, systemd service, and directory setup to enable
 NATS Server to start automatically with mTLS enabled.
@@ -425,9 +413,10 @@ sudo dnf install -y ./serviceradar-nats-1.0.27-1.el9.x86_64.rpm
 ```
 
 The serviceradar-nats package automatically:
-* Creates a configuration file at /etc/nats/nats-server.conf with mTLS enabled
+* Installs the NATS Server binary in `/usr/bin/nats-server`
+* Creates a configuration file at `/etc/nats/nats-server.conf` with mTLS enabled
 * Sets up a hardened systemd service (nats.service) to manage the NATS Server
-* Creates necessary directories (/var/lib/nats/jetstream for JetStream data, /var/log/nats for logs)
+* Creates necessary directories (`/var/lib/nats/jetstream` for JetStream data, `/var/log/nats` for logs)
 * Configures permissions for the nats user
 
 Verify the NATS Server is running:
