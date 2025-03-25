@@ -9,7 +9,7 @@ After=network-online.target ntp.service
 [Service]
 Type=simple
 EnvironmentFile=-/etc/default/nats-server
-ExecStart=/usr/sbin/nats-server -c /etc/nats-server.conf
+ExecStart=/usr/bin/nats-server -c /etc/nats-server.conf
 ExecReload=/bin/kill -s HUP $MAINPID
 ExecStop=/bin/kill -s SIGINT $MAINPID
 
