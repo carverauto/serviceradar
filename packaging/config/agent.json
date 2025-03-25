@@ -1,10 +1,17 @@
 {
-    "checkers_dir": "/etc/serviceradar/checkers",
-    "listen_addr": ":50051",
-    "service_type": "grpc",
-    "service_name": "AgentService",
+  "checkers_dir": "/etc/serviceradar/checkers",
+  "listen_addr": ":50051",
+  "service_type": "grpc",
+  "service_name": "AgentService",
   "security": {
     "mode": "none",
-    "cert_dir": "/etc/serviceradar/certs"
+    "cert_dir": "/etc/serviceradar/certs",
+    "server_name": "server.serviceradar",
+    "role": "agent",
+    "tls": {
+      "cert_file": "agent.pem",
+      "key_file": "agent-key.pem",
+      "ca_file": "root.pem"
+    }
   }
 }

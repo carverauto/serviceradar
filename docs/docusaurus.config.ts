@@ -117,22 +117,6 @@ const config: Config = {
     // Optional: Add Mermaid theme configuration
     mermaid: {
       theme: { light: 'neutral', dark: 'base' },
-      options: {
-        themeVariables: {
-          primaryColor: '#10b981',
-          primaryTextColor: '#ffffff',
-          primaryBorderColor: '#047857',
-          lineColor: '#6ee7b7',
-          secondaryColor: '#059669',
-          secondaryTextColor: '#ffffff',
-          tertiaryColor: '#34d399',
-          tertiaryTextColor: '#1f2937',
-          background: '#1f2937',
-          mainBkg: '#10b981',
-          textColor: '#d1fae5',
-          darkMode: true
-        }
-      }
     },
   } satisfies Preset.ThemeConfig,
 };

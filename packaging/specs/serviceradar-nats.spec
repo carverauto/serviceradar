@@ -33,6 +33,8 @@ fi
 
 %post
 %systemd_post serviceradar-nats.service
+sudo usermod -aG serviceradar nats
+sudo chmod 750 /etc/serviceradar/certs/
 chmod 755 /usr/bin/nats-server
 
 # Enable and start service
