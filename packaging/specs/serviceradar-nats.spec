@@ -14,7 +14,9 @@ NATS JetStream (Message Broker, KV) service for ServiceRadar monitoring system.
 %install
 mkdir -p %{buildroot}/usr/bin
 mkdir -p %{buildroot}/lib/systemd/system
-mkdir -p %{buildroot}/var/lib/nats
+mkdir -p %{buildroot}/var/lib/nats/jetstream
+mkdir -p %{buildroot}/var/log/nats
+mkdir -p %{buildroot}/etc
 
 install -m 755 %{_builddir}/nats-server %{buildroot}/usr/bin/
 install -m 644 %{_sourcedir}/systemd/serviceradar-nats.service %{buildroot}/lib/systemd/system/
@@ -24,23 +26,40 @@ install -m 644 %{_sourcedir}/config/nats-server.conf %{buildroot}/etc/
 %attr(0755, nats, nats) /usr/bin/nats-server
 %config(noreplace) %attr(0644, nats, nats) /etc/nats-server.conf
 %attr(0644, root, root) /lib/systemd/system/serviceradar-nats.service
+%dir %attr(0755, nats, nats) /var/lib/nats
+%dir %attr(0755, nats, nats) /var/lib/nats/jetstream
+%dir %attr(0755, nats, nats) /var/log/nats
 
 %pre
 # Create nats user if it doesn't exist
+if ! getent group nats >/dev/null; then
+    groupadd --system nats
+fi
 if ! id -u nats >/dev/null 2>&1; then
-    useradd --system --no-create-home --shell /usr/sbin/nologin nats
+    useradd --system --no-create-home --shell /usr/sbin/nologin --gid nats nats
 fi
 
 %post
 %systemd_post serviceradar-nats.service
-sudo usermod -aG serviceradar nats
-sudo chmod 750 /etc/serviceradar/certs/
+# Create required directories with proper permissions
+mkdir -p /var/lib/nats/jetstream /var/log/nats
+chown -R nats:nats /var/lib/nats /var/log/nats
+chmod -R 750 /var/lib/nats /var/log/nats
+
+# Add nats user to serviceradar group if it exists
+if getent group serviceradar >/dev/null; then
+    usermod -aG serviceradar nats
+fi
+# Allow nats user to read the ServiceRadar certificates if they exist
+if [ -d "/etc/serviceradar/certs/" ]; then
+    chmod 750 /etc/serviceradar/certs/
+fi
 chmod 755 /usr/bin/nats-server
 
 # Enable and start service
 systemctl daemon-reload
 systemctl enable serviceradar-nats.service
-systemctl start serviceradar-nats.service
+systemctl start serviceradar-nats.service || true
 
 %preun
 %systemd_preun serviceradar-nats.service
