@@ -10,6 +10,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/poller" // Import poller for mocks
 	"github.com/carverauto/serviceradar/proto"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
 
@@ -49,13 +50,13 @@ func TestNew_ValidConfig(t *testing.T) {
 	}
 
 	registry := map[string]IntegrationFactory{
-		"armis": func(ctx context.Context, config models.SourceConfig) Integration {
+		"armis": func(_ context.Context, _ models.SourceConfig) Integration {
 			return NewMockIntegration(ctrl)
 		},
 	}
 
 	syncer, err := New(context.Background(), c, mockKV, mockGRPC, registry, mockClock)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, syncer)
 	assert.NotNil(t, syncer.poller)
 	assert.NotNil(t, syncer.poller.PollFunc)
@@ -98,7 +99,7 @@ func TestSync_Success(t *testing.T) {
 	}
 
 	registry := map[string]IntegrationFactory{
-		"armis": func(ctx context.Context, config models.SourceConfig) Integration {
+		"armis": func(_ context.Context, _ models.SourceConfig) Integration {
 			return mockInteg
 		},
 	}
@@ -111,7 +112,7 @@ func TestSync_Success(t *testing.T) {
 	}, gomock.Any()).Return(&proto.PutResponse{}, nil)
 
 	syncer, err := New(context.Background(), c, mockKV, mockGRPC, registry, mockClock)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	err = syncer.Sync(context.Background())
 	assert.NoError(t, err)
@@ -155,13 +156,14 @@ func TestStartAndStop(t *testing.T) {
 	}
 
 	registry := map[string]IntegrationFactory{
-		"armis": func(ctx context.Context, c models.SourceConfig) Integration {
+		"armis": func(_ context.Context, _ models.SourceConfig) Integration {
 			return mockInteg
 		},
 	}
 
 	// Mock ticker behavior
 	tickChan := make(chan time.Time, 1)
+
 	mockClock.EXPECT().Ticker(500 * time.Millisecond).Return(mockTicker)
 	mockTicker.EXPECT().Chan().Return(tickChan).AnyTimes()
 	mockTicker.EXPECT().Stop()
@@ -177,7 +179,7 @@ func TestStartAndStop(t *testing.T) {
 	mockGRPC.EXPECT().Close().Return(nil)
 
 	syncer, err := New(context.Background(), c, mockKV, mockGRPC, registry, mockClock)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -186,10 +188,13 @@ func TestStartAndStop(t *testing.T) {
 	go func() {
 		// Simulate one tick
 		tickChan <- time.Now()
+
 		// Allow the tick to be processed
 		time.Sleep(10 * time.Millisecond)
-		err := syncer.Stop(context.Background())
+
+		err = syncer.Stop(context.Background())
 		assert.NoError(t, err)
+
 		close(done)
 	}()
 
@@ -237,13 +242,14 @@ func TestStart_ContextCancellation(t *testing.T) {
 	}
 
 	registry := map[string]IntegrationFactory{
-		"armis": func(ctx context.Context, config models.SourceConfig) Integration {
+		"armis": func(_ context.Context, _ models.SourceConfig) Integration {
 			return mockInteg
 		},
 	}
 
 	// Mock ticker behavior
 	tickChan := make(chan time.Time)
+
 	mockClock.EXPECT().Ticker(1 * time.Second).Return(mockTicker)
 	mockTicker.EXPECT().Chan().Return(tickChan).AnyTimes()
 	mockTicker.EXPECT().Stop()
@@ -259,15 +265,19 @@ func TestStart_ContextCancellation(t *testing.T) {
 	mockGRPC.EXPECT().Close().Return(nil)
 
 	syncer, err := New(context.Background(), c, mockKV, mockGRPC, registry, mockClock)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
+
 	done := make(chan struct{})
+
 	go func() {
 		time.Sleep(100 * time.Millisecond)
 		cancel()
-		err := syncer.Stop(context.Background())
+
+		err = syncer.Stop(context.Background())
 		assert.NoError(t, err)
+
 		close(done)
 	}()
 

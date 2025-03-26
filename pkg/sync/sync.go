@@ -106,6 +106,7 @@ func NewWithGRPC(ctx context.Context, config *Config) (*SyncPoller, error) {
 		if err != nil {
 			return nil, err
 		}
+
 		clientCfg.SecurityProvider = provider
 	}
 
@@ -137,31 +138,40 @@ func (s *SyncPoller) Start(ctx context.Context) error {
 // Stop delegates to poller.Poller.Stop and closes the gRPC client.
 func (s *SyncPoller) Stop(ctx context.Context) error {
 	err := s.poller.Stop(ctx)
+
 	if s.grpcClient != nil {
 		if closeErr := s.grpcClient.Close(); closeErr != nil {
 			log.Printf("Failed to close gRPC client: %v", closeErr)
+
 			if err == nil {
 				err = closeErr
 			}
 		}
 	}
+
 	return err
 }
 
 // Sync performs the synchronization of data from sources to KV.
 func (s *SyncPoller) Sync(ctx context.Context) error {
 	var wg sync.WaitGroup
+
 	errChan := make(chan error, len(s.sources))
 
 	for name, integration := range s.sources {
 		wg.Add(1)
+
 		go func(name string, integ Integration) {
 			defer wg.Done()
+
 			data, err := integ.Fetch(ctx)
+
 			if err != nil {
 				errChan <- err
+
 				return
 			}
+
 			s.writeToKV(ctx, name, data)
 		}(name, integration)
 	}
@@ -174,6 +184,7 @@ func (s *SyncPoller) Sync(ctx context.Context) error {
 			return err
 		}
 	}
+
 	return nil
 }
 
@@ -181,10 +192,12 @@ func (s *SyncPoller) writeToKV(ctx context.Context, sourceName string, data map[
 	prefix := s.config.Sources[sourceName].Prefix
 	for key, value := range data {
 		fullKey := prefix + key
+
 		_, err := s.kvClient.Put(ctx, &proto.PutRequest{
 			Key:   fullKey,
 			Value: value,
 		})
+
 		if err != nil {
 			log.Printf("Failed to write %s to KV: %v", fullKey, err)
 		}
