@@ -3,6 +3,7 @@ package integrations
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -20,7 +21,11 @@ type ArmisIntegration struct {
 }
 
 // NewArmisIntegration creates a new ArmisIntegration with a gRPC client.
-func NewArmisIntegration(ctx context.Context, config models.SourceConfig, kvClient proto.KVServiceClient, grpcConn *grpc.ClientConn) *ArmisIntegration {
+func NewArmisIntegration(
+	_ context.Context,
+	config models.SourceConfig,
+	kvClient proto.KVServiceClient,
+	grpcConn *grpc.ClientConn) *ArmisIntegration {
 	return &ArmisIntegration{
 		config:   config,
 		kvClient: kvClient,
@@ -55,9 +60,13 @@ type SweepConfig struct {
 	IcmpRateLimit int      `json:"icmp_rate_limit"`
 }
 
+var (
+	errUnexpectedStatusCode = errors.New("unexpected status code")
+)
+
 // Fetch retrieves devices from Armis and generates sweep config.
 func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.config.Endpoint+"?page=1&per_page=10", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.config.Endpoint+"?page=1&per_page=10", http.NoBody)
 	if err != nil {
 		return nil, err
 	}
@@ -68,30 +77,39 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error)
 	if err != nil {
 		return nil, err
 	}
+
 	defer func() {
-		if err := resp.Body.Close(); err != nil {
+		if err = resp.Body.Close(); err != nil {
 			log.Printf("Failed to close response body: %v", err)
 		}
 	}()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		return nil, fmt.Errorf("%w: %d", errUnexpectedStatusCode, resp.StatusCode)
 	}
 
 	var deviceResp DeviceResponse
-	if err := json.NewDecoder(resp.Body).Decode(&deviceResp); err != nil {
+
+	err = json.NewDecoder(resp.Body).Decode(&deviceResp)
+	if err != nil {
 		return nil, err
 	}
 
 	// Store individual devices
 	data := make(map[string][]byte)
+
 	ips := make([]string, 0, len(deviceResp.Devices))
+
+	var value []byte
+
 	for _, device := range deviceResp.Devices {
-		value, err := json.Marshal(device)
+		value, err = json.Marshal(device)
 		if err != nil {
 			return nil, err
 		}
+
 		data[device.DeviceID] = value // e.g., "device-1" -> {"device_id":"device-1","ip_address":"192.168.1.1"}
+
 		ips = append(ips, device.IPAddress+"/32")
 	}
 
@@ -109,9 +127,11 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error)
 		HighPerfIcmp:  true,
 		IcmpRateLimit: 5000,
 	}
+
 	configJSON, err := json.Marshal(sweepConfig)
 	if err != nil {
 		log.Printf("Failed to marshal sweep config: %v", err)
+
 		return data, nil // Continue with device data even if config fails
 	}
 
@@ -119,10 +139,12 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error)
 		Key:   "config/serviceradar-agent/network-sweep",
 		Value: configJSON,
 	})
+
 	if err != nil {
 		log.Printf("Failed to write sweep config: %v", err)
 		return data, nil // Continue with device data
 	}
+
 	log.Println("Wrote sweep config to config/serviceradar-agent/network-sweep")
 
 	return data, nil
