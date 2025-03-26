@@ -75,6 +75,12 @@ func (p *Poller) Start(ctx context.Context) error {
 
 	log.Printf("Starting poller with interval %v", interval)
 
+	p.startWg.Add(1) // Track Start goroutine
+	defer p.startWg.Done()
+
+	p.wg.Add(1)
+	defer p.wg.Done()
+
 	// Initial poll
 	if err := p.poll(ctx); err != nil {
 		log.Printf("Error during initial poll: %v", err)
@@ -87,9 +93,13 @@ func (p *Poller) Start(ctx context.Context) error {
 		case <-p.done:
 			return nil
 		case <-ticker.Chan():
-			if err := p.poll(ctx); err != nil {
-				log.Printf("Error during poll: %v", err)
-			}
+			p.wg.Add(1)
+			go func() {
+				defer p.wg.Done()
+				if err := p.poll(ctx); err != nil {
+					log.Printf("Error during poll: %v", err)
+				}
+			}()
 		}
 	}
 }
@@ -100,8 +110,11 @@ func (p *Poller) Stop(ctx context.Context) error {
 	defer cancel()
 
 	p.closeOnce.Do(func() {
-		close(p.done) // Close channel first
+		close(p.done) // Signal shutdown
 	})
+
+	p.startWg.Wait() // Wait for Start to exit
+	p.wg.Wait()      // Wait for all polling goroutines to finish
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
