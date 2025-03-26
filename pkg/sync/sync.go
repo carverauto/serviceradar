@@ -20,49 +20,66 @@ import (
 	"context"
 	"log"
 	"sync"
-	"time"
 
 	"github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/poller"
 	"github.com/carverauto/serviceradar/pkg/sync/integrations"
 	"github.com/carverauto/serviceradar/proto"
 )
 
-// Syncer manages the synchronization of data from external sources to the KV store.
-type Syncer struct {
+// SyncPoller manages synchronization using poller.Poller.
+type SyncPoller struct {
+	poller     *poller.Poller
 	config     Config
 	kvClient   KVClient
 	grpcClient GRPCClient
 	sources    map[string]Integration
-	done       chan struct{}
-	// mu                  sync.RWMutex
-	clock               Clock
-	integrationRegistry map[string]IntegrationFactory
+	registry   map[string]IntegrationFactory
 }
 
-// New creates a new Syncer with explicit dependencies.
+// New creates a new SyncPoller with explicit dependencies, leveraging poller.Poller.
 func New(
 	ctx context.Context,
 	config *Config,
 	kvClient KVClient,
 	grpcClient GRPCClient,
-	clock Clock,
-	registry map[string]IntegrationFactory) (*Syncer, error) {
+	registry map[string]IntegrationFactory,
+	clock poller.Clock,
+) (*SyncPoller, error) {
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
 
-	s := &Syncer{
-		config:              *config,
-		kvClient:            kvClient,
-		grpcClient:          grpcClient,
-		sources:             make(map[string]Integration),
-		done:                make(chan struct{}),
-		clock:               clock,
-		integrationRegistry: registry,
+	// Create a minimal poller config; no core or agents needed for syncing
+	pollerConfig := &poller.Config{
+		PollInterval: config.PollInterval,
+		Security:     config.Security,
+		Agents:       make(map[string]poller.AgentConfig), // Empty agents map
+	}
+
+	if clock == nil {
+		clock = poller.Clock(realClock{})
+	}
+
+	p, err := poller.New(ctx, pollerConfig, clock)
+	if err != nil {
+		return nil, err
+	}
+
+	s := &SyncPoller{
+		poller:     p,
+		config:     *config,
+		kvClient:   kvClient,
+		grpcClient: grpcClient,
+		sources:    make(map[string]Integration),
+		registry:   registry,
 	}
 
 	s.initializeIntegrations(ctx)
+
+	// Set the PollFunc to our Sync method
+	s.poller.PollFunc = s.Sync
 
 	return s, nil
 }
@@ -78,7 +95,7 @@ func defaultIntegrationRegistry() map[string]IntegrationFactory {
 }
 
 // NewWithGRPC sets up the gRPC client for production use with default integrations.
-func NewWithGRPC(ctx context.Context, config *Config, clock Clock) (*Syncer, error) {
+func NewWithGRPC(ctx context.Context, config *Config) (*SyncPoller, error) {
 	clientCfg := grpc.ClientConfig{
 		Address:    config.KVAddress,
 		MaxRetries: 3,
@@ -89,7 +106,6 @@ func NewWithGRPC(ctx context.Context, config *Config, clock Clock) (*Syncer, err
 		if err != nil {
 			return nil, err
 		}
-
 		clientCfg.SecurityProvider = provider
 	}
 
@@ -100,12 +116,12 @@ func NewWithGRPC(ctx context.Context, config *Config, clock Clock) (*Syncer, err
 
 	kvClient := proto.NewKVServiceClient(client.GetConnection())
 
-	return New(ctx, config, kvClient, client, clock, defaultIntegrationRegistry())
+	return New(ctx, config, kvClient, client, defaultIntegrationRegistry(), nil)
 }
 
-func (s *Syncer) initializeIntegrations(ctx context.Context) {
+func (s *SyncPoller) initializeIntegrations(ctx context.Context) {
 	for name, src := range s.config.Sources {
-		if factory, ok := s.integrationRegistry[src.Type]; ok {
+		if factory, ok := s.registry[src.Type]; ok {
 			s.sources[name] = factory(ctx, src)
 		} else {
 			log.Printf("Unknown source type: %s", src.Type)
@@ -113,61 +129,39 @@ func (s *Syncer) initializeIntegrations(ctx context.Context) {
 	}
 }
 
-func (s *Syncer) Start(ctx context.Context) error {
-	interval := time.Duration(s.config.PollInterval)
+// Start delegates to poller.Poller.Start, using PollFunc for syncing.
+func (s *SyncPoller) Start(ctx context.Context) error {
+	return s.poller.Start(ctx)
+}
 
-	ticker := s.clock.Ticker(interval)
-	defer ticker.Stop()
-
-	log.Printf("Starting syncer with interval %v", interval)
-
-	// Initial sync
-	if err := s.Sync(ctx); err != nil {
-		log.Printf("Initial sync failed: %v", err)
-	}
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-s.done:
-			return nil
-		case <-ticker.Chan():
-			if err := s.Sync(ctx); err != nil {
-				log.Printf("Sync failed: %v", err)
+// Stop delegates to poller.Poller.Stop and closes the gRPC client.
+func (s *SyncPoller) Stop(ctx context.Context) error {
+	err := s.poller.Stop(ctx)
+	if s.grpcClient != nil {
+		if closeErr := s.grpcClient.Close(); closeErr != nil {
+			log.Printf("Failed to close gRPC client: %v", closeErr)
+			if err == nil {
+				err = closeErr
 			}
 		}
 	}
+	return err
 }
 
-func (s *Syncer) Stop(_ context.Context) error {
-	close(s.done)
-
-	if s.grpcClient != nil {
-		return s.grpcClient.Close()
-	}
-
-	return nil
-}
-
-func (s *Syncer) Sync(ctx context.Context) error {
+// Sync performs the synchronization of data from sources to KV.
+func (s *SyncPoller) Sync(ctx context.Context) error {
 	var wg sync.WaitGroup
-
 	errChan := make(chan error, len(s.sources))
 
 	for name, integration := range s.sources {
 		wg.Add(1)
-
 		go func(name string, integ Integration) {
 			defer wg.Done()
-
 			data, err := integ.Fetch(ctx)
 			if err != nil {
 				errChan <- err
-
 				return
 			}
-
 			s.writeToKV(ctx, name, data)
 		}(name, integration)
 	}
@@ -180,51 +174,24 @@ func (s *Syncer) Sync(ctx context.Context) error {
 			return err
 		}
 	}
-
 	return nil
 }
 
-func (s *Syncer) writeToKV(ctx context.Context, sourceName string, data map[string][]byte) {
+func (s *SyncPoller) writeToKV(ctx context.Context, sourceName string, data map[string][]byte) {
 	prefix := s.config.Sources[sourceName].Prefix
-
 	for key, value := range data {
 		fullKey := prefix + key
-
 		_, err := s.kvClient.Put(ctx, &proto.PutRequest{
 			Key:   fullKey,
 			Value: value,
 		})
-
 		if err != nil {
 			log.Printf("Failed to write %s to KV: %v", fullKey, err)
 		}
 	}
 }
 
-// realClock implements Clock using the real time package.
-type realClock struct{}
-
-func (realClock) Now() time.Time {
-	return time.Now()
-}
-
-func (realClock) Ticker(d time.Duration) Ticker {
-	return &realTicker{t: time.NewTicker(d)}
-}
-
-type realTicker struct {
-	t *time.Ticker
-}
-
-func (r *realTicker) Chan() <-chan time.Time {
-	return r.t.C
-}
-
-func (r *realTicker) Stop() {
-	r.t.Stop()
-}
-
 // NewDefault provides a production-ready constructor with default settings.
-func NewDefault(ctx context.Context, config *Config) (*Syncer, error) {
-	return NewWithGRPC(ctx, config, realClock{})
+func NewDefault(ctx context.Context, config *Config) (*SyncPoller, error) {
+	return NewWithGRPC(ctx, config)
 }
