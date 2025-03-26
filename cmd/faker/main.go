@@ -1,3 +1,4 @@
+// cmd/faker/main.go
 package main
 
 import (
@@ -6,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"time"
 )
 
 type Device struct {
@@ -23,15 +25,25 @@ type DeviceResponse struct {
 }
 
 func main() {
-	http.HandleFunc("/v1/devices", devicesHandler)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/devices", devicesHandler)
 
-	log.Println("Fake ARMIS API starting on :8080")
+	server := &http.Server{
+		Addr:         ":8080",
+		Handler:      mux,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  30 * time.Second,
+	}
 
-	if err := http.ListenAndServe(":8080", nil); err != nil {
+	log.Println("Fake Armis API starting on :8080")
+
+	if err := server.ListenAndServe(); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
 }
 
+// devicesHandler handles GET requests for /v1/devices with pagination.
 func devicesHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -41,25 +53,44 @@ func devicesHandler(w http.ResponseWriter, r *http.Request) {
 
 	log.Println("Request received")
 
-	// Parse pagination params
-	pageStr := r.URL.Query().Get("page")
-	perPageStr := r.URL.Query().Get("per_page")
+	page, perPage := parsePagination(r)
+	start, end := calculateRange(page, perPage)
 
-	page, _ := strconv.Atoi(pageStr)
+	devices := generateDevices(start, end)
+	resp := buildResponse(devices, page, perPage)
+
+	w.Header().Set("Content-Type", "application/json")
+
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
+	}
+}
+
+// parsePagination extracts and validates page and per_page query parameters.
+func parsePagination(r *http.Request) (page, perPage int) {
+	pageStr := r.URL.Query().Get("page")
+
+	page, _ = strconv.Atoi(pageStr)
 	if page < 1 {
 		page = 1
 	}
 
-	perPage, _ := strconv.Atoi(perPageStr)
+	perPageStr := r.URL.Query().Get("per_page")
+
+	perPage, _ = strconv.Atoi(perPageStr)
 	if perPage < 1 || perPage > 100 {
 		perPage = 10
 	}
 
-	// Simulate a dataset of 50 devices
-	totalDevices := 50
+	return page, perPage
+}
 
-	start := (page - 1) * perPage
-	end := start + perPage
+// calculateRange computes the start and end indices for pagination.
+func calculateRange(page, perPage int) (start, end int) {
+	const totalDevices = 50
+
+	start = (page - 1) * perPage
+	end = start + perPage
 
 	if start > totalDevices {
 		start = totalDevices
@@ -69,9 +100,12 @@ func devicesHandler(w http.ResponseWriter, r *http.Request) {
 		end = totalDevices
 	}
 
-	// Generate fake devices
-	devices := make([]Device, 0, perPage)
+	return start, end
+}
 
+// generateDevices creates a slice of fake devices for the given range.
+func generateDevices(start, end int) []Device {
+	devices := make([]Device, 0, end-start)
 	for i := start; i < end; i++ {
 		devices = append(devices, Device{
 			DeviceID:  fmt.Sprintf("device-%d", i+1),
@@ -79,29 +113,31 @@ func devicesHandler(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// Pagination metadata
+	return devices
+}
+
+// buildResponse constructs the paginated response with metadata.
+func buildResponse(devices []Device, page, perPage int) DeviceResponse {
+	const totalDevices = 50
+
 	var nextPage, prevPage *int
 
-	if end < totalDevices {
+	if page*perPage < totalDevices {
 		n := page + 1
 		nextPage = &n
 	}
+
 	if page > 1 {
 		p := page - 1
 		prevPage = &p
 	}
 
-	resp := DeviceResponse{
+	return DeviceResponse{
 		Devices:  devices,
 		Total:    totalDevices,
 		Page:     page,
 		PerPage:  perPage,
 		NextPage: nextPage,
 		PrevPage: prevPage,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		http.Error(w, "Failed to encode response", http.StatusInternalServerError)
 	}
 }
