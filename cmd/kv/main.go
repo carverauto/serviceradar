@@ -20,20 +20,15 @@ import (
 	"context"
 	"flag"
 	"log"
-	"time"
 
 	"github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/kv"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 )
 
-const (
-	defaultTTL = 24 * time.Hour
-)
-
 func main() {
 	configPath := flag.String("config", "/etc/serviceradar/kv.json", "Path to config file")
-	natsURL := flag.String("nats-url", "nats://localhost:4222", "NATS server URL")
+	natsURL := flag.String("nats-url", "", "NATS server URL (overrides config)")
 	flag.Parse()
 
 	ctx := context.Background()
@@ -42,25 +37,28 @@ func main() {
 	cfgLoader := config.NewConfig()
 
 	var cfg kv.Config
-
 	if err := cfgLoader.LoadAndValidate(ctx, *configPath, &cfg); err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	// Create NATS JetStream KV store
-	store, err := kv.NewNatsStore(ctx, *natsURL, "serviceradar-config", defaultTTL)
-	if err != nil {
-		log.Fatalf("Failed to create NATS KV store: %v", err)
+	// Override NatsURL if provided via flag
+	if *natsURL != "" {
+		cfg.NatsURL = *natsURL
 	}
 
-	// Set KV store for config package
-	cfgLoader.SetKVStore(store)
+	// Validate the configuration
+	if err := cfg.Validate(); err != nil {
+		log.Fatalf("Invalid configuration: %v", err)
+	}
 
-	// Create KV server
-	server, err := kv.NewServer(cfg, store)
+	// Create KV server (store is created internally)
+	server, err := kv.NewServer(ctx, cfg)
 	if err != nil {
 		log.Fatalf("Failed to create KV server: %v", err)
 	}
+
+	// Set KV store for config package
+	cfgLoader.SetKVStore(server.Store())
 
 	// Run with lifecycle management
 	opts := &lifecycle.ServerOptions{

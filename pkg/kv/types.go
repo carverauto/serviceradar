@@ -16,7 +16,12 @@
 
 package kv
 
-import "github.com/carverauto/serviceradar/pkg/models"
+import (
+	"fmt"
+	"path/filepath"
+
+	"github.com/carverauto/serviceradar/pkg/models"
+)
 
 // Role defines a role in the RBAC system.
 type Role string
@@ -40,4 +45,59 @@ type Config struct {
 	RBAC       struct {
 		Roles []RBACRule `json:"roles"`
 	} `json:"rbac"`
+	Bucket string `json:"bucket,omitempty"` // Added for NATS KV bucket
+}
+
+var (
+	errListenAddrRequired = fmt.Errorf("listen_addr is required")
+	errNatsURLRequired    = fmt.Errorf("nats_url is required")
+	errSecurityRequired   = fmt.Errorf("security configuration is required for mTLS")
+	errCertFileRequired   = fmt.Errorf("tls.cert_file is required for mTLS")
+	errKeyFileRequired    = fmt.Errorf("tls.key_file is required for mTLS")
+	errCAFileRequired     = fmt.Errorf("tls.ca_file is required for mTLS")
+)
+
+// Validate ensures the configuration is valid.
+func (c *Config) Validate() error {
+	if c.ListenAddr == "" {
+		return errListenAddrRequired
+	}
+	if c.NatsURL == "" {
+		return errNatsURLRequired
+	}
+	if c.Security == nil || c.Security.Mode != "mtls" {
+		return errSecurityRequired
+	}
+
+	// Normalize paths by prepending CertDir if provided
+	certDir := c.Security.CertDir
+	if certDir != "" {
+		if !filepath.IsAbs(c.Security.TLS.CertFile) {
+			c.Security.TLS.CertFile = filepath.Join(certDir, c.Security.TLS.CertFile)
+		}
+		if !filepath.IsAbs(c.Security.TLS.KeyFile) {
+			c.Security.TLS.KeyFile = filepath.Join(certDir, c.Security.TLS.KeyFile)
+		}
+		if !filepath.IsAbs(c.Security.TLS.CAFile) {
+			c.Security.TLS.CAFile = filepath.Join(certDir, c.Security.TLS.CAFile)
+		}
+	}
+
+	// Validate TLS fields
+	if c.Security.TLS.CertFile == "" {
+		return errCertFileRequired
+	}
+	if c.Security.TLS.KeyFile == "" {
+		return errKeyFileRequired
+	}
+	if c.Security.TLS.CAFile == "" {
+		return errCAFileRequired
+	}
+
+	// Default bucket if not specified
+	if c.Bucket == "" {
+		c.Bucket = "serviceradar-kv"
+	}
+
+	return nil
 }
