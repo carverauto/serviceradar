@@ -126,6 +126,7 @@ build: generate-proto ## Build all binaries
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-poller cmd/poller/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-dusk-checker cmd/checkers/dusk/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-core cmd/core/main.go
+	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-kv cmd/kv/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-snmp-checker cmd/checkers/snmp/main.go
 	@echo "$(COLOR_BOLD)Building Rust rperf plugin$(COLOR_RESET)"
 	@cd cmd/checkers/rperf && $(CARGO) build --release
@@ -198,6 +199,11 @@ deb-core: build-web ## Build the core Debian package (standard)
 deb-web: build-web ## Build the web Debian package
 	@echo "$(COLOR_BOLD)Building web Debian package$(COLOR_RESET)"
 	@VERSION=$(VERSION) ./scripts/setup-deb-web.sh
+
+.PHONY: deb-kv
+deb-kv: build-kv ## Build the KV Debian package
+	@echo "$(COLOR_BOLD)Building KV Debian package$(COLOR_RESET)"
+	@VERSION=$(VERSION) ./scripts/setup-deb-kv.sh
 
 .PHONY: deb-core-container
 deb-core-container: build-web ## Build the core Debian package with container support
