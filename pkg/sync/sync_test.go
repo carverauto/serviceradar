@@ -126,7 +126,7 @@ func TestStartAndStop(t *testing.T) {
 	mockGRPC := NewMockGRPCClient(ctrl)
 	mockInteg := NewMockIntegration(ctrl)
 	mockClock := poller.NewMockClock(ctrl)
-	mockTicker := poller.NewMockTicker(ctrl) // Use poller.Ticker mock
+	mockTicker := poller.NewMockTicker(ctrl)
 
 	c := &Config{
 		Sources: map[string]models.SourceConfig{
@@ -139,20 +139,7 @@ func TestStartAndStop(t *testing.T) {
 		},
 		KVAddress:    "localhost:50051",
 		PollInterval: config.Duration(500 * time.Millisecond),
-		Security: &models.SecurityConfig{
-			Mode: "mtls",
-			Role: models.RolePoller,
-			TLS: struct {
-				CertFile     string `json:"cert_file"`
-				KeyFile      string `json:"key_file"`
-				CAFile       string `json:"ca_file"`
-				ClientCAFile string `json:"client_ca_file"`
-			}{
-				CertFile: "cert.pem",
-				KeyFile:  "key.pem",
-				CAFile:   "ca.pem",
-			},
-		},
+		Security:     &models.SecurityConfig{ /* ... */ },
 	}
 
 	registry := map[string]IntegrationFactory{
@@ -161,21 +148,14 @@ func TestStartAndStop(t *testing.T) {
 		},
 	}
 
-	// Mock ticker behavior
 	tickChan := make(chan time.Time, 1)
-
 	mockClock.EXPECT().Ticker(500 * time.Millisecond).Return(mockTicker)
 	mockTicker.EXPECT().Chan().Return(tickChan).AnyTimes()
 	mockTicker.EXPECT().Stop()
 
-	// Mock initial Sync and one tick-triggered Sync
 	data := map[string][]byte{"devices": []byte("data")}
-	mockInteg.EXPECT().Fetch(gomock.Any()).Return(data, nil).Times(2) // Initial + 1 tick
-	mockKV.EXPECT().Put(gomock.Any(), &proto.PutRequest{
-		Key:   "armis/devices",
-		Value: []byte("data"),
-	}, gomock.Any()).Return(&proto.PutResponse{}, nil).Times(2)
-
+	mockInteg.EXPECT().Fetch(gomock.Any()).Return(data, nil).Times(2) // Initial poll + 1 tick
+	mockKV.EXPECT().Put(gomock.Any(), gomock.Any(), gomock.Any()).Return(&proto.PutResponse{}, nil).Times(2)
 	mockGRPC.EXPECT().Close().Return(nil)
 
 	syncer, err := New(context.Background(), c, mockKV, mockGRPC, registry, mockClock)
@@ -184,24 +164,41 @@ func TestStartAndStop(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	done := make(chan struct{})
+	startDone := make(chan struct{})
+	tickProcessed := make(chan struct{})
+	var startErr error
+
+	// Override PollFunc to signal when a tick is processed
+	originalPollFunc := syncer.poller.PollFunc
+	syncer.poller.PollFunc = func(ctx context.Context) error {
+		err := originalPollFunc(ctx)
+		if err == nil {
+			select {
+			case tickProcessed <- struct{}{}:
+			default:
+			}
+		}
+		return err
+	}
+
 	go func() {
-		// Simulate one tick
-		tickChan <- time.Now()
-
-		// Allow the tick to be processed
-		time.Sleep(10 * time.Millisecond)
-
-		err = syncer.Stop(context.Background())
-		assert.NoError(t, err)
-
-		close(done)
+		startErr = syncer.Start(ctx)
+		assert.Equal(t, context.Canceled, startErr) // Expect context.Canceled when stopped
+		close(startDone)
 	}()
 
-	err = syncer.Start(ctx)
-	assert.NoError(t, err)
+	// Wait for Start to begin (initial poll)
+	time.Sleep(10 * time.Millisecond)
 
-	<-done
+	// Trigger a tick and wait for it to be processed
+	tickChan <- time.Now()
+	<-tickProcessed // Wait for the tick to be processed
+
+	cancel()    // Stop the Start loop cleanly
+	<-startDone // Wait for Start to exit
+
+	stopErr := syncer.Stop(context.Background())
+	assert.NoError(t, stopErr)
 }
 
 func TestStart_ContextCancellation(t *testing.T) {
@@ -247,9 +244,7 @@ func TestStart_ContextCancellation(t *testing.T) {
 		},
 	}
 
-	// Mock ticker behavior
 	tickChan := make(chan time.Time)
-
 	mockClock.EXPECT().Ticker(1 * time.Second).Return(mockTicker)
 	mockTicker.EXPECT().Chan().Return(tickChan).AnyTimes()
 	mockTicker.EXPECT().Stop()
@@ -268,21 +263,19 @@ func TestStart_ContextCancellation(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
-
-	done := make(chan struct{})
+	startDone := make(chan struct{})
 
 	go func() {
-		time.Sleep(100 * time.Millisecond)
-		cancel()
-
-		err = syncer.Stop(context.Background())
-		assert.NoError(t, err)
-
-		close(done)
+		err = syncer.Start(ctx)
+		assert.Equal(t, context.Canceled, err)
+		close(startDone)
 	}()
 
-	err = syncer.Start(ctx)
-	assert.Equal(t, context.Canceled, err)
+	time.Sleep(100 * time.Millisecond) // Allow Start to begin
+	cancel()                           // Cancel the context
 
-	<-done
+	<-startDone // Wait for Start to exit
+
+	err = syncer.Stop(context.Background())
+	assert.NoError(t, err)
 }

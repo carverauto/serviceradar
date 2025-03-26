@@ -31,13 +31,15 @@ type Poller struct {
 	proto.UnimplementedPollerServiceServer
 	config     Config
 	coreClient proto.PollerServiceClient
-	grpcClient *grpc.Client // Updated to use grpc.Client
+	grpcClient *grpc.Client
 	mu         sync.RWMutex
 	agents     map[string]*AgentConnection
 	done       chan struct{}
 	closeOnce  sync.Once
 	PollFunc   func(ctx context.Context) error // Optional override
 	clock      Clock
+	wg         sync.WaitGroup
+	startWg    sync.WaitGroup
 }
 
 // ServiceCheck manages a single service check operation.
