@@ -30,7 +30,6 @@ import (
 
 func main() {
 	configPath := flag.String("config", "/etc/serviceradar/kv.json", "Path to config file")
-	natsURL := flag.String("nats-url", "", "NATS server URL (overrides config)")
 	flag.Parse()
 
 	ctx := context.Background()
@@ -40,10 +39,6 @@ func main() {
 	var cfg kv.Config
 	if err := cfgLoader.LoadAndValidate(ctx, *configPath, &cfg); err != nil {
 		log.Fatalf("Failed to load config: %v", err)
-	}
-
-	if *natsURL != "" {
-		cfg.NatsURL = *natsURL
 	}
 
 	if err := cfg.Validate(); err != nil {
