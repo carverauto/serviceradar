@@ -60,7 +60,7 @@ func setupServer(t *testing.T) (*Server, *MockKVStore) {
 		},
 	}
 
-	return &Server{config: config, store: mockStore}, mockStore
+	return &Server{config: &config, store: mockStore}, mockStore
 }
 
 func TestExtractIdentity(t *testing.T) {
