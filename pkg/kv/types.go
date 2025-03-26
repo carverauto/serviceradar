@@ -16,7 +16,9 @@
 
 package kv
 
-import "github.com/carverauto/serviceradar/pkg/models"
+import (
+	"github.com/carverauto/serviceradar/pkg/models"
+)
 
 // Role defines a role in the RBAC system.
 type Role string
@@ -40,4 +42,5 @@ type Config struct {
 	RBAC       struct {
 		Roles []RBACRule `json:"roles"`
 	} `json:"rbac"`
+	Bucket string `json:"bucket,omitempty"` // Added for NATS KV bucket
 }

@@ -67,51 +67,69 @@ type MTLSProvider struct {
 	needsServer bool
 }
 
+// NewMTLSProvider creates a new MTLSProvider with the given configuration.
 func NewMTLSProvider(config *models.SecurityConfig) (*MTLSProvider, error) {
 	if config == nil {
 		return nil, errSecurityConfigRequired
 	}
 
-	provider := &MTLSProvider{
-		config: config,
-	}
-
-	// Determine which credentials are needed based on role
-	switch config.Role {
-	case models.RolePoller:
-		provider.needsClient = true // For connecting to Agent and Core
-		provider.needsServer = true // For health check endpoints
-	case models.RoleAgent:
-		provider.needsClient = true // For connecting to checkers
-		provider.needsServer = true // For accepting poller connections
-	case models.RoleCore:
-		provider.needsServer = true // Only accepts connections
-	case models.RoleChecker:
-		provider.needsServer = true // Only accepts connections
-	default:
-		return nil, fmt.Errorf("%w: %s", errInvalidServiceRole, config.Role)
+	provider := &MTLSProvider{config: config}
+	if err := provider.setCredentialNeeds(); err != nil {
+		return nil, err
 	}
 
 	log.Printf("Initializing mTLS provider - Role: %s, NeedsClient: %v, NeedsServer: %v",
 		config.Role, provider.needsClient, provider.needsServer)
 
-	// Load only the needed credentials
-	var err error
-	if provider.needsClient {
-		provider.clientCreds, err = loadClientCredentials(config)
-		if err != nil {
-			return nil, fmt.Errorf("%w: %w", errFailedToLoadClientCreds, err)
-		}
-	}
-
-	if provider.needsServer {
-		provider.serverCreds, err = loadServerCredentials(config)
-		if err != nil {
-			return nil, fmt.Errorf("%w: %w", errFailedToLoadServerCreds, err)
-		}
+	if err := provider.loadCredentials(); err != nil {
+		return nil, err
 	}
 
 	return provider, nil
+}
+
+// setCredentialNeeds determines which TLS credentials are required based on the role.
+func (p *MTLSProvider) setCredentialNeeds() error {
+	roleNeeds := map[models.ServiceRole]struct {
+		needsClient, needsServer bool
+	}{
+		models.RolePoller:  {true, true},  // Client to Agent/Core, Server for health
+		models.RoleAgent:   {true, true},  // Client to checkers, Server for Poller
+		models.RoleCore:    {false, true}, // Server only
+		models.RoleKVStore: {true, true},  // Client to NATS, Server for gRPC
+		models.RoleChecker: {false, true}, // Server only
+	}
+
+	needs, ok := roleNeeds[p.config.Role]
+	if !ok {
+		return fmt.Errorf("%w: %s", errInvalidServiceRole, p.config.Role)
+	}
+
+	p.needsClient = needs.needsClient
+	p.needsServer = needs.needsServer
+
+	return nil
+}
+
+// loadCredentials loads the necessary TLS credentials based on role needs.
+func (p *MTLSProvider) loadCredentials() error {
+	var err error
+
+	if p.needsClient {
+		p.clientCreds, err = loadClientCredentials(p.config)
+		if err != nil {
+			return fmt.Errorf("%w: %w", errFailedToLoadClientCreds, err)
+		}
+	}
+
+	if p.needsServer {
+		p.serverCreds, err = loadServerCredentials(p.config)
+		if err != nil {
+			return fmt.Errorf("%w: %w", errFailedToLoadServerCreds, err)
+		}
+	}
+
+	return nil
 }
 
 func (p *MTLSProvider) Close() error {

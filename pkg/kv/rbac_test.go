@@ -257,7 +257,7 @@ func (*mockWatchServer) SendMsg(interface{}) error       { return nil }
 func (*mockWatchServer) RecvMsg(interface{}) error       { return nil }
 
 func TestEmptyRBACConfig(t *testing.T) {
-	s := &Server{config: Config{RBAC: struct {
+	s := &Server{config: &Config{RBAC: struct {
 		Roles []RBACRule `json:"roles"`
 	}(struct{ Roles []RBACRule }{})}}
 	cert := &x509.Certificate{Subject: pkix.Name{CommonName: "reader-client"}}
