@@ -146,6 +146,7 @@ elements/
 ./poller
 ./agent
 ./core
+./kv
 
 ./web/dist/assets
 ./dist
@@ -159,8 +160,10 @@ serviceradar-poller_*/
 serviceradar-cloud_*/
 serviceradar-core*/
 serviceradar-web*/
+serviceradar-kv*/
+serviceradar-nats*/
+nats-server-*/
 /pkg/cloud/api/web/dist/assets/
-cmd/cli/
 
 # Coverage files
 cover.long.profile

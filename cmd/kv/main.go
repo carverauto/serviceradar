@@ -20,55 +20,50 @@ import (
 	"context"
 	"flag"
 	"log"
-	"time"
 
 	"github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/kv"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
-)
-
-const (
-	defaultTTL = 24 * time.Hour
+	"github.com/carverauto/serviceradar/proto"
+	ggrpc "google.golang.org/grpc"
 )
 
 func main() {
 	configPath := flag.String("config", "/etc/serviceradar/kv.json", "Path to config file")
-	natsURL := flag.String("nats-url", "nats://localhost:4222", "NATS server URL")
 	flag.Parse()
 
 	ctx := context.Background()
 
-	// Load KV service config
 	cfgLoader := config.NewConfig()
 
 	var cfg kv.Config
-
 	if err := cfgLoader.LoadAndValidate(ctx, *configPath, &cfg); err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	// Create NATS JetStream KV store
-	store, err := kv.NewNatsStore(ctx, *natsURL, "serviceradar-config", defaultTTL)
-	if err != nil {
-		log.Fatalf("Failed to create NATS KV store: %v", err)
+	if err := cfg.Validate(); err != nil {
+		log.Fatalf("Invalid configuration: %v", err)
 	}
 
-	// Set KV store for config package
-	cfgLoader.SetKVStore(store)
-
-	// Create KV server
-	server, err := kv.NewServer(cfg, store)
+	server, err := kv.NewServer(ctx, &cfg)
 	if err != nil {
 		log.Fatalf("Failed to create KV server: %v", err)
 	}
 
-	// Run with lifecycle management
+	cfgLoader.SetKVStore(server.Store())
+
 	opts := &lifecycle.ServerOptions{
 		ListenAddr:        cfg.ListenAddr,
 		ServiceName:       "kv",
 		Service:           server,
 		EnableHealthCheck: true,
 		Security:          cfg.Security,
+		RegisterGRPCServices: []lifecycle.GRPCServiceRegistrar{
+			func(srv *ggrpc.Server) error {
+				proto.RegisterKVServiceServer(srv, server)
+				return nil
+			},
+		},
 	}
 
 	if err := lifecycle.RunServer(ctx, opts); err != nil {

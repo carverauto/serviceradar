@@ -23,10 +23,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/config/kv"
-	"github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/proto"
-	ggrpc "google.golang.org/grpc" // Alias for Google's gRPC
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -34,67 +31,40 @@ import (
 // Server implements the KVService gRPC interface and lifecycle.Service.
 type Server struct {
 	proto.UnimplementedKVServiceServer
-	config Config
-	store  kv.KVStore
-	grpc   *grpc.Server
+	config *Config
+	store  KVStore
 }
 
-// NewServer creates a new KV service server with the given KVStore.
-func NewServer(cfg Config, store kv.KVStore) (*Server, error) {
-	if store == nil {
-		return nil, errKVStoreRequired
+func NewServer(ctx context.Context, cfg *Config) (*Server, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
 
-	s := &Server{
+	store, err := NewNatsStore(ctx, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create NATS store: %w", err)
+	}
+
+	return &Server{
 		config: cfg,
 		store:  store,
-	}
-
-	// Initialize gRPC server
-	secProvider, err := grpc.NewSecurityProvider(context.Background(), s.config.Security)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create security provider: %w", err)
-	}
-
-	creds, err := secProvider.GetServerCredentials(context.Background())
-	if err != nil {
-		_ = secProvider.Close()
-
-		return nil, fmt.Errorf("failed to get server credentials: %w", err)
-	}
-
-	s.grpc = grpc.NewServer(
-		s.config.ListenAddr,
-		grpc.WithServerOptions(
-			creds,
-			ggrpc.UnaryInterceptor(s.rbacInterceptor),
-			ggrpc.StreamInterceptor(s.rbacStreamInterceptor),
-		),
-	)
-
-	proto.RegisterKVServiceServer(s.grpc.GetGRPCServer(), s)
-
-	return s, nil
+	}, nil
 }
 
-// Start implements lifecycle.Service.Start.
-func (s *Server) Start(_ context.Context) error {
-	log.Printf("Starting KV service on %s", s.config.ListenAddr)
-
-	return s.grpc.Start()
+func (s *Server) Store() KVStore {
+	return s.store
 }
 
-// Stop implements lifecycle.Service.Stop.
-func (s *Server) Stop(ctx context.Context) error {
-	log.Printf("Stopping KV service")
-
-	s.grpc.Stop(ctx)
-
-	if err := s.store.Close(); err != nil {
-		log.Printf("Failed to close KV store: %v", err)
-	}
+func (*Server) Start(_ context.Context) error {
+	log.Printf("KV service initialized (gRPC managed by lifecycle)")
 
 	return nil
+}
+
+func (s *Server) Stop(_ context.Context) error {
+	log.Printf("Stopping KV service")
+
+	return s.store.Close()
 }
 
 // Get implements the Get RPC.

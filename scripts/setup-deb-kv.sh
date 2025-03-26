@@ -16,18 +16,18 @@
 
 set -e  # Exit on any error
 
-echo "Setting up package structure..."
+VERSION=${VERSION:-1.0.27}
+echo "Building serviceradar-kv version ${VERSION}"
 
-VERSION=${VERSION:-1.0.12}
+echo "Setting up package structure..."
 
 # Create package directory structure
 PKG_ROOT="serviceradar-kv_${VERSION}"
 mkdir -p "${PKG_ROOT}/DEBIAN"
 mkdir -p "${PKG_ROOT}/usr/local/bin"
-mkdir -p "${PKG_ROOT}/etc/serviceradar"
 mkdir -p "${PKG_ROOT}/lib/systemd/system"
 
-echo "Building Go binary..."
+echo "Building Go binaries..."
 
 # Build kv binary
 GOOS=linux GOARCH=amd64 go build -o "${PKG_ROOT}/usr/local/bin/serviceradar-kv" ./cmd/kv
@@ -43,12 +43,10 @@ Priority: optional
 Architecture: amd64
 Depends: systemd
 Maintainer: Michael Freeman <mfreeman451@gmail.com>
-Description: ServiceRadar KV service
-  Key-Value store component for ServiceRadar monitoring system.
-Config: /etc/serviceradar/kv.json
+Description: ServiceRadar Key-Value store
+  This package provides the ServiceRadar key-value store service.
 EOF
 
-# Create conffiles to mark configuration files
 cat > "${PKG_ROOT}/DEBIAN/conffiles" << EOF
 /etc/serviceradar/kv.json
 EOF
@@ -56,23 +54,23 @@ EOF
 # Create systemd service file
 cat > "${PKG_ROOT}/lib/systemd/system/serviceradar-kv.service" << EOF
 [Unit]
-Description=ServiceRadar Poller Service
+Description=ServiceRadar Agent Service
 After=network.target
 
 [Service]
 Type=simple
 User=serviceradar
-ExecStart=/usr/local/bin/serviceradar-kv -config /etc/serviceradar/kv.json
+ExecStart=/usr/local/bin/serviceradar-kv
 Restart=always
 RestartSec=10
-LimitNPROC=512
 LimitNOFILE=65535
+LimitNPROC=65535
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-# Create default config only if we're creating a fresh package
+
 cat > "${PKG_ROOT}/etc/serviceradar/kv.json" << EOF
 {
   "listen_addr": ":50054",
@@ -139,12 +137,12 @@ chmod 755 "${PKG_ROOT}/DEBIAN/prerm"
 echo "Building Debian package..."
 
 # Create release-artifacts directory if it doesn't exist
-mkdir -p release-artifacts
+mkdir -p ./release-artifacts
 
 # Build the package
 dpkg-deb --build "${PKG_ROOT}"
 
 # Move the deb file to the release-artifacts directory
-mv "${PKG_ROOT}.deb" "release-artifacts/"
+mv "${PKG_ROOT}.deb" "./release-artifacts/"
 
 echo "Package built: release-artifacts/${PKG_ROOT}.deb"
