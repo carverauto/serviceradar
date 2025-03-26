@@ -26,7 +26,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/poller"
 	"github.com/carverauto/serviceradar/proto"
-	"google.golang.org/grpc" // For the underlying gRPC server type
+	"google.golang.org/grpc"
 )
 
 var (
@@ -52,19 +52,18 @@ func run() error {
 
 	// Load configuration with context
 	var cfg poller.Config
-
 	if err := cfgLoader.LoadAndValidate(ctx, *configPath, &cfg); err != nil {
 		return fmt.Errorf("%w: %w", errFailedToLoadConfig, err)
 	}
 
-	// Create poller instance
-	p, err := poller.New(ctx, &cfg)
+	// Create poller instance with a real clock for production
+	p, err := poller.New(ctx, &cfg, nil) // nil clock defaults to realClock in poller.New
 	if err != nil {
 		return err
 	}
 
 	// Register services function
-	registerServices := func(s *grpc.Server) error { // s is *google.golang.org/grpc.Server due to lifecycle update
+	registerServices := func(s *grpc.Server) error {
 		proto.RegisterPollerServiceServer(s, p)
 		return nil
 	}
