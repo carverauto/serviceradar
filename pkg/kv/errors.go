@@ -16,11 +16,19 @@
 
 package kv
 
-import "errors"
+import (
+	"errors"
+)
 
 var (
 	errMTLSRequired           = errors.New("mTLS configuration required")
 	errFailedToLoadClientCert = errors.New("failed to load client certificate")
 	errFailedToReadCACert     = errors.New("failed to read CA certificate")
 	errFailedToParseCACert    = errors.New("failed to parse CA certificate")
+	errListenAddrRequired     = errors.New("listen_addr is required")
+	errNatsURLRequired        = errors.New("nats_url is required")
+	errSecurityRequired       = errors.New("security configuration is required for mTLS")
+	errCertFileRequired       = errors.New("tls.cert_file is required for mTLS")
+	errKeyFileRequired        = errors.New("tls.key_file is required for mTLS")
+	errCAFileRequired         = errors.New("tls.ca_file is required for mTLS")
 )
