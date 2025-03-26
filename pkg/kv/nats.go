@@ -38,7 +38,7 @@ type NatsStore struct {
 	ctx context.Context
 }
 
-func NewNatsStore(ctx context.Context, cfg Config) (*NatsStore, error) {
+func NewNatsStore(ctx context.Context, cfg *Config) (*NatsStore, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid configuration: %w", err)
 	}
@@ -109,6 +109,7 @@ func getTLSConfig(sec *models.SecurityConfig) (*tls.Config, error) {
 		RootCAs:            caCertPool,
 		InsecureSkipVerify: false,
 		ServerName:         sec.ServerName,
+		MinVersion:         tls.VersionTLS13,
 	}, nil
 }
 
