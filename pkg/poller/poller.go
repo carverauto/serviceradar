@@ -18,8 +18,6 @@ package poller
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -36,91 +34,43 @@ const (
 	stopTimeout    = 10 * time.Second
 )
 
-var (
-	ErrInvalidDuration      = fmt.Errorf("invalid duration")
-	ErrNoConnectionForAgent = fmt.Errorf("no connection found for agent")
-	ErrAgentUnhealthy       = fmt.Errorf("agent is unhealthy")
-	errClosing              = errors.New("error closing")
-)
-
-// AgentConnection represents a connection to an agent.
-type AgentConnection struct {
-	client       *grpc.Client // Updated to use grpc.Client
-	agentName    string
-	healthClient healthpb.HealthClient
-}
-
-// Poller represents the monitoring poller.
-type Poller struct {
-	proto.UnimplementedPollerServiceServer
-	config     Config
-	coreClient proto.PollerServiceClient
-	grpcClient *grpc.Client // Updated to use grpc.Client
-	mu         sync.RWMutex
-	agents     map[string]*AgentConnection
-	done       chan struct{}
-	closeOnce  sync.Once
-}
-
-// ServiceCheck manages a single service check operation.
-type ServiceCheck struct {
-	client proto.AgentServiceClient
-	check  Check
-}
-
 // New creates a new poller instance.
-func New(ctx context.Context, config *Config) (*Poller, error) {
+func New(ctx context.Context, config *Config, clock Clock) (*Poller, error) {
+	if clock == nil {
+		clock = realClock{}
+	}
+
 	p := &Poller{
 		config: *config,
 		agents: make(map[string]*AgentConnection),
 		done:   make(chan struct{}),
+		clock:  clock,
 	}
 
-	// Connect to core service
-	if err := p.connectToCore(ctx); err != nil {
-		return nil, fmt.Errorf("failed to connect to core service: %w", err)
+	// Only connect to core if CoreAddress is set and PollFunc isn’t overriding default behavior
+	if p.config.CoreAddress != "" && p.PollFunc == nil {
+		if err := p.connectToCore(ctx); err != nil {
+			return nil, fmt.Errorf("failed to connect to core service: %w", err)
+		}
 	}
 
-	// Initialize agent connections
-	if err := p.initializeAgentConnections(ctx); err != nil {
-		_ = p.grpcClient.Close()
-		return nil, fmt.Errorf("failed to initialize agent connections: %w", err)
+	// Initialize agent connections only if not using PollFunc exclusively
+	if p.PollFunc == nil {
+		if err := p.initializeAgentConnections(ctx); err != nil {
+			_ = p.grpcClient.Close()
+
+			return nil, fmt.Errorf("failed to initialize agent connections: %w", err)
+		}
 	}
 
 	return p, nil
-}
-
-// Duration is a wrapper around time.Duration for JSON unmarshaling.
-type Duration time.Duration
-
-func (d *Duration) UnmarshalJSON(b []byte) error {
-	var v interface{}
-	if err := json.Unmarshal(b, &v); err != nil {
-		return err
-	}
-
-	switch value := v.(type) {
-	case float64:
-		*d = Duration(time.Duration(value))
-	case string:
-		tmp, err := time.ParseDuration(value)
-		if err != nil {
-			return err
-		}
-
-		*d = Duration(tmp)
-	default:
-		return ErrInvalidDuration
-	}
-
-	return nil
 }
 
 // Start implements the lifecycle.Service interface.
 func (p *Poller) Start(ctx context.Context) error {
 	interval := time.Duration(p.config.PollInterval)
 
-	ticker := time.NewTicker(interval)
+	ticker := p.clock.Ticker(interval)
 	defer ticker.Stop()
 
 	log.Printf("Starting poller with interval %v", interval)
@@ -134,7 +84,9 @@ func (p *Poller) Start(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-ticker.C:
+		case <-p.done:
+			return nil
+		case <-ticker.Chan():
 			if err := p.poll(ctx); err != nil {
 				log.Printf("Error during poll: %v", err)
 			}
@@ -207,14 +159,6 @@ func (p *Poller) Close() error {
 	}
 
 	return nil
-}
-
-// AgentPoller manages polling operations for a single agent.
-type AgentPoller struct {
-	client  proto.AgentServiceClient
-	name    string
-	config  *AgentConfig
-	timeout time.Duration
 }
 
 func newAgentPoller(name string, config *AgentConfig, client proto.AgentServiceClient, timeout time.Duration) *AgentPoller {
@@ -433,6 +377,10 @@ func (p *Poller) initializeAgentConnections(ctx context.Context) error {
 
 // Poll execution methods.
 func (p *Poller) poll(ctx context.Context) error {
+	if p.PollFunc != nil {
+		return p.PollFunc(ctx)
+	}
+
 	var allStatuses []*proto.ServiceStatus
 
 	for agentName := range p.config.Agents {
