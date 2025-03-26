@@ -4,11 +4,11 @@
   "security": {
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
-    "server_name": "server.serviceradar",
+    "server_name": "nats-serviceradar",
     "role": "server",
     "tls": {
-      "cert_file": "server.pem",
-      "key_file": "server-key.pem",
+      "cert_file": "kv-serviceradar.pem",
+      "key_file": "kv-serviceradar-key.pem",
       "ca_file": "root.pem",
       "client_ca_file": "root.pem"
     }
