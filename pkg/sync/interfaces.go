@@ -30,7 +30,9 @@ import (
 // KVClient defines the interface for interacting with the KV store.
 type KVClient interface {
 	Put(ctx context.Context, in *proto.PutRequest, opts ...grpc.CallOption) (*proto.PutResponse, error)
-	// Add other methods (Get, Delete, Watch) if needed in the future
+	Get(ctx context.Context, in *proto.GetRequest, opts ...grpc.CallOption) (*proto.GetResponse, error)
+	Delete(ctx context.Context, in *proto.DeleteRequest, opts ...grpc.CallOption) (*proto.DeleteResponse, error)
+	Watch(ctx context.Context, in *proto.WatchRequest, opts ...grpc.CallOption) (proto.KVService_WatchClient, error)
 }
 
 // GRPCClient defines the interface for gRPC client management.
