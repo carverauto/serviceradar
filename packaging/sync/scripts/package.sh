@@ -77,6 +77,7 @@ cat > "${PKG_ROOT}/etc/serviceradar/sync.json" << EOF
 {
   "kv_address": "localhost:50055",
   "listen_addr": ":50059",
+  "poll_interval": "30m",
   "security": {
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
