@@ -149,6 +149,7 @@ func TestStartAndStop(t *testing.T) {
 	}
 
 	tickChan := make(chan time.Time, 1)
+
 	mockClock.EXPECT().Ticker(500 * time.Millisecond).Return(mockTicker)
 	mockTicker.EXPECT().Chan().Return(tickChan).AnyTimes()
 	mockTicker.EXPECT().Stop()
@@ -166,10 +167,12 @@ func TestStartAndStop(t *testing.T) {
 
 	startDone := make(chan struct{})
 	tickProcessed := make(chan struct{})
+
 	var startErr error
 
 	// Override PollFunc to signal when a tick is processed
 	originalPollFunc := syncer.poller.PollFunc
+
 	syncer.poller.PollFunc = func(ctx context.Context) error {
 		err := originalPollFunc(ctx)
 		if err == nil {
@@ -178,6 +181,7 @@ func TestStartAndStop(t *testing.T) {
 			default:
 			}
 		}
+
 		return err
 	}
 
@@ -192,6 +196,7 @@ func TestStartAndStop(t *testing.T) {
 
 	// Trigger a tick and wait for it to be processed
 	tickChan <- time.Now()
+
 	<-tickProcessed // Wait for the tick to be processed
 
 	cancel()    // Stop the Start loop cleanly
@@ -245,6 +250,7 @@ func TestStart_ContextCancellation(t *testing.T) {
 	}
 
 	tickChan := make(chan time.Time)
+
 	mockClock.EXPECT().Ticker(1 * time.Second).Return(mockTicker)
 	mockTicker.EXPECT().Chan().Return(tickChan).AnyTimes()
 	mockTicker.EXPECT().Stop()
