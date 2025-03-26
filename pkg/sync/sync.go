@@ -88,7 +88,7 @@ func New(
 func defaultIntegrationRegistry() map[string]IntegrationFactory {
 	return map[string]IntegrationFactory{
 		"armis": func(ctx context.Context, config models.SourceConfig) Integration {
-			return integrations.NewArmisIntegration(ctx, config)
+			return integrations.NewArmisIntegration(ctx, config, nil, nil)
 		},
 		// Add more integrations here, e.g., "netbox": integrations.NewNetboxIntegration,
 	}
@@ -123,7 +123,12 @@ func NewWithGRPC(ctx context.Context, config *Config) (*SyncPoller, error) {
 func (s *SyncPoller) initializeIntegrations(ctx context.Context) {
 	for name, src := range s.config.Sources {
 		if factory, ok := s.registry[src.Type]; ok {
-			s.sources[name] = factory(ctx, src)
+			// Pass kvClient and grpcClient to Armis integration
+			if src.Type == "armis" {
+				s.sources[name] = integrations.NewArmisIntegration(ctx, src, s.kvClient, s.grpcClient.GetConnection())
+			} else {
+				s.sources[name] = factory(ctx, src)
+			}
 		} else {
 			log.Printf("Unknown source type: %s", src.Type)
 		}
