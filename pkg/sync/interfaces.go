@@ -9,6 +9,8 @@ import (
 	"google.golang.org/grpc"
 )
 
+//go:generate mockgen -destination=mock_sync.go -package=sync github.com/carverauto/serviceradar/pkg/sync KVClient,GRPCClient,Integration,Clock,SyncerInterface
+
 // KVClient defines the interface for interacting with the KV store.
 type KVClient interface {
 	Put(ctx context.Context, in *proto.PutRequest, opts ...grpc.CallOption) (*proto.PutResponse, error)
