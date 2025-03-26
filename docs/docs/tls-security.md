@@ -181,7 +181,7 @@ cfssl sign -ca root.pem -ca-key root-key.pem -config cfssl.json -profile server 
 
 # serviceradar-kv
 cfssl genkey kv-csr.json | cfssljson -bare kv
-cfssl sign -ca root.pem -ca-key root-key.pem -config cfssl.json -profile server kv.csr | cfssljson -bare kv
+cfssl sign -ca root.pem -ca-key root-key.pem -config cfssl.json -profile client kv.csr | cfssljson -bare kv
 
 # Agent
 cfssl genkey agent-csr.json | cfssljson -bare agent
@@ -195,6 +195,15 @@ cfssl sign -ca root.pem -ca-key root-key.pem -config cfssl.json -profile client 
 cfssl genkey core-csr.json | cfssljson -bare core
 cfssl sign -ca root.pem -ca-key root-key.pem -config cfssl.json -profile server core.csr | cfssljson -bare core
 ```
+
+:::note
+Use the server profile for components that only act as servers (e.g., nats-server, core).
+
+Use the client profile for components that act as clients (e.g., agent, poller, kv when connecting to NATS).
+
+serviceradar-kv needs client auth for NATS mTLS and server auth for its gRPC service. For simplicity, we use the client profile here since NATS requires it, and the gRPC server accepts it in practice. For strict separation, generate separate client and server certs (e.g., kv-client.pem, kv-server.pem).
+:::
+
 
 ## Certificate Deployment
 
