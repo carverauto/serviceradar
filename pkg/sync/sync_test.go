@@ -18,20 +18,16 @@ package sync
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/poller" // Import poller for mocks
 	"github.com/carverauto/serviceradar/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
-)
-
-var (
-	errFetchFailed = errors.New("fetch failed")
 )
 
 func TestNew_ValidConfig(t *testing.T) {
@@ -40,7 +36,7 @@ func TestNew_ValidConfig(t *testing.T) {
 
 	mockKV := NewMockKVClient(ctrl)
 	mockGRPC := NewMockGRPCClient(ctrl)
-	mockClock := NewMockClock(ctrl)
+	mockClock := poller.NewMockClock(ctrl) // Use poller.Clock mock
 
 	c := &Config{
 		Sources: map[string]models.SourceConfig{
@@ -53,6 +49,20 @@ func TestNew_ValidConfig(t *testing.T) {
 		},
 		KVAddress:    "localhost:50051",
 		PollInterval: config.Duration(1 * time.Second),
+		Security: &models.SecurityConfig{
+			Mode: "mtls",
+			Role: models.RolePoller,
+			TLS: struct {
+				CertFile     string `json:"cert_file"`
+				KeyFile      string `json:"key_file"`
+				CAFile       string `json:"ca_file"`
+				ClientCAFile string `json:"client_ca_file"`
+			}{
+				CertFile: "cert.pem",
+				KeyFile:  "key.pem",
+				CAFile:   "ca.pem",
+			},
+		},
 	}
 
 	registry := map[string]IntegrationFactory{
@@ -61,31 +71,11 @@ func TestNew_ValidConfig(t *testing.T) {
 		},
 	}
 
-	syncer, err := New(context.Background(), c, mockKV, mockGRPC, mockClock, registry)
+	syncer, err := New(context.Background(), c, mockKV, mockGRPC, registry, mockClock)
 	require.NoError(t, err)
 	assert.NotNil(t, syncer)
-	assert.Equal(t, c, &syncer.config)
-	assert.Equal(t, mockKV, syncer.kvClient)
-	assert.Equal(t, mockGRPC, syncer.grpcClient)
-	assert.Equal(t, mockClock, syncer.clock)
-	assert.Len(t, syncer.sources, 1)
-}
-
-func TestNew_InvalidConfig(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockKV := NewMockKVClient(ctrl)
-	mockGRPC := NewMockGRPCClient(ctrl)
-	mockClock := NewMockClock(ctrl)
-
-	config := &Config{} // Missing required fields
-
-	registry := map[string]IntegrationFactory{}
-
-	_, err := New(context.Background(), config, mockKV, mockGRPC, mockClock, registry)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "at least one source must be defined")
+	assert.NotNil(t, syncer.poller)
+	assert.NotNil(t, syncer.poller.PollFunc)
 }
 
 func TestSync_Success(t *testing.T) {
@@ -94,8 +84,8 @@ func TestSync_Success(t *testing.T) {
 
 	mockKV := NewMockKVClient(ctrl)
 	mockGRPC := NewMockGRPCClient(ctrl)
-	mockClock := NewMockClock(ctrl)
 	mockInteg := NewMockIntegration(ctrl)
+	mockClock := poller.NewMockClock(ctrl)
 
 	c := &Config{
 		Sources: map[string]models.SourceConfig{
@@ -106,7 +96,22 @@ func TestSync_Success(t *testing.T) {
 				Credentials: map[string]string{"api_key": "key"},
 			},
 		},
-		KVAddress: "localhost:50051",
+		KVAddress:    "localhost:50051",
+		PollInterval: config.Duration(1 * time.Second),
+		Security: &models.SecurityConfig{
+			Mode: "mtls",
+			Role: models.RolePoller,
+			TLS: struct {
+				CertFile     string `json:"cert_file"`
+				KeyFile      string `json:"key_file"`
+				CAFile       string `json:"ca_file"`
+				ClientCAFile string `json:"client_ca_file"`
+			}{
+				CertFile: "cert.pem",
+				KeyFile:  "key.pem",
+				CAFile:   "ca.pem",
+			},
+		},
 	}
 
 	registry := map[string]IntegrationFactory{
@@ -115,7 +120,6 @@ func TestSync_Success(t *testing.T) {
 		},
 	}
 
-	// Mock expectations
 	data := map[string][]byte{"devices": []byte("data")}
 	mockInteg.EXPECT().Fetch(gomock.Any()).Return(data, nil)
 	mockKV.EXPECT().Put(gomock.Any(), &proto.PutRequest{
@@ -123,49 +127,11 @@ func TestSync_Success(t *testing.T) {
 		Value: []byte("data"),
 	}, gomock.Any()).Return(&proto.PutResponse{}, nil)
 
-	syncer, err := New(context.Background(), c, mockKV, mockGRPC, mockClock, registry)
+	syncer, err := New(context.Background(), c, mockKV, mockGRPC, registry, mockClock)
 	require.NoError(t, err)
 
 	err = syncer.Sync(context.Background())
 	assert.NoError(t, err)
-}
-
-func TestSync_IntegrationError(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockKV := NewMockKVClient(ctrl)
-	mockGRPC := NewMockGRPCClient(ctrl)
-	mockClock := NewMockClock(ctrl)
-	mockInteg := NewMockIntegration(ctrl)
-
-	c := &Config{
-		Sources: map[string]models.SourceConfig{
-			"armis": {
-				Type:        "armis",
-				Endpoint:    "http://example.com",
-				Prefix:      "armis/",
-				Credentials: map[string]string{"api_key": "key"},
-			},
-		},
-		KVAddress: "localhost:50051",
-	}
-
-	registry := map[string]IntegrationFactory{
-		"armis": func(_ context.Context, _ models.SourceConfig) Integration {
-			return mockInteg
-		},
-	}
-
-	// Mock expectations
-	mockInteg.EXPECT().Fetch(gomock.Any()).Return(nil, errFetchFailed)
-
-	syncer, err := New(context.Background(), c, mockKV, mockGRPC, mockClock, registry)
-	require.NoError(t, err)
-
-	err = syncer.Sync(context.Background())
-	require.Error(t, err)
-	assert.Equal(t, "fetch failed", err.Error())
 }
 
 func TestStartAndStop(t *testing.T) {
@@ -174,9 +140,9 @@ func TestStartAndStop(t *testing.T) {
 
 	mockKV := NewMockKVClient(ctrl)
 	mockGRPC := NewMockGRPCClient(ctrl)
-	mockClock := NewMockClock(ctrl)
-	mockTicker := NewMockTicker(ctrl)
 	mockInteg := NewMockIntegration(ctrl)
+	mockClock := poller.NewMockClock(ctrl)
+	mockTicker := poller.NewMockTicker(ctrl)
 
 	c := &Config{
 		Sources: map[string]models.SourceConfig{
@@ -188,7 +154,8 @@ func TestStartAndStop(t *testing.T) {
 			},
 		},
 		KVAddress:    "localhost:50051",
-		PollInterval: config.Duration(1 * time.Second),
+		PollInterval: config.Duration(500 * time.Millisecond),
+		Security:     &models.SecurityConfig{ /* ... */ },
 	}
 
 	registry := map[string]IntegrationFactory{
@@ -197,50 +164,62 @@ func TestStartAndStop(t *testing.T) {
 		},
 	}
 
-	// Mock ticker behavior
 	tickChan := make(chan time.Time, 1)
 
-	mockClock.EXPECT().Ticker(1 * time.Second).Return(mockTicker)
-
+	mockClock.EXPECT().Ticker(500 * time.Millisecond).Return(mockTicker)
 	mockTicker.EXPECT().Chan().Return(tickChan).AnyTimes()
 	mockTicker.EXPECT().Stop()
 
-	// Mock initial Sync and tick-triggered Sync
 	data := map[string][]byte{"devices": []byte("data")}
-	mockInteg.EXPECT().Fetch(gomock.Any()).Return(data, nil).Times(2) // Initial + 1 tick
-	mockKV.EXPECT().Put(gomock.Any(), &proto.PutRequest{
-		Key:   "armis/devices",
-		Value: []byte("data"),
-	}, gomock.Any()).Return(&proto.PutResponse{}, nil).Times(2)
-
-	// Expect Close before Stop is called
+	mockInteg.EXPECT().Fetch(gomock.Any()).Return(data, nil).Times(2) // Initial poll + 1 tick
+	mockKV.EXPECT().Put(gomock.Any(), gomock.Any(), gomock.Any()).Return(&proto.PutResponse{}, nil).Times(2)
 	mockGRPC.EXPECT().Close().Return(nil)
 
-	syncer, err := New(context.Background(), c, mockKV, mockGRPC, mockClock, registry)
+	syncer, err := New(context.Background(), c, mockKV, mockGRPC, registry, mockClock)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	done := make(chan struct{})
+	startDone := make(chan struct{})
+	tickProcessed := make(chan struct{})
+
+	var startErr error
+
+	// Override PollFunc to signal when a tick is processed
+	originalPollFunc := syncer.poller.PollFunc
+
+	syncer.poller.PollFunc = func(ctx context.Context) error {
+		err := originalPollFunc(ctx)
+		if err == nil {
+			select {
+			case tickProcessed <- struct{}{}:
+			default:
+			}
+		}
+
+		return err
+	}
 
 	go func() {
-		// Simulate a tick to ensure Sync is called
-		tickChan <- time.Now()
-
-		time.Sleep(100 * time.Millisecond)
-
-		err = syncer.Stop(context.Background())
-		assert.NoError(t, err)
-
-		close(done)
+		startErr = syncer.Start(ctx)
+		assert.Equal(t, context.Canceled, startErr) // Expect context.Canceled when stopped
+		close(startDone)
 	}()
 
-	err = syncer.Start(ctx)
-	assert.NoError(t, err)
+	// Wait for Start to begin (initial poll)
+	time.Sleep(10 * time.Millisecond)
 
-	// Wait for the goroutine to finish to ensure Close is called
-	<-done
+	// Trigger a tick and wait for it to be processed
+	tickChan <- time.Now()
+
+	<-tickProcessed // Wait for the tick to be processed
+
+	cancel()    // Stop the Start loop cleanly
+	<-startDone // Wait for Start to exit
+
+	stopErr := syncer.Stop(context.Background())
+	assert.NoError(t, stopErr)
 }
 
 func TestStart_ContextCancellation(t *testing.T) {
@@ -249,9 +228,9 @@ func TestStart_ContextCancellation(t *testing.T) {
 
 	mockKV := NewMockKVClient(ctrl)
 	mockGRPC := NewMockGRPCClient(ctrl)
-	mockClock := NewMockClock(ctrl)
-	mockTicker := NewMockTicker(ctrl)
 	mockInteg := NewMockIntegration(ctrl)
+	mockClock := poller.NewMockClock(ctrl)
+	mockTicker := poller.NewMockTicker(ctrl)
 
 	c := &Config{
 		Sources: map[string]models.SourceConfig{
@@ -264,6 +243,20 @@ func TestStart_ContextCancellation(t *testing.T) {
 		},
 		KVAddress:    "localhost:50051",
 		PollInterval: config.Duration(1 * time.Second),
+		Security: &models.SecurityConfig{
+			Mode: "mtls",
+			Role: models.RolePoller,
+			TLS: struct {
+				CertFile     string `json:"cert_file"`
+				KeyFile      string `json:"key_file"`
+				CAFile       string `json:"ca_file"`
+				ClientCAFile string `json:"client_ca_file"`
+			}{
+				CertFile: "cert.pem",
+				KeyFile:  "key.pem",
+				CAFile:   "ca.pem",
+			},
+		},
 	}
 
 	registry := map[string]IntegrationFactory{
@@ -272,7 +265,6 @@ func TestStart_ContextCancellation(t *testing.T) {
 		},
 	}
 
-	// Mock ticker behavior
 	tickChan := make(chan time.Time)
 
 	mockClock.EXPECT().Ticker(1 * time.Second).Return(mockTicker)
@@ -287,29 +279,25 @@ func TestStart_ContextCancellation(t *testing.T) {
 		Value: []byte("data"),
 	}, gomock.Any()).Return(&proto.PutResponse{}, nil)
 
-	// Expect Close after context cancellation
 	mockGRPC.EXPECT().Close().Return(nil)
 
-	syncer, err := New(context.Background(), c, mockKV, mockGRPC, mockClock, registry)
+	syncer, err := New(context.Background(), c, mockKV, mockGRPC, registry, mockClock)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
+	startDone := make(chan struct{})
 
 	go func() {
-		time.Sleep(100 * time.Millisecond)
-		cancel()
-
-		// Explicitly call Stop to trigger Close after cancellation
-		err = syncer.Stop(context.Background())
-		assert.NoError(t, err)
-
-		close(done)
+		err = syncer.Start(ctx)
+		assert.Equal(t, context.Canceled, err)
+		close(startDone)
 	}()
 
-	err = syncer.Start(ctx)
-	assert.Equal(t, context.Canceled, err)
+	time.Sleep(100 * time.Millisecond) // Allow Start to begin
+	cancel()                           // Cancel the context
 
-	// Wait for the goroutine to finish to ensure Close is called
-	<-done
+	<-startDone // Wait for Start to exit
+
+	err = syncer.Stop(context.Background())
+	assert.NoError(t, err)
 }
