@@ -1,5 +1,4 @@
 #!/bin/bash
-# setup-deb-poller.sh
 set -e  # Exit on any error
 
 echo "Setting up package structure..."
@@ -7,7 +6,7 @@ echo "Setting up package structure..."
 VERSION=${VERSION:-1.0.12}
 
 # Create package directory structure
-PKG_ROOT="serviceradar-poller_${VERSION}"
+PKG_ROOT="serviceradar-kv${VERSION}"
 mkdir -p "${PKG_ROOT}/DEBIAN"
 mkdir -p "${PKG_ROOT}/usr/local/bin"
 mkdir -p "${PKG_ROOT}/etc/serviceradar"
@@ -15,33 +14,32 @@ mkdir -p "${PKG_ROOT}/lib/systemd/system"
 
 echo "Building Go binary..."
 
-# Build poller binary
-GOOS=linux GOARCH=amd64 go build -o "${PKG_ROOT}/usr/local/bin/serviceradar-poller" ./cmd/poller
+# Build kv binary
+GOOS=linux GOARCH=amd64 go build -o "${PKG_ROOT}/usr/local/bin/serviceradar-kv" ./cmd/kv
 
 echo "Creating package files..."
 
 # Create control file
 cat > "${PKG_ROOT}/DEBIAN/control" << EOF
-Package: serviceradar-poller
+Package: serviceradar-kv
 Version: ${VERSION}
 Section: utils
 Priority: optional
 Architecture: amd64
 Depends: systemd
 Maintainer: Michael Freeman <mfreeman451@gmail.com>
-Description: ServiceRadar poller service
- Poller component for ServiceRadar monitoring system.
- Collects and forwards monitoring data from agents to core service.
-Config: /etc/serviceradar/poller.json
+Description: ServiceRadar KV service
+  Key-Value store component for ServiceRadar monitoring system.
+Config: /etc/serviceradar/kv.json
 EOF
 
 # Create conffiles to mark configuration files
 cat > "${PKG_ROOT}/DEBIAN/conffiles" << EOF
-/etc/serviceradar/poller.json
+/etc/serviceradar/kv.json
 EOF
 
 # Create systemd service file
-cat > "${PKG_ROOT}/lib/systemd/system/serviceradar-poller.service" << EOF
+cat > "${PKG_ROOT}/lib/systemd/system/serviceradar-kv.service" << EOF
 [Unit]
 Description=ServiceRadar Poller Service
 After=network.target
@@ -49,7 +47,7 @@ After=network.target
 [Service]
 Type=simple
 User=serviceradar
-ExecStart=/usr/local/bin/serviceradar-poller -config /etc/serviceradar/poller.json
+ExecStart=/usr/local/bin/serviceradar-kv -config /etc/serviceradar/kv.json
 Restart=always
 RestartSec=10
 LimitNPROC=512
@@ -60,46 +58,28 @@ WantedBy=multi-user.target
 EOF
 
 # Create default config only if we're creating a fresh package
-cat > "${PKG_ROOT}/etc/serviceradar/poller.json" << EOF
+cat > "${PKG_ROOT}/etc/serviceradar/kv.json" << EOF
 {
-    "agents": {
-        "local-agent": {
-            "address": "127.0.0.1:50051",
-            "checks": [
-                {
-                    "service_type": "process",
-                    "service_name": "rusk",
-                    "details": "rusk"
-                },
-                {
-                    "service_type": "port",
-                    "service_name": "SSH",
-                    "details": "127.0.0.1:22"
-                },
-                {
-                    "service_type": "grpc",
-                    "service_name": "dusk",
-                    "details": "127.0.0.1:50052"
-                },
-		{
-                    "service_type": "icmp",
-                    "service_name": "ping",
-                    "details": "8.8.8.8"
-                },
-                {
-                    "service_type": "sweep",
-                    "service_name": "network_sweep",
-                    "details": ""
-                }
-            ]
-        }
-    },
-    "core_address": "changeme:50052",
-    "listen_addr": ":50053",
-    "poll_interval": "30s",
-    "poller_id": "dusk",
-    "service_name": "PollerService",
-    "service_type": "grpc"
+  "listen_addr": ":50054",
+  "nats_url": "nats://localhost:4222",
+  "security": {
+    "mode": "mtls",
+    "cert_dir": "/etc/serviceradar/certs",
+    "server_name": "nats-serviceradar",
+    "role": "server",
+    "tls": {
+      "cert_file": "kv-serviceradar.pem",
+      "key_file": "kv-serviceradar-key.pem",
+      "ca_file": "root.pem",
+      "client_ca_file": "root.pem"
+    }
+  },
+  "rbac": {
+    "roles": [
+      {"identity": "CN=sync.serviceradar,O=ServiceRadar", "role": "writer"},
+      {"identity": "CN=agent.serviceradar,O=ServiceRadar", "role": "reader"}
+    ]
+  }
 }
 EOF
 
@@ -115,12 +95,12 @@ fi
 
 # Set permissions
 chown -R serviceradar:serviceradar /etc/serviceradar
-chmod 755 /usr/local/bin/serviceradar-poller
+chmod 755 /usr/local/bin/serviceradar-kv
 
 # Enable and start service
 systemctl daemon-reload
-systemctl enable serviceradar-poller
-systemctl start serviceradar-poller
+systemctl enable serviceradar-kv
+systemctl start serviceradar-kv
 
 exit 0
 EOF
@@ -133,8 +113,8 @@ cat > "${PKG_ROOT}/DEBIAN/prerm" << EOF
 set -e
 
 # Stop and disable service
-systemctl stop serviceradar-poller
-systemctl disable serviceradar-poller
+systemctl stop serviceradar-kv
+systemctl disable serviceradar-kv
 
 exit 0
 EOF
