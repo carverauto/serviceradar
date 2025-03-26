@@ -150,7 +150,7 @@ echo "Building Debian package..."
 mkdir -p ./release-artifacts
 
 # Build the package
-dpkg-deb --build "${PKG_ROOT}"
+dpkg-deb --root-owner-group --build "${PKG_ROOT}"
 
 # Move the deb file to the release-artifacts directory
 mv "${PKG_ROOT}.deb" "./release-artifacts/"
