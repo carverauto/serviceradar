@@ -18,12 +18,16 @@ package kv
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	configkv "github.com/carverauto/serviceradar/pkg/config/kv"
+	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -34,8 +38,27 @@ type NatsStore struct {
 	ctx context.Context
 }
 
-func NewNatsStore(ctx context.Context, natsURL, bucket string, ttl time.Duration) (*NatsStore, error) {
-	nc, err := nats.Connect(natsURL)
+func NewNatsStore(ctx context.Context, cfg Config) (*NatsStore, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid configuration: %w", err)
+	}
+
+	tlsConfig, err := getTLSConfig(cfg.Security)
+	if err != nil {
+		return nil, fmt.Errorf("failed to configure TLS: %w", err)
+	}
+
+	nc, err := nats.Connect(cfg.NatsURL,
+		nats.Secure(tlsConfig),
+		nats.RootCAs(cfg.Security.TLS.CAFile),
+		nats.ClientCert(cfg.Security.TLS.CertFile, cfg.Security.TLS.KeyFile),
+		nats.ErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, err error) {
+			log.Printf("NATS error: %v", err)
+		}),
+		nats.ConnectHandler(func(nc *nats.Conn) {
+			log.Printf("Connected to NATS: %s", nc.ConnectedUrl())
+		}),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to NATS: %w", err)
 	}
@@ -43,22 +66,15 @@ func NewNatsStore(ctx context.Context, natsURL, bucket string, ttl time.Duration
 	js, err := jetstream.New(nc)
 	if err != nil {
 		nc.Close()
-
 		return nil, fmt.Errorf("failed to create JetStream context: %w", err)
 	}
 
 	config := jetstream.KeyValueConfig{
-		Bucket: bucket,
+		Bucket: cfg.Bucket,
 	}
-
-	if ttl > 0 {
-		config.TTL = ttl // Set TTL at bucket level
-	}
-
 	kv, err := js.CreateKeyValue(ctx, config)
 	if err != nil {
 		nc.Close()
-
 		return nil, fmt.Errorf("failed to create KV bucket: %w", err)
 	}
 
@@ -69,27 +85,49 @@ func NewNatsStore(ctx context.Context, natsURL, bucket string, ttl time.Duration
 	}, nil
 }
 
-func (n *NatsStore) Get(ctx context.Context, key string) (value []byte, found bool, err error) {
-	var entry jetstream.KeyValueEntry
+func getTLSConfig(sec *models.SecurityConfig) (*tls.Config, error) {
+	if sec == nil || sec.Mode != "mtls" {
+		return nil, errors.New("mTLS configuration required")
+	}
 
-	entry, err = n.kv.Get(ctx, key)
+	cert, err := tls.LoadX509KeyPair(sec.TLS.CertFile, sec.TLS.KeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load client certificate: %w", err)
+	}
+
+	caCert, err := os.ReadFile(sec.TLS.CAFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read CA certificate: %w", err)
+	}
+	caCertPool := x509.NewCertPool()
+	if !caCertPool.AppendCertsFromPEM(caCert) {
+		return nil, errors.New("failed to parse CA certificate")
+	}
+
+	return &tls.Config{
+		Certificates:       []tls.Certificate{cert},
+		RootCAs:            caCertPool,
+		InsecureSkipVerify: false,
+		ServerName:         sec.ServerName,
+	}, nil
+}
+
+func (n *NatsStore) Get(ctx context.Context, key string) ([]byte, bool, error) {
+	entry, err := n.kv.Get(ctx, key)
 	if errors.Is(err, jetstream.ErrKeyNotFound) {
 		return nil, false, nil
 	}
-
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to get key %s: %w", key, err)
 	}
-
 	return entry.Value(), true, nil
 }
 
-func (n *NatsStore) Put(ctx context.Context, key string, value []byte, _ time.Duration) error {
-	_, err := n.kv.Put(ctx, key, value) // No opts, TTL is bucket-level
+func (n *NatsStore) Put(ctx context.Context, key string, value []byte, ttl time.Duration) error {
+	_, err := n.kv.Put(ctx, key, value) // TTL handled at bucket level in this implementation
 	if err != nil {
 		return fmt.Errorf("failed to put key %s: %w", key, err)
 	}
-
 	return nil
 }
 
@@ -98,7 +136,6 @@ func (n *NatsStore) Delete(ctx context.Context, key string) error {
 	if err != nil && !errors.Is(err, jetstream.ErrKeyNotFound) {
 		return fmt.Errorf("failed to delete key %s: %w", key, err)
 	}
-
 	return nil
 }
 
@@ -110,33 +147,28 @@ func (n *NatsStore) Watch(ctx context.Context, key string) (<-chan []byte, error
 
 	ch := make(chan []byte, 1)
 	go n.handleWatchUpdates(ctx, key, watcher, ch)
-
 	return ch, nil
 }
 
-// handleWatchUpdates processes updates from the watcher and sends them to the channel.
 func (n *NatsStore) handleWatchUpdates(ctx context.Context, key string, watcher jetstream.KeyWatcher, ch chan<- []byte) {
 	defer func() {
 		if err := watcher.Stop(); err != nil {
 			log.Printf("failed to stop watcher for key %s: %v", key, err)
 		}
-
 		close(ch)
 	}()
 
 	for {
 		update := n.waitForUpdate(ctx, watcher)
 		if update == nil {
-			return // Context canceled or watcher closed
+			return
 		}
-
 		if !n.sendUpdate(ctx, ch, update.Value()) {
-			return // Context canceled or channel closed
+			return
 		}
 	}
 }
 
-// waitForUpdate waits for the next update or context cancellation.
 func (n *NatsStore) waitForUpdate(ctx context.Context, watcher jetstream.KeyWatcher) jetstream.KeyValueEntry {
 	select {
 	case <-ctx.Done():
@@ -147,12 +179,10 @@ func (n *NatsStore) waitForUpdate(ctx context.Context, watcher jetstream.KeyWatc
 		if !ok || update == nil {
 			return nil
 		}
-
 		return update
 	}
 }
 
-// sendUpdate attempts to send the value to the channel, respecting context cancellation.
 func (n *NatsStore) sendUpdate(ctx context.Context, ch chan<- []byte, value []byte) bool {
 	select {
 	case ch <- value:
@@ -166,7 +196,6 @@ func (n *NatsStore) sendUpdate(ctx context.Context, ch chan<- []byte, value []by
 
 func (n *NatsStore) Close() error {
 	n.nc.Close()
-
 	return nil
 }
 

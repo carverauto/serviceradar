@@ -86,6 +86,9 @@ func NewMTLSProvider(config *models.SecurityConfig) (*MTLSProvider, error) {
 		provider.needsServer = true // For accepting poller connections
 	case models.RoleCore:
 		provider.needsServer = true // Only accepts connections
+	case models.RoleKVStore:
+		provider.needsServer = true // Only accepts connections
+		provider.needsClient = true // For connecting to checkers
 	case models.RoleChecker:
 		provider.needsServer = true // Only accepts connections
 	default:

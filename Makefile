@@ -203,7 +203,7 @@ deb-web: build-web ## Build the web Debian package
 .PHONY: deb-kv
 deb-kv: build-kv ## Build the KV Debian package
 	@echo "$(COLOR_BOLD)Building KV Debian package$(COLOR_RESET)"
-	@VERSION=$(VERSION) ./scripts/setup-deb-kv.sh
+    @VERSION=$(VERSION) ./scripts/setup-deb-kv.sh
 
 .PHONY: deb-core-container
 deb-core-container: build-web ## Build the core Debian package with container support
@@ -384,6 +384,11 @@ docs-deploy: ## Deploy Docusaurus website to GitHub pages
 docs-setup: ## Initial setup for Docusaurus development
 	@echo "$(COLOR_BOLD)Setting up Docusaurus development environment$(COLOR_RESET)"
 	@cd docs && pnpm install
+
+.PHONY: build-kv
+build-kv: ## Build only the KV binary
+	@echo "$(COLOR_BOLD)Building KV binary$(COLOR_RESET)"
+	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-kv cmd/kv/main.go
 
 # Build web UI
 .PHONY: build-web

@@ -23,7 +23,6 @@ import (
 	"log"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/config/kv"
 	"github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/proto"
 	ggrpc "google.golang.org/grpc" // Alias for Google's gRPC
@@ -35,14 +34,26 @@ import (
 type Server struct {
 	proto.UnimplementedKVServiceServer
 	config Config
-	store  kv.KVStore
+	store  KVStore // Changed to interface type
 	grpc   *grpc.Server
 }
 
-// NewServer creates a new KV service server with the given KVStore.
-func NewServer(cfg Config, store kv.KVStore) (*Server, error) {
-	if store == nil {
-		return nil, errKVStoreRequired
+// Store returns the underlying KV store.
+func (s *Server) Store() KVStore {
+	return s.store
+}
+
+// NewServer creates a new KV service server.
+func NewServer(ctx context.Context, cfg Config) (*Server, error) {
+	// Validate config
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid configuration: %w", err)
+	}
+
+	// Create NATS KV store
+	store, err := NewNatsStore(ctx, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create NATS store: %w", err)
 	}
 
 	s := &Server{
@@ -51,15 +62,14 @@ func NewServer(cfg Config, store kv.KVStore) (*Server, error) {
 	}
 
 	// Initialize gRPC server
-	secProvider, err := grpc.NewSecurityProvider(context.Background(), s.config.Security)
+	secProvider, err := grpc.NewSecurityProvider(ctx, s.config.Security)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create security provider: %w", err)
 	}
 
-	creds, err := secProvider.GetServerCredentials(context.Background())
+	creds, err := secProvider.GetServerCredentials(ctx)
 	if err != nil {
 		_ = secProvider.Close()
-
 		return nil, fmt.Errorf("failed to get server credentials: %w", err)
 	}
 
@@ -80,20 +90,16 @@ func NewServer(cfg Config, store kv.KVStore) (*Server, error) {
 // Start implements lifecycle.Service.Start.
 func (s *Server) Start(_ context.Context) error {
 	log.Printf("Starting KV service on %s", s.config.ListenAddr)
-
 	return s.grpc.Start()
 }
 
 // Stop implements lifecycle.Service.Stop.
 func (s *Server) Stop(ctx context.Context) error {
 	log.Printf("Stopping KV service")
-
 	s.grpc.Stop(ctx)
-
 	if err := s.store.Close(); err != nil {
 		log.Printf("Failed to close KV store: %v", err)
 	}
-
 	return nil
 }
 
@@ -103,19 +109,16 @@ func (s *Server) Get(ctx context.Context, req *proto.GetRequest) (*proto.GetResp
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to get key %s: %v", req.Key, err)
 	}
-
 	return &proto.GetResponse{Value: value, Found: found}, nil
 }
 
 // Put implements the Put RPC.
 func (s *Server) Put(ctx context.Context, req *proto.PutRequest) (*proto.PutResponse, error) {
 	ttl := time.Duration(req.TtlSeconds) * time.Second
-
 	err := s.store.Put(ctx, req.Key, req.Value, ttl)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to put key %s: %v", req.Key, err)
 	}
-
 	return &proto.PutResponse{}, nil
 }
 
@@ -125,7 +128,6 @@ func (s *Server) Delete(ctx context.Context, req *proto.DeleteRequest) (*proto.D
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to delete key %s: %v", req.Key, err)
 	}
-
 	return &proto.DeleteResponse{}, nil
 }
 
@@ -135,7 +137,6 @@ func (s *Server) Watch(req *proto.WatchRequest, stream proto.KVService_WatchServ
 	if err != nil {
 		return status.Errorf(codes.Internal, "failed to watch key %s: %v", req.Key, err)
 	}
-
 	for {
 		select {
 		case <-stream.Context().Done():
@@ -144,7 +145,6 @@ func (s *Server) Watch(req *proto.WatchRequest, stream proto.KVService_WatchServ
 			if !ok {
 				return nil
 			}
-
 			err := stream.Send(&proto.WatchResponse{Value: value})
 			if err != nil {
 				return status.Errorf(codes.Internal, "failed to send watch update: %v", err)
