@@ -56,7 +56,7 @@ EOF
 # Create systemd service file
 cat > "${PKG_ROOT}/lib/systemd/system/serviceradar-kv.service" << EOF
 [Unit]
-Description=ServiceRadar Poller Service
+Description=ServiceRadar KV Service
 After=network.target
 
 [Service]
@@ -142,7 +142,7 @@ echo "Building Debian package..."
 mkdir -p release-artifacts
 
 # Build the package
-dpkg-deb --build "${PKG_ROOT}"
+dpkg-deb --root-owner-group --build "${PKG_ROOT}"
 
 # Move the deb file to the release-artifacts directory
 mv "${PKG_ROOT}.deb" "release-artifacts/"

@@ -127,6 +127,7 @@ build: generate-proto ## Build all binaries
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-dusk-checker cmd/checkers/dusk/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-core cmd/core/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-kv cmd/kv/main.go
+	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-sync cmd/sync/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-snmp-checker cmd/checkers/snmp/main.go
 	@echo "$(COLOR_BOLD)Building Rust rperf plugin$(COLOR_RESET)"
 	@cd cmd/checkers/rperf && $(CARGO) build --release
@@ -204,6 +205,11 @@ deb-web: build-web ## Build the web Debian package
 deb-kv: build-kv ## Build the KV Debian package
 	@echo "$(COLOR_BOLD)Building KV Debian package$(COLOR_RESET)"
     @VERSION=$(VERSION) ./scripts/setup-deb-kv.sh
+
+.PHONY: deb-sync
+deb-kv: build-sync ## Build the KV Sync Debian package
+	@echo "$(COLOR_BOLD)Building KV Sync Debian package$(COLOR_RESET)"
+    @VERSION=$(VERSION) ./scripts/setup-deb-sync.sh
 
 .PHONY: deb-core-container
 deb-core-container: build-web ## Build the core Debian package with container support
@@ -389,6 +395,11 @@ docs-setup: ## Initial setup for Docusaurus development
 build-kv: ## Build only the KV binary
 	@echo "$(COLOR_BOLD)Building KV binary$(COLOR_RESET)"
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-kv cmd/kv/main.go
+
+.PHONY: build-sync
+build-sync: ## Build only the KV Sync binary
+	@echo "$(COLOR_BOLD)Building KV Sync binary$(COLOR_RESET)"
+	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-sync cmd/sync/main.go
 
 # Build web UI
 .PHONY: build-web
