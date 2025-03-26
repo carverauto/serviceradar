@@ -151,6 +151,6 @@ chmod 755 "${TEMP_DIR}/DEBIAN/prerm"
 # Build the package
 mkdir -p release-artifacts/deb
 DEB_FILE="release-artifacts/deb/${PKG_NAME}_${VERSION_CLEAN}_amd64.deb"
-dpkg-deb --build "${TEMP_DIR}" "${DEB_FILE}"
+dpkg-deb --root-owner-group --build "${TEMP_DIR}" "${DEB_FILE}"
 
 echo "Package built: ${DEB_FILE}"

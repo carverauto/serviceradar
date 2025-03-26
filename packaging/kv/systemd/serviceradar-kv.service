@@ -1,11 +1,11 @@
 [Unit]
-Description=ServiceRadar Poller Service
+Description=ServiceRadar KV Service
 After=network.target
 
 [Service]
 Type=simple
 User=serviceradar
-ExecStart=/usr/local/bin/serviceradar-poller -config /etc/serviceradar/poller.json
+ExecStart=/usr/local/bin/serviceradar-kv -config /etc/serviceradar/kv.json
 Restart=always
 RestartSec=10
 LimitNPROC=512

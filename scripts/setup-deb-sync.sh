@@ -14,89 +14,90 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# setup-deb-dusk-checker.sh
 set -e  # Exit on any error
+
+VERSION=${VERSION:-1.0.27}
+echo "Building serviceradar-sync version ${VERSION}"
 
 echo "Setting up package structure..."
 
-VERSION=${VERSION:-1.0.27}
-
 # Create package directory structure
-PKG_ROOT="serviceradar-dusk-checker_${VERSION}"
+PKG_ROOT="serviceradar-sync_${VERSION}"
 mkdir -p "${PKG_ROOT}/DEBIAN"
 mkdir -p "${PKG_ROOT}/usr/local/bin"
-mkdir -p "${PKG_ROOT}/etc/serviceradar/checkers"
 mkdir -p "${PKG_ROOT}/lib/systemd/system"
 
-echo "Building Go binary..."
+echo "Building Go binaries..."
 
-# Build dusk checker binary
-GOOS=linux GOARCH=amd64 go build -o "${PKG_ROOT}/usr/local/bin/dusk-checker" ./cmd/checkers/dusk
+# Build sync binary
+GOOS=linux GOARCH=amd64 go build -o "${PKG_ROOT}/usr/local/bin/serviceradar-sync" ./cmd/sync
 
 echo "Creating package files..."
 
 # Create control file
 cat > "${PKG_ROOT}/DEBIAN/control" << EOF
-Package: serviceradar-dusk
+Package: serviceradar-sync
 Version: ${VERSION}
 Section: utils
 Priority: optional
 Architecture: amd64
 Depends: systemd
 Maintainer: Michael Freeman <mfreeman451@gmail.com>
-Description: ServiceRadar Dusk node checker
- Provides monitoring capabilities for Dusk blockchain nodes.
-Config: /etc/serviceradar/checkers/dusk.json
+Description: ServiceRadar Key-Value store Sync service
+  This package provides the ServiceRadar key-value store synchronization service.
 EOF
 
-# Create conffiles to mark configuration files
 cat > "${PKG_ROOT}/DEBIAN/conffiles" << EOF
-/etc/serviceradar/checkers/external.json
-/etc/serviceradar/checkers/dusk.json
+/etc/serviceradar/sync.json
 EOF
 
-# Create systemd service file for dusk checker
-cat > "${PKG_ROOT}/lib/systemd/system/serviceradar-dusk-checker.service" << EOF
+# Create systemd service file
+cat > "${PKG_ROOT}/lib/systemd/system/serviceradar-sync.service" << EOF
 [Unit]
-Description=ServiceRadar Dusk Node Checker
+Description=ServiceRadar KV Sync Service
 After=network.target
 
 [Service]
 Type=simple
 User=serviceradar
-ExecStart=/usr/local/bin/dusk-checker -config /etc/serviceradar/checkers/dusk.json
+ExecStart=/usr/local/bin/serviceradar-sync
 Restart=always
 RestartSec=10
-LimitNPROC=512
 LimitNOFILE=65535
+LimitNPROC=65535
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-# Create default config files
-cat > "${PKG_ROOT}/etc/serviceradar/checkers/dusk.json" << EOF
-{
-    "name": "dusk",
-    "type": "grpc",
-    "node_address": "localhost:8080",
-    "address": "localhost:50052",
-    "listen_addr": ":50052",
-    "timeout": "5m",
-    "security": {
-        "mode": "none",
-        "cert_dir": "/etc/serviceradar/certs",
-        "role": "checker"
-    }
-}
-EOF
+mkdir -p "${PKG_ROOT}/etc/serviceradar"
 
-# Create external.json
-cat > "${PKG_ROOT}/etc/serviceradar/checkers/external.json" << EOF
+cat > "${PKG_ROOT}/etc/serviceradar/sync.json" << EOF
 {
-    "name": "dusk",
-    "type": "grpc",
-    "address": "localhost:50052"
+  "kv_address": "localhost:50055",
+  "listen_addr": ":50059",
+  "security": {
+    "mode": "mtls",
+    "cert_dir": "/etc/serviceradar/certs",
+    "server_name": "nats-serviceradar",
+    "role": "poller",
+    "tls": {
+      "cert_file": "sync.pem",
+      "key_file": "sync-key.pem",
+      "ca_file": "root.pem",
+      "client_ca_file": "root.pem"
+    }
+  },
+  "sources": {
+    "armis": {
+      "type": "armis",
+      "endpoint": "https://api.armis.example.com/v1/devices",
+      "prefix": "armis/",
+      "credentials": {
+        "api_key": "your-armis-api-key-here"
+      }
+    }
+  }
 }
 EOF
 
@@ -112,12 +113,12 @@ fi
 
 # Set permissions
 chown -R serviceradar:serviceradar /etc/serviceradar
-chmod 755 /usr/local/bin/dusk-checker
+chmod 755 /usr/local/bin/serviceradar-sync
 
 # Enable and start service
 systemctl daemon-reload
-systemctl enable serviceradar-dusk-checker
-systemctl start serviceradar-dusk-checker
+systemctl enable serviceradar-sync
+systemctl start serviceradar-sync
 
 exit 0
 EOF
@@ -130,8 +131,8 @@ cat > "${PKG_ROOT}/DEBIAN/prerm" << EOF
 set -e
 
 # Stop and disable service
-systemctl stop serviceradar-dusk-checker
-systemctl disable serviceradar-dusk-checker
+systemctl stop serviceradar-sync
+systemctl disable serviceradar-sync
 
 exit 0
 EOF
