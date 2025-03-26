@@ -94,8 +94,10 @@ func (p *Poller) Start(ctx context.Context) error {
 			return nil
 		case <-ticker.Chan():
 			p.wg.Add(1)
+
 			go func() {
 				defer p.wg.Done()
+
 				if err := p.poll(ctx); err != nil {
 					log.Printf("Error during poll: %v", err)
 				}
