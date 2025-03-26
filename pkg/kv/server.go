@@ -29,7 +29,6 @@ import (
 )
 
 // Server implements the KVService gRPC interface and lifecycle.Service.
-// Server implements the KVService gRPC interface and lifecycle.Service.
 type Server struct {
 	proto.UnimplementedKVServiceServer
 	config *Config
@@ -56,13 +55,15 @@ func (s *Server) Store() KVStore {
 	return s.store
 }
 
-func (s *Server) Start(_ context.Context) error {
+func (*Server) Start(_ context.Context) error {
 	log.Printf("KV service initialized (gRPC managed by lifecycle)")
+
 	return nil
 }
 
 func (s *Server) Stop(_ context.Context) error {
 	log.Printf("Stopping KV service")
+
 	return s.store.Close()
 }
 
@@ -72,16 +73,19 @@ func (s *Server) Get(ctx context.Context, req *proto.GetRequest) (*proto.GetResp
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to get key %s: %v", req.Key, err)
 	}
+
 	return &proto.GetResponse{Value: value, Found: found}, nil
 }
 
 // Put implements the Put RPC.
 func (s *Server) Put(ctx context.Context, req *proto.PutRequest) (*proto.PutResponse, error) {
 	ttl := time.Duration(req.TtlSeconds) * time.Second
+
 	err := s.store.Put(ctx, req.Key, req.Value, ttl)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to put key %s: %v", req.Key, err)
 	}
+
 	return &proto.PutResponse{}, nil
 }
 
@@ -91,6 +95,7 @@ func (s *Server) Delete(ctx context.Context, req *proto.DeleteRequest) (*proto.D
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to delete key %s: %v", req.Key, err)
 	}
+
 	return &proto.DeleteResponse{}, nil
 }
 
@@ -100,6 +105,7 @@ func (s *Server) Watch(req *proto.WatchRequest, stream proto.KVService_WatchServ
 	if err != nil {
 		return status.Errorf(codes.Internal, "failed to watch key %s: %v", req.Key, err)
 	}
+
 	for {
 		select {
 		case <-stream.Context().Done():
@@ -108,6 +114,7 @@ func (s *Server) Watch(req *proto.WatchRequest, stream proto.KVService_WatchServ
 			if !ok {
 				return nil
 			}
+
 			err := stream.Send(&proto.WatchResponse{Value: value})
 			if err != nil {
 				return status.Errorf(codes.Internal, "failed to send watch update: %v", err)

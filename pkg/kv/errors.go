@@ -19,5 +19,8 @@ package kv
 import "errors"
 
 var (
-	errKVStoreRequired = errors.New("KVStore is required")
+	errMTLSRequired           = errors.New("mTLS configuration required")
+	errFailedToLoadClientCert = errors.New("failed to load client certificate")
+	errFailedToReadCACert     = errors.New("failed to read CA certificate")
+	errFailedToParseCACert    = errors.New("failed to parse CA certificate")
 )
