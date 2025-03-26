@@ -1,6 +1,6 @@
 {
-  "kv_address": "localhost:50055",
-  "listen_addr": ":50059",
+  "kv_address": "localhost:50057",
+  "listen_addr": ":50058",
   "security": {
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
