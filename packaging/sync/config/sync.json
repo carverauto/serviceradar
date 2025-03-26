@@ -1,6 +1,7 @@
 {
   "kv_address": "localhost:50057",
   "listen_addr": ":50058",
+  "poll_interval": "30m",
   "security": {
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
