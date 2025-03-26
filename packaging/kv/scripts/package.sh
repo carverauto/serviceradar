@@ -6,7 +6,7 @@ echo "Setting up package structure..."
 VERSION=${VERSION:-1.0.12}
 
 # Create package directory structure
-PKG_ROOT="serviceradar-kv${VERSION}"
+PKG_ROOT="serviceradar-kv_${VERSION}"
 mkdir -p "${PKG_ROOT}/DEBIAN"
 mkdir -p "${PKG_ROOT}/usr/local/bin"
 mkdir -p "${PKG_ROOT}/etc/serviceradar"
