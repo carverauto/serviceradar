@@ -42,3 +42,18 @@ zero-trust:
     label: Zero Trust
     permalink: /zero-trust
     description: Zero Trust tag description
+
+welcome:
+    label: Welcome
+    permalink: /welcome
+    description: Welcome tag description
+
+serviceradar:
+    label: Service Radar
+    permalink: /serviceradar
+    description: Service Radar tag description
+
+network-monitoring:
+    label: Network Monitoring
+    permalink: /network-monitoring
+    description: Network Monitoring tag description
