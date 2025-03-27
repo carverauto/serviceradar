@@ -14,7 +14,7 @@ type grpcKVStore struct {
 	conn   *grpc.Client
 }
 
-func (g *grpcKVStore) Get(ctx context.Context, key string) ([]byte, bool, error) {
+func (g *grpcKVStore) Get(ctx context.Context, key string) (value []byte, found bool, err error) {
 	resp, err := g.client.Get(ctx, &proto.GetRequest{Key: key})
 	if err != nil {
 		return nil, false, err

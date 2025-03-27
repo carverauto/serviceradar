@@ -33,7 +33,7 @@ type Server struct {
 	proto.UnimplementedAgentServiceServer
 	mu           sync.RWMutex
 	checkers     map[string]checker.Checker
-	checkerConfs map[string]CheckerConfig
+	checkerConfs map[string]*CheckerConfig
 	configDir    string
 	services     []Service
 	listenAddr   string
