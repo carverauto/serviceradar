@@ -1,1 +1,0 @@
-"use strict";(self.webpackChunkdocs=self.webpackChunkdocs||[]).push([[7472],{5513:e=>{e.exports=JSON.parse('{"title":"Recent posts","items":[{"title":"Welcome to the ServiceRadar Blog","permalink":"/blog/welcome-to-serviceradar","unlisted":false,"date":"2025-03-24T00:00:00.000Z"}]}')}}]);
