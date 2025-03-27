@@ -31,9 +31,10 @@ import (
 
 // ArmisIntegration manages the Armis API integration.
 type ArmisIntegration struct {
-	config   models.SourceConfig
-	kvClient proto.KVServiceClient // Add gRPC client for KV writes
-	grpcConn *grpc.ClientConn      // Connection to reuse
+	config     models.SourceConfig
+	kvClient   proto.KVServiceClient // Add gRPC client for KV writes
+	grpcConn   *grpc.ClientConn      // Connection to reuse
+	serverName string
 }
 
 // NewArmisIntegration creates a new ArmisIntegration with a gRPC client.
@@ -41,11 +42,14 @@ func NewArmisIntegration(
 	_ context.Context,
 	config models.SourceConfig,
 	kvClient proto.KVServiceClient,
-	grpcConn *grpc.ClientConn) *ArmisIntegration {
+	grpcConn *grpc.ClientConn,
+	serverName string,
+) *ArmisIntegration {
 	return &ArmisIntegration{
-		config:   config,
-		kvClient: kvClient,
-		grpcConn: grpcConn,
+		config:     config,
+		kvClient:   kvClient,
+		grpcConn:   grpcConn,
+		serverName: serverName,
 	}
 }
 
@@ -82,6 +86,28 @@ var (
 
 // Fetch retrieves devices from Armis and generates sweep config.
 func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error) {
+	resp, err := a.fetchDevices(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer a.closeResponse(resp)
+
+	deviceResp, err := a.decodeResponse(resp)
+	if err != nil {
+		return nil, err
+	}
+
+	data, ips := a.processDevices(deviceResp)
+
+	log.Printf("Fetched %d devices from Armis", len(deviceResp.Devices))
+
+	a.writeSweepConfig(ctx, ips)
+
+	return data, nil
+}
+
+// fetchDevices sends the HTTP request to the Armis API.
+func (a *ArmisIntegration) fetchDevices(ctx context.Context) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.config.Endpoint+"?page=1&per_page=10", http.NoBody)
 	if err != nil {
 		return nil, err
@@ -94,44 +120,60 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error)
 		return nil, err
 	}
 
-	defer func() {
-		if err = resp.Body.Close(); err != nil {
-			log.Printf("Failed to close response body: %v", err)
-		}
-	}()
-
 	if resp.StatusCode != http.StatusOK {
+		err := resp.Body.Close()
+		if err != nil {
+			return nil, err
+		} // Close here since we won't defer in caller
+
 		return nil, fmt.Errorf("%w: %d", errUnexpectedStatusCode, resp.StatusCode)
 	}
 
+	return resp, nil
+}
+
+// closeResponse closes the HTTP response body, logging any errors.
+func (*ArmisIntegration) closeResponse(resp *http.Response) {
+	if err := resp.Body.Close(); err != nil {
+		log.Printf("Failed to close response body: %v", err)
+	}
+}
+
+// decodeResponse decodes the HTTP response into a DeviceResponse.
+func (*ArmisIntegration) decodeResponse(resp *http.Response) (DeviceResponse, error) {
 	var deviceResp DeviceResponse
 
-	err = json.NewDecoder(resp.Body).Decode(&deviceResp)
-	if err != nil {
-		return nil, err
+	if err := json.NewDecoder(resp.Body).Decode(&deviceResp); err != nil {
+		return DeviceResponse{}, err
 	}
 
-	// Store individual devices
-	data := make(map[string][]byte)
+	return deviceResp, nil
+}
 
-	ips := make([]string, 0, len(deviceResp.Devices))
-
-	var value []byte
+// processDevices converts devices to KV data and extracts IPs.
+func (*ArmisIntegration) processDevices(deviceResp DeviceResponse) (data map[string][]byte, ips []string) {
+	data = make(map[string][]byte)
+	ips = make([]string, 0, len(deviceResp.Devices))
 
 	for _, device := range deviceResp.Devices {
-		value, err = json.Marshal(device)
+		value, err := json.Marshal(device)
+
 		if err != nil {
-			return nil, err
+			log.Printf("Failed to marshal device %s: %v", device.DeviceID, err)
+
+			continue // Skip this device, don't fail entirely
 		}
 
-		data[device.DeviceID] = value // e.g., "device-1" -> {"device_id":"device-1","ip_address":"192.168.1.1"}
+		data[device.DeviceID] = value
 
 		ips = append(ips, device.IPAddress+"/32")
 	}
 
-	log.Printf("Fetched %d devices from Armis", len(deviceResp.Devices))
+	return data, ips
+}
 
-	// Generate and write sweep config
+// writeSweepConfig generates and writes the sweep config to KV.
+func (a *ArmisIntegration) writeSweepConfig(ctx context.Context, ips []string) {
 	sweepConfig := SweepConfig{
 		Networks:      ips,
 		Ports:         []int{22, 80, 443, 3306, 5432, 6379, 8080, 8443},
@@ -147,21 +189,20 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error)
 	configJSON, err := json.Marshal(sweepConfig)
 	if err != nil {
 		log.Printf("Failed to marshal sweep config: %v", err)
-
-		return data, nil // Continue with device data even if config fails
+		return
 	}
 
+	configKey := fmt.Sprintf("config/%s/network-sweep", a.serverName)
 	_, err = a.kvClient.Put(ctx, &proto.PutRequest{
-		Key:   "config/serviceradar-agent/network-sweep",
+		Key:   configKey,
 		Value: configJSON,
 	})
 
 	if err != nil {
-		log.Printf("Failed to write sweep config: %v", err)
-		return data, nil // Continue with device data
+		log.Printf("Failed to write sweep config to %s: %v", configKey, err)
+
+		return
 	}
 
-	log.Println("Wrote sweep config to config/serviceradar-agent/network-sweep")
-
-	return data, nil
+	log.Printf("Wrote sweep config to %s", configKey)
 }
