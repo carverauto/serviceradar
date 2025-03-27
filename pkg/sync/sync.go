@@ -122,23 +122,29 @@ func NewWithGRPC(ctx context.Context, config *Config) (*SyncPoller, error) {
 
 func (s *SyncPoller) initializeIntegrations(ctx context.Context) {
 	for name, src := range s.config.Sources {
-		if factory, ok := s.registry[src.Type]; ok {
-			// Pass kvClient and grpcClient to Armis integration
-			if src.Type == "armis" {
-				// Pass server name from s.config.Security
-				serverName := "default-agent" // Fallback
-				if s.config.Security != nil && s.config.Security.ServerName != "" {
-					serverName = s.config.Security.ServerName
-				}
-
-				s.sources[name] = integrations.NewArmisIntegration(ctx, src, s.kvClient, s.grpcClient.GetConnection(), serverName)
-			} else {
-				s.sources[name] = factory(ctx, src)
-			}
-		} else {
+		factory, ok := s.registry[src.Type]
+		if !ok {
 			log.Printf("Unknown source type: %s", src.Type)
+
+			continue
 		}
+
+		s.sources[name] = s.createIntegration(ctx, src, factory)
 	}
+}
+
+// createIntegration constructs an integration instance based on source type.
+func (s *SyncPoller) createIntegration(ctx context.Context, src models.SourceConfig, factory IntegrationFactory) Integration {
+	if src.Type != "armis" {
+		return factory(ctx, src)
+	}
+
+	serverName := "default-agent"
+	if s.config.Security != nil && s.config.Security.ServerName != "" {
+		serverName = s.config.Security.ServerName
+	}
+
+	return integrations.NewArmisIntegration(ctx, src, s.kvClient, s.grpcClient.GetConnection(), serverName)
 }
 
 // Start delegates to poller.Poller.Start, using PollFunc for syncing.
