@@ -24,10 +24,10 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/checker"
+	"github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
@@ -36,15 +36,33 @@ import (
 const (
 	defaultTimeout     = 30 * time.Second
 	jsonSuffix         = ".json"
-	snmpPrefix         = "snmp"
+	fallBackSuffix     = "fallback"
 	grpcType           = "grpc"
 	defaultErrChansize = 10
 )
 
-func NewServer(configDir string, cfg *ServerConfig) (*Server, error) {
+func NewServer(ctx context.Context, configDir string, cfg *ServerConfig) (*Server, error) {
+	cfgLoader := config.NewConfig()
+
+	// Determine agent ID
+	agentID := os.Getenv("AGENT_ID")
+	if agentID == "" {
+		agentID = "default-agent"
+	}
+
+	if cfg.AgentID == "" {
+		cfg.AgentID = agentID
+	}
+
+	// Set up KV store if enabled
+	kvStore, err := setupKVStore(ctx, cfgLoader, cfg)
+	if err != nil {
+		return nil, err
+	}
+
 	s := &Server{
 		checkers:     make(map[string]checker.Checker),
-		checkerConfs: make(map[string]CheckerConfig),
+		checkerConfs: make(map[string]*CheckerConfig),
 		configDir:    configDir,
 		services:     make([]Service, 0),
 		listenAddr:   cfg.ListenAddr,
@@ -53,23 +71,77 @@ func NewServer(configDir string, cfg *ServerConfig) (*Server, error) {
 		done:         make(chan struct{}),
 		config:       cfg,
 		connections:  make(map[string]*CheckerConnection),
+		kvStore:      kvStore,
 	}
 
-	if err := s.loadConfigurations(); err != nil {
+	if err := s.loadConfigurations(ctx, cfgLoader); err != nil {
 		return nil, fmt.Errorf("failed to load configurations: %w", err)
 	}
 
 	return s, nil
 }
 
-func (s *Server) loadConfigurations() error {
-	if err := s.loadCheckerConfigs(); err != nil {
+// setupKVStore configures the KV store if enabled by CONFIG_SOURCE and KVAddress.
+func setupKVStore(ctx context.Context, cfgLoader *config.Config, cfg *ServerConfig) (*grpcKVStore, error) {
+	if os.Getenv("CONFIG_SOURCE") != "kv" || cfg.KVAddress == "" {
+		return nil, nil
+	}
+
+	clientCfg := grpc.ClientConfig{
+		Address:    cfg.KVAddress,
+		MaxRetries: 3,
+	}
+
+	if cfg.Security != nil {
+		provider, err := grpc.NewSecurityProvider(ctx, cfg.Security)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create security provider: %w", err)
+		}
+
+		clientCfg.SecurityProvider = provider
+	}
+
+	client, err := grpc.NewClient(ctx, clientCfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create KV gRPC client: %w", err)
+	}
+
+	defer func() {
+		if err != nil {
+			if closeErr := client.Close(); closeErr != nil {
+				log.Printf("Failed to close KV gRPC client: %v", closeErr)
+			}
+		}
+	}()
+
+	kvStore := &grpcKVStore{
+		client: proto.NewKVServiceClient(client.GetConnection()),
+		conn:   client,
+	}
+
+	cfgLoader.SetKVStore(kvStore)
+
+	return kvStore, nil
+}
+
+func (s *Server) loadConfigurations(ctx context.Context, cfgLoader *config.Config) error {
+	if err := s.loadCheckerConfigs(ctx, cfgLoader); err != nil {
 		return fmt.Errorf("failed to load checker configs: %w", err)
 	}
 
-	sweepConfigPath := filepath.Join(s.configDir, "sweep", "sweep.json")
-	service, err := s.loadSweepService(sweepConfigPath)
+	// Define paths for sweep config
+	fileSweepConfigPath := filepath.Join(s.configDir, "sweep", "sweep.json")
 
+	var kvSweepConfigPath string
+
+	if s.config.AgentID != "" {
+		kvSweepConfigPath = fmt.Sprintf("agents/%s/sweep/sweep.json", s.config.AgentID)
+	} else {
+		kvSweepConfigPath = "sweep/sweep.json" // Fallback for KV if no AgentID
+	}
+
+	// Load sweep service
+	service, err := s.loadSweepService(ctx, cfgLoader, kvSweepConfigPath, fileSweepConfigPath)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("failed to load sweep service: %w", err)
 	}
@@ -81,19 +153,40 @@ func (s *Server) loadConfigurations() error {
 	return nil
 }
 
-func (*Server) loadSweepService(configPath string) (Service, error) {
-	data, err := os.ReadFile(configPath)
-	if err != nil {
+func (s *Server) loadSweepService(ctx context.Context, cfgLoader *config.Config, kvPath, filePath string) (Service, error) {
+	var sweepConfig *SweepConfig
+
+	// Try KV if available
+	if s.kvStore != nil {
+		var err error
+		if err = cfgLoader.LoadAndValidate(ctx, kvPath, &sweepConfig); err == nil {
+			log.Printf("Loaded sweep config from KV: %s", kvPath)
+
+			return s.createSweepService(sweepConfig)
+		}
+
+		log.Printf("Failed to load sweep config from KV %s: %v", kvPath, err)
+	}
+
+	// Load from file (directly or as fallback)
+	if err := cfgLoader.LoadAndValidate(ctx, filePath, &sweepConfig); err != nil {
 		return nil, err
 	}
 
-	var sweepConfig SweepConfig
+	suffix := ""
 
-	if err = json.Unmarshal(data, &sweepConfig); err != nil {
-		return nil, fmt.Errorf("failed to parse sweep config: %w", err)
+	if s.kvStore != nil {
+		suffix = " " + fallBackSuffix
 	}
 
-	config := &models.Config{
+	log.Printf("Loaded sweep config from file%s: %s", suffix, filePath)
+
+	return s.createSweepService(sweepConfig)
+}
+
+// createSweepService constructs a Service from a SweepConfig.
+func (*Server) createSweepService(sweepConfig *SweepConfig) (Service, error) {
+	c := &models.Config{
 		Networks:    sweepConfig.Networks,
 		Ports:       sweepConfig.Ports,
 		SweepModes:  sweepConfig.SweepModes,
@@ -102,12 +195,12 @@ func (*Server) loadSweepService(configPath string) (Service, error) {
 		Timeout:     time.Duration(sweepConfig.Timeout),
 	}
 
-	service, err := NewSweepService(config)
+	service, err := NewSweepService(c)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sweep service: %w", err)
 	}
 
-	log.Printf("Loaded sweep service with config: %+v", config)
+	log.Printf("Initialized sweep service with config: %+v", c)
 
 	return service, nil
 }
@@ -168,39 +261,6 @@ func (e *ServiceError) Error() string {
 	return fmt.Sprintf("service %s error: %v", e.ServiceName, e.Err)
 }
 
-func (*Server) loadCheckerConfig(path string) (CheckerConfig, error) {
-	var conf CheckerConfig
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return conf, fmt.Errorf("failed to read config file %s: %w", path, err)
-	}
-
-	if strings.HasPrefix(filepath.Base(path), snmpPrefix) {
-		conf.Name = "snmp-" + strings.TrimSuffix(filepath.Base(path), jsonSuffix)
-		conf.Type = snmpPrefix
-		conf.Additional = data
-
-		return conf, nil
-	}
-
-	if err := json.Unmarshal(data, &conf); err != nil {
-		return conf, fmt.Errorf("failed to parse config file %s: %w", path, err)
-	}
-
-	if conf.Timeout == 0 {
-		conf.Timeout = Duration(defaultTimeout)
-	}
-
-	if conf.Type == grpcType && conf.Address == "" {
-		conf.Address = conf.ListenAddr
-	}
-
-	log.Printf("Loaded checker config from %s: %+v", path, conf)
-
-	return conf, nil
-}
-
 func (s *Server) initializeCheckers(ctx context.Context) error {
 	files, err := os.ReadDir(s.configDir)
 	if err != nil {
@@ -209,32 +269,39 @@ func (s *Server) initializeCheckers(ctx context.Context) error {
 
 	s.connections = make(map[string]*CheckerConnection)
 
+	cfgLoader := config.NewConfig()
+
+	if s.kvStore != nil {
+		cfgLoader.SetKVStore(s.kvStore)
+	}
+
 	for _, file := range files {
 		if filepath.Ext(file.Name()) != jsonSuffix {
 			continue
 		}
 
-		config, err := s.loadCheckerConfig(filepath.Join(s.configDir, file.Name()))
+		filePath := filepath.Join(s.configDir, file.Name())
+
+		conf, err := s.loadCheckerConfig(ctx, cfgLoader, filePath)
 		if err != nil {
 			log.Printf("Warning: Failed to load checker config %s: %v", file.Name(), err)
 
 			continue
 		}
 
-		if config.Type == grpcType {
-			conn, err := s.connectToChecker(ctx, &config)
+		if conf.Type == grpcType {
+			conn, err := s.connectToChecker(ctx, conf)
 			if err != nil {
-				log.Printf("Warning: Failed to connect to checker %s: %v", config.Name, err)
-
+				log.Printf("Warning: Failed to connect to checker %s: %v", conf.Name, err)
 				continue
 			}
 
-			s.connections[config.Name] = conn
+			s.connections[conf.Name] = conn
 		}
 
-		s.checkerConfs[config.Name] = config
+		s.checkerConfs[conf.Name] = conf
 
-		log.Printf("Loaded checker config: %s (type: %s)", config.Name, config.Type)
+		log.Printf("Loaded checker config: %s (type: %s)", conf.Name, conf.Type)
 	}
 
 	return nil
@@ -330,49 +397,76 @@ func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*prot
 	}, nil
 }
 
-func (s *Server) loadCheckerConfigs() error {
+func (s *Server) loadCheckerConfig(ctx context.Context, cfgLoader *config.Config, filePath string) (*CheckerConfig, error) {
+	var conf *CheckerConfig
+
+	// Determine KV path
+	kvPath := filepath.Base(filePath)
+	if s.config.AgentID != "" {
+		kvPath = fmt.Sprintf("agents/%s/checkers/%s", s.config.AgentID, filepath.Base(filePath))
+	}
+
+	// Try KV if available
+	var err error
+	if s.kvStore != nil {
+		if err = cfgLoader.LoadAndValidate(ctx, kvPath, &conf); err == nil {
+			log.Printf("Loaded checker config from KV: %s", kvPath)
+
+			return s.applyCheckerDefaults(conf), nil
+		}
+
+		log.Printf("Failed to load checker config from KV %s: %v", kvPath, err)
+	}
+
+	// Load from file (either directly or as fallback)
+	if err = cfgLoader.LoadAndValidate(ctx, filePath, &conf); err != nil {
+		return conf, fmt.Errorf("failed to load checker config %s: %w", filePath, err)
+	}
+
+	suffix := ""
+	if s.kvStore != nil {
+		suffix = " " + fallBackSuffix
+	}
+
+	log.Printf("Loaded checker config from file%s: %s", suffix, filePath)
+
+	return s.applyCheckerDefaults(conf), nil
+}
+
+// applyCheckerDefaults sets default values for a CheckerConfig.
+func (*Server) applyCheckerDefaults(conf *CheckerConfig) *CheckerConfig {
+	if conf.Timeout == 0 {
+		conf.Timeout = Duration(defaultTimeout)
+	}
+
+	if conf.Type == grpcType && conf.Address == "" {
+		conf.Address = conf.ListenAddr
+	}
+
+	return conf
+}
+
+func (s *Server) loadCheckerConfigs(ctx context.Context, cfgLoader *config.Config) error {
 	files, err := os.ReadDir(s.configDir)
 	if err != nil {
 		return fmt.Errorf("failed to read config directory: %w", err)
 	}
 
 	for _, file := range files {
-		if filepath.Ext(file.Name()) != ".json" {
+		if filepath.Ext(file.Name()) != jsonSuffix {
 			continue
 		}
 
-		path := filepath.Join(s.configDir, file.Name())
+		filePath := filepath.Join(s.configDir, file.Name())
 
-		data, err := os.ReadFile(path)
+		conf, err := s.loadCheckerConfig(ctx, cfgLoader, filePath)
 		if err != nil {
-			log.Printf("Warning: Failed to read config file %s: %v", path, err)
-
-			continue
-		}
-
-		if strings.HasPrefix(file.Name(), "snmp") {
-			var conf CheckerConfig
-
-			conf.Name = "snmp-" + strings.TrimSuffix(file.Name(), ".json")
-			conf.Type = "snmp"
-			conf.Additional = data
-
-			s.checkerConfs[conf.Name] = conf
-
-			log.Printf("Loaded SNMP checker config: %s", conf.Name)
-
-			continue
-		}
-
-		var conf CheckerConfig
-		if err := json.Unmarshal(data, &conf); err != nil {
-			log.Printf("Warning: Failed to parse config file %s: %v", path, err)
+			log.Printf("Warning: Failed to load checker config %s: %v", file.Name(), err)
 
 			continue
 		}
 
 		s.checkerConfs[conf.Name] = conf
-
 		log.Printf("Loaded checker config: %s (type: %s)", conf.Name, conf.Type)
 	}
 
