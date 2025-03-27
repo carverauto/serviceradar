@@ -57,6 +57,7 @@ type AgentConfig struct {
 	ListenAddr  string                 `json:"listen_addr"`  // e.g., :50051
 	ServiceName string                 `json:"service_name"` // e.g., "agent"
 	Security    *models.SecurityConfig `json:"security"`
+	KVAddress   string                 `json:"kv_address,omitempty"` // Optional KV store address
 }
 
 // Check represents a generic service check configuration.

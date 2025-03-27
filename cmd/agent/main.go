@@ -54,7 +54,7 @@ func run() error {
 	}
 
 	// Create agent server
-	server, err := agent.NewServer(cfg.CheckersDir, &agent.ServerConfig{
+	server, err := agent.NewServer(ctx, cfg.CheckersDir, &agent.ServerConfig{
 		ListenAddr: cfg.ListenAddr,
 		Security:   cfg.Security,
 	})
