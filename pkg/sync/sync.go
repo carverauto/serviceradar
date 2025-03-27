@@ -88,7 +88,7 @@ func New(
 func defaultIntegrationRegistry() map[string]IntegrationFactory {
 	return map[string]IntegrationFactory{
 		"armis": func(ctx context.Context, config models.SourceConfig) Integration {
-			return integrations.NewArmisIntegration(ctx, config, nil, nil)
+			return integrations.NewArmisIntegration(ctx, config, nil, nil, "")
 		},
 		// Add more integrations here, e.g., "netbox": integrations.NewNetboxIntegration,
 	}
@@ -125,7 +125,13 @@ func (s *SyncPoller) initializeIntegrations(ctx context.Context) {
 		if factory, ok := s.registry[src.Type]; ok {
 			// Pass kvClient and grpcClient to Armis integration
 			if src.Type == "armis" {
-				s.sources[name] = integrations.NewArmisIntegration(ctx, src, s.kvClient, s.grpcClient.GetConnection())
+				// Pass server name from s.config.Security
+				serverName := "default-agent" // Fallback
+				if s.config.Security != nil && s.config.Security.ServerName != "" {
+					serverName = s.config.Security.ServerName
+				}
+
+				s.sources[name] = integrations.NewArmisIntegration(ctx, src, s.kvClient, s.grpcClient.GetConnection(), serverName)
 			} else {
 				s.sources[name] = factory(ctx, src)
 			}
