@@ -31,9 +31,10 @@ import (
 
 // ArmisIntegration manages the Armis API integration.
 type ArmisIntegration struct {
-	config   models.SourceConfig
-	kvClient proto.KVServiceClient // Add gRPC client for KV writes
-	grpcConn *grpc.ClientConn      // Connection to reuse
+	config     models.SourceConfig
+	kvClient   proto.KVServiceClient // Add gRPC client for KV writes
+	grpcConn   *grpc.ClientConn      // Connection to reuse
+	serverName string
 }
 
 // NewArmisIntegration creates a new ArmisIntegration with a gRPC client.
@@ -41,11 +42,14 @@ func NewArmisIntegration(
 	_ context.Context,
 	config models.SourceConfig,
 	kvClient proto.KVServiceClient,
-	grpcConn *grpc.ClientConn) *ArmisIntegration {
+	grpcConn *grpc.ClientConn,
+	serverName string,
+) *ArmisIntegration {
 	return &ArmisIntegration{
-		config:   config,
-		kvClient: kvClient,
-		grpcConn: grpcConn,
+		config:     config,
+		kvClient:   kvClient,
+		grpcConn:   grpcConn,
+		serverName: serverName,
 	}
 }
 
@@ -151,10 +155,17 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error)
 		return data, nil // Continue with device data even if config fails
 	}
 
+	// Use serverName in the KV path
+	configKey := fmt.Sprintf("config/%s/network-sweep", a.serverName)
 	_, err = a.kvClient.Put(ctx, &proto.PutRequest{
-		Key:   "config/serviceradar-agent/network-sweep",
+		Key:   configKey,
 		Value: configJSON,
 	})
+	if err != nil {
+		log.Printf("Failed to write sweep config to %s: %v", configKey, err)
+
+		return data, nil
+	}
 
 	if err != nil {
 		log.Printf("Failed to write sweep config: %v", err)
