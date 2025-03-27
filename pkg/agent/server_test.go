@@ -103,7 +103,7 @@ func TestNewServer(t *testing.T) {
 				tt.setupFn(tt.configDir)
 			}
 
-			server, err := NewServer(tt.configDir, tt.config)
+			server, err := NewServer(context.Background(), tt.configDir, tt.config)
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Nil(t, server)
@@ -133,7 +133,7 @@ func TestServerGetStatus(t *testing.T) {
 	}(tmpDir)
 
 	// Create test server
-	server, err := NewServer(tmpDir, &ServerConfig{ListenAddr: ":50051"})
+	server, err := NewServer(context.Background(), tmpDir, &ServerConfig{ListenAddr: ":50051"})
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -199,7 +199,7 @@ func TestServerLifecycle(t *testing.T) {
 	}(tmpDir)
 
 	// Create test server
-	server, err := NewServer(tmpDir, &ServerConfig{ListenAddr: ":50051"})
+	server, err := NewServer(context.Background(), tmpDir, &ServerConfig{ListenAddr: ":50051"})
 	require.NoError(t, err)
 
 	// Test Start
@@ -242,7 +242,7 @@ func TestServerListServices(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create test server
-	server, err := NewServer(tmpDir, &ServerConfig{ListenAddr: ":50051"})
+	server, err := NewServer(context.Background(), tmpDir, &ServerConfig{ListenAddr: ":50051"})
 	require.NoError(t, err)
 
 	// Test ListServices

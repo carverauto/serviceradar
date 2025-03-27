@@ -23,6 +23,7 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/checker"
 	"github.com/carverauto/serviceradar/pkg/grpc"
+	"github.com/carverauto/serviceradar/pkg/kv"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/scan"
 	"github.com/carverauto/serviceradar/proto"
@@ -32,7 +33,7 @@ type Server struct {
 	proto.UnimplementedAgentServiceServer
 	mu           sync.RWMutex
 	checkers     map[string]checker.Checker
-	checkerConfs map[string]CheckerConfig
+	checkerConfs map[string]*CheckerConfig
 	configDir    string
 	services     []Service
 	listenAddr   string
@@ -41,6 +42,7 @@ type Server struct {
 	done         chan struct{}
 	config       *ServerConfig
 	connections  map[string]*CheckerConnection
+	kvStore      kv.KVStore
 }
 type Duration time.Duration
 
@@ -70,8 +72,10 @@ type CheckerConfig struct {
 
 // ServerConfig holds the configuration for the agent server.
 type ServerConfig struct {
+	AgentID    string                 `json:"agent_id"` // Unique identifier for this agent
 	ListenAddr string                 `json:"listen_addr"`
 	Security   *models.SecurityConfig `json:"security"`
+	KVAddress  string                 `json:"kv_address,omitempty"` // Optional KV store address
 }
 
 type CheckerConnection struct {
