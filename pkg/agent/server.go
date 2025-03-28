@@ -50,6 +50,7 @@ func NewServer(ctx context.Context, configDir string, cfg *ServerConfig) (*Serve
 	if agentID == "" {
 		agentID = "default-agent"
 	}
+
 	if cfg.AgentID == "" {
 		cfg.AgentID = agentID
 	}
@@ -102,13 +103,14 @@ func setupKVStore(ctx context.Context, cfgLoader *config.Config, cfg *ServerConf
 	}
 
 	if securityConfig == nil {
-		return nil, fmt.Errorf("no security config provided for KV store")
+		return nil, errNoSecurityConfigKV
 	}
 
 	provider, err := grpc.NewSecurityProvider(ctx, securityConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create KV security provider: %w", err)
 	}
+
 	clientCfg.SecurityProvider = provider
 
 	client, err := grpc.NewClient(ctx, clientCfg)
@@ -144,9 +146,11 @@ func (s *Server) loadConfigurations(ctx context.Context, cfgLoader *config.Confi
 
 	// Use AgentName for KV path, fall back to AgentID if not set
 	serverName := s.config.AgentID // Default to AgentID
+
 	if s.config.AgentName != "" {
 		serverName = s.config.AgentName // Prefer AgentName
 	}
+
 	kvSweepConfigPath := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", serverName)
 
 	// Load sweep service
@@ -162,43 +166,79 @@ func (s *Server) loadConfigurations(ctx context.Context, cfgLoader *config.Confi
 	return nil
 }
 
-func (s *Server) loadSweepService(ctx context.Context, cfgLoader *config.Config, kvPath, filePath string) (Service, error) {
-	var sweepConfig SweepConfig // Use concrete type to avoid nil pointer issues
-
-	// Try KV if available
-	if s.kvStore != nil {
-		value, found, err := s.kvStore.Get(ctx, kvPath)
-		if err == nil && found {
-			if err := json.Unmarshal(value, &sweepConfig); err == nil {
-				log.Printf("Loaded sweep config from KV: %s", kvPath)
-				return s.createSweepService(&sweepConfig)
-			}
-			log.Printf("Failed to unmarshal sweep config from KV %s: %v", kvPath, err)
-		} else if err != nil {
-			log.Printf("Failed to get sweep config from KV %s: %v", kvPath, err)
-		}
-	} else {
+// tryLoadFromKV attempts to load config from KV store.
+func (s *Server) tryLoadFromKV(ctx context.Context, kvPath string, sweepConfig *SweepConfig) (Service, error) {
+	if s.kvStore == nil {
 		log.Printf("KV store not initialized, skipping KV fetch for sweep config")
+
+		return nil, nil
 	}
 
-	// Load from file as fallback
+	value, found, err := s.kvStore.Get(ctx, kvPath)
+	if err != nil {
+		log.Printf("Failed to get sweep config from KV %s: %v", kvPath, err)
+
+		return nil, err
+	}
+
+	if !found {
+		return nil, nil
+	}
+
+	if err = json.Unmarshal(value, sweepConfig); err != nil {
+		log.Printf("Failed to unmarshal sweep config from KV %s: %v", kvPath, err)
+
+		return nil, err
+	}
+
+	log.Printf("Loaded sweep config from KV: %s", kvPath)
+
+	service, err := s.createSweepService(sweepConfig) // Unpack the tuple
+	if err != nil {
+		return nil, err // Propagate the error if service creation fails
+	}
+
+	return service, nil // Return the service and a nil error
+}
+
+// loadSweepService loads and initializes the sweep service.
+func (s *Server) loadSweepService(ctx context.Context, cfgLoader *config.Config, kvPath, filePath string) (Service, error) {
+	var sweepConfig SweepConfig
+
+	// Attempt to load from KV store first if available
+	if service, err := s.tryLoadFromKV(ctx, kvPath, &sweepConfig); err == nil && service != nil {
+		return service, nil
+	}
+
+	// Fallback to file loading
 	if err := cfgLoader.LoadAndValidate(ctx, filePath, &sweepConfig); err != nil {
 		return nil, fmt.Errorf("failed to load sweep config from file %s: %w", filePath, err)
 	}
 
-	suffix := ""
-	if s.kvStore != nil {
-		suffix = " " + fallBackSuffix
-	}
+	suffix := s.getLogSuffix()
 	log.Printf("Loaded sweep config from file%s: %s", suffix, filePath)
 
-	return s.createSweepService(&sweepConfig)
+	service, err := s.createSweepService(&sweepConfig) // Unpack the tuple here too
+	if err != nil {
+		return nil, err
+	}
+
+	return service, nil
+}
+
+// getLogSuffix returns appropriate suffix based on KV store availability.
+func (s *Server) getLogSuffix() string {
+	if s.kvStore != nil {
+		return " " + fallBackSuffix
+	}
+
+	return ""
 }
 
 // createSweepService constructs a Service from a SweepConfig.
 func (*Server) createSweepService(sweepConfig *SweepConfig) (Service, error) {
 	if sweepConfig == nil {
-		return nil, fmt.Errorf("sweep config is nil")
+		return nil, errSweepConfigNil
 	}
 
 	c := &models.Config{
