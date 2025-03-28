@@ -3,14 +3,28 @@
   "listen_addr": ":50051",
   "service_type": "grpc",
   "service_name": "AgentService",
+  "agent_id": "default-agent",
+  "agent_name": "changeme",
   "security": {
-    "mode": "none",
+    "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
-    "server_name": "server.serviceradar",
+    "server_name": "changeme",
     "role": "agent",
     "tls": {
       "cert_file": "agent.pem",
       "key_file": "agent-key.pem",
+      "ca_file": "root.pem"
+    }
+  },
+  "kv_address": "changeme:50057",
+  "kv_security": {
+    "mode": "mtls",
+    "cert_dir": "/etc/serviceradar/certs",
+    "server_name": "changeme",
+    "role": "agent",
+    "tls": {
+      "cert_file": "kv-client.pem",
+      "key_file": "kv-client-key.pem",
       "ca_file": "root.pem"
     }
   }
