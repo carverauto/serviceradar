@@ -18,11 +18,9 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
-	"os"
-	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -30,7 +28,6 @@ import (
 	"github.com/carverauto/serviceradar/pkg/checker/snmp"
 	"github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/grpc"
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 )
 
@@ -49,60 +46,6 @@ type SNMPChecker struct {
 	mu          sync.RWMutex
 	wg          sync.WaitGroup
 	done        chan struct{}
-}
-
-func NewSNMPChecker(ctx context.Context, address string) (checker.Checker, error) {
-	log.Printf("Creating new SNMP checker client for address: %s", address)
-
-	configPath := filepath.Join(defaultConfigPath, "snmp.json")
-	if _, err := os.Stat(configPath); err != nil {
-		return nil, fmt.Errorf("config file error: %w", err)
-	}
-
-	var cfg snmp.Config
-
-	cfgLoader := config.NewConfig()
-
-	if err := cfgLoader.LoadAndValidate(ctx, configPath, &cfg); err != nil {
-		return nil, fmt.Errorf("failed to load SNMP config: %w", err)
-	}
-
-	// Use ClientConfig instead of ConnectionConfig
-	clientCfg := grpc.ClientConfig{
-		Address:    address,
-		MaxRetries: grpcRetries,
-	}
-
-	security := models.SecurityConfig{
-		Mode:       "mtls",
-		CertDir:    "/etc/serviceradar/certs",
-		ServerName: strings.Split(address, ":")[0],
-		Role:       "agent",
-	}
-
-	provider, err := grpc.NewSecurityProvider(ctx, &security)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create security provider: %w", err)
-	}
-
-	clientCfg.SecurityProvider = provider
-
-	client, err := grpc.NewClient(ctx, clientCfg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create gRPC client: %w", err)
-	}
-
-	agentClient := proto.NewAgentServiceClient(client.GetConnection())
-
-	c := &SNMPChecker{
-		config:      &cfg,
-		client:      client,
-		agentClient: agentClient,
-		interval:    defaultInterval,
-		done:        make(chan struct{}),
-	}
-
-	return c, nil
 }
 
 func (c *SNMPChecker) Check(ctx context.Context) (available bool, msg string) {
@@ -199,4 +142,59 @@ func (c *SNMPChecker) checkHealth(ctx context.Context) error {
 	log.Printf("SNMP service health check passed")
 
 	return nil
+}
+
+func NewSNMPChecker(ctx context.Context, serviceName, details string) (checker.Checker, error) {
+	// Server will pass the pre-initialized client via connections
+	s := ctx.Value("server").(*Server) // Assume Server is passed via context (see registry update)
+	if s == nil {
+		return nil, fmt.Errorf("server context not provided for SNMP checker")
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var address string
+	var conf *CheckerConfig
+	if c, ok := s.checkerConfs[serviceName]; ok && c.Type == "snmp" {
+		conf = c
+		address = c.Address
+		if address == "" {
+			address = c.ListenAddr
+		}
+	}
+	if address == "" {
+		address = details // Fallback to details if no config
+	}
+
+	conn, exists := s.connections[address]
+	if !exists {
+		return nil, fmt.Errorf("no gRPC connection available for SNMP checker at %s", address)
+	}
+
+	var cfg snmp.Config
+	if conf != nil {
+		if err := json.Unmarshal(conf.Additional, &cfg); err != nil {
+			log.Printf("No additional SNMP config found for %s, using defaults: %v", serviceName, err)
+		}
+		if conf.Timeout != 0 {
+			cfg.Timeout = config.Duration(conf.Timeout)
+		}
+	} else {
+		cfg = snmp.Config{
+			Timeout: config.Duration(defaultInterval),
+		}
+	}
+
+	c := &SNMPChecker{
+		config:      &cfg,
+		client:      conn.client,
+		agentClient: proto.NewAgentServiceClient(conn.client.GetConnection()),
+		interval:    defaultInterval,
+		done:        make(chan struct{}),
+	}
+
+	log.Printf("Successfully created SNMP checker for %s using shared client", address)
+
+	return c, nil
 }

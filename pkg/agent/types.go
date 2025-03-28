@@ -74,7 +74,8 @@ type CheckerConfig struct {
 type ServerConfig struct {
 	AgentID    string                 `json:"agent_id"` // Unique identifier for this agent
 	ListenAddr string                 `json:"listen_addr"`
-	Security   *models.SecurityConfig `json:"security"`
+	Security   *models.SecurityConfig `json:"security"`             // For agent’s gRPC server
+	KVSecurity *models.SecurityConfig `json:"kv_security"`          // For KV client
 	KVAddress  string                 `json:"kv_address,omitempty"` // Optional KV store address
 }
 
@@ -129,4 +130,9 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 	default:
 		return errInvalidDuration
 	}
+}
+
+// Registry implements checker.Registry for agent-specific checker creation.
+type Registry struct {
+	factories map[string]checker.Factory
 }

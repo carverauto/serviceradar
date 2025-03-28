@@ -86,6 +86,18 @@ cat > "${PKG_ROOT}/etc/serviceradar/agent.json" << EOF
         "cert_dir": "/etc/serviceradar/certs",
         "server_name": "changeme",
         "role": "agent"
+    },
+    "kv_address": "changeme:50057",
+    "kv_security": {
+        "mode": "mtls",
+        "cert_dir": "/etc/serviceradar/certs",
+        "server_name": "changeme",
+        "role": "agent",
+        "tls": {
+            "cert_file": "kv-client.pem",
+            "key_file": "kv-client-key.pem",
+            "ca_file": "root.pem"
+        }
     }
 }
 EOF

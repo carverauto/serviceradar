@@ -47,6 +47,7 @@ const (
 type Config struct {
 	kvStore       kv.KVStore
 	defaultLoader ConfigLoader
+	skipKV        bool
 }
 
 // NewConfig initializes a new Config instance with a default file loader.
@@ -83,15 +84,24 @@ func ValidateConfig(cfg interface{}) error {
 }
 
 // LoadAndValidate loads a configuration and validates it if possible.
-func (c *Config) LoadAndValidate(ctx context.Context, path string, cfg interface{}) error {
-	// If using KV config source but store not initialized, attempt auto-init
-	if strings.ToLower(os.Getenv("CONFIG_SOURCE")) == configSourceKV && c.kvStore == nil {
-		if err := c.autoInitializeKVStore(ctx, path); err != nil {
-			return fmt.Errorf("failed to auto-initialize KV store: %w", err)
+func (c *Config) LoadAndValidate(ctx context.Context, path string, target interface{}, opts ...LoadOption) error {
+	for _, opt := range opts {
+		opt(c)
+	}
+
+	if !c.skipKV && c.kvStore != nil {
+		value, found, err := c.kvStore.Get(ctx, path)
+		if err == nil && found {
+			return json.Unmarshal(value, target)
 		}
 	}
 
-	return c.loadAndValidateWithSource(ctx, path, cfg)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+
+	return json.Unmarshal(data, target)
 }
 
 func (c *Config) autoInitializeKVStore(ctx context.Context, path string) error {
@@ -148,6 +158,14 @@ func (c *Config) autoInitializeKVStore(ctx context.Context, path string) error {
 // SetKVStore sets the KV store to be used when CONFIG_SOURCE=kv.
 func (c *Config) SetKVStore(store kv.KVStore) {
 	c.kvStore = store
+}
+
+type LoadOption func(*Config)
+
+func WithFileOnly() LoadOption {
+	return func(c *Config) {
+		c.skipKV = true
+	}
 }
 
 // loadAndValidateWithSource loads and validates config using the appropriate loader.

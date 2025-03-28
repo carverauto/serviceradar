@@ -39,6 +39,7 @@ type checkerRegistry struct {
 	factories map[string]Factory
 }
 
+// NewRegistry creates a new Registry instance.
 func NewRegistry() Registry {
 	return &checkerRegistry{
 		factories: make(map[string]Factory),
@@ -54,6 +55,5 @@ func (r *checkerRegistry) Get(ctx context.Context, serviceType, serviceName, det
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", errNoChecker, serviceType)
 	}
-
 	return f(ctx, serviceName, details)
 }

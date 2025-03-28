@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"log"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/grpc"
@@ -15,6 +16,8 @@ type grpcKVStore struct {
 }
 
 func (g *grpcKVStore) Get(ctx context.Context, key string) (value []byte, found bool, err error) {
+	log.Printf("KV Get: key=%s, using client=%p", key, g.client)
+
 	resp, err := g.client.Get(ctx, &proto.GetRequest{Key: key})
 	if err != nil {
 		return nil, false, err
