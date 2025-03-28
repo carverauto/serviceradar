@@ -62,6 +62,7 @@ After=network.target
 [Service]
 Type=simple
 User=serviceradar
+EnvironmentFile=/etc/serviceradar/api.env
 ExecStart=/usr/local/bin/serviceradar-sync -config /etc/serviceradar/sync.json
 Restart=always
 RestartSec=10
@@ -75,8 +76,8 @@ EOF
 # Create default config only if we're creating a fresh package
 cat > "${PKG_ROOT}/etc/serviceradar/sync.json" << EOF
 {
-  "kv_address": "localhost:50055",
-  "listen_addr": ":50059",
+  "kv_address": "localhost:50057",
+  "listen_addr": ":50058",
   "poll_interval": "30m",
   "security": {
     "mode": "mtls",

@@ -43,7 +43,7 @@ build_core() {
         --platform linux/amd64 \
         --build-arg VERSION="${VERSION}" \
         --build-arg RELEASE="${RELEASE}" \
-        -f Dockerfile-rpm.core \
+        -f Dockerfile.rpm.core \
         -t serviceradar-rpm-core \
         .
 

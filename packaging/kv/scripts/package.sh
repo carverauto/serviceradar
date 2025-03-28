@@ -62,6 +62,7 @@ After=network.target
 [Service]
 Type=simple
 User=serviceradar
+EnvironmentFile=/etc/serviceradar/api.env
 ExecStart=/usr/local/bin/serviceradar-kv -config /etc/serviceradar/kv.json
 Restart=always
 RestartSec=10
