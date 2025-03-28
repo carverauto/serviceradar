@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+// Package agent pkg/agent/server.go
 package agent
 
 import (
@@ -305,6 +306,46 @@ func (s *Server) initializeCheckers(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (c *CheckerConnection) EnsureConnected(ctx context.Context) (*grpc.Client, error) {
+	c.mu.RLock()
+	if c.healthy && c.client != nil {
+		c.mu.RUnlock()
+		return c.client, nil
+	}
+	c.mu.RUnlock()
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Double-check after locking
+	if c.healthy && c.client != nil {
+		return c.client, nil
+	}
+
+	// Close existing connection if it exists
+	if c.client != nil {
+		_ = c.client.Close()
+	}
+
+	clientCfg := grpc.ClientConfig{
+		Address:    c.address,
+		MaxRetries: 3,
+	}
+
+	// Add security provider as needed
+	client, err := grpc.NewClient(ctx, clientCfg)
+	if err != nil {
+		c.healthy = false
+
+		return nil, fmt.Errorf("failed to reconnect to %s: %w", c.serviceName, err)
+	}
+
+	c.client = client
+	c.healthy = true
+
+	return client, nil
 }
 
 func (s *Server) connectToChecker(ctx context.Context, checkerConfig *CheckerConfig) (*CheckerConnection, error) {

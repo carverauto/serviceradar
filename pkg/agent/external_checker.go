@@ -53,7 +53,7 @@ type ExternalChecker struct {
 	serviceName         string
 	serviceType         string
 	address             string
-	client              *grpc.Client
+	conn                *CheckerConnection // Changed from grpc.Client to CheckerConnection
 	healthCheckMu       sync.Mutex
 	healthCheckInterval time.Duration
 	lastHealthCheck     time.Time
@@ -77,7 +77,6 @@ func NewExternalChecker(ctx context.Context, serviceName, serviceType, address s
 	}
 
 	provider, err := grpc.NewSecurityProvider(ctx, &security)
-
 	if err != nil {
 		return nil, fmt.Errorf("failed to create security provider: %w", err)
 	}
@@ -89,11 +88,19 @@ func NewExternalChecker(ctx context.Context, serviceName, serviceType, address s
 		return nil, fmt.Errorf("failed to create gRPC client: %w", err)
 	}
 
+	conn := &CheckerConnection{
+		client:      client,
+		serviceName: serviceName,
+		serviceType: serviceType,
+		address:     address,
+		healthy:     true, // Initially assume healthy after successful creation
+	}
+
 	checker := &ExternalChecker{
 		serviceName:         serviceName,
 		serviceType:         serviceType,
 		address:             address,
-		client:              client,
+		conn:                conn,
 		healthCheckInterval: initialHealthCheckInterval,
 		lastHealthCheck:     time.Time{},
 	}
@@ -162,14 +169,19 @@ func (e *ExternalChecker) performHealthCheck(ctx context.Context) (bool, error) 
 	e.healthCheckMu.Lock()
 	defer e.healthCheckMu.Unlock()
 
-	healthy, err := e.client.CheckHealth(ctx, "")
+	client, err := e.conn.EnsureConnected(ctx)
+	if err != nil {
+		e.healthStatus = false
+		return false, err
+	}
+
+	healthy, err := client.CheckHealth(ctx, "")
 	now := time.Now()
 	e.lastHealthCheck = now
 	e.healthStatus = healthy && err == nil
 
 	if healthy && err == nil {
 		e.healthCheckInterval = initialHealthCheckInterval
-
 		return true, nil
 	}
 
@@ -195,17 +207,22 @@ func (e *ExternalChecker) handleHealthCheckFailure(err error) (isAccessible bool
 }
 
 func (e *ExternalChecker) getServiceDetails(ctx context.Context) (isAccessible bool, statusMsg string) {
-	client := proto.NewAgentServiceClient(e.client.GetConnection())
+	client, err := e.conn.EnsureConnected(ctx)
+	if err != nil {
+		log.Printf("External checker %s: Failed to ensure connection: %v", e.serviceName, err)
+		return false, fmt.Sprintf("Failed to connect: %v", err)
+	}
+
+	agentClient := proto.NewAgentServiceClient(client.GetConnection())
 	start := time.Now()
 
-	status, err := client.GetStatus(ctx, &proto.StatusRequest{
+	status, err := agentClient.GetStatus(ctx, &proto.StatusRequest{
 		ServiceName: e.serviceName,
 		ServiceType: e.serviceType,
 	})
 
 	if err != nil {
 		log.Printf("External checker %s: Failed to get details: %v", e.serviceName, err)
-
 		return true, "Service healthy but details unavailable"
 	}
 
@@ -220,8 +237,8 @@ func (e *ExternalChecker) getServiceDetails(ctx context.Context) (isAccessible b
 }
 
 func (e *ExternalChecker) Close() error {
-	if e.client != nil {
-		return e.client.Close()
+	if e.conn != nil && e.conn.client != nil {
+		return e.conn.client.Close()
 	}
 
 	return nil

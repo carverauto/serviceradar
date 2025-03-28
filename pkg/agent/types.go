@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+// Package agent pkg/agent/types.go
 package agent
 
 import (
@@ -82,7 +83,9 @@ type CheckerConnection struct {
 	client      *grpc.Client
 	serviceName string
 	serviceType string
+	mu          sync.RWMutex
 	address     string
+	healthy     bool
 }
 
 type ServiceError struct {
