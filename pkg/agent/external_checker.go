@@ -111,6 +111,7 @@ func NewExternalChecker(ctx context.Context, serviceName, serviceType, address s
 		if closeErr := client.Close(); closeErr != nil {
 			return nil, closeErr
 		}
+
 		return nil, fmt.Errorf("extChecker: %w, err: %w", errHealth, err)
 	}
 
@@ -118,6 +119,7 @@ func NewExternalChecker(ctx context.Context, serviceName, serviceType, address s
 		if err := client.Close(); err != nil {
 			return nil, err
 		}
+
 		return nil, errServiceHealth
 	}
 
@@ -147,6 +149,7 @@ func (e *ExternalChecker) canUseCachedStatus() bool {
 	defer e.healthCheckMu.Unlock()
 
 	now := time.Now()
+
 	return !e.lastHealthCheck.IsZero() &&
 		now.Sub(e.lastHealthCheck) < e.healthCheckInterval
 }
@@ -194,10 +197,12 @@ func (e *ExternalChecker) performHealthCheck(ctx context.Context) (bool, error) 
 func (e *ExternalChecker) handleHealthCheckFailure(err error) (isAccessible bool, statusMsg string) {
 	if err != nil {
 		log.Printf("External checker %s: Health check failed: %v", e.serviceName, err)
+
 		return false, fmt.Sprintf("Health check failed: %v", err)
 	}
 
 	log.Printf("External checker %s: Service reported unhealthy", e.serviceName)
+
 	return false, "Service reported unhealthy"
 }
 
@@ -235,5 +240,6 @@ func (e *ExternalChecker) Close() error {
 	if e.conn != nil && e.conn.client != nil {
 		return e.conn.client.Close()
 	}
+
 	return nil
 }

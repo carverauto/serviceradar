@@ -333,14 +333,18 @@ func (c *CheckerConnection) EnsureConnected(ctx context.Context) (*grpc.Client, 
 		Address:    c.address,
 		MaxRetries: 3,
 	}
+
 	// Add security provider as needed
 	client, err := grpc.NewClient(ctx, clientCfg)
 	if err != nil {
 		c.healthy = false
+
 		return nil, fmt.Errorf("failed to reconnect to %s: %w", c.serviceName, err)
 	}
+
 	c.client = client
 	c.healthy = true
+
 	return client, nil
 }
 
