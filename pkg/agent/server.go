@@ -169,56 +169,23 @@ func (s *Server) loadConfigurations(ctx context.Context, cfgLoader *config.Confi
 func (s *Server) loadSweepService(ctx context.Context, cfgLoader *config.Config, kvPath, filePath string) (Service, error) {
 	var sweepConfig *SweepConfig
 	defaultFilePath := "/etc/serviceradar/checkers/sweep/sweep.json"
-
-	// Determine the proper KV path based on Security.ServerName if available
 	correctKVPath := kvPath
 	if s.config.Security != nil && s.config.Security.ServerName != "" {
 		correctKVPath = fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", s.config.Security.ServerName)
 		log.Printf("Using server name %s for KV path: %s", s.config.Security.ServerName, correctKVPath)
 	}
 
-	log.Printf("Attempting to load sweep config from KV: %s", correctKVPath)
-	if os.Getenv("CONFIG_SOURCE") == "kv" && s.kvStore != nil {
-		log.Printf("Calling LoadAndValidate for KV key: %s", correctKVPath)
-		if err := cfgLoader.LoadAndValidate(ctx, correctKVPath, &sweepConfig); err != nil {
-			log.Printf("KV load failed: %v", err)
-			data, found, err := s.kvStore.Get(ctx, correctKVPath)
-			if err != nil {
-				log.Printf("Direct KV check failed: %v", err)
-			} else {
-				log.Printf("Direct KV check: found=%v, data=%s", found, string(data))
-			}
-			log.Printf("Falling back to file: %s", defaultFilePath)
-			if err := cfgLoader.LoadAndValidate(ctx, defaultFilePath, &sweepConfig); err != nil {
-				log.Printf("Fallback failed: %v", err)
-				return nil, nil
-			}
-			log.Printf("Successfully loaded sweep config from fallback file: %s", defaultFilePath)
-		} else {
-			log.Printf("Successfully loaded sweep config from KV: %s", correctKVPath)
+	if s.kvStore != nil {
+		if err := cfgLoader.LoadAndValidate(ctx, correctKVPath, &sweepConfig); err == nil {
+			return s.createSweepService(sweepConfig)
 		}
-	} else {
-		log.Printf("KV store not enabled (CONFIG_SOURCE=%s, kvStore=%v), loading from file: %s", os.Getenv("CONFIG_SOURCE"), s.kvStore != nil, defaultFilePath)
-		if err := cfgLoader.LoadAndValidate(ctx, defaultFilePath, &sweepConfig); err != nil {
-			log.Printf("Failed to load sweep config from file %s: %v", defaultFilePath, err)
-			return nil, nil
-		}
-		log.Printf("Successfully loaded sweep config from file: %s", defaultFilePath)
 	}
 
-	if sweepConfig == nil {
-		log.Printf("No sweep config loaded, skipping sweep service")
+	if err := cfgLoader.LoadAndValidate(ctx, defaultFilePath, &sweepConfig, config.WithFileOnly()); err != nil {
+		log.Printf("Failed to load sweep config from file %s: %v", defaultFilePath, err)
 		return nil, nil
 	}
-
-	log.Printf("Creating sweep service with loaded config")
-	service, err := s.createSweepService(sweepConfig)
-	if err != nil {
-		log.Printf("Failed to create sweep service: %v", err)
-		return nil, err
-	}
-	log.Printf("Sweep service created successfully with config: %+v", sweepConfig)
-	return service, nil
+	return s.createSweepService(sweepConfig)
 }
 
 // createSweepService constructs a Service from a SweepConfig.
@@ -441,6 +408,7 @@ func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*prot
 			}, nil
 		}
 
+		log.Printf("No sweep service for ICMP check on %s", req.Details)
 		return nil, errNoSweepService
 	}
 
@@ -454,6 +422,8 @@ func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*prot
 	}
 
 	available, message := c.Check(ctx)
+
+	log.Printf("Checker %s status: available=%v, message=%s", req.ServiceName, available, message)
 
 	return &proto.StatusResponse{
 		Available:   available,

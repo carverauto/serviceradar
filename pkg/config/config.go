@@ -84,24 +84,38 @@ func ValidateConfig(cfg interface{}) error {
 }
 
 // LoadAndValidate loads a configuration and validates it if possible.
+// pkg/config/config.go
 func (c *Config) LoadAndValidate(ctx context.Context, path string, target interface{}, opts ...LoadOption) error {
 	for _, opt := range opts {
 		opt(c)
 	}
-
 	if !c.skipKV && c.kvStore != nil {
 		value, found, err := c.kvStore.Get(ctx, path)
-		if err == nil && found {
-			return json.Unmarshal(value, target)
+		if err != nil {
+			log.Printf("KV Get failed for %s: %v", path, err)
+			return err
 		}
+		if found {
+			if err := json.Unmarshal(value, target); err != nil {
+				log.Printf("Failed to unmarshal KV data for %s: %v", path, err)
+				return err
+			}
+			log.Printf("Loaded config from KV: %s", path)
+			return nil
+		}
+		log.Printf("Key %s not found in KV, falling back to file", path)
 	}
-
 	data, err := os.ReadFile(path)
 	if err != nil {
+		log.Printf("File read failed for %s: %v", path, err)
 		return err
 	}
-
-	return json.Unmarshal(data, target)
+	if err := json.Unmarshal(data, target); err != nil {
+		log.Printf("Failed to unmarshal file data for %s: %v", path, err)
+		return err
+	}
+	log.Printf("Loaded config from file: %s", path)
+	return nil
 }
 
 func (c *Config) autoInitializeKVStore(ctx context.Context, path string) error {
