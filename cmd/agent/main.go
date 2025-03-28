@@ -21,6 +21,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
 
 	"github.com/carverauto/serviceradar/pkg/agent"
 	"github.com/carverauto/serviceradar/pkg/config"
@@ -43,6 +44,24 @@ func run() error {
 	// setup a context we can use for loading the config and running the server
 	ctx := context.Background()
 
+	// Check if KV config source is enabled
+	configSource := os.Getenv("CONFIG_SOURCE")
+	if configSource == "kv" {
+		log.Printf("Using KV config source, ensuring KV store is initialized first")
+
+		// Load minimal configuration from file to get KV address
+		var cfg config.AgentConfig
+		if err := config.LoadFile(*configPath, &cfg); err != nil {
+			return fmt.Errorf("failed to load initial config to get KV address: %w", err)
+		}
+
+		if cfg.KVAddress == "" {
+			return fmt.Errorf("CONFIG_SOURCE=kv but no KV address specified in config")
+		}
+
+		log.Printf("KV address from config: %s", cfg.KVAddress)
+	}
+
 	// Initialize configuration loader
 	cfgLoader := config.NewConfig()
 
@@ -57,6 +76,8 @@ func run() error {
 	server, err := agent.NewServer(ctx, cfg.CheckersDir, &agent.ServerConfig{
 		ListenAddr: cfg.ListenAddr,
 		Security:   cfg.Security,
+		KVAddress:  cfg.KVAddress,
+		AgentID:    cfg.ServiceName,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create server: %w", err)

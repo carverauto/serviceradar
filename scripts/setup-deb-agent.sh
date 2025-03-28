@@ -64,6 +64,7 @@ After=network.target
 Type=simple
 User=serviceradar
 ExecStart=/usr/local/bin/serviceradar-agent
+EnvironmentFile=/etc/serviceradar/api.env
 Restart=always
 RestartSec=10
 LimitNOFILE=65535

@@ -55,6 +55,10 @@ func (c *Config) Validate() error {
 		c.PollInterval = config.Duration(defaultTimeout)
 	}
 
+	if c.Security == nil || c.Security.ServerName == "" {
+		return errors.New("security.server_name is required for mTLS and RBAC")
+	}
+
 	for name, src := range c.Sources {
 		if src.Type == "" || src.Endpoint == "" || src.Prefix == "" {
 			return fmt.Errorf("source %s: %w", name, errMissingFields)

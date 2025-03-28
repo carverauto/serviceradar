@@ -139,10 +139,13 @@ func (s *SyncPoller) createIntegration(ctx context.Context, src models.SourceCon
 		return factory(ctx, src)
 	}
 
-	serverName := "default-agent"
-	if s.config.Security != nil && s.config.Security.ServerName != "" {
-		serverName = s.config.Security.ServerName
+	if s.config.Security == nil || s.config.Security.ServerName == "" {
+		log.Printf("Security.ServerName is required for Armis integration")
+
+		return factory(ctx, src) // Fallback to basic integration without KV writes
 	}
+
+	serverName := s.config.Security.ServerName
 
 	return integrations.NewArmisIntegration(ctx, src, s.kvClient, s.grpcClient.GetConnection(), serverName)
 }

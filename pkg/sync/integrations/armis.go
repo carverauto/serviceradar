@@ -189,15 +189,17 @@ func (a *ArmisIntegration) writeSweepConfig(ctx context.Context, ips []string) {
 	configJSON, err := json.Marshal(sweepConfig)
 	if err != nil {
 		log.Printf("Failed to marshal sweep config: %v", err)
+
 		return
 	}
 
-	configKey := fmt.Sprintf("config/%s/network-sweep", a.serverName)
+	// Use serverName from sync.json for KV path
+	configKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", a.serverName)
+
 	_, err = a.kvClient.Put(ctx, &proto.PutRequest{
 		Key:   configKey,
 		Value: configJSON,
 	})
-
 	if err != nil {
 		log.Printf("Failed to write sweep config to %s: %v", configKey, err)
 

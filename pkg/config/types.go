@@ -21,8 +21,16 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/proto"
 )
+
+// grpcKVStore adapts the gRPC KV client to the KVStore interface
+type grpcKVStore struct {
+	client proto.KVServiceClient
+	conn   *grpc.Client
+}
 
 type Duration time.Duration
 

@@ -21,10 +21,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 
 	"github.com/carverauto/serviceradar/pkg/config/kv"
+	"github.com/carverauto/serviceradar/pkg/grpc"
+	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 var (
@@ -80,7 +84,65 @@ func ValidateConfig(cfg interface{}) error {
 
 // LoadAndValidate loads a configuration and validates it if possible.
 func (c *Config) LoadAndValidate(ctx context.Context, path string, cfg interface{}) error {
+	// If using KV config source but store not initialized, attempt auto-init
+	if strings.ToLower(os.Getenv("CONFIG_SOURCE")) == configSourceKV && c.kvStore == nil {
+		if err := c.autoInitializeKVStore(ctx, path); err != nil {
+			return fmt.Errorf("failed to auto-initialize KV store: %w", err)
+		}
+	}
+
 	return c.loadAndValidateWithSource(ctx, path, cfg)
+}
+
+func (c *Config) autoInitializeKVStore(ctx context.Context, path string) error {
+	log.Printf("Auto-initializing KV store for path: %s", path)
+
+	// First try loading minimal config via file to get KV address
+	var minConfig struct {
+		KVAddress string                 `json:"kv_address"`
+		Security  *models.SecurityConfig `json:"security"`
+	}
+
+	if err := c.defaultLoader.Load(ctx, path, &minConfig); err != nil {
+		return fmt.Errorf("failed to load initial config to get KV address: %w", err)
+	}
+
+	if minConfig.KVAddress == "" {
+		return fmt.Errorf("CONFIG_SOURCE=kv but no KV address in config at %s", path)
+	}
+
+	log.Printf("Found KV address: %s", minConfig.KVAddress)
+
+	// Set up gRPC client like in sync package
+	clientCfg := grpc.ClientConfig{
+		Address:    minConfig.KVAddress,
+		MaxRetries: 3,
+	}
+
+	if minConfig.Security != nil {
+		log.Printf("Setting up security provider with mode=%s", minConfig.Security.Mode)
+		provider, err := grpc.NewSecurityProvider(ctx, minConfig.Security)
+		if err != nil {
+			return fmt.Errorf("failed to create security provider: %w", err)
+		}
+		clientCfg.SecurityProvider = provider
+	}
+
+	client, err := grpc.NewClient(ctx, clientCfg)
+	if err != nil {
+		return fmt.Errorf("failed to create KV gRPC client: %w", err)
+	}
+
+	// Create KV client and store
+	kvClient := proto.NewKVServiceClient(client.GetConnection())
+	c.kvStore = &grpcKVStore{
+		client: kvClient,
+		conn:   client,
+	}
+
+	log.Printf("Successfully initialized KV store client")
+
+	return nil
 }
 
 // SetKVStore sets the KV store to be used when CONFIG_SOURCE=kv.
@@ -99,7 +161,7 @@ func (c *Config) loadAndValidateWithSource(ctx context.Context, path string, cfg
 			return errKVStoreNotSet
 		}
 
-		loader = NewKVConfigLoader(c.kvStore)
+		loader = NewKVConfigLoader(c.kvStore, "serviceradar-kv")
 	}
 
 	if source == configSourceFile || source == "" {
