@@ -64,6 +64,7 @@ After=network.target
 Type=simple
 User=serviceradar
 ExecStart=/usr/local/bin/serviceradar-core -config /etc/serviceradar/core.json
+EnvironmentFile=/etc/serviceradar/api.env
 Restart=always
 RestartSec=10
 TimeoutStopSec=20
@@ -88,6 +89,11 @@ if [ ! -f "/etc/serviceradar/core.json" ]; then
         "retention": 100,
         "max_nodes": 10000
     },
+    "security": {
+        "mode": "none",
+        "cert_dir": "/etc/serviceradar/certs",
+        "role": "core"
+    },
     "webhooks": [
         {
             "enabled": false,
@@ -101,7 +107,7 @@ if [ ! -f "/etc/serviceradar/core.json" ]; then
             ]
         },
         {
-            "enabled": true,
+            "enabled": false,
             "url": "https://discord.com/api/webhooks/changeme",
             "cooldown": "15m",
             "template": "{\"embeds\":[{\"title\":\"{{.alert.Title}}\",\"description\":\"{{.alert.Message}}\",\"color\":{{if eq .alert.Level \"error\"}}15158332{{else if eq .alert.Level \"warning\"}}16776960{{else}}3447003{{end}},\"timestamp\":\"{{.alert.Timestamp}}\",\"fields\":[{\"name\":\"Node ID\",\"value\":\"{{.alert.NodeID}}\",\"inline\":true}{{range $key, $value := .alert.Details}},{\"name\":\"{{$key}}\",\"value\":\"{{$value}}\",\"inline\":true}{{end}}]}]}"
