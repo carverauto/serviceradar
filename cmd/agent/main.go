@@ -26,7 +26,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/proto"
-	"google.golang.org/grpc" // For the underlying gRPC server type
+	"google.golang.org/grpc"
 )
 
 func main() {
@@ -40,24 +40,20 @@ func run() error {
 	configPath := flag.String("config", "/etc/serviceradar/agent.json", "Path to agent config file")
 	flag.Parse()
 
-	// setup a context we can use for loading the config and running the server
+	// Setup a context we can use for loading the config and running the server
 	ctx := context.Background()
 
 	// Initialize configuration loader
 	cfgLoader := config.NewConfig()
 
 	// Load configuration with context
-	var cfg config.AgentConfig
-
+	var cfg agent.ServerConfig
 	if err := cfgLoader.LoadAndValidate(ctx, *configPath, &cfg); err != nil {
-		return err
+		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Create agent server
-	server, err := agent.NewServer(ctx, cfg.CheckersDir, &agent.ServerConfig{
-		ListenAddr: cfg.ListenAddr,
-		Security:   cfg.Security,
-	})
+	// Create agent server with checkers_dir from config
+	server, err := agent.NewServer(ctx, cfg.CheckersDir, &cfg)
 	if err != nil {
 		return fmt.Errorf("failed to create server: %w", err)
 	}
@@ -65,11 +61,11 @@ func run() error {
 	// Create server options
 	opts := &lifecycle.ServerOptions{
 		ListenAddr:        server.ListenAddr(),
-		ServiceName:       cfg.ServiceName,
+		ServiceName:       "AgentService",
 		Service:           server,
 		EnableHealthCheck: true,
 		RegisterGRPCServices: []lifecycle.GRPCServiceRegistrar{
-			func(s *grpc.Server) error { // s is *google.golang.org/grpc.Server due to lifecycle update
+			func(s *grpc.Server) error {
 				proto.RegisterAgentServiceServer(s, server)
 				return nil
 			},

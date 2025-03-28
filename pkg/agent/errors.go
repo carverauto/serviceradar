@@ -26,4 +26,6 @@ var (
 	errInvalidDetailsFormat = errors.New("invalid details format: expected 'host:port'")
 	errSNMPServiceUnhealthy = errors.New("SNMP service reported unhealthy")
 	errInvalidDuration      = errors.New("invalid duration")
+	errSweepConfigNil       = errors.New("sweep config is nil")
+	errNoSecurityConfigKV   = errors.New("no security config provided for KV store")
 )
