@@ -1,22 +1,22 @@
 {
   "listen_addr": ":50057",
-  "nats_url": "nats://localhost:4222",
+  "nats_url": "nats://changeme:4222",
   "security": {
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
-    "server_name": "nats-serviceradar",
-    "role": "server",
+    "server_name": "changeme",
+    "role": "kv",
     "tls": {
-      "cert_file": "kv-serviceradar.pem",
-      "key_file": "kv-serviceradar-key.pem",
+      "cert_file": "kv.pem",
+      "key_file": "kv-key.pem",
       "ca_file": "root.pem",
       "client_ca_file": "root.pem"
     }
   },
   "rbac": {
     "roles": [
-      {"identity": "CN=sync.serviceradar,O=ServiceRadar", "role": "writer"},
-      {"identity": "CN=agent.serviceradar,O=ServiceRadar", "role": "reader"}
+      {"identity": "CN=changeme,O=ServiceRadar", "role": "reader"}
     ]
-  }
+  },
+  "bucket": "serviceradar-kv"
 }

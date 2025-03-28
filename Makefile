@@ -207,7 +207,7 @@ deb-kv: build-kv ## Build the KV Debian package
     @VERSION=$(VERSION) ./scripts/setup-deb-kv.sh
 
 .PHONY: deb-sync
-deb-kv: build-sync ## Build the KV Sync Debian package
+deb-sync: build-sync ## Build the KV Sync Debian package
 	@echo "$(COLOR_BOLD)Building KV Sync Debian package$(COLOR_RESET)"
     @VERSION=$(VERSION) ./scripts/setup-deb-sync.sh
 
@@ -254,7 +254,7 @@ rpm-core: rpm-prep ## Build the core RPM package
 		--platform linux/amd64 \
 		--build-arg VERSION="$$VERSION_CLEAN" \
 		--build-arg RELEASE="$(RELEASE)" \
-		-f Dockerfile-rpm.core \
+		-f Dockerfile.rpm.core \
 		-t serviceradar-rpm-core \
 		.
 	@docker create --name temp-core-container serviceradar-rpm-core
@@ -294,6 +294,40 @@ rpm-poller: rpm-prep ## Build the poller RPM package
 	@docker create --name temp-poller-container serviceradar-rpm-poller
 	@docker cp temp-poller-container:/rpms/. ./release-artifacts/rpm/
 	@docker rm temp-poller-container
+
+.PHONY: rpm-kv
+rpm-kv: rpm-prep ## Build the poller RPM package
+	@echo "$(COLOR_BOLD)Building KV RPM package$(COLOR_RESET)"
+	@VERSION_CLEAN=$$(echo "$(VERSION)" | sed 's/-/_/g'); \
+	docker build \
+		--platform linux/amd64 \
+		--build-arg VERSION="$$VERSION_CLEAN" \
+		--build-arg RELEASE="$(RELEASE)" \
+		--build-arg COMPONENT="kv" \
+		--build-arg BINARY_PATH="./cmd/kv" \
+		-f Dockerfile.rpm.simple \
+		-t serviceradar-rpm-kv \
+		.
+	@docker create --name temp-kv-container serviceradar-rpm-kv
+	@docker cp temp-kv-container:/rpms/. ./release-artifacts/rpm/
+	@docker rm temp-kv-container
+
+.PHONY: rpm-sync
+rpm-sync: rpm-prep ## Build the poller RPM package
+	@echo "$(COLOR_BOLD)Building sync RPM package$(COLOR_RESET)"
+	@VERSION_CLEAN=$$(echo "$(VERSION)" | sed 's/-/_/g'); \
+	docker build \
+		--platform linux/amd64 \
+		--build-arg VERSION="$$VERSION_CLEAN" \
+		--build-arg RELEASE="$(RELEASE)" \
+		--build-arg COMPONENT="sync" \
+		--build-arg BINARY_PATH="./cmd/sync" \
+		-f Dockerfile.rpm.simple \
+		-t serviceradar-rpm-sync \
+		.
+	@docker create --name temp-sync-container serviceradar-rpm-sync
+	@docker cp temp-sync-container:/rpms/. ./release-artifacts/rpm/
+	@docker rm temp-sync-container
 
 .PHONY: rpm-nats
 rpm-nats: rpm-prep ## Build the NATS RPM package
