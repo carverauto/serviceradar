@@ -16,12 +16,6 @@
 
 package models
 
-// ServerConfig holds the agent server configuration.
-type ServerConfig struct {
-	ListenAddr string          `json:"listen_addr"`
-	Security   *SecurityConfig `json:"security"`
-}
-
 type ServiceRole string
 
 const (
