@@ -60,6 +60,7 @@ After=network.target
 [Service]
 Type=simple
 User=serviceradar
+EnvironmentFile=/etc/serviceradar/api.env
 ExecStart=/usr/local/bin/serviceradar-kv
 Restart=always
 RestartSec=10
