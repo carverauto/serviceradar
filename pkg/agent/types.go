@@ -73,12 +73,13 @@ type CheckerConfig struct {
 
 // ServerConfig holds the configuration for the agent server.
 type ServerConfig struct {
-	AgentID    string                 `json:"agent_id"`             // Unique identifier for this agent
-	AgentName  string                 `json:"agent_name,omitempty"` // Explicit name for KV namespacing
-	ListenAddr string                 `json:"listen_addr"`
-	Security   *models.SecurityConfig `json:"security"`
-	KVAddress  string                 `json:"kv_address,omitempty"`  // Optional KV store address
-	KVSecurity *models.SecurityConfig `json:"kv_security,omitempty"` // Separate security config for KV
+	AgentID     string                 `json:"agent_id"`             // Unique identifier for this agent
+	AgentName   string                 `json:"agent_name,omitempty"` // Explicit name for KV namespacing
+	ListenAddr  string                 `json:"listen_addr"`
+	Security    *models.SecurityConfig `json:"security"`
+	KVAddress   string                 `json:"kv_address,omitempty"`  // Optional KV store address
+	KVSecurity  *models.SecurityConfig `json:"kv_security,omitempty"` // Separate security config for KV
+	CheckersDir string                 `json:"checkers_dir"`          // Directory for external checkers
 }
 
 type CheckerConnection struct {

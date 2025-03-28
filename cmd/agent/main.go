@@ -47,13 +47,13 @@ func run() error {
 	cfgLoader := config.NewConfig()
 
 	// Load configuration with context
-	var cfg agent.ServerConfig // Use agent.ServerConfig directly
+	var cfg agent.ServerConfig
 	if err := cfgLoader.LoadAndValidate(ctx, *configPath, &cfg); err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
 	// Create agent server with checkers_dir from config
-	server, err := agent.NewServer(ctx, "/etc/serviceradar/checkers", &cfg)
+	server, err := agent.NewServer(ctx, cfg.CheckersDir, &cfg)
 	if err != nil {
 		return fmt.Errorf("failed to create server: %w", err)
 	}
@@ -61,7 +61,7 @@ func run() error {
 	// Create server options
 	opts := &lifecycle.ServerOptions{
 		ListenAddr:        server.ListenAddr(),
-		ServiceName:       "AgentService", // Hardcoded as per your agent.json intent
+		ServiceName:       "AgentService",
 		Service:           server,
 		EnableHealthCheck: true,
 		RegisterGRPCServices: []lifecycle.GRPCServiceRegistrar{

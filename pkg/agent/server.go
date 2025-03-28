@@ -75,8 +75,6 @@ func NewServer(ctx context.Context, configDir string, cfg *ServerConfig) (*Serve
 		kvStore:      kvStore,
 	}
 
-	log.Printf("Server config: %+v", s.config) // Debug config
-
 	if err := s.loadConfigurations(ctx, cfgLoader); err != nil {
 		return nil, fmt.Errorf("failed to load configurations: %w", err)
 	}
@@ -88,6 +86,7 @@ func NewServer(ctx context.Context, configDir string, cfg *ServerConfig) (*Serve
 func setupKVStore(ctx context.Context, cfgLoader *config.Config, cfg *ServerConfig) (*grpcKVStore, error) {
 	if cfg.KVAddress == "" {
 		log.Printf("KVAddress not set, skipping KV store setup")
+
 		return nil, nil // KV store not configured
 	}
 
