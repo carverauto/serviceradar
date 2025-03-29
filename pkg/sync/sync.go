@@ -106,11 +106,6 @@ func defaultIntegrationRegistry(
 			}
 			return integ
 		},
-		/*
-			integrationTypeNetbox: func(ctx context.Context, config models.SourceConfig) Integration {
-				return integrations.NewNetboxIntegration(ctx, config, kvClient, grpcClient.GetConnection(), serverName)
-			},
-		*/
 	}
 }
 
