@@ -39,19 +39,16 @@ mkdir -p "${TEMP_DIR}/usr/bin"
 mkdir -p "${TEMP_DIR}/etc/serviceradar/checkers"
 mkdir -p "${TEMP_DIR}/lib/systemd/system"
 
-# Generate protobuf code and build the plugin
+# Build the plugin
 echo "Building Rust rperf plugin..."
-protoc -I=proto \
-    --go_out=proto --go_opt=paths=source_relative \
-    --go-grpc_out=proto --go-grpc_opt=paths=source_relative \
-    proto/rperf/rperf.proto
-
 cd cmd/checkers/rperf
 cargo build --release
-cd ../..
+
+cd ../../..
 
 # Copy binary to package
-cp cmd/checkers/rperf/target/release/rperf "${TEMP_DIR}/usr/bin/serviceradar-rperf-checker"
+echo "Copying binary to package directory..."
+cp -v cmd/checkers/rperf/target/release/rperf-grpc "${TEMP_DIR}/usr/bin/serviceradar-rperf-checker"
 
 # Create systemd service file
 cat > "${TEMP_DIR}/lib/systemd/system/serviceradar-rperf-checker.service" << EOF
@@ -61,7 +58,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/serviceradar-rperf-checker --address 0.0.0.0:50051 --rperf-path /usr/bin/rperf
+ExecStart=/usr/bin/serviceradar-rperf-checker --config /etc/serviceradar/checkers/rperf.json
 Restart=on-failure
 User=serviceradar
 Group=serviceradar
@@ -70,24 +67,35 @@ Group=serviceradar
 WantedBy=multi-user.target
 EOF
 
-# Create sample config file
+# Create sample config file (aligned with your Config struct)
 cat > "${TEMP_DIR}/etc/serviceradar/checkers/rperf.json" << EOF
 {
-  "type": "rperf",
-  "config": {
-    "server_address": "localhost:50051",
-    "target_address": "example.com",
-    "port": 5201,
-    "protocol": "tcp",
-    "timeout": "1m",
-    "bandwidth": 100000000,
-    "duration": 10.0,
-    "parallel": 4,
-    "test_interval": "1h",
-    "security": {
-      "tls_enabled": false
+  "listen_addr": "0.0.0.0:50051",
+  "security": {
+    "tls_enabled": false,
+    "cert_file": null,
+    "key_file": null
+  },
+  "default_poll_interval": 300,
+  "targets": [
+    {
+      "name": "Example TCP Test",
+      "address": "example.com",
+      "port": 5201,
+      "protocol": "tcp",
+      "reverse": false,
+      "bandwidth": 100000000,
+      "duration": 10.0,
+      "parallel": 4,
+      "length": 0,
+      "omit": 1,
+      "no_delay": true,
+      "send_buffer": 0,
+      "receive_buffer": 0,
+      "send_interval": 0.05,
+      "poll_interval": 3600
     }
-  }
+  ]
 }
 EOF
 
