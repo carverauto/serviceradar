@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -112,25 +113,48 @@ func (*NetboxIntegration) decodeResponse(resp *http.Response) (DeviceResponse, e
 }
 
 // processDevices converts devices to KV data and extracts IPs.
-func (*NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[string][]byte, ips []string) {
+func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[string][]byte, ips []string) {
 	data = make(map[string][]byte)
-	ips = make([]string, 0, len(deviceResp.Results)) // Fixed: added length 0
+	ips = make([]string, 0, len(deviceResp.Results))
 
 	for i := range deviceResp.Results {
-		device := &deviceResp.Results[i] // Take a pointer to avoid copying
+		device := &deviceResp.Results[i]
 
 		value, err := json.Marshal(device)
 		if err != nil {
 			log.Printf("Failed to marshal device %d: %v", device.ID, err)
-
 			continue
 		}
 
 		data[fmt.Sprintf("%d", device.ID)] = value
 
 		if device.PrimaryIP4.Address != "" {
-			ips = append(ips, device.PrimaryIP4.Address)
+			if n.ExpandSubnets {
+				ips = append(ips, device.PrimaryIP4.Address) // Keep /24 if desired
+			} else {
+				ip, _, err := net.ParseCIDR(device.PrimaryIP4.Address)
+				if err != nil {
+					log.Printf("Failed to parse IP %s: %v", device.PrimaryIP4.Address, err)
+					continue
+				}
+
+				// add /32 to the IP address
+				newIPAddress := fmt.Sprintf("%s/32", ip.String())
+
+				ips = append(ips, newIPAddress)
+			}
 		}
+		/*
+			if device.PrimaryIP4.Address != "" {
+				// Parse the IP address and strip the subnet mask
+				ip, _, err := net.ParseCIDR(device.PrimaryIP4.Address)
+				if err != nil {
+					log.Printf("Failed to parse IP %s for device %d: %v", device.PrimaryIP4.Address, device.ID, err)
+					continue
+				}
+				ips = append(ips, ip.String()) // e.g., "192.168.2.18" instead of "192.168.2.18/24"
+			}
+		*/
 	}
 
 	return data, ips
@@ -157,7 +181,7 @@ func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) 
 		return
 	}
 
-	configKey := fmt.Sprintf("config/%s/network-sweep", n.ServerName)
+	configKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", n.ServerName)
 	_, err = n.KvClient.Put(ctx, &proto.PutRequest{
 		Key:   configKey,
 		Value: configJSON,

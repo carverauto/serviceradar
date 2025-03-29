@@ -25,6 +25,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/kv"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/scan"
 	"github.com/carverauto/serviceradar/pkg/sweeper"
@@ -33,14 +34,17 @@ import (
 
 // SweepService implements sweeper.SweepService for network scanning.
 type SweepService struct {
-	sweeper sweeper.Sweeper
-	mu      sync.RWMutex
-	closed  chan struct{}
-	config  *models.Config
-	stats   *ScanStats
+	sweeper   sweeper.Sweeper
+	mu        sync.RWMutex
+	closed    chan struct{}
+	config    *models.Config
+	stats     *ScanStats
+	kvStore   kv.KVStore
+	configKey string // Key to watch in KV store
+	watchDone chan struct{}
 }
 
-func NewSweepService(config *models.Config) (Service, error) {
+func NewSweepService(config *models.Config, kvStore kv.KVStore, configKey string) (Service, error) {
 	config = applyDefaultConfig(config)
 	processor := sweeper.NewBaseProcessor(config)
 	store := sweeper.NewInMemoryStore(processor)
@@ -51,15 +55,22 @@ func NewSweepService(config *models.Config) (Service, error) {
 	}
 
 	return &SweepService{
-		sweeper: sweeperInstance,
-		config:  config,
-		closed:  make(chan struct{}),
-		stats:   newScanStats(),
+		sweeper:   sweeperInstance,
+		config:    config,
+		closed:    make(chan struct{}),
+		stats:     newScanStats(),
+		kvStore:   kvStore,
+		configKey: configKey,
+		watchDone: make(chan struct{}),
 	}, nil
 }
 
 func (s *SweepService) Start(ctx context.Context) error {
 	log.Printf("Starting sweep service with interval %v", s.config.Interval)
+
+	if s.kvStore != nil && s.configKey != "" {
+		go s.watchConfig(ctx)
+	}
 
 	err := s.sweeper.Start(ctx)
 	if err != nil {
@@ -71,6 +82,7 @@ func (s *SweepService) Start(ctx context.Context) error {
 
 func (s *SweepService) Stop(ctx context.Context) error {
 	log.Printf("Stopping sweep service")
+
 	close(s.closed)
 
 	return s.sweeper.Stop(ctx)
@@ -78,6 +90,153 @@ func (s *SweepService) Stop(ctx context.Context) error {
 
 func (*SweepService) Name() string {
 	return "network_sweep"
+}
+
+func (s *SweepService) watchConfig(ctx context.Context) {
+	defer close(s.watchDone)
+
+	if s.kvStore == nil {
+		log.Printf("No KV store configured, skipping config watch")
+		return
+	}
+
+	ch, err := s.kvStore.Watch(ctx, s.configKey)
+	if err != nil {
+		log.Printf("Failed to watch KV key %s: %v", s.configKey, err)
+		return
+	}
+
+	log.Printf("Watching KV key %s for config updates", s.configKey)
+
+	type tempConfig struct {
+		Networks     []string           `json:"networks"`
+		Ports        []int              `json:"ports"`
+		SweepModes   []models.SweepMode `json:"sweep_modes"`
+		Interval     string             `json:"interval"`
+		Concurrency  int                `json:"concurrency"`
+		Timeout      string             `json:"timeout"`
+		ICMPCount    int                `json:"icmp_count"`
+		MaxIdle      int                `json:"max_idle"`
+		MaxLifetime  string             `json:"max_lifetime,omitempty"`
+		IdleTimeout  string             `json:"idle_timeout,omitempty"`
+		ICMPSettings struct {
+			RateLimit int    `json:"rate_limit"`
+			Timeout   string `json:"timeout,omitempty"`
+			MaxBatch  int    `json:"max_batch"`
+		} `json:"icmp_settings"`
+		TCPSettings struct {
+			Concurrency int    `json:"concurrency"`
+			Timeout     string `json:"timeout,omitempty"`
+			MaxBatch    int    `json:"max_batch"`
+		} `json:"tcp_settings"`
+		EnableHighPerformanceICMP bool `json:"high_perf_icmp,omitempty"`
+		ICMPRateLimit             int  `json:"icmp_rate_limit,omitempty"`
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Printf("Context canceled, stopping config watch")
+			return
+		case <-s.closed:
+			log.Printf("Sweep service closed, stopping config watch")
+			return
+		case value, ok := <-ch:
+			if !ok {
+				log.Printf("Watch channel closed for key %s", s.configKey)
+				return
+			}
+
+			var temp tempConfig
+			if err := json.Unmarshal(value, &temp); err != nil {
+				log.Printf("Failed to unmarshal temp config for %s: %v", s.configKey, err)
+				continue
+			}
+
+			interval, err := time.ParseDuration(temp.Interval)
+			if err != nil {
+				log.Printf("Failed to parse interval %s: %v", temp.Interval, err)
+				continue
+			}
+			timeout, err := time.ParseDuration(temp.Timeout)
+			if err != nil {
+				log.Printf("Failed to parse timeout %s: %v", temp.Timeout, err)
+				continue
+			}
+			var maxLifetime time.Duration
+			if temp.MaxLifetime != "" {
+				maxLifetime, err = time.ParseDuration(temp.MaxLifetime)
+				if err != nil {
+					log.Printf("Failed to parse max_lifetime %s: %v", temp.MaxLifetime, err)
+					continue
+				}
+			}
+			var idleTimeout time.Duration
+			if temp.IdleTimeout != "" {
+				idleTimeout, err = time.ParseDuration(temp.IdleTimeout)
+				if err != nil {
+					log.Printf("Failed to parse idle_timeout %s: %v", temp.IdleTimeout, err)
+					continue
+				}
+			}
+			var icmpTimeout time.Duration
+			if temp.ICMPSettings.Timeout != "" {
+				icmpTimeout, err = time.ParseDuration(temp.ICMPSettings.Timeout)
+				if err != nil {
+					log.Printf("Failed to parse icmp_settings.timeout %s: %v", temp.ICMPSettings.Timeout, err)
+					continue
+				}
+			}
+			var tcpTimeout time.Duration
+			if temp.TCPSettings.Timeout != "" {
+				tcpTimeout, err = time.ParseDuration(temp.TCPSettings.Timeout)
+				if err != nil {
+					log.Printf("Failed to parse tcp_settings.timeout %s: %v", temp.TCPSettings.Timeout, err)
+					continue
+				}
+			}
+
+			newConfig := models.Config{
+				Networks:    temp.Networks,
+				Ports:       temp.Ports,
+				SweepModes:  temp.SweepModes,
+				Interval:    interval,
+				Concurrency: temp.Concurrency,
+				Timeout:     timeout,
+				ICMPCount:   temp.ICMPCount,
+				MaxIdle:     temp.MaxIdle,
+				MaxLifetime: maxLifetime,
+				IdleTimeout: idleTimeout,
+				ICMPSettings: struct {
+					RateLimit int
+					Timeout   time.Duration
+					MaxBatch  int
+				}{
+					RateLimit: temp.ICMPSettings.RateLimit,
+					Timeout:   icmpTimeout,
+					MaxBatch:  temp.ICMPSettings.MaxBatch,
+				},
+				TCPSettings: struct {
+					Concurrency int
+					Timeout     time.Duration
+					MaxBatch    int
+				}{
+					Concurrency: temp.TCPSettings.Concurrency,
+					Timeout:     tcpTimeout,
+					MaxBatch:    temp.TCPSettings.MaxBatch,
+				},
+				EnableHighPerformanceICMP: temp.EnableHighPerformanceICMP,
+				ICMPRateLimit:             temp.ICMPRateLimit,
+			}
+
+			newConfig = *applyDefaultConfig(&newConfig)
+			if err := s.UpdateConfig(&newConfig); err != nil {
+				log.Printf("Failed to apply config update: %v", err)
+			} else {
+				log.Printf("Successfully updated sweep config from KV: %+v", newConfig)
+			}
+		}
+	}
 }
 
 func (s *SweepService) UpdateConfig(config *models.Config) error {
