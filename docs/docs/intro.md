@@ -60,5 +60,6 @@ Navigate through our documentation to get ServiceRadar up and running:
 3. **[TLS Security](./tls-security.md)** - Secure your ServiceRadar communications
 4. **[Web UI Configuration](./web-ui.md)** - Set up the web interface and dashboard
 5. **[Architecture](./architecture.md)** - Understand the system architecture
+6. **[Custom Checkers](./custom-checkers.md)** - Create custom checkers for specific services
 
 Or jump straight to the [Installation Guide](./installation.md) to get started with ServiceRadar.
