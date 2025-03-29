@@ -90,7 +90,9 @@ func defaultIntegrationRegistry() map[string]IntegrationFactory {
 		"armis": func(ctx context.Context, config models.SourceConfig) Integration {
 			return integrations.NewArmisIntegration(ctx, config, nil, nil, "")
 		},
-		// Add more integrations here, e.g., "netbox": integrations.NewNetboxIntegration,
+		"netbox": func(ctx context.Context, config models.SourceConfig) Integration {
+			return integrations.NewNetboxIntegration(ctx, config, nil, nil, "")
+		},
 	}
 }
 
@@ -144,7 +146,14 @@ func (s *SyncPoller) createIntegration(ctx context.Context, src models.SourceCon
 		serverName = s.config.Security.ServerName
 	}
 
-	return integrations.NewArmisIntegration(ctx, src, s.kvClient, s.grpcClient.GetConnection(), serverName)
+	switch src.Type {
+	case "armis":
+		return integrations.NewArmisIntegration(ctx, src, s.kvClient, s.grpcClient.GetConnection(), serverName)
+	case "netbox":
+		return integrations.NewNetboxIntegration(ctx, src, s.kvClient, s.grpcClient.GetConnection(), serverName)
+	default:
+		return factory(ctx, src)
+	}
 }
 
 // Start delegates to poller.Poller.Start, using PollFunc for syncing.
