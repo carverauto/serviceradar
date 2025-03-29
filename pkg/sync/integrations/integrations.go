@@ -52,9 +52,10 @@ func NewNetboxIntegration(
 	serverName string,
 ) *netbox.NetboxIntegration {
 	return &netbox.NetboxIntegration{
-		Config:     config,
-		KvClient:   kvClient,
-		GrpcConn:   grpcConn,
-		ServerName: serverName,
+		Config:        config,
+		KvClient:      kvClient,
+		GrpcConn:      grpcConn,
+		ServerName:    serverName,
+		ExpandSubnets: false, // Default: treat as /32 //TODO: make this configurable
 	}
 }

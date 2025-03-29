@@ -48,6 +48,27 @@ var (
 	errNilConfig = fmt.Errorf("config cannot be nil")
 )
 
+func estimateTargetCount(config *models.Config) int {
+	total := 0
+
+	for _, network := range config.Networks {
+		ips, err := scan.ExpandCIDR(network)
+		if err != nil {
+			continue
+		}
+
+		if containsMode(config.SweepModes, models.ModeICMP) {
+			total += len(ips)
+		}
+
+		if containsMode(config.SweepModes, models.ModeTCP) {
+			total += len(ips) * len(config.Ports)
+		}
+	}
+
+	return total
+}
+
 // NewNetworkSweeper creates a new scanner for network sweeping.
 func NewNetworkSweeper(config *models.Config, store Store, processor ResultProcessor) (*NetworkSweeper, error) {
 	if config == nil {
@@ -60,7 +81,21 @@ func NewNetworkSweeper(config *models.Config, store Store, processor ResultProce
 		return nil, fmt.Errorf("failed to create ICMP scanner: %w", err)
 	}
 
-	tcpScanner := scan.NewTCPSweeper(config.Timeout, config.Concurrency)
+	totalTargets := estimateTargetCount(config)
+	effectiveConcurrency := config.Concurrency
+
+	if totalTargets > 0 && effectiveConcurrency > totalTargets/10 {
+		effectiveConcurrency = totalTargets / 10 // Limit to 10% of targets
+
+		if effectiveConcurrency < 5 {
+			effectiveConcurrency = 5 // Minimum concurrency
+		}
+
+		log.Printf("Adjusted concurrency to %d for %d targets", effectiveConcurrency, totalTargets)
+	}
+
+	tcpScanner := scan.NewTCPSweeper(config.Timeout, effectiveConcurrency)
+	// tcpScanner := scan.NewTCPSweeper(config.Timeout, config.Concurrency)
 
 	// Default interval if not set
 	if config.Interval == 0 {

@@ -216,6 +216,53 @@ func (s *ICMPSweeper) sendBatches(ctx context.Context, targets []models.Target, 
 	defer ticker.Stop()
 
 	targetIndex := 0
+	maxBatchSize := batchSize
+	if maxBatchSize > 50 { // Cap batch size to avoid buffer issues
+		maxBatchSize = 50
+	}
+
+	for range ticker.C {
+		if ctx.Err() != nil {
+			return
+		}
+
+		batchEnd := s.calculateBatchEnd(targetIndex, maxBatchSize, len(targets))
+		batch := targets[targetIndex:batchEnd]
+
+		s.processBatch(batch, data)
+
+		targetIndex = batchEnd
+		if targetIndex >= len(targets) {
+			return
+		}
+
+		// Back off if we hit buffer limits
+		if s.checkBufferPressure() {
+			time.Sleep(50 * time.Millisecond) // Brief pause
+
+			maxBatchSize = maxBatchSize / 2 // Reduce batch size
+			if maxBatchSize < 5 {
+				maxBatchSize = 5
+			}
+
+			log.Printf("Reduced batch size to %d due to buffer pressure", maxBatchSize)
+		}
+	}
+}
+
+// Check for buffer pressure (simplified, could use system metrics)
+func (s *ICMPSweeper) checkBufferPressure() bool {
+	// Placeholder: Ideally, check syscall.Sendto errors or kernel buffer stats
+	// For now, assume pressure if last send failed (requires error tracking)
+	return false // Replace with real logic if needed
+}
+
+/*
+func (s *ICMPSweeper) sendBatches(ctx context.Context, targets []models.Target, data []byte, batchSize int) {
+	ticker := time.NewTicker(batchInterval)
+	defer ticker.Stop()
+
+	targetIndex := 0
 
 	for range ticker.C {
 		if ctx.Err() != nil {
@@ -231,6 +278,8 @@ func (s *ICMPSweeper) sendBatches(ctx context.Context, targets []models.Target, 
 		}
 	}
 }
+
+*/
 
 // calculateBatchEnd determines the end index for the current batch.
 func (*ICMPSweeper) calculateBatchEnd(index, batchSize, totalTargets int) int {

@@ -99,8 +99,18 @@ func defaultIntegrationRegistry(
 			return integrations.NewArmisIntegration(ctx, config, kvClient, grpcClient.GetConnection(), serverName)
 		},
 		integrationTypeNetbox: func(ctx context.Context, config models.SourceConfig) Integration {
-			return integrations.NewNetboxIntegration(ctx, config, kvClient, grpcClient.GetConnection(), serverName)
+			integ := integrations.NewNetboxIntegration(ctx, config, kvClient, grpcClient.GetConnection(), serverName)
+			// Allow override via config
+			if val, ok := config.Credentials["expand_subnets"]; ok && val == "true" {
+				integ.ExpandSubnets = true
+			}
+			return integ
 		},
+		/*
+			integrationTypeNetbox: func(ctx context.Context, config models.SourceConfig) Integration {
+				return integrations.NewNetboxIntegration(ctx, config, kvClient, grpcClient.GetConnection(), serverName)
+			},
+		*/
 	}
 }
 

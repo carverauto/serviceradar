@@ -8,10 +8,11 @@ import (
 
 // NetboxIntegration manages the NetBox API integration.
 type NetboxIntegration struct {
-	Config     models.SourceConfig
-	KvClient   proto.KVServiceClient // For writing sweep Config
-	GrpcConn   *grpc.ClientConn      // Connection to reuse
-	ServerName string
+	Config        models.SourceConfig
+	KvClient      proto.KVServiceClient // For writing sweep Config
+	GrpcConn      *grpc.ClientConn      // Connection to reuse
+	ServerName    string
+	ExpandSubnets bool
 }
 
 // Device represents a NetBox device as returned by the API.

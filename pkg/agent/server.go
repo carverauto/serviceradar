@@ -235,7 +235,7 @@ func (s *Server) getLogSuffix() string {
 }
 
 // createSweepService constructs a Service from a SweepConfig.
-func (*Server) createSweepService(sweepConfig *SweepConfig) (Service, error) {
+func (s *Server) createSweepService(sweepConfig *SweepConfig) (Service, error) {
 	if sweepConfig == nil {
 		return nil, errSweepConfigNil
 	}
@@ -249,7 +249,15 @@ func (*Server) createSweepService(sweepConfig *SweepConfig) (Service, error) {
 		Timeout:     time.Duration(sweepConfig.Timeout),
 	}
 
-	service, err := NewSweepService(c)
+	// Pass kvStore and config key to enable watching
+	serverName := s.config.AgentID
+	if s.config.AgentName != "" {
+		serverName = s.config.AgentName
+	}
+
+	configKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", serverName)
+
+	service, err := NewSweepService(c, s.kvStore, configKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sweep service: %w", err)
 	}
