@@ -21,7 +21,8 @@ GOLANGCI_LINT_VERSION ?= v1.64.5
 # Rust configuration
 CARGO ?= cargo
 RUSTFMT ?= rustfmt
-RUST_BUILD_DIR ?= cmd/checkers/rperf/target/release
+RUST_GRPC_BUILD_DIR ?= cmd/checkers/rperf/target/release
+RUST_GRPC_BIN ?= rperf-grpc
 
 # Version configuration
 VERSION ?= $(shell git describe --tags --always)
@@ -132,7 +133,7 @@ build: generate-proto ## Build all binaries
 	@echo "$(COLOR_BOLD)Building Rust rperf plugin$(COLOR_RESET)"
 	@cd cmd/checkers/rperf && $(CARGO) build --release
 	@mkdir -p bin
-	@cp $(RUST_BUILD_DIR)/rperf bin/serviceradar-rperf-checker
+	@cp $(RUST_GRPC_BUILD_DIR)/$(RUST_GRPC_BIN) bin/serviceradar-rperf-checker
 
 .PHONY: kodata-prep
 kodata-prep: build-web ## Prepare kodata directories
@@ -449,9 +450,8 @@ build-rperf: generate-proto ## Build only the rperf plugin
 	@echo "$(COLOR_BOLD)Building Rust rperf plugin$(COLOR_RESET)"
 	@cd cmd/checkers/rperf && $(CARGO) build --release
 	@mkdir -p bin
-	@cp $(RUST_BUILD_DIR)/rperf bin/serviceradar-rperf-checker
+	@cp -v $(shell pwd)/cmd/checkers/rperf/target/release/$(RUST_GRPC_BIN) bin/serviceradar-rperf-checker.PHONY: run-rperf
 
-.PHONY: run-rperf
 run-rperf: build-rperf ## Run the rperf plugin
 	@echo "$(COLOR_BOLD)Running rperf plugin$(COLOR_RESET)"
 	@./bin/serviceradar-rperf-checker $(ARGS)
