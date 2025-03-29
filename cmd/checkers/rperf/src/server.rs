@@ -72,7 +72,6 @@ impl RPerfTestOrchestrator {
         });
 
         let service = RPerfServiceImpl {
-            config: self.config.clone(),
             target_pollers: self.target_pollers.clone(),
         };
 
@@ -94,7 +93,6 @@ impl RPerfTestOrchestrator {
 }
 
 struct RPerfServiceImpl {
-    config: Arc<Config>,
     target_pollers: Arc<Mutex<Vec<TargetPoller>>>,
 }
 
