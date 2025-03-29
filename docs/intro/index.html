@@ -5,7 +5,7 @@
 <meta name="generator" content="Docusaurus v3.7.0">
 <title data-rh="true">ServiceRadar Introduction | ServiceRadar</title><meta data-rh="true" name="viewport" content="width=device-width,initial-scale=1"><meta data-rh="true" name="twitter:card" content="summary_large_image"><meta data-rh="true" property="og:image" content="https://docs.serviceradar.cloud/img/serviceradar-social-card.png"><meta data-rh="true" name="twitter:image" content="https://docs.serviceradar.cloud/img/serviceradar-social-card.png"><meta data-rh="true" property="og:url" content="https://docs.serviceradar.cloud/docs/intro"><meta data-rh="true" property="og:locale" content="en"><meta data-rh="true" name="docusaurus_locale" content="en"><meta data-rh="true" name="docsearch:language" content="en"><meta data-rh="true" name="docusaurus_version" content="current"><meta data-rh="true" name="docusaurus_tag" content="docs-default-current"><meta data-rh="true" name="docsearch:version" content="current"><meta data-rh="true" name="docsearch:docusaurus_tag" content="docs-default-current"><meta data-rh="true" property="og:title" content="ServiceRadar Introduction | ServiceRadar"><meta data-rh="true" name="description" content="ServiceRadar is a distributed network monitoring system designed for infrastructure and services in hard-to-reach places or constrained environments. It provides real-time monitoring of internal services with cloud-based alerting capabilities, ensuring you stay informed even during network or power outages."><meta data-rh="true" property="og:description" content="ServiceRadar is a distributed network monitoring system designed for infrastructure and services in hard-to-reach places or constrained environments. It provides real-time monitoring of internal services with cloud-based alerting capabilities, ensuring you stay informed even during network or power outages."><link data-rh="true" rel="icon" href="/img/favicon.ico"><link data-rh="true" rel="canonical" href="https://docs.serviceradar.cloud/docs/intro"><link data-rh="true" rel="alternate" href="https://docs.serviceradar.cloud/docs/intro" hreflang="en"><link data-rh="true" rel="alternate" href="https://docs.serviceradar.cloud/docs/intro" hreflang="x-default"><link rel="alternate" type="application/rss+xml" href="/blog/rss.xml" title="ServiceRadar RSS Feed">
 <link rel="alternate" type="application/atom+xml" href="/blog/atom.xml" title="ServiceRadar Atom Feed"><link rel="stylesheet" href="/assets/css/styles.cff3da27.css">
-<script src="/assets/js/runtime~main.c1359a9e.js" defer="defer"></script>
+<script src="/assets/js/runtime~main.08b9427a.js" defer="defer"></script>
 <script src="/assets/js/main.df7a49eb.js" defer="defer"></script>
 </head>
 <body class="navigation-with-keyboard">
@@ -22,6 +22,10 @@
 <li>Specialized monitoring for specific node types (e.g., Dusk Network)</li>
 <li>Secure communication with mTLS support</li>
 <li>Modern web UI with dashboard visualization</li>
+<li>User authentication with local login support</li>
+<li>JWT-based session management</li>
+<li>KV Store for dynamic configuration</li>
+<li>External system integration via Sync service</li>
 <li>API key authentication for internal communications</li>
 </ul>
 <div class="theme-admonition theme-admonition-tip admonition_kCc1 alert alert--success"><div class="admonitionHeading_WWyw"><span class="admonitionIcon_tH_p"><svg viewBox="0 0 12 16"><path fill-rule="evenodd" d="M6.5 0C3.48 0 1 2.19 1 5c0 .92.55 2.25 1 3 1.34 2.25 1.78 2.78 2 4v1h5v-1c.22-1.22.66-1.75 2-4 .45-.75 1-2.08 1-3 0-2.81-2.48-5-5.5-5zm3.64 7.48c-.25.44-.47.8-.67 1.11-.86 1.41-1.25 2.06-1.45 3.23-.02.05-.02.11-.02.17H5c0-.06 0-.13-.02-.17-.2-1.17-.59-1.83-1.45-3.23-.2-.31-.42-.67-.67-1.11C2.44 6.78 2 5.65 2 5c0-2.2 2.02-4 4.5-4 1.22 0 2.36.42 3.22 1.19C10.55 2.94 11 3.94 11 5c0 .66-.44 1.78-.86 2.48zM4 14h5c-.23 1.14-1.3 2-2.5 2s-2.27-.86-2.5-2z"></path></svg></span>What you&#x27;ll need</div><div class="admonitionContent_lI_Q"><ul>
@@ -31,30 +35,38 @@
 <li>Target services to monitor</li>
 </ul></div></div>
 <h2 class="anchor anchorWithStickyNavbar_fAd0" id="key-components">Key Components<a href="#key-components" class="hash-link" aria-label="Direct link to Key Components" title="Direct link to Key Components">​</a></h2>
-<p>ServiceRadar consists of four main components:</p>
+<p>ServiceRadar consists of several main components:</p>
 <ol>
 <li><strong>Agent</strong> - Runs on monitored hosts, provides service status through gRPC</li>
 <li><strong>Poller</strong> - Coordinates monitoring activities, can run anywhere in your network</li>
 <li><strong>Core Service</strong> - Receives reports from pollers, provides API, and sends alerts</li>
 <li><strong>Web UI</strong> - Provides a modern dashboard interface with Nginx as a reverse proxy</li>
+<li><strong>KV Store</strong> - Provides dynamic configuration capabilities using NATS JetStream</li>
+<li><strong>Sync Service</strong> - Integrates with external inventory and security systems</li>
 </ol>
 <p>For a detailed explanation of the architecture, please see the <a href="/docs/architecture">Architecture</a> page.</p>
 <h2 class="anchor anchorWithStickyNavbar_fAd0" id="security-features">Security Features<a href="#security-features" class="hash-link" aria-label="Direct link to Security Features" title="Direct link to Security Features">​</a></h2>
 <p>ServiceRadar is designed with security in mind:</p>
 <ol>
 <li><strong>mTLS Authentication</strong> - Secure communication between components using mutual TLS</li>
+<li><strong>User Authentication</strong> - Local user login with bcrypt password hashing</li>
+<li><strong>JWT Session Management</strong> - Secure, expirable tokens for web sessions</li>
 <li><strong>API Key Authentication</strong> - Secure API access for the web interface</li>
 <li><strong>Role-Based Access</strong> - Different components have different security roles</li>
+<li><strong>CORS Configuration</strong> - Control which domains can access your API</li>
 <li><strong>Nginx Reverse Proxy</strong> - Secure web access with configurable firewall rules</li>
 </ol>
-<p>For more details, see the <a href="/docs/tls-security">TLS Security</a> and <a href="/docs/architecture">Architecture</a> documentation.</p>
+<p>For more details, see the <a href="/docs/tls-security">TLS Security</a> and <a href="/docs/auth-configuration">Authentication Configuration</a> documentation.</p>
 <h2 class="anchor anchorWithStickyNavbar_fAd0" id="getting-started">Getting Started<a href="#getting-started" class="hash-link" aria-label="Direct link to Getting Started" title="Direct link to Getting Started">​</a></h2>
 <p>Navigate through our documentation to get ServiceRadar up and running:</p>
 <ol>
 <li><strong><a href="/docs/installation">Installation Guide</a></strong> - Install ServiceRadar components</li>
 <li><strong><a href="/docs/configuration">Configuration Basics</a></strong> - Configure your ServiceRadar deployment</li>
 <li><strong><a href="/docs/tls-security">TLS Security</a></strong> - Secure your ServiceRadar communications</li>
+<li><strong><a href="/docs/auth-configuration">Authentication Configuration</a></strong> - Set up user authentication</li>
 <li><strong><a href="/docs/web-ui">Web UI Configuration</a></strong> - Set up the web interface and dashboard</li>
+<li><strong><a href="/docs/kv-configuration">KV Store Configuration</a></strong> - Configure dynamic configuration store</li>
+<li><strong><a href="/docs/sync">Sync Service Configuration</a></strong> - Integrate with external systems</li>
 <li><strong><a href="/docs/architecture">Architecture</a></strong> - Understand the system architecture</li>
 <li><strong><a href="/docs/custom-checkers">Custom Checkers</a></strong> - Create custom checkers for specific services</li>
 </ol>
