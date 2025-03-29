@@ -75,7 +75,7 @@ EOF
 # Create sample config file (aligned with your Config struct)
 cat > "${TEMP_DIR}/etc/serviceradar/checkers/rperf.json" << EOF
 {
-  "listen_addr": "0.0.0.0:50051",
+  "listen_addr": "0.0.0.0:50059",
   "security": {
     "tls_enabled": false,
     "cert_file": null,
