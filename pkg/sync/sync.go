@@ -90,13 +90,16 @@ func New(
 }
 
 // defaultIntegrationRegistry provides the default set of integration factories.
-func defaultIntegrationRegistry() map[string]IntegrationFactory {
+func defaultIntegrationRegistry(
+	kvClient proto.KVServiceClient,
+	grpcClient GRPCClient,
+	serverName string) map[string]IntegrationFactory {
 	return map[string]IntegrationFactory{
 		integrationTypeArmis: func(ctx context.Context, config models.SourceConfig) Integration {
-			return integrations.NewArmisIntegration(ctx, config, nil, nil, "")
+			return integrations.NewArmisIntegration(ctx, config, kvClient, grpcClient.GetConnection(), serverName)
 		},
 		integrationTypeNetbox: func(ctx context.Context, config models.SourceConfig) Integration {
-			return integrations.NewNetboxIntegration(ctx, config, nil, nil, "")
+			return integrations.NewNetboxIntegration(ctx, config, kvClient, grpcClient.GetConnection(), serverName)
 		},
 	}
 }
@@ -124,7 +127,13 @@ func NewWithGRPC(ctx context.Context, config *Config) (*SyncPoller, error) {
 
 	kvClient := proto.NewKVServiceClient(client.GetConnection())
 
-	return New(ctx, config, kvClient, client, defaultIntegrationRegistry(), nil)
+	// Use config.Security.ServerName if available, otherwise default to empty string
+	serverName := ""
+	if config.Security != nil {
+		serverName = config.Security.ServerName
+	}
+
+	return New(ctx, config, kvClient, client, defaultIntegrationRegistry(kvClient, client, serverName), nil)
 }
 
 func (s *SyncPoller) initializeIntegrations(ctx context.Context) {
