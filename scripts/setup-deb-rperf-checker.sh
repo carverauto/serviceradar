@@ -35,7 +35,7 @@ trap 'rm -rf ${TEMP_DIR}' EXIT
 
 # Create package directory structure
 mkdir -p "${TEMP_DIR}/DEBIAN"
-mkdir -p "${TEMP_DIR}/usr/bin"
+mkdir -p "${TEMP_DIR}/usr/local/bin"
 mkdir -p "${TEMP_DIR}/etc/serviceradar/checkers"
 mkdir -p "${TEMP_DIR}/lib/systemd/system"
 
@@ -53,7 +53,7 @@ cd ../../..
 
 # Copy binary to package
 echo "Copying binary to package directory..."
-cp -v cmd/checkers/rperf/target/release/rperf-grpc "${TEMP_DIR}/usr/bin/serviceradar-rperf-checker"
+cp -v cmd/checkers/rperf/target/release/rperf-grpc "${TEMP_DIR}/usr/local/bin/serviceradar-rperf-checker"
 
 # Create systemd service file
 cat > "${TEMP_DIR}/lib/systemd/system/serviceradar-rperf-checker.service" << EOF
@@ -110,7 +110,6 @@ Package: ${PKG_NAME}
 Version: ${VERSION_CLEAN}
 Architecture: amd64
 Maintainer: ${MAINTAINER}
-Depends: rperf (>= 0.1.8)
 Section: net
 Priority: optional
 Homepage: https://github.com/carverauto/serviceradar

@@ -14,8 +14,8 @@ The service:
 
 ## Prerequisites
 
-- Rust 1.56 or later
-- rperf 0.1.9 or later (installed on the system)
+- Rust 1.56 or later (for building from source)
+- [rperf](https://crates.io/crates/rperf) 0.1.17 or later (installed on the system)
 - Protocol Buffers compiler (for building from source)
 
 ## Configuration
@@ -115,6 +115,35 @@ To use this with the ServiceRadar monitoring system:
 1. Deploy the rperf-grpc service on your target hosts
 2. Configure the ServiceRadar agent to connect to the rperf-grpc service
 3. (Optional) Set up alerts for network performance degradation
+
+## Securing the rperf Server
+
+`rperf` is designed to run as a continuously available server, listening on a specified port (default: 5199). To secure it, we strongly recommend restricting access using a firewall. Below are examples for common tools:
+
+### Using `iptables`
+Allow only specific client IPs:
+
+```bash
+sudo iptables -A INPUT -p tcp --dport 5199 -s <trusted-client-ip> -j ACCEPT
+sudo iptables -A INPUT -p tcp --dport 5199 -j DROP
+```
+
+### Using `ufw`
+Allow only specific client IPs:
+
+```bash
+sudo ufw allow from <trusted-client-ip> to any port 5199
+sudo ufw deny 5199
+```
+
+### Using `firewalld`
+Allow only specific client IPs:
+
+```bash
+sudo firewall-cmd --zone=trusted --add-source=<trusted-client-ip> --permanent 
+sudo firewall-cmd --zone=trusted --add-port=5199/tcp --permanent
+sudo firewall-cmd --reload
+```
 
 ## API Reference
 
