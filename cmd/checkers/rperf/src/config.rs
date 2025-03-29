@@ -81,10 +81,8 @@ impl Config {
         
         // Check TLS configuration if enabled
         if let Some(security) = &self.security {
-            if security.tls_enabled {
-                if security.cert_file.is_none() || security.key_file.is_none() {
-                    anyhow::bail!("When TLS is enabled, cert_file and key_file are required");
-                }
+            if security.tls_enabled && (security.cert_file.is_none() || security.key_file.is_none()) {
+                anyhow::bail!("When TLS is enabled, cert_file and key_file are required");
             }
         }
         
