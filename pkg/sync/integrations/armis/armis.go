@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package integrations
+package armis
 
 import (
 	"context"
@@ -31,26 +31,10 @@ import (
 
 // ArmisIntegration manages the Armis API integration.
 type ArmisIntegration struct {
-	config     models.SourceConfig
-	kvClient   proto.KVServiceClient // Add gRPC client for KV writes
-	grpcConn   *grpc.ClientConn      // Connection to reuse
-	serverName string
-}
-
-// NewArmisIntegration creates a new ArmisIntegration with a gRPC client.
-func NewArmisIntegration(
-	_ context.Context,
-	config models.SourceConfig,
-	kvClient proto.KVServiceClient,
-	grpcConn *grpc.ClientConn,
-	serverName string,
-) *ArmisIntegration {
-	return &ArmisIntegration{
-		config:     config,
-		kvClient:   kvClient,
-		grpcConn:   grpcConn,
-		serverName: serverName,
-	}
+	Config     models.SourceConfig
+	KvClient   proto.KVServiceClient // Add gRPC client for KV writes
+	GrpcConn   *grpc.ClientConn      // Connection to reuse
+	ServerName string
 }
 
 // Device represents an Armis device.
@@ -65,19 +49,6 @@ type DeviceResponse struct {
 	Total   int      `json:"total"`
 	Page    int      `json:"page"`
 	PerPage int      `json:"per_page"`
-}
-
-// SweepConfig defines the network sweep tool configuration.
-type SweepConfig struct {
-	Networks      []string `json:"networks"`
-	Ports         []int    `json:"ports"`
-	SweepModes    []string `json:"sweep_modes"`
-	Interval      string   `json:"interval"`
-	Concurrency   int      `json:"concurrency"`
-	Timeout       string   `json:"timeout"`
-	IcmpCount     int      `json:"icmp_count"`
-	HighPerfIcmp  bool     `json:"high_perf_icmp"`
-	IcmpRateLimit int      `json:"icmp_rate_limit"`
 }
 
 var (
@@ -108,12 +79,12 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error)
 
 // fetchDevices sends the HTTP request to the Armis API.
 func (a *ArmisIntegration) fetchDevices(ctx context.Context) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.config.Endpoint+"?page=1&per_page=10", http.NoBody)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.Config.Endpoint+"?page=1&per_page=10", http.NoBody)
 	if err != nil {
 		return nil, err
 	}
 
-	req.Header.Set("Authorization", "Bearer "+a.config.Credentials["api_key"])
+	req.Header.Set("Authorization", "Bearer "+a.Config.Credentials["api_key"])
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -172,9 +143,9 @@ func (*ArmisIntegration) processDevices(deviceResp DeviceResponse) (data map[str
 	return data, ips
 }
 
-// writeSweepConfig generates and writes the sweep config to KV.
+// writeSweepConfig generates and writes the sweep Config to KV.
 func (a *ArmisIntegration) writeSweepConfig(ctx context.Context, ips []string) {
-	sweepConfig := SweepConfig{
+	sweepConfig := models.SweepConfig{
 		Networks:      ips,
 		Ports:         []int{22, 80, 443, 3306, 5432, 6379, 8080, 8443},
 		SweepModes:    []string{"icmp", "tcp"},
@@ -192,8 +163,8 @@ func (a *ArmisIntegration) writeSweepConfig(ctx context.Context, ips []string) {
 		return
 	}
 
-	configKey := fmt.Sprintf("config/%s/network-sweep", a.serverName)
-	_, err = a.kvClient.Put(ctx, &proto.PutRequest{
+	configKey := fmt.Sprintf("config/%s/network-sweep", a.ServerName)
+	_, err = a.KvClient.Put(ctx, &proto.PutRequest{
 		Key:   configKey,
 		Value: configJSON,
 	})

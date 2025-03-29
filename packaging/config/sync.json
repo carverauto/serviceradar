@@ -1,11 +1,11 @@
 {
-  "kv_address": "localhost:50055",
-  "listen_addr": ":50059",
-  "poll_interval": "30m",
+  "kv_address": "changeme:50057",
+  "listen_addr": ":50058",
+  "poll_interval": "5m",
   "security": {
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
-    "server_name": "nats-serviceradar",
+    "server_name": "changeme",
     "role": "poller",
     "tls": {
       "cert_file": "sync.pem",
@@ -17,10 +17,18 @@
   "sources": {
     "armis": {
       "type": "armis",
-      "endpoint": "https://api.armis.example.com/v1/devices",
+      "endpoint": "http://localhost:8080/v1/devices",
       "prefix": "armis/",
       "credentials": {
         "api_key": "your-armis-api-key-here"
+      }
+    },
+    "netbox": {
+      "type": "netbox",
+      "endpoint": "https://netbox.example.com/api",
+      "prefix": "netbox/",
+      "credentials": {
+        "token": "your_netbox_token"
       }
     }
   }
