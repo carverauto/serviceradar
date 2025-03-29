@@ -144,17 +144,6 @@ func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[
 				ips = append(ips, newIPAddress)
 			}
 		}
-		/*
-			if device.PrimaryIP4.Address != "" {
-				// Parse the IP address and strip the subnet mask
-				ip, _, err := net.ParseCIDR(device.PrimaryIP4.Address)
-				if err != nil {
-					log.Printf("Failed to parse IP %s for device %d: %v", device.PrimaryIP4.Address, device.ID, err)
-					continue
-				}
-				ips = append(ips, ip.String()) // e.g., "192.168.2.18" instead of "192.168.2.18/24"
-			}
-		*/
 	}
 
 	return data, ips

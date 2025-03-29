@@ -183,6 +183,9 @@ func (s *ICMPSweeper) sendPings(ctx context.Context, targets []models.Target) {
 
 const (
 	defaultRateLimitDivisor = 1000
+	defaultBatchSize        = 5
+	defaultMaxBatchSize     = 50
+	defaultBatchDivisor     = 2
 )
 
 // calculatePacketsPerInterval determines the batch size based on rate limit.
@@ -210,6 +213,10 @@ func (s *ICMPSweeper) prepareEchoRequest() ([]byte, error) {
 	return msg.Marshal(nil)
 }
 
+const (
+	defaultPauseTime = 50 * time.Millisecond
+)
+
 // sendBatches manages the sending of ping batches.
 func (s *ICMPSweeper) sendBatches(ctx context.Context, targets []models.Target, data []byte, batchSize int) {
 	ticker := time.NewTicker(batchInterval)
@@ -217,8 +224,9 @@ func (s *ICMPSweeper) sendBatches(ctx context.Context, targets []models.Target, 
 
 	targetIndex := 0
 	maxBatchSize := batchSize
-	if maxBatchSize > 50 { // Cap batch size to avoid buffer issues
-		maxBatchSize = 50
+
+	if maxBatchSize > defaultMaxBatchSize { // Cap batch size to avoid buffer issues
+		maxBatchSize = defaultMaxBatchSize
 	}
 
 	for range ticker.C {
@@ -238,11 +246,11 @@ func (s *ICMPSweeper) sendBatches(ctx context.Context, targets []models.Target, 
 
 		// Back off if we hit buffer limits
 		if s.checkBufferPressure() {
-			time.Sleep(50 * time.Millisecond) // Brief pause
+			time.Sleep(defaultPauseTime) // Brief pause
 
-			maxBatchSize = maxBatchSize / 2 // Reduce batch size
-			if maxBatchSize < 5 {
-				maxBatchSize = 5
+			maxBatchSize /= defaultBatchDivisor // Reduce batch size
+			if maxBatchSize < defaultBatchSize {
+				maxBatchSize = defaultBatchSize
 			}
 
 			log.Printf("Reduced batch size to %d due to buffer pressure", maxBatchSize)
@@ -250,36 +258,12 @@ func (s *ICMPSweeper) sendBatches(ctx context.Context, targets []models.Target, 
 	}
 }
 
-// Check for buffer pressure (simplified, could use system metrics)
-func (s *ICMPSweeper) checkBufferPressure() bool {
+// checkBufferPressure Check for buffer pressure (simplified, could use system metrics).
+func (*ICMPSweeper) checkBufferPressure() bool {
 	// Placeholder: Ideally, check syscall.Sendto errors or kernel buffer stats
 	// For now, assume pressure if last send failed (requires error tracking)
 	return false // Replace with real logic if needed
 }
-
-/*
-func (s *ICMPSweeper) sendBatches(ctx context.Context, targets []models.Target, data []byte, batchSize int) {
-	ticker := time.NewTicker(batchInterval)
-	defer ticker.Stop()
-
-	targetIndex := 0
-
-	for range ticker.C {
-		if ctx.Err() != nil {
-			return
-		}
-
-		batchEnd := s.calculateBatchEnd(targetIndex, batchSize, len(targets))
-		s.processBatch(targets[targetIndex:batchEnd], data)
-
-		targetIndex = batchEnd
-		if targetIndex >= len(targets) {
-			return
-		}
-	}
-}
-
-*/
 
 // calculateBatchEnd determines the end index for the current batch.
 func (*ICMPSweeper) calculateBatchEnd(index, batchSize, totalTargets int) int {
@@ -331,6 +315,7 @@ func (s *ICMPSweeper) recordInitialResult(target models.Target) {
 		LastSeen:   now,
 		PacketLoss: 100,
 	}
+
 	fmt.Println(s.results[target.Host])
 }
 

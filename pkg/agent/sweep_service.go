@@ -61,16 +61,19 @@ func NewSweepService(config *models.Config, kvStore kv.KVStore, configKey string
 // Start begins the sweep service.
 func (s *SweepService) Start(ctx context.Context) error {
 	log.Printf("Starting sweep service with interval %v", s.config.Interval)
+
 	return s.sweeper.Start(ctx) // KV watching is handled by NetworkSweeper
 }
 
 // Stop gracefully stops the sweep service.
-func (s *SweepService) Stop(ctx context.Context) error {
+func (s *SweepService) Stop(_ context.Context) error {
 	log.Printf("Stopping sweep service")
+
 	err := s.sweeper.Stop() // NetworkSweeper handles closing channels
 	if err != nil {
 		return fmt.Errorf("failed to stop sweeper: %w", err)
 	}
+
 	return nil
 }
 
@@ -85,8 +88,10 @@ func (s *SweepService) UpdateConfig(config *models.Config) error {
 	defer s.mu.Unlock()
 
 	newConfig := applyDefaultConfig(config)
+
 	s.config = newConfig
 	log.Printf("Updated sweep config: %+v", newConfig)
+
 	return s.sweeper.UpdateConfig(newConfig)
 }
 
@@ -97,6 +102,7 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, er
 	summary, err := s.sweeper.GetStatus(ctx) // Delegate to NetworkSweeper's GetStatus
 	if err != nil {
 		log.Printf("Failed to get sweep summary: %v", err)
+
 		return nil, fmt.Errorf("failed to get sweep summary: %w", err)
 	}
 
@@ -120,11 +126,13 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, er
 		DefinedCIDRs:   len(s.config.Networks),
 		UniqueIPs:      s.stats.uniqueIPs,
 	}
+
 	s.mu.RUnlock()
 
 	statusJSON, err := json.Marshal(data)
 	if err != nil {
 		log.Printf("Failed to marshal status: %v", err)
+
 		return nil, fmt.Errorf("failed to marshal sweep status: %w", err)
 	}
 
@@ -146,15 +154,19 @@ func applyDefaultConfig(config *models.Config) *models.Config {
 	if len(config.SweepModes) == 0 {
 		config.SweepModes = []models.SweepMode{models.ModeICMP, models.ModeTCP}
 	}
+
 	if config.Timeout == 0 {
 		config.Timeout = 5 * time.Second
 	}
+
 	if config.Concurrency == 0 {
 		config.Concurrency = 20
 	}
+
 	if config.Interval == 0 {
 		config.Interval = 5 * time.Minute
 	}
+
 	if config.ICMPRateLimit == 0 {
 		config.ICMPRateLimit = 1000
 	}
@@ -164,10 +176,9 @@ func applyDefaultConfig(config *models.Config) *models.Config {
 
 // ScanStats tracks scanning statistics.
 type ScanStats struct {
-	successCount int
-	uniqueHosts  map[string]struct{}
-	uniqueIPs    int
-	startTime    time.Time
+	uniqueHosts map[string]struct{}
+	uniqueIPs   int
+	startTime   time.Time
 }
 
 func newScanStats() *ScanStats {
@@ -191,14 +202,17 @@ func (s *SweepService) CheckICMP(ctx context.Context, host string) (*models.Resu
 	}()
 
 	target := models.Target{Host: host, Mode: models.ModeICMP}
+
 	results, err := icmpScanner.Scan(ctx, []models.Target{target})
 	if err != nil {
 		return nil, fmt.Errorf("ICMP scan failed: %w", err)
 	}
 
 	var result models.Result
+
 	for r := range results {
 		result = r
+
 		break // Expecting one result
 	}
 

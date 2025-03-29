@@ -11,18 +11,23 @@ type durationWrapper time.Duration
 
 func (d *durationWrapper) UnmarshalJSON(b []byte) error {
 	var s string
+
 	if err := json.Unmarshal(b, &s); err != nil {
 		return err
 	}
+
 	if s == "" {
 		*d = durationWrapper(0)
 		return nil
 	}
+
 	dur, err := time.ParseDuration(s)
 	if err != nil {
 		return err
 	}
+
 	*d = durationWrapper(dur)
+
 	return nil
 }
 
