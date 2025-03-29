@@ -18,6 +18,7 @@ package netbox
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -66,7 +67,16 @@ func (n *NetboxIntegration) fetchDevices(ctx context.Context) (*http.Response, e
 	req.Header.Set("Authorization", "Token "+n.Config.Credentials["api_token"])
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	// Create a custom HTTP client with TLS configuration
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: n.Config.InsecureSkipVerify, // Respect the config setting
+			},
+		},
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
