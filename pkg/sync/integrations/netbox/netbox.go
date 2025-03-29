@@ -68,10 +68,11 @@ func (n *NetboxIntegration) fetchDevices(ctx context.Context) (*http.Response, e
 	req.Header.Set("Accept", "application/json")
 
 	// Create a custom HTTP client with TLS configuration
+	//nolint:gosec // Allow insecure TLS configuration for testing purposes
 	client := &http.Client{
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: n.Config.InsecureSkipVerify, // Respect the config setting
+				InsecureSkipVerify: n.Config.InsecureSkipVerify,
 			},
 		},
 	}
