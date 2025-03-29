@@ -90,7 +90,6 @@ func TestSync_Success(t *testing.T) {
 	mockInteg := NewMockIntegration(ctrl)
 	mockClock := poller.NewMockClock(ctrl)
 
-	// Expect GetConnection for integration initialization
 	mockGRPC.EXPECT().GetConnection().Return(nil).AnyTimes()
 
 	c := &Config{
@@ -150,7 +149,6 @@ func TestStartAndStop(t *testing.T) {
 	mockClock := poller.NewMockClock(ctrl)
 	mockTicker := poller.NewMockTicker(ctrl)
 
-	// Expect GetConnection for integration initialization
 	mockGRPC.EXPECT().GetConnection().Return(nil).AnyTimes()
 	mockGRPC.EXPECT().Close().Return(nil)
 

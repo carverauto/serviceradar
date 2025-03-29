@@ -140,7 +140,28 @@ func (s *SyncPoller) initializeIntegrations(ctx context.Context) {
 	}
 }
 
+/*
+func (s *SyncPoller) initializeIntegrations(ctx context.Context) {
+	for name, src := range s.config.Sources {
+		factory, ok := s.registry[src.Type]
+		if !ok {
+			log.Printf("Unknown source type: %s", src.Type)
+
+			continue
+		}
+
+		s.sources[name] = s.createIntegration(ctx, src, factory)
+	}
+}
+
+*/
+
 // createIntegration constructs an integration instance based on source type.
+func (s *SyncPoller) createIntegration(ctx context.Context, src models.SourceConfig, factory IntegrationFactory) Integration {
+	return factory(ctx, src)
+}
+
+/*
 func (s *SyncPoller) createIntegration(ctx context.Context, src models.SourceConfig, factory IntegrationFactory) Integration {
 	if src.Type != integrationTypeArmis {
 		return factory(ctx, src)
@@ -160,6 +181,8 @@ func (s *SyncPoller) createIntegration(ctx context.Context, src models.SourceCon
 		return factory(ctx, src)
 	}
 }
+
+*/
 
 // Start delegates to poller.Poller.Start, using PollFunc for syncing.
 func (s *SyncPoller) Start(ctx context.Context) error {
