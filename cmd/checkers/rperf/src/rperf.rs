@@ -1,12 +1,12 @@
 use anyhow::Result;
-use log::{debug, error, info};
+use log::{debug, error};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use std::vec::Vec;
 
 use crate::config::TargetConfig;
 use crate::server::rperf_service::TestRequest;
-use rperf::{run_client_with_output, TestResults};
+use rperf::run_client_with_output;
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct RPerfSummary {
