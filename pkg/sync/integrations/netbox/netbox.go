@@ -55,15 +55,15 @@ func (n *NetboxIntegration) Fetch(ctx context.Context) (map[string][]byte, error
 }
 
 // fetchDevices sends the HTTP request to the NetBox API.
-// fetchDevices sends the HTTP request to the NetBox API.
 func (n *NetboxIntegration) fetchDevices(ctx context.Context) (*http.Response, error) {
-	url := n.config.Endpoint + "/api/dcim/devices/"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	url := n.Config.Endpoint + "/api/dcim/devices/"
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
 		return nil, err
 	}
 
-	req.Header.Set("Authorization", "Token "+n.config.Credentials["api_token"])
+	req.Header.Set("Authorization", "Token "+n.Config.Credentials["api_token"])
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
@@ -76,6 +76,7 @@ func (n *NetboxIntegration) fetchDevices(ctx context.Context) (*http.Response, e
 		if err != nil {
 			return nil, err
 		}
+
 		return nil, fmt.Errorf("%w: %d", errUnexpectedStatusCode, resp.StatusCode)
 	}
 
@@ -102,9 +103,11 @@ func (*NetboxIntegration) decodeResponse(resp *http.Response) (DeviceResponse, e
 // processDevices converts devices to KV data and extracts IPs.
 func (*NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[string][]byte, ips []string) {
 	data = make(map[string][]byte)
-	ips = make([]string, 0, len(deviceResp.Results))
+	ips = make([]string, 0, len(deviceResp.Results)) // Fixed: added length 0
 
-	for _, device := range deviceResp.Results {
+	for i := range deviceResp.Results {
+		device := &deviceResp.Results[i] // Take a pointer to avoid copying
+
 		value, err := json.Marshal(device)
 		if err != nil {
 			log.Printf("Failed to marshal device %d: %v", device.ID, err)
@@ -148,6 +151,7 @@ func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) 
 		Key:   configKey,
 		Value: configJSON,
 	})
+
 	if err != nil {
 		log.Printf("Failed to write sweep config to %s: %v", configKey, err)
 
