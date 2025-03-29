@@ -157,7 +157,7 @@ func (s *SyncPoller) initializeIntegrations(ctx context.Context) {
 */
 
 // createIntegration constructs an integration instance based on source type.
-func (s *SyncPoller) createIntegration(ctx context.Context, src models.SourceConfig, factory IntegrationFactory) Integration {
+func (*SyncPoller) createIntegration(ctx context.Context, src models.SourceConfig, factory IntegrationFactory) Integration {
 	return factory(ctx, src)
 }
 

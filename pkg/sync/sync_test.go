@@ -173,11 +173,14 @@ func TestStartAndStop(t *testing.T) {
 	}
 
 	tickChan := make(chan time.Time, 1)
+
 	mockClock.EXPECT().Ticker(500 * time.Millisecond).Return(mockTicker)
+
 	mockTicker.EXPECT().Chan().Return(tickChan).AnyTimes()
 	mockTicker.EXPECT().Stop()
 
 	data := map[string][]byte{"devices": []byte("data")}
+
 	mockInteg.EXPECT().Fetch(gomock.Any()).Return(data, nil).Times(2) // Initial poll + 1 tick
 	mockKV.EXPECT().Put(gomock.Any(), gomock.Any(), gomock.Any()).Return(&proto.PutResponse{}, nil).Times(2)
 
@@ -201,6 +204,7 @@ func TestStartAndStop(t *testing.T) {
 			default:
 			}
 		}
+
 		return err
 	}
 
@@ -212,7 +216,8 @@ func TestStartAndStop(t *testing.T) {
 
 	time.Sleep(10 * time.Millisecond) // Allow initial poll
 	tickChan <- time.Now()            // Trigger a tick
-	<-tickProcessed                   // Wait for tick to process
+
+	<-tickProcessed // Wait for tick to process
 
 	cancel()    // Stop the poller
 	<-startDone // Wait for Start to exit
@@ -268,11 +273,14 @@ func TestStart_ContextCancellation(t *testing.T) {
 	}
 
 	tickChan := make(chan time.Time)
+
 	mockClock.EXPECT().Ticker(1 * time.Second).Return(mockTicker)
+
 	mockTicker.EXPECT().Chan().Return(tickChan).AnyTimes()
 	mockTicker.EXPECT().Stop()
 
 	data := map[string][]byte{"devices": []byte("data")}
+
 	mockInteg.EXPECT().Fetch(gomock.Any()).Return(data, nil)
 	mockKV.EXPECT().Put(gomock.Any(), &proto.PutRequest{
 		Key:   "armis/devices",
