@@ -82,5 +82,9 @@ type SweepService interface {
 	// GetStatus returns current sweep status
 	GetStatus(context.Context) (*models.SweepSummary, error)
 	// UpdateConfig updates service configuration
-	UpdateConfig(models.Config) error
+	UpdateConfig(*models.Config) error
+}
+
+type KVStore interface {
+	Watch(ctx context.Context, key string) (<-chan []byte, error)
 }
