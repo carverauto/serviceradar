@@ -46,12 +46,12 @@ protoc -I=proto \
     --go-grpc_out=proto --go-grpc_opt=paths=source_relative \
     proto/rperf/rperf.proto
 
-cd cmd/rperf-plugin
+cd cmd/checkers/rperf
 cargo build --release
 cd ../..
 
 # Copy binary to package
-cp cmd/rperf-plugin/target/release/rperf-plugin "${TEMP_DIR}/usr/bin/serviceradar-rperf-checker"
+cp cmd/checkers/rperf/target/release/rperf "${TEMP_DIR}/usr/bin/serviceradar-rperf-checker"
 
 # Create systemd service file
 cat > "${TEMP_DIR}/lib/systemd/system/serviceradar-rperf-checker.service" << EOF
