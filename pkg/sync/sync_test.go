@@ -335,7 +335,6 @@ func TestSync_NetboxSuccess(t *testing.T) {
 		Key:   "netbox/1",
 		Value: []byte(`{"id":1,"name":"device1","primary_ip4":{"address":"192.168.1.1/24"}}`),
 	}, gomock.Any()).Return(&proto.PutResponse{}, nil)
-	mockKV.EXPECT().Put(gomock.Any(), gomock.Any(), gomock.Any()).Return(&proto.PutResponse{}, nil) // Sweep config
 
 	syncer, err := New(context.Background(), c, mockKV, mockGRPC, registry, mockClock)
 	require.NoError(t, err)
