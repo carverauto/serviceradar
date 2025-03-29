@@ -301,3 +301,47 @@ func TestStart_ContextCancellation(t *testing.T) {
 	err = syncer.Stop(context.Background())
 	assert.NoError(t, err)
 }
+
+func TestSync_NetboxSuccess(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockKV := NewMockKVClient(ctrl)
+	mockGRPC := NewMockGRPCClient(ctrl)
+	mockInteg := NewMockIntegration(ctrl)
+	mockClock := poller.NewMockClock(ctrl)
+
+	c := &Config{
+		Sources: map[string]models.SourceConfig{
+			"netbox": {
+				Type:        "netbox",
+				Endpoint:    "https://netbox.example.com",
+				Prefix:      "netbox/",
+				Credentials: map[string]string{"api_token": "token"},
+			},
+		},
+		KVAddress:    "localhost:50051",
+		PollInterval: config.Duration(1 * time.Second),
+	}
+
+	registry := map[string]IntegrationFactory{
+		"netbox": func(_ context.Context, _ models.SourceConfig) Integration {
+			return mockInteg
+		},
+	}
+
+	data := map[string][]byte{"1": []byte(`{"id":1,"name":"device1","primary_ip4":{"address":"192.168.1.1/24"}}`)}
+	mockInteg.EXPECT().Fetch(gomock.Any()).Return(data, nil)
+	mockKV.EXPECT().Put(gomock.Any(), &proto.PutRequest{
+		Key:   "netbox/1",
+		Value: []byte(`{"id":1,"name":"device1","primary_ip4":{"address":"192.168.1.1/24"}}`),
+	}, gomock.Any()).Return(&proto.PutResponse{}, nil)
+	// Expect sweep config write
+	mockKV.EXPECT().Put(gomock.Any(), gomock.Any(), gomock.Any()).Return(&proto.PutResponse{}, nil)
+
+	syncer, err := New(context.Background(), c, mockKV, mockGRPC, registry, mockClock)
+	require.NoError(t, err)
+
+	err = syncer.Sync(context.Background())
+	assert.NoError(t, err)
+}
