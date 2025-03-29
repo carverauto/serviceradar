@@ -35,8 +35,9 @@ graph LR
 
 Before configuring the KV store, ensure you have:
 
-1. Installed the KV service (Includes NATS JetStream, via the `serviceradar-kv` package)
-2. Generated and deployed TLS certificates for mTLS security
+1. Installed NATS JetStream (via the `serviceradar-nats` package)
+2. Installed the KV service (via the `serviceradar-kv` package)
+3. Generated and deployed TLS certificates for mTLS security
 
 For installation instructions, see the [Installation Guide](./installation.md).
 
@@ -144,7 +145,7 @@ The `identity` field must match the Subject Distinguished Name from the client's
 
 ## NATS Server Configuration
 
-The NATS Server configuration is located at `/etc/nats/nats-server.conf`. The default configuration provided by the `serviceradar-kv` package and includes mTLS and JetStream support:
+The NATS Server configuration is located at `/etc/nats/nats-server.conf`. The default configuration provided by the `serviceradar-nats` package and includes mTLS and JetStream support:
 
 ```
 # NATS Server Configuration for ServiceRadar KV Store
