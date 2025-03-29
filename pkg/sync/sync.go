@@ -28,6 +28,11 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
+const (
+	integrationTypeArmis  = "armis"
+	integrationTypeNetbox = "netbox"
+)
+
 // SyncPoller manages synchronization using poller.Poller.
 type SyncPoller struct {
 	poller     *poller.Poller
@@ -87,10 +92,12 @@ func New(
 // defaultIntegrationRegistry provides the default set of integration factories.
 func defaultIntegrationRegistry() map[string]IntegrationFactory {
 	return map[string]IntegrationFactory{
-		"armis": func(ctx context.Context, config models.SourceConfig) Integration {
+		integrationTypeArmis: func(ctx context.Context, config models.SourceConfig) Integration {
 			return integrations.NewArmisIntegration(ctx, config, nil, nil, "")
 		},
-		// Add more integrations here, e.g., "netbox": integrations.NewNetboxIntegration,
+		integrationTypeNetbox: func(ctx context.Context, config models.SourceConfig) Integration {
+			return integrations.NewNetboxIntegration(ctx, config, nil, nil, "")
+		},
 	}
 }
 
@@ -134,17 +141,8 @@ func (s *SyncPoller) initializeIntegrations(ctx context.Context) {
 }
 
 // createIntegration constructs an integration instance based on source type.
-func (s *SyncPoller) createIntegration(ctx context.Context, src models.SourceConfig, factory IntegrationFactory) Integration {
-	if src.Type != "armis" {
-		return factory(ctx, src)
-	}
-
-	serverName := "default-agent"
-	if s.config.Security != nil && s.config.Security.ServerName != "" {
-		serverName = s.config.Security.ServerName
-	}
-
-	return integrations.NewArmisIntegration(ctx, src, s.kvClient, s.grpcClient.GetConnection(), serverName)
+func (*SyncPoller) createIntegration(ctx context.Context, src models.SourceConfig, factory IntegrationFactory) Integration {
+	return factory(ctx, src)
 }
 
 // Start delegates to poller.Poller.Start, using PollFunc for syncing.

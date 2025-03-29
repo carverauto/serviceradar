@@ -36,7 +36,10 @@ func TestNew_ValidConfig(t *testing.T) {
 
 	mockKV := NewMockKVClient(ctrl)
 	mockGRPC := NewMockGRPCClient(ctrl)
-	mockClock := poller.NewMockClock(ctrl) // Use poller.Clock mock
+	mockClock := poller.NewMockClock(ctrl)
+
+	// Expect GetConnection call for integration initialization
+	mockGRPC.EXPECT().GetConnection().Return(nil).AnyTimes()
 
 	c := &Config{
 		Sources: map[string]models.SourceConfig{
@@ -86,6 +89,8 @@ func TestSync_Success(t *testing.T) {
 	mockGRPC := NewMockGRPCClient(ctrl)
 	mockInteg := NewMockIntegration(ctrl)
 	mockClock := poller.NewMockClock(ctrl)
+
+	mockGRPC.EXPECT().GetConnection().Return(nil).AnyTimes()
 
 	c := &Config{
 		Sources: map[string]models.SourceConfig{
@@ -144,6 +149,9 @@ func TestStartAndStop(t *testing.T) {
 	mockClock := poller.NewMockClock(ctrl)
 	mockTicker := poller.NewMockTicker(ctrl)
 
+	mockGRPC.EXPECT().GetConnection().Return(nil).AnyTimes()
+	mockGRPC.EXPECT().Close().Return(nil)
+
 	c := &Config{
 		Sources: map[string]models.SourceConfig{
 			"armis": {
@@ -155,7 +163,7 @@ func TestStartAndStop(t *testing.T) {
 		},
 		KVAddress:    "localhost:50051",
 		PollInterval: config.Duration(500 * time.Millisecond),
-		Security:     &models.SecurityConfig{ /* ... */ },
+		Security:     &models.SecurityConfig{},
 	}
 
 	registry := map[string]IntegrationFactory{
@@ -167,13 +175,14 @@ func TestStartAndStop(t *testing.T) {
 	tickChan := make(chan time.Time, 1)
 
 	mockClock.EXPECT().Ticker(500 * time.Millisecond).Return(mockTicker)
+
 	mockTicker.EXPECT().Chan().Return(tickChan).AnyTimes()
 	mockTicker.EXPECT().Stop()
 
 	data := map[string][]byte{"devices": []byte("data")}
+
 	mockInteg.EXPECT().Fetch(gomock.Any()).Return(data, nil).Times(2) // Initial poll + 1 tick
 	mockKV.EXPECT().Put(gomock.Any(), gomock.Any(), gomock.Any()).Return(&proto.PutResponse{}, nil).Times(2)
-	mockGRPC.EXPECT().Close().Return(nil)
 
 	syncer, err := New(context.Background(), c, mockKV, mockGRPC, registry, mockClock)
 	require.NoError(t, err)
@@ -186,9 +195,7 @@ func TestStartAndStop(t *testing.T) {
 
 	var startErr error
 
-	// Override PollFunc to signal when a tick is processed
 	originalPollFunc := syncer.poller.PollFunc
-
 	syncer.poller.PollFunc = func(ctx context.Context) error {
 		err := originalPollFunc(ctx)
 		if err == nil {
@@ -203,19 +210,16 @@ func TestStartAndStop(t *testing.T) {
 
 	go func() {
 		startErr = syncer.Start(ctx)
-		assert.Equal(t, context.Canceled, startErr) // Expect context.Canceled when stopped
+		assert.Equal(t, context.Canceled, startErr)
 		close(startDone)
 	}()
 
-	// Wait for Start to begin (initial poll)
-	time.Sleep(10 * time.Millisecond)
+	time.Sleep(10 * time.Millisecond) // Allow initial poll
+	tickChan <- time.Now()            // Trigger a tick
 
-	// Trigger a tick and wait for it to be processed
-	tickChan <- time.Now()
+	<-tickProcessed // Wait for tick to process
 
-	<-tickProcessed // Wait for the tick to be processed
-
-	cancel()    // Stop the Start loop cleanly
+	cancel()    // Stop the poller
 	<-startDone // Wait for Start to exit
 
 	stopErr := syncer.Stop(context.Background())
@@ -231,6 +235,9 @@ func TestStart_ContextCancellation(t *testing.T) {
 	mockInteg := NewMockIntegration(ctrl)
 	mockClock := poller.NewMockClock(ctrl)
 	mockTicker := poller.NewMockTicker(ctrl)
+
+	mockGRPC.EXPECT().GetConnection().Return(nil).AnyTimes()
+	mockGRPC.EXPECT().Close().Return(nil)
 
 	c := &Config{
 		Sources: map[string]models.SourceConfig{
@@ -268,18 +275,17 @@ func TestStart_ContextCancellation(t *testing.T) {
 	tickChan := make(chan time.Time)
 
 	mockClock.EXPECT().Ticker(1 * time.Second).Return(mockTicker)
+
 	mockTicker.EXPECT().Chan().Return(tickChan).AnyTimes()
 	mockTicker.EXPECT().Stop()
 
-	// Mock initial Sync (before cancellation)
 	data := map[string][]byte{"devices": []byte("data")}
+
 	mockInteg.EXPECT().Fetch(gomock.Any()).Return(data, nil)
 	mockKV.EXPECT().Put(gomock.Any(), &proto.PutRequest{
 		Key:   "armis/devices",
 		Value: []byte("data"),
 	}, gomock.Any()).Return(&proto.PutResponse{}, nil)
-
-	mockGRPC.EXPECT().Close().Return(nil)
 
 	syncer, err := New(context.Background(), c, mockKV, mockGRPC, registry, mockClock)
 	require.NoError(t, err)
@@ -293,11 +299,54 @@ func TestStart_ContextCancellation(t *testing.T) {
 		close(startDone)
 	}()
 
-	time.Sleep(100 * time.Millisecond) // Allow Start to begin
-	cancel()                           // Cancel the context
-
-	<-startDone // Wait for Start to exit
+	time.Sleep(100 * time.Millisecond) // Allow initial poll
+	cancel()                           // Cancel context
+	<-startDone                        // Wait for Start to exit
 
 	err = syncer.Stop(context.Background())
+	assert.NoError(t, err)
+}
+
+func TestSync_NetboxSuccess(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockKV := NewMockKVClient(ctrl)
+	mockGRPC := NewMockGRPCClient(ctrl)
+	mockInteg := NewMockIntegration(ctrl)
+	mockClock := poller.NewMockClock(ctrl)
+
+	mockGRPC.EXPECT().GetConnection().Return(nil).AnyTimes()
+
+	c := &Config{
+		Sources: map[string]models.SourceConfig{
+			"netbox": {
+				Type:        "netbox",
+				Endpoint:    "https://netbox.example.com",
+				Prefix:      "netbox/",
+				Credentials: map[string]string{"api_token": "token"},
+			},
+		},
+		KVAddress:    "localhost:50051",
+		PollInterval: config.Duration(1 * time.Second),
+	}
+
+	registry := map[string]IntegrationFactory{
+		"netbox": func(_ context.Context, _ models.SourceConfig) Integration {
+			return mockInteg
+		},
+	}
+
+	data := map[string][]byte{"1": []byte(`{"id":1,"name":"device1","primary_ip4":{"address":"192.168.1.1/24"}}`)}
+	mockInteg.EXPECT().Fetch(gomock.Any()).Return(data, nil)
+	mockKV.EXPECT().Put(gomock.Any(), &proto.PutRequest{
+		Key:   "netbox/1",
+		Value: []byte(`{"id":1,"name":"device1","primary_ip4":{"address":"192.168.1.1/24"}}`),
+	}, gomock.Any()).Return(&proto.PutResponse{}, nil)
+
+	syncer, err := New(context.Background(), c, mockKV, mockGRPC, registry, mockClock)
+	require.NoError(t, err)
+
+	err = syncer.Sync(context.Background())
 	assert.NoError(t, err)
 }
