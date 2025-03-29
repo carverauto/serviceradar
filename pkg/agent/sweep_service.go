@@ -25,27 +25,28 @@ import (
 	"sync"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/kv"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/scan"
 	"github.com/carverauto/serviceradar/pkg/sweeper"
 	"github.com/carverauto/serviceradar/proto"
 )
 
-// SweepService implements sweeper.SweepService for network scanning.
+// SweepService implements Service for network scanning.
 type SweepService struct {
-	sweeper sweeper.Sweeper
+	sweeper sweeper.SweepService // Use the full SweepService interface
 	mu      sync.RWMutex
-	closed  chan struct{}
 	config  *models.Config
 	stats   *ScanStats
 }
 
-func NewSweepService(config *models.Config) (Service, error) {
+// NewSweepService creates a new SweepService.
+func NewSweepService(config *models.Config, kvStore kv.KVStore, configKey string) (Service, error) {
 	config = applyDefaultConfig(config)
 	processor := sweeper.NewBaseProcessor(config)
 	store := sweeper.NewInMemoryStore(processor)
 
-	sweeperInstance, err := sweeper.NewNetworkSweeper(config, store, processor)
+	sweeperInstance, err := sweeper.NewNetworkSweeper(config, store, processor, kvStore, configKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create network sweeper: %w", err)
 	}
@@ -53,65 +54,56 @@ func NewSweepService(config *models.Config) (Service, error) {
 	return &SweepService{
 		sweeper: sweeperInstance,
 		config:  config,
-		closed:  make(chan struct{}),
 		stats:   newScanStats(),
 	}, nil
 }
 
+// Start begins the sweep service.
 func (s *SweepService) Start(ctx context.Context) error {
 	log.Printf("Starting sweep service with interval %v", s.config.Interval)
 
-	err := s.sweeper.Start(ctx)
+	return s.sweeper.Start(ctx) // KV watching is handled by NetworkSweeper
+}
+
+// Stop gracefully stops the sweep service.
+func (s *SweepService) Stop(_ context.Context) error {
+	log.Printf("Stopping sweep service")
+
+	err := s.sweeper.Stop() // NetworkSweeper handles closing channels
 	if err != nil {
-		log.Printf("Failed to start sweeper: %v", err)
+		return fmt.Errorf("failed to stop sweeper: %w", err)
 	}
 
-	return err
+	return nil
 }
 
-func (s *SweepService) Stop(ctx context.Context) error {
-	log.Printf("Stopping sweep service")
-	close(s.closed)
-
-	return s.sweeper.Stop(ctx)
-}
-
+// Name returns the service name.
 func (*SweepService) Name() string {
 	return "network_sweep"
 }
 
+// UpdateConfig updates the service configuration.
 func (s *SweepService) UpdateConfig(config *models.Config) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	newConfig := applyDefaultConfig(config)
-	s.config = newConfig
 
+	s.config = newConfig
 	log.Printf("Updated sweep config: %+v", newConfig)
 
 	return s.sweeper.UpdateConfig(newConfig)
 }
 
+// GetStatus returns the current status of the sweep service.
 func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, error) {
 	log.Printf("Fetching sweep status")
 
-	summary, err := s.sweeper.GetResults(ctx, &models.ResultFilter{})
+	summary, err := s.sweeper.GetStatus(ctx) // Delegate to NetworkSweeper's GetStatus
 	if err != nil {
-		log.Printf("Failed to get sweep results: %v", err)
+		log.Printf("Failed to get sweep summary: %v", err)
 
 		return nil, fmt.Errorf("failed to get sweep summary: %w", err)
-	}
-
-	lastSweep := time.Now().Unix()
-
-	if len(summary) > 0 {
-		for i := range summary {
-			r := &summary[i] // Use a pointer to avoid copying
-
-			if r.LastSeen.Unix() > lastSweep {
-				lastSweep = r.LastSeen.Unix()
-			}
-		}
 	}
 
 	s.mu.RLock()
@@ -126,11 +118,11 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, er
 		UniqueIPs      int                 `json:"unique_ips"`
 	}{
 		Network:        strings.Join(s.config.Networks, ","),
-		TotalHosts:     len(s.stats.uniqueHosts),
-		AvailableHosts: s.stats.successCount,
-		LastSweep:      lastSweep,
-		Ports:          aggregatePorts(summary),
-		Hosts:          aggregateHosts(summary),
+		TotalHosts:     summary.TotalHosts,
+		AvailableHosts: summary.AvailableHosts,
+		LastSweep:      summary.LastSweep,
+		Ports:          summary.Ports,
+		Hosts:          summary.Hosts,
 		DefinedCIDRs:   len(s.config.Networks),
 		UniqueIPs:      s.stats.uniqueIPs,
 	}
@@ -149,10 +141,11 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, er
 		Message:      string(statusJSON),
 		ServiceName:  "network_sweep",
 		ServiceType:  "sweep",
-		ResponseTime: time.Since(time.Unix(lastSweep, 0)).Nanoseconds(),
+		ResponseTime: time.Since(time.Unix(summary.LastSweep, 0)).Nanoseconds(),
 	}, nil
 }
 
+// applyDefaultConfig sets default values for the config.
 func applyDefaultConfig(config *models.Config) *models.Config {
 	if config == nil {
 		config = &models.Config{}
@@ -181,11 +174,11 @@ func applyDefaultConfig(config *models.Config) *models.Config {
 	return config
 }
 
+// ScanStats tracks scanning statistics.
 type ScanStats struct {
-	successCount int
-	uniqueHosts  map[string]struct{}
-	uniqueIPs    int
-	startTime    time.Time
+	uniqueHosts map[string]struct{}
+	uniqueIPs   int
+	startTime   time.Time
 }
 
 func newScanStats() *ScanStats {
@@ -195,73 +188,8 @@ func newScanStats() *ScanStats {
 	}
 }
 
-func aggregatePorts(results []models.Result) []models.PortCount {
-	portMap := make(map[int]int)
-
-	// Count TCP results first
-	for i := range results {
-		r := &results[i] // Use a pointer to avoid copying
-		if r.Target.Mode == models.ModeTCP && r.Available {
-			portMap[r.Target.Port]++
-		}
-	}
-
-	// Pre-allocate with exact size since we know the number of unique ports
-	ports := make([]models.PortCount, 0, len(portMap))
-
-	for port, count := range portMap {
-		ports = append(ports, models.PortCount{Port: port, Available: count})
-	}
-
-	return ports
-}
-
-func aggregateHosts(results []models.Result) []models.HostResult {
-	hostMap := make(map[string]*models.HostResult)
-	// Use indexing instead of range to avoid copying
-	for i := range results {
-		r := &results[i] // Use a pointer to the struct
-
-		h, ok := hostMap[r.Target.Host]
-		if !ok {
-			h = &models.HostResult{
-				Host:        r.Target.Host,
-				FirstSeen:   r.FirstSeen,
-				LastSeen:    r.LastSeen,
-				PortResults: []*models.PortResult{},
-			}
-
-			hostMap[r.Target.Host] = h
-		}
-
-		if r.Available {
-			h.Available = true
-
-			if r.Target.Mode == models.ModeICMP {
-				h.ICMPStatus = &models.ICMPStatus{Available: true, RoundTrip: r.RespTime}
-			} else if r.Target.Mode == models.ModeTCP {
-				h.PortResults = append(h.PortResults, &models.PortResult{
-					Port:      r.Target.Port,
-					Available: true,
-					RespTime:  r.RespTime,
-				})
-			}
-		}
-	}
-
-	// Pre-allocate with exact size since we know the number of unique hosts
-	hosts := make([]models.HostResult, 0, len(hostMap))
-
-	for _, h := range hostMap {
-		hosts = append(hosts, *h)
-	}
-
-	return hosts
-}
-
-// CheckICMP performs a standalone ICMP check on the specified host and returns the result.
+// CheckICMP performs a standalone ICMP check on the specified host.
 func (s *SweepService) CheckICMP(ctx context.Context, host string) (*models.Result, error) {
-	// Create a new ICMP scanner instance for this check
 	icmpScanner, err := scan.NewICMPSweeper(s.config.Timeout, s.config.ICMPRateLimit)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ICMP scanner: %w", err)
@@ -284,6 +212,7 @@ func (s *SweepService) CheckICMP(ctx context.Context, host string) (*models.Resu
 
 	for r := range results {
 		result = r
+
 		break // Expecting one result
 	}
 
