@@ -24,7 +24,7 @@ Authentication is configured in the core service configuration file (`/etc/servi
     "jwt_secret": "your-secret-key-here",
     "jwt_expiration": "24h",
     "local_users": {
-        "admin": "$2a$10$7cTFzX6ISkSrxCeO1ZL2EOc/zy.cvGO9GhsE9jVo2i.tCzsiowoiC"
+        "admin": "$2a$18$8cTFzZ6ISuSrxCeO1oL9EOc/zy.cvGO9GhsE9jVo2i.tCzsasdadf"
     }
 }
 ```
