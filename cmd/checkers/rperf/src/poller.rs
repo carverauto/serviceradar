@@ -1,6 +1,5 @@
 use anyhow::Result;
 use log::{debug, info};
-use std::sync::Arc;
 use tokio::time::{Duration, Instant};
 use crate::config::TargetConfig;
 use crate::rperf::{RPerfResult, RPerfRunner};
