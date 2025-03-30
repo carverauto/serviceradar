@@ -1,13 +1,13 @@
 [package]
-name = "rperf-grpc"
-version = "0.1.0"
+name = "serviceradar-rperf-checker"
+version = "1.0.28"
 edition = "2021"
 description = "gRPC plugin for rperf network performance testing tool"
-authors = ["Your Name <your.email@example.com>"]
+authors = ["Michael Freeman <mfreeman451@gmail.com>"]
 license = "Apache-2.0"
 
 [dependencies]
-rperf = "0.1.17"  # Local path can stay as is
+rperf = "0.1.17"
 tokio = { version = "1.28", features = ["rt-multi-thread", "macros", "sync", "time", "signal"] }
 prost = "0.11"
 serde = { version = "1.0", features = ["derive"] }

@@ -87,30 +87,6 @@ StandardOutput=append:/var/log/rperf/rperf.log
 StandardError=append:/var/log/rperf/rperf.log
 LimitNOFILE=800000
 
-# Security hardening
-CapabilityBoundingSet=
-LockPersonality=true
-MemoryDenyWriteExecute=true
-NoNewPrivileges=true
-PrivateDevices=true
-PrivateTmp=true
-PrivateUsers=true
-ProtectClock=true
-ProtectControlGroups=true
-ProtectHome=true
-ProtectHostname=true
-ProtectKernelLogs=true
-ProtectKernelModules=true
-ProtectKernelTunables=true
-ProtectSystem=strict
-RestrictAddressFamilies=AF_INET AF_INET6
-RestrictNamespaces=true
-RestrictRealtime=true
-RestrictSUIDSGID=true
-SystemCallFilter=@system-service ~@privileged ~@resources
-UMask=0077
-ReadWritePaths=/var/log/rperf
-
 [Install]
 WantedBy=multi-user.target
 EOF

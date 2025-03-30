@@ -1059,23 +1059,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "rperf-grpc"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "env_logger 0.10.2",
- "log",
- "prost",
- "rperf",
- "serde",
- "serde_json",
- "tokio",
- "tonic",
- "tonic-build",
-]
-
-[[package]]
 name = "rustc-demangle"
 version = "0.1.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1149,6 +1132,23 @@ dependencies = [
  "memchr",
  "ryu",
  "serde",
+]
+
+[[package]]
+name = "serviceradar-rperf-checker"
+version = "1.0.28"
+dependencies = [
+ "anyhow",
+ "clap",
+ "env_logger 0.10.2",
+ "log",
+ "prost",
+ "rperf",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tonic",
+ "tonic-build",
 ]
 
 [[package]]

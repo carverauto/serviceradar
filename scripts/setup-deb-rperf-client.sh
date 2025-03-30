@@ -26,7 +26,7 @@ VERSION_CLEAN=$(echo "${VERSION}" | sed 's/-/~/g')
 
 # Package name
 PKG_NAME="serviceradar-rperf-checker"
-MAINTAINER="Carver Automation Corporation <support@carverauto.com>"
+MAINTAINER="Carver Automation Corporation <support@carverauto.dev>"
 DESCRIPTION="ServiceRadar RPerf Network Performance Test Checker"
 
 # Temp directory for package creation
@@ -50,13 +50,13 @@ protoc -I=proto \
 docker build \
     --platform linux/amd64 \
     -t rperf-grpc-builder \
-    -f cmd/checkers/rperf/Dockerfile \
+    -f cmd/checkers/rperf-client/Dockerfile \
     --target builder \
     .
 
 # Extract the binary from the container
 docker create --name temp-rperf-builder rperf-grpc-builder
-docker cp temp-rperf-builder:/usr/src/rperf-grpc/target/x86_64-unknown-linux-gnu/release/rperf-grpc "${TEMP_DIR}/usr/local/bin/serviceradar-rperf-checker"
+docker cp temp-rperf-builder:/usr/src/rperf-grpc/target/x86_64-unknown-linux-gnu/release/serviceradar-rperf-checker "${TEMP_DIR}/usr/local/bin/serviceradar-rperf-checker"
 docker rm temp-rperf-builder
 
 # Verify the binary
