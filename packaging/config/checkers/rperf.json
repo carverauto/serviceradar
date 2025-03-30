@@ -1,5 +1,8 @@
 {
   "listen_addr": "127.0.0.1:50059",
+  "name": "rperf-checker",
+  "type": "grpc",
+  "timeout": "30s",
   "security": {
     "tls_enabled": false,
     "cert_file": null,
