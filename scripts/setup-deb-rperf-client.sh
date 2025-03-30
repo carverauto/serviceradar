@@ -40,20 +40,28 @@ mkdir -p "${TEMP_DIR}/etc/serviceradar/checkers"
 mkdir -p "${TEMP_DIR}/lib/systemd/system"
 
 # Build the plugin
-echo "Building Rust rperf plugin..."
+echo "Building Rust rperf plugin in Docker for AMD64..."
 protoc -I=proto \
     --go_out=proto --go_opt=paths=source_relative \
     --go-grpc_out=proto --go-grpc_opt=paths=source_relative \
     proto/rperf/rperf.proto
 
-cd cmd/checkers/rperf
-cargo build --release
+# Build using Docker
+docker build \
+    --platform linux/amd64 \
+    -t rperf-grpc-builder \
+    -f cmd/checkers/rperf/Dockerfile \
+    --target builder \
+    .
 
-cd ../../..
+# Extract the binary from the container
+docker create --name temp-rperf-builder rperf-grpc-builder
+docker cp temp-rperf-builder:/usr/src/rperf-grpc/target/x86_64-unknown-linux-gnu/release/rperf-grpc "${TEMP_DIR}/usr/local/bin/serviceradar-rperf-checker"
+docker rm temp-rperf-builder
 
-# Copy binary to package
-echo "Copying binary to package directory..."
-cp -v cmd/checkers/rperf/target/release/rperf-grpc "${TEMP_DIR}/usr/local/bin/serviceradar-rperf-checker"
+# Verify the binary
+echo "Verifying binary architecture..."
+file "${TEMP_DIR}/usr/local/bin/serviceradar-rperf-checker"
 
 # Create systemd service file
 cat > "${TEMP_DIR}/lib/systemd/system/serviceradar-rperf-checker.service" << EOF

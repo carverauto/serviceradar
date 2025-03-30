@@ -87,6 +87,34 @@ curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.27/ser
 sudo dpkg -i serviceradar-snmp-checker_1.0.27.deb
 ```
 
+#### rperf Network Performance Monitoring
+
+For monitoring network throughput and reliability:
+
+```bash
+# Debian/Ubuntu
+curl -LO https://github.com/mfreeman451/rperf/releases/download/v0.1.17/serviceradar-rperf_0.1.17_amd64.deb
+curl -LO https://github.com/mfreeman451/rperf/releases/download/v0.1.0/rperf-grpc_0.1.0_amd64.deb
+sudo dpkg -i serviceradar-rperf_0.1.17_amd64.deb rperf-grpc_0.1.0_amd64.deb
+
+# RHEL/Oracle Linux
+curl -LO https://github.com/mfreeman451/rperf/releases/download/v0.1.17/serviceradar-rperf-0.1.17-1.el9.x86_64.rpm
+curl -LO https://github.com/mfreeman451/rperf/releases/download/v0.1.0/rperf-grpc-0.1.0-1.el9.x86_64.rpm
+sudo dnf install -y ./serviceradar-rperf-0.1.17-1.el9.x86_64.rpm ./rperf-grpc-0.1.0-1.el9.x86_64.rpm
+```
+
+- Server: Install serviceradar-rperf on a reflector host.
+- Client: Install rperf-grpc on the Agent host for testing.
+
+Update the "Firewall Configuration" section:
+
+# Additional rules for rperf
+```bash
+sudo ufw allow 5199/tcp  # rperf server control port
+sudo ufw allow 5200:5210/tcp  # rperf data ports (if using port pool)
+sudo ufw allow 50059/tcp  # rperf-grpc client
+```
+
 #### Dusk Node Monitoring
 
 For specialized monitoring of [Dusk Network](https://dusk.network/) nodes:

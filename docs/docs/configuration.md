@@ -383,6 +383,29 @@ For network scanning, edit `/etc/serviceradar/checkers/sweep/sweep.json`:
 }
 ```
 
+### rperf Network Checker
+
+For network performance monitoring, edit `/etc/serviceradar/checkers/rperf.json`:
+
+```json
+{
+  "listen_addr": "0.0.0.0:50059",
+  "default_poll_interval": 300,
+  "targets": [
+    {
+      "name": "Network Test",
+      "address": "<server-ip>",
+      "port": 5199,
+      "protocol": "tcp",
+      "poll_interval": 300,
+      "tcp_port_pool": "5200-5210"
+    }
+  ]
+}
+```
+
+For more information on the RPerf bandwidth checker, see the [rperf documentation](./rperf-monitoring.md).
+
 ## Web UI Configuration
 
 The Web UI configuration is stored in `/etc/serviceradar/web.json`:
