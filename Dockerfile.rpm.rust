@@ -65,7 +65,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/serviceradar-${COMPONENT} --address 0.0.0.0:50051 --rperf-path /usr/bin/rperf
+ExecStart=/usr/local/bin/serviceradar-${COMPONENT} --address 0.0.0.0:50051 --rperf-path /usr/bin/rperf
 Restart=on-failure
 User=serviceradar
 Group=serviceradar

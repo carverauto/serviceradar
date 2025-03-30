@@ -26,7 +26,7 @@ VERSION_CLEAN=$(echo "${VERSION}" | sed 's/-/~/g')
 
 # Package name
 PKG_NAME="serviceradar-rperf-checker"
-MAINTAINER="Carver Automation Corporation <support@carverauto.com>"
+MAINTAINER="Carver Automation Corporation <support@carverauto.dev>"
 DESCRIPTION="ServiceRadar RPerf Network Performance Test Checker"
 
 # Temp directory for package creation
@@ -35,25 +35,33 @@ trap 'rm -rf ${TEMP_DIR}' EXIT
 
 # Create package directory structure
 mkdir -p "${TEMP_DIR}/DEBIAN"
-mkdir -p "${TEMP_DIR}/usr/bin"
+mkdir -p "${TEMP_DIR}/usr/local/bin"
 mkdir -p "${TEMP_DIR}/etc/serviceradar/checkers"
 mkdir -p "${TEMP_DIR}/lib/systemd/system"
 
 # Build the plugin
-echo "Building Rust rperf plugin..."
+echo "Building Rust rperf plugin in Docker for AMD64..."
 protoc -I=proto \
     --go_out=proto --go_opt=paths=source_relative \
     --go-grpc_out=proto --go-grpc_opt=paths=source_relative \
     proto/rperf/rperf.proto
 
-cd cmd/checkers/rperf
-cargo build --release
+# Build using Docker
+docker build \
+    --platform linux/amd64 \
+    -t serviceradar-rperf-checker-builder \
+    -f cmd/checkers/rperf-client/Dockerfile \
+    --target builder \
+    .
 
-cd ../../..
+# Extract the binary from the container
+docker create --name temp-rperf-client-builder serviceradar-rperf-checker-builder
+docker cp temp-rperf-client-builder:/usr/src/serviceradar-rperf-checker/target/x86_64-unknown-linux-gnu/release/serviceradar-rperf-checker "${TEMP_DIR}/usr/local/bin/serviceradar-rperf-checker"
+docker rm temp-rperf-client-builder
 
-# Copy binary to package
-echo "Copying binary to package directory..."
-cp -v cmd/checkers/rperf/target/release/rperf-grpc "${TEMP_DIR}/usr/bin/serviceradar-rperf-checker"
+# Verify the binary
+echo "Verifying binary architecture..."
+file "${TEMP_DIR}/usr/local/bin/serviceradar-rperf-checker"
 
 # Create systemd service file
 cat > "${TEMP_DIR}/lib/systemd/system/serviceradar-rperf-checker.service" << EOF
@@ -63,7 +71,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/serviceradar-rperf-checker --config /etc/serviceradar/checkers/rperf.json
+ExecStart=/usr/local/bin/serviceradar-rperf-checker --config /etc/serviceradar/checkers/rperf.json
 Restart=on-failure
 User=serviceradar
 Group=serviceradar
@@ -110,7 +118,6 @@ Package: ${PKG_NAME}
 Version: ${VERSION_CLEAN}
 Architecture: amd64
 Maintainer: ${MAINTAINER}
-Depends: rperf (>= 0.1.8)
 Section: net
 Priority: optional
 Homepage: https://github.com/carverauto/serviceradar
