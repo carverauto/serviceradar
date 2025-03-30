@@ -81,7 +81,7 @@ WantedBy=multi-user.target
 EOF
 
 # Create sample config file (aligned with your Config struct)
-cat > "${TEMP_DIR}/etc/serviceradar/checkers/rperf.json" << EOF
+cat > "${TEMP_DIR}/etc/serviceradar/checkers/rperf.json.example" << EOF
 {
   "listen_addr": "0.0.0.0:50059",
   "security": {
@@ -138,6 +138,13 @@ if ! getent group serviceradar >/dev/null; then
 fi
 if ! getent passwd serviceradar >/dev/null; then
     adduser --quiet --system --ingroup serviceradar --no-create-home --disabled-password --shell /usr/sbin/nologin serviceradar
+fi
+
+# Only copy the example config if the real config doesn't exist
+if [ ! -f /etc/serviceradar/checkers/rperf.json ]; then
+    cp /etc/serviceradar/checkers/rperf.json.example /etc/serviceradar/checkers/rperf.json
+    chown serviceradar:serviceradar /etc/serviceradar/checkers/rperf.json
+    chmod 640 /etc/serviceradar/checkers/rperf.json
 fi
 
 # Enable and start systemd service
