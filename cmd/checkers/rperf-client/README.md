@@ -24,7 +24,7 @@ Create a JSON configuration file with the following structure:
 
 ```json
 {
-  "listen_addr": "0.0.0.0:50051",
+  "listen_addr": "0.0.0.0:50059",
   "security": {
     "tls_enabled": false,
     "cert_file": null,
