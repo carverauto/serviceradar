@@ -49,15 +49,15 @@ protoc -I=proto \
 # Build using Docker
 docker build \
     --platform linux/amd64 \
-    -t rperf-grpc-builder \
+    -t serviceradar-rperf-checker-builder \
     -f cmd/checkers/rperf-client/Dockerfile \
     --target builder \
     .
 
 # Extract the binary from the container
-docker create --name temp-rperf-builder rperf-grpc-builder
-docker cp temp-rperf-builder:/usr/src/rperf-grpc/target/x86_64-unknown-linux-gnu/release/serviceradar-rperf-checker "${TEMP_DIR}/usr/local/bin/serviceradar-rperf-checker"
-docker rm temp-rperf-builder
+docker create --name temp-rperf-client-builder serviceradar-rperf-checker-builder
+docker cp temp-rperf-client-builder:/usr/src/serviceradar-rperf-checker/target/x86_64-unknown-linux-gnu/release/serviceradar-rperf-checker "${TEMP_DIR}/usr/local/bin/serviceradar-rperf-checker"
+docker rm temp-rperf-client-builder
 
 # Verify the binary
 echo "Verifying binary architecture..."
@@ -71,7 +71,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/serviceradar-rperf-checker --config /etc/serviceradar/checkers/rperf.json
+ExecStart=/usr/local/bin/serviceradar-rperf-checker --config /etc/serviceradar/checkers/rperf.json
 Restart=on-failure
 User=serviceradar
 Group=serviceradar
