@@ -4,8 +4,8 @@ use log::{info, warn};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use rperf_grpc::config::Config;
-use rperf_grpc::server::RPerfTestOrchestrator;
+use serviceradar_rperf_checker::config::Config;
+use serviceradar_rperf_checker::server::RPerfTestOrchestrator;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -15,10 +15,10 @@ async fn main() -> Result<()> {
     );
 
     // Define command-line arguments using the same clap version as rperf
-    let matches = App::new("rperf-grpc")
+    let matches = App::new("serviceradar-rperf-checker")
         .version(env!("CARGO_PKG_VERSION"))
         .author(env!("CARGO_PKG_AUTHORS"))
-        .about("gRPC checker for running rperf network performance tests")
+        .about("ServiceRadar gRPC checker for running rperf network performance tests")
         .arg(Arg::with_name("config")
             .short("c")
             .long("config")
