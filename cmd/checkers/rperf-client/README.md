@@ -1,10 +1,11 @@
-# rperf-grpc
+# serviceradar-rperf-checker
 
-A gRPC service for performing network throughput testing with rperf.
+A ServiceRadar gRPC service for performing network throughput testing with rperf.
 
 ## Overview
 
-This service provides a gRPC interface for running rperf network performance tests. It can be used as a plugin for the ServiceRadar monitoring system, allowing for scheduled performance tests and alerts.
+This service provides a gRPC interface for running rperf network performance tests. 
+It is used as a plugin for the ServiceRadar monitoring system, allowing for scheduled performance tests and alerts.
 
 The service:
 - Exposes a gRPC API for running and managing tests
@@ -88,32 +89,32 @@ Create a JSON configuration file with the following structure:
 
 ```bash
 # Clone the repository
-git clone https://github.com/example/rperf-grpc.git
-cd rperf-grpc
+git clone git@github.com:carverauto/serviceradar.git
+cd serviceradar/cmd/checkers/rperf-client
 
 # Build the project
 cargo build --release
 
 # Run with a configuration file
-./target/release/rperf-grpc --config config.json
+./target/release/serviceradar-rperf-checker --config config.json
 ```
 
 ### Using Docker
 
 ```bash
 # Build the Docker image
-docker build -t rperf-grpc .
+docker build -t serviceradar-rperf-checker .
 
 # Run the container
-docker run -p 50051:50051 -v /path/to/config.json:/etc/rperf-grpc/config.json rperf-grpc
+docker run -p 50051:50051 -v /path/to/config.json:/etc/serviceradar/checkers/rperf/rperf.json serviceradar-rperf-checker 
 ```
 
 ## Integration with ServiceRadar
 
 To use this with the ServiceRadar monitoring system:
 
-1. Deploy the rperf-grpc service on your target hosts
-2. Configure the ServiceRadar agent to connect to the rperf-grpc service
+1. Deploy the `serviceradar-rperf` server service on your target hosts
+2. Configure the ServiceRadar agent to connect to the `serviceradar-rperf-checker` service
 3. (Optional) Set up alerts for network performance degradation
 
 ## Securing the rperf Server

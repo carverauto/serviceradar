@@ -4,8 +4,8 @@ use log::{info, warn};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use rperf_grpc::config::Config;
-use rperf_grpc::server::RPerfTestOrchestrator;
+use serviceradar_rperf_checker::config::Config;
+use serviceradar_rperf_checker::server::RPerfTestOrchestrator;
 
 #[tokio::main]
 async fn main() -> Result<()> {
