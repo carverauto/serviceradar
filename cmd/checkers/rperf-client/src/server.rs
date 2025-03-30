@@ -1,3 +1,4 @@
+use std::fs;
 use anyhow::{Context, Result};
 use log::{error, info, warn};
 use std::net::SocketAddr;
@@ -48,6 +49,7 @@ impl RPerfTestOrchestrator {
 
         let pollers = self.target_pollers.clone();
         let poller_handle = tokio::spawn(async move {
+            // Poller loop remains unchanged
             loop {
                 let mut pollers = pollers.lock().await;
                 for poller in pollers.iter_mut() {
@@ -56,10 +58,10 @@ impl RPerfTestOrchestrator {
                         Ok(result) => {
                             if result.success {
                                 info!("Test for target '{}' completed: {:.2} Mbps",
-                                    poller.target_name(), result.summary.bits_per_second / 1_000_000.0);
+                                poller.target_name(), result.summary.bits_per_second / 1_000_000.0);
                             } else {
                                 warn!("Test for target '{}' failed: {}",
-                                    poller.target_name(), result.error.as_deref().unwrap_or("Unknown error"));
+                                poller.target_name(), result.error.as_deref().unwrap_or("Unknown error"));
                             }
                         }
                         Err(e) => error!("Error running test for target '{}': {}", poller.target_name(), e),
@@ -75,8 +77,22 @@ impl RPerfTestOrchestrator {
             target_pollers: self.target_pollers.clone(),
         };
 
+        let mut server_builder = Server::builder();
+
+        // Add TLS if enabled
+        if let Some(security) = &self.config.security {
+            if security.tls_enabled {
+                let cert = fs::read_to_string(security.cert_file.as_ref().unwrap())
+                    .context("Failed to read certificate file")?;
+                let key = fs::read_to_string(security.key_file.as_ref().unwrap())
+                    .context("Failed to read key file")?;
+                let identity = tonic::transport::Identity::from_pem(cert.as_bytes(), key.as_bytes());
+                server_builder = server_builder.tls_config(tonic::transport::ServerTlsConfig::new().identity(identity))?;
+            }
+        }
+
         let server_handle = tokio::spawn(async move {
-            Server::builder()
+            server_builder
                 .add_service(RPerfServiceServer::new(service))
                 .serve(addr)
                 .await

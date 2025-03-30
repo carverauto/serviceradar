@@ -1,5 +1,8 @@
 {
-  "listen_addr": "127.0.0.1:50055",
+  "listen_addr": "127.0.0.1:50059",
+  "name": "rperf-checker",
+  "type": "grpc",
+  "timeout": "30s",
   "security": {
     "tls_enabled": false,
     "cert_file": null,
@@ -11,6 +14,7 @@
       "name": "Local TCP Test",
       "address": "127.0.0.1",
       "port": 5199,
+      "tcp_port_pool": "5200-5210",
       "protocol": "tcp",
       "reverse": false,
       "bandwidth": 1000000,
