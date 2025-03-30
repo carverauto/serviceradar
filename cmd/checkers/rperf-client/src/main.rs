@@ -15,10 +15,10 @@ async fn main() -> Result<()> {
     );
 
     // Define command-line arguments using the same clap version as rperf
-    let matches = App::new("rperf-grpc")
+    let matches = App::new("serviceradar-rperf-checker")
         .version(env!("CARGO_PKG_VERSION"))
         .author(env!("CARGO_PKG_AUTHORS"))
-        .about("gRPC checker for running rperf network performance tests")
+        .about("ServiceRadar gRPC checker for running rperf network performance tests")
         .arg(Arg::with_name("config")
             .short("c")
             .long("config")
