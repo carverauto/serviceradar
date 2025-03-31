@@ -25,6 +25,7 @@ use tokio::time::{Duration, timeout};
 use tonic::{Request, Response, Status};
 use tonic::transport::Server;
 use tonic_reflection::server::Builder as ReflectionBuilder;
+use chrono;
 
 use crate::config::Config;
 use crate::poller::TargetPoller;
@@ -280,13 +281,15 @@ impl AgentService for RPerfServiceImpl {
         let req = request.into_inner();
         debug!("Received GetStatus request: service_name={}, service_type={}, details={}",
                req.service_name, req.service_type, req.details);
+
+        let start_time = std::time::Instant::now();
+
         let pollers = match timeout(Duration::from_secs(1), self.target_pollers.read()).await {
             Ok(guard) => guard,
             Err(_) => {
-                debug!("Timeout acquiring read lock on target_pollers, returning default response");
                 return Ok(Response::new(monitoring::StatusResponse {
                     available: true,
-                    message: "Service is running (status unavailable due to lock timeout)".to_string(),
+                    message: r#"{"error": "Service is running (status unavailable due to lock timeout)"}"#.to_string(),
                     service_name: req.service_name,
                     service_type: req.service_type,
                     response_time: 0,
@@ -296,45 +299,50 @@ impl AgentService for RPerfServiceImpl {
 
         let mut results = Vec::new();
         for poller in pollers.iter() {
-            if let Some(last_result) = &poller.last_result {
-                let result_json = serde_json::json!({
-                    "target": poller.target_name(),
-                    "success": last_result.success,
-                    "error": last_result.error,
-                    "summary": {
-                        "duration": last_result.summary.duration,
-                        "bytes_sent": last_result.summary.bytes_sent,
-                        "bytes_received": last_result.summary.bytes_received,
-                        "bits_per_second": last_result.summary.bits_per_second,
-                        "packets_sent": last_result.summary.packets_sent,
-                        "packets_received": last_result.summary.packets_received,
-                        "packets_lost": last_result.summary.packets_lost,
-                        "loss_percent": last_result.summary.loss_percent,
-                        "jitter_ms": last_result.summary.jitter_ms,
-                    }
-                });
-                results.push(result_json);
-            } else {
-                results.push(serde_json::json!({
-                    "target": poller.target_name(),
-                    "success": false,
-                    "error": "No test results available yet",
-                    "summary": serde_json::json!({})
-                }));
+            if (!req.details.is_empty() && poller.target_name() == req.details) ||
+                (!req.service_name.is_empty() && poller.target_name() == req.service_name) ||
+                (req.details.is_empty() && req.service_name.is_empty()) {
+                if let Some(last_result) = &poller.last_result {
+                    let result_json = serde_json::json!({
+                        "target": poller.target_name(),
+                        "success": last_result.success,
+                        "error": last_result.error,
+                        "summary": {
+                            "bits_per_second": last_result.summary.bits_per_second,
+                            "bytes_received": last_result.summary.bytes_received,
+                            "bytes_sent": last_result.summary.bytes_sent,
+                            "duration": last_result.summary.duration,
+                            "jitter_ms": last_result.summary.jitter_ms,
+                            "loss_percent": last_result.summary.loss_percent,
+                            "packets_lost": last_result.summary.packets_lost,
+                            "packets_received": last_result.summary.packets_received,
+                            "packets_sent": last_result.summary.packets_sent,
+                        }
+                    });
+                    results.push(result_json);
+                }
             }
         }
 
-        let message = serde_json::to_string(&results).unwrap_or_else(|e| {
-            error!("Failed to serialize test results: {}", e);
-            "Service is running but failed to serialize test results".to_string()
+        // Wrap the results in a top-level object
+        let response_json = serde_json::json!({
+            "results": results,
+            "timestamp": chrono::Utc::now().to_rfc3339(),
         });
 
+        let message = serde_json::to_string(&response_json).unwrap_or_else(|e| {
+            error!("Failed to serialize test results: {}", e);
+            r#"{"error": "Failed to serialize test results"}"#.to_string()
+        });
+
+        let response_time = start_time.elapsed().as_nanos() as i64;
+
         Ok(Response::new(monitoring::StatusResponse {
-            available: true,
+            available: !results.is_empty(),
             message,
             service_name: req.service_name,
             service_type: req.service_type,
-            response_time: 0,
+            response_time,
         }))
     }
 }

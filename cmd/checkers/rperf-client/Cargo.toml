@@ -7,9 +7,8 @@ authors = ["Michael Freeman <mfreeman451@gmail.com>"]
 license = "Apache-2.0"
 
 [dependencies]
-rustls = "0.20"
+chrono = "0.4"
 rperf = "0.1.17"
-#tokio = { version = "1.28", features = ["rt-multi-thread", "macros", "sync", "time", "signal"] }
 tokio = { version = "1.28", features = ["full"] }
 prost = "0.11"
 serde = { version = "1.0", features = ["derive"] }
