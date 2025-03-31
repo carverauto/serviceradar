@@ -18,7 +18,7 @@
 set -e
 
 # Define package version
-VERSION=${VERSION:-1.0.27}
+VERSION=${VERSION:-1.0.28}
 
 # Create the directory structure
 mkdir -p snmp-build

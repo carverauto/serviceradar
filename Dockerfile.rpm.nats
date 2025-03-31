@@ -58,7 +58,7 @@ RUN echo "=== Files in SOURCES/systemd ===" && \
     ls -la /root/rpmbuild/SPECS/
 
 # Set version and release (can be overridden at build time)
-ARG VERSION=1.0.27
+ARG VERSION=1.0.28
 ARG RELEASE=1
 
 # Build the RPM

@@ -344,7 +344,7 @@ func (s *Server) sendStartupNotification(ctx context.Context) error {
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		NodeID:    "core",
 		Details: map[string]any{
-			"version":  "1.0.27",
+			"version":  "1.0.28",
 			"hostname": getHostname(),
 		},
 	}
@@ -534,7 +534,10 @@ func (s *Server) processServices(pollerID string, apiStatus *api.NodeStatus, ser
 
 	for _, svc := range services {
 		log.Printf("Processing service %s for node %s", svc.ServiceName, pollerID)
-		log.Printf("Service type: %s, Message length: %d", svc.ServiceType, len(svc.Message))
+		log.Printf("Service type/name: %s/%s, Message length: %d",
+			svc.ServiceType,
+			svc.ServiceName,
+			len(svc.Message))
 
 		apiService := api.ServiceStatus{
 			Name:      svc.ServiceName,
@@ -565,6 +568,7 @@ func (s *Server) processServices(pollerID string, apiStatus *api.NodeStatus, ser
 			log.Printf("Error unmarshaling service details for %s: %v", svc.ServiceName, err)
 			log.Printf("Raw message: %s", svc.Message)
 
+			log.Println("Invalid JSON format, skipping service, calling handleService")
 			if err := s.handleService(pollerID, &apiService, now); err != nil {
 				log.Printf("Error handling service %s: %v", svc.ServiceName, err)
 			}
@@ -581,6 +585,14 @@ func (s *Server) processServices(pollerID string, apiStatus *api.NodeStatus, ser
 
 			if err := s.processSNMPMetrics(pollerID, details, now); err != nil { // details is also available here
 				log.Printf("Error processing SNMP metrics for node %s: %v", pollerID, err)
+			}
+		}
+
+		// Handle rperf-checker metrics
+		if svc.ServiceType == "grpc" && svc.ServiceName == "rperf-checker" {
+			log.Printf("Found rperf-checker service, attempting to process metrics for node %s", pollerID)
+			if err := s.db.StoreRperfMetrics(pollerID, svc.ServiceName, svc.Message, now); err != nil {
+				log.Printf("Error processing rperf metrics for node %s: %v", pollerID, err)
 			}
 		}
 
