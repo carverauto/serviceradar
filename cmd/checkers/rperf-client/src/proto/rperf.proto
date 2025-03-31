@@ -1,66 +1,74 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 syntax = "proto3";
 
 package rperf;
 
-option go_package = "github.com/carverauto/serviceradar/cmd/checkers/rperf/src/proto/rperf";
+option go_package = "github.com/carverauto/serviceradar/cmd/checkers/rperf-client/src/proto/rperf";
 
-// The RPerf service definition
+// Import the local copy of monitoring.proto
+import "monitoring.proto";
+
+// RPerfService (unchanged)
 service RPerfService {
-  // RunTest starts a network test and returns results
   rpc RunTest(TestRequest) returns (TestResponse) {}
-  
-  // GetStatus returns the current status of the service
   rpc GetStatus(StatusRequest) returns (StatusResponse) {}
 }
 
-// Test request parameters
+// RPerf-specific messages (unchanged)
 message TestRequest {
-  string target_address = 1;    // The server to connect to
-  uint32 port = 2;              // The port to connect to
-  string protocol = 3;          // "tcp" or "udp"
-  bool reverse = 4;             // Whether to run in reverse mode
-  uint64 bandwidth = 5;         // Target bandwidth in bytes/sec
-  double duration = 6;          // Test duration in seconds
-  uint32 parallel = 7;          // Number of parallel streams
-  uint32 length = 8;            // Length of buffer to use
-  uint32 omit = 9;              // Seconds to omit from the start
-  bool no_delay = 10;           // Use TCP no-delay option
-  uint32 send_buffer = 11;      // Socket send buffer size
-  uint32 receive_buffer = 12;   // Socket receive buffer size
-  double send_interval = 13;    // Send interval in seconds
+  string target_address = 1;
+  uint32 port = 2;
+  string protocol = 3;
+  bool reverse = 4;
+  uint64 bandwidth = 5;
+  double duration = 6;
+  uint32 parallel = 7;
+  uint32 length = 8;
+  uint32 omit = 9;
+  bool no_delay = 10;
+  uint32 send_buffer = 11;
+  uint32 receive_buffer = 12;
+  double send_interval = 13;
 }
 
-// Test response with results
 message TestResponse {
-  bool success = 1;             // Whether the test completed successfully
-  string error = 2;             // Error message, if any
-  string results_json = 3;      // Full results in JSON format
-  
-  // Summary metrics
+  bool success = 1;
+  string error = 2;
+  string results_json = 3;
   TestSummary summary = 4;
 }
 
-// Summary of test results
 message TestSummary {
-  double duration = 1;          // Test duration in seconds
-  uint64 bytes_sent = 2;        // Total bytes sent
-  uint64 bytes_received = 3;    // Total bytes received
-  double bits_per_second = 4;   // Throughput in bits per second
-  
-  // UDP-specific fields
-  uint64 packets_sent = 5;      // UDP packets sent
-  uint64 packets_received = 6;  // UDP packets received
-  uint64 packets_lost = 7;      // UDP packets lost
-  double loss_percent = 8;      // Packet loss percentage
-  double jitter_ms = 9;         // Jitter in milliseconds
+  double duration = 1;
+  uint64 bytes_sent = 2;
+  uint64 bytes_received = 3;
+  double bits_per_second = 4;
+  uint64 packets_sent = 5;
+  uint64 packets_received = 6;
+  uint64 packets_lost = 7;
+  double loss_percent = 8;
+  double jitter_ms = 9;
 }
 
-// Status request (empty for now)
 message StatusRequest {}
 
-// Status response with service info
 message StatusResponse {
-  bool available = 1;           // Whether the service is available
-  string version = 2;           // Version information
-  string message = 3;           // Additional status information
+  bool available = 1;
+  string version = 2;
+  string message = 3;
 }

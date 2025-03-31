@@ -1,20 +1,29 @@
 use std::fs;
 use anyhow::{Context, Result};
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tokio::time::Duration;
 use tonic::{Request, Response, Status};
 use tonic::transport::Server;
+use tonic_reflection::server::Builder as ReflectionBuilder;
 
 use crate::config::Config;
 use crate::poller::TargetPoller;
 use crate::rperf::RPerfRunner;
+use crate::server::monitoring::agent_service_server::{AgentService, AgentServiceServer};
+
+const FILE_DESCRIPTOR_SET_RPERF: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/rperf_descriptor.bin"));
+const FILE_DESCRIPTOR_SET_MONITORING: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/monitoring_descriptor.bin"));
 
 pub mod rperf_service {
     tonic::include_proto!("rperf");
+}
+
+pub mod monitoring {
+    tonic::include_proto!("monitoring");
 }
 
 use rperf_service::{
@@ -22,10 +31,12 @@ use rperf_service::{
     StatusRequest, StatusResponse, TestRequest, TestResponse, TestSummary,
 };
 
+use tonic_health::server::HealthReporter;
+
 #[derive(Debug)]
-pub struct RPerfTestOrchestrator { // Was RPerfServer
+pub struct RPerfTestOrchestrator {
     config: Arc<Config>,
-    target_pollers: Arc<Mutex<Vec<TargetPoller>>>,
+    target_pollers: Arc<RwLock<Vec<TargetPoller>>>,
 }
 
 impl RPerfTestOrchestrator {
@@ -37,7 +48,7 @@ impl RPerfTestOrchestrator {
         }
         Ok(Self {
             config,
-            target_pollers: Arc::new(Mutex::new(pollers)),
+            target_pollers: Arc::new(RwLock::new(pollers)),
         })
     }
 
@@ -49,19 +60,18 @@ impl RPerfTestOrchestrator {
 
         let pollers = self.target_pollers.clone();
         let poller_handle = tokio::spawn(async move {
-            // Poller loop remains unchanged
             loop {
-                let mut pollers = pollers.lock().await;
+                let mut pollers = pollers.write().await;
                 for poller in pollers.iter_mut() {
                     info!("Running scheduled test for target: {}", poller.target_name());
                     match poller.run_single_test().await {
                         Ok(result) => {
                             if result.success {
                                 info!("Test for target '{}' completed: {:.2} Mbps",
-                                poller.target_name(), result.summary.bits_per_second / 1_000_000.0);
+                                      poller.target_name(), result.summary.bits_per_second / 1_000_000.0);
                             } else {
                                 warn!("Test for target '{}' failed: {}",
-                                poller.target_name(), result.error.as_deref().unwrap_or("Unknown error"));
+                                      poller.target_name(), result.error.as_deref().unwrap_or("Unknown error"));
                             }
                         }
                         Err(e) => error!("Error running test for target '{}': {}", poller.target_name(), e),
@@ -73,13 +83,26 @@ impl RPerfTestOrchestrator {
             }
         });
 
-        let service = RPerfServiceImpl {
+        let service = Arc::new(RPerfServiceImpl {
             target_pollers: self.target_pollers.clone(),
-        };
+        });
+
+        let (mut health_reporter, health_service) = tonic_health::server::health_reporter();
+        health_reporter
+            .set_serving::<RPerfServiceServer<RPerfServiceImpl>>()
+            .await;
+        health_reporter
+            .set_serving::<AgentServiceServer<Arc<RPerfServiceImpl>>>()
+            .await;
+
+        let reflection_service = ReflectionBuilder::configure()
+            .register_encoded_file_descriptor_set(FILE_DESCRIPTOR_SET_RPERF)
+            .register_encoded_file_descriptor_set(FILE_DESCRIPTOR_SET_MONITORING)
+            .build()
+            .unwrap();
 
         let mut server_builder = Server::builder();
 
-        // Add TLS if enabled
         if let Some(security) = &self.config.security {
             if security.tls_enabled {
                 let cert = fs::read_to_string(security.cert_file.as_ref().unwrap())
@@ -87,16 +110,31 @@ impl RPerfTestOrchestrator {
                 let key = fs::read_to_string(security.key_file.as_ref().unwrap())
                     .context("Failed to read key file")?;
                 let identity = tonic::transport::Identity::from_pem(cert.as_bytes(), key.as_bytes());
-                server_builder = server_builder.tls_config(tonic::transport::ServerTlsConfig::new().identity(identity))?;
+
+                let ca_cert = fs::read_to_string(security.ca_file.as_ref().unwrap())
+                    .context("Failed to read CA certificate file")?;
+                let ca = tonic::transport::Certificate::from_pem(ca_cert.as_bytes());
+
+                let tls_config = tonic::transport::ServerTlsConfig::new()
+                    .identity(identity)
+                    .client_ca_root(ca);
+
+                server_builder = server_builder.tls_config(tls_config)?;
+                info!("TLS configured with mTLS enabled");
             }
         }
 
         let server_handle = tokio::spawn(async move {
+            debug!("Registering services: health, RPerfService, AgentService, reflection");
             server_builder
-                .add_service(RPerfServiceServer::new(service))
+                .add_service(health_service)
+                .add_service(RPerfServiceServer::new(Arc::clone(&service)))
+                .add_service(AgentServiceServer::new(Arc::clone(&service)))
+                .add_service(reflection_service)
                 .serve(addr)
                 .await
                 .context("gRPC server error")?;
+            info!("gRPC server started successfully on {}", addr);
             Ok::<(), anyhow::Error>(())
         });
 
@@ -109,7 +147,31 @@ impl RPerfTestOrchestrator {
 }
 
 struct RPerfServiceImpl {
-    target_pollers: Arc<Mutex<Vec<TargetPoller>>>,
+    target_pollers: Arc<RwLock<Vec<TargetPoller>>>,
+}
+
+#[tonic::async_trait]
+impl AgentService for RPerfServiceImpl {
+    async fn get_status(
+        &self,
+        request: Request<monitoring::StatusRequest>,
+    ) -> Result<Response<monitoring::StatusResponse>, Status> {
+        let req = request.into_inner();
+        debug!("Received GetStatus request: service_name={}, service_type={}, details={}",
+               req.service_name, req.service_type, req.details);
+        let pollers = self.target_pollers.read().await;  // Use read lock for reading
+        let targets_count = pollers.len();
+        debug!("Returning status: available=true, targets={}", targets_count);
+        let response = Response::new(monitoring::StatusResponse {
+            available: true,
+            message: format!("Service is running with {} configured targets", targets_count),
+            service_name: req.service_name,
+            service_type: req.service_type,
+            response_time: 0,
+        });
+        debug!("Response constructed: {:?}", response);
+        Ok(response)
+    }
 }
 
 #[tonic::async_trait]
@@ -120,7 +182,6 @@ impl RPerfService for RPerfServiceImpl {
     ) -> Result<Response<TestResponse>, Status> {
         let req = request.into_inner();
         info!("Received test request for {}", req.target_address);
-
         let runner = RPerfRunner::from_grpc_request(req);
         match runner.run_test().await {
             Ok(result) => {
@@ -158,7 +219,7 @@ impl RPerfService for RPerfServiceImpl {
         &self,
         _request: Request<StatusRequest>,
     ) -> Result<Response<StatusResponse>, Status> {
-        let pollers = self.target_pollers.lock().await;
+        let pollers = self.target_pollers.read().await;
         let targets_count = pollers.len();
         Ok(Response::new(StatusResponse {
             available: true,
@@ -168,18 +229,48 @@ impl RPerfService for RPerfServiceImpl {
     }
 }
 
+#[tonic::async_trait]
+impl RPerfService for Arc<RPerfServiceImpl> {
+    async fn run_test(
+        &self,
+        request: Request<TestRequest>,
+    ) -> Result<Response<TestResponse>, Status> {
+        (**self).run_test(request).await
+    }
+
+    async fn get_status(
+        &self,
+        request: Request<StatusRequest>,
+    ) -> Result<Response<StatusResponse>, Status> {
+        RPerfService::get_status(&**self, request).await
+    }
+}
+
+#[tonic::async_trait]
+impl AgentService for Arc<RPerfServiceImpl> {
+    async fn get_status(
+        &self,
+        request: Request<monitoring::StatusRequest>,
+    ) -> Result<Response<monitoring::StatusResponse>, Status> {
+        debug!("AgentService::get_status invoked");
+        let response = AgentService::get_status(&**self, request).await;
+        debug!("AgentService::get_status returning: {:?}", response);
+        response
+    }
+}
+
 #[derive(Debug)]
 pub struct ServerHandle {
     join_handle: JoinHandle<Result<()>>,
     poller_handle: JoinHandle<()>,
-    pollers: Arc<Mutex<Vec<TargetPoller>>>,
+    pollers: Arc<RwLock<Vec<TargetPoller>>>,
 }
 
 impl ServerHandle {
     pub async fn stop(self) -> Result<()> {
         self.join_handle.abort();
         self.poller_handle.abort();
-        for poller in self.pollers.lock().await.iter_mut() {
+        for poller in self.pollers.write().await.iter_mut() {
             if let Err(e) = poller.stop().await {
                 error!("Error stopping poller for {}: {}", poller.target_name(), e);
             }
