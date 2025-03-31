@@ -150,9 +150,8 @@ The NATS Server configuration is located at `/etc/nats/nats-server.conf`. The de
 ```
 # NATS Server Configuration for ServiceRadar KV Store
 
-# Listen on the default NATS port
-port: 4222
-listen: 127.0.0.1
+# Listen on the default NATS port (restricted to localhost for security)
+listen: 0.0.0.0:4222
 
 # Server identification
 server_name: nats-serviceradar
@@ -184,6 +183,7 @@ tls {
 
 # Logging settings
 logfile: "/var/log/nats/nats.log"
+debug: true
 ```
 
 ### Critical NATS Server Settings
