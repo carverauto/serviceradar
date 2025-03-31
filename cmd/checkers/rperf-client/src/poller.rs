@@ -8,7 +8,7 @@ use crate::rperf::{RPerfResult, RPerfRunner};
 pub struct TargetPoller {
     config: TargetConfig,
     runner: RPerfRunner,
-    last_result: Option<RPerfResult>,
+    pub(crate) last_result: Option<RPerfResult>,
     default_poll_interval: u64,
     next_run: Instant,
     running: bool,

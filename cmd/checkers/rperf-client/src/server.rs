@@ -5,7 +5,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
-use tokio::time::{Duration, timeout};
+use tokio::time::{Duration, timeout, Instant};
 use tonic::{Request, Response, Status};
 use tonic::transport::Server;
 use tonic_reflection::server::Builder as ReflectionBuilder;
@@ -77,11 +77,13 @@ impl RPerfTestOrchestrator {
                             }
                             Err(e) => error!("Error running test for target '{}': {}", poller.target_name(), e),
                         }
-                        let interval = poller.get_poll_interval();
-                        tokio::time::sleep(interval).await;  // Lock released before sleep due to scope
                     }
-                }  // Lock released here
-                tokio::time::sleep(Duration::from_secs(1)).await;
+                }
+                let poll_interval = {
+                    let pollers = pollers.read().await;
+                    pollers.iter().map(|p| p.get_poll_interval()).min().unwrap_or(Duration::from_secs(300))
+                };
+                tokio::time::sleep(poll_interval).await;
             }
         });
 
@@ -155,42 +157,6 @@ struct RPerfServiceImpl {
 }
 
 #[tonic::async_trait]
-impl AgentService for RPerfServiceImpl {
-    async fn get_status(
-        &self,
-        request: Request<monitoring::StatusRequest>,
-    ) -> Result<Response<monitoring::StatusResponse>, Status> {
-        let req = request.into_inner();
-        debug!("Received GetStatus request: service_name={}, service_type={}, details={}",
-               req.service_name, req.service_type, req.details);
-        let pollers = match timeout(Duration::from_secs(1), self.target_pollers.read()).await {
-            Ok(guard) => guard,
-            Err(_) => {
-                debug!("Timeout acquiring read lock on target_pollers, returning default response");
-                return Ok(Response::new(monitoring::StatusResponse {
-                    available: true,
-                    message: "Service is running (status unavailable)".to_string(),
-                    service_name: req.service_name,
-                    service_type: req.service_type,
-                    response_time: 0,
-                }));
-            }
-        };
-        let targets_count = pollers.len();
-        debug!("Returning status: available=true, targets={}", targets_count);
-        let response = Response::new(monitoring::StatusResponse {
-            available: true,
-            message: format!("Service is running with {} configured targets", targets_count),
-            service_name: req.service_name,
-            service_type: req.service_type,
-            response_time: 0,
-        });
-        debug!("Response constructed: {:?}", response);
-        Ok(response)
-    }
-}
-
-#[tonic::async_trait]
 impl RPerfService for RPerfServiceImpl {
     async fn run_test(
         &self,
@@ -242,15 +208,126 @@ impl RPerfService for RPerfServiceImpl {
                 return Ok(Response::new(StatusResponse {
                     available: true,
                     version: env!("CARGO_PKG_VERSION").to_string(),
-                    message: "Service is running (status unavailable)".to_string(),
+                    message: "Service is running (status unavailable due to lock timeout)".to_string(),
                 }));
             }
         };
-        let targets_count = pollers.len();
+
+        let mut results = Vec::new();
+        for poller in pollers.iter() {
+            if let Some(last_result) = &poller.last_result {
+                let result_json = serde_json::json!({
+                    "target": poller.target_name(),
+                    "success": last_result.success,
+                    "error": last_result.error,
+                    "results_json": last_result.results_json,
+                    "summary": {
+                        "duration": last_result.summary.duration,
+                        "bytes_sent": last_result.summary.bytes_sent,
+                        "bytes_received": last_result.summary.bytes_received,
+                        "bits_per_second": last_result.summary.bits_per_second,
+                        "packets_sent": last_result.summary.packets_sent,
+                        "packets_received": last_result.summary.packets_received,
+                        "packets_lost": last_result.summary.packets_lost,
+                        "loss_percent": last_result.summary.loss_percent,
+                        "jitter_ms": last_result.summary.jitter_ms,
+                    }
+                });
+                results.push(result_json);
+            } else {
+                results.push(serde_json::json!({
+                    "target": poller.target_name(),
+                    "success": false,
+                    "error": "No test results available yet",
+                    "results_json": "",
+                    "summary": serde_json::json!({})
+                }));
+            }
+        }
+
+        let message = match serde_json::to_string(&results) {
+            Ok(json) => json,
+            Err(e) => {
+                error!("Failed to serialize test results: {}", e);
+                "Service is running but failed to serialize test results".to_string()
+            }
+        };
+
         Ok(Response::new(StatusResponse {
             available: true,
             version: env!("CARGO_PKG_VERSION").to_string(),
-            message: format!("Service is running with {} configured targets", targets_count),
+            message,
+        }))
+    }
+}
+
+#[tonic::async_trait]
+impl AgentService for RPerfServiceImpl {
+    async fn get_status(
+        &self,
+        request: Request<monitoring::StatusRequest>,
+    ) -> Result<Response<monitoring::StatusResponse>, Status> {
+        let req = request.into_inner();
+        debug!("Received GetStatus request: service_name={}, service_type={}, details={}",
+               req.service_name, req.service_type, req.details);
+        let pollers = match timeout(Duration::from_secs(1), self.target_pollers.read()).await {
+            Ok(guard) => guard,
+            Err(_) => {
+                debug!("Timeout acquiring read lock on target_pollers, returning default response");
+                return Ok(Response::new(monitoring::StatusResponse {
+                    available: true,
+                    message: "Service is running (status unavailable due to lock timeout)".to_string(),
+                    service_name: req.service_name,
+                    service_type: req.service_type,
+                    response_time: 0,
+                }));
+            }
+        };
+
+        let mut results = Vec::new();
+        for poller in pollers.iter() {
+            if let Some(last_result) = &poller.last_result {
+                let result_json = serde_json::json!({
+                    "target": poller.target_name(),
+                    "success": last_result.success,
+                    "error": last_result.error,
+                    "summary": {
+                        "duration": last_result.summary.duration,
+                        "bytes_sent": last_result.summary.bytes_sent,
+                        "bytes_received": last_result.summary.bytes_received,
+                        "bits_per_second": last_result.summary.bits_per_second,
+                        "packets_sent": last_result.summary.packets_sent,
+                        "packets_received": last_result.summary.packets_received,
+                        "packets_lost": last_result.summary.packets_lost,
+                        "loss_percent": last_result.summary.loss_percent,
+                        "jitter_ms": last_result.summary.jitter_ms,
+                    }
+                });
+                results.push(result_json);
+            } else {
+                results.push(serde_json::json!({
+                    "target": poller.target_name(),
+                    "success": false,
+                    "error": "No test results available yet",
+                    "summary": serde_json::json!({})
+                }));
+            }
+        }
+
+        let message = match serde_json::to_string(&results) {
+            Ok(json) => json,
+            Err(e) => {
+                error!("Failed to serialize test results: {}", e);
+                "Service is running but failed to serialize test results".to_string()
+            }
+        };
+
+        Ok(Response::new(monitoring::StatusResponse {
+            available: true,
+            message,
+            service_name: req.service_name,
+            service_type: req.service_type,
+            response_time: 0,
         }))
     }
 }
