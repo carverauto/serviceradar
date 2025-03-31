@@ -10,6 +10,7 @@ pub struct SecurityConfig {
     pub tls_enabled: bool,
     pub cert_file: Option<String>,
     pub key_file: Option<String>,
+    pub ca_file: Option<String>,
 }
 
 /// Configuration for individual targets to test
@@ -81,8 +82,13 @@ impl Config {
         
         // Check TLS configuration if enabled
         if let Some(security) = &self.security {
-            if security.tls_enabled && (security.cert_file.is_none() || security.key_file.is_none()) {
-                anyhow::bail!("When TLS is enabled, cert_file and key_file are required");
+            if security.tls_enabled {
+                if security.cert_file.is_none() || security.key_file.is_none() {
+                    anyhow::bail!("When TLS is enabled, cert_file and key_file are required");
+                }
+                if security.ca_file.is_none() {
+                    anyhow::bail!("When TLS is enabled, ca_file is required for mTLS");
+                }
             }
         }
         

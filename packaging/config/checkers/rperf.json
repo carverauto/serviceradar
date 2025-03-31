@@ -6,7 +6,8 @@
   "security": {
     "tls_enabled": false,
     "cert_file": null,
-    "key_file": null
+    "key_file": null,
+    "ca_file": "/etc/serviceradar/certs/root.pem"
   },
   "default_poll_interval": 300,
   "targets": [
