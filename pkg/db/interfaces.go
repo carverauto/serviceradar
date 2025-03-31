@@ -96,6 +96,9 @@ type Service interface {
 	GetMetrics(nodeID, metricName string, start, end time.Time) ([]TimeseriesMetric, error)
 	GetMetricsByType(nodeID, metricType string, start, end time.Time) ([]TimeseriesMetric, error)
 
+	// Rperf
+	StoreRperfMetrics(nodeID, serviceName string, message string, timestamp time.Time) error
+
 	// Auth
 
 	StoreUser(user *models.User) error

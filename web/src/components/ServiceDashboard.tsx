@@ -34,6 +34,7 @@ import SNMPDashboard from "./SNMPDashboard";
 import { ArrowLeft } from "lucide-react";
 import { Service, ServiceMetric, ServiceDetails } from "@/types/types";
 import { SnmpDataPoint } from "@/types/snmp";
+import RPerfDashboard from "@/components/RPerfDashboard";
 
 // Define props interface
 interface ServiceDashboardProps {
@@ -218,6 +219,16 @@ const ServiceDashboard: React.FC<ServiceDashboardProps> = ({
                         serviceName={serviceName}
                     />
                 </div>
+            );
+        }
+
+        if (serviceData.type === "grpc" && serviceName === "rperf-checker") {
+            return (
+                <RPerfDashboard
+                    nodeId={nodeId}
+                    serviceName={serviceName}
+                    initialTimeRange={initialTimeRange}
+                />
             );
         }
 

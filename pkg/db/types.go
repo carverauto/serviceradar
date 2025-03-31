@@ -51,3 +51,19 @@ type SNMPMetric struct {
 	Scale     float64     `json:"scale"`
 	IsDelta   bool        `json:"is_delta"`
 }
+
+// RperfMetric represents an rperf metric to be stored.
+type RperfMetric struct {
+	Target      string  `json:"target"`
+	Success     bool    `json:"success"`
+	Error       *string `json:"error,omitempty"`
+	BitsPerSec  float64 `json:"bits_per_second"`
+	BytesRecv   int64   `json:"bytes_received"`
+	BytesSent   int64   `json:"bytes_sent"`
+	Duration    float64 `json:"duration"`
+	JitterMs    float64 `json:"jitter_ms"`
+	LossPercent float64 `json:"loss_percent"`
+	PacketsLost int64   `json:"packets_lost"`
+	PacketsRecv int64   `json:"packets_received"`
+	PacketsSent int64   `json:"packets_sent"`
+}
