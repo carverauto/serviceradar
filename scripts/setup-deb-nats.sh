@@ -67,8 +67,7 @@ cat > "${PKG_ROOT}/etc/nats/nats-server.conf" << EOF
 # NATS Server Configuration for ServiceRadar KV Store
 
 # Listen on the default NATS port (restricted to localhost for security)
-port: 4222
-listen: 127.0.0.1
+listen: 0.0.0.0:4222
 
 # Server identification
 server_name: nats-serviceradar
@@ -78,9 +77,9 @@ jetstream {
   # Directory to store JetStream data
   store_dir: /var/lib/nats/jetstream
   # Maximum storage size
-  max_memory_store: 1G
+  max_memory_store: 10G
   # Maximum disk storage
-  max_file_store: 10G
+  max_file_store: 50G
 }
 
 # Enable mTLS for secure communication
@@ -100,6 +99,7 @@ tls {
 
 # Logging settings
 logfile: "/var/log/nats/nats.log"
+debug: true
 EOF
 
 # Create systemd service file
@@ -120,29 +120,6 @@ RestartSec=5
 KillSignal=SIGUSR2
 LimitNOFILE=800000
 
-# Security hardening
-CapabilityBoundingSet=
-LockPersonality=true
-MemoryDenyWriteExecute=true
-NoNewPrivileges=true
-PrivateDevices=true
-PrivateTmp=true
-PrivateUsers=true
-ProcSubset=pid
-ProtectClock=true
-ProtectControlGroups=true
-ProtectHome=true
-ProtectHostname=true
-ProtectKernelLogs=true
-ProtectKernelModules=true
-ProtectKernelTunables=true
-ProtectSystem=strict
-RestrictAddressFamilies=AF_INET AF_INET6
-RestrictNamespaces=true
-RestrictRealtime=true
-RestrictSUIDSGID=true
-SystemCallFilter=@system-service ~@privileged ~@resources
-UMask=0077
 ReadWritePaths=/var/lib/nats /var/log/nats
 
 [Install]

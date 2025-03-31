@@ -182,8 +182,7 @@ The NATS Server configuration is located at `/etc/nats/nats-server.conf`. The de
 # NATS Server Configuration for ServiceRadar KV Store
 
 # Listen on the default NATS port (restricted to localhost for security)
-port: 4222
-listen: 127.0.0.1
+listen: 0.0.0.0:4222
 
 # Server identification
 server_name: nats-serviceradar
@@ -193,17 +192,17 @@ jetstream {
   # Directory to store JetStream data
   store_dir: /var/lib/nats/jetstream
   # Maximum storage size
-  max_memory_store: 1G
+  max_memory_store: 10G
   # Maximum disk storage
-  max_file_store: 10G
+  max_file_store: 50G
 }
 
 # Enable mTLS for secure communication
 tls {
   # Path to the server certificate
-  cert_file: "/etc/serviceradar/certs/server.pem"
+  cert_file: "/etc/serviceradar/certs/nats-server.pem"
   # Path to the server private key
-  key_file: "/etc/serviceradar/certs/server-key.pem"
+  key_file: "/etc/serviceradar/certs/nats-server-key.pem"
   # Path to the root CA certificate for verifying clients
   ca_file: "/etc/serviceradar/certs/root.pem"
 
@@ -215,6 +214,7 @@ tls {
 
 # Logging settings
 logfile: "/var/log/nats/nats.log"
+debug: true
 ```
 
 > **Security Note:** By default, the NATS Server is configured to listen only on the loopback interface (127.0.0.1) for security. This prevents external network access to the NATS Server. If you need to access the NATS Server from other hosts, you can modify the `listen` directive, but be sure to secure the server with proper TLS certificates and firewall rules.
