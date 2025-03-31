@@ -38,4 +38,6 @@ var (
 	errInvalidTrustDomain         = errors.New("invalid trust domain")
 	errFailedToCreateMTLSProvider = errors.New("failed to create mTLS provider")
 	errAddressRequired            = errors.New("address required")
+	errFailedToReadClientCACert   = errors.New("failed to read client CA certificate")
+	errFailedToAppendClientCACert = errors.New("failed to append client CA certificate")
 )

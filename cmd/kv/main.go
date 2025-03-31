@@ -41,6 +41,10 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
+	// Log the config after loading to verify TLS fields
+	log.Printf("Loaded config: %+v", cfg)
+	log.Printf("Security.TLS: %+v", cfg.Security.TLS)
+
 	if err := cfg.Validate(); err != nil {
 		log.Fatalf("Invalid configuration: %v", err)
 	}
