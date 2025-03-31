@@ -1,6 +1,9 @@
 package kv
 
-import "path/filepath"
+import (
+	"log"
+	"path/filepath"
+)
 
 // Validate ensures the configuration is valid.
 func (c *Config) Validate() error {
@@ -73,6 +76,15 @@ func (c *Config) normalizeCertPaths() {
 
 	if !filepath.IsAbs(tls.CAFile) {
 		tls.CAFile = filepath.Join(certDir, tls.CAFile)
+	}
+
+	// Always normalize ClientCAFile if it's set and relative
+	if tls.ClientCAFile != "" && !filepath.IsAbs(tls.ClientCAFile) {
+		tls.ClientCAFile = filepath.Join(certDir, tls.ClientCAFile)
+	} else if tls.ClientCAFile == "" {
+		tls.ClientCAFile = tls.CAFile // Fallback to CAFile if unset
+
+		log.Printf("ClientCAFile unset, using CAFile: %s", tls.ClientCAFile)
 	}
 }
 

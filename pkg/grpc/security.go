@@ -73,6 +73,12 @@ func NewMTLSProvider(config *models.SecurityConfig) (*MTLSProvider, error) {
 		return nil, errSecurityConfigRequired
 	}
 
+	if config.TLS.CertFile == "" || config.TLS.KeyFile == "" || config.TLS.CAFile == "" {
+		log.Printf("ERROR: mTLS mode requires tls.cert_file, tls.key_file, and tls.ca_file to be set in the security config.")
+
+		return nil, fmt.Errorf("%w: missing required TLS file paths in config", errSecurityConfigRequired)
+	}
+
 	provider := &MTLSProvider{config: config}
 	if err := provider.setCredentialNeeds(); err != nil {
 		return nil, err
@@ -80,6 +86,10 @@ func NewMTLSProvider(config *models.SecurityConfig) (*MTLSProvider, error) {
 
 	log.Printf("Initializing mTLS provider - Role: %s, NeedsClient: %v, NeedsServer: %v",
 		config.Role, provider.needsClient, provider.needsServer)
+
+	// Log the paths being used
+	log.Printf("mTLS Config Paths: Cert=%s, Key=%s, CA=%s, ClientCA=%s",
+		config.TLS.CertFile, config.TLS.KeyFile, config.TLS.CAFile, config.TLS.ClientCAFile)
 
 	if err := provider.loadCredentials(); err != nil {
 		return nil, err
@@ -116,6 +126,8 @@ func (p *MTLSProvider) loadCredentials() error {
 	var err error
 
 	if p.needsClient {
+		log.Printf("Loading client credentials using paths from config.TLS")
+
 		p.clientCreds, err = loadClientCredentials(p.config)
 		if err != nil {
 			return fmt.Errorf("%w: %w", errFailedToLoadClientCreds, err)
@@ -123,6 +135,8 @@ func (p *MTLSProvider) loadCredentials() error {
 	}
 
 	if p.needsServer {
+		log.Printf("Loading server credentials using paths from config.TLS")
+
 		p.serverCreds, err = loadServerCredentials(p.config)
 		if err != nil {
 			return fmt.Errorf("%w: %w", errFailedToLoadServerCreds, err)
@@ -142,64 +156,115 @@ func (p *MTLSProvider) Close() error {
 	return err
 }
 
-// loadTLSCredentials loads TLS credentials with customizable parameters.
-func loadTLSCredentials(
-	config *models.SecurityConfig,
-	certFile, keyFile string,
-	isServer bool,
-) (credentials.TransportCredentials, error) {
-	log.Printf("Loading %s credentials from %s",
-		map[bool]string{false: "client", true: "server"}[isServer],
-		config.CertDir)
-
-	// Load certificate and key pair
-	certPath := filepath.Join(config.CertDir, certFile)
-	keyPath := filepath.Join(config.CertDir, keyFile)
+// loadClientCredentials loads client TLS credentials using paths from config.TLS.
+func loadClientCredentials(config *models.SecurityConfig) (credentials.TransportCredentials, error) {
+	// Use paths directly from config.TLS (should be absolute/normalized)
+	certPath := config.TLS.CertFile
+	keyPath := config.TLS.KeyFile
+	caPath := config.TLS.CAFile
 
 	cert, err := tls.LoadX509KeyPair(certPath, keyPath)
 	if err != nil {
-		errType := map[bool]error{false: errFailedToLoadClientCert, true: errFailedToLoadServerCert}[isServer]
-
-		return nil, fmt.Errorf("%w: %w", errType, err)
+		return nil, fmt.Errorf("%w: %w", errFailedToLoadClientCert, err)
 	}
 
-	// Load CA certificate
-	caCert, err := os.ReadFile(filepath.Join(config.CertDir, "root.pem"))
+	caCert, err := os.ReadFile(caPath)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errFailedToReadCACert, err)
 	}
 
-	// Create certificate pool
 	caPool := x509.NewCertPool()
 	if !caPool.AppendCertsFromPEM(caCert) {
-		return nil, fmt.Errorf("%w: %w", errFailedToAppendCACert, err)
+		return nil, fmt.Errorf("%w: failed to parse CA certificate from %s", errFailedToAppendCACert, caPath)
 	}
 
-	// Configure TLS
 	tlsConfig := &tls.Config{
 		Certificates: []tls.Certificate{cert},
+		RootCAs:      caPool,
+		ServerName:   config.ServerName, // Use server name from config if needed for verification
 		MinVersion:   tls.VersionTLS13,
-	}
-
-	if isServer {
-		tlsConfig.ClientCAs = caPool
-		tlsConfig.ClientAuth = tls.RequireAndVerifyClientCert
-	} else {
-		tlsConfig.RootCAs = caPool
-		tlsConfig.ServerName = config.ServerName
 	}
 
 	return credentials.NewTLS(tlsConfig), nil
 }
 
-// loadClientCredentials loads client TLS credentials.
-func loadClientCredentials(config *models.SecurityConfig) (credentials.TransportCredentials, error) {
-	return loadTLSCredentials(config, "client.pem", "client-key.pem", false)
+func loadServerCredentials(config *models.SecurityConfig) (credentials.TransportCredentials, error) {
+	certPath, keyPath, clientCaPath := normalizePaths(config)
+
+	cert, err := loadServerCert(certPath, keyPath)
+	if err != nil {
+		return nil, err
+	}
+
+	clientCaPool, err := loadClientCAPool(clientCaPath)
+	if err != nil {
+		return nil, err
+	}
+
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		ClientCAs:    clientCaPool,
+		ClientAuth:   tls.RequireAndVerifyClientCert,
+		MinVersion:   tls.VersionTLS13,
+	}
+
+	return credentials.NewTLS(tlsConfig), nil
 }
 
-// loadServerCredentials loads server TLS credentials.
-func loadServerCredentials(config *models.SecurityConfig) (credentials.TransportCredentials, error) {
-	return loadTLSCredentials(config, "server.pem", "server-key.pem", true)
+// normalizePaths resolves certificate paths based on config.
+func normalizePaths(config *models.SecurityConfig) (certPath, keyPath, clientCaPath string) {
+	certPath = config.TLS.CertFile
+	keyPath = config.TLS.KeyFile
+	clientCaPath = config.TLS.ClientCAFile
+
+	if !filepath.IsAbs(certPath) && config.CertDir != "" {
+		certPath = filepath.Join(config.CertDir, certPath)
+	}
+
+	if !filepath.IsAbs(keyPath) && config.CertDir != "" {
+		keyPath = filepath.Join(config.CertDir, keyPath)
+	}
+
+	if clientCaPath == "" {
+		log.Printf("ClientCAFile not specified, using CAFile (%s) for client verification", config.TLS.CAFile)
+
+		clientCaPath = config.TLS.CAFile
+	} else if !filepath.IsAbs(clientCaPath) && config.CertDir != "" {
+		clientCaPath = filepath.Join(config.CertDir, clientCaPath)
+
+		log.Printf("Normalized ClientCAFile to: %s", clientCaPath)
+	}
+
+	return certPath, keyPath, clientCaPath
+}
+
+// loadServerCert loads the server certificate and key pair.
+func loadServerCert(certPath, keyPath string) (tls.Certificate, error) {
+	log.Printf("Loading server certificate from %s and key from %s", certPath, keyPath)
+
+	cert, err := tls.LoadX509KeyPair(certPath, keyPath)
+	if err != nil {
+		return tls.Certificate{}, fmt.Errorf("%w: %w", errFailedToLoadServerCert, err)
+	}
+
+	return cert, nil
+}
+
+// loadClientCAPool loads and parses the client CA certificate into a pool.
+func loadClientCAPool(clientCaPath string) (*x509.CertPool, error) {
+	log.Printf("Loading server Client CA certificate from %s", clientCaPath)
+
+	clientCaCert, err := os.ReadFile(clientCaPath)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", errFailedToReadClientCACert, err)
+	}
+
+	clientCaPool := x509.NewCertPool()
+	if !clientCaPool.AppendCertsFromPEM(clientCaCert) {
+		return nil, fmt.Errorf("%w: failed to parse Client CA certificate from %s", errFailedToAppendClientCACert, clientCaPath)
+	}
+
+	return clientCaPool, nil
 }
 
 func (p *MTLSProvider) GetClientCredentials(_ context.Context) (grpc.DialOption, error) {
