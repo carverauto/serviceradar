@@ -7,14 +7,18 @@ authors = ["Michael Freeman <mfreeman451@gmail.com>"]
 license = "Apache-2.0"
 
 [dependencies]
+rustls = "0.20"
 rperf = "0.1.17"
-tokio = { version = "1.28", features = ["rt-multi-thread", "macros", "sync", "time", "signal"] }
+#tokio = { version = "1.28", features = ["rt-multi-thread", "macros", "sync", "time", "signal"] }
+tokio = { version = "1.28", features = ["full"] }
 prost = "0.11"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 log = "0.4"
 env_logger = "0.10"
-tonic = { version = "0.9", features = ["tls"] }  # Updated from 0.4 to 0.9
+tonic-health = "0.9"
+tonic-reflection = "0.9"
+tonic = { version = "0.9", features = ["tls"] }
 clap = "~2.33.3"
 anyhow = "1.0"
 
