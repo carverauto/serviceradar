@@ -144,9 +144,15 @@ func (*DB) scanMetrics(rows Rows) ([]TimeseriesMetric, error) {
 	return metrics, nil
 }
 
-// StoreRperfMetrics stores rperf-checker data as timeseries metrics
-func (db *DB) StoreRperfMetrics(nodeID, serviceName string, message string, timestamp time.Time) error {
-	log.Printf("Processing rperf metrics for node %s, raw message: %s", nodeID, message)
+const (
+	rperfMetricsStored        = 3
+	rperfBitsPerSecondDivisor = 1e6
+)
+
+// StoreRperfMetrics stores rperf-checker data as timeseries metrics.
+func (db *DB) StoreRperfMetrics(nodeID, serviceName, message string, timestamp time.Time) error {
+	log.Printf("Processing rperf metrics for node %s, servicename: %s, raw message: %s",
+		nodeID, serviceName, message)
 
 	var rperfData struct {
 		Results []RperfMetric `json:"results"`
@@ -161,6 +167,7 @@ func (db *DB) StoreRperfMetrics(nodeID, serviceName string, message string, time
 
 	if len(rperfData.Results) == 0 {
 		log.Printf("No rperf results found in message for node %s", nodeID)
+
 		return nil
 	}
 
@@ -171,7 +178,7 @@ func (db *DB) StoreRperfMetrics(nodeID, serviceName string, message string, time
 			Metric *RperfMetric
 		}{
 			fmt.Sprintf("rperf_%s_bandwidth", result.Target): {
-				Value:  fmt.Sprintf("%.2f", result.BitsPerSec/1e6),
+				Value:  fmt.Sprintf("%.2f", result.BitsPerSec/rperfBitsPerSecondDivisor),
 				Metric: &result,
 			},
 			fmt.Sprintf("rperf_%s_jitter", result.Target): {
@@ -206,7 +213,8 @@ func (db *DB) StoreRperfMetrics(nodeID, serviceName string, message string, time
 		}
 	}
 
-	log.Printf("Successfully stored %d rperf metrics for node %s", len(rperfData.Results)*3, nodeID)
+	log.Printf("Successfully stored %d rperf metrics for node %s",
+		len(rperfData.Results)*rperfMetricsStored, nodeID)
 
 	return nil
 }
