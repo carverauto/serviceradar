@@ -169,6 +169,17 @@ func copySecurityConfig(security *models.SecurityConfig) *models.SecurityConfig 
 		ServerName:     security.ServerName,
 		WorkloadSocket: security.WorkloadSocket,
 		TrustDomain:    security.TrustDomain,
+		TLS: struct {
+			CertFile     string `json:"cert_file"`
+			KeyFile      string `json:"key_file"`
+			CAFile       string `json:"ca_file"`
+			ClientCAFile string `json:"client_ca_file"`
+		}{
+			CertFile:     security.TLS.CertFile,
+			KeyFile:      security.TLS.KeyFile,
+			CAFile:       security.TLS.CAFile,
+			ClientCAFile: security.TLS.ClientCAFile,
+		},
 	}
 }
 
