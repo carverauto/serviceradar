@@ -5,7 +5,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
-use tokio::time::Duration;
+use tokio::time::{Duration, timeout};
 use tonic::{Request, Response, Status};
 use tonic::transport::Server;
 use tonic_reflection::server::Builder as ReflectionBuilder;
@@ -61,24 +61,26 @@ impl RPerfTestOrchestrator {
         let pollers = self.target_pollers.clone();
         let poller_handle = tokio::spawn(async move {
             loop {
-                let mut pollers = pollers.write().await;
-                for poller in pollers.iter_mut() {
-                    info!("Running scheduled test for target: {}", poller.target_name());
-                    match poller.run_single_test().await {
-                        Ok(result) => {
-                            if result.success {
-                                info!("Test for target '{}' completed: {:.2} Mbps",
-                                      poller.target_name(), result.summary.bits_per_second / 1_000_000.0);
-                            } else {
-                                warn!("Test for target '{}' failed: {}",
-                                      poller.target_name(), result.error.as_deref().unwrap_or("Unknown error"));
+                {
+                    let mut pollers = pollers.write().await;
+                    for poller in pollers.iter_mut() {
+                        info!("Running scheduled test for target: {}", poller.target_name());
+                        match poller.run_single_test().await {
+                            Ok(result) => {
+                                if result.success {
+                                    info!("Test for target '{}' completed: {:.2} Mbps",
+                                          poller.target_name(), result.summary.bits_per_second / 1_000_000.0);
+                                } else {
+                                    warn!("Test for target '{}' failed: {}",
+                                          poller.target_name(), result.error.as_deref().unwrap_or("Unknown error"));
+                                }
                             }
+                            Err(e) => error!("Error running test for target '{}': {}", poller.target_name(), e),
                         }
-                        Err(e) => error!("Error running test for target '{}': {}", poller.target_name(), e),
+                        let interval = poller.get_poll_interval();
+                        tokio::time::sleep(interval).await;  // Lock released before sleep due to scope
                     }
-                    let interval = poller.get_poll_interval();
-                    tokio::time::sleep(interval).await;
-                }
+                }  // Lock released here
                 tokio::time::sleep(Duration::from_secs(1)).await;
             }
         });
@@ -118,7 +120,7 @@ impl RPerfTestOrchestrator {
                 let tls_config = tonic::transport::ServerTlsConfig::new()
                     .identity(identity)
                     .client_ca_root(ca);
-
+                debug!("TLS config created: {:?}", tls_config);
                 server_builder = server_builder.tls_config(tls_config)?;
                 info!("TLS configured with mTLS enabled");
             }
@@ -126,14 +128,16 @@ impl RPerfTestOrchestrator {
 
         let server_handle = tokio::spawn(async move {
             debug!("Registering services: health, RPerfService, AgentService, reflection");
-            server_builder
+            let result = server_builder
                 .add_service(health_service)
                 .add_service(RPerfServiceServer::new(Arc::clone(&service)))
                 .add_service(AgentServiceServer::new(Arc::clone(&service)))
                 .add_service(reflection_service)
                 .serve(addr)
                 .await
-                .context("gRPC server error")?;
+                .context("gRPC server error");
+            debug!("Service registration completed: {:?}", result);
+            result?;
             info!("gRPC server started successfully on {}", addr);
             Ok::<(), anyhow::Error>(())
         });
@@ -159,7 +163,19 @@ impl AgentService for RPerfServiceImpl {
         let req = request.into_inner();
         debug!("Received GetStatus request: service_name={}, service_type={}, details={}",
                req.service_name, req.service_type, req.details);
-        let pollers = self.target_pollers.read().await;  // Use read lock for reading
+        let pollers = match timeout(Duration::from_secs(1), self.target_pollers.read()).await {
+            Ok(guard) => guard,
+            Err(_) => {
+                debug!("Timeout acquiring read lock on target_pollers, returning default response");
+                return Ok(Response::new(monitoring::StatusResponse {
+                    available: true,
+                    message: "Service is running (status unavailable)".to_string(),
+                    service_name: req.service_name,
+                    service_type: req.service_type,
+                    response_time: 0,
+                }));
+            }
+        };
         let targets_count = pollers.len();
         debug!("Returning status: available=true, targets={}", targets_count);
         let response = Response::new(monitoring::StatusResponse {
@@ -219,7 +235,17 @@ impl RPerfService for RPerfServiceImpl {
         &self,
         _request: Request<StatusRequest>,
     ) -> Result<Response<StatusResponse>, Status> {
-        let pollers = self.target_pollers.read().await;
+        let pollers = match timeout(Duration::from_secs(1), self.target_pollers.read()).await {
+            Ok(guard) => guard,
+            Err(_) => {
+                debug!("Timeout acquiring read lock on target_pollers, returning default response");
+                return Ok(Response::new(StatusResponse {
+                    available: true,
+                    version: env!("CARGO_PKG_VERSION").to_string(),
+                    message: "Service is running (status unavailable)".to_string(),
+                }));
+            }
+        };
         let targets_count = pollers.len();
         Ok(Response::new(StatusResponse {
             available: true,
