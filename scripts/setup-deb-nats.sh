@@ -78,9 +78,9 @@ jetstream {
   # Directory to store JetStream data
   store_dir: /var/lib/nats/jetstream
   # Maximum storage size
-  max_memory_store: 10G
+  max_memory_store: 1G
   # Maximum disk storage
-  max_file_store: 50G
+  max_file_store: 10G
 }
 
 # Enable mTLS for secure communication
@@ -100,7 +100,6 @@ tls {
 
 # Logging settings
 logfile: "/var/log/nats/nats.log"
-loglevel: "info"
 EOF
 
 # Create systemd service file
