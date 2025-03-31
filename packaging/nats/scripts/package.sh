@@ -23,12 +23,12 @@ Depends: systemd
 Maintainer: Michael Freeman <mfreeman451@gmail.com>
 Description: ServiceRadar NATS JetStream service
  Message Broker and KV store for ServiceRadar monitoring system.
-Config: /etc/nats-server.conf
+Config: /etc/nats/nats-server.conf
 EOF
 
 # Create conffiles to mark configuration files
 cat > "${PKG_ROOT}/DEBIAN/conffiles" << EOF
-/etc/nats-server.conf
+/etc/nats/nats-server.conf
 something here
 EOF
 
@@ -46,7 +46,7 @@ After=network-online.target ntp.service
 [Service]
 Type=simple
 EnvironmentFile=-/etc/default/nats-server
-ExecStart=/usr/bin/nats-server -c /etc/nats-server.conf
+ExecStart=/usr/bin/nats-server -c /etc/nats/nats-server.conf
 ExecReload=/bin/kill -s HUP $MAINPID
 ExecStop=/bin/kill -s SIGINT $MAINPID
 
@@ -65,31 +65,6 @@ LimitNOFILE=800000
 # Environment=GOMEMLIMIT=12GiB
 # You might find it better to set GOMEMLIMIT via /etc/default/nats-server,
 # so that you can change limits without needing a systemd daemon-reload.
-
-# Hardening
-CapabilityBoundingSet=
-LockPersonality=true
-MemoryDenyWriteExecute=true
-NoNewPrivileges=true
-PrivateDevices=true
-PrivateTmp=true
-PrivateUsers=true
-ProcSubset=pid
-ProtectClock=true
-ProtectControlGroups=true
-ProtectHome=true
-ProtectHostname=true
-ProtectKernelLogs=true
-ProtectKernelModules=true
-ProtectKernelTunables=true
-ProtectSystem=strict
-ReadOnlyPaths=
-RestrictAddressFamilies=AF_INET AF_INET6
-RestrictNamespaces=true
-RestrictRealtime=true
-RestrictSUIDSGID=true
-SystemCallFilter=@system-service ~@privileged ~@resources
-UMask=0077
 
 # Consider locking down all areas of /etc which hold machine identity keys, etc
 InaccessiblePaths=/etc/ssh
@@ -124,7 +99,7 @@ Alias=nats.service
 EOF
 
 # Create default config only if we're creating a fresh package
-cat > "${PKG_ROOT}/etc/nats-server.conf" << EOF
+cat > "${PKG_ROOT}/etc/nats/nats-server.conf" << EOF
 jetstream {
    store_dir=nats
 }
@@ -141,7 +116,7 @@ if ! id -u nats >/dev/null 2>&1; then
 fi
 
 # Set permissions
-chown nats:nats /etc/nats-server.conf
+chown nats:nats /etc/nats/nats-server.conf
 chmod 755 /usr/bin/nats-server
 
 # Enable and start service
