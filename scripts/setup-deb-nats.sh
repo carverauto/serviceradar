@@ -67,8 +67,7 @@ cat > "${PKG_ROOT}/etc/nats/nats-server.conf" << EOF
 # NATS Server Configuration for ServiceRadar KV Store
 
 # Listen on the default NATS port (restricted to localhost for security)
-port: 4222
-listen: 127.0.0.1
+listen: 0.0.0.0:4222
 
 # Server identification
 server_name: nats-serviceradar
@@ -100,6 +99,7 @@ tls {
 
 # Logging settings
 logfile: "/var/log/nats/nats.log"
+debug: true
 EOF
 
 # Create systemd service file

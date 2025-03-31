@@ -24,7 +24,7 @@ install -m 644 %{_sourcedir}/config/nats-server.conf %{buildroot}/etc/
 
 %files
 %attr(0755, nats, nats) /usr/bin/nats-server
-%config(noreplace) %attr(0644, nats, nats) /etc/nats-server.conf
+%config(noreplace) %attr(0644, nats, nats) /etc/nats/nats-server.conf
 %attr(0644, root, root) /lib/systemd/system/serviceradar-nats.service
 %dir %attr(0755, nats, nats) /var/lib/nats
 %dir %attr(0755, nats, nats) /var/lib/nats/jetstream

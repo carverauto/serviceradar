@@ -57,7 +57,7 @@ sudo dpkg -i serviceradar-nats_1.0.28.deb
 
 The serviceradar-nats package automatically:
 * Installs the NATS Server binary in `/usr/bin/nats-server`
-* Creates a configuration file at `/etc/nats-server.conf` with mTLS enabled
+* Creates a configuration file at `/etc/nats/nats-server.conf` with mTLS enabled
 * Sets up a hardened systemd service (`serviceradar-nats.service`) to manage the NATS Server
 * Creates necessary directories (`/var/lib/nats/jetstream` for JetStream data, `/var/log/nats` for logs)
 * Creates and configures the nats user with appropriate permissions
