@@ -5,7 +5,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
-use tokio::time::{Duration, timeout, Instant};
+use tokio::time::{Duration, timeout};
 use tonic::{Request, Response, Status};
 use tonic::transport::Server;
 use tonic_reflection::server::Builder as ReflectionBuilder;
@@ -30,8 +30,6 @@ use rperf_service::{
     r_perf_service_server::{RPerfService, RPerfServiceServer},
     StatusRequest, StatusResponse, TestRequest, TestResponse, TestSummary,
 };
-
-use tonic_health::server::HealthReporter;
 
 #[derive(Debug)]
 pub struct RPerfTestOrchestrator {
@@ -102,8 +100,7 @@ impl RPerfTestOrchestrator {
         let reflection_service = ReflectionBuilder::configure()
             .register_encoded_file_descriptor_set(FILE_DESCRIPTOR_SET_RPERF)
             .register_encoded_file_descriptor_set(FILE_DESCRIPTOR_SET_MONITORING)
-            .build()
-            .unwrap();
+            .build()?;
 
         let mut server_builder = Server::builder();
 
@@ -245,13 +242,10 @@ impl RPerfService for RPerfServiceImpl {
             }
         }
 
-        let message = match serde_json::to_string(&results) {
-            Ok(json) => json,
-            Err(e) => {
-                error!("Failed to serialize test results: {}", e);
-                "Service is running but failed to serialize test results".to_string()
-            }
-        };
+        let message = serde_json::to_string(&results).unwrap_or_else(|e| {
+            error!("Failed to serialize test results: {}", e);
+            "Service is running but failed to serialize test results".to_string()
+        });
 
         Ok(Response::new(StatusResponse {
             available: true,
@@ -314,13 +308,10 @@ impl AgentService for RPerfServiceImpl {
             }
         }
 
-        let message = match serde_json::to_string(&results) {
-            Ok(json) => json,
-            Err(e) => {
-                error!("Failed to serialize test results: {}", e);
-                "Service is running but failed to serialize test results".to_string()
-            }
-        };
+        let message = serde_json::to_string(&results).unwrap_or_else(|e| {
+            error!("Failed to serialize test results: {}", e);
+            "Service is running but failed to serialize test results".to_string()
+        });
 
         Ok(Response::new(monitoring::StatusResponse {
             available: true,
