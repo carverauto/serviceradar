@@ -374,6 +374,23 @@ rpm-snmp: rpm-prep ## Build the SNMP checker RPM package
 	@docker cp temp-snmp-container:/rpms/. ./release-artifacts/rpm/
 	@docker rm temp-snmp-container
 
+.PHONY: rpm-rperf
+rpm-rperf: rpm-prep ## Build the RPerf (server) RPM package
+	@echo "$(COLOR_BOLD)Building RPerf (Server) RPM package$(COLOR_RESET)"
+	@VERSION_CLEAN=$$(echo "$(VERSION)" | sed 's/-/_/g'); \
+	docker build \
+		--platform linux/amd64 \
+		--build-arg VERSION="$$VERSION_CLEAN" \
+		--build-arg RELEASE="$(RELEASE)" \
+		--build-arg COMPONENT="rperf" \
+		--build-arg BINARY_PATH="./cmd/checkers/rperf-server" \
+		-f Dockerfile.rpm.rust \
+		-t serviceradar-rpm-rperf \
+		.
+	@docker create --name temp-rperf-server-container serviceradar-rpm-rperf
+	@docker cp temp-rperf-server-container:/rpms/. ./release-artifacts/rpm/
+	@docker rm temp-rperf-server-container
+
 .PHONY: rpm-rperf-checker
 rpm-rperf-checker: rpm-prep ## Build the RPerf checker RPM package
 	@echo "$(COLOR_BOLD)Building RPerf checker RPM package$(COLOR_RESET)"
@@ -407,7 +424,7 @@ rpm-web: rpm-prep ## Build the web RPM package
 	@docker rm temp-web-container
 
 .PHONY: rpm-all
-rpm-all: rpm-core rpm-web rpm-agent rpm-poller rpm-nats rpm-snmp rpm-rperf ## Build all RPM packages
+rpm-all: rpm-core rpm-web rpm-agent rpm-poller rpm-nats rpm-snmp rpm-rperf-checker rpm-rperf ## Build all RPM packages
 	@echo "$(COLOR_BOLD)All RPM packages built$(COLOR_RESET)"
 
 # Docusaurus commands
