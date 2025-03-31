@@ -193,9 +193,9 @@ jetstream {
   # Directory to store JetStream data
   store_dir: /var/lib/nats/jetstream
   # Maximum storage size
-  max_memory_store: 10G
+  max_memory_store: 1G
   # Maximum disk storage
-  max_file_store: 50G
+  max_file_store: 10G
 }
 
 # Enable mTLS for secure communication
@@ -215,7 +215,6 @@ tls {
 
 # Logging settings
 logfile: "/var/log/nats/nats.log"
-loglevel: "info"
 ```
 
 > **Security Note:** By default, the NATS Server is configured to listen only on the loopback interface (127.0.0.1) for security. This prevents external network access to the NATS Server. If you need to access the NATS Server from other hosts, you can modify the `listen` directive, but be sure to secure the server with proper TLS certificates and firewall rules.
