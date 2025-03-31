@@ -19,6 +19,7 @@ package sync
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/config"
@@ -61,5 +62,38 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	// Normalize TLS paths if security is configured
+	if c.Security != nil {
+		c.normalizeCertPaths()
+	}
+
 	return nil
+}
+
+// normalizeCertPaths ensures all TLS file paths are absolute by prepending CertDir.
+func (c *Config) normalizeCertPaths() {
+	certDir := c.Security.CertDir
+	if certDir == "" {
+		return
+	}
+
+	tls := &c.Security.TLS // Use pointer to modify the original struct
+
+	if !filepath.IsAbs(tls.CertFile) {
+		tls.CertFile = filepath.Join(certDir, tls.CertFile)
+	}
+
+	if !filepath.IsAbs(tls.KeyFile) {
+		tls.KeyFile = filepath.Join(certDir, tls.KeyFile)
+	}
+
+	if !filepath.IsAbs(tls.CAFile) {
+		tls.CAFile = filepath.Join(certDir, tls.CAFile)
+	}
+
+	if tls.ClientCAFile != "" && !filepath.IsAbs(tls.ClientCAFile) {
+		tls.ClientCAFile = filepath.Join(certDir, tls.ClientCAFile)
+	} else if tls.ClientCAFile == "" {
+		tls.ClientCAFile = tls.CAFile // Fallback to CAFile if unset
+	}
 }

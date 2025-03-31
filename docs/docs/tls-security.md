@@ -130,6 +130,14 @@ Replace `<ip-or-hostname>` with the actual IP or hostname of the server hosting 
   "names": [{"O": "ServiceRadar", "CN": "kv.serviceradar"}]
 }
 ```
+**serviceradar-sync (`sync-csr.json`)**:
+```json
+{
+  "hosts": ["localhost", "127.0.0.1", "sync.serviceradar", "<sync-server-ip-or-hostname>"],
+  "key": {"algo": "ecdsa", "size": 256},
+  "names": [{"O": "ServiceRadar", "CN": "sync.serviceradar"}]
+}
+```
 
 **Agent (`agent-csr.json`)**:
 ```json
@@ -182,6 +190,10 @@ cfssl sign -ca root.pem -ca-key root-key.pem -config cfssl.json -profile server 
 # serviceradar-kv
 cfssl genkey kv-csr.json | cfssljson -bare kv
 cfssl sign -ca root.pem -ca-key root-key.pem -config cfssl.json -profile client kv.csr | cfssljson -bare kv
+
+# serviceradar-sync
+cfssl genkey sync-csr.json | cfssljson -bare sync
+cfssl sign -ca root.pem -ca-key root-key.pem -config cfssl.json -profile client sync.csr | cfssljson -bare sync
 
 # Agent
 cfssl genkey agent-csr.json | cfssljson -bare agent
@@ -248,6 +260,14 @@ sudo chmod 644 /etc/serviceradar/certs/*.pem
 sudo chmod 600 /etc/serviceradar/certs/*-key.pem
 ```
 
+**serviceradar-sync**:
+```bash
+sudo cp root.pem sync.pem sync-key.pem /etc/serviceradar/certs/
+sudo chown serviceradar:serviceradar /etc/serviceradar/certs/*
+sudo chmod 644 /etc/serviceradar/certs/*.pem
+sudo chmod 600 /etc/serviceradar/certs/*-key.pem
+```
+
 **serviceradar-agent**:
 ```bash
 sudo cp root.pem agent.pem agent-key.pem /etc/serviceradar/certs/
@@ -309,7 +329,7 @@ sudo chmod 750 /etc/serviceradar/certs
 └── nats-server-key.pem (600, nats:nats)
 ```
 
-* Full Deployment (e.g., Agent + KV + NATS co-located)
+* Full Deployment (e.g., Agent + KV + Sync + NATS co-located)
 ```bash
 /etc/serviceradar/certs/
 ├── root.pem           (644, serviceradar:serviceradar)
@@ -317,6 +337,8 @@ sudo chmod 750 /etc/serviceradar/certs
 ├── agent-key.pem      (600, serviceradar:serviceradar)
 ├── kv.pem             (644, serviceradar:serviceradar)
 ├── kv-key.pem         (600, serviceradar:serviceradar)
+├── sync.pem           (644, serviceradar:serviceradar)
+├── sync-key.pem       (600, serviceradar:serviceradar)
 ├── nats-server.pem    (644, nats:nats)
 └── nats-server-key.pem (600, nats:nats)
 ```
@@ -411,7 +433,7 @@ Update `/etc/serviceradar/core.json`:
   "listen_addr": ":8090",
   "grpc_addr": "<core-ip>:50052",
   "alert_threshold": "5m",
-  "known_pollers": ["my-poller"],
+  "known_pollers": ["default-poller"],
   "metrics": {
     "enabled": true,
     "retention": 100,
@@ -547,7 +569,7 @@ Common issues and solutions:
       - The servername matches the certificate's Common Name (CN)
 
 6. **NATS Connection Issues**
-   - Check NATS Server logs: `sudo cat /var/log/nats/nats.log1
+   - Check NATS Server logs: `sudo cat /var/log/nats/nats.log`
    - Verify the NATS URL in `/etc/serviceradar/kv.json` matches the hostname in `nats-server.pem`.
    - Ensure the client certificates are valid and trusted by the NATS Server.
    - Test the connection using the NATS CLI as shown in the Verification section.
