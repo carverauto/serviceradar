@@ -1,3 +1,20 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -10,6 +27,7 @@ pub struct SecurityConfig {
     pub tls_enabled: bool,
     pub cert_file: Option<String>,
     pub key_file: Option<String>,
+    pub ca_file: Option<String>,
 }
 
 /// Configuration for individual targets to test
@@ -81,8 +99,13 @@ impl Config {
         
         // Check TLS configuration if enabled
         if let Some(security) = &self.security {
-            if security.tls_enabled && (security.cert_file.is_none() || security.key_file.is_none()) {
-                anyhow::bail!("When TLS is enabled, cert_file and key_file are required");
+            if security.tls_enabled {
+                if security.cert_file.is_none() || security.key_file.is_none() {
+                    anyhow::bail!("When TLS is enabled, cert_file and key_file are required");
+                }
+                if security.ca_file.is_none() {
+                    anyhow::bail!("When TLS is enabled, ca_file is required for mTLS");
+                }
             }
         }
         

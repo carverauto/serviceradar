@@ -1,20 +1,45 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 use std::fs;
 use anyhow::{Context, Result};
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
-use tokio::time::Duration;
+use tokio::time::{Duration, timeout};
 use tonic::{Request, Response, Status};
 use tonic::transport::Server;
+use tonic_reflection::server::Builder as ReflectionBuilder;
 
 use crate::config::Config;
 use crate::poller::TargetPoller;
 use crate::rperf::RPerfRunner;
+use crate::server::monitoring::agent_service_server::{AgentService, AgentServiceServer};
+
+const FILE_DESCRIPTOR_SET_RPERF: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/rperf_descriptor.bin"));
+const FILE_DESCRIPTOR_SET_MONITORING: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/monitoring_descriptor.bin"));
 
 pub mod rperf_service {
     tonic::include_proto!("rperf");
+}
+
+pub mod monitoring {
+    tonic::include_proto!("monitoring");
 }
 
 use rperf_service::{
@@ -23,9 +48,9 @@ use rperf_service::{
 };
 
 #[derive(Debug)]
-pub struct RPerfTestOrchestrator { // Was RPerfServer
+pub struct RPerfTestOrchestrator {
     config: Arc<Config>,
-    target_pollers: Arc<Mutex<Vec<TargetPoller>>>,
+    target_pollers: Arc<RwLock<Vec<TargetPoller>>>,
 }
 
 impl RPerfTestOrchestrator {
@@ -37,7 +62,7 @@ impl RPerfTestOrchestrator {
         }
         Ok(Self {
             config,
-            target_pollers: Arc::new(Mutex::new(pollers)),
+            target_pollers: Arc::new(RwLock::new(pollers)),
         })
     }
 
@@ -49,37 +74,52 @@ impl RPerfTestOrchestrator {
 
         let pollers = self.target_pollers.clone();
         let poller_handle = tokio::spawn(async move {
-            // Poller loop remains unchanged
             loop {
-                let mut pollers = pollers.lock().await;
-                for poller in pollers.iter_mut() {
-                    info!("Running scheduled test for target: {}", poller.target_name());
-                    match poller.run_single_test().await {
-                        Ok(result) => {
-                            if result.success {
-                                info!("Test for target '{}' completed: {:.2} Mbps",
-                                poller.target_name(), result.summary.bits_per_second / 1_000_000.0);
-                            } else {
-                                warn!("Test for target '{}' failed: {}",
-                                poller.target_name(), result.error.as_deref().unwrap_or("Unknown error"));
+                {
+                    let mut pollers = pollers.write().await;
+                    for poller in pollers.iter_mut() {
+                        info!("Running scheduled test for target: {}", poller.target_name());
+                        match poller.run_single_test().await {
+                            Ok(result) => {
+                                if result.success {
+                                    info!("Test for target '{}' completed: {:.2} Mbps",
+                                          poller.target_name(), result.summary.bits_per_second / 1_000_000.0);
+                                } else {
+                                    warn!("Test for target '{}' failed: {}",
+                                          poller.target_name(), result.error.as_deref().unwrap_or("Unknown error"));
+                                }
                             }
+                            Err(e) => error!("Error running test for target '{}': {}", poller.target_name(), e),
                         }
-                        Err(e) => error!("Error running test for target '{}': {}", poller.target_name(), e),
                     }
-                    let interval = poller.get_poll_interval();
-                    tokio::time::sleep(interval).await;
                 }
-                tokio::time::sleep(Duration::from_secs(1)).await;
+                let poll_interval = {
+                    let pollers = pollers.read().await;
+                    pollers.iter().map(|p| p.get_poll_interval()).min().unwrap_or(Duration::from_secs(300))
+                };
+                tokio::time::sleep(poll_interval).await;
             }
         });
 
-        let service = RPerfServiceImpl {
+        let service = Arc::new(RPerfServiceImpl {
             target_pollers: self.target_pollers.clone(),
-        };
+        });
+
+        let (mut health_reporter, health_service) = tonic_health::server::health_reporter();
+        health_reporter
+            .set_serving::<RPerfServiceServer<RPerfServiceImpl>>()
+            .await;
+        health_reporter
+            .set_serving::<AgentServiceServer<Arc<RPerfServiceImpl>>>()
+            .await;
+
+        let reflection_service = ReflectionBuilder::configure()
+            .register_encoded_file_descriptor_set(FILE_DESCRIPTOR_SET_RPERF)
+            .register_encoded_file_descriptor_set(FILE_DESCRIPTOR_SET_MONITORING)
+            .build()?;
 
         let mut server_builder = Server::builder();
 
-        // Add TLS if enabled
         if let Some(security) = &self.config.security {
             if security.tls_enabled {
                 let cert = fs::read_to_string(security.cert_file.as_ref().unwrap())
@@ -87,16 +127,33 @@ impl RPerfTestOrchestrator {
                 let key = fs::read_to_string(security.key_file.as_ref().unwrap())
                     .context("Failed to read key file")?;
                 let identity = tonic::transport::Identity::from_pem(cert.as_bytes(), key.as_bytes());
-                server_builder = server_builder.tls_config(tonic::transport::ServerTlsConfig::new().identity(identity))?;
+
+                let ca_cert = fs::read_to_string(security.ca_file.as_ref().unwrap())
+                    .context("Failed to read CA certificate file")?;
+                let ca = tonic::transport::Certificate::from_pem(ca_cert.as_bytes());
+
+                let tls_config = tonic::transport::ServerTlsConfig::new()
+                    .identity(identity)
+                    .client_ca_root(ca);
+                debug!("TLS config created: {:?}", tls_config);
+                server_builder = server_builder.tls_config(tls_config)?;
+                info!("TLS configured with mTLS enabled");
             }
         }
 
         let server_handle = tokio::spawn(async move {
-            server_builder
-                .add_service(RPerfServiceServer::new(service))
+            debug!("Registering services: health, RPerfService, AgentService, reflection");
+            let result = server_builder
+                .add_service(health_service)
+                .add_service(RPerfServiceServer::new(Arc::clone(&service)))
+                .add_service(AgentServiceServer::new(Arc::clone(&service)))
+                .add_service(reflection_service)
                 .serve(addr)
                 .await
-                .context("gRPC server error")?;
+                .context("gRPC server error");
+            debug!("Service registration completed: {:?}", result);
+            result?;
+            info!("gRPC server started successfully on {}", addr);
             Ok::<(), anyhow::Error>(())
         });
 
@@ -109,7 +166,7 @@ impl RPerfTestOrchestrator {
 }
 
 struct RPerfServiceImpl {
-    target_pollers: Arc<Mutex<Vec<TargetPoller>>>,
+    target_pollers: Arc<RwLock<Vec<TargetPoller>>>,
 }
 
 #[tonic::async_trait]
@@ -120,7 +177,6 @@ impl RPerfService for RPerfServiceImpl {
     ) -> Result<Response<TestResponse>, Status> {
         let req = request.into_inner();
         info!("Received test request for {}", req.target_address);
-
         let runner = RPerfRunner::from_grpc_request(req);
         match runner.run_test().await {
             Ok(result) => {
@@ -158,13 +214,158 @@ impl RPerfService for RPerfServiceImpl {
         &self,
         _request: Request<StatusRequest>,
     ) -> Result<Response<StatusResponse>, Status> {
-        let pollers = self.target_pollers.lock().await;
-        let targets_count = pollers.len();
+        let pollers = match timeout(Duration::from_secs(1), self.target_pollers.read()).await {
+            Ok(guard) => guard,
+            Err(_) => {
+                debug!("Timeout acquiring read lock on target_pollers, returning default response");
+                return Ok(Response::new(StatusResponse {
+                    available: true,
+                    version: env!("CARGO_PKG_VERSION").to_string(),
+                    message: "Service is running (status unavailable due to lock timeout)".to_string(),
+                }));
+            }
+        };
+
+        let mut results = Vec::new();
+        for poller in pollers.iter() {
+            if let Some(last_result) = &poller.last_result {
+                let result_json = serde_json::json!({
+                    "target": poller.target_name(),
+                    "success": last_result.success,
+                    "error": last_result.error,
+                    "results_json": last_result.results_json,
+                    "summary": {
+                        "duration": last_result.summary.duration,
+                        "bytes_sent": last_result.summary.bytes_sent,
+                        "bytes_received": last_result.summary.bytes_received,
+                        "bits_per_second": last_result.summary.bits_per_second,
+                        "packets_sent": last_result.summary.packets_sent,
+                        "packets_received": last_result.summary.packets_received,
+                        "packets_lost": last_result.summary.packets_lost,
+                        "loss_percent": last_result.summary.loss_percent,
+                        "jitter_ms": last_result.summary.jitter_ms,
+                    }
+                });
+                results.push(result_json);
+            } else {
+                results.push(serde_json::json!({
+                    "target": poller.target_name(),
+                    "success": false,
+                    "error": "No test results available yet",
+                    "results_json": "",
+                    "summary": serde_json::json!({})
+                }));
+            }
+        }
+
+        let message = serde_json::to_string(&results).unwrap_or_else(|e| {
+            error!("Failed to serialize test results: {}", e);
+            "Service is running but failed to serialize test results".to_string()
+        });
+
         Ok(Response::new(StatusResponse {
             available: true,
             version: env!("CARGO_PKG_VERSION").to_string(),
-            message: format!("Service is running with {} configured targets", targets_count),
+            message,
         }))
+    }
+}
+
+#[tonic::async_trait]
+impl AgentService for RPerfServiceImpl {
+    async fn get_status(
+        &self,
+        request: Request<monitoring::StatusRequest>,
+    ) -> Result<Response<monitoring::StatusResponse>, Status> {
+        let req = request.into_inner();
+        debug!("Received GetStatus request: service_name={}, service_type={}, details={}",
+               req.service_name, req.service_type, req.details);
+        let pollers = match timeout(Duration::from_secs(1), self.target_pollers.read()).await {
+            Ok(guard) => guard,
+            Err(_) => {
+                debug!("Timeout acquiring read lock on target_pollers, returning default response");
+                return Ok(Response::new(monitoring::StatusResponse {
+                    available: true,
+                    message: "Service is running (status unavailable due to lock timeout)".to_string(),
+                    service_name: req.service_name,
+                    service_type: req.service_type,
+                    response_time: 0,
+                }));
+            }
+        };
+
+        let mut results = Vec::new();
+        for poller in pollers.iter() {
+            if let Some(last_result) = &poller.last_result {
+                let result_json = serde_json::json!({
+                    "target": poller.target_name(),
+                    "success": last_result.success,
+                    "error": last_result.error,
+                    "summary": {
+                        "duration": last_result.summary.duration,
+                        "bytes_sent": last_result.summary.bytes_sent,
+                        "bytes_received": last_result.summary.bytes_received,
+                        "bits_per_second": last_result.summary.bits_per_second,
+                        "packets_sent": last_result.summary.packets_sent,
+                        "packets_received": last_result.summary.packets_received,
+                        "packets_lost": last_result.summary.packets_lost,
+                        "loss_percent": last_result.summary.loss_percent,
+                        "jitter_ms": last_result.summary.jitter_ms,
+                    }
+                });
+                results.push(result_json);
+            } else {
+                results.push(serde_json::json!({
+                    "target": poller.target_name(),
+                    "success": false,
+                    "error": "No test results available yet",
+                    "summary": serde_json::json!({})
+                }));
+            }
+        }
+
+        let message = serde_json::to_string(&results).unwrap_or_else(|e| {
+            error!("Failed to serialize test results: {}", e);
+            "Service is running but failed to serialize test results".to_string()
+        });
+
+        Ok(Response::new(monitoring::StatusResponse {
+            available: true,
+            message,
+            service_name: req.service_name,
+            service_type: req.service_type,
+            response_time: 0,
+        }))
+    }
+}
+
+#[tonic::async_trait]
+impl RPerfService for Arc<RPerfServiceImpl> {
+    async fn run_test(
+        &self,
+        request: Request<TestRequest>,
+    ) -> Result<Response<TestResponse>, Status> {
+        (**self).run_test(request).await
+    }
+
+    async fn get_status(
+        &self,
+        request: Request<StatusRequest>,
+    ) -> Result<Response<StatusResponse>, Status> {
+        RPerfService::get_status(&**self, request).await
+    }
+}
+
+#[tonic::async_trait]
+impl AgentService for Arc<RPerfServiceImpl> {
+    async fn get_status(
+        &self,
+        request: Request<monitoring::StatusRequest>,
+    ) -> Result<Response<monitoring::StatusResponse>, Status> {
+        debug!("AgentService::get_status invoked");
+        let response = AgentService::get_status(&**self, request).await;
+        debug!("AgentService::get_status returning: {:?}", response);
+        response
     }
 }
 
@@ -172,14 +373,14 @@ impl RPerfService for RPerfServiceImpl {
 pub struct ServerHandle {
     join_handle: JoinHandle<Result<()>>,
     poller_handle: JoinHandle<()>,
-    pollers: Arc<Mutex<Vec<TargetPoller>>>,
+    pollers: Arc<RwLock<Vec<TargetPoller>>>,
 }
 
 impl ServerHandle {
     pub async fn stop(self) -> Result<()> {
         self.join_handle.abort();
         self.poller_handle.abort();
-        for poller in self.pollers.lock().await.iter_mut() {
+        for poller in self.pollers.write().await.iter_mut() {
             if let Err(e) = poller.stop().await {
                 error!("Error stopping poller for {}: {}", poller.target_name(), e);
             }

@@ -1,0 +1,75 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+syntax = "proto3";
+
+package monitoring;
+
+option go_package = "github.com/carverauto/serviceradar/cmd/checkers/rperf-client/src/proto";
+
+service AgentService {
+  rpc GetStatus(StatusRequest) returns (StatusResponse) {}
+}
+
+service PollerService {
+  rpc ReportStatus(PollerStatusRequest) returns (PollerStatusResponse) {}
+}
+
+message StatusRequest {
+  string service_name = 1;  // Type of service to check (process, port, dusk)
+  string service_type = 2;  // Type of service (process, port, grpc, etc)
+  string details = 3;       // Additional details (e.g., process name)
+  int32 port = 4;          // Port number for port checks
+}
+
+message StatusResponse {
+  bool available = 1;
+  string message = 2; // Raw data as JSON
+  string service_name = 3;
+  string service_type = 4;
+  int64 response_time = 5; // Raw response time in nanoseconds
+}
+
+message PollerStatusRequest {
+  repeated ServiceStatus services = 1;
+  string poller_id = 2;
+  int64 timestamp = 3;
+}
+
+message PollerStatusResponse {
+  bool received = 1;
+}
+
+message ServiceStatus {
+  string service_name = 1;
+  bool available = 2;
+  string message = 3;
+  string service_type = 4;
+  int64 response_time = 5;
+}
+
+message SweepServiceStatus {
+  string network = 1;         // CIDR range being swept
+  int32 total_hosts = 2;      // Total hosts in range
+  int32 available_hosts = 3;  // Number of responding hosts
+  repeated PortStatus ports = 4;
+  int64 last_sweep = 5;       // Timestamp of last sweep
+}
+
+message PortStatus {
+  int32 port = 1;
+  int32 available = 2;        // Number of hosts with this port open
+}
