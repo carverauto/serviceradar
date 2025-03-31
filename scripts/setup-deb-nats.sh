@@ -111,8 +111,8 @@ After=network-online.target ntp.service
 [Service]
 Type=simple
 ExecStart=/usr/bin/nats-server -c /etc/nats/nats-server.conf
-ExecReload=/bin/kill -s HUP $MAINPID
-ExecStop=/bin/kill -s SIGINT $MAINPID
+ExecReload=/bin/kill -s HUP \$MAINPID
+ExecStop=/bin/kill -s SIGINT \$MAINPID
 User=nats
 Group=nats
 Restart=always
