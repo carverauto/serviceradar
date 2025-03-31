@@ -143,3 +143,70 @@ func (*DB) scanMetrics(rows Rows) ([]TimeseriesMetric, error) {
 
 	return metrics, nil
 }
+
+// StoreRperfMetrics stores rperf-checker data as timeseries metrics
+func (db *DB) StoreRperfMetrics(nodeID, serviceName string, message string, timestamp time.Time) error {
+	log.Printf("Processing rperf metrics for node %s, raw message: %s", nodeID, message)
+
+	var rperfData struct {
+		Results []RperfMetric `json:"results"`
+	}
+
+	if err := json.Unmarshal([]byte(message), &rperfData); err != nil {
+		log.Printf("Failed to unmarshal rperf message for node %s: %v", nodeID, err)
+		return fmt.Errorf("failed to unmarshal rperf message: %w", err)
+	}
+
+	log.Printf("Unmarshaled rperf data for node %s: %d results", nodeID, len(rperfData.Results))
+
+	if len(rperfData.Results) == 0 {
+		log.Printf("No rperf results found in message for node %s", nodeID)
+		return nil
+	}
+
+	for i, result := range rperfData.Results {
+		log.Printf("Processing rperf result %d for node %s: %+v", i, nodeID, result)
+		metrics := map[string]struct {
+			Value  string
+			Metric *RperfMetric
+		}{
+			fmt.Sprintf("rperf_%s_bandwidth", result.Target): {
+				Value:  fmt.Sprintf("%.2f", result.BitsPerSec/1e6),
+				Metric: &result,
+			},
+			fmt.Sprintf("rperf_%s_jitter", result.Target): {
+				Value:  fmt.Sprintf("%.2f", result.JitterMs),
+				Metric: &result,
+			},
+			fmt.Sprintf("rperf_%s_loss", result.Target): {
+				Value:  fmt.Sprintf("%.1f", result.LossPercent),
+				Metric: &result,
+			},
+		}
+
+		for metricName, data := range metrics {
+			metadata, err := json.Marshal(data.Metric)
+			if err != nil {
+				log.Printf("Failed to marshal rperf metadata for node %s, metric %s: %v", nodeID, metricName, err)
+				return fmt.Errorf("failed to marshal rperf metadata: %w", err)
+			}
+
+			metric := &TimeseriesMetric{
+				Name:      metricName,
+				Type:      "rperf",
+				Value:     data.Value,
+				Timestamp: timestamp,
+				Metadata:  json.RawMessage(metadata),
+			}
+
+			if err := db.StoreMetric(nodeID, metric); err != nil {
+				log.Printf("Failed to store rperf metric %s for node %s: %v", metricName, nodeID, err)
+				return fmt.Errorf("failed to store rperf metric %s: %w", metricName, err)
+			}
+		}
+	}
+
+	log.Printf("Successfully stored %d rperf metrics for node %s", len(rperfData.Results)*3, nodeID)
+
+	return nil
+}

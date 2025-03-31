@@ -119,8 +119,8 @@ Now that SNMP is enabled and you've got your OIDs, let's plug them into ServiceR
 If you haven't already:
 
 ```bash
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.27/serviceradar-snmp-checker_1.0.27.deb
-sudo dpkg -i serviceradar-snmp-checker_1.0.27.deb
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.28/serviceradar-snmp-checker_1.0.28.deb
+sudo dpkg -i serviceradar-snmp-checker_1.0.28.deb
 ```
 
 ## Edit the Configuration
