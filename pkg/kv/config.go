@@ -81,8 +81,6 @@ func (c *Config) normalizeCertPaths() {
 	// Always normalize ClientCAFile if it's set and relative
 	if tls.ClientCAFile != "" && !filepath.IsAbs(tls.ClientCAFile) {
 		tls.ClientCAFile = filepath.Join(certDir, tls.ClientCAFile)
-
-		log.Printf("Normalized ClientCAFile to: %s", tls.ClientCAFile)
 	} else if tls.ClientCAFile == "" {
 		tls.ClientCAFile = tls.CAFile // Fallback to CAFile if unset
 
