@@ -424,7 +424,8 @@ rpm-web: rpm-prep ## Build the web RPM package
 	@docker rm temp-web-container
 
 .PHONY: rpm-all
-rpm-all: rpm-core rpm-web rpm-agent rpm-poller rpm-nats rpm-snmp rpm-rperf-checker rpm-rperf ## Build all RPM packages
+#rpm-all: rpm-core rpm-web rpm-agent rpm-poller rpm-nats rpm-snmp rpm-rperf-checker rpm-rperf ## Build all RPM packages
+rpm-all: rpm-core rpm-web rpm-agent rpm-poller rpm-nats rpm-snmp rpm-kv rpm-sync
 	@echo "$(COLOR_BOLD)All RPM packages built$(COLOR_RESET)"
 
 # Docusaurus commands
