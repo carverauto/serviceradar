@@ -163,14 +163,10 @@ func loadClientCredentials(config *models.SecurityConfig) (credentials.Transport
 	keyPath := config.TLS.KeyFile
 	caPath := config.TLS.CAFile
 
-	log.Printf("Loading client certificate from %s and key from %s", certPath, keyPath)
-
 	cert, err := tls.LoadX509KeyPair(certPath, keyPath)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errFailedToLoadClientCert, err)
 	}
-
-	log.Printf("Loading client CA certificate from %s", caPath)
 
 	caCert, err := os.ReadFile(caPath)
 	if err != nil {
