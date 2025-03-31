@@ -7,7 +7,7 @@ authors = ["Michael Freeman <mfreeman451@gmail.com>"]
 license = "Apache-2.0"
 
 [dependencies]
-chrono = "0.4"  # Add this line
+chrono = "0.4"
 rperf = "0.1.17"
 tokio = { version = "1.28", features = ["full"] }
 prost = "0.11"
