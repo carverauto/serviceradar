@@ -111,8 +111,8 @@ After=network-online.target ntp.service
 [Service]
 Type=simple
 ExecStart=/usr/bin/nats-server -c /etc/nats/nats-server.conf
-ExecReload=/bin/kill -s HUP \$MAINPID
-ExecStop=/bin/kill -s SIGINT \$MAINPID
+ExecReload=/bin/kill -s HUP $MAINPID
+ExecStop=/bin/kill -s SIGINT $MAINPID
 User=nats
 Group=nats
 Restart=always
@@ -120,6 +120,29 @@ RestartSec=5
 KillSignal=SIGUSR2
 LimitNOFILE=800000
 
+# Security hardening
+CapabilityBoundingSet=
+LockPersonality=true
+MemoryDenyWriteExecute=true
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+PrivateUsers=true
+ProcSubset=pid
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHome=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectSystem=strict
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+SystemCallFilter=@system-service ~@privileged ~@resources
+UMask=0077
 ReadWritePaths=/var/lib/nats /var/log/nats
 
 [Install]
