@@ -52,7 +52,7 @@ type SNMPMetric struct {
 	IsDelta   bool        `json:"is_delta"`
 }
 
-// RperfMetric represents an rperf metric to be stored
+// RperfMetric represents an rperf metric to be stored.
 type RperfMetric struct {
 	Target      string  `json:"target"`
 	Success     bool    `json:"success"`

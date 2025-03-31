@@ -533,77 +533,89 @@ func (s *Server) processServices(pollerID string, apiStatus *api.NodeStatus, ser
 	allServicesAvailable := true
 
 	for _, svc := range services {
-		log.Printf("Processing service %s for node %s", svc.ServiceName, pollerID)
-		log.Printf("Service type/name: %s/%s, Message length: %d",
-			svc.ServiceType,
-			svc.ServiceName,
-			len(svc.Message))
+		s.logServiceProcessing(pollerID, svc)
 
-		apiService := api.ServiceStatus{
-			Name:      svc.ServiceName,
-			Type:      svc.ServiceType,
-			Available: svc.Available,
-			Message:   svc.Message,
-		}
+		apiService := s.createAPIService(svc)
 
 		if !svc.Available {
 			allServicesAvailable = false
 		}
 
-		if svc.Message == "" {
-			log.Printf("No message content for service %s", svc.ServiceName)
-
-			if err := s.handleService(pollerID, &apiService, now); err != nil {
-				log.Printf("Error handling service %s: %v", svc.ServiceName, err)
-			}
-
-			apiStatus.Services = append(apiStatus.Services, apiService)
-
-			continue // Skip to the next service
-		}
-
-		var details json.RawMessage // Declare details here, outside the if block
-
-		if err := json.Unmarshal([]byte(svc.Message), &details); err != nil {
-			log.Printf("Error unmarshaling service details for %s: %v", svc.ServiceName, err)
-			log.Printf("Raw message: %s", svc.Message)
-
-			log.Println("Invalid JSON format, skipping service, calling handleService")
-			if err := s.handleService(pollerID, &apiService, now); err != nil {
-				log.Printf("Error handling service %s: %v", svc.ServiceName, err)
-			}
-
-			apiStatus.Services = append(apiStatus.Services, apiService)
-
-			continue // Skip to the next service
-		}
-
-		apiService.Details = details // Now details is in scope
-
-		if svc.ServiceType == "snmp" {
-			log.Printf("Found SNMP service, attempting to process metrics for node %s", pollerID)
-
-			if err := s.processSNMPMetrics(pollerID, details, now); err != nil { // details is also available here
-				log.Printf("Error processing SNMP metrics for node %s: %v", pollerID, err)
-			}
-		}
-
-		// Handle rperf-checker metrics
-		if svc.ServiceType == "grpc" && svc.ServiceName == "rperf-checker" {
-			log.Printf("Found rperf-checker service, attempting to process metrics for node %s", pollerID)
-			if err := s.db.StoreRperfMetrics(pollerID, svc.ServiceName, svc.Message, now); err != nil {
-				log.Printf("Error processing rperf metrics for node %s: %v", pollerID, err)
-			}
-		}
-
-		if err := s.handleService(pollerID, &apiService, now); err != nil {
-			log.Printf("Error handling service %s: %v", svc.ServiceName, err)
+		if err := s.processServiceDetails(pollerID, &apiService, svc, now); err != nil {
+			log.Printf("Error processing service %s: %v", svc.ServiceName, err)
 		}
 
 		apiStatus.Services = append(apiStatus.Services, apiService)
 	}
 
 	apiStatus.IsHealthy = allServicesAvailable
+}
+
+func (*Server) logServiceProcessing(pollerID string, svc *proto.ServiceStatus) {
+	log.Printf("Processing service %s for node %s", svc.ServiceName, pollerID)
+	log.Printf("Service type/name: %s/%s, Message length: %d",
+		svc.ServiceType,
+		svc.ServiceName,
+		len(svc.Message))
+}
+
+func (*Server) createAPIService(svc *proto.ServiceStatus) api.ServiceStatus {
+	return api.ServiceStatus{
+		Name:      svc.ServiceName,
+		Type:      svc.ServiceType,
+		Available: svc.Available,
+		Message:   svc.Message,
+	}
+}
+
+func (s *Server) processServiceDetails(pollerID string, apiService *api.ServiceStatus, svc *proto.ServiceStatus, now time.Time) error {
+	if svc.Message == "" {
+		log.Printf("No message content for service %s", svc.ServiceName)
+
+		return s.handleService(pollerID, apiService, now)
+	}
+
+	details, err := s.parseServiceDetails(svc)
+	if err != nil {
+		return s.handleService(pollerID, apiService, now)
+	}
+
+	apiService.Details = details
+
+	if err := s.processSpecializedMetrics(pollerID, svc, details, now); err != nil {
+		return err
+	}
+
+	return s.handleService(pollerID, apiService, now)
+}
+
+func (*Server) parseServiceDetails(svc *proto.ServiceStatus) (json.RawMessage, error) {
+	var details json.RawMessage
+	if err := json.Unmarshal([]byte(svc.Message), &details); err != nil {
+		log.Printf("Error unmarshaling service details for %s: %v", svc.ServiceName, err)
+		log.Printf("Raw message: %s", svc.Message)
+		log.Println("Invalid JSON format, skipping service details")
+
+		return nil, err
+	}
+
+	return details, nil
+}
+
+func (s *Server) processSpecializedMetrics(pollerID string, svc *proto.ServiceStatus, details json.RawMessage, now time.Time) error {
+	if svc.ServiceType == "snmp" {
+		log.Printf("Found SNMP service, attempting to process metrics for node %s", pollerID)
+
+		return s.processSNMPMetrics(pollerID, details, now)
+	}
+
+	if svc.ServiceType == "grpc" && svc.ServiceName == "rperf-checker" {
+		log.Printf("Found rperf-checker service, attempting to process metrics for node %s", pollerID)
+
+		return s.db.StoreRperfMetrics(pollerID, svc.ServiceName, svc.Message, now)
+	}
+
+	return nil
 }
 
 // processSNMPMetrics extracts and stores SNMP metrics from service details.
