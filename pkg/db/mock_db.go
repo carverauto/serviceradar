@@ -583,6 +583,20 @@ func (mr *MockServiceMockRecorder) StoreMetric(nodeID, metric any) *gomock.Call 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreMetric", reflect.TypeOf((*MockService)(nil).StoreMetric), nodeID, metric)
 }
 
+// StoreRperfMetrics mocks base method.
+func (m *MockService) StoreRperfMetrics(nodeID, serviceName, message string, timestamp time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "StoreRperfMetrics", nodeID, serviceName, message, timestamp)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// StoreRperfMetrics indicates an expected call of StoreRperfMetrics.
+func (mr *MockServiceMockRecorder) StoreRperfMetrics(nodeID, serviceName, message, timestamp any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreRperfMetrics", reflect.TypeOf((*MockService)(nil).StoreRperfMetrics), nodeID, serviceName, message, timestamp)
+}
+
 // StoreUser mocks base method.
 func (m *MockService) StoreUser(user *models.User) error {
 	m.ctrl.T.Helper()

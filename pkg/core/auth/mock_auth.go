@@ -58,7 +58,7 @@ func (mr *MockAuthServiceMockRecorder) BeginOAuth(ctx, provider any) *gomock.Cal
 }
 
 // CompleteOAuth mocks base method.
-func (m *MockAuthService) CompleteOAuth(ctx context.Context, provider string, user goth.User) (*models.Token, error) {
+func (m *MockAuthService) CompleteOAuth(ctx context.Context, provider string, user *goth.User) (*models.Token, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CompleteOAuth", ctx, provider, user)
 	ret0, _ := ret[0].(*models.Token)
