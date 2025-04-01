@@ -83,11 +83,11 @@ func NewServer(ctx context.Context, configDir string, cfg *ServerConfig) (*Serve
 }
 
 // setupKVStore configures the KV store if enabled by KVAddress and KVSecurity.
-func setupKVStore(ctx context.Context, cfgLoader *config.Config, cfg *ServerConfig) (*grpcKVStore, error) {
+func setupKVStore(ctx context.Context, cfgLoader *config.Config, cfg *ServerConfig) (KVStore, error) {
 	if cfg.KVAddress == "" {
 		log.Printf("KVAddress not set, skipping KV store setup")
 
-		return nil, nil // KV store not configured
+		return nil, nil
 	}
 
 	clientCfg := grpc.ClientConfig{
@@ -95,7 +95,6 @@ func setupKVStore(ctx context.Context, cfgLoader *config.Config, cfg *ServerConf
 		MaxRetries: 3,
 	}
 
-	// Use KVSecurity if provided, otherwise fall back to Security
 	securityConfig := cfg.Security
 	if cfg.KVSecurity != nil {
 		securityConfig = cfg.KVSecurity
@@ -117,20 +116,24 @@ func setupKVStore(ctx context.Context, cfgLoader *config.Config, cfg *ServerConf
 		return nil, fmt.Errorf("failed to create KV gRPC client: %w", err)
 	}
 
-	defer func() {
-		if err != nil {
-			if closeErr := client.Close(); closeErr != nil {
-				log.Printf("Failed to close KV gRPC client: %v", closeErr)
-			}
-		}
-	}()
-
 	kvStore := &grpcKVStore{
 		client: proto.NewKVServiceClient(client.GetConnection()),
 		conn:   client,
 	}
 
-	cfgLoader.SetKVStore(kvStore) // Enable KV for all configs (checkers and sweep)
+	// Verify client is non-nil
+	if kvStore.client == nil {
+		err := client.Close()
+		if err != nil {
+			log.Printf("Error closing client: %v", err)
+
+			return nil, err
+		}
+
+		return nil, fmt.Errorf("failed to initialize KV service client")
+	}
+
+	cfgLoader.SetKVStore(kvStore)
 
 	return kvStore, nil
 }
@@ -169,35 +172,33 @@ func (s *Server) loadConfigurations(ctx context.Context, cfgLoader *config.Confi
 func (s *Server) tryLoadFromKV(ctx context.Context, kvPath string, sweepConfig *SweepConfig) (Service, error) {
 	if s.kvStore == nil {
 		log.Printf("KV store not initialized, skipping KV fetch for sweep config")
-
 		return nil, nil
 	}
 
 	value, found, err := s.kvStore.Get(ctx, kvPath)
 	if err != nil {
 		log.Printf("Failed to get sweep config from KV %s: %v", kvPath, err)
-
 		return nil, err
 	}
 
 	if !found {
+		log.Printf("Sweep config not found in KV at %s", kvPath)
 		return nil, nil
 	}
 
 	if err = json.Unmarshal(value, sweepConfig); err != nil {
 		log.Printf("Failed to unmarshal sweep config from KV %s: %v", kvPath, err)
-
 		return nil, err
 	}
 
 	log.Printf("Loaded sweep config from KV: %s", kvPath)
 
-	service, err := s.createSweepService(sweepConfig) // Unpack the tuple
+	service, err := s.createSweepService(sweepConfig)
 	if err != nil {
-		return nil, err // Propagate the error if service creation fails
+		return nil, fmt.Errorf("failed to create sweep service from KV config: %w", err)
 	}
 
-	return service, nil // Return the service and a nil error
+	return service, nil
 }
 
 // loadSweepService loads and initializes the sweep service.

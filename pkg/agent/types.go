@@ -24,7 +24,6 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/checker"
 	"github.com/carverauto/serviceradar/pkg/grpc"
-	"github.com/carverauto/serviceradar/pkg/kv"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/scan"
 	"github.com/carverauto/serviceradar/proto"
@@ -43,7 +42,7 @@ type Server struct {
 	done         chan struct{}
 	config       *ServerConfig
 	connections  map[string]*CheckerConnection
-	kvStore      kv.KVStore
+	kvStore      KVStore
 }
 type Duration time.Duration
 

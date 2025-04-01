@@ -21,6 +21,8 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
+	"strconv"
 	"sync"
 	"time"
 
@@ -67,13 +69,29 @@ func NewExternalChecker(
 		return nil, errAddressRequired
 	}
 
+	// Validate address format using net.SplitHostPort
+	host, portStr, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, fmt.Errorf("invalid address format: %s (expected host:port): %w", address, err)
+	}
+
+	// Ensure host is non-empty
+	if host == "" {
+		return nil, fmt.Errorf("invalid address format: %s (host cannot be empty)", address)
+	}
+
+	// Validate port as an integer between 1 and 65535
+	port, err := strconv.Atoi(portStr)
+	if err != nil || port < 1 || port > 65535 {
+		return nil, fmt.Errorf("invalid port in address %s: port must be an integer between 1 and 65535", address)
+	}
+
 	// Create SecurityProvider once during checker creation
 	provider, err := ggrpc.NewSecurityProvider(ctx, security)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create security provider: %w", err)
 	}
 
-	// Configure client options, but don’t connect yet
 	clientCfg := ggrpc.ClientConfig{
 		Address:          address,
 		MaxRetries:       maxRetries,
@@ -85,10 +103,10 @@ func NewExternalChecker(
 		serviceType:         serviceType,
 		address:             address,
 		clientConfig:        clientCfg,
-		grpcClient:          nil, // Defer connection to Check
+		grpcClient:          nil,
 		healthCheckInterval: initialHealthInterval,
 		lastHealthCheck:     time.Time{},
-		healthStatus:        false, // Assume unhealthy until proven otherwise
+		healthStatus:        false,
 	}
 
 	log.Printf("Successfully configured external checker name=%s type=%s", serviceName, serviceType)
