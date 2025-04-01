@@ -1,6 +1,6 @@
 {
   "node_address": "<changeme - agent address>:50051",
-  "listen_addr": ":50054",
+  "listen_addr": ":50080",
   "security": {
     "server_name": "changeme",
     "mode": "mtls",
