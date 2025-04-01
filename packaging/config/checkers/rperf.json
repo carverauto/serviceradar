@@ -1,5 +1,5 @@
 {
-  "listen_addr": "changeme:50059",
+  "listen_addr": "changeme:50081",
   "name": "rperf-checker",
   "type": "grpc",
   "timeout": "30s",
