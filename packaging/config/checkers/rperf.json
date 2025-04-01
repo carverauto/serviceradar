@@ -32,6 +32,7 @@
     {
       "name": "Local UDP Test",
       "address": "127.0.0.1",
+      "udp_port_pool": "5200-5210",
       "port": 5199,
       "protocol": "udp",
       "reverse": false,
