@@ -439,11 +439,6 @@ func (s *Server) connectToChecker(ctx context.Context, checkerConfig *CheckerCon
 	}, nil
 }
 
-var (
-	errNoSweepService = errors.New("no sweep service available for ICMP check")
-	errICMPCheck      = errors.New("ICMP check failed")
-)
-
 func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
 	log.Printf("Received status request: %+v", req)
 
@@ -569,6 +564,7 @@ func (s *Server) loadCheckerConfigs(ctx context.Context, cfgLoader *config.Confi
 		}
 
 		s.checkerConfs[conf.Name] = conf
+
 		log.Printf("Loaded checker config: %s (type: %s)", conf.Name, conf.Type)
 	}
 
@@ -606,6 +602,7 @@ func (s *Server) getChecker(ctx context.Context, req *proto.StatusRequest) (chec
 	}
 
 	details := req.GetDetails()
+
 	log.Printf("Creating new checker with details: %s", details)
 
 	check, err := s.registry.Get(ctx, req.ServiceType, req.ServiceName, details, s.config.Security)
@@ -616,6 +613,7 @@ func (s *Server) getChecker(ctx context.Context, req *proto.StatusRequest) (chec
 	}
 
 	s.checkers[key] = check
+
 	log.Printf("Cached new checker for key: %s", key)
 
 	return check, nil
