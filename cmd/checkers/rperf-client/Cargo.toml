@@ -8,7 +8,7 @@ license = "Apache-2.0"
 
 [dependencies]
 chrono = "0.4"
-rperf = "0.1.17"
+rperf = "0.1.18"
 tokio = { version = "1.28", features = ["full"] }
 prost = "0.11"
 serde = { version = "1.0", features = ["derive"] }
