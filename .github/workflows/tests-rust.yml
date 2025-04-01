@@ -1,0 +1,20 @@
+# .github/workflows/tests-rust.yml
+name: Rust Tests
+on: [push]
+permissions:
+  contents: write
+
+jobs:
+  test-rust:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      - name: Run Rust Tests
+        run: |
+          cd cmd/checkers/rperf-client && cargo test

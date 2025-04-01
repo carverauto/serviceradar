@@ -1,0 +1,22 @@
+# .github/workflows/tests-golang.yml
+name: Golang Tests
+on: [push]
+permissions:
+  contents: write
+
+jobs:
+  test-go:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Run Go Tests
+        run: |
+          go test -timeout=3s -race -count=10 -failfast -shuffle=on -short ./... -coverprofile=./cover.short.profile -covermode=atomic -coverpkg=./...
+          go test -timeout=10s -race -count=1 -failfast -shuffle=on ./... -coverprofile=./cover.long.profile -covermode=atomic -coverpkg=./...
+        env:
+          GOFLAGS: "-tags=ci"
