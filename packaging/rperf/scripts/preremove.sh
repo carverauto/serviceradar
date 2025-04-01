@@ -14,18 +14,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Pre-removal script for ServiceRadar SNMP Checker
+# Pre-removal script for ServiceRadar RPerf Server
 set -e
 
 # Stop and disable the service
-if systemctl is-active --quiet serviceradar-snmp-checker; then
-    echo "Stopping serviceradar-snmp-checker service..."
-    systemctl stop serviceradar-snmp-checker
+if systemctl is-active --quiet serviceradar-rperf; then
+    echo "Stopping serviceradar-rperf service..."
+    systemctl stop serviceradar-rperf
 fi
 
-if systemctl is-enabled --quiet serviceradar-snmp-checker; then
-    echo "Disabling serviceradar-snmp-checker service..."
-    systemctl disable serviceradar-snmp-checker
+if systemctl is-enabled --quiet serviceradar-rperf; then
+    echo "Disabling serviceradar-rperf service..."
+    systemctl disable serviceradar-rperf
 fi
 
 echo "Pre-removal cleanup completed."

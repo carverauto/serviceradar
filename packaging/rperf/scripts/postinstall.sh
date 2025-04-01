@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Post-install script for ServiceRadar SNMP Checker
+# Post-install script for ServiceRadar RPerf Server
 set -e
 
 # Create serviceradar user if it doesn't exist
@@ -29,15 +29,15 @@ mkdir -p /etc/serviceradar/checkers
 # Set proper ownership and permissions
 chown -R serviceradar:serviceradar /etc/serviceradar/checkers
 chown -R serviceradar:serviceradar /var/lib/serviceradar
-chmod 755 /usr/local/bin/serviceradar-snmp-checker
-chmod 644 /etc/serviceradar/checkers/snmp.json
+chmod 755 /usr/local/bin/serviceradar-rperf
+chmod 644 /etc/serviceradar/rperf/rperf.conf
 
 # Enable and start the service
 systemctl daemon-reload
-systemctl enable serviceradar-snmp-checker
-if ! systemctl start serviceradar-snmp-checker; then
-    echo "WARNING: Failed to start serviceradar-snmp-checker service. Please check the logs."
-    echo "Run: journalctl -u serviceradar-snmp-checker.service"
+systemctl enable serviceradar-rperf
+if ! systemctl start serviceradar-rperf; then
+    echo "WARNING: Failed to start serviceradar-rperf service. Please check the logs."
+    echo "Run: journalctl -u serviceradar-rperf.service"
 fi
 
 # Configure SELinux if it's enabled
@@ -45,8 +45,8 @@ if command -v getenforce >/dev/null 2>&1 && [ "$(getenforce)" != "Disabled" ]; t
     echo "Configuring SELinux policies..."
     # Set correct context for binary
     if command -v restorecon >/dev/null 2>&1; then
-        restorecon -v /usr/local/bin/serviceradar-snmp-checker
+        restorecon -v /usr/local/bin/serviceradar-rperf
     fi
 fi
 
-echo "ServiceRadar SNMP Checker installed successfully!"
+echo "ServiceRadar RPerf Server installed successfully!"
