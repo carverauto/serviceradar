@@ -25,7 +25,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/kv"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/scan"
 	"github.com/carverauto/serviceradar/pkg/sweeper"
@@ -41,7 +40,7 @@ type SweepService struct {
 }
 
 // NewSweepService creates a new SweepService.
-func NewSweepService(config *models.Config, kvStore kv.KVStore, configKey string) (Service, error) {
+func NewSweepService(config *models.Config, kvStore KVStore, configKey string) (Service, error) {
 	config = applyDefaultConfig(config)
 	processor := sweeper.NewBaseProcessor(config)
 	store := sweeper.NewInMemoryStore(processor)

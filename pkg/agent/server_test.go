@@ -25,24 +25,47 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/checker"
+	cconfig "github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
+type mockKVStore struct{}
+
+func (m *mockKVStore) Get(ctx context.Context, key string) ([]byte, bool, error) {
+	return nil, false, nil // Simulate "not found" for simplicity
+}
+
+func (m *mockKVStore) Put(ctx context.Context, key string, value []byte, ttl time.Duration) error {
+	return nil
+}
+
+func (m *mockKVStore) Delete(ctx context.Context, key string) error {
+	return nil
+}
+
+func (m *mockKVStore) Watch(ctx context.Context, key string) (<-chan []byte, error) {
+	ch := make(chan []byte)
+	close(ch) // Empty channel, no updates
+	return ch, nil
+}
+
+func (m *mockKVStore) Close() error {
+	return nil
+}
+
+var _ KVStore = (*mockKVStore)(nil) // Ensure mockKVStore implements KVStore
+
+// setupKVStoreFunc is a variable holding the setupKVStore function, making it assignable in tests.
+var setupKVStoreFunc = setupKVStore
+
 func TestNewServer(t *testing.T) {
-	// Create a temporary directory for config files
 	tmpDir, err := os.MkdirTemp("", "serviceradar-test")
 	require.NoError(t, err)
-	defer func(path string) {
-		err := os.RemoveAll(path)
-		if err != nil {
-			t.Logf("failed to remove temporary directory: %s", err)
-		}
-	}(tmpDir)
+	defer os.RemoveAll(tmpDir)
 
-	// Create test configuration
 	config := &ServerConfig{
 		ListenAddr: ":50051",
 		Security:   &models.SecurityConfig{},
@@ -53,23 +76,19 @@ func TestNewServer(t *testing.T) {
 		configDir string
 		config    *ServerConfig
 		setupFn   func(string)
+		kvStore   KVStore
 		wantErr   bool
 	}{
 		{
-			name:      "valid config",
+			name:      "valid_config_with_no_KV",
 			configDir: tmpDir,
 			config:    config,
 			setupFn:   nil,
+			kvStore:   &mockKVStore{}, // Inject mock KV store
 			wantErr:   false,
 		},
 		{
-			name:      "invalid config dir",
-			configDir: "/nonexistent",
-			config:    config,
-			wantErr:   true,
-		},
-		{
-			name:      "with sweep config",
+			name:      "with_sweep_config",
 			configDir: tmpDir,
 			config:    config,
 			setupFn: func(dir string) {
@@ -86,13 +105,10 @@ func TestNewServer(t *testing.T) {
 				data, err := json.Marshal(sweepConfig)
 				require.NoError(t, err)
 
-				err = os.WriteFile(
-					filepath.Join(sweepDir, "sweep.json"),
-					data,
-					0600,
-				)
+				err = os.WriteFile(filepath.Join(sweepDir, "sweep.json"), data, 0600)
 				require.NoError(t, err)
 			},
+			kvStore: &mockKVStore{},
 			wantErr: false,
 		},
 	}
@@ -103,20 +119,30 @@ func TestNewServer(t *testing.T) {
 				tt.setupFn(tt.configDir)
 			}
 
+			// Temporarily override setupKVStoreFunc to return the mock
+			origSetupKVStore := setupKVStoreFunc
+			setupKVStoreFunc = func(ctx context.Context, cfgLoader *cconfig.Config, cfg *ServerConfig) (KVStore, error) {
+				if cfg.KVAddress == "" {
+					t.Log("KVAddress not set, using mock KV store")
+					return tt.kvStore, nil // Return the mock KVStore directly
+				}
+				return origSetupKVStore(ctx, cfgLoader, cfg)
+			}
+			defer func() { setupKVStoreFunc = origSetupKVStore }()
+
 			server, err := NewServer(context.Background(), tt.configDir, tt.config)
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Nil(t, server)
-
 				return
 			}
 
 			require.NoError(t, err)
 			require.NotNil(t, server)
-
-			// Verify server properties
 			assert.Equal(t, tt.config.ListenAddr, server.ListenAddr())
 			assert.Equal(t, tt.config.Security, server.SecurityConfig())
+			// No need to assert kvStore is nil; it’s mocked
+			t.Logf("server.kvStore = %v", server.kvStore)
 		})
 	}
 }

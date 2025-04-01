@@ -14,6 +14,8 @@ type grpcKVStore struct {
 	conn   *grpc.Client
 }
 
+var _ KVStore = (*grpcKVStore)(nil) // Ensure grpcKVStore implements KVStore
+
 func (g *grpcKVStore) Get(ctx context.Context, key string) (value []byte, found bool, err error) {
 	resp, err := g.client.Get(ctx, &proto.GetRequest{Key: key})
 	if err != nil {
