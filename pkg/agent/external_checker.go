@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -33,6 +34,12 @@ type ExternalChecker struct {
 	healthStatus        bool               // Last known health status
 }
 
+var (
+	errAddressRequired               = fmt.Errorf("address is required for external checker")
+	errFailedToCloseSecurityProvider = errors.New("failed to close security provider")
+	errFailedToCloseClient           = errors.New("failed to close client")
+)
+
 func NewExternalChecker(
 	ctx context.Context,
 	serviceName, serviceType, address string,
@@ -41,7 +48,7 @@ func NewExternalChecker(
 	log.Printf("Configuring new external checker name=%s type=%s at %s", serviceName, serviceType, address)
 
 	if address == "" {
-		return nil, fmt.Errorf("address is required for external checker")
+		return nil, errAddressRequired
 	}
 
 	// Create SecurityProvider once during checker creation
@@ -69,17 +76,21 @@ func NewExternalChecker(
 	}
 
 	log.Printf("Successfully configured external checker name=%s type=%s", serviceName, serviceType)
+
 	return checker, nil
 }
 
-func (e *ExternalChecker) Check(ctx context.Context) (bool, string) {
+func (e *ExternalChecker) Check(ctx context.Context) (healthy bool, details string) {
 	// Use RLock initially to check cached health status
 	if e.canUseCachedStatus() {
 		log.Printf("ExternalChecker %s: Using cached health status: %v", e.serviceName, e.healthStatus)
+
 		if !e.healthStatus {
-			return false, "Service unhealthy (cached status)"
+			healthy = false
+			details = "Service unhealthy (cached status)"
+
+			return healthy, details
 		}
-		// Proceed to get details if healthy
 	}
 
 	// Lock for connection management and health check
@@ -89,23 +100,38 @@ func (e *ExternalChecker) Check(ctx context.Context) (bool, string) {
 	// Ensure the client is connected
 	if err := e.ensureConnected(ctx); err != nil {
 		e.updateHealthStatus(false)
+
 		log.Printf("ExternalChecker %s: Connection failed: %v", e.serviceName, err)
-		return false, fmt.Sprintf("Failed to connect: %v", err)
+
+		healthy = false
+		details = fmt.Sprintf("Failed to connect: %v", err)
+
+		return healthy, details
 	}
 
 	// Perform health check with retry logic
 	healthy, err := e.performHealthCheck(ctx)
 	if err != nil || !healthy {
 		e.updateHealthStatus(false)
+
 		log.Printf("ExternalChecker %s: Health check failed (Healthy: %v, Err: %v)", e.serviceName, healthy, err)
+
 		if err != nil {
-			return false, fmt.Sprintf("Health check failed: %v", err)
+			healthy = false
+			details = fmt.Sprintf("Health check failed: %v", err)
+
+			return healthy, details
 		}
-		return false, "Service reported unhealthy"
+
+		healthy = false
+		details = "Service reported unhealthy"
+
+		return healthy, details
 	}
 
 	// Update health status on success
 	e.updateHealthStatus(true)
+
 	log.Printf("ExternalChecker %s: Health check succeeded", e.serviceName)
 
 	// Optionally fetch detailed status
@@ -114,6 +140,7 @@ func (e *ExternalChecker) Check(ctx context.Context) (bool, string) {
 
 func (e *ExternalChecker) canUseCachedStatus() bool {
 	now := time.Now()
+
 	return !e.lastHealthCheck.IsZero() && now.Sub(e.lastHealthCheck) < e.healthCheckInterval
 }
 
@@ -124,26 +151,35 @@ func (e *ExternalChecker) ensureConnected(ctx context.Context) error {
 		if healthy && err == nil {
 			return nil
 		}
+
 		// Close the unhealthy client
 		log.Printf("ExternalChecker %s: Closing unhealthy client", e.serviceName)
+
 		if err := e.grpcClient.Close(); err != nil {
 			log.Printf("ExternalChecker %s: Error closing client: %v", e.serviceName, err)
 		}
+
 		e.grpcClient = nil
 	}
 
 	// Retry connection with backoff
 	var lastErr error
+
 	delay := initialRetryDelay
+
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		log.Printf("ExternalChecker %s: Connecting to %s (attempt %d/%d)", e.serviceName, e.address, attempt+1, maxRetries)
+
 		client, err := ggrpc.NewClient(ctx, e.clientConfig)
 		if err == nil {
 			e.grpcClient = client
 			log.Printf("ExternalChecker %s: Connected successfully", e.serviceName)
+
 			return nil
 		}
+
 		lastErr = err
+
 		log.Printf("ExternalChecker %s: Connection attempt %d failed: %v", e.serviceName, attempt+1, err)
 
 		if attempt < maxRetries-1 {
@@ -155,6 +191,7 @@ func (e *ExternalChecker) ensureConnected(ctx context.Context) error {
 			}
 		}
 	}
+
 	return fmt.Errorf("failed to connect after %d attempts: %w", maxRetries, lastErr)
 }
 
@@ -163,10 +200,11 @@ func (e *ExternalChecker) performHealthCheck(ctx context.Context) (bool, error) 
 	if err != nil {
 		return false, fmt.Errorf("health check failed: %w", err)
 	}
+
 	return healthy, nil
 }
 
-func (e *ExternalChecker) getServiceDetails(ctx context.Context) (bool, string) {
+func (e *ExternalChecker) getServiceDetails(ctx context.Context) (healthy bool, details string) {
 	agentClient := proto.NewAgentServiceClient(e.grpcClient.GetConnection())
 	start := time.Now()
 
@@ -176,16 +214,24 @@ func (e *ExternalChecker) getServiceDetails(ctx context.Context) (bool, string) 
 	})
 	if err != nil {
 		log.Printf("ExternalChecker %s: Failed to get status details: %v", e.serviceName, err)
-		return true, "Service healthy but status details unavailable"
+
+		return false, fmt.Sprintf(`{"error": "Failed to get status: %v"}`, err)
 	}
 
 	responseTime := time.Since(start).Nanoseconds()
-	return true, fmt.Sprintf(`{"status": %q, "response_time": %d}`, status.Message, responseTime)
+
+	// Use the Available field from the StatusResponse to determine health
+	healthy = status.Available
+	details = fmt.Sprintf(`{"status": %q, "response_time": %d, "available": %t}`,
+		status.Message, responseTime, status.Available)
+
+	return healthy, details
 }
 
 func (e *ExternalChecker) updateHealthStatus(healthy bool) {
 	e.healthStatus = healthy
 	e.lastHealthCheck = time.Now()
+
 	if healthy {
 		e.healthCheckInterval = initialHealthInterval
 	} else {
@@ -198,20 +244,24 @@ func (e *ExternalChecker) Close() error {
 	defer e.clientMu.Unlock()
 
 	var errs []error
+
 	if e.grpcClient != nil {
 		if err := e.grpcClient.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("failed to close client: %w", err))
 		}
+
 		e.grpcClient = nil
 	}
+
 	if e.clientConfig.SecurityProvider != nil {
 		if err := e.clientConfig.SecurityProvider.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("failed to close security provider: %w", err))
+			errs = append(errs, fmt.Errorf("%w - %w", errFailedToCloseSecurityProvider, err))
 		}
 	}
 
 	if len(errs) > 0 {
-		return fmt.Errorf("errors during close: %v", errs)
+		return fmt.Errorf("%w: %v", errFailedToCloseClient, errs)
 	}
+
 	return nil
 }

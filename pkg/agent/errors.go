@@ -28,4 +28,6 @@ var (
 	errInvalidDuration      = errors.New("invalid duration")
 	errSweepConfigNil       = errors.New("sweep config is nil")
 	errNoSecurityConfigKV   = errors.New("no security config provided for KV store")
+	errNoSweepService       = errors.New("no sweep service available for ICMP check")
+	errICMPCheck            = errors.New("ICMP check failed")
 )
