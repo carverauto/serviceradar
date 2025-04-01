@@ -1,6 +1,5 @@
 #!/bin/bash
 
-
 # Copyright 2025 Carver Automation Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,12 +17,12 @@
 # buildCore.sh - Build the core package for ServiceRadar
 set -e
 
-export VERSION=${VERSION}
+export VERSION=${VERSION:-1.0.28}
 
 # Build the builder image
 docker build -t serviceradar-builder -f ./Dockerfile.build .
 
-# Run just the core package build in the container
-docker run --rm -v $(pwd):/build serviceradar-builder ./scripts/setup-deb-core.sh
+# Run the packaging script in the container
+docker run --rm -v $(pwd):/build serviceradar-builder /build/scripts/setup-deb-core.sh
 
 echo "Build completed. Check release-artifacts/ directory for the core package."
