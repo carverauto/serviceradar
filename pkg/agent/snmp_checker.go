@@ -51,7 +51,7 @@ type SNMPChecker struct {
 	done        chan struct{}
 }
 
-func NewSNMPChecker(ctx context.Context, address string) (checker.Checker, error) {
+func NewSNMPChecker(ctx context.Context, address string, security *models.SecurityConfig) (checker.Checker, error) {
 	log.Printf("Creating new SNMP checker client for address: %s", address)
 
 	configPath := filepath.Join(defaultConfigPath, "snmp.json")
@@ -62,25 +62,30 @@ func NewSNMPChecker(ctx context.Context, address string) (checker.Checker, error
 	var cfg snmp.Config
 
 	cfgLoader := config.NewConfig()
-
 	if err := cfgLoader.LoadAndValidate(ctx, configPath, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to load SNMP config: %w", err)
 	}
 
-	// Use ClientConfig instead of ConnectionConfig
+	// Use provided security config, with a fallback if nil
+	if security == nil {
+		log.Printf("WARNING: No security config provided for SNMP checker, using insecure defaults")
+
+		security = &models.SecurityConfig{
+			Mode: "none",
+		}
+	}
+
 	clientCfg := grpc.ClientConfig{
 		Address:    address,
 		MaxRetries: grpcRetries,
 	}
 
-	security := models.SecurityConfig{
-		Mode:       "mtls",
-		CertDir:    "/etc/serviceradar/certs",
-		ServerName: strings.Split(address, ":")[0],
-		Role:       "agent",
+	// Set server name from address if not provided
+	if security.ServerName == "" {
+		security.ServerName = strings.Split(address, ":")[0]
 	}
 
-	provider, err := grpc.NewSecurityProvider(ctx, &security)
+	provider, err := grpc.NewSecurityProvider(ctx, security)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create security provider: %w", err)
 	}
@@ -117,6 +122,7 @@ func (c *SNMPChecker) Check(ctx context.Context) (available bool, msg string) {
 	resp, err := c.agentClient.GetStatus(ctx, req)
 	if err != nil {
 		log.Printf("Failed to get SNMP status: %v", err)
+
 		return false, fmt.Sprintf("Failed to get status: %v", err)
 	}
 
