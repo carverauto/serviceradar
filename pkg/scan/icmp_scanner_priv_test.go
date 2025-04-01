@@ -12,6 +12,62 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
+func TestNewICMPSweeper(t *testing.T) {
+	tests := []struct {
+		name      string
+		timeout   time.Duration
+		rateLimit int
+		wantErr   bool
+	}{
+		{
+			name:      "default values",
+			timeout:   0,
+			rateLimit: 0,
+			wantErr:   false,
+		},
+		{
+			name:      "custom values",
+			timeout:   2 * time.Second,
+			rateLimit: 500,
+			wantErr:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s, err := NewICMPSweeper(tt.timeout, tt.rateLimit)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("NewICMPSweeper() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			if s == nil {
+				t.Fatal("NewICMPSweeper() returned nil")
+			}
+
+			expectedTimeout := tt.timeout
+			if expectedTimeout == 0 {
+				expectedTimeout = defaultICMPTimeout
+			}
+
+			if s.timeout != expectedTimeout {
+				t.Errorf("timeout = %v, want %v", s.timeout, expectedTimeout)
+			}
+
+			expectedRateLimit := tt.rateLimit
+			if expectedRateLimit == 0 {
+				expectedRateLimit = defaultICMPRateLimit
+			}
+
+			if s.rateLimit != expectedRateLimit {
+				t.Errorf("rateLimit = %v, want %v", s.rateLimit, expectedRateLimit)
+			}
+
+			_ = s.Stop(context.Background())
+		})
+	}
+}
+
 func TestICMPSweeper_Scan(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
