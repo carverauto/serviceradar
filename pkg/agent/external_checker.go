@@ -21,6 +21,8 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
+	"strconv"
 	"sync"
 	"time"
 
@@ -51,9 +53,13 @@ type ExternalChecker struct {
 }
 
 var (
-	errAddressRequired               = fmt.Errorf("address is required for external checker")
-	errFailedToCloseSecurityProvider = errors.New("failed to close security provider")
-	errFailedToCloseClient           = errors.New("failed to close client")
+	errAddressRequired                = errors.New("address is required for external checker")
+	errFailedToCloseSecurityProvider  = errors.New("failed to close security provider")
+	errFailedToCloseClient            = errors.New("failed to close client")
+	errInvalidAddressUnexpected       = errors.New("invalid address format: expected host:port")
+	errInvalidAddressEmpty            = errors.New("invalid address format: host cannot be empty")
+	errInvalidPortInAddress           = errors.New("invalid port in address: port must be an integer between 1 and 65535")
+	errFailedToCreateSecurityProvider = errors.New("failed to create security provider")
 )
 
 func NewExternalChecker(
@@ -67,13 +73,29 @@ func NewExternalChecker(
 		return nil, errAddressRequired
 	}
 
+	// Validate address format using net.SplitHostPort
+	host, portStr, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", errInvalidAddressUnexpected, err)
+	}
+
+	// Ensure host is non-empty
+	if host == "" {
+		return nil, fmt.Errorf("%w: %w", errInvalidAddressEmpty, err)
+	}
+
+	// Validate port as an integer between 1 and 65535
+	port, err := strconv.Atoi(portStr)
+	if err != nil || port < 1 || port > 65535 {
+		return nil, fmt.Errorf("%w: %w", errInvalidPortInAddress, err)
+	}
+
 	// Create SecurityProvider once during checker creation
 	provider, err := ggrpc.NewSecurityProvider(ctx, security)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create security provider: %w", err)
+		return nil, fmt.Errorf("%w: %w", errFailedToCreateSecurityProvider, err)
 	}
 
-	// Configure client options, but don’t connect yet
 	clientCfg := ggrpc.ClientConfig{
 		Address:          address,
 		MaxRetries:       maxRetries,
@@ -85,10 +107,10 @@ func NewExternalChecker(
 		serviceType:         serviceType,
 		address:             address,
 		clientConfig:        clientCfg,
-		grpcClient:          nil, // Defer connection to Check
+		grpcClient:          nil,
 		healthCheckInterval: initialHealthInterval,
 		lastHealthCheck:     time.Time{},
-		healthStatus:        false, // Assume unhealthy until proven otherwise
+		healthStatus:        false,
 	}
 
 	log.Printf("Successfully configured external checker name=%s type=%s", serviceName, serviceType)

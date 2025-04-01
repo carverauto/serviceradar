@@ -16,7 +16,9 @@
 
 package agent
 
-import "errors"
+import (
+	"errors"
+)
 
 var (
 	errInvalidPort          = errors.New("invalid port")
@@ -27,7 +29,11 @@ var (
 	errSNMPServiceUnhealthy = errors.New("SNMP service reported unhealthy")
 	errInvalidDuration      = errors.New("invalid duration")
 	errSweepConfigNil       = errors.New("sweep config is nil")
-	errNoSecurityConfigKV   = errors.New("no security config provided for KV store")
 	errNoSweepService       = errors.New("no sweep service available for ICMP check")
 	errICMPCheck            = errors.New("ICMP check failed")
+
+	// KV.
+
+	errNoSecurityConfigKV         = errors.New("no security config provided for KV store")
+	errFailedToInitializeKVClient = errors.New("failed to initialize KV client")
 )
