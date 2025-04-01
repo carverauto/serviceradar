@@ -197,11 +197,11 @@ cfssl sign -ca root.pem -ca-key root-key.pem -config cfssl.json -profile client 
 
 # Agent
 cfssl genkey agent-csr.json | cfssljson -bare agent
-cfssl sign -ca root.pem -ca-key root-key.pem -config cfssl.json -profile client agent.csr | cfssljson -bare agent
+cfssl sign -ca root.pem -ca-key root-key.pem -config cfssl.json -profile server agent.csr | cfssljson -bare agent
 
 # Poller
 cfssl genkey poller-csr.json | cfssljson -bare poller
-cfssl sign -ca root.pem -ca-key root-key.pem -config cfssl.json -profile client poller.csr | cfssljson -bare poller
+cfssl sign -ca root.pem -ca-key root-key.pem -config cfssl.json -profile dual poller.csr | cfssljson -bare poller
 
 # Core
 cfssl genkey core-csr.json | cfssljson -bare core
