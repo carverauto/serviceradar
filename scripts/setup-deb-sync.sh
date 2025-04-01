@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# setup-deb-sync.sh
 set -e  # Exit on any error
 
 VERSION=${VERSION:-1.0.27}
@@ -21,16 +22,23 @@ echo "Building serviceradar-sync version ${VERSION}"
 
 echo "Setting up package structure..."
 
+# Use a relative path from the script's location
+BASE_DIR="$(dirname "$(dirname "$0")")"  # Go up two levels from scripts/ to root
+PACKAGING_DIR="${BASE_DIR}/packaging"
+
+echo "Using PACKAGING_DIR: $PACKAGING_DIR"
+
 # Create package directory structure
 PKG_ROOT="serviceradar-sync_${VERSION}"
 mkdir -p "${PKG_ROOT}/DEBIAN"
 mkdir -p "${PKG_ROOT}/usr/local/bin"
+mkdir -p "${PKG_ROOT}/etc/serviceradar"
 mkdir -p "${PKG_ROOT}/lib/systemd/system"
 
-echo "Building Go binaries..."
+echo "Building Go binary..."
 
 # Build sync binary
-GOOS=linux GOARCH=amd64 go build -o "${PKG_ROOT}/usr/local/bin/serviceradar-sync" ./cmd/sync
+GOOS=linux GOARCH=amd64 go build -o "${PKG_ROOT}/usr/local/bin/serviceradar-sync" "${BASE_DIR}/cmd/sync"
 
 echo "Creating package files..."
 
@@ -44,62 +52,44 @@ Architecture: amd64
 Depends: systemd
 Maintainer: Michael Freeman <mfreeman451@gmail.com>
 Description: ServiceRadar Key-Value store Sync service
-  This package provides the ServiceRadar key-value store synchronization service.
+ This package provides the ServiceRadar key-value store synchronization service.
 EOF
 
+# Create conffiles to mark configuration files
 cat > "${PKG_ROOT}/DEBIAN/conffiles" << EOF
 /etc/serviceradar/sync.json
+/etc/serviceradar/api.env
 EOF
 
-# Create systemd service file
-cat > "${PKG_ROOT}/lib/systemd/system/serviceradar-sync.service" << EOF
-[Unit]
-Description=ServiceRadar KV Sync Service
-After=network.target
+# Copy systemd service file from the filesystem
+SERVICE_FILE_SRC="${PACKAGING_DIR}/sync/systemd/serviceradar-sync.service"
+if [ -f "$SERVICE_FILE_SRC" ]; then
+    cp "$SERVICE_FILE_SRC" "${PKG_ROOT}/lib/systemd/system/serviceradar-sync.service"
+    echo "Copied serviceradar-sync.service from $SERVICE_FILE_SRC"
+else
+    echo "Error: serviceradar-sync.service not found at $SERVICE_FILE_SRC"
+    exit 1
+fi
 
-[Service]
-Type=simple
-User=serviceradar
-ExecStart=/usr/local/bin/serviceradar-sync
-Restart=always
-RestartSec=10
-LimitNOFILE=65535
-LimitNPROC=65535
+# Copy sync.json from the filesystem
+SYNC_JSON_SRC="${PACKAGING_DIR}/sync/config/sync.json"
+if [ -f "$SYNC_JSON_SRC" ]; then
+    cp "$SYNC_JSON_SRC" "${PKG_ROOT}/etc/serviceradar/sync.json"
+    echo "Copied sync.json from $SYNC_JSON_SRC"
+else
+    echo "Error: sync.json not found at $SYNC_JSON_SRC"
+    exit 1
+fi
 
-[Install]
-WantedBy=multi-user.target
-EOF
-
-mkdir -p "${PKG_ROOT}/etc/serviceradar"
-
-cat > "${PKG_ROOT}/etc/serviceradar/sync.json" << EOF
-{
-  "kv_address": "localhost:50055",
-  "listen_addr": ":50059",
-  "security": {
-    "mode": "mtls",
-    "cert_dir": "/etc/serviceradar/certs",
-    "server_name": "nats-serviceradar",
-    "role": "poller",
-    "tls": {
-      "cert_file": "sync.pem",
-      "key_file": "sync-key.pem",
-      "ca_file": "root.pem",
-      "client_ca_file": "root.pem"
-    }
-  },
-  "sources": {
-    "armis": {
-      "type": "armis",
-      "endpoint": "https://api.armis.example.com/v1/devices",
-      "prefix": "armis/",
-      "credentials": {
-        "api_key": "your-armis-api-key-here"
-      }
-    }
-  }
-}
-EOF
+# Copy api.env from the filesystem (assuming it’s shared across components)
+API_ENV_SRC="${PACKAGING_DIR}/core/config/api.env"
+if [ -f "$API_ENV_SRC" ]; then
+    cp "$API_ENV_SRC" "${PKG_ROOT}/etc/serviceradar/api.env"
+    echo "Copied api.env from $API_ENV_SRC"
+else
+    echo "Error: api.env not found at $API_ENV_SRC"
+    exit 1
+fi
 
 # Create postinst script
 cat > "${PKG_ROOT}/DEBIAN/postinst" << EOF
@@ -114,6 +104,7 @@ fi
 # Set permissions
 chown -R serviceradar:serviceradar /etc/serviceradar
 chmod 755 /usr/local/bin/serviceradar-sync
+chmod 600 /etc/serviceradar/api.env  # Ensure api.env has restrictive permissions
 
 # Enable and start service
 systemctl daemon-reload
@@ -131,8 +122,8 @@ cat > "${PKG_ROOT}/DEBIAN/prerm" << EOF
 set -e
 
 # Stop and disable service
-systemctl stop serviceradar-sync
-systemctl disable serviceradar-sync
+systemctl stop serviceradar-sync || true
+systemctl disable serviceradar-sync || true
 
 exit 0
 EOF

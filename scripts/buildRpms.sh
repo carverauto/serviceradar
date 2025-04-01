@@ -30,8 +30,14 @@ usage() {
     echo "  core         - Build core service RPM"
     echo "  agent        - Build agent service RPM"
     echo "  poller       - Build poller service RPM"
+    echo "  web-ui       - Build web UI RPM"
     echo "  nats         - Build NATS RPM"
+    echo "  kv           - Build kv RPM"
+    echo "  sync         - Build sync RPM"
     echo "  dusk-checker - Build dusk checker RPM"
+    echo "  snmp-poller  - Build SNMP Poller RPM"
+    echo "  rperf        - Build rperf (server) RPM"
+    echo "  rperf-checker- Build rperf checker RPM"
     echo "  all          - Build all components"
     exit 1
 }
@@ -73,11 +79,31 @@ build_component() {
             binary_path="./cmd/poller"
             dockerfile="Dockerfile.rpm.simple"
             ;;
+        web-ui)
+            binary_path="./cmd/web-ui"
+            dockerfile="Dockerfile.rpm.web"
+            ;;
         nats)
             dockerfile="Dockerfile.rpm.nats"
             ;;
+        kv)
+            dockerfile="Dockerfile.rpm.simple"
+            ;;
+        sync)
+            dockerfile="Dockerfile.rpm.simple"
+            ;;
+        rperf)
+            dockerfile="Dockerfile.rpm.rust"
+            ;;
+        rperf-checker)
+            dockerfile="Dockerfile.rpm.rust"
+            ;;
         dusk-checker)
             binary_path="./cmd/checkers/dusk"
+            dockerfile="Dockerfile.rpm.simple"
+            ;;
+        snmp-poller)
+            binary_path="./cmd/checkers/snmp"
             dockerfile="Dockerfile.rpm.simple"
             ;;
         *)
@@ -120,7 +146,7 @@ case $1 in
     core)
         build_core
         ;;
-    agent|poller|dusk-checker|nats)
+    agent|poller|dusk-checker|nats|kv|sync|rperf|rperf-checker|web-ui)
         build_component "$1"
         ;;
     all)
@@ -128,7 +154,11 @@ case $1 in
         build_component "agent"
         build_component "poller"
         build_component "nats"
+        build_component "kv"
+        build_component "sync"
         build_component "dusk-checker"
+        build_component "snmp-poller"
+        build_component "web-ui"
         ;;
     *)
         echo "Unknown component: $1"
