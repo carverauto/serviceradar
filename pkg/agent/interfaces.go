@@ -18,12 +18,13 @@ package agent
 
 import (
 	"context"
+	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 )
 
-//go:generate mockgen -destination=mock_agent.go -package=agent github.com/carverauto/serviceradar/pkg/agent Service,SweepStatusProvider
+//go:generate mockgen -destination=mock_agent.go -package=agent github.com/carverauto/serviceradar/pkg/agent Service,SweepStatusProvider,KVStore
 
 type Service interface {
 	Start(context.Context) error
@@ -35,4 +36,13 @@ type Service interface {
 // SweepStatusProvider is an interface for services that can provide sweep status.
 type SweepStatusProvider interface {
 	GetStatus(context.Context) (*proto.StatusResponse, error)
+}
+
+// KVStore defines the interface for key-value store operations.
+type KVStore interface {
+	Get(ctx context.Context, key string) (value []byte, found bool, err error)
+	Put(ctx context.Context, key string, value []byte, ttl time.Duration) error
+	Delete(ctx context.Context, key string) error
+	Watch(ctx context.Context, key string) (<-chan []byte, error)
+	Close() error
 }

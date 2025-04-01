@@ -1,0 +1,30 @@
+name: Rust Tests
+on:
+  push:
+    paths:
+      - 'cmd/checkers/rperf-client/**'  # Only trigger on changes in this directory
+
+permissions:
+  contents: write
+
+jobs:
+  test-rust:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential protobuf-compiler
+          protoc --version || (echo "protoc installation failed" && exit 1)
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Run Rust Tests
+        run: |
+          cd cmd/checkers/rperf-client && cargo test

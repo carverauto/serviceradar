@@ -75,7 +75,7 @@ After=network-online.target
 [Service]
 Type=simple
 Environment="RUST_LOG=info"
-ExecStart=/usr/local/bin/serviceradar-rperf --server --port 5199
+ExecStart=/usr/local/bin/serviceradar-rperf --server --port 5199 --tcp-port-pool 5200-5210 --udp-port-pool 5200-5210
 ExecReload=/bin/kill -s HUP \$MAINPID
 ExecStop=/bin/kill -s SIGINT \$MAINPID
 User=serviceradar
