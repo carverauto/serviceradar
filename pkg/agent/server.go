@@ -594,11 +594,14 @@ func (s *Server) getChecker(ctx context.Context, req *proto.StatusRequest) (chec
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	key := fmt.Sprintf("%s:%s:%s", req.GetServiceType(), req.GetServiceName(), req.GetDetails())
+
 	log.Printf("Getting checker for request - Type: %s, Name: %s, Details: %s",
 		req.GetServiceType(), req.GetServiceName(), req.GetDetails())
 
-	key := fmt.Sprintf("%s:%s:%s", req.GetServiceType(), req.GetServiceName(), req.GetDetails())
 	if check, exists := s.checkers[key]; exists {
+		log.Printf("Retrieved cached checker for key: %s", key)
+
 		return check, nil
 	}
 
@@ -607,10 +610,13 @@ func (s *Server) getChecker(ctx context.Context, req *proto.StatusRequest) (chec
 
 	check, err := s.registry.Get(ctx, req.ServiceType, req.ServiceName, details, s.config.Security)
 	if err != nil {
-		return nil, err
+		log.Printf("Failed to create checker for key %s: %v", key, err)
+
+		return nil, fmt.Errorf("failed to create checker: %w", err)
 	}
 
 	s.checkers[key] = check
+	log.Printf("Cached new checker for key: %s", key)
 
 	return check, nil
 }
