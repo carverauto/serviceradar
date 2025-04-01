@@ -48,6 +48,7 @@ func TestNewServer(t *testing.T) {
 			config: &Config{
 				AlertThreshold: 5 * time.Minute,
 				Metrics:        Metrics{Enabled: true, Retention: 100, MaxNodes: 1000},
+				DBPath:         "", // Will be overridden in the test
 			},
 			setupMock: func(ctrl *gomock.Controller) db.Service {
 				return db.NewMockService(ctrl)
@@ -58,6 +59,7 @@ func TestNewServer(t *testing.T) {
 			config: &Config{
 				AlertThreshold: 5 * time.Minute,
 				Webhooks:       []alerts.WebhookConfig{{Enabled: true, URL: "https://example.com/webhook"}},
+				DBPath:         "", // Will be overridden in the test
 			},
 			setupMock: func(ctrl *gomock.Controller) db.Service {
 				return db.NewMockService(ctrl)
@@ -74,6 +76,10 @@ func TestNewServer(t *testing.T) {
 
 			// Set JWT_SECRET before calling newServerWithDB
 			t.Setenv("JWT_SECRET", "test-secret")
+
+			// Use a temporary directory for DBPath to avoid permission issues
+			tempDir := t.TempDir()
+			tt.config.DBPath = tempDir + "/serviceradar.db"
 
 			server, err := newServerWithDB(context.Background(), tt.config, mockDB)
 			if tt.expectedError {
