@@ -190,9 +190,8 @@ serviceradar-web_*
 
 *.rpm
 
-tls/client.csr
-tls/root.csr
-tls/server.csr
+*.csr
+*.gz
 
 # Ko build system for Go
 .kodata
@@ -208,4 +207,4 @@ target/
 *.pdb
 
 .venv
-
+.bin
