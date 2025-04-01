@@ -61,3 +61,31 @@ func TestICMPSweeper_Scan(t *testing.T) {
 		}
 	}
 }
+
+func TestICMPSweeper_Stop(t *testing.T) {
+	sweeper, err := NewICMPSweeper(1*time.Second, 100)
+	if err != nil {
+		t.Fatalf("Failed to create ICMPSweeper: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	sweeper.cancel = cancel
+
+	err = sweeper.Stop(context.Background())
+	if err != nil {
+		t.Errorf("Stop() error = %v", err)
+	}
+
+	// Check that rawSocketFD is closed
+	if sweeper.rawSocketFD != 0 {
+		t.Errorf("rawSocketFD not reset after Stop()")
+	}
+
+	// Check that context was canceled
+	select {
+	case <-ctx.Done():
+		// Expected
+	default:
+		t.Errorf("Context not canceled after Stop()")
+	}
+}
