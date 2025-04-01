@@ -1,0 +1,5 @@
+{
+  "hosts": ["192.168.2.23"],
+  "key": {"algo": "ecdsa", "size": 256},
+  "names": [{"C": "US", "ST": "Your State", "L": "Your Location", "O": "ServiceRadar", "OU": "Operations", "CN": "rperf.serviceradar"}]
+}
