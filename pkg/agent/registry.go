@@ -21,51 +21,56 @@ import (
 	"context"
 
 	"github.com/carverauto/serviceradar/pkg/checker"
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 func initRegistry() checker.Registry {
 	registry := checker.NewRegistry()
 
 	// Register the process checker
-	registry.Register("process", func(_ context.Context, serviceName, details string) (checker.Checker, error) {
-		if details == "" {
-			details = serviceName // Fallback to service name if details empty
-		}
+	registry.Register("process",
+		func(_ context.Context, serviceName, details string, _ *models.SecurityConfig) (checker.Checker, error) {
+			if details == "" {
+				details = serviceName // Fallback to service name if details empty
+			}
 
-		return &ProcessChecker{ProcessName: details}, nil
-	})
+			return &ProcessChecker{ProcessName: details}, nil
+		})
 
 	// Register the port checker
-	registry.Register("port", func(_ context.Context, _, details string) (checker.Checker, error) {
-		return NewPortChecker(details)
-	})
+	registry.Register("port",
+		func(_ context.Context, _, details string, _ *models.SecurityConfig) (checker.Checker, error) {
+			return NewPortChecker(details)
+		})
 
 	// Register the ICMP checker
-	registry.Register("icmp", func(_ context.Context, _, details string) (checker.Checker, error) {
-		host := details
-		if host == "" {
-			host = "127.0.0.1"
-		}
+	registry.Register("icmp",
+		func(_ context.Context, _, details string, _ *models.SecurityConfig) (checker.Checker, error) {
+			host := details
+			if host == "" {
+				host = "127.0.0.1"
+			}
 
-		return NewICMPChecker(host)
-	})
+			return NewICMPChecker(host)
+		})
 
 	// Register the gRPC checker
-	registry.Register("grpc", func(ctx context.Context, serviceName, details string) (checker.Checker, error) {
-		if details == "" {
-			return nil, errDetailsRequiredGRPC
-		}
+	registry.Register("grpc",
+		func(ctx context.Context, serviceName, details string, security *models.SecurityConfig) (checker.Checker, error) {
+			if details == "" {
+				return nil, errDetailsRequiredGRPC
+			}
 
-		return NewExternalChecker(ctx, serviceName, "grpc", details)
-	})
+			return NewExternalChecker(ctx, serviceName, "grpc", details, security)
+		})
 
 	// Register the SNMP checker
-	registry.Register("snmp", func(ctx context.Context, _, details string) (checker.Checker, error) {
+	registry.Register("snmp", func(ctx context.Context, _, details string, security *models.SecurityConfig) (checker.Checker, error) {
 		if details == "" {
 			return nil, errDetailsRequiredSNMP
 		}
 
-		return NewSNMPChecker(ctx, details)
+		return NewSNMPChecker(ctx, details, security)
 	})
 
 	return registry

@@ -18,9 +18,13 @@ package agent
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"sort"
 	"testing"
 
+	"github.com/carverauto/serviceradar/pkg/grpc"
+	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -235,6 +239,27 @@ func TestIPv4Sorter(t *testing.T) {
 }
 
 func TestExternalChecker(t *testing.T) {
+	// Create a temporary directory for certificates
+	tmpDir, err := os.MkdirTemp("", "serviceradar-test")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	// Generate test certificates
+	err = grpc.GenerateTestCertificates(tmpDir)
+	require.NoError(t, err)
+
+	// Define a mock security config for testing
+	security := &models.SecurityConfig{
+		Mode:    "mtls",
+		CertDir: tmpDir,
+		Role:    models.RoleAgent,
+		TLS: models.TLSConfig{
+			CertFile: filepath.Join(tmpDir, "client.pem"),
+			KeyFile:  filepath.Join(tmpDir, "client-key.pem"),
+			CAFile:   filepath.Join(tmpDir, "root.pem"),
+		},
+	}
+
 	tests := []struct {
 		name        string
 		serviceName string
@@ -256,13 +281,15 @@ func TestExternalChecker(t *testing.T) {
 			address:     "",
 			wantErr:     true,
 		},
+		// Note: We can't easily test a valid gRPC connection here without a running server,
+		// so we're limited to error cases unless we mock or set up a test server.
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 
-			checker, err := NewExternalChecker(ctx, tt.serviceName, tt.serviceType, tt.address)
+			checker, err := NewExternalChecker(ctx, tt.serviceName, tt.serviceType, tt.address, security)
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Nil(t, checker)
@@ -283,6 +310,27 @@ func TestExternalChecker(t *testing.T) {
 }
 
 func TestSNMPChecker(t *testing.T) {
+	// Create a temporary directory for certificates
+	tmpDir, err := os.MkdirTemp("", "serviceradar-test")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	// Generate test certificates
+	err = grpc.GenerateTestCertificates(tmpDir)
+	require.NoError(t, err)
+
+	// Define a mock security config for testing
+	security := &models.SecurityConfig{
+		Mode:    "mtls",
+		CertDir: tmpDir,
+		Role:    models.RoleAgent,
+		TLS: models.TLSConfig{
+			CertFile: filepath.Join(tmpDir, "client.pem"),
+			KeyFile:  filepath.Join(tmpDir, "client-key.pem"),
+			CAFile:   filepath.Join(tmpDir, "root.pem"),
+		},
+	}
+
 	tests := []struct {
 		name    string
 		address string
@@ -298,11 +346,13 @@ func TestSNMPChecker(t *testing.T) {
 			address: "invalid:address",
 			wantErr: true,
 		},
+		// Note: Testing a valid SNMP connection requires a mock server or real SNMP endpoint,
+		// which is beyond this test scope without additional setup.
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			checker, err := NewSNMPChecker(context.Background(), tt.address)
+			checker, err := NewSNMPChecker(context.Background(), tt.address, security)
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Nil(t, checker)

@@ -1,8 +1,23 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package config
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -19,6 +34,7 @@ var (
 	errKVStoreNotSet       = errors.New("KV store not initialized for CONFIG_SOURCE=kv; call SetKVStore first")
 	errInvalidConfigSource = errors.New("invalid CONFIG_SOURCE value")
 	errLoadConfigFailed    = errors.New("failed to load configuration")
+	errInvalidConfigPtr    = errors.New("config must be a non-nil pointer")
 )
 
 const (
@@ -39,21 +55,6 @@ func NewConfig() *Config {
 	}
 }
 
-// LoadFile is a generic helper that loads a JSON file from path into the struct pointed to by dst.
-func LoadFile(path string, dst interface{}) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("failed to read file '%s': %w", path, err)
-	}
-
-	err = json.Unmarshal(data, dst)
-	if err != nil {
-		return fmt.Errorf("failed to unmarshal JSON from '%s': %w", path, err)
-	}
-
-	return nil
-}
-
 // ValidateConfig validates a configuration if it implements Validator.
 func ValidateConfig(cfg interface{}) error {
 	v, ok := cfg.(Validator)
@@ -71,7 +72,6 @@ func (c *Config) LoadAndValidate(ctx context.Context, path string, cfg interface
 		return err
 	}
 
-	// Normalize SecurityConfig paths if present
 	if err := normalizeSecurityConfig(cfg); err != nil {
 		return fmt.Errorf("failed to normalize SecurityConfig: %w", err)
 	}
@@ -125,7 +125,7 @@ func (c *Config) loadAndValidateWithSource(ctx context.Context, path string, cfg
 func normalizeSecurityConfig(cfg interface{}) error {
 	v := reflect.ValueOf(cfg)
 	if v.Kind() != reflect.Ptr || v.IsNil() {
-		return fmt.Errorf("config must be a non-nil pointer")
+		return errInvalidConfigPtr
 	}
 
 	v = v.Elem()
@@ -133,47 +133,64 @@ func normalizeSecurityConfig(cfg interface{}) error {
 		return nil // Nothing to normalize if not a struct
 	}
 
+	return normalizeStructFields(v)
+}
+
+// normalizeStructFields processes all fields in a struct to normalize SecurityConfig instances.
+func normalizeStructFields(v reflect.Value) error {
 	t := v.Type()
+
 	for i := 0; i < t.NumField(); i++ {
-		field := v.Field(i)
-		fieldType := t.Field(i)
-
-		// Check if the field is a *SecurityConfig
-		if fieldType.Type == reflect.TypeOf((*models.SecurityConfig)(nil)) {
-			if !field.IsValid() || field.IsNil() {
-				continue // Skip if nil
-			}
-
-			sec := field.Interface().(*models.SecurityConfig)
-
-			if sec.CertDir == "" {
-				continue // No normalization needed without CertDir
-			}
-
-			tls := &sec.TLS
-
-			if !filepath.IsAbs(tls.CertFile) {
-				tls.CertFile = filepath.Join(sec.CertDir, tls.CertFile)
-			}
-
-			if !filepath.IsAbs(tls.KeyFile) {
-				tls.KeyFile = filepath.Join(sec.CertDir, tls.KeyFile)
-			}
-
-			if !filepath.IsAbs(tls.CAFile) {
-				tls.CAFile = filepath.Join(sec.CertDir, tls.CAFile)
-			}
-
-			if tls.ClientCAFile != "" && !filepath.IsAbs(tls.ClientCAFile) {
-				tls.ClientCAFile = filepath.Join(sec.CertDir, tls.ClientCAFile)
-			} else if tls.ClientCAFile == "" {
-				tls.ClientCAFile = tls.CAFile // Fallback to CAFile if unset
-			}
-
-			// Update the field with the normalized SecurityConfig
-			field.Set(reflect.ValueOf(sec))
+		fieldType := t.Field(i)                                        // Assign to variable
+		if err := normalizeField(v.Field(i), &fieldType); err != nil { // Pass pointer
+			return err
 		}
 	}
 
 	return nil
+}
+
+// normalizeField normalizes a single field if it’s a *SecurityConfig.
+func normalizeField(field reflect.Value, fieldType *reflect.StructField) error {
+	if fieldType.Type != reflect.TypeOf((*models.SecurityConfig)(nil)) {
+		return nil
+	}
+
+	if !field.IsValid() || field.IsNil() {
+		return nil
+	}
+
+	sec := field.Interface().(*models.SecurityConfig)
+	if sec.CertDir == "" {
+		return nil
+	}
+
+	tls := &sec.TLS
+	normalizeTLSPaths(tls, sec.CertDir)
+
+	// Update the field with the normalized SecurityConfig
+	field.Set(reflect.ValueOf(sec))
+
+	return nil
+}
+
+// normalizeTLSPaths adjusts TLS file paths based on the certificate directory.
+func normalizeTLSPaths(tls *models.TLSConfig, certDir string) {
+	if !filepath.IsAbs(tls.CertFile) {
+		tls.CertFile = filepath.Join(certDir, tls.CertFile)
+	}
+
+	if !filepath.IsAbs(tls.KeyFile) {
+		tls.KeyFile = filepath.Join(certDir, tls.KeyFile)
+	}
+
+	if !filepath.IsAbs(tls.CAFile) {
+		tls.CAFile = filepath.Join(certDir, tls.CAFile)
+	}
+
+	if tls.ClientCAFile != "" && !filepath.IsAbs(tls.ClientCAFile) {
+		tls.ClientCAFile = filepath.Join(certDir, tls.ClientCAFile)
+	} else if tls.ClientCAFile == "" {
+		tls.ClientCAFile = tls.CAFile // Fallback to CAFile if unset
+	}
 }
