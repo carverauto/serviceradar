@@ -18,13 +18,14 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"sync"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/checker"
+	"github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/grpc"
-	"github.com/carverauto/serviceradar/pkg/kv"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/scan"
 	"github.com/carverauto/serviceradar/proto"
@@ -32,18 +33,20 @@ import (
 
 type Server struct {
 	proto.UnimplementedAgentServiceServer
-	mu           sync.RWMutex
-	checkers     map[string]checker.Checker
-	checkerConfs map[string]*CheckerConfig
-	configDir    string
-	services     []Service
-	listenAddr   string
-	registry     checker.Registry
-	errChan      chan error
-	done         chan struct{}
-	config       *ServerConfig
-	connections  map[string]*CheckerConnection
-	kvStore      kv.KVStore
+	mu                 sync.RWMutex
+	checkers           map[string]checker.Checker
+	checkerConfs       map[string]*CheckerConfig
+	configDir          string
+	services           []Service
+	listenAddr         string
+	registry           checker.Registry
+	errChan            chan error
+	done               chan struct{}
+	config             *ServerConfig
+	connections        map[string]*CheckerConnection
+	kvStore            KVStore
+	createSweepService func(sweepConfig *SweepConfig, kvStore KVStore) (Service, error)
+	setupKVStore       func(ctx context.Context, cfgLoader *config.Config, cfg *ServerConfig) (KVStore, error)
 }
 type Duration time.Duration
 
