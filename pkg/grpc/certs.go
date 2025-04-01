@@ -24,25 +24,22 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"math/big"
+	"net"
 	"os"
 	"path/filepath"
 	"time"
 )
 
 const (
-	// certValidity is the duration for which certificates are valid.
-	certValidity = 24 * time.Hour
-	// caSerialNumber is the serial number for the CA certificate.
-	caSerialNumber = 1
-	// serverSerialNumber is the serial number for the server certificate.
+	certValidity       = 24 * time.Hour
+	caSerialNumber     = 1
 	serverSerialNumber = 2
-	// clientSerialNumber is the serial number for the client certificate.
 	clientSerialNumber = 3
-	// certFilePerms is the file permission for certificate files (read/write for owner only).
-	certFilePerms = 0600
+	certFilePerms      = 0600
 )
 
 // GenerateTestCertificates creates a CA, server, and client certificates in the specified directory.
+// Generates: root.pem (CA), server.pem (server auth), client.pem (client auth).
 func GenerateTestCertificates(dir string) error {
 	caKey, caCertDER, err := generateCACert()
 	if err != nil {
@@ -101,7 +98,7 @@ func generateCACert() (*ecdsa.PrivateKey, []byte, error) {
 	return key, certDER, nil
 }
 
-// generateServerCert generates a server certificate signed by the CA.
+// generateServerCert generates a server certificate signed by the CA with server auth usage.
 func generateServerCert(caKey *ecdsa.PrivateKey, caCertDER []byte) (*ecdsa.PrivateKey, []byte, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -120,9 +117,10 @@ func generateServerCert(caKey *ecdsa.PrivateKey, caCertDER []byte) (*ecdsa.Priva
 		},
 		NotBefore:   time.Now(),
 		NotAfter:    time.Now().Add(certValidity),
-		KeyUsage:    x509.KeyUsageDigitalSignature,
+		KeyUsage:    x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		DNSNames:    []string{"localhost"},
+		IPAddresses: []net.IP{net.ParseIP("127.0.0.1")},
 	}
 
 	certDER, err := x509.CreateCertificate(rand.Reader, template, caCert, &key.PublicKey, caKey)
@@ -133,7 +131,7 @@ func generateServerCert(caKey *ecdsa.PrivateKey, caCertDER []byte) (*ecdsa.Priva
 	return key, certDER, nil
 }
 
-// generateClientCert generates a client certificate signed by the CA.
+// generateClientCert generates a client certificate signed by the CA with client auth usage.
 func generateClientCert(caKey *ecdsa.PrivateKey, caCertDER []byte) (*ecdsa.PrivateKey, []byte, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {

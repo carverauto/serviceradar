@@ -132,8 +132,12 @@ sudo iptables -A INPUT -p tcp --dport 5199 -j DROP
 ### Using `ufw`
 Allow only specific client IPs:
 
+**rperf-server**
+
 ```bash
 sudo ufw allow from <trusted-client-ip> to any port 5199
+sudo ufw allow from <trusted-client> to any port 5199 proto udp
+sudo ufw allow from <trusted-client> to any port 5200:5210 proto udp
 sudo ufw deny 5199
 ```
 

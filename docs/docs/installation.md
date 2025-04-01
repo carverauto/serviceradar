@@ -112,6 +112,8 @@ Update the "Firewall Configuration" section:
 ```bash
 sudo ufw allow 5199/tcp  # rperf server control port
 sudo ufw allow 5200:5210/tcp  # rperf data ports (if using port pool)
+sudo ufw allow from 192.168.2.23 to any port 5199 proto udp # rperf server control port (UDP)
+sudo ufw allow from 192.168.2.23 to any port 5200:5210 proto udp # rperf data ports (UDP)
 sudo ufw allow 50059/tcp  # rperf-grpc client
 ```
 

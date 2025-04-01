@@ -2,7 +2,8 @@
 
 [![releases](https://github.com/carverauto/serviceradar/actions/workflows/release.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/release.yml)
 [![linter](https://github.com/carverauto/serviceradar/actions/workflows/golangci-lint.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/golangci-lint.yml)
-[![tests](https://github.com/carverauto/serviceradar/actions/workflows/tests.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/tests.yml)
+[![Go Tests](https://github.com/carverauto/serviceradar/actions/workflows/tests-golang.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/tests-golang.yml)
+[![Rust Tests](https://github.com/carverauto/serviceradar/actions/workflows/tests-rust.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/tests-rust.yml)
 [![coverage](https://github.com/carverauto/serviceradar/actions/workflows/go-coverage.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/go-coverage.yml)
 <a href="https://cla-assistant.io/carverauto/serviceradar"><img src="https://cla-assistant.io/readme/badge/carverauto/serviceradar" alt="CLA assistant" /></a>
 

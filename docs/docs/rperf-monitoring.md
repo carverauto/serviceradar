@@ -240,8 +240,10 @@ The rperf server requires both the control port and data ports to be open. In fi
 #### UFW (Ubuntu/Debian)
 
 ```bash
-sudo ufw allow 5199/tcp  # Control port
-sudo ufw allow 5200:5210/tcp  # Data port range
+sudo ufw allow from <trusted_host> to any port 5199 proto tcp
+sudo ufw allow from <trusted_host> to any port 5200:5210 proto tcp
+sudo ufw allow from <trusted_host> to any port 5199 proto udp
+sudo ufw allow from <trusted_host> to any port 5200:5210 proto udp
 ```
 
 #### Firewalld (RHEL/Oracle Linux)

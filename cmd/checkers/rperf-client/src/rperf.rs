@@ -22,7 +22,7 @@ use std::vec::Vec;
 
 use crate::config::TargetConfig;
 use crate::server::rperf_service::TestRequest;
-use rperf::run_client_with_output;
+use rperf::{run_client_with_output, client::state::ClientRunState};
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct RPerfSummary {
@@ -58,10 +58,8 @@ fn parse_rperf_output(output: &[u8], protocol: &str) -> Result<RPerfResult> {
         });
     }
 
-    // Convert binary output to string
     let output_str = String::from_utf8_lossy(output).to_string();
 
-    // Parse the JSON output
     let json_value: serde_json::Value = match serde_json::from_str(&output_str) {
         Ok(value) => value,
         Err(e) => {
@@ -76,13 +74,8 @@ fn parse_rperf_output(output: &[u8], protocol: &str) -> Result<RPerfResult> {
         }
     };
 
-    // Extract the success status
-    let success = match json_value.get("success") {
-        Some(s) => s.as_bool().unwrap_or(false),
-        None => false,
-    };
+    let success = json_value.get("success").and_then(|s| s.as_bool()).unwrap_or(false);
 
-    // If test failed, return early
     if !success {
         return Ok(RPerfResult {
             success: false,
@@ -92,7 +85,6 @@ fn parse_rperf_output(output: &[u8], protocol: &str) -> Result<RPerfResult> {
         });
     }
 
-    // Extract summary data
     let summary_data = match &json_value["summary"] {
         serde_json::Value::Object(obj) => obj,
         _ => {
@@ -109,12 +101,10 @@ fn parse_rperf_output(output: &[u8], protocol: &str) -> Result<RPerfResult> {
 
     let mut summary = RPerfSummary::default();
 
-    // Extract duration data
     if let Some(duration) = summary_data.get("duration_send").or_else(|| summary_data.get("duration_receive")) {
         summary.duration = duration.as_f64().unwrap_or_default();
     }
 
-    // Extract bytes data
     if let Some(bytes) = summary_data.get("bytes_sent") {
         summary.bytes_sent = bytes.as_u64().unwrap_or_default();
     }
@@ -123,13 +113,11 @@ fn parse_rperf_output(output: &[u8], protocol: &str) -> Result<RPerfResult> {
         summary.bytes_received = bytes.as_u64().unwrap_or_default();
     }
 
-    // Calculate bits per second
     if summary.duration > 0.0 {
         let bytes = summary.bytes_received.max(summary.bytes_sent);
         summary.bits_per_second = (bytes as f64 * 8.0) / summary.duration;
     }
 
-    // Extract UDP-specific data if applicable
     if protocol == "udp" {
         if let Some(packets) = summary_data.get("packets_sent") {
             summary.packets_sent = packets.as_u64().unwrap_or_default();
@@ -211,11 +199,10 @@ impl RPerfRunner {
 
     pub async fn run_test(&self) -> Result<RPerfResult> {
         debug!("Running rperf test to {}:{} with protocol {}", 
-        self.target_address, self.port, self.protocol);
+            self.target_address, self.port, self.protocol);
 
         let mut owned_args: Vec<String> = vec![
-            "rperf".to_string(),  // Add program name
-            // Combine --client and its value
+            "rperf".to_string(),
             format!("--client={}", self.target_address),
             format!("--port={}", self.port),
             "--format=json".to_string(),
@@ -243,15 +230,17 @@ impl RPerfRunner {
             owned_args.push("--no-delay".to_string());
         }
 
-        let args: Vec<&str> = owned_args.iter().map(|s| s.as_str()).collect();
-        debug!("Executing rperf with args: {:?}", args);
+        debug!("Executing rperf with args: {:?}", owned_args);
 
         let output_buffer = Arc::new(Mutex::new(Vec::new()));
         let output_clone = output_buffer.clone();
+        let run_state = ClientRunState::new();
+        let run_state_clone = run_state.clone();
 
         let result = tokio::time::timeout(
             std::time::Duration::from_secs((self.duration + 10.0) as u64),
             tokio::task::spawn_blocking(move || {
+                // Convert Vec<String> to Vec<&str> inside the closure to ensure ownership
                 let args: Vec<&str> = owned_args.iter().map(|s| s.as_str()).collect();
                 run_client_with_output(args, output_clone)
                     .map_err(|e| anyhow::anyhow!("rperf execution failed: {}", e))
@@ -278,7 +267,7 @@ impl RPerfRunner {
                 }),
             },
             Err(_) => {
-                rperf::client::kill();
+                run_state_clone.request_shutdown();
                 Ok(RPerfResult {
                     success: false,
                     error: Some("Test timed out".to_string()),

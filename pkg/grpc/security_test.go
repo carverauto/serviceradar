@@ -67,21 +67,27 @@ func TestMTLSProvider(t *testing.T) {
 	err := GenerateTestCertificates(tmpDir)
 	if err != nil {
 		t.Fatalf("Failed to generate test certificates: %v", err)
-
 		return
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	// Define config with TLS fields for all subtests
 	config := &models.SecurityConfig{
 		Mode:    SecurityModeMTLS,
 		CertDir: tmpDir,
 		Role:    models.RolePoller,
+		TLS: models.TLSConfig{
+			CertFile: filepath.Join(tmpDir, "server.pem"),
+			KeyFile:  filepath.Join(tmpDir, "server-key.pem"),
+			CAFile:   filepath.Join(tmpDir, "root.pem"),
+		},
 	}
 
 	t.Run("NewMTLSProvider", func(t *testing.T) {
 		provider, err := NewMTLSProvider(config)
+
 		require.NoError(t, err)
 		require.NotNil(t, provider)
 		assert.NotNil(t, provider.clientCreds)
@@ -111,7 +117,6 @@ func TestMTLSProvider(t *testing.T) {
 	})
 
 	t.Run("MissingClientCerts", func(t *testing.T) {
-		// Make a copy of the directory without client certs
 		var err error
 
 		noCertDir := filepath.Join(t.TempDir(), "no-client-certs")
@@ -125,8 +130,10 @@ func TestMTLSProvider(t *testing.T) {
 
 			srcPath := filepath.Join(tmpDir, file)
 			dstPath := filepath.Join(noCertDir, file)
+
 			content, err = os.ReadFile(srcPath)
 			require.NoError(t, err)
+
 			err = os.WriteFile(dstPath, content, 0600)
 			require.NoError(t, err)
 		}
@@ -135,6 +142,7 @@ func TestMTLSProvider(t *testing.T) {
 			Mode:    SecurityModeMTLS,
 			CertDir: noCertDir,
 			Role:    models.RolePoller,
+			// Intentionally omit TLS fields to test missing certs behavior
 		}
 
 		provider, err := NewMTLSProvider(noCertConfig)
@@ -226,6 +234,11 @@ func TestNewSecurityProvider(t *testing.T) {
 				CertDir:    tmpDir,
 				ServerName: "localhost",
 				Role:       "poller",
+				TLS: models.TLSConfig{
+					CertFile: filepath.Join(tmpDir, "server.pem"),
+					KeyFile:  filepath.Join(tmpDir, "server-key.pem"),
+					CAFile:   filepath.Join(tmpDir, "root.pem"),
+				},
 			},
 			expectError: false,
 		},
