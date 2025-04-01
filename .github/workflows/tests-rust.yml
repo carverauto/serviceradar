@@ -13,13 +13,13 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential gcc
+          sudo apt-get install -y build-essential protobuf-compiler
+          protoc --version || (echo "protoc installation failed" && exit 1)
 
       - name: Setup Rust
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-          override: true
 
       - name: Run Rust Tests
         run: |
