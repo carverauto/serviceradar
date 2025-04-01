@@ -35,25 +35,32 @@ import (
 
 type mockKVStore struct{}
 
-func (m *mockKVStore) Get(_ context.Context, _ string) ([]byte, bool, error) {
-	return nil, false, nil
+func (*mockKVStore) Get(_ context.Context, _ string) (data []byte, found bool, err error) {
+	data = nil
+	found = false
+	err = nil
+
+	return data, found, err
 }
 
-func (m *mockKVStore) Put(_ context.Context, _ string, _ []byte, _ time.Duration) error {
+func (*mockKVStore) Put(_ context.Context, _ string, _ []byte, _ time.Duration) (err error) {
+	err = nil
+
+	return err
+}
+
+func (*mockKVStore) Delete(_ context.Context, _ string) error {
 	return nil
 }
 
-func (m *mockKVStore) Delete(_ context.Context, _ string) error {
-	return nil
-}
-
-func (m *mockKVStore) Watch(_ context.Context, _ string) (<-chan []byte, error) {
+func (*mockKVStore) Watch(_ context.Context, _ string) (<-chan []byte, error) {
 	ch := make(chan []byte)
 	close(ch)
+
 	return ch, nil
 }
 
-func (m *mockKVStore) Close() error {
+func (*mockKVStore) Close() error {
 	return nil
 }
 
@@ -61,25 +68,25 @@ var _ KVStore = (*mockKVStore)(nil)
 
 type mockService struct{}
 
-func (m *mockService) Start(context.Context) error       { return nil }
-func (m *mockService) Stop(context.Context) error        { return nil }
-func (m *mockService) Name() string                      { return "mock_sweep" }
-func (m *mockService) UpdateConfig(*models.Config) error { return nil }
+func (*mockService) Start(context.Context) error       { return nil }
+func (*mockService) Stop(context.Context) error        { return nil }
+func (*mockService) Name() string                      { return "mock_sweep" }
+func (*mockService) UpdateConfig(*models.Config) error { return nil }
 
-func setupTempDir(t *testing.T) (string, func()) {
+func setupTempDir(t *testing.T) (tmpDir string, cleanup func()) {
 	t.Helper()
 
 	tmpDir, err := os.MkdirTemp("", "serviceradar-test")
 	require.NoError(t, err)
 
-	return tmpDir, func() {
+	cleanup = func() {
 		err := os.RemoveAll(tmpDir)
 		if err != nil {
 			t.Logf("Failed to remove temp dir %s: %v", tmpDir, err)
-
-			return
 		}
 	}
+
+	return tmpDir, cleanup
 }
 
 func setupServerConfig() *ServerConfig {
@@ -110,23 +117,30 @@ func TestNewServerBasic(t *testing.T) {
 		done:         make(chan struct{}),
 		connections:  make(map[string]*CheckerConnection),
 	}
-	s.setupKVStore = func(ctx context.Context, cfgLoader *cconfig.Config, cfg *ServerConfig) (KVStore, error) {
+
+	s.setupKVStore = func(_ context.Context, _ *cconfig.Config, _ *ServerConfig) (KVStore, error) {
 		t.Log("KVAddress not set, using mock KV store")
+
 		return kvStore, nil
 	}
-	s.createSweepService = func(sweepConfig *SweepConfig, kvStore KVStore) (Service, error) {
+
+	s.createSweepService = func(_ *SweepConfig, _ KVStore) (Service, error) {
 		return nil, errSweepConfigNil // Default behavior for this test
 	}
 
 	cfgLoader := cconfig.NewConfig()
+
 	err := s.loadConfigurations(context.Background(), cfgLoader)
 	require.NoError(t, err)
 
 	server, err := NewServer(context.Background(), tmpDir, config)
+
 	require.NoError(t, err)
 	require.NotNil(t, server)
+
 	assert.Equal(t, config.ListenAddr, server.ListenAddr())
 	assert.Equal(t, config.Security, server.SecurityConfig())
+
 	t.Logf("server.kvStore = %v", server.kvStore)
 }
 
@@ -166,13 +180,13 @@ func TestNewServerWithSweepConfig(t *testing.T) {
 		connections:  make(map[string]*CheckerConnection),
 	}
 
-	s.setupKVStore = func(ctx context.Context, cfgLoader *cconfig.Config, cfg *ServerConfig) (KVStore, error) {
+	s.setupKVStore = func(_ context.Context, _ *cconfig.Config, _ *ServerConfig) (KVStore, error) {
 		t.Log("KVAddress not set, using mock KV store")
 
 		return kvStore, nil
 	}
 
-	s.createSweepService = func(sweepConfig *SweepConfig, kvStore KVStore) (Service, error) {
+	s.createSweepService = func(sweepConfig *SweepConfig, _ KVStore) (Service, error) {
 		t.Logf("Using mock createSweepService for sweep config: %+v", sweepConfig)
 
 		return &mockService{}, nil

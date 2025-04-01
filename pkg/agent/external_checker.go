@@ -53,9 +53,13 @@ type ExternalChecker struct {
 }
 
 var (
-	errAddressRequired               = fmt.Errorf("address is required for external checker")
-	errFailedToCloseSecurityProvider = errors.New("failed to close security provider")
-	errFailedToCloseClient           = errors.New("failed to close client")
+	errAddressRequired                = errors.New("address is required for external checker")
+	errFailedToCloseSecurityProvider  = errors.New("failed to close security provider")
+	errFailedToCloseClient            = errors.New("failed to close client")
+	errInvalidAddressUnexpected       = errors.New("invalid address format: expected host:port")
+	errInvalidAddressEmpty            = errors.New("invalid address format: host cannot be empty")
+	errInvalidPortInAddress           = errors.New("invalid port in address: port must be an integer between 1 and 65535")
+	errFailedToCreateSecurityProvider = errors.New("failed to create security provider")
 )
 
 func NewExternalChecker(
@@ -72,24 +76,24 @@ func NewExternalChecker(
 	// Validate address format using net.SplitHostPort
 	host, portStr, err := net.SplitHostPort(address)
 	if err != nil {
-		return nil, fmt.Errorf("invalid address format: %s (expected host:port): %w", address, err)
+		return nil, fmt.Errorf("%w: %w", errInvalidAddressUnexpected, err)
 	}
 
 	// Ensure host is non-empty
 	if host == "" {
-		return nil, fmt.Errorf("invalid address format: %s (host cannot be empty)", address)
+		return nil, fmt.Errorf("%w: %w", errInvalidAddressEmpty, err)
 	}
 
 	// Validate port as an integer between 1 and 65535
 	port, err := strconv.Atoi(portStr)
 	if err != nil || port < 1 || port > 65535 {
-		return nil, fmt.Errorf("invalid port in address %s: port must be an integer between 1 and 65535", address)
+		return nil, fmt.Errorf("%w: %w", errInvalidPortInAddress, err)
 	}
 
 	// Create SecurityProvider once during checker creation
 	provider, err := ggrpc.NewSecurityProvider(ctx, security)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create security provider: %w", err)
+		return nil, fmt.Errorf("%w: %w", errFailedToCreateSecurityProvider, err)
 	}
 
 	clientCfg := ggrpc.ClientConfig{

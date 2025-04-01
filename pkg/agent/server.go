@@ -52,6 +52,7 @@ func NewServer(ctx context.Context, configDir string, cfg *ServerConfig) (*Serve
 	if err != nil {
 		return nil, err
 	}
+
 	s.kvStore = kvStore
 
 	s.createSweepService = func(sweepConfig *SweepConfig, kvStore KVStore) (Service, error) {
@@ -125,7 +126,7 @@ func setupKVStore(ctx context.Context, cfgLoader *config.Config, cfg *ServerConf
 			return nil, err
 		}
 
-		return nil, fmt.Errorf("failed to initialize KV service client")
+		return nil, errFailedToInitializeKVClient
 	}
 
 	cfgLoader.SetKVStore(kvStore)
@@ -158,7 +159,6 @@ func createSweepService(sweepConfig *SweepConfig, kvStore KVStore, cfg *ServerCo
 	return NewSweepService(c, kvStore, configKey)
 }
 
-// Update loadSweepService to pass kvStore
 func (s *Server) loadSweepService(ctx context.Context, cfgLoader *config.Config, kvPath, filePath string) (Service, error) {
 	var sweepConfig SweepConfig
 
