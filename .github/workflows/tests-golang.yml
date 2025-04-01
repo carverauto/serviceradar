@@ -1,6 +1,9 @@
-# .github/workflows/tests-golang.yml
 name: Golang Tests
-on: [push]
+on:
+  push:
+    paths-ignore:
+      - 'cmd/checkers/rperf-client/**'  # Ignore changes in the Rust project directory
+
 permissions:
   contents: write
 

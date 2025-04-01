@@ -1,5 +1,9 @@
 name: Rust Tests
-on: [push]
+on:
+  push:
+    paths:
+      - 'cmd/checkers/rperf-client/**'  # Only trigger on changes in this directory
+
 permissions:
   contents: write
 
