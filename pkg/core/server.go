@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -53,20 +54,15 @@ const (
 )
 
 func NewServer(_ context.Context, config *Config) (*Server, error) {
-	// Set default config values
 	normalizedConfig := normalizeConfig(config)
-
-	// Initialize metrics manager
 	metricsManager := metrics.NewManager(models.MetricsConfig{
 		Enabled:   normalizedConfig.Metrics.Enabled,
 		Retention: normalizedConfig.Metrics.Retention,
 		MaxNodes:  normalizedConfig.Metrics.MaxNodes,
 	})
 
-	// Initialize database
 	dbPath := getDBPath(normalizedConfig.DBPath)
-
-	if err := ensureDataDirectory(); err != nil {
+	if err := ensureDataDirectory(dbPath); err != nil {
 		return nil, fmt.Errorf("failed to create data directory: %w", err)
 	}
 
@@ -75,13 +71,11 @@ func NewServer(_ context.Context, config *Config) (*Server, error) {
 		return nil, fmt.Errorf("%w: %w", errDatabaseError, err)
 	}
 
-	// Initialize auth config
 	authConfig, err := initializeAuthConfig(normalizedConfig)
 	if err != nil {
 		return nil, err
 	}
 
-	// Create server instance
 	server := &Server{
 		db:             database,
 		alertThreshold: normalizedConfig.AlertThreshold,
@@ -120,8 +114,10 @@ func getDBPath(configPath string) string {
 	return configPath
 }
 
-func ensureDataDirectory() error {
-	return os.MkdirAll("/var/lib/serviceradar", serviceradarDirPerms)
+func ensureDataDirectory(dbPath string) error {
+	dir := filepath.Dir(dbPath)
+
+	return os.MkdirAll(dir, serviceradarDirPerms)
 }
 
 func initializeAuthConfig(config *Config) (*models.AuthConfig, error) {
