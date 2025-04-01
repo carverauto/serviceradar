@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# setup-deb-kv.sh
 set -e  # Exit on any error
 
 VERSION=${VERSION:-1.0.27}
@@ -21,16 +22,23 @@ echo "Building serviceradar-kv version ${VERSION}"
 
 echo "Setting up package structure..."
 
+# Use a relative path from the script's location
+BASE_DIR="$(dirname "$(dirname "$0")")"  # Go up two levels from scripts/ to root
+PACKAGING_DIR="${BASE_DIR}/packaging"
+
+echo "Using PACKAGING_DIR: $PACKAGING_DIR"
+
 # Create package directory structure
 PKG_ROOT="serviceradar-kv_${VERSION}"
 mkdir -p "${PKG_ROOT}/DEBIAN"
 mkdir -p "${PKG_ROOT}/usr/local/bin"
+mkdir -p "${PKG_ROOT}/etc/serviceradar"
 mkdir -p "${PKG_ROOT}/lib/systemd/system"
 
-echo "Building Go binaries..."
+echo "Building Go binary..."
 
 # Build kv binary
-GOOS=linux GOARCH=amd64 go build -o "${PKG_ROOT}/usr/local/bin/serviceradar-kv" ./cmd/kv
+GOOS=linux GOARCH=amd64 go build -o "${PKG_ROOT}/usr/local/bin/serviceradar-kv" "${BASE_DIR}/cmd/kv"
 
 echo "Creating package files..."
 
@@ -44,59 +52,44 @@ Architecture: amd64
 Depends: systemd
 Maintainer: Michael Freeman <mfreeman451@gmail.com>
 Description: ServiceRadar Key-Value store
-  This package provides the ServiceRadar key-value store service.
+ This package provides the ServiceRadar key-value store service.
 EOF
 
+# Create conffiles to mark configuration files
 cat > "${PKG_ROOT}/DEBIAN/conffiles" << EOF
 /etc/serviceradar/kv.json
+/etc/serviceradar/api.env
 EOF
 
-# Create systemd service file
-cat > "${PKG_ROOT}/lib/systemd/system/serviceradar-kv.service" << EOF
-[Unit]
-Description=ServiceRadar KV Service
-After=network.target
+# Copy systemd service file from the filesystem
+SERVICE_FILE_SRC="${PACKAGING_DIR}/kv/systemd/serviceradar-kv.service"
+if [ -f "$SERVICE_FILE_SRC" ]; then
+    cp "$SERVICE_FILE_SRC" "${PKG_ROOT}/lib/systemd/system/serviceradar-kv.service"
+    echo "Copied serviceradar-kv.service from $SERVICE_FILE_SRC"
+else
+    echo "Error: serviceradar-kv.service not found at $SERVICE_FILE_SRC"
+    exit 1
+fi
 
-[Service]
-Type=simple
-User=serviceradar
-EnvironmentFile=/etc/serviceradar/api.env
-ExecStart=/usr/local/bin/serviceradar-kv
-Restart=always
-RestartSec=10
-LimitNOFILE=65535
-LimitNPROC=65535
+# Copy kv.json from the filesystem
+KV_JSON_SRC="${PACKAGING_DIR}/kv/config/kv.json"
+if [ -f "$KV_JSON_SRC" ]; then
+    cp "$KV_JSON_SRC" "${PKG_ROOT}/etc/serviceradar/kv.json"
+    echo "Copied kv.json from $KV_JSON_SRC"
+else
+    echo "Error: kv.json not found at $KV_JSON_SRC"
+    exit 1
+fi
 
-[Install]
-WantedBy=multi-user.target
-EOF
-
-mkdir -p "${PKG_ROOT}/etc/serviceradar"
-
-cat > "${PKG_ROOT}/etc/serviceradar/kv.json" << EOF
-{
-  "listen_addr": ":50057",
-  "nats_url": "nats://changeme:4222",
-  "security": {
-    "mode": "mtls",
-    "cert_dir": "/etc/serviceradar/certs",
-    "server_name": "changeme",
-    "role": "kv",
-    "tls": {
-      "cert_file": "kv.pem",
-      "key_file": "kv-key.pem",
-      "ca_file": "root.pem",
-      "client_ca_file": "root.pem"
-    }
-  },
-  "rbac": {
-    "roles": [
-      {"identity": "CN=changeme,O=ServiceRadar", "role": "reader"}
-    ]
-  },
-  "bucket": "serviceradar-kv"
-}
-EOF
+# Copy api.env from the filesystem (assuming it’s shared across components)
+API_ENV_SRC="${PACKAGING_DIR}/core/config/api.env"
+if [ -f "$API_ENV_SRC" ]; then
+    cp "$API_ENV_SRC" "${PKG_ROOT}/etc/serviceradar/api.env"
+    echo "Copied api.env from $API_ENV_SRC"
+else
+    echo "Error: api.env not found at $API_ENV_SRC"
+    exit 1
+fi
 
 # Create postinst script
 cat > "${PKG_ROOT}/DEBIAN/postinst" << EOF
@@ -111,6 +104,7 @@ fi
 # Set permissions
 chown -R serviceradar:serviceradar /etc/serviceradar
 chmod 755 /usr/local/bin/serviceradar-kv
+chmod 600 /etc/serviceradar/api.env  # Ensure api.env has restrictive permissions
 
 # Enable and start service
 systemctl daemon-reload
@@ -128,8 +122,8 @@ cat > "${PKG_ROOT}/DEBIAN/prerm" << EOF
 set -e
 
 # Stop and disable service
-systemctl stop serviceradar-kv
-systemctl disable serviceradar-kv
+systemctl stop serviceradar-kv || true
+systemctl disable serviceradar-kv || true
 
 exit 0
 EOF

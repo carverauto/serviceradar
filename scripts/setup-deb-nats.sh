@@ -22,6 +22,12 @@ echo "Setting up package structure for serviceradar-nats..."
 VERSION=${VERSION:-1.0.27}
 NATS_VERSION=${NATS_VERSION:-2.11.0}  # Default NATS Server version
 
+# Use a relative path from the script's location
+BASE_DIR="$(dirname "$(dirname "$0")")"  # Go up two levels from scripts/ to root
+PACKAGING_DIR="${BASE_DIR}/packaging"
+
+echo "Using PACKAGING_DIR: $PACKAGING_DIR"
+
 # Create package directory structure
 PKG_ROOT="serviceradar-nats_${VERSION}"
 mkdir -p "${PKG_ROOT}/DEBIAN"
@@ -60,95 +66,39 @@ EOF
 # Create conffiles to mark configuration files
 cat > "${PKG_ROOT}/DEBIAN/conffiles" << EOF
 /etc/nats/nats-server.conf
+/etc/serviceradar/api.env
 EOF
 
-# Create NATS configuration file
-cat > "${PKG_ROOT}/etc/nats/nats-server.conf" << EOF
-# NATS Server Configuration for ServiceRadar KV Store
+# Copy systemd service file from the filesystem
+SERVICE_FILE_SRC="${PACKAGING_DIR}/nats/systemd/serviceradar-nats.service"
+if [ -f "$SERVICE_FILE_SRC" ]; then
+    cp "$SERVICE_FILE_SRC" "${PKG_ROOT}/lib/systemd/system/serviceradar-nats.service"
+    echo "Copied serviceradar-nats.service from $SERVICE_FILE_SRC"
+else
+    echo "Error: serviceradar-nats.service not found at $SERVICE_FILE_SRC"
+    exit 1
+fi
 
-# Listen on the default NATS port (restricted to localhost for security)
-listen: 127.0.0.1:4222
+# Copy nats-server.conf from the filesystem
+NATS_CONF_SRC="${PACKAGING_DIR}/nats/config/nats-server.conf"
+if [ -f "$NATS_CONF_SRC" ]; then
+    cp "$NATS_CONF_SRC" "${PKG_ROOT}/etc/nats/nats-server.conf"
+    echo "Copied nats-server.conf from $NATS_CONF_SRC"
+else
+    echo "Error: nats-server.conf not found at $NATS_CONF_SRC"
+    exit 1
+fi
 
-# Server identification
-server_name: nats-serviceradar
-
-# Enable JetStream for KV store
-jetstream {
-  # Directory to store JetStream data
-  store_dir: /var/lib/nats/jetstream
-  # Maximum storage size
-  max_memory_store: 1G
-  # Maximum disk storage
-  max_file_store: 10G
-}
-
-# Enable mTLS for secure communication
-tls {
-  # Path to the server certificate
-  cert_file: "/etc/serviceradar/certs/nats-server.pem"
-  # Path to the server private key
-  key_file: "/etc/serviceradar/certs/nats-server-key.pem"
-  # Path to the root CA certificate for verifying clients
-  ca_file: "/etc/serviceradar/certs/root.pem"
-
-  # Require client certificates (enables mTLS)
-  verify: true
-  # Require and verify client certificates
-  verify_and_map: true
-}
-
-# Logging settings
-logfile: "/var/log/nats/nats.log"
-debug: true
-EOF
-
-# Create systemd service file
-cat > "${PKG_ROOT}/lib/systemd/system/serviceradar-nats.service" << EOF
-[Unit]
-Description=NATS Server for ServiceRadar
-After=network-online.target ntp.service
-
-[Service]
-Type=simple
-ExecStart=/usr/bin/nats-server -c /etc/nats/nats-server.conf
-ExecReload=/bin/kill -s HUP \$MAINPID
-ExecStop=/bin/kill -s SIGINT \$MAINPID
-User=nats
-Group=nats
-Restart=always
-RestartSec=5
-KillSignal=SIGUSR2
-LimitNOFILE=800000
-
-# Security hardening
-CapabilityBoundingSet=
-LockPersonality=true
-MemoryDenyWriteExecute=true
-NoNewPrivileges=true
-PrivateDevices=true
-PrivateTmp=true
-PrivateUsers=true
-ProcSubset=pid
-ProtectClock=true
-ProtectControlGroups=true
-ProtectHome=true
-ProtectHostname=true
-ProtectKernelLogs=true
-ProtectKernelModules=true
-ProtectKernelTunables=true
-ProtectSystem=strict
-RestrictAddressFamilies=AF_INET AF_INET6
-RestrictNamespaces=true
-RestrictRealtime=true
-RestrictSUIDSGID=true
-SystemCallFilter=@system-service ~@privileged ~@resources
-UMask=0077
-ReadWritePaths=/var/lib/nats /var/log/nats
-
-[Install]
-WantedBy=multi-user.target
-Alias=nats.service
-EOF
+# Copy api.env from the filesystem (optional, for consistency)
+API_ENV_SRC="${PACKAGING_DIR}/core/config/api.env"
+if [ -f "$API_ENV_SRC" ]; then
+    mkdir -p "${PKG_ROOT}/etc/serviceradar"
+    cp "$API_ENV_SRC" "${PKG_ROOT}/etc/serviceradar/api.env"
+    echo "Copied api.env from $API_ENV_SRC"
+else
+    echo "Error: api.env not found at $API_ENV_SRC"
+    exit 1
+fi
 
 # Create postinst script
 cat > "${PKG_ROOT}/DEBIAN/postinst" << EOF
@@ -171,11 +121,16 @@ chown -R nats:nats /etc/nats /var/lib/nats /var/log/nats
 chmod 755 /usr/bin/nats-server
 chmod 644 /etc/nats/nats-server.conf
 chmod -R 750 /var/lib/nats /var/log/nats
+chmod 600 /etc/serviceradar/api.env  # Ensure api.env has restrictive permissions
 
-# Add nats user to serviceradar group
-sudo usermod -aG serviceradar nats
-# Allow nats user to read the ServiceRadar certificates
-sudo chmod 750 /etc/serviceradar/certs/
+# Add nats user to serviceradar group if it exists
+if getent group serviceradar >/dev/null; then
+    usermod -aG serviceradar nats
+fi
+# Allow nats user to read the ServiceRadar certificates if they exist
+if [ -d "/etc/serviceradar/certs/" ]; then
+    chmod 750 /etc/serviceradar/certs/
+fi
 
 # Enable and start service
 systemctl daemon-reload

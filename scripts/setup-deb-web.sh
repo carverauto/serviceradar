@@ -21,6 +21,12 @@ echo "Setting up package structure for Next.js web interface..."
 
 VERSION=${VERSION:-1.0.28}
 
+# Use a relative path from the script's location
+BASE_DIR="$(dirname "$(dirname "$0")")"  # Go up two levels from scripts/ to root
+PACKAGING_DIR="${BASE_DIR}/packaging"
+
+echo "Using PACKAGING_DIR: $PACKAGING_DIR"
+
 # Create package directory structure
 PKG_ROOT="serviceradar-web_${VERSION}"
 mkdir -p "${PKG_ROOT}/DEBIAN"
@@ -32,7 +38,7 @@ mkdir -p "${PKG_ROOT}/etc/nginx/conf.d"
 echo "Building Next.js application..."
 
 # Build Next.js application
-cd ./web
+cd "${BASE_DIR}/web"
 
 # Ensure package.json contains the right scripts and dependencies
 if ! grep -q '"next": ' package.json; then
@@ -65,71 +71,6 @@ cd ..
 
 echo "Creating package files..."
 
-# Create default config file
-cat > "${PKG_ROOT}/etc/serviceradar/web.json" << EOF
-{
-  "port": 3000,
-  "host": "0.0.0.0",
-  "api_url": "http://localhost:8090"
-}
-EOF
-
-# Create Nginx configuration
-cat > "${PKG_ROOT}/etc/nginx/conf.d/serviceradar-web.conf" << EOF
-# ServiceRadar Web Interface - Nginx Configuration
-server {
-    listen 80;
-    server_name _; # Catch-all server name (use your domain if you have one)
-
-    # Static assets
-    location /_next/ {
-        proxy_pass http://127.0.0.1:3000; # Note: using IPv4 address
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    # API routes handled by Next.js
-    location ~ ^/api/(auth|nodes|status) {
-        proxy_pass http://127.0.0.1:3000; # Note: using IPv4 address
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    # Backend API routes
-    location /api/ {
-        proxy_pass http://localhost:8090;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-
-    # Auth API routes
-    location /auth/ {
-        proxy_pass http://localhost:8090;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
-        add_header Access-Control-Allow-Headers "Content-Type, Authorization, X-API-Key" always;
-    }
-
-    # Main app
-    location / {
-        proxy_pass http://127.0.0.1:3000; # Note: using IPv4 address
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-EOF
-
 # Create control file
 cat > "${PKG_ROOT}/DEBIAN/control" << EOF
 Package: serviceradar-web
@@ -150,28 +91,48 @@ EOF
 cat > "${PKG_ROOT}/DEBIAN/conffiles" << EOF
 /etc/serviceradar/web.json
 /etc/nginx/conf.d/serviceradar-web.conf
+/etc/serviceradar/api.env
 EOF
 
-# Create systemd service file
-cat > "${PKG_ROOT}/lib/systemd/system/serviceradar-web.service" << EOF
-[Unit]
-Description=ServiceRadar Web Interface
-After=network.target
+# Copy systemd service file from the filesystem
+SERVICE_FILE_SRC="${PACKAGING_DIR}/web/systemd/serviceradar-web.service"
+if [ -f "$SERVICE_FILE_SRC" ]; then
+    cp "$SERVICE_FILE_SRC" "${PKG_ROOT}/lib/systemd/system/serviceradar-web.service"
+    echo "Copied serviceradar-web.service from $SERVICE_FILE_SRC"
+else
+    echo "Error: serviceradar-web.service not found at $SERVICE_FILE_SRC"
+    exit 1
+fi
 
-[Service]
-Type=simple
-User=serviceradar
-WorkingDirectory=/usr/local/share/serviceradar-web
-Environment=NODE_ENV=production
-Environment=PORT=3000
-EnvironmentFile=/etc/serviceradar/api.env
-ExecStart=/usr/bin/node server.js
-Restart=always
-RestartSec=10
+# Copy web.json from the filesystem
+WEB_JSON_SRC="${PACKAGING_DIR}/config/web.json"
+if [ -f "$WEB_JSON_SRC" ]; then
+    cp "$WEB_JSON_SRC" "${PKG_ROOT}/etc/serviceradar/web.json"
+    echo "Copied web.json from $WEB_JSON_SRC"
+else
+    echo "Error: web.json not found at $WEB_JSON_SRC"
+    exit 1
+fi
 
-[Install]
-WantedBy=multi-user.target
-EOF
+# Copy Nginx configuration from the filesystem
+NGINX_CONF_SRC="${PACKAGING_DIR}/core/config/nginx.conf"
+if [ -f "$NGINX_CONF_SRC" ]; then
+    cp "$NGINX_CONF_SRC" "${PKG_ROOT}/etc/nginx/conf.d/serviceradar-web.conf"
+    echo "Copied serviceradar-web.conf from $NGINX_CONF_SRC"
+else
+    echo "Error: nginx.conf not found at $NGINX_CONF_SRC"
+    exit 1
+fi
+
+# Copy api.env from the filesystem
+API_ENV_SRC="${PACKAGING_DIR}/core/config/api.env"
+if [ -f "$API_ENV_SRC" ]; then
+    cp "$API_ENV_SRC" "${PKG_ROOT}/etc/serviceradar/api.env"
+    echo "Copied api.env from $API_ENV_SRC"
+else
+    echo "Error: api.env not found at $API_ENV_SRC"
+    exit 1
+fi
 
 # Create postinst script
 cat > "${PKG_ROOT}/DEBIAN/postinst" << EOF
@@ -198,20 +159,10 @@ fi
 
 # Set permissions
 chown -R serviceradar:serviceradar /usr/local/share/serviceradar-web
-chown -R serviceradar:serviceradar /etc/serviceradar/web.json
+chown -R serviceradar:serviceradar /etc/serviceradar
 chmod 755 /usr/local/share/serviceradar-web
 chmod 644 /etc/serviceradar/web.json
-
-# Check for API key from core package
-if [ ! -f "/etc/serviceradar/api.env" ]; then
-    echo "WARNING: API key file not found. The serviceradar-core package should be installed first."
-    echo "Creating a temporary API key file..."
-    API_KEY=\$(openssl rand -hex 32)
-    echo "API_KEY=\$API_KEY" > /etc/serviceradar/api.env
-    chmod 600 /etc/serviceradar/api.env
-    chown serviceradar:serviceradar /etc/serviceradar/api.env
-    echo "For proper functionality, please reinstall serviceradar-core package."
-fi
+chmod 600 /etc/serviceradar/api.env  # Ensure api.env has restrictive permissions
 
 # Configure Nginx
 if [ -f /etc/nginx/sites-enabled/default ]; then

@@ -1,6 +1,6 @@
 {
-  "listen_addr": ":50057",
-  "nats_url": "nats://changeme:4222",
+  "listen_addr": ":50054",
+  "nats_url": "nats://127.0.0.1:4222",
   "security": {
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",

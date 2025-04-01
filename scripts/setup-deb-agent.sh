@@ -22,6 +22,12 @@ echo "Building serviceradar-agent version ${VERSION}"
 
 echo "Setting up package structure..."
 
+# Use a relative path from the script's location
+BASE_DIR="$(dirname "$(dirname "$0")")"  # Go up two levels from scripts/ to root
+PACKAGING_DIR="${BASE_DIR}/packaging"
+
+echo "Using PACKAGING_DIR: $PACKAGING_DIR"
+
 # Create package directory structure
 PKG_ROOT="serviceradar-agent_${VERSION}"
 mkdir -p "${PKG_ROOT}/DEBIAN"
@@ -29,10 +35,10 @@ mkdir -p "${PKG_ROOT}/usr/local/bin"
 mkdir -p "${PKG_ROOT}/etc/serviceradar/checkers"
 mkdir -p "${PKG_ROOT}/lib/systemd/system"
 
-echo "Building Go binaries..."
+echo "Building Go binary..."
 
-# Build agent and checker binaries
-GOOS=linux GOARCH=amd64 go build -o "${PKG_ROOT}/usr/local/bin/serviceradar-agent" ./cmd/agent
+# Build agent binary
+GOOS=linux GOARCH=amd64 go build -o "${PKG_ROOT}/usr/local/bin/serviceradar-agent" "${BASE_DIR}/cmd/agent"
 
 echo "Creating package files..."
 
@@ -50,63 +56,41 @@ Description: ServiceRadar monitoring agent with Dusk node checker
  a Dusk node checker plugin for monitoring services.
 EOF
 
+# Create conffiles to mark configuration files
 cat > "${PKG_ROOT}/DEBIAN/conffiles" << EOF
 /etc/serviceradar/agent.json
+/etc/serviceradar/api.env
 EOF
 
-# Create systemd service file
-cat > "${PKG_ROOT}/lib/systemd/system/serviceradar-agent.service" << EOF
-[Unit]
-Description=ServiceRadar Agent Service
-After=network.target
+# Copy systemd service file from the filesystem
+SERVICE_FILE_SRC="${PACKAGING_DIR}/agent/systemd/serviceradar-agent.service"
+if [ -f "$SERVICE_FILE_SRC" ]; then
+    cp "$SERVICE_FILE_SRC" "${PKG_ROOT}/lib/systemd/system/serviceradar-agent.service"
+    echo "Copied serviceradar-agent.service from $SERVICE_FILE_SRC"
+else
+    echo "Error: serviceradar-agent.service not found at $SERVICE_FILE_SRC"
+    exit 1
+fi
 
-[Service]
-Type=simple
-User=serviceradar
-ExecStart=/usr/local/bin/serviceradar-agent
-Restart=always
-RestartSec=10
-LimitNOFILE=65535
-LimitNPROC=65535
+# Copy agent.json from the filesystem
+AGENT_JSON_SRC="${PACKAGING_DIR}/agent/config/agent.json"
+if [ -f "$AGENT_JSON_SRC" ]; then
+    cp "$AGENT_JSON_SRC" "${PKG_ROOT}/etc/serviceradar/agent.json"
+    echo "Copied agent.json from $AGENT_JSON_SRC"
+else
+    echo "Error: agent.json not found at $AGENT_JSON_SRC"
+    exit 1
+fi
 
-[Install]
-WantedBy=multi-user.target
-EOF
-
-
-cat > "${PKG_ROOT}/etc/serviceradar/agent.json" << EOF
-{
-  "checkers_dir": "/etc/serviceradar/checkers",
-  "listen_addr": ":50051",
-  "service_type": "grpc",
-  "service_name": "AgentService",
-  "agent_id": "default-agent",
-  "agent_name": "changeme",
-  "security": {
-    "mode": "mtls",
-    "cert_dir": "/etc/serviceradar/certs",
-    "server_name": "changeme",
-    "role": "agent",
-    "tls": {
-      "cert_file": "agent.pem",
-      "key_file": "agent-key.pem",
-      "ca_file": "root.pem"
-    }
-  },
-  "kv_address": "changeme:50057",
-  "kv_security": {
-    "mode": "mtls",
-    "cert_dir": "/etc/serviceradar/certs",
-    "server_name": "changeme",
-    "role": "agent",
-    "tls": {
-      "cert_file": "kv-client.pem",
-      "key_file": "kv-client-key.pem",
-      "ca_file": "root.pem"
-    }
-  }
-}
-EOF
+# Copy api.env from the filesystem (assuming it’s shared across components)
+API_ENV_SRC="${PACKAGING_DIR}/core/config/api.env"
+if [ -f "$API_ENV_SRC" ]; then
+    cp "$API_ENV_SRC" "${PKG_ROOT}/etc/serviceradar/api.env"
+    echo "Copied api.env from $API_ENV_SRC"
+else
+    echo "Error: api.env not found at $API_ENV_SRC"
+    exit 1
+fi
 
 # Create postinst script
 cat > "${PKG_ROOT}/DEBIAN/postinst" << EOF
@@ -121,6 +105,7 @@ fi
 # Set permissions
 chown -R serviceradar:serviceradar /etc/serviceradar
 chmod 755 /usr/local/bin/serviceradar-agent
+chmod 600 /etc/serviceradar/api.env  # Ensure api.env has restrictive permissions
 
 # Set required capability for ICMP scanning
 if [ -x /usr/local/bin/serviceradar-agent ]; then
@@ -143,8 +128,8 @@ cat > "${PKG_ROOT}/DEBIAN/prerm" << EOF
 set -e
 
 # Stop and disable service
-systemctl stop serviceradar-agent
-systemctl disable serviceradar-agent
+systemctl stop serviceradar-agent || true
+systemctl disable serviceradar-agent || true
 
 exit 0
 EOF

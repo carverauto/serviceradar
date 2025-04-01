@@ -22,6 +22,12 @@ echo "Building serviceradar-snmp-checker version ${VERSION}"
 
 echo "Setting up package structure..."
 
+# Use a relative path from the script's location
+BASE_DIR="$(dirname "$(dirname "$0")")"  # Go up two levels from scripts/ to root
+PACKAGING_DIR="${BASE_DIR}/packaging"
+
+echo "Using PACKAGING_DIR: $PACKAGING_DIR"
+
 # Create package directory structure
 PKG_ROOT="serviceradar-snmp-checker_${VERSION}"
 mkdir -p "${PKG_ROOT}/DEBIAN"
@@ -29,10 +35,10 @@ mkdir -p "${PKG_ROOT}/usr/local/bin"
 mkdir -p "${PKG_ROOT}/etc/serviceradar/checkers"
 mkdir -p "${PKG_ROOT}/lib/systemd/system"
 
-echo "Building Go binaries..."
+echo "Building Go binary..."
 
 # Build snmp checker binary
-GOOS=linux GOARCH=amd64 go build -o "${PKG_ROOT}/usr/local/bin/serviceradar-snmp-checker" ./cmd/checkers/snmp
+GOOS=linux GOARCH=amd64 go build -o "${PKG_ROOT}/usr/local/bin/serviceradar-snmp-checker" "${BASE_DIR}/cmd/checkers/snmp"
 
 echo "Creating package files..."
 
@@ -49,62 +55,42 @@ Description: ServiceRadar SNMP poller
  This package provides the serviceradar SNMP checker plugin for monitoring services.
 EOF
 
+# Create conffiles to mark configuration files
 cat > "${PKG_ROOT}/DEBIAN/conffiles" << EOF
 /etc/serviceradar/checkers/snmp.json
+/etc/serviceradar/api.env
 EOF
 
-# Create systemd service file
-cat > "${PKG_ROOT}/lib/systemd/system/serviceradar-snmp-checker.service" << EOF
-[Unit]
-Description=ServiceRadar SNMP Checker Service
-After=network.target
+# Copy systemd service file from the filesystem
+SERVICE_FILE_SRC="${PACKAGING_DIR}/snmp-checker/systemd/serviceradar-snmp-checker.service"
+if [ -f "$SERVICE_FILE_SRC" ]; then
+    cp "$SERVICE_FILE_SRC" "${PKG_ROOT}/lib/systemd/system/serviceradar-snmp-checker.service"
+    echo "Copied serviceradar-snmp-checker.service from $SERVICE_FILE_SRC"
+else
+    echo "Error: serviceradar-snmp-checker.service not found at $SERVICE_FILE_SRC"
+    exit 1
+fi
 
-[Service]
-Type=simple
-User=serviceradar
-ExecStart=/usr/local/bin/serviceradar-snmp-checker
-Restart=always
-RestartSec=10
-LimitNOFILE=65535
-LimitNPROC=65535
+# Copy snmp.json from the filesystem
+SNMP_JSON_SRC="${PACKAGING_DIR}/snmp-checker/config/checkers/snmp.json"
+if [ -f "$SNMP_JSON_SRC" ]; then
+    cp "$SNMP_JSON_SRC" "${PKG_ROOT}/etc/serviceradar/checkers/snmp.json"
+    echo "Copied snmp.json from $SNMP_JSON_SRC"
+else
+    echo "Error: snmp.json not found at $SNMP_JSON_SRC"
+    exit 1
+fi
 
-[Install]
-WantedBy=multi-user.target
-EOF
-
-
-cat > "${PKG_ROOT}/etc/serviceradar/checkers/snmp.json" << EOF
-{
-  "node_address": "localhost:50051",
-  "listen_addr": ":50054",
-  "security": {
-	  "server_name": "changeme",
-	  "mode": "none",
-	  "role": "checker",
-	  "cert_dir": "/etc/serviceradar/certs"
-  },
-  "timeout": "30s",
-  "targets": [
-    {
-      "name": "test-router",
-      "host": "192.168.1.1",
-      "port": 161,
-      "community": "public",
-      "version": "v2c",
-      "interval": "30s",
-      "retries": 2,
-      "oids": [
-        {
-          "oid": ".1.3.6.1.2.1.2.2.1.10.4",
-          "name": "ifInOctets_4",
-          "type": "counter",
-          "scale": 1.0
-        }
-      ]
-    }
-  ]
-}
-EOF
+# Copy api.env from the filesystem (assuming it’s shared across components)
+API_ENV_SRC="${PACKAGING_DIR}/core/config/api.env"
+if [ -f "$API_ENV_SRC" ]; then
+    mkdir -p "${PKG_ROOT}/etc/serviceradar"  # Ensure directory exists
+    cp "$API_ENV_SRC" "${PKG_ROOT}/etc/serviceradar/api.env"
+    echo "Copied api.env from $API_ENV_SRC"
+else
+    echo "Error: api.env not found at $API_ENV_SRC"
+    exit 1
+fi
 
 # Create postinst script
 cat > "${PKG_ROOT}/DEBIAN/postinst" << EOF
@@ -119,6 +105,7 @@ fi
 # Set permissions
 chown -R serviceradar:serviceradar /etc/serviceradar
 chmod 755 /usr/local/bin/serviceradar-snmp-checker
+chmod 600 /etc/serviceradar/api.env  # Ensure api.env has restrictive permissions
 
 # Enable and start service
 systemctl daemon-reload
@@ -136,8 +123,8 @@ cat > "${PKG_ROOT}/DEBIAN/prerm" << EOF
 set -e
 
 # Stop and disable service
-systemctl stop serviceradar-snmp-checker
-systemctl disable serviceradar-snmp-checker
+systemctl stop serviceradar-snmp-checker || true
+systemctl disable serviceradar-snmp-checker || true
 
 exit 0
 EOF

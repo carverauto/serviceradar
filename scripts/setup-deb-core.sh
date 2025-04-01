@@ -21,6 +21,11 @@ echo "Setting up package structure..."
 
 VERSION=${VERSION:-1.0.28}
 BUILD_TAGS=${BUILD_TAGS:-""}
+# Use a relative path from the script's location, assuming /build in Docker
+BASE_DIR="$(dirname "$(dirname "$0")")"  # Go up two levels from scripts/ to root
+PACKAGING_DIR="${BASE_DIR}/packaging"
+
+echo "Using PACKAGING_DIR: $PACKAGING_DIR"
 
 # Create package directory structure
 PKG_ROOT="serviceradar-core_${VERSION}"
@@ -37,12 +42,12 @@ BUILD_CMD="CGO_ENABLED=1 GOOS=linux GOARCH=amd64"
 if [[ ! -z "$BUILD_TAGS" ]]; then
     BUILD_CMD="$BUILD_CMD GOFLAGS=\"-tags=$BUILD_TAGS\""
 fi
-BUILD_CMD="$BUILD_CMD go build -o \"../../${PKG_ROOT}/usr/local/bin/serviceradar-core\""
+BUILD_CMD="$BUILD_CMD go build -o \"${BASE_DIR}/${PKG_ROOT}/usr/local/bin/serviceradar-core\""
 
-# Build Go binary
-cd cmd/core
+# Build Go binary from /build/cmd/core
+cd "${BASE_DIR}/cmd/core"
 eval $BUILD_CMD
-cd ../..
+cd "${BASE_DIR}"
 
 echo "Creating package files..."
 
@@ -65,67 +70,38 @@ EOF
 # Create conffiles to mark configuration files
 cat > "${PKG_ROOT}/DEBIAN/conffiles" << EOF
 /etc/serviceradar/core.json
+/etc/serviceradar/api.env
 EOF
 
-# Create systemd service file
-cat > "${PKG_ROOT}/lib/systemd/system/serviceradar-core.service" << EOF
-[Unit]
-Description=ServiceRadar Core API Service
-After=network.target
+# Copy systemd service file from the filesystem
+SERVICE_FILE_SRC="${PACKAGING_DIR}/core/systemd/serviceradar-core.service"
+if [ -f "$SERVICE_FILE_SRC" ]; then
+    cp "$SERVICE_FILE_SRC" "${PKG_ROOT}/lib/systemd/system/serviceradar-core.service"
+    echo "Copied serviceradar-core.service from $SERVICE_FILE_SRC"
+else
+    echo "Error: serviceradar-core.service not found at $SERVICE_FILE_SRC"
+    exit 1
+fi
 
-[Service]
-Type=simple
-User=serviceradar
-EnvironmentFile=/etc/serviceradar/api.env
-ExecStart=/usr/local/bin/serviceradar-core -config /etc/serviceradar/core.json
-Restart=always
-RestartSec=10
-TimeoutStopSec=20
-KillMode=mixed
-KillSignal=SIGTERM
+# Copy core.json from the filesystem
+CORE_JSON_SRC="${PACKAGING_DIR}/core/config/core.json"
+if [ -f "$CORE_JSON_SRC" ]; then
+    cp "$CORE_JSON_SRC" "${PKG_ROOT}/etc/serviceradar/core.json"
+    echo "Copied core.json from $CORE_JSON_SRC"
+else
+    echo "Error: core.json not found at $CORE_JSON_SRC"
+    exit 1
+fi
 
-[Install]
-WantedBy=multi-user.target
-EOF
-
-# Create default config file
-cat > "${PKG_ROOT}/etc/serviceradar/core.json" << EOF
-{
-    "listen_addr": ":8090",
-    "grpc_addr": ":50052",
-    "alert_threshold": "5m",
-    "known_pollers": ["default-poller"],
-    "metrics": {
-        "enabled": true,
-        "retention": 100,
-        "max_nodes": 10000
-    },
-    "security": {
-        "mode": "none",
-        "cert_dir": "/etc/serviceradar/certs",
-        "role": "core"
-    },
-    "webhooks": [
-        {
-            "enabled": false,
-            "url": "https://your-webhook-url",
-            "cooldown": "15m",
-            "headers": [
-                {
-                    "key": "Authorization",
-                    "value": "Bearer your-token"
-                }
-            ]
-        },
-        {
-            "enabled": true,
-            "url": "https://discord.com/api/webhooks/changeme",
-            "cooldown": "15m",
-            "template": "{\"embeds\":[{\"title\":\"{{.alert.Title}}\",\"description\":\"{{.alert.Message}}\",\"color\":{{if eq .alert.Level \"error\"}}15158332{{else if eq .alert.Level \"warning\"}}16776960{{else}}3447003{{end}},\"timestamp\":\"{{.alert.Timestamp}}\",\"fields\":[{\"name\":\"Node ID\",\"value\":\"{{.alert.NodeID}}\",\"inline\":true}{{range $key, $value := .alert.Details}},{\"name\":\"{{$key}}\",\"value\":\"{{$value}}\",\"inline\":true}{{end}}]}]}"
-        }
-    ]
-}
-EOF
+# Copy api.env from the filesystem
+API_ENV_SRC="${PACKAGING_DIR}/core/config/api.env"
+if [ -f "$API_ENV_SRC" ]; then
+    cp "$API_ENV_SRC" "${PKG_ROOT}/etc/serviceradar/api.env"
+    echo "Copied api.env from $API_ENV_SRC"
+else
+    echo "Error: api.env not found at $API_ENV_SRC"
+    exit 1
+fi
 
 # Create postinst script
 cat > "${PKG_ROOT}/DEBIAN/postinst" << EOF
@@ -146,43 +122,12 @@ fi
 # Set permissions
 chown -R serviceradar:serviceradar /etc/serviceradar
 chmod 755 /usr/local/bin/serviceradar-core
+chmod 600 /etc/serviceradar/api.env  # Ensure api.env has restrictive permissions
 
 # Create data directory
 mkdir -p /var/lib/serviceradar
 chown -R serviceradar:serviceradar /var/lib/serviceradar
 chmod 755 /var/lib/serviceradar
-
-
-# Ensure api.env exists and has API_KEY and JWT_SECRET
-if [ ! -f "/etc/serviceradar/api.env" ]; then
-    echo "Generating new api.env with API_KEY and JWT_SECRET..."
-    API_KEY=\$(openssl rand -hex 32)
-    JWT_SECRET=\$(openssl rand -hex 32)
-    echo "API_KEY=\$API_KEY" > /etc/serviceradar/api.env
-    echo "JWT_SECRET=\$JWT_SECRET" >> /etc/serviceradar/api.env
-    echo "AUTH_ENABLED=false" >> /etc/serviceradar/api.env
-    chmod 600 /etc/serviceradar/api.env
-    chown serviceradar:serviceradar /etc/serviceradar/api.env
-    echo "New API key and JWT_SECRET generated and stored in /etc/serviceradar/api.env"
-else
-    # Check if JWT_SECRET is missing and add it
-    if ! grep -q "^JWT_SECRET=" /etc/serviceradar/api.env; then
-        echo "Adding JWT_SECRET to existing api.env..."
-        JWT_SECRET=\$(openssl rand -hex 32)
-        echo "JWT_SECRET=\$JWT_SECRET" >> /etc/serviceradar/api.env
-        chmod 600 /etc/serviceradar/api.env
-        chown serviceradar:serviceradar /etc/serviceradar/api.env
-        echo "JWT_SECRET added to /etc/serviceradar/api.env"
-    fi
-    # Check if AUTH_ENABLED is missing and add it
-    if ! grep -q "^AUTH_ENABLED=" /etc/serviceradar/api.env; then
-        echo "Adding AUTH_ENABLED to existing api.env..."
-        echo "AUTH_ENABLED=false" >> /etc/serviceradar/api.env
-        chmod 600 /etc/serviceradar/api.env
-        chown serviceradar:serviceradar /etc/serviceradar/api.env
-        echo "AUTH_ENABLED added to /etc/serviceradar/api.env"
-    fi
-fi
 
 # Enable and start service
 systemctl daemon-reload
@@ -214,7 +159,7 @@ chmod 755 "${PKG_ROOT}/DEBIAN/prerm"
 
 echo "Building Debian package..."
 
-# Create release-artifacts directory if it doesn't exist
+# Create release-artifacts directory if it doesn’t exist
 mkdir -p ./release-artifacts
 
 # Build the package with root-owner-group to avoid ownership warnings

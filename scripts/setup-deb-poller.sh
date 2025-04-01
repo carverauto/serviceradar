@@ -20,6 +20,11 @@ set -e  # Exit on any error
 echo "Setting up package structure..."
 
 VERSION=${VERSION:-1.0.28}
+# Use a relative path from the script's location
+BASE_DIR="$(dirname "$(dirname "$0")")"  # Go up two levels from scripts/ to root
+PACKAGING_DIR="${BASE_DIR}/packaging"
+
+echo "Using PACKAGING_DIR: $PACKAGING_DIR"
 
 # Create package directory structure
 PKG_ROOT="serviceradar-poller_${VERSION}"
@@ -31,7 +36,7 @@ mkdir -p "${PKG_ROOT}/lib/systemd/system"
 echo "Building Go binary..."
 
 # Build poller binary
-GOOS=linux GOARCH=amd64 go build -o "${PKG_ROOT}/usr/local/bin/serviceradar-poller" ./cmd/poller
+GOOS=linux GOARCH=amd64 go build -o "${PKG_ROOT}/usr/local/bin/serviceradar-poller" "${BASE_DIR}/cmd/poller"
 
 echo "Creating package files..."
 
@@ -53,85 +58,38 @@ EOF
 # Create conffiles to mark configuration files
 cat > "${PKG_ROOT}/DEBIAN/conffiles" << EOF
 /etc/serviceradar/poller.json
+/etc/serviceradar/api.env
 EOF
 
-# Create systemd service file
-cat > "${PKG_ROOT}/lib/systemd/system/serviceradar-poller.service" << EOF
-[Unit]
-Description=ServiceRadar Poller Service
-After=network.target
+# Copy systemd service file from the filesystem
+SERVICE_FILE_SRC="${PACKAGING_DIR}/poller/systemd/serviceradar-poller.service"
+if [ -f "$SERVICE_FILE_SRC" ]; then
+    cp "$SERVICE_FILE_SRC" "${PKG_ROOT}/lib/systemd/system/serviceradar-poller.service"
+    echo "Copied serviceradar-poller.service from $SERVICE_FILE_SRC"
+else
+    echo "Error: serviceradar-poller.service not found at $SERVICE_FILE_SRC"
+    exit 1
+fi
 
-[Service]
-LimitNOFILE=65535
-LimitNPROC=65535
-Type=simple
-User=serviceradar
-ExecStart=/usr/local/bin/serviceradar-poller -config /etc/serviceradar/poller.json
-Restart=always
-RestartSec=10
+# Copy poller.json from the filesystem
+POLLER_JSON_SRC="${PACKAGING_DIR}/poller/config/poller.json"
+if [ -f "$POLLER_JSON_SRC" ]; then
+    cp "$POLLER_JSON_SRC" "${PKG_ROOT}/etc/serviceradar/poller.json"
+    echo "Copied poller.json from $POLLER_JSON_SRC"
+else
+    echo "Error: poller.json not found at $POLLER_JSON_SRC"
+    exit 1
+fi
 
-[Install]
-WantedBy=multi-user.target
-EOF
-
-# Create default config only if we're creating a fresh package
-cat > "${PKG_ROOT}/etc/serviceradar/poller.json" << EOF
-{
-    "agents": {
-        "local-agent": {
-            "address": "localhost:50051",
-            "security": {
-              "server_name": "changeme",
-              "mode": "none"
-            },
-            "checks": [
-                {
-                    "service_type": "process",
-                    "service_name": "rusk",
-                    "details": "rusk"
-                },
-                {
-                    "service_type": "port",
-                    "service_name": "SSH",
-                    "details": "127.0.0.1:22"
-                },
-                {
-                    "service_type": "grpc",
-                    "service_name": "dusk",
-                    "details": "192.168.2.22:50052"
-                },
-                {
-                    "service_type": "snmp",
-                    "service_name": "snmp",
-                    "details": "192.168.2.22:50054"
-                },
-                {
-                    "service_type": "icmp",
-                    "service_name": "ping",
-		                "details": "8.8.8.8"
-                },
-                {
-                    "service_type": "sweep",
-                    "service_name": "network_sweep",
-                    "details": ""
-                }
-            ]
-        }
-    },
-    "core_address": "localhost:50052",
-    "listen_addr": ":50053",
-    "poll_interval": "30s",
-    "poller_id": "dusk",
-    "service_name": "PollerService",
-    "service_type": "grpc",
-      "security": {
-	    "mode": "none",
-	    "cert_dir": "/etc/serviceradar/certs",
-	    "server_name": "changeme",
-	    "role": "poller"
-	  }
-}
-EOF
+# Copy api.env from the filesystem (assuming it’s shared across components)
+API_ENV_SRC="${PACKAGING_DIR}/core/config/api.env"
+if [ -f "$API_ENV_SRC" ]; then
+    cp "$API_ENV_SRC" "${PKG_ROOT}/etc/serviceradar/api.env"
+    echo "Copied api.env from $API_ENV_SRC"
+else
+    echo "Error: api.env not found at $API_ENV_SRC"
+    exit 1
+fi
 
 # Create postinst script
 cat > "${PKG_ROOT}/DEBIAN/postinst" << EOF
@@ -146,6 +104,7 @@ fi
 # Set permissions
 chown -R serviceradar:serviceradar /etc/serviceradar
 chmod 755 /usr/local/bin/serviceradar-poller
+chmod 600 /etc/serviceradar/api.env  # Ensure api.env has restrictive permissions
 
 # Enable and start service
 systemctl daemon-reload
@@ -163,8 +122,8 @@ cat > "${PKG_ROOT}/DEBIAN/prerm" << EOF
 set -e
 
 # Stop and disable service
-systemctl stop serviceradar-poller
-systemctl disable serviceradar-poller
+systemctl stop serviceradar-poller || true
+systemctl disable serviceradar-poller || true
 
 exit 0
 EOF

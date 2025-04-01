@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Copyright 2025 Carver Automation Corporation.
+# Copyright 2023 Carver Automation Corporation.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,15 +14,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# buildCore.sh - Build the core package for ServiceRadar
+# Pre-removal script for ServiceRadar RPerf Server
 set -e
 
-export VERSION=${VERSION:-1.0.28}
+# Stop and disable the service
+if systemctl is-active --quiet serviceradar-rperf; then
+    echo "Stopping serviceradar-rperf service..."
+    systemctl stop serviceradar-rperf
+fi
 
-# Build the builder image
-docker build -t serviceradar-builder -f ./Dockerfile.build .
+if systemctl is-enabled --quiet serviceradar-rperf; then
+    echo "Disabling serviceradar-rperf service..."
+    systemctl disable serviceradar-rperf
+fi
 
-# Run the packaging script in the container
-docker run --rm -v $(pwd):/build serviceradar-builder /build/scripts/setup-deb-core.sh
-
-echo "Build completed. Check release-artifacts/ directory for the core package."
+echo "Pre-removal cleanup completed."
