@@ -31,18 +31,19 @@ import (
 
 type Server struct {
 	proto.UnimplementedAgentServiceServer
-	mu           sync.RWMutex
-	checkers     map[string]checker.Checker
-	checkerConfs map[string]*CheckerConfig
-	configDir    string
-	services     []Service
-	listenAddr   string
-	registry     checker.Registry
-	errChan      chan error
-	done         chan struct{}
-	config       *ServerConfig
-	connections  map[string]*CheckerConnection
-	kvStore      KVStore
+	mu                 sync.RWMutex
+	checkers           map[string]checker.Checker
+	checkerConfs       map[string]*CheckerConfig
+	configDir          string
+	services           []Service
+	listenAddr         string
+	registry           checker.Registry
+	errChan            chan error
+	done               chan struct{}
+	config             *ServerConfig
+	connections        map[string]*CheckerConnection
+	kvStore            KVStore
+	createSweepService func(sweepConfig *SweepConfig) (Service, error)
 }
 type Duration time.Duration
 

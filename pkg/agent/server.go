@@ -73,6 +73,26 @@ func NewServer(ctx context.Context, configDir string, cfg *ServerConfig) (*Serve
 		config:       cfg,
 		connections:  make(map[string]*CheckerConnection),
 		kvStore:      kvStore,
+		// Set default implementation
+		createSweepService: func(sweepConfig *SweepConfig) (Service, error) {
+			if sweepConfig == nil {
+				return nil, errSweepConfigNil
+			}
+			c := &models.Config{
+				Networks:    sweepConfig.Networks,
+				Ports:       sweepConfig.Ports,
+				SweepModes:  sweepConfig.SweepModes,
+				Interval:    time.Duration(sweepConfig.Interval),
+				Concurrency: sweepConfig.Concurrency,
+				Timeout:     time.Duration(sweepConfig.Timeout),
+			}
+			serverName := cfg.AgentID
+			if cfg.AgentName != "" {
+				serverName = cfg.AgentName
+			}
+			configKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", serverName)
+			return NewSweepService(c, kvStore, configKey)
+		},
 	}
 
 	if err := s.loadConfigurations(ctx, cfgLoader); err != nil {
@@ -233,39 +253,6 @@ func (s *Server) getLogSuffix() string {
 	}
 
 	return ""
-}
-
-// createSweepService constructs a Service from a SweepConfig.
-func (s *Server) createSweepService(sweepConfig *SweepConfig) (Service, error) {
-	if sweepConfig == nil {
-		return nil, errSweepConfigNil
-	}
-
-	c := &models.Config{
-		Networks:    sweepConfig.Networks,
-		Ports:       sweepConfig.Ports,
-		SweepModes:  sweepConfig.SweepModes,
-		Interval:    time.Duration(sweepConfig.Interval),
-		Concurrency: sweepConfig.Concurrency,
-		Timeout:     time.Duration(sweepConfig.Timeout),
-	}
-
-	// Pass kvStore and config key to enable watching
-	serverName := s.config.AgentID
-	if s.config.AgentName != "" {
-		serverName = s.config.AgentName
-	}
-
-	configKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", serverName)
-
-	service, err := NewSweepService(c, s.kvStore, configKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create sweep service: %w", err)
-	}
-
-	log.Printf("Initialized sweep service with config: %+v", c)
-
-	return service, nil
 }
 
 func (s *Server) Start(ctx context.Context) error {

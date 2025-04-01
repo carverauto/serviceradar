@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -58,7 +59,14 @@ func (m *mockKVStore) Close() error {
 
 var _ KVStore = (*mockKVStore)(nil) // Ensure mockKVStore implements KVStore
 
-// setupKVStoreFunc is a variable holding the setupKVStore function, making it assignable in tests.
+// mockService is a minimal Service implementation for testing.
+type mockService struct{}
+
+func (m *mockService) Start(context.Context) error       { return nil }
+func (m *mockService) Stop(context.Context) error        { return nil }
+func (m *mockService) Name() string                      { return "mock_sweep" }
+func (m *mockService) UpdateConfig(*models.Config) error { return nil }
+
 var setupKVStoreFunc = setupKVStore
 
 func TestNewServer(t *testing.T) {
@@ -84,7 +92,7 @@ func TestNewServer(t *testing.T) {
 			configDir: tmpDir,
 			config:    config,
 			setupFn:   nil,
-			kvStore:   &mockKVStore{}, // Inject mock KV store
+			kvStore:   &mockKVStore{},
 			wantErr:   false,
 		},
 		{
@@ -119,17 +127,60 @@ func TestNewServer(t *testing.T) {
 				tt.setupFn(tt.configDir)
 			}
 
-			// Temporarily override setupKVStoreFunc to return the mock
+			// Temporarily override setupKVStoreFunc
 			origSetupKVStore := setupKVStoreFunc
 			setupKVStoreFunc = func(ctx context.Context, cfgLoader *cconfig.Config, cfg *ServerConfig) (KVStore, error) {
 				if cfg.KVAddress == "" {
 					t.Log("KVAddress not set, using mock KV store")
-					return tt.kvStore, nil // Return the mock KVStore directly
+					return tt.kvStore, nil
 				}
 				return origSetupKVStore(ctx, cfgLoader, cfg)
 			}
 			defer func() { setupKVStoreFunc = origSetupKVStore }()
 
+			if tt.name == "with_sweep_config" {
+				// Use a real Config instance and override NewSweepService behavior indirectly
+				cfgLoader := cconfig.NewConfig()
+				cfgLoader.SetKVStore(tt.kvStore)
+
+				// Create a Server instance to call loadConfigurations with a custom override
+				s := &Server{
+					configDir:    tt.configDir,
+					config:       tt.config,
+					kvStore:      tt.kvStore,
+					services:     make([]Service, 0),
+					checkers:     make(map[string]checker.Checker),
+					checkerConfs: make(map[string]*CheckerConfig),
+					registry:     initRegistry(),
+					errChan:      make(chan error, defaultErrChansize),
+					done:         make(chan struct{}),
+					connections:  make(map[string]*CheckerConnection),
+				}
+
+				// Temporarily override createSweepService to return a mock service
+				origCreateSweepService := s.createSweepService
+				s.createSweepService = func(sweepConfig *SweepConfig) (Service, error) {
+					t.Logf("Using mock createSweepService for sweep config: %+v", sweepConfig)
+					return &mockService{}, nil
+				}
+				defer func() { s.createSweepService = origCreateSweepService }()
+
+				err := s.loadConfigurations(context.Background(), cfgLoader)
+				if tt.wantErr {
+					require.Error(t, err)
+					return
+				}
+				require.NoError(t, err)
+				require.NotNil(t, s)
+				assert.Equal(t, tt.config.ListenAddr, s.ListenAddr())
+				assert.Equal(t, tt.config.Security, s.SecurityConfig())
+				assert.Len(t, s.services, 1)
+				assert.Equal(t, "mock_sweep", s.services[0].Name())
+				t.Logf("server.kvStore = %v", s.kvStore)
+				return
+			}
+
+			// For other cases, use NewServer as usual
 			server, err := NewServer(context.Background(), tt.configDir, tt.config)
 			if tt.wantErr {
 				require.Error(t, err)
@@ -141,14 +192,12 @@ func TestNewServer(t *testing.T) {
 			require.NotNil(t, server)
 			assert.Equal(t, tt.config.ListenAddr, server.ListenAddr())
 			assert.Equal(t, tt.config.Security, server.SecurityConfig())
-			// No need to assert kvStore is nil; it’s mocked
 			t.Logf("server.kvStore = %v", server.kvStore)
 		})
 	}
 }
 
 func TestServerGetStatus(t *testing.T) {
-	// Create a temporary directory for config files
 	tmpDir, err := os.MkdirTemp("", "serviceradar-test")
 	require.NoError(t, err)
 	defer func(path string) {
@@ -158,7 +207,6 @@ func TestServerGetStatus(t *testing.T) {
 		}
 	}(tmpDir)
 
-	// Create test server
 	server, err := NewServer(context.Background(), tmpDir, &ServerConfig{ListenAddr: ":50051"})
 	require.NoError(t, err)
 
@@ -214,7 +262,6 @@ func TestServerGetStatus(t *testing.T) {
 }
 
 func TestServerLifecycle(t *testing.T) {
-	// Create a temporary directory for config files
 	tmpDir, err := os.MkdirTemp("", "serviceradar-test")
 	require.NoError(t, err)
 	defer func(path string) {
@@ -224,22 +271,18 @@ func TestServerLifecycle(t *testing.T) {
 		}
 	}(tmpDir)
 
-	// Create test server
 	server, err := NewServer(context.Background(), tmpDir, &ServerConfig{ListenAddr: ":50051"})
 	require.NoError(t, err)
 
-	// Test Start
 	ctx := context.Background()
 	err = server.Start(ctx)
 	require.NoError(t, err)
 
-	// Test Close (includes Stop)
 	err = server.Close(ctx)
 	require.NoError(t, err)
 }
 
 func TestServerListServices(t *testing.T) {
-	// Create a temporary directory for config files
 	tmpDir, err := os.MkdirTemp("", "serviceradar-test")
 	require.NoError(t, err)
 	defer func(path string) {
@@ -249,7 +292,6 @@ func TestServerListServices(t *testing.T) {
 		}
 	}(tmpDir)
 
-	// Create some test checker configs
 	checkerConfig := CheckerConfig{
 		Name:    "test-checker",
 		Type:    "port",
@@ -260,56 +302,47 @@ func TestServerListServices(t *testing.T) {
 	data, err := json.Marshal(checkerConfig)
 	require.NoError(t, err)
 
-	err = os.WriteFile(
-		filepath.Join(tmpDir, "test-checker.json"),
-		data,
-		0600,
-	)
+	err = os.WriteFile(filepath.Join(tmpDir, "test-checker.json"), data, 0600)
 	require.NoError(t, err)
 
-	// Create test server
 	server, err := NewServer(context.Background(), tmpDir, &ServerConfig{ListenAddr: ":50051"})
 	require.NoError(t, err)
 
-	// Test ListServices
 	services := server.ListServices()
 	assert.NotEmpty(t, services)
 	assert.Contains(t, services, "test-checker")
 }
 
 func TestGetCheckerCaching(t *testing.T) {
-	// Create a minimal Server instance with an empty checker cache
-	// and an initialized registry.
 	s := &Server{
 		checkers: make(map[string]checker.Checker),
 		registry: initRegistry(),
+		config: &ServerConfig{
+			Security: &models.SecurityConfig{},
+		},
+		mu: sync.RWMutex{},
 	}
 
 	ctx := context.Background()
 
-	// Create a status request for a port checker with details "127.0.0.1:22".
 	req1 := &proto.StatusRequest{
 		ServiceName: "SSH",
 		ServiceType: "port",
 		Details:     "127.0.0.1:22",
 	}
 
-	// Create another status request with the same service type/name
-	// but with different details "192.168.1.1:22".
 	req2 := &proto.StatusRequest{
 		ServiceName: "SSH",
 		ServiceType: "port",
 		Details:     "192.168.1.1:22",
 	}
 
-	// Call getChecker twice with req1 and verify that the same instance is returned.
 	checker1a, err := s.getChecker(ctx, req1)
 	require.NoError(t, err)
 	checker1b, err := s.getChecker(ctx, req1)
 	require.NoError(t, err)
 	assert.Equal(t, checker1a, checker1b, "repeated call with the same request should yield the same checker instance")
 
-	// Call getChecker with req2 and verify that a different instance is returned.
 	checker2, err := s.getChecker(ctx, req2)
 	require.NoError(t, err)
 	assert.NotEqual(t, checker1a, checker2, "requests with different details should yield different checker instances")
