@@ -1,4 +1,3 @@
-# .github/workflows/tests-rust.yml
 name: Rust Tests
 on: [push]
 permissions:
@@ -10,11 +9,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential gcc
+
       - name: Setup Rust
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
           override: true
+
       - name: Run Rust Tests
         run: |
           cd cmd/checkers/rperf-client && cargo test
