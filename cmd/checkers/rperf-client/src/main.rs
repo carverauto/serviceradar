@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-
 use anyhow::{Context, Result};
 use clap::{App, Arg};
 use log::{info, warn};
@@ -69,9 +68,6 @@ async fn main() -> Result<()> {
     // Wait for shutdown signal
     tokio::signal::ctrl_c().await?;
     info!("Shutdown signal received, stopping server...");
-
-    // Ensure any running clients stop
-    rperf::client::kill();
 
     // Stop the server gracefully
     match server_handle.stop().await {
