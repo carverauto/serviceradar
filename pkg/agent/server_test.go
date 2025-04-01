@@ -35,21 +35,21 @@ import (
 
 type mockKVStore struct{}
 
-func (m *mockKVStore) Get(ctx context.Context, key string) ([]byte, bool, error) {
-	return nil, false, nil // Simulate "not found" for simplicity
+func (m *mockKVStore) Get(_ context.Context, _ string) ([]byte, bool, error) {
+	return nil, false, nil
 }
 
-func (m *mockKVStore) Put(ctx context.Context, key string, value []byte, ttl time.Duration) error {
+func (m *mockKVStore) Put(_ context.Context, _ string, _ []byte, _ time.Duration) error {
 	return nil
 }
 
-func (m *mockKVStore) Delete(ctx context.Context, key string) error {
+func (m *mockKVStore) Delete(_ context.Context, _ string) error {
 	return nil
 }
 
-func (m *mockKVStore) Watch(ctx context.Context, key string) (<-chan []byte, error) {
+func (m *mockKVStore) Watch(_ context.Context, _ string) (<-chan []byte, error) {
 	ch := make(chan []byte)
-	close(ch) // Empty channel, no updates
+	close(ch)
 	return ch, nil
 }
 
@@ -57,9 +57,8 @@ func (m *mockKVStore) Close() error {
 	return nil
 }
 
-var _ KVStore = (*mockKVStore)(nil) // Ensure mockKVStore implements KVStore
+var _ KVStore = (*mockKVStore)(nil)
 
-// mockService is a minimal Service implementation for testing.
 type mockService struct{}
 
 func (m *mockService) Start(context.Context) error       { return nil }
@@ -67,145 +66,135 @@ func (m *mockService) Stop(context.Context) error        { return nil }
 func (m *mockService) Name() string                      { return "mock_sweep" }
 func (m *mockService) UpdateConfig(*models.Config) error { return nil }
 
-var setupKVStoreFunc = setupKVStore
+func setupTempDir(t *testing.T) (string, func()) {
+	t.Helper()
 
-func TestNewServer(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "serviceradar-test")
 	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
 
-	config := &ServerConfig{
-		ListenAddr: ":50051",
-		Security:   &models.SecurityConfig{},
-	}
+	return tmpDir, func() {
+		err := os.RemoveAll(tmpDir)
+		if err != nil {
+			t.Logf("Failed to remove temp dir %s: %v", tmpDir, err)
 
-	tests := []struct {
-		name      string
-		configDir string
-		config    *ServerConfig
-		setupFn   func(string)
-		kvStore   KVStore
-		wantErr   bool
-	}{
-		{
-			name:      "valid_config_with_no_KV",
-			configDir: tmpDir,
-			config:    config,
-			setupFn:   nil,
-			kvStore:   &mockKVStore{},
-			wantErr:   false,
-		},
-		{
-			name:      "with_sweep_config",
-			configDir: tmpDir,
-			config:    config,
-			setupFn: func(dir string) {
-				sweepDir := filepath.Join(dir, "sweep")
-				require.NoError(t, os.MkdirAll(sweepDir, 0755))
-
-				sweepConfig := SweepConfig{
-					Networks:   []string{"192.168.1.0/24"},
-					Ports:      []int{80, 443},
-					SweepModes: []models.SweepMode{models.ModeTCP},
-					Interval:   Duration(time.Minute),
-				}
-
-				data, err := json.Marshal(sweepConfig)
-				require.NoError(t, err)
-
-				err = os.WriteFile(filepath.Join(sweepDir, "sweep.json"), data, 0600)
-				require.NoError(t, err)
-			},
-			kvStore: &mockKVStore{},
-			wantErr: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if tt.setupFn != nil {
-				tt.setupFn(tt.configDir)
-			}
-
-			// Temporarily override setupKVStoreFunc
-			origSetupKVStore := setupKVStoreFunc
-			setupKVStoreFunc = func(ctx context.Context, cfgLoader *cconfig.Config, cfg *ServerConfig) (KVStore, error) {
-				if cfg.KVAddress == "" {
-					t.Log("KVAddress not set, using mock KV store")
-					return tt.kvStore, nil
-				}
-				return origSetupKVStore(ctx, cfgLoader, cfg)
-			}
-			defer func() { setupKVStoreFunc = origSetupKVStore }()
-
-			if tt.name == "with_sweep_config" {
-				// Use a real Config instance and override NewSweepService behavior indirectly
-				cfgLoader := cconfig.NewConfig()
-				cfgLoader.SetKVStore(tt.kvStore)
-
-				// Create a Server instance to call loadConfigurations with a custom override
-				s := &Server{
-					configDir:    tt.configDir,
-					config:       tt.config,
-					kvStore:      tt.kvStore,
-					services:     make([]Service, 0),
-					checkers:     make(map[string]checker.Checker),
-					checkerConfs: make(map[string]*CheckerConfig),
-					registry:     initRegistry(),
-					errChan:      make(chan error, defaultErrChansize),
-					done:         make(chan struct{}),
-					connections:  make(map[string]*CheckerConnection),
-				}
-
-				// Temporarily override createSweepService to return a mock service
-				origCreateSweepService := s.createSweepService
-				s.createSweepService = func(sweepConfig *SweepConfig) (Service, error) {
-					t.Logf("Using mock createSweepService for sweep config: %+v", sweepConfig)
-					return &mockService{}, nil
-				}
-				defer func() { s.createSweepService = origCreateSweepService }()
-
-				err := s.loadConfigurations(context.Background(), cfgLoader)
-				if tt.wantErr {
-					require.Error(t, err)
-					return
-				}
-				require.NoError(t, err)
-				require.NotNil(t, s)
-				assert.Equal(t, tt.config.ListenAddr, s.ListenAddr())
-				assert.Equal(t, tt.config.Security, s.SecurityConfig())
-				assert.Len(t, s.services, 1)
-				assert.Equal(t, "mock_sweep", s.services[0].Name())
-				t.Logf("server.kvStore = %v", s.kvStore)
-				return
-			}
-
-			// For other cases, use NewServer as usual
-			server, err := NewServer(context.Background(), tt.configDir, tt.config)
-			if tt.wantErr {
-				require.Error(t, err)
-				assert.Nil(t, server)
-				return
-			}
-
-			require.NoError(t, err)
-			require.NotNil(t, server)
-			assert.Equal(t, tt.config.ListenAddr, server.ListenAddr())
-			assert.Equal(t, tt.config.Security, server.SecurityConfig())
-			t.Logf("server.kvStore = %v", server.kvStore)
-		})
+			return
+		}
 	}
 }
 
-func TestServerGetStatus(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "serviceradar-test")
+func setupServerConfig() *ServerConfig {
+	return &ServerConfig{
+		ListenAddr: ":50051",
+		Security:   &models.SecurityConfig{},
+	}
+}
+
+// In server_test.go
+
+func TestNewServerBasic(t *testing.T) {
+	tmpDir, cleanup := setupTempDir(t)
+	defer cleanup()
+
+	config := setupServerConfig()
+	kvStore := &mockKVStore{}
+
+	s := &Server{
+		configDir:    tmpDir,
+		config:       config,
+		kvStore:      kvStore,
+		services:     make([]Service, 0),
+		checkers:     make(map[string]checker.Checker),
+		checkerConfs: make(map[string]*CheckerConfig),
+		registry:     initRegistry(),
+		errChan:      make(chan error, defaultErrChansize),
+		done:         make(chan struct{}),
+		connections:  make(map[string]*CheckerConnection),
+	}
+	s.setupKVStore = func(ctx context.Context, cfgLoader *cconfig.Config, cfg *ServerConfig) (KVStore, error) {
+		t.Log("KVAddress not set, using mock KV store")
+		return kvStore, nil
+	}
+	s.createSweepService = func(sweepConfig *SweepConfig, kvStore KVStore) (Service, error) {
+		return nil, errSweepConfigNil // Default behavior for this test
+	}
+
+	cfgLoader := cconfig.NewConfig()
+	err := s.loadConfigurations(context.Background(), cfgLoader)
 	require.NoError(t, err)
-	defer func(path string) {
-		err = os.RemoveAll(path)
-		if err != nil {
-			t.Logf("failed to remove temporary directory: %s", err)
-		}
-	}(tmpDir)
+
+	server, err := NewServer(context.Background(), tmpDir, config)
+	require.NoError(t, err)
+	require.NotNil(t, server)
+	assert.Equal(t, config.ListenAddr, server.ListenAddr())
+	assert.Equal(t, config.Security, server.SecurityConfig())
+	t.Logf("server.kvStore = %v", server.kvStore)
+}
+
+func TestNewServerWithSweepConfig(t *testing.T) {
+	tmpDir, cleanup := setupTempDir(t)
+	defer cleanup()
+
+	config := setupServerConfig()
+	kvStore := &mockKVStore{}
+
+	sweepDir := filepath.Join(tmpDir, "sweep")
+	require.NoError(t, os.MkdirAll(sweepDir, 0755))
+
+	sweepConfig := SweepConfig{
+		Networks:   []string{"192.168.1.0/24"},
+		Ports:      []int{80, 443},
+		SweepModes: []models.SweepMode{models.ModeTCP},
+		Interval:   Duration(time.Minute),
+	}
+
+	data, err := json.Marshal(sweepConfig)
+	require.NoError(t, err)
+
+	err = os.WriteFile(filepath.Join(sweepDir, "sweep.json"), data, 0600)
+	require.NoError(t, err)
+
+	s := &Server{
+		configDir:    tmpDir,
+		config:       config,
+		kvStore:      kvStore,
+		services:     make([]Service, 0),
+		checkers:     make(map[string]checker.Checker),
+		checkerConfs: make(map[string]*CheckerConfig),
+		registry:     initRegistry(),
+		errChan:      make(chan error, defaultErrChansize),
+		done:         make(chan struct{}),
+		connections:  make(map[string]*CheckerConnection),
+	}
+
+	s.setupKVStore = func(ctx context.Context, cfgLoader *cconfig.Config, cfg *ServerConfig) (KVStore, error) {
+		t.Log("KVAddress not set, using mock KV store")
+
+		return kvStore, nil
+	}
+
+	s.createSweepService = func(sweepConfig *SweepConfig, kvStore KVStore) (Service, error) {
+		t.Logf("Using mock createSweepService for sweep config: %+v", sweepConfig)
+
+		return &mockService{}, nil
+	}
+
+	cfgLoader := cconfig.NewConfig()
+	cfgLoader.SetKVStore(kvStore)
+
+	err = s.loadConfigurations(context.Background(), cfgLoader)
+	require.NoError(t, err)
+
+	assert.Equal(t, config.ListenAddr, s.ListenAddr())
+	assert.Equal(t, config.Security, s.SecurityConfig())
+	assert.Len(t, s.services, 1)
+	assert.Equal(t, "mock_sweep", s.services[0].Name())
+
+	t.Logf("server.kvStore = %v", s.kvStore)
+}
+
+func TestServerGetStatus(t *testing.T) {
+	tmpDir, cleanup := setupTempDir(t)
+	defer cleanup()
 
 	server, err := NewServer(context.Background(), tmpDir, &ServerConfig{ListenAddr: ":50051"})
 	require.NoError(t, err)
@@ -251,25 +240,21 @@ func TestServerGetStatus(t *testing.T) {
 			resp, err := server.GetStatus(context.Background(), tt.req)
 			if tt.wantErr {
 				assert.Error(t, err)
+
 				return
 			}
 
 			require.NoError(t, err)
 			require.NotNil(t, resp)
+
 			tt.checkStatus(t, resp)
 		})
 	}
 }
 
 func TestServerLifecycle(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "serviceradar-test")
-	require.NoError(t, err)
-	defer func(path string) {
-		err = os.RemoveAll(path)
-		if err != nil {
-			t.Logf("failed to remove temporary directory: %s", err)
-		}
-	}(tmpDir)
+	tmpDir, cleanup := setupTempDir(t)
+	defer cleanup()
 
 	server, err := NewServer(context.Background(), tmpDir, &ServerConfig{ListenAddr: ":50051"})
 	require.NoError(t, err)
@@ -283,14 +268,8 @@ func TestServerLifecycle(t *testing.T) {
 }
 
 func TestServerListServices(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "serviceradar-test")
-	require.NoError(t, err)
-	defer func(path string) {
-		err = os.RemoveAll(path)
-		if err != nil {
-			t.Logf("failed to remove temporary directory: %s", err)
-		}
-	}(tmpDir)
+	tmpDir, cleanup := setupTempDir(t)
+	defer cleanup()
 
 	checkerConfig := CheckerConfig{
 		Name:    "test-checker",
@@ -298,10 +277,8 @@ func TestServerListServices(t *testing.T) {
 		Address: "localhost",
 		Port:    8080,
 	}
-
 	data, err := json.Marshal(checkerConfig)
 	require.NoError(t, err)
-
 	err = os.WriteFile(filepath.Join(tmpDir, "test-checker.json"), data, 0600)
 	require.NoError(t, err)
 
@@ -330,7 +307,6 @@ func TestGetCheckerCaching(t *testing.T) {
 		ServiceType: "port",
 		Details:     "127.0.0.1:22",
 	}
-
 	req2 := &proto.StatusRequest{
 		ServiceName: "SSH",
 		ServiceType: "port",

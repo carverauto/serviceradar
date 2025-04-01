@@ -18,11 +18,13 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"sync"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/checker"
+	"github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/scan"
@@ -43,7 +45,8 @@ type Server struct {
 	config             *ServerConfig
 	connections        map[string]*CheckerConnection
 	kvStore            KVStore
-	createSweepService func(sweepConfig *SweepConfig) (Service, error)
+	createSweepService func(sweepConfig *SweepConfig, kvStore KVStore) (Service, error)
+	setupKVStore       func(ctx context.Context, cfgLoader *config.Config, cfg *ServerConfig) (KVStore, error)
 }
 type Duration time.Duration
 
