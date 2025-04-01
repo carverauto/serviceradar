@@ -93,18 +93,18 @@ For monitoring network throughput and reliability:
 
 ```bash
 # Debian/Ubuntu
-curl -LO https://github.com/mfreeman451/rperf/releases/download/v0.1.17/serviceradar-rperf_0.1.17_amd64.deb
-curl -LO https://github.com/mfreeman451/rperf/releases/download/v0.1.0/rperf-grpc_0.1.0_amd64.deb
-sudo dpkg -i serviceradar-rperf_0.1.17_amd64.deb rperf-grpc_0.1.0_amd64.deb
+curl -LO https://github.com/mfreeman451/rperf/releases/download/v1.0.28/serviceradar-rperf_1.0.28.deb
+curl -LO https://github.com/mfreeman451/rperf/releases/download/v1.0.28/serviceradar-rperf-checker_1.0.28.deb
+sudo dpkg -i serviceradar-rperf_1.0.28.deb serviceradar-rperf-checker_1.0.28.deb
 
 # RHEL/Oracle Linux
-curl -LO https://github.com/mfreeman451/rperf/releases/download/v0.1.17/serviceradar-rperf-0.1.17-1.el9.x86_64.rpm
-curl -LO https://github.com/mfreeman451/rperf/releases/download/v0.1.0/rperf-grpc-0.1.0-1.el9.x86_64.rpm
-sudo dnf install -y ./serviceradar-rperf-0.1.17-1.el9.x86_64.rpm ./rperf-grpc-0.1.0-1.el9.x86_64.rpm
+curl -LO https://github.com/mfreeman451/rperf/releases/download/v1.0.28/serviceradar-rperf-1.0.28.el9.x86_64.rpm
+curl -LO https://github.com/mfreeman451/rperf/releases/download/v1.0.28/serviceradar-rperf-checker-1.0.28.el9.x86_64.rpm
+sudo dnf install -y ./serviceradar-rperf-1.0.28.el9.x86_64.rpm ./serviceradar-rperf-checker-1.0.28.el9.x86_64.rpm
 ```
 
 - Server: Install serviceradar-rperf on a reflector host.
-- Client: Install rperf-grpc on the Agent host for testing.
+- Client: Install serviceradar-rperf-checker on the Agent host for testing.
 
 Update the "Firewall Configuration" section:
 
@@ -114,7 +114,7 @@ sudo ufw allow 5199/tcp  # rperf server control port
 sudo ufw allow 5200:5210/tcp  # rperf data ports (if using port pool)
 sudo ufw allow from 192.168.2.23 to any port 5199 proto udp # rperf server control port (UDP)
 sudo ufw allow from 192.168.2.23 to any port 5200:5210 proto udp # rperf data ports (UDP)
-sudo ufw allow 50059/tcp  # rperf-grpc client
+sudo ufw allow 50081/tcp  # rperf-grpc client
 ```
 
 #### Dusk Node Monitoring
@@ -179,7 +179,9 @@ If you're using UFW (Ubuntu's Uncomplicated Firewall), add these rules:
 ```bash
 # On agent hosts
 sudo ufw allow 50051/tcp  # For agent gRPC server
-sudo ufw allow 50052/tcp  # For Dusk checker (if applicable)
+sudo ufw allow 50080/tcp  # For SNMP (poller) checker (if applicable)
+sudo ufw allow 50081/tcp  # For RPerf checker (if applicable)
+sudo ufw allow 50082/tcp  # For Dusk checker (if applicable)
 
 # On core host
 sudo ufw allow 50052/tcp  # For poller connections
@@ -373,7 +375,8 @@ sudo firewall-cmd --permanent --add-port=8090/tcp    # Core API
 sudo firewall-cmd --permanent --add-port=50051/tcp   # Agent
 sudo firewall-cmd --permanent --add-port=50052/tcp   # Core gRPC / Dusk Checker
 sudo firewall-cmd --permanent --add-port=50053/tcp   # Poller
-sudo firewall-cmd --permanent --add-port=50054/tcp   # serviceradar-kv
+sudo firewall-cmd --permanent --add-port=50057/tcp   # serviceradar-kv
+sudo firewall-cmd --permanent --add-port=50058/tcp   # serviceradar-sync
 sudo firewall-cmd --reload
 ```
 

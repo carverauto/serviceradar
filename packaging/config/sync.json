@@ -13,23 +13,5 @@
       "ca_file": "root.pem",
       "client_ca_file": "root.pem"
     }
-  },
-  "sources": {
-    "armis": {
-      "type": "armis",
-      "endpoint": "http://localhost:8080/v1/devices",
-      "prefix": "armis/",
-      "credentials": {
-        "api_key": "your-armis-api-key-here"
-      }
-    },
-    "netbox": {
-      "type": "netbox",
-      "endpoint": "https://netbox.example.com/api",
-      "prefix": "netbox/",
-      "credentials": {
-        "token": "your_netbox_token"
-      }
-    }
   }
 }
