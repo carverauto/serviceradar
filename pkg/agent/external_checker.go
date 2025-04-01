@@ -21,7 +21,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"strings"
 	"sync"
 	"time"
 
@@ -61,7 +60,10 @@ type ExternalChecker struct {
 }
 
 // NewExternalChecker creates a new checker that connects to an external process.
-func NewExternalChecker(ctx context.Context, serviceName, serviceType, address string) (*ExternalChecker, error) {
+func NewExternalChecker(
+	ctx context.Context,
+	serviceName, serviceType, address string,
+	security *models.SecurityConfig) (*ExternalChecker, error) {
 	log.Printf("Creating new external checker name=%s type=%s at %s", serviceName, serviceType, address)
 
 	clientCfg := grpc.ClientConfig{
@@ -69,14 +71,7 @@ func NewExternalChecker(ctx context.Context, serviceName, serviceType, address s
 		MaxRetries: maxRetries,
 	}
 
-	security := models.SecurityConfig{
-		Mode:       "mtls",
-		CertDir:    "/etc/serviceradar/certs", // TODO: Make configurable
-		ServerName: strings.Split(address, ":")[0],
-		Role:       "agent",
-	}
-
-	provider, err := grpc.NewSecurityProvider(ctx, &security)
+	provider, err := grpc.NewSecurityProvider(ctx, security)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create security provider: %w", err)
 	}

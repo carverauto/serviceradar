@@ -605,7 +605,7 @@ func (s *Server) getChecker(ctx context.Context, req *proto.StatusRequest) (chec
 	details := req.GetDetails()
 	log.Printf("Creating new checker with details: %s", details)
 
-	check, err := s.registry.Get(ctx, req.ServiceType, req.ServiceName, details)
+	check, err := s.registry.Get(ctx, req.ServiceType, req.ServiceName, details, s.config.Security)
 	if err != nil {
 		return nil, err
 	}
