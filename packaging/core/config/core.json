@@ -2,14 +2,14 @@
     "listen_addr": ":8090",
     "grpc_addr": ":50052",
     "alert_threshold": "5m",
-    "known_pollers": ["demo-staging"],
+    "known_pollers": ["default-poller"],
     "metrics": {
         "enabled": true,
         "retention": 100,
         "max_nodes": 10000
     },
     "security": {
-        "mode": "mtls",
+        "mode": "none",
         "cert_dir": "/etc/serviceradar/certs",
         "role": "core",
         "tls": {
