@@ -1118,8 +1118,6 @@ dependencies = [
 [[package]]
 name = "rperf"
 version = "0.1.17"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "186e04866d855ddfb284a93e07d74087aa404fff4246088c9f9508279d1c501d"
 dependencies = [
  "anyhow",
  "chrono",
