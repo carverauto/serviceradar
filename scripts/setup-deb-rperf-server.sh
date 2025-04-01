@@ -12,8 +12,7 @@ if [ ! -f "$RPERF_DIR/Dockerfile" ]; then
     exit 1
 fi
 
-# Version from Cargo.toml or hardcoded; update dynamically if needed
-VERSION="0.1.17"  # Matches Cargo.toml
+VERSION="1.0.28"
 VERSION_CLEAN=$(echo "${VERSION}" | sed 's/-/~/g')
 PKG_NAME="serviceradar-rperf"
 MAINTAINER="Carver Automation Corporation <support@carverauto.com>"

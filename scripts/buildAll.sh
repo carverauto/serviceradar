@@ -36,7 +36,7 @@ scp ./release-artifacts/serviceradar-sync_${VERSION}.deb duskadmin@192.168.2.22:
 scp ./release-artifacts/serviceradar-dusk-checker_${VERSION}.deb duskadmin@192.168.2.22:~/
 scp ./release-artifacts/serviceradar-snmp-checker_${VERSION}.deb duskadmin@192.168.2.22:~/
 scp ./release-artifacts/serviceradar-rperf-checker_${VERSION}.deb duskadmin@192.168.2.22:~/
-scp ./release-artifacts/serviceradar-rperf-server${VERSION}.deb duskadmin@192.168.2.22:~/
+scp ./release-artifacts/serviceradar-rperf_${VERSION}.deb duskadmin@192.168.2.22:~/
 
 # demo-staging
 scp ./release-artifacts/serviceradar-poller_${VERSION}.deb 192.168.2.23:~/
@@ -46,4 +46,4 @@ scp ./release-artifacts/serviceradar-nats_${VERSION}.deb 192.168.2.23:~/
 scp ./release-artifacts/serviceradar-sync_${VERSION}.deb 192.168.2.23:~/
 scp ./release-artifacts/serviceradar-snmp-checker_${VERSION}.deb 192.168.2.23:~/
 scp ./release-artifacts/serviceradar-rperf-checker_${VERSION}.deb 192.168.2.23:~/
-scp ./release-artifacts/serviceradar-rperf-server${VERSION}.deb 192.168.2.23:~/
+scp ./release-artifacts/serviceradar-rperf_${VERSION}.deb 192.168.2.23:~/

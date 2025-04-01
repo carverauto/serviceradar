@@ -189,23 +189,31 @@ cfssl sign -ca root.pem -ca-key root-key.pem -config cfssl.json -profile server 
 
 # serviceradar-kv
 cfssl genkey kv-csr.json | cfssljson -bare kv
-cfssl sign -ca root.pem -ca-key root-key.pem -config cfssl.json -profile client kv.csr | cfssljson -bare kv
+cfssl sign -ca root.pem -ca-key root-key.pem -config cfssl.json -profile dual kv.csr | cfssljson -bare kv
 
 # serviceradar-sync
 cfssl genkey sync-csr.json | cfssljson -bare sync
-cfssl sign -ca root.pem -ca-key root-key.pem -config cfssl.json -profile client sync.csr | cfssljson -bare sync
+cfssl sign -ca root.pem -ca-key root-key.pem -config cfssl.json -profile dual sync.csr | cfssljson -bare sync
 
 # Agent
 cfssl genkey agent-csr.json | cfssljson -bare agent
-cfssl sign -ca root.pem -ca-key root-key.pem -config cfssl.json -profile client agent.csr | cfssljson -bare agent
+cfssl sign -ca root.pem -ca-key root-key.pem -config cfssl.json -profile dual agent.csr | cfssljson -bare agent
+
+# kv-client (used by Agent to connect to KV)
+cfssl genkey kv-client-csr.json | cfssljson -bare kv-client
+cfssl sign -ca root.pem -ca-key root-key.pem -config cfssl.json -profile client kv-client.csr | cfssljson -bare kv-client
 
 # Poller
 cfssl genkey poller-csr.json | cfssljson -bare poller
-cfssl sign -ca root.pem -ca-key root-key.pem -config cfssl.json -profile client poller.csr | cfssljson -bare poller
+cfssl sign -ca root.pem -ca-key root-key.pem -config cfssl.json -profile dual poller.csr | cfssljson -bare poller
 
 # Core
 cfssl genkey core-csr.json | cfssljson -bare core
 cfssl sign -ca root.pem -ca-key root-key.pem -config cfssl.json -profile server core.csr | cfssljson -bare core
+
+# Checkers
+cfssl genkey checkers-csr.json | cfssljson -bare checkers
+cfssl sign -ca root.pem -ca-key root-key.pem -config cfssl.json -profile client checkers.csr | cfssljson -bare checkers 
 ```
 
 :::note

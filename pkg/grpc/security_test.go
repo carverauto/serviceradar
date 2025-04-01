@@ -63,7 +63,13 @@ func TestNoSecurityProvider(t *testing.T) {
 
 func TestMTLSProvider(t *testing.T) {
 	tmpDir := t.TempDir()
-	generateTestCertificates(t, tmpDir)
+
+	err := GenerateTestCertificates(tmpDir)
+	if err != nil {
+		t.Fatalf("Failed to generate test certificates: %v", err)
+
+		return
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -193,7 +199,13 @@ func TestSpiffeProvider(t *testing.T) {
 // TestNewSecurityProvider tests the factory function for creating security providers.
 func TestNewSecurityProvider(t *testing.T) {
 	tmpDir := t.TempDir()
-	generateTestCertificates(t, tmpDir)
+
+	err := GenerateTestCertificates(tmpDir)
+	if err != nil {
+		t.Fatalf("Failed to generate test certificates: %v", err)
+
+		return
+	}
 
 	tests := []struct {
 		name        string

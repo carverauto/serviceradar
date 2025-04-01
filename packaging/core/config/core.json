@@ -11,7 +11,24 @@
     "security": {
         "mode": "none",
         "cert_dir": "/etc/serviceradar/certs",
-        "role": "core"
+        "role": "core",
+        "tls": {
+            "cert_file": "/etc/serviceradar/certs/core.pem",
+            "key_file": "/etc/serviceradar/certs/core-key.pem",
+            "ca_file": "/etc/serviceradar/certs/root.pem",
+            "client_ca_file": "/etc/serviceradar/certs/root.pem"
+        }
+    },
+    "cors": {
+        "allowed_origins": ["https://demo-staging.serviceradar.cloud", "http://localhost:3000"],
+        "allow_credentials": true
+    },
+    "auth": {
+        "jwt_secret": "your-secret-key-here",
+        "jwt_expiration": "24h",
+        "local_users": {
+            "admin": "$2a$10$7cTFzX6ISkSrxCeO1ZL2EOc/zy.cvGO9GhsE9jVo2i.foobar"
+        }
     },
     "webhooks": [
         {

@@ -18,13 +18,15 @@ package config
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"reflect"
 	"strings"
 
 	"github.com/carverauto/serviceradar/pkg/config/kv"
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 var (
@@ -32,6 +34,7 @@ var (
 	errKVStoreNotSet       = errors.New("KV store not initialized for CONFIG_SOURCE=kv; call SetKVStore first")
 	errInvalidConfigSource = errors.New("invalid CONFIG_SOURCE value")
 	errLoadConfigFailed    = errors.New("failed to load configuration")
+	errInvalidConfigPtr    = errors.New("config must be a non-nil pointer")
 )
 
 const (
@@ -52,22 +55,6 @@ func NewConfig() *Config {
 	}
 }
 
-// LoadFile is a generic helper that loads a JSON file from path into
-// the struct pointed to by dst.
-func LoadFile(path string, dst interface{}) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("failed to read file '%s': %w", path, err)
-	}
-
-	err = json.Unmarshal(data, dst)
-	if err != nil {
-		return fmt.Errorf("failed to unmarshal JSON from '%s': %w", path, err)
-	}
-
-	return nil
-}
-
 // ValidateConfig validates a configuration if it implements Validator.
 func ValidateConfig(cfg interface{}) error {
 	v, ok := cfg.(Validator)
@@ -78,9 +65,18 @@ func ValidateConfig(cfg interface{}) error {
 	return v.Validate()
 }
 
-// LoadAndValidate loads a configuration and validates it if possible.
+// LoadAndValidate loads a configuration, normalizes SecurityConfig paths if present, and validates it.
 func (c *Config) LoadAndValidate(ctx context.Context, path string, cfg interface{}) error {
-	return c.loadAndValidateWithSource(ctx, path, cfg)
+	err := c.loadAndValidateWithSource(ctx, path, cfg)
+	if err != nil {
+		return err
+	}
+
+	if err := normalizeSecurityConfig(cfg); err != nil {
+		return fmt.Errorf("failed to normalize SecurityConfig: %w", err)
+	}
+
+	return ValidateConfig(cfg)
 }
 
 // SetKVStore sets the KV store to be used when CONFIG_SOURCE=kv.
@@ -111,18 +107,90 @@ func (c *Config) loadAndValidateWithSource(ctx context.Context, path string, cfg
 	}
 
 	err := loader.Load(ctx, path, cfg)
-	if err == nil {
-		return ValidateConfig(cfg)
-	}
-
-	if source != configSourceKV {
-		return err
-	}
-
-	err = c.defaultLoader.Load(ctx, path, cfg)
 	if err != nil {
-		return fmt.Errorf("%w from KV: %w, and from fallback file: %w", errLoadConfigFailed, err, err)
+		if source != configSourceKV {
+			return err
+		}
+
+		err = c.defaultLoader.Load(ctx, path, cfg)
+		if err != nil {
+			return fmt.Errorf("%w from KV: %w, and from fallback file: %w", errLoadConfigFailed, err, err)
+		}
 	}
 
-	return ValidateConfig(cfg)
+	return nil
+}
+
+// normalizeSecurityConfig normalizes TLS paths in any struct containing a SecurityConfig field.
+func normalizeSecurityConfig(cfg interface{}) error {
+	v := reflect.ValueOf(cfg)
+	if v.Kind() != reflect.Ptr || v.IsNil() {
+		return errInvalidConfigPtr
+	}
+
+	v = v.Elem()
+	if v.Kind() != reflect.Struct {
+		return nil // Nothing to normalize if not a struct
+	}
+
+	return normalizeStructFields(v)
+}
+
+// normalizeStructFields processes all fields in a struct to normalize SecurityConfig instances.
+func normalizeStructFields(v reflect.Value) error {
+	t := v.Type()
+
+	for i := 0; i < t.NumField(); i++ {
+		fieldType := t.Field(i)                                        // Assign to variable
+		if err := normalizeField(v.Field(i), &fieldType); err != nil { // Pass pointer
+			return err
+		}
+	}
+
+	return nil
+}
+
+// normalizeField normalizes a single field if it’s a *SecurityConfig.
+func normalizeField(field reflect.Value, fieldType *reflect.StructField) error {
+	if fieldType.Type != reflect.TypeOf((*models.SecurityConfig)(nil)) {
+		return nil
+	}
+
+	if !field.IsValid() || field.IsNil() {
+		return nil
+	}
+
+	sec := field.Interface().(*models.SecurityConfig)
+	if sec.CertDir == "" {
+		return nil
+	}
+
+	tls := &sec.TLS
+	normalizeTLSPaths(tls, sec.CertDir)
+
+	// Update the field with the normalized SecurityConfig
+	field.Set(reflect.ValueOf(sec))
+
+	return nil
+}
+
+// normalizeTLSPaths adjusts TLS file paths based on the certificate directory.
+func normalizeTLSPaths(tls *models.TLSConfig, certDir string) {
+	if !filepath.IsAbs(tls.CertFile) {
+		tls.CertFile = filepath.Join(certDir, tls.CertFile)
+	}
+
+	if !filepath.IsAbs(tls.KeyFile) {
+		tls.KeyFile = filepath.Join(certDir, tls.KeyFile)
+	}
+
+	if !filepath.IsAbs(tls.CAFile) {
+		tls.CAFile = filepath.Join(certDir, tls.CAFile)
+	}
+
+	if tls.ClientCAFile != "" && !filepath.IsAbs(tls.ClientCAFile) {
+		tls.ClientCAFile = filepath.Join(certDir, tls.ClientCAFile)
+	} else if tls.ClientCAFile == "" {
+		tls.ClientCAFile = tls.CAFile // Fallback to CAFile if unset
+	}
 }
