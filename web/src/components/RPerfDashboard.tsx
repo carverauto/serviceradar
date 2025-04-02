@@ -49,18 +49,24 @@ const ImprovedRperfDashboard = ({
     const [lastRefreshed, setLastRefreshed] = useState(new Date());
     const [targetName, setTargetName] = useState("Unknown Target");
 
-    // Simple moving average function to smooth data
-    const smoothData = (data: ChartDataPoint[], windowSize: number = 5): ChartDataPoint[] => {
-        if (data.length <= windowSize) return data;
+    // Smooth data with different window sizes for each metric
+    const smoothData = (data: ChartDataPoint[]): ChartDataPoint[] => {
+        if (data.length <= 5) return data;
 
         const smoothed = data.map((point, index, arr) => {
-            const start = Math.max(0, index - Math.floor(windowSize / 2));
-            const end = Math.min(arr.length, index + Math.ceil(windowSize / 2));
-            const window = arr.slice(start, end);
+            // Bandwidth and Jitter: window size of 5
+            const startBwJitter = Math.max(0, index - 2);
+            const endBwJitter = Math.min(arr.length, index + 3);
+            const windowBwJitter = arr.slice(startBwJitter, endBwJitter);
 
-            const avgBandwidth = window.reduce((sum, p) => sum + p.bandwidth, 0) / window.length;
-            const avgJitter = window.reduce((sum, p) => sum + p.jitter, 0) / window.length;
-            const avgLoss = window.reduce((sum, p) => sum + p.loss, 0) / window.length;
+            // Packet Loss: larger window size of 9 for more smoothing
+            const startLoss = Math.max(0, index - 4);
+            const endLoss = Math.min(arr.length, index + 5);
+            const windowLoss = arr.slice(startLoss, endLoss);
+
+            const avgBandwidth = windowBwJitter.reduce((sum, p) => sum + p.bandwidth, 0) / windowBwJitter.length;
+            const avgJitter = windowBwJitter.reduce((sum, p) => sum + p.jitter, 0) / windowBwJitter.length;
+            const avgLoss = windowLoss.reduce((sum, p) => sum + p.loss, 0) / windowLoss.length;
 
             return {
                 ...point,
@@ -108,7 +114,7 @@ const ImprovedRperfDashboard = ({
                 success: point.success
             }));
 
-            // Apply smoothing to reduce sawtooth effect
+            // Apply smoothing with different window sizes
             const smoothedData = smoothData(filteredData);
 
             const totalBandwidth = smoothedData.reduce((sum, point) => sum + point.bandwidth, 0);
@@ -344,7 +350,7 @@ const ImprovedRperfDashboard = ({
                                 tickLine={false}
                             />
                             <YAxis
-                                domain={[0, (dataMax: number) => Math.max(2, dataMax * 1.2)]}
+                                domain={[0, (dataMax: number) => Math.max(20, dataMax * 1.2)]} // Increased max to accommodate spikes
                                 tick={{ fontSize: 10 }}
                                 axisLine={false}
                                 tickLine={false}
@@ -352,7 +358,7 @@ const ImprovedRperfDashboard = ({
                             <Tooltip content={<CustomTooltip />} />
                             <ReferenceLine y={0.5} stroke="#ff7300" strokeDasharray="3 3" />
                             <Line
-                                type="monotone"
+                                type="stepAfter" // Changed to step function for discrete representation
                                 dataKey="loss"
                                 name="Packet Loss"
                                 stroke="#ff7300"
