@@ -49,7 +49,8 @@ const RperfDashboard = ({
     const [lastRefreshed, setLastRefreshed] = useState(new Date());
     const [targetName, setTargetName] = useState("Unknown Target");
 
-    const smoothData = (data: ChartDataPoint[]): ChartDataPoint[] => {
+    // Wrap smoothData in its own useCallback to avoid recreation on each render
+    const smoothData = useCallback((data: ChartDataPoint[]): ChartDataPoint[] => {
         if (data.length <= 5) return data;
 
         const smoothed = data.map((point, index, arr) => {
@@ -74,17 +75,11 @@ const RperfDashboard = ({
         });
 
         return smoothed;
-    };
+    }, []); // No dependencies as this is a pure function
 
     const fetchData = useCallback(async () => {
         setIsLoading(true);
         try {
-            // Get the current token from cookie directly to ensure we have the latest
-            const currentToken = token || document.cookie
-                .split("; ")
-                .find((row) => row.startsWith("accessToken="))
-                ?.split("=")[1];
-
             const end = new Date();
             const start = new Date();
             switch (timeRange) {
@@ -93,34 +88,51 @@ const RperfDashboard = ({
                 default: start.setHours(end.getHours() - 1);
             }
 
+            // Construct the API URL properly
             const url = `/api/nodes/${nodeId}/rperf?start=${start.toISOString()}&end=${end.toISOString()}`;
+
+            // Use simpler headers - let the middleware handle authentication
             const headers: HeadersInit = {
                 "Content-Type": "application/json",
-                ...(currentToken ? { "Authorization": `Bearer ${currentToken}` } : {})
             };
+
+            // Only add token if we have it from context
+            if (token) {
+                headers["Authorization"] = `Bearer ${token}`;
+            }
+
+            console.log(`Fetching rperf data from: ${url}`);
 
             const response = await fetch(url, {
                 method: 'GET',
                 headers,
+                // This is important - ensure we send cookies
                 credentials: 'include',
+                // Disable cache for fresh data
                 cache: "no-store"
             });
 
-            if (response.status === 401) {
-                console.error("Authentication error fetching RPerfData");
-                const refreshed = await refreshToken();
-                if (refreshed) {
-                    return fetchData(); // Retry with new token
-                }
-                throw new Error("Authentication failed");
-            }
+            // Let's log the response status for debugging
+            console.log(`Rperf API response status: ${response.status}`);
 
             if (!response.ok) {
-                throw new Error(`Failed to fetch Rperf data: ${response.status}`);
+                if (response.status === 401) {
+                    console.error("Authentication error fetching RPerfData - attempting token refresh");
+                    const refreshed = await refreshToken();
+                    if (refreshed === true) {
+                        console.log("Token refreshed successfully, retrying request");
+                        return fetchData(); // Retry with new token
+                    } else {
+                        console.error("Token refresh failed");
+                        throw new Error("Authentication failed");
+                    }
+                } else {
+                    throw new Error(`Failed to fetch Rperf data: ${response.status}`);
+                }
             }
 
             const data: RperfMetric[] = await response.json();
-            console.log("Received rperf data:", data.length, "records");
+            console.log(`Received rperf data: ${data.length} records`);
 
             if (data.length === 0) {
                 console.log("No rperf data received");
@@ -132,6 +144,7 @@ const RperfDashboard = ({
                 return;
             }
 
+            // Process data as before
             const filteredData = data.map(point => ({
                 timestamp: new Date(point.timestamp).getTime(),
                 formattedTime: new Date(point.timestamp).toLocaleTimeString(),
@@ -144,6 +157,7 @@ const RperfDashboard = ({
 
             const smoothedData = smoothData(filteredData);
 
+            // Calculate averages
             const totalBandwidth = smoothedData.reduce((sum, point) => sum + point.bandwidth, 0);
             const totalJitter = smoothedData.reduce((sum, point) => sum + point.jitter, 0);
             const totalLoss = smoothedData.reduce((sum, point) => sum + point.loss, 0);
@@ -161,14 +175,16 @@ const RperfDashboard = ({
 
             setRperfData(smoothedData);
             setLastRefreshed(new Date());
+            setError(null);
             console.log("Successfully processed rperf data:", smoothedData.length, "records");
         } catch (err) {
-            console.error("Error fetching data:", err);
+            console.error("Error fetching rperf data:", err);
             setError("Failed to fetch Rperf data");
+            setRperfData([]);
         } finally {
             setIsLoading(false);
         }
-    }, [timeRange, nodeId, token, refreshToken]);
+    }, [timeRange, nodeId, token, refreshToken, smoothData]);
 
     useEffect(() => {
         fetchData();
