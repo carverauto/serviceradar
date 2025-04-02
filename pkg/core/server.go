@@ -28,6 +28,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/checker/rperf"
 	"github.com/carverauto/serviceradar/pkg/checker/snmp"
 	"github.com/carverauto/serviceradar/pkg/core/alerts"
 	"github.com/carverauto/serviceradar/pkg/core/api"
@@ -84,6 +85,7 @@ func NewServer(_ context.Context, config *Config) (*Server, error) {
 		pollerPatterns: normalizedConfig.PollerPatterns,
 		metrics:        metricsManager,
 		snmpManager:    snmp.NewSNMPManager(database),
+		rperfManager:   rperf.NewRperfManager(database),
 		config:         normalizedConfig,
 		authService:    auth.NewAuth(authConfig, database),
 	}
@@ -598,17 +600,76 @@ func (*Server) parseServiceDetails(svc *proto.ServiceStatus) (json.RawMessage, e
 	return details, nil
 }
 
-func (s *Server) processSpecializedMetrics(pollerID string, svc *proto.ServiceStatus, details json.RawMessage, now time.Time) error {
+func (s *Server) processSpecializedMetrics(
+	pollerID string, svc *proto.ServiceStatus, details json.RawMessage, now time.Time) error {
+	log.Printf("Processing specialized metrics for node %s, service %s", pollerID, svc.ServiceName)
+
 	if svc.ServiceType == "snmp" {
 		log.Printf("Found SNMP service, attempting to process metrics for node %s", pollerID)
-
 		return s.processSNMPMetrics(pollerID, details, now)
 	}
-
 	if svc.ServiceType == "grpc" && svc.ServiceName == "rperf-checker" {
 		log.Printf("Found rperf-checker service, attempting to process metrics for node %s", pollerID)
 
-		return s.db.StoreRperfMetrics(pollerID, svc.ServiceName, svc.Message, now)
+		var rperfData struct {
+			Results []struct {
+				Target  string  `json:"target"`
+				Success bool    `json:"success"`
+				Error   *string `json:"error"`
+				Summary struct {
+					BitsPerSecond   float64 `json:"bits_per_second"`
+					BytesReceived   int64   `json:"bytes_received"`
+					BytesSent       int64   `json:"bytes_sent"`
+					Duration        float64 `json:"duration"`
+					JitterMs        float64 `json:"jitter_ms"`
+					LossPercent     float64 `json:"loss_percent"`
+					PacketsLost     int64   `json:"packets_lost"`
+					PacketsReceived int64   `json:"packets_received"`
+					PacketsSent     int64   `json:"packets_sent"`
+				} `json:"summary"`
+			} `json:"results"`
+			Timestamp string `json:"timestamp"`
+		}
+
+		if err := json.Unmarshal(details, &rperfData); err != nil {
+			log.Printf("Failed to parse rperf data for node %s: %v", pollerID, err)
+			return fmt.Errorf("failed to parse rperf data: %w", err)
+		}
+
+		for _, result := range rperfData.Results {
+			metricName := fmt.Sprintf("rperf_%s", strings.ToLower(strings.ReplaceAll(result.Target, " ", "_")))
+			metadata := map[string]interface{}{
+				"target":           result.Target,
+				"success":          result.Success,
+				"error":            result.Error,
+				"bits_per_second":  result.Summary.BitsPerSecond,
+				"bytes_received":   result.Summary.BytesReceived,
+				"bytes_sent":       result.Summary.BytesSent,
+				"duration":         result.Summary.Duration,
+				"jitter_ms":        result.Summary.JitterMs,
+				"loss_percent":     result.Summary.LossPercent,
+				"packets_lost":     result.Summary.PacketsLost,
+				"packets_received": result.Summary.PacketsReceived,
+				"packets_sent":     result.Summary.PacketsSent,
+			}
+
+			metric := &db.TimeseriesMetric{
+				Name:      metricName,
+				Value:     fmt.Sprintf("%f", result.Summary.BitsPerSecond),
+				Type:      "rperf",
+				Timestamp: now,
+				Metadata:  metadata,
+			}
+
+			if err := s.rperfManager.StoreRperfMetric(pollerID, metric); err != nil {
+				log.Printf("Error storing rperf metric %s for node %s: %v", metricName, pollerID, err)
+				return fmt.Errorf("failed to store rperf metric: %w", err)
+			}
+
+			log.Printf("Stored rperf metric %s for node %s: bits_per_second=%.2f", metricName, pollerID, result.Summary.BitsPerSecond)
+		}
+
+		return nil
 	}
 
 	return nil
@@ -899,6 +960,11 @@ func (s *Server) sendUnreportedNodesAlert(ctx context.Context, nodeIDs []string)
 	if err := s.sendAlert(ctx, alert); err != nil {
 		log.Printf("Error sending unreported nodes alert: %v", err)
 	}
+}
+
+// GetRperfManager returns the RperfManager instance.
+func (s *Server) GetRperfManager() rperf.RperfManager {
+	return s.rperfManager
 }
 
 func (s *Server) GetAuth() *auth.Auth {

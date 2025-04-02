@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/checker/rperf"
 	"github.com/carverauto/serviceradar/pkg/checker/snmp"
 	"github.com/carverauto/serviceradar/pkg/core/auth"
 	"github.com/carverauto/serviceradar/pkg/metrics"
@@ -71,6 +72,7 @@ type APIServer struct {
 	nodeHistoryHandler func(nodeID string) ([]NodeHistoryPoint, error)
 	metricsManager     metrics.MetricCollector
 	snmpManager        snmp.SNMPManager
+	rperfManager       rperf.RperfManager
 	knownPollers       []string
 	authService        auth.AuthService
 	corsConfig         models.CORSConfig

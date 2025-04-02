@@ -25,6 +25,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/checker/rperf"
 	"github.com/carverauto/serviceradar/pkg/checker/snmp"
 	"github.com/carverauto/serviceradar/pkg/core/auth"
 	srHttp "github.com/carverauto/serviceradar/pkg/http"
@@ -64,6 +65,12 @@ func WithMetricsManager(m metrics.MetricCollector) func(server *APIServer) {
 func WithSNMPManager(m snmp.SNMPManager) func(server *APIServer) {
 	return func(server *APIServer) {
 		server.snmpManager = m
+	}
+}
+
+func WithRperfManager(m rperf.RperfManager) func(server *APIServer) { // Already correct
+	return func(server *APIServer) {
+		server.rperfManager = m
 	}
 }
 
