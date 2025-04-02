@@ -22,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/checker/rperf"
 	"github.com/carverauto/serviceradar/pkg/checker/snmp"
 	"github.com/carverauto/serviceradar/pkg/core/alerts"
 	"github.com/carverauto/serviceradar/pkg/core/api"
@@ -119,6 +120,7 @@ type Server struct {
 	grpcServer     *grpc.Server
 	metrics        metrics.MetricCollector
 	snmpManager    snmp.SNMPManager
+	rperfManager   rperf.RperfManager
 	config         *Config
 	authService    *auth.Auth
 }
