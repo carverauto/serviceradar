@@ -15,8 +15,8 @@ import { useAuth } from "@/components/AuthProvider";
 import { RperfMetric } from "@/types/rperf";
 
 interface RPerfDashboardProps {
-    nodeId?: string;
-    serviceName?: string;
+    nodeId: string;
+    serviceName: string;
     initialTimeRange?: string;
 }
 
@@ -30,11 +30,11 @@ interface ChartDataPoint {
     success: boolean;
 }
 
-const ImprovedRperfDashboard = ({
-                                    nodeId = "demo-staging",
-                                    serviceName = "rperf-checker",
-                                    initialTimeRange = "1h"
-                                }: RPerfDashboardProps) => {
+const RperfDashboard = ({
+                            nodeId,
+                            serviceName,
+                            initialTimeRange = "1h"
+                        }: RPerfDashboardProps) => {
     const router = useRouter();
     const { token } = useAuth();
     const [rperfData, setRperfData] = useState<ChartDataPoint[]>([]);
@@ -49,17 +49,14 @@ const ImprovedRperfDashboard = ({
     const [lastRefreshed, setLastRefreshed] = useState(new Date());
     const [targetName, setTargetName] = useState("Unknown Target");
 
-    // Smooth data with different window sizes for each metric
     const smoothData = (data: ChartDataPoint[]): ChartDataPoint[] => {
         if (data.length <= 5) return data;
 
         const smoothed = data.map((point, index, arr) => {
-            // Bandwidth and Jitter: window size of 5
             const startBwJitter = Math.max(0, index - 2);
             const endBwJitter = Math.min(arr.length, index + 3);
             const windowBwJitter = arr.slice(startBwJitter, endBwJitter);
 
-            // Packet Loss: larger window size of 9 for more smoothing
             const startLoss = Math.max(0, index - 4);
             const endLoss = Math.min(arr.length, index + 5);
             const windowLoss = arr.slice(startLoss, endLoss);
@@ -107,14 +104,13 @@ const ImprovedRperfDashboard = ({
             const filteredData = data.map(point => ({
                 timestamp: new Date(point.timestamp).getTime(),
                 formattedTime: new Date(point.timestamp).toLocaleTimeString(),
-                bandwidth: point.bits_per_second / 1000000, // Convert bps to Mbps
+                bandwidth: point.bits_per_second / 1000000,
                 jitter: point.jitter_ms,
                 loss: point.loss_percent,
                 target: point.target,
                 success: point.success
             }));
 
-            // Apply smoothing with different window sizes
             const smoothedData = smoothData(filteredData);
 
             const totalBandwidth = smoothedData.reduce((sum, point) => sum + point.bandwidth, 0);
@@ -144,7 +140,7 @@ const ImprovedRperfDashboard = ({
 
     useEffect(() => {
         fetchData();
-        const interval = setInterval(fetchData, 60000); // Refresh every minute
+        const interval = setInterval(fetchData, 60000);
         return () => clearInterval(interval);
     }, [fetchData]);
 
@@ -162,27 +158,6 @@ const ImprovedRperfDashboard = ({
         value === undefined || value === null ? "N/A" : `${value.toFixed(2)}%`;
     const formatTimestamp = (timestamp: number) => new Date(timestamp).toLocaleTimeString();
 
-    const CustomTooltip = ({ active, payload, label }: any) => {
-        if (!active || !payload || !payload.length) return null;
-        return (
-            <div className="bg-white dark:bg-gray-800 p-3 rounded border border-gray-200 dark:border-gray-700 shadow-md">
-                <p className="font-medium text-gray-900 dark:text-gray-100">{formatTimestamp(label)}</p>
-                {payload.map((entry: any, index: number) => (
-                    <div key={index} className="flex items-center mt-1">
-                        <div className="w-3 h-3 rounded-full mr-2" style={{ backgroundColor: entry.color }} />
-                        <span className="text-gray-700 dark:text-gray-300">
-                            {entry.name}: {entry.name === "Bandwidth"
-                            ? formatBandwidth(entry.value)
-                            : entry.name === "Jitter"
-                                ? formatJitter(entry.value)
-                                : formatLoss(entry.value)}
-                        </span>
-                    </div>
-                ))}
-            </div>
-        );
-    };
-
     return (
         <div className="space-y-6">
             <div className="flex flex-col sm:flex-row justify-between items-center gap-4 bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
@@ -195,7 +170,7 @@ const ImprovedRperfDashboard = ({
                         <span className="sr-only">Back to Nodes</span>
                     </button>
                     <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100">
-                        Rperf Metrics Dashboard - {targetName}
+                        Rperf Metrics Dashboard - {serviceName} ({targetName})
                     </h3>
                 </div>
                 <div className="flex items-center gap-3">
@@ -279,7 +254,15 @@ const ImprovedRperfDashboard = ({
                                 axisLine={false}
                                 tickLine={false}
                             />
-                            <Tooltip content={<CustomTooltip />} />
+                            <Tooltip
+                                labelFormatter={(label) => formatTimestamp(label as number)}
+                                formatter={(value: number, name: string) => [
+                                    name === "Bandwidth" ? formatBandwidth(value) :
+                                        name === "Jitter" ? formatJitter(value) :
+                                            formatLoss(value),
+                                    name
+                                ]}
+                            />
                             <ReferenceLine y={8} stroke="#8884d8" strokeDasharray="3 3" />
                             <Line
                                 type="monotone"
@@ -317,7 +300,15 @@ const ImprovedRperfDashboard = ({
                                 axisLine={false}
                                 tickLine={false}
                             />
-                            <Tooltip content={<CustomTooltip />} />
+                            <Tooltip
+                                labelFormatter={(label) => formatTimestamp(label as number)}
+                                formatter={(value: number, name: string) => [
+                                    name === "Bandwidth" ? formatBandwidth(value) :
+                                        name === "Jitter" ? formatJitter(value) :
+                                            formatLoss(value),
+                                    name
+                                ]}
+                            />
                             <ReferenceLine y={2} stroke="#82ca9d" strokeDasharray="3 3" />
                             <Line
                                 type="monotone"
@@ -350,15 +341,23 @@ const ImprovedRperfDashboard = ({
                                 tickLine={false}
                             />
                             <YAxis
-                                domain={[0, (dataMax: number) => Math.max(20, dataMax * 1.2)]} // Increased max to accommodate spikes
+                                domain={[0, (dataMax: number) => Math.max(20, dataMax * 1.2)]}
                                 tick={{ fontSize: 10 }}
                                 axisLine={false}
                                 tickLine={false}
                             />
-                            <Tooltip content={<CustomTooltip />} />
+                            <Tooltip
+                                labelFormatter={(label) => formatTimestamp(label as number)}
+                                formatter={(value: number, name: string) => [
+                                    name === "Bandwidth" ? formatBandwidth(value) :
+                                        name === "Jitter" ? formatJitter(value) :
+                                            formatLoss(value),
+                                    name
+                                ]}
+                            />
                             <ReferenceLine y={0.5} stroke="#ff7300" strokeDasharray="3 3" />
                             <Line
-                                type="stepAfter" // Changed to step function for discrete representation
+                                type="stepAfter"
                                 dataKey="loss"
                                 name="Packet Loss"
                                 stroke="#ff7300"
@@ -379,4 +378,4 @@ const ImprovedRperfDashboard = ({
     );
 };
 
-export default ImprovedRperfDashboard;
+export default RperfDashboard;
