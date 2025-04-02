@@ -7,7 +7,6 @@ import {
     CartesianGrid,
     Tooltip,
     ResponsiveContainer,
-    Legend,
     ReferenceLine
 } from "recharts";
 import { RefreshCw, AlertCircle, ArrowLeft } from "lucide-react";
@@ -21,6 +20,16 @@ interface RPerfDashboardProps {
     initialTimeRange?: string;
 }
 
+interface ChartDataPoint {
+    timestamp: number;
+    formattedTime: string;
+    bandwidth: number;
+    jitter: number;
+    loss: number;
+    target: string;
+    success: boolean;
+}
+
 const ImprovedRperfDashboard = ({
                                     nodeId = "demo-staging",
                                     serviceName = "rperf-checker",
@@ -28,7 +37,7 @@ const ImprovedRperfDashboard = ({
                                 }: RPerfDashboardProps) => {
     const router = useRouter();
     const { token } = useAuth();
-    const [rperfData, setRperfData] = useState<RperfMetric[]>([]);
+    const [rperfData, setRperfData] = useState<ChartDataPoint[]>([]);
     const [timeRange, setTimeRange] = useState(initialTimeRange);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -39,6 +48,30 @@ const ImprovedRperfDashboard = ({
     });
     const [lastRefreshed, setLastRefreshed] = useState(new Date());
     const [targetName, setTargetName] = useState("Unknown Target");
+
+    // Simple moving average function to smooth data
+    const smoothData = (data: ChartDataPoint[], windowSize: number = 5): ChartDataPoint[] => {
+        if (data.length <= windowSize) return data;
+
+        const smoothed = data.map((point, index, arr) => {
+            const start = Math.max(0, index - Math.floor(windowSize / 2));
+            const end = Math.min(arr.length, index + Math.ceil(windowSize / 2));
+            const window = arr.slice(start, end);
+
+            const avgBandwidth = window.reduce((sum, p) => sum + p.bandwidth, 0) / window.length;
+            const avgJitter = window.reduce((sum, p) => sum + p.jitter, 0) / window.length;
+            const avgLoss = window.reduce((sum, p) => sum + p.loss, 0) / window.length;
+
+            return {
+                ...point,
+                bandwidth: avgBandwidth,
+                jitter: avgJitter,
+                loss: avgLoss
+            };
+        });
+
+        return smoothed;
+    };
 
     const fetchData = useCallback(async () => {
         setIsLoading(true);
@@ -75,10 +108,13 @@ const ImprovedRperfDashboard = ({
                 success: point.success
             }));
 
-            const totalBandwidth = filteredData.reduce((sum, point) => sum + point.bandwidth, 0);
-            const totalJitter = filteredData.reduce((sum, point) => sum + point.jitter, 0);
-            const totalLoss = filteredData.reduce((sum, point) => sum + point.loss, 0);
-            const count = filteredData.length;
+            // Apply smoothing to reduce sawtooth effect
+            const smoothedData = smoothData(filteredData);
+
+            const totalBandwidth = smoothedData.reduce((sum, point) => sum + point.bandwidth, 0);
+            const totalJitter = smoothedData.reduce((sum, point) => sum + point.jitter, 0);
+            const totalLoss = smoothedData.reduce((sum, point) => sum + point.loss, 0);
+            const count = smoothedData.length;
 
             setAverages({
                 bandwidth: count ? totalBandwidth / count : 0,
@@ -86,11 +122,11 @@ const ImprovedRperfDashboard = ({
                 loss: count ? totalLoss / count : 0
             });
 
-            if (filteredData.length > 0) {
-                setTargetName(filteredData[0].target);
+            if (smoothedData.length > 0) {
+                setTargetName(smoothedData[0].target);
             }
 
-            setRperfData(filteredData);
+            setRperfData(smoothedData);
             setLastRefreshed(new Date());
         } catch (err) {
             setError("Failed to fetch Rperf data");
