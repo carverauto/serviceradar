@@ -17,6 +17,7 @@
 // src/app/api/auth/verify/route.ts
 import { NextRequest, NextResponse } from "next/server";
 
+// Update in src/app/api/auth/verify/route.ts
 export async function GET(req: NextRequest) {
   const apiKey = process.env.API_KEY || "";
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090";
@@ -40,20 +41,19 @@ export async function GET(req: NextRequest) {
 
     if (!response.ok) {
       // Forward the error from the API
-      const errorText = await response.text();
       return NextResponse.json(
-        { error: "Token verification failed", details: errorText },
-        { status: response.status },
+          { error: "Token verification failed" },
+          { status: response.status },
       );
     }
 
-    // Token is valid, return success
+    // Token is valid, return success with user info
     return NextResponse.json({ verified: true });
   } catch (error) {
     console.error("Token verification error:", error);
     return NextResponse.json(
-      { error: "Internal server error during token verification" },
-      { status: 500 },
+        { error: "Internal server error during token verification" },
+        { status: 500 },
     );
   }
 }

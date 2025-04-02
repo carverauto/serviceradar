@@ -36,7 +36,7 @@ const RperfDashboard = ({
                             initialTimeRange = "1h"
                         }: RPerfDashboardProps) => {
     const router = useRouter();
-    const { token } = useAuth();
+    const { token, refreshToken } = useAuth();
     const [rperfData, setRperfData] = useState<ChartDataPoint[]>([]);
     const [timeRange, setTimeRange] = useState(initialTimeRange);
     const [isLoading, setIsLoading] = useState(true);
@@ -79,6 +79,12 @@ const RperfDashboard = ({
     const fetchData = useCallback(async () => {
         setIsLoading(true);
         try {
+            // Get the current token from cookie directly to ensure we have the latest
+            const currentToken = token || document.cookie
+                .split("; ")
+                .find((row) => row.startsWith("accessToken="))
+                ?.split("=")[1];
+
             const end = new Date();
             const start = new Date();
             switch (timeRange) {
@@ -88,23 +94,48 @@ const RperfDashboard = ({
             }
 
             const url = `/api/nodes/${nodeId}/rperf?start=${start.toISOString()}&end=${end.toISOString()}`;
-            const headers: HeadersInit = { "Content-Type": "application/json" };
-            if (token) headers["Authorization"] = `Bearer ${token}`;
+            const headers: HeadersInit = {
+                "Content-Type": "application/json",
+                ...(currentToken ? { "Authorization": `Bearer ${currentToken}` } : {})
+            };
 
             const response = await fetch(url, {
+                method: 'GET',
                 headers,
-                cache: "no-store",
-                credentials: "include"
+                credentials: 'include',
+                cache: "no-store"
             });
 
-            if (!response.ok) throw new Error(`Failed to fetch Rperf data: ${response.status}`);
+            if (response.status === 401) {
+                console.error("Authentication error fetching RPerfData");
+                const refreshed = await refreshToken();
+                if (refreshed) {
+                    return fetchData(); // Retry with new token
+                }
+                throw new Error("Authentication failed");
+            }
+
+            if (!response.ok) {
+                throw new Error(`Failed to fetch Rperf data: ${response.status}`);
+            }
 
             const data: RperfMetric[] = await response.json();
+            console.log("Received rperf data:", data.length, "records");
+
+            if (data.length === 0) {
+                console.log("No rperf data received");
+                setRperfData([]);
+                setAverages({ bandwidth: 0, jitter: 0, loss: 0 });
+                setTargetName("No Data");
+                setLastRefreshed(new Date());
+                setIsLoading(false);
+                return;
+            }
 
             const filteredData = data.map(point => ({
                 timestamp: new Date(point.timestamp).getTime(),
                 formattedTime: new Date(point.timestamp).toLocaleTimeString(),
-                bandwidth: point.bits_per_second / 1000000,
+                bandwidth: point.bits_per_second / 1000000, // Convert to Mbps
                 jitter: point.jitter_ms,
                 loss: point.loss_percent,
                 target: point.target,
@@ -116,31 +147,32 @@ const RperfDashboard = ({
             const totalBandwidth = smoothedData.reduce((sum, point) => sum + point.bandwidth, 0);
             const totalJitter = smoothedData.reduce((sum, point) => sum + point.jitter, 0);
             const totalLoss = smoothedData.reduce((sum, point) => sum + point.loss, 0);
-            const count = smoothedData.length;
+            const count = smoothedData.length || 1;
 
             setAverages({
-                bandwidth: count ? totalBandwidth / count : 0,
-                jitter: count ? totalJitter / count : 0,
-                loss: count ? totalLoss / count : 0
+                bandwidth: totalBandwidth / count,
+                jitter: totalJitter / count,
+                loss: totalLoss / count
             });
 
             if (smoothedData.length > 0) {
-                setTargetName(smoothedData[0].target);
+                setTargetName(smoothedData[0].target || "Unknown Target");
             }
 
             setRperfData(smoothedData);
             setLastRefreshed(new Date());
+            console.log("Successfully processed rperf data:", smoothedData.length, "records");
         } catch (err) {
-            setError("Failed to fetch Rperf data");
             console.error("Error fetching data:", err);
+            setError("Failed to fetch Rperf data");
         } finally {
             setIsLoading(false);
         }
-    }, [timeRange, nodeId, token]);
+    }, [timeRange, nodeId, token, refreshToken]);
 
     useEffect(() => {
         fetchData();
-        const interval = setInterval(fetchData, 60000);
+        const interval = setInterval(fetchData, 60000); // Refresh every minute
         return () => clearInterval(interval);
     }, [fetchData]);
 
