@@ -10,5 +10,5 @@ import (
 // RperfManager defines the interface for managing rperf metrics.
 type RperfManager interface {
 	StoreRperfMetric(nodeID string, metric *db.TimeseriesMetric) error
-	GetRperfMetrics(nodeID string, startTime, endTime time.Time) ([]db.TimeseriesMetric, error)
+	GetRperfMetrics(nodeID string, startTime, endTime time.Time) ([]*db.TimeseriesMetric, error)
 }

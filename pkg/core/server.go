@@ -1287,6 +1287,8 @@ func (s *Server) sendAlert(ctx context.Context, alert *alerts.WebhookAlert) erro
 
 // ReportStatus implements the PollerServiceServer interface. It processes status reports from pollers.
 func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusRequest) (*proto.PollerStatusResponse, error) {
+	log.Printf("Received status report from %s with %d services", req.PollerId, len(req.Services))
+
 	if req.PollerId == "" {
 		return nil, errEmptyPollerID
 	}

@@ -104,6 +104,7 @@ func (s *APIServer) setupRoutes() {
 	protected.HandleFunc("/status", s.getSystemStatus).Methods("GET")
 	protected.HandleFunc("/nodes/{id}/history", s.getNodeHistory).Methods("GET")
 	protected.HandleFunc("/nodes/{id}/metrics", s.getNodeMetrics).Methods("GET")
+	protected.HandleFunc("/nodes/{id}/rperf", s.getRperfMetrics).Methods("GET")
 	protected.HandleFunc("/nodes/{id}/services", s.getNodeServices).Methods("GET")
 	protected.HandleFunc("/nodes/{id}/services/{service}", s.getServiceDetails).Methods("GET")
 	protected.HandleFunc("/nodes/{id}/snmp", s.getSNMPData).Methods("GET")
