@@ -1,5 +1,6 @@
 // src/app/api/nodes/[id]/rperf/route.ts - Update this file
 import { NextRequest, NextResponse } from "next/server";
+import {RperfMetric} from "@/types/rperf";
 
 interface RouteProps {
     params: Promise<{ id: string }>;
@@ -17,21 +18,11 @@ export async function GET(req: NextRequest, props: RouteProps) {
     try {
         // Get the token from authorization header or cookie
         const authHeader = req.headers.get("authorization");
-        const accessTokenCookie = req.cookies.get("accessToken")?.value;
-
         const headers: HeadersInit = {
             "Content-Type": "application/json",
             "X-API-Key": apiKey,
         };
-
-        // Prioritize the authorization header, fall back to cookie
-        if (authHeader) {
-            headers["Authorization"] = authHeader;
-            console.log("Using Authorization header for rperf API call");
-        } else if (accessTokenCookie) {
-            headers["Authorization"] = `Bearer ${accessTokenCookie}`;
-            console.log("Using cookie token for rperf API call");
-        }
+        if (authHeader) headers["Authorization"] = authHeader;
 
         // Make sure to properly format the URL with query parameters
         let url = `${apiUrl}/api/nodes/${nodeId}/rperf`;
@@ -55,7 +46,7 @@ export async function GET(req: NextRequest, props: RouteProps) {
             );
         }
 
-        const data = await response.json();
+        const data: RperfMetric[] = await response.json();
         return NextResponse.json(data);
     } catch (error) {
         console.error(`Error fetching rperf metrics for node ${nodeId}:`, error);

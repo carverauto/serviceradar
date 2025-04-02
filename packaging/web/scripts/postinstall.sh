@@ -55,16 +55,6 @@ chown -R serviceradar:serviceradar /var/lib/serviceradar
 chmod 755 /usr/local/share/serviceradar-web
 chmod 644 /etc/serviceradar/web.json
 
-# Check for API key file
-if [ ! -f "/etc/serviceradar/api.env" ]; then
-    echo "WARNING: API key file not found. Creating a temporary API key..."
-    API_KEY=$(openssl rand -hex 32)
-    echo "API_KEY=$API_KEY" > /etc/serviceradar/api.env
-    chmod 600 /etc/serviceradar/api.env
-    chown serviceradar:serviceradar /etc/serviceradar/api.env
-    echo "For proper functionality, please install the serviceradar-core package."
-fi
-
 # Configure Nginx if present
 if command -v nginx >/dev/null 2>&1; then
     # Handle CentOS/RHEL style nginx config with sites-enabled
