@@ -425,102 +425,100 @@ func (s *Server) connectToChecker(ctx context.Context, checkerConfig *CheckerCon
 }
 
 func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
-	log.Printf("Received status request: %+v", req)
-
-	log.Println("ServiceType:", req.ServiceType)
-	log.Println("ServiceName:", req.ServiceName)
-	log.Println("Details:", req.Details)
-
-	// Special case for rperf-checker to fetch all targets
-	if req.ServiceName == "rperf-checker" && req.ServiceType == "grpc" {
-		c, err := s.getChecker(ctx, req)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get rperf checker: %w", err)
-		}
-
-		extChecker, ok := c.(*ExternalChecker)
-		if !ok {
-			return nil, fmt.Errorf("checker for rperf-checker is not an ExternalChecker")
-		}
-
-		// Ensure the gRPC client is connected
-		if err := extChecker.ensureConnected(ctx); err != nil {
-			log.Printf("Failed to ensure connection for rperf-checker: %v", err)
-			return nil, fmt.Errorf("failed to ensure rperf-checker connection: %w", err)
-		}
-
-		// Verify grpcClient is not nil after ensureConnected
-		if extChecker.grpcClient == nil {
-			log.Printf("rperf-checker grpcClient is nil after ensureConnected")
-			return nil, fmt.Errorf("rperf-checker grpcClient is nil after connection attempt")
-		}
-
-		// Log the state of the client for debugging
-		log.Printf("rperf-checker grpcClient state: %v", extChecker.grpcClient)
-
-		// Create a new gRPC client and fetch status
-		agentClient := proto.NewAgentServiceClient(extChecker.grpcClient.GetConnection())
-		status, err := agentClient.GetStatus(ctx, &proto.StatusRequest{
-			ServiceName: "", // Empty to get all targets, mimicking grpcurl
-			ServiceType: "grpc",
-			Details:     "",
-		})
-		if err != nil {
-			log.Printf("Failed to fetch rperf status: %v", err)
-			return nil, fmt.Errorf("failed to fetch rperf status: %w", err)
-		}
-
-		log.Printf("rperf-checker response: %+v", status)
-		return status, nil // Forward the response directly
-	}
-
-	// Handle ICMP checks
-	if req.ServiceType == "icmp" && req.Details != "" {
-		for _, svc := range s.services {
-			sweepSvc, ok := svc.(*SweepService)
-			if !ok {
-				continue // Skip if svc is not a SweepService
-			}
-
-			result, err := sweepSvc.CheckICMP(ctx, req.Details)
-			if err != nil {
-				return nil, fmt.Errorf("%w: %w", errICMPCheck, err)
-			}
-
-			resp := &ICMPResponse{
-				Host:         result.Target.Host,
-				ResponseTime: result.RespTime.Nanoseconds(),
-				PacketLoss:   result.PacketLoss,
-				Available:    result.Available,
-			}
-
-			jsonResp, _ := json.Marshal(resp)
-
-			return &proto.StatusResponse{
-				Available:    result.Available,
-				Message:      string(jsonResp),
-				ServiceName:  "icmp_check",
-				ServiceType:  "icmp",
-				ResponseTime: result.RespTime.Nanoseconds(),
-			}, nil
-		}
-
-		return nil, errNoSweepService
-	}
-
-	// Handle sweep service
-	if req.ServiceType == "sweep" {
+	switch {
+	case isRperfCheckerRequest(req):
+		return s.handleRperfChecker(ctx, req)
+	case isICMPRequest(req):
+		return s.handleICMPCheck(ctx, req)
+	case isSweepRequest(req):
 		return s.getSweepStatus(ctx)
+	default:
+		return s.handleDefaultChecker(ctx, req)
+	}
+}
+
+func isRperfCheckerRequest(req *proto.StatusRequest) bool {
+	return req.ServiceName == "rperf-checker" && req.ServiceType == "grpc"
+}
+
+func isICMPRequest(req *proto.StatusRequest) bool {
+	return req.ServiceType == "icmp" && req.Details != ""
+}
+
+func isSweepRequest(req *proto.StatusRequest) bool {
+	return req.ServiceType == "sweep"
+}
+
+var (
+	errNotExternalChecker = errors.New("checker is not an ExternalChecker")
+)
+
+func (s *Server) handleRperfChecker(ctx context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
+	c, err := s.getChecker(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get rperf checker: %w", err)
 	}
 
-	// Default case for other checkers
+	extChecker, ok := c.(*ExternalChecker)
+	if !ok {
+		return nil, errNotExternalChecker
+	}
+
+	if err := extChecker.ensureConnected(ctx); err != nil {
+		log.Printf("Failed to ensure connection for rperf-checker: %v", err)
+
+		return nil, fmt.Errorf("failed to ensure rperf-checker connection: %w", err)
+	}
+
+	agentClient := proto.NewAgentServiceClient(extChecker.grpcClient.GetConnection())
+
+	return agentClient.GetStatus(ctx, &proto.StatusRequest{
+		ServiceName: "",
+		ServiceType: "grpc",
+		Details:     "",
+	})
+}
+
+func (s *Server) handleICMPCheck(ctx context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
+	for _, svc := range s.services {
+		sweepSvc, ok := svc.(*SweepService)
+		if !ok {
+			continue
+		}
+
+		result, err := sweepSvc.CheckICMP(ctx, req.Details)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %w", errICMPCheck, err)
+		}
+
+		resp := &ICMPResponse{
+			Host:         result.Target.Host,
+			ResponseTime: result.RespTime.Nanoseconds(),
+			PacketLoss:   result.PacketLoss,
+			Available:    result.Available,
+		}
+
+		jsonResp, _ := json.Marshal(resp)
+
+		return &proto.StatusResponse{
+			Available:    result.Available,
+			Message:      string(jsonResp),
+			ServiceName:  "icmp_check",
+			ServiceType:  "icmp",
+			ResponseTime: result.RespTime.Nanoseconds(),
+		}, nil
+	}
+
+	return nil, errNoSweepService
+}
+
+func (s *Server) handleDefaultChecker(ctx context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
 	c, err := s.getChecker(ctx, req)
 	if err != nil {
 		return nil, err
 	}
 
 	available, message := c.Check(ctx)
-	log.Println("Checker response:", message)
 
 	return &proto.StatusResponse{
 		Available:   available,

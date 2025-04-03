@@ -96,6 +96,7 @@ func (*DB) scanMetrics(rows Rows) ([]TimeseriesMetric, error) {
 
 	for rows.Next() {
 		var metric TimeseriesMetric
+
 		var metadataJSON sql.NullString // Use sql.NullString to handle potential NULLs
 
 		err := rows.Scan(
@@ -145,55 +146,47 @@ type rperfWrapper struct {
 }
 
 // StoreRperfMetrics stores rperf-checker data as timeseries metrics.
-// It now correctly handles the nested JSON structure.
-func (db *DB) StoreRperfMetrics(nodeID, serviceName, message string, timestamp time.Time) error {
-	log.Printf("Processing rperf metrics for node %s, servicename: %s", nodeID, serviceName)
-	log.Printf("Raw message received: %s", message) // Log the raw message first
-
-	// 1. Unmarshal the outer wrapper structure
+func (db *DB) StoreRperfMetrics(nodeID, _, message string, timestamp time.Time) error {
 	var wrapper rperfWrapper
 	if err := json.Unmarshal([]byte(message), &wrapper); err != nil {
 		log.Printf("Failed to unmarshal outer rperf wrapper for node %s: %v", nodeID, err)
-		// Don't return error here if the outer structure fails, maybe log and continue?
-		// Or return a specific error indicating format issue? For now, log and return.
+
 		return fmt.Errorf("failed to unmarshal rperf wrapper message: %w", err)
 	}
 
-	// Check if the nested status string is empty
 	if wrapper.Status == "" {
 		log.Printf("No nested status found in rperf message for node %s", nodeID)
-		// Decide if this is an error or just means no results. Log and return nil for now.
+
 		return nil
 	}
-
-	log.Printf("Nested status string extracted for node %s: %s", nodeID, wrapper.Status)
 
 	// 2. Unmarshal the nested JSON string from the 'status' field
 	var rperfData struct {
 		Results   []RperfMetric `json:"results"`
 		Timestamp string        `json:"timestamp"` // Capture the timestamp from the nested data as well if needed
 	}
+
 	if err := json.Unmarshal([]byte(wrapper.Status), &rperfData); err != nil {
 		log.Printf("Failed to unmarshal nested rperf data ('status' field) for node %s: %v", nodeID, err)
+
 		return fmt.Errorf("failed to unmarshal nested rperf data: %w", err)
 	}
 
-	log.Printf("Successfully unmarshaled nested rperf data for node %s: %d results", nodeID, len(rperfData.Results))
-
 	if len(rperfData.Results) == 0 {
 		log.Printf("No rperf results found in nested data for node %s", nodeID)
+
 		return nil // Not an error, just no results to store
 	}
 
 	// 3. Process and store each result as metrics
 	storedCount := 0
-	for i, result := range rperfData.Results {
-		log.Printf("Processing rperf result %d for node %s: Target=%s, Success=%t", i, nodeID, result.Target, result.Success)
 
+	for _, result := range rperfData.Results {
 		// Skip storing metrics if the test itself reported failure
 		if !result.Success {
-			log.Printf("Skipping metrics storage for failed rperf test (Target: %s) on node %s. Error: %s",
+			log.Printf("Skipping metrics storage for failed rperf test (Target: %s) on node %s. Error: %v",
 				result.Target, nodeID, result.Error)
+
 			continue // Move to the next result
 		}
 
@@ -221,9 +214,12 @@ func (db *DB) StoreRperfMetrics(nodeID, serviceName, message string, timestamp t
 		metadataBytes, err := json.Marshal(result)
 		if err != nil {
 			// Log error but maybe continue storing other metrics? Or fail the batch?
-			log.Printf("ERROR: Failed to marshal rperf result metadata for node %s, target %s: %v. Skipping metrics for this result.", nodeID, result.Target, err)
+			log.Printf("ERROR: Failed to marshal rperf result metadata for node %s, "+
+				"target %s: %v. Skipping metrics for this result.", nodeID, result.Target, err)
+
 			continue // Skip this specific result's metrics
 		}
+
 		metadata := json.RawMessage(metadataBytes)
 
 		// --- Store each metric ---
@@ -238,9 +234,8 @@ func (db *DB) StoreRperfMetrics(nodeID, serviceName, message string, timestamp t
 
 			if err := db.StoreMetric(nodeID, metric); err != nil {
 				// Log the specific error but try to continue with other metrics/results
-				log.Printf("ERROR: Failed to store rperf metric %s for node %s: %v", m.Name, nodeID, err)
-				// Decide whether to return the error immediately or collect errors
 				// return fmt.Errorf("failed to store rperf metric %s: %w", m.Name, err) // Option: Fail fast
+				log.Printf("ERROR: Failed to store rperf metric %s for node %s: %v", m.Name, nodeID, err)
 			} else {
 				storedCount++
 			}

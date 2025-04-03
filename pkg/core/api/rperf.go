@@ -1,128 +1,209 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package api
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
+	"net/url"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/gorilla/mux"
 )
 
+var (
+	// ErrInvalidStartTimeFormat is returned when the start time format is invalid.
+	ErrInvalidStartTimeFormat = errors.New("invalid start time format")
+	// ErrInvalidEndTimeFormat is returned when the end time format is invalid.
+	ErrInvalidEndTimeFormat = errors.New("invalid end time format")
+)
+
 func (s *APIServer) getRperfMetrics(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	nodeID := vars["id"]
+	nodeID := mux.Vars(r)["id"]
 
 	if s.rperfManager == nil {
-		log.Printf("Rperf manager not configured for node %s", nodeID)
-		http.Error(w, "Rperf manager not configured", http.StatusInternalServerError)
+		writeError(w, "Rperf manager not configured", http.StatusInternalServerError, nodeID)
+
 		return
 	}
 
-	// Parse time range from query params
-	startStr := r.URL.Query().Get("start")
-	endStr := r.URL.Query().Get("end")
-	startTime := time.Now().Add(-24 * time.Hour) // Default: last 24 hours
-	endTime := time.Now()
+	startTime, endTime, err := parseTimeRange(r.URL.Query())
+	if err != nil {
+		writeError(w, err.Error(), http.StatusBadRequest, nodeID)
+
+		return
+	}
+
+	log.Printf("Querying rperf metrics for node %s from %s to %s",
+		nodeID, startTime.Format(time.RFC3339), endTime.Format(time.RFC3339))
+
+	resp := s.processRperfMetrics(nodeID, startTime, endTime)
+	if resp.Err != nil {
+		writeError(w, "Failed to fetch rperf metrics", http.StatusInternalServerError, nodeID)
+
+		return
+	}
+
+	if len(resp.Metrics) == 0 {
+		writeError(w, "No rperf metrics found", http.StatusNotFound, nodeID)
+
+		return
+	}
+
+	writeJSONResponse(w, resp.Metrics, nodeID)
+}
+
+// parseTimeRange parses start and end times from query parameters.
+func parseTimeRange(query url.Values) (start, end time.Time, err error) {
+	startStr := query.Get("start")
+	endStr := query.Get("end")
+
+	start = time.Now().Add(-24 * time.Hour)
+	end = time.Now()
 
 	if startStr != "" {
-		if t, err := time.Parse(time.RFC3339, startStr); err == nil {
-			startTime = t
-		} else {
-			http.Error(w, "Invalid start time format", http.StatusBadRequest)
-			return
+		t, err := time.Parse(time.RFC3339, startStr)
+		if err != nil {
+			return time.Time{}, time.Time{}, ErrInvalidStartTimeFormat
 		}
+
+		start = t
 	}
+
 	if endStr != "" {
-		if t, err := time.Parse(time.RFC3339, endStr); err == nil {
-			endTime = t
-		} else {
-			http.Error(w, "Invalid end time format", http.StatusBadRequest)
-			return
+		t, err := time.Parse(time.RFC3339, endStr)
+		if err != nil {
+			return time.Time{}, time.Time{}, ErrInvalidEndTimeFormat
 		}
+
+		end = t
 	}
 
-	log.Printf("Querying rperf metrics for node %s from %s to %s", nodeID, startTime.Format(time.RFC3339), endTime.Format(time.RFC3339))
+	return start, end, nil
+}
 
-	// Fetch rperf metrics using the existing interface method
+func (s *APIServer) processRperfMetrics(nodeID string, startTime, endTime time.Time) RperfMetricResponse {
 	rperfMetrics, err := s.rperfManager.GetRperfMetrics(nodeID, startTime, endTime)
 	if err != nil {
 		log.Printf("Error fetching rperf metrics for node %s: %v", nodeID, err)
-		http.Error(w, "Failed to fetch rperf metrics", http.StatusInternalServerError)
-		return
+
+		return RperfMetricResponse{Err: err}
 	}
 
-	// Convert to API response format
-	response := make([]RperfMetric, 0, len(rperfMetrics))
-	for _, rm := range rperfMetrics {
-		// Assert Metadata as map[string]interface{}
-		metadata, ok := rm.Metadata.(map[string]interface{})
-		if !ok {
-			log.Printf("Invalid metadata type for metric %s on node %s: %T", rm.Name, nodeID, rm.Metadata)
-			continue // Skip this metric if metadata is malformed
-		}
+	response := convertToAPIMetrics(rperfMetrics, nodeID)
 
+	return RperfMetricResponse{Metrics: response}
+}
+
+// convertToAPIMetrics converts db.TimeseriesMetric to RperfMetric.
+func convertToAPIMetrics(rperfMetrics []*db.TimeseriesMetric, nodeID string) []RperfMetric {
+	response := make([]RperfMetric, 0, len(rperfMetrics))
+
+	for _, rm := range rperfMetrics {
 		metric := RperfMetric{
 			Timestamp: rm.Timestamp,
 			Name:      rm.Name,
 		}
 
-		// Safely extract each field with type assertions
-		if target, ok := metadata["target"].(string); ok {
-			metric.Target = target
-		}
-		if success, ok := metadata["success"].(bool); ok {
-			metric.Success = success
-		}
-		if errVal, ok := metadata["error"]; ok {
-			if errStr, ok := errVal.(*string); ok {
-				metric.Error = errStr
-			} else if errStr, ok := errVal.(string); ok && errStr != "" {
-				metric.Error = &errStr
-			}
-		}
-		if bps, ok := metadata["bits_per_second"].(float64); ok {
-			metric.BitsPerSecond = bps
-		}
-		if br, ok := metadata["bytes_received"].(float64); ok { // JSON numbers unmarshal as float64
-			metric.BytesReceived = int64(br)
-		}
-		if bs, ok := metadata["bytes_sent"].(float64); ok {
-			metric.BytesSent = int64(bs)
-		}
-		if d, ok := metadata["duration"].(float64); ok {
-			metric.Duration = d
-		}
-		if j, ok := metadata["jitter_ms"].(float64); ok {
-			metric.JitterMs = j
-		}
-		if lp, ok := metadata["loss_percent"].(float64); ok {
-			metric.LossPercent = lp
-		}
-		if pl, ok := metadata["packets_lost"].(float64); ok {
-			metric.PacketsLost = int64(pl)
-		}
-		if pr, ok := metadata["packets_received"].(float64); ok {
-			metric.PacketsReceived = int64(pr)
-		}
-		if ps, ok := metadata["packets_sent"].(float64); ok {
-			metric.PacketsSent = int64(ps)
+		// Declare metadata outside the if statement
+		metadata, ok := rm.Metadata.(map[string]interface{})
+		if !ok {
+			log.Printf("Invalid metadata type for metric %s on node %s: %T", rm.Name, nodeID, rm.Metadata)
+
+			continue
 		}
 
+		populateMetricFields(&metric, metadata)
 		response = append(response, metric)
 	}
 
-	if len(response) == 0 {
-		log.Printf("No rperf metrics found for node %s in range %s to %s", nodeID, startTime, endTime)
-		http.Error(w, "No rperf metrics found", http.StatusNotFound)
-		return
+	return response
+}
+
+// populateMetricFields populates an RperfMetric from metadata.
+func populateMetricFields(metric *RperfMetric, metadata map[string]interface{}) {
+	setStringField(&metric.Target, metadata, "target")
+	setBoolField(&metric.Success, metadata, "success")
+	setErrorField(&metric.Error, metadata, "error")
+	setFloat64Field(&metric.BitsPerSecond, metadata, "bits_per_second")
+	setInt64Field(&metric.BytesReceived, metadata, "bytes_received")
+	setInt64Field(&metric.BytesSent, metadata, "bytes_sent")
+	setFloat64Field(&metric.Duration, metadata, "duration")
+	setFloat64Field(&metric.JitterMs, metadata, "jitter_ms")
+	setFloat64Field(&metric.LossPercent, metadata, "loss_percent")
+	setInt64Field(&metric.PacketsLost, metadata, "packets_lost")
+	setInt64Field(&metric.PacketsReceived, metadata, "packets_received")
+	setInt64Field(&metric.PacketsSent, metadata, "packets_sent")
+}
+
+func setStringField(field *string, metadata map[string]interface{}, key string) {
+	if val, ok := metadata[key].(string); ok {
+		*field = val
 	}
+}
 
-	log.Printf("Found %d rperf metrics for node %s", len(rperfMetrics), nodeID)
+func setBoolField(field *bool, metadata map[string]interface{}, key string) {
+	if val, ok := metadata[key].(bool); ok {
+		*field = val
+	}
+}
 
+func setErrorField(field **string, metadata map[string]interface{}, key string) {
+	if errVal, ok := metadata[key]; ok {
+		switch v := errVal.(type) {
+		case *string:
+			*field = v
+		case string:
+			if v != "" {
+				*field = &v
+			}
+		}
+	}
+}
+
+func setFloat64Field(field *float64, metadata map[string]interface{}, key string) {
+	if val, ok := metadata[key].(float64); ok {
+		*field = val
+	}
+}
+
+func setInt64Field(field *int64, metadata map[string]interface{}, key string) {
+	if val, ok := metadata[key].(float64); ok {
+		*field = int64(val)
+	}
+}
+
+func writeError(w http.ResponseWriter, message string, status int, nodeID string) {
+	log.Printf("%s for node %s", message, nodeID)
+
+	http.Error(w, message, status)
+}
+
+func writeJSONResponse(w http.ResponseWriter, data interface{}, nodeID string) {
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		log.Printf("Error encoding rperf metrics response for node %s: %v", nodeID, err)
+
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		log.Printf("Error encoding response for node %s: %v", nodeID, err)
+
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	} else {
+		log.Printf("Found %d rperf metrics for node %s", len(data.([]RperfMetric)), nodeID)
 	}
 }

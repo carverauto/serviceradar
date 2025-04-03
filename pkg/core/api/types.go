@@ -94,3 +94,8 @@ type RperfMetric struct {
 	Target          string    `json:"target"` // e.g., "TCP Test"
 	Error           *string   `json:"error,omitempty"`
 }
+
+type RperfMetricResponse struct {
+	Metrics []RperfMetric
+	Err     error
+}
