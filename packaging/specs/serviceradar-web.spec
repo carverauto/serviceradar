@@ -17,15 +17,15 @@ Next.js web interface for the ServiceRadar monitoring system.
 Includes Nginx configuration for integrated API and UI access.
 
 %install
-mkdir -p %{buildroot}/usr/lib/serviceradar/web
+mkdir -p %{buildroot}/usr/local/share/serviceradar-web
 mkdir -p %{buildroot}/lib/systemd/system
 mkdir -p %{buildroot}/etc/serviceradar
 mkdir -p %{buildroot}/etc/nginx/conf.d
 mkdir -p %{buildroot}/etc/serviceradar/selinux
 
 # Copy all web files - handle with wildcard to avoid errors if some files don't exist
-cp -r %{_builddir}/web/* %{buildroot}/usr/lib/serviceradar/web/ 2>/dev/null || :
-cp -r %{_builddir}/web/.next %{buildroot}/usr/lib/serviceradar/web/ 2>/dev/null || :
+cp -r %{_builddir}/web/* %{buildroot}/usr/local/share/serviceradar-web/ 2>/dev/null || :
+cp -r %{_builddir}/web/.next %{buildroot}/usr/local/share/serviceradar-web/ 2>/dev/null || :
 
 # Install systemd service
 install -m 644 %{_sourcedir}/systemd/serviceradar-web.service %{buildroot}/lib/systemd/system/
@@ -36,7 +36,7 @@ install -m 644 %{_sourcedir}/config/nginx.conf %{buildroot}/etc/nginx/conf.d/ser
 install -m 644 %{_sourcedir}/selinux/serviceradar-nginx.te %{buildroot}/etc/serviceradar/selinux/
 
 %files
-%attr(0755, serviceradar, serviceradar) /usr/lib/serviceradar/web
+%attr(0755, serviceradar, serviceradar) /usr/local/share/serviceradar-web
 %config(noreplace) %attr(0644, serviceradar, serviceradar) /etc/serviceradar/web.json
 %config(noreplace) %attr(0644, root, root) /etc/nginx/conf.d/serviceradar-web.conf
 %attr(0644, root, root) /lib/systemd/system/serviceradar-web.service
