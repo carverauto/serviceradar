@@ -17,13 +17,16 @@
 import React, { useState, useEffect, useCallback } from "react";
 import {
     LineChart,
+    BarChart,
+    Bar,
     Line,
     XAxis,
     YAxis,
     CartesianGrid,
     Tooltip,
     ResponsiveContainer,
-    ReferenceLine
+    ReferenceLine,
+    ReferenceArea
 } from "recharts";
 import { RefreshCw, AlertCircle, ArrowLeft } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -42,8 +45,16 @@ interface ChartDataPoint {
     bandwidth: number;
     jitter: number;
     loss: number;
+    trendLoss?: number;
     target: string;
     success: boolean;
+}
+
+interface AggregatedDataPoint {
+    timestamp: number;
+    formattedTime: string;
+    loss: number;
+    trendLoss?: number;
 }
 
 const RperfDashboard = ({
@@ -54,9 +65,11 @@ const RperfDashboard = ({
     const router = useRouter();
     const { token, refreshToken } = useAuth();
     const [rperfData, setRperfData] = useState<ChartDataPoint[]>([]);
+    const [aggregatedPacketLossData, setAggregatedPacketLossData] = useState<AggregatedDataPoint[]>([]);
     const [timeRange, setTimeRange] = useState(initialTimeRange);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [dataQualityWarning, setDataQualityWarning] = useState<string | null>(null);
     const [averages, setAverages] = useState({
         bandwidth: 0,
         jitter: 0,
@@ -65,7 +78,22 @@ const RperfDashboard = ({
     const [lastRefreshed, setLastRefreshed] = useState(new Date());
     const [targetName, setTargetName] = useState("Unknown Target");
 
-    // Wrap smoothData in its own useCallback to avoid recreation on each render
+    // Filter outliers in packet loss data
+    const filterOutliers = useCallback((data: ChartDataPoint[]): ChartDataPoint[] => {
+        const losses = data.map(point => point.loss);
+        const sortedLosses = [...losses].sort((a, b) => a - b);
+        const q1 = sortedLosses[Math.floor(losses.length * 0.25)];
+        const q3 = sortedLosses[Math.floor(losses.length * 0.75)];
+        const iqr = q3 - q1;
+        const upperBound = q3 + 1.5 * iqr;
+
+        return data.map(point => ({
+            ...point,
+            loss: point.loss > upperBound ? upperBound : point.loss
+        }));
+    }, []);
+
+    // Smooth data with different window sizes for each metric
     const smoothData = useCallback((data: ChartDataPoint[]): ChartDataPoint[] => {
         if (data.length <= 5) return data;
 
@@ -74,8 +102,8 @@ const RperfDashboard = ({
             const endBwJitter = Math.min(arr.length, index + 3);
             const windowBwJitter = arr.slice(startBwJitter, endBwJitter);
 
-            const startLoss = Math.max(0, index - 4);
-            const endLoss = Math.min(arr.length, index + 5);
+            const startLoss = Math.max(0, index - 7);
+            const endLoss = Math.min(arr.length, index + 8);
             const windowLoss = arr.slice(startLoss, endLoss);
 
             const avgBandwidth = windowBwJitter.reduce((sum, p) => sum + p.bandwidth, 0) / windowBwJitter.length;
@@ -91,7 +119,76 @@ const RperfDashboard = ({
         });
 
         return smoothed;
-    }, []); // No dependencies as this is a pure function
+    }, []);
+
+    // Calculate trend line for packet loss with a larger window
+    const calculateTrend = useCallback((data: ChartDataPoint[]): ChartDataPoint[] => {
+        const trendWindow = 30;
+        return data.map((point, index, arr) => {
+            const start = Math.max(0, index - trendWindow / 2);
+            const end = Math.min(arr.length, index + trendWindow / 2 + 1);
+            const window = arr.slice(start, end);
+            const avgLoss = window.reduce((sum, p) => sum + p.loss, 0) / window.length;
+            return { ...point, trendLoss: avgLoss };
+        });
+    }, []);
+
+    // Aggregate packet loss data into time buckets (e.g., every 5 minutes)
+    const aggregatePacketLossData = useCallback((data: ChartDataPoint[]): AggregatedDataPoint[] => {
+        if (data.length === 0) return [];
+
+        const bucketSize = 5 * 60 * 1000; // 5 minutes in milliseconds
+        const aggregated: { [key: number]: { loss: number[], timestamp: number } } = {};
+
+        // Group data into 5-minute buckets
+        data.forEach(point => {
+            const bucketStart = Math.floor(point.timestamp / bucketSize) * bucketSize;
+            if (!aggregated[bucketStart]) {
+                aggregated[bucketStart] = { loss: [], timestamp: bucketStart };
+            }
+            aggregated[bucketStart].loss.push(point.loss);
+        });
+
+        // Calculate average loss for each bucket
+        const aggregatedData = Object.keys(aggregated).map(bucketStart => {
+            const bucket = aggregated[parseInt(bucketStart)];
+            const avgLoss = bucket.loss.reduce((sum, val) => sum + val, 0) / bucket.loss.length;
+            return {
+                timestamp: bucket.timestamp,
+                formattedTime: new Date(bucket.timestamp).toLocaleTimeString(),
+                loss: avgLoss
+            };
+        }).sort((a, b) => a.timestamp - b.timestamp);
+
+        // Calculate trend for aggregated data
+        const trendWindow = 6; // 6 buckets (30 minutes)
+        const aggregatedWithTrend = aggregatedData.map((point, index, arr) => {
+            const start = Math.max(0, index - trendWindow / 2);
+            const end = Math.min(arr.length, index + trendWindow / 2 + 1);
+            const window = arr.slice(start, end);
+            const avgLoss = window.reduce((sum, p) => sum + p.loss, 0) / window.length;
+            return { ...point, trendLoss: avgLoss };
+        });
+
+        return aggregatedWithTrend;
+    }, []);
+
+    // Check for data quality issues (e.g., gaps in timestamps)
+    const checkDataQuality = useCallback((data: ChartDataPoint[]) => {
+        if (data.length < 2) return;
+
+        const timestamps = data.map(point => point.timestamp);
+        const intervals = timestamps.slice(1).map((t, i) => t - timestamps[i]);
+        const avgInterval = intervals.reduce((sum, interval) => sum + interval, 0) / intervals.length;
+        const maxInterval = avgInterval * 2;
+
+        const hasGaps = intervals.some(interval => interval > maxInterval);
+        if (hasGaps) {
+            setDataQualityWarning("Warning: Gaps detected in the data. Results may be inconsistent.");
+        } else {
+            setDataQualityWarning(null);
+        }
+    }, []);
 
     const fetchData = useCallback(async () => {
         setIsLoading(true);
@@ -104,15 +201,11 @@ const RperfDashboard = ({
                 default: start.setHours(end.getHours() - 1);
             }
 
-            // Construct the API URL properly
             const url = `/api/nodes/${nodeId}/rperf?start=${start.toISOString()}&end=${end.toISOString()}`;
-
-            // Use simpler headers - let the middleware handle authentication
             const headers: HeadersInit = {
                 "Content-Type": "application/json",
             };
 
-            // Only add token if we have it from context
             if (token) {
                 headers["Authorization"] = `Bearer ${token}`;
             }
@@ -122,13 +215,10 @@ const RperfDashboard = ({
             const response = await fetch(url, {
                 method: 'GET',
                 headers,
-                // This is important - ensure we send cookies
                 credentials: 'include',
-                // Disable cache for fresh data
                 cache: "no-store"
             });
 
-            // Let's log the response status for debugging
             console.log(`Rperf API response status: ${response.status}`);
 
             if (!response.ok) {
@@ -137,7 +227,7 @@ const RperfDashboard = ({
                     const refreshed = await refreshToken();
                     if (refreshed === true) {
                         console.log("Token refreshed successfully, retrying request");
-                        return fetchData(); // Retry with new token
+                        return fetchData();
                     } else {
                         console.error("Token refresh failed");
                         throw new Error("Authentication failed");
@@ -153,6 +243,7 @@ const RperfDashboard = ({
             if (data.length === 0) {
                 console.log("No rperf data received");
                 setRperfData([]);
+                setAggregatedPacketLossData([]);
                 setAverages({ bandwidth: 0, jitter: 0, loss: 0 });
                 setTargetName("No Data");
                 setLastRefreshed(new Date());
@@ -160,24 +251,33 @@ const RperfDashboard = ({
                 return;
             }
 
-            // Process data as before
-            const filteredData = data.map(point => ({
+            // Process data
+            const processedData = data.map(point => ({
                 timestamp: new Date(point.timestamp).getTime(),
                 formattedTime: new Date(point.timestamp).toLocaleTimeString(),
-                bandwidth: point.bits_per_second / 1000000, // Convert to Mbps
+                bandwidth: point.bits_per_second / 1000000,
                 jitter: point.jitter_ms,
                 loss: point.loss_percent,
                 target: point.target,
                 success: point.success
             }));
 
+            // Filter outliers, smooth data, and calculate trend
+            const filteredData = filterOutliers(processedData);
             const smoothedData = smoothData(filteredData);
+            const smoothedDataWithTrend = calculateTrend(smoothedData);
+
+            // Aggregate packet loss data for bar chart
+            const aggregatedData = aggregatePacketLossData(smoothedData);
+
+            // Check data quality
+            checkDataQuality(smoothedDataWithTrend);
 
             // Calculate averages
-            const totalBandwidth = smoothedData.reduce((sum, point) => sum + point.bandwidth, 0);
-            const totalJitter = smoothedData.reduce((sum, point) => sum + point.jitter, 0);
-            const totalLoss = smoothedData.reduce((sum, point) => sum + point.loss, 0);
-            const count = smoothedData.length || 1;
+            const totalBandwidth = smoothedDataWithTrend.reduce((sum, point) => sum + point.bandwidth, 0);
+            const totalJitter = smoothedDataWithTrend.reduce((sum, point) => sum + point.jitter, 0);
+            const totalLoss = smoothedDataWithTrend.reduce((sum, point) => sum + point.loss, 0);
+            const count = smoothedDataWithTrend.length || 1;
 
             setAverages({
                 bandwidth: totalBandwidth / count,
@@ -185,26 +285,28 @@ const RperfDashboard = ({
                 loss: totalLoss / count
             });
 
-            if (smoothedData.length > 0) {
-                setTargetName(smoothedData[0].target || "Unknown Target");
+            if (smoothedDataWithTrend.length > 0) {
+                setTargetName(smoothedDataWithTrend[0].target || "Unknown Target");
             }
 
-            setRperfData(smoothedData);
+            setRperfData(smoothedDataWithTrend);
+            setAggregatedPacketLossData(aggregatedData);
             setLastRefreshed(new Date());
             setError(null);
-            console.log("Successfully processed rperf data:", smoothedData.length, "records");
+            console.log("Successfully processed rperf data:", smoothedDataWithTrend.length, "records");
         } catch (err) {
             console.error("Error fetching rperf data:", err);
             setError("Failed to fetch Rperf data");
             setRperfData([]);
+            setAggregatedPacketLossData([]);
         } finally {
             setIsLoading(false);
         }
-    }, [timeRange, nodeId, token, refreshToken, smoothData]);
+    }, [timeRange, nodeId, token, refreshToken, filterOutliers, smoothData, calculateTrend, aggregatePacketLossData, checkDataQuality]);
 
     useEffect(() => {
         fetchData();
-        const interval = setInterval(fetchData, 60000); // Refresh every minute
+        const interval = setInterval(fetchData, 60000);
         return () => clearInterval(interval);
     }, [fetchData]);
 
@@ -393,7 +495,7 @@ const RperfDashboard = ({
                 <h4 className="text-md font-medium mb-2 text-gray-800 dark:text-gray-100">Packet Loss (%)</h4>
                 <div className="h-64">
                     <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={rperfData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                        <BarChart data={aggregatedPacketLossData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
                             <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.2} />
                             <XAxis
                                 dataKey="timestamp"
@@ -405,7 +507,7 @@ const RperfDashboard = ({
                                 tickLine={false}
                             />
                             <YAxis
-                                domain={[0, (dataMax: number) => Math.max(20, dataMax * 1.2)]}
+                                domain={[0, (dataMax: number) => Math.min(20, Math.max(5, dataMax * 1.2))]}
                                 tick={{ fontSize: 10 }}
                                 axisLine={false}
                                 tickLine={false}
@@ -413,24 +515,36 @@ const RperfDashboard = ({
                             <Tooltip
                                 labelFormatter={(label) => formatTimestamp(label as number)}
                                 formatter={(value: number, name: string) => [
-                                    name === "Bandwidth" ? formatBandwidth(value) :
-                                        name === "Jitter" ? formatJitter(value) :
-                                            formatLoss(value),
+                                    formatLoss(value),
                                     name
                                 ]}
                             />
                             <ReferenceLine y={0.5} stroke="#ff7300" strokeDasharray="3 3" />
-                            <Line
-                                type="stepAfter"
+                            <ReferenceArea
+                                y1={0.5}
+                                y2={(dataMax: number) => Math.min(20, Math.max(5, dataMax * 1.2))}
+                                fill="#ff7300"
+                                fillOpacity={0.1}
+                                ifOverflow="extendDomain"
+                            />
+                            <Bar
                                 dataKey="loss"
                                 name="Packet Loss"
-                                stroke="#ff7300"
-                                strokeWidth={2}
-                                dot={false}
-                                activeDot={{ r: 5 }}
+                                fill="#ff7300"
+                                barSize={10}
                                 isAnimationActive={false}
                             />
-                        </LineChart>
+                            <Line
+                                type="monotone"
+                                dataKey="trendLoss"
+                                name="Packet Loss Trend"
+                                stroke="#ffaa00"
+                                strokeWidth={1}
+                                strokeDasharray="5 5"
+                                dot={false}
+                                isAnimationActive={false}
+                            />
+                        </BarChart>
                     </ResponsiveContainer>
                 </div>
             </div>
