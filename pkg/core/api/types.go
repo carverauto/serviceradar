@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/checker/rperf"
 	"github.com/carverauto/serviceradar/pkg/checker/snmp"
 	"github.com/carverauto/serviceradar/pkg/core/auth"
 	"github.com/carverauto/serviceradar/pkg/metrics"
@@ -71,7 +72,30 @@ type APIServer struct {
 	nodeHistoryHandler func(nodeID string) ([]NodeHistoryPoint, error)
 	metricsManager     metrics.MetricCollector
 	snmpManager        snmp.SNMPManager
+	rperfManager       rperf.RperfManager
 	knownPollers       []string
 	authService        auth.AuthService
 	corsConfig         models.CORSConfig
+}
+
+type RperfMetric struct {
+	Timestamp       time.Time `json:"timestamp"`
+	Name            string    `json:"name"` // e.g., "rperf_tcp_test"
+	BitsPerSecond   float64   `json:"bits_per_second"`
+	BytesReceived   int64     `json:"bytes_received"`
+	BytesSent       int64     `json:"bytes_sent"`
+	Duration        float64   `json:"duration"`
+	JitterMs        float64   `json:"jitter_ms"`
+	LossPercent     float64   `json:"loss_percent"`
+	PacketsLost     int64     `json:"packets_lost"`
+	PacketsReceived int64     `json:"packets_received"`
+	PacketsSent     int64     `json:"packets_sent"`
+	Success         bool      `json:"success"`
+	Target          string    `json:"target"` // e.g., "TCP Test"
+	Error           *string   `json:"error,omitempty"`
+}
+
+type RperfMetricResponse struct {
+	Metrics []RperfMetric
+	Err     error
 }
