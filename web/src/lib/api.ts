@@ -29,12 +29,9 @@ export async function fetchFromAPI<T>(
 
   if (typeof window === "undefined") {
     // Server-side: Use a fully qualified URL or environment variable
-    console.log("NEXT_PUBLIC_API_URL:", env('NEXT_PUBLIC_API_URL'));
     // const baseApiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090";
     const baseApiUrl = env('NEXT_PUBLIC_API_URL') || "http://localhost:8090";
     apiUrl = `${baseApiUrl}/api/${normalizedEndpoint}`;
-
-    console.log(`Server-side API URL: ${apiUrl}`);
   } else {
     // Client-side: Use relative URL path
     apiUrl = `/api/${normalizedEndpoint}`;
@@ -48,8 +45,6 @@ export async function fetchFromAPI<T>(
   if (token) {
     headers["Authorization"] = `Bearer ${token}`;
   }
-
-  console.log("API URL:", apiUrl);
 
   try {
     const response = await fetch(apiUrl, {
