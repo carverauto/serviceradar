@@ -1,157 +1,113 @@
 #!/bin/bash
-set -e  # Exit on any error
 
-echo "Setting up package structure..."
+# Copyright 2025 Carver Automation Corporation.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
+# package.sh for serviceradar-nats component - Prepares files for Debian packaging
+set -e
+
+# Define package version
 VERSION=${VERSION:-1.0.12}
 
-# Create package directory structure
-PKG_ROOT="serviceradar-nats${VERSION}"
-mkdir -p "${PKG_ROOT}/DEBIAN"
-mkdir -p "${PKG_ROOT}/lib/systemd/system"
+# Use a relative path from the script's location
+BASE_DIR="$(dirname "$(dirname "$0")")"  # Go up two levels from scripts/ to root
+PACKAGING_DIR="${BASE_DIR}/packaging"
 
-echo "Creating package files..."
+echo "Using PACKAGING_DIR: $PACKAGING_DIR"
 
-# Create control file
-cat > "${PKG_ROOT}/DEBIAN/control" << EOF
-Package: serviceradar-nats
-Version: ${VERSION}
-Section: utils
-Priority: optional
-Architecture: amd64
-Depends: systemd
-Maintainer: Michael Freeman <mfreeman451@gmail.com>
-Description: ServiceRadar NATS JetStream service
- Message Broker and KV store for ServiceRadar monitoring system.
-Config: /etc/nats/nats-server.conf
-EOF
+# Create the build directory
+mkdir -p serviceradar-nats-build
+cd serviceradar-nats-build
 
-# Create conffiles to mark configuration files
-cat > "${PKG_ROOT}/DEBIAN/conffiles" << EOF
-/etc/nats/nats-server.conf
-something here
-EOF
+# Create package directory structure (Debian paths)
+mkdir -p DEBIAN
+mkdir -p lib/systemd/system
+mkdir -p etc/nats
 
-# Create systemd service file
-# Taken from here https://github.com/nats-io/nats-server/blob/main/util/nats-server-hardened.service
-cat > "${PKG_ROOT}/lib/systemd/system/serviceradar-nats.service" << EOF
-[Unit]
-Description=NATS Server
-After=network-online.target ntp.service
+echo "Preparing ServiceRadar NATS package files..."
 
-# If you use a dedicated filesystem for JetStream data, then you might use something like:
-# ConditionPathIsMountPoint=/srv/jetstream
-# See also Service.ReadWritePaths
-
-[Service]
-Type=simple
-EnvironmentFile=-/etc/default/nats-server
-ExecStart=/usr/bin/nats-server -c /etc/nats/nats-server.conf
-ExecReload=/bin/kill -s HUP $MAINPID
-ExecStop=/bin/kill -s SIGINT $MAINPID
-
-User=nats
-Group=nats
-
-Restart=always
-RestartSec=5
-# The nats-server uses SIGUSR2 to trigger using Lame Duck Mode (LDM) shutdown
-KillSignal=SIGUSR2
-# You might want to adjust TimeoutStopSec too.
-
-# Capacity Limits
-# JetStream requires 2 FDs open per stream.
-LimitNOFILE=800000
-# Environment=GOMEMLIMIT=12GiB
-# You might find it better to set GOMEMLIMIT via /etc/default/nats-server,
-# so that you can change limits without needing a systemd daemon-reload.
-
-# Consider locking down all areas of /etc which hold machine identity keys, etc
-InaccessiblePaths=/etc/ssh
-
-# If you have systemd >= 247
-ProtectProc=invisible
-
-# If you have systemd >= 248
-PrivateIPC=true
-
-# Optional: writable directory for JetStream.
-# See also: Unit.ConditionPathIsMountPoint
-ReadWritePaths=/var/lib/nats
-
-# Optional: resource control.
-# Replace weights by values that make sense for your situation.
-# For a list of all options see:
-# https://www.freedesktop.org/software/systemd/man/systemd.resource-control.html
-#CPUAccounting=true
-#CPUWeight=100 # of 10000
-#IOAccounting=true
-#IOWeight=100 # of 10000
-#MemoryAccounting=true
-#MemoryMax=1GB
-#IPAccounting=true
-
-[Install]
-WantedBy=multi-user.target
-# If you install this service as nats-server.service and want 'nats'
-# to work as an alias, then uncomment this next line:
-Alias=nats.service
-EOF
-
-# Create default config only if we're creating a fresh package
-cat > "${PKG_ROOT}/etc/nats/nats-server.conf" << EOF
-jetstream {
-   store_dir=nats
-}
-EOF
-
-# Create postinst script
-cat > "${PKG_ROOT}/DEBIAN/postinst" << EOF
-#!/bin/bash
-set -e
-
-# Create nats user if it doesn't exist
-if ! id -u nats >/dev/null 2>&1; then
-    useradd --system --no-create-home --shell /usr/sbin/nologin nats
+# Copy control file
+CONTROL_SRC="${PACKAGING_DIR}/nats/DEBIAN/control"
+if [ -f "$CONTROL_SRC" ]; then
+    cp "$CONTROL_SRC" DEBIAN/control
+    echo "Copied control file from $CONTROL_SRC"
+else
+    echo "Error: control file not found at $CONTROL_SRC"
+    exit 1
 fi
 
-# Set permissions
-chown nats:nats /etc/nats/nats-server.conf
-chmod 755 /usr/bin/nats-server
+# Copy conffiles
+CONFFILES_SRC="${PACKAGING_DIR}/nats/DEBIAN/conffiles"
+if [ -f "$CONFFILES_SRC" ]; then
+    cp "$CONFFILES_SRC" DEBIAN/conffiles
+    echo "Copied conffiles from $CONFFILES_SRC"
+else
+    echo "Error: conffiles not found at $CONFFILES_SRC"
+    exit 1
+fi
 
-# Enable and start service
-systemctl daemon-reload
-systemctl enable nats-server
-systemctl start nats-server
+# Copy systemd service file
+SERVICE_SRC="${PACKAGING_DIR}/nats/systemd/serviceradar-nats.service"
+if [ -f "$SERVICE_SRC" ]; then
+    cp "$SERVICE_SRC" lib/systemd/system/serviceradar-nats.service
+    echo "Copied serviceradar-nats.service from $SERVICE_SRC"
+else
+    echo "Error: serviceradar-nats.service not found at $SERVICE_SRC"
+    exit 1
+fi
 
-exit 0
-EOF
+# Copy default config file (only if it doesn't exist on the target system)
+CONFIG_SRC="${PACKAGING_DIR}/nats/config/nats-server.conf"
+if [ ! -f "/etc/nats/nats-server.conf" ] && [ -f "$CONFIG_SRC" ]; then
+    cp "$CONFIG_SRC" etc/nats/nats-server.conf
+    echo "Copied nats-server.conf from $CONFIG_SRC"
+elif [ ! -f "$CONFIG_SRC" ]; then
+    echo "Error: nats-server.conf not found at $CONFIG_SRC"
+    exit 1
+fi
 
-chmod 755 "${PKG_ROOT}/DEBIAN/postinst"
+# Copy postinst script
+POSTINST_SRC="${PACKAGING_DIR}/nats/scripts/postinstall.sh"
+if [ -f "$POSTINST_SRC" ]; then
+    cp "$POSTINST_SRC" DEBIAN/postinst
+    chmod 755 DEBIAN/postinst
+    echo "Copied postinst from $POSTINST_SRC"
+else
+    echo "Error: postinstall.sh not found at $POSTINST_SRC"
+    exit 1
+fi
 
-# Create prerm script
-cat > "${PKG_ROOT}/DEBIAN/prerm" << EOF
-#!/bin/bash
-set -e
-
-# Stop and disable service
-systemctl stop nats-server
-systemctl disable nats-server
-
-exit 0
-EOF
-
-chmod 755 "${PKG_ROOT}/DEBIAN/prerm"
+# Copy prerm script
+PRERM_SRC="${PACKAGING_DIR}/nats/scripts/preremove.sh"
+if [ -f "$PRERM_SRC" ]; then
+    cp "$PRERM_SRC" DEBIAN/prerm
+    chmod 755 DEBIAN/prerm
+    echo "Copied prerm from $PRERM_SRC"
+else
+    echo "Error: preremove.sh not found at $PRERM_SRC"
+    exit 1
+fi
 
 echo "Building Debian package..."
 
 # Create release-artifacts directory if it doesn't exist
-mkdir -p release-artifacts
+mkdir -p "${BASE_DIR}/release-artifacts"
 
 # Build the package
-dpkg-deb --root-owner-group --build "${PKG_ROOT}"
+dpkg-deb --root-owner-group --build . "serviceradar-nats${VERSION}.deb"
 
 # Move the deb file to the release-artifacts directory
-mv "${PKG_ROOT}.deb" "release-artifacts/"
+mv "serviceradar-nats${VERSION}.deb" "${BASE_DIR}/release-artifacts/"
 
-echo "Package built: release-artifacts/${PKG_ROOT}.deb"
+echo "Package built: ${BASE_DIR}/release-artifacts/serviceradar-nats${VERSION}.deb"

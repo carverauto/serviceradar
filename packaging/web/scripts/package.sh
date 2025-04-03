@@ -14,110 +14,144 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# package.sh for web component - Used as reference for packaging scripts
+# package.sh for serviceradar-web component - Prepares files for Debian packaging
 set -e
 
 # Define package version
 VERSION=${VERSION:-1.0.28}
 
-# Create the directory structure
-mkdir -p web-build
-cd web-build
+# Use a relative path from the script's location
+BASE_DIR="$(dirname "$(dirname "$0")")"  # Go up two levels from scripts/ to root
+PACKAGING_DIR="${BASE_DIR}/packaging"
 
-# Create package directory structure
+echo "Using PACKAGING_DIR: $PACKAGING_DIR"
+
+# Create the build directory
+mkdir -p serviceradar-web-build
+cd serviceradar-web-build
+
+# Create package directory structure (Debian paths)
+mkdir -p DEBIAN
 mkdir -p usr/local/share/serviceradar-web
 mkdir -p lib/systemd/system
 mkdir -p etc/serviceradar
 mkdir -p etc/nginx/conf.d
 
-# Build Next.js application
 echo "Building web application..."
-cd ../web
+
+# Build Next.js application
+cd "${BASE_DIR}/web"
 npm install
 npm run build
 
 # Copy the Next.js standalone build
 echo "Copying built web files..."
-cp -r .next/standalone/* "../web-build/usr/local/share/serviceradar-web/"
-cp -r .next/standalone/.next "../web-build/usr/local/share/serviceradar-web/"
+cp -r .next/standalone/* "../serviceradar-web-build/usr/local/share/serviceradar-web/"
+cp -r .next/standalone/.next "../serviceradar-web-build/usr/local/share/serviceradar-web/"
 
 # Copy static files
-mkdir -p "../web-build/usr/local/share/serviceradar-web/.next/static"
-cp -r .next/static "../web-build/usr/local/share/serviceradar-web/.next/"
+mkdir -p "../serviceradar-web-build/usr/local/share/serviceradar-web/.next/static"
+cp -r .next/static "../serviceradar-web-build/usr/local/share/serviceradar-web/.next/"
 
 # Copy public files if they exist
 if [ -d "public" ]; then
-  cp -r public "../web-build/usr/local/share/serviceradar-web/"
+    cp -r public "../serviceradar-web-build/usr/local/share/serviceradar-web/"
 fi
 
-cd ../web-build
+cd "../serviceradar-web-build"
 
-# Create web configuration file
-cat > etc/serviceradar/web.json << EOF
-{
-  "port": 3000,
-  "host": "0.0.0.0",
-  "api_url": "http://localhost:8090"
-}
-EOF
+echo "Preparing ServiceRadar Web package files..."
 
-# Create Nginx configuration
-cat > etc/nginx/conf.d/serviceradar-web.conf << EOF
-# ServiceRadar Web Interface - Nginx Configuration
-server {
-    listen 80;
-    server_name _; # Catch-all server name
+# Copy control file
+CONTROL_SRC="${PACKAGING_DIR}/web/DEBIAN/control"
+if [ -f "$CONTROL_SRC" ]; then
+    cp "$CONTROL_SRC" DEBIAN/control
+    echo "Copied control file from $CONTROL_SRC"
+else
+    echo "Error: control file not found at $CONTROL_SRC"
+    exit 1
+fi
 
-    access_log /var/log/nginx/serviceradar-web.access.log;
-    error_log /var/log/nginx/serviceradar-web.error.log;
+# Copy conffiles
+CONFFILES_SRC="${PACKAGING_DIR}/web/DEBIAN/conffiles"
+if [ -f "$CONFFILES_SRC" ]; then
+    cp "$CONFFILES_SRC" DEBIAN/conffiles
+    echo "Copied conffiles from $CONFFILES_SRC"
+else
+    echo "Error: conffiles not found at $CONFFILES_SRC"
+    exit 1
+fi
 
-    # API proxy (assumes serviceradar-core package is installed)
-    location /api/ {
-        proxy_pass http://localhost:8090;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-    }
+# Copy systemd service file
+SERVICE_SRC="${PACKAGING_DIR}/web/systemd/serviceradar-web.service"
+if [ -f "$SERVICE_SRC" ]; then
+    cp "$SERVICE_SRC" lib/systemd/system/serviceradar-web.service
+    echo "Copied serviceradar-web.service from $SERVICE_SRC"
+else
+    echo "Error: serviceradar-web.service not found at $SERVICE_SRC"
+    exit 1
+fi
 
-    # Support for Next.js WebSockets (if used)
-    location /_next/webpack-hmr {
-        proxy_pass http://localhost:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
-    }
+# Copy web configuration file (only if it doesn't exist on the target system)
+WEB_CONFIG_SRC="${PACKAGING_DIR}/web/config/web.json"
+if [ ! -f "/etc/serviceradar/web.json" ] && [ -f "$WEB_CONFIG_SRC" ]; then
+    cp "$WEB_CONFIG_SRC" etc/serviceradar/web.json
+    echo "Copied web.json from $WEB_CONFIG_SRC"
+elif [ ! -f "$WEB_CONFIG_SRC" ]; then
+    echo "Error: web.json not found at $WEB_CONFIG_SRC"
+    exit 1
+fi
 
-    # Main app - proxy all requests to Next.js
-    location / {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-    }
-}
-EOF
+# Copy Nginx configuration file (only if it doesn't exist on the target system)
+NGINX_CONFIG_SRC="${PACKAGING_DIR}/web/nginx/serviceradar-web.conf"
+if [ ! -f "/etc/nginx/conf.d/serviceradar-web.conf" ] && [ -f "$NGINX_CONFIG_SRC" ]; then
+    cp "$NGINX_CONFIG_SRC" etc/nginx/conf.d/serviceradar-web.conf
+    echo "Copied serviceradar-web.conf from $NGINX_CONFIG_SRC"
+elif [ ! -f "$NGINX_CONFIG_SRC" ]; then
+    echo "Error: serviceradar-web.conf not found at $NGINX_CONFIG_SRC"
+    exit 1
+fi
 
-# Create systemd service file
-cat > lib/systemd/system/serviceradar-web.service << EOF
-[Unit]
-Description=ServiceRadar Web Interface
-After=network.target
+# Copy postinst script
+POSTINST_SRC="${PACKAGING_DIR}/web/scripts/postinstall.sh"
+if [ -f "$POSTINST_SRC" ]; then
+    cp "$POSTINST_SRC" DEBIAN/postinst
+    chmod 755 DEBIAN/postinst
+    echo "Copied postinst from $POSTINST_SRC"
+else
+    echo "Error: postinstall.sh not found at $POSTINST_SRC"
+    exit 1
+fi
 
-[Service]
-Type=simple
-User=serviceradar
-WorkingDirectory=/usr/local/share/serviceradar-web
-Environment=NODE_ENV=production
-Environment=PORT=3000
-EnvironmentFile=/etc/serviceradar/api.env
-ExecStart=/usr/bin/node server.js
-Restart=always
-RestartSec=10
+# Copy prerm script
+PRERM_SRC="${PACKAGING_DIR}/web/scripts/preremove.sh"
+if [ -f "$PRERM_SRC" ]; then
+    cp "$PRERM_SRC" DEBIAN/prerm
+    chmod 755 DEBIAN/prerm
+    echo "Copied prerm from $PRERM_SRC"
+else
+    echo "Error: preremove.sh not found at $PRERM_SRC"
+    exit 1
+fi
 
-[Install]
-WantedBy=multi-user.target
-EOF
+# Optional: Copy api.env if it exists
+API_ENV_SRC="${PACKAGING_DIR}/web/config/api.env"
+if [ -f "$API_ENV_SRC" ]; then
+    cp "$API_ENV_SRC" etc/serviceradar/api.env
+    echo "Copied api.env from $API_ENV_SRC"
+else
+    echo "Note: api.env not found at $API_ENV_SRC, skipping..."
+fi
 
-echo "Web package files prepared successfully"
+echo "Building Debian package..."
+
+# Create release-artifacts directory if it doesn't exist
+mkdir -p "${BASE_DIR}/release-artifacts"
+
+# Build the package
+dpkg-deb --root-owner-group --build . "serviceradar-web_${VERSION}.deb"
+
+# Move the deb file to the release-artifacts directory
+mv "serviceradar-web_${VERSION}.deb" "${BASE_DIR}/release-artifacts/"
+
+echo "Package built: ${BASE_DIR}/release-artifacts/serviceradar-web_${VERSION}.deb"

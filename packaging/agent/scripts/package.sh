@@ -1,126 +1,122 @@
 #!/bin/bash
-# setup-deb-agent.sh
-set -e  # Exit on any error
 
+# Copyright 2025 Carver Automation Corporation.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# package.sh for serviceradar-agent component - Prepares files for Debian packaging
+set -e
+
+# Define package version
 VERSION=${VERSION:-1.0.12}
 echo "Building serviceradar-agent version ${VERSION}"
 
-echo "Setting up package structure..."
+# Use a relative path from the script's location
+BASE_DIR="$(dirname "$(dirname "$0")")"  # Go up two levels from scripts/ to root
+PACKAGING_DIR="${BASE_DIR}/packaging"
 
-# Create package directory structure
-PKG_ROOT="serviceradar-agent_${VERSION}"
-mkdir -p "${PKG_ROOT}/DEBIAN"
-mkdir -p "${PKG_ROOT}/usr/local/bin"
-mkdir -p "${PKG_ROOT}/etc/serviceradar/checkers"
-mkdir -p "${PKG_ROOT}/lib/systemd/system"
+echo "Using PACKAGING_DIR: $PACKAGING_DIR"
 
-echo "Building Go binaries..."
+# Create the build directory
+mkdir -p serviceradar-agent-build
+cd serviceradar-agent-build
 
-# Build agent and checker binaries
-GOOS=linux GOARCH=amd64 go build -o "${PKG_ROOT}/usr/local/bin/serviceradar-agent" ./cmd/agent
+# Create package directory structure (Debian paths)
+mkdir -p DEBIAN
+mkdir -p usr/local/bin
+mkdir -p etc/serviceradar/checkers
+mkdir -p lib/systemd/system
 
-echo "Creating package files..."
+echo "Building Go binary..."
 
-# Create control file
-cat > "${PKG_ROOT}/DEBIAN/control" << EOF
-Package: serviceradar-agent
-Version: ${VERSION}
-Section: utils
-Priority: optional
-Architecture: amd64
-Depends: systemd
-Maintainer: Michael Freeman <mfreeman451@gmail.com>
-Description: ServiceRadar monitoring agent with Dusk node checker
- This package provides the serviceradar monitoring agent and
- a Dusk node checker plugin for monitoring services.
-EOF
+# Build Go binary
+cd "${BASE_DIR}/cmd/agent"
+GOOS=linux GOARCH=amd64 go build -o "../../serviceradar-agent-build/usr/local/bin/serviceradar-agent"
+cd "${BASE_DIR}"
 
-cat > "${PKG_ROOT}/DEBIAN/conffiles" << EOF
-/etc/serviceradar/agent.json
-EOF
+echo "Preparing ServiceRadar Agent package files..."
 
-# Create systemd service file
-cat > "${PKG_ROOT}/lib/systemd/system/serviceradar-agent.service" << EOF
-[Unit]
-Description=ServiceRadar Agent Service
-After=network.target
-
-[Service]
-Type=simple
-User=serviceradar
-EnvironmentFile=/etc/serviceradar/api.env
-ExecStart=/usr/local/bin/serviceradar-agent
-Restart=always
-RestartSec=10
-LimitNPROC=512
-LimitNOFILE=65535
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-
-cat > "${PKG_ROOT}/etc/serviceradar/agent.json" << EOF
-{
-    "checkers_dir": "/etc/serviceradar/checkers",
-    "listen_addr": ":50051",
-    "service_type": "grpc",
-    "service_name": "AgentService"
-}
-EOF
-
-# Create postinst script
-cat > "${PKG_ROOT}/DEBIAN/postinst" << EOF
-#!/bin/bash
-set -e
-
-# Create serviceradar user if it doesn't exist
-if ! id -u serviceradar >/dev/null 2>&1; then
-    useradd --system --no-create-home --shell /usr/sbin/nologin serviceradar
+# Copy control file
+CONTROL_SRC="${PACKAGING_DIR}/agent/DEBIAN/control"
+if [ -f "$CONTROL_SRC" ]; then
+    cp "$CONTROL_SRC" DEBIAN/control
+    echo "Copied control file from $CONTROL_SRC"
+else
+    echo "Error: control file not found at $CONTROL_SRC"
+    exit 1
 fi
 
-# Set permissions
-chown -R serviceradar:serviceradar /etc/serviceradar
-chmod 755 /usr/local/bin/serviceradar-agent
-
-# Set required capability for ICMP scanning
-if [ -x /usr/local/bin/serviceradar-agent ]; then
-    setcap cap_net_raw=+ep /usr/local/bin/serviceradar-agent
+# Copy conffiles
+CONFFILES_SRC="${PACKAGING_DIR}/agent/DEBIAN/conffiles"
+if [ -f "$CONFFILES_SRC" ]; then
+    cp "$CONFFILES_SRC" DEBIAN/conffiles
+    echo "Copied conffiles from $CONFFILES_SRC"
+else
+    echo "Error: conffiles not found at $CONFFILES_SRC"
+    exit 1
 fi
 
-# Enable and start service
-systemctl daemon-reload
-systemctl enable serviceradar-agent
-systemctl start serviceradar-agent
+# Copy systemd service file
+SERVICE_SRC="${PACKAGING_DIR}/agent/systemd/serviceradar-agent.service"
+if [ -f "$SERVICE_SRC" ]; then
+    cp "$SERVICE_SRC" lib/systemd/system/serviceradar-agent.service
+    echo "Copied serviceradar-agent.service from $SERVICE_SRC"
+else
+    echo "Error: serviceradar-agent.service not found at $SERVICE_SRC"
+    exit 1
+fi
 
-exit 0
-EOF
+# Copy default config file (only if it doesn't exist on the target system)
+CONFIG_SRC="${PACKAGING_DIR}/agent/config/agent.json"
+if [ ! -f "/etc/serviceradar/agent.json" ] && [ -f "$CONFIG_SRC" ]; then
+    cp "$CONFIG_SRC" etc/serviceradar/agent.json
+    echo "Copied agent.json from $CONFIG_SRC"
+elif [ ! -f "$CONFIG_SRC" ]; then
+    echo "Error: agent.json not found at $CONFIG_SRC"
+    exit 1
+fi
 
-chmod 755 "${PKG_ROOT}/DEBIAN/postinst"
+# Copy postinst script
+POSTINST_SRC="${PACKAGING_DIR}/agent/scripts/postinstall.sh"
+if [ -f "$POSTINST_SRC" ]; then
+    cp "$POSTINST_SRC" DEBIAN/postinst
+    chmod 755 DEBIAN/postinst
+    echo "Copied postinst from $POSTINST_SRC"
+else
+    echo "Error: postinstall.sh not found at $POSTINST_SRC"
+    exit 1
+fi
 
-# Create prerm script
-cat > "${PKG_ROOT}/DEBIAN/prerm" << EOF
-#!/bin/bash
-set -e
-
-# Stop and disable service
-systemctl stop serviceradar-agent
-systemctl disable serviceradar-agent
-
-exit 0
-EOF
-
-chmod 755 "${PKG_ROOT}/DEBIAN/prerm"
+# Copy prerm script
+PRERM_SRC="${PACKAGING_DIR}/agent/scripts/preremove.sh"
+if [ -f "$PRERM_SRC" ]; then
+    cp "$PRERM_SRC" DEBIAN/prerm
+    chmod 755 DEBIAN/prerm
+    echo "Copied prerm from $PRERM_SRC"
+else
+    echo "Error: preremove.sh not found at $PRERM_SRC"
+    exit 1
+fi
 
 echo "Building Debian package..."
 
 # Create release-artifacts directory if it doesn't exist
-mkdir -p release-artifacts
+mkdir -p "${BASE_DIR}/release-artifacts"
 
 # Build the package
-dpkg-deb --root-owner-group --build "${PKG_ROOT}"
+dpkg-deb --root-owner-group --build . "serviceradar-agent_${VERSION}.deb"
 
 # Move the deb file to the release-artifacts directory
-mv "${PKG_ROOT}.deb" "release-artifacts/"
+mv "serviceradar-agent_${VERSION}.deb" "${BASE_DIR}/release-artifacts/"
 
-echo "Package built: release-artifacts/${PKG_ROOT}.deb"
+echo "Package built: ${BASE_DIR}/release-artifacts/serviceradar-agent_${VERSION}.deb"
