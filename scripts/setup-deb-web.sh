@@ -91,7 +91,6 @@ EOF
 cat > "${PKG_ROOT}/DEBIAN/conffiles" << EOF
 /etc/serviceradar/web.json
 /etc/nginx/conf.d/serviceradar-web.conf
-/etc/serviceradar/api.env
 EOF
 
 # Copy systemd service file from the filesystem
@@ -124,16 +123,6 @@ else
     exit 1
 fi
 
-# Copy api.env from the filesystem
-API_ENV_SRC="${PACKAGING_DIR}/core/config/api.env"
-if [ -f "$API_ENV_SRC" ]; then
-    cp "$API_ENV_SRC" "${PKG_ROOT}/etc/serviceradar/api.env"
-    echo "Copied api.env from $API_ENV_SRC"
-else
-    echo "Error: api.env not found at $API_ENV_SRC"
-    exit 1
-fi
-
 # Create postinst script
 cat > "${PKG_ROOT}/DEBIAN/postinst" << EOF
 #!/bin/bash
@@ -162,7 +151,6 @@ chown -R serviceradar:serviceradar /usr/local/share/serviceradar-web
 chown -R serviceradar:serviceradar /etc/serviceradar
 chmod 755 /usr/local/share/serviceradar-web
 chmod 644 /etc/serviceradar/web.json
-chmod 600 /etc/serviceradar/api.env  # Ensure api.env has restrictive permissions
 
 # Configure Nginx
 if [ -f /etc/nginx/sites-enabled/default ]; then

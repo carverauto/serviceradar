@@ -16,6 +16,7 @@
 
 // web/src/lib/api.ts - server-side utilities with TypeScript
 import { SystemStatus, Node } from "@/types/types";
+import { env } from 'next-runtime-env';
 
 export async function fetchFromAPI<T>(
     endpoint: string,
@@ -28,7 +29,8 @@ export async function fetchFromAPI<T>(
 
   if (typeof window === "undefined") {
     // Server-side: Use a fully qualified URL or environment variable
-    const baseApiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090";
+    // const baseApiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090";
+    const baseApiUrl = env('NEXT_PUBLIC_API_URL') || "http://localhost:8090";
     apiUrl = `${baseApiUrl}/api/${normalizedEndpoint}`;
   } else {
     // Client-side: Use relative URL path

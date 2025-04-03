@@ -59,6 +59,7 @@ func run() error {
 		api.WithMetricsManager(server.GetMetricsManager()),
 		api.WithSNMPManager(server.GetSNMPManager()),
 		api.WithAuthService(server.GetAuth()),
+		api.WithRperfManager(server.GetRperfManager()),
 	)
 
 	server.SetAPIServer(apiServer)

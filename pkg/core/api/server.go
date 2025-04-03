@@ -25,6 +25,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/checker/rperf"
 	"github.com/carverauto/serviceradar/pkg/checker/snmp"
 	"github.com/carverauto/serviceradar/pkg/core/auth"
 	srHttp "github.com/carverauto/serviceradar/pkg/http"
@@ -67,6 +68,12 @@ func WithSNMPManager(m snmp.SNMPManager) func(server *APIServer) {
 	}
 }
 
+func WithRperfManager(m rperf.RperfManager) func(server *APIServer) {
+	return func(server *APIServer) {
+		server.rperfManager = m
+	}
+}
+
 func (s *APIServer) setupRoutes() {
 	corsConfig := models.CORSConfig{
 		AllowedOrigins:   s.corsConfig.AllowedOrigins,
@@ -97,6 +104,7 @@ func (s *APIServer) setupRoutes() {
 	protected.HandleFunc("/status", s.getSystemStatus).Methods("GET")
 	protected.HandleFunc("/nodes/{id}/history", s.getNodeHistory).Methods("GET")
 	protected.HandleFunc("/nodes/{id}/metrics", s.getNodeMetrics).Methods("GET")
+	protected.HandleFunc("/nodes/{id}/rperf", s.getRperfMetrics).Methods("GET")
 	protected.HandleFunc("/nodes/{id}/services", s.getNodeServices).Methods("GET")
 	protected.HandleFunc("/nodes/{id}/services/{service}", s.getServiceDetails).Methods("GET")
 	protected.HandleFunc("/nodes/{id}/snmp", s.getSNMPData).Methods("GET")
