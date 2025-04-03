@@ -12,37 +12,30 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Stage 1: Build the web UI
-FROM --platform=linux/amd64 node:18-bullseye AS web-builder
-
-WORKDIR /web-build
-
-COPY web/package*.json ./
-RUN npm install
-COPY ../web/ .
-RUN npm run build
-
-# Stage 2: Build the Go binary
-FROM --platform=linux/amd64 golang:1.24-bullseye
+FROM golang:1.24-bullseye
 
 WORKDIR /src
 
-# Install build dependencies
+# Install build and packaging dependencies
 RUN apt-get update && apt-get install -y \
     gcc \
+    g++ \
     libc6-dev \
-    libsqlite3-dev
+    libsqlite3-dev \
+    dpkg-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy go mod files first for better caching
-COPY ../go.mod go.sum ./
+COPY go.mod go.sum ./
 RUN go mod download
 
 # Copy the rest of the source
 COPY . .
 
-# Copy the built web UI from the previous stage
-COPY --from=web-builder /web-build/dist ./pkg/core/api/web/dist
-
-# Build the core service
+# Build the core service with verbose output and verify
 RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 \
-    go build -o serviceradar-core ./cmd/core
+    go build -v -o /src/serviceradar-core ./cmd/core && \
+    ls -l /src/serviceradar-core || (echo "Build failed" && exit 1)
+
+# Default command (optional, overridden by docker run)
+CMD ["bash"]
