@@ -58,7 +58,6 @@ EOF
 # Create conffiles to mark configuration files
 cat > "${PKG_ROOT}/DEBIAN/conffiles" << EOF
 /etc/serviceradar/sync.json
-/etc/serviceradar/api.env
 EOF
 
 # Copy systemd service file from the filesystem
@@ -78,16 +77,6 @@ if [ -f "$SYNC_JSON_SRC" ]; then
     echo "Copied sync.json from $SYNC_JSON_SRC"
 else
     echo "Error: sync.json not found at $SYNC_JSON_SRC"
-    exit 1
-fi
-
-# Copy api.env from the filesystem (assuming it’s shared across components)
-API_ENV_SRC="${PACKAGING_DIR}/core/config/api.env"
-if [ -f "$API_ENV_SRC" ]; then
-    cp "$API_ENV_SRC" "${PKG_ROOT}/etc/serviceradar/api.env"
-    echo "Copied api.env from $API_ENV_SRC"
-else
-    echo "Error: api.env not found at $API_ENV_SRC"
     exit 1
 fi
 

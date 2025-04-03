@@ -58,7 +58,6 @@ EOF
 # Create conffiles to mark configuration files
 cat > "${PKG_ROOT}/DEBIAN/conffiles" << EOF
 /etc/serviceradar/checkers/snmp.json
-/etc/serviceradar/api.env
 EOF
 
 # Copy systemd service file from the filesystem
@@ -78,17 +77,6 @@ if [ -f "$SNMP_JSON_SRC" ]; then
     echo "Copied snmp.json from $SNMP_JSON_SRC"
 else
     echo "Error: snmp.json not found at $SNMP_JSON_SRC"
-    exit 1
-fi
-
-# Copy api.env from the filesystem (assuming it’s shared across components)
-API_ENV_SRC="${PACKAGING_DIR}/core/config/api.env"
-if [ -f "$API_ENV_SRC" ]; then
-    mkdir -p "${PKG_ROOT}/etc/serviceradar"  # Ensure directory exists
-    cp "$API_ENV_SRC" "${PKG_ROOT}/etc/serviceradar/api.env"
-    echo "Copied api.env from $API_ENV_SRC"
-else
-    echo "Error: api.env not found at $API_ENV_SRC"
     exit 1
 fi
 
