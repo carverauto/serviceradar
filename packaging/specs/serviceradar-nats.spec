@@ -12,15 +12,17 @@ Requires:       systemd
 NATS JetStream (Message Broker, KV) service for ServiceRadar monitoring system.
 
 %install
+# Create directories in the buildroot
 mkdir -p %{buildroot}/usr/bin
 mkdir -p %{buildroot}/lib/systemd/system
 mkdir -p %{buildroot}/var/lib/nats/jetstream
 mkdir -p %{buildroot}/var/log/nats
-mkdir -p %{buildroot}/etc
+mkdir -p %{buildroot}/etc/nats
 
-install -m 755 %{_builddir}/nats-server %{buildroot}/usr/bin/
-install -m 644 %{_sourcedir}/systemd/serviceradar-nats.service %{buildroot}/lib/systemd/system/
-install -m 644 %{_sourcedir}/config/nats-server.conf %{buildroot}/etc/
+# Install files into the buildroot
+install -m 755 %{_builddir}/nats-server %{buildroot}/usr/bin/nats-server
+install -m 644 %{_sourcedir}/systemd/serviceradar-nats.service %{buildroot}/lib/systemd/system/serviceradar-nats.service
+install -m 644 %{_sourcedir}/config/nats-server.conf %{buildroot}/etc/nats/nats-server.conf
 
 %files
 %attr(0755, nats, nats) /usr/bin/nats-server
