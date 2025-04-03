@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Copyright 2025 Carver Automation Corporation.
+# Copyright 2025 xAI.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,143 +14,108 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set -e  # Exit on any error
+# package.sh for serviceradar-sync component - Prepares files for Debian packaging
+set -e
 
-echo "Setting up package structure..."
-
+# Define package version
 VERSION=${VERSION:-1.0.12}
 
-# Create package directory structure
-PKG_ROOT="serviceradar-sync_${VERSION}"
-mkdir -p "${PKG_ROOT}/DEBIAN"
-mkdir -p "${PKG_ROOT}/usr/local/bin"
-mkdir -p "${PKG_ROOT}/etc/serviceradar"
-mkdir -p "${PKG_ROOT}/lib/systemd/system"
+# Use a relative path from the script's location
+BASE_DIR="$(dirname "$(dirname "$0")")"  # Go up two levels from scripts/ to root
+PACKAGING_DIR="${BASE_DIR}/packaging"
+
+echo "Using PACKAGING_DIR: $PACKAGING_DIR"
+
+# Create the build directory
+mkdir -p serviceradar-sync-build
+cd serviceradar-sync-build
+
+# Create package directory structure (Debian paths)
+mkdir -p DEBIAN
+mkdir -p usr/local/bin
+mkdir -p etc/serviceradar
+mkdir -p lib/systemd/system
 
 echo "Building Go binary..."
 
-# Build kv binary
-GOOS=linux GOARCH=amd64 go build -o "${PKG_ROOT}/usr/local/bin/serviceradar-sync" ./cmd/sync
+# Build Go binary
+cd "${BASE_DIR}/cmd/sync"
+GOOS=linux GOARCH=amd64 go build -o "../../serviceradar-sync-build/usr/local/bin/serviceradar-sync"
+cd "${BASE_DIR}"
 
-echo "Creating package files..."
+echo "Preparing ServiceRadar Sync package files..."
 
-# Create control file
-cat > "${PKG_ROOT}/DEBIAN/control" << EOF
-Package: serviceradar-sync
-Version: ${VERSION}
-Section: utils
-Priority: optional
-Architecture: amd64
-Depends: systemd
-Maintainer: Michael Freeman <mfreeman451@gmail.com>
-Description: ServiceRadar Sync service
-  Sync component to keep KV store in sync with external systems.
-Config: /etc/serviceradar/sync.json
-EOF
-
-# Create conffiles to mark configuration files
-cat > "${PKG_ROOT}/DEBIAN/conffiles" << EOF
-/etc/serviceradar/sync.json
-EOF
-
-# Create systemd service file
-cat > "${PKG_ROOT}/lib/systemd/system/serviceradar-sync.service" << EOF
-[Unit]
-Description=ServiceRadar KV Sync Service
-After=network.target
-
-[Service]
-Type=simple
-User=serviceradar
-EnvironmentFile=/etc/serviceradar/api.env
-ExecStart=/usr/local/bin/serviceradar-sync -config /etc/serviceradar/sync.json
-Restart=always
-RestartSec=10
-LimitNPROC=512
-LimitNOFILE=65535
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-# Create default config only if we're creating a fresh package
-cat > "${PKG_ROOT}/etc/serviceradar/sync.json" << EOF
-{
-  "kv_address": "localhost:50057",
-  "listen_addr": ":50058",
-  "poll_interval": "30m",
-  "security": {
-    "mode": "mtls",
-    "cert_dir": "/etc/serviceradar/certs",
-    "server_name": "nats-serviceradar",
-    "role": "poller",
-    "tls": {
-      "cert_file": "sync.pem",
-      "key_file": "sync-key.pem",
-      "ca_file": "root.pem",
-      "client_ca_file": "root.pem"
-    }
-  },
-  "sources": {
-    "armis": {
-      "type": "armis",
-      "endpoint": "https://api.armis.example.com/v1/devices",
-      "prefix": "armis/",
-      "credentials": {
-        "api_key": "your-armis-api-key-here"
-      }
-    }
-  }
-}
-EOF
-
-# Create postinst script
-cat > "${PKG_ROOT}/DEBIAN/postinst" << EOF
-#!/bin/bash
-set -e
-
-# Create serviceradar user if it doesn't exist
-if ! id -u serviceradar >/dev/null 2>&1; then
-    useradd --system --no-create-home --shell /usr/sbin/nologin serviceradar
+# Copy control file
+CONTROL_SRC="${PACKAGING_DIR}/sync/DEBIAN/control"
+if [ -f "$CONTROL_SRC" ]; then
+    cp "$CONTROL_SRC" DEBIAN/control
+    echo "Copied control file from $CONTROL_SRC"
+else
+    echo "Error: control file not found at $CONTROL_SRC"
+    exit 1
 fi
 
-# Set permissions
-chown -R serviceradar:serviceradar /etc/serviceradar
-chmod 755 /usr/local/bin/serviceradar-sync
+# Copy conffiles
+CONFFILES_SRC="${PACKAGING_DIR}/sync/DEBIAN/conffiles"
+if [ -f "$CONFFILES_SRC" ]; then
+    cp "$CONFFILES_SRC" DEBIAN/conffiles
+    echo "Copied conffiles from $CONFFILES_SRC"
+else
+    echo "Error: conffiles not found at $CONFFILES_SRC"
+    exit 1
+fi
 
-# Enable and start service
-systemctl daemon-reload
-systemctl enable serviceradar-sync
-systemctl start serviceradar-sync
+# Copy systemd service file
+SERVICE_SRC="${PACKAGING_DIR}/sync/systemd/serviceradar-sync.service"
+if [ -f "$SERVICE_SRC" ]; then
+    cp "$SERVICE_SRC" lib/systemd/system/serviceradar-sync.service
+    echo "Copied serviceradar-sync.service from $SERVICE_SRC"
+else
+    echo "Error: serviceradar-sync.service not found at $SERVICE_SRC"
+    exit 1
+fi
 
-exit 0
-EOF
+# Copy default config file (only if it doesn't exist on the target system)
+CONFIG_SRC="${PACKAGING_DIR}/sync/config/sync.json"
+if [ ! -f "/etc/serviceradar/sync.json" ] && [ -f "$CONFIG_SRC" ]; then
+    cp "$CONFIG_SRC" etc/serviceradar/sync.json
+    echo "Copied sync.json from $CONFIG_SRC"
+elif [ ! -f "$CONFIG_SRC" ]; then
+    echo "Error: sync.json not found at $CONFIG_SRC"
+    exit 1
+fi
 
-chmod 755 "${PKG_ROOT}/DEBIAN/postinst"
+# Copy postinst script
+POSTINST_SRC="${PACKAGING_DIR}/sync/scripts/postinstall.sh"
+if [ -f "$POSTINST_SRC" ]; then
+    cp "$POSTINST_SRC" DEBIAN/postinst
+    chmod 755 DEBIAN/postinst
+    echo "Copied postinst from $POSTINST_SRC"
+else
+    echo "Error: postinstall.sh not found at $POSTINST_SRC"
+    exit 1
+fi
 
-# Create prerm script
-cat > "${PKG_ROOT}/DEBIAN/prerm" << EOF
-#!/bin/bash
-set -e
-
-# Stop and disable service
-systemctl stop serviceradar-sync
-systemctl disable serviceradar-sync
-
-exit 0
-EOF
-
-chmod 755 "${PKG_ROOT}/DEBIAN/prerm"
+# Copy prerm script
+PRERM_SRC="${PACKAGING_DIR}/sync/scripts/preremove.sh"
+if [ -f "$PRERM_SRC" ]; then
+    cp "$PRERM_SRC" DEBIAN/prerm
+    chmod 755 DEBIAN/prerm
+    echo "Copied prerm from $PRERM_SRC"
+else
+    echo "Error: preremove.sh not found at $PRERM_SRC"
+    exit 1
+fi
 
 echo "Building Debian package..."
 
 # Create release-artifacts directory if it doesn't exist
-mkdir -p release-artifacts
+mkdir -p "${BASE_DIR}/release-artifacts"
 
 # Build the package
-dpkg-deb --root-owner-group --build "${PKG_ROOT}"
+dpkg-deb --root-owner-group --build . "serviceradar-sync_${VERSION}.deb"
 
 # Move the deb file to the release-artifacts directory
-mv "${PKG_ROOT}.deb" "release-artifacts/"
+mv "serviceradar-sync_${VERSION}.deb" "${BASE_DIR}/release-artifacts/"
 
-echo "Package built: release-artifacts/${PKG_ROOT}.deb"
+echo "Package built: ${BASE_DIR}/release-artifacts/serviceradar-sync_${VERSION}.deb"
