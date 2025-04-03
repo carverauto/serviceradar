@@ -51,7 +51,7 @@ if ! id -u serviceradar >/dev/null 2>&1; then
 fi
 
 # Create directory structure
-mkdir -p /usr/lib/serviceradar/web
+mkdir -p /usr/local/share/serviceradar-web
 
 %post
 %systemd_post serviceradar-web.service
@@ -113,7 +113,7 @@ if command -v setsebool >/dev/null 2>&1 && command -v semanage >/dev/null 2>&1; 
     fi
 
     # Fix context on web files
-    restorecon -Rv /usr/lib/serviceradar/web || true
+    restorecon -Rv /usr/local/share/serviceradar-web || true
 fi
 
 # Configure firewall if needed
