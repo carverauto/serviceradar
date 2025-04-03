@@ -69,7 +69,6 @@ const RperfDashboard = ({
     const [timeRange, setTimeRange] = useState(initialTimeRange);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [dataQualityWarning, setDataQualityWarning] = useState<string | null>(null);
     const [averages, setAverages] = useState({
         bandwidth: 0,
         jitter: 0,
@@ -173,23 +172,6 @@ const RperfDashboard = ({
         return aggregatedWithTrend;
     }, []);
 
-    // Check for data quality issues (e.g., gaps in timestamps)
-    const checkDataQuality = useCallback((data: ChartDataPoint[]) => {
-        if (data.length < 2) return;
-
-        const timestamps = data.map(point => point.timestamp);
-        const intervals = timestamps.slice(1).map((t, i) => t - timestamps[i]);
-        const avgInterval = intervals.reduce((sum, interval) => sum + interval, 0) / intervals.length;
-        const maxInterval = avgInterval * 2;
-
-        const hasGaps = intervals.some(interval => interval > maxInterval);
-        if (hasGaps) {
-            setDataQualityWarning("Warning: Gaps detected in the data. Results may be inconsistent.");
-        } else {
-            setDataQualityWarning(null);
-        }
-    }, []);
-
     const fetchData = useCallback(async () => {
         setIsLoading(true);
         try {
@@ -225,7 +207,7 @@ const RperfDashboard = ({
                 if (response.status === 401) {
                     console.error("Authentication error fetching RPerfData - attempting token refresh");
                     const refreshed = await refreshToken();
-                    if (refreshed === true) {
+                    if (refreshed) {
                         console.log("Token refreshed successfully, retrying request");
                         return fetchData();
                     } else {
@@ -270,9 +252,6 @@ const RperfDashboard = ({
             // Aggregate packet loss data for bar chart
             const aggregatedData = aggregatePacketLossData(smoothedData);
 
-            // Check data quality
-            checkDataQuality(smoothedDataWithTrend);
-
             // Calculate averages
             const totalBandwidth = smoothedDataWithTrend.reduce((sum, point) => sum + point.bandwidth, 0);
             const totalJitter = smoothedDataWithTrend.reduce((sum, point) => sum + point.jitter, 0);
@@ -302,7 +281,7 @@ const RperfDashboard = ({
         } finally {
             setIsLoading(false);
         }
-    }, [timeRange, nodeId, token, refreshToken, filterOutliers, smoothData, calculateTrend, aggregatePacketLossData, checkDataQuality]);
+    }, [timeRange, nodeId, token, refreshToken, filterOutliers, smoothData, calculateTrend, aggregatePacketLossData, ]);
 
     useEffect(() => {
         fetchData();
@@ -522,7 +501,7 @@ const RperfDashboard = ({
                             <ReferenceLine y={0.5} stroke="#ff7300" strokeDasharray="3 3" />
                             <ReferenceArea
                                 y1={0.5}
-                                y2={(dataMax: number) => Math.min(20, Math.max(5, dataMax * 1.2))}
+                                y2={Math.min(20, Math.max(5, Math.max(...aggregatedPacketLossData.map(d => d.loss)) * 1.2))}
                                 fill="#ff7300"
                                 fillOpacity={0.1}
                                 ifOverflow="extendDomain"
