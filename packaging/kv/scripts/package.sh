@@ -107,15 +107,6 @@ else
     exit 1
 fi
 
-# Optional: Copy api.env if it exists
-API_ENV_SRC="${PACKAGING_DIR}/kv/config/api.env"
-if [ -f "$API_ENV_SRC" ]; then
-    cp "$API_ENV_SRC" etc/serviceradar/api.env
-    echo "Copied api.env from $API_ENV_SRC"
-else
-    echo "Note: api.env not found at $API_ENV_SRC, skipping..."
-fi
-
 echo "Building Debian package..."
 
 # Create release-artifacts directory if it doesn't exist
