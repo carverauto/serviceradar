@@ -602,15 +602,11 @@ func (*Server) parseServiceDetails(svc *proto.ServiceStatus) (json.RawMessage, e
 
 func (s *Server) processSpecializedMetrics(
 	pollerID string, svc *proto.ServiceStatus, details json.RawMessage, now time.Time) error {
-	log.Printf("Processing specialized metrics for node %s, service %s", pollerID, svc.ServiceName)
-
 	if svc.ServiceType == "snmp" {
-		log.Printf("Found SNMP service, attempting to process metrics for node %s", pollerID)
 		return s.processSNMPMetrics(pollerID, details, now)
 	}
-	if svc.ServiceType == "grpc" && svc.ServiceName == "rperf-checker" {
-		log.Printf("Found rperf-checker service, attempting to process metrics for node %s", pollerID)
 
+	if svc.ServiceType == "grpc" && svc.ServiceName == "rperf-checker" {
 		var rperfData struct {
 			Results []struct {
 				Target  string  `json:"target"`
@@ -633,6 +629,7 @@ func (s *Server) processSpecializedMetrics(
 
 		if err := json.Unmarshal(details, &rperfData); err != nil {
 			log.Printf("Failed to parse rperf data for node %s: %v", pollerID, err)
+
 			return fmt.Errorf("failed to parse rperf data: %w", err)
 		}
 
@@ -663,6 +660,7 @@ func (s *Server) processSpecializedMetrics(
 
 			if err := s.rperfManager.StoreRperfMetric(pollerID, metric); err != nil {
 				log.Printf("Error storing rperf metric %s for node %s: %v", metricName, pollerID, err)
+
 				return fmt.Errorf("failed to store rperf metric: %w", err)
 			}
 
