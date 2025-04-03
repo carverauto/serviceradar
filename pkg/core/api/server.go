@@ -68,7 +68,7 @@ func WithSNMPManager(m snmp.SNMPManager) func(server *APIServer) {
 	}
 }
 
-func WithRperfManager(m rperf.RperfManager) func(server *APIServer) { // Already correct
+func WithRperfManager(m rperf.RperfManager) func(server *APIServer) {
 	return func(server *APIServer) {
 		server.rperfManager = m
 	}
