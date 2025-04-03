@@ -66,7 +66,6 @@ EOF
 # Create conffiles to mark configuration files
 cat > "${PKG_ROOT}/DEBIAN/conffiles" << EOF
 /etc/nats/nats-server.conf
-/etc/serviceradar/api.env
 EOF
 
 # Copy systemd service file from the filesystem
@@ -86,17 +85,6 @@ if [ -f "$NATS_CONF_SRC" ]; then
     echo "Copied nats-server.conf from $NATS_CONF_SRC"
 else
     echo "Error: nats-server.conf not found at $NATS_CONF_SRC"
-    exit 1
-fi
-
-# Copy api.env from the filesystem (optional, for consistency)
-API_ENV_SRC="${PACKAGING_DIR}/core/config/api.env"
-if [ -f "$API_ENV_SRC" ]; then
-    mkdir -p "${PKG_ROOT}/etc/serviceradar"
-    cp "$API_ENV_SRC" "${PKG_ROOT}/etc/serviceradar/api.env"
-    echo "Copied api.env from $API_ENV_SRC"
-else
-    echo "Error: api.env not found at $API_ENV_SRC"
     exit 1
 fi
 
