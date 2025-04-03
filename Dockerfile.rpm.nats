@@ -38,13 +38,13 @@ RUN mkdir -p /root/rpmbuild/SOURCES/systemd \
 # Copy entire packaging directory for reference
 COPY packaging /root/rpmbuild/SOURCES/packaging/
 
-# Download NATS server binary
+# Download NATS server binary and stage it in BUILD
 ARG NATS_VERSION=2.11.0
 RUN curl -LO "https://github.com/nats-io/nats-server/releases/download/v${NATS_VERSION}/nats-server-v${NATS_VERSION}-linux-amd64.tar.gz" && \
     tar -xzf nats-server-v${NATS_VERSION}-linux-amd64.tar.gz && \
     cp nats-server-v${NATS_VERSION}-linux-amd64/nats-server /root/rpmbuild/BUILD/
 
-# Copy NATS-specific files from packaging
+# Copy NATS-specific files from packaging to SOURCES
 RUN cp -v /root/rpmbuild/SOURCES/packaging/nats/systemd/serviceradar-nats.service /root/rpmbuild/SOURCES/systemd/ && \
     cp -v /root/rpmbuild/SOURCES/packaging/nats/config/nats-server.conf /root/rpmbuild/SOURCES/config/ && \
     cp -v /root/rpmbuild/SOURCES/packaging/specs/serviceradar-nats.spec /root/rpmbuild/SPECS/
@@ -55,7 +55,9 @@ RUN echo "=== Files in SOURCES/systemd ===" && \
     echo "=== Files in SOURCES/config ===" && \
     ls -la /root/rpmbuild/SOURCES/config/ && \
     echo "=== Files in SPECS ===" && \
-    ls -la /root/rpmbuild/SPECS/
+    ls -la /root/rpmbuild/SPECS/ && \
+    echo "=== Files in BUILD ===" && \
+    ls -la /root/rpmbuild/BUILD/
 
 # Set version and release (can be overridden at build time)
 ARG VERSION=1.0.28
