@@ -41,8 +41,13 @@ jobs:
           ./scripts/setup-deb-poller.sh
           ./scripts/setup-deb-core.sh
           ./scripts/setup-deb-web.sh
+          ./scripts/setup-deb-nats.sh
+          ./scripts/setup-deb-kv.sh
+          ./scripts/setup-deb-sync.sh
           ./scripts/setup-deb-dusk-checker.sh
           ./scripts/setup-deb-snmp-checker.sh
+          ./scripts/setup-deb-rperf-client.sh
+          ./scripts/setup-deb-rperf-server.sh
       - name: List Artifacts (for debugging)
         run: ls -al ./release-artifacts
       - name: Upload DEB Release Assets
@@ -117,6 +122,76 @@ jobs:
           docker create --name poller-container serviceradar-rpm-poller
           docker cp poller-container:/rpms/. ./release-artifacts/rpm/
           docker rm poller-container
+      - name: Build NATS RPM
+        run: |
+          docker build \
+            --platform linux/amd64 \
+            --build-arg VERSION="${VERSION}" \
+            --build-arg RELEASE="1" \
+            --build-arg COMPONENT="nats" \
+            --build-arg BINARY_PATH="" \
+            -f Dockerfile.rpm.nats \
+            -t serviceradar-rpm-nats \
+            .
+          docker create --name nats-container serviceradar-rpm-nats
+          docker cp nats-container:/rpms/. ./release-artifacts/rpm/
+          docker rm nats-container
+      - name: Build KV RPM
+        run: |
+          docker build \
+            --platform linux/amd64 \
+            --build-arg VERSION="${VERSION}" \
+            --build-arg RELEASE="1" \
+            --build-arg COMPONENT="kv" \
+            --build-arg BINARY_PATH="./cmd/kv" \
+            -f Dockerfile.rpm.simple \
+            -t serviceradar-rpm-kv \
+            .
+          docker create --name kv-container serviceradar-rpm-kv
+          docker cp kv-container:/rpms/. ./release-artifacts/rpm/
+          docker rm kv-container
+      - name: Build Sync RPM
+        run: |
+          docker build \
+            --platform linux/amd64 \
+            --build-arg VERSION="${VERSION}" \
+            --build-arg RELEASE="1" \
+            --build-arg COMPONENT="sync" \
+            --build-arg BINARY_PATH="./cmd/sync" \
+            -f Dockerfile.rpm.simple \
+            -t serviceradar-rpm-sync \
+            .
+          docker create --name sync-container serviceradar-rpm-sync
+          docker cp sync-container:/rpms/. ./release-artifacts/rpm/
+          docker rm sync-container
+      - name: Build RPerf (client) Checker RPM
+        run: |
+          docker build \
+            --platform linux/amd64 \
+            --build-arg VERSION="${VERSION}" \
+            --build-arg RELEASE="1" \
+            --build-arg COMPONENT="rperf-checker" \
+            --build-arg BINARY_PATH="./cmd/checkers/rperf-client" \
+            -f Dockerfile.rpm.rust\
+            -t serviceradar-rpm-rperf-checker\
+            .
+          docker create --name rperf-checker-container serviceradar-rpm-rperf-checker
+          docker cp rperf-checker-container:/rpms/. ./release-artifacts/rpm/
+          docker rm rperf-checker-container
+      - name: Build RPerf (server) RPM
+        run: |
+          docker build \
+            --platform linux/amd64 \
+            --build-arg VERSION="${VERSION}" \
+            --build-arg RELEASE="1" \
+            --build-arg COMPONENT="rperf" \
+            --build-arg BINARY_PATH="" \
+            -f ./cmd/checkers/rperf-server/Dockerfile \
+            -t serviceradar-rpm-rperf\
+            .
+          docker create --name rperf-container serviceradar-rpm-rperf
+          docker cp rperf-container:/rpms/. ./release-artifacts/rpm/
+          docker rm rperf-container
       - name: Build SNMP Checker RPM
         run: |
           docker build \
