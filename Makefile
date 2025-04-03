@@ -112,7 +112,7 @@ clean: ## Clean up build artifacts
 	@rm -f cover.*.profile cover.html
 	@rm -rf bin/
 	@rm -rf serviceradar-*_* release-artifacts/
-	@cd cmd/checkers/rperf && $(CARGO) clean
+	@cd cmd/checkers/rperf-client && $(CARGO) clean
 
 .PHONY: generate-proto
 generate-proto: ## Generate Go and Rust code from protobuf definitions
@@ -160,7 +160,7 @@ container-build: kodata-prep ## Build container images with ko
 	@cd cmd/checkers/dusk && KO_DOCKER_REPO=$(KO_DOCKER_REPO)/serviceradar-dusk-checker GOFLAGS="-tags=containers" ko build --platform=$(PLATFORMS) --tags=$(VERSION) --bare .
 	@cd cmd/checkers/snmp && KO_DOCKER_REPO=$(KO_DOCKER_REPO)/serviceradar-snmp-checker GOFLAGS="-tags=containers" ko build --platform=$(PLATFORMS) --tags=$(VERSION) --bare .
 	@echo "$(COLOR_BOLD)Building rperf checker container$(COLOR_RESET)"
-	@docker buildx build --platform linux/amd64 -f cmd/checkers/rperf/Dockerfile \
+	@docker buildx build --platform linux/amd64 -f cmd/checkers/rperf-client/Dockerfile \
 		-t $(KO_DOCKER_REPO)/serviceradar-rperf-checker:$(VERSION) \
 		--build-arg VERSION=$(VERSION) \
 		.
@@ -180,7 +180,7 @@ container-push: kodata-prep ## Build and push container images with ko
 	@cd cmd/checkers/dusk && KO_DOCKER_REPO=$(KO_DOCKER_REPO)/serviceradar-dusk-checker GOFLAGS="-tags=containers" ko build --platform=$(PLATFORMS) --tags=$(VERSION),latest --bare .
 	@cd cmd/checkers/snmp && KO_DOCKER_REPO=$(KO_DOCKER_REPO)/serviceradar-snmp-checker GOFLAGS="-tags=containers" ko build --platform=$(PLATFORMS) --tags=$(VERSION),latest --bare .
 	@echo "$(COLOR_BOLD)Building and pushing rperf checker container$(COLOR_RESET)"
-	@docker buildx build --platform linux/amd64 -f cmd/checkers/rperf/Dockerfile \
+	@docker buildx build --platform linux/amd64 -f cmd/checkers/rperf-client/Dockerfile \
 		-t $(KO_DOCKER_REPO)/serviceradar-rperf-checker:$(VERSION) \
 		-t $(KO_DOCKER_REPO)/serviceradar-rperf-checker:latest \
 		--build-arg VERSION=$(VERSION) \
@@ -400,7 +400,7 @@ rpm-rperf-checker: rpm-prep ## Build the RPerf checker RPM package
 		--build-arg VERSION="$$VERSION_CLEAN" \
 		--build-arg RELEASE="$(RELEASE)" \
 		--build-arg COMPONENT="rperf-checker" \
-		--build-arg BINARY_PATH="./cmd/checkers/rperf" \
+		--build-arg BINARY_PATH="./cmd/checkers/rperf-client/target/release/" \
 		-f Dockerfile.rpm.rust \
 		-t serviceradar-rpm-rperf-checker \
 		.
