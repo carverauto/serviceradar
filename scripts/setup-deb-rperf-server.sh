@@ -33,7 +33,7 @@ echo "Building serviceradar-rperf for AMD64 from crates.io..."
 docker build \
     --platform linux/amd64 \
     -t rperf-builder \
-    -f "$RPERF_DIR/Dockerfile" \
+    -f "$RPERF_DIR/Dockerfile-deb" \
     --target builder \
     "$RPERF_DIR"
 
