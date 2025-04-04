@@ -19,7 +19,6 @@ set -e
 
 export VERSION=${VERSION:-1.0.28}
 
-# Run the packaging script directly on the host
 echo "Building core package version ${VERSION} on host..."
 ./scripts/setup-deb-core.sh
 
