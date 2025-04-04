@@ -375,21 +375,25 @@ rpm-snmp: rpm-prep ## Build the SNMP checker RPM package
 	@docker rm temp-snmp-container
 
 .PHONY: rpm-rperf
-rpm-rperf: rpm-prep ## Build the RPerf (server) RPM package
-	@echo "$(COLOR_BOLD)Building RPerf (Server) RPM package$(COLOR_RESET)"
+rpm-rperf: rpm-prep
+	@echo "Preparing RPM build environment"
+	@echo "Building RPerf (Server) RPM package"
 	@VERSION_CLEAN=$$(echo "$(VERSION)" | sed 's/-/_/g'); \
 	docker build \
 		--platform linux/amd64 \
 		--build-arg VERSION="$$VERSION_CLEAN" \
 		--build-arg RELEASE="$(RELEASE)" \
 		--build-arg COMPONENT="rperf" \
-		--build-arg BINARY_PATH="./cmd/checkers/rperf-server" \
-		-f Dockerfile.rpm.rust \
+		-f Dockerfile.rpm.rust.rperf \
 		-t serviceradar-rpm-rperf \
 		.
-	@docker create --name temp-rperf-server-container serviceradar-rpm-rperf
-	@docker cp temp-rperf-server-container:/rpms/. ./release-artifacts/rpm/
-	@docker rm temp-rperf-server-container
+	@mkdir -p ./release-artifacts/rpm/
+	@echo "Extracting RPM files..."
+	@docker run --platform linux/amd64 --rm \
+		-v $$(pwd)/release-artifacts/rpm:/host-output \
+		serviceradar-rpm-rperf \
+		/bin/bash -c "if [ -n \"\$$(ls -A /rpms)\" ]; then cp -v /rpms/* /host-output/; else echo 'No RPM files found!'; ls -la /rpms; exit 1; fi"
+	@echo "RPM files extracted to ./release-artifacts/rpm/"
 
 .PHONY: rpm-rperf-checker
 rpm-rperf-checker: rpm-prep
