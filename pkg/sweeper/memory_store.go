@@ -273,15 +273,6 @@ func (s *InMemoryStore) updateHostAndPortResults(r *models.Result, hostMap map[s
 	}
 }
 
-func (s *InMemoryStore) updateHostBasedOnMode(r *models.Result, host *models.HostResult, portCounts map[int]int) {
-	switch r.Target.Mode {
-	case models.ModeICMP:
-		s.updateICMPStatus(host, r)
-	case models.ModeTCP:
-		s.updateTCPPortResults(host, r, portCounts)
-	}
-}
-
 func (*InMemoryStore) updateICMPStatus(host *models.HostResult, r *models.Result) {
 	if host.ICMPStatus == nil {
 		host.ICMPStatus = &models.ICMPStatus{}
