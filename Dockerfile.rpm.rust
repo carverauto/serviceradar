@@ -1,44 +1,52 @@
-FROM rockylinux:9 AS builder
+# Use pre-built base image
+FROM rockylinux9-rust-rpm-base AS builder
 
 ARG VERSION=1.0.28
 ARG RELEASE=1
-ARG COMPONENT
-ARG BINARY_PATH
+ARG COMPONENT=rperf-checker
+ARG BINARY_PATH=cmd/checkers/rperf-client
 
-# Install build dependencies
-RUN dnf install -y rpm-build rpmdevtools dnf-plugins-core git gcc make \
-    && dnf config-manager --set-enabled crb \
-    && dnf install -y curl
-
-# Install rustup and a compatible Rust version
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.81.0 \
-    && echo "source $HOME/.cargo/env" >> $HOME/.bashrc
-ENV PATH="/root/.cargo/bin:${PATH}"
-
-# Verify Rust version
-RUN rustc --version
-
-# Copy source code and spec file
-WORKDIR /src
-COPY . .
-COPY packaging/specs/serviceradar-${COMPONENT}.spec /root/rpmbuild/SPECS/
-
-# Build the Rust binary
+# Set working directory
 WORKDIR /src/${BINARY_PATH}
-RUN cargo build --release
 
-# Build the RPM using the pre-existing spec file
+# Copy source files
+COPY ${BINARY_PATH}/Cargo.toml .
+COPY ${BINARY_PATH}/Cargo.lock* .
+COPY ${BINARY_PATH}/src ./src/
+COPY ${BINARY_PATH}/build.rs .
+COPY proto ../proto/
+
+# Build the Rust binary with explicit output name
+RUN cargo build --release --target x86_64-unknown-linux-gnu --verbose && \
+    ls -la target/x86_64-unknown-linux-gnu/release/
+
+# Set up RPM build environment
 WORKDIR /root/rpmbuild
+COPY packaging/specs/serviceradar-${COMPONENT}.spec SPECS/
+COPY packaging/rperf-checker/systemd/serviceradar-rperf-checker.service SOURCES/rperf-checker/systemd/
+COPY packaging/rperf-checker/config/checkers/rperf.json SOURCES/rperf-checker/config/checkers/
+
+# Build the RPM - with explicit debugging
 RUN sed -i "s/%{version}/${VERSION}/g" SPECS/serviceradar-${COMPONENT}.spec && \
     sed -i "s/%{release}/${RELEASE}/g" SPECS/serviceradar-${COMPONENT}.spec && \
-    mkdir -p /src/BUILD && \
-    cp /src/${BINARY_PATH}/target/release/serviceradar-${COMPONENT} /src/BUILD/ && \
-    rpmbuild -bb SPECS/serviceradar-${COMPONENT}.spec
+    mkdir -p BUILD && \
+    echo "Listing binary directory contents:" && \
+    ls -la /src/${BINARY_PATH}/target/x86_64-unknown-linux-gnu/release/ && \
+    cp /src/${BINARY_PATH}/target/x86_64-unknown-linux-gnu/release/serviceradar-${COMPONENT} BUILD/serviceradar-${COMPONENT} && \
+    rpmbuild -bb SPECS/serviceradar-${COMPONENT}.spec && \
+    echo "Checking RPM build output:" && \
+    find RPMS -type f -name "*.rpm" && \
+    mkdir -p /output && \
+    find RPMS -type f -name "*.rpm" -exec cp {} /output/ \; && \
+    ls -la /output/
 
-# Copy the RPM to /rpms
-RUN mkdir -p /rpms && \
-    cp /root/rpmbuild/RPMS/*/serviceradar-${COMPONENT}-*.rpm /rpms/
+# Final stage using RockyLinux
+FROM rockylinux:9
 
-# Final image just to provide the RPM
-FROM scratch
-COPY --from=builder /rpms/ /rpms/
+WORKDIR /rpms
+# Copy ALL RPM files from the builder's output directory
+COPY --from=builder /output/*.rpm ./
+# Add validation step
+RUN ls -la /rpms/
+
+CMD ["ls", "-la", "/rpms/"]

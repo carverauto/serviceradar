@@ -392,21 +392,26 @@ rpm-rperf: rpm-prep ## Build the RPerf (server) RPM package
 	@docker rm temp-rperf-server-container
 
 .PHONY: rpm-rperf-checker
-rpm-rperf-checker: rpm-prep ## Build the RPerf checker RPM package
-	@echo "$(COLOR_BOLD)Building RPerf checker RPM package$(COLOR_RESET)"
+rpm-rperf-checker: rpm-prep
+	@echo "Preparing RPM build environment"
+	@echo "Building RPerf checker RPM package"
 	@VERSION_CLEAN=$$(echo "$(VERSION)" | sed 's/-/_/g'); \
 	docker build \
 		--platform linux/amd64 \
 		--build-arg VERSION="$$VERSION_CLEAN" \
 		--build-arg RELEASE="$(RELEASE)" \
 		--build-arg COMPONENT="rperf-checker" \
-		--build-arg BINARY_PATH="./cmd/checkers/rperf-client/target/release/" \
+		--build-arg BINARY_PATH="cmd/checkers/rperf-client" \
 		-f Dockerfile.rpm.rust \
 		-t serviceradar-rpm-rperf-checker \
 		.
-	@docker create --name temp-rperf-container serviceradar-rpm-rperf-checker
-	@docker cp temp-rperf-container:/rpms/. ./release-artifacts/rpm/
-	@docker rm temp-rperf-container
+	@mkdir -p ./release-artifacts/rpm/
+	@echo "Extracting RPM files..."
+	@docker run --platform linux/amd64 --rm \
+		-v $$(pwd)/release-artifacts/rpm:/host-output \
+		serviceradar-rpm-rperf-checker \
+		/bin/bash -c "if [ -n \"\$$(ls -A /rpms)\" ]; then cp -v /rpms/* /host-output/; else echo 'No RPM files found!'; ls -la /rpms; exit 1; fi"
+	@echo "RPM files extracted to ./release-artifacts/rpm/"
 
 .PHONY: rpm-web
 rpm-web: rpm-prep ## Build the web RPM package
