@@ -5,7 +5,7 @@ title: Sync Service Configuration
 
 # Sync Service Configuration
 
-The ServiceRadar Sync service integrates external data sources with ServiceRadar's monitoring capabilities. It works with the KV Store to automatically synchronize device information from external systems and generate appropriate monitoring configurations. This allows for automatic discovery and monitoring of devices from systems like Armis, NetBox, and other inventory or security platforms.
+The ServiceRadar Sync service integrates external data sources with ServiceRadar's monitoring capabilities. It works with the KV Store to automatically synchronize device information from external systems and generate appropriate monitoring configurations. This allows for automatic discovery and monitoring of devices from systems like NetBox, Armis, and other inventory or security platforms.
 
 ## Overview
 
@@ -21,13 +21,13 @@ The Sync service:
 ```mermaid
 graph TD
     subgraph "Sync Architecture"
-        Sync[Sync Service] -->|Fetch| ExternalSystems[External Systems<br/>CMDB, IPAM, etc.]
+        Sync[Sync Service] -->|Fetch| ExternalSystems[External Systems<br/>NetBox, Armis, etc.]
         Sync -->|Store| KV[KV Store<br/>:50057]
         Agent[Agent] -->|Read| KV
     end
 ```
 
-The Sync service integrates with external systems, fetches device and service information, and makes it available to ServiceRadar agents through the KV Store.
+The Sync service integrates with external systems, fetches device and service information, and makes it available to ServiceRadar agents through the KV Store. This creates a seamless workflow where network inventory systems can automatically update monitoring configurations without manual intervention.
 
 ## Prerequisites
 
@@ -59,13 +59,14 @@ The Sync service is configured via `/etc/serviceradar/sync.json`:
     }
   },
   "sources": {
-    "armis": {
-      "type": "armis",
-      "endpoint": "http://localhost:8080/v1/devices",
-      "prefix": "armis/",
+    "netbox": {
+      "type": "netbox",
+      "endpoint": "https://192.168.2.73",
+      "prefix": "netbox/",
       "credentials": {
-        "api_key": "your-armis-api-key-here"
-      }
+        "api_token": "72d72b0ddddddd3f7951051cd78cd7c"
+      },
+      "insecure_skip_verify": true
     }
   }
 }
@@ -87,14 +88,44 @@ Each source in the `sources` map requires:
 
 | Option | Description | Required |
 |--------|-------------|----------|
-| `type` | Integration type (e.g., "armis", "netbox") | Yes |
+| `type` | Integration type (e.g., "netbox", "armis") | Yes |
 | `endpoint` | API endpoint URL | Yes |
 | `prefix` | Key prefix in the KV store | Yes |
 | `credentials` | Authentication credentials (API keys, tokens) | Yes |
+| `insecure_skip_verify` | Skip TLS verification for self-signed certificates | No |
 
 ## Supported Integrations
 
 The Sync service supports the following integration types:
+
+### NetBox Integration
+
+```json
+"netbox": {
+  "type": "netbox",
+  "endpoint": "https://netbox.example.com/api",
+  "prefix": "netbox/",
+  "credentials": {
+    "api_token": "your_netbox_token",
+    "expand_subnets": "true"
+  },
+  "insecure_skip_verify": true
+}
+```
+
+The NetBox integration:
+- Retrieves IP addresses, devices, and VMs from NetBox
+- Creates monitor configurations based on device types and services
+- Stores the configurations in the KV store with prefix `netbox/`
+- Supports subnet expansion with the `expand_subnets` option
+
+#### NetBox-Specific Options
+
+| Option | Description | Default | Required |
+|--------|-------------|---------|----------|
+| `api_token` | NetBox API token | N/A | Yes |
+| `expand_subnets` | Use subnet masks from NetBox instead of /32 | `false` | No |
+| `insecure_skip_verify` | Skip TLS verification | `false` | No |
 
 ### Armis Integration
 
@@ -114,35 +145,23 @@ The Armis integration:
 - Creates device records in the KV store
 - Automatically generates network sweep configurations for discovered devices
 
-### NetBox Integration
+#### Armis-Specific Options
 
-```json
-"netbox": {
-  "type": "netbox",
-  "endpoint": "https://netbox.example.com/api",
-  "prefix": "netbox/",
-  "credentials": {
-    "token": "your_netbox_token"
-  }
-}
-```
-
-The NetBox integration:
-- Retrieves IP addresses, devices, and VMs from NetBox
-- Creates monitor configurations based on device types and services
-- Stores the configurations in the KV store with prefix `netbox/`
+| Option | Description | Default | Required |
+|--------|-------------|---------|----------|
+| `api_key` | Armis API key | N/A | Yes |
 
 ## Security Requirements
 
 ### mTLS Configuration
 
-The Sync service uses mTLS to connect to the KV Store. The following settings are required:
+The Sync service **requires** mTLS for security. The following settings are mandatory:
 
 ```json
 "security": {
   "mode": "mtls",
   "cert_dir": "/etc/serviceradar/certs",
-  "server_name": "192.168.2.23",
+  "server_name": "your-kv-server-ip-or-hostname",
   "role": "poller",
   "tls": {
     "cert_file": "sync.pem",
@@ -153,11 +172,11 @@ The Sync service uses mTLS to connect to the KV Store. The following settings ar
 }
 ```
 
+- The `cert_file`, `key_file`, and `ca_file` paths are relative to the `cert_dir` if not absolute
+- Use absolute paths when certificates are stored outside the default directory
 - The `server_name` must match the hostname/IP in the KV service's certificate
-- The Sync service needs a valid client certificate for authentication
-- The Sync certificate's identity must have appropriate permissions in the KV service's RBAC configuration
 
-## KV Store Integration
+### KV Store RBAC Configuration
 
 The Sync service requires `writer` access to the KV store. Update your KV service configuration (`/etc/serviceradar/kv.json`) to include the Sync service's certificate identity:
 
@@ -212,11 +231,15 @@ Note the `kv_address` and `kv_security` sections which enable the agent to conne
 
 ## Generated Configurations
 
-The Sync service automatically generates configurations that agents can consume:
+The Sync service automatically generates configurations that agents can consume. These configurations are stored in the KV store under keys that follow this pattern:
 
-### Network Sweep Configuration
+```
+agents/<hostname>/checkers/<checker-type>/<checker-name>.json
+```
 
-For discovered IP addresses, the Sync service creates network sweep configurations. Here's an example of a generated configuration:
+### Network Sweep Configuration Example
+
+For discovered IP addresses, the Sync service creates network sweep configurations like this:
 
 ```json
 {
@@ -225,12 +248,7 @@ For discovered IP addresses, the Sync service creates network sweep configuratio
     "192.168.1.2/32",
     "192.168.1.3/32",
     "192.168.1.4/32",
-    "192.168.1.5/32",
-    "192.168.1.6/32",
-    "192.168.1.7/32",
-    "192.168.1.8/32",
-    "192.168.1.9/32",
-    "192.168.1.10/32"
+    "192.168.1.5/32"
   ],
   "ports": [22, 80, 443, 3306, 5432, 6379, 8080, 8443],
   "sweep_modes": ["icmp", "tcp"],
@@ -243,7 +261,7 @@ For discovered IP addresses, the Sync service creates network sweep configuratio
 }
 ```
 
-This configuration is stored at a key like `agents/192.168.2.23/checkers/sweep/sweep.json` in the KV store for agents to consume.
+This configuration would be stored at a key like `agents/192.168.2.23/checkers/sweep/sweep.json` in the KV store.
 
 ## Installation and Usage
 
@@ -296,6 +314,45 @@ nats kv get serviceradar-kv agents/192.168.2.23/checkers/sweep/sweep.json \
   --tlsca /etc/serviceradar/certs/root.pem --raw
 ```
 
+## Under the Hood: How the Sync Service Works
+
+The Sync service operates on a simple yet powerful principle:
+
+1. At the configured poll interval, it connects to each configured external source
+2. It fetches device information and converts it to ServiceRadar configurations
+3. It writes the configurations to the KV store using the configured prefixes
+4. Agents configured to use the KV store automatically pick up these configurations
+
+### How NetBox Integration Works
+
+The NetBox integration:
+1. Connects to the NetBox API using the provided token
+2. Retrieves device information including IP addresses
+3. Processes the device data to extract relevant monitoring information
+4. For each device with a primary IP address:
+    - Stores the device data in the KV store
+    - Adds the IP to a network sweep configuration
+5. Writes the complete sweep configuration to the KV store
+
+If `expand_subnets` is enabled, the integration will use the subnet masks as defined in NetBox. Otherwise, it treats all IPs as /32 (individual hosts).
+
+## Firewall Configuration
+
+If you're using a firewall, you need to open ports for the Sync service:
+
+```bash
+# For UFW (Ubuntu)
+sudo ufw allow 50058/tcp  # Sync service gRPC port
+
+# For firewalld (RHEL/Oracle Linux)
+sudo firewall-cmd --permanent --add-port=50058/tcp
+sudo firewall-cmd --reload
+```
+
+Make sure the Sync service can also reach:
+- Your KV service (typically port 50057)
+- Your external APIs (typically HTTPS on port 443)
+
 ## Troubleshooting
 
 ### Service Won't Start
@@ -315,10 +372,19 @@ Common issues include:
 
 If an integration isn't working:
 
-1. Check that the API endpoint is accessible from the Sync service
-2. Verify the credentials are valid
-3. Ensure the prefix is correctly configured
-4. Look for specific error messages in the logs
+1. Check that the API endpoint is accessible from the Sync service:
+   ```bash
+   curl -k https://your-netbox-server/api/dcim/devices/
+   ```
+
+2. Verify the credentials are valid (try a manual API call with the token)
+
+3. Ensure the prefix is correctly configured in both Sync and KV configurations
+
+4. Look for specific error messages in the logs:
+   ```bash
+   grep "error" /var/log/serviceradar-sync.log
+   ```
 
 ### Permission Issues
 
@@ -339,3 +405,55 @@ If the Sync service can't write to the KV store:
 4. **Monitor Sync Activity**: Set up monitoring for the Sync service itself to ensure it's operating correctly
 
 5. **Backup Configurations**: Periodically backup your Sync service configuration and related certificates
+
+## Example: Complete Sync Configuration
+
+Here's a comprehensive example that includes multiple data sources:
+
+```json
+{
+  "kv_address": "192.168.2.23:50057",
+  "listen_addr": "192.168.2.23:50058",
+  "poll_interval": "5m",
+  "security": {
+    "mode": "mtls",
+    "cert_dir": "/etc/serviceradar/certs",
+    "server_name": "192.168.2.23",
+    "role": "poller",
+    "tls": {
+      "cert_file": "sync.pem",
+      "key_file": "sync-key.pem",
+      "ca_file": "root.pem",
+      "client_ca_file": "root.pem"
+    }
+  },
+  "sources": {
+    "netbox": {
+      "type": "netbox",
+      "endpoint": "https://192.168.2.73",
+      "prefix": "netbox/",
+      "credentials": {
+        "api_token": "72d72b0ddddddd3f7951051cd78cd7c",
+        "expand_subnets": "true"
+      },
+      "insecure_skip_verify": true
+    },
+    "armis": {
+      "type": "armis",
+      "endpoint": "https://api.armis.internal/v1/devices",
+      "prefix": "armis/",
+      "credentials": {
+        "api_key": "your_armis_api_key"
+      }
+    }
+  }
+}
+```
+
+With this configuration, the Sync service will connect to both NetBox and Armis, retrieve device information from both systems, and create network sweep configurations that will be automatically picked up by agents configured to use the KV store.
+
+## Next Steps
+
+- Set up [TLS Security](./tls-security.md) to secure communications between components
+- Configure your [Agents](./configuration.md#agent-configuration) to use the KV store
+- Learn more about [ServiceRadar's Architecture](./architecture.md)
