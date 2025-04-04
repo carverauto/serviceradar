@@ -213,7 +213,11 @@ cfssl sign -ca root.pem -ca-key root-key.pem -config cfssl.json -profile server 
 
 # Checkers
 cfssl genkey checkers-csr.json | cfssljson -bare checkers
-cfssl sign -ca root.pem -ca-key root-key.pem -config cfssl.json -profile client checkers.csr | cfssljson -bare checkers 
+cfssl sign -ca root.pem -ca-key root-key.pem -config cfssl.json -profile dual checkers.csr | cfssljson -bare checkers 
+
+# RPerf Checker
+cfssl genkey rperf-checker-csr.json | cfssljson -bare rperf-checker
+cfssl sign -ca root.pem -ca-key root-key.pem -config cfssl.json -profile server rperf-checker.csr | cfssljson -bare rperf-checker
 ```
 
 :::note

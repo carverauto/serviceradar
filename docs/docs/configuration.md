@@ -300,7 +300,7 @@ The ServiceRadar KV service connects to the NATS Server and provides a gRPC inte
 
 ```json
 {
-  "listen_addr": "changeme:50057",
+  "listen_addr": ":50057",
   "nats_url": "nats://127.0.0.1:4222",
   "security": {
     "mode": "mtls",
@@ -390,7 +390,7 @@ For monitoring network devices via SNMP, edit `/etc/serviceradar/checkers/snmp.j
 ```json
 {
   "node_address": "localhost:50051",
-  "listen_addr": ":50054",
+  "listen_addr": ":50080",
   "security": {
     "server_name": "changeme",
     "mode": "none",
@@ -429,8 +429,7 @@ For monitoring Dusk nodes, edit `/etc/serviceradar/checkers/dusk.json`:
   "name": "dusk",
   "type": "grpc",
   "node_address": "localhost:8080",
-  "address": "localhost:50052",
-  "listen_addr": ":50052",
+  "listen_addr": ":50082",
   "timeout": "5m",
   "security": {
     "mode": "none",
@@ -461,7 +460,7 @@ For network performance monitoring, edit `/etc/serviceradar/checkers/rperf.json`
 
 ```json
 {
-  "listen_addr": "0.0.0.0:50059",
+  "listen_addr": "0.0.0.0:50081",
   "default_poll_interval": 300,
   "targets": [
     {
