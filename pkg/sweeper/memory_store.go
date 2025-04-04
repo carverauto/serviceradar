@@ -257,19 +257,6 @@ func (*InMemoryStore) updateLastSweep(r *models.Result, lastSweep *time.Time) {
 	}
 }
 
-/*
-	func (s *InMemoryStore) updateHostAndPortResults(r *models.Result, hostMap map[string]*models.HostResult, portCounts map[int]int) {
-		host := s.getOrCreateHost(r, hostMap)
-
-		if r.Available {
-			host.Available = true
-			s.updateHostBasedOnMode(r, host, portCounts)
-		} else if r.Target.Mode == models.ModeICMP {
-			s.updateICMPStatus(host, r)
-		}
-	}
-*/
-
 func (s *InMemoryStore) updateHostAndPortResults(r *models.Result, hostMap map[string]*models.HostResult, portCounts map[int]int) {
 	host := s.getOrCreateHost(r, hostMap)
 
