@@ -212,6 +212,8 @@ func (s *SweepService) CheckICMP(ctx context.Context, host string) (*models.Resu
 	for r := range results {
 		result = r
 
+		log.Printf("CheckICMP %s: Available=%v, RespTime=%v, PacketLoss=%f", host, result.Available, result.RespTime, result.PacketLoss)
+
 		break // Expecting one result
 	}
 
