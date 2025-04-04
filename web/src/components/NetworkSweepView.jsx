@@ -151,8 +151,6 @@ const NetworkSweepView = ({ nodeId, service, standalone = false }) => {
         ? JSON.parse(service.details)
         : service.details;
 
-    console.log(sweepDetails);
-
     // Network list handling
     const networks = useMemo(() => {
         if (!sweepDetails?.network) return [];
