@@ -260,20 +260,16 @@ func (*InMemoryStore) updateLastSweep(r *models.Result, lastSweep *time.Time) {
 func (s *InMemoryStore) updateHostAndPortResults(r *models.Result, hostMap map[string]*models.HostResult, portCounts map[int]int) {
 	host := s.getOrCreateHost(r, hostMap)
 
-	if r.Available {
-		host.Available = true
-		s.updateHostBasedOnMode(r, host, portCounts)
-	} else if r.Target.Mode == models.ModeICMP {
+	if r.Target.Mode == models.ModeICMP {
 		s.updateICMPStatus(host, r)
 	}
-}
 
-func (s *InMemoryStore) updateHostBasedOnMode(r *models.Result, host *models.HostResult, portCounts map[int]int) {
-	switch r.Target.Mode {
-	case models.ModeICMP:
-		s.updateICMPStatus(host, r)
-	case models.ModeTCP:
-		s.updateTCPPortResults(host, r, portCounts)
+	if r.Available {
+		host.Available = true
+
+		if r.Target.Mode == models.ModeTCP {
+			s.updateTCPPortResults(host, r, portCounts)
+		}
 	}
 }
 
@@ -282,11 +278,11 @@ func (*InMemoryStore) updateICMPStatus(host *models.HostResult, r *models.Result
 		host.ICMPStatus = &models.ICMPStatus{}
 	}
 
-	host.ICMPStatus.Available = true
+	host.ICMPStatus.Available = r.Available
 
 	host.ICMPStatus.RoundTrip = r.RespTime
 
-	host.ICMPStatus.PacketLoss = 0
+	host.ICMPStatus.PacketLoss = r.PacketLoss
 }
 
 func (*InMemoryStore) updateTCPPortResults(host *models.HostResult, r *models.Result, portCounts map[int]int) {
