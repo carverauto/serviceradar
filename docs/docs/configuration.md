@@ -16,14 +16,21 @@ Edit `/etc/serviceradar/agent.json`:
 ```json
 {
   "checkers_dir": "/etc/serviceradar/checkers",
-  "listen_addr": ":50051",
+  "listen_addr": "changeme:50051",
   "service_type": "grpc",
   "service_name": "AgentService",
+  "agent_id": "default-agent",
+  "agent_name": "changeme",
   "security": {
     "mode": "none",
     "cert_dir": "/etc/serviceradar/certs",
     "server_name": "changeme",
-    "role": "agent"
+    "role": "agent",
+    "tls": {
+      "cert_file": "agent.pem",
+      "key_file": "agent-key.pem",
+      "ca_file": "root.pem"
+    }
   }
 }
 ```
@@ -36,11 +43,17 @@ Edit `/etc/serviceradar/agent.json`:
 - `listen_addr`: Address and port the agent listens on
 - `service_type`: Type of service (should be "grpc")
 - `service_name`: Name of the service (should be "AgentService")
+- `agent_id`: Unique identifier for this agent (should be unique across all agents)
+- `agent_name`: Name of this agent (can be any string)
 - `security`: Security settings
   - `mode`: Security mode ("none" or "mtls")
   - `cert_dir`: Directory for TLS certificates
   - `server_name`: Hostname/IP of the poller (important for TLS)
   - `role`: Role of this component ("agent")
+  - `tls`: TLS settings
+    - `cert_file`: Path to the agent's TLS certificate
+    - `key_file`: Path to the agent's private key
+    - `ca_file`: Path to the root CA certificate for verifying the poller
 
 ## Poller Configuration
 
@@ -52,29 +65,68 @@ Edit `/etc/serviceradar/poller.json`:
 {
   "agents": {
     "local-agent": {
-      "address": "localhost:50051",
-      "security": { 
-        "server_name": "changeme", 
-        "mode": "none" 
+      "address": "changeme:50051",
+      "security": {
+        "server_name": "changeme",
+        "mode": "mtls",
+        "cert_dir": "/etc/serviceradar/certs",
+        "tls": {
+          "cert_file": "agent.pem",
+          "key_file": "agent-key.pem",
+          "ca_file": "root.pem",
+          "client_ca_file": "root.pem"
+        }
       },
       "checks": [
-        { "service_type": "process", "service_name": "nginx", "details": "nginx" },
-        { "service_type": "port", "service_name": "SSH", "details": "127.0.0.1:22" },
-        { "service_type": "icmp", "service_name": "ping", "details": "8.8.8.8" }
+        {
+          "service_type": "process",
+          "service_name": "serviceradar-agent",
+          "details": "serviceradar-agent"
+        },
+        {
+          "service_type": "port",
+          "service_name": "SSH",
+          "details": "127.0.0.1:22"
+        },
+        {
+          "service_type": "snmp",
+          "service_name": "snmp",
+          "details": "changeme:50054"
+        },
+        {
+          "service_type": "icmp",
+          "service_name": "ping",
+          "details": "1.1.1.1"
+        },
+        {
+          "service_type": "sweep",
+          "service_name": "network_sweep",
+          "details": ""
+        },
+        {
+          "service_type": "grpc",
+          "service_name": "rperf-checker",
+          "details": "changeme:50059"
+        }
       ]
     }
   },
-  "core_address": "changeme:50052",
+  "core_address": "<changeme - core ip/host>:50052",
   "listen_addr": ":50053",
   "poll_interval": "30s",
-  "poller_id": "my-poller",
+  "poller_id": "demo-staging",
   "service_name": "PollerService",
   "service_type": "grpc",
   "security": {
     "mode": "none",
     "cert_dir": "/etc/serviceradar/certs",
-    "server_name": "changeme",
-    "role": "poller"
+    "server_name": "<changeme - core ip/host>",
+    "role": "poller",
+    "tls": {
+      "key_file": "poller-key.pem",
+      "ca_file": "root.pem",
+      "client_ca_file": "root.pem"
+    }
   }
 }
 ```
@@ -115,7 +167,7 @@ Edit `/etc/serviceradar/core.json`:
   "listen_addr": ":8090",
   "grpc_addr": ":50052",
   "alert_threshold": "5m",
-  "known_pollers": ["my-poller"],
+  "known_pollers": ["demo-staging"],
   "metrics": {
     "enabled": true,
     "retention": 100,
@@ -124,7 +176,24 @@ Edit `/etc/serviceradar/core.json`:
   "security": {
     "mode": "none",
     "cert_dir": "/etc/serviceradar/certs",
-    "role": "core"
+    "role": "core",
+    "tls": {
+      "cert_file": "/etc/serviceradar/certs/core.pem",
+      "key_file": "/etc/serviceradar/certs/core-key.pem",
+      "ca_file": "/etc/serviceradar/certs/root.pem",
+      "client_ca_file": "/etc/serviceradar/certs/root.pem"
+    }
+  },
+  "cors": {
+    "allowed_origins": ["https://changeme", "http://localhost:3000"],
+    "allow_credentials": true
+  },
+  "auth": {
+    "jwt_secret": "your-secret-key-here",
+    "jwt_expiration": "24h",
+    "local_users": {
+      "admin": "$2a$10$7cTFzX5iSkSrxCeO3ZU3EOc/zy.cvGO9GhsE9jVo2i.tfooObaR"
+    }
   },
   "webhooks": [
     {
@@ -139,7 +208,7 @@ Edit `/etc/serviceradar/core.json`:
       ]
     },
     {
-      "enabled": true,
+      "enabled": false,
       "url": "https://discord.com/api/webhooks/changeme",
       "cooldown": "15m",
       "template": "{\"embeds\":[{\"title\":\"{{.alert.Title}}\",\"description\":\"{{.alert.Message}}\",\"color\":{{if eq .alert.Level \"error\"}}15158332{{else if eq .alert.Level \"warning\"}}16776960{{else}}3447003{{end}},\"timestamp\":\"{{.alert.Timestamp}}\",\"fields\":[{\"name\":\"Node ID\",\"value\":\"{{.alert.NodeID}}\",\"inline\":true}{{range $key, $value := .alert.Details}},{\"name\":\"{{$key}}\",\"value\":\"{{$value}}\",\"inline\":true}{{end}}]}]}"
@@ -231,26 +300,26 @@ The ServiceRadar KV service connects to the NATS Server and provides a gRPC inte
 
 ```json
 {
-  "listen_addr": ":50054",
-  "nats_url": "nats://localhost:4222",
+  "listen_addr": "changeme:50057",
+  "nats_url": "nats://127.0.0.1:4222",
   "security": {
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
-    "server_name": "kv.serviceradar",
-    "role": "server"
+    "server_name": "changeme",
+    "role": "kv",
+    "tls": {
+      "cert_file": "kv.pem",
+      "key_file": "kv-key.pem",
+      "ca_file": "root.pem",
+      "client_ca_file": "root.pem"
+    }
   },
   "rbac": {
     "roles": [
-      {
-        "identity": "CN=sync.serviceradar,O=Carver Automation",
-        "role": "writer"
-      },
-      {
-        "identity": "CN=agent.serviceradar,O=Carver Automation",
-        "role": "reader"
-      }
+      {"identity": "CN=changeme,O=ServiceRadar", "role": "reader"}
     ]
-  }
+  },
+  "bucket": "serviceradar-kv"
 }
 ```
 
@@ -307,6 +376,10 @@ Save the file and reload the systemd configuration:
 ```bash
 sudo systemctl daemon-reload
 ```
+
+### Syncing the KV Store
+
+Checkout the [Syncing the KV Store](./sync.md) documentation for details on how to sync the KV store with the ServiceRadar components.
 
 ## Optional Checker Configurations
 
