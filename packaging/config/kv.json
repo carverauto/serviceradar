@@ -1,5 +1,5 @@
 {
-  "listen_addr": ":50054",
+  "listen_addr": ":50057",
   "nats_url": "nats://127.0.0.1:4222",
   "security": {
     "mode": "mtls",
