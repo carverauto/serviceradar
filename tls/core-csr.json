@@ -1,5 +1,5 @@
 {
   "hosts": ["192.168.2.22", "172.233.208.210"],
   "key": {"algo": "ecdsa", "size": 256},
-  "names": [{"O": "ServiceRadar", "CN": "agent.serviceradar"}]
+  "names": [{"O": "ServiceRadar", "CN": "core.serviceradar"}]
 }
