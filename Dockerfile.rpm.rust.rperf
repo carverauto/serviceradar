@@ -1,5 +1,5 @@
 # Use pre-built base image
-FROM rockylinux9-rust-rpm-base AS builder
+FROM ghcr.io/carverauto/rockylinux9-rust-rpm-base:latest AS builder
 
 ARG VERSION=1.0.28
 ARG RELEASE=1
