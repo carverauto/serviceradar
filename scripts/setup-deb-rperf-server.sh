@@ -7,7 +7,7 @@ cd "${SCRIPT_DIR}/.."
 
 # Define RPERF_DIR for Dockerfile location
 RPERF_DIR="./cmd/checkers/rperf-server"
-if [ ! -f "$RPERF_DIR/Dockerfile" ]; then
+if [ ! -f "$RPERF_DIR/Dockerfile.deb" ]; then
     echo "Error: Dockerfile not found in $RPERF_DIR."
     exit 1
 fi
