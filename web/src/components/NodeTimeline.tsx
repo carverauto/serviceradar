@@ -14,8 +14,7 @@
  * limitations under the License.
  */
 
-'use client';
-
+// src/components/NodeTimeline.tsx
 import React, { useState, useEffect } from 'react';
 import {
     AreaChart,
@@ -26,30 +25,44 @@ import {
     Tooltip,
     ResponsiveContainer,
 } from 'recharts';
-import { fetchAPI } from '../lib/api';
+import { fetchFromAPI } from '@/lib/api';
+import CustomTooltip from './CustomTooltip';
 
-const NodeTimeline = ({ nodeId, initialHistory = [] }) => {
-    const [availabilityData, setAvailabilityData] = useState(initialHistory);
+export interface NodeHistoryEntry {
+    timestamp: string;
+    is_healthy: boolean;
+}
+
+interface NodeTimelineProps {
+    nodeId: string;
+    initialHistory?: NodeHistoryEntry[];
+}
+
+const NodeTimeline: React.FC<NodeTimelineProps> = ({ nodeId, initialHistory = [] }) => {
+    const [availabilityData, setAvailabilityData] = useState<NodeHistoryEntry[]>(initialHistory);
     const [loading, setLoading] = useState(initialHistory.length === 0);
-    const [error, setError] = useState(null);
+    const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
         const fetchData = async () => {
             try {
-                const data = await fetchAPI(`/api/nodes/${nodeId}/history`);
+                const data = await fetchFromAPI<NodeHistoryEntry[]>(`/nodes/${nodeId}/history`);
 
-                // Transform the history data for the chart
-                const timelineData = data.map((point) => ({
-                    timestamp: new Date(point.timestamp).getTime(),
-                    status: point.is_healthy ? 1 : 0,
-                    tooltipTime: new Date(point.timestamp).toLocaleString(),
-                }));
+                if (data) {
+                    // Transform the history data for the chart
+                    const timelineData = data.map((point) => ({
+                        timestamp: new Date(point.timestamp).getTime(),
+                        status: point.is_healthy ? 1 : 0,
+                        tooltipTime: new Date(point.timestamp).toLocaleString(),
+                        is_healthy: point.is_healthy
+                    }));
 
-                setAvailabilityData(timelineData);
-                setLoading(false);
+                    setAvailabilityData(timelineData as unknown as NodeHistoryEntry[]);
+                    setLoading(false);
+                }
             } catch (err) {
                 console.error('Error fetching history:', err);
-                setError(err.message);
+                setError((err as Error).message);
                 setLoading(false);
             }
         };
@@ -61,23 +74,11 @@ const NodeTimeline = ({ nodeId, initialHistory = [] }) => {
         }
 
         fetchData();
+
         const interval = setInterval(fetchData, 10000);
+
         return () => clearInterval(interval);
     }, [nodeId, initialHistory, availabilityData.length]);
-
-    const CustomTooltip = ({ active, payload }) => {
-        if (!active || !payload || !payload.length) return null;
-
-        const data = payload[0].payload;
-        return (
-            <div className="bg-white dark:bg-gray-700 p-4 rounded shadow-lg border dark:border-gray-600 dark:text-gray-100">
-                <p className="text-sm font-semibold">{data.tooltipTime}</p>
-                <p className="text-sm">
-                    Status: {data.status === 1 ? 'Online' : 'Offline'}
-                </p>
-            </div>
-        );
-    };
 
     if (loading && availabilityData.length === 0) {
         return <div className="text-center p-4">Loading timeline...</div>;
