@@ -1,9 +1,8 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, {useState, useEffect, useMemo, useCallback} from 'react';
 import {
     Server,
-    Activity,
     AlertCircle,
     CheckCircle,
     ChevronDown,
@@ -74,6 +73,26 @@ const PollerDashboard: React.FC<PollerDashboardProps> = ({
 
         return () => clearInterval(timer);
     }, [router]);
+
+    const sortPollers = useCallback((a: TransformedPoller, b: TransformedPoller): number => {
+        switch (sortBy) {
+            case "name":
+                return sortOrder === "asc"
+                    ? a.name.localeCompare(b.name)
+                    : b.name.localeCompare(a.name);
+            case "status":
+                // Sort by status priority: critical > warning > healthy
+                const statusPriority = { critical: 0, warning: 1, healthy: 2 };
+                const diff = statusPriority[a.status] - statusPriority[b.status];
+                return sortOrder === "asc" ? diff : -diff;
+            case "lastUpdate":
+                const dateA = new Date(a.lastUpdate).getTime();
+                const dateB = new Date(b.lastUpdate).getTime();
+                return sortOrder === "asc" ? dateA - dateB : dateB - dateA;
+            default:
+                return 0;
+        }
+    }, [sortBy, sortOrder]);
 
     // Group services by their type
     const groupServicesByType = (services: Service[] = []): { [key: string]: Service[] } => {
@@ -213,27 +232,6 @@ const PollerDashboard: React.FC<PollerDashboardProps> = ({
         });
     }, [nodes, serviceMetrics]);
 
-    // Custom sort function
-    const sortPollers = (a: TransformedPoller, b: TransformedPoller): number => {
-        switch (sortBy) {
-            case "name":
-                return sortOrder === "asc"
-                    ? a.name.localeCompare(b.name)
-                    : b.name.localeCompare(a.name);
-            case "status":
-                // Sort by status priority: critical > warning > healthy
-                const statusPriority = { critical: 0, warning: 1, healthy: 2 };
-                const diff = statusPriority[a.status] - statusPriority[b.status];
-                return sortOrder === "asc" ? diff : -diff;
-            case "lastUpdate":
-                const dateA = new Date(a.lastUpdate).getTime();
-                const dateB = new Date(b.lastUpdate).getTime();
-                return sortOrder === "asc" ? dateA - dateB : dateB - dateA;
-            default:
-                return 0;
-        }
-    };
-
     // Filter and sort pollers
     const filteredPollers = useMemo(() => {
         return [...transformedPollers]
@@ -252,7 +250,7 @@ const PollerDashboard: React.FC<PollerDashboardProps> = ({
                 return matchesSearch && matchesStatus;
             })
             .sort(sortPollers);
-    }, [transformedPollers, searchTerm, filterStatus, sortBy, sortOrder]);
+    }, [transformedPollers, searchTerm, filterStatus, sortPollers]);
 
     const toggleExpand = (pollerId: string) => {
         if (expandedPoller === pollerId) {
