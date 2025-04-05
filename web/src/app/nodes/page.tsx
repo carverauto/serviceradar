@@ -18,8 +18,8 @@
 
 import { Suspense } from "react";
 import { cookies } from "next/headers";
-import NodeList from "../../components/NodeList";
 import { ServiceMetric, Node } from "@/types/types";
+import PollerDashboard from "@/components/PollerDashboard";
 
 export const revalidate = 0;
 
@@ -126,7 +126,7 @@ export default async function NodesPage() {
           </div>
         }
       >
-        <NodeList initialNodes={nodes} serviceMetrics={serviceMetrics} />
+        <PollerDashboard initialNodes={nodes} serviceMetrics={serviceMetrics} />
       </Suspense>
     </div>
   );

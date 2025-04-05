@@ -26,7 +26,8 @@ import {
     Tooltip,
     ResponsiveContainer,
 } from 'recharts';
-import { fetchAPI } from '../lib/api';
+import { fetchFromAPI } from '../lib/api';
+// import { fetchAPI } from '../lib/api';
 
 const NodeTimeline = ({ nodeId, initialHistory = [] }) => {
     const [availabilityData, setAvailabilityData] = useState(initialHistory);
@@ -36,7 +37,7 @@ const NodeTimeline = ({ nodeId, initialHistory = [] }) => {
     useEffect(() => {
         const fetchData = async () => {
             try {
-                const data = await fetchAPI(`/api/nodes/${nodeId}/history`);
+                const data = await fetchFromAPI(`/api/nodes/${nodeId}/history`);
 
                 // Transform the history data for the chart
                 const timelineData = data.map((point) => ({
