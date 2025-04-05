@@ -28,14 +28,11 @@ import {
 import { fetchFromAPI } from '@/lib/api';
 import CustomTooltip from './CustomTooltip';
 
-// Define the NodeHistoryEntry interface
 export interface NodeHistoryEntry {
     timestamp: string;
     is_healthy: boolean;
-    // Add any other properties from your history data
 }
 
-// Define the component props interface
 interface NodeTimelineProps {
     nodeId: string;
     initialHistory?: NodeHistoryEntry[];
@@ -77,7 +74,9 @@ const NodeTimeline: React.FC<NodeTimelineProps> = ({ nodeId, initialHistory = []
         }
 
         fetchData();
+
         const interval = setInterval(fetchData, 10000);
+
         return () => clearInterval(interval);
     }, [nodeId, initialHistory, availabilityData.length]);
 
