@@ -8,8 +8,18 @@ import { unstable_noStore as noStore } from "next/cache";
 
 export const revalidate = 0;
 
+// Define the history entry type
+interface NodeHistoryEntry {
+    timestamp: string;
+    is_healthy: boolean;
+}
+
+// Define route params as a Promise type to match the error message
+type Params = Promise<{ id: string }>;
+
+// Define props type for the dynamic route
 interface RouteProps {
-    params: Promise<{ id: string }>;
+    params: Params;
 }
 
 async function fetchNodeData(nodeId: string, token?: string) {
@@ -26,31 +36,37 @@ async function fetchNodeData(nodeId: string, token?: string) {
         const metrics = await fetchFromAPI<ServiceMetric[]>(`/nodes/${nodeId}/metrics`, token);
 
         // Fetch history data if available
-        let history = [];
+        let history: NodeHistoryEntry[] = [];
         try {
-            history = await fetchFromAPI<any[]>(`/nodes/${nodeId}/history`, token);
+            const historyData = await fetchFromAPI<NodeHistoryEntry[]>(`/nodes/${nodeId}/history`, token);
+            // Check if historyData is not null before assigning
+            if (historyData) {
+                history = historyData;
+            }
         } catch (e) {
             console.warn(`Could not fetch history for ${nodeId}:`, e);
             // Continue without history data
         }
 
-        return { node, metrics: metrics || [], history: history || [] };
+        return { node, metrics: metrics || [], history: history || [], error: undefined };
     } catch (error) {
         console.error(`Error fetching data for node ${nodeId}:`, error);
-        return { error: (error as Error).message };
+        return { node: undefined, metrics: [], history: [], error: (error as Error).message };
     }
 }
 
-export async function generateMetadata({ params }: { params: { id: string }}) {
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
+    const resolvedParams = await params;
     return {
-        title: `Node: ${params.id} - ServiceRadar`,
-        description: `Detailed dashboard for node ${params.id}`,
+        title: `Node: ${resolvedParams.id} - ServiceRadar`,
+        description: `Detailed dashboard for node ${resolvedParams.id}`,
     };
 }
 
-export default async function NodeDetailPage(props: RouteProps) {
-    const params = await props.params;
-    const nodeId = params.id;
+// Update the function signature to match RouteProps
+export default async function NodeDetailPage({ params }: RouteProps) {
+    const resolvedParams = await params;
+    const nodeId = resolvedParams.id;
 
     const cookieStore = await cookies();
     const token = cookieStore.get("accessToken")?.value;

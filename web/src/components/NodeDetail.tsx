@@ -11,15 +11,12 @@ import {
     XCircle,
     RefreshCw,
     Clock,
-    AlertTriangle,
     AlertCircle,
     ChevronDown,
     ChevronUp,
     Filter
 } from 'lucide-react';
 import {
-    LineChart,
-    Line,
     XAxis,
     YAxis,
     CartesianGrid,
@@ -29,18 +26,22 @@ import {
     AreaChart,
     Area
 } from 'recharts';
-import { Node, ServiceMetric, Service } from "@/types/types";
+import { Node, ServiceMetric } from "@/types/types";
 import ServiceSparkline from "./ServiceSparkline";
 
-// You might need to adjust these imports based on your project structure
-// Some components might be from your existing codebase
 import { PingStatus } from "./NetworkStatus";
 import NodeTimeline from "./NodeTimeline";
+import { NodeHistoryEntry } from "@/components/NodeTimeline";
+
+interface ResponseTimeDataPoint {
+    timestamp: number;
+    [key: string]: number;
+}
 
 interface NodeDetailProps {
     node?: Node;
     metrics?: ServiceMetric[];
-    history?: any[];
+    history?: NodeHistoryEntry[];
     error?: string;
 }
 
@@ -162,22 +163,27 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
     });
 
     // Process response time data for the main chart
-    const responseTimeData = Object.entries(serviceMetricsMap).map(([serviceName, metrics]) => {
-        // Get only the metrics for ICMP services for the main chart
-        const service = node.services?.find(s => s.name === serviceName);
-        if (service?.type !== 'icmp') return null;
+    const responseTimeData: ResponseTimeDataPoint[] = Object.entries(serviceMetricsMap)
+        .map(([serviceName, metrics]) => {
+            // Get only the metrics for ICMP services for the main chart
+            const service = node.services?.find(s => s.name === serviceName);
+            if (service?.type !== 'icmp') return null;
 
-        return metrics.map(m => ({
-            timestamp: new Date(m.timestamp).getTime(),
-            [serviceName]: m.response_time / 1000000, // Convert to ms
-        }));
-    }).filter(Boolean).flat();
+            return metrics.map(m => ({
+                timestamp: new Date(m.timestamp).getTime(),
+                [serviceName]: m.response_time / 1000000, // Convert to ms
+            }));
+        })
+        .filter((item): item is ResponseTimeDataPoint[] => item !== null)
+        .flat();
 
-    // Sort by timestamp
-    responseTimeData.sort((a, b) => a.timestamp - b.timestamp);
+    // Sort by timestamp - handle null safety with optional chaining and nullish coalescing
+    if (responseTimeData.length > 0) {
+        responseTimeData.sort((a, b) => (a?.timestamp ?? 0) - (b?.timestamp ?? 0));
+    }
 
     // Format timestamp for chart labels
-    const formatTimestamp = (timestamp: number) => {
+    const formatTimestamp = (timestamp: number): string => {
         return new Date(timestamp).toLocaleTimeString();
     };
 
@@ -212,9 +218,9 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
                                 </div>
                             )}
                             <span className="text-xs text-gray-500 dark:text-gray-400 ml-4 flex items-center">
-                <Clock className="h-3 w-3 mr-1" />
-                Last update: {new Date(node.last_update).toLocaleString()}
-              </span>
+                                <Clock className="h-3 w-3 mr-1" />
+                                Last update: {new Date(node.last_update).toLocaleString()}
+                            </span>
                         </div>
                     </div>
                 </div>
@@ -290,7 +296,10 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
                         <h2 className="text-lg font-medium text-gray-900 dark:text-white">Node Availability History</h2>
                     </div>
                     <div className="p-4">
-                        <NodeTimeline nodeId={node.node_id} initialHistory={history} />
+                        <NodeTimeline
+                            nodeId={node.node_id}
+                            initialHistory={history}
+                        />
                     </div>
                 </div>
             )}
@@ -315,9 +324,9 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
                                     label={{ value: 'Response Time (ms)', angle: -90, position: 'insideLeft' }}
                                 />
                                 <Tooltip
-                                    labelFormatter={(value) => new Date(value).toLocaleString()}
-                                    formatter={(value) => [
-                                        `${parseFloat(value).toFixed(2)}ms`,
+                                    labelFormatter={(value) => new Date(Number(value)).toLocaleString()}
+                                    formatter={(value: number | string) => [
+                                        `${typeof value === 'number' ? value.toFixed(2) : parseFloat(value).toFixed(2)}ms`,
                                         'Response Time'
                                     ]}
                                 />
