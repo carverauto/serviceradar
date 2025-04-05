@@ -79,7 +79,6 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
     };
 }
 
-// Update the function signature to match RouteProps
 export default async function NodeDetailPage({ params }: RouteProps) {
     const resolvedParams = await params;
     const nodeId = resolvedParams.id;
