@@ -130,7 +130,7 @@ const PollerDashboard: React.FC<PollerDashboardProps> = ({
             else if (['snmp', 'serviceradar-agent'].includes(service.type) || service.name.includes('agent')) {
                 groupName = 'Monitoring';
             }
-            // Application services (examples based on your code)
+            // Application services
             else if (['dusk', 'rusk', 'grpc', 'rperf-checker'].includes(service.name)) {
                 groupName = 'Applications';
             }
@@ -155,8 +155,7 @@ const PollerDashboard: React.FC<PollerDashboardProps> = ({
             const totalServices = node.services?.length || 0;
             const healthyServices = node.services?.filter(s => s.available).length || 0;
 
-            // Calculate services with warnings (you can define your own warning criteria)
-            // This example counts services that have details with warning flags or high response times
+            // Calculate services with warnings
             let warningServices = 0;
             let criticalServices = 0;
 
@@ -165,6 +164,7 @@ const PollerDashboard: React.FC<PollerDashboardProps> = ({
                     criticalServices++;
                 } else if (service.details && typeof service.details !== 'string') {
                     const details = service.details;
+                    // TODO: Update this logic based on our actual service details structure
                     // Example criteria: Response time over 100ms but service is still available
                     if (details.response_time && details.response_time > 100000000 && service.available) {
                         warningServices++;
@@ -219,10 +219,11 @@ const PollerDashboard: React.FC<PollerDashboardProps> = ({
             if (servicesByType['Databases']) tags.push('database-services');
             if (servicesByType['Applications']) tags.push('applications');
 
-            // Add other meaningful tags you might derive from your data
+            // Add other meaningful tags we might derive from your data
             if (node.node_id.includes('dev')) tags.push('development');
             if (node.node_id.includes('prod')) tags.push('production');
 
+            // TODO: update this logic, should be derived from config
             // Region tags (example)
             if (node.node_id.includes('east')) tags.push('east-region');
             if (node.node_id.includes('west')) tags.push('west-region');
