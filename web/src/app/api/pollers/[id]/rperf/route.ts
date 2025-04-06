@@ -30,8 +30,6 @@ export async function GET(req: NextRequest, props: RouteProps) {
             url += `?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`;
         }
 
-        console.log(`Fetching rperf data from: ${url}`);
-
         const response = await fetch(url, {
             headers,
             cache: "no-store",
