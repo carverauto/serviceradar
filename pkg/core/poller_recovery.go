@@ -27,14 +27,14 @@ import (
 	"github.com/carverauto/serviceradar/pkg/db"
 )
 
-// NodeRecoveryManager handles node recovery state transitions.
-type NodeRecoveryManager struct {
+// PollerRecoveryManager handles poller recovery state transitions.
+type PollerRecoveryManager struct {
 	db          db.Service
 	alerter     alerts.AlertService
 	getHostname func() string
 }
 
-func (m *NodeRecoveryManager) processRecovery(ctx context.Context, nodeID string, lastSeen time.Time) error {
+func (m *PollerRecoveryManager) processRecovery(ctx context.Context, pollerID string, lastSeen time.Time) error {
 	tx, err := m.db.Begin()
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
@@ -49,34 +49,34 @@ func (m *NodeRecoveryManager) processRecovery(ctx context.Context, nodeID string
 		}
 	}()
 
-	status, err := m.db.GetPollerStatus(nodeID)
+	status, err := m.db.GetPollerStatus(pollerID)
 	if err != nil {
-		return fmt.Errorf("get node status: %w", err)
+		return fmt.Errorf("get poller status: %w", err)
 	}
 
-	// Early return if the node is already healthy
+	// Early return if the poller is already healthy
 	if status.IsHealthy {
 		return nil
 	}
 
-	// Update node status
+	// Update poller status
 	status.IsHealthy = true
 	status.LastSeen = lastSeen
 
 	// Update the database BEFORE trying to send the alert
 	if err = m.db.UpdatePollerStatus(status); err != nil {
-		return fmt.Errorf("update node status: %w", err)
+		return fmt.Errorf("update poller status: %w", err)
 	}
 
 	// Send alert
-	if err = m.sendRecoveryAlert(ctx, nodeID, lastSeen); err != nil {
+	if err = m.sendRecoveryAlert(ctx, pollerID, lastSeen); err != nil {
 		// Only treat the cooldown as non-error
 		if !errors.Is(err, alerts.ErrWebhookCooldown) {
 			return fmt.Errorf("send recovery alert: %w", err)
 		}
 
 		// Log the cooldown but proceed with the recovery
-		log.Printf("Recovery alert for node %s rate limited, but node marked as recovered", nodeID)
+		log.Printf("Recovery alert for poller %s rate limited, but poller marked as recovered", pollerID)
 	}
 
 	// Commit the transaction
@@ -90,12 +90,12 @@ func (m *NodeRecoveryManager) processRecovery(ctx context.Context, nodeID string
 }
 
 // sendRecoveryAlert handles alert creation and sending.
-func (m *NodeRecoveryManager) sendRecoveryAlert(ctx context.Context, nodeID string, lastSeen time.Time) error {
+func (m *PollerRecoveryManager) sendRecoveryAlert(ctx context.Context, pollerID string, lastSeen time.Time) error {
 	alert := &alerts.WebhookAlert{
 		Level:     alerts.Info,
-		Title:     "Node Recovered",
-		Message:   fmt.Sprintf("Node '%s' is back online", nodeID),
-		PollerID:  nodeID,
+		Title:     "Poller Recovered",
+		Message:   fmt.Sprintf("Poller '%s' is back online", pollerID),
+		PollerID:  pollerID,
 		Timestamp: lastSeen.UTC().Format(time.RFC3339),
 		Details: map[string]any{
 			"hostname":      m.getHostname(),

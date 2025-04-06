@@ -803,7 +803,8 @@ func (s *Server) storePollerStatus(pollerID string, isHealthy bool, now time.Tim
 	return nil
 }
 
-func (s *Server) updatePollerState(ctx context.Context, pollerID string, apiStatus *api.PollerStatus, wasHealthy bool, now time.Time) error {
+func (s *Server) updatePollerState(
+	ctx context.Context, pollerID string, apiStatus *api.PollerStatus, wasHealthy bool, now time.Time) error {
 	if err := s.storePollerStatus(pollerID, apiStatus.IsHealthy, now); err != nil {
 		return err
 	}
