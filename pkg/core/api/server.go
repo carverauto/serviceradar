@@ -36,7 +36,7 @@ import (
 
 func NewAPIServer(config models.CORSConfig, options ...func(server *APIServer)) *APIServer {
 	s := &APIServer{
-		nodes:      make(map[string]*PollerStatus),
+		pollers:    make(map[string]*PollerStatus),
 		router:     mux.NewRouter(),
 		corsConfig: config,
 	}
@@ -110,10 +110,10 @@ func (s *APIServer) setupRoutes() {
 	protected.HandleFunc("/pollers/{id}/snmp", s.getSNMPData).Methods("GET")
 }
 
-// getSNMPData retrieves SNMP data for a specific node.
+// getSNMPData retrieves SNMP data for a specific poller.
 func (s *APIServer) getSNMPData(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	nodeID := vars["id"]
+	pollerID := vars["id"]
 
 	// Get start and end times from query parameters
 	startStr := r.URL.Query().Get("start")
@@ -140,9 +140,9 @@ func (s *APIServer) getSNMPData(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Use the injected snmpManager to fetch SNMP metrics
-	snmpMetrics, err := s.snmpManager.GetSNMPMetrics(nodeID, startTime, endTime)
+	snmpMetrics, err := s.snmpManager.GetSNMPMetrics(pollerID, startTime, endTime)
 	if err != nil {
-		log.Printf("Error fetching SNMP data for node %s: %v", nodeID, err)
+		log.Printf("Error fetching SNMP data for poller %s: %v", pollerID, err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 
 		return
@@ -151,25 +151,25 @@ func (s *APIServer) getSNMPData(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	if err := json.NewEncoder(w).Encode(snmpMetrics); err != nil {
-		log.Printf("Error encoding SNMP data response for node %s: %v", nodeID, err)
+		log.Printf("Error encoding SNMP data response for poller %s: %v", pollerID, err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	}
 }
 
 func (s *APIServer) getPollerMetrics(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	nodeID := vars["id"]
+	pollerID := vars["id"]
 
 	if s.metricsManager == nil {
-		log.Printf("Metrics not configured for node %s", nodeID)
+		log.Printf("Metrics not configured for poller %s", pollerID)
 		http.Error(w, "Metrics not configured", http.StatusInternalServerError)
 
 		return
 	}
 
-	m := s.metricsManager.GetMetrics(nodeID)
+	m := s.metricsManager.GetMetrics(pollerID)
 	if m == nil {
-		log.Printf("No metrics found for node %s", nodeID)
+		log.Printf("No metrics found for poller %s", pollerID)
 		http.Error(w, "No metrics found", http.StatusNotFound)
 
 		return
@@ -178,35 +178,35 @@ func (s *APIServer) getPollerMetrics(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	if err := json.NewEncoder(w).Encode(m); err != nil {
-		log.Printf("Error encoding metrics response for node %s: %v", nodeID, err)
+		log.Printf("Error encoding metrics response for poller %s: %v", pollerID, err)
 
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	}
 }
 
-func (s *APIServer) SetNodeHistoryHandler(handler func(nodeID string) ([]NodeHistoryPoint, error)) {
-	s.nodeHistoryHandler = handler
+func (s *APIServer) SetPollerHistoryHandler(handler func(pollerID string) ([]PollerHistoryPoint, error)) {
+	s.pollerHistoryHandler = handler
 }
 
-func (s *APIServer) UpdateNodeStatus(nodeID string, status *PollerStatus) {
+func (s *APIServer) UpdatePollerStatus(pollerID string, status *PollerStatus) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.nodes[nodeID] = status
+	s.pollers[pollerID] = status
 }
 
 func (s *APIServer) getPollerHistory(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	nodeID := vars["id"]
+	pollerID := vars["id"]
 
-	if s.nodeHistoryHandler == nil {
+	if s.pollerHistoryHandler == nil {
 		http.Error(w, "History handler not configured", http.StatusInternalServerError)
 		return
 	}
 
-	points, err := s.nodeHistoryHandler(nodeID)
+	points, err := s.pollerHistoryHandler(pollerID)
 	if err != nil {
-		log.Printf("Error fetching node history: %v", err)
+		log.Printf("Error fetching poller history: %v", err)
 		http.Error(w, "Failed to fetch history", http.StatusInternalServerError)
 
 		return
@@ -221,20 +221,20 @@ func (s *APIServer) getPollerHistory(w http.ResponseWriter, r *http.Request) {
 func (s *APIServer) getSystemStatus(w http.ResponseWriter, _ *http.Request) {
 	s.mu.RLock()
 	status := SystemStatus{
-		TotalNodes:   len(s.nodes),
-		HealthyNodes: 0,
-		LastUpdate:   time.Now(),
+		TotalPollers:   len(s.pollers),
+		HealthyPollers: 0,
+		LastUpdate:     time.Now(),
 	}
 
-	for _, node := range s.nodes {
-		if node.IsHealthy {
-			status.HealthyNodes++
+	for _, poller := range s.pollers {
+		if poller.IsHealthy {
+			status.HealthyPollers++
 		}
 	}
 	s.mu.RUnlock()
 
 	log.Printf("System status: total=%d healthy=%d last_update=%s",
-		status.TotalNodes, status.HealthyNodes, status.LastUpdate.Format(time.RFC3339))
+		status.TotalPollers, status.HealthyPollers, status.LastUpdate.Format(time.RFC3339))
 
 	if err := s.encodeJSONResponse(w, status); err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -246,14 +246,14 @@ func (s *APIServer) getPollers(w http.ResponseWriter, _ *http.Request) {
 	defer s.mu.RUnlock()
 
 	// Preallocate the slice with the correct length
-	nodes := make([]*PollerStatus, 0, len(s.nodes))
+	pollers := make([]*PollerStatus, 0, len(s.pollers))
 
 	// Append all map values to the slice
-	for id, node := range s.nodes {
+	for id, poller := range s.pollers {
 		// Only include known pollers
 		for _, known := range s.knownPollers {
 			if id == known {
-				nodes = append(nodes, node)
+				pollers = append(pollers, poller)
 
 				break
 			}
@@ -261,7 +261,7 @@ func (s *APIServer) getPollers(w http.ResponseWriter, _ *http.Request) {
 	}
 
 	// Encode and send the response
-	if err := s.encodeJSONResponse(w, nodes); err != nil {
+	if err := s.encodeJSONResponse(w, pollers); err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	}
 }
@@ -272,12 +272,12 @@ func (s *APIServer) SetKnownPollers(knownPollers []string) {
 	s.knownPollers = knownPollers
 }
 
-func (s *APIServer) getNodeByID(nodeID string) (*PollerStatus, bool) {
+func (s *APIServer) getPollerByID(pollerID string) (*PollerStatus, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	node, exists := s.nodes[nodeID]
+	poller, exists := s.pollers[pollerID]
 
-	return node, exists
+	return poller, exists
 }
 
 func (*APIServer) encodeJSONResponse(w http.ResponseWriter, data interface{}) error {
@@ -294,76 +294,76 @@ func (*APIServer) encodeJSONResponse(w http.ResponseWriter, data interface{}) er
 
 func (s *APIServer) getPoller(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	nodeID := vars["id"]
+	pollerID := vars["id"]
 
 	// Check if it's a known poller
 	isKnown := false
 
 	for _, known := range s.knownPollers {
-		if nodeID == known {
+		if pollerID == known {
 			isKnown = true
 			break
 		}
 	}
 
 	if !isKnown {
-		http.Error(w, "Node not found", http.StatusNotFound)
+		http.Error(w, "Poller not found", http.StatusNotFound)
 		return
 	}
 
-	node, exists := s.getNodeByID(nodeID)
+	poller, exists := s.getPollerByID(pollerID)
 	if !exists {
-		http.Error(w, "Node not found", http.StatusNotFound)
+		http.Error(w, "Poller not found", http.StatusNotFound)
 
 		return
 	}
 
 	if s.metricsManager != nil {
-		m := s.metricsManager.GetMetrics(nodeID)
+		m := s.metricsManager.GetMetrics(pollerID)
 		if m != nil {
-			node.Metrics = m
-			log.Printf("Attached %d metrics points to node %s response", len(m), nodeID)
+			poller.Metrics = m
+			log.Printf("Attached %d metrics points to poller %s response", len(m), pollerID)
 		}
 	}
 
-	if err := s.encodeJSONResponse(w, node); err != nil {
+	if err := s.encodeJSONResponse(w, poller); err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	}
 }
 
 func (s *APIServer) getPollerServices(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	nodeID := vars["id"]
+	pollerID := vars["id"]
 
 	s.mu.RLock()
-	node, exists := s.nodes[nodeID]
+	poller, exists := s.pollers[pollerID]
 	s.mu.RUnlock()
 
 	if !exists {
-		http.Error(w, "Node not found", http.StatusNotFound)
+		http.Error(w, "Poller not found", http.StatusNotFound)
 		return
 	}
 
-	if err := s.encodeJSONResponse(w, node.Services); err != nil {
+	if err := s.encodeJSONResponse(w, poller.Services); err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	}
 }
 
 func (s *APIServer) getServiceDetails(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	nodeID := vars["id"]
+	pollerId := vars["id"]
 	serviceName := vars["service"]
 
 	s.mu.RLock()
-	node, exists := s.nodes[nodeID]
+	poller, exists := s.pollers[pollerId]
 	s.mu.RUnlock()
 
 	if !exists {
-		http.Error(w, "Node not found", http.StatusNotFound)
+		http.Error(w, "Poller not found", http.StatusNotFound)
 		return
 	}
 
-	for _, service := range node.Services {
+	for _, service := range poller.Services {
 		if service.Name == serviceName {
 			if err := s.encodeJSONResponse(w, service); err != nil {
 				http.Error(w, "Internal server error", http.StatusInternalServerError)

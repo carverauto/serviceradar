@@ -66,14 +66,14 @@ type WebhookAlert struct {
 	Title       string         `json:"title"`
 	Message     string         `json:"message"`
 	Timestamp   string         `json:"timestamp"`
-	NodeID      string         `json:"node_id"`
+	PollerID    string         `json:"poller_id"`
 	ServiceName string         `json:"service_name,omitempty"`
 	Details     map[string]any `json:"details,omitempty"`
 }
 
 // AlertKey combines nodeID and title to make a unique key for cooldown tracking.
 type AlertKey struct {
-	NodeID      string
+	PollerID    string
 	Title       string
 	ServiceName string
 }
@@ -171,9 +171,9 @@ func (w *WebhookAlerter) Alert(ctx context.Context, alert *WebhookAlert) error {
 	// Only check NodeDownStates for "Node Offline" alerts.
 	if alert.Title == "Node Offline" {
 		w.Mu.RLock()
-		if w.NodeDownStates[alert.NodeID] {
+		if w.NodeDownStates[alert.PollerID] {
 			w.Mu.RUnlock()
-			log.Printf("Skipping duplicate 'Node Offline' alert for node: %s", alert.NodeID)
+			log.Printf("Skipping duplicate 'Node Offline' alert for node: %s", alert.PollerID)
 
 			return nil // Or return a specific error if you want to track this
 		}
@@ -182,12 +182,12 @@ func (w *WebhookAlerter) Alert(ctx context.Context, alert *WebhookAlert) error {
 
 		// If we got here, it is a valid down alert.
 		w.Mu.Lock()
-		w.NodeDownStates[alert.NodeID] = true
+		w.NodeDownStates[alert.PollerID] = true
 		w.Mu.Unlock()
 	}
 
 	// Always check cooldown (using the correct AlertKey, with ServiceName).
-	if err := w.CheckCooldown(alert.NodeID, alert.Title, alert.ServiceName); err != nil {
+	if err := w.CheckCooldown(alert.PollerID, alert.Title, alert.ServiceName); err != nil {
 		return err
 	}
 
@@ -203,7 +203,7 @@ func (w *WebhookAlerter) Alert(ctx context.Context, alert *WebhookAlert) error {
 	return w.sendRequest(ctx, payload)
 }
 
-func (w *WebhookAlerter) MarkNodeAsRecovered(nodeID string) {
+func (w *WebhookAlerter) MarkPollerAsRecovered(nodeID string) {
 	w.Mu.Lock()
 	defer w.Mu.Unlock()
 
@@ -221,7 +221,7 @@ func (w *WebhookAlerter) CheckCooldown(nodeID, alertTitle, serviceName string) e
 	w.Mu.Lock()
 	defer w.Mu.Unlock()
 
-	key := AlertKey{NodeID: nodeID, Title: alertTitle, ServiceName: serviceName}
+	key := AlertKey{PollerID: nodeID, Title: alertTitle, ServiceName: serviceName}
 
 	lastAlertTime, exists := w.LastAlertTimes[key]
 	if exists && time.Since(lastAlertTime) < w.Config.Cooldown {

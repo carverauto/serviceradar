@@ -51,16 +51,16 @@ func (mr *MockServiceMockRecorder) SetKnownPollers(knownPollers any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetKnownPollers", reflect.TypeOf((*MockService)(nil).SetKnownPollers), knownPollers)
 }
 
-// SetNodeHistoryHandler mocks base method.
-func (m *MockService) SetNodeHistoryHandler(handler func(string) ([]NodeHistoryPoint, error)) {
+// SetPollerHistoryHandler mocks base method.
+func (m *MockService) SetPollerHistoryHandler(handler func(string) ([]PollerHistoryPoint, error)) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetNodeHistoryHandler", handler)
+	m.ctrl.Call(m, "SetPollerHistoryHandler", handler)
 }
 
-// SetNodeHistoryHandler indicates an expected call of SetNodeHistoryHandler.
-func (mr *MockServiceMockRecorder) SetNodeHistoryHandler(handler any) *gomock.Call {
+// SetPollerHistoryHandler indicates an expected call of SetPollerHistoryHandler.
+func (mr *MockServiceMockRecorder) SetPollerHistoryHandler(handler any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetNodeHistoryHandler", reflect.TypeOf((*MockService)(nil).SetNodeHistoryHandler), handler)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPollerHistoryHandler", reflect.TypeOf((*MockService)(nil).SetPollerHistoryHandler), handler)
 }
 
 // Start mocks base method.
@@ -77,14 +77,14 @@ func (mr *MockServiceMockRecorder) Start(addr any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Start", reflect.TypeOf((*MockService)(nil).Start), addr)
 }
 
-// UpdateNodeStatus mocks base method.
-func (m *MockService) UpdateNodeStatus(nodeID string, status *PollerStatus) {
+// UpdatePollerStatus mocks base method.
+func (m *MockService) UpdatePollerStatus(pollerID string, status *PollerStatus) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "UpdateNodeStatus", nodeID, status)
+	m.ctrl.Call(m, "UpdatePollerStatus", pollerID, status)
 }
 
-// UpdateNodeStatus indicates an expected call of UpdateNodeStatus.
-func (mr *MockServiceMockRecorder) UpdateNodeStatus(nodeID, status any) *gomock.Call {
+// UpdatePollerStatus indicates an expected call of UpdatePollerStatus.
+func (mr *MockServiceMockRecorder) UpdatePollerStatus(pollerID, status any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateNodeStatus", reflect.TypeOf((*MockService)(nil).UpdateNodeStatus), nodeID, status)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdatePollerStatus", reflect.TypeOf((*MockService)(nil).UpdatePollerStatus), pollerID, status)
 }

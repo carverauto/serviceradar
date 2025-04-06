@@ -30,7 +30,7 @@ import (
 type NodeService interface {
 	GetNodeStatus(nodeID string) (*api.PollerStatus, error)
 	UpdateNodeStatus(nodeID string, status *api.PollerStatus) error
-	GetNodeHistory(nodeID string, limit int) ([]api.NodeHistoryPoint, error)
+	GetNodeHistory(nodeID string, limit int) ([]api.PollerHistoryPoint, error)
 	CheckNodeHealth(nodeID string) (bool, error)
 }
 

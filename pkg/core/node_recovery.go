@@ -49,7 +49,7 @@ func (m *NodeRecoveryManager) processRecovery(ctx context.Context, nodeID string
 		}
 	}()
 
-	status, err := m.db.GetNodeStatus(nodeID)
+	status, err := m.db.GetPollerStatus(nodeID)
 	if err != nil {
 		return fmt.Errorf("get node status: %w", err)
 	}
@@ -64,7 +64,7 @@ func (m *NodeRecoveryManager) processRecovery(ctx context.Context, nodeID string
 	status.LastSeen = lastSeen
 
 	// Update the database BEFORE trying to send the alert
-	if err = m.db.UpdateNodeStatus(status); err != nil {
+	if err = m.db.UpdatePollerStatus(status); err != nil {
 		return fmt.Errorf("update node status: %w", err)
 	}
 
@@ -95,7 +95,7 @@ func (m *NodeRecoveryManager) sendRecoveryAlert(ctx context.Context, nodeID stri
 		Level:     alerts.Info,
 		Title:     "Node Recovered",
 		Message:   fmt.Sprintf("Node '%s' is back online", nodeID),
-		NodeID:    nodeID,
+		PollerID:  nodeID,
 		Timestamp: lastSeen.UTC().Format(time.RFC3339),
 		Details: map[string]any{
 			"hostname":      m.getHostname(),

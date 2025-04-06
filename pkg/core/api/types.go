@@ -38,7 +38,7 @@ type ServiceStatus struct {
 }
 
 type PollerStatus struct {
-	NodeID     string               `json:"node_id"`
+	PollerID   string               `json:"poller_id"`
 	IsHealthy  bool                 `json:"is_healthy"`
 	LastUpdate time.Time            `json:"last_update"`
 	Services   []ServiceStatus      `json:"services"`
@@ -48,34 +48,34 @@ type PollerStatus struct {
 }
 
 type SystemStatus struct {
-	TotalNodes   int       `json:"total_nodes"`
-	HealthyNodes int       `json:"healthy_nodes"`
-	LastUpdate   time.Time `json:"last_update"`
+	TotalPollers   int       `json:"total_pollers"`
+	HealthyPollers int       `json:"healthy_pollers"`
+	LastUpdate     time.Time `json:"last_update"`
 }
 
-type NodeHistory struct {
-	NodeID    string
+type PollerHistory struct {
+	PollerID  string
 	Timestamp time.Time
 	IsHealthy bool
 	Services  []ServiceStatus
 }
 
-type NodeHistoryPoint struct {
+type PollerHistoryPoint struct {
 	Timestamp time.Time `json:"timestamp"`
 	IsHealthy bool      `json:"is_healthy"`
 }
 
 type APIServer struct {
-	mu                 sync.RWMutex
-	nodes              map[string]*PollerStatus
-	router             *mux.Router
-	nodeHistoryHandler func(nodeID string) ([]NodeHistoryPoint, error)
-	metricsManager     metrics.MetricCollector
-	snmpManager        snmp.SNMPManager
-	rperfManager       rperf.RperfManager
-	knownPollers       []string
-	authService        auth.AuthService
-	corsConfig         models.CORSConfig
+	mu                   sync.RWMutex
+	pollers              map[string]*PollerStatus
+	router               *mux.Router
+	pollerHistoryHandler func(pollerID string) ([]PollerHistoryPoint, error)
+	metricsManager       metrics.MetricCollector
+	snmpManager          snmp.SNMPManager
+	rperfManager         rperf.RperfManager
+	knownPollers         []string
+	authService          auth.AuthService
+	corsConfig           models.CORSConfig
 }
 
 type RperfMetric struct {

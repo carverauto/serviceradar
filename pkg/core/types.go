@@ -35,9 +35,9 @@ import (
 )
 
 type Metrics struct {
-	Enabled   bool `json:"enabled"`
-	Retention int  `json:"retention"`
-	MaxNodes  int  `json:"max_nodes"`
+	Enabled    bool `json:"enabled"`
+	Retention  int  `json:"retention"`
+	MaxPollers int  `json:"max_pollers"`
 }
 
 type Config struct {
@@ -135,7 +135,7 @@ type OIDStatusData struct {
 
 // ServiceStatus represents the status of a monitored service.
 type ServiceStatus struct {
-	NodeID      string
+	PollerID    string
 	ServiceName string
 	ServiceType string
 	Available   bool

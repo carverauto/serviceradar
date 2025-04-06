@@ -120,15 +120,15 @@ func (mr *MockMetricCollectorMockRecorder) AddMetric(nodeID, timestamp, response
 }
 
 // CleanupStaleNodes mocks base method.
-func (m *MockMetricCollector) CleanupStaleNodes(staleDuration time.Duration) {
+func (m *MockMetricCollector) CleanupStalePollers(staleDuration time.Duration) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "CleanupStaleNodes", staleDuration)
+	m.ctrl.Call(m, "CleanupStalePollers", staleDuration)
 }
 
 // CleanupStaleNodes indicates an expected call of CleanupStaleNodes.
 func (mr *MockMetricCollectorMockRecorder) CleanupStaleNodes(staleDuration any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CleanupStaleNodes", reflect.TypeOf((*MockMetricCollector)(nil).CleanupStaleNodes), staleDuration)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CleanupStalePollers", reflect.TypeOf((*MockMetricCollector)(nil).CleanupStalePollers), staleDuration)
 }
 
 // GetMetrics mocks base method.

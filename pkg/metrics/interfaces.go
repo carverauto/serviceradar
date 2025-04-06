@@ -33,5 +33,5 @@ type MetricStore interface {
 type MetricCollector interface {
 	AddMetric(nodeID string, timestamp time.Time, responseTime int64, serviceName string) error
 	GetMetrics(nodeID string) []models.MetricPoint
-	CleanupStaleNodes(staleDuration time.Duration)
+	CleanupStalePollers(staleDuration time.Duration)
 }

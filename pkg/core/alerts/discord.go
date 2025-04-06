@@ -32,8 +32,8 @@ const DiscordTemplate = `{
     "timestamp": {{json .alert.Timestamp}},
     "fields": [
       {
-        "name": "Node ID",
-        "value": {{json .alert.NodeID}},
+        "name": "Poller ID",
+        "value": {{json .alert.PollerID}},
         "inline": true
       }
       {{range $key, $value := .alert.Details}},

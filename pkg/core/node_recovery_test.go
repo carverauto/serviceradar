@@ -33,7 +33,7 @@ func TestNodeRecoveryManager_ProcessRecovery_WithCooldown(t *testing.T) {
 		name           string
 		nodeID         string
 		lastSeen       time.Time
-		getCurrentNode *db.NodeStatus
+		getCurrentNode *db.PollerStatus
 		dbError        error
 		alertError     error
 		expectCommit   bool
@@ -43,8 +43,8 @@ func TestNodeRecoveryManager_ProcessRecovery_WithCooldown(t *testing.T) {
 			name:     "successful_recovery_with_cooldown",
 			nodeID:   "test-node",
 			lastSeen: time.Now(),
-			getCurrentNode: &db.NodeStatus{
-				NodeID:    "test-node",
+			getCurrentNode: &db.PollerStatus{
+				PollerID:  "test-node",
 				IsHealthy: false,
 				LastSeen:  time.Now().Add(-time.Hour),
 			},
@@ -55,8 +55,8 @@ func TestNodeRecoveryManager_ProcessRecovery_WithCooldown(t *testing.T) {
 			name:     "successful_recovery_no_cooldown",
 			nodeID:   "test-node",
 			lastSeen: time.Now(),
-			getCurrentNode: &db.NodeStatus{
-				NodeID:    "test-node",
+			getCurrentNode: &db.PollerStatus{
+				PollerID:  "test-node",
 				IsHealthy: false,
 				LastSeen:  time.Now().Add(-time.Hour),
 			},
@@ -66,8 +66,8 @@ func TestNodeRecoveryManager_ProcessRecovery_WithCooldown(t *testing.T) {
 			name:     "already_healthy",
 			nodeID:   "test-node",
 			lastSeen: time.Now(),
-			getCurrentNode: &db.NodeStatus{
-				NodeID:    "test-node",
+			getCurrentNode: &db.PollerStatus{
+				PollerID:  "test-node",
 				IsHealthy: true,
 				LastSeen:  time.Now(),
 			},
@@ -93,7 +93,7 @@ func TestNodeRecoveryManager_ProcessRecovery_WithCooldown(t *testing.T) {
 			// Setup Begin() expectation
 			mockDB.EXPECT().Begin().Return(mockTx, nil)
 
-			// Setup GetNodeStatus expectation
+			// Setup GetPollerStatus expectation
 			mockDB.EXPECT().GetNodeStatus(tt.nodeID).Return(tt.getCurrentNode, tt.dbError)
 
 			if tt.getCurrentNode != nil && !tt.getCurrentNode.IsHealthy {
@@ -135,7 +135,7 @@ func TestNodeRecoveryManager_ProcessRecovery(t *testing.T) {
 	tests := []struct {
 		name          string
 		nodeID        string
-		currentStatus *db.NodeStatus
+		currentStatus *db.PollerStatus
 		dbError       error
 		expectAlert   bool
 		expectedError string
@@ -143,8 +143,8 @@ func TestNodeRecoveryManager_ProcessRecovery(t *testing.T) {
 		{
 			name:   "successful_recovery",
 			nodeID: "test-node",
-			currentStatus: &db.NodeStatus{
-				NodeID:    "test-node",
+			currentStatus: &db.PollerStatus{
+				PollerID:  "test-node",
 				IsHealthy: false,
 				LastSeen:  time.Now().Add(-time.Hour),
 			},
@@ -153,8 +153,8 @@ func TestNodeRecoveryManager_ProcessRecovery(t *testing.T) {
 		{
 			name:   "already_healthy",
 			nodeID: "test-node",
-			currentStatus: &db.NodeStatus{
-				NodeID:    "test-node",
+			currentStatus: &db.PollerStatus{
+				PollerID:  "test-node",
 				IsHealthy: true,
 				LastSeen:  time.Now(),
 			},
@@ -182,7 +182,7 @@ func TestNodeRecoveryManager_ProcessRecovery(t *testing.T) {
 			// Always expect Rollback() due to defer
 			mockTx.EXPECT().Rollback().Return(nil).AnyTimes()
 
-			// Setup GetNodeStatus expectation
+			// Setup GetPollerStatus expectation
 			mockDB.EXPECT().GetNodeStatus(tt.nodeID).Return(tt.currentStatus, tt.dbError)
 
 			if tt.currentStatus != nil && !tt.currentStatus.IsHealthy {
@@ -228,7 +228,7 @@ func TestNodeRecoveryManager_SendRecoveryAlert(t *testing.T) {
 		DoAndReturn(func(_ context.Context, alert *alerts.WebhookAlert) error {
 			assert.Equal(t, alerts.Info, alert.Level)
 			assert.Equal(t, "Node Recovered", alert.Title)
-			assert.Equal(t, "test-node", alert.NodeID)
+			assert.Equal(t, "test-node", alert.PollerID)
 			assert.Equal(t, "test-host", alert.Details["hostname"])
 			assert.Contains(t, alert.Message, "test-node")
 
