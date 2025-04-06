@@ -111,7 +111,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
-      console.log('Attempting to refresh token');
       const response = await fetch("/api/auth/refresh", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -158,10 +157,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const currentTime = Math.floor(Date.now() / 1000);
     const timeUntilRefresh = Math.max(0, tokenExp - currentTime - 60) * 1000;
 
-    console.log(`Scheduling token refresh in ${timeUntilRefresh/1000} seconds`);
-
     refreshTimeoutRef.current = setTimeout(() => {
-      console.log('Executing scheduled token refresh');
       refreshToken();
     }, timeUntilRefresh);
   }, [refreshToken]);

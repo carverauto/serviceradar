@@ -44,10 +44,7 @@ export async function GET(req: NextRequest, props: RouteProps) {
 
     if (authHeader) {
       headers["Authorization"] = authHeader;
-      console.log(`Forwarding history request with authorization: ${authHeader}`);
     }
-
-    console.log(`Requesting history for poller ${pollerId} from: ${apiUrl}/api/pollers/${pollerId}/history`);
 
     const response = await fetch(`${apiUrl}/api/pollers/${pollerId}/history`, {
       method: "GET",

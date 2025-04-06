@@ -192,8 +192,6 @@ const RperfDashboard = ({
                 headers["Authorization"] = `Bearer ${token}`;
             }
 
-            console.log(`Fetching rperf data from: ${url}`);
-
             const response = await fetch(url, {
                 method: 'GET',
                 headers,
@@ -201,14 +199,11 @@ const RperfDashboard = ({
                 cache: "no-store"
             });
 
-            console.log(`Rperf API response status: ${response.status}`);
-
             if (!response.ok) {
                 if (response.status === 401) {
                     console.error("Authentication error fetching RPerfData - attempting token refresh");
                     const refreshed = await refreshToken();
                     if (refreshed) {
-                        console.log("Token refreshed successfully, retrying request");
                         return fetchData();
                     } else {
                         console.error("Token refresh failed");
@@ -220,7 +215,6 @@ const RperfDashboard = ({
             }
 
             const data: RperfMetric[] = await response.json();
-            console.log(`Received rperf data: ${data.length} records`);
 
             if (data.length === 0) {
                 console.log("No rperf data received");
@@ -272,7 +266,6 @@ const RperfDashboard = ({
             setAggregatedPacketLossData(aggregatedData);
             setLastRefreshed(new Date());
             setError(null);
-            console.log("Successfully processed rperf data:", smoothedDataWithTrend.length, "records");
         } catch (err) {
             console.error("Error fetching rperf data:", err);
             setError("Failed to fetch Rperf data");

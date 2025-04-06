@@ -114,7 +114,7 @@ export async function generateMetadata({ params }: { params: Params }) {
 // Update the Page component to await params
 export default async function Page(props: PageProps) {
     const { params, searchParams }  = props
-    const { pollerId: pollerid, servicename } = await params; // Await the params
+    const { pollerid: pollerid, servicename } = await params; // Await the params
     const resolvedSearchParams = await searchParams;
     const timeRange = resolvedSearchParams.timeRange || "1h";
     const cookieStore = await cookies(); // Await the cookies() promise
