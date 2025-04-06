@@ -58,12 +58,8 @@ async function fetchServiceData(
             throw new Error(`Pollers API request failed: ${pollersResponse.status}`);
         }
 
-        console.log("Looking for pollerId:", pollerId);
-
         const pollers: Poller[] = await pollersResponse.json();
         const poller = pollers.find((n) => n.poller_id === pollerId);
-
-        console.log("Poller data:", pollers);
 
         if (!poller) return { error: "Poller not found", service: null };
 
@@ -109,9 +105,9 @@ async function fetchServiceData(
 }
 
 export async function generateMetadata({ params }: { params: Params }) {
-    const { pollerid, servicename } = await params; // Await the params
+    const { pollerId, servicename } = await params; // Await the params
     return {
-        title: `${servicename} on ${pollerid} - ServiceRadar`,
+        title: `${servicename} on ${pollerId} - ServiceRadar`,
     };
 }
 
@@ -124,8 +120,6 @@ export default async function Page(props: PageProps) {
     const cookieStore = await cookies(); // Await the cookies() promise
     const token = cookieStore.get("accessToken")?.value;
     const initialData = await fetchServiceData(pollerid, servicename, timeRange, token);
-
-    console.log("-- Poller ID:", pollerid);
 
     return (
         <div>

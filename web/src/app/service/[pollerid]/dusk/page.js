@@ -37,8 +37,6 @@ async function fetchDuskData(pollerId) {
 
         const pollers = await pollersResponse.json();
 
-        console.log("Pollers", pollers);
-
         const poller = pollers.find((n) => n.poller_id === pollerId);
 
         if (!poller) return { error: 'Poller not found' };
