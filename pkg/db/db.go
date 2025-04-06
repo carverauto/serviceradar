@@ -39,38 +39,38 @@ var (
 )
 
 const (
-	// Maximum number of history points to keep per node.
+	// Maximum number of history points to keep per poller.
 	maxHistoryPoints = 1000
 
 	// SQL statements for database initialization.
 	createTablesSQL = `
-	-- Node information
-	CREATE TABLE IF NOT EXISTS nodes (
-		node_id TEXT PRIMARY KEY,
+	-- Poller information
+	CREATE TABLE IF NOT EXISTS pollers (
+		poller_id TEXT PRIMARY KEY,
 		first_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		last_seen TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		is_healthy BOOLEAN NOT NULL DEFAULT 0
 	);
 
-	-- Node status history
-	CREATE TABLE IF NOT EXISTS node_history (
+	-- Poller status history
+	CREATE TABLE IF NOT EXISTS poller_history (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		node_id TEXT NOT NULL,
+		poller_id TEXT NOT NULL,
 		timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		is_healthy BOOLEAN NOT NULL DEFAULT 0,
-		FOREIGN KEY (node_id) REFERENCES nodes(node_id) ON DELETE CASCADE
+		FOREIGN KEY (poller_id) REFERENCES pollers(poller_id) ON DELETE CASCADE
 	);
 
 	-- Service status
 	CREATE TABLE IF NOT EXISTS service_status (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		node_id TEXT NOT NULL,
+		poller_id TEXT NOT NULL,
 		service_name TEXT NOT NULL,
 		service_type TEXT NOT NULL,
 		available BOOLEAN NOT NULL DEFAULT 0,
 		details TEXT,
 		timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		FOREIGN KEY (node_id) REFERENCES nodes(node_id) ON DELETE CASCADE
+		FOREIGN KEY (poller_id) REFERENCES pollers(poller_id) ON DELETE CASCADE
 	);
 
 	-- Service history
@@ -91,7 +91,7 @@ const (
         total_hosts INTEGER NOT NULL,
         active_hosts INTEGER NOT NULL,
         timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (poller_id) REFERENCES nodes(node_id) ON DELETE CASCADE
+        FOREIGN KEY (poller_id) REFERENCES pollers(poller_id) ON DELETE CASCADE
     );
 
     -- Port scan results
@@ -106,13 +106,13 @@ const (
 	-- Timeseries metrics table
     CREATE TABLE IF NOT EXISTS timeseries_metrics (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        node_id TEXT NOT NULL,
+        poller_id TEXT NOT NULL,
         metric_name TEXT NOT NULL,
         metric_type TEXT NOT NULL,
         value TEXT NOT NULL,
         metadata TEXT,         -- JSON field for type-specific metadata
         timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (node_id) REFERENCES nodes(node_id) ON DELETE CASCADE
+        FOREIGN KEY (poller_id) REFERENCES pollers(poller_id) ON DELETE CASCADE
     );
 
    	-- Users table for authentication
@@ -130,18 +130,18 @@ const (
         ON sweep_results(poller_id, timestamp);
     CREATE INDEX IF NOT EXISTS idx_port_results_sweep
         ON port_results(sweep_id);
-	CREATE INDEX IF NOT EXISTS idx_node_history_node_time
-		ON node_history(node_id, timestamp);
-	CREATE INDEX IF NOT EXISTS idx_service_status_node_time
-		ON service_status(node_id, timestamp);
+	CREATE INDEX IF NOT EXISTS idx_poller_history_poller_time
+		ON poller_history(poller_id, timestamp);
+	CREATE INDEX IF NOT EXISTS idx_service_status_poller_time
+		ON service_status(poller_id, timestamp);
 	CREATE INDEX IF NOT EXISTS idx_service_status_type
 		ON service_status(service_type);
 	CREATE INDEX IF NOT EXISTS idx_service_history_status_time
 		ON service_history(service_status_id, timestamp);
 
 	 -- Indexes for timeseries data
-    CREATE INDEX IF NOT EXISTS idx_metrics_node_name
-		ON timeseries_metrics(node_id, metric_name);
+    CREATE INDEX IF NOT EXISTS idx_metrics_poller_name
+		ON timeseries_metrics(poller_id, metric_name);
     CREATE INDEX IF NOT EXISTS idx_metrics_type
 		ON timeseries_metrics(metric_type);
     CREATE INDEX IF NOT EXISTS idx_metrics_timestamp
@@ -224,40 +224,40 @@ func (db *DB) initSchema() error {
 	return err
 }
 
-func (db *DB) UpdateNodeStatus(status *NodeStatus) error {
+func (db *DB) UpdatePollerStatus(status *PollerStatus) error {
 	tx, err := db.Begin()
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer rollbackOnError(tx, err)
 
-	err = db.updateExistingNode(tx, status)
+	err = db.updateExistingPoller(tx, status)
 	if errors.Is(err, sql.ErrNoRows) {
-		err = db.insertNewNode(tx, status)
+		err = db.insertNewPoller(tx, status)
 	}
 
 	if err != nil {
-		return fmt.Errorf("failed to update node status: %w", err)
+		return fmt.Errorf("failed to update poller status: %w", err)
 	}
 
-	err = db.addNodeHistory(tx, status)
+	err = db.addPollerHistory(tx, status)
 	if err != nil {
-		return fmt.Errorf("failed to add node history: %w", err)
+		return fmt.Errorf("failed to add poller history: %w", err)
 	}
 
 	return tx.Commit()
 }
 
 // Rewrite the above function using our interface.
-func (*DB) updateExistingNode(tx Transaction, status *NodeStatus) error {
+func (*DB) updateExistingPoller(tx Transaction, status *PollerStatus) error {
 	result, err := tx.Exec(`
-		UPDATE nodes
+		UPDATE pollers 
 		SET last_seen = ?,
 			is_healthy = ?
-		WHERE node_id = ?
-	`, status.LastSeen, status.IsHealthy, status.NodeID)
+		WHERE poller_id = ?
+	`, status.LastSeen, status.IsHealthy, status.PollerID)
 	if err != nil {
-		return fmt.Errorf("%w node: %w", ErrFailedToInsert, err)
+		return fmt.Errorf("%w poller: %w", ErrFailedToInsert, err)
 	}
 
 	rowsAffected, err := result.RowsAffected()
@@ -272,27 +272,27 @@ func (*DB) updateExistingNode(tx Transaction, status *NodeStatus) error {
 	return nil
 }
 
-func (*DB) insertNewNode(tx Transaction, status *NodeStatus) error {
+func (*DB) insertNewPoller(tx Transaction, status *PollerStatus) error {
 	_, err := tx.Exec(`
-        INSERT INTO nodes (node_id, first_seen, last_seen, is_healthy)
+        INSERT INTO pollers (poller_id, first_seen, last_seen, is_healthy)
         VALUES (?, CURRENT_TIMESTAMP, ?, ?)
-    `, status.NodeID, status.LastSeen, status.IsHealthy)
+    `, status.PollerID, status.LastSeen, status.IsHealthy)
 
 	if err != nil {
-		return fmt.Errorf("%w node: %w", errFailedToInsert, err)
+		return fmt.Errorf("%w poller: %w", errFailedToInsert, err)
 	}
 
 	return nil
 }
 
-func (*DB) addNodeHistory(tx Transaction, status *NodeStatus) error {
+func (*DB) addPollerHistory(tx Transaction, status *PollerStatus) error {
 	_, err := tx.Exec(`
-        INSERT INTO node_history (node_id, timestamp, is_healthy)
+        INSERT INTO poller_history (poller_id, timestamp, is_healthy)
         VALUES (?, ?, ?)
-    `, status.NodeID, status.LastSeen, status.IsHealthy)
+    `, status.PollerID, status.LastSeen, status.IsHealthy)
 
 	if err != nil {
-		return fmt.Errorf("%w node history: %w", errFailedToInsert, err)
+		return fmt.Errorf("%w poller history: %w", errFailedToInsert, err)
 	}
 
 	return nil
@@ -310,12 +310,12 @@ func rollbackOnError(tx Transaction, err error) {
 func (db *DB) UpdateServiceStatus(status *ServiceStatus) error {
 	const insertSQL = `
 		INSERT INTO service_status
-			(node_id, service_name, service_type, available, details, timestamp)
+			(poller_id, service_name, service_type, available, details, timestamp)
 		VALUES (?, ?, ?, ?, ?, ?)
 	`
 
 	_, err := db.Exec(insertSQL,
-		status.NodeID,
+		status.PollerID,
 		status.ServiceName,
 		status.ServiceType,
 		status.Available,
@@ -329,39 +329,39 @@ func (db *DB) UpdateServiceStatus(status *ServiceStatus) error {
 	return nil
 }
 
-func (db *DB) GetNodeStatus(nodeID string) (*NodeStatus, error) {
+func (db *DB) GetPollerStatus(pollerID string) (*PollerStatus, error) {
 	const query = `
-        SELECT node_id, first_seen, last_seen, is_healthy
-        FROM nodes
-        WHERE node_id = ?
+        SELECT poller_id, first_seen, last_seen, is_healthy
+        FROM pollers
+        WHERE poller_id = ?
     `
 
-	var status NodeStatus
-	err := db.QueryRow(query, nodeID).Scan(
-		&status.NodeID,
+	var status PollerStatus
+	err := db.QueryRow(query, pollerID).Scan(
+		&status.PollerID,
 		&status.FirstSeen,
 		&status.LastSeen,
 		&status.IsHealthy,
 	)
 
 	if err != nil {
-		return nil, fmt.Errorf("%w node status: %w", errFailedToQuery, err)
+		return nil, fmt.Errorf("%w poller status: %w", errFailedToQuery, err)
 	}
 
 	return &status, nil
 }
 
-func (db *DB) GetNodeServices(nodeID string) ([]ServiceStatus, error) {
+func (db *DB) GetPollerServices(pollerID string) ([]ServiceStatus, error) {
 	const querySQL = `
         SELECT service_name, service_type, available, details, timestamp
         FROM service_status
-        WHERE node_id = ?
+        WHERE poller_id = ?
         ORDER BY service_type, service_name
     `
 
-	rows, err := db.Query(querySQL, nodeID)
+	rows, err := db.Query(querySQL, pollerID)
 	if err != nil {
-		return nil, fmt.Errorf("%w node services: %w", errFailedToQuery, err)
+		return nil, fmt.Errorf("%w poller services: %w", errFailedToQuery, err)
 	}
 	defer CloseRows(rows)
 
@@ -369,7 +369,7 @@ func (db *DB) GetNodeServices(nodeID string) ([]ServiceStatus, error) {
 
 	for rows.Next() {
 		var s ServiceStatus
-		s.NodeID = nodeID
+		s.PollerID = pollerID
 
 		if err := rows.Scan(&s.ServiceName, &s.ServiceType, &s.Available, &s.Details, &s.Timestamp); err != nil {
 			return nil, fmt.Errorf("%w service row: %w", errFailedToScan, err)
@@ -381,25 +381,25 @@ func (db *DB) GetNodeServices(nodeID string) ([]ServiceStatus, error) {
 	return services, nil
 }
 
-func (db *DB) GetNodeHistoryPoints(nodeID string, limit int) ([]NodeHistoryPoint, error) {
+func (db *DB) GetPollerHistoryPoints(pollerID string, limit int) ([]PollerHistoryPoint, error) {
 	const query = `
         SELECT timestamp, is_healthy
-        FROM node_history
-        WHERE node_id = ?
+        FROM poller_history
+        WHERE poller_id = ?
         ORDER BY timestamp DESC
         LIMIT ?
     `
 
-	rows, err := db.Query(query, nodeID, limit)
+	rows, err := db.Query(query, pollerID, limit)
 	if err != nil {
-		return nil, fmt.Errorf("%w node history points: %w", errFailedToQuery, err)
+		return nil, fmt.Errorf("%w poller history points: %w", errFailedToQuery, err)
 	}
 	defer CloseRows(rows)
 
-	var points []NodeHistoryPoint
+	var points []PollerHistoryPoint
 
 	for rows.Next() {
-		var point NodeHistoryPoint
+		var point PollerHistoryPoint
 		if err := rows.Scan(&point.Timestamp, &point.IsHealthy); err != nil {
 			return nil, fmt.Errorf("%w history point: %w", errFailedToScan, err)
 		}
@@ -410,28 +410,28 @@ func (db *DB) GetNodeHistoryPoints(nodeID string, limit int) ([]NodeHistoryPoint
 	return points, nil
 }
 
-// GetNodeHistory retrieves the history for a node.
-func (db *DB) GetNodeHistory(nodeID string) ([]NodeStatus, error) {
+// GetPollerHistory retrieves the history for a poller.
+func (db *DB) GetPollerHistory(pollerID string) ([]PollerStatus, error) {
 	const querySQL = `
         SELECT timestamp, is_healthy
-        FROM node_history
-        WHERE node_id = ?
+        FROM poller_history
+        WHERE poller_id = ?
         ORDER BY timestamp DESC
         LIMIT ?
     `
 
-	rows, err := db.Query(querySQL, nodeID, maxHistoryPoints)
+	rows, err := db.Query(querySQL, pollerID, maxHistoryPoints)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query node history: %w", err)
+		return nil, fmt.Errorf("failed to query poller history: %w", err)
 	}
 	defer CloseRows(rows)
 
-	var history []NodeStatus
+	var history []PollerStatus
 
 	for rows.Next() {
-		var status NodeStatus
+		var status PollerStatus
 
-		status.NodeID = nodeID
+		status.PollerID = pollerID
 		if err := rows.Scan(&status.LastSeen, &status.IsHealthy); err != nil {
 			return nil, fmt.Errorf("failed to scan history row: %w", err)
 		}
@@ -442,11 +442,11 @@ func (db *DB) GetNodeHistory(nodeID string) ([]NodeStatus, error) {
 	return history, nil
 }
 
-func (db *DB) IsNodeOffline(nodeID string, threshold time.Duration) (bool, error) {
+func (db *DB) IsPollerOffline(pollerID string, threshold time.Duration) (bool, error) {
 	const querySQL = `
         SELECT COUNT(*)
-        FROM nodes n
-        WHERE n.node_id = ?
+        FROM pollers n
+        WHERE n.poller_id = ?
         AND n.last_seen < datetime('now', ?)
     `
 
@@ -454,25 +454,25 @@ func (db *DB) IsNodeOffline(nodeID string, threshold time.Duration) (bool, error
 
 	thresholdStr := fmt.Sprintf("-%d seconds", int(threshold.Seconds()))
 
-	err := db.QueryRow(querySQL, nodeID, thresholdStr).Scan(&count)
+	err := db.QueryRow(querySQL, pollerID, thresholdStr).Scan(&count)
 	if err != nil {
-		return false, fmt.Errorf("failed to check node status: %w", err)
+		return false, fmt.Errorf("failed to check poller status: %w", err)
 	}
 
 	return count > 0, nil
 }
 
 // GetServiceHistory retrieves the recent history for a service.
-func (db *DB) GetServiceHistory(nodeID, serviceName string, limit int) ([]ServiceStatus, error) {
+func (db *DB) GetServiceHistory(pollerID, serviceName string, limit int) ([]ServiceStatus, error) {
 	const querySQL = `
 		SELECT timestamp, available, details
 		FROM service_status
-		WHERE node_id = ? AND service_name = ?
+		WHERE poller_id = ? AND service_name = ?
 		ORDER BY timestamp DESC
 		LIMIT ?
 	`
 
-	rows, err := db.Query(querySQL, nodeID, serviceName, limit)
+	rows, err := db.Query(querySQL, pollerID, serviceName, limit)
 	if err != nil {
 		return nil, fmt.Errorf("%w service history: %w", errFailedToQuery, err)
 	}
@@ -483,7 +483,7 @@ func (db *DB) GetServiceHistory(nodeID, serviceName string, limit int) ([]Servic
 	for rows.Next() {
 		var s ServiceStatus
 
-		s.NodeID = nodeID
+		s.PollerID = pollerID
 
 		s.ServiceName = serviceName
 

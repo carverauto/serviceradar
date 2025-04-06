@@ -426,10 +426,10 @@ func (mr *MockServiceMockRecorder) GetMetricsByType(nodeID, metricType, start, e
 }
 
 // GetNodeHistory mocks base method.
-func (m *MockService) GetNodeHistory(nodeID string) ([]NodeStatus, error) {
+func (m *MockService) GetPollerHistory(nodeID string) ([]PollerStatus, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetNodeHistory", nodeID)
-	ret0, _ := ret[0].([]NodeStatus)
+	ret := m.ctrl.Call(m, "GetPollerHistory", nodeID)
+	ret0, _ := ret[0].([]PollerStatus)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -437,14 +437,14 @@ func (m *MockService) GetNodeHistory(nodeID string) ([]NodeStatus, error) {
 // GetNodeHistory indicates an expected call of GetNodeHistory.
 func (mr *MockServiceMockRecorder) GetNodeHistory(nodeID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNodeHistory", reflect.TypeOf((*MockService)(nil).GetNodeHistory), nodeID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPollerHistory", reflect.TypeOf((*MockService)(nil).GetPollerHistory), nodeID)
 }
 
 // GetNodeHistoryPoints mocks base method.
-func (m *MockService) GetNodeHistoryPoints(nodeID string, limit int) ([]NodeHistoryPoint, error) {
+func (m *MockService) GetPollerHistoryPoints(nodeID string, limit int) ([]PollerHistoryPoint, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetNodeHistoryPoints", nodeID, limit)
-	ret0, _ := ret[0].([]NodeHistoryPoint)
+	ret := m.ctrl.Call(m, "GetPollerHistoryPoints", nodeID, limit)
+	ret0, _ := ret[0].([]PollerHistoryPoint)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -452,13 +452,13 @@ func (m *MockService) GetNodeHistoryPoints(nodeID string, limit int) ([]NodeHist
 // GetNodeHistoryPoints indicates an expected call of GetNodeHistoryPoints.
 func (mr *MockServiceMockRecorder) GetNodeHistoryPoints(nodeID, limit any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNodeHistoryPoints", reflect.TypeOf((*MockService)(nil).GetNodeHistoryPoints), nodeID, limit)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPollerHistoryPoints", reflect.TypeOf((*MockService)(nil).GetPollerHistoryPoints), nodeID, limit)
 }
 
 // GetNodeServices mocks base method.
-func (m *MockService) GetNodeServices(nodeID string) ([]ServiceStatus, error) {
+func (m *MockService) GetPollerServices(nodeID string) ([]ServiceStatus, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetNodeServices", nodeID)
+	ret := m.ctrl.Call(m, "GetPollerServices", nodeID)
 	ret0, _ := ret[0].([]ServiceStatus)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
@@ -467,14 +467,14 @@ func (m *MockService) GetNodeServices(nodeID string) ([]ServiceStatus, error) {
 // GetNodeServices indicates an expected call of GetNodeServices.
 func (mr *MockServiceMockRecorder) GetNodeServices(nodeID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNodeServices", reflect.TypeOf((*MockService)(nil).GetNodeServices), nodeID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPollerServices", reflect.TypeOf((*MockService)(nil).GetPollerServices), nodeID)
 }
 
 // GetNodeStatus mocks base method.
-func (m *MockService) GetNodeStatus(nodeID string) (*NodeStatus, error) {
+func (m *MockService) GetPollerStatus(nodeID string) (*PollerStatus, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetNodeStatus", nodeID)
-	ret0, _ := ret[0].(*NodeStatus)
+	ret := m.ctrl.Call(m, "GetPollerStatus", nodeID)
+	ret0, _ := ret[0].(*PollerStatus)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -482,7 +482,7 @@ func (m *MockService) GetNodeStatus(nodeID string) (*NodeStatus, error) {
 // GetNodeStatus indicates an expected call of GetNodeStatus.
 func (mr *MockServiceMockRecorder) GetNodeStatus(nodeID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNodeStatus", reflect.TypeOf((*MockService)(nil).GetNodeStatus), nodeID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPollerStatus", reflect.TypeOf((*MockService)(nil).GetPollerStatus), nodeID)
 }
 
 // GetServiceHistory mocks base method.
@@ -516,9 +516,9 @@ func (mr *MockServiceMockRecorder) GetUserByID(id any) *gomock.Call {
 }
 
 // IsNodeOffline mocks base method.
-func (m *MockService) IsNodeOffline(nodeID string, threshold time.Duration) (bool, error) {
+func (m *MockService) IsPollerOffline(nodeID string, threshold time.Duration) (bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "IsNodeOffline", nodeID, threshold)
+	ret := m.ctrl.Call(m, "IsPollerOffline", nodeID, threshold)
 	ret0, _ := ret[0].(bool)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
@@ -527,7 +527,7 @@ func (m *MockService) IsNodeOffline(nodeID string, threshold time.Duration) (boo
 // IsNodeOffline indicates an expected call of IsNodeOffline.
 func (mr *MockServiceMockRecorder) IsNodeOffline(nodeID, threshold any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsNodeOffline", reflect.TypeOf((*MockService)(nil).IsNodeOffline), nodeID, threshold)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsPollerOffline", reflect.TypeOf((*MockService)(nil).IsPollerOffline), nodeID, threshold)
 }
 
 // Query mocks base method.
@@ -612,9 +612,9 @@ func (mr *MockServiceMockRecorder) StoreUser(user any) *gomock.Call {
 }
 
 // UpdateNodeStatus mocks base method.
-func (m *MockService) UpdateNodeStatus(status *NodeStatus) error {
+func (m *MockService) UpdatePollerStatus(status *PollerStatus) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateNodeStatus", status)
+	ret := m.ctrl.Call(m, "UpdatePollerStatus", status)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
@@ -622,7 +622,7 @@ func (m *MockService) UpdateNodeStatus(status *NodeStatus) error {
 // UpdateNodeStatus indicates an expected call of UpdateNodeStatus.
 func (mr *MockServiceMockRecorder) UpdateNodeStatus(status any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateNodeStatus", reflect.TypeOf((*MockService)(nil).UpdateNodeStatus), status)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdatePollerStatus", reflect.TypeOf((*MockService)(nil).UpdatePollerStatus), status)
 }
 
 // UpdateServiceStatus mocks base method.

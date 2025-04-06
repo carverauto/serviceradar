@@ -47,7 +47,7 @@ func TestNewServer(t *testing.T) {
 			name: "minimal_config",
 			config: &Config{
 				AlertThreshold: 5 * time.Minute,
-				Metrics:        Metrics{Enabled: true, Retention: 100, MaxNodes: 1000},
+				Metrics:        Metrics{Enabled: true, Retention: 100, MaxPollers: 1000},
 				DBPath:         "", // Will be overridden in the test
 			},
 			setupMock: func(ctrl *gomock.Controller) db.Service {
@@ -103,9 +103,9 @@ func TestNewServer(t *testing.T) {
 func newServerWithDB(_ context.Context, config *Config, database db.Service) (*Server, error) {
 	normalizedConfig := normalizeConfig(config)
 	metricsManager := metrics.NewManager(models.MetricsConfig{
-		Enabled:   normalizedConfig.Metrics.Enabled,
-		Retention: normalizedConfig.Metrics.Retention,
-		MaxNodes:  normalizedConfig.Metrics.MaxNodes,
+		Enabled:    normalizedConfig.Metrics.Enabled,
+		Retention:  normalizedConfig.Metrics.Retention,
+		MaxPollers: normalizedConfig.Metrics.MaxPollers,
 	})
 
 	dbPath := getDBPath(normalizedConfig.DBPath)
@@ -142,15 +142,15 @@ func TestProcessStatusReport(t *testing.T) {
 	mockDB := db.NewMockService(ctrl)
 	mockRow := db.NewMockRow(ctrl)
 
-	// Mock getNodeHealthState
+	// Mock getPollerHealthState
 	mockDB.EXPECT().QueryRow("SELECT is_healthy FROM nodes WHERE node_id = ?", "test-poller").Return(mockRow)
 	mockRow.EXPECT().Scan(gomock.Any()).Return(nil) // Node exists
 
-	// Mock UpdateNodeStatus with a matcher for the PollerStatus struct
+	// Mock UpdatePollerStatus with a matcher for the PollerStatus struct
 	mockDB.EXPECT().UpdateNodeStatus(gomock.All(
 		gomock.Any(), // Matches any *db.PollerStatus
-	)).DoAndReturn(func(status *db.NodeStatus) error {
-		assert.Equal(t, "test-poller", status.NodeID)
+	)).DoAndReturn(func(status *db.PollerStatus) error {
+		assert.Equal(t, "test-poller", status.PollerID)
 		assert.True(t, status.IsHealthy)
 		// LastSeen can be any time.Time value, no need to assert exact value
 		return nil
@@ -182,7 +182,7 @@ func TestProcessStatusReport(t *testing.T) {
 	apiStatus, err := server.processStatusReport(context.Background(), req, now)
 	require.NoError(t, err)
 	assert.NotNil(t, apiStatus)
-	assert.Equal(t, "test-poller", apiStatus.NodeID)
+	assert.Equal(t, "test-poller", apiStatus.PollerID)
 	assert.True(t, apiStatus.IsHealthy)
 	assert.Len(t, apiStatus.Services, 1)
 }
@@ -203,8 +203,8 @@ func TestReportStatus(t *testing.T) {
 	// For "test-poller" case
 	mockDB.EXPECT().UpdateNodeStatus(gomock.All(
 		gomock.Any(), // Matches any *db.PollerStatus
-	)).DoAndReturn(func(status *db.NodeStatus) error {
-		assert.Equal(t, "test-poller", status.NodeID)
+	)).DoAndReturn(func(status *db.PollerStatus) error {
+		assert.Equal(t, "test-poller", status.PollerID)
 		assert.True(t, status.IsHealthy)
 
 		// LastSeen can be any time.Time value
@@ -376,7 +376,7 @@ func TestUpdateNodeStatus(t *testing.T) {
 	mockTx.EXPECT().Rollback().Return(nil).AnyTimes()
 
 	server := &Server{db: mockDB}
-	err := server.updateNodeStatus("test-node", true, time.Now())
+	err := server.updatePollerStatus("test-node", true, time.Now())
 	assert.NoError(t, err)
 }
 
@@ -393,13 +393,13 @@ func TestHandleNodeRecovery(t *testing.T) {
 
 	nodeID := "test-node"
 	apiStatus := &api.PollerStatus{
-		NodeID:     nodeID,
+		PollerID:   nodeID,
 		IsHealthy:  true,
 		LastUpdate: time.Now(),
 	}
 
 	// No error should be returned
-	server.handleNodeRecovery(context.Background(), nodeID, apiStatus, time.Now())
+	server.handlePollerRecovery(context.Background(), nodeID, apiStatus, time.Now())
 }
 
 func TestHandleNodeDown(t *testing.T) {
@@ -428,7 +428,7 @@ func TestHandleNodeDown(t *testing.T) {
 		apiServer: mockAPI,
 	}
 
-	err := server.handleNodeDown(context.Background(), "test-node", time.Now().Add(-10*time.Minute))
+	err := server.handlePollerDown(context.Background(), "test-node", time.Now().Add(-10*time.Minute))
 	assert.NoError(t, err)
 }
 
@@ -462,7 +462,7 @@ func TestEvaluateNodeHealth(t *testing.T) {
 	now := time.Now()
 	threshold := now.Add(-5 * time.Minute)
 
-	err := server.evaluateNodeHealth(context.Background(), "test-node", now.Add(-10*time.Minute), true, threshold)
+	err := server.evaluatePollerHealth(context.Background(), "test-node", now.Add(-10*time.Minute), true, threshold)
 	assert.NoError(t, err)
 }
 
@@ -487,7 +487,7 @@ func TestWebhookAlerter_FirstAlertNoCooldown(t *testing.T) {
 
 func TestWebhookAlerter_RepeatAlertInCooldown(t *testing.T) {
 	alerter := setupAlerter(time.Minute, func(w *alerts.WebhookAlerter) {
-		key := alerts.AlertKey{NodeID: "test-node", Title: "Service Failure", ServiceName: "service-1"}
+		key := alerts.AlertKey{PollerID: "test-node", Title: "Service Failure", ServiceName: "service-1"}
 		w.LastAlertTimes[key] = time.Now()
 	})
 	err := alerter.CheckCooldown("test-node", "Service Failure", "service-1")
@@ -496,7 +496,7 @@ func TestWebhookAlerter_RepeatAlertInCooldown(t *testing.T) {
 
 func TestWebhookAlerter_DifferentNodeSameAlert(t *testing.T) {
 	alerter := setupAlerter(time.Minute, func(w *alerts.WebhookAlerter) {
-		key := alerts.AlertKey{NodeID: "test-node", Title: "Service Failure", ServiceName: "service-1"}
+		key := alerts.AlertKey{PollerID: "test-node", Title: "Service Failure", ServiceName: "service-1"}
 		w.LastAlertTimes[key] = time.Now()
 	})
 	err := alerter.CheckCooldown("other-node", "Service Failure", "service-1")
@@ -505,7 +505,7 @@ func TestWebhookAlerter_DifferentNodeSameAlert(t *testing.T) {
 
 func TestWebhookAlerter_SameNodeDifferentAlert(t *testing.T) {
 	alerter := setupAlerter(time.Minute, func(w *alerts.WebhookAlerter) {
-		key := alerts.AlertKey{NodeID: "test-node", Title: "Service Failure", ServiceName: "service-1"}
+		key := alerts.AlertKey{PollerID: "test-node", Title: "Service Failure", ServiceName: "service-1"}
 		w.LastAlertTimes[key] = time.Now()
 	})
 	err := alerter.CheckCooldown("test-node", "Node Recovery", "") // Different title
@@ -514,7 +514,7 @@ func TestWebhookAlerter_SameNodeDifferentAlert(t *testing.T) {
 
 func TestWebhookAlerter_AfterCooldownPeriod(t *testing.T) {
 	alerter := setupAlerter(time.Microsecond, func(w *alerts.WebhookAlerter) {
-		key := alerts.AlertKey{NodeID: "test-node", Title: "Service Failure", ServiceName: "service-1"}
+		key := alerts.AlertKey{PollerID: "test-node", Title: "Service Failure", ServiceName: "service-1"}
 		w.LastAlertTimes[key] = time.Now().Add(-time.Second)
 	})
 	err := alerter.CheckCooldown("test-node", "Service Failure", "service-1")
@@ -523,7 +523,7 @@ func TestWebhookAlerter_AfterCooldownPeriod(t *testing.T) {
 
 func TestWebhookAlerter_CooldownDisabled(t *testing.T) {
 	alerter := setupAlerter(0, func(w *alerts.WebhookAlerter) {
-		key := alerts.AlertKey{NodeID: "test-node", Title: "Service Failure", ServiceName: "service-1"}
+		key := alerts.AlertKey{PollerID: "test-node", Title: "Service Failure", ServiceName: "service-1"}
 		w.LastAlertTimes[key] = time.Now()
 	})
 	err := alerter.CheckCooldown("test-node", "Service Failure", "service-1")
@@ -532,7 +532,7 @@ func TestWebhookAlerter_CooldownDisabled(t *testing.T) {
 
 func TestWebhookAlerter_SameNodeSameAlertDifferentService(t *testing.T) {
 	alerter := setupAlerter(time.Minute, func(w *alerts.WebhookAlerter) {
-		key := alerts.AlertKey{NodeID: "test-node", Title: "Service Failure", ServiceName: "service-1"}
+		key := alerts.AlertKey{PollerID: "test-node", Title: "Service Failure", ServiceName: "service-1"}
 		w.LastAlertTimes[key] = time.Now()
 	})
 	err := alerter.CheckCooldown("test-node", "Service Failure", "service-2") // Different service
@@ -541,7 +541,7 @@ func TestWebhookAlerter_SameNodeSameAlertDifferentService(t *testing.T) {
 
 func TestWebhookAlerter_SameNodeServiceFailureThenNodeOffline(t *testing.T) {
 	alerter := setupAlerter(time.Minute, func(w *alerts.WebhookAlerter) {
-		key := alerts.AlertKey{NodeID: "test-node", Title: "Service Failure", ServiceName: "service-1"}
+		key := alerts.AlertKey{PollerID: "test-node", Title: "Service Failure", ServiceName: "service-1"}
 		w.LastAlertTimes[key] = time.Now()
 	})
 	err := alerter.CheckCooldown("test-node", "Node Offline", "") // Different title, no service

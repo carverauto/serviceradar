@@ -36,38 +36,38 @@ var (
 )
 
 func (s *APIServer) getRperfMetrics(w http.ResponseWriter, r *http.Request) {
-	nodeID := mux.Vars(r)["id"]
+	pollerID := mux.Vars(r)["id"]
 
 	if s.rperfManager == nil {
-		writeError(w, "Rperf manager not configured", http.StatusInternalServerError, nodeID)
+		writeError(w, "Rperf manager not configured", http.StatusInternalServerError, pollerID)
 
 		return
 	}
 
 	startTime, endTime, err := parseTimeRange(r.URL.Query())
 	if err != nil {
-		writeError(w, err.Error(), http.StatusBadRequest, nodeID)
+		writeError(w, err.Error(), http.StatusBadRequest, pollerID)
 
 		return
 	}
 
-	log.Printf("Querying rperf metrics for node %s from %s to %s",
-		nodeID, startTime.Format(time.RFC3339), endTime.Format(time.RFC3339))
+	log.Printf("Querying rperf metrics for poller %s from %s to %s",
+		pollerID, startTime.Format(time.RFC3339), endTime.Format(time.RFC3339))
 
-	resp := s.processRperfMetrics(nodeID, startTime, endTime)
+	resp := s.processRperfMetrics(pollerID, startTime, endTime)
 	if resp.Err != nil {
-		writeError(w, "Failed to fetch rperf metrics", http.StatusInternalServerError, nodeID)
+		writeError(w, "Failed to fetch rperf metrics", http.StatusInternalServerError, pollerID)
 
 		return
 	}
 
 	if len(resp.Metrics) == 0 {
-		writeError(w, "No rperf metrics found", http.StatusNotFound, nodeID)
+		writeError(w, "No rperf metrics found", http.StatusNotFound, pollerID)
 
 		return
 	}
 
-	writeJSONResponse(w, resp.Metrics, nodeID)
+	writeJSONResponse(w, resp.Metrics, pollerID)
 }
 
 // parseTimeRange parses start and end times from query parameters.
@@ -99,21 +99,21 @@ func parseTimeRange(query url.Values) (start, end time.Time, err error) {
 	return start, end, nil
 }
 
-func (s *APIServer) processRperfMetrics(nodeID string, startTime, endTime time.Time) RperfMetricResponse {
-	rperfMetrics, err := s.rperfManager.GetRperfMetrics(nodeID, startTime, endTime)
+func (s *APIServer) processRperfMetrics(pollerID string, startTime, endTime time.Time) RperfMetricResponse {
+	rperfMetrics, err := s.rperfManager.GetRperfMetrics(pollerID, startTime, endTime)
 	if err != nil {
-		log.Printf("Error fetching rperf metrics for node %s: %v", nodeID, err)
+		log.Printf("Error fetching rperf metrics for poller %s: %v", pollerID, err)
 
 		return RperfMetricResponse{Err: err}
 	}
 
-	response := convertToAPIMetrics(rperfMetrics, nodeID)
+	response := convertToAPIMetrics(rperfMetrics, pollerID)
 
 	return RperfMetricResponse{Metrics: response}
 }
 
 // convertToAPIMetrics converts db.TimeseriesMetric to RperfMetric.
-func convertToAPIMetrics(rperfMetrics []*db.TimeseriesMetric, nodeID string) []RperfMetric {
+func convertToAPIMetrics(rperfMetrics []*db.TimeseriesMetric, pollerID string) []RperfMetric {
 	response := make([]RperfMetric, 0, len(rperfMetrics))
 
 	for _, rm := range rperfMetrics {
@@ -125,7 +125,7 @@ func convertToAPIMetrics(rperfMetrics []*db.TimeseriesMetric, nodeID string) []R
 		// Declare metadata outside the if statement
 		metadata, ok := rm.Metadata.(map[string]interface{})
 		if !ok {
-			log.Printf("Invalid metadata type for metric %s on node %s: %T", rm.Name, nodeID, rm.Metadata)
+			log.Printf("Invalid metadata type for metric %s on poller %s: %T", rm.Name, pollerID, rm.Metadata)
 
 			continue
 		}
@@ -190,20 +190,20 @@ func setInt64Field(field *int64, metadata map[string]interface{}, key string) {
 	}
 }
 
-func writeError(w http.ResponseWriter, message string, status int, nodeID string) {
-	log.Printf("%s for node %s", message, nodeID)
+func writeError(w http.ResponseWriter, message string, status int, pollerID string) {
+	log.Printf("%s for poller %s", message, pollerID)
 
 	http.Error(w, message, status)
 }
 
-func writeJSONResponse(w http.ResponseWriter, data interface{}, nodeID string) {
+func writeJSONResponse(w http.ResponseWriter, data interface{}, pollerID string) {
 	w.Header().Set("Content-Type", "application/json")
 
 	if err := json.NewEncoder(w).Encode(data); err != nil {
-		log.Printf("Error encoding response for node %s: %v", nodeID, err)
+		log.Printf("Error encoding response for poller %s: %v", pollerID, err)
 
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	} else {
-		log.Printf("Found %d rperf metrics for node %s", len(data.([]RperfMetric)), nodeID)
+		log.Printf("Found %d rperf metrics for poller %s", len(data.([]RperfMetric)), pollerID)
 	}
 }

@@ -72,19 +72,19 @@ type Service interface {
 	Query(query string, args ...interface{}) (Rows, error)
 	QueryRow(query string, args ...interface{}) Row
 
-	// Node operations.
+	// Poller operations.
 
-	UpdateNodeStatus(status *NodeStatus) error
-	GetNodeStatus(nodeID string) (*NodeStatus, error)
-	GetNodeHistory(nodeID string) ([]NodeStatus, error)
-	GetNodeHistoryPoints(nodeID string, limit int) ([]NodeHistoryPoint, error)
-	IsNodeOffline(nodeID string, threshold time.Duration) (bool, error)
+	UpdatePollerStatus(status *PollerStatus) error
+	GetPollerStatus(pollerID string) (*PollerStatus, error)
+	GetPollerHistory(pollerID string) ([]PollerStatus, error)
+	GetPollerHistoryPoints(pollerID string, limit int) ([]PollerHistoryPoint, error)
+	IsPollerOffline(pollerID string, threshold time.Duration) (bool, error)
 
 	// Service operations.
 
 	UpdateServiceStatus(status *ServiceStatus) error
-	GetNodeServices(nodeID string) ([]ServiceStatus, error)
-	GetServiceHistory(nodeID, serviceName string, limit int) ([]ServiceStatus, error)
+	GetPollerServices(pollerID string) ([]ServiceStatus, error)
+	GetServiceHistory(pollerID, serviceName string, limit int) ([]ServiceStatus, error)
 
 	// Maintenance operations.
 
@@ -92,12 +92,12 @@ type Service interface {
 
 	// Generic timeseries methods
 
-	StoreMetric(nodeID string, metric *TimeseriesMetric) error
-	GetMetrics(nodeID, metricName string, start, end time.Time) ([]TimeseriesMetric, error)
-	GetMetricsByType(nodeID, metricType string, start, end time.Time) ([]TimeseriesMetric, error)
+	StoreMetric(pollerID string, metric *TimeseriesMetric) error
+	GetMetrics(pollerID, metricName string, start, end time.Time) ([]TimeseriesMetric, error)
+	GetMetricsByType(pollerID, metricType string, start, end time.Time) ([]TimeseriesMetric, error)
 
 	// Rperf
-	StoreRperfMetrics(nodeID, serviceName string, message string, timestamp time.Time) error
+	StoreRperfMetrics(pollerID, serviceName string, message string, timestamp time.Time) error
 
 	// Auth
 
