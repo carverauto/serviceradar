@@ -21,20 +21,20 @@ func NewRperfManager(db db.Service) RperfManager {
 }
 
 // StoreRperfMetric stores an rperf metric in the database.
-func (m *rperfManagerImpl) StoreRperfMetric(nodeID string, metric *db.TimeseriesMetric) error {
-	return m.db.StoreMetric(nodeID, metric)
+func (m *rperfManagerImpl) StoreRperfMetric(pollerID string, metric *db.TimeseriesMetric) error {
+	return m.db.StoreMetric(pollerID, metric)
 }
 
-// GetRperfMetrics retrieves rperf metrics for a node within a time range.
-func (m *rperfManagerImpl) GetRperfMetrics(nodeID string, startTime, endTime time.Time) ([]*db.TimeseriesMetric, error) {
+// GetRperfMetrics retrieves rperf metrics for a poller within a time range.
+func (m *rperfManagerImpl) GetRperfMetrics(pollerID string, startTime, endTime time.Time) ([]*db.TimeseriesMetric, error) {
 	query := `
         SELECT metric_name, value, metric_type, timestamp, metadata
         FROM timeseries_metrics
-        WHERE node_id = ? AND metric_type = 'rperf' AND timestamp BETWEEN ? AND ?
+        WHERE poller_id = ? AND metric_type = 'rperf' AND timestamp BETWEEN ? AND ?
         ORDER BY timestamp DESC
     `
 
-	rows, err := m.db.Query(query, nodeID, startTime, endTime)
+	rows, err := m.db.Query(query, pollerID, startTime, endTime)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query rperf metrics: %w", err)
 	}
@@ -59,7 +59,7 @@ func (m *rperfManagerImpl) GetRperfMetrics(nodeID string, startTime, endTime tim
 
 		if metadataJSON != "" { // Handle NULL metadata
 			if err := json.Unmarshal([]byte(metadataJSON), &m.Metadata); err != nil {
-				log.Printf("Failed to unmarshal metadata for metric %s on node %s: %v", m.Name, nodeID, err)
+				log.Printf("Failed to unmarshal metadata for metric %s on poller %s: %v", m.Name, pollerID, err)
 
 				return nil, fmt.Errorf("failed to unmarshal metadata: %w", err)
 			}
@@ -74,7 +74,7 @@ func (m *rperfManagerImpl) GetRperfMetrics(nodeID string, startTime, endTime tim
 		return nil, fmt.Errorf("error iterating rows: %w", err)
 	}
 
-	log.Printf("Retrieved %d rperf metrics for node %s", len(metrics), nodeID)
+	log.Printf("Retrieved %d rperf metrics for poller %s", len(metrics), pollerID)
 
 	return metrics, nil
 }
