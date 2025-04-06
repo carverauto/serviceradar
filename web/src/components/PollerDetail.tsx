@@ -1,19 +1,3 @@
-/*
- * Copyright 2025 Carver Automation Corporation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 'use client';
 
 // src/components/PollerDetail.tsx
@@ -44,7 +28,7 @@ import {
 } from 'recharts';
 import { Poller, ServiceMetric } from "@/types/types";
 import ServiceSparkline from "./ServiceSparkline";
-
+import ServiceDetailsRenderer from "./ServiceDetailsRenderer"; // Import the new component
 import { PingStatus } from "./NetworkStatus";
 import PollerTimeline from "./PollerTimeline";
 import { PollerHistoryEntry } from "@/components/PollerTimeline";
@@ -62,11 +46,11 @@ interface PollerDetailProps {
 }
 
 const PollerDetail: React.FC<PollerDetailProps> = ({
-                                                   poller,
-                                                   metrics = [],
-                                                   history = [],
-                                                   error
-                                               }) => {
+                                                       poller,
+                                                       metrics = [],
+                                                       history = [],
+                                                       error
+                                                   }) => {
     const router = useRouter();
     const [showFilter, setShowFilter] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
@@ -156,7 +140,6 @@ const PollerDetail: React.FC<PollerDetailProps> = ({
         applications: (poller.services || []).filter(s => ['dusk', 'rusk', 'grpc', 'rperf-checker'].includes(s.name)),
         security: (poller.services || []).filter(s => ['ssh', 'SSL'].includes(s.name)),
         database: (poller.services || []).filter(s => ['mysql', 'postgres', 'mongodb', 'redis'].includes(s.name.toLowerCase())),
-        // Add more categories as needed
     };
 
     // Filter services based on search and category
@@ -181,7 +164,6 @@ const PollerDetail: React.FC<PollerDetailProps> = ({
     // Process response time data for the main chart
     const responseTimeData: ResponseTimeDataPoint[] = Object.entries(serviceMetricsMap)
         .map(([serviceName, metrics]) => {
-            // Get only the metrics for ICMP services for the main chart
             const service = poller.services?.find(s => s.name === serviceName);
             if (service?.type !== 'icmp') return null;
 
@@ -193,12 +175,10 @@ const PollerDetail: React.FC<PollerDetailProps> = ({
         .filter((item): item is ResponseTimeDataPoint[] => item !== null)
         .flat();
 
-    // Sort by timestamp - handle null safety with optional chaining and nullish coalescing
     if (responseTimeData.length > 0) {
         responseTimeData.sort((a, b) => (a?.timestamp ?? 0) - (b?.timestamp ?? 0));
     }
 
-    // Format timestamp for chart labels
     const formatTimestamp = (timestamp: number): string => {
         return new Date(timestamp).toLocaleTimeString();
     };
@@ -253,29 +233,22 @@ const PollerDetail: React.FC<PollerDetailProps> = ({
 
             {/* Status Summary Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                {/* Total Services */}
                 <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
                     <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Total Services</h3>
                     <div className="text-2xl font-bold text-gray-900 dark:text-white">{poller.services?.length || 0}</div>
                 </div>
-
-                {/* Healthy Services */}
                 <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
                     <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Healthy Services</h3>
                     <div className="text-2xl font-bold text-green-600 dark:text-green-400">
                         {poller.services?.filter(s => s.available).length || 0}
                     </div>
                 </div>
-
-                {/* Unhealthy Services */}
                 <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
                     <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Unhealthy Services</h3>
                     <div className="text-2xl font-bold text-red-600 dark:text-red-400">
                         {poller.services?.filter(s => !s.available).length || 0}
                     </div>
                 </div>
-
-                {/* Average Response Time */}
                 <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
                     <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Avg Response Time</h3>
                     <div className="text-2xl font-bold text-gray-900 dark:text-white">
@@ -305,7 +278,6 @@ const PollerDetail: React.FC<PollerDetailProps> = ({
                 </div>
             </div>
 
-            {/* Poller Timeline Chart (if you have history data) */}
             {history.length > 0 && (
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
                     <div className="p-4 border-b border-gray-200 dark:border-gray-700">
@@ -320,7 +292,6 @@ const PollerDetail: React.FC<PollerDetailProps> = ({
                 </div>
             )}
 
-            {/* Response Time Chart (for ICMP services) */}
             {responseTimeData.length > 0 && (
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
                     <div className="p-4 border-b border-gray-200 dark:border-gray-700">
@@ -351,7 +322,6 @@ const PollerDetail: React.FC<PollerDetailProps> = ({
                                     const service = poller.services?.find(s => s.name === serviceName);
                                     if (service?.type !== 'icmp') return null;
 
-                                    // Different colors for different services
                                     const colors = [
                                         '#8884d8', '#82ca9d', '#ffc658', '#ff8042', '#0088fe', '#00C49F'
                                     ];
@@ -375,13 +345,10 @@ const PollerDetail: React.FC<PollerDetailProps> = ({
                 </div>
             )}
 
-            {/* Service List */}
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
                 <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex flex-col sm:flex-row justify-between sm:items-center gap-3">
                     <h2 className="text-lg font-medium text-gray-900 dark:text-white">Services</h2>
-
                     <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                        {/* Search input */}
                         <div className="relative">
                             <input
                                 type="text"
@@ -397,8 +364,6 @@ const PollerDetail: React.FC<PollerDetailProps> = ({
                                 </svg>
                             </div>
                         </div>
-
-                        {/* Category filter dropdown */}
                         <div className="relative">
                             <button
                                 type="button"
@@ -415,7 +380,6 @@ const PollerDetail: React.FC<PollerDetailProps> = ({
                                     <ChevronDown className="ml-2 h-4 w-4" />
                                 )}
                             </button>
-
                             {showFilter && (
                                 <div className="origin-top-right absolute right-0 mt-2 w-48 rounded-md shadow-lg bg-white dark:bg-gray-800
                               ring-1 ring-black ring-opacity-5 z-10">
@@ -446,7 +410,6 @@ const PollerDetail: React.FC<PollerDetailProps> = ({
                     </div>
                 </div>
 
-                {/* Service grid */}
                 <div className="p-4">
                     {filteredServices.length === 0 ? (
                         <div className="text-center py-8">
@@ -496,52 +459,11 @@ const PollerDetail: React.FC<PollerDetailProps> = ({
                                         </div>
                                     </div>
 
-                                    {/* Expanded service details */}
+                                    {/* Updated expanded service details using ServiceDetailsRenderer */}
                                     {expandedService === service.name && (
                                         <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-600">
-                                            {/* ICMP details */}
-                                            {service.type === 'icmp' && service.details && (
-                                                <div className="mb-4">
-                                                    <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">ICMP Status</h4>
-                                                    <PingStatus details={service.details} />
-                                                </div>
-                                            )}
+                                            <ServiceDetailsRenderer service={service} />
 
-                                            {/* General service details */}
-                                            {service.details && typeof service.details !== 'string' && (
-                                                <div className="grid grid-cols-2 gap-3">
-                                                    {Object.entries(service.details).map(([key, value]) => (
-                                                        <div key={key} className="text-sm">
-                              <span className="font-medium text-gray-700 dark:text-gray-300">
-                                {key.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}:
-                              </span>
-                                                            <span className="ml-2 text-gray-900 dark:text-white">
-                                {typeof value === 'boolean'
-                                    ? value ? 'Yes' : 'No'
-                                    : String(value)}
-                              </span>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            )}
-
-                                            {/* JSON string details */}
-                                            {service.details && typeof service.details === 'string' && service.type !== 'icmp' && (
-                                                <div>
-                                                    <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Details</h4>
-                                                    <pre className="bg-gray-100 dark:bg-gray-800 p-2 rounded text-xs overflow-auto max-h-40">
-                            {(() => {
-                                try {
-                                    return JSON.stringify(JSON.parse(service.details as string), null, 2);
-                                } catch {
-                                    return service.details;
-                                }
-                            })()}
-                          </pre>
-                                                </div>
-                                            )}
-
-                                            {/* View details button */}
                                             <div className="mt-4 flex justify-end">
                                                 <button
                                                     className="px-3 py-1 bg-blue-500 hover:bg-blue-600 text-white rounded-md text-sm"
@@ -562,7 +484,6 @@ const PollerDetail: React.FC<PollerDetailProps> = ({
                 </div>
             </div>
 
-            {/* Last updated footer */}
             <div className="text-right text-xs text-gray-500 dark:text-gray-400">
                 Last refreshed: {lastUpdated.toLocaleString()}
             </div>
