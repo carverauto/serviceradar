@@ -17,7 +17,7 @@
 import { Service } from "@/types/types";
 
 interface NetworkSweepViewProps {
-    nodeId: string;
+    pollerId: string;
     service: Service;
     standalone?: boolean;
 }

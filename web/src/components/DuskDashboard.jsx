@@ -34,10 +34,10 @@ import { useAuth } from '@/components/AuthProvider';
 // Constants
 const AUTO_REFRESH_INTERVAL = 10000; // 10 seconds, matching other components
 
-const DuskDashboard = ({ initialDuskService = null, nodeId, initialError = null }) => {
+const DuskDashboard = ({ initialDuskService = null, pollerId, initialError = null }) => {
   const router = useRouter();
   const { token } = useAuth(); // Get authentication token
-  const [nodeStatus, setNodeStatus] = useState(initialDuskService);
+  const [pollerStatus, setPollerStatus] = useState(initialDuskService);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(initialError);
   const [blockHistory, setBlockHistory] = useState([]);
@@ -69,7 +69,7 @@ const DuskDashboard = ({ initialDuskService = null, nodeId, initialError = null 
   // Initialize from props
   useEffect(() => {
     if (initialDuskService) {
-      setNodeStatus(initialDuskService);
+      setPollerStatus(initialDuskService);
       parseServiceDetails(initialDuskService);
     }
 
@@ -80,7 +80,7 @@ const DuskDashboard = ({ initialDuskService = null, nodeId, initialError = null 
 
   // Function to fetch latest service data
   const fetchLatestData = useCallback(async () => {
-    if (!nodeId) return;
+    if (!pollerId) return;
 
     try {
       setRefreshing(true);
@@ -95,7 +95,7 @@ const DuskDashboard = ({ initialDuskService = null, nodeId, initialError = null 
       }
 
       // Use the Next.js API routes
-      const response = await fetch(`/api/nodes/${nodeId}/services/dusk`, {
+      const response = await fetch(`/api/pollers/${pollerId}/services/dusk`, {
         headers,
         cache: 'no-store',
       });
@@ -105,7 +105,7 @@ const DuskDashboard = ({ initialDuskService = null, nodeId, initialError = null 
       }
 
       const serviceData = await response.json();
-      setNodeStatus(serviceData);
+      setPollerStatus(serviceData);
       parseServiceDetails(serviceData);
       setLastUpdated(new Date());
       setError(null);
@@ -115,7 +115,7 @@ const DuskDashboard = ({ initialDuskService = null, nodeId, initialError = null 
     } finally {
       setRefreshing(false);
     }
-  }, [nodeId, token, parseServiceDetails]);
+  }, [pollerId, token, parseServiceDetails]);
 
   // Set up auto-refresh using router.refresh() and manual data fetching
   useEffect(() => {
@@ -146,9 +146,9 @@ const DuskDashboard = ({ initialDuskService = null, nodeId, initialError = null 
     setAutoRefreshEnabled(!autoRefreshEnabled);
   };
 
-  // Handler to go back to nodes list
-  const handleBackToNodes = () => {
-    router.push('/nodes');
+  // Handler to go back to pollers list
+  const handleBackToPollers = () => {
+    router.push('/pollers');
   };
 
   // Adjust chart height based on screen size
@@ -170,30 +170,30 @@ const DuskDashboard = ({ initialDuskService = null, nodeId, initialError = null 
   }, []);
 
   // Loading state
-  if (loading && !nodeStatus) {
+  if (loading && !pollerStatus) {
     return (
         <div className="flex justify-center items-center h-64">
           <div className="text-lg dark:text-gray-100 transition-colors">
-            Loading Dusk node status...
+            Loading Dusk poller status...
           </div>
         </div>
     );
   }
 
   // Error state with no data
-  if (!nodeStatus && error) {
+  if (!pollerStatus && error) {
     return (
         <div className="space-y-6">
           <div className="flex justify-between items-center">
             <h2 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-gray-100">
-              Dusk Node Monitor - {nodeId}
+              Dusk Node Monitor - {pollerId}
             </h2>
             <button
-                onClick={handleBackToNodes}
+                onClick={handleBackToPollers}
                 className="px-4 py-2 bg-gray-100 dark:bg-gray-700 dark:text-gray-100 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors flex items-center self-start"
             >
               <ArrowLeft className="mr-2 h-4 w-4" />
-              Back to Nodes
+              Back to Pollers
             </button>
           </div>
 
@@ -215,7 +215,7 @@ const DuskDashboard = ({ initialDuskService = null, nodeId, initialError = null 
   }
 
   // Parse details
-  const details = nodeStatus?.details || {};
+  const details = pollerStatus?.details || {};
   let parsedDetails = {};
   try {
     parsedDetails = typeof details === 'string' ? JSON.parse(details) : details;
@@ -229,14 +229,14 @@ const DuskDashboard = ({ initialDuskService = null, nodeId, initialError = null 
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-2">
             <button
-                onClick={handleBackToNodes}
+                onClick={handleBackToPollers}
                 className="p-2 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
             >
               <ArrowLeft className="h-5 w-5" />
-              <span className="sr-only">Back to Nodes</span>
+              <span className="sr-only">Back to Pollers</span>
             </button>
             <h2 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-gray-100">
-              Dusk Node Monitor - {nodeId}
+              Dusk Node Monitor - {pollerId}
             </h2>
           </div>
 
@@ -272,7 +272,7 @@ const DuskDashboard = ({ initialDuskService = null, nodeId, initialError = null 
                 </div>
               </div>
               <div className="mt-1 text-sm text-red-500 dark:text-red-400">
-                {nodeStatus
+                {pollerStatus
                     ? 'Showing last known data. Auto-refresh will continue to attempt reconnection.'
                     : 'No data available. Please check your connection and try again.'}
               </div>
@@ -280,19 +280,19 @@ const DuskDashboard = ({ initialDuskService = null, nodeId, initialError = null 
         )}
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* Card 1: Node Status */}
+          {/* Card 1: Poller Status */}
           <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 transition-colors">
             <h3 className="text-lg font-semibold mb-2 text-gray-800 dark:text-gray-100">
-              Node Status
+              Poller Status
             </h3>
             <div
                 className={`text-lg transition-colors ${
-                    nodeStatus?.available
+                    pollerStatus?.available
                         ? 'text-green-600 dark:text-green-400'
                         : 'text-red-600 dark:text-red-400'
                 }`}
             >
-              {nodeStatus?.available ? 'Online' : 'Offline'}
+              {pollerStatus?.available ? 'Online' : 'Offline'}
             </div>
           </div>
 

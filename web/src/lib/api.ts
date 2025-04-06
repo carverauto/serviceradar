@@ -15,7 +15,7 @@
  */
 
 // web/src/lib/api.ts - server-side utilities with TypeScript
-import { SystemStatus, Node } from "@/types/types";
+import { SystemStatus, Poller } from "@/types/types";
 import { env } from 'next-runtime-env';
 
 export async function fetchFromAPI<T>(
@@ -65,4 +65,4 @@ export async function fetchFromAPI<T>(
 }
 
 // Union type for cacheable data (exported for client-api.ts)
-export type CacheableData = SystemStatus | Node[];
+export type CacheableData = SystemStatus | Poller[];

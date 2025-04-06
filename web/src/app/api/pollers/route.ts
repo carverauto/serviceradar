@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-// src/app/api/nodes/route.ts
+// src/app/api/pollers/route.ts
 import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(req: NextRequest) {
@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Forward to your Go API
-    const response = await fetch(`${apiUrl}/api/nodes`, {
+    const response = await fetch(`${apiUrl}/api/pollers`, {
       headers,
     });
 
@@ -45,7 +45,7 @@ export async function GET(req: NextRequest) {
       // const errorText = await response.text();
 
       return NextResponse.json(
-        { error: "Failed to fetch nodes" },
+        { error: "Failed to fetch pollers" },
         { status: response.status },
       );
     }
@@ -54,10 +54,10 @@ export async function GET(req: NextRequest) {
     const data = await response.json();
     return NextResponse.json(data);
   } catch (error) {
-    console.error("Error fetching nodes:", error);
+    console.error("Error fetching pollers:", error);
 
     return NextResponse.json(
-      { error: "Internal server error while fetching nodes" },
+      { error: "Internal server error while fetching pollers" },
       { status: 500 },
     );
   }
