@@ -94,7 +94,7 @@ func TestMockSweeper(t *testing.T) {
 	})
 
 	t.Run("UpdateConfig", func(t *testing.T) {
-		newConfig := models.Config{
+		newConfig := &models.Config{
 			Networks: []string{"10.0.0.0/24"},
 			Ports:    []int{8080},
 		}
@@ -291,7 +291,7 @@ func TestMockSweepService(t *testing.T) {
 	})
 
 	t.Run("UpdateConfig", func(t *testing.T) {
-		config := models.Config{
+		config := &models.Config{
 			Networks:   []string{"172.16.0.0/16"},
 			Ports:      []int{22, 80, 443},
 			SweepModes: []models.SweepMode{models.ModeTCP, models.ModeICMP},

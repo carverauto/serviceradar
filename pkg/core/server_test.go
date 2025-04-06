@@ -47,7 +47,7 @@ func TestNewServer(t *testing.T) {
 			name: "minimal_config",
 			config: &Config{
 				AlertThreshold: 5 * time.Minute,
-				Metrics:        Metrics{Enabled: true, Retention: 100, MaxNodes: 1000},
+				Metrics:        Metrics{Enabled: true, Retention: 100, MaxPollers: 1000},
 				DBPath:         "", // Will be overridden in the test
 			},
 			setupMock: func(ctrl *gomock.Controller) db.Service {
@@ -103,9 +103,9 @@ func TestNewServer(t *testing.T) {
 func newServerWithDB(_ context.Context, config *Config, database db.Service) (*Server, error) {
 	normalizedConfig := normalizeConfig(config)
 	metricsManager := metrics.NewManager(models.MetricsConfig{
-		Enabled:   normalizedConfig.Metrics.Enabled,
-		Retention: normalizedConfig.Metrics.Retention,
-		MaxNodes:  normalizedConfig.Metrics.MaxNodes,
+		Enabled:    normalizedConfig.Metrics.Enabled,
+		Retention:  normalizedConfig.Metrics.Retention,
+		MaxPollers: normalizedConfig.Metrics.MaxPollers,
 	})
 
 	dbPath := getDBPath(normalizedConfig.DBPath)
@@ -142,15 +142,15 @@ func TestProcessStatusReport(t *testing.T) {
 	mockDB := db.NewMockService(ctrl)
 	mockRow := db.NewMockRow(ctrl)
 
-	// Mock getNodeHealthState
-	mockDB.EXPECT().QueryRow("SELECT is_healthy FROM nodes WHERE node_id = ?", "test-poller").Return(mockRow)
-	mockRow.EXPECT().Scan(gomock.Any()).Return(nil) // Node exists
+	// Mock getPollerHealthState
+	mockDB.EXPECT().QueryRow("SELECT is_healthy FROM pollers WHERE poller_id = ?", "test-poller").Return(mockRow)
+	mockRow.EXPECT().Scan(gomock.Any()).Return(nil) // Poller exists
 
-	// Mock UpdateNodeStatus with a matcher for the NodeStatus struct
-	mockDB.EXPECT().UpdateNodeStatus(gomock.All(
-		gomock.Any(), // Matches any *db.NodeStatus
-	)).DoAndReturn(func(status *db.NodeStatus) error {
-		assert.Equal(t, "test-poller", status.NodeID)
+	// Mock UpdatePollerStatus with a matcher for the PollerStatus struct
+	mockDB.EXPECT().UpdatePollerStatus(gomock.All(
+		gomock.Any(), // Matches any *db.PollerStatus
+	)).DoAndReturn(func(status *db.PollerStatus) error {
+		assert.Equal(t, "test-poller", status.PollerID)
 		assert.True(t, status.IsHealthy)
 		// LastSeen can be any time.Time value, no need to assert exact value
 		return nil
@@ -182,7 +182,7 @@ func TestProcessStatusReport(t *testing.T) {
 	apiStatus, err := server.processStatusReport(context.Background(), req, now)
 	require.NoError(t, err)
 	assert.NotNil(t, apiStatus)
-	assert.Equal(t, "test-poller", apiStatus.NodeID)
+	assert.Equal(t, "test-poller", apiStatus.PollerID)
 	assert.True(t, apiStatus.IsHealthy)
 	assert.Len(t, apiStatus.Services, 1)
 }
@@ -197,14 +197,14 @@ func TestReportStatus(t *testing.T) {
 	mockAPI := api.NewMockService(ctrl)
 
 	// Common mocks
-	mockDB.EXPECT().QueryRow("SELECT is_healthy FROM nodes WHERE node_id = ?", gomock.Any()).Return(mockRow).AnyTimes()
+	mockDB.EXPECT().QueryRow("SELECT is_healthy FROM pollers WHERE poller_id = ?", gomock.Any()).Return(mockRow).AnyTimes()
 	mockRow.EXPECT().Scan(gomock.Any()).Return(nil).AnyTimes()
 
 	// For "test-poller" case
-	mockDB.EXPECT().UpdateNodeStatus(gomock.All(
-		gomock.Any(), // Matches any *db.NodeStatus
-	)).DoAndReturn(func(status *db.NodeStatus) error {
-		assert.Equal(t, "test-poller", status.NodeID)
+	mockDB.EXPECT().UpdatePollerStatus(gomock.All(
+		gomock.Any(), // Matches any *db.PollerStatus
+	)).DoAndReturn(func(status *db.PollerStatus) error {
+		assert.Equal(t, "test-poller", status.PollerID)
 		assert.True(t, status.IsHealthy)
 
 		// LastSeen can be any time.Time value
@@ -212,7 +212,7 @@ func TestReportStatus(t *testing.T) {
 	}).AnyTimes()
 	mockDB.EXPECT().UpdateServiceStatus(gomock.Any()).Return(nil).AnyTimes()
 	mockMetrics.EXPECT().AddMetric(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-	mockAPI.EXPECT().UpdateNodeStatus(gomock.Any(), gomock.Any()).AnyTimes()
+	mockAPI.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).AnyTimes()
 
 	server := &Server{
 		db:        mockDB,
@@ -327,7 +327,7 @@ func TestProcessSNMPMetrics(t *testing.T) {
 		db: mockDB,
 	}
 
-	nodeID := "test-node"
+	pollerID := "test-poller"
 	now := time.Now()
 
 	// Test data
@@ -355,11 +355,11 @@ func TestProcessSNMPMetrics(t *testing.T) {
 	err := json.Unmarshal([]byte(detailsJSON), &details)
 	require.NoError(t, err)
 
-	err = server.processSNMPMetrics(nodeID, details, now)
+	err = server.processSNMPMetrics(pollerID, details, now)
 	assert.NoError(t, err)
 }
 
-func TestUpdateNodeStatus(t *testing.T) {
+func TestUpdatePollerStatus(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -368,19 +368,19 @@ func TestUpdateNodeStatus(t *testing.T) {
 	mockRow := db.NewMockRow(ctrl)
 
 	mockDB.EXPECT().Begin().Return(mockTx, nil)
-	mockTx.EXPECT().QueryRow("SELECT EXISTS(SELECT 1 FROM nodes WHERE node_id = ?)", "test-node").Return(mockRow)
+	mockTx.EXPECT().QueryRow("SELECT EXISTS(SELECT 1 FROM pollers WHERE poller_id = ?)", "test-poller").Return(mockRow)
 	mockRow.EXPECT().Scan(gomock.Any()).Return(nil)
-	mockTx.EXPECT().Exec(gomock.Any(), "test-node", gomock.Any(), gomock.Any(), true).Return(nil, nil) // 5 args: query + 4 params
-	mockTx.EXPECT().Exec(gomock.Any(), "test-node", gomock.Any(), true).Return(nil, nil)               // History insert
+	mockTx.EXPECT().Exec(gomock.Any(), "test-poller", gomock.Any(), gomock.Any(), true).Return(nil, nil) // 5 args: query + 4 params
+	mockTx.EXPECT().Exec(gomock.Any(), "test-poller", gomock.Any(), true).Return(nil, nil)               // History insert
 	mockTx.EXPECT().Commit().Return(nil)
 	mockTx.EXPECT().Rollback().Return(nil).AnyTimes()
 
 	server := &Server{db: mockDB}
-	err := server.updateNodeStatus("test-node", true, time.Now())
+	err := server.updatePollerStatus("test-poller", true, time.Now())
 	assert.NoError(t, err)
 }
 
-func TestHandleNodeRecovery(t *testing.T) {
+func TestHandlePollerRecovery(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -391,18 +391,18 @@ func TestHandleNodeRecovery(t *testing.T) {
 		webhooks: []alerts.AlertService{mockWebhook},
 	}
 
-	nodeID := "test-node"
-	apiStatus := &api.NodeStatus{
-		NodeID:     nodeID,
+	pollerID := "test-poller"
+	apiStatus := &api.PollerStatus{
+		PollerID:   pollerID,
 		IsHealthy:  true,
 		LastUpdate: time.Now(),
 	}
 
 	// No error should be returned
-	server.handleNodeRecovery(context.Background(), nodeID, apiStatus, time.Now())
+	server.handlePollerRecovery(context.Background(), pollerID, apiStatus, time.Now())
 }
 
-func TestHandleNodeDown(t *testing.T) {
+func TestHandlePollerDown(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -413,14 +413,14 @@ func TestHandleNodeDown(t *testing.T) {
 	mockRow := db.NewMockRow(ctrl)
 
 	mockDB.EXPECT().Begin().Return(mockTx, nil)
-	mockTx.EXPECT().QueryRow("SELECT EXISTS(SELECT 1 FROM nodes WHERE node_id = ?)", "test-node").Return(mockRow)
+	mockTx.EXPECT().QueryRow("SELECT EXISTS(SELECT 1 FROM pollers WHERE poller_id = ?)", "test-poller").Return(mockRow)
 	mockRow.EXPECT().Scan(gomock.Any()).Return(nil)
-	mockTx.EXPECT().Exec(gomock.Any(), "test-node", gomock.Any(), gomock.Any(), false).Return(nil, nil) // Update/Insert
-	mockTx.EXPECT().Exec(gomock.Any(), "test-node", gomock.Any(), false).Return(nil, nil)               // History
+	mockTx.EXPECT().Exec(gomock.Any(), "test-poller", gomock.Any(), gomock.Any(), false).Return(nil, nil) // Update/Insert
+	mockTx.EXPECT().Exec(gomock.Any(), "test-poller", gomock.Any(), false).Return(nil, nil)               // History
 	mockTx.EXPECT().Commit().Return(nil)
 	mockTx.EXPECT().Rollback().Return(nil).AnyTimes()
 	mockWebhook.EXPECT().Alert(gomock.Any(), gomock.Any()).Return(nil)
-	mockAPI.EXPECT().UpdateNodeStatus("test-node", gomock.Any())
+	mockAPI.EXPECT().UpdatePollerStatus("test-poller", gomock.Any())
 
 	server := &Server{
 		db:        mockDB,
@@ -428,11 +428,11 @@ func TestHandleNodeDown(t *testing.T) {
 		apiServer: mockAPI,
 	}
 
-	err := server.handleNodeDown(context.Background(), "test-node", time.Now().Add(-10*time.Minute))
+	err := server.handlePollerDown(context.Background(), "test-poller", time.Now().Add(-10*time.Minute))
 	assert.NoError(t, err)
 }
 
-func TestEvaluateNodeHealth(t *testing.T) {
+func TestEvaluatePollerHealth(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -445,13 +445,13 @@ func TestEvaluateNodeHealth(t *testing.T) {
 	mockDB.EXPECT().Begin().Return(mockTx, nil).AnyTimes()
 	mockTx.EXPECT().QueryRow(gomock.Any(), gomock.Any()).Return(mockRow).AnyTimes()
 	mockRow.EXPECT().Scan(gomock.Any()).Return(nil).AnyTimes()
-	mockTx.EXPECT().Exec(gomock.Any(), "test-node", gomock.Any(), gomock.Any(), false).Return(nil, nil).AnyTimes()
-	mockTx.EXPECT().Exec(gomock.Any(), "test-node", gomock.Any(), false).Return(nil, nil).AnyTimes()
+	mockTx.EXPECT().Exec(gomock.Any(), "test-poller", gomock.Any(), gomock.Any(), false).Return(nil, nil).AnyTimes()
+	mockTx.EXPECT().Exec(gomock.Any(), "test-poller", gomock.Any(), false).Return(nil, nil).AnyTimes()
 	mockTx.EXPECT().Commit().Return(nil).AnyTimes()
 	mockTx.EXPECT().Rollback().Return(nil).AnyTimes()
 	mockWebhook.EXPECT().Alert(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-	mockAPI.EXPECT().UpdateNodeStatus(gomock.Any(), gomock.Any()).AnyTimes()
-	mockDB.EXPECT().QueryRow("SELECT is_healthy FROM nodes WHERE node_id = ?", "test-node").Return(mockRow).AnyTimes()
+	mockAPI.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).AnyTimes()
+	mockDB.EXPECT().QueryRow("SELECT is_healthy FROM pollers WHERE node_id = ?", "test-poller").Return(mockRow).AnyTimes()
 
 	server := &Server{
 		db:        mockDB,
@@ -462,7 +462,7 @@ func TestEvaluateNodeHealth(t *testing.T) {
 	now := time.Now()
 	threshold := now.Add(-5 * time.Minute)
 
-	err := server.evaluateNodeHealth(context.Background(), "test-node", now.Add(-10*time.Minute), true, threshold)
+	err := server.evaluatePollerHealth(context.Background(), "test-poller", now.Add(-10*time.Minute), true, threshold)
 	assert.NoError(t, err)
 }
 
@@ -481,69 +481,69 @@ func setupAlerter(cooldown time.Duration, setupFunc func(*alerts.WebhookAlerter)
 
 func TestWebhookAlerter_FirstAlertNoCooldown(t *testing.T) {
 	alerter := setupAlerter(time.Minute, nil)
-	err := alerter.CheckCooldown("test-node", "Service Failure", "service-1")
+	err := alerter.CheckCooldown("test-poller", "Service Failure", "service-1")
 	assert.NoError(t, err, "First alert should not be in cooldown")
 }
 
 func TestWebhookAlerter_RepeatAlertInCooldown(t *testing.T) {
 	alerter := setupAlerter(time.Minute, func(w *alerts.WebhookAlerter) {
-		key := alerts.AlertKey{NodeID: "test-node", Title: "Service Failure", ServiceName: "service-1"}
+		key := alerts.AlertKey{PollerID: "test-poller", Title: "Service Failure", ServiceName: "service-1"}
 		w.LastAlertTimes[key] = time.Now()
 	})
-	err := alerter.CheckCooldown("test-node", "Service Failure", "service-1")
+	err := alerter.CheckCooldown("test-poller", "Service Failure", "service-1")
 	assert.ErrorIs(t, err, alerts.ErrWebhookCooldown, "Repeat alert within cooldown should return error")
 }
 
-func TestWebhookAlerter_DifferentNodeSameAlert(t *testing.T) {
+func TestWebhookAlerter_DifferentPollerSameAlert(t *testing.T) {
 	alerter := setupAlerter(time.Minute, func(w *alerts.WebhookAlerter) {
-		key := alerts.AlertKey{NodeID: "test-node", Title: "Service Failure", ServiceName: "service-1"}
+		key := alerts.AlertKey{PollerID: "test-poller", Title: "Service Failure", ServiceName: "service-1"}
 		w.LastAlertTimes[key] = time.Now()
 	})
 	err := alerter.CheckCooldown("other-node", "Service Failure", "service-1")
 	assert.NoError(t, err, "Different node should not be affected by other node's cooldown")
 }
 
-func TestWebhookAlerter_SameNodeDifferentAlert(t *testing.T) {
+func TestWebhookAlerter_SamePollerDifferentAlert(t *testing.T) {
 	alerter := setupAlerter(time.Minute, func(w *alerts.WebhookAlerter) {
-		key := alerts.AlertKey{NodeID: "test-node", Title: "Service Failure", ServiceName: "service-1"}
+		key := alerts.AlertKey{PollerID: "test-poller", Title: "Service Failure", ServiceName: "service-1"}
 		w.LastAlertTimes[key] = time.Now()
 	})
-	err := alerter.CheckCooldown("test-node", "Node Recovery", "") // Different title
+	err := alerter.CheckCooldown("test-poller", "Poller Recovery", "") // Different title
 	assert.NoError(t, err, "Different alert type should not be affected by other alert's cooldown")
 }
 
 func TestWebhookAlerter_AfterCooldownPeriod(t *testing.T) {
 	alerter := setupAlerter(time.Microsecond, func(w *alerts.WebhookAlerter) {
-		key := alerts.AlertKey{NodeID: "test-node", Title: "Service Failure", ServiceName: "service-1"}
+		key := alerts.AlertKey{PollerID: "test-poller", Title: "Service Failure", ServiceName: "service-1"}
 		w.LastAlertTimes[key] = time.Now().Add(-time.Second)
 	})
-	err := alerter.CheckCooldown("test-node", "Service Failure", "service-1")
+	err := alerter.CheckCooldown("test-poller", "Service Failure", "service-1")
 	assert.NoError(t, err, "Alert after cooldown period should not return error")
 }
 
 func TestWebhookAlerter_CooldownDisabled(t *testing.T) {
 	alerter := setupAlerter(0, func(w *alerts.WebhookAlerter) {
-		key := alerts.AlertKey{NodeID: "test-node", Title: "Service Failure", ServiceName: "service-1"}
+		key := alerts.AlertKey{PollerID: "test-poller", Title: "Service Failure", ServiceName: "service-1"}
 		w.LastAlertTimes[key] = time.Now()
 	})
-	err := alerter.CheckCooldown("test-node", "Service Failure", "service-1")
+	err := alerter.CheckCooldown("test-poller", "Service Failure", "service-1")
 	assert.NoError(t, err, "Alert should not be blocked when cooldown is disabled")
 }
 
-func TestWebhookAlerter_SameNodeSameAlertDifferentService(t *testing.T) {
+func TestWebhookAlerter_SamePollerSameAlertDifferentService(t *testing.T) {
 	alerter := setupAlerter(time.Minute, func(w *alerts.WebhookAlerter) {
-		key := alerts.AlertKey{NodeID: "test-node", Title: "Service Failure", ServiceName: "service-1"}
+		key := alerts.AlertKey{PollerID: "test-poller", Title: "Service Failure", ServiceName: "service-1"}
 		w.LastAlertTimes[key] = time.Now()
 	})
-	err := alerter.CheckCooldown("test-node", "Service Failure", "service-2") // Different service
+	err := alerter.CheckCooldown("test-poller", "Service Failure", "service-2") // Different service
 	assert.NoError(t, err, "Different service on same node should not be affected by cooldown")
 }
 
-func TestWebhookAlerter_SameNodeServiceFailureThenNodeOffline(t *testing.T) {
+func TestWebhookAlerter_SamePollerServiceFailureThenPollerOffline(t *testing.T) {
 	alerter := setupAlerter(time.Minute, func(w *alerts.WebhookAlerter) {
-		key := alerts.AlertKey{NodeID: "test-node", Title: "Service Failure", ServiceName: "service-1"}
+		key := alerts.AlertKey{PollerID: "test-poller", Title: "Service Failure", ServiceName: "service-1"}
 		w.LastAlertTimes[key] = time.Now()
 	})
-	err := alerter.CheckCooldown("test-node", "Node Offline", "") // Different title, no service
-	assert.NoError(t, err, "Node Offline alert should not be blocked by Service Failure cooldown")
+	err := alerter.CheckCooldown("test-poller", "Poller Offline", "") // Different title, no service
+	assert.NoError(t, err, "Poller Offline alert should not be blocked by Service Failure cooldown")
 }

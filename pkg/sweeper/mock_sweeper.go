@@ -100,7 +100,7 @@ func (mr *MockSweeperMockRecorder) Stop(ctx any) *gomock.Call {
 }
 
 // UpdateConfig mocks base method.
-func (m *MockSweeper) UpdateConfig(arg0 models.Config) error {
+func (m *MockSweeper) UpdateConfig(arg0 *models.Config) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateConfig", arg0)
 	ret0, _ := ret[0].(error)
@@ -354,7 +354,7 @@ func (mr *MockSweepServiceMockRecorder) Stop() *gomock.Call {
 }
 
 // UpdateConfig mocks base method.
-func (m *MockSweepService) UpdateConfig(arg0 models.Config) error {
+func (m *MockSweepService) UpdateConfig(arg0 *models.Config) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateConfig", arg0)
 	ret0, _ := ret[0].(error)

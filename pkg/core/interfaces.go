@@ -28,9 +28,9 @@ import (
 
 // NodeService represents node-related operations.
 type NodeService interface {
-	GetNodeStatus(nodeID string) (*api.NodeStatus, error)
-	UpdateNodeStatus(nodeID string, status *api.NodeStatus) error
-	GetNodeHistory(nodeID string, limit int) ([]api.NodeHistoryPoint, error)
+	GetNodeStatus(nodeID string) (*api.PollerStatus, error)
+	UpdateNodeStatus(nodeID string, status *api.PollerStatus) error
+	GetNodeHistory(nodeID string, limit int) ([]api.PollerHistoryPoint, error)
 	CheckNodeHealth(nodeID string) (bool, error)
 }
 
@@ -38,6 +38,6 @@ type NodeService interface {
 type CoreService interface {
 	Start(ctx context.Context) error
 	Stop(ctx context.Context) error
-	ReportStatus(ctx context.Context, nodeID string, status *api.NodeStatus) error
+	ReportStatus(ctx context.Context, nodeID string, status *api.PollerStatus) error
 	GetMetricsManager() metrics.MetricCollector
 }
