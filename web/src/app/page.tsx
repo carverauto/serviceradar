@@ -16,7 +16,7 @@
 
 import { cookies } from "next/headers";
 import { fetchFromAPI } from "@/lib/api";
-import { SystemStatus, Node } from "@/types/types";
+import { SystemStatus, Poller } from "@/types/types";
 import { unstable_noStore as noStore } from "next/cache";
 import DashboardWrapper from "@/components/DashboardWrapper";
 import { Suspense } from "react";
@@ -27,8 +27,8 @@ async function fetchStatus(token?: string): Promise<SystemStatus | null> {
     const statusData = await fetchFromAPI<SystemStatus>("/status", token);
     if (!statusData) throw new Error("Failed to fetch status");
 
-    const nodesData = await fetchFromAPI<Node[]>("/nodes", token);
-    if (!nodesData) throw new Error("Failed to fetch nodes");
+    const pollersData = await fetchFromAPI<Poller[]>("/pollers", token);
+    if (!pollersData) throw new Error("Failed to fetch pollers");
 
     // Calculate service statistics (unchanged)
     let totalServices = 0;
@@ -36,10 +36,10 @@ async function fetchStatus(token?: string): Promise<SystemStatus | null> {
     let totalResponseTime = 0;
     let servicesWithResponseTime = 0;
 
-    nodesData.forEach((node: Node) => {
-      if (node.services && Array.isArray(node.services)) {
-        totalServices += node.services.length;
-        node.services.forEach((service) => {
+    pollersData.forEach((poller: Poller) => {
+      if (poller.services && Array.isArray(poller.services)) {
+        totalServices += poller.services.length;
+        poller.services.forEach((service) => {
           if (!service.available) offlineServices++;
           if (service.type === "icmp" && service.details) {
             try {

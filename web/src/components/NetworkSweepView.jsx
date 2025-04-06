@@ -137,7 +137,7 @@ const HostDetailsView = ({ host }) => {
     );
 };
 
-const NetworkSweepView = ({ nodeId, service, standalone = false }) => {
+const NetworkSweepView = ({ pollerId: pollerId, service, standalone = false }) => {
     const [viewMode, setViewMode] = useState('summary');
     const [searchTerm, setSearchTerm] = useState('');
     const [showFilters, setShowFilters] = useState(false);
