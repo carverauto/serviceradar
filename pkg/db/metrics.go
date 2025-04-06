@@ -25,7 +25,7 @@ import (
 )
 
 // StoreMetric stores a timeseries metric in the database.
-func (db *DB) StoreMetric(nodeID string, metric *TimeseriesMetric) error {
+func (db *DB) StoreMetric(pollerID string, metric *TimeseriesMetric) error {
 	log.Printf("Storing metric: %v", metric)
 
 	// Convert metadata to JSON if present
@@ -43,9 +43,9 @@ func (db *DB) StoreMetric(nodeID string, metric *TimeseriesMetric) error {
 
 	_, err := db.Exec(`
         INSERT INTO timeseries_metrics
-            (node_id, metric_name, metric_type, value, metadata, timestamp)
+            (poller_id, metric_name, metric_type, value, metadata, timestamp)
         VALUES (?, ?, ?, ?, ?, ?)`,
-		nodeID,
+		pollerID,
 		metric.Name,
 		metric.Type,
 		metric.Value,
@@ -55,24 +55,24 @@ func (db *DB) StoreMetric(nodeID string, metric *TimeseriesMetric) error {
 
 	if err != nil {
 		// Use %w for error wrapping
-		return fmt.Errorf("failed to store metric %s for node %s: %w", metric.Name, nodeID, err)
+		return fmt.Errorf("failed to store metric %s for poller %s: %w", metric.Name, pollerID, err)
 	}
 
 	// Log successful storage *after* the operation succeeds
-	log.Printf("Successfully stored metric %s for node %s", metric.Name, nodeID)
+	log.Printf("Successfully stored metric %s for poller %s", metric.Name, pollerID)
 
 	return nil
 }
 
-// GetMetrics retrieves metrics for a specific node and metric name.
-func (db *DB) GetMetrics(nodeID, metricName string, start, end time.Time) ([]TimeseriesMetric, error) {
+// GetMetrics retrieves metrics for a specific poller and metric name.
+func (db *DB) GetMetrics(pollerID, metricName string, start, end time.Time) ([]TimeseriesMetric, error) {
 	rows, err := db.Query(`
         SELECT metric_name, metric_type, value, metadata, timestamp
         FROM timeseries_metrics
-        WHERE node_id = ?
+        WHERE poller_id = ?
         AND metric_name = ?
         AND timestamp BETWEEN ? AND ?`,
-		nodeID,
+		pollerID,
 		metricName,
 		start,
 		end,
@@ -85,15 +85,15 @@ func (db *DB) GetMetrics(nodeID, metricName string, start, end time.Time) ([]Tim
 	return db.scanMetrics(rows)
 }
 
-// GetMetricsByType retrieves metrics for a specific node and metric type.
-func (db *DB) GetMetricsByType(nodeID, metricType string, start, end time.Time) ([]TimeseriesMetric, error) {
+// GetMetricsByType retrieves metrics for a specific poller and metric type.
+func (db *DB) GetMetricsByType(pollerID, metricType string, start, end time.Time) ([]TimeseriesMetric, error) {
 	rows, err := db.Query(`
         SELECT metric_name, metric_type, value, metadata, timestamp
         FROM timeseries_metrics
-        WHERE node_id = ?
+        WHERE poller_id = ?
         AND metric_type = ?
         AND timestamp BETWEEN ? AND ?`,
-		nodeID,
+		pollerID,
 		metricType,
 		start,
 		end,
@@ -162,16 +162,16 @@ type rperfWrapper struct {
 }
 
 // StoreRperfMetrics stores rperf-checker data as timeseries metrics.
-func (db *DB) StoreRperfMetrics(nodeID, _, message string, timestamp time.Time) error {
+func (db *DB) StoreRperfMetrics(pollerID, _, message string, timestamp time.Time) error {
 	var wrapper rperfWrapper
 	if err := json.Unmarshal([]byte(message), &wrapper); err != nil {
-		log.Printf("Failed to unmarshal outer rperf wrapper for node %s: %v", nodeID, err)
+		log.Printf("Failed to unmarshal outer rperf wrapper for poller %s: %v", pollerID, err)
 
 		return fmt.Errorf("failed to unmarshal rperf wrapper message: %w", err)
 	}
 
 	if wrapper.Status == "" {
-		log.Printf("No nested status found in rperf message for node %s", nodeID)
+		log.Printf("No nested status found in rperf message for poller %s", pollerID)
 
 		return nil
 	}
@@ -183,13 +183,13 @@ func (db *DB) StoreRperfMetrics(nodeID, _, message string, timestamp time.Time) 
 	}
 
 	if err := json.Unmarshal([]byte(wrapper.Status), &rperfData); err != nil {
-		log.Printf("Failed to unmarshal nested rperf data ('status' field) for node %s: %v", nodeID, err)
+		log.Printf("Failed to unmarshal nested rperf data ('status' field) for poller %s: %v", pollerID, err)
 
 		return fmt.Errorf("failed to unmarshal nested rperf data: %w", err)
 	}
 
 	if len(rperfData.Results) == 0 {
-		log.Printf("No rperf results found in nested data for node %s", nodeID)
+		log.Printf("No rperf results found in nested data for poller %s", pollerID)
 
 		return nil // Not an error, just no results to store
 	}
@@ -200,8 +200,8 @@ func (db *DB) StoreRperfMetrics(nodeID, _, message string, timestamp time.Time) 
 	for _, result := range rperfData.Results {
 		// Skip storing metrics if the test itself reported failure
 		if !result.Success {
-			log.Printf("Skipping metrics storage for failed rperf test (Target: %s) on node %s. Error: %v",
-				result.Target, nodeID, result.Error)
+			log.Printf("Skipping metrics storage for failed rperf test (Target: %s) on poller %s. Error: %v",
+				result.Target, pollerID, result.Error)
 
 			continue // Move to the next result
 		}
@@ -230,8 +230,8 @@ func (db *DB) StoreRperfMetrics(nodeID, _, message string, timestamp time.Time) 
 		metadataBytes, err := json.Marshal(result)
 		if err != nil {
 			// Log error but maybe continue storing other metrics? Or fail the batch?
-			log.Printf("ERROR: Failed to marshal rperf result metadata for node %s, "+
-				"target %s: %v. Skipping metrics for this result.", nodeID, result.Target, err)
+			log.Printf("ERROR: Failed to marshal rperf result metadata for poller %s, "+
+				"target %s: %v. Skipping metrics for this result.", pollerID, result.Target, err)
 
 			continue // Skip this specific result's metrics
 		}
@@ -248,17 +248,17 @@ func (db *DB) StoreRperfMetrics(nodeID, _, message string, timestamp time.Time) 
 				Metadata:  metadata,  // Store the full result as metadata
 			}
 
-			if err := db.StoreMetric(nodeID, metric); err != nil {
+			if err := db.StoreMetric(pollerID, metric); err != nil {
 				// Log the specific error but try to continue with other metrics/results
 				// return fmt.Errorf("failed to store rperf metric %s: %w", m.Name, err) // Option: Fail fast
-				log.Printf("ERROR: Failed to store rperf metric %s for node %s: %v", m.Name, nodeID, err)
+				log.Printf("ERROR: Failed to store rperf metric %s for poller %s: %v", m.Name, pollerID, err)
 			} else {
 				storedCount++
 			}
 		}
 	}
 
-	log.Printf("Finished processing rperf metrics for node %s. Stored %d metrics.", nodeID, storedCount)
+	log.Printf("Finished processing rperf metrics for poller %s. Stored %d metrics.", pollerID, storedCount)
 
 	return nil
 }
