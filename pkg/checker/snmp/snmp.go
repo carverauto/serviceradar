@@ -36,9 +36,9 @@ func NewSNMPManager(db db.Service) SNMPManager {
 	}
 }
 
-// GetSNMPMetrics fetches SNMP metrics from the database for a given node.
-func (s *SNMPMetricsManager) GetSNMPMetrics(nodeID string, startTime, endTime time.Time) ([]db.SNMPMetric, error) {
-	log.Printf("Fetching SNMP metrics for node %s from %v to %v", nodeID, startTime, endTime)
+// GetSNMPMetrics fetches SNMP metrics from the database for a given poller.
+func (s *SNMPMetricsManager) GetSNMPMetrics(pollerID string, startTime, endTime time.Time) ([]db.SNMPMetric, error) {
+	log.Printf("Fetching SNMP metrics for poller %s from %v to %v", pollerID, startTime, endTime)
 
 	query := `
         SELECT 
@@ -55,12 +55,12 @@ func (s *SNMPMetricsManager) GetSNMPMetrics(nodeID string, startTime, endTime ti
                 0
             ) as is_delta
         FROM timeseries_metrics
-        WHERE node_id = ? 
+        WHERE poller_id = ? 
         AND metric_type = 'snmp' 
         AND timestamp BETWEEN ? AND ?
     `
 
-	rows, err := s.db.Query(query, nodeID, startTime, endTime)
+	rows, err := s.db.Query(query, pollerID, startTime, endTime)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query SNMP metrics: %w", err)
 	}
@@ -88,7 +88,7 @@ func (s *SNMPMetricsManager) GetSNMPMetrics(nodeID string, startTime, endTime ti
 		return nil, fmt.Errorf("error iterating rows: %w", err)
 	}
 
-	log.Printf("Retrieved %d SNMP metrics for node %s", len(metrics), nodeID)
+	log.Printf("Retrieved %d SNMP metrics for poller %s", len(metrics), pollerID)
 
 	return metrics, nil
 }

@@ -36,7 +36,6 @@ export default function LoginPage() {
             router.push("/"); // Redirect here
             setTimeout(() => {
                 if (window.location.pathname !== "/") {
-                    console.log("Fallback redirect triggered");
                     window.location.href = "/";
                 }
             }, 500); // Give router.push a moment to work
