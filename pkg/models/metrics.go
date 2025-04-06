@@ -26,9 +26,9 @@ type MetricPoint struct {
 }
 
 type MetricsConfig struct {
-	Enabled   bool `json:"metrics_enabled"`
-	Retention int  `json:"metrics_retention"`
-	MaxNodes  int  `json:"max_nodes"`
+	Enabled    bool `json:"metrics_enabled"`
+	Retention  int  `json:"metrics_retention"`
+	MaxPollers int  `json:"max_pollers"`
 }
 
 const MetricPointSize = 32 // 8 bytes timestamp + 8 bytes response + 16 bytes name

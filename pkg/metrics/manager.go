@@ -37,8 +37,8 @@ type Manager struct {
 }
 
 func NewManager(cfg models.MetricsConfig) MetricCollector {
-	if cfg.MaxNodes == 0 {
-		cfg.MaxNodes = 10000 // Reasonable default
+	if cfg.MaxPollers == 0 {
+		cfg.MaxPollers = 10000 // Reasonable default
 	}
 
 	return &Manager{
@@ -47,7 +47,7 @@ func NewManager(cfg models.MetricsConfig) MetricCollector {
 	}
 }
 
-func (m *Manager) CleanupStaleNodes(staleDuration time.Duration) {
+func (m *Manager) CleanupStalePollers(staleDuration time.Duration) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -86,7 +86,7 @@ func (m *Manager) AddMetric(nodeID string, timestamp time.Time, responseTime int
 	m.updateNodeLRU(nodeID)
 
 	// Check if we need to evict
-	if m.nodeCount.Load() >= int64(m.config.MaxNodes) {
+	if m.nodeCount.Load() >= int64(m.config.MaxPollers) {
 		if err := m.evictOldest(); err != nil {
 			log.Printf("Failed to evict old node: %v", err)
 		}
