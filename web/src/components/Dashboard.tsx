@@ -42,8 +42,8 @@ function Dashboard({ initialData }: { initialData: SystemStatus | null }) {
         }
     }, [initialData]);
 
-    const navigateToNodes = () => {
-        router.push('/nodes');
+    const navigateToPollers = () => {
+        router.push('/pollers');
     };
 
     if (!data) {
@@ -55,9 +55,9 @@ function Dashboard({ initialData }: { initialData: SystemStatus | null }) {
         );
     }
 
-    // Calculate percentage of healthy nodes
-    const healthPercentage = data.total_nodes > 0
-        ? Math.round((data.healthy_nodes / data.total_nodes) * 100)
+    // Calculate percentage of healthy pollers
+    const healthPercentage = data.total_pollers > 0
+        ? Math.round((data.healthy_pollers / data.total_pollers) * 100)
         : 0;
 
     // Calculate percentage of available services
@@ -95,11 +95,11 @@ function Dashboard({ initialData }: { initialData: SystemStatus | null }) {
                 </div>
             </div>
 
-            {/* Node & Service Stats Cards */}
+            {/* Poller & Service Stats Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {/* Card 1 - Total Nodes with navigation */}
+                {/* Card 1 - Total Pollers with navigation */}
                 <div
-                    onClick={navigateToNodes}
+                    onClick={navigateToPollers}
                     className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 transition-colors flex items-center cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 group"
                 >
                     <div className="p-3 rounded-full bg-blue-100 dark:bg-blue-900 mr-4">
@@ -107,16 +107,16 @@ function Dashboard({ initialData }: { initialData: SystemStatus | null }) {
                     </div>
                     <div className="flex-1">
                         <h3 className="font-bold text-gray-800 dark:text-gray-100">
-                            Total Nodes
+                            Total Pollers
                         </h3>
                         <div className="flex items-center">
                             <p className="text-2xl font-bold text-gray-700 dark:text-gray-100 mr-2">
-                                {data.total_nodes || 0}
+                                {data.total_pollers || 0}
                             </p>
                             <ArrowRight className="h-4 w-4 text-gray-400 dark:text-gray-500 group-hover:transform group-hover:translate-x-1 transition-transform" />
                         </div>
                         <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                            {data.healthy_nodes || 0} healthy
+                            {data.healthy_pollers || 0} healthy
                         </p>
                     </div>
                 </div>
@@ -157,7 +157,7 @@ function Dashboard({ initialData }: { initialData: SystemStatus | null }) {
                             {stats.responseTime ? `${(stats.responseTime / 1000000).toFixed(2)}ms` : 'N/A'}
                         </p>
                         <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                            Average across nodes
+                            Average across pollers
                         </p>
                     </div>
                 </div>
@@ -167,28 +167,28 @@ function Dashboard({ initialData }: { initialData: SystemStatus | null }) {
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 transition-colors">
                 <h3 className="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-100">Quick Actions</h3>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <Link href="/nodes">
+                    <Link href="/pollers">
                         <div className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg flex flex-col items-center justify-center text-center hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors cursor-pointer">
                             <Monitor className="h-6 w-6 text-blue-500 dark:text-blue-400 mb-2" />
-                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">View All Nodes</span>
+                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">View All Pollers</span>
                         </div>
                     </Link>
 
-                    <Link href="/nodes">
+                    <Link href="/pollers">
                         <div className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg flex flex-col items-center justify-center text-center hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors cursor-pointer">
                             <CircleDot className="h-6 w-6 text-red-500 dark:text-red-400 mb-2" />
                             <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Alert Status</span>
                         </div>
                     </Link>
 
-                    <Link href="/nodes">
+                    <Link href="/pollers">
                         <div className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg flex flex-col items-center justify-center text-center hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors cursor-pointer">
                             <Activity className="h-6 w-6 text-green-500 dark:text-green-400 mb-2" />
                             <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Network Status</span>
                         </div>
                     </Link>
 
-                    <Link href="/nodes">
+                    <Link href="/pollers">
                         <div className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg flex flex-col items-center justify-center text-center hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors cursor-pointer">
                             <Clock className="h-6 w-6 text-purple-500 dark:text-purple-400 mb-2" />
                             <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Recent Updates</span>

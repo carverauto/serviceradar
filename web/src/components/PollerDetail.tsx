@@ -16,7 +16,7 @@
 
 'use client';
 
-// src/components/NodeDetail.tsx
+// src/components/PollerDetail.tsx
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
@@ -42,27 +42,27 @@ import {
     AreaChart,
     Area
 } from 'recharts';
-import { Node, ServiceMetric } from "@/types/types";
+import { Poller, ServiceMetric } from "@/types/types";
 import ServiceSparkline from "./ServiceSparkline";
 
 import { PingStatus } from "./NetworkStatus";
-import NodeTimeline from "./NodeTimeline";
-import { NodeHistoryEntry } from "@/components/NodeTimeline";
+import PollerTimeline from "./PollerTimeline";
+import { PollerHistoryEntry } from "@/components/PollerTimeline";
 
 interface ResponseTimeDataPoint {
     timestamp: number;
     [key: string]: number;
 }
 
-interface NodeDetailProps {
-    node?: Node;
+interface PollerDetailProps {
+    poller?: Poller;
     metrics?: ServiceMetric[];
-    history?: NodeHistoryEntry[];
+    history?: PollerHistoryEntry[];
     error?: string;
 }
 
-const NodeDetail: React.FC<NodeDetailProps> = ({
-                                                   node,
+const PollerDetail: React.FC<PollerDetailProps> = ({
+                                                   poller,
                                                    metrics = [],
                                                    history = [],
                                                    error
@@ -97,7 +97,7 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
 
     // Handle back button
     const handleBack = () => {
-        router.push("/nodes");
+        router.push("/pollers");
     };
 
     // Handle service expansion
@@ -111,7 +111,7 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
 
     // Handle service click to navigate to service detail page
     const handleServiceClick = (serviceName: string) => {
-        router.push(`/service/${node?.node_id}/${serviceName}`);
+        router.push(`/service/${poller?.poller_id}/${serviceName}`);
     };
 
     // Error state
@@ -120,7 +120,7 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
             <div className="bg-red-50 dark:bg-red-900/20 p-6 rounded-lg shadow">
                 <div className="flex items-center mb-4">
                     <AlertCircle className="h-6 w-6 text-red-500 mr-2" />
-                    <h2 className="text-xl font-bold text-red-700 dark:text-red-400">Error Loading Node</h2>
+                    <h2 className="text-xl font-bold text-red-700 dark:text-red-400">Error Loading Poller</h2>
                 </div>
                 <p className="text-red-600 dark:text-red-300 mb-4">{error}</p>
                 <button
@@ -130,19 +130,19 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
                    dark:hover:bg-gray-700 transition-colors flex items-center"
                 >
                     <ArrowLeft className="h-4 w-4 mr-2" />
-                    Back to Nodes
+                    Back to Pollers
                 </button>
             </div>
         );
     }
 
-    // Loading state if no node data
-    if (!node) {
+    // Loading state if no poller data
+    if (!poller) {
         return (
             <div className="flex justify-center items-center h-96">
                 <div className="text-center">
                     <RefreshCw className="h-8 w-8 text-blue-500 animate-spin mx-auto mb-4" />
-                    <div className="text-lg text-gray-600 dark:text-gray-300">Loading node data...</div>
+                    <div className="text-lg text-gray-600 dark:text-gray-300">Loading poller data...</div>
                 </div>
             </div>
         );
@@ -150,17 +150,17 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
 
     // Categorize services
     const serviceCategories = {
-        all: node.services || [],
-        network: (node.services || []).filter(s => ['icmp', 'sweep', 'network_sweep'].includes(s.type)),
-        monitoring: (node.services || []).filter(s => ['snmp', 'serviceradar-agent'].includes(s.type) || s.name.includes('agent')),
-        applications: (node.services || []).filter(s => ['dusk', 'rusk', 'grpc', 'rperf-checker'].includes(s.name)),
-        security: (node.services || []).filter(s => ['ssh', 'SSL'].includes(s.name)),
-        database: (node.services || []).filter(s => ['mysql', 'postgres', 'mongodb', 'redis'].includes(s.name.toLowerCase())),
+        all: poller.services || [],
+        network: (poller.services || []).filter(s => ['icmp', 'sweep', 'network_sweep'].includes(s.type)),
+        monitoring: (poller.services || []).filter(s => ['snmp', 'serviceradar-agent'].includes(s.type) || s.name.includes('agent')),
+        applications: (poller.services || []).filter(s => ['dusk', 'rusk', 'grpc', 'rperf-checker'].includes(s.name)),
+        security: (poller.services || []).filter(s => ['ssh', 'SSL'].includes(s.name)),
+        database: (poller.services || []).filter(s => ['mysql', 'postgres', 'mongodb', 'redis'].includes(s.name.toLowerCase())),
         // Add more categories as needed
     };
 
     // Filter services based on search and category
-    const filteredServices = node.services?.filter(service => {
+    const filteredServices = poller.services?.filter(service => {
         const matchesSearch = service.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
             service.type.toLowerCase().includes(searchTerm.toLowerCase());
         const matchesCategory = selectedCategory === 'all' ||
@@ -182,7 +182,7 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
     const responseTimeData: ResponseTimeDataPoint[] = Object.entries(serviceMetricsMap)
         .map(([serviceName, metrics]) => {
             // Get only the metrics for ICMP services for the main chart
-            const service = node.services?.find(s => s.name === serviceName);
+            const service = poller.services?.find(s => s.name === serviceName);
             if (service?.type !== 'icmp') return null;
 
             return metrics.map(m => ({
@@ -214,15 +214,15 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
                      hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors mr-3"
                     >
                         <ArrowLeft className="h-5 w-5" />
-                        <span className="sr-only">Back to Nodes</span>
+                        <span className="sr-only">Back to Pollers</span>
                     </button>
                     <div>
                         <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white flex items-center">
                             <Server className="h-6 w-6 mr-2 text-gray-500 dark:text-gray-400" />
-                            {node.node_id}
+                            {poller.poller_id}
                         </h1>
                         <div className="flex items-center mt-1">
-                            {node.is_healthy ? (
+                            {poller.is_healthy ? (
                                 <div className="flex items-center text-green-600 dark:text-green-400">
                                     <CheckCircle className="h-4 w-4 mr-1" />
                                     <span className="text-sm">Healthy</span>
@@ -235,7 +235,7 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
                             )}
                             <span className="text-xs text-gray-500 dark:text-gray-400 ml-4 flex items-center">
                                 <Clock className="h-3 w-3 mr-1" />
-                                Last update: {new Date(node.last_update).toLocaleString()}
+                                Last update: {new Date(poller.last_update).toLocaleString()}
                             </span>
                         </div>
                     </div>
@@ -256,14 +256,14 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
                 {/* Total Services */}
                 <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
                     <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Total Services</h3>
-                    <div className="text-2xl font-bold text-gray-900 dark:text-white">{node.services?.length || 0}</div>
+                    <div className="text-2xl font-bold text-gray-900 dark:text-white">{poller.services?.length || 0}</div>
                 </div>
 
                 {/* Healthy Services */}
                 <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
                     <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Healthy Services</h3>
                     <div className="text-2xl font-bold text-green-600 dark:text-green-400">
-                        {node.services?.filter(s => s.available).length || 0}
+                        {poller.services?.filter(s => s.available).length || 0}
                     </div>
                 </div>
 
@@ -271,7 +271,7 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
                 <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
                     <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Unhealthy Services</h3>
                     <div className="text-2xl font-bold text-red-600 dark:text-red-400">
-                        {node.services?.filter(s => !s.available).length || 0}
+                        {poller.services?.filter(s => !s.available).length || 0}
                     </div>
                 </div>
 
@@ -280,7 +280,7 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
                     <h3 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Avg Response Time</h3>
                     <div className="text-2xl font-bold text-gray-900 dark:text-white">
                         {(() => {
-                            const icmpServices = node.services?.filter(s => s.type === 'icmp') || [];
+                            const icmpServices = poller.services?.filter(s => s.type === 'icmp') || [];
                             if (icmpServices.length === 0) return 'N/A';
 
                             const totalResponseTime = icmpServices.reduce((sum, service) => {
@@ -305,15 +305,15 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
                 </div>
             </div>
 
-            {/* Node Timeline Chart (if you have history data) */}
+            {/* Poller Timeline Chart (if you have history data) */}
             {history.length > 0 && (
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
                     <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-                        <h2 className="text-lg font-medium text-gray-900 dark:text-white">Node Availability History</h2>
+                        <h2 className="text-lg font-medium text-gray-900 dark:text-white">Poller Availability History</h2>
                     </div>
                     <div className="p-4">
-                        <NodeTimeline
-                            nodeId={node.node_id}
+                        <PollerTimeline
+                            pollerId={poller.poller_id}
                             initialHistory={history}
                         />
                     </div>
@@ -348,7 +348,7 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
                                 />
                                 <Legend />
                                 {Object.keys(serviceMetricsMap).map((serviceName, index) => {
-                                    const service = node.services?.find(s => s.name === serviceName);
+                                    const service = poller.services?.find(s => s.name === serviceName);
                                     if (service?.type !== 'icmp') return null;
 
                                     // Different colors for different services
@@ -482,7 +482,7 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
                                             {service.type === 'icmp' && serviceMetricsMap[service.name] && (
                                                 <div className="mr-3 hidden sm:block">
                                                     <ServiceSparkline
-                                                        nodeId={node.node_id}
+                                                        pollerId={poller.poller_id}
                                                         serviceName={service.name}
                                                         initialMetrics={serviceMetricsMap[service.name]}
                                                     />
@@ -570,4 +570,4 @@ const NodeDetail: React.FC<NodeDetailProps> = ({
     );
 };
 
-export default NodeDetail;
+export default PollerDetail;

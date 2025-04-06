@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-// src/components/NodeTimeline.tsx
+// src/components/PollerTimeline.tsx
 import React, { useState, useEffect } from 'react';
 import {
     AreaChart,
@@ -28,25 +28,25 @@ import {
 import { fetchFromAPI } from '@/lib/api';
 import CustomTooltip from './CustomTooltip';
 
-export interface NodeHistoryEntry {
+export interface PollerHistoryEntry {
     timestamp: string;
     is_healthy: boolean;
 }
 
-interface NodeTimelineProps {
-    nodeId: string;
-    initialHistory?: NodeHistoryEntry[];
+interface PollerTimelineProps {
+    pollerId: string;
+    initialHistory?: PollerHistoryEntry[];
 }
 
-const NodeTimeline: React.FC<NodeTimelineProps> = ({ nodeId, initialHistory = [] }) => {
-    const [availabilityData, setAvailabilityData] = useState<NodeHistoryEntry[]>(initialHistory);
+const PollerTimeline: React.FC<PollerTimelineProps> = ({ pollerId, initialHistory = [] }) => {
+    const [availabilityData, setAvailabilityData] = useState<PollerHistoryEntry[]>(initialHistory);
     const [loading, setLoading] = useState(initialHistory.length === 0);
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
         const fetchData = async () => {
             try {
-                const data = await fetchFromAPI<NodeHistoryEntry[]>(`/nodes/${nodeId}/history`);
+                const data = await fetchFromAPI<PollerHistoryEntry[]>(`/pollers/${pollerId}/history`);
 
                 if (data) {
                     // Transform the history data for the chart
@@ -57,7 +57,7 @@ const NodeTimeline: React.FC<NodeTimelineProps> = ({ nodeId, initialHistory = []
                         is_healthy: point.is_healthy
                     }));
 
-                    setAvailabilityData(timelineData as unknown as NodeHistoryEntry[]);
+                    setAvailabilityData(timelineData as unknown as PollerHistoryEntry[]);
                     setLoading(false);
                 }
             } catch (err) {
@@ -78,7 +78,7 @@ const NodeTimeline: React.FC<NodeTimelineProps> = ({ nodeId, initialHistory = []
         const interval = setInterval(fetchData, 10000);
 
         return () => clearInterval(interval);
-    }, [nodeId, initialHistory, availabilityData.length]);
+    }, [pollerId, initialHistory, availabilityData.length]);
 
     if (loading && availabilityData.length === 0) {
         return <div className="text-center p-4">Loading timeline...</div>;
@@ -91,7 +91,7 @@ const NodeTimeline: React.FC<NodeTimelineProps> = ({ nodeId, initialHistory = []
     return (
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 transition-colors">
             <h3 className="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-100">
-                Node Availability Timeline
+                Poller Availability Timeline
             </h3>
             <div className="h-48">
                 <ResponsiveContainer width="100%" height="100%">
@@ -131,4 +131,4 @@ const NodeTimeline: React.FC<NodeTimelineProps> = ({ nodeId, initialHistory = []
     );
 };
 
-export default NodeTimeline;
+export default PollerTimeline;

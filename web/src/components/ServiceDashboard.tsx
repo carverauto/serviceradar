@@ -38,7 +38,7 @@ import RPerfDashboard from "@/components/RPerfDashboard";
 
 // Define props interface
 interface ServiceDashboardProps {
-    nodeId: string;
+    pollerId: string;
     serviceName: string;
     initialService?: Service | null;
     initialMetrics?: ServiceMetric[];
@@ -48,7 +48,7 @@ interface ServiceDashboardProps {
 }
 
 const ServiceDashboard: React.FC<ServiceDashboardProps> = ({
-                                                               nodeId,
+                                                               pollerId,
                                                                serviceName,
                                                                initialService = null,
                                                                initialMetrics = [],
@@ -85,7 +85,7 @@ const ServiceDashboard: React.FC<ServiceDashboardProps> = ({
 
     useEffect(() => {
         return () => console.log("ServiceDashboard unmounted");
-    }, [nodeId, serviceName, initialSnmpData]);
+    }, [pollerId, serviceName, initialSnmpData]);
 
     const filterDataByTimeRange = (
         data: { timestamp: string; response_time: number }[],
@@ -193,7 +193,7 @@ const ServiceDashboard: React.FC<ServiceDashboardProps> = ({
         if (serviceData.type === "snmp") {
             return (
                 <SNMPDashboard
-                    nodeId={nodeId}
+                    pollerId={pollerId}
                     serviceName={serviceName}
                     initialData={snmpData}
                     initialTimeRange={initialTimeRange}
@@ -203,7 +203,7 @@ const ServiceDashboard: React.FC<ServiceDashboardProps> = ({
 
         if (serviceData.type === "sweep") {
             return (
-                <NetworkSweepView nodeId={nodeId} service={serviceData} standalone />
+                <NetworkSweepView pollerId={pollerId} service={serviceData} standalone />
             );
         }
 
@@ -215,7 +215,7 @@ const ServiceDashboard: React.FC<ServiceDashboardProps> = ({
                     </h3>
                     <PingStatus
                         details={serviceData.details ?? ''} // Provide default empty string if undefined
-                        nodeId={nodeId}
+                        pollerId={pollerId}
                         serviceName={serviceName}
                     />
                 </div>
@@ -225,7 +225,7 @@ const ServiceDashboard: React.FC<ServiceDashboardProps> = ({
         if (serviceData.type === "grpc" && serviceName === "rperf-checker") {
             return (
                 <RPerfDashboard
-                    nodeId={nodeId}
+                    pollerId={pollerId}
                     serviceName={serviceName}
                     initialTimeRange={initialTimeRange}
                 />
@@ -300,11 +300,11 @@ const ServiceDashboard: React.FC<ServiceDashboardProps> = ({
                 <h2 className="text-xl font-bold mb-4">Error Loading Service</h2>
                 <p className="mb-4">{error}</p>
                 <button
-                    onClick={() => router.push("/nodes")}
+                    onClick={() => router.push("/pollers")}
                     className="mt-2 px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-100 hover:bg-gray-300 dark:hover:bg-gray-600 rounded transition-colors flex items-center"
                 >
                     <ArrowLeft className="mr-2 h-4 w-4" />
-                    Back to Nodes
+                    Back to Pollers
                 </button>
             </div>
         );
@@ -317,11 +317,11 @@ const ServiceDashboard: React.FC<ServiceDashboardProps> = ({
                     {serviceName} Service Status
                 </h2>
                 <button
-                    onClick={() => router.push("/nodes")}
+                    onClick={() => router.push("/pollers")}
                     className="px-4 py-2 bg-gray-100 dark:bg-gray-700 dark:text-gray-100 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors flex items-center self-start"
                 >
                     <ArrowLeft className="mr-2 h-4 w-4" />
-                    Back to Nodes
+                    Back to Pollers
                 </button>
             </div>
             <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 sm:p-6 transition-colors">

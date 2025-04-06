@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-// src/app/api/nodes/[id]/metrics/route.ts
+// src/app/api/pollers/[id]/metrics/route.ts
 import {NextRequest, NextResponse} from "next/server";
 import {ServiceMetric} from "@/types/types";
 
@@ -26,7 +26,7 @@ interface RouteProps {
 // Define the response type (already present but kept for clarity)
 export async function GET(req: NextRequest, props: RouteProps) {
   const params = await props.params; // Await the params Promise
-  const nodeId = params.id;
+  const pollerId = params.id;
   const apiKey = process.env.API_KEY || "";
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090";
 
@@ -46,7 +46,7 @@ export async function GET(req: NextRequest, props: RouteProps) {
     }
 
     // Forward request to Go API
-    const response = await fetch(`${apiUrl}/api/nodes/${nodeId}/metrics`, {
+    const response = await fetch(`${apiUrl}/api/pollers/${pollerId}/metrics`, {
       method: "GET",
       headers,
       cache: "no-store",
@@ -74,7 +74,7 @@ export async function GET(req: NextRequest, props: RouteProps) {
     const data: ServiceMetric[] = await response.json();
     return NextResponse.json(data);
   } catch (error) {
-    console.error(`Error fetching metrics for node ${nodeId}:`, error);
+    console.error(`Error fetching metrics for poller ${pollerId}:`, error);
 
     return NextResponse.json(
         { error: "Internal server error while fetching metrics" },

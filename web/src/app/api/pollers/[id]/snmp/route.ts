@@ -7,7 +7,7 @@ interface RouteProps {
 
 export async function GET(req: NextRequest, props: RouteProps) {
     const params = await props.params;
-    const nodeId = params.id;
+    const pollerId = params.id;
     const apiKey = process.env.API_KEY || "";
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090";
     const { searchParams } = new URL(req.url);
@@ -22,7 +22,7 @@ export async function GET(req: NextRequest, props: RouteProps) {
         };
         if (authHeader) headers["Authorization"] = authHeader;
 
-        const url = `${apiUrl}/api/nodes/${nodeId}/snmp${start && end ? `?start=${start}&end=${end}` : ""}`;
+        const url = `${apiUrl}/api/pollers/${pollerId}/snmp${start && end ? `?start=${start}&end=${end}` : ""}`;
         const response = await fetch(url, {
             headers,
             cache: "no-store",
@@ -39,7 +39,7 @@ export async function GET(req: NextRequest, props: RouteProps) {
         const data: SnmpDataPoint[] = await response.json();
         return NextResponse.json(data);
     } catch (error) {
-        console.error(`Error fetching SNMP data for node ${nodeId}:`, error);
+        console.error(`Error fetching SNMP data for poller ${pollerId}:`, error);
         return NextResponse.json(
             { error: "Internal server error while fetching SNMP data" },
             { status: 500 },

@@ -14,16 +14,16 @@
  * limitations under the License.
  */
 
-// src/app/service/[nodeid]/[servicename]/page.tsx
+// src/app/service/[pollerid]/[servicename]/page.tsx
 import { Suspense } from "react";
 import ServiceDashboard from "../../../../components/ServiceDashboard";
 import { cookies } from "next/headers";
-import { Node, ServiceMetric } from "@/types/types";
+import { Poller, ServiceMetric } from "@/types/types";
 import { SnmpDataPoint } from "@/types/snmp";
 import { getApiUrl } from "@/lib/urlUtils";
 
 // Define the params type as a Promise
-type Params = Promise<{ nodeid: string; servicename: string }>;
+type Params = Promise<{ pollerId: string; servicename: string }>;
 
 // Define props type
 interface PageProps {
@@ -34,7 +34,7 @@ interface PageProps {
 export const revalidate = 0;
 
 async function fetchServiceData(
-    nodeId: string,
+    pollerId: string,
     serviceName: string,
     timeRange = "1h",
     token?: string,
@@ -43,10 +43,10 @@ async function fetchServiceData(
         const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090";
         const apiKey = process.env.API_KEY || "";
 
-        const nodesUrl = getApiUrl("nodes");
+        const pollersUrl = getApiUrl("pollers");
 
         // Use relative URL for the API route
-        const nodesResponse = await fetch(nodesUrl, {
+        const pollersResponse = await fetch(pollersUrl, {
             headers: {
                 "X-API-Key": apiKey,
                 ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -54,22 +54,22 @@ async function fetchServiceData(
             cache: "no-store",
         });
 
-        if (!nodesResponse.ok) {
-            throw new Error(`Nodes API request failed: ${nodesResponse.status}`);
+        if (!pollersResponse.ok) {
+            throw new Error(`Pollers API request failed: ${pollersResponse.status}`);
         }
 
-        const nodes: Node[] = await nodesResponse.json();
-        const node = nodes.find((n) => n.node_id === nodeId);
+        const pollers: Poller[] = await pollersResponse.json();
+        const poller = pollers.find((n) => n.poller_id === pollerId);
 
-        if (!node) return { error: "Node not found", service: null };
+        if (!poller) return { error: "Poller not found", service: null };
 
-        const service = node.services?.find((s) => s.name === serviceName) || null;
+        const service = poller.services?.find((s) => s.name === serviceName) || null;
         if (!service) return { error: "Service not found", service: null };
 
         let metrics: ServiceMetric[] = [];
         try {
             const metricsResponse = await fetch(
-                `${backendUrl}/api/nodes/${nodeId}/metrics`,
+                `${backendUrl}/api/pollers/${pollerId}/metrics`,
                 {
                     headers: {
                         "X-API-Key": apiKey,
@@ -105,21 +105,21 @@ async function fetchServiceData(
 }
 
 export async function generateMetadata({ params }: { params: Params }) {
-    const { nodeid, servicename } = await params; // Await the params
+    const { pollerId, servicename } = await params; // Await the params
     return {
-        title: `${servicename} on ${nodeid} - ServiceRadar`,
+        title: `${servicename} on ${pollerId} - ServiceRadar`,
     };
 }
 
 // Update the Page component to await params
 export default async function Page(props: PageProps) {
     const { params, searchParams }  = props
-    const { nodeid, servicename } = await params; // Await the params
+    const { pollerid: pollerid, servicename } = await params; // Await the params
     const resolvedSearchParams = await searchParams;
     const timeRange = resolvedSearchParams.timeRange || "1h";
     const cookieStore = await cookies(); // Await the cookies() promise
     const token = cookieStore.get("accessToken")?.value;
-    const initialData = await fetchServiceData(nodeid, servicename, timeRange, token);
+    const initialData = await fetchServiceData(pollerid, servicename, timeRange, token);
 
     return (
         <div>
@@ -133,7 +133,7 @@ export default async function Page(props: PageProps) {
                 }
             >
                 <ServiceDashboard
-                    nodeId={nodeid}
+                    pollerId={pollerid}
                     serviceName={servicename}
                     initialService={initialData.service}
                     initialMetrics={initialData.metrics || []}

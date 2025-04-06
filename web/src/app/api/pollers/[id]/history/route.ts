@@ -14,70 +14,69 @@
  * limitations under the License.
  */
 
-// src/app/api/nodes/[id]/services/[service]/route.ts
-import {NextRequest, NextResponse} from "next/server";
-import {Service} from "@/types/types";
+// src/app/api/pollers/[id]/history/route.ts
+import { NextRequest, NextResponse } from "next/server";
 
-// Define the props type for the nested dynamic route
+// Define the expected history data structure
+interface HistoryEntry {
+  timestamp: string; // ISO string
+  is_healthy: boolean;
+  [key: string]: unknown; // Allow additional fields
+}
+
+// Define the props type for the dynamic route
 interface RouteProps {
-  params: Promise<{ id: string; service: string }>; // params is a Promise due to async nature
+  params: Promise<{ id: string }>; // params is a Promise due to async nature
 }
 
 export async function GET(req: NextRequest, props: RouteProps) {
   const params = await props.params; // Await the params Promise
-  const nodeId = params.id;
-  const serviceName = params.service;
+  const pollerId = params.id;
   const apiKey = process.env.API_KEY || "";
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090";
 
   try {
-    // Get authorization header
     const authHeader = req.headers.get("authorization");
-
-    // Create headers for backend request
     const headers: HeadersInit = {
       "Content-Type": "application/json",
       "X-API-Key": apiKey,
     };
 
-    // Add Authorization header if it exists
     if (authHeader) {
       headers["Authorization"] = authHeader;
+      console.log(`Forwarding history request with authorization: ${authHeader}`);
     }
 
-    // Forward request to Go API
-    const response = await fetch(
-        `${apiUrl}/api/nodes/${nodeId}/services/${serviceName}`,
-        {
-          method: "GET",
-          headers,
-          cache: "no-store",
-        },
-    );
+    console.log(`Requesting history for poller ${pollerId} from: ${apiUrl}/api/pollers/${pollerId}/history`);
 
-    // Check for and handle errors
+    const response = await fetch(`${apiUrl}/api/pollers/${pollerId}/history`, {
+      method: "GET",
+      headers,
+      cache: "no-store",
+    });
+
     if (!response.ok) {
       const status = response.status;
       let errorMessage: string;
-
       try {
-        errorMessage = await response.text();
+        const errorText = await response.text();
+        console.error(`History API error (${status}): ${errorText}`);
+        errorMessage = errorText;
       } catch {
         errorMessage = `Status code: ${status}`;
       }
-
       return NextResponse.json(
-          { error: "Failed to fetch service details", details: errorMessage },
+          { error: "Failed to fetch history", details: errorMessage },
           { status },
       );
     }
 
-    // Return successful response
-    const data: Service = await response.json();
+    const data: HistoryEntry[] = await response.json();
     return NextResponse.json(data);
-  } catch {
+  } catch (error) {
+    console.error(`Error fetching history for poller ${pollerId}:`, error);
     return NextResponse.json(
-        { error: "Internal server error while fetching service details" },
+        { error: "Internal server error while fetching history" },
         { status: 500 },
     );
   }

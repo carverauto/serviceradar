@@ -28,13 +28,13 @@ const MAX_POINTS = 100;
 const REFRESH_INTERVAL = 10000; // 10 seconds
 
 interface ServiceSparklineProps {
-  nodeId: string;
+  pollerId: string;
   serviceName: string;
   initialMetrics?: ServiceMetric[];
 }
 
 const ServiceSparkline = React.memo(
-  ({ nodeId, serviceName, initialMetrics = [] }: ServiceSparklineProps) => {
+  ({ pollerId, serviceName, initialMetrics = [] }: ServiceSparklineProps) => {
     const router = useRouter();
     const [metrics, setMetrics] = useState(initialMetrics);
 
@@ -46,7 +46,7 @@ const ServiceSparkline = React.memo(
     // Set up periodic refresh to trigger server-side data update
     useEffect(() => {
         const interval = setInterval(() => {
-            router.refresh(); // Triggers server-side re-fetch of nodes/page.js
+            router.refresh(); // Triggers server-side re-fetch of pollers/page.js
         }, REFRESH_INTERVAL);
 
         return () => clearInterval(interval);
@@ -54,7 +54,7 @@ const ServiceSparkline = React.memo(
 
     const processedMetrics = useMemo(() => {
         if (!metrics || metrics.length === 0) {
-            console.log(`No metrics available for ${nodeId}/${serviceName}`);
+            console.log(`No metrics available for ${pollerId}/${serviceName}`);
             return [];
         }
 
@@ -72,7 +72,7 @@ const ServiceSparkline = React.memo(
         // Downsample for performance
         const step = Math.max(1, Math.floor(serviceMetrics.length / 20));
         return serviceMetrics.filter((_, i) => i % step === 0 || i === serviceMetrics.length - 1);
-    }, [metrics, serviceName, nodeId]);
+    }, [metrics, serviceName, pollerId]);
 
     const trend = useMemo(() => {
         if (processedMetrics.length < 5) return 'neutral';
@@ -104,7 +104,7 @@ const ServiceSparkline = React.memo(
                 <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={processedMetrics}>
                         <defs>
-                            <linearGradient id={`sparkline-gradient-${nodeId}-${serviceName}`} x1="0" y1="0" x2="0" y2="1">
+                            <linearGradient id={`sparkline-gradient-${pollerId}-${serviceName}`} x1="0" y1="0" x2="0" y2="1">
                                 <stop offset="5%" stopColor="#6366f1" stopOpacity={0.8} />
                                 <stop offset="95%" stopColor="#6366f1" stopOpacity={0.2} />
                             </linearGradient>
@@ -115,7 +115,7 @@ const ServiceSparkline = React.memo(
                             dataKey="value"
                             stroke="#6366f1"
                             strokeWidth={1.5}
-                            fill={`url(#sparkline-gradient-${nodeId}-${serviceName})`}
+                            fill={`url(#sparkline-gradient-${pollerId}-${serviceName})`}
                             baseValue="dataMin"
                             dot={false}
                             isAnimationActive={false}

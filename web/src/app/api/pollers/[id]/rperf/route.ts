@@ -1,4 +1,4 @@
-// src/app/api/nodes/[id]/rperf/route.ts - Update this file
+// src/app/api/pollers/[id]/rperf/route.ts - Update this file
 import { NextRequest, NextResponse } from "next/server";
 import {RperfMetric} from "@/types/rperf";
 
@@ -8,7 +8,7 @@ interface RouteProps {
 
 export async function GET(req: NextRequest, props: RouteProps) {
     const params = await props.params;
-    const nodeId = params.id;
+    const pollerId = params.id;
     const apiKey = process.env.API_KEY || "";
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090";
     const { searchParams } = new URL(req.url);
@@ -25,7 +25,7 @@ export async function GET(req: NextRequest, props: RouteProps) {
         if (authHeader) headers["Authorization"] = authHeader;
 
         // Make sure to properly format the URL with query parameters
-        let url = `${apiUrl}/api/nodes/${nodeId}/rperf`;
+        let url = `${apiUrl}/api/pollers/${pollerId}/rperf`;
         if (start && end) {
             url += `?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`;
         }
@@ -49,7 +49,7 @@ export async function GET(req: NextRequest, props: RouteProps) {
         const data: RperfMetric[] = await response.json();
         return NextResponse.json(data);
     } catch (error) {
-        console.error(`Error fetching rperf metrics for node ${nodeId}:`, error);
+        console.error(`Error fetching rperf metrics for poller ${pollerId}:`, error);
         return NextResponse.json(
             { error: "Internal server error while fetching rperf metrics" },
             { status: 500 },

@@ -34,7 +34,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { RperfMetric } from "@/types/rperf";
 
 interface RPerfDashboardProps {
-    nodeId: string;
+    pollerId: string;
     serviceName: string;
     initialTimeRange?: string;
 }
@@ -58,7 +58,7 @@ interface AggregatedDataPoint {
 }
 
 const RperfDashboard = ({
-                            nodeId,
+                            pollerId,
                             serviceName,
                             initialTimeRange = "1h"
                         }: RPerfDashboardProps) => {
@@ -183,7 +183,7 @@ const RperfDashboard = ({
                 default: start.setHours(end.getHours() - 1);
             }
 
-            const url = `/api/nodes/${nodeId}/rperf?start=${start.toISOString()}&end=${end.toISOString()}`;
+            const url = `/api/pollers/${pollerId}/rperf?start=${start.toISOString()}&end=${end.toISOString()}`;
             const headers: HeadersInit = {
                 "Content-Type": "application/json",
             };
@@ -281,7 +281,7 @@ const RperfDashboard = ({
         } finally {
             setIsLoading(false);
         }
-    }, [timeRange, nodeId, token, refreshToken, filterOutliers, smoothData, calculateTrend, aggregatePacketLossData, ]);
+    }, [timeRange, pollerId, token, refreshToken, filterOutliers, smoothData, calculateTrend, aggregatePacketLossData, ]);
 
     useEffect(() => {
         fetchData();
@@ -293,7 +293,7 @@ const RperfDashboard = ({
 
     const handleTimeRangeChange = (range: string) => setTimeRange(range);
 
-    const handleBackToNodes = () => router.push("/nodes");
+    const handleBackToPollers = () => router.push("/pollers");
 
     const formatBandwidth = (value: number | undefined) =>
         value === undefined || value === null ? "N/A" : value >= 1000 ? `${(value / 1000).toFixed(2)} Gbps` : `${value.toFixed(2)} Mbps`;
@@ -308,11 +308,11 @@ const RperfDashboard = ({
             <div className="flex flex-col sm:flex-row justify-between items-center gap-4 bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
                 <div className="flex items-center gap-2">
                     <button
-                        onClick={handleBackToNodes}
+                        onClick={handleBackToPollers}
                         className="p-2 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
                     >
                         <ArrowLeft className="h-5 w-5" />
-                        <span className="sr-only">Back to Nodes</span>
+                        <span className="sr-only">Back to Pollers</span>
                     </button>
                     <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100">
                         Rperf Metrics Dashboard - {serviceName} ({targetName})

@@ -20,24 +20,24 @@ import React, { useState, useMemo, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import ServiceSparkline from "./ServiceSparkline";
 import { Filter, ArrowUp, ArrowDown, CheckCircle, XCircle } from "lucide-react";
-import { Node, ServiceMetric, Service } from "@/types/types";
+import { Poller, ServiceMetric, Service } from "@/types/types";
 
-// Define props interface for NodeList
-interface NodeListProps {
-  initialNodes?: Node[];
+// Define props interface for PollerList
+interface PollerListProps {
+  initialPollers?: Poller[];
   serviceMetrics?: { [key: string]: ServiceMetric[] };
 }
 
-// Define props interface for NodeCard
-interface NodeCardProps {
-  node: Node;
+// Define props interface for PollerCard
+interface PollerCardProps {
+  poller: Poller;
   serviceMetrics: { [key: string]: ServiceMetric[] };
-  handleServiceClick: (nodeId: string, serviceName: string) => void;
+  handleServiceClick: (pollerId: string, serviceName: string) => void;
 }
 
-// Node Card for Mobile View
-const NodeCard: React.FC<NodeCardProps> = ({
-  node,
+// Poller Card for Mobile View
+const PollerCard: React.FC<PollerCardProps> = ({
+  poller,
   serviceMetrics,
   handleServiceClick,
 }) => {
@@ -45,7 +45,7 @@ const NodeCard: React.FC<NodeCardProps> = ({
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4 mb-4 transition-colors">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center">
-          {node.is_healthy ? (
+          {poller.is_healthy ? (
             <CheckCircle
               className="w-4 h-4 text-green-500 mr-2"
               aria-hidden="true"
@@ -54,11 +54,11 @@ const NodeCard: React.FC<NodeCardProps> = ({
             <XCircle className="w-4 h-4 text-red-500 mr-2" aria-hidden="true" />
           )}
           <h3 className="font-medium text-gray-800 dark:text-gray-100">
-            {node.node_id}
+            {poller.poller_id}
           </h3>
         </div>
         <span className="text-xs text-gray-500 dark:text-gray-400">
-          {new Date(node.last_update).toLocaleString()}
+          {new Date(poller.last_update).toLocaleString()}
         </span>
       </div>
 
@@ -67,11 +67,11 @@ const NodeCard: React.FC<NodeCardProps> = ({
           Services:
         </p>
         <div className="flex flex-wrap gap-2">
-          {node.services?.map((service: Service, idx: number) => (
+          {poller.services?.map((service: Service, idx: number) => (
             <div
               key={`${service.name}-${idx}`}
               className="inline-flex items-center gap-1 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 p-1 rounded transition-colors"
-              onClick={() => handleServiceClick(node.node_id, service.name)}
+              onClick={() => handleServiceClick(poller.poller_id, service.name)}
               role="button"
               aria-label={`${service.name} (${service.available ? "Online" : "Offline"})`}
             >
@@ -91,18 +91,18 @@ const NodeCard: React.FC<NodeCardProps> = ({
         </div>
       </div>
 
-      {node.services &&
-        node.services.filter((service: Service) => service.type === "icmp")
+      {poller.services &&
+        poller.services.filter((service: Service) => service.type === "icmp")
           .length > 0 && (
           <div>
             <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
               ICMP Response Time:
             </p>
             <div className="space-y-2">
-              {node.services
+              {poller.services
                 .filter((service: Service) => service.type === "icmp")
                 .map((service: Service, idx: number) => {
-                  const metricKey = `${node.node_id}-${service.name}`;
+                  const metricKey = `${poller.poller_id}-${service.name}`;
                   const metricsForService = serviceMetrics[metricKey] || [];
                   return (
                     <div
@@ -110,7 +110,7 @@ const NodeCard: React.FC<NodeCardProps> = ({
                       className="flex items-center justify-between gap-2"
                     >
                       <ServiceSparkline
-                        nodeId={node.node_id}
+                        pollerId={poller.poller_id}
                         serviceName={service.name}
                         initialMetrics={metricsForService}
                       />
@@ -124,43 +124,43 @@ const NodeCard: React.FC<NodeCardProps> = ({
   );
 };
 
-const NodeList: React.FC<NodeListProps> = ({
-  initialNodes = [],
+const PollerList: React.FC<PollerListProps> = ({
+  initialPollers = [],
   serviceMetrics = {},
 }) => {
   const router = useRouter();
   const [searchTerm, setSearchTerm] = useState<string>("");
   const [currentPage, setCurrentPage] = useState<number>(1);
-  const [nodesPerPage, setNodesPerPage] = useState<number>(10);
+  const [pollersPerPage, setPollersPerPage] = useState<number>(10);
   const [sortBy, setSortBy] = useState<"name" | "status" | "lastUpdate">(
     "name",
   );
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
-  const [nodes, setNodes] = useState<Node[]>(initialNodes);
+  const [pollers, setPollers] = useState<Poller[]>(initialPollers);
   const [showFilters, setShowFilters] = useState<boolean>(false);
 
-  // Update nodes when initialNodes changes
+  // Update pollers when initialPollers changes
   useEffect(() => {
-    setNodes(initialNodes);
-  }, [initialNodes]);
+    setPollers(initialPollers);
+  }, [initialPollers]);
 
   // Set up auto-refresh
   useEffect(() => {
     const refreshInterval = 10000; // 10 seconds (sync with ServiceSparkline)
     const timer = setInterval(() => {
-      router.refresh(); // Trigger server-side re-fetch of nodes/page.js
+      router.refresh(); // Trigger server-side re-fetch of pollers/page.js
     }, refreshInterval);
 
     return () => clearInterval(timer);
   }, [router]);
 
-  // Adjust nodes per page based on screen size
+  // Adjust pollers per page based on screen size
   useEffect(() => {
     const handleResize = () => {
       if (window.innerWidth < 768) {
-        setNodesPerPage(5);
+        setPollersPerPage(5);
       } else {
-        setNodesPerPage(10);
+        setPollersPerPage(10);
       }
     };
 
@@ -169,16 +169,16 @@ const NodeList: React.FC<NodeListProps> = ({
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  const sortNodesByName = useCallback((a: Node, b: Node): number => {
-    const aMatch = a.node_id.match(/(\d+)$/);
-    const bMatch = b.node_id.match(/(\d+)$/);
+  const sortPollersByName = useCallback((a: Poller, b: Poller): number => {
+    const aMatch = a.poller_id.match(/(\d+)$/);
+    const bMatch = b.poller_id.match(/(\d+)$/);
     if (aMatch && bMatch) {
       return parseInt(aMatch[1], 10) - parseInt(bMatch[1], 10);
     }
-    return a.node_id.localeCompare(b.node_id);
+    return a.poller_id.localeCompare(b.poller_id);
   }, []);
 
-  const sortNodeServices = useCallback((services?: Service[]): Service[] => {
+  const sortPollerServices = useCallback((services?: Service[]): Service[] => {
     return (
       services?.sort((a: Service, b: Service) =>
         a.name.localeCompare(b.name),
@@ -186,19 +186,19 @@ const NodeList: React.FC<NodeListProps> = ({
     );
   }, []);
 
-  const sortedNodes = useMemo((): Node[] => {
-    if (!nodes || nodes.length === 0) return [];
+  const sortedPollers = useMemo((): Poller[] => {
+    if (!pollers || pollers.length === 0) return [];
 
-    let results = nodes.map((node: Node) => ({
-      ...node,
-      services: sortNodeServices(node.services),
+    let results = pollers.map((poller: Poller) => ({
+      ...poller,
+      services: sortPollerServices(poller.services),
     }));
 
     if (searchTerm) {
       results = results.filter(
-        (node: Node) =>
-          node.node_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          node.services?.some((service: Service) =>
+        (poller: Poller) =>
+          poller.poller_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          poller.services?.some((service: Service) =>
             service.name.toLowerCase().includes(searchTerm.toLowerCase()),
           ),
       );
@@ -207,23 +207,23 @@ const NodeList: React.FC<NodeListProps> = ({
     const sortedResults = [...results];
     switch (sortBy) {
       case "status":
-        sortedResults.sort((a: Node, b: Node) =>
+        sortedResults.sort((a: Poller, b: Poller) =>
           b.is_healthy === a.is_healthy
-            ? sortNodesByName(a, b)
+            ? sortPollersByName(a, b)
             : b.is_healthy
               ? 1
               : -1,
         );
         break;
       case "name":
-        sortedResults.sort(sortNodesByName);
+        sortedResults.sort(sortPollersByName);
         break;
       case "lastUpdate":
-        sortedResults.sort((a: Node, b: Node) => {
+        sortedResults.sort((a: Poller, b: Poller) => {
           const timeCompare =
             new Date(b.last_update).getTime() -
             new Date(a.last_update).getTime();
-          return timeCompare === 0 ? sortNodesByName(a, b) : timeCompare;
+          return timeCompare === 0 ? sortPollersByName(a, b) : timeCompare;
         });
         break;
     }
@@ -233,21 +233,21 @@ const NodeList: React.FC<NodeListProps> = ({
     }
 
     return sortedResults;
-  }, [nodes, searchTerm, sortBy, sortOrder, sortNodesByName, sortNodeServices]);
+  }, [pollers, searchTerm, sortBy, sortOrder, sortPollersByName, sortPollerServices]);
 
-  const currentNodes = useMemo((): Node[] => {
-    const indexOfLastNode = currentPage * nodesPerPage;
-    const indexOfFirstNode = indexOfLastNode - nodesPerPage;
-    return sortedNodes.slice(indexOfFirstNode, indexOfLastNode);
-  }, [currentPage, nodesPerPage, sortedNodes]);
+  const currentPollers = useMemo((): Poller[] => {
+    const indexOfLastPoller = currentPage * pollersPerPage;
+    const indexOfFirstPoller = indexOfLastPoller - pollersPerPage;
+    return sortedPollers.slice(indexOfFirstPoller, indexOfLastPoller);
+  }, [currentPage, pollersPerPage, sortedPollers]);
 
   const pageCount = useMemo(
-    (): number => Math.ceil(sortedNodes.length / nodesPerPage),
-    [sortedNodes, nodesPerPage],
+    (): number => Math.ceil(sortedPollers.length / pollersPerPage),
+    [sortedPollers, pollersPerPage],
   );
 
-  const handleServiceClick = (nodeId: string, serviceName: string): void => {
-    router.push(`/service/${nodeId}/${serviceName}`);
+  const handleServiceClick = (pollerId: string, serviceName: string): void => {
+    router.push(`/service/${pollerId}/${serviceName}`);
   };
 
   const toggleSortOrder = useCallback((): void => {
@@ -262,18 +262,18 @@ const NodeList: React.FC<NodeListProps> = ({
     <div className="space-y-4 transition-colors text-gray-800 dark:text-gray-100">
       {/* Header row */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-        <h2 className="text-xl font-bold">Nodes ({sortedNodes.length})</h2>
+        <h2 className="text-xl font-bold">Pollers ({sortedPollers.length})</h2>
         <div className="flex items-center gap-2">
           <div className="relative flex-1">
             <input
               type="text"
-              placeholder="Search nodes..."
+              placeholder="Search pollers..."
               className="w-full px-3 py-1 border rounded text-gray-800 dark:text-gray-200 dark:bg-gray-800 dark:border-gray-600 placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors"
               value={searchTerm}
               onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
                 setSearchTerm(e.target.value)
               }
-              aria-label="Search nodes"
+              aria-label="Search pollers"
             />
           </div>
           <button
@@ -319,24 +319,24 @@ const NodeList: React.FC<NodeListProps> = ({
         </div>
       )}
 
-      {/* Content placeholder when no nodes are found */}
-      {sortedNodes.length === 0 && (
+      {/* Content placeholder when no pollers are found */}
+      {sortedPollers.length === 0 && (
         <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-8 text-center">
-          <h3 className="text-xl font-semibold mb-2">No nodes found</h3>
+          <h3 className="text-xl font-semibold mb-2">No pollers found</h3>
           <p className="text-gray-500 dark:text-gray-400">
             {searchTerm
               ? "Try adjusting your search criteria"
-              : "No nodes are currently available"}
+              : "No pollers are currently available"}
           </p>
         </div>
       )}
 
       {/* Mobile View */}
       <div className="md:hidden">
-        {currentNodes.map((node: Node) => (
-          <NodeCard
-            key={node.node_id}
-            node={node}
+        {currentPollers.map((poller: Poller) => (
+          <PollerCard
+            key={poller.poller_id}
+            poller={poller}
             serviceMetrics={serviceMetrics}
             handleServiceClick={handleServiceClick}
           />
@@ -347,7 +347,7 @@ const NodeList: React.FC<NodeListProps> = ({
       <div className="hidden md:block bg-white dark:bg-gray-800 rounded-lg shadow overflow-x-auto transition-colors">
         <table
           className="min-w-full divide-y divide-gray-200 dark:divide-gray-700"
-          aria-label="Nodes and services"
+          aria-label="Pollers and services"
         >
           <thead className="bg-gray-50 dark:bg-gray-700">
             <tr>
@@ -361,7 +361,7 @@ const NodeList: React.FC<NodeListProps> = ({
                 scope="col"
                 className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider w-48"
               >
-                Node
+               Poller
               </th>
               <th
                 scope="col"
@@ -384,10 +384,10 @@ const NodeList: React.FC<NodeListProps> = ({
             </tr>
           </thead>
           <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-            {currentNodes.map((node: Node) => (
-              <tr key={node.node_id}>
+            {currentPollers.map((poller: Poller) => (
+              <tr key={poller.poller_id}>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  {node.is_healthy ? (
+                  {poller.is_healthy ? (
                     <span className="flex items-center" aria-label="Online">
                       <CheckCircle className="w-4 h-4 text-green-500" />
                       <span className="sr-only">Online</span>
@@ -400,16 +400,16 @@ const NodeList: React.FC<NodeListProps> = ({
                   )}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-800 dark:text-gray-100">
-                  {node.node_id}
+                  {poller.poller_id}
                 </td>
                 <td className="px-6 py-4">
                   <div className="flex flex-wrap gap-2">
-                    {node.services?.map((service: Service, idx: number) => (
+                    {poller.services?.map((service: Service, idx: number) => (
                       <div
                         key={`${service.name}-${idx}`}
                         className="inline-flex items-center gap-1 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 p-1 rounded transition-colors"
                         onClick={() =>
-                          handleServiceClick(node.node_id, service.name)
+                          handleServiceClick(poller.poller_id, service.name)
                         }
                         role="button"
                         aria-label={`${service.name} (${service.available ? "Online" : "Offline"})`}
@@ -417,7 +417,7 @@ const NodeList: React.FC<NodeListProps> = ({
                         onKeyDown={(e: React.KeyboardEvent<HTMLDivElement>) => {
                           if (e.key === "Enter" || e.key === " ") {
                             e.preventDefault();
-                            handleServiceClick(node.node_id, service.name);
+                            handleServiceClick(poller.poller_id, service.name);
                           }
                         }}
                       >
@@ -440,10 +440,10 @@ const NodeList: React.FC<NodeListProps> = ({
                   </div>
                 </td>
                 <td className="px-6 py-4">
-                  {node.services
+                  {poller.services
                     ?.filter((service: Service) => service.type === "icmp")
                     .map((service: Service, idx: number) => {
-                      const metricKey = `${node.node_id}-${service.name}`;
+                      const metricKey = `${poller.poller_id}-${service.name}`;
                       const metricsForService = serviceMetrics[metricKey] || [];
                       return (
                         <div
@@ -451,7 +451,7 @@ const NodeList: React.FC<NodeListProps> = ({
                           className="flex items-center justify-between gap-2"
                         >
                           <ServiceSparkline
-                            nodeId={node.node_id}
+                            pollerId={poller.poller_id}
                             serviceName={service.name}
                             initialMetrics={metricsForService}
                           />
@@ -460,7 +460,7 @@ const NodeList: React.FC<NodeListProps> = ({
                     })}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                  {new Date(node.last_update).toLocaleString()}
+                  {new Date(poller.last_update).toLocaleString()}
                 </td>
               </tr>
             ))}
@@ -495,4 +495,4 @@ const NodeList: React.FC<NodeListProps> = ({
   );
 };
 
-export default NodeList;
+export default PollerList;

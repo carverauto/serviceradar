@@ -48,8 +48,8 @@ function Navbar() {
               <Link href="/" className="text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100">
                 Dashboard
               </Link>
-              <Link href="/nodes" className="text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100">
-                Nodes
+              <Link href="/pollers" className="text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100">
+                Pollers
               </Link>
               {isAuthEnabled && (
                   <>
@@ -105,8 +105,8 @@ function Navbar() {
                   <Link href="/" onClick={closeMobileMenu} className="block px-2 py-1 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
                     Dashboard
                   </Link>
-                  <Link href="/nodes" onClick={closeMobileMenu} className="block px-2 py-1 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
-                    Nodes
+                  <Link href="/pollers" onClick={closeMobileMenu} className="block px-2 py-1 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
+                    Pollers
                   </Link>
                   {isAuthEnabled && user && (
                       <div className="px-2 py-1 text-gray-700 dark:text-gray-300">
