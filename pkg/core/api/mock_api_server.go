@@ -78,7 +78,7 @@ func (mr *MockServiceMockRecorder) Start(addr any) *gomock.Call {
 }
 
 // UpdateNodeStatus mocks base method.
-func (m *MockService) UpdateNodeStatus(nodeID string, status *NodeStatus) {
+func (m *MockService) UpdateNodeStatus(nodeID string, status *PollerStatus) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "UpdateNodeStatus", nodeID, status)
 }

@@ -36,7 +36,7 @@ import (
 
 func NewAPIServer(config models.CORSConfig, options ...func(server *APIServer)) *APIServer {
 	s := &APIServer{
-		nodes:      make(map[string]*NodeStatus),
+		nodes:      make(map[string]*PollerStatus),
 		router:     mux.NewRouter(),
 		corsConfig: config,
 	}
@@ -99,15 +99,15 @@ func (s *APIServer) setupRoutes() {
 		protected.Use(auth.AuthMiddleware(s.authService))
 	}
 
-	protected.HandleFunc("/nodes", s.getNodes).Methods("GET")
-	protected.HandleFunc("/nodes/{id}", s.getNode).Methods("GET")
+	protected.HandleFunc("/pollers", s.getPollers).Methods("GET")
+	protected.HandleFunc("/pollers/{id}", s.getPoller).Methods("GET")
 	protected.HandleFunc("/status", s.getSystemStatus).Methods("GET")
-	protected.HandleFunc("/nodes/{id}/history", s.getNodeHistory).Methods("GET")
-	protected.HandleFunc("/nodes/{id}/metrics", s.getNodeMetrics).Methods("GET")
-	protected.HandleFunc("/nodes/{id}/rperf", s.getRperfMetrics).Methods("GET")
-	protected.HandleFunc("/nodes/{id}/services", s.getNodeServices).Methods("GET")
-	protected.HandleFunc("/nodes/{id}/services/{service}", s.getServiceDetails).Methods("GET")
-	protected.HandleFunc("/nodes/{id}/snmp", s.getSNMPData).Methods("GET")
+	protected.HandleFunc("/pollers/{id}/history", s.getPollerHistory).Methods("GET")
+	protected.HandleFunc("/pollers/{id}/metrics", s.getPollerMetrics).Methods("GET")
+	protected.HandleFunc("/pollers/{id}/rperf", s.getRperfMetrics).Methods("GET")
+	protected.HandleFunc("/pollers/{id}/services", s.getPollerServices).Methods("GET")
+	protected.HandleFunc("/pollers/{id}/services/{service}", s.getServiceDetails).Methods("GET")
+	protected.HandleFunc("/pollers/{id}/snmp", s.getSNMPData).Methods("GET")
 }
 
 // getSNMPData retrieves SNMP data for a specific node.
@@ -156,7 +156,7 @@ func (s *APIServer) getSNMPData(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *APIServer) getNodeMetrics(w http.ResponseWriter, r *http.Request) {
+func (s *APIServer) getPollerMetrics(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	nodeID := vars["id"]
 
@@ -188,14 +188,14 @@ func (s *APIServer) SetNodeHistoryHandler(handler func(nodeID string) ([]NodeHis
 	s.nodeHistoryHandler = handler
 }
 
-func (s *APIServer) UpdateNodeStatus(nodeID string, status *NodeStatus) {
+func (s *APIServer) UpdateNodeStatus(nodeID string, status *PollerStatus) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.nodes[nodeID] = status
 }
 
-func (s *APIServer) getNodeHistory(w http.ResponseWriter, r *http.Request) {
+func (s *APIServer) getPollerHistory(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	nodeID := vars["id"]
 
@@ -241,12 +241,12 @@ func (s *APIServer) getSystemStatus(w http.ResponseWriter, _ *http.Request) {
 	}
 }
 
-func (s *APIServer) getNodes(w http.ResponseWriter, _ *http.Request) {
+func (s *APIServer) getPollers(w http.ResponseWriter, _ *http.Request) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	// Preallocate the slice with the correct length
-	nodes := make([]*NodeStatus, 0, len(s.nodes))
+	nodes := make([]*PollerStatus, 0, len(s.nodes))
 
 	// Append all map values to the slice
 	for id, node := range s.nodes {
@@ -272,7 +272,7 @@ func (s *APIServer) SetKnownPollers(knownPollers []string) {
 	s.knownPollers = knownPollers
 }
 
-func (s *APIServer) getNodeByID(nodeID string) (*NodeStatus, bool) {
+func (s *APIServer) getNodeByID(nodeID string) (*PollerStatus, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	node, exists := s.nodes[nodeID]
@@ -292,7 +292,7 @@ func (*APIServer) encodeJSONResponse(w http.ResponseWriter, data interface{}) er
 	return nil
 }
 
-func (s *APIServer) getNode(w http.ResponseWriter, r *http.Request) {
+func (s *APIServer) getPoller(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	nodeID := vars["id"]
 
@@ -331,7 +331,7 @@ func (s *APIServer) getNode(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *APIServer) getNodeServices(w http.ResponseWriter, r *http.Request) {
+func (s *APIServer) getPollerServices(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	nodeID := vars["id"]
 

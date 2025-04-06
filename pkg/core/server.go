@@ -479,7 +479,7 @@ func (s *Server) checkInitialStates() {
 }
 
 // updateAPIState updates the API server with the latest node status.
-func (s *Server) updateAPIState(pollerID string, apiStatus *api.NodeStatus) {
+func (s *Server) updateAPIState(pollerID string, apiStatus *api.PollerStatus) {
 	if s.apiServer == nil {
 		log.Printf("Warning: API server not initialized, state not updated")
 
@@ -501,7 +501,7 @@ func (s *Server) getNodeHealthState(pollerID string) (bool, error) {
 }
 
 func (s *Server) processStatusReport(
-	ctx context.Context, req *proto.PollerStatusRequest, now time.Time) (*api.NodeStatus, error) {
+	ctx context.Context, req *proto.PollerStatusRequest, now time.Time) (*api.PollerStatus, error) {
 	currentState, err := s.getNodeHealthState(req.PollerId)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		log.Printf("Error checking node state: %v", err)
@@ -518,8 +518,8 @@ func (s *Server) processStatusReport(
 	return apiStatus, nil
 }
 
-func (*Server) createNodeStatus(req *proto.PollerStatusRequest, now time.Time) *api.NodeStatus {
-	return &api.NodeStatus{
+func (*Server) createNodeStatus(req *proto.PollerStatusRequest, now time.Time) *api.PollerStatus {
+	return &api.PollerStatus{
 		NodeID:     req.PollerId,
 		LastUpdate: now,
 		IsHealthy:  true,
@@ -527,7 +527,7 @@ func (*Server) createNodeStatus(req *proto.PollerStatusRequest, now time.Time) *
 	}
 }
 
-func (s *Server) processServices(pollerID string, apiStatus *api.NodeStatus, services []*proto.ServiceStatus, now time.Time) {
+func (s *Server) processServices(pollerID string, apiStatus *api.PollerStatus, services []*proto.ServiceStatus, now time.Time) {
 	allServicesAvailable := true
 
 	for _, svc := range services {
@@ -803,7 +803,7 @@ func (s *Server) storeNodeStatus(pollerID string, isHealthy bool, now time.Time)
 	return nil
 }
 
-func (s *Server) updateNodeState(ctx context.Context, pollerID string, apiStatus *api.NodeStatus, wasHealthy bool, now time.Time) error {
+func (s *Server) updateNodeState(ctx context.Context, pollerID string, apiStatus *api.PollerStatus, wasHealthy bool, now time.Time) error {
 	if err := s.storeNodeStatus(pollerID, apiStatus.IsHealthy, now); err != nil {
 		return err
 	}
@@ -1136,7 +1136,7 @@ func (s *Server) evaluateNodeHealth(
 }
 
 func (s *Server) handlePotentialRecovery(ctx context.Context, nodeID string, lastSeen time.Time) error {
-	apiStatus := &api.NodeStatus{
+	apiStatus := &api.PollerStatus{
 		NodeID:     nodeID,
 		LastUpdate: lastSeen,
 		Services:   make([]api.ServiceStatus, 0),
@@ -1171,7 +1171,7 @@ func (s *Server) handleNodeDown(ctx context.Context, nodeID string, lastSeen tim
 
 	// Update API state
 	if s.apiServer != nil {
-		s.apiServer.UpdateNodeStatus(nodeID, &api.NodeStatus{
+		s.apiServer.UpdateNodeStatus(nodeID, &api.PollerStatus{
 			NodeID:     nodeID,
 			IsHealthy:  false,
 			LastUpdate: lastSeen,
@@ -1237,7 +1237,7 @@ func (*Server) updateNodeInTx(tx db.Transaction, nodeID string, isHealthy bool, 
 	return err
 }
 
-func (s *Server) handleNodeRecovery(ctx context.Context, nodeID string, apiStatus *api.NodeStatus, timestamp time.Time) {
+func (s *Server) handleNodeRecovery(ctx context.Context, nodeID string, apiStatus *api.PollerStatus, timestamp time.Time) {
 	// Reset the "down" state in the alerter *before* sending the alert.
 	for _, webhook := range s.webhooks {
 		if alerter, ok := webhook.(*alerts.WebhookAlerter); ok {

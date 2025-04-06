@@ -37,7 +37,7 @@ type ServiceStatus struct {
 	Details   json.RawMessage `json:"details"` // Flexible field for service-specific data
 }
 
-type NodeStatus struct {
+type PollerStatus struct {
 	NodeID     string               `json:"node_id"`
 	IsHealthy  bool                 `json:"is_healthy"`
 	LastUpdate time.Time            `json:"last_update"`
@@ -67,7 +67,7 @@ type NodeHistoryPoint struct {
 
 type APIServer struct {
 	mu                 sync.RWMutex
-	nodes              map[string]*NodeStatus
+	nodes              map[string]*PollerStatus
 	router             *mux.Router
 	nodeHistoryHandler func(nodeID string) ([]NodeHistoryPoint, error)
 	metricsManager     metrics.MetricCollector

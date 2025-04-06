@@ -146,9 +146,9 @@ func TestProcessStatusReport(t *testing.T) {
 	mockDB.EXPECT().QueryRow("SELECT is_healthy FROM nodes WHERE node_id = ?", "test-poller").Return(mockRow)
 	mockRow.EXPECT().Scan(gomock.Any()).Return(nil) // Node exists
 
-	// Mock UpdateNodeStatus with a matcher for the NodeStatus struct
+	// Mock UpdateNodeStatus with a matcher for the PollerStatus struct
 	mockDB.EXPECT().UpdateNodeStatus(gomock.All(
-		gomock.Any(), // Matches any *db.NodeStatus
+		gomock.Any(), // Matches any *db.PollerStatus
 	)).DoAndReturn(func(status *db.NodeStatus) error {
 		assert.Equal(t, "test-poller", status.NodeID)
 		assert.True(t, status.IsHealthy)
@@ -202,7 +202,7 @@ func TestReportStatus(t *testing.T) {
 
 	// For "test-poller" case
 	mockDB.EXPECT().UpdateNodeStatus(gomock.All(
-		gomock.Any(), // Matches any *db.NodeStatus
+		gomock.Any(), // Matches any *db.PollerStatus
 	)).DoAndReturn(func(status *db.NodeStatus) error {
 		assert.Equal(t, "test-poller", status.NodeID)
 		assert.True(t, status.IsHealthy)
@@ -392,7 +392,7 @@ func TestHandleNodeRecovery(t *testing.T) {
 	}
 
 	nodeID := "test-node"
-	apiStatus := &api.NodeStatus{
+	apiStatus := &api.PollerStatus{
 		NodeID:     nodeID,
 		IsHealthy:  true,
 		LastUpdate: time.Now(),
