@@ -21,7 +21,7 @@ package api
 // Service represents the API server functionality.
 type Service interface {
 	Start(addr string) error
-	UpdateNodeStatus(nodeID string, status *NodeStatus)
+	UpdateNodeStatus(nodeID string, status *PollerStatus)
 	SetNodeHistoryHandler(handler func(nodeID string) ([]NodeHistoryPoint, error))
 	SetKnownPollers(knownPollers []string)
 }

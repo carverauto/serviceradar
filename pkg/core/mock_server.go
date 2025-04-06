@@ -73,10 +73,10 @@ func (mr *MockNodeServiceMockRecorder) GetNodeHistory(nodeID, limit any) *gomock
 }
 
 // GetNodeStatus mocks base method.
-func (m *MockNodeService) GetNodeStatus(nodeID string) (*api.NodeStatus, error) {
+func (m *MockNodeService) GetNodeStatus(nodeID string) (*api.PollerStatus, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetNodeStatus", nodeID)
-	ret0, _ := ret[0].(*api.NodeStatus)
+	ret0, _ := ret[0].(*api.PollerStatus)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -88,7 +88,7 @@ func (mr *MockNodeServiceMockRecorder) GetNodeStatus(nodeID any) *gomock.Call {
 }
 
 // UpdateNodeStatus mocks base method.
-func (m *MockNodeService) UpdateNodeStatus(nodeID string, status *api.NodeStatus) error {
+func (m *MockNodeService) UpdateNodeStatus(nodeID string, status *api.PollerStatus) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateNodeStatus", nodeID, status)
 	ret0, _ := ret[0].(error)
@@ -140,7 +140,7 @@ func (mr *MockCoreServiceMockRecorder) GetMetricsManager() *gomock.Call {
 }
 
 // ReportStatus mocks base method.
-func (m *MockCoreService) ReportStatus(ctx context.Context, nodeID string, status *api.NodeStatus) error {
+func (m *MockCoreService) ReportStatus(ctx context.Context, nodeID string, status *api.PollerStatus) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ReportStatus", ctx, nodeID, status)
 	ret0, _ := ret[0].(error)
