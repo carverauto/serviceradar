@@ -24,7 +24,7 @@ import { useAuth } from '@/components/AuthProvider';
 
 // Define props interface
 interface SNMPDashboardProps {
-    nodeId: string;
+    pollerId: string;
     serviceName: string;
     initialData?: SnmpDataPoint[];
     initialTimeRange?: string;
@@ -51,7 +51,7 @@ interface MetricGroup {
 const REFRESH_INTERVAL = 10000; // 10 seconds, matching other components
 
 const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
-                                                         nodeId,
+                                                         pollerId,
                                                          serviceName,
                                                          initialData = [],
                                                          initialTimeRange = '1h',
@@ -150,7 +150,7 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
                 }
 
                 // Use the Next.js API routes instead of direct calls
-                const snmpUrl = `/api/nodes/${nodeId}/snmp?start=${start.toISOString()}&end=${end.toISOString()}`;
+                const snmpUrl = `/api/pollers/${pollerId}/snmp?start=${start.toISOString()}&end=${end.toISOString()}`;
 
                 // Include the authorization token
                 const headers: HeadersInit = {
@@ -185,7 +185,7 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
 
         const interval = setInterval(fetchUpdatedData, REFRESH_INTERVAL);
         return () => clearInterval(interval);
-    }, [nodeId, timeRange, snmpData.length, token]);
+    }, [pollerId, timeRange, snmpData.length, token]);
 
     // Update SNMP data when initialData changes from server
     useEffect(() => {
@@ -336,7 +336,7 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
         setTimeRange(range);
         const params = new URLSearchParams(searchParams.toString());
         params.set('timeRange', range);
-        router.push(`/service/${nodeId}/${serviceName}?${params.toString()}`, { scroll: false });
+        router.push(`/service/${pollerId}/${serviceName}?${params.toString()}`, { scroll: false });
     };
 
     const formatRate = (rate: number | undefined | null): string => {

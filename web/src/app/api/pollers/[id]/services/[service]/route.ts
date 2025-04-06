@@ -14,18 +14,19 @@
  * limitations under the License.
  */
 
-// src/app/api/nodes/[id]/services/route.ts
+// src/app/api/pollers/[id]/services/[service]/route.ts
 import {NextRequest, NextResponse} from "next/server";
 import {Service} from "@/types/types";
 
-// Define the props type for the dynamic route
+// Define the props type for the nested dynamic route
 interface RouteProps {
-  params: Promise<{ id: string }>; // params is a Promise due to async nature
+  params: Promise<{ id: string; service: string }>; // params is a Promise due to async nature
 }
 
 export async function GET(req: NextRequest, props: RouteProps) {
   const params = await props.params; // Await the params Promise
-  const nodeId = params.id;
+  const pollerId = params.id;
+  const serviceName = params.service;
   const apiKey = process.env.API_KEY || "";
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090";
 
@@ -45,11 +46,14 @@ export async function GET(req: NextRequest, props: RouteProps) {
     }
 
     // Forward request to Go API
-    const response = await fetch(`${apiUrl}/api/nodes/${nodeId}/services`, {
-      method: "GET",
-      headers,
-      cache: "no-store",
-    });
+    const response = await fetch(
+        `${apiUrl}/api/pollers/${pollerId}/services/${serviceName}`,
+        {
+          method: "GET",
+          headers,
+          cache: "no-store",
+        },
+    );
 
     // Check for and handle errors
     if (!response.ok) {
@@ -63,17 +67,17 @@ export async function GET(req: NextRequest, props: RouteProps) {
       }
 
       return NextResponse.json(
-          { error: "Failed to fetch services", details: errorMessage },
+          { error: "Failed to fetch service details", details: errorMessage },
           { status },
       );
     }
 
     // Return successful response
-    const data: Service[] = await response.json();
+    const data: Service = await response.json();
     return NextResponse.json(data);
-  } catch  {
+  } catch {
     return NextResponse.json(
-        { error: "Internal server error while fetching services" },
+        { error: "Internal server error while fetching service details" },
         { status: 500 },
     );
   }

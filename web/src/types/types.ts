@@ -29,8 +29,8 @@ export interface Service {
   details?: ServiceDetails | string;
 }
 
-export interface Node {
-  node_id: string;
+export interface Poller {
+  poller_id: string;
   is_healthy: boolean;
   last_update: string;
   services?: Service[];
@@ -50,8 +50,8 @@ export interface ServiceMetric {
 }
 
 export interface SystemStatus {
-  total_nodes: number;
-  healthy_nodes: number;
+  total_pollers: number;
+  healthy_pollers: number;
   last_update: string;
   service_stats: ServiceStats;
 }

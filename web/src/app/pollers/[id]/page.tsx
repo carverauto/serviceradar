@@ -14,18 +14,18 @@
  * limitations under the License.
  */
 
-// src/app/nodes/[id]/page.tsx
+// src/app/pollers/[id]/page.tsx
 import { Suspense } from "react";
 import { cookies } from "next/headers";
-import NodeDetail from "../../../components/NodeDetail";
-import { Node, ServiceMetric } from "@/types/types";
+import PollerDetail from "../../../components/PollerDetail";
+import { Poller, ServiceMetric } from "@/types/types";
 import { fetchFromAPI } from "@/lib/api";
 import { unstable_noStore as noStore } from "next/cache";
 
 export const revalidate = 0;
 
 // Define the history entry type
-interface NodeHistoryEntry {
+interface PollerHistoryEntry {
     timestamp: string;
     is_healthy: boolean;
 }
@@ -38,55 +38,55 @@ interface RouteProps {
     params: Params;
 }
 
-async function fetchNodeData(nodeId: string, token?: string) {
+async function fetchPollerData(pollerId: string, token?: string) {
     noStore();
     try {
-        // Fetch node information
-        const nodes = await fetchFromAPI<Node[]>("/nodes", token);
-        if (!nodes) throw new Error("Failed to fetch nodes");
+        // Fetch poller information
+        const pollers = await fetchFromAPI<Poller[]>("/polers", token);
+        if (!pollers) throw new Error("Failed to fetch pollers");
 
-        const node = nodes.find(n => n.node_id === nodeId);
-        if (!node) throw new Error(`Node ${nodeId} not found`);
+        const poller = pollers.find(n => n.poller_id === pollerId);
+        if (!poller) throw new Error(`Poller ${pollerId} not found`);
 
-        // Fetch metrics for this node
-        const metrics = await fetchFromAPI<ServiceMetric[]>(`/nodes/${nodeId}/metrics`, token);
+        // Fetch metrics for this poller
+        const metrics = await fetchFromAPI<ServiceMetric[]>(`/pollers/${pollerId}/metrics`, token);
 
         // Fetch history data if available
-        let history: NodeHistoryEntry[] = [];
+        let history: PollerHistoryEntry[] = [];
         try {
-            const historyData = await fetchFromAPI<NodeHistoryEntry[]>(`/nodes/${nodeId}/history`, token);
+            const historyData = await fetchFromAPI<PollerHistoryEntry[]>(`/pollers/${pollerId}/history`, token);
             // Check if historyData is not null before assigning
             if (historyData) {
                 history = historyData;
             }
         } catch (e) {
-            console.warn(`Could not fetch history for ${nodeId}:`, e);
+            console.warn(`Could not fetch history for ${pollerId}:`, e);
             // Continue without history data
         }
 
-        return { node, metrics: metrics || [], history: history || [], error: undefined };
+        return { poller: poller, metrics: metrics || [], history: history || [], error: undefined };
     } catch (error) {
-        console.error(`Error fetching data for node ${nodeId}:`, error);
-        return { node: undefined, metrics: [], history: [], error: (error as Error).message };
+        console.error(`Error fetching data for poller ${pollerId}:`, error);
+        return { poller: undefined, metrics: [], history: [], error: (error as Error).message };
     }
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
     const resolvedParams = await params;
     return {
-        title: `Node: ${resolvedParams.id} - ServiceRadar`,
-        description: `Detailed dashboard for node ${resolvedParams.id}`,
+        title: `Poller: ${resolvedParams.id} - ServiceRadar`,
+        description: `Detailed dashboard for poller ${resolvedParams.id}`,
     };
 }
 
-export default async function NodeDetailPage({ params }: RouteProps) {
+export default async function PollerDetailPage({ params }: RouteProps) {
     const resolvedParams = await params;
-    const nodeId = resolvedParams.id;
+    const pollerId = resolvedParams.id;
 
     const cookieStore = await cookies();
     const token = cookieStore.get("accessToken")?.value;
 
-    const { node, metrics, history, error } = await fetchNodeData(nodeId, token);
+    const { poller: poller, metrics, history, error } = await fetchPollerData(pollerId, token);
 
     return (
         <div>
@@ -94,13 +94,13 @@ export default async function NodeDetailPage({ params }: RouteProps) {
                 fallback={
                     <div className="flex justify-center items-center h-64">
                         <div className="text-lg text-gray-600 dark:text-gray-300">
-                            Loading node details...
+                            Loading poller details...
                         </div>
                     </div>
                 }
             >
-                <NodeDetail
-                    node={node}
+                <PollerDetail
+                    poller={poller}
                     metrics={metrics}
                     history={history}
                     error={error}

@@ -32,10 +32,10 @@ import {
     Layers
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { Node, ServiceMetric, Service } from "@/types/types";
+import { Poller, ServiceMetric, Service } from "@/types/types";
 
 interface PollerDashboardProps {
-    initialNodes: Node[];
+    initialPollers: Poller[];
     serviceMetrics: { [key: string]: ServiceMetric[] };
 }
 
@@ -60,14 +60,14 @@ interface TransformedPoller {
     }[];
     services: Service[];
     tags: string[];
-    rawNode: Node;
+    rawPoller: Poller;
 }
 
 const PollerDashboard: React.FC<PollerDashboardProps> = ({
-                                                             initialNodes = [],
+                                                             initialPollers = [],
                                                              serviceMetrics = {}
                                                          }) => {
-    const [nodes, setNodes] = useState<Node[]>(initialNodes);
+    const [pollers, setPollers] = useState<Poller[]>(initialPollers);
     const [expandedPoller, setExpandedPoller] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState<string>('');
     const [filterStatus, setFilterStatus] = useState<string>('all');
@@ -75,10 +75,10 @@ const PollerDashboard: React.FC<PollerDashboardProps> = ({
     const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
     const router = useRouter();
 
-    // Update nodes when initialNodes changes from server
+    // Update pollers when initialPollers changes from server
     useEffect(() => {
-        setNodes(initialNodes);
-    }, [initialNodes]);
+        setPollers(initialPollers);
+    }, [initialPollers]);
 
     // Set up auto-refresh
     useEffect(() => {
@@ -148,18 +148,18 @@ const PollerDashboard: React.FC<PollerDashboardProps> = ({
         return groups;
     };
 
-    // Transform nodes data to dashboard format
+    // Transform pollers data to dashboard format
     const transformedPollers = useMemo((): TransformedPoller[] => {
-        return nodes.map(node => {
+        return pollers.map(poller => {
             // Calculate service counts
-            const totalServices = node.services?.length || 0;
-            const healthyServices = node.services?.filter(s => s.available).length || 0;
+            const totalServices = poller.services?.length || 0;
+            const healthyServices = poller.services?.filter(s => s.available).length || 0;
 
             // Calculate services with warnings
             let warningServices = 0;
             let criticalServices = 0;
 
-            node.services?.forEach(service => {
+            poller.services?.forEach(service => {
                 if (!service.available) {
                     criticalServices++;
                 } else if (service.details && typeof service.details !== 'string') {
@@ -180,14 +180,14 @@ const PollerDashboard: React.FC<PollerDashboardProps> = ({
                 status = 'warning';
             }
 
-            // Extract ICMP metrics for this node
+            // Extract ICMP metrics for this poller
             let icmpMetrics: ServiceMetric[] = [];
             let responseTrend: number[] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
             // Find metrics for any ICMP service
-            const icmpService = node.services?.find(s => s.type === 'icmp');
+            const icmpService = poller.services?.find(s => s.type === 'icmp');
             if (icmpService) {
-                const metricKey = `${node.node_id}-${icmpService.name}`;
+                const metricKey = `${poller.poller_id}-${icmpService.name}`;
                 if (serviceMetrics[metricKey]) {
                     icmpMetrics = serviceMetrics[metricKey];
                     // Convert to milliseconds and take last 10 points if available
@@ -198,7 +198,7 @@ const PollerDashboard: React.FC<PollerDashboardProps> = ({
             }
 
             // Group services by type
-            const servicesByType = groupServicesByType(node.services);
+            const servicesByType = groupServicesByType(poller.services);
 
             // Create service groups
             const serviceGroups = Object.entries(servicesByType).map(([name, services]) => ({
@@ -208,11 +208,11 @@ const PollerDashboard: React.FC<PollerDashboardProps> = ({
                 services
             }));
 
-            // Generate tags based on node and services
+            // Generate tags based on poller and services
             const tags: string[] = [];
 
-            // Basic tag: is node healthy?
-            tags.push(node.is_healthy ? 'healthy' : 'unhealthy');
+            // Basic tag: is poller healthy?
+            tags.push(poller.is_healthy ? 'healthy' : 'unhealthy');
 
             // Add tags based on service types
             if (servicesByType['Network']) tags.push('network-services');
@@ -220,19 +220,19 @@ const PollerDashboard: React.FC<PollerDashboardProps> = ({
             if (servicesByType['Applications']) tags.push('applications');
 
             // Add other meaningful tags we might derive from your data
-            if (node.node_id.includes('dev')) tags.push('development');
-            if (node.node_id.includes('prod')) tags.push('production');
+            if (poller.poller_id.includes('dev')) tags.push('development');
+            if (poller.poller_id.includes('prod')) tags.push('production');
 
             // TODO: update this logic, should be derived from config
             // Region tags (example)
-            if (node.node_id.includes('east')) tags.push('east-region');
-            if (node.node_id.includes('west')) tags.push('west-region');
+            if (poller.poller_id.includes('east')) tags.push('east-region');
+            if (poller.poller_id.includes('west')) tags.push('west-region');
 
             return {
-                id: node.node_id,
-                name: node.node_id,
+                id: poller.poller_id,
+                name: poller.poller_id,
                 status,
-                lastUpdate: new Date(node.last_update).toLocaleString(),
+                lastUpdate: new Date(poller.last_update).toLocaleString(),
                 responseTrend,
                 responseTrendRaw: icmpMetrics,
                 servicesCount: {
@@ -242,12 +242,12 @@ const PollerDashboard: React.FC<PollerDashboardProps> = ({
                     critical: criticalServices
                 },
                 serviceGroups,
-                services: node.services || [],
+                services: poller.services || [],
                 tags,
-                rawNode: node
+                rawPoller: poller
             };
         });
-    }, [nodes, serviceMetrics]);
+    }, [pollers, serviceMetrics]);
 
     // Filter and sort pollers
     const filteredPollers = useMemo(() => {
@@ -295,13 +295,13 @@ const PollerDashboard: React.FC<PollerDashboardProps> = ({
     };
 
     // Navigate to service details page
-    const handleServiceClick = (nodeId: string, serviceName: string) => {
-        router.push(`/service/${nodeId}/${serviceName}`);
+    const handleServiceClick = (pollerId: string, serviceName: string) => {
+        router.push(`/service/${pollerId}/${serviceName}`);
     };
 
-    // Navigate to node details page
-    const viewDetailedDashboard = (nodeId: string) => {
-        router.push(`/nodes/${nodeId}`);
+    // Navigate to poller details page
+    const viewDetailedDashboard = (pollerId: string) => {
+        router.push(`/pollers/${pollerId}`);
     };
 
     // Simple sparkline component to visualize response time trends
@@ -362,12 +362,12 @@ const PollerDashboard: React.FC<PollerDashboardProps> = ({
         <div className="p-4 bg-gray-50 dark:bg-gray-900">
             <div className="max-w-7xl mx-auto">
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-3">
-                    <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Nodes ({filteredPollers.length})</h1>
+                    <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Pollers ({filteredPollers.length})</h1>
                     <div className="flex flex-col md:flex-row items-start md:items-center gap-3">
                         <div className="relative">
                             <input
                                 type="text"
-                                placeholder="Search nodes or services..."
+                                placeholder="Search pollers or services..."
                                 className="pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-blue-500 focus:border-blue-500 w-full md:w-auto"
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
@@ -591,7 +591,7 @@ const PollerDashboard: React.FC<PollerDashboardProps> = ({
                 {filteredPollers.length === 0 && (
                     <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-lg shadow-md">
                         <Server className="h-12 w-12 mx-auto text-gray-400" />
-                        <h3 className="mt-2 text-lg font-medium text-gray-900 dark:text-white">No nodes found</h3>
+                        <h3 className="mt-2 text-lg font-medium text-gray-900 dark:text-white">No pollers found</h3>
                         <p className="mt-1 text-gray-500 dark:text-gray-400">Try adjusting your search or filters</p>
                     </div>
                 )}
