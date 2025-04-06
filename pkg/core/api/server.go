@@ -341,6 +341,7 @@ func (s *APIServer) getPollerServices(w http.ResponseWriter, r *http.Request) {
 
 	if !exists {
 		http.Error(w, "Poller not found", http.StatusNotFound)
+
 		return
 	}
 
@@ -351,11 +352,11 @@ func (s *APIServer) getPollerServices(w http.ResponseWriter, r *http.Request) {
 
 func (s *APIServer) getServiceDetails(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	pollerId := vars["id"]
+	pollerID := vars["id"]
 	serviceName := vars["service"]
 
 	s.mu.RLock()
-	poller, exists := s.pollers[pollerId]
+	poller, exists := s.pollers[pollerID]
 	s.mu.RUnlock()
 
 	if !exists {

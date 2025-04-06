@@ -28,23 +28,23 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-func TestNodeRecoveryManager_ProcessRecovery_WithCooldown(t *testing.T) {
+func TestPollerRecoveryManager_ProcessRecovery_WithCooldown(t *testing.T) {
 	tests := []struct {
-		name           string
-		nodeID         string
-		lastSeen       time.Time
-		getCurrentNode *db.PollerStatus
-		dbError        error
-		alertError     error
-		expectCommit   bool
-		expectError    string
+		name             string
+		pollerID         string
+		lastSeen         time.Time
+		getCurrentPoller *db.PollerStatus
+		dbError          error
+		alertError       error
+		expectCommit     bool
+		expectError      string
 	}{
 		{
 			name:     "successful_recovery_with_cooldown",
-			nodeID:   "test-node",
+			pollerID: "test-poller",
 			lastSeen: time.Now(),
-			getCurrentNode: &db.PollerStatus{
-				PollerID:  "test-node",
+			getCurrentPoller: &db.PollerStatus{
+				PollerID:  "test-poller",
 				IsHealthy: false,
 				LastSeen:  time.Now().Add(-time.Hour),
 			},
@@ -53,10 +53,10 @@ func TestNodeRecoveryManager_ProcessRecovery_WithCooldown(t *testing.T) {
 		},
 		{
 			name:     "successful_recovery_no_cooldown",
-			nodeID:   "test-node",
+			pollerID: "test-poller",
 			lastSeen: time.Now(),
-			getCurrentNode: &db.PollerStatus{
-				PollerID:  "test-node",
+			getCurrentPoller: &db.PollerStatus{
+				PollerID:  "test-poller",
 				IsHealthy: false,
 				LastSeen:  time.Now().Add(-time.Hour),
 			},
@@ -64,20 +64,20 @@ func TestNodeRecoveryManager_ProcessRecovery_WithCooldown(t *testing.T) {
 		},
 		{
 			name:     "already_healthy",
-			nodeID:   "test-node",
+			pollerID: "test-poller",
 			lastSeen: time.Now(),
-			getCurrentNode: &db.PollerStatus{
-				PollerID:  "test-node",
+			getCurrentPoller: &db.PollerStatus{
+				PollerID:  "test-poller",
 				IsHealthy: true,
 				LastSeen:  time.Now(),
 			},
 		},
 		{
 			name:        "db_error",
-			nodeID:      "test-node",
+			pollerID:    "test-poller",
 			lastSeen:    time.Now(),
 			dbError:     db.ErrDatabaseError,
-			expectError: "get node status",
+			expectError: "get poller status",
 		},
 	}
 
@@ -94,11 +94,11 @@ func TestNodeRecoveryManager_ProcessRecovery_WithCooldown(t *testing.T) {
 			mockDB.EXPECT().Begin().Return(mockTx, nil)
 
 			// Setup GetPollerStatus expectation
-			mockDB.EXPECT().GetNodeStatus(tt.nodeID).Return(tt.getCurrentNode, tt.dbError)
+			mockDB.EXPECT().GetPollerStatus(tt.pollerID).Return(tt.getCurrentPoller, tt.dbError)
 
-			if tt.getCurrentNode != nil && !tt.getCurrentNode.IsHealthy {
-				// Expect node status update
-				mockDB.EXPECT().UpdateNodeStatus(gomock.Any()).Return(nil)
+			if tt.getCurrentPoller != nil && !tt.getCurrentPoller.IsHealthy {
+				// Expect poller status update
+				mockDB.EXPECT().UpdatePollerStatus(gomock.Any()).Return(nil)
 
 				// Always expect Rollback() due to defer
 				mockTx.EXPECT().Rollback().Return(nil).AnyTimes()
@@ -114,13 +114,13 @@ func TestNodeRecoveryManager_ProcessRecovery_WithCooldown(t *testing.T) {
 				mockTx.EXPECT().Rollback().Return(nil).AnyTimes()
 			}
 
-			mgr := &NodeRecoveryManager{
+			mgr := &PollerRecoveryManager{
 				db:          mockDB,
 				alerter:     mockAlerter,
 				getHostname: func() string { return "test-host" },
 			}
 
-			err := mgr.processRecovery(context.Background(), tt.nodeID, tt.lastSeen)
+			err := mgr.processRecovery(context.Background(), tt.pollerID, tt.lastSeen)
 
 			if tt.expectError != "" {
 				assert.ErrorContains(t, err, tt.expectError)
@@ -131,39 +131,39 @@ func TestNodeRecoveryManager_ProcessRecovery_WithCooldown(t *testing.T) {
 	}
 }
 
-func TestNodeRecoveryManager_ProcessRecovery(t *testing.T) {
+func TestPollerRecoveryManager_ProcessRecovery(t *testing.T) {
 	tests := []struct {
 		name          string
-		nodeID        string
+		pollerID      string
 		currentStatus *db.PollerStatus
 		dbError       error
 		expectAlert   bool
 		expectedError string
 	}{
 		{
-			name:   "successful_recovery",
-			nodeID: "test-node",
+			name:     "successful_recovery",
+			pollerID: "test-poller",
 			currentStatus: &db.PollerStatus{
-				PollerID:  "test-node",
+				PollerID:  "test-poller",
 				IsHealthy: false,
 				LastSeen:  time.Now().Add(-time.Hour),
 			},
 			expectAlert: true,
 		},
 		{
-			name:   "already_healthy",
-			nodeID: "test-node",
+			name:     "already_healthy",
+			pollerID: "test-poller",
 			currentStatus: &db.PollerStatus{
-				PollerID:  "test-node",
+				PollerID:  "test-poller",
 				IsHealthy: true,
 				LastSeen:  time.Now(),
 			},
 		},
 		{
 			name:          "db_error",
-			nodeID:        "test-node",
+			pollerID:      "test-poller",
 			dbError:       db.ErrDatabaseError,
-			expectedError: "get node status",
+			expectedError: "get poller status",
 		},
 	}
 
@@ -183,11 +183,11 @@ func TestNodeRecoveryManager_ProcessRecovery(t *testing.T) {
 			mockTx.EXPECT().Rollback().Return(nil).AnyTimes()
 
 			// Setup GetPollerStatus expectation
-			mockDB.EXPECT().GetNodeStatus(tt.nodeID).Return(tt.currentStatus, tt.dbError)
+			mockDB.EXPECT().GetPollerStatus(tt.pollerID).Return(tt.currentStatus, tt.dbError)
 
 			if tt.currentStatus != nil && !tt.currentStatus.IsHealthy {
-				// Expect node status update
-				mockDB.EXPECT().UpdateNodeStatus(gomock.Any()).Return(nil)
+				// Expect poller status update
+				mockDB.EXPECT().UpdatePollerStatus(gomock.Any()).Return(nil)
 
 				if tt.expectAlert {
 					mockAlerter.EXPECT().Alert(gomock.Any(), gomock.Any()).Return(nil)
@@ -195,13 +195,13 @@ func TestNodeRecoveryManager_ProcessRecovery(t *testing.T) {
 				}
 			}
 
-			mgr := &NodeRecoveryManager{
+			mgr := &PollerRecoveryManager{
 				db:          mockDB,
 				alerter:     mockAlerter,
 				getHostname: func() string { return "test-host" },
 			}
 
-			err := mgr.processRecovery(context.Background(), tt.nodeID, time.Now())
+			err := mgr.processRecovery(context.Background(), tt.pollerID, time.Now())
 
 			if tt.expectedError != "" {
 				assert.ErrorContains(t, err, tt.expectedError)
@@ -212,12 +212,12 @@ func TestNodeRecoveryManager_ProcessRecovery(t *testing.T) {
 	}
 }
 
-func TestNodeRecoveryManager_SendRecoveryAlert(t *testing.T) {
+func TestPollerRecoveryManager_SendRecoveryAlert(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
 	mockAlerter := alerts.NewMockAlertService(ctrl)
-	mgr := &NodeRecoveryManager{
+	mgr := &PollerRecoveryManager{
 		alerter:     mockAlerter,
 		getHostname: func() string { return "test-host" },
 	}
@@ -227,14 +227,14 @@ func TestNodeRecoveryManager_SendRecoveryAlert(t *testing.T) {
 		Alert(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, alert *alerts.WebhookAlert) error {
 			assert.Equal(t, alerts.Info, alert.Level)
-			assert.Equal(t, "Node Recovered", alert.Title)
-			assert.Equal(t, "test-node", alert.PollerID)
+			assert.Equal(t, "Poller Recovered", alert.Title)
+			assert.Equal(t, "test-poller", alert.PollerID)
 			assert.Equal(t, "test-host", alert.Details["hostname"])
-			assert.Contains(t, alert.Message, "test-node")
+			assert.Contains(t, alert.Message, "test-poller")
 
 			return nil
 		})
 
-	err := mgr.sendRecoveryAlert(context.Background(), "test-node", time.Now())
+	err := mgr.sendRecoveryAlert(context.Background(), "test-poller", time.Now())
 	assert.NoError(t, err)
 }

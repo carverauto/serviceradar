@@ -60,7 +60,7 @@ func (mr *MockNodeServiceMockRecorder) CheckNodeHealth(nodeID any) *gomock.Call 
 // GetNodeHistory mocks base method.
 func (m *MockNodeService) GetNodeHistory(nodeID string, limit int) ([]api.PollerHistoryPoint, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetPollerHistory", nodeID, limit)
+	ret := m.ctrl.Call(m, "GetNodeHistory", nodeID, limit)
 	ret0, _ := ret[0].([]api.PollerHistoryPoint)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
@@ -69,13 +69,13 @@ func (m *MockNodeService) GetNodeHistory(nodeID string, limit int) ([]api.Poller
 // GetNodeHistory indicates an expected call of GetNodeHistory.
 func (mr *MockNodeServiceMockRecorder) GetNodeHistory(nodeID, limit any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPollerHistory", reflect.TypeOf((*MockNodeService)(nil).GetNodeHistory), nodeID, limit)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNodeHistory", reflect.TypeOf((*MockNodeService)(nil).GetNodeHistory), nodeID, limit)
 }
 
 // GetNodeStatus mocks base method.
 func (m *MockNodeService) GetNodeStatus(nodeID string) (*api.PollerStatus, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetPollerStatus", nodeID)
+	ret := m.ctrl.Call(m, "GetNodeStatus", nodeID)
 	ret0, _ := ret[0].(*api.PollerStatus)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
@@ -84,13 +84,13 @@ func (m *MockNodeService) GetNodeStatus(nodeID string) (*api.PollerStatus, error
 // GetNodeStatus indicates an expected call of GetNodeStatus.
 func (mr *MockNodeServiceMockRecorder) GetNodeStatus(nodeID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPollerStatus", reflect.TypeOf((*MockNodeService)(nil).GetNodeStatus), nodeID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNodeStatus", reflect.TypeOf((*MockNodeService)(nil).GetNodeStatus), nodeID)
 }
 
 // UpdateNodeStatus mocks base method.
 func (m *MockNodeService) UpdateNodeStatus(nodeID string, status *api.PollerStatus) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdatePollerStatus", nodeID, status)
+	ret := m.ctrl.Call(m, "UpdateNodeStatus", nodeID, status)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
@@ -98,7 +98,7 @@ func (m *MockNodeService) UpdateNodeStatus(nodeID string, status *api.PollerStat
 // UpdateNodeStatus indicates an expected call of UpdateNodeStatus.
 func (mr *MockNodeServiceMockRecorder) UpdateNodeStatus(nodeID, status any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdatePollerStatus", reflect.TypeOf((*MockNodeService)(nil).UpdateNodeStatus), nodeID, status)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateNodeStatus", reflect.TypeOf((*MockNodeService)(nil).UpdateNodeStatus), nodeID, status)
 }
 
 // MockCoreService is a mock of CoreService interface.
