@@ -1,150 +1,250 @@
 // src/components/ServiceDetailsRenderer.tsx
 import React from 'react';
-import { Service } from '@/types/types';
-import { PingStatus } from './NetworkStatus';
+import { Service, SweepDetails, SnmpDetails, RperfDetails, GenericServiceDetails } from '@/types/types';
 
 interface ServiceDetailsRendererProps {
     service: Service;
 }
 
 const ServiceDetailsRenderer: React.FC<ServiceDetailsRendererProps> = ({ service }) => {
-    // Helper function to recursively render nested objects and arrays
-    const renderValue = (value: any, depth: number = 0): JSX.Element | string => {
-        if (value === null || value === undefined) {
-            return <span className="text-gray-500 italic">N/A</span>;
+    // Helper function to format timestamps
+    const formatTimestamp = (timestamp: string | number): string => {
+        try {
+            return new Date(timestamp).toLocaleString();
+        } catch {
+            return 'N/A';
         }
-
-        if (Array.isArray(value)) {
-            if (value.length === 0) {
-                return <span className="text-gray-500 italic">[Empty]</span>;
-            }
-            return (
-                <ul className={`list-disc pl-${depth * 4}`}>
-                    {value.map((item, index) => (
-                        <li key={index} className="text-sm text-gray-900 dark:text-white">
-                            {typeof item === 'object' ? renderValue(item, depth + 1) : String(item)}
-                        </li>
-                    ))}
-                </ul>
-            );
-        }
-
-        if (typeof value === 'object') {
-            return (
-                <div className={`ml-${depth * 4}`}>
-                    {Object.entries(value).map(([key, val]) => (
-                        <div key={key} className="text-sm">
-              <span className="font-medium text-gray-700 dark:text-gray-300">
-                {key.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}:
-              </span>
-                            <span className="ml-2 text-gray-900 dark:text-white">
-                {renderValue(val, depth + 1)}
-              </span>
-                        </div>
-                    ))}
-                </div>
-            );
-        }
-
-        return String(value);
     };
 
-    // Type-specific rendering
-    if (service.type === 'icmp' && service.details) {
-        return (
-            <div className="mb-4">
-                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">ICMP Status</h4>
-                <PingStatus details={service.details} />
-            </div>
-        );
+    // Helper function to calculate average for arrays of numbers
+    const calculateAverage = (values: number[]): number => {
+        if (!values || values.length === 0) return 0;
+        const sum = values.reduce((acc, val) => acc + val, 0);
+        return sum / values.length;
+    };
+
+    // Helper function to convert bytes to a human-readable format
+    const formatBytes = (bytes: number): string => {
+        if (bytes < 1024) return `${bytes} B`;
+        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`;
+        if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+        return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+    };
+
+    // Safely parse service.details
+    let details: ServiceDetails | undefined;
+    try {
+        details = typeof service.details === 'string' ? JSON.parse(service.details) : service.details;
+    } catch (error) {
+        console.error(`Failed to parse service.details for ${service.name}:`, error);
+        details = undefined;
     }
 
-    if (service.type === 'network_sweep' && service.details) {
-        const details = typeof service.details === 'string' ? JSON.parse(service.details) : service.details;
+    // Log the details for debugging
+    console.log(`Service: ${service.name}, Type: ${service.type}, Details:`, details);
+
+    // If details is undefined or null, show a fallback message
+    if (!details) {
+        return <div className="text-gray-500 italic">Service details not available</div>;
+    }
+
+    // Type-specific summary rendering
+    if (service.type === 'icmp' && details) {
+        const icmpDetails = details as GenericServiceDetails;
         return (
             <div className="mb-4">
-                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Network Sweep Details</h4>
+                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">ICMP Summary</h4>
                 <div className="grid grid-cols-2 gap-3">
-                    {Object.entries(details).map(([key, value]) => (
-                        <div key={key} className="text-sm">
-              <span className="font-medium text-gray-700 dark:text-gray-300">
-                {key.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}:
-              </span>
-                            <span className="ml-2 text-gray-900 dark:text-white">
-                {renderValue(value)}
-              </span>
-                        </div>
-                    ))}
+                    <div className="text-sm">
+                        <span className="font-medium text-gray-700 dark:text-gray-300">Available:</span>
+                        <span className="ml-2 text-gray-900 dark:text-white">{icmpDetails.available ? 'Yes' : 'No'}</span>
+                    </div>
+                    <div className="text-sm">
+                        <span className="font-medium text-gray-700 dark:text-gray-300">Response Time:</span>
+                        <span className="ml-2 text-gray-900 dark:text-white">
+              {icmpDetails.response_time ? `${(icmpDetails.response_time / 1000000).toFixed(2)} ms` : 'N/A'}
+            </span>
+                    </div>
+                    <div className="text-sm">
+                        <span className="font-medium text-gray-700 dark:text-gray-300">Packet Loss:</span>
+                        <span className="ml-2 text-gray-900 dark:text-white">{icmpDetails.packet_loss || 0}%</span>
+                    </div>
+                    <div className="text-sm">
+                        <span className="font-medium text-gray-700 dark:text-gray-300">Round Trip:</span>
+                        <span className="ml-2 text-gray-900 dark:text-white">{icmpDetails.round_trip || 0} ms</span>
+                    </div>
                 </div>
             </div>
         );
     }
 
-    if (service.type === 'snmp' && service.details) {
-        const details = typeof service.details === 'string' ? JSON.parse(service.details) : service.details;
+    if (service.type === 'sweep' && details) {
+        const sweepDetails = details as SweepDetails;
+        const portsCount = sweepDetails.ports ? sweepDetails.ports.length : 0;
+        const hosts = sweepDetails.hosts || [];
+        const availableHosts = hosts.filter((host) => host.available).length;
+        const lastSweep = sweepDetails.last_sweep ? formatTimestamp(sweepDetails.last_sweep) : 'N/A';
+
         return (
             <div className="mb-4">
-                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">SNMP Details</h4>
+                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Network Sweep Summary</h4>
                 <div className="grid grid-cols-2 gap-3">
-                    {Object.entries(details).map(([key, value]) => (
-                        <div key={key} className="text-sm">
-              <span className="font-medium text-gray-700 dark:text-gray-300">
-                {key.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}:
-              </span>
-                            <span className="ml-2 text-gray-900 dark:text-white">
-                {renderValue(value)}
-              </span>
-                        </div>
-                    ))}
+                    <div className="text-sm">
+                        <span className="font-medium text-gray-700 dark:text-gray-300">Available Hosts:</span>
+                        <span className="ml-2 text-gray-900 dark:text-white">{availableHosts} / {hosts.length}</span>
+                    </div>
+                    <div className="text-sm">
+                        <span className="font-medium text-gray-700 dark:text-gray-300">Last Sweep:</span>
+                        <span className="ml-2 text-gray-900 dark:text-white">{lastSweep}</span>
+                    </div>
+                    <div className="text-sm">
+                        <span className="font-medium text-gray-700 dark:text-gray-300">Ports Scanned:</span>
+                        <span className="ml-2 text-gray-900 dark:text-white">{portsCount}</span>
+                    </div>
+                    <div className="text-sm">
+                        <span className="font-medium text-gray-700 dark:text-gray-300">Total Hosts:</span>
+                        <span className="ml-2 text-gray-900 dark:text-white">{sweepDetails.total_hosts || 0}</span>
+                    </div>
                 </div>
             </div>
         );
     }
 
-    if (service.name === 'rperf-checker' && service.details) {
-        const details = typeof service.details === 'string' ? JSON.parse(service.details) : service.details;
+    if (service.type === 'snmp' && details) {
+        const snmpDetails = details as SnmpDetails;
+        // Dynamically select the first device in the details object
+        const deviceKeys = Object.keys(snmpDetails);
+        const deviceKey = deviceKeys.length > 0 ? deviceKeys[0] : null;
+        const device = deviceKey ? snmpDetails[deviceKey] : {};
+        const lastPoll = device?.last_poll ? formatTimestamp(device.last_poll) : 'N/A';
+        const oidStatus = device?.oid_status || {};
+        const ifInOctets = oidStatus['ifInOctets_4']?.last_value || 0;
+        const ifOutOctets = oidStatus['ifOutOctets_4']?.last_value || 0;
+        const errorCount = oidStatus['ifInOctets_4']?.error_count || oidStatus['ifOutOctets_4']?.error_count || 0;
+        const available = device?.available !== undefined ? (device.available ? 'Yes' : 'No') : 'Unknown';
+
         return (
             <div className="mb-4">
-                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Rperf Checker Details</h4>
+                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">SNMP Summary</h4>
                 <div className="grid grid-cols-2 gap-3">
-                    {Object.entries(details).map(([key, value]) => (
-                        <div key={key} className="text-sm">
-              <span className="font-medium text-gray-700 dark:text-gray-300">
-                {key.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}:
-              </span>
-                            <span className="ml-2 text-gray-900 dark:text-white">
-                {renderValue(value)}
-              </span>
-                        </div>
-                    ))}
+                    <div className="text-sm">
+                        <span className="font-medium text-gray-700 dark:text-gray-300">Device:</span>
+                        <span className="ml-2 text-gray-900 dark:text-white">{deviceKey || 'Unknown'}</span>
+                    </div>
+                    <div className="text-sm">
+                        <span className="font-medium text-gray-700 dark:text-gray-300">Available:</span>
+                        <span className="ml-2 text-gray-900 dark:text-white">{available}</span>
+                    </div>
+                    <div className="text-sm">
+                        <span className="font-medium text-gray-700 dark:text-gray-300">Last Poll:</span>
+                        <span className="ml-2 text-gray-900 dark:text-white">{lastPoll}</span>
+                    </div>
+                    <div className="text-sm">
+                        <span className="font-medium text-gray-700 dark:text-gray-300">IfInOctets:</span>
+                        <span className="ml-2 text-gray-900 dark:text-white">{formatBytes(ifInOctets)}</span>
+                    </div>
+                    <div className="text-sm">
+                        <span className="font-medium text-gray-700 dark:text-gray-300">IfOutOctets:</span>
+                        <span className="ml-2 text-gray-900 dark:text-white">{formatBytes(ifOutOctets)}</span>
+                    </div>
+                    <div className="text-sm">
+                        <span className="font-medium text-gray-700 dark:text-gray-300">Error Count:</span>
+                        <span className="ml-2 text-gray-900 dark:text-white">{errorCount}</span>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    if (service.name === 'rperf-checker' && details) {
+        const rperfDetails = details as RperfDetails;
+        // Try both possible key names to handle naming discrepancies
+        const resultsKey = Object.keys(rperfDetails).find(key => key.toLowerCase() === 'results');
+        const results = resultsKey ? rperfDetails[resultsKey] : rperfDetails.Results || [];
+
+        // Log the results for debugging
+        console.log(`Rperf Results for ${service.name}:`, results);
+
+        const successCount = results.filter((result: any) => result.success || result.Success).length;
+        const bitsPerSecond = calculateAverage(results.map((result: any) => result.summary?.bits_per_second || 0));
+        const lossPercent = calculateAverage(results.map((result: any) => result.summary?.loss_percent || 0));
+        const jitterMs = calculateAverage(results.map((result: any) => result.summary?.jitter_ms || 0));
+
+        return (
+            <div className="mb-4">
+                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Rperf Checker Summary</h4>
+                <div className="grid grid-cols-2 gap-3">
+                    <div className="text-sm">
+                        <span className="font-medium text-gray-700 dark:text-gray-300">Successful Tests:</span>
+                        <span className="ml-2 text-gray-900 dark:text-white">{successCount} / {results.length}</span>
+                    </div>
+                    <div className="text-sm">
+                        <span className="font-medium text-gray-700 dark:text-gray-300">Avg Bits Per Second:</span>
+                        <span className="ml-2 text-gray-900 dark:text-white">{formatBytes(bitsPerSecond)}</span>
+                    </div>
+                    <div className="text-sm">
+                        <span className="font-medium text-gray-700 dark:text-gray-300">Avg Loss Percent:</span>
+                        <span className="ml-2 text-gray-900 dark:text-white">{lossPercent.toFixed(2)}%</span>
+                    </div>
+                    <div className="text-sm">
+                        <span className="font-medium text-gray-700 dark:text-gray-300">Avg Jitter:</span>
+                        <span className="ml-2 text-gray-900 dark:text-white">{jitterMs.toFixed(2)} ms</span>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    if (service.type === 'port' && details) {
+        const portDetails = details as GenericServiceDetails;
+        const lastUpdate = portDetails.last_update ? formatTimestamp(portDetails.last_update) : 'N/A';
+        const available = portDetails.available !== undefined ? (portDetails.available ? 'Yes' : 'No') : 'Unknown';
+
+        return (
+            <div className="mb-4">
+                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Port Summary</h4>
+                <div className="grid grid-cols-2 gap-3">
+                    <div className="text-sm">
+                        <span className="font-medium text-gray-700 dark:text-gray-300">Available:</span>
+                        <span className="ml-2 text-gray-900 dark:text-white">{available}</span>
+                    </div>
+                    <div className="text-sm">
+                        <span className="font-medium text-gray-700 dark:text-gray-300">Last Update:</span>
+                        <span className="ml-2 text-gray-900 dark:text-white">{lastUpdate}</span>
+                    </div>
                 </div>
             </div>
         );
     }
 
     // Generic rendering for other service types
-    if (service.details) {
-        const details = typeof service.details === 'string' ? JSON.parse(service.details) : service.details;
-        return (
-            <div className="mb-4">
-                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Details</h4>
-                <div className="grid grid-cols-2 gap-3">
-                    {Object.entries(details).map(([key, value]) => (
-                        <div key={key} className="text-sm">
-              <span className="font-medium text-gray-700 dark:text-gray-300">
-                {key.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')}:
-              </span>
-                            <span className="ml-2 text-gray-900 dark:text-white">
-                {renderValue(value)}
-              </span>
-                        </div>
-                    ))}
-                </div>
-            </div>
-        );
-    }
+    const genericDetails = details as GenericServiceDetails;
+    const lastUpdate = genericDetails.last_update ? formatTimestamp(genericDetails.last_update) : 'N/A';
+    const available = genericDetails.available !== undefined ? (genericDetails.available ? 'Yes' : 'No') : 'Unknown';
+    const keyMetric = Object.keys(genericDetails).find(key => key.includes('value') || key.includes('count'));
+    const keyMetricValue = keyMetric ? genericDetails[keyMetric] : 'N/A';
 
-    return <div className="text-gray-500 italic">No details available</div>;
+    return (
+        <div className="mb-4">
+            <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Service Summary</h4>
+            <div className="grid grid-cols-2 gap-3">
+                <div className="text-sm">
+                    <span className="font-medium text-gray-700 dark:text-gray-300">Available:</span>
+                    <span className="ml-2 text-gray-900 dark:text-white">{available}</span>
+                </div>
+                <div className="text-sm">
+                    <span className="font-medium text-gray-700 dark:text-gray-300">Last Update:</span>
+                    <span className="ml-2 text-gray-900 dark:text-white">{lastUpdate}</span>
+                </div>
+                {keyMetric && (
+                    <div className="text-sm">
+                        <span className="font-medium text-gray-700 dark:text-gray-300">{keyMetric.replace('_', ' ')}:</span>
+                        <span className="ml-2 text-gray-900 dark:text-white">{keyMetricValue}</span>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
 };
 
 export default ServiceDetailsRenderer;
