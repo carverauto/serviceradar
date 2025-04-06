@@ -42,7 +42,7 @@ async function fetchPollerData(pollerId: string, token?: string) {
     noStore();
     try {
         // Fetch poller information
-        const pollers = await fetchFromAPI<Poller[]>("/polers", token);
+        const pollers = await fetchFromAPI<Poller[]>("/pollers", token);
         if (!pollers) throw new Error("Failed to fetch pollers");
 
         const poller = pollers.find(n => n.poller_id === pollerId);

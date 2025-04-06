@@ -34,7 +34,7 @@ const formatPacketLoss = (loss) => {
 };
 
 // Individual ping status component with auto-refresh
-const PingStatus = ({ details, nodeId, serviceName }) => {
+const PingStatus = ({ details, pollerId: pollerId, serviceName }) => {
     const router = useRouter();
     const [pingData, setPingData] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -54,14 +54,14 @@ const PingStatus = ({ details, nodeId, serviceName }) => {
 
     // Set up auto-refresh using router.refresh()
     useEffect(() => {
-        if (!nodeId || !serviceName) return; // Skip if we don't have IDs for direct refresh
+        if (!pollerId || !serviceName) return; // Skip if we don't have IDs for direct refresh
 
         const interval = setInterval(() => {
             router.refresh(); // This will trigger a server-side refetch
         }, REFRESH_INTERVAL);
 
         return () => clearInterval(interval);
-    }, [router, nodeId, serviceName]);
+    }, [router, pollerId, serviceName]);
 
     if (isLoading) {
         return (
@@ -103,7 +103,7 @@ const PingStatus = ({ details, nodeId, serviceName }) => {
                 {pingData.available ? 'Available' : 'Unavailable'}
             </div>
 
-            {(nodeId && serviceName) && (
+            {(pollerId && serviceName) && (
                 <div className="col-span-2 mt-2 text-xs text-gray-500 dark:text-gray-400">
                     Auto-refreshing data
                 </div>
