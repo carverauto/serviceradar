@@ -23,7 +23,7 @@ import { SnmpDataPoint } from "@/types/snmp";
 import { getApiUrl } from "@/lib/urlUtils";
 
 // Define the params type as a Promise
-type Params = Promise<{ pollerId: string; servicename: string }>;
+type Params = Promise<{ pollerid: string; servicename: string }>;
 
 // Define props type
 interface PageProps {
@@ -105,16 +105,16 @@ async function fetchServiceData(
 }
 
 export async function generateMetadata({ params }: { params: Params }) {
-    const { pollerId, servicename } = await params; // Await the params
+    const { pollerid, servicename } = await params; // Await the params
     return {
-        title: `${servicename} on ${pollerId} - ServiceRadar`,
+        title: `${servicename} on ${pollerid} - ServiceRadar`,
     };
 }
 
 // Update the Page component to await params
 export default async function Page(props: PageProps) {
-    const { params, searchParams }  = props
-    const { pollerid: pollerid, servicename } = await params; // Await the params
+    const { params, searchParams } = props;
+    const { pollerid, servicename } = await params; // Await the params
     const resolvedSearchParams = await searchParams;
     const timeRange = resolvedSearchParams.timeRange || "1h";
     const cookieStore = await cookies(); // Await the cookies() promise
