@@ -9,7 +9,7 @@ require (
 	github.com/gosnmp/gosnmp v1.39.0
 	github.com/markbates/goth v1.80.0
 	github.com/mattn/go-sqlite3 v1.14.24
-	github.com/nats-io/nats.go v1.40.1
+	github.com/nats-io/nats.go v1.41.0
 	github.com/spiffe/go-spiffe/v2 v2.5.0
 	github.com/stretchr/testify v1.10.0
 	go.uber.org/mock v0.5.0
