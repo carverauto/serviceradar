@@ -7,7 +7,7 @@ require (
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/gosnmp/gosnmp v1.39.0
-	github.com/markbates/goth v1.80.0
+	github.com/markbates/goth v1.81.0
 	github.com/mattn/go-sqlite3 v1.14.24
 	github.com/nats-io/nats.go v1.40.1
 	github.com/spiffe/go-spiffe/v2 v2.5.0
@@ -23,6 +23,7 @@ require (
 	cloud.google.com/go/compute/metadata v0.6.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/go-chi/chi/v5 v5.1.0 // indirect
 	github.com/go-jose/go-jose/v4 v4.0.5 // indirect
 	github.com/gorilla/context v1.1.1 // indirect
 	github.com/gorilla/securecookie v1.1.1 // indirect
