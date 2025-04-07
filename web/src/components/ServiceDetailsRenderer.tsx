@@ -1,6 +1,30 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 // src/components/ServiceDetailsRenderer.tsx
 import React from 'react';
-import { Service, SweepDetails, SnmpDetails, RperfDetails, GenericServiceDetails } from '@/types/types';
+import {
+    Service,
+    SweepDetails,
+    SnmpDetails,
+    RperfDetails,
+    GenericServiceDetails,
+    ServiceDetails,
+    RperfResult
+} from '@/types/types';
 
 interface ServiceDetailsRendererProps {
     service: Service;
@@ -159,16 +183,21 @@ const ServiceDetailsRenderer: React.FC<ServiceDetailsRendererProps> = ({ service
     if (service.name === 'rperf-checker' && details) {
         const rperfDetails = details as RperfDetails;
         // Try both possible key names to handle naming discrepancies
-        const resultsKey = Object.keys(rperfDetails).find(key => key.toLowerCase() === 'results');
-        const results = resultsKey ? rperfDetails[resultsKey] : rperfDetails.Results || [];
+        const resultsKey = Object.keys(rperfDetails).find(key => key.toLowerCase() === 'results') as keyof RperfDetails | undefined;
+        const results = resultsKey && resultsKey in rperfDetails
+            ? rperfDetails[resultsKey] as RperfResult[] | undefined
+            : rperfDetails.Results || [];
+
+        // Ensure results is an array, default to empty array if undefined
+        const safeResults = Array.isArray(results) ? results : [];
 
         // Log the results for debugging
-        console.log(`Rperf Results for ${service.name}:`, results);
+        console.log(`Rperf Results for ${service.name}:`, safeResults);
 
-        const successCount = results.filter((result: any) => result.success || result.Success).length;
-        const bitsPerSecond = calculateAverage(results.map((result: any) => result.summary?.bits_per_second || 0));
-        const lossPercent = calculateAverage(results.map((result: any) => result.summary?.loss_percent || 0));
-        const jitterMs = calculateAverage(results.map((result: any) => result.summary?.jitter_ms || 0));
+        const successCount = safeResults.filter((result: RperfResult) => result.success || result.success).length;
+        const bitsPerSecond = calculateAverage(safeResults.map((result: RperfResult) => result.summary?.bits_per_second || 0));
+        const lossPercent = calculateAverage(safeResults.map((result: RperfResult) => result.summary?.loss_percent || 0));
+        const jitterMs = calculateAverage(safeResults.map((result: RperfResult) => result.summary?.jitter_ms || 0));
 
         return (
             <div className="mb-4">
@@ -176,7 +205,7 @@ const ServiceDetailsRenderer: React.FC<ServiceDetailsRendererProps> = ({ service
                 <div className="grid grid-cols-2 gap-3">
                     <div className="text-sm">
                         <span className="font-medium text-gray-700 dark:text-gray-300">Successful Tests:</span>
-                        <span className="ml-2 text-gray-900 dark:text-white">{successCount} / {results.length}</span>
+                        <span className="ml-2 text-gray-900 dark:text-white">{successCount} / {safeResults.length}</span>
                     </div>
                     <div className="text-sm">
                         <span className="font-medium text-gray-700 dark:text-gray-300">Avg Bits Per Second:</span>
@@ -224,6 +253,13 @@ const ServiceDetailsRenderer: React.FC<ServiceDetailsRendererProps> = ({ service
     const keyMetric = Object.keys(genericDetails).find(key => key.includes('value') || key.includes('count'));
     const keyMetricValue = keyMetric ? genericDetails[keyMetric] : 'N/A';
 
+    // Convert keyMetricValue to a string representation for display
+    const displayValue = keyMetricValue === null || keyMetricValue === undefined
+        ? 'N/A'
+        : typeof keyMetricValue === 'object'
+            ? JSON.stringify(keyMetricValue)
+            : String(keyMetricValue);
+
     return (
         <div className="mb-4">
             <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Service Summary</h4>
@@ -239,12 +275,13 @@ const ServiceDetailsRenderer: React.FC<ServiceDetailsRendererProps> = ({ service
                 {keyMetric && (
                     <div className="text-sm">
                         <span className="font-medium text-gray-700 dark:text-gray-300">{keyMetric.replace('_', ' ')}:</span>
-                        <span className="ml-2 text-gray-900 dark:text-white">{keyMetricValue}</span>
+                        <span className="ml-2 text-gray-900 dark:text-white">{displayValue}</span>
                     </div>
                 )}
             </div>
         </div>
     );
+
 };
 
 export default ServiceDetailsRenderer;
