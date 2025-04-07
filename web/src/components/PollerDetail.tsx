@@ -26,10 +26,9 @@ import {
     AreaChart,
     Area
 } from 'recharts';
-import { Poller, ServiceMetric } from "@/types/types";
+import {GenericServiceDetails, Poller, ServiceMetric} from "@/types/types";
 import ServiceSparkline from "./ServiceSparkline";
 import ServiceDetailsRenderer from "./ServiceDetailsRenderer"; // Import the new component
-import { PingStatus } from "./NetworkStatus";
 import PollerTimeline from "./PollerTimeline";
 import { PollerHistoryEntry } from "@/components/PollerTimeline";
 
@@ -259,20 +258,26 @@ const PollerDetail: React.FC<PollerDetailProps> = ({
                             const totalResponseTime = icmpServices.reduce((sum, service) => {
                                 if (typeof service.details === 'string') {
                                     try {
-                                        const details = JSON.parse(service.details);
-                                        return sum + (details.response_time || 0);
+                                        const details = JSON.parse(service.details) as GenericServiceDetails;
+                                        return 'response_time' in details && typeof details.response_time === 'number'
+                                            ? sum + details.response_time
+                                            : sum;
                                     } catch {
                                         return sum;
                                     }
-                                } else if (service.details && service.details.response_time) {
-                                    return sum + service.details.response_time;
+                                } else if (service.details && 'response_time' in service.details) {
+                                    const details = service.details as GenericServiceDetails;
+                                    return typeof details.response_time === 'number'
+                                        ? sum + details.response_time
+                                        : sum;
                                 }
                                 return sum;
                             }, 0);
 
                             const avgResponseTime = totalResponseTime / icmpServices.length;
-                            return avgResponseTime > 0 ?
-                                `${(avgResponseTime / 1000000).toFixed(2)}ms` : 'N/A';
+                            return avgResponseTime > 0
+                                ? `${(avgResponseTime / 1000000).toFixed(2)}ms`
+                                : 'N/A';
                         })()}
                     </div>
                 </div>

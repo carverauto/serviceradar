@@ -1,6 +1,21 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 // src/types/types.ts
 import { SweepDetails } from './snmp';
-import { RperfMetric } from './rperf';
 
 // Generic ServiceDetails for services like ICMP
 export interface GenericServiceDetails {
@@ -54,7 +69,16 @@ export interface RperfDetails {
 }
 
 // Union type for ServiceDetails
-export type ServiceDetails = GenericServiceDetails | SweepDetails | SnmpDetails | RperfDetails | Record<string, any>;
+// export type ServiceDetails = GenericServiceDetails | SweepDetails | SnmpDetails | RperfDetails | Record<string, any>;
+// Union type for ServiceDetails
+export type ServiceDetails =
+    | GenericServiceDetails
+    | SweepDetails
+    | SnmpDetails
+    | RperfDetails
+    | { [key: string]: string | number | boolean | null | undefined };
+
+export type { SweepDetails } from './snmp';
 
 export interface Service {
   name: string;
