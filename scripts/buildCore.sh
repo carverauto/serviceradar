@@ -17,7 +17,7 @@
 # buildCore.sh - Build the core package for ServiceRadar
 set -e
 
-export VERSION=${VERSION:-1.0.28}
+export VERSION=${VERSION:-1.0.29}
 
 echo "Building core package version ${VERSION} on host..."
 ./scripts/setup-deb-core.sh

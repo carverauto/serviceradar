@@ -19,7 +19,7 @@ set -e  # Exit on any error
 
 echo "Setting up package structure for Next.js web interface..."
 
-VERSION=${VERSION:-1.0.28}
+VERSION=${VERSION:-1.0.29}
 
 # Use a relative path from the script's location
 BASE_DIR="$(dirname "$(dirname "$0")")"  # Go up two levels from scripts/ to root
