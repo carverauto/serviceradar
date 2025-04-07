@@ -32,7 +32,7 @@ import {
     Layers
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { Poller, ServiceMetric, Service } from "@/types/types";
+import {Poller, ServiceMetric, Service, GenericServiceDetails} from "@/types/types";
 
 interface PollerDashboardProps {
     initialPollers: Poller[];
@@ -163,10 +163,14 @@ const PollerDashboard: React.FC<PollerDashboardProps> = ({
                 if (!service.available) {
                     criticalServices++;
                 } else if (service.details && typeof service.details !== 'string') {
-                    const details = service.details;
-                    // TODO: Update this logic based on our actual service details structure
-                    // Example criteria: Response time over 100ms but service is still available
-                    if (details.response_time && details.response_time > 100000000 && service.available) {
+                    // Type guard to check if details is GenericServiceDetails
+                    const details = service.details as GenericServiceDetails;
+                    if (
+                        'response_time' in details &&
+                        typeof details.response_time === 'number' &&
+                        details.response_time > 100000000 &&
+                        service.available
+                    ) {
                         warningServices++;
                     }
                 }
