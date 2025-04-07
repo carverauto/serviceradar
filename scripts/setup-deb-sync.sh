@@ -17,7 +17,7 @@
 # setup-deb-sync.sh
 set -e  # Exit on any error
 
-VERSION=${VERSION:-1.0.28}
+VERSION=${VERSION:-1.0.29}
 echo "Building serviceradar-sync version ${VERSION}"
 
 echo "Setting up package structure..."

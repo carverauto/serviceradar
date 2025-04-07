@@ -55,8 +55,8 @@ ServiceRadar provides Debian (.deb) and RPM (.rpm) packages for both components.
 On a dedicated host (or a host with minimal firewall restrictions):
 
 ```bash
-curl -LO https://github.com/mfreeman451/rperf/releases/download/v0.1.17/serviceradar-rperf_0.1.17_amd64.deb
-sudo dpkg -i serviceradar-rperf_0.1.17_amd64.deb
+curl -LO https://github.com/mfreeman451/rperf/releases/download/v1.0.29/serviceradar-rperf_1.0.29_amd64.deb
+sudo dpkg -i serviceradar-rperf_1.0.29_amd64.deb
 ```
 
 - Installs to `/usr/local/bin/serviceradar-rperf`
@@ -67,8 +67,8 @@ sudo dpkg -i serviceradar-rperf_0.1.17_amd64.deb
 On the Agent host:
 
 ```bash
-curl -LO https://github.com/mfreeman451/rperf/releases/download/v1.0.28/serviceradar-rperf-checker-1.0.28.amd64.deb
-sudo dpkg -i serviceradar-rperf-checker-1.0.28.amd64.deb
+curl -LO https://github.com/mfreeman451/rperf/releases/download/v1.0.29/serviceradar-rperf-checker-1.0.29.amd64.deb
+sudo dpkg -i serviceradar-rperf-checker-1.0.29.amd64.deb
 ```
 
 - Installs to `/usr/local/bin/serviceradar-rperf-checker`
@@ -81,8 +81,8 @@ sudo dpkg -i serviceradar-rperf-checker-1.0.28.amd64.deb
 On a dedicated host:
 
 ```bash
-curl -LO https://github.com/mfreeman451/rperf/releases/download/v0.1.17/serviceradar-rperf-0.1.17-1.el9.x86_64.rpm
-sudo dnf install -y ./serviceradar-rperf-0.1.17-1.el9.x86_64.rpm
+curl -LO https://github.com/mfreeman451/rperf/releases/download/v1.0.29/serviceradar-rperf-1.0.29-1.el9.x86_64.rpm
+sudo dnf install -y ./serviceradar-rperf-1.0.29-1.el9.x86_64.rpm
 ```
 
 #### 2. Install the ServiceRadar RPerf Client (serviceradar-rperf-checker)
@@ -90,8 +90,8 @@ sudo dnf install -y ./serviceradar-rperf-0.1.17-1.el9.x86_64.rpm
 On the Agent host:
 
 ```bash
-curl -LO https://github.com/mfreeman451/rperf/releases/download/v0.1.0/serviceradar-rperf-checker-1.0.28.el9.x86_64.rpm
-sudo dnf install -y ./serviceradar-rperf-checker-1.0.28.el9.x86_64.rpm
+curl -LO https://github.com/mfreeman451/rperf/releases/download/v0.1.0/serviceradar-rperf-checker-1.0.29.el9.x86_64.rpm
+sudo dnf install -y ./serviceradar-rperf-checker-1.0.29.el9.x86_64.rpm
 ```
 
 ### Verify Installation
