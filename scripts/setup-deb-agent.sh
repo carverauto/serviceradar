@@ -94,7 +94,6 @@ fi
 # Set permissions
 chown -R serviceradar:serviceradar /etc/serviceradar
 chmod 755 /usr/local/bin/serviceradar-agent
-chmod 600 /etc/serviceradar/api.env  # Ensure api.env has restrictive permissions
 
 # Set required capability for ICMP scanning
 if [ -x /usr/local/bin/serviceradar-agent ]; then
