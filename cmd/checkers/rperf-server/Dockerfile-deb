@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y \
 RUN rustup target add x86_64-unknown-linux-gnu
 
 # Fetch and build the latest rperf crate from crates.io
-RUN cargo install --target x86_64-unknown-linux-gnu --root /usr/local rperf
+RUN cargo install --target x86_64-unknown-linux-gnu --root /usr/local --version 0.1.24 rperf rperf
 
 # Runtime stage (optional, not needed for .deb but included for completeness)
 FROM debian:bullseye-slim
