@@ -14,7 +14,7 @@ COPY packaging/specs/serviceradar-rperf.spec SPECS/
 COPY packaging/rperf/systemd/serviceradar-rperf.service SOURCES/rperf/systemd/
 
 # Build the RPM
-ARG VERSION=1.0.28
+ARG VERSION=1.0.30
 ARG RELEASE=1
 RUN cp /usr/local/bin/rperf BUILD/serviceradar-rperf && \
     sed -i "s/%{version}/${VERSION}/g" SPECS/serviceradar-rperf.spec && \
