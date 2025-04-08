@@ -1,6 +1,6 @@
 [package]
 name = "serviceradar-rperf-checker"
-version = "1.0.28"
+version = "1.0.30"
 edition = "2021"
 description = "gRPC plugin for rperf network performance testing tool"
 authors = ["Michael Freeman <mfreeman451@gmail.com>"]
@@ -8,7 +8,8 @@ license = "Apache-2.0"
 
 [dependencies]
 chrono = "0.4"
-rperf = "0.1.18"
+#rperf = { path = "../../../../rperf" }
+rperf = "0.1.25"
 tokio = { version = "1.28", features = ["full"] }
 prost = "0.11"
 serde = { version = "1.0", features = ["derive"] }

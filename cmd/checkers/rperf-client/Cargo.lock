@@ -1118,9 +1118,9 @@ dependencies = [
 
 [[package]]
 name = "rperf"
-version = "0.1.18"
+version = "0.1.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "efb615427fd64e510327a2a97c9578b693d68210dd49467087fea5dc7342cea3"
+checksum = "1c23044db7b17f404c933b85801974cdeee22afdf9d6f417781906fede1cb1da"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1262,7 +1262,7 @@ dependencies = [
 
 [[package]]
 name = "serviceradar-rperf-checker"
-version = "1.0.28"
+version = "1.0.30"
 dependencies = [
  "anyhow",
  "chrono",
