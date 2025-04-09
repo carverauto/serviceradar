@@ -1,5 +1,5 @@
 Package: serviceradar-core
-Version: 1.0.29
+Version: 1.0.30
 Section: utils
 Priority: optional
 Architecture: amd64

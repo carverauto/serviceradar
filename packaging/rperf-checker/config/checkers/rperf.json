@@ -28,24 +28,6 @@
       "receive_buffer": 0,
       "send_interval": 0.05,
       "poll_interval": 300
-    },
-    {
-      "name": "UDP Test",
-      "address": "<changeme - target address (rperf server)>",
-      "udp_port_pool": "5200-5210",
-      "port": 5199,
-      "protocol": "udp",
-      "reverse": false,
-      "bandwidth": 1000000,
-      "duration": 5.0,
-      "parallel": 1,
-      "length": 1024,
-      "omit": 0,
-      "no_delay": false,
-      "send_buffer": 0,
-      "receive_buffer": 0,
-      "send_interval": 0.05,
-      "poll_interval": 600
     }
   ]
 }

@@ -17,7 +17,7 @@
 # setup-deb-agent.sh
 set -e  # Exit on any error
 
-VERSION=${VERSION:-1.0.29}
+VERSION=${VERSION:-1.0.30}
 echo "Building serviceradar-agent version ${VERSION}"
 
 echo "Setting up package structure..."
@@ -94,7 +94,6 @@ fi
 # Set permissions
 chown -R serviceradar:serviceradar /etc/serviceradar
 chmod 755 /usr/local/bin/serviceradar-agent
-chmod 600 /etc/serviceradar/api.env  # Ensure api.env has restrictive permissions
 
 # Set required capability for ICMP scanning
 if [ -x /usr/local/bin/serviceradar-agent ]; then
