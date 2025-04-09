@@ -33,12 +33,10 @@ const nextConfig: NextConfig = {
       },
     ];
   },
-  /*
   env: {
     NEXT_PUBLIC_API_URL:
       process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090",
   },
-   */
   serverRuntimeConfig: {
     // Will only be available on the server side
     apiKey: process.env.API_KEY || "",
