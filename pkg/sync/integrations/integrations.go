@@ -19,6 +19,7 @@ package integrations
 
 import (
 	"context"
+	"strconv"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/sync/integrations/armis"
@@ -35,11 +36,27 @@ func NewArmisIntegration(
 	grpcConn *grpc.ClientConn,
 	serverName string,
 ) *armis.ArmisIntegration {
+	// Extract boundary name if specified in config
+	boundaryName := ""
+	if val, ok := config.Credentials["boundary"]; ok {
+		boundaryName = val
+	}
+
+	// Extract page size if specified
+	pageSize := 100 // default
+	if val, ok := config.Credentials["page_size"]; ok {
+		if size, err := strconv.Atoi(val); err == nil && size > 0 {
+			pageSize = size
+		}
+	}
+
 	return &armis.ArmisIntegration{
-		Config:     config,
-		KvClient:   kvClient,
-		GrpcConn:   grpcConn,
-		ServerName: serverName,
+		Config:       config,
+		KvClient:     kvClient,
+		GrpcConn:     grpcConn,
+		ServerName:   serverName,
+		BoundaryName: boundaryName,
+		PageSize:     pageSize,
 	}
 }
 

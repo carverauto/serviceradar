@@ -21,8 +21,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"net/url"
+	"strings"
+	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
@@ -32,112 +36,249 @@ import (
 // ArmisIntegration manages the Armis API integration.
 type ArmisIntegration struct {
 	Config     models.SourceConfig
-	KvClient   proto.KVServiceClient // Add gRPC client for KV writes
-	GrpcConn   *grpc.ClientConn      // Connection to reuse
+	KvClient   proto.KVServiceClient
+	GrpcConn   *grpc.ClientConn
 	ServerName string
+	// New fields for better configuration
+	BoundaryName string // To filter devices by boundary
+	PageSize     int    // Number of devices to fetch per page
 }
 
-// Device represents an Armis device.
+// AccessTokenResponse represents the Armis API access token response.
+type AccessTokenResponse struct {
+	Data struct {
+		AccessToken   string    `json:"access_token"`
+		ExpirationUTC time.Time `json:"expiration_utc"`
+	} `json:"data"`
+	Success bool `json:"success"`
+}
+
+// SearchResponse represents the Armis API search response for devices.
+type SearchResponse struct {
+	Data struct {
+		Count   int         `json:"count"`
+		Next    int         `json:"next"`
+		Prev    interface{} `json:"prev"`
+		Results []Device    `json:"results"`
+		Total   int         `json:"total"`
+	} `json:"data"`
+	Success bool `json:"success"`
+}
+
+// Device represents an Armis device as returned by the API.
 type Device struct {
-	DeviceID  string `json:"device_id"`
-	IPAddress string `json:"ip_address"`
-}
-
-// DeviceResponse represents the Armis API response.
-type DeviceResponse struct {
-	Devices []Device `json:"devices"`
-	Total   int      `json:"total"`
-	Page    int      `json:"page"`
-	PerPage int      `json:"per_page"`
+	ID               int         `json:"id"`
+	IPAddress        string      `json:"ipAddress"`
+	MacAddress       string      `json:"macAddress"`
+	Name             string      `json:"name"`
+	Type             string      `json:"type"`
+	Category         string      `json:"category"`
+	Manufacturer     string      `json:"manufacturer"`
+	Model            string      `json:"model"`
+	OperatingSystem  string      `json:"operatingSystem"`
+	FirstSeen        time.Time   `json:"firstSeen"`
+	LastSeen         time.Time   `json:"lastSeen"`
+	RiskLevel        int         `json:"riskLevel"`
+	Boundaries       string      `json:"boundaries"`
+	Tags             []string    `json:"tags"`
+	CustomProperties interface{} `json:"customProperties"`
+	BusinessImpact   string      `json:"businessImpact"`
+	Visibility       string      `json:"visibility"`
+	Site             interface{} `json:"site"`
 }
 
 var (
 	errUnexpectedStatusCode = errors.New("unexpected status code")
+	errAuthFailed           = errors.New("authentication failed")
 )
 
 // Fetch retrieves devices from Armis and generates sweep config.
 func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error) {
-	resp, err := a.fetchDevices(ctx)
+	// Get access token
+	accessToken, err := a.getAccessToken(ctx)
 	if err != nil {
-		return nil, err
-	}
-	defer a.closeResponse(resp)
-
-	deviceResp, err := a.decodeResponse(resp)
-	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get access token: %w", err)
 	}
 
-	data, ips := a.processDevices(deviceResp)
+	// Start with empty result set
+	allDevices := make([]Device, 0)
 
-	log.Printf("Fetched %d devices from Armis", len(deviceResp.Devices))
+	// Set default page size if not specified
+	if a.PageSize <= 0 {
+		a.PageSize = 100
+	}
 
+	// Start with first page
+	nextPage := 0
+
+	// Build the search query
+	searchQuery := fmt.Sprintf("in:devices orderBy=id")
+
+	// Add boundary filter if specified
+	if a.BoundaryName != "" {
+		searchQuery += fmt.Sprintf(" boundaries:\"%s\"", a.BoundaryName)
+	}
+
+	// Paginate through all results
+	for {
+		// Break if we've reached the end
+		if nextPage < 0 {
+			break
+		}
+
+		// Fetch the current page
+		page, err := a.fetchDevicesPage(ctx, accessToken, searchQuery, nextPage, a.PageSize)
+		if err != nil {
+			return nil, err
+		}
+
+		// Add devices to our collection
+		allDevices = append(allDevices, page.Data.Results...)
+
+		// Check if there are more pages
+		if page.Data.Next != 0 {
+			nextPage = page.Data.Next
+		} else {
+			nextPage = -1 // No more pages
+		}
+
+		log.Printf("Fetched %d devices, total so far: %d", page.Data.Count, len(allDevices))
+	}
+
+	// Process devices
+	data, ips := a.processDevices(allDevices)
+
+	log.Printf("Fetched total of %d devices from Armis", len(allDevices))
+
+	// Generate and write sweep configuration
 	a.writeSweepConfig(ctx, ips)
 
 	return data, nil
 }
 
-// fetchDevices sends the HTTP request to the Armis API.
-func (a *ArmisIntegration) fetchDevices(ctx context.Context) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.Config.Endpoint+"?page=1&per_page=10", http.NoBody)
+// getAccessToken obtains a temporary access token from Armis.
+func (a *ArmisIntegration) getAccessToken(ctx context.Context) (string, error) {
+	// Form data must be application/x-www-form-urlencoded
+	data := url.Values{}
+	data.Set("secret_key", a.Config.Credentials["secret_key"])
+
+	// Create the request
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		fmt.Sprintf("%s/api/v1/access_token/", a.Config.Endpoint),
+		strings.NewReader(data.Encode()))
+	if err != nil {
+		return "", err
+	}
+
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+
+	// Send the request
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	// Check response status
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("%w: %d, response: %s", errUnexpectedStatusCode,
+			resp.StatusCode, string(bodyBytes))
+	}
+
+	// Parse response
+	var tokenResp AccessTokenResponse
+	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+		return "", err
+	}
+
+	// Check success status
+	if !tokenResp.Success {
+		return "", errAuthFailed
+	}
+
+	return tokenResp.Data.AccessToken, nil
+}
+
+// fetchDevicesPage fetches a single page of devices from the Armis API.
+func (a *ArmisIntegration) fetchDevicesPage(ctx context.Context, accessToken, query string, from, length int) (*SearchResponse, error) {
+	// Build request URL with query parameters
+	reqURL := fmt.Sprintf("%s/api/v1/search/?aql=%s&length=%d",
+		a.Config.Endpoint, url.QueryEscape(query), length)
+
+	// Add 'from' parameter if not the first page
+	if from > 0 {
+		reqURL += fmt.Sprintf("&from=%d", from)
+	}
+
+	// Create the request
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, http.NoBody)
 	if err != nil {
 		return nil, err
 	}
 
-	req.Header.Set("Authorization", "Bearer "+a.Config.Credentials["api_key"])
+	// Set authorization header with token
+	req.Header.Set("Authorization", accessToken)
+	req.Header.Set("Accept", "application/json")
 
+	// Send the request
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
+	defer resp.Body.Close()
 
+	// Check response status
 	if resp.StatusCode != http.StatusOK {
-		err := resp.Body.Close()
-		if err != nil {
-			return nil, err
-		} // Close here since we won't defer in caller
-
-		return nil, fmt.Errorf("%w: %d", errUnexpectedStatusCode, resp.StatusCode)
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("%w: %d, response: %s", errUnexpectedStatusCode,
+			resp.StatusCode, string(bodyBytes))
 	}
 
-	return resp, nil
-}
-
-// closeResponse closes the HTTP response body, logging any errors.
-func (*ArmisIntegration) closeResponse(resp *http.Response) {
-	if err := resp.Body.Close(); err != nil {
-		log.Printf("Failed to close response body: %v", err)
-	}
-}
-
-// decodeResponse decodes the HTTP response into a DeviceResponse.
-func (*ArmisIntegration) decodeResponse(resp *http.Response) (DeviceResponse, error) {
-	var deviceResp DeviceResponse
-
-	if err := json.NewDecoder(resp.Body).Decode(&deviceResp); err != nil {
-		return DeviceResponse{}, err
+	// Parse response
+	var searchResp SearchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
+		return nil, err
 	}
 
-	return deviceResp, nil
+	// Check success status
+	if !searchResp.Success {
+		return nil, errors.New("search request unsuccessful")
+	}
+
+	return &searchResp, nil
 }
 
 // processDevices converts devices to KV data and extracts IPs.
-func (*ArmisIntegration) processDevices(deviceResp DeviceResponse) (data map[string][]byte, ips []string) {
-	data = make(map[string][]byte)
-	ips = make([]string, 0, len(deviceResp.Devices))
+func (a *ArmisIntegration) processDevices(devices []Device) (map[string][]byte, []string) {
+	data := make(map[string][]byte)
+	ips := make([]string, 0, len(devices))
 
-	for _, device := range deviceResp.Devices {
+	for _, device := range devices {
+		// Marshal the device to JSON
 		value, err := json.Marshal(device)
-
 		if err != nil {
-			log.Printf("Failed to marshal device %s: %v", device.DeviceID, err)
-
-			continue // Skip this device, don't fail entirely
+			log.Printf("Failed to marshal device %d: %v", device.ID, err)
+			continue
 		}
 
-		data[device.DeviceID] = value
+		// Store device in KV with device ID as key
+		data[fmt.Sprintf("%d", device.ID)] = value
 
-		ips = append(ips, device.IPAddress+"/32")
+		// Process IP addresses - might have multiple comma-separated IPs
+		if device.IPAddress != "" {
+			// Split by comma if multiple IPs
+			ipList := strings.Split(device.IPAddress, ",")
+			for _, ip := range ipList {
+				// Trim spaces
+				ip = strings.TrimSpace(ip)
+				if ip != "" {
+					// Add to sweep list with /32 suffix
+					ips = append(ips, ip+"/32")
+				}
+			}
+		}
 	}
 
 	return data, ips
