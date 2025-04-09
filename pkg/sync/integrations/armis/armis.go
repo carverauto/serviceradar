@@ -26,15 +26,15 @@ import (
 	"strings"
 )
 
-// getAccessToken obtains a temporary access token from Armis.
-func (a *ArmisIntegration) getAccessToken(ctx context.Context) (string, error) {
+// GetAccessToken obtains a temporary access token from Armis.
+func (d *DefaultArmisIntegration) GetAccessToken(ctx context.Context) (string, error) {
 	// Form data must be application/x-www-form-urlencoded
 	data := url.Values{}
-	data.Set("secret_key", a.Config.Credentials["secret_key"])
+	data.Set("secret_key", d.Config.Credentials["secret_key"])
 
 	// Create the request
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		fmt.Sprintf("%s/api/v1/access_token/", a.Config.Endpoint),
+		fmt.Sprintf("%s/api/v1/access_token/", d.Config.Endpoint),
 		strings.NewReader(data.Encode()))
 	if err != nil {
 		return "", err
@@ -44,7 +44,7 @@ func (a *ArmisIntegration) getAccessToken(ctx context.Context) (string, error) {
 	req.Header.Set("Accept", "application/json")
 
 	// Send the request
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := d.HTTPClient.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -59,7 +59,6 @@ func (a *ArmisIntegration) getAccessToken(ctx context.Context) (string, error) {
 
 	// Parse response
 	var tokenResp AccessTokenResponse
-
 	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
 		return "", err
 	}

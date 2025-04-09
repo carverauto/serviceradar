@@ -10,13 +10,18 @@ import (
 
 // ArmisIntegration manages the Armis API integration.
 type ArmisIntegration struct {
-	Config     models.SourceConfig
-	KvClient   proto.KVServiceClient
-	GrpcConn   *grpc.ClientConn
-	ServerName string
-	// New fields for better configuration
+	Config       models.SourceConfig
+	KVClient     proto.KVServiceClient
+	GRPCConn     *grpc.ClientConn
+	ServerName   string
 	BoundaryName string // To filter devices by boundary
 	PageSize     int    // Number of devices to fetch per page
+
+	// Interface implementations
+	HTTPClient    HTTPClient
+	TokenProvider TokenProvider
+	DeviceFetcher DeviceFetcher
+	KVWriter      KVWriter
 }
 
 // AccessTokenResponse represents the Armis API access token response.
@@ -60,4 +65,16 @@ type Device struct {
 	BusinessImpact   string      `json:"businessImpact"`
 	Visibility       string      `json:"visibility"`
 	Site             interface{} `json:"site"`
+}
+
+// DefaultArmisIntegration provides the default implementations for the interfaces.
+type DefaultArmisIntegration struct {
+	Config     models.SourceConfig
+	HTTPClient HTTPClient
+}
+
+// DefaultKVWriter provides the default implementation for KVWriter.
+type DefaultKVWriter struct {
+	KVClient   proto.KVServiceClient
+	ServerName string
 }

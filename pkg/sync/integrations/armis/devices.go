@@ -12,9 +12,10 @@ import (
 )
 
 // Fetch retrieves devices from Armis and generates sweep config.
+// Fetch retrieves devices from Armis and generates sweep config.
 func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error) {
-	// Get access token
-	accessToken, err := a.getAccessToken(ctx)
+	// Get access token using the TokenProvider interface
+	accessToken, err := a.TokenProvider.GetAccessToken(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get access token: %w", err)
 	}
@@ -40,13 +41,14 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error)
 
 	// Paginate through all results
 	for {
-		// Break if we've reached the end
 		if nextPage < 0 {
 			break
 		}
 
-		// Fetch the current page
-		page, err := a.fetchDevicesPage(ctx, accessToken, searchQuery, nextPage, a.PageSize)
+		// Fetch the current page using the DeviceFetcher interface
+		var page *SearchResponse
+
+		page, err = a.DeviceFetcher.FetchDevicesPage(ctx, accessToken, searchQuery, nextPage, a.PageSize)
 		if err != nil {
 			return nil, err
 		}
@@ -69,17 +71,21 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error)
 
 	log.Printf("Fetched total of %d devices from Armis", len(allDevices))
 
-	// Generate and write sweep configuration
-	a.writeSweepConfig(ctx, ips)
+	// Generate and write sweep configuration using the KVWriter interface
+	err = a.KVWriter.WriteSweepConfig(ctx, ips)
+	if err != nil {
+		log.Printf("Warning: Failed to write sweep config: %v", err)
+	}
 
 	return data, nil
 }
 
-// fetchDevicesPage fetches a single page of devices from the Armis API.
-func (a *ArmisIntegration) fetchDevicesPage(ctx context.Context, accessToken, query string, from, length int) (*SearchResponse, error) {
+// FetchDevicesPage fetches a single page of devices from the Armis API.
+func (d *DefaultArmisIntegration) FetchDevicesPage(
+	ctx context.Context, accessToken, query string, from, length int) (*SearchResponse, error) {
 	// Build request URL with query parameters
 	reqURL := fmt.Sprintf("%s/api/v1/search/?aql=%s&length=%d",
-		a.Config.Endpoint, url.QueryEscape(query), length)
+		d.Config.Endpoint, url.QueryEscape(query), length)
 
 	// Add 'from' parameter if not the first page
 	if from > 0 {
@@ -97,7 +103,7 @@ func (a *ArmisIntegration) fetchDevicesPage(ctx context.Context, accessToken, qu
 	req.Header.Set("Accept", "application/json")
 
 	// Send the request
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := d.HTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +118,6 @@ func (a *ArmisIntegration) fetchDevicesPage(ctx context.Context, accessToken, qu
 
 	// Parse response
 	var searchResp SearchResponse
-
 	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
 		return nil, err
 	}

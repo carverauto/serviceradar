@@ -10,8 +10,8 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
-// writeSweepConfig generates and writes the sweep Config to KV.
-func (a *ArmisIntegration) writeSweepConfig(ctx context.Context, ips []string) {
+// WriteSweepConfig generates and writes the sweep config to KV.
+func (kw *DefaultKVWriter) WriteSweepConfig(ctx context.Context, ips []string) error {
 	sweepConfig := models.SweepConfig{
 		Networks:      ips,
 		Ports:         []int{22, 80, 443, 3306, 5432, 6379, 8080, 8443},
@@ -26,22 +26,20 @@ func (a *ArmisIntegration) writeSweepConfig(ctx context.Context, ips []string) {
 
 	configJSON, err := json.Marshal(sweepConfig)
 	if err != nil {
-		log.Printf("Failed to marshal sweep config: %v", err)
-
-		return
+		return fmt.Errorf("failed to marshal sweep config: %w", err)
 	}
 
-	configKey := fmt.Sprintf("config/%s/network-sweep", a.ServerName)
-	_, err = a.KvClient.Put(ctx, &proto.PutRequest{
+	configKey := fmt.Sprintf("config/%s/network-sweep", kw.ServerName)
+	_, err = kw.KVClient.Put(ctx, &proto.PutRequest{
 		Key:   configKey,
 		Value: configJSON,
 	})
 
 	if err != nil {
-		log.Printf("Failed to write sweep config to %s: %v", configKey, err)
-
-		return
+		return fmt.Errorf("failed to write sweep config to %s: %w", configKey, err)
 	}
 
 	log.Printf("Wrote sweep config to %s", configKey)
+
+	return nil
 }
