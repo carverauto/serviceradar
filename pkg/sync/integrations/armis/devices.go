@@ -3,7 +3,6 @@ package armis
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -32,11 +31,11 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error)
 	nextPage := 0
 
 	// Build the search query
-	searchQuery := fmt.Sprintf("in:devices orderBy=id")
+	searchQuery := "in:devices orderBy=id"
 
 	// Add boundary filter if specified
 	if a.BoundaryName != "" {
-		searchQuery += fmt.Sprintf(" boundaries:\"%s\"", a.BoundaryName)
+		searchQuery += fmt.Sprintf(` boundaries:%q`, a.BoundaryName)
 	}
 
 	// Paginate through all results
@@ -102,12 +101,7 @@ func (a *ArmisIntegration) fetchDevicesPage(ctx context.Context, accessToken, qu
 	if err != nil {
 		return nil, err
 	}
-	defer func(Body io.ReadCloser) {
-		err := Body.Close()
-		if err != nil {
-			log.Printf("Failed to close response body: %v", err)
-		}
-	}(resp.Body)
+	defer resp.Body.Close()
 
 	// Check response status
 	if resp.StatusCode != http.StatusOK {
@@ -125,23 +119,24 @@ func (a *ArmisIntegration) fetchDevicesPage(ctx context.Context, accessToken, qu
 
 	// Check success status
 	if !searchResp.Success {
-		return nil, errors.New("search request unsuccessful")
+		return nil, errSearchRequestFailed
 	}
 
 	return &searchResp, nil
 }
 
 // processDevices converts devices to KV data and extracts IPs.
-func (a *ArmisIntegration) processDevices(devices []Device) (map[string][]byte, []string) {
-	data := make(map[string][]byte)
-	ips := make([]string, 0, len(devices))
+func (*ArmisIntegration) processDevices(devices []Device) (data map[string][]byte, ips []string) {
+	data = make(map[string][]byte)
+	ips = make([]string, 0, len(devices))
 
-	for _, device := range devices {
+	for i := range devices {
+		device := &devices[i] // Use a pointer to avoid copying the struct
+
 		// Marshal the device to JSON
 		value, err := json.Marshal(device)
 		if err != nil {
 			log.Printf("Failed to marshal device %d: %v", device.ID, err)
-
 			continue
 		}
 
