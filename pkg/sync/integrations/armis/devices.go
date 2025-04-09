@@ -11,6 +11,10 @@ import (
 	"strings"
 )
 
+const (
+	searchQueryString = "in:devices orderBy=id"
+)
+
 // Fetch retrieves devices from Armis and generates sweep config.
 func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error) {
 	// Get access token using the TokenProvider interface
@@ -31,7 +35,7 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error)
 	nextPage := 0
 
 	// Build the search query
-	searchQuery := "in:devices orderBy=id"
+	searchQuery := searchQueryString
 
 	// Add boundary filter if specified
 	if a.BoundaryName != "" {
