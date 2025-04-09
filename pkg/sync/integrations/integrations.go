@@ -44,6 +44,7 @@ func NewArmisIntegration(
 
 	// Extract page size if specified
 	pageSize := 100 // default
+
 	if val, ok := config.Credentials["page_size"]; ok {
 		if size, err := strconv.Atoi(val); err == nil && size > 0 {
 			pageSize = size

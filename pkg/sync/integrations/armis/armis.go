@@ -19,18 +19,11 @@ package armis
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"strings"
-)
-
-var (
-	errUnexpectedStatusCode = errors.New("unexpected status code")
-	errAuthFailed           = errors.New("authentication failed")
 )
 
 // getAccessToken obtains a temporary access token from Armis.
@@ -55,12 +48,7 @@ func (a *ArmisIntegration) getAccessToken(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer func(Body io.ReadCloser) {
-		err := Body.Close()
-		if err != nil {
-			log.Printf("Failed to close response body: %v", err)
-		}
-	}(resp.Body)
+	defer resp.Body.Close()
 
 	// Check response status
 	if resp.StatusCode != http.StatusOK {
