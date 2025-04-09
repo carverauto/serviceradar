@@ -19,7 +19,9 @@ package integrations
 
 import (
 	"context"
+	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/sync/integrations/armis"
@@ -51,13 +53,34 @@ func NewArmisIntegration(
 		}
 	}
 
+	// Create the default HTTP client
+	httpClient := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	// Create the default implementations
+	defaultImpl := &armis.DefaultArmisIntegration{
+		Config:     config,
+		HTTPClient: httpClient,
+	}
+
+	// Create the default KV writer
+	kvWriter := &armis.DefaultKVWriter{
+		KVClient:   kvClient,
+		ServerName: serverName,
+	}
+
 	return &armis.ArmisIntegration{
-		Config:       config,
-		KvClient:     kvClient,
-		GrpcConn:     grpcConn,
-		ServerName:   serverName,
-		BoundaryName: boundaryName,
-		PageSize:     pageSize,
+		Config:        config,
+		KVClient:      kvClient,
+		GRPCConn:      grpcConn,
+		ServerName:    serverName,
+		BoundaryName:  boundaryName,
+		PageSize:      pageSize,
+		HTTPClient:    httpClient,
+		TokenProvider: defaultImpl,
+		DeviceFetcher: defaultImpl,
+		KVWriter:      kvWriter,
 	}
 }
 
