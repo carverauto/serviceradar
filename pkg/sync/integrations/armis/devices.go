@@ -12,7 +12,6 @@ import (
 )
 
 // Fetch retrieves devices from Armis and generates sweep config.
-// Fetch retrieves devices from Armis and generates sweep config.
 func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error) {
 	// Get access token using the TokenProvider interface
 	accessToken, err := a.TokenProvider.GetAccessToken(ctx)
@@ -118,6 +117,7 @@ func (d *DefaultArmisIntegration) FetchDevicesPage(
 
 	// Parse response
 	var searchResp SearchResponse
+
 	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
 		return nil, err
 	}
@@ -142,6 +142,7 @@ func (*ArmisIntegration) processDevices(devices []Device) (data map[string][]byt
 		value, err := json.Marshal(device)
 		if err != nil {
 			log.Printf("Failed to marshal device %d: %v", device.ID, err)
+
 			continue
 		}
 
