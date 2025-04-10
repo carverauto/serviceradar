@@ -26,6 +26,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 const (
@@ -91,8 +93,13 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error)
 
 	log.Printf("Fetched total of %d devices from Armis", len(allDevices))
 
+	// build the sweepConfig
+	sweepConfig := &models.SweepConfig{
+		Networks: ips,
+	}
+
 	// Generate and write sweep configuration using the KVWriter interface
-	err = a.KVWriter.WriteSweepConfig(ctx, ips)
+	err = a.KVWriter.WriteSweepConfig(ctx, sweepConfig)
 	if err != nil {
 		log.Printf("Warning: Failed to write sweep config: %v", err)
 	}

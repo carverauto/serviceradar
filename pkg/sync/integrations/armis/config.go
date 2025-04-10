@@ -28,18 +28,20 @@ import (
 )
 
 // WriteSweepConfig generates and writes the sweep config to KV.
-func (kw *DefaultKVWriter) WriteSweepConfig(ctx context.Context, ips []string) error {
-	sweepConfig := models.SweepConfig{
-		Networks:      ips,
-		Ports:         []int{22, 80, 443, 3306, 5432, 6379, 8080, 8443},
-		SweepModes:    []string{"icmp", "tcp"},
-		Interval:      "5m",
-		Concurrency:   100,
-		Timeout:       "10s",
-		IcmpCount:     1,
-		HighPerfIcmp:  true,
-		IcmpRateLimit: 5000,
-	}
+func (kw *DefaultKVWriter) WriteSweepConfig(ctx context.Context, sweepConfig *models.SweepConfig) error {
+	/*
+		sweepConfig := models.SweepConfig{
+			Networks:      ips,
+			Ports:         []int{22, 80, 443, 3306, 5432, 6379, 8080, 8443},
+			SweepModes:    []string{"icmp", "tcp"},
+			Interval:      "5m",
+			Concurrency:   100,
+			Timeout:       "10s",
+			IcmpCount:     1,
+			HighPerfIcmp:  true,
+			IcmpRateLimit: 5000,
+		}
+	*/
 
 	configJSON, err := json.Marshal(sweepConfig)
 	if err != nil {

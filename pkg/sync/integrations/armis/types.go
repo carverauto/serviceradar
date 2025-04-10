@@ -27,12 +27,15 @@ import (
 
 // ArmisIntegration manages the Armis API integration.
 type ArmisIntegration struct {
-	Config       models.SourceConfig
-	KVClient     proto.KVServiceClient
-	GRPCConn     *grpc.ClientConn
-	ServerName   string
-	BoundaryName string // To filter devices by boundary
-	PageSize     int    // Number of devices to fetch per page
+	// The Armis integration at this time is designed to work with the network sweeper
+	// and is not yet a full integration.
+	SweeperConfig *models.SweepConfig
+	Config        models.SourceConfig
+	KVClient      proto.KVServiceClient
+	GRPCConn      *grpc.ClientConn
+	ServerName    string
+	BoundaryName  string // To filter devices by boundary
+	PageSize      int    // Number of devices to fetch per page
 
 	// Interface implementations
 	HTTPClient    HTTPClient

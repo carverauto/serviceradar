@@ -20,6 +20,8 @@ package armis
 import (
 	"context"
 	"net/http"
+
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 //go:generate mockgen -destination=mock_armis.go -package=armis github.com/carverauto/serviceradar/pkg/sync/integrations/armis HTTPClient,TokenProvider,DeviceFetcher,KVWriter
@@ -41,5 +43,5 @@ type DeviceFetcher interface {
 
 // KVWriter defines the interface for writing to KV store.
 type KVWriter interface {
-	WriteSweepConfig(ctx context.Context, ips []string) error
+	WriteSweepConfig(ctx context.Context, sweepConfig *models.SweepConfig) error
 }
