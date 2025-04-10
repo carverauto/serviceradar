@@ -18,10 +18,7 @@ package sync
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"log"
-	"os"
 	"sync"
 
 	"github.com/carverauto/serviceradar/pkg/grpc"
@@ -82,15 +79,6 @@ func New(
 		grpcClient: grpcClient,
 		sources:    make(map[string]Integration),
 		registry:   registry,
-	}
-
-	// Load initial config from filesystem if specified
-	if config.ConfigFile != "" {
-		if err := s.loadInitialConfig(ctx); err != nil {
-			log.Printf("Failed to load initial config: %v", err)
-
-			return nil, err
-		}
 	}
 
 	s.initializeIntegrations(ctx)
@@ -248,37 +236,4 @@ func (s *SyncPoller) writeToKV(ctx context.Context, sourceName string, data map[
 // NewDefault provides a production-ready constructor with default settings.
 func NewDefault(ctx context.Context, config *Config) (*SyncPoller, error) {
 	return NewWithGRPC(ctx, config)
-}
-
-// loadInitialConfig reads the config file and populates the KV store.
-func (s *SyncPoller) loadInitialConfig(ctx context.Context) error {
-	data, err := os.ReadFile(s.config.ConfigFile)
-	if err != nil {
-		return fmt.Errorf("failed to read config file %s: %w", s.config.ConfigFile, err)
-	}
-
-	var initialData map[string]interface{}
-
-	if err := json.Unmarshal(data, &initialData); err != nil {
-		return fmt.Errorf("failed to unmarshal config file %s: %w", s.config.ConfigFile, err)
-	}
-
-	for key, value := range initialData {
-		valueBytes, err := json.Marshal(value)
-		if err != nil {
-			log.Printf("Failed to marshal value for key %s: %v", key, err)
-
-			continue
-		}
-
-		_, err = s.kvClient.Put(ctx, &proto.PutRequest{
-			Key:   key,
-			Value: valueBytes,
-		})
-		if err != nil {
-			log.Printf("Failed to write initial key %s to KV: %v", key, err)
-		}
-	}
-
-	return nil
 }
