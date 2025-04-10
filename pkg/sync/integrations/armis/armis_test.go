@@ -40,9 +40,12 @@ func TestArmisIntegration_Fetch(t *testing.T) {
 	integration, mocks := setupArmisIntegration(t)
 	expectedDevices := getExpectedDevices()
 	firstPageResp := getFirstPageResponse(expectedDevices)
-	expectedIPs := []string{"192.168.1.1/32", "192.168.1.2/32", "10.0.0.1/32"}
 
-	setupArmisMocks(t, mocks, firstPageResp, expectedIPs)
+	expectedSweepConfig := &models.SweepConfig{
+		Networks: []string{"192.168.1.1/32", "192.168.1.2/32", "10.0.0.1/32"},
+	}
+
+	setupArmisMocks(t, mocks, firstPageResp, expectedSweepConfig)
 
 	result, err := integration.Fetch(context.Background())
 	verifyArmisResults(t, result, err, expectedDevices)
@@ -122,7 +125,7 @@ func getFirstPageResponse(devices []Device) *SearchResponse {
 	}
 }
 
-func setupArmisMocks(t *testing.T, mocks *armisMocks, resp *SearchResponse, expectedIPs []string) {
+func setupArmisMocks(t *testing.T, mocks *armisMocks, resp *SearchResponse, sweepConfig *models.SweepConfig) {
 	t.Helper()
 
 	testAccessToken := "test-access-token"
@@ -130,7 +133,7 @@ func setupArmisMocks(t *testing.T, mocks *armisMocks, resp *SearchResponse, expe
 
 	mocks.TokenProvider.EXPECT().GetAccessToken(gomock.Any()).Return(testAccessToken, nil)
 	mocks.DeviceFetcher.EXPECT().FetchDevicesPage(gomock.Any(), testAccessToken, expectedQuery, 0, 100).Return(resp, nil)
-	mocks.KVWriter.EXPECT().WriteSweepConfig(gomock.Any(), expectedIPs).Return(nil)
+	mocks.KVWriter.EXPECT().WriteSweepConfig(gomock.Any(), sweepConfig).Return(nil)
 }
 
 func verifyArmisResults(t *testing.T, result map[string][]byte, err error, expectedDevices []Device) {
@@ -193,7 +196,9 @@ func TestArmisIntegration_FetchWithMultiplePages(t *testing.T) {
 		Total   int         `json:"total"`
 	}{Count: 2, Next: 0, Prev: 0, Results: secondPageDevices, Total: 4}, Success: true}
 	expectedQuery := "in:devices orderBy=id"
-	expectedIPs := []string{"192.168.1.1/32", "192.168.1.2/32", "192.168.1.3/32", "192.168.1.4/32"}
+	expectedSweepConfig := &models.SweepConfig{
+		Networks: []string{"192.168.1.1/32", "192.168.1.2/32", "192.168.1.3/32", "192.168.1.4/32"},
+	}
 
 	integration.TokenProvider.(*MockTokenProvider).
 		EXPECT().GetAccessToken(gomock.Any()).Return(testAccessToken, nil)
@@ -201,7 +206,8 @@ func TestArmisIntegration_FetchWithMultiplePages(t *testing.T) {
 		EXPECT().FetchDevicesPage(gomock.Any(), testAccessToken, expectedQuery, 0, 50).Return(firstPageResp, nil)
 	integration.DeviceFetcher.(*MockDeviceFetcher).
 		EXPECT().FetchDevicesPage(gomock.Any(), testAccessToken, expectedQuery, 2, 50).Return(secondPageResp, nil)
-	integration.KVWriter.(*MockKVWriter).EXPECT().WriteSweepConfig(gomock.Any(), expectedIPs).Return(nil)
+	integration.KVWriter.(*MockKVWriter).
+		EXPECT().WriteSweepConfig(gomock.Any(), expectedSweepConfig).Return(nil)
 
 	result, err := integration.Fetch(context.Background())
 
@@ -274,7 +280,7 @@ func TestArmisIntegration_FetchErrorHandling(t *testing.T) {
 					"test-token", "in:devices orderBy=id", 0, 100).Return(firstPageResp, nil)
 				i.KVWriter.(*MockKVWriter).
 					EXPECT().WriteSweepConfig(gomock.Any(),
-					[]string{"192.168.1.1/32"}).Return(errKVWriteError)
+					&models.SweepConfig{Networks: []string{"192.168.1.1/32"}}).Return(errKVWriteError)
 			},
 			expectedError: "",
 		},
@@ -546,7 +552,7 @@ func TestDefaultKVWriter_WriteSweepConfig(t *testing.T) {
 
 				mock.Put(gomock.Any(), gomock.Any(), gomock.Any()).
 					DoAndReturn(func(_ context.Context, req *proto.PutRequest, _ ...grpc.CallOption) (*proto.PutResponse, error) {
-						assert.Equal(t, "config/test-server/network-sweep", req.Key)
+						assert.Equal(t, "agents/test-server/checkers/sweep/sweep.json", req.Key)
 
 						var config models.SweepConfig
 
@@ -580,7 +586,11 @@ func TestDefaultKVWriter_WriteSweepConfig(t *testing.T) {
 
 			t.Log("Calling WriteSweepConfig")
 
-			err := kvWriter.WriteSweepConfig(context.Background(), testIPs)
+			config := &models.SweepConfig{
+				Networks: testIPs,
+			}
+
+			err := kvWriter.WriteSweepConfig(context.Background(), config)
 
 			t.Log("WriteSweepConfig returned")
 

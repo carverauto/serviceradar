@@ -29,20 +29,6 @@ import (
 
 // WriteSweepConfig generates and writes the sweep config to KV.
 func (kw *DefaultKVWriter) WriteSweepConfig(ctx context.Context, sweepConfig *models.SweepConfig) error {
-	/*
-		sweepConfig := models.SweepConfig{
-			Networks:      ips,
-			Ports:         []int{22, 80, 443, 3306, 5432, 6379, 8080, 8443},
-			SweepModes:    []string{"icmp", "tcp"},
-			Interval:      "5m",
-			Concurrency:   100,
-			Timeout:       "10s",
-			IcmpCount:     1,
-			HighPerfIcmp:  true,
-			IcmpRateLimit: 5000,
-		}
-	*/
-
 	configJSON, err := json.Marshal(sweepConfig)
 	if err != nil {
 		log.Printf("Marshaling failed: %v", err)
@@ -50,7 +36,8 @@ func (kw *DefaultKVWriter) WriteSweepConfig(ctx context.Context, sweepConfig *mo
 		return fmt.Errorf("failed to marshal sweep config: %w", err)
 	}
 
-	configKey := fmt.Sprintf("config/%s/network-sweep", kw.ServerName)
+	// Use a configurable key, defaulting to "config/<serverName>/network-sweep"
+	configKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", kw.ServerName)
 	_, err = kw.KVClient.Put(ctx, &proto.PutRequest{
 		Key:   configKey,
 		Value: configJSON,
