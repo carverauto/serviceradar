@@ -34,8 +34,7 @@ type ArmisIntegration struct {
 	KVClient      proto.KVServiceClient
 	GRPCConn      *grpc.ClientConn
 	ServerName    string
-	BoundaryName  string // To filter devices by boundary
-	PageSize      int    // Number of devices to fetch per page
+	PageSize      int // Number of devices to fetch per page
 
 	// Interface implementations
 	HTTPClient    HTTPClient
