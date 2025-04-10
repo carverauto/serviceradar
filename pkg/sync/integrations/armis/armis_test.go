@@ -69,7 +69,6 @@ func setupArmisIntegration(t *testing.T) (*ArmisIntegration, *armisMocks) {
 				"boundary":   "Corporate",
 			},
 		},
-		BoundaryName:  "Corporate",
 		PageSize:      100,
 		TokenProvider: mocks.TokenProvider,
 		DeviceFetcher: mocks.DeviceFetcher,

@@ -21,6 +21,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -31,7 +32,6 @@ type mockKVWriter struct{}
 
 func (m *mockKVWriter) WriteSweepConfig(ctx context.Context, sweepConfig *models.SweepConfig) error {
 	log.Printf("Would write to KV: Networks=%v", sweepConfig.Networks)
-
 	return nil
 }
 
@@ -39,18 +39,27 @@ func main() {
 	// Fetch configuration from environment variables
 	apiKey := os.Getenv("ARMIS_APIKEY")
 	endpoint := os.Getenv("ARMIS_ENDPOINT")
-	boundary := os.Getenv("ARMIS_BOUNDARY")
+	queriesEnv := os.Getenv("ARMIS_QUERIES") // Format: "label1:query1,label2:query2"
 
-	if apiKey == "" || endpoint == "" {
-		log.Fatal("ARMIS_APIKEY and ARMIS_ENDPOINT must be set")
-	}
-
-	// Allow boundary to be optional
-	if boundary == "" {
-		log.Println("ARMIS_BOUNDARY not set, proceeding without boundary filter")
+	if apiKey == "" || endpoint == "" || queriesEnv == "" {
+		log.Fatal("ARMIS_APIKEY, ARMIS_ENDPOINT, and ARMIS_QUERIES must be set")
 	}
 
 	ctx := context.Background()
+
+	// Parse queries from ARMIS_QUERIES
+	var queries []models.QueryConfig
+	pairs := strings.Split(queriesEnv, ",")
+	for _, pair := range pairs {
+		parts := strings.SplitN(pair, ":", 2)
+		if len(parts) != 2 {
+			log.Fatalf("Invalid query format in ARMIS_QUERIES: %s", pair)
+		}
+		queries = append(queries, models.QueryConfig{
+			Label: parts[0],
+			Query: parts[1],
+		})
+	}
 
 	// Configure Armis integration
 	config := models.SourceConfig{
@@ -59,6 +68,7 @@ func main() {
 		Credentials: map[string]string{
 			"secret_key": apiKey,
 		},
+		Queries: queries,
 	}
 
 	httpClient := &http.Client{Timeout: 30 * time.Second}
@@ -70,20 +80,25 @@ func main() {
 	integration := &armis.ArmisIntegration{
 		Config:        config,
 		PageSize:      100,
-		BoundaryName:  boundary, // Use empty string if not set
 		TokenProvider: defaultImpl,
 		DeviceFetcher: defaultImpl,
 		KVWriter:      &mockKVWriter{},
 	}
 
-	// Run the fetch against real Armis
+	// Test token fetch
+	token, err := integration.TokenProvider.GetAccessToken(ctx)
+	if err != nil {
+		log.Fatalf("Failed to get access token: %v", err)
+	}
+	log.Printf("Successfully fetched access token: %s", token)
+
+	// Run fetch
 	result, err := integration.Fetch(ctx)
 	if err != nil {
 		log.Fatalf("Fetch failed: %v", err)
 	}
 
 	log.Printf("Fetched %d devices:", len(result))
-
 	for key, value := range result {
 		log.Printf("Device %s: %s", key, string(value))
 	}

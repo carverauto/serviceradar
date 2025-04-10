@@ -30,62 +30,51 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-const (
-	searchQueryString = "in:devices orderBy=id"
-)
-
 // Fetch retrieves devices from Armis and generates sweep config.
 func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error) {
-	// Get access token using the TokenProvider interface
 	accessToken, err := a.TokenProvider.GetAccessToken(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get access token: %w", err)
 	}
 
-	// Start with empty result set
-	allDevices := make([]Device, 0)
+	// Validate that queries are provided
+	if len(a.Config.Queries) == 0 {
+		return nil, fmt.Errorf("no queries provided in config; at least one query is required")
+	}
 
-	// Set default page size if not specified
+	allDevices := make([]Device, 0)
 	if a.PageSize <= 0 {
 		a.PageSize = 100
 	}
 
-	// Start with first page
-	nextPage := 0
+	// Fetch devices for each query
+	for _, q := range a.Config.Queries {
+		log.Printf("Fetching devices for query '%s': %s", q.Label, q.Query)
 
-	// Build the search query
-	searchQuery := searchQueryString
+		nextPage := 0
 
-	// Add boundary filter if specified
-	if a.BoundaryName != "" {
-		searchQuery += fmt.Sprintf(` boundaries:%q`, a.BoundaryName)
-	}
+		for {
+			if nextPage < 0 {
+				break
+			}
 
-	// Paginate through all results
-	for {
-		if nextPage < 0 {
-			break
+			page, err := a.DeviceFetcher.FetchDevicesPage(ctx, accessToken, q.Query, nextPage, a.PageSize)
+			if err != nil {
+				log.Printf("Failed query '%s': %v", q.Label, err)
+
+				return nil, fmt.Errorf("failed query '%s': %w", q.Label, err)
+			}
+
+			allDevices = append(allDevices, page.Data.Results...)
+
+			if page.Data.Next != 0 {
+				nextPage = page.Data.Next
+			} else {
+				nextPage = -1
+			}
+
+			log.Printf("Fetched %d devices for '%s', total so far: %d", page.Data.Count, q.Label, len(allDevices))
 		}
-
-		// Fetch the current page using the DeviceFetcher interface
-		var page *SearchResponse
-
-		page, err = a.DeviceFetcher.FetchDevicesPage(ctx, accessToken, searchQuery, nextPage, a.PageSize)
-		if err != nil {
-			return nil, err
-		}
-
-		// Add devices to our collection
-		allDevices = append(allDevices, page.Data.Results...)
-
-		// Check if there are more pages
-		if page.Data.Next != 0 {
-			nextPage = page.Data.Next
-		} else {
-			nextPage = -1 // No more pages
-		}
-
-		log.Printf("Fetched %d devices, total so far: %d", page.Data.Count, len(allDevices))
 	}
 
 	// Process devices
@@ -93,12 +82,11 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error)
 
 	log.Printf("Fetched total of %d devices from Armis", len(allDevices))
 
-	// build the sweepConfig
+	// Build and write sweep config
 	sweepConfig := &models.SweepConfig{
 		Networks: ips,
 	}
 
-	// Generate and write sweep configuration using the KVWriter interface
 	err = a.KVWriter.WriteSweepConfig(ctx, sweepConfig)
 	if err != nil {
 		log.Printf("Warning: Failed to write sweep config: %v", err)
