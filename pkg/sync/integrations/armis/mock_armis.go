@@ -14,6 +14,7 @@ import (
 	http "net/http"
 	reflect "reflect"
 
+	models "github.com/carverauto/serviceradar/pkg/models"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -159,15 +160,15 @@ func (m *MockKVWriter) EXPECT() *MockKVWriterMockRecorder {
 }
 
 // WriteSweepConfig mocks base method.
-func (m *MockKVWriter) WriteSweepConfig(ctx context.Context, ips []string) error {
+func (m *MockKVWriter) WriteSweepConfig(ctx context.Context, sweepConfig *models.SweepConfig) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "WriteSweepConfig", ctx, ips)
+	ret := m.ctrl.Call(m, "WriteSweepConfig", ctx, sweepConfig)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // WriteSweepConfig indicates an expected call of WriteSweepConfig.
-func (mr *MockKVWriterMockRecorder) WriteSweepConfig(ctx, ips any) *gomock.Call {
+func (mr *MockKVWriterMockRecorder) WriteSweepConfig(ctx, sweepConfig any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WriteSweepConfig", reflect.TypeOf((*MockKVWriter)(nil).WriteSweepConfig), ctx, ips)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WriteSweepConfig", reflect.TypeOf((*MockKVWriter)(nil).WriteSweepConfig), ctx, sweepConfig)
 }

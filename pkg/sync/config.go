@@ -37,10 +37,11 @@ var (
 )
 
 type Config struct {
-	Sources      map[string]models.SourceConfig `json:"sources"`       // e.g., "armis": {...}, "netbox": {...}
-	KVAddress    string                         `json:"kv_address"`    // KV gRPC server address
-	PollInterval config.Duration                `json:"poll_interval"` // Polling interval
-	Security     *models.SecurityConfig         `json:"security"`      // mTLS config
+	Sources      map[string]models.SourceConfig `json:"sources"`               // e.g., "armis": {...}, "netbox": {...}
+	KVAddress    string                         `json:"kv_address"`            // KV gRPC server address
+	PollInterval config.Duration                `json:"poll_interval"`         // Polling interval
+	Security     *models.SecurityConfig         `json:"security"`              // mTLS config
+	ConfigFile   string                         `json:"config_file,omitempty"` // New field for initial config
 }
 
 func (c *Config) Validate() error {
