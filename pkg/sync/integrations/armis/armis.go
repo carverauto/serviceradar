@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+// Package armis pkg/sync/integrations/armis.go provides an integration with the Armis API.
 package armis
 
 import (
