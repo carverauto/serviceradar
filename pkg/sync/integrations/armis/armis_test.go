@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"reflect"
@@ -487,20 +486,21 @@ func (m *mockKVClient) Put(ctx context.Context, in *proto.PutRequest, opts ...gr
 // Put records an expected call to Put.
 func (mr *mockKVClientRecorder) Put(ctx, in interface{}, opts ...interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
+
 	varargs := append([]interface{}{ctx, in}, opts...)
 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Put", reflect.TypeOf((*mockKVClient)(nil).Put), varargs...)
 }
 
 // Minimal implementations to satisfy the KVClient interface (not used in this test but required).
-func (m *mockKVClient) Get(ctx context.Context, in *proto.GetRequest, opts ...grpc.CallOption) (*proto.GetResponse, error) {
-	return nil, fmt.Errorf("Get not implemented")
+func (*mockKVClient) Get(_ context.Context, _ *proto.GetRequest, _ ...grpc.CallOption) (*proto.GetResponse, error) {
+	return nil, errNotImplemented
 }
-func (m *mockKVClient) Delete(ctx context.Context, in *proto.DeleteRequest, opts ...grpc.CallOption) (*proto.DeleteResponse, error) {
-	return nil, fmt.Errorf("Delete not implemented")
+func (*mockKVClient) Delete(_ context.Context, _ *proto.DeleteRequest, _ ...grpc.CallOption) (*proto.DeleteResponse, error) {
+	return nil, errNotImplemented
 }
-func (m *mockKVClient) Watch(ctx context.Context, in *proto.WatchRequest, opts ...grpc.CallOption) (proto.KVService_WatchClient, error) {
-	return nil, fmt.Errorf("Watch not implemented")
+func (*mockKVClient) Watch(_ context.Context, _ *proto.WatchRequest, _ ...grpc.CallOption) (proto.KVService_WatchClient, error) {
+	return nil, errNotImplemented
 }
 
 func TestDefaultKVWriter_WriteSweepConfig(t *testing.T) {
@@ -525,43 +525,20 @@ func TestDefaultKVWriter_WriteSweepConfig(t *testing.T) {
 		{
 			name: "successful write",
 			setupMock: func(mock *mockKVClientRecorder) {
-				//expectedReq := proto.PutRequest{
-				//	Key:   "config/test-server/network-sweep",
-				//	Value: mustMarshalSweepConfig(t, testIPs),
-				//}
 				t.Log("Setting up mock expectation for Put")
 
-				// Try using a less strict matcher like:
 				mock.Put(gomock.Any(), gomock.Any(), gomock.Any()).
 					DoAndReturn(func(_ context.Context, req *proto.PutRequest, _ ...grpc.CallOption) (*proto.PutResponse, error) {
-						// Then verify the specific fields you care about
 						assert.Equal(t, "config/test-server/network-sweep", req.Key)
 
 						var config models.SweepConfig
+
 						err := json.Unmarshal(req.Value, &config)
 						require.NoError(t, err)
 						assert.Equal(t, testIPs, config.Networks)
 
 						return &proto.PutResponse{}, nil
 					})
-				/*
-					mock.Put(gomock.Any(), gomock.Eq(expectedReq), gomock.Len(0)). // Explicitly match no opts
-						//mock.Put(gomock.Any(), gomock.Any(), gomock.Any()).
-						DoAndReturn(func(_ context.Context, req *proto.PutRequest, _ ...grpc.CallOption) (*proto.PutResponse, error) {
-							t.Logf("Put called with key: %s, value: %s", req.Key, string(req.Value))
-
-							assert.Equal(t, "config/test-server/network-sweep", req.Key)
-
-							var config models.SweepConfig
-
-							err := json.Unmarshal(req.Value, &config)
-							require.NoError(t, err)
-							assert.Equal(t, testIPs, config.Networks)
-
-							return &proto.PutResponse{}, nil
-						})
-
-				*/
 			},
 			expectedError: "",
 		},
@@ -598,23 +575,4 @@ func TestDefaultKVWriter_WriteSweepConfig(t *testing.T) {
 			}
 		})
 	}
-}
-
-func mustMarshalSweepConfig(t *testing.T, ips []string) []byte {
-	sweepConfig := models.SweepConfig{
-		Networks:      ips,
-		Ports:         []int{22, 80, 443, 3306, 5432, 6379, 8080, 8443},
-		SweepModes:    []string{"icmp", "tcp"},
-		Interval:      "5m",
-		Concurrency:   100,
-		Timeout:       "10s",
-		IcmpCount:     1,
-		HighPerfIcmp:  true,
-		IcmpRateLimit: 5000,
-	}
-
-	data, err := json.Marshal(sweepConfig)
-	require.NoError(t, err)
-
-	return data
 }
