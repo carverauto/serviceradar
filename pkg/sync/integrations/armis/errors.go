@@ -9,4 +9,5 @@ var (
 	errNetworkError         = errors.New("network error")      // Added from lines 329 and 569
 	errKVWriteError         = errors.New("KV write error")     // Added from line 350
 	errConnectionRefused    = errors.New("connection refused") // Added from line 496
+	errNotImplemented       = errors.New("not implemented")
 )
