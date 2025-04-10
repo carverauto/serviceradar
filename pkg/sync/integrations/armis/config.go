@@ -26,6 +26,8 @@ func (kw *DefaultKVWriter) WriteSweepConfig(ctx context.Context, ips []string) e
 
 	configJSON, err := json.Marshal(sweepConfig)
 	if err != nil {
+		log.Printf("Marshaling failed: %v", err)
+
 		return fmt.Errorf("failed to marshal sweep config: %w", err)
 	}
 
