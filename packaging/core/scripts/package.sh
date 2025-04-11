@@ -103,7 +103,7 @@ if [ ! -f "/etc/serviceradar/checkers/sweep/sweep.json" ] && [ -f "$SWEEP_CONFIG
     cp "$SWEEP_CONFIG_SRC" etc/serviceradar/checkers/sweep/sweep.json
     echo "Copied sweep.json from $SWEEP_CONFIG_SRC"
 elif [ ! -f "$SWEEP_CONFIG_SRC" ]; then
-    echo "Error: core.json not found at $SWEEP_CONFIG_SRC"
+    echo "Error: sweep.json not found at $SWEEP_CONFIG_SRC"
     exit 1
 fi
 
