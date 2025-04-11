@@ -12,10 +12,10 @@ if [ ! -f "$RPERF_DIR/Dockerfile-deb" ]; then
     exit 1
 fi
 
-VERSION="1.0.30"
+VERSION="1.0.31"
 VERSION_CLEAN=$(echo "${VERSION}" | sed 's/-/~/g')
 PKG_NAME="serviceradar-rperf"
-MAINTAINER="Carver Automation Corporation <support@carverauto.com>"
+MAINTAINER="Carver Automation Corporation <mfreeman@carverauto.dev>"
 DESCRIPTION="ServiceRadar RPerf Network Performance Testing Tool"
 
 # Temp directory

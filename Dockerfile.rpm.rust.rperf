@@ -1,7 +1,7 @@
 # Use pre-built base image
 FROM ghcr.io/carverauto/rockylinux9-rust-rpm-base:latest AS builder
 
-ARG VERSION=1.0.30
+ARG VERSION=1.0.31
 ARG RELEASE=1
 ARG COMPONENT=rperf
 
