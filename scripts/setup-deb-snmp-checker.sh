@@ -17,7 +17,7 @@
 # setup-deb-snmp-checker.sh
 set -e  # Exit on any error
 
-VERSION=${VERSION:-1.0.30}
+VERSION=${VERSION:-1.0.31}
 echo "Building serviceradar-snmp-checker version ${VERSION}"
 
 echo "Setting up package structure..."
@@ -50,7 +50,7 @@ Section: utils
 Priority: optional
 Architecture: amd64
 Depends: systemd
-Maintainer: Michael Freeman <mfreeman451@gmail.com>
+Maintainer: Michael Freeman <mfreeman@carverauto.dev>
 Description: ServiceRadar SNMP poller
  This package provides the serviceradar SNMP checker plugin for monitoring services.
 EOF

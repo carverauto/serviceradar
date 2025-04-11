@@ -17,7 +17,7 @@
 # setup-deb-sync.sh
 set -e  # Exit on any error
 
-VERSION=${VERSION:-1.0.30}
+VERSION=${VERSION:-1.0.31}
 echo "Building serviceradar-sync version ${VERSION}"
 
 echo "Setting up package structure..."
@@ -50,7 +50,7 @@ Section: utils
 Priority: optional
 Architecture: amd64
 Depends: systemd
-Maintainer: Michael Freeman <mfreeman451@gmail.com>
+Maintainer: Michael Freeman <mfreeman@carverauto.dev>
 Description: ServiceRadar Key-Value store Sync service
  This package provides the ServiceRadar key-value store synchronization service.
 EOF

@@ -19,7 +19,7 @@ set -e  # Exit on any error
 
 echo "Setting up package structure..."
 
-VERSION=${VERSION:-1.0.30}
+VERSION=${VERSION:-1.0.31}
 # Use a relative path from the script's location
 BASE_DIR="$(dirname "$(dirname "$0")")"  # Go up two levels from scripts/ to root
 PACKAGING_DIR="${BASE_DIR}/packaging"
@@ -48,7 +48,7 @@ Section: utils
 Priority: optional
 Architecture: amd64
 Depends: systemd
-Maintainer: Michael Freeman <mfreeman451@gmail.com>
+Maintainer: Michael Freeman <mfreeman@carverauto.dev>
 Description: ServiceRadar poller service
  Poller component for ServiceRadar monitoring system.
  Collects and forwards monitoring data from agents to core service.

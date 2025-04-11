@@ -19,7 +19,7 @@ set -e  # Exit on any error
 
 echo "Setting up package structure for Next.js web interface..."
 
-VERSION=${VERSION:-1.0.30}
+VERSION=${VERSION:-1.0.31}
 
 # Use a relative path from the script's location
 BASE_DIR="$(dirname "$(dirname "$0")")"  # Go up two levels from scripts/ to root
@@ -80,7 +80,7 @@ Priority: optional
 Architecture: amd64
 Depends: systemd, nodejs (>= 16.0.0), nginx
 Recommends: serviceradar-core
-Maintainer: Michael Freeman <mfreeman451@gmail.com>
+Maintainer: Michael Freeman <mfreeman@carverauto.dev>
 Description: ServiceRadar web interface
  Next.js web interface for the ServiceRadar monitoring system.
  Includes Nginx configuration for integrated API and UI access.
