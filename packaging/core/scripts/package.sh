@@ -98,6 +98,15 @@ elif [ ! -f "$CONFIG_SRC" ]; then
     exit 1
 fi
 
+SWEEP_CONFIG_SRC="${PACKAGING_DIR}/core/config/checkers/sweep/sweep.json"
+if [ ! -f "/etc/serviceradar/checkers/sweep/sweep.json" ] && [ -f "$SWEEP_CONFIG_SRC" ]; then
+    cp "$SWEEP_CONFIG_SRC" etc/serviceradar/checkers/sweep/sweep.json
+    echo "Copied sweep.json from $SWEEP_CONFIG_SRC"
+elif [ ! -f "$SWEEP_CONFIG_SRC" ]; then
+    echo "Error: core.json not found at $SWEEP_CONFIG_SRC"
+    exit 1
+fi
+
 # Copy postinst script
 POSTINST_SRC="${PACKAGING_DIR}/core/scripts/postinstall.sh"
 if [ -f "$POSTINST_SRC" ]; then
