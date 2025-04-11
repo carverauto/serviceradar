@@ -17,7 +17,6 @@ Provides centralized monitoring and web dashboard for ServiceRadar.
 %install
 mkdir -p %{buildroot}/usr/local/bin
 mkdir -p %{buildroot}/etc/serviceradar
-mkdir -p %{buildroot}/etc/serviceradar/checkers/sweep
 mkdir -p %{buildroot}/lib/systemd/system
 mkdir -p %{buildroot}/var/lib/serviceradar
 mkdir -p %{buildroot}/etc/serviceradar/selinux
@@ -25,7 +24,6 @@ mkdir -p %{buildroot}/etc/serviceradar/selinux
 install -m 755 %{_builddir}/serviceradar-core %{buildroot}/usr/local/bin/
 install -m 644 %{_sourcedir}/systemd/serviceradar-core.service %{buildroot}/lib/systemd/system/serviceradar-core.service
 install -m 644 %{_sourcedir}/config/core.json %{buildroot}/etc/serviceradar/
-install -m 644 %{_sourcedir}/config/checkers/sweep/sweep.json %{buildroot}/etc/serviceradar/checkers/sweep/
 
 # Install SELinux policy template
 cat > %{buildroot}/etc/serviceradar/selinux/serviceradar-core.te << 'EOF'
@@ -44,7 +42,6 @@ EOF
 %files
 %attr(0755, root, root) /usr/local/bin/serviceradar-core
 %config(noreplace) %attr(0644, serviceradar, serviceradar) /etc/serviceradar/core.json
-%config(noreplace) %attr(0644, serviceradar, serviceradar) /etc/serviceradar/checkers/sweep/sweep.json
 %attr(0644, root, root) /lib/systemd/system/serviceradar-core.service
 %attr(0644, root, root) /etc/serviceradar/selinux/serviceradar-core.te
 %dir %attr(0755, root, root) /etc/serviceradar
