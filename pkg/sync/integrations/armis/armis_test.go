@@ -14,7 +14,6 @@
  * limitations under the License.
  */
 
-// Package armis pkg/sync/integrations/armis_test.go
 package armis
 
 import (
@@ -40,7 +39,6 @@ func TestArmisIntegration_Fetch(t *testing.T) {
 	integration, mocks := setupArmisIntegration(t)
 	expectedDevices := getExpectedDevices()
 	firstPageResp := getFirstPageResponse(expectedDevices)
-
 	expectedSweepConfig := &models.SweepConfig{
 		Networks: []string{"192.168.1.1/32", "192.168.1.2/32", "10.0.0.1/32"},
 	}
@@ -67,6 +65,9 @@ func setupArmisIntegration(t *testing.T) (*ArmisIntegration, *armisMocks) {
 			Credentials: map[string]string{
 				"secret_key": "test-secret-key",
 				"boundary":   "Corporate",
+			},
+			Queries: []models.QueryConfig{
+				{Label: "test", Query: "in:devices orderBy=id boundaries:\"Corporate\""},
 			},
 		},
 		PageSize:      100,
@@ -124,7 +125,7 @@ func getFirstPageResponse(devices []Device) *SearchResponse {
 	}
 }
 
-func setupArmisMocks(t *testing.T, mocks *armisMocks, resp *SearchResponse, sweepConfig *models.SweepConfig) {
+func setupArmisMocks(t *testing.T, mocks *armisMocks, resp *SearchResponse, expectedSweepConfig *models.SweepConfig) {
 	t.Helper()
 
 	testAccessToken := "test-access-token"
@@ -132,7 +133,7 @@ func setupArmisMocks(t *testing.T, mocks *armisMocks, resp *SearchResponse, swee
 
 	mocks.TokenProvider.EXPECT().GetAccessToken(gomock.Any()).Return(testAccessToken, nil)
 	mocks.DeviceFetcher.EXPECT().FetchDevicesPage(gomock.Any(), testAccessToken, expectedQuery, 0, 100).Return(resp, nil)
-	mocks.KVWriter.EXPECT().WriteSweepConfig(gomock.Any(), sweepConfig).Return(nil)
+	mocks.KVWriter.EXPECT().WriteSweepConfig(gomock.Any(), expectedSweepConfig).Return(nil)
 }
 
 func verifyArmisResults(t *testing.T, result map[string][]byte, err error, expectedDevices []Device) {
@@ -150,7 +151,6 @@ func verifyArmisResults(t *testing.T, result map[string][]byte, err error, expec
 		require.True(t, exists)
 
 		var device Device
-
 		err = json.Unmarshal(deviceData, &device)
 		require.NoError(t, err)
 
@@ -169,6 +169,9 @@ func TestArmisIntegration_FetchWithMultiplePages(t *testing.T) {
 			Prefix:   "armis/",
 			Credentials: map[string]string{
 				"secret_key": "test-secret-key",
+			},
+			Queries: []models.QueryConfig{
+				{Label: "test", Query: "in:devices orderBy=id"},
 			},
 		},
 		PageSize:      50,
@@ -231,6 +234,9 @@ func TestArmisIntegration_FetchErrorHandling(t *testing.T) {
 			Prefix:   "armis/",
 			Credentials: map[string]string{
 				"secret_key": "test-secret-key",
+			},
+			Queries: []models.QueryConfig{
+				{Label: "test", Query: "in:devices orderBy=id"},
 			},
 		},
 		PageSize:      100,
@@ -302,6 +308,31 @@ func TestArmisIntegration_FetchErrorHandling(t *testing.T) {
 	}
 }
 
+func TestArmisIntegration_FetchNoQueries(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	integration := &ArmisIntegration{
+		Config: models.SourceConfig{
+			Endpoint: "https://armis.example.com",
+			Prefix:   "armis/",
+			Credentials: map[string]string{
+				"secret_key": "test-secret-key",
+			},
+			Queries: []models.QueryConfig{}, // Empty queries
+		},
+		PageSize:      100,
+		TokenProvider: NewMockTokenProvider(ctrl),
+		DeviceFetcher: NewMockDeviceFetcher(ctrl),
+		KVWriter:      NewMockKVWriter(ctrl),
+	}
+
+	result, err := integration.Fetch(context.Background())
+	assert.Nil(t, result)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "no queries provided in config; at least one query is required")
+}
+
 func TestDefaultArmisIntegration_FetchDevicesPage(t *testing.T) {
 	testCases := []struct {
 		name           string
@@ -320,7 +351,7 @@ func TestDefaultArmisIntegration_FetchDevicesPage(t *testing.T) {
 			query:          "in:devices",
 			from:           0,
 			length:         10,
-			mockResponse:   createSuccessResponse(t), //nolint:bodyclose // closing the body is handled in the test.
+			mockResponse:   createSuccessResponse(t),
 			expectedResult: createExpectedResponse(t),
 			expectedError:  "",
 		},
@@ -328,7 +359,6 @@ func TestDefaultArmisIntegration_FetchDevicesPage(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Create the mock response and defer its closure
 			resp := tc.mockResponse
 			if resp != nil && resp.Body != nil {
 				defer resp.Body.Close()
@@ -370,12 +400,9 @@ func createExpectedResponse(t *testing.T) *SearchResponse {
 		Total   int         `json:"total"`
 	}{Count: 2, Next: 0, Prev: nil,
 		Results: []Device{
-			{
-				ID:        1,
-				IPAddress: "192.168.1.1",
-				Name:      "Device 1",
-			}, {ID: 2, IPAddress: "192.168.1.2", Name: "Device 2"}}, Total: 2}, Success: true,
-	}
+			{ID: 1, IPAddress: "192.168.1.1", Name: "Device 1"},
+			{ID: 2, IPAddress: "192.168.1.2", Name: "Device 2"},
+		}, Total: 2}, Success: true}
 }
 
 func setupDefaultArmisIntegration(t *testing.T, resp *http.Response, mockErr error) *DefaultArmisIntegration {
@@ -400,7 +427,6 @@ func TestDefaultArmisIntegration_GetAccessToken(t *testing.T) {
 				"secret_key": "test-secret-key",
 			},
 		},
-
 		HTTPClient: NewMockHTTPClient(ctrl),
 	}
 
@@ -420,7 +446,6 @@ func TestDefaultArmisIntegration_GetAccessToken(t *testing.T) {
 							`{"data": {"access_token": "test-access-token", "expiration_utc": "2023-10-11T09:49:00.818613+00:00"}, "success": true}`)),
 				}, nil)
 			},
-
 			expectedToken: "test-access-token",
 			expectedError: "",
 		},
@@ -429,7 +454,6 @@ func TestDefaultArmisIntegration_GetAccessToken(t *testing.T) {
 			setupMock: func(mock *MockHTTPClientMockRecorder) {
 				mock.Do(gomock.Any()).Return(nil, errConnectionRefused)
 			},
-
 			expectedToken: "",
 			expectedError: "connection refused",
 		},
@@ -441,7 +465,6 @@ func TestDefaultArmisIntegration_GetAccessToken(t *testing.T) {
 					Body:       io.NopCloser(strings.NewReader(`{"message": "Invalid secret key", "success": false}`)),
 				}, nil)
 			},
-
 			expectedToken: "",
 			expectedError: "unexpected status code: 400",
 		},
@@ -464,57 +487,43 @@ func TestDefaultArmisIntegration_GetAccessToken(t *testing.T) {
 	}
 }
 
-// mockKVClient is a minimal mock for the KVClient interface, tailored for this test.
 type mockKVClient struct {
 	ctrl     *gomock.Controller
 	recorder *mockKVClientRecorder
 }
 
-// mockKVClientRecorder is the recorder for mockKVClient.
 type mockKVClientRecorder struct {
 	mock *mockKVClient
 }
 
-// newMockKVClient creates a new instance of the mock.
 func newMockKVClient(ctrl *gomock.Controller) *mockKVClient {
 	mock := &mockKVClient{ctrl: ctrl}
 	mock.recorder = &mockKVClientRecorder{mock}
-
 	return mock
 }
 
-// EXPECT returns the recorder to set expectations.
 func (m *mockKVClient) EXPECT() *mockKVClientRecorder {
 	return m.recorder
 }
 
-// Put mocks the Put method of the KVClient interface.
 func (m *mockKVClient) Put(ctx context.Context, in *proto.PutRequest, opts ...grpc.CallOption) (*proto.PutResponse, error) {
 	m.ctrl.T.Helper()
-
 	varargs := []interface{}{ctx, in}
-
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
-
 	ret := m.ctrl.Call(m, "Put", varargs...)
 	ret0, _ := ret[0].(*proto.PutResponse)
 	ret1, _ := ret[1].(error)
-
 	return ret0, ret1
 }
 
-// Put records an expected call to Put.
 func (mr *mockKVClientRecorder) Put(ctx, in interface{}, opts ...interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-
 	varargs := append([]interface{}{ctx, in}, opts...)
-
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Put", reflect.TypeOf((*mockKVClient)(nil).Put), varargs...)
 }
 
-// Minimal implementations to satisfy the KVClient interface (not used in this test but required).
 func (*mockKVClient) Get(_ context.Context, _ *proto.GetRequest, _ ...grpc.CallOption) (*proto.GetResponse, error) {
 	return nil, errNotImplemented
 }
@@ -537,7 +546,9 @@ func TestDefaultKVWriter_WriteSweepConfig(t *testing.T) {
 		ServerName: "test-server",
 	}
 
-	testIPs := []string{"192.168.1.1/32", "192.168.1.2/32"}
+	testSweepConfig := &models.SweepConfig{
+		Networks: []string{"192.168.1.1/32", "192.168.1.2/32"},
+	}
 
 	testCases := []struct {
 		name          string
@@ -548,17 +559,13 @@ func TestDefaultKVWriter_WriteSweepConfig(t *testing.T) {
 			name: "successful write",
 			setupMock: func(mock *mockKVClientRecorder) {
 				t.Log("Setting up mock expectation for Put")
-
 				mock.Put(gomock.Any(), gomock.Any(), gomock.Any()).
 					DoAndReturn(func(_ context.Context, req *proto.PutRequest, _ ...grpc.CallOption) (*proto.PutResponse, error) {
 						assert.Equal(t, "agents/test-server/checkers/sweep/sweep.json", req.Key)
-
 						var config models.SweepConfig
-
 						err := json.Unmarshal(req.Value, &config)
 						require.NoError(t, err)
-						assert.Equal(t, testIPs, config.Networks)
-
+						assert.Equal(t, testSweepConfig.Networks, config.Networks)
 						return &proto.PutResponse{}, nil
 					})
 			},
@@ -568,7 +575,6 @@ func TestDefaultKVWriter_WriteSweepConfig(t *testing.T) {
 			name: "KV client error",
 			setupMock: func(mock *mockKVClientRecorder) {
 				t.Log("Setting up mock expectation for Put with error")
-
 				mock.Put(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, errNetworkError)
 			},
 			expectedError: "failed to write sweep config",
@@ -578,21 +584,11 @@ func TestDefaultKVWriter_WriteSweepConfig(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Log("Starting test case setup")
-
 			tc.setupMock(mockKV.EXPECT())
-
 			t.Log("Mock expectation set")
-
 			t.Log("Calling WriteSweepConfig")
-
-			config := &models.SweepConfig{
-				Networks: testIPs,
-			}
-
-			err := kvWriter.WriteSweepConfig(context.Background(), config)
-
+			err := kvWriter.WriteSweepConfig(context.Background(), testSweepConfig)
 			t.Log("WriteSweepConfig returned")
-
 			if tc.expectedError != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.expectedError)
