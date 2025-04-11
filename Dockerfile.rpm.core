@@ -63,9 +63,13 @@ COPY packaging /root/rpmbuild/SOURCES/packaging/
 # Copy spec file - use a known good one
 COPY packaging/specs/serviceradar-core.spec /root/rpmbuild/SPECS/
 
+RUN echo "Searching for service file..." && \
+    find /root/rpmbuild/SOURCES -name "serviceradar-core.service" -type f && \
+    mkdir -p /root/rpmbuild/SOURCES/systemd/ && \
+    cp -v $(find /root/rpmbuild/SOURCES -name "serviceradar-core.service" -type f | head -1) /root/rpmbuild/SOURCES/systemd/
+
 # Copy required files from packaging structure
 RUN cp -v /root/rpmbuild/SOURCES/packaging/core/config/core.json /root/rpmbuild/SOURCES/config/ && \
-    cp -v /root/rpmbuild/SOURCES/packaging/core/config/checkers/sweep/sweep.json /root/rpmbuild/SOURCES/config/checkers/sweep/ && \
     cp -v /root/rpmbuild/SOURCES/packaging/core/systemd/serviceradar-core.service /root/rpmbuild/SOURCES/systemd/ && \
     cp -v /root/rpmbuild/SOURCES/packaging/selinux/*.te /root/rpmbuild/SOURCES/selinux/ 2>/dev/null || echo "No SELinux policies found"
 
