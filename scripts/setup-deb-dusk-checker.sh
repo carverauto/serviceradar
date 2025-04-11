@@ -19,7 +19,7 @@ set -e  # Exit on any error
 
 echo "Setting up package structure..."
 
-VERSION=${VERSION:-1.0.30}
+VERSION=${VERSION:-1.0.31}
 
 # Create package directory structure
 PKG_ROOT="serviceradar-dusk-checker_${VERSION}"
@@ -43,7 +43,7 @@ Section: utils
 Priority: optional
 Architecture: amd64
 Depends: systemd
-Maintainer: Michael Freeman <mfreeman451@gmail.com>
+Maintainer: Michael Freeman <mfreeman@carverauto.dev>
 Description: ServiceRadar Dusk node checker
  Provides monitoring capabilities for Dusk blockchain nodes.
 Config: /etc/serviceradar/checkers/dusk.json

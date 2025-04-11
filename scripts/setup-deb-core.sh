@@ -21,7 +21,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
 echo "Working directory: $(pwd)"
 
-VERSION=${VERSION:-1.0.30}
+VERSION=${VERSION:-1.0.31}
 VERSION=$(echo "$VERSION" | sed 's/refs\/tags\/v//')  # Clean Git ref if present
 BUILD_TAGS=${BUILD_TAGS:-""}
 
