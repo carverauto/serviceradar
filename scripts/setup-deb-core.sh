@@ -70,7 +70,6 @@ docker run \
         cp \${PACKAGING_DIR}/core/DEBIAN/conffiles \${PKG_ROOT}/DEBIAN/conffiles || { echo 'Error: conffiles missing'; exit 1; }; \
         cp \${PACKAGING_DIR}/core/systemd/serviceradar-core.service \${PKG_ROOT}/lib/systemd/system/serviceradar-core.service || { echo 'Error: service file missing'; exit 1; }; \
         cp \${PACKAGING_DIR}/core/config/core.json \${PKG_ROOT}/etc/serviceradar/core.json || { echo 'Error: core.json missing'; exit 1; }; \
-        cp \${PACKAGING_DIR}/core/config/checkers/sweep/sweep.json \${PKG_ROOT}/etc/serviceradar/checkers/sweep/sweep.json || { echo 'Error: sweep.json missing'; exit 1; }; \
         [ -f \${PACKAGING_DIR}/core/config/api.env ] && cp \${PACKAGING_DIR}/core/config/api.env \${PKG_ROOT}/etc/serviceradar/api.env && echo 'Copied api.env' || echo 'Note: api.env not found, skipping'; \
         cp \${PACKAGING_DIR}/core/scripts/postinstall.sh \${PKG_ROOT}/DEBIAN/postinst && chmod 755 \${PKG_ROOT}/DEBIAN/postinst || { echo 'Error: postinstall.sh missing'; exit 1; }; \
         cp \${PACKAGING_DIR}/core/scripts/preremove.sh \${PKG_ROOT}/DEBIAN/prerm && chmod 755 \${PKG_ROOT}/DEBIAN/prerm || { echo 'Error: preremove.sh missing'; exit 1; }; \
