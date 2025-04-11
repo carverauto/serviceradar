@@ -51,7 +51,7 @@ RUN rpmdev-setuptree
 # Create necessary directories
 RUN mkdir -p /root/rpmbuild/SOURCES/systemd \
     /root/rpmbuild/SOURCES/config \
-    /root/rpmbuild/SOURCES/config/checkers \
+    /root/rpmbuild/SOURCES/config/checkers/sweep \
     /root/rpmbuild/SOURCES/selinux
 
 # Copy built binary
@@ -70,6 +70,12 @@ RUN cp -v /root/rpmbuild/SOURCES/packaging/${COMPONENT}/systemd/serviceradar-${C
 # Copy configuration files
 RUN cp -v /root/rpmbuild/SOURCES/packaging/${COMPONENT}/config/* /root/rpmbuild/SOURCES/config/ 2>/dev/null || echo "No component-specific config files found" && \
     cp -v /root/rpmbuild/SOURCES/packaging/config/${COMPONENT}.json /root/rpmbuild/SOURCES/config/ 2>/dev/null || echo "No global config file found for ${COMPONENT}"
+
+# If agent, copy sweep.json
+RUN if [ "${COMPONENT}" = "agent" ]; then \
+    cp -v /root/rpmbuild/SOURCES/packaging/agent/config/checkers/sweep/sweep.json /root/rpmbuild/SOURCES/config/checkers/sweep/ || \
+    echo "Sweep config not found"; \
+fi
 
 # Copy special configuration for checkers
 RUN if [ "${COMPONENT}" = "snmp-checker" ]; then \
