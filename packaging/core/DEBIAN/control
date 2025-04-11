@@ -1,10 +1,10 @@
 Package: serviceradar-core
-Version: 1.0.30
+Version: 1.0.31
 Section: utils
 Priority: optional
 Architecture: amd64
 Depends: systemd
-Maintainer: Michael Freeman <mfreeman451@gmail.com>
+Maintainer: Michael Freeman <mfreeman@carverauto.dev>
 Description: ServiceRadar Core Service with Web Interface
  Provides centralized monitoring and web dashboard for ServiceRadar.
 Config: /etc/serviceradar/core.json
