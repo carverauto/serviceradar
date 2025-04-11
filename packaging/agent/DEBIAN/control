@@ -7,4 +7,4 @@ Depends: systemd
 Maintainer: Michael Freeman <mfreeman@carverauto.dev>
 Description: ServiceRadar Agent Service
     ServiceRadar Agent is a lightweight agent that collects network performance data and sends it to the ServiceRadar server for analysis and visualization.
-Config: /etc/serviceradar/core.json
+Config: /etc/serviceradar/agent.json
