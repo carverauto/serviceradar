@@ -51,6 +51,9 @@ function Navbar() {
               <Link href="/pollers" className="text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100">
                 Pollers
               </Link>
+              <Link href="/metrics" className="text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100">
+                Metrics
+              </Link>
               {isAuthEnabled && (
                   <>
                     {user && (
