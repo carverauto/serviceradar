@@ -31,13 +31,13 @@ import (
 )
 
 // Fetch retrieves devices from Armis and generates sweep config.
+// Fetch retrieves devices from Armis and generates sweep config.
 func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error) {
 	accessToken, err := a.TokenProvider.GetAccessToken(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get access token: %w", err)
 	}
 
-	// Validate that queries are provided
 	if len(a.Config.Queries) == 0 {
 		return nil, fmt.Errorf("no queries provided in config; at least one query is required")
 	}
@@ -47,12 +47,10 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error)
 		a.PageSize = 100
 	}
 
-	// Fetch devices for each query
 	for _, q := range a.Config.Queries {
 		log.Printf("Fetching devices for query '%s': %s", q.Label, q.Query)
 
 		nextPage := 0
-
 		for {
 			if nextPage < 0 {
 				break
@@ -61,10 +59,10 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error)
 			page, err := a.DeviceFetcher.FetchDevicesPage(ctx, accessToken, q.Query, nextPage, a.PageSize)
 			if err != nil {
 				log.Printf("Failed query '%s': %v", q.Label, err)
-
 				return nil, fmt.Errorf("failed query '%s': %w", q.Label, err)
 			}
 
+			// Append devices even if page is empty
 			allDevices = append(allDevices, page.Data.Results...)
 
 			if page.Data.Next != 0 {
@@ -102,45 +100,50 @@ func (d *DefaultArmisIntegration) FetchDevicesPage(
 	reqURL := fmt.Sprintf("%s/api/v1/search/?aql=%s&length=%d",
 		d.Config.Endpoint, url.QueryEscape(query), length)
 
-	// Add 'from' parameter if not the first page
 	if from > 0 {
 		reqURL += fmt.Sprintf("&from=%d", from)
 	}
 
-	// Create the request
+	log.Printf("Sending request to: %s", reqURL)
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, http.NoBody)
 	if err != nil {
 		return nil, err
 	}
 
-	// Set authorization header with token
 	req.Header.Set("Authorization", accessToken)
 	req.Header.Set("Accept", "application/json")
 
-	// Send the request
 	resp, err := d.HTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	// Check response status
+	// Log full response
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+	log.Printf("API response for query '%s': %s", query, string(bodyBytes))
+
 	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("%w: %d, response: %s", errUnexpectedStatusCode,
 			resp.StatusCode, string(bodyBytes))
 	}
 
-	// Parse response
 	var searchResp SearchResponse
-
-	if err := json.NewDecoder(resp.Body).Decode(&searchResp); err != nil {
-		return nil, err
+	if err := json.Unmarshal(bodyBytes, &searchResp); err != nil {
+		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
 
-	// Check success status
 	if !searchResp.Success {
-		return nil, errSearchRequestFailed
+		return nil, fmt.Errorf("%w: %s", errSearchRequestFailed, string(bodyBytes))
+	}
+
+	// Handle empty results gracefully
+	if searchResp.Data.Count == 0 {
+		log.Printf("No devices found for query '%s'", query)
 	}
 
 	return &searchResp, nil
