@@ -211,7 +211,7 @@ ServiceRadar is a distributed monitoring system with agents, pollers, a core ser
   - Storage: ~0.96 GB/hour, ~23 GB/day for 24-hour retention.
   - Network: ~80 MB/s gRPC traffic (compressed).
 - Shard SQLite by `host_id` (e.g., 10,000 hosts/DB = ~2.4 GB/day/DB).
-- Optional queue (e.g., NATS JetStream) for write buffering.
+- Optional queue (e.g., Kafka) for write buffering.
 
 #### 3.2.2 Storage Optimization
 - Store percentages (CPU) and bytes (disk, memory), not ticks.
@@ -325,7 +325,6 @@ serviceradar-sysman-checker/
 
 ## 6. Assumptions
 
-- Hosts have `zfs` binary for ZFS stats.
 - ServiceRadar agent runs on each monitored host.
 - SQLite sharding or queuing is feasible for scale.
 - 30-second polling suffices for charting granularity.
