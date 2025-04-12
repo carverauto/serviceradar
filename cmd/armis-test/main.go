@@ -39,7 +39,7 @@ func main() {
 	// Fetch configuration from environment variables
 	apiKey := os.Getenv("ARMIS_APIKEY")
 	endpoint := os.Getenv("ARMIS_ENDPOINT")
-	queriesEnv := os.Getenv("ARMIS_QUERIES") // Format: "label1:query1,label2:query2"
+	queriesEnv := os.Getenv("ARMIS_QUERIES") // Format: "label1:query1|label2:query2"
 
 	if apiKey == "" || endpoint == "" || queriesEnv == "" {
 		log.Fatal("ARMIS_APIKEY, ARMIS_ENDPOINT, and ARMIS_QUERIES must be set")
@@ -47,17 +47,17 @@ func main() {
 
 	ctx := context.Background()
 
-	// Parse queries from ARMIS_QUERIES
+	// Parse queries from ARMIS_QUERIES using '|' as delimiter
 	var queries []models.QueryConfig
-	pairs := strings.Split(queriesEnv, ",")
+	pairs := strings.Split(queriesEnv, "|")
 	for _, pair := range pairs {
 		parts := strings.SplitN(pair, ":", 2)
 		if len(parts) != 2 {
-			log.Fatalf("Invalid query format in ARMIS_QUERIES: %s", pair)
+			log.Fatalf("Invalid query format in ARMIS_QUERIES: %s (use 'label:query|label:query' format)", pair)
 		}
 		queries = append(queries, models.QueryConfig{
-			Label: parts[0],
-			Query: parts[1],
+			Label: strings.TrimSpace(parts[0]),
+			Query: strings.TrimSpace(parts[1]),
 		})
 	}
 
