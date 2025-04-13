@@ -1,0 +1,96 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+syntax = "proto3";
+
+package monitoring;
+
+option go_package = "github.com/carverauto/serviceradar/cmd/checkers/sysmon/src/proto";
+
+service AgentService {
+  rpc GetStatus(StatusRequest) returns (StatusResponse) {}
+}
+
+service PollerService {
+  rpc ReportStatus(PollerStatusRequest) returns (PollerStatusResponse) {}
+}
+
+message StatusRequest {
+  string service_name = 1;
+  string service_type = 2;
+  string details = 3;
+  int32 port = 4;
+}
+
+message StatusResponse {
+  bool available = 1;
+  string message = 2; // JSON data (e.g., MetricSample)
+  string service_name = 3;
+  string service_type = 4;
+  int64 response_time = 5;
+}
+
+message MetricSample {
+  int64 timestamp = 1;
+  string host_id = 2;
+  message Cpu {
+    int32 core_id = 1;
+    float usage_percent = 2;
+  }
+  message Disk {
+    string mount_point = 1;
+    uint64 used_bytes = 2;
+    uint64 total_bytes = 3;
+  }
+  message Memory {
+    uint64 used_bytes = 1;
+    uint64 total_bytes = 2;
+  }
+  repeated Cpu cpus = 3;
+  repeated Disk disks = 4;
+  Memory memory = 5;
+}
+
+message PollerStatusRequest {
+  repeated ServiceStatus services = 1;
+  string poller_id = 2;
+  int64 timestamp = 3;
+}
+
+message PollerStatusResponse {
+  bool received = 1;
+}
+
+message ServiceStatus {
+  string service_name = 1;
+  bool available = 2;
+  string message = 3;
+  string service_type = 4;
+  int64 response_time = 5;
+}
+
+message SweepServiceStatus {
+  string network = 1;
+  int32 total_hosts = 2;
+  int32 available_hosts = 3;
+  repeated PortStatus ports = 4;
+  int64 last_sweep = 5;
+}
+
+message PortStatus {
+  int32 port = 1;
+  int32 available = 2;
+}

@@ -1,0 +1,23 @@
+{
+  "listen_addr": "0.0.0.0:50060",
+  "security": {
+    "tls_enabled": false,
+    "cert_file": null,
+    "key_file": null,
+    "ca_file": null
+  },
+  "poll_interval": 30,
+  "zfs": {
+    "enabled": true,
+    "pools": ["rpool"],
+    "include_datasets": true,
+    "use_libzetta": true
+  },
+  "filesystems": [
+    {
+      "name": "/mnt/data",
+      "type": "ext4",
+      "monitor": true
+    }
+  ]
+}
