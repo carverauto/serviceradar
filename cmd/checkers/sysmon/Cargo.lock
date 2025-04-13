@@ -1398,6 +1398,7 @@ dependencies = [
  "libzetta",
  "log",
  "prost",
+ "rand",
  "serde",
  "serde_json",
  "sysinfo",
