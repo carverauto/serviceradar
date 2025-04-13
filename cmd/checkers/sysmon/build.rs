@@ -24,7 +24,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     tonic_build::configure()
         .build_server(true)
         .build_client(false)
-        .file_descriptor_set_path(&monitoring_descriptor_path)
+        .file_descriptor_set_path(monitoring_descriptor_path)
         .compile(&["src/proto/monitoring.proto"], &["src/proto"])?;
 
     println!("cargo:rerun-if-changed=src/proto/monitoring.proto");

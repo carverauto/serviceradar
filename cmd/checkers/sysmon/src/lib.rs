@@ -18,7 +18,7 @@
 // Module exports
 pub mod config;
 pub mod server;
+pub mod poller;
 
-// Public re-exports
 pub use config::Config;
-pub use config::TargetConfig;
+pub use poller::MetricsCollector;
