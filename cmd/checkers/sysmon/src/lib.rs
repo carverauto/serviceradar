@@ -15,6 +15,8 @@
  */
 
 
+// lib.rs
+
 // Module exports
 pub mod config;
 pub mod poller;
