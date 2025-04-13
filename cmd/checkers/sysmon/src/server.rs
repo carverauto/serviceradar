@@ -1,9 +1,10 @@
 use std::fs;
 use anyhow::{Context, Result};
-use log::{debug, info};
+use log::{debug, error, info};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
+use tokio::time::{interval, Duration};
 use tonic::{Request, Response, Status};
 use tonic::transport::Server;
 use tonic_reflection::server::Builder as ReflectionBuilder;
@@ -25,31 +26,56 @@ pub struct SysmonService {
 }
 
 impl SysmonService {
-    pub fn new(collector: MetricsCollector) -> Self {
-        Self {
-            collector: Arc::new(RwLock::new(collector)),
-        }
+    pub fn new(collector: Arc<RwLock<MetricsCollector>>) -> Self {
+        debug!("Creating SysmonService");
+        Self { collector }
     }
 
     pub async fn start(&self, config: Arc<Config>) -> Result<ServerHandle> {
-        let addr: SocketAddr = config.listen_addr.parse().context("Failed to parse listen address")?;
+        let addr: SocketAddr = config.listen_addr.parse()
+            .context("Failed to parse listen address")?;
         info!("Starting gRPC sysmon service on {}", addr);
+        debug!("Server config: TLS={:?}", config.security);
 
-        // Use the existing collector Arc<RwLock<MetricsCollector>>
+        // Start periodic metrics collection
+        let collector_for_task = Arc::clone(&self.collector);
+        let poll_interval = config.poll_interval;
+        let collection_handle = tokio::spawn(async move {
+            let mut interval = interval(Duration::from_secs(poll_interval));
+            loop {
+                interval.tick().await;
+                info!("Collecting system metrics periodically");
+                let mut collector = collector_for_task.write().await;
+                match collector.collect().await {
+                    Ok(metrics) => {
+                        debug!("Periodic collection successful: timestamp={}", metrics.timestamp);
+                    }
+                    Err(e) => {
+                        error!("Periodic collection failed: {}", e);
+                    }
+                }
+            }
+        });
+
         let service = Arc::new(Self {
             collector: Arc::clone(&self.collector),
         });
 
         let (mut health_reporter, health_service) = tonic_health::server::health_reporter();
-        health_reporter.set_serving::<AgentServiceServer<Arc<SysmonService>>>().await;
+        health_reporter
+            .set_serving::<AgentServiceServer<Arc<SysmonService>>>()
+            .await;
+        debug!("Health service configured");
 
         let reflection_service = ReflectionBuilder::configure()
             .register_encoded_file_descriptor_set(FILE_DESCRIPTOR_SET_MONITORING)
             .build()?;
+        debug!("Reflection service configured");
 
         let mut server_builder = Server::builder();
         if let Some(security) = &config.security {
             if security.tls_enabled {
+                debug!("Configuring TLS");
                 let cert = fs::read_to_string(security.cert_file.as_ref().unwrap())
                     .context("Failed to read certificate file")?;
                 let key = fs::read_to_string(security.key_file.as_ref().unwrap())
@@ -68,6 +94,7 @@ impl SysmonService {
             }
         }
 
+        debug!("Starting gRPC server");
         let server_handle = tokio::spawn(async move {
             server_builder
                 .add_service(health_service)
@@ -79,7 +106,10 @@ impl SysmonService {
             Ok::<(), anyhow::Error>(())
         });
 
-        Ok(ServerHandle { join_handle: server_handle })
+        Ok(ServerHandle {
+            join_handle: server_handle,
+            collection_handle: Some(collection_handle),
+        })
     }
 }
 
@@ -90,20 +120,27 @@ impl AgentService for SysmonService {
         request: Request<monitoring::StatusRequest>,
     ) -> Result<Response<monitoring::StatusResponse>, Status> {
         let req = request.into_inner();
-        debug!("Received GetStatus: service_name={}, service_type={}, details={}",
-               req.service_name, req.service_type, req.details);
+        info!(
+            "Received GetStatus: service_name={}, service_type={}, details={}",
+            req.service_name, req.service_type, req.details
+        );
+        debug!("Processing GetStatus request");
 
         let start_time = std::time::Instant::now();
-        let mut collector = self.collector.write().await;
-        let metrics = collector.collect().await.map_err(|e| {
-            Status::internal(format!("Failed to collect metrics: {}", e))
-        })?;
+        let collector = self.collector.read().await;
+        let metrics = collector
+            .get_latest_metrics()
+            .await
+            .ok_or_else(|| Status::unavailable("No metrics available yet"))?;
 
+        debug!("Returning metrics with timestamp {}", metrics.timestamp);
         let message = serde_json::to_string(&metrics).map_err(|e| {
+            error!("Failed to serialize metrics: {}", e);
             Status::internal(format!("Failed to serialize metrics: {}", e))
         })?;
 
         let response_time = start_time.elapsed().as_nanos() as i64;
+        debug!("GetStatus response prepared: response_time={}ns", response_time);
         Ok(Response::new(monitoring::StatusResponse {
             available: true,
             message,
@@ -120,6 +157,7 @@ impl AgentService for Arc<SysmonService> {
         &self,
         request: Request<monitoring::StatusRequest>,
     ) -> Result<Response<monitoring::StatusResponse>, Status> {
+        debug!("Delegating GetStatus to SysmonService");
         (**self).get_status(request).await
     }
 }
@@ -127,10 +165,15 @@ impl AgentService for Arc<SysmonService> {
 #[derive(Debug)]
 pub struct ServerHandle {
     join_handle: JoinHandle<Result<()>>,
+    collection_handle: Option<JoinHandle<()>>,
 }
 
 impl ServerHandle {
     pub async fn stop(self) -> Result<()> {
+        if let Some(collection_handle) = self.collection_handle {
+            collection_handle.abort();
+            info!("Collection task aborted");
+        }
         self.join_handle.abort();
         match self.join_handle.await {
             Ok(result) => result,

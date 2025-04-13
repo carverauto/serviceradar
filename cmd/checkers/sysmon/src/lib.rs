@@ -17,8 +17,9 @@
 
 // Module exports
 pub mod config;
-pub mod server;
 pub mod poller;
+pub mod server;
 
 pub use config::Config;
-pub use poller::MetricsCollector;
+pub use poller::{MetricsCollector, MetricSample};
+pub use server::SysmonService;

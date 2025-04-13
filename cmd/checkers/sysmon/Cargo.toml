@@ -21,6 +21,7 @@ clap = "~2.33.3"
 anyhow = "1.0"
 sysinfo = "0.34.2"
 libzetta = { version = "0.5.0", optional = true }
+rand = "0.8.5"
 
 [features]
 zfs = ["dep:libzetta"]
