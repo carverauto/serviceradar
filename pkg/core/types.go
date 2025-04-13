@@ -118,7 +118,7 @@ type Server struct {
 	ShutdownChan   chan struct{}
 	pollerPatterns []string
 	grpcServer     *grpc.Server
-	metrics        metrics.MetricCollector
+	metrics        *metrics.Manager
 	snmpManager    snmp.SNMPManager
 	rperfManager   rperf.RperfManager
 	config         *Config

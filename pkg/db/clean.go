@@ -67,5 +67,29 @@ func (db *DB) CleanOldData(retentionPeriod time.Duration) error {
 		return fmt.Errorf("%w timeseries metrics: %w", errFailedToClean, err)
 	}
 
+	// Clean up CPU metrics
+	if _, err := tx.Exec(
+		"DELETE FROM cpu_metrics WHERE timestamp < ?",
+		cutoff,
+	); err != nil {
+		return fmt.Errorf("%w CPU metrics: %w", errFailedToClean, err)
+	}
+
+	// Clean up disk metrics
+	if _, err := tx.Exec(
+		"DELETE FROM disk_metrics WHERE timestamp < ?",
+		cutoff,
+	); err != nil {
+		return fmt.Errorf("%w disk metrics: %w", errFailedToClean, err)
+	}
+
+	// Clean up memory metrics
+	if _, err := tx.Exec(
+		"DELETE FROM memory_metrics WHERE timestamp < ?",
+		cutoff,
+	); err != nil {
+		return fmt.Errorf("%w memory metrics: %w", errFailedToClean, err)
+	}
+
 	return nil
 }

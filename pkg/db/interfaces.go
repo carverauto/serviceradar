@@ -96,7 +96,15 @@ type Service interface {
 	GetMetrics(pollerID, metricName string, start, end time.Time) ([]TimeseriesMetric, error)
 	GetMetricsByType(pollerID, metricType string, start, end time.Time) ([]TimeseriesMetric, error)
 
+	// Sysmon metric operations
+
+	StoreSysmonMetrics(pollerID string, metrics *models.SysmonMetrics, timestamp time.Time) error
+	GetCPUMetrics(pollerID string, coreID int, start, end time.Time) ([]models.CPUMetric, error)
+	GetDiskMetrics(pollerID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error)
+	GetMemoryMetrics(pollerID string, start, end time.Time) ([]models.MemoryMetric, error)
+
 	// Rperf
+
 	StoreRperfMetrics(pollerID, serviceName string, message string, timestamp time.Time) error
 
 	// Auth

@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/gorilla/mux"
 )
 
@@ -99,25 +100,25 @@ func parseTimeRange(query url.Values) (start, end time.Time, err error) {
 	return start, end, nil
 }
 
-func (s *APIServer) processRperfMetrics(pollerID string, startTime, endTime time.Time) RperfMetricResponse {
+func (s *APIServer) processRperfMetrics(pollerID string, startTime, endTime time.Time) models.RperfMetricResponse {
 	rperfMetrics, err := s.rperfManager.GetRperfMetrics(pollerID, startTime, endTime)
 	if err != nil {
 		log.Printf("Error fetching rperf metrics for poller %s: %v", pollerID, err)
 
-		return RperfMetricResponse{Err: err}
+		return models.RperfMetricResponse{Err: err}
 	}
 
 	response := convertToAPIMetrics(rperfMetrics, pollerID)
 
-	return RperfMetricResponse{Metrics: response}
+	return models.RperfMetricResponse{Metrics: response}
 }
 
 // convertToAPIMetrics converts db.TimeseriesMetric to RperfMetric.
-func convertToAPIMetrics(rperfMetrics []*db.TimeseriesMetric, pollerID string) []RperfMetric {
-	response := make([]RperfMetric, 0, len(rperfMetrics))
+func convertToAPIMetrics(rperfMetrics []*db.TimeseriesMetric, pollerID string) []models.RperfMetric {
+	response := make([]models.RperfMetric, 0, len(rperfMetrics))
 
 	for _, rm := range rperfMetrics {
-		metric := RperfMetric{
+		metric := models.RperfMetric{
 			Timestamp: rm.Timestamp,
 			Name:      rm.Name,
 		}
@@ -138,7 +139,7 @@ func convertToAPIMetrics(rperfMetrics []*db.TimeseriesMetric, pollerID string) [
 }
 
 // populateMetricFields populates an RperfMetric from metadata.
-func populateMetricFields(metric *RperfMetric, metadata map[string]interface{}) {
+func populateMetricFields(metric *models.RperfMetric, metadata map[string]interface{}) {
 	setStringField(&metric.Target, metadata, "target")
 	setBoolField(&metric.Success, metadata, "success")
 	setErrorField(&metric.Error, metadata, "error")
@@ -204,6 +205,6 @@ func writeJSONResponse(w http.ResponseWriter, data interface{}, pollerID string)
 
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	} else {
-		log.Printf("Found %d rperf metrics for poller %s", len(data.([]RperfMetric)), pollerID)
+		log.Printf("Found %d rperf metrics for poller %s", len(data.([]models.RperfMetric)), pollerID)
 	}
 }
