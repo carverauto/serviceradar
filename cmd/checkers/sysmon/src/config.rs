@@ -39,7 +39,8 @@ pub struct ZfsConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FilesystemConfig {
     pub name: String,
-    pub type_: String,
+    #[serde(rename = "type")]
+    pub type_field: String, // Use a non-reserved name in Rust
     pub monitor: bool,
     #[serde(default)]
     pub datasets: Vec<String>, // For ZFS datasets

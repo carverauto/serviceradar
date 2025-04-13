@@ -16,7 +16,7 @@
 
 use anyhow::{Context, Result};
 use clap::{App, Arg};
-use log::{info, warn};
+use log::{debug, info, warn};
 use std::path::PathBuf;
 use std::sync::Arc;
 use sysinfo::System;
@@ -30,6 +30,8 @@ async fn main() -> Result<()> {
     env_logger::init_from_env(
         env_logger::Env::default().filter_or(env_logger::DEFAULT_FILTER_ENV, "info"),
     );
+
+    info!("Starting serviceradar-sysmon-checker version {}", env!("CARGO_PKG_VERSION"));
 
     let matches = App::new("serviceradar-sysmon-checker")
         .version(env!("CARGO_PKG_VERSION"))
@@ -52,19 +54,27 @@ async fn main() -> Result<()> {
     info!("Server will listen on {}", config.listen_addr);
 
     // Initialize MetricsCollector
+    debug!("Initializing MetricsCollector");
     let filesystems = config.filesystems.iter()
         .filter(|fs| fs.monitor)
         .map(|fs| fs.name.clone())
         .collect();
+    debug!("Monitoring filesystems: {:?}", filesystems);
+
     let (zfs_pools, zfs_datasets) = config.zfs.as_ref()
         .map(|z| (z.pools.clone(), z.include_datasets))
         .unwrap_or_default();
+    debug!("ZFS config: pools={:?}, datasets={}", zfs_pools, zfs_datasets);
+
     let host_id = std::env::var("HOSTNAME")
         .unwrap_or_else(|_| {
             warn!("HOSTNAME env var not set, using 'unknown'");
             "unknown".to_string()
         });
+    debug!("Using host_id: {}", host_id);
+
     let collector = MetricsCollector::new(host_id, filesystems, zfs_pools, zfs_datasets);
+    debug!("MetricsCollector initialized");
 
     // Start server
     let service = SysmonService::new(collector);
