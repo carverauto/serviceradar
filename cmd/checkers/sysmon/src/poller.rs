@@ -1,30 +1,12 @@
-/*
- * Copyright 2025 Carver Automation Corporation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-use anyhow::{Context, Result};
+use anyhow::Result;
 use chrono::Utc;
-use log::{debug, error};
 use serde::Serialize;
 use sysinfo::{System, Disks};
 
 #[cfg(feature = "zfs")]
-use libzetta::zpool::{ZpoolOpen3, Zpool};
+use libzetta::zpool::{ZpoolEngine, ZpoolOpen3};
 #[cfg(feature = "zfs")]
 use libzetta::zfs::{ZfsOpen3, DatasetKind};
-use libzetta::zpool::ZpoolEngine;
 
 #[derive(Debug, Serialize)]
 pub struct CpuMetric {
@@ -116,17 +98,16 @@ impl MetricsCollector {
         {
             if !self.zfs_pools.is_empty() {
                 let zpool_engine = ZpoolOpen3::with_cmd("/sbin/zpool");
-                let zfs_engine = ZfsOpen3::new()?;
+                let zfs_engine = ZfsOpen3::new();
 
                 for pool_name in &self.zfs_pools {
                     for attempt in 1..=3 {
-                        // Run blocking status call in a separate thread
-                        let pool_name_clone = pool_name.clone();
-                        let result = tokio::task::spawn_blocking(move || {
-                            zpool_engine.status(&pool_name_clone, libzetta::zpool::open3::StatusOptions::default())
-                        }).await??;
-
-                        match result {
+                        match tokio::task::spawn_blocking({
+                            let pool_name_clone = pool_name.clone();
+                            move || {
+                                zpool_engine.status(&pool_name_clone, libzetta::zpool::open3::StatusOptions::default())
+                            }
+                        }).await? {
                             Ok(pool) => {
                                 let used = pool.used().unwrap_or(0) as u64;
                                 let total = pool.size().unwrap_or(0) as u64;

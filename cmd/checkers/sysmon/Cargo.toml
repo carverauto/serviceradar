@@ -23,8 +23,7 @@ sysinfo = "0.34.2"
 libzetta = { version = "0.5.0", optional = true }
 
 [features]
-default = ["zfs"]
-zfs = ["libzetta"]
+zfs = ["dep:libzetta"]
 
 [build-dependencies]
 tonic-build = "0.9"
