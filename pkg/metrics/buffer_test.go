@@ -79,11 +79,12 @@ func TestManager(t *testing.T) {
 		}
 	})
 
-	t.Run("concurrent access", func(t *testing.T) {
+	t.Run("concurrent access", func(_ *testing.T) {
 		manager := NewManager(cfg, mockDB)
 		done := make(chan bool)
 
 		const goroutines = 10
+
 		const iterations = 100
 
 		for i := 0; i < goroutines; i++ {

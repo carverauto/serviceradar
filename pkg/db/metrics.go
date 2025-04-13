@@ -327,7 +327,6 @@ func (db *DB) GetMemoryMetrics(pollerID string, start, end time.Time) ([]models.
         WHERE poller_id = ? AND timestamp BETWEEN ? AND ?
         ORDER BY timestamp`,
 		pollerID, start, end)
-
 	if err != nil {
 		return nil, fmt.Errorf("failed to query memory metrics: %w", err)
 	}
@@ -356,7 +355,7 @@ func (db *DB) StoreSysmonMetrics(pollerID string, metrics *models.SysmonMetrics,
 	defer rollbackOnError(tx, err)
 
 	for _, cpu := range metrics.CPUs {
-		_, err := tx.Exec(`
+		_, err = tx.Exec(`
             INSERT INTO cpu_metrics (poller_id, timestamp, core_id, usage_percent)
             VALUES (?, ?, ?, ?)`,
 			pollerID, timestamp, cpu.CoreID, cpu.UsagePercent)
@@ -366,7 +365,7 @@ func (db *DB) StoreSysmonMetrics(pollerID string, metrics *models.SysmonMetrics,
 	}
 
 	for _, disk := range metrics.Disks {
-		_, err := tx.Exec(`
+		_, err = tx.Exec(`
             INSERT INTO disk_metrics (poller_id, timestamp, mount_point, used_bytes, total_bytes)
             VALUES (?, ?, ?, ?, ?)`,
 			pollerID, timestamp, disk.MountPoint, disk.UsedBytes, disk.TotalBytes)
@@ -388,5 +387,6 @@ func (db *DB) StoreSysmonMetrics(pollerID string, metrics *models.SysmonMetrics,
 	}
 
 	log.Printf("Stored sysmon metrics for poller %s: %d CPUs, %d disks, 1 memory", pollerID, len(metrics.CPUs), len(metrics.Disks))
+
 	return nil
 }

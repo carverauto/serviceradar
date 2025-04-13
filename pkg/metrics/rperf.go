@@ -12,8 +12,10 @@ import (
 )
 
 func (m *Manager) StoreRperfMetrics(pollerID string, metrics *models.RperfMetrics, timestamp time.Time) error {
-	for _, result := range metrics.Results {
+	for i := range metrics.Results {
+		result := &metrics.Results[i] // Access the element by reference
 		metricName := fmt.Sprintf("rperf_%s", strings.ToLower(strings.ReplaceAll(result.Target, " ", "_")))
+
 		metadata, err := json.Marshal(map[string]interface{}{
 			"target":           result.Target,
 			"success":          result.Success,
@@ -30,7 +32,6 @@ func (m *Manager) StoreRperfMetrics(pollerID string, metrics *models.RperfMetric
 		})
 		if err != nil {
 			log.Printf("Failed to marshal rperf metadata for %s, poller %s: %v", metricName, pollerID, err)
-
 			continue
 		}
 
@@ -44,7 +45,6 @@ func (m *Manager) StoreRperfMetrics(pollerID string, metrics *models.RperfMetric
 
 		if err := m.db.StoreMetric(pollerID, metric); err != nil {
 			log.Printf("Error storing rperf metric %s for poller %s: %v", metricName, pollerID, err)
-
 			return fmt.Errorf("failed to store rperf metric: %w", err)
 		}
 
@@ -54,7 +54,7 @@ func (m *Manager) StoreRperfMetrics(pollerID string, metrics *models.RperfMetric
 	return nil
 }
 
-func (m *Manager) GetRperfMetrics(pollerID string, target string, start, end time.Time) ([]models.RperfMetric, error) {
+func (m *Manager) GetRperfMetrics(pollerID, target string, start, end time.Time) ([]models.RperfMetric, error) {
 	metricName := fmt.Sprintf("rperf_%s", strings.ToLower(strings.ReplaceAll(target, " ", "_")))
 
 	dbMetrics, err := m.db.GetMetrics(pollerID, metricName, start, end)
