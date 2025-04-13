@@ -39,11 +39,13 @@ func (m *Manager) StoreSysmonMetrics(pollerID string, metrics *models.SysmonMetr
 
 	if err := m.db.StoreSysmonMetrics(pollerID, dbMetrics, timestamp); err != nil {
 		log.Printf("Failed to store sysmon metrics for poller %s: %v", pollerID, err)
+
 		return err
 	}
 
 	log.Printf("Stored sysmon metrics for poller %s: %d CPUs, %d disks, 1 memory",
 		pollerID, len(metrics.CPUs), len(metrics.Disks))
+
 	return nil
 }
 
@@ -61,6 +63,7 @@ func (m *Manager) GetCPUMetrics(pollerID string, coreID int, start, end time.Tim
 			Timestamp:    dm.Timestamp,
 		}
 	}
+
 	return metrics, nil
 }
 
@@ -79,6 +82,7 @@ func (m *Manager) GetDiskMetrics(pollerID, mountPoint string, start, end time.Ti
 			Timestamp:  dm.Timestamp,
 		}
 	}
+
 	return metrics, nil
 }
 
@@ -96,5 +100,6 @@ func (m *Manager) GetMemoryMetrics(pollerID string, start, end time.Time) ([]mod
 			Timestamp:  dm.Timestamp,
 		}
 	}
+
 	return metrics, nil
 }

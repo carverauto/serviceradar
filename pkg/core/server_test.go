@@ -136,6 +136,7 @@ func newServerWithDB(_ context.Context, config *Config, database db.Service) (*S
 	}
 
 	server.initializeWebhooks(normalizedConfig.Webhooks)
+
 	return server, nil
 }
 
@@ -156,6 +157,7 @@ func TestProcessStatusReport(t *testing.T) {
 	)).DoAndReturn(func(status *db.PollerStatus) error {
 		assert.Equal(t, "test-poller", status.PollerID)
 		assert.True(t, status.IsHealthy)
+
 		return nil
 	})
 

@@ -48,14 +48,14 @@ type CPUMetric struct {
 
 type DiskMetric struct {
 	MountPoint string    `json:"mount_point"`
-	UsedBytes  int64     `json:"used_bytes"`
-	TotalBytes int64     `json:"total_bytes"`
+	UsedBytes  uint64    `json:"used_bytes"`
+	TotalBytes uint64    `json:"total_bytes"`
 	Timestamp  time.Time `json:"timestamp"`
 }
 
 type MemoryMetric struct {
-	UsedBytes  int64     `json:"used_bytes"`
-	TotalBytes int64     `json:"total_bytes"`
+	UsedBytes  uint64    `json:"used_bytes"`
+	TotalBytes uint64    `json:"total_bytes"`
 	Timestamp  time.Time `json:"timestamp"`
 }
 type SysmonMetricData struct {

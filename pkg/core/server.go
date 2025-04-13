@@ -56,6 +56,7 @@ const (
 
 func NewServer(_ context.Context, config *Config) (*Server, error) {
 	normalizedConfig := normalizeConfig(config)
+
 	database, err := db.New(getDBPath(normalizedConfig.DBPath))
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errDatabaseError, err)
@@ -589,17 +590,26 @@ func (*Server) parseServiceDetails(svc *proto.ServiceStatus) (json.RawMessage, e
 	return details, nil
 }
 
+const (
+	grpcServiceType   = "grpc"
+	icmpServiceType   = "icmp"
+	snmpServiceType   = "snmp"
+	rperfServiceType  = "rperf-checker"
+	sysmonServiceType = "sysmon"
+)
+
 func (s *Server) processSpecializedMetrics(pollerID string, svc *proto.ServiceStatus, details json.RawMessage, now time.Time) error {
 	switch {
-	case svc.ServiceType == "snmp":
+	case svc.ServiceType == snmpServiceType:
 		return s.processSNMPMetrics(pollerID, details, now)
-	case svc.ServiceType == "grpc" && svc.ServiceName == "rperf-checker":
+	case svc.ServiceType == grpcServiceType && svc.ServiceName == rperfServiceType:
 		return s.processRperfMetrics(pollerID, details, now)
-	case svc.ServiceType == "grpc" && svc.ServiceName == "sysman":
+	case svc.ServiceType == grpcServiceType && svc.ServiceName == sysmonServiceType:
 		return s.processSysmonMetrics(pollerID, details, now)
-	case svc.ServiceType == "icmp":
+	case svc.ServiceType == icmpServiceType && svc.ServiceName == rperfServiceType:
 		return s.processICMPMetrics(pollerID, svc, details, now)
 	}
+
 	return nil
 }
 
@@ -607,6 +617,7 @@ func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, 
 	log.Printf("Processing sysmon m for poller %s", pollerID)
 
 	var sysmonData models.SysmonMetricData
+
 	if err := json.Unmarshal(details, &sysmonData); err != nil {
 		return fmt.Errorf("failed to parse sysmon data: %w", err)
 	}
@@ -628,15 +639,15 @@ func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, 
 	for i, disk := range sysmonData.Disks {
 		m.Disks[i] = models.DiskMetric{
 			MountPoint: disk.MountPoint,
-			UsedBytes:  int64(disk.UsedBytes),
-			TotalBytes: int64(disk.TotalBytes),
+			UsedBytes:  disk.UsedBytes,
+			TotalBytes: disk.TotalBytes,
 			Timestamp:  timestamp,
 		}
 	}
 
 	m.Memory = models.MemoryMetric{
-		UsedBytes:  int64(sysmonData.Memory.UsedBytes),
-		TotalBytes: int64(sysmonData.Memory.TotalBytes),
+		UsedBytes:  sysmonData.Memory.UsedBytes,
+		TotalBytes: sysmonData.Memory.TotalBytes,
 		Timestamp:  timestamp,
 	}
 
@@ -651,6 +662,7 @@ func (s *Server) processRperfMetrics(pollerID string, details json.RawMessage, t
 	log.Printf("Processing rperf m for poller %s", pollerID)
 
 	var rperfData models.RperfMetricData
+
 	if err := json.Unmarshal(details, &rperfData); err != nil {
 		return fmt.Errorf("failed to parse rperf data: %w", err)
 	}
@@ -694,6 +706,7 @@ func (s *Server) processICMPMetrics(pollerID string, svc *proto.ServiceStatus, d
 
 	if err := json.Unmarshal(details, &pingResult); err != nil {
 		log.Printf("Failed to parse ICMP response for service %s: %v", svc.ServiceName, err)
+
 		return fmt.Errorf("failed to parse ICMP data: %w", err)
 	}
 
@@ -704,11 +717,13 @@ func (s *Server) processICMPMetrics(pollerID string, svc *proto.ServiceStatus, d
 		svc.ServiceName,
 	); err != nil {
 		log.Printf("Failed to add ICMP metric for %s: %v", svc.ServiceName, err)
+
 		return fmt.Errorf("failed to store ICMP metric: %w", err)
 	}
 
 	log.Printf("Stored ICMP metric for %s: response_time=%.2fms",
 		svc.ServiceName, float64(pingResult.ResponseTime)/float64(time.Millisecond))
+
 	return nil
 }
 
