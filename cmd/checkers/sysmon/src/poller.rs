@@ -14,69 +14,193 @@
  * limitations under the License.
  */
 
-use anyhow::Result;
-use log::{debug, info};
-use tokio::time::{Duration, Instant};
-use crate::config::TargetConfig;
+use anyhow::{Context, Result};
+use chrono::Utc;
+use log::{debug, error};
+use serde::Serialize;
+use sysinfo::{System, Disks};
 
-#[derive(Debug)] // Add this
-pub struct TargetPoller {
-    config: TargetConfig,
-    runner: RPerfRunner,
-    pub(crate) last_result: Option<RPerfResult>,
-    default_poll_interval: u64,
-    next_run: Instant,
-    running: bool,
+#[cfg(feature = "zfs")]
+use libzetta::zpool::{ZpoolOpen3, Zpool};
+#[cfg(feature = "zfs")]
+use libzetta::zfs::{ZfsOpen3, DatasetKind};
+use libzetta::zpool::ZpoolEngine;
+
+#[derive(Debug, Serialize)]
+pub struct CpuMetric {
+    pub core_id: i32,
+    pub usage_percent: f32,
 }
 
-impl TargetPoller {
-    pub fn new(config: TargetConfig, default_poll_interval: u64) -> Self {
-        let runner = RPerfRunner::from_target_config(&config);
+#[derive(Debug, Serialize)]
+pub struct DiskMetric {
+    pub mount_point: String,
+    pub used_bytes: u64,
+    pub total_bytes: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MemoryMetric {
+    pub used_bytes: u64,
+    pub total_bytes: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MetricSample {
+    pub timestamp: String,
+    pub host_id: String,
+    pub cpus: Vec<CpuMetric>,
+    pub disks: Vec<DiskMetric>,
+    pub memory: MemoryMetric,
+}
+
+#[derive(Debug)]
+pub struct MetricsCollector {
+    system: System,
+    host_id: String,
+    filesystems: Vec<String>,
+    #[cfg(feature = "zfs")]
+    zfs_pools: Vec<String>,
+    #[cfg(feature = "zfs")]
+    zfs_datasets: bool,
+}
+
+impl MetricsCollector {
+    pub fn new(host_id: String, filesystems: Vec<String>, zfs_pools: Vec<String>, zfs_datasets: bool) -> Self {
+        let system = System::new_all();
         Self {
-            config,
-            runner,
-            last_result: None,
-            default_poll_interval,
-            next_run: Instant::now(),
-            running: false,
+            system,
+            host_id,
+            filesystems,
+            #[cfg(feature = "zfs")]
+            zfs_pools,
+            #[cfg(feature = "zfs")]
+            zfs_datasets,
         }
     }
 
-    pub fn target_name(&self) -> &str {
-        &self.config.name
-    }
+    pub async fn collect(&mut self) -> Result<MetricSample> {
+        self.system.refresh_all();
+        let timestamp = Utc::now().to_rfc3339();
 
-    pub fn get_poll_interval(&self) -> Duration {
-        Duration::from_secs(self.config.poll_interval.max(self.default_poll_interval))
-    }
-
-    pub async fn run_single_test(&mut self) -> Result<RPerfResult> {
-        debug!("Running test for target: {}", self.config.name);
-        let result = self.runner.run_test().await?;
-        self.last_result = Some(result.clone());
-        self.next_run = Instant::now() + self.get_poll_interval();
-        Ok(result)
-    }
-
-    pub async fn start(&mut self) -> Result<()> {
-        if self.running {
-            return Ok(());
+        // CPU metrics
+        let mut cpus = Vec::new();
+        for (idx, cpu) in self.system.cpus().iter().enumerate() {
+            cpus.push(CpuMetric {
+                core_id: idx as i32,
+                usage_percent: cpu.cpu_usage(),
+            });
         }
-        self.running = true;
-        info!("Started poller for target: {}", self.config.name);
-        Ok(())
-    }
 
-    pub async fn stop(&mut self) -> Result<()> {
-        self.running = false;
-        info!("Stopped poller for target: {}", self.config.name);
-        Ok(())
-    }
+        // Memory metrics
+        let memory = MemoryMetric {
+            used_bytes: self.system.used_memory(),
+            total_bytes: self.system.total_memory(),
+        };
 
-    pub async fn poll(&mut self) -> Result<Option<RPerfResult>> {
-        if !self.running || Instant::now() < self.next_run {
-            return Ok(None);
+        // Disk metrics
+        let mut disks = Vec::new();
+        let disks_info = Disks::new_with_refreshed_list();
+        for disk in &disks_info {
+            if self.filesystems.is_empty() || self.filesystems.contains(&disk.mount_point().to_string_lossy().to_string()) {
+                disks.push(DiskMetric {
+                    mount_point: disk.mount_point().to_string_lossy().to_string(),
+                    used_bytes: disk.total_space() - disk.available_space(),
+                    total_bytes: disk.total_space(),
+                });
+            }
         }
-        self.run_single_test().await.map(Some)
+
+        // ZFS metrics
+        #[cfg(feature = "zfs")]
+        {
+            if !self.zfs_pools.is_empty() {
+                let zpool_engine = ZpoolOpen3::with_cmd("/sbin/zpool");
+                let zfs_engine = ZfsOpen3::new()?;
+
+                for pool_name in &self.zfs_pools {
+                    for attempt in 1..=3 {
+                        // Run blocking status call in a separate thread
+                        let pool_name_clone = pool_name.clone();
+                        let result = tokio::task::spawn_blocking(move || {
+                            zpool_engine.status(&pool_name_clone, libzetta::zpool::open3::StatusOptions::default())
+                        }).await??;
+
+                        match result {
+                            Ok(pool) => {
+                                let used = pool.used().unwrap_or(0) as u64;
+                                let total = pool.size().unwrap_or(0) as u64;
+                                disks.push(DiskMetric {
+                                    mount_point: format!("zfs:{}", pool_name),
+                                    used_bytes: used,
+                                    total_bytes: total,
+                                });
+
+                                if self.zfs_datasets {
+                                    match zfs_engine.list(pool_name).await {
+                                        Ok(dataset_pairs) => {
+                                            for (kind, path) in dataset_pairs {
+                                                if kind == DatasetKind::Filesystem {
+                                                    match zfs_engine.read_properties(&path).await {
+                                                        Ok(props) => {
+                                                            if let libzetta::zfs::Properties::Filesystem(fs_props) = props {
+                                                                let used = fs_props.used();
+                                                                let avail = (*fs_props.available()).max(0) as u64;
+                                                                disks.push(DiskMetric {
+                                                                    mount_point: format!("zfs:{}", path.to_string_lossy()),
+                                                                    used_bytes: used,
+                                                                    total_bytes: used + avail,
+                                                                });
+                                                            }
+                                                        }
+                                                        Err(e) => {
+                                                            error!("Failed to read properties for dataset {}: {}", path.to_string_lossy(), e);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            error!("Failed to list datasets for ZFS pool {}: {}", pool_name, e);
+                                        }
+                                    }
+                                }
+                                break;
+                            }
+                            Err(e) => {
+                                error!("Attempt {} failed for ZFS pool {}: {}", attempt, pool_name, e);
+                                if attempt < 3 {
+                                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                                } else {
+                                    error!("Giving up on ZFS pool {}", pool_name);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Sysinfo fallback for ZFS
+        #[cfg(not(feature = "zfs"))]
+        {
+            for disk in &disks_info {
+                if disk.file_system().to_string_lossy().contains("zfs") {
+                    disks.push(DiskMetric {
+                        mount_point: disk.mount_point().to_string_lossy().to_string(),
+                        used_bytes: disk.total_space() - disk.available_space(),
+                        total_bytes: disk.total_space(),
+                    });
+                }
+            }
+        }
+
+        Ok(MetricSample {
+            timestamp,
+            host_id: self.host_id.clone(),
+            cpus,
+            disks,
+            memory,
+        })
     }
 }
