@@ -35,3 +35,15 @@ type MetricCollector interface {
 	GetMetrics(nodeID string) []models.MetricPoint
 	CleanupStalePollers(staleDuration time.Duration)
 }
+
+type StructuredMetricCollector interface {
+	StoreSysmonMetrics(pollerID string, metrics *models.SysmonMetrics, timestamp time.Time) error
+	GetCPUMetrics(pollerID string, coreID int, start, end time.Time) ([]models.CPUMetric, error)
+	GetDiskMetrics(pollerID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error)
+	GetMemoryMetrics(pollerID string, start, end time.Time) ([]models.MemoryMetric, error)
+
+	// Rperf methods
+
+	StoreRperfMetrics(pollerID string, metrics *models.RperfMetrics, timestamp time.Time) error
+	GetRperfMetrics(pollerID string, target string, start, end time.Time) ([]models.RperfMetric, error)
+}

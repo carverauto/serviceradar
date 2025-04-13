@@ -44,6 +44,53 @@ const (
 
 	// SQL statements for database initialization.
 	createTablesSQL = `
+	-- CPU metrics
+	CREATE TABLE IF NOT EXISTS cpu_metrics (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		poller_id TEXT NOT NULL,
+		timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		core_id INTEGER NOT NULL,
+		usage_percent REAL NOT NULL,
+		FOREIGN KEY (poller_id) REFERENCES pollers(poller_id) ON DELETE CASCADE
+	);
+
+	-- Disk metrics
+	CREATE TABLE IF NOT EXISTS disk_metrics (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		poller_id TEXT NOT NULL,
+		timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		mount_point TEXT NOT NULL,
+		used_bytes INTEGER NOT NULL,
+		total_bytes INTEGER NOT NULL,
+		FOREIGN KEY (poller_id) REFERENCES pollers(poller_id) ON DELETE CASCADE
+	);
+
+	-- Memory metrics
+	CREATE TABLE IF NOT EXISTS memory_metrics (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		poller_id TEXT NOT NULL,
+		timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		used_bytes INTEGER NOT NULL,
+		total_bytes INTEGER NOT NULL,
+		FOREIGN KEY (poller_id) REFERENCES pollers(poller_id) ON DELETE CASCADE
+	);
+
+	-- Indexes for CPU metrics
+	CREATE INDEX IF NOT EXISTS idx_cpu_metrics_poller_time
+		ON cpu_metrics(poller_id, timestamp);
+	CREATE INDEX IF NOT EXISTS idx_cpu_metrics_core
+		ON cpu_metrics(core_id);
+
+	-- Indexes for disk metrics
+	CREATE INDEX IF NOT EXISTS idx_disk_metrics_poller_time
+		ON disk_metrics(poller_id, timestamp);
+	CREATE INDEX IF NOT EXISTS idx_disk_metrics_mount
+		ON disk_metrics(mount_point);
+
+	-- Indexes for memory metrics
+	CREATE INDEX IF NOT EXISTS idx_memory_metrics_poller_time
+		ON memory_metrics(poller_id, timestamp);
+
 	-- Poller information
 	CREATE TABLE IF NOT EXISTS pollers (
 		poller_id TEXT PRIMARY KEY,

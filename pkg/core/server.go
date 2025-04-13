@@ -56,18 +56,7 @@ const (
 
 func NewServer(_ context.Context, config *Config) (*Server, error) {
 	normalizedConfig := normalizeConfig(config)
-	metricsManager := metrics.NewManager(models.MetricsConfig{
-		Enabled:    normalizedConfig.Metrics.Enabled,
-		Retention:  normalizedConfig.Metrics.Retention,
-		MaxPollers: normalizedConfig.Metrics.MaxPollers,
-	})
-
-	dbPath := getDBPath(normalizedConfig.DBPath)
-	if err := ensureDataDirectory(dbPath); err != nil {
-		return nil, fmt.Errorf("failed to create data directory: %w", err)
-	}
-
-	database, err := db.New(dbPath)
+	database, err := db.New(getDBPath(normalizedConfig.DBPath))
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errDatabaseError, err)
 	}
@@ -76,6 +65,8 @@ func NewServer(_ context.Context, config *Config) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	metricsManager := metrics.NewManager(models.MetricsConfig(normalizedConfig.Metrics), database)
 
 	server := &Server{
 		db:             database,
@@ -274,11 +265,9 @@ func (s *Server) runMetricsCleanup(ctx context.Context) {
 			return
 		case <-ticker.C:
 			if s.metrics != nil {
-				if manager, ok := s.metrics.(*metrics.Manager); ok {
-					manager.CleanupStalePollers(oneWeek)
-				} else {
-					log.Printf("Error: s.metrics is not of type *metrics.Manager")
-				}
+				s.metrics.CleanupStalePollers(oneWeek)
+			} else {
+				log.Printf("Error: metrics manager is nil")
 			}
 		}
 	}
@@ -600,76 +589,126 @@ func (*Server) parseServiceDetails(svc *proto.ServiceStatus) (json.RawMessage, e
 	return details, nil
 }
 
-func (s *Server) processSpecializedMetrics(
-	pollerID string, svc *proto.ServiceStatus, details json.RawMessage, now time.Time) error {
-	if svc.ServiceType == "snmp" {
+func (s *Server) processSpecializedMetrics(pollerID string, svc *proto.ServiceStatus, details json.RawMessage, now time.Time) error {
+	switch {
+	case svc.ServiceType == "snmp":
 		return s.processSNMPMetrics(pollerID, details, now)
+	case svc.ServiceType == "grpc" && svc.ServiceName == "rperf-checker":
+		return s.processRperfMetrics(pollerID, details, now)
+	case svc.ServiceType == "grpc" && svc.ServiceName == "sysman":
+		return s.processSysmonMetrics(pollerID, details, now)
+	case svc.ServiceType == "icmp":
+		return s.processICMPMetrics(pollerID, svc, details, now)
+	}
+	return nil
+}
+
+func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, timestamp time.Time) error {
+	log.Printf("Processing sysmon m for poller %s", pollerID)
+
+	var sysmonData models.SysmonMetricData
+	if err := json.Unmarshal(details, &sysmonData); err != nil {
+		return fmt.Errorf("failed to parse sysmon data: %w", err)
 	}
 
-	if svc.ServiceType == "grpc" && svc.ServiceName == "rperf-checker" {
-		var rperfData struct {
-			Results []struct {
-				Target  string  `json:"target"`
-				Success bool    `json:"success"`
-				Error   *string `json:"error"`
-				Summary struct {
-					BitsPerSecond   float64 `json:"bits_per_second"`
-					BytesReceived   int64   `json:"bytes_received"`
-					BytesSent       int64   `json:"bytes_sent"`
-					Duration        float64 `json:"duration"`
-					JitterMs        float64 `json:"jitter_ms"`
-					LossPercent     float64 `json:"loss_percent"`
-					PacketsLost     int64   `json:"packets_lost"`
-					PacketsReceived int64   `json:"packets_received"`
-					PacketsSent     int64   `json:"packets_sent"`
-				} `json:"summary"`
-			} `json:"results"`
-			Timestamp string `json:"timestamp"`
-		}
-
-		if err := json.Unmarshal(details, &rperfData); err != nil {
-			log.Printf("Failed to parse rperf data for poller %s: %v", pollerID, err)
-
-			return fmt.Errorf("failed to parse rperf data: %w", err)
-		}
-
-		for _, result := range rperfData.Results {
-			metricName := fmt.Sprintf("rperf_%s", strings.ToLower(strings.ReplaceAll(result.Target, " ", "_")))
-			metadata := map[string]interface{}{
-				"target":           result.Target,
-				"success":          result.Success,
-				"error":            result.Error,
-				"bits_per_second":  result.Summary.BitsPerSecond,
-				"bytes_received":   result.Summary.BytesReceived,
-				"bytes_sent":       result.Summary.BytesSent,
-				"duration":         result.Summary.Duration,
-				"jitter_ms":        result.Summary.JitterMs,
-				"loss_percent":     result.Summary.LossPercent,
-				"packets_lost":     result.Summary.PacketsLost,
-				"packets_received": result.Summary.PacketsReceived,
-				"packets_sent":     result.Summary.PacketsSent,
-			}
-
-			metric := &db.TimeseriesMetric{
-				Name:      metricName,
-				Value:     fmt.Sprintf("%f", result.Summary.BitsPerSecond),
-				Type:      "rperf",
-				Timestamp: now,
-				Metadata:  metadata,
-			}
-
-			if err := s.rperfManager.StoreRperfMetric(pollerID, metric); err != nil {
-				log.Printf("Error storing rperf metric %s for poller %s: %v", metricName, pollerID, err)
-
-				return fmt.Errorf("failed to store rperf metric: %w", err)
-			}
-
-			log.Printf("Stored rperf metric %s for poller %s: bits_per_second=%.2f", metricName, pollerID, result.Summary.BitsPerSecond)
-		}
-
-		return nil
+	m := &models.SysmonMetrics{
+		CPUs:   make([]models.CPUMetric, len(sysmonData.CPUs)),
+		Disks:  make([]models.DiskMetric, len(sysmonData.Disks)),
+		Memory: models.MemoryMetric{},
 	}
 
+	for i, cpu := range sysmonData.CPUs {
+		m.CPUs[i] = models.CPUMetric{
+			CoreID:       int(cpu.CoreID),
+			UsagePercent: float64(cpu.UsagePercent),
+			Timestamp:    timestamp,
+		}
+	}
+
+	for i, disk := range sysmonData.Disks {
+		m.Disks[i] = models.DiskMetric{
+			MountPoint: disk.MountPoint,
+			UsedBytes:  int64(disk.UsedBytes),
+			TotalBytes: int64(disk.TotalBytes),
+			Timestamp:  timestamp,
+		}
+	}
+
+	m.Memory = models.MemoryMetric{
+		UsedBytes:  int64(sysmonData.Memory.UsedBytes),
+		TotalBytes: int64(sysmonData.Memory.TotalBytes),
+		Timestamp:  timestamp,
+	}
+
+	if err := s.metrics.StoreSysmonMetrics(pollerID, m, timestamp); err != nil {
+		return fmt.Errorf("failed to store sysmon m: %w", err)
+	}
+
+	return nil
+}
+
+func (s *Server) processRperfMetrics(pollerID string, details json.RawMessage, timestamp time.Time) error {
+	log.Printf("Processing rperf m for poller %s", pollerID)
+
+	var rperfData models.RperfMetricData
+	if err := json.Unmarshal(details, &rperfData); err != nil {
+		return fmt.Errorf("failed to parse rperf data: %w", err)
+	}
+
+	m := &models.RperfMetrics{
+		Results: make([]models.RperfMetric, len(rperfData.Results)),
+	}
+
+	for i, result := range rperfData.Results {
+		m.Results[i] = models.RperfMetric{
+			Target:          result.Target,
+			Success:         result.Success,
+			Error:           result.Error,
+			BitsPerSecond:   result.Summary.BitsPerSecond,
+			BytesReceived:   result.Summary.BytesReceived,
+			BytesSent:       result.Summary.BytesSent,
+			Duration:        result.Summary.Duration,
+			JitterMs:        result.Summary.JitterMs,
+			LossPercent:     result.Summary.LossPercent,
+			PacketsLost:     result.Summary.PacketsLost,
+			PacketsReceived: result.Summary.PacketsReceived,
+			PacketsSent:     result.Summary.PacketsSent,
+			Timestamp:       timestamp,
+		}
+	}
+
+	if err := s.metrics.StoreRperfMetrics(pollerID, m, timestamp); err != nil {
+		return fmt.Errorf("failed to store rperf m: %w", err)
+	}
+
+	return nil
+}
+
+func (s *Server) processICMPMetrics(pollerID string, svc *proto.ServiceStatus, details json.RawMessage, now time.Time) error {
+	var pingResult struct {
+		Host         string  `json:"host"`
+		ResponseTime int64   `json:"response_time"`
+		PacketLoss   float64 `json:"packet_loss"`
+		Available    bool    `json:"available"`
+	}
+
+	if err := json.Unmarshal(details, &pingResult); err != nil {
+		log.Printf("Failed to parse ICMP response for service %s: %v", svc.ServiceName, err)
+		return fmt.Errorf("failed to parse ICMP data: %w", err)
+	}
+
+	if err := s.metrics.AddMetric(
+		pollerID,
+		now,
+		pingResult.ResponseTime,
+		svc.ServiceName,
+	); err != nil {
+		log.Printf("Failed to add ICMP metric for %s: %v", svc.ServiceName, err)
+		return fmt.Errorf("failed to store ICMP metric: %w", err)
+	}
+
+	log.Printf("Stored ICMP metric for %s: response_time=%.2fms",
+		svc.ServiceName, float64(pingResult.ResponseTime)/float64(time.Millisecond))
 	return nil
 }
 
