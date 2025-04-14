@@ -30,7 +30,6 @@ mkdir -p /etc/serviceradar
 chown -R serviceradar:serviceradar /etc/serviceradar /var/lib/serviceradar
 chmod 755 /usr/local/bin/serviceradar-core
 chmod 644 /etc/serviceradar/core.json
-chmod 644 /etc/serviceradar/checkers/sweep/sweep.json
 [ -f /etc/serviceradar/api.env ] && chmod 600 /etc/serviceradar/api.env
 
 # Enable and start service
