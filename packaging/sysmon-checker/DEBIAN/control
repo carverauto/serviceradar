@@ -1,0 +1,10 @@
+Package: serviceradar-sysmon-checker
+Version: 1.0.32
+Section: utils
+Priority: optional
+Architecture: amd64
+Depends: systemd
+Maintainer: Michael Freeman <mfreeman@carverauto.dev>
+Description: ServiceRadar SysMon Service
+ SysMon is a service that monitors system resources and performance.
+Config: /etc/serviceradar/checkers/sysmon.json

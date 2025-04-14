@@ -1,4 +1,4 @@
-FROM custom-rust-zfs:1.82 AS proto-builder
+FROM ghcr.io/carverauto/custom-rust-zfs:latest AS proto-builder
 
 WORKDIR /usr/src/serviceradar-sysmon-checker
 
@@ -15,7 +15,7 @@ RUN mkdir -p src && \
     cargo check --release --features zfs
 
 # Second stage that uses the generated files from the first stage
-FROM custom-rust-zfs:1.82 AS builder
+FROM ghcr.io/carverauto/custom-rust-zfs:latest AS builder
 
 WORKDIR /usr/src/serviceradar-sysmon-checker
 
