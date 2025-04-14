@@ -32,3 +32,46 @@ type MetricsConfig struct {
 }
 
 const MetricPointSize = 32 // 8 bytes timestamp + 8 bytes response + 16 bytes name
+
+// SysmonMetrics represents sysmon-specific metrics.
+type SysmonMetrics struct {
+	CPUs   []CPUMetric  `json:"cpus"`
+	Disks  []DiskMetric `json:"disks"`
+	Memory MemoryMetric `json:"memory"`
+}
+
+type CPUMetric struct {
+	CoreID       int       `json:"core_id"`
+	UsagePercent float64   `json:"usage_percent"`
+	Timestamp    time.Time `json:"timestamp"`
+}
+
+type DiskMetric struct {
+	MountPoint string    `json:"mount_point"`
+	UsedBytes  uint64    `json:"used_bytes"`
+	TotalBytes uint64    `json:"total_bytes"`
+	Timestamp  time.Time `json:"timestamp"`
+}
+
+type MemoryMetric struct {
+	UsedBytes  uint64    `json:"used_bytes"`
+	TotalBytes uint64    `json:"total_bytes"`
+	Timestamp  time.Time `json:"timestamp"`
+}
+type SysmonMetricData struct {
+	Timestamp string `json:"timestamp"`
+	HostID    string `json:"host_id"`
+	CPUs      []struct {
+		CoreID       int32   `json:"core_id"`
+		UsagePercent float32 `json:"usage_percent"`
+	} `json:"cpus"`
+	Disks []struct {
+		MountPoint string `json:"mount_point"`
+		UsedBytes  uint64 `json:"used_bytes"`
+		TotalBytes uint64 `json:"total_bytes"`
+	} `json:"disks"`
+	Memory struct {
+		UsedBytes  uint64 `json:"used_bytes"`
+		TotalBytes uint64 `json:"total_bytes"`
+	} `json:"memory"`
+}

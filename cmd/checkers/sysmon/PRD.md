@@ -8,7 +8,7 @@
 ## 1. Introduction
 
 ### 1.1 Purpose
-This PRD outlines the requirements for a new ServiceRadar plugin, `serviceradar-sysman-checker`, to monitor system resources (filesystem usage, CPU, and memory) on Linux hosts, with a focus on ZFS pools for Proxmox users. The plugin integrates with ServiceRadar's gRPC-based architecture, collecting metrics for storage in SQLite and visualization in the web UI with 6, 12, and 24-hour charting windows. It addresses scalability for up to 100,000 collectors while optimizing storage and resource usage.
+This PRD outlines the requirements for a new ServiceRadar plugin, `serviceradar-sysmon-checker`, to monitor system resources (filesystem usage, CPU, and memory) on Linux hosts, with a focus on ZFS pools for Proxmox users. The plugin integrates with ServiceRadar's gRPC-based architecture, collecting metrics for storage in SQLite and visualization in the web UI with 6, 12, and 24-hour charting windows. It addresses scalability for up to 100,000 collectors while optimizing storage and resource usage.
 
 ### 1.2 Scope
 The plugin will:
@@ -85,10 +85,10 @@ ServiceRadar is a distributed monitoring system with agents, pollers, a core ser
       Memory memory = 5;
   }
   ```
-- Support `StatusRequest` with `service_name` (e.g., `sysman`) and `details` (e.g., `localhost:50060`).
+- Support `StatusRequest` with `service_name` (e.g., `sysmon`) and `details` (e.g., `localhost:50060`).
 
 #### 3.1.3 Configuration
-- Load settings from `/etc/serviceradar/checkers/sysman.json`:
+- Load settings from `/etc/serviceradar/checkers/sysmon.json`:
   ```json
   {
       "listen_addr": "0.0.0.0:50060",
@@ -127,7 +127,7 @@ ServiceRadar is a distributed monitoring system with agents, pollers, a core ser
               "checks": [
                   {
                       "service_type": "grpc",
-                      "service_name": "sysman",
+                      "service_name": "sysmon",
                       "details": "localhost:50060"
                   }
               ]
@@ -261,12 +261,12 @@ ServiceRadar is a distributed monitoring system with agents, pollers, a core ser
   - `libzfs_core`: C library required by `libzetta` (typically pre-installed on ZFS-enabled systems).
 
 #### 3.3.2 Protobuf Definitions
-- Extend `monitoring.proto` (or create `sysman.proto`):
+- Extend `monitoring.proto` (or create `sysmon.proto`):
   ```protobuf
   syntax = "proto3";
-  package sysman;
+  package sysmon;
   import "monitoring.proto";
-  service SysManService {
+  service SysMonService {
       rpc GetStatus(monitoring.StatusRequest) returns (monitoring.StatusResponse) {}
   }
   ```
@@ -274,10 +274,10 @@ ServiceRadar is a distributed monitoring system with agents, pollers, a core ser
 
 #### 3.3.3 Architecture
 - **Similar to existing checkers**:
-  - gRPC server (`SysManService`).
+  - gRPC server (`SysMonService`).
   - JSON config parsing (`config.rs`) with validation.
   - Async poller (`poller.rs`) to collect metrics on demand.
-  - Systemd service (`serviceradar-sysman-checker.service`).
+  - Systemd service (`serviceradar-sysmon-checker.service`).
 - **Differences**:
   - No periodic tests (metrics collected on poller request).
   - Simpler data model (percentages, bytes vs. test results).
@@ -285,7 +285,7 @@ ServiceRadar is a distributed monitoring system with agents, pollers, a core ser
 
 #### 3.3.4 Directory Structure
 ```
-serviceradar-sysman-checker/
+serviceradar-sysmon-checker/
 ├── Cargo.toml
 ├── build.rs
 ├── src/
@@ -296,7 +296,7 @@ serviceradar-sysman-checker/
 │   ├── lib.rs
 │   ├── proto/
 │   │   ├── monitoring.proto
-│   │   ├── sysman.proto
+│   │   ├── sysmon.proto
 ├── README.md
 ```
 
@@ -397,16 +397,16 @@ serviceradar-sysman-checker/
 - **README.md**:
   - Installation (`deb`/`rpm`), configuration, prerequisites.
   - System dependencies for ZFS monitoring (`libzfs_core` installation instructions).
-  - Example `/etc/serviceradar/checkers/sysman.json`.
+  - Example `/etc/serviceradar/checkers/sysmon.json`.
   - Firewall rules (e.g., `ufw allow from <agent-ip> to any port 50060`).
   - Permission requirements for ZFS monitoring.
 - **ServiceRadar Docs**:
   - Add to "Architecture" and "Installation" pages.
-  - Guide: "Monitoring ZFS and System Resources with sysman-checker".
+  - Guide: "Monitoring ZFS and System Resources with sysmon-checker".
   - Detailed ZFS monitoring section for Proxmox users.
   - Troubleshooting guide for common ZFS library access issues.
 - **API Reference**:
-  - Document `SysManService` and JSON metric format.
+  - Document `SysMonService` and JSON metric format.
   - Document ZFS pool integration with `libzetta`.
 
 ## 11. Appendix
@@ -434,7 +434,7 @@ graph TD
         Core[Core Service<br>:50052]
         Poller[Poller<br>:50053]
         Agent[Agent<br>:50051]
-        Checker[sysman-checker<br>:50060]
+        Checker[sysmon-checker<br>:50060]
         WebUI -->|HTTP| Core
         Core -->|gRPC| Poller
         Poller -->|gRPC| Agent

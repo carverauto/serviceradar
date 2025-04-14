@@ -46,8 +46,8 @@ COPY --from=builder /usr/src/serviceradar-sysmon-checker/target/release/servicer
 
 # Configuration and user setup
 WORKDIR /etc/serviceradar/checkers
-# Create default sysman.json
-RUN echo '{"listen_addr":"0.0.0.0:50060","zfs":{"enabled":true,"pools":["rpool"],"include_datasets":true,"use_libzetta":true},"filesystems":[]}' > sysman.json
+# Create default sysmon.json
+RUN echo '{"listen_addr":"0.0.0.0:50060","zfs":{"enabled":true,"pools":["rpool"],"include_datasets":true,"use_libzetta":true},"filesystems":[]}' > sysmon.json
 
 RUN groupadd -r serviceradar && useradd -r -g serviceradar serviceradar && \
     chown -R serviceradar:serviceradar /etc/serviceradar/checkers
@@ -55,7 +55,7 @@ RUN groupadd -r serviceradar && useradd -r -g serviceradar serviceradar && \
 USER serviceradar
 EXPOSE 50060
 
-CMD ["/usr/local/bin/serviceradar-sysmon-checker", "--config", "/etc/serviceradar/checkers/sysman.json"]
+CMD ["/usr/local/bin/serviceradar-sysmon-checker", "--config", "/etc/serviceradar/checkers/sysmon.json"]
 
 # Output stage for collecting binaries
 FROM scratch AS output
