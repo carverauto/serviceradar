@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+// Package api pkg/core/api/interfaces.go
 package api
 
 //go:generate mockgen -destination=mock_api_server.go -package=api github.com/carverauto/serviceradar/pkg/core/api Service

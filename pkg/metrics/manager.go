@@ -23,6 +23,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
@@ -34,9 +35,10 @@ type Manager struct {
 	evictList   *list.List   // LRU tracking
 	evictMap    sync.Map     // map[string]*list.Element for O(1) lookups
 	mu          sync.RWMutex // Protects eviction logic
+	db          db.Service
 }
 
-func NewManager(cfg models.MetricsConfig) MetricCollector {
+func NewManager(cfg models.MetricsConfig, db db.Service) *Manager {
 	if cfg.MaxPollers == 0 {
 		cfg.MaxPollers = 10000 // Reasonable default
 	}
@@ -44,6 +46,7 @@ func NewManager(cfg models.MetricsConfig) MetricCollector {
 	return &Manager{
 		config:    cfg,
 		evictList: list.New(),
+		db:        db,
 	}
 }
 

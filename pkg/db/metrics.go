@@ -22,6 +22,8 @@ import (
 	"fmt"
 	"log"
 	"time"
+
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 // StoreMetric stores a timeseries metric in the database.
@@ -259,6 +261,132 @@ func (db *DB) StoreRperfMetrics(pollerID, _, message string, timestamp time.Time
 	}
 
 	log.Printf("Finished processing rperf metrics for poller %s. Stored %d metrics.", pollerID, storedCount)
+
+	return nil
+}
+
+func (db *DB) GetCPUMetrics(pollerID string, coreID int, start, end time.Time) ([]models.CPUMetric, error) {
+	rows, err := db.Query(`
+        SELECT timestamp, core_id, usage_percent
+        FROM cpu_metrics
+        WHERE poller_id = ? AND core_id = ? AND timestamp BETWEEN ? AND ?
+        ORDER BY timestamp`,
+		pollerID, coreID, start, end)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query CPU metrics: %w", err)
+	}
+	defer CloseRows(rows)
+
+	var metrics []models.CPUMetric
+
+	for rows.Next() {
+		var m models.CPUMetric
+
+		if err := rows.Scan(&m.Timestamp, &m.CoreID, &m.UsagePercent); err != nil {
+			return nil, fmt.Errorf("failed to scan CPU metric: %w", err)
+		}
+
+		metrics = append(metrics, m)
+	}
+
+	return metrics, nil
+}
+
+func (db *DB) GetDiskMetrics(pollerID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error) {
+	rows, err := db.Query(`
+        SELECT timestamp, mount_point, used_bytes, total_bytes
+        FROM disk_metrics
+        WHERE poller_id = ? AND mount_point = ? AND timestamp BETWEEN ? AND ?
+        ORDER BY timestamp`,
+		pollerID, mountPoint, start, end)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query disk metrics: %w", err)
+	}
+
+	defer CloseRows(rows)
+
+	var metrics []models.DiskMetric
+
+	for rows.Next() {
+		var m models.DiskMetric
+
+		if err := rows.Scan(&m.Timestamp, &m.MountPoint, &m.UsedBytes, &m.TotalBytes); err != nil {
+			return nil, fmt.Errorf("failed to scan disk metric: %w", err)
+		}
+
+		metrics = append(metrics, m)
+	}
+
+	return metrics, nil
+}
+
+func (db *DB) GetMemoryMetrics(pollerID string, start, end time.Time) ([]models.MemoryMetric, error) {
+	rows, err := db.Query(`
+        SELECT timestamp, used_bytes, total_bytes
+        FROM memory_metrics
+        WHERE poller_id = ? AND timestamp BETWEEN ? AND ?
+        ORDER BY timestamp`,
+		pollerID, start, end)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query memory metrics: %w", err)
+	}
+	defer CloseRows(rows)
+
+	var metrics []models.MemoryMetric
+
+	for rows.Next() {
+		var m models.MemoryMetric
+
+		if err := rows.Scan(&m.Timestamp, &m.UsedBytes, &m.TotalBytes); err != nil {
+			return nil, fmt.Errorf("failed to scan memory metric: %w", err)
+		}
+
+		metrics = append(metrics, m)
+	}
+
+	return metrics, nil
+}
+
+func (db *DB) StoreSysmonMetrics(pollerID string, metrics *models.SysmonMetrics, timestamp time.Time) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer rollbackOnError(tx, err)
+
+	for _, cpu := range metrics.CPUs {
+		_, err = tx.Exec(`
+            INSERT INTO cpu_metrics (poller_id, timestamp, core_id, usage_percent)
+            VALUES (?, ?, ?, ?)`,
+			pollerID, timestamp, cpu.CoreID, cpu.UsagePercent)
+		if err != nil {
+			return fmt.Errorf("failed to store CPU metric for core %d: %w", cpu.CoreID, err)
+		}
+	}
+
+	for _, disk := range metrics.Disks {
+		_, err = tx.Exec(`
+            INSERT INTO disk_metrics (poller_id, timestamp, mount_point, used_bytes, total_bytes)
+            VALUES (?, ?, ?, ?, ?)`,
+			pollerID, timestamp, disk.MountPoint, disk.UsedBytes, disk.TotalBytes)
+		if err != nil {
+			return fmt.Errorf("failed to store disk metric for %s: %w", disk.MountPoint, err)
+		}
+	}
+
+	_, err = tx.Exec(`
+        INSERT INTO memory_metrics (poller_id, timestamp, used_bytes, total_bytes)
+        VALUES (?, ?, ?, ?)`,
+		pollerID, timestamp, metrics.Memory.UsedBytes, metrics.Memory.TotalBytes)
+	if err != nil {
+		return fmt.Errorf("failed to store memory metric: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	log.Printf("Stored sysmon metrics for poller %s: %d CPUs, %d disks, 1 memory", pollerID, len(metrics.CPUs), len(metrics.Disks))
 
 	return nil
 }

@@ -8,7 +8,7 @@ It can be used to monitor CPU usage, memory usage, disk I/O, network activity, a
 
 - Install `libzfs-dev`: `apt install libzfs-dev`.
 - Grant permissions: `zfs allow serviceradar dataset,hold,mount rpool`.
-- Example `sysman.json`:
+- Example `sysmon.json`:
   ```json
   {
       "zfs": {

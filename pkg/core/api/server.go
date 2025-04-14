@@ -108,6 +108,11 @@ func (s *APIServer) setupRoutes() {
 	protected.HandleFunc("/pollers/{id}/services", s.getPollerServices).Methods("GET")
 	protected.HandleFunc("/pollers/{id}/services/{service}", s.getServiceDetails).Methods("GET")
 	protected.HandleFunc("/pollers/{id}/snmp", s.getSNMPData).Methods("GET")
+
+	// Sysmon metrics
+	protected.HandleFunc("/pollers/{id}/sysmon/cpu", s.getSysmonCPUMetrics).Methods("GET")
+	protected.HandleFunc("/pollers/{id}/sysmon/disk", s.getSysmonDiskMetrics).Methods("GET")
+	protected.HandleFunc("/pollers/{id}/sysmon/memory", s.getSysmonMemoryMetrics).Methods("GET")
 }
 
 // getSNMPData retrieves SNMP data for a specific poller.
