@@ -9,12 +9,12 @@ require (
 	github.com/gosnmp/gosnmp v1.39.0
 	github.com/markbates/goth v1.81.0
 	github.com/mattn/go-sqlite3 v1.14.27
-	github.com/nats-io/nats.go v1.41.0
+	github.com/nats-io/nats.go v1.41.1
 	github.com/spiffe/go-spiffe/v2 v2.5.0
 	github.com/stretchr/testify v1.10.0
-	go.uber.org/mock v0.5.0
+	go.uber.org/mock v0.5.1
 	golang.org/x/crypto v0.37.0
-	golang.org/x/net v0.38.0
+	golang.org/x/net v0.39.0
 	google.golang.org/grpc v1.71.1
 	google.golang.org/protobuf v1.36.6
 )
