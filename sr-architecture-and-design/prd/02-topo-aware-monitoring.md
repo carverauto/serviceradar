@@ -173,7 +173,7 @@ The Topology-Aware Monitoring feature will address these needs by introducing a 
 graph TD
     A[Network Devices] -->|SNMP/LLDP| B(Topology Discovery Service)
     A -->|NetFlow| C(Flow Collector)
-    B -->|Topology Data| D(KV Store)
+    B -->|Topology Data| D(NATS JetStream)
     C -->|Flow Metrics| D
     D -->|Topology & Metrics| E(Topology Monitoring Checker)
     E -->|Results| F(Core Service)
