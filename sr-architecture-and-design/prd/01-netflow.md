@@ -71,10 +71,15 @@ The NetFlow integration extends ServiceRadar's agent/poller model, using NATS Je
 ```mermaid
 graph TD
     subgraph "Edge Host"
-        Agent[Agent<br>:50051]
         NetFlowCollector[NetFlow Collector<br>Rust-based]
-        Agent -->|gRPC| NetFlowCollector
-        NetFlowCollector -->|NATS JetStream| NATS[NATS JetStream<br>:4222]
+        Agent[Agent<br>:50051]
+        NetFlowCollector -->|Provides data| Agent
+    end
+
+    subgraph "Service Communication"
+        Poller[Poller<br>:50053]
+        Poller -->|Queries| Agent
+        Poller -->|Publishes to| NATS[NATS JetStream<br>:4222]
     end
 
     subgraph "Central Processing"
@@ -88,10 +93,9 @@ graph TD
 
     subgraph "ServiceRadar Core"
         Core[Core Service<br>:8090/:50052]
-        Poller[Poller<br>:50053]
         Core -->|Queries| ClickHouse
         Core -->|Queries| DuckDB
-        Poller -->|gRPC| Agent
+        Core <-->|gRPC| Poller
         WebUI[Web UI<br>:80] -->|API| Core
     end
 ```
@@ -102,17 +106,33 @@ graph TD
 - Description: A Rust-based binary running on agent hosts, collecting NetFlow packets (e.g., UDP port 2055).
 - Function:
   - Parses NetFlow v5/v9 packets into structured records.
-  - Converts records to Protobuf messages for efficient transport.
-  - Publishes messages to NATS JetStream (netflow.raw subject).
-- Configuration: /etc/serviceradar/checkers/netflow.json (e.g., listen port, NATS URL).
+  - Provides the data to the Agent via a defined interface.
+  - Data is maintained in-memory with configurable retention.
+- Configuration: /etc/serviceradar/checkers/netflow.json (e.g., listen port, retention).
 - Constraints:
   - No local storage (Parquet/ClickHouse) to minimize resource usage.
   - Lightweight processing (parsing only, no aggregation).
 
-#### 3.2.2 NATS JetStream
-- Description: Existing ServiceRadar component (serviceradar-nats) for message transport.
+#### 3.2.2 Agent
+- Description: Existing ServiceRadar component that runs on edge hosts.
 - Function:
-  - Receives Protobuf-encoded NetFlow records from agents (netflow.raw stream).
+  - Acts as an intermediary between the NetFlow Collector and Poller.
+  - Exposes NetFlow data via its gRPC interface when queried.
+  - No direct interaction with NATS JetStream (Poller handles this).
+- Configuration: Updated to include NetFlow checker in agent configuration.
+
+#### 3.2.3 Poller
+- Description: Existing ServiceRadar component that pulls data from agents.
+- Function:
+  - Periodically queries agents for NetFlow data.
+  - Batches and publishes NetFlow records to NATS JetStream.
+  - Ensures reliable transport from agents to central processing.
+- Configuration: Update poller.json to include NetFlow checks.
+
+#### 3.2.4 NATS JetStream
+- Description: Message broker component for reliable data transport.
+- Function:
+  - Receives NetFlow records from Pollers (netflow.raw stream).
   - Supports queue groups for load-balanced consumption.
 - Configured in /etc/nats/nats-server.conf (localhost:4222, mTLS).
 - Stream Configuration:
@@ -121,7 +141,7 @@ graph TD
   - Retention: WorkQueuePolicy (delete after processing).
   - Max size: 1GB (temporary buffer).
 
-#### 3.2.3 Parquet Writer (Central)
+#### 3.2.5 Parquet Writer (Central)
 - Description: A consumer service subscribed to NATS JetStream.
 - Function:
   - Pulls NetFlow records from netflow.raw.
@@ -131,7 +151,7 @@ graph TD
 - Implementation: Rust service using parquet-rs and iceberg-rust.
 - Configuration: /etc/serviceradar/netflow-parquet.json (e.g., batch size, output path).
 
-#### 3.2.4 ClickHouse Writer (Central)
+#### 3.2.6 ClickHouse Writer (Central)
 - Description: A separate consumer service for real-time storage.
 - Function:
   - Pulls records from netflow.raw.
@@ -155,7 +175,7 @@ PARTITION BY toDate(timestamp)
 TTL timestamp + INTERVAL 2 DAY;
 ```
 
-#### 3.2.5 Apache Iceberg
+#### 3.2.7 Apache Iceberg
 - Description: Table format managing Parquet files.
 - Function:
   - Organizes Parquet files into a netflow table.
@@ -176,7 +196,7 @@ TTL timestamp + INTERVAL 2 DAY;
 }
 ```
 
-#### 3.2.6 DuckDB
+#### 3.2.8 DuckDB
 - Description: Embedded query engine for historical data.
 - Function:
   - Queries Iceberg table (netflow) for historical analysis.
@@ -184,7 +204,7 @@ TTL timestamp + INTERVAL 2 DAY;
 - Implementation: Rust bindings (duckdb-rs) or Python (pyduckdb).
 - Configuration: None (in-memory, loads Iceberg metadata).
 
-#### 3.2.7 Core Service
+#### 3.2.9 Core Service
 - Description: Existing ServiceRadar component (serviceradar-core).
 - Function:
   - Handles API requests (/api/netflow).
@@ -202,32 +222,12 @@ TTL timestamp + INTERVAL 2 DAY;
 }
 ```
 
-#### 3.2.8 Web UI
+#### 3.2.10 Web UI
 - Description: Existing Next.js UI (serviceradar-web).
 - Function:
   - Displays real-time and historical NetFlow dashboards.
   - Sends requests to Core Service API.
 - Configuration: Update /etc/serviceradar/web.json to enable NetFlow routes.
-
-#### 3.2.9 Agent/Poller Integration
-- Agent:
-  - Runs NetFlow collector as a checker plugin (serviceradar-netflow-checker).
-  - Configured in /etc/serviceradar/checkers/netflow.json.
-  - Publishes to NATS instead of storing locally.
-- Poller:
-  - Queries Core Service for NetFlow metrics (e.g., traffic status).
-  - Configured in /etc/serviceradar/poller.json:
-```json
-{
-  "checks": [
-    {
-      "service_type": "netflow",
-      "service_name": "netflow_metrics",
-      "details": "core://localhost:50052/netflow"
-    }
-  ]
-}
-```
 
 ## 4. Integration with Agent/Poller Model
 
@@ -236,20 +236,20 @@ ServiceRadar's agent/poller model assumes lightweight agents on edge hosts, with
 
 ### 4.2 Solution
 - Edge Processing:
-  - Agents run a minimal NetFlow collector that parses packets and sends Protobuf messages to NATS JetStream.
-  - No local storage or heavy processing (e.g., Parquet/ClickHouse writes).
+  - NetFlow Collector parses packets and provides records to the Agent.
+  - Agent exposes this data via gRPC for the Poller to query.
+  - No local storage or heavy processing on edge hosts.
+- Poller Responsibilities:
+  - Queries Agents for NetFlow data on a scheduled basis.
+  - Batches data and publishes to NATS JetStream.
+  - Acts as the bridge between edge hosts and central processing.
 - Central Processing:
-  - Dedicated consumers (Parquet Writer, ClickHouse Writer) run on a central host (co-located with Core Service).
-  - NATS JetStream ensures reliable transport from agents to consumers.
-- Poller Role:
-  - Pollers query the Core Service for NetFlow metrics, treating NetFlow as a service check.
-  - Metrics are derived from ClickHouse (real-time) or DuckDB (historical).
-- NATS JetStream:
-  - Acts as a message broker, decoupling agents from storage.
-  - Queue groups allow multiple consumers to process data (e.g., one for Parquet, one for ClickHouse).
-  - Example subjects:
-    - netflow.raw: Raw NetFlow records.
-    - netflow.status: Collector health metrics.
+  - Dedicated consumers (Parquet Writer, ClickHouse Writer) run on a central host.
+  - NATS JetStream ensures reliable transport from pollers to consumers.
+- Security Advantages:
+  - Single connection from Poller to Agent (simplifies firewall rules).
+  - Consistent with existing ServiceRadar architecture.
+  - Centralized control of data collection via Poller configuration.
 
 ### 4.3 Protobuf Schema
 To standardize data transport, define a Protobuf message for NetFlow records:
@@ -265,15 +265,15 @@ message NetFlowRecord {
 }
 ```
 - Generated Code: Use prost or tonic in Rust to encode/decode messages.
-- Publishing: Collector sends NetFlowRecord to netflow.raw.
+- Publishing: Poller sends NetFlowRecord to the NATS JetStream netflow.raw subject.
 
 ## 5. Requirements
 
 ### 5.1 Functional Requirements
 - NetFlow Collection:
   - Collect NetFlow v5/v9 packets on agent hosts (UDP port 2055).
-  - Parse into NetFlowRecord Protobuf messages.
-  - Publish to NATS JetStream (netflow.raw).
+  - Parse into structured records accessible via Agent's gRPC interface.
+  - Poller queries and publishes to NATS JetStream (netflow.raw).
 - Real-Time Storage:
   - Write records to ClickHouse (2-day retention).
   - Support queries for top IPs, ports, and traffic volume.
@@ -289,7 +289,7 @@ message NetFlowRecord {
   - Historical reports with filtering and CSV export.
 - Agent/Poller:
   - NetFlow checker plugin for agents.
-  - Poller checks for traffic metrics via Core Service.
+  - Poller checks for NetFlow data and publishes to NATS.
 
 ### 5.2 Non-Functional Requirements
 - Performance:
@@ -302,8 +302,9 @@ message NetFlowRecord {
 - Reliability:
   - NATS JetStream ensures no message loss.
   - Parquet/Iceberg supports data recovery.
+  - Poller implements retry logic for agent connections.
 - Security:
-  - mTLS for NATS and Core Service communication.
+  - mTLS for agent-poller and NATS communications.
   - Restrict ClickHouse/DuckDB access to Core Service.
 - Storage:
   - ClickHouse: ~10GB/day for 2 days (20GB total).
@@ -311,17 +312,25 @@ message NetFlowRecord {
 
 ## 6. Implementation Plan
 
-### 6.1 Phase 1: NetFlow Collector and NATS Integration
+### 6.1 Phase 1: NetFlow Collector and Agent Integration
 - Tasks:
   - Develop serviceradar-netflow-checker in Rust.
   - Parse NetFlow packets using pnet or similar.
-  - Define NetFlowRecord Protobuf schema.
-  - Publish to NATS JetStream (netflow.raw).
+  - Implement interface for Agent integration.
   - Configure checker in /etc/serviceradar/checkers/netflow.json.
 - Duration: 2 weeks.
-- Deliverable: Agents send NetFlow data to NATS.
+- Deliverable: NetFlow data available via Agent's gRPC interface.
 
-### 6.2 Phase 2: ClickHouse and Real-Time Queries
+### 6.2 Phase 2: Poller Integration and NATS
+- Tasks:
+  - Update Poller to query NetFlow data from Agents.
+  - Configure NATS JetStream for NetFlow data.
+  - Implement batching and publishing logic in Poller.
+  - Test end-to-end data flow from Agent to NATS.
+- Duration: 2 weeks.
+- Deliverable: NetFlow data flowing through NATS JetStream.
+
+### 6.3 Phase 3: ClickHouse and Real-Time Queries
 - Tasks:
   - Install ClickHouse on central host.
   - Create netflow table with 2-day TTL.
@@ -331,7 +340,7 @@ message NetFlowRecord {
 - Duration: 2 weeks.
 - Deliverable: Real-time dashboard in Web UI.
 
-### 6.3 Phase 3: Parquet and Iceberg
+### 6.4 Phase 4: Parquet and Iceberg
 - Tasks:
   - Develop Parquet Writer consumer (parquet-rs).
   - Set up Iceberg REST catalog.
@@ -340,7 +349,7 @@ message NetFlowRecord {
 - Duration: 3 weeks.
 - Deliverable: Historical data stored in Parquet/Iceberg.
 
-### 6.4 Phase 4: DuckDB and Historical Queries
+### 6.5 Phase 5: DuckDB and Historical Queries
 - Tasks:
   - Integrate DuckDB with Core Service (duckdb-rs).
   - Add /api/netflow/historical endpoint.
@@ -349,15 +358,16 @@ message NetFlowRecord {
 - Duration: 2 weeks.
 - Deliverable: Historical analysis in Web UI.
 
-### 6.5 Phase 5: Poller Integration and Testing
+### 6.6 Phase 6: Testing and Optimization
 - Tasks:
-  - Add NetFlow check to poller.json.
-  - Test end-to-end flow (agent to UI).
-  - Optimize performance (e.g., batch sizes, query caching).
+  - End-to-end testing of complete flow.
+  - Performance testing and optimization.
+  - Security auditing.
+  - Documentation and deployment guides.
 - Duration: 1 week.
-- Deliverable: Fully integrated system.
+- Deliverable: Production-ready integrated system.
 
-Total Duration: ~10 weeks.
+Total Duration: ~12 weeks.
 
 ## 7. Technical Specifications
 
@@ -366,11 +376,12 @@ Total Duration: ~10 weeks.
 ```json
 {
   "listen_addr": ":2055",
-  "nats_url": "nats://localhost:4222",
+  "retention_time": "1h",
+  "max_records": 100000,
   "security": {
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
-    "server_name": "nats-serviceradar",
+    "server_name": "netflow-checker",
     "role": "checker",
     "tls": {
       "cert_file": "netflow.pem",
@@ -381,7 +392,30 @@ Total Duration: ~10 weeks.
 }
 ```
 
-### 7.2 ClickHouse Writer Configuration
+### 7.2 Poller Configuration for NetFlow
+/etc/serviceradar/poller.json:
+```json
+{
+  "checks": [
+    {
+      "service_type": "netflow",
+      "service_name": "netflow_metrics",
+      "details": "netflow://local"
+    }
+  ],
+  "nats_config": {
+    "url": "nats://localhost:4222",
+    "security": {
+      "mode": "mtls",
+      "cert_dir": "/etc/serviceradar/certs"
+    },
+    "batch_size": 1000,
+    "batch_interval": "10s"
+  }
+}
+```
+
+### 7.3 ClickHouse Writer Configuration
 /etc/serviceradar/netflow-clickhouse.json:
 ```json
 {
@@ -396,7 +430,7 @@ Total Duration: ~10 weeks.
 }
 ```
 
-### 7.3 Parquet Writer Configuration
+### 7.4 Parquet Writer Configuration
 /etc/serviceradar/netflow-parquet.json:
 ```json
 {
@@ -414,7 +448,7 @@ Total Duration: ~10 weeks.
 }
 ```
 
-### 7.4 API Endpoints
+### 7.5 API Endpoints
 GET /api/netflow:
 - Parameters: time_range, group_by, filter (e.g., src_ip=192.168.1.1).
 - Response:
@@ -427,7 +461,7 @@ GET /api/netflow:
 }
 ```
 
-### 7.5 Firewall Rules
+### 7.6 Firewall Rules
 ```bash
 sudo ufw allow 2055/udp  # NetFlow collector
 sudo ufw allow 9000/tcp  # ClickHouse native
@@ -442,14 +476,14 @@ sudo ufw allow 8080/tcp  # Iceberg REST catalog
 - Parquet Only:
   - Pros: Lightweight, cost-effective.
   - Cons: Slow for real-time queries, manual file management.
-- Extract from ClickHouse to Parquet:
-  - Pros: Single ingest pipeline.
-  - Cons: ClickHouse becomes bottleneck, complex export logic.
+- Direct Agent to NATS Publishing:
+  - Pros: Reduced latency, simpler flow.
+  - Cons: Additional security exposure, violates existing architecture pattern.
 - Local Storage on Agents:
   - Pros: Distributed processing.
   - Cons: Resource-intensive, violates agent lightweight design.
 
-Chosen Approach: Dual ingest (ClickHouse + Parquet via NATS) balances real-time performance, archival cost, and agent simplicity, with Iceberg for manageability.
+Chosen Approach: Maintain agent/poller pattern with poller as the NATS publisher, balancing consistency with existing architecture, security considerations, and performance needs.
 
 ## 9. Risks and Mitigations
 - Risk: NATS JetStream overload.
@@ -460,43 +494,93 @@ Chosen Approach: Dual ingest (ClickHouse + Parquet via NATS) balances real-time 
   - Mitigation: Use REST catalog, provide setup scripts.
 - Risk: Agent resource usage.
   - Mitigation: Benchmark collector, cap parsing rate if needed.
+- Risk: Poller becomes bottleneck.
+  - Mitigation: Multiple pollers, optimized batch sizes, priority queuing.
 
 ## 10. Success Metrics
 - User Adoption: 80% of ServiceRadar users enable NetFlow monitoring within 6 months.
 - Performance: Real-time queries < 1s, historical queries < 5s.
 - Reliability: 99.9% uptime for NetFlow pipeline.
 - Storage Efficiency: < 100GB for 90 days of data.
+- Operational Simplicity: Single firewall rule needed between agent and poller.
 
 ## 11. Future Considerations
 - Add support for IPFIX or sFlow.
 - Implement anomaly detection (e.g., traffic spikes).
 - Support cloud storage (S3) for Parquet/Iceberg.
 - Integrate with external analytics tools (e.g., Grafana).
+- Implement sampling for high-traffic environments.
 
 ## 12. Appendix
 
-### 12.1 Example Protobuf Publisher (Rust)
+### 12.1 Example Agent NetFlow Check Handler
+```rust
+use proto::status_response::StatusResponse;
+
+// Inside Agent's request handler
+fn handle_netflow_check(ctx: Context) -> Result<StatusResponse, Error> {
+    // Get data from NetFlow collector
+    let records = netflow_collector.get_recent_records(100);
+    
+    // Convert to protobuf
+    let mut proto_records = Vec::with_capacity(records.len());
+    for record in records {
+        proto_records.push(NetFlowRecord {
+            timestamp: record.timestamp.unix_timestamp(),
+            src_ip: record.src_ip.to_string(),
+            dst_ip: record.dst_ip.to_string(),
+            src_port: record.src_port as u32,
+            dst_port: record.dst_port as u32,
+            protocol: record.protocol as u32,
+            bytes: record.bytes,
+        });
+    }
+    
+    // Serialize to JSON for response
+    let json = serde_json::to_string(&proto_records)?;
+    
+    Ok(StatusResponse {
+        available: !records.is_empty(),
+        message: json,
+        service_name: "netflow".to_string(),
+        service_type: "netflow".to_string(),
+        response_time: 0, // Metadata only
+    })
+}
+```
+
+### 12.2 Example Poller NetFlow Handler
 ```rust
 use nats::jetstream::JetStream;
 use prost::Message;
 
-#[derive(Clone, prost::Message)]
-struct NetFlowRecord {
-    #[prost(int64, tag = "1")]
-    timestamp: i64,
-    #[prost(string, tag = "2")]
-    src_ip: String,
-    // ... other fields
-}
-
-async fn publish_netflow(js: JetStream, record: NetFlowRecord) {
-    let mut buf = Vec::new();
-    record.encode(&mut buf).unwrap();
-    js.publish("netflow.raw", buf).await.unwrap();
+// Inside Poller's poll method
+async fn poll_netflow(agent: &Agent, js: &JetStream) -> Result<(), Error> {
+    let req = StatusRequest {
+        service_name: "netflow_metrics".to_string(),
+        service_type: "netflow".to_string(),
+        details: "netflow://local".to_string(),
+    };
+    
+    let status = agent.client.get_status(req).await?;
+    
+    // Parse NetFlow records from response
+    let records: Vec<NetFlowRecord> = serde_json::from_str(&status.message)?;
+    
+    // Publish to NATS JetStream with batching
+    for batch in records.chunks(100) {
+        for record in batch {
+            let mut buf = Vec::new();
+            record.encode(&mut buf)?;
+            js.publish("netflow.raw", buf).await?;
+        }
+    }
+    
+    Ok(())
 }
 ```
 
-### 12.2 Example ClickHouse Query
+### 12.3 Example ClickHouse Query
 ```sql
 SELECT src_ip, SUM(bytes) AS total_bytes
 FROM netflow
@@ -506,7 +590,7 @@ ORDER BY total_bytes DESC
 LIMIT 10;
 ```
 
-### 12.3 Example DuckDB Query
+### 12.4 Example DuckDB Query
 ```sql
 INSTALL iceberg;
 LOAD iceberg;
