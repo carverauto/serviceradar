@@ -26,6 +26,8 @@ RPERF_CLIENT_BUILD_DIR ?= cmd/checkers/rperf-client/target/release
 RPERF_CLIENT_BIN ?= serviceradar-rperf-checker
 RPERF_SERVER_BUILD_DIR ?= cmd/checkers/rperf-server/target/release
 RPERF_SERVER_BIN ?= rperf
+SYSMON_BUILD_DIR ?= cmd/checkers/sysmon/target/release
+SYSMON_BIN ?= serviceradar-sysmon-checker
 
 # Version configuration
 VERSION ?= $(shell git describe --tags --always)
@@ -78,6 +80,11 @@ test: ## Run all tests with coverage
 	@echo "$(COLOR_BOLD)Running Rust tests$(COLOR_RESET)"
 	@cd cmd/checkers/rperf-client && $(CARGO) test
 
+.PHONY: test-sysmon-checker
+test-sysmon-checker: ## Run sysmon checker tests
+	@echo "$(COLOR_BOLD)Running sysmon checker tests$(COLOR_RESET)"
+	@cd cmd/checkers/sysmon && $(CARGO) test
+
 .PHONY: check-coverage
 check-coverage: test ## Check test coverage against thresholds
 	@echo "$(COLOR_BOLD)Checking test coverage$(COLOR_RESET)"
@@ -113,6 +120,7 @@ clean: ## Clean up build artifacts
 	@rm -rf bin/
 	@rm -rf serviceradar-*_* release-artifacts/
 	@cd cmd/checkers/rperf-client && $(CARGO) clean
+	@cd cmd/checkers/sysmon && $(CARGO) clean
 
 .PHONY: generate-proto
 generate-proto: ## Generate Go and Rust code from protobuf definitions
@@ -121,7 +129,9 @@ generate-proto: ## Generate Go and Rust code from protobuf definitions
 		--go_out=proto --go_opt=paths=source_relative \
 		--go-grpc_out=proto --go-grpc_opt=paths=source_relative \
 		proto/rperf/rperf.proto
-	@echo "$(COLOR_BOLD)Generated Go protobuf code$(COLOR_RESET)"
+	@echo "$(COLOR_BOLD)Generating Rust code from protobuf definitions$(COLOR_RESET)"
+	@cd cmd/checkers/sysmon && $(CARGO) build --no-default-features --features=protobuf
+	@echo "$(COLOR_BOLD)Generated protobuf code$(COLOR_RESET)"
 
 .PHONY: build
 build: generate-proto ## Build all binaries
@@ -136,15 +146,29 @@ build: generate-proto ## Build all binaries
 	@echo "$(COLOR_BOLD)Building Rust rperf plugin and server$(COLOR_RESET)"
 	@cd cmd/checkers/rperf-client && $(CARGO) build --release
 	@cd cmd/checkers/rperf-server && $(CARGO) build --release
+	@cd cmd/checkers/sysmon && $(CARGO) build --release
 	@mkdir -p bin
 	@cp $(RPERF_CLIENT_BUILD_DIR)/$(RPERF_CLIENT_BIN) bin/serviceradar-rperf-checker
 	@cp $(RPERF_SERVER_BUILD_DIR)/$(RPERF_SERVER_BIN) bin/serviceradar-rperf
+	@cp $(SYSMON_BUILD_DIR)/$(SYSMON_BIN) bin/serviceradar-sysmon-checker
 
 .PHONY: kodata-prep
 kodata-prep: build-web ## Prepare kodata directories
 	@echo "$(COLOR_BOLD)Preparing kodata directories$(COLOR_RESET)"
 	@mkdir -p cmd/core/.kodata
 	@cp -r pkg/core/api/web/dist cmd/core/.kodata/web
+
+.PHONY: build-sysmon-checker
+build-sysmon-checker: generate-proto ## Build only the sysmon checker
+	@echo "$(COLOR_BOLD)Building Rust sysmon checker$(COLOR_RESET)"
+	@cd cmd/checkers/sysmon && $(CARGO) build --release
+	@mkdir -p bin
+	@cp $(SYSMON_BUILD_DIR)/$(SYSMON_BIN) bin/serviceradar-sysmon-checker
+
+.PHONY: run-sysmon-checker
+run-sysmon-checker: build-sysmon-checker ## Run the sysmon checker
+	@echo "$(COLOR_BOLD)Running sysmon checker$(COLOR_RESET)"
+	@./bin/serviceradar-sysmon-checker $(ARGS)
 
 .PHONY: container-build
 container-build: kodata-prep ## Build container images with ko
@@ -164,6 +188,10 @@ container-build: kodata-prep ## Build container images with ko
 		-t $(KO_DOCKER_REPO)/serviceradar-rperf-checker:$(VERSION) \
 		--build-arg VERSION=$(VERSION) \
 		.
+	@echo "$(COLOR_BOLD)Building sysmon checker container$(COLOR_RESET)"
+	@docker buildx build --platform linux/amd64 -f cmd/checkers/sysmon/Dockerfile \
+		-t $(KO_DOCKER_REPO)/serviceradar-sysmon-checker:$(VERSION) \
+		--build-arg VERSION=$(VERSION) \
 
 .PHONY: container-push
 container-push: kodata-prep ## Build and push container images with ko
@@ -183,6 +211,12 @@ container-push: kodata-prep ## Build and push container images with ko
 	@docker buildx build --platform linux/amd64 -f cmd/checkers/rperf-client/Dockerfile \
 		-t $(KO_DOCKER_REPO)/serviceradar-rperf-checker:$(VERSION) \
 		-t $(KO_DOCKER_REPO)/serviceradar-rperf-checker:latest \
+		--build-arg VERSION=$(VERSION) \
+		--push .
+	@echo "$(COLOR_BOLD)Building and pushing sysmon checker container$(COLOR_RESET)"
+	@docker buildx build --platform linux/amd64 -f cmd/checkers/sysmon/Dockerfile \
+		-t $(KO_DOCKER_REPO)/serviceradar-sysmon-checker:$(VERSION) \
+		-t $(KO_DOCKER_REPO)/serviceradar-sysmon-checker:latest \
 		--build-arg VERSION=$(VERSION) \
 		--push .
 
@@ -232,6 +266,11 @@ deb-snmp: ## Build the SNMP checker Debian package
 	@echo "$(COLOR_BOLD)Building SNMP checker Debian package$(COLOR_RESET)"
 	@./scripts/setup-deb-snmp-checker.sh
 
+.PHONY: deb-sysmon-checker
+deb-sysmon-checker: ## Build the SysMon checker Debian package
+	@echo "$(COLOR_BOLD)Building SysMon checker Debian package$(COLOR_RESET)"
+ 	@VERSION=$(VERSION) ./scripts/setup-deb-sysmon.sh
+
 .PHONY: deb-rperf-checker
 deb-rperf-checker: ## Build the RPerf checker Debian package
 	@echo "$(COLOR_BOLD)Building RPerf checker Debian package$(COLOR_RESET)"
@@ -243,11 +282,11 @@ deb-rperf: ## Build the RPerf server Debian package
 	@VERSION=$(VERSION) ./scripts/setup-deb-rperf-server.sh
 
 .PHONY: deb-all
-deb-all: deb-agent deb-poller deb-core deb-web deb-dusk deb-snmp deb-rperf-checker deb-rperf ## Build all Debian packages
+deb-all: deb-agent deb-poller deb-core deb-web deb-dusk deb-snmp deb-rperf-checker deb-rperf deb-sysmon-checker
 	@echo "$(COLOR_BOLD)All Debian packages built$(COLOR_RESET)"
 
 .PHONY: deb-all-container
-deb-all-container: deb-agent deb-poller deb-core-container deb-web deb-dusk deb-snmp deb-rperf-checker deb-rperf-server ## Build all Debian packages with container support for core
+deb-all-container: deb-agent deb-poller deb-core-container deb-web deb-dusk deb-snmp deb-rperf-checker deb-rperf-server
 	@echo "$(COLOR_BOLD)All Debian packages built (with container support for core)$(COLOR_RESET)"
 
 # Build RPM packages
@@ -417,6 +456,28 @@ rpm-rperf-checker: rpm-prep
 		/bin/bash -c "if [ -n \"\$$(ls -A /rpms)\" ]; then cp -v /rpms/* /host-output/; else echo 'No RPM files found!'; ls -la /rpms; exit 1; fi"
 	@echo "RPM files extracted to ./release-artifacts/rpm/"
 
+.PHONY: rpm-sysmon-checker
+rpm-sysmon-checker: rpm-prep
+	@echo "Preparing RPM build environment"
+	@echo "Building SysMon checker RPM package"
+	@VERSION_CLEAN=$$(echo "$(VERSION)" | sed 's/-/_/g'); \
+	docker build \
+		--platform linux/amd64 \
+		--build-arg VERSION="$$VERSION_CLEAN" \
+		--build-arg RELEASE="$(RELEASE)" \
+		--build-arg COMPONENT="sysmon-checker" \
+		--build-arg BINARY_PATH="cmd/checkers/sysmon" \
+		-f Dockerfile.rpm.rust \
+		-t serviceradar-rpm-sysmon-checker \
+		.
+	@mkdir -p ./release-artifacts/rpm/
+	@echo "Extracting RPM files..."
+	@docker run --platform linux/amd64 --rm \
+		-v $$(pwd)/release-artifacts/rpm:/host-output \
+		serviceradar-rpm-sysmon-checker \
+		/bin/bash -c "if [ -n \"\$$(ls -A /rpms)\" ]; then cp -v /rpms/* /host-output/; else echo 'No RPM files found!'; ls -la /rpms; exit 1; fi"
+	@echo "RPM files extracted to ./release-artifacts/rpm/"
+
 .PHONY: rpm-web
 rpm-web: rpm-prep ## Build the web RPM package
 	@echo "$(COLOR_BOLD)Building web RPM package$(COLOR_RESET)"
@@ -433,8 +494,7 @@ rpm-web: rpm-prep ## Build the web RPM package
 	@docker rm temp-web-container
 
 .PHONY: rpm-all
-#rpm-all: rpm-core rpm-web rpm-agent rpm-poller rpm-nats rpm-snmp rpm-rperf-checker rpm-rperf ## Build all RPM packages
-rpm-all: rpm-core rpm-web rpm-agent rpm-poller rpm-nats rpm-snmp rpm-kv rpm-sync
+rpm-all: rpm-core rpm-web rpm-agent rpm-poller rpm-nats rpm-snmp rpm-kv rpm-sync rpm-rperf-checker rpm-rperf rpm-sysmon-checker
 	@echo "$(COLOR_BOLD)All RPM packages built$(COLOR_RESET)"
 
 # Docusaurus commands
