@@ -111,12 +111,12 @@ chmod 644 /etc/nats/nats-server.conf
 chmod -R 750 /var/lib/nats /var/log/nats
 chmod 600 /etc/serviceradar/api.env  # Ensure api.env has restrictive permissions
 usermod -a -G serviceradar nats
-chmod g+x /etc/serviceradar/certs
 
 # Add nats user to serviceradar group if it exists
 if getent group serviceradar >/dev/null; then
     usermod -aG serviceradar nats
 fi
+
 # Allow nats user to read the ServiceRadar certificates if they exist
 if [ -d "/etc/serviceradar/certs/" ]; then
     chmod 750 /etc/serviceradar/certs/
