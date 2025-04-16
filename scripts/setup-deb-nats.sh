@@ -19,8 +19,8 @@ set -e  # Exit on any error
 
 echo "Setting up package structure for serviceradar-nats..."
 
-VERSION=${VERSION:-1.0.31}
-NATS_VERSION=${NATS_VERSION:-2.11.0}  # Default NATS Server version
+VERSION=${VERSION:-1.0.32}
+NATS_VERSION=${NATS_VERSION:-2.11.1}  # Default NATS Server version
 
 # Use a relative path from the script's location
 BASE_DIR="$(dirname "$(dirname "$0")")"  # Go up two levels from scripts/ to root
