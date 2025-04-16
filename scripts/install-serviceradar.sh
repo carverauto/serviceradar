@@ -318,15 +318,15 @@ update_core_config() {
         fi
     fi
 
-    # Generate bcrypt hash using serviceradar-cli
+    # Generate bcrypt hash using serviceradar
     log "Generating bcrypt hash for admin password..."
     local bcrypt_hash
-    bcrypt_hash=$(echo "$password" | serviceradar-cli 2>/dev/null) || error "Failed to generate bcrypt hash using serviceradar-cli"
+    bcrypt_hash=$(echo "$password" | serviceradar 2>/dev/null) || error "Failed to generate bcrypt hash using serviceradar"
     success "Bcrypt hash generated successfully!"
 
-    # Update core.json using serviceradar-cli (assuming we'll add this functionality)
+    # Update core.json using serviceradar (assuming we'll add this functionality)
     log "Updating ${config_file} with new admin password hash..."
-    serviceradar-cli update-config --file "$config_file" --admin-hash "$bcrypt_hash" || error "Failed to update ${config_file}"
+    serviceradar update-config --file "$config_file" --admin-hash "$bcrypt_hash" || error "Failed to update ${config_file}"
     success "Configuration file updated successfully!"
 }
 
@@ -358,7 +358,7 @@ main() {
     mkdir -p "$TEMP_DIR"
     install_dependencies
 
-    core_packages=("serviceradar-core" "serviceradar-web" "serviceradar-nats" "serviceradar-kv" "serviceradar-sync")
+    core_packages=("serviceradar-core" "serviceradar-web" "serviceradar-nats" "serviceradar-kv" "serviceradar-sync" "serviceradar-cli")
     poller_packages=("serviceradar-poller")
     agent_packages=("serviceradar-agent")
     packages_to_install=()

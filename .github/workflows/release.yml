@@ -51,6 +51,7 @@ jobs:
           ./scripts/setup-deb-snmp-checker.sh
           ./scripts/setup-deb-rperf-client.sh
           ./scripts/setup-deb-rperf-server.sh
+          ./scripts/setup-installer.sh
       - name: List Artifacts (for debugging)
         run: ls -al ./release-artifacts
       - name: Upload DEB Release Assets
