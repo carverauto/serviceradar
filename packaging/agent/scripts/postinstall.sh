@@ -33,17 +33,13 @@ if [ -x /usr/local/bin/serviceradar-agent ]; then
     }
 fi
 
-# Only try to manage service if it exists
-if [ -f "/lib/systemd/system/serviceradar-${component_dir}.service" ]; then
-    # Reload systemd
-    systemctl daemon-reload
+# Reload systemd and manage service
+systemctl daemon-reload
+systemctl enable serviceradar-agent
+systemctl start serviceradar-agent || {
+    echo "Failed to start serviceradar-agent service. Check logs with: journalctl -xeu serviceradar-agent"
+    exit 1
+}
 
-    # Enable and start service
-    systemctl enable "serviceradar-${component_dir}"
-    systemctl start "serviceradar-${component_dir}"
-fi
-
-# Set required capability for ICMP scanning if this is the agent
-if [ "${component_dir}" = "agent" ] && [ -x /usr/local/bin/serviceradar-agent ]; then
-    setcap cap_net_raw=+ep /usr/local/bin/serviceradar-agent
-fi
+# Set required capability for ICMP scanning
+setcap cap_net_raw=+ep /usr/local/bin/serviceradar-agent
