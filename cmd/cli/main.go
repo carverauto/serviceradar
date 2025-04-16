@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -8,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/atotto/clipboard"
+	"github.com/carverauto/serviceradar/pkg/core"
+	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -16,6 +20,7 @@ import (
 
 // Dracula theme colors.
 const (
+	defaultFilePerms  = 0600
 	draculaForeground = "#F8F8F2"
 	draculaCyan       = "#8BE9FD"
 	draculaGreen      = "#50FA7B"
@@ -259,6 +264,7 @@ func (m *model) View() string {
 		lipgloss.NewStyle().Foreground(lipgloss.Color(draculaPurple)).Render("🔒 "),
 		styles.focused.Render("ServiceRadar CLI: Bcrypt Generator"),
 	)
+
 	content.WriteString(title + "\n\n")
 
 	// Input or Result
@@ -362,24 +368,6 @@ func (m *model) renderCopyMessage(hintSection string, styles *struct {
 	)
 }
 
-/*
-func (m *model) renderCopyMessage(_ string, styles *struct {
-	focused, focused2, help, hint, success, error, hash, app lipgloss.Style
-}, hint string) string {
-	messageStyle := styles.success
-	if strings.HasPrefix(m.copyMessage, "Failed") {
-		messageStyle = styles.error
-	}
-
-	return lipgloss.JoinVertical(
-		lipgloss.Left,
-		styles.hint.Render(hint),
-		messageStyle.Render(m.copyMessage),
-		styles.help.Render("Ctrl+C/Esc → quit"),
-	)
-}
-*/
-
 // generateBcryptNonInteractive handles non-interactive mode.
 func generateBcryptNonInteractive(password string, cost int) (string, error) {
 	if strings.TrimSpace(password) == "" {
@@ -398,64 +386,170 @@ func generateBcryptNonInteractive(password string, cost int) (string, error) {
 	return string(hash), nil
 }
 
-func main() {
+// cmdConfig holds parsed command-line configuration.
+type cmdConfig struct {
+	cost       int
+	help       bool
+	subCmd     string
+	configFile string
+	adminHash  string
+	args       []string
+}
+
+// parseFlags parses command-line flags and subcommands.
+func parseFlags() (cmdConfig, error) {
+	// Default flags for bcrypt generation
 	cost := flag.Int("cost", defaultCost, fmt.Sprintf("bcrypt cost factor (%d-%d)", minCost, maxCost))
 	help := flag.Bool("help", false, "show help message")
 	flag.Parse()
 
-	if *help {
-		fmt.Printf(`serviceradar-cli: Generate bcrypt hash from password
+	cfg := cmdConfig{
+		cost: *cost,
+		help: *help,
+		args: flag.Args(),
+	}
+
+	// Check for subcommand
+	if len(os.Args) > 1 {
+		cfg.subCmd = os.Args[1]
+	}
+
+	const (
+		updateConfigSubCmd = "update-config"
+	)
+
+	// Parse update-config subcommand flags
+	if cfg.subCmd == updateConfigSubCmd {
+		updateConfigCmd := flag.NewFlagSet(updateConfigSubCmd, flag.ExitOnError)
+		configFile := updateConfigCmd.String("file", "", "path to core.json config file")
+		adminHash := updateConfigCmd.String("admin-hash", "", "bcrypt hash for admin user")
+
+		if err := updateConfigCmd.Parse(os.Args[2:]); err != nil {
+			return cfg, fmt.Errorf("parsing update-config flags: %w", err)
+		}
+
+		cfg.configFile = *configFile
+		cfg.adminHash = *adminHash
+	}
+
+	return cfg, nil
+}
+
+// showHelp displays the help message and exits.
+func showHelp() {
+	fmt.Printf(`serviceradar-cli: ServiceRadar command-line tool
 
 Usage:
   serviceradar-cli [options] [password]
+  serviceradar-cli update-config [options]
 
-Options:
+Commands:
+  (default)        Generate bcrypt hash from password
+  update-config    Update core.json with new admin password hash
+
+Options for bcrypt generation:
   -cost int     bcrypt cost factor (%d-%d, default %d)
   -help         show this help message
 
-If no password is provided as an argument, it will be read from stdin.
-If no arguments are provided, an interactive TUI is launched.
+Options for update-config:
+  -file string        path to core.json config file
+  -admin-hash string  bcrypt hash for admin user
 
 Examples:
+  # Generate bcrypt hash
   serviceradar-cli -cost 14 mypassword
   echo mypassword | serviceradar-cli
   serviceradar-cli  # launches TUI
+
+  # Update core.json
+  serviceradar-cli update-config -file /etc/serviceradar/core.json -admin-hash '$2a$12$...'
 `, minCost, maxCost, defaultCost)
+}
+
+var (
+	errRequiresFileAndHash = errors.New("update-config requires -file and -admin-hash")
+	errUpdatingConfig      = errors.New("failed to update config file")
+)
+
+// runUpdateConfig handles the update-config subcommand.
+func runUpdateConfig(configFile, adminHash string) error {
+	if configFile == "" || adminHash == "" {
+		return errRequiresFileAndHash
+	}
+
+	if err := updateConfig(configFile, adminHash); err != nil {
+		return fmt.Errorf("%w: %s", errUpdatingConfig, err.Error())
+	}
+
+	fmt.Printf("Successfully updated %s\n", configFile)
+
+	return nil
+}
+
+// runBcryptNonInteractive handles non-interactive bcrypt generation.
+func runBcryptNonInteractive(cost int, args []string) error {
+	password, err := getPasswordInput(args)
+	if err != nil {
+		return fmt.Errorf("reading password: %w", err)
+	}
+
+	hash, err := generateBcryptNonInteractive(password, cost)
+	if err != nil {
+		return fmt.Errorf("generating bcrypt hash: %w", err)
+	}
+
+	fmt.Println(hash)
+
+	return nil
+}
+
+// runInteractive runs the TUI for interactive mode.
+func runInteractive() error {
+	p := tea.NewProgram(initialModel(), tea.WithAltScreen())
+	_, err := p.Run()
+
+	return err
+}
+
+func main() {
+	cfg, err := parseFlags()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	if cfg.help {
+		showHelp()
 		os.Exit(0)
 	}
 
-	// Check if we should run in non-interactive mode
-	if len(flag.Args()) > 0 || !isInputFromTerminal() {
-		password, err := getPasswordInput()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error reading from stdin: %v\n", err)
-			os.Exit(1)
-		}
-
-		hash, err := generateBcryptNonInteractive(password, *cost)
-		if err != nil {
+	if cfg.subCmd == "update-config" {
+		if err := runUpdateConfig(cfg.configFile, cfg.adminHash); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
 
-		fmt.Println(hash)
 		os.Exit(0)
 	}
 
-	// Run interactive TUI
-	p := tea.NewProgram(initialModel(), tea.WithAltScreen())
-	if _, err := p.Run(); err != nil {
+	if len(cfg.args) > 0 || !isInputFromTerminal() {
+		if err := runBcryptNonInteractive(cfg.cost, cfg.args); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		os.Exit(0)
+	}
+
+	if err := runInteractive(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func getPasswordInput() (string, error) {
-	var password string
-
-	if len(flag.Args()) > 0 {
-		password = strings.Join(flag.Args(), " ")
-		return password, nil
+func getPasswordInput(args []string) (string, error) {
+	if len(args) > 0 {
+		return strings.Join(args, " "), nil
 	}
 
 	if !isInputFromTerminal() {
@@ -464,14 +558,57 @@ func getPasswordInput() (string, error) {
 			return "", err
 		}
 
-		password = strings.TrimSpace(string(data))
+		return strings.TrimSpace(string(data)), nil
 	}
 
-	return password, nil
+	return "", nil
 }
 
 func isInputFromTerminal() bool {
 	fileInfo, _ := os.Stdin.Stat()
 
 	return (fileInfo.Mode() & os.ModeCharDevice) != 0
+}
+
+// updateConfig updates the core.json file with a new admin bcrypt hash.
+func updateConfig(configFile, adminHash string) error {
+	// Read the existing config file
+	data, err := os.ReadFile(configFile)
+	if err != nil {
+		return fmt.Errorf("failed to read config file %s: %w", configFile, err)
+	}
+
+	// Unmarshal into Config struct
+	var config core.Config
+
+	if err = json.Unmarshal(data, &config); err != nil {
+		return fmt.Errorf("failed to parse config file %s: %w", configFile, err)
+	}
+
+	// Ensure auth and local_users are initialized
+	if config.Auth == nil {
+		config.Auth = &models.AuthConfig{
+			LocalUsers: make(map[string]string),
+		}
+	}
+
+	if config.Auth.LocalUsers == nil {
+		config.Auth.LocalUsers = make(map[string]string)
+	}
+
+	// Update the admin hash
+	config.Auth.LocalUsers["admin"] = adminHash
+
+	// Marshal back to JSON with indentation
+	updatedData, err := json.MarshalIndent(config, "", "    ")
+	if err != nil {
+		return fmt.Errorf("failed to serialize config: %w", err)
+	}
+
+	// Write back to the file
+	if err := os.WriteFile(configFile, updatedData, defaultFilePerms); err != nil {
+		return fmt.Errorf("failed to write config file %s: %w", configFile, err)
+	}
+
+	return nil
 }
