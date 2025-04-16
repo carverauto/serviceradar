@@ -328,6 +328,7 @@ update_core_config() {
     # Update core.json using serviceradar (assuming we'll add this functionality)
     log "Updating ${config_file} with new admin password hash..."
     /usr/local/bin/serviceradar update-config --file "$config_file" --admin-hash "$bcrypt_hash" || error "Failed to update ${config_file}"
+    systemctl restart serviceradar-core
     success "Configuration file updated successfully!"
 }
 
