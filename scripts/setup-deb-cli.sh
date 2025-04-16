@@ -39,8 +39,6 @@ echo "Using PACKAGING_DIR: $PACKAGING_DIR"
 PKG_ROOT="serviceradar-cli_${VERSION}"
 mkdir -p "${PKG_ROOT}/DEBIAN"
 mkdir -p "${PKG_ROOT}/usr/local/bin"
-mkdir -p "${PKG_ROOT}/etc/serviceradar"
-mkdir -p "${PKG_ROOT}/lib/systemd/system"
 
 echo "Building Go binary..."
 
