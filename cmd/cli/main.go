@@ -26,6 +26,8 @@ import (
 	"strings"
 
 	"github.com/atotto/clipboard"
+	"github.com/carverauto/serviceradar/pkg/core"
+	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -584,51 +586,89 @@ func isInputFromTerminal() bool {
 	return (fileInfo.Mode() & os.ModeCharDevice) != 0
 }
 
+var (
+	errConfigReadFailed    = errors.New("failed to read config file")
+	errConfigMarshalFailed = errors.New("failed to serialize config")
+	errConfigWriteFailed   = errors.New("failed to write config file")
+	errInvalidAuthFormat   = errors.New("invalid auth configuration format")
+)
+
 // updateConfig updates the core.json file with a new admin bcrypt hash.
 func updateConfig(configFile, adminHash string) error {
+	// Read the existing config file
 	data, err := os.ReadFile(configFile)
 	if err != nil {
-		return fmt.Errorf("failed to read config file %s: %w", configFile, err)
+		return fmt.Errorf("%w %s: %w", errConfigReadFailed, configFile, err)
 	}
+
+	// Use the core package's LoadConfig to properly handle custom unmarshaling
+	config, err := core.LoadConfig(configFile)
+	if err != nil {
+		// If core's loader fails, fall back to manual approach with duration handling
+		return updateConfigManual(configFile, adminHash, data)
+	}
+
+	// Update the admin hash
+	if config.Auth == nil {
+		config.Auth = &models.AuthConfig{
+			LocalUsers: make(map[string]string),
+		}
+	} else if config.Auth.LocalUsers == nil {
+		config.Auth.LocalUsers = make(map[string]string)
+	}
+
+	config.Auth.LocalUsers["admin"] = adminHash
+
+	// Marshal back to JSON with indentation
+	updatedData, err := json.MarshalIndent(config, "", "    ")
+	if err != nil {
+		return fmt.Errorf("%w: %w", errConfigMarshalFailed, err)
+	}
+
+	// Write back to the file
+	if err := os.WriteFile(configFile, updatedData, defaultFilePerms); err != nil {
+		return fmt.Errorf("%w %s: %w", errConfigWriteFailed, configFile, err)
+	}
+
+	return nil
+}
+
+// updateConfigManual is a fallback method when core.LoadConfig fails.
+// It preserves string duration fields like alert_threshold and jwt_expiration.
+func updateConfigManual(configFile, adminHash string, data []byte) error {
 	var configMap map[string]interface{}
+
 	if err := json.Unmarshal(data, &configMap); err != nil {
-		return fmt.Errorf("failed to parse config file %s: %w", configFile, err)
+		return fmt.Errorf("%w: %w", errInvalidAuthFormat, err)
 	}
-	// Validate critical fields
-	if alertThreshold, ok := configMap["alert_threshold"].(string); !ok || alertThreshold == "" {
-		return fmt.Errorf("alert_threshold must be a non-empty string")
-	}
+
+	// Ensure auth object exists
 	auth, ok := configMap["auth"].(map[string]interface{})
 	if !ok {
-		return fmt.Errorf("auth must be an object")
+		auth = make(map[string]interface{})
+		configMap["auth"] = auth
 	}
-	if jwtExpiration, ok := auth["jwt_expiration"].(string); !ok || jwtExpiration == "" {
-		return fmt.Errorf("auth.jwt_expiration must be a non-empty string")
-	}
-	// Update admin hash
-	if configMap["auth"] == nil {
-		configMap["auth"] = map[string]interface{}{
-			"local_users": map[string]interface{}{},
-		}
-	}
-	auth, ok = configMap["auth"].(map[string]interface{})
-	if !ok {
-		return fmt.Errorf("invalid auth configuration in %s", configFile)
-	}
-	if auth["local_users"] == nil {
-		auth["local_users"] = map[string]interface{}{}
-	}
+
+	// Ensure local_users object exists
 	localUsers, ok := auth["local_users"].(map[string]interface{})
 	if !ok {
-		return fmt.Errorf("invalid local_users configuration in %s", configFile)
+		localUsers = make(map[string]interface{})
+		auth["local_users"] = localUsers
 	}
+
+	// Update admin hash
 	localUsers["admin"] = adminHash
+
+	// Marshal back to JSON with indentation
 	updatedData, err := json.MarshalIndent(configMap, "", "    ")
 	if err != nil {
-		return fmt.Errorf("failed to serialize config: %w", err)
+		return fmt.Errorf("%w: %w", errConfigMarshalFailed, err)
 	}
+
+	// Write back to the file
 	if err := os.WriteFile(configFile, updatedData, defaultFilePerms); err != nil {
-		return fmt.Errorf("failed to write config file %s: %w", configFile, err)
+		return fmt.Errorf("%w %s: %w", errConfigWriteFailed, configFile, err)
 	}
+
 	return nil
 }
