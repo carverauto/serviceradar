@@ -109,7 +109,11 @@ chown -R nats:nats /etc/nats /var/lib/nats /var/log/nats
 chmod 755 /usr/bin/nats-server
 chmod 644 /etc/nats/nats-server.conf
 chmod -R 750 /var/lib/nats /var/log/nats
-usermod -a -G serviceradar nats
+
+# create serviceradar group if it doesnt exist
+if ! getent group serviceradar >/dev/null; then
+    groupadd --system serviceradar
+fi
 
 # Add nats user to serviceradar group if it exists
 if getent group serviceradar >/dev/null; then
