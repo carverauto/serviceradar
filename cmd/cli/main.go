@@ -26,8 +26,6 @@ import (
 	"strings"
 
 	"github.com/atotto/clipboard"
-	"github.com/carverauto/serviceradar/pkg/core"
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -594,6 +592,8 @@ var (
 )
 
 // updateConfig updates the core.json file with a new admin bcrypt hash.
+// updateConfig updates the core.json file with a new admin bcrypt hash while preserving
+// duration fields in string format.
 func updateConfig(configFile, adminHash string) error {
 	// Read the existing config file
 	data, err := os.ReadFile(configFile)
@@ -601,26 +601,34 @@ func updateConfig(configFile, adminHash string) error {
 		return fmt.Errorf("%w %s: %w", errConfigReadFailed, configFile, err)
 	}
 
-	// Use the core package's LoadConfig to properly handle custom unmarshaling
-	config, err := core.LoadConfig(configFile)
-	if err != nil {
-		// If core's loader fails, fall back to manual approach with duration handling
-		return updateConfigManual(configFile, adminHash, data)
+	// Parse the JSON into a map
+	var configMap map[string]interface{}
+	if err := json.Unmarshal(data, &configMap); err != nil {
+		return fmt.Errorf("%w: %w", errInvalidAuthFormat, err)
 	}
 
-	// Update the admin hash
-	if config.Auth == nil {
-		config.Auth = &models.AuthConfig{
-			LocalUsers: make(map[string]string),
-		}
-	} else if config.Auth.LocalUsers == nil {
-		config.Auth.LocalUsers = make(map[string]string)
+	// Ensure auth object exists
+	auth, ok := configMap["auth"].(map[string]interface{})
+	if !ok {
+		auth = make(map[string]interface{})
+		configMap["auth"] = auth
 	}
 
-	config.Auth.LocalUsers["admin"] = adminHash
+	// Ensure local_users object exists
+	localUsers, ok := auth["local_users"].(map[string]interface{})
+	if !ok {
+		localUsers = make(map[string]interface{})
+		auth["local_users"] = localUsers
+	}
+
+	// Update admin hash
+	localUsers["admin"] = adminHash
+
+	// DO NOT convert the config back to a struct and then to JSON
+	// This would lose the string representation of durations
 
 	// Marshal back to JSON with indentation
-	updatedData, err := json.MarshalIndent(config, "", "    ")
+	updatedData, err := json.MarshalIndent(configMap, "", "    ")
 	if err != nil {
 		return fmt.Errorf("%w: %w", errConfigMarshalFailed, err)
 	}
