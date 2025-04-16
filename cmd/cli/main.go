@@ -1,3 +1,19 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package main
 
 import (
@@ -437,11 +453,11 @@ func parseFlags() (cmdConfig, error) {
 
 // showHelp displays the help message and exits.
 func showHelp() {
-	fmt.Printf(`serviceradar-cli: ServiceRadar command-line tool
+	fmt.Printf(`serviceradar: ServiceRadar command-line tool
 
 Usage:
-  serviceradar-cli [options] [password]
-  serviceradar-cli update-config [options]
+  serviceradar [options] [password]
+  serviceradar update-config [options]
 
 Commands:
   (default)        Generate bcrypt hash from password
@@ -457,12 +473,12 @@ Options for update-config:
 
 Examples:
   # Generate bcrypt hash
-  serviceradar-cli -cost 14 mypassword
-  echo mypassword | serviceradar-cli
-  serviceradar-cli  # launches TUI
+  serviceradar -cost 14 mypassword
+  echo mypassword | serviceradar
+  serviceradar  # launches TUI
 
   # Update core.json
-  serviceradar-cli update-config -file /etc/serviceradar/core.json -admin-hash '$2a$12$...'
+  serviceradar update-config -file /etc/serviceradar/core.json -admin-hash '$2a$12$...'
 `, minCost, maxCost, defaultCost)
 }
 
