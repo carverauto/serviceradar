@@ -1,6 +1,7 @@
 {
     "listen_addr": ":8090",
     "grpc_addr": ":50052",
+    "db_path": "/var/lib/serviceradar/serviceradar.db",
     "alert_threshold": "5m",
     "known_pollers": ["default-poller"],
     "metrics": {
