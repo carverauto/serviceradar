@@ -25,7 +25,7 @@ cd "${BASE_DIR}"  # Change to base directory to ensure all paths work correctly
 echo "Working directory: $(pwd)"
 
 # Define version
-VERSION=${VERSION:-1.0.31}
+VERSION=${VERSION:-1.0.32}
 echo "Building serviceradar-agent version ${VERSION}"
 
 # Set up packaging directory path
