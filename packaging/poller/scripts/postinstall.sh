@@ -15,26 +15,14 @@ fi
 mkdir -p /etc/serviceradar
 mkdir -p /var/lib/serviceradar
 
-# Create checkers directory if this is the dusk component
-if [ "${component_dir}" = "dusk" ]; then
-    mkdir -p /etc/serviceradar/checkers
-fi
-
 # Set permissions
 chown -R serviceradar:serviceradar /etc/serviceradar
 chmod -R 755 /etc/serviceradar
 
-# Only try to manage service if it exists
-if [ -f "/lib/systemd/system/serviceradar-${component_dir}.service" ]; then
-    # Reload systemd
-    systemctl daemon-reload
-
-    # Enable and start service
-    systemctl enable "serviceradar-${component_dir}"
-    systemctl start "serviceradar-${component_dir}"
-fi
-
-# Set required capability for ICMP scanning if this is the agent
-if [ "${component_dir}" = "agent" ] && [ -x /usr/local/bin/serviceradar-agent ]; then
-    setcap cap_net_raw=+ep /usr/local/bin/serviceradar-agent
-fi
+# Reload systemd and manage service
+systemctl daemon-reload
+systemctl enable serviceradar-poller
+systemctl start serviceradar-poller || {
+    echo "Failed to start serviceradar-poller service. Check logs with: journalctl -xeu serviceradar-poller"
+    exit 1
+}
