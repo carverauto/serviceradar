@@ -32,9 +32,77 @@ INSTALL_CORE=false
 INSTALL_POLLER=false
 INSTALL_AGENT=false
 
+# Dracula color theme for terminal
+COLOR_RESET="\033[0m"
+COLOR_WHITE="\033[97m"
+COLOR_PURPLE="\033[95m"
+COLOR_CYAN="\033[96m"
+COLOR_GREEN="\033[92m"
+COLOR_PINK="\033[95m"
+COLOR_YELLOW="\033[93m"
+COLOR_RED="\033[91m"
+COLOR_BOLD="\033[1m"
+
 # Common functions
-log() { echo "[ServiceRadar] $1"; }
-error() { echo "[ServiceRadar] ERROR: $1" >&2; exit 1; }
+log() {
+    echo -e "${COLOR_PURPLE}${COLOR_BOLD}[ServiceRadar]${COLOR_RESET} ${COLOR_WHITE}$1${COLOR_RESET}"
+}
+error() {
+    echo -e "${COLOR_RED}${COLOR_BOLD}[ServiceRadar] ERROR:${COLOR_RESET} ${COLOR_WHITE}$1${COLOR_RESET}" >&2
+    exit 1
+}
+header() {
+    echo -e "\n${COLOR_PURPLE}${COLOR_BOLD}══════ $1 ══════${COLOR_RESET}\n"
+}
+info() {
+    echo -e "${COLOR_CYAN}${COLOR_BOLD}[ServiceRadar]${COLOR_RESET} ${COLOR_WHITE}$1${COLOR_RESET}"
+}
+success() {
+    echo -e "${COLOR_GREEN}${COLOR_BOLD}[ServiceRadar]${COLOR_RESET} ${COLOR_WHITE}$1${COLOR_RESET}"
+}
+
+# Display a Unicode box banner
+display_banner() {
+    local title="ServiceRadar Installer v${VERSION}"
+    local subtitle="https://serviceradar.cloud"
+    local title_width=$((${#title} + 4))
+    local subtitle_width=$((${#subtitle} + 4))
+    local box_width=$((title_width > subtitle_width ? title_width : subtitle_width))
+
+    echo -e "${COLOR_PINK}╔$(printf '═%.0s' $(seq 1 $box_width))╗${COLOR_RESET}"
+    echo -e "${COLOR_PINK}║${COLOR_RESET}$(printf '%*s' $(( (box_width - ${#title}) / 2 )) '')${COLOR_PURPLE}${COLOR_BOLD}${title}${COLOR_RESET}$(printf '%*s' $(( (box_width - ${#title}) / 2 )) '')${COLOR_PINK}║${COLOR_RESET}"
+    echo -e "${COLOR_PINK}╚$(printf '═%.0s' $(seq 1 $box_width))╝${COLOR_RESET}"
+    echo -e "$(printf '%*s' $(( (box_width - ${#subtitle}) / 2 )) '')${COLOR_PURPLE}${COLOR_BOLD}${subtitle}${COLOR_RESET}\n"
+}
+
+# Check and install curl
+check_curl() {
+    header "Checking Prerequisites"
+    if ! command -v curl >/dev/null 2>&1; then
+        log "curl is not installed. Installing curl..."
+        if [ "$SYSTEM" = "debian" ]; then
+            apt-get update
+            apt-get install -y curl || error "Failed to install curl"
+        else
+            $PKG_MANAGER install -y curl || error "Failed to install curl"
+        fi
+        success "curl installed successfully!"
+    else
+        log "curl is already installed."
+    fi
+}
+
+# Validate downloaded .deb file
+validate_deb() {
+    local file="$1"
+    if [ ! -f "$file" ]; then
+        error "Downloaded file $file does not exist"
+    fi
+    # Check if the file is a valid .deb package
+    if ! dpkg-deb -W "$file" >/dev/null 2>&1; then
+        error "Downloaded file $file is not a valid .deb package"
+    fi
+}
 
 # Parse command-line arguments
 parse_args() {
@@ -86,28 +154,29 @@ detect_system() {
         PKG_MANAGER="yum"
         PKG_EXT="rpm"
     else
-        error "Unsupported system. Requires apt (Debian/Ubuntu) or dnf/yum (RHEL/CentOS/Fedora)."
+        error "No supported package manager found. Requires apt (Debian/Ubuntu) or dnf/yum (RHEL/CentOS/Fedora)."
     fi
     log "Detected system: $SYSTEM ($PKG_MANAGER)"
 }
 
 # Install dependencies based on selected components
 install_dependencies() {
-    log "Installing dependencies..."
+    header "Installing Dependencies"
+    log "Preparing system for Service [ServiceRadar] installation..."
     if [ "$SYSTEM" = "debian" ]; then
         apt-get update
-        # Install Node.js and Nginx if web component is included
         if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_CORE" = "true" ]; then
-            curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-            apt-get install -y systemd nginx nodejs
+            log "Setting up Node.js and Nginx for web components..."
+            curl -fsSL https://deb.nodesource.com/setup_20.x | bash - || error "Failed to set up Node.js repository"
+            apt-get install -y systemd nginx nodejs || error "Failed to install Node.js, Nginx, or systemd"
         fi
-        # Install libcap2-bin for agent
         if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_AGENT" = "true" ]; then
-            apt-get install -y libcap2-bin
+            log "Installing libcap2-bin for agent..."
+            apt-get install -y libcap2-bin || error "Failed to install libcap2-bin"
         fi
-        # Always install systemd (for poller or other components)
         if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_POLLER" = "true" ] || [ "$INSTALL_CORE" = "true" ]; then
-            apt-get install -y systemd
+            log "Ensuring systemd is installed..."
+            apt-get install -y systemd || error "Failed to install systemd"
         fi
     else
         $PKG_MANAGER install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
@@ -118,30 +187,34 @@ install_dependencies() {
                 $PKG_MANAGER config-manager --set-enabled ol9_codeready_builder || true
             fi
         fi
-        # Install Node.js and Nginx if web component is included
         if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_CORE" = "true" ]; then
+            log "Setting up Node.js and Nginx for web components..."
             $PKG_MANAGER module enable -y nodejs:20
             $PKG_MANAGER install -y systemd nginx nodejs
         fi
-        # Install libcap and related for agent
         if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_AGENT" = "true" ]; then
+            log "Installing libcap and related packages for agent..."
             $PKG_MANAGER install -y libcap systemd-devel gcc
         fi
-        # Always install systemd (for poller or other components)
         if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_POLLER" = "true" ] || [ "$INSTALL_CORE" = "true" ]; then
+            log "Ensuring systemd is installed..."
             $PKG_MANAGER install -y systemd
         fi
     fi
+    success "Dependencies installed successfully!"
 }
 
 # Download a package
 download_package() {
     local pkg_name="$1"
     local suffix="$2"
-    local url="${RELEASE_URL}/${pkg_name}-${VERSION}${suffix}.${PKG_EXT}"
+    # Use underscore instead of hyphen for Debian packages
+    local file_name="${pkg_name}_${VERSION}${suffix}.${PKG_EXT}"
+    local url="${RELEASE_URL}/${file_name}"
     local output="${TEMP_DIR}/${pkg_name}.${PKG_EXT}"
-    log "Downloading $pkg_name..."
-    curl -sSL -o "$output" "$url" || error "Failed to download $pkg_name from $url"
+    log "Downloading ${COLOR_YELLOW}${pkg_name}${COLOR_RESET}..."
+    curl -sSL -o "$output" "$url" || error "Failed to download ${pkg_name} from $url"
+    validate_deb "$output"
 }
 
 # Install packages
@@ -154,24 +227,27 @@ install_packages() {
         fi
     done
     if [ -n "$pkg_files" ]; then
-        log "Installing packages: ${packages[*]}"
+        log "Installing packages: ${COLOR_YELLOW}${packages[*]}${COLOR_RESET}"
         if [ "$SYSTEM" = "debian" ]; then
             apt install -y $pkg_files || error "Failed to install packages"
         else
             $PKG_MANAGER install -y $pkg_files || error "Failed to install packages"
         fi
+        success "Packages installed successfully!"
     fi
 }
 
 # Prompt for installation scenario (interactive mode only)
 prompt_scenario() {
     if [ "$INTERACTIVE" = "true" ]; then
-        echo "[ServiceRadar] Select components to install (you can select multiple):"
-        echo "1) All-in-One (all components)"
-        echo "2) Core + Web UI (core, web, nats, kv, sync)"
-        echo "3) Poller (poller)"
-        echo "4) Agent (agent)"
-        read -p "Enter choices (e.g., '1' or '2 3 4' for multiple): " choices
+        header "Select Components to Install"
+        echo -e "${COLOR_CYAN}Please choose the components you want to install (you can select multiple):${COLOR_RESET}"
+        echo -e "${COLOR_WHITE}  1) All-in-One (all components)${COLOR_RESET}"
+        echo -e "${COLOR_WHITE}  2) Core + Web UI (core, web, nats, kv, sync)${COLOR_RESET}"
+        echo -e "${COLOR_WHITE}  3) Poller (poller)${COLOR_RESET}"
+        echo -e "${COLOR_WHITE}  4) Agent (agent)${COLOR_RESET}"
+        echo -e "${COLOR_CYAN}Enter choices (e.g., '1' or '2 3 4' for multiple):${COLOR_RESET} \c"
+        read choices
         for choice in $choices; do
             case "$choice" in
                 1)
@@ -191,6 +267,7 @@ prompt_scenario() {
                     ;;
             esac
         done
+        echo
     fi
 }
 
@@ -198,14 +275,14 @@ prompt_scenario() {
 should_install_checker() {
     local checker="$1"
     if [ "$INTERACTIVE" = "true" ]; then
-        read -p "[ServiceRadar] Install optional checker $checker? (y/n) [n]: " choice
+        echo -e "${COLOR_CYAN}Install optional checker ${COLOR_YELLOW}${checker}${COLOR_CYAN}? (y/n) [n]:${COLOR_RESET} \c"
+        read choice
         if [ "$choice" = "y" ] || [ "$choice" = "Y" ]; then
             echo "yes"
         else
             echo "no"
         fi
     else
-        # Non-interactive: Check if the checker is in the --checkers list
         if echo "$CHECKERS" | grep -q -E "(^|,)$checker(,|$)"; then
             echo "yes"
         else
@@ -216,12 +293,11 @@ should_install_checker() {
 
 # Main installation logic
 main() {
-    log "Starting ServiceRadar installation (version ${VERSION})..."
-
-    # Parse arguments
+    display_banner
     parse_args "$@"
+    detect_system
+    check_curl
 
-    # If no scenario is specified, prompt (interactive mode) or fail (non-interactive)
     if [ "$INSTALL_ALL" = "false" ] && [ "$INSTALL_CORE" = "false" ] && [ "$INSTALL_POLLER" = "false" ] && [ "$INSTALL_AGENT" = "false" ]; then
         if [ "$INTERACTIVE" = "true" ]; then
             prompt_scenario
@@ -230,28 +306,19 @@ main() {
         fi
     fi
 
-    # If --all is specified, override other flags
     if [ "$INSTALL_ALL" = "true" ]; then
         INSTALL_CORE=true
         INSTALL_POLLER=true
         INSTALL_AGENT=true
     fi
 
-    # Validate that at least one component is selected
     if [ "$INSTALL_CORE" = "false" ] && [ "$INSTALL_POLLER" = "false" ] && [ "$INSTALL_AGENT" = "false" ]; then
         error "No components selected to install."
     fi
 
-    # Detect system
-    detect_system
-
-    # Create temporary directory
     mkdir -p "$TEMP_DIR"
-
-    # Install dependencies
     install_dependencies
 
-    # Determine packages to install
     core_packages=("serviceradar-core" "serviceradar-web" "serviceradar-nats" "serviceradar-kv" "serviceradar-sync")
     poller_packages=("serviceradar-poller")
     agent_packages=("serviceradar-agent")
@@ -267,21 +334,21 @@ main() {
         packages_to_install+=("${agent_packages[@]}")
     fi
 
-    # Download and install main packages
+    header "Installing Main Components"
     for pkg in "${packages_to_install[@]}"; do
         if [ "$SYSTEM" = "rhel" ]; then
-            if [ "$pkg" = "serviceradar-core" ] || [ "$pkg" = "serviceradar-kv" ] || [ "$pkg" = "serviceradar-nats" ] || [ "$pkg" = "serviceradar-agent" ] || [ "$pkg" = "serviceradar-poller" ]; then
+            if [ "$pkg" = "serviceradar-core" ] || [ "$pkg" = "serviceradar-kv" ] || [ "$pkg" = "serviceradar-nats" ] || [ "$pkg" = "serviceradar-agent" ] || [ "$pkg" = "serviceradar-poller" ] || [ "$pkg" = "serviceradar-sync" ]; then
                 download_package "$pkg" "-1.el9.x86_64"
             else
                 download_package "$pkg" "-1.el9.x86_64"
             fi
         else
-            download_package "$pkg"
+            download_package "$pkg" ""
         fi
     done
     install_packages "${packages_to_install[@]}"
 
-    # Optional checkers
+    header "Installing Optional Checkers"
     checkers=("serviceradar-rperf" "serviceradar-rperf-checker" "serviceradar-snmp-checker" "serviceradar-dusk-checker")
     checker_packages=()
     for checker in "${checkers[@]}"; do
@@ -294,7 +361,6 @@ main() {
                 available="no"
             fi
         fi
-        # Skip checkers not relevant to the selected scenario
         if [ "$INSTALL_CORE" = "false" ] && [ "$checker" = "serviceradar-dusk-checker" ]; then
             available="no"
         fi
@@ -305,28 +371,32 @@ main() {
             if [ "$checker" = "serviceradar-rperf" ] || [ "$checker" = "serviceradar-rperf-checker" ]; then
                 download_package "$checker" "-1.el9.x86_64"
             else
-                download_package "$checker"
+                download_package "$checker" ""
             fi
             checker_packages+=("$checker")
         fi
     done
 
-    # Install optional checkers
-    install_packages "${checker_packages[@]}"
-
-    # Cleanup
-    rm -rf "$TEMP_DIR"
-
-    # Success message
-    log "ServiceRadar installation completed successfully!"
-    if [ "$INSTALL_CORE" = "true" ]; then
-        log "Web UI: http://your-server-ip/"
-        log "Core API: http://your-server-ip:8090/"
+    if [ ${#checker_packages[@]} -eq 0 ]; then
+        log "No optional checkers selected."
+    else
+        install_packages "${checker_packages[@]}"
     fi
 
-    log "Check service status: systemctl status serviceradar-*"
-    log "View logs: journalctl -u serviceradar-<component>.service"
+    header "Cleaning Up"
+    log "Removing temporary files..."
+    rm -rf "$TEMP_DIR"
+    success "Cleanup completed!"
+
+    header "Installation Complete"
+    success "[ServiceRadar] installation completed successfully!"
+    if [ "$INSTALL_CORE" = "true" ]; then
+        info "Web UI: ${COLOR_YELLOW}http://your-server-ip/${COLOR_RESET}"
+        info "Core API: ${COLOR_YELLOW}http://your-server-ip:8090/${COLOR_RESET}"
+    fi
+    info "Check service status: ${COLOR_YELLOW}systemctl status serviceradar-*${COLOR_RESET}"
+    info "View logs: ${COLOR_YELLOW}journalctl -u serviceradar-<component>.service${COLOR_RESET}"
+    echo
 }
 
-# Run main
 main "$@"
