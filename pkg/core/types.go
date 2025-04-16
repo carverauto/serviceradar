@@ -57,6 +57,7 @@ type Config struct {
 
 func (c *Config) MarshalJSON() ([]byte, error) {
 	type Alias Config
+
 	aux := &struct {
 		AlertThreshold string `json:"alert_threshold"`
 		Auth           *struct {
@@ -70,9 +71,11 @@ func (c *Config) MarshalJSON() ([]byte, error) {
 	}{
 		Alias: (*Alias)(c),
 	}
+
 	if c.AlertThreshold != 0 {
 		aux.AlertThreshold = c.AlertThreshold.String()
 	}
+
 	if c.Auth != nil {
 		aux.Auth = &struct {
 			JWTSecret     string                      `json:"jwt_secret"`
@@ -90,6 +93,7 @@ func (c *Config) MarshalJSON() ([]byte, error) {
 			aux.Auth.JWTExpiration = c.Auth.JWTExpiration.String()
 		}
 	}
+
 	return json.Marshal(aux)
 }
 
