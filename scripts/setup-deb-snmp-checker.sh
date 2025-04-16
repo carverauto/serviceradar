@@ -93,7 +93,6 @@ fi
 # Set permissions
 chown -R serviceradar:serviceradar /etc/serviceradar
 chmod 755 /usr/local/bin/serviceradar-snmp-checker
-chmod 600 /etc/serviceradar/api.env  # Ensure api.env has restrictive permissions
 
 # Enable and start service
 systemctl daemon-reload

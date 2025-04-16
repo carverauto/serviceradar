@@ -6,7 +6,6 @@ After=network.target
 Type=simple
 User=serviceradar
 ExecStart=/usr/local/bin/serviceradar-sync -config /etc/serviceradar/sync.json
-EnvironmentFile=/etc/serviceradar/api.env
 Restart=always
 RestartSec=10
 LimitNPROC=512
