@@ -55,6 +55,44 @@ type Config struct {
 	CORS           models.CORSConfig      `json:"cors,omitempty"`
 }
 
+func (c *Config) MarshalJSON() ([]byte, error) {
+	type Alias Config
+	aux := &struct {
+		AlertThreshold string `json:"alert_threshold"`
+		Auth           *struct {
+			JWTSecret     string                      `json:"jwt_secret"`
+			JWTExpiration string                      `json:"jwt_expiration"`
+			LocalUsers    map[string]string           `json:"local_users"`
+			CallbackURL   string                      `json:"callback_url,omitempty"`
+			SSOProviders  map[string]models.SSOConfig `json:"sso_providers,omitempty"`
+		} `json:"auth,omitempty"`
+		*Alias
+	}{
+		Alias: (*Alias)(c),
+	}
+	if c.AlertThreshold != 0 {
+		aux.AlertThreshold = c.AlertThreshold.String()
+	}
+	if c.Auth != nil {
+		aux.Auth = &struct {
+			JWTSecret     string                      `json:"jwt_secret"`
+			JWTExpiration string                      `json:"jwt_expiration"`
+			LocalUsers    map[string]string           `json:"local_users"`
+			CallbackURL   string                      `json:"callback_url,omitempty"`
+			SSOProviders  map[string]models.SSOConfig `json:"sso_providers,omitempty"`
+		}{
+			JWTSecret:    c.Auth.JWTSecret,
+			LocalUsers:   c.Auth.LocalUsers,
+			CallbackURL:  c.Auth.CallbackURL,
+			SSOProviders: c.Auth.SSOProviders,
+		}
+		if c.Auth.JWTExpiration != 0 {
+			aux.Auth.JWTExpiration = c.Auth.JWTExpiration.String()
+		}
+	}
+	return json.Marshal(aux)
+}
+
 func (c *Config) UnmarshalJSON(data []byte) error {
 	type Alias Config
 
