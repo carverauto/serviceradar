@@ -321,12 +321,13 @@ update_core_config() {
     # Generate bcrypt hash using serviceradar
     log "Generating bcrypt hash for admin password..."
     local bcrypt_hash
-    bcrypt_hash=$(echo "$password" | serviceradar 2>/dev/null) || error "Failed to generate bcrypt hash using serviceradar"
+    bcrypt_hash=$(echo "$password" | /usr/local/bin/serviceradar 2>/dev/null) || error "Failed to generate bcrypt hash using serviceradar"
+    log "Generated bcrypt hash: ${COLOR_YELLOW}${bcrypt_hash}${COLOR_RESET}"
     success "Bcrypt hash generated successfully!"
 
     # Update core.json using serviceradar (assuming we'll add this functionality)
     log "Updating ${config_file} with new admin password hash..."
-    serviceradar update-config --file "$config_file" --admin-hash "$bcrypt_hash" || error "Failed to update ${config_file}"
+    /usr/local/bin/serviceradar update-config --file "$config_file" --admin-hash "$bcrypt_hash" || error "Failed to update ${config_file}"
     success "Configuration file updated successfully!"
 }
 
