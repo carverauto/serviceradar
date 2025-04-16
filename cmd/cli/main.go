@@ -437,11 +437,11 @@ func parseFlags() (cmdConfig, error) {
 
 // showHelp displays the help message and exits.
 func showHelp() {
-	fmt.Printf(`serviceradar-cli: ServiceRadar command-line tool
+	fmt.Printf(`serviceradar: ServiceRadar command-line tool
 
 Usage:
-  serviceradar-cli [options] [password]
-  serviceradar-cli update-config [options]
+  serviceradar [options] [password]
+  serviceradar update-config [options]
 
 Commands:
   (default)        Generate bcrypt hash from password
@@ -457,12 +457,12 @@ Options for update-config:
 
 Examples:
   # Generate bcrypt hash
-  serviceradar-cli -cost 14 mypassword
-  echo mypassword | serviceradar-cli
-  serviceradar-cli  # launches TUI
+  serviceradar -cost 14 mypassword
+  echo mypassword | serviceradar
+  serviceradar  # launches TUI
 
   # Update core.json
-  serviceradar-cli update-config -file /etc/serviceradar/core.json -admin-hash '$2a$12$...'
+  serviceradar update-config -file /etc/serviceradar/core.json -admin-hash '$2a$12$...'
 `, minCost, maxCost, defaultCost)
 }
 
