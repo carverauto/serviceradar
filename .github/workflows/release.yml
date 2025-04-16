@@ -47,6 +47,7 @@ jobs:
           ./scripts/setup-deb-nats.sh
           ./scripts/setup-deb-kv.sh
           ./scripts/setup-deb-sync.sh
+          ./scripts/setup-deb-cli.sh
           ./scripts/setup-deb-dusk-checker.sh
           ./scripts/setup-deb-snmp-checker.sh
           ./scripts/setup-deb-rperf-client.sh
