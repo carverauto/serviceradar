@@ -26,8 +26,6 @@ import (
 	"strings"
 
 	"github.com/atotto/clipboard"
-	"github.com/carverauto/serviceradar/pkg/core"
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -588,43 +586,49 @@ func isInputFromTerminal() bool {
 
 // updateConfig updates the core.json file with a new admin bcrypt hash.
 func updateConfig(configFile, adminHash string) error {
-	// Read the existing config file
 	data, err := os.ReadFile(configFile)
 	if err != nil {
 		return fmt.Errorf("failed to read config file %s: %w", configFile, err)
 	}
-
-	// Unmarshal into Config struct
-	var config core.Config
-
-	if err = json.Unmarshal(data, &config); err != nil {
+	var configMap map[string]interface{}
+	if err := json.Unmarshal(data, &configMap); err != nil {
 		return fmt.Errorf("failed to parse config file %s: %w", configFile, err)
 	}
-
-	// Ensure auth and local_users are initialized
-	if config.Auth == nil {
-		config.Auth = &models.AuthConfig{
-			LocalUsers: make(map[string]string),
+	// Validate critical fields
+	if alertThreshold, ok := configMap["alert_threshold"].(string); !ok || alertThreshold == "" {
+		return fmt.Errorf("alert_threshold must be a non-empty string")
+	}
+	auth, ok := configMap["auth"].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("auth must be an object")
+	}
+	if jwtExpiration, ok := auth["jwt_expiration"].(string); !ok || jwtExpiration == "" {
+		return fmt.Errorf("auth.jwt_expiration must be a non-empty string")
+	}
+	// Update admin hash
+	if configMap["auth"] == nil {
+		configMap["auth"] = map[string]interface{}{
+			"local_users": map[string]interface{}{},
 		}
 	}
-
-	if config.Auth.LocalUsers == nil {
-		config.Auth.LocalUsers = make(map[string]string)
+	auth, ok = configMap["auth"].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("invalid auth configuration in %s", configFile)
 	}
-
-	// Update the admin hash
-	config.Auth.LocalUsers["admin"] = adminHash
-
-	// Marshal back to JSON with indentation
-	updatedData, err := json.MarshalIndent(config, "", "    ")
+	if auth["local_users"] == nil {
+		auth["local_users"] = map[string]interface{}{}
+	}
+	localUsers, ok := auth["local_users"].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("invalid local_users configuration in %s", configFile)
+	}
+	localUsers["admin"] = adminHash
+	updatedData, err := json.MarshalIndent(configMap, "", "    ")
 	if err != nil {
 		return fmt.Errorf("failed to serialize config: %w", err)
 	}
-
-	// Write back to the file
 	if err := os.WriteFile(configFile, updatedData, defaultFilePerms); err != nil {
 		return fmt.Errorf("failed to write config file %s: %w", configFile, err)
 	}
-
 	return nil
 }

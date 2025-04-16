@@ -19,6 +19,7 @@ package core
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -56,6 +57,8 @@ type Config struct {
 }
 
 func (c *Config) MarshalJSON() ([]byte, error) {
+	log.Println("Entering core.Config.MarshalJSON")
+
 	type Alias Config
 	aux := &struct {
 		AlertThreshold string `json:"alert_threshold"`
@@ -94,6 +97,8 @@ func (c *Config) MarshalJSON() ([]byte, error) {
 }
 
 func (c *Config) UnmarshalJSON(data []byte) error {
+	log.Println("Entering core.Config.UnmarshalJSON")
+
 	type Alias Config
 
 	aux := &struct {
