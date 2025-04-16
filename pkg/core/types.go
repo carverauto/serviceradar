@@ -19,7 +19,6 @@ package core
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
@@ -57,9 +56,8 @@ type Config struct {
 }
 
 func (c *Config) MarshalJSON() ([]byte, error) {
-	log.Println("Entering core.Config.MarshalJSON")
-
 	type Alias Config
+
 	aux := &struct {
 		AlertThreshold string `json:"alert_threshold"`
 		Auth           *struct {
@@ -73,9 +71,11 @@ func (c *Config) MarshalJSON() ([]byte, error) {
 	}{
 		Alias: (*Alias)(c),
 	}
+
 	if c.AlertThreshold != 0 {
 		aux.AlertThreshold = c.AlertThreshold.String()
 	}
+
 	if c.Auth != nil {
 		aux.Auth = &struct {
 			JWTSecret     string                      `json:"jwt_secret"`
@@ -93,12 +93,11 @@ func (c *Config) MarshalJSON() ([]byte, error) {
 			aux.Auth.JWTExpiration = c.Auth.JWTExpiration.String()
 		}
 	}
+
 	return json.Marshal(aux)
 }
 
 func (c *Config) UnmarshalJSON(data []byte) error {
-	log.Println("Entering core.Config.UnmarshalJSON")
-
 	type Alias Config
 
 	aux := &struct {
