@@ -40,6 +40,20 @@ var (
 	errTemplateExecution = errors.New("template execution failed")
 )
 
+func (w *WebhookConfig) MarshalJSON() ([]byte, error) {
+	type Alias WebhookConfig
+	aux := &struct {
+		Cooldown string `json:"cooldown,omitempty"`
+		*Alias
+	}{
+		Alias: (*Alias)(w),
+	}
+	if w.Cooldown != 0 {
+		aux.Cooldown = w.Cooldown.String() // Convert time.Duration to string (e.g., "5m")
+	}
+	return json.Marshal(aux)
+}
+
 type WebhookConfig struct {
 	Enabled  bool          `json:"enabled"`
 	URL      string        `json:"url"`
