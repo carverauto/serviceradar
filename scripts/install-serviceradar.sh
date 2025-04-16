@@ -20,7 +20,7 @@
 set -e
 
 # Configuration
-VERSION="1.0.31"
+VERSION="1.0.32"
 RELEASE_URL="https://github.com/carverauto/serviceradar/releases/download/${VERSION}"
 TEMP_DIR="/tmp/serviceradar-install"
 
