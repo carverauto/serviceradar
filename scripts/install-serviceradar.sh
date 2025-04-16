@@ -291,6 +291,45 @@ should_install_checker() {
     fi
 }
 
+# Update core.json with new admin password bcrypt hash
+update_core_config() {
+    if [ "$INSTALL_CORE" != "true" ]; then
+        return
+    fi
+
+    header "Configuring Admin Password"
+    local config_file="/etc/serviceradar/core.json"
+    local password=""
+
+    if [ "$INTERACTIVE" = "true" ]; then
+        echo -e "${COLOR_CYAN}Enter new admin password (leave blank for random generation):${COLOR_RESET} \c"
+        read -s password
+        echo
+        if [ -z "$password" ]; then
+            password=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
+            info "Generated random password: ${COLOR_YELLOW}${password}${COLOR_RESET}"
+        fi
+    else
+        # Non-interactive mode: check for environment variable or generate random
+        password="${SERVICERADAR_ADMIN_PASSWORD:-}"
+        if [ -z "$password" ]; then
+            password=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
+            info "Generated random password: ${COLOR_YELLOW}${password}${COLOR_RESET}"
+        fi
+    fi
+
+    # Generate bcrypt hash using serviceradar-cli
+    log "Generating bcrypt hash for admin password..."
+    local bcrypt_hash
+    bcrypt_hash=$(echo "$password" | serviceradar-cli 2>/dev/null) || error "Failed to generate bcrypt hash using serviceradar-cli"
+    success "Bcrypt hash generated successfully!"
+
+    # Update core.json using serviceradar-cli (assuming we'll add this functionality)
+    log "Updating ${config_file} with new admin password hash..."
+    serviceradar-cli update-config --file "$config_file" --admin-hash "$bcrypt_hash" || error "Failed to update ${config_file}"
+    success "Configuration file updated successfully!"
+}
+
 # Main installation logic
 main() {
     display_banner
@@ -382,6 +421,9 @@ main() {
     else
         install_packages "${checker_packages[@]}"
     fi
+
+    # Update core.json with new admin password
+    update_core_config
 
     header "Cleaning Up"
     log "Removing temporary files..."
