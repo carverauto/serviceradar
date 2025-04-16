@@ -10,7 +10,7 @@
         "max_nodes": 10000
     },
     "security": {
-        "mode": "mtls",
+        "mode": "none",
         "cert_dir": "/etc/serviceradar/certs",
         "role": "core",
         "tls": {
@@ -21,7 +21,7 @@
         }
     },
     "cors": {
-        "allowed_origins": ["https://changeme"],
+        "allowed_origins": ["*"],
         "allow_credentials": true
     },
     "auth": {

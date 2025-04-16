@@ -3,7 +3,7 @@
         "local-agent": {
             "address": "127.0.0.1:50051",
             "security": {
-                "server_name": "changeme",
+                "server_name": "127.0.0.1",
                 "mode": "none"
             },
             "checks": [
@@ -25,7 +25,7 @@
             ]
         }
     },
-    "core_address": "changeme:50052",
+    "core_address": "127.0.0.1:50052",
     "listen_addr": ":50053",
     "poll_interval": "30s",
     "poller_id": "default-poller",
