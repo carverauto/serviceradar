@@ -109,7 +109,6 @@ chown -R nats:nats /etc/nats /var/lib/nats /var/log/nats
 chmod 755 /usr/bin/nats-server
 chmod 644 /etc/nats/nats-server.conf
 chmod -R 750 /var/lib/nats /var/log/nats
-chmod 600 /etc/serviceradar/api.env  # Ensure api.env has restrictive permissions
 usermod -a -G serviceradar nats
 
 # Add nats user to serviceradar group if it exists
