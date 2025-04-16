@@ -271,12 +271,12 @@ The Sync service is distributed as a separate package:
 
 ```bash
 # Debian/Ubuntu
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.31/serviceradar-sync_1.0.31.deb
-sudo dpkg -i serviceradar-sync_1.0.31.deb
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.32/serviceradar-sync_1.0.32.deb
+sudo dpkg -i serviceradar-sync_1.0.32.deb
 
 # RHEL/Oracle Linux
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.31/serviceradar-sync-1.0.31-1.el9.x86_64.rpm
-sudo dnf install -y ./serviceradar-sync-1.0.31-1.el9.x86_64.rpm
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.32/serviceradar-sync-1.0.32-1.el9.x86_64.rpm
+sudo dnf install -y ./serviceradar-sync-1.0.32-1.el9.x86_64.rpm
 ```
 
 ### 2. Configure the Sync Service
