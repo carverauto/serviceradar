@@ -11,20 +11,22 @@ RELEASE_DIR="${BASE_DIR}/release-artifacts"
 usage() {
     local components
     components=$(jq -r '.[].name' "$CONFIG_FILE" | tr '\n' ' ')
-    echo "Usage: $0 --type=[deb|rpm] [--all | component_name]"
+    echo "Usage: $0 --type=[deb|rpm] [--all | all | component_name]"
     echo "Components: $components"
     exit 1
 }
 
 # Parse arguments
 package_type=""
+build_all=false
+component=""
 while [[ $# -gt 0 ]]; do
     case $1 in
         --type=*)
             package_type="${1#*=}"
             shift
             ;;
-        --all)
+        --all|all)
             build_all=true
             shift
             ;;
@@ -35,6 +37,9 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Debug argument parsing
+echo "Parsed arguments: package_type='$package_type', build_all='$build_all', component='$component'"
+
 [ -z "$package_type" ] && { echo "Error: --type must be specified (deb or rpm)"; usage; }
 [ "$package_type" != "deb" ] && [ "$package_type" != "rpm" ] && { echo "Error: --type must be deb or rpm"; usage; }
 
@@ -43,8 +48,8 @@ command -v jq >/dev/null 2>&1 || { echo "Error: jq is required"; exit 1; }
 [ -f "$CONFIG_FILE" ] || { echo "Error: Config file $CONFIG_FILE not found"; exit 1; }
 
 # Create release directory
-mkdir -p "$RELEASE_DIR"
-[ "$package_type" = "rpm" ] && mkdir -p "$RELEASE_DIR/rpm/$VERSION"
+mkdir -p "$RELEASE_DIR" || { echo "Error: Failed to create release directory $RELEASE_DIR"; exit 1; }
+[ "$package_type" = "rpm" ] && mkdir -p "$RELEASE_DIR/rpm/$VERSION" || true
 
 # Function to build a single component
 build_component() {
@@ -66,7 +71,8 @@ build_component() {
     section=$(echo "$config" | jq -r '.section')
     priority=$(echo "$config" | jq -r '.priority')
     depends=$(echo "$config" | jq -r ".$package_type.depends | join(\", \")")
-    build_method=$(echo "$config" | jq -r '.binary.build_method // "none"')
+    # Check top-level build_method first, then binary.build_method
+    build_method=$(echo "$config" | jq -r '.build_method // .binary.build_method // "none"')
     dockerfile=$(echo "$config" | jq -r ".$package_type.dockerfile // empty")
     rpm_release=$(echo "$config" | jq -r '.rpm.release // "1"')
 
@@ -93,7 +99,7 @@ build_component() {
         # Set up package directory
         local pkg_root="${BASE_DIR}/${package_name}_${version}"
         rm -rf "$pkg_root"
-        mkdir -p "${pkg_root}/DEBIAN"
+        mkdir -p "${pkg_root}/DEBIAN" || { echo "Error: Failed to create directory ${pkg_root}/DEBIAN"; exit 1; }
 
         # Build binary or assets
         if [ "$build_method" = "go" ]; then
@@ -116,6 +122,7 @@ build_component() {
             echo "Listing container contents at /src..."
             docker run --rm "${package_name}-builder" ls -l /src || { echo "Error: Failed to list container contents"; exit 1; }
             echo "Copying binary from container: /src/${package_name} to ${pkg_root}${output_path}"
+            mkdir -p "$(dirname "${pkg_root}${output_path}")" || { echo "Error: Failed to create directory $(dirname "${pkg_root}${output_path}")"; exit 1; }
             docker cp "${container_id}:/src/${package_name}" "${pkg_root}${output_path}" || { echo "Error: Failed to copy binary"; exit 1; }
             ls -l "${pkg_root}${output_path}" || { echo "Error: Binary not copied to package root"; exit 1; }
             test -s "${pkg_root}${output_path}" || { echo "Error: Binary is empty"; exit 1; }
@@ -125,19 +132,23 @@ build_component() {
             build_dir=$(echo "$config" | jq -r '.build_dir')
             output_dir=$(echo "$config" | jq -r '.output_dir')
             echo "Building Next.js application in $build_dir..."
+            mkdir -p "${pkg_root}${output_dir}" || { echo "Error: Failed to create directory ${pkg_root}${output_dir}"; exit 1; }
             cd "${BASE_DIR}/${build_dir}"
-            npm install
-            npm run build
-            cp -r .next/standalone/* "${pkg_root}${output_dir}/"
-            cp -r .next/static "${pkg_root}${output_dir}/.next/"
-            [ -d "public" ] && cp -r public "${pkg_root}${output_dir}/"
+            npm install || { echo "Error: npm install failed"; exit 1; }
+            npm run build || { echo "Error: npm build failed"; exit 1; }
+            cp -r .next/standalone/* "${pkg_root}${output_dir}/" || { echo "Error: Failed to copy .next/standalone"; exit 1; }
+            cp -r .next/static "${pkg_root}${output_dir}/.next/" || { echo "Error: Failed to copy .next/static"; exit 1; }
+            [ -d "public" ] && cp -r public "${pkg_root}${output_dir}/" || echo "No public directory found, skipping"
             cd "${BASE_DIR}"
+            find "${pkg_root}${output_dir}" -type f | head -n 5 || echo "No files found in ${pkg_root}${output_dir}"
         elif [ "$build_method" = "rust" ] && [ -n "$dockerfile" ]; then
             local output_path
             output_path=$(echo "$config" | jq -r '.binary.output_path')
             echo "Building Rust binary with Docker ($dockerfile)..."
             docker build --platform linux/amd64 -f "${BASE_DIR}/${dockerfile}" -t "${package_name}-builder" "${BASE_DIR}" || { echo "Error: Docker build failed"; exit 1; }
             docker create --name temp-builder "${package_name}-builder"
+            echo "Creating directory for binary: $(dirname "${pkg_root}${output_path}")"
+            mkdir -p "$(dirname "${pkg_root}${output_path}")" || { echo "Error: Failed to create directory $(dirname "${pkg_root}${output_path}")"; exit 1; }
             docker cp temp-builder:/usr/local/bin/${package_name} "${pkg_root}${output_path}" || { echo "Error: Failed to copy binary"; exit 1; }
             ls -l "${pkg_root}${output_path}" || { echo "Error: Binary not copied to package root"; exit 1; }
             test -s "${pkg_root}${output_path}" || { echo "Error: Binary is empty"; exit 1; }
@@ -148,10 +159,11 @@ build_component() {
             extract_path=$(echo "$config" | jq -r '.external_binary.extract_path')
             output_path=$(echo "$config" | jq -r '.external_binary.output_path')
             if [ ! -f "$extract_path" ]; then
-                curl -LO "$url"
-                tar -xzf "$(basename "$url")"
+                curl -LO "$url" || { echo "Error: Failed to download $url"; exit 1; }
+                tar -xzf "$(basename "$url")" || { echo "Error: Failed to extract $(basename "$url")"; exit 1; }
             fi
-            mkdir -p "$(dirname "${pkg_root}${output_path}")"
+            echo "Creating directory for external binary: $(dirname "${pkg_root}${output_path}")"
+            mkdir -p "$(dirname "${pkg_root}${output_path}")" || { echo "Error: Failed to create directory $(dirname "${pkg_root}${output_path}")"; exit 1; }
             cp "$extract_path" "${pkg_root}${output_path}" || { echo "Error: Failed to copy external binary"; exit 1; }
             ls -l "${pkg_root}${output_path}" || { echo "Error: External binary not copied"; exit 1; }
         else
@@ -162,7 +174,7 @@ build_component() {
         # Create additional directories
         additional_dirs=$(echo "$config" | jq -r '.additional_dirs[]' 2>/dev/null || echo "")
         for dir in $additional_dirs; do
-            mkdir -p "${pkg_root}${dir}"
+            mkdir -p "${pkg_root}${dir}" || { echo "Error: Failed to create additional directory ${pkg_root}${dir}"; exit 1; }
         done
 
         # Copy config files
@@ -175,7 +187,7 @@ build_component() {
                 echo "Skipping optional file/directory $src"
                 continue
             fi
-            mkdir -p "$(dirname "${pkg_root}${dest}")"
+            mkdir -p "$(dirname "${pkg_root}${dest}")" || { echo "Error: Failed to create directory $(dirname "${pkg_root}${dest}")"; exit 1; }
             if [ -d "${BASE_DIR}/${src}" ]; then
                 cp -r "${BASE_DIR}/${src}" "${pkg_root}${dest}" || { echo "Error: Failed to copy directory $src"; exit 1; }
             else
@@ -189,7 +201,7 @@ build_component() {
         systemd_src=$(echo "$config" | jq -r '.systemd_service.source // empty')
         systemd_dest=$(echo "$config" | jq -r '.systemd_service.dest // empty')
         if [ -n "$systemd_src" ] && [ -n "$systemd_dest" ]; then
-            mkdir -p "$(dirname "${pkg_root}${systemd_dest}")"
+            mkdir -p "$(dirname "${pkg_root}${systemd_dest}")" || { echo "Error: Failed to create directory $(dirname "${pkg_root}${systemd_dest}")"; exit 1; }
             cp "${BASE_DIR}/${systemd_src}" "${pkg_root}${systemd_dest}" || { echo "Error: Failed to copy systemd service $systemd_src"; exit 1; }
             ls -l "${pkg_root}${systemd_dest}" || { echo "Error: Systemd service not copied"; exit 1; }
         fi
@@ -206,6 +218,7 @@ Maintainer: ${maintainer}
 Description: ${description}
 EOF
         ls -l "${pkg_root}/DEBIAN/control" || { echo "Error: Control file not created"; exit 1; }
+        chmod 644 "${pkg_root}/DEBIAN/control" || { echo "Error: Failed to set permissions on control file"; exit 1; }
 
         # Create conffiles
         local conffiles
@@ -213,6 +226,7 @@ EOF
         if [ -n "$conffiles" ]; then
             echo "$conffiles" > "${pkg_root}/DEBIAN/conffiles"
             ls -l "${pkg_root}/DEBIAN/conffiles" || { echo "Error: Conffiles not created"; exit 1; }
+            chmod 644 "${pkg_root}/DEBIAN/conffiles" || { echo "Error: Failed to set permissions on conffiles"; exit 1; }
         fi
 
         # Copy postinst and prerm scripts
@@ -221,7 +235,7 @@ EOF
             src=$(echo "$config" | jq -r ".${script}.source // empty")
             if [ -n "$src" ]; then
                 cp "${BASE_DIR}/${src}" "${pkg_root}/DEBIAN/${script}" || { echo "Error: Failed to copy $script script $src"; exit 1; }
-                chmod 755 "${pkg_root}/DEBIAN/${script}"
+                chmod 755 "${pkg_root}/DEBIAN/${script}" || { echo "Error: Failed to set permissions on $script script"; exit 1; }
                 ls -l "${pkg_root}/DEBIAN/${script}" || { echo "Error: $script script not copied"; exit 1; }
             fi
         done
@@ -229,6 +243,9 @@ EOF
         # Log package root contents before building
         echo "Package root contents before building:"
         find "${pkg_root}" -type f -exec ls -l {} \;
+
+        # Ensure permissions for DEBIAN directory
+        chmod -R u+rw "${pkg_root}/DEBIAN" || { echo "Error: Failed to set permissions on DEBIAN directory"; exit 1; }
 
         # Build package
         dpkg-deb --root-owner-group --build "$pkg_root" || { echo "Error: dpkg-deb failed"; exit 1; }
