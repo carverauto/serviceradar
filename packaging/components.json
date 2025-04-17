@@ -1,0 +1,581 @@
+[
+  {
+    "name": "core",
+    "package_name": "serviceradar-core",
+    "version": "1.0.32",
+    "description": "ServiceRadar Core API service",
+    "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
+    "architecture": "amd64",
+    "section": "utils",
+    "priority": "optional",
+    "deb": {
+      "depends": ["systemd"],
+      "dockerfile": "docker/deb/Dockerfile.core"
+    },
+    "rpm": {
+      "depends": ["systemd"],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.core",
+      "release": "1"
+    },
+    "binary": {
+      "source_path": "cmd/core",
+      "build_method": "docker",
+      "output_path": "/usr/local/bin/serviceradar-core"
+    },
+    "config_files": [
+      {
+        "source": "packaging/core/config/core.json",
+        "dest": "/etc/serviceradar/core.json"
+      },
+      {
+        "source": "packaging/core/config/api.env",
+        "dest": "/etc/serviceradar/api.env",
+        "optional": true
+      }
+    ],
+    "systemd_service": {
+      "source": "packaging/core/systemd/serviceradar-core.service",
+      "dest": "/lib/systemd/system/serviceradar-core.service"
+    },
+    "postinst": {
+      "source": "packaging/core/scripts/postinstall.sh"
+    },
+    "prerm": {
+      "source": "packaging/core/scripts/preremove.sh"
+    },
+    "conffiles": [
+      "/etc/serviceradar/core.json",
+      "/etc/serviceradar/api.env"
+    ]
+  },
+  {
+    "name": "web",
+    "package_name": "serviceradar-web",
+    "version": "1.0.32",
+    "description": "ServiceRadar web interface",
+    "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
+    "architecture": "amd64",
+    "section": "utils",
+    "priority": "optional",
+    "deb": {
+      "depends": ["systemd", "nodejs (>= 16.0.0)", "nginx"],
+      "dockerfile": null
+    },
+    "rpm": {
+      "depends": ["systemd", "nodejs", "nginx"],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.web",
+      "release": "1"
+    },
+    "build_method": "npm",
+    "build_dir": "web",
+    "output_dir": "/usr/local/share/serviceradar-web",
+    "config_files": [
+      {
+        "source": "packaging/config/web.json",
+        "dest": "/etc/serviceradar/web.json"
+      },
+      {
+        "source": "packaging/core/config/nginx.conf",
+        "dest": "/etc/nginx/conf.d/serviceradar-web.conf"
+      }
+    ],
+    "systemd_service": {
+      "source": "packaging/web/systemd/serviceradar-web.service",
+      "dest": "/lib/systemd/system/serviceradar-web.service"
+    },
+    "postinst": {
+      "source": "packaging/web/scripts/postinst.sh"
+    },
+    "prerm": {
+      "source": "packaging/web/scripts/prerm.sh"
+    },
+    "conffiles": [
+      "/etc/serviceradar/web.json",
+      "/etc/nginx/conf.d/serviceradar-web.conf"
+    ]
+  },
+  {
+    "name": "agent",
+    "package_name": "serviceradar-agent",
+    "version": "1.0.32",
+    "description": "ServiceRadar Agent Service",
+    "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
+    "architecture": "amd64",
+    "section": "utils",
+    "priority": "optional",
+    "deb": {
+      "depends": ["systemd"],
+      "dockerfile": null
+    },
+    "rpm": {
+      "depends": ["systemd", "libcap"],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.simple",
+      "release": "1"
+    },
+    "binary": {
+      "source_path": "cmd/agent",
+      "build_method": "go",
+      "output_path": "/usr/local/bin/serviceradar-agent"
+    },
+    "config_files": [
+      {
+        "source": "packaging/agent/config/agent.json",
+        "dest": "/etc/serviceradar/agent.json"
+      },
+      {
+        "source": "packaging/agent/config/checkers/sweep/sweep.json",
+        "dest": "/etc/serviceradar/checkers/sweep/sweep.json"
+      }
+    ],
+    "systemd_service": {
+      "source": "packaging/agent/systemd/serviceradar-agent.service",
+      "dest": "/lib/systemd/system/serviceradar-agent.service"
+    },
+    "postinst": {
+      "source": "packaging/agent/scripts/postinstall.sh"
+    },
+    "prerm": {
+      "source": "packaging/agent/scripts/preremove.sh"
+    },
+    "conffiles": [
+      "/etc/serviceradar/agent.json",
+      "/etc/serviceradar/checkers/sweep/sweep.json"
+    ]
+  },
+  {
+    "name": "poller",
+    "package_name": "serviceradar-poller",
+    "version": "1.0.32",
+    "description": "ServiceRadar Poller Service",
+    "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
+    "architecture": "amd64",
+    "section": "utils",
+    "priority": "optional",
+    "deb": {
+      "depends": ["systemd"],
+      "dockerfile": null
+    },
+    "rpm": {
+      "depends": ["systemd"],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.simple",
+      "release": "1"
+    },
+    "binary": {
+      "source_path": "cmd/poller",
+      "build_method": "go",
+      "output_path": "/usr/local/bin/serviceradar-poller"
+    },
+    "config_files": [
+      {
+        "source": "packaging/poller/config/poller.json",
+        "dest": "/etc/serviceradar/poller.json",
+        "optional": true
+      }
+    ],
+    "systemd_service": {
+      "source": "packaging/poller/systemd/serviceradar-poller.service",
+      "dest": "/lib/systemd/system/serviceradar-poller.service"
+    },
+    "postinst": {
+      "source": "packaging/poller/scripts/postinstall.sh"
+    },
+    "prerm": {
+      "source": "packaging/poller/scripts/preremove.sh"
+    },
+    "conffiles": [
+      "/etc/serviceradar/poller.json"
+    ]
+  },
+  {
+    "name": "nats",
+    "package_name": "serviceradar-nats",
+    "version": "1.0.32",
+    "description": "ServiceRadar NATS JetStream service",
+    "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
+    "architecture": "amd64",
+    "section": "utils",
+    "priority": "optional",
+    "deb": {
+      "depends": ["systemd"],
+      "dockerfile": null
+    },
+    "rpm": {
+      "depends": ["systemd"],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.nats",
+      "release": "1"
+    },
+    "build_method": "external",
+    "external_binary": {
+      "source_url": "https://github.com/nats-io/nats-server/releases/download/v2.11.1/nats-server-v2.11.1-linux-amd64.tar.gz",
+      "extract_path": "nats-server-v2.11.1-linux-amd64/nats-server",
+      "output_path": "/usr/bin/nats-server"
+    },
+    "config_files": [
+      {
+        "source": "packaging/nats/config/nats-server.conf",
+        "dest": "/etc/nats/nats-server.conf"
+      }
+    ],
+    "systemd_service": {
+      "source": "packaging/nats/systemd/serviceradar-nats.service",
+      "dest": "/lib/systemd/system/serviceradar-nats.service"
+    },
+    "postinst": {
+      "source": "packaging/nats/scripts/postinst.sh"
+    },
+    "prerm": {
+      "source": "packaging/nats/scripts/prerm.sh"
+    },
+    "conffiles": [
+      "/etc/nats/nats-server.conf"
+    ],
+    "additional_dirs": [
+      "/var/lib/nats/jetstream",
+      "/var/log/nats"
+    ]
+  },
+  {
+    "name": "kv",
+    "package_name": "serviceradar-kv",
+    "version": "1.0.32",
+    "description": "ServiceRadar Key-Value store",
+    "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
+    "architecture": "amd64",
+    "section": "utils",
+    "priority": "optional",
+    "deb": {
+      "depends": ["systemd"],
+      "dockerfile": null
+    },
+    "rpm": {
+      "depends": ["systemd"],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.simple",
+      "release": "1"
+    },
+    "binary": {
+      "source_path": "cmd/kv",
+      "build_method": "go",
+      "output_path": "/usr/local/bin/serviceradar-kv"
+    },
+    "config_files": [
+      {
+        "source": "packaging/kv/config/kv.json",
+        "dest": "/etc/serviceradar/kv.json"
+      }
+    ],
+    "systemd_service": {
+      "source": "packaging/kv/systemd/serviceradar-kv.service",
+      "dest": "/lib/systemd/system/serviceradar-kv.service"
+    },
+    "postinst": {
+      "source": "packaging/kv/scripts/postinst.sh"
+    },
+    "prerm": {
+      "source": "packaging/kv/scripts/prerm.sh"
+    },
+    "conffiles": [
+      "/etc/serviceradar/kv.json"
+    ]
+  },
+  {
+    "name": "sync",
+    "package_name": "serviceradar-sync",
+    "version": "1.0.32",
+    "description": "ServiceRadar Key-Value store Sync service",
+    "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
+    "architecture": "amd64",
+    "section": "utils",
+    "priority": "optional",
+    "deb": {
+      "depends": ["systemd"],
+      "dockerfile": null
+    },
+    "rpm": {
+      "depends": ["systemd"],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.simple",
+      "release": "1"
+    },
+    "binary": {
+      "source_path": "cmd/sync",
+      "build_method": "go",
+      "output_path": "/usr/local/bin/serviceradar-sync"
+    },
+    "config_files": [
+      {
+        "source": "packaging/sync/config/sync.json",
+        "dest": "/etc/serviceradar/sync.json"
+      }
+    ],
+    "systemd_service": {
+      "source": "packaging/sync/systemd/serviceradar-sync.service",
+      "dest": "/lib/systemd/system/serviceradar-sync.service"
+    },
+    "postinst": {
+      "source": "packaging/sync/scripts/postinst.sh"
+    },
+    "prerm": {
+      "source": "packaging/sync/scripts/prerm.sh"
+    },
+    "conffiles": [
+      "/etc/serviceradar/sync.json"
+    ]
+  },
+  {
+    "name": "dusk-checker",
+    "package_name": "serviceradar-dusk",
+    "version": "1.0.32",
+    "description": "ServiceRadar Dusk node checker",
+    "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
+    "architecture": "amd64",
+    "section": "utils",
+    "priority": "optional",
+    "deb": {
+      "depends": ["systemd"],
+      "dockerfile": null
+    },
+    "rpm": {
+      "depends": ["systemd"],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.simple",
+      "release": "1"
+    },
+    "binary": {
+      "source_path": "cmd/checkers/dusk",
+      "build_method": "go",
+      "output_path": "/usr/local/bin/dusk-checker"
+    },
+    "config_files": [
+      {
+        "source": "packaging/dusk-checker/config/dusk.json",
+        "dest": "/etc/serviceradar/checkers/dusk.json"
+      },
+      {
+        "source": "packaging/dusk-checker/config/external.json",
+        "dest": "/etc/serviceradar/checkers/external.json"
+      }
+    ],
+    "systemd_service": {
+      "source": "packaging/dusk-checker/systemd/serviceradar-dusk-checker.service",
+      "dest": "/lib/systemd/system/serviceradar-dusk-checker.service"
+    },
+    "postinst": {
+      "source": "packaging/dusk-checker/scripts/postinst.sh"
+    },
+    "prerm": {
+      "source": "packaging/dusk-checker/scripts/prerm.sh"
+    },
+    "conffiles": [
+      "/etc/serviceradar/checkers/dusk.json",
+      "/etc/serviceradar/checkers/external.json"
+    ]
+  },
+  {
+    "name": "snmp-checker",
+    "package_name": "serviceradar-snmp-checker",
+    "version": "1.0.32",
+    "description": "ServiceRadar SNMP poller",
+    "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
+    "architecture": "amd64",
+    "section": "utils",
+    "priority": "optional",
+    "deb": {
+      "depends": ["systemd"],
+      "dockerfile": null
+    },
+    "rpm": {
+      "depends": ["systemd"],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.simple",
+      "release": "1"
+    },
+    "binary": {
+      "source_path": "cmd/checkers/snmp",
+      "build_method": "go",
+      "output_path": "/usr/local/bin/serviceradar-snmp-checker"
+    },
+    "config_files": [
+      {
+        "source": "packaging/snmp-checker/config/checkers/snmp.json",
+        "dest": "/etc/serviceradar/checkers/snmp.json"
+      }
+    ],
+    "systemd_service": {
+      "source": "packaging/snmp-checker/systemd/serviceradar-snmp-checker.service",
+      "dest": "/lib/systemd/system/serviceradar-snmp-checker.service"
+    },
+    "postinst": {
+      "source": "packaging/snmp-checker/scripts/postinst.sh"
+    },
+    "prerm": {
+      "source": "packaging/snmp-checker/scripts/prerm.sh"
+    },
+    "conffiles": [
+      "/etc/serviceradar/checkers/snmp.json"
+    ]
+  },
+  {
+    "name": "rperf-server",
+    "package_name": "serviceradar-rperf",
+    "version": "1.0.32",
+    "description": "ServiceRadar RPerf Network Performance Testing Tool",
+    "maintainer": "Carver Automation Corporation <mfreeman@carverauto.dev>",
+    "architecture": "amd64",
+    "section": "net",
+    "priority": "optional",
+    "deb": {
+      "depends": ["systemd"],
+      "dockerfile": "cmd/checkers/rperf-server/Dockerfile-deb"
+    },
+    "rpm": {
+      "depends": ["systemd"],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.rust",
+      "release": "1"
+    },
+    "binary": {
+      "build_method": "rust",
+      "output_path": "/usr/local/bin/serviceradar-rperf"
+    },
+    "config_files": [],
+    "systemd_service": {
+      "source": "packaging/rperf-server/systemd/serviceradar-rperf.service",
+      "dest": "/lib/systemd/system/serviceradar-rperf.service"
+    },
+    "postinst": {
+      "source": "packaging/rperf-server/scripts/postinst.sh"
+    },
+    "prerm": {
+      "source": "packaging/rperf-server/scripts/prerm.sh"
+    },
+    "conffiles": [],
+    "additional_dirs": [
+      "/var/log/rperf"
+    ]
+  },
+  {
+    "name": "rperf-client",
+    "package_name": "serviceradar-rperf-checker",
+    "version": "1.0.32",
+    "description": "ServiceRadar RPerf Network Performance Test Checker",
+    "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
+    "architecture": "amd64",
+    "section": "net",
+    "priority": "optional",
+    "deb": {
+      "depends": ["systemd"],
+      "dockerfile": "cmd/checkers/rperf-client/Dockerfile"
+    },
+    "rpm": {
+      "depends": ["systemd"],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.rust",
+      "release": "1"
+    },
+    "binary": {
+      "build_method": "rust",
+      "output_path": "/usr/local/bin/serviceradar-rperf-checker"
+    },
+    "custom_steps": [
+      {
+        "type": "command",
+        "command": "protoc -I=proto --go_out=proto --go_opt=paths=source_relative --go-grpc_out=proto --go-grpc_opt=paths=source_relative proto/rperf/rperf.proto"
+      }
+    ],
+    "config_files": [
+      {
+        "source": "packaging/rperf-client/config/rperf.json.example",
+        "dest": "/etc/serviceradar/checkers/rperf.json.example"
+      }
+    ],
+    "systemd_service": {
+      "source": "packaging/rperf-client/systemd/serviceradar-rperf-checker.service",
+      "dest": "/lib/systemd/system/serviceradar-rperf-checker.service"
+    },
+    "postinst": {
+      "source": "packaging/rperf-client/scripts/postinst.sh"
+    },
+    "prerm": {
+      "source": "packaging/rperf-client/scripts/prerm.sh"
+    },
+    "conffiles": [
+      "/etc/serviceradar/checkers/rperf.json"
+    ]
+  },
+  {
+    "name": "cli",
+    "package_name": "serviceradar-cli",
+    "version": "1.0.31",
+    "description": "ServiceRadar CLI tool",
+    "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
+    "architecture": "amd64",
+    "section": "utils",
+    "priority": "optional",
+    "deb": {
+      "depends": [],
+      "dockerfile": null
+    },
+    "rpm": {
+      "depends": [],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.simple",
+      "release": "1"
+    },
+    "binary": {
+      "source_path": "cmd/cli",
+      "build_method": "go",
+      "output_path": "/usr/local/bin/serviceradar"
+    },
+    "config_files": [],
+    "systemd_service": null,
+    "postinst": {
+      "source": "packaging/cli/scripts/postinstall.sh"
+    },
+    "prerm": {
+      "source": "packaging/cli/scripts/preremove.sh"
+    },
+    "conffiles": []
+  },
+  {
+    "name": "sysmon",
+    "package_name": "serviceradar-sysmon",
+    "version": "1.0.32",
+    "description": "ServiceRadar System Monitor checker",
+    "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
+    "architecture": "amd64",
+    "section": "utils",
+    "priority": "optional",
+    "deb": {
+      "depends": ["systemd"],
+      "dockerfile": "cmd/checkers/sysmon/Dockerfile"
+    },
+    "rpm": {
+      "depends": ["systemd"],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.rust",
+      "release": "1"
+    },
+    "binary": {
+      "build_method": "rust",
+      "output_path": "/usr/local/bin/serviceradar-sysmon"
+    },
+    "custom_steps": [
+      {
+        "type": "command",
+        "command": "protoc -I=cmd/checkers/sysmon/src/proto --go_out=cmd/checkers/sysmon/src/proto --go_opt=paths=source_relative --go-grpc_out=cmd/checkers/sysmon/src/proto --go-grpc_opt=paths=source_relative cmd/checkers/sysmon/src/proto/monitoring.proto"
+      }
+    ],
+    "config_files": [
+      {
+        "source": "packaging/sysmon/config/sysmon.json.example",
+        "dest": "/etc/serviceradar/checkers/sysmon.json.example"
+      }
+    ],
+    "systemd_service": {
+      "source": "packaging/sysmon/systemd/serviceradar-sysmon.service",
+      "dest": "/lib/systemd/system/serviceradar-sysmon.service"
+    },
+    "postinst": {
+      "source": "packaging/sysmon/scripts/postinst.sh"
+    },
+    "prerm": {
+      "source": "packaging/sysmon/scripts/prerm.sh"
+    },
+    "conffiles": [
+      "/etc/serviceradar/checkers/sysmon.json"
+    ]
+  }
+]

@@ -1,0 +1,234 @@
+#!/bin/bash
+# setup-package.sh - Unified script to build ServiceRadar Debian and RPM packages
+set -e
+
+# Default version
+VERSION=${VERSION:-1.0.32}
+CONFIG_FILE="packaging/components.json"
+BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+RELEASE_DIR="${BASE_DIR}/release-artifacts"
+
+usage() {
+    local components
+    components=$(jq -r '.[].name' "$CONFIG_FILE" | tr '\n' ' ')
+    echo "Usage: $0 --type=[deb|rpm] [--all | component_name]"
+    echo "Components: $components"
+    exit 1
+}
+
+# Parse arguments
+package_type=""
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --type=*)
+            package_type="${1#*=}"
+            shift
+            ;;
+        --all)
+            build_all=true
+            shift
+            ;;
+        *)
+            component="$1"
+            shift
+            ;;
+    esac
+done
+
+[ -z "$package_type" ] && { echo "Error: --type must be specified (deb or rpm)"; usage; }
+[ "$package_type" != "deb" ] && [ "$package_type" != "rpm" ] && { echo "Error: --type must be deb or rpm"; usage; }
+
+# Check dependencies
+command -v jq >/dev/null 2>&1 || { echo "Error: jq is required"; exit 1; }
+[ -f "$CONFIG_FILE" ] || { echo "Error: Config file $CONFIG_FILE not found"; exit 1; }
+
+# Create release directory
+mkdir -p "$RELEASE_DIR"
+[ "$package_type" = "rpm" ] && mkdir -p "$RELEASE_DIR/rpm/$VERSION"
+
+# Function to build a single component
+build_component() {
+    local component="$1"
+    echo "Building $component ($package_type)..."
+
+    # Extract component config
+    local config
+    config=$(jq -r --arg name "$component" '.[] | select(.name == $name)' "$CONFIG_FILE")
+    [ -z "$config" ] && { echo "Error: Component $component not found in $CONFIG_FILE"; exit 1; }
+
+    # Extract fields
+    local package_name version description maintainer architecture section priority
+    package_name=$(echo "$config" | jq -r '.package_name')
+    version=$(echo "$config" | jq -r '.version')
+    description=$(echo "$config" | jq -r '.description')
+    maintainer=$(echo "$config" | jq -r '.maintainer')
+    architecture=$(echo "$config" | jq -r '.architecture')
+    section=$(echo "$config" | jq -r '.section')
+    priority=$(echo "$config" | jq -r '.priority')
+    depends=$(echo "$config" | jq -r ".$package_type.depends | join(\", \")")
+    build_method=$(echo "$config" | jq -r '.build_method // "none"')
+    dockerfile=$(echo "$config" | jq -r ".$package_type.dockerfile // empty")
+    rpm_release=$(echo "$config" | jq -r '.rpm.release // "1"')
+
+    # Execute custom steps
+    custom_steps=$(echo "$config" | jq -c '.custom_steps[]' 2>/dev/null || echo "")
+    if [ -n "$custom_steps" ]; then
+        while read -r step; do
+            cmd=$(echo "$step" | jq -r '.command')
+            echo "Executing custom step: $cmd"
+            eval "$cmd" || { echo "Error: Custom step failed"; exit 1; }
+        done <<< "$custom_steps"
+    fi
+
+    if [ "$package_type" = "deb" ]; then
+        # Set up package directory
+        local pkg_root="${BASE_DIR}/${package_name}_${version}"
+        rm -rf "$pkg_root"
+        mkdir -p "${pkg_root}/DEBIAN"
+
+        # Build binary or assets
+        if [ "$build_method" = "go" ]; then
+            local src_path output_path
+            src_path=$(echo "$config" | jq -r '.binary.source_path')
+            output_path=$(echo "$config" | jq -r '.binary.output_path')
+            echo "Building Go binary from $src_path..."
+            GOOS=linux GOARCH=amd64 go build -o "${pkg_root}${output_path}" "${BASE_DIR}/${src_path}"
+        elif [ "$build_method" = "docker" ] && [ -n "$dockerfile" ]; then
+            local src_path output_path
+            src_path=$(echo "$config" | jq -r '.binary.source_path')
+            output_path=$(echo "$config" | jq -r '.binary.output_path')
+            echo "Building with Docker ($dockerfile)..."
+            docker build --platform linux/amd64 --build-arg VERSION="$version" -f "$dockerfile" -t "${package_name}-builder" .
+            container_id=$(docker create "${package_name}-builder")
+            docker cp "${container_id}:/src/${package_name}" "${pkg_root}${output_path}"
+            docker rm "$container_id"
+        elif [ "$build_method" = "npm" ]; then
+            local build_dir output_dir
+            build_dir=$(echo "$config" | jq -r '.build_dir')
+            output_dir=$(echo "$config" | jq -r '.output_dir')
+            echo "Building Next.js application in $build_dir..."
+            cd "${BASE_DIR}/${build_dir}"
+            npm install
+            npm run build
+            cp -r .next/standalone/* "${pkg_root}${output_dir}/"
+            cp -r .next/static "${pkg_root}${output_dir}/.next/"
+            [ -d "public" ] && cp -r public "${pkg_root}${output_dir}/"
+            cd "${BASE_DIR}"
+        elif [ "$build_method" = "rust" ] && [ -n "$dockerfile" ]; then
+            local output_path
+            output_path=$(echo "$config" | jq -r '.binary.output_path')
+            echo "Building Rust binary with Docker ($dockerfile)..."
+            docker build --platform linux/amd64 -t "${package_name}-builder" -f "$dockerfile" .
+            docker create --name temp-builder "${package_name}-builder"
+            docker cp temp-builder:/usr/local/bin/${package_name} "${pkg_root}${output_path}"
+            docker rm temp-builder
+        elif [ "$build_method" = "external" ]; then
+            local url extract_path output_path
+            url=$(echo "$config" | jq -r '.external_binary.source_url')
+            extract_path=$(echo "$config" | jq -r '.external_binary.extract_path')
+            output_path=$(echo "$config" | jq -r '.external_binary.output_path')
+            if [ ! -f "$extract_path" ]; then
+                curl -LO "$url"
+                tar -xzf "$(basename "$url")"
+            fi
+            mkdir -p "$(dirname "${pkg_root}${output_path}")"
+            cp "$extract_path" "${pkg_root}${output_path}"
+        fi
+
+        # Create additional directories
+        additional_dirs=$(echo "$config" | jq -r '.additional_dirs[]' 2>/dev/null || echo "")
+        for dir in $additional_dirs; do
+            mkdir -p "${pkg_root}${dir}"
+        done
+
+        # Copy config files
+        echo "$config" | jq -c '.config_files[]' | while read -r cfg; do
+            local src dest optional
+            src=$(echo "$cfg" | jq -r '.source')
+            dest=$(echo "$cfg" | jq -r '.dest')
+            optional=$(echo "$cfg" | jq -r '.optional // false')
+            if [ "$optional" = "true" ] && [ ! -f "${BASE_DIR}/${src}" ]; then
+                echo "Skipping optional file $src"
+                continue
+            fi
+            mkdir -p "$(dirname "${pkg_root}${dest}")"
+            cp "${BASE_DIR}/${src}" "${pkg_root}${dest}"
+        done
+
+        # Copy systemd service
+        local systemd_src systemd_dest
+        systemd_src=$(echo "$config" | jq -r '.systemd_service.source // empty')
+        systemd_dest=$(echo "$config" | jq -r '.systemd_service.dest // empty')
+        if [ -n "$systemd_src" ] && [ -n "$systemd_dest" ]; then
+            mkdir -p "$(dirname "${pkg_root}${systemd_dest}")"
+            cp "${BASE_DIR}/${systemd_src}" "${pkg_root}${systemd_dest}"
+        fi
+
+        # Create control file
+        cat > "${pkg_root}/DEBIAN/control" << EOF
+Package: ${package_name}
+Version: ${version}
+Section: ${section}
+Priority: ${priority}
+Architecture: ${architecture}
+Depends: ${depends}
+Maintainer: ${maintainer}
+Description: ${description}
+EOF
+
+        # Create conffiles
+        local conffiles
+        conffiles=$(echo "$config" | jq -r '.conffiles[]' 2>/dev/null | tr '\n' '\0' | xargs -0 -I {} echo {})
+        if [ -n "$conffiles" ]; then
+            echo "$conffiles" > "${pkg_root}/DEBIAN/conffiles"
+        fi
+
+        # Copy postinst and prerm scripts
+        for script in postinst prerm; do
+            local src
+            src=$(echo "$config" | jq -r ".${script}.source // empty")
+            if [ -n "$src" ]; then
+                cp "${BASE_DIR}/${src}" "${pkg_root}/DEBIAN/${script}"
+                chmod 755 "${pkg_root}/DEBIAN/${script}"
+            fi
+        done
+
+        # Build package
+        dpkg-deb --root-owner-group --build "$pkg_root"
+        mv "${pkg_root}.deb" "${RELEASE_DIR}/"
+        echo "Package built: ${RELEASE_DIR}/${package_name}_${version}.deb"
+
+    elif [ "$package_type" = "rpm" ]; then
+        if [ -n "$dockerfile" ]; then
+            echo "Building RPM with Dockerfile $dockerfile..."
+            docker build \
+                --platform linux/amd64 \
+                --build-arg VERSION="$version" \
+                --build-arg RELEASE="$rpm_release" \
+                -f "$dockerfile" \
+                -t "${package_name}-rpm-builder" \
+                .
+            tmp_dir=$(mktemp -d)
+            container_id=$(docker create "${package_name}-rpm-builder")
+            docker cp "$container_id:/rpms/." "$tmp_dir/"
+            docker rm "$container_id"
+            find "$tmp_dir" -name "*.rpm" -exec cp {} "${RELEASE_DIR}/rpm/${version}/" \;
+            rm -rf "$tmp_dir"
+            echo "RPM built: ${RELEASE_DIR}/rpm/${version}/${package_name}-${version}-${rpm_release}.*.rpm"
+        else
+            echo "Warning: No RPM Dockerfile specified for $component, skipping RPM build"
+        fi
+    fi
+}
+
+# Main logic
+if [ "$build_all" = "true" ]; then
+    components=$(jq -r '.[].name' "$CONFIG_FILE")
+    for component in $components; do
+        build_component "$component"
+    done
+elif [ -n "$component" ]; then
+    build_component "$component"
+else
+    usage
+fi
