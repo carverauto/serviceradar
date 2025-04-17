@@ -1,9 +1,0 @@
-Package: serviceradar-cli
-Version: 1.0.32
-Section: utils
-Priority: optional
-Architecture: amd64
-Depends: systemd
-Maintainer: Michael Freeman <mfreeman@carverauto.dev>
-Description: ServiceRadar CLI
-    ServiceRadar CLI is a command line interface for ServiceRadar.

@@ -26,6 +26,8 @@ RPERF_CLIENT_BUILD_DIR ?= cmd/checkers/rperf-client/target/release
 RPERF_CLIENT_BIN ?= serviceradar-rperf-checker
 RPERF_SERVER_BUILD_DIR ?= cmd/checkers/rperf-server/target/release
 RPERF_SERVER_BIN ?= rperf
+SYSMON_BUILD_DIR ?= cmd/checkers/sysmon/target/release
+SYSMON_BIN ?= serviceradar-sysmon
 
 # Version configuration
 VERSION ?= $(shell git describe --tags --always)
@@ -56,6 +58,7 @@ tidy: ## Tidy and format Go code
 	@$(GO) fmt ./...
 	@echo "$(COLOR_BOLD)Formatting Rust code$(COLOR_RESET)"
 	@cd cmd/checkers/rperf-client && $(RUSTFMT) src/*.rs
+	@cd cmd/checkers/sysmon && $(RUSTFMT) src/*.rs
 
 .PHONY: get-golangcilint
 get-golangcilint: ## Install golangci-lint
@@ -68,6 +71,7 @@ lint: get-golangcilint ## Run linting checks
 	@$(GOLANGCI_LINT) run ./...
 	@echo "$(COLOR_BOLD)Running Rust linter$(COLOR_RESET)"
 	@cd cmd/checkers/rperf-client && $(CARGO) clippy -- -D warnings
+	@cd cmd/checkers/sysmon && $(CARGO) clippy -- -D warnings
 
 .PHONY: test
 test: ## Run all tests with coverage
@@ -77,6 +81,7 @@ test: ## Run all tests with coverage
 	@$(GO) test -timeout=10s -race -count=1 -failfast -shuffle=on ./... -coverprofile=./cover.long.profile -covermode=atomic -coverpkg=./...
 	@echo "$(COLOR_BOLD)Running Rust tests$(COLOR_RESET)"
 	@cd cmd/checkers/rperf-client && $(CARGO) test
+	@cd cmd/checkers/sysmon && $(CARGO) test
 
 .PHONY: check-coverage
 check-coverage: test ## Check test coverage against thresholds
@@ -113,6 +118,7 @@ clean: ## Clean up build artifacts
 	@rm -rf bin/
 	@rm -rf serviceradar-*_* release-artifacts/
 	@cd cmd/checkers/rperf-client && $(CARGO) clean
+	@cd cmd/checkers/sysmon && $(CARGO) clean
 
 .PHONY: generate-proto
 generate-proto: ## Generate Go and Rust code from protobuf definitions
@@ -121,6 +127,10 @@ generate-proto: ## Generate Go and Rust code from protobuf definitions
 		--go_out=proto --go_opt=paths=source_relative \
 		--go-grpc_out=proto --go-grpc_opt=paths=source_relative \
 		proto/rperf/rperf.proto
+	@protoc -I=cmd/checkers/sysmon/src/proto \
+		--go_out=cmd/checkers/sysmon/src/proto --go_opt=paths=source_relative \
+		--go-grpc_out=cmd/checkers/sysmon/src/proto --go-grpc_opt=paths=source_relative \
+		cmd/checkers/sysmon/src/proto/monitoring.proto
 	@echo "$(COLOR_BOLD)Generated Go protobuf code$(COLOR_RESET)"
 
 .PHONY: build
@@ -133,12 +143,15 @@ build: generate-proto ## Build all binaries
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-kv cmd/kv/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-sync cmd/sync/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-snmp-checker cmd/checkers/snmp/main.go
-	@echo "$(COLOR_BOLD)Building Rust rperf plugin and server$(COLOR_RESET)"
+	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-cli cmd/cli/main.go
+	@echo "$(COLOR_BOLD)Building Rust binaries$(COLOR_RESET)"
 	@cd cmd/checkers/rperf-client && $(CARGO) build --release
 	@cd cmd/checkers/rperf-server && $(CARGO) build --release
+	@cd cmd/checkers/sysmon && $(CARGO) build --release
 	@mkdir -p bin
 	@cp $(RPERF_CLIENT_BUILD_DIR)/$(RPERF_CLIENT_BIN) bin/serviceradar-rperf-checker
 	@cp $(RPERF_SERVER_BUILD_DIR)/$(RPERF_SERVER_BIN) bin/serviceradar-rperf
+	@cp $(SYSMON_BUILD_DIR)/$(SYSMON_BIN) bin/serviceradar-sysmon
 
 .PHONY: kodata-prep
 kodata-prep: build-web ## Prepare kodata directories
@@ -152,7 +165,7 @@ container-build: kodata-prep ## Build container images with ko
 	@cd cmd/agent && KO_DOCKER_REPO=$(KO_DOCKER_REPO)/serviceradar-agent GOFLAGS="-tags=containers" ko build --platform=$(PLATFORMS) --tags=$(VERSION) --bare .
 	@cd cmd/poller && KO_DOCKER_REPO=$(KO_DOCKER_REPO)/serviceradar-poller GOFLAGS="-tags=containers" ko build --platform=$(PLATFORMS) --tags=$(VERSION) --bare .
 	@echo "$(COLOR_BOLD)Building core container with CGO using Docker (amd64 only)$(COLOR_RESET)"
-	@docker buildx build --platform=linux/amd64 -f Dockerfile.build \
+	@docker buildx build --platform=linux/amd64 -f docker/deb/Dockerfile.build \
 		-t $(KO_DOCKER_REPO)/serviceradar-core:$(VERSION) \
 		--build-arg VERSION=$(VERSION) \
 		--build-arg BUILD_TAGS=containers \
@@ -164,6 +177,11 @@ container-build: kodata-prep ## Build container images with ko
 		-t $(KO_DOCKER_REPO)/serviceradar-rperf-checker:$(VERSION) \
 		--build-arg VERSION=$(VERSION) \
 		.
+	@echo "$(COLOR_BOLD)Building sysmon checker container$(COLOR_RESET)"
+	@docker buildx build --platform linux/amd64 -f cmd/checkers/sysmon/Dockerfile \
+		-t $(KO_DOCKER_REPO)/serviceradar-sysmon:$(VERSION) \
+		--build-arg VERSION=$(VERSION) \
+		.
 
 .PHONY: container-push
 container-push: kodata-prep ## Build and push container images with ko
@@ -171,7 +189,7 @@ container-push: kodata-prep ## Build and push container images with ko
 	@cd cmd/agent && KO_DOCKER_REPO=$(KO_DOCKER_REPO)/serviceradar-agent GOFLAGS="-tags=containers" ko build --platform=$(PLATFORMS) --tags=$(VERSION),latest --bare .
 	@cd cmd/poller && KO_DOCKER_REPO=$(KO_DOCKER_REPO)/serviceradar-poller GOFLAGS="-tags=containers" ko build --platform=$(PLATFORMS) --tags=$(VERSION),latest --bare .
 	@echo "$(COLOR_BOLD)Building and pushing core container with CGO using Docker (amd64 only)$(COLOR_RESET)"
-	@docker buildx build --platform=linux/amd64 -f Dockerfile.build \
+	@docker buildx build --platform=linux/amd64 -f docker/deb/Dockerfile.build \
 		-t $(KO_DOCKER_REPO)/serviceradar-core:$(VERSION) \
 		-t $(KO_DOCKER_REPO)/serviceradar-core:latest \
 		--build-arg VERSION=$(VERSION) \
@@ -185,257 +203,171 @@ container-push: kodata-prep ## Build and push container images with ko
 		-t $(KO_DOCKER_REPO)/serviceradar-rperf-checker:latest \
 		--build-arg VERSION=$(VERSION) \
 		--push .
+	@echo "$(COLOR_BOLD)Building and pushing sysmon checker container$(COLOR_RESET)"
+	@docker buildx build --platform linux/amd64 -f cmd/checkers/sysmon/Dockerfile \
+		-t $(KO_DOCKER_REPO)/serviceradar-sysmon:$(VERSION) \
+		-t $(KO_DOCKER_REPO)/serviceradar-sysmon:latest \
+		--build-arg VERSION=$(VERSION) \
+		--push .
 
 # Build Debian packages
 .PHONY: deb-agent
 deb-agent: build-web ## Build the agent Debian package
 	@echo "$(COLOR_BOLD)Building agent Debian package$(COLOR_RESET)"
-	@./scripts/setup-deb-agent.sh
+	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb agent
 
 .PHONY: deb-poller
 deb-poller: build-web ## Build the poller Debian package
 	@echo "$(COLOR_BOLD)Building poller Debian package$(COLOR_RESET)"
-	@./scripts/setup-deb-poller.sh
+	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb poller
 
 .PHONY: deb-core
 deb-core: build-web ## Build the core Debian package (standard)
 	@echo "$(COLOR_BOLD)Building core Debian package$(COLOR_RESET)"
-	@VERSION=$(VERSION) ./scripts/setup-deb-core.sh
+	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb core
 
 .PHONY: deb-web
 deb-web: build-web ## Build the web Debian package
 	@echo "$(COLOR_BOLD)Building web Debian package$(COLOR_RESET)"
-	@VERSION=$(VERSION) ./scripts/setup-deb-web.sh
+	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb web
 
 .PHONY: deb-kv
-deb-kv: build-kv ## Build the KV Debian package
+deb-kv: ## Build the KV Debian package
 	@echo "$(COLOR_BOLD)Building KV Debian package$(COLOR_RESET)"
-    @VERSION=$(VERSION) ./scripts/setup-deb-kv.sh
+	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb kv
 
 .PHONY: deb-sync
-deb-sync: build-sync ## Build the KV Sync Debian package
+deb-sync: ## Build the KV Sync Debian package
 	@echo "$(COLOR_BOLD)Building KV Sync Debian package$(COLOR_RESET)"
-    @VERSION=$(VERSION) ./scripts/setup-deb-sync.sh
+	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb sync
 
 .PHONY: deb-core-container
 deb-core-container: build-web ## Build the core Debian package with container support
 	@echo "$(COLOR_BOLD)Building core Debian package with container support$(COLOR_RESET)"
-	@VERSION=$(VERSION) BUILD_TAGS=containers ./scripts/setup-deb-core.sh
+	@VERSION=$(VERSION) BUILD_TAGS=containers ./scripts/setup-package.sh --type=deb core
 
 .PHONY: deb-dusk
 deb-dusk: ## Build the Dusk checker Debian package
 	@echo "$(COLOR_BOLD)Building Dusk checker Debian package$(COLOR_RESET)"
-	@./scripts/setup-deb-dusk-checker.sh
+	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb dusk-checker
 
 .PHONY: deb-snmp
 deb-snmp: ## Build the SNMP checker Debian package
 	@echo "$(COLOR_BOLD)Building SNMP checker Debian package$(COLOR_RESET)"
-	@./scripts/setup-deb-snmp-checker.sh
+	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb snmp-checker
 
 .PHONY: deb-rperf-checker
 deb-rperf-checker: ## Build the RPerf checker Debian package
 	@echo "$(COLOR_BOLD)Building RPerf checker Debian package$(COLOR_RESET)"
-	@VERSION=$(VERSION) ./scripts/setup-deb-rperf-client.sh
+	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb rperf-client
 
 .PHONY: deb-rperf
 deb-rperf: ## Build the RPerf server Debian package
 	@echo "$(COLOR_BOLD)Building RPerf server Debian package$(COLOR_RESET)"
-	@VERSION=$(VERSION) ./scripts/setup-deb-rperf-server.sh
+	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb rperf-server
+
+.PHONY: deb-cli
+deb-cli: ## Build the CLI Debian package
+	@echo "$(COLOR_BOLD)Building CLI Debian package$(COLOR_RESET)"
+	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb cli
+
+.PHONY: deb-sysmon
+deb-sysmon: ## Build the Sysmon checker Debian package
+	@echo "$(COLOR_BOLD)Building Sysmon checker Debian package$(COLOR_RESET)"
+	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb sysmon
 
 .PHONY: deb-all
-deb-all: deb-agent deb-poller deb-core deb-web deb-dusk deb-snmp deb-rperf-checker deb-rperf ## Build all Debian packages
-	@echo "$(COLOR_BOLD)All Debian packages built$(COLOR_RESET)"
+deb-all: ## Build all Debian packages
+	@echo "$(COLOR_BOLD)Building all Debian packages$(COLOR_RESET)"
+	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb --all
 
 .PHONY: deb-all-container
-deb-all-container: deb-agent deb-poller deb-core-container deb-web deb-dusk deb-snmp deb-rperf-checker deb-rperf-server ## Build all Debian packages with container support for core
-	@echo "$(COLOR_BOLD)All Debian packages built (with container support for core)$(COLOR_RESET)"
+deb-all-container: ## Build all Debian packages with container support for core
+	@echo "$(COLOR_BOLD)Building all Debian packages with container support for core$(COLOR_RESET)"
+	@VERSION=$(VERSION) BUILD_TAGS=containers ./scripts/setup-package.sh --type=deb core
+	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb agent
+	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb poller
+	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb web
+	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb nats
+	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb kv
+	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb sync
+	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb dusk-checker
+	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb snmp-checker
+	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb rperf-server
+	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb rperf-client
+	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb cli
+	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb sysmon
 
 # Build RPM packages
-
-.PHONY: rpm-prep
-rpm-prep: ## Prepare directory structure for RPM building
-	@echo "$(COLOR_BOLD)Preparing RPM build environment$(COLOR_RESET)"
-	@mkdir -p release-artifacts/rpm
-
 .PHONY: rpm-core
-rpm-core: rpm-prep ## Build the core RPM package
+rpm-core: ## Build the core RPM package
 	@echo "$(COLOR_BOLD)Building core RPM package$(COLOR_RESET)"
-	@VERSION_CLEAN=$$(echo "$(VERSION)" | sed 's/-/_/g'); \
-	docker build \
-		--platform linux/amd64 \
-		--build-arg VERSION="$$VERSION_CLEAN" \
-		--build-arg RELEASE="$(RELEASE)" \
-		-f Dockerfile.rpm.core \
-		-t serviceradar-rpm-core \
-		.
-	@docker create --name temp-core-container serviceradar-rpm-core
-	@docker cp temp-core-container:/rpms/. ./release-artifacts/rpm/
-	@docker rm temp-core-container
+	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=rpm core
 
 .PHONY: rpm-agent
-rpm-agent: rpm-prep ## Build the agent RPM package
+rpm-agent: ## Build the agent RPM package
 	@echo "$(COLOR_BOLD)Building agent RPM package$(COLOR_RESET)"
-	@VERSION_CLEAN=$$(echo "$(VERSION)" | sed 's/-/_/g'); \
-	docker build \
-		--platform linux/amd64 \
-		--build-arg VERSION="$$VERSION_CLEAN" \
-		--build-arg RELEASE="$(RELEASE)" \
-		--build-arg COMPONENT="agent" \
-		--build-arg BINARY_PATH="./cmd/agent" \
-		-f Dockerfile.rpm.simple \
-		-t serviceradar-rpm-agent \
-		.
-	@docker create --name temp-agent-container serviceradar-rpm-agent
-	@docker cp temp-agent-container:/rpms/. ./release-artifacts/rpm/
-	@docker rm temp-agent-container
+	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=rpm agent
 
 .PHONY: rpm-poller
-rpm-poller: rpm-prep ## Build the poller RPM package
+rpm-poller: ## Build the poller RPM package
 	@echo "$(COLOR_BOLD)Building poller RPM package$(COLOR_RESET)"
-	@VERSION_CLEAN=$$(echo "$(VERSION)" | sed 's/-/_/g'); \
-	docker build \
-		--platform linux/amd64 \
-		--build-arg VERSION="$$VERSION_CLEAN" \
-		--build-arg RELEASE="$(RELEASE)" \
-		--build-arg COMPONENT="poller" \
-		--build-arg BINARY_PATH="./cmd/poller" \
-		-f Dockerfile.rpm.simple \
-		-t serviceradar-rpm-poller \
-		.
-	@docker create --name temp-poller-container serviceradar-rpm-poller
-	@docker cp temp-poller-container:/rpms/. ./release-artifacts/rpm/
-	@docker rm temp-poller-container
-
-.PHONY: rpm-kv
-rpm-kv: rpm-prep ## Build the poller RPM package
-	@echo "$(COLOR_BOLD)Building KV RPM package$(COLOR_RESET)"
-	@VERSION_CLEAN=$$(echo "$(VERSION)" | sed 's/-/_/g'); \
-	docker build \
-		--platform linux/amd64 \
-		--build-arg VERSION="$$VERSION_CLEAN" \
-		--build-arg RELEASE="$(RELEASE)" \
-		--build-arg COMPONENT="kv" \
-		--build-arg BINARY_PATH="./cmd/kv" \
-		-f Dockerfile.rpm.simple \
-		-t serviceradar-rpm-kv \
-		.
-	@docker create --name temp-kv-container serviceradar-rpm-kv
-	@docker cp temp-kv-container:/rpms/. ./release-artifacts/rpm/
-	@docker rm temp-kv-container
-
-.PHONY: rpm-sync
-rpm-sync: rpm-prep ## Build the poller RPM package
-	@echo "$(COLOR_BOLD)Building sync RPM package$(COLOR_RESET)"
-	@VERSION_CLEAN=$$(echo "$(VERSION)" | sed 's/-/_/g'); \
-	docker build \
-		--platform linux/amd64 \
-		--build-arg VERSION="$$VERSION_CLEAN" \
-		--build-arg RELEASE="$(RELEASE)" \
-		--build-arg COMPONENT="sync" \
-		--build-arg BINARY_PATH="./cmd/sync" \
-		-f Dockerfile.rpm.simple \
-		-t serviceradar-rpm-sync \
-		.
-	@docker create --name temp-sync-container serviceradar-rpm-sync
-	@docker cp temp-sync-container:/rpms/. ./release-artifacts/rpm/
-	@docker rm temp-sync-container
-
-.PHONY: rpm-nats
-rpm-nats: rpm-prep ## Build the NATS RPM package
-	@echo "$(COLOR_BOLD)Building NATS JetStream RPM package$(COLOR_RESET)"
-	@VERSION_CLEAN=$$(echo "$(VERSION)" | sed 's/-/_/g'); \
-    docker build \
-        --platform linux/amd64 \
-        --build-arg VERSION="$$VERSION_CLEAN" \
-        --build-arg RELEASE="$(RELEASE)" \
-		--build-arg COMPONENT="nats" \
-        -f Dockerfile.rpm.nats \
-        -t serviceradar-rpm-nats \
-        .
-
-	@docker create --name temp-nats-container serviceradar-rpm-nats
-	@docker cp temp-nats-container:/rpms/. ./release-artifacts/rpm/
-	@docker rm temp-nats-container
-
-.PHONY: rpm-snmp
-rpm-snmp: rpm-prep ## Build the SNMP checker RPM package
-	@echo "$(COLOR_BOLD)Building SNMP checker RPM package$(COLOR_RESET)"
-	@VERSION_CLEAN=$$(echo "$(VERSION)" | sed 's/-/_/g'); \
-	docker build \
-		--platform linux/amd64 \
-		--build-arg VERSION="$$VERSION_CLEAN" \
-		--build-arg RELEASE="$(RELEASE)" \
-		--build-arg COMPONENT="snmp-checker" \
-		--build-arg BINARY_PATH="./cmd/checkers/snmp" \
-		-f Dockerfile.rpm.simple \
-		-t serviceradar-rpm-snmp-checker \
-		.
-	@docker create --name temp-snmp-container serviceradar-rpm-snmp-checker
-	@docker cp temp-snmp-container:/rpms/. ./release-artifacts/rpm/
-	@docker rm temp-snmp-container
-
-.PHONY: rpm-rperf
-rpm-rperf: rpm-prep
-	@echo "Preparing RPM build environment"
-	@echo "Building RPerf (Server) RPM package"
-	@VERSION_CLEAN=$$(echo "$(VERSION)" | sed 's/-/_/g'); \
-	docker build \
-		--platform linux/amd64 \
-		--build-arg VERSION="$$VERSION_CLEAN" \
-		--build-arg RELEASE="$(RELEASE)" \
-		--build-arg COMPONENT="rperf" \
-		-f Dockerfile.rpm.rust.rperf \
-		-t serviceradar-rpm-rperf \
-		.
-	@mkdir -p ./release-artifacts/rpm/
-	@echo "Extracting RPM files..."
-	@docker run --platform linux/amd64 --rm \
-		-v $$(pwd)/release-artifacts/rpm:/host-output \
-		serviceradar-rpm-rperf \
-		/bin/bash -c "if [ -n \"\$$(ls -A /rpms)\" ]; then cp -v /rpms/* /host-output/; else echo 'No RPM files found!'; ls -la /rpms; exit 1; fi"
-	@echo "RPM files extracted to ./release-artifacts/rpm/"
-
-.PHONY: rpm-rperf-checker
-rpm-rperf-checker: rpm-prep
-	@echo "Preparing RPM build environment"
-	@echo "Building RPerf checker RPM package"
-	@VERSION_CLEAN=$$(echo "$(VERSION)" | sed 's/-/_/g'); \
-	docker build \
-		--platform linux/amd64 \
-		--build-arg VERSION="$$VERSION_CLEAN" \
-		--build-arg RELEASE="$(RELEASE)" \
-		--build-arg COMPONENT="rperf-checker" \
-		--build-arg BINARY_PATH="cmd/checkers/rperf-client" \
-		-f Dockerfile.rpm.rust \
-		-t serviceradar-rpm-rperf-checker \
-		.
-	@mkdir -p ./release-artifacts/rpm/
-	@echo "Extracting RPM files..."
-	@docker run --platform linux/amd64 --rm \
-		-v $$(pwd)/release-artifacts/rpm:/host-output \
-		serviceradar-rpm-rperf-checker \
-		/bin/bash -c "if [ -n \"\$$(ls -A /rpms)\" ]; then cp -v /rpms/* /host-output/; else echo 'No RPM files found!'; ls -la /rpms; exit 1; fi"
-	@echo "RPM files extracted to ./release-artifacts/rpm/"
+	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=rpm poller
 
 .PHONY: rpm-web
-rpm-web: rpm-prep ## Build the web RPM package
+rpm-web: ## Build the web RPM package
 	@echo "$(COLOR_BOLD)Building web RPM package$(COLOR_RESET)"
-	@VERSION_CLEAN=$$(echo "$(VERSION)" | sed 's/-/_/g'); \
-	docker build \
-		--platform linux/amd64 \
-		--build-arg VERSION="$$VERSION_CLEAN" \
-		--build-arg RELEASE="$(RELEASE)" \
-		-f Dockerfile.rpm.web \
-		-t serviceradar-rpm-web \
-		.
-	@docker create --name temp-web-container serviceradar-rpm-web
-	@docker cp temp-web-container:/rpms/. ./release-artifacts/rpm/
-	@docker rm temp-web-container
+	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=rpm web
+
+.PHONY: rpm-nats
+rpm-nats: ## Build the NATS RPM package
+	@echo "$(COLOR_BOLD)Building NATS JetStream RPM package$(COLOR_RESET)"
+	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=rpm nats
+
+.PHONY: rpm-kv
+rpm-kv: ## Build the KV RPM package
+	@echo "$(COLOR_BOLD)Building KV RPM package$(COLOR_RESET)"
+	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=rpm kv
+
+.PHONY: rpm-sync
+rpm-sync: ## Build the KV Sync RPM package
+	@echo "$(COLOR_BOLD)Building KV Sync RPM package$(COLOR_RESET)"
+	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=rpm sync
+
+.PHONY: rpm-dusk
+rpm-dusk: ## Build the Dusk checker RPM package
+	@echo "$(COLOR_BOLD)Building Dusk checker RPM package$(COLOR_RESET)"
+	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=rpm dusk-checker
+
+.PHONY: rpm-snmp
+rpm-snmp: ## Build the SNMP checker RPM package
+	@echo "$(COLOR_BOLD)Building SNMP checker RPM package$(COLOR_RESET)"
+	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=rpm snmp-checker
+
+.PHONY: rpm-rperf
+rpm-rperf: ## Build the RPerf server RPM package
+	@echo "$(COLOR_BOLD)Building RPerf server RPM package$(COLOR_RESET)"
+	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=rpm rperf-server
+
+.PHONY: rpm-rperf-checker
+rpm-rperf-checker: ## Build the RPerf checker RPM package
+	@echo "$(COLOR_BOLD)Building RPerf checker RPM package$(COLOR_RESET)"
+	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=rpm rperf-client
+
+.PHONY: rpm-cli
+rpm-cli: ## Build the CLI RPM package
+	@echo "$(COLOR_BOLD)Building CLI RPM package$(COLOR_RESET)"
+	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=rpm cli
+
+.PHONY: rpm-sysmon
+rpm-sysmon: ## Build the Sysmon checker RPM package
+	@echo "$(COLOR_BOLD)Building Sysmon checker RPM package$(COLOR_RESET)"
+	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=rpm sysmon
 
 .PHONY: rpm-all
-#rpm-all: rpm-core rpm-web rpm-agent rpm-poller rpm-nats rpm-snmp rpm-rperf-checker rpm-rperf ## Build all RPM packages
-rpm-all: rpm-core rpm-web rpm-agent rpm-poller rpm-nats rpm-snmp rpm-kv rpm-sync
-	@echo "$(COLOR_BOLD)All RPM packages built$(COLOR_RESET)"
+rpm-all: ## Build all RPM packages
+	@echo "$(COLOR_BOLD)Building all RPM packages$(COLOR_RESET)"
+	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=rpm --all
 
 # Docusaurus commands
 .PHONY: docs-start
@@ -463,17 +395,7 @@ docs-setup: ## Initial setup for Docusaurus development
 	@echo "$(COLOR_BOLD)Setting up Docusaurus development environment$(COLOR_RESET)"
 	@cd docs && pnpm install
 
-.PHONY: build-kv
-build-kv: ## Build only the KV binary
-	@echo "$(COLOR_BOLD)Building KV binary$(COLOR_RESET)"
-	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-kv cmd/kv/main.go
-
-.PHONY: build-sync
-build-sync: ## Build only the KV Sync binary
-	@echo "$(COLOR_BOLD)Building KV Sync binary$(COLOR_RESET)"
-	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-sync cmd/sync/main.go
-
-# Build web UI
+# Web UI build
 .PHONY: build-web
 build-web: ## Build the Next.js web interface
 	@echo "$(COLOR_BOLD)Building Next.js web interface$(COLOR_RESET)"
@@ -487,8 +409,9 @@ build-rperf-checker: generate-proto ## Build only the rperf plugin
 	@echo "$(COLOR_BOLD)Building Rust rperf checker$(COLOR_RESET)"
 	@cd cmd/checkers/rperf-client && $(CARGO) build --release
 	@mkdir -p bin
-	@cp -v $(shell pwd)/cmd/checkers/rperf-client/target/release/$(RPERF_CLIENT_BIN) bin/serviceradar-rperf-checker.PHONY: run-rperf-checker
+	@cp -v $(shell pwd)/cmd/checkers/rperf-client/target/release/$(RPERF_CLIENT_BIN) bin/serviceradar-rperf-checker
 
+.PHONY: run-rperf-checker
 run-rperf-checker: build-rperf-checker ## Run the rperf plugin
 	@echo "$(COLOR_BOLD)Running rperf checker$(COLOR_RESET)"
 	@./bin/serviceradar-rperf-checker $(ARGS)
@@ -499,11 +422,25 @@ build-rperf: generate-proto ## Build only the rperf server
 	@echo "$(COLOR_BOLD)Building Rust rperf server$(COLOR_RESET)"
 	@cd cmd/checkers/rperf-server && $(CARGO) build --release
 	@mkdir -p bin
-	@cp -v $(shell pwd)/cmd/checkers/rperf-server/target/release/$(RPERF_SERVER_BIN) bin/serviceradar-rperf.PHONY: run-rperf
+	@cp -v $(shell pwd)/cmd/checkers/rperf-server/target/release/$(RPERF_SERVER_BIN) bin/serviceradar-rperf
 
+.PHONY: run-rperf
 run-rperf: build-rperf ## Run the rperf server
 	@echo "$(COLOR_BOLD)Running rperf server$(COLOR_RESET)"
 	@./bin/serviceradar-rperf $(ARGS)
+
+# Sysmon specific targets
+.PHONY: build-sysmon
+build-sysmon: generate-proto ## Build only the sysmon checker
+	@echo "$(COLOR_BOLD)Building Rust sysmon checker$(COLOR_RESET)"
+	@cd cmd/checkers/sysmon && $(CARGO) build --release
+	@mkdir -p bin
+	@cp -v $(shell pwd)/cmd/checkers/sysmon/target/release/$(SYSMON_BIN) bin/serviceradar-sysmon
+
+.PHONY: run-sysmon
+run-sysmon: build-sysmon ## Run the sysmon checker
+	@echo "$(COLOR_BOLD)Running sysmon checker$(COLOR_RESET)"
+	@./bin/serviceradar-sysmon $(ARGS)
 
 # Default target
 .DEFAULT_GOAL := help
