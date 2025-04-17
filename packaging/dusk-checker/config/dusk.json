@@ -1,0 +1,19 @@
+{
+    "name": "dusk",
+    "type": "grpc",
+    "node_address": "localhost:8080",
+    "listen_addr": ":50082",
+    "timeout": "5m",
+    "security": {
+        "server_name": "changeme",
+        "mode": "none",
+        "role": "checker",
+        "cert_dir": "/etc/serviceradar/certs",
+        "tls": {
+            "cert_file": "checkers.pem",
+            "key_file": "checkers-key.pem",
+            "ca_file": "root.pem",
+            "client_ca_file": "root.pem"
+        }
+    }
+}
