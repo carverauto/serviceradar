@@ -71,7 +71,6 @@ build_component() {
     section=$(echo "$config" | jq -r '.section')
     priority=$(echo "$config" | jq -r '.priority')
     depends=$(echo "$config" | jq -r ".$package_type.depends | join(\", \")")
-    # Check top-level build_method first, then binary.build_method
     build_method=$(echo "$config" | jq -r '.build_method // .binary.build_method // "none"')
     dockerfile=$(echo "$config" | jq -r ".$package_type.dockerfile // empty")
     rpm_release=$(echo "$config" | jq -r '.rpm.release // "1"')
@@ -81,7 +80,7 @@ build_component() {
     echo "Dockerfile: '$dockerfile'"
 
     # Verify dockerfile exists
-    if [ "$build_method" = "docker" ] && [ -n "$dockerfile" ]; then
+    if [ -n "$dockerfile" ]; then
         test -f "${BASE_DIR}/${dockerfile}" || { echo "Error: Dockerfile ${BASE_DIR}/${dockerfile} not found"; exit 1; }
     fi
 
@@ -118,7 +117,7 @@ build_component() {
             echo "Verifying context contents..."
             ls -l "${BASE_DIR}/go.mod" "${BASE_DIR}/${src_path}" || { echo "Error: Source files missing in context"; exit 1; }
             docker build --platform linux/amd64 --build-arg VERSION="$version" --build-arg BUILD_TAGS="$BUILD_TAGS" -f "${BASE_DIR}/${dockerfile}" -t "${package_name}-builder" "${BASE_DIR}" || { echo "Error: Docker build failed"; exit 1; }
-            container_id=$(docker create "${package_name}-builder")
+            container_id=$(docker create "${package_name}-builder" /bin/true)
             echo "Listing container contents at /src..."
             docker run --rm "${package_name}-builder" ls -l /src || { echo "Error: Failed to list container contents"; exit 1; }
             echo "Copying binary from container: /src/${package_name} to ${pkg_root}${output_path}"
@@ -142,17 +141,18 @@ build_component() {
             cd "${BASE_DIR}"
             find "${pkg_root}${output_dir}" -type f | head -n 5 || echo "No files found in ${pkg_root}${output_dir}"
         elif [ "$build_method" = "rust" ] && [ -n "$dockerfile" ]; then
-            local output_path
+            local output_path docker_output_path
             output_path=$(echo "$config" | jq -r '.binary.output_path')
+            docker_output_path=$(echo "$config" | jq -r '.binary.docker_output_path // "/output/'${package_name}'"')
             echo "Building Rust binary with Docker ($dockerfile)..."
             docker build --platform linux/amd64 -f "${BASE_DIR}/${dockerfile}" -t "${package_name}-builder" "${BASE_DIR}" || { echo "Error: Docker build failed"; exit 1; }
-            docker create --name temp-builder "${package_name}-builder"
+            container_id=$(docker create "${package_name}-builder" /bin/true) || { echo "Error: Failed to create container. Ensure Dockerfile is correctly configured."; exit 1; }
             echo "Creating directory for binary: $(dirname "${pkg_root}${output_path}")"
             mkdir -p "$(dirname "${pkg_root}${output_path}")" || { echo "Error: Failed to create directory $(dirname "${pkg_root}${output_path}")"; exit 1; }
-            docker cp temp-builder:/usr/local/bin/${package_name} "${pkg_root}${output_path}" || { echo "Error: Failed to copy binary"; exit 1; }
+            docker cp "${container_id}:${docker_output_path}" "${pkg_root}${output_path}" || { echo "Error: Failed to copy binary from ${docker_output_path}"; exit 1; }
             ls -l "${pkg_root}${output_path}" || { echo "Error: Binary not copied to package root"; exit 1; }
             test -s "${pkg_root}${output_path}" || { echo "Error: Binary is empty"; exit 1; }
-            docker rm temp-builder
+            docker rm "$container_id"
         elif [ "$build_method" = "external" ]; then
             local url extract_path output_path
             url=$(echo "$config" | jq -r '.external_binary.source_url')
@@ -259,7 +259,7 @@ EOF
         if [ -n "$dockerfile" ]; then
             echo "Building RPM with Dockerfile $dockerfile..."
             echo "Verifying context contents..."
-            ls -l "${BASE_DIR}/go.mod" "${BASE_DIR}/${src_path}" || { echo "Error: Source files missing in context"; exit 1; }
+            ls -l "${BASE_DIR}/go.mod" "${BASE_DIR}/${src_path}" 2>/dev/null || echo "Note: go.mod or src_path not required for Rust builds"
             docker build \
                 --platform linux/amd64 \
                 --build-arg VERSION="$version" \
@@ -268,12 +268,12 @@ EOF
                 -t "${package_name}-rpm-builder" \
                 "${BASE_DIR}" || { echo "Error: Docker build failed"; exit 1; }
             tmp_dir=$(mktemp -d)
-            container_id=$(docker create "${package_name}-rpm-builder")
-            docker cp "$container_id:/rpms/." "$tmp_dir/" || { echo "Error: Failed to copy RPMs"; exit 1; }
-            docker rm "$container_id"
+            container_id=$(docker create "${package_name}-rpm-builder" /bin/true) || { echo "Error: Failed to create container"; exit 1; }
+            docker cp "$container_id:/rpms/." "$tmp_dir/" || { echo "Error: Failed to copy RPMs from /rpms/"; exit 1; }
             find "$tmp_dir" -name "*.rpm" -exec cp {} "${RELEASE_DIR}/rpm/${version}/" \;
-            rm -rf "$tmp_dir"
             echo "RPM built: ${RELEASE_DIR}/rpm/${version}/${package_name}-${version}-${rpm_release}.*.rpm"
+            docker rm "$container_id"
+            rm -rf "$tmp_dir"
         else
             echo "Warning: No RPM Dockerfile specified for $component, skipping RPM build"
         fi

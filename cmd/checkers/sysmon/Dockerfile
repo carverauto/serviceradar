@@ -12,7 +12,6 @@ COPY cmd/checkers/sysmon/build.rs ./
 RUN mkdir -p src && \
     echo 'fn main() { println!("Dummy main"); }' > src/main.rs && \
     echo 'pub mod proto { pub use generated::*; mod generated { tonic::include_proto!("monitoring"); } }' > src/lib.rs && \
-    # Build once to generate proto files
     cargo check --release --features zfs
 
 # Second stage that uses the generated files from the first stage
@@ -47,7 +46,6 @@ COPY --from=builder /usr/src/serviceradar-sysmon-checker/target/release/servicer
 
 # Configuration and user setup
 WORKDIR /etc/serviceradar/checkers
-# Create default sysmon.json
 RUN echo '{"listen_addr":"0.0.0.0:50060","zfs":{"enabled":true,"pools":["rpool"],"include_datasets":true,"use_libzetta":true},"filesystems":[]}' > sysmon.json
 
 RUN groupadd -r serviceradar && useradd -r -g serviceradar serviceradar && \
@@ -61,5 +59,5 @@ CMD ["/usr/local/bin/serviceradar-sysmon-checker", "--config", "/etc/servicerada
 # Output stage for collecting binaries
 FROM scratch AS output
 
-# Copy just the Linux binary
-COPY --from=builder /usr/src/serviceradar-sysmon-checker/target/release/serviceradar-sysmon-checker /linux/serviceradar-sysmon-checker
+# Copy just the Linux binary to standardized path
+COPY --from=builder /usr/src/serviceradar-sysmon-checker/target/release/serviceradar-sysmon-checker /output/serviceradar-sysmon-checker

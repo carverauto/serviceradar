@@ -464,7 +464,8 @@
     },
     "binary": {
       "build_method": "rust",
-      "output_path": "/usr/local/bin/serviceradar-rperf-checker"
+      "output_path": "/usr/local/bin/serviceradar-rperf-checker",
+      "docker_output_path": "/output/serviceradar-rperf-checker"
     },
     "custom_steps": [
       {
@@ -527,7 +528,7 @@
   },
   {
     "name": "sysmon",
-    "package_name": "serviceradar-sysmon",
+    "package_name": "serviceradar-sysmon-checker",
     "version": "1.0.32",
     "description": "ServiceRadar System Monitor checker",
     "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
@@ -535,17 +536,19 @@
     "section": "utils",
     "priority": "optional",
     "deb": {
-      "depends": ["systemd"],
+      "depends": ["systemd", "libssl-dev", "ca-certificates", "zfsutils-linux"],
       "dockerfile": "cmd/checkers/sysmon/Dockerfile"
     },
     "rpm": {
       "depends": ["systemd"],
-      "dockerfile": "docker/rpm/Dockerfile.rpm.rust",
+      "dockerfile": "docker/rpm/Dockerfile.rpm.sysmon",
       "release": "1"
     },
     "binary": {
+      "source_path": "cmd/checkers/sysmon",
       "build_method": "rust",
-      "output_path": "/usr/local/bin/serviceradar-sysmon"
+      "output_path": "/usr/local/bin/serviceradar-sysmon-checker",
+      "docker_output_path": "/output/serviceradar-sysmon-checker"
     },
     "custom_steps": [
       {
@@ -555,22 +558,22 @@
     ],
     "config_files": [
       {
-        "source": "packaging/sysmon/config/sysmon.json.example",
+        "source": "packaging/sysmon-checker/config/checkers/sysmon.json.example",
         "dest": "/etc/serviceradar/checkers/sysmon.json.example"
       }
     ],
     "systemd_service": {
-      "source": "packaging/sysmon/systemd/serviceradar-sysmon.service",
-      "dest": "/lib/systemd/system/serviceradar-sysmon.service"
+      "source": "packaging/sysmon-checker/systemd/serviceradar-sysmon-checker.service",
+      "dest": "/lib/systemd/system/serviceradar-sysmon-checker.service"
     },
     "postinst": {
-      "source": "packaging/sysmon/scripts/postinstall.sh"
+      "source": "packaging/sysmon-checker/scripts/postinstall.sh"
     },
     "prerm": {
-      "source": "packaging/sysmon/scripts/preremove.sh"
+      "source": "packaging/sysmon-checker/scripts/preremove.sh"
     },
     "conffiles": [
-      "/etc/serviceradar/checkers/sysmon.json"
+      "/etc/serviceradar/checkers/sysmon.json.example"
     ]
   }
 ]
