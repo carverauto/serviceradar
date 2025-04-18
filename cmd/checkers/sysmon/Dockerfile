@@ -1,11 +1,12 @@
-FROM custom-rust-zfs:1.82 AS proto-builder
+# Build stage for protocol buffers
+FROM ghcr.io/carverauto/custom-rust-zfs:latest AS proto-builder
 
 WORKDIR /usr/src/serviceradar-sysmon-checker
 
 # Copy proto files and project metadata
-COPY src/proto ./src/proto/
-COPY Cargo.toml Cargo.lock ./
-COPY build.rs ./
+COPY cmd/checkers/sysmon/src/proto ./src/proto/
+COPY cmd/checkers/sysmon/Cargo.toml cmd/checkers/sysmon/Cargo.lock ./
+COPY cmd/checkers/sysmon/build.rs ./
 
 # Create a minimal source to trigger proto generation
 RUN mkdir -p src && \
@@ -15,19 +16,19 @@ RUN mkdir -p src && \
     cargo check --release --features zfs
 
 # Second stage that uses the generated files from the first stage
-FROM custom-rust-zfs:1.82 AS builder
+FROM ghcr.io/carverauto/custom-rust-zfs:latest AS builder
 
 WORKDIR /usr/src/serviceradar-sysmon-checker
 
 # Copy project metadata
-COPY Cargo.toml Cargo.lock ./
-COPY build.rs ./
+COPY cmd/checkers/sysmon/Cargo.toml cmd/checkers/sysmon/Cargo.lock ./
+COPY cmd/checkers/sysmon/build.rs ./
 
 # Copy the generated target directory from proto-builder
 COPY --from=proto-builder /usr/src/serviceradar-sysmon-checker/target ./target
 
 # Copy all source files
-COPY src ./src/
+COPY cmd/checkers/sysmon/src ./src/
 
 # Build the actual binary
 RUN cargo build --release --features zfs
