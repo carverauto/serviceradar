@@ -26,8 +26,12 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy the binary from the builder stage
+# Create output directory
+RUN mkdir -p /output
+
+# Copy the binary from the builder stage to both /usr/local/bin and /output
 COPY --from=builder /usr/src/serviceradar-rperf-checker/target/x86_64-unknown-linux-gnu/release/serviceradar-rperf-checker /usr/local/bin/serviceradar-rperf-checker
+COPY --from=builder /usr/src/serviceradar-rperf-checker/target/x86_64-unknown-linux-gnu/release/serviceradar-rperf-checker /output/serviceradar-rperf-checker
 
 # Configuration and user setup
 WORKDIR /etc/serviceradar/checkers
