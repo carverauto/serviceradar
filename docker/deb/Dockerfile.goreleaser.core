@@ -1,0 +1,45 @@
+# Copyright 2025 Carver Automation Corporation.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+FROM --platform=linux/amd64 golang:1.24-bullseye
+
+# Install Node.js and npm
+RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
+    && apt-get update \
+    && apt-get install -y \
+        gcc \
+        libc6-dev \
+        libsqlite3-dev \
+        make \
+        nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+
+# Copy go mod files first for better caching
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy the rest of the source
+COPY . .
+
+# Build web interface
+RUN cd web && npm install && npm run build \
+    && mkdir -p /src/pkg/core/api/web \
+    && cp -r dist /src/pkg/core/api/web/
+
+# Build the core service
+RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 \
+    go build -o serviceradar-core ./cmd/core

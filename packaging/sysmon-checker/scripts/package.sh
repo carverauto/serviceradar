@@ -49,23 +49,12 @@ else
 fi
 
 # Copy sysmon.json from the filesystem
-SYSMON_JSON_SRC="${PACKAGING_DIR}/sysmon-checker/config/checkers/sysmon.json"
+SYSMON_JSON_SRC="${PACKAGING_DIR}/sysmon-checker/config/checkers/sysmon.json.example"
 if [ -f "$SYSMON_JSON_SRC" ]; then
-    cp "$SYSMON_JSON_SRC" etc/serviceradar/checkers/sysmon.json
+    cp "$SYSMON_JSON_SRC" etc/serviceradar/checkers/sysmon.json.example
     echo "Copied sysmon.json from $SYSMON_JSON_SRC"
 else
     echo "Error: sysmon.json not found at $SYSMON_JSON_SRC"
-    exit 1
-fi
-
-# Optional: Copy api.env if needed (not referenced in service file, but included for consistency)
-API_ENV_SRC="${PACKAGING_DIR}/core/config/api.env"
-if [ -f "$API_ENV_SRC" ]; then
-    mkdir -p etc/serviceradar
-    cp "$API_ENV_SRC" etc/serviceradar/api.env
-    echo "Copied api.env from $API_ENV_SRC"
-else
-    echo "Error: api.env not found at $API_ENV_SRC"
     exit 1
 fi
 

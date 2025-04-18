@@ -1,0 +1,38 @@
+# Use pre-built base image
+FROM ghcr.io/carverauto/rockylinux9-rust-rpm-base:latest AS builder
+
+ARG VERSION=1.0.32
+ARG RELEASE=1
+ARG COMPONENT=rperf
+
+# Install rperf directly from crates.io (without version constraint)
+RUN cargo install --target x86_64-unknown-linux-gnu --root /usr/local rperf && \
+    cp /usr/local/bin/rperf /usr/local/bin/serviceradar-${COMPONENT}
+
+# Set up RPM build environment
+WORKDIR /root/rpmbuild
+COPY packaging/specs/serviceradar-${COMPONENT}.spec SPECS/
+COPY packaging/rperf/systemd/serviceradar-rperf.service SOURCES/rperf/systemd/
+
+# Build the RPM
+RUN sed -i "s/%{version}/${VERSION}/g" SPECS/serviceradar-${COMPONENT}.spec && \
+    sed -i "s/%{release}/${RELEASE}/g" SPECS/serviceradar-${COMPONENT}.spec && \
+    mkdir -p BUILD && \
+    cp /usr/local/bin/serviceradar-${COMPONENT} BUILD/serviceradar-${COMPONENT} && \
+    rpmbuild -bb SPECS/serviceradar-${COMPONENT}.spec && \
+    echo "Checking RPM build output:" && \
+    find RPMS -type f -name "*.rpm" && \
+    mkdir -p /output && \
+    find RPMS -type f -name "*.rpm" -exec cp {} /output/ \; && \
+    ls -la /output/
+
+# Final stage
+FROM rockylinux:9
+
+WORKDIR /rpms
+# Copy RPM files from the builder's output directory
+COPY --from=builder /output/*.rpm ./
+# Add validation step
+RUN ls -la /rpms/
+
+CMD ["ls", "-la", "/rpms/"]

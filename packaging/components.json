@@ -71,7 +71,7 @@
     "output_dir": "/usr/local/share/serviceradar-web",
     "config_files": [
       {
-        "source": "packaging/config/web.json",
+        "source": "packaging/web/config/web.json",
         "dest": "/etc/serviceradar/web.json"
       },
       {
@@ -84,10 +84,10 @@
       "dest": "/lib/systemd/system/serviceradar-web.service"
     },
     "postinst": {
-      "source": "packaging/web/scripts/postinst.sh"
+      "source": "packaging/web/scripts/postinstall.sh"
     },
     "prerm": {
-      "source": "packaging/web/scripts/prerm.sh"
+      "source": "packaging/web/scripts/preremove.sh"
     },
     "conffiles": [
       "/etc/serviceradar/web.json",
@@ -221,10 +221,10 @@
       "dest": "/lib/systemd/system/serviceradar-nats.service"
     },
     "postinst": {
-      "source": "packaging/nats/scripts/postinst.sh"
+      "source": "packaging/nats/scripts/postinstall.sh"
     },
     "prerm": {
-      "source": "packaging/nats/scripts/prerm.sh"
+      "source": "packaging/nats/scripts/preremove.sh"
     },
     "conffiles": [
       "/etc/nats/nats-server.conf"
@@ -268,10 +268,10 @@
       "dest": "/lib/systemd/system/serviceradar-kv.service"
     },
     "postinst": {
-      "source": "packaging/kv/scripts/postinst.sh"
+      "source": "packaging/kv/scripts/postinstall.sh"
     },
     "prerm": {
-      "source": "packaging/kv/scripts/prerm.sh"
+      "source": "packaging/kv/scripts/preremove.sh"
     },
     "conffiles": [
       "/etc/serviceradar/kv.json"
@@ -311,10 +311,10 @@
       "dest": "/lib/systemd/system/serviceradar-sync.service"
     },
     "postinst": {
-      "source": "packaging/sync/scripts/postinst.sh"
+      "source": "packaging/sync/scripts/postinstall.sh"
     },
     "prerm": {
-      "source": "packaging/sync/scripts/prerm.sh"
+      "source": "packaging/sync/scripts/preremove.sh"
     },
     "conffiles": [
       "/etc/serviceradar/sync.json"
@@ -347,10 +347,6 @@
       {
         "source": "packaging/dusk-checker/config/dusk.json",
         "dest": "/etc/serviceradar/checkers/dusk.json"
-      },
-      {
-        "source": "packaging/dusk-checker/config/external.json",
-        "dest": "/etc/serviceradar/checkers/external.json"
       }
     ],
     "systemd_service": {
@@ -358,14 +354,13 @@
       "dest": "/lib/systemd/system/serviceradar-dusk-checker.service"
     },
     "postinst": {
-      "source": "packaging/dusk-checker/scripts/postinst.sh"
+      "source": "packaging/dusk-checker/scripts/postinstall.sh"
     },
     "prerm": {
-      "source": "packaging/dusk-checker/scripts/prerm.sh"
+      "source": "packaging/dusk-checker/scripts/preremove.sh"
     },
     "conffiles": [
-      "/etc/serviceradar/checkers/dusk.json",
-      "/etc/serviceradar/checkers/external.json"
+      "/etc/serviceradar/checkers/dusk.json"
     ]
   },
   {
@@ -402,17 +397,17 @@
       "dest": "/lib/systemd/system/serviceradar-snmp-checker.service"
     },
     "postinst": {
-      "source": "packaging/snmp-checker/scripts/postinst.sh"
+      "source": "packaging/snmp-checker/scripts/postinstall.sh"
     },
     "prerm": {
-      "source": "packaging/snmp-checker/scripts/prerm.sh"
+      "source": "packaging/snmp-checker/scripts/preremove.sh"
     },
     "conffiles": [
       "/etc/serviceradar/checkers/snmp.json"
     ]
   },
   {
-    "name": "rperf-server",
+    "name": "rperf",
     "package_name": "serviceradar-rperf",
     "version": "1.0.32",
     "description": "ServiceRadar RPerf Network Performance Testing Tool",
@@ -435,14 +430,14 @@
     },
     "config_files": [],
     "systemd_service": {
-      "source": "packaging/rperf-server/systemd/serviceradar-rperf.service",
+      "source": "packaging/rperf/systemd/serviceradar-rperf.service",
       "dest": "/lib/systemd/system/serviceradar-rperf.service"
     },
     "postinst": {
-      "source": "packaging/rperf-server/scripts/postinst.sh"
+      "source": "packaging/rperf/scripts/postinstall.sh"
     },
     "prerm": {
-      "source": "packaging/rperf-server/scripts/prerm.sh"
+      "source": "packaging/rperf/scripts/preremove.sh"
     },
     "conffiles": [],
     "additional_dirs": [
@@ -450,7 +445,7 @@
     ]
   },
   {
-    "name": "rperf-client",
+    "name": "rperf-checker",
     "package_name": "serviceradar-rperf-checker",
     "version": "1.0.32",
     "description": "ServiceRadar RPerf Network Performance Test Checker",
@@ -469,7 +464,8 @@
     },
     "binary": {
       "build_method": "rust",
-      "output_path": "/usr/local/bin/serviceradar-rperf-checker"
+      "output_path": "/usr/local/bin/serviceradar-rperf-checker",
+      "docker_output_path": "/output/serviceradar-rperf-checker"
     },
     "custom_steps": [
       {
@@ -479,22 +475,22 @@
     ],
     "config_files": [
       {
-        "source": "packaging/rperf-client/config/rperf.json.example",
+        "source": "packaging/rperf-checker/config/checkers/rperf.json",
         "dest": "/etc/serviceradar/checkers/rperf.json.example"
       }
     ],
     "systemd_service": {
-      "source": "packaging/rperf-client/systemd/serviceradar-rperf-checker.service",
+      "source": "packaging/rperf-checker/systemd/serviceradar-rperf-checker.service",
       "dest": "/lib/systemd/system/serviceradar-rperf-checker.service"
     },
     "postinst": {
-      "source": "packaging/rperf-client/scripts/postinst.sh"
+      "source": "packaging/rperf-checker/scripts/postinstall.sh"
     },
     "prerm": {
-      "source": "packaging/rperf-client/scripts/prerm.sh"
+      "source": "packaging/rperf-checker/scripts/preremove.sh"
     },
     "conffiles": [
-      "/etc/serviceradar/checkers/rperf.json"
+      "/etc/serviceradar/checkers/rperf.json.example"
     ]
   },
   {
@@ -532,7 +528,7 @@
   },
   {
     "name": "sysmon",
-    "package_name": "serviceradar-sysmon",
+    "package_name": "serviceradar-sysmon-checker",
     "version": "1.0.32",
     "description": "ServiceRadar System Monitor checker",
     "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
@@ -540,17 +536,19 @@
     "section": "utils",
     "priority": "optional",
     "deb": {
-      "depends": ["systemd"],
+      "depends": ["systemd", "libssl-dev", "ca-certificates", "zfsutils-linux"],
       "dockerfile": "cmd/checkers/sysmon/Dockerfile"
     },
     "rpm": {
       "depends": ["systemd"],
-      "dockerfile": "docker/rpm/Dockerfile.rpm.rust",
+      "dockerfile": "docker/rpm/Dockerfile.rpm.sysmon",
       "release": "1"
     },
     "binary": {
+      "source_path": "cmd/checkers/sysmon",
       "build_method": "rust",
-      "output_path": "/usr/local/bin/serviceradar-sysmon"
+      "output_path": "/usr/local/bin/serviceradar-sysmon-checker",
+      "docker_output_path": "/output/serviceradar-sysmon-checker"
     },
     "custom_steps": [
       {
@@ -560,22 +558,22 @@
     ],
     "config_files": [
       {
-        "source": "packaging/sysmon/config/sysmon.json.example",
+        "source": "packaging/sysmon-checker/config/checkers/sysmon.json.example",
         "dest": "/etc/serviceradar/checkers/sysmon.json.example"
       }
     ],
     "systemd_service": {
-      "source": "packaging/sysmon/systemd/serviceradar-sysmon.service",
-      "dest": "/lib/systemd/system/serviceradar-sysmon.service"
+      "source": "packaging/sysmon-checker/systemd/serviceradar-sysmon-checker.service",
+      "dest": "/lib/systemd/system/serviceradar-sysmon-checker.service"
     },
     "postinst": {
-      "source": "packaging/sysmon/scripts/postinst.sh"
+      "source": "packaging/sysmon-checker/scripts/postinstall.sh"
     },
     "prerm": {
-      "source": "packaging/sysmon/scripts/prerm.sh"
+      "source": "packaging/sysmon-checker/scripts/preremove.sh"
     },
     "conffiles": [
-      "/etc/serviceradar/checkers/sysmon.json"
+      "/etc/serviceradar/checkers/sysmon.json.example"
     ]
   }
 ]

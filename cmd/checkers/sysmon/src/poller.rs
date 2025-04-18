@@ -20,14 +20,15 @@ use anyhow::Result;
 use chrono::Utc;
 use serde::Serialize;
 use sysinfo::{System, Disks};
-use log::{debug};
+use log::{debug, error, warn};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
 #[cfg(feature = "zfs")]
 use libzetta::zpool::{ZpoolEngine, ZpoolOpen3};
 #[cfg(feature = "zfs")]
-use libzetta::zfs::{ZfsOpen3, DatasetKind};
+use libzetta::zfs::{ZfsOpen3, DatasetKind, ZfsEngine};
+
 
 #[derive(Debug, Serialize, Clone)]
 pub struct CpuMetric {
@@ -152,8 +153,12 @@ impl MetricsCollector {
                             debug!("Attempt {} to collect ZFS pool {}", attempt, pool_name);
                             match zpool_engine.status(pool_name, libzetta::zpool::open3::StatusOptions::default()) {
                                 Ok(pool) => {
-                                    let used = pool.used().unwrap_or(0) as u64;
-                                    let total = pool.size().unwrap_or(0) as u64;
+                                    //let used = pool.used().unwrap_or(0) as u64;
+                                    //let total = pool.size().unwrap_or(0) as u64;
+                                    let engine = ZpoolOpen3::default();
+                                    let props = engine.read_properties(&pool.name())?;
+                                    let used = *props.alloc() as u64; // `alloc` is the allocated space (used)
+                                    let total = *props.size() as u64; // `size` is the total pool size
                                     debug!("ZFS pool {}: used={} bytes, total={} bytes", pool_name, used, total);
                                     disks.push(DiskMetric {
                                         mount_point: format!("zfs:{}", pool_name),
@@ -177,7 +182,7 @@ impl MetricsCollector {
                                                                         path.to_string_lossy(), used, used + avail);
                                                                     disks.push(DiskMetric {
                                                                         mount_point: format!("zfs:{}", path.to_string_lossy()),
-                                                                        used_bytes: used,
+                                                                        used_bytes: *used,
                                                                         total_bytes: used + avail,
                                                                     });
                                                                 }

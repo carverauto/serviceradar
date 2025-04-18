@@ -14,7 +14,7 @@ RUN rustup target add x86_64-unknown-linux-gnu
 # Fetch and build the latest rperf crate from crates.io
 RUN cargo install --target x86_64-unknown-linux-gnu --root /usr/local --version 0.1.24 rperf rperf
 
-# Runtime stage (optional, not needed for .deb but included for completeness)
+# Runtime stage
 FROM debian:bullseye-slim
 
 RUN apt-get update && apt-get install -y \
@@ -22,6 +22,11 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+# Create output directory
+RUN mkdir -p /output
+
+# Copy binary to both /usr/local/bin and /output
 COPY --from=builder /usr/local/bin/rperf /usr/local/bin/serviceradar-rperf
+COPY --from=builder /usr/local/bin/rperf /output/serviceradar-rperf
 
 CMD ["/usr/local/bin/serviceradar-rperf"]
