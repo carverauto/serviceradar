@@ -30,11 +30,12 @@ The following table lists the primary ServiceRadar components and their default 
 
 ## Checker Components
 
-| Component | Default Port | Protocol | Purpose |
-|-----------|--------------|----------|---------|
-| SNMP Checker | 50080        | gRPC/TCP | SNMP monitoring |
-| rperf Checker | 50081        | gRPC/TCP | Network performance monitoring client |
-| Dusk Checker | 50082        | gRPC/TCP | Dusk network node monitoring |
+| Component      | Default Port | Protocol | Purpose                                 |
+|----------------|--------------|----------|-----------------------------------------|
+| SNMP Checker   | 50080        | gRPC/TCP | SNMP monitoring                         |
+| rperf Checker  | 50081        | gRPC/TCP | Network performance monitoring client   |
+| Dusk Checker   | 50082        | gRPC/TCP | Dusk network node monitoring            |
+| SysMon Checker | 50083        | gRPC/TCP | SysMon (sysinfo/zfs) metrics collection |
 
 ## Network Performance Components
 

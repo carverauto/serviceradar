@@ -296,7 +296,7 @@ deb-all-container: ## Build all Debian packages with container support for core
 	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb rperf-server
 	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb rperf-client
 	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb cli
-	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb sysmon
+	@VERSION=$(VERSION) ./scripts/setup-package.sh --type=deb sysmon-checker
 
 # Build RPM packages
 .PHONY: rpm-core
