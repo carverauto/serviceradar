@@ -260,16 +260,46 @@ EOF
             echo "Building RPM with Dockerfile $dockerfile..."
             echo "Verifying context contents..."
             ls -l "${BASE_DIR}/go.mod" "${BASE_DIR}/${src_path}" 2>/dev/null || echo "Note: go.mod or src_path not required for Rust builds"
+            src_path=$(echo "$config" | jq -r '.binary.source_path')
             docker build \
                 --platform linux/amd64 \
                 --build-arg VERSION="$version" \
                 --build-arg RELEASE="$rpm_release" \
+                --build-arg COMPONENT="$component" \
+                --build-arg BINARY_PATH="$src_path" \
                 -f "${BASE_DIR}/${dockerfile}" \
                 -t "${package_name}-rpm-builder" \
                 "${BASE_DIR}" || { echo "Error: Docker build failed"; exit 1; }
             tmp_dir=$(mktemp -d)
             container_id=$(docker create "${package_name}-rpm-builder" /bin/true) || { echo "Error: Failed to create container"; exit 1; }
             docker cp "$container_id:/rpms/." "$tmp_dir/" || { echo "Error: Failed to copy RPMs from /rpms/"; exit 1; }
+            mkdir -p "${RELEASE_DIR}/rpm/${version}" || { echo "Error: Failed to create RPM directory"; exit 1; }
+            find "$tmp_dir" -name "*.rpm" -exec cp {} "${RELEASE_DIR}/rpm/${version}/" \;
+            echo "RPM built: ${RELEASE_DIR}/rpm/${version}/${package_name}-${version}-${rpm_release}.*.rpm"
+            docker rm "$container_id"
+            rm -rf "$tmp_dir"
+        else
+            echo "Warning: No RPM Dockerfile specified for $component, skipping RPM build"
+        fi
+    elif [ "$package_type" = "rpm" ]; then
+        if [ -n "$dockerfile" ]; then
+            echo "Building RPM with Dockerfile $dockerfile..."
+            echo "Verifying context contents..."
+            ls -l "${BASE_DIR}/go.mod" "${BASE_DIR}/${src_path}" 2>/dev/null || echo "Note: go.mod or src_path not required for Rust builds"
+            src_path=$(echo "$config" | jq -r '.binary.source_path')
+            docker build \
+                --platform linux/amd64 \
+                --build-arg VERSION="$version" \
+                --build-arg RELEASE="$rpm_release" \
+                --build-arg COMPONENT="$component" \
+                --build-arg BINARY_PATH="$src_path" \
+                -f "${BASE_DIR}/${dockerfile}" \
+                -t "${package_name}-rpm-builder" \
+                "${BASE_DIR}" || { echo "Error: Docker build failed"; exit 1; }
+            tmp_dir=$(mktemp -d)
+            container_id=$(docker create "${package_name}-rpm-builder" /bin/true) || { echo "Error: Failed to create container"; exit 1; }
+            docker cp "$container_id:/rpms/." "$tmp_dir/" || { echo "Error: Failed to copy RPMs from /rpms/"; exit 1; }
+            mkdir -p "${RELEASE_DIR}/rpm/${version}" || { echo "Error: Failed to create RPM directory"; exit 1; }
             find "$tmp_dir" -name "*.rpm" -exec cp {} "${RELEASE_DIR}/rpm/${version}/" \;
             echo "RPM built: ${RELEASE_DIR}/rpm/${version}/${package_name}-${version}-${rpm_release}.*.rpm"
             docker rm "$container_id"
