@@ -104,6 +104,9 @@ type Service interface {
 	GetMemoryMetrics(pollerID string, start, end time.Time) ([]models.MemoryMetric, error)
 	GetAllDiskMetrics(pollerID string, start, end time.Time) ([]models.DiskMetric, error)
 	GetAllMountPoints(pollerID string) ([]string, error)
+	GetAllCPUMetrics(pollerID string, start, end time.Time) ([]SysmonCPUResponse, error)
+	GetAllDiskMetricsGrouped(pollerID string, start, end time.Time) ([]SysmonDiskResponse, error)
+	GetMemoryMetricsGrouped(pollerID string, start, end time.Time) ([]SysmonMemoryResponse, error)
 
 	// Rperf
 
@@ -113,4 +116,24 @@ type Service interface {
 
 	StoreUser(user *models.User) error
 	GetUserByID(id string) (*models.User, error)
+}
+
+// SysmonMetricsProvider interface defines the operations needed for system monitoring metrics.
+type SysmonMetricsProvider interface {
+	// CPU metrics
+
+	GetAllCPUMetrics(pollerID string, start, end time.Time) ([]SysmonCPUResponse, error)
+	GetCPUMetrics(pollerID string, coreID int, start, end time.Time) ([]models.CPUMetric, error)
+
+	// Disk metrics
+
+	GetAllDiskMetricsGrouped(pollerID string, start, end time.Time) ([]SysmonDiskResponse, error)
+	GetDiskMetrics(pollerID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error)
+	GetAllDiskMetrics(pollerID string, start, end time.Time) ([]models.DiskMetric, error)
+	GetAllMountPoints(pollerID string) ([]string, error)
+
+	// Memory metrics
+
+	GetMemoryMetricsGrouped(pollerID string, start, end time.Time) ([]SysmonMemoryResponse, error)
+	GetMemoryMetrics(pollerID string, start, end time.Time) ([]models.MemoryMetric, error)
 }

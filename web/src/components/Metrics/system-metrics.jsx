@@ -1,7 +1,8 @@
 // src/components/Metrics/system-metrics.jsx
 import React, { useState, useEffect } from 'react';
-import { RefreshCw, AlertTriangle } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { ErrorMessage, EmptyState, LoadingState } from './error-components';
 import { fetchSystemData, getCombinedChartData } from './data-service';
 import { CustomTooltip } from './shared-components';
 import {
@@ -72,42 +73,27 @@ const SystemMetrics = ({ pollerId = 'poller-01', initialData = null }) => {
 
     // Loading state
     if (loading && !data) {
-        return (
-            <div className="bg-gray-900 rounded-lg shadow p-6 min-h-52 flex items-center justify-center">
-                <div className="animate-pulse flex space-x-2">
-                    <div className="h-3 w-3 bg-blue-400 rounded-full animate-bounce"></div>
-                    <div className="h-3 w-3 bg-blue-400 rounded-full animate-bounce delay-75"></div>
-                    <div className="h-3 w-3 bg-blue-400 rounded-full animate-bounce delay-150"></div>
-                </div>
-                <div className="ml-2 text-gray-400">Loading system data...</div>
-            </div>
-        );
+        return <LoadingState message="Loading system metrics data..." />;
     }
 
     // Error state
     if (error) {
         return (
-            <div className="bg-gray-900 rounded-lg shadow p-6 text-red-500">
-                <div className="flex items-center">
-                    <AlertTriangle className="mr-2" />
-                    {error}
-                </div>
-                <button
-                    onClick={handleRefresh}
-                    className="mt-4 px-3 py-1 bg-gray-800 text-gray-300 rounded flex items-center hover:bg-gray-700"
-                >
-                    <RefreshCw size={14} className={`mr-2 ${refreshing ? 'animate-spin' : ''}`} />
-                    Retry
-                </button>
-            </div>
+            <ErrorMessage
+                title="Failed to load metrics"
+                message={error || "We couldn't load the system metrics. Please try again later."}
+                onRetry={handleRefresh}
+            />
         );
     }
 
     if (!data) {
         return (
-            <div className="bg-gray-900 rounded-lg shadow p-6">
-                <div className="text-gray-400">No system data available</div>
-            </div>
+            <EmptyState
+                message="No system metrics data available for this poller."
+                onAction={handleRefresh}
+                actionLabel="Refresh"
+            />
         );
     }
 
