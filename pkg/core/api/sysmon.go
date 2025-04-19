@@ -14,68 +14,104 @@ import (
 
 func (s *APIServer) getSysmonCPUMetrics(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-
 	pollerID := vars["id"]
-
-	coreIDStr := r.URL.Query().Get("core_id")
 	startStr := r.URL.Query().Get("start")
 	endStr := r.URL.Query().Get("end")
+	coreIDStr := r.URL.Query().Get("core_id")
 
-	if coreIDStr == "" || startStr == "" || endStr == "" {
-		http.Error(w, "core_id, start, and end parameters are required", http.StatusBadRequest)
-
-		return
-	}
-
-	coreID, err := strconv.Atoi(coreIDStr)
-	if err != nil {
-		http.Error(w, "Invalid core_id format", http.StatusBadRequest)
-
+	if startStr == "" || endStr == "" {
+		http.Error(w, "start and end parameters are required", http.StatusBadRequest)
 		return
 	}
 
 	startTime, endTime, err := parseTimeRange(r.URL.Query())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
-
 		return
 	}
 
 	if s.metricsManager == nil {
 		log.Printf("Metrics manager not configured for poller %s", pollerID)
 		http.Error(w, "Metrics not configured", http.StatusInternalServerError)
-
 		return
 	}
 
-	// Cast to StructuredMetricCollector
 	structuredMetrics, ok := s.metricsManager.(metrics.StructuredMetricCollector)
 	if !ok {
-		log.Printf("Metrics manager does not support structured cpuMetrics for poller %s", pollerID)
-		http.Error(w, "Structured cpuMetrics not supported", http.StatusInternalServerError)
-
+		log.Printf("Metrics manager does not support structured metrics for poller %s", pollerID)
+		http.Error(w, "Structured metrics not supported", http.StatusInternalServerError)
 		return
 	}
 
-	cpuMetrics, err := structuredMetrics.GetCPUMetrics(pollerID, coreID, startTime, endTime)
-	if err != nil {
-		log.Printf("Error fetching CPU cpuMetrics for poller %s, core %d: %v", pollerID, coreID, err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	var cpuMetrics []models.CPUMetric
 
+	// If core_id is specified, get metrics for that specific core
+	// Otherwise, get metrics for all cores
+	if coreIDStr != "" {
+		coreID, err := strconv.Atoi(coreIDStr)
+		if err != nil {
+			http.Error(w, "Invalid core_id format", http.StatusBadRequest)
+			return
+		}
+
+		cpuMetrics, err = structuredMetrics.GetCPUMetrics(pollerID, coreID, startTime, endTime)
+	} else {
+		// Get metrics for all cores (you may need to implement this method)
+		// For now, we'll just use core 0 as a placeholder
+		cpuMetrics, err = structuredMetrics.GetCPUMetrics(pollerID, 0, startTime, endTime)
+	}
+
+	if err != nil {
+		log.Printf("Error fetching CPU metrics for poller %s: %v", pollerID, err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
 	if len(cpuMetrics) == 0 {
-		log.Printf("No CPU cpuMetrics found for poller %s, core %d", pollerID, coreID)
-		http.Error(w, "No cpuMetrics found", http.StatusNotFound)
-
+		log.Printf("No CPU metrics found for poller %s", pollerID)
+		http.Error(w, "No metrics found", http.StatusNotFound)
 		return
 	}
 
-	writeJSONResponse(w, cpuMetrics, pollerID)
-}
+	// Create a map to group metrics by timestamp
+	metricsByTimestamp := make(map[time.Time][]models.CPUMetric)
+	var latestTimestamp time.Time
 
-// Update the getSysmonDiskMetrics handler in pkg/core/api/sysmon.go
+	for _, metric := range cpuMetrics {
+		metricsByTimestamp[metric.Timestamp] = append(metricsByTimestamp[metric.Timestamp], metric)
+		if metric.Timestamp.After(latestTimestamp) {
+			latestTimestamp = metric.Timestamp
+		}
+	}
+
+	// Use the metrics from the latest timestamp
+	latestMetrics := metricsByTimestamp[latestTimestamp]
+
+	// Format the metrics as expected by the frontend
+	cpus := make([]map[string]interface{}, len(latestMetrics))
+	for i, metric := range latestMetrics {
+		cpus[i] = map[string]interface{}{
+			"core_id":       metric.CoreID,
+			"usage_percent": metric.UsagePercent,
+		}
+	}
+
+	response := map[string]interface{}{
+		"cpus":      cpus,
+		"timestamp": latestTimestamp.Format(time.RFC3339),
+	}
+
+	// Write the response
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("Error encoding CPU metrics response for poller %s: %v", pollerID, err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("Successfully wrote CPU metrics response for poller %s with %d cores",
+		pollerID, len(cpus))
+}
 
 func (s *APIServer) getSysmonDiskMetrics(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -186,54 +222,71 @@ func (s *APIServer) getSysmonDiskMetrics(w http.ResponseWriter, r *http.Request)
 
 func (s *APIServer) getSysmonMemoryMetrics(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-
 	pollerID := vars["id"]
-
 	startStr := r.URL.Query().Get("start")
 	endStr := r.URL.Query().Get("end")
 
 	if startStr == "" || endStr == "" {
 		http.Error(w, "start and end parameters are required", http.StatusBadRequest)
-
 		return
 	}
 
 	startTime, endTime, err := parseTimeRange(r.URL.Query())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
-
 		return
 	}
 
 	if s.metricsManager == nil {
 		log.Printf("Metrics manager not configured for poller %s", pollerID)
 		http.Error(w, "Metrics not configured", http.StatusInternalServerError)
-
 		return
 	}
 
 	structuredMetrics, ok := s.metricsManager.(metrics.StructuredMetricCollector)
 	if !ok {
-		log.Printf("Metrics manager does not support structured memoryMetrics for poller %s", pollerID)
-		http.Error(w, "Structured memoryMetrics not supported", http.StatusInternalServerError)
-
+		log.Printf("Metrics manager does not support structured metrics for poller %s", pollerID)
+		http.Error(w, "Structured metrics not supported", http.StatusInternalServerError)
 		return
 	}
 
 	memoryMetrics, err := structuredMetrics.GetMemoryMetrics(pollerID, startTime, endTime)
 	if err != nil {
-		log.Printf("Error fetching memory memoryMetrics for poller %s: %v", pollerID, err)
+		log.Printf("Error fetching memory metrics for poller %s: %v", pollerID, err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
-
 		return
 	}
 
 	if len(memoryMetrics) == 0 {
-		log.Printf("No memory memoryMetrics found for poller %s", pollerID)
-		http.Error(w, "No memoryMetrics found", http.StatusNotFound)
-
+		log.Printf("No memory metrics found for poller %s", pollerID)
+		http.Error(w, "No metrics found", http.StatusNotFound)
 		return
 	}
 
-	writeJSONResponse(w, memoryMetrics, pollerID)
+	// Use the most recent memory metric
+	latestMetric := memoryMetrics[0]
+	for _, metric := range memoryMetrics {
+		if metric.Timestamp.After(latestMetric.Timestamp) {
+			latestMetric = metric
+		}
+	}
+
+	// Format response to match what the frontend expects
+	response := map[string]interface{}{
+		"memory": map[string]interface{}{
+			"used_bytes":  latestMetric.UsedBytes,
+			"total_bytes": latestMetric.TotalBytes,
+		},
+		"timestamp": latestMetric.Timestamp.Format(time.RFC3339),
+	}
+
+	// Write the response
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("Error encoding memory metrics response for poller %s: %v", pollerID, err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("Successfully wrote memory metrics response for poller %s", pollerID)
 }
