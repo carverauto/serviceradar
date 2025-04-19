@@ -20,7 +20,6 @@ import (
 	"errors"
 	"log"
 	"net/http"
-	"net/url"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/db"
@@ -68,35 +67,6 @@ func (s *APIServer) getRperfMetrics(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSONResponse(w, resp.Metrics, pollerID)
-}
-
-// parseTimeRange parses start and end times from query parameters.
-func parseTimeRange(query url.Values) (start, end time.Time, err error) {
-	startStr := query.Get("start")
-	endStr := query.Get("end")
-
-	start = time.Now().Add(-24 * time.Hour)
-	end = time.Now()
-
-	if startStr != "" {
-		t, err := time.Parse(time.RFC3339, startStr)
-		if err != nil {
-			return time.Time{}, time.Time{}, ErrInvalidStartTimeFormat
-		}
-
-		start = t
-	}
-
-	if endStr != "" {
-		t, err := time.Parse(time.RFC3339, endStr)
-		if err != nil {
-			return time.Time{}, time.Time{}, ErrInvalidEndTimeFormat
-		}
-
-		end = t
-	}
-
-	return start, end, nil
 }
 
 func (s *APIServer) processRperfMetrics(pollerID string, startTime, endTime time.Time) models.RperfMetricResponse {

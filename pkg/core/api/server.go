@@ -20,8 +20,10 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"time"
 
@@ -412,4 +414,32 @@ func writeJSONResponse(w http.ResponseWriter, data interface{}, pollerID string)
 		// Log without trying to determine the length of a specific type
 		log.Printf("Successfully wrote metrics response for poller %s", pollerID)
 	}
+}
+
+// parseTimeRange parses start and end times from query parameters.
+func parseTimeRange(query url.Values) (start, end time.Time, err error) {
+	startStr := query.Get("start")
+	endStr := query.Get("end")
+
+	// Default to last 24 hours if not specified
+	start = time.Now().Add(-24 * time.Hour)
+	end = time.Now()
+
+	if startStr != "" {
+		t, err := time.Parse(time.RFC3339, startStr)
+		if err != nil {
+			return time.Time{}, time.Time{}, fmt.Errorf("invalid start time format: %w", err)
+		}
+		start = t
+	}
+
+	if endStr != "" {
+		t, err := time.Parse(time.RFC3339, endStr)
+		if err != nil {
+			return time.Time{}, time.Time{}, fmt.Errorf("invalid end time format: %w", err)
+		}
+		end = t
+	}
+
+	return start, end, nil
 }
