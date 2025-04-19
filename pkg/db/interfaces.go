@@ -102,6 +102,8 @@ type Service interface {
 	GetCPUMetrics(pollerID string, coreID int, start, end time.Time) ([]models.CPUMetric, error)
 	GetDiskMetrics(pollerID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error)
 	GetMemoryMetrics(pollerID string, start, end time.Time) ([]models.MemoryMetric, error)
+	GetAllDiskMetrics(pollerID string, start, end time.Time) ([]models.DiskMetric, error)
+	GetAllMountPoints(pollerID string) ([]string, error)
 
 	// Rperf
 

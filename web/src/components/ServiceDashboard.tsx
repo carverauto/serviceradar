@@ -1,19 +1,4 @@
-/*
- * Copyright 2025 Carver Automation Corporation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// src/components/ServiceDashboard.tsx
 "use client";
 
 import React, { useState, useEffect } from "react";
@@ -35,6 +20,13 @@ import { ArrowLeft } from "lucide-react";
 import { Service, ServiceMetric, ServiceDetails } from "@/types/types";
 import { SnmpDataPoint } from "@/types/snmp";
 import RPerfDashboard from "@/components/RPerfDashboard";
+import dynamic from "next/dynamic";
+
+// Dynamically import SystemMetrics to avoid SSR issues
+const SystemMetrics = dynamic(() => import("./Metrics/system-metrics"), {
+    ssr: false,
+    loading: () => <div className="p-8 text-center">Loading system metrics...</div>,
+});
 
 // Define props interface
 interface ServiceDashboardProps {
@@ -43,6 +35,7 @@ interface ServiceDashboardProps {
     initialService?: Service | null;
     initialMetrics?: ServiceMetric[];
     initialSnmpData?: SnmpDataPoint[];
+    initialSysmonData?: any; // Use any for now; define a specific type if needed
     initialError?: string | null;
     initialTimeRange?: string;
 }
@@ -53,6 +46,7 @@ const ServiceDashboard: React.FC<ServiceDashboardProps> = ({
                                                                initialService = null,
                                                                initialMetrics = [],
                                                                initialSnmpData = [],
+                                                               initialSysmonData = {},
                                                                initialError = null,
                                                                initialTimeRange = "1h",
                                                            }) => {
@@ -60,6 +54,7 @@ const ServiceDashboard: React.FC<ServiceDashboardProps> = ({
     const [serviceData] = useState<Service | null>(initialService);
     const [metricsData] = useState<ServiceMetric[]>(initialMetrics);
     const [snmpData] = useState<SnmpDataPoint[]>(initialSnmpData);
+    const [sysmonData] = useState<any>(initialSysmonData);
     const [loading] = useState(!initialService && !initialError);
     const [error] = useState<string | null>(initialError);
     const [selectedTimeRange] = useState<string>(initialTimeRange);
@@ -214,7 +209,7 @@ const ServiceDashboard: React.FC<ServiceDashboardProps> = ({
                         ICMP Status
                     </h3>
                     <PingStatus
-                        details={serviceData.details ?? ''} // Provide default empty string if undefined
+                        details={serviceData.details ?? ''}
                         pollerId={pollerId}
                         serviceName={serviceName}
                     />
@@ -228,6 +223,15 @@ const ServiceDashboard: React.FC<ServiceDashboardProps> = ({
                     pollerId={pollerId}
                     serviceName={serviceName}
                     initialTimeRange={initialTimeRange}
+                />
+            );
+        }
+
+        if (serviceName.toLowerCase() === "sysmon") {
+            return (
+                <SystemMetrics
+                    pollerId={pollerId}
+                    initialData={sysmonData} // Pass initial Sysmon data
                 />
             );
         }

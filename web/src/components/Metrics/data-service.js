@@ -1,148 +1,183 @@
-// data-service.js
+// src/components/Metrics/data-service.js
+import { fetchFromAPI } from '@/lib/api';
 
-// Generate sample time series data
-const generateTimeSeries = (baseValue, variance, count) => {
-    const now = new Date();
-    const data = [];
+// Helper function to convert bytes to GB
+const bytesToGB = (bytes) => (bytes / 1024 / 1024 / 1024).toFixed(1);
 
-    for (let i = count - 1; i >= 0; i--) {
-        const time = new Date(now - (i * (60 * 1000))); // Create data points for past minutes
-        const value = baseValue + (Math.random() * variance * 2) - variance;
-
-        data.push({
-            timestamp: time.toISOString(),
-            formattedTime: time.toLocaleTimeString(),
-            value: Math.max(0, parseFloat(value.toFixed(1)))
-        });
+// Safe property access helper
+const safeGet = (obj, path, defaultValue = null) => {
+    try {
+        return path.split('.').reduce((o, key) =>
+            (o && o[key] !== undefined) ? o[key] : undefined, obj) || defaultValue;
+    } catch (e) {
+        console.warn(`Error accessing property path: ${path}`, e);
+        return defaultValue;
     }
-
-    return data;
 };
 
-// Calculate percentage change between two values
-const calculatePercentageChange = (current, previous) => {
-    if (previous === 0) return 0;
-    return ((current - previous) / previous) * 100;
-};
-
-// Sample data fetching function - replace with your actual API call
-export const fetchEnvironmentData = async (pollerId, timeRange = '1h') => {
-    // In a real implementation, this would call your SNMP or agent API
-    // You'd replace this with actual API calls to your backend services
-
-    return new Promise((resolve) => {
-        // Simulate API call delay
-        setTimeout(() => {
-            // Points to generate based on time range
-            let pointCount = 60; // Default to 60 points (1 hour)
-
-            if (timeRange === '6h') pointCount = 360;
-            else if (timeRange === '24h') pointCount = 1440;
-
-            // Create sample data for all metrics
-            const temperature = {
-                current: 42.5,
-                warning: 45,
-                critical: 65,
-                data: generateTimeSeries(42.5, 5, pointCount),
-                unit: '°C',
-                min: 0,
-                max: 100
-            };
-
-            const cpu = {
-                current: 35.2,
-                warning: 70,
-                critical: 90,
-                data: generateTimeSeries(35, 15, pointCount),
-                unit: '%',
-                min: 0,
-                max: 100,
-                cores: [
-                    { name: 'Core 1', value: 42 },
-                    { name: 'Core 2', value: 38 },
-                    { name: 'Core 3', value: 25 },
-                    { name: 'Core 4', value: 36 }
-                ]
-            };
-
-            const memory = {
-                current: 65.7,
-                warning: 85,
-                critical: 95,
-                total: 16, // GB
-                used: 10.5,
-                data: generateTimeSeries(65, 10, pointCount),
-                unit: '%',
-                min: 0,
-                max: 100
-            };
-
-            const filesystem = {
-                drives: [
-                    { name: '/', used: 210, size: 500, usedPercent: 42, warning: 75, critical: 90 },
-                    { name: '/var', used: 120, size: 200, usedPercent: 60, warning: 75, critical: 90 },
-                    { name: '/home', used: 150, size: 750, usedPercent: 20, warning: 75, critical: 90 }
-                ],
-                data: generateTimeSeries(35, 5, pointCount), // Overall filesystem trend
-                unit: '%',
-                warning: 75,
-                critical: 90,
-                min: 0,
-                max: 100
-            };
-
-            // Calculate change rates
-            if (temperature.data.length >= 2) {
-                const latest = temperature.data[temperature.data.length - 1].value;
-                const previous = temperature.data[temperature.data.length - 2].value;
-                temperature.change = calculatePercentageChange(latest, previous);
+export const fetchSystemData = async (pollerId, timeRange = '1h') => {
+    return new Promise(async (resolve, reject) => {
+        try {
+            const end = new Date();
+            const start = new Date();
+            switch (timeRange) {
+                case '6h':
+                    start.setHours(end.getHours() - 6);
+                    break;
+                case '24h':
+                    start.setHours(end.getHours() - 24);
+                    break;
+                default:
+                    start.setHours(end.getHours() - 1);
             }
 
-            if (cpu.data.length >= 2) {
-                const latest = cpu.data[cpu.data.length - 1].value;
-                const previous = cpu.data[cpu.data.length - 2].value;
-                cpu.change = calculatePercentageChange(latest, previous);
+            const queryParams = `?start=${encodeURIComponent(start.toISOString())}&end=${encodeURIComponent(end.toISOString())}`;
+            console.log(`Fetching Sysmon data for poller ${pollerId} with params: ${queryParams}`);
+
+            try {
+                // Use Promise.allSettled to handle partial failures
+                const results = await Promise.allSettled([
+                    fetchFromAPI(`/pollers/${pollerId}/sysmon/cpu${queryParams}`),
+                    fetchFromAPI(`/pollers/${pollerId}/sysmon/disk${queryParams}`),
+                    fetchFromAPI(`/pollers/${pollerId}/sysmon/memory${queryParams}`),
+                ]);
+
+                console.log("API request results:", results);
+
+                // Extract values or use defaults
+                const cpuData = results[0].status === 'fulfilled' && results[0].value ?
+                    results[0].value : { cpus: [], timestamp: end.toISOString() };
+
+                const diskData = results[1].status === 'fulfilled' && results[1].value ?
+                    results[1].value : { disks: [], timestamp: end.toISOString() };
+
+                const memoryData = results[2].status === 'fulfilled' && results[2].value ?
+                    results[2].value : { memory: { used_bytes: 0, total_bytes: 1 }, timestamp: end.toISOString() };
+
+                console.log("Received API data:", { cpuData, diskData, memoryData });
+
+                // Process CPU data with proper error handling
+                const cpuCores = Array.isArray(safeGet(cpuData, 'cpus')) ? cpuData.cpus : [];
+                const cpuUsage = cpuCores.length > 0
+                    ? cpuCores.reduce((sum, core) => sum + safeGet(core, 'usage_percent', 0), 0) / cpuCores.length
+                    : 0;
+
+                const cpu = {
+                    current: parseFloat(cpuUsage.toFixed(1)),
+                    warning: 70,
+                    critical: 90,
+                    data: [{
+                        timestamp: safeGet(cpuData, 'timestamp', end.toISOString()),
+                        formattedTime: new Date(safeGet(cpuData, 'timestamp', end)).toLocaleTimeString(),
+                        value: parseFloat(cpuUsage.toFixed(1))
+                    }],
+                    unit: '%',
+                    min: 0,
+                    max: 100,
+                    cores: cpuCores.map(core => ({
+                        name: `Core ${safeGet(core, 'core_id', 'Unknown')}`,
+                        value: safeGet(core, 'usage_percent', 0)
+                    })),
+                };
+
+                // Process memory data with proper error handling
+                const memTotal = safeGet(memoryData, 'memory.total_bytes', 1);
+                const memUsed = safeGet(memoryData, 'memory.used_bytes', 0);
+                const memPercent = memTotal > 0 ? (memUsed / memTotal) * 100 : 0;
+
+                const memory = {
+                    current: parseFloat(memPercent.toFixed(1)),
+                    warning: 85,
+                    critical: 95,
+                    total: parseFloat(bytesToGB(memTotal)),
+                    used: parseFloat(bytesToGB(memUsed)),
+                    data: [{
+                        timestamp: safeGet(memoryData, 'timestamp', end.toISOString()),
+                        formattedTime: new Date(safeGet(memoryData, 'timestamp', end)).toLocaleTimeString(),
+                        value: parseFloat(memPercent.toFixed(1))
+                    }],
+                    unit: '%',
+                    min: 0,
+                    max: 100,
+                };
+
+                // Process disk data with proper error handling
+                const disks = Array.isArray(safeGet(diskData, 'disks')) ? diskData.disks : [];
+                console.log("Disk data:", disks);
+
+                const disk = {
+                    drives: disks.map(disk => {
+                        const totalBytes = safeGet(disk, 'total_bytes', 1);
+                        const usedBytes = safeGet(disk, 'used_bytes', 0);
+                        const usedPercent = totalBytes > 0 ? (usedBytes / totalBytes) * 100 : 0;
+
+                        return {
+                            name: safeGet(disk, 'mount_point', 'Unknown'),
+                            used: parseFloat(bytesToGB(usedBytes)),
+                            size: parseFloat(bytesToGB(totalBytes)),
+                            usedPercent: parseFloat(usedPercent.toFixed(1)),
+                            warning: 75,
+                            critical: 90,
+                        };
+                    }),
+                    data: [{
+                        timestamp: safeGet(diskData, 'timestamp', end.toISOString()),
+                        formattedTime: new Date(safeGet(diskData, 'timestamp', end)).toLocaleTimeString(),
+                        value: disks.length > 0
+                            ? parseFloat((disks.reduce((sum, disk) => {
+                                const total = safeGet(disk, 'total_bytes', 1);
+                                const used = safeGet(disk, 'used_bytes', 0);
+                                return sum + (total > 0 ? (used / total) * 100 : 0);
+                            }, 0) / disks.length).toFixed(1))
+                            : 0
+                    }],
+                    unit: '%',
+                    warning: 75,
+                    critical: 90,
+                    min: 0,
+                    max: 100,
+                };
+
+                // Calculate change rates (placeholder, as we only have one data point per endpoint)
+                cpu.change = 0;
+                memory.change = 0;
+                disk.change = 0;
+
+                const result = {
+                    cpu,
+                    memory,
+                    disk,
+                };
+
+                console.log("Processed system data:", result);
+                resolve(result);
+            } catch (error) {
+                console.error('API fetch error:', error);
+                reject(error);
             }
-
-            if (memory.data.length >= 2) {
-                const latest = memory.data[memory.data.length - 1].value;
-                const previous = memory.data[memory.data.length - 2].value;
-                memory.change = calculatePercentageChange(latest, previous);
-            }
-
-            const result = {
-                temperature,
-                cpu,
-                memory,
-                filesystem
-            };
-
-            resolve(result);
-        }, 500);
+        } catch (error) {
+            console.error('Error fetching Sysmon data:', error);
+            reject(error);
+        }
     });
 };
 
-// Process multiple datasets for a combined chart
 export const getCombinedChartData = (data) => {
     if (!data) return [];
 
-    // Map all metrics to a common timestamp
     const combinedData = [];
-    const keys = ['temperature', 'cpu', 'memory', 'filesystem'];
+    const keys = ['cpu', 'memory', 'disk'];
 
-    // For simplicity, use the timestamps from temperature data
-    if (data.temperature && data.temperature.data) {
-        const tempData = data.temperature.data;
+    if (data.cpu && data.cpu.data) {
+        const cpuData = data.cpu.data;
 
-        tempData.forEach((point, index) => {
+        cpuData.forEach((point, index) => {
             const dataPoint = {
                 timestamp: point.timestamp,
-                formattedTime: point.formattedTime
+                formattedTime: point.formattedTime,
             };
 
-            // Add data from each metric
-            keys.forEach(key => {
+            keys.forEach((key) => {
                 if (data[key] && data[key].data && data[key].data[index]) {
                     dataPoint[key] = data[key].data[index].value;
                 }

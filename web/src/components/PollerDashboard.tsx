@@ -193,7 +193,11 @@ const PollerDashboard: React.FC<PollerDashboardProps> = ({
     };
 
     const handleServiceClick = useCallback((pollerId: string, serviceName: string) => {
-        router.push(`/service/${pollerId}/${serviceName}`);
+        if (serviceName.toLowerCase() === 'sysmon') {
+            router.push(`/metrics?pollerId=${pollerId}`);
+        } else {
+            router.push(`/service/${pollerId}/${serviceName}`);
+        }
     }, [router]);
 
     const viewDetailedDashboard = useCallback((pollerId: string) => {
