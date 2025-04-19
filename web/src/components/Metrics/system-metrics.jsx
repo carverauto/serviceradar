@@ -1,42 +1,50 @@
+// src/components/Metrics/system-metrics.jsx
 import React, { useState, useEffect } from 'react';
 import { RefreshCw, AlertTriangle } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { fetchEnvironmentData, getCombinedChartData } from './data-service';
+import { fetchSystemData, getCombinedChartData } from './data-service';
 import { CustomTooltip } from './shared-components';
 import {
-    TemperatureCard, TemperatureChart, TemperatureDetails,
-    CpuCard, CpuChart, CpuCoresChart,
-    MemoryCard, MemoryChart, MemoryDetails,
-    FilesystemCard, FilesystemChart, FilesystemDetails
+    CpuCard,
+    CpuChart,
+    CpuCoresChart,
+    MemoryCard,
+    MemoryChart,
+    MemoryDetails,
+    FilesystemCard,
+    FilesystemChart,
+    FilesystemDetails,
 } from './metric-components';
 
-const EnvironmentMetrics = ({ pollerId = "poller-01" }) => {
-    const [data, setData] = useState(null);
-    const [loading, setLoading] = useState(true);
+const SystemMetrics = ({ pollerId = 'poller-01', initialData = null }) => {
+    const [data, setData] = useState(initialData);
+    const [loading, setLoading] = useState(!initialData);
     const [error, setError] = useState(null);
     const [refreshing, setRefreshing] = useState(false);
-    const [lastUpdated, setLastUpdated] = useState(null);
+    const [lastUpdated, setLastUpdated] = useState(initialData ? new Date() : null);
     const [activeTab, setActiveTab] = useState('overview');
     const [timeRange, setTimeRange] = useState('1h');
 
-    // Load initial data
+    // Load initial data if no initialData is provided
     useEffect(() => {
-        const loadData = async () => {
-            try {
-                setLoading(true);
-                const result = await fetchEnvironmentData(pollerId, timeRange);
-                setData(result);
-                setLastUpdated(new Date());
-                setError(null);
-            } catch (err) {
-                console.error('Error loading environment data:', err);
-                setError('Failed to load environment data');
-            } finally {
-                setLoading(false);
-            }
-        };
+        if (!initialData) {
+            const loadData = async () => {
+                try {
+                    setLoading(true);
+                    const result = await fetchSystemData(pollerId, timeRange);
+                    setData(result);
+                    setLastUpdated(new Date());
+                    setError(null);
+                } catch (err) {
+                    console.error('Error loading system data:', err);
+                    setError('Failed to load system data');
+                } finally {
+                    setLoading(false);
+                }
+            };
 
-        loadData();
+            loadData();
+        }
 
         // Set up refresh interval
         const intervalId = setInterval(() => {
@@ -44,19 +52,19 @@ const EnvironmentMetrics = ({ pollerId = "poller-01" }) => {
         }, 30000); // Refresh every 30 seconds
 
         return () => clearInterval(intervalId);
-    }, [pollerId, timeRange]);
+    }, [pollerId, timeRange, initialData]);
 
     // Handle manual refresh
     const handleRefresh = async () => {
         try {
             setRefreshing(true);
-            const result = await fetchEnvironmentData(pollerId, timeRange);
+            const result = await fetchSystemData(pollerId, timeRange);
             setData(result);
             setLastUpdated(new Date());
             setError(null);
         } catch (err) {
-            console.error('Error refreshing environment data:', err);
-            setError('Failed to refresh environment data');
+            console.error('Error refreshing system data:', err);
+            setError('Failed to refresh system data');
         } finally {
             setRefreshing(false);
         }
@@ -71,7 +79,7 @@ const EnvironmentMetrics = ({ pollerId = "poller-01" }) => {
                     <div className="h-3 w-3 bg-blue-400 rounded-full animate-bounce delay-75"></div>
                     <div className="h-3 w-3 bg-blue-400 rounded-full animate-bounce delay-150"></div>
                 </div>
-                <div className="ml-2 text-gray-400">Loading environment data...</div>
+                <div className="ml-2 text-gray-400">Loading system data...</div>
             </div>
         );
     }
@@ -98,7 +106,7 @@ const EnvironmentMetrics = ({ pollerId = "poller-01" }) => {
     if (!data) {
         return (
             <div className="bg-gray-900 rounded-lg shadow p-6">
-                <div className="text-gray-400">No environment data available</div>
+                <div className="text-gray-400">No system data available</div>
             </div>
         );
     }
@@ -110,7 +118,7 @@ const EnvironmentMetrics = ({ pollerId = "poller-01" }) => {
         <div className="bg-gray-900 rounded-lg shadow">
             <div className="p-4 border-b border-gray-800">
                 <div className="flex flex-wrap justify-between items-center">
-                    <h2 className="text-lg font-semibold text-white">Environmental Metrics</h2>
+                    <h2 className="text-lg font-semibold text-white">System Metrics</h2>
 
                     <div className="flex items-center">
                         <div className="text-sm text-gray-400 mr-4">
@@ -193,7 +201,7 @@ const EnvironmentMetrics = ({ pollerId = "poller-01" }) => {
                         {/* Combined chart view */}
                         <div className="mb-6">
                             <div className="mb-2 text-sm font-medium text-gray-300">All Metrics</div>
-                            <div className="bg-gray-800 rounded-lg p-4" style={{ height: "240px" }}>
+                            <div className="bg-gray-800 rounded-lg p-4" style={{ height: '240px' }}>
                                 <ResponsiveContainer width="100%" height="100%">
                                     <LineChart data={combinedChartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
                                         <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
@@ -210,15 +218,6 @@ const EnvironmentMetrics = ({ pollerId = "poller-01" }) => {
                                         />
                                         <Tooltip content={(props) => <CustomTooltip {...props} metricData={data} />} />
                                         <Legend />
-                                        <Line
-                                            name="Temperature"
-                                            type="monotone"
-                                            dataKey="temperature"
-                                            stroke="#3B82F6"
-                                            dot={false}
-                                            activeDot={{ r: 5 }}
-                                            isAnimationActive={false}
-                                        />
                                         <Line
                                             name="CPU"
                                             type="monotone"
@@ -238,9 +237,9 @@ const EnvironmentMetrics = ({ pollerId = "poller-01" }) => {
                                             isAnimationActive={false}
                                         />
                                         <Line
-                                            name="Filesystem"
+                                            name="Disk"
                                             type="monotone"
-                                            dataKey="filesystem"
+                                            dataKey="disk"
                                             stroke="#10B981"
                                             dot={false}
                                             activeDot={{ r: 5 }}
@@ -252,11 +251,10 @@ const EnvironmentMetrics = ({ pollerId = "poller-01" }) => {
                         </div>
 
                         {/* Compact metrics summary */}
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                            <TemperatureCard data={data.temperature} />
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                             <CpuCard data={data.cpu} />
                             <MemoryCard data={data.memory} />
-                            <FilesystemCard data={data.filesystem} />
+                            <FilesystemCard data={data.disk} />
                         </div>
                     </>
                 )}
@@ -264,10 +262,9 @@ const EnvironmentMetrics = ({ pollerId = "poller-01" }) => {
                 {/* Trends Tab */}
                 {activeTab === 'trends' && (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <TemperatureChart data={data.temperature} />
                         <CpuChart data={data.cpu} />
                         <MemoryChart data={data.memory} />
-                        <FilesystemChart data={data.filesystem} />
+                        <FilesystemChart data={data.disk} />
                     </div>
                 )}
 
@@ -275,9 +272,8 @@ const EnvironmentMetrics = ({ pollerId = "poller-01" }) => {
                 {activeTab === 'details' && (
                     <div className="space-y-6">
                         <CpuCoresChart cores={data.cpu.cores} />
-                        <FilesystemDetails drives={data.filesystem.drives} />
+                        <FilesystemDetails drives={data.disk.drives} />
                         <MemoryDetails data={data.memory} />
-                        <TemperatureDetails data={data.temperature} />
                     </div>
                 )}
             </div>
@@ -285,4 +281,4 @@ const EnvironmentMetrics = ({ pollerId = "poller-01" }) => {
     );
 };
 
-export default EnvironmentMetrics;
+export default SystemMetrics;

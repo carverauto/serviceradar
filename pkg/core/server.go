@@ -614,20 +614,50 @@ func (s *Server) processSpecializedMetrics(pollerID string, svc *proto.ServiceSt
 }
 
 func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, timestamp time.Time) error {
-	log.Printf("Processing sysmon m for poller %s", pollerID)
+	log.Printf("Processing sysmon for poller %s", pollerID)
 
-	var sysmonData models.SysmonMetricData
+	// Print raw JSON for debugging
+	log.Printf("Raw sysmon data: %s", string(details))
 
-	if err := json.Unmarshal(details, &sysmonData); err != nil {
-		return fmt.Errorf("failed to parse sysmon data: %w", err)
+	// First, parse the outer JSON structure to extract the nested JSON string
+	var outerData struct {
+		Status       string `json:"status"`        // This contains the nested JSON
+		ResponseTime int64  `json:"response_time"` // Optional fields
+		Available    bool   `json:"available"`     // Optional fields
 	}
 
+	if err := json.Unmarshal(details, &outerData); err != nil {
+		log.Printf("Error unmarshaling outer sysmon data: %v", err)
+		return fmt.Errorf("failed to parse outer sysmon data: %w", err)
+	}
+
+	// Now parse the nested JSON in the "status" field
+	if outerData.Status == "" {
+		log.Printf("Empty status field in sysmon data")
+		return fmt.Errorf("empty status field in sysmon data")
+	}
+
+	// Parse the inner JSON data
+	var sysmonData models.SysmonMetricData
+	if err := json.Unmarshal([]byte(outerData.Status), &sysmonData); err != nil {
+		log.Printf("Error unmarshaling inner sysmon data: %v", err)
+		return fmt.Errorf("failed to parse inner sysmon data: %w", err)
+	}
+
+	// Safely check if the memory field has data by checking for zero values
+	hasMemoryData := sysmonData.Memory.TotalBytes > 0 || sysmonData.Memory.UsedBytes > 0
+
+	log.Printf("Parsed sysmon data: CPUs=%d, Disks=%d, HasMemoryData=%v",
+		len(sysmonData.CPUs), len(sysmonData.Disks), hasMemoryData)
+
+	// Now process the correctly parsed data
 	m := &models.SysmonMetrics{
 		CPUs:   make([]models.CPUMetric, len(sysmonData.CPUs)),
 		Disks:  make([]models.DiskMetric, len(sysmonData.Disks)),
 		Memory: models.MemoryMetric{},
 	}
 
+	// Process CPU metrics
 	for i, cpu := range sysmonData.CPUs {
 		m.CPUs[i] = models.CPUMetric{
 			CoreID:       int(cpu.CoreID),
@@ -636,7 +666,12 @@ func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, 
 		}
 	}
 
+	// Process disk metrics
+	log.Printf("Processing %d disk metrics", len(sysmonData.Disks))
 	for i, disk := range sysmonData.Disks {
+		log.Printf("Disk %d: mount_point=%s, used=%d, total=%d",
+			i, disk.MountPoint, disk.UsedBytes, disk.TotalBytes)
+
 		m.Disks[i] = models.DiskMetric{
 			MountPoint: disk.MountPoint,
 			UsedBytes:  disk.UsedBytes,
@@ -645,15 +680,23 @@ func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, 
 		}
 	}
 
-	m.Memory = models.MemoryMetric{
-		UsedBytes:  sysmonData.Memory.UsedBytes,
-		TotalBytes: sysmonData.Memory.TotalBytes,
-		Timestamp:  timestamp,
+	// Process memory metrics (Memory is a struct, not a pointer, so we can't check for nil)
+	// Instead, we check if it has meaningful data
+	if hasMemoryData {
+		m.Memory = models.MemoryMetric{
+			UsedBytes:  sysmonData.Memory.UsedBytes,
+			TotalBytes: sysmonData.Memory.TotalBytes,
+			Timestamp:  timestamp,
+		}
 	}
 
+	// Store metrics in database
 	if err := s.metrics.StoreSysmonMetrics(pollerID, m, timestamp); err != nil {
-		return fmt.Errorf("failed to store sysmon m: %w", err)
+		return fmt.Errorf("failed to store sysmon metrics: %w", err)
 	}
+
+	log.Printf("Successfully stored sysmon metrics for poller %s: %d CPUs, %d disks, memory data present: %v",
+		pollerID, len(m.CPUs), len(m.Disks), hasMemoryData)
 
 	return nil
 }

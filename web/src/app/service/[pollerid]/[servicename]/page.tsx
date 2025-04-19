@@ -1,19 +1,3 @@
-/*
- * Copyright 2025 Carver Automation Corporation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 // src/app/service/[pollerid]/[servicename]/page.tsx
 import { Suspense } from "react";
 import ServiceDashboard from "../../../../components/ServiceDashboard";
@@ -45,7 +29,7 @@ async function fetchServiceData(
 
         const pollersUrl = getApiUrl("pollers");
 
-        // Use relative URL for the API route
+        // Fetch poller information
         const pollersResponse = await fetch(pollersUrl, {
             headers: {
                 "X-API-Key": apiKey,
@@ -97,7 +81,64 @@ async function fetchServiceData(
             // Add SNMP logic here if needed
         }
 
-        return { service, metrics: serviceMetrics, snmpData, timeRange };
+        // Fetch Sysmon metrics if the service is 'sysmon'
+        let sysmonData = {};
+        if (serviceName.toLowerCase() === "sysmon") {
+            try {
+                const end = new Date();
+                const start = new Date();
+                switch (timeRange) {
+                    case "6h":
+                        start.setHours(end.getHours() - 6);
+                        break;
+                    case "24h":
+                        start.setHours(end.getHours() - 24);
+                        break;
+                    default:
+                        start.setHours(end.getHours() - 1);
+                }
+
+                const queryParams = `?start=${encodeURIComponent(start.toISOString())}&end=${encodeURIComponent(end.toISOString())}`;
+
+                const [cpuResponse, diskResponse, memoryResponse] = await Promise.all([
+                    fetch(`${backendUrl}/api/pollers/${pollerId}/sysmon/cpu${queryParams}`, {
+                        headers: {
+                            "X-API-Key": apiKey,
+                            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                        },
+                        cache: "no-store",
+                    }),
+                    fetch(`${backendUrl}/api/pollers/${pollerId}/sysmon/disk${queryParams}`, {
+                        headers: {
+                            "X-API-Key": apiKey,
+                            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                        },
+                        cache: "no-store",
+                    }),
+                    fetch(`${backendUrl}/api/pollers/${pollerId}/sysmon/memory${queryParams}`, {
+                        headers: {
+                            "X-API-Key": apiKey,
+                            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                        },
+                        cache: "no-store",
+                    }),
+                ]);
+
+                const cpuData = cpuResponse.ok ? await cpuResponse.json() : null;
+                const diskData = diskResponse.ok ? await diskResponse.json() : null;
+                const memoryData = memoryResponse.ok ? await memoryResponse.json() : null;
+
+                sysmonData = {
+                    cpu: cpuData || { cpus: [], timestamp: end.toISOString() },
+                    disk: diskData || { disks: [], timestamp: end.toISOString() },
+                    memory: memoryData || { memory: { used_bytes: 0, total_bytes: 1 }, timestamp: end.toISOString() },
+                };
+            } catch (sysmonError) {
+                console.error("Error fetching Sysmon data:", sysmonError);
+            }
+        }
+
+        return { service, metrics: serviceMetrics, snmpData, sysmonData, timeRange };
     } catch (err) {
         console.error("Error fetching data:", err);
         return { error: (err as Error).message, service: null };
@@ -105,19 +146,18 @@ async function fetchServiceData(
 }
 
 export async function generateMetadata({ params }: { params: Params }) {
-    const { pollerid, servicename } = await params; // Await the params
+    const { pollerid, servicename } = await params;
     return {
         title: `${servicename} on ${pollerid} - ServiceRadar`,
     };
 }
 
-// Update the Page component to await params
 export default async function Page(props: PageProps) {
     const { params, searchParams } = props;
-    const { pollerid, servicename } = await params; // Await the params
+    const { pollerid, servicename } = await params;
     const resolvedSearchParams = await searchParams;
     const timeRange = resolvedSearchParams.timeRange || "1h";
-    const cookieStore = await cookies(); // Await the cookies() promise
+    const cookieStore = await cookies();
     const token = cookieStore.get("accessToken")?.value;
     const initialData = await fetchServiceData(pollerid, servicename, timeRange, token);
 
@@ -138,6 +178,7 @@ export default async function Page(props: PageProps) {
                     initialService={initialData.service}
                     initialMetrics={initialData.metrics || []}
                     initialSnmpData={initialData.snmpData || []}
+                    initialSysmonData={initialData.sysmonData || {}}
                     initialError={initialData.error}
                     initialTimeRange={initialData.timeRange || "1h"}
                 />

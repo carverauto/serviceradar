@@ -390,3 +390,87 @@ func (db *DB) StoreSysmonMetrics(pollerID string, metrics *models.SysmonMetrics,
 
 	return nil
 }
+
+// Add to pkg/db/metrics.go
+
+// GetAllDiskMetrics retrieves all disk metrics for a poller within a time range
+func (db *DB) GetAllDiskMetrics(pollerID string, start, end time.Time) ([]models.DiskMetric, error) {
+	log.Printf("Querying all disk metrics for poller %s between %s and %s",
+		pollerID, start.Format(time.RFC3339), end.Format(time.RFC3339))
+
+	query := `
+		SELECT mount_point, used_bytes, total_bytes, timestamp
+		FROM disk_metrics
+		WHERE poller_id = ? AND timestamp BETWEEN ? AND ?
+		ORDER BY timestamp DESC, mount_point ASC
+	`
+
+	rows, err := db.Query(query, pollerID, start, end)
+	if err != nil {
+		log.Printf("Error querying all disk metrics: %v", err)
+		return nil, fmt.Errorf("failed to query all disk metrics: %w", err)
+	}
+	defer CloseRows(rows)
+
+	var metrics []models.DiskMetric
+
+	for rows.Next() {
+		var m models.DiskMetric
+
+		if err := rows.Scan(&m.MountPoint, &m.UsedBytes, &m.TotalBytes, &m.Timestamp); err != nil {
+			log.Printf("Error scanning disk metric row: %v", err)
+			continue
+		}
+
+		metrics = append(metrics, m)
+	}
+
+	if err := rows.Err(); err != nil {
+		log.Printf("Error iterating disk metrics rows: %v", err)
+		return metrics, err
+	}
+
+	log.Printf("Retrieved %d disk metrics for poller %s", len(metrics), pollerID)
+
+	return metrics, nil
+}
+
+// GetAllMountPoints retrieves all unique mount points for a poller
+func (db *DB) GetAllMountPoints(pollerID string) ([]string, error) {
+	log.Printf("Querying all mount points for poller %s", pollerID)
+
+	query := `
+		SELECT DISTINCT mount_point
+		FROM disk_metrics
+		WHERE poller_id = ?
+		ORDER BY mount_point ASC
+	`
+
+	rows, err := db.Query(query, pollerID)
+	if err != nil {
+		log.Printf("Error querying mount points: %v", err)
+		return nil, fmt.Errorf("failed to query mount points: %w", err)
+	}
+	defer CloseRows(rows)
+
+	var mountPoints []string
+
+	for rows.Next() {
+		var mountPoint string
+		if err := rows.Scan(&mountPoint); err != nil {
+			log.Printf("Error scanning mount point: %v", err)
+			continue
+		}
+
+		mountPoints = append(mountPoints, mountPoint)
+	}
+
+	if err := rows.Err(); err != nil {
+		log.Printf("Error iterating mount points rows: %v", err)
+		return mountPoints, err
+	}
+
+	log.Printf("Found %d unique mount points for poller %s", len(mountPoints), pollerID)
+
+	return mountPoints, nil
+}

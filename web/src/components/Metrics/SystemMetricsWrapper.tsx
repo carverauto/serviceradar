@@ -1,16 +1,20 @@
+// src/components/Metrics/SystemMetricsWrapper.tsx
 'use client';
 
 import React from 'react';
 import dynamic from 'next/dynamic';
+import { useSearchParams } from 'next/navigation';
 
-// Dynamically import the EnvMetricsDemo to avoid any server/client hydration issues
-const EnvMetricsDemo = dynamic(() => import('./EnvMetricsDemo'), {
+const SystemMetrics = dynamic(() => import('./system-metrics'), {
     ssr: false,
-    loading: () => <div className="p-8 text-center">Loading environment metrics...</div>
+    loading: () => <div className="p-8 text-center">Loading system metrics...</div>,
 });
 
-const EnvironmentMetricsWrapper = () => {
-    return <EnvMetricsDemo />;
+const SystemMetricsWrapper = () => {
+    const searchParams = useSearchParams();
+    const pollerId = searchParams.get('pollerId') || 'poller-01'; // Fallback to 'poller-01' if not provided
+
+    return <SystemMetrics pollerId={pollerId} />;
 };
 
-export default EnvironmentMetricsWrapper;
+export default SystemMetricsWrapper;

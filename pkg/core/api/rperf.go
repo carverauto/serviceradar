@@ -17,7 +17,6 @@
 package api
 
 import (
-	"encoding/json"
 	"errors"
 	"log"
 	"net/http"
@@ -195,16 +194,4 @@ func writeError(w http.ResponseWriter, message string, status int, pollerID stri
 	log.Printf("%s for poller %s", message, pollerID)
 
 	http.Error(w, message, status)
-}
-
-func writeJSONResponse(w http.ResponseWriter, data interface{}, pollerID string) {
-	w.Header().Set("Content-Type", "application/json")
-
-	if err := json.NewEncoder(w).Encode(data); err != nil {
-		log.Printf("Error encoding response for poller %s: %v", pollerID, err)
-
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-	} else {
-		log.Printf("Found %d rperf metrics for poller %s", len(data.([]models.RperfMetric)), pollerID)
-	}
 }

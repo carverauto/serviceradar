@@ -81,6 +81,8 @@ export type ServiceDetails =
 export type { SweepDetails } from './snmp';
 
 export interface Service {
+  group: string;
+  status: string;
   name: string;
   type: string;
   available: boolean;
@@ -100,10 +102,12 @@ export interface ServiceStats {
   avg_response_time: number;
 }
 
+
 export interface ServiceMetric {
   service_name: string;
   timestamp: string; // ISO string format
-  response_time: number; // Assuming nanoseconds or milliseconds
+  response_time: number;
+  response_time_ms?: number;
   [key: string]: unknown; // Allow additional fields if needed
 }
 
