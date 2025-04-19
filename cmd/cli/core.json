@@ -1,0 +1,53 @@
+{
+    "listen_addr": ":8090",
+    "grpc_addr": ":50052",
+    "db_path": "/var/lib/serviceradar/serviceradar.db",
+    "alert_threshold": "5m",
+    "known_pollers": ["default-poller"],
+    "metrics": {
+        "enabled": true,
+        "retention": 100,
+        "max_nodes": 10000
+    },
+    "security": {
+        "mode": "mtls",
+        "cert_dir": "/etc/serviceradar/certs",
+        "role": "core",
+        "tls": {
+            "cert_file": "/etc/serviceradar/certs/core.pem",
+            "key_file": "/etc/serviceradar/certs/core-key.pem",
+            "ca_file": "/etc/serviceradar/certs/root.pem",
+            "client_ca_file": "/etc/serviceradar/certs/root.pem"
+        }
+    },
+    "cors": {
+        "allowed_origins": ["https://changeme"],
+        "allow_credentials": true
+    },
+    "auth": {
+        "jwt_secret": "your-secret-key-here",
+        "jwt_expiration": "24h",
+        "local_users": {
+            "admin": "$2a$10$6cHFkX6ISkSrxCeO1ZL2EOc/zy.cvGO9GhsE9jVo2i.tfoobar"
+        }
+    },
+    "webhooks": [
+        {
+            "enabled": false,
+            "url": "https://your-webhook-url",
+            "cooldown": "15m",
+            "headers": [
+                {
+                    "key": "Authorization",
+                    "value": "Bearer your-token"
+                }
+            ]
+        },
+        {
+            "enabled": false,
+            "url": "https://discord.com/api/webhooks/changeme",
+            "cooldown": "15m",
+            "template": "{\"embeds\":[{\"title\":\"{{.alert.Title}}\",\"description\":\"{{.alert.Message}}\",\"color\":{{if eq .alert.Level \"error\"}}15158332{{else if eq .alert.Level \"warning\"}}16776960{{else}}3447003{{end}},\"timestamp\":\"{{.alert.Timestamp}}\",\"fields\":[{\"name\":\"Node ID\",\"value\":\"{{.alert.NodeID}}\",\"inline\":true}{{range $key, $value := .alert.Details}},{\"name\":\"{{$key}}\",\"value\":\"{{$value}}\",\"inline\":true}{{end}}]}]}"
+        }
+    ]
+}
