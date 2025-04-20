@@ -316,7 +316,6 @@ const generateDefaultDataPoints = () => {
     return points.reverse();
 };
 
-// THIS IS THE MISSING FUNCTION
 // Combines data from CPU, memory, and disk metrics for the combined chart
 export const getCombinedChartData = (data) => {
     if (!data) return [];
