@@ -430,6 +430,7 @@ func parseTimeRange(query url.Values) (start, end time.Time, err error) {
 		if err != nil {
 			return time.Time{}, time.Time{}, fmt.Errorf("invalid start time format: %w", err)
 		}
+
 		start = t
 	}
 
@@ -438,8 +439,24 @@ func parseTimeRange(query url.Values) (start, end time.Time, err error) {
 		if err != nil {
 			return time.Time{}, time.Time{}, fmt.Errorf("invalid end time format: %w", err)
 		}
+
 		end = t
 	}
 
 	return start, end, nil
+}
+
+// httpError encapsulates an error message and HTTP status code.
+type httpError struct {
+	Message string
+	Status  int
+}
+
+func (h httpError) Error() string {
+	return fmt.Sprintf("HTTP %d: %s", h.Status, h.Message)
+}
+
+// writeError writes an HTTP error response with the given message and status.
+func writeError(w http.ResponseWriter, message string, status int) {
+	http.Error(w, message, status)
 }
