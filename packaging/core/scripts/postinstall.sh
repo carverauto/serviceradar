@@ -40,7 +40,7 @@ chmod 644 /etc/serviceradar/core.json
 # Enable and start service
 systemctl daemon-reload
 systemctl enable serviceradar-core
-systemctl start serviceradar-core || {
+systemctl restart serviceradar-core || {
     echo "Failed to start serviceradar-core service. Check logs with: journalctl -xeu serviceradar-core"
     exit 1
 }
