@@ -130,19 +130,23 @@ export const MemoryDetails = ({ data }) => {
     );
 };
 
+
 export const FilesystemCard = ({ data }) => {
-    const avgUsage = data.drives.reduce((sum, drive) => sum + drive.usedPercent, 0) / data.drives.length;
+    const drives = data?.drives || [];
+    const avgUsage = drives.length
+        ? drives.reduce((sum, drive) => sum + drive.usedPercent, 0) / drives.length
+        : 0;
 
     return (
         <MetricCard
             title="Disk Usage"
             current={avgUsage.toFixed(1)}
             unit="%"
-            warning={data.warning}
-            critical={data.critical}
+            warning={data?.warning || 75}
+            critical={data?.critical || 90}
             icon={<HardDrive size={16} className="mr-2 text-green-500 dark:text-green-400" />}
         >
-            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">{data.drives.length} volumes monitored</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">{drives.length} volumes monitored</div>
         </MetricCard>
     );
 };
@@ -168,7 +172,18 @@ export const FilesystemChart = ({ data }) => {
     );
 };
 
-export const FilesystemDetails = ({ drives }) => {
+export const FilesystemDetails = ({ drives = [] }) => {
+    if (!drives || drives.length === 0) {
+        return (
+            <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow transition-colors">
+                <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-3">Disk Details</h3>
+                <div className="text-center py-4 text-gray-500 dark:text-gray-400">
+                    No disk data available
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="bg-white dark:bg-gray-800 rounded-lg p-4 shadow transition-colors">
             <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-3">Disk Details</h3>

@@ -20,14 +20,7 @@ import { ArrowLeft } from "lucide-react";
 import { Service, ServiceMetric, ServiceDetails } from "@/types/types";
 import { SnmpDataPoint } from "@/types/snmp";
 import RPerfDashboard from "@/components/RPerfDashboard";
-import dynamic from "next/dynamic";
-import {SysmonData} from "@/types/sysmon";
-
-// Dynamically import SystemMetrics to avoid SSR issues
-const SystemMetrics = dynamic(() => import("./Metrics/system-metrics"), {
-    ssr: false,
-    loading: () => <div className="p-8 text-center">Loading system metrics...</div>,
-});
+import { SysmonData } from "@/types/sysmon";
 
 // Define props interface
 interface ServiceDashboardProps {
@@ -36,7 +29,7 @@ interface ServiceDashboardProps {
     initialService?: Service | null;
     initialMetrics?: ServiceMetric[];
     initialSnmpData?: SnmpDataPoint[];
-    initialSysmonData?: SysmonData | Record<string, never>;  // Allow empty object too
+    initialSysmonData?: SysmonData | Record<string, never>;
     initialError?: string | null;
     initialTimeRange?: string;
 }
@@ -47,7 +40,6 @@ const ServiceDashboard: React.FC<ServiceDashboardProps> = ({
                                                                initialService = null,
                                                                initialMetrics = [],
                                                                initialSnmpData = [],
-                                                               initialSysmonData = {},
                                                                initialError = null,
                                                                initialTimeRange = "1h",
                                                            }) => {
@@ -55,13 +47,22 @@ const ServiceDashboard: React.FC<ServiceDashboardProps> = ({
     const [serviceData] = useState<Service | null>(initialService);
     const [metricsData] = useState<ServiceMetric[]>(initialMetrics);
     const [snmpData] = useState<SnmpDataPoint[]>(initialSnmpData);
-    const [sysmonData] = useState<SysmonData | null>(
-        Object.keys(initialSysmonData || {}).length > 0 ? initialSysmonData as SysmonData : null
-    );
     const [loading] = useState(!initialService && !initialError);
     const [error] = useState<string | null>(initialError);
     const [selectedTimeRange] = useState<string>(initialTimeRange);
     const [chartHeight, setChartHeight] = useState<number>(256);
+
+    // Add state for redirection
+    const [redirectToMetrics] = useState(
+        serviceName.toLowerCase() === "sysmon"
+    );
+
+    // Handle redirect for sysmon service
+    useEffect(() => {
+        if (redirectToMetrics) {
+            router.push(`/metrics?pollerId=${pollerId}`);
+        }
+    }, [redirectToMetrics, router, pollerId]);
 
     // Adjust chart height based on screen size
     useEffect(() => {
@@ -231,11 +232,16 @@ const ServiceDashboard: React.FC<ServiceDashboardProps> = ({
         }
 
         if (serviceName.toLowerCase() === "sysmon") {
+            // Show a loading state while redirecting
             return (
-                <SystemMetrics
-                    pollerId={pollerId}
-                    initialData={Object.keys(sysmonData || {}).length > 0 ? sysmonData : null}
-                />
+                <div className="bg-white dark:bg-gray-800 rounded-lg p-6 text-center shadow">
+                    <div className="flex justify-center mb-4">
+                        <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                    </div>
+                    <h3 className="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-100">
+                        Redirecting to System Metrics Dashboard...
+                    </h3>
+                </div>
             );
         }
 
