@@ -21,6 +21,7 @@ import { Service, ServiceMetric, ServiceDetails } from "@/types/types";
 import { SnmpDataPoint } from "@/types/snmp";
 import RPerfDashboard from "@/components/RPerfDashboard";
 import dynamic from "next/dynamic";
+import {SysmonData} from "@/types/sysmon";
 
 // Dynamically import SystemMetrics to avoid SSR issues
 const SystemMetrics = dynamic(() => import("./Metrics/system-metrics"), {
@@ -35,7 +36,7 @@ interface ServiceDashboardProps {
     initialService?: Service | null;
     initialMetrics?: ServiceMetric[];
     initialSnmpData?: SnmpDataPoint[];
-    initialSysmonData?: any; // Use any for now; define a specific type if needed
+    initialSysmonData?: SysmonData | Record<string, never>;  // Allow empty object too
     initialError?: string | null;
     initialTimeRange?: string;
 }
@@ -54,7 +55,9 @@ const ServiceDashboard: React.FC<ServiceDashboardProps> = ({
     const [serviceData] = useState<Service | null>(initialService);
     const [metricsData] = useState<ServiceMetric[]>(initialMetrics);
     const [snmpData] = useState<SnmpDataPoint[]>(initialSnmpData);
-    const [sysmonData] = useState<any>(initialSysmonData);
+    const [sysmonData] = useState<SysmonData | null>(
+        Object.keys(initialSysmonData || {}).length > 0 ? initialSysmonData as SysmonData : null
+    );
     const [loading] = useState(!initialService && !initialError);
     const [error] = useState<string | null>(initialError);
     const [selectedTimeRange] = useState<string>(initialTimeRange);
@@ -231,7 +234,7 @@ const ServiceDashboard: React.FC<ServiceDashboardProps> = ({
             return (
                 <SystemMetrics
                     pollerId={pollerId}
-                    initialData={sysmonData} // Pass initial Sysmon data
+                    initialData={Object.keys(sysmonData || {}).length > 0 ? sysmonData : null}
                 />
             );
         }
