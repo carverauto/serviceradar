@@ -395,6 +395,66 @@ func (mr *MockServiceMockRecorder) Exec(query any, args ...any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Exec", reflect.TypeOf((*MockService)(nil).Exec), varargs...)
 }
 
+// GetAllCPUMetrics mocks base method.
+func (m *MockService) GetAllCPUMetrics(pollerID string, start, end time.Time) ([]SysmonCPUResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAllCPUMetrics", pollerID, start, end)
+	ret0, _ := ret[0].([]SysmonCPUResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAllCPUMetrics indicates an expected call of GetAllCPUMetrics.
+func (mr *MockServiceMockRecorder) GetAllCPUMetrics(pollerID, start, end any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllCPUMetrics", reflect.TypeOf((*MockService)(nil).GetAllCPUMetrics), pollerID, start, end)
+}
+
+// GetAllDiskMetrics mocks base method.
+func (m *MockService) GetAllDiskMetrics(pollerID string, start, end time.Time) ([]models.DiskMetric, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAllDiskMetrics", pollerID, start, end)
+	ret0, _ := ret[0].([]models.DiskMetric)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAllDiskMetrics indicates an expected call of GetAllDiskMetrics.
+func (mr *MockServiceMockRecorder) GetAllDiskMetrics(pollerID, start, end any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllDiskMetrics", reflect.TypeOf((*MockService)(nil).GetAllDiskMetrics), pollerID, start, end)
+}
+
+// GetAllDiskMetricsGrouped mocks base method.
+func (m *MockService) GetAllDiskMetricsGrouped(pollerID string, start, end time.Time) ([]SysmonDiskResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAllDiskMetricsGrouped", pollerID, start, end)
+	ret0, _ := ret[0].([]SysmonDiskResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAllDiskMetricsGrouped indicates an expected call of GetAllDiskMetricsGrouped.
+func (mr *MockServiceMockRecorder) GetAllDiskMetricsGrouped(pollerID, start, end any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllDiskMetricsGrouped", reflect.TypeOf((*MockService)(nil).GetAllDiskMetricsGrouped), pollerID, start, end)
+}
+
+// GetAllMountPoints mocks base method.
+func (m *MockService) GetAllMountPoints(pollerID string) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAllMountPoints", pollerID)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetAllMountPoints indicates an expected call of GetAllMountPoints.
+func (mr *MockServiceMockRecorder) GetAllMountPoints(pollerID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAllMountPoints", reflect.TypeOf((*MockService)(nil).GetAllMountPoints), pollerID)
+}
+
 // GetCPUMetrics mocks base method.
 func (m *MockService) GetCPUMetrics(pollerID string, coreID int, start, end time.Time) ([]models.CPUMetric, error) {
 	m.ctrl.T.Helper()
@@ -438,6 +498,21 @@ func (m *MockService) GetMemoryMetrics(pollerID string, start, end time.Time) ([
 func (mr *MockServiceMockRecorder) GetMemoryMetrics(pollerID, start, end any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMemoryMetrics", reflect.TypeOf((*MockService)(nil).GetMemoryMetrics), pollerID, start, end)
+}
+
+// GetMemoryMetricsGrouped mocks base method.
+func (m *MockService) GetMemoryMetricsGrouped(pollerID string, start, end time.Time) ([]SysmonMemoryResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetMemoryMetricsGrouped", pollerID, start, end)
+	ret0, _ := ret[0].([]SysmonMemoryResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetMemoryMetricsGrouped indicates an expected call of GetMemoryMetricsGrouped.
+func (mr *MockServiceMockRecorder) GetMemoryMetricsGrouped(pollerID, start, end any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMemoryMetricsGrouped", reflect.TypeOf((*MockService)(nil).GetMemoryMetricsGrouped), pollerID, start, end)
 }
 
 // GetMetrics mocks base method.

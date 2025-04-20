@@ -20,8 +20,10 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"time"
 
@@ -400,4 +402,61 @@ func (s *APIServer) Start(addr string) error {
 	}
 
 	return srv.ListenAndServe()
+}
+
+func writeJSONResponse(w http.ResponseWriter, data interface{}, pollerID string) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		log.Printf("Error encoding response for poller %s: %v", pollerID, err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	} else {
+		// Log without trying to determine the length of a specific type
+		log.Printf("Successfully wrote metrics response for poller %s", pollerID)
+	}
+}
+
+// parseTimeRange parses start and end times from query parameters.
+func parseTimeRange(query url.Values) (start, end time.Time, err error) {
+	startStr := query.Get("start")
+	endStr := query.Get("end")
+
+	// Default to last 24 hours if not specified
+	start = time.Now().Add(-24 * time.Hour)
+	end = time.Now()
+
+	if startStr != "" {
+		t, err := time.Parse(time.RFC3339, startStr)
+		if err != nil {
+			return time.Time{}, time.Time{}, fmt.Errorf("invalid start time format: %w", err)
+		}
+
+		start = t
+	}
+
+	if endStr != "" {
+		t, err := time.Parse(time.RFC3339, endStr)
+		if err != nil {
+			return time.Time{}, time.Time{}, fmt.Errorf("invalid end time format: %w", err)
+		}
+
+		end = t
+	}
+
+	return start, end, nil
+}
+
+// httpError encapsulates an error message and HTTP status code.
+type httpError struct {
+	Message string
+	Status  int
+}
+
+func (h httpError) Error() string {
+	return fmt.Sprintf("HTTP %d: %s", h.Status, h.Message)
+}
+
+// writeError writes an HTTP error response with the given message and status.
+func writeError(w http.ResponseWriter, message string, status int) {
+	http.Error(w, message, status)
 }

@@ -35,7 +35,10 @@ mkdir -p /etc/serviceradar/checkers
 chown -R serviceradar:serviceradar /etc/serviceradar/checkers
 chown -R serviceradar:serviceradar /var/lib/serviceradar
 chmod 755 /usr/local/bin/serviceradar-sysmon-checker
-chmod 644 /etc/serviceradar/checkers/sysmon.json.example
+
+if [ -f /etc/serviceradar/checkers/sysmon.json.example ]; then
+  chmod 644 /etc/serviceradar/checkers/sysmon.json.example
+fi
 
 # Enable and start the service
 systemctl daemon-reload

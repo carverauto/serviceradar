@@ -55,25 +55,25 @@ const (
 	);
 
 	-- Disk metrics
-	CREATE TABLE IF NOT EXISTS disk_metrics (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		poller_id TEXT NOT NULL,
-		timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		mount_point TEXT NOT NULL,
-		used_bytes INTEGER NOT NULL,
-		total_bytes INTEGER NOT NULL,
-		FOREIGN KEY (poller_id) REFERENCES pollers(poller_id) ON DELETE CASCADE
-	);
+    CREATE TABLE IF NOT EXISTS disk_metrics (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        poller_id TEXT NOT NULL,
+        timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        mount_point TEXT NOT NULL,
+        used_bytes TEXT NOT NULL,
+        total_bytes TEXT NOT NULL,
+        FOREIGN KEY (poller_id) REFERENCES pollers(poller_id) ON DELETE CASCADE
+    );
 
-	-- Memory metrics
-	CREATE TABLE IF NOT EXISTS memory_metrics (
-		id INTEGER PRIMARY KEY AUTOINCREMENT,
-		poller_id TEXT NOT NULL,
-		timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-		used_bytes INTEGER NOT NULL,
-		total_bytes INTEGER NOT NULL,
-		FOREIGN KEY (poller_id) REFERENCES pollers(poller_id) ON DELETE CASCADE
-	);
+    -- Memory metrics
+    CREATE TABLE IF NOT EXISTS memory_metrics (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        poller_id TEXT NOT NULL,
+        timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        used_bytes TEXT NOT NULL,
+        total_bytes TEXT NOT NULL,
+        FOREIGN KEY (poller_id) REFERENCES pollers(poller_id) ON DELETE CASCADE
+    );
 
 	-- Indexes for CPU metrics
 	CREATE INDEX IF NOT EXISTS idx_cpu_metrics_poller_time

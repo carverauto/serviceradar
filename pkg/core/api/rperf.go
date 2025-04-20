@@ -17,11 +17,8 @@
 package api
 
 import (
-	"encoding/json"
-	"errors"
 	"log"
 	"net/http"
-	"net/url"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/db"
@@ -29,25 +26,18 @@ import (
 	"github.com/gorilla/mux"
 )
 
-var (
-	// ErrInvalidStartTimeFormat is returned when the start time format is invalid.
-	ErrInvalidStartTimeFormat = errors.New("invalid start time format")
-	// ErrInvalidEndTimeFormat is returned when the end time format is invalid.
-	ErrInvalidEndTimeFormat = errors.New("invalid end time format")
-)
-
 func (s *APIServer) getRperfMetrics(w http.ResponseWriter, r *http.Request) {
 	pollerID := mux.Vars(r)["id"]
 
 	if s.rperfManager == nil {
-		writeError(w, "Rperf manager not configured", http.StatusInternalServerError, pollerID)
+		writeError(w, "Rperf manager not configured", http.StatusInternalServerError)
 
 		return
 	}
 
 	startTime, endTime, err := parseTimeRange(r.URL.Query())
 	if err != nil {
-		writeError(w, err.Error(), http.StatusBadRequest, pollerID)
+		writeError(w, err.Error(), http.StatusBadRequest)
 
 		return
 	}
@@ -57,47 +47,18 @@ func (s *APIServer) getRperfMetrics(w http.ResponseWriter, r *http.Request) {
 
 	resp := s.processRperfMetrics(pollerID, startTime, endTime)
 	if resp.Err != nil {
-		writeError(w, "Failed to fetch rperf metrics", http.StatusInternalServerError, pollerID)
+		writeError(w, "Failed to fetch rperf metrics", http.StatusInternalServerError)
 
 		return
 	}
 
 	if len(resp.Metrics) == 0 {
-		writeError(w, "No rperf metrics found", http.StatusNotFound, pollerID)
+		writeError(w, "No rperf metrics found", http.StatusNotFound)
 
 		return
 	}
 
 	writeJSONResponse(w, resp.Metrics, pollerID)
-}
-
-// parseTimeRange parses start and end times from query parameters.
-func parseTimeRange(query url.Values) (start, end time.Time, err error) {
-	startStr := query.Get("start")
-	endStr := query.Get("end")
-
-	start = time.Now().Add(-24 * time.Hour)
-	end = time.Now()
-
-	if startStr != "" {
-		t, err := time.Parse(time.RFC3339, startStr)
-		if err != nil {
-			return time.Time{}, time.Time{}, ErrInvalidStartTimeFormat
-		}
-
-		start = t
-	}
-
-	if endStr != "" {
-		t, err := time.Parse(time.RFC3339, endStr)
-		if err != nil {
-			return time.Time{}, time.Time{}, ErrInvalidEndTimeFormat
-		}
-
-		end = t
-	}
-
-	return start, end, nil
 }
 
 func (s *APIServer) processRperfMetrics(pollerID string, startTime, endTime time.Time) models.RperfMetricResponse {
@@ -188,23 +149,5 @@ func setFloat64Field(field *float64, metadata map[string]interface{}, key string
 func setInt64Field(field *int64, metadata map[string]interface{}, key string) {
 	if val, ok := metadata[key].(float64); ok {
 		*field = int64(val)
-	}
-}
-
-func writeError(w http.ResponseWriter, message string, status int, pollerID string) {
-	log.Printf("%s for poller %s", message, pollerID)
-
-	http.Error(w, message, status)
-}
-
-func writeJSONResponse(w http.ResponseWriter, data interface{}, pollerID string) {
-	w.Header().Set("Content-Type", "application/json")
-
-	if err := json.NewEncoder(w).Encode(data); err != nil {
-		log.Printf("Error encoding response for poller %s: %v", pollerID, err)
-
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-	} else {
-		log.Printf("Found %d rperf metrics for poller %s", len(data.([]models.RperfMetric)), pollerID)
 	}
 }

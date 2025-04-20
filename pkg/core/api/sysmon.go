@@ -1,180 +1,232 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package api
 
 import (
+	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
-	"strconv"
+	"time"
 
-	"github.com/carverauto/serviceradar/pkg/metrics"
+	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/gorilla/mux"
 )
 
-func (s *APIServer) getSysmonCPUMetrics(w http.ResponseWriter, r *http.Request) {
+// getSysmonMetrics is a generic handler for system metrics requests.
+func (s *APIServer) getSysmonMetrics(
+	w http.ResponseWriter,
+	r *http.Request,
+	fetchMetrics func(db.SysmonMetricsProvider, string, time.Time, time.Time) (interface{}, error),
+	metricType string,
+) {
 	vars := mux.Vars(r)
-
 	pollerID := vars["id"]
 
-	coreIDStr := r.URL.Query().Get("core_id")
-	startStr := r.URL.Query().Get("start")
-	endStr := r.URL.Query().Get("end")
-
-	if coreIDStr == "" || startStr == "" || endStr == "" {
-		http.Error(w, "core_id, start, and end parameters are required", http.StatusBadRequest)
-
-		return
-	}
-
-	coreID, err := strconv.Atoi(coreIDStr)
-	if err != nil {
-		http.Error(w, "Invalid core_id format", http.StatusBadRequest)
-
-		return
-	}
-
+	// Parse time range
 	startTime, endTime, err := parseTimeRange(r.URL.Query())
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeError(w, err.Error(), http.StatusBadRequest)
 
 		return
 	}
 
-	if s.metricsManager == nil {
-		log.Printf("Metrics manager not configured for poller %s", pollerID)
-		http.Error(w, "Metrics not configured", http.StatusInternalServerError)
-
-		return
-	}
-
-	// Cast to StructuredMetricCollector
-	structuredMetrics, ok := s.metricsManager.(metrics.StructuredMetricCollector)
+	// Validate metrics provider
+	metricsProvider, ok := s.metricsManager.(db.SysmonMetricsProvider)
 	if !ok {
-		log.Printf("Metrics manager does not support structured cpuMetrics for poller %s", pollerID)
-		http.Error(w, "Structured cpuMetrics not supported", http.StatusInternalServerError)
+		log.Printf("WARNING: Metrics manager does not implement SysmonMetricsProvider for poller %s", pollerID)
+		writeError(w, "System metrics not supported by this server", http.StatusNotImplemented)
 
 		return
 	}
 
-	cpuMetrics, err := structuredMetrics.GetCPUMetrics(pollerID, coreID, startTime, endTime)
+	// Fetch metrics
+	metrics, err := fetchMetrics(metricsProvider, pollerID, startTime, endTime)
 	if err != nil {
-		log.Printf("Error fetching CPU cpuMetrics for poller %s, core %d: %v", pollerID, coreID, err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		var httpErr *httpError
+
+		if errors.As(err, &httpErr) {
+			log.Printf("Error fetching %s metrics for poller %s: %v", metricType, pollerID, err)
+			writeError(w, httpErr.Message, httpErr.Status)
+		} else {
+			log.Printf("Unexpected error fetching %s metrics for poller %s: %v", metricType, pollerID, err)
+			writeError(w, "Internal server error", http.StatusInternalServerError)
+		}
 
 		return
 	}
 
-	if len(cpuMetrics) == 0 {
-		log.Printf("No CPU cpuMetrics found for poller %s, core %d", pollerID, coreID)
-		http.Error(w, "No cpuMetrics found", http.StatusNotFound)
+	// Encode response
+	w.Header().Set("Content-Type", "application/json")
 
-		return
+	if err := json.NewEncoder(w).Encode(metrics); err != nil {
+		log.Printf("Error encoding %s metrics response: %v", metricType, pollerID)
+		writeError(w, "Error encoding response", http.StatusInternalServerError)
+	}
+}
+
+// getSysmonCPUMetrics handles CPU metrics requests.
+func (s *APIServer) getSysmonCPUMetrics(w http.ResponseWriter, r *http.Request) {
+	fetch := func(provider db.SysmonMetricsProvider, pollerID string, startTime, endTime time.Time) (interface{}, error) {
+		metrics, err := provider.GetAllCPUMetrics(pollerID, startTime, endTime)
+		if err != nil {
+			return nil, &httpError{"Internal server error", http.StatusInternalServerError}
+		}
+
+		if len(metrics) == 0 {
+			return nil, &httpError{"No metrics found", http.StatusNotFound}
+		}
+
+		return metrics, nil
 	}
 
-	writeJSONResponse(w, cpuMetrics, pollerID)
+	s.getSysmonMetrics(w, r, fetch, "CPU")
+}
+
+// getSysmonMemoryMetrics handles memory metrics requests.
+func (s *APIServer) getSysmonMemoryMetrics(w http.ResponseWriter, r *http.Request) {
+	fetch := func(provider db.SysmonMetricsProvider, pollerID string, startTime, endTime time.Time) (interface{}, error) {
+		metrics, err := provider.GetMemoryMetricsGrouped(pollerID, startTime, endTime)
+		if err != nil {
+			return nil, &httpError{"Internal server error", http.StatusInternalServerError}
+		}
+
+		if len(metrics) == 0 {
+			return nil, &httpError{"No metrics found", http.StatusNotFound}
+		}
+
+		return metrics, nil
+	}
+
+	s.getSysmonMetrics(w, r, fetch, "memory")
+}
+
+// fetchDiskMetrics retrieves disk metrics based on mount point presence.
+func (*APIServer) fetchDiskMetrics(
+	provider db.SysmonMetricsProvider,
+	pollerID, mountPoint string,
+	startTime, endTime time.Time,
+) ([]db.SysmonDiskResponse, error) {
+	if mountPoint != "" {
+		metrics, err := provider.GetDiskMetrics(pollerID, mountPoint, startTime, endTime)
+		if err != nil {
+			log.Printf("Error fetching disk metrics for poller %s, mount point %s: %v", pollerID, mountPoint, err)
+
+			return nil, &httpError{"Internal server error", http.StatusInternalServerError}
+		}
+
+		if len(metrics) == 0 {
+			return nil, &httpError{"No metrics found", http.StatusNotFound}
+		}
+
+		grouped := groupDiskMetricsByTimestamp(metrics)
+
+		return grouped, nil
+	}
+
+	allMetrics, err := provider.GetAllDiskMetricsGrouped(pollerID, startTime, endTime)
+	if err != nil {
+		log.Printf("Error fetching all disk metrics for poller %s: %v", pollerID, err)
+
+		return nil, &httpError{"Internal server error", http.StatusInternalServerError}
+	}
+
+	if len(allMetrics) == 0 {
+		return nil, &httpError{"No metrics found", http.StatusNotFound}
+	}
+
+	return allMetrics, nil
 }
 
 func (s *APIServer) getSysmonDiskMetrics(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
+
 	pollerID := vars["id"]
+
 	mountPoint := r.URL.Query().Get("mount_point")
-	startStr := r.URL.Query().Get("start")
-	endStr := r.URL.Query().Get("end")
 
-	if mountPoint == "" || startStr == "" || endStr == "" {
-		http.Error(w, "mount_point, start, and end parameters are required", http.StatusBadRequest)
-
-		return
-	}
-
+	// Parse time range
 	startTime, endTime, err := parseTimeRange(r.URL.Query())
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeError(w, err.Error(), http.StatusBadRequest)
 
 		return
 	}
 
-	if s.metricsManager == nil {
-		log.Printf("Metrics manager not configured for poller %s", pollerID)
-		http.Error(w, "Metrics not configured", http.StatusInternalServerError)
-
-		return
-	}
-
-	structuredMetrics, ok := s.metricsManager.(metrics.StructuredMetricCollector)
+	// Validate metrics provider.
+	metricsProvider, ok := s.metricsManager.(db.SysmonMetricsProvider)
 	if !ok {
-		log.Printf("Metrics manager does not support structured diskMetrics for poller %s", pollerID)
-		http.Error(w, "Structured diskMetrics not supported", http.StatusInternalServerError)
+		log.Printf("WARNING: Metrics manager does not implement SysmonMetricsProvider for poller %s", pollerID)
+		writeError(w, "System metrics not supported by this server", http.StatusNotImplemented)
 
 		return
 	}
 
-	diskMetrics, err := structuredMetrics.GetDiskMetrics(pollerID, mountPoint, startTime, endTime)
+	// Fetch metrics based on mount point.
+	response, err := s.fetchDiskMetrics(metricsProvider, pollerID, mountPoint, startTime, endTime)
 	if err != nil {
-		log.Printf("Error fetching disk diskMetrics for poller %s, mount %s: %v", pollerID, mountPoint, err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		var httpErr *httpError
+
+		if errors.As(err, &httpErr) {
+			log.Printf("Error fetching disk metrics for poller %s: %v", pollerID, err)
+			writeError(w, httpErr.Message, httpErr.Status)
+		} else {
+			log.Printf("Unexpected error fetching disk metrics for poller %s: %v", pollerID, err)
+			writeError(w, "Internal server error", http.StatusInternalServerError)
+		}
 
 		return
 	}
 
-	if len(diskMetrics) == 0 {
-		log.Printf("No disk diskMetrics found for poller %s, mount %s", pollerID, mountPoint)
-		http.Error(w, "No diskMetrics found", http.StatusNotFound)
+	// Encode response
+	w.Header().Set("Content-Type", "application/json")
 
-		return
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("Error encoding disk metrics response: %v", err)
+		writeError(w, "Error encoding response", http.StatusInternalServerError)
 	}
-
-	writeJSONResponse(w, diskMetrics, pollerID)
 }
 
-func (s *APIServer) getSysmonMemoryMetrics(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
+// groupDiskMetricsByTimestamp groups a slice of DiskMetric by timestamp into SysmonDiskResponse.
+func groupDiskMetricsByTimestamp(metrics []models.DiskMetric) []db.SysmonDiskResponse {
+	// Map to group metrics by timestamp
+	timestampMap := make(map[time.Time][]models.DiskMetric)
 
-	pollerID := vars["id"]
-
-	startStr := r.URL.Query().Get("start")
-	endStr := r.URL.Query().Get("end")
-
-	if startStr == "" || endStr == "" {
-		http.Error(w, "start and end parameters are required", http.StatusBadRequest)
-
-		return
+	for _, metric := range metrics {
+		// Truncate to second for consistent grouping
+		t := metric.Timestamp.Truncate(time.Second)
+		timestampMap[t] = append(timestampMap[t], metric)
 	}
 
-	startTime, endTime, err := parseTimeRange(r.URL.Query())
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-
-		return
+	// Convert to SysmonDiskResponse
+	result := make([]db.SysmonDiskResponse, 0, len(timestampMap))
+	for ts, disks := range timestampMap {
+		result = append(result, db.SysmonDiskResponse{
+			Timestamp: ts,
+			Disks:     disks,
+		})
 	}
 
-	if s.metricsManager == nil {
-		log.Printf("Metrics manager not configured for poller %s", pollerID)
-		http.Error(w, "Metrics not configured", http.StatusInternalServerError)
+	// Sort by timestamp for consistent output
+	// (Optional, depending on requirements)
+	// sort.Slice(result, func(i, j int) bool {
+	//     return result[i].Timestamp.Before(result[j].Timestamp)
+	// })
 
-		return
-	}
-
-	structuredMetrics, ok := s.metricsManager.(metrics.StructuredMetricCollector)
-	if !ok {
-		log.Printf("Metrics manager does not support structured memoryMetrics for poller %s", pollerID)
-		http.Error(w, "Structured memoryMetrics not supported", http.StatusInternalServerError)
-
-		return
-	}
-
-	memoryMetrics, err := structuredMetrics.GetMemoryMetrics(pollerID, startTime, endTime)
-	if err != nil {
-		log.Printf("Error fetching memory memoryMetrics for poller %s: %v", pollerID, err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-
-		return
-	}
-
-	if len(memoryMetrics) == 0 {
-		log.Printf("No memory memoryMetrics found for poller %s", pollerID)
-		http.Error(w, "No memoryMetrics found", http.StatusNotFound)
-
-		return
-	}
-
-	writeJSONResponse(w, memoryMetrics, pollerID)
+	return result
 }
