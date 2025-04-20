@@ -14,15 +14,15 @@
  * limitations under the License.
  */
 
-package core
+// src/components/Metrics/system-metrics.d.ts
 
-import "errors"
+import { SysmonData } from '@/types/sysmon';
 
-var (
-	errEmptyPollerID      = errors.New("empty poller ID")
-	errDatabaseError      = errors.New("database error")
-	errInvalidSweepData   = errors.New("invalid sweep data")
-	errFailedToSendAlerts = errors.New("failed to send alerts")
-	errJWTSecretRequired  = errors.New("JWT_SECRET environment variable is required")
-	errEmptyStatusField   = errors.New("empty status field")
-)
+interface SystemMetricsProps {
+    pollerId: string;
+    initialData?: SysmonData | null;  // Make initialData accept SysmonData, null, or undefined
+}
+
+declare const SystemMetrics: React.FC<SystemMetricsProps>;
+
+export default SystemMetrics;

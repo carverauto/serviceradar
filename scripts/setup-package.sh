@@ -1,4 +1,19 @@
 #!/bin/bash
+
+# Copyright 2025 Carver Automation Corporation.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # setup-package.sh - Unified script to build ServiceRadar Debian and RPM packages
 set -e
 
@@ -118,28 +133,65 @@ build_component() {
             ls -l "${BASE_DIR}/go.mod" "${BASE_DIR}/${src_path}" || { echo "Error: Source files missing in context"; exit 1; }
             docker build --platform linux/amd64 --build-arg VERSION="$version" --build-arg BUILD_TAGS="$BUILD_TAGS" -f "${BASE_DIR}/${dockerfile}" -t "${package_name}-builder" "${BASE_DIR}" || { echo "Error: Docker build failed"; exit 1; }
             container_id=$(docker create "${package_name}-builder" /bin/true)
-            echo "Listing container contents at /src..."
-            docker run --rm "${package_name}-builder" ls -l /src || { echo "Error: Failed to list container contents"; exit 1; }
+            #echo "Listing container contents at /src..."
+            #docker run --rm "${package_name}-builder" ls -l /src || { echo "Error: Failed to list container contents"; exit 1; }
             echo "Copying binary from container: /src/${package_name} to ${pkg_root}${output_path}"
             mkdir -p "$(dirname "${pkg_root}${output_path}")" || { echo "Error: Failed to create directory $(dirname "${pkg_root}${output_path}")"; exit 1; }
             docker cp "${container_id}:/src/${package_name}" "${pkg_root}${output_path}" || { echo "Error: Failed to copy binary"; exit 1; }
             ls -l "${pkg_root}${output_path}" || { echo "Error: Binary not copied to package root"; exit 1; }
             test -s "${pkg_root}${output_path}" || { echo "Error: Binary is empty"; exit 1; }
             docker rm "$container_id"
+        # The problem is likely in this section of setup-package.sh
         elif [ "$build_method" = "npm" ]; then
             local build_dir output_dir
             build_dir=$(echo "$config" | jq -r '.build_dir')
             output_dir=$(echo "$config" | jq -r '.output_dir')
             echo "Building Next.js application in $build_dir..."
             mkdir -p "${pkg_root}${output_dir}" || { echo "Error: Failed to create directory ${pkg_root}${output_dir}"; exit 1; }
-            cd "${BASE_DIR}/${build_dir}"
+            cd "${BASE_DIR}/${build_dir}" || { echo "Error: Failed to change to ${BASE_DIR}/${build_dir}"; exit 1; }
+            echo "Current directory: $(pwd)"
+            echo "Node.js version: $(node -v)"
+            echo "npm version: $(npm -v)"
+            echo "Installing dependencies..."
             npm install || { echo "Error: npm install failed"; exit 1; }
+            echo "Building Next.js application..."
             npm run build || { echo "Error: npm build failed"; exit 1; }
-            cp -r .next/standalone/* "${pkg_root}${output_dir}/" || { echo "Error: Failed to copy .next/standalone"; exit 1; }
-            cp -r .next/static "${pkg_root}${output_dir}/.next/" || { echo "Error: Failed to copy .next/static"; exit 1; }
-            [ -d "public" ] && cp -r public "${pkg_root}${output_dir}/" || echo "No public directory found, skipping"
-            cd "${BASE_DIR}"
-            find "${pkg_root}${output_dir}" -type f | head -n 5 || echo "No files found in ${pkg_root}${output_dir}"
+            echo "Installing production dependencies for runtime..."
+            rm -rf node_modules package-lock.json
+            npm install --production || { echo "Error: npm install --production failed"; exit 1; }
+
+            # Debug the directories
+            echo "Debugging Next.js build output..."
+            ls -la .next/ || echo "No .next directory found!"
+            ls -la .next/standalone/ || echo "No standalone directory found!"
+            ls -la .next/static/ || echo "No static directory found!"
+
+            # Create the necessary directory structure first
+            echo "Creating directory structure for standalone build..."
+            mkdir -p "${pkg_root}${output_dir}/.next/static" || { echo "Error: Failed to create static directory"; exit 1; }
+
+            # Copy the standalone server and dependencies
+            echo "Copying standalone build artifacts..."
+            cp -r .next/standalone/. "${pkg_root}${output_dir}/" || { echo "Error: Failed to copy standalone files"; exit 1; }
+
+            # Copy public directory if it exists
+            if [ -d "public" ]; then
+                echo "Copying public directory..."
+                mkdir -p "${pkg_root}${output_dir}/public" || { echo "Error: Failed to create public directory"; exit 1; }
+                cp -r public/. "${pkg_root}${output_dir}/public/" || { echo "Error: Failed to copy public directory"; exit 1; }
+            fi
+
+            # Copy static files to the right location
+            echo "Copying static files..."
+            cp -r .next/static/. "${pkg_root}${output_dir}/.next/static/" || { echo "Error: Failed to copy static files"; exit 1; }
+
+            # Verify the copied files
+            echo "Verifying copied files..."
+            ls -la "${pkg_root}${output_dir}/server.js" || { echo "Warning: server.js not found"; }
+            ls -la "${pkg_root}${output_dir}/.next/static/" || { echo "Warning: .next/static directory not found"; }
+
+            # Return to base directory
+            cd "${BASE_DIR}" || { echo "Error: Failed to return to base directory"; exit 1; }
         elif [ "$build_method" = "rust" ] && [ -n "$dockerfile" ]; then
             local output_path docker_output_path
             output_path=$(echo "$config" | jq -r '.binary.output_path')
@@ -241,8 +293,8 @@ EOF
         done
 
         # Log package root contents before building
-        echo "Package root contents before building:"
-        find "${pkg_root}" -type f -exec ls -l {} \;
+        #echo "Package root contents before building:"
+        #find "${pkg_root}" -type f -exec ls -l {} \;
 
         # Ensure permissions for DEBIAN directory
         chmod -R u+rw "${pkg_root}/DEBIAN" || { echo "Error: Failed to set permissions on DEBIAN directory"; exit 1; }
@@ -253,8 +305,8 @@ EOF
         echo "Package built: ${RELEASE_DIR}/${package_name}_${version}.deb"
 
         # Verify package contents
-        echo "Verifying package contents:"
-        dpkg-deb -c "${RELEASE_DIR}/${package_name}_${version}.deb"
+        #echo "Verifying package contents:"
+        #dpkg-deb -c "${RELEASE_DIR}/${package_name}_${version}.deb"
     elif [ "$package_type" = "rpm" ]; then
         if [ -n "$dockerfile" ]; then
             echo "Building RPM with Dockerfile $dockerfile..."

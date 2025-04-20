@@ -44,19 +44,21 @@ cd "${BASE_DIR}/web"
 npm install
 npm run build
 
-# Copy the Next.js standalone build
+# Copy the full Next.js build
 echo "Copying built web files..."
-cp -r .next/standalone/* "../serviceradar-web-build/usr/local/share/serviceradar-web/"
-cp -r .next/standalone/.next "../serviceradar-web-build/usr/local/share/serviceradar-web/"
-
-# Copy static files
-mkdir -p "../serviceradar-web-build/usr/local/share/serviceradar-web/.next/static"
-cp -r .next/static "../serviceradar-web-build/usr/local/share/serviceradar-web/.next/"
+mkdir -p "../serviceradar-web-build/usr/local/share/serviceradar-web"
+cp -r .next "../serviceradar-web-build/usr/local/share/serviceradar-web/"
+cp -r node_modules "../serviceradar-web-build/usr/local/share/serviceradar-web/"
+cp package.json "../serviceradar-web-build/usr/local/share/serviceradar-web/"
 
 # Copy public files if they exist
 if [ -d "public" ]; then
     cp -r public "../serviceradar-web-build/usr/local/share/serviceradar-web/"
 fi
+
+# Copy static files
+cp -R public/* .next/standalone/public/
+cp -R .next/static/* .next/standalone/.next/static/
 
 cd "../serviceradar-web-build"
 

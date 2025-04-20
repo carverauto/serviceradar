@@ -4,6 +4,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
@@ -86,6 +87,39 @@ func (m *Manager) GetDiskMetrics(pollerID, mountPoint string, start, end time.Ti
 	return metrics, nil
 }
 
+// GetAllDiskMetrics retrieves disk metrics for all mount points for a given poller.
+func (m *Manager) GetAllDiskMetrics(pollerID string, start, end time.Time) ([]models.DiskMetric, error) {
+	log.Printf("Getting all disk metrics for poller %s between %s and %s",
+		pollerID, start.Format(time.RFC3339), end.Format(time.RFC3339))
+
+	// Use the DB service's GetAllDiskMetrics method
+	dbMetrics, err := m.db.GetAllDiskMetrics(pollerID, start, end)
+	if err != nil {
+		log.Printf("Error getting all disk metrics from database: %v", err)
+		return nil, err
+	}
+
+	if len(dbMetrics) == 0 {
+		log.Printf("No disk metrics found for poller %s", pollerID)
+		return []models.DiskMetric{}, nil
+	}
+
+	// Convert to models.DiskMetric (should be a no-op since the DB already returns this type)
+	metrics := make([]models.DiskMetric, len(dbMetrics))
+	for i, dm := range dbMetrics {
+		metrics[i] = models.DiskMetric{
+			MountPoint: dm.MountPoint,
+			UsedBytes:  dm.UsedBytes,
+			TotalBytes: dm.TotalBytes,
+			Timestamp:  dm.Timestamp,
+		}
+	}
+
+	log.Printf("Retrieved %d disk metrics for poller %s", len(metrics), pollerID)
+
+	return metrics, nil
+}
+
 func (m *Manager) GetMemoryMetrics(pollerID string, start, end time.Time) ([]models.MemoryMetric, error) {
 	dbMetrics, err := m.db.GetMemoryMetrics(pollerID, start, end)
 	if err != nil {
@@ -102,4 +136,28 @@ func (m *Manager) GetMemoryMetrics(pollerID string, start, end time.Time) ([]mod
 	}
 
 	return metrics, nil
+}
+
+// GetAllCPUMetrics retrieves all CPU metrics for a poller.
+func (m *Manager) GetAllCPUMetrics(pollerID string, start, end time.Time) ([]db.SysmonCPUResponse, error) {
+	log.Printf("Getting all CPU metrics for poller %s between %s and %s",
+		pollerID, start.Format(time.RFC3339), end.Format(time.RFC3339))
+
+	return m.db.GetAllCPUMetrics(pollerID, start, end)
+}
+
+// GetAllDiskMetricsGrouped retrieves all disk metrics for a poller, grouped by timestamp.
+func (m *Manager) GetAllDiskMetricsGrouped(pollerID string, start, end time.Time) ([]db.SysmonDiskResponse, error) {
+	log.Printf("Getting all disk metrics (grouped) for poller %s between %s and %s",
+		pollerID, start.Format(time.RFC3339), end.Format(time.RFC3339))
+
+	return m.db.GetAllDiskMetricsGrouped(pollerID, start, end)
+}
+
+// GetMemoryMetricsGrouped retrieves all memory metrics for a poller, grouped by timestamp.
+func (m *Manager) GetMemoryMetricsGrouped(pollerID string, start, end time.Time) ([]db.SysmonMemoryResponse, error) {
+	log.Printf("Getting memory metrics (grouped) for poller %s between %s and %s",
+		pollerID, start.Format(time.RFC3339), end.Format(time.RFC3339))
+
+	return m.db.GetMemoryMetricsGrouped(pollerID, start, end)
 }

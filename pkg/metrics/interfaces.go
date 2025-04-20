@@ -19,10 +19,11 @@ package metrics
 import (
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-//go:generate mockgen -destination=mock_buffer.go -package=metrics github.com/carverauto/serviceradar/pkg/metrics MetricStore,MetricCollector
+//go:generate mockgen -destination=mock_buffer.go -package=metrics github.com/carverauto/serviceradar/pkg/metrics MetricStore,MetricCollector,StructuredMetricCollector,SysmonMetricsProvider
 
 type MetricStore interface {
 	Add(timestamp time.Time, responseTime int64, serviceName string)
@@ -41,9 +42,19 @@ type StructuredMetricCollector interface {
 	GetCPUMetrics(pollerID string, coreID int, start, end time.Time) ([]models.CPUMetric, error)
 	GetDiskMetrics(pollerID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error)
 	GetMemoryMetrics(pollerID string, start, end time.Time) ([]models.MemoryMetric, error)
+	GetAllDiskMetrics(pollerID string, start, end time.Time) ([]models.DiskMetric, error)
 
 	// Rperf methods
 
 	StoreRperfMetrics(pollerID string, metrics *models.RperfMetrics, timestamp time.Time) error
 	GetRperfMetrics(pollerID string, target string, start, end time.Time) ([]models.RperfMetric, error)
+}
+
+// SysmonMetricsProvider interface extension.
+type SysmonMetricsProvider interface {
+	GetAllCPUMetrics(pollerID string, start, end time.Time) ([]db.SysmonCPUResponse, error)
+	GetCPUMetrics(pollerID string, coreID int, start, end time.Time) ([]models.CPUMetric, error)
+	GetAllDiskMetricsGrouped(pollerID string, start, end time.Time) ([]db.SysmonDiskResponse, error)
+	GetDiskMetrics(pollerID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error)
+	GetMemoryMetricsGrouped(pollerID string, start, end time.Time) ([]db.SysmonMemoryResponse, error)
 }

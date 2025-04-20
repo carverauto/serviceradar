@@ -19,16 +19,16 @@
 use anyhow::Result;
 use chrono::Utc;
 use serde::Serialize;
-use sysinfo::{System, Disks};
-use log::{debug, error, warn};
+use sysinfo::{System, Disks, CpuRefreshKind};
+use log::{debug, warn};
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
+use std::time::Duration;
 
 #[cfg(feature = "zfs")]
 use libzetta::zpool::{ZpoolEngine, ZpoolOpen3};
 #[cfg(feature = "zfs")]
 use libzetta::zfs::{ZfsOpen3, DatasetKind, ZfsEngine};
-
 
 #[derive(Debug, Serialize, Clone)]
 pub struct CpuMetric {
@@ -67,12 +67,17 @@ pub struct MetricsCollector {
     #[cfg(feature = "zfs")]
     zfs_datasets: bool,
     latest_metrics: Arc<RwLock<Option<MetricSample>>>,
+    system: Arc<Mutex<System>>,
 }
 
 impl MetricsCollector {
     pub fn new(host_id: String, filesystems: Vec<String>, zfs_pools: Vec<String>, zfs_datasets: bool) -> Self {
         debug!("Creating MetricsCollector: host_id={}, filesystems={:?}, zfs_pools={:?}, zfs_datasets={}",
             host_id, filesystems, zfs_pools, zfs_datasets);
+        let mut system = System::new_all();
+        system.refresh_cpu_specifics(CpuRefreshKind::everything()); // Initial CPU refresh
+        system.refresh_memory(); // Initial memory refresh
+        let system = Arc::new(Mutex::new(system));
         Self {
             host_id,
             filesystems,
@@ -81,35 +86,52 @@ impl MetricsCollector {
             #[cfg(feature = "zfs")]
             zfs_datasets,
             latest_metrics: Arc::new(RwLock::new(None)),
+            system,
         }
     }
 
     pub async fn collect(&mut self) -> Result<MetricSample> {
         debug!("Collecting metrics for host_id={}", self.host_id);
-        let mut system = System::new_all();
-        system.refresh_all();
-        let timestamp = Utc::now().to_rfc3339();
-        debug!("Timestamp: {}", timestamp);
 
-        // CPU metrics
+        // CPU metrics with double refresh and delay
         debug!("Collecting CPU metrics");
-        let mut cpus = Vec::new();
-        for (idx, cpu) in system.cpus().iter().enumerate() {
-            let usage = cpu.cpu_usage();
-            debug!("CPU core {}: usage={}%", idx, usage);
-            cpus.push(CpuMetric {
-                core_id: idx as i32,
-                usage_percent: usage,
-            });
+        let system = Arc::clone(&self.system);
+        let cpus = tokio::task::spawn_blocking(move || {
+            let mut system = system.blocking_lock();
+            system.refresh_cpu_specifics(CpuRefreshKind::everything());
+            std::thread::sleep(Duration::from_millis(200)); // Wait 200ms for tick accumulation
+            system.refresh_cpu_specifics(CpuRefreshKind::everything());
+            let mut cpus = Vec::new();
+            for (idx, cpu) in system.cpus().iter().enumerate() {
+                let usage = cpu.cpu_usage();
+                debug!("CPU core {}: usage={:.2}% (raw={})", idx, usage, usage);
+                cpus.push(CpuMetric {
+                    core_id: idx as i32,
+                    usage_percent: usage,
+                });
+            }
+            cpus
+        }).await.map_err(|e| anyhow::anyhow!("Failed to collect CPU metrics: {}", e))?;
+
+        if cpus.is_empty() {
+            warn!("No CPU metrics collected, sysinfo returned empty CPU list");
         }
 
         // Memory metrics
         debug!("Collecting memory metrics");
-        let memory = MemoryMetric {
-            used_bytes: system.used_memory(),
-            total_bytes: system.total_memory(),
-        };
+        let system = Arc::clone(&self.system);
+        let memory = tokio::task::spawn_blocking(move || {
+            let mut system = system.blocking_lock();
+            system.refresh_memory();
+            MemoryMetric {
+                used_bytes: system.used_memory(),
+                total_bytes: system.total_memory(),
+            }
+        }).await.map_err(|e| anyhow::anyhow!("Failed to collect memory metrics: {}", e))?;
         debug!("Memory: used={} bytes, total={} bytes", memory.used_bytes, memory.total_bytes);
+
+        let timestamp = Utc::now().to_rfc3339();
+        debug!("Timestamp: {}", timestamp);
 
         // Disk metrics (run in spawn_blocking to avoid Send issues)
         debug!("Collecting disk metrics for filesystems: {:?}", self.filesystems);
@@ -153,8 +175,6 @@ impl MetricsCollector {
                             debug!("Attempt {} to collect ZFS pool {}", attempt, pool_name);
                             match zpool_engine.status(pool_name, libzetta::zpool::open3::StatusOptions::default()) {
                                 Ok(pool) => {
-                                    //let used = pool.used().unwrap_or(0) as u64;
-                                    //let total = pool.size().unwrap_or(0) as u64;
                                     let engine = ZpoolOpen3::default();
                                     let props = engine.read_properties(&pool.name())?;
                                     let used = *props.alloc() as u64; // `alloc` is the allocated space (used)
@@ -188,7 +208,7 @@ impl MetricsCollector {
                                                                 }
                                                             }
                                                             Err(e) => {
-                                                                error!("Failed to read properties for dataset {}: {}",
+                                                                warn!("Failed to read properties for dataset {}: {}",
                                                                     path.to_string_lossy(), e);
                                                             }
                                                         }
@@ -196,14 +216,14 @@ impl MetricsCollector {
                                                 }
                                             }
                                             Err(e) => {
-                                                error!("Failed to list datasets for ZFS pool {}: {}", pool_name, e);
+                                                warn!("Failed to list datasets for ZFS pool {}: {}", pool_name, e);
                                             }
                                         }
                                     }
                                     break;
                                 }
                                 Err(e) => {
-                                    error!("Attempt {} failed for ZFS pool {}: {}", attempt, pool_name, e);
+                                    warn!("Attempt {} failed for ZFS pool {}: {}", attempt, pool_name, e);
                                     if attempt == 3 {
                                         warn!("Giving up on ZFS pool {}", pool_name);
                                     }
