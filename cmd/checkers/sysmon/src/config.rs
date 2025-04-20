@@ -72,10 +72,8 @@ impl Config {
             anyhow::bail!("poll_interval must be at least 10 seconds");
         }
         if let Some(security) = &self.security {
-            if security.tls_enabled {
-                if security.cert_file.is_none() || security.key_file.is_none() || security.ca_file.is_none() {
-                    anyhow::bail!("TLS requires cert_file, key_file, and ca_file");
-                }
+            if security.tls_enabled && (security.cert_file.is_none() || security.key_file.is_none() || security.ca_file.is_none()) {
+                anyhow::bail!("TLS requires cert_file, key_file, and ca_file");
             }
         }
         for fs in &self.filesystems {
