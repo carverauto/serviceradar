@@ -1,4 +1,3 @@
-// src/components/Metrics/system-metrics.jsx
 import React, { useState, useEffect } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -26,7 +25,6 @@ const SystemMetrics = ({ pollerId = 'poller-01', initialData = null }) => {
     const [activeTab, setActiveTab] = useState('overview');
     const [timeRange, setTimeRange] = useState('1h');
 
-    // Load initial data if no initialData is provided
     useEffect(() => {
         if (!initialData) {
             const loadData = async () => {
@@ -47,15 +45,13 @@ const SystemMetrics = ({ pollerId = 'poller-01', initialData = null }) => {
             loadData();
         }
 
-        // Set up refresh interval
         const intervalId = setInterval(() => {
             handleRefresh();
-        }, 30000); // Refresh every 30 seconds
+        }, 30000);
 
         return () => clearInterval(intervalId);
     }, [pollerId, timeRange, initialData]);
 
-    // Handle manual refresh
     const handleRefresh = async () => {
         try {
             setRefreshing(true);
@@ -71,12 +67,10 @@ const SystemMetrics = ({ pollerId = 'poller-01', initialData = null }) => {
         }
     };
 
-    // Loading state
     if (loading && !data) {
         return <LoadingState message="Loading system metrics data..." />;
     }
 
-    // Error state
     if (error) {
         return (
             <ErrorMessage
@@ -97,17 +91,16 @@ const SystemMetrics = ({ pollerId = 'poller-01', initialData = null }) => {
         );
     }
 
-    // Combined chart data
     const combinedChartData = getCombinedChartData(data);
 
     return (
-        <div className="bg-gray-900 rounded-lg shadow">
-            <div className="p-4 border-b border-gray-800">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow transition-colors">
+            <div className="p-4 border-b border-gray-200 dark:border-gray-700">
                 <div className="flex flex-wrap justify-between items-center">
-                    <h2 className="text-lg font-semibold text-white">System Metrics</h2>
+                    <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">System Metrics</h2>
 
                     <div className="flex items-center">
-                        <div className="text-sm text-gray-400 mr-4">
+                        <div className="text-sm text-gray-600 dark:text-gray-400 mr-4">
                             <span className="mr-2">Poller: {pollerId}</span>
                             {lastUpdated && (
                                 <span>Updated: {lastUpdated.toLocaleTimeString()}</span>
@@ -117,7 +110,7 @@ const SystemMetrics = ({ pollerId = 'poller-01', initialData = null }) => {
                         <button
                             onClick={handleRefresh}
                             disabled={refreshing}
-                            className="p-2 bg-gray-800 rounded hover:bg-gray-700 text-gray-300"
+                            className="p-2 bg-gray-100 dark:bg-gray-700 rounded hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 transition-colors"
                         >
                             <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
                         </button>
@@ -125,14 +118,13 @@ const SystemMetrics = ({ pollerId = 'poller-01', initialData = null }) => {
                 </div>
             </div>
 
-            {/* Navigation tabs */}
-            <div className="border-b border-gray-800">
+            <div className="border-b border-gray-200 dark:border-gray-700">
                 <div className="flex">
                     <button
                         className={`px-4 py-2 text-sm font-medium ${
                             activeTab === 'overview'
                                 ? 'border-b-2 border-blue-500 text-blue-500'
-                                : 'text-gray-400 hover:text-white'
+                                : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-white'
                         }`}
                         onClick={() => setActiveTab('overview')}
                     >
@@ -142,7 +134,7 @@ const SystemMetrics = ({ pollerId = 'poller-01', initialData = null }) => {
                         className={`px-4 py-2 text-sm font-medium ${
                             activeTab === 'trends'
                                 ? 'border-b-2 border-blue-500 text-blue-500'
-                                : 'text-gray-400 hover:text-white'
+                                : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-white'
                         }`}
                         onClick={() => setActiveTab('trends')}
                     >
@@ -152,7 +144,7 @@ const SystemMetrics = ({ pollerId = 'poller-01', initialData = null }) => {
                         className={`px-4 py-2 text-sm font-medium ${
                             activeTab === 'details'
                                 ? 'border-b-2 border-blue-500 text-blue-500'
-                                : 'text-gray-400 hover:text-white'
+                                : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-white'
                         }`}
                         onClick={() => setActiveTab('details')}
                     >
@@ -161,9 +153,8 @@ const SystemMetrics = ({ pollerId = 'poller-01', initialData = null }) => {
                 </div>
             </div>
 
-            {/* Time range selector */}
             <div className="px-4 pt-4 flex justify-end">
-                <div className="bg-gray-800 rounded-lg inline-flex p-1">
+                <div className="bg-gray-100 dark:bg-gray-700 rounded-lg inline-flex p-1">
                     {['1h', '6h', '24h'].map((range) => (
                         <button
                             key={range}
@@ -171,7 +162,7 @@ const SystemMetrics = ({ pollerId = 'poller-01', initialData = null }) => {
                             className={`px-3 py-1 text-sm rounded-md transition-colors ${
                                 timeRange === range
                                     ? 'bg-blue-600 text-white'
-                                    : 'text-gray-400 hover:text-white'
+                                    : 'text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-white'
                             }`}
                         >
                             {range}
@@ -181,16 +172,14 @@ const SystemMetrics = ({ pollerId = 'poller-01', initialData = null }) => {
             </div>
 
             <div className="p-4">
-                {/* Overview Tab */}
                 {activeTab === 'overview' && (
                     <>
-                        {/* Combined chart view */}
                         <div className="mb-6">
-                            <div className="mb-2 text-sm font-medium text-gray-300">All Metrics</div>
-                            <div className="bg-gray-800 rounded-lg p-4" style={{ height: '240px' }}>
+                            <div className="mb-2 text-sm font-medium text-gray-600 dark:text-gray-300">All Metrics</div>
+                            <div className="bg-gray-100 dark:bg-gray-700 rounded-lg p-4" style={{ height: '240px' }}>
                                 <ResponsiveContainer width="100%" height="100%">
                                     <LineChart data={combinedChartData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
-                                        <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                                        <CartesianGrid strokeDasharray="3 3" stroke="#D1D5DB dark:#374151" />
                                         <XAxis
                                             dataKey="formattedTime"
                                             stroke="#6B7280"
@@ -236,7 +225,6 @@ const SystemMetrics = ({ pollerId = 'poller-01', initialData = null }) => {
                             </div>
                         </div>
 
-                        {/* Compact metrics summary */}
                         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                             <CpuCard data={data.cpu} />
                             <MemoryCard data={data.memory} />
@@ -245,7 +233,6 @@ const SystemMetrics = ({ pollerId = 'poller-01', initialData = null }) => {
                     </>
                 )}
 
-                {/* Trends Tab */}
                 {activeTab === 'trends' && (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <CpuChart data={data.cpu} />
@@ -254,7 +241,6 @@ const SystemMetrics = ({ pollerId = 'poller-01', initialData = null }) => {
                     </div>
                 )}
 
-                {/* Details Tab */}
                 {activeTab === 'details' && (
                     <div className="space-y-6">
                         <CpuCoresChart cores={data.cpu.cores} />
