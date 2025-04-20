@@ -634,7 +634,7 @@ func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, 
 	// Now parse the nested JSON in the "status" field
 	if outerData.Status == "" {
 		log.Printf("Empty status field in sysmon data")
-		return fmt.Errorf("empty status field in sysmon data")
+		return errEmptyStatusField
 	}
 
 	// Parse the inner JSON data
@@ -668,6 +668,7 @@ func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, 
 
 	// Process disk metrics
 	log.Printf("Processing %d disk metrics", len(sysmonData.Disks))
+
 	for i, disk := range sysmonData.Disks {
 		log.Printf("Disk %d: mount_point=%s, used=%d, total=%d",
 			i, disk.MountPoint, disk.UsedBytes, disk.TotalBytes)

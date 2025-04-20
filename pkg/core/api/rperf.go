@@ -17,7 +17,6 @@
 package api
 
 import (
-	"errors"
 	"log"
 	"net/http"
 	"time"
@@ -27,25 +26,18 @@ import (
 	"github.com/gorilla/mux"
 )
 
-var (
-	// ErrInvalidStartTimeFormat is returned when the start time format is invalid.
-	ErrInvalidStartTimeFormat = errors.New("invalid start time format")
-	// ErrInvalidEndTimeFormat is returned when the end time format is invalid.
-	ErrInvalidEndTimeFormat = errors.New("invalid end time format")
-)
-
 func (s *APIServer) getRperfMetrics(w http.ResponseWriter, r *http.Request) {
 	pollerID := mux.Vars(r)["id"]
 
 	if s.rperfManager == nil {
-		writeError(w, "Rperf manager not configured", http.StatusInternalServerError, pollerID)
+		writeError(w, "Rperf manager not configured", http.StatusInternalServerError)
 
 		return
 	}
 
 	startTime, endTime, err := parseTimeRange(r.URL.Query())
 	if err != nil {
-		writeError(w, err.Error(), http.StatusBadRequest, pollerID)
+		writeError(w, err.Error(), http.StatusBadRequest)
 
 		return
 	}
@@ -55,13 +47,13 @@ func (s *APIServer) getRperfMetrics(w http.ResponseWriter, r *http.Request) {
 
 	resp := s.processRperfMetrics(pollerID, startTime, endTime)
 	if resp.Err != nil {
-		writeError(w, "Failed to fetch rperf metrics", http.StatusInternalServerError, pollerID)
+		writeError(w, "Failed to fetch rperf metrics", http.StatusInternalServerError)
 
 		return
 	}
 
 	if len(resp.Metrics) == 0 {
-		writeError(w, "No rperf metrics found", http.StatusNotFound, pollerID)
+		writeError(w, "No rperf metrics found", http.StatusNotFound)
 
 		return
 	}
@@ -158,10 +150,4 @@ func setInt64Field(field *int64, metadata map[string]interface{}, key string) {
 	if val, ok := metadata[key].(float64); ok {
 		*field = int64(val)
 	}
-}
-
-func writeError(w http.ResponseWriter, message string, status int, pollerID string) {
-	log.Printf("%s for poller %s", message, pollerID)
-
-	http.Error(w, message, status)
 }

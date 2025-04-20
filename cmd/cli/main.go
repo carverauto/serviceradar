@@ -603,7 +603,8 @@ func updateConfig(configFile, adminHash string) error {
 
 	// Parse the JSON into a map
 	var configMap map[string]interface{}
-	if err := json.Unmarshal(data, &configMap); err != nil {
+
+	if err = json.Unmarshal(data, &configMap); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidAuthFormat, err)
 	}
 
@@ -626,46 +627,6 @@ func updateConfig(configFile, adminHash string) error {
 
 	// DO NOT convert the config back to a struct and then to JSON
 	// This would lose the string representation of durations
-
-	// Marshal back to JSON with indentation
-	updatedData, err := json.MarshalIndent(configMap, "", "    ")
-	if err != nil {
-		return fmt.Errorf("%w: %w", errConfigMarshalFailed, err)
-	}
-
-	// Write back to the file
-	if err := os.WriteFile(configFile, updatedData, defaultFilePerms); err != nil {
-		return fmt.Errorf("%w %s: %w", errConfigWriteFailed, configFile, err)
-	}
-
-	return nil
-}
-
-// updateConfigManual is a fallback method when core.LoadConfig fails.
-// It preserves string duration fields like alert_threshold and jwt_expiration.
-func updateConfigManual(configFile, adminHash string, data []byte) error {
-	var configMap map[string]interface{}
-
-	if err := json.Unmarshal(data, &configMap); err != nil {
-		return fmt.Errorf("%w: %w", errInvalidAuthFormat, err)
-	}
-
-	// Ensure auth object exists
-	auth, ok := configMap["auth"].(map[string]interface{})
-	if !ok {
-		auth = make(map[string]interface{})
-		configMap["auth"] = auth
-	}
-
-	// Ensure local_users object exists
-	localUsers, ok := auth["local_users"].(map[string]interface{})
-	if !ok {
-		localUsers = make(map[string]interface{})
-		auth["local_users"] = localUsers
-	}
-
-	// Update admin hash
-	localUsers["admin"] = adminHash
 
 	// Marshal back to JSON with indentation
 	updatedData, err := json.MarshalIndent(configMap, "", "    ")

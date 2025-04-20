@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sort"
 	"strconv"
 	"time"
 
@@ -153,7 +154,6 @@ func (*DB) scanMetrics(rows Rows) ([]TimeseriesMetric, error) {
 }
 
 const (
-	rperfMetricsStored        = 3   // Number of metrics stored per rperf result (bandwidth, jitter, loss)
 	rperfBitsPerSecondDivisor = 1e6 // To convert bps to Mbps
 )
 
@@ -167,6 +167,7 @@ type rperfWrapper struct {
 // StoreRperfMetrics stores rperf-checker data as timeseries metrics.
 func (db *DB) StoreRperfMetrics(pollerID, _, message string, timestamp time.Time) error {
 	var wrapper rperfWrapper
+
 	if err := json.Unmarshal([]byte(message), &wrapper); err != nil {
 		log.Printf("Failed to unmarshal outer rperf wrapper for poller %s: %v", pollerID, err)
 
@@ -333,10 +334,11 @@ func (db *DB) StoreSysmonMetrics(pollerID string, metrics *models.SysmonMetrics,
 	}
 
 	log.Printf("Stored sysmon metrics for poller %s: %d CPUs, %d disks, 1 memory", pollerID, len(metrics.CPUs), len(metrics.Disks))
+
 	return nil
 }
 
-// GetAllMountPoints retrieves all unique mount points for a poller
+// GetAllMountPoints retrieves all unique mount points for a poller.
 func (db *DB) GetAllMountPoints(pollerID string) ([]string, error) {
 	log.Printf("Querying all mount points for poller %s", pollerID)
 
@@ -350,6 +352,7 @@ func (db *DB) GetAllMountPoints(pollerID string) ([]string, error) {
 	rows, err := db.Query(query, pollerID)
 	if err != nil {
 		log.Printf("Error querying mount points: %v", err)
+
 		return nil, fmt.Errorf("failed to query mount points: %w", err)
 	}
 	defer CloseRows(rows)
@@ -358,8 +361,10 @@ func (db *DB) GetAllMountPoints(pollerID string) ([]string, error) {
 
 	for rows.Next() {
 		var mountPoint string
+
 		if err := rows.Scan(&mountPoint); err != nil {
 			log.Printf("Error scanning mount point: %v", err)
+
 			continue
 		}
 
@@ -368,6 +373,7 @@ func (db *DB) GetAllMountPoints(pollerID string) ([]string, error) {
 
 	if err := rows.Err(); err != nil {
 		log.Printf("Error iterating mount points rows: %v", err)
+
 		return mountPoints, err
 	}
 
@@ -397,30 +403,39 @@ func (db *DB) GetAllCPUMetrics(pollerID string, start, end time.Time) ([]SysmonC
 	rows, err := db.Query(query, pollerID, start, end)
 	if err != nil {
 		log.Printf("Error querying all CPU metrics: %v", err)
+
 		return nil, fmt.Errorf("failed to query all CPU metrics: %w", err)
 	}
 	defer CloseRows(rows)
 
 	// Group metrics by timestamp
 	data := make(map[time.Time][]models.CPUMetric)
+
 	for rows.Next() {
 		var m models.CPUMetric
+
 		var timestamp time.Time
+
 		if err := rows.Scan(&timestamp, &m.CoreID, &m.UsagePercent); err != nil {
 			log.Printf("Error scanning CPU metric row: %v", err)
+
 			continue
 		}
+
 		m.Timestamp = timestamp
+
 		data[timestamp] = append(data[timestamp], m)
 	}
 
 	if err := rows.Err(); err != nil {
 		log.Printf("Error iterating CPU metrics rows: %v", err)
+
 		return nil, err
 	}
 
+	result := make([]SysmonCPUResponse, 0, len(data))
+
 	// Convert to response format
-	var result []SysmonCPUResponse
 	for ts, cpus := range data {
 		result = append(result, SysmonCPUResponse{
 			Cpus:      cpus,
@@ -438,10 +453,11 @@ func (db *DB) GetAllCPUMetrics(pollerID string, start, end time.Time) ([]SysmonC
 	}
 
 	log.Printf("Retrieved %d CPU metric timestamps for poller %s", len(result), pollerID)
+
 	return result, nil
 }
 
-// SysmonDiskResponse represents a disk metrics response grouped by timestamp
+// SysmonDiskResponse represents a disk metrics response grouped by timestamp.
 type SysmonDiskResponse struct {
 	Disks     []models.DiskMetric `json:"disks"`
 	Timestamp time.Time           `json:"timestamp"`
@@ -467,28 +483,37 @@ func (db *DB) GetAllDiskMetrics(pollerID string, start, end time.Time) ([]models
 	rows, err := db.Query(query, pollerID, start, end)
 	if err != nil {
 		log.Printf("Error querying all disk metrics: %v", err)
+
 		return nil, fmt.Errorf("failed to query all disk metrics: %w", err)
 	}
 	defer CloseRows(rows)
 
 	var metrics []models.DiskMetric
+
 	for rows.Next() {
 		var m models.DiskMetric
+
 		var usedBytesStr, totalBytesStr string
-		if err := rows.Scan(&m.MountPoint, &usedBytesStr, &totalBytesStr, &m.Timestamp); err != nil {
+
+		if err = rows.Scan(&m.MountPoint, &usedBytesStr, &totalBytesStr, &m.Timestamp); err != nil {
 			log.Printf("Error scanning disk metric row: %v", err)
+
 			continue
 		}
+
 		m.UsedBytes, err = strconv.ParseUint(usedBytesStr, 10, 64)
 		if err != nil {
 			log.Printf("Error parsing used_bytes: %v", err)
+
 			continue
 		}
+
 		m.TotalBytes, err = strconv.ParseUint(totalBytesStr, 10, 64)
 		if err != nil {
 			log.Printf("Error parsing total_bytes: %v", err)
 			continue
 		}
+
 		metrics = append(metrics, m)
 	}
 
@@ -498,6 +523,7 @@ func (db *DB) GetAllDiskMetrics(pollerID string, start, end time.Time) ([]models
 	}
 
 	log.Printf("Retrieved %d disk metrics for poller %s", len(metrics), pollerID)
+
 	return metrics, nil
 }
 
@@ -514,23 +540,31 @@ func (db *DB) GetDiskMetrics(pollerID, mountPoint string, start, end time.Time) 
 	defer CloseRows(rows)
 
 	var metrics []models.DiskMetric
+
 	for rows.Next() {
 		var m models.DiskMetric
+
 		var usedBytesStr, totalBytesStr string
-		if err := rows.Scan(&m.Timestamp, &m.MountPoint, &usedBytesStr, &totalBytesStr); err != nil {
+
+		if err = rows.Scan(&m.Timestamp, &m.MountPoint, &usedBytesStr, &totalBytesStr); err != nil {
 			log.Printf("Error scanning disk metric row: %v", err)
+
 			continue
 		}
+
 		m.UsedBytes, err = strconv.ParseUint(usedBytesStr, 10, 64)
 		if err != nil {
 			log.Printf("Error parsing used_bytes: %v", err)
 			continue
 		}
+
 		m.TotalBytes, err = strconv.ParseUint(totalBytesStr, 10, 64)
 		if err != nil {
 			log.Printf("Error parsing total_bytes: %v", err)
+
 			continue
 		}
+
 		metrics = append(metrics, m)
 	}
 
@@ -550,30 +584,49 @@ func (db *DB) GetMemoryMetrics(pollerID string, start, end time.Time) ([]models.
 	defer CloseRows(rows)
 
 	var metrics []models.MemoryMetric
+
 	for rows.Next() {
 		var m models.MemoryMetric
+
 		var usedBytesStr, totalBytesStr string
-		if err := rows.Scan(&m.Timestamp, &usedBytesStr, &totalBytesStr); err != nil {
+
+		if err = rows.Scan(&m.Timestamp, &usedBytesStr, &totalBytesStr); err != nil {
 			log.Printf("Error scanning memory metric row: %v", err)
+
 			continue
 		}
+
 		m.UsedBytes, err = strconv.ParseUint(usedBytesStr, 10, 64)
 		if err != nil {
 			log.Printf("Error parsing used_bytes: %v", err)
+
 			continue
 		}
+
 		m.TotalBytes, err = strconv.ParseUint(totalBytesStr, 10, 64)
 		if err != nil {
 			log.Printf("Error parsing total_bytes: %v", err)
+
 			continue
 		}
+
 		metrics = append(metrics, m)
 	}
 
 	return metrics, nil
 }
 
-// pkg/db/metrics.go
+// parseUintWithLog parses a string to uint64, logging errors.
+func parseUintWithLog(s, fieldName string) (uint64, error) {
+	val, err := strconv.ParseUint(s, 10, 64)
+	if err != nil {
+		log.Printf("Error parsing %s: %v", fieldName, err)
+	}
+
+	return val, err
+}
+
+// GetAllDiskMetricsGrouped retrieves disk metrics grouped by timestamp.
 func (db *DB) GetAllDiskMetricsGrouped(pollerID string, start, end time.Time) ([]SysmonDiskResponse, error) {
 	log.Printf("Querying all disk metrics for poller %s between %s and %s",
 		pollerID, start.Format(time.RFC3339), end.Format(time.RFC3339))
@@ -593,34 +646,41 @@ func (db *DB) GetAllDiskMetricsGrouped(pollerID string, start, end time.Time) ([
 	defer CloseRows(rows)
 
 	data := make(map[time.Time][]models.DiskMetric)
+
 	for rows.Next() {
 		var m models.DiskMetric
+
 		var timestamp time.Time
+
 		var usedBytesStr, totalBytesStr string
-		if err := rows.Scan(&timestamp, &m.MountPoint, &usedBytesStr, &totalBytesStr); err != nil {
+
+		if err = rows.Scan(&timestamp, &m.MountPoint, &usedBytesStr, &totalBytesStr); err != nil {
 			log.Printf("Error scanning disk metric row: %v", err)
+
 			continue
 		}
-		m.UsedBytes, err = strconv.ParseUint(usedBytesStr, 10, 64)
-		if err != nil {
-			log.Printf("Error parsing used_bytes: %v", err)
+
+		if m.UsedBytes, err = parseUintWithLog(usedBytesStr, "used_bytes"); err != nil {
 			continue
 		}
-		m.TotalBytes, err = strconv.ParseUint(totalBytesStr, 10, 64)
-		if err != nil {
-			log.Printf("Error parsing total_bytes: %v", err)
+
+		if m.TotalBytes, err = parseUintWithLog(totalBytesStr, "total_bytes"); err != nil {
 			continue
 		}
+
 		m.Timestamp = timestamp
+
 		data[timestamp] = append(data[timestamp], m)
 	}
 
 	if err := rows.Err(); err != nil {
 		log.Printf("Error iterating disk metrics rows: %v", err)
+
 		return nil, err
 	}
 
-	var result []SysmonDiskResponse
+	// Convert map to slice and sort by timestamp (descending).
+	result := make([]SysmonDiskResponse, 0, len(data))
 	for ts, disks := range data {
 		result = append(result, SysmonDiskResponse{
 			Disks:     disks,
@@ -628,15 +688,13 @@ func (db *DB) GetAllDiskMetricsGrouped(pollerID string, start, end time.Time) ([
 		})
 	}
 
-	for i := 0; i < len(result)-1; i++ {
-		for j := i + 1; j < len(result); j++ {
-			if result[i].Timestamp.Before(result[j].Timestamp) {
-				result[i], result[j] = result[j], result[i]
-			}
-		}
-	}
+	// Use sort.Slice for efficient sorting.
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Timestamp.After(result[j].Timestamp)
+	})
 
 	log.Printf("Retrieved %d disk metric timestamps for poller %s", len(result), pollerID)
+
 	return result, nil
 }
 
@@ -659,24 +717,34 @@ func (db *DB) GetMemoryMetricsGrouped(pollerID string, start, end time.Time) ([]
 	defer CloseRows(rows)
 
 	var result []SysmonMemoryResponse
+
 	for rows.Next() {
 		var m models.MemoryMetric
+
 		var timestamp time.Time
+
 		var usedBytesStr, totalBytesStr string
-		if err := rows.Scan(&timestamp, &usedBytesStr, &totalBytesStr); err != nil {
+
+		if err = rows.Scan(&timestamp, &usedBytesStr, &totalBytesStr); err != nil {
 			log.Printf("Error scanning memory metric row: %v", err)
+
 			continue
 		}
+
 		m.UsedBytes, err = strconv.ParseUint(usedBytesStr, 10, 64)
 		if err != nil {
 			log.Printf("Error parsing used_bytes: %v", err)
+
 			continue
 		}
+
 		m.TotalBytes, err = strconv.ParseUint(totalBytesStr, 10, 64)
 		if err != nil {
 			log.Printf("Error parsing total_bytes: %v", err)
+
 			continue
 		}
+
 		m.Timestamp = timestamp
 		result = append(result, SysmonMemoryResponse{
 			Memory:    m,
@@ -686,9 +754,11 @@ func (db *DB) GetMemoryMetricsGrouped(pollerID string, start, end time.Time) ([]
 
 	if err := rows.Err(); err != nil {
 		log.Printf("Error iterating memory metrics rows: %v", err)
+
 		return nil, err
 	}
 
 	log.Printf("Retrieved %d memory metric timestamps for poller %s", len(result), pollerID)
+
 	return result, nil
 }

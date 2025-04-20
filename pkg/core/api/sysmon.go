@@ -2,140 +2,215 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/gorilla/mux"
 )
 
-// getSysmonCPUMetrics handles CPU metrics requests
-func (s *APIServer) getSysmonCPUMetrics(w http.ResponseWriter, r *http.Request) {
+// getSysmonMetrics is a generic handler for system metrics requests.
+func (s *APIServer) getSysmonMetrics(
+	w http.ResponseWriter,
+	r *http.Request,
+	fetchMetrics func(db.SysmonMetricsProvider, string, time.Time, time.Time) (interface{}, error),
+	metricType string,
+) {
 	vars := mux.Vars(r)
 	pollerID := vars["id"]
 
+	// Parse time range
 	startTime, endTime, err := parseTimeRange(r.URL.Query())
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeError(w, err.Error(), http.StatusBadRequest)
+
 		return
 	}
 
+	// Validate metrics provider
 	metricsProvider, ok := s.metricsManager.(db.SysmonMetricsProvider)
 	if !ok {
-		log.Printf("WARNING: Metrics manager does not implement SysmonMetricsProvider interface for poller %s", pollerID)
-		http.Error(w, "System metrics not supported by this server", http.StatusNotImplemented)
+		log.Printf("WARNING: Metrics manager does not implement SysmonMetricsProvider for poller %s", pollerID)
+		writeError(w, "System metrics not supported by this server", http.StatusNotImplemented)
+
 		return
 	}
 
-	allMetrics, err := metricsProvider.GetAllCPUMetrics(pollerID, startTime, endTime)
+	// Fetch metrics
+	metrics, err := fetchMetrics(metricsProvider, pollerID, startTime, endTime)
 	if err != nil {
-		log.Printf("Error fetching all CPU metrics for poller %s: %v", pollerID, err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		var httpErr *httpError
+
+		if errors.As(err, &httpErr) {
+			log.Printf("Error fetching %s metrics for poller %s: %v", metricType, pollerID, err)
+			writeError(w, httpErr.Message, httpErr.Status)
+		} else {
+			log.Printf("Unexpected error fetching %s metrics for poller %s: %v", metricType, pollerID, err)
+			writeError(w, "Internal server error", http.StatusInternalServerError)
+		}
+
 		return
 	}
 
-	if len(allMetrics) == 0 {
-		http.Error(w, "No metrics found", http.StatusNotFound)
-		return
-	}
-
+	// Encode response
 	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(allMetrics); err != nil {
-		log.Printf("Error encoding CPU metrics response: %v", err)
-		http.Error(w, "Error encoding response", http.StatusInternalServerError)
+
+	if err := json.NewEncoder(w).Encode(metrics); err != nil {
+		log.Printf("Error encoding %s metrics response: %v", metricType, pollerID)
+		writeError(w, "Error encoding response", http.StatusInternalServerError)
 	}
 }
 
-// getSysmonDiskMetrics handles requests for disk metrics with improved type checking
-func (s *APIServer) getSysmonDiskMetrics(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	pollerID := vars["id"]
-	mountPoint := r.URL.Query().Get("mount_point")
-
-	startTime, endTime, err := parseTimeRange(r.URL.Query())
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	metricsProvider, ok := s.metricsManager.(db.SysmonMetricsProvider)
-	if !ok {
-		log.Printf("WARNING: Metrics manager does not implement SysmonMetricsProvider interface for poller %s", pollerID)
-		http.Error(w, "System metrics not supported by this server", http.StatusNotImplemented)
-		return
-	}
-
-	var response interface{}
-	if mountPoint != "" {
-		metrics, err := metricsProvider.GetDiskMetrics(pollerID, mountPoint, startTime, endTime)
+// getSysmonCPUMetrics handles CPU metrics requests.
+func (s *APIServer) getSysmonCPUMetrics(w http.ResponseWriter, r *http.Request) {
+	fetch := func(provider db.SysmonMetricsProvider, pollerID string, startTime, endTime time.Time) (interface{}, error) {
+		metrics, err := provider.GetAllCPUMetrics(pollerID, startTime, endTime)
 		if err != nil {
-			log.Printf("Error fetching disk metrics for poller %s, mount point %s: %v", pollerID, mountPoint, err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
-			return
+			return nil, &httpError{"Internal server error", http.StatusInternalServerError}
 		}
 
 		if len(metrics) == 0 {
-			http.Error(w, "No metrics found", http.StatusNotFound)
-			return
+			return nil, &httpError{"No metrics found", http.StatusNotFound}
 		}
 
-		response = metrics
-	} else {
-		allMetrics, err := metricsProvider.GetAllDiskMetricsGrouped(pollerID, startTime, endTime)
-		if err != nil {
-			log.Printf("Error fetching all disk metrics for poller %s: %v", pollerID, err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
-			return
-		}
-
-		if len(allMetrics) == 0 {
-			http.Error(w, "No metrics found", http.StatusNotFound)
-			return
-		}
-
-		response = allMetrics
+		return metrics, nil
 	}
 
+	s.getSysmonMetrics(w, r, fetch, "CPU")
+}
+
+// getSysmonMemoryMetrics handles memory metrics requests.
+func (s *APIServer) getSysmonMemoryMetrics(w http.ResponseWriter, r *http.Request) {
+	fetch := func(provider db.SysmonMetricsProvider, pollerID string, startTime, endTime time.Time) (interface{}, error) {
+		metrics, err := provider.GetMemoryMetricsGrouped(pollerID, startTime, endTime)
+		if err != nil {
+			return nil, &httpError{"Internal server error", http.StatusInternalServerError}
+		}
+
+		if len(metrics) == 0 {
+			return nil, &httpError{"No metrics found", http.StatusNotFound}
+		}
+
+		return metrics, nil
+	}
+
+	s.getSysmonMetrics(w, r, fetch, "memory")
+}
+
+// fetchDiskMetrics retrieves disk metrics based on mount point presence.
+func (*APIServer) fetchDiskMetrics(
+	provider db.SysmonMetricsProvider,
+	pollerID, mountPoint string,
+	startTime, endTime time.Time,
+) ([]db.SysmonDiskResponse, error) {
+	if mountPoint != "" {
+		metrics, err := provider.GetDiskMetrics(pollerID, mountPoint, startTime, endTime)
+		if err != nil {
+			log.Printf("Error fetching disk metrics for poller %s, mount point %s: %v", pollerID, mountPoint, err)
+
+			return nil, &httpError{"Internal server error", http.StatusInternalServerError}
+		}
+
+		if len(metrics) == 0 {
+			return nil, &httpError{"No metrics found", http.StatusNotFound}
+		}
+
+		grouped := groupDiskMetricsByTimestamp(metrics)
+
+		return grouped, nil
+	}
+
+	allMetrics, err := provider.GetAllDiskMetricsGrouped(pollerID, startTime, endTime)
+	if err != nil {
+		log.Printf("Error fetching all disk metrics for poller %s: %v", pollerID, err)
+
+		return nil, &httpError{"Internal server error", http.StatusInternalServerError}
+	}
+
+	if len(allMetrics) == 0 {
+		return nil, &httpError{"No metrics found", http.StatusNotFound}
+	}
+
+	return allMetrics, nil
+}
+
+func (s *APIServer) getSysmonDiskMetrics(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+
+	pollerID := vars["id"]
+
+	mountPoint := r.URL.Query().Get("mount_point")
+
+	// Parse time range
+	startTime, endTime, err := parseTimeRange(r.URL.Query())
+	if err != nil {
+		writeError(w, err.Error(), http.StatusBadRequest)
+
+		return
+	}
+
+	// Validate metrics provider.
+	metricsProvider, ok := s.metricsManager.(db.SysmonMetricsProvider)
+	if !ok {
+		log.Printf("WARNING: Metrics manager does not implement SysmonMetricsProvider for poller %s", pollerID)
+		writeError(w, "System metrics not supported by this server", http.StatusNotImplemented)
+
+		return
+	}
+
+	// Fetch metrics based on mount point.
+	response, err := s.fetchDiskMetrics(metricsProvider, pollerID, mountPoint, startTime, endTime)
+	if err != nil {
+		var httpErr *httpError
+
+		if errors.As(err, &httpErr) {
+			log.Printf("Error fetching disk metrics for poller %s: %v", pollerID, err)
+			writeError(w, httpErr.Message, httpErr.Status)
+		} else {
+			log.Printf("Unexpected error fetching disk metrics for poller %s: %v", pollerID, err)
+			writeError(w, "Internal server error", http.StatusInternalServerError)
+		}
+
+		return
+	}
+
+	// Encode response
 	w.Header().Set("Content-Type", "application/json")
+
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		log.Printf("Error encoding disk metrics response: %v", err)
-		http.Error(w, "Error encoding response", http.StatusInternalServerError)
+		writeError(w, "Error encoding response", http.StatusInternalServerError)
 	}
 }
 
-// getSysmonMemoryMetrics handles requests for memory metrics with improved type checking
-func (s *APIServer) getSysmonMemoryMetrics(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	pollerID := vars["id"]
+// groupDiskMetricsByTimestamp groups a slice of DiskMetric by timestamp into SysmonDiskResponse.
+func groupDiskMetricsByTimestamp(metrics []models.DiskMetric) []db.SysmonDiskResponse {
+	// Map to group metrics by timestamp
+	timestampMap := make(map[time.Time][]models.DiskMetric)
 
-	startTime, endTime, err := parseTimeRange(r.URL.Query())
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
+	for _, metric := range metrics {
+		// Truncate to second for consistent grouping
+		t := metric.Timestamp.Truncate(time.Second)
+		timestampMap[t] = append(timestampMap[t], metric)
 	}
 
-	metricsProvider, ok := s.metricsManager.(db.SysmonMetricsProvider)
-	if !ok {
-		log.Printf("WARNING: Metrics manager does not implement SysmonMetricsProvider interface for poller %s", pollerID)
-		http.Error(w, "System metrics not supported by this server", http.StatusNotImplemented)
-		return
+	// Convert to SysmonDiskResponse
+	result := make([]db.SysmonDiskResponse, 0, len(timestampMap))
+	for ts, disks := range timestampMap {
+		result = append(result, db.SysmonDiskResponse{
+			Timestamp: ts,
+			Disks:     disks,
+		})
 	}
 
-	memoryMetrics, err := metricsProvider.GetMemoryMetricsGrouped(pollerID, startTime, endTime)
-	if err != nil {
-		log.Printf("Error fetching memory metrics for poller %s: %v", pollerID, err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
+	// Sort by timestamp for consistent output
+	// (Optional, depending on requirements)
+	// sort.Slice(result, func(i, j int) bool {
+	//     return result[i].Timestamp.Before(result[j].Timestamp)
+	// })
 
-	if len(memoryMetrics) == 0 {
-		http.Error(w, "No metrics found", http.StatusNotFound)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(memoryMetrics); err != nil {
-		log.Printf("Error encoding memory metrics response: %v", err)
-		http.Error(w, "Error encoding response", http.StatusInternalServerError)
-	}
+	return result
 }
