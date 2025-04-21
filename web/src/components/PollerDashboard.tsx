@@ -61,7 +61,7 @@ const PollerDashboard: React.FC<PollerDashboardProps> = ({
             let groupName = 'Other';
             if (['icmp', 'sweep', 'network_sweep'].includes(service.type)) groupName = 'Network';
             else if (['mysql', 'postgres', 'mongodb', 'redis'].includes(service.name.toLowerCase())) groupName = 'Databases';
-            else if (['snmp', 'serviceradar-agent'].includes(service.type) || service.name.includes('agent')) groupName = 'Monitoring';
+            else if (['snmp', 'serviceradar-agent', 'sysmon'].includes(service.type) || service.name.includes('agent')) groupName = 'Monitoring';
             else if (['dusk', 'rusk', 'grpc', 'rperf-checker'].includes(service.name)) groupName = 'Applications';
             else if (['ssh', 'SSL'].includes(service.name)) groupName = 'Security';
             if (!groups[groupName]) groups[groupName] = [];
@@ -102,7 +102,7 @@ const PollerDashboard: React.FC<PollerDashboardProps> = ({
                     const details = service.details as GenericServiceDetails;
                     if ('response_time' in details &&
                         typeof details.response_time === 'number' &&
-                        details.response_time > 100000000 &&
+                        details.response_time > 300000000 &&
                         service.available) {
                         warningServices++;
                     }
