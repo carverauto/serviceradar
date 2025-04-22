@@ -536,7 +536,7 @@
     "section": "utils",
     "priority": "optional",
     "deb": {
-      "depends": ["systemd", "libssl-dev", "ca-certificates", "zfsutils-linux"],
+      "depends": ["systemd", "libssl-dev", "ca-certificates"],
       "dockerfile": "cmd/checkers/sysmon/Dockerfile"
     },
     "rpm": {
