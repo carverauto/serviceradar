@@ -197,15 +197,34 @@ build_component() {
             output_path=$(echo "$config" | jq -r '.binary.output_path')
             docker_output_path=$(echo "$config" | jq -r '.binary.docker_output_path // "/output/'${package_name}'"')
             echo "Building Rust binary with Docker ($dockerfile)..."
-            docker build --platform linux/amd64 -f "${BASE_DIR}/${dockerfile}" -t "${package_name}-builder" "${BASE_DIR}" || { echo "Error: Docker build failed"; exit 1; }
+            docker build --platform linux/amd64 --no-cache -f "${BASE_DIR}/${dockerfile}" -t "${package_name}-builder" "${BASE_DIR}" || { echo "Error: Docker build failed"; exit 1; }
             container_id=$(docker create "${package_name}-builder" /bin/true) || { echo "Error: Failed to create container. Ensure Dockerfile is correctly configured."; exit 1; }
             echo "Creating directory for binary: $(dirname "${pkg_root}${output_path}")"
             mkdir -p "$(dirname "${pkg_root}${output_path}")" || { echo "Error: Failed to create directory $(dirname "${pkg_root}${output_path}")"; exit 1; }
+
+            # Copy non-ZFS binary as default
             docker cp "${container_id}:${docker_output_path}" "${pkg_root}${output_path}" || { echo "Error: Failed to copy binary from ${docker_output_path}"; exit 1; }
             ls -l "${pkg_root}${output_path}" || { echo "Error: Binary not copied to package root"; exit 1; }
             test -s "${pkg_root}${output_path}" || { echo "Error: Binary is empty"; exit 1; }
+
+            # Copy ZFS binary for sysmon
+            if [ "$component" = "sysmon" ]; then
+                zfs_output_path="/output/serviceradar-sysmon-checker-zfs"
+                mkdir -p "$(dirname "${pkg_root}/usr/local/bin/serviceradar-sysmon-checker-zfs")"
+                docker cp "${container_id}:${zfs_output_path}" "${pkg_root}/usr/local/bin/serviceradar-sysmon-checker-zfs" || { echo "Warning: Failed to copy ZFS binary from ${zfs_output_path}, continuing with non-ZFS"; }
+
+                # Also copy the non-ZFS binary explicitly with its proper name
+                docker cp "${container_id}:/output/serviceradar-sysmon-checker-nonzfs" "${pkg_root}/usr/local/bin/serviceradar-sysmon-checker-nonzfs" || { echo "Warning: Failed to copy non-ZFS binary explicitly"; }
+
+                if [ -f "${pkg_root}/usr/local/bin/serviceradar-sysmon-checker-zfs" ]; then
+                    ls -l "${pkg_root}/usr/local/bin/serviceradar-sysmon-checker-zfs"
+                else
+                    echo "Note: ZFS binary not included in package"
+                fi
+            fi
+
             docker rm "$container_id"
-        elif [ "$build_method" = "external" ]; then
+      elif [ "$build_method" = "external" ]; then
             local url extract_path output_path
             url=$(echo "$config" | jq -r '.external_binary.source_url')
             extract_path=$(echo "$config" | jq -r '.external_binary.extract_path')
