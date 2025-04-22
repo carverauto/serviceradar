@@ -21,14 +21,11 @@ RUN dnf install -y epel-release && \
     dnf clean all && \
     dnf update -y
 
-# Install libvips build dependencies with --skip-broken
-RUN dnf install -y --skip-broken \
+# Install libvips build dependencies
+RUN dnf install -y \
     gcc \
     gcc-c++ \
     make \
-    automake \
-    autoconf \
-    libtool \
     pkgconfig \
     glib2-devel \
     expat-devel \
@@ -40,38 +37,48 @@ RUN dnf install -y --skip-broken \
     libwebp-devel \
     orc-devel \
     zlib-devel \
-    giflib-devel
+    giflib-devel \
+    xz \
+    meson \
+    ninja-build
 
 # Download and extract libvips source
 WORKDIR /tmp
-RUN curl -L -O https://github.com/libvips/libvips/releases/download/v8.10.6/vips-8.10.6.tar.gz && \
-    tar xzf vips-8.10.6.tar.gz
+RUN curl -L -O https://github.com/libvips/libvips/releases/download/v8.16.1/vips-8.16.1.tar.xz && \
+    tar xJf vips-8.16.1.tar.xz
 
 # Build and install libvips with minimal features
-WORKDIR /tmp/vips-8.10.6
-RUN ./configure --prefix=/usr \
-    --disable-static \
-    --without-openexr \
-    --without-matio \
-    --without-libexif \
-    --without-pangoft2 \
-    --without-pango \
-    --without-cairo \
-    --without-gsf \
-    --without-OpenEXR \
-    --without-openslide \
-    --without-cfitsio \
-    --without-magick \
-    --without-nifti \
-    --without-heif \
-    --without-poppler \
-    --with-jpeg \
-    --with-libwebp \
-    --with-giflib \
-    --with-tiff \
-    --with-png && \
-    make -j2 && \
-    make install
+WORKDIR /tmp/vips-8.16.1
+RUN meson setup build \
+    --prefix=/usr \
+    --buildtype=release \
+    -Dauto_features=disabled \
+    -Djpeg=enabled \
+    -Dpng=enabled \
+    -Dtiff=enabled \
+    -Dwebp=enabled \
+    -Dgif=enabled \
+    -Dopenexr=disabled \
+    -Dmatio=disabled \
+    -Dexif=disabled \
+    -Dpango=disabled \
+    -Dcairo=disabled \
+    -Dgsf=disabled \
+    -Dopenslide=disabled \
+    -Dcfitsio=disabled \
+    -Dmagick=disabled \
+    -Dnifti=disabled \
+    -Dheif=disabled \
+    -Dpoppler=disabled \
+    -Dcxx=true \
+    -Dintrospection=disabled \
+    -Dgtk_doc=false \
+    -Dcpp_std=c++11 \
+    -Doptimization=2 \
+    -Dcflags="-march=x86-64" \
+    -Dcxxflags="-march=x86-64" && \
+    ninja -C build && \
+    ninja -C build install
 
 # Stage 2: Build the Next.js web UI
 FROM rockylinux:9 AS web-builder
@@ -88,7 +95,7 @@ RUN curl -fsSL https://rpm.nodesource.com/setup_18.x | bash - && \
     node --version
 
 # Install runtime dependencies for sharp and build tools
-RUN dnf install -y --skip-broken \
+RUN dnf install -y \
     glib2 \
     libjpeg-turbo \
     libpng \
@@ -119,9 +126,12 @@ COPY web/package*.json ./
 # Install dependencies and clean up musl-linked binaries
 RUN npm cache clean --force && \
     npm install && \
+    npm uninstall @unrs/resolver-binding-linux-x64-musl && \
+    rm -rf node_modules/@unrs/resolver-binding-linux-x64-musl && \
     find node_modules -name "*swc*linux-x64-musl*" -type f -delete && \
+    find node_modules -name "*resolver-binding-linux-x64-musl*" -type f -delete && \
     npm uninstall sharp && \
-    npm install sharp --build-from-source --platform=linux --arch=x64 && \
+    npm install sharp --build-from-source --platform=linux --arch=x64 --verbose && \
     find node_modules -name "*sharp-linuxmusl-x64*" -type f -delete && \
     npm rebuild --build-from-source && \
     echo "Checking for musl dependencies in .node files:" && \
@@ -164,14 +174,14 @@ RUN dnf install -y epel-release && \
     dnf update -y
 
 # Install RPM tools and runtime dependencies
-RUN dnf install -y --skip-broken \
+RUN dnf install -y \
     rpm-build \
     rpmdevtools \
     systemd-devel \
     policycoreutils-python-utils \
     && curl -fsSL https://rpm.nodesource.com/setup_18.x | bash - \
     && dnf install -y nodejs \
-    && dnf install -y --skip-broken \
+    && dnf install -y \
     glib2 \
     libjpeg-turbo \
     libpng \
@@ -193,9 +203,9 @@ RUN mkdir -p /root/rpmbuild/SOURCES/systemd \
     /root/rpmbuild/SOURCES/selinux
 
 # Copy libvips shared libraries (only versioned .so files)
-COPY --from=libvips-builder /usr/lib64/libvips.so.42.12.7 /root/rpmbuild/SOURCES/lib64/
-COPY --from=libvips-builder /usr/lib64/libvips-cpp.so.42.12.7 /root/rpmbuild/SOURCES/lib64/
-RUN dnf install -y --skip-broken chrpath && \
+COPY --from=libvips-builder /usr/lib64/libvips.so.* /root/rpmbuild/SOURCES/lib64/
+COPY --from=libvips-builder /usr/lib64/libvips-cpp.so.* /root/rpmbuild/SOURCES/lib64/
+RUN dnf install -y chrpath && \
     for lib in /root/rpmbuild/SOURCES/lib64/libvips*.so*; do \
         if [ -f "$lib" ]; then \
             echo "Removing RPATH from $lib"; \
@@ -223,11 +233,7 @@ RUN cp -v /root/rpmbuild/SOURCES/packaging/specs/serviceradar-web.spec /root/rpm
 ARG VERSION=1.0.32
 ARG RELEASE=1
 
-# Modify the spec file to fix the path issues
-#RUN sed -i 's|mkdir -p %{buildroot}/usr/local/share/serviceradar-web|mkdir -p %{buildroot}/usr/lib/serviceradar/web|g' /root/rpmbuild/SPECS/serviceradar-web.spec && \
-#    sed -i 's|cp -r %{_builddir}/web/\* %{buildroot}/usr/local/share/serviceradar-web/|cp -r %{_builddir}/web/* %{buildroot}/usr/lib/serviceradar/web/|g' /root/rpmbuild/SPECS/serviceradar-web.spec && \
-#    sed -i 's|cp -r %{_builddir}/web/.next %{buildroot}/usr/local/share/serviceradar-web/|cp -r %{_builddir}/web/.next %{buildroot}/usr/lib/serviceradar/web/|g' /root/rpmbuild/SPECS/serviceradar-web.spec && \
-#    sed -i 's|%attr(0755, serviceradar, serviceradar) /usr/local/share/serviceradar-web|%attr(0755, serviceradar, serviceradar) /usr/lib/serviceradar/web|g' /root/rpmbuild/SPECS/serviceradar-web.spec && \
+# Modify the spec file to include libvips libraries
 RUN sed -i '/^%install/a mkdir -p %{buildroot}/usr/lib64\ncp -P /root/rpmbuild/SOURCES/lib64/libvips*.so* %{buildroot}/usr/lib64/' /root/rpmbuild/SPECS/serviceradar-web.spec && \
     sed -i '/^%files/a %attr(-, root, root) /usr/lib64/libvips*.so*' /root/rpmbuild/SPECS/serviceradar-web.spec
 
@@ -248,7 +254,7 @@ RUN export QA_RPATHS=$((0x0001|0x0010)) && \
     /root/rpmbuild/SPECS/serviceradar-web.spec
 
 # Final stage to store RPM
-FROM rockylinux:9
+FROM rockylinux:9 AS rpm-store
 WORKDIR /rpms
 COPY --from=rpm-builder /root/rpmbuild/RPMS/*/*.rpm .
 CMD ["/bin/bash"]
