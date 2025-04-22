@@ -36,7 +36,7 @@ fi
 # Reload systemd and manage service
 systemctl daemon-reload
 systemctl enable serviceradar-agent
-systemctl start serviceradar-agent || {
+systemctl restart serviceradar-agent || {
     echo "Failed to start serviceradar-agent service. Check logs with: journalctl -xeu serviceradar-agent"
     exit 1
 }

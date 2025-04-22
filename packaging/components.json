@@ -496,7 +496,7 @@
   {
     "name": "cli",
     "package_name": "serviceradar-cli",
-    "version": "1.0.31",
+    "version": "1.0.33",
     "description": "ServiceRadar CLI tool",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -536,7 +536,7 @@
     "section": "utils",
     "priority": "optional",
     "deb": {
-      "depends": ["systemd", "libssl-dev", "ca-certificates", "zfsutils-linux"],
+      "depends": ["systemd", "libssl-dev", "ca-certificates"],
       "dockerfile": "cmd/checkers/sysmon/Dockerfile"
     },
     "rpm": {
