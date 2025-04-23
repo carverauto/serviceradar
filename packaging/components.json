@@ -467,12 +467,7 @@
       "output_path": "/usr/local/bin/serviceradar-rperf-checker",
       "docker_output_path": "/output/serviceradar-rperf-checker"
     },
-    "custom_steps": [
-      {
-        "type": "command",
-        "command": "protoc -I=proto --go_out=proto --go_opt=paths=source_relative --go-grpc_out=proto --go-grpc_opt=paths=source_relative proto/rperf/rperf.proto"
-      }
-    ],
+    "custom_steps": [],
     "config_files": [
       {
         "source": "packaging/rperf-checker/config/checkers/rperf.json",
