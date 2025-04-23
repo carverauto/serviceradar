@@ -1,11 +1,7 @@
 # Use pre-built base image
 FROM ghcr.io/carverauto/rockylinux9-rust-rpm-base:latest AS builder
 
-# Install Protocol Buffers compiler
-RUN dnf install -y protobuf-compiler && \
-    dnf clean all
-
-ARG VERSION=1.0.32
+ARG VERSION=1.0.33
 ARG RELEASE=1
 ARG COMPONENT=rperf-checker
 ARG BINARY_PATH=cmd/checkers/rperf-client
@@ -19,6 +15,11 @@ COPY ${BINARY_PATH}/Cargo.lock* .
 COPY ${BINARY_PATH}/src ./src/
 COPY ${BINARY_PATH}/build.rs .
 COPY proto ../proto/
+
+# Run protoc to generate necessary files
+RUN protoc -I=../proto --go_out=../proto --go_opt=paths=source_relative \
+    --go-grpc_out=../proto --go-grpc_opt=paths=source_relative \
+    ../proto/rperf/rperf.proto
 
 # Build the Rust binary with explicit output name
 RUN cargo build --release --target x86_64-unknown-linux-gnu --verbose && \
