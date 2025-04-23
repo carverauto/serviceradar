@@ -32,16 +32,37 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.24'
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set up Docker credentials for builds
+        run: |
+          mkdir -p ~/.docker
+          echo '{"auths":{"ghcr.io":{"auth":"'$(echo -n "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}" | base64)'"}}}'  > ~/.docker/config.json
+          chmod 600 ~/.docker/config.json
+          # Verify credentials file was created
+          cat ~/.docker/config.json
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential protobuf-compiler jq
           go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
           go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+      - name: Pull required base images
+        run: |
+          # Pre-pull any required base images to ensure authentication works
+          docker pull ghcr.io/carverauto/custom-rust-zfs:latest || echo "Failed to pull custom-rust-zfs, will try during build"
       - name: Build DEB packages
         run: |
           # Build all DEB packages using the unified script
           ./scripts/setup-package.sh --type=deb --all
+          # Optionally still build the installer if needed
+          ./scripts/setup-installer.sh
       - name: List Artifacts (for debugging)
         run: ls -al ./release-artifacts
       - name: Upload DEB Release Assets
@@ -65,6 +86,13 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set up Docker credentials for builds
+        run: |
+          mkdir -p ~/.docker
+          echo '{"auths":{"ghcr.io":{"auth":"'$(echo -n "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}" | base64)'"}}}'  > ~/.docker/config.json
+          chmod 600 ~/.docker/config.json
+          # Verify credentials file was created
+          cat ~/.docker/config.json
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -72,6 +100,11 @@ jobs:
       - name: Create output directory
         run: |
           mkdir -p ./release-artifacts/rpm
+      - name: Pull required base images
+        run: |
+          # Pre-pull any required base images to ensure authentication works
+          docker pull ghcr.io/carverauto/custom-rust-zfs:latest || echo "Failed to pull custom-rust-zfs, will try during build"
+          docker pull ghcr.io/carverauto/rockylinux9-rust-rpm-base:latest || echo "Failed to pull rockylinux9-rust-rpm-base, will try during build"
       - name: Build all RPM packages
         run: |
           # Build all RPM packages using the unified script
