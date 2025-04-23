@@ -22,11 +22,19 @@ COPY . .
 ARG COMPONENT
 ARG BINARY_PATH
 
-# Build with the correct output name
-RUN if [ "${COMPONENT}" = "snmp-checker" ]; then \
-    GOOS=linux GOARCH=amd64 go build -o "/build-out/serviceradar-snmp-checker" "$BINARY_PATH"; \
+RUN echo "Building component: ${COMPONENT}" && \
+    # Extract component base name (without -checker suffix if present)
+    COMP_BASE=$(echo "${COMPONENT}" | sed 's/-checker//') && \
+    # Build the binary based on component type
+    if [ -d "./cmd/checkers/$COMP_BASE" ]; then \
+        echo "Building checker component from ./cmd/checkers/$COMP_BASE" && \
+        GOOS=linux GOARCH=amd64 go build -o "/build-out/serviceradar-${COMPONENT}" "./cmd/checkers/$COMP_BASE"; \
+    elif [ -d "./cmd/${COMPONENT}" ]; then \
+        echo "Building standard component from ./cmd/${COMPONENT}" && \
+        GOOS=linux GOARCH=amd64 go build -o "/build-out/serviceradar-${COMPONENT}" "./cmd/${COMPONENT}"; \
     else \
-    GOOS=linux GOARCH=amd64 go build -o "/build-out/serviceradar-${COMPONENT}" "$BINARY_PATH"; \
+        echo "Could not determine build path, attempting direct path" && \
+        GOOS=linux GOARCH=amd64 go build -o "/build-out/serviceradar-${COMPONENT}" "${BINARY_PATH}"; \
     fi
 
 # Stage 2: Create RPM
@@ -61,8 +69,14 @@ COPY --from=builder /build-out/* /root/rpmbuild/BUILD/
 # Copy entire packaging directory for organization and completeness
 COPY packaging /root/rpmbuild/SOURCES/packaging/
 
-# Copy spec file
-COPY packaging/specs/serviceradar-${COMPONENT}.spec /root/rpmbuild/SPECS/
+# Copy spec file using a fallback strategy
+RUN echo "Locating spec file for ${COMPONENT}..." && \
+    if [ -f "/root/rpmbuild/SOURCES/packaging/specs/serviceradar-${COMPONENT}.spec" ]; then \
+        cp -v "/root/rpmbuild/SOURCES/packaging/specs/serviceradar-${COMPONENT}.spec" "/root/rpmbuild/SPECS/"; \
+    else \
+        echo "WARNING: No spec file found for ${COMPONENT}" && \
+        exit 0; \
+    fi
 
 # Copy service files from packaging
 RUN cp -v /root/rpmbuild/SOURCES/packaging/${COMPONENT}/systemd/serviceradar-${COMPONENT}.service /root/rpmbuild/SOURCES/systemd/ || echo "Warning: Service file not found!"
