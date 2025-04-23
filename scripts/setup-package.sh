@@ -18,7 +18,7 @@
 set -e
 
 # Default version
-VERSION=${VERSION:-1.0.32}
+VERSION=${VERSION:-1.0.33}
 CONFIG_FILE="packaging/components.json"
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RELEASE_DIR="${BASE_DIR}/release-artifacts"
@@ -75,6 +75,15 @@ build_component() {
     local config
     config=$(jq -r --arg name "$component" '.[] | select(.name == $name)' "$CONFIG_FILE")
     [ -z "$config" ] && { echo "Error: Component $component not found in $CONFIG_FILE"; exit 1; }
+
+    # Check if package type is supported for this component
+    if [ "$package_type" = "rpm" ]; then
+        has_rpm_config=$(echo "$config" | jq -r 'has("rpm")')
+        if [ "$has_rpm_config" = "false" ]; then
+            echo "Skipping $component - no RPM configuration found in components.json"
+            return 0
+        fi
+    fi
 
     # Extract fields
     local package_name version description maintainer architecture section priority
@@ -133,15 +142,12 @@ build_component() {
             ls -l "${BASE_DIR}/go.mod" "${BASE_DIR}/${src_path}" || { echo "Error: Source files missing in context"; exit 1; }
             docker build --platform linux/amd64 --build-arg VERSION="$version" --build-arg BUILD_TAGS="$BUILD_TAGS" -f "${BASE_DIR}/${dockerfile}" -t "${package_name}-builder" "${BASE_DIR}" || { echo "Error: Docker build failed"; exit 1; }
             container_id=$(docker create "${package_name}-builder" /bin/true)
-            #echo "Listing container contents at /src..."
-            #docker run --rm "${package_name}-builder" ls -l /src || { echo "Error: Failed to list container contents"; exit 1; }
             echo "Copying binary from container: /src/${package_name} to ${pkg_root}${output_path}"
             mkdir -p "$(dirname "${pkg_root}${output_path}")" || { echo "Error: Failed to create directory $(dirname "${pkg_root}${output_path}")"; exit 1; }
             docker cp "${container_id}:/src/${package_name}" "${pkg_root}${output_path}" || { echo "Error: Failed to copy binary"; exit 1; }
             ls -l "${pkg_root}${output_path}" || { echo "Error: Binary not copied to package root"; exit 1; }
             test -s "${pkg_root}${output_path}" || { echo "Error: Binary is empty"; exit 1; }
             docker rm "$container_id"
-        # The problem is likely in this section of setup-package.sh
         elif [ "$build_method" = "npm" ]; then
             local build_dir output_dir
             build_dir=$(echo "$config" | jq -r '.build_dir')
@@ -224,7 +230,7 @@ build_component() {
             fi
 
             docker rm "$container_id"
-      elif [ "$build_method" = "external" ]; then
+        elif [ "$build_method" = "external" ]; then
             local url extract_path output_path
             url=$(echo "$config" | jq -r '.external_binary.source_url')
             extract_path=$(echo "$config" | jq -r '.external_binary.extract_path')
@@ -311,10 +317,6 @@ EOF
             fi
         done
 
-        # Log package root contents before building
-        #echo "Package root contents before building:"
-        #find "${pkg_root}" -type f -exec ls -l {} \;
-
         # Ensure permissions for DEBIAN directory
         chmod -R u+rw "${pkg_root}/DEBIAN" || { echo "Error: Failed to set permissions on DEBIAN directory"; exit 1; }
 
@@ -323,36 +325,8 @@ EOF
         mv "${pkg_root}.deb" "${RELEASE_DIR}/"
         echo "Package built: ${RELEASE_DIR}/${package_name}_${version}.deb"
 
-        # Verify package contents
-        #echo "Verifying package contents:"
-        #dpkg-deb -c "${RELEASE_DIR}/${package_name}_${version}.deb"
     elif [ "$package_type" = "rpm" ]; then
-        if [ -n "$dockerfile" ]; then
-            echo "Building RPM with Dockerfile $dockerfile..."
-            echo "Verifying context contents..."
-            ls -l "${BASE_DIR}/go.mod" "${BASE_DIR}/${src_path}" 2>/dev/null || echo "Note: go.mod or src_path not required for Rust builds"
-            src_path=$(echo "$config" | jq -r '.binary.source_path')
-            docker build \
-                --platform linux/amd64 \
-                --build-arg VERSION="$version" \
-                --build-arg RELEASE="$rpm_release" \
-                --build-arg COMPONENT="$component" \
-                --build-arg BINARY_PATH="$src_path" \
-                -f "${BASE_DIR}/${dockerfile}" \
-                -t "${package_name}-rpm-builder" \
-                "${BASE_DIR}" || { echo "Error: Docker build failed"; exit 1; }
-            tmp_dir=$(mktemp -d)
-            container_id=$(docker create "${package_name}-rpm-builder" /bin/true) || { echo "Error: Failed to create container"; exit 1; }
-            docker cp "$container_id:/rpms/." "$tmp_dir/" || { echo "Error: Failed to copy RPMs from /rpms/"; exit 1; }
-            mkdir -p "${RELEASE_DIR}/rpm/${version}" || { echo "Error: Failed to create RPM directory"; exit 1; }
-            find "$tmp_dir" -name "*.rpm" -exec cp {} "${RELEASE_DIR}/rpm/${version}/" \;
-            echo "RPM built: ${RELEASE_DIR}/rpm/${version}/${package_name}-${version}-${rpm_release}.*.rpm"
-            docker rm "$container_id"
-            rm -rf "$tmp_dir"
-        else
-            echo "Warning: No RPM Dockerfile specified for $component, skipping RPM build"
-        fi
-    elif [ "$package_type" = "rpm" ]; then
+        # This section handles RPM package building
         if [ -n "$dockerfile" ]; then
             echo "Building RPM with Dockerfile $dockerfile..."
             echo "Verifying context contents..."
