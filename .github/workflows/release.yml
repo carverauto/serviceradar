@@ -62,7 +62,7 @@ jobs:
           # Build all DEB packages using the unified script
           ./scripts/setup-package.sh --type=deb --all
           # Optionally still build the installer if needed
-          ./scripts/setup-installer.sh
+          #./scripts/setup-installer.sh
       - name: List Artifacts (for debugging)
         run: ls -al ./release-artifacts
       - name: Upload DEB Release Assets
