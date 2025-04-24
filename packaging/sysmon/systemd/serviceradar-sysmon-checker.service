@@ -1,0 +1,13 @@
+[Unit]
+Description=ServiceRadar SysMon metrics collector
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/serviceradar-sysmon-checker --config /etc/serviceradar/checkers/sysmon.json
+Restart=on-failure
+User=serviceradar
+Group=serviceradar
+
+[Install]
+WantedBy=multi-user.target
