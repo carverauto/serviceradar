@@ -554,19 +554,19 @@
     ],
     "config_files": [
       {
-        "source": "packaging/sysmon-checker/config/checkers/sysmon.json.example",
+        "source": "packaging/sysmon/config/checkers/sysmon.json.example",
         "dest": "/etc/serviceradar/checkers/sysmon.json.example"
       }
     ],
     "systemd_service": {
-      "source": "packaging/sysmon-checker/systemd/serviceradar-sysmon-checker.service",
+      "source": "packaging/sysmon/systemd/serviceradar-sysmon-checker.service",
       "dest": "/lib/systemd/system/serviceradar-sysmon-checker.service"
     },
     "postinst": {
-      "source": "packaging/sysmon-checker/scripts/postinstall.sh"
+      "source": "packaging/sysmon/scripts/postinstall.sh"
     },
     "prerm": {
-      "source": "packaging/sysmon-checker/scripts/preremove.sh"
+      "source": "packaging/sysmon/scripts/preremove.sh"
     },
     "conffiles": [
       "/etc/serviceradar/checkers/sysmon.json.example"
