@@ -95,19 +95,17 @@ RUN echo "===== PACKAGING FILES =====" && \
 RUN mkdir -p /root/rpmbuild/SOURCES/${COMPONENT}/systemd /root/rpmbuild/SOURCES/${COMPONENT}/config/checkers && \
     cp -v /root/rpmbuild/SOURCES/packaging/${COMPONENT}/systemd/serviceradar-${COMPONENT}.service /root/rpmbuild/SOURCES/systemd/ || echo "Warning: Service file not found!"
 
-RUN if [ "${COMPONENT}" = "agent" ]; then \
-    mkdir -p /root/rpmbuild/SOURCES/config && \
-    cp -v /root/rpmbuild/SOURCES/packaging/agent/config/agent.json /root/rpmbuild/SOURCES/config/ && \
-    mkdir -p /root/rpmbuild/SOURCES/config/checkers/sweep && \
-    cp -v /root/rpmbuild/SOURCES/packaging/agent/config/checkers/sweep/sweep.json /root/rpmbuild/SOURCES/config/checkers/sweep/; \
-fi
-
-# Copy configuration files for SNMP checker specifically
-RUN if [ "${COMPONENT}" = "snmp-checker" ]; then \
-    mkdir -p /root/rpmbuild/SOURCES/config/checkers && \
-    cp -v /root/rpmbuild/SOURCES/packaging/${COMPONENT}/config/checkers/snmp.json /root/rpmbuild/SOURCES/config/checkers/ || \
-    echo "SNMP checker config not found"; \
-fi
+# Dynamically copy config files based on component
+RUN echo "Copying configuration files for ${COMPONENT}..." && \
+    if [ -d "/root/rpmbuild/SOURCES/packaging/${COMPONENT}/config" ]; then \
+        find "/root/rpmbuild/SOURCES/packaging/${COMPONENT}/config" -type f -name "*.json" | while read config_file; do \
+            target_dir="/root/rpmbuild/SOURCES/config/$(dirname "$config_file" | sed "s|/root/rpmbuild/SOURCES/packaging/${COMPONENT}/config||")" && \
+            mkdir -p "$target_dir" && \
+            cp -v "$config_file" "$target_dir/" || echo "Warning: Failed to copy $config_file"; \
+        done; \
+    else \
+        echo "No config directory found for ${COMPONENT}"; \
+    fi
 
 # Build the RPM
 ARG VERSION=1.0.32
