@@ -213,6 +213,7 @@ download_package() {
     local url="${RELEASE_URL}/${file_name}"
     local output="${TEMP_DIR}/${pkg_name}.${PKG_EXT}"
     log "Downloading ${COLOR_YELLOW}${pkg_name}${COLOR_RESET}..."
+    log "URL: ${COLOR_YELLOW}${url}${COLOR_RESET}"
     curl -sSL -o "$output" "$url" || error "Failed to download ${pkg_name} from $url"
     validate_deb "$output"
 }
@@ -390,17 +391,12 @@ main() {
     install_packages "${packages_to_install[@]}"
 
     header "Installing Optional Checkers"
-    checkers=("serviceradar-rperf" "serviceradar-rperf-checker" "serviceradar-snmp-checker" "serviceradar-dusk-checker")
+    checkers=("serviceradar-rperf" "serviceradar-rperf-checker" "serviceradar-snmp-checker" "serviceradar-dusk-checker" "serviceradar-sysmon-checker")
     checker_packages=()
     for checker in "${checkers[@]}"; do
         available="yes"
         if [ "$checker" = "serviceradar-dusk-checker" ] && [ "$SYSTEM" != "debian" ]; then
             available="no"
-        fi
-        if [ "$checker" = "serviceradar-rperf" ] || [ "$checker" = "serviceradar-rperf-checker" ]; then
-            if [ "$SYSTEM" != "rhel" ]; then
-                available="no"
-            fi
         fi
         if [ "$INSTALL_CORE" = "false" ] && [ "$checker" = "serviceradar-dusk-checker" ]; then
             available="no"
