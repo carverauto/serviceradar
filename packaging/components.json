@@ -464,6 +464,7 @@
     },
     "binary": {
       "build_method": "rust",
+      "source_path": "cmd/checkers/rperf-client",
       "output_path": "/usr/local/bin/serviceradar-rperf-checker",
       "docker_output_path": "/output/serviceradar-rperf-checker"
     },
