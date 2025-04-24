@@ -95,6 +95,13 @@ RUN echo "===== PACKAGING FILES =====" && \
 RUN mkdir -p /root/rpmbuild/SOURCES/${COMPONENT}/systemd /root/rpmbuild/SOURCES/${COMPONENT}/config/checkers && \
     cp -v /root/rpmbuild/SOURCES/packaging/${COMPONENT}/systemd/serviceradar-${COMPONENT}.service /root/rpmbuild/SOURCES/systemd/ || echo "Warning: Service file not found!"
 
+RUN if [ "${COMPONENT}" = "agent" ]; then \
+    mkdir -p /root/rpmbuild/SOURCES/config && \
+    cp -v /root/rpmbuild/SOURCES/packaging/agent/config/agent.json /root/rpmbuild/SOURCES/config/ && \
+    mkdir -p /root/rpmbuild/SOURCES/config/checkers/sweep && \
+    cp -v /root/rpmbuild/SOURCES/packaging/agent/config/checkers/sweep/sweep.json /root/rpmbuild/SOURCES/config/checkers/sweep/; \
+fi
+
 # Copy configuration files for SNMP checker specifically
 RUN if [ "${COMPONENT}" = "snmp-checker" ]; then \
     mkdir -p /root/rpmbuild/SOURCES/config/checkers && \
