@@ -333,11 +333,6 @@
       "depends": ["systemd"],
       "dockerfile": null
     },
-    "rpm": {
-      "depends": ["systemd"],
-      "dockerfile": "docker/rpm/Dockerfile.rpm.simple",
-      "release": "1"
-    },
     "binary": {
       "source_path": "cmd/checkers/dusk",
       "build_method": "go",
