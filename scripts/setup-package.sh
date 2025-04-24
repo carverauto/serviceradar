@@ -99,9 +99,14 @@ build_component() {
     dockerfile=$(echo "$config" | jq -r ".$package_type.dockerfile // empty")
     rpm_release=$(echo "$config" | jq -r '.rpm.release // "1"')
 
+    # Get source path up front for all component types
+    local src_path
+    src_path=$(echo "$config" | jq -r '.binary.source_path // empty')
+
     # Log build method and dockerfile
     echo "Build method: '$build_method'"
     echo "Dockerfile: '$dockerfile'"
+    echo "Source path: '$src_path'"
 
     # Verify dockerfile exists
     if [ -n "$dockerfile" ]; then
@@ -126,28 +131,29 @@ build_component() {
 
         # Build binary or assets
         if [ "$build_method" = "go" ]; then
-            local src_path output_path
-            src_path=$(echo "$config" | jq -r '.binary.source_path')
+            local output_path
             output_path=$(echo "$config" | jq -r '.binary.output_path')
             echo "Building Go binary from $src_path..."
             GOOS=linux GOARCH=amd64 go build -o "${pkg_root}${output_path}" "${BASE_DIR}/${src_path}" || { echo "Error: Go build failed"; exit 1; }
             ls -l "${pkg_root}${output_path}" || { echo "Error: Binary not built"; exit 1; }
             test -s "${pkg_root}${output_path}" || { echo "Error: Binary is empty"; exit 1; }
         elif [ "$build_method" = "docker" ] && [ -n "$dockerfile" ]; then
-            local src_path output_path
-            src_path=$(echo "$config" | jq -r '.binary.source_path')
+            local output_path
             output_path=$(echo "$config" | jq -r '.binary.output_path')
             echo "Building with Docker ($dockerfile) from context ${BASE_DIR}..."
             echo "Verifying context contents..."
             ls -l "${BASE_DIR}/go.mod" "${BASE_DIR}/${src_path}" || { echo "Error: Source files missing in context"; exit 1; }
             docker build --platform linux/amd64 --build-arg VERSION="$version" --build-arg BUILD_TAGS="$BUILD_TAGS" -f "${BASE_DIR}/${dockerfile}" -t "${package_name}-builder" "${BASE_DIR}" || { echo "Error: Docker build failed"; exit 1; }
             container_id=$(docker create "${package_name}-builder" /bin/true)
+            #echo "Listing container contents at /src..."
+            #docker run --rm "${package_name}-builder" ls -l /src || { echo "Error: Failed to list container contents"; exit 1; }
             echo "Copying binary from container: /src/${package_name} to ${pkg_root}${output_path}"
             mkdir -p "$(dirname "${pkg_root}${output_path}")" || { echo "Error: Failed to create directory $(dirname "${pkg_root}${output_path}")"; exit 1; }
             docker cp "${container_id}:/src/${package_name}" "${pkg_root}${output_path}" || { echo "Error: Failed to copy binary"; exit 1; }
             ls -l "${pkg_root}${output_path}" || { echo "Error: Binary not copied to package root"; exit 1; }
             test -s "${pkg_root}${output_path}" || { echo "Error: Binary is empty"; exit 1; }
             docker rm "$container_id"
+        # The problem is likely in this section of setup-package.sh
         elif [ "$build_method" = "npm" ]; then
             local build_dir output_dir
             build_dir=$(echo "$config" | jq -r '.build_dir')
@@ -203,7 +209,16 @@ build_component() {
             output_path=$(echo "$config" | jq -r '.binary.output_path')
             docker_output_path=$(echo "$config" | jq -r '.binary.docker_output_path // "/output/'${package_name}'"')
             echo "Building Rust binary with Docker ($dockerfile)..."
-            docker build --platform linux/amd64 --no-cache -f "${BASE_DIR}/${dockerfile}" -t "${package_name}-builder" "${BASE_DIR}" || { echo "Error: Docker build failed"; exit 1; }
+            docker build \
+                --platform linux/amd64 \
+                --no-cache \
+                --build-arg VERSION="$version" \
+                --build-arg RELEASE="$rpm_release" \
+                --build-arg COMPONENT="$component" \
+                --build-arg BINARY_PATH="$src_path" \
+                -f "${BASE_DIR}/${dockerfile}" \
+                -t "${package_name}-builder" \
+                "${BASE_DIR}" || { echo "Error: Docker build failed"; exit 1; }
             container_id=$(docker create "${package_name}-builder" /bin/true) || { echo "Error: Failed to create container. Ensure Dockerfile is correctly configured."; exit 1; }
             echo "Creating directory for binary: $(dirname "${pkg_root}${output_path}")"
             mkdir -p "$(dirname "${pkg_root}${output_path}")" || { echo "Error: Failed to create directory $(dirname "${pkg_root}${output_path}")"; exit 1; }
@@ -230,7 +245,7 @@ build_component() {
             fi
 
             docker rm "$container_id"
-        elif [ "$build_method" = "external" ]; then
+      elif [ "$build_method" = "external" ]; then
             local url extract_path output_path
             url=$(echo "$config" | jq -r '.external_binary.source_url')
             extract_path=$(echo "$config" | jq -r '.external_binary.extract_path')
@@ -326,12 +341,19 @@ EOF
         echo "Package built: ${RELEASE_DIR}/${package_name}_${version}.deb"
 
     elif [ "$package_type" = "rpm" ]; then
-        # This section handles RPM package building
         if [ -n "$dockerfile" ]; then
             echo "Building RPM with Dockerfile $dockerfile..."
             echo "Verifying context contents..."
-            ls -l "${BASE_DIR}/go.mod" "${BASE_DIR}/${src_path}" 2>/dev/null || echo "Note: go.mod or src_path not required for Rust builds"
-            src_path=$(echo "$config" | jq -r '.binary.source_path')
+            # Only verify go.mod and source path if they're needed and exist
+            if [ -f "${BASE_DIR}/go.mod" ]; then
+                ls -l "${BASE_DIR}/go.mod" || echo "Note: go.mod not found, but may not be required"
+            fi
+            if [ -n "$src_path" ] && [ -d "${BASE_DIR}/${src_path}" ]; then
+                ls -l "${BASE_DIR}/${src_path}" || echo "Source directory ${src_path} not found"
+            else
+                echo "Note: Source path not available or not required"
+            fi
+
             docker build \
                 --platform linux/amd64 \
                 --build-arg VERSION="$version" \
