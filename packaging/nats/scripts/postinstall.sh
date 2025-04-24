@@ -11,6 +11,11 @@ if ! id -u serviceradar >/dev/null 2>&1; then
     useradd --system --no-create-home --shell /usr/sbin/nologin -g serviceradar serviceradar
 fi
 
+# Create NATS user if it doesn't exist
+if ! id -u nats >/dev/null 2>&1; then
+    useradd --system --no-create-home --shell /usr/sbin/nologin -g serviceradar nats
+fi
+
 # Create required directories
 mkdir -p /etc/serviceradar
 mkdir -p /var/lib/serviceradar
@@ -23,7 +28,6 @@ fi
 # Set permissions
 chown -R serviceradar:serviceradar /etc/serviceradar
 chmod -R 755 /etc/serviceradar
-usermod -a -G serviceradar nats
 # if the certs dir exists, set permissions
 if [ -d "/etc/serviceradar/certs" ]; then
     chown -R serviceradar:serviceradar /etc/serviceradar/certs
