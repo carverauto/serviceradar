@@ -26,7 +26,6 @@ install -m 644 %{_sourcedir}/sysmon-checker/systemd/serviceradar-sysmon-checker.
 install -m 644 %{_sourcedir}/sysmon-checker/config/checkers/sysmon.json.example %{buildroot}/etc/serviceradar/checkers/
 
 %files
-%attr(0755, root, root) /usr/local/bin/serviceradar-sysmon-checker
 %attr(0755, root, root) /usr/local/bin/serviceradar-sysmon-checker-zfs
 %attr(0755, root, root) /usr/local/bin/serviceradar-sysmon-checker-nonzfs
 %config(noreplace) %attr(0644, serviceradar, serviceradar) /etc/serviceradar/checkers/sysmon.json.example
