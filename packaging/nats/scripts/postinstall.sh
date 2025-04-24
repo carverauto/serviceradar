@@ -24,7 +24,11 @@ fi
 chown -R serviceradar:serviceradar /etc/serviceradar
 chmod -R 755 /etc/serviceradar
 usermod -a -G serviceradar nats
-chmod g+x /etc/serviceradar/certs
+# if the certs dir exists, set permissions
+if [ -d "/etc/serviceradar/certs" ]; then
+    chown -R serviceradar:serviceradar /etc/serviceradar/certs
+    chmod -R 755 /etc/serviceradar/certs
+fi
 
 # Only try to manage service if it exists
 if [ -f "/lib/systemd/system/serviceradar-${component_dir}.service" ]; then
