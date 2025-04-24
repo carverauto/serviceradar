@@ -213,6 +213,7 @@ download_package() {
     local url="${RELEASE_URL}/${file_name}"
     local output="${TEMP_DIR}/${pkg_name}.${PKG_EXT}"
     log "Downloading ${COLOR_YELLOW}${pkg_name}${COLOR_RESET}..."
+    log "URL: ${COLOR_YELLOW}${url}${COLOR_RESET}"
     curl -sSL -o "$output" "$url" || error "Failed to download ${pkg_name} from $url"
     validate_deb "$output"
 }
