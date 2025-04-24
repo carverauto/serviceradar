@@ -15,7 +15,7 @@ mkdir -p %{buildroot}/etc/serviceradar
 install -m 755 %{_builddir}/serviceradar-cli %{buildroot}/usr/local/bin/
 
 %files
-%attr(0755, root, root) /usr/local/bin/serviceradar
+%attr(0755, root, root) /usr/local/bin/serviceradar-cli
 
 %pre
 # Create serviceradar user if it doesn't exist
@@ -24,5 +24,5 @@ if ! id -u serviceradar >/dev/null 2>&1; then
 fi
 
 %post
-chown -R serviceradar:serviceradar /usr/local/bin/serviceradar
-chmod 755 /usr/local/bin/serviceradar
+chown -R serviceradar:serviceradar /usr/local/bin/serviceradar-cli
+chmod 755 /usr/local/bin/serviceradar-cli

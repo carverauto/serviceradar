@@ -38,7 +38,7 @@ echo "Building Go binary..."
 
 # Build Go binary
 cd "${BASE_DIR}/cmd/cli"
-GOOS=linux GOARCH=amd64 go build -o "../../serviceradar-cli-build/usr/local/bin/serviceradar"
+GOOS=linux GOARCH=amd64 go build -o "../../serviceradar-cli-build/usr/local/bin/serviceradar-cli"
 cd "${BASE_DIR}"
 
 echo "Preparing ServiceRadar CLI package files..."
