@@ -76,6 +76,15 @@ build_component() {
     config=$(jq -r --arg name "$component" '.[] | select(.name == $name)' "$CONFIG_FILE")
     [ -z "$config" ] && { echo "Error: Component $component not found in $CONFIG_FILE"; exit 1; }
 
+    # Check if package type is supported for this component
+    if [ "$package_type" = "rpm" ]; then
+        has_rpm_config=$(echo "$config" | jq -r 'has("rpm")')
+        if [ "$has_rpm_config" = "false" ]; then
+            echo "Skipping $component - no RPM configuration found in components.json"
+            return 0
+        fi
+    fi
+
     # Extract fields
     local package_name version description maintainer architecture section priority
     package_name=$(echo "$config" | jq -r '.package_name')
