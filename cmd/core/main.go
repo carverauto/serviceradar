@@ -14,6 +14,34 @@
  * limitations under the License.
  */
 
+// @title ServiceRadar API
+// @version 1.0
+// @description API for monitoring and managing service pollers in the ServiceRadar system
+// @termsOfService http://carverauto.com/terms/
+
+// @contact.name API Support
+// @contact.url http://carverauto.com/support
+// @contact.email support@carverauto.com
+
+// @license.name Apache 2.0
+// @license.url http://www.apache.org/licenses/LICENSE-2.0.html
+
+// Multiple server configurations
+// @servers.url https://demo.serviceradar.cloud
+// @servers.description ServiceRadar Demo Cloud Server
+
+// @servers.url http://{hostname}:{port}
+// @servers.description ServiceRadar API Server
+// @servers.variables.hostname.default localhost
+// @servers.variables.port.default 8080
+
+// @BasePath /
+// @schemes http https
+
+// @securityDefinitions.apikey ApiKeyAuth
+// @in header
+// @name Authorization
+
 package main
 
 import (
@@ -26,6 +54,8 @@ import (
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/proto"
 	"google.golang.org/grpc"
+
+	_ "github.com/carverauto/serviceradar/pkg/swagger"
 )
 
 func main() {
@@ -54,6 +84,7 @@ func run() error {
 		return err
 	}
 
+	// Create API server with Swagger support
 	apiServer := api.NewAPIServer(
 		cfg.CORS,
 		api.WithMetricsManager(server.GetMetricsManager()),
@@ -63,6 +94,9 @@ func run() error {
 	)
 
 	server.SetAPIServer(apiServer)
+
+	// Log message about Swagger documentation
+	log.Printf("API server will include Swagger documentation at http://%s/swagger/index.html", cfg.ListenAddr)
 
 	// Start HTTP API server in background
 	errCh := make(chan error, 1)
