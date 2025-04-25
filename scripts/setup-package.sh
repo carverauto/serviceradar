@@ -18,7 +18,7 @@
 set -e
 
 # Default version
-VERSION=${VERSION:-1.0.33}
+VERSION=${VERSION:-1.0.34}
 CONFIG_FILE="packaging/components.json"
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RELEASE_DIR="${BASE_DIR}/release-artifacts"
