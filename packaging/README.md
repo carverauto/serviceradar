@@ -128,7 +128,7 @@ The `setup-package.sh` script builds Debian and RPM packages based on the `compo
 
 ### Environment Variables
 
-- **VERSION**: Overrides the version field in components.json (e.g., `VERSION=1.0.33 ./scripts/setup-package.sh ...`).
+- **VERSION**: Overrides the version field in components.json (e.g., `VERSION=1.0.34 ./scripts/setup-package.sh ...`).
 
 ## Adding a New Component
 
@@ -162,7 +162,7 @@ Example for `new-checker` (Go-based):
 {
   "name": "new-checker",
   "package_name": "serviceradar-new-checker",
-  "version": "1.0.33",
+  "version": "1.0.34",
   "description": "ServiceRadar New Checker",
   "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
   "architecture": "amd64",
