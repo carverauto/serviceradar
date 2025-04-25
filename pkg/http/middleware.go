@@ -20,10 +20,12 @@ package http
 import (
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
+// CommonMiddleware handles CORS and other common HTTP concerns.
 func CommonMiddleware(next http.Handler, corsConfig models.CORSConfig) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
@@ -57,7 +59,9 @@ func CommonMiddleware(next http.Handler, corsConfig models.CORSConfig) http.Hand
 		}
 
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key")
+
 		w.Header().Set("Access-Control-Max-Age", "3600") // Cache preflight for 1 hour
 
 		if corsConfig.AllowCredentials {
@@ -76,16 +80,60 @@ func CommonMiddleware(next http.Handler, corsConfig models.CORSConfig) http.Hand
 	})
 }
 
+type APIKeyOptions struct {
+	// API key to validate against
+	APIKey string
+	// Paths to exclude from API key authentication (prefix-based)
+	ExcludePaths []string
+	// Whether to log unauthorized attempts
+	LogUnauthorized bool
+}
+
+// NewAPIKeyOptions creates a new options struct with defaults.
+func NewAPIKeyOptions(apiKey string) APIKeyOptions {
+	return APIKeyOptions{
+		APIKey:          apiKey,
+		ExcludePaths:    []string{"/swagger/", "/api-docs"},
+		LogUnauthorized: true,
+	}
+}
+
+// APIKeyMiddleware checks for a valid API key on requests
+// excludes specified paths from authentication.
 func APIKeyMiddleware(apiKey string) func(next http.Handler) http.Handler {
+	opts := NewAPIKeyOptions(apiKey)
+
+	return APIKeyMiddlewareWithOptions(opts)
+}
+
+// APIKeyMiddlewareWithOptions is an enhanced version of APIKeyMiddleware
+// that allows configuring exclude paths and other options
+func APIKeyMiddlewareWithOptions(opts APIKeyOptions) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Check if path should be excluded
+			path := r.URL.Path
+
+			for _, excludePath := range opts.ExcludePaths {
+				if strings.HasPrefix(path, excludePath) {
+					// Path is excluded from authentication, let it through
+					next.ServeHTTP(w, r)
+
+					return
+				}
+			}
+
+			// Check for API key
 			requestKey := r.Header.Get("X-API-Key")
 			if requestKey == "" {
 				requestKey = r.URL.Query().Get("api_key")
 			}
 
-			if requestKey == "" || (apiKey != "" && requestKey != apiKey) {
-				log.Printf("Unauthorized API access attempt: %s %s", r.Method, r.URL.Path)
+			if requestKey == "" || (opts.APIKey != "" && requestKey != opts.APIKey) {
+				if opts.LogUnauthorized {
+					log.Printf("Unauthorized API access attempt: %s %s", r.Method, r.URL.Path)
+				}
+
 				http.Error(w, "Unauthorized", http.StatusUnauthorized)
 
 				return
