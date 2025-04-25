@@ -15,8 +15,8 @@
   },
   "filesystems": [
     {
-      "name": "/System/Volumes/Data",
-      "type": "apfs",
+      "name": "/",
+      "type": "zfs",
       "monitor": true
     }
   ]
