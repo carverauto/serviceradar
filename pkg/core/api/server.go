@@ -105,6 +105,11 @@ func (s *APIServer) setupMiddleware() {
 		"/swagger/index.html",
 		"/swagger/swagger.json",
 		"/swagger/swagger.yaml",
+		"/swagger/swagger-ui-bundle.js",
+		"/swagger/swagger-ui-standalone-preset.js",
+		"/swagger/swagger-ui.css",
+		"/swagger/favicon-32x32.png",
+		"/swagger/favicon-16x16.png",
 	}
 
 	middlewareChain := func(next http.Handler) http.Handler {
