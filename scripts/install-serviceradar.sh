@@ -480,7 +480,7 @@ install_optional_checkers() {
     if [ "$SKIP_CHECKER_PROMPTS" = "true" ] || [ "$INTERACTIVE" != "true" ]; then
         # Default to installing common checkers
         INSTALL_SYSMON=true
-        INSTALL_SNMP=true
+        INSTALL_SNMP=false
 
         # Use command-line checkers if specified
         if [ -n "$CHECKERS" ]; then
