@@ -110,7 +110,7 @@ linters:
     - goconst
     - gocritic
     - gocyclo
-    - godot
+    #- godot
     - gofmt
     - goimports
     - goprintffuncname

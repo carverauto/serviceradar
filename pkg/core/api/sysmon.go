@@ -29,6 +29,7 @@ import (
 )
 
 // getSysmonMetrics is a generic handler for system metrics requests.
+// @ignore This is an internal helper function, not directly exposed as an API endpoint
 func (s *APIServer) getSysmonMetrics(
 	w http.ResponseWriter,
 	r *http.Request,
@@ -80,7 +81,21 @@ func (s *APIServer) getSysmonMetrics(
 	}
 }
 
-// getSysmonCPUMetrics handles CPU metrics requests.
+// @Summary Get CPU metrics
+// @Description Retrieves CPU usage metrics for a specific poller within a time range
+// @Tags Sysmon
+// @Accept json
+// @Produce json
+// @Param id path string true "Poller ID"
+// @Param start query string false "Start time in RFC3339 format (default: 24h ago)"
+// @Param end query string false "End time in RFC3339 format (default: now)"
+// @Success 200 {array} models.CPUMetric "CPU metrics data"
+// @Failure 400 {object} models.ErrorResponse "Invalid request parameters"
+// @Failure 404 {object} models.ErrorResponse "No metrics found"
+// @Failure 500 {object} models.ErrorResponse "Internal server error"
+// @Failure 501 {object} models.ErrorResponse "System metrics not supported"
+// @Router /pollers/{id}/sysmon/cpu [get]
+// @Security ApiKeyAuth
 func (s *APIServer) getSysmonCPUMetrics(w http.ResponseWriter, r *http.Request) {
 	fetch := func(provider db.SysmonMetricsProvider, pollerID string, startTime, endTime time.Time) (interface{}, error) {
 		metrics, err := provider.GetAllCPUMetrics(pollerID, startTime, endTime)
@@ -98,7 +113,21 @@ func (s *APIServer) getSysmonCPUMetrics(w http.ResponseWriter, r *http.Request) 
 	s.getSysmonMetrics(w, r, fetch, "CPU")
 }
 
-// getSysmonMemoryMetrics handles memory metrics requests.
+// @Summary Get memory metrics
+// @Description Retrieves memory usage metrics for a specific poller within a time range
+// @Tags Sysmon
+// @Accept json
+// @Produce json
+// @Param id path string true "Poller ID"
+// @Param start query string false "Start time in RFC3339 format (default: 24h ago)"
+// @Param end query string false "End time in RFC3339 format (default: now)"
+// @Success 200 {array} db.SysmonMemoryResponse "Memory metrics data grouped by timestamp"
+// @Failure 400 {object} models.ErrorResponse "Invalid request parameters"
+// @Failure 404 {object} models.ErrorResponse "No metrics found"
+// @Failure 500 {object} models.ErrorResponse "Internal server error"
+// @Failure 501 {object} models.ErrorResponse "System metrics not supported"
+// @Router /pollers/{id}/sysmon/memory [get]
+// @Security ApiKeyAuth
 func (s *APIServer) getSysmonMemoryMetrics(w http.ResponseWriter, r *http.Request) {
 	fetch := func(provider db.SysmonMetricsProvider, pollerID string, startTime, endTime time.Time) (interface{}, error) {
 		metrics, err := provider.GetMemoryMetricsGrouped(pollerID, startTime, endTime)
@@ -117,6 +146,7 @@ func (s *APIServer) getSysmonMemoryMetrics(w http.ResponseWriter, r *http.Reques
 }
 
 // fetchDiskMetrics retrieves disk metrics based on mount point presence.
+// @ignore This is an internal helper function, not directly exposed as an API endpoint
 func (*APIServer) fetchDiskMetrics(
 	provider db.SysmonMetricsProvider,
 	pollerID, mountPoint string,
@@ -153,6 +183,22 @@ func (*APIServer) fetchDiskMetrics(
 	return allMetrics, nil
 }
 
+// @Summary Get disk metrics
+// @Description Retrieves disk usage metrics for a specific poller within a time range
+// @Tags Sysmon
+// @Accept json
+// @Produce json
+// @Param id path string true "Poller ID"
+// @Param mount_point query string false "Filter by specific mount point"
+// @Param start query string false "Start time in RFC3339 format (default: 24h ago)"
+// @Param end query string false "End time in RFC3339 format (default: now)"
+// @Success 200 {array} db.SysmonDiskResponse "Disk metrics data grouped by timestamp"
+// @Failure 400 {object} models.ErrorResponse "Invalid request parameters"
+// @Failure 404 {object} models.ErrorResponse "No metrics found"
+// @Failure 500 {object} models.ErrorResponse "Internal server error"
+// @Failure 501 {object} models.ErrorResponse "System metrics not supported"
+// @Router /pollers/{id}/sysmon/disk [get]
+// @Security ApiKeyAuth
 func (s *APIServer) getSysmonDiskMetrics(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 
@@ -203,6 +249,7 @@ func (s *APIServer) getSysmonDiskMetrics(w http.ResponseWriter, r *http.Request)
 }
 
 // groupDiskMetricsByTimestamp groups a slice of DiskMetric by timestamp into SysmonDiskResponse.
+// @ignore This is an internal helper function, not directly exposed as an API endpoint
 func groupDiskMetricsByTimestamp(metrics []models.DiskMetric) []db.SysmonDiskResponse {
 	// Map to group metrics by timestamp
 	timestampMap := make(map[time.Time][]models.DiskMetric)

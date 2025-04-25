@@ -26,6 +26,20 @@ import (
 	"github.com/gorilla/mux"
 )
 
+// @Summary Get rperf metrics
+// @Description Retrieves network performance metrics measured by rperf for a specific poller within a time range
+// @Tags Rperf
+// @Accept json
+// @Produce json
+// @Param id path string true "Poller ID"
+// @Param start query string false "Start time in RFC3339 format (default: 24h ago)"
+// @Param end query string false "End time in RFC3339 format (default: now)"
+// @Success 200 {array} models.RperfMetric "Network performance metrics data"
+// @Failure 400 {object} models.ErrorResponse "Invalid request parameters"
+// @Failure 404 {object} models.ErrorResponse "No rperf metrics found"
+// @Failure 500 {object} models.ErrorResponse "Internal server error or rperf manager not configured"
+// @Router /pollers/{id}/rperf [get]
+// @Security ApiKeyAuth
 func (s *APIServer) getRperfMetrics(w http.ResponseWriter, r *http.Request) {
 	pollerID := mux.Vars(r)["id"]
 
@@ -61,6 +75,8 @@ func (s *APIServer) getRperfMetrics(w http.ResponseWriter, r *http.Request) {
 	writeJSONResponse(w, resp.Metrics, pollerID)
 }
 
+// processRperfMetrics fetches and processes rperf metrics for a poller.
+// @ignore This is an internal helper function, not directly exposed as an API endpoint
 func (s *APIServer) processRperfMetrics(pollerID string, startTime, endTime time.Time) models.RperfMetricResponse {
 	rperfMetrics, err := s.rperfManager.GetRperfMetrics(pollerID, startTime, endTime)
 	if err != nil {
@@ -75,6 +91,7 @@ func (s *APIServer) processRperfMetrics(pollerID string, startTime, endTime time
 }
 
 // convertToAPIMetrics converts db.TimeseriesMetric to RperfMetric.
+// @ignore This is an internal helper function, not directly exposed as an API endpoint
 func convertToAPIMetrics(rperfMetrics []*db.TimeseriesMetric, pollerID string) []models.RperfMetric {
 	response := make([]models.RperfMetric, 0, len(rperfMetrics))
 
@@ -100,6 +117,7 @@ func convertToAPIMetrics(rperfMetrics []*db.TimeseriesMetric, pollerID string) [
 }
 
 // populateMetricFields populates an RperfMetric from metadata.
+// @ignore This is an internal helper function, not directly exposed as an API endpoint
 func populateMetricFields(metric *models.RperfMetric, metadata map[string]interface{}) {
 	setStringField(&metric.Target, metadata, "target")
 	setBoolField(&metric.Success, metadata, "success")
@@ -115,18 +133,24 @@ func populateMetricFields(metric *models.RperfMetric, metadata map[string]interf
 	setInt64Field(&metric.PacketsSent, metadata, "packets_sent")
 }
 
+// setStringField sets a string field from metadata.
+// @ignore This is an internal helper function, not directly exposed as an API endpoint
 func setStringField(field *string, metadata map[string]interface{}, key string) {
 	if val, ok := metadata[key].(string); ok {
 		*field = val
 	}
 }
 
+// setBoolField sets a boolean field from metadata.
+// @ignore This is an internal helper function, not directly exposed as an API endpoint
 func setBoolField(field *bool, metadata map[string]interface{}, key string) {
 	if val, ok := metadata[key].(bool); ok {
 		*field = val
 	}
 }
 
+// setErrorField sets an error field from metadata.
+// @ignore This is an internal helper function, not directly exposed as an API endpoint
 func setErrorField(field **string, metadata map[string]interface{}, key string) {
 	if errVal, ok := metadata[key]; ok {
 		switch v := errVal.(type) {
@@ -140,12 +164,16 @@ func setErrorField(field **string, metadata map[string]interface{}, key string) 
 	}
 }
 
+// setFloat64Field sets a float64 field from metadata.
+// @ignore This is an internal helper function, not directly exposed as an API endpoint
 func setFloat64Field(field *float64, metadata map[string]interface{}, key string) {
 	if val, ok := metadata[key].(float64); ok {
 		*field = val
 	}
 }
 
+// setInt64Field sets an int64 field from metadata.
+// @ignore This is an internal helper function, not directly exposed as an API endpoint
 func setInt64Field(field *int64, metadata map[string]interface{}, key string) {
 	if val, ok := metadata[key].(float64); ok {
 		*field = int64(val)

@@ -1,0 +1,883 @@
+basePath: /
+definitions:
+  api.LoginCredentials:
+    properties:
+      password:
+        description: Password for authentication
+        example: password123
+        type: string
+      username:
+        description: Username for authentication
+        example: admin
+        type: string
+    type: object
+  api.PollerHistoryPoint:
+    properties:
+      is_healthy:
+        type: boolean
+      timestamp:
+        type: string
+    type: object
+  api.PollerStatus:
+    properties:
+      first_seen:
+        type: string
+      is_healthy:
+        type: boolean
+      last_update:
+        type: string
+      metrics:
+        items:
+          $ref: '#/definitions/models.MetricPoint'
+        type: array
+      poller_id:
+        type: string
+      services:
+        items:
+          $ref: '#/definitions/api.ServiceStatus'
+        type: array
+      uptime:
+        type: string
+    type: object
+  api.RefreshTokenRequest:
+    properties:
+      refresh_token:
+        description: Refresh token from previous authentication
+        example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        type: string
+    type: object
+  api.ServiceStatus:
+    properties:
+      available:
+        type: boolean
+      details:
+        description: Flexible field for service-specific data
+        items:
+          type: integer
+        type: array
+      message:
+        type: string
+      name:
+        type: string
+      type:
+        description: e.g., "process", "port", "blockchain", etc.
+        type: string
+    type: object
+  api.SystemStatus:
+    properties:
+      healthy_pollers:
+        type: integer
+      last_update:
+        type: string
+      total_pollers:
+        type: integer
+    type: object
+  db.SysmonDiskResponse:
+    properties:
+      disks:
+        items:
+          $ref: '#/definitions/models.DiskMetric'
+        type: array
+      timestamp:
+        type: string
+    type: object
+  db.SysmonMemoryResponse:
+    properties:
+      memory:
+        $ref: '#/definitions/models.MemoryMetric'
+      timestamp:
+        type: string
+    type: object
+  models.CPUMetric:
+    description: CPU usage metrics for an individual processor core.
+    properties:
+      core_id:
+        description: ID number of the CPU core
+        example: 0
+        type: integer
+      timestamp:
+        description: When this metric was collected
+        example: "2025-04-24T14:15:22Z"
+        type: string
+      usage_percent:
+        description: Usage percentage (0-100)
+        example: 45.2
+        type: number
+    type: object
+  models.DiskMetric:
+    description: Storage usage metrics for a disk partition.
+    properties:
+      mount_point:
+        description: Mount point path
+        example: /var
+        type: string
+      timestamp:
+        description: When this metric was collected
+        example: "2025-04-24T14:15:22Z"
+        type: string
+      total_bytes:
+        description: Total capacity in bytes
+        example: 107374182400
+        type: integer
+      used_bytes:
+        description: Bytes currently in use
+        example: 10737418240
+        type: integer
+    type: object
+  models.ErrorResponse:
+    description: Error information returned from the API
+    properties:
+      message:
+        description: Error message
+        example: Invalid request parameters
+        type: string
+      status:
+        description: HTTP status code
+        example: 400
+        type: integer
+    type: object
+  models.MemoryMetric:
+    description: System memory utilization metrics.
+    properties:
+      timestamp:
+        description: When this metric was collected
+        example: "2025-04-24T14:15:22Z"
+        type: string
+      total_bytes:
+        description: Total memory capacity in bytes
+        example: 17179869184
+        type: integer
+      used_bytes:
+        description: Bytes currently in use
+        example: 4294967296
+        type: integer
+    type: object
+  models.MetricPoint:
+    description: A single point of performance metric data with timestamp information.
+    properties:
+      response_time:
+        description: The response time in milliseconds
+        example: 42
+        type: integer
+      service_name:
+        description: The name of the service this metric is for
+        example: postgres
+        type: string
+      timestamp:
+        description: The time when this metric was collected
+        example: "2025-04-24T14:15:22Z"
+        type: string
+    type: object
+  models.RperfMetric:
+    description: Single network performance test result for a specific target
+    properties:
+      bits_per_second:
+        description: Network throughput in bits per second
+        example: 943215000
+        type: number
+      bytes_received:
+        description: Total bytes received during the test
+        example: 12582912
+        type: integer
+      bytes_sent:
+        description: Total bytes sent during the test
+        example: 12582912
+        type: integer
+      duration:
+        description: Test duration in seconds
+        example: 10.05
+        type: number
+      error:
+        description: Error message if test failed (null if successful)
+        example: connection refused
+        type: string
+      jitter_ms:
+        description: Network jitter in milliseconds
+        example: 0.85
+        type: number
+      loss_percent:
+        description: Percentage of packets lost during the test
+        example: 0.02
+        type: number
+      name:
+        description: Test name or identifier
+        example: rperf_tcp_test
+        type: string
+      packets_lost:
+        description: Number of packets lost during the test
+        example: 2
+        type: integer
+      packets_received:
+        description: Number of packets received during the test
+        example: 9998
+        type: integer
+      packets_sent:
+        description: Number of packets sent during the test
+        example: 10000
+        type: integer
+      success:
+        description: Whether the test was successful
+        example: true
+        type: boolean
+      target:
+        description: Target hostname or IP address
+        example: 192.168.1.1
+        type: string
+      timestamp:
+        description: When the test was performed
+        example: "2025-04-24T14:15:22Z"
+        type: string
+    type: object
+  models.SNMPMetric:
+    description: A metric collected via SNMP, including its value, type, and timestamp.
+    properties:
+      is_delta:
+        description: |-
+          Whether the metric represents a delta value
+          @example false
+        type: boolean
+      oid_name:
+        description: |-
+          The name of the OID (Object Identifier)
+          @example "sysUpTime"
+        type: string
+      scale:
+        description: |-
+          The scale factor applied to the value
+          @example 1.0
+        type: number
+      timestamp:
+        description: |-
+          The time when the metric was collected
+          @example "2025-04-24T14:15:22Z"
+        type: string
+      value:
+        description: |-
+          The value of the metric
+          @example 12345
+      value_type:
+        description: |-
+          The type of the value (e.g., integer, string)
+          @example "integer"
+        type: string
+    type: object
+  models.Token:
+    description: Authentication tokens for API access
+    properties:
+      access_token:
+        description: JWT access token used for API authorization
+        example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        type: string
+      expires_at:
+        description: When the access token expires
+        example: "2025-04-25T12:00:00Z"
+        type: string
+      refresh_token:
+        description: JWT refresh token used to obtain new access tokens
+        example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        type: string
+    type: object
+host: demo.serviceradar.cloud
+info:
+  contact:
+    email: support@carverauto.com
+    name: API Support
+    url: http://carverauto.com/support
+  description: API for monitoring and managing service pollers in the ServiceRadar
+    system
+  license:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+  termsOfService: http://carverauto.com/terms/
+  title: ServiceRadar API
+  version: "1.0"
+paths:
+  /api/pollers:
+    get:
+      consumes:
+      - application/json
+      description: Retrieves a list of all known pollers
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of poller statuses
+          schema:
+            items:
+              $ref: '#/definitions/api.PollerStatus'
+            type: array
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: Get all pollers
+      tags:
+      - Pollers
+  /api/pollers/{id}:
+    get:
+      consumes:
+      - application/json
+      description: Retrieves detailed information about a specific poller
+      parameters:
+      - description: Poller ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Poller status details
+          schema:
+            $ref: '#/definitions/api.PollerStatus'
+        "404":
+          description: Poller not found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: Get poller details
+      tags:
+      - Pollers
+  /api/pollers/{id}/history:
+    get:
+      consumes:
+      - application/json
+      description: Retrieves historical status information for a specific poller
+      parameters:
+      - description: Poller ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Historical status points
+          schema:
+            items:
+              $ref: '#/definitions/api.PollerHistoryPoint'
+            type: array
+        "500":
+          description: Internal server error or history handler not configured
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: Get poller history
+      tags:
+      - Pollers
+  /api/pollers/{id}/metrics:
+    get:
+      consumes:
+      - application/json
+      description: Retrieves performance metrics for a specific poller
+      parameters:
+      - description: Poller ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Poller metrics data
+          schema:
+            items:
+              $ref: '#/definitions/models.MetricPoint'
+            type: array
+        "404":
+          description: No metrics found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal server error or metrics not configured
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: Get poller metrics
+      tags:
+      - Metrics
+  /api/pollers/{id}/services:
+    get:
+      consumes:
+      - application/json
+      description: Retrieves all services monitored by a specific poller
+      parameters:
+      - description: Poller ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: List of service statuses
+          schema:
+            items:
+              $ref: '#/definitions/api.ServiceStatus'
+            type: array
+        "404":
+          description: Poller not found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: Get poller services
+      tags:
+      - Services
+  /api/pollers/{id}/services/{service}:
+    get:
+      consumes:
+      - application/json
+      description: Retrieves detailed information about a specific service monitored
+        by a poller
+      parameters:
+      - description: Poller ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Service name
+        in: path
+        name: service
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Service status details
+          schema:
+            $ref: '#/definitions/api.ServiceStatus'
+        "404":
+          description: Poller or service not found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: Get service details
+      tags:
+      - Services
+  /api/pollers/{id}/snmp:
+    get:
+      consumes:
+      - application/json
+      description: Retrieves SNMP metrics data for a specific poller within the given
+        time range
+      parameters:
+      - description: Poller ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Start time in RFC3339 format
+        in: query
+        name: start
+        required: true
+        type: string
+      - description: End time in RFC3339 format
+        in: query
+        name: end
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: SNMP metrics data
+          schema:
+            items:
+              $ref: '#/definitions/models.SNMPMetric'
+            type: array
+        "400":
+          description: Invalid request parameters
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: Get SNMP data
+      tags:
+      - SNMP
+  /api/status:
+    get:
+      consumes:
+      - application/json
+      description: Retrieves overall system status including counts of total and healthy
+        pollers
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: System status information
+          schema:
+            $ref: '#/definitions/api.SystemStatus'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: Get system status
+      tags:
+      - System
+  /auth/{provider}:
+    get:
+      consumes:
+      - application/json
+      description: Initiates OAuth authentication flow with the specified provider
+      parameters:
+      - description: OAuth provider (e.g., 'google', 'github')
+        in: path
+        name: provider
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "302":
+          description: Redirect to OAuth provider
+          schema:
+            type: string
+        "400":
+          description: Invalid provider
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Begin OAuth authentication
+      tags:
+      - Authentication
+  /auth/{provider}/callback:
+    get:
+      consumes:
+      - application/json
+      description: Completes OAuth authentication flow and returns authentication
+        tokens
+      parameters:
+      - description: OAuth provider (e.g., 'google', 'github')
+        in: path
+        name: provider
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Authentication tokens
+          schema:
+            $ref: '#/definitions/models.Token'
+        "400":
+          description: Invalid request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Complete OAuth authentication
+      tags:
+      - Authentication
+  /auth/login:
+    post:
+      consumes:
+      - application/json
+      description: Logs in a user with username and password and returns authentication
+        tokens
+      parameters:
+      - description: User credentials
+        in: body
+        name: credentials
+        required: true
+        schema:
+          $ref: '#/definitions/api.LoginCredentials'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Authentication tokens
+          schema:
+            $ref: '#/definitions/models.Token'
+        "400":
+          description: Invalid request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "401":
+          description: Authentication failed
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Authenticate with username and password
+      tags:
+      - Authentication
+  /auth/refresh:
+    post:
+      consumes:
+      - application/json
+      description: Refreshes an expired authentication token
+      parameters:
+      - description: Refresh token
+        in: body
+        name: refresh_token
+        required: true
+        schema:
+          $ref: '#/definitions/api.RefreshTokenRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: New authentication tokens
+          schema:
+            $ref: '#/definitions/models.Token'
+        "400":
+          description: Invalid request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "401":
+          description: Invalid refresh token
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      summary: Refresh authentication token
+      tags:
+      - Authentication
+  /pollers/{id}/rperf:
+    get:
+      consumes:
+      - application/json
+      description: Retrieves network performance metrics measured by rperf for a specific
+        poller within a time range
+      parameters:
+      - description: Poller ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 'Start time in RFC3339 format (default: 24h ago)'
+        in: query
+        name: start
+        type: string
+      - description: 'End time in RFC3339 format (default: now)'
+        in: query
+        name: end
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Network performance metrics data
+          schema:
+            items:
+              $ref: '#/definitions/models.RperfMetric'
+            type: array
+        "400":
+          description: Invalid request parameters
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: No rperf metrics found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal server error or rperf manager not configured
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: Get rperf metrics
+      tags:
+      - Rperf
+  /pollers/{id}/sysmon/cpu:
+    get:
+      consumes:
+      - application/json
+      description: Retrieves CPU usage metrics for a specific poller within a time
+        range
+      parameters:
+      - description: Poller ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 'Start time in RFC3339 format (default: 24h ago)'
+        in: query
+        name: start
+        type: string
+      - description: 'End time in RFC3339 format (default: now)'
+        in: query
+        name: end
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: CPU metrics data
+          schema:
+            items:
+              $ref: '#/definitions/models.CPUMetric'
+            type: array
+        "400":
+          description: Invalid request parameters
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: No metrics found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "501":
+          description: System metrics not supported
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: Get CPU metrics
+      tags:
+      - Sysmon
+  /pollers/{id}/sysmon/disk:
+    get:
+      consumes:
+      - application/json
+      description: Retrieves disk usage metrics for a specific poller within a time
+        range
+      parameters:
+      - description: Poller ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Filter by specific mount point
+        in: query
+        name: mount_point
+        type: string
+      - description: 'Start time in RFC3339 format (default: 24h ago)'
+        in: query
+        name: start
+        type: string
+      - description: 'End time in RFC3339 format (default: now)'
+        in: query
+        name: end
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Disk metrics data grouped by timestamp
+          schema:
+            items:
+              $ref: '#/definitions/db.SysmonDiskResponse'
+            type: array
+        "400":
+          description: Invalid request parameters
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: No metrics found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "501":
+          description: System metrics not supported
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: Get disk metrics
+      tags:
+      - Sysmon
+  /pollers/{id}/sysmon/memory:
+    get:
+      consumes:
+      - application/json
+      description: Retrieves memory usage metrics for a specific poller within a time
+        range
+      parameters:
+      - description: Poller ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 'Start time in RFC3339 format (default: 24h ago)'
+        in: query
+        name: start
+        type: string
+      - description: 'End time in RFC3339 format (default: now)'
+        in: query
+        name: end
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Memory metrics data grouped by timestamp
+          schema:
+            items:
+              $ref: '#/definitions/db.SysmonMemoryResponse'
+            type: array
+        "400":
+          description: Invalid request parameters
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "404":
+          description: No metrics found
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "501":
+          description: System metrics not supported
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: Get memory metrics
+      tags:
+      - Sysmon
+schemes:
+- http
+- https
+securityDefinitions:
+  ApiKeyAuth:
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
