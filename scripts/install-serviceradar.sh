@@ -21,8 +21,10 @@ set -e
 
 # Configuration
 VERSION="1.0.33"
-RELEASE_URL="https://github.com/carverauto/serviceradar/releases/download/${VERSION}"
+RELEASE_TAG="1.0.33-pre6" # Separate tag for GitHub releases
+RELEASE_URL="https://github.com/carverauto/serviceradar/releases/download/${RELEASE_TAG}"
 TEMP_DIR="/tmp/serviceradar-install"
+POLLER_CONFIG="/etc/serviceradar/poller.json"
 
 # Default settings
 INTERACTIVE=true
@@ -31,6 +33,8 @@ INSTALL_ALL=false
 INSTALL_CORE=false
 INSTALL_POLLER=false
 INSTALL_AGENT=false
+UPDATE_POLLER_CONFIG=true
+INSTALLED_CHECKERS=()
 
 # Dracula color theme for terminal
 COLOR_RESET="\033[0m"
@@ -92,15 +96,24 @@ check_curl() {
     fi
 }
 
-# Validate downloaded .deb file
-validate_deb() {
+# Validate downloaded package file
+validate_package() {
     local file="$1"
     if [ ! -f "$file" ]; then
         error "Downloaded file $file does not exist"
     fi
-    # Check if the file is a valid .deb package
-    if ! dpkg-deb -W "$file" >/dev/null 2>&1; then
-        error "Downloaded file $file is not a valid .deb package"
+
+    # Check if the file is a valid package
+    if [ "$SYSTEM" = "debian" ]; then
+        # Check if the file is a valid .deb package
+        if ! dpkg-deb -W "$file" >/dev/null 2>&1; then
+            error "Downloaded file $file is not a valid .deb package"
+        fi
+    else
+        # For RPM, just check if file exists and has content
+        if [ ! -s "$file" ]; then
+            error "Downloaded file $file is empty or corrupt"
+        fi
     fi
 }
 
@@ -130,6 +143,10 @@ parse_args() {
                 ;;
             --agent)
                 INSTALL_AGENT=true
+                shift
+                ;;
+            --no-update-poller-config)
+                UPDATE_POLLER_CONFIG=false
                 shift
                 ;;
             *)
@@ -209,13 +226,28 @@ download_package() {
     local pkg_name="$1"
     local suffix="$2"
     # Use underscore instead of hyphen for Debian packages
-    local file_name="${pkg_name}_${VERSION}${suffix}.${PKG_EXT}"
+    if [ "$SYSTEM" = "debian" ]; then
+        local file_name="${pkg_name}_${VERSION}${suffix}.${PKG_EXT}"
+    else
+        local file_name="${pkg_name}-${VERSION}${suffix}.${PKG_EXT}"
+    fi
     local url="${RELEASE_URL}/${file_name}"
     local output="${TEMP_DIR}/${pkg_name}.${PKG_EXT}"
+
     log "Downloading ${COLOR_YELLOW}${pkg_name}${COLOR_RESET}..."
     log "URL: ${COLOR_YELLOW}${url}${COLOR_RESET}"
-    curl -sSL -o "$output" "$url" || error "Failed to download ${pkg_name} from $url"
-    validate_deb "$output"
+
+    # Add timeout and retry parameters for more robust downloading
+    if ! curl -sSL --connect-timeout 30 --max-time 300 --retry 3 --retry-delay 2 -o "$output" "$url"; then
+        error "Failed to download ${pkg_name} from $url"
+    fi
+
+    # Check if file exists and has content
+    if [ ! -f "$output" ] || [ ! -s "$output" ]; then
+        error "Downloaded file for ${pkg_name} is empty or does not exist"
+    fi
+
+    validate_package "$output"
 }
 
 # Install packages
@@ -225,8 +257,12 @@ install_packages() {
     for pkg in "${packages[@]}"; do
         if [ -f "${TEMP_DIR}/${pkg}.${PKG_EXT}" ]; then
             pkg_files="$pkg_files ${TEMP_DIR}/${pkg}.${PKG_EXT}"
+            log "Found package file: ${TEMP_DIR}/${pkg}.${PKG_EXT}"
+        else
+            log "Warning: Package file not found: ${TEMP_DIR}/${pkg}.${PKG_EXT}"
         fi
     done
+
     if [ -n "$pkg_files" ]; then
         log "Installing packages: ${COLOR_YELLOW}${packages[*]}${COLOR_RESET}"
         if [ "$SYSTEM" = "debian" ]; then
@@ -235,6 +271,8 @@ install_packages() {
             $PKG_MANAGER install -y $pkg_files || error "Failed to install packages"
         fi
         success "Packages installed successfully!"
+    else
+        log "No package files found to install"
     fi
 }
 
@@ -248,7 +286,8 @@ prompt_scenario() {
         echo -e "${COLOR_WHITE}  3) Poller (poller)${COLOR_RESET}"
         echo -e "${COLOR_WHITE}  4) Agent (agent)${COLOR_RESET}"
         echo -e "${COLOR_CYAN}Enter choices (e.g., '1' or '2 3 4' for multiple):${COLOR_RESET} \c"
-        read choices
+        read -t 60 choices || { echo; log "No input received, defaulting to all components"; choices="1"; }
+
         for choice in $choices; do
             case "$choice" in
                 1)
@@ -269,20 +308,43 @@ prompt_scenario() {
             esac
         done
         echo
+
+        # Ask about poller config updates if poller is being installed
+        if [ "$INSTALL_POLLER" = "true" ] || [ "$INSTALL_ALL" = "true" ]; then
+            echo -e "${COLOR_CYAN}Would you like to automatically update the poller configuration after installing checkers? (y/n) [y]:${COLOR_RESET} \c"
+            read -t 30 update_choice || { echo; log "No input received, defaulting to yes"; update_choice="y"; }
+            if [ "$update_choice" = "n" ] || [ "$update_choice" = "N" ]; then
+                UPDATE_POLLER_CONFIG=false
+                log "Poller configuration updates disabled"
+            else
+                log "Poller configuration will be updated automatically"
+            fi
+        else
+            # If poller is not installed, we won't update the config
+            UPDATE_POLLER_CONFIG=false
+        fi
     fi
 }
 
 # Check if a checker should be installed
 should_install_checker() {
     local checker="$1"
+
     if [ "$INTERACTIVE" = "true" ]; then
+        # Use read with a timeout to prevent hanging
         echo -e "${COLOR_CYAN}Install optional checker ${COLOR_YELLOW}${checker}${COLOR_CYAN}? (y/n) [n]:${COLOR_RESET} \c"
-        read choice
-        if [ "$choice" = "y" ] || [ "$choice" = "Y" ]; then
-            echo "yes"
+        local choice=""
+
+        if read -t 30 choice; then
+            if [ "$choice" = "y" ] || [ "$choice" = "Y" ]; then
+                echo "yes"
+                return
+            fi
         else
-            echo "no"
+            log "Prompt timed out, skipping ${checker}"
         fi
+
+        echo "no"
     else
         if echo "$CHECKERS" | grep -q -E "(^|,)$checker(,|$)"; then
             echo "yes"
@@ -292,9 +354,33 @@ should_install_checker() {
     fi
 }
 
+# Update the poller configuration to enable a specific checker
+update_poller_config_for_checker() {
+    local checker_type="$1"
+
+    if [ "$UPDATE_POLLER_CONFIG" != "true" ]; then
+        return
+    fi
+
+    if [ ! -f "$POLLER_CONFIG" ]; then
+        log "Poller configuration file not found at $POLLER_CONFIG, skipping update"
+        return
+    fi
+
+    header "Updating Poller Configuration"
+    log "Enabling ${COLOR_YELLOW}${checker_type}${COLOR_RESET} in poller configuration..."
+
+    # Use the CLI tool to update the poller configuration
+    if /usr/local/bin/serviceradar update-poller --file="$POLLER_CONFIG" --type="$checker_type"; then
+        success "Successfully updated poller configuration for $checker_type"
+    else
+        log "Failed to update poller configuration for $checker_type"
+    fi
+}
+
 # Update core.json with new admin password bcrypt hash
 update_core_config() {
-    if [ "$INSTALL_CORE" != "true" ]; then
+    if [ "$INSTALL_CORE" != "true" ] && [ "$INSTALL_ALL" != "true" ]; then
         return
     fi
 
@@ -326,16 +412,46 @@ update_core_config() {
     log "Generated bcrypt hash: ${COLOR_YELLOW}${bcrypt_hash}${COLOR_RESET}"
     success "Bcrypt hash generated successfully!"
 
-    # Update core.json using serviceradar (assuming we'll add this functionality)
+    # Update core.json using serviceradar CLI
     log "Updating ${config_file} with new admin password hash..."
     /usr/local/bin/serviceradar update-config --file "$config_file" --admin-hash "$bcrypt_hash" || error "Failed to update ${config_file}"
     systemctl restart serviceradar-core
     success "Configuration file updated successfully!"
 }
 
+# Enable all standard checkers in poller config
+enable_all_checkers() {
+    if [ "$UPDATE_POLLER_CONFIG" != "true" ]; then
+        return
+    fi  # <-- This should be 'fi' not ']'
+
+    if [ ! -f "$POLLER_CONFIG" ]; then
+        log "Poller configuration file not found at $POLLER_CONFIG"
+        return
+    fi
+
+    header "Enabling All Checkers in Poller Configuration"
+    log "Configuring poller to use all installed checkers..."
+
+    # Enable all checkers using the CLI tool
+    if /usr/local/bin/serviceradar update-poller --file="$POLLER_CONFIG" --enable-all; then
+        success "Successfully enabled all checkers in poller configuration"
+    else
+        log "Failed to enable all checkers in poller configuration"
+    fi
+}
+
 # Main installation logic
 main() {
     display_banner
+
+    # Check if running in a terminal with input support
+    if ! [ -t 0 ]; then
+        # No TTY, force non-interactive mode
+        INTERACTIVE=false
+        log "No TTY detected, forcing non-interactive mode"
+    fi
+
     parse_args "$@"
     detect_system
     check_curl
@@ -394,6 +510,7 @@ main() {
     checkers=("serviceradar-rperf" "serviceradar-rperf-checker" "serviceradar-snmp-checker" "serviceradar-dusk-checker" "serviceradar-sysmon-checker")
     checker_packages=()
     for checker in "${checkers[@]}"; do
+        log "Checking if ${COLOR_YELLOW}${checker}${COLOR_RESET} should be installed..."
         available="yes"
         if [ "$checker" = "serviceradar-dusk-checker" ] && [ "$SYSTEM" != "debian" ]; then
             available="no"
@@ -404,24 +521,57 @@ main() {
         if [ "$INSTALL_POLLER" = "false" ] && [ "$INSTALL_AGENT" = "false" ] && { [ "$checker" = "serviceradar-rperf" ] || [ "$checker" = "serviceradar-rperf-checker" ] || [ "$checker" = "serviceradar-snmp-checker" ]; }; then
             available="no"
         fi
-        if [ "$available" = "yes" ] && [ "$(should_install_checker "$checker")" = "yes" ]; then
-            if [ "$checker" = "serviceradar-rperf" ] || [ "$checker" = "serviceradar-rperf-checker" ]; then
-                download_package "$checker" "-1.el9.x86_64"
-            else
-                download_package "$checker" ""
+
+        if [ "$available" = "yes" ]; then
+            install_checker="no"
+
+            # Handle interactive or non-interactive mode
+            if [ "$(should_install_checker "$checker")" = "yes" ]; then
+                install_checker="yes"
             fi
-            checker_packages+=("$checker")
+
+            if [ "$install_checker" = "yes" ]; then
+                log "Installing ${COLOR_YELLOW}${checker}${COLOR_RESET}..."
+                if [ "$checker" = "serviceradar-rperf" ] || [ "$checker" = "serviceradar-rperf-checker" ]; then
+                    download_package "$checker" "-1.el9.x86_64"
+                else
+                    download_package "$checker" ""
+                fi
+                checker_packages+=("$checker")
+
+                # Save checker type for later poller config update
+                # Strip "serviceradar-" prefix and "-checker" suffix
+                CHECKER_TYPE=$(echo "$checker" | sed -E 's/^serviceradar-//;s/-checker$//')
+                INSTALLED_CHECKERS+=("$CHECKER_TYPE")
+            else
+                log "Skipping ${COLOR_YELLOW}${checker}${COLOR_RESET} installation."
+            fi
+        else
+            log "Skipping ${COLOR_YELLOW}${checker}${COLOR_RESET} installation (not available for current config)."
         fi
     done
 
     if [ ${#checker_packages[@]} -eq 0 ]; then
         log "No optional checkers selected."
     else
+        log "Installing optional checkers: ${COLOR_YELLOW}${checker_packages[*]}${COLOR_RESET}"
         install_packages "${checker_packages[@]}"
+
+        # Update poller config for each installed checker
+        if [ "$UPDATE_POLLER_CONFIG" = "true" ]; then
+            for checker_type in "${INSTALLED_CHECKERS[@]}"; do
+                update_poller_config_for_checker "$checker_type"
+            done
+        fi
     fi
 
     # Update core.json with new admin password
     update_core_config
+
+    # If all checkers were installed and we're updating poller config, use enable-all
+    if [ ${#INSTALLED_CHECKERS[@]} -ge 3 ] && [ "$UPDATE_POLLER_CONFIG" = "true" ]; then
+        enable_all_checkers
+    fi
 
     header "Cleaning Up"
     log "Removing temporary files..."
@@ -434,6 +584,15 @@ main() {
         info "Web UI: ${COLOR_YELLOW}http://your-server-ip/${COLOR_RESET}"
         info "Core API: ${COLOR_YELLOW}http://your-server-ip:8090/${COLOR_RESET}"
     fi
+
+    if [ "$INSTALL_POLLER" = "true" ] && [ ${#INSTALLED_CHECKERS[@]} -gt 0 ] && [ "$UPDATE_POLLER_CONFIG" = "false" ]; then
+        info "${COLOR_YELLOW}Note:${COLOR_RESET} You installed checkers but disabled automatic poller configuration."
+        info "To manually enable the checkers in your poller configuration, run:"
+        for checker_type in "${INSTALLED_CHECKERS[@]}"; do
+            info "  ${COLOR_YELLOW}serviceradar update-poller --file=${POLLER_CONFIG} --type=${checker_type}${COLOR_RESET}"
+        done
+    fi
+
     info "Check service status: ${COLOR_YELLOW}systemctl status serviceradar-*${COLOR_RESET}"
     info "View logs: ${COLOR_YELLOW}journalctl -u serviceradar-<component>.service${COLOR_RESET}"
     echo
