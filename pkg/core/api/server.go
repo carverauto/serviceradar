@@ -83,116 +83,46 @@ func WithRperfManager(m rperf.RperfManager) func(server *APIServer) {
 	}
 }
 
-// setupRoutes configures all API routes.
-// Update your API server's setupRoutes function
-
+// setupRoutes configures the HTTP routes for the API server.
 func (s *APIServer) setupRoutes() {
+	s.setupMiddleware()
+	s.setupSwaggerRoutes()
+	s.setupAuthRoutes()
+	s.setupProtectedRoutes()
+}
+
+// setupMiddleware configures CORS and API key middleware.
+func (s *APIServer) setupMiddleware() {
 	corsConfig := models.CORSConfig{
 		AllowedOrigins:   s.corsConfig.AllowedOrigins,
 		AllowCredentials: s.corsConfig.AllowCredentials,
 	}
 
-	// Set up API key options
 	apiKeyOpts := srHttp.NewAPIKeyOptions(os.Getenv("API_KEY"))
-
-	// Add any additional paths to exclude if needed
-	apiKeyOpts.ExcludePaths = append(apiKeyOpts.ExcludePaths,
+	apiKeyOpts.ExcludePaths = []string{
 		"/swagger/doc.json",
 		"/swagger/host.json",
 		"/swagger/index.html",
 		"/swagger/swagger.json",
-		"/swagger/swagger.yaml")
+		"/swagger/swagger.yaml",
+	}
 
-	// Create the middleware chain with path exclusions
 	middlewareChain := func(next http.Handler) http.Handler {
 		return srHttp.CommonMiddleware(
 			srHttp.APIKeyMiddlewareWithOptions(apiKeyOpts)(next),
-			corsConfig)
+			corsConfig,
+		)
 	}
 
 	s.router.Use(middlewareChain)
+}
 
-	// Handle embedded Swagger files
-	s.router.HandleFunc("/swagger/swagger.json", func(w http.ResponseWriter, r *http.Request) {
-		data, err := swagger.GetSwaggerJSON()
-		if err != nil {
-			http.Error(w, "Swagger JSON not found", http.StatusInternalServerError)
-			return
-		}
+// setupSwaggerRoutes configures routes for Swagger UI and documentation.
+func (s *APIServer) setupSwaggerRoutes() {
+	s.router.HandleFunc("/swagger/swagger.json", s.serveSwaggerJSON)
+	s.router.HandleFunc("/swagger/swagger.yaml", s.serveSwaggerYAML)
+	s.router.HandleFunc("/swagger/host.json", s.serveSwaggerHost)
 
-		w.Header().Set("Content-Type", "application/json")
-		w.Write(data)
-	})
-
-	s.router.HandleFunc("/swagger/swagger.yaml", func(w http.ResponseWriter, r *http.Request) {
-		data, err := swagger.GetSwaggerYAML()
-		if err != nil {
-			http.Error(w, "Swagger YAML not found", http.StatusInternalServerError)
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/yaml")
-		w.Write(data)
-	})
-
-	// Dynamic host detection for Swagger UI
-	s.router.HandleFunc("/swagger/host.json", func(w http.ResponseWriter, r *http.Request) {
-		// Get host from request or use a default
-		host := r.Host
-		if host == "" {
-			host = "localhost:8080"
-		}
-
-		// Get the embedded swagger.json
-		data, err := swagger.GetSwaggerJSON()
-		if err != nil {
-			http.Error(w, "Swagger JSON not found", http.StatusInternalServerError)
-			return
-		}
-
-		// Parse JSON
-		var spec map[string]interface{}
-		if err := json.Unmarshal(data, &spec); err != nil {
-			http.Error(w, "Could not parse Swagger spec", http.StatusInternalServerError)
-			return
-		}
-
-		// Update servers if they exist (OpenAPI 3.0)
-		if servers, ok := spec["servers"].([]interface{}); ok && len(servers) > 0 {
-			// Find the dynamic server entry (the one with variables)
-			for i, server := range servers {
-				if serverMap, ok := server.(map[string]interface{}); ok {
-					serverURL, ok := serverMap["url"].(string)
-					if ok && strings.Contains(serverURL, "{hostname}") {
-						// Replace with actual host
-						scheme := "http"
-						if r.TLS != nil {
-							scheme = "https"
-						}
-
-						newURL := fmt.Sprintf("%s://%s", scheme, host)
-						serverMap["url"] = newURL
-
-						// Update in the servers array
-						servers[i] = serverMap
-						spec["servers"] = servers
-						break
-					}
-				}
-			}
-		}
-
-		// For Swagger 2.0, update the host directly
-		if _, ok := spec["host"]; ok {
-			spec["host"] = host
-		}
-
-		// Write the updated JSON
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(spec)
-	})
-
-	// Serve Swagger UI with customized options
 	s.router.PathPrefix("/swagger/").Handler(httpSwagger.Handler(
 		httpSwagger.URL("/swagger/host.json"),
 		httpSwagger.DeepLinking(true),
@@ -200,26 +130,168 @@ func (s *APIServer) setupRoutes() {
 		httpSwagger.PersistAuthorization(true),
 	))
 
-	// Add a convenience redirect
 	s.router.HandleFunc("/api-docs", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/swagger/", http.StatusMovedPermanently)
 	})
+}
 
-	// Public routes
+// serveSwaggerJSON serves the embedded Swagger JSON file.
+func (*APIServer) serveSwaggerJSON(w http.ResponseWriter, _ *http.Request) {
+	data, err := swagger.GetSwaggerJSON()
+	if err != nil {
+		http.Error(w, "Swagger JSON not found", http.StatusInternalServerError)
+
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	_, err = w.Write(data)
+	if err != nil {
+		log.Printf("Error writing Swagger JSON response: %v", err)
+		http.Error(w, "Failed to write Swagger JSON response", http.StatusInternalServerError)
+
+		return
+	}
+}
+
+// serveSwaggerYAML serves the embedded Swagger YAML file.
+func (*APIServer) serveSwaggerYAML(w http.ResponseWriter, _ *http.Request) {
+	data, err := swagger.GetSwaggerYAML()
+	if err != nil {
+		http.Error(w, "Swagger YAML not found", http.StatusInternalServerError)
+
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/yaml")
+
+	_, err = w.Write(data)
+	if err != nil {
+		log.Printf("Error writing Swagger YAML response: %v", err)
+
+		return
+	}
+}
+
+// serveSwaggerHost dynamically updates and serves the Swagger host configuration.
+func (s *APIServer) serveSwaggerHost(w http.ResponseWriter, r *http.Request) {
+	host := s.getRequestHost(r)
+
+	data, err := swagger.GetSwaggerJSON()
+	if err != nil {
+		http.Error(w, "Swagger JSON not found", http.StatusInternalServerError)
+
+		return
+	}
+
+	spec, err := s.parseSwaggerSpec(data)
+	if err != nil {
+		http.Error(w, "Could not parse Swagger spec", http.StatusInternalServerError)
+
+		return
+	}
+
+	spec = s.updateSwaggerSpec(spec, r, host)
+
+	w.Header().Set("Content-Type", "application/json")
+
+	err = json.NewEncoder(w).Encode(spec)
+	if err != nil {
+		http.Error(w, "Failed to encode Swagger spec", http.StatusInternalServerError)
+		log.Printf("Error encoding Swagger spec: %v", err)
+
+		return
+	}
+}
+
+// getRequestHost extracts the host from the request or returns a default.
+func (*APIServer) getRequestHost(r *http.Request) string {
+	host := r.Host
+
+	if host == "" {
+		return "localhost:8080"
+	}
+
+	return host
+}
+
+// parseSwaggerSpec unmarshals the Swagger JSON into a map.
+func (*APIServer) parseSwaggerSpec(data []byte) (map[string]interface{}, error) {
+	var spec map[string]interface{}
+
+	if err := json.Unmarshal(data, &spec); err != nil {
+		return nil, err
+	}
+
+	return spec, nil
+}
+
+// updateSwaggerSpec updates the Swagger/OpenAPI spec with a dynamic host.
+func (s *APIServer) updateSwaggerSpec(spec map[string]interface{}, r *http.Request, host string) map[string]interface{} {
+	// Update OpenAPI 3.0 servers
+	if servers, ok := spec["servers"].([]interface{}); ok {
+		spec = s.updateOpenAPI3Servers(servers, r, host, spec)
+	}
+
+	// Update Swagger 2.0 host
+	if _, ok := spec["host"]; ok {
+		spec["host"] = host
+	}
+
+	return spec
+}
+
+// updateOpenAPI3Servers updates the servers array for OpenAPI 3.0 if a matching URL is found.
+func (*APIServer) updateOpenAPI3Servers(
+	servers []interface{}, r *http.Request, host string, spec map[string]interface{}) map[string]interface{} {
+	if len(servers) == 0 {
+		return spec
+	}
+
+	for i, server := range servers {
+		serverMap, ok := server.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		serverURL, ok := serverMap["url"].(string)
+		if !ok || !strings.Contains(serverURL, "{hostname}") {
+			continue
+		}
+
+		scheme := "http"
+		if r.TLS != nil {
+			scheme = "https"
+		}
+
+		serverMap["url"] = fmt.Sprintf("%s://%s", scheme, host)
+		servers[i] = serverMap
+
+		spec["servers"] = servers
+
+		break
+	}
+
+	return spec
+}
+
+// setupAuthRoutes configures public authentication routes.
+func (s *APIServer) setupAuthRoutes() {
 	s.router.HandleFunc("/auth/login", s.handleLocalLogin).Methods("POST")
 	s.router.HandleFunc("/auth/refresh", s.handleRefreshToken).Methods("POST")
 	s.router.HandleFunc("/auth/{provider}", s.handleOAuthBegin).Methods("GET")
 	s.router.HandleFunc("/auth/{provider}/callback", s.handleOAuthCallback).Methods("GET")
+}
 
-	// Protected routes - these are already protected by the middleware
+// setupProtectedRoutes configures protected API routes.
+func (s *APIServer) setupProtectedRoutes() {
 	protected := s.router.PathPrefix("/api").Subrouter()
 
-	// Add OAuth middleware only if enabled and service exists
 	if os.Getenv("AUTH_ENABLED") == "true" && s.authService != nil {
 		protected.Use(auth.AuthMiddleware(s.authService))
 	}
 
-	// Set up API routes
 	protected.HandleFunc("/pollers", s.getPollers).Methods("GET")
 	protected.HandleFunc("/pollers/{id}", s.getPoller).Methods("GET")
 	protected.HandleFunc("/status", s.getSystemStatus).Methods("GET")
@@ -229,8 +301,6 @@ func (s *APIServer) setupRoutes() {
 	protected.HandleFunc("/pollers/{id}/services", s.getPollerServices).Methods("GET")
 	protected.HandleFunc("/pollers/{id}/services/{service}", s.getServiceDetails).Methods("GET")
 	protected.HandleFunc("/pollers/{id}/snmp", s.getSNMPData).Methods("GET")
-
-	// Sysmon metrics
 	protected.HandleFunc("/pollers/{id}/sysmon/cpu", s.getSysmonCPUMetrics).Methods("GET")
 	protected.HandleFunc("/pollers/{id}/sysmon/disk", s.getSysmonDiskMetrics).Methods("GET")
 	protected.HandleFunc("/pollers/{id}/sysmon/memory", s.getSysmonMemoryMetrics).Methods("GET")

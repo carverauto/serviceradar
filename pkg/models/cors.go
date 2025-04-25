@@ -16,8 +16,8 @@
 
 package models
 
-// CORSConfig contains Cross-Origin Resource Sharing configuration
-// @Description Configuration for Cross-Origin Resource Sharing (CORS) for the API
+// CORSConfig contains Cross-Origin Resource Sharing configuration.
+// @Description Configuration for Cross-Origin Resource Sharing (CORS) for the API.
 type CORSConfig struct {
 	// List of origins allowed to access the API
 	AllowedOrigins []string `json:"allowed_origins" example:"['*','https://example.com']"`

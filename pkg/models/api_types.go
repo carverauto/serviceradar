@@ -22,8 +22,8 @@ import (
 	"time"
 )
 
-// ServiceStatus represents the status of a monitored service
-// @Description Status information about a service monitored by a poller
+// ServiceStatus represents the status of a monitored service.
+// @Description Status information about a service monitored by a poller.
 type ServiceStatus struct {
 	// Name of the service
 	Name string `json:"name" example:"postgres"`
@@ -37,8 +37,8 @@ type ServiceStatus struct {
 	Details json.RawMessage `json:"details,omitempty"`
 }
 
-// PollerStatus represents the status of a poller
-// @Description Status information about a service poller
+// PollerStatus represents the status of a poller.
+// @Description Status information about a service poller.
 type PollerStatus struct {
 	// Unique identifier for the poller
 	PollerID string `json:"poller_id" example:"poller-prod-east-01"`
@@ -56,8 +56,8 @@ type PollerStatus struct {
 	Metrics []MetricPoint `json:"metrics,omitempty"`
 }
 
-// SystemStatus represents the overall system status
-// @Description Overall system status information
+// SystemStatus represents the overall system status.
+// @Description Overall system status information.
 type SystemStatus struct {
 	// Total number of pollers in the system
 	TotalPollers int `json:"total_pollers" example:"15"`
@@ -67,8 +67,8 @@ type SystemStatus struct {
 	LastUpdate time.Time `json:"last_update" example:"2025-04-24T14:15:22Z"`
 }
 
-// PollerHistory represents historical status of a poller
-// @Description Historical status information for a poller
+// PollerHistory represents historical status of a poller.
+// @Description Historical status information for a poller.
 type PollerHistory struct {
 	// Unique identifier for the poller
 	PollerID string `json:"poller_id" example:"poller-prod-east-01"`
@@ -80,8 +80,8 @@ type PollerHistory struct {
 	Services []ServiceStatus `json:"services"`
 }
 
-// PollerHistoryPoint represents a simplified historical health state
-// @Description Simplified historical health state for a poller
+// PollerHistoryPoint represents a simplified historical health state.
+// @Description Simplified historical health state for a poller.
 type PollerHistoryPoint struct {
 	// When this status was recorded
 	Timestamp time.Time `json:"timestamp" example:"2025-04-24T14:15:22Z"`
@@ -89,8 +89,8 @@ type PollerHistoryPoint struct {
 	IsHealthy bool `json:"is_healthy" example:"true"`
 }
 
-// LoginRequest represents a login request
-// @Description Authentication request with username and password
+// LoginRequest represents a login request.
+// @Description Authentication request with username and password.
 type LoginRequest struct {
 	// Username for authentication
 	Username string `json:"username" example:"admin"`
@@ -98,15 +98,15 @@ type LoginRequest struct {
 	Password string `json:"password" example:"p@ssw0rd"`
 }
 
-// RefreshTokenRequest represents a token refresh request
-// @Description Request to refresh an expired access token
+// RefreshTokenRequest represents a token refresh request.
+// @Description Request to refresh an expired access token.
 type RefreshTokenRequest struct {
 	// JWT refresh token
 	RefreshToken string `json:"refresh_token" example:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."`
 }
 
-// ErrorResponse represents an API error response
-// @Description Error information returned from the API
+// ErrorResponse represents an API error response.
+// @Description Error information returned from the API.
 type ErrorResponse struct {
 	// Error message
 	Message string `json:"message" example:"Invalid request parameters"`

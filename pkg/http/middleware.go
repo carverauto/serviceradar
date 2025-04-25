@@ -107,7 +107,7 @@ func APIKeyMiddleware(apiKey string) func(next http.Handler) http.Handler {
 }
 
 // APIKeyMiddlewareWithOptions is an enhanced version of APIKeyMiddleware
-// that allows configuring exclude paths and other options
+// that allows configuring exclude paths and other options.
 func APIKeyMiddlewareWithOptions(opts APIKeyOptions) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
