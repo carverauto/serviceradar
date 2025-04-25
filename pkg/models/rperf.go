@@ -18,8 +18,8 @@ package models
 
 import "time"
 
-// RperfMetricData represents raw data received from the rperf service
-// @Description Raw network performance test data received from the rperf service
+// RperfMetricData represents raw data received from the rperf service.
+// @Description Raw network performance test data received from the rperf service.
 type RperfMetricData struct {
 	// Array of test results for different targets
 	Results []struct {
@@ -55,15 +55,15 @@ type RperfMetricData struct {
 	Timestamp string `json:"timestamp" example:"2025-04-24T14:15:22Z"`
 }
 
-// RperfMetrics represents processed network performance metrics
-// @Description Processed network performance metrics from rperf tests
+// RperfMetrics represents processed network performance metrics.
+// @Description Processed network performance metrics from rperf tests.
 type RperfMetrics struct {
 	// Array of performance metrics for different targets
 	Results []RperfMetric `json:"results"`
 }
 
-// RperfMetric represents a single network performance test result
-// @Description Single network performance test result for a specific target
+// RperfMetric represents a single network performance test result.
+// @Description Single network performance test result for a specific target.
 type RperfMetric struct {
 	// When the test was performed
 	Timestamp time.Time `json:"timestamp" example:"2025-04-24T14:15:22Z"`
@@ -95,8 +95,8 @@ type RperfMetric struct {
 	Error *string `json:"error,omitempty" example:"connection refused"`
 }
 
-// RperfMetricResponse represents the API response for rperf metrics
-// @Description API response containing rperf metrics data
+// RperfMetricResponse represents the API response for rperf metrics.
+// @Description API response containing rperf metrics data.
 type RperfMetricResponse struct {
 	// Array of performance metrics
 	Metrics []RperfMetric `json:"metrics"`
