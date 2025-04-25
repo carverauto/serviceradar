@@ -75,7 +75,7 @@
         "dest": "/etc/serviceradar/web.json"
       },
       {
-        "source": "packaging/core/config/nginx.conf",
+        "source": "packaging/web/config/nginx.conf",
         "dest": "/etc/nginx/conf.d/serviceradar-web.conf"
       }
     ],
