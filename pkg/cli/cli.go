@@ -89,17 +89,31 @@ func newStyles() struct {
 	}
 }
 
-type model struct {
-	passwordInput textinput.Model
-	hash          string
-	err           error
-	focused       int
-	copyMessage   string
-	canCopy       bool
-	quotes        []string
-	styles        struct {
-		focused, focused2, help, hint, success, error, hash, app lipgloss.Style
-	}
+// Supported checker types
+const (
+	typeProcess = "process"
+	typePort    = "port"
+	typeGRPC    = "grpc"
+	typeSNMP    = "snmp"
+	typeICMP    = "icmp"
+	typeSweep   = "sweep"
+	typeSysMon  = "sysmon"
+	typeRPerf   = "rperf-checker"
+	typeDusk    = "dusk"
+)
+
+// Supported actions for update-poller
+const (
+	actionAdd    = "add"
+	actionRemove = "remove"
+)
+
+// Default port mappings for service types
+var defaultPorts = map[string]string{
+	typeSNMP:   ":50080",
+	typeRPerf:  ":50081",
+	typeDusk:   ":50082",
+	typeSysMon: ":50083",
 }
 
 func initialModel() *model {
@@ -355,15 +369,6 @@ func generateBcryptNonInteractive(password string, cost int) (string, error) {
 	return string(hash), nil
 }
 
-// CmdConfig holds parsed command-line configuration.
-type CmdConfig struct {
-	Help       bool
-	SubCmd     string
-	ConfigFile string
-	AdminHash  string
-	Args       []string
-}
-
 // ParseFlags parses command-line flags and subcommands.
 func ParseFlags() (CmdConfig, error) {
 	// Default flags for bcrypt generation
@@ -382,6 +387,7 @@ func ParseFlags() (CmdConfig, error) {
 
 	const (
 		updateConfigSubCmd = "update-config"
+		updatePollerSubCmd = "update-poller"
 	)
 
 	// Parse update-config subcommand flags
@@ -396,38 +402,106 @@ func ParseFlags() (CmdConfig, error) {
 
 		cfg.ConfigFile = *configFile
 		cfg.AdminHash = *adminHash
+	} else if cfg.SubCmd == updatePollerSubCmd {
+		// Parse update-poller subcommand flags
+		updatePollerCmd := flag.NewFlagSet(updatePollerSubCmd, flag.ExitOnError)
+		pollerFile := updatePollerCmd.String("file", "", "path to poller.json config file")
+		action := updatePollerCmd.String("action", "add", "action to perform: add or remove")
+		agent := updatePollerCmd.String("agent", "local-agent", "agent name in poller.json")
+		serviceType := updatePollerCmd.String("type", "", "service type (e.g., sysmon, rperf-checker, snmp)")
+		serviceName := updatePollerCmd.String("name", "", "service name")
+		serviceDetails := updatePollerCmd.String("details", "", "service details (e.g., IP:port for grpc)")
+		enableAll := updatePollerCmd.Bool("enable-all", false, "enable all standard checkers")
+
+		if err := updatePollerCmd.Parse(os.Args[2:]); err != nil {
+			return cfg, fmt.Errorf("parsing update-poller flags: %w", err)
+		}
+
+		cfg.PollerFile = *pollerFile
+		cfg.Action = *action
+		cfg.Agent = *agent
+		cfg.ServiceType = *serviceType
+		cfg.ServiceName = *serviceName
+		cfg.ServiceDetails = *serviceDetails
+		cfg.EnableAllOnInit = *enableAll
 	}
 
 	return cfg, nil
 }
 
-// ShowHelp displays the help message and exits.
-func ShowHelp() {
-	fmt.Println(`serviceradar: ServiceRadar command-line tool
+// RunUpdatePoller handles the update-poller subcommand.
+func RunUpdatePoller(cfg CmdConfig) error {
+	if cfg.PollerFile == "" {
+		return errRequiresPollerFile
+	}
 
-Usage:
-  serviceradar [options] [password]
-  serviceradar update-config [options]
+	if cfg.EnableAllOnInit {
+		return enableAllCheckers(cfg.PollerFile, cfg.Agent)
+	}
 
-Commands:
-  (default)        Generate bcrypt hash from password
-  update-config    Update core.json with new admin password hash
+	if cfg.ServiceType == "" {
+		return fmt.Errorf("service type is required (use -type)")
+	}
 
-Options for bcrypt generation:
-  -help         show this help message
+	// Normalize to known type names
+	cfg.ServiceType = normalizeServiceType(cfg.ServiceType)
 
-Options for update-config:
-  -file string        path to core.json config file
-  -admin-hash string  bcrypt hash for admin user
+	// Validate action
+	if cfg.Action != actionAdd && cfg.Action != actionRemove {
+		return errUnsupportedAction
+	}
 
-Examples:
-  # Generate bcrypt hash
-  serviceradar mypassword
-  echo mypassword | serviceradar
-  serviceradar  # launches TUI
+	// Set default service name if not provided
+	if cfg.ServiceName == "" {
+		cfg.ServiceName = cfg.ServiceType
+	}
 
-  # Update core.json
-  serviceradar update-config -file /etc/serviceradar/core.json -admin-hash '$2a$12$...'`)
+	// Set default details based on service type if not provided
+	if cfg.ServiceDetails == "" {
+		// Get local IP address
+		ip, err := getLocalIP()
+		if err != nil {
+			// Default to localhost if can't get IP
+			ip = "127.0.0.1"
+		}
+
+		if port, ok := defaultPorts[cfg.ServiceType]; ok {
+			cfg.ServiceDetails = ip + port
+		} else if cfg.ServiceType == typeProcess {
+			// For process type, use service name as process name
+			cfg.ServiceDetails = cfg.ServiceName
+		} else if cfg.ServiceType == typePort {
+			// Default port check to SSH
+			cfg.ServiceDetails = "127.0.0.1:22"
+		} else if cfg.ServiceType == typeICMP {
+			// Default ping to Cloudflare DNS
+			cfg.ServiceDetails = "1.1.1.1"
+		}
+	}
+
+	if cfg.Action == actionAdd {
+		return addChecker(cfg.PollerFile, cfg.Agent, cfg.ServiceType, cfg.ServiceName, cfg.ServiceDetails, cfg.ServicePort)
+	} else {
+		return removeChecker(cfg.PollerFile, cfg.Agent, cfg.ServiceType, cfg.ServiceName)
+	}
+}
+
+// writePollerConfig writes the updated configuration back to the file.
+func writePollerConfig(pollerFile string, config PollerConfig) error {
+	updatedData, err := json.MarshalIndent(config, "", "    ")
+	if err != nil {
+		return fmt.Errorf("%w: %w", errUpdatingPollerConfig, err)
+	}
+
+	if err := os.WriteFile(pollerFile, updatedData, 0600); err != nil {
+		return fmt.Errorf("%w: %w", errUpdatingPollerConfig, err)
+	}
+
+	fmt.Printf("Successfully updated %s\n", pollerFile)
+	fmt.Println("Remember to restart the ServiceRadar poller service:")
+	fmt.Println("  systemctl restart serviceradar-poller")
+
+	return nil
 }
 
 // RunUpdateConfig handles the update-config subcommand.
