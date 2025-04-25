@@ -4,8 +4,7 @@ import "fmt"
 
 // ShowHelp displays the help message and exits.
 func ShowHelp() {
-	fmt.Println(`serviceradar: ServiceRadar command-line tool
-
+	fmt.Print(`serviceradar: ServiceRadar command-line tool
 Usage:
   serviceradar [options] [password]
   serviceradar update-config [options]

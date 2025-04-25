@@ -23,50 +23,50 @@ import (
 	"github.com/carverauto/serviceradar/pkg/cli"
 )
 
+// main is the entry point for the ServiceRadar CLI.
 func main() {
-	// Parse command-line flags
-	cfg, err := cli.ParseFlags()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error parsing flags: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Show help if requested
-	if cfg.Help {
-		cli.ShowHelp()
-		return
-	}
-
-	// Handle update-config subcommand
-	if cfg.SubCmd == "update-config" {
-		if err := cli.RunUpdateConfig(cfg.ConfigFile, cfg.AdminHash); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
-		return
-	}
-
-	// Handle update-poller subcommand
-	if cfg.SubCmd == "update-poller" {
-		if err := cli.RunUpdatePoller(cfg); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
-		return
-	}
-
-	// Handle non-interactive bcrypt generation (with args or stdin)
-	if len(cfg.Args) > 0 || !cli.IsInputFromTerminal() {
-		if err := cli.RunBcryptNonInteractive(cfg.Args); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
-		return
-	}
-
-	// Handle interactive bcrypt generation (TUI)
-	if err := cli.RunInteractive(); err != nil {
+	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// run handles the core logic of the CLI, parsing flags and dispatching subcommands.
+func run() error {
+	// Parse command-line flags
+	cfg, err := cli.ParseFlags()
+	if err != nil {
+		return fmt.Errorf("parsing flags: %w", err)
+	}
+
+	// Handle help request
+	if cfg.Help {
+		cli.ShowHelp()
+
+		return nil
+	}
+
+	// Dispatch to appropriate subcommand or mode
+	return dispatchCommand(cfg)
+}
+
+// dispatchCommand routes the CLI to the appropriate subcommand or mode.
+func dispatchCommand(cfg *cli.CmdConfig) error {
+	switch cfg.SubCmd {
+	case "update-config":
+		return cli.RunUpdateConfig(cfg.ConfigFile, cfg.AdminHash)
+	case "update-poller":
+		return cli.RunUpdatePoller(cfg)
+	default:
+		return runBcryptMode(cfg)
+	}
+}
+
+// runBcryptMode handles bcrypt generation in non-interactive or interactive mode.
+func runBcryptMode(cfg *cli.CmdConfig) error {
+	if len(cfg.Args) > 0 || !cli.IsInputFromTerminal() {
+		return cli.RunBcryptNonInteractive(cfg.Args)
+	}
+
+	return cli.RunInteractive()
 }
