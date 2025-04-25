@@ -41,7 +41,7 @@ func getLocalIP() (string, error) {
 	// This implementation tries to find a non-loopback IP address
 	addrs, err := net.InterfaceAddrs()
 	if err != nil {
-		return "127.0.0.1", fmt.Errorf("error getting interface addresses: %w", err)
+		return defaultIPAddress, fmt.Errorf("error getting interface addresses: %w", err)
 	}
 
 	for _, addr := range addrs {
@@ -55,5 +55,5 @@ func getLocalIP() (string, error) {
 	}
 
 	// No suitable address found, return localhost
-	return "127.0.0.1", nil
+	return defaultIPAddress, nil
 }

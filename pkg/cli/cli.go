@@ -89,31 +89,30 @@ func newStyles() struct {
 	}
 }
 
-// Supported checker types
+// Supported checker types.
 const (
 	typeProcess = "process"
 	typePort    = "port"
-	typeGRPC    = "grpc"
 	typeSNMP    = "snmp"
 	typeICMP    = "icmp"
-	typeSweep   = "sweep"
 	typeSysMon  = "sysmon"
 	typeRPerf   = "rperf-checker"
 	typeDusk    = "dusk"
 )
 
-// Supported actions for update-poller
+// Supported actions for update-poller.
 const (
 	actionAdd    = "add"
 	actionRemove = "remove"
 )
 
-// Default port mappings for service types
-var defaultPorts = map[string]string{
-	typeSNMP:   ":50080",
-	typeRPerf:  ":50081",
-	typeDusk:   ":50082",
-	typeSysMon: ":50083",
+func getDefaultPorts() map[string]string {
+	return map[string]string{
+		typeSNMP:   ":50080",
+		typeRPerf:  ":50081",
+		typeDusk:   ":50082",
+		typeSysMon: ":50083",
+	}
 }
 
 func initialModel() *model {
@@ -370,7 +369,7 @@ func generateBcryptNonInteractive(password string, cost int) (string, error) {
 }
 
 // ParseFlags parses command-line flags and subcommands.
-func ParseFlags() (CmdConfig, error) {
+func ParseFlags() (*CmdConfig, error) {
 	// Default flags for bcrypt generation
 	help := flag.Bool("help", false, "show help message")
 	flag.Parse()
@@ -397,7 +396,7 @@ func ParseFlags() (CmdConfig, error) {
 		adminHash := updateConfigCmd.String("admin-hash", "", "bcrypt hash for admin user")
 
 		if err := updateConfigCmd.Parse(os.Args[2:]); err != nil {
-			return cfg, fmt.Errorf("parsing update-config flags: %w", err)
+			return &cfg, fmt.Errorf("parsing update-config flags: %w", err)
 		}
 
 		cfg.ConfigFile = *configFile
@@ -414,7 +413,7 @@ func ParseFlags() (CmdConfig, error) {
 		enableAll := updatePollerCmd.Bool("enable-all", false, "enable all standard checkers")
 
 		if err := updatePollerCmd.Parse(os.Args[2:]); err != nil {
-			return cfg, fmt.Errorf("parsing update-poller flags: %w", err)
+			return &cfg, fmt.Errorf("parsing update-poller flags: %w", err)
 		}
 
 		cfg.PollerFile = *pollerFile
@@ -426,74 +425,120 @@ func ParseFlags() (CmdConfig, error) {
 		cfg.EnableAllOnInit = *enableAll
 	}
 
-	return cfg, nil
+	return &cfg, nil
 }
 
 // RunUpdatePoller handles the update-poller subcommand.
-func RunUpdatePoller(cfg CmdConfig) error {
-	if cfg.PollerFile == "" {
-		return errRequiresPollerFile
+func RunUpdatePoller(cfg *CmdConfig) error {
+	if err := validatePollerFile(cfg.PollerFile); err != nil {
+		return err
 	}
 
 	if cfg.EnableAllOnInit {
 		return enableAllCheckers(cfg.PollerFile, cfg.Agent)
 	}
 
-	if cfg.ServiceType == "" {
-		return fmt.Errorf("service type is required (use -type)")
+	if err := validateServiceType(cfg.ServiceType); err != nil {
+		return err
 	}
 
-	// Normalize to known type names
-	cfg.ServiceType = normalizeServiceType(cfg.ServiceType)
+	// Normalize service type
+	normalizedType := normalizeServiceType(cfg.ServiceType)
 
 	// Validate action
-	if cfg.Action != actionAdd && cfg.Action != actionRemove {
+	if err := validateAction(cfg.Action); err != nil {
+		return err
+	}
+
+	// Prepare configuration
+	serviceName := getServiceName(cfg.ServiceName, normalizedType)
+
+	serviceDetails, err := getServiceDetails(cfg.ServiceDetails, normalizedType, serviceName)
+	if err != nil {
+		return fmt.Errorf("failed to determine service details: %w", err)
+	}
+
+	// Execute action
+	if cfg.Action == actionAdd {
+		return addChecker(cfg.PollerFile, cfg.Agent, normalizedType, serviceName, serviceDetails, cfg.ServicePort)
+	}
+
+	return removeChecker(cfg.PollerFile, cfg.Agent, normalizedType, serviceName)
+}
+
+// validatePollerFile checks if the poller file is specified.
+func validatePollerFile(pollerFile string) error {
+	if pollerFile == "" {
+		return errRequiresPollerFile
+	}
+
+	return nil
+}
+
+// validateServiceType checks if the service type is provided.
+func validateServiceType(serviceType string) error {
+	if serviceType == "" {
+		return errServiceTypeRequired
+	}
+
+	return nil
+}
+
+// validateAction checks if the action is supported.
+func validateAction(action string) error {
+	if action != actionAdd && action != actionRemove {
 		return errUnsupportedAction
 	}
 
-	// Set default service name if not provided
-	if cfg.ServiceName == "" {
-		cfg.ServiceName = cfg.ServiceType
+	return nil
+}
+
+// getServiceName returns the service name, defaulting to the service type if not provided.
+func getServiceName(serviceName, serviceType string) string {
+	if serviceName == "" {
+		return serviceType
 	}
 
-	// Set default details based on service type if not provided
-	if cfg.ServiceDetails == "" {
-		// Get local IP address
-		ip, err := getLocalIP()
-		if err != nil {
-			// Default to localhost if can't get IP
-			ip = "127.0.0.1"
-		}
+	return serviceName
+}
 
-		if port, ok := defaultPorts[cfg.ServiceType]; ok {
-			cfg.ServiceDetails = ip + port
-		} else if cfg.ServiceType == typeProcess {
-			// For process type, use service name as process name
-			cfg.ServiceDetails = cfg.ServiceName
-		} else if cfg.ServiceType == typePort {
-			// Default port check to SSH
-			cfg.ServiceDetails = "127.0.0.1:22"
-		} else if cfg.ServiceType == typeICMP {
-			// Default ping to Cloudflare DNS
-			cfg.ServiceDetails = "1.1.1.1"
-		}
+// getServiceDetails determines the service details based on the service type.
+func getServiceDetails(details, serviceType, serviceName string) (string, error) {
+	if details != "" {
+		return details, nil
 	}
 
-	if cfg.Action == actionAdd {
-		return addChecker(cfg.PollerFile, cfg.Agent, cfg.ServiceType, cfg.ServiceName, cfg.ServiceDetails, cfg.ServicePort)
-	} else {
-		return removeChecker(cfg.PollerFile, cfg.Agent, cfg.ServiceType, cfg.ServiceName)
+	// Get local IP address, default to localhost if unavailable
+	ip, err := getLocalIP()
+	if err != nil {
+		ip = defaultIPAddress
+	}
+
+	// Check for default port in the defaultPorts map
+	if port, ok := getDefaultPorts()[serviceType]; ok {
+		return ip + port, nil
+	}
+
+	switch serviceType {
+	case typeProcess:
+		return serviceName, nil
+	case typePort:
+		return "127.0.0.1:22", nil
+	case typeICMP:
+		return "1.1.1.1", nil
+	default:
+		return "", fmt.Errorf("%w: %s", errNoDefaultDetails, serviceType)
 	}
 }
 
 // writePollerConfig writes the updated configuration back to the file.
-func writePollerConfig(pollerFile string, config PollerConfig) error {
+func writePollerConfig(pollerFile string, config *PollerConfig) error {
 	updatedData, err := json.MarshalIndent(config, "", "    ")
 	if err != nil {
 		return fmt.Errorf("%w: %w", errUpdatingPollerConfig, err)
 	}
 
-	if err := os.WriteFile(pollerFile, updatedData, 0600); err != nil {
+	if err := os.WriteFile(pollerFile, updatedData, defaultFilePerms); err != nil {
 		return fmt.Errorf("%w: %w", errUpdatingPollerConfig, err)
 	}
 

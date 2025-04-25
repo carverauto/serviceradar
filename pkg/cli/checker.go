@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// isGRPCService determines if a service type is actually implemented as a gRPC service
+// isGRPCService determines if a service type is actually implemented as a gRPC service.
 func isGRPCService(serviceType string) bool {
 	// List of service types that are implemented as gRPC services
 	grpcServices := map[string]bool{
@@ -22,254 +22,288 @@ func isGRPCService(serviceType string) bool {
 
 // addChecker adds a service check to the specified agent in the poller configuration.
 func addChecker(pollerFile, agentName, serviceType, serviceName, details string, port int32) error {
-	// Read and parse poller.json
-	data, err := os.ReadFile(pollerFile)
+	config, err := readPollerConfig(pollerFile)
 	if err != nil {
-		return fmt.Errorf("failed to read poller config file: %w", err)
+		return err
 	}
 
-	var config PollerConfig
-	if err := json.Unmarshal(data, &config); err != nil {
-		return fmt.Errorf("failed to parse poller config: %w", err)
-	}
-
-	// Find the agent
 	agent, exists := config.Agents[agentName]
 	if !exists {
 		return fmt.Errorf("%w: %s", errAgentNotFound, agentName)
 	}
 
-	// Determine if this should be a grpc service
-	actualType := serviceType
-	actualName := serviceName
+	updatedAgent, isUpdate := addOrUpdateCheck(agent, serviceType, serviceName, details, port)
+	config.Agents[agentName] = updatedAgent
 
-	// Handle special built-in checkers that are implemented as GRPC services
-	if isGRPCService(serviceType) {
-		actualType = "grpc"
-		// If the service name is the same as type, use the type as name
-		if serviceName == serviceType {
-			actualName = serviceType
+	// Print appropriate message based on whether the check was added or updated
+	action := "Added"
+	if isUpdate {
+		action = "Updated existing"
+	}
+
+	fmt.Printf("%s checker: %s/%s\n",
+		action,
+		updatedAgent.Checks[len(updatedAgent.Checks)-1].ServiceType,
+		updatedAgent.Checks[len(updatedAgent.Checks)-1].ServiceName,
+	)
+
+	return writePollerConfig(pollerFile, config)
+}
+
+// addOrUpdateCheck adds a new check or updates an existing one in the agent's checks.
+func addOrUpdateCheck(agent AgentConfig, serviceType, serviceName, details string, port int32) (AgentConfig, bool) {
+	actualType, actualName := determineCheckTypeAndName(serviceType, serviceName)
+	newCheck := createCheck(actualType, actualName, details, port)
+
+	// Check if a matching check exists
+	for i, check := range agent.Checks {
+		if isMatchingCheck(check, actualType, actualName, serviceType) {
+			agent.Checks[i] = newCheck
+
+			return agent, true
 		}
 	}
 
-	// Create the new check
-	newCheck := CheckConfig{
-		ServiceType: actualType,
-		ServiceName: actualName,
+	// No match found, append new check
+	agent.Checks = append(agent.Checks, newCheck)
+
+	return agent, false
+}
+
+const (
+	serviceTypeGRPC = "grpc"
+)
+
+// determineCheckTypeAndName adjusts the service type and name for GRPC services.
+func determineCheckTypeAndName(serviceType, serviceName string) (actualType, actualName string) {
+	if isGRPCService(serviceType) {
+		if serviceName == serviceType {
+			actualType, actualName = serviceTypeGRPC, serviceType
+		} else {
+			actualType, actualName = serviceTypeGRPC, serviceName
+		}
+	} else {
+		actualType, actualName = serviceType, serviceName
+	}
+
+	return actualType, actualName
+}
+
+// createCheck constructs a new CheckConfig with the provided details.
+func createCheck(serviceType, serviceName, details string, port int32) CheckConfig {
+	check := CheckConfig{
+		ServiceType: serviceType,
+		ServiceName: serviceName,
 		Details:     details,
 	}
 
 	if port > 0 {
-		newCheck.Port = port
+		check.Port = port
 	}
 
-	// Check if a checker with the same functionality already exists
-	exists = false
-	for i, check := range agent.Checks {
-		// Direct match
-		if check.ServiceType == actualType && check.ServiceName == actualName {
-			// Update existing check
-			agent.Checks[i] = newCheck
-			config.Agents[agentName] = agent
-			exists = true
-			break
-		}
+	return check
+}
 
-		// Match for grpc service with service name matching our service type
-		if actualType == "grpc" && check.ServiceType == "grpc" && check.ServiceName == serviceType {
-			// Update existing check
-			agent.Checks[i] = newCheck
-			config.Agents[agentName] = agent
-			exists = true
-			break
-		}
+// isMatchingCheck determines if a check matches the criteria for replacement.
+func isMatchingCheck(check CheckConfig, actualType, actualName, serviceType string) bool {
+	// Direct match
+	if check.ServiceType == actualType && check.ServiceName == actualName {
+		return true
 	}
 
-	// If the check doesn't exist, add it
-	if !exists {
-		agent.Checks = append(agent.Checks, newCheck)
-		config.Agents[agentName] = agent
-		fmt.Printf("Added checker: %s/%s\n", actualType, actualName)
-	} else {
-		fmt.Printf("Updated existing checker: %s/%s\n", actualType, actualName)
+	// Match for GRPC service with service name matching the provided service type
+	if actualType == serviceTypeGRPC && check.ServiceType == serviceTypeGRPC && check.ServiceName == serviceType {
+		return true
 	}
 
-	// Write updated config
-	return writePollerConfig(pollerFile, config)
+	return false
 }
 
 // removeChecker removes a service check from the specified agent in the poller configuration.
 func removeChecker(pollerFile, agentName, serviceType, serviceName string) error {
-	// Read and parse poller.json
-	data, err := os.ReadFile(pollerFile)
+	config, err := readPollerConfig(pollerFile)
 	if err != nil {
-		return fmt.Errorf("failed to read poller config file: %w", err)
+		return err
 	}
 
-	var config PollerConfig
-	if err := json.Unmarshal(data, &config); err != nil {
-		return fmt.Errorf("failed to parse poller config: %w", err)
-	}
-
-	// Find the agent
 	agent, exists := config.Agents[agentName]
 	if !exists {
 		return fmt.Errorf("%w: %s", errAgentNotFound, agentName)
 	}
 
-	// Find and remove the check
-	found := false
+	updatedAgent, found := removeCheck(agent, serviceType, serviceName)
+	if !found {
+		listAvailableCheckers(agent.Checks, agentName, serviceType)
+
+		return fmt.Errorf("%w %s: %s", errCheckerNotFound, serviceType, agentName)
+	}
+
+	config.Agents[agentName] = updatedAgent
+
+	return writePollerConfig(pollerFile, config)
+}
+
+// removeCheck removes a check from the agent's checks based on service type and name.
+func removeCheck(agent AgentConfig, serviceType, serviceName string) (AgentConfig, bool) {
 	newChecks := make([]CheckConfig, 0, len(agent.Checks))
+	found := false
+
 	for _, check := range agent.Checks {
-		// Handle special case for GRPC services
-		shouldRemove := false
-
-		// Direct match by type and name
-		if check.ServiceType == serviceType && check.ServiceName == serviceName {
-			shouldRemove = true
-		}
-
-		// Handle case where service type is "grpc" and service name matches our target type
-		if check.ServiceType == "grpc" && check.ServiceName == serviceType {
-			shouldRemove = true
-		}
-
-		// If service type is the same as the name we provided, also check by name
-		if serviceType == serviceName && check.ServiceName == serviceType {
-			shouldRemove = true
-		}
-
-		if shouldRemove {
-			found = true
+		if shouldRemoveCheck(check, serviceType, serviceName) {
 			fmt.Printf("Removing checker: %s/%s\n", check.ServiceType, check.ServiceName)
+
+			found = true
+
 			continue
 		}
 
 		newChecks = append(newChecks, check)
 	}
 
-	if !found {
-		// List all available checkers to help the user
-		fmt.Println("Available checkers in configuration:")
-		for _, check := range agent.Checks {
-			fmt.Printf("  - %s/%s\n", check.ServiceType, check.ServiceName)
-		}
-		return fmt.Errorf("checker '%s' not found for agent %s", serviceType, agentName)
-	}
-
 	agent.Checks = newChecks
-	config.Agents[agentName] = agent
 
-	// Write updated config
-	return writePollerConfig(pollerFile, config)
+	return agent, found
 }
 
-// enableAllCheckers adds all standard checkers to the specified agent.
+// shouldRemoveCheck determines if a check should be removed based on matching criteria.
+func shouldRemoveCheck(check CheckConfig, serviceType, serviceName string) bool {
+	// Direct match by type and name
+	if check.ServiceType == serviceType && check.ServiceName == serviceName {
+		return true
+	}
+
+	// GRPC service name matches the target type
+	if check.ServiceType == serviceTypeGRPC && check.ServiceName == serviceType {
+		return true
+	}
+
+	// Service type and name are the same and match the check's name
+	if serviceType == serviceName && check.ServiceName == serviceType {
+		return true
+	}
+
+	return false
+}
+
+// listAvailableCheckers prints all available checkers for the agent.
+func listAvailableCheckers(checks []CheckConfig, _, _ string) {
+	fmt.Println("Available checkers in configuration:")
+
+	for _, check := range checks {
+		fmt.Printf("  - %s/%s\n", check.ServiceType, check.ServiceName)
+	}
+}
+
+// enableAllCheckers enables all standard checkers for a given agent in the poller config.
 func enableAllCheckers(pollerFile, agentName string) error {
-	// Read and parse poller.json
-	data, err := os.ReadFile(pollerFile)
+	config, err := readPollerConfig(pollerFile)
 	if err != nil {
-		return fmt.Errorf("failed to read poller config file: %w", err)
+		return err
 	}
 
-	var config PollerConfig
-	if err := json.Unmarshal(data, &config); err != nil {
-		return fmt.Errorf("failed to parse poller config: %w", err)
-	}
-
-	// Find the agent
 	agent, exists := config.Agents[agentName]
 	if !exists {
 		return fmt.Errorf("%w: %s", errAgentNotFound, agentName)
 	}
 
-	// Extract IP address from the agent config if possible
-	ip := "127.0.0.1" // default
-	if agent.Address != "" {
-		parts := strings.Split(agent.Address, ":")
-		if len(parts) > 0 && parts[0] != "" {
-			ip = parts[0]
-		}
+	ip := extractIP(agent.Address)
+	updatedAgent, addedCount := addStandardCheckers(agent, ip)
+
+	if addedCount == 0 {
+		fmt.Println("All standard checkers are already enabled.")
+
+		return nil
 	}
 
-	// Define standard checkers
+	config.Agents[agentName] = updatedAgent
+
+	return writePollerConfig(pollerFile, config)
+}
+
+// readPollerConfig reads and parses the poller configuration file.
+func readPollerConfig(pollerFile string) (*PollerConfig, error) {
+	data, err := os.ReadFile(pollerFile)
+	if err != nil {
+		return &PollerConfig{}, fmt.Errorf("failed to read poller config file: %w", err)
+	}
+
+	var config PollerConfig
+
+	if err := json.Unmarshal(data, &config); err != nil {
+		return &PollerConfig{}, fmt.Errorf("failed to parse poller config: %w", err)
+	}
+
+	return &config, nil
+}
+
+const (
+	defaultIPAddress = "127.0.0.1"
+)
+
+// extractIP extracts the IP address from the agent's address, defaulting to "127.0.0.1".
+func extractIP(address string) string {
+	if address == "" {
+		return defaultIPAddress
+	}
+
+	parts := strings.Split(address, ":")
+
+	if len(parts) > 0 && parts[0] != "" {
+		return parts[0]
+	}
+
+	return defaultIPAddress
+}
+
+// addStandardCheckers adds standard checkers to the agent if they don't already exist.
+func addStandardCheckers(agent AgentConfig, ip string) (updatedAgent AgentConfig, addedCount int) {
+	updatedAgent = agent
 	standardCheckers := []CheckConfig{
-		{
-			ServiceType: "process",
-			ServiceName: "serviceradar-agent",
-			Details:     "serviceradar-agent",
-		},
-		{
-			ServiceType: "port",
-			ServiceName: "SSH",
-			Details:     "127.0.0.1:22",
-		},
-		{
-			ServiceType: "icmp",
-			ServiceName: "ping",
-			Details:     "1.1.1.1",
-		},
-		{
-			ServiceType: "sweep",
-			ServiceName: "network_sweep",
-			Details:     "",
-		},
-		{
-			ServiceType: "grpc",
-			ServiceName: "snmp",
-			Details:     ip + defaultPorts[typeSNMP],
-		},
-		{
-			ServiceType: "grpc",
-			ServiceName: "rperf-checker",
-			Details:     ip + defaultPorts[typeRPerf],
-		},
-		{
-			ServiceType: "grpc",
-			ServiceName: "sysmon",
-			Details:     ip + defaultPorts[typeSysMon],
-		},
-		{
-			ServiceType: "grpc",
-			ServiceName: "dusk",
-			Details:     ip + defaultPorts[typeDusk],
-		},
+		{ServiceType: "process", ServiceName: "serviceradar-agent", Details: "serviceradar-agent"},
+		{ServiceType: "port", ServiceName: "SSH", Details: "127.0.0.1:22"},
+		{ServiceType: "icmp", ServiceName: "ping", Details: "1.1.1.1"},
+		{ServiceType: "sweep", ServiceName: "network_sweep", Details: ""},
+		{ServiceType: serviceTypeGRPC, ServiceName: "snmp", Details: ip + getDefaultPorts()[typeSNMP]},
+		{ServiceType: serviceTypeGRPC, ServiceName: "rperf-checker", Details: ip + getDefaultPorts()[typeRPerf]},
+		{ServiceType: serviceTypeGRPC, ServiceName: "sysmon", Details: ip + getDefaultPorts()[typeSysMon]},
+		{ServiceType: serviceTypeGRPC, ServiceName: "dusk", Details: ip + getDefaultPorts()[typeDusk]},
 	}
 
-	// Create a map of existing checks for quick lookup
-	existingChecks := make(map[string]bool)
-	for _, check := range agent.Checks {
-		// Use service name as key for GRPC services
-		key := check.ServiceName
-		if check.ServiceType != "grpc" {
-			key = check.ServiceType + "/" + check.ServiceName
-		}
-		existingChecks[key] = true
-	}
+	existingChecks := buildExistingChecksMap(updatedAgent.Checks)
+	addedCount = 0
 
-	// Add new checkers if they don't already exist
-	addedCount := 0
 	for _, check := range standardCheckers {
-		// Use service name as key for GRPC services
-		key := check.ServiceName
-		if check.ServiceType != "grpc" {
-			key = check.ServiceType + "/" + check.ServiceName
-		}
+		key := generateCheckKey(check)
 
 		if !existingChecks[key] {
-			agent.Checks = append(agent.Checks, check)
+			updatedAgent.Checks = append(updatedAgent.Checks, check)
 			fmt.Printf("Added checker: %s/%s\n", check.ServiceType, check.ServiceName)
+
 			addedCount++
 		}
 	}
 
-	if addedCount == 0 {
-		fmt.Println("All standard checkers are already enabled.")
-		return nil
+	return updatedAgent, addedCount
+}
+
+// buildExistingChecksMap creates a map of existing checks for quick lookup.
+func buildExistingChecksMap(checks []CheckConfig) map[string]bool {
+	existingChecks := make(map[string]bool)
+
+	for _, check := range checks {
+		key := generateCheckKey(check)
+
+		existingChecks[key] = true
 	}
 
-	config.Agents[agentName] = agent
+	return existingChecks
+}
 
-	// Write updated config
-	return writePollerConfig(pollerFile, config)
+// generateCheckKey generates a unique key for a check based on its type and name.
+func generateCheckKey(check CheckConfig) string {
+	if check.ServiceType == serviceTypeGRPC {
+		return check.ServiceName
+	}
+
+	return check.ServiceType + "/" + check.ServiceName
 }
