@@ -21,7 +21,7 @@ set -e
 
 # Configuration
 VERSION="1.0.33"
-RELEASE_TAG="1.0.33-pre7" # Separate tag for GitHub releases
+RELEASE_TAG="1.0.33"
 RELEASE_URL="https://github.com/carverauto/serviceradar/releases/download/${RELEASE_TAG}"
 TEMP_DIR="/tmp/serviceradar-install"
 POLLER_CONFIG="/etc/serviceradar/poller.json"
@@ -34,10 +34,11 @@ INSTALL_CORE=false
 INSTALL_POLLER=false
 INSTALL_AGENT=false
 UPDATE_POLLER_CONFIG=true
+SKIP_CHECKER_PROMPTS=false
 INSTALLED_CHECKERS=()
 
-# Input timeout in seconds - reduce for faster installs
-PROMPT_TIMEOUT=10
+# Input timeout in seconds
+PROMPT_TIMEOUT=15
 
 # Dracula color theme for terminal
 COLOR_RESET="\033[0m"
@@ -82,7 +83,7 @@ read_with_timeout() {
     if [ "$INTERACTIVE" != "true" ]; then
         eval "$var_name=$default"
         return
-    }
+    fi
 
     # Print prompt
     echo -e "$prompt \c"
@@ -180,6 +181,10 @@ parse_args() {
                 ;;
             --no-update-poller-config)
                 UPDATE_POLLER_CONFIG=false
+                shift
+                ;;
+            --skip-checker-prompts)
+                SKIP_CHECKER_PROMPTS=true
                 shift
                 ;;
             *)
@@ -354,39 +359,18 @@ prompt_scenario() {
             else
                 log "Poller configuration will be updated automatically"
             fi
+
+            # Ask about skipping checker prompts
+            local skip_choice=""
+            read_with_timeout "${COLOR_CYAN}Skip individual checker prompts and use recommended defaults? (y/n) [n]:${COLOR_RESET}" "n" skip_choice $PROMPT_TIMEOUT
+
+            if [ "$skip_choice" = "y" ] || [ "$skip_choice" = "Y" ]; then
+                SKIP_CHECKER_PROMPTS=true
+                log "Using recommended checker defaults (sysmon and snmp will be installed)"
+            fi
         else
             # If poller is not installed, we won't update the config
             UPDATE_POLLER_CONFIG=false
-        fi
-    fi
-}
-
-# Check if a checker should be installed (uses predefined answers for common checkers)
-should_install_checker() {
-    local checker="$1"
-    local default_yes_checkers="serviceradar-sysmon-checker serviceradar-snmp-checker"
-
-    # Auto-yes for certain checkers to speed up the process
-    if echo "$default_yes_checkers" | grep -q -w "$checker"; then
-        default_answer="y"
-    else
-        default_answer="n"
-    fi
-
-    if [ "$INTERACTIVE" = "true" ]; then
-        local choice=""
-        read_with_timeout "${COLOR_CYAN}Install optional checker ${COLOR_YELLOW}${checker}${COLOR_CYAN}? (y/n) [$default_answer]:${COLOR_RESET}" "$default_answer" choice $PROMPT_TIMEOUT
-
-        if [ "$choice" = "y" ] || [ "$choice" = "Y" ]; then
-            echo "yes"
-        else
-            echo "no"
-        fi
-    else
-        if echo "$CHECKERS" | grep -q -E "(^|,)$checker(,|$)"; then
-            echo "yes"
-        else
-            echo "no"
         fi
     fi
 }
@@ -404,7 +388,6 @@ update_poller_config_for_checker() {
         return
     fi
 
-    header "Updating Poller Configuration"
     log "Enabling ${COLOR_YELLOW}${checker_type}${COLOR_RESET} in poller configuration..."
 
     # Use the CLI tool to update the poller configuration
@@ -482,6 +465,160 @@ enable_all_checkers() {
     fi
 }
 
+# Improved checker installation function that doesn't hang
+install_optional_checkers() {
+    header "Installing Optional Checkers"
+
+    # Default installation selections
+    local INSTALL_SYSMON=false
+    local INSTALL_SNMP=false
+    local INSTALL_RPERF=false
+    local INSTALL_RPERF_CHECKER=false
+    local INSTALL_DUSK=false
+
+    # Set defaults for non-interactive or skipped prompts
+    if [ "$SKIP_CHECKER_PROMPTS" = "true" ] || [ "$INTERACTIVE" != "true" ]; then
+        # Default to installing common checkers
+        INSTALL_SYSMON=true
+        INSTALL_SNMP=true
+
+        # Use command-line checkers if specified
+        if [ -n "$CHECKERS" ]; then
+            echo "$CHECKERS" | grep -q "sysmon" && INSTALL_SYSMON=true || INSTALL_SYSMON=false
+            echo "$CHECKERS" | grep -q "snmp" && INSTALL_SNMP=true || INSTALL_SNMP=false
+            echo "$CHECKERS" | grep -q "rperf" && INSTALL_RPERF=true
+            echo "$CHECKERS" | grep -q "rperf-checker" && INSTALL_RPERF_CHECKER=true
+            echo "$CHECKERS" | grep -q "dusk" && INSTALL_DUSK=true
+        fi
+
+        log "Using predefined checker selection (skipping prompts)"
+    else
+        # Interactive selection with visible prompts
+        echo
+        echo -e "${COLOR_CYAN}${COLOR_BOLD}Select optional checkers to install:${COLOR_RESET}"
+        echo
+
+        # Prompt for each checker with clear visibility
+        echo -ne "${COLOR_CYAN}Install ${COLOR_YELLOW}System Monitor (sysmon)${COLOR_CYAN}? (y/n) [y]: ${COLOR_RESET}"
+        read -t $PROMPT_TIMEOUT sysmon_choice || { echo; log "No input received, defaulting to yes"; sysmon_choice="y"; }
+        [ "$sysmon_choice" = "n" ] || [ "$sysmon_choice" = "N" ] || INSTALL_SYSMON=true
+        echo
+
+        echo -ne "${COLOR_CYAN}Install ${COLOR_YELLOW}SNMP Network Monitor (snmp)${COLOR_CYAN}? (y/n) [y]: ${COLOR_RESET}"
+        read -t $PROMPT_TIMEOUT snmp_choice || { echo; log "No input received, defaulting to yes"; snmp_choice="y"; }
+        [ "$snmp_choice" = "n" ] || [ "$snmp_choice" = "N" ] || INSTALL_SNMP=true
+        echo
+
+        echo -ne "${COLOR_CYAN}Install ${COLOR_YELLOW}Performance Testing Server (rperf)${COLOR_CYAN}? (y/n) [n]: ${COLOR_RESET}"
+        read -t $PROMPT_TIMEOUT rperf_choice || { echo; log "No input received, defaulting to no"; rperf_choice="n"; }
+        [ "$rperf_choice" = "y" ] || [ "$rperf_choice" = "Y" ] && INSTALL_RPERF=true
+        echo
+
+        echo -ne "${COLOR_CYAN}Install ${COLOR_YELLOW}Network Performance Checker (rperf-checker)${COLOR_CYAN}? (y/n) [n]: ${COLOR_RESET}"
+        read -t $PROMPT_TIMEOUT rperf_checker_choice || { echo; log "No input received, defaulting to no"; rperf_checker_choice="n"; }
+        [ "$rperf_checker_choice" = "y" ] || [ "$rperf_checker_choice" = "Y" ] && INSTALL_RPERF_CHECKER=true
+        echo
+
+        echo -ne "${COLOR_CYAN}Install ${COLOR_YELLOW}Dusk Node monitoring Checker (crypto)${COLOR_CYAN}? (y/n) [n]: ${COLOR_RESET}"
+        read -t $PROMPT_TIMEOUT dusk_choice || { echo; log "No input received, defaulting to no"; dusk_choice="n"; }
+        [ "$dusk_choice" = "y" ] || [ "$dusk_choice" = "Y" ] && INSTALL_DUSK=true
+        echo
+    fi
+
+    # Show what will be installed
+    echo
+    log "Installing these optional checkers:"
+    local checker_count=0
+
+    if [ "$INSTALL_SYSMON" = "true" ]; then
+        log "  - System Monitor (sysmon)"
+        checker_count=$((checker_count + 1))
+    fi
+
+    if [ "$INSTALL_SNMP" = "true" ]; then
+        log "  - SNMP Network Monitor (snmp)"
+        checker_count=$((checker_count + 1))
+    fi
+
+    if [ "$INSTALL_RPERF" = "true" ]; then
+        log "  - Performance Testing Server (rperf)"
+        checker_count=$((checker_count + 1))
+    fi
+
+    if [ "$INSTALL_RPERF_CHECKER" = "true" ]; then
+        log "  - Network Performance Checker (rperf-checker)"
+        checker_count=$((checker_count + 1))
+    fi
+
+    if [ "$INSTALL_DUSK" = "true" ]; then
+        log "  - Time-based Event Checker (dusk)"
+        checker_count=$((checker_count + 1))
+    fi
+
+    if [ $checker_count -eq 0 ]; then
+        log "No optional checkers selected."
+        return
+    fi
+
+    echo
+
+    # Prepare package list and download
+    checker_packages=()
+    INSTALLED_CHECKERS=()
+
+    if [ "$INSTALL_SYSMON" = "true" ]; then
+        checker_packages+=("serviceradar-sysmon-checker")
+        INSTALLED_CHECKERS+=("sysmon")
+    fi
+
+    if [ "$INSTALL_SNMP" = "true" ]; then
+        checker_packages+=("serviceradar-snmp-checker")
+        INSTALLED_CHECKERS+=("snmp")
+    fi
+
+    if [ "$INSTALL_RPERF" = "true" ]; then
+        checker_packages+=("serviceradar-rperf")
+        INSTALLED_CHECKERS+=("rperf")
+    fi
+
+    if [ "$INSTALL_RPERF_CHECKER" = "true" ]; then
+        checker_packages+=("serviceradar-rperf-checker")
+        INSTALLED_CHECKERS+=("rperf-checker")
+    fi
+
+    if [ "$INSTALL_DUSK" = "true" ]; then
+        checker_packages+=("serviceradar-dusk-checker")
+        INSTALLED_CHECKERS+=("dusk")
+    fi
+
+    # Download packages
+    for pkg in "${checker_packages[@]}"; do
+        if [ "$SYSTEM" = "rhel" ] && { [ "$pkg" = "serviceradar-rperf" ] || [ "$pkg" = "serviceradar-rperf-checker" ]; }; then
+            download_package "$pkg" "-1.el9.x86_64"
+        else
+            download_package "$pkg" ""
+        fi
+    done
+
+    # Install packages
+    install_packages "${checker_packages[@]}"
+
+    # Update poller configuration
+    if [ "$UPDATE_POLLER_CONFIG" = "true" ] && [ ${#INSTALLED_CHECKERS[@]} -gt 0 ]; then
+        header "Updating Poller Configuration"
+
+        if [ ${#INSTALLED_CHECKERS[@]} -ge 3 ]; then
+            # If many checkers installed, use enable-all for efficiency
+            enable_all_checkers
+        else
+            # Otherwise update individually
+            for checker_type in "${INSTALLED_CHECKERS[@]}"; do
+                update_poller_config_for_checker "$checker_type"
+            done
+        fi
+    fi
+}
+
 # Main installation logic
 main() {
     display_banner
@@ -547,82 +684,11 @@ main() {
     done
     install_packages "${packages_to_install[@]}"
 
-    # Fast path for checker installation
-    header "Installing Optional Checkers"
-    checkers=("serviceradar-rperf" "serviceradar-rperf-checker" "serviceradar-snmp-checker" "serviceradar-dusk-checker" "serviceradar-sysmon-checker")
-    checker_packages=()
-
-    # First, determine which checkers to install (collect all answers upfront)
-    declare -A checker_decisions
-    for checker in "${checkers[@]}"; do
-        log "Checking if ${COLOR_YELLOW}${checker}${COLOR_RESET} should be installed..."
-        available="yes"
-
-        # Check if checker is available for this configuration
-        if [ "$checker" = "serviceradar-dusk-checker" ] && [ "$SYSTEM" != "debian" ]; then
-            available="no"
-        fi
-        if [ "$INSTALL_CORE" = "false" ] && [ "$checker" = "serviceradar-dusk-checker" ]; then
-            available="no"
-        fi
-        if [ "$INSTALL_POLLER" = "false" ] && [ "$INSTALL_AGENT" = "false" ] && { [ "$checker" = "serviceradar-rperf" ] || [ "$checker" = "serviceradar-rperf-checker" ] || [ "$checker" = "serviceradar-snmp-checker" ]; }; then
-            available="no"
-        fi
-
-        if [ "$available" = "yes" ]; then
-            # Get user decision or use command line flags
-            if [ "$(should_install_checker "$checker")" = "yes" ]; then
-                checker_decisions[$checker]="yes"
-            else
-                checker_decisions[$checker]="no"
-                log "Skipping ${COLOR_YELLOW}${checker}${COLOR_RESET} installation."
-            fi
-        else
-            checker_decisions[$checker]="no"
-            log "Skipping ${COLOR_YELLOW}${checker}${COLOR_RESET} installation (not available for current config)."
-        fi
-    done
-
-    # Now download and prepare packages that need to be installed
-    for checker in "${checkers[@]}"; do
-        if [ "${checker_decisions[$checker]}" = "yes" ]; then
-            log "Preparing ${COLOR_YELLOW}${checker}${COLOR_RESET} for installation..."
-            if [ "$checker" = "serviceradar-rperf" ] || [ "$checker" = "serviceradar-rperf-checker" ]; then
-                download_package "$checker" "-1.el9.x86_64"
-            else
-                download_package "$checker" ""
-            fi
-            checker_packages+=("$checker")
-
-            # Save checker type for later poller config update
-            # Strip "serviceradar-" prefix and "-checker" suffix
-            CHECKER_TYPE=$(echo "$checker" | sed -E 's/^serviceradar-//;s/-checker$//')
-            INSTALLED_CHECKERS+=("$CHECKER_TYPE")
-        fi
-    done
-
-    # Install all selected checkers in a single batch
-    if [ ${#checker_packages[@]} -eq 0 ]; then
-        log "No optional checkers selected."
-    else
-        log "Installing optional checkers: ${COLOR_YELLOW}${checker_packages[*]}${COLOR_RESET}"
-        install_packages "${checker_packages[@]}"
-
-        # Update poller config for each installed checker
-        if [ "$UPDATE_POLLER_CONFIG" = "true" ]; then
-            for checker_type in "${INSTALLED_CHECKERS[@]}"; do
-                update_poller_config_for_checker "$checker_type"
-            done
-        fi
-    fi
+    # Install optional checkers with the improved function
+    install_optional_checkers
 
     # Update core.json with new admin password
     update_core_config
-
-    # If all checkers were installed and we're updating poller config, use enable-all
-    if [ ${#INSTALLED_CHECKERS[@]} -ge 3 ] && [ "$UPDATE_POLLER_CONFIG" = "true" ]; then
-        enable_all_checkers
-    fi
 
     header "Cleaning Up"
     log "Removing temporary files..."
