@@ -14,8 +14,7 @@
  * limitations under the License.
  */
 
-// pkg/core/api/server.go
-
+// Package api provides the HTTP API server for ServiceRadar
 package api
 
 import (
@@ -25,6 +24,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/checker/rperf"
@@ -33,9 +33,12 @@ import (
 	srHttp "github.com/carverauto/serviceradar/pkg/http"
 	"github.com/carverauto/serviceradar/pkg/metrics"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/swagger"
 	"github.com/gorilla/mux"
+	httpSwagger "github.com/swaggo/http-swagger"
 )
 
+// NewAPIServer creates a new API server instance with the given configuration
 func NewAPIServer(config models.CORSConfig, options ...func(server *APIServer)) *APIServer {
 	s := &APIServer{
 		pollers:    make(map[string]*PollerStatus),
@@ -52,51 +55,244 @@ func NewAPIServer(config models.CORSConfig, options ...func(server *APIServer)) 
 	return s
 }
 
+// WithAuthService adds an authentication service to the API server
 func WithAuthService(auth auth.AuthService) func(server *APIServer) {
 	return func(server *APIServer) {
 		server.authService = auth
 	}
 }
 
+// WithMetricsManager adds a metrics manager to the API server
 func WithMetricsManager(m metrics.MetricCollector) func(server *APIServer) {
 	return func(server *APIServer) {
 		server.metricsManager = m
 	}
 }
 
+// WithSNMPManager adds an SNMP manager to the API server
 func WithSNMPManager(m snmp.SNMPManager) func(server *APIServer) {
 	return func(server *APIServer) {
 		server.snmpManager = m
 	}
 }
 
+// WithRperfManager adds an rperf manager to the API server
 func WithRperfManager(m rperf.RperfManager) func(server *APIServer) {
 	return func(server *APIServer) {
 		server.rperfManager = m
 	}
 }
 
+// setupRoutes configures the HTTP routes for the API server.
 func (s *APIServer) setupRoutes() {
+	s.setupMiddleware()
+	s.setupSwaggerRoutes()
+	s.setupAuthRoutes()
+	s.setupProtectedRoutes()
+}
+
+// setupMiddleware configures CORS and API key middleware.
+func (s *APIServer) setupMiddleware() {
 	corsConfig := models.CORSConfig{
 		AllowedOrigins:   s.corsConfig.AllowedOrigins,
 		AllowCredentials: s.corsConfig.AllowCredentials,
 	}
 
+	apiKeyOpts := srHttp.NewAPIKeyOptions(os.Getenv("API_KEY"))
+	apiKeyOpts.ExcludePaths = []string{
+		"/swagger/doc.json",
+		"/swagger/host.json",
+		"/swagger/index.html",
+		"/swagger/swagger.json",
+		"/swagger/swagger.yaml",
+		"/swagger/swagger-ui-bundle.js",
+		"/swagger/swagger-ui-standalone-preset.js",
+		"/swagger/swagger-ui.css",
+		"/swagger/favicon-32x32.png",
+		"/swagger/favicon-16x16.png",
+	}
+
 	middlewareChain := func(next http.Handler) http.Handler {
-		// Order matters: CORS first, then API key/auth checks
-		return srHttp.CommonMiddleware(srHttp.APIKeyMiddleware(os.Getenv("API_KEY"))(next), corsConfig)
+		return srHttp.CommonMiddleware(
+			srHttp.APIKeyMiddlewareWithOptions(apiKeyOpts)(next),
+			corsConfig,
+		)
 	}
 
 	s.router.Use(middlewareChain)
+}
 
-	// Public routes
+// setupSwaggerRoutes configures routes for Swagger UI and documentation.
+func (s *APIServer) setupSwaggerRoutes() {
+	s.router.HandleFunc("/swagger/swagger.json", s.serveSwaggerJSON)
+	s.router.HandleFunc("/swagger/swagger.yaml", s.serveSwaggerYAML)
+	s.router.HandleFunc("/swagger/host.json", s.serveSwaggerHost)
+
+	s.router.PathPrefix("/swagger/").Handler(httpSwagger.Handler(
+		httpSwagger.URL("/swagger/host.json"),
+		httpSwagger.DeepLinking(true),
+		httpSwagger.DocExpansion("list"),
+		httpSwagger.PersistAuthorization(true),
+	))
+
+	s.router.HandleFunc("/api-docs", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/swagger/", http.StatusMovedPermanently)
+	})
+}
+
+// serveSwaggerJSON serves the embedded Swagger JSON file.
+func (*APIServer) serveSwaggerJSON(w http.ResponseWriter, _ *http.Request) {
+	data, err := swagger.GetSwaggerJSON()
+	if err != nil {
+		http.Error(w, "Swagger JSON not found", http.StatusInternalServerError)
+
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	_, err = w.Write(data)
+	if err != nil {
+		log.Printf("Error writing Swagger JSON response: %v", err)
+		http.Error(w, "Failed to write Swagger JSON response", http.StatusInternalServerError)
+
+		return
+	}
+}
+
+// serveSwaggerYAML serves the embedded Swagger YAML file.
+func (*APIServer) serveSwaggerYAML(w http.ResponseWriter, _ *http.Request) {
+	data, err := swagger.GetSwaggerYAML()
+	if err != nil {
+		http.Error(w, "Swagger YAML not found", http.StatusInternalServerError)
+
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/yaml")
+
+	_, err = w.Write(data)
+	if err != nil {
+		log.Printf("Error writing Swagger YAML response: %v", err)
+
+		return
+	}
+}
+
+// serveSwaggerHost dynamically updates and serves the Swagger host configuration.
+func (s *APIServer) serveSwaggerHost(w http.ResponseWriter, r *http.Request) {
+	host := s.getRequestHost(r)
+
+	data, err := swagger.GetSwaggerJSON()
+	if err != nil {
+		http.Error(w, "Swagger JSON not found", http.StatusInternalServerError)
+
+		return
+	}
+
+	spec, err := s.parseSwaggerSpec(data)
+	if err != nil {
+		http.Error(w, "Could not parse Swagger spec", http.StatusInternalServerError)
+
+		return
+	}
+
+	spec = s.updateSwaggerSpec(spec, r, host)
+
+	w.Header().Set("Content-Type", "application/json")
+
+	err = json.NewEncoder(w).Encode(spec)
+	if err != nil {
+		http.Error(w, "Failed to encode Swagger spec", http.StatusInternalServerError)
+		log.Printf("Error encoding Swagger spec: %v", err)
+
+		return
+	}
+}
+
+// getRequestHost extracts the host from the request or returns a default.
+func (*APIServer) getRequestHost(r *http.Request) string {
+	host := r.Host
+
+	if host == "" {
+		return "localhost:8080"
+	}
+
+	return host
+}
+
+// parseSwaggerSpec unmarshals the Swagger JSON into a map.
+func (*APIServer) parseSwaggerSpec(data []byte) (map[string]interface{}, error) {
+	var spec map[string]interface{}
+
+	if err := json.Unmarshal(data, &spec); err != nil {
+		return nil, err
+	}
+
+	return spec, nil
+}
+
+// updateSwaggerSpec updates the Swagger/OpenAPI spec with a dynamic host.
+func (s *APIServer) updateSwaggerSpec(spec map[string]interface{}, r *http.Request, host string) map[string]interface{} {
+	// Update OpenAPI 3.0 servers
+	if servers, ok := spec["servers"].([]interface{}); ok {
+		spec = s.updateOpenAPI3Servers(servers, r, host, spec)
+	}
+
+	// Update Swagger 2.0 host
+	if _, ok := spec["host"]; ok {
+		spec["host"] = host
+	}
+
+	return spec
+}
+
+// updateOpenAPI3Servers updates the servers array for OpenAPI 3.0 if a matching URL is found.
+func (*APIServer) updateOpenAPI3Servers(
+	servers []interface{}, r *http.Request, host string, spec map[string]interface{}) map[string]interface{} {
+	if len(servers) == 0 {
+		return spec
+	}
+
+	for i, server := range servers {
+		serverMap, ok := server.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		serverURL, ok := serverMap["url"].(string)
+		if !ok || !strings.Contains(serverURL, "{hostname}") {
+			continue
+		}
+
+		scheme := "http"
+		if r.TLS != nil {
+			scheme = "https"
+		}
+
+		serverMap["url"] = fmt.Sprintf("%s://%s", scheme, host)
+		servers[i] = serverMap
+
+		spec["servers"] = servers
+
+		break
+	}
+
+	return spec
+}
+
+// setupAuthRoutes configures public authentication routes.
+func (s *APIServer) setupAuthRoutes() {
 	s.router.HandleFunc("/auth/login", s.handleLocalLogin).Methods("POST")
 	s.router.HandleFunc("/auth/refresh", s.handleRefreshToken).Methods("POST")
 	s.router.HandleFunc("/auth/{provider}", s.handleOAuthBegin).Methods("GET")
 	s.router.HandleFunc("/auth/{provider}/callback", s.handleOAuthCallback).Methods("GET")
+}
 
-	// Protected routes
+// setupProtectedRoutes configures protected API routes.
+func (s *APIServer) setupProtectedRoutes() {
 	protected := s.router.PathPrefix("/api").Subrouter()
+
 	if os.Getenv("AUTH_ENABLED") == "true" && s.authService != nil {
 		protected.Use(auth.AuthMiddleware(s.authService))
 	}
@@ -110,14 +306,24 @@ func (s *APIServer) setupRoutes() {
 	protected.HandleFunc("/pollers/{id}/services", s.getPollerServices).Methods("GET")
 	protected.HandleFunc("/pollers/{id}/services/{service}", s.getServiceDetails).Methods("GET")
 	protected.HandleFunc("/pollers/{id}/snmp", s.getSNMPData).Methods("GET")
-
-	// Sysmon metrics
 	protected.HandleFunc("/pollers/{id}/sysmon/cpu", s.getSysmonCPUMetrics).Methods("GET")
 	protected.HandleFunc("/pollers/{id}/sysmon/disk", s.getSysmonDiskMetrics).Methods("GET")
 	protected.HandleFunc("/pollers/{id}/sysmon/memory", s.getSysmonMemoryMetrics).Methods("GET")
 }
 
-// getSNMPData retrieves SNMP data for a specific poller.
+// @Summary Get SNMP data
+// @Description Retrieves SNMP metrics data for a specific poller within the given time range
+// @Tags SNMP
+// @Accept json
+// @Produce json
+// @Param id path string true "Poller ID"
+// @Param start query string true "Start time in RFC3339 format"
+// @Param end query string true "End time in RFC3339 format"
+// @Success 200 {array} models.SNMPMetric "SNMP metrics data"
+// @Failure 400 {object} models.ErrorResponse "Invalid request parameters"
+// @Failure 500 {object} models.ErrorResponse "Internal server error"
+// @Router /api/pollers/{id}/snmp [get]
+// @Security ApiKeyAuth
 func (s *APIServer) getSNMPData(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	pollerID := vars["id"]
@@ -163,6 +369,17 @@ func (s *APIServer) getSNMPData(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// @Summary Get poller metrics
+// @Description Retrieves performance metrics for a specific poller
+// @Tags Metrics
+// @Accept json
+// @Produce json
+// @Param id path string true "Poller ID"
+// @Success 200 {array} models.MetricPoint "Poller metrics data"
+// @Failure 404 {object} models.ErrorResponse "No metrics found"
+// @Failure 500 {object} models.ErrorResponse "Internal server error or metrics not configured"
+// @Router /api/pollers/{id}/metrics [get]
+// @Security ApiKeyAuth
 func (s *APIServer) getPollerMetrics(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	pollerID := vars["id"]
@@ -191,10 +408,12 @@ func (s *APIServer) getPollerMetrics(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// SetPollerHistoryHandler sets the handler function for retrieving poller history
 func (s *APIServer) SetPollerHistoryHandler(handler func(pollerID string) ([]PollerHistoryPoint, error)) {
 	s.pollerHistoryHandler = handler
 }
 
+// UpdatePollerStatus updates the status of a poller
 func (s *APIServer) UpdatePollerStatus(pollerID string, status *PollerStatus) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -202,6 +421,16 @@ func (s *APIServer) UpdatePollerStatus(pollerID string, status *PollerStatus) {
 	s.pollers[pollerID] = status
 }
 
+// @Summary Get poller history
+// @Description Retrieves historical status information for a specific poller
+// @Tags Pollers
+// @Accept json
+// @Produce json
+// @Param id path string true "Poller ID"
+// @Success 200 {array} PollerHistoryPoint "Historical status points"
+// @Failure 500 {object} models.ErrorResponse "Internal server error or history handler not configured"
+// @Router /api/pollers/{id}/history [get]
+// @Security ApiKeyAuth
 func (s *APIServer) getPollerHistory(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	pollerID := vars["id"]
@@ -225,6 +454,15 @@ func (s *APIServer) getPollerHistory(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// @Summary Get system status
+// @Description Retrieves overall system status including counts of total and healthy pollers
+// @Tags System
+// @Accept json
+// @Produce json
+// @Success 200 {object} SystemStatus "System status information"
+// @Failure 500 {object} models.ErrorResponse "Internal server error"
+// @Router /api/status [get]
+// @Security ApiKeyAuth
 func (s *APIServer) getSystemStatus(w http.ResponseWriter, _ *http.Request) {
 	s.mu.RLock()
 	status := SystemStatus{
@@ -248,6 +486,15 @@ func (s *APIServer) getSystemStatus(w http.ResponseWriter, _ *http.Request) {
 	}
 }
 
+// @Summary Get all pollers
+// @Description Retrieves a list of all known pollers
+// @Tags Pollers
+// @Accept json
+// @Produce json
+// @Success 200 {array} PollerStatus "List of poller statuses"
+// @Failure 500 {object} models.ErrorResponse "Internal server error"
+// @Router /api/pollers [get]
+// @Security ApiKeyAuth
 func (s *APIServer) getPollers(w http.ResponseWriter, _ *http.Request) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -273,12 +520,14 @@ func (s *APIServer) getPollers(w http.ResponseWriter, _ *http.Request) {
 	}
 }
 
+// SetKnownPollers sets the list of known pollers
 func (s *APIServer) SetKnownPollers(knownPollers []string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.knownPollers = knownPollers
 }
 
+// getPollerByID retrieves a poller by its ID
 func (s *APIServer) getPollerByID(pollerID string) (*PollerStatus, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -287,6 +536,7 @@ func (s *APIServer) getPollerByID(pollerID string) (*PollerStatus, bool) {
 	return poller, exists
 }
 
+// encodeJSONResponse encodes a response as JSON
 func (*APIServer) encodeJSONResponse(w http.ResponseWriter, data interface{}) error {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -299,6 +549,17 @@ func (*APIServer) encodeJSONResponse(w http.ResponseWriter, data interface{}) er
 	return nil
 }
 
+// @Summary Get poller details
+// @Description Retrieves detailed information about a specific poller
+// @Tags Pollers
+// @Accept json
+// @Produce json
+// @Param id path string true "Poller ID"
+// @Success 200 {object} PollerStatus "Poller status details"
+// @Failure 404 {object} models.ErrorResponse "Poller not found"
+// @Failure 500 {object} models.ErrorResponse "Internal server error"
+// @Router /api/pollers/{id} [get]
+// @Security ApiKeyAuth
 func (s *APIServer) getPoller(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	pollerID := vars["id"]
@@ -338,6 +599,17 @@ func (s *APIServer) getPoller(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// @Summary Get poller services
+// @Description Retrieves all services monitored by a specific poller
+// @Tags Services
+// @Accept json
+// @Produce json
+// @Param id path string true "Poller ID"
+// @Success 200 {array} ServiceStatus "List of service statuses"
+// @Failure 404 {object} models.ErrorResponse "Poller not found"
+// @Failure 500 {object} models.ErrorResponse "Internal server error"
+// @Router /api/pollers/{id}/services [get]
+// @Security ApiKeyAuth
 func (s *APIServer) getPollerServices(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	pollerID := vars["id"]
@@ -357,6 +629,18 @@ func (s *APIServer) getPollerServices(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// @Summary Get service details
+// @Description Retrieves detailed information about a specific service monitored by a poller
+// @Tags Services
+// @Accept json
+// @Produce json
+// @Param id path string true "Poller ID"
+// @Param service path string true "Service name"
+// @Success 200 {object} ServiceStatus "Service status details"
+// @Failure 404 {object} models.ErrorResponse "Poller or service not found"
+// @Failure 500 {object} models.ErrorResponse "Internal server error"
+// @Router /api/pollers/{id}/services/{service} [get]
+// @Security ApiKeyAuth
 func (s *APIServer) getServiceDetails(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	pollerID := vars["id"]
@@ -390,6 +674,7 @@ const (
 	defaultIdleTimeout  = 60 * time.Second
 )
 
+// Start starts the API server on the specified address
 func (s *APIServer) Start(addr string) error {
 	srv := &http.Server{
 		Addr:         addr,
@@ -404,6 +689,7 @@ func (s *APIServer) Start(addr string) error {
 	return srv.ListenAndServe()
 }
 
+// writeJSONResponse writes a JSON response to the HTTP writer
 func writeJSONResponse(w http.ResponseWriter, data interface{}, pollerID string) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -417,6 +703,7 @@ func writeJSONResponse(w http.ResponseWriter, data interface{}, pollerID string)
 }
 
 // parseTimeRange parses start and end times from query parameters.
+// @ignore This is an internal helper function, not directly exposed as an API endpoint
 func parseTimeRange(query url.Values) (start, end time.Time, err error) {
 	startStr := query.Get("start")
 	endStr := query.Get("end")
@@ -457,6 +744,7 @@ func (h httpError) Error() string {
 }
 
 // writeError writes an HTTP error response with the given message and status.
+// @ignore This is an internal helper function, not directly exposed as an API endpoint
 func writeError(w http.ResponseWriter, message string, status int) {
 	http.Error(w, message, status)
 }
