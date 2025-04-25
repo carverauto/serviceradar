@@ -24,35 +24,47 @@ import (
 )
 
 func main() {
+	// Parse command-line flags
 	cfg, err := cli.ParseFlags()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error parsing flags: %v\n", err)
 		os.Exit(1)
 	}
 
+	// Show help if requested
 	if cfg.Help {
 		cli.ShowHelp()
-		os.Exit(0)
+		return
 	}
 
+	// Handle update-config subcommand
 	if cfg.SubCmd == "update-config" {
 		if err := cli.RunUpdateConfig(cfg.ConfigFile, cfg.AdminHash); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
-
-		os.Exit(0)
+		return
 	}
 
+	// Handle update-poller subcommand
+	if cfg.SubCmd == "update-poller" {
+		if err := cli.RunUpdatePoller(cfg); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	// Handle non-interactive bcrypt generation (with args or stdin)
 	if len(cfg.Args) > 0 || !cli.IsInputFromTerminal() {
 		if err := cli.RunBcryptNonInteractive(cfg.Args); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
-
-		os.Exit(0)
+		return
 	}
 
+	// Handle interactive bcrypt generation (TUI)
 	if err := cli.RunInteractive(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
