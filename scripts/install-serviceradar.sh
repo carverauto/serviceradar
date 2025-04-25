@@ -21,7 +21,7 @@ set -e
 
 # Configuration
 VERSION="1.0.33"
-RELEASE_TAG="1.0.33-pre6" # Separate tag for GitHub releases
+RELEASE_TAG="1.0.33-pre7" # Separate tag for GitHub releases
 RELEASE_URL="https://github.com/carverauto/serviceradar/releases/download/${RELEASE_TAG}"
 TEMP_DIR="/tmp/serviceradar-install"
 POLLER_CONFIG="/etc/serviceradar/poller.json"
@@ -35,6 +35,9 @@ INSTALL_POLLER=false
 INSTALL_AGENT=false
 UPDATE_POLLER_CONFIG=true
 INSTALLED_CHECKERS=()
+
+# Input timeout in seconds - reduce for faster installs
+PROMPT_TIMEOUT=10
 
 # Dracula color theme for terminal
 COLOR_RESET="\033[0m"
@@ -63,6 +66,36 @@ info() {
 }
 success() {
     echo -e "${COLOR_GREEN}${COLOR_BOLD}[ServiceRadar]${COLOR_RESET} ${COLOR_WHITE}$1${COLOR_RESET}"
+}
+
+# Clean timely read function with defaults
+read_with_timeout() {
+    local prompt="$1"
+    local default="$2"
+    local var_name="$3"
+    local timeout="$4"
+
+    # Ensure timeout has a value
+    timeout=${timeout:-$PROMPT_TIMEOUT}
+
+    # If we're not interactive, use the default immediately
+    if [ "$INTERACTIVE" != "true" ]; then
+        eval "$var_name=$default"
+        return
+    }
+
+    # Print prompt
+    echo -e "$prompt \c"
+
+    # Try to read with timeout
+    read -t "$timeout" response || {
+        echo
+        log "Input timed out, using default: $default"
+        response="$default"
+    }
+
+    # Set the variable to the response or default
+    eval "$var_name=\"$response\""
 }
 
 # Display a Unicode box banner
@@ -285,8 +318,9 @@ prompt_scenario() {
         echo -e "${COLOR_WHITE}  2) Core + Web UI (core, web, nats, kv, sync)${COLOR_RESET}"
         echo -e "${COLOR_WHITE}  3) Poller (poller)${COLOR_RESET}"
         echo -e "${COLOR_WHITE}  4) Agent (agent)${COLOR_RESET}"
-        echo -e "${COLOR_CYAN}Enter choices (e.g., '1' or '2 3 4' for multiple):${COLOR_RESET} \c"
-        read -t 60 choices || { echo; log "No input received, defaulting to all components"; choices="1"; }
+
+        local choices=""
+        read_with_timeout "${COLOR_CYAN}Enter choices (e.g., '1' or '2 3 4' for multiple):${COLOR_RESET}" "1" choices $PROMPT_TIMEOUT
 
         for choice in $choices; do
             case "$choice" in
@@ -311,8 +345,9 @@ prompt_scenario() {
 
         # Ask about poller config updates if poller is being installed
         if [ "$INSTALL_POLLER" = "true" ] || [ "$INSTALL_ALL" = "true" ]; then
-            echo -e "${COLOR_CYAN}Would you like to automatically update the poller configuration after installing checkers? (y/n) [y]:${COLOR_RESET} \c"
-            read -t 30 update_choice || { echo; log "No input received, defaulting to yes"; update_choice="y"; }
+            local update_choice=""
+            read_with_timeout "${COLOR_CYAN}Would you like to automatically update the poller configuration after installing checkers? (y/n) [y]:${COLOR_RESET}" "y" update_choice $PROMPT_TIMEOUT
+
             if [ "$update_choice" = "n" ] || [ "$update_choice" = "N" ]; then
                 UPDATE_POLLER_CONFIG=false
                 log "Poller configuration updates disabled"
@@ -326,25 +361,27 @@ prompt_scenario() {
     fi
 }
 
-# Check if a checker should be installed
+# Check if a checker should be installed (uses predefined answers for common checkers)
 should_install_checker() {
     local checker="$1"
+    local default_yes_checkers="serviceradar-sysmon-checker serviceradar-snmp-checker"
+
+    # Auto-yes for certain checkers to speed up the process
+    if echo "$default_yes_checkers" | grep -q -w "$checker"; then
+        default_answer="y"
+    else
+        default_answer="n"
+    fi
 
     if [ "$INTERACTIVE" = "true" ]; then
-        # Use read with a timeout to prevent hanging
-        echo -e "${COLOR_CYAN}Install optional checker ${COLOR_YELLOW}${checker}${COLOR_CYAN}? (y/n) [n]:${COLOR_RESET} \c"
         local choice=""
+        read_with_timeout "${COLOR_CYAN}Install optional checker ${COLOR_YELLOW}${checker}${COLOR_CYAN}? (y/n) [$default_answer]:${COLOR_RESET}" "$default_answer" choice $PROMPT_TIMEOUT
 
-        if read -t 30 choice; then
-            if [ "$choice" = "y" ] || [ "$choice" = "Y" ]; then
-                echo "yes"
-                return
-            fi
+        if [ "$choice" = "y" ] || [ "$choice" = "Y" ]; then
+            echo "yes"
         else
-            log "Prompt timed out, skipping ${checker}"
+            echo "no"
         fi
-
-        echo "no"
     else
         if echo "$CHECKERS" | grep -q -E "(^|,)$checker(,|$)"; then
             echo "yes"
@@ -390,7 +427,11 @@ update_core_config() {
 
     if [ "$INTERACTIVE" = "true" ]; then
         echo -e "${COLOR_CYAN}Enter new admin password (leave blank for random generation):${COLOR_RESET} \c"
-        read -s password
+        read -s -t $PROMPT_TIMEOUT password || {
+            echo
+            log "No input received, generating random password"
+            password=""
+        }
         echo
         if [ -z "$password" ]; then
             password=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
@@ -409,7 +450,7 @@ update_core_config() {
     log "Generating bcrypt hash for admin password..."
     local bcrypt_hash
     bcrypt_hash=$(echo "$password" | /usr/local/bin/serviceradar 2>/dev/null) || error "Failed to generate bcrypt hash using serviceradar"
-    log "Generated bcrypt hash: ${COLOR_YELLOW}${bcrypt_hash}${COLOR_RESET}"
+    log "Generated bcrypt hash"
     success "Bcrypt hash generated successfully!"
 
     # Update core.json using serviceradar CLI
@@ -423,7 +464,7 @@ update_core_config() {
 enable_all_checkers() {
     if [ "$UPDATE_POLLER_CONFIG" != "true" ]; then
         return
-    fi  # <-- This should be 'fi' not ']'
+    fi
 
     if [ ! -f "$POLLER_CONFIG" ]; then
         log "Poller configuration file not found at $POLLER_CONFIG"
@@ -506,12 +547,18 @@ main() {
     done
     install_packages "${packages_to_install[@]}"
 
+    # Fast path for checker installation
     header "Installing Optional Checkers"
     checkers=("serviceradar-rperf" "serviceradar-rperf-checker" "serviceradar-snmp-checker" "serviceradar-dusk-checker" "serviceradar-sysmon-checker")
     checker_packages=()
+
+    # First, determine which checkers to install (collect all answers upfront)
+    declare -A checker_decisions
     for checker in "${checkers[@]}"; do
         log "Checking if ${COLOR_YELLOW}${checker}${COLOR_RESET} should be installed..."
         available="yes"
+
+        # Check if checker is available for this configuration
         if [ "$checker" = "serviceradar-dusk-checker" ] && [ "$SYSTEM" != "debian" ]; then
             available="no"
         fi
@@ -523,34 +570,38 @@ main() {
         fi
 
         if [ "$available" = "yes" ]; then
-            install_checker="no"
-
-            # Handle interactive or non-interactive mode
+            # Get user decision or use command line flags
             if [ "$(should_install_checker "$checker")" = "yes" ]; then
-                install_checker="yes"
-            fi
-
-            if [ "$install_checker" = "yes" ]; then
-                log "Installing ${COLOR_YELLOW}${checker}${COLOR_RESET}..."
-                if [ "$checker" = "serviceradar-rperf" ] || [ "$checker" = "serviceradar-rperf-checker" ]; then
-                    download_package "$checker" "-1.el9.x86_64"
-                else
-                    download_package "$checker" ""
-                fi
-                checker_packages+=("$checker")
-
-                # Save checker type for later poller config update
-                # Strip "serviceradar-" prefix and "-checker" suffix
-                CHECKER_TYPE=$(echo "$checker" | sed -E 's/^serviceradar-//;s/-checker$//')
-                INSTALLED_CHECKERS+=("$CHECKER_TYPE")
+                checker_decisions[$checker]="yes"
             else
+                checker_decisions[$checker]="no"
                 log "Skipping ${COLOR_YELLOW}${checker}${COLOR_RESET} installation."
             fi
         else
+            checker_decisions[$checker]="no"
             log "Skipping ${COLOR_YELLOW}${checker}${COLOR_RESET} installation (not available for current config)."
         fi
     done
 
+    # Now download and prepare packages that need to be installed
+    for checker in "${checkers[@]}"; do
+        if [ "${checker_decisions[$checker]}" = "yes" ]; then
+            log "Preparing ${COLOR_YELLOW}${checker}${COLOR_RESET} for installation..."
+            if [ "$checker" = "serviceradar-rperf" ] || [ "$checker" = "serviceradar-rperf-checker" ]; then
+                download_package "$checker" "-1.el9.x86_64"
+            else
+                download_package "$checker" ""
+            fi
+            checker_packages+=("$checker")
+
+            # Save checker type for later poller config update
+            # Strip "serviceradar-" prefix and "-checker" suffix
+            CHECKER_TYPE=$(echo "$checker" | sed -E 's/^serviceradar-//;s/-checker$//')
+            INSTALLED_CHECKERS+=("$CHECKER_TYPE")
+        fi
+    done
+
+    # Install all selected checkers in a single batch
     if [ ${#checker_packages[@]} -eq 0 ]; then
         log "No optional checkers selected."
     else
