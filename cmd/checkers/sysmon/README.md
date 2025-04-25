@@ -7,12 +7,12 @@
 
 ### Debian
 ```bash
-dpkg -i serviceradar-sysmon-checker_1.0.33.deb
+dpkg -i serviceradar-sysmon-checker_1.0.34.deb
 ```
 
 ### RPM
 ```bash
-rpm -i serviceradar-sysmon-checker-1.0.33-1.x86_64.rpm
+rpm -i serviceradar-sysmon-checker-1.0.34-1.x86_64.rpm
 ```
 
 ## ZFS Requirements (Optional)
