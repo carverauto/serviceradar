@@ -162,7 +162,7 @@ Example for `new-checker` (Go-based):
 {
   "name": "new-checker",
   "package_name": "serviceradar-new-checker",
-  "version": "1.0.32",
+  "version": "1.0.33",
   "description": "ServiceRadar New Checker",
   "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
   "architecture": "amd64",
