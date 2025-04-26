@@ -3,6 +3,7 @@ module github.com/carverauto/serviceradar
 go 1.24
 
 require (
+	github.com/antlr/antlr4/runtime/Go/antlr v1.4.10
 	github.com/atotto/clipboard v0.1.4
 	github.com/charmbracelet/bubbles v0.21.0
 	github.com/charmbracelet/bubbletea v1.3.4
