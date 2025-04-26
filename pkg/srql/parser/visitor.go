@@ -25,6 +25,7 @@ func (v *QueryVisitor) Visit(tree antlr.ParseTree) interface{} {
 	case *gen.QueryContext:
 		return v.VisitQuery(t)
 	}
+
 	return nil
 }
 
@@ -37,6 +38,7 @@ func (v *QueryVisitor) VisitQuery(ctx *gen.QueryContext) interface{} {
 	} else if ctx.CountStatement() != nil {
 		return v.VisitCountStatement(ctx.CountStatement().(*gen.CountStatementContext))
 	}
+
 	return nil
 }
 
@@ -50,6 +52,7 @@ func (v *QueryVisitor) VisitShowStatement(ctx *gen.ShowStatementContext) interfa
 	for i := 0; i < ctx.GetChildCount(); i++ {
 		if entityCtx, ok := ctx.GetChild(i).(*gen.EntityContext); ok {
 			query.Entity = v.getEntityType(entityCtx)
+
 			break
 		}
 	}
@@ -75,8 +78,10 @@ func (v *QueryVisitor) VisitShowStatement(ctx *gen.ShowStatementContext) interfa
 				if token.GetTokenType() == gen.ServiceRadarQueryLanguageParserINTEGER {
 					limitStr := token.GetText()
 					limit, _ := strconv.Atoi(limitStr)
+
 					query.Limit = limit
 					query.HasLimit = true
+
 					break
 				}
 			}
@@ -96,6 +101,7 @@ func (v *QueryVisitor) VisitFindStatement(ctx *gen.FindStatementContext) interfa
 	for i := 0; i < ctx.GetChildCount(); i++ {
 		if entityCtx, ok := ctx.GetChild(i).(*gen.EntityContext); ok {
 			query.Entity = v.getEntityType(entityCtx)
+
 			break
 		}
 	}
@@ -121,8 +127,10 @@ func (v *QueryVisitor) VisitFindStatement(ctx *gen.FindStatementContext) interfa
 				if token.GetTokenType() == gen.ServiceRadarQueryLanguageParserINTEGER {
 					limitStr := token.GetText()
 					limit, _ := strconv.Atoi(limitStr)
+
 					query.Limit = limit
 					query.HasLimit = true
+
 					break
 				}
 			}
@@ -142,6 +150,7 @@ func (v *QueryVisitor) VisitCountStatement(ctx *gen.CountStatementContext) inter
 	for i := 0; i < ctx.GetChildCount(); i++ {
 		if entityCtx, ok := ctx.GetChild(i).(*gen.EntityContext); ok {
 			query.Entity = v.getEntityType(entityCtx)
+
 			break
 		}
 	}
@@ -266,6 +275,7 @@ func (v *QueryVisitor) VisitExpression(ctx *gen.ExpressionContext) interface{} {
 func (v *QueryVisitor) VisitField(ctx *gen.FieldContext) interface{} {
 	// Check if there are ID tokens
 	idCount := 0
+
 	for i := 0; i < ctx.GetChildCount(); i++ {
 		if termNode, ok := ctx.GetChild(i).(antlr.TerminalNode); ok {
 			token := termNode.GetSymbol()
@@ -277,9 +287,11 @@ func (v *QueryVisitor) VisitField(ctx *gen.FieldContext) interface{} {
 
 	// Check if there are entity contexts
 	hasEntity := false
+
 	for i := 0; i < ctx.GetChildCount(); i++ {
 		if _, ok := ctx.GetChild(i).(*gen.EntityContext); ok {
 			hasEntity = true
+
 			break
 		}
 	}
@@ -302,12 +314,14 @@ func (v *QueryVisitor) VisitField(ctx *gen.FieldContext) interface{} {
 
 	// Check if there's an entity in the field using GetChild
 	var entityText string
+
 	foundEntity := false
 
 	for i := 0; i < ctx.GetChildCount(); i++ {
 		if entity, ok := ctx.GetChild(i).(*gen.EntityContext); ok {
 			entityText = entity.GetText()
 			foundEntity = true
+
 			break
 		}
 	}
@@ -374,17 +388,20 @@ func (v *QueryVisitor) VisitOrderByItem(ctx *gen.OrderByItemContext) interface{}
 func (v *QueryVisitor) VisitValue(ctx *gen.ValueContext) interface{} {
 	if ctx.STRING() != nil {
 		text := ctx.STRING().GetText()
+
 		// Remove quotes
 		return text[1 : len(text)-1]
 	}
 
 	if ctx.INTEGER() != nil {
 		val, _ := strconv.Atoi(ctx.INTEGER().GetText())
+
 		return val
 	}
 
 	if ctx.FLOAT() != nil {
 		val, _ := strconv.ParseFloat(ctx.FLOAT().GetText(), 64)
+
 		return val
 	}
 
@@ -394,6 +411,7 @@ func (v *QueryVisitor) VisitValue(ctx *gen.ValueContext) interface{} {
 
 	if ctx.TIMESTAMP() != nil {
 		text := ctx.TIMESTAMP().GetText()
+
 		// Remove quotes
 		return text[1 : len(text)-1]
 	}
