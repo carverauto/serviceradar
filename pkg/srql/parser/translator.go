@@ -28,6 +28,11 @@ func NewTranslator(dbType DatabaseType) *Translator {
 
 // Translate converts a Query model to a database query string
 func (t *Translator) Translate(query *models.Query) (string, error) {
+	// Check for nil query
+	if query == nil {
+		return "", fmt.Errorf("cannot translate nil query")
+	}
+
 	if t.DBType == ClickHouse {
 		return t.toClickHouseSQL(query)
 	} else if t.DBType == ArangoDB {
@@ -39,6 +44,11 @@ func (t *Translator) Translate(query *models.Query) (string, error) {
 
 // toClickHouseSQL converts to ClickHouse SQL
 func (t *Translator) toClickHouseSQL(query *models.Query) (string, error) {
+	// Check for nil query again for safety
+	if query == nil {
+		return "", fmt.Errorf("cannot translate nil query to ClickHouse SQL")
+	}
+
 	var sql strings.Builder
 
 	// Build the SELECT clause
@@ -50,7 +60,7 @@ func (t *Translator) toClickHouseSQL(query *models.Query) (string, error) {
 	}
 
 	// Add the table name
-	sql.WriteString(string(query.Entity))
+	sql.WriteString(strings.ToLower(string(query.Entity)))
 
 	// Add WHERE clause if conditions exist
 	if len(query.Conditions) > 0 {
@@ -69,7 +79,9 @@ func (t *Translator) toClickHouseSQL(query *models.Query) (string, error) {
 				direction = "DESC"
 			}
 
-			orderByParts = append(orderByParts, fmt.Sprintf("%s %s", item.Field, direction))
+			orderByParts = append(orderByParts, fmt.Sprintf("%s %s",
+				strings.ToLower(item.Field), // Convert field name to lowercase
+				direction))
 		}
 
 		sql.WriteString(strings.Join(orderByParts, ", "))
@@ -105,23 +117,26 @@ func (t *Translator) buildClickHouseWhere(conditions []models.Condition) string 
 			continue
 		}
 
+		// Get lowercase field name for case insensitivity
+		fieldName := strings.ToLower(cond.Field)
+
 		// Handle different operators
 		switch cond.Operator {
 		case models.Equals, models.NotEquals, models.GreaterThan,
 			models.GreaterThanOrEquals, models.LessThan, models.LessThanOrEquals:
 			sql.WriteString(fmt.Sprintf("%s %s %s",
-				cond.Field,
+				fieldName,
 				cond.Operator,
 				t.formatClickHouseValue(cond.Value)))
 
 		case models.Like:
 			sql.WriteString(fmt.Sprintf("%s LIKE %s",
-				cond.Field,
+				fieldName,
 				t.formatClickHouseValue(cond.Value)))
 
 		case models.Contains:
 			sql.WriteString(fmt.Sprintf("position(%s, %s) > 0",
-				cond.Field,
+				fieldName,
 				t.formatClickHouseValue(cond.Value)))
 
 		case models.In:
@@ -131,13 +146,13 @@ func (t *Translator) buildClickHouseWhere(conditions []models.Condition) string 
 			}
 
 			sql.WriteString(fmt.Sprintf("%s IN (%s)",
-				cond.Field,
+				fieldName,
 				strings.Join(values, ", ")))
 
 		case models.Between:
 			if len(cond.Values) == 2 {
 				sql.WriteString(fmt.Sprintf("%s BETWEEN %s AND %s",
-					cond.Field,
+					fieldName,
 					t.formatClickHouseValue(cond.Values[0]),
 					t.formatClickHouseValue(cond.Values[1])))
 			}
@@ -146,9 +161,9 @@ func (t *Translator) buildClickHouseWhere(conditions []models.Condition) string 
 			isNotNull, ok := cond.Value.(bool)
 			if ok {
 				if isNotNull {
-					sql.WriteString(fmt.Sprintf("%s IS NOT NULL", cond.Field))
+					sql.WriteString(fmt.Sprintf("%s IS NOT NULL", fieldName))
 				} else {
-					sql.WriteString(fmt.Sprintf("%s IS NULL", cond.Field))
+					sql.WriteString(fmt.Sprintf("%s IS NULL", fieldName))
 				}
 			}
 		}
@@ -159,10 +174,15 @@ func (t *Translator) buildClickHouseWhere(conditions []models.Condition) string 
 
 // toArangoDB converts to ArangoDB AQL
 func (t *Translator) toArangoDB(query *models.Query) (string, error) {
+	// Check for nil query
+	if query == nil {
+		return "", fmt.Errorf("cannot translate nil query to ArangoDB AQL")
+	}
+
 	var aql strings.Builder
 
 	// Start with the collection
-	aql.WriteString(fmt.Sprintf("FOR doc IN %s", string(query.Entity)))
+	aql.WriteString(fmt.Sprintf("FOR doc IN %s", strings.ToLower(string(query.Entity))))
 
 	// Add filter if conditions exist
 	if len(query.Conditions) > 0 {
@@ -181,7 +201,9 @@ func (t *Translator) toArangoDB(query *models.Query) (string, error) {
 				direction = "DESC"
 			}
 
-			sortParts = append(sortParts, fmt.Sprintf("doc.%s %s", item.Field, direction))
+			sortParts = append(sortParts, fmt.Sprintf("doc.%s %s",
+				strings.ToLower(item.Field), // Convert field name to lowercase
+				direction))
 		}
 
 		aql.WriteString(strings.Join(sortParts, ", "))
@@ -227,33 +249,36 @@ func (t *Translator) buildArangoDBFilter(conditions []models.Condition) string {
 			continue
 		}
 
+		// Get lowercase field name for case insensitivity
+		fieldName := strings.ToLower(cond.Field)
+
 		// Handle different operators
 		switch cond.Operator {
 		case models.Equals:
 			aql.WriteString(fmt.Sprintf("doc.%s == %s",
-				cond.Field,
+				fieldName,
 				t.formatArangoDBValue(cond.Value)))
 
 		case models.NotEquals:
 			aql.WriteString(fmt.Sprintf("doc.%s != %s",
-				cond.Field,
+				fieldName,
 				t.formatArangoDBValue(cond.Value)))
 
 		case models.GreaterThan, models.GreaterThanOrEquals,
 			models.LessThan, models.LessThanOrEquals:
 			aql.WriteString(fmt.Sprintf("doc.%s %s %s",
-				cond.Field,
+				fieldName,
 				t.translateOperator(cond.Operator),
 				t.formatArangoDBValue(cond.Value)))
 
 		case models.Like:
 			aql.WriteString(fmt.Sprintf("LIKE(doc.%s, %s, true)",
-				cond.Field,
+				fieldName,
 				t.formatArangoDBValue(cond.Value)))
 
 		case models.Contains:
 			aql.WriteString(fmt.Sprintf("CONTAINS(doc.%s, %s)",
-				cond.Field,
+				fieldName,
 				t.formatArangoDBValue(cond.Value)))
 
 		case models.In:
@@ -263,15 +288,15 @@ func (t *Translator) buildArangoDBFilter(conditions []models.Condition) string {
 			}
 
 			aql.WriteString(fmt.Sprintf("doc.%s IN [%s]",
-				cond.Field,
+				fieldName,
 				strings.Join(values, ", ")))
 
 		case models.Between:
 			if len(cond.Values) == 2 {
 				aql.WriteString(fmt.Sprintf("doc.%s >= %s AND doc.%s <= %s",
-					cond.Field,
+					fieldName,
 					t.formatArangoDBValue(cond.Values[0]),
-					cond.Field,
+					fieldName,
 					t.formatArangoDBValue(cond.Values[1])))
 			}
 
@@ -279,9 +304,9 @@ func (t *Translator) buildArangoDBFilter(conditions []models.Condition) string {
 			isNotNull, ok := cond.Value.(bool)
 			if ok {
 				if isNotNull {
-					aql.WriteString(fmt.Sprintf("doc.%s != null", cond.Field))
+					aql.WriteString(fmt.Sprintf("doc.%s != null", fieldName))
 				} else {
-					aql.WriteString(fmt.Sprintf("doc.%s == null", cond.Field))
+					aql.WriteString(fmt.Sprintf("doc.%s == null", fieldName))
 				}
 			}
 		}
