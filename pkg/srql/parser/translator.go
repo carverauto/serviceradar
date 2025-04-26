@@ -43,6 +43,11 @@ func (t *Translator) Translate(query *models.Query) (string, error) {
 	return "", fmt.Errorf("%w for database type: %s", errUnsupportedDatabaseType, t.DBType)
 }
 
+const (
+	defaultAscending  = "ASC"
+	defaultDescending = "DESC"
+)
+
 // toClickHouseSQL converts to ClickHouse SQL
 func (t *Translator) toClickHouseSQL(query *models.Query) (string, error) {
 	// Check for nil query again for safety
@@ -76,9 +81,9 @@ func (t *Translator) toClickHouseSQL(query *models.Query) (string, error) {
 		var orderByParts []string
 
 		for _, item := range query.OrderBy {
-			direction := "ASC"
+			direction := defaultAscending
 			if item.Direction == models.Descending {
-				direction = "DESC"
+				direction = defaultDescending
 			}
 
 			orderByParts = append(orderByParts, fmt.Sprintf("%s %s",
@@ -97,37 +102,8 @@ func (t *Translator) toClickHouseSQL(query *models.Query) (string, error) {
 	return sql.String(), nil
 }
 
-// buildClickHouseWhere builds a WHERE clause for ClickHouse SQL
-func (t *Translator) buildClickHouseWhere(conditions []models.Condition) string {
-	if len(conditions) == 0 {
-		return ""
-	}
-
-	var sql strings.Builder
-
-	for i, cond := range conditions {
-		// Add logical operator for conditions after the first
-		if i > 0 {
-			sql.WriteString(fmt.Sprintf(" %s ", cond.LogicalOp))
-		}
-
-		// Handle complex (nested) conditions
-		if cond.IsComplex {
-			sql.WriteString("(")
-			sql.WriteString(t.buildClickHouseWhere(cond.Complex))
-			sql.WriteString(")")
-			continue
-		}
-
-		// Format the condition based on its operator
-		sql.WriteString(t.formatClickHouseCondition(cond))
-	}
-
-	return sql.String()
-}
-
 // formatClickHouseCondition formats a single condition for ClickHouse SQL
-func (t *Translator) formatClickHouseCondition(cond models.Condition) string {
+func (t *Translator) formatClickHouseCondition(cond *models.Condition) string {
 	// Get lowercase field name for case insensitivity
 	fieldName := strings.ToLower(cond.Field)
 
@@ -151,9 +127,9 @@ func (t *Translator) formatClickHouseCondition(cond models.Condition) string {
 }
 
 // isComparisonOperator checks if the operator is a basic comparison operator
-func (t *Translator) isComparisonOperator(op models.OperatorType) bool {
-	return op == models.Equals || op == models.NotEquals || 
-		op == models.GreaterThan || op == models.GreaterThanOrEquals || 
+func (*Translator) isComparisonOperator(op models.OperatorType) bool {
+	return op == models.Equals || op == models.NotEquals ||
+		op == models.GreaterThan || op == models.GreaterThanOrEquals ||
 		op == models.LessThan || op == models.LessThanOrEquals
 }
 
@@ -174,10 +150,12 @@ func (t *Translator) formatContainsCondition(fieldName string, value interface{}
 
 // formatInCondition formats an IN condition
 func (t *Translator) formatInCondition(fieldName string, values []interface{}) string {
-	var formattedValues []string
+	formattedValues := make([]string, 0, len(values))
+
 	for _, val := range values {
 		formattedValues = append(formattedValues, t.formatClickHouseValue(val))
 	}
+
 	return fmt.Sprintf("%s IN (%s)", fieldName, strings.Join(formattedValues, ", "))
 }
 
@@ -189,18 +167,21 @@ func (t *Translator) formatBetweenCondition(fieldName string, values []interface
 			t.formatClickHouseValue(values[0]),
 			t.formatClickHouseValue(values[1]))
 	}
+
 	return ""
 }
 
 // formatIsCondition formats an IS NULL or IS NOT NULL condition
-func (t *Translator) formatIsCondition(fieldName string, value interface{}) string {
+func (*Translator) formatIsCondition(fieldName string, value interface{}) string {
 	isNotNull, ok := value.(bool)
 	if ok {
 		if isNotNull {
 			return fmt.Sprintf("%s IS NOT NULL", fieldName)
 		}
+
 		return fmt.Sprintf("%s IS NULL", fieldName)
 	}
+
 	return ""
 }
 
@@ -229,9 +210,9 @@ func (t *Translator) toArangoDB(query *models.Query) (string, error) {
 		var sortParts []string
 
 		for _, item := range query.OrderBy {
-			direction := "ASC"
+			direction := defaultAscending
 			if item.Direction == models.Descending {
-				direction = "DESC"
+				direction = defaultDescending
 			}
 
 			sortParts = append(sortParts, fmt.Sprintf("doc.%s %s",
@@ -265,97 +246,154 @@ const (
 	defaultModelsBetween = 2
 )
 
-// buildArangoDBFilter builds a FILTER clause for ArangoDB AQL
-func (t *Translator) buildArangoDBFilter(conditions []models.Condition) string {
+// buildConditionString is a generic method to build condition strings for different databases
+func (*Translator) buildConditionString(
+	conditions []models.Condition,
+	formatCondition func(*models.Condition) string,
+	recursiveBuild func([]models.Condition) string) string {
 	if len(conditions) == 0 {
 		return ""
 	}
 
-	var aql strings.Builder
+	var builder strings.Builder
 
 	for i, cond := range conditions {
 		// Add logical operator for conditions after the first
 		if i > 0 {
-			aql.WriteString(fmt.Sprintf(" %s ", cond.LogicalOp))
+			builder.WriteString(fmt.Sprintf(" %s ", cond.LogicalOp))
 		}
 
 		// Handle complex (nested) conditions
 		if cond.IsComplex {
-			aql.WriteString("(")
-			aql.WriteString(t.buildArangoDBFilter(cond.Complex))
-			aql.WriteString(")")
+			builder.WriteString("(")
+			builder.WriteString(recursiveBuild(cond.Complex))
+			builder.WriteString(")")
 
 			continue
 		}
 
-		// Get lowercase field name for case insensitivity
-		fieldName := strings.ToLower(cond.Field)
-
-		// Handle different operators
-		switch cond.Operator {
-		case models.Equals:
-			aql.WriteString(fmt.Sprintf("doc.%s == %s",
-				fieldName,
-				t.formatArangoDBValue(cond.Value)))
-
-		case models.NotEquals:
-			aql.WriteString(fmt.Sprintf("doc.%s != %s",
-				fieldName,
-				t.formatArangoDBValue(cond.Value)))
-
-		case models.GreaterThan, models.GreaterThanOrEquals,
-			models.LessThan, models.LessThanOrEquals:
-			aql.WriteString(fmt.Sprintf("doc.%s %s %s",
-				fieldName,
-				t.translateOperator(cond.Operator),
-				t.formatArangoDBValue(cond.Value)))
-
-		case models.Like:
-			aql.WriteString(fmt.Sprintf("LIKE(doc.%s, %s, true)",
-				fieldName,
-				t.formatArangoDBValue(cond.Value)))
-
-		case models.Contains:
-			aql.WriteString(fmt.Sprintf("CONTAINS(doc.%s, %s)",
-				fieldName,
-				t.formatArangoDBValue(cond.Value)))
-
-		case models.In:
-			var values []string
-
-			for _, val := range cond.Values {
-				values = append(values, t.formatArangoDBValue(val))
-			}
-
-			aql.WriteString(fmt.Sprintf("doc.%s IN [%s]",
-				fieldName,
-				strings.Join(values, ", ")))
-
-		case models.Between:
-			if len(cond.Values) == defaultModelsBetween {
-				aql.WriteString(fmt.Sprintf("doc.%s >= %s AND doc.%s <= %s",
-					fieldName,
-					t.formatArangoDBValue(cond.Values[0]),
-					fieldName,
-					t.formatArangoDBValue(cond.Values[1])))
-			}
-
-		case models.Is:
-			isNotNull, ok := cond.Value.(bool)
-			if ok {
-				if isNotNull {
-					aql.WriteString(fmt.Sprintf("doc.%s != null", fieldName))
-				} else {
-					aql.WriteString(fmt.Sprintf("doc.%s == null", fieldName))
-				}
-			}
-		}
+		// Format the condition based on its operator
+		builder.WriteString(formatCondition(&cond))
 	}
 
-	return aql.String()
+	return builder.String()
+}
+
+// buildClickHouseWhere builds a WHERE clause for ClickHouse SQL
+func (t *Translator) buildClickHouseWhere(conditions []models.Condition) string {
+	return t.buildConditionString(
+		conditions,
+		t.formatClickHouseCondition,
+		t.buildClickHouseWhere,
+	)
+}
+
+// buildArangoDBFilter builds a FILTER clause for ArangoDB AQL
+func (t *Translator) buildArangoDBFilter(conditions []models.Condition) string {
+	return t.buildConditionString(
+		conditions,
+		t.formatArangoDBCondition,
+		t.buildArangoDBFilter,
+	)
+}
+
+// formatArangoDBCondition formats a single condition for ArangoDB AQL
+func (t *Translator) formatArangoDBCondition(cond *models.Condition) string {
+	// Get lowercase field name for case insensitivity
+	fieldName := strings.ToLower(cond.Field)
+
+	// Handle different operators by operator type
+	switch cond.Operator {
+	case models.Equals:
+		return t.formatArangoDBEqualsCondition(fieldName, cond.Value)
+	case models.NotEquals:
+		return t.formatArangoDBNotEqualsCondition(fieldName, cond.Value)
+	case models.GreaterThan, models.GreaterThanOrEquals, models.LessThan, models.LessThanOrEquals:
+		return t.formatArangoDBComparisonCondition(fieldName, cond.Operator, cond.Value)
+	case models.Like:
+		return t.formatArangoDBLikeCondition(fieldName, cond.Value)
+	case models.Contains:
+		return t.formatArangoDBContainsCondition(fieldName, cond.Value)
+	case models.In:
+		return t.formatArangoDBInCondition(fieldName, cond.Values)
+	case models.Between:
+		return t.formatArangoDBBetweenCondition(fieldName, cond.Values)
+	case models.Is:
+		return t.formatArangoDBIsCondition(fieldName, cond.Value)
+	default:
+		return ""
+	}
+}
+
+// formatArangoDBEqualsCondition formats an equals condition
+func (t *Translator) formatArangoDBEqualsCondition(fieldName string, value interface{}) string {
+	return fmt.Sprintf("doc.%s == %s", fieldName, t.formatArangoDBValue(value))
+}
+
+// formatArangoDBNotEqualsCondition formats a not equals condition
+func (t *Translator) formatArangoDBNotEqualsCondition(fieldName string, value interface{}) string {
+	return fmt.Sprintf("doc.%s != %s", fieldName, t.formatArangoDBValue(value))
+}
+
+// formatArangoDBComparisonCondition formats a comparison condition (>, >=, <, <=)
+func (t *Translator) formatArangoDBComparisonCondition(fieldName string, op models.OperatorType, value interface{}) string {
+	return fmt.Sprintf("doc.%s %s %s", fieldName, t.translateOperator(op), t.formatArangoDBValue(value))
+}
+
+// formatArangoDBLikeCondition formats a LIKE condition
+func (t *Translator) formatArangoDBLikeCondition(fieldName string, value interface{}) string {
+	return fmt.Sprintf("LIKE(doc.%s, %s, true)", fieldName, t.formatArangoDBValue(value))
+}
+
+// formatArangoDBContainsCondition formats a CONTAINS condition
+func (t *Translator) formatArangoDBContainsCondition(fieldName string, value interface{}) string {
+	return fmt.Sprintf("CONTAINS(doc.%s, %s)", fieldName, t.formatArangoDBValue(value))
+}
+
+// formatArangoDBInCondition formats an IN condition
+func (t *Translator) formatArangoDBInCondition(fieldName string, values []interface{}) string {
+	formattedValues := make([]string, 0, len(values))
+
+	for _, val := range values {
+		formattedValues = append(formattedValues, t.formatArangoDBValue(val))
+	}
+
+	return fmt.Sprintf("doc.%s IN [%s]", fieldName, strings.Join(formattedValues, ", "))
+}
+
+// formatArangoDBBetweenCondition formats a BETWEEN condition
+func (t *Translator) formatArangoDBBetweenCondition(fieldName string, values []interface{}) string {
+	if len(values) == defaultModelsBetween {
+		return fmt.Sprintf("doc.%s >= %s AND doc.%s <= %s",
+			fieldName,
+			t.formatArangoDBValue(values[0]),
+			fieldName,
+			t.formatArangoDBValue(values[1]))
+	}
+
+	return ""
+}
+
+// formatArangoDBIsCondition formats an IS NULL or IS NOT NULL condition
+func (*Translator) formatArangoDBIsCondition(fieldName string, value interface{}) string {
+	isNotNull, ok := value.(bool)
+	if ok {
+		if isNotNull {
+			return fmt.Sprintf("doc.%s != null", fieldName)
+		}
+
+		return fmt.Sprintf("doc.%s == null", fieldName)
+	}
+
+	return ""
 }
 
 // Helper methods for formatting values
+
+const (
+	defaultBoolValueTrue  = "true"
+	defaultBoolValueFalse = "false"
+)
 
 func (*Translator) formatClickHouseValue(value interface{}) string {
 	switch v := value.(type) {
@@ -363,9 +401,10 @@ func (*Translator) formatClickHouseValue(value interface{}) string {
 		return fmt.Sprintf("'%s'", strings.ReplaceAll(v, "'", "\\'"))
 	case bool:
 		if v {
-			return "true"
+			return defaultBoolValueTrue
 		}
-		return "false"
+
+		return defaultBoolValueFalse
 	default:
 		return fmt.Sprintf("%v", v)
 	}
@@ -377,10 +416,10 @@ func (*Translator) formatArangoDBValue(value interface{}) string {
 		return fmt.Sprintf("'%s'", strings.ReplaceAll(v, "'", "\\'"))
 	case bool:
 		if v {
-			return "true"
+			return defaultBoolValueTrue
 		}
 
-		return "false"
+		return defaultBoolValueFalse
 	default:
 		return fmt.Sprintf("%v", v)
 	}

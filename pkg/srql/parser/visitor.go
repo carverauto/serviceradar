@@ -9,7 +9,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/srql/parser/gen"
 )
 
-// QueryVisitor visits the parse tree and builds a Query model
+// QueryVisitor visits the parse tree and builds a Query model.
 type QueryVisitor struct {
 	gen.BaseServiceRadarQueryLanguageListener
 }
@@ -41,126 +41,134 @@ func (v *QueryVisitor) VisitQuery(ctx *gen.QueryContext) interface{} {
 	return nil
 }
 
-// VisitShowStatement visits the show statement rule
-func (v *QueryVisitor) VisitShowStatement(ctx *gen.ShowStatementContext) interface{} {
+// buildQuery constructs a Query model from a statement context.
+func (v *QueryVisitor) buildQuery(ctx interface{}, queryType models.QueryType) *models.Query {
 	query := &models.Query{
-		Type: models.Show,
+		Type: queryType,
 	}
 
-	// Get entity
-	for i := 0; i < ctx.GetChildCount(); i++ {
-		if entityCtx, ok := ctx.GetChild(i).(*gen.EntityContext); ok {
+	// Configure context accessors
+	accessors, ok := v.getContextAccessors(ctx)
+	if !ok {
+		return query // Return empty query for unsupported context
+	}
+
+	// Set query fields
+	v.setEntity(query, accessors)
+	v.setConditions(query, accessors.condition)
+	v.setOrderBy(query, accessors.orderByClause)
+	v.setLimit(query, accessors)
+
+	return query
+}
+
+// contextAccessors holds functions to access context-specific data.
+type contextAccessors struct {
+	childCount    int
+	getChild      func(int) antlr.Tree
+	condition     func() gen.IConditionContext
+	orderByClause func() gen.IOrderByClauseContext
+	limitToken    func() antlr.TerminalNode
+}
+
+// getContextAccessors returns context-specific accessors.
+func (*QueryVisitor) getContextAccessors(ctx interface{}) (contextAccessors, bool) {
+	var accessors contextAccessors
+
+	switch c := ctx.(type) {
+	case *gen.ShowStatementContext:
+		accessors = contextAccessors{
+			childCount:    c.GetChildCount(),
+			getChild:      c.GetChild,
+			condition:     c.Condition,
+			orderByClause: c.OrderByClause,
+			limitToken:    c.LIMIT,
+		}
+	case *gen.FindStatementContext:
+		accessors = contextAccessors{
+			childCount:    c.GetChildCount(),
+			getChild:      c.GetChild,
+			condition:     c.Condition,
+			orderByClause: c.OrderByClause,
+			limitToken:    c.LIMIT,
+		}
+	case *gen.CountStatementContext:
+		accessors = contextAccessors{
+			childCount: c.GetChildCount(),
+			getChild:   c.GetChild,
+			condition:  c.Condition,
+		}
+	default:
+		return contextAccessors{}, false
+	}
+
+	return accessors, true
+}
+
+// setEntity sets the query's entity field.
+func (v *QueryVisitor) setEntity(query *models.Query, accessors contextAccessors) {
+	for i := 0; i < accessors.childCount; i++ {
+		if entityCtx, ok := accessors.getChild(i).(*gen.EntityContext); ok {
 			query.Entity = v.getEntityType(entityCtx)
 
-			break
+			return
 		}
 	}
+}
 
-	// Get conditions if present
-	if ctx.Condition() != nil {
-		conditionCtx := ctx.Condition().(*gen.ConditionContext)
-		query.Conditions = v.VisitCondition(conditionCtx).([]models.Condition)
+// setConditions sets the query's conditions field
+func (v *QueryVisitor) setConditions(query *models.Query, condition func() gen.IConditionContext) {
+	if condition != nil {
+		if conditionCtx := condition(); conditionCtx != nil {
+			query.Conditions = v.VisitCondition(conditionCtx.(*gen.ConditionContext)).([]models.Condition)
+		}
+	}
+}
+
+// setOrderBy sets the query's order-by field
+func (v *QueryVisitor) setOrderBy(query *models.Query, orderByClause func() gen.IOrderByClauseContext) {
+	if orderByClause != nil {
+		if orderByCtx := orderByClause(); orderByCtx != nil {
+			query.OrderBy = v.VisitOrderByClause(orderByCtx.(*gen.OrderByClauseContext)).([]models.OrderByItem)
+		}
+	}
+}
+
+// setLimit sets the query's limit field
+func (*QueryVisitor) setLimit(query *models.Query, accessors contextAccessors) {
+	if accessors.limitToken == nil || accessors.limitToken() == nil {
+		return
 	}
 
-	// Get order by clause if present
-	if ctx.OrderByClause() != nil {
-		orderByCtx := ctx.OrderByClause().(*gen.OrderByClauseContext)
-		query.OrderBy = v.VisitOrderByClause(orderByCtx).([]models.OrderByItem)
-	}
+	for i := 0; i < accessors.childCount; i++ {
+		if termNode, ok := accessors.getChild(i).(antlr.TerminalNode); ok {
+			token := termNode.GetSymbol()
+			if token.GetTokenType() == gen.ServiceRadarQueryLanguageParserINTEGER {
+				limitStr := token.GetText()
+				limit, _ := strconv.Atoi(limitStr)
 
-	// Get limit if present
-	if ctx.LIMIT() != nil {
-		// Find INTEGER token
-		for i := 0; i < ctx.GetChildCount(); i++ {
-			if termNode, ok := ctx.GetChild(i).(antlr.TerminalNode); ok {
-				token := termNode.GetSymbol()
-				if token.GetTokenType() == gen.ServiceRadarQueryLanguageParserINTEGER {
-					limitStr := token.GetText()
-					limit, _ := strconv.Atoi(limitStr)
+				query.Limit = limit
+				query.HasLimit = true
 
-					query.Limit = limit
-					query.HasLimit = true
-
-					break
-				}
+				return
 			}
 		}
 	}
+}
 
-	return query
+// VisitShowStatement visits the show statement rule
+func (v *QueryVisitor) VisitShowStatement(ctx *gen.ShowStatementContext) interface{} {
+	return v.buildQuery(ctx, models.Show)
 }
 
 // VisitFindStatement visits the find statement rule
 func (v *QueryVisitor) VisitFindStatement(ctx *gen.FindStatementContext) interface{} {
-	query := &models.Query{
-		Type: models.Find,
-	}
-
-	// Get entity
-	for i := 0; i < ctx.GetChildCount(); i++ {
-		if entityCtx, ok := ctx.GetChild(i).(*gen.EntityContext); ok {
-			query.Entity = v.getEntityType(entityCtx)
-
-			break
-		}
-	}
-
-	// Get conditions if present
-	if ctx.Condition() != nil {
-		conditionCtx := ctx.Condition().(*gen.ConditionContext)
-		query.Conditions = v.VisitCondition(conditionCtx).([]models.Condition)
-	}
-
-	// Get order by clause if present
-	if ctx.OrderByClause() != nil {
-		orderByCtx := ctx.OrderByClause().(*gen.OrderByClauseContext)
-		query.OrderBy = v.VisitOrderByClause(orderByCtx).([]models.OrderByItem)
-	}
-
-	// Get limit if present
-	if ctx.LIMIT() != nil {
-		// Find INTEGER token
-		for i := 0; i < ctx.GetChildCount(); i++ {
-			if termNode, ok := ctx.GetChild(i).(antlr.TerminalNode); ok {
-				token := termNode.GetSymbol()
-				if token.GetTokenType() == gen.ServiceRadarQueryLanguageParserINTEGER {
-					limitStr := token.GetText()
-					limit, _ := strconv.Atoi(limitStr)
-
-					query.Limit = limit
-					query.HasLimit = true
-
-					break
-				}
-			}
-		}
-	}
-
-	return query
+	return v.buildQuery(ctx, models.Find)
 }
 
 // VisitCountStatement visits the count statement rule
 func (v *QueryVisitor) VisitCountStatement(ctx *gen.CountStatementContext) interface{} {
-	query := &models.Query{
-		Type: models.Count,
-	}
-
-	// Get entity
-	for i := 0; i < ctx.GetChildCount(); i++ {
-		if entityCtx, ok := ctx.GetChild(i).(*gen.EntityContext); ok {
-			query.Entity = v.getEntityType(entityCtx)
-
-			break
-		}
-	}
-
-	// Get conditions if present
-	if ctx.Condition() != nil {
-		conditionCtx := ctx.Condition().(*gen.ConditionContext)
-		query.Conditions = v.VisitCondition(conditionCtx).([]models.Condition)
-	}
-
-	return query
+	return v.buildQuery(ctx, models.Count)
 }
 
 // VisitCondition visits the condition rule
