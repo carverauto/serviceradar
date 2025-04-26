@@ -27,7 +27,7 @@ First, generate the parser code from the ANTLR grammar:
 
 ```bash
 cd srql/antlr
-antlr -Dlanguage=Go -package gen -o ../parser/gen NetworkQueryLanguage.g4
+antlr -Dlanguage=Go -package gen -o ../parser/gen ServiceRadarQueryLanguage.g4
 ```
 
 ## Using the Package
