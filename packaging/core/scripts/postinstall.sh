@@ -32,7 +32,6 @@ fi
 mkdir -p /var/lib/serviceradar
 mkdir -p /etc/serviceradar
 
-# Ensure api.env exists and has API_KEY and JWT_SECRET
 # Ensure api.env exists and has valid API_KEY and JWT_SECRET values
 if [ ! -f "/etc/serviceradar/api.env" ]; then
     echo "Generating new api.env with API_KEY and JWT_SECRET..."
@@ -103,20 +102,19 @@ if [ -f "/etc/serviceradar/core.json" ] && [ -n "$JWT_SECRET" ]; then
         if grep -q '"jwt_secret":[[:space:]]*"changeme"' /etc/serviceradar/core.json || \
            grep -q '"jwt_secret":[[:space:]]*""' /etc/serviceradar/core.json; then
             echo "Updating JWT_SECRET in core.json with the value from api.env..."
-            # Use temp file to avoid issues with in-place editing
             TEMP_FILE=$(mktemp)
-            cat /etc/serviceradar/core.json | \
-                sed -E 's/"jwt_secret":[[:space:]]*"[^"]*"/"jwt_secret": "'"$JWT_SECRET"'"/' > "$TEMP_FILE"
+            # Use --arg to safely pass JWT_SECRET to jq
+            jq --arg secret "$JWT_SECRET" '.auth.jwt_secret = $secret' /etc/serviceradar/core.json > "$TEMP_FILE"
             mv "$TEMP_FILE" /etc/serviceradar/core.json
             echo "Updated JWT_SECRET in core.json"
         else
             # If jwt_secret exists but doesn't match the one in api.env, synchronize them
-            CORE_JWT=$(grep -o '"jwt_secret":[[:space:]]*"[^"]*"' /etc/serviceradar/core.json | sed -E 's/"jwt_secret":[[:space:]]*"([^"]*)".*$/\1/')
+            CORE_JWT=$(jq -r '.auth.jwt_secret' /etc/serviceradar/core.json)
             if [ "$CORE_JWT" != "$JWT_SECRET" ]; then
                 echo "Synchronizing JWT_SECRET in core.json with api.env..."
                 TEMP_FILE=$(mktemp)
-                cat /etc/serviceradar/core.json | \
-                    sed -E 's/"jwt_secret":[[:space:]]*"[^"]*"/"jwt_secret": "'"$JWT_SECRET"'"/' > "$TEMP_FILE"
+                # Use --arg to safely pass JWT_SECRET to jq
+                jq --arg secret "$JWT_SECRET" '.auth.jwt_secret = $secret' /etc/serviceradar/core.json > "$TEMP_FILE"
                 mv "$TEMP_FILE" /etc/serviceradar/core.json
                 echo "Synchronized JWT_SECRET between core.json and api.env"
             fi
@@ -126,12 +124,11 @@ if [ -f "/etc/serviceradar/core.json" ] && [ -n "$JWT_SECRET" ]; then
         chown serviceradar:serviceradar /etc/serviceradar/core.json
         chmod 644 /etc/serviceradar/core.json
     else
-        # If there's no auth section, we need to add one with the JWT_SECRET
+        # If there's no auth section, add one with the JWT_SECRET
         echo "Adding auth section with JWT_SECRET to core.json..."
         TEMP_FILE=$(mktemp)
-        # Inject the auth section before the closing brace
-        sed '$ s/}/,\n  "auth": {\n    "jwt_secret": "'"$JWT_SECRET"'",\n    "local_users": {}\n  }\n}/' \
-            /etc/serviceradar/core.json > "$TEMP_FILE"
+        # Use --arg to safely pass JWT_SECRET to jq
+        jq --arg secret "$JWT_SECRET" '. + {auth: {jwt_secret: $secret, local_users: {}}}' /etc/serviceradar/core.json > "$TEMP_FILE"
         mv "$TEMP_FILE" /etc/serviceradar/core.json
         chown serviceradar:serviceradar /etc/serviceradar/core.json
         chmod 644 /etc/serviceradar/core.json

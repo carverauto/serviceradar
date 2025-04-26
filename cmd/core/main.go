@@ -17,11 +17,11 @@
 // @title ServiceRadar API
 // @version 1.0
 // @description API for monitoring and managing service pollers in the ServiceRadar system
-// @termsOfService http://carverauto.com/terms/
+// @termsOfService https://serviceradar.cloud/terms/
 
 // @contact.name API Support
-// @contact.url http://carverauto.com/support
-// @contact.email support@carverauto.com
+// @contact.url https://serviceradar.cloud/support
+// @contact.email support@serviceradar.cloud
 
 // @license.name Apache 2.0
 // @license.url http://www.apache.org/licenses/LICENSE-2.0.html
