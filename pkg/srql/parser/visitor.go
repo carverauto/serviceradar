@@ -187,146 +187,140 @@ func (v *QueryVisitor) VisitCondition(ctx *gen.ConditionContext) interface{} {
 	return conditions
 }
 
-// VisitExpression visits the expression rule
+// VisitExpression visits the expression rule.
 func (v *QueryVisitor) VisitExpression(ctx *gen.ExpressionContext) interface{} {
-	// Handle simple comparison
-	if ctx.Field() != nil && ctx.ComparisonOperator() != nil && len(ctx.AllValue()) > 0 {
-		field := v.VisitField(ctx.Field().(*gen.FieldContext)).(string)
-		op := v.getOperatorType(ctx.ComparisonOperator().(*gen.ComparisonOperatorContext))
-		value := v.VisitValue(ctx.Value(0).(*gen.ValueContext))
-
-		return models.Condition{
-			Field:    field,
-			Operator: op,
-			Value:    value,
-		}
+	if v.isComparisonExpression(ctx) {
+		return v.handleComparison(ctx)
 	}
 
-	// Handle IN operator
-	if ctx.Field() != nil && ctx.IN() != nil {
-		field := v.VisitField(ctx.Field().(*gen.FieldContext)).(string)
-		valueListCtx := ctx.ValueList().(*gen.ValueListContext)
-		values := v.VisitValueList(valueListCtx).([]interface{})
-
-		return models.Condition{
-			Field:    field,
-			Operator: models.In,
-			Values:   values,
-		}
+	if v.isInExpression(ctx) {
+		return v.handleInOperator(ctx)
 	}
 
-	// Handle CONTAINS operator
-	if ctx.Field() != nil && ctx.CONTAINS() != nil {
-		field := v.VisitField(ctx.Field().(*gen.FieldContext)).(string)
-		valueCtx := ctx.STRING().GetText()
-		// Remove quotes
-		valueStr := valueCtx[1 : len(valueCtx)-1]
-
-		return models.Condition{
-			Field:    field,
-			Operator: models.Contains,
-			Value:    valueStr,
-		}
+	if v.isContainsExpression(ctx) {
+		return v.handleContainsOperator(ctx)
 	}
 
-	// Handle parenthesized condition
-	if ctx.LPAREN() != nil && ctx.Condition() != nil {
-		conditionCtx := ctx.Condition().(*gen.ConditionContext)
-		nestedConditions := v.VisitCondition(conditionCtx).([]models.Condition)
-
-		return models.Condition{
-			IsComplex: true,
-			Complex:   nestedConditions,
-		}
+	if v.isParenthesizedExpression(ctx) {
+		return v.handleParenthesizedCondition(ctx)
 	}
 
-	// Handle BETWEEN operator
-	if ctx.Field() != nil && ctx.BETWEEN() != nil {
-		field := v.VisitField(ctx.Field().(*gen.FieldContext)).(string)
-		value1 := v.VisitValue(ctx.Value(0).(*gen.ValueContext))
-		value2 := v.VisitValue(ctx.Value(1).(*gen.ValueContext))
-
-		return models.Condition{
-			Field:    field,
-			Operator: models.Between,
-			Values:   []interface{}{value1, value2},
-		}
+	if v.isBetweenExpression(ctx) {
+		return v.handleBetweenOperator(ctx)
 	}
 
-	// Handle IS NULL or IS NOT NULL
-	if ctx.Field() != nil && ctx.IS() != nil {
-		field := v.VisitField(ctx.Field().(*gen.FieldContext)).(string)
-		nullValueCtx := ctx.NullValue().(*gen.NullValueContext)
-
-		isNotNull := nullValueCtx.NOT() != nil
-
-		return models.Condition{
-			Field:    field,
-			Operator: models.Is,
-			Value:    isNotNull, // true for IS NOT NULL, false for IS NULL
-		}
+	if v.isNullExpression(ctx) {
+		return v.handleIsNullOperator(ctx)
 	}
 
 	return models.Condition{}
 }
 
-// VisitField visits the field rule
-func (v *QueryVisitor) VisitField(ctx *gen.FieldContext) interface{} {
-	// Check if there are ID tokens
-	idCount := 0
+// Expression type checkers
+func (*QueryVisitor) isComparisonExpression(ctx *gen.ExpressionContext) bool {
+	return ctx.Field() != nil && ctx.ComparisonOperator() != nil && len(ctx.AllValue()) > 0
+}
 
-	for i := 0; i < ctx.GetChildCount(); i++ {
-		if termNode, ok := ctx.GetChild(i).(antlr.TerminalNode); ok {
-			token := termNode.GetSymbol()
-			if token.GetTokenType() == gen.ServiceRadarQueryLanguageParserID {
-				idCount++
-			}
-		}
+func (*QueryVisitor) isInExpression(ctx *gen.ExpressionContext) bool {
+	return ctx.Field() != nil && ctx.IN() != nil
+}
+
+func (*QueryVisitor) isContainsExpression(ctx *gen.ExpressionContext) bool {
+	return ctx.Field() != nil && ctx.CONTAINS() != nil
+}
+
+func (*QueryVisitor) isParenthesizedExpression(ctx *gen.ExpressionContext) bool {
+	return ctx.LPAREN() != nil && ctx.Condition() != nil
+}
+
+func (*QueryVisitor) isBetweenExpression(ctx *gen.ExpressionContext) bool {
+	return ctx.Field() != nil && ctx.BETWEEN() != nil
+}
+
+func (*QueryVisitor) isNullExpression(ctx *gen.ExpressionContext) bool {
+	return ctx.Field() != nil && ctx.IS() != nil
+}
+
+func (v *QueryVisitor) handleComparison(ctx *gen.ExpressionContext) models.Condition {
+	field := v.VisitField(ctx.Field().(*gen.FieldContext)).(string)
+	op := v.getOperatorType(ctx.ComparisonOperator().(*gen.ComparisonOperatorContext))
+	value := v.VisitValue(ctx.Value(0).(*gen.ValueContext))
+
+	return models.Condition{
+		Field:    field,
+		Operator: op,
+		Value:    value,
 	}
+}
 
-	// Check if there are entity contexts
-	hasEntity := false
+func (v *QueryVisitor) handleInOperator(ctx *gen.ExpressionContext) models.Condition {
+	field := v.VisitField(ctx.Field().(*gen.FieldContext)).(string)
+	valueListCtx := ctx.ValueList().(*gen.ValueListContext)
+	values := v.VisitValueList(valueListCtx).([]interface{})
 
-	for i := 0; i < ctx.GetChildCount(); i++ {
-		if _, ok := ctx.GetChild(i).(*gen.EntityContext); ok {
-			hasEntity = true
-
-			break
-		}
+	return models.Condition{
+		Field:    field,
+		Operator: models.In,
+		Values:   values,
 	}
+}
 
-	// Simple field (just an ID without entity prefix)
-	if idCount > 0 && !hasEntity {
-		// Find the first ID token
-		for i := 0; i < ctx.GetChildCount(); i++ {
-			if node, ok := ctx.GetChild(i).(antlr.TerminalNode); ok {
-				token := node.GetSymbol()
-				if token.GetTokenType() == gen.ServiceRadarQueryLanguageParserID {
-					return token.GetText()
-				}
-			}
-		}
+func (v *QueryVisitor) handleContainsOperator(ctx *gen.ExpressionContext) models.Condition {
+	field := v.VisitField(ctx.Field().(*gen.FieldContext)).(string)
+	valueCtx := ctx.STRING().GetText()
+	valueStr := valueCtx[1 : len(valueCtx)-1]
+
+	return models.Condition{
+		Field:    field,
+		Operator: models.Contains,
+		Value:    valueStr,
 	}
+}
 
-	// Handle dotted field notation
+func (v *QueryVisitor) handleParenthesizedCondition(ctx *gen.ExpressionContext) models.Condition {
+	conditionCtx := ctx.Condition().(*gen.ConditionContext)
+	nestedConditions := v.VisitCondition(conditionCtx).([]models.Condition)
+
+	return models.Condition{
+		IsComplex: true,
+		Complex:   nestedConditions,
+	}
+}
+
+func (v *QueryVisitor) handleBetweenOperator(ctx *gen.ExpressionContext) models.Condition {
+	field := v.VisitField(ctx.Field().(*gen.FieldContext)).(string)
+	value1 := v.VisitValue(ctx.Value(0).(*gen.ValueContext))
+	value2 := v.VisitValue(ctx.Value(1).(*gen.ValueContext))
+
+	return models.Condition{
+		Field:    field,
+		Operator: models.Between,
+		Values:   []interface{}{value1, value2},
+	}
+}
+
+func (v *QueryVisitor) handleIsNullOperator(ctx *gen.ExpressionContext) models.Condition {
+	field := v.VisitField(ctx.Field().(*gen.FieldContext)).(string)
+	nullValueCtx := ctx.NullValue().(*gen.NullValueContext)
+	isNotNull := nullValueCtx.NOT() != nil
+
+	return models.Condition{
+		Field:    field,
+		Operator: models.Is,
+		Value:    isNotNull,
+	}
+}
+
+// VisitField visits the field rule.
+func (*QueryVisitor) VisitField(ctx *gen.FieldContext) interface{} {
 	var parts []string
 
-	// Check if there's an entity in the field using GetChild
-	var entityText string
-
-	foundEntity := false
-
+	// Check for entity
 	for i := 0; i < ctx.GetChildCount(); i++ {
 		if entity, ok := ctx.GetChild(i).(*gen.EntityContext); ok {
-			entityText = entity.GetText()
-			foundEntity = true
-
+			parts = append(parts, strings.ToLower(entity.GetText()))
 			break
 		}
-	}
-
-	if foundEntity {
-		parts = append(parts, strings.ToLower(entityText))
 	}
 
 	// Collect all ID tokens
@@ -339,6 +333,12 @@ func (v *QueryVisitor) VisitField(ctx *gen.FieldContext) interface{} {
 		}
 	}
 
+	// If no entity and one ID, return simple field
+	if len(parts) == 1 && ctx.GetChildCount() == 1 {
+		return parts[0]
+	}
+
+	// Return dotted notation
 	return strings.Join(parts, ".")
 }
 
