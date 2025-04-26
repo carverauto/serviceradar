@@ -21,8 +21,7 @@ func NewQueryVisitor() *QueryVisitor {
 
 // Visit dispatches the call to the specific visit method
 func (v *QueryVisitor) Visit(tree antlr.ParseTree) interface{} {
-	switch t := tree.(type) {
-	case *gen.QueryContext:
+	if t, ok := tree.(*gen.QueryContext); ok {
 		return v.VisitQuery(t)
 	}
 
@@ -385,7 +384,7 @@ func (v *QueryVisitor) VisitOrderByItem(ctx *gen.OrderByItemContext) interface{}
 }
 
 // VisitValue visits the value rule
-func (v *QueryVisitor) VisitValue(ctx *gen.ValueContext) interface{} {
+func (*QueryVisitor) VisitValue(ctx *gen.ValueContext) interface{} {
 	if ctx.STRING() != nil {
 		text := ctx.STRING().GetText()
 
@@ -429,7 +428,7 @@ func (v *QueryVisitor) VisitValue(ctx *gen.ValueContext) interface{} {
 
 // Helper methods
 
-func (v *QueryVisitor) getEntityType(ctx *gen.EntityContext) models.EntityType {
+func (*QueryVisitor) getEntityType(ctx *gen.EntityContext) models.EntityType {
 	if ctx.DEVICES() != nil {
 		return models.Devices
 	}
@@ -453,7 +452,7 @@ func (v *QueryVisitor) getEntityType(ctx *gen.EntityContext) models.EntityType {
 	return ""
 }
 
-func (v *QueryVisitor) getOperatorType(ctx *gen.ComparisonOperatorContext) models.OperatorType {
+func (*QueryVisitor) getOperatorType(ctx *gen.ComparisonOperatorContext) models.OperatorType {
 	if ctx.EQ() != nil {
 		return models.Equals
 	}
@@ -485,7 +484,7 @@ func (v *QueryVisitor) getOperatorType(ctx *gen.ComparisonOperatorContext) model
 	return ""
 }
 
-func (v *QueryVisitor) getLogicalOperator(ctx *gen.LogicalOperatorContext) models.LogicalOperator {
+func (*QueryVisitor) getLogicalOperator(ctx *gen.LogicalOperatorContext) models.LogicalOperator {
 	if ctx.AND() != nil {
 		return models.And
 	}
