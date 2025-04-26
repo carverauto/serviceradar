@@ -88,30 +88,30 @@ value
     | MACADDRESS
     ;
 
-// Lexer Rules
-SHOW : 'show' | 'SHOW';
-FIND : 'find' | 'FIND';
-COUNT : 'count' | 'COUNT';
-WHERE : 'where' | 'WHERE';
-ORDER : 'order' | 'ORDER';
-BY : 'by' | 'BY';
-LIMIT : 'limit' | 'LIMIT';
-ASC : 'asc' | 'ASC';
-DESC : 'desc' | 'DESC';
-AND : 'and' | 'AND';
-OR : 'or' | 'OR';
-IN : 'in' | 'IN';
-BETWEEN : 'between' | 'BETWEEN';
-CONTAINS : 'contains' | 'CONTAINS';
-IS : 'is' | 'IS';
-NOT : 'not' | 'NOT';
-NULL : 'null' | 'NULL';
+// Lexer Rules - All case insensitive
+SHOW : S H O W ;
+FIND : F I N D ;
+COUNT : C O U N T ;
+WHERE : W H E R E ;
+ORDER : O R D E R ;
+BY : B Y ;
+LIMIT : L I M I T ;
+ASC : A S C ;
+DESC : D E S C ;
+AND : A N D ;
+OR : O R ;
+IN : I N ;
+BETWEEN : B E T W E E N ;
+CONTAINS : C O N T A I N S ;
+IS : I S ;
+NOT : N O T ;
+NULL : N U L L ;
 
-DEVICES : 'devices' | 'DEVICES';
-FLOWS : 'flows' | 'FLOWS';
-TRAPS : 'traps' | 'TRAPS';
-CONNECTIONS : 'connections' | 'CONNECTIONS';
-LOGS : 'logs' | 'LOGS';
+DEVICES : D E V I C E S ;
+FLOWS : F L O W S ;
+TRAPS : T R A P S ;
+CONNECTIONS : C O N N E C T I O N S ;
+LOGS : L O G S ;
 
 EQ : '=' | '==';
 NEQ : '!=' | '<>';
@@ -119,9 +119,9 @@ GT : '>';
 GTE : '>=';
 LT : '<';
 LTE : '<=';
-LIKE : 'like' | 'LIKE';
+LIKE : L I K E ;
 
-BOOLEAN : 'true' | 'TRUE' | 'false' | 'FALSE';
+BOOLEAN : T R U E | F A L S E ;
 
 DOT : '.';
 COMMA : ',';
@@ -139,5 +139,33 @@ STRING : (QUOTE .*? QUOTE) | (APOSTROPHE .*? APOSTROPHE);
 TIMESTAMP : APOSTROPHE [0-9][0-9][0-9][0-9] '-' [0-9][0-9] '-' [0-9][0-9] ' ' [0-9][0-9] ':' [0-9][0-9] ':' [0-9][0-9] APOSTROPHE;
 IPADDRESS : [0-9]+ '.' [0-9]+ '.' [0-9]+ '.' [0-9]+;
 MACADDRESS : [0-9a-fA-F][0-9a-fA-F] ':' [0-9a-fA-F][0-9a-fA-F] ':' [0-9a-fA-F][0-9a-fA-F] ':' [0-9a-fA-F][0-9a-fA-F] ':' [0-9a-fA-F][0-9a-fA-F] ':' [0-9a-fA-F][0-9a-fA-F];
+
+// Fragment rules for case insensitivity
+fragment A : [aA];
+fragment B : [bB];
+fragment C : [cC];
+fragment D : [dD];
+fragment E : [eE];
+fragment F : [fF];
+fragment G : [gG];
+fragment H : [hH];
+fragment I : [iI];
+fragment J : [jJ];
+fragment K : [kK];
+fragment L : [lL];
+fragment M : [mM];
+fragment N : [nN];
+fragment O : [oO];
+fragment P : [pP];
+fragment Q : [qQ];
+fragment R : [rR];
+fragment S : [sS];
+fragment T : [tT];
+fragment U : [uU];
+fragment V : [vV];
+fragment W : [wW];
+fragment X : [xX];
+fragment Y : [yY];
+fragment Z : [zZ];
 
 WS : [ \t\r\n]+ -> skip;
