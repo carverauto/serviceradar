@@ -182,6 +182,8 @@ p1.diff
 # Ignore specific asset directories that you don’t need in the repository
 pkg/cloud/api/web/dist/favicons/
 
+pkg/srql/parser/gen
+
 # Ignore versioned build outputs
 serviceradar-agent_*
 serviceradar-dusk-checker_*
