@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Sun, Moon, Menu, X, User, LogOut, ChevronDown, Wrench } from 'lucide-react';
+import { Sun, Moon, Menu, X, User, LogOut, ChevronDown, SlidersHorizontal } from 'lucide-react';
 import { useTheme } from '@/app/providers';
 import { useAuth } from '@/components/AuthProvider';
 
@@ -59,7 +59,7 @@ function Navbar() {
                     onClick={toggleDropdown}
                     className="flex items-center text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100"
                 >
-                  <Wrench className="h-5 w-5 mr-1" />
+                  <SlidersHorizontal className="h-5 w-5 mr-1" />
                   <ChevronDown className="h-4 w-4" />
                 </button>
                 {dropdownOpen && (
