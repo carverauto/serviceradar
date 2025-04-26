@@ -71,7 +71,8 @@ func (t *Translator) toClickHouseSQL(query *models.Query) (string, error) {
 	// Add ORDER BY clause if present
 	if len(query.OrderBy) > 0 {
 		sql.WriteString(" ORDER BY ")
-		orderByParts := []string{}
+
+		var orderByParts []string
 
 		for _, item := range query.OrderBy {
 			direction := "ASC"
@@ -114,6 +115,7 @@ func (t *Translator) buildClickHouseWhere(conditions []models.Condition) string 
 			sql.WriteString("(")
 			sql.WriteString(t.buildClickHouseWhere(cond.Complex))
 			sql.WriteString(")")
+
 			continue
 		}
 
@@ -193,7 +195,8 @@ func (t *Translator) toArangoDB(query *models.Query) (string, error) {
 	// Add sort if order by exists
 	if len(query.OrderBy) > 0 {
 		aql.WriteString("\n  SORT ")
-		sortParts := []string{}
+
+		var sortParts []string
 
 		for _, item := range query.OrderBy {
 			direction := "ASC"
@@ -221,6 +224,7 @@ func (t *Translator) toArangoDB(query *models.Query) (string, error) {
 	case models.Count:
 		// Wrap the whole query in a count
 		countAQL := fmt.Sprintf("RETURN LENGTH(\n%s\n)", aql.String())
+
 		return countAQL, nil
 	}
 
@@ -246,6 +250,7 @@ func (t *Translator) buildArangoDBFilter(conditions []models.Condition) string {
 			aql.WriteString("(")
 			aql.WriteString(t.buildArangoDBFilter(cond.Complex))
 			aql.WriteString(")")
+
 			continue
 		}
 
@@ -339,6 +344,7 @@ func (t *Translator) formatArangoDBValue(value interface{}) string {
 		if v {
 			return "true"
 		}
+
 		return "false"
 	default:
 		return fmt.Sprintf("%v", v)

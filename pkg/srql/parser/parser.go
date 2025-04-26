@@ -29,6 +29,7 @@ func (p *Parser) Parse(queryStr string) (*models.Query, error) {
 
 	// Set error handling
 	errorListener := &errorListener{}
+
 	parser.RemoveErrorListeners()
 	parser.AddErrorListener(errorListener)
 
@@ -51,7 +52,7 @@ func (p *Parser) Parse(queryStr string) (*models.Query, error) {
 	return query.(*models.Query), nil
 }
 
-// Custom error listener to capture syntax errors
+// Custom error listener to capture syntax errors.
 type errorListener struct {
 	errorMsg string
 }

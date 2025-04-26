@@ -7,13 +7,14 @@ import (
 	"github.com/carverauto/serviceradar/pkg/srql/models"
 	"github.com/carverauto/serviceradar/pkg/srql/parser"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestParseTimestamp(t *testing.T) {
 	p := srql.NewParser()
 	query := "show devices where timestamp = '2023-12-25 14:30:00'"
 	parsed, err := p.Parse(query)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, parsed)
 	assert.Equal(t, models.Show, parsed.Type)
 	assert.Equal(t, models.Devices, parsed.Entity)
@@ -27,7 +28,7 @@ func TestParseIPAddress(t *testing.T) {
 	p := srql.NewParser()
 	query := "show devices where ip = '192.168.1.1'"
 	parsed, err := p.Parse(query)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, parsed)
 	assert.Equal(t, models.Show, parsed.Type)
 	assert.Equal(t, models.Devices, parsed.Entity)
@@ -41,7 +42,7 @@ func TestParseMACAddress(t *testing.T) {
 	p := srql.NewParser()
 	query := "show devices where mac = '00:1A:2B:3C:4D:5E'"
 	parsed, err := p.Parse(query)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, parsed)
 	assert.Equal(t, models.Show, parsed.Type)
 	assert.Equal(t, models.Devices, parsed.Entity)
@@ -67,7 +68,9 @@ func TestSRQLParsing(t *testing.T) {
 			query:         "show devices",
 			expectedError: false,
 			validate: func(t *testing.T, query *models.Query, err error) {
-				assert.NoError(t, err)
+				t.Helper()
+
+				require.NoError(t, err)
 
 				// Create translators
 				clickhouseTranslator := parser.NewTranslator(parser.ClickHouse)
@@ -75,11 +78,11 @@ func TestSRQLParsing(t *testing.T) {
 
 				// Translate to SQL and AQL
 				sql, err := clickhouseTranslator.Translate(query)
-				assert.NoError(t, err)
+				require.NoError(t, err)
 				assert.Equal(t, "SELECT * FROM devices", sql)
 
 				aql, err := arangoTranslator.Translate(query)
-				assert.NoError(t, err)
+				require.NoError(t, err)
 				assert.Equal(t, "FOR doc IN devices\n  RETURN doc", aql)
 			},
 		},
@@ -88,11 +91,13 @@ func TestSRQLParsing(t *testing.T) {
 			query:         "show devices where ip = '192.168.1.1'",
 			expectedError: false,
 			validate: func(t *testing.T, query *models.Query, err error) {
-				assert.NoError(t, err)
+				t.Helper()
+
+				require.NoError(t, err)
 
 				clickhouseTranslator := parser.NewTranslator(parser.ClickHouse)
 				sql, err := clickhouseTranslator.Translate(query)
-				assert.NoError(t, err)
+				require.NoError(t, err)
 				assert.Equal(t, "SELECT * FROM devices WHERE ip = '192.168.1.1'", sql)
 			},
 		},
@@ -102,7 +107,9 @@ func TestSRQLParsing(t *testing.T) {
 			query:         "shoe devices", // 'shoe' instead of 'show'
 			expectedError: true,
 			validate: func(t *testing.T, query *models.Query, err error) {
-				assert.Error(t, err)
+				t.Helper()
+
+				require.Error(t, err)
 				assert.Contains(t, err.Error(), "syntax error")
 				assert.Nil(t, query)
 			},
@@ -116,9 +123,9 @@ func TestSRQLParsing(t *testing.T) {
 			query, err := p.Parse(tc.query)
 
 			if tc.expectedError {
-				assert.Error(t, err)
+				require.Error(t, err)
 			} else {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 			}
 
 			tc.validate(t, query, err)
