@@ -116,63 +116,92 @@ func (t *Translator) buildClickHouseWhere(conditions []models.Condition) string 
 			sql.WriteString("(")
 			sql.WriteString(t.buildClickHouseWhere(cond.Complex))
 			sql.WriteString(")")
-
 			continue
 		}
 
-		// Get lowercase field name for case insensitivity
-		fieldName := strings.ToLower(cond.Field)
-
-		// Handle different operators
-		switch cond.Operator {
-		case models.Equals, models.NotEquals, models.GreaterThan,
-			models.GreaterThanOrEquals, models.LessThan, models.LessThanOrEquals:
-			sql.WriteString(fmt.Sprintf("%s %s %s",
-				fieldName,
-				cond.Operator,
-				t.formatClickHouseValue(cond.Value)))
-
-		case models.Like:
-			sql.WriteString(fmt.Sprintf("%s LIKE %s",
-				fieldName,
-				t.formatClickHouseValue(cond.Value)))
-
-		case models.Contains:
-			sql.WriteString(fmt.Sprintf("position(%s, %s) > 0",
-				fieldName,
-				t.formatClickHouseValue(cond.Value)))
-
-		case models.In:
-			values := []string{}
-			for _, val := range cond.Values {
-				values = append(values, t.formatClickHouseValue(val))
-			}
-
-			sql.WriteString(fmt.Sprintf("%s IN (%s)",
-				fieldName,
-				strings.Join(values, ", ")))
-
-		case models.Between:
-			if len(cond.Values) == defaultModelsBetween {
-				sql.WriteString(fmt.Sprintf("%s BETWEEN %s AND %s",
-					fieldName,
-					t.formatClickHouseValue(cond.Values[0]),
-					t.formatClickHouseValue(cond.Values[1])))
-			}
-
-		case models.Is:
-			isNotNull, ok := cond.Value.(bool)
-			if ok {
-				if isNotNull {
-					sql.WriteString(fmt.Sprintf("%s IS NOT NULL", fieldName))
-				} else {
-					sql.WriteString(fmt.Sprintf("%s IS NULL", fieldName))
-				}
-			}
-		}
+		// Format the condition based on its operator
+		sql.WriteString(t.formatClickHouseCondition(cond))
 	}
 
 	return sql.String()
+}
+
+// formatClickHouseCondition formats a single condition for ClickHouse SQL
+func (t *Translator) formatClickHouseCondition(cond models.Condition) string {
+	// Get lowercase field name for case insensitivity
+	fieldName := strings.ToLower(cond.Field)
+
+	// Handle different operators by operator type
+	switch {
+	case t.isComparisonOperator(cond.Operator):
+		return t.formatComparisonCondition(fieldName, cond.Operator, cond.Value)
+	case cond.Operator == models.Like:
+		return t.formatLikeCondition(fieldName, cond.Value)
+	case cond.Operator == models.Contains:
+		return t.formatContainsCondition(fieldName, cond.Value)
+	case cond.Operator == models.In:
+		return t.formatInCondition(fieldName, cond.Values)
+	case cond.Operator == models.Between:
+		return t.formatBetweenCondition(fieldName, cond.Values)
+	case cond.Operator == models.Is:
+		return t.formatIsCondition(fieldName, cond.Value)
+	default:
+		return ""
+	}
+}
+
+// isComparisonOperator checks if the operator is a basic comparison operator
+func (t *Translator) isComparisonOperator(op models.OperatorType) bool {
+	return op == models.Equals || op == models.NotEquals || 
+		op == models.GreaterThan || op == models.GreaterThanOrEquals || 
+		op == models.LessThan || op == models.LessThanOrEquals
+}
+
+// formatComparisonCondition formats a basic comparison condition
+func (t *Translator) formatComparisonCondition(fieldName string, op models.OperatorType, value interface{}) string {
+	return fmt.Sprintf("%s %s %s", fieldName, op, t.formatClickHouseValue(value))
+}
+
+// formatLikeCondition formats a LIKE condition
+func (t *Translator) formatLikeCondition(fieldName string, value interface{}) string {
+	return fmt.Sprintf("%s LIKE %s", fieldName, t.formatClickHouseValue(value))
+}
+
+// formatContainsCondition formats a CONTAINS condition
+func (t *Translator) formatContainsCondition(fieldName string, value interface{}) string {
+	return fmt.Sprintf("position(%s, %s) > 0", fieldName, t.formatClickHouseValue(value))
+}
+
+// formatInCondition formats an IN condition
+func (t *Translator) formatInCondition(fieldName string, values []interface{}) string {
+	var formattedValues []string
+	for _, val := range values {
+		formattedValues = append(formattedValues, t.formatClickHouseValue(val))
+	}
+	return fmt.Sprintf("%s IN (%s)", fieldName, strings.Join(formattedValues, ", "))
+}
+
+// formatBetweenCondition formats a BETWEEN condition
+func (t *Translator) formatBetweenCondition(fieldName string, values []interface{}) string {
+	if len(values) == defaultModelsBetween {
+		return fmt.Sprintf("%s BETWEEN %s AND %s",
+			fieldName,
+			t.formatClickHouseValue(values[0]),
+			t.formatClickHouseValue(values[1]))
+	}
+	return ""
+}
+
+// formatIsCondition formats an IS NULL or IS NOT NULL condition
+func (t *Translator) formatIsCondition(fieldName string, value interface{}) string {
+	isNotNull, ok := value.(bool)
+	if ok {
+		if isNotNull {
+			return fmt.Sprintf("%s IS NOT NULL", fieldName)
+		}
+		return fmt.Sprintf("%s IS NULL", fieldName)
+	}
+	return ""
 }
 
 // toArangoDB converts to ArangoDB AQL
