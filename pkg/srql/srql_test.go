@@ -142,19 +142,13 @@ func TestSRQLEdgeCases(t *testing.T) {
 
 	// Parse the uppercase query
 	upperResult, err1 := p.Parse(upperQuery)
-	if !assert.NoError(t, err1) {
-		t.Fatalf("Failed to parse uppercase query: %v", err1)
-		return
-	}
+	require.NoError(t, err1)
 
 	translator := parser.NewTranslator(parser.ClickHouse)
 
 	// Translate the uppercase query
 	upperSQL, err := translator.Translate(upperResult)
-	if !assert.NoError(t, err) {
-		t.Fatalf("Failed to translate uppercase query: %v", err)
-		return
-	}
+	require.NoError(t, err)
 
 	// Check the generated SQL - should be lowercase now for field names
 	assert.Equal(t, "SELECT * FROM devices WHERE ip = '192.168.1.1'", upperSQL)
@@ -167,10 +161,9 @@ func TestSRQLEdgeCases(t *testing.T) {
 	// If it succeeds (with our fixed grammar)
 	if err2 == nil {
 		mixedSQL, err3 := translator.Translate(mixedResult)
-		if assert.NoError(t, err3) {
-			// Both should produce the same SQL
-			assert.Equal(t, upperSQL, mixedSQL)
-		}
+		require.NoError(t, err3)
+		// Both should produce the same SQL
+		assert.Equal(t, upperSQL, mixedSQL)
 	} else {
 		// For now, just log this since we know it might fail until the grammar is updated
 		t.Logf("Mixed case query parsing not yet working: %v", err2)

@@ -2,8 +2,9 @@ package parser
 
 import (
 	"fmt"
-	"github.com/carverauto/serviceradar/pkg/srql/models"
 	"strings"
+
+	"github.com/carverauto/serviceradar/pkg/srql/models"
 )
 
 // DatabaseType defines the type of database we're translating to
@@ -30,7 +31,7 @@ func NewTranslator(dbType DatabaseType) *Translator {
 func (t *Translator) Translate(query *models.Query) (string, error) {
 	// Check for nil query
 	if query == nil {
-		return "", fmt.Errorf("cannot translate nil query")
+		return "", errCannotTranslateNilQuery
 	}
 
 	if t.DBType == ClickHouse {
@@ -39,14 +40,14 @@ func (t *Translator) Translate(query *models.Query) (string, error) {
 		return t.toArangoDB(query)
 	}
 
-	return "", fmt.Errorf("unsupported database type: %s", t.DBType)
+	return "", fmt.Errorf("%w for database type: %s", errUnsupportedDatabaseType, t.DBType)
 }
 
 // toClickHouseSQL converts to ClickHouse SQL
 func (t *Translator) toClickHouseSQL(query *models.Query) (string, error) {
 	// Check for nil query again for safety
 	if query == nil {
-		return "", fmt.Errorf("cannot translate nil query to ClickHouse SQL")
+		return "", errCannotTranslateNilQueryClickHouse
 	}
 
 	var sql strings.Builder
@@ -152,7 +153,7 @@ func (t *Translator) buildClickHouseWhere(conditions []models.Condition) string 
 				strings.Join(values, ", ")))
 
 		case models.Between:
-			if len(cond.Values) == 2 {
+			if len(cond.Values) == defaultModelsBetween {
 				sql.WriteString(fmt.Sprintf("%s BETWEEN %s AND %s",
 					fieldName,
 					t.formatClickHouseValue(cond.Values[0]),
@@ -178,7 +179,7 @@ func (t *Translator) buildClickHouseWhere(conditions []models.Condition) string 
 func (t *Translator) toArangoDB(query *models.Query) (string, error) {
 	// Check for nil query
 	if query == nil {
-		return "", fmt.Errorf("cannot translate nil query to ArangoDB AQL")
+		return "", errCannotTranslateNilQueryArangoDB
 	}
 
 	var aql strings.Builder
@@ -230,6 +231,10 @@ func (t *Translator) toArangoDB(query *models.Query) (string, error) {
 
 	return aql.String(), nil
 }
+
+const (
+	defaultModelsBetween = 2
+)
 
 // buildArangoDBFilter builds a FILTER clause for ArangoDB AQL
 func (t *Translator) buildArangoDBFilter(conditions []models.Condition) string {
@@ -287,7 +292,8 @@ func (t *Translator) buildArangoDBFilter(conditions []models.Condition) string {
 				t.formatArangoDBValue(cond.Value)))
 
 		case models.In:
-			values := []string{}
+			var values []string
+
 			for _, val := range cond.Values {
 				values = append(values, t.formatArangoDBValue(val))
 			}
@@ -297,7 +303,7 @@ func (t *Translator) buildArangoDBFilter(conditions []models.Condition) string {
 				strings.Join(values, ", ")))
 
 		case models.Between:
-			if len(cond.Values) == 2 {
+			if len(cond.Values) == defaultModelsBetween {
 				aql.WriteString(fmt.Sprintf("doc.%s >= %s AND doc.%s <= %s",
 					fieldName,
 					t.formatArangoDBValue(cond.Values[0]),
@@ -322,7 +328,7 @@ func (t *Translator) buildArangoDBFilter(conditions []models.Condition) string {
 
 // Helper methods for formatting values
 
-func (t *Translator) formatClickHouseValue(value interface{}) string {
+func (*Translator) formatClickHouseValue(value interface{}) string {
 	switch v := value.(type) {
 	case string:
 		return fmt.Sprintf("'%s'", strings.ReplaceAll(v, "'", "\\'"))
@@ -336,7 +342,7 @@ func (t *Translator) formatClickHouseValue(value interface{}) string {
 	}
 }
 
-func (t *Translator) formatArangoDBValue(value interface{}) string {
+func (*Translator) formatArangoDBValue(value interface{}) string {
 	switch v := value.(type) {
 	case string:
 		return fmt.Sprintf("'%s'", strings.ReplaceAll(v, "'", "\\'"))
@@ -353,6 +359,10 @@ func (t *Translator) formatArangoDBValue(value interface{}) string {
 
 func (t *Translator) translateOperator(op models.OperatorType) string {
 	switch op {
+	case models.Equals:
+		return "="
+	case models.NotEquals:
+		return "!="
 	case models.GreaterThan:
 		return ">"
 	case models.GreaterThanOrEquals:
@@ -361,6 +371,16 @@ func (t *Translator) translateOperator(op models.OperatorType) string {
 		return "<"
 	case models.LessThanOrEquals:
 		return "<="
+	case models.Like:
+		return "LIKE"
+	case models.In:
+		return "IN"
+	case models.Contains:
+		return "CONTAINS"
+	case models.Between:
+		return "BETWEEN"
+	case models.Is:
+		return "IS"
 	default:
 		return string(op)
 	}
