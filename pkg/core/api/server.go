@@ -100,6 +100,7 @@ func (s *APIServer) setupMiddleware() {
 
 	apiKeyOpts := srHttp.NewAPIKeyOptions(os.Getenv("API_KEY"))
 	apiKeyOpts.ExcludePaths = []string{
+		"/swagger/",
 		"/swagger/doc.json",
 		"/swagger/host.json",
 		"/swagger/index.html",
