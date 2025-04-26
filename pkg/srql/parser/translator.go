@@ -357,31 +357,24 @@ func (*Translator) formatArangoDBValue(value interface{}) string {
 	}
 }
 
-func (t *Translator) translateOperator(op models.OperatorType) string {
-	switch op {
-	case models.Equals:
-		return "="
-	case models.NotEquals:
-		return "!="
-	case models.GreaterThan:
-		return ">"
-	case models.GreaterThanOrEquals:
-		return ">="
-	case models.LessThan:
-		return "<"
-	case models.LessThanOrEquals:
-		return "<="
-	case models.Like:
-		return "LIKE"
-	case models.In:
-		return "IN"
-	case models.Contains:
-		return "CONTAINS"
-	case models.Between:
-		return "BETWEEN"
-	case models.Is:
-		return "IS"
-	default:
-		return string(op)
+func (*Translator) translateOperator(op models.OperatorType) string {
+	operatorMap := map[models.OperatorType]string{
+		models.Equals:              "=",
+		models.NotEquals:           "!=",
+		models.GreaterThan:         ">",
+		models.GreaterThanOrEquals: ">=",
+		models.LessThan:            "<",
+		models.LessThanOrEquals:    "<=",
+		models.Like:                "LIKE",
+		models.In:                  "IN",
+		models.Contains:            "CONTAINS",
+		models.Between:             "BETWEEN",
+		models.Is:                  "IS",
 	}
+
+	if result, ok := operatorMap[op]; ok {
+		return result
+	}
+
+	return string(op)
 }
