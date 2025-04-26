@@ -1,4 +1,4 @@
-grammar NetworkQueryLanguage;
+grammar ServiceRadarQueryLanguage;
 
 // Parser Rules
 query
@@ -134,8 +134,10 @@ ID : [a-zA-Z_][a-zA-Z0-9_]*;
 INTEGER : [0-9]+;
 FLOAT : [0-9]+ '.' [0-9]*;
 STRING : (QUOTE .*? QUOTE) | (APOSTROPHE .*? APOSTROPHE);
-TIMESTAMP : '\'' [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} '\'';
+
+// Fixed the problematic lexer rules by removing implicit actions
+TIMESTAMP : APOSTROPHE [0-9][0-9][0-9][0-9] '-' [0-9][0-9] '-' [0-9][0-9] ' ' [0-9][0-9] ':' [0-9][0-9] ':' [0-9][0-9] APOSTROPHE;
 IPADDRESS : [0-9]+ '.' [0-9]+ '.' [0-9]+ '.' [0-9]+;
-MACADDRESS : [0-9a-fA-F]+ ':' [0-9a-fA-F]+ ':' [0-9a-fA-F]+ ':' [0-9a-fA-F]+ ':' [0-9a-fA-F]+ ':' [0-9a-fA-F]+;
+MACADDRESS : [0-9a-fA-F][0-9a-fA-F] ':' [0-9a-fA-F][0-9a-fA-F] ':' [0-9a-fA-F][0-9a-fA-F] ':' [0-9a-fA-F][0-9a-fA-F] ':' [0-9a-fA-F][0-9a-fA-F] ':' [0-9a-fA-F][0-9a-fA-F];
 
 WS : [ \t\r\n]+ -> skip;

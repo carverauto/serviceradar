@@ -4,6 +4,7 @@ go 1.24
 
 require (
 	github.com/antlr/antlr4/runtime/Go/antlr v1.4.10
+	github.com/antlr4-go/antlr/v4 v4.13.1
 	github.com/atotto/clipboard v0.1.4
 	github.com/charmbracelet/bubbles v0.21.0
 	github.com/charmbracelet/bubbletea v1.3.4
@@ -62,6 +63,7 @@ require (
 	github.com/swaggo/files v1.0.1 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	github.com/zeebo/errs v1.4.0 // indirect
+	golang.org/x/exp v0.0.0-20240506185415-9bf2ced13842 // indirect
 	golang.org/x/oauth2 v0.29.0 // indirect
 	golang.org/x/sync v0.13.0 // indirect
 	golang.org/x/sys v0.32.0 // indirect

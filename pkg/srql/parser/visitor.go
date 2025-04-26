@@ -1,17 +1,17 @@
 package parser
 
 import (
-	"github.com/carverauto/serviceradar/pkg/srql/models"
-	"github.com/carverauto/serviceradar/pkg/srql/parser/gen"
 	"strconv"
 	"strings"
 
-	"github.com/antlr/antlr4/runtime/Go/antlr"
+	"github.com/antlr4-go/antlr/v4"
+	"github.com/carverauto/serviceradar/pkg/srql/models"
+	"github.com/carverauto/serviceradar/pkg/srql/parser/gen"
 )
 
 // QueryVisitor visits the parse tree and builds a Query model
 type QueryVisitor struct {
-	gen.BaseNetworkQueryLanguageVisitor
+	gen.BaseServiceRadarQueryLanguageListener
 }
 
 // NewQueryVisitor creates a new visitor
@@ -21,7 +21,11 @@ func NewQueryVisitor() *QueryVisitor {
 
 // Visit dispatches the call to the specific visit method
 func (v *QueryVisitor) Visit(tree antlr.ParseTree) interface{} {
-	return tree.Accept(v)
+	switch t := tree.(type) {
+	case *gen.QueryContext:
+		return v.VisitQuery(t)
+	}
+	return nil
 }
 
 // VisitQuery visits the query rule
@@ -43,8 +47,12 @@ func (v *QueryVisitor) VisitShowStatement(ctx *gen.ShowStatementContext) interfa
 	}
 
 	// Get entity
-	entityCtx := ctx.Entity().(*gen.EntityContext)
-	query.Entity = v.getEntityType(entityCtx)
+	for i := 0; i < ctx.GetChildCount(); i++ {
+		if entityCtx, ok := ctx.GetChild(i).(*gen.EntityContext); ok {
+			query.Entity = v.getEntityType(entityCtx)
+			break
+		}
+	}
 
 	// Get conditions if present
 	if ctx.Condition() != nil {
@@ -60,10 +68,19 @@ func (v *QueryVisitor) VisitShowStatement(ctx *gen.ShowStatementContext) interfa
 
 	// Get limit if present
 	if ctx.LIMIT() != nil {
-		limitStr := ctx.INTEGER().GetText()
-		limit, _ := strconv.Atoi(limitStr)
-		query.Limit = limit
-		query.HasLimit = true
+		// Find INTEGER token
+		for i := 0; i < ctx.GetChildCount(); i++ {
+			if termNode, ok := ctx.GetChild(i).(antlr.TerminalNode); ok {
+				token := termNode.GetSymbol()
+				if token.GetTokenType() == gen.ServiceRadarQueryLanguageParserINTEGER {
+					limitStr := token.GetText()
+					limit, _ := strconv.Atoi(limitStr)
+					query.Limit = limit
+					query.HasLimit = true
+					break
+				}
+			}
+		}
 	}
 
 	return query
@@ -76,8 +93,12 @@ func (v *QueryVisitor) VisitFindStatement(ctx *gen.FindStatementContext) interfa
 	}
 
 	// Get entity
-	entityCtx := ctx.Entity().(*gen.EntityContext)
-	query.Entity = v.getEntityType(entityCtx)
+	for i := 0; i < ctx.GetChildCount(); i++ {
+		if entityCtx, ok := ctx.GetChild(i).(*gen.EntityContext); ok {
+			query.Entity = v.getEntityType(entityCtx)
+			break
+		}
+	}
 
 	// Get conditions if present
 	if ctx.Condition() != nil {
@@ -93,10 +114,19 @@ func (v *QueryVisitor) VisitFindStatement(ctx *gen.FindStatementContext) interfa
 
 	// Get limit if present
 	if ctx.LIMIT() != nil {
-		limitStr := ctx.INTEGER().GetText()
-		limit, _ := strconv.Atoi(limitStr)
-		query.Limit = limit
-		query.HasLimit = true
+		// Find INTEGER token
+		for i := 0; i < ctx.GetChildCount(); i++ {
+			if termNode, ok := ctx.GetChild(i).(antlr.TerminalNode); ok {
+				token := termNode.GetSymbol()
+				if token.GetTokenType() == gen.ServiceRadarQueryLanguageParserINTEGER {
+					limitStr := token.GetText()
+					limit, _ := strconv.Atoi(limitStr)
+					query.Limit = limit
+					query.HasLimit = true
+					break
+				}
+			}
+		}
 	}
 
 	return query
@@ -109,8 +139,12 @@ func (v *QueryVisitor) VisitCountStatement(ctx *gen.CountStatementContext) inter
 	}
 
 	// Get entity
-	entityCtx := ctx.Entity().(*gen.EntityContext)
-	query.Entity = v.getEntityType(entityCtx)
+	for i := 0; i < ctx.GetChildCount(); i++ {
+		if entityCtx, ok := ctx.GetChild(i).(*gen.EntityContext); ok {
+			query.Entity = v.getEntityType(entityCtx)
+			break
+		}
+	}
 
 	// Get conditions if present
 	if ctx.Condition() != nil {
@@ -123,7 +157,7 @@ func (v *QueryVisitor) VisitCountStatement(ctx *gen.CountStatementContext) inter
 
 // VisitCondition visits the condition rule
 func (v *QueryVisitor) VisitCondition(ctx *gen.ConditionContext) interface{} {
-	conditions := []models.Condition{}
+	var conditions []models.Condition
 
 	// Get first expression
 	exprCtx := ctx.AllExpression()[0].(*gen.ExpressionContext)
@@ -148,7 +182,7 @@ func (v *QueryVisitor) VisitCondition(ctx *gen.ConditionContext) interface{} {
 // VisitExpression visits the expression rule
 func (v *QueryVisitor) VisitExpression(ctx *gen.ExpressionContext) interface{} {
 	// Handle simple comparison
-	if ctx.Field() != nil && ctx.ComparisonOperator() != nil && ctx.Value() != nil {
+	if ctx.Field() != nil && ctx.ComparisonOperator() != nil && len(ctx.AllValue()) > 0 {
 		field := v.VisitField(ctx.Field().(*gen.FieldContext)).(string)
 		op := v.getOperatorType(ctx.ComparisonOperator().(*gen.ComparisonOperatorContext))
 		value := v.VisitValue(ctx.Value(0).(*gen.ValueContext))
@@ -230,21 +264,66 @@ func (v *QueryVisitor) VisitExpression(ctx *gen.ExpressionContext) interface{} {
 
 // VisitField visits the field rule
 func (v *QueryVisitor) VisitField(ctx *gen.FieldContext) interface{} {
-	if ctx.ID() != nil && ctx.AllEntity().IsEmpty() {
-		return ctx.ID().GetText()
+	// Check if there are ID tokens
+	idCount := 0
+	for i := 0; i < ctx.GetChildCount(); i++ {
+		if termNode, ok := ctx.GetChild(i).(antlr.TerminalNode); ok {
+			token := termNode.GetSymbol()
+			if token.GetTokenType() == gen.ServiceRadarQueryLanguageParserID {
+				idCount++
+			}
+		}
+	}
+
+	// Check if there are entity contexts
+	hasEntity := false
+	for i := 0; i < ctx.GetChildCount(); i++ {
+		if _, ok := ctx.GetChild(i).(*gen.EntityContext); ok {
+			hasEntity = true
+			break
+		}
+	}
+
+	// Simple field (just an ID without entity prefix)
+	if idCount > 0 && !hasEntity {
+		// Find the first ID token
+		for i := 0; i < ctx.GetChildCount(); i++ {
+			if node, ok := ctx.GetChild(i).(antlr.TerminalNode); ok {
+				token := node.GetSymbol()
+				if token.GetTokenType() == gen.ServiceRadarQueryLanguageParserID {
+					return token.GetText()
+				}
+			}
+		}
 	}
 
 	// Handle dotted field notation
-	parts := []string{}
+	var parts []string
 
-	if !ctx.AllEntity().IsEmpty() {
-		entityCtx := ctx.Entity(0).(*gen.EntityContext)
-		entityStr := entityCtx.GetText()
-		parts = append(parts, strings.ToLower(entityStr))
+	// Check if there's an entity in the field using GetChild
+	var entityText string
+	foundEntity := false
+
+	for i := 0; i < ctx.GetChildCount(); i++ {
+		if entity, ok := ctx.GetChild(i).(*gen.EntityContext); ok {
+			entityText = entity.GetText()
+			foundEntity = true
+			break
+		}
 	}
 
-	for _, id := range ctx.AllID() {
-		parts = append(parts, id.GetText())
+	if foundEntity {
+		parts = append(parts, strings.ToLower(entityText))
+	}
+
+	// Collect all ID tokens
+	for i := 0; i < ctx.GetChildCount(); i++ {
+		if termNode, ok := ctx.GetChild(i).(antlr.TerminalNode); ok {
+			token := termNode.GetSymbol()
+			if token.GetTokenType() == gen.ServiceRadarQueryLanguageParserID {
+				parts = append(parts, token.GetText())
+			}
+		}
 	}
 
 	return strings.Join(parts, ".")
@@ -252,10 +331,11 @@ func (v *QueryVisitor) VisitField(ctx *gen.FieldContext) interface{} {
 
 // VisitValueList visits the valueList rule
 func (v *QueryVisitor) VisitValueList(ctx *gen.ValueListContext) interface{} {
-	values := []interface{}{}
+	var values []interface{}
 
-	for _, valueCtx := range ctx.AllValue() {
-		value := v.VisitValue(valueCtx.(*gen.ValueContext))
+	for i := 0; i < len(ctx.AllValue()); i++ {
+		valueCtx := ctx.Value(i).(*gen.ValueContext)
+		value := v.VisitValue(valueCtx)
 		values = append(values, value)
 	}
 
@@ -264,10 +344,11 @@ func (v *QueryVisitor) VisitValueList(ctx *gen.ValueListContext) interface{} {
 
 // VisitOrderByClause visits the orderByClause rule
 func (v *QueryVisitor) VisitOrderByClause(ctx *gen.OrderByClauseContext) interface{} {
-	items := []models.OrderByItem{}
+	var items []models.OrderByItem
 
-	for _, itemCtx := range ctx.AllOrderByItem() {
-		orderItem := v.VisitOrderByItem(itemCtx.(*gen.OrderByItemContext)).(models.OrderByItem)
+	for i := 0; i < len(ctx.AllOrderByItem()); i++ {
+		itemCtx := ctx.OrderByItem(i).(*gen.OrderByItemContext)
+		orderItem := v.VisitOrderByItem(itemCtx).(models.OrderByItem)
 		items = append(items, orderItem)
 	}
 
