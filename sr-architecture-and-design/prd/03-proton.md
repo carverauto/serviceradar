@@ -37,7 +37,7 @@ The architecture:
 - **Cross-Platform Deployment**: Deploy the same components across any cloud, edge, or on-premises environment
 
 #### Additional Features
-- **Multi-Tenant SaaS**: Ensures strict data isolation using NATS accounts and tenant-specific streams
+- **Multi-Tenant SaaS**: Ensures strict data isolation (e.g., PepsiCo vs. Coca-Cola) using NATS accounts and tenant-specific streams
 - **Zero-Trust Security**: Uses SPIFFE/SPIRE mTLS for all communications, with one-way edge-to-cloud data flow
 - **Lightweight Edge**: Minimizes footprint (~116MB without Proton, ~616MB with Proton)
 
@@ -430,11 +430,12 @@ STREAM flows WHERE action IN ('announce', 'withdraw') GROUP BY prefix WINDOW 5m 
 - **Proton-wRPC Adapter**: Lightweight (~5MB) service acting as a Timeplus server, translating streams to wRPC over NATS
 - **Poller**: Collects data from agents using wRPC over TCP, forwards to cloud using wRPC over NATS
 - **NATS Leaf Node**: Local NATS instance (~5MB) with JetStream for persistence, connecting to cloud NATS cluster
+- **WasmCloud Host**: Local WasmCloud instance managing components, enabling automated scaling and upgrades
 
 #### Installation
 
 ```bash
-curl -LO https://install.timeplus.com/oss -O serviceradar-agent.deb
+curl -LO https://install.serviceradar.com/agent | sh
 sudo dpkg -i serviceradar-agent.deb
 sudo ./install-oss.sh
 ```
@@ -467,6 +468,7 @@ sudo ./install-oss.sh
 - **DuckDB**: Parquet archival
 - **Core API**: HTTP (:8090)
 - **Web UI**: Next.js (:3000, proxied via Nginx :80/443)
+- **WasmCloud Wadm**: Orchestrates application deployment and scaling across all environments
 
 #### Data Flow
 
@@ -538,6 +540,8 @@ graph TD
 - Agents respond to poller polls (wRPC over TCP)
 - Pollers and Proton-wRPC Adapter forward data via wRPC over NATS Leaf Node
 - WasmCloud handles component orchestration, scaling, and upgrades
+- NATS JetStream buffers data during cloud disconnections
+- Ultra-constrained devices skip Proton, use lightweight components (~116MB)
 
 ### Deployment and Scaling
 
@@ -575,3 +579,170 @@ spec:
           properties:
             instances: 5
 ```
+
+### Interaction
+
+- Log into Web UI (JWT, admin/operator/readonly)
+- Run SRQL queries (e.g., `STREAM flows WHERE action IN ('announce', 'withdraw') GROUP BY prefix WINDOW 5m HAVING flap_count > 10`)
+- View dashboards (gNMI latency, BGP hijacks)
+- Configure alerts (e.g., "notify on 5 failed logins")
+- Query historical trends (30-day NetFlow, 90-day BGP)
+
+### Configuration
+
+- Enable/disable Proton via UI
+- Define SRQL alerts, dashboards
+- Manage mTLS, NATS accounts, RBAC
+- Configure NATS Leaf Node (store limits, mirroring)
+
+## 9. Success Metrics
+
+### Performance
+- 1M gNMI events/sec on edge
+- <1s SRQL query latency
+- 10,000 nodes/customer
+
+### Adoption
+- 80% customers enable Proton
+- 1,000 SaaS tenants in 12 months
+
+### Usability
+- 90% SRQL queries without support
+- 95% UI satisfaction
+
+### Security
+- Zero mTLS breaches
+- 100% tenant isolation compliance
+
+### Revenue
+- $10M ARR in 24 months
+
+## 10. Risks and Mitigations
+
+| Risk | Mitigation |
+|------|------------|
+| wRPC multi-transport complexity | Implement TCP transport first, add NATS incrementally, unit test both |
+| Proton's 500MB footprint too heavy | Optional Proton, fallback to checkers (~116MB) |
+| NATS Leaf Node disconnections | Enable JetStream persistence, implement stream mirroring |
+| Proton-wRPC Adapter complexity | Develop lightweight adapter, test with simplified protocol |
+| wRPC learning curve | Use Rust bindings, leverage wRPC examples |
+| NATS account misconfiguration | Automate account creation, audit access |
+| Edge resource usage with NATS Leaf Nodes | Minimal configuration with bounded memory/storage (~5MB) |
+| WasmCloud integration complexity | Begin with simple components, incrementally add features |
+
+## 11. Future Considerations
+
+The adoption of wRPC, NATS JetStream, WasmCloud, and the WebAssembly Component Model positions ServiceRadar for innovative, Wasm-driven features that enhance performance, security, and flexibility. These future capabilities align with the evolving needs of IoT, OT, and enterprise customers, enabling lightweight, portable, and customer-extensible monitoring solutions.
+
+### WebAssembly-Based Checkers
+
+- Compile checkers (e.g., SNMP, rperf) to WebAssembly, running in WasmCloud (~5MB vs. ~10MB for native binaries)
+- **Benefits**: Smaller footprint, enhanced security via sandboxing, dynamic updates over NATS
+- **Example**: A WebAssembly-based gNMI checker, defined with a WIT interface, runs on IoT gateways, reducing resource usage
+
+### Edge Data Processing
+
+- Deploy WebAssembly components for lightweight data processing (e.g., filtering, aggregation) on constrained devices, complementing Proton
+- **Example**: A WebAssembly component filters NetFlow data before forwarding to Proton, minimizing bandwidth
+
+### Customer-Defined Components
+
+- Allow customers to write WebAssembly components (e.g., proprietary analytics) using WIT interfaces, executed securely by ServiceRadar agents
+- **Example**: A customer deploys a WebAssembly-based anomaly detector for syslog data, integrated via wRPC
+
+### Browser-Based Analytics
+
+- Run WebAssembly components in the Web UI for client-side SRQL query processing or real-time visualizations, offloading server compute
+- **Example**: A WebAssembly-based SRQL executor processes small datasets in the browser, improving UI responsiveness
+
+### WasmCloud Orchestration
+
+- Leverage WasmCloud (CNCF project) to orchestrate WebAssembly components across edge and cloud, enabling distributed processing
+- **Example**: WasmCloud manages WebAssembly-based checkers on IoT devices, with wRPC handling cloud communication
+
+### WebAssembly-Based AI/ML
+
+- Deploy WebAssembly-based AI/ML models for predictive analytics (e.g., BGP hijack detection, anomaly detection) on edge or cloud
+- **Example**: A WebAssembly-based ML model processes syslog data on edge devices, publishing alerts via wRPC
+
+### Cross-Platform Plugins
+
+- Develop WebAssembly-based plugins for new protocols (e.g., sFlow, IPFIX) that run on any WebAssembly-compatible platform without recompilation
+- **Example**: A WebAssembly-based sFlow plugin is deployed to all agents, supporting diverse device types
+
+### Ecosystem Integration
+
+- Leverage the growing WebAssembly ecosystem (e.g., Bytecode Alliance tools, WasmCloud) for libraries and frameworks compatible with the Component Model
+- **Example**: Adopt a WebAssembly-based data processing library for real-time analytics, integrated via WIT
+
+These WebAssembly-driven features reduce edge footprints, enhance security through sandboxing, enable customer extensibility, and support scalable, distributed architectures, aligning with ServiceRadar's long-term vision for IoT, OT, and enterprise monitoring.
+
+## 12. Implementation Plan
+
+### Phase 1: NATS Infrastructure (1 month)
+
+- Deploy cloud NATS JetStream cluster with tenant accounts and mTLS
+- Deploy and test NATS Leaf Nodes on edge devices
+- Test stream mirroring and store-and-forward capabilities
+- Verify resilience during cloud disconnections
+
+### Phase 2: wRPC Integration (2 months)
+
+- Implement wRPC with TCP transport for checker-to-agent and agent-to-poller communication
+- Convert existing gRPC-based communications to wRPC over TCP
+- Develop wRPC over NATS for poller-to-core communication
+- Test end-to-end data flow with WIT interfaces
+
+### Phase 3: Proton and Adapter Integration (2 months)
+
+- Extend SRQL grammar with streaming constructs
+- Develop Proton-wRPC Adapter for Timeplus external streams
+- Integrate Proton with adapter, test data flow via NATS Leaf Node
+- Validate full pipeline with gNMI/NetFlow workloads
+
+### Phase 4: WasmCloud Integration (1.5 months)
+
+- Deploy WasmCloud Wadm orchestrator in cloud environment
+- Implement WasmCloud hosts at edge locations
+- Convert key components to WebAssembly-based deployments
+- Test automated scaling and zero-downtime upgrades
+
+### Phase 5: Multi-Tenant Isolation (1 month)
+
+- Finalize tenant isolation with NATS accounts and streams
+- Harden security with mTLS and RBAC
+- Optimize performance for 1M events/sec
+
+### Phase 6: Beta and Deployment (2 months)
+
+- Onboard 50 beta customers
+- Provide documentation and training
+- Roll out to production
+
+## 13. Appendix
+
+### 13.1 SRQL Examples
+
+**gNMI Aggregation**:
+```
+STREAM devices WHERE metric = 'latency' GROUP BY device, metric WINDOW 1m HAVING avg_value > 100
+```
+
+**Syslog Threat Detection**:
+```
+STREAM logs WHERE message CONTAINS 'Failed password for root' GROUP BY device WINDOW 5m HAVING login_attempts >= 5
+```
+
+### 13.2 Security Configuration
+
+- mTLS: /etc/serviceradar/certs/{agent,proton,nats}.pem
+- JWT RBAC: Roles (admin, operator, readonly) in /etc/serviceradar/core.json
+
+### 13.3 References
+
+- wRPC: github.com/bytecodealliance/wrpc
+- NATS JetStream: nats.io
+- Timeplus Proton: docs.timeplus.com
+- SPIFFE/SPIRE: spiffe.io
+- WebAssembly Component Model: component-model.bytecodealliance.org
+- WasmCloud: wasmcloud.com
