@@ -2,7 +2,7 @@
 
 ## 1. Executive Summary
 
-ServiceRadar is a distributed network monitoring system optimized for constrained environments, delivering real-time monitoring and cloud-based alerting for network engineering, IoT, WAN, cybersecurity, and OT audiences. This document outlines a new architecture that integrates wRPC (WebAssembly Interface Types RPC) with multiple transport options, NATS JetStream with leaf nodes, and Timeplus Proton to enhance ServiceRadar's capabilities.
+ServiceRadar is a distributed network monitoring system optimized for constrained environments, delivering real-time monitoring and cloud-based alerting for network engineering, IoT, WAN, cybersecurity, and OT audiences. This document outlines a new architecture that integrates wRPC (WebAssembly Interface Types RPC) with multiple transport options, NATS JetStream (community edition/fork) with leaf nodes, and Timeplus Proton to enhance ServiceRadar's capabilities.
 
 Key enhancements include:
 
@@ -15,12 +15,13 @@ Key enhancements include:
     - Store-and-forward capabilities with local JetStream
     - Single account connection to the cloud cluster
     - Mirroring of streams between edge and cloud
+    - Native multi-tenancy with account isolation
 
 - **Proton Stream Processing**: Processes telemetry at the edge with Timeplus Proton.
 
 - **Enhanced SRQL**: Extends ServiceRadar Query Language (SRQL) with streaming constructs (e.g., time windows, JOINs).
 
-- **Multi-Tenant SaaS**: Ensures strict data isolation (e.g., PepsiCo vs. Coca-Cola) using NATS accounts and Kafka topics.
+- **Multi-Tenant SaaS**: Ensures strict data isolation (e.g., PepsiCo vs. Coca-Cola) using NATS accounts.
 
 - **Zero-Trust Security**: Uses SPIFFE/SPIRE mTLS for all communications, with one-way edge-to-cloud data flow.
 
@@ -149,7 +150,7 @@ async fn send_to_core(nats: &NatsTransport, tenant_id: &str, data: CheckerResult
 - Deploy Proton (~500MB, optional) on agents for gNMI, NetFlow, syslog, SNMP traps, BGP
 - Ingest data via wRPC over TCP (local) or gRPC (:8463, mTLS-secured)
 - Support streaming SQL with tumbling windows, materialized views, JOINs
-- Push results to core via wRPC over NATS
+- Push results directly to NATS JetStream streams
 
 Example:
 ```sql
@@ -248,9 +249,8 @@ HAVING login_attempts >= 5;
 #### SaaS Backend
 
 - **NATS JetStream Cluster**: Multi-tenant, cloud-hosted (AWS EC2)
-- **wRPC Server**: Handles wRPC calls, writes to Kafka/ClickHouse
-- **Kafka**: Multi-tenant (AWS MSK), tenant-specific topics (e.g., pepsico_gnmi)
-- **Proton (Cloud)**: Processes Kafka streams for analytics
+- **wRPC Server**: Handles wRPC calls, processes data streams
+- **Cloud Proton**: Processes streams for cross-customer analytics
 - **ClickHouse**: Historical storage (90-day retention)
 - **DuckDB**: Parquet archival
 - **Core API**: HTTP (:8090), SRQL translation
@@ -264,7 +264,7 @@ HAVING login_attempts >= 5;
 #### Tenant Isolation
 
 - NATS accounts segregate tenant data (e.g., serviceradar.pepsico.*)
-- Tenant-specific Kafka topics and ClickHouse tables
+- Tenant-specific NATS streams
 
 Example NATS account:
 ```
@@ -286,6 +286,7 @@ accounts {
 
 - ClickHouse: 90-day retention
 - Parquet via DuckDB for archival
+- Direct connection from cloud NATS JetStream to ClickHouse
 
 Example:
 ```sql
@@ -326,19 +327,19 @@ HAVING flap_count > 10;
 - Support 10,000 nodes/customer
 
 #### Scalability
-- Multi-tenant NATS JetStream and Kafka for 1,000+ customers
+- Multi-tenant NATS JetStream cluster for 1,000+ customers
 - Horizontal scaling for Proton, NATS, wRPC servers
 
 #### Reliability
 - 99.9% SaaS uptime
-- Buffer edge data (Proton WAL, NATS JetStream persistence)
+- Buffer edge data using NATS JetStream persistence
 - Local operation continues during cloud connectivity disruptions
 
 #### Security
 - SPIFFE/SPIRE mTLS for wRPC, NATS, local TCP connections
 - JWT-based RBAC (admin, operator, readonly)
 - One-way data flow
-- NATS accounts and Kafka ACLs for tenant isolation
+- NATS accounts for tenant isolation
 
 #### Usability
 - 90% SRQL queries without support
@@ -388,22 +389,21 @@ sudo ./install-oss.sh
 ### 6.2 SaaS Backend (Cloud)
 
 #### Components
-- **NATS JetStream Cluster**: Multi-tenant, receives wRPC calls from edge (:4222, :443 WebSocket)
-- **wRPC Server**: Processes wRPC calls, writes to Kafka/ClickHouse
-- **Kafka**: Multi-tenant (AWS MSK), tenant-specific topics
-- **Proton (Cloud)**: Processes Kafka streams
+- **NATS JetStream Cluster**: Multi-tenant, receives wRPC calls from edge (:4222, :7422 for leaf nodes)
+- **wRPC Server**: Processes wRPC calls, writes to NATS streams and ClickHouse
+- **Cloud Proton**: Processes NATS streams for analytics
 - **ClickHouse**: Historical storage
 - **DuckDB**: Parquet archival
 - **Core API**: HTTP (:8090)
 - **Web UI**: Next.js (:3000, proxied via Nginx :80/443)
 
 #### Data Flow
-NATS JetStream → wRPC Server → Kafka → Proton (cloud) → ClickHouse → Core API → Web UI
+NATS JetStream → wRPC Server → NATS Streams → Proton (cloud) → ClickHouse → Core API → Web UI
 
 #### Security
 - mTLS for NATS, local wRPC communications
 - JWT-based RBAC
-- NATS accounts and Kafka ACLs
+- NATS accounts for tenant isolation
 
 ### 6.3 Diagram
 ```
@@ -419,11 +419,11 @@ graph TD
 
     subgraph "Cloud Environment"
         Cloud[NATS JetStream Cluster] -->|Tenant Subjects| wRPC[wRPC Server]
-        wRPC -->|Tenant Topics| Kafka[Kafka<br>AWS MSK]
-        Kafka --> ProtonCloud[Proton]
-        ProtonCloud -->|Processed Data| ClickHouse[ClickHouse]
+        wRPC -->|Streaming Data| ProtonCloud[Cloud Proton]
+        wRPC -->|Processed Data| ClickHouse[ClickHouse]
+        ProtonCloud -->|Processed Data| ClickHouse
         ClickHouse --> CoreAPI[Core API<br>:8090]
-        Kafka --> CoreAPI
+        wRPC --> CoreAPI
         CoreAPI --> WebUI[Web UI<br>:80/443]
         WebUI -->|SRQL Queries| CoreAPI
         ClickHouse --> DuckDB[DuckDB<br>Parquet]
@@ -526,10 +526,11 @@ graph TD
 3. **Phase 3: SRQL and Proton Integration** (2 months)
     - Extend SRQL grammar with streaming constructs
     - Integrate Proton with wRPC
-    - Implement the data flow pipeline
+    - Implement the data flow pipeline using NATS JetStream for streaming data
 
-4. **Phase 4: Multi-Tenant SaaS** (1 month)
-    - Finalize tenant isolation in all components
+4. **Phase 4: Multi-Tenant Isolation** (1 month)
+    - Finalize tenant isolation using NATS accounts
+    - Create tenant-specific stream patterns
     - Security hardening and testing
     - Performance optimization
 
