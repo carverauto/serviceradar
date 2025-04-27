@@ -19,13 +19,15 @@ Key enhancements include:
 
 - **Proton Stream Processing**: Processes telemetry at the edge with Timeplus Proton.
 
+- **Proton-wRPC Adapter**: Lightweight adapter that channels Proton's external streams through the same NATS tunnel used by other components.
+
 - **Enhanced SRQL**: Extends ServiceRadar Query Language (SRQL) with streaming constructs (e.g., time windows, JOINs).
 
 - **Multi-Tenant SaaS**: Ensures strict data isolation (e.g., PepsiCo vs. Coca-Cola) using NATS accounts.
 
 - **Zero-Trust Security**: Uses SPIFFE/SPIRE mTLS for all communications, with one-way edge-to-cloud data flow.
 
-- **Lightweight Edge**: Minimizes footprint (~111MB without Proton, ~611MB with Proton).
+- **Lightweight Edge**: Minimizes footprint (~116MB without Proton, ~616MB with Proton).
 
 This positions ServiceRadar as a competitive Network Monitoring System (NMS), blending SolarWinds' enterprise features with Nagios' lightweight, open-source ethos.
 
@@ -150,7 +152,7 @@ async fn send_to_core(nats: &NatsTransport, tenant_id: &str, data: CheckerResult
 - Deploy Proton (~500MB, optional) on agents for gNMI, NetFlow, syslog, SNMP traps, BGP
 - Ingest data via wRPC over TCP (local) or gRPC (:8463, mTLS-secured)
 - Support streaming SQL with tumbling windows, materialized views, JOINs
-- Push results directly to NATS JetStream streams
+- Push results to Proton-wRPC Adapter via Timeplus external stream
 
 Example:
 ```sql
@@ -169,11 +171,49 @@ GROUP BY window_start, device, metric
 HAVING avg_value > 100;
 
 CREATE EXTERNAL STREAM cloud_sink
-SETTINGS type='grpc';
+SETTINGS type='timeplus', hosts='localhost:8080', stream='gnmi_anomalies', secure=false;
 
 INSERT INTO cloud_sink
 SELECT window_start, device, metric, avg_value
 FROM gnmi_anomalies;
+```
+
+#### Proton-wRPC Adapter
+
+- Lightweight (~5MB) Rust service that acts as a Timeplus server
+- Listens on localhost:8080 for Proton external stream connections
+- Translates Proton's external stream data into wRPC calls over NATS
+- Provides a unified tunnel for all edge-to-cloud data
+
+Example (Rust pseudocode):
+```rust
+use wrpc_runtime_wasmtime::Client;
+use tonic::{Request, Response, Status};
+use timeplus::external_stream_server::{ExternalStream, ExternalStreamServer};
+
+struct ProtonAdapter {
+    wrpc: Client,
+    tenant_id: String,
+}
+
+#[tonic::async_trait]
+impl ExternalStream for ProtonAdapter {
+    async fn stream_data(
+        &self,
+        request: Request<tonic::Streaming<Data>>,
+    ) -> Result<Response<()>, Status> {
+        let mut stream = request.into_inner();
+        while let Some(data) = stream.message().await? {
+            self.wrpc.invoke(
+                "proton",
+                "publish",
+                format!("serviceradar.{}.proton.gnmi", self.tenant_id),
+                data.payload,
+            ).await?;
+        }
+        Ok(Response::new(()))
+    }
+}
 ```
 
 #### NATS JetStream Leaf Nodes
@@ -357,6 +397,10 @@ HAVING flap_count > 10;
 - **Checkers**: Collect gNMI, NetFlow, syslog, SNMP traps, BGP
 - **Agent**: Queries checkers using wRPC over TCP, forwards to poller
 - **Proton (Optional)**: Processes streams
+- **Proton-wRPC Adapter**: Lightweight (~5MB) service that:
+    - Acts as a Timeplus external stream target (listening on localhost:8080)
+    - Translates Proton's external stream data into wRPC calls
+    - Uses the same NATS Leaf Node connection that the poller uses
 - **Poller**: Collects data from agents using wRPC over TCP, forwards to cloud using wRPC over NATS
 - **NATS Leaf Node**: Runs locally at the edge, connects to cloud NATS cluster using TLS with mTLS security (~5MB)
     - Provides local JetStream persistence for store-and-forward capability
@@ -372,13 +416,13 @@ sudo ./install-oss.sh
 ```
 
 #### Resources
-- Without Proton: ~111MB (Agent ~100MB, NATS Leaf Node ~5MB, wRPC Plugins ~6MB)
-- With Proton: ~611MB (Proton ~500MB)
+- Without Proton: ~116MB (Agent ~100MB, NATS Leaf Node ~5MB, wRPC Plugins ~6MB, Proton-wRPC Adapter ~5MB)
+- With Proton: ~616MB (Proton ~500MB)
 - Minimum: 1 vCPU, 0.5GB RAM
 
 #### Data Flow
 - Checkers ←→ Agent (wRPC over TCP) ←→ Poller (wRPC over TCP) → NATS Leaf Node (wRPC over NATS) → Cloud NATS JetStream
-- Proton ←→ Agent (wRPC over TCP) → Poller (wRPC over TCP) → NATS Leaf Node (wRPC over NATS) → Cloud NATS JetStream
+- Proton → Proton-wRPC Adapter (localhost) → NATS Leaf Node (wRPC over NATS) → Cloud NATS JetStream
 
 #### Security
 - mTLS (SPIFFE/SPIRE) for wRPC (both TCP and NATS transports)
@@ -495,10 +539,13 @@ graph TD
   **Mitigation**: Implement TCP transport first, add NATS later, unit test both.
 
 - **Risk**: Proton's 500MB footprint too heavy.  
-  **Mitigation**: Optional Proton, fallback to checkers (~111MB).
+  **Mitigation**: Optional Proton, fallback to checkers (~116MB).
 
 - **Risk**: NATS leaf node disconnection periods.  
   **Mitigation**: Enable local JetStream for persistence, implement mirroring for store-and-forward capability.
+
+- **Risk**: Proton-wRPC Adapter complexity.  
+  **Mitigation**: Develop and test with a simplified protocol first, progressively add features.
 
 - **Risk**: wRPC learning curve.  
   **Mitigation**: Use Rust bindings, leverage wRPC examples.
@@ -523,10 +570,11 @@ graph TD
     - Develop and test wRPC-NATS integration for poller-to-core communication
     - Test end-to-end data flow
 
-3. **Phase 3: SRQL and Proton Integration** (2 months)
+3. **Phase 3: Proton and Adapter Integration** (2 months)
     - Extend SRQL grammar with streaming constructs
-    - Integrate Proton with wRPC
-    - Implement the data flow pipeline using NATS JetStream for streaming data
+    - Develop Proton-wRPC Adapter for external stream handling
+    - Integrate Proton with the adapter and test data flow
+    - Implement the full pipeline using NATS JetStream for streaming data
 
 4. **Phase 4: Multi-Tenant Isolation** (1 month)
     - Finalize tenant isolation using NATS accounts
