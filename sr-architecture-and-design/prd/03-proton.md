@@ -270,7 +270,7 @@ gRPC Server → Kafka → Proton → ClickHouse → Core API → Web UI
 mTLS for inter-service communication, JWT-based RBAC for UI/API access, Kafka ACLs for tenant isolation
 
 ### 6.3 Diagram
-```
+```mermaid
 graph TD
     subgraph "Edge (Customer Network)"
         Checkers[Checkers<br>gNMI, NetFlow, Syslog, SNMP, BGP] -->|JSON| Ingest[Ingest Service]
