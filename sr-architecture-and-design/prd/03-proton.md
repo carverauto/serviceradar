@@ -1,67 +1,90 @@
-# ServiceRadar with Timeplus Proton Integration - PRD
+# ServiceRadar with wRPC, NATS JetStream, and Timeplus Proton Integration
 
 ## 1. Executive Summary
 
-ServiceRadar is a distributed network monitoring system optimized for constrained environments, delivering real-time monitoring and cloud-based alerting. To empower network engineering, IoT, WAN, cybersecurity, and OT audiences, this PRD outlines the integration of Timeplus Proton, a lightweight streaming SQL engine, for real-time processing of gNMI, NetFlow, syslog, SNMP traps, and BGP data (via OpenBMP replacement). 
+ServiceRadar is a distributed network monitoring system optimized for constrained environments, delivering real-time monitoring and cloud-based alerting for network engineering, IoT, WAN, cybersecurity, and OT audiences. This document outlines a new architecture that integrates wRPC (WIT-RPC), NATS JetStream, and Timeplus Proton to enhance ServiceRadar's capabilities. The architecture retains the gRPC-based checker/poller model for edge data collection, adopts wRPC over NATS JetStream for structured edge-to-cloud communication, and uses Proton for real-time stream processing of high-volume telemetry.
 
-The solution enhances SRQL (ServiceRadar Query Language) with streaming capabilities, replaces NATS JetStream (which is changing to BUSL license) with a Kafka-free edge architecture, and uses gRPC for secure data ingestion. It enforces a one-way data flow (edge to cloud), leverages ClickHouse for historical storage, and ensures zero-trust security with SPIFFE/SPIRE mTLS.
+Key enhancements include:
 
-This positions ServiceRadar as a competitive NMS, blending SolarWinds' enterprise features with Nagios' lightweight, open-source ethos.
+- **wRPC Integration**: Leverages WebAssembly Interface Types (WIT) for transport-agnostic RPC, enabling structured communication (e.g., checker results, poller-to-core) over NATS JetStream with multiplexing.
+- **NATS JetStream Transport**: Provides messaging for wRPC calls and Proton streams, with WebSocket tunneling to minimize firewall changes.
+- **Proton Stream Processing**: Processes telemetry at the edge, using a custom proxy to bridge Timeplus external streams to wRPC over NATS.
+- **Enhanced SRQL**: Extends ServiceRadar Query Language (SRQL) with streaming constructs (e.g., time windows, JOINs).
+- **Multi-Tenant SaaS**: Ensures strict data isolation (e.g., PepsiCo vs. Coca-Cola) using NATS accounts and Kafka topics.
+- **Zero-Trust Security**: Uses SPIFFE/SPIRE mTLS for all communications, with one-way edge-to-cloud data flow.
+- **Lightweight Edge**: Minimizes footprint (~111MB without Proton, ~611MB with Proton).
+
+This positions ServiceRadar as a competitive Network Monitoring System (NMS), blending SolarWinds' enterprise features with Nagios' lightweight, open-source ethos.
 
 ## 2. Objectives
 
-- **Real-Time Stream Processing**: Enable processing for high-volume telemetry (gNMI, BGP)
-- **Enhanced SRQL**: Support streaming queries with time windows, aggregations, and JOINs
-- **Lightweight Edge**: Maintain edge processing without Kafka, using Proton for local processing
-- **One-Way Data Flow**: Ensure edge-to-cloud data transfer without cloud-initiated communication
-- **Zero-Trust Security**: Use SPIFFE/SPIRE mTLS for all communications, aligning with existing security architecture
-- **Historical Analytics**: Store processed data in ClickHouse for trend analysis and compliance, with Parquet/DuckDB for archival
-- **Scalable SaaS**: Build a multi-tenant cloud backend for enterprise customers
-- **Competitive Positioning**: Differentiate from SolarWinds (cost, flexibility) and Nagios (real-time, usability)
+- **Real-Time Stream Processing**: Enable edge processing of gNMI, NetFlow, syslog, SNMP traps, and BGP using Proton.
+- **wRPC Communication**: Use wRPC over NATS JetStream for structured RPC (checker results, poller-to-core), leveraging WIT for flexibility.
+- **NATS JetStream Messaging**: Handle wRPC calls, Proton streams, and KV storage, with tenant isolation via NATS accounts.
+- **Proton Integration**: Bridge Proton's Timeplus external stream to wRPC over NATS using a custom proxy.
+- **Enhanced SRQL**: Support streaming queries with time windows, aggregations, and JOINs.
+- **Lightweight Edge**: Maintain minimal footprint for constrained devices.
+- **One-Way Data Flow**: Enforce edge-to-cloud communication without cloud-initiated connections.
+- **Zero-Trust Security**: Use SPIFFE/SPIRE mTLS and JWT-based UI authentication.
+- **Historical Analytics**: Store data in ClickHouse (90-day retention) with Parquet/DuckDB for archival.
+- **Scalable SaaS**: Support 1,000+ tenants and 10,000 nodes per customer.
+- **Competitive Positioning**: Differentiate from SolarWinds (cost, flexibility) and Nagios (real-time, usability).
 
 ## 3. Target Audience
 
-- **Network Engineers**: Need real-time gNMI/BGP analytics (e.g., latency, route flaps) and SNMP trap correlation
-- **IoT/OT Teams**: Require lightweight edge processing for device telemetry and anomaly detection
-- **Cybersecurity Teams**: Demand real-time threat detection (e.g., BGP hijacks, syslog attacks)
-- **WAN Operators**: Seek traffic optimization (e.g., NetFlow, ECMP) and topology-aware monitoring
+- **Network Engineers**: Need real-time gNMI/BGP analytics (e.g., latency, route flaps) and SNMP trap correlation.
+- **IoT/OT Teams**: Require lightweight edge processing for device telemetry and anomaly detection.
+- **Cybersecurity Teams**: Demand real-time threat detection (e.g., BGP hijacks, syslog attacks).
+- **WAN Operators**: Seek traffic optimization (e.g., NetFlow, ECMP) and topology-aware monitoring.
+- **SaaS Customers**: Expect secure, isolated data handling.
 
 ## 4. Current State
 
-### Architecture (per architecture.md, service-port-map.md)
-- **Agent**: Collects data via checkers (SNMP, rperf, Dusk), gRPC (:50051)
-- **Poller**: Queries agents, reports to core (:50053)
-- **Core Service**: Processes reports, API (:8090, :50052), alerting
-- **Web UI**: Next.js (:3000, Nginx :80/443), API key-secured
-- **KV Store**: NATS JetStream (:4222), mTLS-secured
-- **Sync Service**: Integrates NetBox/Armis (:50058)
+### Architecture
 
-### Security (per tls-security.md, auth-configuration.md)
-- mTLS with SPIFFE/SPIRE, JWT-based UI authentication (admin, operator, readonly)
-- Planned one-way gRPC tunnels
+- **Agent**: Runs on monitored hosts (:50051, gRPC), collects data via checkers (SNMP, rperf, Dusk), reports to pollers.
+- **Poller**: Queries agents (:50053, gRPC), aggregates data, communicates with core (:50052, gRPC).
+- **Core Service**: Processes reports, provides API (:8090, HTTP; :50052, gRPC), triggers alerts.
+- **Web UI**: Next.js (:3000, proxied via Nginx :80/443), secured with API key and JWT.
+- **KV Store**: NATS JetStream (:4222, mTLS-secured), accessed via serviceradar-kv (:50057, gRPC).
+- **Sync Service**: Integrates NetBox/Armis (:50058, gRPC), updates KV store.
+- **Checkers**: SNMP (:50080), rperf (:50081), Dusk (:50082), SysMon (:50083), gRPC-based.
 
-### Data Sources (per intro.md, rperf-monitoring.md)
-- SNMP, ICMP, rperf, sysinfo; planned: NetFlow, syslog, SNMP traps, BGP, gNMI
+### Security
 
-### SRQL (per pkg/srql)
-- ANTLR-based DSL, supports SHOW/FIND/COUNT for devices, flows, traps, logs, connections
-- Translates to ClickHouse/ArangoDB, lacks streaming support (e.g., time windows)
+- **mTLS**: SPIFFE/SPIRE secures gRPC and NATS, certificates in /etc/serviceradar/certs/.
+- **JWT Authentication**: Web UI uses JWTs (admin, operator, readonly roles).
+- **API Key**: Secures Web UI-to-Core API.
+- **NATS Security**: mTLS and RBAC for JetStream buckets.
+
+### Data Sources
+
+- **Supported**: SNMP, ICMP, rperf, sysinfo, Dusk.
+- **Planned**: gNMI, NetFlow, syslog, SNMP traps, BGP (OpenBMP replacement).
+
+### SRQL
+
+- ANTLR-based DSL (SHOW/FIND/COUNT for devices, flows, traps, logs, connections).
+- Translates to ClickHouse/ArangoDB, lacks streaming support.
 
 ### Limitations
-- NATS JetStream's BUSL license raises concerns
-- No real-time streaming for gNMI/BGP
-- SRQL lacks streaming constructs (WINDOW, HAVING)
-- No edge processing or robust historical storage
+
+- No edge stream processing for gNMI, NetFlow, BGP.
+- SRQL lacks streaming constructs (WINDOW, HAVING).
+- gRPC poller-to-core requires open ports, complicating far-reaching networks.
+- Limited tenant isolation in SaaS.
+- Proton's Timeplus external stream only supports Timeplus-to-Timeplus communication, not generic gRPC or NATS.
 
 ## 5. Requirements
 
 ### 5.1 Functional Requirements
 
 #### Edge Processing with Proton
-- Deploy Proton (~500MB) optionally on agents for gNMI, NetFlow, syslog, SNMP traps, BGP
-- Ingest via gRPC (:8463, mTLS-secured)
-- Support streaming SQL with tumbling windows, materialized views, and JOINs
-- Push results to SaaS via gRPC tunnel
+
+- Deploy Proton (~500MB, optional) on agents for gNMI, NetFlow, syslog, SNMP traps, BGP.
+- Ingest data via gRPC (:8463, mTLS-secured).
+- Support streaming SQL with tumbling windows, materialized views, JOINs.
+- Push results to Proton-wRPC Proxy via Timeplus external stream.
 
 Example:
 ```sql
@@ -80,23 +103,121 @@ GROUP BY window_start, device, metric
 HAVING avg_value > 100;
 
 CREATE EXTERNAL STREAM cloud_sink
-SETTINGS type='grpc', address='saas.serviceradar.com:443';
+SETTINGS type='timeplus', hosts='localhost:8463', stream='gnmi_anomalies', secure=false;
 
 INSERT INTO cloud_sink
 SELECT window_start, device, metric, avg_value
 FROM gnmi_anomalies;
 ```
 
-#### SRQL Enhancements
-- Add `WINDOW <duration> [TUMBLE|HOP|SESSION]`, `HAVING`, `STREAM` keywords
-- Support JOINs for multi-stream correlation (e.g., NetFlow + syslog)
-- Translate to Proton SQL (real-time) or ClickHouse SQL (historical)
+#### Proton-wRPC Proxy
 
-Example Translation:
+- Develop a lightweight (~10MB) Rust service acting as a Timeplus server to receive Proton's external stream and invoke wRPC over NATS JetStream.
+- Listen on localhost:8463 (no mTLS needed locally).
+- Use wRPC Rust bindings to publish to tenant-specific subjects (e.g., serviceradar.<tenant_id>.proton.gnmi).
+
+Example (Rust pseudocode):
+```rust
+use wrpc_runtime_wasmtime::Client;
+use tonic::{Request, Response, Status};
+use timeplus::external_stream_server::{ExternalStream, ExternalStreamServer};
+
+struct Proxy {
+    wrpc: Client,
+    tenant_id: String,
+}
+
+#[tonic::async_trait]
+impl ExternalStream for Proxy {
+    async fn stream_data(
+        &self,
+        request: Request<tonic::Streaming<Data>>,
+    ) -> Result<Response<()>, Status> {
+        let mut stream = request.into_inner();
+        while let Some(data) = stream.message().await? {
+            self.wrpc.invoke(
+                "proton",
+                "publish",
+                format!("serviceradar.{}.proton.gnmi", self.tenant_id),
+                data.payload,
+            ).await?;
+        }
+        Ok(Response::new(()))
+    }
+}
+```
+
+#### wRPC Communication
+
+- Use wRPC over NATS JetStream for:
+    - Poller-to-core checker results (replacing gRPC).
+    - Proton-to-core streams (via Proton-wRPC Proxy).
+- Implement wRPC Rust bindings (per wRPC docs) for structured RPC calls.
+- Define WIT interfaces for checker and Proton data.
+
+Example WIT (checker.wit):
+```wit
+interface checker {
+    record result {
+        device: string,
+        metric: string,
+        value: f32,
+        timestamp: datetime,
+    }
+    publish: func(subject: string, data: result) -> result<unit, string>;
+}
+```
+
+Example wRPC call (Rust):
+```rust
+use wrpc_runtime_wasmtime::Client;
+
+async fn publish_checker_result(client: &Client, result: CheckerResult) {
+    client.invoke("checker", "publish", result).await.unwrap();
+}
+```
+
+#### NATS JetStream Transport
+
+- Use NATS JetStream for wRPC calls, Proton streams, and KV store.
+- Edge NATS clients (~1MB) connect to cloud NATS JetStream via WebSocket (:443, mTLS-secured).
+- Subjects: serviceradar.<tenant_id>.checker.results, serviceradar.<tenant_id>.proton.<stream_name>.
+
+Example NATS config:
+```
+listen: 0.0.0.0:4222
+websocket {
+    port: 443
+    tls {
+        cert_file: "/etc/serviceradar/certs/nats.pem"
+        key_file: "/etc/serviceradar/certs/nats-key.pem"
+    }
+}
+jetstream {
+    store_dir: /var/lib/nats/jetstream
+    max_memory_store: 1G
+    max_file_store: 10G
+}
+accounts {
+    pepsico {
+        users: [{user: pepsico_user, password: "<secret>"}]
+        jetstream: enabled
+        exports: [{stream: "serviceradar.pepsico.>"}]
+        imports: [{stream: {account: pepsico, subject: "serviceradar.pepsico.>"}}]
+    }
+}
+```
+
+#### SRQL Enhancements
+
+- Add WINDOW <duration> [TUMBLE|HOP|SESSION], HAVING, STREAM, JOIN.
+- Translate to Proton SQL (real-time) or ClickHouse SQL (historical).
+
+Example:
 ```
 SRQL: STREAM logs WHERE message CONTAINS 'Failed password for root' GROUP BY device WINDOW 5m HAVING login_attempts >= 5
 
-Proton SQL: 
+Proton SQL:
 SELECT window_start, device, count(*) AS login_attempts
 FROM tumble(syslog_stream, 5m, watermark=5s)
 WHERE message LIKE '%Failed password for root%'
@@ -105,28 +226,46 @@ HAVING login_attempts >= 5;
 ```
 
 #### SaaS Backend
-- **gRPC Server**: Receive edge data, write to Kafka/ClickHouse
-- **Kafka**: Cloud-hosted (e.g., AWS MSK), multi-tenant, with topics per customer (e.g., customer123_gnmi)
-- **Proton (Cloud)**: Process Kafka streams for cross-customer analytics or non-edge queries
-- **ClickHouse**: Historical storage, analytical queries
-- **DuckDB**: Parquet queries for offline analysis
-- **Core API**: gRPC-based, translate SRQL, query Proton/ClickHouse
-- **Web UI**: Next.js, display dashboards, accept SRQL queries
+
+- **NATS JetStream Cluster**: Multi-tenant, cloud-hosted (AWS EC2).
+- **wRPC Server**: Handles wRPC calls, writes to Kafka/ClickHouse.
+- **Kafka**: Multi-tenant (AWS MSK), tenant-specific topics (e.g., pepsico_gnmi).
+- **Proton (Cloud)**: Processes Kafka streams for analytics.
+- **ClickHouse**: Historical storage (90-day retention).
+- **DuckDB**: Parquet archival.
+- **Core API**: gRPC (:50052), HTTP (:8090), SRQL translation.
+- **Web UI**: Next.js (:3000, proxied via Nginx :80/443).
 
 #### One-Way Data Flow
-- Edge Proton pushes materialized view results to SaaS via gRPC (mTLS, SPIFFE/SPIRE)
-- No cloud-to-edge communication
 
-Example:
-```sql
-INSERT INTO cloud_sink
-SELECT window_start, device, login_attempts
-FROM ssh_alerts;
+- Edge NATS clients push wRPC calls and Proton streams to cloud NATS JetStream.
+- No cloud-to-edge communication.
+
+Example wRPC call:
+```rust
+client.invoke("checker", "publish", "serviceradar.pepsico.checker.results", data).await?;
+```
+
+#### Tenant Isolation
+
+- NATS accounts segregate tenant data (e.g., serviceradar.pepsico.*).
+- Tenant-specific Kafka topics and ClickHouse tables.
+
+Example NATS account:
+```
+accounts {
+    pepsico {
+        users: [{user: pepsico_user, password: "<secret>"}]
+        jetstream: enabled
+        exports: [{stream: "serviceradar.pepsico.>"}]
+    }
+}
 ```
 
 #### Data Sources
-- Support gNMI, NetFlow, syslog, SNMP traps, and BGP (OpenBMP replacement)
-- Ingest via gRPC, normalize to JSON by ingest service
+
+- gNMI, NetFlow, syslog, SNMP traps, BGP (OpenBMP replacement).
+- Ingest via gRPC, normalize to JSON.
 
 Example (BGP):
 ```sql
@@ -139,8 +278,9 @@ CREATE STREAM bgp_updates (
 ```
 
 #### Historical Storage
-- ClickHouse for 90-day retention
-- Parquet exports via DuckDB for archival
+
+- ClickHouse: 90-day retention.
+- Parquet via DuckDB for archival.
 
 Example:
 ```sql
@@ -155,85 +295,64 @@ HAVING flap_count > 10;
 ```
 
 #### Use Cases
-- **gNMI Aggregation**: 
+
+- **gNMI Aggregation**:
   ```
   STREAM devices WHERE metric = 'latency' GROUP BY device, metric WINDOW 1m HAVING avg_value > 100
   ```
-- **Interface Utilization**: 
-  ```
-  STREAM gnmi WHERE metric = 'interface_utilization' AND value > 80 GROUP BY device, interface WINDOW 1m
-  ```
-- **NetFlow Traffic Analysis**: 
+- **NetFlow Traffic Analysis**:
   ```
   STREAM netflow WHERE bytes > 0 GROUP BY application WINDOW 5m ORDER BY sum(bytes) DESC LIMIT 10
   ```
-- **Syslog Threat Detection**: 
+- **Syslog Threat Detection**:
   ```
   STREAM logs WHERE message CONTAINS 'Failed password for root' GROUP BY device WINDOW 5m HAVING login_attempts >= 5
   ```
-- **NetFlow/Syslog Correlation**: 
-  ```
-  STREAM flows JOIN logs ON src_ip = device WHERE logs.message CONTAINS 'blocked' GROUP BY flows.src_ip WINDOW 1m HAVING port_count > 50
-  ```
-- **BGP Flap Detection**: 
+- **BGP Flap Detection**:
   ```
   STREAM flows WHERE action IN ('announce', 'withdraw') GROUP BY prefix WINDOW 5m HAVING flap_count > 10
-  ```
-- **BGP Hijack Detection**: 
-  ```
-  STREAM flows WHERE action = 'announce' AND prefix NOT IN (SELECT prefix FROM trusted_prefixes) WINDOW 1m
-  ```
-- **BGP Misconfiguration**: 
-  ```
-  STREAM flows WHERE action = 'announce' AND as_number BETWEEN 64512 AND 65535 WINDOW 1m
-  ```
-- **ECMP Imbalance**: 
-  ```
-  STREAM flows JOIN netflow ON next_hop = next_hop WHERE flows.action = 'announce' GROUP BY flows.prefix, flows.next_hop WINDOW 5m HAVING max(total_bytes) / min(total_bytes) > 2
-  ```
-- **Topology-Aware Monitoring**: 
-  ```
-  STREAM flows JOIN gnmi ON peer = device WHERE flows.state = 'down' AND gnmi.metric = 'link_status' AND gnmi.value = 0 WINDOW 1m
   ```
 
 ### 5.2 Non-Functional Requirements
 
 #### Performance
-- Process 1M gNMI events/sec on edge (1 vCPU, 0.5GB RAM)
-- <1s SRQL query latency
-- Support 10,000 nodes per customer
+- Process 1M gNMI events/sec on edge (1 vCPU, 0.5GB RAM).
+- <1s SRQL query latency.
+- Support 10,000 nodes/customer.
 
 #### Scalability
-- Multi-tenant Kafka and ClickHouse for 1,000+ customers
-- Horizontal scaling for Proton and core API
+- Multi-tenant NATS JetStream and Kafka for 1,000+ customers.
+- Horizontal scaling for Proton, NATS, wRPC servers.
 
 #### Reliability
-- 99.9% SaaS uptime
-- Buffer edge data during network disruptions (Proton WAL, gRPC retry)
+- 99.9% SaaS uptime.
+- Buffer edge data (Proton WAL, NATS JetStream persistence).
 
 #### Security
-- SPIFFE/SPIRE mTLS for all communications
-- JWT-based RBAC in web UI (admin, operator, readonly)
-- One-way data flow compliance
-- Kafka ACLs for tenant isolation
+- SPIFFE/SPIRE mTLS for wRPC, NATS, gRPC.
+- JWT-based RBAC (admin, operator, readonly).
+- One-way data flow.
+- NATS accounts and Kafka ACLs for tenant isolation.
 
 #### Usability
-- 90% SRQL queries without support
-- Web UI responsive on mobile/desktop
+- 90% SRQL queries without support.
+- Responsive Web UI on mobile/desktop.
 
 #### Compatibility
-- Support Debian/Ubuntu, RHEL/Oracle Linux
-- Integrate with existing gRPC-based agent/poller architecture
+- Debian/Ubuntu, RHEL/Oracle Linux.
+- Integrates with gRPC checker/poller model.
 
 ## 6. Architecture
 
 ### 6.1 Edge (Customer Network)
 
 #### Components
-- **Checkers**: Collect gNMI, NetFlow, syslog, SNMP traps, BGP (OpenBMP)
-- **Ingest Service**: Normalize to JSON, send to Proton via gRPC
-- **Proton (optional)**: Process streams, store in materialized views, push to SaaS
-- **gRPC Client**: Send data via mTLS-secured tunnel
+- **Checkers**: Collect gNMI, NetFlow, syslog, SNMP traps, BGP (:50080–:50083, gRPC).
+- **Agent**: Queries checkers (:50051, gRPC), forwards to poller.
+- **Proton (Optional)**: Processes streams, pushes to Proton-wRPC Proxy (:8463).
+- **Proton-wRPC Proxy**: Bridges Timeplus external stream to wRPC over NATS (~10MB).
+- **Poller**: Collects checker results, invokes wRPC over NATS (:50053, gRPC internally).
+- **NATS Client**: Handles wRPC calls and Proton streams (~1MB).
 
 #### Installation
 ```bash
@@ -243,43 +362,54 @@ sudo ./install-oss.sh
 ```
 
 #### Resources
-- <100MB without Proton (ultra-constrained devices)
-- ~500MB with Proton (1 vCPU, 0.5GB RAM, e.g., IoT gateways)
+- Without Proton: ~111MB (Agent ~100MB, Proxy ~10MB, NATS Client ~1MB).
+- With Proton: ~611MB (Proton ~500MB).
+- Minimum: 1 vCPU, 0.5GB RAM.
 
 #### Data Flow
-Checkers → Ingest → Proton (gRPC) → Materialized Views → gRPC Tunnel → SaaS
+- Checkers → Agent (gRPC) → Poller (gRPC) → NATS Client (wRPC over NATS) → Cloud NATS JetStream.
+- Checkers → Agent → Proton (gRPC) → Proton-wRPC Proxy (Timeplus stream) → NATS Client (wRPC over NATS) → Cloud NATS JetStream.
 
 #### Security
-mTLS with SPIFFE/SPIRE for gRPC ingestion and push, no inbound connections from cloud
+- mTLS (SPIFFE/SPIRE) for gRPC, wRPC, NATS.
+- No cloud-to-edge connections.
+- Certificates: /etc/serviceradar/certs/.
 
 ### 6.2 SaaS Backend (Cloud)
 
 #### Components
-- **gRPC Server**: Receive edge data, write to Kafka/ClickHouse
-- **Kafka**: Multi-tenant, cloud-hosted (e.g., AWS MSK)
-- **Proton**: Process Kafka streams for cross-customer analytics
-- **ClickHouse**: Historical storage, analytical queries
-- **DuckDB**: Parquet queries for archival
-- **Core API**: gRPC-based, translate SRQL, query Proton/ClickHouse
-- **Web UI**: Next.js, display dashboards, accept SRQL queries
+- **NATS JetStream Cluster**: Multi-tenant, receives wRPC calls and streams (:4222, :443 WebSocket).
+- **wRPC Server**: Processes wRPC calls, writes to Kafka/ClickHouse.
+- **Kafka**: Multi-tenant (AWS MSK), tenant-specific topics.
+- **Proton (Cloud)**: Processes Kafka streams.
+- **ClickHouse**: Historical storage.
+- **DuckDB**: Parquet archival.
+- **Core API**: gRPC (:50052), HTTP (:8090).
+- **Web UI**: Next.js (:3000, proxied via Nginx :80/443).
 
 #### Data Flow
-gRPC Server → Kafka → Proton → ClickHouse → Core API → Web UI
+NATS JetStream → wRPC Server → Kafka → Proton (cloud) → ClickHouse → Core API → Web UI.
 
 #### Security
-mTLS for inter-service communication, JWT-based RBAC for UI/API access, Kafka ACLs for tenant isolation
+- mTLS for wRPC, NATS, gRPC.
+- JWT-based RBAC.
+- NATS accounts and Kafka ACLs.
 
 ### 6.3 Diagram
 ```mermaid
 graph TD
     subgraph "Edge (Customer Network)"
-        Checkers[Checkers<br>gNMI, NetFlow, Syslog, SNMP, BGP] -->|JSON| Ingest[Ingest Service]
-        Ingest -->|gRPC| ProtonEdge[Proton<br>:8463]
-        ProtonEdge -->|Materialized Views| gRPCClient[gRPC Client]
-        gRPCClient -->|mTLS Tunnel| SaaS
+        Checkers[Checkers<br>gNMI, NetFlow, Syslog, SNMP, BGP] -->|gRPC| Agent[Agent<br>:50051]
+        Agent -->|gRPC| Proton[Proton<br>:8463, Optional]
+        Proton -->|Timeplus Stream| Proxy[Proton-wRPC Proxy]
+        Agent -->|gRPC| Poller[Poller]
+        Poller -->|wRPC over NATS| NATSClient[NATS Client]
+        Proxy -->|wRPC over NATS| NATSClient
+        NATSClient -->|WebSocket :443, mTLS| Cloud
     end
     subgraph "SaaS Backend (Cloud)"
-        SaaS[gRPC Server] -->|Customer Topics| Kafka[Kafka]
+        Cloud[NATS JetStream Cluster<br>:4222] -->|Tenant Subjects| wRPC[wRPC Server]
+        wRPC -->|Tenant Topics| Kafka[Kafka<br>AWS MSK]
         Kafka --> ProtonCloud[Proton]
         ProtonCloud -->|Processed Data| ClickHouse[ClickHouse]
         ClickHouse --> CoreAPI[Core API<br>:8090, :50052]
@@ -292,105 +422,105 @@ graph TD
 
 ## 7. Enhanced SRQL Syntax
 
-SRQL is extended to support streaming queries, aligning with Proton's capabilities. Below is the updated syntax:
-
 | Clause | Syntax | Description | Example |
 |--------|--------|-------------|---------|
-| STREAM | STREAM \<entity\> | Indicates real-time query (optional) | STREAM logs ... |
-| FROM | FROM \<entity\> | Specifies entity (devices, flows, logs, traps, connections) | FROM netflow |
-| WHERE | WHERE \<condition\> | Filters data (e.g., equality, CONTAINS, IN) | WHERE message CONTAINS 'Failed password' |
-| JOIN | JOIN \<entity\> ON \<condition\> | Correlates streams (time-based) | JOIN logs ON src_ip = device |
-| GROUP BY | GROUP BY \<field\>[, \<field\>] | Aggregates data by fields | GROUP BY device, metric |
-| WINDOW | WINDOW \<duration\> [TUMBLE\|HOP\|SESSION] | Time-based windows | WINDOW 5m |
-| HAVING | HAVING \<aggregate_condition\> | Filters aggregated results | HAVING login_attempts >= 5 |
-| ORDER BY | ORDER BY \<field\> [ASC\|DESC] | Sorts results | ORDER BY bytes DESC |
-| LIMIT | LIMIT \<n\> | Limits result rows | LIMIT 10 |
+| STREAM | STREAM <entity> | Real-time query | STREAM logs ... |
+| FROM | FROM <entity> | Entity (devices, flows, logs, traps) | FROM netflow |
+| WHERE | WHERE <condition> | Filters (e.g., CONTAINS, IN) | WHERE message CONTAINS 'Failed password' |
+| JOIN | JOIN <entity> ON <condition> | Correlates streams | JOIN logs ON src_ip = device |
+| GROUP BY | GROUP BY <field>[, <field>] | Aggregates | GROUP BY device, metric |
+| WINDOW | WINDOW <duration> [TUMBLE\|HOP\|SESSION] | Time windows | WINDOW 5m |
+| HAVING | HAVING <aggregate_condition> | Filters aggregates | HAVING login_attempts >= 5 |
+| ORDER BY | ORDER BY <field> [ASC\|DESC] | Sorts | ORDER BY bytes DESC |
+| LIMIT | LIMIT <n> | Limits rows | LIMIT 10 |
 
 ## 8. User Experience
 
 ### Setup
-- Install agent: `curl https://install.serviceradar.com/agent | sh`
-- Configure mTLS certs (SPIFFE/SPIRE) and SaaS endpoint via UI or CLI
+- Install: `curl https://install.serviceradar.com/agent | sh`.
+- Configure mTLS, NATS credentials via UI/CLI.
 
 ### Operation
-- Agents collect data, process with Proton (optional), push to SaaS via gRPC
-- Ultra-constrained devices skip Proton, send raw data
-- No edge Kafka, minimal footprint
+- Checkers collect data, agents forward to pollers (gRPC).
+- Optional Proton processes streams, pushes to Proton-wRPC Proxy.
+- Pollers and Proxy use wRPC over NATS JetStream.
+- Ultra-constrained devices skip Proton.
 
 ### Interaction
-- Log into web UI (JWT-authenticated, roles: admin, operator, readonly)
-- Enter SRQL queries (e.g., `STREAM flows WHERE action IN ('announce', 'withdraw') GROUP BY prefix WINDOW 5m HAVING flap_count > 10`)
-- View real-time dashboards (e.g., gNMI latency, BGP hijacks, interface utilization)
-- Configure alerts (e.g., "notify on 5 failed logins")
-- Query historical trends (e.g., 30-day NetFlow, 90-day BGP flaps)
+- Log into Web UI (JWT, admin/operator/readonly).
+- Run SRQL queries (e.g., `STREAM flows WHERE action IN ('announce', 'withdraw') GROUP BY prefix WINDOW 5m HAVING flap_count > 10`).
+- View dashboards (gNMI latency, BGP hijacks).
+- Configure alerts (e.g., "notify on 5 failed logins").
+- Query historical trends (30-day NetFlow, 90-day BGP).
 
 ### Configuration
-- Enable/disable edge Proton via UI
-- Define SRQL-based alerts and dashboards
-- Manage mTLS certs and RBAC roles
+- Enable/disable Proton via UI.
+- Define SRQL alerts, dashboards.
+- Manage mTLS, NATS accounts, RBAC.
 
 ## 9. Success Metrics
 
 - **Performance**:
-  - 1M gNMI events/sec on edge
-  - <1s SRQL query latency
-  - Support 10,000 nodes/customer
+    - 1M gNMI events/sec on edge.
+    - <1s SRQL query latency.
+    - 10,000 nodes/customer.
 - **Adoption**:
-  - 80% of customers enable edge Proton for gNMI/BGP
-  - 1,000 active SaaS tenants within 12 months
+    - 80% customers enable Proton.
+    - 1,000 SaaS tenants in 12 months.
 - **Usability**:
-  - 90% SRQL queries executed without support
-  - 95% customer satisfaction with UI
+    - 90% SRQL queries without support.
+    - 95% UI satisfaction.
 - **Security**:
-  - Zero mTLS breaches
-  - 100% RBAC compliance
+    - Zero mTLS breaches.
+    - 100% tenant isolation compliance.
 - **Revenue**:
-  - $10M ARR within 24 months via SaaS subscriptions
+    - $10M ARR in 24 months.
 
 ## 10. Risks and Mitigations
 
-- **Risk**: Proton's 500MB binary too heavy for ultra-constrained devices.
-  **Mitigation**: Optional Proton, fallback to lightweight checkers sending raw data.
+- **Risk**: Proton's 500MB footprint too heavy.  
+  **Mitigation**: Optional Proton, fallback to checkers (~111MB).
 
-- **Risk**: SRQL translation errors for streaming queries.
-  **Mitigation**: Rigorous ANTLR parser testing, manual SQL fallback.
+- **Risk**: Proton-wRPC Proxy complexity.  
+  **Mitigation**: Lightweight (~10MB) proxy, test with gNMI/NetFlow.
 
-- **Risk**: Kafka scalability in multi-tenant SaaS.
-  **Mitigation**: Use managed Kafka (e.g., Confluent Cloud), monitor topic performance.
+- **Risk**: wRPC learning curve.  
+  **Mitigation**: Use Rust bindings, leverage wRPC examples (e.g., hello example).
 
-- **Risk**: gRPC tunnel latency impacts real-time performance.
-  **Mitigation**: Optimize retry logic, buffer data in Proton WAL.
+- **Risk**: WebSocket latency.  
+  **Mitigation**: Benchmark Nginx proxy, fallback to NATS port (:4222).
+
+- **Risk**: NATS account misconfiguration.  
+  **Mitigation**: Automate account creation, audit access.
 
 ## 11. Timeline
 
-- **Month 1: SRQL Parser Development (Jul 2025)**
-  - Extend SRQL grammar with WINDOW, HAVING, STREAM, JOIN
-  - Implement Proton SQL translator
+- **Month 1: SRQL and Proxy (Jun 2025)**:
+    - Extend SRQL grammar.
+    - Develop Proton-wRPC Proxy.
 
-- **Month 2: Edge Prototype (Aug 2025)**
-  - Deploy edge Proton, test gNMI/BGP ingestion via gRPC
-  - Secure with SPIFFE/SPIRE mTLS
+- **Month 2: wRPC Integration (Jul 2025)**:
+    - Implement wRPC for poller-to-core.
+    - Test gNMI/BGP with Proxy.
 
-- **Month 3-4: Edge Optimization (Sep–Oct 2025)**
-  - Validate Proton on edge devices (e.g., IoT gateways, OT servers)
-  - Enhance UI for SRQL queries, dashboards, and alert configuration
-  - Test one-way data flow compliance
+- **Month 3-4: NATS and SaaS (Aug–Sep 2025)**:
+    - Deploy NATS JetStream with tenant accounts.
+    - Enhance UI for SRQL and dashboards.
 
-- **Month 5-7: SaaS Rollout (Nov 2025–Jan 2026)**
-  - Deploy cloud Kafka, Proton, ClickHouse for multi-tenancy
-  - Implement use cases (gNMI, NetFlow, syslog, BGP)
-  - Harden zero-trust model with RBAC and Kafka ACLs
+- **Month 5-7: Optimization (Oct–Dec 2025)**:
+    - Validate Proton performance (1M events/sec).
+    - Harden mTLS and NATS accounts.
 
-- **Month 8: Beta Launch (Feb 2026)**
-  - Onboard 50 early customers
-  - Gather feedback on SRQL, Proton performance, and UI
+- **Month 8: Beta (Jan 2026)**:
+    - Onboard 50 customers.
+    - Gather feedback on SRQL, UI.
 
 ## 12. Future Considerations
 
-- **WASMCloud**: Customer-defined edge consumers for data enrichment/anonymization
-- **Proton Enterprise**: Advanced sinks (e.g., Slack, Redpanda Connect)
-- **AI/ML**: Predictive anomaly detection for gNMI, BGP, and syslog
-- **Additional Sources**: sFlow, IPFIX, custom protocols
+- **WASMCloud**: Customer-defined edge processing.
+- **Proton Enterprise**: Advanced sinks (Slack, Redpanda).
+- **AI/ML**: Predictive anomaly detection.
+- **Additional Sources**: sFlow, IPFIX.
 
 ## 13. Appendix
 
@@ -401,49 +531,19 @@ SRQL is extended to support streaming queries, aligning with Proton's capabiliti
   STREAM devices WHERE metric = 'latency' GROUP BY device, metric WINDOW 1m HAVING avg_value > 100
   ```
 
-- **Interface Utilization**:
-  ```
-  STREAM gnmi WHERE metric = 'interface_utilization' AND value > 80 GROUP BY device, interface WINDOW 1m
-  ```
-
-- **NetFlow Traffic Analysis**:
-  ```
-  STREAM netflow WHERE bytes > 0 GROUP BY application WINDOW 5m ORDER BY sum(bytes) DESC LIMIT 10
-  ```
-
 - **Syslog Threat Detection**:
   ```
   STREAM logs WHERE message CONTAINS 'Failed password for root' GROUP BY device WINDOW 5m HAVING login_attempts >= 5
   ```
 
-- **NetFlow/Syslog Correlation**:
-  ```
-  STREAM flows JOIN logs ON src_ip = device WHERE logs.message CONTAINS 'blocked' GROUP BY flows.src_ip WINDOW 1m HAVING port_count > 50
-  ```
-
-- **BGP Flap Detection**:
-  ```
-  STREAM flows WHERE action IN ('announce', 'withdraw') GROUP BY prefix WINDOW 5m HAVING flap_count > 10
-  ```
-
-- **BGP Hijack Detection**:
-  ```
-  STREAM flows WHERE action = 'announce' AND prefix NOT IN (SELECT prefix FROM trusted_prefixes) WINDOW 1m
-  ```
-
 ### 13.2 Security Configuration
 
-- **SPIFFE/SPIRE mTLS**:
-  - Edge: `/etc/serviceradar/certs/agent.pem`, `agent-key.pem`
-  - SaaS: `/etc/serviceradar/certs/core.pem`, `core-key.pem`
-  - Proton: `/etc/serviceradar/certs/proton.pem`, `proton-key.pem`
-
-- **JWT RBAC**:
-  - Roles: admin (full access), operator (configure alerts), readonly (view dashboards)
-  - Configured in `/etc/serviceradar/core.json`
+- **mTLS**: `/etc/serviceradar/certs/{agent,proton,nats}.pem`.
+- **JWT RBAC**: Roles (admin, operator, readonly) in `/etc/serviceradar/core.json`.
 
 ### 13.3 References
 
+- wRPC: [github.com/bytecodealliance/wrpc](https://github.com/bytecodealliance/wrpc)
+- NATS JetStream: [nats.io](https://nats.io)
 - Timeplus Proton: [docs.timeplus.com](https://docs.timeplus.com)
-- ServiceRadar Documentation: Provided Files
 - SPIFFE/SPIRE: [spiffe.io](https://spiffe.io)
