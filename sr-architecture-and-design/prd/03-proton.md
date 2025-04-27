@@ -2,7 +2,7 @@
 
 ## 1. Executive Summary
 
-ServiceRadar is a distributed network monitoring system optimized for constrained environments, delivering real-time monitoring and cloud-based alerting for network engineering, IoT, WAN, cybersecurity, and OT audiences. This document outlines a new architecture that integrates wRPC (WebAssembly Interface Types RPC) with multiple transport options, NATS JetStream, and Timeplus Proton to enhance ServiceRadar's capabilities.
+ServiceRadar is a distributed network monitoring system optimized for constrained environments, delivering real-time monitoring and cloud-based alerting for network engineering, IoT, WAN, cybersecurity, and OT audiences. This document outlines a new architecture that integrates wRPC (WebAssembly Interface Types RPC) with multiple transport options, NATS JetStream with leaf nodes, and Timeplus Proton to enhance ServiceRadar's capabilities.
 
 Key enhancements include:
 
@@ -10,7 +10,11 @@ Key enhancements include:
     - **TCP Transport**: For local component communication (checker-to-agent, agent-to-poller), maintaining the existing pull model
     - **NATS Transport**: For edge-to-cloud communication (poller-to-core), enabling tenant isolation and firewall traversal
 
-- **NATS JetStream for Edge-to-Cloud**: Provides messaging for edge-to-cloud wRPC calls, with WebSocket tunneling to minimize firewall changes.
+- **NATS JetStream Leaf Nodes**: Provides local NATS instances at edge locations that connect to the cloud NATS cluster, enabling:
+    - Local messaging even during cloud disconnections
+    - Store-and-forward capabilities with local JetStream
+    - Single account connection to the cloud cluster
+    - Mirroring of streams between edge and cloud
 
 - **Proton Stream Processing**: Processes telemetry at the edge with Timeplus Proton.
 
@@ -171,34 +175,56 @@ SELECT window_start, device, metric, avg_value
 FROM gnmi_anomalies;
 ```
 
-#### NATS JetStream Transport
+#### NATS JetStream Leaf Nodes
 
-- Use NATS JetStream for edge-to-cloud wRPC calls
-- Edge NATS clients (~1MB) connect to cloud NATS JetStream via WebSocket (:443, mTLS-secured)
+- Use NATS JetStream leaf nodes for edge-to-cloud communication
+- Edge runs local NATS leaf node (~5MB) connecting to cloud NATS cluster via TLS with mTLS
+- Local JetStream enabled for store-and-forward capability during cloud disconnections
+- Stream mirroring between edge and cloud
 - Subjects: serviceradar.<tenant_id>.checker.results, serviceradar.<tenant_id>.proton.<stream_name>
 
-Example NATS config:
+Example NATS Leaf Node config:
 ```
-listen: 0.0.0.0:4222
-websocket {
-    port: 443
-    tls {
-        cert_file: "/etc/serviceradar/certs/nats.pem"
-        key_file: "/etc/serviceradar/certs/nats-key.pem"
+listen: 127.0.0.1:4222  # Local only for security
+leafnodes {
+  remotes = [
+    {
+      url: "tls://nats.serviceradar.cloud:7422"
+      credentials: "/etc/serviceradar/certs/tenant123.creds"
     }
+  ]
 }
 jetstream {
-    store_dir: /var/lib/nats/jetstream
-    max_memory_store: 1G
-    max_file_store: 10G
+  store_dir: /var/lib/nats/jetstream
+  max_memory_store: 256M
+  max_file_store: 2G
+}
+```
+
+Example Cloud NATS config:
+```
+listen: 0.0.0.0:4222
+leafnodes {
+  port: 7422
+  tls {
+    cert_file: "/etc/serviceradar/certs/nats.pem"
+    key_file: "/etc/serviceradar/certs/nats-key.pem"
+    ca_file: "/etc/serviceradar/certs/root.pem"
+    verify: true
+  }
+}
+jetstream {
+  store_dir: /var/lib/nats/jetstream
+  max_memory_store: 8G
+  max_file_store: 100G
 }
 accounts {
-    pepsico {
-        users: [{user: pepsico_user, password: "<secret>"}]
-        jetstream: enabled
-        exports: [{stream: "serviceradar.pepsico.>"}]
-        imports: [{stream: {account: pepsico, subject: "serviceradar.pepsico.>"}}]
-    }
+  pepsico {
+    users: [{user: pepsico_user, password: "<secret>"}]
+    jetstream: enabled
+    exports: [{stream: "serviceradar.pepsico.>"}]
+    imports: [{stream: {account: pepsico, subject: "serviceradar.pepsico.>"}}]
+  }
 }
 ```
 
@@ -331,7 +357,11 @@ HAVING flap_count > 10;
 - **Agent**: Queries checkers using wRPC over TCP, forwards to poller
 - **Proton (Optional)**: Processes streams
 - **Poller**: Collects data from agents using wRPC over TCP, forwards to cloud using wRPC over NATS
-- **NATS Client**: Handles edge-to-cloud communication (~1MB)
+- **NATS Leaf Node**: Runs locally at the edge, connects to cloud NATS cluster using TLS with mTLS security (~5MB)
+    - Provides local JetStream persistence for store-and-forward capability
+    - Operates even during temporary cloud disconnections
+    - Acts as a single account connection to the cloud cluster
+    - Supports mirroring of streams between edge and cloud
 
 #### Installation
 ```bash
@@ -341,16 +371,17 @@ sudo ./install-oss.sh
 ```
 
 #### Resources
-- Without Proton: ~111MB (Agent ~100MB, NATS Client ~1MB, wRPC Plugins ~10MB)
+- Without Proton: ~111MB (Agent ~100MB, NATS Leaf Node ~5MB, wRPC Plugins ~6MB)
 - With Proton: ~611MB (Proton ~500MB)
 - Minimum: 1 vCPU, 0.5GB RAM
 
 #### Data Flow
-- Checkers ←→ Agent (wRPC over TCP) ←→ Poller (wRPC over TCP) → NATS Client (wRPC over NATS) → Cloud NATS JetStream
-- Proton ←→ Agent (wRPC over TCP) → Poller (wRPC over TCP) → NATS Client (wRPC over NATS) → Cloud NATS JetStream
+- Checkers ←→ Agent (wRPC over TCP) ←→ Poller (wRPC over TCP) → NATS Leaf Node (wRPC over NATS) → Cloud NATS JetStream
+- Proton ←→ Agent (wRPC over TCP) → Poller (wRPC over TCP) → NATS Leaf Node (wRPC over NATS) → Cloud NATS JetStream
 
 #### Security
 - mTLS (SPIFFE/SPIRE) for wRPC (both TCP and NATS transports)
+- mTLS for NATS Leaf Node to Cloud NATS connection
 - No cloud-to-edge connections
 - Certificates: /etc/serviceradar/certs/
 
@@ -382,8 +413,8 @@ graph TD
         Checker2[rperf Checker] <---->|wRPC over TCP| Agent
         Proton[Proton] <---->|wRPC over TCP| Agent
         Agent <---->|wRPC over TCP| Poller[Poller]
-        Poller <---->|wRPC over NATS| NATSClient[NATS Client]
-        NATSClient -->|WebSocket :443, mTLS| Cloud
+        Poller <---->|wRPC over NATS| NATSLeaf[NATS Leaf Node<br>with JetStream]
+        NATSLeaf -->|TLS with mTLS, port 7422| Cloud
     end
 
     subgraph "Cloud Environment"
@@ -413,16 +444,18 @@ graph TD
 | ORDER BY | ORDER BY <field> [ASC\|DESC] | Sorts | ORDER BY bytes DESC |
 | LIMIT | LIMIT <n> | Limits rows | LIMIT 10 |
 
-## 8. User Experience
+### 8. User Experience
 
 ### Setup
 - Install: `curl https://install.serviceradar.com/agent | sh`
 - Configure mTLS, NATS credentials via UI/CLI
+- Local NATS leaf node automatically established
 
 ### Operation
 - Checkers respond to polls from agents using wRPC over TCP (maintaining pull model)
 - Agents respond to polls from pollers using wRPC over TCP (maintaining pull model)
-- Pollers forward data to cloud using wRPC over NATS
+- Pollers forward data to cloud using wRPC over NATS leaf node
+- Local NATS JetStream buffers during cloud connectivity disruptions
 - Ultra-constrained devices use lightweight components
 
 ### Interaction
@@ -436,6 +469,7 @@ graph TD
 - Enable/disable Proton via UI
 - Define SRQL alerts, dashboards
 - Manage mTLS, NATS accounts, RBAC
+- Configure NATS leaf node parameters (store limits, mirror options)
 
 ## 9. Success Metrics
 
@@ -463,38 +497,46 @@ graph TD
 - **Risk**: Proton's 500MB footprint too heavy.  
   **Mitigation**: Optional Proton, fallback to checkers (~111MB).
 
+- **Risk**: NATS leaf node disconnection periods.  
+  **Mitigation**: Enable local JetStream for persistence, implement mirroring for store-and-forward capability.
+
 - **Risk**: wRPC learning curve.  
   **Mitigation**: Use Rust bindings, leverage wRPC examples.
-
-- **Risk**: WebSocket latency.  
-  **Mitigation**: Benchmark Nginx proxy, fallback to NATS port (:4222).
 
 - **Risk**: NATS account misconfiguration.  
   **Mitigation**: Automate account creation, audit access.
 
+- **Risk**: Increased edge resource usage with NATS leaf nodes.  
+  **Mitigation**: Minimal configuration with bounded memory/storage limits.
+
 ## 11. Implementation Plan
 
-1. **Phase 1: wRPC Integration** (2 months)
-    - Stand up two NATS servers (edge and cloud) that connect to each other
-    - Replace gRPC in the agent with wRPC using TCP transport
-    - Replace gRPC in the core with wRPC using NATS transport
-    - Convert all checkers to use wRPC over TCP
-    - Test connectivity and data flow
+1. **Phase 1: NATS Infrastructure** (1 month)
+    - Deploy NATS cluster in cloud environment with necessary accounts and security
+    - Deploy and test NATS leaf nodes in edge environments
+    - Test stream mirroring and store-and-forward capabilities
+    - Verify performance and resilience during disconnections
 
-2. **Phase 2: SRQL and Proton Integration** (2 months)
+2. **Phase 2: wRPC Integration** (2 months)
+    - Implement wRPC with TCP transport for local components
+    - Convert agent-checker and poller-agent communications to wRPC over TCP
+    - Develop and test wRPC-NATS integration for poller-to-core communication
+    - Test end-to-end data flow
+
+3. **Phase 3: SRQL and Proton Integration** (2 months)
     - Extend SRQL grammar with streaming constructs
     - Integrate Proton with wRPC
     - Implement the data flow pipeline
 
-3. **Phase 3: Multi-Tenant SaaS** (2 months)
-    - Set up NATS accounts and Kafka topics for multi-tenancy
-    - Implement tenant isolation in all components
+4. **Phase 4: Multi-Tenant SaaS** (1 month)
+    - Finalize tenant isolation in all components
     - Security hardening and testing
-
-4. **Phase 4: Beta and Optimization** (2 months)
-    - Onboard beta customers
     - Performance optimization
+
+5. **Phase 5: Beta and Deployment** (2 months)
+    - Onboard beta customers
     - Documentation and training
+    - Production rollout
 
 ## 12. Future Considerations
 
