@@ -9,7 +9,6 @@ The architecture:
 - Adopts wRPC over TCP for local communication
 - Uses wRPC over NATS for edge-to-cloud communication
 - Leverages Proton for real-time edge stream processing
-- Utilizes WasmCloud for orchestration and automated deployments
 
 ### Key Enhancements
 
@@ -30,11 +29,10 @@ The architecture:
 - **Proton-wRPC Adapter**: Lightweight (~5MB) adapter bridging Proton's Timeplus external streams to wRPC over NATS, sharing the same tunnel as other components
 - **Enhanced SRQL**: Extends ServiceRadar Query Language (SRQL) with streaming constructs (e.g., time windows, JOINs)
 
-#### WasmCloud Integration
-- **Application Orchestration**: Leverages WasmCloud's Application Deployment Manager (Wadm) for declarative application management
-- **Automatic Scaling**: Components scale automatically based on demand, with configurable instances
-- **Zero-Downtime Upgrades**: Push security patches and upgrades without disrupting services
-- **Cross-Platform Deployment**: Deploy the same components across any cloud, edge, or on-premises environment
+#### Future WebAssembly Considerations
+- **Current Limitations**: WebAssembly System Interface (WASI) currently lacks raw socket support, which is required by many ServiceRadar checkers
+- **Implementation Status**: The WASI sockets proposal (https://github.com/WebAssembly/wasi-sockets) focuses on TCP/UDP sockets but doesn't yet support raw sockets
+- **Future Potential**: Once WASI adds raw socket support, we can revisit WebAssembly-based orchestration and deployment options
 
 #### Additional Features
 - **Multi-Tenant SaaS**: Ensures strict data isolation (e.g., PepsiCo vs. Coca-Cola) using NATS accounts and tenant-specific streams
@@ -55,8 +53,7 @@ This architecture positions ServiceRadar as a competitive Network Monitoring Sys
 - **Zero-Trust Security**: Use SPIFFE/SPIRE mTLS and JWT-based UI authentication
 - **Historical Analytics**: Store data in ClickHouse (90-day retention) with Parquet/DuckDB for archival
 - **Scalable SaaS**: Support 1,000+ tenants and 10,000 nodes per customer
-- **WasmCloud Integration**: Implement WasmCloud's Application Deployment Manager (Wadm) for orchestration, automated scaling, and zero-downtime upgrades
-- **Cross-Platform Deployment**: Enable seamless deployment across any cloud, edge, or on-premises environment
+- **Future WebAssembly Readiness**: Monitor WASI sockets proposal development for eventual raw socket support, which would enable WebAssembly-based checkers
 - **Competitive Positioning**: Differentiate from SolarWinds (cost, flexibility) and Nagios (real-time, usability)
 
 ## 3. Target Audience
@@ -430,7 +427,6 @@ STREAM flows WHERE action IN ('announce', 'withdraw') GROUP BY prefix WINDOW 5m 
 - **Proton-wRPC Adapter**: Lightweight (~5MB) service acting as a Timeplus server, translating streams to wRPC over NATS
 - **Poller**: Collects data from agents using wRPC over TCP, forwards to cloud using wRPC over NATS
 - **NATS Leaf Node**: Local NATS instance (~5MB) with JetStream for persistence, connecting to cloud NATS cluster
-- **WasmCloud Host**: Local WasmCloud instance managing components, enabling automated scaling and upgrades
 
 #### Installation
 
@@ -468,7 +464,6 @@ sudo ./install-oss.sh
 - **DuckDB**: Parquet archival
 - **Core API**: HTTP (:8090)
 - **Web UI**: Next.js (:3000, proxied via Nginx :80/443)
-- **WasmCloud Wadm**: Orchestrates application deployment and scaling across all environments
 
 #### Data Flow
 
@@ -492,9 +487,6 @@ graph TD
         Poller -->|wRPC over NATS| NATSLeaf[NATS Leaf Node<br>JetStream]
         Adapter -->|wRPC over NATS| NATSLeaf
         NATSLeaf -->|TLS/mTLS :7422| Cloud
-        WasmCloudEdge[WasmCloud Host<br>Wadm Agent] -->|Orchestration| Agent
-        WasmCloudEdge -->|Orchestration| Adapter
-        WasmCloudEdge -->|Orchestration| Poller
     end
     subgraph "SaaS Backend (Cloud)"
         Cloud[NATS JetStream Cluster<br>:4222, :7422] -->|Tenant Subjects| wRPC[wRPC Server]
@@ -506,8 +498,6 @@ graph TD
         CoreAPI --> WebUI[Web UI<br>:80/443]
         WebUI -->|SRQL Queries| CoreAPI
         ClickHouse --> DuckDB[DuckDB<br>Parquet]
-        WasmCloudOrch[WasmCloud Wadm<br>Orchestrator] -->|Deployment Management| WasmCloudEdge
-        WasmCloudOrch -->|Application Management| CoreAPI
     end
 ```
 
@@ -532,53 +522,22 @@ graph TD
 - **Install**: `curl https://install.serviceradar.com/agent | sh`
 - **Configure**: mTLS, NATS credentials via UI/CLI
 - **Auto-configure**: NATS Leaf Node for edge persistence
-- **Deploy**: Use WasmCloud's Wadm for declarative application deployment
 
 ### Operation
 
 - Checkers respond to agent polls (wRPC over TCP)
 - Agents respond to poller polls (wRPC over TCP)
 - Pollers and Proton-wRPC Adapter forward data via wRPC over NATS Leaf Node
-- WasmCloud handles component orchestration, scaling, and upgrades
 - NATS JetStream buffers data during cloud disconnections
 - Ultra-constrained devices skip Proton, use lightweight components (~116MB)
 
 ### Deployment and Scaling
 
-- Define applications using declarative YAML manifests
-- Components auto-scale based on configured instances and demand
-- Zero-downtime upgrades and security patches
-- Cross-platform deployment across clouds and edge environments
-- Automatic failover and load balancing between components
-
-### Example Wadm Manifest
-
-```yaml
-apiVersion: core.oam.dev/v1beta1
-kind: Application
-metadata:
-  name: serviceradar-edge
-  annotations:
-    description: 'ServiceRadar edge monitoring'
-spec:
-  components:
-    - name: proton-adapter
-      type: component
-      properties:
-        image: ghcr.io/serviceradar/proton-adapter:latest
-      traits:
-        - type: spreadscaler
-          properties:
-            instances: 2
-    - name: poller
-      type: component
-      properties:
-        image: ghcr.io/serviceradar/poller:latest
-      traits:
-        - type: spreadscaler
-          properties:
-            instances: 5
-```
+- Configure component instances via configuration files
+- Manual scaling through the UI or API
+- Rolling updates for service components
+- Deployment across multiple environments with identical configurations
+- Service discovery and health monitoring for high availability
 
 ### Interaction
 
@@ -628,54 +587,46 @@ spec:
 | wRPC learning curve | Use Rust bindings, leverage wRPC examples |
 | NATS account misconfiguration | Automate account creation, audit access |
 | Edge resource usage with NATS Leaf Nodes | Minimal configuration with bounded memory/storage (~5MB) |
-| WasmCloud integration complexity | Begin with simple components, incrementally add features |
+| WebAssembly raw socket limitations | Monitor WASI sockets proposal (https://github.com/WebAssembly/wasi-sockets), revisit when raw socket support is added |
 
 ## 11. Future Considerations
 
-The adoption of wRPC, NATS JetStream, WasmCloud, and the WebAssembly Component Model positions ServiceRadar for innovative, Wasm-driven features that enhance performance, security, and flexibility. These future capabilities align with the evolving needs of IoT, OT, and enterprise customers, enabling lightweight, portable, and customer-extensible monitoring solutions.
+The adoption of wRPC, NATS JetStream, and the WebAssembly Component Model positions ServiceRadar for innovative features that enhance performance, security, and flexibility. These future capabilities align with the evolving needs of IoT, OT, and enterprise customers, enabling lightweight, portable, and customer-extensible monitoring solutions.
+
+### WebAssembly Integration (Pending WASI Sockets Development)
+
+Currently, ServiceRadar checkers require raw socket access, which is not supported by WebAssembly System Interface (WASI). The WASI sockets proposal (https://github.com/WebAssembly/wasi-sockets) currently only addresses TCP and UDP sockets, not raw sockets needed for many network monitoring protocols. We will monitor the development of WASI and incorporate WebAssembly technologies when raw socket support becomes available.
+
+Potential future capabilities once raw socket support is available:
 
 ### WebAssembly-Based Checkers
 
-- Compile checkers (e.g., SNMP, rperf) to WebAssembly, running in WasmCloud (~5MB vs. ~10MB for native binaries)
-- **Benefits**: Smaller footprint, enhanced security via sandboxing, dynamic updates over NATS
-- **Example**: A WebAssembly-based gNMI checker, defined with a WIT interface, runs on IoT gateways, reducing resource usage
+- Compile checkers (e.g., SNMP, rperf) to WebAssembly, providing smaller footprint and enhanced security
+- Enable dynamic updates of checkers over NATS without service restarts
 
 ### Edge Data Processing
 
-- Deploy WebAssembly components for lightweight data processing (e.g., filtering, aggregation) on constrained devices, complementing Proton
-- **Example**: A WebAssembly component filters NetFlow data before forwarding to Proton, minimizing bandwidth
+- Deploy WebAssembly components for lightweight data processing on constrained devices, complementing Proton
+- Filter or pre-process telemetry data before transmission to reduce bandwidth and cloud processing needs
 
 ### Customer-Defined Components
 
-- Allow customers to write WebAssembly components (e.g., proprietary analytics) using WIT interfaces, executed securely by ServiceRadar agents
-- **Example**: A customer deploys a WebAssembly-based anomaly detector for syslog data, integrated via wRPC
+- Allow customers to write WebAssembly components (e.g., proprietary analytics) using WIT interfaces
+- Enable secure execution of customer code within ServiceRadar's environment
 
 ### Browser-Based Analytics
 
-- Run WebAssembly components in the Web UI for client-side SRQL query processing or real-time visualizations, offloading server compute
-- **Example**: A WebAssembly-based SRQL executor processes small datasets in the browser, improving UI responsiveness
-
-### WasmCloud Orchestration
-
-- Leverage WasmCloud (CNCF project) to orchestrate WebAssembly components across edge and cloud, enabling distributed processing
-- **Example**: WasmCloud manages WebAssembly-based checkers on IoT devices, with wRPC handling cloud communication
+- Run WebAssembly components in the Web UI for client-side SRQL query processing or real-time visualizations
+- Improve UI responsiveness and reduce server load for common queries
 
 ### WebAssembly-Based AI/ML
 
-- Deploy WebAssembly-based AI/ML models for predictive analytics (e.g., BGP hijack detection, anomaly detection) on edge or cloud
-- **Example**: A WebAssembly-based ML model processes syslog data on edge devices, publishing alerts via wRPC
+- Deploy WebAssembly-based AI/ML models for predictive analytics on edge or cloud
+- Enable anomaly detection and predictive maintenance with minimal resource usage
 
-### Cross-Platform Plugins
+These potential WebAssembly-driven features would reduce edge footprints, enhance security through sandboxing, enable customer extensibility, and support scalable, distributed architectures, aligning with ServiceRadar's long-term vision for IoT, OT, and enterprise monitoring.
 
-- Develop WebAssembly-based plugins for new protocols (e.g., sFlow, IPFIX) that run on any WebAssembly-compatible platform without recompilation
-- **Example**: A WebAssembly-based sFlow plugin is deployed to all agents, supporting diverse device types
-
-### Ecosystem Integration
-
-- Leverage the growing WebAssembly ecosystem (e.g., Bytecode Alliance tools, WasmCloud) for libraries and frameworks compatible with the Component Model
-- **Example**: Adopt a WebAssembly-based data processing library for real-time analytics, integrated via WIT
-
-These WebAssembly-driven features reduce edge footprints, enhance security through sandboxing, enable customer extensibility, and support scalable, distributed architectures, aligning with ServiceRadar's long-term vision for IoT, OT, and enterprise monitoring.
+In the meantime, we will proceed with native implementations that provide the necessary raw socket functionality while designing our architecture to facilitate WebAssembly integration when the technology matures.
 
 ## 12. Implementation Plan
 
@@ -700,18 +651,18 @@ These WebAssembly-driven features reduce edge footprints, enhance security throu
 - Integrate Proton with adapter, test data flow via NATS Leaf Node
 - Validate full pipeline with gNMI/NetFlow workloads
 
-### Phase 4: WasmCloud Integration (1.5 months)
-
-- Deploy WasmCloud Wadm orchestrator in cloud environment
-- Implement WasmCloud hosts at edge locations
-- Convert key components to WebAssembly-based deployments
-- Test automated scaling and zero-downtime upgrades
-
-### Phase 5: Multi-Tenant Isolation (1 month)
+### Phase 4: Multi-Tenant Isolation (1 month)
 
 - Finalize tenant isolation with NATS accounts and streams
 - Harden security with mTLS and RBAC
 - Optimize performance for 1M events/sec
+
+### Phase 5: Deployment and Management Framework (1.5 months)
+
+- Develop deployment automation scripts
+- Implement configuration management system
+- Create administrative interfaces for component lifecycle management
+- Test scaling and failover mechanisms
 
 ### Phase 6: Beta and Deployment (2 months)
 
@@ -745,4 +696,4 @@ STREAM logs WHERE message CONTAINS 'Failed password for root' GROUP BY device WI
 - Timeplus Proton: docs.timeplus.com
 - SPIFFE/SPIRE: spiffe.io
 - WebAssembly Component Model: component-model.bytecodealliance.org
-- WasmCloud: wasmcloud.com
+- WASI Sockets Proposal: github.com/WebAssembly/wasi-sockets
