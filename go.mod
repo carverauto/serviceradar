@@ -12,6 +12,7 @@ require (
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/gosnmp/gosnmp v1.40.0
+	github.com/hashicorp/yamux v0.1.2
 	github.com/markbates/goth v1.81.0
 	github.com/mattn/go-sqlite3 v1.14.28
 	github.com/nats-io/nats.go v1.41.2
