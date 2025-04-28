@@ -1,9 +1,9 @@
 [package]
-name = "serviceradar-proton-adapter"
-version = "0.1.0"
+name = "serviceradar-poller-ng"
+version = "0.1.1"
 edition = "2021"
 authors = ["ServiceRadar Team"]
-description = "Timeplus Proton adapter for ServiceRadar"
+description = "Poller v2 for ServiceRadar"
 
 [dependencies]
 anyhow = "1.0"
