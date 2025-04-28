@@ -6,6 +6,7 @@ ServiceRadar is a distributed network monitoring system optimized for constraine
 
 The solution enhances SRQL (ServiceRadar Query Language) with streaming constructs and uses a Proton-gRPC Adapter to bridge Proton's streams to the cloud. It enforces a one-way data flow (edge to cloud), leverages ClickHouse for historical storage, and ensures zero-trust security with SPIFFE/SPIRE mTLS and JWT RBAC. Future integration with wasmCloud, a CNCF Incubating project built on Wasmtime, will enable automatic upgrades, flexible edge deployments, and customer-defined WASM components. This positions ServiceRadar as a competitive NMS, blending SolarWinds' enterprise features with Nagios' lightweight, open-source ethos.
 
+
 ## 2. Objectives
 
 - Enable real-time stream processing for gNMI, NetFlow, syslog, SNMP traps, and BGP using Proton.
@@ -570,4 +571,5 @@ STREAM flows WHERE action IN ('announce', 'withdraw') GROUP BY prefix WINDOW 5m 
 - NATS JetStream: nats.io
 - SPIFFE/SPIRE: spiffe.io
 - wasmCloud: wasmcloud.com
-- WASI Sockets: github.com/WebAssembly/wasi-sockets
+- WebAssembly Component Model: component-model.bytecodealliance.org
+- WASI Sockets Proposal: github.com/WebAssembly/wasi-sockets
