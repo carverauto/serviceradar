@@ -32,6 +32,7 @@ pub struct MemoryMetric {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SysmonMetrics {
     pub timestamp: String,
+    pub host_id: String,
     pub cpus: Vec<CPUMetric>,
     pub disks: Vec<DiskMetric>,
     pub memory: MemoryMetric,
