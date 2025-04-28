@@ -565,4 +565,5 @@ STREAM flows WHERE action = 'announce' AND prefix NOT IN (SELECT prefix FROM tru
 - wasmCloud: wasmcloud.com
 - NATS JetStream: nats.io
 - SPIFFE/SPIRE: spiffe.io
-- WASI Sockets: github.com/WebAssembly/wasi-sockets
+- WebAssembly Component Model: component-model.bytecodealliance.org
+- WASI Sockets Proposal: github.com/WebAssembly/wasi-sockets
