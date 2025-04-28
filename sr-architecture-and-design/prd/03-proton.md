@@ -1,15 +1,15 @@
-# Product Requirements Document: ServiceRadar Real-Time Monitoring with NATS JetStream, Timeplus Proton, and wRPC
+# Product Requirements Document: ServiceRadar Real-Time Monitoring with NATS JetStream, Timeplus Proton, and gRPC
 
 ## 1. Executive Summary
 
-ServiceRadar is a distributed network monitoring system optimized for constrained environments, delivering real-time monitoring and cloud-based alerting for network engineering, IoT, WAN, cybersecurity, and OT audiences. This PRD outlines an enhanced architecture integrating Timeplus Proton for real-time stream processing of gNMI, NetFlow, syslog, SNMP traps, and BGP data (via OpenBMP replacement). It introduces wRPC (WebAssembly Interface Types RPC) with TCP for local communication and NATS for edge-to-cloud communication, replacing traditional gRPC for type-safe, modular interactions.
+ServiceRadar is a distributed network monitoring system optimized for constrained environments, delivering real-time monitoring and cloud-based alerting for network engineering, IoT, WAN, cybersecurity, and OT audiences. This PRD outlines an enhanced architecture integrating Timeplus Proton for real-time stream processing of gNMI, NetFlow, syslog, SNMP traps, and BGP data (via OpenBMP replacement). It relies on gRPC for local and edge-to-cloud communication, with optional NATS JetStream integration for scalable, multi-tenant message brokering if needed.
 
-The solution enhances SRQL (ServiceRadar Query Language) with streaming constructs and uses a Proton-wRPC Adapter to bridge Proton's streams to NATS. It enforces a one-way data flow (edge to cloud), leverages ClickHouse for historical storage, and ensures zero-trust security with SPIFFE/SPIRE mTLS and JWT RBAC. Future integration with wasmCloud, a CNCF Incubating project built on Wasmtime, will enable automatic upgrades, flexible edge deployments, and customer-defined WASM components. This positions ServiceRadar as a competitive NMS, blending SolarWinds' enterprise features with Nagios' lightweight, open-source ethos.
+The solution enhances SRQL (ServiceRadar Query Language) with streaming constructs and uses a Proton-gRPC Adapter to bridge Proton's streams to the cloud. It enforces a one-way data flow (edge to cloud), leverages ClickHouse for historical storage, and ensures zero-trust security with SPIFFE/SPIRE mTLS and JWT RBAC. Future integration with wasmCloud, a CNCF Incubating project built on Wasmtime, will enable automatic upgrades, flexible edge deployments, and customer-defined WASM components. This positions ServiceRadar as a competitive NMS, blending SolarWinds' enterprise features with Nagios' lightweight, open-source ethos.
 
 ## 2. Objectives
 
 - Enable real-time stream processing for gNMI, NetFlow, syslog, SNMP traps, and BGP using Proton.
-- Implement wRPC with TCP (local) and NATS (edge-to-cloud) for type-safe, modular communication.
+- Use gRPC for local (TCP) and edge-to-cloud communication, with optional NATS JetStream for enhanced scalability.
 - Enhance SRQL for streaming queries with time windows, aggregations, and JOINs.
 - Maintain a lightweight edge using Proton or future wasmCloud components.
 - Ensure one-way data flow (no cloud-to-edge communication).
@@ -59,35 +59,43 @@ The solution enhances SRQL (ServiceRadar Query Language) with streaming construc
 
 ### 5.1 Functional Requirements
 
-#### Transport-Agnostic wRPC:
-- Implement wRPC using WebAssembly Interface Types (WIT) for type-safe, modular RPC.
-- **TCP Transport**: Local checker-to-agent and agent-to-poller communication, preserving pull model.
-- **NATS Transport**: Edge-to-cloud communication (poller-to-core, Proton-to-core) via a single WebSocket tunnel (:443).
-- Define WIT interfaces for checkers, Proton, and core.
+#### gRPC-Based Communication:
+- Use gRPC over TCP for local checker-to-agent and agent-to-poller communication, preserving the pull model.
+- Use gRPC over TLS for edge-to-cloud communication (poller-to-core, Proton-to-core), optionally tunneling through a single port (:443).
+- Optionally integrate NATS JetStream for edge-to-cloud communication if gRPC port requirements are restrictive, using tenant-specific subjects.
+- Define gRPC proto interfaces for checkers, Proton, and core, with potential custom schema implementation for type safety (inspired by bindgen).
 
-Example WIT (checker.wit):
-```
-interface checker {
-  record result {
-    device: string,
-    metric: string,
-    value: f32,
-    timestamp: datetime
-  }
-  get-status: func() -> result<result, string>
-  publish: func(subject: string, data: result) -> result<unit, string>
+Example Proto (checker.proto):
+```proto
+syntax = "proto3";
+
+message CheckerResult {
+  string device = 1;
+  string metric = 2;
+  float value = 3;
+  google.protobuf.Timestamp timestamp = 4;
+}
+
+service Checker {
+  rpc GetStatus (google.protobuf.Empty) returns (CheckerResult);
+  rpc Publish (PublishRequest) returns (google.protobuf.Empty);
+}
+
+message PublishRequest {
+  string subject = 1;
+  CheckerResult data = 2;
 }
 ```
 
-Example wRPC Call (Rust, NATS):
+Example gRPC Call (Rust):
 ```rust
-use wrpc_runtime_wasmcloud::Client;
-use wrpc_transport_nats::NatsTransport;
+use tonic::Request;
+use checker::{CheckerClient, PublishRequest, CheckerResult};
 
-async fn send_to_core(nats: &NatsTransport, tenant_id: &str, data: CheckerResult) -> Result<(), String> {
-  let client = Client::new(nats.clone());
+async fn send_to_core(client: &mut CheckerClient<tonic::transport::Channel>, tenant_id: &str, data: CheckerResult) -> Result<(), tonic::Status> {
   let subject = format!("serviceradar.{}.checker.results", tenant_id);
-  client.invoke("checker", "publish", (subject, data)).await
+  client.publish(Request::new(PublishRequest { subject, data })).await?;
+  Ok(())
 }
 ```
 
@@ -95,7 +103,7 @@ async fn send_to_core(nats: &NatsTransport, tenant_id: &str, data: CheckerResult
 - Deploy Proton (~500MB, optional) on agents for gNMI, NetFlow, syslog, SNMP traps, BGP.
 - Ingest data via Proton Go driver (github.com/timeplus-io/proton-go-driver).
 - Support streaming SQL with tumbling windows, materialized views, and JOINs.
-- Push results to Proton-wRPC Adapter via Timeplus external stream.
+- Push results to Proton-gRPC Adapter via Timeplus external stream.
 
 Example:
 ```sql
@@ -121,19 +129,19 @@ SELECT window_start, device, metric, avg_value
 FROM gnmi_anomalies;
 ```
 
-#### Proton-wRPC Adapter:
-- Develop a lightweight (~5MB) Rust service to proxy Timeplus external streams to wRPC over NATS.
+#### Proton-gRPC Adapter:
+- Develop a lightweight (~5MB) Rust service to proxy Timeplus external streams to gRPC or NATS JetStream.
 - Listen on localhost:8080 for Timeplus streams.
-- Translate stream data to wRPC calls, using tenant-specific NATS subjects.
+- Translate stream data to gRPC calls or NATS messages, using tenant-specific subjects.
 
 Example (Rust Pseudocode):
 ```rust
-use wrpc_runtime_wasmcloud::Client;
 use tonic::{Request, Response, Status};
 use timeplus::external_stream_server::{ExternalStream, ExternalStreamServer};
+use checker::{CheckerClient, PublishRequest};
 
 struct ProtonAdapter {
-  wrpc: Client,
+  grpc_client: CheckerClient<tonic::transport::Channel>,
   tenant_id: String
 }
 
@@ -142,15 +150,16 @@ impl ExternalStream for ProtonAdapter {
   async fn stream_data(&self, request: Request<tonic::Streaming<Data>>) -> Result<Response<()>, Status> {
     let mut stream = request.into_inner();
     while let Some(data) = stream.message().await? {
-      self.wrpc.invoke("proton", "publish", format!("serviceradar.{}.proton.gnmi", self.tenant_id), data.payload).await?;
+      let subject = format!("serviceradar.{}.proton.gnmi", self.tenant_id);
+      self.grpc_client.publish(Request::new(PublishRequest { subject, data: data.payload.into() })).await?;
     }
     Ok(Response::new(()))
   }
 }
 ```
 
-#### NATS JetStream (Cloud-Only):
-- Deploy a multi-tenant NATS JetStream cluster in the cloud (AWS EC2) for edge-to-cloud communication and persistence.
+#### NATS JetStream (Optional, Cloud-Only):
+- Deploy a multi-tenant NATS JetStream cluster in the cloud (AWS EC2) for edge-to-cloud communication and persistence if gRPC is insufficient.
 - Use NATS accounts for tenant isolation (e.g., serviceradar.pepsico.*).
 - Support store-and-forward for reliable data delivery.
 
@@ -194,29 +203,29 @@ Proton SQL: SELECT n.window_start, n.src_ip, count(DISTINCT n.dst_port) AS port_
 ```
 
 #### SaaS Backend:
-- **wRPC Server**: Receive edge data via NATS, write to NATS JetStream/ClickHouse.
-- **NATS JetStream**: Cloud-hosted, multi-tenant message broker and KV store.
-- **Proton (Cloud)**: Process NATS JetStream streams for cross-customer queries.
+- **gRPC Server**: Receive edge data, write to NATS JetStream (if used) or ClickHouse.
+- **NATS JetStream (Optional)**: Cloud-hosted, multi-tenant message broker and KV store.
+- **Proton (Cloud)**: Process streams for cross-customer queries.
 - **ClickHouse**: Historical storage (90-day retention).
 - **DuckDB**: Parquet archival.
 - **Core API**: HTTP (:8090), SRQL translation.
 - **Web UI**: Next.js (:3000, Nginx :80/443).
 
 #### One-Way Data Flow:
-- Edge agents initiate wRPC over NATS to cloud, no cloud-to-edge communication.
+- Edge agents initiate gRPC calls to cloud, no cloud-to-edge communication.
 
-Example wRPC Call:
-```
-client.invoke("checker", "publish", "serviceradar.pepsico.checker.results", data).await?;
+Example gRPC Call:
+```rust
+client.publish(Request::new(PublishRequest { subject: "serviceradar.pepsico.checker.results".into(), data })).await?;
 ```
 
 #### Tenant Isolation:
-- NATS JetStream streams and ClickHouse tables segregated by tenant ID (e.g., customer123_gnmi).
-- NATS accounts for subject-based isolation (e.g., serviceradar.pepsico.*).
+- NATS JetStream streams (if used) and ClickHouse tables segregated by tenant ID (e.g., customer123_gnmi).
+- gRPC services scoped to tenant-specific endpoints or subjects.
 
 #### Data Sources:
 - Support gNMI, NetFlow, syslog, SNMP traps, BGP (OpenBMP).
-- Ingest via wRPC over TCP locally, forward via wRPC over NATS to cloud.
+- Ingest via gRPC locally, forward to cloud via gRPC or NATS JetStream.
 
 Example (BGP):
 ```sql
@@ -229,9 +238,9 @@ CREATE STREAM bgp_updates (
 ```
 
 #### Historical Storage:
-- ClickHouse for 90-day retention, direct writes from wRPC server.
+- ClickHouse for 90-day retention, direct writes from gRPC server.
 - Parquet via DuckDB for archival.
-- NATS JetStream for recent data and real-time query support.
+- NATS JetStream (if used) for recent data and real-time query support.
 
 Example:
 ```sql
@@ -265,18 +274,18 @@ HAVING flap_count > 10;
 - Support 10,000 nodes/customer.
 
 #### Scalability:
-- Multi-tenant NATS JetStream/ClickHouse for 1,000+ customers.
-- Horizontal scaling for Proton, wRPC servers, core API.
+- Multi-tenant NATS JetStream (if used) and ClickHouse for 1,000+ customers.
+- Horizontal scaling for Proton, gRPC servers, core API.
 
 #### Reliability:
 - 99.9% SaaS uptime.
-- Buffer edge data (Proton WAL, wRPC retry).
+- Buffer edge data (Proton WAL, gRPC retry).
 
 #### Security:
-- SPIFFE/SPIRE mTLS for wRPC (TCP/NATS), gRPC, and Proton.
+- SPIFFE/SPIRE mTLS for gRPC, Proton, and core API.
 - JWT-based RBAC (admin, operator, readonly).
 - One-way data flow.
-- NATS Accounts and ClickHouse table isolation for tenants.
+- Tenant isolation via gRPC endpoints or NATS JetStream accounts and ClickHouse tables.
 
 #### Usability:
 - 90% SRQL queries without support.
@@ -284,18 +293,18 @@ HAVING flap_count > 10;
 
 #### Compatibility:
 - Debian/Ubuntu, RHEL/Oracle Linux.
-- Preserve local pull model with wRPC.
+- Preserve local pull model with gRPC.
 
 ## 6. Architecture
 
 ### 6.1 Edge (Customer Network)
 
 #### Components:
-- **Checkers**: Collect gNMI, NetFlow, syslog, SNMP traps, BGP via wRPC over TCP.
-- **Agent**: Responds to poller queries, manages checkers via wRPC over TCP.
-- **Poller**: Polls agents via wRPC over TCP, forwards to cloud via wRPC over NATS.
+- **Checkers**: Collect gNMI, NetFlow, syslog, SNMP traps, BGP via gRPC over TCP.
+- **Agent**: Responds to poller queries, manages checkers via gRPC over TCP.
+- **Poller**: Polls agents via gRPC over TCP, forwards to cloud via gRPC or NATS JetStream.
 - **Proton (optional)**: Processes streams, stores in materialized views.
-- **Proton-wRPC Adapter**: Proxies Timeplus streams to wRPC over NATS (~5MB).
+- **Proton-gRPC Adapter**: Proxies Timeplus streams to gRPC or NATS JetStream (~5MB).
 - **Future wasmCloud**: Runs WASM components for customer logic and upgrades.
 
 #### Installation:
@@ -311,7 +320,7 @@ sudo ./install-oss.sh
 - wasmCloud: ~MBs for components, minimal runtime overhead.
 
 #### Data Flow:
-Checkers ↔ Agent (wRPC/TCP) ↔ Poller (wRPC/TCP) → Proton → Adapter (Timeplus stream) → Cloud (wRPC/NATS).
+Checkers ↔ Agent (gRPC/TCP) ↔ Poller (gRPC/TCP) → Proton → Adapter (Timeplus stream) → Cloud (gRPC or NATS JetStream).
 
 #### Security:
 mTLS (SPIFFE/SPIRE), no cloud-to-edge connections.
@@ -319,35 +328,35 @@ mTLS (SPIFFE/SPIRE), no cloud-to-edge connections.
 ### 6.2 SaaS Backend (Cloud)
 
 #### Components:
-- **wRPC Server**: Receives edge data via NATS, writes to NATS JetStream/ClickHouse.
-- **NATS JetStream**: Multi-tenant, cloud-hosted message broker and KV store.
-- **Proton**: Processes NATS JetStream streams for cross-customer queries.
+- **gRPC Server**: Receives edge data, writes to NATS JetStream (if used) or ClickHouse.
+- **NATS JetStream (Optional)**: Multi-tenant, cloud-hosted message broker and KV store.
+- **Proton**: Processes streams for cross-customer queries.
 - **ClickHouse**: Historical storage.
 - **DuckDB**: Parquet archival.
 - **Core API**: HTTP (:8090), SRQL translation.
 - **Web UI**: Next.js (:3000, Nginx :80/443).
 
 #### Data Flow:
-wRPC Server → NATS JetStream → Proton → ClickHouse → Core API → Web UI.
+gRPC Server → NATS JetStream (if used) → Proton → ClickHouse → Core API → Web UI.
 
 #### Security:
-mTLS, JWT RBAC, NATS Accounts, ClickHouse table isolation.
+mTLS, JWT RBAC, NATS JetStream account isolation (if used), ClickHouse table isolation.
 
 ### 6.3 Diagram
 
 ```mermaid
 graph TD
     subgraph "Edge (Customer Network)"
-        Checkers[Checkers<br>gNMI, NetFlow, Syslog, SNMP, BGP] <-->|wRPC/TCP| Agent[Agent]
-        Poller[Poller] <-->|wRPC/TCP| Agent
+        Checkers[Checkers<br>gNMI, NetFlow, Syslog, SNMP, BGP] <-->|gRPC/TCP| Agent[Agent]
+        Poller[Poller] <-->|gRPC/TCP| Agent
         Poller -->|Proton Go Driver| Proton[Proton<br>Optional]
-        Proton -->|Timeplus Stream| Adapter[Proton-wRPC Adapter<br>:8080]
-        Adapter -->|wRPC/NATS| Cloud
-        Poller -->|wRPC/NATS| Cloud
+        Proton -->|Timeplus Stream| Adapter[Proton-gRPC Adapter<br>:8080]
+        Adapter -->|gRPC or NATS| Cloud
+        Poller -->|gRPC or NATS| Cloud
         wasmCloud[wasmCloud<br>Future] -->|WASM Components| Cloud
     end
     subgraph "SaaS Backend (Cloud)"
-        wRPCServer[wRPC Server] -->|Tenant Streams| NATSJetStream[NATS JetStream]
+        gRPCServer[gRPC Server] -->|Tenant Streams| NATSJetStream[NATS JetStream<br>Optional]
         NATSJetStream --> ProtonCloud[Proton]
         ProtonCloud -->|Processed Data| ClickHouse[ClickHouse]
         CoreAPI[Core API<br>:8090] --> ClickHouse
@@ -377,24 +386,23 @@ graph TD
 
 - **Unidirectional Communication**: Edge-to-cloud only, no cloud-initiated connections.
 - **TLS/mTLS Encryption**: All communications use TLS 1.3 with SPIFFE/SPIRE mTLS.
-- **Certificate Validation**: Certificates validated via SPIFFE/SPIRE for wRPC (TCP/NATS), Proton, and core API.
+- **Certificate Validation**: Certificates validated via SPIFFE/SPIRE for gRPC, Proton, and core API.
 - **Tenant Isolation**:
-  - NATS Accounts and subjects segregated by tenant ID (e.g., customer123_gnmi).
-  - ClickHouse tables isolated per tenant.
-  - NATS subjects namespaced (e.g., serviceradar.pepsico.*).
+  - NATS JetStream subjects (if used) and ClickHouse tables segregated by tenant ID (e.g., customer123_gnmi).
+  - gRPC services scoped to tenant-specific endpoints.
 
 - **Edge Security**:
-  - wRPC over TCP with mTLS for checker-agent-poller communication.
-  - Proton-wRPC Adapter communicates via localhost Timeplus stream.
+  - gRPC over TCP with mTLS for checker-agent-poller communication.
+  - Proton-gRPC Adapter communicates via localhost Timeplus stream.
 
 - **Cloud Security**:
-  - NATS JetStream account-level isolation for tenant-specific access.
+  - NATS JetStream account-level isolation (if used) for tenant-specific access.
   - ClickHouse table-level isolation.
   - DuckDB file-level encryption.
   - JWT-based UI authentication (admin, operator, readonly).
 
 - **Auditing and Compliance**:
-  - Log all wRPC and API access.
+  - Log all gRPC and API access.
   - Track data lineage from edge to cloud.
   - Use cryptographic signatures for data integrity.
   - Configurable retention policies in ClickHouse/DuckDB.
@@ -406,12 +414,12 @@ graph TD
   ```bash
   curl https://install.serviceradar.com/agent | sh
   ```
-- Configure mTLS certs (SPIFFE/SPIRE) and NATS credentials via UI/CLI.
+- Configure mTLS certs (SPIFFE/SPIRE) and gRPC/NATS credentials via UI/CLI.
 
 ### Operation:
-- Checkers respond to agent polls (wRPC/TCP).
-- Pollers pull data (wRPC/TCP), forward to cloud (wRPC/NATS).
-- Proton processes streams, pushes via Adapter (wRPC/NATS).
+- Checkers respond to agent polls (gRPC/TCP).
+- Pollers pull data (gRPC/TCP), forward to cloud (gRPC or NATS JetStream).
+- Proton processes streams, pushes via Adapter (gRPC or NATS JetStream).
 - Ultra-constrained devices skip Proton (~100MB).
 
 ### Interaction:
@@ -424,7 +432,7 @@ graph TD
 ### Configuration:
 - Enable/disable Proton via UI.
 - Define SRQL alerts, dashboards.
-- Manage mTLS certs, NATS subjects, RBAC roles.
+- Manage mTLS certs, gRPC endpoints, NATS subjects (if used), RBAC roles.
 
 ## 10. Success Metrics
 
@@ -453,22 +461,21 @@ graph TD
 
 | Risk | Mitigation |
 |------|------------|
-| wRPC multi-transport complexity | Implement TCP first, add NATS incrementally, unit test both. |
+| gRPC port requirements in far-reaching networks | Use gRPC over single-port TLS tunnel (:443), or integrate NATS JetStream for WebSocket-based communication. |
 | Proton's 500MB footprint too heavy | Optional Proton, fallback to checkers (~100MB) or wasmCloud components. |
-| Proton-wRPC Adapter complexity | Develop lightweight adapter, test with simplified protocol. |
-| wRPC learning curve | Use Rust bindings, leverage wRPC examples from Bytecode Alliance. |
-| NATS JetStream scalability in multi-tenant SaaS | Use clustered NATS JetStream deployment, monitor stream performance. |
+| Proton-gRPC Adapter complexity | Develop lightweight adapter, test with simplified protocol. |
+| gRPC scalability in multi-tenant SaaS | Optimize gRPC server performance, use NATS JetStream for message brokering if needed. |
 | wasmCloud adoption complexity | Provide pre-built WASM components, UI-driven deployment tools. |
 
 ## 12. Implementation Plan
 
-### Month 1: SRQL and wRPC Development (Jul 2025)
+### Month 1: SRQL and gRPC Development (Jul 2025)
 - Extend SRQL grammar with WINDOW, HAVING, STREAM, JOIN.
-- Implement wRPC with TCP for checker-agent-poller communication.
+- Implement gRPC for checker-agent-poller communication over TCP.
 
 ### Month 2: Edge Prototype (Aug 2025)
 - Deploy edge Proton, test gNMI/BGP ingestion via Proton Go driver.
-- Develop Proton-wRPC Adapter, test wRPC over NATS.
+- Develop Proton-gRPC Adapter, test gRPC or NATS JetStream integration.
 - Secure with SPIFFE/SPIRE mTLS.
 
 ### Month 3-4: Edge Optimization (Sep–Oct 2025)
@@ -477,9 +484,9 @@ graph TD
 - Test one-way data flow.
 
 ### Month 5-7: SaaS Rollout (Nov 2025–Jan 2026)
-- Deploy cloud NATS JetStream, Proton, ClickHouse for multi-tenancy.
+- Deploy cloud NATS JetStream (if needed), Proton, ClickHouse for multi-tenancy.
 - Implement use cases (gNMI, NetFlow, syslog, BGP).
-- Harden security with RBAC, NATS JetStream account isolation, ClickHouse isolation.
+- Harden security with RBAC, NATS JetStream account isolation (if used), ClickHouse isolation.
 
 ### Month 8: Beta Launch (Feb 2026)
 - Onboard 50 customers, gather feedback on SRQL, Proton, UI.
@@ -506,6 +513,9 @@ graph TD
 
 ### Additional Sources:
 - sFlow, IPFIX, custom protocols.
+
+### Custom Schema Implementation:
+- Explore custom bindgen-like schema for gRPC proto definitions to enforce type safety and modularity, if needed.
 
 ## 14. Appendix
 
@@ -541,11 +551,6 @@ STREAM flows JOIN logs ON src_ip = device WHERE logs.message CONTAINS 'blocked' 
 STREAM flows WHERE action IN ('announce', 'withdraw') GROUP BY prefix WINDOW 5m HAVING flap_count > 10
 ```
 
-#### BGP Hijack Detection:
-```
-STREAM flows WHERE action = 'announce' AND prefix NOT IN (SELECT prefix FROM trusted_prefixes) WINDOW 1m
-```
-
 ### 14.2 Security Configuration
 
 #### SPIFFE/SPIRE mTLS:
@@ -561,8 +566,8 @@ STREAM flows WHERE action = 'announce' AND prefix NOT IN (SELECT prefix FROM tru
 ### 14.3 References
 
 - Timeplus Proton: docs.timeplus.com
-- wRPC: github.com/bytecodealliance/wrpc
-- wasmCloud: wasmcloud.com
+- gRPC: grpc.io
 - NATS JetStream: nats.io
 - SPIFFE/SPIRE: spiffe.io
+- wasmCloud: wasmcloud.com
 - WASI Sockets: github.com/WebAssembly/wasi-sockets
