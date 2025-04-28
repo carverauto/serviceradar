@@ -1,0 +1,24 @@
+[package]
+name = "serviceradar-proton-adapter"
+version = "0.1.0"
+edition = "2021"
+authors = ["ServiceRadar Team"]
+description = "Timeplus Proton adapter for ServiceRadar"
+
+[dependencies]
+anyhow = "1.0"
+async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4.3", features = ["derive", "env"] }
+env_logger = "0.10"
+log = "0.4"
+prost = "0.11"
+reqwest = { version = "0.11", features = ["json"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.28", features = ["full"] }
+tonic = "0.9"
+tonic-build = "0.13.0"
+
+[build-dependencies]
+tonic-build = "0.9"
