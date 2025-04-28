@@ -51,17 +51,16 @@ impl ProtonAdapter {
             None
         };
 
-        let mut processors: Vec<Box<dyn DataProcessor>> = Vec::new();
-        processors.push(Box::new(SysmonProcessor {}));
-        processors.push(Box::new(RperfProcessor {}));
-
-        let adapter = Self {
-            processors: Arc::new(processors),
+        let mut adapter = Self {
+            processors: Arc::new(Vec::new()),
             client: Arc::new(Mutex::new(client)),
             proton_url: config.proton_url.clone(),
             forward_to_core: config.forward_to_core,
             core_client,
         };
+
+        adapter.register_processor(Box::new(SysmonProcessor {}));
+        adapter.register_processor(Box::new(RperfProcessor {}));
 
         adapter.setup_all_streams().await?;
         Ok(adapter)

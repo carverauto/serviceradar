@@ -15,10 +15,6 @@ impl DataProcessor for RperfProcessor {
         service_type == "grpc" && service_name == "rperf-checker"
     }
 
-    fn name(&self) -> &'static str {
-        "rperf"
-    }
-
     async fn process_service(&self,
                              poller_id: &str,
                              service: &ServiceStatus,
@@ -83,5 +79,9 @@ impl DataProcessor for RperfProcessor {
         ).await?;
 
         Ok(())
+    }
+
+    fn name(&self) -> &'static str {
+        "rperf"
     }
 }

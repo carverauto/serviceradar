@@ -1500,8 +1500,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "serviceradar-proton-adapter"
-version = "0.1.0"
+name = "serviceradar-poller-ng"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "async-trait",
