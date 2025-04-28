@@ -477,7 +477,7 @@ NATS JetStream → wRPC Server → NATS Streams → Proton (cloud) → ClickHous
 
 ### 6.3 Diagram
 
-```
+```mermaid
 graph TD
     subgraph "Edge (Customer Network)"
         Checkers[Checkers<br>gNMI, NetFlow, Syslog, SNMP, BGP] -->|wRPC over TCP| Agent[Agent]
