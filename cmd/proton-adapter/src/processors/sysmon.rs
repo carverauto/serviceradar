@@ -1,3 +1,4 @@
+// src/processors/sysmon.rs
 use anyhow::Result;
 use async_trait::async_trait;
 use log::{info, error};
@@ -14,53 +15,42 @@ impl DataProcessor for SysmonProcessor {
         service_type == "grpc" && service_name == "sysmon"
     }
 
-    async fn process_service(&self,
-                             poller_id: &str,
-                             service: &ServiceStatus,
-                             client: &Client,
-                             proton_url: &str) -> Result<()> {
-        // Parse sysmon metrics
+    async fn process_service(&self, poller_id: &str, service: &ServiceStatus, client: &Client, proton_url: &str) -> Result<()> {
         match serde_json::from_str::<SysmonMetrics>(&service.message) {
             Ok(metrics) => {
                 info!("Processing sysmon data for {}: {} CPUs, {} disks, memory data",
                      poller_id, metrics.cpus.len(), metrics.disks.len());
 
-                // Process CPU metrics
+                let mut queries = Vec::new();
                 for cpu in &metrics.cpus {
-                    let query = format!(
+                    queries.push(format!(
                         "INSERT INTO sysmon_cpu_stream VALUES ('{}', '{}', {}, {})",
                         metrics.timestamp, poller_id, cpu.core_id, cpu.usage_percent
-                    );
-                    self.execute_proton_query(client, proton_url, query).await?;
+                    ));
                 }
-
-                // Process disk metrics
                 for disk in &metrics.disks {
-                    let query = format!(
+                    queries.push(format!(
                         "INSERT INTO sysmon_disk_stream VALUES ('{}', '{}', '{}', {}, {})",
                         metrics.timestamp, poller_id, disk.mount_point, disk.used_bytes, disk.total_bytes
-                    );
-                    self.execute_proton_query(client, proton_url, query).await?;
+                    ));
                 }
-
-                // Process memory metrics
-                let query = format!(
+                queries.push(format!(
                     "INSERT INTO sysmon_memory_stream VALUES ('{}', '{}', {}, {})",
                     metrics.timestamp, poller_id, metrics.memory.used_bytes, metrics.memory.total_bytes
-                );
-                self.execute_proton_query(client, proton_url, query).await?;
+                ));
 
+                let batch_query = queries.join(";\n");
+                self.execute_proton_query(client, proton_url, batch_query).await?;
                 Ok(())
             },
             Err(e) => {
                 error!("Failed to parse sysmon metrics: {}", e);
-                Err(anyhow::anyhow!("Failed to parse sysmon metrics"))
+                Err(anyhow::anyhow!("Failed to parse sysmon metrics: {}", e))
             }
         }
     }
 
     async fn setup_streams(&self, client: &Client, proton_url: &str) -> Result<()> {
-        // Create CPU stream
         self.execute_proton_query(client, proton_url,
                                   "CREATE STREAM IF NOT EXISTS sysmon_cpu_stream (
                 timestamp DateTime,
@@ -70,7 +60,6 @@ impl DataProcessor for SysmonProcessor {
             ) SETTINGS type='memory'".to_string()
         ).await?;
 
-        // Create disk stream
         self.execute_proton_query(client, proton_url,
                                   "CREATE STREAM IF NOT EXISTS sysmon_disk_stream (
                 timestamp DateTime,
@@ -81,7 +70,6 @@ impl DataProcessor for SysmonProcessor {
             ) SETTINGS type='memory'".to_string()
         ).await?;
 
-        // Create memory stream
         self.execute_proton_query(client, proton_url,
                                   "CREATE STREAM IF NOT EXISTS sysmon_memory_stream (
                 timestamp DateTime,
@@ -91,7 +79,6 @@ impl DataProcessor for SysmonProcessor {
             ) SETTINGS type='memory'".to_string()
         ).await?;
 
-        // Create materialized views for aggregations
         self.execute_proton_query(client, proton_url,
                                   "CREATE MATERIALIZED VIEW IF NOT EXISTS cpu_usage_1m AS
             SELECT
