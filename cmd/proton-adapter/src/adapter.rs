@@ -8,7 +8,7 @@ use std::time::Duration;
 use tokio::sync::Mutex;
 use tokio::time::interval;
 use tonic::{transport::{Server, Channel, ServerTlsConfig, ClientTlsConfig, Identity, Certificate}, Request, Response, Status};
-use tonic_health::pb::{HealthCheckRequest, health_check_response::ServingStatus};
+use tonic_health::pb::HealthCheckRequest;
 use tonic_health::pb::health_client::HealthClient;
 use tonic_reflection::server::Builder as ReflectionBuilder;
 
@@ -170,7 +170,7 @@ impl ProtonAdapter {
                 service: "monitoring.AgentService".to_string(),
             })
             .await?;
-        if response.get_ref().status != ServingStatus::Serving {
+        if response.get_ref().status != 1 { // Compare with 1 (ServingStatus::Serving)
             return Err(anyhow::anyhow!("Agent {} is unhealthy", agent_addr));
         }
         Ok(())
