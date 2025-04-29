@@ -87,7 +87,7 @@ type SNMPClient interface {
 // SNMPManager defines the interface for managing SNMP data.
 type SNMPManager interface {
 	// GetSNMPMetrics fetches SNMP metrics from the database for a given node.
-	GetSNMPMetrics(nodeID string, startTime, endTime time.Time) ([]db.SNMPMetric, error)
+	GetSNMPMetrics(ctx context.Context, nodeID string, startTime, endTime time.Time) ([]db.SNMPMetric, error)
 }
 
 // DataStore defines how to store SNMP data.

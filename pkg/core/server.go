@@ -54,7 +54,7 @@ const (
 	monitorInterval            = 30 * time.Second
 )
 
-func NewServer(ctx context.Context, config *Config) (*Server, error) {
+func NewServer(_ context.Context, config *Config) (*Server, error) {
 	normalizedConfig := normalizeConfig(config)
 
 	database, err := db.New(
@@ -97,9 +97,11 @@ func normalizeConfig(config *Config) *Config {
 	if normalized.Metrics.Retention == 0 {
 		normalized.Metrics.Retention = 100
 	}
+
 	if normalized.Metrics.MaxPollers == 0 {
 		normalized.Metrics.MaxPollers = 10000
 	}
+
 	return &normalized
 }
 
@@ -107,11 +109,13 @@ func getDBPath(configPath string) string {
 	if configPath == "" {
 		return defaultDBPath
 	}
+
 	return configPath
 }
 
 func ensureDataDirectory(dbPath string) error {
 	dir := filepath.Dir(dbPath)
+
 	return os.MkdirAll(dir, serviceradarDirPerms)
 }
 
@@ -212,6 +216,7 @@ func (s *Server) Stop(ctx context.Context) error {
 	}
 
 	close(s.ShutdownChan)
+
 	return nil
 }
 
@@ -359,6 +364,7 @@ func (s *Server) Shutdown(ctx context.Context) {
 		err := s.sendAlert(ctx, &alert)
 		if err != nil {
 			log.Printf("Error sending shutdown alert: %v", err)
+
 			return
 		}
 	}
@@ -401,6 +407,7 @@ func (s *Server) checkInitialStates() {
 	statuses, err := s.db.ListPollerStatuses(ctx, s.pollerPatterns)
 	if err != nil {
 		log.Printf("Error querying pollers: %v", err)
+
 		return
 	}
 
@@ -416,6 +423,7 @@ func (s *Server) checkInitialStates() {
 func (s *Server) updateAPIState(pollerID string, apiStatus *api.PollerStatus) {
 	if s.apiServer == nil {
 		log.Printf("Warning: API server not initialized, state not updated")
+
 		return
 	}
 
@@ -428,6 +436,7 @@ func (s *Server) getPollerHealthState(ctx context.Context, pollerID string) (boo
 	if err != nil {
 		return false, err
 	}
+
 	return status.IsHealthy, nil
 }
 
@@ -450,18 +459,22 @@ func (s *Server) processStatusReport(
 
 		if err := s.db.UpdatePollerStatus(ctx, pollerStatus); err != nil {
 			log.Printf("Failed to store poller status for %s: %v", req.PollerId, err)
+
 			return nil, fmt.Errorf("failed to store poller status: %w", err)
 		}
+
 		log.Printf("Stored poller status for %s", req.PollerId)
 
 		apiStatus := s.createPollerStatus(req, now)
 		if err := s.processServices(ctx, req.PollerId, apiStatus, req.Services, now); err != nil {
 			log.Printf("Failed to process services for %s: %v", req.PollerId, err)
+
 			return nil, err
 		}
 
 		if err := s.updatePollerState(ctx, req.PollerId, apiStatus, currentState, now); err != nil {
 			log.Printf("Failed to update poller state for %s: %v", req.PollerId, err)
+
 			return nil, err
 		}
 
@@ -476,6 +489,7 @@ func (s *Server) processStatusReport(
 	apiStatus := s.createPollerStatus(req, now)
 	if err := s.processServices(ctx, req.PollerId, apiStatus, req.Services, now); err != nil {
 		log.Printf("Failed to process services for new poller %s: %v", req.PollerId, err)
+
 		return nil, err
 	}
 
@@ -553,6 +567,7 @@ func (s *Server) processServices(ctx context.Context, pollerID string, apiStatus
 	}
 
 	apiStatus.IsHealthy = allServicesAvailable
+
 	return nil
 }
 
@@ -576,23 +591,30 @@ func (*Server) createAPIService(svc *proto.ServiceStatus) api.ServiceStatus {
 func (s *Server) processServiceDetails(ctx context.Context, pollerID string, apiService *api.ServiceStatus, svc *proto.ServiceStatus, now time.Time) error {
 	if svc.Message == "" {
 		log.Printf("No message content for service %s on poller %s", svc.ServiceName, pollerID)
+
 		return s.handleService(pollerID, apiService, now)
 	}
+
 	details, err := s.parseServiceDetails(svc)
 	if err != nil {
 		log.Printf("Failed to parse details for service %s on poller %s, proceeding without details", svc.ServiceName, pollerID)
+
 		return s.handleService(pollerID, apiService, now)
 	}
+
 	apiService.Details = details
 	if err := s.processSpecializedMetrics(ctx, pollerID, svc, details, now); err != nil {
 		return err
 	}
+
 	return s.handleService(pollerID, apiService, now)
 }
 
 func (*Server) parseServiceDetails(svc *proto.ServiceStatus) (json.RawMessage, error) {
 	sanitized := strings.ReplaceAll(svc.Message, `""`, `"`)
+
 	var details json.RawMessage
+
 	if err := json.Unmarshal([]byte(sanitized), &details); err != nil {
 		log.Printf("Error unmarshaling service details for %s: %v", svc.ServiceName, err)
 		log.Printf("Raw message: %s", svc.Message)
@@ -600,6 +622,7 @@ func (*Server) parseServiceDetails(svc *proto.ServiceStatus) (json.RawMessage, e
 		log.Println("Invalid JSON format, skipping service details")
 		return nil, err
 	}
+
 	return details, nil
 }
 
@@ -622,6 +645,7 @@ func (s *Server) processSpecializedMetrics(ctx context.Context, pollerID string,
 	case svc.ServiceType == icmpServiceType && svc.ServiceName == rperfServiceType:
 		return s.processICMPMetrics(pollerID, svc, details, now)
 	}
+
 	return nil
 }
 
@@ -634,16 +658,19 @@ func (s *Server) processSysmonMetrics(ctx context.Context, pollerID string, deta
 		ResponseTime int64  `json:"response_time"`
 		Available    bool   `json:"available"`
 	}
+
 	if err := json.Unmarshal(details, &outerData); err != nil {
 		log.Printf("Error unmarshaling outer sysmon data for poller %s: %v", pollerID, err)
 		return fmt.Errorf("failed to parse outer sysmon data: %w", err)
 	}
+
 	if outerData.Status == "" {
 		log.Printf("Empty status field in sysmon data for poller %s", pollerID)
 		return errEmptyStatusField
 	}
 
 	var sysmonData models.SysmonMetricData
+
 	if err := json.Unmarshal([]byte(outerData.Status), &sysmonData); err != nil {
 		log.Printf("Error unmarshaling inner sysmon data for poller %s: %v", pollerID, err)
 		return fmt.Errorf("failed to parse inner sysmon data: %w", err)
@@ -693,6 +720,7 @@ func (s *Server) processSysmonMetrics(ctx context.Context, pollerID string, deta
 
 	log.Printf("Successfully stored sysmon metrics for poller %s: %d CPUs, %d disks, memory data present: %v",
 		pollerID, len(m.CPUs), len(m.Disks), hasMemoryData)
+
 	return nil
 }
 
@@ -700,6 +728,7 @@ func (s *Server) processRperfMetrics(ctx context.Context, pollerID string, detai
 	log.Printf("Processing rperf metrics for poller %s", pollerID)
 
 	var rperfData models.RperfMetricData
+
 	if err := json.Unmarshal(details, &rperfData); err != nil {
 		return fmt.Errorf("failed to parse rperf data: %w", err)
 	}
@@ -743,6 +772,7 @@ func (s *Server) processICMPMetrics(pollerID string, svc *proto.ServiceStatus, d
 
 	if err := json.Unmarshal(details, &pingResult); err != nil {
 		log.Printf("Failed to parse ICMP response for service %s: %v", svc.ServiceName, err)
+
 		return fmt.Errorf("failed to parse ICMP data: %w", err)
 	}
 
@@ -753,11 +783,13 @@ func (s *Server) processICMPMetrics(pollerID string, svc *proto.ServiceStatus, d
 		svc.ServiceName,
 	); err != nil {
 		log.Printf("Failed to add ICMP metric for %s: %v", svc.ServiceName, err)
+
 		return fmt.Errorf("failed to store ICMP metric: %w", err)
 	}
 
 	log.Printf("Stored ICMP metric for %s: response_time=%.2fms",
 		svc.ServiceName, float64(pingResult.ResponseTime)/float64(time.Millisecond))
+
 	return nil
 }
 
@@ -793,6 +825,7 @@ func (s *Server) processSNMPMetrics(ctx context.Context, pollerID string, detail
 
 			if err := s.db.StoreMetric(ctx, pollerID, metric); err != nil {
 				log.Printf("Error storing SNMP metric %s for poller %s: %v", oidName, pollerID, err)
+
 				continue
 			}
 		}
@@ -807,29 +840,36 @@ func (s *Server) handleService(pollerID string, svc *api.ServiceStatus, now time
 			return fmt.Errorf("failed to process sweep data: %w", err)
 		}
 	}
+
 	return s.saveServiceStatus(pollerID, svc, now)
 }
 
 func (*Server) processSweepData(svc *api.ServiceStatus, now time.Time) error {
 	var sweepData proto.SweepServiceStatus
+
 	if err := json.Unmarshal([]byte(svc.Message), &sweepData); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidSweepData, err)
 	}
 
 	if sweepData.LastSweep > now.Add(oneDay).Unix() {
 		log.Printf("Invalid or missing LastSweep timestamp (%d), using current time", sweepData.LastSweep)
+
 		sweepData.LastSweep = now.Unix()
+
 		updatedData := proto.SweepServiceStatus{
 			Network:        sweepData.Network,
 			TotalHosts:     sweepData.TotalHosts,
 			AvailableHosts: sweepData.AvailableHosts,
 			LastSweep:      now.Unix(),
 		}
+
 		updatedMessage, err := json.Marshal(&updatedData)
 		if err != nil {
 			return fmt.Errorf("failed to marshal updated sweep data: %w", err)
 		}
+
 		svc.Message = string(updatedMessage)
+
 		log.Printf("Updated sweep data with current timestamp: %v", now.Format(time.RFC3339))
 	} else {
 		log.Printf("Processing sweep data with timestamp: %v",
@@ -869,8 +909,7 @@ func (s *Server) storePollerStatus(ctx context.Context, pollerID string, isHealt
 	return nil
 }
 
-func (s *Server) updatePollerStatus(pollerID string, isHealthy bool, timestamp time.Time) error {
-	ctx := context.Background()
+func (s *Server) updatePollerStatus(ctx context.Context, pollerID string, isHealthy bool, timestamp time.Time) error {
 	pollerStatus := &db.PollerStatus{
 		PollerID:  pollerID,
 		IsHealthy: isHealthy,
@@ -947,6 +986,7 @@ func (s *Server) CheckNeverReportedPollersStartup(ctx context.Context) {
 	pollerIDs, err := s.db.ListNeverReportedPollers(ctx, s.pollerPatterns)
 	if err != nil {
 		log.Printf("Error querying unreported pollers: %v", err)
+
 		return
 	}
 
@@ -989,6 +1029,7 @@ func LoadConfig(path string) (Config, error) {
 	}
 
 	var config Config
+
 	if err := json.Unmarshal(data, &config); err != nil {
 		return Config{}, fmt.Errorf("failed to parse config: %w", err)
 	}
@@ -1041,59 +1082,36 @@ func (s *Server) handleMonitorTick(ctx context.Context) {
 }
 
 func (s *Server) handleCleanupTick(ctx context.Context) {
-	if err := s.performDailyCleanup(); err != nil {
+	if err := s.performDailyCleanup(ctx); err != nil {
 		log.Printf("Daily cleanup failed: %v", err)
 	}
 }
 
-func (s *Server) performDailyCleanup() error {
-	ctx := context.Background()
+func (s *Server) performDailyCleanup(ctx context.Context) error {
 	retentionPeriod := 30 * 24 * time.Hour
 	if err := s.db.CleanOldData(ctx, retentionPeriod); err != nil {
 		return fmt.Errorf("failed to perform daily cleanup: %w", err)
 	}
+
 	log.Printf("Performed daily cleanup with retention period %v", retentionPeriod)
+
 	return nil
 }
 
 func (s *Server) checkPollerStatus(ctx context.Context) error {
-	conditions := make([]string, 0, len(s.pollerPatterns))
-	args := make([]interface{}, 0, len(s.pollerPatterns))
-
-	for _, pattern := range s.pollerPatterns {
-		conditions = append(conditions, "poller_id LIKE ?")
-		args = append(args, pattern)
-	}
-
-	query := `SELECT poller_id, last_seen, is_healthy FROM pollers`
-	if len(conditions) > 0 {
-		query += " WHERE " + strings.Join(conditions, " OR ")
-	}
-
-	rows, err := s.db.conn.Query(ctx, query, args...)
+	statuses, err := s.db.ListPollerStatuses(ctx, s.pollerPatterns)
 	if err != nil {
 		return fmt.Errorf("failed to query pollers: %w", err)
 	}
-	defer rows.Close()
 
 	threshold := time.Now().Add(-s.alertThreshold)
-	for rows.Next() {
-		var pollerID string
-		var lastSeen time.Time
-		var isHealthy bool
-
-		if err := rows.Scan(&pollerID, &lastSeen, &isHealthy); err != nil {
-			log.Printf("Error scanning poller row: %v", err)
-			continue
-		}
-
-		err := s.evaluatePollerHealth(ctx, pollerID, lastSeen, isHealthy, threshold)
-		if err != nil {
-			log.Printf("Error evaluating poller %s health: %v", pollerID, err)
+	for _, status := range statuses {
+		if err := s.evaluatePollerHealth(ctx, status.PollerID, status.LastSeen, status.IsHealthy, threshold); err != nil {
+			log.Printf("Error evaluating poller %s health: %v", status.PollerID, err)
 		}
 	}
 
-	return rows.Err()
+	return nil
 }
 
 func (s *Server) evaluatePollerHealth(
@@ -1104,6 +1122,7 @@ func (s *Server) evaluatePollerHealth(
 	if isHealthy && lastSeen.Before(threshold) {
 		duration := time.Since(lastSeen).Round(time.Second)
 		log.Printf("Poller %s appears to be offline (last seen: %v ago)", pollerID, duration)
+
 		return s.handlePollerDown(ctx, pollerID, lastSeen)
 	}
 
@@ -1115,6 +1134,7 @@ func (s *Server) evaluatePollerHealth(
 		currentHealth, err := s.getPollerHealthState(ctx, pollerID)
 		if err != nil {
 			log.Printf("Error getting current health state for poller %s: %v", pollerID, err)
+
 			return fmt.Errorf("failed to get current health state: %w", err)
 		}
 
@@ -1134,11 +1154,12 @@ func (s *Server) handlePotentialRecovery(ctx context.Context, pollerID string, l
 	}
 
 	s.handlePollerRecovery(ctx, pollerID, apiStatus, lastSeen)
+
 	return nil
 }
 
 func (s *Server) handlePollerDown(ctx context.Context, pollerID string, lastSeen time.Time) error {
-	if err := s.updatePollerStatus(pollerID, false, lastSeen); err != nil {
+	if err := s.updatePollerStatus(ctx, pollerID, false, lastSeen); err != nil {
 		return fmt.Errorf("failed to update poller status: %w", err)
 	}
 
@@ -1198,6 +1219,7 @@ func (s *Server) handlePollerRecovery(ctx context.Context, pollerID string, apiS
 
 func (s *Server) sendAlert(ctx context.Context, alert *alerts.WebhookAlert) error {
 	var errs []error
+
 	log.Printf("Sending alert: %s", alert.Message)
 
 	for _, webhook := range s.webhooks {
@@ -1222,11 +1244,14 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 
 	if !s.isKnownPoller(req.PollerId) {
 		log.Printf("Ignoring status report from unknown poller: %s", req.PollerId)
+
 		return &proto.PollerStatusResponse{Received: true}, nil
 	}
 
 	now := time.Unix(req.Timestamp, 0)
+
 	timestamp := time.Now()
+
 	responseTime := timestamp.Sub(now).Nanoseconds()
 
 	log.Printf("Response time for %s: %d ns (%.2f ms)",
@@ -1254,6 +1279,7 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 
 			if err := json.Unmarshal([]byte(service.Message), &pingResult); err != nil {
 				log.Printf("Failed to parse ICMP response for service %s: %v", service.ServiceName, err)
+
 				continue
 			}
 
@@ -1264,6 +1290,7 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 				service.ServiceName,
 			); err != nil {
 				log.Printf("Failed to add ICMP metric for %s: %v", service.ServiceName, err)
+
 				continue
 			}
 
@@ -1275,6 +1302,7 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 	}
 
 	s.updateAPIState(req.PollerId, apiStatus)
+
 	return &proto.PollerStatusResponse{Received: true}, nil
 }
 
@@ -1283,5 +1311,6 @@ func getHostname() string {
 	if err != nil {
 		return statusUnknown
 	}
+
 	return hostname
 }

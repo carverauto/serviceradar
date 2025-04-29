@@ -17,6 +17,7 @@
 package api
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"time"
@@ -43,6 +44,10 @@ import (
 func (s *APIServer) getRperfMetrics(w http.ResponseWriter, r *http.Request) {
 	pollerID := mux.Vars(r)["id"]
 
+	// set a context with a timeout of 10 seconds
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
 	if s.rperfManager == nil {
 		writeError(w, "Rperf manager not configured", http.StatusInternalServerError)
 
@@ -59,7 +64,7 @@ func (s *APIServer) getRperfMetrics(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Querying rperf metrics for poller %s from %s to %s",
 		pollerID, startTime.Format(time.RFC3339), endTime.Format(time.RFC3339))
 
-	resp := s.processRperfMetrics(pollerID, startTime, endTime)
+	resp := s.processRperfMetrics(ctx, pollerID, startTime, endTime)
 	if resp.Err != nil {
 		writeError(w, "Failed to fetch rperf metrics", http.StatusInternalServerError)
 
@@ -77,8 +82,9 @@ func (s *APIServer) getRperfMetrics(w http.ResponseWriter, r *http.Request) {
 
 // processRperfMetrics fetches and processes rperf metrics for a poller.
 // @ignore This is an internal helper function, not directly exposed as an API endpoint
-func (s *APIServer) processRperfMetrics(pollerID string, startTime, endTime time.Time) models.RperfMetricResponse {
-	rperfMetrics, err := s.rperfManager.GetRperfMetrics(pollerID, startTime, endTime)
+func (s *APIServer) processRperfMetrics(
+	ctx context.Context, pollerID string, startTime, endTime time.Time) models.RperfMetricResponse {
+	rperfMetrics, err := s.rperfManager.GetRperfMetrics(ctx, pollerID, startTime, endTime)
 	if err != nil {
 		log.Printf("Error fetching rperf metrics for poller %s: %v", pollerID, err)
 
