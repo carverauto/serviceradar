@@ -54,10 +54,10 @@ const (
 	monitorInterval            = 30 * time.Second
 )
 
-func NewServer(_ context.Context, config *Config) (*Server, error) {
+func NewServer(ctx context.Context, config *Config) (*Server, error) {
 	normalizedConfig := normalizeConfig(config)
 
-	database, err := db.New(
+	database, err := db.New(ctx,
 		normalizedConfig.DBAddr,
 		normalizedConfig.DBName,
 		normalizedConfig.DBUser,
@@ -94,6 +94,19 @@ func NewServer(_ context.Context, config *Config) (*Server, error) {
 
 func normalizeConfig(config *Config) *Config {
 	normalized := *config
+	// Set the standard DB* fields from the Database struct
+	/*
+		if len(normalized.Database.ProtonAddrs) > 0 {
+			if len(normalized.Database.ProtonAddrs) > 0 {
+			normalized.DBAddr = normalized.Database.ProtonAddrs[0]
+		}
+
+	*/
+	normalized.DBAddr = normalized.Database.Address
+	normalized.DBName = normalized.Database.Name
+	normalized.DBUser = normalized.Database.Username
+	normalized.DBPass = normalized.Database.Password
+
 	if normalized.Metrics.Retention == 0 {
 		normalized.Metrics.Retention = 100
 	}
