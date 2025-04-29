@@ -2,6 +2,7 @@
 package rperf
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -21,8 +22,8 @@ func NewRperfManager(db db.Service) RperfManager {
 }
 
 // StoreRperfMetric stores an rperf metric in the database.
-func (m *rperfManagerImpl) StoreRperfMetric(pollerID string, metric *db.TimeseriesMetric) error {
-	return m.db.StoreMetric(pollerID, metric)
+func (m *rperfManagerImpl) StoreRperfMetric(ctx context.Context, pollerID string, metric *db.TimeseriesMetric) error {
+	return m.db.StoreMetric(ctx, pollerID, metric)
 }
 
 // GetRperfMetrics retrieves rperf metrics for a poller within a time range.

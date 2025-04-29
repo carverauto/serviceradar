@@ -19,6 +19,8 @@ package db
 import (
 	"context"
 	"fmt"
+	"log"
+	"strings"
 	"time"
 
 	"github.com/timeplus-io/proton-go-driver/v2"
@@ -380,4 +382,120 @@ func (db *DB) GetServiceHistory(ctx context.Context, pollerID, serviceName strin
 	}
 
 	return history, nil
+}
+
+// ListPollers retrieves all poller IDs from the pollers stream.
+func (db *DB) ListPollers(ctx context.Context) ([]string, error) {
+	rows, err := db.conn.Query(ctx, "SELECT poller_id FROM pollers")
+	if err != nil {
+		return nil, fmt.Errorf("%w: failed to query pollers: %w", ErrFailedToQuery, err)
+	}
+	defer rows.Close()
+
+	var pollerIDs []string
+	for rows.Next() {
+		var pollerID string
+		if err := rows.Scan(&pollerID); err != nil {
+			log.Printf("Error scanning poller ID: %v", err)
+			continue
+		}
+		pollerIDs = append(pollerIDs, pollerID)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("%w: error iterating rows: %w", ErrFailedToQuery, err)
+	}
+
+	return pollerIDs, nil
+}
+
+// DeletePoller deletes a poller by ID.
+func (db *DB) DeletePoller(ctx context.Context, pollerID string) error {
+	batch, err := db.conn.PrepareBatch(ctx, "DELETE FROM pollers WHERE poller_id = $1")
+	if err != nil {
+		return fmt.Errorf("failed to prepare batch: %w", err)
+	}
+
+	if err := batch.Append(pollerID); err != nil {
+		return fmt.Errorf("failed to append poller ID: %w", err)
+	}
+
+	if err := batch.Send(); err != nil {
+		return fmt.Errorf("%w: failed to delete poller: %w", ErrFailedToInsert, err)
+	}
+
+	return nil
+}
+
+// ListPollerStatuses retrieves poller statuses, optionally filtered by patterns.
+func (db *DB) ListPollerStatuses(ctx context.Context, patterns []string) ([]PollerStatus, error) {
+	query := `SELECT poller_id, is_healthy, last_seen FROM pollers`
+	args := []interface{}{}
+	if len(patterns) > 0 {
+		conditions := make([]string, 0, len(patterns))
+		for _, pattern := range patterns {
+			conditions = append(conditions, "poller_id LIKE ?")
+			args = append(args, pattern)
+		}
+		query += " WHERE " + strings.Join(conditions, " OR ")
+	}
+	query += " ORDER BY last_seen DESC"
+
+	rows, err := db.conn.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("%w: failed to query pollers: %w", ErrFailedToQuery, err)
+	}
+	defer rows.Close()
+
+	var statuses []PollerStatus
+	for rows.Next() {
+		var status PollerStatus
+		if err := rows.Scan(&status.PollerID, &status.IsHealthy, &status.LastSeen); err != nil {
+			log.Printf("Error scanning poller status: %v", err)
+			continue
+		}
+		statuses = append(statuses, status)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("%w: error iterating rows: %w", ErrFailedToQuery, err)
+	}
+
+	return statuses, nil
+}
+
+// ListNeverReportedPollers retrieves poller IDs that have never reported (first_seen = last_seen).
+func (db *DB) ListNeverReportedPollers(ctx context.Context, patterns []string) ([]string, error) {
+	query := `SELECT poller_id FROM pollers WHERE first_seen = last_seen`
+	args := []interface{}{}
+	if len(patterns) > 0 {
+		conditions := make([]string, 0, len(patterns))
+		for _, pattern := range patterns {
+			conditions = append(conditions, "poller_id LIKE ?")
+			args = append(args, pattern)
+		}
+		query += " AND (" + strings.Join(conditions, " OR ") + ")"
+	}
+
+	rows, err := db.conn.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("%w: failed to query never reported pollers: %w", ErrFailedToQuery, err)
+	}
+	defer rows.Close()
+
+	var pollerIDs []string
+	for rows.Next() {
+		var pollerID string
+		if err := rows.Scan(&pollerID); err != nil {
+			log.Printf("Error scanning poller ID: %v", err)
+			continue
+		}
+		pollerIDs = append(pollerIDs, pollerID)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("%w: error iterating rows: %w", ErrFailedToQuery, err)
+	}
+
+	return pollerIDs, nil
 }

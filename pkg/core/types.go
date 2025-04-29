@@ -43,7 +43,11 @@ type Metrics struct {
 type Config struct {
 	ListenAddr     string                 `json:"listen_addr"`
 	GrpcAddr       string                 `json:"grpc_addr"`
-	DBPath         string                 `json:"db_path"`
+	DBPath         string                 `json:"db_path"` // Keep for compatibility, can be optional
+	DBAddr         string                 `json:"db_addr"` // Proton host:port
+	DBName         string                 `json:"db_name"` // Proton database name
+	DBUser         string                 `json:"db_user"` // Proton username
+	DBPass         string                 `json:"db_pass"` // Proton password
 	AlertThreshold time.Duration          `json:"alert_threshold"`
 	PollerPatterns []string               `json:"poller_patterns"`
 	Webhooks       []alerts.WebhookConfig `json:"webhooks,omitempty"`
@@ -118,17 +122,14 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	// Parse the alert threshold
 	if aux.AlertThreshold != "" {
 		duration, err := time.ParseDuration(aux.AlertThreshold)
 		if err != nil {
 			return fmt.Errorf("invalid alert threshold format: %w", err)
 		}
-
 		c.AlertThreshold = duration
 	}
 
-	// Parse the auth section
 	if aux.Auth != nil {
 		c.Auth = &models.AuthConfig{
 			JWTSecret:    aux.Auth.JWTSecret,
@@ -136,13 +137,11 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 			CallbackURL:  aux.Auth.CallbackURL,
 			SSOProviders: aux.Auth.SSOProviders,
 		}
-
 		if aux.Auth.JWTExpiration != "" {
 			duration, err := time.ParseDuration(aux.Auth.JWTExpiration)
 			if err != nil {
 				return fmt.Errorf("invalid jwt_expiration format: %w", err)
 			}
-
 			c.Auth.JWTExpiration = duration
 		}
 	}
