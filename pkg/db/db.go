@@ -47,8 +47,8 @@ func New(ctx context.Context, addr, database, username, password string) (Servic
 			Method: proton.CompressionLZ4,
 		},
 		Settings: proton.Settings{
-			"max_execution_time":           60,
-			"allow_experimental_json_type": true, // Enable JSON type
+			"max_execution_time": 60,
+			// "allow_experimental_json_type": true, // Enable JSON type // doesnt exist -- marked for removal
 		},
 		DialTimeout:     5 * time.Second,
 		MaxOpenConns:    10,
