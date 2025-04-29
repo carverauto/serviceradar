@@ -40,8 +40,8 @@
           "details": ""
         },
         {
-          "service_name": "icmp",
-          "service_type": "ping",
+          "service_name": "ping",
+          "service_type": "icmp",
           "details": "1.1.1.1"
         },
         {

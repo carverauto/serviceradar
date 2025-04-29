@@ -54,6 +54,7 @@ pub struct Config {
     pub poll_interval: u64, // seconds
     pub poller_id: String,
     pub security: SecurityConfig,
+    pub batch_size: Option<usize>,
 }
 
 impl Config {

@@ -22,6 +22,7 @@ tonic-health = "0.9"
 tonic-reflection = "0.9"
 tonic-build = "0.9"
 rand = "0.8.5"
+futures = "0.3.31"
 
 [build-dependencies]
 tonic-build = "0.9"

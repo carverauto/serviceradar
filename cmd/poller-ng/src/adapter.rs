@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use log::{info, error, debug};
+use log::{info, error, debug, warn};
 use reqwest::Client;
 use std::fs;
 use std::path::Path;
@@ -16,6 +16,7 @@ use tonic_health::pb::HealthCheckRequest;
 use tonic_health::pb::health_client::HealthClient;
 use tonic_reflection::server::Builder as ReflectionBuilder;
 use rand::Rng;
+use futures::future;
 
 use crate::processors::{sysmon::SysmonProcessor, rperf::RperfProcessor};
 use crate::models::types::ServiceStatus;
@@ -59,9 +60,10 @@ impl ProtonAdapter {
             None
         };
 
-        let mut processors: Vec<Box<dyn DataProcessor>> = Vec::new();
-        processors.push(Box::new(SysmonProcessor {}));
-        processors.push(Box::new(RperfProcessor {}));
+        let processors: Vec<Box<dyn DataProcessor>> = vec![
+            Box::new(SysmonProcessor {}),
+            Box::new(RperfProcessor {}),
+        ];
 
         let adapter = Self {
             processors: Arc::new(processors),
@@ -207,27 +209,53 @@ impl ProtonAdapter {
         }
     }
 
+
+
     pub async fn start_polling(&self, config: Arc<Config>) -> Result<()> {
         let mut interval_timer = interval(Duration::from_secs(config.poll_interval));
+        let batch_size = get_batch_size(&config);
+        let agent_concurrency = std::cmp::min(config.agents.len(), 5); // Limit number of concurrent agents
+
+        info!("Starting polling with batch size {} and agent concurrency {}",
+         batch_size, agent_concurrency);
+
         loop {
             interval_timer.tick().await;
-            for (agent_name, agent_config) in &config.agents {
-                info!("Polling agent: {}", agent_name);
-                if let Err(e) = self
-                    .poll_agent(agent_name, agent_config, &Some(config.security.clone()))
-                    .await
-                {
-                    error!("Failed to poll agent {}: {}", agent_name, e);
+
+            // Process agents in chunks to limit overall concurrency
+            for agent_chunk in config.agents.iter().collect::<Vec<_>>().chunks(agent_concurrency) {
+                let mut agent_futures = Vec::with_capacity(agent_chunk.len());
+
+                for (agent_name, agent_config) in agent_chunk {
+                    let agent_name = agent_name.clone();
+                    let agent_config = agent_config.clone();
+                    let security = Some(config.security.clone());
+                    let adapter = self.clone();
+
+                    let agent_future = async move {
+                        info!("Polling agent: {}", agent_name);
+                        if let Err(e) = adapter.poll_agent(agent_name, agent_config, &security, batch_size).await {
+                            error!("Failed to poll agent {}: {}", agent_name, e);
+                        }
+                    };
+
+                    agent_futures.push(agent_future);
                 }
+
+                // Poll this batch of agents in parallel
+                future::join_all(agent_futures).await;
             }
         }
     }
+
+
 
     async fn poll_agent(
         &self,
         agent_name: &str,
         agent_config: &AgentConfig,
         security: &Option<SecurityConfig>,
+        batch_size: usize,
     ) -> Result<()> {
         self.exponential_backoff(
             || async {
@@ -238,44 +266,84 @@ impl ProtonAdapter {
                 let channel = Self::create_channel(&agent_config.address, security)
                     .await
                     .context(format!("Failed to connect to agent at {}", agent_config.address))?;
-                let mut client = proto::agent_service_client::AgentServiceClient::new(channel);
+                let client = proto::agent_service_client::AgentServiceClient::new(channel);
 
-                let mut services = Vec::new();
-                for check in &agent_config.checks {
-                    info!("Executing check: {} ({})", check.service_name, check.service_type);
-                    let request = Request::new(proto::StatusRequest {
-                        service_name: check.service_name.clone(),
-                        service_type: check.service_type.clone(),
-                        details: check.details.clone().unwrap_or_default(),
-                        port: check.port.unwrap_or(0),
-                    });
+                // Group checks into batches
+                let checks = &agent_config.checks;
+                let total_checks = checks.len();
+                let mut all_services = Vec::with_capacity(total_checks);
 
-                    match client.get_status(request).await {
-                        Ok(response) => {
-                            let response = response.into_inner();
-                            services.push(ServiceStatus {
-                                service_name: response.service_name,
-                                available: response.available,
-                                message: response.message,
-                                service_type: response.service_type,
-                                response_time: response.response_time,
+                info!("Processing {} checks for agent {} in batches of {}",
+                 total_checks, agent_name, batch_size);
+
+                // Process checks in batches
+                for chunk in checks.chunks(batch_size) {
+                    let mut check_futures = Vec::with_capacity(chunk.len());
+
+                    for check in chunk {
+                        let check_clone = check.clone();
+                        let mut client_clone = client.clone();
+
+                        // Create a future for each check in this batch
+                        let check_future = async move {
+                            info!("Executing check: {} ({})", check_clone.service_name, check_clone.service_type);
+                            let request = Request::new(proto::StatusRequest {
+                                service_name: check_clone.service_name.clone(),
+                                service_type: check_clone.service_type.clone(),
+                                details: check_clone.details.clone().unwrap_or_default(),
+                                port: check_clone.port.unwrap_or(0),
                             });
-                        }
-                        Err(e) => {
-                            error!("Check failed for {}/{}: {}", check.service_type, check.service_name, e);
-                            services.push(ServiceStatus {
-                                service_name: check.service_name.clone(),
-                                available: false,
-                                message: format!("Check failed: {}", e),
-                                service_type: check.service_type.clone(),
-                                response_time: 0,
-                            });
-                        }
+
+                            match client_clone.get_status(request).await {
+                                Ok(response) => {
+                                    let response = response.into_inner();
+                                    Ok::<ServiceStatus, anyhow::Error>(ServiceStatus {
+                                        service_name: response.service_name,
+                                        available: response.available,
+                                        message: response.message,
+                                        service_type: response.service_type,
+                                        response_time: response.response_time,
+                                    })
+                                }
+                                Err(e) => {
+                                    error!("Check failed for {}/{}: {}",
+              check_clone.service_type, check_clone.service_name, e);
+                                    Ok::<ServiceStatus, anyhow::Error>(ServiceStatus {
+                                        service_name: check_clone.service_name.clone(),
+                                        available: false,
+                                        message: format!("Check failed: {}", e),
+                                        service_type: check_clone.service_type.clone(),
+                                        response_time: 0,
+                                    })
+                                }
+                            }
+                        };
+
+                        check_futures.push(check_future);
                     }
+
+                    // Execute this batch of checks in parallel
+                    let batch_results: Vec<Result<_, _>> = futures::future::join_all(check_futures).await;
+
+                    // Collect successful results from this batch
+                    let batch_services: Vec<ServiceStatus> = batch_results
+                        .into_iter()
+                        .filter_map(Result::ok)
+                        .collect();
+
+                    // Extend our collection of all services
+                    all_services.extend(batch_services);
                 }
 
-                let poller_id = agent_name.to_string();
-                self.process_services(&poller_id, &services).await?;
+                // Process all collected services
+                if !all_services.is_empty() {
+                    info!("Completed {} of {} checks for agent {}",
+                     all_services.len(), total_checks, agent_name);
+                    self.process_services(agent_name, &all_services).await?;
+                } else {
+                    warn!("No successful checks completed for agent {}", agent_name);
+                }
+
                 Ok(())
             },
             4, // Max retries
@@ -283,7 +351,7 @@ impl ProtonAdapter {
         ).await
     }
 
-    async fn forward_to_core(&self, poller_id: &str, services: &[ServiceStatus]) -> Result<()> {
+    async fn forward_to_core(&self, _poller_id: &str, services: &[ServiceStatus]) -> Result<()> {
         if let Some(core_client) = &self.core_client {
             let mut client = core_client.lock().await;
 
@@ -497,4 +565,8 @@ impl proto::poller_service_server::PollerService for ProtonAdapter {
         // Always return success to prevent unnecessary retries
         Ok(Response::new(proto::PollerStatusResponse { received: true }))
     }
+}
+
+fn get_batch_size(config: &Config) -> usize {
+    config.batch_size.unwrap_or(20) // Default to 20 concurrent checks per agent
 }
