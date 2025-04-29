@@ -216,8 +216,10 @@ impl ProtonAdapter {
         let batch_size = get_batch_size(&config);
         let agent_concurrency = std::cmp::min(config.agents.len(), 5); // Limit number of concurrent agents
 
-        info!("Starting polling with batch size {} and agent concurrency {}",
-         batch_size, agent_concurrency);
+        info!(
+        "Starting polling with batch size {} and agent concurrency {}",
+        batch_size, agent_concurrency
+    );
 
         loop {
             interval_timer.tick().await;
@@ -227,14 +229,19 @@ impl ProtonAdapter {
                 let mut agent_futures = Vec::with_capacity(agent_chunk.len());
 
                 for (agent_name, agent_config) in agent_chunk {
-                    let agent_name = agent_name.clone();
-                    let agent_config = agent_config.clone();
+                    #[allow(suspicious_double_ref_op)]
+                    let agent_name = agent_name.clone(); // Clone String from &String
+                    #[allow(suspicious_double_ref_op)]
+                    let agent_config = agent_config.clone(); // Clone AgentConfig from &AgentConfig
                     let security = Some(config.security.clone());
                     let adapter = self.clone();
 
                     let agent_future = async move {
                         info!("Polling agent: {}", agent_name);
-                        if let Err(e) = adapter.poll_agent(agent_name, agent_config, &security, batch_size).await {
+                        if let Err(e) = adapter
+                            .poll_agent(agent_name, agent_config, &security, batch_size)
+                            .await
+                        {
                             error!("Failed to poll agent {}: {}", agent_name, e);
                         }
                     };
@@ -247,8 +254,6 @@ impl ProtonAdapter {
             }
         }
     }
-
-
 
     async fn poll_agent(
         &self,
