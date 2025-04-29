@@ -40,6 +40,25 @@ type Metrics struct {
 	MaxPollers int  `json:"max_pollers"`
 }
 
+type ProtonSettings struct {
+	MaxExecutionTime                    int `json:"max_execution_time"`
+	OutputFormatJSONQuote64bitInt       int `json:"output_format_json_quote_64bit_int"`
+	AllowExperimentalLiveViews          int `json:"allow_experimental_live_views"`
+	IdleConnectionTimeout               int `json:"idle_connection_timeout"`
+	JoinUseNulls                        int `json:"join_use_nulls"`
+	InputFormatDefaultsForOmittedFields int `json:"input_format_defaults_for_omitted_fields"`
+}
+
+type ProtonDatabase struct {
+	Addresses []string       `json:"addresses"`
+	Name      string         `json:"name"`
+	Username  string         `json:"username"`
+	Password  string         `json:"password"`
+	MaxConns  int            `json:"max_conns"`
+	IdleConns int            `json:"idle_conns"`
+	Settings  ProtonSettings `json:"settings"`
+}
+
 type Config struct {
 	ListenAddr     string                 `json:"listen_addr"`
 	GrpcAddr       string                 `json:"grpc_addr"`
@@ -57,6 +76,7 @@ type Config struct {
 	Security       *models.SecurityConfig `json:"security"`
 	Auth           *models.AuthConfig     `json:"auth,omitempty"`
 	CORS           models.CORSConfig      `json:"cors,omitempty"`
+	Database       ProtonDatabase         `json:"database"`
 }
 
 func (c *Config) MarshalJSON() ([]byte, error) {

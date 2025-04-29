@@ -33,6 +33,9 @@ type DB struct {
 
 // New creates a new database connection and initializes the schema.
 func New(ctx context.Context, addr, database, username, password string) (Service, error) {
+	log.Println("Address:", addr)
+	log.Println("Database:", database)
+	log.Println("Username:", username)
 	conn, err := proton.Open(&proton.Options{
 		Addr: []string{addr},
 		Auth: proton.Auth{

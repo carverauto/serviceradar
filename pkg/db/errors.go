@@ -20,9 +20,11 @@ import "errors"
 
 var (
 	// Core database errors.
+
 	ErrDatabaseError = errors.New("database error")
 
 	// Operation errors.
+
 	ErrFailedToClean  = errors.New("failed to clean")
 	ErrFailedToScan   = errors.New("failed to scan")
 	ErrFailedToQuery  = errors.New("failed to query")
@@ -31,5 +33,6 @@ var (
 	ErrFailedOpenDB   = errors.New("failed to open database")
 
 	// Auth.
+
 	ErrUserNotFound = errors.New("user not found")
 )
