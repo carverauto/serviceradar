@@ -94,23 +94,21 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 
 func normalizeConfig(config *Config) *Config {
 	normalized := *config
-	// Set the standard DB* fields from the Database struct
-	/*
-		if len(normalized.Database.ProtonAddrs) > 0 {
-			if len(normalized.Database.ProtonAddrs) > 0 {
-			normalized.DBAddr = normalized.Database.ProtonAddrs[0]
-		}
 
-	*/
-	normalized.DBAddr = normalized.Database.Address
+	// Set the DB parameters from the Database struct
+	if len(normalized.Database.Addresses) > 0 {
+		// Set the first address as the primary DB address
+		normalized.DBAddr = normalized.Database.Addresses[0]
+	}
+
 	normalized.DBName = normalized.Database.Name
 	normalized.DBUser = normalized.Database.Username
 	normalized.DBPass = normalized.Database.Password
 
+	// Default settings if not specified
 	if normalized.Metrics.Retention == 0 {
 		normalized.Metrics.Retention = 100
 	}
-
 	if normalized.Metrics.MaxPollers == 0 {
 		normalized.Metrics.MaxPollers = 10000
 	}
