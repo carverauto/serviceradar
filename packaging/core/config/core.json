@@ -9,6 +9,24 @@
         "retention": 100,
         "max_nodes": 10000
     },
+    "database": {
+        "proton_addrs": [
+            "127.0.0.1:8463"
+        ],
+        "proton_database": "default",
+        "proton_username": "default",
+        "proton_password": "",
+        "proton_max_conns": 10,
+        "proton_idle_conns": 5,
+        "proton_settings": {
+            "max_execution_time": 60,
+            "output_format_json_quote_64bit_integers": 0,
+            "allow_experimental_live_view": 1,
+            "idle_connection_timeout": 600,
+            "join_use_nulls": 1,
+            "input_format_defaults_for_omitted_fields": 1
+        }
+    },
     "security": {
         "mode": "none",
         "cert_dir": "/etc/serviceradar/certs",

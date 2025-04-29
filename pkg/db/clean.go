@@ -7,8 +7,8 @@
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
@@ -17,78 +17,29 @@
 package db
 
 import (
+	"context"
 	"fmt"
-	"log"
 	"time"
 )
 
 // CleanOldData removes old data from the database.
-func (db *DB) CleanOldData(retentionPeriod time.Duration) error {
+func (db *DB) CleanOldData(ctx context.Context, retentionPeriod time.Duration) error {
 	cutoff := time.Now().Add(-retentionPeriod)
 
-	tx, err := db.Begin()
-	if err != nil {
-		return fmt.Errorf("%w: %w", errFailedToBeginTx, err)
+	tables := []string{
+		"cpu_metrics",
+		"disk_metrics",
+		"memory_metrics",
+		"poller_history",
+		"service_status",
+		"timeseries_metrics",
 	}
 
-	defer func() {
-		if err != nil {
-			if rbErr := tx.Rollback(); rbErr != nil {
-				log.Printf("failed to rollback: %v", rbErr)
-			}
-
-			return
+	for _, table := range tables {
+		query := fmt.Sprintf("DELETE FROM %s WHERE timestamp < $1", table)
+		if err := db.conn.Exec(ctx, query, cutoff); err != nil {
+			return fmt.Errorf("%w %s: %w", ErrFailedToClean, table, err)
 		}
-
-		err = tx.Commit()
-	}()
-
-	// Clean up node history
-	if _, err := tx.Exec(
-		"DELETE FROM node_history WHERE timestamp < ?",
-		cutoff,
-	); err != nil {
-		return fmt.Errorf("%w node history %w", errFailedToClean, err)
-	}
-
-	// Clean up service status
-	if _, err := tx.Exec(
-		"DELETE FROM service_status WHERE timestamp < ?",
-		cutoff,
-	); err != nil {
-		return fmt.Errorf("%w service status: %w", errFailedToClean, err)
-	}
-
-	// Clean up timeseries metrics
-	if _, err := tx.Exec(
-		"DELETE FROM timeseries_metrics WHERE timestamp < ?",
-		cutoff,
-	); err != nil {
-		return fmt.Errorf("%w timeseries metrics: %w", errFailedToClean, err)
-	}
-
-	// Clean up CPU metrics
-	if _, err := tx.Exec(
-		"DELETE FROM cpu_metrics WHERE timestamp < ?",
-		cutoff,
-	); err != nil {
-		return fmt.Errorf("%w CPU metrics: %w", errFailedToClean, err)
-	}
-
-	// Clean up disk metrics
-	if _, err := tx.Exec(
-		"DELETE FROM disk_metrics WHERE timestamp < ?",
-		cutoff,
-	); err != nil {
-		return fmt.Errorf("%w disk metrics: %w", errFailedToClean, err)
-	}
-
-	// Clean up memory metrics
-	if _, err := tx.Exec(
-		"DELETE FROM memory_metrics WHERE timestamp < ?",
-		cutoff,
-	); err != nil {
-		return fmt.Errorf("%w memory metrics: %w", errFailedToClean, err)
 	}
 
 	return nil

@@ -7,23 +7,23 @@
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
 
-// Package db pkg/db/interfaces.go
 package db
 
 import (
+	"context"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-//go:generate mockgen -destination=mock_db.go -package=db github.com/carverauto/serviceradar/pkg/db Row,Result,Rows,Transaction,Service
+//go:generate mockgen -destination=mock_db.go -package=db github.com/carverauto/serviceradar/pkg/db Service
 
 // TimeseriesMetric represents a generic timeseries datapoint.
 type TimeseriesMetric struct {
@@ -34,106 +34,57 @@ type TimeseriesMetric struct {
 	Metadata  interface{} `json:"metadata"` // Additional type-specific metadata
 }
 
-// Row represents a database row.
-type Row interface {
-	Scan(dest ...interface{}) error
-}
-
-// Result represents the result of a database operation.
-type Result interface {
-	LastInsertId() (int64, error)
-	RowsAffected() (int64, error)
-}
-
-// Rows represents multiple database rows.
-type Rows interface {
-	Next() bool
-	Scan(dest ...interface{}) error
-	Close() error
-	Err() error
-}
-
-// Transaction represents operations that can be performed within a database transaction.
-type Transaction interface {
-	Exec(query string, args ...interface{}) (Result, error)
-	Query(query string, args ...interface{}) (Rows, error)
-	QueryRow(query string, args ...interface{}) Row
-	Commit() error
-	Rollback() error
-}
-
-// Service represents all database operations.
+// Service represents all database operations for Timeplus Proton.
 type Service interface {
-	// Core database operations.
-
-	Begin() (Transaction, error)
 	Close() error
-	Exec(query string, args ...interface{}) (Result, error)
-	Query(query string, args ...interface{}) (Rows, error)
-	QueryRow(query string, args ...interface{}) Row
 
 	// Poller operations.
-
-	UpdatePollerStatus(status *PollerStatus) error
-	GetPollerStatus(pollerID string) (*PollerStatus, error)
-	GetPollerHistory(pollerID string) ([]PollerStatus, error)
-	GetPollerHistoryPoints(pollerID string, limit int) ([]PollerHistoryPoint, error)
-	IsPollerOffline(pollerID string, threshold time.Duration) (bool, error)
+	UpdatePollerStatus(ctx context.Context, status *PollerStatus) error
+	GetPollerStatus(ctx context.Context, pollerID string) (*PollerStatus, error)
+	GetPollerHistory(ctx context.Context, pollerID string) ([]PollerStatus, error)
+	GetPollerHistoryPoints(ctx context.Context, pollerID string, limit int) ([]PollerHistoryPoint, error)
+	IsPollerOffline(ctx context.Context, pollerID string, threshold time.Duration) (bool, error)
 
 	// Service operations.
-
-	UpdateServiceStatus(status *ServiceStatus) error
-	GetPollerServices(pollerID string) ([]ServiceStatus, error)
-	GetServiceHistory(pollerID, serviceName string, limit int) ([]ServiceStatus, error)
+	UpdateServiceStatus(ctx context.Context, status *ServiceStatus) error
+	GetPollerServices(ctx context.Context, pollerID string) ([]ServiceStatus, error)
+	GetServiceHistory(ctx context.Context, pollerID, serviceName string, limit int) ([]ServiceStatus, error)
 
 	// Maintenance operations.
+	CleanOldData(ctx context.Context, retentionPeriod time.Duration) error
 
-	CleanOldData(retentionPeriod time.Duration) error
+	// Generic timeseries methods.
+	StoreMetric(ctx context.Context, pollerID string, metric *TimeseriesMetric) error
+	GetMetrics(ctx context.Context, pollerID, metricName string, start, end time.Time) ([]TimeseriesMetric, error)
+	GetMetricsByType(ctx context.Context, pollerID, metricType string, start, end time.Time) ([]TimeseriesMetric, error)
 
-	// Generic timeseries methods
+	// Sysmon metric operations.
+	StoreSysmonMetrics(ctx context.Context, pollerID string, metrics *models.SysmonMetrics, timestamp time.Time) error
+	GetCPUMetrics(ctx context.Context, pollerID string, coreID int, start, end time.Time) ([]models.CPUMetric, error)
+	GetDiskMetrics(ctx context.Context, pollerID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error)
+	GetMemoryMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.MemoryMetric, error)
+	GetAllDiskMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.DiskMetric, error)
+	GetAllMountPoints(ctx context.Context, pollerID string) ([]string, error)
+	GetAllCPUMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]SysmonCPUResponse, error)
+	GetAllDiskMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]SysmonDiskResponse, error)
+	GetMemoryMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]SysmonMemoryResponse, error)
 
-	StoreMetric(pollerID string, metric *TimeseriesMetric) error
-	GetMetrics(pollerID, metricName string, start, end time.Time) ([]TimeseriesMetric, error)
-	GetMetricsByType(pollerID, metricType string, start, end time.Time) ([]TimeseriesMetric, error)
+	// Rperf.
+	StoreRperfMetrics(ctx context.Context, pollerID, serviceName string, message string, timestamp time.Time) error
 
-	// Sysmon metric operations
-
-	StoreSysmonMetrics(pollerID string, metrics *models.SysmonMetrics, timestamp time.Time) error
-	GetCPUMetrics(pollerID string, coreID int, start, end time.Time) ([]models.CPUMetric, error)
-	GetDiskMetrics(pollerID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error)
-	GetMemoryMetrics(pollerID string, start, end time.Time) ([]models.MemoryMetric, error)
-	GetAllDiskMetrics(pollerID string, start, end time.Time) ([]models.DiskMetric, error)
-	GetAllMountPoints(pollerID string) ([]string, error)
-	GetAllCPUMetrics(pollerID string, start, end time.Time) ([]SysmonCPUResponse, error)
-	GetAllDiskMetricsGrouped(pollerID string, start, end time.Time) ([]SysmonDiskResponse, error)
-	GetMemoryMetricsGrouped(pollerID string, start, end time.Time) ([]SysmonMemoryResponse, error)
-
-	// Rperf
-
-	StoreRperfMetrics(pollerID, serviceName string, message string, timestamp time.Time) error
-
-	// Auth
-
-	StoreUser(user *models.User) error
-	GetUserByID(id string) (*models.User, error)
+	// Auth.
+	StoreUser(ctx context.Context, user *models.User) error
+	GetUserByID(ctx context.Context, id string) (*models.User, error)
 }
 
-// SysmonMetricsProvider interface defines the operations needed for system monitoring metrics.
+// SysmonMetricsProvider interface defines operations for system monitoring metrics.
 type SysmonMetricsProvider interface {
-	// CPU metrics
-
-	GetAllCPUMetrics(pollerID string, start, end time.Time) ([]SysmonCPUResponse, error)
-	GetCPUMetrics(pollerID string, coreID int, start, end time.Time) ([]models.CPUMetric, error)
-
-	// Disk metrics
-
-	GetAllDiskMetricsGrouped(pollerID string, start, end time.Time) ([]SysmonDiskResponse, error)
-	GetDiskMetrics(pollerID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error)
-	GetAllDiskMetrics(pollerID string, start, end time.Time) ([]models.DiskMetric, error)
-	GetAllMountPoints(pollerID string) ([]string, error)
-
-	// Memory metrics
-
-	GetMemoryMetricsGrouped(pollerID string, start, end time.Time) ([]SysmonMemoryResponse, error)
-	GetMemoryMetrics(pollerID string, start, end time.Time) ([]models.MemoryMetric, error)
+	GetAllCPUMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]SysmonCPUResponse, error)
+	GetCPUMetrics(ctx context.Context, pollerID string, coreID int, start, end time.Time) ([]models.CPUMetric, error)
+	GetAllDiskMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]SysmonDiskResponse, error)
+	GetDiskMetrics(ctx context.Context, pollerID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error)
+	GetAllDiskMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.DiskMetric, error)
+	GetAllMountPoints(ctx context.Context, pollerID string) ([]string, error)
+	GetMemoryMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]SysmonMemoryResponse, error)
+	GetMemoryMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.MemoryMetric, error)
 }
