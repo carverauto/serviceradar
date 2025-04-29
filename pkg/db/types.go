@@ -17,7 +17,29 @@
 // Package db provides data models for the database service.
 package db
 
-import "time"
+import (
+	"time"
+
+	"github.com/carverauto/serviceradar/pkg/models"
+)
+
+// SysmonDiskResponse represents a disk metrics response grouped by timestamp.
+type SysmonDiskResponse struct {
+	Disks     []models.DiskMetric `json:"disks"`
+	Timestamp time.Time           `json:"timestamp"`
+}
+
+// SysmonMemoryResponse represents a memory metrics response.
+type SysmonMemoryResponse struct {
+	Memory    models.MemoryMetric `json:"memory"`
+	Timestamp time.Time           `json:"timestamp"`
+}
+
+// SysmonCPUResponse represents a CPU metrics response grouped by timestamp.
+type SysmonCPUResponse struct {
+	Cpus      []models.CPUMetric `json:"cpus"`
+	Timestamp time.Time          `json:"timestamp"`
+}
 
 // PollerHistoryPoint represents a single point in a poller's history.
 type PollerHistoryPoint struct {

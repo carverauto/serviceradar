@@ -7,8 +7,8 @@
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
@@ -17,46 +17,71 @@
 package db
 
 import (
-	"database/sql"
-	"errors"
+	"context"
 	"fmt"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-func (db *DB) StoreUser(user *models.User) error {
+// StoreUser stores a user in the database.
+func (db *DB) StoreUser(ctx context.Context, user *models.User) error {
 	user.CreatedAt = time.Now()
 	user.UpdatedAt = user.CreatedAt
 
-	_, err := db.Exec(`
-        INSERT INTO users (id, email, name, provider, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-            email = excluded.email,
-            name = excluded.name,
-            updated_at = excluded.updated_at
-    `, user.ID, user.Email, user.Name, user.Provider, user.CreatedAt, user.UpdatedAt)
+	batch, err := db.conn.PrepareBatch(ctx, "INSERT INTO users (* except _tp_time)")
 	if err != nil {
+		return fmt.Errorf("failed to prepare batch: %w", err)
+	}
+
+	err = batch.Append(
+		user.ID,
+		user.Email,
+		user.Name,
+		user.Provider,
+		user.CreatedAt,
+		user.UpdatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to append user: %w", err)
+	}
+
+	if err := batch.Send(); err != nil {
 		return fmt.Errorf("failed to store user: %w", err)
 	}
 
 	return nil
 }
 
-func (db *DB) GetUserByID(id string) (*models.User, error) {
+// GetUserByID retrieves a user by ID.
+func (db *DB) GetUserByID(ctx context.Context, id string) (*models.User, error) {
 	user := &models.User{}
 
-	err := db.QueryRow(`
-        SELECT id, email, name, provider, created_at, updated_at
-        FROM users WHERE id = ?
-    `, id).Scan(&user.ID, &user.Email, &user.Name, &user.Provider, &user.CreatedAt, &user.UpdatedAt)
-	if errors.Is(err, sql.ErrNoRows) {
+	rows, err := db.conn.Query(ctx, `
+		SELECT id, email, name, provider, created_at, updated_at
+		FROM users
+		WHERE id = $1
+		LIMIT 1`,
+		id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query user: %w", err)
+	}
+	defer rows.Close()
+
+	if !rows.Next() {
 		return nil, ErrUserNotFound
 	}
 
+	err = rows.Scan(
+		&user.ID,
+		&user.Email,
+		&user.Name,
+		&user.Provider,
+		&user.CreatedAt,
+		&user.UpdatedAt,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get user: %w", err)
+		return nil, fmt.Errorf("failed to scan user: %w", err)
 	}
 
 	return user, nil

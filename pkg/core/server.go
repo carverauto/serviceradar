@@ -492,18 +492,46 @@ func (s *Server) getPollerHealthState(pollerID string) (bool, error) {
 
 func (s *Server) processStatusReport(
 	ctx context.Context, req *proto.PollerStatusRequest, now time.Time) (*api.PollerStatus, error) {
+	log.Printf("Starting processStatusReport for poller %s", req.PollerId)
+
+	// Start a transaction
+	tx, err := s.db.Begin()
+	if err != nil {
+		log.Printf("Failed to begin transaction for poller %s: %v", req.PollerId, err)
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer rollbackOnError(tx, err)
+
+	// Ensure poller exists in the database
+	pollerStatus := &db.PollerStatus{
+		PollerID:  req.PollerId,
+		IsHealthy: true,
+		LastSeen:  now,
+	}
+	if err := s.db.UpdatePollerStatus(pollerStatus); err != nil {
+		log.Printf("Failed to store poller status for %s: %v", req.PollerId, err)
+		return nil, fmt.Errorf("failed to store poller status: %w", err)
+	}
+	log.Printf("Stored poller status for %s", req.PollerId)
+
 	currentState, err := s.getPollerHealthState(req.PollerId)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		log.Printf("Error checking poller state: %v", err)
+		log.Printf("Error checking poller state for %s: %v", req.PollerId, err)
 	}
 
 	apiStatus := s.createPollerStatus(req, now)
-
-	s.processServices(req.PollerId, apiStatus, req.Services, now)
+	s.processServices(req.PollerId, apiStatus, req.Services, now, tx)
 
 	if err := s.updatePollerState(ctx, req.PollerId, apiStatus, currentState, now); err != nil {
+		log.Printf("Failed to update poller state for %s: %v", req.PollerId, err)
 		return nil, err
 	}
+
+	if err := tx.Commit(); err != nil {
+		log.Printf("Failed to commit transaction for poller %s: %v", req.PollerId, err)
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+	log.Printf("Committed transaction for poller %s", req.PollerId)
 
 	return apiStatus, nil
 }
@@ -517,25 +545,29 @@ func (*Server) createPollerStatus(req *proto.PollerStatusRequest, now time.Time)
 	}
 }
 
-func (s *Server) processServices(pollerID string, apiStatus *api.PollerStatus, services []*proto.ServiceStatus, now time.Time) {
-	allServicesAvailable := true
+// rollbackOnError rolls back the transaction if an error is non-nil and logs the rollback error.
+func rollbackOnError(tx db.Transaction, err error) {
+	if err != nil {
+		if rbErr := tx.Rollback(); rbErr != nil {
+			log.Printf("Failed to rollback transaction: %v", rbErr)
+		}
+	}
+}
 
+func (s *Server) processServices(pollerID string, apiStatus *api.PollerStatus, services []*proto.ServiceStatus, now time.Time, tx db.Transaction) {
+	allServicesAvailable := true
 	for _, svc := range services {
 		s.logServiceProcessing(pollerID, svc)
-
 		apiService := s.createAPIService(svc)
-
 		if !svc.Available {
 			allServicesAvailable = false
 		}
-
-		if err := s.processServiceDetails(pollerID, &apiService, svc, now); err != nil {
-			log.Printf("Error processing service %s: %v", svc.ServiceName, err)
+		if err := s.processServiceDetails(pollerID, &apiService, svc, now, tx); err != nil {
+			log.Printf("Error processing service %s for poller %s: %v", svc.ServiceName, pollerID, err)
+			continue
 		}
-
 		apiStatus.Services = append(apiStatus.Services, apiService)
 	}
-
 	apiStatus.IsHealthy = allServicesAvailable
 }
 
@@ -556,37 +588,34 @@ func (*Server) createAPIService(svc *proto.ServiceStatus) api.ServiceStatus {
 	}
 }
 
-func (s *Server) processServiceDetails(pollerID string, apiService *api.ServiceStatus, svc *proto.ServiceStatus, now time.Time) error {
+func (s *Server) processServiceDetails(pollerID string, apiService *api.ServiceStatus, svc *proto.ServiceStatus, now time.Time, tx db.Transaction) error {
 	if svc.Message == "" {
-		log.Printf("No message content for service %s", svc.ServiceName)
-
-		return s.handleService(pollerID, apiService, now)
+		log.Printf("No message content for service %s on poller %s", svc.ServiceName, pollerID)
+		return s.handleService(pollerID, apiService, now, tx)
 	}
-
 	details, err := s.parseServiceDetails(svc)
 	if err != nil {
-		return s.handleService(pollerID, apiService, now)
+		log.Printf("Failed to parse details for service %s on poller %s, proceeding without details", svc.ServiceName, pollerID)
+		return s.handleService(pollerID, apiService, now, tx)
 	}
-
 	apiService.Details = details
-
-	if err := s.processSpecializedMetrics(pollerID, svc, details, now); err != nil {
+	if err := s.processSpecializedMetrics(pollerID, svc, details, now, tx); err != nil {
 		return err
 	}
-
-	return s.handleService(pollerID, apiService, now)
+	return s.handleService(pollerID, apiService, now, tx)
 }
 
 func (*Server) parseServiceDetails(svc *proto.ServiceStatus) (json.RawMessage, error) {
+	// Sanitize JSON by fixing double-quoted strings
+	sanitized := strings.ReplaceAll(svc.Message, `""`, `"`)
 	var details json.RawMessage
-	if err := json.Unmarshal([]byte(svc.Message), &details); err != nil {
+	if err := json.Unmarshal([]byte(sanitized), &details); err != nil {
 		log.Printf("Error unmarshaling service details for %s: %v", svc.ServiceName, err)
 		log.Printf("Raw message: %s", svc.Message)
+		log.Printf("Sanitized message: %s", sanitized)
 		log.Println("Invalid JSON format, skipping service details")
-
 		return nil, err
 	}
-
 	return details, nil
 }
 
@@ -598,66 +627,54 @@ const (
 	sysmonServiceType = "sysmon"
 )
 
-func (s *Server) processSpecializedMetrics(pollerID string, svc *proto.ServiceStatus, details json.RawMessage, now time.Time) error {
+func (s *Server) processSpecializedMetrics(pollerID string, svc *proto.ServiceStatus, details json.RawMessage, now time.Time, tx db.Transaction) error {
 	switch {
 	case svc.ServiceType == snmpServiceType:
 		return s.processSNMPMetrics(pollerID, details, now)
 	case svc.ServiceType == grpcServiceType && svc.ServiceName == rperfServiceType:
 		return s.processRperfMetrics(pollerID, details, now)
 	case svc.ServiceType == grpcServiceType && svc.ServiceName == sysmonServiceType:
-		return s.processSysmonMetrics(pollerID, details, now)
+		return s.processSysmonMetrics(pollerID, details, now, tx)
 	case svc.ServiceType == icmpServiceType && svc.ServiceName == rperfServiceType:
 		return s.processICMPMetrics(pollerID, svc, details, now)
 	}
-
 	return nil
 }
 
-func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, timestamp time.Time) error {
+func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, timestamp time.Time, tx db.Transaction) error {
 	log.Printf("Processing sysmon for poller %s", pollerID)
-
-	// Print raw JSON for debugging
 	log.Printf("Raw sysmon data: %s", string(details))
 
-	// First, parse the outer JSON structure to extract the nested JSON string
 	var outerData struct {
-		Status       string `json:"status"`        // This contains the nested JSON
-		ResponseTime int64  `json:"response_time"` // Optional fields
-		Available    bool   `json:"available"`     // Optional fields
+		Status       string `json:"status"`
+		ResponseTime int64  `json:"response_time"`
+		Available    bool   `json:"available"`
 	}
-
 	if err := json.Unmarshal(details, &outerData); err != nil {
-		log.Printf("Error unmarshaling outer sysmon data: %v", err)
+		log.Printf("Error unmarshaling outer sysmon data for poller %s: %v", pollerID, err)
 		return fmt.Errorf("failed to parse outer sysmon data: %w", err)
 	}
-
-	// Now parse the nested JSON in the "status" field
 	if outerData.Status == "" {
-		log.Printf("Empty status field in sysmon data")
+		log.Printf("Empty status field in sysmon data for poller %s", pollerID)
 		return errEmptyStatusField
 	}
 
-	// Parse the inner JSON data
 	var sysmonData models.SysmonMetricData
 	if err := json.Unmarshal([]byte(outerData.Status), &sysmonData); err != nil {
-		log.Printf("Error unmarshaling inner sysmon data: %v", err)
+		log.Printf("Error unmarshaling inner sysmon data for poller %s: %v", pollerID, err)
 		return fmt.Errorf("failed to parse inner sysmon data: %w", err)
 	}
 
-	// Safely check if the memory field has data by checking for zero values
 	hasMemoryData := sysmonData.Memory.TotalBytes > 0 || sysmonData.Memory.UsedBytes > 0
+	log.Printf("Parsed sysmon data for poller %s: CPUs=%d, Disks=%d, HasMemoryData=%v",
+		pollerID, len(sysmonData.CPUs), len(sysmonData.Disks), hasMemoryData)
 
-	log.Printf("Parsed sysmon data: CPUs=%d, Disks=%d, HasMemoryData=%v",
-		len(sysmonData.CPUs), len(sysmonData.Disks), hasMemoryData)
-
-	// Now process the correctly parsed data
 	m := &models.SysmonMetrics{
 		CPUs:   make([]models.CPUMetric, len(sysmonData.CPUs)),
 		Disks:  make([]models.DiskMetric, len(sysmonData.Disks)),
 		Memory: models.MemoryMetric{},
 	}
 
-	// Process CPU metrics
 	for i, cpu := range sysmonData.CPUs {
 		m.CPUs[i] = models.CPUMetric{
 			CoreID:       int(cpu.CoreID),
@@ -666,13 +683,10 @@ func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, 
 		}
 	}
 
-	// Process disk metrics
-	log.Printf("Processing %d disk metrics", len(sysmonData.Disks))
-
+	log.Printf("Processing %d disk metrics for poller %s", len(sysmonData.Disks), pollerID)
 	for i, disk := range sysmonData.Disks {
 		log.Printf("Disk %d: mount_point=%s, used=%d, total=%d",
 			i, disk.MountPoint, disk.UsedBytes, disk.TotalBytes)
-
 		m.Disks[i] = models.DiskMetric{
 			MountPoint: disk.MountPoint,
 			UsedBytes:  disk.UsedBytes,
@@ -681,8 +695,6 @@ func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, 
 		}
 	}
 
-	// Process memory metrics (Memory is a struct, not a pointer, so we can't check for nil)
-	// Instead, we check if it has meaningful data
 	if hasMemoryData {
 		m.Memory = models.MemoryMetric{
 			UsedBytes:  sysmonData.Memory.UsedBytes,
@@ -691,14 +703,12 @@ func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, 
 		}
 	}
 
-	// Store metrics in database
-	if err := s.metrics.StoreSysmonMetrics(pollerID, m, timestamp); err != nil {
-		return fmt.Errorf("failed to store sysmon metrics: %w", err)
+	if err := s.db.StoreSysmonMetricsWithTx(pollerID, m, timestamp, tx); err != nil {
+		return fmt.Errorf("failed to store sysmon metrics for poller %s: %w", pollerID, err)
 	}
 
 	log.Printf("Successfully stored sysmon metrics for poller %s: %d CPUs, %d disks, memory data present: %v",
 		pollerID, len(m.CPUs), len(m.Disks), hasMemoryData)
-
 	return nil
 }
 
@@ -822,14 +832,13 @@ func (s *Server) processSNMPMetrics(pollerID string, details json.RawMessage, ti
 	return nil
 }
 
-func (s *Server) handleService(pollerID string, svc *api.ServiceStatus, now time.Time) error {
+func (s *Server) handleService(pollerID string, svc *api.ServiceStatus, now time.Time, tx db.Transaction) error {
 	if svc.Type == sweepService {
 		if err := s.processSweepData(svc, now); err != nil {
 			return fmt.Errorf("failed to process sweep data: %w", err)
 		}
 	}
-
-	return s.saveServiceStatus(pollerID, svc, now)
+	return s.saveServiceStatus(pollerID, svc, now, tx)
 }
 
 func (*Server) processSweepData(svc *api.ServiceStatus, now time.Time) error {
@@ -869,7 +878,7 @@ func (*Server) processSweepData(svc *api.ServiceStatus, now time.Time) error {
 	return nil
 }
 
-func (s *Server) saveServiceStatus(pollerID string, svc *api.ServiceStatus, now time.Time) error {
+func (s *Server) saveServiceStatus(pollerID string, svc *api.ServiceStatus, now time.Time, tx db.Transaction) error {
 	status := &db.ServiceStatus{
 		PollerID:    pollerID,
 		ServiceName: svc.Name,
@@ -878,11 +887,21 @@ func (s *Server) saveServiceStatus(pollerID string, svc *api.ServiceStatus, now 
 		Details:     svc.Message,
 		Timestamp:   now,
 	}
-
-	if err := s.db.UpdateServiceStatus(status); err != nil {
-		return fmt.Errorf("%w: failed to update service status", errDatabaseError)
+	const insertSQL = `
+        INSERT INTO service_status
+            (poller_id, service_name, service_type, available, details, timestamp)
+        VALUES (?, ?, ?, ?, ?, ?)
+    `
+	_, err := tx.Exec(insertSQL,
+		status.PollerID,
+		status.ServiceName,
+		status.ServiceType,
+		status.Available,
+		status.Details,
+		status.Timestamp)
+	if err != nil {
+		return fmt.Errorf("database error: failed to update service status for %s on poller %s: %w", svc.Name, pollerID, err)
 	}
-
 	return nil
 }
 
