@@ -1207,19 +1207,6 @@ func (s *Server) handleCleanupTick() {
 	}
 }
 
-// performDailyCleanup performs the daily cleanup task.
-func (s *Server) performDailyCleanup() error {
-	log.Println("Performing daily cleanup...")
-
-	if err := s.db.CleanOldData(oneWeek); err != nil {
-		log.Printf("Error cleaning old data: %v", err)
-
-		return err
-	}
-
-	return nil
-}
-
 func (s *Server) checkPollerStatus(ctx context.Context) error {
 	// Pre-allocate slices
 	conditions := make([]string, 0, len(s.pollerPatterns))
@@ -1289,7 +1276,7 @@ func (s *Server) evaluatePollerHealth(
 	// Case 3: Poller is reporting but its status might have changed
 	if !lastSeen.Before(threshold) {
 		// Get the current health status
-		currentHealth, err := s.getPollerHealthState(pollerID)
+		currentHealth, err := s.getPollerHealthState(ctx, pollerID)
 		if err != nil {
 			log.Printf("Error getting current health state for poller %s: %v", pollerID, err)
 

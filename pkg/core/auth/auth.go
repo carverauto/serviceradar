@@ -156,7 +156,7 @@ func (a *Auth) generateAndStoreToken(ctx context.Context, user *models.User) (*m
 	}
 
 	// Store user if not exists
-	err = a.db.StoreUser(ctx, user)
+	err = a.db.StoreUser(timeoutCtx, user)
 	if err != nil && !errors.Is(err, db.ErrUserNotFound) {
 		return nil, fmt.Errorf("failed to store user: %w", err)
 	}
