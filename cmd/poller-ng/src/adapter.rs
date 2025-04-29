@@ -249,9 +249,9 @@ impl ProtonAdapter {
 
                 for (agent_name, agent_config) in agent_chunk {
                     #[allow(suspicious_double_ref_op)]
-                    let agent_name = agent_name.clone(); // Clone String from &String
+                    let agent_name = agent_name.clone(); // Clone to own String for async closure
                     #[allow(suspicious_double_ref_op)]
-                    let agent_config = agent_config.clone(); // Clone AgentConfig from &AgentConfig
+                    let agent_config = agent_config.clone(); // Clone to own AgentConfig for async closure
                     let security = Some(config.security.clone());
                     let adapter = self.clone();
 
