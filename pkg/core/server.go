@@ -14,13 +14,12 @@
  * limitations under the License.
  */
 
+// Package core pkg/core/server.go
 package core
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -54,10 +53,16 @@ const (
 	monitorInterval            = 30 * time.Second
 )
 
-func NewServer(_ context.Context, config *Config) (*Server, error) {
+func NewServer(ctx context.Context, config *Config) (*Server, error) {
 	normalizedConfig := normalizeConfig(config)
 
-	database, err := db.New(getDBPath(normalizedConfig.DBPath))
+	// Updated db.New call with proper Proton connection parameters
+	database, err := db.New(
+		normalizedConfig.DBAddr, // Address (host:port)
+		normalizedConfig.DBName, // Database name
+		normalizedConfig.DBUser, // Username
+		normalizedConfig.DBPass, // Password
+	)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errDatabaseError, err)
 	}
@@ -196,8 +201,6 @@ func (s *Server) Start(ctx context.Context) error {
 		log.Printf("Failed to send startup notification: %v", err)
 	}
 
-	go s.periodicCleanup(ctx)
-
 	go s.runMetricsCleanup(ctx)
 
 	go s.monitorPollers(ctx)
@@ -290,33 +293,49 @@ func (s *Server) cleanupUnknownPollers(ctx context.Context) error {
 		return nil // No filtering if no known pollers specified
 	}
 
-	// set a timer on the context to ensure we don't run indefinitely
-	_, cancel := context.WithTimeout(ctx, time.Minute)
-	defer cancel()
+	// Unfortunately, we need a new approach for this with Proton
+	// since it doesn't support the same DELETE syntax as SQLite
 
-	// Build a query with placeholders for known pollers
-	placeholders := make([]string, len(s.config.KnownPollers))
-
-	args := make([]interface{}, len(s.config.KnownPollers))
-
-	for i, poller := range s.config.KnownPollers {
-		placeholders[i] = "?"
-		args[i] = poller
-	}
-
-	// Delete all pollers not in known_pollers
-	query := fmt.Sprintf("DELETE FROM pollers WHERE poller_id NOT IN (%s)",
-		strings.Join(placeholders, ","))
-
-	result, err := s.db.Exec(query, args...)
+	// First, query all poller IDs
+	rows, err := s.db.Query(ctx, "SELECT poller_id FROM pollers")
 	if err != nil {
-		return fmt.Errorf("failed to cleanup unknown pollers: %w", err)
+		return fmt.Errorf("failed to query pollers: %w", err)
+	}
+	defer rows.Close()
+
+	// Build a list of pollers to delete
+	var pollersToDelete []string
+	for rows.Next() {
+		var pollerID string
+		if err := rows.Scan(&pollerID); err != nil {
+			log.Printf("Error scanning poller row: %v", err)
+			continue
+		}
+
+		// Check if this poller is known
+		isKnown := false
+		for _, known := range s.config.KnownPollers {
+			if known == pollerID {
+				isKnown = true
+				break
+			}
+		}
+
+		if !isKnown {
+			pollersToDelete = append(pollersToDelete, pollerID)
+		}
 	}
 
-	if rows, err := result.RowsAffected(); err == nil && rows > 0 {
-		log.Printf("Cleaned up %d unknown poller(s) from database", rows)
+	// Delete unknown pollers one by one
+	for _, pollerID := range pollersToDelete {
+		if err := s.db.Exec(ctx, "DELETE FROM pollers WHERE poller_id = ?", pollerID); err != nil {
+			log.Printf("Error deleting unknown poller %s: %v", pollerID, err)
+		} else {
+			log.Printf("Deleted unknown poller: %s", pollerID)
+		}
 	}
 
+	log.Printf("Cleaned up %d unknown poller(s) from database", len(pollersToDelete))
 	return nil
 }
 
@@ -399,7 +418,11 @@ func (s *Server) SetAPIServer(apiServer api.Service) {
 	apiServer.SetKnownPollers(s.config.KnownPollers)
 
 	apiServer.SetPollerHistoryHandler(func(pollerID string) ([]api.PollerHistoryPoint, error) {
-		points, err := s.db.GetPollerHistoryPoints(pollerID, pollerHistoryLimit)
+		// Create context for database call
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		points, err := s.db.GetPollerHistoryPoints(ctx, pollerID, pollerHistoryLimit)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get poller history: %w", err)
 		}
@@ -417,42 +440,39 @@ func (s *Server) SetAPIServer(apiServer api.Service) {
 }
 
 func (s *Server) checkInitialStates() {
-	likeConditions := make([]string, 0, len(s.pollerPatterns))
-	args := make([]interface{}, 0, len(s.pollerPatterns))
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
-	// Construct the WHERE clause with multiple LIKE conditions
-	for _, pattern := range s.pollerPatterns {
-		likeConditions = append(likeConditions, "poller_id LIKE ?")
-		args = append(args, pattern)
+	// Use native Proton query building for LIKE conditions
+	query := `SELECT poller_id, is_healthy, last_seen FROM pollers`
+
+	// Add WHERE clause if we have patterns
+	var args []interface{}
+	if len(s.pollerPatterns) > 0 {
+		conditions := make([]string, 0, len(s.pollerPatterns))
+		args = make([]interface{}, 0, len(s.pollerPatterns))
+
+		for _, pattern := range s.pollerPatterns {
+			conditions = append(conditions, "poller_id LIKE ?")
+			args = append(args, pattern)
+		}
+
+		query += " WHERE " + strings.Join(conditions, " OR ")
 	}
 
-	// Base query without WHERE clause
-	query := `
-        SELECT poller_id, is_healthy, last_seen 
-        FROM pollers
-    `
+	query += " ORDER BY last_seen DESC"
 
-	// Add WHERE clause only if there are conditions
-	if len(likeConditions) > 0 {
-		query += fmt.Sprintf("WHERE %s ", strings.Join(likeConditions, " OR "))
-	}
-
-	// Add ORDER BY clause
-	query += "ORDER BY last_seen DESC"
-
-	rows, err := s.db.Query(query, args...)
+	// Execute the query
+	rows, err := s.db.Query(ctx, query, args...)
 	if err != nil {
 		log.Printf("Error querying pollers: %v", err)
-
 		return
 	}
-	defer db.CloseRows(rows)
+	defer rows.Close()
 
 	for rows.Next() {
 		var pollerID string
-
 		var isHealthy bool
-
 		var lastSeen time.Time
 
 		if err := rows.Scan(&pollerID, &isHealthy, &lastSeen); err != nil {
@@ -482,25 +502,18 @@ func (s *Server) updateAPIState(pollerID string, apiStatus *api.PollerStatus) {
 }
 
 // getPollerHealthState retrieves the current health state of a poller.
-func (s *Server) getPollerHealthState(pollerID string) (bool, error) {
-	var currentState bool
+func (s *Server) getPollerHealthState(ctx context.Context, pollerID string) (bool, error) {
+	status, err := s.db.GetPollerStatus(ctx, pollerID)
+	if err != nil {
+		return false, err
+	}
 
-	err := s.db.QueryRow("SELECT is_healthy FROM pollers WHERE poller_id = ?", pollerID).Scan(&currentState)
-
-	return currentState, err
+	return status.IsHealthy, nil
 }
 
 func (s *Server) processStatusReport(
 	ctx context.Context, req *proto.PollerStatusRequest, now time.Time) (*api.PollerStatus, error) {
 	log.Printf("Starting processStatusReport for poller %s", req.PollerId)
-
-	// Start a transaction
-	tx, err := s.db.Begin()
-	if err != nil {
-		log.Printf("Failed to begin transaction for poller %s: %v", req.PollerId, err)
-		return nil, fmt.Errorf("failed to begin transaction: %w", err)
-	}
-	defer rollbackOnError(tx, err)
 
 	// Ensure poller exists in the database
 	pollerStatus := &db.PollerStatus{
@@ -508,30 +521,51 @@ func (s *Server) processStatusReport(
 		IsHealthy: true,
 		LastSeen:  now,
 	}
-	if err := s.db.UpdatePollerStatus(pollerStatus); err != nil {
-		log.Printf("Failed to store poller status for %s: %v", req.PollerId, err)
-		return nil, fmt.Errorf("failed to store poller status: %w", err)
-	}
-	log.Printf("Stored poller status for %s", req.PollerId)
 
-	currentState, err := s.getPollerHealthState(req.PollerId)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		log.Printf("Error checking poller state for %s: %v", req.PollerId, err)
+	// Get first seen time - we'll need to keep this value
+	existingStatus, err := s.db.GetPollerStatus(ctx, req.PollerId)
+	if err != nil {
+		// If not found, this is a new poller, so we set FirstSeen to now
+		pollerStatus.FirstSeen = now
+	} else {
+		// Keep the original FirstSeen time
+		pollerStatus.FirstSeen = existingStatus.FirstSeen
+		// Preserve current health state for comparison
+		currentState := existingStatus.IsHealthy
+
+		// Update the poller status
+		if err := s.db.UpdatePollerStatus(ctx, pollerStatus); err != nil {
+			log.Printf("Failed to store poller status for %s: %v", req.PollerId, err)
+			return nil, fmt.Errorf("failed to store poller status: %w", err)
+		}
+		log.Printf("Stored poller status for %s", req.PollerId)
+
+		apiStatus := s.createPollerStatus(req, now)
+		if err := s.processServices(ctx, req.PollerId, apiStatus, req.Services, now); err != nil {
+			log.Printf("Failed to process services for %s: %v", req.PollerId, err)
+			return nil, err
+		}
+
+		// Update poller state if needed
+		if err := s.updatePollerState(ctx, req.PollerId, apiStatus, currentState, now); err != nil {
+			log.Printf("Failed to update poller state for %s: %v", req.PollerId, err)
+			return nil, err
+		}
+
+		return apiStatus, nil
+	}
+
+	// This is a new poller
+	if err := s.db.UpdatePollerStatus(ctx, pollerStatus); err != nil {
+		log.Printf("Failed to create new poller status for %s: %v", req.PollerId, err)
+		return nil, fmt.Errorf("failed to create poller status: %w", err)
 	}
 
 	apiStatus := s.createPollerStatus(req, now)
-	s.processServices(req.PollerId, apiStatus, req.Services, now, tx)
-
-	if err := s.updatePollerState(ctx, req.PollerId, apiStatus, currentState, now); err != nil {
-		log.Printf("Failed to update poller state for %s: %v", req.PollerId, err)
+	if err := s.processServices(ctx, req.PollerId, apiStatus, req.Services, now); err != nil {
+		log.Printf("Failed to process services for new poller %s: %v", req.PollerId, err)
 		return nil, err
 	}
-
-	if err := tx.Commit(); err != nil {
-		log.Printf("Failed to commit transaction for poller %s: %v", req.PollerId, err)
-		return nil, fmt.Errorf("failed to commit transaction: %w", err)
-	}
-	log.Printf("Committed transaction for poller %s", req.PollerId)
 
 	return apiStatus, nil
 }
@@ -545,16 +579,7 @@ func (*Server) createPollerStatus(req *proto.PollerStatusRequest, now time.Time)
 	}
 }
 
-// rollbackOnError rolls back the transaction if an error is non-nil and logs the rollback error.
-func rollbackOnError(tx db.Transaction, err error) {
-	if err != nil {
-		if rbErr := tx.Rollback(); rbErr != nil {
-			log.Printf("Failed to rollback transaction: %v", rbErr)
-		}
-	}
-}
-
-func (s *Server) processServices(pollerID string, apiStatus *api.PollerStatus, services []*proto.ServiceStatus, now time.Time, tx db.Transaction) {
+func (s *Server) processServices(ctx context.Context, pollerID string, apiStatus *api.PollerStatus, services []*proto.ServiceStatus, now time.Time) error {
 	allServicesAvailable := true
 	for _, svc := range services {
 		s.logServiceProcessing(pollerID, svc)
@@ -562,13 +587,64 @@ func (s *Server) processServices(pollerID string, apiStatus *api.PollerStatus, s
 		if !svc.Available {
 			allServicesAvailable = false
 		}
-		if err := s.processServiceDetails(pollerID, &apiService, svc, now, tx); err != nil {
-			log.Printf("Error processing service %s for poller %s: %v", svc.ServiceName, pollerID, err)
-			continue
+
+		if svc.Message == "" {
+			log.Printf("No message content for service %s on poller %s", svc.ServiceName, pollerID)
+		} else {
+			details, err := s.parseServiceDetails(svc)
+			if err != nil {
+				log.Printf("Failed to parse details for service %s on poller %s, proceeding without details", svc.ServiceName, pollerID)
+			} else {
+				apiService.Details = details
+
+				// Process specialized metrics based on service type
+				switch {
+				case svc.ServiceType == snmpServiceType:
+					if err := s.processSNMPMetrics(ctx, pollerID, details, now); err != nil {
+						log.Printf("Error processing SNMP metrics for %s: %v", svc.ServiceName, err)
+					}
+				case svc.ServiceType == grpcServiceType && svc.ServiceName == rperfServiceType:
+					if err := s.processRperfMetrics(ctx, pollerID, details, now); err != nil {
+						log.Printf("Error processing rperf metrics for %s: %v", svc.ServiceName, err)
+					}
+				case svc.ServiceType == grpcServiceType && svc.ServiceName == sysmonServiceType:
+					if err := s.processSysmonMetrics(ctx, pollerID, details, now); err != nil {
+						log.Printf("Error processing sysmon metrics for %s: %v", svc.ServiceName, err)
+					}
+				case svc.ServiceType == icmpServiceType && svc.ServiceName == rperfServiceType:
+					if err := s.processICMPMetrics(pollerID, svc, details, now); err != nil {
+						log.Printf("Error processing ICMP metrics for %s: %v", svc.ServiceName, err)
+					}
+				}
+			}
 		}
+
+		// Process sweep service if needed
+		if svc.ServiceType == sweepService {
+			if err := s.processSweepData(&apiService, now); err != nil {
+				log.Printf("Error processing sweep data for %s: %v", svc.ServiceName, err)
+			}
+		}
+
+		// Save service status
+		serviceStatus := &db.ServiceStatus{
+			PollerID:    pollerID,
+			ServiceName: apiService.Name,
+			ServiceType: apiService.Type,
+			Available:   apiService.Available,
+			Details:     apiService.Message,
+			Timestamp:   now,
+		}
+
+		if err := s.db.UpdateServiceStatus(ctx, serviceStatus); err != nil {
+			log.Printf("Error saving service status for %s: %v", apiService.Name, err)
+		}
+
 		apiStatus.Services = append(apiStatus.Services, apiService)
 	}
+
 	apiStatus.IsHealthy = allServicesAvailable
+	return nil
 }
 
 func (*Server) logServiceProcessing(pollerID string, svc *proto.ServiceStatus) {
@@ -588,21 +664,21 @@ func (*Server) createAPIService(svc *proto.ServiceStatus) api.ServiceStatus {
 	}
 }
 
-func (s *Server) processServiceDetails(pollerID string, apiService *api.ServiceStatus, svc *proto.ServiceStatus, now time.Time, tx db.Transaction) error {
+func (s *Server) processServiceDetails(ctx context.Context, pollerID string, apiService *api.ServiceStatus, svc *proto.ServiceStatus, now time.Time) error {
 	if svc.Message == "" {
 		log.Printf("No message content for service %s on poller %s", svc.ServiceName, pollerID)
-		return s.handleService(pollerID, apiService, now, tx)
+		return s.handleService(pollerID, apiService, now)
 	}
 	details, err := s.parseServiceDetails(svc)
 	if err != nil {
 		log.Printf("Failed to parse details for service %s on poller %s, proceeding without details", svc.ServiceName, pollerID)
-		return s.handleService(pollerID, apiService, now, tx)
+		return s.handleService(pollerID, apiService, now)
 	}
 	apiService.Details = details
-	if err := s.processSpecializedMetrics(pollerID, svc, details, now, tx); err != nil {
+	if err := s.processSpecializedMetrics(ctx, pollerID, svc, details, now); err != nil {
 		return err
 	}
-	return s.handleService(pollerID, apiService, now, tx)
+	return s.handleService(pollerID, apiService, now)
 }
 
 func (*Server) parseServiceDetails(svc *proto.ServiceStatus) (json.RawMessage, error) {
@@ -627,21 +703,21 @@ const (
 	sysmonServiceType = "sysmon"
 )
 
-func (s *Server) processSpecializedMetrics(pollerID string, svc *proto.ServiceStatus, details json.RawMessage, now time.Time, tx db.Transaction) error {
+func (s *Server) processSpecializedMetrics(ctx context.Context, pollerID string, svc *proto.ServiceStatus, details json.RawMessage, now time.Time) error {
 	switch {
 	case svc.ServiceType == snmpServiceType:
-		return s.processSNMPMetrics(pollerID, details, now)
+		return s.processSNMPMetrics(ctx, pollerID, details, now)
 	case svc.ServiceType == grpcServiceType && svc.ServiceName == rperfServiceType:
-		return s.processRperfMetrics(pollerID, details, now)
+		return s.processRperfMetrics(ctx, pollerID, details, now)
 	case svc.ServiceType == grpcServiceType && svc.ServiceName == sysmonServiceType:
-		return s.processSysmonMetrics(pollerID, details, now, tx)
+		return s.processSysmonMetrics(ctx, pollerID, details, now)
 	case svc.ServiceType == icmpServiceType && svc.ServiceName == rperfServiceType:
 		return s.processICMPMetrics(pollerID, svc, details, now)
 	}
 	return nil
 }
 
-func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, timestamp time.Time, tx db.Transaction) error {
+func (s *Server) processSysmonMetrics(ctx context.Context, pollerID string, details json.RawMessage, timestamp time.Time) error {
 	log.Printf("Processing sysmon for poller %s", pollerID)
 	log.Printf("Raw sysmon data: %s", string(details))
 
@@ -703,7 +779,7 @@ func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, 
 		}
 	}
 
-	if err := s.db.StoreSysmonMetricsWithTx(pollerID, m, timestamp, tx); err != nil {
+	if err := s.db.StoreSysmonMetrics(ctx, pollerID, m, timestamp); err != nil {
 		return fmt.Errorf("failed to store sysmon metrics for poller %s: %w", pollerID, err)
 	}
 
@@ -712,7 +788,7 @@ func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, 
 	return nil
 }
 
-func (s *Server) processRperfMetrics(pollerID string, details json.RawMessage, timestamp time.Time) error {
+func (s *Server) processRperfMetrics(ctx context.Context, pollerID string, details json.RawMessage, timestamp time.Time) error {
 	log.Printf("Processing rperf m for poller %s", pollerID)
 
 	var rperfData models.RperfMetricData
@@ -743,7 +819,7 @@ func (s *Server) processRperfMetrics(pollerID string, details json.RawMessage, t
 		}
 	}
 
-	if err := s.metrics.StoreRperfMetrics(pollerID, m, timestamp); err != nil {
+	if err := s.metrics.StoreRperfMetrics(ctx, pollerID, m, timestamp); err != nil {
 		return fmt.Errorf("failed to store rperf m: %w", err)
 	}
 
@@ -782,7 +858,7 @@ func (s *Server) processICMPMetrics(pollerID string, svc *proto.ServiceStatus, d
 }
 
 // processSNMPMetrics extracts and stores SNMP metrics from service details.
-func (s *Server) processSNMPMetrics(pollerID string, details json.RawMessage, timestamp time.Time) error {
+func (s *Server) processSNMPMetrics(ctx context.Context, pollerID string, details json.RawMessage, timestamp time.Time) error {
 	log.Printf("Processing SNMP metrics for poller %s", pollerID)
 
 	// Parse the outer structure which contains target-specific data
@@ -821,7 +897,7 @@ func (s *Server) processSNMPMetrics(pollerID string, details json.RawMessage, ti
 			}
 
 			// Store in database
-			if err := s.db.StoreMetric(pollerID, metric); err != nil {
+			if err := s.db.StoreMetric(ctx, pollerID, metric); err != nil {
 				log.Printf("Error storing SNMP metric %s for poller %s: %v", oidName, pollerID, err)
 
 				continue
@@ -832,13 +908,13 @@ func (s *Server) processSNMPMetrics(pollerID string, details json.RawMessage, ti
 	return nil
 }
 
-func (s *Server) handleService(pollerID string, svc *api.ServiceStatus, now time.Time, tx db.Transaction) error {
+func (s *Server) handleService(pollerID string, svc *api.ServiceStatus, now time.Time) error {
 	if svc.Type == sweepService {
 		if err := s.processSweepData(svc, now); err != nil {
 			return fmt.Errorf("failed to process sweep data: %w", err)
 		}
 	}
-	return s.saveServiceStatus(pollerID, svc, now, tx)
+	return s.saveServiceStatus(pollerID, svc, now)
 }
 
 func (*Server) processSweepData(svc *api.ServiceStatus, now time.Time) error {
@@ -878,7 +954,7 @@ func (*Server) processSweepData(svc *api.ServiceStatus, now time.Time) error {
 	return nil
 }
 
-func (s *Server) saveServiceStatus(pollerID string, svc *api.ServiceStatus, now time.Time, tx db.Transaction) error {
+func (s *Server) saveServiceStatus(pollerID string, svc *api.ServiceStatus, now time.Time) error {
 	status := &db.ServiceStatus{
 		PollerID:    pollerID,
 		ServiceName: svc.Name,
@@ -906,14 +982,14 @@ func (s *Server) saveServiceStatus(pollerID string, svc *api.ServiceStatus, now 
 }
 
 // storePollerStatus updates the poller status in the database.
-func (s *Server) storePollerStatus(pollerID string, isHealthy bool, now time.Time) error {
+func (s *Server) storePollerStatus(ctx context.Context, pollerID string, isHealthy bool, now time.Time) error {
 	pollerStatus := &db.PollerStatus{
 		PollerID:  pollerID,
 		IsHealthy: isHealthy,
 		LastSeen:  now,
 	}
 
-	if err := s.db.UpdatePollerStatus(pollerStatus); err != nil {
+	if err := s.db.UpdatePollerStatus(ctx, pollerStatus); err != nil {
 		return fmt.Errorf("failed to store poller status: %w", err)
 	}
 
@@ -922,7 +998,7 @@ func (s *Server) storePollerStatus(pollerID string, isHealthy bool, now time.Tim
 
 func (s *Server) updatePollerState(
 	ctx context.Context, pollerID string, apiStatus *api.PollerStatus, wasHealthy bool, now time.Time) error {
-	if err := s.storePollerStatus(pollerID, apiStatus.IsHealthy, now); err != nil {
+	if err := s.storePollerStatus(ctx, pollerID, apiStatus.IsHealthy, now); err != nil {
 		return err
 	}
 
@@ -932,31 +1008,6 @@ func (s *Server) updatePollerState(
 	}
 
 	return nil
-}
-
-// periodicCleanup runs regular maintenance tasks on the database.
-func (s *Server) periodicCleanup(_ context.Context) {
-	ticker := time.NewTicker(1 * time.Hour)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-s.ShutdownChan:
-			return
-		case <-ticker.C:
-			// Clean up old data (keep 7 days by default)
-			if err := s.db.CleanOldData(7 * 24 * time.Hour); err != nil {
-				log.Printf("Error during periodic cleanup: %v", err)
-			}
-
-			// Vacuum the database every 24 hours to reclaim space
-			if time.Now().Hour() == 0 { // Run at midnight
-				if _, err := s.db.Exec("VACUUM"); err != nil {
-					log.Printf("Error vacuuming database: %v", err)
-				}
-			}
-		}
-	}
 }
 
 // checkNeverReportedPollers checks for and alerts on pollers that exist but have never reported.
