@@ -35,6 +35,16 @@
       },
       "checks": [
         {
+          "service_type": "sweep",
+          "service_name": "network_sweep",
+          "details": ""
+        },
+        {
+          "service_name": "icmp",
+          "service_type": "ping",
+          "details": "1.1.1.1"
+        },
+        {
           "service_type": "grpc",
           "service_name": "sysmon",
           "details": "127.0.0.1:50083"

@@ -1,12 +1,13 @@
 use anyhow::{Context, Result};
-use log::{info, error};
+use log::{info, error, debug};
 use reqwest::Client;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
-use tokio::time::interval;
+use std::sync::atomic::{AtomicBool, Ordering};
+use tokio::time::{interval, sleep};
 use tonic::{
     transport::{Server, Channel, ServerTlsConfig, ClientTlsConfig, Identity, Certificate},
     Request, Response, Status,
@@ -14,6 +15,7 @@ use tonic::{
 use tonic_health::pb::HealthCheckRequest;
 use tonic_health::pb::health_client::HealthClient;
 use tonic_reflection::server::Builder as ReflectionBuilder;
+use rand::Rng;
 
 use crate::processors::{sysmon::SysmonProcessor, rperf::RperfProcessor};
 use crate::models::types::ServiceStatus;
@@ -36,6 +38,7 @@ pub struct ProtonAdapter {
     poller_id: String,
     forward_to_core: bool,
     core_client: Option<Arc<Mutex<proto::poller_service_client::PollerServiceClient<Channel>>>>,
+    streams_setup: Arc<AtomicBool>,
 }
 
 impl ProtonAdapter {
@@ -67,9 +70,15 @@ impl ProtonAdapter {
             poller_id: config.poller_id.clone(),
             forward_to_core: config.forward_to_core,
             core_client,
+            streams_setup: Arc::new(AtomicBool::new(false)),
         };
 
-        adapter.setup_all_streams().await?;
+        // Start background task to handle stream setup retries
+        let adapter_clone = adapter.clone();
+        tokio::spawn(async move {
+            adapter_clone.run_stream_setup_retries(Duration::from_secs(300)).await;
+        });
+
         Ok(adapter)
     }
 
@@ -120,6 +129,84 @@ impl ProtonAdapter {
         endpoint.connect().await.context("Failed to connect")
     }
 
+    /// Performs an exponential backoff retry for the given async operation.
+    async fn exponential_backoff<F, Fut, T>(
+        &self,
+        operation: F,
+        max_retries: usize,
+        operation_name: &str,
+    ) -> Result<T>
+    where
+        F: Fn() -> Fut,
+        Fut: std::future::Future<Output = Result<T>>,
+    {
+        let mut attempts = 0;
+        let base_delay = Duration::from_secs(1);
+        let max_delay = Duration::from_secs(32);
+
+        while attempts <= max_retries {
+            match operation().await {
+                Ok(result) => return Ok(result),
+                Err(e) if attempts < max_retries => {
+                    attempts += 1;
+                    let delay = base_delay * 2u32.pow(attempts as u32);
+                    let capped_delay = delay.min(max_delay);
+                    let jitter = Duration::from_millis(rand::thread_rng().gen_range(0..100));
+                    let total_delay = capped_delay + jitter;
+                    error!(
+                        "{} failed (attempt {}/{}): {}. Retrying after {:.2}s",
+                        operation_name,
+                        attempts,
+                        max_retries,
+                        e,
+                        total_delay.as_secs_f32()
+                    );
+                    sleep(total_delay).await;
+                }
+                Err(e) => {
+                    error!("{} failed after {} attempts: {}", operation_name, attempts + 1, e);
+                    return Err(e);
+                }
+            }
+        }
+        Err(anyhow::anyhow!("Max retries reached for {}", operation_name))
+    }
+
+    /// Runs a background task to periodically retry stream setup every retry_interval.
+    async fn run_stream_setup_retries(&self, retry_interval: Duration) {
+        let mut interval = interval(retry_interval);
+
+        loop {
+            interval.tick().await;
+
+            // Only try to set up streams if we need to
+            if !self.streams_setup.load(Ordering::SeqCst) {
+                // Check if Proton URL is empty or localhost
+                if self.proton_url.is_empty() || self.proton_url.contains("localhost") {
+                    // Log once at startup that we're skipping Proton setup
+                    static LOGGED: AtomicBool = AtomicBool::new(false);
+                    if !LOGGED.swap(true, Ordering::SeqCst) {
+                        info!("Proton URL is empty or localhost, skipping stream setup");
+                    }
+
+                    // Wait for the next interval before checking again
+                    continue;
+                }
+
+                info!("Attempting to set up Proton streams");
+                match self.setup_all_streams().await {
+                    Ok(_) => {
+                        info!("Successfully set up all Proton streams");
+                        self.streams_setup.store(true, Ordering::SeqCst);
+                    }
+                    Err(e) => {
+                        error!("Failed to set up Proton streams: {}. Will retry in {:?}", e, retry_interval);
+                    }
+                }
+            }
+        }
+    }
+
     pub async fn start_polling(&self, config: Arc<Config>) -> Result<()> {
         let mut interval_timer = interval(Duration::from_secs(config.poll_interval));
         loop {
@@ -142,59 +229,90 @@ impl ProtonAdapter {
         agent_config: &AgentConfig,
         security: &Option<SecurityConfig>,
     ) -> Result<()> {
-        for attempt in 1..=3 {
-            match self.ensure_agent_health(&agent_config.address, security).await {
-                Ok(_) => break,
-                Err(e) if attempt < 3 => {
-                    error!("Health check failed for agent {} (attempt {}): {}", agent_name, attempt, e);
-                    tokio::time::sleep(Duration::from_secs(1)).await;
-                    continue;
-                }
-                Err(e) => return Err(e),
-            }
-        }
+        self.exponential_backoff(
+            || async {
+                // Perform health check
+                self.ensure_agent_health(&agent_config.address, security).await?;
 
-        let channel = Self::create_channel(&agent_config.address, security)
-            .await
-            .context(format!("Failed to connect to agent at {}", agent_config.address))?;
-        let mut client = proto::agent_service_client::AgentServiceClient::new(channel);
+                // Connect to agent
+                let channel = Self::create_channel(&agent_config.address, security)
+                    .await
+                    .context(format!("Failed to connect to agent at {}", agent_config.address))?;
+                let mut client = proto::agent_service_client::AgentServiceClient::new(channel);
 
-        let mut services = Vec::new();
-        for check in &agent_config.checks {
-            info!("Executing check: {} ({})", check.service_name, check.service_type);
-            let request = Request::new(proto::StatusRequest {
-                service_name: check.service_name.clone(),
-                service_type: check.service_type.clone(),
-                details: check.details.clone().unwrap_or_default(),
-                port: check.port.unwrap_or(0),
-            });
-
-            match client.get_status(request).await {
-                Ok(response) => {
-                    let response = response.into_inner();
-                    services.push(ServiceStatus {
-                        service_name: response.service_name,
-                        available: response.available,
-                        message: response.message,
-                        service_type: response.service_type,
-                        response_time: response.response_time,
-                    });
-                }
-                Err(e) => {
-                    error!("Check failed for {}/{}: {}", check.service_type, check.service_name, e);
-                    services.push(ServiceStatus {
+                let mut services = Vec::new();
+                for check in &agent_config.checks {
+                    info!("Executing check: {} ({})", check.service_name, check.service_type);
+                    let request = Request::new(proto::StatusRequest {
                         service_name: check.service_name.clone(),
-                        available: false,
-                        message: format!("Check failed: {}", e),
                         service_type: check.service_type.clone(),
-                        response_time: 0,
+                        details: check.details.clone().unwrap_or_default(),
+                        port: check.port.unwrap_or(0),
                     });
+
+                    match client.get_status(request).await {
+                        Ok(response) => {
+                            let response = response.into_inner();
+                            services.push(ServiceStatus {
+                                service_name: response.service_name,
+                                available: response.available,
+                                message: response.message,
+                                service_type: response.service_type,
+                                response_time: response.response_time,
+                            });
+                        }
+                        Err(e) => {
+                            error!("Check failed for {}/{}: {}", check.service_type, check.service_name, e);
+                            services.push(ServiceStatus {
+                                service_name: check.service_name.clone(),
+                                available: false,
+                                message: format!("Check failed: {}", e),
+                                service_type: check.service_type.clone(),
+                                response_time: 0,
+                            });
+                        }
+                    }
                 }
+
+                let poller_id = agent_name.to_string();
+                self.process_services(&poller_id, &services).await?;
+                Ok(())
+            },
+            4, // Max retries
+            &format!("poll agent {}", agent_name),
+        ).await
+    }
+
+    async fn forward_to_core(&self, poller_id: &str, services: &[ServiceStatus]) -> Result<()> {
+        if let Some(core_client) = &self.core_client {
+            let mut client = core_client.lock().await;
+
+            // Convert ServiceStatus objects to proto::ServiceStatus for gRPC
+            let service_statuses: Vec<proto::ServiceStatus> = services.iter()
+                .map(|s| proto::ServiceStatus {
+                    service_name: s.service_name.clone(),
+                    available: s.available,
+                    message: s.message.clone(),
+                    service_type: s.service_type.clone(),
+                    response_time: s.response_time,
+                })
+                .collect();
+
+            let forwarded_req = proto::PollerStatusRequest {
+                poller_id: self.poller_id.clone(), // Use adapter's poller_id
+                services: service_statuses,
+                timestamp: chrono::Utc::now().timestamp(),
+            };
+
+            match client.report_status(Request::new(forwarded_req)).await {
+                Ok(_) => info!(
+                "Successfully forwarded status to core for poller_id={}",
+                self.poller_id
+            ),
+                Err(e) => error!("Failed to forward status to core: {}", e),
             }
         }
 
-        let poller_id = agent_name.to_string();
-        self.process_services(&poller_id, &services).await?;
         Ok(())
     }
 
@@ -204,58 +322,92 @@ impl ProtonAdapter {
         security: &Option<SecurityConfig>,
     ) -> Result<()> {
         let addr = format!("http://{}", agent_addr);
-        info!("Checking health of agent at {}", addr);
-        let channel = Self::create_channel(&addr, security)
-            .await
-            .context(format!("Failed to connect to agent at {}", agent_addr))?;
-        let mut health_client = HealthClient::new(channel);
-        let response = health_client
-            .check(HealthCheckRequest {
-                service: "monitoring.AgentService".to_string(),
-            })
-            .await?;
-        if response.get_ref().status != 1 {
-            // Compare with 1 (ServingStatus::Serving)
-            return Err(anyhow::anyhow!("Agent {} is unhealthy", agent_addr));
-        }
-        Ok(())
+        self.exponential_backoff(
+            || async {
+                info!("Checking health of agent at {}", addr);
+                let channel = Self::create_channel(&addr, security)
+                    .await
+                    .context(format!("Failed to connect to agent at {}", agent_addr))?;
+                let mut health_client = HealthClient::new(channel);
+                let response = health_client
+                    .check(HealthCheckRequest {
+                        // service: "monitoring.AgentService".to_string(),
+                        service: "".to_string(),
+                    })
+                    .await?;
+                if response.get_ref().status != 1 {
+                    return Err(anyhow::anyhow!("Agent {} is unhealthy", agent_addr));
+                }
+                Ok(())
+            },
+            4, // Max retries
+            &format!("health check for agent {}", agent_addr),
+        ).await
     }
 
     async fn setup_all_streams(&self) -> Result<()> {
         let client = self.client.lock().await;
         for processor in self.processors.iter() {
             info!("Setting up streams for processor: {}", processor.name());
-            if let Err(e) = processor.setup_streams(&client, &self.proton_url).await {
-                error!("Failed to set up streams for processor {}: {}", processor.name(), e);
-            }
+            self.exponential_backoff(
+                || async {
+                    processor.setup_streams(&client, &self.proton_url).await
+                },
+                4, // Max retries
+                &format!("setup streams for processor {}", processor.name()),
+            )
+                .await
+                .map_err(|e| {
+                    error!("Failed to set up streams for processor {}: {}", processor.name(), e);
+                    e
+                })?;
         }
         Ok(())
     }
 
     async fn process_services(&self, poller_id: &str, services: &[ServiceStatus]) -> Result<()> {
+        // Check if Proton streams are setup before attempting to process data with Proton
+        if !self.streams_setup.load(Ordering::SeqCst) {
+            debug!("Skipping Proton processing for {}: Proton streams not set up", poller_id);
+
+            // Still forward to core if configured, even if Proton isn't available
+            if self.forward_to_core && self.core_client.is_some() {
+                self.forward_to_core(poller_id, services).await?;
+            }
+
+            return Ok(());
+        }
+
+        // Original Proton processing logic
         let client = self.client.lock().await;
         for service in services {
             for processor in self.processors.iter() {
                 if processor.handles_service(&service.service_type, &service.service_name) {
                     info!(
-                        "Processing service {} with processor {}",
-                        service.service_name,
-                        processor.name()
-                    );
+                    "Processing service {} with processor {}",
+                    service.service_name,
+                    processor.name()
+                );
                     if let Err(e) = processor
                         .process_service(poller_id, service, &client, &self.proton_url)
                         .await
                     {
                         error!(
-                            "Error processing service {} with processor {}: {}",
-                            service.service_name,
-                            processor.name(),
-                            e
-                        );
+                        "Error processing service {} with processor {}: {}",
+                        service.service_name,
+                        processor.name(),
+                        e
+                    );
                     }
                 }
             }
         }
+
+        // Always forward to core if configured, even after Proton processing
+        if self.forward_to_core && self.core_client.is_some() {
+            self.forward_to_core(poller_id, services).await?;
+        }
+
         Ok(())
     }
 
@@ -324,6 +476,7 @@ impl proto::poller_service_server::PollerService for ProtonAdapter {
             req.services.len()
         );
 
+        // Convert proto::ServiceStatus to our internal ServiceStatus type
         let services: Vec<ServiceStatus> = req
             .services
             .iter()
@@ -336,26 +489,12 @@ impl proto::poller_service_server::PollerService for ProtonAdapter {
             })
             .collect();
 
+        // Process services (will handle Proton and forwarding)
         if let Err(e) = self.process_services(&poller_id, &services).await {
             error!("Error processing services for poller {}: {}", poller_id, e);
         }
 
-        if self.forward_to_core && self.core_client.is_some() {
-            let mut core_client = self.core_client.as_ref().unwrap().lock().await;
-            let forwarded_req = proto::PollerStatusRequest {
-                poller_id: self.poller_id.clone(), // Use adapter's poller_id
-                services: req.services.clone(),
-                timestamp: chrono::Utc::now().timestamp(),
-            };
-            match core_client.report_status(Request::new(forwarded_req)).await {
-                Ok(_) => info!(
-                    "Successfully forwarded status to core for poller_id={}",
-                    self.poller_id
-                ),
-                Err(e) => error!("Failed to forward status to core: {}", e),
-            }
-        }
-
+        // Always return success to prevent unnecessary retries
         Ok(Response::new(proto::PollerStatusResponse { received: true }))
     }
 }
