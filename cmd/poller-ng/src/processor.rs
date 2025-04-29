@@ -23,11 +23,11 @@ pub trait DataProcessor: Send + Sync {
 
     // Helper method for executing Proton queries
     async fn execute_proton_query(&self, client: &Client, proton_url: &str, query: String) -> Result<()> {
-        let response = client.post(&format!("{}/api/query", proton_url))
+        let response = client.post(format!("{}/api/query", proton_url))
             .header("Content-Type", "application/json")
             .json(&serde_json::json!({
-                "sql": query
-            }))
+            "sql": query
+        }))
             .send()
             .await?;
 
