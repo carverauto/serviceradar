@@ -32,7 +32,7 @@ type DB struct {
 }
 
 // New creates a new database connection and initializes the schema.
-func New(addr, database, username, password string) (Service, error) {
+func New(ctx context.Context, addr, database, username, password string) (Service, error) {
 	conn, err := proton.Open(&proton.Options{
 		Addr: []string{addr},
 		Auth: proton.Auth{
@@ -57,7 +57,7 @@ func New(addr, database, username, password string) (Service, error) {
 	}
 
 	db := &DB{conn: conn}
-	if err := db.initSchema(context.Background()); err != nil {
+	if err := db.initSchema(ctx); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrFailedToInit, err)
 	}
 
@@ -430,15 +430,20 @@ func (db *DB) DeletePoller(ctx context.Context, pollerID string) error {
 // ListPollerStatuses retrieves poller statuses, optionally filtered by patterns.
 func (db *DB) ListPollerStatuses(ctx context.Context, patterns []string) ([]PollerStatus, error) {
 	query := `SELECT poller_id, is_healthy, last_seen FROM pollers`
-	args := []interface{}{}
+
+	var args []interface{}
+
 	if len(patterns) > 0 {
 		conditions := make([]string, 0, len(patterns))
+
 		for _, pattern := range patterns {
 			conditions = append(conditions, "poller_id LIKE ?")
 			args = append(args, pattern)
 		}
+
 		query += " WHERE " + strings.Join(conditions, " OR ")
 	}
+
 	query += " ORDER BY last_seen DESC"
 
 	rows, err := db.conn.Query(ctx, query, args...)
@@ -448,12 +453,16 @@ func (db *DB) ListPollerStatuses(ctx context.Context, patterns []string) ([]Poll
 	defer rows.Close()
 
 	var statuses []PollerStatus
+
 	for rows.Next() {
 		var status PollerStatus
+
 		if err := rows.Scan(&status.PollerID, &status.IsHealthy, &status.LastSeen); err != nil {
 			log.Printf("Error scanning poller status: %v", err)
+
 			continue
 		}
+
 		statuses = append(statuses, status)
 	}
 
@@ -467,13 +476,16 @@ func (db *DB) ListPollerStatuses(ctx context.Context, patterns []string) ([]Poll
 // ListNeverReportedPollers retrieves poller IDs that have never reported (first_seen = last_seen).
 func (db *DB) ListNeverReportedPollers(ctx context.Context, patterns []string) ([]string, error) {
 	query := `SELECT poller_id FROM pollers WHERE first_seen = last_seen`
-	args := []interface{}{}
+
+	var args []interface{}
+
 	if len(patterns) > 0 {
 		conditions := make([]string, 0, len(patterns))
 		for _, pattern := range patterns {
 			conditions = append(conditions, "poller_id LIKE ?")
 			args = append(args, pattern)
 		}
+
 		query += " AND (" + strings.Join(conditions, " OR ") + ")"
 	}
 
@@ -484,12 +496,16 @@ func (db *DB) ListNeverReportedPollers(ctx context.Context, patterns []string) (
 	defer rows.Close()
 
 	var pollerIDs []string
+
 	for rows.Next() {
 		var pollerID string
+
 		if err := rows.Scan(&pollerID); err != nil {
 			log.Printf("Error scanning poller ID: %v", err)
+
 			continue
 		}
+
 		pollerIDs = append(pollerIDs, pollerID)
 	}
 
