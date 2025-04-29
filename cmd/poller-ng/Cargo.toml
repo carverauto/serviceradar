@@ -21,6 +21,7 @@ tonic = { version = "0.9", features = ["tls"] }
 tonic-health = "0.9"
 tonic-reflection = "0.9"
 tonic-build = "0.9"
+rand = "0.8.5"
 
 [build-dependencies]
 tonic-build = "0.9"
