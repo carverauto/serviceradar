@@ -5,6 +5,7 @@
   "forward_to_core": true,
   "poll_interval": 30,
   "poller_id": "demo-staging",
+  "batch_size": 20,
   "security": {
     "mode": "mtls",
     "server_name": "127.0.0.1",
