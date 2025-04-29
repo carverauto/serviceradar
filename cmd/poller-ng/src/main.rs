@@ -1,4 +1,3 @@
-// src/main.rs
 mod adapter;
 mod processor;
 mod models;
@@ -14,11 +13,21 @@ use std::fs;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TlsConfig {
+    pub enabled: bool,
+    pub cert_file: String,
+    pub key_file: String,
+    pub ca_file: String,
+    pub client_ca_file: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SecurityConfig {
-    pub tls_enabled: bool,
-    pub cert_file: Option<String>,
-    pub key_file: Option<String>,
-    pub ca_file: Option<String>,
+    pub mode: String,
+    pub server_name: String,
+    pub role: String,
+    pub cert_dir: String,
+    pub tls: TlsConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,7 +52,8 @@ pub struct Config {
     pub core_address: Option<String>,
     pub forward_to_core: bool,
     pub poll_interval: u64, // seconds
-    pub security: Option<SecurityConfig>,
+    pub poller_id: String,
+    pub security: SecurityConfig,
 }
 
 impl Config {
@@ -61,12 +71,26 @@ impl Config {
         if self.listen_addr.is_empty() {
             return Err("listen_addr is required".into());
         }
+        if self.poller_id.is_empty() {
+            return Err("poller_id is required".into());
+        }
         if self.poll_interval < 10 {
             return Err("poll_interval must be at least 10 seconds".into());
         }
-        if let Some(security) = &self.security {
-            if security.tls_enabled && (security.cert_file.is_none() || security.key_file.is_none() || security.ca_file.is_none()) {
-                return Err("TLS requires cert_file, key_file, and ca_file".into());
+        if self.security.tls.enabled {
+            if self.security.tls.cert_file.is_empty()
+                || self.security.tls.key_file.is_empty()
+                || self.security.tls.ca_file.is_empty()
+                || self.security.tls.client_ca_file.is_empty()
+            {
+                return Err("TLS requires cert_file, key_file, ca_file, and client_ca_file".into());
+            }
+            if self.security.mode.is_empty()
+                || self.security.server_name.is_empty()
+                || self.security.role.is_empty()
+                || self.security.cert_dir.is_empty()
+            {
+                return Err("Security requires mode, server_name, role, and cert_dir".into());
             }
         }
         Ok(())
@@ -75,7 +99,11 @@ impl Config {
 
 #[derive(Parser, Debug)]
 struct Args {
-    #[clap(long, env = "CONFIG_FILE", default_value = "/etc/serviceradar/proton-adapter.json")]
+    #[clap(
+        long,
+        env = "CONFIG_FILE",
+        default_value = "/etc/serviceradar/proton-adapter.json"
+    )]
     config_file: String,
 }
 
@@ -103,7 +131,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     info!("Starting gRPC server on {}", config.listen_addr);
-    adapter.serve(config.listen_addr.clone(), config.security.clone()).await?;
+    adapter
+        .serve(config.listen_addr.clone(), Some(config.security.clone()))
+        .await?;
 
     Ok(())
 }

@@ -1,13 +1,16 @@
-// src/adapter.rs
 use anyhow::{Context, Result};
 use log::{info, error};
 use reqwest::Client;
 use std::fs;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
 use tokio::time::interval;
-use tonic::{transport::{Server, Channel, ServerTlsConfig, ClientTlsConfig, Identity, Certificate}, Request, Response, Status};
+use tonic::{
+    transport::{Server, Channel, ServerTlsConfig, ClientTlsConfig, Identity, Certificate},
+    Request, Response, Status,
+};
 use tonic_health::pb::HealthCheckRequest;
 use tonic_health::pb::health_client::HealthClient;
 use tonic_reflection::server::Builder as ReflectionBuilder;
@@ -22,13 +25,15 @@ pub mod proto {
     tonic::include_proto!("monitoring");
 }
 
-const FILE_DESCRIPTOR_SET_MONITORING: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/monitoring_descriptor.bin"));
+const FILE_DESCRIPTOR_SET_MONITORING: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/monitoring_descriptor.bin"));
 
 #[derive(Clone)]
 pub struct ProtonAdapter {
     processors: Arc<Vec<Box<dyn DataProcessor>>>,
     client: Arc<Mutex<Client>>,
     proton_url: String,
+    poller_id: String,
     forward_to_core: bool,
     core_client: Option<Arc<Mutex<proto::poller_service_client::PollerServiceClient<Channel>>>>,
 }
@@ -43,7 +48,7 @@ impl ProtonAdapter {
         let core_client = if config.forward_to_core && config.core_address.is_some() {
             let addr = config.core_address.as_ref().unwrap();
             info!("Connecting to core service at {}", addr);
-            let channel = Self::create_channel(addr, &config.security).await
+            let channel = Self::create_channel(addr, &Some(config.security.clone())).await
                 .context(format!("Failed to connect to core service at {}", addr))?;
             let client = proto::poller_service_client::PollerServiceClient::new(channel);
             Some(Arc::new(Mutex::new(client)))
@@ -51,16 +56,18 @@ impl ProtonAdapter {
             None
         };
 
-        let mut adapter = Self {
-            processors: Arc::new(Vec::new()),
+        let mut processors: Vec<Box<dyn DataProcessor>> = Vec::new();
+        processors.push(Box::new(SysmonProcessor {}));
+        processors.push(Box::new(RperfProcessor {}));
+
+        let adapter = Self {
+            processors: Arc::new(processors),
             client: Arc::new(Mutex::new(client)),
             proton_url: config.proton_url.clone(),
+            poller_id: config.poller_id.clone(),
             forward_to_core: config.forward_to_core,
             core_client,
         };
-
-        adapter.register_processor(Box::new(SysmonProcessor {}));
-        adapter.register_processor(Box::new(RperfProcessor {}));
 
         adapter.setup_all_streams().await?;
         Ok(adapter)
@@ -68,17 +75,45 @@ impl ProtonAdapter {
 
     async fn create_channel(addr: &str, security: &Option<SecurityConfig>) -> Result<Channel> {
         let addr = if !addr.starts_with("http://") && !addr.starts_with("https://") {
-            format!("http://{}", addr)
+            format!("https://{}", addr) // Use https for mTLS
         } else {
             addr.to_string()
         };
         let mut endpoint = Channel::from_shared(addr)?;
         if let Some(security) = security {
-            if security.tls_enabled {
-                let ca_cert = fs::read_to_string(security.ca_file.as_ref().unwrap())
-                    .context("Failed to read CA certificate file")?;
+            if security.tls.enabled {
+                let cert_dir = &security.cert_dir;
+                let cert_path = Path::new(cert_dir).join(&security.tls.cert_file);
+                let key_path = Path::new(cert_dir).join(&security.tls.key_file);
+                let ca_path = Path::new(cert_dir).join(&security.tls.ca_file);
+                let client_ca_path = Path::new(cert_dir).join(&security.tls.client_ca_file);
+
+                let ca_cert = fs::read_to_string(&ca_path)
+                    .context(format!("Failed to read CA certificate file: {:?}", ca_path))?;
                 let ca = Certificate::from_pem(ca_cert);
-                endpoint = endpoint.tls_config(ClientTlsConfig::new().ca_certificate(ca))
+                let cert = fs::read_to_string(&cert_path)
+                    .context(format!("Failed to read certificate file: {:?}", cert_path))?;
+                let key = fs::read_to_string(&key_path)
+                    .context(format!("Failed to read key file: {:?}", key_path))?;
+                let identity = Identity::from_pem(cert.as_bytes(), key.as_bytes());
+
+                let mut tls_config = ClientTlsConfig::new()
+                    .ca_certificate(ca)
+                    .identity(identity)
+                    .domain_name(&security.server_name);
+
+                if security.mode == "mtls" {
+                    let client_ca_cert = fs::read_to_string(&client_ca_path)
+                        .context(format!(
+                            "Failed to read client CA certificate file: {:?}",
+                            client_ca_path
+                        ))?;
+                    let client_ca = Certificate::from_pem(client_ca_cert);
+                    tls_config = tls_config.ca_certificate(client_ca);
+                }
+
+                endpoint = endpoint
+                    .tls_config(tls_config)
                     .context("Failed to configure TLS")?;
             }
         }
@@ -91,14 +126,22 @@ impl ProtonAdapter {
             interval_timer.tick().await;
             for (agent_name, agent_config) in &config.agents {
                 info!("Polling agent: {}", agent_name);
-                if let Err(e) = self.poll_agent(agent_name, agent_config, &config.security).await {
+                if let Err(e) = self
+                    .poll_agent(agent_name, agent_config, &Some(config.security.clone()))
+                    .await
+                {
                     error!("Failed to poll agent {}: {}", agent_name, e);
                 }
             }
         }
     }
 
-    async fn poll_agent(&self, agent_name: &str, agent_config: &AgentConfig, security: &Option<SecurityConfig>) -> Result<()> {
+    async fn poll_agent(
+        &self,
+        agent_name: &str,
+        agent_config: &AgentConfig,
+        security: &Option<SecurityConfig>,
+    ) -> Result<()> {
         for attempt in 1..=3 {
             match self.ensure_agent_health(&agent_config.address, security).await {
                 Ok(_) => break,
@@ -106,12 +149,13 @@ impl ProtonAdapter {
                     error!("Health check failed for agent {} (attempt {}): {}", agent_name, attempt, e);
                     tokio::time::sleep(Duration::from_secs(1)).await;
                     continue;
-                },
+                }
                 Err(e) => return Err(e),
             }
         }
 
-        let channel = Self::create_channel(&agent_config.address, security).await
+        let channel = Self::create_channel(&agent_config.address, security)
+            .await
             .context(format!("Failed to connect to agent at {}", agent_config.address))?;
         let mut client = proto::agent_service_client::AgentServiceClient::new(channel);
 
@@ -135,7 +179,7 @@ impl ProtonAdapter {
                         service_type: response.service_type,
                         response_time: response.response_time,
                     });
-                },
+                }
                 Err(e) => {
                     error!("Check failed for {}/{}: {}", check.service_type, check.service_name, e);
                     services.push(ServiceStatus {
@@ -154,14 +198,15 @@ impl ProtonAdapter {
         Ok(())
     }
 
-    fn register_processor(&mut self, _processor: Box<dyn DataProcessor>) {
-        panic!("Processors are initialized in new() and should not be registered dynamically");
-    }
-
-    async fn ensure_agent_health(&self, agent_addr: &str, security: &Option<SecurityConfig>) -> Result<()> {
+    async fn ensure_agent_health(
+        &self,
+        agent_addr: &str,
+        security: &Option<SecurityConfig>,
+    ) -> Result<()> {
         let addr = format!("http://{}", agent_addr);
         info!("Checking health of agent at {}", addr);
-        let channel = Self::create_channel(&addr, security).await
+        let channel = Self::create_channel(&addr, security)
+            .await
             .context(format!("Failed to connect to agent at {}", agent_addr))?;
         let mut health_client = HealthClient::new(channel);
         let response = health_client
@@ -169,7 +214,8 @@ impl ProtonAdapter {
                 service: "monitoring.AgentService".to_string(),
             })
             .await?;
-        if response.get_ref().status != 1 { // Compare with 1 (ServingStatus::Serving)
+        if response.get_ref().status != 1 {
+            // Compare with 1 (ServingStatus::Serving)
             return Err(anyhow::anyhow!("Agent {} is unhealthy", agent_addr));
         }
         Ok(())
@@ -191,9 +237,21 @@ impl ProtonAdapter {
         for service in services {
             for processor in self.processors.iter() {
                 if processor.handles_service(&service.service_type, &service.service_name) {
-                    info!("Processing service {} with processor {}", service.service_name, processor.name());
-                    if let Err(e) = processor.process_service(poller_id, service, &client, &self.proton_url).await {
-                        error!("Error processing service {} with processor {}: {}", service.service_name, processor.name(), e);
+                    info!(
+                        "Processing service {} with processor {}",
+                        service.service_name,
+                        processor.name()
+                    );
+                    if let Err(e) = processor
+                        .process_service(poller_id, service, &client, &self.proton_url)
+                        .await
+                    {
+                        error!(
+                            "Error processing service {} with processor {}: {}",
+                            service.service_name,
+                            processor.name(),
+                            e
+                        );
                     }
                 }
             }
@@ -216,20 +274,26 @@ impl ProtonAdapter {
 
         let mut server_builder = Server::builder();
         if let Some(security) = security {
-            if security.tls_enabled {
+            if security.tls.enabled {
                 info!("Configuring TLS for gRPC server");
-                let cert = fs::read_to_string(security.cert_file.as_ref().unwrap())
-                    .context("Failed to read certificate file")?;
-                let key = fs::read_to_string(security.key_file.as_ref().unwrap())
-                    .context("Failed to read key file")?;
+                let cert_dir = &security.cert_dir;
+                let cert_path = Path::new(cert_dir).join(&security.tls.cert_file);
+                let key_path = Path::new(cert_dir).join(&security.tls.key_file);
+                let ca_path = Path::new(cert_dir).join(&security.tls.ca_file);
+
+                let cert = fs::read_to_string(&cert_path)
+                    .context(format!("Failed to read certificate file: {:?}", cert_path))?;
+                let key = fs::read_to_string(&key_path)
+                    .context(format!("Failed to read key file: {:?}", key_path))?;
                 let identity = Identity::from_pem(cert.as_bytes(), key.as_bytes());
-                let ca_cert = fs::read_to_string(security.ca_file.as_ref().unwrap())
-                    .context("Failed to read CA certificate file")?;
+                let ca_cert = fs::read_to_string(&ca_path)
+                    .context(format!("Failed to read CA certificate file: {:?}", ca_path))?;
                 let ca = Certificate::from_pem(ca_cert.as_bytes());
                 let tls_config = ServerTlsConfig::new()
                     .identity(identity)
                     .client_ca_root(ca);
-                server_builder = server_builder.tls_config(tls_config)
+                server_builder = server_builder
+                    .tls_config(tls_config)
                     .context("Failed to configure TLS")?;
             }
         }
@@ -254,9 +318,15 @@ impl proto::poller_service_server::PollerService for ProtonAdapter {
     ) -> Result<Response<proto::PollerStatusResponse>, Status> {
         let req = request.into_inner();
         let poller_id = req.poller_id.clone();
-        info!("Received status report from poller_id={} with {} services", poller_id, req.services.len());
+        info!(
+            "Received status report from poller_id={} with {} services",
+            poller_id,
+            req.services.len()
+        );
 
-        let services: Vec<ServiceStatus> = req.services.iter()
+        let services: Vec<ServiceStatus> = req
+            .services
+            .iter()
             .map(|s| ServiceStatus {
                 service_name: s.service_name.clone(),
                 available: s.available,
@@ -272,8 +342,16 @@ impl proto::poller_service_server::PollerService for ProtonAdapter {
 
         if self.forward_to_core && self.core_client.is_some() {
             let mut core_client = self.core_client.as_ref().unwrap().lock().await;
-            match core_client.report_status(Request::new(req.clone())).await {
-                Ok(_) => info!("Successfully forwarded status to core for poller_id={}", poller_id),
+            let forwarded_req = proto::PollerStatusRequest {
+                poller_id: self.poller_id.clone(), // Use adapter's poller_id
+                services: req.services.clone(),
+                timestamp: chrono::Utc::now().timestamp(),
+            };
+            match core_client.report_status(Request::new(forwarded_req)).await {
+                Ok(_) => info!(
+                    "Successfully forwarded status to core for poller_id={}",
+                    self.poller_id
+                ),
                 Err(e) => error!("Failed to forward status to core: {}", e),
             }
         }
