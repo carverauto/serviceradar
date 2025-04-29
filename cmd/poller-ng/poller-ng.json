@@ -1,0 +1,61 @@
+{
+  "proton_url": "http://localhost:3000",
+  "listen_addr": "127.0.0.1:50053",
+  "core_address": "127.0.0.1:50052",
+  "forward_to_core": true,
+  "poll_interval": 30,
+  "poller_id": "demo-staging",
+  "batch_size": 20,
+  "security": {
+    "mode": "mtls",
+    "server_name": "127.0.0.1",
+    "role": "poller",
+    "cert_dir": "/etc/serviceradar/certs",
+    "tls": {
+      "enabled": true,
+      "cert_file": "poller.pem",
+      "key_file": "poller-key.pem",
+      "ca_file": "root.pem",
+      "client_ca_file": "root.pem"
+    }
+  },
+  "agents": {
+    "local-agent": {
+      "address": "127.0.0.1:50051",
+      "security": {
+        "server_name": "127.0.0.1",
+        "mode": "mtls",
+        "cert_dir": "/etc/serviceradar/certs",
+        "tls": {
+          "enabled": true,
+          "cert_file": "agent.pem",
+          "key_file": "agent-key.pem",
+          "ca_file": "root.pem",
+          "client_ca_file": "root.pem"
+        }
+      },
+      "checks": [
+        {
+          "service_type": "sweep",
+          "service_name": "network_sweep",
+          "details": ""
+        },
+        {
+          "service_name": "ping",
+          "service_type": "icmp",
+          "details": "1.1.1.1"
+        },
+        {
+          "service_type": "grpc",
+          "service_name": "sysmon",
+          "details": "127.0.0.1:50083"
+        },
+        {
+          "service_type": "grpc",
+          "service_name": "rperf-checker",
+          "details": "127.0.0.1:50059"
+        }
+      ]
+    }
+  }
+}
