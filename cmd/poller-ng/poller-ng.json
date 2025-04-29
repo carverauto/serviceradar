@@ -1,5 +1,5 @@
 {
-  "proton_url": "http://localhost:3000",
+  "proton_url": "http://localhost:8123",
   "listen_addr": "127.0.0.1:50053",
   "core_address": "127.0.0.1:50052",
   "forward_to_core": true,

@@ -19,13 +19,12 @@
 
 use anyhow::{Context, Result};
 use log::{info, error, debug, warn};
-use reqwest::Client;
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::sync::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::time::{interval, sleep};
 use tonic::{
     transport::{Server, Channel, ServerTlsConfig, ClientTlsConfig, Identity, Certificate},
@@ -36,6 +35,7 @@ use tonic_health::pb::health_client::HealthClient;
 use tonic_reflection::server::Builder as ReflectionBuilder;
 use rand::Rng;
 use futures::future;
+use proton_client::prelude::ProtonClient;
 
 use crate::processors::{sysmon::SysmonProcessor, rperf::RperfProcessor};
 use crate::models::types::ServiceStatus;
@@ -53,20 +53,19 @@ const FILE_DESCRIPTOR_SET_MONITORING: &[u8] =
 #[derive(Clone)]
 pub struct ProtonAdapter {
     processors: Arc<Vec<Box<dyn DataProcessor>>>,
-    client: Arc<Mutex<Client>>,
+    client: Arc<ProtonClient>,
     proton_url: String,
     poller_id: String,
     forward_to_core: bool,
     core_client: Option<Arc<Mutex<proto::poller_service_client::PollerServiceClient<Channel>>>>,
     streams_setup: Arc<AtomicBool>,
+    // Buffer for batched data, one per processor
+    buffers: Arc<Mutex<Vec<Vec<(String, ServiceStatus)>>>>, // (poller_id, service_status)
 }
 
 impl ProtonAdapter {
     pub async fn new(config: &Config) -> Result<Self> {
-        let client = Client::builder()
-            .timeout(Duration::from_secs(10))
-            .build()
-            .context("Failed to create HTTP client")?;
+        let client = Arc::new(ProtonClient::new(&config.proton_url));
 
         let core_client = if config.forward_to_core && config.core_address.is_some() {
             let addr = config.core_address.as_ref().unwrap();
@@ -84,14 +83,18 @@ impl ProtonAdapter {
             Box::new(RperfProcessor {}),
         ];
 
+        // Initialize buffers, one per processor
+        let buffers = Arc::new(Mutex::new(vec![Vec::new(); processors.len()]));
+
         let adapter = Self {
             processors: Arc::new(processors),
-            client: Arc::new(Mutex::new(client)),
+            client,
             proton_url: config.proton_url.clone(),
             poller_id: config.poller_id.clone(),
             forward_to_core: config.forward_to_core,
             core_client,
             streams_setup: Arc::new(AtomicBool::new(false)),
+            buffers,
         };
 
         // Start background task to handle stream setup retries
@@ -100,7 +103,43 @@ impl ProtonAdapter {
             adapter_clone.run_stream_setup_retries(Duration::from_secs(300)).await;
         });
 
+        // Start background task for batch flushing
+        let adapter_clone = adapter.clone();
+        tokio::spawn(async move {
+            adapter_clone.run_batch_flush(Duration::from_secs(5), 10_000).await;
+        });
+
         Ok(adapter)
+    }
+
+    async fn run_batch_flush(&self, flush_interval: Duration, max_batch_size: usize) {
+        let mut interval = interval(flush_interval);
+
+        loop {
+            interval.tick().await;
+
+            if !self.streams_setup.load(Ordering::SeqCst) {
+                debug!("Skipping batch flush: Proton streams not set up");
+                continue;
+            }
+
+            let mut buffers = self.buffers.lock().await;
+            for (idx, processor) in self.processors.iter().enumerate() {
+                if buffers[idx].is_empty() {
+                    continue;
+                }
+
+                info!("Flushing {} buffered rows for processor {}", buffers[idx].len(), processor.name());
+                if let Err(e) = processor
+                    .process_service_batch(&buffers[idx], &self.client, &self.proton_url)
+                    .await
+                {
+                    error!("Failed to flush batch for processor {}: {}", processor.name(), e);
+                } else {
+                    buffers[idx].clear();
+                }
+            }
+        }
     }
 
     async fn create_channel(addr: &str, security: &Option<SecurityConfig>) -> Result<Channel> {
@@ -200,17 +239,12 @@ impl ProtonAdapter {
         loop {
             interval.tick().await;
 
-            // Only try to set up streams if we need to
             if !self.streams_setup.load(Ordering::SeqCst) {
-                // Check if Proton URL is empty or localhost
                 if self.proton_url.is_empty() || self.proton_url.contains("localhost") {
-                    // Log once at startup that we're skipping Proton setup
                     static LOGGED: AtomicBool = AtomicBool::new(false);
                     if !LOGGED.swap(true, Ordering::SeqCst) {
                         info!("Proton URL is empty or localhost, skipping stream setup");
                     }
-
-                    // Wait for the next interval before checking again
                     continue;
                 }
 
@@ -228,37 +262,32 @@ impl ProtonAdapter {
         }
     }
 
-
-
     pub async fn start_polling(&self, config: Arc<Config>) -> Result<()> {
         let mut interval_timer = interval(Duration::from_secs(config.poll_interval));
         let batch_size = get_batch_size(&config);
-        let agent_concurrency = std::cmp::min(config.agents.len(), 5); // Limit number of concurrent agents
+        let agent_concurrency = std::cmp::min(config.agents.len(), 5);
 
         info!(
-        "Starting polling with batch size {} and agent concurrency {}",
-        batch_size, agent_concurrency
-    );
+            "Starting polling with batch size {} and agent concurrency {}",
+            batch_size, agent_concurrency
+        );
 
         loop {
             interval_timer.tick().await;
 
-            // Process agents in chunks to limit overall concurrency
             for agent_chunk in config.agents.iter().collect::<Vec<_>>().chunks(agent_concurrency) {
                 let mut agent_futures = Vec::with_capacity(agent_chunk.len());
 
                 for (agent_name, agent_config) in agent_chunk {
-                    #[allow(suspicious_double_ref_op)]
-                    let agent_name = agent_name.clone(); // Clone to own String for async closure
-                    #[allow(suspicious_double_ref_op)]
-                    let agent_config = agent_config.clone(); // Clone to own AgentConfig for async closure
+                    let agent_name = agent_name.clone();
+                    let agent_config = agent_config.clone();
                     let security = Some(config.security.clone());
                     let adapter = self.clone();
 
                     let agent_future = async move {
                         info!("Polling agent: {}", agent_name);
                         if let Err(e) = adapter
-                            .poll_agent(agent_name, agent_config, &security, batch_size)
+                            .poll_agent(&agent_name, &agent_config, &security, batch_size)
                             .await
                         {
                             error!("Failed to poll agent {}: {}", agent_name, e);
@@ -268,7 +297,6 @@ impl ProtonAdapter {
                     agent_futures.push(agent_future);
                 }
 
-                // Poll this batch of agents in parallel
                 future::join_all(agent_futures).await;
             }
         }
@@ -283,24 +311,19 @@ impl ProtonAdapter {
     ) -> Result<()> {
         self.exponential_backoff(
             || async {
-                // Perform health check
                 self.ensure_agent_health(&agent_config.address, security).await?;
 
-                // Connect to agent
                 let channel = Self::create_channel(&agent_config.address, security)
                     .await
                     .context(format!("Failed to connect to agent at {}", agent_config.address))?;
                 let client = proto::agent_service_client::AgentServiceClient::new(channel);
 
-                // Group checks into batches
                 let checks = &agent_config.checks;
                 let total_checks = checks.len();
                 let mut all_services = Vec::with_capacity(total_checks);
 
-                info!("Processing {} checks for agent {} in batches of {}",
-                 total_checks, agent_name, batch_size);
+                info!("Processing {} checks for agent {} in batches of {}", total_checks, agent_name, batch_size);
 
-                // Process checks in batches
                 for chunk in checks.chunks(batch_size) {
                     let mut check_futures = Vec::with_capacity(chunk.len());
 
@@ -308,7 +331,6 @@ impl ProtonAdapter {
                         let check_clone = check.clone();
                         let mut client_clone = client.clone();
 
-                        // Create a future for each check in this batch
                         let check_future = async move {
                             info!("Executing check: {} ({})", check_clone.service_name, check_clone.service_type);
                             let request = Request::new(proto::StatusRequest {
@@ -330,8 +352,7 @@ impl ProtonAdapter {
                                     })
                                 }
                                 Err(e) => {
-                                    error!("Check failed for {}/{}: {}",
-              check_clone.service_type, check_clone.service_name, e);
+                                    error!("Check failed for {}/{}: {}", check_clone.service_type, check_clone.service_name, e);
                                     Ok::<ServiceStatus, anyhow::Error>(ServiceStatus {
                                         service_name: check_clone.service_name.clone(),
                                         available: false,
@@ -346,23 +367,13 @@ impl ProtonAdapter {
                         check_futures.push(check_future);
                     }
 
-                    // Execute this batch of checks in parallel
                     let batch_results: Vec<Result<_, _>> = futures::future::join_all(check_futures).await;
-
-                    // Collect successful results from this batch
-                    let batch_services: Vec<ServiceStatus> = batch_results
-                        .into_iter()
-                        .filter_map(Result::ok)
-                        .collect();
-
-                    // Extend our collection of all services
+                    let batch_services: Vec<ServiceStatus> = batch_results.into_iter().filter_map(Result::ok).collect();
                     all_services.extend(batch_services);
                 }
 
-                // Process all collected services
                 if !all_services.is_empty() {
-                    info!("Completed {} of {} checks for agent {}",
-                     all_services.len(), total_checks, agent_name);
+                    info!("Completed {} of {} checks for agent {}", all_services.len(), total_checks, agent_name);
                     self.process_services(agent_name, &all_services).await?;
                 } else {
                     warn!("No successful checks completed for agent {}", agent_name);
@@ -370,17 +381,18 @@ impl ProtonAdapter {
 
                 Ok(())
             },
-            4, // Max retries
+            4,
             &format!("poll agent {}", agent_name),
-        ).await
+        )
+            .await
     }
 
     async fn forward_to_core(&self, _poller_id: &str, services: &[ServiceStatus]) -> Result<()> {
         if let Some(core_client) = &self.core_client {
             let mut client = core_client.lock().await;
 
-            // Convert ServiceStatus objects to proto::ServiceStatus for gRPC
-            let service_statuses: Vec<proto::ServiceStatus> = services.iter()
+            let service_statuses: Vec<proto::ServiceStatus> = services
+                .iter()
                 .map(|s| proto::ServiceStatus {
                     service_name: s.service_name.clone(),
                     available: s.available,
@@ -391,16 +403,13 @@ impl ProtonAdapter {
                 .collect();
 
             let forwarded_req = proto::PollerStatusRequest {
-                poller_id: self.poller_id.clone(), // Use adapter's poller_id
+                poller_id: self.poller_id.clone(),
                 services: service_statuses,
                 timestamp: chrono::Utc::now().timestamp(),
             };
 
             match client.report_status(Request::new(forwarded_req)).await {
-                Ok(_) => info!(
-                "Successfully forwarded status to core for poller_id={}",
-                self.poller_id
-            ),
+                Ok(_) => info!("Successfully forwarded status to core for poller_id={}", self.poller_id),
                 Err(e) => error!("Failed to forward status to core: {}", e),
             }
         }
@@ -408,11 +417,7 @@ impl ProtonAdapter {
         Ok(())
     }
 
-    async fn ensure_agent_health(
-        &self,
-        agent_addr: &str,
-        security: &Option<SecurityConfig>,
-    ) -> Result<()> {
+    async fn ensure_agent_health(&self, agent_addr: &str, security: &Option<SecurityConfig>) -> Result<()> {
         let addr = format!("http://{}", agent_addr);
         self.exponential_backoff(
             || async {
@@ -423,7 +428,6 @@ impl ProtonAdapter {
                 let mut health_client = HealthClient::new(channel);
                 let response = health_client
                     .check(HealthCheckRequest {
-                        // service: "monitoring.AgentService".to_string(),
                         service: "".to_string(),
                     })
                     .await?;
@@ -432,20 +436,20 @@ impl ProtonAdapter {
                 }
                 Ok(())
             },
-            4, // Max retries
+            4,
             &format!("health check for agent {}", agent_addr),
-        ).await
+        )
+            .await
     }
 
     async fn setup_all_streams(&self) -> Result<()> {
-        let client = self.client.lock().await;
         for processor in self.processors.iter() {
             info!("Setting up streams for processor: {}", processor.name());
             self.exponential_backoff(
                 || async {
-                    processor.setup_streams(&client, &self.proton_url).await
+                    processor.setup_streams(&self.client, &self.proton_url).await
                 },
-                4, // Max retries
+                4,
                 &format!("setup streams for processor {}", processor.name()),
             )
                 .await
@@ -458,44 +462,40 @@ impl ProtonAdapter {
     }
 
     async fn process_services(&self, poller_id: &str, services: &[ServiceStatus]) -> Result<()> {
-        // Check if Proton streams are setup before attempting to process data with Proton
         if !self.streams_setup.load(Ordering::SeqCst) {
             debug!("Skipping Proton processing for {}: Proton streams not set up", poller_id);
-
-            // Still forward to core if configured, even if Proton isn't available
             if self.forward_to_core && self.core_client.is_some() {
                 self.forward_to_core(poller_id, services).await?;
             }
-
             return Ok(());
         }
 
-        // Original Proton processing logic
-        let client = self.client.lock().await;
+        let mut buffers = self.buffers.lock().await;
         for service in services {
-            for processor in self.processors.iter() {
+            for (idx, processor) in self.processors.iter().enumerate() {
                 if processor.handles_service(&service.service_type, &service.service_name) {
                     info!(
-                    "Processing service {} with processor {}",
-                    service.service_name,
-                    processor.name()
-                );
-                    if let Err(e) = processor
-                        .process_service(poller_id, service, &client, &self.proton_url)
-                        .await
-                    {
-                        error!(
-                        "Error processing service {} with processor {}: {}",
+                        "Buffering service {} for processor {}",
                         service.service_name,
-                        processor.name(),
-                        e
+                        processor.name()
                     );
+                    buffers[idx].push((poller_id.to_string(), service.clone()));
+                    // Check if buffer is full
+                    if buffers[idx].len() >= 10_000 {
+                        info!("Buffer full for processor {}, flushing {} rows", processor.name(), buffers[idx].len());
+                        if let Err(e) = processor
+                            .process_service_batch(&buffers[idx], &self.client, &self.proton_url)
+                            .await
+                        {
+                            error!("Failed to flush batch for processor {}: {}", processor.name(), e);
+                        } else {
+                            buffers[idx].clear();
+                        }
                     }
                 }
             }
         }
 
-        // Always forward to core if configured, even after Proton processing
         if self.forward_to_core && self.core_client.is_some() {
             self.forward_to_core(poller_id, services).await?;
         }
@@ -568,7 +568,6 @@ impl proto::poller_service_server::PollerService for ProtonAdapter {
             req.services.len()
         );
 
-        // Convert proto::ServiceStatus to our internal ServiceStatus type
         let services: Vec<ServiceStatus> = req
             .services
             .iter()
@@ -581,12 +580,10 @@ impl proto::poller_service_server::PollerService for ProtonAdapter {
             })
             .collect();
 
-        // Process services (will handle Proton and forwarding)
         if let Err(e) = self.process_services(&poller_id, &services).await {
             error!("Error processing services for poller {}: {}", poller_id, e);
         }
 
-        // Always return success to prevent unnecessary retries
         Ok(Response::new(proto::PollerStatusResponse { received: true }))
     }
 }

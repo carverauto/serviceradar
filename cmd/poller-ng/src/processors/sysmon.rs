@@ -1,26 +1,7 @@
-/*
- * Copyright 2025 Carver Automation Corporation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *
- */
-
-// cmd/poller-ng/src/processors/sysmon.rs
-
 use anyhow::Result;
 use async_trait::async_trait;
 use log::{info, error};
-use reqwest::Client;
+use proton_client::prelude::ProtonClient;
 
 use crate::models::types::{ServiceStatus, SysmonMetrics};
 use crate::processor::DataProcessor;
@@ -33,11 +14,21 @@ impl DataProcessor for SysmonProcessor {
         service_type == "grpc" && service_name == "sysmon"
     }
 
-    async fn process_service(&self, poller_id: &str, service: &ServiceStatus, client: &Client, proton_url: &str) -> Result<()> {
+    async fn process_service(
+        &self,
+        poller_id: &str,
+        service: &ServiceStatus,
+        client: &ProtonClient,
+        _proton_url: &str,
+    ) -> Result<()> {
         match serde_json::from_str::<SysmonMetrics>(&service.message) {
             Ok(metrics) => {
-                info!("Processing sysmon data for {}: {} CPUs, {} disks, memory data",
-                     poller_id, metrics.cpus.len(), metrics.disks.len());
+                info!(
+                    "Processing sysmon data for {}: {} CPUs, {} disks, memory data",
+                    poller_id,
+                    metrics.cpus.len(),
+                    metrics.disks.len()
+                );
 
                 let mut queries = Vec::new();
                 for cpu in &metrics.cpus {
@@ -58,9 +49,9 @@ impl DataProcessor for SysmonProcessor {
                 ));
 
                 let batch_query = queries.join(";\n");
-                self.execute_proton_query(client, proton_url, batch_query).await?;
+                self.execute_proton_query(client, batch_query).await?;
                 Ok(())
-            },
+            }
             Err(e) => {
                 error!("Failed to parse sysmon metrics: {}", e);
                 Err(anyhow::anyhow!("Failed to parse sysmon metrics: {}", e))
@@ -68,37 +59,44 @@ impl DataProcessor for SysmonProcessor {
         }
     }
 
-    async fn setup_streams(&self, client: &Client, proton_url: &str) -> Result<()> {
-        self.execute_proton_query(client, proton_url,
-                                  "CREATE STREAM IF NOT EXISTS sysmon_cpu_stream (
+    async fn setup_streams(&self, client: &ProtonClient, _proton_url: &str) -> Result<()> {
+        self.execute_proton_query(
+            client,
+            "CREATE STREAM IF NOT EXISTS sysmon_cpu_stream (
                 timestamp DateTime,
                 poller_id String,
                 core_id Int32,
                 usage_percent Float32
-            ) SETTINGS type='memory'".to_string()
-        ).await?;
+            ) SETTINGS type='memory'".to_string(),
+        )
+            .await?;
 
-        self.execute_proton_query(client, proton_url,
-                                  "CREATE STREAM IF NOT EXISTS sysmon_disk_stream (
+        self.execute_proton_query(
+            client,
+            "CREATE STREAM IF NOT EXISTS sysmon_disk_stream (
                 timestamp DateTime,
                 poller_id String,
                 mount_point String,
                 used_bytes UInt64,
                 total_bytes UInt64
-            ) SETTINGS type='memory'".to_string()
-        ).await?;
+            ) SETTINGS type='memory'".to_string(),
+        )
+            .await?;
 
-        self.execute_proton_query(client, proton_url,
-                                  "CREATE STREAM IF NOT EXISTS sysmon_memory_stream (
+        self.execute_proton_query(
+            client,
+            "CREATE STREAM IF NOT EXISTS sysmon_memory_stream (
                 timestamp DateTime,
                 poller_id String,
                 used_bytes UInt64,
                 total_bytes UInt64
-            ) SETTINGS type='memory'".to_string()
-        ).await?;
+            ) SETTINGS type='memory'".to_string(),
+        )
+            .await?;
 
-        self.execute_proton_query(client, proton_url,
-                                  "CREATE MATERIALIZED VIEW IF NOT EXISTS cpu_usage_1m AS
+        self.execute_proton_query(
+            client,
+            "CREATE MATERIALIZED VIEW IF NOT EXISTS cpu_usage_1m AS
             SELECT
                 window_start,
                 poller_id,
@@ -107,11 +105,13 @@ impl DataProcessor for SysmonProcessor {
             FROM
                 tumble(sysmon_cpu_stream, 1m, watermark=10s)
             GROUP BY
-                window_start, poller_id, core_id".to_string()
-        ).await?;
+                window_start, poller_id, core_id".to_string(),
+        )
+            .await?;
 
-        self.execute_proton_query(client, proton_url,
-                                  "CREATE MATERIALIZED VIEW IF NOT EXISTS disk_usage_1m AS
+        self.execute_proton_query(
+            client,
+            "CREATE MATERIALIZED VIEW IF NOT EXISTS disk_usage_1m AS
             SELECT
                 window_start,
                 poller_id,
@@ -122,11 +122,13 @@ impl DataProcessor for SysmonProcessor {
             FROM
                 tumble(sysmon_disk_stream, 1m, watermark=10s)
             GROUP BY
-                window_start, poller_id, mount_point".to_string()
-        ).await?;
+                window_start, poller_id, mount_point".to_string(),
+        )
+            .await?;
 
-        self.execute_proton_query(client, proton_url,
-                                  "CREATE MATERIALIZED VIEW IF NOT EXISTS memory_usage_1m AS
+        self.execute_proton_query(
+            client,
+            "CREATE MATERIALIZED VIEW IF NOT EXISTS memory_usage_1m AS
             SELECT
                 window_start,
                 poller_id,
@@ -136,8 +138,9 @@ impl DataProcessor for SysmonProcessor {
             FROM
                 tumble(sysmon_memory_stream, 1m, watermark=10s)
             GROUP BY
-                window_start, poller_id".to_string()
-        ).await?;
+                window_start, poller_id".to_string(),
+        )
+            .await?;
 
         Ok(())
     }

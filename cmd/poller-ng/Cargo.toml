@@ -23,6 +23,8 @@ tonic-reflection = "0.9"
 tonic-build = "0.9"
 rand = "0.8.5"
 futures = "0.3.31"
+proton_client = { git = "https://github.com/marvin-hansen/proton-rust-client.git" }
+
 
 [build-dependencies]
 tonic-build = "0.9"
