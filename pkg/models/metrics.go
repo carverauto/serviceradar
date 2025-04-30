@@ -38,7 +38,7 @@ type MetricsConfig struct {
 	// How long metrics are kept before being purged (in days)
 	Retention int `json:"metrics_retention" example:"30"`
 	// Maximum number of pollers to track metrics for
-	MaxPollers int `json:"max_pollers" example:"1000"`
+	MaxPollers int32 `json:"max_pollers" example:"1000"`
 }
 
 const MetricPointSize = 32 // 8 bytes timestamp + 8 bytes response + 16 bytes name
@@ -58,7 +58,7 @@ type SysmonMetrics struct {
 // @Description CPU usage metrics for an individual processor core.
 type CPUMetric struct {
 	// ID number of the CPU core
-	CoreID int `json:"core_id" example:"0"`
+	CoreID int32 `json:"core_id" example:"0"`
 	// Usage percentage (0-100)
 	UsagePercent float64 `json:"usage_percent" example:"45.2"`
 	// When this metric was collected

@@ -51,6 +51,7 @@ type Service interface {
 
 	// Service operations.
 	UpdateServiceStatus(ctx context.Context, status *ServiceStatus) error
+	UpdateServiceStatuses(ctx context.Context, statuses []*ServiceStatus) error
 	GetPollerServices(ctx context.Context, pollerID string) ([]ServiceStatus, error)
 	GetServiceHistory(ctx context.Context, pollerID, serviceName string, limit int) ([]ServiceStatus, error)
 
@@ -59,6 +60,7 @@ type Service interface {
 
 	// Generic timeseries methods.
 	StoreMetric(ctx context.Context, pollerID string, metric *TimeseriesMetric) error
+	StoreMetrics(ctx context.Context, pollerID string, metrics []*TimeseriesMetric) error
 	GetMetrics(ctx context.Context, pollerID, metricName string, start, end time.Time) ([]TimeseriesMetric, error)
 	GetMetricsByType(ctx context.Context, pollerID, metricType string, start, end time.Time) ([]TimeseriesMetric, error)
 
