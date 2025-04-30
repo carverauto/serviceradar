@@ -184,6 +184,10 @@ type Server struct {
 	rperfManager   rperf.RperfManager
 	config         *Config
 	authService    *auth.Auth
+	metricBuffers  map[string][]*db.TimeseriesMetric
+	serviceBuffers map[string][]*db.ServiceStatus
+	sysmonBuffers  map[string][]*models.SysmonMetrics
+	bufferMu       sync.RWMutex
 }
 
 // OIDStatusData represents the structure of OID status data.

@@ -26,6 +26,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/checker/rperf"
@@ -72,7 +73,12 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 		return nil, err
 	}
 
-	metricsManager := metrics.NewManager(models.MetricsConfig(normalizedConfig.Metrics), database)
+	metricsConfig := models.MetricsConfig{
+		Enabled:    normalizedConfig.Metrics.Enabled,
+		Retention:  normalizedConfig.Metrics.Retention,
+		MaxPollers: int32(normalizedConfig.Metrics.MaxPollers),
+	}
+	metricsManager := metrics.NewManager(metricsConfig, database)
 
 	server := &Server{
 		db:             database,
@@ -85,11 +91,65 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 		rperfManager:   rperf.NewRperfManager(database),
 		config:         normalizedConfig,
 		authService:    auth.NewAuth(authConfig, database),
+		metricBuffers:  make(map[string][]*db.TimeseriesMetric),
+		serviceBuffers: make(map[string][]*db.ServiceStatus),
+		sysmonBuffers:  make(map[string][]*models.SysmonMetrics),
+		bufferMu:       sync.RWMutex{},
 	}
+
+	go server.flushBuffers(ctx)
 
 	server.initializeWebhooks(normalizedConfig.Webhooks)
 
 	return server, nil
+}
+
+// flushBuffers flushes buffered data to the database periodically
+func (s *Server) flushBuffers(ctx context.Context) {
+	ticker := time.NewTicker(10 * time.Second) // Adjust interval as needed
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.bufferMu.Lock()
+			for pollerID, m := range s.metricBuffers {
+				if len(m) > 0 {
+					if err := s.db.StoreMetrics(ctx, pollerID, m); err != nil {
+						log.Printf("Failed to flush m for poller %s: %v", pollerID, err)
+					}
+
+					s.metricBuffers[pollerID] = nil
+				}
+			}
+
+			for pollerID, statuses := range s.serviceBuffers {
+				if len(statuses) > 0 {
+					if err := s.db.UpdateServiceStatuses(ctx, statuses); err != nil {
+						log.Printf("Failed to flush service statuses for poller %s: %v", pollerID, err)
+					}
+
+					s.serviceBuffers[pollerID] = nil
+				}
+			}
+
+			for pollerID, sysmonMetrics := range s.sysmonBuffers {
+				if len(sysmonMetrics) > 0 {
+					for _, m := range sysmonMetrics {
+						if err := s.db.StoreSysmonMetrics(ctx, pollerID, m, m.CPUs[0].Timestamp); err != nil {
+							log.Printf("Failed to flush sysmon m for poller %s: %v", pollerID, err)
+						}
+					}
+
+					s.sysmonBuffers[pollerID] = nil
+				}
+			}
+
+			s.bufferMu.Unlock()
+		}
+	}
 }
 
 func normalizeConfig(config *Config) *Config {
@@ -418,15 +478,19 @@ func (s *Server) checkInitialStates() {
 	statuses, err := s.db.ListPollerStatuses(ctx, s.pollerPatterns)
 	if err != nil {
 		log.Printf("Error querying pollers: %v", err)
-
 		return
 	}
 
+	// Use a map to track which pollers we've already logged as offline
+	reportedOffline := make(map[string]bool)
+
 	for _, status := range statuses {
 		duration := time.Since(status.LastSeen)
-		if duration > s.alertThreshold {
+		// Only log each offline poller once
+		if duration > s.alertThreshold && !reportedOffline[status.PollerID] {
 			log.Printf("Poller %s found offline during initial check (last seen: %v ago)",
 				status.PollerID, duration.Round(time.Second))
+			reportedOffline[status.PollerID] = true
 		}
 	}
 }
@@ -518,6 +582,8 @@ func (*Server) createPollerStatus(req *proto.PollerStatusRequest, now time.Time)
 
 func (s *Server) processServices(ctx context.Context, pollerID string, apiStatus *api.PollerStatus, services []*proto.ServiceStatus, now time.Time) error {
 	allServicesAvailable := true
+	var serviceStatuses []*db.ServiceStatus // Collect all statuses for buffering
+
 	for _, svc := range services {
 		s.logServiceProcessing(pollerID, svc)
 		apiService := s.createAPIService(svc)
@@ -569,16 +635,16 @@ func (s *Server) processServices(ctx context.Context, pollerID string, apiStatus
 			Details:     apiService.Message,
 			Timestamp:   now,
 		}
-
-		if err := s.db.UpdateServiceStatus(ctx, serviceStatus); err != nil {
-			log.Printf("Error saving service status for %s: %v", apiService.Name, err)
-		}
-
+		serviceStatuses = append(serviceStatuses, serviceStatus) // Collect status
 		apiStatus.Services = append(apiStatus.Services, apiService)
 	}
 
-	apiStatus.IsHealthy = allServicesAvailable
+	// Buffer service statuses
+	s.bufferMu.Lock()
+	s.serviceBuffers[pollerID] = append(s.serviceBuffers[pollerID], serviceStatuses...)
+	s.bufferMu.Unlock()
 
+	apiStatus.IsHealthy = allServicesAvailable
 	return nil
 }
 
@@ -699,7 +765,7 @@ func (s *Server) processSysmonMetrics(ctx context.Context, pollerID string, deta
 
 	for i, cpu := range sysmonData.CPUs {
 		m.CPUs[i] = models.CPUMetric{
-			CoreID:       int(cpu.CoreID),
+			CoreID:       cpu.CoreID,
 			UsagePercent: float64(cpu.UsagePercent),
 			Timestamp:    timestamp,
 		}
@@ -725,18 +791,19 @@ func (s *Server) processSysmonMetrics(ctx context.Context, pollerID string, deta
 		}
 	}
 
-	if err := s.db.StoreSysmonMetrics(ctx, pollerID, m, timestamp); err != nil {
-		return fmt.Errorf("failed to store sysmon metrics for poller %s: %w", pollerID, err)
-	}
+	// Buffer sysmon metrics
+	s.bufferMu.Lock()
+	s.sysmonBuffers[pollerID] = append(s.sysmonBuffers[pollerID], m)
+	s.bufferMu.Unlock()
 
-	log.Printf("Successfully stored sysmon metrics for poller %s: %d CPUs, %d disks, memory data present: %v",
+	log.Printf("Buffered sysmon metrics for poller %s: %d CPUs, %d disks, memory data present: %v",
 		pollerID, len(m.CPUs), len(m.Disks), hasMemoryData)
 
 	return nil
 }
 
 func (s *Server) processRperfMetrics(ctx context.Context, pollerID string, details json.RawMessage, timestamp time.Time) error {
-	log.Printf("Processing rperf metrics for poller %s", pollerID)
+	log.Printf("Processing rperf timeseriesMetrics for poller %s", pollerID)
 
 	var rperfData models.RperfMetricData
 
@@ -744,32 +811,65 @@ func (s *Server) processRperfMetrics(ctx context.Context, pollerID string, detai
 		return fmt.Errorf("failed to parse rperf data: %w", err)
 	}
 
-	m := &models.RperfMetrics{
-		Results: make([]models.RperfMetric, len(rperfData.Results)),
-	}
+	var timeseriesMetrics []*db.TimeseriesMetric
+	for _, result := range rperfData.Results {
+		if !result.Success {
+			log.Printf("Skipping timeseriesMetrics storage for failed rperf test (Target: %s) on poller %s. Error: %v",
+				result.Target, pollerID, result.Error)
+			continue
+		}
 
-	for i, result := range rperfData.Results {
-		m.Results[i] = models.RperfMetric{
-			Target:          result.Target,
-			Success:         result.Success,
-			Error:           result.Error,
-			BitsPerSecond:   result.Summary.BitsPerSecond,
-			BytesReceived:   result.Summary.BytesReceived,
-			BytesSent:       result.Summary.BytesSent,
-			Duration:        result.Summary.Duration,
-			JitterMs:        result.Summary.JitterMs,
-			LossPercent:     result.Summary.LossPercent,
-			PacketsLost:     result.Summary.PacketsLost,
-			PacketsReceived: result.Summary.PacketsReceived,
-			PacketsSent:     result.Summary.PacketsSent,
-			Timestamp:       timestamp,
+		metadata := map[string]interface{}{
+			"target":           result.Target,
+			"success":          result.Success,
+			"error":            result.Error,
+			"bits_per_second":  result.Summary.BitsPerSecond,
+			"bytes_received":   result.Summary.BytesReceived,
+			"bytes_sent":       result.Summary.BytesSent,
+			"duration":         result.Summary.Duration,
+			"jitter_ms":        result.Summary.JitterMs,
+			"loss_percent":     result.Summary.LossPercent,
+			"packets_lost":     result.Summary.PacketsLost,
+			"packets_received": result.Summary.PacketsReceived,
+			"packets_sent":     result.Summary.PacketsSent,
+		}
+
+		metricsToStore := []struct {
+			Name  string
+			Value string
+		}{
+			{
+				Name:  fmt.Sprintf("rperf_%s_bandwidth_mbps", result.Target),
+				Value: fmt.Sprintf("%.2f", result.Summary.BitsPerSecond/1e6),
+			},
+			{
+				Name:  fmt.Sprintf("rperf_%s_jitter_ms", result.Target),
+				Value: fmt.Sprintf("%.2f", result.Summary.JitterMs),
+			},
+			{
+				Name:  fmt.Sprintf("rperf_%s_loss_percent", result.Target),
+				Value: fmt.Sprintf("%.1f", result.Summary.LossPercent),
+			},
+		}
+
+		for _, m := range metricsToStore {
+			metric := &db.TimeseriesMetric{
+				Name:      m.Name,
+				Value:     m.Value,
+				Type:      "rperf",
+				Timestamp: timestamp,
+				Metadata:  metadata,
+			}
+			timeseriesMetrics = append(timeseriesMetrics, metric)
 		}
 	}
 
-	if err := s.metrics.StoreRperfMetrics(ctx, pollerID, m, timestamp); err != nil {
-		return fmt.Errorf("failed to store rperf metrics: %w", err)
-	}
+	// Buffer rperf timeseriesMetrics
+	s.bufferMu.Lock()
+	s.metricBuffers[pollerID] = append(s.metricBuffers[pollerID], timeseriesMetrics...)
+	s.bufferMu.Unlock()
 
+	log.Printf("Buffered %d rperf timeseriesMetrics for poller %s", len(timeseriesMetrics), pollerID)
 	return nil
 }
 
@@ -783,24 +883,28 @@ func (s *Server) processICMPMetrics(pollerID string, svc *proto.ServiceStatus, d
 
 	if err := json.Unmarshal(details, &pingResult); err != nil {
 		log.Printf("Failed to parse ICMP response for service %s: %v", svc.ServiceName, err)
-
 		return fmt.Errorf("failed to parse ICMP data: %w", err)
 	}
 
-	if err := s.metrics.AddMetric(
-		pollerID,
-		now,
-		pingResult.ResponseTime,
-		svc.ServiceName,
-	); err != nil {
-		log.Printf("Failed to add ICMP metric for %s: %v", svc.ServiceName, err)
-
-		return fmt.Errorf("failed to store ICMP metric: %w", err)
+	metric := &db.TimeseriesMetric{
+		Name:      fmt.Sprintf("icmp_%s_response_time_ms", svc.ServiceName),
+		Value:     fmt.Sprintf("%d", pingResult.ResponseTime),
+		Type:      "icmp",
+		Timestamp: now,
+		Metadata: map[string]interface{}{
+			"host":          pingResult.Host,
+			"response_time": pingResult.ResponseTime,
+			"packet_loss":   pingResult.PacketLoss,
+			"available":     pingResult.Available,
+		},
 	}
 
-	log.Printf("Stored ICMP metric for %s: response_time=%.2fms",
-		svc.ServiceName, float64(pingResult.ResponseTime)/float64(time.Millisecond))
+	// Buffer ICMP metric
+	s.bufferMu.Lock()
+	s.metricBuffers[pollerID] = append(s.metricBuffers[pollerID], metric)
+	s.bufferMu.Unlock()
 
+	log.Printf("Buffered ICMP metric for %s: response_time=%.2fms", svc.ServiceName, float64(pingResult.ResponseTime)/float64(time.Millisecond))
 	return nil
 }
 
@@ -817,6 +921,7 @@ func (s *Server) processSNMPMetrics(ctx context.Context, pollerID string, detail
 		return fmt.Errorf("failed to parse SNMP data: %w", err)
 	}
 
+	var metrics []*db.TimeseriesMetric
 	for targetName, targetData := range snmpData {
 		log.Printf("Processing target %s with %d OIDs", targetName, len(targetData.OIDStatus))
 		for oidName, oidStatus := range targetData.OIDStatus {
@@ -833,15 +938,16 @@ func (s *Server) processSNMPMetrics(ctx context.Context, pollerID string, detail
 				Timestamp: timestamp,
 				Metadata:  metadata,
 			}
-
-			if err := s.db.StoreMetric(ctx, pollerID, metric); err != nil {
-				log.Printf("Error storing SNMP metric %s for poller %s: %v", oidName, pollerID, err)
-
-				continue
-			}
+			metrics = append(metrics, metric)
 		}
 	}
 
+	// Buffer SNMP metrics
+	s.bufferMu.Lock()
+	s.metricBuffers[pollerID] = append(s.metricBuffers[pollerID], metrics...)
+	s.bufferMu.Unlock()
+
+	log.Printf("Buffered %d SNMP metrics for poller %s", len(metrics), pollerID)
 	return nil
 }
 
@@ -891,7 +997,6 @@ func (*Server) processSweepData(svc *api.ServiceStatus, now time.Time) error {
 }
 
 func (s *Server) saveServiceStatus(pollerID string, svc *api.ServiceStatus, now time.Time) error {
-	ctx := context.Background()
 	status := &db.ServiceStatus{
 		PollerID:    pollerID,
 		ServiceName: svc.Name,
@@ -900,9 +1005,12 @@ func (s *Server) saveServiceStatus(pollerID string, svc *api.ServiceStatus, now 
 		Details:     svc.Message,
 		Timestamp:   now,
 	}
-	if err := s.db.UpdateServiceStatus(ctx, status); err != nil {
-		return fmt.Errorf("database error: failed to update service status for %s on poller %s: %w", svc.Name, pollerID, err)
-	}
+
+	// Buffer service status
+	s.bufferMu.Lock()
+	s.serviceBuffers[pollerID] = append(s.serviceBuffers[pollerID], status)
+	s.bufferMu.Unlock()
+
 	return nil
 }
 
@@ -1294,18 +1402,25 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 				continue
 			}
 
-			if err := s.metrics.AddMetric(
-				req.PollerId,
-				time.Now(),
-				pingResult.ResponseTime,
-				service.ServiceName,
-			); err != nil {
-				log.Printf("Failed to add ICMP metric for %s: %v", service.ServiceName, err)
-
-				continue
+			metric := &db.TimeseriesMetric{
+				Name:      fmt.Sprintf("icmp_%s_response_time_ms", service.ServiceName),
+				Value:     fmt.Sprintf("%d", pingResult.ResponseTime),
+				Type:      "icmp",
+				Timestamp: time.Now(),
+				Metadata: map[string]interface{}{
+					"host":          pingResult.Host,
+					"response_time": pingResult.ResponseTime,
+					"packet_loss":   pingResult.PacketLoss,
+					"available":     pingResult.Available,
+				},
 			}
 
-			log.Printf("Added ICMP metric for %s: time=%v response_time=%.2fms",
+			// Buffer ICMP metric
+			s.bufferMu.Lock()
+			s.metricBuffers[req.PollerId] = append(s.metricBuffers[req.PollerId], metric)
+			s.bufferMu.Unlock()
+
+			log.Printf("Buffered ICMP metric for %s: time=%v response_time=%.2fms",
 				service.ServiceName,
 				time.Now().Format(time.RFC3339),
 				float64(pingResult.ResponseTime)/float64(time.Millisecond))
