@@ -764,9 +764,6 @@ func (s *Server) processSpecializedMetrics(ctx context.Context, pollerID string,
 }
 
 func (s *Server) processSysmonMetrics(ctx context.Context, pollerID string, details json.RawMessage, timestamp time.Time) error {
-	log.Printf("Processing sysmon for poller %s", pollerID)
-	log.Printf("Raw sysmon data: %s", string(details))
-
 	var outerData struct {
 		Status       string `json:"status"`
 		ResponseTime int64  `json:"response_time"`
@@ -791,8 +788,6 @@ func (s *Server) processSysmonMetrics(ctx context.Context, pollerID string, deta
 	}
 
 	hasMemoryData := sysmonData.Memory.TotalBytes > 0 || sysmonData.Memory.UsedBytes > 0
-	log.Printf("Parsed sysmon data for poller %s: CPUs=%d, Disks=%d, HasMemoryData=%v",
-		pollerID, len(sysmonData.CPUs), len(sysmonData.Disks), hasMemoryData)
 
 	m := &models.SysmonMetrics{
 		CPUs:   make([]models.CPUMetric, len(sysmonData.CPUs)),
@@ -808,10 +803,7 @@ func (s *Server) processSysmonMetrics(ctx context.Context, pollerID string, deta
 		}
 	}
 
-	log.Printf("Processing %d disk metrics for poller %s", len(sysmonData.Disks), pollerID)
 	for i, disk := range sysmonData.Disks {
-		log.Printf("Disk %d: mount_point=%s, used=%d, total=%d",
-			i, disk.MountPoint, disk.UsedBytes, disk.TotalBytes)
 		m.Disks[i] = models.DiskMetric{
 			MountPoint: disk.MountPoint,
 			UsedBytes:  disk.UsedBytes,
@@ -833,15 +825,10 @@ func (s *Server) processSysmonMetrics(ctx context.Context, pollerID string, deta
 	s.sysmonBuffers[pollerID] = append(s.sysmonBuffers[pollerID], m)
 	s.bufferMu.Unlock()
 
-	log.Printf("Buffered sysmon metrics for poller %s: %d CPUs, %d disks, memory data present: %v",
-		pollerID, len(m.CPUs), len(m.Disks), hasMemoryData)
-
 	return nil
 }
 
 func (s *Server) processRperfMetrics(ctx context.Context, pollerID string, details json.RawMessage, timestamp time.Time) error {
-	log.Printf("Processing rperf timeseriesMetrics for poller %s", pollerID)
-
 	var rperfData models.RperfMetricData
 
 	if err := json.Unmarshal(details, &rperfData); err != nil {
@@ -849,6 +836,7 @@ func (s *Server) processRperfMetrics(ctx context.Context, pollerID string, detai
 	}
 
 	var timeseriesMetrics []*db.TimeseriesMetric
+
 	for _, result := range rperfData.Results {
 		if !result.Success {
 			log.Printf("Skipping timeseriesMetrics storage for failed rperf test (Target: %s) on poller %s. Error: %v",
@@ -906,7 +894,6 @@ func (s *Server) processRperfMetrics(ctx context.Context, pollerID string, detai
 	s.metricBuffers[pollerID] = append(s.metricBuffers[pollerID], timeseriesMetrics...)
 	s.bufferMu.Unlock()
 
-	log.Printf("Buffered %d rperf timeseriesMetrics for poller %s", len(timeseriesMetrics), pollerID)
 	return nil
 }
 
@@ -920,6 +907,7 @@ func (s *Server) processICMPMetrics(pollerID string, svc *proto.ServiceStatus, d
 
 	if err := json.Unmarshal(details, &pingResult); err != nil {
 		log.Printf("Failed to parse ICMP response for service %s: %v", svc.ServiceName, err)
+
 		return fmt.Errorf("failed to parse ICMP data: %w", err)
 	}
 
@@ -941,13 +929,10 @@ func (s *Server) processICMPMetrics(pollerID string, svc *proto.ServiceStatus, d
 	s.metricBuffers[pollerID] = append(s.metricBuffers[pollerID], metric)
 	s.bufferMu.Unlock()
 
-	log.Printf("Buffered ICMP metric for %s: response_time=%.2fms", svc.ServiceName, float64(pingResult.ResponseTime)/float64(time.Millisecond))
 	return nil
 }
 
 func (s *Server) processSNMPMetrics(ctx context.Context, pollerID string, details json.RawMessage, timestamp time.Time) error {
-	log.Printf("Processing SNMP timeseriesMetrics for poller %s", pollerID)
-
 	var snmpData map[string]struct {
 		Available bool                     `json:"available"`
 		LastPoll  string                   `json:"last_poll"`
@@ -959,8 +944,8 @@ func (s *Server) processSNMPMetrics(ctx context.Context, pollerID string, detail
 	}
 
 	var timeseriesMetrics []*db.TimeseriesMetric
+
 	for targetName, targetData := range snmpData {
-		log.Printf("Processing target %s with %d OIDs", targetName, len(targetData.OIDStatus))
 		for oidName, oidStatus := range targetData.OIDStatus {
 			metadata := map[string]interface{}{
 				"target_name": targetName,
@@ -984,7 +969,6 @@ func (s *Server) processSNMPMetrics(ctx context.Context, pollerID string, detail
 	s.metricBuffers[pollerID] = append(s.metricBuffers[pollerID], timeseriesMetrics...)
 	s.bufferMu.Unlock()
 
-	log.Printf("Buffered %d SNMP timeseriesMetrics for poller %s", len(timeseriesMetrics), pollerID)
 	return nil
 }
 
@@ -1023,8 +1007,6 @@ func (*Server) processSweepData(svc *api.ServiceStatus, now time.Time) error {
 		}
 
 		svc.Message = string(updatedMessage)
-
-		log.Printf("Updated sweep data with current timestamp: %v", now.Format(time.RFC3339))
 	} else {
 		log.Printf("Processing sweep data with timestamp: %v",
 			time.Unix(sweepData.LastSweep, 0).Format(time.RFC3339))
