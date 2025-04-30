@@ -81,27 +81,64 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 	metricsManager := metrics.NewManager(metricsConfig, database)
 
 	server := &Server{
-		db:             database,
-		alertThreshold: normalizedConfig.AlertThreshold,
-		webhooks:       make([]alerts.AlertService, 0),
-		ShutdownChan:   make(chan struct{}),
-		pollerPatterns: normalizedConfig.PollerPatterns,
-		metrics:        metricsManager,
-		snmpManager:    snmp.NewSNMPManager(database),
-		rperfManager:   rperf.NewRperfManager(database),
-		config:         normalizedConfig,
-		authService:    auth.NewAuth(authConfig, database),
-		metricBuffers:  make(map[string][]*db.TimeseriesMetric),
-		serviceBuffers: make(map[string][]*db.ServiceStatus),
-		sysmonBuffers:  make(map[string][]*models.SysmonMetrics),
-		bufferMu:       sync.RWMutex{},
+		db:                  database,
+		alertThreshold:      normalizedConfig.AlertThreshold,
+		webhooks:            make([]alerts.AlertService, 0),
+		ShutdownChan:        make(chan struct{}),
+		pollerPatterns:      normalizedConfig.PollerPatterns,
+		metrics:             metricsManager,
+		snmpManager:         snmp.NewSNMPManager(database),
+		rperfManager:        rperf.NewRperfManager(database),
+		config:              normalizedConfig,
+		authService:         auth.NewAuth(authConfig, database),
+		metricBuffers:       make(map[string][]*db.TimeseriesMetric),
+		serviceBuffers:      make(map[string][]*db.ServiceStatus),
+		sysmonBuffers:       make(map[string][]*models.SysmonMetrics),
+		bufferMu:            sync.RWMutex{},
+		pollerStatusCache:   make(map[string]*pollerStatus),
+		pollerStatusUpdates: make(map[string]*db.PollerStatus),
+	}
+
+	// Initialize the cache on startup
+	if _, err := server.getPollerStatuses(ctx, true); err != nil {
+		log.Printf("Warning: Failed to initialize poller status cache: %v", err)
 	}
 
 	go server.flushBuffers(ctx)
+	go server.flushPollerStatusUpdates(ctx)
 
 	server.initializeWebhooks(normalizedConfig.Webhooks)
 
 	return server, nil
+}
+
+func isValidTimestamp(t time.Time) bool {
+	// Check if the timestamp is within valid range for Proton
+	minTime := time.Date(1925, 1, 1, 0, 0, 0, 0, time.UTC)
+	maxTime := time.Date(2283, 11, 11, 0, 0, 0, 0, time.UTC)
+
+	return t.After(minTime) && t.Before(maxTime)
+}
+
+func (s *Server) queuePollerStatusUpdate(pollerID string, isHealthy bool, lastSeen, firstSeen time.Time) {
+	// Validate timestamps
+	if !isValidTimestamp(lastSeen) {
+		lastSeen = time.Now()
+	}
+
+	if !isValidTimestamp(firstSeen) {
+		firstSeen = lastSeen // Use lastSeen as a fallback
+	}
+
+	s.pollerStatusUpdateMutex.Lock()
+	defer s.pollerStatusUpdateMutex.Unlock()
+
+	s.pollerStatusUpdates[pollerID] = &db.PollerStatus{
+		PollerID:  pollerID,
+		IsHealthy: isHealthy,
+		LastSeen:  lastSeen,
+		FirstSeen: firstSeen,
+	}
 }
 
 // flushBuffers flushes buffered data to the database periodically
@@ -909,7 +946,7 @@ func (s *Server) processICMPMetrics(pollerID string, svc *proto.ServiceStatus, d
 }
 
 func (s *Server) processSNMPMetrics(ctx context.Context, pollerID string, details json.RawMessage, timestamp time.Time) error {
-	log.Printf("Processing SNMP metrics for poller %s", pollerID)
+	log.Printf("Processing SNMP timeseriesMetrics for poller %s", pollerID)
 
 	var snmpData map[string]struct {
 		Available bool                     `json:"available"`
@@ -921,7 +958,7 @@ func (s *Server) processSNMPMetrics(ctx context.Context, pollerID string, detail
 		return fmt.Errorf("failed to parse SNMP data: %w", err)
 	}
 
-	var metrics []*db.TimeseriesMetric
+	var timeseriesMetrics []*db.TimeseriesMetric
 	for targetName, targetData := range snmpData {
 		log.Printf("Processing target %s with %d OIDs", targetName, len(targetData.OIDStatus))
 		for oidName, oidStatus := range targetData.OIDStatus {
@@ -938,16 +975,16 @@ func (s *Server) processSNMPMetrics(ctx context.Context, pollerID string, detail
 				Timestamp: timestamp,
 				Metadata:  metadata,
 			}
-			metrics = append(metrics, metric)
+			timeseriesMetrics = append(timeseriesMetrics, metric)
 		}
 	}
 
-	// Buffer SNMP metrics
+	// Buffer SNMP timeseriesMetrics
 	s.bufferMu.Lock()
-	s.metricBuffers[pollerID] = append(s.metricBuffers[pollerID], metrics...)
+	s.metricBuffers[pollerID] = append(s.metricBuffers[pollerID], timeseriesMetrics...)
 	s.bufferMu.Unlock()
 
-	log.Printf("Buffered %d SNMP metrics for poller %s", len(metrics), pollerID)
+	log.Printf("Buffered %d SNMP timeseriesMetrics for poller %s", len(timeseriesMetrics), pollerID)
 	return nil
 }
 
@@ -1218,19 +1255,122 @@ func (s *Server) performDailyCleanup(ctx context.Context) error {
 }
 
 func (s *Server) checkPollerStatus(ctx context.Context) error {
-	statuses, err := s.db.ListPollerStatuses(ctx, s.pollerPatterns)
+	// Get all poller statuses in one go
+	pollerStatuses, err := s.getPollerStatuses(ctx, false)
 	if err != nil {
-		return fmt.Errorf("failed to query pollers: %w", err)
+		return fmt.Errorf("failed to get poller statuses: %w", err)
 	}
 
 	threshold := time.Now().Add(-s.alertThreshold)
-	for _, status := range statuses {
-		if err := s.evaluatePollerHealth(ctx, status.PollerID, status.LastSeen, status.IsHealthy, threshold); err != nil {
-			log.Printf("Error evaluating poller %s health: %v", status.PollerID, err)
+	offlinePollers := make([]*pollerStatus, 0)
+	recoveredPollers := make([]*pollerStatus, 0)
+
+	// First pass: identify offline and recovered pollers
+	for _, ps := range pollerStatuses {
+		// Skip pollers we've evaluated recently (prevents log spam)
+		if time.Since(ps.LastEvaluated) < 5*time.Minute {
+			continue
+		}
+
+		// Mark this poller as evaluated
+		ps.LastEvaluated = time.Now()
+
+		if ps.IsHealthy && ps.LastSeen.Before(threshold) {
+			// Poller appears to be offline
+			offlinePollers = append(offlinePollers, ps)
+		} else if !ps.IsHealthy && !ps.LastSeen.Before(threshold) {
+			// Poller appears to have recovered
+			recoveredPollers = append(recoveredPollers, ps)
+		}
+	}
+
+	// Second pass: handle offline pollers
+	if len(offlinePollers) > 0 {
+		log.Printf("Found %d offline pollers", len(offlinePollers))
+		batchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+
+		// Update the database in a single transaction if possible
+		for _, ps := range offlinePollers {
+			if ps.AlertSent {
+				continue // Skip if we've already sent an alert
+			}
+
+			duration := time.Since(ps.LastSeen).Round(time.Second)
+			log.Printf("Poller %s appears to be offline (last seen: %v ago)", ps.ID, duration)
+
+			if err := s.handlePollerDown(batchCtx, ps.ID, ps.LastSeen); err != nil {
+				log.Printf("Error handling offline poller %s: %v", ps.ID, err)
+				continue
+			}
+
+			// Mark that we've sent an alert
+			ps.AlertSent = true
+		}
+	}
+
+	// Third pass: handle recovered pollers
+	if len(recoveredPollers) > 0 {
+		log.Printf("Found %d recovered pollers", len(recoveredPollers))
+		batchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+
+		for _, ps := range recoveredPollers {
+			if !ps.AlertSent {
+				continue // Only handle recoveries for pollers we alerted about
+			}
+
+			apiStatus := &api.PollerStatus{
+				PollerID:   ps.ID,
+				LastUpdate: ps.LastSeen,
+				Services:   make([]api.ServiceStatus, 0),
+			}
+
+			s.handlePollerRecovery(batchCtx, ps.ID, apiStatus, ps.LastSeen)
+
+			// Reset the alert flag
+			ps.AlertSent = false
 		}
 	}
 
 	return nil
+}
+
+func (s *Server) flushPollerStatusUpdates(ctx context.Context) {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.pollerStatusUpdateMutex.Lock()
+			updates := s.pollerStatusUpdates
+			s.pollerStatusUpdates = make(map[string]*db.PollerStatus)
+			s.pollerStatusUpdateMutex.Unlock()
+
+			if len(updates) == 0 {
+				continue
+			}
+
+			log.Printf("Flushing %d poller status updates", len(updates))
+
+			// Convert to a slice for batch processing
+			statuses := make([]*db.PollerStatus, 0, len(updates))
+			for _, status := range updates {
+				statuses = append(statuses, status)
+			}
+
+			// Update in batches if your DB supports it
+			// Otherwise, loop and update individually
+			for _, status := range statuses {
+				if err := s.db.UpdatePollerStatus(ctx, status); err != nil {
+					log.Printf("Error updating poller status for %s: %v", status.PollerID, err)
+				}
+			}
+		}
+	}
 }
 
 func (s *Server) evaluatePollerHealth(
@@ -1278,9 +1418,22 @@ func (s *Server) handlePotentialRecovery(ctx context.Context, pollerID string, l
 }
 
 func (s *Server) handlePollerDown(ctx context.Context, pollerID string, lastSeen time.Time) error {
-	if err := s.updatePollerStatus(ctx, pollerID, false, lastSeen); err != nil {
-		return fmt.Errorf("failed to update poller status: %w", err)
+	// Get the existing firstSeen value
+	firstSeen := lastSeen
+	s.cacheMutex.RLock()
+	if ps, ok := s.pollerStatusCache[pollerID]; ok {
+		firstSeen = ps.FirstSeen
 	}
+	s.cacheMutex.RUnlock()
+
+	s.queuePollerStatusUpdate(pollerID, false, lastSeen, firstSeen)
+
+	/*
+		if err := s.updatePollerStatus(ctx, pollerID, false, lastSeen); err != nil {
+			return fmt.Errorf("failed to update poller status: %w", err)
+		}
+
+	*/
 
 	alert := &alerts.WebhookAlert{
 		Level:     alerts.Error,
@@ -1439,4 +1592,66 @@ func getHostname() string {
 	}
 
 	return hostname
+}
+
+func (s *Server) getPollerStatuses(ctx context.Context, forceRefresh bool) (map[string]*pollerStatus, error) {
+	s.cacheMutex.RLock()
+	if !forceRefresh && time.Since(s.cacheLastUpdated) < 30*time.Second {
+		// Use cached data if it's recent enough
+		result := make(map[string]*pollerStatus, len(s.pollerStatusCache))
+		for k, v := range s.pollerStatusCache {
+			result[k] = v
+		}
+		s.cacheMutex.RUnlock()
+		return result, nil
+	}
+	s.cacheMutex.RUnlock()
+
+	// Need to refresh the cache
+	s.cacheMutex.Lock()
+	defer s.cacheMutex.Unlock()
+
+	// Double-check in case another goroutine refreshed while we were waiting for the lock
+	if !forceRefresh && time.Since(s.cacheLastUpdated) < 30*time.Second {
+		result := make(map[string]*pollerStatus, len(s.pollerStatusCache))
+		for k, v := range s.pollerStatusCache {
+			result[k] = v
+		}
+		return result, nil
+	}
+
+	// Query the database
+	statuses, err := s.db.ListPollerStatuses(ctx, s.pollerPatterns)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query pollers: %w", err)
+	}
+
+	// Update the cache
+	newCache := make(map[string]*pollerStatus, len(statuses))
+	for _, status := range statuses {
+		// Copy existing evaluation data if available
+		ps := &pollerStatus{
+			ID:        status.PollerID,
+			IsHealthy: status.IsHealthy,
+			LastSeen:  status.LastSeen,
+		}
+
+		if existing, ok := s.pollerStatusCache[status.PollerID]; ok {
+			ps.LastEvaluated = existing.LastEvaluated
+			ps.AlertSent = existing.AlertSent
+		}
+
+		newCache[status.PollerID] = ps
+	}
+
+	s.pollerStatusCache = newCache
+	s.cacheLastUpdated = time.Now()
+
+	// Return a copy to avoid race conditions
+	result := make(map[string]*pollerStatus, len(s.pollerStatusCache))
+	for k, v := range s.pollerStatusCache {
+		result[k] = v
+	}
+
+	return result, nil
 }

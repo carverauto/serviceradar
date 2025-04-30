@@ -169,25 +169,39 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+type pollerStatus struct {
+	ID            string
+	IsHealthy     bool
+	LastSeen      time.Time
+	FirstSeen     time.Time
+	LastEvaluated time.Time // Track when we last evaluated this poller
+	AlertSent     bool      // Track if we've already sent an alert
+}
+
 type Server struct {
 	proto.UnimplementedPollerServiceServer
-	mu             sync.RWMutex
-	db             db.Service
-	alertThreshold time.Duration
-	webhooks       []alerts.AlertService
-	apiServer      api.Service
-	ShutdownChan   chan struct{}
-	pollerPatterns []string
-	grpcServer     *grpc.Server
-	metrics        *metrics.Manager
-	snmpManager    snmp.SNMPManager
-	rperfManager   rperf.RperfManager
-	config         *Config
-	authService    *auth.Auth
-	metricBuffers  map[string][]*db.TimeseriesMetric
-	serviceBuffers map[string][]*db.ServiceStatus
-	sysmonBuffers  map[string][]*models.SysmonMetrics
-	bufferMu       sync.RWMutex
+	mu                      sync.RWMutex
+	db                      db.Service
+	alertThreshold          time.Duration
+	webhooks                []alerts.AlertService
+	apiServer               api.Service
+	ShutdownChan            chan struct{}
+	pollerPatterns          []string
+	grpcServer              *grpc.Server
+	metrics                 *metrics.Manager
+	snmpManager             snmp.SNMPManager
+	rperfManager            rperf.RperfManager
+	config                  *Config
+	authService             *auth.Auth
+	metricBuffers           map[string][]*db.TimeseriesMetric
+	serviceBuffers          map[string][]*db.ServiceStatus
+	sysmonBuffers           map[string][]*models.SysmonMetrics
+	bufferMu                sync.RWMutex
+	pollerStatusCache       map[string]*pollerStatus
+	pollerStatusUpdates     map[string]*db.PollerStatus
+	pollerStatusUpdateMutex sync.Mutex
+	cacheLastUpdated        time.Time
+	cacheMutex              sync.RWMutex
 }
 
 // OIDStatusData represents the structure of OID status data.
