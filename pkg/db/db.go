@@ -69,79 +69,89 @@ func New(ctx context.Context, addr, database, username, password string) (Servic
 
 // initSchema creates the database streams for Proton.
 func (db *DB) initSchema(ctx context.Context) error {
-	const createStreamsSQL = `
-	CREATE STREAM IF NOT EXISTS cpu_metrics (
-		poller_id string,
-		timestamp DateTime64(3) DEFAULT now64(3),
-		core_id int32,
-		usage_percent float64
-	) ENGINE = MergeTree()
-	ORDER BY (poller_id, timestamp);
+	// Break up the SQL statements into individual commands
+	createStreams := []string{
+		`CREATE STREAM IF NOT EXISTS cpu_metrics (
+            poller_id string,
+            timestamp DateTime64(3) DEFAULT now64(3),
+            core_id int32,
+            usage_percent float64
+        ) ENGINE = MergeTree()
+        ORDER BY (poller_id, timestamp)`,
 
-	CREATE STREAM IF NOT EXISTS disk_metrics (
-		poller_id string,
-		timestamp DateTime64(3) DEFAULT now64(3),
-		mount_point string,
-		used_bytes uint64,
-		total_bytes uint64
-	) ENGINE = MergeTree()
-	ORDER BY (poller_id, timestamp);
+		`CREATE STREAM IF NOT EXISTS disk_metrics (
+            poller_id string,
+            timestamp DateTime64(3) DEFAULT now64(3),
+            mount_point string,
+            used_bytes uint64,
+            total_bytes uint64
+        ) ENGINE = MergeTree()
+        ORDER BY (poller_id, timestamp)`,
 
-	CREATE STREAM IF NOT EXISTS memory_metrics (
-		poller_id string,
-		timestamp DateTime64(3) DEFAULT now64(3),
-		used_bytes uint64,
-		total_bytes uint64
-	) ENGINE = MergeTree()
-	ORDER BY (poller_id, timestamp);
+		`CREATE STREAM IF NOT EXISTS memory_metrics (
+            poller_id string,
+            timestamp DateTime64(3) DEFAULT now64(3),
+            used_bytes uint64,
+            total_bytes uint64
+        ) ENGINE = MergeTree()
+        ORDER BY (poller_id, timestamp)`,
 
-	CREATE STREAM IF NOT EXISTS pollers (
-		poller_id string,
-		first_seen DateTime64(3) DEFAULT now64(3),
-		last_seen DateTime64(3) DEFAULT now64(3),
-		is_healthy bool
-	) ENGINE = ReplacingMergeTree()
-	ORDER BY poller_id;
+		`CREATE STREAM IF NOT EXISTS pollers (
+            poller_id string,
+            first_seen DateTime64(3) DEFAULT now64(3),
+            last_seen DateTime64(3) DEFAULT now64(3),
+            is_healthy bool
+        ) ENGINE = MergeTree()
+        PRIMARY KEY (poller_id)
+        ORDER BY poller_id`,
 
-	CREATE STREAM IF NOT EXISTS poller_history (
-		poller_id string,
-		timestamp DateTime64(3) DEFAULT now64(3),
-		is_healthy bool
-	) ENGINE = MergeTree()
-	ORDER BY (poller_id, timestamp);
+		`CREATE STREAM IF NOT EXISTS poller_history (
+            poller_id string,
+            timestamp DateTime64(3) DEFAULT now64(3),
+            is_healthy bool
+        ) ENGINE = MergeTree()
+        ORDER BY (poller_id, timestamp)`,
 
-	CREATE STREAM IF NOT EXISTS service_status (
-		poller_id string,
-		service_name string,
-		service_type string,
-		available bool,
-		details string,  -- Use string type for JSON details
-		timestamp DateTime64(3) DEFAULT now64(3)
-	) ENGINE = MergeTree()
-	ORDER BY (poller_id, timestamp);
+		`CREATE STREAM IF NOT EXISTS service_status (
+            poller_id string,
+            service_name string,
+            service_type string,
+            available bool,
+            details string,
+            timestamp DateTime64(3) DEFAULT now64(3)
+        ) ENGINE = MergeTree()
+        ORDER BY (poller_id, timestamp)`,
 
-	CREATE STREAM IF NOT EXISTS timeseries_metrics (
-		poller_id string,
-		metric_name string,
-		metric_type string,
-		value string,
-		metadata string,  -- Use string type for JSON metadata
-		timestamp DateTime64(3) DEFAULT now64(3)
-	) ENGINE = MergeTree()
-	ORDER BY (poller_id, metric_name, timestamp);
+		`CREATE STREAM IF NOT EXISTS timeseries_metrics (
+            poller_id string,
+            metric_name string,
+            metric_type string,
+            value string,
+            metadata string,
+            timestamp DateTime64(3) DEFAULT now64(3)
+        ) ENGINE = MergeTree()
+        ORDER BY (poller_id, metric_name, timestamp)`,
 
-	CREATE STREAM IF NOT EXISTS users (
-		id string,
-		email string,
-		name string,
-		provider string,
-		created_at DateTime64(3) DEFAULT now64(3),
-		updated_at DateTime64(3) DEFAULT now64(3)
-	) ENGINE = ReplacingMergeTree()
-	ORDER BY id;
-	`
+		`CREATE STREAM IF NOT EXISTS users (
+            id string,
+            email string,
+            name string,
+            provider string,
+            created_at DateTime64(3) DEFAULT now64(3),
+            updated_at DateTime64(3) DEFAULT now64(3)
+        ) ENGINE = MergeTree()
+        PRIMARY KEY (id)
+        ORDER BY id`,
+	}
 
-	return db.conn.Exec(ctx, createStreamsSQL)
+	// Execute each statement individually
+	for _, statement := range createStreams {
+		if err := db.conn.Exec(ctx, statement); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // Close closes the database connection.
