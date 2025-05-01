@@ -586,9 +586,7 @@ func (s *Server) processStatusReport(
 	}
 
 	existingStatus, err := s.db.GetPollerStatus(ctx, req.PollerId)
-	if err != nil {
-		pollerStatus.FirstSeen = now
-	} else {
+	if err == nil {
 		pollerStatus.FirstSeen = existingStatus.FirstSeen
 		currentState := existingStatus.IsHealthy
 
@@ -599,7 +597,7 @@ func (s *Server) processStatusReport(
 		}
 
 		apiStatus := s.createPollerStatus(req, now)
-		s.processServices(ctx, req.PollerId, apiStatus, req.Services, now)
+		s.processServices(req.PollerId, apiStatus, req.Services, now)
 
 		if err := s.updatePollerState(ctx, req.PollerId, apiStatus, currentState, now); err != nil {
 			log.Printf("Failed to update poller state for %s: %v", req.PollerId, err)
@@ -610,6 +608,8 @@ func (s *Server) processStatusReport(
 		return apiStatus, nil
 	}
 
+	pollerStatus.FirstSeen = now
+
 	if err := s.db.UpdatePollerStatus(ctx, pollerStatus); err != nil {
 		log.Printf("Failed to create new poller status for %s: %v", req.PollerId, err)
 
@@ -617,7 +617,7 @@ func (s *Server) processStatusReport(
 	}
 
 	apiStatus := s.createPollerStatus(req, now)
-	s.processServices(ctx, req.PollerId, apiStatus, req.Services, now)
+	s.processServices(req.PollerId, apiStatus, req.Services, now)
 
 	return apiStatus, nil
 }
@@ -633,7 +633,6 @@ func (*Server) createPollerStatus(req *proto.PollerStatusRequest, now time.Time)
 
 // processServices processes service statuses for a poller and updates the API status.
 func (s *Server) processServices(
-	ctx context.Context,
 	pollerID string,
 	apiStatus *api.PollerStatus,
 	services []*proto.ServiceStatus,
@@ -650,7 +649,7 @@ func (s *Server) processServices(
 		}
 
 		// Process service details and metrics
-		if err := s.processServiceDetails(ctx, pollerID, &apiService, svc, now); err != nil {
+		if err := s.processServiceDetails(pollerID, &apiService, svc, now); err != nil {
 			log.Printf("Error processing details for service %s on poller %s: %v", svc.ServiceName, pollerID, err)
 		}
 
@@ -676,7 +675,6 @@ func (s *Server) processServices(
 
 // processServiceDetails handles parsing and processing of service details and metrics.
 func (s *Server) processServiceDetails(
-	ctx context.Context,
 	pollerID string, apiService *api.ServiceStatus, svc *proto.ServiceStatus, now time.Time) error {
 	if svc.Message == "" {
 		log.Printf("No message content for service %s on poller %s", svc.ServiceName, pollerID)
@@ -691,7 +689,7 @@ func (s *Server) processServiceDetails(
 	}
 
 	apiService.Details = details
-	if err := s.processMetrics(ctx, pollerID, svc, details, now); err != nil {
+	if err := s.processMetrics(pollerID, svc, details, now); err != nil {
 		log.Printf("Error processing metrics for service %s on poller %s: %v",
 			svc.ServiceName, pollerID, err)
 		return err
@@ -702,18 +700,17 @@ func (s *Server) processServiceDetails(
 
 // processMetrics handles metrics processing for all service types.
 func (s *Server) processMetrics(
-	ctx context.Context,
 	pollerID string,
 	svc *proto.ServiceStatus,
 	details json.RawMessage,
 	now time.Time) error {
 	switch svc.ServiceType {
 	case snmpServiceType:
-		return s.processSNMPMetrics(ctx, pollerID, details, now)
+		return s.processSNMPMetrics(pollerID, details, now)
 	case grpcServiceType:
 		switch svc.ServiceName {
 		case rperfServiceType:
-			return s.processRperfMetrics(ctx, pollerID, details, now)
+			return s.processRperfMetrics(pollerID, details, now)
 		case sysmonServiceType:
 			return s.processSysmonMetrics(pollerID, details, now)
 		}
@@ -822,7 +819,7 @@ func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, 
 	return nil
 }
 
-func (s *Server) processRperfMetrics(ctx context.Context, pollerID string, details json.RawMessage, timestamp time.Time) error {
+func (s *Server) processRperfMetrics(pollerID string, details json.RawMessage, timestamp time.Time) error {
 	var rperfData models.RperfMetricData
 
 	if err := json.Unmarshal(details, &rperfData); err != nil {
@@ -948,7 +945,7 @@ func (s *Server) processICMPMetrics(pollerID string, svc *proto.ServiceStatus, d
 	return nil
 }
 
-func (s *Server) processSNMPMetrics(ctx context.Context, pollerID string, details json.RawMessage, timestamp time.Time) error {
+func (s *Server) processSNMPMetrics(pollerID string, details json.RawMessage, timestamp time.Time) error {
 	var snmpData map[string]struct {
 		Available bool                     `json:"available"`
 		LastPoll  string                   `json:"last_poll"`

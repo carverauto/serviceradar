@@ -24,7 +24,8 @@ func (m *rperfManagerImpl) StoreRperfMetric(ctx context.Context, pollerID string
 }
 
 // GetRperfMetrics retrieves rperf metrics for a poller within a time range.
-func (m *rperfManagerImpl) GetRperfMetrics(ctx context.Context, pollerID string, startTime, endTime time.Time) ([]*db.TimeseriesMetric, error) {
+func (m *rperfManagerImpl) GetRperfMetrics(
+	ctx context.Context, pollerID string, startTime, endTime time.Time) ([]*db.TimeseriesMetric, error) {
 	metrics, err := m.db.GetMetricsByType(ctx, pollerID, "rperf", startTime, endTime)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query rperf metrics: %w", err)
