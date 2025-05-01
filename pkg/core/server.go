@@ -269,9 +269,11 @@ func applyDefaultAdminUser(authConfig *models.AuthConfig) {
 func (s *Server) initializeWebhooks(configs []alerts.WebhookConfig) {
 	for i, config := range configs {
 		log.Printf("Processing webhook config %d: enabled=%v", i, config.Enabled)
+
 		if config.Enabled {
 			alerter := alerts.NewWebhookAlerter(config)
 			s.webhooks = append(s.webhooks, alerter)
+
 			log.Printf("Added webhook alerter: %+v", config.URL)
 		}
 	}
@@ -286,6 +288,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 	if s.grpcServer != nil {
 		errCh := make(chan error, 1)
+
 		go func() {
 			if err := s.grpcServer.Start(); err != nil {
 				select {
@@ -384,14 +387,18 @@ func (s *Server) cleanupUnknownPollers(ctx context.Context) error {
 	}
 
 	var pollersToDelete []string
+
 	for _, pollerID := range pollerIDs {
 		isKnown := false
+
 		for _, known := range s.config.KnownPollers {
 			if known == pollerID {
 				isKnown = true
+
 				break
 			}
 		}
+
 		if !isKnown {
 			pollersToDelete = append(pollersToDelete, pollerID)
 		}
@@ -406,6 +413,7 @@ func (s *Server) cleanupUnknownPollers(ctx context.Context) error {
 	}
 
 	log.Printf("Cleaned up %d unknown poller(s) from database", len(pollersToDelete))
+
 	return nil
 }
 
@@ -515,6 +523,7 @@ func (s *Server) checkInitialStates() {
 	statuses, err := s.db.ListPollerStatuses(ctx, s.pollerPatterns)
 	if err != nil {
 		log.Printf("Error querying pollers: %v", err)
+
 		return
 	}
 
@@ -523,10 +532,12 @@ func (s *Server) checkInitialStates() {
 
 	for _, status := range statuses {
 		duration := time.Since(status.LastSeen)
+
 		// Only log each offline poller once
 		if duration > s.alertThreshold && !reportedOffline[status.PollerID] {
 			log.Printf("Poller %s found offline during initial check (last seen: %v ago)",
 				status.PollerID, duration.Round(time.Second))
+
 			reportedOffline[status.PollerID] = true
 		}
 	}
@@ -540,6 +551,7 @@ func (s *Server) updateAPIState(pollerID string, apiStatus *api.PollerStatus) {
 	}
 
 	s.apiServer.UpdatePollerStatus(pollerID, apiStatus)
+
 	log.Printf("Updated API server state for poller: %s", pollerID)
 }
 
@@ -595,6 +607,7 @@ func (s *Server) processStatusReport(
 
 	if err := s.db.UpdatePollerStatus(ctx, pollerStatus); err != nil {
 		log.Printf("Failed to create new poller status for %s: %v", req.PollerId, err)
+
 		return nil, fmt.Errorf("failed to create poller status: %w", err)
 	}
 
@@ -619,10 +632,13 @@ func (*Server) createPollerStatus(req *proto.PollerStatusRequest, now time.Time)
 
 func (s *Server) processServices(ctx context.Context, pollerID string, apiStatus *api.PollerStatus, services []*proto.ServiceStatus, now time.Time) error {
 	allServicesAvailable := true
-	var serviceStatuses []*db.ServiceStatus // Collect all statuses for buffering
+
+	// pre allocate memory for service statuses
+	serviceStatuses := make([]*db.ServiceStatus, 0, len(services))
 
 	for _, svc := range services {
 		s.logServiceProcessing(pollerID, svc)
+
 		apiService := s.createAPIService(svc)
 		if !svc.Available {
 			allServicesAvailable = false
@@ -683,6 +699,7 @@ func (s *Server) processServices(ctx context.Context, pollerID string, apiStatus
 	s.bufferMu.Unlock()
 
 	apiStatus.IsHealthy = allServicesAvailable
+
 	return nil
 }
 
@@ -905,6 +922,9 @@ func (s *Server) processRperfMetrics(ctx context.Context, pollerID string, detai
 }
 
 func (s *Server) processICMPMetrics(pollerID string, svc *proto.ServiceStatus, details json.RawMessage, now time.Time) error {
+	log.Printf("Processing ICMP metrics for poller %s, service %s", pollerID, svc.ServiceName)
+	log.Printf("Details: %s", string(details))
+
 	var pingResult struct {
 		Host         string  `json:"host"`
 		ResponseTime int64   `json:"response_time"`
@@ -914,9 +934,9 @@ func (s *Server) processICMPMetrics(pollerID string, svc *proto.ServiceStatus, d
 
 	if err := json.Unmarshal(details, &pingResult); err != nil {
 		log.Printf("Failed to parse ICMP response for service %s: %v", svc.ServiceName, err)
-
 		return fmt.Errorf("failed to parse ICMP data: %w", err)
 	}
+	log.Printf("Parsed ICMP result: %+v", pingResult)
 
 	metric := &db.TimeseriesMetric{
 		Name:      fmt.Sprintf("icmp_%s_response_time_ms", svc.ServiceName),
@@ -930,11 +950,35 @@ func (s *Server) processICMPMetrics(pollerID string, svc *proto.ServiceStatus, d
 			"available":     pingResult.Available,
 		},
 	}
+	log.Printf("Created metric: %+v", metric)
 
 	// Buffer ICMP metric
 	s.bufferMu.Lock()
 	s.metricBuffers[pollerID] = append(s.metricBuffers[pollerID], metric)
+	log.Printf("Buffered metric for poller %s, buffer size: %d", pollerID, len(s.metricBuffers[pollerID]))
 	s.bufferMu.Unlock()
+
+	// Add to in-memory ring buffer for dashboard display
+	if s.metrics != nil {
+		err := s.metrics.AddMetric(
+			pollerID,
+			now,
+			pingResult.ResponseTime,
+			svc.ServiceName,
+		)
+		if err != nil {
+			log.Printf("Failed to add ICMP metric to in-memory buffer for %s: %v", svc.ServiceName, err)
+		} else {
+			log.Printf("Added metric to in-memory buffer for %s", svc.ServiceName)
+		}
+	} else {
+		log.Printf("Metrics manager is nil for poller %s", pollerID)
+	}
+
+	log.Printf("Buffered ICMP metric for %s: time=%v response_time=%.2fms",
+		svc.ServiceName,
+		now.Format(time.RFC3339),
+		float64(pingResult.ResponseTime)/float64(time.Millisecond))
 
 	return nil
 }
@@ -1276,6 +1320,7 @@ func (s *Server) checkPollerStatus(ctx context.Context) error {
 	// Second pass: handle offline pollers
 	if len(offlinePollers) > 0 {
 		log.Printf("Found %d offline pollers", len(offlinePollers))
+
 		batchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 
@@ -1301,6 +1346,7 @@ func (s *Server) checkPollerStatus(ctx context.Context) error {
 	// Third pass: handle recovered pollers
 	if len(recoveredPollers) > 0 {
 		log.Printf("Found %d recovered pollers", len(recoveredPollers))
+
 		batchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 
@@ -1409,6 +1455,7 @@ func (s *Server) handlePotentialRecovery(ctx context.Context, pollerID string, l
 func (s *Server) handlePollerDown(ctx context.Context, pollerID string, lastSeen time.Time) error {
 	// Get the existing firstSeen value
 	firstSeen := lastSeen
+
 	s.cacheMutex.RLock()
 	if ps, ok := s.pollerStatusCache[pollerID]; ok {
 		firstSeen = ps.FirstSeen
@@ -1505,16 +1552,12 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 
 	if !s.isKnownPoller(req.PollerId) {
 		log.Printf("Ignoring status report from unknown poller: %s", req.PollerId)
-
 		return &proto.PollerStatusResponse{Received: true}, nil
 	}
 
 	now := time.Unix(req.Timestamp, 0)
-
 	timestamp := time.Now()
-
 	responseTime := timestamp.Sub(now).Nanoseconds()
-
 	log.Printf("Response time for %s: %d ns (%.2f ms)",
 		req.PollerId,
 		responseTime,
@@ -1523,66 +1566,6 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 	apiStatus, err := s.processStatusReport(ctx, req, now)
 	if err != nil {
 		return nil, fmt.Errorf("failed to process status report: %w", err)
-	}
-
-	if s.metrics != nil {
-		for _, service := range req.Services {
-			if service.ServiceType != "icmp" {
-				continue
-			}
-
-			var pingResult struct {
-				Host         string  `json:"host"`
-				ResponseTime int64   `json:"response_time"`
-				PacketLoss   float64 `json:"packet_loss"`
-				Available    bool    `json:"available"`
-			}
-
-			if err := json.Unmarshal([]byte(service.Message), &pingResult); err != nil {
-				log.Printf("Failed to parse ICMP response for service %s: %v", service.ServiceName, err)
-
-				continue
-			}
-
-			metric := &db.TimeseriesMetric{
-				Name:      fmt.Sprintf("icmp_%s_response_time_ms", service.ServiceName),
-				Value:     fmt.Sprintf("%d", pingResult.ResponseTime),
-				Type:      "icmp",
-				Timestamp: time.Now(),
-				Metadata: map[string]interface{}{
-					"host":          pingResult.Host,
-					"response_time": pingResult.ResponseTime,
-					"packet_loss":   pingResult.PacketLoss,
-					"available":     pingResult.Available,
-				},
-			}
-
-			// Buffer ICMP metric
-			s.bufferMu.Lock()
-			s.metricBuffers[req.PollerId] = append(s.metricBuffers[req.PollerId], metric)
-			s.bufferMu.Unlock()
-
-			// ALSO add to in-memory ring buffer for dashboard display
-			if s.metrics != nil {
-				err := s.metrics.AddMetric(
-					req.PollerId,
-					time.Now(),              // Use current time
-					pingResult.ResponseTime, // The response time value
-					service.ServiceName,     // The service name
-				)
-				if err != nil {
-					log.Printf("Failed to add ICMP metric to in-memory buffer for %s: %v",
-						service.ServiceName, err)
-				} else {
-					log.Printf("Added metric to in-memory buffer for %s", service.ServiceName)
-				}
-			}
-
-			log.Printf("Buffered ICMP metric for %s: time=%v response_time=%.2fms",
-				service.ServiceName,
-				time.Now().Format(time.RFC3339),
-				float64(pingResult.ResponseTime)/float64(time.Millisecond))
-		}
 	}
 
 	s.updateAPIState(req.PollerId, apiStatus)
@@ -1622,6 +1605,7 @@ func (s *Server) getPollerStatuses(ctx context.Context, forceRefresh bool) (map[
 		for k, v := range s.pollerStatusCache {
 			result[k] = v
 		}
+
 		return result, nil
 	}
 
@@ -1633,6 +1617,7 @@ func (s *Server) getPollerStatuses(ctx context.Context, forceRefresh bool) (map[
 
 	// Update the cache
 	newCache := make(map[string]*pollerStatus, len(statuses))
+
 	for _, status := range statuses {
 		// Copy existing evaluation data if available
 		ps := &pollerStatus{
