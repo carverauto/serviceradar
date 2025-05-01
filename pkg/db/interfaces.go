@@ -39,6 +39,7 @@ type Service interface {
 	Close() error
 
 	// Poller operations.
+
 	UpdatePollerStatus(ctx context.Context, status *PollerStatus) error
 	GetPollerStatus(ctx context.Context, pollerID string) (*PollerStatus, error)
 	GetPollerHistory(ctx context.Context, pollerID string) ([]PollerStatus, error)
@@ -50,21 +51,25 @@ type Service interface {
 	ListNeverReportedPollers(ctx context.Context, patterns []string) ([]string, error)
 
 	// Service operations.
+
 	UpdateServiceStatus(ctx context.Context, status *ServiceStatus) error
 	UpdateServiceStatuses(ctx context.Context, statuses []*ServiceStatus) error
 	GetPollerServices(ctx context.Context, pollerID string) ([]ServiceStatus, error)
 	GetServiceHistory(ctx context.Context, pollerID, serviceName string, limit int) ([]ServiceStatus, error)
 
 	// Maintenance operations.
+
 	CleanOldData(ctx context.Context, retentionPeriod time.Duration) error
 
 	// Generic timeseries methods.
+
 	StoreMetric(ctx context.Context, pollerID string, metric *TimeseriesMetric) error
 	StoreMetrics(ctx context.Context, pollerID string, metrics []*TimeseriesMetric) error
 	GetMetrics(ctx context.Context, pollerID, metricName string, start, end time.Time) ([]TimeseriesMetric, error)
 	GetMetricsByType(ctx context.Context, pollerID, metricType string, start, end time.Time) ([]TimeseriesMetric, error)
 
 	// Sysmon metric operations.
+
 	StoreSysmonMetrics(ctx context.Context, pollerID string, metrics *models.SysmonMetrics, timestamp time.Time) error
 	GetCPUMetrics(ctx context.Context, pollerID string, coreID int, start, end time.Time) ([]models.CPUMetric, error)
 	GetDiskMetrics(ctx context.Context, pollerID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error)
@@ -76,9 +81,11 @@ type Service interface {
 	GetMemoryMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]SysmonMemoryResponse, error)
 
 	// Rperf.
+
 	StoreRperfMetrics(ctx context.Context, pollerID, serviceName string, message string, timestamp time.Time) error
 
 	// Auth.
+
 	StoreUser(ctx context.Context, user *models.User) error
 	GetUserByID(ctx context.Context, id string) (*models.User, error)
 }

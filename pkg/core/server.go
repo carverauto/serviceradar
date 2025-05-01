@@ -672,6 +672,7 @@ func (s *Server) processServices(ctx context.Context, pollerID string, apiStatus
 			Details:     apiService.Message,
 			Timestamp:   now,
 		}
+
 		serviceStatuses = append(serviceStatuses, serviceStatus) // Collect status
 		apiStatus.Services = append(apiStatus.Services, apiService)
 	}
@@ -734,6 +735,7 @@ func (*Server) parseServiceDetails(svc *proto.ServiceStatus) (json.RawMessage, e
 		log.Printf("Raw message: %s", svc.Message)
 		log.Printf("Sanitized message: %s", sanitized)
 		log.Println("Invalid JSON format, skipping service details")
+
 		return nil, err
 	}
 
@@ -772,11 +774,13 @@ func (s *Server) processSysmonMetrics(ctx context.Context, pollerID string, deta
 
 	if err := json.Unmarshal(details, &outerData); err != nil {
 		log.Printf("Error unmarshaling outer sysmon data for poller %s: %v", pollerID, err)
+
 		return fmt.Errorf("failed to parse outer sysmon data: %w", err)
 	}
 
 	if outerData.Status == "" {
 		log.Printf("Empty status field in sysmon data for poller %s", pollerID)
+
 		return errEmptyStatusField
 	}
 
@@ -784,6 +788,7 @@ func (s *Server) processSysmonMetrics(ctx context.Context, pollerID string, deta
 
 	if err := json.Unmarshal([]byte(outerData.Status), &sysmonData); err != nil {
 		log.Printf("Error unmarshaling inner sysmon data for poller %s: %v", pollerID, err)
+
 		return fmt.Errorf("failed to parse inner sysmon data: %w", err)
 	}
 
@@ -841,6 +846,7 @@ func (s *Server) processRperfMetrics(ctx context.Context, pollerID string, detai
 		if !result.Success {
 			log.Printf("Skipping timeseriesMetrics storage for failed rperf test (Target: %s) on poller %s. Error: %v",
 				result.Target, pollerID, result.Error)
+
 			continue
 		}
 
@@ -885,6 +891,7 @@ func (s *Server) processRperfMetrics(ctx context.Context, pollerID string, detai
 				Timestamp: timestamp,
 				Metadata:  metadata,
 			}
+
 			timeseriesMetrics = append(timeseriesMetrics, metric)
 		}
 	}

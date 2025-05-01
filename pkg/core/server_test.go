@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -111,7 +112,7 @@ func newServerWithDB(_ context.Context, config *Config, database db.Service) (*S
 		Enabled:    normalizedConfig.Metrics.Enabled,
 		Retention:  normalizedConfig.Metrics.Retention,
 		MaxPollers: normalizedConfig.Metrics.MaxPollers,
-	}, database) // Added database argument
+	}, database)
 
 	dbPath := getDBPath(normalizedConfig.DBPath)
 	if err := ensureDataDirectory(dbPath); err != nil {
@@ -124,15 +125,21 @@ func newServerWithDB(_ context.Context, config *Config, database db.Service) (*S
 	}
 
 	server := &Server{
-		db:             database,
-		alertThreshold: normalizedConfig.AlertThreshold,
-		webhooks:       make([]alerts.AlertService, 0),
-		ShutdownChan:   make(chan struct{}),
-		pollerPatterns: normalizedConfig.PollerPatterns,
-		metrics:        metricsManager,
-		snmpManager:    snmp.NewSNMPManager(database),
-		config:         normalizedConfig,
-		authService:    auth.NewAuth(authConfig, database),
+		db:                  database,
+		alertThreshold:      normalizedConfig.AlertThreshold,
+		webhooks:            make([]alerts.AlertService, 0),
+		ShutdownChan:        make(chan struct{}),
+		pollerPatterns:      normalizedConfig.PollerPatterns,
+		metrics:             metricsManager,
+		snmpManager:         snmp.NewSNMPManager(database),
+		config:              normalizedConfig,
+		authService:         auth.NewAuth(authConfig, database),
+		metricBuffers:       make(map[string][]*db.TimeseriesMetric),
+		serviceBuffers:      make(map[string][]*db.ServiceStatus),
+		sysmonBuffers:       make(map[string][]*models.SysmonMetrics),
+		bufferMu:            sync.RWMutex{},
+		pollerStatusCache:   make(map[string]*pollerStatus),
+		pollerStatusUpdates: make(map[string]*db.PollerStatus),
 	}
 
 	server.initializeWebhooks(normalizedConfig.Webhooks)
@@ -145,29 +152,32 @@ func TestProcessStatusReport(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	mockRow := db.NewMockRow(ctrl)
 
-	// Mock getPollerHealthState
-	mockDB.EXPECT().QueryRow("SELECT is_healthy FROM pollers WHERE poller_id = ?", "test-poller").Return(mockRow)
-	mockRow.EXPECT().Scan(gomock.Any()).Return(nil) // Poller exists
+	// Mock GetPollerStatus
+	mockDB.EXPECT().GetPollerStatus(gomock.Any(), "test-poller").Return(&db.PollerStatus{
+		PollerID:  "test-poller",
+		IsHealthy: true,
+		FirstSeen: time.Now().Add(-1 * time.Hour),
+		LastSeen:  time.Now(),
+	}, nil)
 
 	// Mock UpdatePollerStatus
-	mockDB.EXPECT().UpdatePollerStatus(gomock.All(
-		gomock.Any(),
-	)).DoAndReturn(func(status *db.PollerStatus) error {
+	mockDB.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, status *db.PollerStatus) error {
 		assert.Equal(t, "test-poller", status.PollerID)
 		assert.True(t, status.IsHealthy)
-
 		return nil
 	})
 
-	// Mock service status update
-	mockDB.EXPECT().UpdateServiceStatus(gomock.Any()).Return(nil)
+	// Mock UpdateServiceStatuses (since service statuses are buffered and flushed)
+	mockDB.EXPECT().UpdateServiceStatuses(gomock.Any(), gomock.Any()).Return(nil)
 
 	server := &Server{
 		db:             mockDB,
 		alertThreshold: 5 * time.Minute,
 		config:         &Config{KnownPollers: []string{"test-poller"}},
+		metricBuffers:  make(map[string][]*db.TimeseriesMetric),
+		serviceBuffers: make(map[string][]*db.ServiceStatus),
+		sysmonBuffers:  make(map[string][]*models.SysmonMetrics),
 	}
 
 	now := time.Now()
@@ -197,7 +207,6 @@ func TestReportStatus(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	mockRow := db.NewMockRow(ctrl)
 	mockAPI := api.NewMockService(ctrl)
 
 	// Create a real metrics.Manager with mock db.Service
@@ -207,26 +216,37 @@ func TestReportStatus(t *testing.T) {
 		MaxPollers: 1000,
 	}, mockDB)
 
-	// Common mocks
-	mockDB.EXPECT().QueryRow("SELECT is_healthy FROM pollers WHERE poller_id = ?", gomock.Any()).Return(mockRow).AnyTimes()
-	mockRow.EXPECT().Scan(gomock.Any()).Return(nil).AnyTimes()
+	// Mock GetPollerStatus
+	mockDB.EXPECT().GetPollerStatus(gomock.Any(), "test-poller").Return(&db.PollerStatus{
+		PollerID:  "test-poller",
+		IsHealthy: true,
+		FirstSeen: time.Now().Add(-1 * time.Hour),
+		LastSeen:  time.Now(),
+	}, nil).AnyTimes()
 
-	// For "test-poller" case
-	mockDB.EXPECT().UpdatePollerStatus(gomock.All(
-		gomock.Any(),
-	)).DoAndReturn(func(status *db.PollerStatus) error {
+	// Mock UpdatePollerStatus
+	mockDB.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, status *db.PollerStatus) error {
 		assert.Equal(t, "test-poller", status.PollerID)
 		assert.True(t, status.IsHealthy)
 		return nil
 	}).AnyTimes()
-	mockDB.EXPECT().UpdateServiceStatus(gomock.Any()).Return(nil).AnyTimes()
+
+	// Mock UpdateServiceStatuses
+	mockDB.EXPECT().UpdateServiceStatuses(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+	// Mock UpdatePollerStatus for API
 	mockAPI.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).AnyTimes()
 
 	server := &Server{
-		db:        mockDB,
-		config:    &Config{KnownPollers: []string{"test-poller"}},
-		metrics:   metricsManager,
-		apiServer: mockAPI,
+		db:                  mockDB,
+		config:              &Config{KnownPollers: []string{"test-poller"}},
+		metrics:             metricsManager,
+		apiServer:           mockAPI,
+		metricBuffers:       make(map[string][]*db.TimeseriesMetric),
+		serviceBuffers:      make(map[string][]*db.ServiceStatus),
+		sysmonBuffers:       make(map[string][]*models.SysmonMetrics),
+		pollerStatusCache:   make(map[string]*pollerStatus),
+		pollerStatusUpdates: make(map[string]*db.PollerStatus),
 	}
 
 	// Test unknown poller
@@ -294,7 +314,7 @@ func TestProcessSweepData(t *testing.T) {
 
 	for i := range tests {
 		t.Run(tests[i].name, func(t *testing.T) {
-			tt := &tests[i] // Access the test case by reference to avoid copying
+			tt := &tests[i]
 
 			svc := &api.ServiceStatus{
 				Message: tt.inputMessage,
@@ -329,10 +349,11 @@ func TestProcessSNMPMetrics(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	mockDB.EXPECT().StoreMetric(gomock.Any(), gomock.Any()).Return(nil).Times(2)
+	mockDB.EXPECT().StoreMetric(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).Times(2)
 
 	server := &Server{
-		db: mockDB,
+		db:            mockDB,
+		metricBuffers: make(map[string][]*db.TimeseriesMetric),
 	}
 
 	pollerID := "test-poller"
@@ -371,19 +392,24 @@ func TestUpdatePollerStatus(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	mockTx := db.NewMockTransaction(ctrl)
-	mockRow := db.NewMockRow(ctrl)
 
-	mockDB.EXPECT().Begin().Return(mockTx, nil)
-	mockTx.EXPECT().QueryRow("SELECT EXISTS(SELECT 1 FROM pollers WHERE poller_id = ?)", "test-poller").Return(mockRow)
-	mockRow.EXPECT().Scan(gomock.Any()).Return(nil)
-	mockTx.EXPECT().Exec(gomock.Any(), "test-poller", gomock.Any(), gomock.Any(), true).Return(nil, nil)
-	mockTx.EXPECT().Exec(gomock.Any(), "test-poller", gomock.Any(), true).Return(nil, nil)
-	mockTx.EXPECT().Commit().Return(nil)
-	mockTx.EXPECT().Rollback().Return(nil).AnyTimes()
+	// Mock GetPollerStatus to simulate existing poller
+	mockDB.EXPECT().GetPollerStatus(gomock.Any(), "test-poller").Return(&db.PollerStatus{
+		PollerID:  "test-poller",
+		IsHealthy: true,
+		FirstSeen: time.Now().Add(-1 * time.Hour),
+		LastSeen:  time.Now(),
+	}, nil)
 
-	server := &Server{db: mockDB}
-	err := server.updatePollerStatus("test-poller", true, time.Now())
+	// Mock UpdatePollerStatus
+	mockDB.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).Return(nil)
+
+	server := &Server{
+		db:                  mockDB,
+		pollerStatusUpdates: make(map[string]*db.PollerStatus),
+	}
+
+	err := server.updatePollerStatus(context.Background(), "test-poller", true, time.Now())
 	assert.NoError(t, err)
 }
 
@@ -413,25 +439,22 @@ func TestHandlePollerDown(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	mockTx := db.NewMockTransaction(ctrl)
 	mockWebhook := alerts.NewMockAlertService(ctrl)
 	mockAPI := api.NewMockService(ctrl)
-	mockRow := db.NewMockRow(ctrl)
 
-	mockDB.EXPECT().Begin().Return(mockTx, nil)
-	mockTx.EXPECT().QueryRow("SELECT EXISTS(SELECT 1 FROM pollers WHERE poller_id = ?)", "test-poller").Return(mockRow)
-	mockRow.EXPECT().Scan(gomock.Any()).Return(nil)
-	mockTx.EXPECT().Exec(gomock.Any(), "test-poller", gomock.Any(), gomock.Any(), false).Return(nil, nil)
-	mockTx.EXPECT().Exec(gomock.Any(), "test-poller", gomock.Any(), false).Return(nil, nil)
-	mockTx.EXPECT().Commit().Return(nil)
-	mockTx.EXPECT().Rollback().Return(nil).AnyTimes()
+	// Mock UpdatePollerStatus (handled via queuePollerStatusUpdate)
+	mockDB.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).Return(nil)
+
+	// Mock alert and API update
 	mockWebhook.EXPECT().Alert(gomock.Any(), gomock.Any()).Return(nil)
 	mockAPI.EXPECT().UpdatePollerStatus("test-poller", gomock.Any())
 
 	server := &Server{
-		db:        mockDB,
-		webhooks:  []alerts.AlertService{mockWebhook},
-		apiServer: mockAPI,
+		db:                  mockDB,
+		webhooks:            []alerts.AlertService{mockWebhook},
+		apiServer:           mockAPI,
+		pollerStatusCache:   make(map[string]*pollerStatus),
+		pollerStatusUpdates: make(map[string]*db.PollerStatus),
 	}
 
 	err := server.handlePollerDown(context.Background(), "test-poller", time.Now().Add(-10*time.Minute))
@@ -443,26 +466,30 @@ func TestEvaluatePollerHealth(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	mockTx := db.NewMockTransaction(ctrl)
 	mockWebhook := alerts.NewMockAlertService(ctrl)
 	mockAPI := api.NewMockService(ctrl)
-	mockRow := db.NewMockRow(ctrl)
 
-	mockDB.EXPECT().Begin().Return(mockTx, nil).AnyTimes()
-	mockTx.EXPECT().QueryRow(gomock.Any(), gomock.Any()).Return(mockRow).AnyTimes()
-	mockRow.EXPECT().Scan(gomock.Any()).Return(nil).AnyTimes()
-	mockTx.EXPECT().Exec(gomock.Any(), "test-poller", gomock.Any(), gomock.Any(), false).Return(nil, nil).AnyTimes()
-	mockTx.EXPECT().Exec(gomock.Any(), "test-poller", gomock.Any(), false).Return(nil, nil).AnyTimes()
-	mockTx.EXPECT().Commit().Return(nil).AnyTimes()
-	mockTx.EXPECT().Rollback().Return(nil).AnyTimes()
+	// Mock GetPollerStatus
+	mockDB.EXPECT().GetPollerStatus(gomock.Any(), "test-poller").Return(&db.PollerStatus{
+		PollerID:  "test-poller",
+		IsHealthy: true,
+		FirstSeen: time.Now().Add(-1 * time.Hour),
+		LastSeen:  time.Now(),
+	}, nil).AnyTimes()
+
+	// Mock UpdatePollerStatus for offline case
+	mockDB.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+	// Mock alert and API update for offline case
 	mockWebhook.EXPECT().Alert(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 	mockAPI.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).AnyTimes()
-	mockDB.EXPECT().QueryRow("SELECT is_healthy FROM pollers WHERE poller_id = ?", "test-poller").Return(mockRow).AnyTimes()
 
 	server := &Server{
-		db:        mockDB,
-		webhooks:  []alerts.AlertService{mockWebhook},
-		apiServer: mockAPI,
+		db:                  mockDB,
+		webhooks:            []alerts.AlertService{mockWebhook},
+		apiServer:           mockAPI,
+		pollerStatusCache:   make(map[string]*pollerStatus),
+		pollerStatusUpdates: make(map[string]*db.PollerStatus),
 	}
 
 	now := time.Now()

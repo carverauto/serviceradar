@@ -36,7 +36,7 @@ type MetricsConfig struct {
 	// Whether metrics collection is enabled
 	Enabled bool `json:"metrics_enabled" example:"true"`
 	// How long metrics are kept before being purged (in days)
-	Retention int `json:"metrics_retention" example:"30"`
+	Retention int32 `json:"metrics_retention" example:"30"`
 	// Maximum number of pollers to track metrics for
 	MaxPollers int32 `json:"max_pollers" example:"1000"`
 }

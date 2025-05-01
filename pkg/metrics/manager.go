@@ -100,7 +100,7 @@ func (m *Manager) AddMetric(nodeID string, timestamp time.Time, responseTime int
 	}
 
 	// Load or create metric store for this node
-	store, loaded := m.nodes.LoadOrStore(nodeID, NewBuffer(m.config.Retention))
+	store, loaded := m.nodes.LoadOrStore(nodeID, NewBuffer(int(m.config.Retention)))
 	if !loaded {
 		m.nodeCount.Add(1)
 		m.activeNodes.Add(1)

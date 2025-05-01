@@ -46,6 +46,7 @@ type StructuredMetricCollector interface {
 	GetAllDiskMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.DiskMetric, error)
 
 	// Rperf methods
+
 	StoreRperfMetrics(ctx context.Context, pollerID string, metrics *models.RperfMetrics, timestamp time.Time) error
 	GetRperfMetrics(ctx context.Context, pollerID string, target string, start, end time.Time) ([]models.RperfMetric, error)
 }

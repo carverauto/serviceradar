@@ -59,7 +59,7 @@ func TestManager(t *testing.T) {
 
 		// Verify metrics retrieval
 		metrics := manager.GetMetrics("node1")
-		if len(metrics) != cfg.Retention {
+		if len(metrics) != int(cfg.Retention) {
 			t.Errorf("expected %d metrics, got %d", cfg.Retention, len(metrics))
 		}
 	})
