@@ -35,9 +35,9 @@ import (
 )
 
 type Metrics struct {
-	Enabled    bool `json:"enabled"`
-	Retention  int  `json:"retention"`
-	MaxPollers int  `json:"max_pollers"`
+	Enabled    bool  `json:"enabled"`
+	Retention  int32 `json:"retention"`
+	MaxPollers int32 `json:"max_pollers"`
 }
 
 type ProtonSettings struct {
