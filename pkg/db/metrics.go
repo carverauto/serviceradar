@@ -290,7 +290,6 @@ func (db *DB) StoreMetric(ctx context.Context, pollerID string, metric *Timeseri
 		return fmt.Errorf("failed to store metric %s for poller %s: %w", metric.Name, pollerID, err)
 	}
 
-	log.Printf("Successfully stored metric %s for poller %s", metric.Name, pollerID)
 	return nil
 }
 

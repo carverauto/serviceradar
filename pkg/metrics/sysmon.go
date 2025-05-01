@@ -44,9 +44,6 @@ func (m *Manager) StoreSysmonMetrics(ctx context.Context, pollerID string, metri
 		return err
 	}
 
-	log.Printf("Stored sysmon metrics for poller %s: %d CPUs, %d disks, 1 memory",
-		pollerID, len(metrics.CPUs), len(metrics.Disks))
-
 	return nil
 }
 
@@ -89,9 +86,6 @@ func (m *Manager) GetDiskMetrics(ctx context.Context, pollerID, mountPoint strin
 
 // GetAllDiskMetrics retrieves disk metrics for all mount points for a given poller.
 func (m *Manager) GetAllDiskMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.DiskMetric, error) {
-	log.Printf("Getting all disk metrics for poller %s between %s and %s",
-		pollerID, start.Format(time.RFC3339), end.Format(time.RFC3339))
-
 	// Use the DB service's GetAllDiskMetrics method
 	dbMetrics, err := m.db.GetAllDiskMetrics(ctx, pollerID, start, end)
 	if err != nil {
@@ -114,8 +108,6 @@ func (m *Manager) GetAllDiskMetrics(ctx context.Context, pollerID string, start,
 			Timestamp:  dm.Timestamp,
 		}
 	}
-
-	log.Printf("Retrieved %d disk metrics for poller %s", len(metrics), pollerID)
 
 	return metrics, nil
 }
@@ -140,24 +132,15 @@ func (m *Manager) GetMemoryMetrics(ctx context.Context, pollerID string, start, 
 
 // GetAllCPUMetrics retrieves all CPU metrics for a poller.
 func (m *Manager) GetAllCPUMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]db.SysmonCPUResponse, error) {
-	log.Printf("Getting all CPU metrics for poller %s between %s and %s",
-		pollerID, start.Format(time.RFC3339), end.Format(time.RFC3339))
-
 	return m.db.GetAllCPUMetrics(ctx, pollerID, start, end)
 }
 
 // GetAllDiskMetricsGrouped retrieves all disk metrics for a poller, grouped by timestamp.
 func (m *Manager) GetAllDiskMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]db.SysmonDiskResponse, error) {
-	log.Printf("Getting all disk metrics (grouped) for poller %s between %s and %s",
-		pollerID, start.Format(time.RFC3339), end.Format(time.RFC3339))
-
 	return m.db.GetAllDiskMetricsGrouped(ctx, pollerID, start, end)
 }
 
 // GetMemoryMetricsGrouped retrieves all memory metrics for a poller, grouped by timestamp.
 func (m *Manager) GetMemoryMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]db.SysmonMemoryResponse, error) {
-	log.Printf("Getting memory metrics (grouped) for poller %s between %s and %s",
-		pollerID, start.Format(time.RFC3339), end.Format(time.RFC3339))
-
 	return m.db.GetMemoryMetricsGrouped(ctx, pollerID, start, end)
 }

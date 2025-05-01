@@ -25,7 +25,6 @@ import (
 // CleanOldData removes old data from the database.
 func (db *DB) CleanOldData(ctx context.Context, retentionPeriod time.Duration) error {
 	cutoff := time.Now().Add(-retentionPeriod)
-
 	tables := []string{
 		"cpu_metrics",
 		"disk_metrics",
@@ -33,14 +32,13 @@ func (db *DB) CleanOldData(ctx context.Context, retentionPeriod time.Duration) e
 		"poller_history",
 		"service_status",
 		"timeseries_metrics",
+		"pollers",
 	}
-
 	for _, table := range tables {
-		query := fmt.Sprintf("DELETE FROM %s WHERE timestamp < $1", table)
+		query := fmt.Sprintf("ALTER STREAM %s DELETE WHERE timestamp < $1", table)
 		if err := db.conn.Exec(ctx, query, cutoff); err != nil {
 			return fmt.Errorf("%w %s: %w", ErrFailedToClean, table, err)
 		}
 	}
-
 	return nil
 }

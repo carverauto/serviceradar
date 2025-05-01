@@ -3,7 +3,6 @@ package rperf
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/db"
@@ -36,8 +35,6 @@ func (m *rperfManagerImpl) GetRperfMetrics(ctx context.Context, pollerID string,
 	for i := range metrics {
 		pointerMetrics[i] = &metrics[i]
 	}
-
-	log.Printf("Retrieved %d rperf metrics for poller %s", len(pointerMetrics), pollerID)
 
 	return pointerMetrics, nil
 }

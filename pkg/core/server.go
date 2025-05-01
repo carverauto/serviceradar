@@ -566,8 +566,6 @@ func (s *Server) getPollerHealthState(ctx context.Context, pollerID string) (boo
 
 func (s *Server) processStatusReport(
 	ctx context.Context, req *proto.PollerStatusRequest, now time.Time) (*api.PollerStatus, error) {
-	log.Printf("Starting processStatusReport for poller %s", req.PollerId)
-
 	pollerStatus := &db.PollerStatus{
 		PollerID:  req.PollerId,
 		IsHealthy: true,
@@ -586,8 +584,6 @@ func (s *Server) processStatusReport(
 
 			return nil, fmt.Errorf("failed to store poller status: %w", err)
 		}
-
-		log.Printf("Stored poller status for %s", req.PollerId)
 
 		apiStatus := s.createPollerStatus(req, now)
 		if err := s.processServices(ctx, req.PollerId, apiStatus, req.Services, now); err != nil {
@@ -634,15 +630,10 @@ func (*Server) createPollerStatus(req *proto.PollerStatusRequest, now time.Time)
 func (s *Server) processServices(ctx context.Context, pollerID string, apiStatus *api.PollerStatus, services []*proto.ServiceStatus, now time.Time) error {
 	allServicesAvailable := true
 
-	// Log all services received
-	log.Printf("Processing %d services for poller %s", len(services), pollerID)
-
 	// Pre-allocate memory for service statuses
 	serviceStatuses := make([]*db.ServiceStatus, 0, len(services))
 
 	for _, svc := range services {
-		s.logServiceProcessing(pollerID, svc)
-
 		apiService := s.createAPIService(svc)
 		if !svc.Available {
 			allServicesAvailable = false
@@ -670,6 +661,7 @@ func (s *Server) processServices(ctx context.Context, pollerID string, apiStatus
 	s.bufferMu.Unlock()
 
 	apiStatus.IsHealthy = allServicesAvailable
+
 	return nil
 }
 
@@ -710,15 +702,8 @@ func (s *Server) processMetrics(ctx context.Context, pollerID string, svc *proto
 	case icmpServiceType:
 		return s.processICMPMetrics(pollerID, svc, details, now)
 	}
-	return nil
-}
 
-func (*Server) logServiceProcessing(pollerID string, svc *proto.ServiceStatus) {
-	log.Printf("Processing service %s for poller %s", svc.ServiceName, pollerID)
-	log.Printf("Service type/name: %s/%s, Message length: %d",
-		svc.ServiceType,
-		svc.ServiceName,
-		len(svc.Message))
+	return nil
 }
 
 func (*Server) createAPIService(svc *proto.ServiceStatus) api.ServiceStatus {
@@ -950,8 +935,6 @@ func (s *Server) processICMPMetrics(pollerID string, svc *proto.ServiceStatus, d
 		)
 		if err != nil {
 			log.Printf("Failed to add ICMP metric to in-memory buffer for %s: %v", svc.ServiceName, err)
-		} else {
-			log.Printf("Added metric to in-memory buffer for %s", svc.ServiceName)
 		}
 	} else {
 		log.Printf("Metrics manager is nil in processICMPMetrics for poller %s", pollerID)
@@ -1036,9 +1019,6 @@ func (*Server) processSweepData(svc *api.ServiceStatus, now time.Time) error {
 		}
 
 		svc.Message = string(updatedMessage)
-	} else {
-		log.Printf("Processing sweep data with timestamp: %v",
-			time.Unix(sweepData.LastSweep, 0).Format(time.RFC3339))
 	}
 
 	return nil
@@ -1147,8 +1127,18 @@ func (s *Server) CheckNeverReportedPollersStartup(ctx context.Context) {
 	log.Printf("Checking for unreported pollers matching patterns: %v", s.pollerPatterns)
 
 	if len(s.pollerPatterns) == 0 {
+		log.Println("No poller patterns configured, skipping unreported poller check")
+
 		return
 	}
+
+	// Clear poller status cache
+	s.cacheMutex.Lock()
+	s.pollerStatusCache = make(map[string]*pollerStatus)
+	s.cacheLastUpdated = time.Time{}
+	s.cacheMutex.Unlock()
+
+	log.Println("Cleared poller status cache for startup check")
 
 	pollerIDs, err := s.db.ListNeverReportedPollers(ctx, s.pollerPatterns)
 	if err != nil {
@@ -1157,8 +1147,11 @@ func (s *Server) CheckNeverReportedPollersStartup(ctx context.Context) {
 		return
 	}
 
+	log.Printf("Found %d unreported pollers: %v", len(pollerIDs), pollerIDs)
 	if len(pollerIDs) > 0 {
 		s.sendUnreportedPollersAlert(ctx, pollerIDs)
+	} else {
+		log.Println("No unreported pollers found")
 	}
 }
 
@@ -1166,7 +1159,7 @@ func (s *Server) sendUnreportedPollersAlert(ctx context.Context, pollerIDs []str
 	alert := &alerts.WebhookAlert{
 		Level:     alerts.Warning,
 		Title:     "Pollers Never Reported",
-		Message:   fmt.Sprintf("%d poller(s) have not reported since startup", len(pollerIDs)),
+		Message:   fmt.Sprintf("%d poller(s) have not reported since startup: %v", len(pollerIDs), pollerIDs),
 		PollerID:  "core",
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		Details: map[string]any{
@@ -1178,6 +1171,8 @@ func (s *Server) sendUnreportedPollersAlert(ctx context.Context, pollerIDs []str
 
 	if err := s.sendAlert(ctx, alert); err != nil {
 		log.Printf("Error sending unreported pollers alert: %v", err)
+	} else {
+		log.Printf("Sent alert for %d unreported pollers", len(pollerIDs))
 	}
 }
 
@@ -1232,8 +1227,6 @@ func (s *Server) MonitorPollers(ctx context.Context) {
 			return
 		case <-ticker.C:
 			s.handleMonitorTick(ctx)
-		case <-cleanupTicker.C:
-			s.handleCleanupTick(ctx)
 		}
 	}
 }
@@ -1246,23 +1239,6 @@ func (s *Server) handleMonitorTick(ctx context.Context) {
 	if err := s.checkNeverReportedPollers(ctx); err != nil {
 		log.Printf("Never-reported check failed: %v", err)
 	}
-}
-
-func (s *Server) handleCleanupTick(ctx context.Context) {
-	if err := s.performDailyCleanup(ctx); err != nil {
-		log.Printf("Daily cleanup failed: %v", err)
-	}
-}
-
-func (s *Server) performDailyCleanup(ctx context.Context) error {
-	retentionPeriod := 30 * 24 * time.Hour
-	if err := s.db.CleanOldData(ctx, retentionPeriod); err != nil {
-		return fmt.Errorf("failed to perform daily cleanup: %w", err)
-	}
-
-	log.Printf("Performed daily cleanup with retention period %v", retentionPeriod)
-
-	return nil
 }
 
 func (s *Server) checkPollerStatus(ctx context.Context) error {
@@ -1441,6 +1417,7 @@ func (s *Server) handlePollerDown(ctx context.Context, pollerID string, lastSeen
 	if ps, ok := s.pollerStatusCache[pollerID]; ok {
 		firstSeen = ps.FirstSeen
 	}
+
 	s.cacheMutex.RUnlock()
 
 	s.queuePollerStatusUpdate(pollerID, false, lastSeen, firstSeen)
@@ -1529,20 +1506,7 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 		return &proto.PollerStatusResponse{Received: true}, nil
 	}
 
-	// Log metrics manager state
-	if s.metrics == nil {
-		log.Printf("Metrics manager is nil for poller %s", req.PollerId)
-	} else {
-		log.Printf("Metrics manager initialized for poller %s", req.PollerId)
-	}
-
 	now := time.Unix(req.Timestamp, 0)
-	timestamp := time.Now()
-	responseTime := timestamp.Sub(now).Nanoseconds()
-	log.Printf("Response time for %s: %d ns (%.2f ms)",
-		req.PollerId,
-		responseTime,
-		float64(responseTime)/float64(time.Millisecond))
 
 	apiStatus, err := s.processStatusReport(ctx, req, now)
 	if err != nil {
@@ -1568,12 +1532,16 @@ func (s *Server) getPollerStatuses(ctx context.Context, forceRefresh bool) (map[
 	if !forceRefresh && time.Since(s.cacheLastUpdated) < 30*time.Second {
 		// Use cached data if it's recent enough
 		result := make(map[string]*pollerStatus, len(s.pollerStatusCache))
+
 		for k, v := range s.pollerStatusCache {
 			result[k] = v
 		}
+
 		s.cacheMutex.RUnlock()
+
 		return result, nil
 	}
+
 	s.cacheMutex.RUnlock()
 
 	// Need to refresh the cache
@@ -1583,6 +1551,7 @@ func (s *Server) getPollerStatuses(ctx context.Context, forceRefresh bool) (map[
 	// Double-check in case another goroutine refreshed while we were waiting for the lock
 	if !forceRefresh && time.Since(s.cacheLastUpdated) < 30*time.Second {
 		result := make(map[string]*pollerStatus, len(s.pollerStatusCache))
+
 		for k, v := range s.pollerStatusCache {
 			result[k] = v
 		}
