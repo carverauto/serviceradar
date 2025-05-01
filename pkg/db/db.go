@@ -317,7 +317,6 @@ func (db *DB) UpdateServiceStatuses(ctx context.Context, statuses []*ServiceStat
 		return fmt.Errorf("%w service statuses: %w", ErrFailedToInsert, err)
 	}
 
-	log.Printf("Successfully inserted %d service statuses", len(statuses))
 	return nil
 }
 

@@ -415,7 +415,7 @@ func (s *APIServer) getPollerMetrics(w http.ResponseWriter, r *http.Request) {
 }
 
 // SetPollerHistoryHandler sets the handler function for retrieving poller history
-func (s *APIServer) SetPollerHistoryHandler(handler func(pollerID string) ([]PollerHistoryPoint, error)) {
+func (s *APIServer) SetPollerHistoryHandler(_ context.Context, handler func(pollerID string) ([]PollerHistoryPoint, error)) {
 	s.pollerHistoryHandler = handler
 }
 
