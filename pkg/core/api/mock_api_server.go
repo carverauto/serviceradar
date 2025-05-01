@@ -10,6 +10,7 @@
 package api
 
 import (
+	context "context"
 	reflect "reflect"
 
 	gomock "go.uber.org/mock/gomock"
@@ -52,15 +53,15 @@ func (mr *MockServiceMockRecorder) SetKnownPollers(knownPollers any) *gomock.Cal
 }
 
 // SetPollerHistoryHandler mocks base method.
-func (m *MockService) SetPollerHistoryHandler(handler func(string) ([]PollerHistoryPoint, error)) {
+func (m *MockService) SetPollerHistoryHandler(ctx context.Context, handler func(string) ([]PollerHistoryPoint, error)) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "SetPollerHistoryHandler", handler)
+	m.ctrl.Call(m, "SetPollerHistoryHandler", ctx, handler)
 }
 
 // SetPollerHistoryHandler indicates an expected call of SetPollerHistoryHandler.
-func (mr *MockServiceMockRecorder) SetPollerHistoryHandler(handler any) *gomock.Call {
+func (mr *MockServiceMockRecorder) SetPollerHistoryHandler(ctx, handler any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPollerHistoryHandler", reflect.TypeOf((*MockService)(nil).SetPollerHistoryHandler), handler)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetPollerHistoryHandler", reflect.TypeOf((*MockService)(nil).SetPollerHistoryHandler), ctx, handler)
 }
 
 // Start mocks base method.

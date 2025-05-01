@@ -871,9 +871,6 @@ func (db *DB) GetMemoryMetrics(ctx context.Context, pollerID string, start, end 
 
 // GetAllDiskMetricsGrouped retrieves disk metrics grouped by timestamp.
 func (db *DB) GetAllDiskMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]SysmonDiskResponse, error) {
-	log.Printf("Querying all disk metrics for poller %s between %s and %s",
-		pollerID, start.Format(time.RFC3339), end.Format(time.RFC3339))
-
 	rows, err := db.conn.Query(ctx, `
 		SELECT timestamp, mount_point, used_bytes, total_bytes
 		FROM disk_metrics
@@ -921,9 +918,6 @@ func (db *DB) GetAllDiskMetricsGrouped(ctx context.Context, pollerID string, sta
 
 // GetMemoryMetricsGrouped retrieves memory metrics grouped by timestamp.
 func (db *DB) GetMemoryMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]SysmonMemoryResponse, error) {
-	log.Printf("Querying memory metrics for poller %s between %s and %s",
-		pollerID, start.Format(time.RFC3339), end.Format(time.RFC3339))
-
 	rows, err := db.conn.Query(ctx, `
 		SELECT timestamp, used_bytes, total_bytes
 		FROM memory_metrics
