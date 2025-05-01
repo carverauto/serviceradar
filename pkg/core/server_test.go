@@ -383,7 +383,7 @@ func TestProcessSNMPMetrics(t *testing.T) {
 	err := json.Unmarshal([]byte(detailsJSON), &details)
 	require.NoError(t, err)
 
-	err = server.processSNMPMetrics(context.Background(), pollerID, details, now)
+	err = server.processSNMPMetrics(pollerID, details, now)
 	assert.NoError(t, err)
 }
 
