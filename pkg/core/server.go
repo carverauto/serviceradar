@@ -722,10 +722,6 @@ func (*Server) parseServiceDetails(svc *proto.ServiceStatus) (json.RawMessage, e
 
 	if err := json.Unmarshal([]byte(sanitized), &details); err != nil {
 		log.Printf("Error unmarshaling service details for %s: %v", svc.ServiceName, err)
-		log.Printf("Raw message: %s", svc.Message)
-		log.Printf("Sanitized message: %s", sanitized)
-		log.Println("Invalid JSON format, skipping service details")
-
 		return nil, err
 	}
 
