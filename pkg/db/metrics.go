@@ -133,7 +133,7 @@ func (db *DB) GetMetrics(ctx context.Context, pollerID, metricName string, start
 	rows, err := db.conn.Query(ctx, `
 		SELECT metric_name, metric_type, value, metadata, timestamp
 		FROM timeseries_metrics
-		WHERE poller_id = $1
+		WHERE poller_id =  $1
 		AND metric_name = $2
 		AND timestamp BETWEEN $3 AND $4`,
 		pollerID, metricName, start, end)

@@ -1555,6 +1555,22 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 			s.metricBuffers[req.PollerId] = append(s.metricBuffers[req.PollerId], metric)
 			s.bufferMu.Unlock()
 
+			// ALSO add to in-memory ring buffer for dashboard display
+			if s.metrics != nil {
+				err := s.metrics.AddMetric(
+					req.PollerId,
+					time.Now(),              // Use current time
+					pingResult.ResponseTime, // The response time value
+					service.ServiceName,     // The service name
+				)
+				if err != nil {
+					log.Printf("Failed to add ICMP metric to in-memory buffer for %s: %v",
+						service.ServiceName, err)
+				} else {
+					log.Printf("Added metric to in-memory buffer for %s", service.ServiceName)
+				}
+			}
+
 			log.Printf("Buffered ICMP metric for %s: time=%v response_time=%.2fms",
 				service.ServiceName,
 				time.Now().Format(time.RFC3339),
@@ -1616,6 +1632,7 @@ func (s *Server) getPollerStatuses(ctx context.Context, forceRefresh bool) (map[
 			ID:        status.PollerID,
 			IsHealthy: status.IsHealthy,
 			LastSeen:  status.LastSeen,
+			FirstSeen: status.FirstSeen,
 		}
 
 		if existing, ok := s.pollerStatusCache[status.PollerID]; ok {

@@ -36,7 +36,7 @@ func (db *DB) CleanOldData(ctx context.Context, retentionPeriod time.Duration) e
 	}
 
 	for _, table := range tables {
-		query := fmt.Sprintf("ALTER TABLE %s DELETE WHERE timestamp < ?", table)
+		query := fmt.Sprintf("DELETE FROM %s WHERE timestamp < $1", table)
 		if err := db.conn.Exec(ctx, query, cutoff); err != nil {
 			return fmt.Errorf("%w %s: %w", ErrFailedToClean, table, err)
 		}

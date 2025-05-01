@@ -88,6 +88,7 @@ func (m *Manager) AddMetric(nodeID string, timestamp time.Time, responseTime int
 		return nil
 	}
 
+	log.Printf("Adding metric for node: %s, timestamp: %s, service: %s", nodeID, timestamp, serviceName)
 	// Update LRU tracking first
 	m.updateNodeLRU(nodeID)
 
@@ -106,6 +107,7 @@ func (m *Manager) AddMetric(nodeID string, timestamp time.Time, responseTime int
 	}
 
 	store.(MetricStore).Add(timestamp, responseTime, serviceName)
+	log.Printf("Added metric for node: %s, timestamp: %s, service: %s", nodeID, timestamp, serviceName)
 
 	return nil
 }
