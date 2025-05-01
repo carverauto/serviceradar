@@ -93,7 +93,7 @@ func run() error {
 		api.WithRperfManager(server.GetRperfManager()),
 	)
 
-	server.SetAPIServer(apiServer)
+	server.SetAPIServer(ctx, apiServer)
 
 	// Log message about Swagger documentation
 	log.Printf("API server will include Swagger documentation at http://%s/swagger/index.html", cfg.ListenAddr)

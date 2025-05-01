@@ -17,12 +17,14 @@
 // Package api pkg/core/api/interfaces.go
 package api
 
+import "context"
+
 //go:generate mockgen -destination=mock_api_server.go -package=api github.com/carverauto/serviceradar/pkg/core/api Service
 
 // Service represents the API server functionality.
 type Service interface {
 	Start(addr string) error
 	UpdatePollerStatus(pollerID string, status *PollerStatus)
-	SetPollerHistoryHandler(handler func(pollerID string) ([]PollerHistoryPoint, error))
+	SetPollerHistoryHandler(ctx context.Context, handler func(pollerID string) ([]PollerHistoryPoint, error))
 	SetKnownPollers(knownPollers []string)
 }

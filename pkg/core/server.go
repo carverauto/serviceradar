@@ -76,7 +76,7 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 	metricsConfig := models.MetricsConfig{
 		Enabled:    normalizedConfig.Metrics.Enabled,
 		Retention:  normalizedConfig.Metrics.Retention,
-		MaxPollers: int32(normalizedConfig.Metrics.MaxPollers),
+		MaxPollers: normalizedConfig.Metrics.MaxPollers,
 	}
 	metricsManager := metrics.NewManager(metricsConfig, database)
 
@@ -335,7 +335,7 @@ func (s *Server) monitorPollers(ctx context.Context) {
 	log.Printf("Starting poller monitoring...")
 
 	time.Sleep(pollerDiscoveryTimeout)
-	s.checkInitialStates()
+	s.checkInitialStates(ctx)
 	time.Sleep(pollerNeverReportedTimeout)
 	s.CheckNeverReportedPollersStartup(ctx)
 	s.MonitorPollers(ctx)
@@ -488,18 +488,18 @@ func (s *Server) Shutdown(ctx context.Context) {
 	close(s.ShutdownChan)
 }
 
-func (s *Server) SetAPIServer(apiServer api.Service) {
+func (s *Server) SetAPIServer(ctx context.Context, apiServer api.Service) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	s.apiServer = apiServer
 	apiServer.SetKnownPollers(s.config.KnownPollers)
 
-	apiServer.SetPollerHistoryHandler(func(pollerID string) ([]api.PollerHistoryPoint, error) {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	apiServer.SetPollerHistoryHandler(ctx, func(pollerID string) ([]api.PollerHistoryPoint, error) {
+		ctxWithTimeout, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 
-		points, err := s.db.GetPollerHistoryPoints(ctx, pollerID, pollerHistoryLimit)
+		points, err := s.db.GetPollerHistoryPoints(ctxWithTimeout, pollerID, pollerHistoryLimit)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get poller history: %w", err)
 		}
@@ -516,8 +516,8 @@ func (s *Server) SetAPIServer(apiServer api.Service) {
 	})
 }
 
-func (s *Server) checkInitialStates() {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+func (s *Server) checkInitialStates(ctx context.Context) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
 	statuses, err := s.db.ListPollerStatuses(ctx, s.pollerPatterns)
@@ -630,10 +630,14 @@ func (*Server) createPollerStatus(req *proto.PollerStatusRequest, now time.Time)
 	}
 }
 
+// processServices processes service statuses for a poller and updates the API status.
 func (s *Server) processServices(ctx context.Context, pollerID string, apiStatus *api.PollerStatus, services []*proto.ServiceStatus, now time.Time) error {
 	allServicesAvailable := true
 
-	// pre allocate memory for service statuses
+	// Log all services received
+	log.Printf("Processing %d services for poller %s", len(services), pollerID)
+
+	// Pre-allocate memory for service statuses
 	serviceStatuses := make([]*db.ServiceStatus, 0, len(services))
 
 	for _, svc := range services {
@@ -644,52 +648,19 @@ func (s *Server) processServices(ctx context.Context, pollerID string, apiStatus
 			allServicesAvailable = false
 		}
 
-		if svc.Message == "" {
-			log.Printf("No message content for service %s on poller %s", svc.ServiceName, pollerID)
-		} else {
-			details, err := s.parseServiceDetails(svc)
-			if err != nil {
-				log.Printf("Failed to parse details for service %s on poller %s, proceeding without details", svc.ServiceName, pollerID)
-			} else {
-				apiService.Details = details
-
-				switch {
-				case svc.ServiceType == snmpServiceType:
-					if err := s.processSNMPMetrics(ctx, pollerID, details, now); err != nil {
-						log.Printf("Error processing SNMP metrics for %s: %v", svc.ServiceName, err)
-					}
-				case svc.ServiceType == grpcServiceType && svc.ServiceName == rperfServiceType:
-					if err := s.processRperfMetrics(ctx, pollerID, details, now); err != nil {
-						log.Printf("Error processing rperf metrics for %s: %v", svc.ServiceName, err)
-					}
-				case svc.ServiceType == grpcServiceType && svc.ServiceName == sysmonServiceType:
-					if err := s.processSysmonMetrics(ctx, pollerID, details, now); err != nil {
-						log.Printf("Error processing sysmon metrics for %s: %v", svc.ServiceName, err)
-					}
-				case svc.ServiceType == icmpServiceType && svc.ServiceName == rperfServiceType:
-					if err := s.processICMPMetrics(pollerID, svc, details, now); err != nil {
-						log.Printf("Error processing ICMP metrics for %s: %v", svc.ServiceName, err)
-					}
-				}
-			}
+		// Process service details and metrics
+		if err := s.processServiceDetails(ctx, pollerID, &apiService, svc, now); err != nil {
+			log.Printf("Error processing details for service %s on poller %s: %v", svc.ServiceName, pollerID, err)
 		}
 
-		if svc.ServiceType == sweepService {
-			if err := s.processSweepData(&apiService, now); err != nil {
-				log.Printf("Error processing sweep data for %s: %v", svc.ServiceName, err)
-			}
-		}
-
-		serviceStatus := &db.ServiceStatus{
+		serviceStatuses = append(serviceStatuses, &db.ServiceStatus{
 			PollerID:    pollerID,
 			ServiceName: apiService.Name,
 			ServiceType: apiService.Type,
 			Available:   apiService.Available,
 			Details:     apiService.Message,
 			Timestamp:   now,
-		}
-
-		serviceStatuses = append(serviceStatuses, serviceStatus) // Collect status
+		})
 		apiStatus.Services = append(apiStatus.Services, apiService)
 	}
 
@@ -699,7 +670,46 @@ func (s *Server) processServices(ctx context.Context, pollerID string, apiStatus
 	s.bufferMu.Unlock()
 
 	apiStatus.IsHealthy = allServicesAvailable
+	return nil
+}
 
+// processServiceDetails handles parsing and processing of service details and metrics.
+func (s *Server) processServiceDetails(ctx context.Context, pollerID string, apiService *api.ServiceStatus, svc *proto.ServiceStatus, now time.Time) error {
+	if svc.Message == "" {
+		log.Printf("No message content for service %s on poller %s", svc.ServiceName, pollerID)
+		return s.handleService(pollerID, apiService, now)
+	}
+
+	details, err := s.parseServiceDetails(svc)
+	if err != nil {
+		log.Printf("Failed to parse details for service %s on poller %s, proceeding without details", svc.ServiceName, pollerID)
+		return s.handleService(pollerID, apiService, now)
+	}
+
+	apiService.Details = details
+	if err := s.processMetrics(ctx, pollerID, svc, details, now); err != nil {
+		log.Printf("Error processing metrics for service %s on poller %s: %v", svc.ServiceName, pollerID, err)
+		return err
+	}
+
+	return s.handleService(pollerID, apiService, now)
+}
+
+// processMetrics handles metrics processing for all service types.
+func (s *Server) processMetrics(ctx context.Context, pollerID string, svc *proto.ServiceStatus, details json.RawMessage, now time.Time) error {
+	switch svc.ServiceType {
+	case snmpServiceType:
+		return s.processSNMPMetrics(ctx, pollerID, details, now)
+	case grpcServiceType:
+		switch svc.ServiceName {
+		case rperfServiceType:
+			return s.processRperfMetrics(ctx, pollerID, details, now)
+		case sysmonServiceType:
+			return s.processSysmonMetrics(ctx, pollerID, details, now)
+		}
+	case icmpServiceType:
+		return s.processICMPMetrics(pollerID, svc, details, now)
+	}
 	return nil
 }
 
@@ -718,28 +728,6 @@ func (*Server) createAPIService(svc *proto.ServiceStatus) api.ServiceStatus {
 		Available: svc.Available,
 		Message:   svc.Message,
 	}
-}
-
-func (s *Server) processServiceDetails(ctx context.Context, pollerID string, apiService *api.ServiceStatus, svc *proto.ServiceStatus, now time.Time) error {
-	if svc.Message == "" {
-		log.Printf("No message content for service %s on poller %s", svc.ServiceName, pollerID)
-
-		return s.handleService(pollerID, apiService, now)
-	}
-
-	details, err := s.parseServiceDetails(svc)
-	if err != nil {
-		log.Printf("Failed to parse details for service %s on poller %s, proceeding without details", svc.ServiceName, pollerID)
-
-		return s.handleService(pollerID, apiService, now)
-	}
-
-	apiService.Details = details
-	if err := s.processSpecializedMetrics(ctx, pollerID, svc, details, now); err != nil {
-		return err
-	}
-
-	return s.handleService(pollerID, apiService, now)
 }
 
 func (*Server) parseServiceDetails(svc *proto.ServiceStatus) (json.RawMessage, error) {
@@ -922,9 +910,6 @@ func (s *Server) processRperfMetrics(ctx context.Context, pollerID string, detai
 }
 
 func (s *Server) processICMPMetrics(pollerID string, svc *proto.ServiceStatus, details json.RawMessage, now time.Time) error {
-	log.Printf("Processing ICMP metrics for poller %s, service %s", pollerID, svc.ServiceName)
-	log.Printf("Details: %s", string(details))
-
 	var pingResult struct {
 		Host         string  `json:"host"`
 		ResponseTime int64   `json:"response_time"`
@@ -933,10 +918,9 @@ func (s *Server) processICMPMetrics(pollerID string, svc *proto.ServiceStatus, d
 	}
 
 	if err := json.Unmarshal(details, &pingResult); err != nil {
-		log.Printf("Failed to parse ICMP response for service %s: %v", svc.ServiceName, err)
+		log.Printf("Failed to parse ICMP response JSON for service %s: %v", svc.ServiceName, err)
 		return fmt.Errorf("failed to parse ICMP data: %w", err)
 	}
-	log.Printf("Parsed ICMP result: %+v", pingResult)
 
 	metric := &db.TimeseriesMetric{
 		Name:      fmt.Sprintf("icmp_%s_response_time_ms", svc.ServiceName),
@@ -950,12 +934,10 @@ func (s *Server) processICMPMetrics(pollerID string, svc *proto.ServiceStatus, d
 			"available":     pingResult.Available,
 		},
 	}
-	log.Printf("Created metric: %+v", metric)
 
 	// Buffer ICMP metric
 	s.bufferMu.Lock()
 	s.metricBuffers[pollerID] = append(s.metricBuffers[pollerID], metric)
-	log.Printf("Buffered metric for poller %s, buffer size: %d", pollerID, len(s.metricBuffers[pollerID]))
 	s.bufferMu.Unlock()
 
 	// Add to in-memory ring buffer for dashboard display
@@ -972,13 +954,8 @@ func (s *Server) processICMPMetrics(pollerID string, svc *proto.ServiceStatus, d
 			log.Printf("Added metric to in-memory buffer for %s", svc.ServiceName)
 		}
 	} else {
-		log.Printf("Metrics manager is nil for poller %s", pollerID)
+		log.Printf("Metrics manager is nil in processICMPMetrics for poller %s", pollerID)
 	}
-
-	log.Printf("Buffered ICMP metric for %s: time=%v response_time=%.2fms",
-		svc.ServiceName,
-		now.Format(time.RFC3339),
-		float64(pingResult.ResponseTime)/float64(time.Millisecond))
 
 	return nil
 }
@@ -1011,6 +988,7 @@ func (s *Server) processSNMPMetrics(ctx context.Context, pollerID string, detail
 				Timestamp: timestamp,
 				Metadata:  metadata,
 			}
+
 			timeseriesMetrics = append(timeseriesMetrics, metric)
 		}
 	}
@@ -1335,6 +1313,7 @@ func (s *Server) checkPollerStatus(ctx context.Context) error {
 
 			if err := s.handlePollerDown(batchCtx, ps.ID, ps.LastSeen); err != nil {
 				log.Printf("Error handling offline poller %s: %v", ps.ID, err)
+
 				continue
 			}
 
@@ -1382,6 +1361,7 @@ func (s *Server) flushPollerStatusUpdates(ctx context.Context) {
 		case <-ticker.C:
 			s.pollerStatusUpdateMutex.Lock()
 			updates := s.pollerStatusUpdates
+
 			s.pollerStatusUpdates = make(map[string]*db.PollerStatus)
 			s.pollerStatusUpdateMutex.Unlock()
 
@@ -1393,6 +1373,7 @@ func (s *Server) flushPollerStatusUpdates(ctx context.Context) {
 
 			// Convert to a slice for batch processing
 			statuses := make([]*db.PollerStatus, 0, len(updates))
+
 			for _, status := range updates {
 				statuses = append(statuses, status)
 			}
@@ -1463,13 +1444,6 @@ func (s *Server) handlePollerDown(ctx context.Context, pollerID string, lastSeen
 	s.cacheMutex.RUnlock()
 
 	s.queuePollerStatusUpdate(pollerID, false, lastSeen, firstSeen)
-
-	/*
-		if err := s.updatePollerStatus(ctx, pollerID, false, lastSeen); err != nil {
-			return fmt.Errorf("failed to update poller status: %w", err)
-		}
-
-	*/
 
 	alert := &alerts.WebhookAlert{
 		Level:     alerts.Error,
@@ -1553,6 +1527,13 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 	if !s.isKnownPoller(req.PollerId) {
 		log.Printf("Ignoring status report from unknown poller: %s", req.PollerId)
 		return &proto.PollerStatusResponse{Received: true}, nil
+	}
+
+	// Log metrics manager state
+	if s.metrics == nil {
+		log.Printf("Metrics manager is nil for poller %s", req.PollerId)
+	} else {
+		log.Printf("Metrics manager initialized for poller %s", req.PollerId)
 	}
 
 	now := time.Unix(req.Timestamp, 0)
