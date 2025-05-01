@@ -1,23 +1,9 @@
-/*
- * Copyright 2025 Carver Automation Corporation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Package api provides the HTTP API server for ServiceRadar
 package api
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"net/http"
 	"time"
@@ -50,14 +36,12 @@ func (s *APIServer) getRperfMetrics(w http.ResponseWriter, r *http.Request) {
 
 	if s.rperfManager == nil {
 		writeError(w, "Rperf manager not configured", http.StatusInternalServerError)
-
 		return
 	}
 
 	startTime, endTime, err := parseTimeRange(r.URL.Query())
 	if err != nil {
 		writeError(w, err.Error(), http.StatusBadRequest)
-
 		return
 	}
 
@@ -67,13 +51,11 @@ func (s *APIServer) getRperfMetrics(w http.ResponseWriter, r *http.Request) {
 	resp := s.processRperfMetrics(ctx, pollerID, startTime, endTime)
 	if resp.Err != nil {
 		writeError(w, "Failed to fetch rperf metrics", http.StatusInternalServerError)
-
 		return
 	}
 
 	if len(resp.Metrics) == 0 {
 		writeError(w, "No rperf metrics found", http.StatusNotFound)
-
 		return
 	}
 
@@ -87,12 +69,10 @@ func (s *APIServer) processRperfMetrics(
 	rperfMetrics, err := s.rperfManager.GetRperfMetrics(ctx, pollerID, startTime, endTime)
 	if err != nil {
 		log.Printf("Error fetching rperf metrics for poller %s: %v", pollerID, err)
-
 		return models.RperfMetricResponse{Err: err}
 	}
 
 	response := convertToAPIMetrics(rperfMetrics, pollerID)
-
 	return models.RperfMetricResponse{Metrics: response}
 }
 
@@ -107,14 +87,28 @@ func convertToAPIMetrics(rperfMetrics []*db.TimeseriesMetric, pollerID string) [
 			Name:      rm.Name,
 		}
 
-		// Declare metadata outside the if statement
-		metadata, ok := rm.Metadata.(map[string]interface{})
-		if !ok {
-			log.Printf("Invalid metadata type for metric %s on poller %s: %T", rm.Name, pollerID, rm.Metadata)
+		// Handle metadata based on its actual type
+		var metadata map[string]interface{}
 
+		switch md := rm.Metadata.(type) {
+		case map[string]interface{}:
+			// If it's already a map, use it directly
+			metadata = md
+		case json.RawMessage:
+			// If it's a json.RawMessage, unmarshal it
+			if err := json.Unmarshal(md, &metadata); err != nil {
+				log.Printf("Error unmarshaling json.RawMessage metadata for metric %s on poller %s: %v",
+					rm.Name, pollerID, err)
+				continue
+			}
+		default:
+			// For any other type, log the error and skip
+			log.Printf("Unsupported metadata type for metric %s on poller %s: %T",
+				rm.Name, pollerID, rm.Metadata)
 			continue
 		}
 
+		// Now that we have a map of metadata, populate the metric fields
 		populateMetricFields(&metric, metadata)
 		response = append(response, metric)
 	}
