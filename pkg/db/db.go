@@ -619,7 +619,7 @@ func (db *DB) ListPollerStatuses(ctx context.Context, patterns []string) ([]Poll
 	if len(patterns) > 0 {
 		conditions := make([]string, 0, len(patterns))
 		for _, pattern := range patterns {
-			conditions = append(conditions, "poller_id LIKE ?")
+			conditions = append(conditions, "poller_id LIKE $1")
 			args = append(args, pattern)
 		}
 		query += " WHERE " + strings.Join(conditions, " OR ")
@@ -658,7 +658,7 @@ func (db *DB) ListNeverReportedPollers(ctx context.Context, patterns []string) (
 	if len(patterns) > 0 {
 		conditions := make([]string, 0, len(patterns))
 		for _, pattern := range patterns {
-			conditions = append(conditions, "poller_id LIKE ?")
+			conditions = append(conditions, "poller_id LIKE $1")
 			args = append(args, pattern)
 		}
 		query += " AND (" + strings.Join(conditions, " OR ") + ")"
@@ -694,7 +694,7 @@ func (db *DB) GetAllMountPoints(ctx context.Context, pollerID string) ([]string,
 	rows, err := db.conn.Query(ctx, `
 		SELECT DISTINCT mount_point
 		FROM disk_metrics
-		WHERE poller_id = $1
+		WHERE poller_id = $1 
 		ORDER BY mount_point ASC`,
 		pollerID)
 	if err != nil {
