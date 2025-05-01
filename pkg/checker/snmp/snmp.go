@@ -77,6 +77,5 @@ func (s *SNMPMetricsManager) GetSNMPMetrics(ctx context.Context, pollerID string
 		snmpMetrics = append(snmpMetrics, snmpMetric)
 	}
 
-	log.Printf("Retrieved %d SNMP metrics for poller %s", len(snmpMetrics), pollerID)
 	return snmpMetrics, nil
 }
