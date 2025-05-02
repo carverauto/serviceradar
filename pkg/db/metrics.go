@@ -338,7 +338,9 @@ func (db *DB) BatchMetricsOperation(ctx context.Context, pollerID string, metric
 		metadataStr := ""
 
 		if metric.Metadata != nil {
-			metadataBytes, err := json.Marshal(metric.Metadata)
+			var metadataBytes []byte
+
+			metadataBytes, err = json.Marshal(metric.Metadata)
 			if err != nil {
 				log.Printf("Failed to marshal metadata for metric %s: %v", metric.Name, err)
 				continue

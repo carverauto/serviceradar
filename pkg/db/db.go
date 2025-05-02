@@ -187,7 +187,9 @@ func (db *DB) StoreMetrics(ctx context.Context, pollerID string, metrics []*Time
 		metadataStr := ""
 
 		if metric.Metadata != nil {
-			metadataBytes, err := json.Marshal(metric.Metadata)
+			var metadataBytes []byte
+
+			metadataBytes, err = json.Marshal(metric.Metadata)
 			if err != nil {
 				log.Printf("Failed to marshal metadata for metric %s: %v", metric.Name, err)
 
@@ -339,10 +341,14 @@ func (db *DB) UpdatePollerStatus(ctx context.Context, status *models.PollerStatu
 	return nil
 }
 
+var (
+	errInvalidPollerID = errors.New("invalid poller ID")
+)
+
 // validatePollerStatus ensures the poller status is valid and sets default timestamps.
 func validatePollerStatus(status *models.PollerStatus) error {
 	if status.PollerID == "" {
-		return fmt.Errorf("invalid poller ID: empty")
+		return errInvalidPollerID
 	}
 
 	now := time.Now()
@@ -422,11 +428,10 @@ func (db *DB) GetPollerStatus(ctx context.Context, pollerID string) (*models.Pol
 		WHERE poller_id = $1
 		LIMIT 1`,
 		pollerID)
-	defer rows.Close()
-
 	if err != nil {
 		return nil, fmt.Errorf("%w poller status: %w", ErrFailedToQuery, err)
 	}
+	defer rows.Close()
 
 	if !rows.Next() {
 		return nil, fmt.Errorf("%w: poller not found", ErrFailedToQuery)
@@ -964,7 +969,7 @@ func (db *DB) GetAllDiskMetricsGrouped(ctx context.Context, pollerID string, sta
 		ORDER BY timestamp DESC, mount_point ASC`,
 		pollerID, start, end)
 	if err != nil {
-		log.Printf("Error querying all disk metrics: %w", err)
+		log.Printf("Error querying all disk metrics: %s", err)
 
 		return nil, fmt.Errorf("failed to query all disk metrics: %w", err)
 	}

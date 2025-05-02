@@ -110,11 +110,13 @@ func (db *DB) StoreBatchUsers(ctx context.Context, users []*models.User) error {
 	}
 
 	now := time.Now()
+
 	for _, user := range users {
 		// Set timestamps if not already set
 		if user.CreatedAt.IsZero() {
 			user.CreatedAt = now
 		}
+
 		if user.UpdatedAt.IsZero() {
 			user.UpdatedAt = now
 		}
