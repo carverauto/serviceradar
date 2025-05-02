@@ -396,7 +396,7 @@ func TestProcessSNMPMetrics(t *testing.T) {
 	require.NoError(t, err)
 
 	err = server.processSNMPMetrics(pollerID, details, now)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Trigger flush to store buffered metrics
 	server.flushAllBuffers(context.Background())
