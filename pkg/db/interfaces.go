@@ -23,7 +23,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-//go:generate mockgen -destination=mock_db.go -package=db github.com/carverauto/serviceradar/pkg/db Service
+//go:generate mockgen -destination=mock_db.go -package=db github.com/carverauto/serviceradar/pkg/db Service,SysmonMetricsProvider,Rows
 
 // TimeseriesMetric represents a generic timeseries datapoint.
 type TimeseriesMetric struct {
