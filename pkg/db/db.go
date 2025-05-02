@@ -249,6 +249,7 @@ func (db *DB) storeCPUMetrics(ctx context.Context, pollerID string, cpus []model
 				continue
 			}
 		}
+
 		return nil
 	})
 }
@@ -266,6 +267,7 @@ func (db *DB) storeDiskMetrics(ctx context.Context, pollerID string, disks []mod
 				continue
 			}
 		}
+
 		return nil
 	})
 }
@@ -361,9 +363,11 @@ func (db *DB) preserveFirstSeen(ctx context.Context, status *models.PollerStatus
 	if err != nil && !errors.Is(err, ErrFailedToQuery) {
 		return err
 	}
+
 	if existing != nil {
 		status.FirstSeen = existing.FirstSeen
 	}
+
 	return nil
 }
 
@@ -418,11 +422,11 @@ func (db *DB) GetPollerStatus(ctx context.Context, pollerID string) (*models.Pol
 		WHERE poller_id = $1
 		LIMIT 1`,
 		pollerID)
+	defer rows.Close()
 
 	if err != nil {
 		return nil, fmt.Errorf("%w poller status: %w", ErrFailedToQuery, err)
 	}
-	defer rows.Close()
 
 	if !rows.Next() {
 		return nil, fmt.Errorf("%w: poller not found", ErrFailedToQuery)

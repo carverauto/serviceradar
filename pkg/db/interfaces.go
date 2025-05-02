@@ -59,8 +59,6 @@ type Service interface {
 
 	// Maintenance operations.
 
-	CleanOldData(ctx context.Context, retentionPeriod time.Duration) error
-
 	// Generic timeseries methods.
 
 	StoreMetric(ctx context.Context, pollerID string, metric *TimeseriesMetric) error
