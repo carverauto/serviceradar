@@ -37,6 +37,54 @@ type rperfWrapper struct {
 	Available    bool   `json:"available"`
 }
 
+// queryTimeseriesMetrics executes a query on timeseries_metrics and returns the results.
+func (db *DB) queryTimeseriesMetrics(
+	ctx context.Context,
+	pollerID, filterValue, filterColumn string,
+	start, end time.Time,
+) ([]TimeseriesMetric, error) {
+	query := fmt.Sprintf(`
+		SELECT metric_name, metric_type, value, metadata, timestamp
+		FROM timeseries_metrics
+		WHERE poller_id = $1
+		AND %s = $2
+		AND timestamp BETWEEN $3 AND $4`, filterColumn)
+	rows, err := db.conn.Query(ctx, query, pollerID, filterValue, start, end)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var metrics []TimeseriesMetric
+	for rows.Next() {
+		var metric TimeseriesMetric
+		var metadataStr string
+		err := rows.Scan(
+			&metric.Name,
+			&metric.Type,
+			&metric.Value,
+			&metadataStr,
+			&metric.Timestamp,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan metric row: %w", err)
+		}
+		if metadataStr != "" {
+			var rawMetadata json.RawMessage
+			if err := json.Unmarshal([]byte(metadataStr), &rawMetadata); err != nil {
+				log.Printf("Warning: failed to unmarshal metadata for metric %s: %v. Raw: %s", metric.Name, err, metadataStr)
+			} else {
+				metric.Metadata = rawMetadata
+			}
+		}
+		metrics = append(metrics, metric)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %w", err)
+	}
+	return metrics, nil
+}
+
 // storeRperfMetricsToBatch stores rperf metrics to a batch and returns the number of stored metrics.
 func (db *DB) storeRperfMetricsToBatch(
 	ctx context.Context,
@@ -173,88 +221,18 @@ func (db *DB) StoreRperfMetricsBatch(ctx context.Context, pollerID string, metri
 
 // GetMetrics retrieves metrics for a specific poller and metric name.
 func (db *DB) GetMetrics(ctx context.Context, pollerID, metricName string, start, end time.Time) ([]TimeseriesMetric, error) {
-	rows, err := db.conn.Query(ctx, `
-		SELECT metric_name, metric_type, value, metadata, timestamp
-		FROM timeseries_metrics
-		WHERE poller_id = $1
-		AND metric_name = $2
-		AND timestamp BETWEEN $3 AND $4`,
-		pollerID, metricName, start, end)
+	metrics, err := db.queryTimeseriesMetrics(ctx, pollerID, metricName, "metric_name", start, end)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query metrics: %w", err)
-	}
-	defer rows.Close()
-
-	var metrics []TimeseriesMetric
-	for rows.Next() {
-		var metric TimeseriesMetric
-		var metadataStr string
-		err := rows.Scan(
-			&metric.Name,
-			&metric.Type,
-			&metric.Value,
-			&metadataStr,
-			&metric.Timestamp,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan metric row: %w", err)
-		}
-		if metadataStr != "" {
-			var rawMetadata json.RawMessage
-			if err := json.Unmarshal([]byte(metadataStr), &rawMetadata); err != nil {
-				log.Printf("Warning: failed to unmarshal metadata for metric %s: %v. Raw: %s", metric.Name, err, metadataStr)
-			} else {
-				metric.Metadata = rawMetadata
-			}
-		}
-		metrics = append(metrics, metric)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating rows: %w", err)
 	}
 	return metrics, nil
 }
 
 // GetMetricsByType retrieves metrics for a specific poller and metric type.
 func (db *DB) GetMetricsByType(ctx context.Context, pollerID, metricType string, start, end time.Time) ([]TimeseriesMetric, error) {
-	rows, err := db.conn.Query(ctx, `
-		SELECT metric_name, metric_type, value, metadata, timestamp
-		FROM timeseries_metrics
-		WHERE poller_id = $1
-		AND metric_type = $2
-		AND timestamp BETWEEN $3 AND $4`,
-		pollerID, metricType, start, end)
+	metrics, err := db.queryTimeseriesMetrics(ctx, pollerID, metricType, "metric_type", start, end)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query metrics by type: %w", err)
-	}
-	defer rows.Close()
-
-	var metrics []TimeseriesMetric
-	for rows.Next() {
-		var metric TimeseriesMetric
-		var metadataStr string
-		err := rows.Scan(
-			&metric.Name,
-			&metric.Type,
-			&metric.Value,
-			&metadataStr,
-			&metric.Timestamp,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan metric row: %w", err)
-		}
-		if metadataStr != "" {
-			var rawMetadata json.RawMessage
-			if err := json.Unmarshal([]byte(metadataStr), &rawMetadata); err != nil {
-				log.Printf("Warning: failed to unmarshal metadata for metric %s: %v. Raw: %s", metric.Name, err, metadataStr)
-			} else {
-				metric.Metadata = rawMetadata
-			}
-		}
-		metrics = append(metrics, metric)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating rows: %w", err)
 	}
 	return metrics, nil
 }
