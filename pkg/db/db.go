@@ -330,13 +330,24 @@ func (db *DB) UpdatePollerStatus(ctx context.Context, status *models.PollerStatu
 
 	// Update pollers table
 	if err := db.insertPollerStatus(ctx, status); err != nil {
+		log.Printf("Failed to update poller status for %s: %v", status.PollerID, err)
 		return fmt.Errorf("failed to update poller status: %w", err)
 	}
 
-	// Log to poller_history
-	if err := db.insertPollerHistory(ctx, status); err != nil {
-		return fmt.Errorf("failed to add poller history: %w", err)
+	// Check if status has changed before logging to poller_history
+	existing, err := db.GetPollerStatus(ctx, status.PollerID)
+	if err != nil && !errors.Is(err, ErrFailedToQuery) {
+		return fmt.Errorf("failed to check existing poller status: %w", err)
 	}
+
+	if existing == nil || existing.IsHealthy != status.IsHealthy || existing.LastSeen != status.LastSeen {
+		if err := db.insertPollerHistory(ctx, status); err != nil {
+			log.Printf("Failed to add poller history for %s: %v", status.PollerID, err)
+			return fmt.Errorf("failed to add poller history: %w", err)
+		}
+	}
+
+	log.Printf("Successfully updated poller status for %s", status.PollerID)
 
 	return nil
 }
