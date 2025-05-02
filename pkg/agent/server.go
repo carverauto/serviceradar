@@ -630,8 +630,6 @@ func (s *Server) getChecker(ctx context.Context, req *proto.StatusRequest) (chec
 		req.GetServiceType(), req.GetServiceName(), req.GetDetails())
 
 	if check, exists := s.checkers[key]; exists {
-		log.Printf("Retrieved cached checker for key: %s", key)
-
 		return check, nil
 	}
 

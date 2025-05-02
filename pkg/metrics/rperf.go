@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -11,7 +12,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-func (m *Manager) StoreRperfMetrics(pollerID string, metrics *models.RperfMetrics, timestamp time.Time) error {
+func (m *Manager) StoreRperfMetrics(ctx context.Context, pollerID string, metrics *models.RperfMetrics, timestamp time.Time) error {
 	for i := range metrics.Results {
 		result := &metrics.Results[i] // Access the element by reference
 		metricName := fmt.Sprintf("rperf_%s", strings.ToLower(strings.ReplaceAll(result.Target, " ", "_")))
@@ -43,7 +44,7 @@ func (m *Manager) StoreRperfMetrics(pollerID string, metrics *models.RperfMetric
 			Metadata:  json.RawMessage(metadata),
 		}
 
-		if err := m.db.StoreMetric(pollerID, metric); err != nil {
+		if err := m.db.StoreMetric(ctx, pollerID, metric); err != nil {
 			log.Printf("Error storing rperf metric %s for poller %s: %v", metricName, pollerID, err)
 			return fmt.Errorf("failed to store rperf metric: %w", err)
 		}
@@ -54,10 +55,10 @@ func (m *Manager) StoreRperfMetrics(pollerID string, metrics *models.RperfMetric
 	return nil
 }
 
-func (m *Manager) GetRperfMetrics(pollerID, target string, start, end time.Time) ([]models.RperfMetric, error) {
+func (m *Manager) GetRperfMetrics(ctx context.Context, pollerID, target string, start, end time.Time) ([]models.RperfMetric, error) {
 	metricName := fmt.Sprintf("rperf_%s", strings.ToLower(strings.ReplaceAll(target, " ", "_")))
 
-	dbMetrics, err := m.db.GetMetrics(pollerID, metricName, start, end)
+	dbMetrics, err := m.db.GetMetrics(ctx, pollerID, metricName, start, end)
 	if err != nil {
 		return nil, err
 	}
@@ -68,14 +69,12 @@ func (m *Manager) GetRperfMetrics(pollerID, target string, start, end time.Time)
 		metadata, ok := dm.Metadata.(json.RawMessage)
 		if !ok {
 			log.Printf("Invalid metadata for rperf metric %s, poller %s", dm.Name, pollerID)
-
 			continue
 		}
 
 		var metaMap map[string]interface{}
 		if err := json.Unmarshal(metadata, &metaMap); err != nil {
 			log.Printf("Failed to unmarshal metadata for rperf metric %s, poller %s: %v", dm.Name, pollerID, err)
-
 			continue
 		}
 

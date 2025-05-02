@@ -35,15 +35,38 @@ import (
 )
 
 type Metrics struct {
-	Enabled    bool `json:"enabled"`
-	Retention  int  `json:"retention"`
-	MaxPollers int  `json:"max_pollers"`
+	Enabled    bool  `json:"enabled"`
+	Retention  int32 `json:"retention"`
+	MaxPollers int32 `json:"max_pollers"`
+}
+
+type ProtonSettings struct {
+	MaxExecutionTime                    int `json:"max_execution_time"`
+	OutputFormatJSONQuote64bitInt       int `json:"output_format_json_quote_64bit_int"`
+	AllowExperimentalLiveViews          int `json:"allow_experimental_live_views"`
+	IdleConnectionTimeout               int `json:"idle_connection_timeout"`
+	JoinUseNulls                        int `json:"join_use_nulls"`
+	InputFormatDefaultsForOmittedFields int `json:"input_format_defaults_for_omitted_fields"`
+}
+
+type ProtonDatabase struct {
+	Addresses []string       `json:"addresses"`
+	Name      string         `json:"name"`
+	Username  string         `json:"username"`
+	Password  string         `json:"password"`
+	MaxConns  int            `json:"max_conns"`
+	IdleConns int            `json:"idle_conns"`
+	Settings  ProtonSettings `json:"settings"`
 }
 
 type Config struct {
 	ListenAddr     string                 `json:"listen_addr"`
 	GrpcAddr       string                 `json:"grpc_addr"`
-	DBPath         string                 `json:"db_path"`
+	DBPath         string                 `json:"db_path"` // Keep for compatibility, can be optional
+	DBAddr         string                 `json:"db_addr"` // Proton host:port
+	DBName         string                 `json:"db_name"` // Proton database name
+	DBUser         string                 `json:"db_user"` // Proton username
+	DBPass         string                 `json:"db_pass"` // Proton password
 	AlertThreshold time.Duration          `json:"alert_threshold"`
 	PollerPatterns []string               `json:"poller_patterns"`
 	Webhooks       []alerts.WebhookConfig `json:"webhooks,omitempty"`
@@ -53,6 +76,7 @@ type Config struct {
 	Security       *models.SecurityConfig `json:"security"`
 	Auth           *models.AuthConfig     `json:"auth,omitempty"`
 	CORS           models.CORSConfig      `json:"cors,omitempty"`
+	Database       ProtonDatabase         `json:"database"`
 }
 
 func (c *Config) MarshalJSON() ([]byte, error) {
@@ -89,6 +113,7 @@ func (c *Config) MarshalJSON() ([]byte, error) {
 			CallbackURL:  c.Auth.CallbackURL,
 			SSOProviders: c.Auth.SSOProviders,
 		}
+
 		if c.Auth.JWTExpiration != 0 {
 			aux.Auth.JWTExpiration = c.Auth.JWTExpiration.String()
 		}
@@ -118,7 +143,6 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	// Parse the alert threshold
 	if aux.AlertThreshold != "" {
 		duration, err := time.ParseDuration(aux.AlertThreshold)
 		if err != nil {
@@ -128,7 +152,6 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 		c.AlertThreshold = duration
 	}
 
-	// Parse the auth section
 	if aux.Auth != nil {
 		c.Auth = &models.AuthConfig{
 			JWTSecret:    aux.Auth.JWTSecret,
@@ -152,19 +175,28 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 
 type Server struct {
 	proto.UnimplementedPollerServiceServer
-	mu             sync.RWMutex
-	db             db.Service
-	alertThreshold time.Duration
-	webhooks       []alerts.AlertService
-	apiServer      api.Service
-	ShutdownChan   chan struct{}
-	pollerPatterns []string
-	grpcServer     *grpc.Server
-	metrics        *metrics.Manager
-	snmpManager    snmp.SNMPManager
-	rperfManager   rperf.RperfManager
-	config         *Config
-	authService    *auth.Auth
+	mu                      sync.RWMutex
+	db                      db.Service
+	alertThreshold          time.Duration
+	webhooks                []alerts.AlertService
+	apiServer               api.Service
+	ShutdownChan            chan struct{}
+	pollerPatterns          []string
+	grpcServer              *grpc.Server
+	metrics                 *metrics.Manager
+	snmpManager             snmp.SNMPManager
+	rperfManager            rperf.RperfManager
+	config                  *Config
+	authService             *auth.Auth
+	metricBuffers           map[string][]*db.TimeseriesMetric
+	serviceBuffers          map[string][]*db.ServiceStatus
+	sysmonBuffers           map[string][]*models.SysmonMetrics
+	bufferMu                sync.RWMutex
+	pollerStatusCache       map[string]*models.PollerStatus
+	pollerStatusUpdates     map[string]*models.PollerStatus
+	pollerStatusUpdateMutex sync.Mutex
+	cacheLastUpdated        time.Time
+	cacheMutex              sync.RWMutex
 }
 
 // OIDStatusData represents the structure of OID status data.

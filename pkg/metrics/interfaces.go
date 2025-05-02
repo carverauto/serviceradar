@@ -17,6 +17,7 @@
 package metrics
 
 import (
+	"context"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/db"
@@ -38,23 +39,23 @@ type MetricCollector interface {
 }
 
 type StructuredMetricCollector interface {
-	StoreSysmonMetrics(pollerID string, metrics *models.SysmonMetrics, timestamp time.Time) error
-	GetCPUMetrics(pollerID string, coreID int, start, end time.Time) ([]models.CPUMetric, error)
-	GetDiskMetrics(pollerID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error)
-	GetMemoryMetrics(pollerID string, start, end time.Time) ([]models.MemoryMetric, error)
-	GetAllDiskMetrics(pollerID string, start, end time.Time) ([]models.DiskMetric, error)
+	StoreSysmonMetrics(ctx context.Context, pollerID string, metrics *models.SysmonMetrics, timestamp time.Time) error
+	GetCPUMetrics(ctx context.Context, pollerID string, coreID int, start, end time.Time) ([]models.CPUMetric, error)
+	GetDiskMetrics(ctx context.Context, pollerID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error)
+	GetMemoryMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.MemoryMetric, error)
+	GetAllDiskMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.DiskMetric, error)
 
 	// Rperf methods
 
-	StoreRperfMetrics(pollerID string, metrics *models.RperfMetrics, timestamp time.Time) error
-	GetRperfMetrics(pollerID string, target string, start, end time.Time) ([]models.RperfMetric, error)
+	StoreRperfMetrics(ctx context.Context, pollerID string, metrics *models.RperfMetrics, timestamp time.Time) error
+	GetRperfMetrics(ctx context.Context, pollerID string, target string, start, end time.Time) ([]models.RperfMetric, error)
 }
 
 // SysmonMetricsProvider interface extension.
 type SysmonMetricsProvider interface {
-	GetAllCPUMetrics(pollerID string, start, end time.Time) ([]db.SysmonCPUResponse, error)
-	GetCPUMetrics(pollerID string, coreID int, start, end time.Time) ([]models.CPUMetric, error)
-	GetAllDiskMetricsGrouped(pollerID string, start, end time.Time) ([]db.SysmonDiskResponse, error)
-	GetDiskMetrics(pollerID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error)
-	GetMemoryMetricsGrouped(pollerID string, start, end time.Time) ([]db.SysmonMemoryResponse, error)
+	GetAllCPUMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]db.SysmonCPUResponse, error)
+	GetCPUMetrics(ctx context.Context, pollerID string, coreID int, start, end time.Time) ([]models.CPUMetric, error)
+	GetAllDiskMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]db.SysmonDiskResponse, error)
+	GetDiskMetrics(ctx context.Context, pollerID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error)
+	GetMemoryMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]db.SysmonMemoryResponse, error)
 }
