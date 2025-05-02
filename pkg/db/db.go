@@ -219,81 +219,66 @@ func (db *DB) StoreMetrics(ctx context.Context, pollerID string, metrics []*Time
 	return nil
 }
 
-// StoreSysmonMetrics stores sysmon metrics in a single batch for each metric type.
+// StoreSysmonMetrics stores sysmon metrics for CPU, disk, and memory.
 func (db *DB) StoreSysmonMetrics(ctx context.Context, pollerID string, metrics *models.SysmonMetrics, timestamp time.Time) error {
-	if len(metrics.CPUs) > 0 {
-		cpuBatch, err := db.conn.PrepareBatch(ctx, "INSERT INTO cpu_metrics (* except _tp_time)")
-		if err != nil {
-			return fmt.Errorf("failed to prepare CPU batch: %w", err)
-		}
-
-		for _, cpu := range metrics.CPUs {
-			err = cpuBatch.Append(
-				pollerID,
-				timestamp,
-				cpu.CoreID,
-				cpu.UsagePercent,
-			)
-			if err != nil {
-				log.Printf("Failed to append CPU metric for core %d: %v", cpu.CoreID, err)
-
-				continue
-			}
-		}
-
-		if err := cpuBatch.Send(); err != nil {
-			return fmt.Errorf("failed to store CPU metrics: %w", err)
-		}
+	if err := db.storeCPUMetrics(ctx, pollerID, metrics.CPUs, timestamp); err != nil {
+		return fmt.Errorf("failed to store CPU metrics: %w", err)
 	}
 
-	if len(metrics.Disks) > 0 {
-		diskBatch, err := db.conn.PrepareBatch(ctx, "INSERT INTO disk_metrics (* except _tp_time)")
-		if err != nil {
-			return fmt.Errorf("failed to prepare disk batch: %w", err)
-		}
-
-		for _, disk := range metrics.Disks {
-			err = diskBatch.Append(
-				pollerID,
-				timestamp,
-				disk.MountPoint,
-				disk.UsedBytes,
-				disk.TotalBytes,
-			)
-			if err != nil {
-				log.Printf("Failed to append disk metric for %s: %v", disk.MountPoint, err)
-
-				continue
-			}
-		}
-
-		if err := diskBatch.Send(); err != nil {
-			return fmt.Errorf("failed to store disk metrics: %w", err)
-		}
+	if err := db.storeDiskMetrics(ctx, pollerID, metrics.Disks, timestamp); err != nil {
+		return fmt.Errorf("failed to store disk metrics: %w", err)
 	}
 
-	if metrics.Memory.UsedBytes > 0 || metrics.Memory.TotalBytes > 0 {
-		memoryBatch, err := db.conn.PrepareBatch(ctx, "INSERT INTO memory_metrics (* except _tp_time)")
-		if err != nil {
-			return fmt.Errorf("failed to prepare memory batch: %w", err)
-		}
-
-		err = memoryBatch.Append(
-			pollerID,
-			timestamp,
-			metrics.Memory.UsedBytes,
-			metrics.Memory.TotalBytes,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to append memory metric: %w", err)
-		}
-
-		if err := memoryBatch.Send(); err != nil {
-			return fmt.Errorf("failed to store memory metrics: %w", err)
-		}
+	if err := db.storeMemoryMetrics(ctx, pollerID, metrics.Memory, timestamp); err != nil {
+		return fmt.Errorf("failed to store memory metrics: %w", err)
 	}
 
 	return nil
+}
+
+// storeCPUMetrics stores CPU metrics in a batch.
+func (db *DB) storeCPUMetrics(ctx context.Context, pollerID string, cpus []models.CPUMetric, timestamp time.Time) error {
+	if len(cpus) == 0 {
+		return nil
+	}
+
+	return db.executeBatch(ctx, "INSERT INTO cpu_metrics (* except _tp_time)", func(batch driver.Batch) error {
+		for _, cpu := range cpus {
+			if err := batch.Append(pollerID, timestamp, cpu.CoreID, cpu.UsagePercent); err != nil {
+				log.Printf("Failed to append CPU metric for core %d: %v", cpu.CoreID, err)
+				continue
+			}
+		}
+		return nil
+	})
+}
+
+// storeDiskMetrics stores disk metrics in a batch.
+func (db *DB) storeDiskMetrics(ctx context.Context, pollerID string, disks []models.DiskMetric, timestamp time.Time) error {
+	if len(disks) == 0 {
+		return nil
+	}
+
+	return db.executeBatch(ctx, "INSERT INTO disk_metrics (* except _tp_time)", func(batch driver.Batch) error {
+		for _, disk := range disks {
+			if err := batch.Append(pollerID, timestamp, disk.MountPoint, disk.UsedBytes, disk.TotalBytes); err != nil {
+				log.Printf("Failed to append disk metric for %s: %v", disk.MountPoint, err)
+				continue
+			}
+		}
+		return nil
+	})
+}
+
+// storeMemoryMetrics stores memory metrics in a batch.
+func (db *DB) storeMemoryMetrics(ctx context.Context, pollerID string, memory models.MemoryMetric, timestamp time.Time) error {
+	if memory.UsedBytes == 0 && memory.TotalBytes == 0 {
+		return nil
+	}
+
+	return db.executeBatch(ctx, "INSERT INTO memory_metrics (* except _tp_time)", func(batch driver.Batch) error {
+		return batch.Append(pollerID, timestamp, memory.UsedBytes, memory.TotalBytes)
+	})
 }
 
 // UpdateServiceStatuses updates multiple service statuses in a single batch.
