@@ -69,6 +69,10 @@ func TestNewICMPSweeper(t *testing.T) {
 }
 
 func TestICMPSweeper_Scan(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping ICMP scan test in short mode")
+	}
+
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 

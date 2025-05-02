@@ -333,26 +333,24 @@ func (s *ICMPSweeper) listenForReplies(ctx context.Context, targets []models.Tar
 
 	buf := make([]byte, defaultBytesRead)
 
-	const readDeadline = defaultReadDeadline
-
 	for {
-		if ctx.Err() != nil {
+		select {
+		case <-ctx.Done():
 			return
-		}
+		default:
+			if err := s.conn.SetReadDeadline(time.Now().Add(defaultReadDeadline)); err != nil {
+				log.Printf("Error setting read deadline: %v", err)
+				continue
+			}
 
-		if err := s.conn.SetReadDeadline(time.Now().Add(readDeadline)); err != nil {
-			log.Printf("Error setting read deadline: %v", err)
+			reply, err := s.readReply(buf)
+			if err != nil {
+				continue
+			}
 
-			continue
-		}
-
-		reply, err := s.readReply(buf)
-		if err != nil {
-			continue // Error handling already logged in readReply
-		}
-
-		if err := s.processReply(reply, targetMap); err != nil {
-			continue // Error handling already logged in processReply
+			if err := s.processReply(reply, targetMap); err != nil {
+				continue
+			}
 		}
 	}
 }
