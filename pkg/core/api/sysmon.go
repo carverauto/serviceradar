@@ -55,10 +55,10 @@ func (s *APIServer) getSysmonMetrics(
 	w http.ResponseWriter,
 	r *http.Request,
 	fetchMetrics func(
-		ctx context.Context,
-		provider db.SysmonMetricsProvider,
-		pollerID string,
-		startTime, endTime time.Time) (interface{}, error),
+	ctx context.Context,
+	provider db.SysmonMetricsProvider,
+	pollerID string,
+	startTime, endTime time.Time) (interface{}, error),
 	metricType string,
 ) {
 	ctx := r.Context()
@@ -100,6 +100,18 @@ func (s *APIServer) getSysmonMetrics(
 		return
 	}
 
+	// log CPU metrics
+	if metricType == "CPU" {
+		log.Printf("Fetched %d CPU metrics for poller %s", len(metrics.([]db.SysmonCPUResponse)), pollerID)
+	} else if metricType == "memory" {
+		log.Printf("Fetched %d memory metrics for poller %s", len(metrics.([]db.SysmonMemoryResponse)), pollerID)
+	} else if metricType == "disk" {
+		log.Printf("Fetched %d disk metrics for poller %s", len(metrics.([]db.SysmonDiskResponse)), pollerID)
+	} else {
+		log.Printf("Fetched %d unknown metrics for poller %s", len(metrics.([]db.SysmonDiskResponse)), pollerID)
+		return
+	}
+
 	// Encode response
 	w.Header().Set("Content-Type", "application/json")
 
@@ -126,10 +138,21 @@ func (s *APIServer) getSysmonMetrics(
 // @Security ApiKeyAuth
 func (s *APIServer) getSysmonCPUMetrics(w http.ResponseWriter, r *http.Request) {
 	fetch := func(ctx context.Context, provider db.SysmonMetricsProvider, pollerID string, startTime, endTime time.Time) (interface{}, error) {
+		return fetchMetrics[db.SysmonCPUResponse](ctx, pollerID, startTime, endTime, provider.GetAllCPUMetrics)
+	}
+	s.getSysmonMetrics(w, r, fetch, "CPU")
+}
+
+/*
+func (s *APIServer) getSysmonCPUMetrics(w http.ResponseWriter, r *http.Request) {
+	fetch := func(ctx context.Context, provider db.SysmonMetricsProvider, pollerID string, startTime, endTime time.Time) (interface{}, error) {
 		metrics, err := fetchMetrics[db.SysmonCPUResponse](ctx, pollerID, startTime, endTime, provider.GetAllCPUMetrics)
 		if err != nil {
 			return nil, err
 		}
+
+		// log metrics
+		log.Printf("Fetched %d CPU metrics for poller %s", len(metrics.([]db.SysmonCPUResponse)), pollerID)
 
 		// Flatten SysmonCPUResponse to []models.CPUMetric
 		sysmonMetrics := metrics.([]db.SysmonCPUResponse)
@@ -149,6 +172,7 @@ func (s *APIServer) getSysmonCPUMetrics(w http.ResponseWriter, r *http.Request) 
 
 	s.getSysmonMetrics(w, r, fetch, "CPU")
 }
+*/
 
 // @Summary Get memory metrics
 // @Description Retrieves memory usage metrics for a specific poller within a time range
