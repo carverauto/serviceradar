@@ -47,7 +47,8 @@ func (s *SNMPMetricsManager) GetSNMPMetrics(ctx context.Context, pollerID string
 		return nil, fmt.Errorf("failed to query SNMP metrics: %w", err)
 	}
 
-	var snmpMetrics []db.SNMPMetric
+	snmpMetrics := make([]db.SNMPMetric, 0, len(metrics))
+
 	for _, m := range metrics {
 		snmpMetric := db.SNMPMetric{
 			OIDName:   m.Name,
@@ -61,14 +62,17 @@ func (s *SNMPMetricsManager) GetSNMPMetrics(ctx context.Context, pollerID string
 		// Extract scale and is_delta from metadata
 		if m.Metadata != nil {
 			var metadata map[string]interface{}
+
 			if err := json.Unmarshal(m.Metadata.(json.RawMessage), &metadata); err != nil {
 				log.Printf("Failed to unmarshal metadata for metric %s on poller %s: %v", m.Name, pollerID, err)
+
 				continue
 			}
 
 			if scale, ok := metadata["scale"].(float64); ok {
 				snmpMetric.Scale = scale
 			}
+
 			if isDelta, ok := metadata["is_delta"].(bool); ok {
 				snmpMetric.IsDelta = isDelta
 			}

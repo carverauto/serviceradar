@@ -61,11 +61,13 @@ func New(ctx context.Context, addr, database, username, password string) (Servic
 		MaxIdleConns:    5,
 		ConnMaxLifetime: time.Hour,
 	})
+
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrFailedOpenDB, err)
 	}
 
 	db := &DB{conn: conn}
+
 	if err := db.initSchema(ctx); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrFailedToInit, err)
 	}
@@ -182,12 +184,15 @@ func (db *DB) StoreMetrics(ctx context.Context, pollerID string, metrics []*Time
 
 	for _, metric := range metrics {
 		metadataStr := ""
+
 		if metric.Metadata != nil {
 			metadataBytes, err := json.Marshal(metric.Metadata)
 			if err != nil {
 				log.Printf("Failed to marshal metadata for metric %s: %v", metric.Name, err)
+
 				continue
 			}
+
 			metadataStr = string(metadataBytes)
 		}
 
@@ -201,6 +206,7 @@ func (db *DB) StoreMetrics(ctx context.Context, pollerID string, metrics []*Time
 		)
 		if err != nil {
 			log.Printf("Failed to append metric %s: %v", metric.Name, err)
+
 			continue
 		}
 	}
@@ -229,6 +235,7 @@ func (db *DB) StoreSysmonMetrics(ctx context.Context, pollerID string, metrics *
 			)
 			if err != nil {
 				log.Printf("Failed to append CPU metric for core %d: %v", cpu.CoreID, err)
+
 				continue
 			}
 		}
@@ -254,6 +261,7 @@ func (db *DB) StoreSysmonMetrics(ctx context.Context, pollerID string, metrics *
 			)
 			if err != nil {
 				log.Printf("Failed to append disk metric for %s: %v", disk.MountPoint, err)
+
 				continue
 			}
 		}
@@ -329,6 +337,7 @@ func (db *DB) UpdatePollerStatus(ctx context.Context, status *PollerStatus) erro
 	if !isValidTimestamp(status.FirstSeen) {
 		status.FirstSeen = time.Now()
 	}
+
 	if !isValidTimestamp(status.LastSeen) {
 		status.LastSeen = time.Now()
 	}
@@ -346,15 +355,18 @@ func (db *DB) UpdatePollerStatus(ctx context.Context, status *PollerStatus) erro
 	if err != nil {
 		return fmt.Errorf("failed to prepare batch: %w", err)
 	}
+
 	err = batch.Append(
 		status.PollerID,
 		status.FirstSeen,
 		status.LastSeen,
 		status.IsHealthy,
 	)
+
 	if err != nil {
 		return fmt.Errorf("failed to append poller status: %w", err)
 	}
+
 	if err := batch.Send(); err != nil {
 		return fmt.Errorf("failed to update poller status: %w", err)
 	}
@@ -364,14 +376,17 @@ func (db *DB) UpdatePollerStatus(ctx context.Context, status *PollerStatus) erro
 	if err != nil {
 		return fmt.Errorf("failed to prepare batch: %w", err)
 	}
+
 	err = batch.Append(
 		status.PollerID,
 		status.LastSeen,
 		status.IsHealthy,
 	)
+
 	if err != nil {
 		return fmt.Errorf("failed to append poller history: %w", err)
 	}
+
 	if err := batch.Send(); err != nil {
 		return fmt.Errorf("failed to add poller history: %w", err)
 	}
@@ -389,6 +404,7 @@ func (db *DB) GetPollerStatus(ctx context.Context, pollerID string) (*PollerStat
 		WHERE poller_id = $1
 		LIMIT 1`,
 		pollerID)
+
 	if err != nil {
 		return nil, fmt.Errorf("%w poller status: %w", ErrFailedToQuery, err)
 	}
@@ -425,12 +441,15 @@ func (db *DB) GetPollerServices(ctx context.Context, pollerID string) ([]Service
 	defer rows.Close()
 
 	var services []ServiceStatus
+
 	for rows.Next() {
 		var s ServiceStatus
+
 		s.PollerID = pollerID
 		if err := rows.Scan(&s.ServiceName, &s.ServiceType, &s.Available, &s.Details, &s.Timestamp); err != nil {
 			return nil, fmt.Errorf("%w service row: %w", ErrFailedToScan, err)
 		}
+
 		services = append(services, s)
 	}
 
@@ -452,11 +471,14 @@ func (db *DB) GetPollerHistoryPoints(ctx context.Context, pollerID string, limit
 	defer rows.Close()
 
 	var points []PollerHistoryPoint
+
 	for rows.Next() {
 		var point PollerHistoryPoint
+
 		if err := rows.Scan(&point.Timestamp, &point.IsHealthy); err != nil {
 			return nil, fmt.Errorf("%w history point: %w", ErrFailedToScan, err)
 		}
+
 		points = append(points, point)
 	}
 
@@ -466,6 +488,7 @@ func (db *DB) GetPollerHistoryPoints(ctx context.Context, pollerID string, limit
 // GetPollerHistory retrieves the history for a poller.
 func (db *DB) GetPollerHistory(ctx context.Context, pollerID string) ([]PollerStatus, error) {
 	const maxHistoryPoints = 1000
+
 	rows, err := db.conn.Query(ctx, `
 		SELECT timestamp, is_healthy
 		FROM poller_history
@@ -479,12 +502,15 @@ func (db *DB) GetPollerHistory(ctx context.Context, pollerID string) ([]PollerSt
 	defer rows.Close()
 
 	var history []PollerStatus
+
 	for rows.Next() {
 		var status PollerStatus
+
 		status.PollerID = pollerID
 		if err := rows.Scan(&status.LastSeen, &status.IsHealthy); err != nil {
 			return nil, fmt.Errorf("%w history row: %w", ErrFailedToScan, err)
 		}
+
 		history = append(history, status)
 	}
 
@@ -507,6 +533,7 @@ func (db *DB) IsPollerOffline(ctx context.Context, pollerID string, threshold ti
 	defer rows.Close()
 
 	var count int
+
 	if !rows.Next() {
 		return false, fmt.Errorf("%w: count result not found", ErrFailedToQuery)
 	}
@@ -559,13 +586,17 @@ func (db *DB) GetServiceHistory(ctx context.Context, pollerID, serviceName strin
 	defer rows.Close()
 
 	var history []ServiceStatus
+
 	for rows.Next() {
 		var s ServiceStatus
+
 		s.PollerID = pollerID
 		s.ServiceName = serviceName
+
 		if err := rows.Scan(&s.Timestamp, &s.Available, &s.Details); err != nil {
 			return nil, fmt.Errorf("%w service history row: %w", ErrFailedToScan, err)
 		}
+
 		history = append(history, s)
 	}
 
@@ -581,12 +612,16 @@ func (db *DB) ListPollers(ctx context.Context) ([]string, error) {
 	defer rows.Close()
 
 	var pollerIDs []string
+
 	for rows.Next() {
 		var pollerID string
+
 		if err := rows.Scan(&pollerID); err != nil {
 			log.Printf("Error scanning poller ID: %v", err)
+
 			continue
 		}
+
 		pollerIDs = append(pollerIDs, pollerID)
 	}
 
@@ -623,10 +658,12 @@ func (db *DB) ListPollerStatuses(ctx context.Context, patterns []string) ([]Poll
 
 	if len(patterns) > 0 {
 		conditions := make([]string, 0, len(patterns))
+
 		for _, pattern := range patterns {
 			conditions = append(conditions, "poller_id LIKE $1")
 			args = append(args, pattern)
 		}
+
 		query += " WHERE " + strings.Join(conditions, " OR ")
 	}
 
@@ -639,12 +676,16 @@ func (db *DB) ListPollerStatuses(ctx context.Context, patterns []string) ([]Poll
 	defer rows.Close()
 
 	var statuses []PollerStatus
+
 	for rows.Next() {
 		var status PollerStatus
+
 		if err := rows.Scan(&status.PollerID, &status.IsHealthy, &status.LastSeen); err != nil {
 			log.Printf("Error scanning poller status: %v", err)
+
 			continue
 		}
+
 		statuses = append(statuses, status)
 	}
 
@@ -669,12 +710,15 @@ func (db *DB) ListNeverReportedPollers(ctx context.Context, patterns []string) (
         WHERE history.latest_timestamp IS NULL OR history.latest_timestamp = pollers.first_seen`
 
 	var args []interface{}
+
 	if len(patterns) > 0 {
 		conditions := make([]string, 0, len(patterns))
+
 		for i, pattern := range patterns {
 			conditions = append(conditions, fmt.Sprintf("pollers.poller_id LIKE $%d", i+1))
 			args = append(args, pattern)
 		}
+
 		query += " AND (" + strings.Join(conditions, " OR ") + ")"
 	}
 
@@ -687,12 +731,16 @@ func (db *DB) ListNeverReportedPollers(ctx context.Context, patterns []string) (
 	defer rows.Close()
 
 	var pollerIDs []string
+
 	for rows.Next() {
 		var pollerID string
+
 		if err := rows.Scan(&pollerID); err != nil {
 			log.Printf("Error scanning poller ID: %v", err)
+
 			continue
 		}
+
 		pollerIDs = append(pollerIDs, pollerID)
 	}
 
@@ -720,16 +768,21 @@ func (db *DB) GetAllMountPoints(ctx context.Context, pollerID string) ([]string,
 	defer rows.Close()
 
 	var mountPoints []string
+
 	for rows.Next() {
 		var mountPoint string
+
 		if err := rows.Scan(&mountPoint); err != nil {
 			log.Printf("Error scanning mount point: %v", err)
+
 			continue
 		}
+
 		mountPoints = append(mountPoints, mountPoint)
 	}
 
 	log.Printf("Found %d unique mount points for poller %s", len(mountPoints), pollerID)
+
 	return mountPoints, nil
 }
 
@@ -743,28 +796,35 @@ func (db *DB) GetAllCPUMetrics(ctx context.Context, pollerID string, start, end 
 		pollerID, start, end)
 	if err != nil {
 		log.Printf("Error querying all CPU metrics: %v", err)
+
 		return nil, fmt.Errorf("failed to query all CPU metrics: %w", err)
 	}
 	defer rows.Close()
 
 	data := make(map[time.Time][]models.CPUMetric)
+
 	for rows.Next() {
 		var m models.CPUMetric
+
 		var timestamp time.Time
+
 		if err := rows.Scan(&timestamp, &m.CoreID, &m.UsagePercent); err != nil {
 			log.Printf("Error scanning CPU metric row: %v", err)
 			continue
 		}
+
 		m.Timestamp = timestamp
 		data[timestamp] = append(data[timestamp], m)
 	}
 
 	if err := rows.Err(); err != nil {
 		log.Printf("Error iterating CPU metrics rows: %v", err)
+
 		return nil, err
 	}
 
 	result := make([]SysmonCPUResponse, 0, len(data))
+
 	for ts, cpus := range data {
 		result = append(result, SysmonCPUResponse{
 			Cpus:      cpus,
@@ -811,6 +871,7 @@ func (db *DB) GetAllDiskMetrics(ctx context.Context, pollerID string, start, end
 
 	if err := rows.Err(); err != nil {
 		log.Printf("Error iterating disk metrics rows: %v", err)
+
 		return metrics, err
 	}
 
@@ -831,12 +892,15 @@ func (db *DB) GetDiskMetrics(ctx context.Context, pollerID, mountPoint string, s
 	defer rows.Close()
 
 	var metrics []models.DiskMetric
+
 	for rows.Next() {
 		var m models.DiskMetric
+
 		if err = rows.Scan(&m.Timestamp, &m.MountPoint, &m.UsedBytes, &m.TotalBytes); err != nil {
 			log.Printf("Error scanning disk metric row: %v", err)
 			continue
 		}
+
 		metrics = append(metrics, m)
 	}
 
@@ -857,12 +921,16 @@ func (db *DB) GetMemoryMetrics(ctx context.Context, pollerID string, start, end 
 	defer rows.Close()
 
 	var metrics []models.MemoryMetric
+
 	for rows.Next() {
 		var m models.MemoryMetric
+
 		if err = rows.Scan(&m.Timestamp, &m.UsedBytes, &m.TotalBytes); err != nil {
 			log.Printf("Error scanning memory metric row: %v", err)
+
 			continue
 		}
+
 		metrics = append(metrics, m)
 	}
 
@@ -879,28 +947,37 @@ func (db *DB) GetAllDiskMetricsGrouped(ctx context.Context, pollerID string, sta
 		pollerID, start, end)
 	if err != nil {
 		log.Printf("Error querying all disk metrics: %w", err)
+
 		return nil, fmt.Errorf("failed to query all disk metrics: %w", err)
 	}
 	defer rows.Close()
 
 	data := make(map[time.Time][]models.DiskMetric)
+
 	for rows.Next() {
 		var m models.DiskMetric
+
 		var timestamp time.Time
+
 		if err = rows.Scan(&timestamp, &m.MountPoint, &m.UsedBytes, &m.TotalBytes); err != nil {
 			log.Printf("Error scanning disk metric row: %v", err)
+
 			continue
 		}
+
 		m.Timestamp = timestamp
+
 		data[timestamp] = append(data[timestamp], m)
 	}
 
 	if err := rows.Err(); err != nil {
 		log.Printf("Error iterating disk metrics rows: %v", err)
+
 		return nil, err
 	}
 
 	result := make([]SysmonDiskResponse, 0, len(data))
+
 	for ts, disks := range data {
 		result = append(result, SysmonDiskResponse{
 			Disks:     disks,
@@ -945,6 +1022,7 @@ func (db *DB) GetMemoryMetricsGrouped(ctx context.Context, pollerID string, star
 		}
 
 		m.Timestamp = timestamp
+
 		result = append(result, SysmonMemoryResponse{
 			Memory:    m,
 			Timestamp: timestamp,
@@ -953,6 +1031,7 @@ func (db *DB) GetMemoryMetricsGrouped(ctx context.Context, pollerID string, star
 
 	if err := rows.Err(); err != nil {
 		log.Printf("Error iterating memory metrics rows: %v", err)
+
 		return nil, err
 	}
 

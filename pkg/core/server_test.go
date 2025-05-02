@@ -162,9 +162,10 @@ func TestProcessStatusReport(t *testing.T) {
 	}, nil)
 
 	// Mock UpdatePollerStatus
-	mockDB.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, status *db.PollerStatus) error {
+	mockDB.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, status *db.PollerStatus) error {
 		assert.Equal(t, "test-poller", status.PollerID)
 		assert.True(t, status.IsHealthy)
+
 		return nil
 	})
 
@@ -225,7 +226,7 @@ func TestReportStatus(t *testing.T) {
 	}, nil).AnyTimes()
 
 	// Mock UpdatePollerStatus
-	mockDB.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, status *db.PollerStatus) error {
+	mockDB.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, status *db.PollerStatus) error {
 		assert.Equal(t, "test-poller", status.PollerID)
 		assert.True(t, status.IsHealthy)
 		return nil
