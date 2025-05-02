@@ -810,6 +810,7 @@ func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, 
 		Disks     []models.DiskMetric `json:"disks"`
 		Memory    models.MemoryMetric `json:"memory"`
 	}
+
 	if err := json.Unmarshal([]byte(outerData.Status), &sysmonData); err != nil {
 		log.Printf("Error unmarshaling inner sysmon data for poller %s: %v", pollerID, err)
 
@@ -822,6 +823,7 @@ func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, 
 	pollerTimestamp, err := time.Parse(time.RFC3339Nano, sysmonData.Timestamp)
 	if err != nil {
 		log.Printf("Invalid timestamp in sysmon data for poller %s: %v, using server timestamp", pollerID, err)
+
 		pollerTimestamp = timestamp
 	}
 
