@@ -45,6 +45,10 @@ ServiceRadar uses a distributed architecture with four main components:
 3. **Core Service** - Receives reports from pollers, provides API, and sends alerts
 4. **Web UI** - Provides a modern dashboard interface with Nginx as a reverse proxy
 
+## Performance
+
+ServiceRadar powered by [Timeplus Proton](https://github.com/timeplus-io/proton) can deliver 90 million EPS, 4 millisecond end-to-end latency, and high cardinality aggregation with 1 million unique keys on an Apple Macbook Pro with M2 MAX.
+
 ## Documentation
 
 For detailed information on installation, configuration, and usage, please visit our documentation site:
