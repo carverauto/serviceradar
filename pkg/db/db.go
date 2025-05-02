@@ -442,7 +442,7 @@ func (db *DB) GetPollerStatus(ctx context.Context, pollerID string) (*models.Pol
 	if err != nil {
 		return nil, fmt.Errorf("%w poller status: %w", ErrFailedToQuery, err)
 	}
-	defer rows.Close()
+	defer CloseRows(rows)
 
 	if !rows.Next() {
 		return nil, fmt.Errorf("%w: poller not found", ErrFailedToQuery)
@@ -472,7 +472,7 @@ func (db *DB) GetPollerServices(ctx context.Context, pollerID string) ([]Service
 	if err != nil {
 		return nil, fmt.Errorf("%w poller services: %w", ErrFailedToQuery, err)
 	}
-	defer rows.Close()
+	defer CloseRows(rows)
 
 	var services []ServiceStatus
 
@@ -502,7 +502,7 @@ func (db *DB) GetPollerHistoryPoints(ctx context.Context, pollerID string, limit
 	if err != nil {
 		return nil, fmt.Errorf("%w poller history points: %w", ErrFailedToQuery, err)
 	}
-	defer rows.Close()
+	defer CloseRows(rows)
 
 	var points []PollerHistoryPoint
 
@@ -533,7 +533,7 @@ func (db *DB) GetPollerHistory(ctx context.Context, pollerID string) ([]models.P
 	if err != nil {
 		return nil, fmt.Errorf("%w poller history: %w", ErrFailedToQuery, err)
 	}
-	defer rows.Close()
+	defer CloseRows(rows)
 
 	var history []models.PollerStatus
 
@@ -564,7 +564,7 @@ func (db *DB) IsPollerOffline(ctx context.Context, pollerID string, threshold ti
 	if err != nil {
 		return false, fmt.Errorf("%w poller status: %w", ErrFailedToQuery, err)
 	}
-	defer rows.Close()
+	defer CloseRows(rows)
 
 	var count int
 
@@ -617,7 +617,7 @@ func (db *DB) GetServiceHistory(ctx context.Context, pollerID, serviceName strin
 	if err != nil {
 		return nil, fmt.Errorf("%w service history: %w", ErrFailedToQuery, err)
 	}
-	defer rows.Close()
+	defer CloseRows(rows)
 
 	var history []ServiceStatus
 
@@ -643,7 +643,7 @@ func (db *DB) ListPollers(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to query pollers: %w", ErrFailedToQuery, err)
 	}
-	defer rows.Close()
+	defer CloseRows(rows)
 
 	var pollerIDs []string
 
@@ -707,7 +707,7 @@ func (db *DB) ListPollerStatuses(ctx context.Context, patterns []string) ([]mode
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to query pollers: %w", ErrFailedToQuery, err)
 	}
-	defer rows.Close()
+	defer CloseRows(rows)
 
 	var statuses []models.PollerStatus
 
@@ -762,7 +762,7 @@ func (db *DB) ListNeverReportedPollers(ctx context.Context, patterns []string) (
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to query never reported pollers: %w", ErrFailedToQuery, err)
 	}
-	defer rows.Close()
+	defer CloseRows(rows)
 
 	var pollerIDs []string
 
@@ -799,7 +799,7 @@ func (db *DB) GetAllMountPoints(ctx context.Context, pollerID string) ([]string,
 		log.Printf("Error querying mount points: %v", err)
 		return nil, fmt.Errorf("failed to query mount points: %w", err)
 	}
-	defer rows.Close()
+	defer CloseRows(rows)
 
 	var mountPoints []string
 
@@ -833,7 +833,7 @@ func (db *DB) GetAllCPUMetrics(ctx context.Context, pollerID string, start, end 
 
 		return nil, fmt.Errorf("failed to query all CPU metrics: %w", err)
 	}
-	defer rows.Close()
+	defer CloseRows(rows)
 
 	data := make(map[time.Time][]models.CPUMetric)
 
@@ -887,7 +887,7 @@ func (db *DB) GetAllDiskMetrics(ctx context.Context, pollerID string, start, end
 
 		return nil, fmt.Errorf("failed to query all disk metrics: %w", err)
 	}
-	defer rows.Close()
+	defer CloseRows(rows)
 
 	var metrics []models.DiskMetric
 
@@ -923,7 +923,7 @@ func (db *DB) GetDiskMetrics(ctx context.Context, pollerID, mountPoint string, s
 	if err != nil {
 		return nil, fmt.Errorf("failed to query disk metrics: %w", err)
 	}
-	defer rows.Close()
+	defer CloseRows(rows)
 
 	var metrics []models.DiskMetric
 
@@ -952,7 +952,7 @@ func (db *DB) GetMemoryMetrics(ctx context.Context, pollerID string, start, end 
 	if err != nil {
 		return nil, fmt.Errorf("failed to query memory metrics: %w", err)
 	}
-	defer rows.Close()
+	defer CloseRows(rows)
 
 	var metrics []models.MemoryMetric
 
@@ -984,7 +984,7 @@ func (db *DB) GetAllDiskMetricsGrouped(ctx context.Context, pollerID string, sta
 
 		return nil, fmt.Errorf("failed to query all disk metrics: %w", err)
 	}
-	defer rows.Close()
+	defer CloseRows(rows)
 
 	data := make(map[time.Time][]models.DiskMetric)
 
@@ -1040,7 +1040,7 @@ func (db *DB) GetMemoryMetricsGrouped(ctx context.Context, pollerID string, star
 
 		return nil, fmt.Errorf("failed to query memory metrics: %w", err)
 	}
-	defer rows.Close()
+	defer CloseRows(rows)
 
 	var result []SysmonMemoryResponse
 
@@ -1077,4 +1077,11 @@ func isValidTimestamp(t time.Time) bool {
 	maxTime := time.Date(2283, 11, 11, 0, 0, 0, 0, time.UTC)
 
 	return t.After(minTime) && t.Before(maxTime)
+}
+
+// CloseRows safely closes a Rows type and logs any error.
+func CloseRows(rows Rows) {
+	if err := rows.Close(); err != nil {
+		log.Printf("failed to close rows: %v", err)
+	}
 }
