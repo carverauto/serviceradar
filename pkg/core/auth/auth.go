@@ -166,11 +166,13 @@ func (a *Auth) generateAndStoreToken(ctx context.Context, user *models.User) (*m
 
 func generateUserID(username string) string {
 	hash := sha256.Sum256([]byte(username))
+
 	return base64.URLEncoding.EncodeToString(hash[:])
 }
 
 func randString(n int) string {
 	b := make([]byte, n)
 	_, _ = rand.Read(b)
+
 	return base64.URLEncoding.EncodeToString(b)
 }
