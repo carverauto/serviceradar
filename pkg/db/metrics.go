@@ -49,6 +49,7 @@ func (db *DB) queryTimeseriesMetrics(
 		WHERE poller_id = $1
 		AND %s = $2
 		AND timestamp BETWEEN $3 AND $4`, filterColumn)
+
 	rows, err := db.conn.Query(ctx, query, pollerID, filterValue, start, end)
 	if err != nil {
 		return nil, err
@@ -56,9 +57,12 @@ func (db *DB) queryTimeseriesMetrics(
 	defer rows.Close()
 
 	var metrics []TimeseriesMetric
+
 	for rows.Next() {
 		var metric TimeseriesMetric
+
 		var metadataStr string
+
 		err := rows.Scan(
 			&metric.Name,
 			&metric.Type,
@@ -69,19 +73,24 @@ func (db *DB) queryTimeseriesMetrics(
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan metric row: %w", err)
 		}
+
 		if metadataStr != "" {
 			var rawMetadata json.RawMessage
+
 			if err := json.Unmarshal([]byte(metadataStr), &rawMetadata); err != nil {
 				log.Printf("Warning: failed to unmarshal metadata for metric %s: %v. Raw: %s", metric.Name, err, metadataStr)
 			} else {
 				metric.Metadata = rawMetadata
 			}
 		}
+
 		metrics = append(metrics, metric)
 	}
+
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating rows: %w", err)
 	}
+
 	return metrics, nil
 }
 
@@ -98,6 +107,7 @@ func (db *DB) storeRperfMetricsToBatch(
 	}
 
 	storedCount := 0
+
 	for _, result := range metrics {
 		if !result.Success {
 			log.Printf("Skipping metrics storage for failed rperf test (Target: %s) on poller %s. Error: %v",
@@ -158,6 +168,7 @@ func (db *DB) storeRperfMetricsToBatch(
 // StoreRperfMetrics stores rperf-checker data as timeseries metrics.
 func (db *DB) StoreRperfMetrics(ctx context.Context, pollerID, _, message string, timestamp time.Time) error {
 	var wrapper rperfWrapper
+
 	if err := json.Unmarshal([]byte(message), &wrapper); err != nil {
 		log.Printf("Failed to unmarshal outer rperf wrapper for poller %s: %v", pollerID, err)
 		return fmt.Errorf("failed to unmarshal rperf wrapper message: %w", err)
@@ -189,6 +200,7 @@ func (db *DB) StoreRperfMetrics(ctx context.Context, pollerID, _, message string
 	}
 
 	log.Printf("Stored %d rperf metrics for poller %s", storedCount, pollerID)
+
 	return nil
 }
 
@@ -216,6 +228,7 @@ func (db *DB) StoreRperfMetricsBatch(ctx context.Context, pollerID string, metri
 	}
 
 	log.Printf("Stored %d rperf metrics for poller %s", storedCount, pollerID)
+
 	return nil
 }
 
@@ -225,6 +238,7 @@ func (db *DB) GetMetrics(ctx context.Context, pollerID, metricName string, start
 	if err != nil {
 		return nil, fmt.Errorf("failed to query metrics: %w", err)
 	}
+
 	return metrics, nil
 }
 
@@ -234,6 +248,7 @@ func (db *DB) GetMetricsByType(ctx context.Context, pollerID, metricType string,
 	if err != nil {
 		return nil, fmt.Errorf("failed to query metrics by type: %w", err)
 	}
+
 	return metrics, nil
 }
 
@@ -251,13 +266,17 @@ func (db *DB) GetCPUMetrics(ctx context.Context, pollerID string, coreID int, st
 	defer rows.Close()
 
 	var metrics []models.CPUMetric
+
 	for rows.Next() {
 		var m models.CPUMetric
+
 		if err := rows.Scan(&m.Timestamp, &m.CoreID, &m.UsagePercent); err != nil {
 			return nil, fmt.Errorf("failed to scan CPU metric: %w", err)
 		}
+
 		metrics = append(metrics, m)
 	}
+
 	return metrics, nil
 }
 
@@ -269,11 +288,13 @@ func (db *DB) StoreMetric(ctx context.Context, pollerID string, metric *Timeseri
 
 	// Convert metadata to JSON string
 	var metadataStr string
+
 	if metric.Metadata != nil {
 		metadataBytes, err := json.Marshal(metric.Metadata)
 		if err != nil {
 			return fmt.Errorf("failed to marshal metadata: %w", err)
 		}
+
 		metadataStr = string(metadataBytes)
 	}
 
@@ -297,6 +318,7 @@ func (db *DB) StoreMetric(ctx context.Context, pollerID string, metric *Timeseri
 	if err := batch.Send(); err != nil {
 		return fmt.Errorf("failed to store metric %s for poller %s: %w", metric.Name, pollerID, err)
 	}
+
 	return nil
 }
 
@@ -314,12 +336,14 @@ func (db *DB) BatchMetricsOperation(ctx context.Context, pollerID string, metric
 
 	for _, metric := range metrics {
 		metadataStr := ""
+
 		if metric.Metadata != nil {
 			metadataBytes, err := json.Marshal(metric.Metadata)
 			if err != nil {
 				log.Printf("Failed to marshal metadata for metric %s: %v", metric.Name, err)
 				continue
 			}
+
 			metadataStr = string(metadataBytes)
 		}
 
@@ -339,5 +363,6 @@ func (db *DB) BatchMetricsOperation(ctx context.Context, pollerID string, metric
 	if err := batch.Send(); err != nil {
 		return fmt.Errorf("failed to send metrics batch: %w", err)
 	}
+
 	return nil
 }

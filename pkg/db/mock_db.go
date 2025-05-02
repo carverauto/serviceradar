@@ -42,20 +42,6 @@ func (m *MockService) EXPECT() *MockServiceMockRecorder {
 	return m.recorder
 }
 
-// CleanOldData mocks base method.
-func (m *MockService) CleanOldData(ctx context.Context, retentionPeriod time.Duration) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CleanOldData", ctx, retentionPeriod)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// CleanOldData indicates an expected call of CleanOldData.
-func (mr *MockServiceMockRecorder) CleanOldData(ctx, retentionPeriod any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CleanOldData", reflect.TypeOf((*MockService)(nil).CleanOldData), ctx, retentionPeriod)
-}
-
 // Close mocks base method.
 func (m *MockService) Close() error {
 	m.ctrl.T.Helper()
