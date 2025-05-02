@@ -571,15 +571,15 @@ func (s *Server) checkInitialStates(ctx context.Context) {
 	// Use a map to track which pollers we've already logged as offline
 	reportedOffline := make(map[string]bool)
 
-	for _, status := range statuses {
-		duration := time.Since(status.LastSeen)
+	for i := range statuses {
+		duration := time.Since(statuses[i].LastSeen)
 
 		// Only log each offline poller once
-		if duration > s.alertThreshold && !reportedOffline[status.PollerID] {
+		if duration > s.alertThreshold && !reportedOffline[statuses[i].PollerID] {
 			log.Printf("Poller %s found offline during initial check (last seen: %v ago)",
-				status.PollerID, duration.Round(time.Second))
+				statuses[i].PollerID, duration.Round(time.Second))
 
-			reportedOffline[status.PollerID] = true
+			reportedOffline[statuses[i].PollerID] = true
 		}
 	}
 }
@@ -1571,20 +1571,20 @@ func (s *Server) getPollerStatuses(ctx context.Context, forceRefresh bool) (map[
 	// Update the cache
 	newCache := make(map[string]*models.PollerStatus, len(statuses))
 
-	for _, status := range statuses {
+	for i := range statuses {
 		ps := &models.PollerStatus{
-			PollerID:  status.PollerID,
-			IsHealthy: status.IsHealthy,
-			LastSeen:  status.LastSeen,
-			FirstSeen: status.FirstSeen,
+			PollerID:  statuses[i].PollerID,
+			IsHealthy: statuses[i].IsHealthy,
+			LastSeen:  statuses[i].LastSeen,
+			FirstSeen: statuses[i].FirstSeen,
 		}
 
-		if existing, ok := s.pollerStatusCache[status.PollerID]; ok {
+		if existing, ok := s.pollerStatusCache[statuses[i].PollerID]; ok {
 			ps.LastEvaluated = existing.LastEvaluated
 			ps.AlertSent = existing.AlertSent
 		}
 
-		newCache[status.PollerID] = ps
+		newCache[statuses[i].PollerID] = ps
 	}
 
 	s.pollerStatusCache = newCache
