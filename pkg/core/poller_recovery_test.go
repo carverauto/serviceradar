@@ -205,6 +205,7 @@ func TestPollerRecoveryManager_SendRecoveryAlert(t *testing.T) {
 			assert.Equal(t, "test-poller", alert.PollerID)
 			assert.Equal(t, "test-host", alert.Details["hostname"])
 			assert.Contains(t, alert.Message, "test-poller")
+
 			return nil
 		})
 

@@ -31,7 +31,7 @@ func (s *APIServer) getRperfMetrics(w http.ResponseWriter, r *http.Request) {
 	pollerID := mux.Vars(r)["id"]
 
 	// set a context with a timeout of 10 seconds
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), defaultTimeout)
 	defer cancel()
 
 	if s.rperfManager == nil {
@@ -69,10 +69,12 @@ func (s *APIServer) processRperfMetrics(
 	rperfMetrics, err := s.rperfManager.GetRperfMetrics(ctx, pollerID, startTime, endTime)
 	if err != nil {
 		log.Printf("Error fetching rperf metrics for poller %s: %v", pollerID, err)
+
 		return models.RperfMetricResponse{Err: err}
 	}
 
 	response := convertToAPIMetrics(rperfMetrics, pollerID)
+
 	return models.RperfMetricResponse{Metrics: response}
 }
 
@@ -99,17 +101,20 @@ func convertToAPIMetrics(rperfMetrics []*db.TimeseriesMetric, pollerID string) [
 			if err := json.Unmarshal(md, &metadata); err != nil {
 				log.Printf("Error unmarshaling json.RawMessage metadata for metric %s on poller %s: %v",
 					rm.Name, pollerID, err)
+
 				continue
 			}
 		default:
 			// For any other type, log the error and skip
 			log.Printf("Unsupported metadata type for metric %s on poller %s: %T",
 				rm.Name, pollerID, rm.Metadata)
+
 			continue
 		}
 
 		// Now that we have a map of metadata, populate the metric fields
 		populateMetricFields(&metric, metadata)
+
 		response = append(response, metric)
 	}
 

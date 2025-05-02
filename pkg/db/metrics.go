@@ -37,41 +37,20 @@ type rperfWrapper struct {
 	Available    bool   `json:"available"`
 }
 
-// StoreRperfMetrics stores rperf-checker data as timeseries metrics.
-func (db *DB) StoreRperfMetrics(ctx context.Context, pollerID, _, message string, timestamp time.Time) error {
-	var wrapper rperfWrapper
-	if err := json.Unmarshal([]byte(message), &wrapper); err != nil {
-		log.Printf("Failed to unmarshal outer rperf wrapper for poller %s: %v", pollerID, err)
-		return fmt.Errorf("failed to unmarshal rperf wrapper message: %w", err)
-	}
-
-	if wrapper.Status == "" {
-		log.Printf("No nested status found in rperf message for poller %s", pollerID)
-		return nil
-	}
-
-	var rperfData struct {
-		Results   []RperfMetric `json:"results"`
-		Timestamp string        `json:"timestamp"`
-	}
-
-	if err := json.Unmarshal([]byte(wrapper.Status), &rperfData); err != nil {
-		log.Printf("Failed to unmarshal nested rperf data for poller %s: %v", pollerID, err)
-		return fmt.Errorf("failed to unmarshal nested rperf data: %w", err)
-	}
-
-	if len(rperfData.Results) == 0 {
-		log.Printf("No rperf results found for poller %s", pollerID)
-		return nil
-	}
-
+// storeRperfMetricsToBatch stores rperf metrics to a batch and returns the number of stored metrics.
+func (db *DB) storeRperfMetricsToBatch(
+	ctx context.Context,
+	pollerID string,
+	metrics []RperfMetric,
+	timestamp time.Time,
+) (int, error) {
 	batch, err := db.conn.PrepareBatch(ctx, "INSERT INTO timeseries_metrics (* except _tp_time)")
 	if err != nil {
-		return fmt.Errorf("failed to prepare batch: %w", err)
+		return 0, fmt.Errorf("failed to prepare batch: %w", err)
 	}
 
 	storedCount := 0
-	for _, result := range rperfData.Results {
+	for _, result := range metrics {
 		if !result.Success {
 			log.Printf("Skipping metrics storage for failed rperf test (Target: %s) on poller %s. Error: %v",
 				result.Target, pollerID, result.Error)
@@ -101,6 +80,7 @@ func (db *DB) StoreRperfMetrics(ctx context.Context, pollerID, _, message string
 			log.Printf("Failed to marshal rperf result metadata for poller %s, target %s: %v", pollerID, result.Target, err)
 			continue
 		}
+
 		metadataStr := string(metadataBytes)
 
 		for _, m := range metricsToStore {
@@ -121,7 +101,70 @@ func (db *DB) StoreRperfMetrics(ctx context.Context, pollerID, _, message string
 	}
 
 	if err := batch.Send(); err != nil {
-		return fmt.Errorf("failed to send batch: %w", err)
+		return storedCount, fmt.Errorf("failed to send batch: %w", err)
+	}
+
+	return storedCount, nil
+}
+
+// StoreRperfMetrics stores rperf-checker data as timeseries metrics.
+func (db *DB) StoreRperfMetrics(ctx context.Context, pollerID, _, message string, timestamp time.Time) error {
+	var wrapper rperfWrapper
+	if err := json.Unmarshal([]byte(message), &wrapper); err != nil {
+		log.Printf("Failed to unmarshal outer rperf wrapper for poller %s: %v", pollerID, err)
+		return fmt.Errorf("failed to unmarshal rperf wrapper message: %w", err)
+	}
+
+	if wrapper.Status == "" {
+		log.Printf("No nested status found in rperf message for poller %s", pollerID)
+		return nil
+	}
+
+	var rperfData struct {
+		Results   []RperfMetric `json:"results"`
+		Timestamp string        `json:"timestamp"`
+	}
+
+	if err := json.Unmarshal([]byte(wrapper.Status), &rperfData); err != nil {
+		log.Printf("Failed to unmarshal nested rperf data for poller %s: %v", pollerID, err)
+		return fmt.Errorf("failed to unmarshal nested rperf data: %w", err)
+	}
+
+	if len(rperfData.Results) == 0 {
+		log.Printf("No rperf results found for poller %s", pollerID)
+		return nil
+	}
+
+	storedCount, err := db.storeRperfMetricsToBatch(ctx, pollerID, rperfData.Results, timestamp)
+	if err != nil {
+		return fmt.Errorf("failed to store rperf metrics: %w", err)
+	}
+
+	log.Printf("Stored %d rperf metrics for poller %s", storedCount, pollerID)
+	return nil
+}
+
+// StoreRperfMetricsBatch stores multiple rperf metrics in a single batch operation.
+func (db *DB) StoreRperfMetricsBatch(ctx context.Context, pollerID string, metrics []*RperfMetric, timestamp time.Time) error {
+	if len(metrics) == 0 {
+		log.Printf("No rperf metrics to store for poller %s", pollerID)
+		return nil
+	}
+
+	// Convert []*RperfMetric to []RperfMetric for compatibility
+	rperfMetrics := make([]RperfMetric, len(metrics))
+	for i, m := range metrics {
+		rperfMetrics[i] = *m
+	}
+
+	storedCount, err := db.storeRperfMetricsToBatch(ctx, pollerID, rperfMetrics, timestamp)
+	if err != nil {
+		return fmt.Errorf("failed to store rperf metrics: %w", err)
+	}
+
+	if storedCount == 0 {
+		log.Printf("No valid rperf metrics to send for poller %s", pollerID)
+		return nil
 	}
 
 	log.Printf("Stored %d rperf metrics for poller %s", storedCount, pollerID)
@@ -133,7 +176,7 @@ func (db *DB) GetMetrics(ctx context.Context, pollerID, metricName string, start
 	rows, err := db.conn.Query(ctx, `
 		SELECT metric_name, metric_type, value, metadata, timestamp
 		FROM timeseries_metrics
-		WHERE poller_id =  $1
+		WHERE poller_id = $1
 		AND metric_name = $2
 		AND timestamp BETWEEN $3 AND $4`,
 		pollerID, metricName, start, end)
@@ -143,11 +186,9 @@ func (db *DB) GetMetrics(ctx context.Context, pollerID, metricName string, start
 	defer rows.Close()
 
 	var metrics []TimeseriesMetric
-
 	for rows.Next() {
 		var metric TimeseriesMetric
 		var metadataStr string
-
 		err := rows.Scan(
 			&metric.Name,
 			&metric.Type,
@@ -158,7 +199,6 @@ func (db *DB) GetMetrics(ctx context.Context, pollerID, metricName string, start
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan metric row: %w", err)
 		}
-
 		if metadataStr != "" {
 			var rawMetadata json.RawMessage
 			if err := json.Unmarshal([]byte(metadataStr), &rawMetadata); err != nil {
@@ -167,14 +207,11 @@ func (db *DB) GetMetrics(ctx context.Context, pollerID, metricName string, start
 				metric.Metadata = rawMetadata
 			}
 		}
-
 		metrics = append(metrics, metric)
 	}
-
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating rows: %w", err)
 	}
-
 	return metrics, nil
 }
 
@@ -193,11 +230,9 @@ func (db *DB) GetMetricsByType(ctx context.Context, pollerID, metricType string,
 	defer rows.Close()
 
 	var metrics []TimeseriesMetric
-
 	for rows.Next() {
 		var metric TimeseriesMetric
 		var metadataStr string
-
 		err := rows.Scan(
 			&metric.Name,
 			&metric.Type,
@@ -208,7 +243,6 @@ func (db *DB) GetMetricsByType(ctx context.Context, pollerID, metricType string,
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan metric row: %w", err)
 		}
-
 		if metadataStr != "" {
 			var rawMetadata json.RawMessage
 			if err := json.Unmarshal([]byte(metadataStr), &rawMetadata); err != nil {
@@ -217,14 +251,11 @@ func (db *DB) GetMetricsByType(ctx context.Context, pollerID, metricType string,
 				metric.Metadata = rawMetadata
 			}
 		}
-
 		metrics = append(metrics, metric)
 	}
-
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating rows: %w", err)
 	}
-
 	return metrics, nil
 }
 
@@ -249,7 +280,6 @@ func (db *DB) GetCPUMetrics(ctx context.Context, pollerID string, coreID int, st
 		}
 		metrics = append(metrics, m)
 	}
-
 	return metrics, nil
 }
 
@@ -289,82 +319,6 @@ func (db *DB) StoreMetric(ctx context.Context, pollerID string, metric *Timeseri
 	if err := batch.Send(); err != nil {
 		return fmt.Errorf("failed to store metric %s for poller %s: %w", metric.Name, pollerID, err)
 	}
-
-	return nil
-}
-
-// StoreRperfMetricsBatch stores multiple rperf metrics in a single batch operation
-func (db *DB) StoreRperfMetricsBatch(ctx context.Context, pollerID string, metrics []*RperfMetric, timestamp time.Time) error {
-	if len(metrics) == 0 {
-		log.Printf("No rperf metrics to store for poller %s", pollerID)
-		return nil
-	}
-
-	batch, err := db.conn.PrepareBatch(ctx, "INSERT INTO timeseries_metrics (* except _tp_time)")
-	if err != nil {
-		return fmt.Errorf("failed to prepare batch: %w", err)
-	}
-
-	storedCount := 0
-	for _, result := range metrics {
-		if !result.Success {
-			log.Printf("Skipping metrics storage for failed rperf test (Target: %s) on poller %s. Error: %v",
-				result.Target, pollerID, result.Error)
-			continue
-		}
-
-		metricsToStore := []struct {
-			Name  string
-			Value string
-		}{
-			{
-				Name:  fmt.Sprintf("rperf_%s_bandwidth_mbps", result.Target),
-				Value: fmt.Sprintf("%.2f", result.BitsPerSec/rperfBitsPerSecondDivisor),
-			},
-			{
-				Name:  fmt.Sprintf("rperf_%s_jitter_ms", result.Target),
-				Value: fmt.Sprintf("%.2f", result.JitterMs),
-			},
-			{
-				Name:  fmt.Sprintf("rperf_%s_loss_percent", result.Target),
-				Value: fmt.Sprintf("%.1f", result.LossPercent),
-			},
-		}
-
-		metadataBytes, err := json.Marshal(result)
-		if err != nil {
-			log.Printf("Failed to marshal rperf result metadata for poller %s, target %s: %v", pollerID, result.Target, err)
-			continue
-		}
-		metadataStr := string(metadataBytes)
-
-		for _, m := range metricsToStore {
-			err = batch.Append(
-				pollerID,
-				m.Name,
-				"rperf",
-				m.Value,
-				metadataStr,
-				timestamp,
-			)
-			if err != nil {
-				log.Printf("Failed to append rperf metric %s for poller %s: %v", m.Name, pollerID, err)
-			} else {
-				storedCount++
-			}
-		}
-	}
-
-	if storedCount == 0 {
-		log.Printf("No valid rperf metrics to send for poller %s", pollerID)
-		return nil
-	}
-
-	if err := batch.Send(); err != nil {
-		return fmt.Errorf("failed to send batch: %w", err)
-	}
-
-	log.Printf("Stored %d rperf metrics for poller %s", storedCount, pollerID)
 	return nil
 }
 
@@ -407,6 +361,5 @@ func (db *DB) BatchMetricsOperation(ctx context.Context, pollerID string, metric
 	if err := batch.Send(); err != nil {
 		return fmt.Errorf("failed to send metrics batch: %w", err)
 	}
-
 	return nil
 }
