@@ -173,15 +173,6 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-type pollerStatus struct {
-	ID            string
-	IsHealthy     bool
-	LastSeen      time.Time
-	FirstSeen     time.Time
-	LastEvaluated time.Time // Track when we last evaluated this poller
-	AlertSent     bool      // Track if we've already sent an alert
-}
-
 type Server struct {
 	proto.UnimplementedPollerServiceServer
 	mu                      sync.RWMutex
@@ -201,8 +192,8 @@ type Server struct {
 	serviceBuffers          map[string][]*db.ServiceStatus
 	sysmonBuffers           map[string][]*models.SysmonMetrics
 	bufferMu                sync.RWMutex
-	pollerStatusCache       map[string]*pollerStatus
-	pollerStatusUpdates     map[string]*db.PollerStatus
+	pollerStatusCache       map[string]*models.PollerStatus
+	pollerStatusUpdates     map[string]*models.PollerStatus
 	pollerStatusUpdateMutex sync.Mutex
 	cacheLastUpdated        time.Time
 	cacheMutex              sync.RWMutex

@@ -28,6 +28,7 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/timeplus-io/proton-go-driver/v2"
+	"github.com/timeplus-io/proton-go-driver/v2/lib/driver"
 )
 
 // DB represents the database connection for Timeplus Proton.
@@ -327,76 +328,104 @@ func (db *DB) UpdateServiceStatuses(ctx context.Context, statuses []*ServiceStat
 	return nil
 }
 
-// UpdatePollerStatus updates a poller's status.
-func (db *DB) UpdatePollerStatus(ctx context.Context, status *PollerStatus) error {
-	if status.PollerID == "" {
-		return fmt.Errorf("invalid poller ID: empty")
+// UpdatePollerStatus updates a poller's status and logs it in the history.
+func (db *DB) UpdatePollerStatus(ctx context.Context, status *models.PollerStatus) error {
+	if err := validatePollerStatus(status); err != nil {
+		return err
 	}
 
-	// Validate timestamps
-	if !isValidTimestamp(status.FirstSeen) {
-		status.FirstSeen = time.Now()
-	}
-
-	if !isValidTimestamp(status.LastSeen) {
-		status.LastSeen = time.Now()
-	}
-
-	// Check for existing poller
-	existing, err := db.GetPollerStatus(ctx, status.PollerID)
-	if err == nil {
-		status.FirstSeen = existing.FirstSeen // Preserve original first_seen
-	} else if !errors.Is(err, ErrFailedToQuery) {
+	// Preserve original FirstSeen if poller exists
+	if err := db.preserveFirstSeen(ctx, status); err != nil {
 		return fmt.Errorf("failed to check poller existence: %w", err)
 	}
 
-	// Insert into pollers
-	batch, err := db.conn.PrepareBatch(ctx, "INSERT INTO pollers (* except _tp_time)")
-	if err != nil {
-		return fmt.Errorf("failed to prepare batch: %w", err)
-	}
-
-	err = batch.Append(
-		status.PollerID,
-		status.FirstSeen,
-		status.LastSeen,
-		status.IsHealthy,
-	)
-
-	if err != nil {
-		return fmt.Errorf("failed to append poller status: %w", err)
-	}
-
-	if err := batch.Send(); err != nil {
+	// Update pollers table
+	if err := db.insertPollerStatus(ctx, status); err != nil {
 		return fmt.Errorf("failed to update poller status: %w", err)
 	}
 
-	// Insert into poller_history
-	batch, err = db.conn.PrepareBatch(ctx, "INSERT INTO poller_history (* except _tp_time)")
-	if err != nil {
-		return fmt.Errorf("failed to prepare batch: %w", err)
-	}
-
-	err = batch.Append(
-		status.PollerID,
-		status.LastSeen,
-		status.IsHealthy,
-	)
-
-	if err != nil {
-		return fmt.Errorf("failed to append poller history: %w", err)
-	}
-
-	if err := batch.Send(); err != nil {
+	// Log to poller_history
+	if err := db.insertPollerHistory(ctx, status); err != nil {
 		return fmt.Errorf("failed to add poller history: %w", err)
 	}
 
 	return nil
 }
 
+// validatePollerStatus ensures the poller status is valid and sets default timestamps.
+func validatePollerStatus(status *models.PollerStatus) error {
+	if status.PollerID == "" {
+		return fmt.Errorf("invalid poller ID: empty")
+	}
+
+	now := time.Now()
+	if !isValidTimestamp(status.FirstSeen) {
+		status.FirstSeen = now
+	}
+
+	if !isValidTimestamp(status.LastSeen) {
+		status.LastSeen = now
+	}
+
+	return nil
+}
+
+// preserveFirstSeen retrieves the existing poller and preserves its FirstSeen timestamp.
+func (db *DB) preserveFirstSeen(ctx context.Context, status *models.PollerStatus) error {
+	existing, err := db.GetPollerStatus(ctx, status.PollerID)
+	if err != nil && !errors.Is(err, ErrFailedToQuery) {
+		return err
+	}
+	if existing != nil {
+		status.FirstSeen = existing.FirstSeen
+	}
+	return nil
+}
+
+// insertPollerStatus inserts or updates the poller status in the pollers table.
+func (db *DB) insertPollerStatus(ctx context.Context, status *models.PollerStatus) error {
+	return db.executeBatch(ctx, "INSERT INTO pollers (* except _tp_time)", func(batch driver.Batch) error {
+		return batch.Append(
+			status.PollerID,
+			status.FirstSeen,
+			status.LastSeen,
+			status.IsHealthy,
+		)
+	})
+}
+
+// insertPollerHistory logs the poller status in the poller_history table.
+func (db *DB) insertPollerHistory(ctx context.Context, status *models.PollerStatus) error {
+	return db.executeBatch(ctx, "INSERT INTO poller_history (* except _tp_time)", func(batch driver.Batch) error {
+		return batch.Append(
+			status.PollerID,
+			status.LastSeen,
+			status.IsHealthy,
+		)
+	})
+}
+
+// executeBatch prepares and sends a batch operation, handling errors.
+func (db *DB) executeBatch(ctx context.Context, query string, appendFunc func(driver.Batch) error) error {
+	batch, err := db.conn.PrepareBatch(ctx, query)
+	if err != nil {
+		return fmt.Errorf("failed to prepare batch: %w", err)
+	}
+
+	if err := appendFunc(batch); err != nil {
+		return fmt.Errorf("failed to append to batch: %w", err)
+	}
+
+	if err := batch.Send(); err != nil {
+		return fmt.Errorf("failed to send batch: %w", err)
+	}
+
+	return nil
+}
+
 // GetPollerStatus retrieves a poller's current status.
-func (db *DB) GetPollerStatus(ctx context.Context, pollerID string) (*PollerStatus, error) {
-	var status PollerStatus
+func (db *DB) GetPollerStatus(ctx context.Context, pollerID string) (*models.PollerStatus, error) {
+	var status models.PollerStatus
 
 	rows, err := db.conn.Query(ctx, `
 		SELECT poller_id, first_seen, last_seen, is_healthy
@@ -486,7 +515,7 @@ func (db *DB) GetPollerHistoryPoints(ctx context.Context, pollerID string, limit
 }
 
 // GetPollerHistory retrieves the history for a poller.
-func (db *DB) GetPollerHistory(ctx context.Context, pollerID string) ([]PollerStatus, error) {
+func (db *DB) GetPollerHistory(ctx context.Context, pollerID string) ([]models.PollerStatus, error) {
 	const maxHistoryPoints = 1000
 
 	rows, err := db.conn.Query(ctx, `
@@ -501,10 +530,10 @@ func (db *DB) GetPollerHistory(ctx context.Context, pollerID string) ([]PollerSt
 	}
 	defer rows.Close()
 
-	var history []PollerStatus
+	var history []models.PollerStatus
 
 	for rows.Next() {
-		var status PollerStatus
+		var status models.PollerStatus
 
 		status.PollerID = pollerID
 		if err := rows.Scan(&status.LastSeen, &status.IsHealthy); err != nil {
@@ -651,7 +680,7 @@ func (db *DB) DeletePoller(ctx context.Context, pollerID string) error {
 }
 
 // ListPollerStatuses retrieves poller statuses, optionally filtered by patterns.
-func (db *DB) ListPollerStatuses(ctx context.Context, patterns []string) ([]PollerStatus, error) {
+func (db *DB) ListPollerStatuses(ctx context.Context, patterns []string) ([]models.PollerStatus, error) {
 	query := `SELECT poller_id, is_healthy, last_seen FROM pollers`
 
 	var args []interface{}
@@ -675,10 +704,10 @@ func (db *DB) ListPollerStatuses(ctx context.Context, patterns []string) ([]Poll
 	}
 	defer rows.Close()
 
-	var statuses []PollerStatus
+	var statuses []models.PollerStatus
 
 	for rows.Next() {
-		var status PollerStatus
+		var status models.PollerStatus
 
 		if err := rows.Scan(&status.PollerID, &status.IsHealthy, &status.LastSeen); err != nil {
 			log.Printf("Error scanning poller status: %v", err)

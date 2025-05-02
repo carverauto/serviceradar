@@ -44,16 +44,20 @@ type PollerStatus struct {
 	PollerID string `json:"poller_id" example:"poller-prod-east-01"`
 	// Whether the poller is currently healthy
 	IsHealthy bool `json:"is_healthy" example:"true"`
-	// Last time the poller reported its status
-	LastUpdate time.Time `json:"last_update" example:"2025-04-24T14:15:22Z"`
 	// List of services monitored by this poller
 	Services []ServiceStatus `json:"services"`
 	// How long the poller has been running
 	UpTime string `json:"uptime" example:"3d 2h 15m"`
 	// When the poller was first seen by the system
 	FirstSeen time.Time `json:"first_seen" example:"2025-04-20T10:00:00Z"`
+	// Last time the poller reported its status
+	LastSeen time.Time `json:"last_seen" example:"2025-04-24T14:15:22Z"`
 	// Optional metrics data points
 	Metrics []MetricPoint `json:"metrics,omitempty"`
+	// Metadata about the poller
+	LastEvaluated time.Time `json:"last_evaluated" example:"2025-04-24T14:15:22Z"`
+	// AlertSent indicates if an alert has been sent for this poller
+	AlertSent bool `json:"alert_sent" example:"false"`
 }
 
 // SystemStatus represents the overall system status.

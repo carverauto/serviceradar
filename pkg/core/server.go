@@ -99,8 +99,8 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 		serviceBuffers:      make(map[string][]*db.ServiceStatus),
 		sysmonBuffers:       make(map[string][]*models.SysmonMetrics),
 		bufferMu:            sync.RWMutex{},
-		pollerStatusCache:   make(map[string]*pollerStatus),
-		pollerStatusUpdates: make(map[string]*db.PollerStatus),
+		pollerStatusCache:   make(map[string]*models.PollerStatus),
+		pollerStatusUpdates: make(map[string]*models.PollerStatus),
 	}
 
 	// Initialize the cache on startup
@@ -137,7 +137,7 @@ func (s *Server) queuePollerStatusUpdate(pollerID string, isHealthy bool, lastSe
 	s.pollerStatusUpdateMutex.Lock()
 	defer s.pollerStatusUpdateMutex.Unlock()
 
-	s.pollerStatusUpdates[pollerID] = &db.PollerStatus{
+	s.pollerStatusUpdates[pollerID] = &models.PollerStatus{
 		PollerID:  pollerID,
 		IsHealthy: isHealthy,
 		LastSeen:  lastSeen,
@@ -607,7 +607,7 @@ func (s *Server) getPollerHealthState(ctx context.Context, pollerID string) (boo
 
 func (s *Server) processStatusReport(
 	ctx context.Context, req *proto.PollerStatusRequest, now time.Time) (*api.PollerStatus, error) {
-	pollerStatus := &db.PollerStatus{
+	pollerStatus := &models.PollerStatus{
 		PollerID:  req.PollerId,
 		IsHealthy: true,
 		LastSeen:  now,
@@ -1077,7 +1077,7 @@ func (s *Server) saveServiceStatus(pollerID string, svc *api.ServiceStatus, now 
 }
 
 func (s *Server) storePollerStatus(ctx context.Context, pollerID string, isHealthy bool, now time.Time) error {
-	pollerStatus := &db.PollerStatus{
+	pollerStatus := &models.PollerStatus{
 		PollerID:  pollerID,
 		IsHealthy: isHealthy,
 		LastSeen:  now,
@@ -1091,7 +1091,7 @@ func (s *Server) storePollerStatus(ctx context.Context, pollerID string, isHealt
 }
 
 func (s *Server) updatePollerStatus(ctx context.Context, pollerID string, isHealthy bool, timestamp time.Time) error {
-	pollerStatus := &db.PollerStatus{
+	pollerStatus := &models.PollerStatus{
 		PollerID:  pollerID,
 		IsHealthy: isHealthy,
 		LastSeen:  timestamp,
@@ -1168,7 +1168,7 @@ func (s *Server) CheckNeverReportedPollersStartup(ctx context.Context) {
 
 	// Clear poller status cache
 	s.cacheMutex.Lock()
-	s.pollerStatusCache = make(map[string]*pollerStatus)
+	s.pollerStatusCache = make(map[string]*models.PollerStatus)
 	s.cacheLastUpdated = time.Time{}
 	s.cacheMutex.Unlock()
 
@@ -1300,7 +1300,7 @@ func (s *Server) checkPollerStatus(ctx context.Context) error {
 
 		// Handle poller status
 		if err := s.handlePoller(batchCtx, ps, threshold); err != nil {
-			log.Printf("Error handling poller %s: %v", ps.ID, err)
+			log.Printf("Error handling poller %s: %v", ps.PollerID, err)
 		}
 	}
 
@@ -1308,14 +1308,14 @@ func (s *Server) checkPollerStatus(ctx context.Context) error {
 }
 
 // handlePoller processes an individual poller's status (offline or recovered).
-func (s *Server) handlePoller(batchCtx context.Context, ps *pollerStatus, threshold time.Time) error {
+func (s *Server) handlePoller(batchCtx context.Context, ps *models.PollerStatus, threshold time.Time) error {
 	if ps.IsHealthy && ps.LastSeen.Before(threshold) {
 		// Poller appears to be offline
 		if !ps.AlertSent {
 			duration := time.Since(ps.LastSeen).Round(time.Second)
-			log.Printf("Poller %s appears to be offline (last seen: %v ago)", ps.ID, duration)
+			log.Printf("Poller %s appears to be offline (last seen: %v ago)", ps.PollerID, duration)
 
-			if err := s.handlePollerDown(batchCtx, ps.ID, ps.LastSeen); err != nil {
+			if err := s.handlePollerDown(batchCtx, ps.PollerID, ps.LastSeen); err != nil {
 				return err
 			}
 
@@ -1323,15 +1323,15 @@ func (s *Server) handlePoller(batchCtx context.Context, ps *pollerStatus, thresh
 		}
 	} else if !ps.IsHealthy && !ps.LastSeen.Before(threshold) && ps.AlertSent {
 		// Poller appears to have recovered
-		log.Printf("Poller %s has recovered", ps.ID)
+		log.Printf("Poller %s has recovered", ps.PollerID)
 
 		apiStatus := &api.PollerStatus{
-			PollerID:   ps.ID,
+			PollerID:   ps.PollerID,
 			LastUpdate: ps.LastSeen,
 			Services:   make([]api.ServiceStatus, 0),
 		}
 
-		s.handlePollerRecovery(batchCtx, ps.ID, apiStatus, ps.LastSeen)
+		s.handlePollerRecovery(batchCtx, ps.PollerID, apiStatus, ps.LastSeen)
 		ps.AlertSent = false
 	}
 
@@ -1350,7 +1350,7 @@ func (s *Server) flushPollerStatusUpdates(ctx context.Context) {
 			s.pollerStatusUpdateMutex.Lock()
 			updates := s.pollerStatusUpdates
 
-			s.pollerStatusUpdates = make(map[string]*db.PollerStatus)
+			s.pollerStatusUpdates = make(map[string]*models.PollerStatus)
 			s.pollerStatusUpdateMutex.Unlock()
 
 			if len(updates) == 0 {
@@ -1360,7 +1360,7 @@ func (s *Server) flushPollerStatusUpdates(ctx context.Context) {
 			log.Printf("Flushing %d poller status updates", len(updates))
 
 			// Convert to a slice for batch processing
-			statuses := make([]*db.PollerStatus, 0, len(updates))
+			statuses := make([]*models.PollerStatus, 0, len(updates))
 
 			for _, status := range updates {
 				statuses = append(statuses, status)
@@ -1540,7 +1540,7 @@ func getHostname() string {
 	return hostname
 }
 
-func (s *Server) getPollerStatuses(ctx context.Context, forceRefresh bool) (map[string]*pollerStatus, error) {
+func (s *Server) getPollerStatuses(ctx context.Context, forceRefresh bool) (map[string]*models.PollerStatus, error) {
 	// Try to use cached data with read lock
 	s.cacheMutex.RLock()
 
@@ -1569,11 +1569,11 @@ func (s *Server) getPollerStatuses(ctx context.Context, forceRefresh bool) (map[
 	}
 
 	// Update the cache
-	newCache := make(map[string]*pollerStatus, len(statuses))
+	newCache := make(map[string]*models.PollerStatus, len(statuses))
 
 	for _, status := range statuses {
-		ps := &pollerStatus{
-			ID:        status.PollerID,
+		ps := &models.PollerStatus{
+			PollerID:  status.PollerID,
 			IsHealthy: status.IsHealthy,
 			LastSeen:  status.LastSeen,
 			FirstSeen: status.FirstSeen,
@@ -1594,8 +1594,8 @@ func (s *Server) getPollerStatuses(ctx context.Context, forceRefresh bool) (map[
 }
 
 // copyPollerStatusCache creates a copy of the poller status cache.
-func (s *Server) copyPollerStatusCache() map[string]*pollerStatus {
-	result := make(map[string]*pollerStatus, len(s.pollerStatusCache))
+func (s *Server) copyPollerStatusCache() map[string]*models.PollerStatus {
+	result := make(map[string]*models.PollerStatus, len(s.pollerStatusCache))
 
 	for k, v := range s.pollerStatusCache {
 		result[k] = v

@@ -40,14 +40,14 @@ type Service interface {
 
 	// Poller operations.
 
-	UpdatePollerStatus(ctx context.Context, status *PollerStatus) error
-	GetPollerStatus(ctx context.Context, pollerID string) (*PollerStatus, error)
-	GetPollerHistory(ctx context.Context, pollerID string) ([]PollerStatus, error)
+	UpdatePollerStatus(ctx context.Context, status *models.PollerStatus) error
+	GetPollerStatus(ctx context.Context, pollerID string) (*models.PollerStatus, error)
+	GetPollerHistory(ctx context.Context, pollerID string) ([]models.PollerStatus, error)
 	GetPollerHistoryPoints(ctx context.Context, pollerID string, limit int) ([]PollerHistoryPoint, error)
 	IsPollerOffline(ctx context.Context, pollerID string, threshold time.Duration) (bool, error)
 	ListPollers(ctx context.Context) ([]string, error)
 	DeletePoller(ctx context.Context, pollerID string) error
-	ListPollerStatuses(ctx context.Context, patterns []string) ([]PollerStatus, error)
+	ListPollerStatuses(ctx context.Context, patterns []string) ([]models.PollerStatus, error)
 	ListNeverReportedPollers(ctx context.Context, patterns []string) ([]string, error)
 
 	// Service operations.
