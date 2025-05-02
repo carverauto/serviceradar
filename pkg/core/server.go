@@ -207,6 +207,8 @@ func (s *Server) flushSysmonMetrics(ctx context.Context) {
 			continue
 		}
 
+		log.Printf("Flushing %d sysmon metrics for poller %s", len(sysmonMetrics), pollerID)
+
 		for _, metric := range sysmonMetrics {
 			if err := s.db.StoreSysmonMetrics(ctx, pollerID, metric, metric.CPUs[0].Timestamp); err != nil {
 				log.Printf("Failed to flush sysmon metrics for poller %s: %v", pollerID, err)
@@ -798,20 +800,32 @@ func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, 
 
 	if outerData.Status == "" {
 		log.Printf("Empty status field in sysmon data for poller %s", pollerID)
-
 		return errEmptyStatusField
 	}
 
-	var sysmonData models.SysmonMetricData
-
+	var sysmonData struct {
+		Timestamp string              `json:"timestamp"`
+		HostID    string              `json:"host_id"`
+		CPUs      []models.CPUMetric  `json:"cpus"`
+		Disks     []models.DiskMetric `json:"disks"`
+		Memory    models.MemoryMetric `json:"memory"`
+	}
 	if err := json.Unmarshal([]byte(outerData.Status), &sysmonData); err != nil {
 		log.Printf("Error unmarshaling inner sysmon data for poller %s: %v", pollerID, err)
 
 		return fmt.Errorf("failed to parse inner sysmon data: %w", err)
 	}
 
-	hasMemoryData := sysmonData.Memory.TotalBytes > 0 || sysmonData.Memory.UsedBytes > 0
+	log.Printf("Parsed %d CPU metrics for poller %s with timestamp %s", len(sysmonData.CPUs), pollerID, sysmonData.Timestamp)
 
+	// Parse the poller's timestamp
+	pollerTimestamp, err := time.Parse(time.RFC3339Nano, sysmonData.Timestamp)
+	if err != nil {
+		log.Printf("Invalid timestamp in sysmon data for poller %s: %v, using server timestamp", pollerID, err)
+		pollerTimestamp = timestamp
+	}
+
+	hasMemoryData := sysmonData.Memory.TotalBytes > 0 || sysmonData.Memory.UsedBytes > 0
 	m := &models.SysmonMetrics{
 		CPUs:   make([]models.CPUMetric, len(sysmonData.CPUs)),
 		Disks:  make([]models.DiskMetric, len(sysmonData.Disks)),
@@ -822,7 +836,7 @@ func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, 
 		m.CPUs[i] = models.CPUMetric{
 			CoreID:       cpu.CoreID,
 			UsagePercent: float64(cpu.UsagePercent),
-			Timestamp:    timestamp,
+			Timestamp:    pollerTimestamp, // Use poller's timestamp
 		}
 	}
 
@@ -831,7 +845,7 @@ func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, 
 			MountPoint: disk.MountPoint,
 			UsedBytes:  disk.UsedBytes,
 			TotalBytes: disk.TotalBytes,
-			Timestamp:  timestamp,
+			Timestamp:  pollerTimestamp,
 		}
 	}
 
@@ -839,11 +853,10 @@ func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, 
 		m.Memory = models.MemoryMetric{
 			UsedBytes:  sysmonData.Memory.UsedBytes,
 			TotalBytes: sysmonData.Memory.TotalBytes,
-			Timestamp:  timestamp,
+			Timestamp:  pollerTimestamp,
 		}
 	}
 
-	// Buffer sysmon metrics
 	s.bufferMu.Lock()
 	s.sysmonBuffers[pollerID] = append(s.sysmonBuffers[pollerID], m)
 	s.bufferMu.Unlock()
