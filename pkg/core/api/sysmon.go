@@ -55,10 +55,10 @@ func (s *APIServer) getSysmonMetrics(
 	w http.ResponseWriter,
 	r *http.Request,
 	fetchMetrics func(
-	ctx context.Context,
-	provider db.SysmonMetricsProvider,
-	pollerID string,
-	startTime, endTime time.Time) (interface{}, error),
+		ctx context.Context,
+		provider db.SysmonMetricsProvider,
+		pollerID string,
+		startTime, endTime time.Time) (interface{}, error),
 	metricType string,
 ) {
 	ctx := r.Context()
@@ -142,37 +142,6 @@ func (s *APIServer) getSysmonCPUMetrics(w http.ResponseWriter, r *http.Request) 
 	}
 	s.getSysmonMetrics(w, r, fetch, "CPU")
 }
-
-/*
-func (s *APIServer) getSysmonCPUMetrics(w http.ResponseWriter, r *http.Request) {
-	fetch := func(ctx context.Context, provider db.SysmonMetricsProvider, pollerID string, startTime, endTime time.Time) (interface{}, error) {
-		metrics, err := fetchMetrics[db.SysmonCPUResponse](ctx, pollerID, startTime, endTime, provider.GetAllCPUMetrics)
-		if err != nil {
-			return nil, err
-		}
-
-		// log metrics
-		log.Printf("Fetched %d CPU metrics for poller %s", len(metrics.([]db.SysmonCPUResponse)), pollerID)
-
-		// Flatten SysmonCPUResponse to []models.CPUMetric
-		sysmonMetrics := metrics.([]db.SysmonCPUResponse)
-
-		var result []models.CPUMetric
-
-		for _, sm := range sysmonMetrics {
-			result = append(result, sm.Cpus...)
-		}
-
-		if len(result) == 0 {
-			return nil, &httpError{"No metrics found", http.StatusNotFound}
-		}
-
-		return result, nil
-	}
-
-	s.getSysmonMetrics(w, r, fetch, "CPU")
-}
-*/
 
 // @Summary Get memory metrics
 // @Description Retrieves memory usage metrics for a specific poller within a time range
