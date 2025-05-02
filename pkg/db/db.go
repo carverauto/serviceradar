@@ -18,14 +18,18 @@ package db
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/core"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/timeplus-io/proton-go-driver/v2"
 	"github.com/timeplus-io/proton-go-driver/v2/lib/driver"
@@ -37,7 +41,30 @@ type DB struct {
 }
 
 // New creates a new database connection and initializes the schema.
-func New(ctx context.Context, addr, database, username, password string) (Service, error) {
+func New(ctx context.Context, config *core.Config) (Service, error) {
+	// Load client certificate and key
+	cert, err := tls.LoadX509KeyPair(config.Security.TLS.CertFile, config.Security.TLS.KeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("%w: failed to load client certificate: %w", ErrFailedOpenDB, err)
+	}
+
+	// Load CA certificate
+	caCert, err := ioutil.ReadFile(config.Security.TLS.CAFile)
+	if err != nil {
+		return nil, fmt.Errorf("%w: failed to read CA certificate: %w", ErrFailedOpenDB, err)
+	}
+	caCertPool := x509.NewCertPool()
+	if !caCertPool.AppendCertsFromPEM(caCert) {
+		return nil, fmt.Errorf("%w: failed to append CA certificate to pool", ErrFailedOpenDB)
+	}
+
+	// Configure TLS with mTLS settings
+	tlsConfig := &tls.Config{
+		Certificates:       []tls.Certificate{cert},
+		RootCAs:            caCertPool,
+		InsecureSkipVerify: false, // Enforce server certificate verification
+	}
+
 	conn, err := proton.Open(&proton.Options{
 		Addr: []string{addr},
 		Auth: proton.Auth{
@@ -45,6 +72,7 @@ func New(ctx context.Context, addr, database, username, password string) (Servic
 			Username: username,
 			Password: password,
 		},
+		TLS: tlsConfig, // Add TLS configuration for mTLS
 		Compression: &proton.Compression{
 			Method: proton.CompressionLZ4,
 		},

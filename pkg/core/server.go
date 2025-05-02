@@ -37,6 +37,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/metrics"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/models/core"
 	"github.com/carverauto/serviceradar/proto"
 )
 
@@ -59,15 +60,10 @@ const (
 	defaultFlushInterval              = 10 * time.Second
 )
 
-func NewServer(ctx context.Context, config *Config) (*Server, error) {
+func NewServer(ctx context.Context, config *core.Config) (*core.Server, error) {
 	normalizedConfig := normalizeConfig(config)
 
-	database, err := db.New(ctx,
-		normalizedConfig.DBAddr,
-		normalizedConfig.DBName,
-		normalizedConfig.DBUser,
-		normalizedConfig.DBPass,
-	)
+	database, err := db.New(ctx, normalizedConfig)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errDatabaseError, err)
 	}
@@ -84,23 +80,23 @@ func NewServer(ctx context.Context, config *Config) (*Server, error) {
 	}
 	metricsManager := metrics.NewManager(metricsConfig, database)
 
-	server := &Server{
-		db:                  database,
-		alertThreshold:      normalizedConfig.AlertThreshold,
-		webhooks:            make([]alerts.AlertService, 0),
+	server := &core.Server{
+		Db:                  database,
+		AlertThreshold:      normalizedConfig.AlertThreshold,
+		Webhooks:            make([]alerts.AlertService, 0),
 		ShutdownChan:        make(chan struct{}),
-		pollerPatterns:      normalizedConfig.PollerPatterns,
-		metrics:             metricsManager,
-		snmpManager:         snmp.NewSNMPManager(database),
-		rperfManager:        rperf.NewRperfManager(database),
-		config:              normalizedConfig,
-		authService:         auth.NewAuth(authConfig, database),
-		metricBuffers:       make(map[string][]*db.TimeseriesMetric),
-		serviceBuffers:      make(map[string][]*db.ServiceStatus),
-		sysmonBuffers:       make(map[string][]*models.SysmonMetrics),
-		bufferMu:            sync.RWMutex{},
-		pollerStatusCache:   make(map[string]*models.PollerStatus),
-		pollerStatusUpdates: make(map[string]*models.PollerStatus),
+		PollerPatterns:      normalizedConfig.PollerPatterns,
+		Metrics:             metricsManager,
+		SnmpManager:         snmp.NewSNMPManager(database),
+		RperfManager:        rperf.NewRperfManager(database),
+		Config:              normalizedConfig,
+		AuthService:         auth.NewAuth(authConfig, database),
+		MetricBuffers:       make(map[string][]*db.TimeseriesMetric),
+		ServiceBuffers:      make(map[string][]*db.ServiceStatus),
+		SysmonBuffers:       make(map[string][]*models.SysmonMetrics),
+		BufferMu:            sync.RWMutex{},
+		PollerStatusCache:   make(map[string]*models.PollerStatus),
+		PollerStatusUpdates: make(map[string]*models.PollerStatus),
 	}
 
 	// Initialize the cache on startup
