@@ -235,10 +235,10 @@ func (mr *MockServiceMockRecorder) GetMetricsByType(ctx, pollerID, metricType, s
 }
 
 // GetPollerHistory mocks base method.
-func (m *MockService) GetPollerHistory(ctx context.Context, pollerID string) ([]PollerStatus, error) {
+func (m *MockService) GetPollerHistory(ctx context.Context, pollerID string) ([]models.PollerStatus, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetPollerHistory", ctx, pollerID)
-	ret0, _ := ret[0].([]PollerStatus)
+	ret0, _ := ret[0].([]models.PollerStatus)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -280,10 +280,10 @@ func (mr *MockServiceMockRecorder) GetPollerServices(ctx, pollerID any) *gomock.
 }
 
 // GetPollerStatus mocks base method.
-func (m *MockService) GetPollerStatus(ctx context.Context, pollerID string) (*PollerStatus, error) {
+func (m *MockService) GetPollerStatus(ctx context.Context, pollerID string) (*models.PollerStatus, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetPollerStatus", ctx, pollerID)
-	ret0, _ := ret[0].(*PollerStatus)
+	ret0, _ := ret[0].(*models.PollerStatus)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -355,10 +355,10 @@ func (mr *MockServiceMockRecorder) ListNeverReportedPollers(ctx, patterns any) *
 }
 
 // ListPollerStatuses mocks base method.
-func (m *MockService) ListPollerStatuses(ctx context.Context, patterns []string) ([]PollerStatus, error) {
+func (m *MockService) ListPollerStatuses(ctx context.Context, patterns []string) ([]models.PollerStatus, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListPollerStatuses", ctx, patterns)
-	ret0, _ := ret[0].([]PollerStatus)
+	ret0, _ := ret[0].([]models.PollerStatus)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -455,7 +455,7 @@ func (mr *MockServiceMockRecorder) StoreUser(ctx, user any) *gomock.Call {
 }
 
 // UpdatePollerStatus mocks base method.
-func (m *MockService) UpdatePollerStatus(ctx context.Context, status *PollerStatus) error {
+func (m *MockService) UpdatePollerStatus(ctx context.Context, status *models.PollerStatus) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdatePollerStatus", ctx, status)
 	ret0, _ := ret[0].(error)

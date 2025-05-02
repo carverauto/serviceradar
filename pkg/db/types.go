@@ -47,14 +47,6 @@ type PollerHistoryPoint struct {
 	IsHealthy bool      `json:"is_healthy"`
 }
 
-// PollerStatus represents a poller's current status.
-type PollerStatus struct {
-	PollerID  string    `json:"poller_id"`
-	IsHealthy bool      `json:"is_healthy"`
-	FirstSeen time.Time `json:"first_seen"`
-	LastSeen  time.Time `json:"last_seen"`
-}
-
 // ServiceStatus represents a service's status.
 type ServiceStatus struct {
 	PollerID    string    `json:"poller_id"`

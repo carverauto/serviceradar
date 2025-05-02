@@ -23,6 +23,7 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/core/alerts"
 	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
 )
@@ -32,7 +33,7 @@ func TestPollerRecoveryManager_ProcessRecovery_WithCooldown(t *testing.T) {
 		name             string
 		pollerID         string
 		lastSeen         time.Time
-		getCurrentPoller *db.PollerStatus
+		getCurrentPoller *models.PollerStatus
 		dbError          error
 		alertError       error
 		expectError      string
@@ -41,7 +42,7 @@ func TestPollerRecoveryManager_ProcessRecovery_WithCooldown(t *testing.T) {
 			name:     "successful_recovery_with_cooldown",
 			pollerID: "test-poller",
 			lastSeen: time.Now(),
-			getCurrentPoller: &db.PollerStatus{
+			getCurrentPoller: &models.PollerStatus{
 				PollerID:  "test-poller",
 				IsHealthy: false,
 				LastSeen:  time.Now().Add(-time.Hour),
@@ -52,7 +53,7 @@ func TestPollerRecoveryManager_ProcessRecovery_WithCooldown(t *testing.T) {
 			name:     "successful_recovery_no_cooldown",
 			pollerID: "test-poller",
 			lastSeen: time.Now(),
-			getCurrentPoller: &db.PollerStatus{
+			getCurrentPoller: &models.PollerStatus{
 				PollerID:  "test-poller",
 				IsHealthy: false,
 				LastSeen:  time.Now().Add(-time.Hour),
@@ -62,7 +63,7 @@ func TestPollerRecoveryManager_ProcessRecovery_WithCooldown(t *testing.T) {
 			name:     "already_healthy",
 			pollerID: "test-poller",
 			lastSeen: time.Now(),
-			getCurrentPoller: &db.PollerStatus{
+			getCurrentPoller: &models.PollerStatus{
 				PollerID:  "test-poller",
 				IsHealthy: true,
 				LastSeen:  time.Now(),
@@ -117,7 +118,7 @@ func TestPollerRecoveryManager_ProcessRecovery(t *testing.T) {
 	tests := []struct {
 		name          string
 		pollerID      string
-		currentStatus *db.PollerStatus
+		currentStatus *models.PollerStatus
 		dbError       error
 		expectAlert   bool
 		expectedError string
@@ -125,7 +126,7 @@ func TestPollerRecoveryManager_ProcessRecovery(t *testing.T) {
 		{
 			name:     "successful_recovery",
 			pollerID: "test-poller",
-			currentStatus: &db.PollerStatus{
+			currentStatus: &models.PollerStatus{
 				PollerID:  "test-poller",
 				IsHealthy: false,
 				LastSeen:  time.Now().Add(-time.Hour),
@@ -135,7 +136,7 @@ func TestPollerRecoveryManager_ProcessRecovery(t *testing.T) {
 		{
 			name:     "already_healthy",
 			pollerID: "test-poller",
-			currentStatus: &db.PollerStatus{
+			currentStatus: &models.PollerStatus{
 				PollerID:  "test-poller",
 				IsHealthy: true,
 				LastSeen:  time.Now(),
