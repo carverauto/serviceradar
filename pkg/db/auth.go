@@ -24,6 +24,51 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
+// getUserByField retrieves a user by a specific field (e.g., id or email).
+func (db *DB) getUserByField(ctx context.Context, field, value string) (*models.User, error) {
+	user := &models.User{}
+
+	query := `
+        SELECT id, email, name, provider, created_at, updated_at
+        FROM users
+        WHERE ` + field + ` = $1
+        LIMIT 1`
+
+	rows, err := db.conn.Query(ctx, query, value)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query user by %s: %w", field, err)
+	}
+	defer rows.Close()
+
+	if !rows.Next() {
+		return nil, ErrUserNotFound
+	}
+
+	err = rows.Scan(
+		&user.ID,
+		&user.Email,
+		&user.Name,
+		&user.Provider,
+		&user.CreatedAt,
+		&user.UpdatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to scan user by %s: %w", field, err)
+	}
+
+	return user, nil
+}
+
+// GetUserByID retrieves a user by ID.
+func (db *DB) GetUserByID(ctx context.Context, id string) (*models.User, error) {
+	return db.getUserByField(ctx, "id", id)
+}
+
+// GetUserByEmail retrieves a user by email address.
+func (db *DB) GetUserByEmail(ctx context.Context, email string) (*models.User, error) {
+	return db.getUserByField(ctx, "email", email)
+}
+
 // StoreUser stores a user in the database.
 func (db *DB) StoreUser(ctx context.Context, user *models.User) error {
 	user.CreatedAt = time.Now()
@@ -51,40 +96,6 @@ func (db *DB) StoreUser(ctx context.Context, user *models.User) error {
 	}
 
 	return nil
-}
-
-// GetUserByID retrieves a user by ID.
-func (db *DB) GetUserByID(ctx context.Context, id string) (*models.User, error) {
-	user := &models.User{}
-
-	rows, err := db.conn.Query(ctx, `
-		SELECT id, email, name, provider, created_at, updated_at
-		FROM users
-		WHERE id = $1
-		LIMIT 1`,
-		id)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query user: %w", err)
-	}
-	defer rows.Close()
-
-	if !rows.Next() {
-		return nil, ErrUserNotFound
-	}
-
-	err = rows.Scan(
-		&user.ID,
-		&user.Email,
-		&user.Name,
-		&user.Provider,
-		&user.CreatedAt,
-		&user.UpdatedAt,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to scan user: %w", err)
-	}
-
-	return user, nil
 }
 
 // StoreBatchUsers stores multiple users in a single batch operation
@@ -175,38 +186,4 @@ func (db *DB) UpdateUser(ctx context.Context, user *models.User) error {
 	}
 
 	return nil
-}
-
-// GetUserByEmail retrieves a user by email address
-func (db *DB) GetUserByEmail(ctx context.Context, email string) (*models.User, error) {
-	user := &models.User{}
-
-	rows, err := db.conn.Query(ctx, `
-		SELECT id, email, name, provider, created_at, updated_at
-		FROM users
-		WHERE email = $1
-		LIMIT 1`,
-		email)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query user by email: %w", err)
-	}
-	defer rows.Close()
-
-	if !rows.Next() {
-		return nil, ErrUserNotFound
-	}
-
-	err = rows.Scan(
-		&user.ID,
-		&user.Email,
-		&user.Name,
-		&user.Provider,
-		&user.CreatedAt,
-		&user.UpdatedAt,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to scan user by email: %w", err)
-	}
-
-	return user, nil
 }
