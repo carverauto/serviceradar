@@ -18,6 +18,7 @@ package metrics
 
 import (
 	"container/list"
+	"context"
 	"log"
 	"sync"
 	"sync/atomic"
@@ -38,7 +39,6 @@ type Manager struct {
 	db          db.Service
 }
 
-var _ db.SysmonMetricsProvider = (*Manager)(nil)
 var _ SysmonMetricsProvider = (*Manager)(nil)
 
 func NewManager(cfg models.MetricsConfig, db db.Service) *Manager {
@@ -99,7 +99,7 @@ func (m *Manager) AddMetric(nodeID string, timestamp time.Time, responseTime int
 	}
 
 	// Load or create metric store for this node
-	store, loaded := m.nodes.LoadOrStore(nodeID, NewBuffer(m.config.Retention))
+	store, loaded := m.nodes.LoadOrStore(nodeID, NewBuffer(int(m.config.Retention)))
 	if !loaded {
 		m.nodeCount.Add(1)
 		m.activeNodes.Add(1)
@@ -161,11 +161,11 @@ func (m *Manager) GetActiveNodes() int64 {
 }
 
 // GetAllMountPoints retrieves all unique mount points for a given poller.
-func (m *Manager) GetAllMountPoints(pollerID string) ([]string, error) {
+func (m *Manager) GetAllMountPoints(ctx context.Context, pollerID string) ([]string, error) {
 	log.Printf("Retrieving all mount points for poller %s", pollerID)
 
 	// Call the database service to get all mount points
-	mountPoints, err := m.db.GetAllMountPoints(pollerID)
+	mountPoints, err := m.db.GetAllMountPoints(ctx, pollerID)
 	if err != nil {
 		log.Printf("Error retrieving mount points for poller %s: %v", pollerID, err)
 		return nil, err
@@ -175,8 +175,6 @@ func (m *Manager) GetAllMountPoints(pollerID string) ([]string, error) {
 		log.Printf("No mount points found for poller %s", pollerID)
 		return []string{}, nil
 	}
-
-	log.Printf("Retrieved %d mount points for poller %s", len(mountPoints), pollerID)
 
 	return mountPoints, nil
 }

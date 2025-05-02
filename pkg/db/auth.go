@@ -7,8 +7,8 @@
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
@@ -17,47 +17,175 @@
 package db
 
 import (
-	"database/sql"
-	"errors"
+	"context"
 	"fmt"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-func (db *DB) StoreUser(user *models.User) error {
+// getUserByField retrieves a user by a specific field (e.g., id or email).
+func (db *DB) getUserByField(ctx context.Context, field, value string) (*models.User, error) {
+	user := &models.User{}
+
+	query := `
+        SELECT id, email, name, provider, created_at, updated_at
+        FROM users
+        WHERE ` + field + ` = $1
+        LIMIT 1`
+
+	rows, err := db.conn.Query(ctx, query, value)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query user by %s: %w", field, err)
+	}
+	defer rows.Close()
+
+	if !rows.Next() {
+		return nil, ErrUserNotFound
+	}
+
+	err = rows.Scan(
+		&user.ID,
+		&user.Email,
+		&user.Name,
+		&user.Provider,
+		&user.CreatedAt,
+		&user.UpdatedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to scan user by %s: %w", field, err)
+	}
+
+	return user, nil
+}
+
+// GetUserByID retrieves a user by ID.
+func (db *DB) GetUserByID(ctx context.Context, id string) (*models.User, error) {
+	return db.getUserByField(ctx, "id", id)
+}
+
+// GetUserByEmail retrieves a user by email address.
+func (db *DB) GetUserByEmail(ctx context.Context, email string) (*models.User, error) {
+	return db.getUserByField(ctx, "email", email)
+}
+
+// StoreUser stores a user in the database.
+func (db *DB) StoreUser(ctx context.Context, user *models.User) error {
 	user.CreatedAt = time.Now()
 	user.UpdatedAt = user.CreatedAt
 
-	_, err := db.Exec(`
-        INSERT INTO users (id, email, name, provider, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-            email = excluded.email,
-            name = excluded.name,
-            updated_at = excluded.updated_at
-    `, user.ID, user.Email, user.Name, user.Provider, user.CreatedAt, user.UpdatedAt)
+	batch, err := db.conn.PrepareBatch(ctx, "INSERT INTO users (* except _tp_time)")
 	if err != nil {
+		return fmt.Errorf("failed to prepare batch: %w", err)
+	}
+
+	err = batch.Append(
+		user.ID,
+		user.Email,
+		user.Name,
+		user.Provider,
+		user.CreatedAt,
+		user.UpdatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to append user: %w", err)
+	}
+
+	if err := batch.Send(); err != nil {
 		return fmt.Errorf("failed to store user: %w", err)
 	}
 
 	return nil
 }
 
-func (db *DB) GetUserByID(id string) (*models.User, error) {
-	user := &models.User{}
-
-	err := db.QueryRow(`
-        SELECT id, email, name, provider, created_at, updated_at
-        FROM users WHERE id = ?
-    `, id).Scan(&user.ID, &user.Email, &user.Name, &user.Provider, &user.CreatedAt, &user.UpdatedAt)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrUserNotFound
+// StoreBatchUsers stores multiple users in a single batch operation
+func (db *DB) StoreBatchUsers(ctx context.Context, users []*models.User) error {
+	if len(users) == 0 {
+		return nil
 	}
 
+	batch, err := db.conn.PrepareBatch(ctx, "INSERT INTO users (* except _tp_time)")
 	if err != nil {
-		return nil, fmt.Errorf("failed to get user: %w", err)
+		return fmt.Errorf("failed to prepare batch: %w", err)
 	}
 
-	return user, nil
+	now := time.Now()
+
+	for _, user := range users {
+		// Set timestamps if not already set
+		if user.CreatedAt.IsZero() {
+			user.CreatedAt = now
+		}
+
+		if user.UpdatedAt.IsZero() {
+			user.UpdatedAt = now
+		}
+
+		err = batch.Append(
+			user.ID,
+			user.Email,
+			user.Name,
+			user.Provider,
+			user.CreatedAt,
+			user.UpdatedAt,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to append user %s: %w", user.ID, err)
+		}
+	}
+
+	if err := batch.Send(); err != nil {
+		return fmt.Errorf("failed to store batch users: %w", err)
+	}
+
+	return nil
+}
+
+// UpdateUserLastSeen updates a user's last seen timestamp
+func (db *DB) UpdateUserLastSeen(ctx context.Context, userID string) error {
+	now := time.Now()
+
+	batch, err := db.conn.PrepareBatch(ctx, "INSERT INTO users (id, updated_at)")
+	if err != nil {
+		return fmt.Errorf("failed to prepare batch: %w", err)
+	}
+
+	err = batch.Append(userID, now)
+	if err != nil {
+		return fmt.Errorf("failed to append user update: %w", err)
+	}
+
+	if err := batch.Send(); err != nil {
+		return fmt.Errorf("failed to update user last seen: %w", err)
+	}
+
+	return nil
+}
+
+// UpdateUser updates a user's information
+func (db *DB) UpdateUser(ctx context.Context, user *models.User) error {
+	user.UpdatedAt = time.Now()
+
+	batch, err := db.conn.PrepareBatch(ctx, "INSERT INTO users (* except _tp_time)")
+	if err != nil {
+		return fmt.Errorf("failed to prepare batch: %w", err)
+	}
+
+	err = batch.Append(
+		user.ID,
+		user.Email,
+		user.Name,
+		user.Provider,
+		user.CreatedAt,
+		user.UpdatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to append user update: %w", err)
+	}
+
+	if err := batch.Send(); err != nil {
+		return fmt.Errorf("failed to update user: %w", err)
+	}
+
+	return nil
 }

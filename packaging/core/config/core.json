@@ -7,7 +7,25 @@
     "metrics": {
         "enabled": true,
         "retention": 100,
-        "max_nodes": 10000
+        "max_pollers": 10000
+    },
+    "database": {
+        "addresses": [
+            "127.0.0.1:8463"
+        ],
+        "name": "default",
+        "username": "default",
+        "password": "",
+        "max_conns": 10,
+        "idle_conns": 5,
+        "settings": {
+            "max_execution_time": 60,
+            "output_format_json_quote_64bit_integers": 0,
+            "allow_experimental_live_view": 1,
+            "idle_connection_timeout": 600,
+            "join_use_nulls": 1,
+            "input_format_defaults_for_omitted_fields": 1
+        }
     },
     "security": {
         "mode": "none",

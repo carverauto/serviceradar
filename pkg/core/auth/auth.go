@@ -147,7 +147,7 @@ func (a *Auth) VerifyToken(_ context.Context, token string) (*models.User, error
 }
 
 func (a *Auth) generateAndStoreToken(ctx context.Context, user *models.User) (*models.Token, error) {
-	_, cancel := context.WithTimeout(ctx, defaultTimeout)
+	timeoutCtx, cancel := context.WithTimeout(ctx, defaultTimeout)
 	defer cancel()
 
 	token, err := GenerateTokenPair(user, a.config)
@@ -156,7 +156,7 @@ func (a *Auth) generateAndStoreToken(ctx context.Context, user *models.User) (*m
 	}
 
 	// Store user if not exists
-	err = a.db.StoreUser(user)
+	err = a.db.StoreUser(timeoutCtx, user)
 	if err != nil && !errors.Is(err, db.ErrUserNotFound) {
 		return nil, fmt.Errorf("failed to store user: %w", err)
 	}

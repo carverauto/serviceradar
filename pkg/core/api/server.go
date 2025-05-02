@@ -18,6 +18,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -329,6 +330,10 @@ func (s *APIServer) getSNMPData(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	pollerID := vars["id"]
 
+	// set a timer of 10 seconds for the request
+	ctx, cancel := context.WithTimeout(r.Context(), defaultTimeout)
+	defer cancel()
+
 	// Get start and end times from query parameters
 	startStr := r.URL.Query().Get("start")
 	endStr := r.URL.Query().Get("end")
@@ -354,7 +359,7 @@ func (s *APIServer) getSNMPData(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Use the injected snmpManager to fetch SNMP metrics
-	snmpMetrics, err := s.snmpManager.GetSNMPMetrics(pollerID, startTime, endTime)
+	snmpMetrics, err := s.snmpManager.GetSNMPMetrics(ctx, pollerID, startTime, endTime)
 	if err != nil {
 		log.Printf("Error fetching SNMP data for poller %s: %v", pollerID, err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -410,7 +415,7 @@ func (s *APIServer) getPollerMetrics(w http.ResponseWriter, r *http.Request) {
 }
 
 // SetPollerHistoryHandler sets the handler function for retrieving poller history
-func (s *APIServer) SetPollerHistoryHandler(handler func(pollerID string) ([]PollerHistoryPoint, error)) {
+func (s *APIServer) SetPollerHistoryHandler(_ context.Context, handler func(pollerID string) ([]PollerHistoryPoint, error)) {
 	s.pollerHistoryHandler = handler
 }
 
@@ -672,6 +677,7 @@ func (s *APIServer) getServiceDetails(w http.ResponseWriter, r *http.Request) {
 const (
 	defaultReadTimeout  = 10 * time.Second
 	defaultWriteTimeout = 10 * time.Second
+	defaultTimeout      = 10 * time.Second
 	defaultIdleTimeout  = 60 * time.Second
 )
 
