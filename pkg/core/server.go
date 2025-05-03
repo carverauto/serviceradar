@@ -59,15 +59,10 @@ const (
 	defaultFlushInterval              = 10 * time.Second
 )
 
-func NewServer(ctx context.Context, config *Config) (*Server, error) {
+func NewServer(ctx context.Context, config *models.DBConfig) (*Server, error) {
 	normalizedConfig := normalizeConfig(config)
 
-	database, err := db.New(ctx,
-		normalizedConfig.DBAddr,
-		normalizedConfig.DBName,
-		normalizedConfig.DBUser,
-		normalizedConfig.DBPass,
-	)
+	database, err := db.New(ctx, config)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errDatabaseError, err)
 	}
@@ -224,7 +219,7 @@ const (
 	defaultMetricsMaxPollers = 10000
 )
 
-func normalizeConfig(config *Config) *Config {
+func normalizeConfig(config *models.DBConfig) *models.DBConfig {
 	normalized := *config
 
 	// Set the DB parameters from the Database struct
@@ -263,7 +258,7 @@ func ensureDataDirectory(dbPath string) error {
 	return os.MkdirAll(dir, serviceradarDirPerms)
 }
 
-func initializeAuthConfig(config *Config) (*models.AuthConfig, error) {
+func initializeAuthConfig(config *models.DBConfig) (*models.AuthConfig, error) {
 	authConfig := &models.AuthConfig{
 		JWTSecret:     os.Getenv("JWT_SECRET"),
 		JWTExpiration: 24 * time.Hour,
@@ -1234,16 +1229,16 @@ func (s *Server) GetAuth() *auth.Auth {
 	return s.authService
 }
 
-func LoadConfig(path string) (Config, error) {
+func LoadConfig(path string) (models.DBConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return Config{}, fmt.Errorf("failed to read config: %w", err)
+		return models.DBConfig{}, fmt.Errorf("failed to read config: %w", err)
 	}
 
-	var config Config
+	var config models.DBConfig
 
 	if err := json.Unmarshal(data, &config); err != nil {
-		return Config{}, fmt.Errorf("failed to parse config: %w", err)
+		return models.DBConfig{}, fmt.Errorf("failed to parse config: %w", err)
 	}
 
 	if config.Security != nil {

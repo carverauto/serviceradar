@@ -22,7 +22,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
@@ -39,7 +38,7 @@ var (
 type Config struct {
 	Sources      map[string]models.SourceConfig `json:"sources"`       // e.g., "armis": {...}, "netbox": {...}
 	KVAddress    string                         `json:"kv_address"`    // KV gRPC server address
-	PollInterval config.Duration                `json:"poll_interval"` // Polling interval
+	PollInterval models.Duration                `json:"poll_interval"` // Polling interval
 	Security     *models.SecurityConfig         `json:"security"`      // mTLS config
 }
 
@@ -53,7 +52,7 @@ func (c *Config) Validate() error {
 	}
 
 	if time.Duration(c.PollInterval) == 0 {
-		c.PollInterval = config.Duration(defaultTimeout)
+		c.PollInterval = models.Duration(defaultTimeout)
 	}
 
 	for name, src := range c.Sources {

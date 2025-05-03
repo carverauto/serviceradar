@@ -21,7 +21,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/poller" // Import poller for mocks
 	"github.com/carverauto/serviceradar/proto"
@@ -51,7 +50,7 @@ func TestNew_ValidConfig(t *testing.T) {
 			},
 		},
 		KVAddress:    "localhost:50051",
-		PollInterval: config.Duration(1 * time.Second),
+		PollInterval: models.Duration(1 * time.Second),
 		Security: &models.SecurityConfig{
 			Mode: "mtls",
 			Role: models.RolePoller,
@@ -102,7 +101,7 @@ func TestSync_Success(t *testing.T) {
 			},
 		},
 		KVAddress:    "localhost:50051",
-		PollInterval: config.Duration(1 * time.Second),
+		PollInterval: models.Duration(1 * time.Second),
 		Security: &models.SecurityConfig{
 			Mode: "mtls",
 			Role: models.RolePoller,
@@ -162,7 +161,7 @@ func TestStartAndStop(t *testing.T) {
 			},
 		},
 		KVAddress:    "localhost:50051",
-		PollInterval: config.Duration(500 * time.Millisecond),
+		PollInterval: models.Duration(500 * time.Millisecond),
 		Security:     &models.SecurityConfig{},
 	}
 
@@ -249,7 +248,7 @@ func TestStart_ContextCancellation(t *testing.T) {
 			},
 		},
 		KVAddress:    "localhost:50051",
-		PollInterval: config.Duration(1 * time.Second),
+		PollInterval: models.Duration(1 * time.Second),
 		Security: &models.SecurityConfig{
 			Mode: "mtls",
 			Role: models.RolePoller,
@@ -328,7 +327,7 @@ func TestSync_NetboxSuccess(t *testing.T) {
 			},
 		},
 		KVAddress:    "localhost:50051",
-		PollInterval: config.Duration(1 * time.Second),
+		PollInterval: models.Duration(1 * time.Second),
 	}
 
 	registry := map[string]IntegrationFactory{

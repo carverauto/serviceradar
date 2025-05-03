@@ -14,17 +14,13 @@
  * limitations under the License.
  */
 
-package config
+package models
 
 import (
 	"encoding/json"
 	"fmt"
 	"time"
-
-	"github.com/carverauto/serviceradar/pkg/models"
 )
-
-type Duration time.Duration
 
 func (d *Duration) UnmarshalJSON(b []byte) error {
 	var v interface{}
@@ -53,11 +49,11 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 
 // AgentConfig represents the configuration for an agent instance.
 type AgentConfig struct {
-	CheckersDir string                 `json:"checkers_dir"` // e.g., /etc/serviceradar/checkers
-	ListenAddr  string                 `json:"listen_addr"`  // e.g., :50051
-	ServiceName string                 `json:"service_name"` // e.g., "agent"
-	Security    *models.SecurityConfig `json:"security"`
-	KVAddress   string                 `json:"kv_address,omitempty"` // Optional KV store address
+	CheckersDir string          `json:"checkers_dir"` // e.g., /etc/serviceradar/checkers
+	ListenAddr  string          `json:"listen_addr"`  // e.g., :50051
+	ServiceName string          `json:"service_name"` // e.g., "agent"
+	Security    *SecurityConfig `json:"security"`
+	KVAddress   string          `json:"kv_address,omitempty"` // Optional KV store address
 }
 
 // Check represents a generic service check configuration.
@@ -107,3 +103,7 @@ type CloudConfig struct {
 	KnownPollers   []string        `json:"known_pollers"`
 	Webhooks       []WebhookConfig `json:"webhooks,omitempty"`
 }
+
+var (
+	errInvalidDuration = fmt.Errorf("invalid duration")
+)
