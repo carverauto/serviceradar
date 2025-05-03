@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
@@ -55,7 +54,7 @@ type Config struct {
 	ListenAddr   string                 `json:"listen_addr"`
 	ServiceName  string                 `json:"service_name"`
 	CoreAddress  string                 `json:"core_address"`
-	PollInterval config.Duration        `json:"poll_interval"`
+	PollInterval models.Duration        `json:"poll_interval"`
 	PollerID     string                 `json:"poller_id"`
 	Security     *models.SecurityConfig `json:"security"`
 }
@@ -77,7 +76,7 @@ func (c *Config) Validate() error {
 	// Compare PollInterval to zero by casting to time.Duration
 	if time.Duration(c.PollInterval) == 0 {
 		// Construct a config.Duration from a time.Duration
-		c.PollInterval = config.Duration(pollDefaultInterval)
+		c.PollInterval = models.Duration(pollDefaultInterval)
 	}
 
 	return nil
