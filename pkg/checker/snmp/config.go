@@ -84,7 +84,7 @@ func (c *SNMPConfig) Validate() error {
 }
 
 // validateTarget validates a target configuration
-func (c *SNMPConfig) validateTarget(target *Target, targetNames map[string]bool) error {
+func (*SNMPConfig) validateTarget(target *Target, targetNames map[string]bool) error {
 	// Validate target name
 	if err := validateTargetName(target.Name, targetNames); err != nil {
 		return err

@@ -52,7 +52,9 @@ func New(ctx context.Context, config *models.DBConfig) (Service, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to read CA certificate: %w", ErrFailedOpenDB, err)
 	}
+
 	caCertPool := x509.NewCertPool()
+
 	if !caCertPool.AppendCertsFromPEM(caCert) {
 		return nil, fmt.Errorf("%w: failed to append CA certificate to pool", ErrFailedOpenDB)
 	}
@@ -62,6 +64,7 @@ func New(ctx context.Context, config *models.DBConfig) (Service, error) {
 		Certificates:       []tls.Certificate{cert},
 		RootCAs:            caCertPool,
 		InsecureSkipVerify: false, // Enforce server certificate verification
+		MinVersion:         tls.VersionTLS13,
 	}
 
 	conn, err := proton.Open(&proton.Options{
