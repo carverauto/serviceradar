@@ -20,14 +20,13 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 // Config represents Dusk checker configuration.
 type Config struct {
 	NodeAddress string                 `json:"node_address"`
-	Timeout     config.Duration        `json:"timeout"`
+	Timeout     models.Duration        `json:"timeout"`
 	ListenAddr  string                 `json:"listen_addr"`
 	Security    *models.SecurityConfig `json:"security"`
 }
@@ -54,7 +53,7 @@ func (c *Config) Validate() error {
 	// Cast to time.Duration for comparison
 	if time.Duration(c.Timeout) == 0 {
 		// Assign a default by constructing a config.Duration
-		c.Timeout = config.Duration(defaultTimeout)
+		c.Timeout = models.Duration(defaultTimeout)
 	}
 
 	return nil

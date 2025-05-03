@@ -58,7 +58,7 @@ func run() error {
 	cfgLoader := config.NewConfig()
 
 	// Load configuration with context
-	var cfg snmp.Config
+	var cfg snmp.SNMPConfig
 
 	if err := cfgLoader.LoadAndValidate(ctx, *configPath, &cfg); err != nil {
 		return fmt.Errorf("%w: %w", errFailedToLoadConfig, err)

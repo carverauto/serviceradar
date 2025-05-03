@@ -135,7 +135,7 @@ type SNMPService struct {
 	proto.UnimplementedAgentServiceServer
 	collectors        map[string]Collector
 	aggregators       map[string]Aggregator
-	config            *Config
+	config            *SNMPConfig
 	mu                sync.RWMutex
 	done              chan struct{}
 	collectorFactory  CollectorFactory
