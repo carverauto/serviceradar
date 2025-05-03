@@ -62,7 +62,9 @@ const (
 func NewServer(ctx context.Context, config *models.DBConfig) (*Server, error) {
 	normalizedConfig := normalizeConfig(config)
 
-	database, err := db.New(ctx, config)
+	log.Printf("normalized config: %+v", normalizedConfig)
+
+	database, err := db.New(ctx, normalizedConfig)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errDatabaseError, err)
 	}
