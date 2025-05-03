@@ -77,7 +77,7 @@ func TestSNMPIntegration(t *testing.T) {
 		},
 	}
 
-	config := &Config{
+	config := &SNMPConfig{
 		NodeAddress: "localhost:50051",
 		ListenAddr:  ":50052",
 		Targets:     []Target{target},

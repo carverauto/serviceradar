@@ -58,7 +58,7 @@ func (s *SNMPService) Check(ctx context.Context) (status bool, msg string) {
 }
 
 // NewSNMPService creates a new SNMP monitoring service.
-func NewSNMPService(config *Config) (*SNMPService, error) {
+func NewSNMPService(config *SNMPConfig) (*SNMPService, error) {
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidConfig, err)
 	}
@@ -188,7 +188,7 @@ func (s *SNMPService) GetStatus(_ context.Context) (map[string]TargetStatus, err
 
 	if len(status) == 0 {
 		log.Printf("No SNMP status found, checking configuration...")
-		log.Printf("Config: %+v", s.config)
+		log.Printf("SNMPConfig: %+v", s.config)
 	}
 
 	return status, nil

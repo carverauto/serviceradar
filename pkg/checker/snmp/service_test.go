@@ -31,7 +31,7 @@ func TestSNMPService(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	config := &Config{
+	config := &SNMPConfig{
 		NodeAddress: "localhost:50051",
 		ListenAddr:  ":50052",
 		Targets: []Target{
@@ -61,7 +61,7 @@ func TestSNMPService(t *testing.T) {
 	t.Run("GetStatus", testGetStatus(ctrl, config))
 }
 
-func testNewSNMPService(config *Config) func(t *testing.T) {
+func testNewSNMPService(config *SNMPConfig) func(t *testing.T) {
 	return func(t *testing.T) {
 		service, err := NewSNMPService(config)
 		require.NoError(t, err)
@@ -71,7 +71,7 @@ func testNewSNMPService(config *Config) func(t *testing.T) {
 	}
 }
 
-func testStartStopService(ctrl *gomock.Controller, config *Config) func(t *testing.T) {
+func testStartStopService(ctrl *gomock.Controller, config *SNMPConfig) func(t *testing.T) {
 	return func(t *testing.T) {
 		// Create mock collector factory and mock collector
 		mockCollectorFactory := NewMockCollectorFactory(ctrl)
@@ -114,7 +114,7 @@ func testStartStopService(ctrl *gomock.Controller, config *Config) func(t *testi
 	}
 }
 
-func testAddTarget(ctrl *gomock.Controller, config *Config) func(t *testing.T) {
+func testAddTarget(ctrl *gomock.Controller, config *SNMPConfig) func(t *testing.T) {
 	return func(t *testing.T) {
 		// Create mock factories
 		mockCollectorFactory := NewMockCollectorFactory(ctrl)
@@ -192,7 +192,7 @@ func testAddTarget(ctrl *gomock.Controller, config *Config) func(t *testing.T) {
 	}
 }
 
-func testRemoveTarget(ctrl *gomock.Controller, config *Config) func(t *testing.T) {
+func testRemoveTarget(ctrl *gomock.Controller, config *SNMPConfig) func(t *testing.T) {
 	return func(t *testing.T) {
 		mockCollector := NewMockCollector(ctrl)
 		service := &SNMPService{
@@ -215,7 +215,7 @@ func testRemoveTarget(ctrl *gomock.Controller, config *Config) func(t *testing.T
 	}
 }
 
-func testGetStatus(ctrl *gomock.Controller, config *Config) func(t *testing.T) {
+func testGetStatus(ctrl *gomock.Controller, config *SNMPConfig) func(t *testing.T) {
 	return func(t *testing.T) {
 		// Create mock collector
 		mockCollector := NewMockCollector(ctrl)

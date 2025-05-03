@@ -40,15 +40,15 @@ import (
 func TestNewServer(t *testing.T) {
 	tests := []struct {
 		name          string
-		config        *Config
+		config        *models.DBConfig
 		expectedError bool
 		setupMock     func(*gomock.Controller) db.Service
 	}{
 		{
 			name: "minimal_config",
-			config: &Config{
+			config: &models.DBConfig{
 				AlertThreshold: 5 * time.Minute,
-				Metrics: Metrics{
+				Metrics: models.Metrics{
 					Enabled:    true,
 					Retention:  100,
 					MaxPollers: 1000,
@@ -61,7 +61,7 @@ func TestNewServer(t *testing.T) {
 		},
 		{
 			name: "with_webhooks",
-			config: &Config{
+			config: &models.DBConfig{
 				AlertThreshold: 5 * time.Minute,
 				Webhooks: []alerts.WebhookConfig{
 					{Enabled: true, URL: "https://example.com/webhook"},
@@ -106,7 +106,7 @@ func TestNewServer(t *testing.T) {
 	}
 }
 
-func newServerWithDB(_ context.Context, config *Config, database db.Service) (*Server, error) {
+func newServerWithDB(_ context.Context, config *models.DBConfig, database db.Service) (*Server, error) {
 	normalizedConfig := normalizeConfig(config)
 	metricsManager := metrics.NewManager(models.MetricsConfig{
 		Enabled:    normalizedConfig.Metrics.Enabled,
@@ -164,7 +164,7 @@ func TestProcessStatusReport(t *testing.T) {
 		pollerStatusUpdateMutex: sync.Mutex{},
 		pollerStatusUpdates:     make(map[string]*models.PollerStatus),
 		ShutdownChan:            make(chan struct{}),
-		config:                  &Config{KnownPollers: []string{"test-poller"}}, // Ensure test-poller is known
+		config:                  &models.DBConfig{KnownPollers: []string{"test-poller"}}, // Ensure test-poller is known
 	}
 
 	pollerID := "test-poller"
@@ -249,7 +249,7 @@ func TestReportStatus(t *testing.T) {
 
 	server := &Server{
 		db:                  mockDB,
-		config:              &Config{KnownPollers: []string{"test-poller"}},
+		config:              &models.DBConfig{KnownPollers: []string{"test-poller"}},
 		metrics:             metricsManager,
 		apiServer:           mockAPI,
 		metricBuffers:       make(map[string][]*db.TimeseriesMetric),

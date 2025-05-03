@@ -18,10 +18,13 @@ package db
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -37,13 +40,37 @@ type DB struct {
 }
 
 // New creates a new database connection and initializes the schema.
-func New(ctx context.Context, addr, database, username, password string) (Service, error) {
+func New(ctx context.Context, config *models.DBConfig) (Service, error) {
+	// Load client certificate and key
+	cert, err := tls.LoadX509KeyPair(config.Security.TLS.CertFile, config.Security.TLS.KeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("%w: failed to load client certificate: %w", ErrFailedOpenDB, err)
+	}
+
+	// Load CA certificate
+	caCert, err := os.ReadFile(config.Security.TLS.CAFile)
+	if err != nil {
+		return nil, fmt.Errorf("%w: failed to read CA certificate: %w", ErrFailedOpenDB, err)
+	}
+	caCertPool := x509.NewCertPool()
+	if !caCertPool.AppendCertsFromPEM(caCert) {
+		return nil, fmt.Errorf("%w: failed to append CA certificate to pool", ErrFailedOpenDB)
+	}
+
+	// Configure TLS with mTLS settings
+	tlsConfig := &tls.Config{
+		Certificates:       []tls.Certificate{cert},
+		RootCAs:            caCertPool,
+		InsecureSkipVerify: false, // Enforce server certificate verification
+	}
+
 	conn, err := proton.Open(&proton.Options{
-		Addr: []string{addr},
+		Addr: []string{config.DBAddr},
+		TLS:  tlsConfig,
 		Auth: proton.Auth{
-			Database: database,
-			Username: username,
-			Password: password,
+			Database: config.DBName,
+			Username: config.DBUser,
+			Password: config.DBPass,
 		},
 		Compression: &proton.Compression{
 			Method: proton.CompressionLZ4,

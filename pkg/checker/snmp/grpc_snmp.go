@@ -32,7 +32,7 @@ import (
 )
 
 type Poller struct {
-	Config Config
+	Config SNMPConfig
 	mu     sync.RWMutex
 }
 
