@@ -18,7 +18,6 @@ package models
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 )
@@ -50,9 +49,9 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 
 // AgentConfig represents the configuration for an agent instance.
 type AgentConfig struct {
-	CheckersDir string                 `json:"checkers_dir"` // e.g., /etc/serviceradar/checkers
-	ListenAddr  string                 `json:"listen_addr"`  // e.g., :50051
-	ServiceName string                 `json:"service_name"` // e.g., "agent"
+	CheckersDir string          `json:"checkers_dir"` // e.g., /etc/serviceradar/checkers
+	ListenAddr  string          `json:"listen_addr"`  // e.g., :50051
+	ServiceName string          `json:"service_name"` // e.g., "agent"
 	Security    *SecurityConfig `json:"security"`
 	KVAddress   string          `json:"kv_address,omitempty"` // Optional KV store address
 }
@@ -106,9 +105,5 @@ type CloudConfig struct {
 }
 
 var (
-	errInvalidDuration     = fmt.Errorf("invalid duration")
-	errKVStoreNotSet       = errors.New("KV store not initialized for CONFIG_SOURCE=kv; call SetKVStore first")
-	errInvalidConfigSource = errors.New("invalid CONFIG_SOURCE value")
-	errLoadConfigFailed    = errors.New("failed to load configuration")
-	errInvalidConfigPtr    = errors.New("config must be a non-nil pointer")
+	errInvalidDuration = fmt.Errorf("invalid duration")
 )
