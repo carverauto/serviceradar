@@ -31,6 +31,7 @@ type TLSConfig struct {
 	KeyFile      string `json:"key_file"`
 	CAFile       string `json:"ca_file"`
 	ClientCAFile string `json:"client_ca_file"`
+	SkipVerify   bool   `json:"skip_verify"`
 }
 
 // SecurityConfig holds common security configuration.
@@ -42,7 +43,6 @@ type SecurityConfig struct {
 	TLS            TLSConfig    `json:"tls"`
 	TrustDomain    string       `json:"trust_domain,omitempty"`    // For SPIFFE
 	WorkloadSocket string       `json:"workload_socket,omitempty"` // For SPIFFE
-	SkipVerify     bool         `json:"skip_verify"`
 }
 
 // SecurityMode defines the type of security to use.
