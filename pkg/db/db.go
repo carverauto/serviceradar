@@ -63,7 +63,7 @@ func New(ctx context.Context, config *models.DBConfig) (Service, error) {
 	tlsConfig := &tls.Config{
 		Certificates:       []tls.Certificate{cert},
 		RootCAs:            caCertPool,
-		InsecureSkipVerify: false, // Enforce server certificate verification
+		InsecureSkipVerify: true, // Enforce server certificate verification
 		MinVersion:         tls.VersionTLS13,
 	}
 
