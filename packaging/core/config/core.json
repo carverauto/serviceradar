@@ -1,9 +1,10 @@
 {
     "listen_addr": ":8090",
     "grpc_addr": ":50052",
-    "db_path": "/var/lib/serviceradar/serviceradar.db",
     "alert_threshold": "5m",
-    "known_pollers": ["default-poller"],
+    "known_pollers": [
+        "default-poller"
+    ],
     "metrics": {
         "enabled": true,
         "retention": 100,
@@ -11,7 +12,7 @@
     },
     "database": {
         "addresses": [
-            "127.0.0.1:8463"
+            "localhost:9440"
         ],
         "name": "default",
         "username": "default",
@@ -28,22 +29,26 @@
         }
     },
     "security": {
-        "mode": "none",
+        "mode": "mtls",
         "cert_dir": "/etc/serviceradar/certs",
         "role": "core",
+        "server_name": "127.0.0.1",
         "tls": {
             "cert_file": "/etc/serviceradar/certs/core.pem",
             "key_file": "/etc/serviceradar/certs/core-key.pem",
-            "ca_file": "/etc/serviceradar/certs/root.pem",
-            "client_ca_file": "/etc/serviceradar/certs/root.pem"
+            "ca_file": "/etc/serviceradar/certs/ca.pem",
+            "client_ca_file": "/etc/serviceradar/certs/ca.pem",
+            "skip_verify": true
         }
     },
     "cors": {
-        "allowed_origins": ["*"],
+        "allowed_origins": [
+            "*"
+        ],
         "allow_credentials": true
     },
     "auth": {
-        "jwt_secret": "your-secret-key-here",
+        "jwt_secret": "changeme",
         "jwt_expiration": "24h",
         "local_users": {
             "admin": "$2a$10$6cHFkX6ISkSrxCeO1ZL2EOc/zy.cvGO9GhsE9jVo2i.tfoobar"
