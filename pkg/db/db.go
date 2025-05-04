@@ -63,8 +63,9 @@ func New(ctx context.Context, config *models.DBConfig) (Service, error) {
 	tlsConfig := &tls.Config{
 		Certificates:       []tls.Certificate{cert},
 		RootCAs:            caCertPool,
-		InsecureSkipVerify: false, // Enforce server certificate verification
+		InsecureSkipVerify: false,
 		MinVersion:         tls.VersionTLS13,
+		ServerName:         config.Security.ServerName,
 	}
 
 	conn, err := proton.Open(&proton.Options{
