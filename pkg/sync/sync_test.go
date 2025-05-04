@@ -59,7 +59,6 @@ func TestNew_ValidConfig(t *testing.T) {
 				KeyFile      string `json:"key_file"`
 				CAFile       string `json:"ca_file"`
 				ClientCAFile string `json:"client_ca_file"`
-				SkipVerify   bool   `json:"skip_verify"`
 			}{
 				CertFile: "cert.pem",
 				KeyFile:  "key.pem",
@@ -111,7 +110,6 @@ func TestSync_Success(t *testing.T) {
 				KeyFile      string `json:"key_file"`
 				CAFile       string `json:"ca_file"`
 				ClientCAFile string `json:"client_ca_file"`
-				SkipVerify   bool   `json:"skip_verify"`
 			}{
 				CertFile: "cert.pem",
 				KeyFile:  "key.pem",
@@ -259,7 +257,6 @@ func TestStart_ContextCancellation(t *testing.T) {
 				KeyFile      string `json:"key_file"`
 				CAFile       string `json:"ca_file"`
 				ClientCAFile string `json:"client_ca_file"`
-				SkipVerify   bool   `json:"skip_verify"`
 			}{
 				CertFile: "cert.pem",
 				KeyFile:  "key.pem",
