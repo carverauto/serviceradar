@@ -42,6 +42,7 @@ type SecurityConfig struct {
 	TLS            TLSConfig    `json:"tls"`
 	TrustDomain    string       `json:"trust_domain,omitempty"`    // For SPIFFE
 	WorkloadSocket string       `json:"workload_socket,omitempty"` // For SPIFFE
+	SkipVerify     bool         `json:"skip_verify"`
 }
 
 // SecurityMode defines the type of security to use.
