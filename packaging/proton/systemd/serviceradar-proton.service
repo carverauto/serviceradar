@@ -1,0 +1,20 @@
+[Unit]
+Description=ServiceRadar Proton Server
+After=network-online.target
+
+[Service]
+Type=simple
+Environment=
+ExecStart=/usr/bin/proton start
+ExecReload=/usr/bin/proton restart
+ExecStop=/usr/bin/proton stop
+User=proton
+Group=proton
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/proton-server/proton-server.log
+StandardError=append:/var/log/proton-server/proton-server.err.log
+LimitNOFILE=800000
+
+[Install]
+WantedBy=multi-user.target
