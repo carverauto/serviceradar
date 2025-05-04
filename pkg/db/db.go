@@ -65,6 +65,7 @@ func New(ctx context.Context, config *models.DBConfig) (Service, error) {
 		RootCAs:            caCertPool,
 		InsecureSkipVerify: config.Security.TLS.SkipVerify,
 		MinVersion:         tls.VersionTLS13,
+		ServerName:         config.Security.ServerName,
 	}
 
 	conn, err := proton.Open(&proton.Options{
