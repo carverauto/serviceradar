@@ -174,6 +174,7 @@ func copySecurityConfig(security *models.SecurityConfig) *models.SecurityConfig 
 			KeyFile      string `json:"key_file"`
 			CAFile       string `json:"ca_file"`
 			ClientCAFile string `json:"client_ca_file"`
+			SkipVerify   bool   `json:"skip_verify"`
 		}{
 			CertFile:     security.TLS.CertFile,
 			KeyFile:      security.TLS.KeyFile,
