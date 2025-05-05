@@ -10,16 +10,16 @@
     "priority": "optional",
     "deb": {
       "depends": ["systemd"],
-      "dockerfile": "docker/deb/Dockerfile.core"
+      "dockerfile": null
     },
     "rpm": {
       "depends": ["systemd"],
-      "dockerfile": "docker/rpm/Dockerfile.rpm.core",
+      "dockerfile": "docker/rpm/Dockerfile.rpm.simple",
       "release": "1"
     },
     "binary": {
       "source_path": "cmd/core",
-      "build_method": "docker",
+      "build_method": "go",
       "output_path": "/usr/local/bin/serviceradar-core"
     },
     "config_files": [

@@ -159,57 +159,6 @@ kodata-prep: build-web ## Prepare kodata directories
 	@mkdir -p cmd/core/.kodata
 	@cp -r pkg/core/api/web/dist cmd/core/.kodata/web
 
-.PHONY: container-build
-container-build: kodata-prep ## Build container images with ko
-	@echo "$(COLOR_BOLD)Building container images with ko$(COLOR_RESET)"
-	@cd cmd/agent && KO_DOCKER_REPO=$(KO_DOCKER_REPO)/serviceradar-agent GOFLAGS="-tags=containers" ko build --platform=$(PLATFORMS) --tags=$(VERSION) --bare .
-	@cd cmd/poller && KO_DOCKER_REPO=$(KO_DOCKER_REPO)/serviceradar-poller GOFLAGS="-tags=containers" ko build --platform=$(PLATFORMS) --tags=$(VERSION) --bare .
-	@echo "$(COLOR_BOLD)Building core container with CGO using Docker (amd64 only)$(COLOR_RESET)"
-	@docker buildx build --platform=linux/amd64 -f docker/deb/Dockerfile.build \
-		-t $(KO_DOCKER_REPO)/serviceradar-core:$(VERSION) \
-		--build-arg VERSION=$(VERSION) \
-		--build-arg BUILD_TAGS=containers \
-		--push .
-	@cd cmd/checkers/dusk && KO_DOCKER_REPO=$(KO_DOCKER_REPO)/serviceradar-dusk-checker GOFLAGS="-tags=containers" ko build --platform=$(PLATFORMS) --tags=$(VERSION) --bare .
-	@cd cmd/checkers/snmp && KO_DOCKER_REPO=$(KO_DOCKER_REPO)/serviceradar-snmp-checker GOFLAGS="-tags=containers" ko build --platform=$(PLATFORMS) --tags=$(VERSION) --bare .
-	@echo "$(COLOR_BOLD)Building rperf checker container$(COLOR_RESET)"
-	@docker buildx build --platform linux/amd64 -f cmd/checkers/rperf-client/Dockerfile \
-		-t $(KO_DOCKER_REPO)/serviceradar-rperf-checker:$(VERSION) \
-		--build-arg VERSION=$(VERSION) \
-		.
-	@echo "$(COLOR_BOLD)Building sysmon checker container$(COLOR_RESET)"
-	@docker buildx build --platform linux/amd64 -f cmd/checkers/sysmon/Dockerfile \
-		-t $(KO_DOCKER_REPO)/serviceradar-sysmon:$(VERSION) \
-		--build-arg VERSION=$(VERSION) \
-		.
-
-.PHONY: container-push
-container-push: kodata-prep ## Build and push container images with ko
-	@echo "$(COLOR_BOLD)Building and pushing container images with ko$(COLOR_RESET)"
-	@cd cmd/agent && KO_DOCKER_REPO=$(KO_DOCKER_REPO)/serviceradar-agent GOFLAGS="-tags=containers" ko build --platform=$(PLATFORMS) --tags=$(VERSION),latest --bare .
-	@cd cmd/poller && KO_DOCKER_REPO=$(KO_DOCKER_REPO)/serviceradar-poller GOFLAGS="-tags=containers" ko build --platform=$(PLATFORMS) --tags=$(VERSION),latest --bare .
-	@echo "$(COLOR_BOLD)Building and pushing core container with CGO using Docker (amd64 only)$(COLOR_RESET)"
-	@docker buildx build --platform=linux/amd64 -f docker/deb/Dockerfile.build \
-		-t $(KO_DOCKER_REPO)/serviceradar-core:$(VERSION) \
-		-t $(KO_DOCKER_REPO)/serviceradar-core:latest \
-		--build-arg VERSION=$(VERSION) \
-		--build-arg BUILD_TAGS=containers \
-		--push .
-	@cd cmd/checkers/dusk && KO_DOCKER_REPO=$(KO_DOCKER_REPO)/serviceradar-dusk-checker GOFLAGS="-tags=containers" ko build --platform=$(PLATFORMS) --tags=$(VERSION),latest --bare .
-	@cd cmd/checkers/snmp && KO_DOCKER_REPO=$(KO_DOCKER_REPO)/serviceradar-snmp-checker GOFLAGS="-tags=containers" ko build --platform=$(PLATFORMS) --tags=$(VERSION),latest --bare .
-	@echo "$(COLOR_BOLD)Building and pushing rperf checker container$(COLOR_RESET)"
-	@docker buildx build --platform linux/amd64 -f cmd/checkers/rperf-client/Dockerfile \
-		-t $(KO_DOCKER_REPO)/serviceradar-rperf-checker:$(VERSION) \
-		-t $(KO_DOCKER_REPO)/serviceradar-rperf-checker:latest \
-		--build-arg VERSION=$(VERSION) \
-		--push .
-	@echo "$(COLOR_BOLD)Building and pushing sysmon checker container$(COLOR_RESET)"
-	@docker buildx build --platform linux/amd64 -f cmd/checkers/sysmon/Dockerfile \
-		-t $(KO_DOCKER_REPO)/serviceradar-sysmon:$(VERSION) \
-		-t $(KO_DOCKER_REPO)/serviceradar-sysmon:latest \
-		--build-arg VERSION=$(VERSION) \
-		--push .
-
 # Build Debian packages
 .PHONY: deb-agent
 deb-agent: build-web ## Build the agent Debian package
