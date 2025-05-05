@@ -49,6 +49,71 @@
     ]
   },
   {
+    "name": "proton",
+    "package_name": "serviceradar-proton",
+    "version": "1.0.34",
+    "description": "ServiceRadar Proton Server (Time-series database)",
+    "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
+    "architecture": "amd64",
+    "section": "database",
+    "priority": "optional",
+    "deb": {
+      "depends": ["systemd"],
+      "dockerfile": null
+    },
+    "rpm": {
+      "depends": ["systemd"],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.proton",
+      "release": "1"
+    },
+    "build_method": "external",
+    "external_binary": {
+      "source_url": "https://github.com/timeplus-io/proton/releases/download/v1.6.15/proton-v1.6.15-Linux-x86_64",
+      "extract_command": "cp ${DOWNLOAD_PATH} ${OUTPUT_PATH} && chmod +x ${OUTPUT_PATH}",
+      "binary_is_archive": false,
+      "output_path": "/usr/bin/proton"
+    },
+    "config_files": [
+      {
+        "source": "packaging/proton/config/config.yaml",
+        "dest": "/etc/proton-server/config.yaml"
+      },
+      {
+        "source": "packaging/proton/config/users.yaml",
+        "dest": "/etc/proton-server/users.yaml"
+      },
+      {
+        "source": "packaging/proton/config/grok-patterns",
+        "dest": "/etc/proton-server/grok-patterns"
+      }
+    ],
+    "systemd_service": {
+      "source": "packaging/proton/systemd/serviceradar-proton.service",
+      "dest": "/lib/systemd/system/serviceradar-proton.service"
+    },
+    "postinst": {
+      "source": "packaging/proton/scripts/postinstall.sh"
+    },
+    "prerm": {
+      "source": "packaging/proton/scripts/preremove.sh"
+    },
+    "conffiles": [
+      "/etc/proton-server/config.yaml",
+      "/etc/proton-server/users.yaml",
+      "/etc/proton-server/grok-patterns"
+    ],
+    "additional_dirs": [
+      "/var/lib/proton",
+      "/var/lib/proton/tmp",
+      "/var/lib/proton/checkpoint",
+      "/var/lib/proton/nativelog/meta",
+      "/var/lib/proton/nativelog/log",
+      "/var/lib/proton/user_files",
+      "/var/log/proton-server",
+      "/etc/proton-server"
+    ]
+  },
+  {
     "name": "web",
     "package_name": "serviceradar-web",
     "version": "1.0.34",

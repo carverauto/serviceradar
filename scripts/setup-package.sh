@@ -245,20 +245,52 @@ build_component() {
             fi
 
             docker rm "$container_id"
+
       elif [ "$build_method" = "external" ]; then
-            local url extract_path output_path
-            url=$(echo "$config" | jq -r '.external_binary.source_url')
-            extract_path=$(echo "$config" | jq -r '.external_binary.extract_path')
-            output_path=$(echo "$config" | jq -r '.external_binary.output_path')
-            if [ ! -f "$extract_path" ]; then
-                curl -LO "$url" || { echo "Error: Failed to download $url"; exit 1; }
-                tar -xzf "$(basename "$url")" || { echo "Error: Failed to extract $(basename "$url")"; exit 1; }
-            fi
-            echo "Creating directory for external binary: $(dirname "${pkg_root}${output_path}")"
-            mkdir -p "$(dirname "${pkg_root}${output_path}")" || { echo "Error: Failed to create directory $(dirname "${pkg_root}${output_path}")"; exit 1; }
-            cp "$extract_path" "${pkg_root}${output_path}" || { echo "Error: Failed to copy external binary"; exit 1; }
-            ls -l "${pkg_root}${output_path}" || { echo "Error: External binary not copied"; exit 1; }
-        else
+          local url output_path binary_is_archive extract_command
+          url=$(echo "$config" | jq -r '.external_binary.source_url')
+          output_path=$(echo "$config" | jq -r '.external_binary.output_path')
+          binary_is_archive=$(echo "$config" | jq -r '.external_binary.binary_is_archive // "true"')
+          extract_command=$(echo "$config" | jq -r '.external_binary.extract_command // ""')
+
+          echo "Creating directory for external binary: $(dirname "${pkg_root}${output_path}")"
+          mkdir -p "$(dirname "${pkg_root}${output_path}")" || { echo "Error: Failed to create directory $(dirname "${pkg_root}${output_path}")"; exit 1; }
+
+          download_filename="$(basename "$url")"
+
+          # Download the file
+          if [ ! -f "$download_filename" ]; then
+              echo "Downloading external binary from $url..."
+              curl -L -o "$download_filename" "$url" || { echo "Error: Failed to download $url"; exit 1; }
+          fi
+
+          # Check if we have a custom extract command
+          if [ -n "$extract_command" ]; then
+              echo "Using custom extract command: $extract_command"
+              # Replace variables in extract command
+              extract_command="${extract_command//\${DOWNLOAD_PATH\}/$download_filename}"
+              extract_command="${extract_command//\${OUTPUT_PATH\}/${pkg_root}${output_path}}"
+              # Execute the command
+              eval "$extract_command" || { echo "Error: Custom extract command failed"; exit 1; }
+          else
+              # Handle based on whether it's an archive or not
+              if [ "$binary_is_archive" = "true" ]; then
+                  # Extract from archive
+                  echo "Extracting from archive $download_filename..."
+                  extract_path=$(echo "$config" | jq -r '.external_binary.extract_path')
+                  tar -xzf "$download_filename" || { echo "Error: Failed to extract $download_filename"; exit 1; }
+                  cp "$extract_path" "${pkg_root}${output_path}" || { echo "Error: Failed to copy external binary from $extract_path"; exit 1; }
+              else
+                  # Direct binary, no extraction needed
+                  echo "Copying direct binary $download_filename to ${pkg_root}${output_path}..."
+                  cp "$download_filename" "${pkg_root}${output_path}" || { echo "Error: Failed to copy external binary"; exit 1; }
+                  chmod +x "${pkg_root}${output_path}" || { echo "Error: Failed to make binary executable"; exit 1; }
+              fi
+          fi
+
+          ls -l "${pkg_root}${output_path}" || { echo "Error: External binary not copied"; exit 1; }
+          file "${pkg_root}${output_path}" || { echo "Warning: Could not determine file type"; }
+       else
             echo "Error: Invalid or unsupported build_method: '$build_method' for component $component"
             exit 1
         fi
