@@ -233,6 +233,13 @@ install_dependencies() {
             log "Ensuring systemd is installed..."
             apt-get install -y systemd || error "Failed to install systemd"
         fi
+        if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_CORE" = "true" ]; then
+            log "Preparing for Proton database installation..."
+            apt-get install -y systemd curl || error "Failed to install Proton dependencies"
+            mkdir -p /var/lib/proton/{tmp,checkpoint,nativelog/meta,nativelog/log,user_files} 2>/dev/null || true
+            mkdir -p /var/log/proton-server 2>/dev/null || true
+            mkdir -p /etc/proton-server 2>/dev/null || true
+        fi
     else
         $PKG_MANAGER install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
         if grep -q "Oracle Linux" /etc/os-release; then
@@ -655,7 +662,7 @@ main() {
     mkdir -p "$TEMP_DIR"
     install_dependencies
 
-    core_packages=("serviceradar-core" "serviceradar-web" "serviceradar-nats" "serviceradar-kv" "serviceradar-sync" "serviceradar-cli")
+    core_packages=("serviceradar-core" "serviceradar-web" "serviceradar-nats" "serviceradar-kv" "serviceradar-sync" "serviceradar-cli" "serviceradar-proton")
     poller_packages=("serviceradar-poller")
     agent_packages=("serviceradar-agent")
     packages_to_install=()
