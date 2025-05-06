@@ -36,7 +36,27 @@ echo "Setting up ulimits for proton user..."
 cat > /etc/security/limits.d/proton.conf << EOF
 proton	soft	nofile	1048576
 proton	hard	nofile	1048576
+proton soft nproc 65535
+proton hard nproc 65535
 EOF
+
+# Configure sysctl settings
+log "Configuring sysctl settings..."
+cat > /etc/sysctl.d/99-clickhouse.conf << EOF
+kernel.threads-max=100000
+kernel.pid_max=100000
+vm.nr_hugepages=0
+EOF
+
+sysctl -p /etc/sysctl.d/99-clickhouse.conf || error "Failed to apply sysctl settings"
+
+# Disable transparent huge pages
+log "Disabling transparent huge pages..."
+echo never > /sys/kernel/mm/transparent_hugepage/enabled
+echo never > /sys/kernel/mm/transparent_hugepage/defrag
+cat /sys/kernel/mm/transparent_hugepage/enabled
+
+
 
 # Create required directories
 echo "Creating required directories..."
