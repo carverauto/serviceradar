@@ -9,11 +9,13 @@ Usage:
   serviceradar [options] [password]
   serviceradar update-config [options]
   serviceradar update-poller [options]
+  serviceradar generate-tls [options]
 
 Commands:
   (default)        Generate bcrypt hash from password
   update-config    Update core.json with new admin password hash
   update-poller    Manage service checks in poller.json
+  generate-tls     Generate mTLS certificates for ServiceRadar and Proton
 
 Options for bcrypt generation:
   -help         show this help message
@@ -30,6 +32,13 @@ Options for update-poller:
   -name string        service name (defaults to service type)
   -details string     service details (e.g., IP:port for grpc)
   -enable-all         enable all standard checkers
+
+Options for generate-tls:
+  -ip string          IP addresses for the certificates (comma-separated)
+  -cert-dir string    where to store ServiceRadar certificates (default "/etc/serviceradar/certs")
+  -proton-dir string  where to store Proton certificates (default "/etc/proton-server")
+  -add-ips            add IPs to existing certificates
+  -non-interactive    run in non-interactive mode (use 127.0.0.1)
 
 Examples:
   # Generate bcrypt hash
@@ -48,5 +57,10 @@ Examples:
   
   # Enable all standard checkers
   serviceradar update-poller -file /etc/serviceradar/poller.json -enable-all
+
+  # Generate mTLS certificates
+  serviceradar generate-tls -ip 192.168.1.10,10.0.0.5
+  serviceradar generate-tls --non-interactive
+  serviceradar generate-tls --add-ips -ip 10.0.0.5
 `)
 }

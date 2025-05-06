@@ -17,61 +17,98 @@
 # Post-install script for ServiceRadar Proton Server
 set -e
 
-echo "Setting up ServiceRadar Proton Server..."
+# Logging functions
+log_info() {
+    echo "ServiceRadar Proton: $1"
+}
+
+log_warning() {
+    echo "ServiceRadar Proton WARNING: $1"
+}
+
+log_error() {
+    echo "ServiceRadar Proton ERROR: $1" >&2
+    exit 1
+}
+
+# Check for required tools
+if ! command -v openssl >/dev/null 2>&1; then
+    log_error "openssl is required but not installed"
+fi
+
+if ! command -v setcap >/dev/null 2>&1; then
+    log_error "setcap is required but not installed (libcap2-bin missing). Please install libcap2-bin."
+fi
+
+log_info "Setting up ServiceRadar Proton Server..."
 
 # Create proton group if it doesn't exist
 if ! getent group proton >/dev/null; then
-    echo "Creating proton group..."
-    groupadd --system proton
+    log_info "Creating proton group..."
+    groupadd --system proton || log_error "Failed to create proton group"
 fi
 
 # Create proton user if it doesn't exist
 if ! id -u proton >/dev/null 2>&1; then
-    echo "Creating proton user..."
-    useradd --system --no-create-home --shell /bin/false --home-dir /nonexistent -g proton proton
+    log_info "Creating proton user..."
+    useradd --system --no-create-home --shell /bin/false --home-dir /nonexistent -g proton proton || log_error "Failed to create proton user"
 fi
 
 # Set up ulimits for the proton user
-echo "Setting up ulimits for proton user..."
+log_info "Setting up ulimits for proton user..."
+mkdir -p /etc/security/limits.d || log_error "Failed to create /etc/security/limits.d"
 cat > /etc/security/limits.d/proton.conf << EOF
-proton	soft	nofile	1048576
-proton	hard	nofile	1048576
+proton soft nofile 1048576
+proton hard nofile 1048576
 proton soft nproc 65535
 proton hard nproc 65535
 EOF
+chmod 644 /etc/security/limits.d/proton.conf || log_error "Failed to set permissions on proton.conf"
 
-# Configure sysctl settings
-log "Configuring sysctl settings..."
+# Configure sysctl settings (optional for LXC)
+log_info "Configuring sysctl settings..."
+mkdir -p /etc/sysctl.d || log_error "Failed to create /etc/sysctl.d"
 cat > /etc/sysctl.d/99-clickhouse.conf << EOF
 kernel.threads-max=100000
 kernel.pid_max=100000
 vm.nr_hugepages=0
 EOF
+chmod 644 /etc/sysctl.d/99-clickhouse.conf || log_error "Failed to set permissions on 99-clickhouse.conf"
 
-sysctl -p /etc/sysctl.d/99-clickhouse.conf || error "Failed to apply sysctl settings"
+# Apply sysctl settings individually to handle LXC restrictions
+for setting in "kernel.threads-max=100000" "kernel.pid_max=100000" "vm.nr_hugepages=0"; do
+    sysctl -w "$setting" >/dev/null 2>&1 || {
+        log_warning "Failed to apply sysctl setting '$setting'. If running in an LXC container, apply this on the host:"
+        log_warning "  sudo sysctl -w $setting"
+    }
+done
 
-# Disable transparent huge pages
-log "Disabling transparent huge pages..."
-echo never > /sys/kernel/mm/transparent_hugepage/enabled
-echo never > /sys/kernel/mm/transparent_hugepage/defrag
-cat /sys/kernel/mm/transparent_hugepage/enabled
-
-
+# Disable transparent huge pages (optional for LXC)
+log_info "Disabling transparent huge pages..."
+for file in /sys/kernel/mm/transparent_hugepage/enabled /sys/kernel/mm/transparent_hugepage/defrag; do
+    if [ -f "$file" ]; then
+        echo never > "$file" 2>/dev/null || {
+            log_warning "Failed to disable transparent huge pages in $file. If running in an LXC container, run on the host:"
+            log_warning "  sudo echo never > $file"
+        }
+    else
+        log_warning "Transparent huge page file $file not found. This may be normal in some environments."
+    fi
+done
 
 # Create required directories
-echo "Creating required directories..."
-mkdir -p /var/lib/proton/{tmp,checkpoint,nativelog/meta,nativelog/log,user_files}
-mkdir -p /var/log/proton-server
-mkdir -p /var/run/proton-server
-mkdir -p /etc/proton-server/config.d
-mkdir -p /etc/proton-server/users.d
+log_info "Creating required directories..."
+for dir in /var/lib/proton/tmp /var/lib/proton/checkpoint /var/lib/proton/nativelog/meta /var/lib/proton/nativelog/log /var/lib/proton/user_files /var/log/proton-server /var/run/proton-server /etc/proton-server/config.d /etc/proton-server/users.d /var/lib/proton/access; do
+    mkdir -p "$dir" || log_error "Failed to create directory $dir"
+done
 
 # Generate a random password
-RANDOM_PASSWORD=$(openssl rand -hex 16)
-PASSWORD_HASH=$(echo -n "$RANDOM_PASSWORD" | sha256sum | awk '{print $1}')
+log_info "Generating random password..."
+RANDOM_PASSWORD=$(openssl rand -hex 16) || log_error "Failed to generate random password"
+PASSWORD_HASH=$(echo -n "$RANDOM_PASSWORD" | sha256sum | awk '{print $1}') || log_error "Failed to generate password hash"
 
 # Create the password XML file with the generated hash
-echo "Configuring default user password..."
+log_info "Configuring default user password..."
 cat > /etc/proton-server/users.d/default-password.xml << EOF
 <proton>
     <users>
@@ -82,61 +119,56 @@ cat > /etc/proton-server/users.d/default-password.xml << EOF
     </users>
 </proton>
 EOF
+chmod 600 /etc/proton-server/users.d/default-password.xml || log_error "Failed to set permissions on default-password.xml"
 
 echo "Generated password: $RANDOM_PASSWORD" > /etc/proton-server/generated_password.txt
-chmod 600 /etc/proton-server/generated_password.txt
+chmod 600 /etc/proton-server/generated_password.txt || log_error "Failed to set permissions on generated_password.txt"
 
 # Create symbolic links
-echo "Creating symbolic links..."
-ln -sf /usr/bin/proton /usr/bin/proton-server || echo "Warning: Failed to create proton-server symlink"
-ln -sf /usr/bin/proton /usr/bin/proton-client || echo "Warning: Failed to create proton-client symlink"
-ln -sf /usr/bin/proton /usr/bin/proton-local || echo "Warning: Failed to create proton-local symlink"
+log_info "Creating symbolic links..."
+for link in proton-server proton-client proton-local; do
+    ln -sf /usr/bin/proton /usr/bin/$link 2>/dev/null || log_warning "Failed to create symlink /usr/bin/$link"
+done
 
 # Verify and set permissions for configuration files
-echo "Verifying configuration files..."
+log_info "Verifying configuration files..."
 for file in config.yaml users.yaml grok-patterns; do
     dest="/etc/proton-server/$file"
     if [ -f "$dest" ]; then
-        chmod 644 "$dest" || { echo "Error: Failed to set permissions on $dest"; exit 1; }
-        echo "Verified $dest"
+        chmod 644 "$dest" || log_error "Failed to set permissions on $dest"
+        log_info "Verified $dest"
     elif [ "$file" = "grok-patterns" ]; then
-        echo "Warning: $dest not found, creating empty file"
-        touch "$dest" || { echo "Error: Failed to create empty $dest"; exit 1; }
-        chmod 644 "$dest" || { echo "Error: Failed to set permissions on $dest"; exit 1; }
-        echo "Created empty $dest"
+        log_info "Creating empty $dest"
+        touch "$dest" || log_error "Failed to create empty $dest"
+        chmod 644 "$dest" || log_error "Failed to set permissions on $dest"
     else
-        echo "Error: Required file $dest missing"
-        exit 1
+        log_error "Required file $dest missing"
     fi
 done
 
-# Create access directory
-mkdir -p /var/lib/proton/access/ || { echo "Error: Failed to create access directory"; exit 1; }
-
 # Set correct capabilities for proton binary
-echo "Setting capabilities for proton binary..."
-setcap cap_net_admin,cap_ipc_lock,cap_sys_nice=ep /usr/bin/proton || { echo "Error: Failed to set capabilities"; exit 1; }
+log_info "Setting capabilities for proton binary..."
+setcap cap_net_admin,cap_ipc_lock,cap_sys_nice=ep /usr/bin/proton || {
+    log_error "Failed to set capabilities on /usr/bin/proton. The proton service requires cap_net_admin,cap_ipc_lock,cap_sys_nice to function."
+}
 
 # Set ownership and permissions
-echo "Setting correct ownership and permissions..."
-chown -R proton:proton /etc/proton-server || { echo "Error: Failed to set ownership for /etc/proton-server"; exit 1; }
-chown -R proton:proton /var/log/proton-server || { echo "Error: Failed to set ownership for /var/log/proton-server"; exit 1; }
-chown -R proton:proton /var/run/proton-server || { echo "Error: Failed to set ownership for /var/run/proton-server"; exit 1; }
-chown proton:proton /var/lib/proton || { echo "Error: Failed to set ownership for /var/lib/proton"; exit 1; }
-chmod 755 /usr/bin/proton || { echo "Error: Failed to set permissions on /usr/bin/proton"; exit 1; }
-chmod 700 /etc/proton-server/users.d || { echo "Error: Failed to set permissions on /etc/proton-server/users.d"; exit 1; }
-chmod 700 /etc/proton-server/config.d || { echo "Error: Failed to set permissions on /etc/proton-server/config.d"; exit 1; }
+log_info "Setting ownership and permissions..."
+chown -R proton:proton /etc/proton-server /var/log/proton-server /var/run/proton-server /var/lib/proton || log_error "Failed to set ownership"
+chmod 755 /usr/bin/proton || log_error "Failed to set permissions on /usr/bin/proton"
+chmod 700 /etc/proton-server/users.d /etc/proton-server/config.d || log_error "Failed to set permissions on config directories"
 
 # Enable and start the service
-echo "Configuring systemd service..."
-systemctl daemon-reload || { echo "Error: Failed to reload systemd daemon"; exit 1; }
-systemctl enable serviceradar-proton || { echo "Error: Failed to enable serviceradar-proton service"; exit 1; }
-if ! systemctl start serviceradar-proton; then
-    echo "WARNING: Failed to start serviceradar-proton service. Please check the logs."
-    echo "Run: journalctl -u serviceradar-proton.service"
-    exit 1
+log_info "Configuring systemd service..."
+systemctl daemon-reload 2>/dev/null || log_error "Failed to reload systemd daemon"
+systemctl enable serviceradar-proton 2>/dev/null || log_error "Failed to enable serviceradar-proton service"
+if ! systemctl start serviceradar-proton 2>/dev/null; then
+    log_warning "Failed to start serviceradar-proton service. Please check the logs:"
+    log_warning "  journalctl -u serviceradar-proton.service"
+else
+    log_info "ServiceRadar Proton service started successfully"
 fi
 
-echo "ServiceRadar Proton Server installed successfully!"
-echo "A secure password has been generated and saved to /etc/proton-server/generated_password.txt"
-echo "Note: Password authentication is not used due to mTLS configuration."
+log_info "ServiceRadar Proton Server installed successfully!"
+log_info "A secure password has been generated and saved to /etc/proton-server/generated_password.txt"
+log_info "Note: Password authentication is not used due to mTLS configuration."
