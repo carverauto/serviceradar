@@ -15,7 +15,7 @@
 # limitations under the License.
 
 # install-serviceradar.sh
-# Installs ServiceRadar components based on specified scenarios
+# Installs ServiceRadar components with integrated mTLS setup for Proton database
 
 set -e
 
@@ -25,6 +25,10 @@ RELEASE_TAG="1.0.34"
 RELEASE_URL="https://github.com/carverauto/serviceradar/releases/download/${RELEASE_TAG}"
 TEMP_DIR="/tmp/serviceradar-install"
 POLLER_CONFIG="/etc/serviceradar/poller.json"
+PROTON_CERT_DIR="/etc/proton-server"
+SR_CERT_DIR="/etc/serviceradar/certs"
+WORK_DIR="/tmp/serviceradar-tls"
+DAYS_VALID=3650
 
 # Default settings
 INTERACTIVE=true
@@ -36,6 +40,8 @@ INSTALL_AGENT=false
 UPDATE_POLLER_CONFIG=true
 SKIP_CHECKER_PROMPTS=false
 INSTALLED_CHECKERS=()
+SERVICE_IPS=""
+ADD_IPS=false
 
 # Input timeout in seconds
 PROMPT_TIMEOUT=15
@@ -76,26 +82,19 @@ read_with_timeout() {
     local var_name="$3"
     local timeout="$4"
 
-    # Ensure timeout has a value
     timeout=${timeout:-$PROMPT_TIMEOUT}
 
-    # If we're not interactive, use the default immediately
     if [ "$INTERACTIVE" != "true" ]; then
         eval "$var_name=$default"
         return
     fi
 
-    # Print prompt
     echo -e "$prompt \c"
-
-    # Try to read with timeout
     read -t "$timeout" response || {
         echo
         log "Input timed out, using default: $default"
         response="$default"
     }
-
-    # Set the variable to the response or default
     eval "$var_name=\"$response\""
 }
 
@@ -137,14 +136,11 @@ validate_package() {
         error "Downloaded file $file does not exist"
     fi
 
-    # Check if the file is a valid package
     if [ "$SYSTEM" = "debian" ]; then
-        # Check if the file is a valid .deb package
         if ! dpkg-deb -W "$file" >/dev/null 2>&1; then
             error "Downloaded file $file is not a valid .deb package"
         fi
     else
-        # For RPM, just check if file exists and has content
         if [ ! -s "$file" ]; then
             error "Downloaded file $file is empty or corrupt"
         fi
@@ -187,6 +183,14 @@ parse_args() {
                 SKIP_CHECKER_PROMPTS=true
                 shift
                 ;;
+            --ip=*)
+                SERVICE_IPS=$(echo "$1" | cut -d'=' -f2)
+                shift
+                ;;
+            --add-ips)
+                ADD_IPS=true
+                shift
+                ;;
             *)
                 error "Unknown argument: $1"
                 ;;
@@ -217,13 +221,13 @@ detect_system() {
 # Install dependencies based on selected components
 install_dependencies() {
     header "Installing Dependencies"
-    log "Preparing system for Service [ServiceRadar] installation..."
+    log "Preparing system for ServiceRadar installation..."
     if [ "$SYSTEM" = "debian" ]; then
         apt-get update
         if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_CORE" = "true" ]; then
             log "Setting up Node.js and Nginx for web components..."
             curl -fsSL https://deb.nodesource.com/setup_20.x | bash - || error "Failed to set up Node.js repository"
-            apt-get install -y systemd nginx nodejs || error "Failed to install Node.js, Nginx, or systemd"
+            apt-get install -y systemd nginx nodejs jq openssl || error "Failed to install Node.js, Nginx, systemd, jq, or openssl"
         fi
         if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_AGENT" = "true" ]; then
             log "Installing libcap2-bin for agent..."
@@ -232,13 +236,6 @@ install_dependencies() {
         if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_POLLER" = "true" ] || [ "$INSTALL_CORE" = "true" ]; then
             log "Ensuring systemd is installed..."
             apt-get install -y systemd || error "Failed to install systemd"
-        fi
-        if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_CORE" = "true" ]; then
-            log "Preparing for Proton database installation..."
-            apt-get install -y systemd curl || error "Failed to install Proton dependencies"
-            mkdir -p /var/lib/proton/{tmp,checkpoint,nativelog/meta,nativelog/log,user_files} 2>/dev/null || true
-            mkdir -p /var/log/proton-server 2>/dev/null || true
-            mkdir -p /etc/proton-server 2>/dev/null || true
         fi
     else
         $PKG_MANAGER install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm
@@ -252,15 +249,15 @@ install_dependencies() {
         if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_CORE" = "true" ]; then
             log "Setting up Node.js and Nginx for web components..."
             $PKG_MANAGER module enable -y nodejs:20
-            $PKG_MANAGER install -y systemd nginx nodejs
+            $PKG_MANAGER install -y systemd nginx nodejs jq openssl || error "Failed to install dependencies"
         fi
         if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_AGENT" = "true" ]; then
             log "Installing libcap and related packages for agent..."
-            $PKG_MANAGER install -y libcap systemd-devel gcc
+            $PKG_MANAGER install -y libcap systemd-devel gcc || error "Failed to install libcap or related packages"
         fi
         if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_POLLER" = "true" ] || [ "$INSTALL_CORE" = "true" ]; then
             log "Ensuring systemd is installed..."
-            $PKG_MANAGER install -y systemd
+            $PKG_MANAGER install -y systemd || error "Failed to install systemd"
         fi
     fi
     success "Dependencies installed successfully!"
@@ -270,7 +267,6 @@ install_dependencies() {
 download_package() {
     local pkg_name="$1"
     local suffix="$2"
-    # Use underscore instead of hyphen for Debian packages
     if [ "$SYSTEM" = "debian" ]; then
         local file_name="${pkg_name}_${VERSION}${suffix}.${PKG_EXT}"
     else
@@ -282,12 +278,10 @@ download_package() {
     log "Downloading ${COLOR_YELLOW}${pkg_name}${COLOR_RESET}..."
     log "URL: ${COLOR_YELLOW}${url}${COLOR_RESET}"
 
-    # Add timeout and retry parameters for more robust downloading
     if ! curl -sSL --connect-timeout 30 --max-time 300 --retry 3 --retry-delay 2 -o "$output" "$url"; then
         error "Failed to download ${pkg_name} from $url"
     fi
 
-    # Check if file exists and has content
     if [ ! -f "$output" ] || [ ! -s "$output" ]; then
         error "Downloaded file for ${pkg_name} is empty or does not exist"
     fi
@@ -321,7 +315,213 @@ install_packages() {
     fi
 }
 
-# Prompt for installation scenario (interactive mode only)
+# Get local IP address
+get_local_ip() {
+    local_ip=$(ip -4 addr show scope global 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -n 1)
+    if [ -z "$local_ip" ]; then
+        local_ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+    fi
+    if [ -z "$local_ip" ]; then
+        local_ip="127.0.0.1"
+    fi
+    echo "$local_ip"
+}
+
+# Validate IPs
+validate_ips() {
+    local ips=$1
+    IFS=',' read -ra IP_ARRAY <<< "$ips"
+
+    for ip in "${IP_ARRAY[@]}"; do
+        if ! [[ $ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            error "Invalid IP address format: $ip"
+        fi
+    done
+}
+
+# Create certificate directories
+create_cert_dirs() {
+    log "Creating certificate directories..."
+    mkdir -p "$SR_CERT_DIR"
+    mkdir -p "$PROTON_CERT_DIR"
+    mkdir -p "$WORK_DIR"
+}
+
+# Generate root CA
+generate_root_ca() {
+    log "Generating root CA certificate..."
+
+    if [ -f "$SR_CERT_DIR/root.pem" ] && [ ! "$ADD_IPS" = true ]; then
+        log "Root CA already exists at $SR_CERT_DIR/root.pem"
+        log "If you want to create new certificates, remove existing ones first"
+        log "or use --add-ips to add IPs to existing certificates"
+        exit 1
+    fi
+
+    if [ ! -f "$SR_CERT_DIR/root.pem" ] || [ ! -f "$WORK_DIR/root-key.pem" ]; then
+        openssl ecparam -name prime256v1 -genkey -out "$WORK_DIR/root-key.pem"
+        openssl req -x509 -new -nodes -key "$WORK_DIR/root-key.pem" -sha256 -days "$DAYS_VALID" \
+            -out "$WORK_DIR/root.pem" -subj "/C=US/ST=CA/L=San Francisco/O=ServiceRadar/OU=Operations/CN=ServiceRadar CA"
+
+        cp "$WORK_DIR/root.pem" "$SR_CERT_DIR/root.pem"
+        cp "$WORK_DIR/root.pem" "$PROTON_CERT_DIR/ca-cert.pem"
+
+        log "Root CA generated and installed"
+    else
+        cp "$SR_CERT_DIR/root.pem" "$WORK_DIR/root.pem"
+        if [ -f "$SR_CERT_DIR/root-key.pem" ]; then
+            cp "$SR_CERT_DIR/root-key.pem" "$WORK_DIR/root-key.pem"
+        else
+            log "Root CA key not found at expected location, attempting to use core-key.pem"
+            cp "$SR_CERT_DIR/core-key.pem" "$WORK_DIR/root-key.pem"
+        fi
+        log "Using existing root CA"
+    fi
+}
+
+# Generate a Subject Alternative Name (SAN) configuration
+generate_san_config() {
+    local cn=$1
+    local ips=$2
+
+    local san_list=""
+    IFS=',' read -ra IP_ARRAY <<< "$ips"
+    for ip in "${IP_ARRAY[@]}"; do
+        if [ -z "$san_list" ]; then
+            san_list="IP:$ip"
+        else
+            san_list="$san_list,IP:$ip"
+        fi
+    done
+
+    cat > "$WORK_DIR/$cn-san.cnf" << EOF
+[req]
+distinguished_name = req_distinguished_name
+req_extensions = v3_req
+prompt = no
+
+[req_distinguished_name]
+C = US
+ST = CA
+L = San Francisco
+O = ServiceRadar
+OU = Operations
+CN = $cn.serviceradar
+
+[v3_req]
+basicConstraints = CA:FALSE
+keyUsage = digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth,clientAuth
+subjectAltName = $san_list
+EOF
+
+    log "Generated SAN configuration with IPs: $ips"
+}
+
+# Generate service certificate
+generate_service_cert() {
+    local service=$1
+    local ips=$2
+
+    log "Generating certificate for $service..."
+
+    generate_san_config "$service" "$ips"
+
+    openssl ecparam -name prime256v1 -genkey -out "$WORK_DIR/$service-key.pem"
+    openssl req -new -key "$WORK_DIR/$service-key.pem" -out "$WORK_DIR/$service.csr" -config "$WORK_DIR/$service-san.cnf"
+    openssl x509 -req -in "$WORK_DIR/$service.csr" -CA "$WORK_DIR/root.pem" -CAkey "$WORK_DIR/root-key.pem" \
+        -CAcreateserial -out "$WORK_DIR/$service.pem" -days "$DAYS_VALID" -sha256 \
+        -extfile "$WORK_DIR/$service-san.cnf" -extensions v3_req
+
+    openssl verify -CAfile "$WORK_DIR/root.pem" "$WORK_DIR/$service.pem" > /dev/null || {
+        error "Certificate verification failed"
+    }
+
+    log "Certificate details:"
+    openssl x509 -in "$WORK_DIR/$service.pem" -text -noout | grep -E "Subject:|Issuer:|X509v3 Subject Alternative Name:" | head -3
+
+    log "Generated $service certificate successfully"
+}
+
+# Install certificates
+install_certificates() {
+    log "Installing certificates..."
+
+    cp "$WORK_DIR/core.pem" "$SR_CERT_DIR/core.pem"
+    cp "$WORK_DIR/core-key.pem" "$SR_CERT_DIR/core-key.pem"
+    cp "$WORK_DIR/root.pem" "$SR_CERT_DIR/ca.pem"
+
+    cp "$WORK_DIR/core.pem" "$PROTON_CERT_DIR/root.pem"
+    cp "$WORK_DIR/core-key.pem" "$PROTON_CERT_DIR/core-key.pem"
+    cp "$WORK_DIR/root.pem" "$PROTON_CERT_DIR/ca-cert.pem"
+
+    chmod 644 "$SR_CERT_DIR/root.pem" "$SR_CERT_DIR/core.pem" "$SR_CERT_DIR/ca.pem" "$PROTON_CERT_DIR/ca-cert.pem" "$PROTON_CERT_DIR/root.pem"
+    chmod 600 "$SR_CERT_DIR/core-key.pem" "$PROTON_CERT_DIR/core-key.pem"
+
+    if getent passwd proton > /dev/null; then
+        chown proton:proton "$PROTON_CERT_DIR/ca-cert.pem" "$PROTON_CERT_DIR/root.pem" "$PROTON_CERT_DIR/core-key.pem"
+    fi
+
+    if getent passwd serviceradar > /dev/null; then
+        chown serviceradar:serviceradar "$SR_CERT_DIR/root.pem" "$SR_CERT_DIR/core.pem" "$SR_CERT_DIR/core-key.pem" "$SR_CERT_DIR/ca.pem"
+    fi
+
+    log "Certificates installed"
+}
+
+# Extract IPs from an existing certificate
+extract_existing_ips() {
+    local cert_file="$1"
+
+    if [ ! -f "$cert_file" ]; then
+        error "Certificate file not found: $cert_file"
+    fi
+
+    local sans=$(openssl x509 -in "$cert_file" -text -noout | grep -A 1 "Subject Alternative Name" | tail -1)
+    local existing_ips=$(echo "$sans" | grep -oP 'IP Address:\K[0-9.]+' | tr '\n' ',' | sed 's/,$//')
+    echo "$existing_ips"
+}
+
+# Merge IPs
+merge_ips() {
+    local existing_ips="$1"
+    local new_ips="$2"
+
+    local combined_ips="${existing_ips},${new_ips}"
+    local unique_ips=$(echo "$combined_ips" | tr ',' '\n' | sort -u | tr '\n' ',' | sed 's/,$//')
+    echo "$unique_ips"
+}
+
+# Add IPs to existing certificates
+add_ips_to_certs() {
+    log "Adding IPs to existing certificates..."
+
+    if [ ! -f "$SR_CERT_DIR/core.pem" ]; then
+        error "No existing certificates found. Run without --add-ips first."
+    fi
+
+    local existing_ips=$(extract_existing_ips "$SR_CERT_DIR/core.pem")
+    log "Existing IPs in certificate: $existing_ips"
+
+    local all_ips=$(merge_ips "$existing_ips" "$SERVICE_IPS")
+    log "Combined IPs for new certificate: $all_ips"
+
+    cp "$SR_CERT_DIR/root.pem" "$WORK_DIR/root.pem"
+    if [ -f "$SR_CERT_DIR/root-key.pem" ]; then
+        cp "$SR_CERT_DIR/root-key.pem" "$WORK_DIR/root-key.pem"
+    else
+        cp "$SR_CERT_DIR/core-key.pem" "$WORK_DIR/root-key.pem"
+        log "Root CA key not found, using core-key.pem as a fallback"
+    fi
+
+    SERVICE_IPS="$all_ips"
+    generate_service_cert "core" "$SERVICE_IPS"
+    install_certificates
+
+    log "IPs added to certificates"
+}
+
+# Prompt for installation scenario
 prompt_scenario() {
     if [ "$INTERACTIVE" = "true" ]; then
         header "Select Components to Install"
@@ -355,7 +555,6 @@ prompt_scenario() {
         done
         echo
 
-        # Ask about poller config updates if poller is being installed
         if [ "$INSTALL_POLLER" = "true" ] || [ "$INSTALL_ALL" = "true" ]; then
             local update_choice=""
             read_with_timeout "${COLOR_CYAN}Would you like to automatically update the poller configuration after installing checkers? (y/n) [y]:${COLOR_RESET}" "y" update_choice $PROMPT_TIMEOUT
@@ -367,7 +566,6 @@ prompt_scenario() {
                 log "Poller configuration will be updated automatically"
             fi
 
-            # Ask about skipping checker prompts
             local skip_choice=""
             read_with_timeout "${COLOR_CYAN}Skip individual checker prompts and use recommended defaults? (y/n) [n]:${COLOR_RESET}" "n" skip_choice $PROMPT_TIMEOUT
 
@@ -376,13 +574,20 @@ prompt_scenario() {
                 log "Using recommended checker defaults (sysmon and snmp will be installed)"
             fi
         else
-            # If poller is not installed, we won't update the config
             UPDATE_POLLER_CONFIG=false
+        fi
+
+        # Prompt for IP addresses
+        local ip_choice=""
+        read_with_timeout "${COLOR_CYAN}Enter IP addresses for mTLS certificates (comma-separated, leave blank for auto-detect):${COLOR_RESET}" "" ip_choice $PROMPT_TIMEOUT
+        if [ -n "$ip_choice" ]; then
+            SERVICE_IPS="$ip_choice"
+            validate_ips "$SERVICE_IPS"
         fi
     fi
 }
 
-# Update the poller configuration to enable a specific checker
+# Update the poller configuration
 update_poller_config_for_checker() {
     local checker_type="$1"
 
@@ -397,11 +602,31 @@ update_poller_config_for_checker() {
 
     log "Enabling ${COLOR_YELLOW}${checker_type}${COLOR_RESET} in poller configuration..."
 
-    # Use the CLI tool to update the poller configuration
     if /usr/local/bin/serviceradar update-poller --file="$POLLER_CONFIG" --type="$checker_type"; then
         success "Successfully updated poller configuration for $checker_type"
     else
         log "Failed to update poller configuration for $checker_type"
+    fi
+}
+
+# Enable all standard checkers
+enable_all_checkers() {
+    if [ "$UPDATE_POLLER_CONFIG" != "true" ]; then
+        return
+    fi
+
+    if [ ! -f "$POLLER_CONFIG" ]; then
+        log "Poller configuration file not found at $POLLER_CONFIG"
+        return
+    fi
+
+    header "Enabling All Checkers in Poller Configuration"
+    log "Configuring poller to use all installed checkers..."
+
+    if /usr/local/bin/serviceradar update-poller --file="$POLLER_CONFIG" --enable-all; then
+        success "Successfully enabled all checkers in poller configuration"
+    else
+        log "Failed to enable all checkers in poller configuration"
     fi
 }
 
@@ -428,7 +653,6 @@ update_core_config() {
             info "Generated random password: ${COLOR_YELLOW}${password}${COLOR_RESET}"
         fi
     else
-        # Non-interactive mode: check for environment variable or generate random
         password="${SERVICERADAR_ADMIN_PASSWORD:-}"
         if [ -z "$password" ]; then
             password=$(head /dev/urandom | tr -dc A-Za-z0-9 | head -c 16)
@@ -436,60 +660,32 @@ update_core_config() {
         fi
     fi
 
-    # Generate bcrypt hash using serviceradar
     log "Generating bcrypt hash for admin password..."
     local bcrypt_hash
     bcrypt_hash=$(echo "$password" | /usr/local/bin/serviceradar 2>/dev/null) || error "Failed to generate bcrypt hash using serviceradar"
     log "Generated bcrypt hash"
     success "Bcrypt hash generated successfully!"
 
-    # Update core.json using serviceradar CLI
     log "Updating ${config_file} with new admin password hash..."
     /usr/local/bin/serviceradar update-config --file "$config_file" --admin-hash "$bcrypt_hash" || error "Failed to update ${config_file}"
     systemctl restart serviceradar-core
     success "Configuration file updated successfully!"
 }
 
-# Enable all standard checkers in poller config
-enable_all_checkers() {
-    if [ "$UPDATE_POLLER_CONFIG" != "true" ]; then
-        return
-    fi
-
-    if [ ! -f "$POLLER_CONFIG" ]; then
-        log "Poller configuration file not found at $POLLER_CONFIG"
-        return
-    fi
-
-    header "Enabling All Checkers in Poller Configuration"
-    log "Configuring poller to use all installed checkers..."
-
-    # Enable all checkers using the CLI tool
-    if /usr/local/bin/serviceradar update-poller --file="$POLLER_CONFIG" --enable-all; then
-        success "Successfully enabled all checkers in poller configuration"
-    else
-        log "Failed to enable all checkers in poller configuration"
-    fi
-}
-
-# Improved checker installation function that doesn't hang
+# Install optional checkers
 install_optional_checkers() {
     header "Installing Optional Checkers"
 
-    # Default installation selections
     local INSTALL_SYSMON=false
     local INSTALL_SNMP=false
     local INSTALL_RPERF=false
     local INSTALL_RPERF_CHECKER=false
     local INSTALL_DUSK=false
 
-    # Set defaults for non-interactive or skipped prompts
     if [ "$SKIP_CHECKER_PROMPTS" = "true" ] || [ "$INTERACTIVE" != "true" ]; then
-        # Default to installing common checkers
         INSTALL_SYSMON=true
-        INSTALL_SNMP=false
+        INSTALL_SNMP=true
 
-        # Use command-line checkers if specified
         if [ -n "$CHECKERS" ]; then
             echo "$CHECKERS" | grep -q "sysmon" && INSTALL_SYSMON=true || INSTALL_SYSMON=false
             echo "$CHECKERS" | grep -q "snmp" && INSTALL_SNMP=true || INSTALL_SNMP=false
@@ -500,12 +696,10 @@ install_optional_checkers() {
 
         log "Using predefined checker selection (skipping prompts)"
     else
-        # Interactive selection with visible prompts
         echo
         echo -e "${COLOR_CYAN}${COLOR_BOLD}Select optional checkers to install:${COLOR_RESET}"
         echo
 
-        # Prompt for each checker with clear visibility
         echo -ne "${COLOR_CYAN}Install ${COLOR_YELLOW}System Monitor (sysmon)${COLOR_CYAN}? (y/n) [y]: ${COLOR_RESET}"
         read -t $PROMPT_TIMEOUT sysmon_choice || { echo; log "No input received, defaulting to yes"; sysmon_choice="y"; }
         [ "$sysmon_choice" = "n" ] || [ "$sysmon_choice" = "N" ] || INSTALL_SYSMON=true
@@ -532,7 +726,6 @@ install_optional_checkers() {
         echo
     fi
 
-    # Show what will be installed
     echo
     log "Installing these optional checkers:"
     local checker_count=0
@@ -569,7 +762,6 @@ install_optional_checkers() {
 
     echo
 
-    # Prepare package list and download
     checker_packages=()
     INSTALLED_CHECKERS=()
 
@@ -598,7 +790,6 @@ install_optional_checkers() {
         INSTALLED_CHECKERS+=("dusk")
     fi
 
-    # Download packages
     for pkg in "${checker_packages[@]}"; do
         if [ "$SYSTEM" = "rhel" ] && { [ "$pkg" = "serviceradar-rperf" ] || [ "$pkg" = "serviceradar-rperf-checker" ]; }; then
             download_package "$pkg" "-1.el9.x86_64"
@@ -607,18 +798,14 @@ install_optional_checkers() {
         fi
     done
 
-    # Install packages
     install_packages "${checker_packages[@]}"
 
-    # Update poller configuration
     if [ "$UPDATE_POLLER_CONFIG" = "true" ] && [ ${#INSTALLED_CHECKERS[@]} -gt 0 ]; then
         header "Updating Poller Configuration"
 
         if [ ${#INSTALLED_CHECKERS[@]} -ge 3 ]; then
-            # If many checkers installed, use enable-all for efficiency
             enable_all_checkers
         else
-            # Otherwise update individually
             for checker_type in "${INSTALLED_CHECKERS[@]}"; do
                 update_poller_config_for_checker "$checker_type"
             done
@@ -626,13 +813,43 @@ install_optional_checkers() {
     fi
 }
 
+# Show post-installation instructions for mTLS
+show_post_install_info() {
+    local ips
+    IFS=',' read -ra IPS <<< "$SERVICE_IPS"
+    local first_ip="${IPS[0]}"
+
+    echo
+    echo -e "${COLOR_BOLD}TLS Certificate Setup Complete${COLOR_RESET}"
+    echo
+    echo -e "Certificates have been installed with the following IPs:"
+    for ip in "${IPS[@]}"; do
+        echo -e "  - ${COLOR_CYAN}$ip${COLOR_RESET}"
+    done
+    echo
+    echo -e "${COLOR_BOLD}Certificate locations:${COLOR_RESET}"
+    echo -e "  - ServiceRadar: ${COLOR_CYAN}$SR_CERT_DIR/root.pem, $SR_CERT_DIR/core.pem, $SR_CERT_DIR/core-key.pem, $SR_CERT_DIR/ca.pem${COLOR_RESET}"
+    echo -e "  - Proton: ${COLOR_CYAN}$PROTON_CERT_DIR/ca-cert.pem, $PROTON_CERT_DIR/root.pem, $PROTON_CERT_DIR/core-key.pem${COLOR_RESET}"
+    echo
+    echo -e "${COLOR_BOLD}Next steps:${COLOR_RESET}"
+    echo "1. Verify the Proton connection:"
+    echo "   proton-client --host $first_ip --port 9440 --secure \\"
+    echo "     --certificate-file $SR_CERT_DIR/core.pem \\"
+    echo "     --private-key-file $SR_CERT_DIR/core-key.pem -q \"SELECT 1\""
+    echo
+    echo "2. If you need to add more IPs later, run:"
+    echo "   $0 --add-ips --ip new.ip.address"
+    echo
+    echo "3. To restart services with new certificates:"
+    echo "   systemctl restart serviceradar-proton serviceradar-core"
+    echo
+}
+
 # Main installation logic
 main() {
     display_banner
 
-    # Check if running in a terminal with input support
     if ! [ -t 0 ]; then
-        # No TTY, force non-interactive mode
         INTERACTIVE=false
         log "No TTY detected, forcing non-interactive mode"
     fi
@@ -659,8 +876,39 @@ main() {
         error "No components selected to install."
     fi
 
+    # Set up IPs for mTLS
+    if [ -z "$SERVICE_IPS" ]; then
+        if [ "$INTERACTIVE" = "false" ]; then
+            SERVICE_IPS="127.0.0.1"
+            log "Non-interactive mode: Using localhost (127.0.0.1) for certificates"
+        else
+            local_ip=$(get_local_ip)
+            SERVICE_IPS="${local_ip},127.0.0.1"
+            log "Auto-detected IP addresses: $SERVICE_IPS"
+        fi
+    else
+        validate_ips "$SERVICE_IPS"
+        if ! [[ $SERVICE_IPS == *"127.0.0.1"* ]]; then
+            SERVICE_IPS="${SERVICE_IPS},127.0.0.1"
+        fi
+    fi
+
     mkdir -p "$TEMP_DIR"
     install_dependencies
+
+    # Setup mTLS certificates if core is being installed
+    if [ "$INSTALL_CORE" = "true" ] || [ "$INSTALL_ALL" = "true" ]; then
+        header "Setting up mTLS Certificates"
+        create_cert_dirs
+        if [ "$ADD_IPS" = true ]; then
+            add_ips_to_certs
+        else
+            generate_root_ca
+            generate_service_cert "core" "$SERVICE_IPS"
+            install_certificates
+        fi
+        show_post_install_info
+    fi
 
     core_packages=("serviceradar-core" "serviceradar-web" "serviceradar-nats" "serviceradar-kv" "serviceradar-sync" "serviceradar-cli" "serviceradar-proton")
     poller_packages=("serviceradar-poller")
@@ -680,7 +928,7 @@ main() {
     header "Installing Main Components"
     for pkg in "${packages_to_install[@]}"; do
         if [ "$SYSTEM" = "rhel" ]; then
-            if [ "$pkg" = "serviceradar-core" ] || [ "$pkg" = "serviceradar-kv" ] || [ "$pkg" = "serviceradar-nats" ] || [ "$pkg" = "serviceradar-agent" ] || [ "$pkg" = "serviceradar-poller" ] || [ "$pkg" = "serviceradar-sync" ]; then
+            if [ "$pkg" = "serviceradar-core" ] || [ "$pkg" = "serviceradar-kv" ] || [ "$pkg" = "serviceradar-nats" ] || [ "$pkg" = "serviceradar-agent" ] || [ "$pkg" = "serviceradar-poller" ] || [ "$pkg" = "serviceradar-sync" ] || [ "$pkg" = "serviceradar-proton" ] || [ "$pkg" = "serviceradar-cli" ]; then
                 download_package "$pkg" "-1.el9.x86_64"
             else
                 download_package "$pkg" "-1.el9.x86_64"
@@ -691,10 +939,7 @@ main() {
     done
     install_packages "${packages_to_install[@]}"
 
-    # Install optional checkers with the improved function
     install_optional_checkers
-
-    # Update core.json with new admin password
     update_core_config
 
     header "Cleaning Up"
