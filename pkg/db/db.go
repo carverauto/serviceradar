@@ -113,8 +113,8 @@ func (db *DB) initSchema(ctx context.Context) error {
             core_id int32,
             usage_percent float64
         ) ENGINE = MergeTree()
-        PARTITION BY toDate(timestamp)
-        ORDER BY (poller_id, timestamp)`,
+        PARTITION BY date(timestamp)
+        ORDER BY (poller_id, timestamp)`, // Changed toDate to date
 
 		`CREATE STREAM IF NOT EXISTS disk_metrics (
             poller_id string,
@@ -123,8 +123,8 @@ func (db *DB) initSchema(ctx context.Context) error {
             used_bytes uint64,
             total_bytes uint64
         ) ENGINE = MergeTree()
-        PARTITION BY toDate(timestamp)
-        ORDER BY (poller_id, timestamp)`,
+        PARTITION BY date(timestamp)
+        ORDER BY (poller_id, timestamp)`, // Changed toDate to date
 
 		`CREATE STREAM IF NOT EXISTS memory_metrics (
             poller_id string,
@@ -132,8 +132,8 @@ func (db *DB) initSchema(ctx context.Context) error {
             used_bytes uint64,
             total_bytes uint64
         ) ENGINE = MergeTree()
-        PARTITION BY toDate(timestamp)
-        ORDER BY (poller_id, timestamp)`,
+        PARTITION BY date(timestamp)
+        ORDER BY (poller_id, timestamp)`, // Changed toDate to date
 
 		`CREATE STREAM IF NOT EXISTS pollers (
             poller_id string,
@@ -142,15 +142,15 @@ func (db *DB) initSchema(ctx context.Context) error {
             is_healthy bool
         ) ENGINE = MergeTree()
         PRIMARY KEY (poller_id)
-        ORDER BY poller_id`,
+        ORDER BY poller_id`, // No change here, no toDate
 
 		`CREATE STREAM IF NOT EXISTS poller_history (
             poller_id string,
             timestamp DateTime64(3) DEFAULT now64(3),
             is_healthy bool
         ) ENGINE = MergeTree()
-        PARTITION BY toDate(timestamp)
-        ORDER BY (poller_id, timestamp)`,
+        PARTITION BY date(timestamp)
+        ORDER BY (poller_id, timestamp)`, // Changed toDate to date
 
 		`CREATE STREAM IF NOT EXISTS service_status (
             poller_id string,
@@ -160,8 +160,8 @@ func (db *DB) initSchema(ctx context.Context) error {
             details string,
             timestamp DateTime64(3) DEFAULT now64(3)
         ) ENGINE = MergeTree()
-        PARTITION BY toDate(timestamp)
-        ORDER BY (poller_id, timestamp)`,
+        PARTITION BY date(timestamp)
+        ORDER BY (poller_id, timestamp)`, // Changed toDate to date
 
 		`CREATE STREAM IF NOT EXISTS timeseries_metrics (
             poller_id string,
@@ -171,8 +171,8 @@ func (db *DB) initSchema(ctx context.Context) error {
             metadata string,
             timestamp DateTime64(3) DEFAULT now64(3)
         ) ENGINE = MergeTree()
-        PARTITION BY toDate(timestamp)
-        ORDER BY (poller_id, metric_name, timestamp)`,
+        PARTITION BY date(timestamp)
+        ORDER BY (poller_id, metric_name, timestamp)`, // Changed toDate to date
 
 		`CREATE STREAM IF NOT EXISTS users (
             id string,
@@ -183,7 +183,7 @@ func (db *DB) initSchema(ctx context.Context) error {
             updated_at DateTime64(3) DEFAULT now64(3)
         ) ENGINE = MergeTree()
         PRIMARY KEY (id)
-        ORDER BY id`,
+        ORDER BY id`, // No change here, no toDate
 	}
 
 	for _, statement := range createStreams {
