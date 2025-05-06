@@ -52,17 +52,17 @@
     "name": "proton",
     "package_name": "serviceradar-proton",
     "version": "1.0.34",
-    "description": "ServiceRadar Proton Server (Time-series database)",
+    "description": "ServiceRadar Proton Server (Stream Processing Engine)",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
     "section": "database",
     "priority": "optional",
     "deb": {
-      "depends": ["systemd"],
+      "depends": ["systemd", "libcap2-bin"],
       "dockerfile": null
     },
     "rpm": {
-      "depends": ["systemd"],
+      "depends": ["systemd", "libcap"],
       "dockerfile": "docker/rpm/Dockerfile.rpm.proton",
       "release": "1"
     },
