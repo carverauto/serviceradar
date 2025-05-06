@@ -223,7 +223,7 @@ install_dependencies() {
         if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_CORE" = "true" ]; then
             log "Setting up Node.js and Nginx for web components..."
             curl -fsSL https://deb.nodesource.com/setup_20.x | bash - || error "Failed to set up Node.js repository"
-            apt-get install -y systemd nginx nodejs || error "Failed to install Node.js, Nginx, or systemd"
+            apt-get install -y systemd nginx nodejs jq || error "Failed to install Node.js, Nginx, or systemd"
         fi
         if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_AGENT" = "true" ]; then
             log "Installing libcap2-bin for agent..."
