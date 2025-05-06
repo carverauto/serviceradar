@@ -42,7 +42,6 @@ func run() error {
 	// Handle help request
 	if cfg.Help {
 		cli.ShowHelp()
-
 		return nil
 	}
 
@@ -57,6 +56,8 @@ func dispatchCommand(cfg *cli.CmdConfig) error {
 		return cli.RunUpdateConfig(cfg.ConfigFile, cfg.AdminHash)
 	case "update-poller":
 		return cli.RunUpdatePoller(cfg)
+	case "generate-tls":
+		return cli.RunGenerateTLS(cfg)
 	default:
 		return runBcryptMode(cfg)
 	}
@@ -67,6 +68,5 @@ func runBcryptMode(cfg *cli.CmdConfig) error {
 	if len(cfg.Args) > 0 || !cli.IsInputFromTerminal() {
 		return cli.RunBcryptNonInteractive(cfg.Args)
 	}
-
 	return cli.RunInteractive()
 }

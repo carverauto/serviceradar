@@ -56,7 +56,6 @@ const (
 )
 
 // Styling with lipgloss (for TUI mode).
-
 func newStyles() struct {
 	focused, focused2, help, hint, success, error, hash, app lipgloss.Style
 } {
@@ -345,7 +344,7 @@ func (m *model) renderCopyMessage(hintSection string, styles *struct {
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
-		hintSection, // Use the pre-rendered hintSection
+		hintSection,
 		messageStyle.Render(m.copyMessage),
 	)
 }
@@ -387,6 +386,7 @@ func ParseFlags() (*CmdConfig, error) {
 	const (
 		updateConfigSubCmd = "update-config"
 		updatePollerSubCmd = "update-poller"
+		generateTLSSubCmd  = "generate-tls"
 	)
 
 	// Parse update-config subcommand flags
@@ -423,6 +423,24 @@ func ParseFlags() (*CmdConfig, error) {
 		cfg.ServiceName = *serviceName
 		cfg.ServiceDetails = *serviceDetails
 		cfg.EnableAllOnInit = *enableAll
+	} else if cfg.SubCmd == generateTLSSubCmd {
+		// Parse generate-tls subcommand flags
+		generateTLSCmd := flag.NewFlagSet(generateTLSSubCmd, flag.ExitOnError)
+		ips := generateTLSCmd.String("ip", "", "IP addresses for the certificates (comma-separated)")
+		certDir := generateTLSCmd.String("cert-dir", "/etc/serviceradar/certs", "where to store ServiceRadar certificates")
+		protonDir := generateTLSCmd.String("proton-dir", "/etc/proton-server", "where to store Proton certificates")
+		addIPs := generateTLSCmd.Bool("add-ips", false, "add IPs to existing certificates")
+		nonInteractive := generateTLSCmd.Bool("non-interactive", false, "run in non-interactive mode (use 127.0.0.1)")
+
+		if err := generateTLSCmd.Parse(os.Args[2:]); err != nil {
+			return &cfg, fmt.Errorf("parsing generate-tls flags: %w", err)
+		}
+
+		cfg.IPS = *ips
+		cfg.CertDir = *certDir
+		cfg.ProtonDir = *protonDir
+		cfg.AddIPs = *addIPs
+		cfg.NonInteractive = *nonInteractive
 	}
 
 	return &cfg, nil
@@ -562,6 +580,11 @@ func RunUpdateConfig(configFile, adminHash string) error {
 	fmt.Printf("Successfully updated %s\n", configFile)
 
 	return nil
+}
+
+// RunGenerateTLS handles the generate-tls subcommand.
+func RunGenerateTLS(cfg *CmdConfig) error {
+	return GenerateTLSCerts(cfg)
 }
 
 // RunBcryptNonInteractive handles non-interactive bcrypt generation.
