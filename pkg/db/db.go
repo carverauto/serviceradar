@@ -113,7 +113,7 @@ func (db *DB) initSchema(ctx context.Context) error {
             core_id int32,
             usage_percent float64
         ) ENGINE = MergeTree()
-        PARTITION BY toDate(timestamp)
+        PARTITION BY date(timestamp)
         ORDER BY (poller_id, timestamp)`,
 
 		`CREATE STREAM IF NOT EXISTS disk_metrics (
@@ -123,7 +123,7 @@ func (db *DB) initSchema(ctx context.Context) error {
             used_bytes uint64,
             total_bytes uint64
         ) ENGINE = MergeTree()
-        PARTITION BY toDate(timestamp)
+        PARTITION BY date(timestamp)
         ORDER BY (poller_id, timestamp)`,
 
 		`CREATE STREAM IF NOT EXISTS memory_metrics (
@@ -132,7 +132,7 @@ func (db *DB) initSchema(ctx context.Context) error {
             used_bytes uint64,
             total_bytes uint64
         ) ENGINE = MergeTree()
-        PARTITION BY toDate(timestamp)
+        PARTITION BY date(timestamp)
         ORDER BY (poller_id, timestamp)`,
 
 		`CREATE STREAM IF NOT EXISTS pollers (
@@ -149,7 +149,7 @@ func (db *DB) initSchema(ctx context.Context) error {
             timestamp DateTime64(3) DEFAULT now64(3),
             is_healthy bool
         ) ENGINE = MergeTree()
-        PARTITION BY toDate(timestamp)
+        PARTITION BY date(timestamp)
         ORDER BY (poller_id, timestamp)`,
 
 		`CREATE STREAM IF NOT EXISTS service_status (
@@ -160,7 +160,7 @@ func (db *DB) initSchema(ctx context.Context) error {
             details string,
             timestamp DateTime64(3) DEFAULT now64(3)
         ) ENGINE = MergeTree()
-        PARTITION BY toDate(timestamp)
+        PARTITION BY date(timestamp)
         ORDER BY (poller_id, timestamp)`,
 
 		`CREATE STREAM IF NOT EXISTS timeseries_metrics (
@@ -171,7 +171,7 @@ func (db *DB) initSchema(ctx context.Context) error {
             metadata string,
             timestamp DateTime64(3) DEFAULT now64(3)
         ) ENGINE = MergeTree()
-        PARTITION BY toDate(timestamp)
+        PARTITION BY date(timestamp)
         ORDER BY (poller_id, metric_name, timestamp)`,
 
 		`CREATE STREAM IF NOT EXISTS users (
