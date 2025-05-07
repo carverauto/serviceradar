@@ -137,6 +137,18 @@ chmod 600 /etc/proton-server/users.d/default-password.xml || log_error "Failed t
 echo "Generated password: $RANDOM_PASSWORD" > /etc/proton-server/generated_password.txt
 chmod 600 /etc/proton-server/generated_password.txt || log_error "Failed to set permissions on generated_password.txt"
 
+# Update core.json with the generated password
+log_info "Updating /etc/serviceradar/core.json with database password..."
+if [ -f "/etc/serviceradar/core.json" ]; then
+    /usr/local/bin/serviceradar update-config --file /etc/serviceradar/core.json --db-password-file /etc/proton-server/generated_password.txt || {
+        log_error "Failed to update /etc/serviceradar/core.json with database password"
+    }
+    log_info "Successfully updated /etc/serviceradar/core.json"
+    chown serviceradar:serviceradar /etc/serviceradar/core.json 2>/dev/null || log_warning "Failed to set ownership of /etc/serviceradar/core.json"
+else
+    log_warning "/etc/serviceradar/core.json not found, skipping database password update"
+fi
+
 # Create symbolic links
 log_info "Creating symbolic links..."
 for link in proton-server proton-client proton-local; do
