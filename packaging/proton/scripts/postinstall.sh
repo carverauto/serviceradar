@@ -40,7 +40,20 @@ if ! command -v setcap >/dev/null 2>&1; then
     log_error "setcap is required but not installed (libcap2-bin missing). Please install libcap2-bin."
 fi
 
+if ! command -v /usr/local/bin/serviceradar >/dev/null 2>&1; then
+    log_error "serviceradar-cli is required but not installed. Please install serviceradar-cli."
+fi
+
 log_info "Setting up ServiceRadar Proton Server..."
+
+# Generate mTLS certificates if /etc/serviceradar/certs does not exist
+if [ ! -d "/etc/serviceradar/certs" ]; then
+    log_info "Certificate directory /etc/serviceradar/certs not found. Generating mTLS certificates..."
+    /usr/local/bin/serviceradar generate-tls --non-interactive --cert-dir /etc/serviceradar/certs --proton-dir /etc/proton-server || {
+        log_error "Failed to generate mTLS certificates using serviceradar-cli"
+    }
+    log_info "mTLS certificates generated successfully"
+fi
 
 # Create proton group if it doesn't exist
 if ! getent group proton >/dev/null; then
@@ -154,7 +167,7 @@ setcap cap_net_admin,cap_ipc_lock,cap_sys_nice=ep /usr/bin/proton || {
 
 # Set ownership and permissions
 log_info "Setting ownership and permissions..."
-chown -R proton:proton /etc/proton-server /var/log/proton-server /var/run/proton-server /var/lib/proton || log_error "Failed to set ownership"
+chown -R proton:proton /usr/bin/proton /etc/proton-server /var/log/proton-server /var/run/proton-server /var/lib/proton || log_error "Failed to set ownership"
 chmod 755 /usr/bin/proton || log_error "Failed to set permissions on /usr/bin/proton"
 chmod 700 /etc/proton-server/users.d /etc/proton-server/config.d || log_error "Failed to set permissions on config directories"
 

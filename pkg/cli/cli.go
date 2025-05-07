@@ -394,6 +394,7 @@ func ParseFlags() (*CmdConfig, error) {
 		updateConfigCmd := flag.NewFlagSet(updateConfigSubCmd, flag.ExitOnError)
 		configFile := updateConfigCmd.String("file", "", "path to core.json config file")
 		adminHash := updateConfigCmd.String("admin-hash", "", "bcrypt hash for admin user")
+		dbPasswordFile := updateConfigCmd.String("db-password-file", "", "path to file containing database password (e.g., generated_password.txt)")
 
 		if err := updateConfigCmd.Parse(os.Args[2:]); err != nil {
 			return &cfg, fmt.Errorf("parsing update-config flags: %w", err)
@@ -401,6 +402,7 @@ func ParseFlags() (*CmdConfig, error) {
 
 		cfg.ConfigFile = *configFile
 		cfg.AdminHash = *adminHash
+		cfg.DBPasswordFile = *dbPasswordFile
 	} else if cfg.SubCmd == updatePollerSubCmd {
 		// Parse update-poller subcommand flags
 		updatePollerCmd := flag.NewFlagSet(updatePollerSubCmd, flag.ExitOnError)
@@ -568,12 +570,16 @@ func writePollerConfig(pollerFile string, config *PollerConfig) error {
 }
 
 // RunUpdateConfig handles the update-config subcommand.
-func RunUpdateConfig(configFile, adminHash string) error {
-	if configFile == "" || adminHash == "" {
+func RunUpdateConfig(configFile, adminHash, dbPasswordFile string) error {
+	if configFile == "" {
 		return errRequiresFileAndHash
 	}
 
-	if err := updateConfig(configFile, adminHash); err != nil {
+	if adminHash == "" && dbPasswordFile == "" {
+		return errRequiresFileAndHash
+	}
+
+	if err := updateConfig(configFile, adminHash, dbPasswordFile); err != nil {
 		return fmt.Errorf("%w: %s", errUpdatingConfig, err.Error())
 	}
 
@@ -635,9 +641,9 @@ func IsInputFromTerminal() bool {
 	return (fileInfo.Mode() & os.ModeCharDevice) != 0
 }
 
-// updateConfig updates the core.json file with a new admin bcrypt hash while preserving
+// updateConfig updates the core.json file with a new admin bcrypt hash and/or database password while preserving
 // duration fields in string format.
-func updateConfig(configFile, adminHash string) error {
+func updateConfig(configFile, adminHash, dbPasswordFile string) error {
 	// Read the existing config file
 	data, err := os.ReadFile(configFile)
 	if err != nil {
@@ -646,27 +652,61 @@ func updateConfig(configFile, adminHash string) error {
 
 	// Parse the JSON into a map
 	var configMap map[string]interface{}
-
 	if err = json.Unmarshal(data, &configMap); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidAuthFormat, err)
 	}
 
-	// Ensure auth object exists
-	auth, ok := configMap["auth"].(map[string]interface{})
-	if !ok {
-		auth = make(map[string]interface{})
-		configMap["auth"] = auth
+	// Update admin hash if provided
+	if adminHash != "" {
+		// Ensure auth object exists
+		auth, ok := configMap["auth"].(map[string]interface{})
+		if !ok {
+			auth = make(map[string]interface{})
+			configMap["auth"] = auth
+		}
+
+		// Ensure local_users object exists
+		localUsers, ok := auth["local_users"].(map[string]interface{})
+		if !ok {
+			localUsers = make(map[string]interface{})
+			auth["local_users"] = localUsers
+		}
+
+		// Update admin hash
+		localUsers["admin"] = adminHash
 	}
 
-	// Ensure local_users object exists
-	localUsers, ok := auth["local_users"].(map[string]interface{})
-	if !ok {
-		localUsers = make(map[string]interface{})
-		auth["local_users"] = localUsers
-	}
+	// Update database password if dbPasswordFile is provided
+	if dbPasswordFile != "" {
+		// Read password from file
+		passwordData, err := os.ReadFile(dbPasswordFile)
+		if err != nil {
+			return fmt.Errorf("failed to read database password file %s: %w", dbPasswordFile, err)
+		}
 
-	// Update admin hash
-	localUsers["admin"] = adminHash
+		// Extract password (assuming format: "Generated password: <password>")
+		passwordLines := strings.Split(strings.TrimSpace(string(passwordData)), "\n")
+		var password string
+		for _, line := range passwordLines {
+			if strings.HasPrefix(line, "Generated password:") {
+				password = strings.TrimSpace(strings.TrimPrefix(line, "Generated password:"))
+				break
+			}
+		}
+		if password == "" {
+			return fmt.Errorf("could not extract password from %s", dbPasswordFile)
+		}
+
+		// Ensure database object exists
+		database, ok := configMap["database"].(map[string]interface{})
+		if !ok {
+			database = make(map[string]interface{})
+			configMap["database"] = database
+		}
+
+		// Update database password
+		database["password"] = password
+	}
 
 	// DO NOT convert the config back to a struct and then to JSON
 	// This would lose the string representation of durations
