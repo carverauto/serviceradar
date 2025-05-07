@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"go.uber.org/mock/gomock"
 )
@@ -28,13 +29,16 @@ func TestManager(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
+	// Create a mock db.Service (no expectations needed for ICMP tests)
+	mockDB := db.NewMockService(ctrl)
+
 	cfg := models.MetricsConfig{
 		Enabled:   true,
 		Retention: 100,
 	}
 
 	t.Run("adds metrics and tracks active nodes", func(t *testing.T) {
-		manager := NewManager(cfg)
+		manager := NewManager(cfg, mockDB)
 		now := time.Now()
 
 		// Add metrics for two nodes
@@ -49,20 +53,20 @@ func TestManager(t *testing.T) {
 		}
 
 		// Verify active nodes count
-		if count := manager.(*Manager).GetActiveNodes(); count != 2 {
+		if count := manager.GetActiveNodes(); count != 2 {
 			t.Errorf("expected 2 active nodes, got %d", count)
 		}
 
 		// Verify metrics retrieval
 		metrics := manager.GetMetrics("node1")
-		if len(metrics) != cfg.Retention {
+		if len(metrics) != int(cfg.Retention) {
 			t.Errorf("expected %d metrics, got %d", cfg.Retention, len(metrics))
 		}
 	})
 
 	t.Run("disabled metrics", func(t *testing.T) {
 		disabledCfg := models.MetricsConfig{Enabled: false}
-		manager := NewManager(disabledCfg)
+		manager := NewManager(disabledCfg, mockDB)
 
 		err := manager.AddMetric("node1", time.Now(), 100, "service")
 		if err != nil {
@@ -75,8 +79,8 @@ func TestManager(t *testing.T) {
 		}
 	})
 
-	t.Run("concurrent access", func(*testing.T) {
-		manager := NewManager(cfg)
+	t.Run("concurrent access", func(_ *testing.T) {
+		manager := NewManager(cfg, mockDB)
 		done := make(chan bool)
 
 		const goroutines = 10

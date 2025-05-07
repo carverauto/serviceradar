@@ -1,0 +1,27 @@
+FROM rockylinux:9
+
+# Install build dependencies
+RUN dnf install -y --allowerasing \
+    rpm-build rpmdevtools dnf-plugins-core git gcc make curl unzip systemd \
+    && dnf config-manager --set-enabled crb \
+    && dnf clean all
+
+# Install Rust
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.81.0 \
+    && echo "source $HOME/.cargo/env" >> $HOME/.bashrc
+
+ENV PATH="/root/.cargo/bin:/usr/local/bin:${PATH}"
+
+# Install protoc
+RUN curl -LO https://github.com/protocolbuffers/protobuf/releases/download/v27.2/protoc-27.2-linux-x86_64.zip \
+    && unzip protoc-27.2-linux-x86_64.zip -d /usr/local \
+    && chmod +x /usr/local/bin/protoc \
+    && rm protoc-27.2-linux-x86_64.zip
+
+RUN dnf install -y protobuf-compiler
+
+# Set up cross-compilation target
+RUN rustup target add x86_64-unknown-linux-gnu
+
+# Verify installations
+RUN rustc --version && protoc --version

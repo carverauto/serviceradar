@@ -1,0 +1,35 @@
+FROM debian:bookworm-slim
+
+# Install Rust and essential tools
+RUN apt-get update && apt-get install -y \
+    curl \
+    build-essential \
+    pkg-config \
+    wget \
+    gnupg \
+    && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+
+ENV PATH="/root/.cargo/bin:${PATH}"
+
+# Install cross-compilation tools
+RUN apt-get update && apt-get install -y \
+    gcc-x86-64-linux-gnu \
+    g++-x86-64-linux-gnu \
+    binutils-x86-64-linux-gnu
+
+# Add ZFS repository and install dependencies
+RUN echo "deb [signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] http://deb.debian.org/debian bookworm main contrib" > /etc/apt/sources.list.d/debian.list && \
+    apt-get update && apt-get install -y \
+    libzfslinux-dev \
+    protobuf-compiler \
+    mingw-w64 \
+    && apt-get autoremove -y && \
+    rm -rf /var/lib/apt/lists/*
+
+# Set up pkg-config for cross-compilation
+ENV PKG_CONFIG_ALLOW_CROSS=1 \
+    CC_x86_64_unknown_linux_gnu=x86_64-linux-gnu-gcc \
+    CXX_x86_64_unknown_linux_gnu=x86_64-linux-gnu-g++
+
+# Verify Rust installation
+RUN rustc --version && cargo --version

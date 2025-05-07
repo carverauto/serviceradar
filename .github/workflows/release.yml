@@ -32,25 +32,37 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.24'
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set up Docker credentials for builds
+        run: |
+          mkdir -p ~/.docker
+          echo '{"auths":{"ghcr.io":{"auth":"'$(echo -n "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}" | base64)'"}}}'  > ~/.docker/config.json
+          chmod 600 ~/.docker/config.json
+          # Verify credentials file was created
+          cat ~/.docker/config.json
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential protobuf-compiler
+          sudo apt-get install -y build-essential protobuf-compiler jq
           go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
           go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+      - name: Pull required base images
+        run: |
+          # Pre-pull any required base images to ensure authentication works
+          docker pull ghcr.io/carverauto/custom-rust-zfs:latest || echo "Failed to pull custom-rust-zfs, will try during build"
       - name: Build DEB packages
         run: |
-          ./scripts/setup-deb-agent.sh
-          ./scripts/setup-deb-poller.sh
-          ./scripts/setup-deb-core.sh
-          ./scripts/setup-deb-web.sh
-          ./scripts/setup-deb-nats.sh
-          ./scripts/setup-deb-kv.sh
-          ./scripts/setup-deb-sync.sh
-          ./scripts/setup-deb-dusk-checker.sh
-          ./scripts/setup-deb-snmp-checker.sh
-          ./scripts/setup-deb-rperf-client.sh
-          ./scripts/setup-deb-rperf-server.sh
+          # Build all DEB packages using the unified script
+          ./scripts/setup-package.sh --type=deb --all
+          # Optionally still build the installer if needed
+          #./scripts/setup-installer.sh
       - name: List Artifacts (for debugging)
         run: ls -al ./release-artifacts
       - name: Upload DEB Release Assets
@@ -74,152 +86,37 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set up Docker credentials for builds
+        run: |
+          mkdir -p ~/.docker
+          echo '{"auths":{"ghcr.io":{"auth":"'$(echo -n "${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}" | base64)'"}}}'  > ~/.docker/config.json
+          chmod 600 ~/.docker/config.json
+          # Verify credentials file was created
+          cat ~/.docker/config.json
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq protobuf-compiler
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
       - name: Create output directory
         run: |
           mkdir -p ./release-artifacts/rpm
-      - name: Build Core RPM
+      - name: Pull required base images
         run: |
-          docker build \
-            --platform linux/amd64 \
-            --build-arg VERSION="${VERSION}" \
-            --build-arg RELEASE="1" \
-            -f Dockerfile.rpm.core \
-            -t serviceradar-rpm-core \
-            .
-          docker create --name core-container serviceradar-rpm-core
-          docker cp core-container:/rpms/. ./release-artifacts/rpm/
-          docker rm core-container
-      - name: Build Web RPM
+          # Pre-pull any required base images to ensure authentication works
+          docker pull ghcr.io/carverauto/custom-rust-zfs:latest || echo "Failed to pull custom-rust-zfs, will try during build"
+          docker pull ghcr.io/carverauto/rockylinux9-rust-rpm-base:latest || echo "Failed to pull rockylinux9-rust-rpm-base, will try during build"
+      - name: Build all RPM packages
         run: |
-          docker build \
-            --platform linux/amd64 \
-            --build-arg VERSION="${VERSION}" \
-            --build-arg RELEASE="1" \
-            --build-arg COMPONENT="web" \
-            --build-arg BINARY_PATH="./cmd/web" \
-            -f Dockerfile.rpm.web \
-            -t serviceradar-rpm-web \
-            .
-          docker create --name web-container serviceradar-rpm-web
-          docker cp web-container:/rpms/. ./release-artifacts/rpm/
-          docker rm web-container
-      - name: Build Agent RPM
-        run: |
-          docker build \
-            --platform linux/amd64 \
-            --build-arg VERSION="${VERSION}" \
-            --build-arg RELEASE="1" \
-            --build-arg COMPONENT="agent" \
-            --build-arg BINARY_PATH="./cmd/agent" \
-            -f Dockerfile.rpm.simple \
-            -t serviceradar-rpm-agent \
-            .
-          docker create --name agent-container serviceradar-rpm-agent
-          docker cp agent-container:/rpms/. ./release-artifacts/rpm/
-          docker rm agent-container
-      - name: Build Poller RPM
-        run: |
-          docker build \
-            --platform linux/amd64 \
-            --build-arg VERSION="${VERSION}" \
-            --build-arg RELEASE="1" \
-            --build-arg COMPONENT="poller" \
-            --build-arg BINARY_PATH="./cmd/poller" \
-            -f Dockerfile.rpm.simple \
-            -t serviceradar-rpm-poller \
-            .
-          docker create --name poller-container serviceradar-rpm-poller
-          docker cp poller-container:/rpms/. ./release-artifacts/rpm/
-          docker rm poller-container
-      - name: Build NATS RPM
-        run: |
-          docker build \
-            --platform linux/amd64 \
-            --build-arg VERSION="${VERSION}" \
-            --build-arg RELEASE="1" \
-            --build-arg COMPONENT="nats" \
-            --build-arg BINARY_PATH="" \
-            -f Dockerfile.rpm.nats \
-            -t serviceradar-rpm-nats \
-            .
-          docker create --name nats-container serviceradar-rpm-nats
-          docker cp nats-container:/rpms/. ./release-artifacts/rpm/
-          docker rm nats-container
-      - name: Build KV RPM
-        run: |
-          docker build \
-            --platform linux/amd64 \
-            --build-arg VERSION="${VERSION}" \
-            --build-arg RELEASE="1" \
-            --build-arg COMPONENT="kv" \
-            --build-arg BINARY_PATH="./cmd/kv" \
-            -f Dockerfile.rpm.simple \
-            -t serviceradar-rpm-kv \
-            .
-          docker create --name kv-container serviceradar-rpm-kv
-          docker cp kv-container:/rpms/. ./release-artifacts/rpm/
-          docker rm kv-container
-      - name: Build Sync RPM
-        run: |
-          docker build \
-            --platform linux/amd64 \
-            --build-arg VERSION="${VERSION}" \
-            --build-arg RELEASE="1" \
-            --build-arg COMPONENT="sync" \
-            --build-arg BINARY_PATH="./cmd/sync" \
-            -f Dockerfile.rpm.simple \
-            -t serviceradar-rpm-sync \
-            .
-          docker create --name sync-container serviceradar-rpm-sync
-          docker cp sync-container:/rpms/. ./release-artifacts/rpm/
-          docker rm sync-container
-      - name: Build RPerf (client) Checker RPM
-        run: |
-          docker build \
-            --platform linux/amd64 \
-            --build-arg VERSION="${VERSION}" \
-            --build-arg RELEASE="1" \
-            --build-arg COMPONENT="rperf-checker" \
-            --build-arg BINARY_PATH="./cmd/checkers/rperf-client" \
-            -f Dockerfile.rpm.rust \
-            -t serviceradar-rpm-rperf-checker \
-            .
-          docker create --name rperf-checker-container serviceradar-rpm-rperf-checker
-          docker cp rperf-checker-container:/rpms/. ./release-artifacts/rpm/
-          docker rm rperf-checker-container
-      - name: Build RPerf (server) RPM
-        run: |
-          docker build \
-            --platform linux/amd64 \
-            --build-arg VERSION="${VERSION}" \
-            --build-arg RELEASE="1" \
-            --build-arg COMPONENT="rperf" \
-            --build-arg BINARY_PATH="" \
-            -f ./cmd/checkers/rperf-server/Dockerfile \
-            -t serviceradar-rpm-rperf \
-            .
-          docker create --name rperf-container serviceradar-rpm-rperf
-          docker cp rperf-container:/rpms/. ./release-artifacts/rpm/
-          docker rm rperf-container
-      - name: Build SNMP Checker RPM
-        run: |
-          docker build \
-            --platform linux/amd64 \
-            --build-arg VERSION="${VERSION}" \
-            --build-arg RELEASE="1" \
-            --build-arg COMPONENT="snmp-checker" \
-            --build-arg BINARY_PATH="./cmd/checkers/snmp" \
-            -f Dockerfile.rpm.simple \
-            -t serviceradar-rpm-snmp-checker \
-            .
-          docker create --name snmp-checker-container serviceradar-rpm-snmp-checker
-          docker cp snmp-checker-container:/rpms/. ./release-artifacts/rpm/
-          docker rm snmp-checker-container
+          # Build all RPM packages using the unified script
+          ./scripts/setup-package.sh --type=rpm --all
       - name: List RPM Artifacts (for debugging)
-        run: ls -al ./release-artifacts/rpm
+        run: |
+          find ./release-artifacts/rpm -type f -name "*.rpm" | sort
       - name: Upload RPM Release Assets
         uses: softprops/action-gh-release@v2
         with:
-          files: ./release-artifacts/rpm/*.rpm
+          files: ./release-artifacts/rpm/*/*.rpm
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

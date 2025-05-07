@@ -28,7 +28,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/config"
+	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 	"github.com/gorilla/websocket"
 	"google.golang.org/grpc"
@@ -153,7 +153,7 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 		}
 
 		// Cast the parsed time.Duration to config.Duration
-		c.Timeout = config.Duration(duration)
+		c.Timeout = models.Duration(duration)
 	}
 
 	return nil

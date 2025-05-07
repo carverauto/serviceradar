@@ -25,7 +25,7 @@ var (
 	errInvalidDuration  = errors.New("invalid duration")
 	ErrInvalidFloatType = errors.New("invalid float type")
 
-	// Config error types.
+	// SNMPConfig error types.
 	errOIDNameTooLong      = errors.New("OID name is too long")
 	errOIDDuplicate        = errors.New("duplicate OID name")
 	errNodeAddressRequired = fmt.Errorf("node_address is required")

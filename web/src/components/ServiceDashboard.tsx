@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+// src/components/ServiceDashboard.tsx
 "use client";
 
 import React, { useState, useEffect } from "react";
@@ -35,6 +36,7 @@ import { ArrowLeft } from "lucide-react";
 import { Service, ServiceMetric, ServiceDetails } from "@/types/types";
 import { SnmpDataPoint } from "@/types/snmp";
 import RPerfDashboard from "@/components/RPerfDashboard";
+import { SysmonData } from "@/types/sysmon";
 
 // Define props interface
 interface ServiceDashboardProps {
@@ -43,6 +45,7 @@ interface ServiceDashboardProps {
     initialService?: Service | null;
     initialMetrics?: ServiceMetric[];
     initialSnmpData?: SnmpDataPoint[];
+    initialSysmonData?: SysmonData | Record<string, never>;
     initialError?: string | null;
     initialTimeRange?: string;
 }
@@ -64,6 +67,18 @@ const ServiceDashboard: React.FC<ServiceDashboardProps> = ({
     const [error] = useState<string | null>(initialError);
     const [selectedTimeRange] = useState<string>(initialTimeRange);
     const [chartHeight, setChartHeight] = useState<number>(256);
+
+    // Add state for redirection
+    const [redirectToMetrics] = useState(
+        serviceName.toLowerCase() === "sysmon"
+    );
+
+    // Handle redirect for sysmon service
+    useEffect(() => {
+        if (redirectToMetrics) {
+            router.push(`/metrics?pollerId=${pollerId}`);
+        }
+    }, [redirectToMetrics, router, pollerId]);
 
     // Adjust chart height based on screen size
     useEffect(() => {
@@ -214,7 +229,7 @@ const ServiceDashboard: React.FC<ServiceDashboardProps> = ({
                         ICMP Status
                     </h3>
                     <PingStatus
-                        details={serviceData.details ?? ''} // Provide default empty string if undefined
+                        details={serviceData.details ?? ''}
                         pollerId={pollerId}
                         serviceName={serviceName}
                     />
@@ -229,6 +244,20 @@ const ServiceDashboard: React.FC<ServiceDashboardProps> = ({
                     serviceName={serviceName}
                     initialTimeRange={initialTimeRange}
                 />
+            );
+        }
+
+        if (serviceName.toLowerCase() === "sysmon") {
+            // Show a loading state while redirecting
+            return (
+                <div className="bg-white dark:bg-gray-800 rounded-lg p-6 text-center shadow">
+                    <div className="flex justify-center mb-4">
+                        <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                    </div>
+                    <h3 className="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-100">
+                        Redirecting to System Metrics Dashboard...
+                    </h3>
+                </div>
             );
         }
 

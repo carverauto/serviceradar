@@ -1,0 +1,23 @@
+{
+  "listen_addr": "0.0.0.0:50083",
+  "security": {
+    "tls_enabled": false,
+    "cert_file": null,
+    "key_file": null,
+    "ca_file": null
+  },
+  "poll_interval": 30,
+  "zfs": {
+    "enabled": false,
+    "pools": ["rpool"],
+    "include_datasets": false,
+    "use_libzetta": false
+  },
+  "filesystems": [
+    {
+      "name": "/",
+      "type": "zfs",
+      "monitor": true
+    }
+  ]
+}

@@ -31,7 +31,7 @@ func TestSNMPService(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	config := &Config{
+	config := &SNMPConfig{
 		NodeAddress: "localhost:50051",
 		ListenAddr:  ":50052",
 		Targets: []Target{
@@ -61,7 +61,7 @@ func TestSNMPService(t *testing.T) {
 	t.Run("GetStatus", testGetStatus(ctrl, config))
 }
 
-func testNewSNMPService(config *Config) func(t *testing.T) {
+func testNewSNMPService(config *SNMPConfig) func(t *testing.T) {
 	return func(t *testing.T) {
 		service, err := NewSNMPService(config)
 		require.NoError(t, err)
@@ -71,7 +71,7 @@ func testNewSNMPService(config *Config) func(t *testing.T) {
 	}
 }
 
-func testStartStopService(ctrl *gomock.Controller, config *Config) func(t *testing.T) {
+func testStartStopService(ctrl *gomock.Controller, config *SNMPConfig) func(t *testing.T) {
 	return func(t *testing.T) {
 		// Create mock collector factory and mock collector
 		mockCollectorFactory := NewMockCollectorFactory(ctrl)
@@ -114,7 +114,7 @@ func testStartStopService(ctrl *gomock.Controller, config *Config) func(t *testi
 	}
 }
 
-func testAddTarget(ctrl *gomock.Controller, config *Config) func(t *testing.T) {
+func testAddTarget(ctrl *gomock.Controller, config *SNMPConfig) func(t *testing.T) {
 	return func(t *testing.T) {
 		// Create mock factories
 		mockCollectorFactory := NewMockCollectorFactory(ctrl)
@@ -138,7 +138,7 @@ func testAddTarget(ctrl *gomock.Controller, config *Config) func(t *testing.T) {
 			Community: "public",
 			Version:   Version2c,
 			Interval:  Duration(30 * time.Second),
-			MaxPoints: defaultMaxPoints, // Explicitly set MaxPoints to match config default
+			MaxPoints: defaultMaxPoints,
 			OIDs: []OIDConfig{
 				{
 					OID:      ".1.3.6.1.2.1.1.3.0",
@@ -149,8 +149,10 @@ func testAddTarget(ctrl *gomock.Controller, config *Config) func(t *testing.T) {
 		}
 
 		dataChan := make(chan DataPoint)
+		// Channel to signal when GetResults is called
+		getResultsCalled := make(chan struct{})
 
-		// Set up expectations in order with specific parameter matching
+		// Set up expectations
 		mockCollectorFactory.EXPECT().
 			CreateCollector(newTarget).
 			Return(mockCollector, nil)
@@ -165,18 +167,32 @@ func testAddTarget(ctrl *gomock.Controller, config *Config) func(t *testing.T) {
 
 		mockCollector.EXPECT().
 			GetResults().
-			Return(dataChan)
+			DoAndReturn(func() <-chan DataPoint {
+				close(getResultsCalled) // Signal that GetResults was called
+				return dataChan
+			})
 
 		// Test adding target
-		err = service.AddTarget(context.Background(), newTarget)
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+
+		err = service.AddTarget(ctx, newTarget)
 		require.NoError(t, err)
+
+		// Wait for GetResults to be called
+		select {
+		case <-getResultsCalled:
+			// GetResults was called, proceed
+		case <-ctx.Done():
+			t.Fatal("Timeout waiting for GetResults to be called")
+		}
 
 		_, exists := service.collectors[newTarget.Name]
 		assert.True(t, exists)
 	}
 }
 
-func testRemoveTarget(ctrl *gomock.Controller, config *Config) func(t *testing.T) {
+func testRemoveTarget(ctrl *gomock.Controller, config *SNMPConfig) func(t *testing.T) {
 	return func(t *testing.T) {
 		mockCollector := NewMockCollector(ctrl)
 		service := &SNMPService{
@@ -199,7 +215,7 @@ func testRemoveTarget(ctrl *gomock.Controller, config *Config) func(t *testing.T
 	}
 }
 
-func testGetStatus(ctrl *gomock.Controller, config *Config) func(t *testing.T) {
+func testGetStatus(ctrl *gomock.Controller, config *SNMPConfig) func(t *testing.T) {
 	return func(t *testing.T) {
 		// Create mock collector
 		mockCollector := NewMockCollector(ctrl)

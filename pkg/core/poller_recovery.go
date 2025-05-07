@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+// Package core /pkg/core/poller_recovery.go
 package core
 
 import (
@@ -35,21 +36,8 @@ type PollerRecoveryManager struct {
 }
 
 func (m *PollerRecoveryManager) processRecovery(ctx context.Context, pollerID string, lastSeen time.Time) error {
-	tx, err := m.db.Begin()
-	if err != nil {
-		return fmt.Errorf("begin transaction: %w", err)
-	}
-
-	var committed bool
-	defer func() {
-		if !committed {
-			if rbErr := tx.Rollback(); rbErr != nil {
-				log.Printf("Error rolling back transaction: %v", rbErr)
-			}
-		}
-	}()
-
-	status, err := m.db.GetPollerStatus(pollerID)
+	// Get the current poller status
+	status, err := m.db.GetPollerStatus(ctx, pollerID)
 	if err != nil {
 		return fmt.Errorf("get poller status: %w", err)
 	}
@@ -64,7 +52,7 @@ func (m *PollerRecoveryManager) processRecovery(ctx context.Context, pollerID st
 	status.LastSeen = lastSeen
 
 	// Update the database BEFORE trying to send the alert
-	if err = m.db.UpdatePollerStatus(status); err != nil {
+	if err = m.db.UpdatePollerStatus(ctx, status); err != nil {
 		return fmt.Errorf("update poller status: %w", err)
 	}
 
@@ -78,13 +66,6 @@ func (m *PollerRecoveryManager) processRecovery(ctx context.Context, pollerID st
 		// Log the cooldown but proceed with the recovery
 		log.Printf("Recovery alert for poller %s rate limited, but poller marked as recovered", pollerID)
 	}
-
-	// Commit the transaction
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit transaction: %w", err)
-	}
-
-	committed = true
 
 	return nil
 }

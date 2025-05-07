@@ -42,7 +42,7 @@ const (
 )
 
 type SNMPChecker struct {
-	config      *snmp.Config
+	config      *snmp.SNMPConfig
 	client      *grpc.Client // Updated to use grpc.Client
 	agentClient proto.AgentServiceClient
 	interval    time.Duration
@@ -59,7 +59,7 @@ func NewSNMPChecker(ctx context.Context, address string, security *models.Securi
 		return nil, fmt.Errorf("config file error: %w", err)
 	}
 
-	var cfg snmp.Config
+	var cfg snmp.SNMPConfig
 
 	cfgLoader := config.NewConfig()
 	if err := cfgLoader.LoadAndValidate(ctx, configPath, &cfg); err != nil {

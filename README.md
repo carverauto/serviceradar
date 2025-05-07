@@ -1,6 +1,7 @@
 # ServiceRadar
 
-<img width="1393" alt="Screenshot 2025-04-02 at 6 15 38 PM" src="https://github.com/user-attachments/assets/e6cbe73d-a1b0-44d0-acd4-effea3f73af2" />
+<img width="1393" alt="Screenshot 2025-04-02 at 6 15 38 PM" src="https://github.com/user-attachments/assets/e6cbe73d-a1b0-44d0-acd4-effea3f73af2" />
+<img width="1297" alt="Screenshot 2025-04-11 at 10 32 28 AM" src="https://github.com/user-attachments/assets/334d5925-799a-4faf-a985-2ca3d37f5143" />
 
 [![releases](https://github.com/carverauto/serviceradar/actions/workflows/release.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/release.yml)
 [![linter](https://github.com/carverauto/serviceradar/actions/workflows/golangci-lint.yml/badge.svg)](https://github.com/carverauto/serviceradar/actions/workflows/golangci-lint.yml)
@@ -23,18 +24,17 @@ It provides real-time monitoring of internal services, with cloud-based alerting
 
 ## Quick Installation
 
-ServiceRadar can be installed via direct downloads from GitHub releases:
+ServiceRadar provides a simple installation script for deploying all components:
 
 ```bash
-# Download and install core components
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.30/serviceradar-agent_1.0.30.deb \
-     -O https://github.com/carverauto/serviceradar/releases/download/1.0.30/serviceradar-poller_1.0.30.deb \
-     -O https://github.com/carverauto/serviceradar/releases/download/1.0.30/serviceradar-core_1.0.30.deb \
-     -O https://github.com/carverauto/serviceradar/releases/download/1.0.30/serviceradar-web_1.0.30.deb
+# All-in-One Installation (interactive mode)
+curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.35/install-serviceradar.sh | bash
 
-# Install components as needed
-sudo dpkg -i serviceradar-agent_1.0.30.deb serviceradar-poller_1.0.30.deb serviceradar-core_1.0.30.deb serviceradar-web_1.0.30.deb
+# All-in-One Installation (non-interactive mode)
+curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.35/install-serviceradar.sh | bash -s -- --all --non-interactive
 ```
+
+For detailed installation options including component-specific deployments and optional checkers, see [INSTALL.md](INSTALL.md).
 
 ## Architecture Overview
 
@@ -44,6 +44,10 @@ ServiceRadar uses a distributed architecture with four main components:
 2. **Poller** - Coordinates monitoring activities, can run anywhere in your network
 3. **Core Service** - Receives reports from pollers, provides API, and sends alerts
 4. **Web UI** - Provides a modern dashboard interface with Nginx as a reverse proxy
+
+## Performance
+
+ServiceRadar powered by [Timeplus Proton](https://github.com/timeplus-io/proton) can deliver 90 million EPS, 4 millisecond end-to-end latency, and high cardinality aggregation with 1 million unique keys on an Apple Macbook Pro with M2 MAX.
 
 ## Documentation
 

@@ -17,8 +17,6 @@
 package core
 
 import (
-	"encoding/json"
-	"fmt"
 	"sync"
 	"time"
 
@@ -34,95 +32,30 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
-type Metrics struct {
-	Enabled    bool `json:"enabled"`
-	Retention  int  `json:"retention"`
-	MaxPollers int  `json:"max_pollers"`
-}
-
-type Config struct {
-	ListenAddr     string                 `json:"listen_addr"`
-	GrpcAddr       string                 `json:"grpc_addr"`
-	DBPath         string                 `json:"db_path"`
-	AlertThreshold time.Duration          `json:"alert_threshold"`
-	PollerPatterns []string               `json:"poller_patterns"`
-	Webhooks       []alerts.WebhookConfig `json:"webhooks,omitempty"`
-	KnownPollers   []string               `json:"known_pollers,omitempty"`
-	Metrics        Metrics                `json:"metrics"`
-	SNMP           snmp.Config            `json:"snmp"`
-	Security       *models.SecurityConfig `json:"security"`
-	Auth           *models.AuthConfig     `json:"auth,omitempty"`
-	CORS           models.CORSConfig      `json:"cors,omitempty"`
-}
-
-func (c *Config) UnmarshalJSON(data []byte) error {
-	type Alias Config
-
-	aux := &struct {
-		AlertThreshold string `json:"alert_threshold"`
-		Auth           *struct {
-			JWTSecret     string                      `json:"jwt_secret"`
-			JWTExpiration string                      `json:"jwt_expiration"`
-			LocalUsers    map[string]string           `json:"local_users"`
-			CallbackURL   string                      `json:"callback_url,omitempty"`
-			SSOProviders  map[string]models.SSOConfig `json:"sso_providers,omitempty"`
-		} `json:"auth"`
-		*Alias
-	}{
-		Alias: (*Alias)(c),
-	}
-
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return err
-	}
-
-	// Parse the alert threshold
-	if aux.AlertThreshold != "" {
-		duration, err := time.ParseDuration(aux.AlertThreshold)
-		if err != nil {
-			return fmt.Errorf("invalid alert threshold format: %w", err)
-		}
-
-		c.AlertThreshold = duration
-	}
-
-	// Parse the auth section
-	if aux.Auth != nil {
-		c.Auth = &models.AuthConfig{
-			JWTSecret:    aux.Auth.JWTSecret,
-			LocalUsers:   aux.Auth.LocalUsers,
-			CallbackURL:  aux.Auth.CallbackURL,
-			SSOProviders: aux.Auth.SSOProviders,
-		}
-
-		if aux.Auth.JWTExpiration != "" {
-			duration, err := time.ParseDuration(aux.Auth.JWTExpiration)
-			if err != nil {
-				return fmt.Errorf("invalid jwt_expiration format: %w", err)
-			}
-
-			c.Auth.JWTExpiration = duration
-		}
-	}
-
-	return nil
-}
-
 type Server struct {
 	proto.UnimplementedPollerServiceServer
-	mu             sync.RWMutex
-	db             db.Service
-	alertThreshold time.Duration
-	webhooks       []alerts.AlertService
-	apiServer      api.Service
-	ShutdownChan   chan struct{}
-	pollerPatterns []string
-	grpcServer     *grpc.Server
-	metrics        metrics.MetricCollector
-	snmpManager    snmp.SNMPManager
-	rperfManager   rperf.RperfManager
-	config         *Config
-	authService    *auth.Auth
+	mu                      sync.RWMutex
+	db                      db.Service
+	alertThreshold          time.Duration
+	webhooks                []alerts.AlertService
+	apiServer               api.Service
+	ShutdownChan            chan struct{}
+	pollerPatterns          []string
+	grpcServer              *grpc.Server
+	metrics                 *metrics.Manager
+	snmpManager             snmp.SNMPManager
+	rperfManager            rperf.RperfManager
+	config                  *models.DBConfig
+	authService             *auth.Auth
+	metricBuffers           map[string][]*db.TimeseriesMetric
+	serviceBuffers          map[string][]*db.ServiceStatus
+	sysmonBuffers           map[string][]*models.SysmonMetrics
+	bufferMu                sync.RWMutex
+	pollerStatusCache       map[string]*models.PollerStatus
+	pollerStatusUpdates     map[string]*models.PollerStatus
+	pollerStatusUpdateMutex sync.Mutex
+	cacheLastUpdated        time.Time
+	cacheMutex              sync.RWMutex
 }
 
 // OIDStatusData represents the structure of OID status data.

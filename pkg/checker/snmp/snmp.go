@@ -17,6 +17,8 @@
 package snmp
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"time"
@@ -37,58 +39,47 @@ func NewSNMPManager(db db.Service) SNMPManager {
 }
 
 // GetSNMPMetrics fetches SNMP metrics from the database for a given poller.
-func (s *SNMPMetricsManager) GetSNMPMetrics(pollerID string, startTime, endTime time.Time) ([]db.SNMPMetric, error) {
+func (s *SNMPMetricsManager) GetSNMPMetrics(ctx context.Context, pollerID string, startTime, endTime time.Time) ([]db.SNMPMetric, error) {
 	log.Printf("Fetching SNMP metrics for poller %s from %v to %v", pollerID, startTime, endTime)
 
-	query := `
-        SELECT 
-            metric_name as oid_name,  -- Map metric_name to oid_name
-            value,
-            metric_type as value_type,
-            timestamp,
-            COALESCE(
-                json_extract(metadata, '$.scale'),
-                1.0
-            ) as scale,
-            COALESCE(
-                json_extract(metadata, '$.is_delta'),
-                0
-            ) as is_delta
-        FROM timeseries_metrics
-        WHERE poller_id = ? 
-        AND metric_type = 'snmp' 
-        AND timestamp BETWEEN ? AND ?
-    `
-
-	rows, err := s.db.Query(query, pollerID, startTime, endTime)
+	metrics, err := s.db.GetMetricsByType(ctx, pollerID, "snmp", startTime, endTime)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query SNMP metrics: %w", err)
 	}
-	defer db.CloseRows(rows)
 
-	var metrics []db.SNMPMetric
+	snmpMetrics := make([]db.SNMPMetric, 0, len(metrics))
 
-	for rows.Next() {
-		var metric db.SNMPMetric
-		if err := rows.Scan(
-			&metric.OIDName,
-			&metric.Value,
-			&metric.ValueType,
-			&metric.Timestamp,
-			&metric.Scale,
-			&metric.IsDelta,
-		); err != nil {
-			return nil, fmt.Errorf("failed to scan SNMP metric: %w", err)
+	for _, m := range metrics {
+		snmpMetric := db.SNMPMetric{
+			OIDName:   m.Name,
+			Value:     m.Value,
+			ValueType: m.Type,
+			Timestamp: m.Timestamp,
+			Scale:     1.0, // Default value
+			IsDelta:   false,
 		}
 
-		metrics = append(metrics, metric)
+		// Extract scale and is_delta from metadata
+		if m.Metadata != nil {
+			var metadata map[string]interface{}
+
+			if err := json.Unmarshal(m.Metadata.(json.RawMessage), &metadata); err != nil {
+				log.Printf("Failed to unmarshal metadata for metric %s on poller %s: %v", m.Name, pollerID, err)
+
+				continue
+			}
+
+			if scale, ok := metadata["scale"].(float64); ok {
+				snmpMetric.Scale = scale
+			}
+
+			if isDelta, ok := metadata["is_delta"].(bool); ok {
+				snmpMetric.IsDelta = isDelta
+			}
+		}
+
+		snmpMetrics = append(snmpMetrics, snmpMetric)
 	}
 
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating rows: %w", err)
-	}
-
-	log.Printf("Retrieved %d SNMP metrics for poller %s", len(metrics), pollerID)
-
-	return metrics, nil
+	return snmpMetrics, nil
 }

@@ -18,12 +18,12 @@ package core
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/core/alerts"
 	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
 )
@@ -33,40 +33,37 @@ func TestPollerRecoveryManager_ProcessRecovery_WithCooldown(t *testing.T) {
 		name             string
 		pollerID         string
 		lastSeen         time.Time
-		getCurrentPoller *db.PollerStatus
+		getCurrentPoller *models.PollerStatus
 		dbError          error
 		alertError       error
-		expectCommit     bool
 		expectError      string
 	}{
 		{
 			name:     "successful_recovery_with_cooldown",
 			pollerID: "test-poller",
 			lastSeen: time.Now(),
-			getCurrentPoller: &db.PollerStatus{
+			getCurrentPoller: &models.PollerStatus{
 				PollerID:  "test-poller",
 				IsHealthy: false,
 				LastSeen:  time.Now().Add(-time.Hour),
 			},
-			alertError:   alerts.ErrWebhookCooldown,
-			expectCommit: true,
+			alertError: alerts.ErrWebhookCooldown,
 		},
 		{
 			name:     "successful_recovery_no_cooldown",
 			pollerID: "test-poller",
 			lastSeen: time.Now(),
-			getCurrentPoller: &db.PollerStatus{
+			getCurrentPoller: &models.PollerStatus{
 				PollerID:  "test-poller",
 				IsHealthy: false,
 				LastSeen:  time.Now().Add(-time.Hour),
 			},
-			expectCommit: true,
 		},
 		{
 			name:     "already_healthy",
 			pollerID: "test-poller",
 			lastSeen: time.Now(),
-			getCurrentPoller: &db.PollerStatus{
+			getCurrentPoller: &models.PollerStatus{
 				PollerID:  "test-poller",
 				IsHealthy: true,
 				LastSeen:  time.Now(),
@@ -88,30 +85,16 @@ func TestPollerRecoveryManager_ProcessRecovery_WithCooldown(t *testing.T) {
 
 			mockDB := db.NewMockService(ctrl)
 			mockAlerter := alerts.NewMockAlertService(ctrl)
-			mockTx := db.NewMockTransaction(ctrl)
-
-			// Setup Begin() expectation
-			mockDB.EXPECT().Begin().Return(mockTx, nil)
 
 			// Setup GetPollerStatus expectation
-			mockDB.EXPECT().GetPollerStatus(tt.pollerID).Return(tt.getCurrentPoller, tt.dbError)
+			mockDB.EXPECT().GetPollerStatus(gomock.Any(), tt.pollerID).Return(tt.getCurrentPoller, tt.dbError)
 
-			if tt.getCurrentPoller != nil && !tt.getCurrentPoller.IsHealthy {
+			if tt.getCurrentPoller != nil && !tt.getCurrentPoller.IsHealthy && tt.dbError == nil {
 				// Expect poller status update
-				mockDB.EXPECT().UpdatePollerStatus(gomock.Any()).Return(nil)
-
-				// Always expect Rollback() due to defer
-				mockTx.EXPECT().Rollback().Return(nil).AnyTimes()
+				mockDB.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).Return(nil)
 
 				// Expect alert attempt
 				mockAlerter.EXPECT().Alert(gomock.Any(), gomock.Any()).Return(tt.alertError)
-
-				if tt.expectCommit {
-					mockTx.EXPECT().Commit().Return(nil)
-				}
-			} else {
-				// For non-recovery cases, expect Rollback()
-				mockTx.EXPECT().Rollback().Return(nil).AnyTimes()
 			}
 
 			mgr := &PollerRecoveryManager{
@@ -124,7 +107,7 @@ func TestPollerRecoveryManager_ProcessRecovery_WithCooldown(t *testing.T) {
 
 			if tt.expectError != "" {
 				assert.ErrorContains(t, err, tt.expectError)
-			} else if errors.Is(tt.alertError, alerts.ErrWebhookCooldown) {
+			} else {
 				assert.NoError(t, err)
 			}
 		})
@@ -135,7 +118,7 @@ func TestPollerRecoveryManager_ProcessRecovery(t *testing.T) {
 	tests := []struct {
 		name          string
 		pollerID      string
-		currentStatus *db.PollerStatus
+		currentStatus *models.PollerStatus
 		dbError       error
 		expectAlert   bool
 		expectedError string
@@ -143,7 +126,7 @@ func TestPollerRecoveryManager_ProcessRecovery(t *testing.T) {
 		{
 			name:     "successful_recovery",
 			pollerID: "test-poller",
-			currentStatus: &db.PollerStatus{
+			currentStatus: &models.PollerStatus{
 				PollerID:  "test-poller",
 				IsHealthy: false,
 				LastSeen:  time.Now().Add(-time.Hour),
@@ -153,7 +136,7 @@ func TestPollerRecoveryManager_ProcessRecovery(t *testing.T) {
 		{
 			name:     "already_healthy",
 			pollerID: "test-poller",
-			currentStatus: &db.PollerStatus{
+			currentStatus: &models.PollerStatus{
 				PollerID:  "test-poller",
 				IsHealthy: true,
 				LastSeen:  time.Now(),
@@ -174,24 +157,16 @@ func TestPollerRecoveryManager_ProcessRecovery(t *testing.T) {
 
 			mockDB := db.NewMockService(ctrl)
 			mockAlerter := alerts.NewMockAlertService(ctrl)
-			mockTx := db.NewMockTransaction(ctrl)
-
-			// Setup Begin() expectation
-			mockDB.EXPECT().Begin().Return(mockTx, nil)
-
-			// Always expect Rollback() due to defer
-			mockTx.EXPECT().Rollback().Return(nil).AnyTimes()
 
 			// Setup GetPollerStatus expectation
-			mockDB.EXPECT().GetPollerStatus(tt.pollerID).Return(tt.currentStatus, tt.dbError)
+			mockDB.EXPECT().GetPollerStatus(gomock.Any(), tt.pollerID).Return(tt.currentStatus, tt.dbError)
 
-			if tt.currentStatus != nil && !tt.currentStatus.IsHealthy {
+			if tt.currentStatus != nil && !tt.currentStatus.IsHealthy && tt.dbError == nil {
 				// Expect poller status update
-				mockDB.EXPECT().UpdatePollerStatus(gomock.Any()).Return(nil)
+				mockDB.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).Return(nil)
 
 				if tt.expectAlert {
 					mockAlerter.EXPECT().Alert(gomock.Any(), gomock.Any()).Return(nil)
-					mockTx.EXPECT().Commit().Return(nil)
 				}
 			}
 

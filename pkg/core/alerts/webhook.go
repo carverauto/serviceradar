@@ -48,6 +48,23 @@ type WebhookConfig struct {
 	Cooldown time.Duration `json:"cooldown,omitempty"`
 }
 
+func (w *WebhookConfig) MarshalJSON() ([]byte, error) {
+	type Alias WebhookConfig
+
+	aux := &struct {
+		Cooldown string `json:"cooldown,omitempty"`
+		*Alias
+	}{
+		Alias: (*Alias)(w),
+	}
+
+	if w.Cooldown != 0 {
+		aux.Cooldown = w.Cooldown.String() // Convert time.Duration to string (e.g., "5m")
+	}
+
+	return json.Marshal(aux)
+}
+
 type Header struct {
 	Key   string `json:"key"`
 	Value string `json:"value"`
