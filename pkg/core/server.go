@@ -465,7 +465,7 @@ func (s *Server) sendStartupNotification(ctx context.Context) error {
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		PollerID:  "core",
 		Details: map[string]any{
-			"version":  "1.0.34",
+			"version":  "1.0.35",
 			"hostname": getHostname(),
 		},
 	}
