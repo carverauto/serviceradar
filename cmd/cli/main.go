@@ -42,6 +42,7 @@ func run() error {
 	// Handle help request
 	if cfg.Help {
 		cli.ShowHelp()
+
 		return nil
 	}
 
@@ -68,5 +69,6 @@ func runBcryptMode(cfg *cli.CmdConfig) error {
 	if len(cfg.Args) > 0 || !cli.IsInputFromTerminal() {
 		return cli.RunBcryptNonInteractive(cfg.Args)
 	}
+
 	return cli.RunInteractive()
 }
