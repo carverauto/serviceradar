@@ -314,6 +314,34 @@ install_packages() {
     fi
 }
 
+install_single_package() {
+    local pkg="$1"
+    local suffix="$2"
+    local file_name
+    if [ "$SYSTEM" = "debian" ]; then
+        file_name="${pkg}_${VERSION}${suffix}.${PKG_EXT}"
+    else
+        file_name="${pkg}-${VERSION}${suffix}.${PKG_EXT}"
+    fi
+    local url="${RELEASE_URL}/${file_name}"
+    local output="${TEMP_DIR}/${pkg}.${PKG_EXT}"
+
+    log "Downloading ${COLOR_YELLOW}${pkg}${COLOR_RESET}..."
+    if ! curl -sSL --connect-timeout 30 --max-time 300 --retry 3 --retry-delay 2 -o "$output" "$url"; then
+        error "Failed to download ${pkg} from $url"
+    fi
+
+    validate_package "$output"
+
+    log "Installing ${COLOR_YELLOW}${pkg}${COLOR_RESET}..."
+    if [ "$SYSTEM" = "debian" ]; then
+        apt install -y "$output" || error "Failed to install ${pkg}"
+    else
+        $PKG_MANAGER install -y "$output" || error "Failed to install ${pkg}"
+    fi
+    success "${pkg} installed successfully!"
+}
+
 # Get local IP address
 get_local_ip() {
     local_ip=$(ip -4 addr show scope global 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -n 1)
@@ -748,6 +776,16 @@ main() {
     mkdir -p "$TEMP_DIR"
     install_dependencies
 
+    # Install serviceradar-cli early if core or all is being installed
+    if [ "$INSTALL_CORE" = "true" ] || [ "$INSTALL_ALL" = "true" ]; then
+        header "Installing ServiceRadar CLI"
+        if [ "$SYSTEM" = "rhel" ]; then
+            install_single_package "serviceradar-cli" "-1.el9.x86_64"
+        else
+            install_single_package "serviceradar-cli" ""
+        fi
+    fi
+
     # Setup mTLS certificates if core is being installed
     if [ "$INSTALL_CORE" = "true" ] || [ "$INSTALL_ALL" = "true" ]; then
         header "Setting up mTLS Certificates"
@@ -756,7 +794,7 @@ main() {
         show_post_install_info
     fi
 
-    core_packages=("serviceradar-core" "serviceradar-proton" "serviceradar-web" "serviceradar-nats" "serviceradar-kv" "serviceradar-sync" "serviceradar-cli")
+    core_packages=("serviceradar-core" "serviceradar-proton" "serviceradar-web" "serviceradar-nats" "serviceradar-kv" "serviceradar-sync") # Removed serviceradar-cli
     poller_packages=("serviceradar-poller")
     agent_packages=("serviceradar-agent")
     packages_to_install=()
@@ -774,7 +812,7 @@ main() {
     header "Installing Main Components"
     for pkg in "${packages_to_install[@]}"; do
         if [ "$SYSTEM" = "rhel" ]; then
-            if [ "$pkg" = "serviceradar-core" ] || [ "$pkg" = "serviceradar-kv" ] || [ "$pkg" = "serviceradar-nats" ] || [ "$pkg" = "serviceradar-agent" ] || [ "$pkg" = "serviceradar-poller" ] || [ "$pkg" = "serviceradar-sync" ] || [ "$pkg" = "serviceradar-proton" ] || [ "$pkg" = "serviceradar-cli" ]; then
+            if [ "$pkg" = "serviceradar-core" ] || [ "$pkg" = "serviceradar-kv" ] || [ "$pkg" = "serviceradar-nats" ] || [ "$pkg" = "serviceradar-agent" ] || [ "$pkg" = "serviceradar-poller" ] || [ "$pkg" = "serviceradar-sync" ] || [ "$pkg" = "serviceradar-proton" ]; then
                 download_package "$pkg" "-1.el9.x86_64"
             else
                 download_package "$pkg" "-1.el9.x86_64"
@@ -800,7 +838,7 @@ main() {
         info "Core API: ${COLOR_YELLOW}http://${LOCAL_IP}/swagger${COLOR_RESET}"
     fi
 
-    if [ "$INSTALL_POLLER" = "true" ] && [ ${#INSTALLED_CHECKERS[@]} -gt 0 ] && [ "$UPDATE_POLLER_CONFIG" = "false" ]; then
+    if [ "$INSTALL_POLLER" = "true" ]arger && [ ${#INSTALLED_CHECKERS[@]} -gt 0 ] && [ "$UPDATE_POLLER_CONFIG" = "false" ]; then
         info "${COLOR_YELLOW}Note:${COLOR_RESET} You installed checkers but disabled automatic poller configuration."
         info "To manually enable the checkers in your poller configuration, run:"
         for checker_type in "${INSTALLED_CHECKERS[@]}"; do

@@ -194,6 +194,13 @@ else
     log_info "ServiceRadar Proton service started successfully"
 fi
 
+# fix the permissions of the logfiles one more time and then restart proton
+log_info "Fixing permissions of log files..."
+chown -R proton:proton /var/log/proton-server || log_error "Failed to set ownership on /var/log/proton-server"
+# restart proton
+log_info "Restarting proton service..."
+systemctl restart serviceradar-proton 2>/dev/null || log_error "Failed to restart serviceradar-proton service"
+
 log_info "ServiceRadar Proton Server installed successfully!"
 log_info "A secure password has been generated and saved to /etc/proton-server/generated_password.txt"
 log_info "Note: Password authentication is not used due to mTLS configuration."
