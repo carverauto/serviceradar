@@ -27,7 +27,6 @@ TEMP_DIR="/tmp/serviceradar-install"
 POLLER_CONFIG="/etc/serviceradar/poller.json"
 PROTON_CERT_DIR="/etc/proton-server"
 SR_CERT_DIR="/etc/serviceradar/certs"
-WORK_DIR="/tmp/serviceradar-tls"
 DAYS_VALID=3650
 
 # Default settings
@@ -227,7 +226,7 @@ install_dependencies() {
         if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_CORE" = "true" ]; then
             log "Setting up Node.js and Nginx for web components..."
             curl -fsSL https://deb.nodesource.com/setup_20.x | bash - || error "Failed to set up Node.js repository"
-            apt-get install -y systemd nginx nodejs jq openssl || error "Failed to install Node.js, Nginx, systemd, jq, or openssl"
+            apt-get install -y systemd nginx nodejs jq || error "Failed to install Node.js, Nginx, systemd, or jq"
         fi
         if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_AGENT" = "true" ]; then
             log "Installing libcap2-bin for agent..."
@@ -249,7 +248,7 @@ install_dependencies() {
         if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_CORE" = "true" ]; then
             log "Setting up Node.js and Nginx for web components..."
             $PKG_MANAGER module enable -y nodejs:20
-            $PKG_MANAGER install -y systemd nginx nodejs jq openssl || error "Failed to install dependencies"
+            $PKG_MANAGER install -y systemd nginx nodejs jq || error "Failed to install dependencies"
         fi
         if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_AGENT" = "true" ]; then
             log "Installing libcap and related packages for agent..."
@@ -344,181 +343,66 @@ create_cert_dirs() {
     log "Creating certificate directories..."
     mkdir -p "$SR_CERT_DIR"
     mkdir -p "$PROTON_CERT_DIR"
-    mkdir -p "$WORK_DIR"
+    mkdir -p "/tmp/serviceradar-tls"
 }
 
-# Generate root CA
-generate_root_ca() {
-    log "Generating root CA certificate..."
+# Setup mTLS certificates using serviceradar CLI
+setup_mtls_certificates() {
+    log "Checking for existing certificates..."
 
-    if [ -f "$SR_CERT_DIR/root.pem" ] && [ ! "$ADD_IPS" = true ]; then
-        log "Root CA already exists at $SR_CERT_DIR/root.pem"
-        log "If you want to create new certificates, remove existing ones first"
-        log "or use --add-ips to add IPs to existing certificates"
-        exit 1
+    if [ -f "$SR_CERT_DIR/root.pem" ] && [ -f "$SR_CERT_DIR/core.pem" ] && [ -f "$SR_CERT_DIR/core-key.pem" ] && [ ! "$ADD_IPS" = true ]; then
+        log "Existing certificates found at $SR_CERT_DIR"
+        log "Skipping certificate generation as certificates already exist"
+        log "To add new IPs, use --add-ips with --ip"
+        return
     fi
 
-    if [ ! -f "$SR_CERT_DIR/root.pem" ] || [ ! -f "$WORK_DIR/root-key.pem" ]; then
-        openssl ecparam -name prime256v1 -genkey -out "$WORK_DIR/root-key.pem"
-        openssl req -x509 -new -nodes -key "$WORK_DIR/root-key.pem" -sha256 -days "$DAYS_VALID" \
-            -out "$WORK_DIR/root.pem" -subj "/C=US/ST=CA/L=San Francisco/O=ServiceRadar/OU=Operations/CN=ServiceRadar CA"
-
-        cp "$WORK_DIR/root.pem" "$SR_CERT_DIR/root.pem"
-        cp "$WORK_DIR/root.pem" "$PROTON_CERT_DIR/ca-cert.pem"
-
-        log "Root CA generated and installed"
-    else
-        cp "$SR_CERT_DIR/root.pem" "$WORK_DIR/root.pem"
-        if [ -f "$SR_CERT_DIR/root-key.pem" ]; then
-            cp "$SR_CERT_DIR/root-key.pem" "$WORK_DIR/root-key.pem"
-        else
-            log "Root CA key not found at expected location, attempting to use core-key.pem"
-            cp "$SR_CERT_DIR/core-key.pem" "$WORK_DIR/root-key.pem"
+    local cli_args="--cert-dir $SR_CERT_DIR --proton-dir $PROTON_CERT_DIR"
+    if [ "$INTERACTIVE" = "false" ]; then
+        cli_args="$cli_args --non-interactive"
+    fi
+    if [ -n "$SERVICE_IPS" ]; then
+        cli_args="$cli_args --ip $SERVICE_IPS"
+    fi
+    if [ "$ADD_IPS" = true ]; then
+        if [ -z "$SERVICE_IPS" ]; then
+            error "Must specify --ip when using --add-ips"
         fi
-        log "Using existing root CA"
+        cli_args="$cli_args --add-ips"
     fi
+
+    log "Generating mTLS certificates using serviceradar CLI..."
+    if ! /usr/local/bin/serviceradar generate-tls $cli_args; then
+        error "Failed to generate mTLS certificates using serviceradar CLI"
+    fi
+    success "mTLS certificates generated and installed successfully"
 }
 
-# Generate a Subject Alternative Name (SAN) configuration
-generate_san_config() {
-    local cn=$1
-    local ips=$2
+# Show post-installation instructions for mTLS
+show_post_install_info() {
+    local ips
+    IFS=',' read -ra IPS <<< "$SERVICE_IPS"
+    local first_ip="${IPS[0]}"
 
-    local san_list=""
-    IFS=',' read -ra IP_ARRAY <<< "$ips"
-    for ip in "${IP_ARRAY[@]}"; do
-        if [ -z "$san_list" ]; then
-            san_list="IP:$ip"
-        else
-            san_list="$san_list,IP:$ip"
-        fi
+    echo
+    echo -e "${COLOR_BOLD}TLS Certificate Setup Complete${COLOR_RESET}"
+    echo
+    echo -e "Certificates have been installed with the following IPs:"
+    for ip in "${IPS[@]}"; do
+        echo -e "  - ${COLOR_CYAN}$ip${COLOR_RESET}"
     done
-
-    cat > "$WORK_DIR/$cn-san.cnf" << EOF
-[req]
-distinguished_name = req_distinguished_name
-req_extensions = v3_req
-prompt = no
-
-[req_distinguished_name]
-C = US
-ST = CA
-L = San Francisco
-O = ServiceRadar
-OU = Operations
-CN = $cn.serviceradar
-
-[v3_req]
-basicConstraints = CA:FALSE
-keyUsage = digitalSignature, keyEncipherment
-extendedKeyUsage = serverAuth,clientAuth
-subjectAltName = $san_list
-EOF
-
-    log "Generated SAN configuration with IPs: $ips"
-}
-
-# Generate service certificate
-generate_service_cert() {
-    local service=$1
-    local ips=$2
-
-    log "Generating certificate for $service..."
-
-    generate_san_config "$service" "$ips"
-
-    openssl ecparam -name prime256v1 -genkey -out "$WORK_DIR/$service-key.pem"
-    openssl req -new -key "$WORK_DIR/$service-key.pem" -out "$WORK_DIR/$service.csr" -config "$WORK_DIR/$service-san.cnf"
-    openssl x509 -req -in "$WORK_DIR/$service.csr" -CA "$WORK_DIR/root.pem" -CAkey "$WORK_DIR/root-key.pem" \
-        -CAcreateserial -out "$WORK_DIR/$service.pem" -days "$DAYS_VALID" -sha256 \
-        -extfile "$WORK_DIR/$service-san.cnf" -extensions v3_req
-
-    openssl verify -CAfile "$WORK_DIR/root.pem" "$WORK_DIR/$service.pem" > /dev/null || {
-        error "Certificate verification failed"
-    }
-
-    log "Certificate details:"
-    openssl x509 -in "$WORK_DIR/$service.pem" -text -noout | grep -E "Subject:|Issuer:|X509v3 Subject Alternative Name:" | head -3
-
-    log "Generated $service certificate successfully"
-}
-
-# Install certificates
-install_certificates() {
-    log "Installing certificates..."
-
-    cp "$WORK_DIR/core.pem" "$SR_CERT_DIR/core.pem"
-    cp "$WORK_DIR/core-key.pem" "$SR_CERT_DIR/core-key.pem"
-    cp "$WORK_DIR/root.pem" "$SR_CERT_DIR/ca.pem"
-
-    cp "$WORK_DIR/core.pem" "$PROTON_CERT_DIR/root.pem"
-    cp "$WORK_DIR/core-key.pem" "$PROTON_CERT_DIR/core-key.pem"
-    cp "$WORK_DIR/root.pem" "$PROTON_CERT_DIR/ca-cert.pem"
-
-    chmod 644 "$SR_CERT_DIR/root.pem" "$SR_CERT_DIR/core.pem" "$SR_CERT_DIR/ca.pem" "$PROTON_CERT_DIR/ca-cert.pem" "$PROTON_CERT_DIR/root.pem"
-    chmod 600 "$SR_CERT_DIR/core-key.pem" "$PROTON_CERT_DIR/core-key.pem"
-
-    if getent passwd proton > /dev/null; then
-        chown proton:proton "$PROTON_CERT_DIR/ca-cert.pem" "$PROTON_CERT_DIR/root.pem" "$PROTON_CERT_DIR/core-key.pem"
-    fi
-
-    if getent passwd serviceradar > /dev/null; then
-        chown serviceradar:serviceradar "$SR_CERT_DIR/root.pem" "$SR_CERT_DIR/core.pem" "$SR_CERT_DIR/core-key.pem" "$SR_CERT_DIR/ca.pem"
-    fi
-
-    log "Certificates installed"
-}
-
-# Extract IPs from an existing certificate
-extract_existing_ips() {
-    local cert_file="$1"
-
-    if [ ! -f "$cert_file" ]; then
-        error "Certificate file not found: $cert_file"
-    fi
-
-    local sans=$(openssl x509 -in "$cert_file" -text -noout | grep -A 1 "Subject Alternative Name" | tail -1)
-    local existing_ips=$(echo "$sans" | grep -oP 'IP Address:\K[0-9.]+' | tr '\n' ',' | sed 's/,$//')
-    echo "$existing_ips"
-}
-
-# Merge IPs
-merge_ips() {
-    local existing_ips="$1"
-    local new_ips="$2"
-
-    local combined_ips="${existing_ips},${new_ips}"
-    local unique_ips=$(echo "$combined_ips" | tr ',' '\n' | sort -u | tr '\n' ',' | sed 's/,$//')
-    echo "$unique_ips"
-}
-
-# Add IPs to existing certificates
-add_ips_to_certs() {
-    log "Adding IPs to existing certificates..."
-
-    if [ ! -f "$SR_CERT_DIR/core.pem" ]; then
-        error "No existing certificates found. Run without --add-ips first."
-    fi
-
-    local existing_ips=$(extract_existing_ips "$SR_CERT_DIR/core.pem")
-    log "Existing IPs in certificate: $existing_ips"
-
-    local all_ips=$(merge_ips "$existing_ips" "$SERVICE_IPS")
-    log "Combined IPs for new certificate: $all_ips"
-
-    cp "$SR_CERT_DIR/root.pem" "$WORK_DIR/root.pem"
-    if [ -f "$SR_CERT_DIR/root-key.pem" ]; then
-        cp "$SR_CERT_DIR/root-key.pem" "$WORK_DIR/root-key.pem"
-    else
-        cp "$SR_CERT_DIR/core-key.pem" "$WORK_DIR/root-key.pem"
-        log "Root CA key not found, using core-key.pem as a fallback"
-    fi
-
-    SERVICE_IPS="$all_ips"
-    generate_service_cert "core" "$SERVICE_IPS"
-    install_certificates
-
-    log "IPs added to certificates"
+    echo
+    echo -e "${COLOR_BOLD}Certificate locations:${COLOR_RESET}"
+    echo -e "  - ServiceRadar: ${COLOR_CYAN}$SR_CERT_DIR/root.pem, $SR_CERT_DIR/core.pem, $SR_CERT_DIR/core-key.pem${COLOR_RESET}"
+    echo -e "  - Proton: ${COLOR_CYAN}$PROTON_CERT_DIR/ca-cert.pem, $PROTON_CERT_DIR/root.pem, $PROTON_CERT_DIR/core-key.pem${COLOR_RESET}"
+    echo
+    echo -e "${COLOR_BOLD}Next steps:${COLOR_RESET}"
+    echo "1. If you need to add more IPs later, run:"
+    echo "   $0 --add-ips --ip new.ip.address"
+    echo
+    echo "2. To restart services with new certificates:"
+    echo "   systemctl restart serviceradar-proton serviceradar-core"
+    echo
 }
 
 # Prompt for installation scenario
@@ -527,7 +411,7 @@ prompt_scenario() {
         header "Select Components to Install"
         echo -e "${COLOR_CYAN}Please choose the components you want to install (you can select multiple):${COLOR_RESET}"
         echo -e "${COLOR_WHITE}  1) All-in-One (all components)${COLOR_RESET}"
-        echo -e "${COLOR_WHITE}  2) Core + Web UI (core, web, nats, kv, sync)${COLOR_RESET}"
+        echo -e "${COLOR_WHITE}  2) Core + Web UI (core+proton, web, nats, kv, sync)${COLOR_RESET}"
         echo -e "${COLOR_WHITE}  3) Poller (poller)${COLOR_RESET}"
         echo -e "${COLOR_WHITE}  4) Agent (agent)${COLOR_RESET}"
 
@@ -813,38 +697,6 @@ install_optional_checkers() {
     fi
 }
 
-# Show post-installation instructions for mTLS
-show_post_install_info() {
-    local ips
-    IFS=',' read -ra IPS <<< "$SERVICE_IPS"
-    local first_ip="${IPS[0]}"
-
-    echo
-    echo -e "${COLOR_BOLD}TLS Certificate Setup Complete${COLOR_RESET}"
-    echo
-    echo -e "Certificates have been installed with the following IPs:"
-    for ip in "${IPS[@]}"; do
-        echo -e "  - ${COLOR_CYAN}$ip${COLOR_RESET}"
-    done
-    echo
-    echo -e "${COLOR_BOLD}Certificate locations:${COLOR_RESET}"
-    echo -e "  - ServiceRadar: ${COLOR_CYAN}$SR_CERT_DIR/root.pem, $SR_CERT_DIR/core.pem, $SR_CERT_DIR/core-key.pem, $SR_CERT_DIR/ca.pem${COLOR_RESET}"
-    echo -e "  - Proton: ${COLOR_CYAN}$PROTON_CERT_DIR/ca-cert.pem, $PROTON_CERT_DIR/root.pem, $PROTON_CERT_DIR/core-key.pem${COLOR_RESET}"
-    echo
-    echo -e "${COLOR_BOLD}Next steps:${COLOR_RESET}"
-    echo "1. Verify the Proton connection:"
-    echo "   proton-client --host $first_ip --port 9440 --secure \\"
-    echo "     --certificate-file $SR_CERT_DIR/core.pem \\"
-    echo "     --private-key-file $SR_CERT_DIR/core-key.pem -q \"SELECT 1\""
-    echo
-    echo "2. If you need to add more IPs later, run:"
-    echo "   $0 --add-ips --ip new.ip.address"
-    echo
-    echo "3. To restart services with new certificates:"
-    echo "   systemctl restart serviceradar-proton serviceradar-core"
-    echo
-}
-
 # Main installation logic
 main() {
     display_banner
@@ -900,17 +752,11 @@ main() {
     if [ "$INSTALL_CORE" = "true" ] || [ "$INSTALL_ALL" = "true" ]; then
         header "Setting up mTLS Certificates"
         create_cert_dirs
-        if [ "$ADD_IPS" = true ]; then
-            add_ips_to_certs
-        else
-            generate_root_ca
-            generate_service_cert "core" "$SERVICE_IPS"
-            install_certificates
-        fi
+        setup_mtls_certificates
         show_post_install_info
     fi
 
-    core_packages=("serviceradar-core" "serviceradar-web" "serviceradar-nats" "serviceradar-kv" "serviceradar-sync" "serviceradar-cli" "serviceradar-proton")
+    core_packages=("serviceradar-core" "serviceradar-proton" "serviceradar-web" "serviceradar-nats" "serviceradar-kv" "serviceradar-sync" "serviceradar-cli")
     poller_packages=("serviceradar-poller")
     agent_packages=("serviceradar-agent")
     packages_to_install=()
@@ -950,8 +796,8 @@ main() {
     header "Installation Complete"
     success "[ServiceRadar] installation completed successfully!"
     if [ "$INSTALL_CORE" = "true" ]; then
-        info "Web UI: ${COLOR_YELLOW}http://your-server-ip/${COLOR_RESET}"
-        info "Core API: ${COLOR_YELLOW}http://your-server-ip:8090/${COLOR_RESET}"
+        info "Web UI: ${COLOR_YELLOW}http://${LOCAL_IP}/${COLOR_RESET}"
+        info "Core API: ${COLOR_YELLOW}http://${LOCAL_IP}/swagger${COLOR_RESET}"
     fi
 
     if [ "$INSTALL_POLLER" = "true" ] && [ ${#INSTALLED_CHECKERS[@]} -gt 0 ] && [ "$UPDATE_POLLER_CONFIG" = "false" ]; then
