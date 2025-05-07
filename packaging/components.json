@@ -58,7 +58,7 @@
     "section": "database",
     "priority": "optional",
     "deb": {
-      "depends": ["systemd", "libcap2-bin"],
+      "depends": ["systemd", "libcap2-bin", "serviceradar-cli"],
       "dockerfile": null
     },
     "rpm": {

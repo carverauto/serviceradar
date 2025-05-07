@@ -13,6 +13,7 @@ type CmdConfig struct {
 	SubCmd          string
 	ConfigFile      string
 	AdminHash       string
+	DBPasswordFile  string
 	PollerFile      string
 	Action          string
 	Agent           string

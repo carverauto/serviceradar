@@ -36,8 +36,8 @@
         "tls": {
             "cert_file": "/etc/serviceradar/certs/core.pem",
             "key_file": "/etc/serviceradar/certs/core-key.pem",
-            "ca_file": "/etc/serviceradar/certs/ca.pem",
-            "client_ca_file": "/etc/serviceradar/certs/ca.pem",
+            "ca_file": "/etc/serviceradar/certs/root.pem",
+            "client_ca_file": "/etc/serviceradar/certs/root.pem",
             "skip_verify": true
         }
     },

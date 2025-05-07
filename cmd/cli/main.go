@@ -53,7 +53,7 @@ func run() error {
 func dispatchCommand(cfg *cli.CmdConfig) error {
 	switch cfg.SubCmd {
 	case "update-config":
-		return cli.RunUpdateConfig(cfg.ConfigFile, cfg.AdminHash)
+		return cli.RunUpdateConfig(cfg.ConfigFile, cfg.AdminHash, cfg.DBPasswordFile)
 	case "update-poller":
 		return cli.RunUpdatePoller(cfg)
 	case "generate-tls":
