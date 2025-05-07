@@ -13,6 +13,7 @@ type CmdConfig struct {
 	SubCmd          string
 	ConfigFile      string
 	AdminHash       string
+	DBPasswordFile  string
 	PollerFile      string
 	Action          string
 	Agent           string
@@ -22,6 +23,16 @@ type CmdConfig struct {
 	ServicePort     int32
 	EnableAllOnInit bool
 	Args            []string
+	IPS             string
+	CertDir         string
+	ProtonDir       string
+	AddIPs          bool
+	NonInteractive  bool
+}
+
+// logStyles defines styles for logging messages
+type logStyles struct {
+	info, success, warning, error lipgloss.Style
 }
 type model struct {
 	passwordInput textinput.Model

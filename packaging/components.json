@@ -9,11 +9,11 @@
     "section": "utils",
     "priority": "optional",
     "deb": {
-      "depends": ["systemd"],
+      "depends": ["systemd", "jq"],
       "dockerfile": null
     },
     "rpm": {
-      "depends": ["systemd"],
+      "depends": ["systemd", "jq"],
       "dockerfile": "docker/rpm/Dockerfile.rpm.simple",
       "release": "1"
     },
@@ -58,7 +58,7 @@
     "section": "database",
     "priority": "optional",
     "deb": {
-      "depends": ["systemd", "libcap2-bin"],
+      "depends": ["systemd", "libcap2-bin", "serviceradar-cli"],
       "dockerfile": null
     },
     "rpm": {
