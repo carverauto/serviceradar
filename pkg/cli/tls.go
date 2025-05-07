@@ -145,7 +145,7 @@ func validateIPs(ips string) error {
 
 	for _, ip := range ipArray {
 		if !ipRegex.MatchString(ip) {
-			return fmt.Errorf("invalid IP address format: %s", ip)
+			return fmt.Errorf("%w: %s", ErrInvalidIPFormat, ip)
 		}
 	}
 
@@ -179,7 +179,7 @@ func generateRootCA(cfg *CmdConfig, styles *logStyles) (*x509.Certificate, *ecds
 		fmt.Println(styles.warning.Render("[WARNING] If you want to create new certificates, remove existing ones first"))
 		fmt.Println(styles.warning.Render("[WARNING] or use --add-ips to add IPs to existing certificates"))
 
-		return nil, nil, fmt.Errorf("root CA already exists")
+		return nil, nil, ErrRootCAExists
 	}
 
 	// Generate ECDSA private key
@@ -343,7 +343,7 @@ func parseIPAddresses(ips string) ([]net.IP, error) {
 	for _, ipStr := range strings.Split(ips, ",") {
 		ip := net.ParseIP(ipStr)
 		if ip == nil {
-			return nil, fmt.Errorf("invalid IP address: %s", ipStr)
+			return nil, fmt.Errorf("%w: %s", ErrInvalidIPAddress, ipStr)
 		}
 
 		ipAddresses = append(ipAddresses, ip)
@@ -482,7 +482,7 @@ func setCertificateOwnership(cfg *CmdConfig) error {
 	}
 
 	if len(errors) > 0 {
-		return fmt.Errorf("errors setting ownership: %s", strings.Join(errors, "; "))
+		return fmt.Errorf("%w: %s", ErrSettingOwnership, strings.Join(errors, "; "))
 	}
 
 	return nil
@@ -494,7 +494,7 @@ func setOwnershipForFiles(files []string, username string) error {
 	gid := getGID(username)
 
 	if uid == -1 || gid == -1 {
-		return fmt.Errorf("failed to get UID/GID for user %s", username)
+		return fmt.Errorf("%w: %s", ErrInvalidUIDGID, username)
 	}
 
 	var errors []string
@@ -506,7 +506,7 @@ func setOwnershipForFiles(files []string, username string) error {
 	}
 
 	if len(errors) > 0 {
-		return fmt.Errorf("errors: %s", strings.Join(errors, "; "))
+		return fmt.Errorf("%w: %s", ErrChownFailed, strings.Join(errors, "; "))
 	}
 
 	return nil
@@ -555,7 +555,7 @@ func loadCertificate(path string) (*x509.Certificate, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("no existing certificate found at %s; run without --add-ips first", path)
+			return nil, fmt.Errorf("%w: %s; run without --add-ips first", ErrCertNotFound, path)
 		}
 
 		return nil, fmt.Errorf("failed to read certificate: %w", err)
@@ -563,7 +563,7 @@ func loadCertificate(path string) (*x509.Certificate, error) {
 
 	block, _ := pem.Decode(data)
 	if block == nil {
-		return nil, fmt.Errorf("failed to decode certificate PEM")
+		return nil, ErrDecodeCertPEM
 	}
 
 	cert, err := x509.ParseCertificate(block.Bytes)
@@ -598,7 +598,7 @@ func loadRootCACertAndKey(certDir string, styles *logStyles) (*x509.Certificate,
 
 	block, _ := pem.Decode(data)
 	if block == nil {
-		return nil, nil, fmt.Errorf("failed to decode root CA key PEM")
+		return nil, nil, ErrDecodeRootCAKeyPEM
 	}
 
 	key, err := x509.ParseECPrivateKey(block.Bytes)

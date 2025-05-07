@@ -772,7 +772,7 @@ func extractPasswordFromFile(dbPasswordFile string) (string, error) {
 		}
 	}
 
-	return "", fmt.Errorf("could not extract password from %s", dbPasswordFile)
+	return "", fmt.Errorf("%w: %s", errCantExtractPassword, dbPasswordFile)
 }
 
 // writeConfigFile writes the config map back to the file.
