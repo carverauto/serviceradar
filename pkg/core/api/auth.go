@@ -26,17 +26,24 @@ import (
 	"github.com/markbates/goth/gothic"
 )
 
+// @Summary Authenticate with username and password
+// @Description Logs in a user with username and password and returns authentication tokens
+// @Tags Authentication
+// @Accept json
+// @Produce json
+// @Param credentials body LoginCredentials true "User credentials"
+// @Success 200 {object} models.Token "Authentication tokens"
+// @Failure 400 {object} models.ErrorResponse "Invalid request"
+// @Failure 401 {object} models.ErrorResponse "Authentication failed"
+// @Failure 500 {object} models.ErrorResponse "Internal server error"
+// @Router /auth/login [post]
 func (s *APIServer) handleLocalLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusOK)
-
 		return
 	}
 
-	var creds struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
-	}
+	var creds LoginCredentials
 
 	if err := json.NewDecoder(r.Body).Decode(&creds); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)
@@ -61,6 +68,24 @@ func (s *APIServer) handleLocalLogin(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Login response sent for %s", creds.Username)
 }
 
+// LoginCredentials represents the credentials needed for local authentication.
+type LoginCredentials struct {
+	// Username for authentication
+	Username string `json:"username" example:"admin"`
+	// Password for authentication
+	Password string `json:"password" example:"password123"`
+}
+
+// @Summary Begin OAuth authentication.
+// @Description Initiates OAuth authentication flow with the specified provider.
+// @Tags Authentication
+// @Accept json
+// @Produce json
+// @Param provider path string true "OAuth provider (e.g., 'google', 'github')"
+// @Success 302 {string} string "Redirect to OAuth provider"
+// @Failure 400 {object} models.ErrorResponse "Invalid provider"
+// @Failure 500 {object} models.ErrorResponse "Internal server error"
+// @Router /auth/{provider} [get]
 func (*APIServer) handleOAuthBegin(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 
@@ -77,6 +102,16 @@ func (*APIServer) handleOAuthBegin(w http.ResponseWriter, r *http.Request) {
 	gothic.BeginAuthHandler(w, r)
 }
 
+// @Summary Complete OAuth authentication.
+// @Description Completes OAuth authentication flow and returns authentication tokens
+// @Tags Authentication
+// @Accept json
+// @Produce json
+// @Param provider path string true "OAuth provider (e.g., 'google', 'github')"
+// @Success 200 {object} models.Token "Authentication tokens"
+// @Failure 400 {object} models.ErrorResponse "Invalid request"
+// @Failure 500 {object} models.ErrorResponse "Internal server error"
+// @Router /auth/{provider}/callback [get]
 func (s *APIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 
@@ -108,10 +143,25 @@ func (s *APIServer) handleOAuthCallback(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
+// RefreshTokenRequest represents the refresh token request
+type RefreshTokenRequest struct {
+	// Refresh token from previous authentication
+	RefreshToken string `json:"refresh_token" example:"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."`
+}
+
+// @Summary Refresh authentication token
+// @Description Refreshes an expired authentication token
+// @Tags Authentication
+// @Accept json
+// @Produce json
+// @Param refresh_token body RefreshTokenRequest true "Refresh token"
+// @Success 200 {object} models.Token "New authentication tokens"
+// @Failure 400 {object} models.ErrorResponse "Invalid request"
+// @Failure 401 {object} models.ErrorResponse "Invalid refresh token"
+// @Failure 500 {object} models.ErrorResponse "Internal server error"
+// @Router /auth/refresh [post]
 func (s *APIServer) handleRefreshToken(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		RefreshToken string `json:"refresh_token"`
-	}
+	var req RefreshTokenRequest
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request", http.StatusBadRequest)

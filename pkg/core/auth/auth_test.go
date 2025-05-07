@@ -123,7 +123,7 @@ func TestLoginLocal(t *testing.T) {
 
 			// Mock successful user storage only for successful case
 			if !tt.expectedError && len(tt.configUsers) > 0 {
-				mockDB.EXPECT().StoreUser(gomock.Any()).Return(nil)
+				mockDB.EXPECT().StoreUser(gomock.Any(), gomock.Any()).Return(nil)
 			}
 
 			a := NewAuth(config, mockDB)
@@ -221,7 +221,7 @@ func TestCompleteOAuth(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	mockDB.EXPECT().StoreUser(gomock.Any()).Return(nil)
+	mockDB.EXPECT().StoreUser(gomock.Any(), gomock.Any()).Return(nil)
 
 	a := NewAuth(config, mockDB)
 
@@ -256,7 +256,7 @@ func TestRefreshToken(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
-	mockDB.EXPECT().StoreUser(gomock.Any()).Return(nil).Times(1)
+	mockDB.EXPECT().StoreUser(gomock.Any(), gomock.Any()).Return(nil).Times(1)
 
 	a := NewAuth(config, mockDB)
 

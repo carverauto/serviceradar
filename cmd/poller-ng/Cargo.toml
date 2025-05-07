@@ -1,0 +1,28 @@
+[package]
+name = "serviceradar-poller-ng"
+version = "0.1.1"
+edition = "2021"
+authors = ["ServiceRadar Team"]
+description = "Poller v2 for ServiceRadar"
+
+[dependencies]
+anyhow = "1.0"
+async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4.3", features = ["derive", "env"] }
+env_logger = "0.10"
+log = "0.4"
+prost = "0.11"
+reqwest = { version = "0.11", features = ["json"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.28", features = ["full"] }
+tonic = { version = "0.9", features = ["tls"] }
+tonic-health = "0.9"
+tonic-reflection = "0.9"
+tonic-build = "0.9"
+rand = "0.8.5"
+futures = "0.3.31"
+
+[build-dependencies]
+tonic-build = "0.9"

@@ -14,7 +14,10 @@
  * limitations under the License.
  */
 
+// Package api pkg/core/api/interfaces.go
 package api
+
+import "context"
 
 //go:generate mockgen -destination=mock_api_server.go -package=api github.com/carverauto/serviceradar/pkg/core/api Service
 
@@ -22,6 +25,6 @@ package api
 type Service interface {
 	Start(addr string) error
 	UpdatePollerStatus(pollerID string, status *PollerStatus)
-	SetPollerHistoryHandler(handler func(pollerID string) ([]PollerHistoryPoint, error))
+	SetPollerHistoryHandler(ctx context.Context, handler func(pollerID string) ([]PollerHistoryPoint, error))
 	SetKnownPollers(knownPollers []string)
 }

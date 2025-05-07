@@ -30,7 +30,6 @@ import (
 )
 
 var (
-	errInvalidDuration     = fmt.Errorf("invalid duration")
 	errKVStoreNotSet       = errors.New("KV store not initialized for CONFIG_SOURCE=kv; call SetKVStore first")
 	errInvalidConfigSource = errors.New("invalid CONFIG_SOURCE value")
 	errLoadConfigFailed    = errors.New("failed to load configuration")

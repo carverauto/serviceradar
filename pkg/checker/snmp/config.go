@@ -24,9 +24,17 @@ import (
 	"strings"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
+
+// SNMPConfig is a local copy of models.SNMPConfig to allow receiver methods
+type SNMPConfig struct {
+	NodeAddress string
+	Timeout     models.Duration
+	ListenAddr  string
+	Security    *models.SecurityConfig
+	Targets     []Target
+}
 
 const (
 	defaultTimeout      = 5 * time.Minute
@@ -38,17 +46,8 @@ const (
 	maxTargetNameLength = 128
 )
 
-// Config represents SNMP checker configuration.
-type Config struct {
-	NodeAddress string                 `json:"node_address"`
-	Timeout     config.Duration        `json:"timeout"`
-	ListenAddr  string                 `json:"listen_addr"`
-	Security    *models.SecurityConfig `json:"security"`
-	Targets     []Target               `json:"targets"`
-}
-
 // Validate implements config.Validator interface.
-func (c *Config) Validate() error {
+func (c *SNMPConfig) Validate() error {
 	if c.NodeAddress == "" {
 		return errNodeAddressRequired
 	}
@@ -63,7 +62,7 @@ func (c *Config) Validate() error {
 
 	// Validate timeout
 	if time.Duration(c.Timeout) == 0 {
-		c.Timeout = config.Duration(defaultTimeout)
+		c.Timeout = models.Duration(defaultTimeout)
 	}
 
 	// Track target names to check for duplicates
@@ -84,7 +83,8 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-func (*Config) validateTarget(target *Target, targetNames map[string]bool) error {
+// validateTarget validates a target configuration
+func (*SNMPConfig) validateTarget(target *Target, targetNames map[string]bool) error {
 	// Validate target name
 	if err := validateTargetName(target.Name, targetNames); err != nil {
 		return err

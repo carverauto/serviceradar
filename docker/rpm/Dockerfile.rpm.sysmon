@@ -1,0 +1,87 @@
+# Build stage for Rust binaries
+FROM ghcr.io/carverauto/custom-rust-zfs:latest AS builder
+
+WORKDIR /src/cmd/checkers/sysmon
+
+# Debugging: Print build arguments
+ARG BINARY_PATH
+ARG COMPONENT
+ARG VERSION
+ARG RELEASE
+RUN echo "BINARY_PATH=$BINARY_PATH" && \
+    echo "COMPONENT=$COMPONENT" && \
+    echo "VERSION=$VERSION" && \
+    echo "RELEASE=$RELEASE" && \
+    echo "Listing context:" && \
+    ls -la /src/cmd/checkers/sysmon/
+
+# Copy Cargo files and source
+COPY cmd/checkers/sysmon/Cargo.toml .
+COPY cmd/checkers/sysmon/Cargo.lock* .
+COPY cmd/checkers/sysmon/src ./src/
+COPY cmd/checkers/sysmon/build.rs .
+COPY proto ../proto/
+
+# Build ZFS-enabled binary
+RUN echo "Building ZFS-enabled binary..." && \
+    cargo build --release --features zfs --verbose && \
+    echo "ZFS build complete" && \
+    ls -l target/release/ && \
+    [ -f target/release/serviceradar-sysmon-checker ] || { echo "Error: ZFS binary not produced"; exit 1; } && \
+    mkdir -p /tmp/zfs && \
+    mv target/release/serviceradar-sysmon-checker /tmp/zfs/serviceradar-sysmon-checker-zfs
+
+# Build non-ZFS binary
+RUN echo "Building non-ZFS binary..." && \
+    cargo clean && \
+    cargo build --release --verbose && \
+    echo "Non-ZFS build complete" && \
+    ls -l target/release/ && \
+    [ -f target/release/serviceradar-sysmon-checker ] || { echo "Error: Non-ZFS binary not produced"; exit 1; } && \
+    mkdir -p /tmp/nonzfs && \
+    mv target/release/serviceradar-sysmon-checker /tmp/nonzfs/serviceradar-sysmon-checker-nonzfs
+
+# RPM build stage
+FROM rockylinux:9 AS rpm-builder
+
+# Install RPM build tools and dependencies
+RUN dnf install -y rpm-build rpmdevtools systemd systemd-libs systemd-devel && \
+    dnf clean all && \
+    mkdir -p /root/rpmbuild/{BUILD,RPMS,SRPMS,SOURCES,SPECS}
+
+WORKDIR /root/rpmbuild
+
+# Create directory structure for SOURCES
+RUN mkdir -p SOURCES/sysmon-checker/systemd SOURCES/sysmon-checker/config/checkers
+
+# Copy spec file and configuration files
+COPY packaging/specs/serviceradar-sysmon.spec SPECS/serviceradar-sysmon.spec
+COPY packaging/sysmon/systemd/serviceradar-sysmon-checker.service SOURCES/sysmon-checker/systemd/serviceradar-sysmon-checker.service
+COPY packaging/sysmon/config/checkers/sysmon.json.example SOURCES/sysmon-checker/config/checkers/sysmon.json.example
+
+# Debug: Check copied files
+RUN echo "Checking RPM build files:" && \
+    ls -la SPECS/ && \
+    ls -la SOURCES/sysmon-checker/systemd/ && \
+    ls -la SOURCES/sysmon-checker/config/checkers/
+
+# Copy binaries from builder stage
+RUN mkdir -p BUILD && \
+    mkdir -p /tmp/zfs /tmp/nonzfs
+COPY --from=builder /tmp/zfs/serviceradar-sysmon-checker-zfs BUILD/serviceradar-sysmon-checker-zfs
+COPY --from=builder /tmp/nonzfs/serviceradar-sysmon-checker-nonzfs BUILD/serviceradar-sysmon-checker-nonzfs
+
+# Build RPM
+ARG VERSION
+ARG RELEASE
+RUN rpmbuild --define "_topdir /root/rpmbuild" \
+             --define "version ${VERSION}" \
+             --define "release ${RELEASE}" \
+             -ba SPECS/serviceradar-sysmon.spec
+
+# Output stage
+FROM scratch AS output
+
+# Copy RPMs to output
+COPY --from=rpm-builder /root/rpmbuild/RPMS/x86_64/*.rpm /rpms/
+COPY --from=rpm-builder /root/rpmbuild/SRPMS/*.rpm /rpms/

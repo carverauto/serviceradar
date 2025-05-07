@@ -18,7 +18,7 @@
 set -e
 
 # Define package version
-VERSION=${VERSION:-1.0.30}
+VERSION=${VERSION:-1.0.32}
 
 # Use a relative path from the script's location
 BASE_DIR="$(dirname "$(dirname "$0")")"  # Go up two levels from scripts/ to root
