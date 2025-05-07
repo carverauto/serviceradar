@@ -11,7 +11,7 @@ ServiceRadar provides a flexible installation script (`install-serviceradar.sh`)
 For guided installation, simply run:
 
 ```bash
-curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.34/install-serviceradar.sh | bash
+curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.35/install-serviceradar.sh | bash
 ```
 
 Follow the prompts to select your desired components and optional checkers.
@@ -25,10 +25,10 @@ Installs all components (`serviceradar-agent`, `serviceradar-core`, `servicerada
 
 ```bash
 # Without checkers
-curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.34/install-serviceradar.sh | bash -s -- --all --non-interactive
+curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.35/install-serviceradar.sh | bash -s -- --all --non-interactive
 
 # With checkers
-curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.34/install-serviceradar.sh | bash -s -- --all --non-interactive --checkers=rperf,snmp
+curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.35/install-serviceradar.sh | bash -s -- --all --non-interactive --checkers=rperf,snmp
 ```
 
 ### Core + Web UI Installation
@@ -36,10 +36,10 @@ Installs core components (`serviceradar-core`, `serviceradar-web`, `serviceradar
 
 ```bash
 # Without checkers
-curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.34/install-serviceradar.sh | bash -s -- --core --non-interactive
+curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.35/install-serviceradar.sh | bash -s -- --core --non-interactive
 
 # With checkers
-curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.34/install-serviceradar.sh | bash -s -- --core --non-interactive --checkers=dusk-checker
+curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.35/install-serviceradar.sh | bash -s -- --core --non-interactive --checkers=dusk-checker
 ```
 
 ### Poller Installation
@@ -47,10 +47,10 @@ Installs the poller component (`serviceradar-poller`, plus optional checkers).
 
 ```bash
 # Without checkers
-curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.34/install-serviceradar.sh | bash -s -- --poller --non-interactive
+curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.35/install-serviceradar.sh | bash -s -- --poller --non-interactive
 
 # With checkers
-curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.34/install-serviceradar.sh | bash -s -- --poller --non-interactive --checkers=rperf,snmp
+curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.35/install-serviceradar.sh | bash -s -- --poller --non-interactive --checkers=rperf,snmp
 ```
 
 ### Agent Installation
@@ -58,10 +58,10 @@ Installs the agent component (`serviceradar-agent`, plus optional checkers).
 
 ```bash
 # Without checkers
-curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.34/install-serviceradar.sh | bash -s -- --agent --non-interactive
+curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.35/install-serviceradar.sh | bash -s -- --agent --non-interactive
 
 # With checkers
-curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.34/install-serviceradar.sh | bash -s -- --agent --non-interactive --checkers=rperf,rperf-checker,snmp
+curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.35/install-serviceradar.sh | bash -s -- --agent --non-interactive --checkers=rperf,rperf-checker,snmp
 ```
 
 ### Combined Installation
@@ -69,7 +69,7 @@ You can combine installation scenarios by specifying multiple flags:
 
 ```bash
 # Example: Poller + Agent with checkers
-curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.34/install-serviceradar.sh | bash -s -- --poller --agent --non-interactive --checkers=rperf,snmp
+curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.35/install-serviceradar.sh | bash -s -- --poller --agent --non-interactive --checkers=rperf,snmp
 ```
 
 ## Available Checkers
@@ -87,13 +87,13 @@ If you prefer to manually install individual components, you can download and in
 
 ```bash
 # Download components
-curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.34/serviceradar-agent_1.0.34.deb \
-     -O https://github.com/carverauto/serviceradar/releases/download/1.0.34/serviceradar-poller_1.0.34.deb \
-     -O https://github.com/carverauto/serviceradar/releases/download/1.0.34/serviceradar-core_1.0.34.deb \
-     -O https://github.com/carverauto/serviceradar/releases/download/1.0.34/serviceradar-web_1.0.34.deb
+curl -LO https://github.com/carverauto/serviceradar/releases/download/1.0.35/serviceradar-agent_1.0.35.deb \
+     -O https://github.com/carverauto/serviceradar/releases/download/1.0.35/serviceradar-poller_1.0.35.deb \
+     -O https://github.com/carverauto/serviceradar/releases/download/1.0.35/serviceradar-core_1.0.35.deb \
+     -O https://github.com/carverauto/serviceradar/releases/download/1.0.35/serviceradar-web_1.0.35.deb
 
 # Install components as needed
-sudo dpkg -i serviceradar-agent_1.0.34.deb serviceradar-poller_1.0.34.deb serviceradar-core_1.0.34.deb serviceradar-web_1.0.34.deb
+sudo dpkg -i serviceradar-agent_1.0.35.deb serviceradar-poller_1.0.35.deb serviceradar-core_1.0.35.deb serviceradar-web_1.0.35.deb
 ```
 
 ## Architecture Overview
