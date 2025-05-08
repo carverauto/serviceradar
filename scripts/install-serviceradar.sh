@@ -394,17 +394,6 @@ create_cert_dirs() {
 setup_mtls_certificates() {
     log "Checking for existing certificates..."
 
-    # Skip certificate generation if certificates exist and --add-ips is not specified
-    if [ -f "$SR_CERT_DIR/root.pem" ] && [ -f "$SR_CERT_DIR/core.pem" ] && [ -f "$SR_CERT_DIR/core-key.pem" ] && [ ! "$ADD_IPS" = true ]; then
-        log "Existing certificates found at $SR_CERT_DIR"
-        log "Skipping certificate generation as certificates already exist"
-        log "To add new IPs, use --add-ips with --ip"
-        return
-    fi
-
-    # Create certificate directories
-    create_cert_dirs
-
     # Determine components to generate certificates for
     local components=()
     if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_CORE" = "true" ]; then
@@ -427,6 +416,62 @@ setup_mtls_certificates() {
 
     # Remove duplicates
     components=($(echo "${components[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' '))
+    log "DEBUG: Components for certificate generation: ${components[*]}"
+
+    # Check if all required certificates exist
+    local all_certs_exist=true
+    local missing_certs=()
+    for component in "${components[@]}"; do
+        local cert_name="$component"
+        local cert_dir="$SR_CERT_DIR"
+        case "$component" in
+            proton)
+                cert_name="core"
+                cert_dir="$PROTON_CERT_DIR"
+                ;;
+            nats)
+                cert_name="nats-server"
+                ;;
+            dusk-checker)
+                cert_name="checkers"
+                ;;
+            sysmon)
+                cert_name="sysmon"
+                ;;
+            snmp)
+                cert_name="snmp"
+                ;;
+            rperf-checker)
+                cert_name="rperf-checker"
+                ;;
+            rperf)
+                continue
+                ;;
+        esac
+        if [ ! -f "$cert_dir/$cert_name.pem" ] || [ ! -f "$cert_dir/$cert_name-key.pem" ]; then
+            all_certs_exist=false
+            missing_certs+=("$component: $cert_dir/$cert_name.pem, $cert_dir/$cert_name-key.pem")
+        fi
+    done
+
+    # Skip certificate generation only if all required certificates exist and --add-ips is not specified
+    if [ "$all_certs_exist" = true ] && [ ! "$ADD_IPS" = true ]; then
+        log "All required certificates found in $SR_CERT_DIR and $PROTON_CERT_DIR"
+        log "Skipping certificate generation as all certificates already exist"
+        log "To add new IPs, use --add-ips with --ip"
+        return
+    fi
+
+    # Log missing certificates
+    if [ ${#missing_certs[@]} -gt 0 ]; then
+        log "DEBUG: Missing certificates:"
+        for cert in "${missing_certs[@]}"; do
+            log "DEBUG:   $cert"
+        done
+    fi
+
+    # Create certificate directories
+    create_cert_dirs
 
     local cli_args="--cert-dir $SR_CERT_DIR --proton-dir $PROTON_CERT_DIR"
     if [ "$INTERACTIVE" = "false" ]; then
@@ -435,25 +480,43 @@ setup_mtls_certificates() {
     if [ -n "$SERVICE_IPS" ]; then
         cli_args="$cli_args --ip $SERVICE_IPS"
     fi
-    if [ "$ADD_IPS" = true ]; then
-        if [ -z "$SERVICE_IPS" ]; then
-            error "Must specify --ip when using --add-ips"
-        fi
-        cli_args="$cli_args --add-ips"
-    fi
 
     # Add components
     if [ ${#components[@]} -gt 0 ]; then
         cli_args="$cli_args --component $(IFS=,; echo "${components[*]}")"
     fi
 
-    log "Generating mTLS certificates for components: ${components[*]}"
-    log "DEBUG: Running command: /usr/local/bin/serviceradar generate-tls $cli_args"
-    if ! /usr/local/bin/serviceradar generate-tls $cli_args > /tmp/serviceradar-tls.log 2>&1; then
-        log "DEBUG: Certificate generation output: $(cat /tmp/serviceradar-tls.log)"
-        error "Failed to generate mTLS certificates using serviceradar CLI"
+    # Check if root CA exists
+    if [ -f "$SR_CERT_DIR/root.pem" ]; then
+        log "DEBUG: Root CA exists at $SR_CERT_DIR/root.pem, attempting to update certificates with --add-ips"
+        cli_args="$cli_args --add-ips"
+        log "Generating mTLS certificates for components (updating existing): ${components[*]}"
+        log "DEBUG: Running command: /usr/local/bin/serviceradar generate-tls $cli_args"
+        if ! /usr/local/bin/serviceradar generate-tls $cli_args > /tmp/serviceradar-tls.log 2>&1; then
+            log "DEBUG: Certificate update failed: $(cat /tmp/serviceradar-tls.log)"
+            log "WARNING: Failed to update certificates. Removing existing certificates and regenerating..."
+            rm -rf "$SR_CERT_DIR"/* "$PROTON_CERT_DIR"/*
+            create_cert_dirs
+            cli_args=${cli_args/--add-ips/} # Remove --add-ips for fresh generation
+            log "DEBUG: Running command: /usr/local/bin/serviceradar generate-tls $cli_args"
+            if ! /usr/local/bin/serviceradar generate-tls $cli_args > /tmp/serviceradar-tls.log 2>&1; then
+                log "DEBUG: Certificate generation output: $(cat /tmp/serviceradar-tls.log)"
+                error "Failed to generate mTLS certificates using serviceradar CLI"
+            fi
+        fi
+    else
+        log "Generating mTLS certificates for components: ${components[*]}"
+        log "DEBUG: Running command: /usr/local/bin/serviceradar generate-tls $cli_args"
+        if ! /usr/local/bin/serviceradar generate-tls $cli_args > /tmp/serviceradar-tls.log 2>&1; then
+            log "DEBUG: Certificate generation output: $(cat /tmp/serviceradar-tls.log)"
+            error "Failed to generate mTLS certificates using serviceradar CLI"
+        fi
     fi
     log "DEBUG: Certificate generation output: $(cat /tmp/serviceradar-tls.log)"
+
+    # Set certificate permissions
+    chmod 644 "$SR_CERT_DIR"/*.pem "$PROTON_CERT_DIR"/*.pem 2>/dev/null || true
+    chmod 600 "$SR_CERT_DIR"/*-key.pem "$PROTON_CERT_DIR"/*-key.pem 2>/dev/null || true
 
     # Log contents of certificate directories
     log "DEBUG: Contents of $SR_CERT_DIR:"
@@ -489,6 +552,15 @@ setup_mtls_certificates() {
                 ;;
             dusk-checker)
                 cert_name="checkers"
+                ;;
+            sysmon)
+                cert_name="sysmon"
+                ;;
+            snmp)
+                cert_name="snmp"
+                ;;
+            rperf-checker)
+                cert_name="rperf-checker"
                 ;;
             rperf)
                 continue
@@ -553,11 +625,25 @@ show_post_install_info() {
             dusk-checker)
                 cert_name="checkers"
                 ;;
+            sysmon)
+                cert_name="sysmon"
+                ;;
+            snmp)
+                cert_name="snmp"
+                ;;
+            rperf-checker)
+                cert_name="rperf-checker"
+                ;;
             rperf)
                 continue
                 ;;
         esac
-        echo -e "  - $component: ${COLOR_CYAN}$cert_dir/$cert_name.pem, $cert_dir/$cert_name-key.pem${COLOR_RESET}"
+        # Only show certificates that exist
+        if [ -f "$cert_dir/$cert_name.pem" ] && [ -f "$cert_dir/$cert_name-key.pem" ]; then
+            echo -e "  - $component: ${COLOR_CYAN}$cert_dir/$cert_name.pem, $cert_dir/$cert_name-key.pem${COLOR_RESET}"
+        else
+            log "DEBUG: Skipping $component in post-install info: Certificate files $cert_dir/$cert_name.pem or $cert_dir/$cert_name-key.pem not found"
+        fi
     done
     echo
     echo -e "${COLOR_BOLD}Next steps:${COLOR_RESET}"
@@ -867,6 +953,7 @@ update_configs_for_mtls() {
     local configs=(
         "/etc/serviceradar/checkers/dusk.json"
         "/etc/serviceradar/checkers/snmp.json"
+        "/etc/serviceradar/checkers/sysmon.json"
     )
 
     for config in "${configs[@]}"; do
@@ -894,14 +981,6 @@ main() {
     detect_system
     check_curl
 
-    if [ "$INSTALL_ALL" = "false" ] && [ "$INSTALL_CORE" = "false" ] && [ "$INSTALL_POLLER" = "false" ] && [ "$INSTALL_AGENT" = "false" ]; then
-        if [ "$INTERACTIVE" = "true" ]; then
-            prompt_scenario
-        else
-            error "No installation scenario specified. Use --all, --core, --poller, or --agent."
-        fi
-    fi
-
     if [ "$INSTALL_ALL" = "true" ]; then
         INSTALL_CORE=true
         INSTALL_POLLER=true
@@ -909,7 +988,11 @@ main() {
     fi
 
     if [ "$INSTALL_CORE" = "false" ] && [ "$INSTALL_POLLER" = "false" ] && [ "$INSTALL_AGENT" = "false" ]; then
-        error "No components selected to install."
+        if [ "$INTERACTIVE" = "true" ]; then
+            prompt_scenario
+        else
+            error "No installation scenario specified. Use --all, --core, --poller, or --agent."
+        fi
     fi
 
     # Set up IPs for mTLS
@@ -940,12 +1023,7 @@ main() {
         install_single_package "serviceradar-cli" ""
     fi
 
-    # Setup mTLS certificates
-    header "Setting up mTLS Certificates"
-    setup_mtls_certificates
-    update_configs_for_mtls
-    show_post_install_info
-
+    # Install main components
     core_packages=("serviceradar-core" "serviceradar-proton" "serviceradar-web" "serviceradar-nats" "serviceradar-kv" "serviceradar-sync")
     poller_packages=("serviceradar-poller")
     agent_packages=("serviceradar-agent")
@@ -975,7 +1053,15 @@ main() {
     done
     install_packages "${packages_to_install[@]}"
 
+    # Install optional checkers
     install_optional_checkers
+
+    # Setup mTLS certificates after checkers are installed
+    header "Setting up mTLS Certificates"
+    setup_mtls_certificates
+    update_configs_for_mtls
+    show_post_install_info
+
     update_core_config
 
     header "Cleaning Up"
