@@ -20,11 +20,6 @@
                     "details": "serviceradar-agent"
                 },
                 {
-                    "service_type": "process",
-                    "service_name": "rusk",
-                    "details": "rusk"
-                },
-                {
                     "service_type": "port",
                     "service_name": "SSH",
                     "details": "127.0.0.1:22"
