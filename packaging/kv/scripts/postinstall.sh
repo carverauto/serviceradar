@@ -15,9 +15,10 @@ fi
 mkdir -p /etc/serviceradar
 mkdir -p /var/lib/serviceradar
 
-# Create checkers directory if this is the dusk component
-if [ "${component_dir}" = "dusk" ]; then
-    mkdir -p /etc/serviceradar/checkers
+# Ensure certificate directory permissions
+if [ -d "/etc/serviceradar/certs" ]; then
+    chown -R serviceradar:serviceradar /etc/serviceradar/certs
+    chmod -R 640 /etc/serviceradar/certs/*.pem
 fi
 
 # Set permissions

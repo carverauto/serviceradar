@@ -28,6 +28,7 @@ type CmdConfig struct {
 	ProtonDir       string
 	AddIPs          bool
 	NonInteractive  bool
+	Components      []string
 }
 
 // logStyles defines styles for logging messages
