@@ -76,11 +76,19 @@ func GenerateTLSCerts(cfg *CmdConfig) error {
 		return err
 	}
 
-	// Main execution
-	fmt.Println(styles.info.Render("[INFO] Starting TLS certificate setup for ServiceRadar and Proton"))
+	fmt.Println(styles.info.Render("[INFO] Starting TLS certificate setup for ServiceRadar components"))
+
+	// Default components if none specified
+	components := cfg.Components
+	if len(components) == 0 {
+		components = []string{
+			"core", "proton", "agent", "poller", "kv", "sync", "nats", "web",
+			"sysmon", "snmp", "rperf", "rperf-checker", "dusk-checker",
+		}
+	}
 
 	if cfg.AddIPs {
-		return addIPsToCerts(cfg, serviceIPs, &styles)
+		return addIPsToCerts(cfg, serviceIPs, &styles, components)
 	}
 
 	rootCA, rootKey, err := generateRootCA(cfg, &styles)
@@ -88,15 +96,30 @@ func GenerateTLSCerts(cfg *CmdConfig) error {
 		return err
 	}
 
-	if err := generateServiceCert("core", serviceIPs, rootCA, rootKey, &styles); err != nil {
+	// Generate certificates for each component
+	for _, component := range components {
+		certName := component
+		switch component {
+		case "proton":
+			certName = "core" // Proton uses core certificates
+		case "nats":
+			certName = "nats-server"
+		case "dusk-checker":
+			certName = "checkers"
+		case "rperf":
+			continue // rperf doesn't use mTLS in config
+		}
+
+		if err := generateServiceCert(certName, serviceIPs, rootCA, rootKey, &styles); err != nil {
+			return fmt.Errorf("failed to generate certificate for %s: %w", component, err)
+		}
+	}
+
+	if err := installCertificates(cfg, &styles, components); err != nil {
 		return err
 	}
 
-	if err := installCertificates(cfg, &styles); err != nil {
-		return err
-	}
-
-	showPostInstallInfo(cfg, serviceIPs, &styles)
+	showPostInstallInfo(cfg, serviceIPs, &styles, components)
 
 	fmt.Println(styles.success.Render("[SUCCESS] TLS certificate setup complete!"))
 
@@ -387,22 +410,82 @@ func logCertificateDetails(cert *x509.Certificate, styles *logStyles) {
 }
 
 // installCertificates installs the generated certificates for ServiceRadar and Proton.
-func installCertificates(cfg *CmdConfig, styles *logStyles) error {
+func installCertificates(cfg *CmdConfig, styles *logStyles, components []string) error {
 	fmt.Println(styles.info.Render("[INFO] Installing certificates..."))
 
-	// Copy certificates to ServiceRadar and Proton directories
-	if err := copyCertificates(cfg); err != nil {
-		return fmt.Errorf("failed to copy certificates: %w", err)
+	// Copy certificates
+	copies := []struct {
+		src, dst string
+	}{
+		// Common root CA
+		{filepath.Join(defaultWorkDir, "root.pem"), filepath.Join(cfg.CertDir, "root.pem")},
+		{filepath.Join(defaultWorkDir, "core.pem"), filepath.Join(cfg.ProtonDir, "root.pem")},
+		{filepath.Join(defaultWorkDir, "core-key.pem"), filepath.Join(cfg.ProtonDir, "core-key.pem")},
+		{filepath.Join(defaultWorkDir, "core.pem"), filepath.Join(cfg.CertDir, "core.pem")},
+		{filepath.Join(defaultWorkDir, "core-key.pem"), filepath.Join(cfg.CertDir, "core-key.pem")},
+		// Proton-specific
+		{filepath.Join(defaultWorkDir, "root.pem"), filepath.Join(cfg.ProtonDir, "ca-cert.pem")},
 	}
 
-	// Set permissions for certificate and key files
-	if err := setCertificatePermissions(cfg); err != nil {
-		return fmt.Errorf("failed to set permissions: %w", err)
+	// Add component-specific certificates
+	for _, component := range components {
+		certName := component
+		switch component {
+		case "proton":
+			continue // Handled above
+		case "nats":
+			certName = "nats-server"
+		case "dusk-checker":
+			certName = "checkers"
+		case "rperf":
+			continue // No mTLS
+		}
+		copies = append(copies,
+			struct{ src, dst string }{filepath.Join(defaultWorkDir, certName+".pem"), filepath.Join(cfg.CertDir, certName+".pem")},
+			struct{ src, dst string }{filepath.Join(defaultWorkDir, certName+"-key.pem"), filepath.Join(cfg.CertDir, certName+"-key.pem")},
+		)
 	}
 
-	// Set ownership for certificates if users exist
-	if err := setCertificateOwnership(cfg); err != nil {
-		// Log warnings but don't fail the installation
+	for _, c := range copies {
+		if err := copyFile(c.src, c.dst); err != nil {
+			return fmt.Errorf("failed to copy %s to %s: %w", c.src, c.dst, err)
+		}
+	}
+
+	// Set permissions
+	permSettings := map[string]os.FileMode{
+		filepath.Join(cfg.CertDir, "root.pem"):       defaultCertPerms,
+		filepath.Join(cfg.CertDir, "core.pem"):       defaultCertPerms,
+		filepath.Join(cfg.ProtonDir, "ca-cert.pem"):  defaultCertPerms,
+		filepath.Join(cfg.ProtonDir, "root.pem"):     defaultCertPerms,
+		filepath.Join(cfg.CertDir, "core-key.pem"):   defaultKeyPerms,
+		filepath.Join(cfg.ProtonDir, "core-key.pem"): defaultKeyPerms,
+	}
+
+	for _, component := range components {
+		certName := component
+		switch component {
+		case "proton":
+			continue
+		case "nats":
+			certName = "nats-server"
+		case "dusk-checker":
+			certName = "checkers"
+		case "rperf":
+			continue
+		}
+		permSettings[filepath.Join(cfg.CertDir, certName+".pem")] = defaultCertPerms
+		permSettings[filepath.Join(cfg.CertDir, certName+"-key.pem")] = defaultKeyPerms
+	}
+
+	for path, perm := range permSettings {
+		if err := os.Chmod(path, perm); err != nil {
+			return fmt.Errorf("failed to set permissions for %s: %w", path, err)
+		}
+	}
+
+	// Set ownership
+	if err := setCertificateOwnership(cfg, components); err != nil {
 		fmt.Println(styles.warning.Render("[WARNING] Failed to set ownership: " + err.Error()))
 	}
 
@@ -452,32 +535,58 @@ func setCertificatePermissions(cfg *CmdConfig) error {
 }
 
 // setCertificateOwnership sets ownership for certificate files if users exist.
-func setCertificateOwnership(cfg *CmdConfig) error {
+func setCertificateOwnership(cfg *CmdConfig, components []string) error {
 	var errors []string
 
-	// Set ownership for Proton files if user exists
+	// Proton files
 	if userExists("proton") {
 		protonFiles := []string{
 			filepath.Join(cfg.ProtonDir, "ca-cert.pem"),
 			filepath.Join(cfg.ProtonDir, "root.pem"),
 			filepath.Join(cfg.ProtonDir, "core-key.pem"),
 		}
-
 		if err := setOwnershipForFiles(protonFiles, "proton"); err != nil {
 			errors = append(errors, fmt.Sprintf("proton files: %v", err))
 		}
 	}
 
-	// Set ownership for ServiceRadar files if user exists
+	// ServiceRadar files
 	if userExists("serviceradar") {
 		radarFiles := []string{
 			filepath.Join(cfg.CertDir, "root.pem"),
 			filepath.Join(cfg.CertDir, "core.pem"),
 			filepath.Join(cfg.CertDir, "core-key.pem"),
 		}
-
+		for _, component := range components {
+			certName := component
+			switch component {
+			case "proton":
+				continue
+			case "nats":
+				certName = "nats-server"
+			case "dusk-checker":
+				certName = "checkers"
+			case "rperf":
+				continue
+			}
+			radarFiles = append(radarFiles,
+				filepath.Join(cfg.CertDir, certName+".pem"),
+				filepath.Join(cfg.CertDir, certName+"-key.pem"),
+			)
+		}
 		if err := setOwnershipForFiles(radarFiles, "serviceradar"); err != nil {
 			errors = append(errors, fmt.Sprintf("serviceradar files: %v", err))
+		}
+	}
+
+	// NATS files
+	if userExists("nats") {
+		natsFiles := []string{
+			filepath.Join(cfg.CertDir, "nats-server.pem"),
+			filepath.Join(cfg.CertDir, "nats-server-key.pem"),
+		}
+		if err := setOwnershipForFiles(natsFiles, "nats"); err != nil {
+			errors = append(errors, fmt.Sprintf("nats files: %v", err))
 		}
 	}
 
@@ -513,21 +622,8 @@ func setOwnershipForFiles(files []string, username string) error {
 }
 
 // addIPsToCerts adds IPs to existing certificates.
-func addIPsToCerts(cfg *CmdConfig, serviceIPs string, styles *logStyles) error {
+func addIPsToCerts(cfg *CmdConfig, serviceIPs string, styles *logStyles, components []string) error {
 	fmt.Println(styles.info.Render("[INFO] Adding IPs to existing certificates..."))
-
-	// Load existing core certificate
-	coreCert, err := loadCertificate(filepath.Join(cfg.CertDir, "core.pem"))
-	if err != nil {
-		return fmt.Errorf("failed to load core certificate: %w", err)
-	}
-
-	// Extract and merge IPs
-	existingIPs := strings.Join(ipSliceToStringSlice(coreCert.IPAddresses), ",")
-	fmt.Println(styles.info.Render("[INFO] Existing IPs in certificate: " + existingIPs))
-
-	allIPs := mergeIPs(existingIPs, serviceIPs)
-	fmt.Println(styles.info.Render("[INFO] Combined IPs for new certificate: " + allIPs))
 
 	// Load root CA and key
 	rootCert, rootKey, err := loadRootCACertAndKey(cfg.CertDir, styles)
@@ -535,13 +631,43 @@ func addIPsToCerts(cfg *CmdConfig, serviceIPs string, styles *logStyles) error {
 		return fmt.Errorf("failed to load root CA: %w", err)
 	}
 
-	// Generate new certificate with combined IPs
-	if err := generateServiceCert("core", allIPs, rootCert, rootKey, styles); err != nil {
-		return fmt.Errorf("failed to generate new certificate: %w", err)
+	// Generate new certificates with combined IPs
+	for _, component := range components {
+		certName := component
+		switch component {
+		case "proton":
+			certName = "core"
+		case "nats":
+			certName = "nats-server"
+		case "dusk-checker":
+			certName = "checkers"
+		case "rperf":
+			continue
+		}
+
+		// Load existing certificate
+		certPath := filepath.Join(cfg.CertDir, certName+".pem")
+		if component == "proton" {
+			certPath = filepath.Join(cfg.ProtonDir, "root.pem")
+		}
+		existingCert, err := loadCertificate(certPath)
+		if err != nil {
+			return fmt.Errorf("failed to load certificate for %s: %w", component, err)
+		}
+
+		// Merge IPs
+		existingIPs := strings.Join(ipSliceToStringSlice(existingCert.IPAddresses), ",")
+		allIPs := mergeIPs(existingIPs, serviceIPs)
+		fmt.Println(styles.info.Render("[INFO] Combined IPs for " + component + ": " + allIPs))
+
+		// Generate new certificate
+		if err := generateServiceCert(certName, allIPs, rootCert, rootKey, styles); err != nil {
+			return fmt.Errorf("failed to generate new certificate for %s: %w", component, err)
+		}
 	}
 
 	// Install new certificates
-	if err := installCertificates(cfg, styles); err != nil {
+	if err := installCertificates(cfg, styles, components); err != nil {
 		return fmt.Errorf("failed to install certificates: %w", err)
 	}
 
@@ -635,39 +761,41 @@ func mergeIPs(existingIPs, newIPs string) string {
 }
 
 // showPostInstallInfo displays post-installation instructions.
-func showPostInstallInfo(cfg *CmdConfig, serviceIPs string, styles *logStyles) {
+func showPostInstallInfo(cfg *CmdConfig, serviceIPs string, styles *logStyles, components []string) {
 	ips := strings.Split(serviceIPs, ",")
-	firstIP := ips[0]
-
 	fmt.Println()
 	fmt.Println(lipgloss.NewStyle().Bold(true).Render("TLS Certificate Setup Complete"))
 	fmt.Println()
 	fmt.Println("Certificates have been installed with the following IPs:")
-
 	for _, ip := range ips {
 		fmt.Println("  - " + styles.info.Render(ip))
 	}
-
 	fmt.Println()
 	fmt.Println(lipgloss.NewStyle().Bold(true).Render("Certificate locations:"))
-	fmt.Println("  - ServiceRadar: " +
-		styles.info.Render(
-			fmt.Sprintf("%s/root.pem, %s/core.pem, %s/core-key.pem", cfg.CertDir, cfg.CertDir, cfg.CertDir)))
-	fmt.Println("  - Proton: " +
-		styles.info.Render(
-			fmt.Sprintf("%s/ca-cert.pem, %s/root.pem, %s/core-key.pem", cfg.ProtonDir, cfg.ProtonDir, cfg.ProtonDir)))
+	for _, component := range components {
+		certName := component
+		certPath := cfg.CertDir
+		switch component {
+		case "proton":
+			certName = "core"
+			certPath = cfg.ProtonDir
+		case "nats":
+			certName = "nats-server"
+		case "dusk-checker":
+			certName = "checkers"
+		case "rperf":
+			continue
+		}
+		fmt.Println("  - " + component + ": " +
+			styles.info.Render(fmt.Sprintf("%s/%s.pem, %s/%s-key.pem", certPath, certName, certPath, certName)))
+	}
 	fmt.Println()
 	fmt.Println(lipgloss.NewStyle().Bold(true).Render("Next steps:"))
-	fmt.Println("1. Verify the Proton connection:")
-	fmt.Printf("   proton-client --host %s --port 9440 --secure \\\n", firstIP)
-	fmt.Printf("     --certificate-file %s/core.pem \\\n", cfg.CertDir)
-	fmt.Printf("     --private-key-file %s/core-key.pem -q \"SELECT 1\"\n", cfg.CertDir)
-	fmt.Println()
-	fmt.Println("2. If you need to add more IPs later, run:")
+	fmt.Println("1. If you need to add more IPs later, run:")
 	fmt.Println("   serviceradar generate-tls --add-ips --ip new.ip.address")
 	fmt.Println()
-	fmt.Println("3. To restart services with new certificates:")
-	fmt.Println("   systemctl restart serviceradar-proton serviceradar-core")
+	fmt.Println("2. To restart services with new certificates:")
+	fmt.Println("   systemctl restart serviceradar-*")
 	fmt.Println()
 }
 

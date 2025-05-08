@@ -1,15 +1,15 @@
 {
   "listen_addr": "0.0.0.0:50083",
   "security": {
-    "tls_enabled": false,
-    "cert_file": null,
-    "key_file": null,
-    "ca_file": null
+    "tls_enabled": true,
+    "cert_file": "/etc/serviceradar/certs/sysmon.pem",
+    "key_file": "/etc/serviceradar/certs/sysmon-key.pem",
+    "ca_file": "/etc/serviceradar/certs/root.pem"
   },
   "poll_interval": 30,
   "zfs": {
     "enabled": false,
-    "pools": ["rpool"],
+    "pools": [""],
     "include_datasets": false,
     "use_libzetta": false
   },

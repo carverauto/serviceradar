@@ -378,12 +378,43 @@ create_cert_dirs() {
 setup_mtls_certificates() {
     log "Checking for existing certificates..."
 
+    # Skip certificate generation if certificates exist and --add-ips is not specified
     if [ -f "$SR_CERT_DIR/root.pem" ] && [ -f "$SR_CERT_DIR/core.pem" ] && [ -f "$SR_CERT_DIR/core-key.pem" ] && [ ! "$ADD_IPS" = true ]; then
         log "Existing certificates found at $SR_CERT_DIR"
         log "Skipping certificate generation as certificates already exist"
         log "To add new IPs, use --add-ips with --ip"
         return
     fi
+
+    # Create certificate directories
+    log "Creating certificate directories..."
+    mkdir -p "$SR_CERT_DIR"
+    mkdir -p "$PROTON_CERT_DIR"
+    mkdir -p "/tmp/serviceradar-tls"
+    chmod 750 "$SR_CERT_DIR" "$PROTON_CERT_DIR"
+
+    # Determine components to generate certificates for
+    local components=()
+    if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_CORE" = "true" ]; then
+        components+=("core" "proton" "nats" "kv" "sync" "web")
+    fi
+    if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_POLLER" = "true" ]; then
+        components+=("poller")
+    fi
+    if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_AGENT" = "true" ]; then
+        components+=("agent")
+    fi
+    for checker in "${INSTALLED_CHECKERS[@]}"; do
+        case "$checker" in
+            sysmon) components+=("sysmon") ;;
+            snmp) components+=("snmp") ;;
+            rperf-checker) components+=("rperf-checker") ;;
+            dusk) components+=("dusk-checker") ;;
+        esac
+    done
+
+    # Remove duplicates
+    components=($(echo "${components[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' '))
 
     local cli_args="--cert-dir $SR_CERT_DIR --proton-dir $PROTON_CERT_DIR"
     if [ "$INTERACTIVE" = "false" ]; then
@@ -399,10 +430,40 @@ setup_mtls_certificates() {
         cli_args="$cli_args --add-ips"
     fi
 
-    log "Generating mTLS certificates using serviceradar CLI..."
+    # Add components
+    if [ ${#components[@]} -gt 0 ]; then
+        cli_args="$cli_args --component $(IFS=,; echo "${components[*]}")"
+    fi
+
+    log "Generating mTLS certificates for components: ${components[*]}"
     if ! /usr/local/bin/serviceradar generate-tls $cli_args; then
         error "Failed to generate mTLS certificates using serviceradar CLI"
     fi
+
+    # Verify certificates
+    for component in "${components[@]}"; do
+        local cert_name="$component"
+        local cert_dir="$SR_CERT_DIR"
+        case "$component" in
+            proton)
+                cert_name="core"
+                cert_dir="$PROTON_CERT_DIR"
+                ;;
+            nats)
+                cert_name="nats-server"
+                ;;
+            dusk-checker)
+                cert_name="checkers"
+                ;;
+            rperf)
+                continue
+                ;;
+        esac
+        if [ ! -f "$cert_dir/$cert_name.pem" ] || [ ! -f "$cert_dir/$cert_name-key.pem" ]; then
+            error "Certificate or key file missing for $component: $cert_dir/$cert_name.pem or $cert_dir/$cert_name-key.pem"
+        fi
+    done
+
     success "mTLS certificates generated and installed successfully"
 }
 
@@ -421,15 +482,54 @@ show_post_install_info() {
     done
     echo
     echo -e "${COLOR_BOLD}Certificate locations:${COLOR_RESET}"
-    echo -e "  - ServiceRadar: ${COLOR_CYAN}$SR_CERT_DIR/root.pem, $SR_CERT_DIR/core.pem, $SR_CERT_DIR/core-key.pem${COLOR_RESET}"
-    echo -e "  - Proton: ${COLOR_CYAN}$PROTON_CERT_DIR/ca-cert.pem, $PROTON_CERT_DIR/root.pem, $PROTON_CERT_DIR/core-key.pem${COLOR_RESET}"
+
+    local components=()
+    if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_CORE" = "true" ]; then
+        components+=("core" "proton" "nats" "kv" "sync" "web")
+    fi
+    if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_POLLER" = "true" ]; then
+        components+=("poller")
+    fi
+    if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_AGENT" = "true" ]; then
+        components+=("agent")
+    fi
+    for checker in "${INSTALLED_CHECKERS[@]}"; do
+        case "$checker" in
+            sysmon) components+=("sysmon") ;;
+            snmp) components+=("snmp") ;;
+            rperf-checker) components+=("rperf-checker") ;;
+            dusk) components+=("dusk-checker") ;;
+        esac
+    done
+    components=($(echo "${components[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' '))
+
+    for component in "${components[@]}"; do
+        local cert_name="$component"
+        local cert_dir="$SR_CERT_DIR"
+        case "$component" in
+            proton)
+                cert_name="core"
+                cert_dir="$PROTON_CERT_DIR"
+                ;;
+            nats)
+                cert_name="nats-server"
+                ;;
+            dusk-checker)
+                cert_name="checkers"
+                ;;
+            rperf)
+                continue
+                ;;
+        esac
+        echo -e "  - $component: ${COLOR_CYAN}$cert_dir/$cert_name.pem, $cert_dir/$cert_name-key.pem${COLOR_RESET}"
+    done
     echo
     echo -e "${COLOR_BOLD}Next steps:${COLOR_RESET}"
     echo "1. If you need to add more IPs later, run:"
     echo "   $0 --add-ips --ip new.ip.address"
     echo
     echo "2. To restart services with new certificates:"
-    echo "   systemctl restart serviceradar-proton serviceradar-core"
+    echo "   systemctl restart serviceradar-*"
     echo
 }
 
@@ -725,6 +825,26 @@ install_optional_checkers() {
     fi
 }
 
+update_configs_for_mtls() {
+    log "Updating configuration files to enable mTLS..."
+
+    local configs=(
+        "/etc/serviceradar/checkers/dusk.json"
+        "/etc/serviceradar/checkers/snmp.json"
+    )
+
+    for config in "${configs[@]}"; do
+        if [ -f "$config" ]; then
+            log "Enabling mTLS in $config..."
+            jq '.security.mode = "mtls" | .security.server_name = "127.0.0.1"' "$config" > "$config.tmp" && mv "$config.tmp" "$config"
+            chown serviceradar:serviceradar "$config"
+            chmod 644 "$config"
+        fi
+    done
+
+    success "Configuration files updated for mTLS"
+}
+
 # Main installation logic
 main() {
     display_banner
@@ -776,25 +896,22 @@ main() {
     mkdir -p "$TEMP_DIR"
     install_dependencies
 
-    # Install serviceradar-cli early if core or all is being installed
-    if [ "$INSTALL_CORE" = "true" ] || [ "$INSTALL_ALL" = "true" ]; then
-        header "Installing ServiceRadar CLI"
-        if [ "$SYSTEM" = "rhel" ]; then
-            install_single_package "serviceradar-cli" "-1.el9.x86_64"
-        else
-            install_single_package "serviceradar-cli" ""
-        fi
+    # Install serviceradar-cli for all scenarios
+    header "Installing ServiceRadar CLI"
+    if [ "$SYSTEM" = "rhel" ]; then
+        install_single_package "serviceradar-cli" "-1.el9.x86_64"
+    else
+        install_single_package "serviceradar-cli" ""
     fi
 
-    # Setup mTLS certificates if core is being installed
-    if [ "$INSTALL_CORE" = "true" ] || [ "$INSTALL_ALL" = "true" ]; then
-        header "Setting up mTLS Certificates"
-        create_cert_dirs
-        setup_mtls_certificates
-        show_post_install_info
-    fi
+    # Setup mTLS certificates
+    header "Setting up mTLS Certificates"
+    create_cert_dirs
+    setup_mtls_certificates
+    update_configs_for_mtls
+    show_post_install_info
 
-    core_packages=("serviceradar-core" "serviceradar-proton" "serviceradar-web" "serviceradar-nats" "serviceradar-kv" "serviceradar-sync") # Removed serviceradar-cli
+    core_packages=("serviceradar-core" "serviceradar-proton" "serviceradar-web" "serviceradar-nats" "serviceradar-kv" "serviceradar-sync")
     poller_packages=("serviceradar-poller")
     agent_packages=("serviceradar-agent")
     packages_to_install=()
@@ -834,11 +951,12 @@ main() {
     header "Installation Complete"
     success "[ServiceRadar] installation completed successfully!"
     if [ "$INSTALL_CORE" = "true" ]; then
-        info "Web UI: ${COLOR_YELLOW}http://${LOCAL_IP}/${COLOR_RESET}"
-        info "Core API: ${COLOR_YELLOW}http://${LOCAL_IP}/swagger${COLOR_RESET}"
+        local_ip=$(get_local_ip)
+        info "Web UI: ${COLOR_YELLOW}http://${local_ip}/${COLOR_RESET}"
+        info "Core API: ${COLOR_YELLOW}http://${local_ip}/swagger${COLOR_RESET}"
     fi
 
-    if [ "$INSTALL_POLLER" = "true" ]arger && [ ${#INSTALLED_CHECKERS[@]} -gt 0 ] && [ "$UPDATE_POLLER_CONFIG" = "false" ]; then
+    if [ "$INSTALL_POLLER" = "true" ] && [ ${#INSTALLED_CHECKERS[@]} -gt 0 ] && [ "$UPDATE_POLLER_CONFIG" = "false" ]; then
         info "${COLOR_YELLOW}Note:${COLOR_RESET} You installed checkers but disabled automatic poller configuration."
         info "To manually enable the checkers in your poller configuration, run:"
         for checker_type in "${INSTALLED_CHECKERS[@]}"; do
