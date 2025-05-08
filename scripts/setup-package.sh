@@ -462,7 +462,7 @@ EOF
 
 # Main logic
 if [ "$build_all" = "true" ]; then
-    components=$(jq -r '.[].name' "$CONFIG_FILE")
+    components=$(jq -r '.[] | select(.name != null) | .name' "$CONFIG_FILE")
     for component in $components; do
         build_component "$component"
     done
