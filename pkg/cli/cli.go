@@ -441,6 +441,7 @@ func (GenerateTLSHandler) Parse(args []string, cfg *CmdConfig) error {
 	cfg.ProtonDir = *protonDir
 	cfg.AddIPs = *addIPs
 	cfg.NonInteractive = *nonInteractive
+
 	if *components != "" {
 		cfg.Components = strings.Split(*components, ",")
 	}
