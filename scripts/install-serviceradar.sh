@@ -20,8 +20,8 @@
 set -e
 
 # Configuration
-VERSION="1.0.35"
-RELEASE_TAG="1.0.35"
+VERSION="1.0.36-pre2"
+RELEASE_TAG="1.0.36-pre2"
 RELEASE_URL="https://github.com/carverauto/serviceradar/releases/download/${RELEASE_TAG}"
 TEMP_DIR="/tmp/serviceradar-install"
 POLLER_CONFIG="/etc/serviceradar/poller.json"
@@ -136,8 +136,8 @@ validate_package() {
     fi
 
     if [ "$SYSTEM" = "debian" ]; then
-        if ! dpkg-deb -W "$file" >/dev/null 2>&1; then
-            error "Downloaded file $file is not a valid .deb package"
+        if ! dpkg-deb -W "$file" > /tmp/dpkg-deb.log 2>&1; then
+            error "Downloaded file $file is not a valid .deb package. Error: $(cat /tmp/dpkg-deb.log)"
         fi
     else
         if [ ! -s "$file" ]; then
@@ -266,16 +266,20 @@ install_dependencies() {
 download_package() {
     local pkg_name="$1"
     local suffix="$2"
+    local deb_version="${VERSION/-pre2/}"  # Strip -pre2 for Debian package filenames
+    local file_name
     if [ "$SYSTEM" = "debian" ]; then
-        local file_name="${pkg_name}_${VERSION}${suffix}.${PKG_EXT}"
+        file_name="${pkg_name}_${deb_version}${suffix}.${PKG_EXT}"
     else
-        local file_name="${pkg_name}-${VERSION}${suffix}.${PKG_EXT}"
+        file_name="${pkg_name}-${VERSION}${suffix}.${PKG_EXT}"
     fi
     local url="${RELEASE_URL}/${file_name}"
     local output="${TEMP_DIR}/${pkg_name}.${PKG_EXT}"
 
     log "Downloading ${COLOR_YELLOW}${pkg_name}${COLOR_RESET}..."
-    log "URL: ${COLOR_YELLOW}${url}${COLOR_RESET}"
+    log "DEBUG: Constructed filename: ${COLOR_YELLOW}${file_name}${COLOR_RESET}"
+    log "DEBUG: Download URL: ${COLOR_YELLOW}${url}${COLOR_RESET}"
+    log "DEBUG: curl command: curl -sSL --connect-timeout 30 --max-time 300 --retry 3 --retry-delay 2 -o \"$output\" \"$url\""
 
     if ! curl -sSL --connect-timeout 30 --max-time 300 --retry 3 --retry-delay 2 -o "$output" "$url"; then
         error "Failed to download ${pkg_name} from $url"
@@ -284,6 +288,9 @@ download_package() {
     if [ ! -f "$output" ] || [ ! -s "$output" ]; then
         error "Downloaded file for ${pkg_name} is empty or does not exist"
     fi
+
+    log "DEBUG: Downloaded file size: $(stat -c %s "$output") bytes"
+    log "DEBUG: File contents preview: $(head -c 20 "$output" | tr -dc '[:print:]')"
 
     validate_package "$output"
 }
@@ -317,9 +324,10 @@ install_packages() {
 install_single_package() {
     local pkg="$1"
     local suffix="$2"
+    local deb_version="${VERSION/-pre2/}"  # Strip -pre2 for Debian package filenames
     local file_name
     if [ "$SYSTEM" = "debian" ]; then
-        file_name="${pkg}_${VERSION}${suffix}.${PKG_EXT}"
+        file_name="${pkg}_${deb_version}${suffix}.${PKG_EXT}"
     else
         file_name="${pkg}-${VERSION}${suffix}.${PKG_EXT}"
     fi
@@ -327,9 +335,16 @@ install_single_package() {
     local output="${TEMP_DIR}/${pkg}.${PKG_EXT}"
 
     log "Downloading ${COLOR_YELLOW}${pkg}${COLOR_RESET}..."
+    log "DEBUG: Constructed filename: ${COLOR_YELLOW}${file_name}${COLOR_RESET}"
+    log "DEBUG: Download URL: ${COLOR_YELLOW}${url}${COLOR_RESET}"
+    log "DEBUG: curl command: curl -sSL --connect-timeout 30 --max-time 300 --retry 3 --retry-delay 2 -o \"$output\" \"$url\""
+
     if ! curl -sSL --connect-timeout 30 --max-time 300 --retry 3 --retry-delay 2 -o "$output" "$url"; then
         error "Failed to download ${pkg} from $url"
     fi
+
+    log "DEBUG: Downloaded file size: $(stat -c %s "$output") bytes"
+    log "DEBUG: File contents preview: $(head -c 20 "$output" | tr -dc '[:print:]')"
 
     validate_package "$output"
 
@@ -372,6 +387,7 @@ create_cert_dirs() {
     mkdir -p "$SR_CERT_DIR"
     mkdir -p "$PROTON_CERT_DIR"
     mkdir -p "/tmp/serviceradar-tls"
+    chmod 750 "$SR_CERT_DIR" "$PROTON_CERT_DIR"
 }
 
 # Setup mTLS certificates using serviceradar CLI
@@ -387,11 +403,7 @@ setup_mtls_certificates() {
     fi
 
     # Create certificate directories
-    log "Creating certificate directories..."
-    mkdir -p "$SR_CERT_DIR"
-    mkdir -p "$PROTON_CERT_DIR"
-    mkdir -p "/tmp/serviceradar-tls"
-    chmod 750 "$SR_CERT_DIR" "$PROTON_CERT_DIR"
+    create_cert_dirs
 
     # Determine components to generate certificates for
     local components=()
@@ -436,8 +448,31 @@ setup_mtls_certificates() {
     fi
 
     log "Generating mTLS certificates for components: ${components[*]}"
-    if ! /usr/local/bin/serviceradar generate-tls $cli_args; then
+    log "DEBUG: Running command: /usr/local/bin/serviceradar generate-tls $cli_args"
+    if ! /usr/local/bin/serviceradar generate-tls $cli_args > /tmp/serviceradar-tls.log 2>&1; then
+        log "DEBUG: Certificate generation output: $(cat /tmp/serviceradar-tls.log)"
         error "Failed to generate mTLS certificates using serviceradar CLI"
+    fi
+    log "DEBUG: Certificate generation output: $(cat /tmp/serviceradar-tls.log)"
+
+    # Log contents of certificate directories
+    log "DEBUG: Contents of $SR_CERT_DIR:"
+    ls -l "$SR_CERT_DIR" | while read -r line; do log "DEBUG:   $line"; done
+    log "DEBUG: Contents of $PROTON_CERT_DIR:"
+    ls -l "$PROTON_CERT_DIR" | while read -r line; do log "DEBUG:   $line"; done
+
+    # Immediate validation for proton certificate
+    if [[ " ${components[*]} " =~ " proton " ]]; then
+        if [ ! -f "$PROTON_CERT_DIR/core.pem" ] || [ ! -f "$PROTON_CERT_DIR/core-key.pem" ]; then
+            log "DEBUG: Missing proton certificate files. Checking for misplaced core.pem in $SR_CERT_DIR..."
+            if [ -f "$SR_CERT_DIR/core.pem" ]; then
+                log "DEBUG: Found core.pem in $SR_CERT_DIR, copying to $PROTON_CERT_DIR"
+                cp "$SR_CERT_DIR/core.pem" "$PROTON_CERT_DIR/core.pem"
+                chmod 644 "$PROTON_CERT_DIR/core.pem"
+            else
+                error "Proton certificate file missing: $PROTON_CERT_DIR/core.pem"
+            fi
+        fi
     fi
 
     # Verify certificates
@@ -459,6 +494,7 @@ setup_mtls_certificates() {
                 continue
                 ;;
         esac
+        log "DEBUG: Validating certificate for $component: $cert_dir/$cert_name.pem and $cert_dir/$cert_name-key.pem"
         if [ ! -f "$cert_dir/$cert_name.pem" ] || [ ! -f "$cert_dir/$cert_name-key.pem" ]; then
             error "Certificate or key file missing for $component: $cert_dir/$cert_name.pem or $cert_dir/$cert_name-key.pem"
         fi
@@ -906,7 +942,6 @@ main() {
 
     # Setup mTLS certificates
     header "Setting up mTLS Certificates"
-    create_cert_dirs
     setup_mtls_certificates
     update_configs_for_mtls
     show_post_install_info
