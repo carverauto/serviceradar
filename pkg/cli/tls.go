@@ -83,19 +83,17 @@ func newLogStyles() logStyles {
 	}
 }
 
-// GenerateTLSCerts generates mTLS certificates for ServiceRadar and Proton
+// GenerateTLSCerts generates mTLS certificates for ServiceRadar and Proton.
 func GenerateTLSCerts(cfg *CmdConfig) error {
-	styles := newLogStyles()
-
 	var err error
 
-	// Initialize service IPs
+	styles := newLogStyles()
+
 	serviceIPs, err := initializeServiceIPs(cfg, &styles)
 	if err != nil {
 		return err
 	}
 
-	// Create certificate directories
 	err = createCertDirs(cfg.CertDir, cfg.ProtonDir, &styles)
 	if err != nil {
 		return err
@@ -103,34 +101,18 @@ func GenerateTLSCerts(cfg *CmdConfig) error {
 
 	fmt.Println(styles.info.Render("[INFO] Starting TLS certificate setup for ServiceRadar components"))
 
-	// Set default components if none specified
-	components := cfg.Components
-	if len(components) == 0 {
-		components = append([]string{
-			"core", "proton", "agent", "poller", "kv", "sync", "nats", "web",
-			"sysmon", "snmp", "rperf", "rperf-checker",
-		}, defaultServices()...)
-	}
-
+	components := selectComponents(cfg)
 	if cfg.AddIPs {
 		return addIPsToCerts(cfg, serviceIPs, &styles, components)
 	}
 
-	rootCA, rootKey, err := generateRootCA(cfg, &styles)
+	rootCA, rootKey, err := loadOrGenerateRootCA(cfg, &styles)
 	if err != nil {
 		return err
 	}
 
-	// Generate certificates for each component
-	for _, component := range components {
-		if component == serviceRperf {
-			continue // rperf doesn't use mTLS
-		}
-
-		certName := getCertName(component)
-		if err := generateServiceCert(certName, serviceIPs, rootCA, rootKey, &styles); err != nil {
-			return fmt.Errorf("failed to generate certificate for %s: %w", component, err)
-		}
+	if err := generateComponentCerts(cfg, components, serviceIPs, rootCA, rootKey, &styles); err != nil {
+		return err
 	}
 
 	if err := installCertificates(cfg, &styles, components); err != nil {
@@ -138,7 +120,64 @@ func GenerateTLSCerts(cfg *CmdConfig) error {
 	}
 
 	showPostInstallInfo(cfg, serviceIPs, &styles)
+
 	fmt.Println(styles.success.Render("[SUCCESS] TLS certificate setup complete!"))
+
+	return nil
+}
+
+func selectComponents(cfg *CmdConfig) []string {
+	if len(cfg.Components) > 0 {
+		return cfg.Components
+	}
+
+	return append([]string{
+		"core", "proton", "agent", "poller", "kv", "sync", "nats", "web",
+		"sysmon", "snmp", "rperf", "rperf-checker",
+	}, defaultServices()...)
+}
+
+func loadOrGenerateRootCA(cfg *CmdConfig, styles *logStyles) (*x509.Certificate, *ecdsa.PrivateKey, error) {
+	rootPEM := filepath.Join(cfg.CertDir, "root.pem")
+
+	if _, err := os.Stat(rootPEM); err == nil {
+		rootCA, rootKey, err := loadRootCACertAndKey(cfg.CertDir, styles)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to load existing root CA: %w", err)
+		}
+
+		fmt.Println(styles.info.Render("[INFO] Using existing root CA at " + rootPEM))
+
+		return rootCA, rootKey, nil
+	}
+
+	return generateRootCA(cfg, styles)
+}
+
+func generateComponentCerts(
+	cfg *CmdConfig,
+	components []string,
+	serviceIPs string,
+	rootCA *x509.Certificate,
+	rootKey *ecdsa.PrivateKey,
+	styles *logStyles) error {
+	for _, component := range components {
+		if component == serviceRperf {
+			continue
+		}
+
+		certName := getCertName(component)
+		certPath := filepath.Join(cfg.CertDir, certName+".pem")
+
+		if _, err := os.Stat(certPath); err == nil {
+			fmt.Println(styles.info.Render("[INFO] Certificate for " + component + " already exists, skipping"))
+			continue
+		}
+
+		if err := generateServiceCert(certName, serviceIPs, rootCA, rootKey, styles); err != nil {
+			return fmt.Errorf("failed to generate certificate for %s: %w", component, err)
+		}
+	}
 
 	return nil
 }
