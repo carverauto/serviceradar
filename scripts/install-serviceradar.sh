@@ -394,85 +394,31 @@ create_cert_dirs() {
 setup_mtls_certificates() {
     log "Checking for existing certificates..."
 
-    # Determine components to generate certificates for
-    local components=()
+    # Determine components to generate certificates for based on shared config
+    local components="core,proton"
+
     if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_CORE" = "true" ]; then
-        components+=("core" "proton" "nats" "kv" "sync" "web")
+        components="$components,web,nats,kv,sync"
     fi
     if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_POLLER" = "true" ]; then
-        components+=("poller")
+        components="$components,poller"
     fi
     if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_AGENT" = "true" ]; then
-        components+=("agent")
+        components="$components,agent"
     fi
     for checker in "${INSTALLED_CHECKERS[@]}"; do
         case "$checker" in
-            sysmon) components+=("sysmon") ;;
-            snmp) components+=("snmp") ;;
-            rperf-checker) components+=("rperf-checker") ;;
-            dusk) components+=("dusk-checker") ;;
+            sysmon) components="$components,sysmon" ;;
+            snmp) components="$components,snmp" ;;
+            rperf-checker) components="$components,rperf-checker" ;;
+            dusk) components="$components,dusk-checker" ;;
         esac
     done
-
-    # Remove duplicates
-    components=($(echo "${components[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' '))
-    log "DEBUG: Components for certificate generation: ${components[*]}"
-
-    # Check if all required certificates exist
-    local all_certs_exist=true
-    local missing_certs=()
-    for component in "${components[@]}"; do
-        local cert_name="$component"
-        local cert_dir="$SR_CERT_DIR"
-        case "$component" in
-            proton)
-                cert_name="core"
-                cert_dir="$PROTON_CERT_DIR"
-                ;;
-            nats)
-                cert_name="nats-server"
-                ;;
-            dusk-checker)
-                cert_name="checkers"
-                ;;
-            sysmon)
-                cert_name="sysmon"
-                ;;
-            snmp)
-                cert_name="snmp"
-                ;;
-            rperf-checker)
-                cert_name="rperf-checker"
-                ;;
-            rperf)
-                continue
-                ;;
-        esac
-        if [ ! -f "$cert_dir/$cert_name.pem" ] || [ ! -f "$cert_dir/$cert_name-key.pem" ]; then
-            all_certs_exist=false
-            missing_certs+=("$component: $cert_dir/$cert_name.pem, $cert_dir/$cert_name-key.pem")
-        fi
-    done
-
-    # Skip certificate generation only if all required certificates exist and --add-ips is not specified
-    if [ "$all_certs_exist" = true ] && [ ! "$ADD_IPS" = true ]; then
-        log "All required certificates found in $SR_CERT_DIR and $PROTON_CERT_DIR"
-        log "Skipping certificate generation as all certificates already exist"
-        log "To add new IPs, use --add-ips with --ip"
-        return
-    fi
-
-    # Log missing certificates
-    if [ ${#missing_certs[@]} -gt 0 ]; then
-        log "DEBUG: Missing certificates:"
-        for cert in "${missing_certs[@]}"; do
-            log "DEBUG:   $cert"
-        done
-    fi
 
     # Create certificate directories
     create_cert_dirs
 
+    # Generate certificates with a single command for all selected components
     local cli_args="--cert-dir $SR_CERT_DIR --proton-dir $PROTON_CERT_DIR"
     if [ "$INTERACTIVE" = "false" ]; then
         cli_args="$cli_args --non-interactive"
@@ -481,96 +427,34 @@ setup_mtls_certificates() {
         cli_args="$cli_args --ip $SERVICE_IPS"
     fi
 
-    # Add components
-    if [ ${#components[@]} -gt 0 ]; then
-        cli_args="$cli_args --component $(IFS=,; echo "${components[*]}")"
+    # Add components to command
+    cli_args="$cli_args --component $components"
+
+    log "Generating mTLS certificates for components: $components"
+    if ! /usr/local/bin/serviceradar generate-tls $cli_args; then
+        error "Failed to generate mTLS certificates using serviceradar CLI"
     fi
 
-    # Check if root CA exists
-    if [ -f "$SR_CERT_DIR/root.pem" ]; then
-        log "DEBUG: Root CA exists at $SR_CERT_DIR/root.pem, attempting to update certificates with --add-ips"
-        cli_args="$cli_args --add-ips"
-        log "Generating mTLS certificates for components (updating existing): ${components[*]}"
-        log "DEBUG: Running command: /usr/local/bin/serviceradar generate-tls $cli_args"
-        if ! /usr/local/bin/serviceradar generate-tls $cli_args > /tmp/serviceradar-tls.log 2>&1; then
-            log "DEBUG: Certificate update failed: $(cat /tmp/serviceradar-tls.log)"
-            log "WARNING: Failed to update certificates. Removing existing certificates and regenerating..."
-            rm -rf "$SR_CERT_DIR"/* "$PROTON_CERT_DIR"/*
-            create_cert_dirs
-            cli_args=${cli_args/--add-ips/} # Remove --add-ips for fresh generation
-            log "DEBUG: Running command: /usr/local/bin/serviceradar generate-tls $cli_args"
-            if ! /usr/local/bin/serviceradar generate-tls $cli_args > /tmp/serviceradar-tls.log 2>&1; then
-                log "DEBUG: Certificate generation output: $(cat /tmp/serviceradar-tls.log)"
-                error "Failed to generate mTLS certificates using serviceradar CLI"
-            fi
-        fi
-    else
-        log "Generating mTLS certificates for components: ${components[*]}"
-        log "DEBUG: Running command: /usr/local/bin/serviceradar generate-tls $cli_args"
-        if ! /usr/local/bin/serviceradar generate-tls $cli_args > /tmp/serviceradar-tls.log 2>&1; then
-            log "DEBUG: Certificate generation output: $(cat /tmp/serviceradar-tls.log)"
-            error "Failed to generate mTLS certificates using serviceradar CLI"
-        fi
-    fi
-    log "DEBUG: Certificate generation output: $(cat /tmp/serviceradar-tls.log)"
-
-    # Set certificate permissions
-    chmod 644 "$SR_CERT_DIR"/*.pem "$PROTON_CERT_DIR"/*.pem 2>/dev/null || true
-    chmod 600 "$SR_CERT_DIR"/*-key.pem "$PROTON_CERT_DIR"/*-key.pem 2>/dev/null || true
-
-    # Log contents of certificate directories
-    log "DEBUG: Contents of $SR_CERT_DIR:"
-    ls -l "$SR_CERT_DIR" | while read -r line; do log "DEBUG:   $line"; done
-    log "DEBUG: Contents of $PROTON_CERT_DIR:"
-    ls -l "$PROTON_CERT_DIR" | while read -r line; do log "DEBUG:   $line"; done
-
-    # Immediate validation for proton certificate
-    if [[ " ${components[*]} " =~ " proton " ]]; then
-        if [ ! -f "$PROTON_CERT_DIR/core.pem" ] || [ ! -f "$PROTON_CERT_DIR/core-key.pem" ]; then
-            log "DEBUG: Missing proton certificate files. Checking for misplaced core.pem in $SR_CERT_DIR..."
-            if [ -f "$SR_CERT_DIR/core.pem" ]; then
-                log "DEBUG: Found core.pem in $SR_CERT_DIR, copying to $PROTON_CERT_DIR"
-                cp "$SR_CERT_DIR/core.pem" "$PROTON_CERT_DIR/core.pem"
-                chmod 644 "$PROTON_CERT_DIR/core.pem"
-            else
-                error "Proton certificate file missing: $PROTON_CERT_DIR/core.pem"
-            fi
-        fi
+    # Additional verification and file permissions/ownership
+    if [ -f "$SR_CERT_DIR/root.pem" ] && [ ! -f "$PROTON_CERT_DIR/root.pem" ]; then
+        log "Copying root CA certificate to Proton directory..."
+        cp "$SR_CERT_DIR/root.pem" "$PROTON_CERT_DIR/root.pem"
+        chmod 644 "$PROTON_CERT_DIR/root.pem"
     fi
 
-    # Verify certificates
-    for component in "${components[@]}"; do
-        local cert_name="$component"
-        local cert_dir="$SR_CERT_DIR"
-        case "$component" in
-            proton)
-                cert_name="core"
-                cert_dir="$PROTON_CERT_DIR"
-                ;;
-            nats)
-                cert_name="nats-server"
-                ;;
-            dusk-checker)
-                cert_name="checkers"
-                ;;
-            sysmon)
-                cert_name="sysmon"
-                ;;
-            snmp)
-                cert_name="snmp"
-                ;;
-            rperf-checker)
-                cert_name="rperf-checker"
-                ;;
-            rperf)
-                continue
-                ;;
-        esac
-        log "DEBUG: Validating certificate for $component: $cert_dir/$cert_name.pem and $cert_dir/$cert_name-key.pem"
-        if [ ! -f "$cert_dir/$cert_name.pem" ] || [ ! -f "$cert_dir/$cert_name-key.pem" ]; then
-            error "Certificate or key file missing for $component: $cert_dir/$cert_name.pem or $cert_dir/$cert_name-key.pem"
-        fi
-    done
+    if [ -f "$SR_CERT_DIR/core.pem" ] && [ ! -f "$PROTON_CERT_DIR/core.pem" ]; then
+        log "Copying core certificate to Proton directory..."
+        cp "$SR_CERT_DIR/core.pem" "$PROTON_CERT_DIR/core.pem"
+        cp "$SR_CERT_DIR/core-key.pem" "$PROTON_CERT_DIR/core-key.pem"
+        chmod 644 "$PROTON_CERT_DIR/core.pem"
+        chmod 600 "$PROTON_CERT_DIR/core-key.pem"
+    fi
+
+    # Set proper ownership
+    chmod 644 "$SR_CERT_DIR"/*.pem 2>/dev/null || true
+    chmod 600 "$SR_CERT_DIR"/*-key.pem 2>/dev/null || true
+    chmod 644 "$PROTON_CERT_DIR"/*.pem 2>/dev/null || true
+    chmod 600 "$PROTON_CERT_DIR"/*-key.pem 2>/dev/null || true
 
     success "mTLS certificates generated and installed successfully"
 }
