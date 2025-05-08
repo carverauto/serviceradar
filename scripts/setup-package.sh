@@ -25,7 +25,7 @@ RELEASE_DIR="${BASE_DIR}/release-artifacts"
 
 usage() {
     local components
-    components=$(jq -r '.[].name' "$CONFIG_FILE" | tr '\n' ' ')
+    components=$(jq -r '.[] | select(.name != null) | .name' "$CONFIG_FILE")
     echo "Usage: $0 --type=[deb|rpm] [--all | all | component_name]"
     echo "Components: $components"
     exit 1
