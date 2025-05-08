@@ -66,10 +66,9 @@ command -v jq >/dev/null 2>&1 || { echo "Error: jq is required"; exit 1; }
 mkdir -p "$RELEASE_DIR" || { echo "Error: Failed to create release directory $RELEASE_DIR"; exit 1; }
 [ "$package_type" = "rpm" ] && mkdir -p "$RELEASE_DIR/rpm/$VERSION" || true
 
-# Add this function to setup-package.sh
 setup_certificates_from_shared_config() {
     local config="$1"
-    local cert_config=$(echo "$config" | jq -r '.shared_config.certificates // empty')
+    local cert_config=$(echo "$config" | jq -r '.[0].shared_config.certificates // empty')
 
     if [ -z "$cert_config" ]; then
         echo "No shared certificate configuration found, skipping certificate setup"
@@ -127,13 +126,6 @@ build_component() {
     local config
     config=$(jq -r --arg name "$component" '.[] | select(.name == $name)' "$CONFIG_FILE")
     [ -z "$config" ] && { echo "Error: Component $component not found in $CONFIG_FILE"; exit 1; }
-
-    # If this is the core or proton component, set up certificates first
-    if [ "$component" = "core" ] || [ "$component" = "proton" ]; then
-        # Get the full config including shared_config
-        local full_config=$(cat "$CONFIG_FILE")
-        setup_certificates_from_shared_config "$full_config"
-    fi
 
     # Check if package type is supported for this component
     if [ "$package_type" = "rpm" ]; then
