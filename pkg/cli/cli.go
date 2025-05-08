@@ -430,6 +430,7 @@ func (GenerateTLSHandler) Parse(args []string, cfg *CmdConfig) error {
 	protonDir := fs.String("proton-dir", "/etc/proton-server", "where to store Proton certificates")
 	addIPs := fs.Bool("add-ips", false, "add IPs to existing certificates")
 	nonInteractive := fs.Bool("non-interactive", false, "run in non-interactive mode (use 127.0.0.1)")
+	components := fs.String("component", "", "Comma-separated list of components to generate certificates for")
 
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("parsing generate-tls flags: %w", err)
@@ -440,6 +441,9 @@ func (GenerateTLSHandler) Parse(args []string, cfg *CmdConfig) error {
 	cfg.ProtonDir = *protonDir
 	cfg.AddIPs = *addIPs
 	cfg.NonInteractive = *nonInteractive
+	if *components != "" {
+		cfg.Components = strings.Split(*components, ",")
+	}
 
 	return nil
 }

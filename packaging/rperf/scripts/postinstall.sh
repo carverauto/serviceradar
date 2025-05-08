@@ -31,6 +31,12 @@ fi
 mkdir -p /var/lib/serviceradar
 mkdir -p /etc/serviceradar/checkers
 
+# Ensure certificate directory permissions
+if [ -d "/etc/serviceradar/certs" ]; then
+    chown -R serviceradar:serviceradar /etc/serviceradar/certs
+    chmod -R 640 /etc/serviceradar/certs/*.pem
+fi
+
 # Set proper ownership and permissions
 chown -R serviceradar:serviceradar /etc/serviceradar/checkers
 chown -R serviceradar:serviceradar /var/lib/serviceradar

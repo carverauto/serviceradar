@@ -1,16 +1,28 @@
 {
     "agents": {
         "local-agent": {
-            "address": "127.0.0.1:50051",
+            "address": ":50051",
             "security": {
                 "server_name": "127.0.0.1",
-                "mode": "none"
+                "mode": "mtls",
+                "cert_dir": "/etc/serviceradar/certs",
+                "tls": {
+                    "cert_file": "agent.pem",
+                    "key_file": "agent-key.pem",
+                    "ca_file": "root.pem",
+                    "client_ca_file": "root.pem"
+                }
             },
             "checks": [
                 {
                     "service_type": "process",
                     "service_name": "serviceradar-agent",
                     "details": "serviceradar-agent"
+                },
+                {
+                    "service_type": "process",
+                    "service_name": "rusk",
+                    "details": "rusk"
                 },
                 {
                     "service_type": "port",
@@ -21,7 +33,13 @@
                     "service_type": "icmp",
                     "service_name": "ping",
                     "details": "1.1.1.1"
+                },
+                {
+                    "service_type": "grpc",
+                    "service_name": "sysmon",
+                    "details": "127.0.0.1:50083"
                 }
+
             ]
         }
     },
@@ -32,9 +50,15 @@
     "service_name": "PollerService",
     "service_type": "grpc",
     "security": {
-        "mode": "none",
+        "mode": "mtls",
         "cert_dir": "/etc/serviceradar/certs",
-        "server_name": "changeme",
-        "role": "poller"
+        "server_name": "127.0.0.1",
+        "role": "poller",
+        "tls": {
+            "cert_file": "poller.pem",
+            "key_file": "poller-key.pem",
+            "ca_file": "root.pem",
+            "client_ca_file": "root.pem"
+        }
     }
 }

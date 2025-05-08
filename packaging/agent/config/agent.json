@@ -4,11 +4,11 @@
   "service_type": "grpc",
   "service_name": "AgentService",
   "agent_id": "default-agent",
-  "agent_name": "changeme",
+  "agent_name": "127.0.0.1",
   "security": {
-    "mode": "none",
+    "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
-    "server_name": "changeme",
+    "server_name": "127.0.0.1",
     "role": "agent",
     "tls": {
       "cert_file": "agent.pem",
