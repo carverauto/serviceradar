@@ -1,4 +1,25 @@
 [
+  "shared_config":
+  {
+    "certificates": {
+      "root_dir": "/etc/serviceradar/certs",
+      "proton_dir": "/etc/proton-server",
+      "components": [
+        "core",
+        "proton",
+        "agent",
+        "poller",
+        "kv",
+        "sync",
+        "nats",
+        "web",
+        "sysmon",
+        "snmp",
+        "rperf-checker",
+        "dusk-checker"
+      ]
+    }
+  },
   {
     "name": "core",
     "package_name": "serviceradar-core",
