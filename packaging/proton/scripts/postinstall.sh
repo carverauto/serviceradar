@@ -242,7 +242,8 @@ fi
 log_info "Fixing permissions of log files..."
 chown -R proton:proton /var/log/proton-server || log_error "Failed to set ownership on /var/log/proton-server"
 log_info "Fixing permissions on /etc/serviceradar/certs/"
-chown serviceradar:serviceradar certs/
+chown serviceradar:serviceradar /etc/serviceradar/certs/
+
 # restart proton
 log_info "Restarting proton service..."
 systemctl restart serviceradar-proton 2>/dev/null || log_error "Failed to restart serviceradar-proton service"
