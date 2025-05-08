@@ -32,6 +32,12 @@ fi
 mkdir -p /var/lib/serviceradar
 mkdir -p /etc/serviceradar
 
+# Ensure certificate directory permissions
+if [ -d "/etc/serviceradar/certs" ]; then
+    chown -R serviceradar:serviceradar /etc/serviceradar/certs
+    chmod -R 640 /etc/serviceradar/certs/*.pem
+fi
+
 # Ensure api.env exists and has valid API_KEY and JWT_SECRET values
 if [ ! -f "/etc/serviceradar/api.env" ]; then
     echo "Generating new api.env with API_KEY and JWT_SECRET..."
