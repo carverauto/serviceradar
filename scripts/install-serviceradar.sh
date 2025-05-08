@@ -418,7 +418,7 @@ setup_mtls_certificates() {
     # Create certificate directories
     create_cert_dirs
 
-    # Generate certificates with a single command for all selected components
+    # Generate certificates for all components
     local cli_args="--cert-dir $SR_CERT_DIR --proton-dir $PROTON_CERT_DIR"
     if [ "$INTERACTIVE" = "false" ]; then
         cli_args="$cli_args --non-interactive"
@@ -426,11 +426,13 @@ setup_mtls_certificates() {
     if [ -n "$SERVICE_IPS" ]; then
         cli_args="$cli_args --ip $SERVICE_IPS"
     fi
-
-    # Add components to command
+    if [ "$ADD_IPS" = "true" ]; then
+        cli_args="$cli_args --add-ips"
+    fi
     cli_args="$cli_args --component $components"
 
     log "Generating mTLS certificates for components: $components"
+    log "Running: /usr/local/bin/serviceradar generate-tls $cli_args"
     if ! /usr/local/bin/serviceradar generate-tls $cli_args; then
         error "Failed to generate mTLS certificates using serviceradar CLI"
     fi
@@ -438,19 +440,23 @@ setup_mtls_certificates() {
     # Additional verification and file permissions/ownership
     if [ -f "$SR_CERT_DIR/root.pem" ] && [ ! -f "$PROTON_CERT_DIR/root.pem" ]; then
         log "Copying root CA certificate to Proton directory..."
-        cp "$SR_CERT_DIR/root.pem" "$PROTON_CERT_DIR/root.pem"
-        chmod 644 "$PROTON_CERT_DIR/root.pem"
+        cp "$SR_CERT_DIR/root.pem" "$PROTON_CERT_DIR/root.pem" || error "Failed to copy root.pem"
+        chmod 644 "$PROTON_CERT_DIR/root.pem" || error "Failed to set permissions on root.pem"
     fi
 
     if [ -f "$SR_CERT_DIR/core.pem" ] && [ ! -f "$PROTON_CERT_DIR/core.pem" ]; then
         log "Copying core certificate to Proton directory..."
-        cp "$SR_CERT_DIR/core.pem" "$PROTON_CERT_DIR/core.pem"
-        cp "$SR_CERT_DIR/core-key.pem" "$PROTON_CERT_DIR/core-key.pem"
-        chmod 644 "$PROTON_CERT_DIR/core.pem"
-        chmod 600 "$PROTON_CERT_DIR/core-key.pem"
+        cp "$SR_CERT_DIR/core.pem" "$PROTON_CERT_DIR/core.pem" || error "Failed to copy core.pem"
+        cp "$SR_CERT_DIR/core-key.pem" "$PROTON_CERT_DIR/core-key.pem" || error "Failed to copy core-key.pem"
+        chmod 644 "$PROTON_CERT_DIR/core.pem" || error "Failed to set permissions on core.pem"
+        chmod 600 "$PROTON_CERT_DIR/core-key.pem" || error "Failed to set permissions on core-key.pem"
     fi
 
     # Set proper ownership
+    chown serviceradar:serviceradar "$SR_CERT_DIR"/*.pem 2>/dev/null || true
+    chown serviceradar:serviceradar "$SR_CERT_DIR"/*-key.pem 2>/dev/null || true
+    chown proton:proton "$PROTON_CERT_DIR"/*.pem 2>/dev/null || true
+    chown proton:proton "$PROTON_CERT_DIR"/*-key.pem 2>/dev/null || true
     chmod 644 "$SR_CERT_DIR"/*.pem 2>/dev/null || true
     chmod 600 "$SR_CERT_DIR"/*-key.pem 2>/dev/null || true
     chmod 644 "$PROTON_CERT_DIR"/*.pem 2>/dev/null || true

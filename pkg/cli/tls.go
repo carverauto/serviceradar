@@ -84,6 +84,7 @@ func newLogStyles() logStyles {
 }
 
 // GenerateTLSCerts generates mTLS certificates for ServiceRadar and Proton
+// GenerateTLSCerts generates mTLS certificates for ServiceRadar and Proton
 func GenerateTLSCerts(cfg *CmdConfig) error {
 	styles := newLogStyles()
 
@@ -116,9 +117,24 @@ func GenerateTLSCerts(cfg *CmdConfig) error {
 		return addIPsToCerts(cfg, serviceIPs, &styles, components)
 	}
 
-	rootCA, rootKey, err := generateRootCA(cfg, &styles)
-	if err != nil {
-		return err
+	// Check if root CA exists
+	rootPEM := filepath.Join(cfg.CertDir, "root.pem")
+	var rootCA *x509.Certificate
+	var rootKey *ecdsa.PrivateKey
+
+	if _, err := os.Stat(rootPEM); err == nil {
+		// Load existing root CA and key
+		rootCA, rootKey, err = loadRootCACertAndKey(cfg.CertDir, &styles)
+		if err != nil {
+			return fmt.Errorf("failed to load existing root CA: %w", err)
+		}
+		fmt.Println(styles.info.Render("[INFO] Using existing root CA at " + rootPEM))
+	} else {
+		// Generate new root CA
+		rootCA, rootKey, err = generateRootCA(cfg, &styles)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Generate certificates for each component
@@ -128,6 +144,14 @@ func GenerateTLSCerts(cfg *CmdConfig) error {
 		}
 
 		certName := getCertName(component)
+		certPath := filepath.Join(cfg.CertDir, certName+".pem")
+
+		// Skip if certificate already exists
+		if _, err := os.Stat(certPath); err == nil {
+			fmt.Println(styles.info.Render("[INFO] Certificate for " + component + " already exists, skipping"))
+			continue
+		}
+
 		if err := generateServiceCert(certName, serviceIPs, rootCA, rootKey, &styles); err != nil {
 			return fmt.Errorf("failed to generate certificate for %s: %w", component, err)
 		}
