@@ -76,15 +76,15 @@
     "config_files": [
       {
         "source": "packaging/proton/config/config.yaml",
-        "dest": "/etc/proton-server/config.yaml"
+        "dest": "/usr/share/serviceradar-proton/config.yaml"
       },
       {
         "source": "packaging/proton/config/users.yaml",
-        "dest": "/etc/proton-server/users.yaml"
+        "dest": "/usr/share/serviceradar-proton/users.yaml"
       },
       {
         "source": "packaging/proton/config/grok-patterns",
-        "dest": "/etc/proton-server/grok-patterns"
+        "dest": "/usr/share/serviceradar-proton/grok-patterns"
       }
     ],
     "systemd_service": {
@@ -98,9 +98,9 @@
       "source": "packaging/proton/scripts/preremove.sh"
     },
     "conffiles": [
-      "/etc/proton-server/config.yaml",
-      "/etc/proton-server/users.yaml",
-      "/etc/proton-server/grok-patterns"
+      "/usr/share/serviceradar-proton/config.yaml",
+      "/usr/share/serviceradar-proton/users.yaml",
+      "/usr/share/serviceradar-proton/grok-patterns"
     ],
     "additional_dirs": [
       "/var/lib/proton",

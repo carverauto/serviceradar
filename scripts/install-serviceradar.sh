@@ -21,7 +21,7 @@ set -e
 
 # Configuration
 VERSION="1.0.36"
-RELEASE_TAG="1.0.36-pre2"
+RELEASE_TAG="1.0.36-pre3"
 RELEASE_URL="https://github.com/carverauto/serviceradar/releases/download/${RELEASE_TAG}"
 TEMP_DIR="/tmp/serviceradar-install"
 POLLER_CONFIG="/etc/serviceradar/poller.json"
@@ -136,8 +136,8 @@ validate_package() {
     fi
 
     if [ "$SYSTEM" = "debian" ]; then
-        if ! dpkg-deb -W "$file" >/dev/null 2>&1; then
-            error "Downloaded file $file is not a valid .deb package"
+        if ! dpkg-deb -W "$file" > /tmp/dpkg-deb.log 2>&1; then
+            error "Downloaded file $file is not a valid .deb package. Error: $(cat /tmp/dpkg-deb.log)"
         fi
     else
         if [ ! -s "$file" ]; then
@@ -266,16 +266,20 @@ install_dependencies() {
 download_package() {
     local pkg_name="$1"
     local suffix="$2"
+    local deb_version="${VERSION/-pre2/}"  # Strip -pre2 for Debian package filenames
+    local file_name
     if [ "$SYSTEM" = "debian" ]; then
-        local file_name="${pkg_name}_${VERSION}${suffix}.${PKG_EXT}"
+        file_name="${pkg_name}_${deb_version}${suffix}.${PKG_EXT}"
     else
-        local file_name="${pkg_name}-${VERSION}${suffix}.${PKG_EXT}"
+        file_name="${pkg_name}-${VERSION}${suffix}.${PKG_EXT}"
     fi
     local url="${RELEASE_URL}/${file_name}"
     local output="${TEMP_DIR}/${pkg_name}.${PKG_EXT}"
 
     log "Downloading ${COLOR_YELLOW}${pkg_name}${COLOR_RESET}..."
-    log "URL: ${COLOR_YELLOW}${url}${COLOR_RESET}"
+    log "DEBUG: Constructed filename: ${COLOR_YELLOW}${file_name}${COLOR_RESET}"
+    log "DEBUG: Download URL: ${COLOR_YELLOW}${url}${COLOR_RESET}"
+    log "DEBUG: curl command: curl -sSL --connect-timeout 30 --max-time 300 --retry 3 --retry-delay 2 -o \"$output\" \"$url\""
 
     if ! curl -sSL --connect-timeout 30 --max-time 300 --retry 3 --retry-delay 2 -o "$output" "$url"; then
         error "Failed to download ${pkg_name} from $url"
@@ -284,6 +288,9 @@ download_package() {
     if [ ! -f "$output" ] || [ ! -s "$output" ]; then
         error "Downloaded file for ${pkg_name} is empty or does not exist"
     fi
+
+    log "DEBUG: Downloaded file size: $(stat -c %s "$output") bytes"
+    log "DEBUG: File contents preview: $(head -c 20 "$output" | tr -dc '[:print:]')"
 
     validate_package "$output"
 }
@@ -317,9 +324,10 @@ install_packages() {
 install_single_package() {
     local pkg="$1"
     local suffix="$2"
+    local deb_version="${VERSION/-pre2/}"  # Strip -pre2 for Debian package filenames
     local file_name
     if [ "$SYSTEM" = "debian" ]; then
-        file_name="${pkg}_${VERSION}${suffix}.${PKG_EXT}"
+        file_name="${pkg}_${deb_version}${suffix}.${PKG_EXT}"
     else
         file_name="${pkg}-${VERSION}${suffix}.${PKG_EXT}"
     fi
@@ -327,9 +335,16 @@ install_single_package() {
     local output="${TEMP_DIR}/${pkg}.${PKG_EXT}"
 
     log "Downloading ${COLOR_YELLOW}${pkg}${COLOR_RESET}..."
+    log "DEBUG: Constructed filename: ${COLOR_YELLOW}${file_name}${COLOR_RESET}"
+    log "DEBUG: Download URL: ${COLOR_YELLOW}${url}${COLOR_RESET}"
+    log "DEBUG: curl command: curl -sSL --connect-timeout 30 --max-time 300 --retry 3 --retry-delay 2 -o \"$output\" \"$url\""
+
     if ! curl -sSL --connect-timeout 30 --max-time 300 --retry 3 --retry-delay 2 -o "$output" "$url"; then
         error "Failed to download ${pkg} from $url"
     fi
+
+    log "DEBUG: Downloaded file size: $(stat -c %s "$output") bytes"
+    log "DEBUG: File contents preview: $(head -c 20 "$output" | tr -dc '[:print:]')"
 
     validate_package "$output"
 
@@ -372,26 +387,12 @@ create_cert_dirs() {
     mkdir -p "$SR_CERT_DIR"
     mkdir -p "$PROTON_CERT_DIR"
     mkdir -p "/tmp/serviceradar-tls"
+    chmod 750 "$SR_CERT_DIR" "$PROTON_CERT_DIR"
 }
 
 # Setup mTLS certificates using serviceradar CLI
 setup_mtls_certificates() {
     log "Checking for existing certificates..."
-
-    # Skip certificate generation if certificates exist and --add-ips is not specified
-    if [ -f "$SR_CERT_DIR/root.pem" ] && [ -f "$SR_CERT_DIR/core.pem" ] && [ -f "$SR_CERT_DIR/core-key.pem" ] && [ ! "$ADD_IPS" = true ]; then
-        log "Existing certificates found at $SR_CERT_DIR"
-        log "Skipping certificate generation as certificates already exist"
-        log "To add new IPs, use --add-ips with --ip"
-        return
-    fi
-
-    # Create certificate directories
-    log "Creating certificate directories..."
-    mkdir -p "$SR_CERT_DIR"
-    mkdir -p "$PROTON_CERT_DIR"
-    mkdir -p "/tmp/serviceradar-tls"
-    chmod 750 "$SR_CERT_DIR" "$PROTON_CERT_DIR"
 
     # Determine components to generate certificates for
     local components=()
@@ -415,6 +416,62 @@ setup_mtls_certificates() {
 
     # Remove duplicates
     components=($(echo "${components[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' '))
+    log "DEBUG: Components for certificate generation: ${components[*]}"
+
+    # Check if all required certificates exist
+    local all_certs_exist=true
+    local missing_certs=()
+    for component in "${components[@]}"; do
+        local cert_name="$component"
+        local cert_dir="$SR_CERT_DIR"
+        case "$component" in
+            proton)
+                cert_name="core"
+                cert_dir="$PROTON_CERT_DIR"
+                ;;
+            nats)
+                cert_name="nats-server"
+                ;;
+            dusk-checker)
+                cert_name="checkers"
+                ;;
+            sysmon)
+                cert_name="sysmon"
+                ;;
+            snmp)
+                cert_name="snmp"
+                ;;
+            rperf-checker)
+                cert_name="rperf-checker"
+                ;;
+            rperf)
+                continue
+                ;;
+        esac
+        if [ ! -f "$cert_dir/$cert_name.pem" ] || [ ! -f "$cert_dir/$cert_name-key.pem" ]; then
+            all_certs_exist=false
+            missing_certs+=("$component: $cert_dir/$cert_name.pem, $cert_dir/$cert_name-key.pem")
+        fi
+    done
+
+    # Skip certificate generation only if all required certificates exist and --add-ips is not specified
+    if [ "$all_certs_exist" = true ] && [ ! "$ADD_IPS" = true ]; then
+        log "All required certificates found in $SR_CERT_DIR and $PROTON_CERT_DIR"
+        log "Skipping certificate generation as all certificates already exist"
+        log "To add new IPs, use --add-ips with --ip"
+        return
+    fi
+
+    # Log missing certificates
+    if [ ${#missing_certs[@]} -gt 0 ]; then
+        log "DEBUG: Missing certificates:"
+        for cert in "${missing_certs[@]}"; do
+            log "DEBUG:   $cert"
+        done
+    fi
+
+    # Create certificate directories
+    create_cert_dirs
 
     local cli_args="--cert-dir $SR_CERT_DIR --proton-dir $PROTON_CERT_DIR"
     if [ "$INTERACTIVE" = "false" ]; then
@@ -423,21 +480,62 @@ setup_mtls_certificates() {
     if [ -n "$SERVICE_IPS" ]; then
         cli_args="$cli_args --ip $SERVICE_IPS"
     fi
-    if [ "$ADD_IPS" = true ]; then
-        if [ -z "$SERVICE_IPS" ]; then
-            error "Must specify --ip when using --add-ips"
-        fi
-        cli_args="$cli_args --add-ips"
-    fi
 
     # Add components
     if [ ${#components[@]} -gt 0 ]; then
         cli_args="$cli_args --component $(IFS=,; echo "${components[*]}")"
     fi
 
-    log "Generating mTLS certificates for components: ${components[*]}"
-    if ! /usr/local/bin/serviceradar generate-tls $cli_args; then
-        error "Failed to generate mTLS certificates using serviceradar CLI"
+    # Check if root CA exists
+    if [ -f "$SR_CERT_DIR/root.pem" ]; then
+        log "DEBUG: Root CA exists at $SR_CERT_DIR/root.pem, attempting to update certificates with --add-ips"
+        cli_args="$cli_args --add-ips"
+        log "Generating mTLS certificates for components (updating existing): ${components[*]}"
+        log "DEBUG: Running command: /usr/local/bin/serviceradar generate-tls $cli_args"
+        if ! /usr/local/bin/serviceradar generate-tls $cli_args > /tmp/serviceradar-tls.log 2>&1; then
+            log "DEBUG: Certificate update failed: $(cat /tmp/serviceradar-tls.log)"
+            log "WARNING: Failed to update certificates. Removing existing certificates and regenerating..."
+            rm -rf "$SR_CERT_DIR"/* "$PROTON_CERT_DIR"/*
+            create_cert_dirs
+            cli_args=${cli_args/--add-ips/} # Remove --add-ips for fresh generation
+            log "DEBUG: Running command: /usr/local/bin/serviceradar generate-tls $cli_args"
+            if ! /usr/local/bin/serviceradar generate-tls $cli_args > /tmp/serviceradar-tls.log 2>&1; then
+                log "DEBUG: Certificate generation output: $(cat /tmp/serviceradar-tls.log)"
+                error "Failed to generate mTLS certificates using serviceradar CLI"
+            fi
+        fi
+    else
+        log "Generating mTLS certificates for components: ${components[*]}"
+        log "DEBUG: Running command: /usr/local/bin/serviceradar generate-tls $cli_args"
+        if ! /usr/local/bin/serviceradar generate-tls $cli_args > /tmp/serviceradar-tls.log 2>&1; then
+            log "DEBUG: Certificate generation output: $(cat /tmp/serviceradar-tls.log)"
+            error "Failed to generate mTLS certificates using serviceradar CLI"
+        fi
+    fi
+    log "DEBUG: Certificate generation output: $(cat /tmp/serviceradar-tls.log)"
+
+    # Set certificate permissions
+    chmod 644 "$SR_CERT_DIR"/*.pem "$PROTON_CERT_DIR"/*.pem 2>/dev/null || true
+    chmod 600 "$SR_CERT_DIR"/*-key.pem "$PROTON_CERT_DIR"/*-key.pem 2>/dev/null || true
+
+    # Log contents of certificate directories
+    log "DEBUG: Contents of $SR_CERT_DIR:"
+    ls -l "$SR_CERT_DIR" | while read -r line; do log "DEBUG:   $line"; done
+    log "DEBUG: Contents of $PROTON_CERT_DIR:"
+    ls -l "$PROTON_CERT_DIR" | while read -r line; do log "DEBUG:   $line"; done
+
+    # Immediate validation for proton certificate
+    if [[ " ${components[*]} " =~ " proton " ]]; then
+        if [ ! -f "$PROTON_CERT_DIR/core.pem" ] || [ ! -f "$PROTON_CERT_DIR/core-key.pem" ]; then
+            log "DEBUG: Missing proton certificate files. Checking for misplaced core.pem in $SR_CERT_DIR..."
+            if [ -f "$SR_CERT_DIR/core.pem" ]; then
+                log "DEBUG: Found core.pem in $SR_CERT_DIR, copying to $PROTON_CERT_DIR"
+                cp "$SR_CERT_DIR/core.pem" "$PROTON_CERT_DIR/core.pem"
+                chmod 644 "$PROTON_CERT_DIR/core.pem"
+            else
+                error "Proton certificate file missing: $PROTON_CERT_DIR/core.pem"
+            fi
+        fi
     fi
 
     # Verify certificates
@@ -455,10 +553,20 @@ setup_mtls_certificates() {
             dusk-checker)
                 cert_name="checkers"
                 ;;
+            sysmon)
+                cert_name="sysmon"
+                ;;
+            snmp)
+                cert_name="snmp"
+                ;;
+            rperf-checker)
+                cert_name="rperf-checker"
+                ;;
             rperf)
                 continue
                 ;;
         esac
+        log "DEBUG: Validating certificate for $component: $cert_dir/$cert_name.pem and $cert_dir/$cert_name-key.pem"
         if [ ! -f "$cert_dir/$cert_name.pem" ] || [ ! -f "$cert_dir/$cert_name-key.pem" ]; then
             error "Certificate or key file missing for $component: $cert_dir/$cert_name.pem or $cert_dir/$cert_name-key.pem"
         fi
@@ -517,11 +625,25 @@ show_post_install_info() {
             dusk-checker)
                 cert_name="checkers"
                 ;;
+            sysmon)
+                cert_name="sysmon"
+                ;;
+            snmp)
+                cert_name="snmp"
+                ;;
+            rperf-checker)
+                cert_name="rperf-checker"
+                ;;
             rperf)
                 continue
                 ;;
         esac
-        echo -e "  - $component: ${COLOR_CYAN}$cert_dir/$cert_name.pem, $cert_dir/$cert_name-key.pem${COLOR_RESET}"
+        # Only show certificates that exist
+        if [ -f "$cert_dir/$cert_name.pem" ] && [ -f "$cert_dir/$cert_name-key.pem" ]; then
+            echo -e "  - $component: ${COLOR_CYAN}$cert_dir/$cert_name.pem, $cert_dir/$cert_name-key.pem${COLOR_RESET}"
+        else
+            log "DEBUG: Skipping $component in post-install info: Certificate files $cert_dir/$cert_name.pem or $cert_dir/$cert_name-key.pem not found"
+        fi
     done
     echo
     echo -e "${COLOR_BOLD}Next steps:${COLOR_RESET}"
@@ -831,6 +953,7 @@ update_configs_for_mtls() {
     local configs=(
         "/etc/serviceradar/checkers/dusk.json"
         "/etc/serviceradar/checkers/snmp.json"
+        "/etc/serviceradar/checkers/sysmon.json"
     )
 
     for config in "${configs[@]}"; do
@@ -858,14 +981,6 @@ main() {
     detect_system
     check_curl
 
-    if [ "$INSTALL_ALL" = "false" ] && [ "$INSTALL_CORE" = "false" ] && [ "$INSTALL_POLLER" = "false" ] && [ "$INSTALL_AGENT" = "false" ]; then
-        if [ "$INTERACTIVE" = "true" ]; then
-            prompt_scenario
-        else
-            error "No installation scenario specified. Use --all, --core, --poller, or --agent."
-        fi
-    fi
-
     if [ "$INSTALL_ALL" = "true" ]; then
         INSTALL_CORE=true
         INSTALL_POLLER=true
@@ -873,7 +988,11 @@ main() {
     fi
 
     if [ "$INSTALL_CORE" = "false" ] && [ "$INSTALL_POLLER" = "false" ] && [ "$INSTALL_AGENT" = "false" ]; then
-        error "No components selected to install."
+        if [ "$INTERACTIVE" = "true" ]; then
+            prompt_scenario
+        else
+            error "No installation scenario specified. Use --all, --core, --poller, or --agent."
+        fi
     fi
 
     # Set up IPs for mTLS
@@ -904,13 +1023,7 @@ main() {
         install_single_package "serviceradar-cli" ""
     fi
 
-    # Setup mTLS certificates
-    header "Setting up mTLS Certificates"
-    create_cert_dirs
-    setup_mtls_certificates
-    update_configs_for_mtls
-    show_post_install_info
-
+    # Install main components
     core_packages=("serviceradar-core" "serviceradar-proton" "serviceradar-web" "serviceradar-nats" "serviceradar-kv" "serviceradar-sync")
     poller_packages=("serviceradar-poller")
     agent_packages=("serviceradar-agent")
@@ -940,7 +1053,15 @@ main() {
     done
     install_packages "${packages_to_install[@]}"
 
+    # Install optional checkers
     install_optional_checkers
+
+    # Setup mTLS certificates after checkers are installed
+    header "Setting up mTLS Certificates"
+    setup_mtls_certificates
+    update_configs_for_mtls
+    show_post_install_info
+
     update_core_config
 
     header "Cleaning Up"
