@@ -85,6 +85,8 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error)
 		Networks: ips,
 	}
 
+	log.Println("Sweep config:", sweepConfig)
+
 	err = a.KVWriter.WriteSweepConfig(ctx, sweepConfig)
 	if err != nil {
 		log.Printf("Warning: Failed to write sweep config: %v", err)
@@ -161,20 +163,19 @@ func (*ArmisIntegration) processDevices(devices []Device) (data map[string][]byt
 		value, err := json.Marshal(device)
 		if err != nil {
 			log.Printf("Failed to marshal device %d: %v", device.ID, err)
-
 			continue
 		}
 
 		// Store device in KV with device ID as key
 		data[fmt.Sprintf("%d", device.ID)] = value
 
-		// Process IP addresses - might have multiple comma-separated IPs
+		// Process IP addresses - take only the first IP from comma-separated list
 		if device.IPAddress != "" {
-			// Split by comma if multiple IPs
+			// Split by comma and take the first IP
 			ipList := strings.Split(device.IPAddress, ",")
-			for _, ip := range ipList {
-				// Trim spaces
-				ip = strings.TrimSpace(ip)
+			if len(ipList) > 0 {
+				// Trim spaces and validate the first IP
+				ip := strings.TrimSpace(ipList[0])
 				if ip != "" {
 					// Add to sweep list with /32 suffix
 					ips = append(ips, ip+"/32")
