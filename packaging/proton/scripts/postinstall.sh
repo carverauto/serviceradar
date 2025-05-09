@@ -115,6 +115,50 @@ for dir in /var/lib/proton/tmp /var/lib/proton/checkpoint /var/lib/proton/native
     mkdir -p "$dir" || log_error "Failed to create directory $dir"
 done
 
+# Copy configuration files from /usr/share/serviceradar-proton/ to /etc/proton-server/ if not already present
+# Copy configuration files to /etc/proton-server/
+log_info "Copying configuration files..."
+mkdir -p /etc/proton-server || log_error "Failed to create /etc/proton-server directory"
+for file in config.yaml users.yaml grok-patterns; do
+    src="/usr/share/serviceradar-proton/$file"
+    dest="/etc/proton-server/$file"
+    if [ -f "$dest" ]; then
+        log_info "$dest already exists, skipping copy"
+    elif [ -f "$src" ]; then
+        cp "$src" "$dest" || log_error "Failed to copy $src to $dest"
+        chmod 644 "$dest" || log_error "Failed to set permissions on $dest"
+        chown proton:proton "$dest" || log_error "Failed to set ownership on $dest"
+        log_info "Copied $src to $dest"
+    else
+        if [ "$file" = "grok-patterns" ]; then
+            log_info "Creating empty $dest"
+            touch "$dest" || log_error "Failed to create empty $dest"
+            chmod 644 "$dest" || log_error "Failed to set permissions on $dest"
+            chown proton:proton "$dest" || log_error "Failed to set ownership on $dest"
+        else
+            log_error "Configuration file $src not found and $dest missing"
+        fi
+    fi
+done
+
+# Verify configuration files
+log_info "Verifying configuration files..."
+for file in config.yaml users.yaml grok-patterns; do
+    dest="/etc/proton-server/$file"
+    if [ -f "$dest" ]; then
+        chmod 644 "$dest" || log_error "Failed to set permissions on $dest"
+        chown proton:proton "$dest" || log_error "Failed to set ownership on $dest"
+        log_info "Verified $dest"
+    elif [ "$file" = "grok-patterns" ]; then
+        log_info "Creating empty $dest"
+        touch "$dest" || log_error "Failed to create empty $dest"
+        chmod 644 "$dest" || log_error "Failed to set permissions on $dest"
+        chown proton:proton "$dest" || log_error "Failed to set ownership on $dest"
+    else
+        log_error "Required file $dest missing"
+    fi
+done
+
 # Generate a random password
 log_info "Generating random password..."
 RANDOM_PASSWORD=$(openssl rand -hex 16) || log_error "Failed to generate random password"
@@ -193,6 +237,18 @@ if ! systemctl start serviceradar-proton 2>/dev/null; then
 else
     log_info "ServiceRadar Proton service started successfully"
 fi
+
+# fix the permissions of the logfiles one more time and then restart proton
+log_info "Fixing permissions of log files..."
+chown -R proton:proton /var/log/proton-server || log_error "Failed to set ownership on /var/log/proton-server"
+log_info "Fixing permissions on /etc/serviceradar/certs/"
+chown serviceradar:serviceradar /etc/serviceradar/certs/
+
+# restart proton
+log_info "Restarting proton service..."
+systemctl restart serviceradar-proton 2>/dev/null || log_error "Failed to restart serviceradar-proton service"
+log_info "Restarting serviceradar-core service..."
+systemctl restart serviceradar-core 2>/dev/null || log_error "Failed to restart serviceradar-core service"
 
 log_info "ServiceRadar Proton Server installed successfully!"
 log_info "A secure password has been generated and saved to /etc/proton-server/generated_password.txt"

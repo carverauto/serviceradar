@@ -1,8 +1,30 @@
 [
   {
+    "shared_config": {
+      "certificates": {
+        "root_dir": "/etc/serviceradar/certs",
+        "proton_dir": "/etc/proton-server",
+        "components": [
+          "core",
+          "proton",
+          "agent",
+          "poller",
+          "kv",
+          "sync",
+          "nats",
+          "web",
+          "sysmon",
+          "snmp",
+          "rperf-checker",
+          "dusk-checker"
+        ]
+      }
+    }
+  },
+  {
     "name": "core",
     "package_name": "serviceradar-core",
-    "version": "1.0.35",
+    "version": "1.0.36",
     "description": "ServiceRadar Core API service",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -51,7 +73,7 @@
   {
     "name": "proton",
     "package_name": "serviceradar-proton",
-    "version": "1.0.35",
+    "version": "1.0.36",
     "description": "ServiceRadar Proton Server (Stream Processing Engine)",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -76,15 +98,15 @@
     "config_files": [
       {
         "source": "packaging/proton/config/config.yaml",
-        "dest": "/etc/proton-server/config.yaml"
+        "dest": "/usr/share/serviceradar-proton/config.yaml"
       },
       {
         "source": "packaging/proton/config/users.yaml",
-        "dest": "/etc/proton-server/users.yaml"
+        "dest": "/usr/share/serviceradar-proton/users.yaml"
       },
       {
         "source": "packaging/proton/config/grok-patterns",
-        "dest": "/etc/proton-server/grok-patterns"
+        "dest": "/usr/share/serviceradar-proton/grok-patterns"
       }
     ],
     "systemd_service": {
@@ -98,9 +120,9 @@
       "source": "packaging/proton/scripts/preremove.sh"
     },
     "conffiles": [
-      "/etc/proton-server/config.yaml",
-      "/etc/proton-server/users.yaml",
-      "/etc/proton-server/grok-patterns"
+      "/usr/share/serviceradar-proton/config.yaml",
+      "/usr/share/serviceradar-proton/users.yaml",
+      "/usr/share/serviceradar-proton/grok-patterns"
     ],
     "additional_dirs": [
       "/var/lib/proton",
@@ -116,7 +138,7 @@
   {
     "name": "web",
     "package_name": "serviceradar-web",
-    "version": "1.0.35",
+    "version": "1.0.36",
     "description": "ServiceRadar web interface",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -162,7 +184,7 @@
   {
     "name": "agent",
     "package_name": "serviceradar-agent",
-    "version": "1.0.35",
+    "version": "1.0.36",
     "description": "ServiceRadar Agent Service",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -210,7 +232,7 @@
   {
     "name": "poller",
     "package_name": "serviceradar-poller",
-    "version": "1.0.35",
+    "version": "1.0.36",
     "description": "ServiceRadar Poller Service",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -254,7 +276,7 @@
   {
     "name": "nats",
     "package_name": "serviceradar-nats",
-    "version": "1.0.35",
+    "version": "1.0.36",
     "description": "ServiceRadar NATS JetStream service",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -302,7 +324,7 @@
   {
     "name": "kv",
     "package_name": "serviceradar-kv",
-    "version": "1.0.35",
+    "version": "1.0.36",
     "description": "ServiceRadar Key-Value store",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -345,7 +367,7 @@
   {
     "name": "sync",
     "package_name": "serviceradar-sync",
-    "version": "1.0.35",
+    "version": "1.0.36",
     "description": "ServiceRadar Key-Value store Sync service",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -388,7 +410,7 @@
   {
     "name": "dusk-checker",
     "package_name": "serviceradar-dusk",
-    "version": "1.0.35",
+    "version": "1.0.36",
     "description": "ServiceRadar Dusk node checker",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -426,7 +448,7 @@
   {
     "name": "snmp-checker",
     "package_name": "serviceradar-snmp-checker",
-    "version": "1.0.35",
+    "version": "1.0.36",
     "description": "ServiceRadar SNMP poller",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -469,7 +491,7 @@
   {
     "name": "rperf",
     "package_name": "serviceradar-rperf",
-    "version": "1.0.35",
+    "version": "1.0.36",
     "description": "ServiceRadar RPerf Network Performance Testing Tool",
     "maintainer": "Carver Automation Corporation <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -507,7 +529,7 @@
   {
     "name": "rperf-checker",
     "package_name": "serviceradar-rperf-checker",
-    "version": "1.0.35",
+    "version": "1.0.36",
     "description": "ServiceRadar RPerf Network Performance Test Checker",
     "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
     "architecture": "amd64",
@@ -552,7 +574,7 @@
   {
     "name": "cli",
     "package_name": "serviceradar-cli",
-    "version": "1.0.35",
+    "version": "1.0.36",
     "description": "ServiceRadar CLI tool",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -585,7 +607,7 @@
   {
     "name": "sysmon",
     "package_name": "serviceradar-sysmon-checker",
-    "version": "1.0.35",
+    "version": "1.0.36",
     "description": "ServiceRadar System Monitor checker",
     "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
     "architecture": "amd64",

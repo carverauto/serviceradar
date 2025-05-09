@@ -20,8 +20,8 @@
 set -e
 
 # Configuration
-VERSION="1.0.35"
-RELEASE_TAG="1.0.35-pre"
+VERSION="1.0.36"
+RELEASE_TAG="1.0.36"
 RELEASE_URL="https://github.com/carverauto/serviceradar/releases/download/${RELEASE_TAG}"
 TEMP_DIR="/tmp/serviceradar-install"
 POLLER_CONFIG="/etc/serviceradar/poller.json"
@@ -136,8 +136,8 @@ validate_package() {
     fi
 
     if [ "$SYSTEM" = "debian" ]; then
-        if ! dpkg-deb -W "$file" >/dev/null 2>&1; then
-            error "Downloaded file $file is not a valid .deb package"
+        if ! dpkg-deb -W "$file" > /tmp/dpkg-deb.log 2>&1; then
+            error "Downloaded file $file is not a valid .deb package. Error: $(cat /tmp/dpkg-deb.log)"
         fi
     else
         if [ ! -s "$file" ]; then
@@ -266,16 +266,20 @@ install_dependencies() {
 download_package() {
     local pkg_name="$1"
     local suffix="$2"
+    local deb_version="${VERSION/-pre2/}"  # Strip -pre2 for Debian package filenames
+    local file_name
     if [ "$SYSTEM" = "debian" ]; then
-        local file_name="${pkg_name}_${VERSION}${suffix}.${PKG_EXT}"
+        file_name="${pkg_name}_${deb_version}${suffix}.${PKG_EXT}"
     else
-        local file_name="${pkg_name}-${VERSION}${suffix}.${PKG_EXT}"
+        file_name="${pkg_name}-${VERSION}${suffix}.${PKG_EXT}"
     fi
     local url="${RELEASE_URL}/${file_name}"
     local output="${TEMP_DIR}/${pkg_name}.${PKG_EXT}"
 
     log "Downloading ${COLOR_YELLOW}${pkg_name}${COLOR_RESET}..."
-    log "URL: ${COLOR_YELLOW}${url}${COLOR_RESET}"
+    log "DEBUG: Constructed filename: ${COLOR_YELLOW}${file_name}${COLOR_RESET}"
+    log "DEBUG: Download URL: ${COLOR_YELLOW}${url}${COLOR_RESET}"
+    log "DEBUG: curl command: curl -sSL --connect-timeout 30 --max-time 300 --retry 3 --retry-delay 2 -o \"$output\" \"$url\""
 
     if ! curl -sSL --connect-timeout 30 --max-time 300 --retry 3 --retry-delay 2 -o "$output" "$url"; then
         error "Failed to download ${pkg_name} from $url"
@@ -284,6 +288,9 @@ download_package() {
     if [ ! -f "$output" ] || [ ! -s "$output" ]; then
         error "Downloaded file for ${pkg_name} is empty or does not exist"
     fi
+
+    log "DEBUG: Downloaded file size: $(stat -c %s "$output") bytes"
+    log "DEBUG: File contents preview: $(head -c 20 "$output" | tr -dc '[:print:]')"
 
     validate_package "$output"
 }
@@ -312,6 +319,42 @@ install_packages() {
     else
         log "No package files found to install"
     fi
+}
+
+install_single_package() {
+    local pkg="$1"
+    local suffix="$2"
+    local deb_version="${VERSION/-pre2/}"  # Strip -pre2 for Debian package filenames
+    local file_name
+    if [ "$SYSTEM" = "debian" ]; then
+        file_name="${pkg}_${deb_version}${suffix}.${PKG_EXT}"
+    else
+        file_name="${pkg}-${VERSION}${suffix}.${PKG_EXT}"
+    fi
+    local url="${RELEASE_URL}/${file_name}"
+    local output="${TEMP_DIR}/${pkg}.${PKG_EXT}"
+
+    log "Downloading ${COLOR_YELLOW}${pkg}${COLOR_RESET}..."
+    log "DEBUG: Constructed filename: ${COLOR_YELLOW}${file_name}${COLOR_RESET}"
+    log "DEBUG: Download URL: ${COLOR_YELLOW}${url}${COLOR_RESET}"
+    log "DEBUG: curl command: curl -sSL --connect-timeout 30 --max-time 300 --retry 3 --retry-delay 2 -o \"$output\" \"$url\""
+
+    if ! curl -sSL --connect-timeout 30 --max-time 300 --retry 3 --retry-delay 2 -o "$output" "$url"; then
+        error "Failed to download ${pkg} from $url"
+    fi
+
+    log "DEBUG: Downloaded file size: $(stat -c %s "$output") bytes"
+    log "DEBUG: File contents preview: $(head -c 20 "$output" | tr -dc '[:print:]')"
+
+    validate_package "$output"
+
+    log "Installing ${COLOR_YELLOW}${pkg}${COLOR_RESET}..."
+    if [ "$SYSTEM" = "debian" ]; then
+        apt install -y "$output" || error "Failed to install ${pkg}"
+    else
+        $PKG_MANAGER install -y "$output" || error "Failed to install ${pkg}"
+    fi
+    success "${pkg} installed successfully!"
 }
 
 # Get local IP address
@@ -344,19 +387,38 @@ create_cert_dirs() {
     mkdir -p "$SR_CERT_DIR"
     mkdir -p "$PROTON_CERT_DIR"
     mkdir -p "/tmp/serviceradar-tls"
+    chmod 750 "$SR_CERT_DIR" "$PROTON_CERT_DIR"
 }
 
 # Setup mTLS certificates using serviceradar CLI
 setup_mtls_certificates() {
     log "Checking for existing certificates..."
 
-    if [ -f "$SR_CERT_DIR/root.pem" ] && [ -f "$SR_CERT_DIR/core.pem" ] && [ -f "$SR_CERT_DIR/core-key.pem" ] && [ ! "$ADD_IPS" = true ]; then
-        log "Existing certificates found at $SR_CERT_DIR"
-        log "Skipping certificate generation as certificates already exist"
-        log "To add new IPs, use --add-ips with --ip"
-        return
-    fi
+    # Determine components to generate certificates for based on shared config
+    local components="core,proton"
 
+    if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_CORE" = "true" ]; then
+        components="$components,web,nats,kv,sync"
+    fi
+    if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_POLLER" = "true" ]; then
+        components="$components,poller"
+    fi
+    if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_AGENT" = "true" ]; then
+        components="$components,agent"
+    fi
+    for checker in "${INSTALLED_CHECKERS[@]}"; do
+        case "$checker" in
+            sysmon) components="$components,sysmon" ;;
+            snmp) components="$components,snmp" ;;
+            rperf-checker) components="$components,rperf-checker" ;;
+            dusk) components="$components,dusk-checker" ;;
+        esac
+    done
+
+    # Create certificate directories
+    create_cert_dirs
+
+    # Generate certificates for all components
     local cli_args="--cert-dir $SR_CERT_DIR --proton-dir $PROTON_CERT_DIR"
     if [ "$INTERACTIVE" = "false" ]; then
         cli_args="$cli_args --non-interactive"
@@ -364,17 +426,42 @@ setup_mtls_certificates() {
     if [ -n "$SERVICE_IPS" ]; then
         cli_args="$cli_args --ip $SERVICE_IPS"
     fi
-    if [ "$ADD_IPS" = true ]; then
-        if [ -z "$SERVICE_IPS" ]; then
-            error "Must specify --ip when using --add-ips"
-        fi
+    if [ "$ADD_IPS" = "true" ]; then
         cli_args="$cli_args --add-ips"
     fi
+    cli_args="$cli_args --component $components"
 
-    log "Generating mTLS certificates using serviceradar CLI..."
+    log "Generating mTLS certificates for components: $components"
+    log "Running: /usr/local/bin/serviceradar generate-tls $cli_args"
     if ! /usr/local/bin/serviceradar generate-tls $cli_args; then
         error "Failed to generate mTLS certificates using serviceradar CLI"
     fi
+
+    # Additional verification and file permissions/ownership
+    if [ -f "$SR_CERT_DIR/root.pem" ] && [ ! -f "$PROTON_CERT_DIR/root.pem" ]; then
+        log "Copying root CA certificate to Proton directory..."
+        cp "$SR_CERT_DIR/root.pem" "$PROTON_CERT_DIR/root.pem" || error "Failed to copy root.pem"
+        chmod 644 "$PROTON_CERT_DIR/root.pem" || error "Failed to set permissions on root.pem"
+    fi
+
+    if [ -f "$SR_CERT_DIR/core.pem" ] && [ ! -f "$PROTON_CERT_DIR/core.pem" ]; then
+        log "Copying core certificate to Proton directory..."
+        cp "$SR_CERT_DIR/core.pem" "$PROTON_CERT_DIR/core.pem" || error "Failed to copy core.pem"
+        cp "$SR_CERT_DIR/core-key.pem" "$PROTON_CERT_DIR/core-key.pem" || error "Failed to copy core-key.pem"
+        chmod 644 "$PROTON_CERT_DIR/core.pem" || error "Failed to set permissions on core.pem"
+        chmod 600 "$PROTON_CERT_DIR/core-key.pem" || error "Failed to set permissions on core-key.pem"
+    fi
+
+    # Set proper ownership
+    chown serviceradar:serviceradar "$SR_CERT_DIR"/*.pem 2>/dev/null || true
+    chown serviceradar:serviceradar "$SR_CERT_DIR"/*-key.pem 2>/dev/null || true
+    chown proton:proton "$PROTON_CERT_DIR"/*.pem 2>/dev/null || true
+    chown proton:proton "$PROTON_CERT_DIR"/*-key.pem 2>/dev/null || true
+    chmod 644 "$SR_CERT_DIR"/*.pem 2>/dev/null || true
+    chmod 600 "$SR_CERT_DIR"/*-key.pem 2>/dev/null || true
+    chmod 644 "$PROTON_CERT_DIR"/*.pem 2>/dev/null || true
+    chmod 600 "$PROTON_CERT_DIR"/*-key.pem 2>/dev/null || true
+
     success "mTLS certificates generated and installed successfully"
 }
 
@@ -393,15 +480,68 @@ show_post_install_info() {
     done
     echo
     echo -e "${COLOR_BOLD}Certificate locations:${COLOR_RESET}"
-    echo -e "  - ServiceRadar: ${COLOR_CYAN}$SR_CERT_DIR/root.pem, $SR_CERT_DIR/core.pem, $SR_CERT_DIR/core-key.pem${COLOR_RESET}"
-    echo -e "  - Proton: ${COLOR_CYAN}$PROTON_CERT_DIR/ca-cert.pem, $PROTON_CERT_DIR/root.pem, $PROTON_CERT_DIR/core-key.pem${COLOR_RESET}"
+
+    local components=()
+    if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_CORE" = "true" ]; then
+        components+=("core" "proton" "nats" "kv" "sync" "web")
+    fi
+    if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_POLLER" = "true" ]; then
+        components+=("poller")
+    fi
+    if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_AGENT" = "true" ]; then
+        components+=("agent")
+    fi
+    for checker in "${INSTALLED_CHECKERS[@]}"; do
+        case "$checker" in
+            sysmon) components+=("sysmon") ;;
+            snmp) components+=("snmp") ;;
+            rperf-checker) components+=("rperf-checker") ;;
+            dusk) components+=("dusk-checker") ;;
+        esac
+    done
+    components=($(echo "${components[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' '))
+
+    for component in "${components[@]}"; do
+        local cert_name="$component"
+        local cert_dir="$SR_CERT_DIR"
+        case "$component" in
+            proton)
+                cert_name="core"
+                cert_dir="$PROTON_CERT_DIR"
+                ;;
+            nats)
+                cert_name="nats-server"
+                ;;
+            dusk-checker)
+                cert_name="checkers"
+                ;;
+            sysmon)
+                cert_name="sysmon"
+                ;;
+            snmp)
+                cert_name="snmp"
+                ;;
+            rperf-checker)
+                cert_name="rperf-checker"
+                ;;
+            rperf)
+                continue
+                ;;
+        esac
+        # Only show certificates that exist
+        if [ -f "$cert_dir/$cert_name.pem" ] && [ -f "$cert_dir/$cert_name-key.pem" ]; then
+            echo -e "  - $component: ${COLOR_CYAN}$cert_dir/$cert_name.pem, $cert_dir/$cert_name-key.pem${COLOR_RESET}"
+        else
+            log "DEBUG: Skipping $component in post-install info: Certificate files $cert_dir/$cert_name.pem or $cert_dir/$cert_name-key.pem not found"
+        fi
+    done
     echo
     echo -e "${COLOR_BOLD}Next steps:${COLOR_RESET}"
     echo "1. If you need to add more IPs later, run:"
     echo "   $0 --add-ips --ip new.ip.address"
     echo
     echo "2. To restart services with new certificates:"
-    echo "   systemctl restart serviceradar-proton serviceradar-core"
+    echo "   systemctl restart serviceradar-*"
     echo
 }
 
@@ -697,6 +837,27 @@ install_optional_checkers() {
     fi
 }
 
+update_configs_for_mtls() {
+    log "Updating configuration files to enable mTLS..."
+
+    local configs=(
+        "/etc/serviceradar/checkers/dusk.json"
+        "/etc/serviceradar/checkers/snmp.json"
+        "/etc/serviceradar/checkers/sysmon.json"
+    )
+
+    for config in "${configs[@]}"; do
+        if [ -f "$config" ]; then
+            log "Enabling mTLS in $config..."
+            jq '.security.mode = "mtls" | .security.server_name = "127.0.0.1"' "$config" > "$config.tmp" && mv "$config.tmp" "$config"
+            chown serviceradar:serviceradar "$config"
+            chmod 644 "$config"
+        fi
+    done
+
+    success "Configuration files updated for mTLS"
+}
+
 # Main installation logic
 main() {
     display_banner
@@ -710,14 +871,6 @@ main() {
     detect_system
     check_curl
 
-    if [ "$INSTALL_ALL" = "false" ] && [ "$INSTALL_CORE" = "false" ] && [ "$INSTALL_POLLER" = "false" ] && [ "$INSTALL_AGENT" = "false" ]; then
-        if [ "$INTERACTIVE" = "true" ]; then
-            prompt_scenario
-        else
-            error "No installation scenario specified. Use --all, --core, --poller, or --agent."
-        fi
-    fi
-
     if [ "$INSTALL_ALL" = "true" ]; then
         INSTALL_CORE=true
         INSTALL_POLLER=true
@@ -725,7 +878,11 @@ main() {
     fi
 
     if [ "$INSTALL_CORE" = "false" ] && [ "$INSTALL_POLLER" = "false" ] && [ "$INSTALL_AGENT" = "false" ]; then
-        error "No components selected to install."
+        if [ "$INTERACTIVE" = "true" ]; then
+            prompt_scenario
+        else
+            error "No installation scenario specified. Use --all, --core, --poller, or --agent."
+        fi
     fi
 
     # Set up IPs for mTLS
@@ -748,15 +905,16 @@ main() {
     mkdir -p "$TEMP_DIR"
     install_dependencies
 
-    # Setup mTLS certificates if core is being installed
-    if [ "$INSTALL_CORE" = "true" ] || [ "$INSTALL_ALL" = "true" ]; then
-        header "Setting up mTLS Certificates"
-        create_cert_dirs
-        setup_mtls_certificates
-        show_post_install_info
+    # Install serviceradar-cli for all scenarios
+    header "Installing ServiceRadar CLI"
+    if [ "$SYSTEM" = "rhel" ]; then
+        install_single_package "serviceradar-cli" "-1.el9.x86_64"
+    else
+        install_single_package "serviceradar-cli" ""
     fi
 
-    core_packages=("serviceradar-core" "serviceradar-proton" "serviceradar-web" "serviceradar-nats" "serviceradar-kv" "serviceradar-sync" "serviceradar-cli")
+    # Install main components
+    core_packages=("serviceradar-core" "serviceradar-proton" "serviceradar-web" "serviceradar-nats" "serviceradar-kv" "serviceradar-sync")
     poller_packages=("serviceradar-poller")
     agent_packages=("serviceradar-agent")
     packages_to_install=()
@@ -774,7 +932,7 @@ main() {
     header "Installing Main Components"
     for pkg in "${packages_to_install[@]}"; do
         if [ "$SYSTEM" = "rhel" ]; then
-            if [ "$pkg" = "serviceradar-core" ] || [ "$pkg" = "serviceradar-kv" ] || [ "$pkg" = "serviceradar-nats" ] || [ "$pkg" = "serviceradar-agent" ] || [ "$pkg" = "serviceradar-poller" ] || [ "$pkg" = "serviceradar-sync" ] || [ "$pkg" = "serviceradar-proton" ] || [ "$pkg" = "serviceradar-cli" ]; then
+            if [ "$pkg" = "serviceradar-core" ] || [ "$pkg" = "serviceradar-kv" ] || [ "$pkg" = "serviceradar-nats" ] || [ "$pkg" = "serviceradar-agent" ] || [ "$pkg" = "serviceradar-poller" ] || [ "$pkg" = "serviceradar-sync" ] || [ "$pkg" = "serviceradar-proton" ]; then
                 download_package "$pkg" "-1.el9.x86_64"
             else
                 download_package "$pkg" "-1.el9.x86_64"
@@ -785,7 +943,15 @@ main() {
     done
     install_packages "${packages_to_install[@]}"
 
+    # Install optional checkers
     install_optional_checkers
+
+    # Setup mTLS certificates after checkers are installed
+    header "Setting up mTLS Certificates"
+    setup_mtls_certificates
+    update_configs_for_mtls
+    show_post_install_info
+
     update_core_config
 
     header "Cleaning Up"
@@ -796,8 +962,9 @@ main() {
     header "Installation Complete"
     success "[ServiceRadar] installation completed successfully!"
     if [ "$INSTALL_CORE" = "true" ]; then
-        info "Web UI: ${COLOR_YELLOW}http://${LOCAL_IP}/${COLOR_RESET}"
-        info "Core API: ${COLOR_YELLOW}http://${LOCAL_IP}/swagger${COLOR_RESET}"
+        local_ip=$(get_local_ip)
+        info "Web UI: ${COLOR_YELLOW}http://${local_ip}/${COLOR_RESET}"
+        info "Core API: ${COLOR_YELLOW}http://${local_ip}/swagger${COLOR_RESET}"
     fi
 
     if [ "$INSTALL_POLLER" = "true" ] && [ ${#INSTALLED_CHECKERS[@]} -gt 0 ] && [ "$UPDATE_POLLER_CONFIG" = "false" ]; then

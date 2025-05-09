@@ -3,18 +3,21 @@ Description=ServiceRadar Proton Server
 After=network-online.target
 
 [Service]
-Type=simple
+Type=forking
 Environment=
-ExecStart=/usr/bin/proton start
-ExecReload=/usr/bin/proton restart
-ExecStop=/usr/bin/proton stop
+ExecStart=/usr/bin/proton-server --config-file /etc/proton-server/config.yaml --pid-file /var/run/proton-server/proton-server.pid --daemon
+ExecStop=/bin/sh -c '/usr/bin/proton stop || kill -TERM $(cat /var/run/proton-server/proton-server.pid) || true'
+ExecReload=/bin/kill -HUP $MAINPID
 User=proton
 Group=proton
 Restart=always
 RestartSec=5
-StandardOutput=append:/var/log/proton-server/proton-server.log
-StandardError=append:/var/log/proton-server/proton-server.err.log
+TimeoutStopSec=120
+TimeoutStartSec=30
+StandardOutput=journal+append:/var/log/proton-server/proton-server.log
+StandardError=journal+append:/var/log/proton-server/proton-server.err.log
 LimitNOFILE=800000
+PIDFile=/var/run/proton-server/proton-server.pid
 
 [Install]
 WantedBy=multi-user.target

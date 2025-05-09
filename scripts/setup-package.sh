@@ -25,7 +25,7 @@ RELEASE_DIR="${BASE_DIR}/release-artifacts"
 
 usage() {
     local components
-    components=$(jq -r '.[].name' "$CONFIG_FILE" | tr '\n' ' ')
+    components=$(jq -r '.[] | select(.name != null) | .name' "$CONFIG_FILE")
     echo "Usage: $0 --type=[deb|rpm] [--all | all | component_name]"
     echo "Components: $components"
     exit 1
@@ -65,6 +65,77 @@ command -v jq >/dev/null 2>&1 || { echo "Error: jq is required"; exit 1; }
 # Create release directory
 mkdir -p "$RELEASE_DIR" || { echo "Error: Failed to create release directory $RELEASE_DIR"; exit 1; }
 [ "$package_type" = "rpm" ] && mkdir -p "$RELEASE_DIR/rpm/$VERSION" || true
+
+setup_certificates_from_shared_config() {
+    local config="$1"
+    local cert_config=$(echo "$config" | jq -r '.[0].shared_config.certificates // empty')
+
+    if [ -z "$cert_config" ]; then
+        echo "No shared certificate configuration found, skipping certificate setup"
+        return 0
+    fi
+
+    local root_dir=$(echo "$cert_config" | jq -r '.root_dir')
+    local proton_dir=$(echo "$cert_config" | jq -r '.proton_dir')
+    local components=$(echo "$cert_config" | jq -r '.components[]' | tr '\n' ',' | sed 's/,$//')
+
+    if [ -z "$root_dir" ] || [ -z "$components" ]; then
+        echo "Invalid certificate configuration, skipping certificate setup"
+        return 0
+    fi
+
+    echo "Setting up certificates using shared configuration..."
+    echo "Root dir: $root_dir"
+    echo "Proton dir: $proton_dir"
+    echo "Components: $components"
+
+    # Create certificate directories
+    mkdir -p "$root_dir"
+    mkdir -p "$proton_dir"
+
+    # Check if root CA exists
+    if [ -f "$root_dir/root.pem" ]; then
+        echo "Root CA already exists at $root_dir/root.pem, skipping certificate generation"
+        # Ensure Proton has the core certificate
+        if [ -f "$root_dir/core.pem" ] && [ ! -f "$proton_dir/core.pem" ]; then
+            cp "$root_dir/core.pem" "$proton_dir/core.pem"
+            cp "$root_dir/core-key.pem" "$proton_dir/core-key.pem"
+            chmod 644 "$proton_dir/core.pem"
+            chmod 600 "$proton_dir/core-key.pem"
+        fi
+        # Ensure Proton has the root CA certificate
+        if [ -f "$root_dir/root.pem" ] && [ ! -f "$proton_dir/root.pem" ]; then
+            cp "$root_dir/root.pem" "$proton_dir/root.pem"
+            chmod 644 "$proton_dir/root.pem"
+        fi
+        echo "Certificates setup completed using existing certificates"
+        return 0
+    fi
+
+    # Generate certificates using serviceradar CLI
+    echo "Generating new certificates..."
+    if ! /usr/local/bin/serviceradar generate-tls --cert-dir "$root_dir" --proton-dir "$proton_dir" --non-interactive --component "$components"; then
+        echo "Error: Failed to generate certificates"
+        return 1
+    fi
+
+    # Ensure Proton has the core certificate
+    if [ -f "$root_dir/core.pem" ] && [ ! -f "$proton_dir/core.pem" ]; then
+        cp "$root_dir/core.pem" "$proton_dir/core.pem"
+        cp "$root_dir/core-key.pem" "$proton_dir/core-key.pem"
+        chmod 644 "$proton_dir/core.pem"
+        chmod 600 "$proton_dir/core-key.pem"
+    fi
+
+    # Ensure Proton has the root CA certificate
+    if [ -f "$root_dir/root.pem" ] && [ ! -f "$proton_dir/root.pem" ]; then
+        cp "$root_dir/root.pem" "$proton_dir/root.pem"
+        chmod 644 "$proton_dir/root.pem"
+    fi
+
+    echo "Certificates set up successfully"
+    return 0
+}
 
 # Function to build a single component
 build_component() {
@@ -411,7 +482,7 @@ EOF
 
 # Main logic
 if [ "$build_all" = "true" ]; then
-    components=$(jq -r '.[].name' "$CONFIG_FILE")
+    components=$(jq -r '.[] | select(.name != null) | .name' "$CONFIG_FILE")
     for component in $components; do
         build_component "$component"
     done
