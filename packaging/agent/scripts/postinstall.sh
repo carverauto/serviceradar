@@ -19,6 +19,12 @@ mkdir -p /var/lib/serviceradar
 # Create checkers/sweep directory if it doesnt already exist
 mkdir -p /etc/serviceradar/checkers/sweep
 
+# Ensure certificate directory permissions
+if [ -d "/etc/serviceradar/certs" ]; then
+    chown -R serviceradar:serviceradar /etc/serviceradar/certs
+    chmod -R 640 /etc/serviceradar/certs/*.pem
+fi
+
 # Set permissions
 chown serviceradar:serviceradar /etc/serviceradar/agent.json
 chown -R serviceradar:serviceradar /etc/serviceradar/checkers
