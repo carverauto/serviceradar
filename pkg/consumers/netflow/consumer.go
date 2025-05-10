@@ -34,6 +34,7 @@ func NewConsumer(js nats.JetStreamContext, streamName, consumerName string) (*Co
 			if err != nil {
 				return nil, err
 			}
+
 			log.Printf("Created consumer %s for stream %s", consumerName, streamName)
 		} else {
 			return nil, err
