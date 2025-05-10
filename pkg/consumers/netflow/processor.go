@@ -19,7 +19,7 @@ func NewProcessor() *Processor {
 }
 
 // Process processes a single NetFlow message.
-func (p *Processor) Process(msg jetstream.Msg) error {
+func (*Processor) Process(msg jetstream.Msg) error {
 	// Parse protobuf message
 	var flow flowpb.FlowMessage
 

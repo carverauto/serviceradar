@@ -22,6 +22,7 @@ func NewConsumer(ctx context.Context, js jetstream.JetStream, streamName, consum
 	_, err := js.Consumer(ctx, streamName, consumerName)
 	if err == nil {
 		log.Printf("Using existing consumer %s for stream %s", consumerName, streamName)
+
 		return &Consumer{
 			js:           js,
 			streamName:   streamName,
@@ -48,12 +49,18 @@ func NewConsumer(ctx context.Context, js jetstream.JetStream, streamName, consum
 	}
 
 	log.Printf("Created consumer %s for stream %s", consumerName, streamName)
+
 	return &Consumer{
 		js:           js,
 		streamName:   streamName,
 		consumerName: consumerName,
 	}, nil
 }
+
+const (
+	defaultMaxPullMessages = 10
+	defaultPullExpiry      = 30 * time.Second
+)
 
 // ProcessMessages fetches and processes messages using the provided processor.
 func (c *Consumer) ProcessMessages(ctx context.Context, processor *Processor) {
@@ -67,19 +74,19 @@ func (c *Consumer) ProcessMessages(ctx context.Context, processor *Processor) {
 
 	// Start consuming messages
 	consCtx, err := cons.Consume(func(msg jetstream.Msg) {
-		if err := processor.Process(msg); err != nil {
-			log.Printf("Failed to process message: %v", err)
+		if processErr := processor.Process(msg); processErr != nil {
+			log.Printf("Failed to process message: %v", processErr)
 			// Nak to retry later
-			if err := msg.Nak(); err != nil {
-				log.Printf("Failed to Nak message: %v", err)
+			if nakErr := msg.Nak(); nakErr != nil {
+				log.Printf("Failed to Nak message: %v", nakErr)
 			}
 		} else {
 			// Ack successful processing
-			if err := msg.Ack(); err != nil {
-				log.Printf("Failed to Ack message: %v", err)
+			if ackErr := msg.Ack(); ackErr != nil {
+				log.Printf("Failed to Ack message: %v", ackErr)
 			}
 		}
-	}, jetstream.PullMaxMessages(10), jetstream.PullExpiry(30*time.Second))
+	}, jetstream.PullMaxMessages(defaultMaxPullMessages), jetstream.PullExpiry(defaultPullExpiry))
 	if err != nil {
 		log.Printf("Failed to start consumer: %v", err)
 

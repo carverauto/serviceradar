@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/nats-io/nats.go"
@@ -79,8 +80,16 @@ func (s *Service) Start(ctx context.Context) error {
 	return nil
 }
 
+const (
+	defaultShutdownTimeout = 10 * time.Second
+)
+
 // Stop closes the NATS connection and waits for processing to complete.
 func (s *Service) Stop(ctx context.Context) error {
+	// set a timer to wait for graceful shutdown
+	_, cancel := context.WithTimeout(ctx, defaultShutdownTimeout)
+	defer cancel()
+
 	if s.nc != nil {
 		s.nc.Close()
 	}
