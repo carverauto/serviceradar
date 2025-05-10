@@ -20,29 +20,34 @@ type Consumer struct {
 func NewConsumer(js nats.JetStreamContext, streamName, consumerName string) (*Consumer, error) {
 	// Check if consumer exists
 	_, err := js.ConsumerInfo(streamName, consumerName)
-	if err != nil {
-		if errors.Is(err, nats.ErrConsumerNotFound) {
-			// Create consumer
-			_, err = js.AddConsumer(streamName, &nats.ConsumerConfig{
-				Durable:       consumerName,
-				DeliverPolicy: nats.DeliverAllPolicy,
-				AckPolicy:     nats.AckExplicitPolicy,
-				Description:   "NetFlow message consumer",
-				MaxDeliver:    3,
-				AckWait:       30 * time.Second,
-			})
-			if err != nil {
-				return nil, err
-			}
-
-			log.Printf("Created consumer %s for stream %s", consumerName, streamName)
-		} else {
-			return nil, err
-		}
-	} else {
+	if err == nil {
 		log.Printf("Using existing consumer %s for stream %s", consumerName, streamName)
+		return &Consumer{
+			js:           js,
+			streamName:   streamName,
+			consumerName: consumerName,
+		}, nil
 	}
 
+	// Return error if it's not a "consumer not found" error
+	if !errors.Is(err, nats.ErrConsumerNotFound) {
+		return nil, err
+	}
+
+	// Create consumer
+	_, err = js.AddConsumer(streamName, &nats.ConsumerConfig{
+		Durable:       consumerName,
+		DeliverPolicy: nats.DeliverAllPolicy,
+		AckPolicy:     nats.AckExplicitPolicy,
+		Description:   "NetFlow message consumer",
+		MaxDeliver:    3,
+		AckWait:       30 * time.Second,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	log.Printf("Created consumer %s for stream %s", consumerName, streamName)
 	return &Consumer{
 		js:           js,
 		streamName:   streamName,
