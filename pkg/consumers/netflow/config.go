@@ -6,6 +6,15 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
+// Error variables for config validation
+var (
+	ErrListenAddrRequired   = errors.New("listen_addr is required")
+	ErrNATSURLRequired      = errors.New("nats_url is required")
+	ErrStreamNameRequired   = errors.New("stream_name is required")
+	ErrConsumerNameRequired = errors.New("consumer_name is required")
+	ErrSecurityRequired     = errors.New("security configuration is required")
+)
+
 // Config holds the configuration for the NetFlow consumer service.
 type Config struct {
 	ListenAddr   string                 `json:"listen_addr"`   // e.g., ":50060"
@@ -18,19 +27,23 @@ type Config struct {
 // Validate ensures the configuration is valid.
 func (c *Config) Validate() error {
 	if c.ListenAddr == "" {
-		return errors.New("listen_addr is required")
+		return ErrListenAddrRequired
 	}
+
 	if c.NATSURL == "" {
-		return errors.New("nats_url is required")
+		return ErrNATSURLRequired
 	}
+
 	if c.StreamName == "" {
-		return errors.New("stream_name is required")
+		return ErrStreamNameRequired
 	}
+
 	if c.ConsumerName == "" {
-		return errors.New("consumer_name is required")
+		return ErrConsumerNameRequired
 	}
+
 	if c.Security == nil {
-		return errors.New("security configuration is required")
+		return ErrSecurityRequired
 	}
 
 	return nil
