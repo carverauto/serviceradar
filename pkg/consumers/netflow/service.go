@@ -7,13 +7,14 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 // Service implements the lifecycle.Service interface for the NetFlow consumer.
 type Service struct {
 	cfg       Config
 	nc        *nats.Conn
-	js        nats.JetStreamContext
+	js        jetstream.JetStream
 	consumer  *Consumer
 	processor *Processor
 	wg        sync.WaitGroup
@@ -46,8 +47,8 @@ func (s *Service) Start(ctx context.Context) error {
 
 	s.nc = nc
 
-	// Initialize JetStream context
-	js, err := nc.JetStream()
+	// Initialize JetStream management interface
+	js, err := jetstream.New(nc)
 	if err != nil {
 		s.nc.Close()
 
@@ -57,7 +58,7 @@ func (s *Service) Start(ctx context.Context) error {
 	s.js = js
 
 	// Create or get consumer
-	s.consumer, err = NewConsumer(s.js, s.cfg.StreamName, s.cfg.ConsumerName)
+	s.consumer, err = NewConsumer(ctx, s.js, s.cfg.StreamName, s.cfg.ConsumerName)
 	if err != nil {
 		s.nc.Close()
 

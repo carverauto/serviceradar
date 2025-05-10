@@ -32,5 +32,6 @@ func (c *Config) Validate() error {
 	if c.Security == nil {
 		return errors.New("security configuration is required")
 	}
+
 	return nil
 }
