@@ -19,6 +19,9 @@ package integrations
 
 import (
 	"context"
+	"net/http"
+	"strconv"
+	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/sync/integrations/armis"
@@ -35,11 +38,49 @@ func NewArmisIntegration(
 	grpcConn *grpc.ClientConn,
 	serverName string,
 ) *armis.ArmisIntegration {
-	return &armis.ArmisIntegration{
+	// Extract boundary name if specified in config
+	boundaryName := ""
+	if val, ok := config.Credentials["boundary"]; ok {
+		boundaryName = val
+	}
+
+	// Extract page size if specified
+	pageSize := 100 // default
+
+	if val, ok := config.Credentials["page_size"]; ok {
+		if size, err := strconv.Atoi(val); err == nil && size > 0 {
+			pageSize = size
+		}
+	}
+
+	// Create the default HTTP client
+	httpClient := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	// Create the default implementations
+	defaultImpl := &armis.DefaultArmisIntegration{
 		Config:     config,
-		KvClient:   kvClient,
-		GrpcConn:   grpcConn,
+		HTTPClient: httpClient,
+	}
+
+	// Create the default KV writer
+	kvWriter := &armis.DefaultKVWriter{
+		KVClient:   kvClient,
 		ServerName: serverName,
+	}
+
+	return &armis.ArmisIntegration{
+		Config:        config,
+		KVClient:      kvClient,
+		GRPCConn:      grpcConn,
+		ServerName:    serverName,
+		BoundaryName:  boundaryName,
+		PageSize:      pageSize,
+		HTTPClient:    httpClient,
+		TokenProvider: defaultImpl,
+		DeviceFetcher: defaultImpl,
+		KVWriter:      kvWriter,
 	}
 }
 
