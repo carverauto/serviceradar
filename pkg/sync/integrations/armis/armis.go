@@ -32,8 +32,8 @@ import (
 // ArmisIntegration manages the Armis API integration.
 type ArmisIntegration struct {
 	Config     models.SourceConfig
-	KvClient   proto.KVServiceClient // Add gRPC client for KV writes
-	GrpcConn   *grpc.ClientConn      // Connection to reuse
+	KvClient   pb.KVServiceClient // Add gRPC client for KV writes
+	GrpcConn   *grpc.ClientConn   // Connection to reuse
 	ServerName string
 }
 
@@ -164,7 +164,7 @@ func (a *ArmisIntegration) writeSweepConfig(ctx context.Context, ips []string) {
 	}
 
 	configKey := fmt.Sprintf("config/%s/network-sweep", a.ServerName)
-	_, err = a.KvClient.Put(ctx, &proto.PutRequest{
+	_, err = a.KvClient.Put(ctx, &pb.PutRequest{
 		Key:   configKey,
 		Value: configJSON,
 	})

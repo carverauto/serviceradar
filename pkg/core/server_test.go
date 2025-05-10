@@ -169,10 +169,10 @@ func TestProcessStatusReport(t *testing.T) {
 
 	pollerID := "test-poller"
 	now := time.Now()
-	req := &proto.PollerStatusRequest{
+	req := &pb.PollerStatusRequest{
 		PollerId:  pollerID,
 		Timestamp: now.Unix(),
-		Services: []*proto.ServiceStatus{
+		Services: []*pb.ServiceStatus{
 			{
 				ServiceName: "test-service",
 				ServiceType: "test",
@@ -260,16 +260,16 @@ func TestReportStatus(t *testing.T) {
 	}
 
 	// Test unknown poller
-	resp, err := server.ReportStatus(context.Background(), &proto.PollerStatusRequest{PollerId: "unknown-poller"})
+	resp, err := server.ReportStatus(context.Background(), &pb.PollerStatusRequest{PollerId: "unknown-poller"})
 	require.NoError(t, err)
 	assert.NotNil(t, resp)
 	assert.True(t, resp.Received)
 
 	// Test valid poller with ICMP service
-	resp, err = server.ReportStatus(context.Background(), &proto.PollerStatusRequest{
+	resp, err = server.ReportStatus(context.Background(), &pb.PollerStatusRequest{
 		PollerId:  "test-poller",
 		Timestamp: time.Now().Unix(),
-		Services: []*proto.ServiceStatus{
+		Services: []*pb.ServiceStatus{
 			{
 				ServiceName: "icmp-service",
 				ServiceType: "icmp",
@@ -290,13 +290,13 @@ func TestProcessSweepData(t *testing.T) {
 	tests := []struct {
 		name          string
 		inputMessage  string
-		expectedSweep proto.SweepServiceStatus
+		expectedSweep pb.SweepServiceStatus
 		expectError   bool
 	}{
 		{
 			name:         "Valid timestamp",
 			inputMessage: `{"network": "192.168.1.0/24", "total_hosts": 10, "available_hosts": 5, "last_sweep": 1678886400}`,
-			expectedSweep: proto.SweepServiceStatus{
+			expectedSweep: pb.SweepServiceStatus{
 				Network:        "192.168.1.0/24",
 				TotalHosts:     10,
 				AvailableHosts: 5,
@@ -307,7 +307,7 @@ func TestProcessSweepData(t *testing.T) {
 		{
 			name:         "Invalid timestamp (far future)",
 			inputMessage: `{"network": "192.168.1.0/24", "total_hosts": 10, "available_hosts": 5, "last_sweep": 4102444800}`,
-			expectedSweep: proto.SweepServiceStatus{
+			expectedSweep: pb.SweepServiceStatus{
 				Network:        "192.168.1.0/24",
 				TotalHosts:     10,
 				AvailableHosts: 5,
@@ -336,7 +336,7 @@ func TestProcessSweepData(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 
-				var sweepData proto.SweepServiceStatus
+				var sweepData pb.SweepServiceStatus
 				err = json.Unmarshal([]byte(svc.Message), &sweepData)
 				require.NoError(t, err)
 

@@ -60,7 +60,7 @@ func main() {
 		Security:          cfg.Security,
 		RegisterGRPCServices: []lifecycle.GRPCServiceRegistrar{
 			func(srv *ggrpc.Server) error {
-				proto.RegisterKVServiceServer(srv, server)
+				pb.RegisterKVServiceServer(srv, server)
 				return nil
 			},
 		},

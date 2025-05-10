@@ -605,7 +605,7 @@ func (s *Server) getPollerHealthState(ctx context.Context, pollerID string) (boo
 }
 
 func (s *Server) processStatusReport(
-	ctx context.Context, req *proto.PollerStatusRequest, now time.Time) (*api.PollerStatus, error) {
+	ctx context.Context, req *pb.PollerStatusRequest, now time.Time) (*api.PollerStatus, error) {
 	pollerStatus := &models.PollerStatus{
 		PollerID:  req.PollerId,
 		IsHealthy: true,
@@ -649,7 +649,7 @@ func (s *Server) processStatusReport(
 	return apiStatus, nil
 }
 
-func (*Server) createPollerStatus(req *proto.PollerStatusRequest, now time.Time) *api.PollerStatus {
+func (*Server) createPollerStatus(req *pb.PollerStatusRequest, now time.Time) *api.PollerStatus {
 	return &api.PollerStatus{
 		PollerID:   req.PollerId,
 		LastUpdate: now,
@@ -662,7 +662,7 @@ func (*Server) createPollerStatus(req *proto.PollerStatusRequest, now time.Time)
 func (s *Server) processServices(
 	pollerID string,
 	apiStatus *api.PollerStatus,
-	services []*proto.ServiceStatus,
+	services []*pb.ServiceStatus,
 	now time.Time) {
 	allServicesAvailable := true
 
@@ -703,7 +703,7 @@ func (s *Server) processServices(
 
 // processServiceDetails handles parsing and processing of service details and metrics.
 func (s *Server) processServiceDetails(
-	pollerID string, apiService *api.ServiceStatus, svc *proto.ServiceStatus, now time.Time) error {
+	pollerID string, apiService *api.ServiceStatus, svc *pb.ServiceStatus, now time.Time) error {
 	if svc.Message == "" {
 		log.Printf("No message content for service %s on poller %s", svc.ServiceName, pollerID)
 		return s.handleService(pollerID, apiService, now)
@@ -732,7 +732,7 @@ func (s *Server) processServiceDetails(
 // processMetrics handles metrics processing for all service types.
 func (s *Server) processMetrics(
 	pollerID string,
-	svc *proto.ServiceStatus,
+	svc *pb.ServiceStatus,
 	details json.RawMessage,
 	now time.Time) error {
 	switch svc.ServiceType {
@@ -752,7 +752,7 @@ func (s *Server) processMetrics(
 	return nil
 }
 
-func (*Server) createAPIService(svc *proto.ServiceStatus) api.ServiceStatus {
+func (*Server) createAPIService(svc *pb.ServiceStatus) api.ServiceStatus {
 	return api.ServiceStatus{
 		Name:      svc.ServiceName,
 		Type:      svc.ServiceType,
@@ -761,7 +761,7 @@ func (*Server) createAPIService(svc *proto.ServiceStatus) api.ServiceStatus {
 	}
 }
 
-func (*Server) parseServiceDetails(svc *proto.ServiceStatus) (json.RawMessage, error) {
+func (*Server) parseServiceDetails(svc *pb.ServiceStatus) (json.RawMessage, error) {
 	sanitized := strings.ReplaceAll(svc.Message, `""`, `"`)
 
 	var details json.RawMessage
@@ -940,7 +940,7 @@ func (s *Server) processRperfMetrics(pollerID string, details json.RawMessage, t
 	return nil
 }
 
-func (s *Server) processICMPMetrics(pollerID string, svc *proto.ServiceStatus, details json.RawMessage, now time.Time) error {
+func (s *Server) processICMPMetrics(pollerID string, svc *pb.ServiceStatus, details json.RawMessage, now time.Time) error {
 	var pingResult struct {
 		Host         string  `json:"host"`
 		ResponseTime int64   `json:"response_time"`
@@ -1041,7 +1041,7 @@ func (s *Server) handleService(pollerID string, svc *api.ServiceStatus, now time
 }
 
 func (*Server) processSweepData(svc *api.ServiceStatus, now time.Time) error {
-	var sweepData proto.SweepServiceStatus
+	var sweepData pb.SweepServiceStatus
 
 	if err := json.Unmarshal([]byte(svc.Message), &sweepData); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidSweepData, err)
@@ -1052,7 +1052,7 @@ func (*Server) processSweepData(svc *api.ServiceStatus, now time.Time) error {
 
 		sweepData.LastSweep = now.Unix()
 
-		updatedData := proto.SweepServiceStatus{
+		updatedData := pb.SweepServiceStatus{
 			Network:        sweepData.Network,
 			TotalHosts:     sweepData.TotalHosts,
 			AvailableHosts: sweepData.AvailableHosts,
@@ -1518,7 +1518,7 @@ func (s *Server) sendAlert(ctx context.Context, alert *alerts.WebhookAlert) erro
 	return nil
 }
 
-func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusRequest) (*proto.PollerStatusResponse, error) {
+func (s *Server) ReportStatus(ctx context.Context, req *pb.PollerStatusRequest) (*pb.PollerStatusResponse, error) {
 	log.Printf("Received status report from %s with %d services", req.PollerId, len(req.Services))
 
 	if req.PollerId == "" {
@@ -1528,7 +1528,7 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 	if !s.isKnownPoller(req.PollerId) {
 		log.Printf("Ignoring status report from unknown poller: %s", req.PollerId)
 
-		return &proto.PollerStatusResponse{Received: true}, nil
+		return &pb.PollerStatusResponse{Received: true}, nil
 	}
 
 	now := time.Unix(req.Timestamp, 0)
@@ -1540,7 +1540,7 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 
 	s.updateAPIState(req.PollerId, apiStatus)
 
-	return &proto.PollerStatusResponse{Received: true}, nil
+	return &pb.PollerStatusResponse{Received: true}, nil
 }
 
 func getHostname() string {

@@ -116,7 +116,7 @@ func setupKVStore(ctx context.Context, cfgLoader *config.Config, cfg *ServerConf
 	}
 
 	kvStore := &grpcKVStore{
-		client: proto.NewKVServiceClient(client.GetConnection()),
+		client: pb.NewKVServiceClient(client.GetConnection()),
 		conn:   client,
 	}
 
@@ -424,7 +424,7 @@ func (s *Server) connectToChecker(ctx context.Context, checkerConfig *CheckerCon
 	}, nil
 }
 
-func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
+func (s *Server) GetStatus(ctx context.Context, req *pb.StatusRequest) (*pb.StatusResponse, error) {
 	switch {
 	case isRperfCheckerRequest(req):
 		return s.handleRperfChecker(ctx, req)
@@ -437,15 +437,15 @@ func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*prot
 	}
 }
 
-func isRperfCheckerRequest(req *proto.StatusRequest) bool {
+func isRperfCheckerRequest(req *pb.StatusRequest) bool {
 	return req.ServiceName == "rperf-checker" && req.ServiceType == "grpc"
 }
 
-func isICMPRequest(req *proto.StatusRequest) bool {
+func isICMPRequest(req *pb.StatusRequest) bool {
 	return req.ServiceType == "icmp" && req.Details != ""
 }
 
-func isSweepRequest(req *proto.StatusRequest) bool {
+func isSweepRequest(req *pb.StatusRequest) bool {
 	return req.ServiceType == "sweep"
 }
 
@@ -453,7 +453,7 @@ var (
 	errNotExternalChecker = errors.New("checker is not an ExternalChecker")
 )
 
-func (s *Server) handleRperfChecker(ctx context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
+func (s *Server) handleRperfChecker(ctx context.Context, req *pb.StatusRequest) (*pb.StatusResponse, error) {
 	c, err := s.getChecker(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get rperf checker: %w", err)
@@ -470,16 +470,16 @@ func (s *Server) handleRperfChecker(ctx context.Context, req *proto.StatusReques
 		return nil, fmt.Errorf("failed to ensure rperf-checker connection: %w", err)
 	}
 
-	agentClient := proto.NewAgentServiceClient(extChecker.grpcClient.GetConnection())
+	agentClient := pb.NewAgentServiceClient(extChecker.grpcClient.GetConnection())
 
-	return agentClient.GetStatus(ctx, &proto.StatusRequest{
+	return agentClient.GetStatus(ctx, &pb.StatusRequest{
 		ServiceName: "",
 		ServiceType: "grpc",
 		Details:     "",
 	})
 }
 
-func (s *Server) handleICMPCheck(ctx context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
+func (s *Server) handleICMPCheck(ctx context.Context, req *pb.StatusRequest) (*pb.StatusResponse, error) {
 	for _, svc := range s.services {
 		sweepSvc, ok := svc.(*SweepService)
 		if !ok {
@@ -500,7 +500,7 @@ func (s *Server) handleICMPCheck(ctx context.Context, req *proto.StatusRequest) 
 
 		jsonResp, _ := json.Marshal(resp)
 
-		return &proto.StatusResponse{
+		return &pb.StatusResponse{
 			Available:    result.Available,
 			Message:      string(jsonResp),
 			ServiceName:  "icmp_check",
@@ -512,7 +512,7 @@ func (s *Server) handleICMPCheck(ctx context.Context, req *proto.StatusRequest) 
 	return nil, errNoSweepService
 }
 
-func (s *Server) handleDefaultChecker(ctx context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
+func (s *Server) handleDefaultChecker(ctx context.Context, req *pb.StatusRequest) (*pb.StatusResponse, error) {
 	c, err := s.getChecker(ctx, req)
 	if err != nil {
 		return nil, err
@@ -520,7 +520,7 @@ func (s *Server) handleDefaultChecker(ctx context.Context, req *proto.StatusRequ
 
 	available, message := c.Check(ctx)
 
-	return &proto.StatusResponse{
+	return &pb.StatusResponse{
 		Available:   available,
 		Message:     message,
 		ServiceName: req.ServiceName,
@@ -605,14 +605,14 @@ func (s *Server) loadCheckerConfigs(ctx context.Context, cfgLoader *config.Confi
 	return nil
 }
 
-func (s *Server) getSweepStatus(ctx context.Context) (*proto.StatusResponse, error) {
+func (s *Server) getSweepStatus(ctx context.Context) (*pb.StatusResponse, error) {
 	for _, svc := range s.services {
 		if provider, ok := svc.(SweepStatusProvider); ok {
 			return provider.GetStatus(ctx)
 		}
 	}
 
-	return &proto.StatusResponse{
+	return &pb.StatusResponse{
 		Available:   false,
 		Message:     "Sweep service not configured",
 		ServiceName: "network_sweep",
@@ -620,7 +620,7 @@ func (s *Server) getSweepStatus(ctx context.Context) (*proto.StatusResponse, err
 	}, nil
 }
 
-func (s *Server) getChecker(ctx context.Context, req *proto.StatusRequest) (checker.Checker, error) {
+func (s *Server) getChecker(ctx context.Context, req *pb.StatusRequest) (checker.Checker, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

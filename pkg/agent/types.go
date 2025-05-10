@@ -32,7 +32,7 @@ import (
 )
 
 type Server struct {
-	proto.UnimplementedAgentServiceServer
+	pb.UnimplementedAgentServiceServer
 	mu                 sync.RWMutex
 	checkers           map[string]checker.Checker
 	checkerConfs       map[string]*CheckerConfig

@@ -44,7 +44,7 @@ const (
 type SNMPChecker struct {
 	config      *snmp.SNMPConfig
 	client      *grpc.Client // Updated to use grpc.Client
-	agentClient proto.AgentServiceClient
+	agentClient pb.AgentServiceClient
 	interval    time.Duration
 	mu          sync.RWMutex
 	wg          sync.WaitGroup
@@ -97,7 +97,7 @@ func NewSNMPChecker(ctx context.Context, address string, security *models.Securi
 		return nil, fmt.Errorf("failed to create gRPC client: %w", err)
 	}
 
-	agentClient := proto.NewAgentServiceClient(client.GetConnection())
+	agentClient := pb.NewAgentServiceClient(client.GetConnection())
 
 	c := &SNMPChecker{
 		config:      &cfg,
@@ -114,7 +114,7 @@ func (c *SNMPChecker) Check(ctx context.Context) (available bool, msg string) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	req := &proto.StatusRequest{
+	req := &pb.StatusRequest{
 		ServiceType: "snmp",
 		ServiceName: "snmp",
 	}

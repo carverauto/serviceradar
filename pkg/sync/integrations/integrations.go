@@ -31,7 +31,7 @@ import (
 func NewArmisIntegration(
 	_ context.Context,
 	config models.SourceConfig,
-	kvClient proto.KVServiceClient,
+	kvClient pb.KVServiceClient,
 	grpcConn *grpc.ClientConn,
 	serverName string,
 ) *armis.ArmisIntegration {
@@ -47,7 +47,7 @@ func NewArmisIntegration(
 func NewNetboxIntegration(
 	_ context.Context,
 	config models.SourceConfig,
-	kvClient proto.KVServiceClient,
+	kvClient pb.KVServiceClient,
 	grpcConn *grpc.ClientConn,
 	serverName string,
 ) *netbox.NetboxIntegration {

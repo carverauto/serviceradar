@@ -132,7 +132,7 @@ type OIDConfig struct {
 
 // SNMPService implements both the Service interface and proto.AgentServiceServer.
 type SNMPService struct {
-	proto.UnimplementedAgentServiceServer
+	pb.UnimplementedAgentServiceServer
 	collectors        map[string]Collector
 	aggregators       map[string]Aggregator
 	config            *SNMPConfig

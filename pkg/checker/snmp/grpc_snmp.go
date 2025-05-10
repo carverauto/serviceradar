@@ -37,7 +37,7 @@ type Poller struct {
 }
 
 type PollerService struct {
-	proto.UnimplementedAgentServiceServer
+	pb.UnimplementedAgentServiceServer
 	checker *Poller
 	service *SNMPService
 }
@@ -52,7 +52,7 @@ type HealthServer struct {
 }
 
 // GetStatus implements the AgentService GetStatus method.
-func (s *PollerService) GetStatus(ctx context.Context, _ *proto.StatusRequest) (*proto.StatusResponse, error) {
+func (s *PollerService) GetStatus(ctx context.Context, _ *pb.StatusRequest) (*pb.StatusResponse, error) {
 	s.checker.mu.RLock()
 	defer s.checker.mu.RUnlock()
 
@@ -67,7 +67,7 @@ func (s *PollerService) GetStatus(ctx context.Context, _ *proto.StatusRequest) (
 	// Get status from the SNMP service
 	statusMap, err := s.service.GetStatus(ctx)
 	if err != nil {
-		return &proto.StatusResponse{
+		return &pb.StatusResponse{
 			Available: false,
 			Message:   fmt.Sprintf("Failed to get status from SNMP service: %v", err),
 		}, nil
@@ -76,7 +76,7 @@ func (s *PollerService) GetStatus(ctx context.Context, _ *proto.StatusRequest) (
 	// Marshal the status map to JSON
 	statusJSON, err := json.Marshal(statusMap)
 	if err != nil {
-		return &proto.StatusResponse{
+		return &pb.StatusResponse{
 			Available: false,
 			Message:   fmt.Sprintf("Failed to marshal status to JSON: %v", err),
 		}, nil
@@ -92,7 +92,7 @@ func (s *PollerService) GetStatus(ctx context.Context, _ *proto.StatusRequest) (
 		}
 	}
 
-	return &proto.StatusResponse{
+	return &pb.StatusResponse{
 		Available:   available,
 		Message:     string(statusJSON),
 		ServiceName: "snmp",

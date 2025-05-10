@@ -29,7 +29,7 @@ import (
 
 // AgentPoller manages polling operations for a single agent.
 type AgentPoller struct {
-	client  proto.AgentServiceClient
+	client  pb.AgentServiceClient
 	name    string
 	config  *AgentConfig
 	timeout time.Duration
@@ -44,9 +44,9 @@ type AgentConnection struct {
 
 // Poller represents the monitoring poller.
 type Poller struct {
-	proto.UnimplementedPollerServiceServer
+	pb.UnimplementedPollerServiceServer
 	config     Config
-	coreClient proto.PollerServiceClient
+	coreClient pb.PollerServiceClient
 	grpcClient *grpc.Client
 	mu         sync.RWMutex
 	agents     map[string]*AgentConnection
@@ -60,7 +60,7 @@ type Poller struct {
 
 // ServiceCheck manages a single service check operation.
 type ServiceCheck struct {
-	client proto.AgentServiceClient
+	client pb.AgentServiceClient
 	check  Check
 }
 

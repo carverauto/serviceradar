@@ -1,0 +1,17 @@
+{
+  "listen_addr": ":50060",
+  "nats_url": "nats://172.236.111.20:4222",
+  "stream_name": "goflow2",
+  "consumer_name": "myconsumer",
+  "security": {
+    "mode": "mtls",
+    "cert_dir": "/etc/serviceradar/certs",
+    "server_name": "nats-serviceradar",
+    "role": "client",
+    "tls": {
+      "cert_file": "client.pem",
+      "key_file": "client-key.pem",
+      "ca_file": "root.pem"
+    }
+  }
+}

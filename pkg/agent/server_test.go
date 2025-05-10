@@ -215,17 +215,17 @@ func TestServerGetStatus(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		req         *proto.StatusRequest
+		req         *pb.StatusRequest
 		wantErr     bool
-		checkStatus func(*testing.T, *proto.StatusResponse)
+		checkStatus func(*testing.T, *pb.StatusResponse)
 	}{
 		{
 			name: "sweep status request",
-			req: &proto.StatusRequest{
+			req: &pb.StatusRequest{
 				ServiceType: "sweep",
 			},
 			wantErr: false,
-			checkStatus: func(t *testing.T, resp *proto.StatusResponse) {
+			checkStatus: func(t *testing.T, resp *pb.StatusResponse) {
 				t.Helper()
 				assert.False(t, resp.Available)
 				assert.Equal(t, "Sweep service not configured", resp.Message)
@@ -234,13 +234,13 @@ func TestServerGetStatus(t *testing.T) {
 		},
 		{
 			name: "port check request",
-			req: &proto.StatusRequest{
+			req: &pb.StatusRequest{
 				ServiceType: "port",
 				ServiceName: "test-port",
 				Details:     "localhost:8080",
 			},
 			wantErr: false,
-			checkStatus: func(t *testing.T, resp *proto.StatusResponse) {
+			checkStatus: func(t *testing.T, resp *pb.StatusResponse) {
 				t.Helper()
 				assert.NotNil(t, resp)
 				assert.Equal(t, "port", resp.ServiceType)
@@ -316,12 +316,12 @@ func TestGetCheckerCaching(t *testing.T) {
 
 	ctx := context.Background()
 
-	req1 := &proto.StatusRequest{
+	req1 := &pb.StatusRequest{
 		ServiceName: "SSH",
 		ServiceType: "port",
 		Details:     "127.0.0.1:22",
 	}
-	req2 := &proto.StatusRequest{
+	req2 := &pb.StatusRequest{
 		ServiceName: "SSH",
 		ServiceType: "port",
 		Details:     "192.168.1.1:22",

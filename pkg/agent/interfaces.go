@@ -35,7 +35,7 @@ type Service interface {
 
 // SweepStatusProvider is an interface for services that can provide sweep status.
 type SweepStatusProvider interface {
-	GetStatus(context.Context) (*proto.StatusResponse, error)
+	GetStatus(context.Context) (*pb.StatusResponse, error)
 }
 
 // KVStore defines the interface for key-value store operations.

@@ -171,7 +171,7 @@ func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) 
 	}
 
 	configKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", n.ServerName)
-	_, err = n.KvClient.Put(ctx, &proto.PutRequest{
+	_, err = n.KvClient.Put(ctx, &pb.PutRequest{
 		Key:   configKey,
 		Value: configJSON,
 	})

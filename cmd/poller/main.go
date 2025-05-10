@@ -64,7 +64,7 @@ func run() error {
 
 	// Register services function
 	registerServices := func(s *grpc.Server) error {
-		proto.RegisterPollerServiceServer(s, p)
+		pb.RegisterPollerServiceServer(s, p)
 		return nil
 	}
 

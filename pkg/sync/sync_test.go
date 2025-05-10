@@ -126,10 +126,10 @@ func TestSync_Success(t *testing.T) {
 
 	data := map[string][]byte{"devices": []byte("data")}
 	mockInteg.EXPECT().Fetch(gomock.Any()).Return(data, nil)
-	mockKV.EXPECT().Put(gomock.Any(), &proto.PutRequest{
+	mockKV.EXPECT().Put(gomock.Any(), &pb.PutRequest{
 		Key:   "armis/devices",
 		Value: []byte("data"),
-	}, gomock.Any()).Return(&proto.PutResponse{}, nil)
+	}, gomock.Any()).Return(&pb.PutResponse{}, nil)
 
 	syncer, err := New(context.Background(), c, mockKV, mockGRPC, registry, mockClock)
 	require.NoError(t, err)
@@ -181,7 +181,7 @@ func TestStartAndStop(t *testing.T) {
 	data := map[string][]byte{"devices": []byte("data")}
 
 	mockInteg.EXPECT().Fetch(gomock.Any()).Return(data, nil).Times(2) // Initial poll + 1 tick
-	mockKV.EXPECT().Put(gomock.Any(), gomock.Any(), gomock.Any()).Return(&proto.PutResponse{}, nil).Times(2)
+	mockKV.EXPECT().Put(gomock.Any(), gomock.Any(), gomock.Any()).Return(&pb.PutResponse{}, nil).Times(2)
 
 	syncer, err := New(context.Background(), c, mockKV, mockGRPC, registry, mockClock)
 	require.NoError(t, err)
@@ -281,10 +281,10 @@ func TestStart_ContextCancellation(t *testing.T) {
 	data := map[string][]byte{"devices": []byte("data")}
 
 	mockInteg.EXPECT().Fetch(gomock.Any()).Return(data, nil)
-	mockKV.EXPECT().Put(gomock.Any(), &proto.PutRequest{
+	mockKV.EXPECT().Put(gomock.Any(), &pb.PutRequest{
 		Key:   "armis/devices",
 		Value: []byte("data"),
-	}, gomock.Any()).Return(&proto.PutResponse{}, nil)
+	}, gomock.Any()).Return(&pb.PutResponse{}, nil)
 
 	syncer, err := New(context.Background(), c, mockKV, mockGRPC, registry, mockClock)
 	require.NoError(t, err)
@@ -338,10 +338,10 @@ func TestSync_NetboxSuccess(t *testing.T) {
 
 	data := map[string][]byte{"1": []byte(`{"id":1,"name":"device1","primary_ip4":{"address":"192.168.1.1/24"}}`)}
 	mockInteg.EXPECT().Fetch(gomock.Any()).Return(data, nil)
-	mockKV.EXPECT().Put(gomock.Any(), &proto.PutRequest{
+	mockKV.EXPECT().Put(gomock.Any(), &pb.PutRequest{
 		Key:   "netbox/1",
 		Value: []byte(`{"id":1,"name":"device1","primary_ip4":{"address":"192.168.1.1/24"}}`),
-	}, gomock.Any()).Return(&proto.PutResponse{}, nil)
+	}, gomock.Any()).Return(&pb.PutResponse{}, nil)
 
 	syncer, err := New(context.Background(), c, mockKV, mockGRPC, registry, mockClock)
 	require.NoError(t, err)

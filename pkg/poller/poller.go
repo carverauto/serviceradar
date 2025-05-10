@@ -176,7 +176,7 @@ func (p *Poller) Close() error {
 	return nil
 }
 
-func newAgentPoller(name string, config *AgentConfig, client proto.AgentServiceClient, timeout time.Duration) *AgentPoller {
+func newAgentPoller(name string, config *AgentConfig, client pb.AgentServiceClient, timeout time.Duration) *AgentPoller {
 	return &AgentPoller{
 		name:    name,
 		config:  config,
@@ -186,12 +186,12 @@ func newAgentPoller(name string, config *AgentConfig, client proto.AgentServiceC
 }
 
 // ExecuteChecks runs all configured service checks for the agent.
-func (ap *AgentPoller) ExecuteChecks(ctx context.Context) []*proto.ServiceStatus {
+func (ap *AgentPoller) ExecuteChecks(ctx context.Context) []*pb.ServiceStatus {
 	checkCtx, cancel := context.WithTimeout(ctx, ap.timeout)
 	defer cancel()
 
-	results := make(chan *proto.ServiceStatus, len(ap.config.Checks))
-	statuses := make([]*proto.ServiceStatus, 0, len(ap.config.Checks))
+	results := make(chan *pb.ServiceStatus, len(ap.config.Checks))
+	statuses := make([]*pb.ServiceStatus, 0, len(ap.config.Checks))
 
 	var wg sync.WaitGroup
 
@@ -220,15 +220,15 @@ func (ap *AgentPoller) ExecuteChecks(ctx context.Context) []*proto.ServiceStatus
 	return statuses
 }
 
-func newServiceCheck(client proto.AgentServiceClient, check Check) *ServiceCheck {
+func newServiceCheck(client pb.AgentServiceClient, check Check) *ServiceCheck {
 	return &ServiceCheck{
 		client: client,
 		check:  check,
 	}
 }
 
-func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
-	req := &proto.StatusRequest{
+func (sc *ServiceCheck) execute(ctx context.Context) *pb.ServiceStatus {
+	req := &pb.StatusRequest{
 		ServiceName: sc.check.Name,
 		ServiceType: sc.check.Type,
 		Details:     sc.check.Details,
@@ -242,7 +242,7 @@ func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
 
 	status, err := sc.client.GetStatus(ctx, req)
 	if err != nil {
-		return &proto.ServiceStatus{
+		return &pb.ServiceStatus{
 			ServiceName: sc.check.Name,
 			Available:   false,
 			Message:     err.Error(),
@@ -250,7 +250,7 @@ func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
 		}
 	}
 
-	return &proto.ServiceStatus{
+	return &pb.ServiceStatus{
 		ServiceName:  sc.check.Name,
 		Available:    status.Available,
 		Message:      status.Message,
@@ -349,7 +349,7 @@ func (p *Poller) connectToCore(ctx context.Context) error {
 	}
 
 	p.grpcClient = client
-	p.coreClient = proto.NewPollerServiceClient(client.GetConnection())
+	p.coreClient = pb.NewPollerServiceClient(client.GetConnection())
 
 	return nil
 }
@@ -396,7 +396,7 @@ func (p *Poller) poll(ctx context.Context) error {
 		return p.PollFunc(ctx)
 	}
 
-	var allStatuses []*proto.ServiceStatus
+	var allStatuses []*pb.ServiceStatus
 
 	for agentName := range p.config.Agents {
 		agentConfig := p.config.Agents[agentName]
@@ -437,7 +437,7 @@ func (p *Poller) poll(ctx context.Context) error {
 func (p *Poller) pollAgent(
 	ctx context.Context,
 	agentName string,
-	agentConfig *AgentConfig) ([]*proto.ServiceStatus, error) {
+	agentConfig *AgentConfig) ([]*pb.ServiceStatus, error) {
 	agent, err := p.getAgentConnection(agentName)
 	if err != nil {
 		return nil, err
@@ -447,7 +447,7 @@ func (p *Poller) pollAgent(
 		return nil, err
 	}
 
-	client := proto.NewAgentServiceClient(agent.client.GetConnection())
+	client := pb.NewAgentServiceClient(agent.client.GetConnection())
 	poller := newAgentPoller(agentName, agentConfig, client, defaultTimeout)
 
 	statuses := poller.ExecuteChecks(ctx)
@@ -455,8 +455,8 @@ func (p *Poller) pollAgent(
 	return statuses, nil
 }
 
-func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStatus) error {
-	_, err := p.coreClient.ReportStatus(ctx, &proto.PollerStatusRequest{
+func (p *Poller) reportToCore(ctx context.Context, statuses []*pb.ServiceStatus) error {
+	_, err := p.coreClient.ReportStatus(ctx, &pb.PollerStatusRequest{
 		Services:  statuses,
 		PollerId:  p.config.PollerID,
 		Timestamp: time.Now().Unix(),

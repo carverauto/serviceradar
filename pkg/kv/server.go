@@ -30,7 +30,7 @@ import (
 
 // Server implements the KVService gRPC interface and lifecycle.Service.
 type Server struct {
-	proto.UnimplementedKVServiceServer
+	pb.UnimplementedKVServiceServer
 	config *Config
 	store  KVStore
 }
@@ -68,17 +68,17 @@ func (s *Server) Stop(_ context.Context) error {
 }
 
 // Get implements the Get RPC.
-func (s *Server) Get(ctx context.Context, req *proto.GetRequest) (*proto.GetResponse, error) {
+func (s *Server) Get(ctx context.Context, req *pb.GetRequest) (*pb.GetResponse, error) {
 	value, found, err := s.store.Get(ctx, req.Key)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to get key %s: %v", req.Key, err)
 	}
 
-	return &proto.GetResponse{Value: value, Found: found}, nil
+	return &pb.GetResponse{Value: value, Found: found}, nil
 }
 
 // Put implements the Put RPC.
-func (s *Server) Put(ctx context.Context, req *proto.PutRequest) (*proto.PutResponse, error) {
+func (s *Server) Put(ctx context.Context, req *pb.PutRequest) (*pb.PutResponse, error) {
 	ttl := time.Duration(req.TtlSeconds) * time.Second
 
 	err := s.store.Put(ctx, req.Key, req.Value, ttl)
@@ -86,21 +86,21 @@ func (s *Server) Put(ctx context.Context, req *proto.PutRequest) (*proto.PutResp
 		return nil, status.Errorf(codes.Internal, "failed to put key %s: %v", req.Key, err)
 	}
 
-	return &proto.PutResponse{}, nil
+	return &pb.PutResponse{}, nil
 }
 
 // Delete implements the Delete RPC.
-func (s *Server) Delete(ctx context.Context, req *proto.DeleteRequest) (*proto.DeleteResponse, error) {
+func (s *Server) Delete(ctx context.Context, req *pb.DeleteRequest) (*pb.DeleteResponse, error) {
 	err := s.store.Delete(ctx, req.Key)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to delete key %s: %v", req.Key, err)
 	}
 
-	return &proto.DeleteResponse{}, nil
+	return &pb.DeleteResponse{}, nil
 }
 
 // Watch implements the Watch RPC.
-func (s *Server) Watch(req *proto.WatchRequest, stream proto.KVService_WatchServer) error {
+func (s *Server) Watch(req *pb.WatchRequest, stream pb.KVService_WatchServer) error {
 	watchChan, err := s.store.Watch(stream.Context(), req.Key)
 	if err != nil {
 		return status.Errorf(codes.Internal, "failed to watch key %s: %v", req.Key, err)
@@ -115,7 +115,7 @@ func (s *Server) Watch(req *proto.WatchRequest, stream proto.KVService_WatchServ
 				return nil
 			}
 
-			err := stream.Send(&proto.WatchResponse{Value: value})
+			err := stream.Send(&pb.WatchResponse{Value: value})
 			if err != nil {
 				return status.Errorf(codes.Internal, "failed to send watch update: %v", err)
 			}

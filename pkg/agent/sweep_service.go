@@ -95,7 +95,7 @@ func (s *SweepService) UpdateConfig(config *models.Config) error {
 }
 
 // GetStatus returns the current status of the sweep service.
-func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, error) {
+func (s *SweepService) GetStatus(ctx context.Context) (*pb.StatusResponse, error) {
 	log.Printf("Fetching sweep status")
 
 	summary, err := s.sweeper.GetStatus(ctx) // Delegate to NetworkSweeper's GetStatus
@@ -135,7 +135,7 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, er
 		return nil, fmt.Errorf("failed to marshal sweep status: %w", err)
 	}
 
-	return &proto.StatusResponse{
+	return &pb.StatusResponse{
 		Available:    true,
 		Message:      string(statusJSON),
 		ServiceName:  "network_sweep",

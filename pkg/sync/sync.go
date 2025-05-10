@@ -91,7 +91,7 @@ func New(
 
 // defaultIntegrationRegistry provides the default set of integration factories.
 func defaultIntegrationRegistry(
-	kvClient proto.KVServiceClient,
+	kvClient pb.KVServiceClient,
 	grpcClient GRPCClient,
 	serverName string) map[string]IntegrationFactory {
 	return map[string]IntegrationFactory{
@@ -130,7 +130,7 @@ func NewWithGRPC(ctx context.Context, config *Config) (*SyncPoller, error) {
 		return nil, err
 	}
 
-	kvClient := proto.NewKVServiceClient(client.GetConnection())
+	kvClient := pb.NewKVServiceClient(client.GetConnection())
 
 	// Use config.Security.ServerName if available, otherwise default to empty string
 	serverName := ""
@@ -222,7 +222,7 @@ func (s *SyncPoller) writeToKV(ctx context.Context, sourceName string, data map[
 	for key, value := range data {
 		fullKey := prefix + key
 
-		_, err := s.kvClient.Put(ctx, &proto.PutRequest{
+		_, err := s.kvClient.Put(ctx, &pb.PutRequest{
 			Key:   fullKey,
 			Value: value,
 		})

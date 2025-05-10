@@ -33,7 +33,7 @@ import (
 )
 
 type Server struct {
-	proto.UnimplementedPollerServiceServer
+	pb.UnimplementedPollerServiceServer
 	mu                      sync.RWMutex
 	db                      db.Service
 	alertThreshold          time.Duration

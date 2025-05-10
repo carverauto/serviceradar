@@ -9,8 +9,8 @@ import (
 // NetboxIntegration manages the NetBox API integration.
 type NetboxIntegration struct {
 	Config        models.SourceConfig
-	KvClient      proto.KVServiceClient // For writing sweep Config
-	GrpcConn      *grpc.ClientConn      // Connection to reuse
+	KvClient      pb.KVServiceClient // For writing sweep Config
+	GrpcConn      *grpc.ClientConn   // Connection to reuse
 	ServerName    string
 	ExpandSubnets bool
 }

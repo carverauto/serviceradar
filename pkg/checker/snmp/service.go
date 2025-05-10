@@ -196,7 +196,7 @@ func (s *SNMPService) GetStatus(_ context.Context) (map[string]TargetStatus, err
 
 // GetServiceStatus implements the proto.AgentServiceServer interface.
 // This is the gRPC endpoint for status requests.
-func (s *SNMPService) GetServiceStatus(ctx context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
+func (s *SNMPService) GetServiceStatus(ctx context.Context, req *pb.StatusRequest) (*pb.StatusResponse, error) {
 	if req.ServiceType != "snmp" {
 		return nil, fmt.Errorf("%w: %s", ErrInvalidServiceType, req.ServiceType)
 	}
@@ -207,7 +207,7 @@ func (s *SNMPService) GetServiceStatus(ctx context.Context, req *proto.StatusReq
 
 	status, err := s.GetStatus(ctx)
 	if err != nil {
-		return &proto.StatusResponse{
+		return &pb.StatusResponse{
 			Available: false,
 			Message:   fmt.Sprintf("Error getting status: %v", err),
 		}, nil
@@ -216,7 +216,7 @@ func (s *SNMPService) GetServiceStatus(ctx context.Context, req *proto.StatusReq
 	// Convert status to JSON for response
 	statusJSON, err := json.Marshal(status)
 	if err != nil {
-		return &proto.StatusResponse{
+		return &pb.StatusResponse{
 			Available: false,
 			Message:   fmt.Sprintf("Error marshaling status: %v", err),
 		}, nil
@@ -233,7 +233,7 @@ func (s *SNMPService) GetServiceStatus(ctx context.Context, req *proto.StatusReq
 		}
 	}
 
-	return &proto.StatusResponse{
+	return &pb.StatusResponse{
 		Available:   available,
 		Message:     string(statusJSON),
 		ServiceName: "snmp",

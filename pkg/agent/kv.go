@@ -26,14 +26,14 @@ import (
 
 // grpcKVStore adapts the gRPC KV client to the KVStore interface.
 type grpcKVStore struct {
-	client proto.KVServiceClient
+	client pb.KVServiceClient
 	conn   *grpc.Client
 }
 
 var _ KVStore = (*grpcKVStore)(nil) // Ensure grpcKVStore implements KVStore
 
 func (g *grpcKVStore) Get(ctx context.Context, key string) (value []byte, found bool, err error) {
-	resp, err := g.client.Get(ctx, &proto.GetRequest{Key: key})
+	resp, err := g.client.Get(ctx, &pb.GetRequest{Key: key})
 	if err != nil {
 		return nil, false, err
 	}
@@ -42,19 +42,19 @@ func (g *grpcKVStore) Get(ctx context.Context, key string) (value []byte, found 
 }
 
 func (g *grpcKVStore) Put(ctx context.Context, key string, value []byte, ttl time.Duration) error {
-	_, err := g.client.Put(ctx, &proto.PutRequest{Key: key, Value: value, TtlSeconds: int64(ttl / time.Second)})
+	_, err := g.client.Put(ctx, &pb.PutRequest{Key: key, Value: value, TtlSeconds: int64(ttl / time.Second)})
 
 	return err
 }
 
 func (g *grpcKVStore) Delete(ctx context.Context, key string) error {
-	_, err := g.client.Delete(ctx, &proto.DeleteRequest{Key: key})
+	_, err := g.client.Delete(ctx, &pb.DeleteRequest{Key: key})
 
 	return err
 }
 
 func (g *grpcKVStore) Watch(ctx context.Context, key string) (<-chan []byte, error) {
-	stream, err := g.client.Watch(ctx, &proto.WatchRequest{Key: key})
+	stream, err := g.client.Watch(ctx, &pb.WatchRequest{Key: key})
 	if err != nil {
 		return nil, err
 	}

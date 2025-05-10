@@ -153,18 +153,18 @@ func TestRBACInterceptor(t *testing.T) {
 		mockStore.EXPECT().Get(gomock.Any(), "test-key").Return([]byte("value"), true, nil)
 
 		handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-			return s.Get(ctx, req.(*proto.GetRequest))
+			return s.Get(ctx, req.(*pb.GetRequest))
 		}
 
 		resp, err := s.rbacInterceptor(
 			ctx,
-			&proto.GetRequest{Key: "test-key"},
+			&pb.GetRequest{Key: "test-key"},
 			&ggrpc.UnaryServerInfo{FullMethod: "/proto.KVService/Get"},
 			handler,
 		)
 		require.NoError(t, err)
 		assert.NotNil(t, resp)
-		getResp, ok := resp.(*proto.GetResponse)
+		getResp, ok := resp.(*pb.GetResponse)
 		assert.True(t, ok)
 		assert.Equal(t, []byte("value"), getResp.Value)
 		assert.True(t, getResp.Found)
@@ -185,7 +185,7 @@ func TestRBACInterceptor(t *testing.T) {
 
 		_, err := s.rbacInterceptor(
 			ctx,
-			&proto.PutRequest{Key: "test-key", Value: []byte("value")},
+			&pb.PutRequest{Key: "test-key", Value: []byte("value")},
 			&ggrpc.UnaryServerInfo{FullMethod: "/proto.KVService/Put"},
 			handler,
 		)
@@ -216,7 +216,7 @@ func TestRBACStreamInterceptor(t *testing.T) {
 
 		stream := &mockWatchServer{ctx: ctx}
 		handler := func(_ interface{}, _ ggrpc.ServerStream) error {
-			return s.Watch(&proto.WatchRequest{Key: "test-key"}, stream)
+			return s.Watch(&pb.WatchRequest{Key: "test-key"}, stream)
 		}
 
 		err := s.rbacStreamInterceptor(nil, stream, &ggrpc.StreamServerInfo{FullMethod: "/proto.KVService/Watch"}, handler)
@@ -248,13 +248,13 @@ type mockWatchServer struct {
 	ctx context.Context
 }
 
-func (*mockWatchServer) Send(*proto.WatchResponse) error { return nil }
-func (*mockWatchServer) SetHeader(metadata.MD) error     { return nil }
-func (*mockWatchServer) SendHeader(metadata.MD) error    { return nil }
-func (*mockWatchServer) SetTrailer(metadata.MD)          {}
-func (m *mockWatchServer) Context() context.Context      { return m.ctx }
-func (*mockWatchServer) SendMsg(interface{}) error       { return nil }
-func (*mockWatchServer) RecvMsg(interface{}) error       { return nil }
+func (*mockWatchServer) Send(*pb.WatchResponse) error { return nil }
+func (*mockWatchServer) SetHeader(metadata.MD) error  { return nil }
+func (*mockWatchServer) SendHeader(metadata.MD) error { return nil }
+func (*mockWatchServer) SetTrailer(metadata.MD)       {}
+func (m *mockWatchServer) Context() context.Context   { return m.ctx }
+func (*mockWatchServer) SendMsg(interface{}) error    { return nil }
+func (*mockWatchServer) RecvMsg(interface{}) error    { return nil }
 
 func TestEmptyRBACConfig(t *testing.T) {
 	s := &Server{config: &Config{RBAC: struct {

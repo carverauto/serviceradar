@@ -73,7 +73,7 @@ type HealthServer struct {
 
 // DuskBlockService provides block data via gRPC.
 type DuskBlockService struct {
-	proto.UnimplementedAgentServiceServer
+	pb.UnimplementedAgentServiceServer
 	checker *DuskChecker
 }
 
@@ -84,7 +84,7 @@ func NewDuskBlockService(checker *DuskChecker) *DuskBlockService {
 }
 
 // GetStatus implements the AgentService GetStatus method.
-func (s *DuskBlockService) GetStatus(ctx context.Context, _ *proto.StatusRequest) (*proto.StatusResponse, error) {
+func (s *DuskBlockService) GetStatus(ctx context.Context, _ *pb.StatusRequest) (*pb.StatusResponse, error) {
 	s.checker.mu.RLock()
 	defer s.checker.mu.RUnlock()
 
@@ -99,7 +99,7 @@ func (s *DuskBlockService) GetStatus(ctx context.Context, _ *proto.StatusRequest
 		s.checker.lastBlockData.Hash)
 
 	if s.checker.ws == nil {
-		return &proto.StatusResponse{
+		return &pb.StatusResponse{
 			Available: false,
 			Message:   "WebSocket connection not established",
 		}, nil
@@ -117,7 +117,7 @@ func (s *DuskBlockService) GetStatus(ctx context.Context, _ *proto.StatusRequest
 	if err != nil {
 		log.Printf("Error marshaling block details: %v", err)
 
-		return &proto.StatusResponse{
+		return &pb.StatusResponse{
 			Available: true,
 			Message:   "Dusk node is healthy but failed to marshal block details",
 		}, nil
@@ -125,7 +125,7 @@ func (s *DuskBlockService) GetStatus(ctx context.Context, _ *proto.StatusRequest
 
 	log.Printf("DuskBlockService: Returning block details: %s", string(blockDetailsJSON))
 
-	return &proto.StatusResponse{
+	return &pb.StatusResponse{
 		Available: true,
 		Message:   string(blockDetailsJSON),
 	}, nil

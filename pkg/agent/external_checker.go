@@ -243,10 +243,10 @@ func (e *ExternalChecker) performHealthCheck(ctx context.Context) (bool, error) 
 }
 
 func (e *ExternalChecker) getServiceDetails(ctx context.Context) (healthy bool, details string) {
-	agentClient := proto.NewAgentServiceClient(e.grpcClient.GetConnection())
+	agentClient := pb.NewAgentServiceClient(e.grpcClient.GetConnection())
 	start := time.Now()
 
-	status, err := agentClient.GetStatus(ctx, &proto.StatusRequest{
+	status, err := agentClient.GetStatus(ctx, &pb.StatusRequest{
 		ServiceName: e.serviceName,
 		ServiceType: e.serviceType,
 	})
