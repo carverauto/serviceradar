@@ -64,37 +64,39 @@ const (
 
 // ProcessMessages fetches and processes messages using the provided processor.
 func (c *Consumer) ProcessMessages(ctx context.Context, processor *Processor) {
-	// Get consumer handle
 	cons, err := c.js.Consumer(ctx, c.streamName, c.consumerName)
 	if err != nil {
 		log.Printf("Failed to get consumer: %v", err)
-
 		return
 	}
 
-	// Start consuming messages
 	consCtx, err := cons.Consume(func(msg jetstream.Msg) {
+		metadata, _ := msg.Metadata()
+		log.Printf("Processing message: subject=%s, seq=%d, tries=%d", msg.Subject(), metadata.Sequence.Stream, metadata.NumDelivered)
 		if processErr := processor.Process(msg); processErr != nil {
 			log.Printf("Failed to process message: %v", processErr)
-			// Nak to retry later
+			if metadata.NumDelivered > 3 { // Max 3 retries
+				log.Printf("Max retries reached, acknowledging message")
+				if err := msg.Ack(); err != nil {
+					log.Printf("Failed to Ack message: %v", err)
+				}
+				return
+			}
 			if nakErr := msg.Nak(); nakErr != nil {
 				log.Printf("Failed to Nak message: %v", nakErr)
 			}
 		} else {
-			// Ack successful processing
-			if ackErr := msg.Ack(); ackErr != nil {
+			if ackErr := msg.Ack(); err != nil {
 				log.Printf("Failed to Ack message: %v", ackErr)
 			}
 		}
 	}, jetstream.PullMaxMessages(defaultMaxPullMessages), jetstream.PullExpiry(defaultPullExpiry))
 	if err != nil {
 		log.Printf("Failed to start consumer: %v", err)
-
 		return
 	}
 	defer consCtx.Stop()
 
-	// Wait for context cancellation
 	<-ctx.Done()
 	log.Println("Stopping message processing due to context cancellation")
 }
