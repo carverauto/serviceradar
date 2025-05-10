@@ -5,8 +5,8 @@ import (
 	"log"
 	"net"
 
-	flowpb "github.com/carverauto/serviceradar/pb/flow"
 	"github.com/nats-io/nats.go"
+	flowpb "github.com/netsampler/goflow2/v2/pb"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -22,6 +22,7 @@ func NewProcessor() *Processor {
 func (p *Processor) Process(msg *nats.Msg) error {
 	// Parse protobuf message
 	var flow flowpb.FlowMessage
+
 	if err := proto.Unmarshal(msg.Data, &flow); err != nil {
 		return fmt.Errorf("failed to unmarshal FlowMessage: %w", err)
 	}
