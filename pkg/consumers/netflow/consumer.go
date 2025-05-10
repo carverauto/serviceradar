@@ -6,20 +6,20 @@ import (
 	"log"
 	"time"
 
-	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 // Consumer manages the NATS JetStream pull consumer.
 type Consumer struct {
-	js           nats.JetStreamContext
+	js           jetstream.JetStream
 	streamName   string
 	consumerName string
 }
 
 // NewConsumer creates or retrieves a durable pull consumer.
-func NewConsumer(js nats.JetStreamContext, streamName, consumerName string) (*Consumer, error) {
+func NewConsumer(ctx context.Context, js jetstream.JetStream, streamName, consumerName string) (*Consumer, error) {
 	// Check if consumer exists
-	_, err := js.ConsumerInfo(streamName, consumerName)
+	_, err := js.Consumer(ctx, streamName, consumerName)
 	if err == nil {
 		log.Printf("Using existing consumer %s for stream %s", consumerName, streamName)
 		return &Consumer{
@@ -30,15 +30,15 @@ func NewConsumer(js nats.JetStreamContext, streamName, consumerName string) (*Co
 	}
 
 	// Return error if it's not a "consumer not found" error
-	if !errors.Is(err, nats.ErrConsumerNotFound) {
+	if !errors.Is(err, jetstream.ErrConsumerNotFound) {
 		return nil, err
 	}
 
 	// Create consumer
-	_, err = js.AddConsumer(streamName, &nats.ConsumerConfig{
+	_, err = js.CreateOrUpdateConsumer(ctx, streamName, jetstream.ConsumerConfig{
 		Durable:       consumerName,
-		DeliverPolicy: nats.DeliverAllPolicy,
-		AckPolicy:     nats.AckExplicitPolicy,
+		AckPolicy:     jetstream.AckExplicitPolicy,
+		DeliverPolicy: jetstream.DeliverAllPolicy,
 		Description:   "NetFlow message consumer",
 		MaxDeliver:    3,
 		AckWait:       30 * time.Second,
@@ -57,54 +57,37 @@ func NewConsumer(js nats.JetStreamContext, streamName, consumerName string) (*Co
 
 // ProcessMessages fetches and processes messages using the provided processor.
 func (c *Consumer) ProcessMessages(ctx context.Context, processor *Processor) {
-	for {
-		select {
-		case <-ctx.Done():
-			log.Println("Stopping message processing due to context cancellation")
+	// Get consumer handle
+	cons, err := c.js.Consumer(ctx, c.streamName, c.consumerName)
+	if err != nil {
+		log.Printf("Failed to get consumer: %v", err)
 
-			return
-		default:
-			// Subscribe to the stream with pull consumer
-			msgs, err := c.js.PullSubscribe(c.streamName+".>", c.consumerName, nats.PullMaxWaiting(10))
-			if err != nil {
-				log.Printf("Failed to subscribe: %v", err)
-				time.Sleep(5 * time.Second)
+		return
+	}
 
-				continue
+	// Start consuming messages
+	consCtx, err := cons.Consume(func(msg jetstream.Msg) {
+		if err := processor.Process(msg); err != nil {
+			log.Printf("Failed to process message: %v", err)
+			// Nak to retry later
+			if err := msg.Nak(); err != nil {
+				log.Printf("Failed to Nak message: %v", err)
 			}
-
-			for {
-				// Fetch messages with a 30-second timeout
-				fetchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-				msgs, err := msgs.Fetch(10, nats.Context(fetchCtx))
-				cancel()
-
-				if err != nil {
-					if errors.Is(err, context.DeadlineExceeded) {
-						continue // No messages available, retry
-					}
-
-					log.Printf("Failed to fetch messages: %v", err)
-					time.Sleep(5 * time.Second)
-
-					break
-				}
-
-				for _, msg := range msgs {
-					if err := processor.Process(msg); err != nil {
-						log.Printf("Failed to process message: %v", err)
-						// Nak to retry later
-						if err := msg.Nak(); err != nil {
-							log.Printf("Failed to Nak message: %v", err)
-						}
-					} else {
-						// Ack successful processing
-						if err := msg.Ack(); err != nil {
-							log.Printf("Failed to Ack message: %v", err)
-						}
-					}
-				}
+		} else {
+			// Ack successful processing
+			if err := msg.Ack(); err != nil {
+				log.Printf("Failed to Ack message: %v", err)
 			}
 		}
+	}, jetstream.PullMaxMessages(10), jetstream.PullExpiry(30*time.Second))
+	if err != nil {
+		log.Printf("Failed to start consumer: %v", err)
+
+		return
 	}
+	defer consCtx.Stop()
+
+	// Wait for context cancellation
+	<-ctx.Done()
+	log.Println("Stopping message processing due to context cancellation")
 }
