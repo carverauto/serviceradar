@@ -42,10 +42,7 @@ type Config struct {
 }
 
 // UnmarshalJSON customizes JSON unmarshalling to handle DBConfig fields
-// UnmarshalJSON customizes JSON unmarshalling to handle DBConfig fields
 func (c *Config) UnmarshalJSON(data []byte) error {
-	log.Printf("Raw JSON data: %s", string(data))
-
 	// Define a temporary struct to avoid recursive UnmarshalJSON calls
 	type ConfigAlias struct {
 		ListenAddr    string                 `json:"listen_addr"`
@@ -59,8 +56,10 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 	}
 
 	var alias ConfigAlias
+
 	if err := json.Unmarshal(data, &alias); err != nil {
 		log.Printf("Failed to unmarshal Config JSON: %v", err)
+
 		return fmt.Errorf("failed to unmarshal Config: %w", err)
 	}
 
@@ -79,6 +78,7 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 	// Set DBAddr from Database.Addresses
 	if len(c.DBConfig.Database.Addresses) > 0 {
 		c.DBConfig.DBAddr = c.DBConfig.Database.Addresses[0]
+
 		log.Printf("Set DBAddr to: %s", c.DBConfig.DBAddr)
 	} else {
 		log.Printf("No addresses found in DBConfig.Database.Addresses")
@@ -91,6 +91,7 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 	c.DBConfig.Security = c.Security // Use the same security config as the top-level
 
 	log.Printf("Unmarshalled Config: %+v", c)
+
 	return nil
 }
 
@@ -101,32 +102,40 @@ func (c *Config) Validate() error {
 	if c.ListenAddr == "" {
 		return ErrListenAddrRequired
 	}
+
 	if c.NATSURL == "" {
 		return ErrNATSURLRequired
 	}
+
 	if c.StreamName == "" {
 		return ErrStreamNameRequired
 	}
+
 	if c.ConsumerName == "" {
 		return ErrConsumerNameRequired
 	}
+
 	if c.Security == nil {
 		return ErrSecurityRequired
 	}
+
 	if c.DBConfig.DBAddr == "" {
 		return ErrDatabaseRequired
 	}
 
 	// Validate EnabledFields
 	validFields := []string{"tcp_flags", "icmp"}
+
 	for _, field := range c.EnabledFields {
 		found := false
 		for _, valid := range validFields {
 			if field == valid {
 				found = true
+
 				break
 			}
 		}
+
 		if !found {
 			return fmt.Errorf("%w: %s", ErrInvalidField, field)
 		}
@@ -137,15 +146,19 @@ func (c *Config) Validate() error {
 		if dict.Name == "" {
 			return errors.New("dictionary name is required")
 		}
+
 		if dict.Source == "" {
 			return errors.New("dictionary source is required")
 		}
+
 		if len(dict.Keys) == 0 {
 			return errors.New("dictionary must have at least one key")
 		}
+
 		if len(dict.Attributes) == 0 {
 			return errors.New("dictionary must have at least one attribute")
 		}
+
 		if dict.Layout == "" {
 			return errors.New("dictionary layout is required")
 		}
