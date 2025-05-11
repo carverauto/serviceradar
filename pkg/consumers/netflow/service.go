@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -19,17 +20,19 @@ type Service struct {
 	consumer  *Consumer
 	processor *Processor
 	wg        sync.WaitGroup
+	db        db.Service
 }
 
 // NewService creates a new NetFlow consumer service.
-func NewService(cfg Config) (*Service, error) {
+func NewService(cfg Config, dbService db.Service) (*Service, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
 
 	svc := &Service{
 		cfg:       cfg,
-		processor: NewProcessor(),
+		processor: NewProcessor(dbService, cfg),
+		db:        dbService,
 	}
 
 	return svc, nil
@@ -52,7 +55,6 @@ func (s *Service) Start(ctx context.Context) error {
 	js, err := jetstream.New(nc)
 	if err != nil {
 		s.nc.Close()
-
 		return err
 	}
 
@@ -62,21 +64,17 @@ func (s *Service) Start(ctx context.Context) error {
 	s.consumer, err = NewConsumer(ctx, s.js, s.cfg.StreamName, s.cfg.ConsumerName)
 	if err != nil {
 		s.nc.Close()
-
 		return err
 	}
 
 	// Start processing messages
 	s.wg.Add(1)
-
 	go func() {
 		defer s.wg.Done()
-
 		s.consumer.ProcessMessages(ctx, s.processor)
 	}()
 
 	log.Printf("NetFlow consumer started for stream %s, consumer %s", s.cfg.StreamName, s.cfg.ConsumerName)
-
 	return nil
 }
 
@@ -84,20 +82,24 @@ const (
 	defaultShutdownTimeout = 10 * time.Second
 )
 
-// Stop closes the NATS connection and waits for processing to complete.
+// Stop closes the NATS connection, database, and waits for processing to complete.
 func (s *Service) Stop(ctx context.Context) error {
-	// set a timer to wait for graceful shutdown
-	_, cancel := context.WithTimeout(ctx, defaultShutdownTimeout)
+	// Set a timer for graceful shutdown
+	ctx, cancel := context.WithTimeout(ctx, defaultShutdownTimeout)
 	defer cancel()
+
+	if s.db != nil {
+		if err := s.db.Close(); err != nil {
+			log.Printf("Failed to close database: %v", err)
+		}
+	}
 
 	if s.nc != nil {
 		s.nc.Close()
 	}
 
 	s.wg.Wait()
-
 	log.Println("NetFlow consumer stopped")
-
 	return nil
 }
 

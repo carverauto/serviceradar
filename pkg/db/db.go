@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -41,20 +42,38 @@ type DB struct {
 
 // New creates a new database connection and initializes the schema.
 func New(ctx context.Context, config *models.DBConfig) (Service, error) {
+	// Construct absolute paths for certificate files
+	certDir := config.Security.CertDir
+	certFile := config.Security.TLS.CertFile
+	keyFile := config.Security.TLS.KeyFile
+	caFile := config.Security.TLS.CAFile
+
+	// Prepend CertDir to relative paths
+	if certDir != "" {
+		if !filepath.IsAbs(certFile) {
+			certFile = filepath.Join(certDir, certFile)
+		}
+		if !filepath.IsAbs(keyFile) {
+			keyFile = filepath.Join(certDir, keyFile)
+		}
+		if !filepath.IsAbs(caFile) {
+			caFile = filepath.Join(certDir, caFile)
+		}
+	}
+
 	// Load client certificate and key
-	cert, err := tls.LoadX509KeyPair(config.Security.TLS.CertFile, config.Security.TLS.KeyFile)
+	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to load client certificate: %w", ErrFailedOpenDB, err)
 	}
 
 	// Load CA certificate
-	caCert, err := os.ReadFile(config.Security.TLS.CAFile)
+	caCert, err := os.ReadFile(caFile)
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to read CA certificate: %w", ErrFailedOpenDB, err)
 	}
 
 	caCertPool := x509.NewCertPool()
-
 	if !caCertPool.AppendCertsFromPEM(caCert) {
 		return nil, fmt.Errorf("%w: failed to append CA certificate to pool", ErrFailedOpenDB)
 	}
@@ -107,6 +126,39 @@ func New(ctx context.Context, config *models.DBConfig) (Service, error) {
 // initSchema creates the database streams for Proton.
 func (db *DB) initSchema(ctx context.Context) error {
 	createStreams := []string{
+		`CREATE STREAM IF NOT EXISTS netflow_metrics (
+            timestamp DateTime64(3) DEFAULT now64(3) CODEC(DoubleDelta, LZ4),
+            src_addr IPv6 CODEC(ZSTD(1)),
+            dst_addr IPv6 CODEC(ZSTD(1)),
+            src_port UInt16,
+            dst_port UInt16,
+            protocol UInt8,
+            bytes UInt64 CODEC(T64, LZ4),
+            packets UInt64 CODEC(T64, LZ4),
+            forwarding_status UInt32,
+            next_hop IPv6 CODEC(ZSTD(1)),
+            sampler_address IPv6 CODEC(ZSTD(1)),
+            src_as UInt32 DEFAULT dictGet('asn_dictionary', 'asn', src_addr),
+            dst_as UInt32 DEFAULT dictGet('asn_dictionary', 'asn', dst_addr),
+            ip_tos UInt8,
+            vlan_id UInt16,
+            bgp_next_hop IPv6 CODEC(ZSTD(1)),
+            packet_size UInt64 ALIAS intDiv(bytes, packets),
+            metadata String
+        ) ENGINE = MergeTree()
+        PARTITION BY date(timestamp)
+        ORDER BY (src_addr, dst_addr, sampler_address, timestamp)`,
+
+		`CREATE TABLE IF NOT EXISTS asn_dictionary (
+            ip IPv6,
+            asn UInt32,
+            name LowCardinality(String)
+        ) ENGINE = Dictionary
+        PRIMARY KEY ip
+        SOURCE(FILE(path '/path/to/asn.csv' format 'CSV'))
+        LAYOUT(hashed())
+        LIFETIME(3600)`,
+
 		`CREATE STREAM IF NOT EXISTS cpu_metrics (
             poller_id string,
             timestamp DateTime64(3) DEFAULT now64(3),
