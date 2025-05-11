@@ -1,7 +1,10 @@
 package netflow
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
+	"log"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 )
@@ -13,37 +16,139 @@ var (
 	ErrStreamNameRequired   = errors.New("stream_name is required")
 	ErrConsumerNameRequired = errors.New("consumer_name is required")
 	ErrSecurityRequired     = errors.New("security configuration is required")
+	ErrInvalidField         = errors.New("invalid enabled field")
+	ErrDatabaseRequired     = errors.New("database configuration is required")
 )
+
+// DictionaryConfig represents a custom dictionary for enrichment
+type DictionaryConfig struct {
+	Name       string   `json:"name"`       // e.g., "asn_dictionary"
+	Source     string   `json:"source"`     // e.g., "/path/to/asn.csv"
+	Keys       []string `json:"keys"`       // e.g., ["ip"]
+	Attributes []string `json:"attributes"` // e.g., ["asn", "name"]
+	Layout     string   `json:"layout"`     // e.g., "hashed"
+}
 
 // Config holds the configuration for the NetFlow consumer service.
 type Config struct {
-	ListenAddr   string                 `json:"listen_addr"`   // e.g., ":50060"
-	NATSURL      string                 `json:"nats_url"`      // e.g., "nats://172.236.111.20:4222"
-	StreamName   string                 `json:"stream_name"`   // e.g., "goflow2"
-	ConsumerName string                 `json:"consumer_name"` // e.g., "myconsumer"
-	Security     *models.SecurityConfig `json:"security"`
+	ListenAddr    string                 `json:"listen_addr"`
+	NATSURL       string                 `json:"nats_url"`
+	StreamName    string                 `json:"stream_name"`
+	ConsumerName  string                 `json:"consumer_name"`
+	Security      *models.SecurityConfig `json:"security"`
+	EnabledFields []string               `json:"enabled_fields"`
+	Dictionaries  []DictionaryConfig     `json:"dictionaries"`
+	DBConfig      models.DBConfig        `json:"database"`
+}
+
+// UnmarshalJSON customizes JSON unmarshalling to handle DBConfig fields
+// UnmarshalJSON customizes JSON unmarshalling to handle DBConfig fields
+func (c *Config) UnmarshalJSON(data []byte) error {
+	log.Printf("Raw JSON data: %s", string(data))
+
+	// Define a temporary struct to avoid recursive UnmarshalJSON calls
+	type ConfigAlias struct {
+		ListenAddr    string                 `json:"listen_addr"`
+		NATSURL       string                 `json:"nats_url"`
+		StreamName    string                 `json:"stream_name"`
+		ConsumerName  string                 `json:"consumer_name"`
+		Security      *models.SecurityConfig `json:"security"`
+		EnabledFields []string               `json:"enabled_fields"`
+		Dictionaries  []DictionaryConfig     `json:"dictionaries"`
+		Database      models.ProtonDatabase  `json:"database"` // Map directly to ProtonDatabase
+	}
+
+	var alias ConfigAlias
+	if err := json.Unmarshal(data, &alias); err != nil {
+		log.Printf("Failed to unmarshal Config JSON: %v", err)
+		return fmt.Errorf("failed to unmarshal Config: %w", err)
+	}
+
+	// Copy fields from alias to c
+	c.ListenAddr = alias.ListenAddr
+	c.NATSURL = alias.NATSURL
+	c.StreamName = alias.StreamName
+	c.ConsumerName = alias.ConsumerName
+	c.Security = alias.Security
+	c.EnabledFields = alias.EnabledFields
+	c.Dictionaries = alias.Dictionaries
+	c.DBConfig = models.DBConfig{
+		Database: alias.Database, // Assign the unmarshalled ProtonDatabase
+	}
+
+	// Set DBAddr from Database.Addresses
+	if len(c.DBConfig.Database.Addresses) > 0 {
+		c.DBConfig.DBAddr = c.DBConfig.Database.Addresses[0]
+		log.Printf("Set DBAddr to: %s", c.DBConfig.DBAddr)
+	} else {
+		log.Printf("No addresses found in DBConfig.Database.Addresses")
+	}
+
+	// Copy other DBConfig fields from ProtonDatabase
+	c.DBConfig.DBName = alias.Database.Name
+	c.DBConfig.DBUser = alias.Database.Username
+	c.DBConfig.DBPass = alias.Database.Password
+	c.DBConfig.Security = c.Security // Use the same security config as the top-level
+
+	log.Printf("Unmarshalled Config: %+v", c)
+	return nil
 }
 
 // Validate ensures the configuration is valid.
 func (c *Config) Validate() error {
+	log.Printf("Validating Config: %+v", c)
+
 	if c.ListenAddr == "" {
 		return ErrListenAddrRequired
 	}
-
 	if c.NATSURL == "" {
 		return ErrNATSURLRequired
 	}
-
 	if c.StreamName == "" {
 		return ErrStreamNameRequired
 	}
-
 	if c.ConsumerName == "" {
 		return ErrConsumerNameRequired
 	}
-
 	if c.Security == nil {
 		return ErrSecurityRequired
+	}
+	if c.DBConfig.DBAddr == "" {
+		return ErrDatabaseRequired
+	}
+
+	// Validate EnabledFields
+	validFields := []string{"tcp_flags", "icmp"}
+	for _, field := range c.EnabledFields {
+		found := false
+		for _, valid := range validFields {
+			if field == valid {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("%w: %s", ErrInvalidField, field)
+		}
+	}
+
+	// Validate Dictionaries
+	for _, dict := range c.Dictionaries {
+		if dict.Name == "" {
+			return errors.New("dictionary name is required")
+		}
+		if dict.Source == "" {
+			return errors.New("dictionary source is required")
+		}
+		if len(dict.Keys) == 0 {
+			return errors.New("dictionary must have at least one key")
+		}
+		if len(dict.Attributes) == 0 {
+			return errors.New("dictionary must have at least one attribute")
+		}
+		if dict.Layout == "" {
+			return errors.New("dictionary layout is required")
+		}
 	}
 
 	return nil

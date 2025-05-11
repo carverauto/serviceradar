@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -27,6 +28,7 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/config/kv"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/google/uuid"
 )
 
 var (
@@ -66,6 +68,27 @@ func ValidateConfig(cfg interface{}) error {
 
 // LoadAndValidate loads a configuration, normalizes SecurityConfig paths if present, and validates it.
 func (c *Config) LoadAndValidate(ctx context.Context, path string, cfg interface{}) error {
+	callID := uuid.New().String() // Import "github.com/google/uuid"
+	log.Printf("Entering LoadAndValidate [ID: %s] for path: %s", callID, path)
+	err := c.loadAndValidateWithSource(ctx, path, cfg)
+	if err != nil {
+		log.Printf("LoadAndValidate [ID: %s] failed: %v", callID, err)
+		return err
+	}
+	if err := normalizeSecurityConfig(cfg); err != nil {
+		log.Printf("Failed to normalize SecurityConfig [ID: %s]: %v", callID, err)
+		return fmt.Errorf("failed to normalize SecurityConfig: %w", err)
+	}
+	if err := ValidateConfig(cfg); err != nil {
+		log.Printf("Config validation failed [ID: %s]: %v", callID, err)
+		return err
+	}
+	log.Printf("LoadAndValidate [ID: %s] completed successfully", callID)
+	return nil
+}
+
+/*
+func (c *Config) LoadAndValidate(ctx context.Context, path string, cfg interface{}) error {
 	err := c.loadAndValidateWithSource(ctx, path, cfg)
 	if err != nil {
 		return err
@@ -77,6 +100,8 @@ func (c *Config) LoadAndValidate(ctx context.Context, path string, cfg interface
 
 	return ValidateConfig(cfg)
 }
+
+*/
 
 // SetKVStore sets the KV store to be used when CONFIG_SOURCE=kv.
 func (c *Config) SetKVStore(store kv.KVStore) {
