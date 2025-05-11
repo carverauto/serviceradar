@@ -1,4 +1,3 @@
-// processor.go
 package netflow
 
 import (
@@ -31,33 +30,6 @@ func NewProcessor(dbService db.Service, config NetflowConfig) *Processor {
 	}
 }
 
-// analyzeProtobufFormat analyzes the binary data to determine its format
-func analyzeProtobufFormat(data []byte) (bool, int) {
-	// Check if this might be a protobuf message
-	// Protocol buffer messages typically start with a field number (tag) and wire type
-	// First byte interpretation: (field_number << 3) | wire_type
-	if len(data) < 1 {
-		return false, 0
-	}
-
-	firstByte := data[0]
-	// Extract the wire type (lower 3 bits)
-	wireType := firstByte & 0x07
-	// Extract the field number
-	fieldNum := firstByte >> 3
-
-	// Sanity check for a likely protobuf message:
-	// Wire types 0-5 are valid in protobuf
-	// Field numbers should typically be small values for first fields
-	if wireType <= 5 && fieldNum > 0 && fieldNum < 20 {
-		// This looks like a valid protobuf message
-		// First field is likely the 'type' field
-		return true, int(wireType)
-	}
-
-	return false, 0
-}
-
 // Process processes a single NetFlow message and stores it in the database.
 func (p *Processor) Process(ctx context.Context, msg jetstream.Msg) error {
 	data := msg.Data()
@@ -79,45 +51,38 @@ func (p *Processor) Process(ctx context.Context, msg jetstream.Msg) error {
 
 	// Parse protobuf message
 	var flow flowpb.FlowMessage
+	var err error
 
-	// Analyze the binary format
-	isLikelyProtobuf, wireType := analyzeProtobufFormat(data)
-
-	if isLikelyProtobuf {
-		log.Printf("Data appears to be a raw protobuf message (wireType=%d), attempting direct unmarshal", wireType)
-		// Try direct unmarshal first
-		if err := proto.Unmarshal(data, &flow); err == nil {
-			log.Printf("Successfully unmarshaled as raw protobuf")
+	// Try multiple approaches to decode the message
+	if len(data) > 1 {
+		// First try skipping the first byte - seems to work for most messages
+		if err = proto.Unmarshal(data[1:], &flow); err == nil {
+			log.Printf("Successfully unmarshaled after skipping first byte")
 		} else {
-			log.Printf("Raw unmarshal failed: %v", err)
-			log.Printf("Raw message data (first 100 bytes as string): %s", string(data[:min(100, len(data))]))
-			log.Printf("Full raw data (hex): %s", hex.EncodeToString(data))
-			return fmt.Errorf("failed to unmarshal FlowMessage: %w", err)
-		}
-	} else {
-		// This doesn't look like a standard protobuf - try a different approach
-		log.Printf("Data format doesn't look like standard protobuf, trying different approaches")
-
-		// Try removing the first byte (which might be a length indicator)
-		if len(data) > 1 {
-			firstByte := data[0]
-			log.Printf("First byte: 0x%02x (%d)", firstByte, firstByte)
-
-			// Try direct unmarshal without the first byte
-			if err := proto.Unmarshal(data[1:], &flow); err == nil {
-				log.Printf("Successfully unmarshaled after skipping first byte")
+			// Try direct unmarshal
+			if err = proto.Unmarshal(data, &flow); err == nil {
+				log.Printf("Successfully unmarshaled with direct unmarshaling")
 			} else {
-				// As a last resort, try the original data
-				if err := proto.Unmarshal(data, &flow); err != nil {
+				// Try other byte-skipping variations
+				for skip := 2; skip <= 4 && skip < len(data); skip++ {
+					if err = proto.Unmarshal(data[skip:], &flow); err == nil {
+						log.Printf("Successfully unmarshaled after skipping %d bytes", skip)
+						break
+					}
+				}
+
+				// If all approaches failed, return error
+				if err != nil {
 					log.Printf("All unmarshal attempts failed: %v", err)
-					log.Printf("Raw message data (first 100 bytes as string): %s", string(data[:min(100, len(data))]))
+					log.Printf("Raw message data (first 100 bytes as string): %s",
+						string(data[:min(100, len(data))]))
 					log.Printf("Full raw data (hex): %s", hex.EncodeToString(data))
 					return fmt.Errorf("failed to unmarshal FlowMessage: %w", err)
 				}
 			}
-		} else {
-			return fmt.Errorf("message too short")
 		}
+	} else {
+		return fmt.Errorf("message too short")
 	}
 
 	// Validate IP fields
@@ -199,7 +164,7 @@ func (p *Processor) Process(ctx context.Context, msg jetstream.Msg) error {
 		log.Printf("Failed to marshal metadata: %v", err)
 	}
 
-	// Create NetFlow metric
+	// Create NetFlow metric - using the full uint32 values from the protobuf
 	metric := &models.NetflowMetric{
 		Timestamp:        time.Now(),
 		SrcAddr:          srcAddr,
@@ -224,6 +189,9 @@ func (p *Processor) Process(ctx context.Context, msg jetstream.Msg) error {
 	if flow.TimeReceivedNs > 0 {
 		metric.Timestamp = time.Unix(0, int64(flow.TimeReceivedNs))
 	}
+
+	log.Printf("Appending NetFlow metric: Timestamp=%v, SrcAddr=%s, DstAddr=%s, SrcPort=%d, DstPort=%d, Protocol=%d, Bytes=%d, Packets=%d",
+		metric.Timestamp, metric.SrcAddr, metric.DstAddr, metric.SrcPort, metric.DstPort, metric.Protocol, metric.Bytes, metric.Packets)
 
 	// Store the metric
 	if err := p.db.StoreNetflowMetrics(ctx, []*models.NetflowMetric{metric}); err != nil {

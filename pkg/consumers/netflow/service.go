@@ -4,13 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
-	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -131,80 +129,54 @@ func (s *Service) Stop(ctx context.Context) error {
 }
 
 // initSchema creates the netflow_metrics stream for Proton.
+// initSchema creates the netflow_metrics stream for Proton.
 func (s *Service) initSchema(ctx context.Context) error {
-	// Build netflow_metrics stream definition dynamically
-	var columns []string
-	enabledKeys := make(map[models.ColumnKey]bool)
-	disabledKeys := make(map[models.ColumnKey]bool)
+	// First, drop the existing stream to ensure a clean state
+	dropStream := `DROP STREAM IF EXISTS netflow_metrics`
 
-	for _, key := range s.cfg.EnabledFields {
-		enabledKeys[key] = true
-	}
-	for _, key := range s.cfg.DisabledFields {
-		disabledKeys[key] = true
-	}
-
-	// Map NetflowMetric fields to ColumnKeys
-	netflowMetricFields := map[string]models.ColumnKey{
-		"timestamp":         models.ColumnTimestamp,
-		"src_addr":          models.ColumnSrcAddr,
-		"dst_addr":          models.ColumnDstAddr,
-		"src_port":          models.ColumnSrcPort,
-		"dst_port":          models.ColumnDstPort,
-		"protocol":          models.ColumnProtocol,
-		"bytes":             models.ColumnBytes,
-		"packets":           models.ColumnPackets,
-		"forwarding_status": models.ColumnForwardingStatus,
-		"next_hop":          models.ColumnNextHop,
-		"sampler_address":   models.ColumnSamplerAddress,
-		"src_as":            models.ColumnSrcAS,
-		"dst_as":            models.ColumnDstAS,
-		"ip_tos":            models.ColumnIPTos,
-		"vlan_id":           models.ColumnVlanID,
-		"bgp_next_hop":      models.ColumnBGPNextHop,
-		"metadata":          models.ColumnMetadata,
-	}
-
-	for _, def := range models.ColumnDefinitions {
-		// Include all fields from NetflowMetric unless explicitly disabled
-		if _, ok := netflowMetricFields[def.Name]; !ok {
-			continue // Skip fields not in NetflowMetric
-		}
-		if disabledKeys[def.Key] {
-			continue // Skip explicitly disabled fields
-		}
-
-		columnDef := fmt.Sprintf("`%s` %s", def.Name, def.Type)
-		if def.Codec != "" {
-			columnDef += fmt.Sprintf(" CODEC(%s)", def.Codec)
-		}
-		if def.Default != "" {
-			columnDef += fmt.Sprintf(" DEFAULT %s", def.Default)
-		}
-		if def.Alias != "" {
-			columnDef += fmt.Sprintf(" ALIAS %s", def.Alias)
-		}
-		columns = append(columns, columnDef)
-	}
-
-	createStream := fmt.Sprintf(`CREATE STREAM IF NOT EXISTS netflow_metrics (
-		%s
-	) ENGINE = Stream(1, 1, sip_hash64(src_addr))
-	PARTITION BY date(timestamp)
-	ORDER BY (src_addr, dst_addr, sampler_address, timestamp)
-	SETTINGS mode='append'`, strings.Join(columns, ",\n"))
-
-	log.Printf("Generated CREATE STREAM query: %s", createStream)
+	log.Printf("Dropping existing netflow_metrics stream if it exists")
 
 	dbImpl, ok := s.db.(*db.DB)
 	if !ok {
 		return fmt.Errorf("db.Service is not *db.DB")
 	}
 
+	if err := dbImpl.Conn.Exec(ctx, dropStream); err != nil {
+		log.Printf("Warning: failed to drop netflow_metrics: %v", err)
+		// Continue anyway, as the table might not exist
+	}
+
+	// Create a new stream with the correct types matching the protobuf definition
+	createStream := `CREATE STREAM IF NOT EXISTS netflow_metrics (
+        timestamp DateTime64(3) CODEC(DoubleDelta, LZ4),
+        src_addr string CODEC(ZSTD(1)),
+        dst_addr string CODEC(ZSTD(1)),
+        src_port uint32,
+        dst_port uint32,
+        protocol uint32,
+        bytes uint64 CODEC(T64, LZ4),
+        packets uint64 CODEC(T64, LZ4),
+        forwarding_status uint32,
+        next_hop string CODEC(ZSTD(1)),
+        sampler_address string CODEC(ZSTD(1)),
+        src_as uint32 DEFAULT 0,
+        dst_as uint32 DEFAULT 0,
+        ip_tos uint32,
+        vlan_id uint32,
+        bgp_next_hop string CODEC(ZSTD(1)),
+        metadata string
+    ) ENGINE = Stream(1, 1, sip_hash64(src_addr))
+    PARTITION BY date(timestamp)
+    ORDER BY (src_addr, dst_addr, sampler_address, timestamp)
+    SETTINGS mode='append'`
+
+	log.Printf("Creating netflow_metrics stream with 32-bit integer types")
+
 	if err := dbImpl.Conn.Exec(ctx, createStream); err != nil {
 		return fmt.Errorf("failed to create netflow_metrics stream: %w", err)
 	}
 
+	log.Printf("Successfully created netflow_metrics stream")
 	return nil
 }
 
