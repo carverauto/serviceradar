@@ -1,6 +1,72 @@
 package models
 
-import "time"
+import (
+	"encoding/json"
+	"fmt"
+	"log"
+	"time"
+)
+
+// NetflowConfig holds the configuration for the NetFlow consumer service.
+type NetflowConfig struct {
+	ListenAddr     string             `json:"listen_addr"`
+	NATSURL        string             `json:"nats_url"`
+	StreamName     string             `json:"stream_name"`
+	ConsumerName   string             `json:"consumer_name"`
+	Security       *SecurityConfig    `json:"security"`
+	EnabledFields  []ColumnKey        `json:"enabled_fields"`
+	DisabledFields []ColumnKey        `json:"disabled_fields"`
+	Dictionaries   []DictionaryConfig `json:"dictionaries"`
+	DBConfig       DBConfig           `json:"database"`
+}
+
+// UnmarshalJSON customizes JSON unmarshalling to handle DBConfig fields.
+func (c *NetflowConfig) UnmarshalJSON(data []byte) error {
+	type ConfigAlias struct {
+		ListenAddr     string             `json:"listen_addr"`
+		NATSURL        string             `json:"nats_url"`
+		StreamName     string             `json:"stream_name"`
+		ConsumerName   string             `json:"consumer_name"`
+		Security       *SecurityConfig    `json:"security"`
+		EnabledFields  []ColumnKey        `json:"enabled_fields"`
+		DisabledFields []ColumnKey        `json:"disabled_fields"`
+		Dictionaries   []DictionaryConfig `json:"dictionaries"`
+		Database       ProtonDatabase     `json:"database"`
+	}
+
+	var alias ConfigAlias
+
+	if err := json.Unmarshal(data, &alias); err != nil {
+		log.Printf("Failed to unmarshal Config JSON: %v", err)
+		return fmt.Errorf("failed to unmarshal Config: %w", err)
+	}
+
+	c.ListenAddr = alias.ListenAddr
+	c.NATSURL = alias.NATSURL
+	c.StreamName = alias.StreamName
+	c.ConsumerName = alias.ConsumerName
+	c.Security = alias.Security
+	c.EnabledFields = alias.EnabledFields
+	c.DisabledFields = alias.DisabledFields
+	c.Dictionaries = alias.Dictionaries
+	c.DBConfig = DBConfig{
+		Database: alias.Database,
+	}
+
+	if len(c.DBConfig.Database.Addresses) > 0 {
+		c.DBConfig.DBAddr = c.DBConfig.Database.Addresses[0]
+		log.Printf("Set DBAddr to: %s", c.DBConfig.DBAddr)
+	} else {
+		log.Printf("No addresses found in DBConfig.Database.Addresses")
+	}
+
+	c.DBConfig.DBName = alias.Database.Name
+	c.DBConfig.DBUser = alias.Database.Username
+	c.DBConfig.DBPass = alias.Database.Password
+	c.DBConfig.Security = c.Security
+
+	return nil
+}
 
 // NetflowMetric represents a NetFlow datapoint for the netflow_metrics stream.
 type NetflowMetric struct {
@@ -22,3 +88,57 @@ type NetflowMetric struct {
 	BgpNextHop       string    `json:"bgp_next_hop"`
 	Metadata         string    `json:"metadata"`
 }
+
+// DictionaryConfig represents a custom dictionary for enrichment
+type DictionaryConfig struct {
+	Name       string   `json:"name"`       // e.g., "asn_dictionary"
+	Source     string   `json:"source"`     // e.g., "/path/to/asn.csv"
+	Keys       []string `json:"keys"`       // e.g., ["ip"]
+	Attributes []string `json:"attributes"` // e.g., ["asn", "name"]
+	Layout     string   `json:"layout"`     // e.g., "hashed"
+}
+
+// ColumnDefinition represents a column in the netflow_metrics stream
+type ColumnDefinition struct {
+	Key       ColumnKey
+	Name      string
+	Type      string
+	Codec     string
+	Alias     string
+	Default   string
+	Mandatory bool
+}
+
+// ColumnKey represents a column in the schema
+type ColumnKey int
+
+const (
+	ColumnTimestamp ColumnKey = iota + 1
+	ColumnSrcAddr
+	ColumnDstAddr
+	ColumnSrcPort
+	ColumnDstPort
+	ColumnProtocol
+	ColumnBytes
+	ColumnPackets
+	ColumnForwardingStatus
+	ColumnNextHop
+	ColumnSamplerAddress
+	ColumnSrcAS
+	ColumnDstAS
+	ColumnIPTos
+	ColumnVlanID
+	ColumnBGPNextHop
+	ColumnPacketSize
+	ColumnSrcVlan
+	ColumnDstVlan
+	ColumnInIfName
+	ColumnOutIfName
+	ColumnInIfDescription
+	ColumnOutIfDescription
+	ColumnInIfSpeed
+	ColumnOutIfSpeed
+	ColumnExporterAddress
+	ColumnExporterName
+	ColumnMetadata
+)
