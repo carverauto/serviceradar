@@ -18,11 +18,11 @@ import (
 // Processor handles processing of NetFlow messages.
 type Processor struct {
 	db     db.Service
-	config Config
+	config NetflowConfig
 }
 
 // NewProcessor creates a new processor with a database service and configuration.
-func NewProcessor(dbService db.Service, config Config) *Processor {
+func NewProcessor(dbService db.Service, config NetflowConfig) *Processor {
 	return &Processor{
 		db:     dbService,
 		config: config,
@@ -78,15 +78,9 @@ func (p *Processor) Process(msg jetstream.Msg) error {
 		"layer_size":                    flow.LayerSize,
 		"ipv6_routing_header_addresses": flow.Ipv6RoutingHeaderAddresses,
 		"ipv6_routing_header_seg_left":  flow.Ipv6RoutingHeaderSegLeft,
-	}
-
-	// Include optional fields in metadata if enabled
-	if contains(p.config.EnabledFields, "tcp_flags") {
-		metadata["tcp_flags"] = flow.TcpFlags
-	}
-	if contains(p.config.EnabledFields, "icmp") {
-		metadata["icmp_type"] = flow.IcmpType
-		metadata["icmp_code"] = flow.IcmpCode
+		"tcp_flags":                     flow.TcpFlags,
+		"icmp_type":                     flow.IcmpType,
+		"icmp_code":                     flow.IcmpCode,
 	}
 
 	metadataBytes, err := json.Marshal(metadata)
@@ -129,15 +123,4 @@ func (p *Processor) Process(msg jetstream.Msg) error {
 		srcAddr, dstAddr, flow.Bytes, flow.Packets)
 
 	return nil
-}
-
-// contains checks if a slice contains a specific string.
-func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-
-	return false
 }
