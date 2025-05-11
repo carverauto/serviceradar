@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
@@ -36,6 +37,60 @@ func NewNetflowConfig(cfg models.NetflowConfig) *NetflowConfig {
 
 // UnmarshalJSON customizes JSON unmarshalling to handle DBConfig fields
 func (c *NetflowConfig) UnmarshalJSON(data []byte) error {
+	type ConfigAlias struct {
+		ListenAddr     string                    `json:"listen_addr"`
+		NATSURL        string                    `json:"nats_url"`
+		StreamName     string                    `json:"stream_name"`
+		ConsumerName   string                    `json:"consumer_name"`
+		Security       *models.SecurityConfig    `json:"security"`
+		EnabledFields  []models.ColumnKey        `json:"enabled_fields"`
+		DisabledFields []models.ColumnKey        `json:"disabled_fields"`
+		Dictionaries   []models.DictionaryConfig `json:"dictionaries"`
+		Database       models.ProtonDatabase     `json:"database"`
+	}
+
+	var alias ConfigAlias
+
+	if err := json.Unmarshal(data, &alias); err != nil {
+		log.Printf("Failed to unmarshal Config JSON: %v", err)
+
+		return fmt.Errorf("failed to unmarshal Config: %w", err)
+	}
+
+	c.ListenAddr = alias.ListenAddr
+	c.NATSURL = alias.NATSURL
+	c.StreamName = alias.StreamName
+	c.ConsumerName = alias.ConsumerName
+	c.Security = alias.Security
+	c.EnabledFields = alias.EnabledFields
+	c.DisabledFields = alias.DisabledFields
+	c.Dictionaries = alias.Dictionaries
+	c.DBConfig = models.DBConfig{
+		Database: alias.Database,
+	}
+
+	if len(c.DBConfig.Database.Addresses) > 0 {
+		c.DBConfig.DBAddr = c.DBConfig.Database.Addresses[0]
+	}
+
+	c.DBConfig.DBName = alias.Database.Name
+	c.DBConfig.DBUser = alias.Database.Username
+	c.DBConfig.DBPass = alias.Database.Password
+	c.DBConfig.Security = c.Security
+
+	// Normalize TLS paths if SecurityConfig is present
+	if c.Security != nil && c.Security.CertDir != "" {
+		config.NormalizeTLSPaths(&c.Security.TLS, c.Security.CertDir)
+		log.Printf("Normalized TLS paths in UnmarshalJSON: CertFile=%s, KeyFile=%s, CAFile=%s, ClientCAFile=%s",
+			c.Security.TLS.CertFile, c.Security.TLS.KeyFile,
+			c.Security.TLS.CAFile, c.Security.TLS.ClientCAFile)
+	}
+
+	return nil
+}
+
+/*
+func (c *NetflowConfig) UnmarshalJSON(data []byte) error {
 	// Unmarshal directly into the embedded NetflowConfig
 	if err := json.Unmarshal(data, &c.NetflowConfig); err != nil {
 		log.Printf("Failed to unmarshal NetflowConfig JSON: %v", err)
@@ -45,6 +100,8 @@ func (c *NetflowConfig) UnmarshalJSON(data []byte) error {
 
 	return nil
 }
+
+*/
 
 // Validate ensures the configuration is valid.
 func (c *NetflowConfig) Validate() error {

@@ -18,11 +18,9 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"log"
-	"os"
-	"path/filepath"
 
+	"github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/consumers/netflow"
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
@@ -32,19 +30,19 @@ import (
 func main() {
 	ctx := context.Background()
 
-	// Load NetFlow configuration directly
-	configPath := "/etc/serviceradar/consumers/netflow.json"
+	// Initialize configuration loader
+	cfgLoader := config.NewConfig()
 
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		log.Fatalf("Failed to read config file: %v", err)
-	}
+	// Load configuration
+	configPath := "/etc/serviceradar/consumers/netflow.json"
 
 	var netflowCfg netflow.NetflowConfig
 
-	if err := json.Unmarshal(data, &netflowCfg); err != nil {
-		log.Fatalf("Failed to parse config: %v", err)
+	if err := cfgLoader.LoadAndValidate(ctx, configPath, &netflowCfg); err != nil {
+		log.Fatalf("Failed to load configuration: %v", err)
 	}
+
+	log.Printf("Loaded NetFlow configuration: %+v", netflowCfg)
 
 	// Validate configuration
 	if err := netflowCfg.Validate(); err != nil {
@@ -60,10 +58,10 @@ func main() {
 		Database: netflowCfg.DBConfig.Database,
 		Security: &models.SecurityConfig{
 			TLS: models.TLSConfig{
-				CertFile:     filepath.Join(netflowCfg.Security.CertDir, netflowCfg.Security.TLS.CertFile),
-				KeyFile:      filepath.Join(netflowCfg.Security.CertDir, netflowCfg.Security.TLS.KeyFile),
-				CAFile:       filepath.Join(netflowCfg.Security.CertDir, netflowCfg.Security.TLS.CAFile),
-				ClientCAFile: filepath.Join(netflowCfg.Security.CertDir, netflowCfg.Security.TLS.CAFile),
+				CertFile:     netflowCfg.Security.TLS.CertFile,
+				KeyFile:      netflowCfg.Security.TLS.KeyFile,
+				CAFile:       netflowCfg.Security.TLS.CAFile,
+				ClientCAFile: netflowCfg.Security.TLS.ClientCAFile,
 			},
 			CertDir:    netflowCfg.Security.CertDir,
 			ServerName: netflowCfg.Security.ServerName,
@@ -71,6 +69,8 @@ func main() {
 			Role:       netflowCfg.Security.Role,
 		},
 	}
+
+	log.Printf("Database configuration: DBAddr=%s, ServerName=%s", dbConfig.DBAddr, dbConfig.Security.ServerName)
 
 	// Initialize database service
 	dbService, err := db.New(ctx, dbConfig)
