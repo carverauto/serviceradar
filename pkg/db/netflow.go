@@ -14,7 +14,7 @@ func (db *DB) StoreNetflowMetrics(ctx context.Context, metrics []*models.Netflow
 		return nil
 	}
 
-	batch, err := db.conn.PrepareBatch(ctx, "INSERT INTO netflow_metrics (* except _tp_time)")
+	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO netflow_metrics (* except _tp_time)")
 	if err != nil {
 		return fmt.Errorf("failed to prepare batch: %w", err)
 	}
