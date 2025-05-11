@@ -30,7 +30,7 @@ func NewProcessor(dbService db.Service, config NetflowConfig) *Processor {
 }
 
 // Process processes a single NetFlow message and stores it in the database.
-func (p *Processor) Process(msg jetstream.Msg) error {
+func (p *Processor) Process(ctx context.Context, msg jetstream.Msg) error {
 	// Parse protobuf message
 	var flow flowpb.FlowMessage
 
@@ -115,7 +115,7 @@ func (p *Processor) Process(msg jetstream.Msg) error {
 	}
 
 	// Store the metric
-	if err := p.db.StoreNetflowMetrics(context.Background(), []*models.NetflowMetric{metric}); err != nil {
+	if err := p.db.StoreNetflowMetrics(ctx, []*models.NetflowMetric{metric}); err != nil {
 		return fmt.Errorf("failed to store NetFlow metric: %w", err)
 	}
 
