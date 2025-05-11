@@ -1,19 +1,3 @@
-/*
- * Copyright 2025 Carver Automation Corporation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 package models
 
 // ColumnKey represents a column in the schema
@@ -64,21 +48,21 @@ type ColumnDefinition struct {
 // ColumnDefinitions is the list of all possible columns for netflow_metrics
 var ColumnDefinitions = []ColumnDefinition{
 	{Key: ColumnTimestamp, Name: "timestamp", Type: "DateTime64(3)", Codec: "DoubleDelta, LZ4", Mandatory: true},
-	{Key: ColumnSrcAddr, Name: "src_addr", Type: "IPv6", Codec: "ZSTD(1)", Mandatory: true},
-	{Key: ColumnDstAddr, Name: "dst_addr", Type: "IPv6", Codec: "ZSTD(1)", Mandatory: true},
+	{Key: ColumnSrcAddr, Name: "src_addr", Type: "string", Codec: "ZSTD(1)", Mandatory: true},
+	{Key: ColumnDstAddr, Name: "dst_addr", Type: "string", Codec: "ZSTD(1)", Mandatory: true},
 	{Key: ColumnSrcPort, Name: "src_port", Type: "uint16"},
 	{Key: ColumnDstPort, Name: "dst_port", Type: "uint16"},
 	{Key: ColumnProtocol, Name: "protocol", Type: "uint8"},
 	{Key: ColumnBytes, Name: "bytes", Type: "uint64", Codec: "T64, LZ4", Mandatory: true},
 	{Key: ColumnPackets, Name: "packets", Type: "uint64", Codec: "T64, LZ4", Mandatory: true},
 	{Key: ColumnForwardingStatus, Name: "forwarding_status", Type: "uint32"},
-	{Key: ColumnNextHop, Name: "next_hop", Type: "IPv6", Codec: "ZSTD(1)"},
-	{Key: ColumnSamplerAddress, Name: "sampler_address", Type: "IPv6", Codec: "ZSTD(1)", Mandatory: true},
+	{Key: ColumnNextHop, Name: "next_hop", Type: "string", Codec: "ZSTD(1)"},
+	{Key: ColumnSamplerAddress, Name: "sampler_address", Type: "string", Codec: "ZSTD(1)", Mandatory: true},
 	{Key: ColumnSrcAS, Name: "src_as", Type: "uint32", Default: "0"},
 	{Key: ColumnDstAS, Name: "dst_as", Type: "uint32", Default: "0"},
 	{Key: ColumnIPTos, Name: "ip_tos", Type: "uint8"},
 	{Key: ColumnVlanID, Name: "vlan_id", Type: "uint16"},
-	{Key: ColumnBGPNextHop, Name: "bgp_next_hop", Type: "IPv6", Codec: "ZSTD(1)"},
+	{Key: ColumnBGPNextHop, Name: "bgp_next_hop", Type: "string", Codec: "ZSTD(1)"},
 	{Key: ColumnPacketSize, Name: "packet_size", Type: "uint64", Alias: "int_div(bytes, packets)"},
 	{Key: ColumnSrcVlan, Name: "src_vlan", Type: "uint16"},
 	{Key: ColumnDstVlan, Name: "dst_vlan", Type: "uint16"},
@@ -88,7 +72,7 @@ var ColumnDefinitions = []ColumnDefinition{
 	{Key: ColumnOutIfDescription, Name: "out_if_description", Type: "LowCardinality(string)"},
 	{Key: ColumnInIfSpeed, Name: "in_if_speed", Type: "uint32"},
 	{Key: ColumnOutIfSpeed, Name: "out_if_speed", Type: "uint32"},
-	{Key: ColumnExporterAddress, Name: "exporter_address", Type: "IPv6", Codec: "ZSTD(1)"},
+	{Key: ColumnExporterAddress, Name: "exporter_address", Type: "string", Codec: "ZSTD(1)"},
 	{Key: ColumnExporterName, Name: "exporter_name", Type: "LowCardinality(string)"},
 	{Key: ColumnMetadata, Name: "metadata", Type: "string"},
 }

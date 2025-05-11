@@ -1,19 +1,3 @@
-/*
- * Copyright 2025 Carver Automation Corporation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 package netflow
 
 import (
@@ -90,6 +74,20 @@ func (s *Service) Start(ctx context.Context) error {
 
 	s.js = js
 
+	// Verify stream configuration
+	stream, err := js.Stream(ctx, s.cfg.StreamName)
+	if err != nil {
+		s.nc.Close()
+		return fmt.Errorf("failed to get stream %s: %w", s.cfg.StreamName, err)
+	}
+	info, err := stream.Info(ctx)
+	if err != nil {
+		s.nc.Close()
+		return fmt.Errorf("failed to get stream info: %w", err)
+	}
+	log.Printf("Stream %s config: Subjects=%v, Retention=%s, Messages=%d, LastSeq=%d",
+		s.cfg.StreamName, info.Config.Subjects, info.Config.Retention, info.State.Msgs, info.State.LastSeq)
+
 	// Create or get consumer
 	s.consumer, err = NewConsumer(ctx, s.js, s.cfg.StreamName, s.cfg.ConsumerName)
 	if err != nil {
@@ -114,7 +112,6 @@ const (
 
 // Stop closes the NATS connection, database, and waits for processing to complete.
 func (s *Service) Stop(ctx context.Context) error {
-	// Set a timer for graceful shutdown
 	ctx, cancel := context.WithTimeout(ctx, defaultShutdownTimeout)
 	defer cancel()
 
@@ -147,13 +144,34 @@ func (s *Service) initSchema(ctx context.Context) error {
 		disabledKeys[key] = true
 	}
 
+	// Map NetflowMetric fields to ColumnKeys
+	netflowMetricFields := map[string]models.ColumnKey{
+		"timestamp":         models.ColumnTimestamp,
+		"src_addr":          models.ColumnSrcAddr,
+		"dst_addr":          models.ColumnDstAddr,
+		"src_port":          models.ColumnSrcPort,
+		"dst_port":          models.ColumnDstPort,
+		"protocol":          models.ColumnProtocol,
+		"bytes":             models.ColumnBytes,
+		"packets":           models.ColumnPackets,
+		"forwarding_status": models.ColumnForwardingStatus,
+		"next_hop":          models.ColumnNextHop,
+		"sampler_address":   models.ColumnSamplerAddress,
+		"src_as":            models.ColumnSrcAS,
+		"dst_as":            models.ColumnDstAS,
+		"ip_tos":            models.ColumnIPTos,
+		"vlan_id":           models.ColumnVlanID,
+		"bgp_next_hop":      models.ColumnBGPNextHop,
+		"metadata":          models.ColumnMetadata,
+	}
+
 	for _, def := range models.ColumnDefinitions {
-		// Skip disabled columns, include enabled or mandatory columns
-		if disabledKeys[def.Key] && !def.Mandatory {
-			continue
+		// Include all fields from NetflowMetric unless explicitly disabled
+		if _, ok := netflowMetricFields[def.Name]; !ok {
+			continue // Skip fields not in NetflowMetric
 		}
-		if !enabledKeys[def.Key] && !def.Mandatory && def.Default == "" && def.Alias == "" {
-			continue
+		if disabledKeys[def.Key] {
+			continue // Skip explicitly disabled fields
 		}
 
 		columnDef := fmt.Sprintf("`%s` %s", def.Name, def.Type)
