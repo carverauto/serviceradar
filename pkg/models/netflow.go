@@ -55,9 +55,6 @@ func (c *NetflowConfig) UnmarshalJSON(data []byte) error {
 
 	if len(c.DBConfig.Database.Addresses) > 0 {
 		c.DBConfig.DBAddr = c.DBConfig.Database.Addresses[0]
-		log.Printf("Set DBAddr to: %s", c.DBConfig.DBAddr)
-	} else {
-		log.Printf("No addresses found in DBConfig.Database.Addresses")
 	}
 
 	c.DBConfig.DBName = alias.Database.Name
