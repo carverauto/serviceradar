@@ -154,9 +154,11 @@ func normalizeSecurityConfig(cfg interface{}) error {
 
 	v = v.Elem()
 	if v.Kind() != reflect.Struct {
-		return nil // Nothing to normalize if not a struct
+		log.Printf("normalizeSecurityConfig: cfg is not a struct, skipping normalization")
+		return nil
 	}
 
+	log.Printf("normalizeSecurityConfig: processing struct %s with %d fields", v.Type().Name(), v.NumField())
 	return normalizeStructFields(v)
 }
 
@@ -165,8 +167,9 @@ func normalizeStructFields(v reflect.Value) error {
 	t := v.Type()
 
 	for i := 0; i < t.NumField(); i++ {
-		fieldType := t.Field(i)                                        // Assign to variable
-		if err := normalizeField(v.Field(i), &fieldType); err != nil { // Pass pointer
+		fieldType := t.Field(i)
+		log.Printf("normalizeStructFields: checking field %s (type: %s)", fieldType.Name, fieldType.Type.String())
+		if err := normalizeField(v.Field(i), &fieldType); err != nil {
 			return err
 		}
 	}
@@ -177,32 +180,30 @@ func normalizeStructFields(v reflect.Value) error {
 // normalizeField normalizes a single field if it’s a *SecurityConfig.
 func normalizeField(field reflect.Value, fieldType *reflect.StructField) error {
 	if fieldType.Type != reflect.TypeOf((*models.SecurityConfig)(nil)) {
+		log.Printf("normalizeField: field %s is not a SecurityConfig, skipping", fieldType.Name)
 		return nil
 	}
 
 	if !field.IsValid() || field.IsNil() {
+		log.Printf("normalizeField: field %s is invalid or nil, skipping", fieldType.Name)
 		return nil
 	}
 
 	sec := field.Interface().(*models.SecurityConfig)
-	if sec.CertDir == "" {
-		return nil
-	}
-
+	log.Printf("normalizeField: found SecurityConfig in field %s, CertDir=%s", fieldType.Name, sec.CertDir)
 	tls := &sec.TLS
-
 	log.Println("Normalizing SecurityConfig paths")
-
-	normalizeTLSPaths(tls, sec.CertDir)
+	NormalizeTLSPaths(tls, sec.CertDir)
 
 	// Update the field with the normalized SecurityConfig
 	field.Set(reflect.ValueOf(sec))
+	log.Printf("normalizeField: updated SecurityConfig in field %s", fieldType.Name)
 
 	return nil
 }
 
-// normalizeTLSPaths adjusts TLS file paths based on the certificate directory.
-func normalizeTLSPaths(tls *models.TLSConfig, certDir string) {
+// NormalizeTLSPaths adjusts TLS file paths based on the certificate directory.
+func NormalizeTLSPaths(tls *models.TLSConfig, certDir string) {
 	if !filepath.IsAbs(tls.CertFile) {
 		tls.CertFile = filepath.Join(certDir, tls.CertFile)
 	}

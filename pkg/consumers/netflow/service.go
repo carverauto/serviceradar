@@ -27,6 +27,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -54,11 +55,16 @@ func NewService(cfg NetflowConfig, dbService db.Service) (*Service, error) {
 		db:        dbService,
 	}
 
+	spew.Dump(cfg)
+
 	return svc, nil
 }
 
 // Start connects to NATS, initializes the consumer, and starts processing messages.
 func (s *Service) Start(ctx context.Context) error {
+	log.Printf("NATS TLS paths: CertFile=%s, KeyFile=%s, CAFile=%s",
+		s.cfg.Security.TLS.CertFile, s.cfg.Security.TLS.KeyFile, s.cfg.Security.TLS.CAFile)
+
 	// Initialize netflow_metrics stream
 	if err := s.initSchema(ctx); err != nil {
 		return fmt.Errorf("failed to initialize netflow_metrics schema: %w", err)
