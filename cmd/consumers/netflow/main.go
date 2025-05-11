@@ -34,16 +34,17 @@ func main() {
 
 	// Load NetFlow configuration directly
 	configPath := "/etc/serviceradar/consumers/netflow.json"
+
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		log.Fatalf("Failed to read config file: %v", err)
 	}
 
 	var netflowCfg netflow.NetflowConfig
+
 	if err := json.Unmarshal(data, &netflowCfg); err != nil {
 		log.Fatalf("Failed to parse config: %v", err)
 	}
-	log.Printf("Loaded NetFlow configuration: %+v", netflowCfg)
 
 	// Validate configuration
 	if err := netflowCfg.Validate(); err != nil {
@@ -70,9 +71,6 @@ func main() {
 			Role:       netflowCfg.Security.Role,
 		},
 	}
-	log.Printf("Database configuration: DBAddr=%s, ServerName=%s", dbConfig.DBAddr, dbConfig.Security.ServerName)
-
-	log.Println("TLS configuration:", dbConfig.Security.TLS)
 
 	// Initialize database service
 	dbService, err := db.New(ctx, dbConfig)

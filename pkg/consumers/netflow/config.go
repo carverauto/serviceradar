@@ -36,15 +36,13 @@ func NewNetflowConfig(cfg models.NetflowConfig) *NetflowConfig {
 
 // UnmarshalJSON customizes JSON unmarshalling to handle DBConfig fields
 func (c *NetflowConfig) UnmarshalJSON(data []byte) error {
-	log.Printf("Raw JSON data: %s", string(data))
-
 	// Unmarshal directly into the embedded NetflowConfig
 	if err := json.Unmarshal(data, &c.NetflowConfig); err != nil {
 		log.Printf("Failed to unmarshal NetflowConfig JSON: %v", err)
+
 		return fmt.Errorf("failed to unmarshal NetflowConfig: %w", err)
 	}
 
-	log.Printf("Unmarshalled NetflowConfig: %+v", c)
 	return nil
 }
 
@@ -53,15 +51,19 @@ func (c *NetflowConfig) Validate() error {
 	if c.ListenAddr == "" {
 		return fmt.Errorf("listen_addr is required")
 	}
+
 	if c.NATSURL == "" {
 		return fmt.Errorf("nats_url is required")
 	}
+
 	if c.StreamName == "" {
 		return fmt.Errorf("stream_name is required")
 	}
+
 	if c.ConsumerName == "" {
 		return fmt.Errorf("consumer_name is required")
 	}
+
 	if c.DBConfig.DBAddr == "" {
 		return fmt.Errorf("database configuration is required")
 	}
