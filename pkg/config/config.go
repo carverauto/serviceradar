@@ -190,6 +190,9 @@ func normalizeField(field reflect.Value, fieldType *reflect.StructField) error {
 	}
 
 	tls := &sec.TLS
+
+	log.Println("Normalizing SecurityConfig paths")
+
 	normalizeTLSPaths(tls, sec.CertDir)
 
 	// Update the field with the normalized SecurityConfig
@@ -217,4 +220,7 @@ func normalizeTLSPaths(tls *models.TLSConfig, certDir string) {
 	} else if tls.ClientCAFile == "" {
 		tls.ClientCAFile = tls.CAFile // Fallback to CAFile if unset
 	}
+
+	log.Printf("Normalized TLS paths: CertFile=%s, KeyFile=%s, CAFile=%s, ClientCAFile=%s",
+		tls.CertFile, tls.KeyFile, tls.CAFile, tls.ClientCAFile)
 }

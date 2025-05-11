@@ -191,6 +191,8 @@ func loadClientCredentials(config *models.SecurityConfig) (credentials.Transport
 func loadServerCredentials(config *models.SecurityConfig) (credentials.TransportCredentials, error) {
 	certPath, keyPath, clientCaPath := normalizePaths(config)
 
+	log.Printf("CertPath: %s, KeyPath: %s, ClientCaPath: %s", certPath, keyPath, clientCaPath)
+
 	cert, err := loadServerCert(certPath, keyPath)
 	if err != nil {
 		return nil, err

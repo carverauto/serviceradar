@@ -63,7 +63,7 @@ type ColumnDefinition struct {
 
 // ColumnDefinitions is the list of all possible columns for netflow_metrics
 var ColumnDefinitions = []ColumnDefinition{
-	{Key: ColumnTimestamp, Name: "timestamp", Type: "DateTime64(3)", Codec: "DoubleDelta, LZ4", Default: "now64(3)", Mandatory: true},
+	{Key: ColumnTimestamp, Name: "timestamp", Type: "DateTime64(3)", Codec: "DoubleDelta, LZ4", Mandatory: true},
 	{Key: ColumnSrcAddr, Name: "src_addr", Type: "IPv6", Codec: "ZSTD(1)", Mandatory: true},
 	{Key: ColumnDstAddr, Name: "dst_addr", Type: "IPv6", Codec: "ZSTD(1)", Mandatory: true},
 	{Key: ColumnSrcPort, Name: "src_port", Type: "uint16"},
@@ -73,13 +73,13 @@ var ColumnDefinitions = []ColumnDefinition{
 	{Key: ColumnPackets, Name: "packets", Type: "uint64", Codec: "T64, LZ4", Mandatory: true},
 	{Key: ColumnForwardingStatus, Name: "forwarding_status", Type: "uint32"},
 	{Key: ColumnNextHop, Name: "next_hop", Type: "IPv6", Codec: "ZSTD(1)"},
-	{Key: ColumnSamplerAddress, Name: "sampler_address", Type: "IPv6", Codec: "ZSTD(1)"},
+	{Key: ColumnSamplerAddress, Name: "sampler_address", Type: "IPv6", Codec: "ZSTD(1)", Mandatory: true},
 	{Key: ColumnSrcAS, Name: "src_as", Type: "uint32", Default: "0"},
 	{Key: ColumnDstAS, Name: "dst_as", Type: "uint32", Default: "0"},
 	{Key: ColumnIPTos, Name: "ip_tos", Type: "uint8"},
 	{Key: ColumnVlanID, Name: "vlan_id", Type: "uint16"},
 	{Key: ColumnBGPNextHop, Name: "bgp_next_hop", Type: "IPv6", Codec: "ZSTD(1)"},
-	{Key: ColumnPacketSize, Name: "packet_size", Type: "uint64", Alias: "intDiv(bytes, packets)"},
+	{Key: ColumnPacketSize, Name: "packet_size", Type: "uint64", Alias: "int_div(bytes, packets)"},
 	{Key: ColumnSrcVlan, Name: "src_vlan", Type: "uint16"},
 	{Key: ColumnDstVlan, Name: "dst_vlan", Type: "uint16"},
 	{Key: ColumnInIfName, Name: "in_if_name", Type: "LowCardinality(string)"},
