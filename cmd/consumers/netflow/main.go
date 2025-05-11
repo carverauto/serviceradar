@@ -62,7 +62,7 @@ func main() {
 				CertFile:     filepath.Join(netflowCfg.Security.CertDir, netflowCfg.Security.TLS.CertFile),
 				KeyFile:      filepath.Join(netflowCfg.Security.CertDir, netflowCfg.Security.TLS.KeyFile),
 				CAFile:       filepath.Join(netflowCfg.Security.CertDir, netflowCfg.Security.TLS.CAFile),
-				ClientCAFile: netflowCfg.Security.TLS.ClientCAFile,
+				ClientCAFile: filepath.Join(netflowCfg.Security.CertDir, netflowCfg.Security.TLS.CAFile),
 			},
 			CertDir:    netflowCfg.Security.CertDir,
 			ServerName: netflowCfg.Security.ServerName,
@@ -71,6 +71,8 @@ func main() {
 		},
 	}
 	log.Printf("Database configuration: DBAddr=%s, ServerName=%s", dbConfig.DBAddr, dbConfig.Security.ServerName)
+
+	log.Println("TLS configuration:", dbConfig.Security.TLS)
 
 	// Initialize database service
 	dbService, err := db.New(ctx, dbConfig)

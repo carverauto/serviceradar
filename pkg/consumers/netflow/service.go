@@ -164,10 +164,13 @@ func (s *Service) initSchema(ctx context.Context) error {
 	}
 
 	createStream := fmt.Sprintf(`CREATE STREAM IF NOT EXISTS netflow_metrics (
-        %s
-    ) ENGINE = MergeTree()
-    PARTITION BY date(timestamp)
-    ORDER BY (src_addr, dst_addr, sampler_address, timestamp)`, strings.Join(columns, ",\n"))
+		%s
+	) ENGINE = Stream(1, 1, sip_hash64(src_addr))
+	PARTITION BY date(timestamp)
+	ORDER BY (src_addr, dst_addr, sampler_address, timestamp)
+	SETTINGS mode='append'`, strings.Join(columns, ",\n"))
+
+	log.Printf("Generated CREATE STREAM query: %s", createStream)
 
 	dbImpl, ok := s.db.(*db.DB)
 	if !ok {
