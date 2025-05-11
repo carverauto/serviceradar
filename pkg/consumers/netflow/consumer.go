@@ -64,11 +64,11 @@ const (
 )
 
 // handleMessage processes a single message with the provided processor.
-func (*Consumer) handleMessage(msg jetstream.Msg, processor *Processor) {
+func (*Consumer) handleMessage(ctx context.Context, msg jetstream.Msg, processor *Processor) {
 	metadata, _ := msg.Metadata()
 	log.Printf("Processing message: subject=%s, seq=%d, tries=%d", msg.Subject(), metadata.Sequence.Stream, metadata.NumDelivered)
 
-	processErr := processor.Process(msg)
+	processErr := processor.Process(ctx, msg)
 	if processErr != nil {
 		log.Printf("Failed to process message: %v", processErr)
 
@@ -107,7 +107,7 @@ func (c *Consumer) ProcessMessages(ctx context.Context, processor *Processor) {
 	}
 
 	consCtx, err := cons.Consume(func(msg jetstream.Msg) {
-		c.handleMessage(msg, processor)
+		c.handleMessage(ctx, msg, processor)
 	}, jetstream.PullMaxMessages(defaultMaxPullMessages), jetstream.PullExpiry(defaultPullExpiry))
 	if err != nil {
 		log.Printf("Failed to start consumer: %v", err)
