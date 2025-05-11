@@ -123,41 +123,106 @@ func New(ctx context.Context, config *models.DBConfig) (Service, error) {
 	return db, nil
 }
 
+var columnDefinitions = []models.ColumnDefinition{
+	{Key: models.ColumnTimestamp, Name: "timestamp", Type: "DateTime64(3)", Codec: "DoubleDelta, LZ4", Default: "now64(3)", Mandatory: true},
+	{Key: models.ColumnSrcAddr, Name: "src_addr", Type: "IPv6", Codec: "ZSTD(1)", Mandatory: true},
+	{Key: models.ColumnDstAddr, Name: "dst_addr", Type: "IPv6", Codec: "ZSTD(1)", Mandatory: true},
+	{Key: models.ColumnSrcPort, Name: "src_port", Type: "uint16"},
+	{Key: models.ColumnDstPort, Name: "dst_port", Type: "uint16"},
+	{Key: models.ColumnProtocol, Name: "protocol", Type: "uint8"},
+	{Key: models.ColumnBytes, Name: "bytes", Type: "uint64", Codec: "T64, LZ4", Mandatory: true},
+	{Key: models.ColumnPackets, Name: "packets", Type: "uint64", Codec: "T64, LZ4", Mandatory: true},
+	{Key: models.ColumnForwardingStatus, Name: "forwarding_status", Type: "uint32"},
+	{Key: models.ColumnNextHop, Name: "next_hop", Type: "IPv6", Codec: "ZSTD(1)"},
+	{Key: models.ColumnSamplerAddress, Name: "sampler_address", Type: "IPv6", Codec: "ZSTD(1)"},
+	{Key: models.ColumnSrcAS, Name: "src_as", Type: "uint32", Default: "0"},
+	{Key: models.ColumnDstAS, Name: "dst_as", Type: "uint32", Default: "0"},
+	{Key: models.ColumnIPTos, Name: "ip_tos", Type: "uint8"},
+	{Key: models.ColumnVlanID, Name: "vlan_id", Type: "uint16"},
+	{Key: models.ColumnBGPNextHop, Name: "bgp_next_hop", Type: "IPv6", Codec: "ZSTD(1)"},
+	{Key: models.ColumnPacketSize, Name: "packet_size", Type: "uint64", Alias: "intDiv(bytes, packets)"},
+	{Key: models.ColumnSrcVlan, Name: "src_vlan", Type: "uint16"},
+	{Key: models.ColumnDstVlan, Name: "dst_vlan", Type: "uint16"},
+	{Key: models.ColumnInIfName, Name: "in_if_name", Type: "LowCardinality(string)"},
+	{Key: models.ColumnOutIfName, Name: "out_if_name", Type: "LowCardinality(string)"},
+	{Key: models.ColumnInIfDescription, Name: "in_if_description", Type: "LowCardinality(string)"},
+	{Key: models.ColumnOutIfDescription, Name: "out_if_description", Type: "LowCardinality(string)"},
+	{Key: models.ColumnInIfSpeed, Name: "in_if_speed", Type: "uint32"},
+	{Key: models.ColumnOutIfSpeed, Name: "out_if_speed", Type: "uint32"},
+	{Key: models.ColumnExporterAddress, Name: "exporter_address", Type: "IPv6", Codec: "ZSTD(1)"},
+	{Key: models.ColumnExporterName, Name: "exporter_name", Type: "LowCardinality(string)"},
+	{Key: models.ColumnMetadata, Name: "metadata", Type: "string"},
+}
+
 // initSchema creates the database streams for Proton.
 func (db *DB) initSchema(ctx context.Context) error {
+	// Build netflow_metrics stream definition dynamically
+	var columns []string
+	enabledKeys := make(map[models.ColumnKey]bool)
+	disabledKeys := make(map[models.ColumnKey]bool)
+
+	for _, key := range config.EnabledFields {
+		enabledKeys[key] = true
+	}
+	for _, key := range config.DisabledFields {
+		disabledKeys[key] = true
+	}
+
+	for _, def := range columnDefinitions {
+		// Skip disabled columns, include enabled or mandatory columns
+		if disabledKeys[def.Key] && !def.Mandatory {
+			continue
+		}
+		if !enabledKeys[def.Key] && !def.Mandatory && def.Default == "" && def.Alias == "" {
+			continue
+		}
+
+		columnDef := fmt.Sprintf("`%s` %s", def.Name, def.Type)
+		if def.Codec != "" {
+			columnDef += fmt.Sprintf(" CODEC(%s)", def.Codec)
+		}
+		if def.Default != "" {
+			columnDef += fmt.Sprintf(" DEFAULT %s", def.Default)
+		}
+		if def.Alias != "" {
+			columnDef += fmt.Sprintf(" ALIAS %s", def.Alias)
+		}
+		columns = append(columns, columnDef)
+	}
+
 	createStreams := []string{
 		`CREATE STREAM IF NOT EXISTS netflow_metrics (
             timestamp DateTime64(3) DEFAULT now64(3) CODEC(DoubleDelta, LZ4),
             src_addr IPv6 CODEC(ZSTD(1)),
             dst_addr IPv6 CODEC(ZSTD(1)),
-            src_port UInt16,
-            dst_port UInt16,
-            protocol UInt8,
-            bytes UInt64 CODEC(T64, LZ4),
-            packets UInt64 CODEC(T64, LZ4),
-            forwarding_status UInt32,
+            src_port uint16,
+            dst_port uint16,
+            protocol uint8,
+            bytes uint64 CODEC(T64, LZ4),
+            packets uint64 CODEC(T64, LZ4),
+            forwarding_status uint32,
             next_hop IPv6 CODEC(ZSTD(1)),
             sampler_address IPv6 CODEC(ZSTD(1)),
-            src_as UInt32 DEFAULT dictGet('asn_dictionary', 'asn', src_addr),
-            dst_as UInt32 DEFAULT dictGet('asn_dictionary', 'asn', dst_addr),
-            ip_tos UInt8,
-            vlan_id UInt16,
+            src_as uint32 DEFAULT 0,
+            dst_as uint32 DEFAULT 0,
+            ip_tos uint8,
+            vlan_id uint16,
             bgp_next_hop IPv6 CODEC(ZSTD(1)),
-            packet_size UInt64 ALIAS intDiv(bytes, packets),
-            metadata String
+            packet_size uint64 ALIAS intDiv(bytes, packets),
+            src_vlan uint16,
+            dst_vlan uint16,
+            in_if_name LowCardinality(string),
+            out_if_name LowCardinality(string),
+            in_if_description LowCardinality(string),
+            out_if_description LowCardinality(string),
+            in_if_speed uint32,
+            out_if_speed uint32,
+            exporter_address IPv6 CODEC(ZSTD(1)),
+            exporter_name LowCardinality(string),
+            metadata string
         ) ENGINE = MergeTree()
         PARTITION BY date(timestamp)
         ORDER BY (src_addr, dst_addr, sampler_address, timestamp)`,
-
-		`CREATE TABLE IF NOT EXISTS asn_dictionary (
-            ip IPv6,
-            asn UInt32,
-            name LowCardinality(String)
-        ) ENGINE = Dictionary
-        PRIMARY KEY ip
-        SOURCE(FILE(path '/path/to/asn.csv' format 'CSV'))
-        LAYOUT(hashed())
-        LIFETIME(3600)`,
 
 		`CREATE STREAM IF NOT EXISTS cpu_metrics (
             poller_id string,
