@@ -41,6 +41,14 @@ const (
 	fallBackSuffix     = "fallback"
 	grpcType           = "grpc"
 	defaultErrChansize = 10
+
+	// DeviceCache settings
+
+	defaultIncrementalInterval = 5 * time.Minute
+	defaultFullReportInterval  = 1 * time.Hour
+	defaultCleanupInterval     = 1 * time.Hour
+	defaultMaxAge              = 24 * time.Hour
+	defaultBatchSize           = 1000
 )
 
 // NewServer initializes a new Server instance.
@@ -59,6 +67,33 @@ func NewServer(ctx context.Context, configDir string, cfg *ServerConfig) (*Serve
 	s.createSweepService = func(sweepConfig *SweepConfig, kvStore KVStore) (Service, error) {
 		return createSweepService(sweepConfig, kvStore, cfg)
 	}
+
+	// Initialize DeviceCache
+	incrementalInterval := defaultIncrementalInterval
+	fullReportInterval := defaultFullReportInterval
+	cleanupInterval := defaultCleanupInterval
+	maxAge := defaultMaxAge
+	batchSize := defaultBatchSize
+
+	if cfg.DeviceCacheConfig != nil {
+		incrementalInterval = time.Duration(cfg.DeviceCacheConfig.IncrementalInterval)
+		fullReportInterval = time.Duration(cfg.DeviceCacheConfig.FullReportInterval)
+		cleanupInterval = time.Duration(cfg.DeviceCacheConfig.CleanupInterval)
+		maxAge = time.Duration(cfg.DeviceCacheConfig.MaxAge)
+		batchSize = cfg.DeviceCacheConfig.BatchSize
+	}
+
+	s.deviceCache = DeviceCache{
+		Devices:             make(map[string]*DeviceState),
+		IncrementalInterval: incrementalInterval,
+		FullReportInterval:  fullReportInterval,
+		CleanupInterval:     cleanupInterval,
+		MaxAge:              maxAge,
+		BatchSize:           batchSize,
+	}
+
+	// Setup device maintenance
+	s.SetupDeviceMaintenance(ctx)
 
 	if err := s.loadConfigurations(ctx, cfgLoader); err != nil {
 		return nil, fmt.Errorf("failed to load configurations: %w", err)
