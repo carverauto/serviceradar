@@ -57,9 +57,6 @@ func NewService(cfg *NetflowConfig, dbService db.Service) (*Service, error) {
 
 // Start connects to NATS, initializes the consumer, and starts processing messages.
 func (s *Service) Start(ctx context.Context) error {
-	log.Printf("NATS TLS paths: CertFile=%s, KeyFile=%s, CAFile=%s",
-		s.cfg.Security.TLS.CertFile, s.cfg.Security.TLS.KeyFile, s.cfg.Security.TLS.CAFile)
-
 	// Initialize netflow_metrics stream
 	if err := s.initSchema(ctx); err != nil {
 		return fmt.Errorf("failed to initialize netflow_metrics schema: %w", err)
