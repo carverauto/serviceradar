@@ -99,6 +99,13 @@ type Service interface {
 
 	StoreUser(ctx context.Context, user *models.User) error
 	GetUserByID(ctx context.Context, id string) (*models.User, error)
+
+	// Devices.
+
+	StoreDevice(ctx context.Context, device *models.Device) error
+	StoreBatchDevices(ctx context.Context, devices []*models.Device) error
+	GetDevicesByIP(ctx context.Context, ip string) ([]*models.Device, error)
+	GetDeviceByID(ctx context.Context, deviceID string) (*models.Device, error)
 }
 
 // SysmonMetricsProvider interface defines operations for system monitoring metrics.
