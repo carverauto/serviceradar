@@ -25,6 +25,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/checker"
@@ -79,6 +80,9 @@ func initializeServer(configDir string, cfg *ServerConfig) *Server {
 		done:         make(chan struct{}),
 		config:       cfg,
 		connections:  make(map[string]*CheckerConnection),
+		deviceCache: DeviceCache{
+			Devices: make(map[string]*DeviceState),
+		},
 	}
 }
 
@@ -425,15 +429,143 @@ func (s *Server) connectToChecker(ctx context.Context, checkerConfig *CheckerCon
 }
 
 func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
+	var response *proto.StatusResponse
+	var deviceInfo *models.DeviceInfo
+
 	switch {
 	case isRperfCheckerRequest(req):
-		return s.handleRperfChecker(ctx, req)
+		response, _ = s.handleRperfChecker(ctx, req)
 	case isICMPRequest(req):
-		return s.handleICMPCheck(ctx, req)
+		response, _ = s.handleICMPCheck(ctx, req)
+		if response != nil && response.Available {
+			// Extract device info from ICMP response
+			deviceInfo = extractDeviceInfoFromICMP(response.Message, req.Details)
+		}
 	case isSweepRequest(req):
-		return s.getSweepStatus(ctx)
+		response, _ = s.getSweepStatus(ctx)
+		if response != nil {
+			// Extract devices from sweep status
+			extractDevicesFromSweep(response.Message, s)
+		}
 	default:
-		return s.handleDefaultChecker(ctx, req)
+		response, _ = s.handleDefaultChecker(ctx, req)
+		if response != nil && isDeviceService(req.ServiceType) {
+			deviceInfo = extractDeviceInfoFromChecker(req, response)
+		}
+	}
+
+	// Update device cache with individual device
+	if deviceInfo != nil {
+		s.updateDeviceCache(deviceInfo)
+	}
+
+	return response, nil
+}
+
+// Helper functions to extract device info
+func extractDeviceInfoFromICMP(message, host string) *models.DeviceInfo {
+	var icmpData struct {
+		Host         string  `json:"host"`
+		ResponseTime int64   `json:"response_time"`
+		PacketLoss   float64 `json:"packet_loss"`
+		Available    bool    `json:"available"`
+	}
+
+	if err := json.Unmarshal([]byte(message), &icmpData); err != nil {
+		return nil
+	}
+
+	return &models.DeviceInfo{
+		IP:              icmpData.Host,
+		Available:       icmpData.Available,
+		DiscoverySource: "icmp",
+		LastSeen:        time.Now().Unix(),
+	}
+}
+
+func extractDevicesFromSweep(message string, s *Server) {
+	var sweepData struct {
+		Hosts []models.HostResult `json:"hosts"`
+	}
+
+	if err := json.Unmarshal([]byte(message), &sweepData); err != nil {
+		return
+	}
+
+	// Update device cache with each host from sweep
+	for _, host := range sweepData.Hosts {
+		deviceInfo := &models.DeviceInfo{
+			IP:              host.Host,
+			Available:       host.Available,
+			DiscoverySource: "network_sweep",
+			OpenPorts:       host.OpenPorts,
+			LastSeen:        time.Now().Unix(),
+		}
+
+		s.updateDeviceCache(deviceInfo)
+	}
+}
+
+func isDeviceService(serviceType string) bool {
+	return serviceType == "icmp" || serviceType == "port" || serviceType == "snmp"
+}
+
+func extractDeviceInfoFromChecker(req *proto.StatusRequest, resp *proto.StatusResponse) *models.DeviceInfo {
+	switch req.ServiceType {
+	case "port":
+		parts := strings.Split(req.Details, ":")
+		if len(parts) >= 1 {
+			host := parts[0]
+			return &models.DeviceInfo{
+				IP:              host,
+				Available:       resp.Available,
+				DiscoverySource: "port_check",
+				LastSeen:        time.Now().Unix(),
+			}
+		}
+	case "snmp":
+		return &models.DeviceInfo{
+			IP:              req.Details,
+			Available:       resp.Available,
+			DiscoverySource: "snmp_check",
+			LastSeen:        time.Now().Unix(),
+		}
+	}
+
+	return nil
+}
+
+func (s *Server) updateDeviceCache(info *models.DeviceInfo) {
+	if info == nil || info.IP == "" {
+		return
+	}
+
+	s.deviceCache.mu.Lock()
+	defer s.deviceCache.mu.Unlock()
+
+	now := time.Now()
+	deviceKey := info.IP
+
+	// Check if device exists in cache
+	if device, exists := s.deviceCache.Devices[deviceKey]; exists {
+		// Update existing device
+		oldAvailable := device.Info.Available
+		device.Info = *info
+		device.LastSeen = now
+
+		// Mark as changed if availability changed
+		if oldAvailable != info.Available {
+			device.Changed = true
+			device.Reported = false
+		}
+	} else {
+		// New device
+		s.deviceCache.Devices[deviceKey] = &DeviceState{
+			Info:     *info,
+			LastSeen: now,
+			Reported: false,
+			Changed:  true, // New device = changed
+		}
 	}
 }
 

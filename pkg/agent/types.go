@@ -47,6 +47,7 @@ type Server struct {
 	kvStore            KVStore
 	createSweepService func(sweepConfig *SweepConfig, kvStore KVStore) (Service, error)
 	setupKVStore       func(ctx context.Context, cfgLoader *config.Config, cfg *ServerConfig) (KVStore, error)
+	deviceCache        DeviceCache
 }
 type Duration time.Duration
 
@@ -138,4 +139,17 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 	default:
 		return errInvalidDuration
 	}
+}
+
+type DeviceCache struct {
+	Devices    map[string]*DeviceState // IP -> device state
+	LastReport time.Time
+	mu         sync.RWMutex
+}
+
+type DeviceState struct {
+	Info     models.DeviceInfo
+	Reported bool
+	Changed  bool
+	LastSeen time.Time
 }
