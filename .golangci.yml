@@ -1,5 +1,7 @@
 run:
   timeout: 5m
+  skip-dirs:
+    - proto/flow
 
 linters-settings:
   dupl:
