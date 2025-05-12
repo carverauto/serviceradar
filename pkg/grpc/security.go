@@ -87,10 +87,6 @@ func NewMTLSProvider(config *models.SecurityConfig) (*MTLSProvider, error) {
 	log.Printf("Initializing mTLS provider - Role: %s, NeedsClient: %v, NeedsServer: %v",
 		config.Role, provider.needsClient, provider.needsServer)
 
-	// Log the paths being used
-	log.Printf("mTLS Config Paths: Cert=%s, Key=%s, CA=%s, ClientCA=%s",
-		config.TLS.CertFile, config.TLS.KeyFile, config.TLS.CAFile, config.TLS.ClientCAFile)
-
 	if err := provider.loadCredentials(); err != nil {
 		return nil, err
 	}
@@ -190,8 +186,6 @@ func loadClientCredentials(config *models.SecurityConfig) (credentials.Transport
 
 func loadServerCredentials(config *models.SecurityConfig) (credentials.TransportCredentials, error) {
 	certPath, keyPath, clientCaPath := normalizePaths(config)
-
-	log.Printf("CertPath: %s, KeyPath: %s, ClientCaPath: %s", certPath, keyPath, clientCaPath)
 
 	cert, err := loadServerCert(certPath, keyPath)
 	if err != nil {
