@@ -3,7 +3,6 @@ package models
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/core/alerts"
@@ -98,8 +97,6 @@ func (c *DBConfig) MarshalJSON() ([]byte, error) {
 }
 
 func (c *DBConfig) UnmarshalJSON(data []byte) error {
-	log.Println("Unmarshalling DBConfig JSON")
-
 	type Alias DBConfig
 
 	aux := &struct {
