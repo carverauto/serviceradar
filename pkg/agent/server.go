@@ -468,9 +468,6 @@ func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*prot
 	var response *proto.StatusResponse
 	var deviceInfo *models.DeviceInfo
 
-	// TODO: populate pollerID in ctx and retrieve
-	pollerID := "" // Poller ID could be passed via context or configuration if available
-
 	switch {
 	case isRperfCheckerRequest(req):
 		response, _ = s.handleRperfChecker(ctx, req)
@@ -495,7 +492,11 @@ func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*prot
 
 	// Update device cache with individual device
 	if deviceInfo != nil {
-		s.updateDeviceCache(deviceInfo, pollerID)
+		s.updateDeviceCache(deviceInfo)
+	}
+
+	if response != nil {
+		response.AgentId = s.config.AgentID
 	}
 
 	return response, nil
@@ -592,7 +593,6 @@ func (s *Server) updateDeviceCache(info *models.DeviceInfo, pollerID string) {
 
 		device.LastSeen = now
 		device.Sources[info.DiscoverySource] = true
-		device.PollerID = pollerID
 
 		if hasSignificantChanges(oldInfo, device.Info) {
 			device.Changed = true
@@ -609,7 +609,6 @@ func (s *Server) updateDeviceCache(info *models.DeviceInfo, pollerID string) {
 			Sources:     map[string]bool{info.DiscoverySource: true},
 			ReportCount: 0,
 			AgentID:     s.config.AgentID,
-			PollerID:    pollerID,
 		}
 	}
 }
