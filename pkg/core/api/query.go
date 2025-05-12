@@ -1,0 +1,111 @@
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+
+	"github.com/carverauto/serviceradar/pkg/srql"
+	"github.com/carverauto/serviceradar/pkg/srql/models"
+	"github.com/carverauto/serviceradar/pkg/srql/parser"
+)
+
+// QueryRequest represents the request body for SRQL queries
+type QueryRequest struct {
+	Query string `json:"query" example:"show devices where ip = '192.168.1.1'"`
+}
+
+// QueryResponse represents the response for SRQL queries
+type QueryResponse struct {
+	Results []map[string]interface{} `json:"results"`
+	Error   string                   `json:"error,omitempty"`
+}
+
+// @Summary Execute SRQL query
+// @Description Executes a ServiceRadar Query Language (SRQL) query against the database
+// @Tags SRQL
+// @Accept json
+// @Produce json
+// @Param query body QueryRequest true "SRQL query string"
+// @Success 200 {object} QueryResponse "Query results"
+// @Failure 400 {object} models.ErrorResponse "Invalid query or request"
+// @Failure 401 {object} models.ErrorResponse "Unauthorized"
+// @Failure 500 {object} models.ErrorResponse "Internal server error"
+// @Router /api/query [post]
+// @Security ApiKeyAuth
+func (s *APIServer) handleSRQLQuery(w http.ResponseWriter, r *http.Request) {
+	var req QueryRequest
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, "Invalid request body", http.StatusBadRequest)
+
+		return
+	}
+
+	if req.Query == "" {
+		writeError(w, "Query string is required", http.StatusBadRequest)
+
+		return
+	}
+
+	// Parse the SRQL query
+	p := srql.NewParser()
+
+	query, err := p.Parse(req.Query)
+	if err != nil {
+		writeError(w, fmt.Sprintf("Failed to parse query: %v", err), http.StatusBadRequest)
+
+		return
+	}
+
+	// Translate to database query (assuming ClickHouse for this example)
+	translator := parser.NewTranslator(parser.ClickHouse)
+
+	dbQuery, err := translator.Translate(query)
+	if err != nil {
+		writeError(w, fmt.Sprintf("Failed to translate query: %v", err), http.StatusInternalServerError)
+
+		return
+	}
+
+	// Execute the query against the database
+	ctx, cancel := context.WithTimeout(r.Context(), defaultTimeout)
+	defer cancel()
+
+	results, err := s.executeQuery(ctx, dbQuery, query.Entity)
+	if err != nil {
+		writeError(w, fmt.Sprintf("Failed to execute query: %v", err), http.StatusInternalServerError)
+
+		return
+	}
+
+	// Prepare response
+	response := QueryResponse{
+		Results: results,
+	}
+
+	if err := s.encodeJSONResponse(w, response); err != nil {
+		writeError(w, "Failed to encode response", http.StatusInternalServerError)
+	}
+}
+
+// executeQuery executes the translated query against the database
+func (s *APIServer) executeQuery(ctx context.Context, query string, entity models.EntityType) ([]map[string]interface{}, error) {
+	// Assuming the db.Service interface has a method to execute raw queries
+	// Modify based on your actual db.Service implementation
+	switch entity {
+	case models.Devices:
+		return s.executeQuery(ctx, query, "devices")
+	case models.Flows:
+		return s.executeQuery(ctx, query, "flows")
+	case models.Traps:
+		return s.executeQuery(ctx, query, "traps")
+	case models.Connections:
+		return s.executeQuery(ctx, query, "connections")
+	case models.Logs:
+		return s.executeQuery(ctx, query, "logs")
+	default:
+		return nil, fmt.Errorf("unsupported entity type: %s", entity)
+	}
+}

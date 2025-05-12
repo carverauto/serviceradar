@@ -35,7 +35,7 @@ import (
 type Server struct {
 	proto.UnimplementedPollerServiceServer
 	mu                      sync.RWMutex
-	db                      db.Service
+	DB                      db.Service
 	alertThreshold          time.Duration
 	webhooks                []alerts.AlertService
 	apiServer               api.Service

@@ -31,6 +31,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/checker/rperf"
 	"github.com/carverauto/serviceradar/pkg/checker/snmp"
 	"github.com/carverauto/serviceradar/pkg/core/auth"
+	"github.com/carverauto/serviceradar/pkg/db"
 	srHttp "github.com/carverauto/serviceradar/pkg/http"
 	"github.com/carverauto/serviceradar/pkg/metrics"
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -54,6 +55,13 @@ func NewAPIServer(config models.CORSConfig, options ...func(server *APIServer)) 
 	s.setupRoutes()
 
 	return s
+}
+
+// WithQueryExecutor adds a query executor to the API server
+func WithQueryExecutor(qe db.QueryExecutor) func(server *APIServer) {
+	return func(server *APIServer) {
+		server.queryExecutor = qe
+	}
 }
 
 // WithAuthService adds an authentication service to the API server
@@ -311,6 +319,7 @@ func (s *APIServer) setupProtectedRoutes() {
 	protected.HandleFunc("/pollers/{id}/sysmon/cpu", s.getSysmonCPUMetrics).Methods("GET")
 	protected.HandleFunc("/pollers/{id}/sysmon/disk", s.getSysmonDiskMetrics).Methods("GET")
 	protected.HandleFunc("/pollers/{id}/sysmon/memory", s.getSysmonMemoryMetrics).Methods("GET")
+	protected.HandleFunc("/query", s.handleSRQLQuery).Methods("POST")
 }
 
 // @Summary Get SNMP data

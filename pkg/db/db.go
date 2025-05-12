@@ -26,6 +26,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -219,6 +220,67 @@ func (db *DB) initSchema(ctx context.Context) error {
 // Close closes the database connection.
 func (db *DB) Close() error {
 	return db.Conn.Close()
+}
+
+// ExecuteQuery executes a raw SQL query against the Proton database
+func (db *DB) ExecuteQuery(ctx context.Context, query string, params ...interface{}) ([]map[string]interface{}, error) {
+	rows, err := db.Conn.Query(ctx, query, params...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute query: %w", err)
+	}
+	defer rows.Close()
+
+	columnTypes := rows.ColumnTypes()
+
+	columns := make([]string, len(columnTypes))
+
+	for i, ct := range columnTypes {
+		columns[i] = ct.Name()
+	}
+
+	var results []map[string]interface{}
+
+	vars := make([]interface{}, len(columnTypes))
+
+	for i := range columnTypes {
+		vars[i] = reflect.New(columnTypes[i].ScanType()).Interface()
+	}
+
+	for rows.Next() {
+		if err := rows.Scan(vars...); err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		row := make(map[string]interface{})
+		for i, col := range columns {
+			switch v := vars[i].(type) {
+			case *string:
+				row[col] = *v
+			case *uint8:
+				row[col] = *v
+			case *uint64:
+				row[col] = *v
+			case *int64:
+				row[col] = *v
+			case *float64:
+				row[col] = *v
+			case *time.Time:
+				row[col] = *v
+			case *bool:
+				row[col] = *v
+			default:
+				row[col] = v
+			}
+		}
+
+		results = append(results, row)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %w", err)
+	}
+
+	return results, nil
 }
 
 // StoreMetrics stores multiple timeseries metrics in a single batch.
