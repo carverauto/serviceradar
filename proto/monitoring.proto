@@ -22,31 +22,68 @@ option go_package = "github.com/carverauto/serviceradar/proto";
 
 service AgentService {
   rpc GetStatus(StatusRequest) returns (StatusResponse) {}
+  rpc GetDeviceStatus(DeviceStatusRequest) returns (DeviceStatusResponse) {}
 }
 
 service PollerService {
   rpc ReportStatus(PollerStatusRequest) returns (PollerStatusResponse) {}
 }
 
+message DeviceStatusRequest {
+  string agent_id = 1; // Unique identifier for the agent
+}
+
+message DeviceStatusResponse {
+  repeated DeviceInfo devices = 1; // List of devices to report
+  bool is_full_report = 2;        // Indicates if this is a full synchronization
+  string agent_id = 3;            // Agent ID for traceability
+}
+
+message DeviceInfo {
+  string ip = 1;                     // IP address (primary identifier)
+  string mac = 2;                    // MAC address if available
+  string hostname = 3;               // DNS hostname if resolved
+  bool available = 4;                // Current availability status
+  int64 last_seen = 5;               // Unix timestamp of last observation
+  string discovery_source = 6;       // Source of discovery (network_sweep, icmp, snmp, etc.)
+  int64 discovery_time = 7;          // Unix timestamp of first discovery
+  repeated int32 open_ports = 8;     // List of open ports found
+  string network_segment = 9;        // Network segment/VLAN if known
+  string service_type = 10;          // Type of service used for discovery
+  string service_name = 11;          // Name of service that discovered it
+  int64 response_time = 12;          // Response time in nanoseconds
+  double packet_loss = 13;           // Packet loss percentage (for ICMP)
+  string device_type = 14;           // Router, switch, server, etc.
+  string vendor = 15;                // Hardware vendor if known
+  string model = 16;                 // Device model if known
+  string os_info = 17;               // OS information if available
+  map<string, string> metadata = 18; // Additional metadata
+  string agent_id = 19;              // Agent that discovered the device
+  string poller_id = 20;             // Poller that reported the device
+}
+
 message StatusRequest {
-  string service_name = 1;  // Type of service to check (process, port, dusk)
-  string service_type = 2;  // Type of service (process, port, grpc, etc)
-  string details = 3;       // Additional details (e.g., process name)
+  string service_name = 1; // Type of service to check (process, port, dusk)
+  string service_type = 2; // Type of service (process, port, grpc, etc)
+  string details = 3;      // Additional details (e.g., process name)
   int32 port = 4;          // Port number for port checks
 }
 
 message StatusResponse {
   bool available = 1;
-  string message = 2; // Raw data as JSON
+  string message = 2;      // Raw data as JSON
   string service_name = 3;
   string service_type = 4;
   int64 response_time = 5; // Raw response time in nanoseconds
+  string agent_id = 6;     // Agent ID for traceability
 }
 
 message PollerStatusRequest {
   repeated ServiceStatus services = 1;
   string poller_id = 2;
   int64 timestamp = 3;
+  repeated DeviceInfo devices = 4; // List of devices reported by the agent
+  bool is_full_report = 5;        // Indicates if this includes a full device sync
 }
 
 message PollerStatusResponse {
