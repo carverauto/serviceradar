@@ -39,6 +39,22 @@ definitions:
       uptime:
         type: string
     type: object
+  api.QueryRequest:
+    properties:
+      query:
+        example: show devices where ip = '192.168.1.1'
+        type: string
+    type: object
+  api.QueryResponse:
+    properties:
+      error:
+        type: string
+      results:
+        items:
+          additionalProperties: true
+          type: object
+        type: array
+    type: object
   api.RefreshTokenRequest:
     properties:
       refresh_token:
@@ -125,7 +141,7 @@ definitions:
         type: integer
     type: object
   models.ErrorResponse:
-    description: Error information returned from the API
+    description: Error information returned from the API.
     properties:
       message:
         description: Error message
@@ -169,7 +185,7 @@ definitions:
         type: string
     type: object
   models.RperfMetric:
-    description: Single network performance test result for a specific target
+    description: Single network performance test result for a specific target.
     properties:
       bits_per_second:
         description: Network throughput in bits per second
@@ -262,7 +278,7 @@ definitions:
         type: string
     type: object
   models.Token:
-    description: Authentication tokens for API access
+    description: Authentication tokens for API access.
     properties:
       access_token:
         description: JWT access token used for API authorization
@@ -277,18 +293,17 @@ definitions:
         example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
         type: string
     type: object
-host: demo.serviceradar.cloud
 info:
   contact:
-    email: support@carverauto.com
+    email: support@serviceradar.cloud
     name: API Support
-    url: http://carverauto.com/support
+    url: https://serviceradar.cloud/support
   description: API for monitoring and managing service pollers in the ServiceRadar
     system
   license:
     name: Apache 2.0
     url: http://www.apache.org/licenses/LICENSE-2.0.html
-  termsOfService: http://carverauto.com/terms/
+  termsOfService: https://serviceradar.cloud/terms/
   title: ServiceRadar API
   version: "1.0"
 paths:
@@ -522,6 +537,43 @@ paths:
       summary: Get SNMP data
       tags:
       - SNMP
+  /api/query:
+    post:
+      consumes:
+      - application/json
+      description: Executes a ServiceRadar Query Language (SRQL) query against the
+        database
+      parameters:
+      - description: SRQL query string
+        in: body
+        name: query
+        required: true
+        schema:
+          $ref: '#/definitions/api.QueryRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Query results
+          schema:
+            $ref: '#/definitions/api.QueryResponse'
+        "400":
+          description: Invalid query or request
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+        "500":
+          description: Internal server error
+          schema:
+            $ref: '#/definitions/models.ErrorResponse'
+      security:
+      - ApiKeyAuth: []
+      summary: Execute SRQL query
+      tags:
+      - SRQL
   /api/status:
     get:
       consumes:
@@ -548,7 +600,7 @@ paths:
     get:
       consumes:
       - application/json
-      description: Initiates OAuth authentication flow with the specified provider
+      description: Initiates OAuth authentication flow with the specified provider.
       parameters:
       - description: OAuth provider (e.g., 'google', 'github')
         in: path
@@ -570,7 +622,7 @@ paths:
           description: Internal server error
           schema:
             $ref: '#/definitions/models.ErrorResponse'
-      summary: Begin OAuth authentication
+      summary: Begin OAuth authentication.
       tags:
       - Authentication
   /auth/{provider}/callback:
@@ -600,7 +652,7 @@ paths:
           description: Internal server error
           schema:
             $ref: '#/definitions/models.ErrorResponse'
-      summary: Complete OAuth authentication
+      summary: Complete OAuth authentication.
       tags:
       - Authentication
   /auth/login:
