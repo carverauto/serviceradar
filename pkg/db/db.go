@@ -128,6 +128,7 @@ func New(ctx context.Context, config *models.DBConfig) (Service, error) {
 
 // initSchema creates the database streams for Proton, excluding netflow_metrics.
 func (db *DB) initSchema(ctx context.Context) error {
+	// Streams
 	createStreams := []string{
 		`CREATE STREAM IF NOT EXISTS cpu_metrics (
             poller_id string,
@@ -209,6 +210,31 @@ func (db *DB) initSchema(ctx context.Context) error {
 	}
 
 	for _, statement := range createStreams {
+		if err := db.Conn.Exec(ctx, statement); err != nil {
+			return err
+		}
+	}
+
+	// Tables
+
+	createTables := []string{
+		`CREATE TABLE IF NOT EXISTS devices (
+            device_id string,
+            poller_id string,
+            discovery_source string,
+            ip string,
+            mac string,
+            hostname string,
+            first_seen DateTime64(3) DEFAULT now64(3),
+            last_seen DateTime64(3) DEFAULT now64(3),
+            is_available bool,
+            metadata string
+        ) ENGINE = MergeTree()
+        PARTITION BY date(first_seen)
+        ORDER BY (device_id, poller_id)`,
+	}
+
+	for _, statement := range createTables {
 		if err := db.Conn.Exec(ctx, statement); err != nil {
 			return err
 		}
