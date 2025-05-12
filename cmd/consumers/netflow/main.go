@@ -42,8 +42,6 @@ func main() {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
 
-	log.Printf("Loaded NetFlow configuration: %+v", netflowCfg)
-
 	// Validate configuration
 	if err := netflowCfg.Validate(); err != nil {
 		log.Fatalf("NetflowConfig validation failed: %v", err)
@@ -69,8 +67,6 @@ func main() {
 			Role:       netflowCfg.Security.Role,
 		},
 	}
-
-	log.Printf("Database configuration: DBAddr=%s, ServerName=%s", dbConfig.DBAddr, dbConfig.Security.ServerName)
 
 	// Initialize database service
 	dbService, err := db.New(ctx, dbConfig)

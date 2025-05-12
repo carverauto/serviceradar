@@ -24,8 +24,6 @@ func (db *DB) StoreNetflowMetrics(ctx context.Context, metrics []*models.Netflow
 	}
 
 	for _, metric := range metrics {
-		log.Printf("Appending NetFlow metric: Timestamp=%v, SrcAddr=%s, DstAddr=%s, SrcPort=%d, DstPort=%d, Protocol=%d, Bytes=%d, Packets=%d, ForwardingStatus=%d, NextHop=%s, SamplerAddress=%s, SrcAs=%d, DstAs=%d, IpTos=%d, VlanId=%d, BgpNextHop=%s, Metadata=%s",
-			metric.Timestamp, metric.SrcAddr, metric.DstAddr, metric.SrcPort, metric.DstPort, metric.Protocol, metric.Bytes, metric.Packets, metric.ForwardingStatus, metric.NextHop, metric.SamplerAddress, metric.SrcAs, metric.DstAs, metric.IpTos, metric.VlanId, metric.BgpNextHop, metric.Metadata)
 		err = batch.Append(
 			metric.Timestamp,
 			metric.SrcAddr,
@@ -56,6 +54,5 @@ func (db *DB) StoreNetflowMetrics(ctx context.Context, metrics []*models.Netflow
 		return fmt.Errorf("failed to send batch: %w", err)
 	}
 
-	log.Printf("Successfully stored %d NetFlow metrics", len(metrics))
 	return nil
 }
