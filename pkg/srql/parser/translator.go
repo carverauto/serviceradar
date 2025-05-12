@@ -30,33 +30,34 @@ func NewTranslator(dbType DatabaseType) *Translator {
 
 // Translate converts a Query model to a database query string
 func (t *Translator) Translate(query *models.Query) (string, error) {
-	// Check for nil query
 	if query == nil {
 		return "", errCannotTranslateNilQuery
 	}
 
-	if t.DBType == ClickHouse {
-		return t.toClickHouseSQL(query)
-	} else if t.DBType == ArangoDB {
+	switch t.DBType {
+	case ClickHouse:
+		return t.toSQL(query, t.buildClickHouseWhere, errCannotTranslateNilQueryClickHouse, false)
+	case Proton:
+		return t.toSQL(query, t.buildProtonWhere, errCannotTranslateNilQueryProton, true)
+	case ArangoDB:
 		return t.toArangoDB(query)
-	} else if t.DBType == Proton {
-		return t.toProtonSQL(query)
+	default:
+		return "", fmt.Errorf("%w for database type: %s", errUnsupportedDatabaseType, t.DBType)
 	}
-
-	return "", fmt.Errorf("%w for database type: %s", errUnsupportedDatabaseType, t.DBType)
 }
 
 const (
-	defaultAscending  = "ASC"
-	defaultDescending = "DESC"
+	defaultAscending      = "ASC"
+	defaultDescending     = "DESC"
+	defaultModelsBetween  = 2
+	defaultBoolValueTrue  = "true"
+	defaultBoolValueFalse = "false"
 )
 
-// toProtonSQL converts to Proton SQL
-// toProtonSQL converts to Proton SQL
-func (t *Translator) toProtonSQL(query *models.Query) (string, error) {
-	// Check for nil query again for safety
+// toSQL is a generic SQL builder for Proton and ClickHouse. The unused bool is 'isStream' for Proton.
+func (*Translator) toSQL(query *models.Query, whereBuilder func([]models.Condition) string, nilQueryError error, _ bool) (string, error) {
 	if query == nil {
-		return "", errCannotTranslateNilQueryProton
+		return "", nilQueryError
 	}
 
 	var sql strings.Builder
@@ -69,13 +70,13 @@ func (t *Translator) toProtonSQL(query *models.Query) (string, error) {
 		sql.WriteString("SELECT COUNT(*) FROM ")
 	}
 
-	// Add the stream name directly without table() function
+	// Add the table/stream name
 	sql.WriteString(strings.ToLower(string(query.Entity)))
 
 	// Add WHERE clause if conditions exist
 	if len(query.Conditions) > 0 {
 		sql.WriteString(" WHERE ")
-		sql.WriteString(t.buildProtonWhere(query.Conditions))
+		sql.WriteString(whereBuilder(query.Conditions))
 	}
 
 	// Add ORDER BY clause if present
@@ -86,6 +87,7 @@ func (t *Translator) toProtonSQL(query *models.Query) (string, error) {
 
 		for _, item := range query.OrderBy {
 			direction := defaultAscending
+
 			if item.Direction == models.Descending {
 				direction = defaultDescending
 			}
@@ -106,50 +108,101 @@ func (t *Translator) toProtonSQL(query *models.Query) (string, error) {
 	return sql.String(), nil
 }
 
-// buildProtonWhere builds a WHERE clause for Proton SQL
-func (t *Translator) buildProtonWhere(conditions []models.Condition) string {
-	return t.buildConditionString(
-		conditions,
-		t.formatProtonCondition,
-		t.buildProtonWhere,
-	)
+// conditionFormatter defines a function to format a condition for a specific operator.
+type conditionFormatter func(fieldName string, value interface{}) string
+type conditionFormatterMulti func(fieldName string, values []interface{}) string
+
+// conditionFormatters holds the mapping of operators to their formatters.
+type conditionFormatters struct {
+	comparison func(fieldName string, op models.OperatorType, value interface{}) string
+	like       conditionFormatter
+	contains   conditionFormatter
+	in         conditionFormatterMulti
+	between    conditionFormatterMulti
+	is         conditionFormatter
 }
 
-// formatProtonCondition formats a single condition for Proton SQL
-func (t *Translator) formatProtonCondition(cond *models.Condition) string {
-	// Get lowercase field name for case insensitivity
+// formatCondition is a generic condition formatter for SQL databases.
+func (t *Translator) formatCondition(cond *models.Condition, formatters conditionFormatters) string {
 	fieldName := strings.ToLower(cond.Field)
 
-	// Handle different operators by operator type
 	switch {
 	case t.isComparisonOperator(cond.Operator):
-		return t.formatComparisonCondition(fieldName, cond.Operator, cond.Value)
+		return formatters.comparison(fieldName, cond.Operator, cond.Value)
 	case cond.Operator == models.Like:
-		return t.formatProtonLikeCondition(fieldName, cond.Value)
+		return formatters.like(fieldName, cond.Value)
 	case cond.Operator == models.Contains:
-		return t.formatProtonContainsCondition(fieldName, cond.Value)
+		return formatters.contains(fieldName, cond.Value)
 	case cond.Operator == models.In:
-		return t.formatProtonInCondition(fieldName, cond.Values)
+		return formatters.in(fieldName, cond.Values)
 	case cond.Operator == models.Between:
-		return t.formatProtonBetweenCondition(fieldName, cond.Values)
+		return formatters.between(fieldName, cond.Values)
 	case cond.Operator == models.Is:
-		return t.formatProtonIsCondition(fieldName, cond.Value)
+		return formatters.is(fieldName, cond.Value)
 	default:
 		return ""
 	}
 }
 
-// formatProtonLikeCondition formats a LIKE condition
+// buildProtonWhere builds a WHERE clause for Proton SQL.
+func (t *Translator) buildProtonWhere(conditions []models.Condition) string {
+	return t.buildConditionString(
+		conditions,
+		func(cond *models.Condition) string {
+			return t.formatCondition(cond, conditionFormatters{
+				comparison: t.formatComparisonCondition,
+				like:       t.formatProtonLikeCondition,
+				contains:   t.formatProtonContainsCondition,
+				in:         t.formatProtonInCondition,
+				between:    t.formatProtonBetweenCondition,
+				is:         t.formatProtonIsCondition,
+			})
+		},
+		t.buildProtonWhere,
+	)
+}
+
+// buildClickHouseWhere builds a WHERE clause for ClickHouse SQL.
+func (t *Translator) buildClickHouseWhere(conditions []models.Condition) string {
+	return t.buildConditionString(
+		conditions,
+		func(cond *models.Condition) string {
+			return t.formatCondition(cond, conditionFormatters{
+				comparison: t.formatComparisonCondition,
+				like:       t.formatLikeCondition,
+				contains:   t.formatContainsCondition,
+				in:         t.formatInCondition,
+				between:    t.formatBetweenCondition,
+				is:         t.formatIsCondition,
+			})
+		},
+		t.buildClickHouseWhere,
+	)
+}
+
+// isComparisonOperator checks if the operator is a basic comparison operator.
+func (*Translator) isComparisonOperator(op models.OperatorType) bool {
+	return op == models.Equals || op == models.NotEquals ||
+		op == models.GreaterThan || op == models.GreaterThanOrEquals ||
+		op == models.LessThan || op == models.LessThanOrEquals
+}
+
+// formatComparisonCondition formats a basic comparison condition.
+func (t *Translator) formatComparisonCondition(fieldName string, op models.OperatorType, value interface{}) string {
+	return fmt.Sprintf("%s %s %s", fieldName, op, t.formatClickHouseValue(value)) // Reuse ClickHouse value formatter for both
+}
+
+// formatProtonLikeCondition formats a LIKE condition.
 func (t *Translator) formatProtonLikeCondition(fieldName string, value interface{}) string {
 	return fmt.Sprintf("%s LIKE %s", fieldName, t.formatProtonValue(value))
 }
 
-// formatProtonContainsCondition formats a CONTAINS condition
+// formatProtonContainsCondition formats a CONTAINS condition.
 func (t *Translator) formatProtonContainsCondition(fieldName string, value interface{}) string {
 	return fmt.Sprintf("position(%s, %s) > 0", fieldName, t.formatProtonValue(value))
 }
 
-// formatProtonInCondition formats an IN condition
+// formatProtonInCondition formats an IN condition.
 func (t *Translator) formatProtonInCondition(fieldName string, values []interface{}) string {
 	formattedValues := make([]string, 0, len(values))
 
@@ -160,7 +213,7 @@ func (t *Translator) formatProtonInCondition(fieldName string, values []interfac
 	return fmt.Sprintf("%s IN (%s)", fieldName, strings.Join(formattedValues, ", "))
 }
 
-// formatProtonBetweenCondition formats a BETWEEN condition
+// formatProtonBetweenCondition formats a BETWEEN condition.
 func (t *Translator) formatProtonBetweenCondition(fieldName string, values []interface{}) string {
 	if len(values) == defaultModelsBetween {
 		return fmt.Sprintf("%s BETWEEN %s AND %s",
@@ -172,7 +225,7 @@ func (t *Translator) formatProtonBetweenCondition(fieldName string, values []int
 	return ""
 }
 
-// formatProtonIsCondition formats an IS NULL or IS NOT NULL condition
+// formatProtonIsCondition formats an IS NULL or IS NOT NULL condition.
 func (*Translator) formatProtonIsCondition(fieldName string, value interface{}) string {
 	isNotNull, ok := value.(bool)
 	if ok {
@@ -184,112 +237,6 @@ func (*Translator) formatProtonIsCondition(fieldName string, value interface{}) 
 	}
 
 	return ""
-}
-
-// formatProtonValue formats a value for Proton SQL
-func (*Translator) formatProtonValue(value interface{}) string {
-	switch v := value.(type) {
-	case string:
-		return fmt.Sprintf("'%s'", strings.ReplaceAll(v, "'", "\\'"))
-	case bool:
-		if v {
-			return defaultBoolValueTrue
-		}
-
-		return defaultBoolValueFalse
-	default:
-		return fmt.Sprintf("%v", v)
-	}
-}
-
-// toClickHouseSQL converts to ClickHouse SQL
-func (t *Translator) toClickHouseSQL(query *models.Query) (string, error) {
-	// Check for nil query again for safety
-	if query == nil {
-		return "", errCannotTranslateNilQueryClickHouse
-	}
-
-	var sql strings.Builder
-
-	// Build the SELECT clause
-	switch query.Type {
-	case models.Show, models.Find:
-		sql.WriteString("SELECT * FROM ")
-	case models.Count:
-		sql.WriteString("SELECT COUNT(*) FROM ")
-	}
-
-	// Add the table name
-	sql.WriteString(strings.ToLower(string(query.Entity)))
-
-	// Add WHERE clause if conditions exist
-	if len(query.Conditions) > 0 {
-		sql.WriteString(" WHERE ")
-		sql.WriteString(t.buildClickHouseWhere(query.Conditions))
-	}
-
-	// Add ORDER BY clause if present
-	if len(query.OrderBy) > 0 {
-		sql.WriteString(" ORDER BY ")
-
-		var orderByParts []string
-
-		for _, item := range query.OrderBy {
-			direction := defaultAscending
-			if item.Direction == models.Descending {
-				direction = defaultDescending
-			}
-
-			orderByParts = append(orderByParts, fmt.Sprintf("%s %s",
-				strings.ToLower(item.Field), // Convert field name to lowercase
-				direction))
-		}
-
-		sql.WriteString(strings.Join(orderByParts, ", "))
-	}
-
-	// Add LIMIT clause if present
-	if query.HasLimit {
-		sql.WriteString(fmt.Sprintf(" LIMIT %d", query.Limit))
-	}
-
-	return sql.String(), nil
-}
-
-// formatClickHouseCondition formats a single condition for ClickHouse SQL
-func (t *Translator) formatClickHouseCondition(cond *models.Condition) string {
-	// Get lowercase field name for case insensitivity
-	fieldName := strings.ToLower(cond.Field)
-
-	// Handle different operators by operator type
-	switch {
-	case t.isComparisonOperator(cond.Operator):
-		return t.formatComparisonCondition(fieldName, cond.Operator, cond.Value)
-	case cond.Operator == models.Like:
-		return t.formatLikeCondition(fieldName, cond.Value)
-	case cond.Operator == models.Contains:
-		return t.formatContainsCondition(fieldName, cond.Value)
-	case cond.Operator == models.In:
-		return t.formatInCondition(fieldName, cond.Values)
-	case cond.Operator == models.Between:
-		return t.formatBetweenCondition(fieldName, cond.Values)
-	case cond.Operator == models.Is:
-		return t.formatIsCondition(fieldName, cond.Value)
-	default:
-		return ""
-	}
-}
-
-// isComparisonOperator checks if the operator is a basic comparison operator
-func (*Translator) isComparisonOperator(op models.OperatorType) bool {
-	return op == models.Equals || op == models.NotEquals ||
-		op == models.GreaterThan || op == models.GreaterThanOrEquals ||
-		op == models.LessThan || op == models.LessThanOrEquals
-}
-
-// formatComparisonCondition formats a basic comparison condition
-func (t *Translator) formatComparisonCondition(fieldName string, op models.OperatorType, value interface{}) string {
-	return fmt.Sprintf("%s %s %s", fieldName, op, t.formatClickHouseValue(value))
 }
 
 // formatLikeCondition formats a LIKE condition
@@ -305,7 +252,6 @@ func (t *Translator) formatContainsCondition(fieldName string, value interface{}
 // formatInCondition formats an IN condition
 func (t *Translator) formatInCondition(fieldName string, values []interface{}) string {
 	formattedValues := make([]string, 0, len(values))
-
 	for _, val := range values {
 		formattedValues = append(formattedValues, t.formatClickHouseValue(val))
 	}
@@ -341,7 +287,6 @@ func (*Translator) formatIsCondition(fieldName string, value interface{}) string
 
 // toArangoDB converts to ArangoDB AQL
 func (t *Translator) toArangoDB(query *models.Query) (string, error) {
-	// Check for nil query
 	if query == nil {
 		return "", errCannotTranslateNilQueryArangoDB
 	}
@@ -365,6 +310,7 @@ func (t *Translator) toArangoDB(query *models.Query) (string, error) {
 
 		for _, item := range query.OrderBy {
 			direction := defaultAscending
+
 			if item.Direction == models.Descending {
 				direction = defaultDescending
 			}
@@ -387,20 +333,14 @@ func (t *Translator) toArangoDB(query *models.Query) (string, error) {
 	case models.Show, models.Find:
 		aql.WriteString("\n  RETURN doc")
 	case models.Count:
-		// Wrap the whole query in a count
 		countAQL := fmt.Sprintf("RETURN LENGTH(\n%s\n)", aql.String())
-
 		return countAQL, nil
 	}
 
 	return aql.String(), nil
 }
 
-const (
-	defaultModelsBetween = 2
-)
-
-// buildConditionString is a generic method to build condition strings for different databases
+// buildConditionString is a generic method to build condition strings for different databases.
 func (*Translator) buildConditionString(
 	conditions []models.Condition,
 	formatCondition func(*models.Condition) string,
@@ -412,12 +352,10 @@ func (*Translator) buildConditionString(
 	var builder strings.Builder
 
 	for i, cond := range conditions {
-		// Add logical operator for conditions after the first
 		if i > 0 {
 			builder.WriteString(fmt.Sprintf(" %s ", cond.LogicalOp))
 		}
 
-		// Handle complex (nested) conditions
 		if cond.IsComplex {
 			builder.WriteString("(")
 			builder.WriteString(recursiveBuild(cond.Complex))
@@ -426,23 +364,13 @@ func (*Translator) buildConditionString(
 			continue
 		}
 
-		// Format the condition based on its operator
 		builder.WriteString(formatCondition(&cond))
 	}
 
 	return builder.String()
 }
 
-// buildClickHouseWhere builds a WHERE clause for ClickHouse SQL
-func (t *Translator) buildClickHouseWhere(conditions []models.Condition) string {
-	return t.buildConditionString(
-		conditions,
-		t.formatClickHouseCondition,
-		t.buildClickHouseWhere,
-	)
-}
-
-// buildArangoDBFilter builds a FILTER clause for ArangoDB AQL
+// buildArangoDBFilter builds a FILTER clause for ArangoDB AQL.
 func (t *Translator) buildArangoDBFilter(conditions []models.Condition) string {
 	return t.buildConditionString(
 		conditions,
@@ -451,12 +379,10 @@ func (t *Translator) buildArangoDBFilter(conditions []models.Condition) string {
 	)
 }
 
-// formatArangoDBCondition formats a single condition for ArangoDB AQL
+// formatArangoDBCondition formats a single condition for ArangoDB AQL.
 func (t *Translator) formatArangoDBCondition(cond *models.Condition) string {
-	// Get lowercase field name for case insensitivity
 	fieldName := strings.ToLower(cond.Field)
 
-	// Handle different operators by operator type
 	switch cond.Operator {
 	case models.Equals:
 		return t.formatArangoDBEqualsCondition(fieldName, cond.Value)
@@ -479,32 +405,32 @@ func (t *Translator) formatArangoDBCondition(cond *models.Condition) string {
 	}
 }
 
-// formatArangoDBEqualsCondition formats an equals condition
+// formatArangoDBEqualsCondition formats an equals condition.
 func (t *Translator) formatArangoDBEqualsCondition(fieldName string, value interface{}) string {
 	return fmt.Sprintf("doc.%s == %s", fieldName, t.formatArangoDBValue(value))
 }
 
-// formatArangoDBNotEqualsCondition formats a not equals condition
+// formatArangoDBNotEqualsCondition formats a not equals condition.
 func (t *Translator) formatArangoDBNotEqualsCondition(fieldName string, value interface{}) string {
 	return fmt.Sprintf("doc.%s != %s", fieldName, t.formatArangoDBValue(value))
 }
 
-// formatArangoDBComparisonCondition formats a comparison condition (>, >=, <, <=)
+// formatArangoDBComparisonCondition formats a comparison condition (>, >=, <, <=).
 func (t *Translator) formatArangoDBComparisonCondition(fieldName string, op models.OperatorType, value interface{}) string {
 	return fmt.Sprintf("doc.%s %s %s", fieldName, t.translateOperator(op), t.formatArangoDBValue(value))
 }
 
-// formatArangoDBLikeCondition formats a LIKE condition
+// formatArangoDBLikeCondition formats a LIKE condition.
 func (t *Translator) formatArangoDBLikeCondition(fieldName string, value interface{}) string {
 	return fmt.Sprintf("LIKE(doc.%s, %s, true)", fieldName, t.formatArangoDBValue(value))
 }
 
-// formatArangoDBContainsCondition formats a CONTAINS condition
+// formatArangoDBContainsCondition formats a CONTAINS condition.
 func (t *Translator) formatArangoDBContainsCondition(fieldName string, value interface{}) string {
 	return fmt.Sprintf("CONTAINS(doc.%s, %s)", fieldName, t.formatArangoDBValue(value))
 }
 
-// formatArangoDBInCondition formats an IN condition
+// formatArangoDBInCondition formats an IN condition.
 func (t *Translator) formatArangoDBInCondition(fieldName string, values []interface{}) string {
 	formattedValues := make([]string, 0, len(values))
 
@@ -515,7 +441,7 @@ func (t *Translator) formatArangoDBInCondition(fieldName string, values []interf
 	return fmt.Sprintf("doc.%s IN [%s]", fieldName, strings.Join(formattedValues, ", "))
 }
 
-// formatArangoDBBetweenCondition formats a BETWEEN condition
+// formatArangoDBBetweenCondition formats a BETWEEN condition.
 func (t *Translator) formatArangoDBBetweenCondition(fieldName string, values []interface{}) string {
 	if len(values) == defaultModelsBetween {
 		return fmt.Sprintf("doc.%s >= %s AND doc.%s <= %s",
@@ -528,7 +454,7 @@ func (t *Translator) formatArangoDBBetweenCondition(fieldName string, values []i
 	return ""
 }
 
-// formatArangoDBIsCondition formats an IS NULL or IS NOT NULL condition
+// formatArangoDBIsCondition formats an IS NULL or IS NOT NULL condition.
 func (*Translator) formatArangoDBIsCondition(fieldName string, value interface{}) string {
 	isNotNull, ok := value.(bool)
 	if ok {
@@ -542,13 +468,23 @@ func (*Translator) formatArangoDBIsCondition(fieldName string, value interface{}
 	return ""
 }
 
-// Helper methods for formatting values
+// formatProtonValue formats a value for Proton SQL
+func (*Translator) formatProtonValue(value interface{}) string {
+	switch v := value.(type) {
+	case string:
+		return fmt.Sprintf("'%s'", strings.ReplaceAll(v, "'", "\\'"))
+	case bool:
+		if v {
+			return defaultBoolValueTrue
+		}
 
-const (
-	defaultBoolValueTrue  = "true"
-	defaultBoolValueFalse = "false"
-)
+		return defaultBoolValueFalse
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
 
+// formatClickHouseValue formats a value for ClickHouse SQL
 func (*Translator) formatClickHouseValue(value interface{}) string {
 	switch v := value.(type) {
 	case string:
@@ -564,6 +500,7 @@ func (*Translator) formatClickHouseValue(value interface{}) string {
 	}
 }
 
+// formatArangoDBValue formats a value for ArangoDB AQL
 func (*Translator) formatArangoDBValue(value interface{}) string {
 	switch v := value.(type) {
 	case string:
@@ -579,6 +516,7 @@ func (*Translator) formatArangoDBValue(value interface{}) string {
 	}
 }
 
+// translateOperator maps operator types to their string representations
 func (*Translator) translateOperator(op models.OperatorType) string {
 	operatorMap := map[models.OperatorType]string{
 		models.Equals:              "=",
