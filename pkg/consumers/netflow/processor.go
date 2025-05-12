@@ -2,7 +2,6 @@ package netflow
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -33,95 +32,121 @@ func NewProcessor(dbService db.Service, config NetflowConfig) *Processor {
 // Process processes a single NetFlow message and stores it in the database.
 func (p *Processor) Process(ctx context.Context, msg jetstream.Msg) error {
 	data := msg.Data()
-	log.Printf("Raw message data (hex): %s", hex.EncodeToString(data))
+
 	if len(data) == 0 {
 		log.Printf("Empty message received on subject %s", msg.Subject())
 		return fmt.Errorf("empty message received")
 	}
 
-	metadata, _ := msg.Metadata()
-	log.Printf("Processing seq=%d, subject=%s", metadata.Sequence.Stream, msg.Subject())
-
-	// Log message length and first few bytes
-	firstBytes := data
-	if len(data) > 10 {
-		firstBytes = data[:10]
-	}
-	log.Printf("Message length: %d, first 10 bytes: %x", len(data), firstBytes)
-
 	// Parse protobuf message
-	var flow flowpb.FlowMessage
-	var err error
-
-	// Try multiple approaches to decode the message
-	if len(data) > 1 {
-		// First try skipping the first byte - seems to work for most messages
-		if err = proto.Unmarshal(data[1:], &flow); err == nil {
-			log.Printf("Successfully unmarshaled after skipping first byte")
-		} else {
-			// Try direct unmarshal
-			if err = proto.Unmarshal(data, &flow); err == nil {
-				log.Printf("Successfully unmarshaled with direct unmarshaling")
-			} else {
-				// Try other byte-skipping variations
-				for skip := 2; skip <= 4 && skip < len(data); skip++ {
-					if err = proto.Unmarshal(data[skip:], &flow); err == nil {
-						log.Printf("Successfully unmarshaled after skipping %d bytes", skip)
-						break
-					}
-				}
-
-				// If all approaches failed, return error
-				if err != nil {
-					log.Printf("All unmarshal attempts failed: %v", err)
-					log.Printf("Raw message data (first 100 bytes as string): %s",
-						string(data[:min(100, len(data))]))
-					log.Printf("Full raw data (hex): %s", hex.EncodeToString(data))
-					return fmt.Errorf("failed to unmarshal FlowMessage: %w", err)
-				}
-			}
-		}
-	} else {
-		return fmt.Errorf("message too short")
+	flow, err := p.unmarshalFlowMessage(data)
+	if err != nil {
+		return err
 	}
 
 	// Validate IP fields
-	if len(flow.SrcAddr) != 4 && len(flow.SrcAddr) != 16 {
-		log.Printf("Invalid SrcAddr length: %d", len(flow.SrcAddr))
-		return fmt.Errorf("invalid SrcAddr length: %d", len(flow.SrcAddr))
-	}
-	if len(flow.DstAddr) != 4 && len(flow.DstAddr) != 16 {
-		log.Printf("Invalid DstAddr length: %d", len(flow.DstAddr))
-		return fmt.Errorf("invalid DstAddr length: %d", len(flow.DstAddr))
-	}
-	if len(flow.SamplerAddress) != 4 && len(flow.SamplerAddress) != 16 {
-		log.Printf("Invalid SamplerAddress length: %d", len(flow.SamplerAddress))
-		return fmt.Errorf("invalid SamplerAddress length: %d", len(flow.SamplerAddress))
-	}
-	// NextHop and BgpNextHop are optional, allow empty
-	if len(flow.NextHop) > 0 && len(flow.NextHop) != 4 && len(flow.NextHop) != 16 {
-		log.Printf("Invalid NextHop length: %d", len(flow.NextHop))
-		return fmt.Errorf("invalid NextHop length: %d", len(flow.NextHop))
-	}
-	if len(flow.BgpNextHop) > 0 && len(flow.BgpNextHop) != 4 && len(flow.BgpNextHop) != 16 {
-		log.Printf("Invalid BgpNextHop length: %d", len(flow.BgpNextHop))
-		return fmt.Errorf("invalid BgpNextHop length: %d", len(flow.BgpNextHop))
+	if err := validateIPFields(flow); err != nil {
+		return err
 	}
 
+	// Create and populate metric
+	metric, err := p.createNetflowMetric(flow)
+	if err != nil {
+		return fmt.Errorf("failed to create NetFlow metric: %w", err)
+	}
+
+	// Store the metric
+	if err := p.db.StoreNetflowMetrics(ctx, []*models.NetflowMetric{metric}); err != nil {
+		log.Printf("Failed to store NetFlow metric: %v", err)
+		return fmt.Errorf("failed to store NetFlow metric: %w", err)
+	}
+
+	log.Printf("Stored NetFlow: SrcAddr=%s, DstAddr=%s, Bytes=%d, Packets=%d",
+		metric.SrcAddr, metric.DstAddr, flow.Bytes, flow.Packets)
+
+	return nil
+}
+
+// unmarshalFlowMessage attempts to unmarshal the FlowMessage with multiple strategies.
+func (p *Processor) unmarshalFlowMessage(data []byte) (*flowpb.FlowMessage, error) {
+	if len(data) <= 1 {
+		return nil, fmt.Errorf("message too short")
+	}
+
+	var flow flowpb.FlowMessage
+
+	var err error
+
+	// Try unmarshaling strategies
+	strategies := []struct {
+		name string
+		data []byte
+		skip int
+	}{
+		{"direct", data, 0},
+		{"skip 1 byte", data[1:], 1},
+		{"skip 2 bytes", data[2:], 2},
+		{"skip 3 bytes", data[3:], 3},
+		{"skip 4 bytes", data[4:], 4},
+	}
+
+	for _, s := range strategies {
+		if len(s.data) == 0 {
+			continue
+		}
+
+		if err = proto.Unmarshal(s.data, &flow); err == nil {
+			return &flow, nil
+		}
+	}
+
+	return nil, fmt.Errorf("failed to unmarshal FlowMessage: %w", err)
+}
+
+// validateIPFields checks the validity of IP address fields in the FlowMessage.
+func validateIPFields(flow *flowpb.FlowMessage) error {
+	ipFields := []struct {
+		name       string
+		addr       []byte
+		allowEmpty bool
+	}{
+		{"SrcAddr", flow.SrcAddr, false},
+		{"DstAddr", flow.DstAddr, false},
+		{"SamplerAddress", flow.SamplerAddress, false},
+		{"NextHop", flow.NextHop, true},
+		{"BgpNextHop", flow.BgpNextHop, true},
+	}
+
+	for _, field := range ipFields {
+		if len(field.addr) == 0 && field.allowEmpty {
+			continue
+		}
+
+		if len(field.addr) != 4 && len(field.addr) != 16 {
+			log.Printf("Invalid %s length: %d", field.name, len(field.addr))
+			return fmt.Errorf("invalid %s length: %d", field.name, len(field.addr))
+		}
+	}
+
+	return nil
+}
+
+// createNetflowMetric creates a NetflowMetric from a FlowMessage.
+func (p *Processor) createNetflowMetric(flow *flowpb.FlowMessage) (*models.NetflowMetric, error) {
 	// Convert IP fields to strings
 	srcAddr := net.IP(flow.SrcAddr).String()
 	dstAddr := net.IP(flow.DstAddr).String()
+	samplerAddress := net.IP(flow.SamplerAddress).String()
 	nextHop := ""
 	if len(flow.NextHop) > 0 {
 		nextHop = net.IP(flow.NextHop).String()
 	}
-	samplerAddress := net.IP(flow.SamplerAddress).String()
 	bgpNextHop := ""
 	if len(flow.BgpNextHop) > 0 {
 		bgpNextHop = net.IP(flow.BgpNextHop).String()
 	}
 
-	// Create metadata for additional fields
+	// Create metadata map
 	metadataMap := map[string]interface{}{
 		"type":                          flow.Type.String(),
 		"sequence_num":                  flow.SequenceNum,
@@ -162,9 +187,10 @@ func (p *Processor) Process(ctx context.Context, msg jetstream.Msg) error {
 	metadataBytes, err := json.Marshal(metadataMap)
 	if err != nil {
 		log.Printf("Failed to marshal metadata: %v", err)
+		return nil, fmt.Errorf("failed to marshal metadata: %w", err)
 	}
 
-	// Create NetFlow metric - using the full uint32 values from the protobuf
+	// Create metric
 	metric := &models.NetflowMetric{
 		Timestamp:        time.Now(),
 		SrcAddr:          srcAddr,
@@ -185,22 +211,10 @@ func (p *Processor) Process(ctx context.Context, msg jetstream.Msg) error {
 		Metadata:         string(metadataBytes),
 	}
 
-	// Use time_received_ns if available
+	// Set timestamp if time_received_ns is available
 	if flow.TimeReceivedNs > 0 {
 		metric.Timestamp = time.Unix(0, int64(flow.TimeReceivedNs))
 	}
 
-	log.Printf("Appending NetFlow metric: Timestamp=%v, SrcAddr=%s, DstAddr=%s, SrcPort=%d, DstPort=%d, Protocol=%d, Bytes=%d, Packets=%d",
-		metric.Timestamp, metric.SrcAddr, metric.DstAddr, metric.SrcPort, metric.DstPort, metric.Protocol, metric.Bytes, metric.Packets)
-
-	// Store the metric
-	if err := p.db.StoreNetflowMetrics(ctx, []*models.NetflowMetric{metric}); err != nil {
-		log.Printf("Failed to store NetFlow metric: %v", err)
-		return fmt.Errorf("failed to store NetFlow metric: %w", err)
-	}
-
-	log.Printf("Stored NetFlow: SrcAddr=%s, DstAddr=%s, Bytes=%d, Packets=%d",
-		metric.SrcAddr, metric.DstAddr, flow.Bytes, flow.Packets)
-
-	return nil
+	return metric, nil
 }

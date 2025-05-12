@@ -9,7 +9,6 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -36,8 +35,6 @@ func NewService(cfg NetflowConfig, dbService db.Service) (*Service, error) {
 		processor: NewProcessor(dbService, cfg),
 		db:        dbService,
 	}
-
-	spew.Dump(cfg)
 
 	return svc, nil
 }
