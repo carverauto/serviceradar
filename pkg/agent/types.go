@@ -174,5 +174,4 @@ type DeviceState struct {
 	Sources     map[string]bool   // Discovery sources (e.g., "network_sweep", "icmp")
 	ReportCount int               // Number of reports
 	AgentID     string            // Agent that discovered the device
-	PollerID    string            // Poller that last requested the device
 }
