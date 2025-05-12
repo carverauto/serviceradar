@@ -140,7 +140,7 @@ func (s *Service) Stop(ctx context.Context) error {
 func (s *Service) initSchema(ctx context.Context) error {
 	dbImpl, ok := s.db.(*db.DB)
 	if !ok {
-		return fmt.Errorf("db.Service is not *db.DB")
+		return errDBServiceNotDB
 	}
 
 	// Create a new stream with the correct types matching the protobuf definition

@@ -80,8 +80,8 @@ type NetflowMetric struct {
 	SamplerAddress   string    `json:"sampler_address"`
 	SrcAs            uint32    `json:"src_as"`
 	DstAs            uint32    `json:"dst_as"`
-	IpTos            uint32    `json:"ip_tos"`
-	VlanId           uint32    `json:"vlan_id"`
+	IPTos            uint32    `json:"ip_tos"`
+	VlanID           uint32    `json:"vlan_id"`
 	BgpNextHop       string    `json:"bgp_next_hop"`
 	Metadata         string    `json:"metadata"`
 }

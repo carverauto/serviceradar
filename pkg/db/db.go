@@ -53,9 +53,11 @@ func New(ctx context.Context, config *models.DBConfig) (Service, error) {
 		if !filepath.IsAbs(certFile) {
 			certFile = filepath.Join(certDir, certFile)
 		}
+
 		if !filepath.IsAbs(keyFile) {
 			keyFile = filepath.Join(certDir, keyFile)
 		}
+
 		if !filepath.IsAbs(caFile) {
 			caFile = filepath.Join(certDir, caFile)
 		}
