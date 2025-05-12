@@ -24,6 +24,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/checker/rperf"
 	"github.com/carverauto/serviceradar/pkg/checker/snmp"
 	"github.com/carverauto/serviceradar/pkg/core/auth"
+	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/metrics"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/gorilla/mux"
@@ -73,6 +74,7 @@ type APIServer struct {
 	metricsManager       metrics.MetricCollector
 	snmpManager          snmp.SNMPManager
 	rperfManager         rperf.RperfManager
+	queryExecutor        db.QueryExecutor
 	knownPollers         []string
 	authService          auth.AuthService
 	corsConfig           models.CORSConfig

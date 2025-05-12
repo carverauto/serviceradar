@@ -91,6 +91,7 @@ func run() error {
 		api.WithSNMPManager(server.GetSNMPManager()),
 		api.WithAuthService(server.GetAuth()),
 		api.WithRperfManager(server.GetRperfManager()),
+		api.WithQueryExecutor(server.DB),
 	)
 
 	server.SetAPIServer(ctx, apiServer)
