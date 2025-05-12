@@ -75,15 +75,25 @@ type CheckerConfig struct {
 	Details    json.RawMessage `json:"details,omitempty"`
 }
 
+// DeviceCacheConfig holds configuration for the device cache.
+type DeviceCacheConfig struct {
+	IncrementalInterval Duration `json:"incremental_interval"` // e.g., "5m"
+	FullReportInterval  Duration `json:"full_report_interval"` // e.g., "1h"
+	CleanupInterval     Duration `json:"cleanup_interval"`     // e.g., "1h"
+	MaxAge              Duration `json:"max_age"`              // e.g., "24h"
+	BatchSize           int      `json:"batch_size"`           // e.g., 1000
+}
+
 // ServerConfig holds the configuration for the agent server.
 type ServerConfig struct {
-	AgentID     string                 `json:"agent_id"`             // Unique identifier for this agent
-	AgentName   string                 `json:"agent_name,omitempty"` // Explicit name for KV namespacing
-	ListenAddr  string                 `json:"listen_addr"`
-	Security    *models.SecurityConfig `json:"security"`
-	KVAddress   string                 `json:"kv_address,omitempty"`  // Optional KV store address
-	KVSecurity  *models.SecurityConfig `json:"kv_security,omitempty"` // Separate security config for KV
-	CheckersDir string                 `json:"checkers_dir"`          // Directory for external checkers
+	AgentID           string                 `json:"agent_id"`             // Unique identifier for this agent
+	AgentName         string                 `json:"agent_name,omitempty"` // Explicit name for KV namespacing
+	ListenAddr        string                 `json:"listen_addr"`
+	Security          *models.SecurityConfig `json:"security"`
+	KVAddress         string                 `json:"kv_address,omitempty"`  // Optional KV store address
+	KVSecurity        *models.SecurityConfig `json:"kv_security,omitempty"` // Separate security config for KV
+	CheckersDir       string                 `json:"checkers_dir"`          // Directory for external checkers
+	DeviceCacheConfig *DeviceCacheConfig     `json:"device_cache_config,omitempty"`
 }
 
 type CheckerConnection struct {
@@ -141,15 +151,26 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 	}
 }
 
+// DeviceCache stores devices with reporting and cleanup configuration.
 type DeviceCache struct {
-	Devices    map[string]*DeviceState // IP -> device state
-	LastReport time.Time
-	mu         sync.RWMutex
+	Devices             map[string]*DeviceState // IP -> device state
+	LastReport          time.Time               // Last incremental report
+	LastFullReport      time.Time               // Last full report
+	IncrementalInterval time.Duration           // Interval for incremental reports
+	FullReportInterval  time.Duration           // Interval for full reports
+	CleanupInterval     time.Duration           // Interval for cleanup
+	MaxAge              time.Duration           // Max age for devices
+	BatchSize           int                     // Max devices per report
+	mu                  sync.RWMutex
 }
 
+// DeviceState tracks device information and state.
 type DeviceState struct {
-	Info     models.DeviceInfo
-	Reported bool
-	Changed  bool
-	LastSeen time.Time
+	Info        models.DeviceInfo // Device data
+	Reported    bool              // Reported to poller
+	Changed     bool              // Changed since last report
+	LastSeen    time.Time         // Last observation
+	FirstSeen   time.Time         // First observation
+	Sources     map[string]bool   // Discovery sources (e.g., "network_sweep", "icmp")
+	ReportCount int               // Number of reports
 }
