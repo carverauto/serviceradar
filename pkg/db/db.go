@@ -222,7 +222,7 @@ func (db *DB) Close() error {
 	return db.Conn.Close()
 }
 
-// ExecuteQuery executes a raw SQL query against the Proton database
+// ExecuteQuery executes a raw SQL query against the Proton database.
 func (db *DB) ExecuteQuery(ctx context.Context, query string, params ...interface{}) ([]map[string]interface{}, error) {
 	rows, err := db.Conn.Query(ctx, query, params...)
 	if err != nil {
@@ -240,39 +240,18 @@ func (db *DB) ExecuteQuery(ctx context.Context, query string, params ...interfac
 
 	var results []map[string]interface{}
 
-	vars := make([]interface{}, len(columnTypes))
+	scanVars := make([]interface{}, len(columnTypes))
 
 	for i := range columnTypes {
-		vars[i] = reflect.New(columnTypes[i].ScanType()).Interface()
+		scanVars[i] = reflect.New(columnTypes[i].ScanType()).Interface()
 	}
 
 	for rows.Next() {
-		if err := rows.Scan(vars...); err != nil {
+		if err := rows.Scan(scanVars...); err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
 
-		row := make(map[string]interface{})
-		for i, col := range columns {
-			switch v := vars[i].(type) {
-			case *string:
-				row[col] = *v
-			case *uint8:
-				row[col] = *v
-			case *uint64:
-				row[col] = *v
-			case *int64:
-				row[col] = *v
-			case *float64:
-				row[col] = *v
-			case *time.Time:
-				row[col] = *v
-			case *bool:
-				row[col] = *v
-			default:
-				row[col] = v
-			}
-		}
-
+		row := convertRow(columns, scanVars)
 		results = append(results, row)
 	}
 
@@ -281,6 +260,48 @@ func (db *DB) ExecuteQuery(ctx context.Context, query string, params ...interfac
 	}
 
 	return results, nil
+}
+
+// convertRow converts scanned row values to a map, handling type dereferencing.
+func convertRow(columns []string, scanVars []interface{}) map[string]interface{} {
+	row := make(map[string]interface{}, len(columns))
+
+	for i, col := range columns {
+		row[col] = dereferenceValue(scanVars[i])
+	}
+
+	return row
+}
+
+// dereferenceValue dereferences a scanned value and returns its concrete type.
+func dereferenceValue(v interface{}) interface{} {
+	switch val := v.(type) {
+	case *string:
+		return *val
+	case *uint8:
+		return *val
+	case *uint64:
+		return *val
+	case *int64:
+		return *val
+	case *float64:
+		return *val
+	case *time.Time:
+		return *val
+	case *bool:
+		return *val
+	default:
+		// Handle non-pointer types or unexpected types
+		if reflect.TypeOf(v).Kind() == reflect.Ptr {
+			if reflect.ValueOf(v).IsNil() {
+				return nil
+			}
+
+			return reflect.ValueOf(v).Elem().Interface()
+		}
+
+		return v
+	}
 }
 
 // StoreMetrics stores multiple timeseries metrics in a single batch.

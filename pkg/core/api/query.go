@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -90,22 +91,24 @@ func (s *APIServer) handleSRQLQuery(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// executeQuery executes the translated query against the database
+var (
+	errUnsupportedEntity = errors.New("unsupported entity")
+)
+
+// executeQuery executes the translated query against the database.
 func (s *APIServer) executeQuery(ctx context.Context, query string, entity models.EntityType) ([]map[string]interface{}, error) {
-	// Assuming the db.Service interface has a method to execute raw queries
-	// Modify based on your actual db.Service implementation
 	switch entity {
 	case models.Devices:
-		return s.executeQuery(ctx, query, "devices")
+		return s.queryExecutor.ExecuteQuery(ctx, query, "devices")
 	case models.Flows:
-		return s.executeQuery(ctx, query, "flows")
+		return s.queryExecutor.ExecuteQuery(ctx, query, "flows")
 	case models.Traps:
-		return s.executeQuery(ctx, query, "traps")
+		return s.queryExecutor.ExecuteQuery(ctx, query, "traps")
 	case models.Connections:
-		return s.executeQuery(ctx, query, "connections")
+		return s.queryExecutor.ExecuteQuery(ctx, query, "connections")
 	case models.Logs:
-		return s.executeQuery(ctx, query, "logs")
+		return s.queryExecutor.ExecuteQuery(ctx, query, "logs")
 	default:
-		return nil, fmt.Errorf("unsupported entity type: %s", entity)
+		return nil, fmt.Errorf("%w: %s", errUnsupportedEntity, entity)
 	}
 }
