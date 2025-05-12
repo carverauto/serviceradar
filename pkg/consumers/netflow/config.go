@@ -65,6 +65,11 @@ func (c *NetflowConfig) UnmarshalJSON(data []byte) error {
 		return errors.Join(ErrInvalidJSON, err)
 	}
 
+	// Initialize NetflowConfig if nil
+	if c.NetflowConfig == nil {
+		c.NetflowConfig = &models.NetflowConfig{}
+	}
+
 	c.ListenAddr = alias.ListenAddr
 	c.NATSURL = alias.NATSURL
 	c.StreamName = alias.StreamName
