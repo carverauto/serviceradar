@@ -75,7 +75,7 @@ func main() {
 	}
 
 	// Initialize NetFlow service
-	svc, err := netflow.NewService(netflowCfg, dbService)
+	svc, err := netflow.NewService(&netflowCfg, dbService)
 	if err != nil {
 		log.Fatalf("Failed to initialize NetFlow service: %v", err)
 	}

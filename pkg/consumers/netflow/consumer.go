@@ -45,16 +45,18 @@ func NewConsumer(ctx context.Context, js jetstream.JetStream, streamName, consum
 			AckWait:       30 * time.Second,
 			MaxDeliver:    3,
 			MaxAckPending: 1000,
-			// No DeliverSubject or DeliverGroup needed for pull consumers
 		}
+
 		consumer, err = js.CreateConsumer(ctx, streamName, cfg)
 		if err != nil {
 			log.Printf("Failed to create consumer: stream=%s, consumer=%s, err=%v", streamName, consumerName, err)
+
 			return nil, fmt.Errorf("failed to create consumer: %w", err)
 		}
 	}
 
 	log.Printf("Successfully got/created consumer: stream=%s, consumer=%s", streamName, consumerName)
+
 	return &Consumer{
 		js:           js,
 		streamName:   streamName,
@@ -72,7 +74,9 @@ const (
 // handleMessage processes a single message with the provided processor.
 func (c *Consumer) handleMessage(ctx context.Context, msg jetstream.Msg, processor *Processor) {
 	metadata, _ := msg.Metadata()
-	log.Printf("Processing message: subject=%s, seq=%d, tries=%d", msg.Subject(), metadata.Sequence.Stream, metadata.NumDelivered)
+
+	log.Printf("Processing message: subject=%s, seq=%d, tries=%d",
+		msg.Subject(), metadata.Sequence.Stream, metadata.NumDelivered)
 
 	processErr := processor.Process(ctx, msg)
 	if processErr != nil {
@@ -81,9 +85,11 @@ func (c *Consumer) handleMessage(ctx context.Context, msg jetstream.Msg, process
 		// Check if max retries reached
 		if metadata.NumDelivered >= defaultMaxRetries {
 			log.Printf("Max retries reached, acknowledging message")
+
 			if ackErr := msg.Ack(); ackErr != nil {
 				log.Printf("Failed to Ack message: %v", ackErr)
 			}
+
 			return
 		}
 
@@ -91,6 +97,7 @@ func (c *Consumer) handleMessage(ctx context.Context, msg jetstream.Msg, process
 		if nakErr := msg.Nak(); nakErr != nil {
 			log.Printf("Failed to Nak message: %v", nakErr)
 		}
+
 		return
 	}
 
@@ -108,6 +115,7 @@ func (c *Consumer) ProcessMessages(ctx context.Context, processor *Processor) {
 		select {
 		case <-ctx.Done():
 			log.Println("Stopping message processing due to context cancellation")
+
 			return
 		default:
 			// Fetch a batch of messages
@@ -115,6 +123,7 @@ func (c *Consumer) ProcessMessages(ctx context.Context, processor *Processor) {
 			if err != nil {
 				log.Printf("Failed to fetch messages: %v", err)
 				time.Sleep(1 * time.Second) // Backoff before retrying
+
 				continue
 			}
 
