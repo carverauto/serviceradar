@@ -26,6 +26,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -219,6 +220,88 @@ func (db *DB) initSchema(ctx context.Context) error {
 // Close closes the database connection.
 func (db *DB) Close() error {
 	return db.Conn.Close()
+}
+
+// ExecuteQuery executes a raw SQL query against the Proton database.
+func (db *DB) ExecuteQuery(ctx context.Context, query string, params ...interface{}) ([]map[string]interface{}, error) {
+	rows, err := db.Conn.Query(ctx, query, params...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute query: %w", err)
+	}
+	defer rows.Close()
+
+	columnTypes := rows.ColumnTypes()
+
+	columns := make([]string, len(columnTypes))
+
+	for i, ct := range columnTypes {
+		columns[i] = ct.Name()
+	}
+
+	var results []map[string]interface{}
+
+	scanVars := make([]interface{}, len(columnTypes))
+
+	for i := range columnTypes {
+		scanVars[i] = reflect.New(columnTypes[i].ScanType()).Interface()
+	}
+
+	for rows.Next() {
+		if err := rows.Scan(scanVars...); err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		row := convertRow(columns, scanVars)
+		results = append(results, row)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %w", err)
+	}
+
+	return results, nil
+}
+
+// convertRow converts scanned row values to a map, handling type dereferencing.
+func convertRow(columns []string, scanVars []interface{}) map[string]interface{} {
+	row := make(map[string]interface{}, len(columns))
+
+	for i, col := range columns {
+		row[col] = dereferenceValue(scanVars[i])
+	}
+
+	return row
+}
+
+// dereferenceValue dereferences a scanned value and returns its concrete type.
+func dereferenceValue(v interface{}) interface{} {
+	switch val := v.(type) {
+	case *string:
+		return *val
+	case *uint8:
+		return *val
+	case *uint64:
+		return *val
+	case *int64:
+		return *val
+	case *float64:
+		return *val
+	case *time.Time:
+		return *val
+	case *bool:
+		return *val
+	default:
+		// Handle non-pointer types or unexpected types
+		if reflect.TypeOf(v).Kind() == reflect.Ptr {
+			if reflect.ValueOf(v).IsNil() {
+				return nil
+			}
+
+			return reflect.ValueOf(v).Elem().Interface()
+		}
+
+		return v
+	}
 }
 
 // StoreMetrics stores multiple timeseries metrics in a single batch.

@@ -23,7 +23,12 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-//go:generate mockgen -destination=mock_db.go -package=db github.com/carverauto/serviceradar/pkg/db Service,SysmonMetricsProvider,Rows
+//go:generate mockgen -destination=mock_db.go -package=db github.com/carverauto/serviceradar/pkg/db Service,SysmonMetricsProvider,Rows,QueryExecutor
+
+// QueryExecutor defines a generic interface for executing database queries
+type QueryExecutor interface {
+	ExecuteQuery(ctx context.Context, query string, params ...interface{}) ([]map[string]interface{}, error)
+}
 
 // TimeseriesMetric represents a generic timeseries datapoint.
 type TimeseriesMetric struct {
@@ -65,6 +70,10 @@ type Service interface {
 	StoreMetrics(ctx context.Context, pollerID string, metrics []*TimeseriesMetric) error
 	GetMetrics(ctx context.Context, pollerID, metricName string, start, end time.Time) ([]TimeseriesMetric, error)
 	GetMetricsByType(ctx context.Context, pollerID, metricType string, start, end time.Time) ([]TimeseriesMetric, error)
+
+	// Query (SRQL) operations.
+
+	QueryExecutor // Embed QueryExecutor interface
 
 	// Sysmon metric operations.
 

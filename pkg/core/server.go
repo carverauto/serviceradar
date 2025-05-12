@@ -82,7 +82,7 @@ func NewServer(ctx context.Context, config *models.DBConfig) (*Server, error) {
 	metricsManager := metrics.NewManager(metricsConfig, database)
 
 	server := &Server{
-		db:                  database,
+		DB:                  database,
 		alertThreshold:      normalizedConfig.AlertThreshold,
 		webhooks:            make([]alerts.AlertService, 0),
 		ShutdownChan:        make(chan struct{}),
@@ -174,7 +174,7 @@ func (s *Server) flushMetrics(ctx context.Context) {
 			continue
 		}
 
-		if err := s.db.StoreMetrics(ctx, pollerID, timeseriesMetrics); err != nil {
+		if err := s.DB.StoreMetrics(ctx, pollerID, timeseriesMetrics); err != nil {
 			log.Printf("Failed to flush timeseriesMetrics for poller %s: %v", pollerID, err)
 		}
 
@@ -189,7 +189,7 @@ func (s *Server) flushServiceStatuses(ctx context.Context) {
 			continue
 		}
 
-		if err := s.db.UpdateServiceStatuses(ctx, statuses); err != nil {
+		if err := s.DB.UpdateServiceStatuses(ctx, statuses); err != nil {
 			log.Printf("Failed to flush service statuses for poller %s: %v", pollerID, err)
 		}
 
@@ -207,7 +207,7 @@ func (s *Server) flushSysmonMetrics(ctx context.Context) {
 		log.Printf("Flushing %d sysmon metrics for poller %s", len(sysmonMetrics), pollerID)
 
 		for _, metric := range sysmonMetrics {
-			if err := s.db.StoreSysmonMetrics(ctx, pollerID, metric, metric.CPUs[0].Timestamp); err != nil {
+			if err := s.DB.StoreSysmonMetrics(ctx, pollerID, metric, metric.CPUs[0].Timestamp); err != nil {
 				log.Printf("Failed to flush sysmon metrics for poller %s: %v", pollerID, err)
 			}
 		}
@@ -357,7 +357,7 @@ func (s *Server) Stop(ctx context.Context) error {
 		s.grpcServer.Stop(ctx)
 	}
 
-	if err := s.db.Close(); err != nil {
+	if err := s.DB.Close(); err != nil {
 		log.Printf("Error closing database: %v", err)
 	}
 
@@ -417,7 +417,7 @@ func (s *Server) cleanupUnknownPollers(ctx context.Context) error {
 		return nil
 	}
 
-	pollerIDs, err := s.db.ListPollers(ctx)
+	pollerIDs, err := s.DB.ListPollers(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to list pollers: %w", err)
 	}
@@ -441,7 +441,7 @@ func (s *Server) cleanupUnknownPollers(ctx context.Context) error {
 	}
 
 	for _, pollerID := range pollersToDelete {
-		if err := s.db.DeletePoller(ctx, pollerID); err != nil {
+		if err := s.DB.DeletePoller(ctx, pollerID); err != nil {
 			log.Printf("Error deleting unknown poller %s: %v", pollerID, err)
 		} else {
 			log.Printf("Deleted unknown poller: %s", pollerID)
@@ -496,7 +496,7 @@ func (s *Server) Shutdown(ctx context.Context) {
 	ctx, cancel := context.WithTimeout(ctx, shutdownTimeout)
 	defer cancel()
 
-	if err := s.db.Close(); err != nil {
+	if err := s.DB.Close(); err != nil {
 		log.Printf("Error closing database: %v", err)
 	}
 
@@ -539,7 +539,7 @@ func (s *Server) SetAPIServer(ctx context.Context, apiServer api.Service) {
 		ctxWithTimeout, cancel := context.WithTimeout(ctx, defaultShortTimeout)
 		defer cancel()
 
-		points, err := s.db.GetPollerHistoryPoints(ctxWithTimeout, pollerID, pollerHistoryLimit)
+		points, err := s.DB.GetPollerHistoryPoints(ctxWithTimeout, pollerID, pollerHistoryLimit)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get poller history: %w", err)
 		}
@@ -560,7 +560,7 @@ func (s *Server) checkInitialStates(ctx context.Context) {
 	ctx, cancel := context.WithTimeout(ctx, defaultTimeout)
 	defer cancel()
 
-	statuses, err := s.db.ListPollerStatuses(ctx, s.pollerPatterns)
+	statuses, err := s.DB.ListPollerStatuses(ctx, s.pollerPatterns)
 	if err != nil {
 		log.Printf("Error querying pollers: %v", err)
 
@@ -596,7 +596,7 @@ func (s *Server) updateAPIState(pollerID string, apiStatus *api.PollerStatus) {
 }
 
 func (s *Server) getPollerHealthState(ctx context.Context, pollerID string) (bool, error) {
-	status, err := s.db.GetPollerStatus(ctx, pollerID)
+	status, err := s.DB.GetPollerStatus(ctx, pollerID)
 	if err != nil {
 		return false, err
 	}
@@ -612,12 +612,12 @@ func (s *Server) processStatusReport(
 		LastSeen:  now,
 	}
 
-	existingStatus, err := s.db.GetPollerStatus(ctx, req.PollerId)
+	existingStatus, err := s.DB.GetPollerStatus(ctx, req.PollerId)
 	if err == nil {
 		pollerStatus.FirstSeen = existingStatus.FirstSeen
 		currentState := existingStatus.IsHealthy
 
-		if err := s.db.UpdatePollerStatus(ctx, pollerStatus); err != nil {
+		if err := s.DB.UpdatePollerStatus(ctx, pollerStatus); err != nil {
 			log.Printf("Failed to store poller status for %s: %v", req.PollerId, err)
 
 			return nil, fmt.Errorf("failed to store poller status: %w", err)
@@ -637,7 +637,7 @@ func (s *Server) processStatusReport(
 
 	pollerStatus.FirstSeen = now
 
-	if err := s.db.UpdatePollerStatus(ctx, pollerStatus); err != nil {
+	if err := s.DB.UpdatePollerStatus(ctx, pollerStatus); err != nil {
 		log.Printf("Failed to create new poller status for %s: %v", req.PollerId, err)
 
 		return nil, fmt.Errorf("failed to create poller status: %w", err)
@@ -1095,7 +1095,7 @@ func (s *Server) storePollerStatus(ctx context.Context, pollerID string, isHealt
 		LastSeen:  now,
 	}
 
-	if err := s.db.UpdatePollerStatus(ctx, pollerStatus); err != nil {
+	if err := s.DB.UpdatePollerStatus(ctx, pollerStatus); err != nil {
 		return fmt.Errorf("failed to store poller status: %w", err)
 	}
 
@@ -1109,7 +1109,7 @@ func (s *Server) updatePollerStatus(ctx context.Context, pollerID string, isHeal
 		LastSeen:  timestamp,
 	}
 
-	existingStatus, err := s.db.GetPollerStatus(ctx, pollerID)
+	existingStatus, err := s.DB.GetPollerStatus(ctx, pollerID)
 	if err != nil && !errors.Is(err, db.ErrFailedToQuery) {
 		return fmt.Errorf("failed to check poller existence: %w", err)
 	}
@@ -1120,7 +1120,7 @@ func (s *Server) updatePollerStatus(ctx context.Context, pollerID string, isHeal
 		pollerStatus.FirstSeen = existingStatus.FirstSeen
 	}
 
-	if err := s.db.UpdatePollerStatus(ctx, pollerStatus); err != nil {
+	if err := s.DB.UpdatePollerStatus(ctx, pollerStatus); err != nil {
 		return fmt.Errorf("failed to update poller status: %w", err)
 	}
 
@@ -1141,7 +1141,7 @@ func (s *Server) updatePollerState(
 }
 
 func (s *Server) checkNeverReportedPollers(ctx context.Context) error {
-	pollerIDs, err := s.db.ListNeverReportedPollers(ctx, s.pollerPatterns)
+	pollerIDs, err := s.DB.ListNeverReportedPollers(ctx, s.pollerPatterns)
 	if err != nil {
 		return fmt.Errorf("error querying unreported pollers: %w", err)
 	}
@@ -1186,7 +1186,7 @@ func (s *Server) CheckNeverReportedPollersStartup(ctx context.Context) {
 
 	log.Println("Cleared poller status cache for startup check")
 
-	pollerIDs, err := s.db.ListNeverReportedPollers(ctx, s.pollerPatterns)
+	pollerIDs, err := s.DB.ListNeverReportedPollers(ctx, s.pollerPatterns)
 	if err != nil {
 		log.Printf("Error querying unreported pollers: %v", err)
 
@@ -1381,7 +1381,7 @@ func (s *Server) flushPollerStatusUpdates(ctx context.Context) {
 			// Update in batches if your DB supports it
 			// Otherwise, loop and update individually
 			for _, status := range statuses {
-				if err := s.db.UpdatePollerStatus(ctx, status); err != nil {
+				if err := s.DB.UpdatePollerStatus(ctx, status); err != nil {
 					log.Printf("Error updating poller status for %s: %v", status.PollerID, err)
 				}
 			}
@@ -1575,7 +1575,7 @@ func (s *Server) getPollerStatuses(ctx context.Context, forceRefresh bool) (map[
 	}
 
 	// Query the database
-	statuses, err := s.db.ListPollerStatuses(ctx, s.pollerPatterns)
+	statuses, err := s.DB.ListPollerStatuses(ctx, s.pollerPatterns)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query pollers: %w", err)
 	}

@@ -96,7 +96,7 @@ func TestNewServer(t *testing.T) {
 
 			require.NoError(t, err, "Expected no error from newServerWithDB")
 			assert.NotNil(t, server, "Expected server to be non-nil")
-			assert.Equal(t, mockDB, server.db, "Expected server.db to be the mockDB")
+			assert.Equal(t, mockDB, server.DB, "Expected server.db to be the mockDB")
 
 			if tt.name == "with_webhooks" {
 				assert.Len(t, server.webhooks, 1)
@@ -125,7 +125,7 @@ func newServerWithDB(_ context.Context, config *models.DBConfig, database db.Ser
 	}
 
 	server := &Server{
-		db:                  database,
+		DB:                  database,
 		alertThreshold:      normalizedConfig.AlertThreshold,
 		webhooks:            make([]alerts.AlertService, 0),
 		ShutdownChan:        make(chan struct{}),
@@ -156,7 +156,7 @@ func TestProcessStatusReport(t *testing.T) {
 	mockAPIServer := api.NewMockService(ctrl)
 
 	server := &Server{
-		db:                      mockDB,
+		DB:                      mockDB,
 		webhooks:                []alerts.AlertService{mockAlerter},
 		apiServer:               mockAPIServer,
 		serviceBuffers:          make(map[string][]*db.ServiceStatus),
@@ -248,7 +248,7 @@ func TestReportStatus(t *testing.T) {
 	mockAPI.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).AnyTimes()
 
 	server := &Server{
-		db:                  mockDB,
+		DB:                  mockDB,
 		config:              &models.DBConfig{KnownPollers: []string{"test-poller"}},
 		metrics:             metricsManager,
 		apiServer:           mockAPI,
@@ -363,7 +363,7 @@ func TestProcessSNMPMetrics(t *testing.T) {
 	mockDB.EXPECT().StoreMetrics(gomock.Any(), gomock.Eq("test-poller"), gomock.Len(2)).Return(nil)
 
 	server := &Server{
-		db:            mockDB,
+		DB:            mockDB,
 		metricBuffers: make(map[string][]*db.TimeseriesMetric),
 		bufferMu:      sync.RWMutex{},
 	}
@@ -420,7 +420,7 @@ func TestUpdatePollerStatus(t *testing.T) {
 	mockDB.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).Return(nil)
 
 	server := &Server{
-		db:                  mockDB,
+		DB:                  mockDB,
 		pollerStatusUpdates: make(map[string]*models.PollerStatus),
 	}
 
@@ -461,7 +461,7 @@ func TestHandlePollerDown(t *testing.T) {
 	mockAlerter := alerts.NewMockAlertService(ctrl)
 
 	server := &Server{
-		db:                      mockDB,
+		DB:                      mockDB,
 		webhooks:                []alerts.AlertService{mockAlerter},
 		pollerStatusCache:       make(map[string]*models.PollerStatus),
 		pollerStatusUpdates:     make(map[string]*models.PollerStatus),
@@ -526,7 +526,7 @@ func TestEvaluatePollerHealth(t *testing.T) {
 	mockAPI.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).AnyTimes()
 
 	server := &Server{
-		db:                  mockDB,
+		DB:                  mockDB,
 		webhooks:            []alerts.AlertService{mockWebhook},
 		apiServer:           mockAPI,
 		pollerStatusCache:   make(map[string]*models.PollerStatus),
