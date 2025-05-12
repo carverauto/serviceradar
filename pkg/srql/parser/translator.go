@@ -12,6 +12,7 @@ type DatabaseType string
 
 const (
 	ClickHouse DatabaseType = "clickhouse"
+	Proton     DatabaseType = "proton"
 	ArangoDB   DatabaseType = "arangodb"
 )
 
@@ -38,6 +39,8 @@ func (t *Translator) Translate(query *models.Query) (string, error) {
 		return t.toClickHouseSQL(query)
 	} else if t.DBType == ArangoDB {
 		return t.toArangoDB(query)
+	} else if t.DBType == Proton {
+		return t.toProtonSQL(query)
 	}
 
 	return "", fmt.Errorf("%w for database type: %s", errUnsupportedDatabaseType, t.DBType)
@@ -47,6 +50,157 @@ const (
 	defaultAscending  = "ASC"
 	defaultDescending = "DESC"
 )
+
+// toProtonSQL converts to Proton SQL
+// toProtonSQL converts to Proton SQL
+func (t *Translator) toProtonSQL(query *models.Query) (string, error) {
+	// Check for nil query again for safety
+	if query == nil {
+		return "", errCannotTranslateNilQueryProton
+	}
+
+	var sql strings.Builder
+
+	// Build the SELECT clause
+	switch query.Type {
+	case models.Show, models.Find:
+		sql.WriteString("SELECT * FROM ")
+	case models.Count:
+		sql.WriteString("SELECT COUNT(*) FROM ")
+	}
+
+	// Add the stream name directly without table() function
+	sql.WriteString(strings.ToLower(string(query.Entity)))
+
+	// Add WHERE clause if conditions exist
+	if len(query.Conditions) > 0 {
+		sql.WriteString(" WHERE ")
+		sql.WriteString(t.buildProtonWhere(query.Conditions))
+	}
+
+	// Add ORDER BY clause if present
+	if len(query.OrderBy) > 0 {
+		sql.WriteString(" ORDER BY ")
+
+		var orderByParts []string
+
+		for _, item := range query.OrderBy {
+			direction := defaultAscending
+			if item.Direction == models.Descending {
+				direction = defaultDescending
+			}
+
+			orderByParts = append(orderByParts, fmt.Sprintf("%s %s",
+				strings.ToLower(item.Field), // Convert field name to lowercase
+				direction))
+		}
+
+		sql.WriteString(strings.Join(orderByParts, ", "))
+	}
+
+	// Add LIMIT clause if present
+	if query.HasLimit {
+		sql.WriteString(fmt.Sprintf(" LIMIT %d", query.Limit))
+	}
+
+	return sql.String(), nil
+}
+
+// buildProtonWhere builds a WHERE clause for Proton SQL
+func (t *Translator) buildProtonWhere(conditions []models.Condition) string {
+	return t.buildConditionString(
+		conditions,
+		t.formatProtonCondition,
+		t.buildProtonWhere,
+	)
+}
+
+// formatProtonCondition formats a single condition for Proton SQL
+func (t *Translator) formatProtonCondition(cond *models.Condition) string {
+	// Get lowercase field name for case insensitivity
+	fieldName := strings.ToLower(cond.Field)
+
+	// Handle different operators by operator type
+	switch {
+	case t.isComparisonOperator(cond.Operator):
+		return t.formatComparisonCondition(fieldName, cond.Operator, cond.Value)
+	case cond.Operator == models.Like:
+		return t.formatProtonLikeCondition(fieldName, cond.Value)
+	case cond.Operator == models.Contains:
+		return t.formatProtonContainsCondition(fieldName, cond.Value)
+	case cond.Operator == models.In:
+		return t.formatProtonInCondition(fieldName, cond.Values)
+	case cond.Operator == models.Between:
+		return t.formatProtonBetweenCondition(fieldName, cond.Values)
+	case cond.Operator == models.Is:
+		return t.formatProtonIsCondition(fieldName, cond.Value)
+	default:
+		return ""
+	}
+}
+
+// formatProtonLikeCondition formats a LIKE condition
+func (t *Translator) formatProtonLikeCondition(fieldName string, value interface{}) string {
+	return fmt.Sprintf("%s LIKE %s", fieldName, t.formatProtonValue(value))
+}
+
+// formatProtonContainsCondition formats a CONTAINS condition
+func (t *Translator) formatProtonContainsCondition(fieldName string, value interface{}) string {
+	return fmt.Sprintf("position(%s, %s) > 0", fieldName, t.formatProtonValue(value))
+}
+
+// formatProtonInCondition formats an IN condition
+func (t *Translator) formatProtonInCondition(fieldName string, values []interface{}) string {
+	formattedValues := make([]string, 0, len(values))
+
+	for _, val := range values {
+		formattedValues = append(formattedValues, t.formatProtonValue(val))
+	}
+
+	return fmt.Sprintf("%s IN (%s)", fieldName, strings.Join(formattedValues, ", "))
+}
+
+// formatProtonBetweenCondition formats a BETWEEN condition
+func (t *Translator) formatProtonBetweenCondition(fieldName string, values []interface{}) string {
+	if len(values) == defaultModelsBetween {
+		return fmt.Sprintf("%s BETWEEN %s AND %s",
+			fieldName,
+			t.formatProtonValue(values[0]),
+			t.formatProtonValue(values[1]))
+	}
+
+	return ""
+}
+
+// formatProtonIsCondition formats an IS NULL or IS NOT NULL condition
+func (*Translator) formatProtonIsCondition(fieldName string, value interface{}) string {
+	isNotNull, ok := value.(bool)
+	if ok {
+		if isNotNull {
+			return fmt.Sprintf("%s IS NOT NULL", fieldName)
+		}
+
+		return fmt.Sprintf("%s IS NULL", fieldName)
+	}
+
+	return ""
+}
+
+// formatProtonValue formats a value for Proton SQL
+func (*Translator) formatProtonValue(value interface{}) string {
+	switch v := value.(type) {
+	case string:
+		return fmt.Sprintf("'%s'", strings.ReplaceAll(v, "'", "\\'"))
+	case bool:
+		if v {
+			return defaultBoolValueTrue
+		}
+
+		return defaultBoolValueFalse
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
 
 // toClickHouseSQL converts to ClickHouse SQL
 func (t *Translator) toClickHouseSQL(query *models.Query) (string, error) {

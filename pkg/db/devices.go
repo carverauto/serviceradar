@@ -142,7 +142,7 @@ func (db *DB) GetDevicesByIP(ctx context.Context, ip string) ([]*models.Device, 
 	query := `SELECT 
         device_id, poller_id, discovery_source, ip, mac, hostname, 
         first_seen, last_seen, is_available, metadata 
-    FROM devices 
+    FROM table(devices)
     WHERE ip = ?`
 
 	rows, err := db.Conn.Query(ctx, query, ip)
@@ -195,7 +195,7 @@ func (db *DB) GetDeviceByID(ctx context.Context, deviceID string) (*models.Devic
 	query := `SELECT 
         device_id, poller_id, discovery_source, ip, mac, hostname, 
         first_seen, last_seen, is_available, metadata 
-    FROM devices 
+    FROM table(devices)
     WHERE device_id = ? 
     LIMIT 1`
 
