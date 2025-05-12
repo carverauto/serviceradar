@@ -77,6 +77,36 @@ func (db *DB) StoreDevice(ctx context.Context, device *models.Device) error {
 	return nil
 }
 
+// prepareDeviceForStorage prepares a device for storage by setting default values and processing metadata.
+// It returns the metadata as a string and a boolean indicating if the device should be skipped.
+func prepareDeviceForStorage(device *models.Device) (string, bool) {
+	if device.DeviceID == "" {
+		device.DeviceID = generateDeviceID(device.PollerID, device.IP)
+	}
+
+	if device.LastSeen.IsZero() {
+		device.LastSeen = time.Now()
+	}
+
+	if device.FirstSeen.IsZero() {
+		device.FirstSeen = device.LastSeen
+	}
+
+	metadataStr := ""
+
+	if device.Metadata != nil {
+		metadataBytes, err := json.Marshal(device.Metadata)
+		if err != nil {
+			log.Printf("Failed to marshal metadata for device %s: %v", device.IP, err)
+			return "", true // Skip this device
+		}
+
+		metadataStr = string(metadataBytes)
+	}
+
+	return metadataStr, false // Don't skip this device
+}
+
 // StoreBatchDevices stores multiple devices in a single batch operation.
 func (db *DB) StoreBatchDevices(ctx context.Context, devices []*models.Device) error {
 	if len(devices) == 0 {
@@ -89,29 +119,9 @@ func (db *DB) StoreBatchDevices(ctx context.Context, devices []*models.Device) e
 	}
 
 	for _, device := range devices {
-		if device.DeviceID == "" {
-			device.DeviceID = generateDeviceID(device.PollerID, device.IP)
-		}
-
-		if device.LastSeen.IsZero() {
-			device.LastSeen = time.Now()
-		}
-
-		if device.FirstSeen.IsZero() {
-			device.FirstSeen = device.LastSeen
-		}
-
-		metadataStr := ""
-
-		if device.Metadata != nil {
-			metadataBytes, err := json.Marshal(device.Metadata)
-			if err != nil {
-				log.Printf("Failed to marshal metadata for device %s: %v", device.IP, err)
-
-				continue
-			}
-
-			metadataStr = string(metadataBytes)
+		metadataStr, skip := prepareDeviceForStorage(device)
+		if skip {
+			continue
 		}
 
 		err = batch.Append(
