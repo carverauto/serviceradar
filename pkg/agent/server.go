@@ -103,6 +103,45 @@ func NewServer(ctx context.Context, configDir string, cfg *ServerConfig) (*Serve
 	return s, nil
 }
 
+// SetupDeviceMaintenance starts a background goroutine for cache cleanup.
+func (s *Server) SetupDeviceMaintenance(ctx context.Context) {
+	ticker := time.NewTicker(s.deviceCache.CleanupInterval)
+
+	go func() {
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				removed := s.CleanupDeviceCache()
+
+				if removed > 0 {
+					log.Printf("Removed %d stale devices from cache", removed)
+				}
+			}
+		}
+	}()
+}
+
+// CleanupDeviceCache removes stale entries from the cache.
+func (s *Server) CleanupDeviceCache() int {
+	s.deviceCache.mu.Lock()
+	defer s.deviceCache.mu.Unlock()
+
+	now := time.Now()
+	removed := 0
+
+	for ip, device := range s.deviceCache.Devices {
+		if now.Sub(device.LastSeen) > s.deviceCache.MaxAge {
+			delete(s.deviceCache.Devices, ip)
+			removed++
+		}
+	}
+
+	return removed
+}
+
 // initializeServer creates a new Server struct with default values.
 func initializeServer(configDir string, cfg *ServerConfig) *Server {
 	return &Server{

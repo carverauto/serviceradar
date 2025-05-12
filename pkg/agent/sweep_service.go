@@ -128,6 +128,13 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, er
 
 	s.mu.RUnlock()
 
+	// Validate OpenPorts
+	for _, host := range data.Hosts {
+		if host.Available && len(host.OpenPorts) == 0 {
+			log.Printf("Warning: Host %s is available but has no open ports", host.Host)
+		}
+	}
+
 	statusJSON, err := json.Marshal(data)
 	if err != nil {
 		log.Printf("Failed to marshal status: %v", err)
