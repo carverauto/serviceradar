@@ -50,7 +50,7 @@ func (db *DB) StoreDevice(ctx context.Context, device *models.Device) error {
 	if device.Metadata != nil {
 		metadataBytes, err := json.Marshal(device.Metadata)
 		if err != nil {
-			return fmt.Errorf("%w: %s", errFailedMarshalMetadata, err)
+			return fmt.Errorf("%w: %w", errFailedMarshalMetadata, err)
 		}
 
 		metadataStr = string(metadataBytes)
@@ -71,7 +71,7 @@ func (db *DB) StoreDevice(ctx context.Context, device *models.Device) error {
 		device.IsAvailable,
 		metadataStr,
 	); err != nil {
-		return fmt.Errorf("%w: %s", errFailedStoreDevice, err)
+		return fmt.Errorf("%w: %w", errFailedStoreDevice, err)
 	}
 
 	return nil
@@ -115,7 +115,7 @@ func (db *DB) StoreBatchDevices(ctx context.Context, devices []*models.Device) e
 
 	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO devices (* except _tp_time)")
 	if err != nil {
-		return fmt.Errorf("%w: %s", errFailedToPrepareBatch, err)
+		return fmt.Errorf("%w: %w", errFailedToPrepareBatch, err)
 	}
 
 	for _, device := range devices {
@@ -142,7 +142,7 @@ func (db *DB) StoreBatchDevices(ctx context.Context, devices []*models.Device) e
 	}
 
 	if err := batch.Send(); err != nil {
-		return fmt.Errorf("%w: %s", errFailedToSendBatch, err)
+		return fmt.Errorf("%w: %w", errFailedToSendBatch, err)
 	}
 
 	return nil
@@ -158,7 +158,7 @@ func (db *DB) GetDevicesByIP(ctx context.Context, ip string) ([]*models.Device, 
 
 	rows, err := db.Conn.Query(ctx, query, ip)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", errFailedToQueryDevice, err)
+		return nil, fmt.Errorf("%w: %w", errFailedToQueryDevice, err)
 	}
 	defer rows.Close()
 
@@ -182,7 +182,7 @@ func (db *DB) GetDevicesByIP(ctx context.Context, ip string) ([]*models.Device, 
 			&metadataStr,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("%w: %s", errFailedToScanDeviceRow, err)
+			return nil, fmt.Errorf("%w: %w", errFailedToScanDeviceRow, err)
 		}
 
 		if metadataStr != "" {
@@ -195,7 +195,7 @@ func (db *DB) GetDevicesByIP(ctx context.Context, ip string) ([]*models.Device, 
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("%w: %s", errIterRows, err)
+		return nil, fmt.Errorf("%w: %w", errIterRows, err)
 	}
 
 	return devices, nil
@@ -212,7 +212,7 @@ func (db *DB) GetDeviceByID(ctx context.Context, deviceID string) (*models.Devic
 
 	rows, err := db.Conn.Query(ctx, query, deviceID)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", errFailedToQueryDevice, err)
+		return nil, fmt.Errorf("%w: %w", errFailedToQueryDevice, err)
 	}
 	defer rows.Close()
 
@@ -237,7 +237,7 @@ func (db *DB) GetDeviceByID(ctx context.Context, deviceID string) (*models.Devic
 		&metadataStr,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", errFailedToScanDeviceRow, err)
+		return nil, fmt.Errorf("%w: %w", errFailedToScanDeviceRow, err)
 	}
 
 	if metadataStr != "" {
