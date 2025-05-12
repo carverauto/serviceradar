@@ -126,10 +126,9 @@ func New(ctx context.Context, config *models.DBConfig) (Service, error) {
 	return db, nil
 }
 
-// initSchema creates the database streams for Proton, excluding netflow_metrics.
-func (db *DB) initSchema(ctx context.Context) error {
-	// Streams
-	createStreams := []string{
+// getCreateStreamStatements returns the SQL statements for creating database streams
+func getCreateStreamStatements() []string {
+	return []string{
 		`CREATE STREAM IF NOT EXISTS cpu_metrics (
             poller_id string,
             timestamp DateTime64(3) DEFAULT now64(3),
@@ -223,7 +222,14 @@ func (db *DB) initSchema(ctx context.Context) error {
         PARTITION BY date(first_seen)
         ORDER BY (device_id, poller_id)`,
 	}
+}
 
+// initSchema creates the database streams for Proton, excluding netflow_metrics.
+func (db *DB) initSchema(ctx context.Context) error {
+	// Get the stream creation statements
+	createStreams := getCreateStreamStatements()
+
+	// Execute each statement
 	for _, statement := range createStreams {
 		if err := db.Conn.Exec(ctx, statement); err != nil {
 			return err
