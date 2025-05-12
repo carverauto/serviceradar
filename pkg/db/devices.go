@@ -102,6 +102,7 @@ func (db *DB) StoreBatchDevices(ctx context.Context, devices []*models.Device) e
 		}
 
 		metadataStr := ""
+
 		if device.Metadata != nil {
 			metadataBytes, err := json.Marshal(device.Metadata)
 			if err != nil {
