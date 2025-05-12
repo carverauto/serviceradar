@@ -35,6 +35,7 @@ import (
 	srHttp "github.com/carverauto/serviceradar/pkg/http"
 	"github.com/carverauto/serviceradar/pkg/metrics"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/srql/parser"
 	"github.com/carverauto/serviceradar/pkg/swagger"
 	"github.com/gorilla/mux"
 	httpSwagger "github.com/swaggo/http-swagger"
@@ -55,6 +56,13 @@ func NewAPIServer(config models.CORSConfig, options ...func(server *APIServer)) 
 	s.setupRoutes()
 
 	return s
+}
+
+// WithDatabaseType sets the database type for the API server
+func WithDatabaseType(dbType parser.DatabaseType) func(*APIServer) {
+	return func(server *APIServer) {
+		server.dbType = dbType
+	}
 }
 
 // WithQueryExecutor adds a query executor to the API server
