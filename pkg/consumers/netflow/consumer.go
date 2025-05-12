@@ -72,7 +72,7 @@ const (
 )
 
 // handleMessage processes a single message with the provided processor.
-func (c *Consumer) handleMessage(ctx context.Context, msg jetstream.Msg, processor *Processor) {
+func (*Consumer) handleMessage(ctx context.Context, msg jetstream.Msg, processor *Processor) {
 	metadata, _ := msg.Metadata()
 
 	log.Printf("Processing message: subject=%s, seq=%d, tries=%d",

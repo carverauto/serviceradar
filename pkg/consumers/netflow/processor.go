@@ -236,8 +236,8 @@ func (*Processor) createNetflowMetric(flow *flowpb.FlowMessage) (*models.Netflow
 		SamplerAddress:   samplerAddress,
 		SrcAs:            flow.SrcAs,
 		DstAs:            flow.DstAs,
-		IpTos:            flow.IpTos,
-		VlanId:           flow.VlanId,
+		IPTos:            flow.IpTos,
+		VlanID:           flow.VlanId,
 		BgpNextHop:       bgpNextHop,
 		Metadata:         string(metadataBytes),
 	}
