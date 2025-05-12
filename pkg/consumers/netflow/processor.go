@@ -244,7 +244,16 @@ func (*Processor) createNetflowMetric(flow *flowpb.FlowMessage) (*models.Netflow
 
 	// Set timestamp if time_received_ns is available
 	if flow.TimeReceivedNs > 0 {
-		metric.Timestamp = time.Unix(0, int64(flow.TimeReceivedNs))
+		const maxInt64 = 1<<63 - 1 // Maximum int64 value: 9,223,372,036,854,775,807
+		if flow.TimeReceivedNs > maxInt64 {
+			log.Printf("Warning: TimeReceivedNs (%d) exceeds max int64 value (%d), using current time",
+				flow.TimeReceivedNs, maxInt64)
+
+			metric.Timestamp = time.Now()
+		} else {
+			// #nosec G115 -- TimeReceivedNs is guaranteed to be within int64 range
+			metric.Timestamp = time.Unix(0, int64(flow.TimeReceivedNs))
+		}
 	}
 
 	return metric, nil
