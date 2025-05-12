@@ -40,13 +40,11 @@ func (s *APIServer) handleSRQLQuery(w http.ResponseWriter, r *http.Request) {
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, "Invalid request body", http.StatusBadRequest)
-
 		return
 	}
 
 	if req.Query == "" {
 		writeError(w, "Query string is required", http.StatusBadRequest)
-
 		return
 	}
 
@@ -56,17 +54,15 @@ func (s *APIServer) handleSRQLQuery(w http.ResponseWriter, r *http.Request) {
 	query, err := p.Parse(req.Query)
 	if err != nil {
 		writeError(w, fmt.Sprintf("Failed to parse query: %v", err), http.StatusBadRequest)
-
 		return
 	}
 
-	// Translate to database query (assuming ClickHouse for this example)
-	translator := parser.NewTranslator(parser.ClickHouse)
+	// Translate to database query using the appropriate translator
+	translator := parser.NewTranslator(s.dbType)
 
 	dbQuery, err := translator.Translate(query)
 	if err != nil {
 		writeError(w, fmt.Sprintf("Failed to translate query: %v", err), http.StatusInternalServerError)
-
 		return
 	}
 
@@ -77,7 +73,6 @@ func (s *APIServer) handleSRQLQuery(w http.ResponseWriter, r *http.Request) {
 	results, err := s.executeQuery(ctx, dbQuery, query.Entity)
 	if err != nil {
 		writeError(w, fmt.Sprintf("Failed to execute query: %v", err), http.StatusInternalServerError)
-
 		return
 	}
 
@@ -97,6 +92,13 @@ var (
 
 // executeQuery executes the translated query against the database.
 func (s *APIServer) executeQuery(ctx context.Context, query string, entity models.EntityType) ([]map[string]interface{}, error) {
+	// For Proton, we don't need to pass an additional parameter as the entity is already
+	// properly formatted in the query with table() function
+	if s.dbType == parser.Proton {
+		return s.queryExecutor.ExecuteQuery(ctx, query)
+	}
+
+	// For other database types, use the existing logic
 	switch entity {
 	case models.Devices:
 		return s.queryExecutor.ExecuteQuery(ctx, query, "devices")

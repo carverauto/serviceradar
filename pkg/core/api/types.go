@@ -27,6 +27,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/metrics"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/srql/parser"
 	"github.com/gorilla/mux"
 )
 
@@ -78,4 +79,5 @@ type APIServer struct {
 	knownPollers         []string
 	authService          auth.AuthService
 	corsConfig           models.CORSConfig
+	dbType               parser.DatabaseType
 }
