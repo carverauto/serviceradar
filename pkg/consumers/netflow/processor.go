@@ -1,9 +1,25 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package netflow
 
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"log"
 	"net"
 	"time"
@@ -15,14 +31,25 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// Processor errors
+var (
+	ErrEmptyMessage    = errors.New("empty message received")
+	ErrMessageTooShort = errors.New("message too short")
+	ErrUnmarshalFlow   = errors.New("failed to unmarshal FlowMessage")
+	ErrInvalidIPLength = errors.New("invalid IP address length")
+	ErrCreateMetric    = errors.New("failed to create NetFlow metric")
+	ErrStoreMetric     = errors.New("failed to store NetFlow metric")
+	ErrMarshalMetadata = errors.New("failed to marshal metadata")
+)
+
 // Processor handles processing of NetFlow messages.
 type Processor struct {
 	db     db.Service
-	config NetflowConfig
+	config *NetflowConfig
 }
 
 // NewProcessor creates a new processor with a database service and configuration.
-func NewProcessor(dbService db.Service, config NetflowConfig) *Processor {
+func NewProcessor(dbService db.Service, config *NetflowConfig) *Processor {
 	return &Processor{
 		db:     dbService,
 		config: config,
@@ -33,9 +60,11 @@ func NewProcessor(dbService db.Service, config NetflowConfig) *Processor {
 func (p *Processor) Process(ctx context.Context, msg jetstream.Msg) error {
 	data := msg.Data()
 
+	var err error
+
 	if len(data) == 0 {
 		log.Printf("Empty message received on subject %s", msg.Subject())
-		return fmt.Errorf("empty message received")
+		return ErrEmptyMessage
 	}
 
 	// Parse protobuf message
@@ -45,20 +74,22 @@ func (p *Processor) Process(ctx context.Context, msg jetstream.Msg) error {
 	}
 
 	// Validate IP fields
-	if err := validateIPFields(flow); err != nil {
+	err = validateIPFields(flow)
+	if err != nil {
 		return err
 	}
 
 	// Create and populate metric
 	metric, err := p.createNetflowMetric(flow)
 	if err != nil {
-		return fmt.Errorf("failed to create NetFlow metric: %w", err)
+		return errors.Join(ErrCreateMetric, err)
 	}
 
 	// Store the metric
 	if err := p.db.StoreNetflowMetrics(ctx, []*models.NetflowMetric{metric}); err != nil {
 		log.Printf("Failed to store NetFlow metric: %v", err)
-		return fmt.Errorf("failed to store NetFlow metric: %w", err)
+
+		return errors.Join(ErrStoreMetric, err)
 	}
 
 	log.Printf("Stored NetFlow: SrcAddr=%s, DstAddr=%s, Bytes=%d, Packets=%d",
@@ -68,14 +99,12 @@ func (p *Processor) Process(ctx context.Context, msg jetstream.Msg) error {
 }
 
 // unmarshalFlowMessage attempts to unmarshal the FlowMessage with multiple strategies.
-func (p *Processor) unmarshalFlowMessage(data []byte) (*flowpb.FlowMessage, error) {
+func (*Processor) unmarshalFlowMessage(data []byte) (*flowpb.FlowMessage, error) {
 	if len(data) <= 1 {
-		return nil, fmt.Errorf("message too short")
+		return nil, ErrMessageTooShort
 	}
 
 	var flow flowpb.FlowMessage
-
-	var err error
 
 	// Try unmarshaling strategies
 	strategies := []struct {
@@ -95,12 +124,12 @@ func (p *Processor) unmarshalFlowMessage(data []byte) (*flowpb.FlowMessage, erro
 			continue
 		}
 
-		if err = proto.Unmarshal(s.data, &flow); err == nil {
+		if err := proto.Unmarshal(s.data, &flow); err == nil {
 			return &flow, nil
 		}
 	}
 
-	return nil, fmt.Errorf("failed to unmarshal FlowMessage: %w", err)
+	return nil, ErrUnmarshalFlow
 }
 
 // validateIPFields checks the validity of IP address fields in the FlowMessage.
@@ -124,7 +153,7 @@ func validateIPFields(flow *flowpb.FlowMessage) error {
 
 		if len(field.addr) != 4 && len(field.addr) != 16 {
 			log.Printf("Invalid %s length: %d", field.name, len(field.addr))
-			return fmt.Errorf("invalid %s length: %d", field.name, len(field.addr))
+			return ErrInvalidIPLength
 		}
 	}
 
@@ -132,15 +161,17 @@ func validateIPFields(flow *flowpb.FlowMessage) error {
 }
 
 // createNetflowMetric creates a NetflowMetric from a FlowMessage.
-func (p *Processor) createNetflowMetric(flow *flowpb.FlowMessage) (*models.NetflowMetric, error) {
+func (*Processor) createNetflowMetric(flow *flowpb.FlowMessage) (*models.NetflowMetric, error) {
 	// Convert IP fields to strings
 	srcAddr := net.IP(flow.SrcAddr).String()
 	dstAddr := net.IP(flow.DstAddr).String()
 	samplerAddress := net.IP(flow.SamplerAddress).String()
+
 	nextHop := ""
 	if len(flow.NextHop) > 0 {
 		nextHop = net.IP(flow.NextHop).String()
 	}
+
 	bgpNextHop := ""
 	if len(flow.BgpNextHop) > 0 {
 		bgpNextHop = net.IP(flow.BgpNextHop).String()
@@ -187,7 +218,7 @@ func (p *Processor) createNetflowMetric(flow *flowpb.FlowMessage) (*models.Netfl
 	metadataBytes, err := json.Marshal(metadataMap)
 	if err != nil {
 		log.Printf("Failed to marshal metadata: %v", err)
-		return nil, fmt.Errorf("failed to marshal metadata: %w", err)
+		return nil, errors.Join(ErrMarshalMetadata, err)
 	}
 
 	// Create metric

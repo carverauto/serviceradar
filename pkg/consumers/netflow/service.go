@@ -15,7 +15,7 @@ import (
 
 // Service implements the lifecycle.Service interface for the NetFlow consumer.
 type Service struct {
-	cfg       NetflowConfig
+	cfg       *NetflowConfig
 	nc        *nats.Conn
 	js        jetstream.JetStream
 	consumer  *Consumer
@@ -25,7 +25,7 @@ type Service struct {
 }
 
 // NewService creates a new NetFlow consumer service.
-func NewService(cfg NetflowConfig, dbService db.Service) (*Service, error) {
+func NewService(cfg *NetflowConfig, dbService db.Service) (*Service, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
@@ -64,6 +64,7 @@ func (s *Service) Start(ctx context.Context) error {
 	js, err := jetstream.New(nc)
 	if err != nil {
 		s.nc.Close()
+
 		return err
 	}
 
@@ -73,13 +74,17 @@ func (s *Service) Start(ctx context.Context) error {
 	stream, err := js.Stream(ctx, s.cfg.StreamName)
 	if err != nil {
 		s.nc.Close()
+
 		return fmt.Errorf("failed to get stream %s: %w", s.cfg.StreamName, err)
 	}
+
 	info, err := stream.Info(ctx)
 	if err != nil {
 		s.nc.Close()
+
 		return fmt.Errorf("failed to get stream info: %w", err)
 	}
+
 	log.Printf("Stream %s config: Subjects=%v, Retention=%s, Messages=%d, LastSeq=%d",
 		s.cfg.StreamName, info.Config.Subjects, info.Config.Retention, info.State.Msgs, info.State.LastSeq)
 
@@ -87,17 +92,21 @@ func (s *Service) Start(ctx context.Context) error {
 	s.consumer, err = NewConsumer(ctx, s.js, s.cfg.StreamName, s.cfg.ConsumerName)
 	if err != nil {
 		s.nc.Close()
+
 		return err
 	}
 
 	// Start processing messages
 	s.wg.Add(1)
+
 	go func() {
 		defer s.wg.Done()
+
 		s.consumer.ProcessMessages(ctx, s.processor)
 	}()
 
 	log.Printf("NetFlow consumer started for stream %s, consumer %s", s.cfg.StreamName, s.cfg.ConsumerName)
+
 	return nil
 }
 
@@ -107,7 +116,7 @@ const (
 
 // Stop closes the NATS connection, database, and waits for processing to complete.
 func (s *Service) Stop(ctx context.Context) error {
-	ctx, cancel := context.WithTimeout(ctx, defaultShutdownTimeout)
+	_, cancel := context.WithTimeout(ctx, defaultShutdownTimeout)
 	defer cancel()
 
 	if s.db != nil {
@@ -121,26 +130,17 @@ func (s *Service) Stop(ctx context.Context) error {
 	}
 
 	s.wg.Wait()
+
 	log.Println("NetFlow consumer stopped")
+
 	return nil
 }
 
 // initSchema creates the netflow_metrics stream for Proton.
-// initSchema creates the netflow_metrics stream for Proton.
 func (s *Service) initSchema(ctx context.Context) error {
-	// First, drop the existing stream to ensure a clean state
-	dropStream := `DROP STREAM IF EXISTS netflow_metrics`
-
-	log.Printf("Dropping existing netflow_metrics stream if it exists")
-
 	dbImpl, ok := s.db.(*db.DB)
 	if !ok {
 		return fmt.Errorf("db.Service is not *db.DB")
-	}
-
-	if err := dbImpl.Conn.Exec(ctx, dropStream); err != nil {
-		log.Printf("Warning: failed to drop netflow_metrics: %v", err)
-		// Continue anyway, as the table might not exist
 	}
 
 	// Create a new stream with the correct types matching the protobuf definition
@@ -174,6 +174,7 @@ func (s *Service) initSchema(ctx context.Context) error {
 	}
 
 	log.Printf("Successfully created netflow_metrics stream")
+
 	return nil
 }
 
