@@ -165,6 +165,36 @@ func (mr *MockServiceMockRecorder) GetCPUMetrics(ctx, pollerID, coreID, start, e
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCPUMetrics", reflect.TypeOf((*MockService)(nil).GetCPUMetrics), ctx, pollerID, coreID, start, end)
 }
 
+// GetDeviceByID mocks base method.
+func (m *MockService) GetDeviceByID(ctx context.Context, deviceID string) (*models.Device, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDeviceByID", ctx, deviceID)
+	ret0, _ := ret[0].(*models.Device)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDeviceByID indicates an expected call of GetDeviceByID.
+func (mr *MockServiceMockRecorder) GetDeviceByID(ctx, deviceID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceByID", reflect.TypeOf((*MockService)(nil).GetDeviceByID), ctx, deviceID)
+}
+
+// GetDevicesByIP mocks base method.
+func (m *MockService) GetDevicesByIP(ctx context.Context, ip string) ([]*models.Device, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDevicesByIP", ctx, ip)
+	ret0, _ := ret[0].([]*models.Device)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDevicesByIP indicates an expected call of GetDevicesByIP.
+func (mr *MockServiceMockRecorder) GetDevicesByIP(ctx, ip any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDevicesByIP", reflect.TypeOf((*MockService)(nil).GetDevicesByIP), ctx, ip)
+}
+
 // GetDiskMetrics mocks base method.
 func (m *MockService) GetDiskMetrics(ctx context.Context, pollerID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error) {
 	m.ctrl.T.Helper()
@@ -388,6 +418,34 @@ func (m *MockService) ListPollers(ctx context.Context) ([]string, error) {
 func (mr *MockServiceMockRecorder) ListPollers(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPollers", reflect.TypeOf((*MockService)(nil).ListPollers), ctx)
+}
+
+// StoreBatchDevices mocks base method.
+func (m *MockService) StoreBatchDevices(ctx context.Context, devices []*models.Device) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "StoreBatchDevices", ctx, devices)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// StoreBatchDevices indicates an expected call of StoreBatchDevices.
+func (mr *MockServiceMockRecorder) StoreBatchDevices(ctx, devices any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreBatchDevices", reflect.TypeOf((*MockService)(nil).StoreBatchDevices), ctx, devices)
+}
+
+// StoreDevice mocks base method.
+func (m *MockService) StoreDevice(ctx context.Context, device *models.Device) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "StoreDevice", ctx, device)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// StoreDevice indicates an expected call of StoreDevice.
+func (mr *MockServiceMockRecorder) StoreDevice(ctx, device any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreDevice", reflect.TypeOf((*MockService)(nil).StoreDevice), ctx, device)
 }
 
 // StoreMetric mocks base method.
