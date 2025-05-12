@@ -207,18 +207,8 @@ func (db *DB) initSchema(ctx context.Context) error {
         ) ENGINE = MergeTree()
         PRIMARY KEY (id)
         ORDER BY id`,
-	}
 
-	for _, statement := range createStreams {
-		if err := db.Conn.Exec(ctx, statement); err != nil {
-			return err
-		}
-	}
-
-	// Tables
-
-	createTables := []string{
-		`CREATE TABLE IF NOT EXISTS devices (
+		`CREATE STREAM IF NOT EXISTS devices (
             device_id string,
             poller_id string,
             discovery_source string,
@@ -234,7 +224,7 @@ func (db *DB) initSchema(ctx context.Context) error {
         ORDER BY (device_id, poller_id)`,
 	}
 
-	for _, statement := range createTables {
+	for _, statement := range createStreams {
 		if err := db.Conn.Exec(ctx, statement); err != nil {
 			return err
 		}
