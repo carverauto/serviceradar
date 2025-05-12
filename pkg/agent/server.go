@@ -25,6 +25,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 
@@ -467,6 +468,9 @@ func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*prot
 	var response *proto.StatusResponse
 	var deviceInfo *models.DeviceInfo
 
+	// TODO: populate pollerID in ctx and retrieve
+	pollerID := "" // Poller ID could be passed via context or configuration if available
+
 	switch {
 	case isRperfCheckerRequest(req):
 		response, _ = s.handleRperfChecker(ctx, req)
@@ -491,7 +495,7 @@ func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*prot
 
 	// Update device cache with individual device
 	if deviceInfo != nil {
-		s.updateDeviceCache(deviceInfo)
+		s.updateDeviceCache(deviceInfo, pollerID)
 	}
 
 	return response, nil
@@ -570,7 +574,7 @@ func extractDeviceInfoFromChecker(req *proto.StatusRequest, resp *proto.StatusRe
 	return nil
 }
 
-func (s *Server) updateDeviceCache(info *models.DeviceInfo) {
+func (s *Server) updateDeviceCache(info *models.DeviceInfo, pollerID string) {
 	if info == nil || info.IP == "" {
 		return
 	}
@@ -578,28 +582,116 @@ func (s *Server) updateDeviceCache(info *models.DeviceInfo) {
 	s.deviceCache.mu.Lock()
 	defer s.deviceCache.mu.Unlock()
 
+	key := info.IP
 	now := time.Now()
-	deviceKey := info.IP
 
-	// Check if device exists in cache
-	if device, exists := s.deviceCache.Devices[deviceKey]; exists {
-		// Update existing device
-		oldAvailable := device.Info.Available
-		device.Info = *info
+	if device, exists := s.deviceCache.Devices[key]; exists {
+		oldInfo := device.Info
+
+		updateDeviceFields(&device.Info, info)
+
 		device.LastSeen = now
+		device.Sources[info.DiscoverySource] = true
+		device.PollerID = pollerID
 
-		// Mark as changed if availability changed
-		if oldAvailable != info.Available {
+		if hasSignificantChanges(oldInfo, device.Info) {
 			device.Changed = true
 			device.Reported = false
+			device.ReportCount++
 		}
 	} else {
-		// New device
-		s.deviceCache.Devices[deviceKey] = &DeviceState{
-			Info:     *info,
-			LastSeen: now,
-			Reported: false,
-			Changed:  true, // New device = changed
+		s.deviceCache.Devices[key] = &DeviceState{
+			Info:        *info,
+			Reported:    false,
+			Changed:     true,
+			LastSeen:    now,
+			FirstSeen:   now,
+			Sources:     map[string]bool{info.DiscoverySource: true},
+			ReportCount: 0,
+			AgentID:     s.config.AgentID,
+			PollerID:    pollerID,
+		}
+	}
+}
+
+// hasSignificantChanges checks if there are significant changes between old and new DeviceInfo.
+func hasSignificantChanges(old, new models.DeviceInfo) bool {
+	return old.Available != new.Available ||
+		!reflect.DeepEqual(old.OpenPorts, new.OpenPorts) ||
+		old.Hostname != new.Hostname ||
+		old.MAC != new.MAC ||
+		old.NetworkSegment != new.NetworkSegment ||
+		old.ServiceType != new.ServiceType ||
+		old.ServiceName != new.ServiceName ||
+		old.ResponseTime != new.ResponseTime ||
+		old.PacketLoss != new.PacketLoss ||
+		old.DeviceType != new.DeviceType ||
+		old.Vendor != new.Vendor ||
+		old.Model != new.Model ||
+		old.OSInfo != new.OSInfo ||
+		!reflect.DeepEqual(old.Metadata, new.Metadata)
+}
+
+// updateDeviceFields merges source DeviceInfo into target, preserving non-empty fields.
+func updateDeviceFields(target, source *models.DeviceInfo) {
+	if source.MAC != "" {
+		target.MAC = source.MAC
+	}
+
+	if source.Hostname != "" {
+		target.Hostname = source.Hostname
+	}
+
+	target.Available = source.Available
+	target.LastSeen = source.LastSeen
+
+	if len(source.OpenPorts) > 0 {
+		target.OpenPorts = source.OpenPorts
+	}
+
+	if source.NetworkSegment != "" {
+		target.NetworkSegment = source.NetworkSegment
+	}
+
+	if source.ServiceType != "" {
+		target.ServiceType = source.ServiceType
+	}
+
+	if source.ServiceName != "" {
+		target.ServiceName = source.ServiceName
+	}
+
+	if source.ResponseTime > 0 {
+		target.ResponseTime = source.ResponseTime
+	}
+
+	if source.PacketLoss > 0 {
+		target.PacketLoss = source.PacketLoss
+	}
+
+	if source.DeviceType != "" {
+		target.DeviceType = source.DeviceType
+	}
+
+	if source.Vendor != "" {
+		target.Vendor = source.Vendor
+	}
+
+	if source.Model != "" {
+		target.Model = source.Model
+	}
+
+	if source.OSInfo != "" {
+		target.OSInfo = source.OSInfo
+	}
+
+	if source.Metadata != nil {
+		if target.Metadata == nil {
+			target.Metadata = make(map[string]string)
+		}
+
+		for k, v := range source.Metadata {
+			target.Metadata[k] = v
 		}
 	}
 }
