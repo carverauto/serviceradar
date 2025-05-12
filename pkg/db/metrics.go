@@ -50,7 +50,7 @@ func (db *DB) queryTimeseriesMetrics(
 		AND %s = $2
 		AND timestamp BETWEEN $3 AND $4`, filterColumn)
 
-	rows, err := db.conn.Query(ctx, query, pollerID, filterValue, start, end)
+	rows, err := db.Conn.Query(ctx, query, pollerID, filterValue, start, end)
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +101,7 @@ func (db *DB) storeRperfMetricsToBatch(
 	metrics []RperfMetric,
 	timestamp time.Time,
 ) (int, error) {
-	batch, err := db.conn.PrepareBatch(ctx, "INSERT INTO timeseries_metrics (* except _tp_time)")
+	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO timeseries_metrics (* except _tp_time)")
 	if err != nil {
 		return 0, fmt.Errorf("failed to prepare batch: %w", err)
 	}
@@ -254,7 +254,7 @@ func (db *DB) GetMetricsByType(ctx context.Context, pollerID, metricType string,
 
 // GetCPUMetrics retrieves CPU metrics for a specific core.
 func (db *DB) GetCPUMetrics(ctx context.Context, pollerID string, coreID int, start, end time.Time) ([]models.CPUMetric, error) {
-	rows, err := db.conn.Query(ctx, `
+	rows, err := db.Conn.Query(ctx, `
 		SELECT timestamp, core_id, usage_percent
 		FROM cpu_metrics
 		WHERE poller_id = $1 AND core_id = $2 AND timestamp BETWEEN $3 AND $4
@@ -298,7 +298,7 @@ func (db *DB) StoreMetric(ctx context.Context, pollerID string, metric *Timeseri
 		metadataStr = string(metadataBytes)
 	}
 
-	batch, err := db.conn.PrepareBatch(ctx, "INSERT INTO timeseries_metrics (* except _tp_time)")
+	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO timeseries_metrics (* except _tp_time)")
 	if err != nil {
 		return fmt.Errorf("failed to prepare batch: %w", err)
 	}
@@ -329,7 +329,7 @@ func (db *DB) BatchMetricsOperation(ctx context.Context, pollerID string, metric
 		return nil
 	}
 
-	batch, err := db.conn.PrepareBatch(ctx, "INSERT INTO timeseries_metrics (* except _tp_time)")
+	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO timeseries_metrics (* except _tp_time)")
 	if err != nil {
 		return fmt.Errorf("failed to prepare metrics batch: %w", err)
 	}

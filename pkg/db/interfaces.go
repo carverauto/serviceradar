@@ -82,6 +82,10 @@ type Service interface {
 
 	StoreRperfMetrics(ctx context.Context, pollerID, serviceName string, message string, timestamp time.Time) error
 
+	// NetFlow operations.
+
+	StoreNetflowMetrics(ctx context.Context, metrics []*models.NetflowMetric) error
+
 	// Auth.
 
 	StoreUser(ctx context.Context, user *models.User) error

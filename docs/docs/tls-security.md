@@ -584,7 +584,7 @@ Update `/etc/serviceradar/core.json`:
     "idle_conns": 5,
     "settings": {
       "max_execution_time": 60,
-      "output_format_json_quote_64bit_integers": 0,
+      "output_format_json_quote_64bit_int": 0,
       "allow_experimental_live_view": 0,
       "idle_connection_timeout": 600,
       "join_use_nulls": 1,

@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -27,6 +28,7 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/config/kv"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/google/uuid"
 )
 
 var (
@@ -66,16 +68,30 @@ func ValidateConfig(cfg interface{}) error {
 
 // LoadAndValidate loads a configuration, normalizes SecurityConfig paths if present, and validates it.
 func (c *Config) LoadAndValidate(ctx context.Context, path string, cfg interface{}) error {
+	callID := uuid.New().String() // Import "github.com/google/uuid"
+
+	log.Printf("Entering LoadAndValidate [ID: %s] for path: %s", callID, path)
+
 	err := c.loadAndValidateWithSource(ctx, path, cfg)
+
 	if err != nil {
+		log.Printf("LoadAndValidate [ID: %s] failed: %v", callID, err)
 		return err
 	}
 
 	if err := normalizeSecurityConfig(cfg); err != nil {
+		log.Printf("Failed to normalize SecurityConfig [ID: %s]: %v", callID, err)
 		return fmt.Errorf("failed to normalize SecurityConfig: %w", err)
 	}
 
-	return ValidateConfig(cfg)
+	if err := ValidateConfig(cfg); err != nil {
+		log.Printf("Config validation failed [ID: %s]: %v", callID, err)
+		return err
+	}
+
+	log.Printf("LoadAndValidate [ID: %s] completed successfully", callID)
+
+	return nil
 }
 
 // SetKVStore sets the KV store to be used when CONFIG_SOURCE=kv.
@@ -123,14 +139,20 @@ func (c *Config) loadAndValidateWithSource(ctx context.Context, path string, cfg
 // normalizeSecurityConfig normalizes TLS paths in any struct containing a SecurityConfig field.
 func normalizeSecurityConfig(cfg interface{}) error {
 	v := reflect.ValueOf(cfg)
+
 	if v.Kind() != reflect.Ptr || v.IsNil() {
 		return errInvalidConfigPtr
 	}
 
 	v = v.Elem()
+
 	if v.Kind() != reflect.Struct {
-		return nil // Nothing to normalize if not a struct
+		log.Printf("normalizeSecurityConfig: cfg is not a struct, skipping normalization")
+
+		return nil
 	}
+
+	log.Printf("normalizeSecurityConfig: processing struct %s with %d fields", v.Type().Name(), v.NumField())
 
 	return normalizeStructFields(v)
 }
@@ -140,8 +162,11 @@ func normalizeStructFields(v reflect.Value) error {
 	t := v.Type()
 
 	for i := 0; i < t.NumField(); i++ {
-		fieldType := t.Field(i)                                        // Assign to variable
-		if err := normalizeField(v.Field(i), &fieldType); err != nil { // Pass pointer
+		fieldType := t.Field(i)
+
+		log.Printf("normalizeStructFields: checking field %s (type: %s)", fieldType.Name, fieldType.Type.String())
+
+		if err := normalizeField(v.Field(i), &fieldType); err != nil {
 			return err
 		}
 	}
@@ -152,29 +177,37 @@ func normalizeStructFields(v reflect.Value) error {
 // normalizeField normalizes a single field if it’s a *SecurityConfig.
 func normalizeField(field reflect.Value, fieldType *reflect.StructField) error {
 	if fieldType.Type != reflect.TypeOf((*models.SecurityConfig)(nil)) {
+		log.Printf("normalizeField: field %s is not a SecurityConfig, skipping", fieldType.Name)
+
 		return nil
 	}
 
 	if !field.IsValid() || field.IsNil() {
+		log.Printf("normalizeField: field %s is invalid or nil, skipping", fieldType.Name)
+
 		return nil
 	}
 
 	sec := field.Interface().(*models.SecurityConfig)
-	if sec.CertDir == "" {
-		return nil
-	}
+
+	log.Printf("normalizeField: found SecurityConfig in field %s, CertDir=%s", fieldType.Name, sec.CertDir)
 
 	tls := &sec.TLS
-	normalizeTLSPaths(tls, sec.CertDir)
+
+	log.Println("Normalizing SecurityConfig paths")
+
+	NormalizeTLSPaths(tls, sec.CertDir)
 
 	// Update the field with the normalized SecurityConfig
 	field.Set(reflect.ValueOf(sec))
 
+	log.Printf("normalizeField: updated SecurityConfig in field %s", fieldType.Name)
+
 	return nil
 }
 
-// normalizeTLSPaths adjusts TLS file paths based on the certificate directory.
-func normalizeTLSPaths(tls *models.TLSConfig, certDir string) {
+// NormalizeTLSPaths adjusts TLS file paths based on the certificate directory.
+func NormalizeTLSPaths(tls *models.TLSConfig, certDir string) {
 	if !filepath.IsAbs(tls.CertFile) {
 		tls.CertFile = filepath.Join(certDir, tls.CertFile)
 	}
@@ -192,4 +225,7 @@ func normalizeTLSPaths(tls *models.TLSConfig, certDir string) {
 	} else if tls.ClientCAFile == "" {
 		tls.ClientCAFile = tls.CAFile // Fallback to CAFile if unset
 	}
+
+	log.Printf("Normalized TLS paths: CertFile=%s, KeyFile=%s, CAFile=%s, ClientCAFile=%s",
+		tls.CertFile, tls.KeyFile, tls.CAFile, tls.ClientCAFile)
 }
