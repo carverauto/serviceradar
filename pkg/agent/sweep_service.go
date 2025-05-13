@@ -148,6 +148,7 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, er
 		ServiceName:  "network_sweep",
 		ServiceType:  "sweep",
 		ResponseTime: time.Since(time.Unix(summary.LastSweep, 0)).Nanoseconds(),
+		AgentId: s.config.AgentID,
 	}, nil
 }
 
