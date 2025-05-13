@@ -180,7 +180,8 @@ func getCreateStreamStatements() []string {
             service_type string,
             available bool,
             details string,
-            timestamp DateTime64(3) DEFAULT now64(3)
+            timestamp DateTime64(3) DEFAULT now64(3),
+			agent_id string
         ) ENGINE = MergeTree()
         PARTITION BY date(timestamp)
         ORDER BY (poller_id, timestamp)`,
@@ -458,6 +459,7 @@ func (db *DB) UpdateServiceStatuses(ctx context.Context, statuses []*ServiceStat
 			status.Available,
 			status.Details,
 			status.Timestamp,
+			status.AgentID,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to append service status for %s: %w", status.ServiceName, err)
@@ -618,7 +620,7 @@ func (db *DB) GetPollerStatus(ctx context.Context, pollerID string) (*models.Pol
 // GetPollerServices retrieves services for a poller.
 func (db *DB) GetPollerServices(ctx context.Context, pollerID string) ([]ServiceStatus, error) {
 	rows, err := db.Conn.Query(ctx, `
-		SELECT service_name, service_type, available, details, timestamp
+		SELECT service_name, service_type, available, details, timestamp, agent_id
 		FROM service_status
 		WHERE poller_id = $1
 		ORDER BY service_type, service_name`,
@@ -633,8 +635,7 @@ func (db *DB) GetPollerServices(ctx context.Context, pollerID string) ([]Service
 	for rows.Next() {
 		var s ServiceStatus
 
-		s.PollerID = pollerID
-		if err := rows.Scan(&s.ServiceName, &s.ServiceType, &s.Available, &s.Details, &s.Timestamp); err != nil {
+		if err := rows.Scan(&s.ServiceName, &s.ServiceType, &s.Available, &s.Details, &s.Timestamp, &s.AgentID); err != nil {
 			return nil, fmt.Errorf("%w service row: %w", ErrFailedToScan, err)
 		}
 
