@@ -650,13 +650,14 @@ func TestProcessStatusReportWithAgentID(t *testing.T) {
 	mockDB.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).Return(nil).Times(2)
 	mockDB.EXPECT().UpdateServiceStatuses(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, statuses []*db.ServiceStatus) error {
 		t.Logf("UpdateServiceStatuses called with %d statuses: %+v", len(statuses), statuses)
-		assert.Equal(t, 1, len(statuses), "Expected exactly one status")
+		assert.Len(t, statuses, 1, "Expected exactly one status")
 		assert.Equal(t, pollerID, statuses[0].PollerID)
 		assert.Equal(t, "test-service", statuses[0].ServiceName)
 		assert.Equal(t, "test", statuses[0].ServiceType)
 		assert.True(t, statuses[0].Available)
-		assert.Equal(t, `{"status":"ok"}`, statuses[0].Details)
+		assert.JSONEq(t, `{"status":"ok"}`, statuses[0].Details)
 		assert.Equal(t, agentID, statuses[0].AgentID)
+
 		return nil
 	}).Times(1)
 	mockAPIServer.EXPECT().UpdatePollerStatus(pollerID, gomock.Any()).Return().Times(1)
@@ -664,20 +665,26 @@ func TestProcessStatusReportWithAgentID(t *testing.T) {
 
 	ctx := context.Background()
 	// Clear buffers before ReportStatus
+
 	server.bufferMu.Lock()
 	server.serviceBuffers = make(map[string][]*db.ServiceStatus)
+
 	t.Logf("serviceBuffers before ReportStatus: %+v", server.serviceBuffers)
+
 	server.bufferMu.Unlock()
 
 	reportStatusCount := 0
+
 	wrappedReportStatus := func(ctx context.Context, req *proto.PollerStatusRequest) (*proto.PollerStatusResponse, error) {
 		reportStatusCount++
+
 		t.Logf("ReportStatus called %d times with PollerId: %s", reportStatusCount, req.PollerId)
+
 		return server.ReportStatus(ctx, req)
 	}
 
 	resp, err := wrappedReportStatus(ctx, req)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, resp)
 	assert.True(t, resp.Received)
 	assert.Equal(t, 1, reportStatusCount, "ReportStatus should be called exactly once")
