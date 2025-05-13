@@ -635,7 +635,6 @@ func (db *DB) GetPollerServices(ctx context.Context, pollerID string) ([]Service
 	for rows.Next() {
 		var s ServiceStatus
 
-		// s.PollerID = pollerID
 		if err := rows.Scan(&s.ServiceName, &s.ServiceType, &s.Available, &s.Details, &s.Timestamp, &s.AgentID); err != nil {
 			return nil, fmt.Errorf("%w service row: %w", ErrFailedToScan, err)
 		}
