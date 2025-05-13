@@ -460,9 +460,8 @@ func (p *Poller) pollAgent(
 
 func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStatus) error {
 	_, err := p.coreClient.ReportStatus(ctx, &proto.PollerStatusRequest{
-		Services: statuses,
-		PollerId: p.config.PollerID,
-		// AgentId:   resp.AgentId,
+		Services:  statuses,
+		PollerId:  p.config.PollerID,
 		Timestamp: time.Now().Unix(),
 	})
 	if err != nil {
