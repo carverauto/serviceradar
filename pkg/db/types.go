@@ -49,6 +49,7 @@ type PollerHistoryPoint struct {
 
 // ServiceStatus represents a service's status.
 type ServiceStatus struct {
+	AgentID     string    `json:"agent_id"`
 	PollerID    string    `json:"poller_id"`
 	ServiceName string    `json:"service_name"`
 	ServiceType string    `json:"service_type"`

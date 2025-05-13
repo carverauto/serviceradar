@@ -682,7 +682,8 @@ func (s *Server) processServices(
 		}
 
 		serviceStatuses = append(serviceStatuses, &db.ServiceStatus{
-			PollerID:    pollerID,
+			AgentID:     svc.AgentId,
+			PollerID:    svc.PollerId,
 			ServiceName: apiService.Name,
 			ServiceType: apiService.Type,
 			Available:   apiService.Available,
@@ -691,6 +692,17 @@ func (s *Server) processServices(
 		})
 
 		apiStatus.Services = append(apiStatus.Services, apiService)
+
+		// Log AgentID and PollerID for debugging
+		if svc.AgentId == "" {
+			log.Printf("Warning: Service %s on poller %s has empty AgentId", svc.ServiceName, svc.PollerId)
+		} else {
+			log.Printf("Service %s on poller %s has AgentId: %s", svc.ServiceName, svc.PollerId, svc.AgentId)
+		}
+
+		if svc.PollerId == "" {
+			log.Printf("Warning: Service %s has empty PollerId, using fallback %s", svc.ServiceName, pollerID)
+		}
 	}
 
 	// Buffer service statuses

@@ -621,3 +621,71 @@ func TestWebhookAlerter_SamePollerServiceFailureThenPollerOffline(t *testing.T) 
 	err := alerter.CheckCooldown("test-poller", "Poller Offline", "")
 	assert.NoError(t, err, "Poller Offline alert should not be blocked by Service Failure cooldown")
 }
+
+func TestProcessStatusReportWithAgentID(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+
+	mockAlerter := alerts.NewMockAlertService(ctrl)
+	mockAPIServer := api.NewMockService(ctrl)
+
+	server := &Server{
+		DB:                      mockDB,
+		webhooks:                []alerts.AlertService{mockAlerter},
+		apiServer:               mockAPIServer,
+		serviceBuffers:          make(map[string][]*db.ServiceStatus),
+		bufferMu:                sync.RWMutex{},
+		pollerStatusUpdateMutex: sync.Mutex{},
+		pollerStatusUpdates:     make(map[string]*models.PollerStatus),
+		ShutdownChan:            make(chan struct{}),
+		config:                  &models.DBConfig{KnownPollers: []string{"test-poller"}},
+	}
+
+	pollerID := "test-poller"
+	agentID := "agent-123"
+
+	now := time.Now()
+
+	req := &proto.PollerStatusRequest{
+		PollerId:  pollerID,
+		Timestamp: now.Unix(),
+		Services: []*proto.ServiceStatus{
+			{
+				ServiceName: "test-service",
+				ServiceType: "test",
+				Available:   true,
+				Message:     `{"status":"ok"}`,
+				AgentId:     agentID,
+			},
+		},
+	}
+
+	mockDB.EXPECT().GetPollerStatus(gomock.Any(), pollerID).Return(&models.PollerStatus{
+		PollerID:  pollerID,
+		IsHealthy: false,
+		FirstSeen: now.Add(-1 * time.Hour),
+		LastSeen:  now.Add(-10 * time.Minute),
+	}, nil)
+
+	mockDB.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).Return(nil).Times(2)
+	mockDB.EXPECT().UpdateServiceStatuses(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, statuses []*db.ServiceStatus) error {
+		assert.Equal(t, 1, len(statuses))
+		assert.Equal(t, agentID, statuses[0].AgentID)
+
+		return nil
+	})
+
+	mockAPIServer.EXPECT().UpdatePollerStatus(pollerID, gomock.Any()).Return()
+	mockAlerter.EXPECT().Alert(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+	ctx := context.Background()
+	resp, err := server.ReportStatus(ctx, req)
+
+	require.NoError(t, err)
+	assert.NotNil(t, resp)
+	assert.True(t, resp.Received)
+
+	server.flushAllBuffers(ctx)
+}
