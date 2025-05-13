@@ -293,6 +293,7 @@ impl AgentService for RPerfServiceImpl {
                     service_name: req.service_name,
                     service_type: req.service_type,
                     response_time: 0,
+                    agent_id: "".to_string(),
                 }));
             }
         };
@@ -343,6 +344,7 @@ impl AgentService for RPerfServiceImpl {
             service_name: req.service_name,
             service_type: req.service_type,
             response_time,
+            agent_id: "".to_string(),
         }))
     }
 }

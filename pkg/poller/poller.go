@@ -256,6 +256,7 @@ func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
 		Message:      status.Message,
 		ServiceType:  sc.check.Type,
 		ResponseTime: status.ResponseTime,
+		AgentId:      status.AgentId, // Preserve the agent_id
 	}
 }
 
