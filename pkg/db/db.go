@@ -127,7 +127,6 @@ func New(ctx context.Context, config *models.DBConfig) (Service, error) {
 }
 
 // getCreateStreamStatements returns the SQL statements for creating database streams
-// getCreateStreamStatements returns the SQL statements for creating database streams
 func getCreateStreamStatements() []string {
 	return []string{
 		// MergeTree streams - these implicitly get _tp_time created by the system.
@@ -219,7 +218,7 @@ func getCreateStreamStatements() []string {
           ip string,
           mac nullable(string),
           hostname nullable(string),
-          timestamp DateTime64(3) DEFAULT now64(3), -- User-defined timestamp, can keep DEFAULT
+          timestamp DateTime64(3) DEFAULT now64(3),
           available boolean,
           metadata map(string, string)
           -- _tp_time is NOT explicitly defined here
@@ -267,7 +266,6 @@ func getCreateStreamStatements() []string {
           last_seen DateTime64(3),
           is_available boolean,
           metadata map(string, string)
-          -- _tp_time is NOT explicitly defined here
        )
        PRIMARY KEY (device_id)
        SETTINGS mode='versioned_kv', version_column='_tp_time'`,
@@ -287,7 +285,7 @@ func getCreateStreamStatements() []string {
             timestamp AS last_seen,
             available AS is_available,
             metadata,
-            now64(3) AS _tp_time -- Explicitly provides value for _tp_time column in 'devices'
+            now64(3) AS _tp_time
         FROM sweep_results`,
 	}
 }
