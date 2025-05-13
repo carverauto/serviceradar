@@ -179,7 +179,8 @@ func TestReportStatus(t *testing.T) {
 	}).AnyTimes()
 
 	// Expect StoreMetrics for icmp-service
-	mockDB.EXPECT().StoreMetrics(gomock.Any(), "test-poller", gomock.Any()).DoAndReturn(func(_ context.Context, pollerID string, metrics []*db.TimeseriesMetric) error {
+	mockDB.EXPECT().StoreMetrics(gomock.Any(), "test-poller",
+		gomock.Any()).DoAndReturn(func(_ context.Context, pollerID string, metrics []*db.TimeseriesMetric) error {
 		t.Logf("TestReportStatus: StoreMetrics called for poller %s with %d metrics", pollerID, len(metrics))
 		return nil
 	}).AnyTimes()
@@ -585,15 +586,18 @@ func TestWebhookAlerter_SamePollerServiceFailureThenPollerOffline(t *testing.T) 
 	assert.NoError(t, err, "Poller Offline alert should not be blocked by Service Failure cooldown")
 }
 
-func TestProcessStatusReportWithAgentID(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
+// setupTestServer creates a server with mock dependencies for testing
+func setupTestServer(
+	t *testing.T,
+	ctrl *gomock.Controller) (server *Server,
+	dbService db.MockService, alertService alerts.MockAlertService, apiService api.MockService) {
+	t.Helper()
 
 	mockDB := db.NewMockService(ctrl)
 	mockAlerter := alerts.NewMockAlertService(ctrl)
 	mockAPIServer := api.NewMockService(ctrl)
 
-	server := &Server{
+	server = &Server{
 		DB:                      mockDB,
 		webhooks:                []alerts.AlertService{mockAlerter},
 		apiServer:               mockAPIServer,
@@ -623,10 +627,16 @@ func TestProcessStatusReportWithAgentID(t *testing.T) {
 	server.pollerStatusUpdates = make(map[string]*models.PollerStatus)
 	server.pollerStatusUpdateMutex.Unlock()
 
-	pollerID := "test-poller"
-	agentID := "agent-123"
-	now := time.Now()
-	req := &proto.PollerStatusRequest{
+	dbService = *mockDB
+	alertService = *mockAlerter
+	apiService = *mockAPIServer
+
+	return server, dbService, alertService, apiService
+}
+
+// createTestRequest creates a test PollerStatusRequest with the given poller and agent IDs
+func createTestRequest(pollerID, agentID string, now time.Time) *proto.PollerStatusRequest {
+	return &proto.PollerStatusRequest{
 		PollerId:  pollerID,
 		Timestamp: now.Unix(),
 		Services: []*proto.ServiceStatus{
@@ -640,7 +650,20 @@ func TestProcessStatusReportWithAgentID(t *testing.T) {
 			},
 		},
 	}
+}
 
+func TestProcessStatusReportWithAgentID(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	pollerID := "test-poller"
+	agentID := "agent-123"
+	now := time.Now()
+
+	server, mockDB, mockAlerter, mockAPIServer := setupTestServer(t, ctrl)
+	req := createTestRequest(pollerID, agentID, now)
+
+	// Setup mock expectations
 	mockDB.EXPECT().GetPollerStatus(gomock.Any(), pollerID).Return(&models.PollerStatus{
 		PollerID:  pollerID,
 		IsHealthy: false,
@@ -657,27 +680,23 @@ func TestProcessStatusReportWithAgentID(t *testing.T) {
 		assert.True(t, statuses[0].Available)
 		assert.JSONEq(t, `{"status":"ok"}`, statuses[0].Details)
 		assert.Equal(t, agentID, statuses[0].AgentID)
-
 		return nil
 	}).Times(1)
 	mockAPIServer.EXPECT().UpdatePollerStatus(pollerID, gomock.Any()).Return().Times(1)
 	mockAlerter.EXPECT().Alert(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	ctx := context.Background()
-	// Clear buffers before ReportStatus
 
+	// Clear buffers before ReportStatus
 	server.bufferMu.Lock()
 	server.serviceBuffers = make(map[string][]*db.ServiceStatus)
-
 	t.Logf("serviceBuffers before ReportStatus: %+v", server.serviceBuffers)
-
 	server.bufferMu.Unlock()
 
+	// Test the ReportStatus function
 	reportStatusCount := 0
-
 	wrappedReportStatus := func(ctx context.Context, req *proto.PollerStatusRequest) (*proto.PollerStatusResponse, error) {
 		reportStatusCount++
-
 		t.Logf("ReportStatus called %d times with PollerId: %s", reportStatusCount, req.PollerId)
 
 		return server.ReportStatus(ctx, req)
@@ -689,6 +708,7 @@ func TestProcessStatusReportWithAgentID(t *testing.T) {
 	assert.True(t, resp.Received)
 	assert.Equal(t, 1, reportStatusCount, "ReportStatus should be called exactly once")
 
+	// Cleanup
 	server.flushAllBuffers(ctx)
 	time.Sleep(100 * time.Millisecond) // Wait for flush
 	server.bufferMu.Lock()
