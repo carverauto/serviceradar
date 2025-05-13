@@ -673,6 +673,7 @@ func (s *Server) processServices(
 
 	for _, svc := range services {
 		apiService := s.createAPIService(svc)
+
 		if !svc.Available {
 			allServicesAvailable = false
 		}
@@ -719,7 +720,7 @@ func (s *Server) processServiceDetails(
 	pollerID string, apiService *api.ServiceStatus, svc *proto.ServiceStatus, now time.Time) error {
 	if svc.Message == "" {
 		log.Printf("No message content for service %s on poller %s", svc.ServiceName, pollerID)
-		return s.handleService(pollerID, apiService, now)
+		return s.handleService(apiService, now)
 	}
 
 	details, err := s.parseServiceDetails(svc)
@@ -727,7 +728,7 @@ func (s *Server) processServiceDetails(
 		log.Printf("Failed to parse details for service %s on poller %s, proceeding without details",
 			svc.ServiceName, pollerID)
 
-		return s.handleService(pollerID, apiService, now)
+		return s.handleService(apiService, now)
 	}
 
 	apiService.Details = details
@@ -739,7 +740,7 @@ func (s *Server) processServiceDetails(
 		return err
 	}
 
-	return s.handleService(pollerID, apiService, now)
+	return s.handleService(apiService, now)
 }
 
 // processMetrics handles metrics processing for all service types.
@@ -1043,14 +1044,14 @@ func (s *Server) processSNMPMetrics(pollerID string, details json.RawMessage, ti
 	return nil
 }
 
-func (s *Server) handleService(pollerID string, svc *api.ServiceStatus, now time.Time) error {
+func (s *Server) handleService(svc *api.ServiceStatus, now time.Time) error {
 	if svc.Type == sweepService {
 		if err := s.processSweepData(svc, now); err != nil {
 			return fmt.Errorf("failed to process sweep data: %w", err)
 		}
 	}
 
-	return s.saveServiceStatus(pollerID, svc, now)
+	return nil
 }
 
 func (*Server) processSweepData(svc *api.ServiceStatus, now time.Time) error {
@@ -1080,12 +1081,6 @@ func (*Server) processSweepData(svc *api.ServiceStatus, now time.Time) error {
 		svc.Message = string(updatedMessage)
 	}
 
-	return nil
-}
-
-func (s *Server) saveServiceStatus(pollerID string, svc *api.ServiceStatus, now time.Time) error {
-	// The service status is already added to the buffer in processServices
-	// No need to add it again here
 	return nil
 }
 
@@ -1476,20 +1471,23 @@ func (s *Server) handlePollerDown(ctx context.Context, pollerID string, lastSeen
 
 func (s *Server) handlePollerRecovery(ctx context.Context, pollerID string, apiStatus *api.PollerStatus, timestamp time.Time) {
 	for _, webhook := range s.webhooks {
-		if alerter, ok := webhook.(*alerts.WebhookAlerter); ok {
-			// Check if the poller was previously marked as down
-			alerter.Mu.RLock()
-			wasDown := alerter.NodeDownStates[pollerID]
-			alerter.Mu.RUnlock()
-
-			if !wasDown {
-				log.Printf("Skipping recovery alert for %s: poller was not marked as down", pollerID)
-				continue
-			}
-
-			alerter.MarkPollerAsRecovered(pollerID)
-			alerter.MarkServiceAsRecovered(pollerID)
+		alerter, ok := webhook.(*alerts.WebhookAlerter)
+		if !ok {
+			continue
 		}
+
+		// Check if the poller was previously marked as down
+		alerter.Mu.RLock()
+		wasDown := alerter.NodeDownStates[pollerID]
+		alerter.Mu.RUnlock()
+
+		if !wasDown {
+			log.Printf("Skipping recovery alert for %s: poller was not marked as down", pollerID)
+			continue
+		}
+
+		alerter.MarkPollerAsRecovered(pollerID)
+		alerter.MarkServiceAsRecovered(pollerID)
 	}
 
 	alert := &alerts.WebhookAlert{
