@@ -665,18 +665,18 @@ func (s *Server) processServices(
 	services []*proto.ServiceStatus,
 	now time.Time) {
 	allServicesAvailable := true
-
-	// Pre-allocate memory for service statuses
 	serviceStatuses := make([]*db.ServiceStatus, 0, len(services))
+
+	s.bufferMu.Lock()
+	log.Printf("serviceBuffers[%s] before processing: %+v", pollerID, s.serviceBuffers[pollerID])
+	s.bufferMu.Unlock()
 
 	for _, svc := range services {
 		apiService := s.createAPIService(svc)
-
 		if !svc.Available {
 			allServicesAvailable = false
 		}
 
-		// Process service details and metrics
 		if err := s.processServiceDetails(pollerID, &apiService, svc, now); err != nil {
 			log.Printf("Error processing details for service %s on poller %s: %v", svc.ServiceName, pollerID, err)
 		}
@@ -693,7 +693,6 @@ func (s *Server) processServices(
 
 		apiStatus.Services = append(apiStatus.Services, apiService)
 
-		// Log AgentID and PollerID for debugging
 		if svc.AgentId == "" {
 			log.Printf("Warning: Service %s on poller %s has empty AgentId", svc.ServiceName, svc.PollerId)
 		} else {
@@ -705,9 +704,11 @@ func (s *Server) processServices(
 		}
 	}
 
-	// Buffer service statuses
+	log.Printf("Appending %d service statuses for poller %s", len(serviceStatuses), pollerID)
 	s.bufferMu.Lock()
+	log.Printf("serviceBuffers[%s] before append: %+v", pollerID, s.serviceBuffers[pollerID])
 	s.serviceBuffers[pollerID] = append(s.serviceBuffers[pollerID], serviceStatuses...)
+	log.Printf("serviceBuffers[%s] after append: %+v", pollerID, s.serviceBuffers[pollerID])
 	s.bufferMu.Unlock()
 
 	apiStatus.IsHealthy = allServicesAvailable
@@ -1083,20 +1084,8 @@ func (*Server) processSweepData(svc *api.ServiceStatus, now time.Time) error {
 }
 
 func (s *Server) saveServiceStatus(pollerID string, svc *api.ServiceStatus, now time.Time) error {
-	status := &db.ServiceStatus{
-		PollerID:    pollerID,
-		ServiceName: svc.Name,
-		ServiceType: svc.Type,
-		Available:   svc.Available,
-		Details:     svc.Message,
-		Timestamp:   now,
-	}
-
-	// Buffer service status
-	s.bufferMu.Lock()
-	s.serviceBuffers[pollerID] = append(s.serviceBuffers[pollerID], status)
-	s.bufferMu.Unlock()
-
+	// The service status is already added to the buffer in processServices
+	// No need to add it again here
 	return nil
 }
 
@@ -1488,6 +1477,16 @@ func (s *Server) handlePollerDown(ctx context.Context, pollerID string, lastSeen
 func (s *Server) handlePollerRecovery(ctx context.Context, pollerID string, apiStatus *api.PollerStatus, timestamp time.Time) {
 	for _, webhook := range s.webhooks {
 		if alerter, ok := webhook.(*alerts.WebhookAlerter); ok {
+			// Check if the poller was previously marked as down
+			alerter.Mu.RLock()
+			wasDown := alerter.NodeDownStates[pollerID]
+			alerter.Mu.RUnlock()
+
+			if !wasDown {
+				log.Printf("Skipping recovery alert for %s: poller was not marked as down", pollerID)
+				continue
+			}
+
 			alerter.MarkPollerAsRecovered(pollerID)
 			alerter.MarkServiceAsRecovered(pollerID)
 		}
@@ -1531,7 +1530,8 @@ func (s *Server) sendAlert(ctx context.Context, alert *alerts.WebhookAlert) erro
 }
 
 func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusRequest) (*proto.PollerStatusResponse, error) {
-	log.Printf("Received status report from %s with %d services", req.PollerId, len(req.Services))
+	log.Printf("Received status report from %s with %d services at %s",
+		req.PollerId, len(req.Services), time.Now().Format(time.RFC3339Nano))
 
 	if req.PollerId == "" {
 		return nil, errEmptyPollerID
