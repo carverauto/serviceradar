@@ -147,71 +147,6 @@ func newServerWithDB(_ context.Context, config *models.DBConfig, database db.Ser
 	return server, nil
 }
 
-func TestProcessStatusReport(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockDB := db.NewMockService(ctrl)
-	mockAlerter := alerts.NewMockAlertService(ctrl)
-	mockAPIServer := api.NewMockService(ctrl)
-
-	server := &Server{
-		DB:                      mockDB,
-		webhooks:                []alerts.AlertService{mockAlerter},
-		apiServer:               mockAPIServer,
-		serviceBuffers:          make(map[string][]*db.ServiceStatus),
-		bufferMu:                sync.RWMutex{},
-		pollerStatusUpdateMutex: sync.Mutex{},
-		pollerStatusUpdates:     make(map[string]*models.PollerStatus),
-		ShutdownChan:            make(chan struct{}),
-		config:                  &models.DBConfig{KnownPollers: []string{"test-poller"}}, // Ensure test-poller is known
-	}
-
-	pollerID := "test-poller"
-	now := time.Now()
-	req := &proto.PollerStatusRequest{
-		PollerId:  pollerID,
-		Timestamp: now.Unix(),
-		Services: []*proto.ServiceStatus{
-			{
-				ServiceName: "test-service",
-				ServiceType: "test",
-				Available:   true,
-				Message:     `{"status":"ok"}`,
-			},
-		},
-	}
-
-	// Mock expectations
-	mockDB.EXPECT().GetPollerStatus(gomock.Any(), pollerID).Return(&models.PollerStatus{
-		PollerID:  pollerID,
-		IsHealthy: false, // Simulate unhealthy state to trigger recovery
-		FirstSeen: now.Add(-1 * time.Hour),
-		LastSeen:  now.Add(-10 * time.Minute),
-	}, nil)
-
-	// Expect two UpdatePollerStatus calls (one in processStatusReport, one in updatePollerState)
-	mockDB.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).Return(nil).Times(2)
-	mockDB.EXPECT().UpdateServiceStatuses(gomock.Any(), gomock.Any()).Return(nil)
-	mockAPIServer.EXPECT().UpdatePollerStatus(pollerID, gomock.Any()).Return()    // Line 195
-	mockAlerter.EXPECT().Alert(gomock.Any(), gomock.Any()).Return(nil).AnyTimes() // Allow multiple alerts
-
-	ctx := context.Background()
-
-	// Call ReportStatus instead of processStatusReport
-	resp, err := server.ReportStatus(ctx, req)
-	if err != nil {
-		t.Fatalf("ReportStatus failed: %v", err)
-	}
-
-	// Verify response
-	assert.NotNil(t, resp)
-	assert.True(t, resp.Received, "Expected response to indicate received")
-
-	// Trigger buffer flush to ensure UpdateServiceStatuses is called
-	server.flushAllBuffers(ctx)
-}
-
 func TestReportStatus(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
@@ -219,14 +154,12 @@ func TestReportStatus(t *testing.T) {
 	mockDB := db.NewMockService(ctrl)
 	mockAPI := api.NewMockService(ctrl)
 
-	// Create a real metrics.Manager with mock db.Service
 	metricsManager := metrics.NewManager(models.MetricsConfig{
 		Enabled:    true,
 		Retention:  100,
 		MaxPollers: 1000,
 	}, mockDB)
 
-	// Mock GetPollerStatus
 	mockDB.EXPECT().GetPollerStatus(gomock.Any(), "test-poller").Return(&models.PollerStatus{
 		PollerID:  "test-poller",
 		IsHealthy: true,
@@ -234,17 +167,24 @@ func TestReportStatus(t *testing.T) {
 		LastSeen:  time.Now(),
 	}, nil).AnyTimes()
 
-	// Mock UpdatePollerStatus
 	mockDB.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, status *models.PollerStatus) error {
 		assert.Equal(t, "test-poller", status.PollerID)
 		assert.True(t, status.IsHealthy)
 		return nil
 	}).AnyTimes()
 
-	// Mock UpdateServiceStatuses
-	mockDB.EXPECT().UpdateServiceStatuses(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	mockDB.EXPECT().UpdateServiceStatuses(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, statuses []*db.ServiceStatus) error {
+		t.Logf("TestReportStatus: UpdateServiceStatuses called with %d statuses: %+v", len(statuses), statuses)
+		return nil
+	}).AnyTimes()
 
-	// Mock UpdatePollerStatus for API
+	// Expect StoreMetrics for icmp-service
+	mockDB.EXPECT().StoreMetrics(gomock.Any(), "test-poller",
+		gomock.Any()).DoAndReturn(func(_ context.Context, pollerID string, metrics []*db.TimeseriesMetric) error {
+		t.Logf("TestReportStatus: StoreMetrics called for poller %s with %d metrics", pollerID, len(metrics))
+		return nil
+	}).AnyTimes()
+
 	mockAPI.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).AnyTimes()
 
 	server := &Server{
@@ -257,15 +197,32 @@ func TestReportStatus(t *testing.T) {
 		sysmonBuffers:       make(map[string][]*models.SysmonMetrics),
 		pollerStatusCache:   make(map[string]*models.PollerStatus),
 		pollerStatusUpdates: make(map[string]*models.PollerStatus),
+		bufferMu:            sync.RWMutex{},
 	}
 
 	// Test unknown poller
+	server.bufferMu.Lock()
+	server.serviceBuffers = make(map[string][]*db.ServiceStatus)
+	t.Logf("TestReportStatus: serviceBuffers before unknown-poller: %+v", server.serviceBuffers)
+	server.bufferMu.Unlock()
+
 	resp, err := server.ReportStatus(context.Background(), &proto.PollerStatusRequest{PollerId: "unknown-poller"})
 	require.NoError(t, err)
 	assert.NotNil(t, resp)
 	assert.True(t, resp.Received)
 
+	server.flushAllBuffers(context.Background())
+	server.bufferMu.Lock()
+	server.serviceBuffers = make(map[string][]*db.ServiceStatus)
+	t.Logf("TestReportStatus: serviceBuffers after unknown-poller: %+v", server.serviceBuffers)
+	server.bufferMu.Unlock()
+
 	// Test valid poller with ICMP service
+	server.bufferMu.Lock()
+	server.serviceBuffers = make(map[string][]*db.ServiceStatus)
+	t.Logf("TestReportStatus: serviceBuffers before test-poller: %+v", server.serviceBuffers)
+	server.bufferMu.Unlock()
+
 	resp, err = server.ReportStatus(context.Background(), &proto.PollerStatusRequest{
 		PollerId:  "test-poller",
 		Timestamp: time.Now().Unix(),
@@ -275,12 +232,19 @@ func TestReportStatus(t *testing.T) {
 				ServiceType: "icmp",
 				Available:   true,
 				Message:     `{"host":"192.168.1.1","response_time":10,"packet_loss":0,"available":true}`,
+				AgentId:     "test-agent",
 			},
 		},
 	})
 	require.NoError(t, err)
 	assert.NotNil(t, resp)
 	assert.True(t, resp.Received)
+
+	server.flushAllBuffers(context.Background())
+	server.bufferMu.Lock()
+	server.serviceBuffers = make(map[string][]*db.ServiceStatus)
+	t.Logf("TestReportStatus: serviceBuffers after test-poller: %+v", server.serviceBuffers)
+	server.bufferMu.Unlock()
 }
 
 func TestProcessSweepData(t *testing.T) {
@@ -620,4 +584,135 @@ func TestWebhookAlerter_SamePollerServiceFailureThenPollerOffline(t *testing.T) 
 	})
 	err := alerter.CheckCooldown("test-poller", "Poller Offline", "")
 	assert.NoError(t, err, "Poller Offline alert should not be blocked by Service Failure cooldown")
+}
+
+// setupTestServer creates a server with mock dependencies for testing
+func setupTestServer(
+	t *testing.T,
+	ctrl *gomock.Controller) (server *Server,
+	dbService db.MockService, alertService alerts.MockAlertService, apiService api.MockService) {
+	t.Helper()
+
+	mockDB := db.NewMockService(ctrl)
+	mockAlerter := alerts.NewMockAlertService(ctrl)
+	mockAPIServer := api.NewMockService(ctrl)
+
+	server = &Server{
+		DB:                      mockDB,
+		webhooks:                []alerts.AlertService{mockAlerter},
+		apiServer:               mockAPIServer,
+		serviceBuffers:          make(map[string][]*db.ServiceStatus),
+		bufferMu:                sync.RWMutex{},
+		pollerStatusUpdateMutex: sync.Mutex{},
+		pollerStatusUpdates:     make(map[string]*models.PollerStatus),
+		pollerStatusCache:       make(map[string]*models.PollerStatus),
+		ShutdownChan:            make(chan struct{}),
+		config:                  &models.DBConfig{KnownPollers: []string{"test-poller"}},
+	}
+
+	// Clear all buffers and caches for isolation
+	server.bufferMu.Lock()
+	server.serviceBuffers = make(map[string][]*db.ServiceStatus)
+	server.metricBuffers = make(map[string][]*db.TimeseriesMetric)
+	server.sysmonBuffers = make(map[string][]*models.SysmonMetrics)
+	t.Logf("Initial serviceBuffers: %+v", server.serviceBuffers)
+	server.bufferMu.Unlock()
+
+	server.cacheMutex.Lock()
+	server.pollerStatusCache = make(map[string]*models.PollerStatus)
+	server.cacheLastUpdated = time.Time{}
+	server.cacheMutex.Unlock()
+
+	server.pollerStatusUpdateMutex.Lock()
+	server.pollerStatusUpdates = make(map[string]*models.PollerStatus)
+	server.pollerStatusUpdateMutex.Unlock()
+
+	dbService = *mockDB
+	alertService = *mockAlerter
+	apiService = *mockAPIServer
+
+	return server, dbService, alertService, apiService
+}
+
+// createTestRequest creates a test PollerStatusRequest with the given poller and agent IDs
+func createTestRequest(pollerID, agentID string, now time.Time) *proto.PollerStatusRequest {
+	return &proto.PollerStatusRequest{
+		PollerId:  pollerID,
+		Timestamp: now.Unix(),
+		Services: []*proto.ServiceStatus{
+			{
+				ServiceName: "test-service",
+				ServiceType: "test",
+				Available:   true,
+				Message:     `{"status":"ok"}`,
+				AgentId:     agentID,
+				PollerId:    pollerID,
+			},
+		},
+	}
+}
+
+func TestProcessStatusReportWithAgentID(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	pollerID := "test-poller"
+	agentID := "agent-123"
+	now := time.Now()
+
+	server, mockDB, mockAlerter, mockAPIServer := setupTestServer(t, ctrl)
+	req := createTestRequest(pollerID, agentID, now)
+
+	// Setup mock expectations
+	mockDB.EXPECT().GetPollerStatus(gomock.Any(), pollerID).Return(&models.PollerStatus{
+		PollerID:  pollerID,
+		IsHealthy: false,
+		FirstSeen: now.Add(-1 * time.Hour),
+		LastSeen:  now.Add(-10 * time.Minute),
+	}, nil).Times(1)
+	mockDB.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).Return(nil).Times(2)
+	mockDB.EXPECT().UpdateServiceStatuses(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, statuses []*db.ServiceStatus) error {
+		t.Logf("UpdateServiceStatuses called with %d statuses: %+v", len(statuses), statuses)
+		assert.Len(t, statuses, 1, "Expected exactly one status")
+		assert.Equal(t, pollerID, statuses[0].PollerID)
+		assert.Equal(t, "test-service", statuses[0].ServiceName)
+		assert.Equal(t, "test", statuses[0].ServiceType)
+		assert.True(t, statuses[0].Available)
+		assert.JSONEq(t, `{"status":"ok"}`, statuses[0].Details)
+		assert.Equal(t, agentID, statuses[0].AgentID)
+		return nil
+	}).Times(1)
+	mockAPIServer.EXPECT().UpdatePollerStatus(pollerID, gomock.Any()).Return().Times(1)
+	mockAlerter.EXPECT().Alert(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+	ctx := context.Background()
+
+	// Clear buffers before ReportStatus
+	server.bufferMu.Lock()
+	server.serviceBuffers = make(map[string][]*db.ServiceStatus)
+	t.Logf("serviceBuffers before ReportStatus: %+v", server.serviceBuffers)
+	server.bufferMu.Unlock()
+
+	// Test the ReportStatus function
+	reportStatusCount := 0
+	wrappedReportStatus := func(ctx context.Context, req *proto.PollerStatusRequest) (*proto.PollerStatusResponse, error) {
+		reportStatusCount++
+		t.Logf("ReportStatus called %d times with PollerId: %s", reportStatusCount, req.PollerId)
+
+		return server.ReportStatus(ctx, req)
+	}
+
+	resp, err := wrappedReportStatus(ctx, req)
+	require.NoError(t, err)
+	assert.NotNil(t, resp)
+	assert.True(t, resp.Received)
+	assert.Equal(t, 1, reportStatusCount, "ReportStatus should be called exactly once")
+
+	// Cleanup
+	server.flushAllBuffers(ctx)
+	time.Sleep(100 * time.Millisecond) // Wait for flush
+	server.bufferMu.Lock()
+	t.Logf("serviceBuffers after flush: %+v", server.serviceBuffers)
+	server.serviceBuffers = make(map[string][]*db.ServiceStatus)
+	server.bufferMu.Unlock()
 }

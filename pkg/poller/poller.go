@@ -228,6 +228,7 @@ func newServiceCheck(client proto.AgentServiceClient, check Check) *ServiceCheck
 }
 
 func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
+	// a longer interval between polling periods.
 	req := &proto.StatusRequest{
 		ServiceName: sc.check.Name,
 		ServiceType: sc.check.Type,
@@ -256,6 +257,7 @@ func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
 		Message:      status.Message,
 		ServiceType:  sc.check.Type,
 		ResponseTime: status.ResponseTime,
+		AgentId:      status.AgentId, // Preserve the agent_id
 	}
 }
 
@@ -456,12 +458,29 @@ func (p *Poller) pollAgent(
 }
 
 func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStatus) error {
+	log.Printf("Reporting %d statuses for poller %s at %s",
+		len(statuses), p.config.PollerID, time.Now().Format(time.RFC3339Nano))
+
+	// Add PollerID to each ServiceStatus if missing
+	for i, status := range statuses {
+		// Add the poller ID to each status
+		status.PollerId = p.config.PollerID
+
+		log.Printf("PollerID: %s, ServiceName: %s, AgentId: %s",
+			status.PollerId, status.ServiceName, status.AgentId)
+
+		// Log warning if AgentID is missing (debugging aid)
+		if status.AgentId == "" {
+			log.Printf("Warning: ServiceStatus[%d] for %s has empty AgentId",
+				i, status.ServiceName)
+		}
+	}
+
 	_, err := p.coreClient.ReportStatus(ctx, &proto.PollerStatusRequest{
 		Services:  statuses,
 		PollerId:  p.config.PollerID,
 		Timestamp: time.Now().Unix(),
 	})
-
 	if err != nil {
 		return fmt.Errorf("failed to report status to core: %w", err)
 	}
