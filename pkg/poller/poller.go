@@ -392,8 +392,6 @@ func (p *Poller) initializeAgentConnections(ctx context.Context) error {
 }
 
 // Poll execution methods.
-// TODO: we might need to move the DeviceInfo into a separate poll with
-// a longer interval between polling periods.
 func (p *Poller) poll(ctx context.Context) error {
 	if p.PollFunc != nil {
 		return p.PollFunc(ctx)
