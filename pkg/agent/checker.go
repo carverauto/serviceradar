@@ -77,7 +77,7 @@ func (p *ProcessChecker) Check(ctx context.Context) (isActive bool, statusMsg st
 
 	status := strings.TrimSpace(string(output))
 
-	return status == "active", fmt.Sprintf("Process status: %s", status)
+	return isActive, fmt.Sprintf(`{"status": "%s", "process_name": "%s", "active": %t}`, status, p.ProcessName, isActive)
 }
 
 type PortChecker struct {
