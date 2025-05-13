@@ -485,6 +485,7 @@ func (s *Server) handleRperfChecker(ctx context.Context, req *proto.StatusReques
 		ServiceName: "",
 		ServiceType: "grpc",
 		Details:     "",
+		AgentId:     s.config.AgentID, // Propagate AgentId
 	})
 }
 
@@ -534,6 +535,7 @@ func (s *Server) handleDefaultChecker(ctx context.Context, req *proto.StatusRequ
 		Message:     message,
 		ServiceName: req.ServiceName,
 		ServiceType: req.ServiceType,
+		AgentId:     s.config.AgentID, // Ensure AgentId is set
 	}, nil
 }
 

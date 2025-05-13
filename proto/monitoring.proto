@@ -37,6 +37,7 @@ message StatusRequest {
   string service_type = 2; // Type of service (process, port, grpc, etc)
   string details = 3;      // Additional details (e.g., process name)
   int32 port = 4;          // Port number for port checks
+  string agent_id = 5;     // Agent ID for traceability
 }
 
 message StatusResponse {

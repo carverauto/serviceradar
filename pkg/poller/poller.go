@@ -458,6 +458,9 @@ func (p *Poller) pollAgent(
 }
 
 func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStatus) error {
+	log.Printf("Reporting %d statuses for poller %s at %s",
+		len(statuses), p.config.PollerID, time.Now().Format(time.RFC3339Nano))
+
 	// Add PollerID to each ServiceStatus if missing
 	for i, status := range statuses {
 		// Add the poller ID to each status
