@@ -463,6 +463,9 @@ func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStat
 		// Add the poller ID to each status
 		status.PollerId = p.config.PollerID
 
+		log.Printf("PollerID: %s, ServiceName: %s, AgentId: %s",
+			status.PollerId, status.ServiceName, status.AgentId)
+
 		// Log warning if AgentID is missing (debugging aid)
 		if status.AgentId == "" {
 			log.Printf("Warning: ServiceStatus[%d] for %s has empty AgentId",
