@@ -210,7 +210,6 @@ func getCreateStreamStatements() []string {
         ORDER BY id`,
 
 		// Versioned Streams using SETTINGS mode='versioned_kv'
-		// REMOVED explicit _tp_time column definition. System will create it.
 		`CREATE STREAM IF NOT EXISTS sweep_results (
           agent_id string,
           poller_id string,
@@ -224,7 +223,7 @@ func getCreateStreamStatements() []string {
           -- _tp_time is NOT explicitly defined here
        )
        PRIMARY KEY (ip, agent_id, poller_id)
-       SETTINGS mode='versioned_kv', version_column='_tp_time'`, // Refers to system-generated _tp_time
+       SETTINGS mode='versioned_kv', version_column='_tp_time'`,
 
 		`CREATE STREAM IF NOT EXISTS icmp_results (
           agent_id string,

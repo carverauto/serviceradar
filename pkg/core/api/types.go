@@ -32,6 +32,8 @@ import (
 )
 
 type ServiceStatus struct {
+	AgentID   string          `json:"agent_id"`
+	PollerID  string          `json:"poller_id"`
 	Name      string          `json:"name"`
 	Available bool            `json:"available"`
 	Message   string          `json:"message"`

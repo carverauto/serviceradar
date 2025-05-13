@@ -106,6 +106,10 @@ type Service interface {
 	StoreBatchDevices(ctx context.Context, devices []*models.Device) error
 	GetDevicesByIP(ctx context.Context, ip string) ([]*models.Device, error)
 	GetDeviceByID(ctx context.Context, deviceID string) (*models.Device, error)
+
+	// Sweep operations.
+
+	StoreSweepResults(ctx context.Context, results []*SweepResult) error
 }
 
 // SysmonMetricsProvider interface defines operations for system monitoring metrics.
