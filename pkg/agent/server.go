@@ -25,8 +25,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"reflect"
-	"strings"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/checker"
@@ -42,14 +40,6 @@ const (
 	fallBackSuffix     = "fallback"
 	grpcType           = "grpc"
 	defaultErrChansize = 10
-
-	// DeviceCache settings
-
-	defaultIncrementalInterval = 5 * time.Minute
-	defaultFullReportInterval  = 1 * time.Hour
-	defaultCleanupInterval     = 1 * time.Hour
-	defaultMaxAge              = 24 * time.Hour
-	defaultBatchSize           = 1000
 )
 
 // NewServer initializes a new Server instance.
@@ -69,77 +59,11 @@ func NewServer(ctx context.Context, configDir string, cfg *ServerConfig) (*Serve
 		return createSweepService(sweepConfig, kvStore, cfg)
 	}
 
-	// Initialize DeviceCache
-	incrementalInterval := defaultIncrementalInterval
-	fullReportInterval := defaultFullReportInterval
-	cleanupInterval := defaultCleanupInterval
-	maxAge := defaultMaxAge
-	batchSize := defaultBatchSize
-
-	if cfg.DeviceCacheConfig != nil {
-		incrementalInterval = time.Duration(cfg.DeviceCacheConfig.IncrementalInterval)
-		fullReportInterval = time.Duration(cfg.DeviceCacheConfig.FullReportInterval)
-		cleanupInterval = time.Duration(cfg.DeviceCacheConfig.CleanupInterval)
-		maxAge = time.Duration(cfg.DeviceCacheConfig.MaxAge)
-		batchSize = cfg.DeviceCacheConfig.BatchSize
-	}
-
-	s.deviceCache = DeviceCache{
-		Devices:             make(map[string]*DeviceState),
-		IncrementalInterval: incrementalInterval,
-		FullReportInterval:  fullReportInterval,
-		CleanupInterval:     cleanupInterval,
-		MaxAge:              maxAge,
-		BatchSize:           batchSize,
-	}
-
-	// Setup device maintenance
-	s.SetupDeviceMaintenance(ctx)
-
 	if err := s.loadConfigurations(ctx, cfgLoader); err != nil {
 		return nil, fmt.Errorf("failed to load configurations: %w", err)
 	}
 
 	return s, nil
-}
-
-// SetupDeviceMaintenance starts a background goroutine for cache cleanup.
-func (s *Server) SetupDeviceMaintenance(ctx context.Context) {
-	ticker := time.NewTicker(s.deviceCache.CleanupInterval)
-
-	go func() {
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				removed := s.CleanupDeviceCache()
-
-				if removed > 0 {
-					log.Printf("Removed %d stale devices from cache", removed)
-				}
-			}
-		}
-	}()
-}
-
-// CleanupDeviceCache removes stale entries from the cache.
-func (s *Server) CleanupDeviceCache() int {
-	s.deviceCache.mu.Lock()
-	defer s.deviceCache.mu.Unlock()
-
-	now := time.Now()
-	removed := 0
-
-	for ip, device := range s.deviceCache.Devices {
-		if now.Sub(device.LastSeen) > s.deviceCache.MaxAge {
-			delete(s.deviceCache.Devices, ip)
-			removed++
-		}
-	}
-
-	return removed
 }
 
 // initializeServer creates a new Server struct with default values.
@@ -155,9 +79,6 @@ func initializeServer(configDir string, cfg *ServerConfig) *Server {
 		done:         make(chan struct{}),
 		config:       cfg,
 		connections:  make(map[string]*CheckerConnection),
-		deviceCache: DeviceCache{
-			Devices: make(map[string]*DeviceState),
-		},
 	}
 }
 
@@ -504,233 +425,15 @@ func (s *Server) connectToChecker(ctx context.Context, checkerConfig *CheckerCon
 }
 
 func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
-	var response *proto.StatusResponse
-	var deviceInfo *models.DeviceInfo
-
 	switch {
 	case isRperfCheckerRequest(req):
-		response, _ = s.handleRperfChecker(ctx, req)
+		return s.handleRperfChecker(ctx, req)
 	case isICMPRequest(req):
-		response, _ = s.handleICMPCheck(ctx, req)
-		if response != nil && response.Available {
-			// Extract device info from ICMP response
-			deviceInfo = extractDeviceInfoFromICMP(response.Message, req.Details)
-		}
+		return s.handleICMPCheck(ctx, req)
 	case isSweepRequest(req):
-		response, _ = s.getSweepStatus(ctx)
-		if response != nil {
-			// Extract devices from sweep status
-			extractDevicesFromSweep(response.Message, s)
-		}
+		return s.getSweepStatus(ctx)
 	default:
-		response, _ = s.handleDefaultChecker(ctx, req)
-		if response != nil && isDeviceService(req.ServiceType) {
-			deviceInfo = extractDeviceInfoFromChecker(req, response)
-		}
-	}
-
-	// Update device cache with individual device
-	if deviceInfo != nil {
-		s.updateDeviceCache(deviceInfo)
-	}
-
-	if response != nil {
-		response.AgentId = s.config.AgentID
-	}
-
-	return response, nil
-}
-
-// Helper functions to extract device info
-func extractDeviceInfoFromICMP(message, host string) *models.DeviceInfo {
-	var icmpData struct {
-		Host         string  `json:"host"`
-		ResponseTime int64   `json:"response_time"`
-		PacketLoss   float64 `json:"packet_loss"`
-		Available    bool    `json:"available"`
-	}
-
-	if err := json.Unmarshal([]byte(message), &icmpData); err != nil {
-		return nil
-	}
-
-	return &models.DeviceInfo{
-		IP:              icmpData.Host,
-		Available:       icmpData.Available,
-		DiscoverySource: "icmp",
-		LastSeen:        time.Now().Unix(),
-	}
-}
-
-func extractDevicesFromSweep(message string, s *Server) {
-	var sweepData struct {
-		Hosts []models.HostResult `json:"hosts"`
-	}
-
-	if err := json.Unmarshal([]byte(message), &sweepData); err != nil {
-		return
-	}
-
-	// Update device cache with each host from sweep
-	for _, host := range sweepData.Hosts {
-		deviceInfo := &models.DeviceInfo{
-			IP:              host.Host,
-			Available:       host.Available,
-			DiscoverySource: "network_sweep",
-			OpenPorts:       host.OpenPorts,
-			LastSeen:        time.Now().Unix(),
-		}
-
-		s.updateDeviceCache(deviceInfo)
-	}
-}
-
-func isDeviceService(serviceType string) bool {
-	return serviceType == "icmp" || serviceType == "port" || serviceType == "snmp"
-}
-
-func extractDeviceInfoFromChecker(req *proto.StatusRequest, resp *proto.StatusResponse) *models.DeviceInfo {
-	switch req.ServiceType {
-	case "port":
-		parts := strings.Split(req.Details, ":")
-		if len(parts) >= 1 {
-			host := parts[0]
-			return &models.DeviceInfo{
-				IP:              host,
-				Available:       resp.Available,
-				DiscoverySource: "port_check",
-				LastSeen:        time.Now().Unix(),
-			}
-		}
-	case "snmp":
-		return &models.DeviceInfo{
-			IP:              req.Details,
-			Available:       resp.Available,
-			DiscoverySource: "snmp_check",
-			LastSeen:        time.Now().Unix(),
-		}
-	}
-
-	return nil
-}
-
-func (s *Server) updateDeviceCache(info *models.DeviceInfo) {
-	if info == nil || info.IP == "" {
-		return
-	}
-
-	s.deviceCache.mu.Lock()
-	defer s.deviceCache.mu.Unlock()
-
-	key := info.IP
-	now := time.Now()
-
-	if device, exists := s.deviceCache.Devices[key]; exists {
-		oldInfo := device.Info
-
-		updateDeviceFields(&device.Info, info)
-
-		device.LastSeen = now
-		device.Sources[info.DiscoverySource] = true
-
-		if hasSignificantChanges(oldInfo, device.Info) {
-			device.Changed = true
-			device.Reported = false
-			device.ReportCount++
-		}
-	} else {
-		s.deviceCache.Devices[key] = &DeviceState{
-			Info:        *info,
-			Reported:    false,
-			Changed:     true,
-			LastSeen:    now,
-			FirstSeen:   now,
-			Sources:     map[string]bool{info.DiscoverySource: true},
-			ReportCount: 0,
-			AgentID:     s.config.AgentID,
-		}
-	}
-}
-
-// hasSignificantChanges checks if there are significant changes between old and new DeviceInfo.
-func hasSignificantChanges(old, new models.DeviceInfo) bool {
-	return old.Available != new.Available ||
-		!reflect.DeepEqual(old.OpenPorts, new.OpenPorts) ||
-		old.Hostname != new.Hostname ||
-		old.MAC != new.MAC ||
-		old.NetworkSegment != new.NetworkSegment ||
-		old.ServiceType != new.ServiceType ||
-		old.ServiceName != new.ServiceName ||
-		old.ResponseTime != new.ResponseTime ||
-		old.PacketLoss != new.PacketLoss ||
-		old.DeviceType != new.DeviceType ||
-		old.Vendor != new.Vendor ||
-		old.Model != new.Model ||
-		old.OSInfo != new.OSInfo ||
-		!reflect.DeepEqual(old.Metadata, new.Metadata)
-}
-
-// updateDeviceFields merges source DeviceInfo into target, preserving non-empty fields.
-func updateDeviceFields(target, source *models.DeviceInfo) {
-	if source.MAC != "" {
-		target.MAC = source.MAC
-	}
-
-	if source.Hostname != "" {
-		target.Hostname = source.Hostname
-	}
-
-	target.Available = source.Available
-	target.LastSeen = source.LastSeen
-
-	if len(source.OpenPorts) > 0 {
-		target.OpenPorts = source.OpenPorts
-	}
-
-	if source.NetworkSegment != "" {
-		target.NetworkSegment = source.NetworkSegment
-	}
-
-	if source.ServiceType != "" {
-		target.ServiceType = source.ServiceType
-	}
-
-	if source.ServiceName != "" {
-		target.ServiceName = source.ServiceName
-	}
-
-	if source.ResponseTime > 0 {
-		target.ResponseTime = source.ResponseTime
-	}
-
-	if source.PacketLoss > 0 {
-		target.PacketLoss = source.PacketLoss
-	}
-
-	if source.DeviceType != "" {
-		target.DeviceType = source.DeviceType
-	}
-
-	if source.Vendor != "" {
-		target.Vendor = source.Vendor
-	}
-
-	if source.Model != "" {
-		target.Model = source.Model
-	}
-
-	if source.OSInfo != "" {
-		target.OSInfo = source.OSInfo
-	}
-
-	if source.Metadata != nil {
-		if target.Metadata == nil {
-			target.Metadata = make(map[string]string)
-		}
-
-		for k, v := range source.Metadata {
-			target.Metadata[k] = v
-		}
+		return s.handleDefaultChecker(ctx, req)
 	}
 }
 
