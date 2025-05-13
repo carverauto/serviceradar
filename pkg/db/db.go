@@ -270,15 +270,17 @@ func getCreateStreamStatements() []string {
 		PARTITION BY date(first_seen)
 		ORDER BY (ip, agent_id, poller_id)`,
 
-		`CREATE MATERIALIZED VIEW devices_mv INTO devices AS SELECT concat(ip, ':', agent_id, ':', poller_id) AS device_id, agent_id, poller_id, any(discovery_source) AS discovery_source, ip, any_last(mac) AS mac, any_last(hostname) AS hostname, min(timestamp) AS first_seen, max(timestamp) AS last_seen, any_last(available) AS is_available, any_last(metadata) AS metadata FROM (SELECT agent_id, poller_id, discovery_source, ip, mac, hostname, timestamp, available, metadata FROM sweep_results WHERE _tp_time > earliest_ts() UNION ALL SELECT agent_id, poller_id, discovery_source, ip, mac, hostname, timestamp, available, metadata FROM icmp_results WHERE _tp_time > earliest_ts() UNION ALL SELECT agent_id, poller_id, discovery_source, ip, mac, hostname, timestamp, available, metadata FROM snmp_results WHERE _tp_time > earliest_ts()) GROUP BY ip, agent_id, poller_id`,
+		`CREATE MATERIALIZED VIEW devices_mv INTO devices AS SELECT concat(ip, ':', agent_id, ':', poller_id) AS device_id, agent_id, poller_id, discovery_source, ip, mac, hostname, timestamp AS first_seen, timestamp AS last_seen, available AS is_available, metadata, now64(3) AS _tp_time FROM sweep_results`,
 	}
 }
 
 // initSchema creates the database streams for Proton, excluding netflow_metrics.
+// Note: devices_mv is a minimal materialized view streaming from sweep_results only.
+// Historical data is not processed; devices populates naturally from new data.
 func (db *DB) initSchema(ctx context.Context) error {
-	log.Println("=== Initializing schema with db.go version: 2025-05-13-v14 ===")
+	log.Println("=== Initializing schema with db.go version: 2025-05-13-v19 ===")
 
-	// Drop existing streams and materialized view to ensure updated schemas
+	// Drop existing streams to ensure a clean slate with no historical data
 	for _, stream := range []string{"devices_mv", "sweep_results", "icmp_results", "snmp_results", "devices"} {
 		log.Printf("Dropping %s if exists", stream)
 		if err := db.Conn.Exec(ctx, fmt.Sprintf("DROP STREAM IF EXISTS %s", stream)); err != nil {
