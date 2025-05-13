@@ -270,13 +270,13 @@ func getCreateStreamStatements() []string {
 		PARTITION BY date(first_seen)
 		ORDER BY (ip, agent_id, poller_id)`,
 
-		`CREATE MATERIALIZED VIEW devices_mv INTO devices AS SELECT generateUUIDv4() AS device_id, agent_id, poller_id, any(discovery_source) AS discovery_source, ip, anyLast(mac) AS mac, anyLast(hostname) AS hostname, min(timestamp) AS first_seen, max(timestamp) AS last_seen, anyLast(available) AS is_available, mapAdd(map(), groupArray(tuple(metadata))) AS metadata FROM (SELECT agent_id, poller_id, discovery_source, ip, mac, hostname, timestamp, available, metadata FROM sweep_results WHERE _tp_time > earliest_ts() UNION ALL SELECT agent_id, poller_id, discovery_source, ip, mac, hostname, timestamp, available, metadata FROM icmp_results WHERE _tp_time > earliest_ts() UNION ALL SELECT agent_id, poller_id, discovery_source, ip, mac, hostname, timestamp, available, metadata FROM snmp_results WHERE _tp_time > earliest_ts()) GROUP BY ip, agent_id, poller_id`,
+		`CREATE MATERIALIZED VIEW devices_mv INTO devices AS SELECT concat(ip, ':', agent_id, ':', poller_id) AS device_id, agent_id, poller_id, any(discovery_source) AS discovery_source, ip, any_last(mac) AS mac, any_last(hostname) AS hostname, min(timestamp) AS first_seen, max(timestamp) AS last_seen, any_last(available) AS is_available, any_last(metadata) AS metadata FROM (SELECT agent_id, poller_id, discovery_source, ip, mac, hostname, timestamp, available, metadata FROM sweep_results WHERE _tp_time > earliest_ts() UNION ALL SELECT agent_id, poller_id, discovery_source, ip, mac, hostname, timestamp, available, metadata FROM icmp_results WHERE _tp_time > earliest_ts() UNION ALL SELECT agent_id, poller_id, discovery_source, ip, mac, hostname, timestamp, available, metadata FROM snmp_results WHERE _tp_time > earliest_ts()) GROUP BY ip, agent_id, poller_id`,
 	}
 }
 
 // initSchema creates the database streams for Proton, excluding netflow_metrics.
 func (db *DB) initSchema(ctx context.Context) error {
-	log.Println("=== Initializing schema with db.go version: 2025-05-13-v12 ===")
+	log.Println("=== Initializing schema with db.go version: 2025-05-13-v14 ===")
 
 	// Drop existing streams and materialized view to ensure updated schemas
 	for _, stream := range []string{"devices_mv", "sweep_results", "icmp_results", "snmp_results", "devices"} {
