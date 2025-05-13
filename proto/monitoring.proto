@@ -66,6 +66,7 @@ message ServiceStatus {
   string service_type = 4;
   int64 response_time = 5;
   string agent_id = 6;     // Agent ID for traceability
+  string poller_id = 7;     // Poller ID for traceability
 }
 
 message SweepServiceStatus {
