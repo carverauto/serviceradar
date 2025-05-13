@@ -208,35 +208,99 @@ func getCreateStreamStatements() []string {
         PRIMARY KEY (id)
         ORDER BY id`,
 
+		`CREATE STREAM IF NOT EXISTS sweep_results (
+			agent_id string,
+			poller_id string,
+			discovery_source string,
+			ip string,
+			mac nullable(string),
+			hostname nullable(string),
+			timestamp DateTime64(3) DEFAULT now64(3),
+			available boolean,
+			metadata map(string, string),
+			_tp_time DateTime64(3) DEFAULT now64(3)
+		) ENGINE = MergeTree()
+		PARTITION BY date(timestamp)
+		ORDER BY (ip, agent_id, poller_id)`,
+
+		`CREATE STREAM IF NOT EXISTS icmp_results (
+			agent_id string,
+			poller_id string,
+			discovery_source string,
+			ip string,
+			mac nullable(string),
+			hostname nullable(string),
+			timestamp DateTime64(3) DEFAULT now64(3),
+			available boolean,
+			metadata map(string, string),
+			_tp_time DateTime64(3) DEFAULT now64(3)
+		) ENGINE = MergeTree()
+		PARTITION BY date(timestamp)
+		ORDER BY (ip, agent_id, poller_id)`,
+
+		`CREATE STREAM IF NOT EXISTS snmp_results (
+			agent_id string,
+			poller_id string,
+			discovery_source string,
+			ip string,
+			mac nullable(string),
+			hostname nullable(string),
+			timestamp DateTime64(3) DEFAULT now64(3),
+			available boolean,
+			metadata map(string, string),
+			_tp_time DateTime64(3) DEFAULT now64(3)
+		) ENGINE = MergeTree()
+		PARTITION BY date(timestamp)
+		ORDER BY (ip, agent_id, poller_id)`,
+
 		`CREATE STREAM IF NOT EXISTS devices (
-            device_id string,
-            poller_id string,
-            discovery_source string,
-            ip string,
-            mac string,
-            hostname string,
-            first_seen DateTime64(3) DEFAULT now64(3),
-            last_seen DateTime64(3) DEFAULT now64(3),
-            is_available bool,
-            metadata string
-        ) ENGINE = MergeTree()
-        PARTITION BY date(first_seen)
-        ORDER BY (device_id, poller_id)`,
+			device_id string,
+			agent_id string,
+			poller_id string,
+			discovery_source string,
+			ip string,
+			mac nullable(string),
+			hostname nullable(string),
+			first_seen DateTime64(3),
+			last_seen DateTime64(3),
+			is_available boolean,
+			metadata map(string, string),
+			_tp_time DateTime64(3) DEFAULT now64(3)
+		) ENGINE = MergeTree()
+		PARTITION BY date(first_seen)
+		ORDER BY (ip, agent_id, poller_id)`,
+
+		`CREATE MATERIALIZED VIEW devices_mv INTO devices AS SELECT generateUUIDv4() AS device_id, agent_id, poller_id, any(discovery_source) AS discovery_source, ip, anyLast(mac) AS mac, anyLast(hostname) AS hostname, min(timestamp) AS first_seen, max(timestamp) AS last_seen, anyLast(available) AS is_available, mapAdd(map(), groupArray(tuple(metadata))) AS metadata FROM (SELECT agent_id, poller_id, discovery_source, ip, mac, hostname, timestamp, available, metadata FROM sweep_results WHERE _tp_time > earliest_ts() UNION ALL SELECT agent_id, poller_id, discovery_source, ip, mac, hostname, timestamp, available, metadata FROM icmp_results WHERE _tp_time > earliest_ts() UNION ALL SELECT agent_id, poller_id, discovery_source, ip, mac, hostname, timestamp, available, metadata FROM snmp_results WHERE _tp_time > earliest_ts()) GROUP BY ip, agent_id, poller_id`,
 	}
 }
 
 // initSchema creates the database streams for Proton, excluding netflow_metrics.
 func (db *DB) initSchema(ctx context.Context) error {
-	// Get the stream creation statements
-	createStreams := getCreateStreamStatements()
+	log.Println("=== Initializing schema with db.go version: 2025-05-13-v12 ===")
 
-	// Execute each statement
-	for _, statement := range createStreams {
-		if err := db.Conn.Exec(ctx, statement); err != nil {
-			return err
+	// Drop existing streams and materialized view to ensure updated schemas
+	for _, stream := range []string{"devices_mv", "sweep_results", "icmp_results", "snmp_results", "devices"} {
+		log.Printf("Dropping %s if exists", stream)
+		if err := db.Conn.Exec(ctx, fmt.Sprintf("DROP STREAM IF EXISTS %s", stream)); err != nil {
+			log.Printf("ERROR: Failed to drop %s: %v", stream, err)
+			return fmt.Errorf("failed to drop %s: %w", stream, err)
 		}
 	}
 
+	// Get the stream creation statements
+	createStreams := getCreateStreamStatements()
+
+	// Execute each statement with detailed logging
+	for i, statement := range createStreams {
+		log.Printf("Executing SQL statement %d: %s", i+1, statement)
+		if err := db.Conn.Exec(ctx, statement); err != nil {
+			log.Printf("ERROR: Failed to execute SQL statement %d: %v", i+1, err)
+			return fmt.Errorf("failed to execute statement %d: %w", i+1, err)
+		}
+		log.Printf("Successfully executed SQL statement %d", i+1)
+	}
+
+	log.Println("=== Schema initialized successfully ===")
 	return nil
 }
 
