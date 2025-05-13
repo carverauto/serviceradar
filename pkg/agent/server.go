@@ -614,7 +614,7 @@ func extractDeviceInfoFromChecker(req *proto.StatusRequest, resp *proto.StatusRe
 	return nil
 }
 
-func (s *Server) updateDeviceCache(info *models.DeviceInfo, pollerID string) {
+func (s *Server) updateDeviceCache(info *models.DeviceInfo) {
 	if info == nil || info.IP == "" {
 		return
 	}

@@ -2,43 +2,49 @@
 
 ## Overview
 
-ServiceRadar requires a unified device management system that consolidates device information from various sources and maintains a single source of truth in the core database. The system must efficiently track thousands of devices across the network, with data flowing from edge services through agents and pollers to the core service.
+ServiceRadar requires a unified device management system that consolidates device information from various sources into a single source of truth in the core Proton database. The system leverages existing raw data streams from edge services, flowing through agents and pollers to the core service, where a materialized view derives the devices stream. It ensures traceability of `agent_id` and `poller_id` for each device, efficiently tracking thousands of devices across the network without increasing the agent's memory footprint.
 
 ## Background
 
 Currently, device information is scattered across different components:
-- Network sweep services discover devices but don't consistently track them
-- Service checks monitor specific devices but don't feed into a central inventory
-- There's no unified view of all network devices for monitoring and analysis purposes
-- The `OpenPorts` field reference is unresolved in the sweep data model
+
+- Network sweep services discover devices but don't consistently track them.
+- Service checks monitor specific devices but don't feed into a central inventory.
+- There's no unified view of all network devices for monitoring and analysis.
+- The `OpenPorts` field reference is unresolved in the sweep data model.
+- No mechanism exists to track which agent discovered a device or which poller reported it.
 
 ## Architecture Context
 
-The ServiceRadar architecture follows a clear hierarchical flow:
+The ServiceRadar architecture follows a hierarchical flow:
 
-1. **Edge Services** (Sweep, ICMP, SNMP, etc.) run monitoring and discovery functions
-2. **Agent** coordinates with edge services to collect status and data
-3. **Poller** collects information from agents at regular intervals
-4. **Core Service** processes data and persists it in the database
+1. **Edge Services** (Sweep, ICMP, SNMP, etc.) run monitoring and discovery functions, producing raw data.
+2. **Agent** coordinates with edge services to collect raw status and device data, forwarding it to pollers without local caching.
+3. **Poller** collects raw data from multiple agents at regular intervals and forwards it to the core.
+4. **Core Service** processes raw data, persists it to Proton streams, and derives the devices stream using a materialized view.
 
-Key constraint: Edge services and agents don't have direct database access. All data must flow through the agent → poller → core pipeline.
+**Key Constraints**:
+- Edge services and agents lack direct database access; all data flows through the agent → poller → core pipeline.
+- Agents operate independently and are unaware of which poller queries them, supporting horizontal scaling of pollers.
+- `AgentID` and `PollerID` are propagated via `context.Context` to ensure traceability without embedding in service configurations.
+- Existing raw data collection (e.g., sweep, ICMP, SNMP results) must remain unchanged, with only `agent_id` and `poller_id` added.
 
 ## Objectives
 
-1. Create a unified device inventory in the core Proton database
-2. Implement efficient device discovery through existing services
-3. Establish a data pipeline from edge to core for device information
-4. Support incremental updates to handle large numbers of devices
-5. Enable deduplication and reconciliation of device information from multiple sources
-6. Resolve the "OpenPorts" reference issue in the sweep data model
+1. Create a unified device inventory in the core Proton database with `agent_id` and `poller_id` tracking.
+2. Leverage existing edge service data to derive device information without agent-side caching.
+3. Maintain the existing data pipeline from edge to core, adding only `agent_id` and `poller_id` propagation.
+4. Support deduplication using `IP`, `agent_id`, and `poller_id` as a composite key in the core.
+5. Resolve the `OpenPorts` reference issue in the sweep data model.
+6. Ensure scalability for multiple agents and pollers in a horizontally scaled environment with minimal agent resource usage.
 
 ## Device Information Model
 
-The system will use two primary models:
+The system uses two primary models:
 
 ### 1. DeviceInfo Model (Edge/Agent level)
 
-This model represents device information at the agent level:
+This model represents raw device information collected by edge services and forwarded by agents:
 
 ```go
 type DeviceInfo struct {
@@ -80,11 +86,12 @@ type DeviceInfo struct {
 
 ### 2. Device Model (Core/Database level)
 
-This model is used for storing device information in the Proton database:
+This model is used for storing device information in the Proton devices stream:
 
 ```go
 type Device struct {
     DeviceID        string                 `json:"device_id"`        // Unique identifier
+    AgentID         string                 `json:"agent_id"`         // Agent that discovered the device
     PollerID        string                 `json:"poller_id"`        // Poller that reported the device
     DiscoverySource string                 `json:"discovery_source"` // How device was discovered
     IP              string                 `json:"ip"`               // IP address
@@ -100,132 +107,116 @@ type Device struct {
 ## Data Flow
 
 ### 1. Edge Service to Agent
-
-- Edge services (Sweep, ICMP, etc.) discover or monitor devices
-- When reporting status to the agent, they include device information
-- For the Sweep service, the output JSON includes an array of discovered hosts with IP, MAC, hostname, availability, and open ports
+- Edge services (Sweep, ICMP, SNMP, etc.) discover or monitor devices, producing raw data (e.g., JSON with IP, MAC, hostname, open ports).
+- They report status to the agent via `GetStatus` responses, including raw data in the `Message` field.
+- The agent retrieves `AgentID` from `context.Context` and includes it in the JSON data and `StatusResponse`.
 
 ### 2. Agent to Poller
-
-- Agent maintains a local device cache to track discovered devices
-- Agent collects device information from all services
-- When polled, agent provides both service status and device information
-- Any new or changed devices are marked for reporting
+- The agent forwards raw data to the poller using the existing `GetStatus` gRPC method, including `agent_id` in `StatusResponse`.
+- No local caching or preprocessing of device data occurs, minimizing memory usage.
+- The agent is unaware of `poller_id`, allowing multiple pollers to query it without conflicts.
 
 ### 3. Poller to Core
-
-- Poller periodically collects status and device information from agents
-- Device data is batched to handle large numbers efficiently
-- Poller sends device information as part of its status report to the core
-- Allows for incremental updates rather than sending all devices every time
+- The poller periodically collects raw data from agents via `GetStatus`, using `context.Context` to access its `PollerID`.
+- The poller attaches `poller_id` to each `ServiceStatus` message, ensuring traceability.
+- Raw data is forwarded to the core in `PollerStatusRequest` messages, preserving `agent_id` and `poller_id`.
 
 ### 4. Core to Database
-
-- Core service processes incoming device information
-- Converts device information into database records
-- Performs deduplication based on IP address + poller ID
-- Preserves first_seen timestamps when updating existing devices
-- Consolidates information from multiple sources
+- The core service parses raw data from `ServiceStatus` messages (e.g., JSON in `Message`) and writes it to Proton streams (`sweep_results`, `icmp_results`, `snmp_results`), including `agent_id` and `poller_id`.
+- A materialized view aggregates and deduplicates data from these streams into the `devices` stream, using `IP`, `agent_id`, and `poller_id` as a composite key.
+- The view preserves `first_seen` timestamps, updates `last_seen` and `is_available`, and merges metadata intelligently.
 
 ## Implementation Requirements
 
-### Device Cache (Agent)
-
-- The agent should maintain a local cache of discovered devices
-- The cache tracks which devices have been reported vs. changed
-- It should support incremental reporting to handle thousands of devices
-- Periodic full reports ensure consistency with the core
+### Raw Data Collection (Agent)
+- Continue existing raw data collection from edge services without modification.
+- Include `agent_id` in `StatusResponse` and raw data JSON, retrieved from `context.Context` (in `pkg/common/context.go`).
+- Avoid local caching to minimize memory footprint.
 
 ### Protocol Updates
+- Update `proto/serviceradar.proto`:
+    - Ensure `agent_id` is included in `StatusResponse`.
+    - Add `poller_id` to `ServiceStatus` in `PollerStatusRequest`.
+    - Remove `DeviceStatusRequest`, `DeviceStatusResponse`, and `devices` from `PollerStatusRequest`, as device reporting is handled via raw data streams.
 
-- Extend the gRPC protocol to include device information:
-- Add DeviceInfo data to ServiceStatus (for sweep and other services)
-- Add device_data field to PollerStatusRequest
-
-### Proton Database Stream
-
-- Create a "devices" stream in Proton with appropriate fields
-- Support efficient querying of devices by IP, MAC, and other attributes
-- Implement batch insertion for device records
+### Proton Database Streams
+- Maintain existing streams (`sweep_results`, `icmp_results`, `snmp_results`) with fields for `ip`, `mac`, `hostname`, `open_ports`, `available`, `timestamp`, `agent_id`, `poller_id`, and `metadata`.
+- Create a `devices` stream with fields for `device_id`, `agent_id`, `poller_id`, `discovery_source`, `ip`, `mac`, `hostname`, `first_seen`, `last_seen`, `is_available`, and `metadata`.
+- Implement a materialized view to derive `devices` from raw streams, supporting efficient querying by `IP`, `agent_id`, and `poller_id`.
+- Use batch insertion for raw stream writes to handle large volumes.
 
 ### Deduplication Strategy
+- Use `IP`, `agent_id`, and `poller_id` as a composite key for deduplication in the materialized view.
+- Consolidate multi-source data, preserving `first_seen` and updating `last_seen` and `is_available`.
+- Merge metadata using Proton's `MAP_AGG` function, prioritizing newer data for conflicts.
 
-- Use IP address + poller ID as a primary key for deduplication
-- When the same device is reported by multiple services, consolidate information
-- Preserve first_seen timestamp across updates
-- Update last_seen timestamp and availability status on each report
+### Context-Based ID Management
+- Agents store `AgentID` in `context.Context` at startup, retrieved from `ServerConfig.AgentID`.
+- Pollers store `PollerID` in `context.Context`, retrieved from `Config.PollerID`.
+- Use a custom context key (`pkg/common/context.go`) to safely propagate `AgentID` and `PollerID`.
 
 ## Key Features
 
 ### 1. Centralized Device Inventory
+Maintain a single source of truth in the `devices` stream with:
+- Identification (`IP`, `MAC`, `hostname`, `agent_id`, `poller_id`).
+- Status (`is_available`, `last_seen`).
+- Discovery details (`discovery_source`, `first_seen`).
+- Extensible metadata.
 
-Maintain a single source of truth for all network devices with:
-- Basic identification (IP, MAC, hostname)
-- Current status (available, last seen)
-- Discovery information (source, time)
-- Network details (open ports, etc.)
-
-### 2. Incremental Device Reporting
-
-Efficiently handle large device networks by:
-- Only reporting new or changed devices in routine updates
-- Sending full device reports periodically for consistency
-- Batching device updates to minimize network traffic
+### 2. Stream-Based Device Derivation
+- Derive the `devices` stream from raw data streams (`sweep_results`, `icmp_results`, `snmp_results`) using a materialized view.
+- Aggregate and deduplicate data in the core, minimizing agent resource usage.
+- Support real-time updates with minimal latency.
 
 ### 3. Multi-Source Device Discovery
+Combine information from:
+- Network sweeps (ICMP, TCP scans).
+- Service checks (SNMP, port monitors).
+- Potential integration with external systems.
 
-Combine device information from multiple sources:
-- Network sweeps (ICMP, TCP scans)
-- Service checks (SNMP, port monitors)
-- Manual configuration
-- Integration with external systems
-
-### 4. Device Metadata Management
-
-Maintain rich device information:
-- Track open ports, services, and protocols
-- Store performance metrics (response time, packet loss)
-- Capture hardware and OS information when available
-- Support extensible metadata for future requirements
+### 4. Agent-Poller Traceability
+- Agents include `agent_id` in all gRPC responses, retrieved from context.
+- Pollers attach `poller_id` to raw data records, ensuring clear tracking of the agent-poller relationship.
+- Supports multiple pollers querying the same agent without requiring the agent to track `poller_id`.
 
 ## Success Metrics
-
-The device management system will be considered successful if it:
-
-1. Accurately tracks all network devices across the infrastructure
-2. Efficiently handles networks with 10,000+ devices
-3. Updates device status within 5 minutes of changes
-4. Maintains historical data about device discovery and availability
-5. Correctly consolidates information from multiple discovery sources
-6. Resolves the OpenPorts reference issue in the sweep data model
+The device management system is successful if it:
+1. Accurately tracks all network devices with `agent_id` and `poller_id` in the `devices` stream.
+2. Handles networks with 10,000+ devices efficiently.
+3. Updates device status within 5 minutes of changes.
+4. Maintains historical data (`first_seen`, `last_seen`).
+5. Correctly consolidates multi-source information in the materialized view.
+6. Resolves the `OpenPorts` reference issue.
+7. Ensures `agent_id` and `poller_id` are consistently propagated in raw data streams.
 
 ## Future Considerations
-
-- Device filtering and search capabilities
-- Device relationship mapping (topology)
-- Integration with external inventory systems
-- Device classification and tagging
-- Alerting on device status changes
-- Historical device metrics and trend analysis
+- Device filtering and search by `agent_id` or `poller_id`.
+- Device relationship mapping (topology).
+- Integration with external inventory systems.
+- Device classification and tagging.
+- Alerting on device status changes.
+- Historical device metrics and trend analysis.
+- Auto-generation of `PollerID` during installation.
 
 ## Phases of Implementation
 
 ### Phase 1: Core Infrastructure
-- Update models and protocols
-- Implement database schemas
-- Create basic device extraction in core
+- Update gRPC protocol to include `agent_id` in `StatusResponse` and `poller_id` in `ServiceStatus`.
+- Create context-based ID management in `pkg/common/context.go`.
+- Ensure raw data streams include `agent_id` and `poller_id`.
 
-### Phase 2: Agent-Side Caching
-- Implement device cache in agent
-- Add incremental reporting logic
-- Handle device information from various services
+### Phase 2: Agent and Poller Updates
+- Modify agent to propagate `AgentID` via context and include it in raw data.
+- Update poller to propagate `PollerID` and attach it to raw data records.
+- Validate existing raw data collection for consistency.
 
-### Phase 3: Advanced Features
-- Add deduplication and reconciliation logic
-- Implement periodic full reporting
-- Support device metadata enrichment
+### Phase 3: Proton Stream Processing
+- Create `devices` stream and materialized view in Proton.
+- Implement deduplication and multi-source merging in the view.
+- Optimize stream writes for large volumes.
 
-### Phase 4: Optimization and Scaling
-- Optimize for large device networks
-- Add batch processing
-- Implement query optimization
+### Phase 4: Testing and Optimization
+- Test end-to-end data flow with `agent_id` and `poller_id`.
+- Optimize materialized view for performance with 10,000+ devices.
+- Monitor agent memory usage and network traffic.

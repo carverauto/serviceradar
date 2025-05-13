@@ -391,12 +391,15 @@ func (p *Poller) initializeAgentConnections(ctx context.Context) error {
 }
 
 // Poll execution methods.
+// TODO: we might need to move the DeviceInfo into a separate poll with
+// a longer interval between polling periods.
 func (p *Poller) poll(ctx context.Context) error {
 	if p.PollFunc != nil {
 		return p.PollFunc(ctx)
 	}
 
 	var allStatuses []*proto.ServiceStatus
+	var allDevices []*proto.DeviceInfo
 
 	for agentName := range p.config.Agents {
 		agentConfig := p.config.Agents[agentName]
@@ -421,7 +424,7 @@ func (p *Poller) poll(ctx context.Context) error {
 			}
 		}
 
-		statuses, err := p.pollAgent(ctx, agentName, &agentConfig)
+		statuses, devices, err := p.pollAgent(ctx, agentName, &agentConfig)
 		if err != nil {
 			log.Printf("Error polling agent %s: %v", agentName, err)
 
@@ -429,22 +432,23 @@ func (p *Poller) poll(ctx context.Context) error {
 		}
 
 		allStatuses = append(allStatuses, statuses...)
+		allDevices = append(allDevices, devices...)
 	}
 
-	return p.reportToCore(ctx, allStatuses)
+	return p.reportToCore(ctx, allStatuses, allDevices)
 }
 
 func (p *Poller) pollAgent(
 	ctx context.Context,
 	agentName string,
-	agentConfig *AgentConfig) ([]*proto.ServiceStatus, error) {
+	agentConfig *AgentConfig) ([]*proto.ServiceStatus, []*proto.DeviceInfo, error) {
 	agent, err := p.getAgentConnection(agentName)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if err := p.ensureAgentHealth(ctx, agentName, agentConfig, agent); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	client := proto.NewAgentServiceClient(agent.client.GetConnection())
@@ -452,16 +456,31 @@ func (p *Poller) pollAgent(
 
 	statuses := poller.ExecuteChecks(ctx)
 
-	return statuses, nil
+	deviceResp, err := client.GetDeviceStatus(ctx, &proto.DeviceStatusRequest{
+		AgentId: agentName,
+	})
+	if err != nil {
+		log.Printf("Failed to get device status from agent %s: %v", agentName, err)
+
+		return statuses, nil, nil
+	}
+
+	// Add PollerID to DeviceInfo
+	for _, device := range deviceResp.Devices {
+		device.PollerId = p.config.PollerID
+	}
+
+	return statuses, deviceResp.Devices, nil
 }
 
-func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStatus) error {
+func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStatus, devices []*proto.DeviceInfo) error {
 	_, err := p.coreClient.ReportStatus(ctx, &proto.PollerStatusRequest{
-		Services:  statuses,
-		PollerId:  p.config.PollerID,
-		Timestamp: time.Now().Unix(),
+		Services:     statuses,
+		PollerId:     p.config.PollerID,
+		Timestamp:    time.Now().Unix(),
+		Devices:      devices,
+		IsFullReport: len(devices) > 0 && devices[0].IsFullReport, // Use first device's flag
 	})
-
 	if err != nil {
 		return fmt.Errorf("failed to report status to core: %w", err)
 	}

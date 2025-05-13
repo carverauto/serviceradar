@@ -1,71 +1,39 @@
 # ServiceRadar Agent Device Caching & Reporting PRD
 
 ## 1. Overview
-This PRD details the implementation strategy for enhancing the serviceradar-agent to support device caching and reporting. The agent will collect DeviceInfo from edge services (sweep, ICMP, port, SNMP), maintain a local cache, and report devices to the poller incrementally and periodically in full. The plan prioritizes efficiency, scalability, and minimal disruption to existing functionality, using a dedicated GetDeviceStatus gRPC method to ensure performance.
+This PRD details the implementation strategy for enhancing the `serviceradar-agent` to support device information collection and reporting without local caching. The agent will continue collecting raw `DeviceInfo` from edge services (sweep, ICMP, port, SNMP) unchanged, include `AgentID` in raw data via `context.Context`, and rely on the core service to derive the devices stream using a Proton materialized view. Pollers will add `PollerID` to raw data, ensuring traceability. The plan prioritizes minimal agent resource usage, scalability, and minimal disruption to existing functionality.
 
 ## 2. Goals
-- Collect and cache DeviceInfo from all edge services reliably.
-- Maintain an in-memory DeviceCache with state tracking (new, changed, reported).
-- Support incremental reporting to the poller, minimizing network overhead.
-- Enable periodic full synchronization for consistency.
-- Implement cache cleanup for stale entries.
-- Define a scalable gRPC protocol for device reporting.
+- Collect raw `DeviceInfo` from edge services without local caching.
+- Include `AgentID` in raw data responses using `context.Context` for traceability.
+- Maintain existing `GetStatus` gRPC method for raw data reporting.
+- Support `PollerID` addition by pollers for complete traceability.
+- Resolve the `OpenPorts` reference issue in the sweep service.
+- Ensure scalability for large networks without increasing agent memory footprint.
 
 ## 3. Background
 The ServiceRadar architecture involves:
 
-- **Edge Services**: Discover and monitor devices (e.g., SweepService in sweep_service.go).
-- **Agent**: Aggregates data, caches it, and reports to the poller (server.go, types.go).
-- **Poller**: Collects data from agents and forwards to the core (poller.go).
-- **Core**: Persists data in the Proton database.
+- **Edge Services**: Discover and monitor devices (e.g., `SweepService` in `sweep_service.go`), producing raw data.
+- **Agent**: Aggregates raw data and forwards to pollers (`server.go`, `types.go`).
+- **Poller**: Collects data from agents and forwards to the core (`poller.go`).
+- **Core**: Persists raw data in Proton streams and derives the devices stream.
 
-The agent currently has a basic DeviceCache but lacks reporting logic and advanced cache management. This PRD addresses these gaps, ensuring efficient data flow to the poller.
+The agent currently collects raw data but lacks `agent_id` and `poller_id` tracking. A previous plan proposed a local `DeviceCache`, but concerns about memory footprint led to a stream-based approach, where the core derives the devices stream using a materialized view, minimizing agent changes.
 
-## 4. Current State Analysis (pkg/agent)
-
-- **Cache Structure**: The DeviceCache (types.go) stores devices by IP, with DeviceState tracking Info, Reported, Changed, and LastSeen. It's thread-safe but lacks configuration for reporting intervals or cleanup.
-- **Cache Population**: The updateDeviceCache function (server.go) extracts DeviceInfo from sweep, ICMP, port, and SNMP checks, but merging logic is basic (overwrites Info).
-- **Reporting**: No mechanism exists to report DeviceCache contents to the poller. GetStatus handles service status only.
-- **Checkers**: Sweep, ICMP, port, and SNMP checkers generate device data, but extraction logic needs refinement for consistency.
+## 4. Current State Analysis (`pkg/agent`)
+- **Raw Data Collection**: The agent collects raw data from edge services via `GetStatus`, storing it in JSON `Message` fields (e.g., `extractDevicesFromSweep`, `extractDeviceInfoFromICMP`).
+- **No Cache**: The agent does not maintain a device cache, but extraction logic needs to include `agent_id`.
+- **Reporting**: `GetStatus` returns raw data without `agent_id`, and no `GetDeviceStatus` exists.
+- **Checkers**: Sweep, ICMP, port, and SNMP checkers generate device data, but extraction logic needs consistency and `agent_id` inclusion.
+- **Traceability**: No mechanism exists to propagate `AgentID` or include `PollerID`.
 
 ## 5. Proposed Changes
 
-### 5.1 Data Structures (types.go)
-**DeviceCache**:
-
-Enhance to include reporting and cleanup configuration:
-```go
-type DeviceCache struct {
-    Devices             map[string]*DeviceState // IP -> device state
-    LastReport          time.Time               // Last incremental report
-    LastFullReport      time.Time               // Last full report
-    IncrementalInterval time.Duration           // Interval for incremental reports (e.g., 5m)
-    FullReportInterval  time.Duration           // Interval for full reports (e.g., 1h)
-    CleanupInterval     time.Duration           // Interval for cleanup (e.g., 1h)
-    MaxAge              time.Duration           // Max age for devices (e.g., 24h)
-    BatchSize           int                     // Max devices per report (e.g., 1000)
-    mu                  sync.RWMutex
-}
-```
-
-**DeviceState**:
-
-Add multi-source tracking and first-seen timestamp:
-```go
-type DeviceState struct {
-    Info         models.DeviceInfo     // Device data
-    Reported     bool                  // Reported to poller
-    Changed      bool                  // Changed since last report
-    LastSeen     time.Time             // Last observation
-    FirstSeen    time.Time             // First observation
-    Sources      map[string]bool       // Discovery sources (e.g., "network_sweep", "icmp")
-    ReportCount  int                   // Number of reports
-}
-```
+### 5.1 Data Structures (`types.go`)
 
 **ServerConfig**:
-
-Add cache configuration:
+Ensure `AgentID` is available:
 ```go
 type ServerConfig struct {
     AgentID            string                 `json:"agent_id"`
@@ -75,389 +43,135 @@ type ServerConfig struct {
     KVAddress          string                 `json:"kv_address,omitempty"`
     KVSecurity         *models.SecurityConfig `json:"kv_security,omitempty"`
     CheckersDir        string                 `json:"checkers_dir"`
-    DeviceCacheConfig  *DeviceCacheConfig     `json:"device_cache_config,omitempty"`
-}
-
-type DeviceCacheConfig struct {
-    IncrementalInterval Duration `json:"incremental_interval"` // e.g., "5m"
-    FullReportInterval  Duration `json:"full_report_interval"` // e.g., "1h"
-    CleanupInterval     Duration `json:"cleanup_interval"`     // e.g., "1h"
-    MaxAge              Duration `json:"max_age"`              // e.g., "24h"
-    BatchSize           int      `json:"batch_size"`           // e.g., 1000
 }
 ```
 
-### 5.2 Cache Population (server.go)
-**updateDeviceCache**:
-
-Enhance to support multi-source merging and state tracking:
+**Server**:
+Add context for `AgentID`:
 ```go
-func (s *Server) updateDeviceCache(info *models.DeviceInfo) {
-    if info == nil || info.IP == "" {
-        return
+type Server struct {
+    // ... other fields ...
+    ctx context.Context // Context with AgentID
+}
+```
+
+**Remove DeviceCache**:
+- Delete `DeviceCache`, `DeviceState`, and `DeviceCacheConfig`, as no caching is needed.
+
+### 5.2 Raw Data Collection (`server.go`)
+
+**GetStatus**:
+Include `AgentID` from context:
+```go
+func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
+    agentID, ok := common.GetAgentID(s.ctx)
+    if !ok {
+        log.Printf("AgentID not found in server context")
+        return nil, fmt.Errorf("agent ID not found in context")
     }
-    s.deviceCache.mu.Lock()
-    defer s.deviceCache.mu.Unlock()
-    key := info.IP
-    now := time.Now()
-    if device, exists := s.deviceCache.Devices[key]; exists {
-        oldInfo := device.Info
-        updateDeviceFields(&device.Info, info)
-        device.LastSeen = now
-        device.Sources[info.DiscoverySource] = true
-        if hasSignificantChanges(oldInfo, device.Info) {
-            device.Changed = true
-            device.Reported = false
-            device.ReportCount++
-        }
-    } else {
-        s.deviceCache.Devices[key] = &DeviceState{
-            Info:        *info,
-            Reported:    false,
-            Changed:     true,
-            LastSeen:    now,
-            FirstSeen:   now,
-            Sources:     map[string]bool{info.DiscoverySource: true},
-            ReportCount: 0,
-        }
+
+    var response *proto.StatusResponse
+    switch {
+    case isRperfCheckerRequest(req):
+        response, _ = s.handleRperfChecker(ctx, req)
+    case isICMPRequest(req):
+        response, _ = s.handleICMPCheck(ctx, req)
+    case isSweepRequest(req):
+        response, _ = s.getSweepStatus(ctx)
+    default:
+        response, _ = s.handleDefaultChecker(ctx, req)
     }
+
+    if response != nil {
+        response.AgentId = agentID
+        // Update Message JSON to include agent_id
+        response.Message = includeAgentIDInMessage(response.Message, agentID)
+    }
+
+    return response, nil
 }
 
-func updateDeviceFields(target, source *models.DeviceInfo) {
-    if source.MAC != "" {
-        target.MAC = source.MAC
+func includeAgentIDInMessage(message, agentID string) string {
+    var data map[string]interface{}
+    if err := json.Unmarshal([]byte(message), &data); err != nil {
+        log.Printf("Failed to unmarshal message: %v", err)
+        return message
     }
-    if source.Hostname != "" {
-        target.Hostname = source.Hostname
+    data["agent_id"] = agentID
+    updatedMessage, err := json.Marshal(data)
+    if err != nil {
+        log.Printf("Failed to marshal message: %v", err)
+        return message
     }
-    target.Available = source.Available
-    target.LastSeen = source.LastSeen
-    if len(source.OpenPorts) > 0 {
-        target.OpenPorts = source.OpenPorts
-    }
-    if source.Metadata != nil {
-        if target.Metadata == nil {
-            target.Metadata = make(map[string]string)
-        }
-        for k, v := range source.Metadata {
-            target.Metadata[k] = v
-        }
-    }
-    // Update other fields similarly
-}
-
-func hasSignificantChanges(old, new models.DeviceInfo) bool {
-    return old.Available != new.Available ||
-        !reflect.DeepEqual(old.OpenPorts, new.OpenPorts) ||
-        old.Hostname != new.Hostname ||
-        old.MAC != new.MAC
+    return string(updatedMessage)
 }
 ```
 
 **Extraction Functions**:
-
-Refine extraction for consistency:
+Update to include `agent_id` in JSON:
 ```go
-func extractDeviceInfoFromICMP(message, host string) *models.DeviceInfo {
+func extractDeviceInfoFromICMP(message, host string, agentID string) string {
     var icmpData struct {
         Host         string  `json:"host"`
         ResponseTime int64   `json:"response_time"`
         PacketLoss   float64 `json:"packet_loss"`
         Available    bool    `json:"available"`
+        AgentID      string  `json:"agent_id"`
     }
     if err := json.Unmarshal([]byte(message), &icmpData); err != nil {
-        return nil
+        log.Printf("Failed to unmarshal ICMP data: %v", err)
+        return message
     }
-    return &models.DeviceInfo{
-        IP:              icmpData.Host,
-        Available:       icmpData.Available,
-        DiscoverySource: "icmp",
-        LastSeen:        time.Now().Unix(),
-        DiscoveryTime:   time.Now().Unix(),
-        ResponseTime:    icmpData.ResponseTime,
-        PacketLoss:      icmpData.PacketLoss,
+    icmpData.AgentID = agentID
+    updatedMessage, err := json.Marshal(icmpData)
+    if err != nil {
+        log.Printf("Failed to marshal ICMP data: %v", err)
+        return message
     }
+    return string(updatedMessage)
 }
 
-func extractDevicesFromSweep(message string, s *Server) {
+func extractDevicesFromSweep(message string, agentID string) string {
     var sweepData struct {
-        Hosts []models.HostResult `json:"hosts"`
+        Hosts   []models.HostResult `json:"hosts"`
+        AgentID string              `json:"agent_id"`
     }
     if err := json.Unmarshal([]byte(message), &sweepData); err != nil {
-        return
+        log.Printf("Failed to unmarshal sweep data: %v", err)
+        return message
     }
-    for _, host := range sweepData.Hosts {
-        deviceInfo := &models.DeviceInfo{
-            IP:              host.Host,
-            Available:       host.Available,
-            DiscoverySource: "network_sweep",
-            OpenPorts:       host.OpenPorts,
-            LastSeen:        time.Now().Unix(),
-            DiscoveryTime:   time.Now().Unix(),
-            Hostname:        host.Hostname,
-            ResponseTime:    host.ResponseTime,
-        }
-        s.updateDeviceCache(deviceInfo)
+    sweepData.AgentID = agentID
+    now := time.Now().Unix()
+    for i, host := range sweepData.Hosts {
+        sweepData.Hosts[i].Timestamp = now
     }
-}
-
-func extractDeviceInfoFromChecker(req *proto.StatusRequest, resp *proto.StatusResponse) *models.DeviceInfo {
-    switch req.ServiceType {
-    case "port":
-        parts := strings.Split(req.Details, ":")
-        if len(parts) < 1 {
-            return nil
-        }
-        host := parts[0]
-        var port int
-        if len(parts) == 2 {
-            port, _ = strconv.Atoi(parts[1])
-        }
-        return &models.DeviceInfo{
-            IP:              host,
-            Available:       resp.Available,
-            DiscoverySource: "port_check",
-            LastSeen:        time.Now().Unix(),
-            DiscoveryTime:   time.Now().Unix(),
-            OpenPorts:       []int{port},
-            ResponseTime:    resp.ResponseTime,
-        }
-    case "snmp":
-        return &models.DeviceInfo{
-            IP:              req.Details,
-            Available:       resp.Available,
-            DiscoverySource: "snmp_check",
-            LastSeen:        time.Now().Unix(),
-            DiscoveryTime:   time.Now().Unix(),
-        }
+    updatedMessage, err := json.Marshal(sweepData)
+    if err != nil {
+        log.Printf("Failed to marshal sweep data: %v", err)
+        return message
     }
-    return nil
+    return string(updatedMessage)
 }
 ```
 
-### 5.3 Cache Management (server.go)
-**Cleanup Logic**:
+### 5.3 Service Integration (`sweep_service.go`, etc.)
 
-Implement a background cleanup task:
-```go
-func (s *Server) SetupDeviceMaintenance(ctx context.Context) {
-    ticker := time.NewTicker(s.deviceCache.CleanupInterval)
-    go func() {
-        defer ticker.Stop()
-        for {
-            select {
-            case <-ctx.Done():
-                return
-            case <-ticker.C:
-                removed := s.CleanupDeviceCache()
-                if removed > 0 {
-                    log.Printf("Removed %d stale devices from cache", removed)
-                }
-            }
-        }
-    }()
-}
-
-func (s *Server) CleanupDeviceCache() int {
-    s.deviceCache.mu.Lock()
-    defer s.deviceCache.mu.Unlock()
-    now := time.Now()
-    removed := 0
-    for ip, device := range s.deviceCache.Devices {
-        if now.Sub(device.LastSeen) > s.deviceCache.MaxAge {
-            delete(s.deviceCache.Devices, ip)
-            removed++
-        }
-    }
-    return removed
-}
-```
-
-**Initialization**:
-
-Initialize DeviceCache with configuration in NewServer:
-```go
-func NewServer(ctx context.Context, configDir string, cfg *ServerConfig) (*Server, error) {
-    s := initializeServer(configDir, cfg)
-    incrementalInterval := 5 * time.Minute
-    fullReportInterval := 1 * time.Hour
-    cleanupInterval := 1 * time.Hour
-    maxAge := 24 * time.Hour
-    batchSize := 1000
-    if cfg.DeviceCacheConfig != nil {
-        incrementalInterval = time.Duration(cfg.DeviceCacheConfig.IncrementalInterval)
-        fullReportInterval = time.Duration(cfg.DeviceCacheConfig.FullReportInterval)
-        cleanupInterval = time.Duration(cfg.DeviceCacheConfig.CleanupInterval)
-        maxAge = time.Duration(cfg.DeviceCacheConfig.MaxAge)
-        batchSize = cfg.DeviceCacheConfig.BatchSize
-    }
-    s.deviceCache = DeviceCache{
-        Devices:             make(map[string]*DeviceState),
-        IncrementalInterval: incrementalInterval,
-        FullReportInterval:  fullReportInterval,
-        CleanupInterval:     cleanupInterval,
-        MaxAge:              maxAge,
-        BatchSize:           batchSize,
-    }
-    s.SetupDeviceMaintenance(ctx)
-    return s, nil
-}
-```
-
-### 5.4 Reporting Logic (server.go)
-**New gRPC Method**:
-
-Add GetDeviceStatus to report device data:
-```go
-func (s *Server) GetDeviceStatus(ctx context.Context, req *proto.DeviceStatusRequest) (*proto.DeviceStatusResponse, error) {
-    devices, isFullReport := s.collectDeviceUpdates()
-    batches := s.buildDeviceBatches(devices)
-    var protoDevices []*proto.DeviceInfo
-    for _, batch := range batches {
-        protoDevices = append(protoDevices, convertToProtoDevices(batch)...)
-    }
-    s.markReported(devices)
-    return &proto.DeviceStatusResponse{
-        Devices:      protoDevices,
-        IsFullReport: isFullReport,
-    }, nil
-}
-
-func (s *Server) collectDeviceUpdates() ([]*models.DeviceInfo, bool) {
-    s.deviceCache.mu.Lock()
-    defer s.deviceCache.mu.Unlock()
-    var devices []*models.DeviceInfo
-    isFullReport := s.shouldSendFullReport()
-    now := time.Now()
-    for _, device := range s.deviceCache.Devices {
-        if isFullReport || (device.Changed && !device.Reported) {
-            devices = append(devices, &device.Info)
-        }
-    }
-    if isFullReport {
-        s.deviceCache.LastFullReport = now
-    }
-    s.deviceCache.LastReport = now
-    return devices, isFullReport
-}
-
-func (s *Server) shouldSendFullReport() bool {
-    return s.deviceCache.LastFullReport.IsZero() ||
-        time.Since(s.deviceCache.LastFullReport) >= s.deviceCache.FullReportInterval
-}
-
-func (s *Server) buildDeviceBatches(devices []*models.DeviceInfo) [][]*models.DeviceInfo {
-    if s.deviceCache.BatchSize <= 0 || len(devices) <= s.deviceCache.BatchSize {
-        return [][]*models.DeviceInfo{devices}
-    }
-    var batches [][]*models.DeviceInfo
-    for i := 0; i < len(devices); i += s.deviceCache.BatchSize {
-        end := i + s.deviceCache.BatchSize
-        if end > len(devices) {
-            end = len(devices)
-        }
-        batches = append(batches, devices[i:end])
-    }
-    return batches
-}
-
-func (s *Server) markReported(devices []*models.DeviceInfo) {
-    s.deviceCache.mu.Lock()
-    defer s.deviceCache.mu.Unlock()
-    for _, device := range devices {
-        if d, exists := s.deviceCache.Devices[device.IP]; exists {
-            d.Reported = true
-            d.Changed = false
-        }
-    }
-}
-
-func convertToProtoDevices(devices []*models.DeviceInfo) []*proto.DeviceInfo {
-    protos := make([]*proto.DeviceInfo, len(devices))
-    for i, d := range devices {
-        protos[i] = &proto.DeviceInfo{
-            Ip:              d.IP,
-            Mac:             d.MAC,
-            Hostname:        d.Hostname,
-            Available:       d.Available,
-            LastSeen:        d.LastSeen,
-            DiscoverySource: d.DiscoverySource,
-            DiscoveryTime:   d.DiscoveryTime,
-            OpenPorts:       convertPorts(d.OpenPorts),
-            NetworkSegment:  d.NetworkSegment,
-            ServiceType:     d.ServiceType,
-            ServiceName:     d.ServiceName,
-            ResponseTime:    d.ResponseTime,
-            PacketLoss:      d.PacketLoss,
-            DeviceType:      d.DeviceType,
-            Vendor:          d.Vendor,
-            Model:           d.Model,
-            OsInfo:          d.OSInfo,
-            Metadata:        d.Metadata,
-        }
-    }
-    return protos
-}
-
-func convertPorts(ports []int) []int32 {
-    result := make([]int32, len(ports))
-    for i, p := range ports {
-        result[i] = int32(p)
-    }
-    return result
-}
-```
-
-**Protocol Definition (proto/serviceradar.proto)**:
-
-Add new messages and RPC:
-```protobuf
-message DeviceStatusRequest {
-    string agent_id = 1;
-}
-
-message DeviceStatusResponse {
-    repeated DeviceInfo devices = 1;
-    bool is_full_report = 2;
-}
-
-message DeviceInfo {
-    string ip = 1;
-    string mac = 2;
-    string hostname = 3;
-    bool available = 4;
-    int64 last_seen = 5;
-    string discovery_source = 6;
-    int64 discovery_time = 7;
-    repeated int32 open_ports = 8;
-    string network_segment = 9;
-    string service_type = 10;
-    string service_name = 11;
-    int64 response_time = 12;
-    double packet_loss = 13;
-    string device_type = 14;
-    string vendor = 15;
-    string model = 16;
-    string os_info = 17;
-    map<string, string> metadata = 18;
-}
-
-service AgentService {
-    rpc GetStatus(StatusRequest) returns (StatusResponse);
-    rpc GetDeviceStatus(DeviceStatusRequest) returns (DeviceStatusResponse);
-}
-```
-
-### 5.5 Service Integration (sweep_service.go, etc.)
 **SweepService**:
-
-Ensure OpenPorts is reliably populated:
+Include `AgentID` in JSON:
 ```go
 func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, error) {
+    agentID, ok := common.GetAgentID(ctx)
+    if !ok {
+        log.Printf("AgentID not found in context")
+        return nil, fmt.Errorf("agent ID not found in context")
+    }
+
     summary, err := s.sweeper.GetStatus(ctx)
     if err != nil {
+        log.Printf("Failed to get sweep summary: %v", err)
         return nil, fmt.Errorf("failed to get sweep summary: %w", err)
     }
+
     s.mu.RLock()
     data := struct {
         Network        string              `json:"network"`
@@ -468,6 +182,7 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, er
         Hosts          []models.HostResult `json:"hosts"`
         DefinedCIDRs   int                 `json:"defined_cidrs"`
         UniqueIPs      int                 `json:"unique_ips"`
+        AgentID        string              `json:"agent_id"`
     }{
         Network:        strings.Join(s.config.Networks, ","),
         TotalHosts:     summary.TotalHosts,
@@ -477,64 +192,84 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, er
         Hosts:          summary.Hosts,
         DefinedCIDRs:   len(s.config.Networks),
         UniqueIPs:      s.stats.uniqueIPs,
+        AgentID:        agentID,
     }
     s.mu.RUnlock()
+
     for _, host := range data.Hosts {
-        if host.Available && len(host.OpenPorts) == 0 {
+        if host.Available && len(host.OpenPorts) == 0 && !containsICMPMode(s.config.SweepModes) {
             log.Printf("Warning: Host %s is available but has no open ports", host.Host)
         }
     }
+
     statusJSON, err := json.Marshal(data)
     if err != nil {
+        log.Printf("Failed to marshal status: %v", err)
         return nil, fmt.Errorf("failed to marshal sweep status: %w", err)
     }
+
     return &proto.StatusResponse{
         Available:    true,
         Message:      string(statusJSON),
         ServiceName:  "network_sweep",
         ServiceType:  "sweep",
         ResponseTime: time.Since(time.Unix(summary.LastSweep, 0)).Nanoseconds(),
+        AgentId:      agentID,
     }, nil
 }
 ```
 
 **Other Checkers**:
+Ensure ICMP, port, and SNMP checkers include `agent_id` in their JSON responses, using context.
 
-Ensure ICMP, port, and SNMP checkers produce consistent DeviceInfo fields, validated in their respective Check methods.
+### 5.4 Poller Integration (`pkg/poller/poller.go`)
 
-### 5.6 Poller Integration (pkg/poller/poller.go)
-
-Update pollAgent to call GetDeviceStatus:
+**pollAgent**:
+Add `PollerID` to `ServiceStatus`:
 ```go
-func (p *Poller) pollAgent(ctx context.Context, agentName string, agentConfig *AgentConfig) ([]*proto.ServiceStatus, []*proto.DeviceInfo, error) {
-    agent, err := p.getAgentConnection(agentName)
-    if err != nil {
-        return nil, nil, err
+func (p *Poller) pollAgent(ctx context.Context, agentID string, agentConn *AgentConnection) ([]*proto.ServiceStatus, error) {
+    client := proto.NewAgentServiceClient(agentConn.client.GetConnection())
+    pollerID, ok := common.GetPollerID(p.ctx)
+    if !ok {
+        return nil, fmt.Errorf("poller ID not found in context")
     }
-    if err := p.ensureAgentHealth(ctx, agentName, agentConfig, agent); err != nil {
-        return nil, nil, err
+    var statuses []*proto.ServiceStatus
+    for _, check := range agentConn.config.Checks {
+        resp, err := client.GetStatus(ctx, &proto.StatusRequest{
+            ServiceName: check.ServiceName,
+            ServiceType: check.ServiceType,
+            Details:     check.Details,
+            Port:        check.Port,
+        })
+        if err != nil {
+            log.Printf("Failed to get status for %s: %v", check.ServiceName, err)
+            continue
+        }
+        statuses = append(statuses, &proto.ServiceStatus{
+            ServiceName:  resp.ServiceName,
+            Available:    resp.Available,
+            Message:      resp.Message,
+            ServiceType:  resp.ServiceType,
+            ResponseTime: resp.ResponseTime,
+            PollerId:     pollerID,
+        })
     }
-    client := proto.NewAgentServiceClient(agent.client.GetConnection())
-    poller := newAgentPoller(agentName, agentConfig, client, defaultTimeout)
-    statuses := poller.ExecuteChecks(ctx)
-    deviceResp, err := client.GetDeviceStatus(ctx, &proto.DeviceStatusRequest{AgentId: agentName})
-    if err != nil {
-        log.Printf("Failed to get device status from agent %s: %v", agentName, err)
-        return statuses, nil, nil
-    }
-    return statuses, deviceResp.Devices, nil
+    return statuses, nil
 }
 ```
 
-Update reportToCore to include devices:
+**reportToCore**:
+Forward raw data with `PollerID`:
 ```go
-func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStatus, devices []*proto.DeviceInfo, isFullReport bool) error {
+func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStatus) error {
+    pollerID, ok := common.GetPollerID(p.ctx)
+    if !ok {
+        return fmt.Errorf("poller ID not found in context")
+    }
     _, err := p.coreClient.ReportStatus(ctx, &proto.PollerStatusRequest{
-        Services:     statuses,
-        PollerId:     p.config.PollerID,
-        Timestamp:    time.Now().Unix(),
-        Devices:      devices,
-        IsFullReport: isFullReport,
+        Services:  statuses,
+        PollerId:  pollerID,
+        Timestamp: time.Now().Unix(),
     })
     if err != nil {
         return fmt.Errorf("failed to report status to core: %w", err)
@@ -543,79 +278,64 @@ func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStat
 }
 ```
 
-Update PollerStatusRequest in proto/serviceradar.proto:
-```protobuf
-message PollerStatusRequest {
-    repeated ServiceStatus services = 1;
-    string poller_id = 2;
-    int64 timestamp = 3;
-    repeated DeviceInfo devices = 4;
-    bool is_full_report = 5;
-}
-```
-
 ## 6. Implementation Phases
 
-### Phase 1: Core Cache Infrastructure (1 week):
-- Update types.go with enhanced DeviceCache, DeviceState, and ServerConfig.
-- Initialize DeviceCache in server.go with configuration.
-- Define GetDeviceStatus and DeviceInfo in proto/serviceradar.proto.
+### Phase 1: Core Infrastructure (3 days)
+- Update `types.go` to remove `DeviceCache` and add context to `Server`.
+- Initialize context in `server.go` with `AgentID`.
+- Update `proto/serviceradar.proto` to include `agent_id` in `StatusResponse` and `poller_id` in `ServiceStatus`.
+- Create `pkg/common/context.go` for context key management.
 
-### Phase 2: Device Extraction and Cache Population (1 week):
-- Enhance updateDeviceCache and extraction functions in server.go.
-- Validate OpenPorts in sweep_service.go.
+### Phase 2: Agent and Poller Updates (4 days)
+- Modify `GetStatus` to include `AgentID` in `StatusResponse` and JSON `Message`.
+- Update extraction functions to include `agent_id` in JSON.
+- Validate `OpenPorts` in `sweep_service.go`.
+- Update poller to include `PollerID` in `ServiceStatus`.
 
-### Phase 3: Reporting and Poller Integration (1 week):
-- Implement GetDeviceStatus and reporting logic in server.go.
-- Update poller's pollAgent and reportToCore in poller.go.
-
-### Phase 4: Testing and Optimization (1 week):
-- Add unit tests for cache and reporting logic in server_test.go.
-- Test with 10,000+ devices to validate scalability.
-- Optimize batching and locking if needed.
+### Phase 3: Testing (4 days)
+- Add unit tests for context-based `AgentID` propagation.
+- Test raw data collection with `agent_id` and `poller_id`.
+- Simulate large device counts (10,000+) to verify agent memory usage.
 
 ## 7. Success Metrics
-- Agent caches device data from all edge services accurately.
-- Incremental reports send only changed devices, reducing network load.
-- Full reports occur at configured intervals, ensuring consistency.
-- Device data reaches the core within 5 minutes of discovery.
-- System handles 10,000+ devices without performance degradation.
-- OpenPorts field is consistently populated.
+- Agent includes `agent_id` in all `StatusResponse` messages and JSON data.
+- Poller includes `poller_id` in `ServiceStatus` messages.
+- Raw data collection remains unchanged, with no local caching.
+- `OpenPorts` is consistently populated.
+- Agent memory usage remains minimal (<1 MB for 10,000 devices).
+- Raw data reaches the core within 5 minutes.
 
 ## 8. Risks and Mitigations
 
 | Risk | Mitigation |
 |------|------------|
-| Large cache size impacts memory usage. | Implement cleanup with configurable MaxAge and monitor memory usage. |
-| Frequent GetDeviceStatus calls overload the agent. | Use batching and configurable intervals; monitor call frequency. |
-| Race conditions in cache access. | Ensure thread-safe operations with sync.RWMutex. |
-| Protocol changes disrupt existing functionality. | Phase protocol updates and test thoroughly. |
+| Increased network traffic from raw data | Use gRPC compression and batching in core. |
+| Missing context `AgentID` or `PollerID` | Log errors and return gRPC error if IDs are absent. |
+| Materialized view latency | Optimize view with indexing and test for 5-minute updates. |
 
 ## 9. Open Questions
-- Should the poller control full syncs via a flag in DeviceStatusRequest?
-- Is a maximum cache size limit necessary, or is MaxAge sufficient?
-- How should errors in GetDeviceStatus be handled and reported?
+- How should context errors (e.g., missing `AgentID`) be reported to operators?
+- Should the core implement a retry buffer for outages?
 
 ## 10. Testing Plan
 
-### Unit Tests:
-- Test updateDeviceCache for merging and state tracking.
-- Test collectDeviceUpdates for incremental and full reports.
-- Test extraction functions for consistency.
+### Unit Tests
+- Test `GetStatus` for `AgentID` inclusion in `StatusResponse` and JSON.
+- Test extraction functions for `agent_id` in JSON.
+- Test context-based `AgentID` propagation.
 
-### Integration Tests:
-- Test agent-poller communication for device data transfer.
-- Simulate large device counts and full syncs.
+### Integration Tests
+- Test agent-poller communication with `agent_id` and `poller_id`.
+- Verify raw data consistency with existing collection.
 
-### System Tests:
-- End-to-end test from edge to core.
-- Performance test with 10,000+ devices.
-- Failure recovery test for agent restarts.
+### System Tests
+- End-to-end test from edge to core with `agent_id` and `poller_id`.
+- Performance test with 10,000+ devices, monitoring agent memory.
 
 ## 11. Conclusion
-This PRD provides a robust and scalable plan for implementing device caching and reporting in the serviceradar-agent. By using a dedicated GetDeviceStatus RPC, it avoids performance issues with GetStatus, ensuring efficient handling of large device networks. The phased approach and comprehensive testing plan ensure a reliable implementation, meeting the Device Management System's requirements.
+This PRD provides a lightweight plan for enhancing the `serviceradar-agent` to support device information collection without caching, using context-based `AgentID` propagation and poller-added `PollerID`. The stream-based approach minimizes agent resource usage while enabling a unified device inventory in Proton.
 
-### Next Steps:
-- Validate protocol changes with poller and core teams.
-- Develop detailed function signatures and test cases.
-- Proceed with Phase 1 implementation after stakeholder approval.
+### Next Steps
+- Coordinate with core team for materialized view implementation.
+- Develop detailed test cases.
+- Proceed with Phase 1 after approval.
