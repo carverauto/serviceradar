@@ -248,7 +248,13 @@ func TestReportStatus(t *testing.T) {
 }
 
 func TestProcessSweepData(t *testing.T) {
-	server := &Server{}
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	server := &Server{
+		DB: mockDB,
+	}
 	now := time.Now()
 
 	ctx := context.Background()
@@ -258,6 +264,7 @@ func TestProcessSweepData(t *testing.T) {
 		inputMessage  string
 		expectedSweep proto.SweepServiceStatus
 		expectError   bool
+		hasHosts      bool // Indicates if the input includes hosts
 	}{
 		{
 			name:         "Valid timestamp",
@@ -269,6 +276,7 @@ func TestProcessSweepData(t *testing.T) {
 				LastSweep:      1678886400,
 			},
 			expectError: false,
+			hasHosts:    false,
 		},
 		{
 			name:         "Invalid timestamp (far future)",
@@ -280,11 +288,25 @@ func TestProcessSweepData(t *testing.T) {
 				LastSweep:      now.Unix(),
 			},
 			expectError: false,
+			hasHosts:    false,
+		},
+		{
+			name:         "Valid timestamp with hosts",
+			inputMessage: `{"network": "192.168.1.0/24", "total_hosts": 10, "available_hosts": 5, "last_sweep": 1678886400, "hosts": [{"host": "192.168.1.1", "available": true, "mac": "00:11:22:33:44:55", "hostname": "host1"}]}`,
+			expectedSweep: proto.SweepServiceStatus{
+				Network:        "192.168.1.0/24",
+				TotalHosts:     10,
+				AvailableHosts: 5,
+				LastSweep:      1678886400,
+			},
+			expectError: false,
+			hasHosts:    true,
 		},
 		{
 			name:         "Invalid JSON",
 			inputMessage: `{"network": "192.168.1.0/24", "total_hosts": "invalid", "available_hosts": 5, "last_sweep": 1678886400}`,
 			expectError:  true,
+			hasHosts:     false,
 		},
 	}
 
@@ -294,6 +316,20 @@ func TestProcessSweepData(t *testing.T) {
 
 			svc := &api.ServiceStatus{
 				Message: tt.inputMessage,
+			}
+
+			// Set up mock expectation for StoreSweepResults only when hosts are present
+			if !tt.expectError && tt.hasHosts {
+				mockDB.EXPECT().StoreSweepResults(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, results []*db.SweepResult) error {
+					if tt.name == "Valid timestamp with hosts" {
+						assert.Len(t, results, 1, "Expected one sweep result")
+						assert.Equal(t, "192.168.1.1", results[0].IP, "Expected correct IP")
+						assert.Equal(t, "00:11:22:33:44:55", *results[0].MAC, "Expected correct MAC")
+						assert.Equal(t, "host1", *results[0].Hostname, "Expected correct hostname")
+						assert.True(t, results[0].Available, "Expected host to be available")
+					}
+					return nil
+				})
 			}
 
 			err := server.processSweepData(ctx, svc, now)

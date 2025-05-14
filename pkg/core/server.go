@@ -1121,6 +1121,13 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, n
 		sweepResults = append(sweepResults, sweepResult)
 	}
 
+	// if sweepResults is empty, we don't need to store anything
+	if len(sweepResults) == 0 {
+		log.Printf("No sweep results to store for poller %s", svc.PollerID)
+
+		return nil
+	}
+
 	if err := s.DB.StoreSweepResults(ctx, sweepResults); err != nil {
 		return fmt.Errorf("failed to store sweep results: %w", err)
 	}
