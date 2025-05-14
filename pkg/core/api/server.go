@@ -564,8 +564,6 @@ func (*APIServer) encodeJSONResponse(w http.ResponseWriter, data interface{}) er
 	w.Header().Set("Content-Type", "application/json")
 
 	if err := json.NewEncoder(w).Encode(data); err != nil {
-		log.Printf("Error encoding JSON response: %v", err)
-
 		return err
 	}
 

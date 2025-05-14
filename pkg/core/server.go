@@ -624,7 +624,7 @@ func (s *Server) processStatusReport(
 		}
 
 		apiStatus := s.createPollerStatus(req, now)
-		s.processServices(req.PollerId, apiStatus, req.Services, now)
+		s.processServices(ctx, req.PollerId, apiStatus, req.Services, now)
 
 		if err := s.updatePollerState(ctx, req.PollerId, apiStatus, currentState, now); err != nil {
 			log.Printf("Failed to update poller state for %s: %v", req.PollerId, err)
@@ -644,7 +644,7 @@ func (s *Server) processStatusReport(
 	}
 
 	apiStatus := s.createPollerStatus(req, now)
-	s.processServices(req.PollerId, apiStatus, req.Services, now)
+	s.processServices(ctx, req.PollerId, apiStatus, req.Services, now)
 
 	return apiStatus, nil
 }
@@ -660,16 +660,13 @@ func (*Server) createPollerStatus(req *proto.PollerStatusRequest, now time.Time)
 
 // processServices processes service statuses for a poller and updates the API status.
 func (s *Server) processServices(
+	ctx context.Context,
 	pollerID string,
 	apiStatus *api.PollerStatus,
 	services []*proto.ServiceStatus,
 	now time.Time) {
 	allServicesAvailable := true
 	serviceStatuses := make([]*db.ServiceStatus, 0, len(services))
-
-	s.bufferMu.Lock()
-	log.Printf("serviceBuffers[%s] before processing: %+v", pollerID, s.serviceBuffers[pollerID])
-	s.bufferMu.Unlock()
 
 	for _, svc := range services {
 		apiService := s.createAPIService(svc)
@@ -678,7 +675,7 @@ func (s *Server) processServices(
 			allServicesAvailable = false
 		}
 
-		if err := s.processServiceDetails(pollerID, &apiService, svc, now); err != nil {
+		if err := s.processServiceDetails(ctx, pollerID, &apiService, svc, now); err != nil {
 			log.Printf("Error processing details for service %s on poller %s: %v", svc.ServiceName, pollerID, err)
 		}
 
@@ -705,11 +702,8 @@ func (s *Server) processServices(
 		}
 	}
 
-	log.Printf("Appending %d service statuses for poller %s", len(serviceStatuses), pollerID)
 	s.bufferMu.Lock()
-	log.Printf("serviceBuffers[%s] before append: %+v", pollerID, s.serviceBuffers[pollerID])
 	s.serviceBuffers[pollerID] = append(s.serviceBuffers[pollerID], serviceStatuses...)
-	log.Printf("serviceBuffers[%s] after append: %+v", pollerID, s.serviceBuffers[pollerID])
 	s.bufferMu.Unlock()
 
 	apiStatus.IsHealthy = allServicesAvailable
@@ -717,10 +711,14 @@ func (s *Server) processServices(
 
 // processServiceDetails handles parsing and processing of service details and metrics.
 func (s *Server) processServiceDetails(
-	pollerID string, apiService *api.ServiceStatus, svc *proto.ServiceStatus, now time.Time) error {
+	ctx context.Context,
+	pollerID string,
+	apiService *api.ServiceStatus,
+	svc *proto.ServiceStatus,
+	now time.Time) error {
 	if svc.Message == "" {
 		log.Printf("No message content for service %s on poller %s", svc.ServiceName, pollerID)
-		return s.handleService(apiService, now)
+		return s.handleService(ctx, apiService, now)
 	}
 
 	details, err := s.parseServiceDetails(svc)
@@ -728,7 +726,7 @@ func (s *Server) processServiceDetails(
 		log.Printf("Failed to parse details for service %s on poller %s, proceeding without details",
 			svc.ServiceName, pollerID)
 
-		return s.handleService(apiService, now)
+		return s.handleService(ctx, apiService, now)
 	}
 
 	apiService.Details = details
@@ -740,7 +738,7 @@ func (s *Server) processServiceDetails(
 		return err
 	}
 
-	return s.handleService(apiService, now)
+	return s.handleService(ctx, apiService, now)
 }
 
 // processMetrics handles metrics processing for all service types.
@@ -772,6 +770,8 @@ func (*Server) createAPIService(svc *proto.ServiceStatus) api.ServiceStatus {
 		Type:      svc.ServiceType,
 		Available: svc.Available,
 		Message:   svc.Message,
+		AgentID:   svc.AgentId,
+		PollerID:  svc.PollerId,
 	}
 }
 
@@ -1044,9 +1044,9 @@ func (s *Server) processSNMPMetrics(pollerID string, details json.RawMessage, ti
 	return nil
 }
 
-func (s *Server) handleService(svc *api.ServiceStatus, now time.Time) error {
+func (s *Server) handleService(ctx context.Context, svc *api.ServiceStatus, now time.Time) error {
 	if svc.Type == sweepService {
-		if err := s.processSweepData(svc, now); err != nil {
+		if err := s.processSweepData(ctx, svc, now); err != nil {
 			return fmt.Errorf("failed to process sweep data: %w", err)
 		}
 	}
@@ -1054,8 +1054,17 @@ func (s *Server) handleService(svc *api.ServiceStatus, now time.Time) error {
 	return nil
 }
 
-func (*Server) processSweepData(svc *api.ServiceStatus, now time.Time) error {
-	var sweepData proto.SweepServiceStatus
+func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, now time.Time) error {
+	var sweepData struct {
+		proto.SweepServiceStatus
+		Hosts []struct {
+			IP        string            `json:"host"`
+			Available bool              `json:"available"`
+			MAC       *string           `json:"mac"`
+			Hostname  *string           `json:"hostname"`
+			Metadata  map[string]string `json:"metadata"`
+		} `json:"hosts"`
+	}
 
 	if err := json.Unmarshal([]byte(svc.Message), &sweepData); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidSweepData, err)
@@ -1079,6 +1088,46 @@ func (*Server) processSweepData(svc *api.ServiceStatus, now time.Time) error {
 		}
 
 		svc.Message = string(updatedMessage)
+	}
+
+	sweepResults := make([]*db.SweepResult, 0, len(sweepData.Hosts))
+
+	for _, host := range sweepData.Hosts {
+		if host.IP == "" {
+			log.Printf("Skipping host with empty IP for poller %s", svc.PollerID)
+
+			continue
+		}
+
+		metadata := host.Metadata
+		if metadata == nil {
+			metadata = make(map[string]string)
+		}
+
+		sweepResult := &db.SweepResult{
+			AgentID:         svc.AgentID,
+			PollerID:        svc.PollerID,
+			DiscoverySource: "sweep",
+			IP:              host.IP,
+			MAC:             host.MAC,
+			Hostname:        host.Hostname,
+			Timestamp:       now,
+			Available:       host.Available,
+			Metadata:        metadata,
+		}
+
+		sweepResults = append(sweepResults, sweepResult)
+	}
+
+	// if sweepResults is empty, we don't need to store anything
+	if len(sweepResults) == 0 {
+		log.Printf("No sweep results to store for poller %s", svc.PollerID)
+
+		return nil
+	}
+
+	if err := s.DB.StoreSweepResults(ctx, sweepResults); err != nil {
+		return fmt.Errorf("failed to store sweep results: %w", err)
 	}
 
 	return nil
