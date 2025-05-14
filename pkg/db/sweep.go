@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// SweepResult represents a single sweep result to be stored
+// SweepResult represents a single sweep result to be stored.
 type SweepResult struct {
 	AgentID         string
 	PollerID        string
@@ -36,10 +36,12 @@ func (db *DB) StoreSweepResults(ctx context.Context, results []*SweepResult) err
 			log.Printf("Skipping sweep result with empty IP for poller %s", result.PollerID)
 			continue
 		}
+
 		if result.AgentID == "" {
 			log.Printf("Skipping sweep result with empty AgentID for IP %s", result.IP)
 			continue
 		}
+
 		if result.PollerID == "" {
 			log.Printf("Skipping sweep result with empty PollerID for IP %s", result.IP)
 			continue
@@ -73,5 +75,6 @@ func (db *DB) StoreSweepResults(ctx context.Context, results []*SweepResult) err
 	}
 
 	log.Printf("Successfully stored %d sweep results", len(results))
+
 	return nil
 }

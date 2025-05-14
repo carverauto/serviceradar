@@ -55,41 +55,57 @@ const (
 )
 
 // toSQL is a generic SQL builder for Proton and ClickHouse. The unused bool is 'isStream' for Proton.
-func (t *Translator) toSQL(query *models.Query, whereBuilder func([]models.Condition) string, nilQueryError error, isStream bool) (string, error) {
+func (*Translator) toSQL(
+	query *models.Query,
+	whereBuilder func([]models.Condition) string, nilQueryError error, isStream bool) (string, error) {
 	if query == nil {
 		return "", nilQueryError
 	}
+
 	var sql strings.Builder
+
 	switch query.Type {
 	case models.Show, models.Find:
 		sql.WriteString("SELECT * FROM ")
 	case models.Count:
 		sql.WriteString("SELECT COUNT(*) FROM ")
 	}
+
 	tableName := strings.ToLower(string(query.Entity))
+
 	if isStream {
 		tableName = fmt.Sprintf("table(%s)", tableName)
 	}
+
 	sql.WriteString(tableName)
+
 	if len(query.Conditions) > 0 {
 		sql.WriteString(" WHERE ")
 		sql.WriteString(whereBuilder(query.Conditions))
 	}
+
 	if len(query.OrderBy) > 0 {
 		sql.WriteString(" ORDER BY ")
+
 		var orderByParts []string
+
 		for _, item := range query.OrderBy {
 			direction := defaultAscending
+
 			if item.Direction == models.Descending {
 				direction = defaultDescending
 			}
+
 			orderByParts = append(orderByParts, fmt.Sprintf("%s %s", strings.ToLower(item.Field), direction))
 		}
+
 		sql.WriteString(strings.Join(orderByParts, ", "))
 	}
+
 	if query.HasLimit {
 		sql.WriteString(fmt.Sprintf(" LIMIT %d", query.Limit))
 	}
+
 	return sql.String(), nil
 }
 
