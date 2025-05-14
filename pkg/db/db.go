@@ -374,9 +374,6 @@ func (db *DB) ExecuteQuery(ctx context.Context, query string, params ...interfac
 		}
 
 		row := convertRow(columns, scanVars)
-
-		log.Println("Row: ", row)
-
 		results = append(results, row)
 	}
 
