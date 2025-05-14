@@ -776,8 +776,6 @@ func (*Server) createAPIService(svc *proto.ServiceStatus) api.ServiceStatus {
 }
 
 func (*Server) parseServiceDetails(svc *proto.ServiceStatus) (json.RawMessage, error) {
-	log.Printf("Raw service message for %s: %s", svc.ServiceName, svc.Message)
-
 	sanitized := strings.ReplaceAll(svc.Message, `""`, `"`)
 
 	var details json.RawMessage
