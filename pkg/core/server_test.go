@@ -247,24 +247,20 @@ func TestReportStatus(t *testing.T) {
 	server.bufferMu.Unlock()
 }
 
-func TestProcessSweepData(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockDB := db.NewMockService(ctrl)
-	server := &Server{
-		DB: mockDB,
-	}
-	now := time.Now()
-
-	ctx := context.Background()
-
-	tests := []struct {
+// getSweepTestCases returns test cases for TestProcessSweepData
+func getSweepTestCases(now time.Time) []struct {
+	name          string
+	inputMessage  string
+	expectedSweep proto.SweepServiceStatus
+	expectError   bool
+	hasHosts      bool // Indicates if the input includes hosts
+} {
+	return []struct {
 		name          string
 		inputMessage  string
 		expectedSweep proto.SweepServiceStatus
 		expectError   bool
-		hasHosts      bool // Indicates if the input includes hosts
+		hasHosts      bool
 	}{
 		{
 			name:         "Valid timestamp",
@@ -291,8 +287,11 @@ func TestProcessSweepData(t *testing.T) {
 			hasHosts:    false,
 		},
 		{
-			name:         "Valid timestamp with hosts",
-			inputMessage: `{"network": "192.168.1.0/24", "total_hosts": 10, "available_hosts": 5, "last_sweep": 1678886400, "hosts": [{"host": "192.168.1.1", "available": true, "mac": "00:11:22:33:44:55", "hostname": "host1"}]}`,
+			name: "Valid timestamp with hosts",
+			inputMessage: `{
+				"network": "192.168.1.0/24", "total_hosts": 10, "available_hosts": 5, 
+				"last_sweep": 1678886400, "hosts": [{"host": "192.168.1.1", "available": true, 
+				"mac": "00:11:22:33:44:55", "hostname": "host1"}]}`,
 			expectedSweep: proto.SweepServiceStatus{
 				Network:        "192.168.1.0/24",
 				TotalHosts:     10,
@@ -309,50 +308,79 @@ func TestProcessSweepData(t *testing.T) {
 			hasHosts:     false,
 		},
 	}
+}
+
+func TestProcessSweepData(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockDB := db.NewMockService(ctrl)
+	server := &Server{
+		DB: mockDB,
+	}
+	now := time.Now()
+	ctx := context.Background()
+	tests := getSweepTestCases(now)
 
 	for i := range tests {
 		t.Run(tests[i].name, func(t *testing.T) {
 			tt := &tests[i]
-
 			svc := &api.ServiceStatus{
 				Message: tt.inputMessage,
 			}
 
 			// Set up mock expectation for StoreSweepResults only when hosts are present
 			if !tt.expectError && tt.hasHosts {
-				mockDB.EXPECT().StoreSweepResults(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, results []*db.SweepResult) error {
-					if tt.name == "Valid timestamp with hosts" {
-						assert.Len(t, results, 1, "Expected one sweep result")
-						assert.Equal(t, "192.168.1.1", results[0].IP, "Expected correct IP")
-						assert.Equal(t, "00:11:22:33:44:55", *results[0].MAC, "Expected correct MAC")
-						assert.Equal(t, "host1", *results[0].Hostname, "Expected correct hostname")
-						assert.True(t, results[0].Available, "Expected host to be available")
-					}
-					return nil
-				})
+				mockDB.EXPECT().StoreSweepResults(gomock.Any(), gomock.Any()).DoAndReturn(
+					func(_ context.Context, results []*db.SweepResult) error {
+						if tt.name == "Valid timestamp with hosts" {
+							assert.Len(t, results, 1, "Expected one sweep result")
+							assert.Equal(t, "192.168.1.1", results[0].IP, "Expected correct IP")
+							assert.Equal(t, "00:11:22:33:44:55", *results[0].MAC, "Expected correct MAC")
+							assert.Equal(t, "host1", *results[0].Hostname, "Expected correct hostname")
+							assert.True(t, results[0].Available, "Expected host to be available")
+						}
+
+						return nil
+					})
 			}
 
-			err := server.processSweepData(ctx, svc, now)
-			if tt.expectError {
-				assert.Error(t, err)
-			} else {
-				require.NoError(t, err)
-
-				var sweepData proto.SweepServiceStatus
-				err = json.Unmarshal([]byte(svc.Message), &sweepData)
-				require.NoError(t, err)
-
-				assert.Equal(t, tt.expectedSweep.Network, sweepData.Network)
-				assert.Equal(t, tt.expectedSweep.TotalHosts, sweepData.TotalHosts)
-				assert.Equal(t, tt.expectedSweep.AvailableHosts, sweepData.AvailableHosts)
-
-				if tt.expectedSweep.LastSweep == now.Unix() {
-					assert.InDelta(t, tt.expectedSweep.LastSweep, sweepData.LastSweep, 5)
-				} else {
-					assert.Equal(t, tt.expectedSweep.LastSweep, sweepData.LastSweep)
-				}
-			}
+			verifySweepTestCase(ctx, t, server, svc, tt, now)
 		})
+	}
+}
+
+// verifySweepTestCase verifies a single test case for TestProcessSweepData
+func verifySweepTestCase(ctx context.Context, t *testing.T, server *Server, svc *api.ServiceStatus,
+	tt *struct {
+		name          string
+		inputMessage  string
+		expectedSweep proto.SweepServiceStatus
+		expectError   bool
+		hasHosts      bool
+	}, now time.Time) {
+	t.Helper()
+
+	err := server.processSweepData(ctx, svc, now)
+	if tt.expectError {
+		assert.Error(t, err)
+		return
+	}
+
+	require.NoError(t, err)
+
+	var sweepData proto.SweepServiceStatus
+	err = json.Unmarshal([]byte(svc.Message), &sweepData)
+	require.NoError(t, err)
+
+	assert.Equal(t, tt.expectedSweep.Network, sweepData.Network)
+	assert.Equal(t, tt.expectedSweep.TotalHosts, sweepData.TotalHosts)
+	assert.Equal(t, tt.expectedSweep.AvailableHosts, sweepData.AvailableHosts)
+
+	if tt.expectedSweep.LastSweep == now.Unix() {
+		assert.InDelta(t, tt.expectedSweep.LastSweep, sweepData.LastSweep, 5)
+	} else {
+		assert.Equal(t, tt.expectedSweep.LastSweep, sweepData.LastSweep)
 	}
 }
 
