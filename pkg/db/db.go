@@ -126,16 +126,15 @@ func New(ctx context.Context, config *models.DBConfig) (Service, error) {
 	return db, nil
 }
 
-// getMergeTreeStreamStatements returns the SQL statements for creating MergeTree streams.
-func getMergeTreeStreamStatements() []string {
+// getStreamEngineStatements returns the SQL statements for creating (regular) streams.
+func getStreamEngineStatements() []string {
 	return []string{
-		// MergeTree streams - these implicitly get _tp_time created by the system.
 		`CREATE STREAM IF NOT EXISTS cpu_metrics (
             poller_id string,
             timestamp DateTime64(3) DEFAULT now64(3),
             core_id int32,
             usage_percent float64
-        ) ENGINE = MergeTree()
+        )
         PARTITION BY date(timestamp)
         ORDER BY (poller_id, timestamp)`, // SETTINGS event_time_column='_tp_time' is implicit if _tp_time exists
 
@@ -145,7 +144,7 @@ func getMergeTreeStreamStatements() []string {
             mount_point string,
             used_bytes uint64,
             total_bytes uint64
-        ) ENGINE = MergeTree()
+        )
         PARTITION BY date(timestamp)
         ORDER BY (poller_id, timestamp)`,
 
@@ -154,7 +153,7 @@ func getMergeTreeStreamStatements() []string {
             timestamp DateTime64(3) DEFAULT now64(3),
             used_bytes uint64,
             total_bytes uint64
-        ) ENGINE = MergeTree()
+        )
         PARTITION BY date(timestamp)
         ORDER BY (poller_id, timestamp)`,
 
@@ -163,7 +162,7 @@ func getMergeTreeStreamStatements() []string {
             first_seen DateTime64(3) DEFAULT now64(3),
             last_seen DateTime64(3) DEFAULT now64(3),
             is_healthy bool
-        ) ENGINE = MergeTree()
+        )
         PRIMARY KEY (poller_id)
         ORDER BY poller_id`,
 
@@ -171,7 +170,7 @@ func getMergeTreeStreamStatements() []string {
             poller_id string,
             timestamp DateTime64(3) DEFAULT now64(3),
             is_healthy bool
-        ) ENGINE = MergeTree()
+        )
         PARTITION BY date(timestamp)
         ORDER BY (poller_id, timestamp)`,
 
@@ -183,7 +182,7 @@ func getMergeTreeStreamStatements() []string {
             details string,
             timestamp DateTime64(3) DEFAULT now64(3),
             agent_id string
-        ) ENGINE = MergeTree()
+        )
         PARTITION BY date(timestamp)
         ORDER BY (poller_id, timestamp)`,
 
@@ -194,7 +193,7 @@ func getMergeTreeStreamStatements() []string {
             value string,
             metadata string,
             timestamp DateTime64(3) DEFAULT now64(3)
-        ) ENGINE = MergeTree()
+        )
         PARTITION BY date(timestamp)
         ORDER BY (poller_id, metric_name, timestamp)`,
 
@@ -205,7 +204,7 @@ func getMergeTreeStreamStatements() []string {
             provider string,
             created_at DateTime64(3) DEFAULT now64(3),
             updated_at DateTime64(3) DEFAULT now64(3)
-        ) ENGINE = MergeTree()
+        )
         PRIMARY KEY (id)
         ORDER BY id`,
 	}
@@ -304,7 +303,7 @@ func getCreateStreamStatements() []string {
 	// Combine statements from all helper functions
 	var statements []string
 
-	statements = append(statements, getMergeTreeStreamStatements()...)
+	statements = append(statements, getStreamEngineStatements()...)
 	statements = append(statements, getVersionedKVStreamStatements()...)
 	statements = append(statements, getMaterializedViewStatements()...)
 
@@ -690,7 +689,7 @@ func (db *DB) GetPollerStatus(ctx context.Context, pollerID string) (*models.Pol
 
 	rows, err := db.Conn.Query(ctx, `
 		SELECT poller_id, first_seen, last_seen, is_healthy
-		FROM pollers
+		FROM table(pollers)
 		WHERE poller_id = $1
 		LIMIT 1`,
 		pollerID)
@@ -720,7 +719,7 @@ func (db *DB) GetPollerStatus(ctx context.Context, pollerID string) (*models.Pol
 func (db *DB) GetPollerServices(ctx context.Context, pollerID string) ([]ServiceStatus, error) {
 	rows, err := db.Conn.Query(ctx, `
 		SELECT service_name, service_type, available, details, timestamp, agent_id
-		FROM service_status
+		FROM table(service_status)
 		WHERE poller_id = $1
 		ORDER BY service_type, service_name`,
 		pollerID)
@@ -748,7 +747,7 @@ func (db *DB) GetPollerServices(ctx context.Context, pollerID string) ([]Service
 func (db *DB) GetPollerHistoryPoints(ctx context.Context, pollerID string, limit int) ([]PollerHistoryPoint, error) {
 	rows, err := db.Conn.Query(ctx, `
 		SELECT timestamp, is_healthy
-		FROM poller_history
+		FROM table(poller_history)
 		WHERE poller_id = $1
 		ORDER BY timestamp DESC
 		LIMIT $2`,
@@ -779,7 +778,7 @@ func (db *DB) GetPollerHistory(ctx context.Context, pollerID string) ([]models.P
 
 	rows, err := db.Conn.Query(ctx, `
 		SELECT timestamp, is_healthy
-		FROM poller_history
+		FROM table(poller_history)
 		WHERE poller_id = $1
 		ORDER BY timestamp DESC
 		LIMIT $2`,
@@ -811,7 +810,7 @@ func (db *DB) IsPollerOffline(ctx context.Context, pollerID string, threshold ti
 
 	rows, err := db.Conn.Query(ctx, `
 		SELECT COUNT(*)
-		FROM pollers
+		FROM table(pollers)
 		WHERE poller_id = $1
 		AND last_seen < $2`,
 		pollerID, cutoff)
@@ -863,7 +862,7 @@ func (db *DB) UpdateServiceStatus(ctx context.Context, status *ServiceStatus) er
 func (db *DB) GetServiceHistory(ctx context.Context, pollerID, serviceName string, limit int) ([]ServiceStatus, error) {
 	rows, err := db.Conn.Query(ctx, `
 		SELECT timestamp, available, details
-		FROM service_status
+		FROM table(service_status)
 		WHERE poller_id = $1 AND service_name = $2
 		ORDER BY timestamp DESC
 		LIMIT $3`,
@@ -893,7 +892,7 @@ func (db *DB) GetServiceHistory(ctx context.Context, pollerID, serviceName strin
 
 // ListPollers retrieves all poller IDs from the pollers stream.
 func (db *DB) ListPollers(ctx context.Context) ([]string, error) {
-	rows, err := db.Conn.Query(ctx, "SELECT poller_id FROM pollers")
+	rows, err := db.Conn.Query(ctx, "SELECT poller_id FROM table(pollers)")
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to query pollers: %w", ErrFailedToQuery, err)
 	}
@@ -922,7 +921,7 @@ func (db *DB) ListPollers(ctx context.Context) ([]string, error) {
 
 // DeletePoller deletes a poller by ID.
 func (db *DB) DeletePoller(ctx context.Context, pollerID string) error {
-	batch, err := db.Conn.PrepareBatch(ctx, "DELETE FROM pollers WHERE poller_id = $1")
+	batch, err := db.Conn.PrepareBatch(ctx, "DELETE FROM table(pollers) WHERE poller_id = $1")
 	if err != nil {
 		return fmt.Errorf("failed to prepare batch: %w", err)
 	}
@@ -940,7 +939,7 @@ func (db *DB) DeletePoller(ctx context.Context, pollerID string) error {
 
 // ListPollerStatuses retrieves poller statuses, optionally filtered by patterns.
 func (db *DB) ListPollerStatuses(ctx context.Context, patterns []string) ([]models.PollerStatus, error) {
-	query := `SELECT poller_id, is_healthy, last_seen FROM pollers`
+	query := `SELECT poller_id, is_healthy, last_seen FROM table(pollers)`
 
 	var args []interface{}
 
@@ -989,11 +988,11 @@ func (db *DB) ListNeverReportedPollers(ctx context.Context, patterns []string) (
 	query := `
         WITH history AS (
             SELECT poller_id, MAX(timestamp) AS latest_timestamp
-            FROM poller_history
+            FROM table(poller_history)
             GROUP BY poller_id
         )
         SELECT DISTINCT pollers.poller_id
-        FROM pollers
+        FROM table(pollers)
         LEFT JOIN history ON pollers.poller_id = history.poller_id
         WHERE history.latest_timestamp IS NULL OR history.latest_timestamp = pollers.first_seen`
 
@@ -1045,7 +1044,7 @@ func (db *DB) ListNeverReportedPollers(ctx context.Context, patterns []string) (
 func (db *DB) GetAllMountPoints(ctx context.Context, pollerID string) ([]string, error) {
 	rows, err := db.Conn.Query(ctx, `
 		SELECT DISTINCT mount_point
-		FROM disk_metrics
+		FROM table(disk_metrics)
 		WHERE poller_id = $1 
 		ORDER BY mount_point ASC`,
 		pollerID)
@@ -1078,7 +1077,7 @@ func (db *DB) GetAllMountPoints(ctx context.Context, pollerID string) ([]string,
 func (db *DB) GetAllCPUMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]SysmonCPUResponse, error) {
 	rows, err := db.Conn.Query(ctx, `
 		SELECT timestamp, core_id, usage_percent
-		FROM cpu_metrics
+		FROM table(cpu_metrics)
 		WHERE poller_id = $1 AND timestamp BETWEEN $2 AND $3
 		ORDER BY timestamp DESC, core_id ASC`,
 		pollerID, start, end)
@@ -1132,7 +1131,7 @@ func (db *DB) GetAllCPUMetrics(ctx context.Context, pollerID string, start, end 
 func (db *DB) GetAllDiskMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.DiskMetric, error) {
 	rows, err := db.Conn.Query(ctx, `
 		SELECT mount_point, used_bytes, total_bytes, timestamp
-		FROM disk_metrics
+		FROM table(disk_metrics)
 		WHERE poller_id = $1 AND timestamp BETWEEN $2 AND $3
 		ORDER BY timestamp DESC, mount_point ASC`,
 		pollerID, start, end)
@@ -1170,7 +1169,7 @@ func (db *DB) GetAllDiskMetrics(ctx context.Context, pollerID string, start, end
 func (db *DB) GetDiskMetrics(ctx context.Context, pollerID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error) {
 	rows, err := db.Conn.Query(ctx, `
 		SELECT timestamp, mount_point, used_bytes, total_bytes
-		FROM disk_metrics
+		FROM table(disk_metrics)
 		WHERE poller_id = $1 AND mount_point = $2 AND timestamp BETWEEN $3 AND $4
 		ORDER BY timestamp`,
 		pollerID, mountPoint, start, end)
@@ -1199,7 +1198,7 @@ func (db *DB) GetDiskMetrics(ctx context.Context, pollerID, mountPoint string, s
 func (db *DB) GetMemoryMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.MemoryMetric, error) {
 	rows, err := db.Conn.Query(ctx, `
 		SELECT timestamp, used_bytes, total_bytes
-		FROM memory_metrics
+		FROM table(memory_metrics)
 		WHERE poller_id = $1 AND timestamp BETWEEN $2 AND $3
 		ORDER BY timestamp`,
 		pollerID, start, end)
@@ -1229,7 +1228,7 @@ func (db *DB) GetMemoryMetrics(ctx context.Context, pollerID string, start, end 
 func (db *DB) GetAllDiskMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]SysmonDiskResponse, error) {
 	rows, err := db.Conn.Query(ctx, `
 		SELECT timestamp, mount_point, used_bytes, total_bytes
-		FROM disk_metrics
+		FROM table(disk_metrics)
 		WHERE poller_id = $1 AND timestamp BETWEEN $2 AND $3
 		ORDER BY timestamp DESC, mount_point ASC`,
 		pollerID, start, end)
@@ -1285,7 +1284,7 @@ func (db *DB) GetAllDiskMetricsGrouped(ctx context.Context, pollerID string, sta
 func (db *DB) GetMemoryMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]SysmonMemoryResponse, error) {
 	rows, err := db.Conn.Query(ctx, `
 		SELECT timestamp, used_bytes, total_bytes
-		FROM memory_metrics
+		FROM table(memory_metrics)
 		WHERE poller_id = $1 AND timestamp BETWEEN $2 AND $3
 		ORDER BY timestamp DESC`,
 		pollerID, start, end)
