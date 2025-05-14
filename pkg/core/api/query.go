@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net/http"
 
 	"github.com/carverauto/serviceradar/pkg/srql"
@@ -39,8 +38,6 @@ type QueryResponse struct {
 func (s *APIServer) handleSRQLQuery(w http.ResponseWriter, r *http.Request) {
 	var req QueryRequest
 
-	log.Println("Received SRQL query request")
-
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, "Invalid request body", http.StatusBadRequest)
 		return
@@ -50,8 +47,6 @@ func (s *APIServer) handleSRQLQuery(w http.ResponseWriter, r *http.Request) {
 		writeError(w, "Query string is required", http.StatusBadRequest)
 		return
 	}
-
-	log.Println("Query is", req.Query)
 
 	// Parse the SRQL query
 	p := srql.NewParser()
@@ -75,8 +70,6 @@ func (s *APIServer) handleSRQLQuery(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), defaultTimeout)
 	defer cancel()
 
-	log.Println("Executing query:", dbQuery)
-
 	results, err := s.executeQuery(ctx, dbQuery, query.Entity)
 	if err != nil {
 		writeError(w, fmt.Sprintf("Failed to execute query: %v", err), http.StatusInternalServerError)
@@ -87,8 +80,6 @@ func (s *APIServer) handleSRQLQuery(w http.ResponseWriter, r *http.Request) {
 	response := QueryResponse{
 		Results: results,
 	}
-
-	log.Printf("Query response: %v", response.Results)
 
 	if err := s.encodeJSONResponse(w, response); err != nil {
 		writeError(w, "Failed to encode response", http.StatusInternalServerError)
