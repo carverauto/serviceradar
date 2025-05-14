@@ -563,11 +563,7 @@ func (s *APIServer) getPollerByID(pollerID string) (*PollerStatus, bool) {
 func (*APIServer) encodeJSONResponse(w http.ResponseWriter, data interface{}) error {
 	w.Header().Set("Content-Type", "application/json")
 
-	log.Printf("Encoding JSON response: %v", data)
-
 	if err := json.NewEncoder(w).Encode(data); err != nil {
-		log.Printf("Error encoding JSON response: %v", err)
-
 		return err
 	}
 
