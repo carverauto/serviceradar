@@ -55,14 +55,15 @@ const (
 )
 
 // toSQL is a generic SQL builder for Proton and ClickHouse. The unused bool is 'isStream' for Proton.
-func (*Translator) toSQL(query *models.Query, whereBuilder func([]models.Condition) string, nilQueryError error, _ bool) (string, error) {
+func (*Translator) toSQL(
+	query *models.Query,
+	whereBuilder func([]models.Condition) string, nilQueryError error, isStream bool) (string, error) {
 	if query == nil {
 		return "", nilQueryError
 	}
 
 	var sql strings.Builder
 
-	// Build the SELECT clause
 	switch query.Type {
 	case models.Show, models.Find:
 		sql.WriteString("SELECT * FROM ")
@@ -70,16 +71,19 @@ func (*Translator) toSQL(query *models.Query, whereBuilder func([]models.Conditi
 		sql.WriteString("SELECT COUNT(*) FROM ")
 	}
 
-	// Add the table/stream name
-	sql.WriteString(strings.ToLower(string(query.Entity)))
+	tableName := strings.ToLower(string(query.Entity))
 
-	// Add WHERE clause if conditions exist
+	if isStream {
+		tableName = fmt.Sprintf("table(%s)", tableName)
+	}
+
+	sql.WriteString(tableName)
+
 	if len(query.Conditions) > 0 {
 		sql.WriteString(" WHERE ")
 		sql.WriteString(whereBuilder(query.Conditions))
 	}
 
-	// Add ORDER BY clause if present
 	if len(query.OrderBy) > 0 {
 		sql.WriteString(" ORDER BY ")
 
@@ -92,15 +96,12 @@ func (*Translator) toSQL(query *models.Query, whereBuilder func([]models.Conditi
 				direction = defaultDescending
 			}
 
-			orderByParts = append(orderByParts, fmt.Sprintf("%s %s",
-				strings.ToLower(item.Field), // Convert field name to lowercase
-				direction))
+			orderByParts = append(orderByParts, fmt.Sprintf("%s %s", strings.ToLower(item.Field), direction))
 		}
 
 		sql.WriteString(strings.Join(orderByParts, ", "))
 	}
 
-	// Add LIMIT clause if present
 	if query.HasLimit {
 		sql.WriteString(fmt.Sprintf(" LIMIT %d", query.Limit))
 	}

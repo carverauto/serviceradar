@@ -126,9 +126,10 @@ func New(ctx context.Context, config *models.DBConfig) (Service, error) {
 	return db, nil
 }
 
-// getCreateStreamStatements returns the SQL statements for creating database streams
-func getCreateStreamStatements() []string {
+// getMergeTreeStreamStatements returns the SQL statements for creating MergeTree streams.
+func getMergeTreeStreamStatements() []string {
 	return []string{
+		// MergeTree streams - these implicitly get _tp_time created by the system.
 		`CREATE STREAM IF NOT EXISTS cpu_metrics (
             poller_id string,
             timestamp DateTime64(3) DEFAULT now64(3),
@@ -136,7 +137,7 @@ func getCreateStreamStatements() []string {
             usage_percent float64
         ) ENGINE = MergeTree()
         PARTITION BY date(timestamp)
-        ORDER BY (poller_id, timestamp)`,
+        ORDER BY (poller_id, timestamp)`, // SETTINGS event_time_column='_tp_time' is implicit if _tp_time exists
 
 		`CREATE STREAM IF NOT EXISTS disk_metrics (
             poller_id string,
@@ -181,7 +182,7 @@ func getCreateStreamStatements() []string {
             available bool,
             details string,
             timestamp DateTime64(3) DEFAULT now64(3),
-			agent_id string
+            agent_id string
         ) ENGINE = MergeTree()
         PARTITION BY date(timestamp)
         ORDER BY (poller_id, timestamp)`,
@@ -207,35 +208,133 @@ func getCreateStreamStatements() []string {
         ) ENGINE = MergeTree()
         PRIMARY KEY (id)
         ORDER BY id`,
-
-		`CREATE STREAM IF NOT EXISTS devices (
-            device_id string,
-            poller_id string,
-            discovery_source string,
-            ip string,
-            mac string,
-            hostname string,
-            first_seen DateTime64(3) DEFAULT now64(3),
-            last_seen DateTime64(3) DEFAULT now64(3),
-            is_available bool,
-            metadata string
-        ) ENGINE = MergeTree()
-        PARTITION BY date(first_seen)
-        ORDER BY (device_id, poller_id)`,
 	}
 }
 
+// getVersionedKVStreamStatements returns the SQL statements for creating versioned KV streams
+func getVersionedKVStreamStatements() []string {
+	return []string{
+		// Versioned Streams using SETTINGS mode='versioned_kv'
+		`CREATE STREAM IF NOT EXISTS sweep_results (
+          agent_id string,
+          poller_id string,
+          discovery_source string,
+          ip string,
+          mac nullable(string),
+          hostname nullable(string),
+          timestamp DateTime64(3) DEFAULT now64(3),
+          available boolean,
+          metadata map(string, string)
+          -- _tp_time is NOT explicitly defined here
+       )
+       PRIMARY KEY (ip, agent_id, poller_id)
+       SETTINGS mode='versioned_kv', version_column='_tp_time'`,
+
+		`CREATE STREAM IF NOT EXISTS icmp_results (
+          agent_id string,
+          poller_id string,
+          discovery_source string,
+          ip string,
+          mac nullable(string),
+          hostname nullable(string),
+          timestamp DateTime64(3) DEFAULT now64(3),
+          available boolean,
+          metadata map(string, string)
+       )
+       PRIMARY KEY (ip, agent_id, poller_id)
+       SETTINGS mode='versioned_kv', version_column='_tp_time'`,
+
+		`CREATE STREAM IF NOT EXISTS snmp_results (
+          agent_id string,
+          poller_id string,
+          discovery_source string,
+          ip string,
+          mac nullable(string),
+          hostname nullable(string),
+          timestamp DateTime64(3) DEFAULT now64(3),
+          available boolean,
+          metadata map(string, string)
+       )
+       PRIMARY KEY (ip, agent_id, poller_id)
+       SETTINGS mode='versioned_kv', version_column='_tp_time'`,
+
+		`CREATE STREAM IF NOT EXISTS devices (
+          device_id string,
+          agent_id string,
+          poller_id string,
+          discovery_source string,
+          ip string,
+          mac nullable(string),
+          hostname nullable(string),
+          first_seen DateTime64(3),
+          last_seen DateTime64(3),
+          is_available boolean,
+          metadata map(string, string)
+       )
+       PRIMARY KEY (device_id)
+       SETTINGS mode='versioned_kv', version_column='_tp_time'`,
+	}
+}
+
+// getMaterializedViewStatements returns the SQL statements for creating materialized views
+func getMaterializedViewStatements() []string {
+	return []string{
+		// Materialized View
+		// The MV will insert into the system-generated _tp_time column in 'devices'
+		`CREATE MATERIALIZED VIEW IF NOT EXISTS devices_mv INTO devices AS
+        SELECT
+            concat(ip, ':', agent_id, ':', poller_id) AS device_id,
+            agent_id,
+            poller_id,
+            discovery_source,
+            ip,
+            mac,
+            hostname,
+            timestamp AS first_seen,
+            timestamp AS last_seen,
+            available AS is_available,
+            metadata,
+            now64(3) AS _tp_time
+        FROM sweep_results`,
+	}
+}
+
+// getCreateStreamStatements returns the SQL statements for creating database streams
+func getCreateStreamStatements() []string {
+	// Combine statements from all helper functions
+	var statements []string
+
+	statements = append(statements, getMergeTreeStreamStatements()...)
+	statements = append(statements, getVersionedKVStreamStatements()...)
+	statements = append(statements, getMaterializedViewStatements()...)
+
+	return statements
+}
+
 // initSchema creates the database streams for Proton, excluding netflow_metrics.
+// Note: devices_mv is a minimal materialized view streaming from sweep_results only.
+// Historical data is not processed; devices populates naturally from new data.
+// Streams use ChangelogStream engine to support continuous streaming for materialized views.
 func (db *DB) initSchema(ctx context.Context) error {
+	log.Println("=== Initializing schema with db.go version: 2025-05-13-v23 ===")
+
 	// Get the stream creation statements
 	createStreams := getCreateStreamStatements()
 
-	// Execute each statement
-	for _, statement := range createStreams {
+	// Execute each statement with detailed logging
+	for i, statement := range createStreams {
+		log.Printf("Executing SQL statement %d: %s", i+1, statement)
+
 		if err := db.Conn.Exec(ctx, statement); err != nil {
-			return err
+			log.Printf("ERROR: Failed to execute SQL statement %d: %v", i+1, err)
+
+			return fmt.Errorf("failed to execute statement %d: %w", i+1, err)
 		}
+
+		log.Printf("Successfully executed SQL statement %d", i+1)
 	}
+
+	log.Println("=== Schema initialized successfully ===")
 
 	return nil
 }
