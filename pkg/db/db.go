@@ -127,6 +127,7 @@ func New(ctx context.Context, config *models.DBConfig) (Service, error) {
 }
 
 // getStreamEngineStatements returns the SQL statements for creating (regular) streams.
+// getStreamEngineStatements returns the SQL statements for creating regular Append Streams.
 func getStreamEngineStatements() []string {
 	return []string{
 		`CREATE STREAM IF NOT EXISTS cpu_metrics (
@@ -134,9 +135,7 @@ func getStreamEngineStatements() []string {
             timestamp DateTime64(3) DEFAULT now64(3),
             core_id int32,
             usage_percent float64
-        )
-        PARTITION BY date(timestamp)
-        ORDER BY (poller_id, timestamp)`, // SETTINGS event_time_column='_tp_time' is implicit if _tp_time exists
+        )`,
 
 		`CREATE STREAM IF NOT EXISTS disk_metrics (
             poller_id string,
@@ -144,35 +143,27 @@ func getStreamEngineStatements() []string {
             mount_point string,
             used_bytes uint64,
             total_bytes uint64
-        )
-        PARTITION BY date(timestamp)
-        ORDER BY (poller_id, timestamp)`,
+        )`,
 
 		`CREATE STREAM IF NOT EXISTS memory_metrics (
             poller_id string,
             timestamp DateTime64(3) DEFAULT now64(3),
             used_bytes uint64,
             total_bytes uint64
-        )
-        PARTITION BY date(timestamp)
-        ORDER BY (poller_id, timestamp)`,
+        )`,
 
 		`CREATE STREAM IF NOT EXISTS pollers (
             poller_id string,
             first_seen DateTime64(3) DEFAULT now64(3),
             last_seen DateTime64(3) DEFAULT now64(3),
             is_healthy bool
-        )
-        PRIMARY KEY (poller_id)
-        ORDER BY poller_id`,
+        )`,
 
 		`CREATE STREAM IF NOT EXISTS poller_history (
             poller_id string,
             timestamp DateTime64(3) DEFAULT now64(3),
             is_healthy bool
-        )
-        PARTITION BY date(timestamp)
-        ORDER BY (poller_id, timestamp)`,
+        )`,
 
 		`CREATE STREAM IF NOT EXISTS service_status (
             poller_id string,
@@ -182,9 +173,7 @@ func getStreamEngineStatements() []string {
             details string,
             timestamp DateTime64(3) DEFAULT now64(3),
             agent_id string
-        )
-        PARTITION BY date(timestamp)
-        ORDER BY (poller_id, timestamp)`,
+        )`,
 
 		`CREATE STREAM IF NOT EXISTS timeseries_metrics (
             poller_id string,
@@ -193,9 +182,7 @@ func getStreamEngineStatements() []string {
             value string,
             metadata string,
             timestamp DateTime64(3) DEFAULT now64(3)
-        )
-        PARTITION BY date(timestamp)
-        ORDER BY (poller_id, metric_name, timestamp)`,
+        )`,
 
 		`CREATE STREAM IF NOT EXISTS users (
             id string,
@@ -204,9 +191,7 @@ func getStreamEngineStatements() []string {
             provider string,
             created_at DateTime64(3) DEFAULT now64(3),
             updated_at DateTime64(3) DEFAULT now64(3)
-        )
-        PRIMARY KEY (id)
-        ORDER BY id`,
+        )`,
 	}
 }
 
@@ -984,6 +969,7 @@ func (db *DB) ListPollerStatuses(ctx context.Context, patterns []string) ([]mode
 }
 
 // ListNeverReportedPollers retrieves poller IDs that have never reported (first_seen = last_seen).
+// ListNeverReportedPollers retrieves poller IDs that have never reported (first_seen = last_seen).
 func (db *DB) ListNeverReportedPollers(ctx context.Context, patterns []string) ([]string, error) {
 	query := `
         WITH history AS (
@@ -991,10 +977,10 @@ func (db *DB) ListNeverReportedPollers(ctx context.Context, patterns []string) (
             FROM table(poller_history)
             GROUP BY poller_id
         )
-        SELECT DISTINCT pollers.poller_id
-        FROM table(pollers)
-        LEFT JOIN history ON pollers.poller_id = history.poller_id
-        WHERE history.latest_timestamp IS NULL OR history.latest_timestamp = pollers.first_seen`
+        SELECT DISTINCT p.poller_id
+        FROM table(pollers) AS p
+        LEFT JOIN history ON p.poller_id = history.poller_id
+        WHERE history.latest_timestamp IS NULL OR history.latest_timestamp = p.first_seen`
 
 	var args []interface{}
 
@@ -1002,14 +988,14 @@ func (db *DB) ListNeverReportedPollers(ctx context.Context, patterns []string) (
 		conditions := make([]string, 0, len(patterns))
 
 		for i, pattern := range patterns {
-			conditions = append(conditions, fmt.Sprintf("pollers.poller_id LIKE $%d", i+1))
+			conditions = append(conditions, fmt.Sprintf("p.poller_id LIKE $%d", i+1))
 			args = append(args, pattern)
 		}
 
 		query += " AND (" + strings.Join(conditions, " OR ") + ")"
 	}
 
-	query += " ORDER BY pollers.poller_id"
+	query += " ORDER BY p.poller_id"
 
 	rows, err := db.Conn.Query(ctx, query, args...)
 	if err != nil {
@@ -1024,7 +1010,6 @@ func (db *DB) ListNeverReportedPollers(ctx context.Context, patterns []string) (
 
 		if err := rows.Scan(&pollerID); err != nil {
 			log.Printf("Error scanning poller ID: %v", err)
-
 			continue
 		}
 
