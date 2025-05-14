@@ -2,8 +2,6 @@ package db
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,19 +14,8 @@ var (
 	errFailedToScanDeviceRow = errors.New("failed to scan device row")
 	errIterRows              = errors.New("error iterating rows")
 	errDeviceNotFound        = errors.New("device not found")
-	errFailedMarshalMetadata = errors.New("failed to marshal metadata")
-	errFailedStoreDevice     = errors.New("failed to store device")
-	errFailedToPrepareBatch  = errors.New("failed to prepare batch")
-	errFailedToSendBatch     = errors.New("failed to send batch")
 	errFailedToQueryDevice   = errors.New("failed to query device")
 )
-
-func generateDeviceID(pollerID, ipAddress string) string {
-	h := sha256.New()
-	h.Write([]byte(pollerID + ":" + ipAddress))
-
-	return base64.URLEncoding.EncodeToString(h.Sum(nil))
-}
 
 // GetDevicesByIP retrieves devices with a specific IP address.
 func (db *DB) GetDevicesByIP(ctx context.Context, ip string) ([]*models.Device, error) {

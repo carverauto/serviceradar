@@ -668,10 +668,6 @@ func (s *Server) processServices(
 	allServicesAvailable := true
 	serviceStatuses := make([]*db.ServiceStatus, 0, len(services))
 
-	s.bufferMu.Lock()
-	log.Printf("serviceBuffers[%s] before processing: %+v", pollerID, s.serviceBuffers[pollerID])
-	s.bufferMu.Unlock()
-
 	for _, svc := range services {
 		apiService := s.createAPIService(svc)
 
@@ -706,11 +702,8 @@ func (s *Server) processServices(
 		}
 	}
 
-	log.Printf("Appending %d service statuses for poller %s", len(serviceStatuses), pollerID)
 	s.bufferMu.Lock()
-	log.Printf("serviceBuffers[%s] before append: %+v", pollerID, s.serviceBuffers[pollerID])
 	s.serviceBuffers[pollerID] = append(s.serviceBuffers[pollerID], serviceStatuses...)
-	log.Printf("serviceBuffers[%s] after append: %+v", pollerID, s.serviceBuffers[pollerID])
 	s.bufferMu.Unlock()
 
 	apiStatus.IsHealthy = allServicesAvailable
@@ -1064,8 +1057,6 @@ func (s *Server) handleService(ctx context.Context, svc *api.ServiceStatus, now 
 }
 
 func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, now time.Time) error {
-	log.Printf("Raw sweep service message: %s", svc.Message)
-	log.Printf("Service AgentId: %s, PollerID: %s", svc.AgentID, svc.PollerID)
 	var sweepData struct {
 		proto.SweepServiceStatus
 		Hosts []struct {
@@ -1076,32 +1067,37 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, n
 			Metadata  map[string]string `json:"metadata"`
 		} `json:"hosts"`
 	}
+
 	if err := json.Unmarshal([]byte(svc.Message), &sweepData); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidSweepData, err)
 	}
-	log.Printf("Processing sweep data: Network=%s, TotalHosts=%d, AvailableHosts=%d, LastSweep=%d, Hosts=%d",
-		sweepData.Network, sweepData.TotalHosts, sweepData.AvailableHosts, sweepData.LastSweep, len(sweepData.Hosts))
 
 	if sweepData.LastSweep > now.Add(oneDay).Unix() {
 		log.Printf("Invalid or missing LastSweep timestamp (%d), using current time", sweepData.LastSweep)
+
 		sweepData.LastSweep = now.Unix()
+
 		updatedData := proto.SweepServiceStatus{
 			Network:        sweepData.Network,
 			TotalHosts:     sweepData.TotalHosts,
 			AvailableHosts: sweepData.AvailableHosts,
 			LastSweep:      now.Unix(),
 		}
+
 		updatedMessage, err := json.Marshal(&updatedData)
 		if err != nil {
 			return fmt.Errorf("failed to marshal updated sweep data: %w", err)
 		}
+
 		svc.Message = string(updatedMessage)
 	}
 
 	sweepResults := make([]*db.SweepResult, 0, len(sweepData.Hosts))
+
 	for _, host := range sweepData.Hosts {
 		if host.IP == "" {
 			log.Printf("Skipping host with empty IP for poller %s", svc.PollerID)
+
 			continue
 		}
 
@@ -1121,11 +1117,10 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, n
 			Available:       host.Available,
 			Metadata:        metadata,
 		}
-		log.Printf("Created SweepResult: AgentId=%s, IP=%s", sweepResult.AgentID, sweepResult.IP)
+
 		sweepResults = append(sweepResults, sweepResult)
 	}
 
-	log.Printf("Storing %d sweep results for poller %s", len(sweepResults), svc.PollerID)
 	if err := s.DB.StoreSweepResults(ctx, sweepResults); err != nil {
 		return fmt.Errorf("failed to store sweep results: %w", err)
 	}
