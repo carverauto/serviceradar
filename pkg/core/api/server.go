@@ -696,7 +696,7 @@ func (s *APIServer) getServiceDetails(w http.ResponseWriter, r *http.Request) {
 const (
 	defaultReadTimeout  = 10 * time.Second
 	defaultWriteTimeout = 10 * time.Second
-	defaultTimeout      = 30 * time.Second
+	defaultTimeout      = 10 * time.Second
 	defaultIdleTimeout  = 60 * time.Second
 )
 
