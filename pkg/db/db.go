@@ -281,7 +281,7 @@ func getMaterializedViewStatements() []string {
 	return []string{
 		// Materialized View
 		// The MV will insert into the system-generated _tp_time column in 'devices'
-		`CREATE MATERIALIZED VIEW devices_mv INTO devices AS
+		`CREATE MATERIALIZED VIEW IF NOT EXISTS devices_mv INTO devices AS
         SELECT
             concat(ip, ':', agent_id, ':', poller_id) AS device_id,
             agent_id,
