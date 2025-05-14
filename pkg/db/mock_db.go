@@ -504,6 +504,20 @@ func (mr *MockServiceMockRecorder) StoreRperfMetrics(ctx, pollerID, serviceName,
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreRperfMetrics", reflect.TypeOf((*MockService)(nil).StoreRperfMetrics), ctx, pollerID, serviceName, message, timestamp)
 }
 
+// StoreSweepResults mocks base method.
+func (m *MockService) StoreSweepResults(ctx context.Context, results []*SweepResult) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "StoreSweepResults", ctx, results)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// StoreSweepResults indicates an expected call of StoreSweepResults.
+func (mr *MockServiceMockRecorder) StoreSweepResults(ctx, results any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreSweepResults", reflect.TypeOf((*MockService)(nil).StoreSweepResults), ctx, results)
+}
+
 // StoreSysmonMetrics mocks base method.
 func (m *MockService) StoreSysmonMetrics(ctx context.Context, pollerID string, metrics *models.SysmonMetrics, timestamp time.Time) error {
 	m.ctrl.T.Helper()

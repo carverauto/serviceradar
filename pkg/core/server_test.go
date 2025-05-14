@@ -251,6 +251,8 @@ func TestProcessSweepData(t *testing.T) {
 	server := &Server{}
 	now := time.Now()
 
+	ctx := context.Background()
+
 	tests := []struct {
 		name          string
 		inputMessage  string
@@ -294,7 +296,7 @@ func TestProcessSweepData(t *testing.T) {
 				Message: tt.inputMessage,
 			}
 
-			err := server.processSweepData(svc, now)
+			err := server.processSweepData(ctx, svc, now)
 			if tt.expectError {
 				assert.Error(t, err)
 			} else {

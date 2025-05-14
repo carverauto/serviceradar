@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 )
@@ -29,123 +28,6 @@ func generateDeviceID(pollerID, ipAddress string) string {
 	h.Write([]byte(pollerID + ":" + ipAddress))
 
 	return base64.URLEncoding.EncodeToString(h.Sum(nil))
-}
-
-// StoreDevice stores or updates a device in the database.
-func (db *DB) StoreDevice(ctx context.Context, device *models.Device) error {
-	if device.DeviceID == "" {
-		device.DeviceID = generateDeviceID(device.PollerID, device.IP)
-	}
-
-	if device.LastSeen.IsZero() {
-		device.LastSeen = time.Now()
-	}
-
-	if device.FirstSeen.IsZero() {
-		device.FirstSeen = device.LastSeen
-	}
-
-	metadataStr := ""
-
-	if device.Metadata != nil {
-		metadataBytes, err := json.Marshal(device.Metadata)
-		if err != nil {
-			return fmt.Errorf("%w: %w", errFailedMarshalMetadata, err)
-		}
-
-		metadataStr = string(metadataBytes)
-	}
-
-	// For MergeTree tables, we can use the REPLACE INTO syntax to upsert
-	query := `INSERT INTO devices (* except _tp_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-
-	if err := db.Conn.Exec(ctx, query,
-		device.DeviceID,
-		device.PollerID,
-		device.DiscoverySource,
-		device.IP,
-		device.MAC,
-		device.Hostname,
-		device.FirstSeen,
-		device.LastSeen,
-		device.IsAvailable,
-		metadataStr,
-	); err != nil {
-		return fmt.Errorf("%w: %w", errFailedStoreDevice, err)
-	}
-
-	return nil
-}
-
-// prepareDeviceForStorage prepares a device for storage by setting default values and processing metadata.
-// It returns the metadata as a string and a boolean indicating if the device should be skipped.
-func prepareDeviceForStorage(device *models.Device) (string, bool) {
-	if device.DeviceID == "" {
-		device.DeviceID = generateDeviceID(device.PollerID, device.IP)
-	}
-
-	if device.LastSeen.IsZero() {
-		device.LastSeen = time.Now()
-	}
-
-	if device.FirstSeen.IsZero() {
-		device.FirstSeen = device.LastSeen
-	}
-
-	metadataStr := ""
-
-	if device.Metadata != nil {
-		metadataBytes, err := json.Marshal(device.Metadata)
-		if err != nil {
-			log.Printf("Failed to marshal metadata for device %s: %v", device.IP, err)
-			return "", true // Skip this device
-		}
-
-		metadataStr = string(metadataBytes)
-	}
-
-	return metadataStr, false // Don't skip this device
-}
-
-// StoreBatchDevices stores multiple devices in a single batch operation.
-func (db *DB) StoreBatchDevices(ctx context.Context, devices []*models.Device) error {
-	if len(devices) == 0 {
-		return nil
-	}
-
-	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO devices (* except _tp_time)")
-	if err != nil {
-		return fmt.Errorf("%w: %w", errFailedToPrepareBatch, err)
-	}
-
-	for _, device := range devices {
-		metadataStr, skip := prepareDeviceForStorage(device)
-		if skip {
-			continue
-		}
-
-		err = batch.Append(
-			device.DeviceID,
-			device.PollerID,
-			device.DiscoverySource,
-			device.IP,
-			device.MAC,
-			device.Hostname,
-			device.FirstSeen,
-			device.LastSeen,
-			device.IsAvailable,
-			metadataStr,
-		)
-		if err != nil {
-			log.Printf("Failed to append device %s to batch: %v", device.IP, err)
-		}
-	}
-
-	if err := batch.Send(); err != nil {
-		return fmt.Errorf("%w: %w", errFailedToSendBatch, err)
-	}
-
-	return nil
 }
 
 // GetDevicesByIP retrieves devices with a specific IP address.
