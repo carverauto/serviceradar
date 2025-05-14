@@ -1,0 +1,1366 @@
+{
+  "schemes": [
+    "http",
+    "https"
+  ],
+  "swagger": "2.0",
+  "info": {
+    "description": "API for monitoring and managing service pollers in the ServiceRadar system",
+    "title": "ServiceRadar API",
+    "termsOfService": "https://serviceradar.cloud/terms/",
+    "contact": {
+      "name": "API Support",
+      "url": "https://serviceradar.cloud/support",
+      "email": "support@serviceradar.cloud"
+    },
+    "license": {
+      "name": "Apache 2.0",
+      "url": "http://www.apache.org/licenses/LICENSE-2.0.html"
+    },
+    "version": "1.0"
+  },
+  "basePath": "/",
+  "paths": {
+    "/api/pollers": {
+      "get": {
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "description": "Retrieves a list of all known pollers",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "Pollers"
+        ],
+        "summary": "Get all pollers",
+        "responses": {
+          "200": {
+            "description": "List of poller statuses",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/api.PollerStatus"
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "schema": {
+              "$ref": "#/definitions/models.ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/api/pollers/{id}": {
+      "get": {
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "description": "Retrieves detailed information about a specific poller",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "Pollers"
+        ],
+        "summary": "Get poller details",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Poller ID",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Poller status details",
+            "schema": {
+              "$ref": "#/definitions/api.PollerStatus"
+            }
+          },
+          "404": {
+            "description": "Poller not found",
+            "schema": {
+              "$ref": "#/definitions/models.ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "schema": {
+              "$ref": "#/definitions/models.ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/api/pollers/{id}/history": {
+      "get": {
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "description": "Retrieves historical status information for a specific poller",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "Pollers"
+        ],
+        "summary": "Get poller history",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Poller ID",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Historical status points",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/api.PollerHistoryPoint"
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error or history handler not configured",
+            "schema": {
+              "$ref": "#/definitions/models.ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/api/pollers/{id}/metrics": {
+      "get": {
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "description": "Retrieves performance metrics for a specific poller",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "Metrics"
+        ],
+        "summary": "Get poller metrics",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Poller ID",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Poller metrics data",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/models.MetricPoint"
+              }
+            }
+          },
+          "404": {
+            "description": "No metrics found",
+            "schema": {
+              "$ref": "#/definitions/models.ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal server error or metrics not configured",
+            "schema": {
+              "$ref": "#/definitions/models.ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/api/pollers/{id}/services": {
+      "get": {
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "description": "Retrieves all services monitored by a specific poller",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "Services"
+        ],
+        "summary": "Get poller services",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Poller ID",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of service statuses",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/api.ServiceStatus"
+              }
+            }
+          },
+          "404": {
+            "description": "Poller not found",
+            "schema": {
+              "$ref": "#/definitions/models.ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "schema": {
+              "$ref": "#/definitions/models.ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/api/pollers/{id}/services/{service}": {
+      "get": {
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "description": "Retrieves detailed information about a specific service monitored by a poller",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "Services"
+        ],
+        "summary": "Get service details",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Poller ID",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "Service name",
+            "name": "service",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Service status details",
+            "schema": {
+              "$ref": "#/definitions/api.ServiceStatus"
+            }
+          },
+          "404": {
+            "description": "Poller or service not found",
+            "schema": {
+              "$ref": "#/definitions/models.ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "schema": {
+              "$ref": "#/definitions/models.ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/api/pollers/{id}/snmp": {
+      "get": {
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "description": "Retrieves SNMP metrics data for a specific poller within the given time range",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "SNMP"
+        ],
+        "summary": "Get SNMP data",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Poller ID",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "Start time in RFC3339 format",
+            "name": "start",
+            "in": "query",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "End time in RFC3339 format",
+            "name": "end",
+            "in": "query",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "SNMP metrics data",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/models.SNMPMetric"
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request parameters",
+            "schema": {
+              "$ref": "#/definitions/models.ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "schema": {
+              "$ref": "#/definitions/models.ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/api/query": {
+      "post": {
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "description": "Executes a ServiceRadar Query Language (SRQL) query against the database",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "SRQL"
+        ],
+        "summary": "Execute SRQL query",
+        "parameters": [
+          {
+            "description": "SRQL query string",
+            "name": "query",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/api.QueryRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Query results",
+            "schema": {
+              "$ref": "#/definitions/api.QueryResponse"
+            }
+          },
+          "400": {
+            "description": "Invalid query or request",
+            "schema": {
+              "$ref": "#/definitions/models.ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "schema": {
+              "$ref": "#/definitions/models.ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "schema": {
+              "$ref": "#/definitions/models.ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/api/status": {
+      "get": {
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "description": "Retrieves overall system status including counts of total and healthy pollers",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "System"
+        ],
+        "summary": "Get system status",
+        "responses": {
+          "200": {
+            "description": "System status information",
+            "schema": {
+              "$ref": "#/definitions/api.SystemStatus"
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "schema": {
+              "$ref": "#/definitions/models.ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "description": "Logs in a user with username and password and returns authentication tokens",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Authenticate with username and password",
+        "parameters": [
+          {
+            "description": "User credentials",
+            "name": "credentials",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/api.LoginCredentials"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authentication tokens",
+            "schema": {
+              "$ref": "#/definitions/models.Token"
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "schema": {
+              "$ref": "#/definitions/models.ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Authentication failed",
+            "schema": {
+              "$ref": "#/definitions/models.ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "schema": {
+              "$ref": "#/definitions/models.ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/auth/refresh": {
+      "post": {
+        "description": "Refreshes an expired authentication token",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Refresh authentication token",
+        "parameters": [
+          {
+            "description": "Refresh token",
+            "name": "refresh_token",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/api.RefreshTokenRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "New authentication tokens",
+            "schema": {
+              "$ref": "#/definitions/models.Token"
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "schema": {
+              "$ref": "#/definitions/models.ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Invalid refresh token",
+            "schema": {
+              "$ref": "#/definitions/models.ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "schema": {
+              "$ref": "#/definitions/models.ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/auth/{provider}": {
+      "get": {
+        "description": "Initiates OAuth authentication flow with the specified provider.",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Begin OAuth authentication.",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "OAuth provider (e.g., 'google', 'github')",
+            "name": "provider",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Redirect to OAuth provider",
+            "schema": {
+              "type": "string"
+            }
+          },
+          "400": {
+            "description": "Invalid provider",
+            "schema": {
+              "$ref": "#/definitions/models.ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "schema": {
+              "$ref": "#/definitions/models.ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/auth/{provider}/callback": {
+      "get": {
+        "description": "Completes OAuth authentication flow and returns authentication tokens",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Complete OAuth authentication.",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "OAuth provider (e.g., 'google', 'github')",
+            "name": "provider",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authentication tokens",
+            "schema": {
+              "$ref": "#/definitions/models.Token"
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "schema": {
+              "$ref": "#/definitions/models.ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "schema": {
+              "$ref": "#/definitions/models.ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/pollers/{id}/rperf": {
+      "get": {
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "description": "Retrieves network performance metrics measured by rperf for a specific poller within a time range",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "Rperf"
+        ],
+        "summary": "Get rperf metrics",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Poller ID",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "Start time in RFC3339 format (default: 24h ago)",
+            "name": "start",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "End time in RFC3339 format (default: now)",
+            "name": "end",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Network performance metrics data",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/models.RperfMetric"
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request parameters",
+            "schema": {
+              "$ref": "#/definitions/models.ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "No rperf metrics found",
+            "schema": {
+              "$ref": "#/definitions/models.ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal server error or rperf manager not configured",
+            "schema": {
+              "$ref": "#/definitions/models.ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/pollers/{id}/sysmon/cpu": {
+      "get": {
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "description": "Retrieves CPU usage metrics for a specific poller within a time range",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "Sysmon"
+        ],
+        "summary": "Get CPU metrics",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Poller ID",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "Start time in RFC3339 format (default: 24h ago)",
+            "name": "start",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "End time in RFC3339 format (default: now)",
+            "name": "end",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "CPU metrics data",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/models.CPUMetric"
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request parameters",
+            "schema": {
+              "$ref": "#/definitions/models.ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "No metrics found",
+            "schema": {
+              "$ref": "#/definitions/models.ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "schema": {
+              "$ref": "#/definitions/models.ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "System metrics not supported",
+            "schema": {
+              "$ref": "#/definitions/models.ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/pollers/{id}/sysmon/disk": {
+      "get": {
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "description": "Retrieves disk usage metrics for a specific poller within a time range",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "Sysmon"
+        ],
+        "summary": "Get disk metrics",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Poller ID",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "Filter by specific mount point",
+            "name": "mount_point",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "Start time in RFC3339 format (default: 24h ago)",
+            "name": "start",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "End time in RFC3339 format (default: now)",
+            "name": "end",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Disk metrics data grouped by timestamp",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/db.SysmonDiskResponse"
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request parameters",
+            "schema": {
+              "$ref": "#/definitions/models.ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "No metrics found",
+            "schema": {
+              "$ref": "#/definitions/models.ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "schema": {
+              "$ref": "#/definitions/models.ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "System metrics not supported",
+            "schema": {
+              "$ref": "#/definitions/models.ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/pollers/{id}/sysmon/memory": {
+      "get": {
+        "security": [
+          {
+            "ApiKeyAuth": []
+          }
+        ],
+        "description": "Retrieves memory usage metrics for a specific poller within a time range",
+        "consumes": [
+          "application/json"
+        ],
+        "produces": [
+          "application/json"
+        ],
+        "tags": [
+          "Sysmon"
+        ],
+        "summary": "Get memory metrics",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "Poller ID",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "string",
+            "description": "Start time in RFC3339 format (default: 24h ago)",
+            "name": "start",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "End time in RFC3339 format (default: now)",
+            "name": "end",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Memory metrics data grouped by timestamp",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/db.SysmonMemoryResponse"
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request parameters",
+            "schema": {
+              "$ref": "#/definitions/models.ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "No metrics found",
+            "schema": {
+              "$ref": "#/definitions/models.ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "schema": {
+              "$ref": "#/definitions/models.ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "System metrics not supported",
+            "schema": {
+              "$ref": "#/definitions/models.ErrorResponse"
+            }
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "api.LoginCredentials": {
+      "type": "object",
+      "properties": {
+        "password": {
+          "description": "Password for authentication",
+          "type": "string",
+          "example": "password123"
+        },
+        "username": {
+          "description": "Username for authentication",
+          "type": "string",
+          "example": "admin"
+        }
+      }
+    },
+    "api.PollerHistoryPoint": {
+      "type": "object",
+      "properties": {
+        "is_healthy": {
+          "type": "boolean"
+        },
+        "timestamp": {
+          "type": "string"
+        }
+      }
+    },
+    "api.PollerStatus": {
+      "type": "object",
+      "properties": {
+        "first_seen": {
+          "type": "string"
+        },
+        "is_healthy": {
+          "type": "boolean"
+        },
+        "last_update": {
+          "type": "string"
+        },
+        "metrics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/models.MetricPoint"
+          }
+        },
+        "poller_id": {
+          "type": "string"
+        },
+        "services": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/api.ServiceStatus"
+          }
+        },
+        "uptime": {
+          "type": "string"
+        }
+      }
+    },
+    "api.QueryRequest": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "example": "show devices where ip = '192.168.1.1'"
+        }
+      }
+    },
+    "api.QueryResponse": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "string"
+        },
+        "results": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "api.RefreshTokenRequest": {
+      "type": "object",
+      "properties": {
+        "refresh_token": {
+          "description": "Refresh token from previous authentication",
+          "type": "string",
+          "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        }
+      }
+    },
+    "api.ServiceStatus": {
+      "type": "object",
+      "properties": {
+        "available": {
+          "type": "boolean"
+        },
+        "details": {
+          "description": "Flexible field for service-specific data",
+          "type": "array",
+          "items": {
+            "type": "integer"
+          }
+        },
+        "message": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "description": "e.g., \"process\", \"port\", \"blockchain\", etc.",
+          "type": "string"
+        }
+      }
+    },
+    "api.SystemStatus": {
+      "type": "object",
+      "properties": {
+        "healthy_pollers": {
+          "type": "integer"
+        },
+        "last_update": {
+          "type": "string"
+        },
+        "total_pollers": {
+          "type": "integer"
+        }
+      }
+    },
+    "db.SysmonDiskResponse": {
+      "type": "object",
+      "properties": {
+        "disks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/models.DiskMetric"
+          }
+        },
+        "timestamp": {
+          "type": "string"
+        }
+      }
+    },
+    "db.SysmonMemoryResponse": {
+      "type": "object",
+      "properties": {
+        "memory": {
+          "$ref": "#/definitions/models.MemoryMetric"
+        },
+        "timestamp": {
+          "type": "string"
+        }
+      }
+    },
+    "models.CPUMetric": {
+      "description": "CPU usage metrics for an individual processor core.",
+      "type": "object",
+      "properties": {
+        "core_id": {
+          "description": "ID number of the CPU core",
+          "type": "integer",
+          "example": 0
+        },
+        "timestamp": {
+          "description": "When this metric was collected",
+          "type": "string",
+          "example": "2025-04-24T14:15:22Z"
+        },
+        "usage_percent": {
+          "description": "Usage percentage (0-100)",
+          "type": "number",
+          "example": 45.2
+        }
+      }
+    },
+    "models.DiskMetric": {
+      "description": "Storage usage metrics for a disk partition.",
+      "type": "object",
+      "properties": {
+        "mount_point": {
+          "description": "Mount point path",
+          "type": "string",
+          "example": "/var"
+        },
+        "timestamp": {
+          "description": "When this metric was collected",
+          "type": "string",
+          "example": "2025-04-24T14:15:22Z"
+        },
+        "total_bytes": {
+          "description": "Total capacity in bytes",
+          "type": "integer",
+          "example": 107374182400
+        },
+        "used_bytes": {
+          "description": "Bytes currently in use",
+          "type": "integer",
+          "example": 10737418240
+        }
+      }
+    },
+    "models.ErrorResponse": {
+      "description": "Error information returned from the API.",
+      "type": "object",
+      "properties": {
+        "message": {
+          "description": "Error message",
+          "type": "string",
+          "example": "Invalid request parameters"
+        },
+        "status": {
+          "description": "HTTP status code",
+          "type": "integer",
+          "example": 400
+        }
+      }
+    },
+    "models.MemoryMetric": {
+      "description": "System memory utilization metrics.",
+      "type": "object",
+      "properties": {
+        "timestamp": {
+          "description": "When this metric was collected",
+          "type": "string",
+          "example": "2025-04-24T14:15:22Z"
+        },
+        "total_bytes": {
+          "description": "Total memory capacity in bytes",
+          "type": "integer",
+          "example": 17179869184
+        },
+        "used_bytes": {
+          "description": "Bytes currently in use",
+          "type": "integer",
+          "example": 4294967296
+        }
+      }
+    },
+    "models.MetricPoint": {
+      "description": "A single point of performance metric data with timestamp information.",
+      "type": "object",
+      "properties": {
+        "response_time": {
+          "description": "The response time in milliseconds",
+          "type": "integer",
+          "example": 42
+        },
+        "service_name": {
+          "description": "The name of the service this metric is for",
+          "type": "string",
+          "example": "postgres"
+        },
+        "timestamp": {
+          "description": "The time when this metric was collected",
+          "type": "string",
+          "example": "2025-04-24T14:15:22Z"
+        }
+      }
+    },
+    "models.RperfMetric": {
+      "description": "Single network performance test result for a specific target.",
+      "type": "object",
+      "properties": {
+        "bits_per_second": {
+          "description": "Network throughput in bits per second",
+          "type": "number",
+          "example": 943215000
+        },
+        "bytes_received": {
+          "description": "Total bytes received during the test",
+          "type": "integer",
+          "example": 12582912
+        },
+        "bytes_sent": {
+          "description": "Total bytes sent during the test",
+          "type": "integer",
+          "example": 12582912
+        },
+        "duration": {
+          "description": "Test duration in seconds",
+          "type": "number",
+          "example": 10.05
+        },
+        "error": {
+          "description": "Error message if test failed (null if successful)",
+          "type": "string",
+          "example": "connection refused"
+        },
+        "jitter_ms": {
+          "description": "Network jitter in milliseconds",
+          "type": "number",
+          "example": 0.85
+        },
+        "loss_percent": {
+          "description": "Percentage of packets lost during the test",
+          "type": "number",
+          "example": 0.02
+        },
+        "name": {
+          "description": "Test name or identifier",
+          "type": "string",
+          "example": "rperf_tcp_test"
+        },
+        "packets_lost": {
+          "description": "Number of packets lost during the test",
+          "type": "integer",
+          "example": 2
+        },
+        "packets_received": {
+          "description": "Number of packets received during the test",
+          "type": "integer",
+          "example": 9998
+        },
+        "packets_sent": {
+          "description": "Number of packets sent during the test",
+          "type": "integer",
+          "example": 10000
+        },
+        "success": {
+          "description": "Whether the test was successful",
+          "type": "boolean",
+          "example": true
+        },
+        "target": {
+          "description": "Target hostname or IP address",
+          "type": "string",
+          "example": "192.168.1.1"
+        },
+        "timestamp": {
+          "description": "When the test was performed",
+          "type": "string",
+          "example": "2025-04-24T14:15:22Z"
+        }
+      }
+    },
+    "models.SNMPMetric": {
+      "description": "A metric collected via SNMP, including its value, type, and timestamp.",
+      "type": "object",
+      "properties": {
+        "is_delta": {
+          "description": "Whether the metric represents a delta value\n@example false",
+          "type": "boolean"
+        },
+        "oid_name": {
+          "description": "The name of the OID (Object Identifier)\n@example \"sysUpTime\"",
+          "type": "string"
+        },
+        "scale": {
+          "description": "The scale factor applied to the value\n@example 1.0",
+          "type": "number"
+        },
+        "timestamp": {
+          "description": "The time when the metric was collected\n@example \"2025-04-24T14:15:22Z\"",
+          "type": "string"
+        },
+        "value": {
+          "description": "The value of the metric\n@example 12345"
+        },
+        "value_type": {
+          "description": "The type of the value (e.g., integer, string)\n@example \"integer\"",
+          "type": "string"
+        }
+      }
+    },
+    "models.Token": {
+      "description": "Authentication tokens for API access.",
+      "type": "object",
+      "properties": {
+        "access_token": {
+          "description": "JWT access token used for API authorization",
+          "type": "string",
+          "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        },
+        "expires_at": {
+          "description": "When the access token expires",
+          "type": "string",
+          "example": "2025-04-25T12:00:00Z"
+        },
+        "refresh_token": {
+          "description": "JWT refresh token used to obtain new access tokens",
+          "type": "string",
+          "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        }
+      }
+    }
+  },
+  "securityDefinitions": {
+    "ApiKeyAuth": {
+      "type": "apiKey",
+      "name": "Authorization",
+      "in": "header"
+    }
+  }
+}
