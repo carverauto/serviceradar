@@ -94,9 +94,7 @@ CREATE STREAM IF NOT EXISTS discovered_interfaces (
     ifAdminStatus Int32,
     ifOperStatus Int32,
     metadata Map(String, String)
-)
-PRIMARY KEY (device_id, ifIndex)
-SETTINGS mode='versioned_kv', version_column='_tp_time';
+);
 ```
 
 - **`topology_discovery_events` (New Stream):**
@@ -345,20 +343,21 @@ SRQL will be the primary way users interact with this correlated data.
 
 ## Implementation Plan
 
-### Phase 1: Data Foundation (4 weeks)
-- Define and implement schema for `discovered_interfaces` and `topology_discovery_events` streams in Proton.
+### 1. Data Foundation (4 weeks)
+- Define and implement schema for `discovered_interfaces` (as a regular append stream, not versioned KV) and `topology_discovery_events` streams in Proton.
 - Modify SNMP checkers/pollers to populate these new streams.
+- Ensure `discovered_interfaces` preserves full history of interface changes rather than maintaining just current state.
 - Enforce metadata enrichment (`target_device_ip`, `ifIndex`) in `timeseries_metrics` for SNMP interface metrics.
 - Update `devices_mv` materialized view to include relationship metadata.
 - Test data flow into these Proton streams.
 
 ### Phase 2: ArangoDB Integration (3 weeks)
 - Set up ArangoDB instance(s) with appropriate security.
-- Define schemas for `Devices`, `Interfaces`, `DeviceHasInterface`, and `InterfaceConnectsToInterface`.
+- Define schemas for `Devices`, `Interfaces`, `Collections` and all edge collections (`DeviceHasInterface`, `DeviceToDevice`, `DeviceToCollection`, `InterfaceToCollection`).
 - Develop and deploy the `serviceradar-arangodb-sync` service:
     - First: Sync `devices` (Proton) → `Devices` (ArangoDB).
     - Next: Sync `discovered_interfaces` (Proton) → `Interfaces` & `DeviceHasInterface` (ArangoDB).
-    - Then: Sync `topology_discovery_events` (Proton) → `InterfaceConnectsToInterface` (ArangoDB).
+    - Then: Sync `topology_discovery_events` (Proton) → `DeviceToDevice` (ArangoDB).
 - Test synchronization between Proton and ArangoDB.
 
 ### Phase 3: Correlation API and SRQL v1 (3 weeks)
