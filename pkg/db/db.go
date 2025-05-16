@@ -194,46 +194,46 @@ func getStreamEngineStatements() []string {
 
 		`CREATE STREAM IF NOT EXISTS discovered_interfaces (
 			timestamp DateTime64(3) DEFAULT now64(3),
-			agent_id String,
-			poller_id String,
-			device_ip String,
-			device_id String, -- (e.g., ip:agent_id:poller_id)
-			ifIndex Int32,
-			ifName Nullable(String),
-			ifDescr Nullable(String),
-			ifAlias Nullable(String),
-			ifSpeed UInt64,
-			ifPhysAddress Nullable(String), -- MAC address of the interface
-			ip_addresses Array(String),    -- IPs configured on this interface
-			ifAdminStatus Int32,           -- e.g., up(1), down(2), testing(3)
-			ifOperStatus Int32,            -- e.g., up(1), down(2), testing(3), unknown(4), dormant(5), notPresent(6), lowerLayerDown(7)
-			metadata Map(String, String)   -- For any other relevant interface data
+			agent_id string,
+			poller_id string,
+			device_ip string,
+			device_id string, -- (e.g., ip:agent_id:poller_id)
+			ifIndex int32,
+			ifName nullable(string),
+			ifDescr nullable(string),
+			ifAlias nullable(string),
+			ifSpeed uint64,
+			ifPhysAddress nullable(string), -- MAC address of the interface
+			ip_addresses array(string),    -- IPs configured on this interface
+			ifAdminStatus int32,           -- e.g., up(1), down(2), testing(3)
+			ifOperStatus int32,            -- e.g., up(1), down(2), testing(3), unknown(4), dormant(5), notPresent(6), lowerLayerDown(7)
+			metadata map(string, string)   -- For any other relevant interface data
 		)`,
 
 		`CREATE STREAM IF NOT EXISTS topology_discovery_events (
 			timestamp DateTime64(3) DEFAULT now64(3),
-			agent_id String,
-			poller_id String,
-			local_device_ip String, -- IP of the device reporting the event
-			local_device_id String, -- Unique ID of the local device
-			local_ifIndex Int32,
-			local_ifName Nullable(String),
-			protocol_type String, -- 'LLDP', 'CDP', 'BGP'
+			agent_id string,
+			poller_id string,
+			local_device_ip string, -- IP of the device reporting the event
+			local_device_id string, -- Unique ID of the local device
+			local_ifIndex int32,
+			local_ifName nullable(string),
+			protocol_type string, -- 'LLDP', 'CDP', 'BGP'
 			
 			-- LLDP/CDP specific fields
-			neighbor_chassis_id Nullable(String),
-			neighbor_port_id Nullable(String),
-			neighbor_port_descr Nullable(String),
-			neighbor_system_name Nullable(String),
-			neighbor_management_address Nullable(String), -- Management IP of neighbor
+			neighbor_chassis_id nullable(string),
+			neighbor_port_id nullable(string),
+			neighbor_port_descr nullable(string),
+			neighbor_system_name nullable(string),
+			neighbor_management_address nullable(string), -- Management IP of neighbor
 			
 			-- BGP specific fields
-			neighbor_bgp_router_id Nullable(String), -- For BGP, this could be the neighbor's router ID
-			neighbor_ip_address Nullable(String),    -- For BGP, the peer IP
-			neighbor_as Nullable(UInt32),
-			bgp_session_state Nullable(String),
+			neighbor_bgp_router_id nullable(string), -- For BGP, this could be the neighbor's router ID
+			neighbor_ip_address nullable(string),    -- For BGP, the peer IP
+			neighbor_as nullable(uint32),
+			bgp_session_state nullable(string),
 			
-			metadata Map(String, String) -- Additional details
+			metadata map(string, string) -- Additional details
 		)`,
 	}
 }
