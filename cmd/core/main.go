@@ -52,6 +52,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/core"
 	"github.com/carverauto/serviceradar/pkg/core/api"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
+	"github.com/carverauto/serviceradar/pkg/srql/parser"
 	"github.com/carverauto/serviceradar/proto"
 	"google.golang.org/grpc"
 
@@ -91,6 +92,8 @@ func run() error {
 		api.WithSNMPManager(server.GetSNMPManager()),
 		api.WithAuthService(server.GetAuth()),
 		api.WithRperfManager(server.GetRperfManager()),
+		api.WithQueryExecutor(server.DB),
+		api.WithDatabaseType(parser.Proton),
 	)
 
 	server.SetAPIServer(ctx, apiServer)
