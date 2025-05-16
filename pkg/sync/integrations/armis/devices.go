@@ -63,9 +63,19 @@ func (a *ArmisIntegration) fetchDevicesForQuery(ctx context.Context, accessToken
 // writeSweepConfigWithIPs creates and writes a sweep configuration with the provided IPs.
 func (a *ArmisIntegration) writeSweepConfigWithIPs(ctx context.Context, ips []string) error {
 	// Build sweep config using the base SweeperConfig from the integration instance
-	clonedConfig := *a.SweeperConfig // Shallow copy is generally fine for models.SweepConfig
-	clonedConfig.Networks = ips      // Update with dynamically fetched IPs
-	finalSweepConfig := &clonedConfig
+	var finalSweepConfig *models.SweepConfig
+
+	if a.SweeperConfig != nil {
+		// If we have a base config, clone it and update networks
+		clonedConfig := *a.SweeperConfig // Shallow copy is generally fine for models.SweepConfig
+		clonedConfig.Networks = ips      // Update with dynamically fetched IPs
+		finalSweepConfig = &clonedConfig
+	} else {
+		// If no base config exists, create a new one with just the networks
+		finalSweepConfig = &models.SweepConfig{
+			Networks: ips,
+		}
+	}
 
 	err := a.KVWriter.WriteSweepConfig(ctx, finalSweepConfig)
 	if err != nil {
@@ -78,13 +88,14 @@ func (a *ArmisIntegration) writeSweepConfigWithIPs(ctx context.Context, ips []st
 
 // Fetch retrieves devices from Armis and generates sweep config.
 func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error) {
+	// Check for empty queries first before making any API calls
+	if len(a.Config.Queries) == 0 {
+		return nil, errNoQueriesProvided
+	}
+
 	accessToken, err := a.TokenProvider.GetAccessToken(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get access token: %w", err)
-	}
-
-	if len(a.Config.Queries) == 0 {
-		return nil, errNoQueriesProvided
 	}
 
 	if a.PageSize <= 0 {
@@ -107,10 +118,10 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error)
 
 	log.Printf("Fetched total of %d devices from Armis", len(allDevices))
 
+	// Write sweep config but don't fail if it errors
 	if err := a.writeSweepConfigWithIPs(ctx, ips); err != nil {
 		log.Printf("Warning: Failed to write sweep config with IPs: %v", err)
-
-		return nil, err
+		// Don't return the error - continue with the fetch operation
 	}
 
 	return data, nil
@@ -190,13 +201,13 @@ func (*ArmisIntegration) processDevices(devices []Device) (data map[string][]byt
 		// Store device in KV with device ID as key
 		data[fmt.Sprintf("%d", device.ID)] = value
 
-		// Process IP addresses - take only the first IP from comma-separated list
+		// Process IP addresses - handle comma-separated list of IPs
 		if device.IPAddress != "" {
-			// Split by comma and take the first IP
+			// Split by comma to handle multiple IPs
 			ipList := strings.Split(device.IPAddress, ",")
-			if len(ipList) > 0 {
-				// Trim spaces and validate the first IP
-				ip := strings.TrimSpace(ipList[0])
+			for _, ipRaw := range ipList {
+				// Trim spaces and validate each IP
+				ip := strings.TrimSpace(ipRaw)
 				if ip != "" {
 					// Add to sweep list with /32 suffix
 					ips = append(ips, ip+"/32")
