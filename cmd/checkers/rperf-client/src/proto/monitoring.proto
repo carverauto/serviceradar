@@ -18,7 +18,7 @@ syntax = "proto3";
 
 package monitoring;
 
-option go_package = "github.com/carverauto/serviceradar/cmd/checkers/rperf-client/src/proto";
+option go_package = "github.com/carverauto/serviceradar/proto";
 
 service AgentService {
   rpc GetStatus(StatusRequest) returns (StatusResponse) {}
@@ -28,25 +28,31 @@ service PollerService {
   rpc ReportStatus(PollerStatusRequest) returns (PollerStatusResponse) {}
 }
 
+message DeviceStatusRequest {
+  string agent_id = 1; // Unique identifier for the agent
+}
+
 message StatusRequest {
-  string service_name = 1;  // Type of service to check (process, port, dusk)
-  string service_type = 2;  // Type of service (process, port, grpc, etc)
-  string details = 3;       // Additional details (e.g., process name)
+  string service_name = 1; // Type of service to check (process, port, dusk)
+  string service_type = 2; // Type of service (process, port, grpc, etc)
+  string details = 3;      // Additional details (e.g., process name)
   int32 port = 4;          // Port number for port checks
 }
 
 message StatusResponse {
   bool available = 1;
-  string message = 2; // Raw data as JSON
+  string message = 2;      // Raw data as JSON
   string service_name = 3;
   string service_type = 4;
   int64 response_time = 5; // Raw response time in nanoseconds
+  string agent_id = 6;     // Agent ID for traceability
 }
 
 message PollerStatusRequest {
   repeated ServiceStatus services = 1;
   string poller_id = 2;
-  int64 timestamp = 3;
+  string agent_id = 3; // Agent ID for traceability
+  int64 timestamp = 4;
 }
 
 message PollerStatusResponse {
@@ -59,6 +65,7 @@ message ServiceStatus {
   string message = 3;
   string service_type = 4;
   int64 response_time = 5;
+  string agent_id = 6;     // Agent ID for traceability
 }
 
 message SweepServiceStatus {

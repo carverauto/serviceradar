@@ -25,6 +25,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -36,25 +38,45 @@ import (
 
 // DB represents the database connection for Timeplus Proton.
 type DB struct {
-	conn proton.Conn
+	Conn proton.Conn
 }
 
 // New creates a new database connection and initializes the schema.
 func New(ctx context.Context, config *models.DBConfig) (Service, error) {
+	// Construct absolute paths for certificate files
+	certDir := config.Security.CertDir
+	certFile := config.Security.TLS.CertFile
+	keyFile := config.Security.TLS.KeyFile
+	caFile := config.Security.TLS.CAFile
+
+	// Prepend CertDir to relative paths
+	if certDir != "" {
+		if !filepath.IsAbs(certFile) {
+			certFile = filepath.Join(certDir, certFile)
+		}
+
+		if !filepath.IsAbs(keyFile) {
+			keyFile = filepath.Join(certDir, keyFile)
+		}
+
+		if !filepath.IsAbs(caFile) {
+			caFile = filepath.Join(certDir, caFile)
+		}
+	}
+
 	// Load client certificate and key
-	cert, err := tls.LoadX509KeyPair(config.Security.TLS.CertFile, config.Security.TLS.KeyFile)
+	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to load client certificate: %w", ErrFailedOpenDB, err)
 	}
 
 	// Load CA certificate
-	caCert, err := os.ReadFile(config.Security.TLS.CAFile)
+	caCert, err := os.ReadFile(caFile)
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to read CA certificate: %w", ErrFailedOpenDB, err)
 	}
 
 	caCertPool := x509.NewCertPool()
-
 	if !caCertPool.AppendCertsFromPEM(caCert) {
 		return nil, fmt.Errorf("%w: failed to append CA certificate to pool", ErrFailedOpenDB)
 	}
@@ -95,7 +117,7 @@ func New(ctx context.Context, config *models.DBConfig) (Service, error) {
 		return nil, fmt.Errorf("%w: %w", ErrFailedOpenDB, err)
 	}
 
-	db := &DB{conn: conn}
+	db := &DB{Conn: conn}
 
 	if err := db.initSchema(ctx); err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrFailedToInit, err)
@@ -104,17 +126,27 @@ func New(ctx context.Context, config *models.DBConfig) (Service, error) {
 	return db, nil
 }
 
-// initSchema creates the database streams for Proton.
-func (db *DB) initSchema(ctx context.Context) error {
-	createStreams := []string{
+// getStreamEngineStatements returns the SQL statements for creating regular Append Streams.
+func getStreamEngineStatements() []string {
+	var statements []string
+
+	statements = append(statements, getMetricsStreamStatements()...)
+	statements = append(statements, getPollerStreamStatements()...)
+	statements = append(statements, getServiceStreamStatements()...)
+	statements = append(statements, getDiscoveryStreamStatements()...)
+
+	return statements
+}
+
+// getMetricsStreamStatements returns SQL statements for metrics-related streams.
+func getMetricsStreamStatements() []string {
+	return []string{
 		`CREATE STREAM IF NOT EXISTS cpu_metrics (
             poller_id string,
             timestamp DateTime64(3) DEFAULT now64(3),
             core_id int32,
             usage_percent float64
-        ) ENGINE = MergeTree()
-        PARTITION BY date(timestamp)
-        ORDER BY (poller_id, timestamp)`,
+        )`,
 
 		`CREATE STREAM IF NOT EXISTS disk_metrics (
             poller_id string,
@@ -122,46 +154,14 @@ func (db *DB) initSchema(ctx context.Context) error {
             mount_point string,
             used_bytes uint64,
             total_bytes uint64
-        ) ENGINE = MergeTree()
-        PARTITION BY date(timestamp)
-        ORDER BY (poller_id, timestamp)`,
+        )`,
 
 		`CREATE STREAM IF NOT EXISTS memory_metrics (
             poller_id string,
             timestamp DateTime64(3) DEFAULT now64(3),
             used_bytes uint64,
             total_bytes uint64
-        ) ENGINE = MergeTree()
-        PARTITION BY date(timestamp)
-        ORDER BY (poller_id, timestamp)`,
-
-		`CREATE STREAM IF NOT EXISTS pollers (
-            poller_id string,
-            first_seen DateTime64(3) DEFAULT now64(3),
-            last_seen DateTime64(3) DEFAULT now64(3),
-            is_healthy bool
-        ) ENGINE = MergeTree()
-        PRIMARY KEY (poller_id)
-        ORDER BY poller_id`,
-
-		`CREATE STREAM IF NOT EXISTS poller_history (
-            poller_id string,
-            timestamp DateTime64(3) DEFAULT now64(3),
-            is_healthy bool
-        ) ENGINE = MergeTree()
-        PARTITION BY date(timestamp)
-        ORDER BY (poller_id, timestamp)`,
-
-		`CREATE STREAM IF NOT EXISTS service_status (
-            poller_id string,
-            service_name string,
-            service_type string,
-            available bool,
-            details string,
-            timestamp DateTime64(3) DEFAULT now64(3)
-        ) ENGINE = MergeTree()
-        PARTITION BY date(timestamp)
-        ORDER BY (poller_id, timestamp)`,
+        )`,
 
 		`CREATE STREAM IF NOT EXISTS timeseries_metrics (
             poller_id string,
@@ -170,9 +170,40 @@ func (db *DB) initSchema(ctx context.Context) error {
             value string,
             metadata string,
             timestamp DateTime64(3) DEFAULT now64(3)
-        ) ENGINE = MergeTree()
-        PARTITION BY date(timestamp)
-        ORDER BY (poller_id, metric_name, timestamp)`,
+        )`,
+	}
+}
+
+// getPollerStreamStatements returns SQL statements for poller-related streams.
+func getPollerStreamStatements() []string {
+	return []string{
+		`CREATE STREAM IF NOT EXISTS pollers (
+            poller_id string,
+            first_seen DateTime64(3) DEFAULT now64(3),
+            last_seen DateTime64(3) DEFAULT now64(3),
+            is_healthy bool
+        )`,
+
+		`CREATE STREAM IF NOT EXISTS poller_history (
+            poller_id string,
+            timestamp DateTime64(3) DEFAULT now64(3),
+            is_healthy bool
+        )`,
+	}
+}
+
+// getServiceStreamStatements returns SQL statements for service-related streams.
+func getServiceStreamStatements() []string {
+	return []string{
+		`CREATE STREAM IF NOT EXISTS service_status (
+            poller_id string,
+            service_name string,
+            service_type string,
+            available bool,
+            details string,
+            timestamp DateTime64(3) DEFAULT now64(3),
+            agent_id string
+        )`,
 
 		`CREATE STREAM IF NOT EXISTS users (
             id string,
@@ -181,23 +212,272 @@ func (db *DB) initSchema(ctx context.Context) error {
             provider string,
             created_at DateTime64(3) DEFAULT now64(3),
             updated_at DateTime64(3) DEFAULT now64(3)
-        ) ENGINE = MergeTree()
-        PRIMARY KEY (id)
-        ORDER BY id`,
+        )`,
+	}
+}
+
+// getDiscoveryStreamStatements returns SQL statements for discovery-related streams.
+func getDiscoveryStreamStatements() []string {
+	return []string{
+		`CREATE STREAM IF NOT EXISTS discovered_interfaces (
+			timestamp DateTime64(3) DEFAULT now64(3),
+			agent_id string,
+			poller_id string,
+			device_ip string,
+			device_id string, -- (e.g., ip:agent_id:poller_id)
+			ifIndex int32,
+			ifName nullable(string),
+			ifDescr nullable(string),
+			ifAlias nullable(string),
+			ifSpeed uint64,
+			ifPhysAddress nullable(string), -- MAC address of the interface
+			ip_addresses array(string),    -- IPs configured on this interface
+			ifAdminStatus int32,           -- e.g., up(1), down(2), testing(3)
+			ifOperStatus int32,            -- e.g., up(1), down(2), testing(3), unknown(4), dormant(5), notPresent(6), lowerLayerDown(7)
+			metadata map(string, string)   -- For any other relevant interface data
+		)`,
+
+		`CREATE STREAM IF NOT EXISTS topology_discovery_events (
+			timestamp DateTime64(3) DEFAULT now64(3),
+			agent_id string,
+			poller_id string,
+			local_device_ip string, -- IP of the device reporting the event
+			local_device_id string, -- Unique ID of the local device
+			local_ifIndex int32,
+			local_ifName nullable(string),
+			protocol_type string, -- 'LLDP', 'CDP', 'BGP'
+
+			-- LLDP/CDP specific fields
+			neighbor_chassis_id nullable(string),
+			neighbor_port_id nullable(string),
+			neighbor_port_descr nullable(string),
+			neighbor_system_name nullable(string),
+			neighbor_management_address nullable(string), -- Management IP of neighbor
+
+			-- BGP specific fields
+			neighbor_bgp_router_id nullable(string), -- For BGP, this could be the neighbor's router ID
+			neighbor_ip_address nullable(string),    -- For BGP, the peer IP
+			neighbor_as nullable(uint32),
+			bgp_session_state nullable(string),
+
+			metadata map(string, string) -- Additional details
+		)`,
+	}
+}
+
+// getVersionedKVStreamStatements returns the SQL statements for creating versioned KV streams.
+func getVersionedKVStreamStatements() []string {
+	return []string{
+		// Versioned Streams using SETTINGS mode='versioned_kv'
+		`CREATE STREAM IF NOT EXISTS sweep_results (
+          agent_id string,
+          poller_id string,
+          discovery_source string,
+          ip string,
+          mac nullable(string),
+          hostname nullable(string),
+          timestamp DateTime64(3) DEFAULT now64(3),
+          available boolean,
+          metadata map(string, string)
+          -- _tp_time is NOT explicitly defined here
+       )
+       PRIMARY KEY (ip, agent_id, poller_id)
+       SETTINGS mode='versioned_kv', version_column='_tp_time'`,
+
+		`CREATE STREAM IF NOT EXISTS icmp_results (
+          agent_id string,
+          poller_id string,
+          discovery_source string,
+          ip string,
+          mac nullable(string),
+          hostname nullable(string),
+          timestamp DateTime64(3) DEFAULT now64(3),
+          available boolean,
+          metadata map(string, string)
+       )
+       PRIMARY KEY (ip, agent_id, poller_id)
+       SETTINGS mode='versioned_kv', version_column='_tp_time'`,
+
+		`CREATE STREAM IF NOT EXISTS snmp_results (
+          agent_id string,
+          poller_id string,
+          discovery_source string,
+          ip string,
+          mac nullable(string),
+          hostname nullable(string),
+          timestamp DateTime64(3) DEFAULT now64(3),
+          available boolean,
+          metadata map(string, string)
+       )
+       PRIMARY KEY (ip, agent_id, poller_id)
+       SETTINGS mode='versioned_kv', version_column='_tp_time'`,
+
+		`CREATE STREAM IF NOT EXISTS devices (
+          device_id string,
+          agent_id string,
+          poller_id string,
+          discovery_source string,
+          ip string,
+          mac nullable(string),
+          hostname nullable(string),
+          first_seen DateTime64(3),
+          last_seen DateTime64(3),
+          is_available boolean,
+          metadata map(string, string)
+       )
+       PRIMARY KEY (device_id)
+       SETTINGS mode='versioned_kv', version_column='_tp_time'`,
+	}
+}
+
+// getMaterializedViewStatements returns the SQL statements for creating materialized views.
+func getMaterializedViewStatements() []string {
+	return []string{
+		// Materialized View
+		// The MV will insert into the system-generated _tp_time column in 'devices'
+		`CREATE MATERIALIZED VIEW IF NOT EXISTS devices_mv INTO devices AS
+        SELECT
+            concat(ip, ':', agent_id, ':', poller_id) AS device_id,
+            agent_id,
+            poller_id,
+            discovery_source,
+            ip,
+            mac,
+            hostname,
+            timestamp AS first_seen,
+            timestamp AS last_seen,
+            available AS is_available,
+            metadata,
+            now64(3) AS _tp_time
+        FROM sweep_results`,
+	}
+}
+
+// getCreateStreamStatements returns the SQL statements for creating database streams.
+func getCreateStreamStatements() []string {
+	// Combine statements from all helper functions
+	var statements []string
+
+	statements = append(statements, getStreamEngineStatements()...)
+	statements = append(statements, getVersionedKVStreamStatements()...)
+	statements = append(statements, getMaterializedViewStatements()...)
+
+	return statements
+}
+
+// initSchema creates the database streams for Proton, excluding netflow_metrics.
+// Note: devices_mv is a minimal materialized view streaming from sweep_results only.
+// Historical data is not processed; devices populates naturally from new data.
+// Streams use ChangelogStream engine to support continuous streaming for materialized views.
+func (db *DB) initSchema(ctx context.Context) error {
+	log.Println("=== Initializing schema with db.go version: 2025-05-13-v23 ===")
+
+	// Get the stream creation statements
+	createStreams := getCreateStreamStatements()
+
+	// Execute each statement with detailed logging
+	for i, statement := range createStreams {
+		log.Printf("Executing SQL statement %d: %s", i+1, statement)
+
+		if err := db.Conn.Exec(ctx, statement); err != nil {
+			log.Printf("ERROR: Failed to execute SQL statement %d: %v", i+1, err)
+
+			return fmt.Errorf("failed to execute statement %d: %w", i+1, err)
+		}
+
+		log.Printf("Successfully executed SQL statement %d", i+1)
 	}
 
-	for _, statement := range createStreams {
-		if err := db.conn.Exec(ctx, statement); err != nil {
-			return err
-		}
-	}
+	log.Println("=== Schema initialized successfully ===")
 
 	return nil
 }
 
 // Close closes the database connection.
 func (db *DB) Close() error {
-	return db.conn.Close()
+	return db.Conn.Close()
+}
+
+// ExecuteQuery executes a raw SQL query against the Proton database.
+func (db *DB) ExecuteQuery(ctx context.Context, query string, params ...interface{}) ([]map[string]interface{}, error) {
+	rows, err := db.Conn.Query(ctx, query, params...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute query: %w", err)
+	}
+	defer rows.Close()
+
+	columnTypes := rows.ColumnTypes()
+
+	columns := make([]string, len(columnTypes))
+
+	for i, ct := range columnTypes {
+		columns[i] = ct.Name()
+	}
+
+	var results []map[string]interface{}
+
+	scanVars := make([]interface{}, len(columnTypes))
+
+	for i := range columnTypes {
+		scanVars[i] = reflect.New(columnTypes[i].ScanType()).Interface()
+	}
+
+	for rows.Next() {
+		if err := rows.Scan(scanVars...); err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		row := convertRow(columns, scanVars)
+		results = append(results, row)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %w", err)
+	}
+
+	return results, nil
+}
+
+// convertRow converts scanned row values to a map, handling type dereferencing.
+func convertRow(columns []string, scanVars []interface{}) map[string]interface{} {
+	row := make(map[string]interface{}, len(columns))
+
+	for i, col := range columns {
+		row[col] = dereferenceValue(scanVars[i])
+	}
+
+	return row
+}
+
+// dereferenceValue dereferences a scanned value and returns its concrete type.
+func dereferenceValue(v interface{}) interface{} {
+	switch val := v.(type) {
+	case *string:
+		return *val
+	case *uint8:
+		return *val
+	case *uint64:
+		return *val
+	case *int64:
+		return *val
+	case *float64:
+		return *val
+	case *time.Time:
+		return *val
+	case *bool:
+		return *val
+	default:
+		// Handle non-pointer types or unexpected types
+		if reflect.TypeOf(v).Kind() == reflect.Ptr {
+			if reflect.ValueOf(v).IsNil() {
+				return nil
+			}
+
+			return reflect.ValueOf(v).Elem().Interface()
+		}
+
+		return v
+	}
 }
 
 // StoreMetrics stores multiple timeseries metrics in a single batch.
@@ -206,7 +486,7 @@ func (db *DB) StoreMetrics(ctx context.Context, pollerID string, metrics []*Time
 		return nil
 	}
 
-	batch, err := db.conn.PrepareBatch(ctx, "INSERT INTO timeseries_metrics (* except _tp_time)")
+	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO timeseries_metrics (* except _tp_time)")
 	if err != nil {
 		return fmt.Errorf("failed to prepare batch: %w", err)
 	}
@@ -319,7 +599,7 @@ func (db *DB) UpdateServiceStatuses(ctx context.Context, statuses []*ServiceStat
 		return nil
 	}
 
-	batch, err := db.conn.PrepareBatch(ctx, "INSERT INTO service_status (* except _tp_time)")
+	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO service_status (* except _tp_time)")
 	if err != nil {
 		return fmt.Errorf("failed to prepare batch: %w", err)
 	}
@@ -332,6 +612,7 @@ func (db *DB) UpdateServiceStatuses(ctx context.Context, statuses []*ServiceStat
 			status.Available,
 			status.Details,
 			status.Timestamp,
+			status.AgentID,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to append service status for %s: %w", status.ServiceName, err)
@@ -441,7 +722,7 @@ func (db *DB) insertPollerHistory(ctx context.Context, status *models.PollerStat
 
 // executeBatch prepares and sends a batch operation, handling errors.
 func (db *DB) executeBatch(ctx context.Context, query string, appendFunc func(driver.Batch) error) error {
-	batch, err := db.conn.PrepareBatch(ctx, query)
+	batch, err := db.Conn.PrepareBatch(ctx, query)
 	if err != nil {
 		return fmt.Errorf("failed to prepare batch: %w", err)
 	}
@@ -461,9 +742,9 @@ func (db *DB) executeBatch(ctx context.Context, query string, appendFunc func(dr
 func (db *DB) GetPollerStatus(ctx context.Context, pollerID string) (*models.PollerStatus, error) {
 	var status models.PollerStatus
 
-	rows, err := db.conn.Query(ctx, `
+	rows, err := db.Conn.Query(ctx, `
 		SELECT poller_id, first_seen, last_seen, is_healthy
-		FROM pollers
+		FROM table(pollers)
 		WHERE poller_id = $1
 		LIMIT 1`,
 		pollerID)
@@ -491,9 +772,9 @@ func (db *DB) GetPollerStatus(ctx context.Context, pollerID string) (*models.Pol
 
 // GetPollerServices retrieves services for a poller.
 func (db *DB) GetPollerServices(ctx context.Context, pollerID string) ([]ServiceStatus, error) {
-	rows, err := db.conn.Query(ctx, `
-		SELECT service_name, service_type, available, details, timestamp
-		FROM service_status
+	rows, err := db.Conn.Query(ctx, `
+		SELECT service_name, service_type, available, details, timestamp, agent_id
+		FROM table(service_status)
 		WHERE poller_id = $1
 		ORDER BY service_type, service_name`,
 		pollerID)
@@ -507,8 +788,7 @@ func (db *DB) GetPollerServices(ctx context.Context, pollerID string) ([]Service
 	for rows.Next() {
 		var s ServiceStatus
 
-		s.PollerID = pollerID
-		if err := rows.Scan(&s.ServiceName, &s.ServiceType, &s.Available, &s.Details, &s.Timestamp); err != nil {
+		if err := rows.Scan(&s.ServiceName, &s.ServiceType, &s.Available, &s.Details, &s.Timestamp, &s.AgentID); err != nil {
 			return nil, fmt.Errorf("%w service row: %w", ErrFailedToScan, err)
 		}
 
@@ -520,9 +800,9 @@ func (db *DB) GetPollerServices(ctx context.Context, pollerID string) ([]Service
 
 // GetPollerHistoryPoints retrieves history points for a poller.
 func (db *DB) GetPollerHistoryPoints(ctx context.Context, pollerID string, limit int) ([]PollerHistoryPoint, error) {
-	rows, err := db.conn.Query(ctx, `
+	rows, err := db.Conn.Query(ctx, `
 		SELECT timestamp, is_healthy
-		FROM poller_history
+		FROM table(poller_history)
 		WHERE poller_id = $1
 		ORDER BY timestamp DESC
 		LIMIT $2`,
@@ -551,9 +831,9 @@ func (db *DB) GetPollerHistoryPoints(ctx context.Context, pollerID string, limit
 func (db *DB) GetPollerHistory(ctx context.Context, pollerID string) ([]models.PollerStatus, error) {
 	const maxHistoryPoints = 1000
 
-	rows, err := db.conn.Query(ctx, `
+	rows, err := db.Conn.Query(ctx, `
 		SELECT timestamp, is_healthy
-		FROM poller_history
+		FROM table(poller_history)
 		WHERE poller_id = $1
 		ORDER BY timestamp DESC
 		LIMIT $2`,
@@ -583,9 +863,9 @@ func (db *DB) GetPollerHistory(ctx context.Context, pollerID string) ([]models.P
 func (db *DB) IsPollerOffline(ctx context.Context, pollerID string, threshold time.Duration) (bool, error) {
 	cutoff := time.Now().Add(-threshold)
 
-	rows, err := db.conn.Query(ctx, `
+	rows, err := db.Conn.Query(ctx, `
 		SELECT COUNT(*)
-		FROM pollers
+		FROM table(pollers)
 		WHERE poller_id = $1
 		AND last_seen < $2`,
 		pollerID, cutoff)
@@ -609,7 +889,7 @@ func (db *DB) IsPollerOffline(ctx context.Context, pollerID string, threshold ti
 
 // UpdateServiceStatus updates a service's status.
 func (db *DB) UpdateServiceStatus(ctx context.Context, status *ServiceStatus) error {
-	batch, err := db.conn.PrepareBatch(ctx, "INSERT INTO service_status (* except _tp_time)")
+	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO service_status (* except _tp_time)")
 	if err != nil {
 		return fmt.Errorf("failed to prepare batch: %w", err)
 	}
@@ -635,9 +915,9 @@ func (db *DB) UpdateServiceStatus(ctx context.Context, status *ServiceStatus) er
 
 // GetServiceHistory retrieves the recent history for a service.
 func (db *DB) GetServiceHistory(ctx context.Context, pollerID, serviceName string, limit int) ([]ServiceStatus, error) {
-	rows, err := db.conn.Query(ctx, `
+	rows, err := db.Conn.Query(ctx, `
 		SELECT timestamp, available, details
-		FROM service_status
+		FROM table(service_status)
 		WHERE poller_id = $1 AND service_name = $2
 		ORDER BY timestamp DESC
 		LIMIT $3`,
@@ -667,7 +947,7 @@ func (db *DB) GetServiceHistory(ctx context.Context, pollerID, serviceName strin
 
 // ListPollers retrieves all poller IDs from the pollers stream.
 func (db *DB) ListPollers(ctx context.Context) ([]string, error) {
-	rows, err := db.conn.Query(ctx, "SELECT poller_id FROM pollers")
+	rows, err := db.Conn.Query(ctx, "SELECT poller_id FROM table(pollers)")
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to query pollers: %w", ErrFailedToQuery, err)
 	}
@@ -696,7 +976,7 @@ func (db *DB) ListPollers(ctx context.Context) ([]string, error) {
 
 // DeletePoller deletes a poller by ID.
 func (db *DB) DeletePoller(ctx context.Context, pollerID string) error {
-	batch, err := db.conn.PrepareBatch(ctx, "DELETE FROM pollers WHERE poller_id = $1")
+	batch, err := db.Conn.PrepareBatch(ctx, "DELETE FROM table(pollers) WHERE poller_id = $1")
 	if err != nil {
 		return fmt.Errorf("failed to prepare batch: %w", err)
 	}
@@ -714,7 +994,7 @@ func (db *DB) DeletePoller(ctx context.Context, pollerID string) error {
 
 // ListPollerStatuses retrieves poller statuses, optionally filtered by patterns.
 func (db *DB) ListPollerStatuses(ctx context.Context, patterns []string) ([]models.PollerStatus, error) {
-	query := `SELECT poller_id, is_healthy, last_seen FROM pollers`
+	query := `SELECT poller_id, is_healthy, last_seen FROM table(pollers)`
 
 	var args []interface{}
 
@@ -731,7 +1011,7 @@ func (db *DB) ListPollerStatuses(ctx context.Context, patterns []string) ([]mode
 
 	query += " ORDER BY last_seen DESC"
 
-	rows, err := db.conn.Query(ctx, query, args...)
+	rows, err := db.Conn.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to query pollers: %w", ErrFailedToQuery, err)
 	}
@@ -759,17 +1039,18 @@ func (db *DB) ListPollerStatuses(ctx context.Context, patterns []string) ([]mode
 }
 
 // ListNeverReportedPollers retrieves poller IDs that have never reported (first_seen = last_seen).
+// ListNeverReportedPollers retrieves poller IDs that have never reported (first_seen = last_seen).
 func (db *DB) ListNeverReportedPollers(ctx context.Context, patterns []string) ([]string, error) {
 	query := `
         WITH history AS (
             SELECT poller_id, MAX(timestamp) AS latest_timestamp
-            FROM poller_history
+            FROM table(poller_history)
             GROUP BY poller_id
         )
-        SELECT DISTINCT pollers.poller_id
-        FROM pollers
-        LEFT JOIN history ON pollers.poller_id = history.poller_id
-        WHERE history.latest_timestamp IS NULL OR history.latest_timestamp = pollers.first_seen`
+        SELECT DISTINCT p.poller_id
+        FROM table(pollers) AS p
+        LEFT JOIN history ON p.poller_id = history.poller_id
+        WHERE history.latest_timestamp IS NULL OR history.latest_timestamp = p.first_seen`
 
 	var args []interface{}
 
@@ -777,16 +1058,16 @@ func (db *DB) ListNeverReportedPollers(ctx context.Context, patterns []string) (
 		conditions := make([]string, 0, len(patterns))
 
 		for i, pattern := range patterns {
-			conditions = append(conditions, fmt.Sprintf("pollers.poller_id LIKE $%d", i+1))
+			conditions = append(conditions, fmt.Sprintf("p.poller_id LIKE $%d", i+1))
 			args = append(args, pattern)
 		}
 
 		query += " AND (" + strings.Join(conditions, " OR ") + ")"
 	}
 
-	query += " ORDER BY pollers.poller_id"
+	query += " ORDER BY p.poller_id"
 
-	rows, err := db.conn.Query(ctx, query, args...)
+	rows, err := db.Conn.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("%w: failed to query never reported pollers: %w", ErrFailedToQuery, err)
 	}
@@ -799,7 +1080,6 @@ func (db *DB) ListNeverReportedPollers(ctx context.Context, patterns []string) (
 
 		if err := rows.Scan(&pollerID); err != nil {
 			log.Printf("Error scanning poller ID: %v", err)
-
 			continue
 		}
 
@@ -817,9 +1097,9 @@ func (db *DB) ListNeverReportedPollers(ctx context.Context, patterns []string) (
 
 // GetAllMountPoints retrieves all unique mount points for a poller.
 func (db *DB) GetAllMountPoints(ctx context.Context, pollerID string) ([]string, error) {
-	rows, err := db.conn.Query(ctx, `
+	rows, err := db.Conn.Query(ctx, `
 		SELECT DISTINCT mount_point
-		FROM disk_metrics
+		FROM table(disk_metrics)
 		WHERE poller_id = $1 
 		ORDER BY mount_point ASC`,
 		pollerID)
@@ -850,9 +1130,9 @@ func (db *DB) GetAllMountPoints(ctx context.Context, pollerID string) ([]string,
 
 // GetAllCPUMetrics retrieves all CPU metrics for a poller within a time range, grouped by timestamp.
 func (db *DB) GetAllCPUMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]SysmonCPUResponse, error) {
-	rows, err := db.conn.Query(ctx, `
+	rows, err := db.Conn.Query(ctx, `
 		SELECT timestamp, core_id, usage_percent
-		FROM cpu_metrics
+		FROM table(cpu_metrics)
 		WHERE poller_id = $1 AND timestamp BETWEEN $2 AND $3
 		ORDER BY timestamp DESC, core_id ASC`,
 		pollerID, start, end)
@@ -904,9 +1184,9 @@ func (db *DB) GetAllCPUMetrics(ctx context.Context, pollerID string, start, end 
 
 // GetAllDiskMetrics retrieves all disk metrics for a poller.
 func (db *DB) GetAllDiskMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.DiskMetric, error) {
-	rows, err := db.conn.Query(ctx, `
+	rows, err := db.Conn.Query(ctx, `
 		SELECT mount_point, used_bytes, total_bytes, timestamp
-		FROM disk_metrics
+		FROM table(disk_metrics)
 		WHERE poller_id = $1 AND timestamp BETWEEN $2 AND $3
 		ORDER BY timestamp DESC, mount_point ASC`,
 		pollerID, start, end)
@@ -942,9 +1222,9 @@ func (db *DB) GetAllDiskMetrics(ctx context.Context, pollerID string, start, end
 
 // GetDiskMetrics retrieves disk metrics for a specific mount point.
 func (db *DB) GetDiskMetrics(ctx context.Context, pollerID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error) {
-	rows, err := db.conn.Query(ctx, `
+	rows, err := db.Conn.Query(ctx, `
 		SELECT timestamp, mount_point, used_bytes, total_bytes
-		FROM disk_metrics
+		FROM table(disk_metrics)
 		WHERE poller_id = $1 AND mount_point = $2 AND timestamp BETWEEN $3 AND $4
 		ORDER BY timestamp`,
 		pollerID, mountPoint, start, end)
@@ -971,9 +1251,9 @@ func (db *DB) GetDiskMetrics(ctx context.Context, pollerID, mountPoint string, s
 
 // GetMemoryMetrics retrieves memory metrics.
 func (db *DB) GetMemoryMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.MemoryMetric, error) {
-	rows, err := db.conn.Query(ctx, `
+	rows, err := db.Conn.Query(ctx, `
 		SELECT timestamp, used_bytes, total_bytes
-		FROM memory_metrics
+		FROM table(memory_metrics)
 		WHERE poller_id = $1 AND timestamp BETWEEN $2 AND $3
 		ORDER BY timestamp`,
 		pollerID, start, end)
@@ -1001,9 +1281,9 @@ func (db *DB) GetMemoryMetrics(ctx context.Context, pollerID string, start, end 
 
 // GetAllDiskMetricsGrouped retrieves disk metrics grouped by timestamp.
 func (db *DB) GetAllDiskMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]SysmonDiskResponse, error) {
-	rows, err := db.conn.Query(ctx, `
+	rows, err := db.Conn.Query(ctx, `
 		SELECT timestamp, mount_point, used_bytes, total_bytes
-		FROM disk_metrics
+		FROM table(disk_metrics)
 		WHERE poller_id = $1 AND timestamp BETWEEN $2 AND $3
 		ORDER BY timestamp DESC, mount_point ASC`,
 		pollerID, start, end)
@@ -1057,9 +1337,9 @@ func (db *DB) GetAllDiskMetricsGrouped(ctx context.Context, pollerID string, sta
 
 // GetMemoryMetricsGrouped retrieves memory metrics grouped by timestamp.
 func (db *DB) GetMemoryMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]SysmonMemoryResponse, error) {
-	rows, err := db.conn.Query(ctx, `
+	rows, err := db.Conn.Query(ctx, `
 		SELECT timestamp, used_bytes, total_bytes
-		FROM memory_metrics
+		FROM table(memory_metrics)
 		WHERE poller_id = $1 AND timestamp BETWEEN $2 AND $3
 		ORDER BY timestamp DESC`,
 		pollerID, start, end)

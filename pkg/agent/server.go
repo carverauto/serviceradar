@@ -425,16 +425,25 @@ func (s *Server) connectToChecker(ctx context.Context, checkerConfig *CheckerCon
 }
 
 func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
+	var response *proto.StatusResponse
+
 	switch {
 	case isRperfCheckerRequest(req):
-		return s.handleRperfChecker(ctx, req)
+		response, _ = s.handleRperfChecker(ctx, req)
 	case isICMPRequest(req):
-		return s.handleICMPCheck(ctx, req)
+		response, _ = s.handleICMPCheck(ctx, req)
 	case isSweepRequest(req):
-		return s.getSweepStatus(ctx)
+		response, _ = s.getSweepStatus(ctx)
 	default:
-		return s.handleDefaultChecker(ctx, req)
+		response, _ = s.handleDefaultChecker(ctx, req)
 	}
+
+	// Include AgentID in the response
+	if response != nil {
+		response.AgentId = s.config.AgentID
+	}
+
+	return response, nil
 }
 
 func isRperfCheckerRequest(req *proto.StatusRequest) bool {
@@ -476,6 +485,7 @@ func (s *Server) handleRperfChecker(ctx context.Context, req *proto.StatusReques
 		ServiceName: "",
 		ServiceType: "grpc",
 		Details:     "",
+		AgentId:     s.config.AgentID, // Propagate AgentId
 	})
 }
 
@@ -525,6 +535,7 @@ func (s *Server) handleDefaultChecker(ctx context.Context, req *proto.StatusRequ
 		Message:     message,
 		ServiceName: req.ServiceName,
 		ServiceType: req.ServiceType,
+		AgentId:     s.config.AgentID, // Ensure AgentId is set
 	}, nil
 }
 

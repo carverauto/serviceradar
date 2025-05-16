@@ -9,11 +9,11 @@ const docTemplate = `{
     "info": {
         "description": "{{escape .Description}}",
         "title": "{{.Title}}",
-        "termsOfService": "http://carverauto.com/terms/",
+        "termsOfService": "https://serviceradar.cloud/terms/",
         "contact": {
             "name": "API Support",
-            "url": "http://carverauto.com/support",
-            "email": "support@carverauto.com"
+            "url": "https://serviceradar.cloud/support",
+            "email": "support@serviceradar.cloud"
         },
         "license": {
             "name": "Apache 2.0",
@@ -382,6 +382,63 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/query": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Executes a ServiceRadar Query Language (SRQL) query against the database",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "SRQL"
+                ],
+                "summary": "Execute SRQL query",
+                "parameters": [
+                    {
+                        "description": "SRQL query string",
+                        "name": "query",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/api.QueryRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Query results",
+                        "schema": {
+                            "$ref": "#/definitions/api.QueryResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid query or request",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "schema": {
+                            "$ref": "#/definitions/models.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/status": {
             "get": {
                 "security": [
@@ -522,7 +579,7 @@ const docTemplate = `{
         },
         "/auth/{provider}": {
             "get": {
-                "description": "Initiates OAuth authentication flow with the specified provider",
+                "description": "Initiates OAuth authentication flow with the specified provider.",
                 "consumes": [
                     "application/json"
                 ],
@@ -532,7 +589,7 @@ const docTemplate = `{
                 "tags": [
                     "Authentication"
                 ],
-                "summary": "Begin OAuth authentication",
+                "summary": "Begin OAuth authentication.",
                 "parameters": [
                     {
                         "type": "string",
@@ -576,7 +633,7 @@ const docTemplate = `{
                 "tags": [
                     "Authentication"
                 ],
-                "summary": "Complete OAuth authentication",
+                "summary": "Complete OAuth authentication.",
                 "parameters": [
                     {
                         "type": "string",
@@ -972,6 +1029,30 @@ const docTemplate = `{
                 }
             }
         },
+        "api.QueryRequest": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "example": "show devices where ip = '192.168.1.1'"
+                }
+            }
+        },
+        "api.QueryResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string"
+                },
+                "results": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": true
+                    }
+                }
+            }
+        },
         "api.RefreshTokenRequest": {
             "type": "object",
             "properties": {
@@ -1094,7 +1175,7 @@ const docTemplate = `{
             }
         },
         "models.ErrorResponse": {
-            "description": "Error information returned from the API",
+            "description": "Error information returned from the API.",
             "type": "object",
             "properties": {
                 "message": {
@@ -1152,7 +1233,7 @@ const docTemplate = `{
             }
         },
         "models.RperfMetric": {
-            "description": "Single network performance test result for a specific target",
+            "description": "Single network performance test result for a specific target.",
             "type": "object",
             "properties": {
                 "bits_per_second": {
@@ -1257,7 +1338,7 @@ const docTemplate = `{
             }
         },
         "models.Token": {
-            "description": "Authentication tokens for API access",
+            "description": "Authentication tokens for API access.",
             "type": "object",
             "properties": {
                 "access_token": {
@@ -1290,7 +1371,7 @@ const docTemplate = `{
 // SwaggerInfo holds exported Swagger Info so clients can modify it
 var SwaggerInfo = &swag.Spec{
 	Version:          "1.0",
-	Host:             "demo.serviceradar.cloud",
+	Host:             "",
 	BasePath:         "/",
 	Schemes:          []string{"http", "https"},
 	Title:            "ServiceRadar API",

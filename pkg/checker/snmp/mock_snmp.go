@@ -426,18 +426,18 @@ func (m *MockSNMPManager) EXPECT() *MockSNMPManagerMockRecorder {
 }
 
 // GetSNMPMetrics mocks base method.
-func (m *MockSNMPManager) GetSNMPMetrics(nodeID string, startTime, endTime time.Time) ([]db.SNMPMetric, error) {
+func (m *MockSNMPManager) GetSNMPMetrics(ctx context.Context, nodeID string, startTime, endTime time.Time) ([]db.SNMPMetric, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetSNMPMetrics", nodeID, startTime, endTime)
+	ret := m.ctrl.Call(m, "GetSNMPMetrics", ctx, nodeID, startTime, endTime)
 	ret0, _ := ret[0].([]db.SNMPMetric)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetSNMPMetrics indicates an expected call of GetSNMPMetrics.
-func (mr *MockSNMPManagerMockRecorder) GetSNMPMetrics(nodeID, startTime, endTime any) *gomock.Call {
+func (mr *MockSNMPManagerMockRecorder) GetSNMPMetrics(ctx, nodeID, startTime, endTime any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSNMPMetrics", reflect.TypeOf((*MockSNMPManager)(nil).GetSNMPMetrics), nodeID, startTime, endTime)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSNMPMetrics", reflect.TypeOf((*MockSNMPManager)(nil).GetSNMPMetrics), ctx, nodeID, startTime, endTime)
 }
 
 // MockDataStore is a mock of DataStore interface.

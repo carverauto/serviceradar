@@ -34,7 +34,7 @@ func (db *DB) getUserByField(ctx context.Context, field, value string) (*models.
         WHERE ` + field + ` = $1
         LIMIT 1`
 
-	rows, err := db.conn.Query(ctx, query, value)
+	rows, err := db.Conn.Query(ctx, query, value)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query user by %s: %w", field, err)
 	}
@@ -74,7 +74,7 @@ func (db *DB) StoreUser(ctx context.Context, user *models.User) error {
 	user.CreatedAt = time.Now()
 	user.UpdatedAt = user.CreatedAt
 
-	batch, err := db.conn.PrepareBatch(ctx, "INSERT INTO users (* except _tp_time)")
+	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO users (* except _tp_time)")
 	if err != nil {
 		return fmt.Errorf("failed to prepare batch: %w", err)
 	}
@@ -104,7 +104,7 @@ func (db *DB) StoreBatchUsers(ctx context.Context, users []*models.User) error {
 		return nil
 	}
 
-	batch, err := db.conn.PrepareBatch(ctx, "INSERT INTO users (* except _tp_time)")
+	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO users (* except _tp_time)")
 	if err != nil {
 		return fmt.Errorf("failed to prepare batch: %w", err)
 	}
@@ -145,7 +145,7 @@ func (db *DB) StoreBatchUsers(ctx context.Context, users []*models.User) error {
 func (db *DB) UpdateUserLastSeen(ctx context.Context, userID string) error {
 	now := time.Now()
 
-	batch, err := db.conn.PrepareBatch(ctx, "INSERT INTO users (id, updated_at)")
+	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO users (id, updated_at)")
 	if err != nil {
 		return fmt.Errorf("failed to prepare batch: %w", err)
 	}
@@ -166,7 +166,7 @@ func (db *DB) UpdateUserLastSeen(ctx context.Context, userID string) error {
 func (db *DB) UpdateUser(ctx context.Context, user *models.User) error {
 	user.UpdatedAt = time.Now()
 
-	batch, err := db.conn.PrepareBatch(ctx, "INSERT INTO users (* except _tp_time)")
+	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO users (* except _tp_time)")
 	if err != nil {
 		return fmt.Errorf("failed to prepare batch: %w", err)
 	}
