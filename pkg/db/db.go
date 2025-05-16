@@ -128,6 +128,18 @@ func New(ctx context.Context, config *models.DBConfig) (Service, error) {
 
 // getStreamEngineStatements returns the SQL statements for creating regular Append Streams.
 func getStreamEngineStatements() []string {
+	var statements []string
+
+	statements = append(statements, getMetricsStreamStatements()...)
+	statements = append(statements, getPollerStreamStatements()...)
+	statements = append(statements, getServiceStreamStatements()...)
+	statements = append(statements, getDiscoveryStreamStatements()...)
+
+	return statements
+}
+
+// getMetricsStreamStatements returns SQL statements for metrics-related streams.
+func getMetricsStreamStatements() []string {
 	return []string{
 		`CREATE STREAM IF NOT EXISTS cpu_metrics (
             poller_id string,
@@ -151,6 +163,20 @@ func getStreamEngineStatements() []string {
             total_bytes uint64
         )`,
 
+		`CREATE STREAM IF NOT EXISTS timeseries_metrics (
+            poller_id string,
+            metric_name string,
+            metric_type string,
+            value string,
+            metadata string,
+            timestamp DateTime64(3) DEFAULT now64(3)
+        )`,
+	}
+}
+
+// getPollerStreamStatements returns SQL statements for poller-related streams.
+func getPollerStreamStatements() []string {
+	return []string{
 		`CREATE STREAM IF NOT EXISTS pollers (
             poller_id string,
             first_seen DateTime64(3) DEFAULT now64(3),
@@ -163,7 +189,12 @@ func getStreamEngineStatements() []string {
             timestamp DateTime64(3) DEFAULT now64(3),
             is_healthy bool
         )`,
+	}
+}
 
+// getServiceStreamStatements returns SQL statements for service-related streams.
+func getServiceStreamStatements() []string {
+	return []string{
 		`CREATE STREAM IF NOT EXISTS service_status (
             poller_id string,
             service_name string,
@@ -174,15 +205,6 @@ func getStreamEngineStatements() []string {
             agent_id string
         )`,
 
-		`CREATE STREAM IF NOT EXISTS timeseries_metrics (
-            poller_id string,
-            metric_name string,
-            metric_type string,
-            value string,
-            metadata string,
-            timestamp DateTime64(3) DEFAULT now64(3)
-        )`,
-
 		`CREATE STREAM IF NOT EXISTS users (
             id string,
             email string,
@@ -191,7 +213,12 @@ func getStreamEngineStatements() []string {
             created_at DateTime64(3) DEFAULT now64(3),
             updated_at DateTime64(3) DEFAULT now64(3)
         )`,
+	}
+}
 
+// getDiscoveryStreamStatements returns SQL statements for discovery-related streams.
+func getDiscoveryStreamStatements() []string {
+	return []string{
 		`CREATE STREAM IF NOT EXISTS discovered_interfaces (
 			timestamp DateTime64(3) DEFAULT now64(3),
 			agent_id string,
@@ -219,26 +246,26 @@ func getStreamEngineStatements() []string {
 			local_ifIndex int32,
 			local_ifName nullable(string),
 			protocol_type string, -- 'LLDP', 'CDP', 'BGP'
-			
+
 			-- LLDP/CDP specific fields
 			neighbor_chassis_id nullable(string),
 			neighbor_port_id nullable(string),
 			neighbor_port_descr nullable(string),
 			neighbor_system_name nullable(string),
 			neighbor_management_address nullable(string), -- Management IP of neighbor
-			
+
 			-- BGP specific fields
 			neighbor_bgp_router_id nullable(string), -- For BGP, this could be the neighbor's router ID
 			neighbor_ip_address nullable(string),    -- For BGP, the peer IP
 			neighbor_as nullable(uint32),
 			bgp_session_state nullable(string),
-			
+
 			metadata map(string, string) -- Additional details
 		)`,
 	}
 }
 
-// getVersionedKVStreamStatements returns the SQL statements for creating versioned KV streams
+// getVersionedKVStreamStatements returns the SQL statements for creating versioned KV streams.
 func getVersionedKVStreamStatements() []string {
 	return []string{
 		// Versioned Streams using SETTINGS mode='versioned_kv'
@@ -303,7 +330,7 @@ func getVersionedKVStreamStatements() []string {
 	}
 }
 
-// getMaterializedViewStatements returns the SQL statements for creating materialized views
+// getMaterializedViewStatements returns the SQL statements for creating materialized views.
 func getMaterializedViewStatements() []string {
 	return []string{
 		// Materialized View
@@ -326,7 +353,7 @@ func getMaterializedViewStatements() []string {
 	}
 }
 
-// getCreateStreamStatements returns the SQL statements for creating database streams
+// getCreateStreamStatements returns the SQL statements for creating database streams.
 func getCreateStreamStatements() []string {
 	// Combine statements from all helper functions
 	var statements []string
