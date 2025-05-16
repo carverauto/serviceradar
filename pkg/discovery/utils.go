@@ -167,16 +167,20 @@ func formatMgmtAddr(data []byte) string {
 	return result.String()
 }
 
-// cleanupRoutine periodically cleans up completed jobs
+// cleanupRoutine periodically cleans up completed jobs.
 func (e *SnmpDiscoveryEngine) cleanupRoutine(ctx context.Context) {
-	ticker := time.NewTicker(time.Hour)
+	ticker := time.NewTicker(e.config.ResultRetention / 2) // Clean more frequently than retention
 	defer ticker.Stop()
+
+	log.Println("Discovery results cleanup routine started.")
 
 	for {
 		select {
-		case <-ctx.Done():
+		case <-ctx.Done(): // Main context cancelled
+			log.Println("Cleanup routine stopping due to main context cancellation.")
 			return
-		case <-e.done:
+		case <-e.done: // Engine stopping
+			log.Println("Cleanup routine stopping due to engine shutdown.")
 			return
 		case <-ticker.C:
 			e.cleanupCompletedJobs()
@@ -184,7 +188,7 @@ func (e *SnmpDiscoveryEngine) cleanupRoutine(ctx context.Context) {
 	}
 }
 
-// cleanupCompletedJobs removes old completed jobs
+// cleanupCompletedJobs removes old completed jobs.
 func (e *SnmpDiscoveryEngine) cleanupCompletedJobs() {
 	e.mu.Lock()
 	defer e.mu.Unlock()

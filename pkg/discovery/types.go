@@ -16,6 +16,7 @@ type SnmpDiscoveryEngine struct {
 	workers       int
 	publisher     Publisher
 	done          chan struct{}
+	wg            sync.WaitGroup
 }
 
 // DiscoveryType identifies the type of discovery to perform
@@ -94,6 +95,7 @@ type DiscoveryJob struct {
 	Params        *DiscoveryParams
 	Status        *DiscoveryStatus
 	Results       *DiscoveryResults
+	ctx           context.Context
 	cancelFunc    context.CancelFunc
 	discoveredIPs map[string]bool
 	scanQueue     []string
