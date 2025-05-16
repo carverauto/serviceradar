@@ -121,8 +121,6 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error)
 	// Write sweep config but don't fail if it errors
 	if err := a.writeSweepConfigWithIPs(ctx, ips); err != nil {
 		log.Printf("Warning: Failed to write sweep config with IPs: %v", err)
-
-		return nil, err
 	}
 
 	return data, nil
