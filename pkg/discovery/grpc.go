@@ -21,7 +21,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/carverauto/serviceradar/proto"
+	"github.com/carverauto/serviceradar/proto/discovery"
 )
 
 // GRPCDiscoveryService implements the gRPC interface for the discovery service
