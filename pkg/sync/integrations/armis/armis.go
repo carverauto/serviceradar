@@ -60,6 +60,7 @@ func (d *DefaultArmisIntegration) GetAccessToken(ctx context.Context) (string, e
 
 	// Parse response
 	var tokenResp AccessTokenResponse
+
 	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
 		return "", err
 	}

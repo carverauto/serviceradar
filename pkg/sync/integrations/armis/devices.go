@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-// Package armis pkg/sync/integrations/armis/devices.go provides functions to fetch devices from the Armis API.
+// Package armis pkkg/sync/integrations/armis/devices.go
 package armis
 
 import (
@@ -26,11 +26,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-
-	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-// Fetch retrieves devices from Armis and generates sweep config.
 // Fetch retrieves devices from Armis and generates sweep config.
 func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error) {
 	accessToken, err := a.TokenProvider.GetAccessToken(ctx)
@@ -80,16 +77,25 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error)
 
 	log.Printf("Fetched total of %d devices from Armis", len(allDevices))
 
-	// Build and write sweep config
-	sweepConfig := &models.SweepConfig{
-		Networks: ips,
+	// Build sweep config using the base SweeperConfig from the integration instance
+	clonedConfig := *a.SweeperConfig // Shallow copy is generally fine for models.SweepConfig
+	clonedConfig.Networks = ips      // Update with dynamically fetched IPs
+	finalSweepConfig := &clonedConfig
+
+	log.Printf("Sweep config to be written: %+v", finalSweepConfig)
+
+	err = a.KVWriter.WriteSweepConfig(ctx, finalSweepConfig)
+	if err != nil {
+		// Log as warning, as per existing behavior for KV write errors during sweep config.
+		log.Printf("Warning: Failed to write full sweep config: %v", err)
 	}
 
-	log.Println("Sweep config:", sweepConfig)
+	log.Printf("Sweep config to be written: %+v", finalSweepConfig)
 
-	err = a.KVWriter.WriteSweepConfig(ctx, sweepConfig)
+	err = a.KVWriter.WriteSweepConfig(ctx, finalSweepConfig)
 	if err != nil {
-		log.Printf("Warning: Failed to write sweep config: %v", err)
+		// Log as warning, as per existing behavior for KV write errors during sweep config.
+		log.Printf("Warning: Failed to write full sweep config: %v", err)
 	}
 
 	return data, nil
@@ -127,6 +133,7 @@ func (d *DefaultArmisIntegration) FetchDevicesPage(
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
+
 	log.Printf("API response for query '%s': %s", query, string(bodyBytes))
 
 	if resp.StatusCode != http.StatusOK {
@@ -135,6 +142,7 @@ func (d *DefaultArmisIntegration) FetchDevicesPage(
 	}
 
 	var searchResp SearchResponse
+
 	if err := json.Unmarshal(bodyBytes, &searchResp); err != nil {
 		return nil, fmt.Errorf("failed to parse response: %w", err)
 	}
