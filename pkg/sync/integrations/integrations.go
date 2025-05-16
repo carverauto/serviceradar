@@ -33,7 +33,7 @@ import (
 // NewArmisIntegration creates a new ArmisIntegration with a gRPC client.
 func NewArmisIntegration(
 	_ context.Context,
-	config models.SourceConfig,
+	config *models.SourceConfig,
 	kvClient proto.KVServiceClient,
 	grpcConn *grpc.ClientConn,
 	serverName string,
@@ -92,7 +92,7 @@ func NewArmisIntegration(
 // NewNetboxIntegration creates a new NetboxIntegration instance.
 func NewNetboxIntegration(
 	_ context.Context,
-	config models.SourceConfig,
+	config *models.SourceConfig,
 	kvClient proto.KVServiceClient,
 	grpcConn *grpc.ClientConn,
 	serverName string,
