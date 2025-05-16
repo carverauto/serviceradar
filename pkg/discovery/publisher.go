@@ -86,24 +86,30 @@ func (p *ProtonPublisher) PublishDevice(ctx context.Context, device *DiscoveredD
 	return nil
 }
 
+// In pkg/discovery/publisher.go
+
 // PublishInterface publishes a discovered interface to the discovered_interfaces stream
 func (p *ProtonPublisher) PublishInterface(ctx context.Context, iface *DiscoveredInterface) error {
-	// Build metadata
+	// Convert metadata to a JSON representation
 	metadata := make(map[string]string)
-	metadata["if_type"] = fmt.Sprintf("%d", iface.IfType)
-
-	// Add any additional metadata
-	for k, v := range iface.Metadata {
-		metadata[k] = v
+	if iface.Metadata != nil {
+		for k, v := range iface.Metadata {
+			metadata[k] = v
+		}
 	}
 
-	// Convert metadata to JSON
+	// Add ifType to metadata if present
+	if iface.IfType != 0 {
+		metadata["if_type"] = fmt.Sprintf("%d", iface.IfType)
+	}
+
+	// Convert metadata to json.RawMessage
 	metadataJSON, err := json.Marshal(metadata)
 	if err != nil {
 		return fmt.Errorf("failed to marshal metadata: %w", err)
 	}
 
-	// Create discovered interface
+	// Create discovered interface model
 	discoveredInterface := &models.DiscoveredInterface{
 		Timestamp:     time.Now(),
 		AgentID:       p.config.AgentID,
@@ -122,7 +128,7 @@ func (p *ProtonPublisher) PublishInterface(ctx context.Context, iface *Discovere
 		Metadata:      metadataJSON,
 	}
 
-	// Call the DB service method directly - the method will handle batching internally
+	// Call the DB service method directly
 	if err := p.dbService.PublishDiscoveredInterface(ctx, discoveredInterface); err != nil {
 		return fmt.Errorf("failed to publish interface to discovered_interfaces: %w", err)
 	}
@@ -137,13 +143,13 @@ func (p *ProtonPublisher) PublishInterface(ctx context.Context, iface *Discovere
 func (p *ProtonPublisher) PublishTopologyLink(ctx context.Context, link *TopologyLink) error {
 	// Build metadata
 	metadata := make(map[string]string)
-
-	// Add any additional metadata
-	for k, v := range link.Metadata {
-		metadata[k] = v
+	if link.Metadata != nil {
+		for k, v := range link.Metadata {
+			metadata[k] = v
+		}
 	}
 
-	// Convert metadata to JSON
+	// Convert metadata to json.RawMessage
 	metadataJSON, err := json.Marshal(metadata)
 	if err != nil {
 		return fmt.Errorf("failed to marshal metadata: %w", err)
@@ -227,9 +233,6 @@ func (p *ProtonPublisher) PublishBatchDevices(ctx context.Context, devices []*Di
 
 	return nil
 }
-
-// PublishBatchInterfaces publishes multiple interfaces in a batch
-// Update pkg/discovery/publisher.go, replacing:
 
 // PublishBatchInterfaces publishes multiple interfaces in a batch
 func (p *ProtonPublisher) PublishBatchInterfaces(ctx context.Context, interfaces []*DiscoveredInterface) error {

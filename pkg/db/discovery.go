@@ -11,6 +11,7 @@ import (
 )
 
 // PublishDiscoveredInterface publishes a discovered interface to the discovered_interfaces stream
+// PublishDiscoveredInterface publishes a discovered interface to the discovered_interfaces stream
 func (db *DB) PublishDiscoveredInterface(ctx context.Context, iface *models.DiscoveredInterface) error {
 	// Validate required fields
 	if iface.DeviceIP == "" {
@@ -37,29 +38,16 @@ func (db *DB) PublishDiscoveredInterface(ctx context.Context, iface *models.Disc
 		ipAddresses = []string{}
 	}
 
-	// Convert metadata to JSON if it's not already
+	// Handle metadata - it's a json.RawMessage in the model
 	var metadata map[string]string
-	if iface.Metadata != nil {
-		// Check if Metadata is already in the correct format
-		if metadataMap, ok := iface.Metadata.(map[string]string); ok {
-			metadata = metadataMap
-		} else {
-			// Try to convert from JSON
-			var metadataMap map[string]string
-			if err := json.Unmarshal(iface.Metadata, &metadataMap); err != nil {
-				log.Printf("Warning: unable to parse interface metadata: %v", err)
-				metadata = make(map[string]string)
-			} else {
-				metadata = metadataMap
-			}
+	if len(iface.Metadata) > 0 {
+		// Try to unmarshal the RawMessage
+		if err := json.Unmarshal(iface.Metadata, &metadata); err != nil {
+			log.Printf("Warning: unable to parse interface metadata: %v", err)
+			metadata = make(map[string]string)
 		}
 	} else {
 		metadata = make(map[string]string)
-	}
-
-	// Add ifType to metadata if present
-	if iface.IfType != 0 {
-		metadata["if_type"] = fmt.Sprintf("%d", iface.IfType)
 	}
 
 	// Append to batch
@@ -118,21 +106,13 @@ func (db *DB) PublishTopologyDiscoveryEvent(ctx context.Context, event *models.T
 		return fmt.Errorf("failed to prepare batch: %w", err)
 	}
 
-	// Convert metadata to map[string]string if it's not already
+	// Handle metadata - it's a json.RawMessage in the model
 	var metadata map[string]string
-	if event.Metadata != nil {
-		// Check if Metadata is already in the correct format
-		if metadataMap, ok := event.Metadata.(map[string]string); ok {
-			metadata = metadataMap
-		} else {
-			// Try to convert from JSON
-			var metadataMap map[string]string
-			if err := json.Unmarshal(event.Metadata, &metadataMap); err != nil {
-				log.Printf("Warning: unable to parse topology event metadata: %v", err)
-				metadata = make(map[string]string)
-			} else {
-				metadata = metadataMap
-			}
+	if len(event.Metadata) > 0 {
+		// Try to unmarshal the RawMessage
+		if err := json.Unmarshal(event.Metadata, &metadata); err != nil {
+			log.Printf("Warning: unable to parse topology event metadata: %v", err)
+			metadata = make(map[string]string)
 		}
 	} else {
 		metadata = make(map[string]string)
@@ -166,6 +146,7 @@ func (db *DB) PublishTopologyDiscoveryEvent(ctx context.Context, event *models.T
 
 	log.Printf("Successfully published topology link between %s:%s and %s:%s",
 		event.LocalDeviceIP, event.LocalIfName, event.NeighborSystemName, event.NeighborPortID)
+
 	return nil
 }
 
@@ -199,6 +180,7 @@ func (db *DB) PublishBatchDiscoveredInterfaces(ctx context.Context, interfaces [
 	}
 
 	log.Printf("Published batch of %d interfaces", len(interfaces))
+
 	return lastErr
 }
 
