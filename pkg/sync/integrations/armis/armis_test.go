@@ -59,7 +59,7 @@ func setupArmisIntegration(t *testing.T) (*ArmisIntegration, *armisMocks) {
 	}
 
 	return &ArmisIntegration{
-		Config: models.SourceConfig{
+		Config: &models.SourceConfig{
 			Endpoint: "https://armis.example.com",
 			Prefix:   "armis/",
 			Credentials: map[string]string{
@@ -164,7 +164,7 @@ func TestArmisIntegration_FetchWithMultiplePages(t *testing.T) {
 	defer ctrl.Finish()
 
 	integration := &ArmisIntegration{
-		Config: models.SourceConfig{
+		Config: &models.SourceConfig{
 			Endpoint: "https://armis.example.com",
 			Prefix:   "armis/",
 			Credentials: map[string]string{
@@ -229,7 +229,7 @@ func TestArmisIntegration_FetchErrorHandling(t *testing.T) {
 	defer ctrl.Finish()
 
 	integration := &ArmisIntegration{
-		Config: models.SourceConfig{
+		Config: &models.SourceConfig{
 			Endpoint: "https://armis.example.com",
 			Prefix:   "armis/",
 			Credentials: map[string]string{
@@ -313,7 +313,7 @@ func TestArmisIntegration_FetchNoQueries(t *testing.T) {
 	defer ctrl.Finish()
 
 	integration := &ArmisIntegration{
-		Config: models.SourceConfig{
+		Config: &models.SourceConfig{
 			Endpoint: "https://armis.example.com",
 			Prefix:   "armis/",
 			Credentials: map[string]string{
@@ -329,7 +329,7 @@ func TestArmisIntegration_FetchNoQueries(t *testing.T) {
 
 	result, err := integration.Fetch(context.Background())
 	assert.Nil(t, result)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no queries provided in config; at least one query is required")
 }
 
@@ -340,7 +340,7 @@ func TestDefaultArmisIntegration_FetchDevicesPage(t *testing.T) {
 		query          string
 		from           int
 		length         int
-		mockResponse   *http.Response
+		mockResponse   func() *http.Response
 		mockError      error
 		expectedResult *SearchResponse
 		expectedError  string
@@ -351,7 +351,7 @@ func TestDefaultArmisIntegration_FetchDevicesPage(t *testing.T) {
 			query:          "in:devices",
 			from:           0,
 			length:         10,
-			mockResponse:   createSuccessResponse(t),
+			mockResponse:   func() *http.Response { return createSuccessResponse(t) },
 			expectedResult: createExpectedResponse(t),
 			expectedError:  "",
 		},
@@ -359,9 +359,12 @@ func TestDefaultArmisIntegration_FetchDevicesPage(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			resp := tc.mockResponse
-			if resp != nil && resp.Body != nil {
-				defer resp.Body.Close()
+			var resp *http.Response
+			if tc.mockResponse != nil {
+				resp = tc.mockResponse()
+				if resp != nil && resp.Body != nil {
+					defer resp.Body.Close()
+				}
 			}
 
 			impl := setupDefaultArmisIntegration(t, resp, tc.mockError)
@@ -413,7 +416,7 @@ func setupDefaultArmisIntegration(t *testing.T, resp *http.Response, mockErr err
 	mockHTTPClient := NewMockHTTPClient(ctrl)
 	mockHTTPClient.EXPECT().Do(gomock.Any()).Return(resp, mockErr)
 
-	return &DefaultArmisIntegration{Config: models.SourceConfig{Endpoint: "https://armis.example.com"}, HTTPClient: mockHTTPClient}
+	return &DefaultArmisIntegration{Config: &models.SourceConfig{Endpoint: "https://armis.example.com"}, HTTPClient: mockHTTPClient}
 }
 
 func TestDefaultArmisIntegration_GetAccessToken(t *testing.T) {
@@ -421,7 +424,7 @@ func TestDefaultArmisIntegration_GetAccessToken(t *testing.T) {
 	defer ctrl.Finish()
 
 	defaultImpl := &DefaultArmisIntegration{
-		Config: models.SourceConfig{
+		Config: &models.SourceConfig{
 			Endpoint: "https://armis.example.com",
 			Credentials: map[string]string{
 				"secret_key": "test-secret-key",
@@ -499,6 +502,7 @@ type mockKVClientRecorder struct {
 func newMockKVClient(ctrl *gomock.Controller) *mockKVClient {
 	mock := &mockKVClient{ctrl: ctrl}
 	mock.recorder = &mockKVClientRecorder{mock}
+
 	return mock
 }
 
@@ -508,19 +512,26 @@ func (m *mockKVClient) EXPECT() *mockKVClientRecorder {
 
 func (m *mockKVClient) Put(ctx context.Context, in *proto.PutRequest, opts ...grpc.CallOption) (*proto.PutResponse, error) {
 	m.ctrl.T.Helper()
+
 	varargs := []interface{}{ctx, in}
+
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
+
 	ret := m.ctrl.Call(m, "Put", varargs...)
+
 	ret0, _ := ret[0].(*proto.PutResponse)
 	ret1, _ := ret[1].(error)
+
 	return ret0, ret1
 }
 
 func (mr *mockKVClientRecorder) Put(ctx, in interface{}, opts ...interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
+
 	varargs := append([]interface{}{ctx, in}, opts...)
+
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Put", reflect.TypeOf((*mockKVClient)(nil).Put), varargs...)
 }
 
@@ -585,10 +596,14 @@ func TestDefaultKVWriter_WriteSweepConfig(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Log("Starting test case setup")
 			tc.setupMock(mockKV.EXPECT())
+
 			t.Log("Mock expectation set")
 			t.Log("Calling WriteSweepConfig")
+
 			err := kvWriter.WriteSweepConfig(context.Background(), testSweepConfig)
+
 			t.Log("WriteSweepConfig returned")
+
 			if tc.expectedError != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.expectedError)
