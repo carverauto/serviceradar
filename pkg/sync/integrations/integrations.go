@@ -19,6 +19,9 @@ package integrations
 
 import (
 	"context"
+	"net/http"
+	"strconv"
+	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/sync/integrations/armis"
@@ -30,23 +33,66 @@ import (
 // NewArmisIntegration creates a new ArmisIntegration with a gRPC client.
 func NewArmisIntegration(
 	_ context.Context,
-	config models.SourceConfig,
+	config *models.SourceConfig,
 	kvClient proto.KVServiceClient,
 	grpcConn *grpc.ClientConn,
 	serverName string,
 ) *armis.ArmisIntegration {
-	return &armis.ArmisIntegration{
+	// Extract page size if specified
+	pageSize := 100 // default
+
+	if val, ok := config.Credentials["page_size"]; ok {
+		if size, err := strconv.Atoi(val); err == nil && size > 0 {
+			pageSize = size
+		}
+	}
+
+	// Create the default HTTP client
+	httpClient := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	// Create the default implementations
+	defaultImpl := &armis.DefaultArmisIntegration{
 		Config:     config,
-		KvClient:   kvClient,
-		GrpcConn:   grpcConn,
+		HTTPClient: httpClient,
+	}
+
+	// Create the default KV writer
+	kvWriter := &armis.DefaultKVWriter{
+		KVClient:   kvClient,
 		ServerName: serverName,
+	}
+
+	defaultSweepCfg := &models.SweepConfig{
+		Ports:         []int{22, 80, 443, 3389, 445, 5985, 5986, 8080},
+		SweepModes:    []string{"icmp", "tcp"},
+		Interval:      "10m",
+		Concurrency:   100,
+		Timeout:       "15s",
+		IcmpCount:     1,
+		HighPerfIcmp:  true,
+		IcmpRateLimit: 5000,
+	}
+
+	return &armis.ArmisIntegration{
+		Config:        config,
+		KVClient:      kvClient,
+		GRPCConn:      grpcConn,
+		ServerName:    serverName,
+		PageSize:      pageSize,
+		HTTPClient:    httpClient,
+		TokenProvider: defaultImpl,
+		DeviceFetcher: defaultImpl,
+		KVWriter:      kvWriter,
+		SweeperConfig: defaultSweepCfg,
 	}
 }
 
 // NewNetboxIntegration creates a new NetboxIntegration instance.
 func NewNetboxIntegration(
 	_ context.Context,
-	config models.SourceConfig,
+	config *models.SourceConfig,
 	kvClient proto.KVServiceClient,
 	grpcConn *grpc.ClientConn,
 	serverName string,

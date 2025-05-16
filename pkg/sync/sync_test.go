@@ -68,7 +68,7 @@ func TestNew_ValidConfig(t *testing.T) {
 	}
 
 	registry := map[string]IntegrationFactory{
-		"armis": func(_ context.Context, _ models.SourceConfig) Integration {
+		"armis": func(_ context.Context, _ *models.SourceConfig) Integration {
 			return NewMockIntegration(ctrl)
 		},
 	}
@@ -119,7 +119,7 @@ func TestSync_Success(t *testing.T) {
 	}
 
 	registry := map[string]IntegrationFactory{
-		"armis": func(_ context.Context, _ models.SourceConfig) Integration {
+		"armis": func(_ context.Context, _ *models.SourceConfig) Integration {
 			return mockInteg
 		},
 	}
@@ -166,7 +166,7 @@ func TestStartAndStop(t *testing.T) {
 	}
 
 	registry := map[string]IntegrationFactory{
-		"armis": func(_ context.Context, _ models.SourceConfig) Integration {
+		"armis": func(_ context.Context, _ *models.SourceConfig) Integration {
 			return mockInteg
 		},
 	}
@@ -266,7 +266,7 @@ func TestStart_ContextCancellation(t *testing.T) {
 	}
 
 	registry := map[string]IntegrationFactory{
-		"armis": func(_ context.Context, _ models.SourceConfig) Integration {
+		"armis": func(_ context.Context, _ *models.SourceConfig) Integration {
 			return mockInteg
 		},
 	}
@@ -331,7 +331,7 @@ func TestSync_NetboxSuccess(t *testing.T) {
 	}
 
 	registry := map[string]IntegrationFactory{
-		"netbox": func(_ context.Context, _ models.SourceConfig) Integration {
+		"netbox": func(_ context.Context, _ *models.SourceConfig) Integration {
 			return mockInteg
 		},
 	}
