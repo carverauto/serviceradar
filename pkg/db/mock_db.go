@@ -165,36 +165,6 @@ func (mr *MockServiceMockRecorder) GetCPUMetrics(ctx, pollerID, coreID, start, e
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCPUMetrics", reflect.TypeOf((*MockService)(nil).GetCPUMetrics), ctx, pollerID, coreID, start, end)
 }
 
-// GetDeviceByID mocks base method.
-func (m *MockService) GetDeviceByID(ctx context.Context, deviceID string) (*models.Device, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetDeviceByID", ctx, deviceID)
-	ret0, _ := ret[0].(*models.Device)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetDeviceByID indicates an expected call of GetDeviceByID.
-func (mr *MockServiceMockRecorder) GetDeviceByID(ctx, deviceID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceByID", reflect.TypeOf((*MockService)(nil).GetDeviceByID), ctx, deviceID)
-}
-
-// GetDevicesByIP mocks base method.
-func (m *MockService) GetDevicesByIP(ctx context.Context, ip string) ([]*models.Device, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetDevicesByIP", ctx, ip)
-	ret0, _ := ret[0].([]*models.Device)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetDevicesByIP indicates an expected call of GetDevicesByIP.
-func (mr *MockServiceMockRecorder) GetDevicesByIP(ctx, ip any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDevicesByIP", reflect.TypeOf((*MockService)(nil).GetDevicesByIP), ctx, ip)
-}
-
 // GetDiskMetrics mocks base method.
 func (m *MockService) GetDiskMetrics(ctx context.Context, pollerID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error) {
 	m.ctrl.T.Helper()
@@ -420,32 +390,60 @@ func (mr *MockServiceMockRecorder) ListPollers(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPollers", reflect.TypeOf((*MockService)(nil).ListPollers), ctx)
 }
 
-// StoreBatchDevices mocks base method.
-func (m *MockService) StoreBatchDevices(ctx context.Context, devices []*models.Device) error {
+// PublishBatchDiscoveredInterfaces mocks base method.
+func (m *MockService) PublishBatchDiscoveredInterfaces(ctx context.Context, interfaces []*models.DiscoveredInterface) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "StoreBatchDevices", ctx, devices)
+	ret := m.ctrl.Call(m, "PublishBatchDiscoveredInterfaces", ctx, interfaces)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// StoreBatchDevices indicates an expected call of StoreBatchDevices.
-func (mr *MockServiceMockRecorder) StoreBatchDevices(ctx, devices any) *gomock.Call {
+// PublishBatchDiscoveredInterfaces indicates an expected call of PublishBatchDiscoveredInterfaces.
+func (mr *MockServiceMockRecorder) PublishBatchDiscoveredInterfaces(ctx, interfaces any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreBatchDevices", reflect.TypeOf((*MockService)(nil).StoreBatchDevices), ctx, devices)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublishBatchDiscoveredInterfaces", reflect.TypeOf((*MockService)(nil).PublishBatchDiscoveredInterfaces), ctx, interfaces)
 }
 
-// StoreDevice mocks base method.
-func (m *MockService) StoreDevice(ctx context.Context, device *models.Device) error {
+// PublishBatchTopologyDiscoveryEvents mocks base method.
+func (m *MockService) PublishBatchTopologyDiscoveryEvents(ctx context.Context, events []*models.TopologyDiscoveryEvent) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "StoreDevice", ctx, device)
+	ret := m.ctrl.Call(m, "PublishBatchTopologyDiscoveryEvents", ctx, events)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// StoreDevice indicates an expected call of StoreDevice.
-func (mr *MockServiceMockRecorder) StoreDevice(ctx, device any) *gomock.Call {
+// PublishBatchTopologyDiscoveryEvents indicates an expected call of PublishBatchTopologyDiscoveryEvents.
+func (mr *MockServiceMockRecorder) PublishBatchTopologyDiscoveryEvents(ctx, events any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreDevice", reflect.TypeOf((*MockService)(nil).StoreDevice), ctx, device)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublishBatchTopologyDiscoveryEvents", reflect.TypeOf((*MockService)(nil).PublishBatchTopologyDiscoveryEvents), ctx, events)
+}
+
+// PublishDiscoveredInterface mocks base method.
+func (m *MockService) PublishDiscoveredInterface(ctx context.Context, iface *models.DiscoveredInterface) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PublishDiscoveredInterface", ctx, iface)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// PublishDiscoveredInterface indicates an expected call of PublishDiscoveredInterface.
+func (mr *MockServiceMockRecorder) PublishDiscoveredInterface(ctx, iface any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublishDiscoveredInterface", reflect.TypeOf((*MockService)(nil).PublishDiscoveredInterface), ctx, iface)
+}
+
+// PublishTopologyDiscoveryEvent mocks base method.
+func (m *MockService) PublishTopologyDiscoveryEvent(ctx context.Context, event *models.TopologyDiscoveryEvent) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PublishTopologyDiscoveryEvent", ctx, event)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// PublishTopologyDiscoveryEvent indicates an expected call of PublishTopologyDiscoveryEvent.
+func (mr *MockServiceMockRecorder) PublishTopologyDiscoveryEvent(ctx, event any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublishTopologyDiscoveryEvent", reflect.TypeOf((*MockService)(nil).PublishTopologyDiscoveryEvent), ctx, event)
 }
 
 // StoreMetric mocks base method.

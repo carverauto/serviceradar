@@ -26,191 +26,147 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/discovery"
-	"github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/carverauto/serviceradar/proto"
+	discoverypb "github.com/carverauto/serviceradar/proto/discovery"
+
+	googlegrpc "google.golang.org/grpc"
 )
 
 var (
-	configFile   = flag.String("config", "/etc/serviceradar/discovery.json", "Path to config file")
-	listenAddr   = flag.String("listen", ":50056", "Address to listen on")
-	securityMode = flag.String("security", "none", "Security mode (none, tls, mtls)")
-	certDir      = flag.String("cert-dir", "/etc/serviceradar/certs", "Directory for certificates")
-	protonAddr   = flag.String("proton", "localhost:8463", "Proton connection address")
-	protonDB     = flag.String("proton-db", "serviceradar", "Proton database name")
-	protonUser   = flag.String("proton-user", "admin", "Proton username")
-	protonPass   = flag.String("proton-pass", "admin", "Proton password")
-	agentID      = flag.String("agent-id", "", "Agent ID")
-	pollerID     = flag.String("poller-id", "", "Poller ID")
-	workers      = flag.Int("workers", 10, "Number of worker goroutines")
+	configFile   = flag.String("config", "/etc/serviceradar/discovery-checker.json", "Path to this discovery checker's config file")
+	listenAddr   = flag.String("listen", ":50056", "Address for this discovery checker to listen on")
+	securityMode = flag.String("security", "none", "Security mode for this checker (none, tls, mtls)")
+	certDir      = flag.String("cert-dir", "/etc/serviceradar/certs/discovery-checker", "Directory for this checker's certificates")
 )
 
 func main() {
 	flag.Parse()
 
-	// Setup context with cancellation for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Set up signal handling for graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		sig := <-sigChan
-		log.Printf("Received signal %v, initiating shutdown", sig)
+
+		log.Printf("Received signal %v, initiating shutdown for discovery checker", sig)
 		cancel()
 	}()
 
-	log.Printf("Starting ServiceRadar SNMP Discovery Engine...")
+	log.Printf("Starting ServiceRadar Discovery Checker Plugin...")
 
-	// Load configuration
-	config, err := loadConfig()
+	// Load the specific configuration for this discovery checker plugin
+	// This config (`discovery.Config`) will dictate how the discovery engine operates.
+	discoveryEngineConfig, err := loadDiscoveryConfig()
 	if err != nil {
-		log.Fatalf("Failed to load configuration: %v", err)
+		log.Fatalf("Failed to load discovery checker configuration: %v", err)
 	}
 
-	// Initialize DB service (for publishing to Proton)
-	dbService, err := initDBService(ctx)
-	if err != nil {
-		log.Fatalf("Failed to initialize DB service: %v", err)
-	}
+	// The discovery engine itself does not publish directly to a DB in this model.
+	// It might publish results to a stream or a queue if that's part of its design,
+	// but for now, we'll assume it makes results available via its gRPC GetDiscoveryResults.
+	// A 'nil' publisher might be acceptable if the engine is purely pull-based via gRPC.
+	// Or, if it *does* publish (e.g., to NATS, not Proton), that publisher would be initialized here.
+	// For simplicity, let's assume a nil publisher or a no-op publisher.
+	var publisher discovery.Publisher // = discovery.NewNoOpPublisher() or similar if needed
 
-	// Initialize publisher
-	publisher, err := discovery.NewProtonPublisher(dbService, config.StreamConfig)
-	if err != nil {
-		log.Fatalf("Failed to initialize publisher: %v", err)
-	}
-
-	// Initialize discovery engine
-	engine, err := discovery.NewSnmpDiscoveryEngine(config, publisher)
+	// Initialize the discovery engine.
+	// The engine implements lifecycle.Service (Start/Stop).
+	engine, err := discovery.NewSnmpDiscoveryEngine(discoveryEngineConfig, publisher)
 	if err != nil {
 		log.Fatalf("Failed to initialize discovery engine: %v", err)
 	}
 
-	// Create gRPC service
-	grpcService := discovery.NewGRPCDiscoveryService(engine)
+	// Create the gRPC service implementation using the engine.
+	// This is what the agent will call.
+	grpcDiscoveryService := discovery.NewGRPCDiscoveryService(engine)
 
-	// Start the service
-	options := &lifecycle.ServerOptions{
+	// Configure and run the gRPC server for this checker plugin
+	serverOptions := &lifecycle.ServerOptions{
 		ListenAddr:  *listenAddr,
-		ServiceName: "discovery",
-		Service:     engine,
+		ServiceName: "discovery_checker", // Differentiate from agent/poller/core services
+		Service:     engine,              // The discovery engine itself is the main service managed by lifecycle
 		RegisterGRPCServices: []lifecycle.GRPCServiceRegistrar{
-			func(server *proto.Server) error {
-				proto.RegisterDiscoveryServiceServer(server, grpcService)
+			func(server *googlegrpc.Server) error {
+				// Register the DiscoveryService implementation
+				discoverypb.RegisterDiscoveryServiceServer(server, grpcDiscoveryService)
+				log.Printf("Registered DiscoveryServiceServer for the discovery checker.")
 				return nil
 			},
 		},
 		EnableHealthCheck: true,
-		Security:          createSecurityConfig(),
+		Security:          createCheckerSecurityConfig(),
 	}
 
-	if err := lifecycle.RunServer(ctx, options); err != nil {
-		log.Fatalf("Server error: %v", err)
+	if err := lifecycle.RunServer(ctx, serverOptions); err != nil {
+		log.Fatalf("Discovery checker server error: %v", err)
 	}
 
-	log.Println("ServiceRadar SNMP Discovery Engine stopped")
+	log.Println("ServiceRadar Discovery Checker Plugin stopped")
 }
 
-// loadConfig loads the discovery engine configuration from a file
-func loadConfig() (*discovery.Config, error) {
-	if *configFile != "" {
-		config, err := discovery.LoadConfigFromFile(*configFile)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load config from file: %w", err)
-		}
-
-		// Override with command-line arguments if provided
-		if *agentID != "" {
-			config.StreamConfig.AgentID = *agentID
-		}
-
-		if *pollerID != "" {
-			config.StreamConfig.PollerID = *pollerID
-		}
-
-		if *workers > 0 {
-			config.Workers = *workers
-		}
-
-		return config, nil
+// loadDiscoveryConfig loads the configuration for the discovery engine itself.
+// This is different from the agent's or poller's main config.
+func loadDiscoveryConfig() (*discovery.Config, error) {
+	if *configFile == "" {
+		log.Println("No config file specified for discovery checker, using default in-memory config.")
+		// Return a default discovery.Config if no file is provided
+		return &discovery.Config{
+			Workers:         10, // Default worker count
+			Timeout:         30 * time.Second,
+			Retries:         3,
+			MaxActiveJobs:   10,
+			ResultRetention: 1 * time.Hour,
+			DefaultCredentials: discovery.SNMPCredentials{
+				Version:   discovery.SNMPVersion2c,
+				Community: "public",
+			},
+			// StreamConfig might not be used if not publishing directly.
+			// If the agent pulls results, StreamConfig here might be for configuring
+			// how results are stored/formatted locally by the engine.
+			StreamConfig: discovery.StreamConfig{
+				// AgentID and PollerID here would be specific to this checker's identity if needed,
+				// or perhaps taken from its operational environment if the engine uses them.
+				// For a checker plugin, these might be set via its own config file or env vars.
+				// AgentID:  "discovery-checker-agent-01", // Example
+				// PollerID: "discovery-checker-poller-01", // Example
+			},
+			OIDs: map[discovery.DiscoveryType][]string{
+				discovery.DiscoveryTypeBasic: {
+					".1.3.6.1.2.1.1.1.0", // sysDescr
+					".1.3.6.1.2.1.1.5.0", // sysName
+				},
+				// Add other OID mappings as needed
+			},
+		}, nil
 	}
 
-	// Create default config
-	return &discovery.Config{
-		Workers:         *workers,
-		Timeout:         30 * time.Second,
-		Retries:         3,
-		MaxActiveJobs:   100,
-		ResultRetention: 24 * time.Hour,
-		DefaultCredentials: discovery.SNMPCredentials{
-			Version:   discovery.SNMPVersion2c,
-			Community: "public",
-		},
-		StreamConfig: discovery.StreamConfig{
-			DeviceStream:         "sweep_results",
-			InterfaceStream:      "discovered_interfaces",
-			TopologyStream:       "topology_discovery_events",
-			AgentID:              *agentID,
-			PollerID:             *pollerID,
-			PublishBatchSize:     100,
-			PublishRetries:       3,
-			PublishRetryInterval: 5 * time.Second,
-		},
-		OIDs: map[discovery.DiscoveryType][]string{
-			discovery.DiscoveryTypeBasic: {
-				".1.3.6.1.2.1.1.1.0", // sysDescr
-				".1.3.6.1.2.1.1.2.0", // sysObjectID
-				".1.3.6.1.2.1.1.5.0", // sysName
-				".1.3.6.1.2.1.1.4.0", // sysContact
-				".1.3.6.1.2.1.1.6.0", // sysLocation
-				".1.3.6.1.2.1.1.3.0", // sysUpTime
-			},
-			discovery.DiscoveryTypeInterfaces: {
-				".1.3.6.1.2.1.2.2.1",    // ifTable
-				".1.3.6.1.2.1.31.1.1.1", // ifXTable
-				".1.3.6.1.2.1.4.20.1",   // ipAddrTable
-			},
-			discovery.DiscoveryTypeTopology: {
-				".1.0.8802.1.1.2.1",     // LLDP
-				".1.3.6.1.4.1.9.9.23.1", // CDP (Cisco)
-			},
-		},
-	}, nil
-}
-
-// initDBService initializes the database service
-func initDBService(ctx context.Context) (db.Service, error) {
-	dbConfig := &db.Config{
-		DBAddr: *protonAddr,
-		DBName: *protonDB,
-		DBUser: *protonUser,
-		DBPass: *protonPass,
-	}
-
-	dbService, err := db.NewService(ctx, dbConfig)
+	// Load from the specified file for the discovery checker
+	config, err := discovery.LoadConfigFromFile(*configFile)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create DB service: %w", err)
+		return nil, fmt.Errorf("failed to load discovery checker config from file '%s': %w", *configFile, err)
 	}
-
-	return dbService, nil
+	log.Printf("Successfully loaded discovery checker config from %s", *configFile)
+	return config, nil
 }
 
-// createSecurityConfig creates a security configuration
-func createSecurityConfig() *models.SecurityConfig {
+// createCheckerSecurityConfig creates a security configuration specifically for this checker plugin's gRPC server.
+func createCheckerSecurityConfig() *models.SecurityConfig {
+	// The role here is "checker" because this binary IS a checker plugin.
+	// The ServerName should be specific to this service if using mTLS with SNI.
 	return &models.SecurityConfig{
 		Mode:       models.SecurityMode(*securityMode),
 		CertDir:    *certDir,
-		Role:       models.RoleChecker,
-		ServerName: "discovery",
+		Role:       models.RoleChecker,        // This service IS a checker
+		ServerName: "discovery.checker.local", // Example, adjust as needed for your certs
 		TLS: models.TLSConfig{
-			CertFile:     "server.crt",
-			KeyFile:      "server.key",
-			CAFile:       "ca.crt",
-			ClientCAFile: "ca.crt",
+			CertFile:     "server.crt", // Relative to CertDir
+			KeyFile:      "server.key", // Relative to CertDir
+			CAFile:       "ca.crt",     // CA used to issue client certs (e.g., agent's cert) for mTLS
+			ClientCAFile: "ca.crt",     // For mTLS, server validates client cert against this CA
 		},
 	}
 }
