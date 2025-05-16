@@ -126,7 +126,6 @@ func New(ctx context.Context, config *models.DBConfig) (Service, error) {
 	return db, nil
 }
 
-// getStreamEngineStatements returns the SQL statements for creating (regular) streams.
 // getStreamEngineStatements returns the SQL statements for creating regular Append Streams.
 func getStreamEngineStatements() []string {
 	return []string{
@@ -192,6 +191,50 @@ func getStreamEngineStatements() []string {
             created_at DateTime64(3) DEFAULT now64(3),
             updated_at DateTime64(3) DEFAULT now64(3)
         )`,
+
+		`CREATE STREAM IF NOT EXISTS discovered_interfaces (
+			timestamp DateTime64(3) DEFAULT now64(3),
+			agent_id String,
+			poller_id String,
+			device_ip String,
+			device_id String, -- (e.g., ip:agent_id:poller_id)
+			ifIndex Int32,
+			ifName Nullable(String),
+			ifDescr Nullable(String),
+			ifAlias Nullable(String),
+			ifSpeed UInt64,
+			ifPhysAddress Nullable(String), -- MAC address of the interface
+			ip_addresses Array(String),    -- IPs configured on this interface
+			ifAdminStatus Int32,           -- e.g., up(1), down(2), testing(3)
+			ifOperStatus Int32,            -- e.g., up(1), down(2), testing(3), unknown(4), dormant(5), notPresent(6), lowerLayerDown(7)
+			metadata Map(String, String)   -- For any other relevant interface data
+		)`,
+
+		`CREATE STREAM IF NOT EXISTS topology_discovery_events (
+			timestamp DateTime64(3) DEFAULT now64(3),
+			agent_id String,
+			poller_id String,
+			local_device_ip String, -- IP of the device reporting the event
+			local_device_id String, -- Unique ID of the local device
+			local_ifIndex Int32,
+			local_ifName Nullable(String),
+			protocol_type String, -- 'LLDP', 'CDP', 'BGP'
+			
+			-- LLDP/CDP specific fields
+			neighbor_chassis_id Nullable(String),
+			neighbor_port_id Nullable(String),
+			neighbor_port_descr Nullable(String),
+			neighbor_system_name Nullable(String),
+			neighbor_management_address Nullable(String), -- Management IP of neighbor
+			
+			-- BGP specific fields
+			neighbor_bgp_router_id Nullable(String), -- For BGP, this could be the neighbor's router ID
+			neighbor_ip_address Nullable(String),    -- For BGP, the peer IP
+			neighbor_as Nullable(UInt32),
+			bgp_session_state Nullable(String),
+			
+			metadata Map(String, String) -- Additional details
+		)`,
 	}
 }
 
