@@ -38,12 +38,6 @@ func NewArmisIntegration(
 	grpcConn *grpc.ClientConn,
 	serverName string,
 ) *armis.ArmisIntegration {
-	// Extract boundary name if specified in config
-	boundaryName := ""
-	if val, ok := config.Credentials["boundary"]; ok {
-		boundaryName = val
-	}
-
 	// Extract page size if specified
 	pageSize := 100 // default
 
@@ -70,17 +64,28 @@ func NewArmisIntegration(
 		ServerName: serverName,
 	}
 
+	defaultSweepCfg := &models.SweepConfig{
+		Ports:         []int{22, 80, 443, 3389, 445, 5985, 5986, 8080},
+		SweepModes:    []string{"icmp", "tcp"},
+		Interval:      "10m",
+		Concurrency:   100,
+		Timeout:       "15s",
+		IcmpCount:     1,
+		HighPerfIcmp:  true,
+		IcmpRateLimit: 5000,
+	}
+
 	return &armis.ArmisIntegration{
 		Config:        config,
 		KVClient:      kvClient,
 		GRPCConn:      grpcConn,
 		ServerName:    serverName,
-		BoundaryName:  boundaryName,
 		PageSize:      pageSize,
 		HTTPClient:    httpClient,
 		TokenProvider: defaultImpl,
 		DeviceFetcher: defaultImpl,
 		KVWriter:      kvWriter,
+		SweeperConfig: defaultSweepCfg,
 	}
 }
 
