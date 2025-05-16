@@ -33,9 +33,9 @@ import (
 
 // DiscoveryEngine manages the SNMP discovery process.
 type DiscoveryEngine struct {
-	config      *DiscoveryConfig
+	config      *models.DiscoveryConfig
 	snmpClient  *snmp.SNMPClientImpl
-	icmpChecker *agent.ICMPChecker
+	icmpChecker *models.ICMPChecker
 	results     chan DiscoveryResult
 	store       *sync.Map // Stores DiscoveryResult by IP
 	stopChan    chan struct{}
@@ -46,7 +46,7 @@ type DiscoveryEngine struct {
 }
 
 // NewDiscoveryEngine initializes a new discovery engine.
-func NewDiscoveryEngine(config *DiscoveryConfig, logger *log.Logger) (*DiscoveryEngine, error) {
+func NewDiscoveryEngine(config *models.DiscoveryConfig, logger *log.Logger) (*DiscoveryEngine, error) {
 	if config.Concurrency <= 0 {
 		config.Concurrency = 20
 	}
@@ -59,7 +59,7 @@ func NewDiscoveryEngine(config *DiscoveryConfig, logger *log.Logger) (*Discovery
 
 	// Initialize a dummy SNMP client (will be configured per target)
 	snmpClient := &snmp.SNMPClientImpl{
-		client: &gosnmp.GoSNMP{
+		Client: &gosnmp.GoSNMP{
 			Timeout: time.Duration(config.Timeout),
 			Retries: config.Retries,
 			MaxOids: gosnmp.MaxOids,

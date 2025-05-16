@@ -28,7 +28,7 @@ import (
 
 // SNMPClientImpl implements the SNMPClient interface using gosnmp.
 type SNMPClientImpl struct {
-	client     *gosnmp.GoSNMP
+	Client     *gosnmp.GoSNMP
 	target     *Target
 	mu         sync.RWMutex
 	connected  bool
@@ -75,7 +75,7 @@ func newSNMPClient(target *Target) (SNMPClient, error) {
 	}
 
 	return &SNMPClientImpl{
-		client: client,
+		Client: client,
 		target: target,
 	}, nil
 }
@@ -89,7 +89,7 @@ func (s *SNMPClientImpl) Connect() error {
 		return nil
 	}
 
-	if err := s.client.Connect(); err != nil {
+	if err := s.Client.Connect(); err != nil {
 		s.lastError = &SNMPError{
 			Op:      "connect",
 			Target:  s.target.Host,
@@ -108,7 +108,7 @@ func (s *SNMPClientImpl) Connect() error {
 func (s *SNMPClientImpl) Get(oids []string) (map[string]interface{}, error) {
 	s.mu.Lock()
 	if !s.connected {
-		if err := s.client.Connect(); err != nil {
+		if err := s.Client.Connect(); err != nil {
 			s.mu.Unlock()
 
 			return nil, &SNMPError{
@@ -134,7 +134,7 @@ func (s *SNMPClientImpl) Get(oids []string) (map[string]interface{}, error) {
 
 		chunk := oids[i:end]
 
-		result, err := s.client.Get(chunk)
+		result, err := s.Client.Get(chunk)
 		if err != nil {
 			s.handleError(err)
 
@@ -172,7 +172,7 @@ func (s *SNMPClientImpl) Close() error {
 		return nil
 	}
 
-	err := s.client.Conn.Close()
+	err := s.Client.Conn.Close()
 	if err != nil {
 		return err
 	}

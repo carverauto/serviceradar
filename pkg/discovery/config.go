@@ -20,14 +20,13 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/carverauto/serviceradar/pkg/agent"
 	"github.com/carverauto/serviceradar/pkg/checker/snmp"
 	"github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 // LoadConfig loads the discovery configuration from a file or KV store.
-func LoadConfig(ctx context.Context, path string, kvStore agent.KVStore) (*models.DiscoveryConfig, error) {
+func LoadConfig(ctx context.Context, path string, kvStore models.KVStore) (*models.DiscoveryConfig, error) {
 	cfgLoader := config.NewConfig()
 	if kvStore != nil {
 		cfgLoader.SetKVStore(kvStore)

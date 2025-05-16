@@ -25,7 +25,6 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/checker"
 	"github.com/carverauto/serviceradar/pkg/config"
-	"github.com/carverauto/serviceradar/pkg/discovery"
 	"github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/scan"
@@ -47,7 +46,7 @@ type Server struct {
 	connections            map[string]*CheckerConnection
 	kvStore                KVStore
 	createSweepService     func(sweepConfig *SweepConfig, kvStore KVStore) (Service, error)
-	createDiscoveryService func(discoveryConfig *discovery.DiscoveryConfig, kvStore KVStore) (Service, error)
+	createDiscoveryService func(discoveryConfig *models.DiscoveryConfig, kvStore KVStore) (Service, error)
 	setupKVStore           func(ctx context.Context, cfgLoader *config.Config, cfg *ServerConfig) (KVStore, error)
 }
 type Duration time.Duration
@@ -99,12 +98,6 @@ type CheckerConnection struct {
 type ServiceError struct {
 	ServiceName string
 	Err         error
-}
-
-// ICMPChecker performs ICMP checks using a pre-configured scanner.
-type ICMPChecker struct {
-	Host    string
-	scanner scan.Scanner
 }
 
 // ICMPResponse defines the structure of the ICMP check result.

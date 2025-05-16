@@ -60,7 +60,7 @@ func NewServer(ctx context.Context, configDir string, cfg *ServerConfig) (*Serve
 		return createSweepService(sweepConfig, kvStore, cfg)
 	}
 
-	s.createDiscoveryService = func(discoveryConfig *discovery.DiscoveryConfig, kvStore KVStore) (Service, error) {
+	s.createDiscoveryService = func(discoveryConfig *models.DiscoveryConfig, kvStore KVStore) (Service, error) {
 		return createDiscoveryService(discoveryConfig, kvStore, cfg)
 	}
 
@@ -704,7 +704,7 @@ func (s *Server) Close(ctx context.Context) error {
 }
 
 // createDiscoveryService constructs a new DiscoveryEngine instance.
-func createDiscoveryService(discoveryConfig *discovery.DiscoveryConfig, kvStore KVStore, cfg *ServerConfig) (Service, error) {
+func createDiscoveryService(discoveryConfig *models.DiscoveryConfig, kvStore KVStore, cfg *ServerConfig) (Service, error) {
 	if discoveryConfig == nil {
 		return nil, fmt.Errorf("discovery config is nil")
 	}
@@ -722,7 +722,7 @@ func createDiscoveryService(discoveryConfig *discovery.DiscoveryConfig, kvStore 
 
 // loadDiscoveryService loads the discovery configuration and service.
 func (s *Server) loadDiscoveryService(ctx context.Context, cfgLoader *config.Config, kvPath, filePath string) (Service, error) {
-	var discoveryConfig discovery.DiscoveryConfig
+	var discoveryConfig models.DiscoveryConfig
 
 	if service, err := s.tryLoadDiscoveryFromKV(ctx, kvPath, &discoveryConfig); err == nil && service != nil {
 		return service, nil
@@ -744,7 +744,7 @@ func (s *Server) loadDiscoveryService(ctx context.Context, cfgLoader *config.Con
 }
 
 // tryLoadDiscoveryFromKV attempts to load discovery config from KV store.
-func (s *Server) tryLoadDiscoveryFromKV(ctx context.Context, kvPath string, discoveryConfig *discovery.DiscoveryConfig) (Service, error) {
+func (s *Server) tryLoadDiscoveryFromKV(ctx context.Context, kvPath string, discoveryConfig *models.DiscoveryConfig) (Service, error) {
 	if s.kvStore == nil {
 		log.Printf("KV store not initialized, skipping KV fetch for discovery config")
 		return nil, nil
