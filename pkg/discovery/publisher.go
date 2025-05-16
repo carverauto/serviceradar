@@ -30,11 +30,11 @@ import (
 // ProtonPublisher implements the Publisher interface using Proton streams
 type ProtonPublisher struct {
 	dbService db.Service
-	config    StreamConfig
+	config    *StreamConfig
 }
 
 // NewProtonPublisher creates a new Proton publisher
-func NewProtonPublisher(dbService db.Service, config StreamConfig) (Publisher, error) {
+func NewProtonPublisher(dbService db.Service, config *StreamConfig) (Publisher, error) {
 	if dbService == nil {
 		return nil, fmt.Errorf("database service is required")
 	}
@@ -92,6 +92,7 @@ func (p *ProtonPublisher) PublishDevice(ctx context.Context, device *DiscoveredD
 func (p *ProtonPublisher) PublishInterface(ctx context.Context, iface *DiscoveredInterface) error {
 	// Convert metadata to a JSON representation
 	metadata := make(map[string]string)
+
 	if iface.Metadata != nil {
 		for k, v := range iface.Metadata {
 			metadata[k] = v
@@ -143,6 +144,7 @@ func (p *ProtonPublisher) PublishInterface(ctx context.Context, iface *Discovere
 func (p *ProtonPublisher) PublishTopologyLink(ctx context.Context, link *TopologyLink) error {
 	// Build metadata
 	metadata := make(map[string]string)
+
 	if link.Metadata != nil {
 		for k, v := range link.Metadata {
 			metadata[k] = v
