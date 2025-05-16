@@ -29,6 +29,7 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/checker"
 	"github.com/carverauto/serviceradar/pkg/config"
+	"github.com/carverauto/serviceradar/pkg/discovery"
 	"github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
@@ -57,6 +58,10 @@ func NewServer(ctx context.Context, configDir string, cfg *ServerConfig) (*Serve
 
 	s.createSweepService = func(sweepConfig *SweepConfig, kvStore KVStore) (Service, error) {
 		return createSweepService(sweepConfig, kvStore, cfg)
+	}
+
+	s.createDiscoveryService = func(discoveryConfig *discovery.DiscoveryConfig, kvStore KVStore) (Service, error) {
+		return createDiscoveryService(discoveryConfig, kvStore, cfg)
 	}
 
 	if err := s.loadConfigurations(ctx, cfgLoader); err != nil {
@@ -220,6 +225,7 @@ func (s *Server) loadConfigurations(ctx context.Context, cfgLoader *config.Confi
 
 	// Define paths for sweep config
 	fileSweepConfigPath := filepath.Join(s.configDir, "sweep", "sweep.json")
+	fileDiscoveryConfigPath := filepath.Join(s.configDir, "discovery", "snmp.json")
 
 	// Use AgentName for KV path, fall back to AgentID if not set
 	serverName := s.config.AgentID // Default to AgentID
@@ -238,6 +244,17 @@ func (s *Server) loadConfigurations(ctx context.Context, cfgLoader *config.Confi
 
 	if service != nil {
 		s.services = append(s.services, service)
+	}
+
+	kvDiscoveryConfigPath := fmt.Sprintf("agents/%s/discovery/snmp.json", serverName)
+
+	// Load discovery service
+	discoveryService, err := s.loadDiscoveryService(ctx, cfgLoader, kvDiscoveryConfigPath, fileDiscoveryConfigPath)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("failed to load discovery service: %w", err)
+	}
+	if discoveryService != nil {
+		s.services = append(s.services, discoveryService)
 	}
 
 	return nil
@@ -684,4 +701,77 @@ func (s *Server) Close(ctx context.Context) error {
 	close(s.errChan)
 
 	return nil
+}
+
+// createDiscoveryService constructs a new DiscoveryEngine instance.
+func createDiscoveryService(discoveryConfig *discovery.DiscoveryConfig, kvStore KVStore, cfg *ServerConfig) (Service, error) {
+	if discoveryConfig == nil {
+		return nil, fmt.Errorf("discovery config is nil")
+	}
+
+	serverName := cfg.AgentID
+	if cfg.AgentName != "" {
+		serverName = cfg.AgentName
+	}
+
+	configKey := fmt.Sprintf("agents/%s/discovery/snmp.json", serverName)
+
+	logger := log.New(os.Stdout, "discovery: ", log.LstdFlags)
+	return discovery.NewDiscoveryEngine(discoveryConfig, logger)
+}
+
+// loadDiscoveryService loads the discovery configuration and service.
+func (s *Server) loadDiscoveryService(ctx context.Context, cfgLoader *config.Config, kvPath, filePath string) (Service, error) {
+	var discoveryConfig discovery.DiscoveryConfig
+
+	if service, err := s.tryLoadDiscoveryFromKV(ctx, kvPath, &discoveryConfig); err == nil && service != nil {
+		return service, nil
+	}
+
+	if err := cfgLoader.LoadAndValidate(ctx, filePath, &discoveryConfig); err != nil {
+		return nil, fmt.Errorf("failed to load discovery config from file %s: %w", filePath, err)
+	}
+
+	suffix := s.getLogSuffix()
+	log.Printf("Loaded discovery config from file%s: %s", suffix, filePath)
+
+	service, err := s.createDiscoveryService(&discoveryConfig, s.kvStore)
+	if err != nil {
+		return nil, err
+	}
+
+	return service, nil
+}
+
+// tryLoadDiscoveryFromKV attempts to load discovery config from KV store.
+func (s *Server) tryLoadDiscoveryFromKV(ctx context.Context, kvPath string, discoveryConfig *discovery.DiscoveryConfig) (Service, error) {
+	if s.kvStore == nil {
+		log.Printf("KV store not initialized, skipping KV fetch for discovery config")
+		return nil, nil
+	}
+
+	value, found, err := s.kvStore.Get(ctx, kvPath)
+	if err != nil {
+		log.Printf("Failed to get discovery config from KV %s: %v", kvPath, err)
+		return nil, err
+	}
+
+	if !found {
+		log.Printf("Discovery config not found in KV at %s", kvPath)
+		return nil, nil
+	}
+
+	if err = json.Unmarshal(value, discoveryConfig); err != nil {
+		log.Printf("Failed to unmarshal discovery config from KV %s: %v", kvPath, err)
+		return nil, err
+	}
+
+	log.Printf("Loaded discovery config from KV: %s", kvPath)
+
+	service, err := s.createDiscoveryService(discoveryConfig, s.kvStore)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create discovery service from KV config: %w", err)
+	}
+
+	return service, nil
 }

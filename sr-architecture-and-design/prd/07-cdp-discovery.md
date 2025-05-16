@@ -1,5 +1,3 @@
-Okay, let's draft a PRD for a CDP (Cisco Discovery Protocol) Discovery Engine, keeping it distinct yet complementary to the SNMP Discovery Engine.
-
 ## Product Requirements Document: ServiceRadar CDP Discovery Engine
 
 **Version:** 1.0

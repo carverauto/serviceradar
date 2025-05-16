@@ -1,0 +1,95 @@
+syntax = "proto3";
+
+package proto;
+
+option go_package = "github.com/carverauto/serviceradar/proto";
+
+import "google/protobuf/timestamp.proto";
+
+// StatusRequest represents a request to check the status of a service.
+message StatusRequest {
+  string service_name = 1; // Name of the service to query.
+  string service_type = 2; // Type of the service (e.g., HTTP, DNS).
+  string details = 3;      // Additional details about the request.
+  string agent_id = 4;     // ID of the requesting agent.
+}
+
+// StatusResponse contains the status of a queried service.
+message StatusResponse {
+  bool available = 1;        // Whether the service is available.
+  string message = 2;        // Status message or error details.
+  string service_name = 3;   // Name of the queried service.
+  string service_type = 4;   // Type of the queried service.
+  int64 response_time = 5;   // Response time in milliseconds.
+  string agent_id = 6;       // ID of the responding agent.
+}
+
+// SweepResult represents the result of a network sweep.
+message SweepResult {
+  string agent_id = 1;                        // ID of the agent performing the sweep.
+  string poller_id = 2;                       // ID of the poller.
+  string discovery_source = 3;                // Source of discovery (e.g., ARP, ICMP).
+  string ip = 4;                              // IP address of the discovered device.
+  string mac = 5;                             // MAC address of the discovered device.
+  string hostname = 6;                        // Hostname of the discovered device.
+  google.protobuf.Timestamp timestamp = 7;    // Time of discovery.
+  bool available = 8;                         // Whether the device is available.
+  map<string, string> metadata = 9;           // Additional metadata.
+}
+
+// DiscoveredInterface represents a discovered network interface.
+message DiscoveredInterface {
+  google.protobuf.Timestamp timestamp = 1;    // Time of interface discovery.
+  string agent_id = 2;                        // ID of the agent.
+  string poller_id = 3;                       // ID of the poller.
+  string device_ip = 4;                       // IP address of the device.
+  string device_id = 5;                       // ID of the device.
+  int32 ifIndex = 6;                          // Interface index.
+  string ifName = 7;                          // Interface name.
+  string ifDescr = 8;                         // Interface description.
+  string ifAlias = 9;                         // Interface alias.
+  int64 ifSpeed = 10;                         // Interface speed in bps.
+  string ifPhysAddress = 11;                  // Physical (MAC) address.
+  repeated string ip_addresses = 12;          // IP addresses bound to the interface.
+  int32 ifAdminStatus = 13;                   // Administrative status (e.g., up/down).
+  int32 ifOperStatus = 14;                    // Operational status (e.g., up/down).
+  map<string, string> metadata = 15;          // Additional metadata.
+}
+
+// TopologyDiscoveryEvent represents a topology discovery event.
+message TopologyDiscoveryEvent {
+  google.protobuf.Timestamp timestamp = 1;    // Time of topology discovery.
+  string agent_id = 2;                        // ID of the agent.
+  string poller_id = 3;                       // ID of the poller.
+  string local_device_ip = 4;                 // IP of the local device.
+  string local_device_id = 5;                 // ID of the local device.
+  int32 local_ifIndex = 6;                    // Local interface index.
+  string local_ifName = 7;                    // Local interface name.
+  string protocol_type = 8;                   // Discovery protocol (e.g., LLDP, CDP).
+  string neighbor_chassis_id = 9;             // Neighbor's chassis ID.
+  string neighbor_port_id = 10;               // Neighbor's port ID.
+  string neighbor_port_descr = 11;            // Neighbor's port description.
+  string neighbor_system_name = 12;           // Neighbor's system name.
+  string neighbor_management_address = 13;    // Neighbor's management address.
+  map<string, string> metadata = 14;          // Additional metadata.
+}
+
+// DiscoveryRequest initiates a discovery operation.
+message DiscoveryRequest {
+  string agent_id = 1; // ID of the requesting agent.
+}
+
+// DiscoveryResponse contains results of a discovery operation.
+message DiscoveryResponse {
+  repeated SweepResult sweep_results = 1;            // Results from network sweeps.
+  repeated DiscoveredInterface interfaces = 2;       // Discovered interfaces.
+  repeated TopologyDiscoveryEvent topology_events = 3; // Topology discovery events.
+  string status = 4;                                 // Status of the discovery operation (e.g., "success", "failed").
+}
+
+service AgentService {
+  // GetStatus retrieves the status of a service.
+  rpc GetStatus(StatusRequest) returns (StatusResponse);
+  // GetDiscoveryResults retrieves network discovery results.
+  rpc GetDiscoveryResults(DiscoveryRequest) returns (DiscoveryResponse);
+}

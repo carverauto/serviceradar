@@ -1,0 +1,20 @@
+{
+  "seed_ips": ["192.168.1.1", "10.0.0.1"],
+  "seed_subnets": ["192.168.1.0/24", "10.0.0.0/24"],
+  "credentials": [
+    {
+      "name": "public-v2c",
+      "host": "",
+      "port": 161,
+      "community": "public",
+      "version": "v2c",
+      "interval": "30s",
+      "timeout": "5s",
+      "retries": 3
+    }
+  ],
+  "concurrency": 20,
+  "interval": "5m",
+  "timeout": "5s",
+  "retries": 3
+}

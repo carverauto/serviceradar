@@ -1,9 +1,12 @@
 ## Product Requirements Document: ServiceRadar SNMP Discovery Engine
 
-**Version:** 1.0
-**Date:** 2024-07-15
+**Version:** 1.1
+**Date:** 2024-07-16
 **Author:** AI Assistant (based on user requirements)
-**Status:** Proposed
+**Status:** Proposed (Revised)
+
+**Changelog:**
+*   **v1.1 (2024-07-16):** Revised data output for basic device information (FR4.1, Section 6, Section 7) to target the `sweep_results` stream for ingestion into `devices_mv`, aligning with existing DB schema for `devices_mv`. Clarified `discovery_source`.
 
 **1. Overview**
 
@@ -20,7 +23,7 @@ To design and implement an SNMP discovery engine that can:
 *   Develop a robust SNMP discovery module utilizing the `gosnmp` library.
 *   Provide flexible seeding mechanisms for initiating discovery.
 *   Collect comprehensive device, interface, and neighbor data.
-*   Integrate seamlessly with ServiceRadar's data ingestion streams (`discovered_interfaces`, `topology_discovery_events`, and contribute to the `devices` stream).
+*   Integrate seamlessly with ServiceRadar's data ingestion streams (`discovered_interfaces`, `topology_discovery_events`, and contribute to the `devices` stream via `sweep_results`).
 *   Lay the foundation for building a rich network topology graph in ArangoDB.
 *   Ensure the discovery process is configurable and manageable.
 
@@ -86,11 +89,10 @@ To design and implement an SNMP discovery engine that can:
         *   `lldpRemTable`: `lldpRemChassisId`, `lldpRemPortId`, `lldpRemPortDesc`, `lldpRemSysName`, `lldpRemSysDesc`, `lldpRemManAddrIfId`, `lldpRemManAddr`.
     *   **CDP (CISCO-CDP-MIB or similar):**
         *   `cdpCacheTable`: `cdpCacheAddress` (neighbor's IP), `cdpCacheVersion`, `cdpCacheDeviceId` (neighbor's hostname), `cdpCacheDevicePort` (neighbor's remote port), `cdpCachePlatform`.
-*   FR3.4: **Basic Device Reachability:** The engine should confirm SNMP connectivity to a device before attempting detailed discovery. This can update/create an entry in `snmp_results`.
+*   FR3.4: **Basic Device Reachability:** The engine should confirm SNMP connectivity to a device before attempting detailed discovery. This information will be published as per FR4.1.
 
 **4.4 Data Output and Storage (Proton Integration)**
-*   FR4.1: Successfully discovered basic device information (sysName, IP, MAC (if found as a system-level MAC)) should contribute to the `devices` stream in Proton. The `discovery_source` should be marked as 'snmp_discovery'.
-    *   This may involve publishing to an intermediate stream like `snmp_device_candidates` or directly enhancing entries in `snmp_results` which then feeds `devices_mv`.
+*   FR4.1: Successfully discovered basic device information (sysName, IP, MAC (if found as a system-level MAC), and system metadata like sysDescr, sysObjectID, sysUpTime) should be published to the `sweep_results` Proton stream. The `discovery_source` for these entries must be 'snmp_discovery'. This stream (`sweep_results`) is consumed by the `devices_mv` materialized view, which populates the `devices` stream.
 *   FR4.2: Detailed interface information (as per FR3.2) for each discovered device must be published to the `discovered_interfaces` Proton stream. Data must conform to the existing schema:
     *   Fields: `timestamp`, `agent_id` (of the discovery agent), `poller_id` (of the poller tasking discovery, if applicable, otherwise system/discovery engine ID), `device_ip`, `device_id`, `ifIndex`, `ifName`, `ifDescr`, `ifAlias`, `ifSpeed`, `ifPhysAddress`, `ip_addresses` (array), `ifAdminStatus`, `ifOperStatus`, `metadata`.
 *   FR4.3: Discovered neighbor information (LLDP/CDP, as per FR3.3) must be published to the `topology_discovery_events` Proton stream. Data must conform to the existing schema:
@@ -147,8 +149,9 @@ To design and implement an SNMP discovery engine that can:
     1.  Discovery Engine reads configuration.
     2.  Engine performs SNMP queries against target devices based on seeds.
     3.  Collected raw data is structured.
-    4.  Structured data (device info, interface details, neighbor info) is published to designated Proton streams (`discovered_interfaces`, `topology_discovery_events`, and contributing to `devices`).
-    5.  (Downstream) An ArangoDB Sync Service (as per ADR-02) consumes these Proton streams to populate/update the ArangoDB graph.
+    4.  Structured data (basic device info, interface details, neighbor info) is published to designated Proton streams (`sweep_results` for basic device info, `discovered_interfaces`, `topology_discovery_events`).
+    5.  (Downstream) The `devices_mv` materialized view consumes `sweep_results` to populate the `devices` stream.
+    6.  (Downstream) An ArangoDB Sync Service (as per ADR-02) consumes `devices`, `discovered_interfaces`, and `topology_discovery_events` Proton streams to populate/update the ArangoDB graph.
 
 ```mermaid
 graph TD
@@ -159,13 +162,18 @@ graph TD
         DataProcessor --> ProtonPublisher[Proton Stream Publisher]
     end
 
-    ProtonPublisher -->|Device Info, Interface Info, Neighbor Info| ProtonStreams[Timeplus Proton Streams<br>- snmp_results<br>- discovered_interfaces<br>- topology_discovery_events]
+    %% Publishing Destinations
+    ProtonPublisher -->|Basic Device Info (FR4.1)| SweepResultsStream["Timeplus Proton Stream<br>- sweep_results<br>(discovery_source='snmp_discovery')"]
+    ProtonPublisher -->|Interface Info (FR4.2)| DiscoveredInterfacesStream["Timeplus Proton Stream<br>- discovered_interfaces"]
+    ProtonPublisher -->|Neighbor Info (FR4.3)| TopologyEventsStream["Timeplus Proton Stream<br>- topology_discovery_events"]
 
-    ProtonStreams -->|devices_mv| DevicesStream[Proton 'devices' Stream]
+    %% Devices MV Path
+    SweepResultsStream -->|Consumed by 'devices_mv'| DevicesStream[Proton 'devices' Stream]
 
     %% This part is outside the scope of this PRD but shows context
     subgraph "Downstream (ADR-02)"
-      ProtonStreams --> ArangoSync[ArangoDB Sync Service]
+      DiscoveredInterfacesStream --> ArangoSync[ArangoDB Sync Service]
+      TopologyEventsStream --> ArangoSync
       DevicesStream --> ArangoSync
       ArangoSync --> ArangoDB[ArangoDB Graph]
     end
@@ -174,18 +182,18 @@ graph TD
 **7. Data Models (Output to Proton)**
 
 The engine will produce data matching the schemas of:
-*   `db.SweepResult` (for `snmp_results` stream, indicating basic availability and high-level info):
+*   Data for `sweep_results` stream (for basic device availability and high-level info from SNMP, as per FR4.1):
     *   `agent_id`: ID of the discovery engine instance.
     *   `poller_id`: (If applicable) ID of poller tasking discovery.
-    *   `discovery_source`: "snmp" or "snmp_discovery".
+    *   `discovery_source`: "snmp_discovery" (fixed value for this engine's output to this stream).
     *   `ip`: Device IP.
     *   `mac`: Device base MAC (if discoverable).
     *   `hostname`: `sysName`.
     *   `timestamp`: Discovery time.
     *   `available`: True if SNMP responsive.
     *   `metadata`: Map including `sysDescr`, `sysObjectID`, `sysUpTime`.
-*   `db.DiscoveredInterface` (for `discovered_interfaces` stream - defined in `db.go`).
-*   `db.TopologyDiscoveryEvent` (for `topology_discovery_events` stream - defined in `db.go`, with `protocol_type` as "LLDP" or "CDP").
+*   `db.DiscoveredInterface` (for `discovered_interfaces` stream - structure defined by `CREATE STREAM` in `db.go`).
+*   `db.TopologyDiscoveryEvent` (for `topology_discovery_events` stream - structure defined by `CREATE STREAM` in `db.go`, with `protocol_type` as "LLDP" or "CDP").
 
 **8. API (Internal)**
 No external API is proposed for this engine in v1. It operates based on configuration and schedule, publishing data to Proton. Future administrative APIs could be added for on-demand scans or status checks.
@@ -196,7 +204,7 @@ No external API is proposed for this engine in v1. It operates based on configur
 *   **Accuracy:** Correctness of discovered interface details and neighbor relationships (validated against ground truth).
 *   **Completeness:** All specified MIBs/OIDs (FR3) are successfully retrieved where supported by devices.
 *   **Performance:** Discovery times align with NFR1.
-*   **Integration:** Data correctly populates the target Proton streams (`discovered_interfaces`, `topology_discovery_events`, contributes to `devices`).
+*   **Integration:** Data correctly populates the target Proton streams (`sweep_results`, `discovered_interfaces`, `topology_discovery_events`), leading to correct population of the `devices` stream.
 *   **Stability:** Engine runs reliably without crashes or excessive resource consumption.
 
 **10. Future Considerations**
@@ -226,4 +234,6 @@ No external API is proposed for this engine in v1. It operates based on configur
 *   What is the primary mechanism for `agent_id` and `poller_id` assignment if the discovery engine is standalone? (Assume for now `agent_id` is the discovery engine's own ID, and `poller_id` is context-dependent or a system ID if globally scheduled).
 *   How will the initial SNMP credentials be securely provided and managed? (Assume encrypted config or K/V store).
 *   What are the exact performance targets for subnet scanning (e.g., time to scan a /22 subnet)?
-*   Should the engine attempt to correlate discovered IP addresses on interfaces with existing entries in the `devices` stream to enrich a single device entity? (Yes, this is implied by contributing to the `devices` stream).
+*   Should the engine attempt to correlate discovered IP addresses on interfaces with existing entries in the `devices` stream to enrich a single device entity? (Yes, this is implied by contributing to the `devices` stream via `sweep_results` and `devices_mv`).
+
+---
