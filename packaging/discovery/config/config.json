@@ -42,19 +42,9 @@
       "targets": ["192.168.1.0/24"],
       "version": "v2c",
       "community": "public"
-    },
-    {
-      "targets": ["10.0.0.0/8"],
-      "version": "v3",
-      "username": "admin",
-      "auth_protocol": "SHA",
-      "auth_password": "auth_secret",
-      "privacy_protocol": "AES",
-      "privacy_password": "privacy_secret"
     }
   ],
   "seeds": [
-    "192.168.1.0/24",
-    "10.1.1.0/24"
+    "192.168.1.0/24"
   ]
 }

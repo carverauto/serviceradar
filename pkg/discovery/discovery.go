@@ -299,7 +299,7 @@ func (e *SnmpDiscoveryEngine) worker(ctx context.Context, workerID int) {
 			job.Status.Progress = 5 // Indicate it's started
 
 			// Placeholder for actual discovery logic
-			e.runDiscoveryJob(job) // Pass job.ctx here
+			e.runDiscoveryJob(ctx, job) // Pass job.ctx here
 
 			// After job execution (success, failure, or cancellation handled within runDiscoveryJob)
 			e.mu.Lock()
@@ -323,78 +323,6 @@ func (e *SnmpDiscoveryEngine) worker(ctx context.Context, workerID int) {
 			log.Printf("Worker %d finished job %s with status %s.", workerID, job.ID, job.Status.Status)
 		}
 	}
-}
-
-const (
-	defaultTotalSteps     = 10                     // Placeholder for total steps in discovery
-	defaultDicsoverySleep = 500 * time.Millisecond // Placeholder for sleep duration between steps
-)
-
-// runDiscoveryJob is a placeholder for the actual SNMP discovery logic for a job.
-// It should update job.Status and job.Results.
-// It should also respect job.cancelFunc (job's context).
-func (e *SnmpDiscoveryEngine) runDiscoveryJob(job *DiscoveryJob) {
-	log.Printf("Running discovery for job %s. Seeds: %v, Type: %s", job.ID, job.Params.Seeds, job.Params.Type)
-
-	// Example: Simulate work and check for cancellation
-	totalSteps := defaultTotalSteps
-
-	for i := 0; i < totalSteps; i++ {
-		select {
-		case <-job.ctx.Done(): // Check if the job-specific context was canceled
-			log.Printf("Job %s canceled during execution.", job.ID)
-
-			job.Status.Status = DiscoverStatusCanceled
-			job.Status.Error = "Job execution canceled"
-			job.Status.Progress = float64(i+1) / float64(totalSteps) * 100
-
-			return
-		case <-e.done: // Engine stopping
-			log.Printf("Job %s interrupted due to engine shutdown.", job.ID)
-
-			job.Status.Status = DiscoveryStatusFailed // Or Canceled, depending on policy
-			job.Status.Error = "Engine shutting down"
-			job.Status.Progress = float64(i+1) / float64(totalSteps) * 100
-
-			return
-		default:
-			// Simulate doing some work
-			time.Sleep(defaultDicsoverySleep) // Represents a part of the discovery scan
-			job.mu.Lock()
-			job.Status.Progress = float64(i+1) / float64(totalSteps) * 100
-			// Example: add a dummy device
-			if i%2 == 0 {
-				dummyDevice := &DiscoveredDevice{
-					IP:       fmt.Sprintf("192.168.1.%d", i+1),
-					Hostname: fmt.Sprintf("device-%d", i+1),
-					SysDescr: "Simulated Device",
-				}
-
-				job.Results.Devices = append(job.Results.Devices, dummyDevice)
-
-				if e.publisher != nil {
-					// It's good practice to use the job's context for publishing too
-					if err := e.publisher.PublishDevice(job.ctx, dummyDevice); err != nil {
-						log.Printf("Job %s: Failed to publish device %s: %v", job.ID, dummyDevice.IP, err)
-					}
-				}
-			}
-
-			job.mu.Unlock()
-
-			log.Printf("Job %s progress: %.2f%%", job.ID, job.Status.Progress)
-		}
-	}
-
-	job.mu.Lock()
-	if job.Status.Status == DiscoveryStatusRunning { // Check if not canceled
-		job.Status.Status = DiscoveryStatusCompleted
-		job.Status.Progress = 100
-
-		log.Printf("Job %s completed successfully.", job.ID)
-	}
-
-	job.mu.Unlock()
 }
 
 const (
