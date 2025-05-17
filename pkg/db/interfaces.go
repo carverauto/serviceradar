@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+// Package db pkg/db/interfaces.go
 package db
 
 import (
@@ -103,6 +104,13 @@ type Service interface {
 	// Sweep operations.
 
 	StoreSweepResults(ctx context.Context, results []*SweepResult) error
+
+	// Discovery operations.
+
+	PublishDiscoveredInterface(ctx context.Context, iface *models.DiscoveredInterface) error
+	PublishTopologyDiscoveryEvent(ctx context.Context, event *models.TopologyDiscoveryEvent) error
+	PublishBatchDiscoveredInterfaces(ctx context.Context, interfaces []*models.DiscoveredInterface) error
+	PublishBatchTopologyDiscoveryEvents(ctx context.Context, events []*models.TopologyDiscoveryEvent) error
 }
 
 // SysmonMetricsProvider interface defines operations for system monitoring metrics.

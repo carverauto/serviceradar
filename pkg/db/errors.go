@@ -7,8 +7,8 @@
  *
  *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an "AS IS" BASIS,
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
@@ -19,13 +19,13 @@ package db
 import "errors"
 
 var (
+
 	// Core database errors.
 
 	ErrDatabaseError = errors.New("database error")
 
 	// Operation errors.
 
-	ErrFailedToClean  = errors.New("failed to clean")
 	ErrFailedToScan   = errors.New("failed to scan")
 	ErrFailedToQuery  = errors.New("failed to query")
 	ErrFailedToInsert = errors.New("failed to insert")
@@ -35,4 +35,11 @@ var (
 	// Auth.
 
 	ErrUserNotFound = errors.New("user not found")
+
+	// Validation errors for discovered interfaces
+
+	ErrDeviceIPRequired      = errors.New("device IP is required")
+	ErrAgentIDRequired       = errors.New("agent ID is required")
+	ErrLocalDeviceIPRequired = errors.New("local device IP is required")
+	ErrProtocolTypeRequired  = errors.New("protocol type is required")
 )
