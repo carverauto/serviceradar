@@ -68,6 +68,7 @@ func main() {
 
 	// Initialize the discovery engine
 	var publisher discovery.Publisher
+
 	engine, err := discovery.NewSnmpDiscoveryEngine(discoveryEngineConfig, publisher)
 	if err != nil {
 		log.Printf("Failed to initialize discovery engine: %v", err)
@@ -108,6 +109,7 @@ func main() {
 func loadDiscoveryConfig(config Config) (*discovery.Config, error) {
 	if config.configFile == "" {
 		log.Println("No config file specified for discovery checker, using default in-memory config.")
+
 		return &discovery.Config{
 			Workers:         10,
 			Timeout:         30 * time.Second,

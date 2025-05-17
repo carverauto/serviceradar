@@ -72,7 +72,7 @@ const (
 	DiscoveryStatusRunning   DiscoveryStatusType = "running"
 	DiscoveryStatusCompleted DiscoveryStatusType = "completed"
 	DiscoveryStatusFailed    DiscoveryStatusType = "failed"
-	DiscoveryStatusCancelled DiscoveryStatusType = "cancelled"
+	DiscoverStatusCanceled   DiscoveryStatusType = "canceled"
 )
 
 // DiscoveryStatus contains the current status of a discovery operation

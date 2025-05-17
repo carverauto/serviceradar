@@ -18,10 +18,10 @@ package discovery
 
 import (
 	"context"
+	proto "github.com/carverauto/serviceradar/proto/discovery"
 	"log"
+	"math"
 	"time"
-
-	"github.com/carverauto/serviceradar/proto/discovery"
 )
 
 // GRPCDiscoveryService implements the gRPC interface for the discovery service
@@ -99,6 +99,99 @@ func (s *GRPCDiscoveryService) StartDiscovery(ctx context.Context, req *proto.Di
 	}, nil
 }
 
+// convertInterfaceToProto converts a DiscoveredInterface to proto.DiscoveredInterface
+// and performs bounds checking on integer fields
+func convertInterfaceToProto(iface *DiscoveredInterface) (*proto.DiscoveredInterface, bool) {
+	// Check if values fit within int32 range
+	if iface.IfIndex > math.MaxInt32 || iface.IfIndex < math.MinInt32 {
+		log.Printf("Skipping interface for device %s: IfIndex %d out of int32 range", iface.DeviceIP, iface.IfIndex)
+		return nil, false
+	}
+
+	if iface.IfAdminStatus > math.MaxInt32 || iface.IfAdminStatus < math.MinInt32 {
+		log.Printf("Skipping interface for device %s: IfAdminStatus %d out of int32 range", iface.DeviceIP, iface.IfAdminStatus)
+		return nil, false
+	}
+
+	if iface.IfOperStatus > math.MaxInt32 || iface.IfOperStatus < math.MinInt32 {
+		log.Printf("Skipping interface for device %s: IfOperStatus %d out of int32 range", iface.DeviceIP, iface.IfOperStatus)
+		return nil, false
+	}
+
+	// Check IfType as well
+	if iface.IfType > math.MaxInt32 || iface.IfType < math.MinInt32 {
+		log.Printf("Skipping interface for device %s: IfType %d out of int32 range", iface.DeviceIP, iface.IfType)
+		return nil, false
+	}
+
+	// All values are within int32 range, safe to convert
+	return &proto.DiscoveredInterface{
+		DeviceIp:      iface.DeviceIP,
+		IfIndex:       int32(iface.IfIndex), // #nosec G115 -- Value checked for int32 range prior to this conversion
+		IfName:        iface.IfName,
+		IfDescr:       iface.IfDescr,
+		IfAlias:       iface.IfAlias,
+		IfSpeed:       iface.IfSpeed,
+		IfPhysAddress: iface.IfPhysAddress,
+		IpAddresses:   iface.IPAddresses,
+		IfAdminStatus: int32(iface.IfAdminStatus), // #nosec G115 -- Value checked for int32 range prior to this conversion
+		IfOperStatus:  int32(iface.IfOperStatus),  // #nosec G115 -- Value checked for int32 range prior to this conversion
+		IfType:        int32(iface.IfType),        // #nosec G115 -- Value checked for int32 range prior to this conversion
+		Metadata:      iface.Metadata,
+	}, true
+}
+
+// convertDeviceToProto converts a DiscoveredDevice to proto.DiscoveredDevice
+func convertDeviceToProto(device *DiscoveredDevice) *proto.DiscoveredDevice {
+	return &proto.DiscoveredDevice{
+		Ip:          device.IP,
+		Mac:         device.MAC,
+		Hostname:    device.Hostname,
+		SysDescr:    device.SysDescr,
+		SysObjectId: device.SysObjectID,
+		SysContact:  device.SysContact,
+		SysLocation: device.SysLocation,
+		Uptime:      device.Uptime,
+		Metadata:    device.Metadata,
+	}
+}
+
+// convertTopologyLinkToProto converts a TopologyLink to proto.TopologyLink
+func convertTopologyLinkToProto(link *TopologyLink) *proto.TopologyLink {
+	// Check if LocalIfIndex is within int32 range
+	if link.LocalIfIndex > math.MaxInt32 || link.LocalIfIndex < math.MinInt32 {
+		log.Printf("Warning: LocalIfIndex %d out of int32 range for link from device %s, using default value 0",
+			link.LocalIfIndex, link.LocalDeviceIP)
+		// Use a default value instead of skipping the entire link
+		return &proto.TopologyLink{
+			Protocol:           link.Protocol,
+			LocalDeviceIp:      link.LocalDeviceIP,
+			LocalIfIndex:       0, // Default value when out of range
+			LocalIfName:        link.LocalIfName,
+			NeighborChassisId:  link.NeighborChassisID,
+			NeighborPortId:     link.NeighborPortID,
+			NeighborPortDescr:  link.NeighborPortDescr,
+			NeighborSystemName: link.NeighborSystemName,
+			NeighborMgmtAddr:   link.NeighborMgmtAddr,
+			Metadata:           link.Metadata,
+		}
+	}
+
+	// Safe to convert
+	return &proto.TopologyLink{
+		Protocol:           link.Protocol,
+		LocalDeviceIp:      link.LocalDeviceIP,
+		LocalIfIndex:       int32(link.LocalIfIndex),
+		LocalIfName:        link.LocalIfName,
+		NeighborChassisId:  link.NeighborChassisID,
+		NeighborPortId:     link.NeighborPortID,
+		NeighborPortDescr:  link.NeighborPortDescr,
+		NeighborSystemName: link.NeighborSystemName,
+		NeighborMgmtAddr:   link.NeighborMgmtAddr,
+		Metadata:           link.Metadata,
+	}
+}
+
 // GetDiscoveryResults implements the DiscoveryService interface
 func (s *GRPCDiscoveryService) GetDiscoveryResults(ctx context.Context, req *proto.ResultsRequest) (*proto.ResultsResponse, error) {
 	log.Printf("Received GetDiscoveryResults request: %v", req)
@@ -114,54 +207,26 @@ func (s *GRPCDiscoveryService) GetDiscoveryResults(ctx context.Context, req *pro
 
 	// Convert devices
 	protoDevices := make([]*proto.DiscoveredDevice, len(results.Devices))
+
 	for i, device := range results.Devices {
-		protoDevices[i] = &proto.DiscoveredDevice{
-			Ip:          device.IP,
-			Mac:         device.MAC,
-			Hostname:    device.Hostname,
-			SysDescr:    device.SysDescr,
-			SysObjectId: device.SysObjectID,
-			SysContact:  device.SysContact,
-			SysLocation: device.SysLocation,
-			Uptime:      device.Uptime,
-			Metadata:    device.Metadata,
-		}
+		protoDevices[i] = convertDeviceToProto(device)
 	}
 
-	// Convert interfaces
-	protoInterfaces := make([]*proto.DiscoveredInterface, len(results.Interfaces))
-	for i, iface := range results.Interfaces {
-		protoInterfaces[i] = &proto.DiscoveredInterface{
-			DeviceIp:      iface.DeviceIP,
-			IfIndex:       int32(iface.IfIndex),
-			IfName:        iface.IfName,
-			IfDescr:       iface.IfDescr,
-			IfAlias:       iface.IfAlias,
-			IfSpeed:       iface.IfSpeed,
-			IfPhysAddress: iface.IfPhysAddress,
-			IpAddresses:   iface.IPAddresses,
-			IfAdminStatus: int32(iface.IfAdminStatus),
-			IfOperStatus:  int32(iface.IfOperStatus),
-			IfType:        int32(iface.IfType),
-			Metadata:      iface.Metadata,
+	// Convert interfaces with bounds checking
+	protoInterfaces := make([]*proto.DiscoveredInterface, 0, len(results.Interfaces))
+
+	for _, iface := range results.Interfaces {
+		protoIface, valid := convertInterfaceToProto(iface)
+		if valid {
+			protoInterfaces = append(protoInterfaces, protoIface)
 		}
 	}
 
 	// Convert topology links
 	protoLinks := make([]*proto.TopologyLink, len(results.TopologyLinks))
+
 	for i, link := range results.TopologyLinks {
-		protoLinks[i] = &proto.TopologyLink{
-			Protocol:           link.Protocol,
-			LocalDeviceIp:      link.LocalDeviceIP,
-			LocalIfIndex:       int32(link.LocalIfIndex),
-			LocalIfName:        link.LocalIfName,
-			NeighborChassisId:  link.NeighborChassisID,
-			NeighborPortId:     link.NeighborPortID,
-			NeighborPortDescr:  link.NeighborPortDescr,
-			NeighborSystemName: link.NeighborSystemName,
-			NeighborMgmtAddr:   link.NeighborMgmtAddr,
-			Metadata:           link.Metadata,
-		}
+		protoLinks[i] = convertTopologyLinkToProto(link)
 	}
 
 	return &proto.ResultsResponse{
@@ -248,8 +313,10 @@ func statusTypeToProtoStatus(status DiscoveryStatusType) proto.DiscoveryStatus {
 		return proto.DiscoveryStatus_COMPLETED
 	case DiscoveryStatusFailed:
 		return proto.DiscoveryStatus_FAILED
-	case DiscoveryStatusCancelled:
-		return proto.DiscoveryStatus_CANCELLED
+	case DiscoverStatusCanceled:
+		return proto.DiscoveryStatus_CANCELED
+	case DiscoveryStatusUnknown:
+		return proto.DiscoveryStatus_UNKNOWN
 	default:
 		return proto.DiscoveryStatus_UNKNOWN
 	}
@@ -265,30 +332,50 @@ func estimateDuration(params *DiscoveryParams) int32 {
 
 	// Base time per device based on discovery type
 	var timePerDevice int
+
 	switch params.Type {
 	case DiscoveryTypeFull:
-		timePerDevice = 10 // seconds
+		timePerDevice = defaultTimePerDeviceFull
 	case DiscoveryTypeBasic:
-		timePerDevice = 2
+		timePerDevice = defaultTimePerDeviceBasic
 	case DiscoveryTypeInterfaces:
-		timePerDevice = 5
+		timePerDevice = defaultTimePerDeviceInterfaces
 	case DiscoveryTypeTopology:
-		timePerDevice = 5
+		timePerDevice = defaultTimePerDeviceTopology
 	default:
-		timePerDevice = 10
+		timePerDevice = defaultTimePerDevice
 	}
 
 	// Adjust for concurrency
 	concurrency := params.Concurrency
 	if concurrency <= 0 {
-		concurrency = 10 // Default
+		concurrency = defaultConcurrency // Default
 	}
 
 	// Total time = (estimated devices * time per device) / concurrency
 	totalTime := (estimatedDevices * timePerDevice) / concurrency
 
 	// Add some overhead
-	totalTime = int(float64(totalTime) * 1.2)
+	totalTime = int(float64(totalTime) * defaultOverheadMultiplier)
+
+	// Check if totalTime is within int32 range
+	if totalTime > math.MaxInt32 {
+		log.Printf("Warning: Estimated duration %d exceeds maximum int32 value, capping at %d", totalTime, math.MaxInt32)
+		return math.MaxInt32
+	} else if totalTime < math.MinInt32 {
+		log.Printf("Warning: Estimated duration %d is below minimum int32 value, setting to %d", totalTime, math.MinInt32)
+		return math.MinInt32
+	}
 
 	return int32(totalTime)
 }
+
+const (
+	defaultOverheadMultiplier      = 1.2
+	defaultConcurrency             = 10
+	defaultTimePerDeviceFull       = 10 // seconds
+	defaultTimePerDeviceBasic      = 2
+	defaultTimePerDeviceInterfaces = 5
+	defaultTimePerDeviceTopology   = 5
+	defaultTimePerDevice           = 10
+)

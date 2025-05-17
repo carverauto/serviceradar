@@ -1,3 +1,19 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package db
 
 import (
@@ -11,14 +27,14 @@ import (
 )
 
 // PublishDiscoveredInterface publishes a discovered interface to the discovered_interfaces stream
-// PublishDiscoveredInterface publishes a discovered interface to the discovered_interfaces stream
 func (db *DB) PublishDiscoveredInterface(ctx context.Context, iface *models.DiscoveredInterface) error {
 	// Validate required fields
 	if iface.DeviceIP == "" {
-		return fmt.Errorf("device IP is required")
+		return ErrDeviceIPRequired
 	}
+
 	if iface.AgentID == "" {
-		return fmt.Errorf("agent ID is required")
+		return ErrAgentIDRequired
 	}
 
 	// Ensure there's a timestamp
@@ -40,10 +56,12 @@ func (db *DB) PublishDiscoveredInterface(ctx context.Context, iface *models.Disc
 
 	// Handle metadata - it's a json.RawMessage in the model
 	var metadata map[string]string
+
 	if len(iface.Metadata) > 0 {
 		// Try to unmarshal the RawMessage
-		if err := json.Unmarshal(iface.Metadata, &metadata); err != nil {
+		if err = json.Unmarshal(iface.Metadata, &metadata); err != nil {
 			log.Printf("Warning: unable to parse interface metadata: %v", err)
+
 			metadata = make(map[string]string)
 		}
 	} else {
@@ -79,6 +97,7 @@ func (db *DB) PublishDiscoveredInterface(ctx context.Context, iface *models.Disc
 
 	log.Printf("Successfully published interface %s (%d) for device %s",
 		iface.IfName, iface.IfIndex, iface.DeviceIP)
+
 	return nil
 }
 
@@ -86,13 +105,15 @@ func (db *DB) PublishDiscoveredInterface(ctx context.Context, iface *models.Disc
 func (db *DB) PublishTopologyDiscoveryEvent(ctx context.Context, event *models.TopologyDiscoveryEvent) error {
 	// Validate required fields
 	if event.LocalDeviceIP == "" {
-		return fmt.Errorf("local device IP is required")
+		return ErrLocalDeviceIPRequired
 	}
+
 	if event.AgentID == "" {
-		return fmt.Errorf("agent ID is required")
+		return ErrAgentIDRequired
 	}
+
 	if event.ProtocolType == "" {
-		return fmt.Errorf("protocol type is required")
+		return ErrProtocolTypeRequired
 	}
 
 	// Ensure there's a timestamp
@@ -108,10 +129,12 @@ func (db *DB) PublishTopologyDiscoveryEvent(ctx context.Context, event *models.T
 
 	// Handle metadata - it's a json.RawMessage in the model
 	var metadata map[string]string
+
 	if len(event.Metadata) > 0 {
 		// Try to unmarshal the RawMessage
-		if err := json.Unmarshal(event.Metadata, &metadata); err != nil {
+		if err = json.Unmarshal(event.Metadata, &metadata); err != nil {
 			log.Printf("Warning: unable to parse topology event metadata: %v", err)
+
 			metadata = make(map[string]string)
 		}
 	} else {
@@ -150,6 +173,11 @@ func (db *DB) PublishTopologyDiscoveryEvent(ctx context.Context, event *models.T
 	return nil
 }
 
+const (
+	defaultTimeout   = 30 * time.Second
+	defaultBatchSize = 100
+)
+
 // PublishBatchDiscoveredInterfaces publishes multiple interfaces in a batch
 func (db *DB) PublishBatchDiscoveredInterfaces(ctx context.Context, interfaces []*models.DiscoveredInterface) error {
 	if len(interfaces) == 0 {
@@ -157,15 +185,17 @@ func (db *DB) PublishBatchDiscoveredInterfaces(ctx context.Context, interfaces [
 	}
 
 	// Create a batch context with reasonable timeout
-	batchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	batchCtx, cancel := context.WithTimeout(ctx, defaultTimeout)
 	defer cancel()
 
 	// Process in smaller batches to avoid overwhelming the database
-	batchSize := 100 // Default batch size
+	batchSize := defaultBatchSize
+
 	var lastErr error
 
 	for i := 0; i < len(interfaces); i += batchSize {
 		end := i + batchSize
+
 		if end > len(interfaces) {
 			end = len(interfaces)
 		}
@@ -191,23 +221,27 @@ func (db *DB) PublishBatchTopologyDiscoveryEvents(ctx context.Context, events []
 	}
 
 	// Create a batch context with reasonable timeout
-	batchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	batchCtx, cancel := context.WithTimeout(ctx, defaultTimeout)
 	defer cancel()
 
 	// Process in smaller batches to avoid overwhelming the database
 	batchSize := 100 // Default batch size
+
 	var lastErr error
 
 	for i := 0; i < len(events); i += batchSize {
 		end := i + batchSize
+
 		if end > len(events) {
 			end = len(events)
 		}
 
 		batch := events[i:end]
+
 		for _, event := range batch {
 			if err := db.PublishTopologyDiscoveryEvent(batchCtx, event); err != nil {
 				log.Printf("Error publishing topology event: %v", err)
+
 				lastErr = err
 			}
 		}
