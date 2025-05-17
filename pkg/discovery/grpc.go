@@ -372,7 +372,6 @@ func estimateDuration(params *DiscoveryParams) int32 {
 
 const (
 	defaultOverheadMultiplier      = 1.2
-	defaultConcurrency             = 10
 	defaultTimePerDeviceFull       = 10 // seconds
 	defaultTimePerDeviceBasic      = 2
 	defaultTimePerDeviceInterfaces = 5

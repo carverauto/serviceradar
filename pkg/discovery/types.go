@@ -2,6 +2,8 @@ package discovery
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"sync"
 	"time"
 )
@@ -159,31 +161,69 @@ type TopologyLink struct {
 	Metadata           map[string]string
 }
 
-// Config holds the configuration for the SNMP discovery engine
 type Config struct {
-	// Number of worker goroutines to use for discovery
-	Workers int
+	Workers            int                        `json:"workers"`
+	Timeout            time.Duration              `json:"timeout"`
+	Retries            int                        `json:"retries"`
+	MaxActiveJobs      int                        `json:"max_active_jobs"`
+	ResultRetention    time.Duration              `json:"result_retention"`
+	DefaultCredentials SNMPCredentials            `json:"default_credentials"`
+	OIDs               map[DiscoveryType][]string `json:"oids"`
+	StreamConfig       StreamConfig               `json:"stream_config"`
+}
 
-	// Default timeout for SNMP operations
-	Timeout time.Duration
+func (c *Config) UnmarshalJSON(data []byte) error {
+	type Alias Config
+	aux := &struct {
+		Timeout         string `json:"timeout"`
+		ResultRetention string `json:"result_retention"`
+		StreamConfig    struct {
+			DeviceStream         string `json:"device_stream"`
+			InterfaceStream      string `json:"interface_stream"`
+			TopologyStream       string `json:"topology_stream"`
+			AgentID              string `json:"agent_id"`
+			PollerID             string `json:"poller_id"`
+			PublishBatchSize     int    `json:"publish_batch_size"`
+			PublishRetries       int    `json:"publish_retries"`
+			PublishRetryInterval string `json:"publish_retry_interval"`
+		} `json:"stream_config"`
+		*Alias
+	}{
+		Alias: (*Alias)(c),
+	}
 
-	// Default number of retries for SNMP operations
-	Retries int
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
 
-	// Maximum number of active discovery jobs
-	MaxActiveJobs int
+	// Parse Timeout
+	if aux.Timeout != "" {
+		duration, err := time.ParseDuration(aux.Timeout)
+		if err != nil {
+			return fmt.Errorf("invalid timeout format: %w", err)
+		}
+		c.Timeout = duration
+	}
 
-	// How long to keep completed job results
-	ResultRetention time.Duration
+	// Parse ResultRetention
+	if aux.ResultRetention != "" {
+		duration, err := time.ParseDuration(aux.ResultRetention)
+		if err != nil {
+			return fmt.Errorf("invalid result_retention format: %w", err)
+		}
+		c.ResultRetention = duration
+	}
 
-	// Default credentials
-	DefaultCredentials SNMPCredentials
+	// Parse StreamConfig.PublishRetryInterval
+	if aux.StreamConfig.PublishRetryInterval != "" {
+		duration, err := time.ParseDuration(aux.StreamConfig.PublishRetryInterval)
+		if err != nil {
+			return fmt.Errorf("invalid publish_retry_interval format: %w", err)
+		}
+		c.StreamConfig.PublishRetryInterval = duration
+	}
 
-	// OIDs to query for different discovery types
-	OIDs map[DiscoveryType][]string
-
-	// Stream configuration
-	StreamConfig StreamConfig
+	return nil
 }
 
 // StreamConfig contains configuration for data publishing streams
