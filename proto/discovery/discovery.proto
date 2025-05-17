@@ -100,7 +100,7 @@ enum DiscoveryStatus {
   RUNNING = 2;
   COMPLETED = 3;
   FAILED = 4;
-  CANCELLED = 5;
+  CANCELED = 5;
 }
 
 // DiscoveredDevice represents a discovered network device
