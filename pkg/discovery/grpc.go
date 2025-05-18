@@ -18,10 +18,11 @@ package discovery
 
 import (
 	"context"
-	proto "github.com/carverauto/serviceradar/proto/discovery"
 	"log"
 	"math"
 	"time"
+
+	proto "github.com/carverauto/serviceradar/proto/discovery"
 )
 
 // GRPCDiscoveryService implements the gRPC interface for the discovery service

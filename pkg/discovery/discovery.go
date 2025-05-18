@@ -342,7 +342,6 @@ func validateConfig(config *Config) error {
 
 	if config.MaxActiveJobs <= 0 {
 		return fmt.Errorf("%w: got %d", ErrInvalidMaxActiveJobs, config.MaxActiveJobs)
-
 	}
 
 	if config.Timeout <= 0 {

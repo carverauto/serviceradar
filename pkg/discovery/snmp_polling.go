@@ -19,8 +19,6 @@ package discovery
 import (
 	"context"
 	"fmt"
-	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/carverauto/serviceradar/pkg/scan"
 	"log"
 	"net"
 	"strconv"
@@ -28,6 +26,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/scan"
 	"github.com/gosnmp/gosnmp"
 )
 
@@ -259,6 +259,10 @@ func (*SNMPDiscoveryEngine) finalizeJobStatus(job *DiscoveryJob) {
 	job.mu.Unlock()
 }
 
+const (
+	defaultConcurrencyMultiplier = 2 // Multiplier for target channel size
+)
+
 // runDiscoveryJob performs the actual SNMP discovery for a job
 func (e *SNMPDiscoveryEngine) runDiscoveryJob(job *DiscoveryJob) {
 	log.Printf("Running discovery for job %s. Seeds: %v, Type: %s", job.ID, job.Params.Seeds, job.Params.Type)
@@ -282,7 +286,7 @@ func (e *SNMPDiscoveryEngine) runDiscoveryJob(job *DiscoveryJob) {
 	// Create channels for worker pool
 	var wg sync.WaitGroup
 
-	targetChan := make(chan string, concurrency*2)
+	targetChan := make(chan string, concurrency*defaultConcurrencyMultiplier)
 	resultChan := make(chan bool, concurrency) // For progress tracking
 
 	// Start worker goroutines
@@ -334,6 +338,12 @@ func expandSeeds(seeds []string) []string {
 	return targets
 }
 
+const (
+	// 31 - broadcast
+	defaultBroadCastMask = 31
+	defaultCountCheckMin = 2
+)
+
 // expandCIDR expands a CIDR notation into individual IP addresses
 func expandCIDR(cidr string, seen map[string]bool) []string {
 	var targets []string
@@ -352,18 +362,22 @@ func expandCIDR(cidr string, seen map[string]bool) []string {
 	targets = collectIPsFromRange(ip, ipNet, hostBits, seen)
 
 	// Filter out network and broadcast addresses if needed
-	if ip.To4() != nil && ones < 31 && len(targets) > 2 {
+	if ip.To4() != nil && ones < defaultBroadCastMask && len(targets) > defaultCountCheckMin {
 		targets = filterNetworkAndBroadcast(targets, ip, ipNet)
 	}
 
 	return targets
 }
 
+const (
+	defaultHostBitsCheckMin = 8
+)
+
 // collectIPsFromRange collects IPs from a CIDR range, limiting if necessary
 func collectIPsFromRange(ip net.IP, ipNet *net.IPNet, hostBits int, seen map[string]bool) []string {
 	var targets []string
 
-	if hostBits > 8 { // More than 256 hosts
+	if hostBits > defaultHostBitsCheckMin { // More than 256 hosts
 		log.Printf("CIDR range %s too large (/%d), limiting scan", ipNet.String(), hostBits)
 
 		// Only scan first 256 IPs
@@ -694,7 +708,7 @@ func (*SNMPDiscoveryEngine) setUptimeValue(target *int64, v gosnmp.SnmpPDU) {
 }
 
 // finalizeDevice performs final setup on the device before returning it
-func (e *SNMPDiscoveryEngine) finalizeDevice(device *DiscoveredDevice, target, jobID string) {
+func (*SNMPDiscoveryEngine) finalizeDevice(device *DiscoveredDevice, target, jobID string) {
 	// Use IP as hostname if not provided
 	if device.Hostname == "" {
 		device.Hostname = target
@@ -720,11 +734,11 @@ func (e *SNMPDiscoveryEngine) querySysInfo(client *gosnmp.GoSNMP, target, jobID 
 	// Perform SNMP Get
 	result, err := client.Get(oids)
 	if err != nil {
-		return nil, fmt.Errorf("SNMP Get failed: %w", err)
+		return nil, fmt.Errorf("%w %w", ErrSNMPGetFailed, err)
 	}
 
 	if result.Error != gosnmp.NoError {
-		return nil, fmt.Errorf("SNMP error: %s", result.Error)
+		return nil, fmt.Errorf("%w %s", ErrSNMPError, result.Error)
 	}
 
 	// Create and initialize device
@@ -733,7 +747,7 @@ func (e *SNMPDiscoveryEngine) querySysInfo(client *gosnmp.GoSNMP, target, jobID 
 	// Process SNMP variables
 	foundSomething := e.processSnmpVariables(device, result.Variables)
 	if !foundSomething {
-		return nil, fmt.Errorf("no SNMP data returned")
+		return nil, ErrNoSNMPDataReturned
 	}
 
 	// Finalize device setup
@@ -770,11 +784,15 @@ func (e *SNMPDiscoveryEngine) queryInterfaces(client *gosnmp.GoSNMP, target, job
 	return e.finalizeInterfaces(ifMap, jobID), nil
 }
 
+const (
+	defaultPartsLengthCheck = 2
+)
+
 // processIfTablePDU processes a single PDU from the ifTable walk
 func (e *SNMPDiscoveryEngine) processIfTablePDU(pdu gosnmp.SnmpPDU, target string, ifMap map[int]*DiscoveredInterface) error {
 	// Extract ifIndex from OID
 	parts := strings.Split(pdu.Name, ".")
-	if len(parts) < 2 {
+	if len(parts) < defaultPartsLengthCheck {
 		return nil
 	}
 
@@ -816,12 +834,21 @@ func updateIfType(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
 	}
 }
 
+const (
+	defaultMaxInt64 = 9223372036854775807
+)
+
 // updateIfSpeed updates the interface speed
 func updateIfSpeed(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
 	//nolint:exhaustive // Default case handles all unlisted types
 	switch pdu.Type {
 	case gosnmp.Gauge32:
-		iface.IfSpeed = int64(pdu.Value.(uint))
+		uintVal := pdu.Value.(uint)
+		if uintVal > uint(defaultMaxInt64) { // max int64 value
+			iface.IfSpeed = defaultMaxInt64 // math.MaxInt64
+		} else {
+			iface.IfSpeed = int64(uintVal)
+		}
 	case gosnmp.Counter32, gosnmp.Counter64:
 		iface.IfSpeed = gosnmp.ToBigInt(pdu.Value).Int64()
 	case gosnmp.Integer:
@@ -835,7 +862,6 @@ func updateIfSpeed(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
 			iface.IfSpeed = int64(val)
 		}
 	default:
-		// All other types are not relevant for interface speed
 	}
 }
 
@@ -861,7 +887,7 @@ func updateIfOperStatus(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
 }
 
 // updateInterfaceFromOID updates interface properties based on the OID and PDU
-func (e *SNMPDiscoveryEngine) updateInterfaceFromOID(iface *DiscoveredInterface, oidPrefix string, pdu gosnmp.SnmpPDU) {
+func (*SNMPDiscoveryEngine) updateInterfaceFromOID(iface *DiscoveredInterface, oidPrefix string, pdu gosnmp.SnmpPDU) {
 	switch oidPrefix {
 	case oidIfDescr:
 		updateIfDescr(iface, pdu)
@@ -891,10 +917,14 @@ func (e *SNMPDiscoveryEngine) walkIfTable(client *gosnmp.GoSNMP, target string, 
 	return nil
 }
 
+const (
+	defaultPartsLenCheck = 2
+)
+
 // processIfXTablePDU processes a single PDU from the ifXTable walk
 func (e *SNMPDiscoveryEngine) processIfXTablePDU(pdu gosnmp.SnmpPDU, ifMap map[int]*DiscoveredInterface) error {
 	parts := strings.Split(pdu.Name, ".")
-	if len(parts) < 2 {
+	if len(parts) < defaultPartsLenCheck {
 		return nil
 	}
 
@@ -914,8 +944,14 @@ func (e *SNMPDiscoveryEngine) processIfXTablePDU(pdu gosnmp.SnmpPDU, ifMap map[i
 	return nil
 }
 
+const (
+	overflowValue    = 9223372036854775807
+	defaultHighSpeed = 1000000
+	defaultOverflow  = 1000000
+)
+
 // updateInterfaceFromPDU updates interface properties based on the OID prefix and PDU value
-func (e *SNMPDiscoveryEngine) updateInterfaceFromPDU(iface *DiscoveredInterface, oidWithPrefix string, pdu gosnmp.SnmpPDU) {
+func (*SNMPDiscoveryEngine) updateInterfaceFromPDU(iface *DiscoveredInterface, oidWithPrefix string, pdu gosnmp.SnmpPDU) {
 	switch oidWithPrefix {
 	case oidIfName:
 		if pdu.Type == gosnmp.OctetString {
@@ -928,7 +964,16 @@ func (e *SNMPDiscoveryEngine) updateInterfaceFromPDU(iface *DiscoveredInterface,
 	case oidIfHighSpeed:
 		if pdu.Type == gosnmp.Gauge32 {
 			// IfHighSpeed is in Mbps, convert to bps
-			highSpeed := int64(pdu.Value.(uint)) * 1000000
+			uintVal := pdu.Value.(uint)
+
+			var highSpeed int64
+
+			if uintVal > uint(overflowValue/defaultOverflow) { // Prevent overflow when multiplying
+				highSpeed = overflowValue // math.MaxInt64
+			} else {
+				highSpeed = int64(uintVal) * defaultHighSpeed
+			}
+
 			if highSpeed > iface.IfSpeed {
 				iface.IfSpeed = highSpeed
 			}
@@ -945,12 +990,17 @@ func (e *SNMPDiscoveryEngine) walkIfXTable(client *gosnmp.GoSNMP, ifMap map[int]
 	return err
 }
 
+const (
+	defaultTooManyParts = 5
+	ipv4Length          = 4
+)
+
 // extractIPFromOID extracts an IP address from the last 4 parts of an OID
 func extractIPFromOID(oid string) (string, bool) {
 	parts := strings.Split(oid, ".")
-	if len(parts) >= 5 {
+	if len(parts) >= defaultTooManyParts {
 		// Last 4 parts of OID are the IP address
-		return strings.Join(parts[len(parts)-4:], "."), true
+		return strings.Join(parts[len(parts)-ipv4Length:], "."), true
 	}
 
 	return "", false
@@ -968,6 +1018,10 @@ func handleIPAdEntIfIndex(pdu gosnmp.SnmpPDU, ipToIfIndex map[string]int) {
 	}
 }
 
+const (
+	defaultIPBytesLength = 4
+)
+
 // handleIPAdEntAddr processes an ipAdEntAddr PDU and updates the IP to ifIndex mapping
 func handleIPAdEntAddr(pdu gosnmp.SnmpPDU, ipToIfIndex map[string]int) {
 	var ipString string
@@ -979,11 +1033,10 @@ func handleIPAdEntAddr(pdu gosnmp.SnmpPDU, ipToIfIndex map[string]int) {
 	case gosnmp.OctetString:
 		// Some devices return IP as octet string
 		ipBytes := pdu.Value.([]byte)
-		if len(ipBytes) == 4 {
+		if len(ipBytes) == defaultIPBytesLength {
 			ipString = fmt.Sprintf("%d.%d.%d.%d", ipBytes[0], ipBytes[1], ipBytes[2], ipBytes[3])
 		}
 	default:
-		// All other types are not expected to contain IP addresses
 	}
 
 	// If we got an IP, extract the IP from the OID too (for matching)
@@ -995,7 +1048,7 @@ func handleIPAdEntAddr(pdu gosnmp.SnmpPDU, ipToIfIndex map[string]int) {
 }
 
 // walkIPAddrTable walks the ipAddrTable to get IP address information
-func (e *SNMPDiscoveryEngine) walkIPAddrTable(client *gosnmp.GoSNMP) (map[string]int, error) {
+func (*SNMPDiscoveryEngine) walkIPAddrTable(client *gosnmp.GoSNMP) (map[string]int, error) {
 	ipToIfIndex := make(map[string]int)
 
 	err := client.BulkWalk(oidIPAddrTable, func(pdu gosnmp.SnmpPDU) error {
@@ -1020,7 +1073,7 @@ func (e *SNMPDiscoveryEngine) walkIPAddrTable(client *gosnmp.GoSNMP) (map[string
 }
 
 // associateIPsWithInterfaces associates IP addresses with interfaces
-func (e *SNMPDiscoveryEngine) associateIPsWithInterfaces(ipToIfIndex map[string]int, ifMap map[int]*DiscoveredInterface) {
+func (*SNMPDiscoveryEngine) associateIPsWithInterfaces(ipToIfIndex map[string]int, ifMap map[int]*DiscoveredInterface) {
 	for ip, ifIndex := range ipToIfIndex {
 		if iface, exists := ifMap[ifIndex]; exists {
 			// Check if we already have this IP
@@ -1041,7 +1094,7 @@ func (e *SNMPDiscoveryEngine) associateIPsWithInterfaces(ipToIfIndex map[string]
 }
 
 // finalizeInterfaces finalizes the interfaces by ensuring they have names and adding metadata
-func (e *SNMPDiscoveryEngine) finalizeInterfaces(ifMap map[int]*DiscoveredInterface, jobID string) []*DiscoveredInterface {
+func (*SNMPDiscoveryEngine) finalizeInterfaces(ifMap map[int]*DiscoveredInterface, jobID string) []*DiscoveredInterface {
 	interfaces := make([]*DiscoveredInterface, 0, len(ifMap))
 
 	for _, iface := range ifMap {
@@ -1064,10 +1117,14 @@ func (e *SNMPDiscoveryEngine) finalizeInterfaces(ifMap map[int]*DiscoveredInterf
 	return interfaces
 }
 
+const (
+	defaultLLDPPartsCount = 11
+)
+
 // processLLDPRemoteTableEntry processes a single LLDP remote table entry
 func (e *SNMPDiscoveryEngine) processLLDPRemoteTableEntry(pdu gosnmp.SnmpPDU, linkMap map[string]*TopologyLink, target string) error {
 	parts := strings.Split(pdu.Name, ".")
-	if len(parts) < 11 {
+	if len(parts) < defaultLLDPPartsCount {
 		return nil
 	}
 
@@ -1102,7 +1159,7 @@ func (e *SNMPDiscoveryEngine) processLLDPRemoteTableEntry(pdu gosnmp.SnmpPDU, li
 }
 
 // processLLDPOIDSuffix processes a PDU based on its OID suffix
-func (e *SNMPDiscoveryEngine) processLLDPOIDSuffix(oidSuffix string, pdu gosnmp.SnmpPDU, link *TopologyLink) {
+func (*SNMPDiscoveryEngine) processLLDPOIDSuffix(oidSuffix string, pdu gosnmp.SnmpPDU, link *TopologyLink) {
 	// Parse based on the OID suffix
 	switch oidSuffix {
 	case "5": // oidLldpRemChassisId
@@ -1124,15 +1181,20 @@ func (e *SNMPDiscoveryEngine) processLLDPOIDSuffix(oidSuffix string, pdu gosnmp.
 	}
 }
 
+const (
+	// 5
+	defaultByteLengthCheck = 5
+)
+
 // processLLDPManagementAddress processes LLDP management address entries
-func (e *SNMPDiscoveryEngine) processLLDPManagementAddress(pdu gosnmp.SnmpPDU, linkMap map[string]*TopologyLink) error {
+func (*SNMPDiscoveryEngine) processLLDPManagementAddress(pdu gosnmp.SnmpPDU, linkMap map[string]*TopologyLink) error {
 	if pdu.Type != gosnmp.OctetString {
 		return nil
 	}
 
 	// Try to extract IP address from management address
 	bytes := pdu.Value.([]byte)
-	if len(bytes) >= 5 {
+	if len(bytes) >= defaultByteLengthCheck {
 		// First byte is usually the address type (1=IPv4)
 		if bytes[0] == 1 && len(bytes) >= 5 {
 			ip := net.IPv4(bytes[1], bytes[2], bytes[3], bytes[4])
@@ -1152,7 +1214,7 @@ func (e *SNMPDiscoveryEngine) processLLDPManagementAddress(pdu gosnmp.SnmpPDU, l
 }
 
 // finalizeLLDPLinks validates and finalizes LLDP links
-func (e *SNMPDiscoveryEngine) finalizeLLDPLinks(linkMap map[string]*TopologyLink, jobID string) ([]*TopologyLink, error) {
+func (*SNMPDiscoveryEngine) finalizeLLDPLinks(linkMap map[string]*TopologyLink, jobID string) ([]*TopologyLink, error) {
 	links := make([]*TopologyLink, 0, len(linkMap))
 
 	for _, link := range linkMap {
@@ -1170,7 +1232,7 @@ func (e *SNMPDiscoveryEngine) finalizeLLDPLinks(linkMap map[string]*TopologyLink
 	}
 
 	if len(links) == 0 {
-		return nil, fmt.Errorf("no LLDP neighbors found")
+		return nil, ErrNoLLDPNeighborsFound
 	}
 
 	return links, nil
@@ -1200,11 +1262,15 @@ func (e *SNMPDiscoveryEngine) queryLLDP(client *gosnmp.GoSNMP, target, jobID str
 	return e.finalizeLLDPLinks(linkMap, jobID)
 }
 
+const (
+	defaultPartsCount = 12
+)
+
 // processCDPPDU processes a single CDP PDU and updates the link map
 func (e *SNMPDiscoveryEngine) processCDPPDU(pdu gosnmp.SnmpPDU, linkMap map[string]*TopologyLink, target string) error {
 	parts := strings.Split(pdu.Name, ".")
 
-	if len(parts) < 12 {
+	if len(parts) < defaultPartsCount {
 		return nil
 	}
 
@@ -1257,12 +1323,12 @@ func (e *SNMPDiscoveryEngine) processCDPPDU(pdu gosnmp.SnmpPDU, linkMap map[stri
 }
 
 // extractCDPIPAddress extracts an IP address from CDP address bytes
-func (e *SNMPDiscoveryEngine) extractCDPIPAddress(bytes []byte) string {
+func (*SNMPDiscoveryEngine) extractCDPIPAddress(bytes []byte) string {
 	// CDP address format varies, try to extract IP
-	if len(bytes) >= 6 { // CDP often has header bytes before the actual IP
+	if len(bytes) >= defaultByteLength { // CDP often has header bytes before the actual IP
 		// Try to extract IPv4 address
 		// Typical format: type(1) + len(4) + addr(4)
-		if bytes[0] == 1 && len(bytes) >= 6 { // Type 1 = IP
+		if bytes[0] == 1 && len(bytes) >= defaultByteLength { // Type 1 = IP
 			ip := net.IPv4(bytes[len(bytes)-4], bytes[len(bytes)-3],
 				bytes[len(bytes)-2], bytes[len(bytes)-1])
 
@@ -1274,7 +1340,7 @@ func (e *SNMPDiscoveryEngine) extractCDPIPAddress(bytes []byte) string {
 }
 
 // finalizeCDPLinks converts the link map to a slice and adds metadata
-func (e *SNMPDiscoveryEngine) finalizeCDPLinks(linkMap map[string]*TopologyLink, jobID string) ([]*TopologyLink, error) {
+func (*SNMPDiscoveryEngine) finalizeCDPLinks(linkMap map[string]*TopologyLink, jobID string) ([]*TopologyLink, error) {
 	links := make([]*TopologyLink, 0, len(linkMap))
 
 	for _, link := range linkMap {
@@ -1292,7 +1358,7 @@ func (e *SNMPDiscoveryEngine) finalizeCDPLinks(linkMap map[string]*TopologyLink,
 	}
 
 	if len(links) == 0 {
-		return nil, fmt.Errorf("no CDP neighbors found")
+		return nil, ErrNoCDPNeighborsFound
 	}
 
 	return links, nil
@@ -1316,7 +1382,7 @@ func (e *SNMPDiscoveryEngine) queryCDP(client *gosnmp.GoSNMP, target, jobID stri
 
 // formatMACAddress formats a byte array as a MAC address string
 func formatMACAddress(mac []byte) string {
-	if len(mac) != 6 {
+	if len(mac) != defaultByteLength {
 		return ""
 	}
 
@@ -1324,10 +1390,14 @@ func formatMACAddress(mac []byte) string {
 		mac[0], mac[1], mac[2], mac[3], mac[4], mac[5])
 }
 
+const (
+	defaultByteLength = 6
+)
+
 // formatLLDPID formats LLDP identifiers which may be MAC addresses or other formats
 func formatLLDPID(bytes []byte) string {
 	// Check if it looks like a MAC address (common for chassis ID)
-	if len(bytes) == 6 {
+	if len(bytes) == defaultByteLength {
 		return formatMACAddress(bytes)
 	}
 
@@ -1335,9 +1405,15 @@ func formatLLDPID(bytes []byte) string {
 	return string(bytes)
 }
 
+const (
+	defaultTimeoutDuration   = 2 * time.Second
+	defaultRateLimit         = 100
+	defaultRateLimitDuration = 1 * time.Second
+)
+
 func pingHost(ctx context.Context, host string) error {
 	// Use the existing ICMPSweeper from your scan package
-	sweeper, err := scan.NewICMPSweeper(1*time.Second, 100)
+	sweeper, err := scan.NewICMPSweeper(defaultRateLimitDuration, defaultRateLimit)
 	if err != nil {
 		return err
 	}
@@ -1348,7 +1424,7 @@ func pingHost(ctx context.Context, host string) error {
 		}
 	}(sweeper, ctx)
 
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, defaultTimeoutDuration)
 	defer cancel()
 
 	targets := []models.Target{
@@ -1376,5 +1452,5 @@ func pingHost(ctx context.Context, host string) error {
 		return nil
 	}
 
-	return fmt.Errorf("no ICMP response")
+	return ErrNoICMPResponse
 }

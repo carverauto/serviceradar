@@ -36,7 +36,7 @@ type ProtonPublisher struct {
 // NewProtonPublisher creates a new Proton publisher
 func NewProtonPublisher(dbService db.Service, config *StreamConfig) (Publisher, error) {
 	if dbService == nil {
-		return nil, fmt.Errorf("database service is required")
+		return nil, ErrDatabaseServiceRequired
 	}
 
 	return &ProtonPublisher{

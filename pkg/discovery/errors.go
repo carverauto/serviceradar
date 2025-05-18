@@ -31,4 +31,12 @@ var (
 	ErrInvalidWorkers           = errors.New("workers must be greater than 0")
 	ErrInvalidMaxActiveJobs     = errors.New("maxActiveJobs must be greater than 0")
 	ErrUnsupportedSNMPVersion   = errors.New("unsupported SNMP version")
+
+	ErrDatabaseServiceRequired = errors.New("database service is required")
+	ErrSNMPGetFailed           = errors.New("SNMP GET failed")
+	ErrSNMPError               = errors.New("SNMP error occurred")
+	ErrNoSNMPDataReturned      = errors.New("no SNMP data returned")
+	ErrNoLLDPNeighborsFound    = errors.New("no LLDP neighbors found")
+	ErrNoCDPNeighborsFound     = errors.New("no CDP neighbors found")
+	ErrNoICMPResponse          = errors.New("no ICMP response")
 )
