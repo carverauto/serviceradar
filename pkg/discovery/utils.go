@@ -35,7 +35,7 @@ const (
 )
 
 // cleanupRoutine periodically cleans up completed jobs.
-func (e *SnmpDiscoveryEngine) cleanupRoutine(ctx context.Context) {
+func (e *SNMPDiscoveryEngine) cleanupRoutine(ctx context.Context) {
 	ticker := time.NewTicker(
 		e.config.ResultRetention / defaultResultRetentionDivisor) // Clean more frequently than retention
 	defer ticker.Stop()
@@ -57,7 +57,7 @@ func (e *SnmpDiscoveryEngine) cleanupRoutine(ctx context.Context) {
 }
 
 // cleanupCompletedJobs removes old completed jobs.
-func (e *SnmpDiscoveryEngine) cleanupCompletedJobs() {
+func (e *SNMPDiscoveryEngine) cleanupCompletedJobs() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -94,7 +94,7 @@ func LoadConfigFromFile(filename string) (*Config, error) {
 }
 
 // createSNMPClient creates an SNMP client for the given target and credentials
-func (e *SnmpDiscoveryEngine) createSNMPClient(targetIP string, credentials SNMPCredentials) (*gosnmp.GoSNMP, error) {
+func (e *SNMPDiscoveryEngine) createSNMPClient(targetIP string, credentials *SNMPCredentials) (*gosnmp.GoSNMP, error) {
 	// Check if there are target-specific credentials
 	if credentials.TargetSpecific != nil {
 		if targetCreds, ok := credentials.TargetSpecific[targetIP]; ok {
@@ -122,7 +122,7 @@ func (e *SnmpDiscoveryEngine) createSNMPClient(targetIP string, credentials SNMP
 }
 
 // configureClientVersion sets up the SNMP client based on the version in the credentials
-func (e *SnmpDiscoveryEngine) configureClientVersion(client *gosnmp.GoSNMP, credentials SNMPCredentials) error {
+func (e *SNMPDiscoveryEngine) configureClientVersion(client *gosnmp.GoSNMP, credentials *SNMPCredentials) error {
 	switch credentials.Version {
 	case SNMPVersion1:
 		client.Version = gosnmp.Version1
@@ -145,7 +145,6 @@ func (e *SnmpDiscoveryEngine) configureClientVersion(client *gosnmp.GoSNMP, cred
 		client.SecurityParameters = usm
 		client.MsgFlags = gosnmp.AuthPriv
 	default:
-		// return fmt.Errorf("unsupported SNMP version: %s", credentials.Version)
 		return fmt.Errorf("%w for version: %s", ErrUnsupportedSNMPVersion, credentials.Version)
 	}
 
@@ -153,7 +152,7 @@ func (e *SnmpDiscoveryEngine) configureClientVersion(client *gosnmp.GoSNMP, cred
 }
 
 // configureV3Authentication sets up the authentication protocol for SNMPv3
-func (*SnmpDiscoveryEngine) configureV3Authentication(usm *gosnmp.UsmSecurityParameters, credentials SNMPCredentials) {
+func (*SNMPDiscoveryEngine) configureV3Authentication(usm *gosnmp.UsmSecurityParameters, credentials *SNMPCredentials) {
 	switch strings.ToUpper(credentials.AuthProtocol) {
 	case "MD5":
 		usm.AuthenticationProtocol = gosnmp.MD5
@@ -177,7 +176,7 @@ func (*SnmpDiscoveryEngine) configureV3Authentication(usm *gosnmp.UsmSecurityPar
 }
 
 // configureV3Privacy sets up the privacy protocol for SNMPv3
-func (*SnmpDiscoveryEngine) configureV3Privacy(usm *gosnmp.UsmSecurityParameters, credentials SNMPCredentials) {
+func (*SNMPDiscoveryEngine) configureV3Privacy(usm *gosnmp.UsmSecurityParameters, credentials *SNMPCredentials) {
 	switch strings.ToUpper(credentials.PrivacyProtocol) {
 	case "DES":
 		usm.PrivacyProtocol = gosnmp.DES

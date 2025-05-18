@@ -259,9 +259,9 @@ func protoToDiscoveryType(typ proto.DiscoveryRequest_DiscoveryType) DiscoveryTyp
 }
 
 // protoToSNMPCredentials converts proto SNMP credentials to internal SNMP credentials
-func protoToSNMPCredentials(creds *proto.SNMPCredentials) SNMPCredentials {
+func protoToSNMPCredentials(creds *proto.SNMPCredentials) *SNMPCredentials {
 	if creds == nil {
-		return SNMPCredentials{
+		return &SNMPCredentials{
 			Version: SNMPVersion2c,
 		}
 	}
@@ -287,14 +287,14 @@ func protoToSNMPCredentials(creds *proto.SNMPCredentials) SNMPCredentials {
 
 	// Convert target-specific credentials
 	if len(creds.TargetSpecific) > 0 {
-		result.TargetSpecific = make(map[string]SNMPCredentials)
+		result.TargetSpecific = make(map[string]*SNMPCredentials)
 
 		for target, targetCreds := range creds.TargetSpecific {
 			result.TargetSpecific[target] = protoToSNMPCredentials(targetCreds)
 		}
 	}
 
-	return result
+	return &result
 }
 
 // statusTypeToString converts an internal status type to a string
