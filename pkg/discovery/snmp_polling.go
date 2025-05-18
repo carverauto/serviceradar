@@ -1309,16 +1309,27 @@ func (e *SNMPDiscoveryEngine) processCDPPDU(
 	key := fmt.Sprintf("%s.%s", ifIndex, index)
 
 	// Create topology link if not exists
-	if _, exists := linkMap[key]; !exists {
-		localDeviceID := ""
-		if targetIP != "" && agentID != "" && pollerID != "" {
-			localDeviceID = fmt.Sprintf("%s:%s:%s", targetIP, agentID, pollerID)
-		} else if targetIP != "" {
-			log.Printf("Warning: AgentID or PollerID missing for job %s when creating LocalDeviceID for CDP target %s", jobID, targetIP)
-			localDeviceID = targetIP
-		}
+	e.ensureCDPLinkExists(linkMap, key, ifIndex, targetIP, agentID, pollerID, jobID)
 
+	link := linkMap[key]
+
+	// Extract OID suffix for comparison
+	oidSuffix := parts[len(parts)-3]
+
+	// Update link based on OID suffix
+	e.updateCDPLinkFromPDU(link, oidSuffix, pdu)
+
+	return nil
+}
+
+// ensureCDPLinkExists creates a new topology link if it doesn't exist in the map
+func (e *SNMPDiscoveryEngine) ensureCDPLinkExists(
+	linkMap map[string]*TopologyLink, key, ifIndex, targetIP, agentID, pollerID, jobID string) {
+
+	if _, exists := linkMap[key]; !exists {
+		localDeviceID := e.createLocalDeviceID(targetIP, agentID, pollerID, jobID)
 		ifIdx, _ := strconv.Atoi(ifIndex)
+
 		linkMap[key] = &TopologyLink{
 			Protocol:      "CDP",
 			LocalDeviceIP: targetIP,
@@ -1327,36 +1338,57 @@ func (e *SNMPDiscoveryEngine) processCDPPDU(
 			Metadata:      make(map[string]string),
 		}
 	}
+}
 
-	link := linkMap[key]
+// createLocalDeviceID creates a local device ID based on available parameters
+func (e *SNMPDiscoveryEngine) createLocalDeviceID(targetIP, agentID, pollerID, jobID string) string {
+	if targetIP != "" && agentID != "" && pollerID != "" {
+		return fmt.Sprintf("%s:%s:%s", targetIP, agentID, pollerID)
+	} else if targetIP != "" {
+		log.Printf("Warning: AgentID or PollerID missing for job %s when creating LocalDeviceID for CDP target %s", jobID, targetIP)
+		return targetIP
+	}
+	return ""
+}
 
-	// Extract OID suffix for comparison
-	oidSuffix := parts[len(parts)-3]
-
-	// Parse based on the OID suffix
+// updateCDPLinkFromPDU updates a topology link based on the OID suffix and PDU value
+func (e *SNMPDiscoveryEngine) updateCDPLinkFromPDU(link *TopologyLink, oidSuffix string, pdu gosnmp.SnmpPDU) {
 	switch oidSuffix {
 	case "6": // oidCdpCacheDeviceId
-		if pdu.Type == gosnmp.OctetString {
-			link.NeighborSystemName = string(pdu.Value.([]byte))
-			// Use as chassis ID if not set
-			if link.NeighborChassisID == "" {
-				link.NeighborChassisID = link.NeighborSystemName
-			}
-		}
+		e.updateCDPDeviceID(link, pdu)
 	case "7": // oidCdpCacheDevicePort
-		if pdu.Type == gosnmp.OctetString {
-			port := string(pdu.Value.([]byte))
-			link.NeighborPortID = port
-			link.NeighborPortDescr = port
-		}
+		e.updateCDPDevicePort(link, pdu)
 	case "4": // oidCdpCacheAddress
-		if pdu.Type == gosnmp.OctetString {
-			bytes := pdu.Value.([]byte)
-			link.NeighborMgmtAddr = e.extractCDPIPAddress(bytes)
+		e.updateCDPDeviceAddress(link, pdu)
+	}
+}
+
+// updateCDPDeviceID updates the neighbor system name and chassis ID
+func (e *SNMPDiscoveryEngine) updateCDPDeviceID(link *TopologyLink, pdu gosnmp.SnmpPDU) {
+	if pdu.Type == gosnmp.OctetString {
+		link.NeighborSystemName = string(pdu.Value.([]byte))
+		// Use as chassis ID if not set
+		if link.NeighborChassisID == "" {
+			link.NeighborChassisID = link.NeighborSystemName
 		}
 	}
+}
 
-	return nil
+// updateCDPDevicePort updates the neighbor port ID and description
+func (e *SNMPDiscoveryEngine) updateCDPDevicePort(link *TopologyLink, pdu gosnmp.SnmpPDU) {
+	if pdu.Type == gosnmp.OctetString {
+		port := string(pdu.Value.([]byte))
+		link.NeighborPortID = port
+		link.NeighborPortDescr = port
+	}
+}
+
+// updateCDPDeviceAddress updates the neighbor management address
+func (e *SNMPDiscoveryEngine) updateCDPDeviceAddress(link *TopologyLink, pdu gosnmp.SnmpPDU) {
+	if pdu.Type == gosnmp.OctetString {
+		bytes := pdu.Value.([]byte)
+		link.NeighborMgmtAddr = e.extractCDPIPAddress(bytes)
+	}
 }
 
 // extractCDPIPAddress extracts an IP address from CDP address bytes
