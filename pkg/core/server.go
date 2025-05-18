@@ -57,6 +57,8 @@ const (
 	defaultSkipInterval               = 5 * time.Minute
 	defaultTimeout                    = 30 * time.Second
 	defaultFlushInterval              = 10 * time.Second
+
+	snmpDiscoveryResultsServiceType = "snmp-discovery-results"
 )
 
 func NewServer(ctx context.Context, config *models.DBConfig) (*Server, error) {
@@ -726,12 +728,16 @@ func (s *Server) processServiceDetails(
 		log.Printf("Failed to parse details for service %s on poller %s, proceeding without details",
 			svc.ServiceName, pollerID)
 
+		if svc.ServiceType == snmpDiscoveryResultsServiceType {
+			return fmt.Errorf("failed to parse snmp-discovery-results payload: %w", err)
+		}
+
 		return s.handleService(ctx, apiService, now)
 	}
 
 	apiService.Details = details
 
-	if err := s.processMetrics(pollerID, svc, details, now); err != nil {
+	if err := s.processMetrics(ctx, pollerID, svc, details, now); err != nil {
 		log.Printf("Error processing metrics for service %s on poller %s: %v",
 			svc.ServiceName, pollerID, err)
 
@@ -743,6 +749,7 @@ func (s *Server) processServiceDetails(
 
 // processMetrics handles metrics processing for all service types.
 func (s *Server) processMetrics(
+	ctx context.Context,
 	pollerID string,
 	svc *proto.ServiceStatus,
 	details json.RawMessage,
@@ -759,6 +766,8 @@ func (s *Server) processMetrics(
 		}
 	case icmpServiceType:
 		return s.processICMPMetrics(pollerID, svc, details, now)
+	case snmpDiscoveryResultsServiceType:
+		return s.processSNMPDiscoveryResults(ctx, pollerID, svc, details, now)
 	}
 
 	return nil

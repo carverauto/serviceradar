@@ -135,7 +135,7 @@ func (e *SNMPDiscoveryEngine) startWorkers(
 						return
 					}
 
-					e.scanTarget(job, target)
+					e.scanTarget(job, target, job.Params.AgentID, job.Params.PollerID)
 
 					resultChan <- true // Signal completion for progress tracking
 				}
@@ -503,8 +503,9 @@ func (e *SNMPDiscoveryEngine) publishDevice(job *DiscoveryJob, device *Discovere
 }
 
 // handleInterfaceDiscovery queries and publishes interface information
-func (e *SNMPDiscoveryEngine) handleInterfaceDiscovery(job *DiscoveryJob, client *gosnmp.GoSNMP, target string) {
-	interfaces, err := e.queryInterfaces(client, target, job.ID)
+func (e *SNMPDiscoveryEngine) handleInterfaceDiscovery(
+	job *DiscoveryJob, client *gosnmp.GoSNMP, target, agentID, pollerID string) {
+	interfaces, err := e.queryInterfaces(client, target, job.ID, agentID, pollerID)
 	if err != nil {
 		log.Printf("Job %s: Failed to query interfaces for %s: %v", job.ID, target, err)
 		return
@@ -552,24 +553,25 @@ func (e *SNMPDiscoveryEngine) publishTopologyLinks(job *DiscoveryJob, links []*T
 }
 
 // handleTopologyDiscovery queries and publishes topology information (LLDP or CDP)
-func (e *SNMPDiscoveryEngine) handleTopologyDiscovery(job *DiscoveryJob, client *gosnmp.GoSNMP, target string) {
+func (e *SNMPDiscoveryEngine) handleTopologyDiscovery(
+	job *DiscoveryJob, client *gosnmp.GoSNMP, targetIP, agentID, pollerID string) {
 	// Try LLDP first
-	lldpLinks, lldpErr := e.queryLLDP(client, target, job.ID)
+	lldpLinks, lldpErr := e.queryLLDP(client, targetIP, agentID, pollerID, job.ID)
 	if lldpErr == nil && len(lldpLinks) > 0 {
-		e.publishTopologyLinks(job, lldpLinks, target, "LLDP")
+		e.publishTopologyLinks(job, lldpLinks, targetIP, "LLDP")
 		return
 	}
 
-	log.Printf("Job %s: LLDP not supported or no neighbors on %s: %v", job.ID, target, lldpErr)
+	log.Printf("Job %s: LLDP not supported or no neighbors on %s: %v", job.ID, targetIP, lldpErr)
 
 	// Try CDP if LLDP failed
-	cdpLinks, cdpErr := e.queryCDP(client, target, job.ID)
+	cdpLinks, cdpErr := e.queryCDP(client, targetIP, agentID, pollerID, job.ID)
 	if cdpErr == nil && len(cdpLinks) > 0 {
-		e.publishTopologyLinks(job, cdpLinks, target, "CDP")
+		e.publishTopologyLinks(job, cdpLinks, targetIP, "CDP")
 		return
 	}
 
-	log.Printf("Job %s: CDP not supported or no neighbors on %s: %v", job.ID, target, cdpErr)
+	log.Printf("Job %s: CDP not supported or no neighbors on %s: %v", job.ID, targetIP, cdpErr)
 }
 
 // setupSNMPClient creates and configures an SNMP client
@@ -598,18 +600,18 @@ func (e *SNMPDiscoveryEngine) setupSNMPClient(job *DiscoveryJob, target string) 
 }
 
 // scanTarget performs SNMP scanning of a single target IP
-func (e *SNMPDiscoveryEngine) scanTarget(job *DiscoveryJob, target string) {
-	log.Printf("Job %s: Scanning target %s", job.ID, target)
+func (e *SNMPDiscoveryEngine) scanTarget(job *DiscoveryJob, targetIP, agentID, pollerID string) {
+	log.Printf("Job %s: Scanning target %s", job.ID, targetIP)
 
 	// Skip if already discovered (concurrency check)
-	if !e.checkAndMarkDiscovered(job, target) {
+	if !e.checkAndMarkDiscovered(job, targetIP) {
 		return
 	}
 
 	// Create and connect SNMP client
-	client, err := e.setupSNMPClient(job, target)
+	client, err := e.setupSNMPClient(job, targetIP)
 	if err != nil {
-		log.Printf("Job %s: Failed to setup SNMP client for %s: %v", job.ID, target, err)
+		log.Printf("Job %s: Failed to setup SNMP client for %s: %v", job.ID, targetIP, err)
 		return
 	}
 	defer func(Conn net.Conn) {
@@ -620,9 +622,9 @@ func (e *SNMPDiscoveryEngine) scanTarget(job *DiscoveryJob, target string) {
 	}(client.Conn)
 
 	// Query system information
-	device, err := e.querySysInfo(client, target, job.ID)
+	device, err := e.querySysInfo(client, targetIP, job.ID)
 	if err != nil {
-		log.Printf("Job %s: Failed to query system info for %s: %v", job.ID, target, err)
+		log.Printf("Job %s: Failed to query system info for %s: %v", job.ID, targetIP, err)
 		return
 	}
 
@@ -631,12 +633,12 @@ func (e *SNMPDiscoveryEngine) scanTarget(job *DiscoveryJob, target string) {
 
 	// Query interfaces if needed
 	if job.Params.Type == DiscoveryTypeFull || job.Params.Type == DiscoveryTypeInterfaces {
-		e.handleInterfaceDiscovery(job, client, target)
+		e.handleInterfaceDiscovery(job, client, targetIP, agentID, pollerID)
 	}
 
 	// Query topology if needed
 	if job.Params.Type == DiscoveryTypeFull || job.Params.Type == DiscoveryTypeTopology {
-		e.handleTopologyDiscovery(job, client, target)
+		e.handleTopologyDiscovery(job, client, targetIP, agentID, pollerID)
 	}
 }
 
@@ -757,7 +759,8 @@ func (e *SNMPDiscoveryEngine) querySysInfo(client *gosnmp.GoSNMP, target, jobID 
 }
 
 // queryInterfaces queries interface information via SNMP
-func (e *SNMPDiscoveryEngine) queryInterfaces(client *gosnmp.GoSNMP, target, jobID string) ([]*DiscoveredInterface, error) {
+func (e *SNMPDiscoveryEngine) queryInterfaces(
+	client *gosnmp.GoSNMP, target, jobID, agentID, pollerID string) ([]*DiscoveredInterface, error) {
 	// Map to store interfaces by index
 	ifMap := make(map[int]*DiscoveredInterface)
 
@@ -781,7 +784,7 @@ func (e *SNMPDiscoveryEngine) queryInterfaces(client *gosnmp.GoSNMP, target, job
 	e.associateIPsWithInterfaces(ipToIfIndex, ifMap)
 
 	// Convert map to slice and finalize interfaces
-	return e.finalizeInterfaces(ifMap, jobID), nil
+	return e.finalizeInterfaces(ifMap, jobID, agentID, pollerID), nil
 }
 
 const (
@@ -1094,7 +1097,7 @@ func (*SNMPDiscoveryEngine) associateIPsWithInterfaces(ipToIfIndex map[string]in
 }
 
 // finalizeInterfaces finalizes the interfaces by ensuring they have names and adding metadata
-func (*SNMPDiscoveryEngine) finalizeInterfaces(ifMap map[int]*DiscoveredInterface, jobID string) []*DiscoveredInterface {
+func (e *SNMPDiscoveryEngine) finalizeInterfaces(ifMap map[int]*DiscoveredInterface, jobID string, agentID string, pollerID string) []*DiscoveredInterface {
 	interfaces := make([]*DiscoveredInterface, 0, len(ifMap))
 
 	for _, iface := range ifMap {
@@ -1105,6 +1108,13 @@ func (*SNMPDiscoveryEngine) finalizeInterfaces(ifMap map[int]*DiscoveredInterfac
 			} else {
 				iface.IfName = fmt.Sprintf("Interface-%d", iface.IfIndex)
 			}
+		}
+
+		// Populate DeviceID if not already set
+		if iface.DeviceID == "" && iface.DeviceIP != "" && agentID != "" && pollerID != "" {
+			iface.DeviceID = fmt.Sprintf("%s:%s:%s", iface.DeviceIP, agentID, pollerID)
+		} else if iface.DeviceID == "" {
+			log.Printf("Job %s: Could not generate DeviceID for interface on %s due to missing components (agent: %s, poller: %s)", jobID, iface.DeviceIP, agentID, pollerID)
 		}
 
 		// Add metadata
@@ -1122,7 +1132,8 @@ const (
 )
 
 // processLLDPRemoteTableEntry processes a single LLDP remote table entry
-func (e *SNMPDiscoveryEngine) processLLDPRemoteTableEntry(pdu gosnmp.SnmpPDU, linkMap map[string]*TopologyLink, target string) error {
+func (e *SNMPDiscoveryEngine) processLLDPRemoteTableEntry(
+	pdu gosnmp.SnmpPDU, linkMap map[string]*TopologyLink, targetIP, agentID, pollerID, jobID string) error {
 	parts := strings.Split(pdu.Name, ".")
 	if len(parts) < defaultLLDPPartsCount {
 		return nil
@@ -1138,10 +1149,20 @@ func (e *SNMPDiscoveryEngine) processLLDPRemoteTableEntry(pdu gosnmp.SnmpPDU, li
 
 	// Create topology link if not exists
 	if _, exists := linkMap[key]; !exists {
+		localDeviceID := ""
+		if targetIP != "" && agentID != "" && pollerID != "" {
+			localDeviceID = fmt.Sprintf("%s:%s:%s", targetIP, agentID, pollerID)
+		} else if targetIP != "" {
+			log.Printf("Warning: AgentID or PollerID missing for job %s when creating LocalDeviceID for target %s",
+				jobID, targetIP)
+			localDeviceID = targetIP
+		}
+
 		localPortIdx, _ := strconv.Atoi(localPort)
 		linkMap[key] = &TopologyLink{
 			Protocol:      "LLDP",
-			LocalDeviceIP: target,
+			LocalDeviceIP: targetIP,
+			LocalDeviceID: localDeviceID,
 			LocalIfIndex:  localPortIdx,
 			Metadata:      make(map[string]string),
 		}
@@ -1214,13 +1235,19 @@ func (*SNMPDiscoveryEngine) processLLDPManagementAddress(pdu gosnmp.SnmpPDU, lin
 }
 
 // finalizeLLDPLinks validates and finalizes LLDP links
-func (*SNMPDiscoveryEngine) finalizeLLDPLinks(linkMap map[string]*TopologyLink, jobID string) ([]*TopologyLink, error) {
+func (*SNMPDiscoveryEngine) finalizeLLDPLinks(linkMap map[string]*TopologyLink, agentID, pollerID, jobID string) ([]*TopologyLink, error) {
 	links := make([]*TopologyLink, 0, len(linkMap))
 
 	for _, link := range linkMap {
 		// Basic validation - need at least one neighbor identifier
 		if link.NeighborChassisID == "" && link.NeighborSystemName == "" && link.NeighborPortID == "" {
 			continue
+		}
+
+		if link.LocalDeviceID == "" && link.LocalDeviceIP != "" && agentID != "" && pollerID != "" {
+			link.LocalDeviceID = fmt.Sprintf("%s:%s:%s", link.LocalDeviceIP, agentID, pollerID)
+		} else if link.LocalDeviceID == "" {
+			log.Printf("Job %s: Could not generate LocalDeviceID for LLDP link on %s due to missing components (agent: %s, poller: %s)", jobID, link.LocalDeviceIP, agentID, pollerID)
 		}
 
 		// Add metadata
@@ -1239,12 +1266,12 @@ func (*SNMPDiscoveryEngine) finalizeLLDPLinks(linkMap map[string]*TopologyLink, 
 }
 
 // queryLLDP queries LLDP topology information
-func (e *SNMPDiscoveryEngine) queryLLDP(client *gosnmp.GoSNMP, target, jobID string) ([]*TopologyLink, error) {
+func (e *SNMPDiscoveryEngine) queryLLDP(client *gosnmp.GoSNMP, targetIP, agentID, pollerID, jobID string) ([]*TopologyLink, error) {
 	linkMap := make(map[string]*TopologyLink) // Key is "timeMark.localPort.index"
 
 	// Walk LLDP remote table
 	err := client.BulkWalk(oidLLDPRemTable, func(pdu gosnmp.SnmpPDU) error {
-		return e.processLLDPRemoteTableEntry(pdu, linkMap, target)
+		return e.processLLDPRemoteTableEntry(pdu, linkMap, targetIP, agentID, pollerID, jobID)
 	})
 
 	if err != nil {
@@ -1259,7 +1286,7 @@ func (e *SNMPDiscoveryEngine) queryLLDP(client *gosnmp.GoSNMP, target, jobID str
 		return nil, err
 	}
 
-	return e.finalizeLLDPLinks(linkMap, jobID)
+	return e.finalizeLLDPLinks(linkMap, agentID, pollerID, jobID)
 }
 
 const (
@@ -1267,7 +1294,8 @@ const (
 )
 
 // processCDPPDU processes a single CDP PDU and updates the link map
-func (e *SNMPDiscoveryEngine) processCDPPDU(pdu gosnmp.SnmpPDU, linkMap map[string]*TopologyLink, target string) error {
+func (e *SNMPDiscoveryEngine) processCDPPDU(
+	pdu gosnmp.SnmpPDU, linkMap map[string]*TopologyLink, targetIP, agentID, pollerID, jobID string) error {
 	parts := strings.Split(pdu.Name, ".")
 
 	if len(parts) < defaultPartsCount {
@@ -1282,10 +1310,19 @@ func (e *SNMPDiscoveryEngine) processCDPPDU(pdu gosnmp.SnmpPDU, linkMap map[stri
 
 	// Create topology link if not exists
 	if _, exists := linkMap[key]; !exists {
+		localDeviceID := ""
+		if targetIP != "" && agentID != "" && pollerID != "" {
+			localDeviceID = fmt.Sprintf("%s:%s:%s", targetIP, agentID, pollerID)
+		} else if targetIP != "" {
+			log.Printf("Warning: AgentID or PollerID missing for job %s when creating LocalDeviceID for CDP target %s", jobID, targetIP)
+			localDeviceID = targetIP
+		}
+
 		ifIdx, _ := strconv.Atoi(ifIndex)
 		linkMap[key] = &TopologyLink{
 			Protocol:      "CDP",
-			LocalDeviceIP: target,
+			LocalDeviceIP: targetIP,
+			LocalDeviceID: localDeviceID,
 			LocalIfIndex:  ifIdx,
 			Metadata:      make(map[string]string),
 		}
@@ -1365,12 +1402,12 @@ func (*SNMPDiscoveryEngine) finalizeCDPLinks(linkMap map[string]*TopologyLink, j
 }
 
 // queryCDP queries CDP (Cisco Discovery Protocol) topology information
-func (e *SNMPDiscoveryEngine) queryCDP(client *gosnmp.GoSNMP, target, jobID string) ([]*TopologyLink, error) {
+func (e *SNMPDiscoveryEngine) queryCDP(client *gosnmp.GoSNMP, targetIP, agentID, pollerID, jobID string) ([]*TopologyLink, error) {
 	linkMap := make(map[string]*TopologyLink) // Key is "ifIndex.index"
 
 	// Walk CDP cache table
 	err := client.BulkWalk(oidCDPCacheTable, func(pdu gosnmp.SnmpPDU) error {
-		return e.processCDPPDU(pdu, linkMap, target)
+		return e.processCDPPDU(pdu, linkMap, targetIP, agentID, pollerID, jobID)
 	})
 
 	if err != nil {
