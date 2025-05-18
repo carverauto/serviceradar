@@ -187,7 +187,7 @@ func (e *SNMPDiscoveryEngine) StartDiscovery(ctx context.Context, params *Discov
 }
 
 // GetDiscoveryStatus retrieves the status of a discovery operation
-func (e *SNMPDiscoveryEngine) GetDiscoveryStatus(ctx context.Context, discoveryID string) (*DiscoveryStatus, error) {
+func (e *SNMPDiscoveryEngine) GetDiscoveryStatus(_ context.Context, discoveryID string) (*DiscoveryStatus, error) {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
@@ -209,7 +209,7 @@ func (e *SNMPDiscoveryEngine) GetDiscoveryStatus(ctx context.Context, discoveryI
 }
 
 // GetDiscoveryResults retrieves the results of a completed discovery operation
-func (e *SNMPDiscoveryEngine) GetDiscoveryResults(ctx context.Context, discoveryID string, includeRawData bool) (*DiscoveryResults, error) {
+func (e *SNMPDiscoveryEngine) GetDiscoveryResults(_ context.Context, discoveryID string, includeRawData bool) (*DiscoveryResults, error) {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
@@ -232,7 +232,7 @@ func (e *SNMPDiscoveryEngine) GetDiscoveryResults(ctx context.Context, discovery
 }
 
 // CancelDiscovery cancels an in-progress discovery operation
-func (e *SNMPDiscoveryEngine) CancelDiscovery(ctx context.Context, discoveryID string) error {
+func (e *SNMPDiscoveryEngine) CancelDiscovery(_ context.Context, discoveryID string) error {
 	e.mu.Lock()
 	job, ok := e.activeJobs[discoveryID]
 
