@@ -86,7 +86,7 @@ func main() {
 	// Apply SecurityConfig defaults if necessary, primarily for the mapper's own gRPC server
 	if discoveryEngineConfig.Security != nil {
 		if discoveryEngineConfig.Security.Role == "" {
-			discoveryEngineConfig.Security.Role = models.RoleChecker // Or a more specific role like RoleDiscoveryEngine
+			discoveryEngineConfig.Security.Role = models.RoleChecker
 		}
 
 		if discoveryEngineConfig.Security.ServerName == "" {
@@ -107,8 +107,8 @@ func main() {
 
 		discoveryEngineConfig.Security = &models.SecurityConfig{
 			Mode:       "none",
-			Role:       models.RoleChecker, // Or RoleDiscoveryEngine
-			CertDir:    "",                 // Explicitly empty
+			Role:       models.RoleChecker,
+			CertDir:    "", // Explicitly empty
 			ServerName: "serviceradar.mapper",
 		}
 
@@ -127,10 +127,7 @@ func main() {
 		return
 	}
 
-	// Create the gRPC service that exposes the engine's capabilities
 	grpcDiscoveryService := mapper.NewGRPCDiscoveryService(engine)
-	// Create the gRPC service for mapper's own health/status via monitoring.AgentService
-	// Cast engine to *mapper.SNMPDiscoveryEngine if NewMapperAgentService expects the concrete type
 	snmpEngine, ok := engine.(*mapper.SNMPDiscoveryEngine)
 	if !ok {
 		log.Printf("Failed to cast discovery engine to *mapper.SNMPDiscoveryEngine for health service")
@@ -139,26 +136,20 @@ func main() {
 
 	grpcMapperAgentService := mapper.NewMapperAgentService(snmpEngine)
 
-	// Configure server options for the mapper's own gRPC server
 	serverOptions := &lifecycle.ServerOptions{
 		ListenAddr:  appCfg.listenAddr,
 		ServiceName: "serviceradar-mapper",
-		Service:     engine, // The engine itself needs to implement lifecycle.Service (Start/Stop)
+		Service:     engine,
 		RegisterGRPCServices: []lifecycle.GRPCServiceRegistrar{
 			func(server *googlegrpc.Server) error {
-				// Register the primary discovery service
 				discoverypb.RegisterDiscoveryServiceServer(server, grpcDiscoveryService)
-				log.Printf("Registered discovery.DiscoveryServiceServer for the mapper.")
-
-				// Register the monitoring.AgentService for the mapper's own health
 				monitoringpb.RegisterAgentServiceServer(server, grpcMapperAgentService)
-				log.Printf("Registered monitoring.AgentServiceServer for the mapper's health.")
 
 				return nil
 			},
 		},
-		EnableHealthCheck: true,                           // This will also register the standard grpc.health.v1.Health service
-		Security:          discoveryEngineConfig.Security, // Use the loaded/defaulted security for the mapper's gRPC server
+		EnableHealthCheck: true,
+		Security:          discoveryEngineConfig.Security,
 	}
 
 	log.Printf("ServiceRadar Mapper gRPC server starting on %s", appCfg.listenAddr)
