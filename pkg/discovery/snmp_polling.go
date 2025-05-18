@@ -968,6 +968,44 @@ func handleIPAdEntAddr(pdu gosnmp.SnmpPDU, ipToIfIndex map[string]int) {
 		if len(ipBytes) == 4 {
 			ipString = fmt.Sprintf("%d.%d.%d.%d", ipBytes[0], ipBytes[1], ipBytes[2], ipBytes[3])
 		}
+	case gosnmp.Boolean:
+		// Not expected to contain IP addresses
+	case gosnmp.Integer:
+		// Not expected to contain IP addresses
+	case gosnmp.BitString:
+		// Not expected to contain IP addresses
+	case gosnmp.Null:
+		// Not expected to contain IP addresses
+	case gosnmp.ObjectIdentifier:
+		// Not expected to contain IP addresses
+	case gosnmp.ObjectDescription:
+		// Not expected to contain IP addresses
+	case gosnmp.Counter32:
+		// Not expected to contain IP addresses
+	case gosnmp.Gauge32:
+		// Not expected to contain IP addresses
+	case gosnmp.TimeTicks:
+		// Not expected to contain IP addresses
+	case gosnmp.Opaque:
+		// Not expected to contain IP addresses
+	case gosnmp.NsapAddress:
+		// Not expected to contain IP addresses
+	case gosnmp.Counter64:
+		// Not expected to contain IP addresses
+	case gosnmp.Uinteger32:
+		// Not expected to contain IP addresses
+	case gosnmp.OpaqueFloat:
+		// Not expected to contain IP addresses
+	case gosnmp.OpaqueDouble:
+		// Not expected to contain IP addresses
+	case gosnmp.NoSuchObject:
+		// Not expected to contain IP addresses
+	case gosnmp.NoSuchInstance:
+		// Not expected to contain IP addresses
+	case gosnmp.EndOfMibView:
+		// Not expected to contain IP addresses
+	case gosnmp.EndOfContents:
+		// Not expected to contain IP addresses
 	}
 
 	// If we got an IP, extract the IP from the OID too (for matching)
@@ -1345,6 +1383,7 @@ func pingHost(ctx context.Context, host string) error {
 	}
 
 	hostReachable := false
+
 	for result := range resultCh {
 		if !result.Available {
 			// Don't return immediately, continue processing the channel
