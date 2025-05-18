@@ -28,6 +28,8 @@ import (
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/mapper"
 	"github.com/carverauto/serviceradar/pkg/models"
+
+	monitoringpb "github.com/carverauto/serviceradar/proto"
 	discoverypb "github.com/carverauto/serviceradar/proto/discovery"
 
 	googlegrpc "google.golang.org/grpc"
@@ -37,7 +39,6 @@ import (
 type cliAppConfig struct {
 	configFile string
 	listenAddr string
-	// dbAddr flag removed as it's not used by the mapper itself for publishing
 }
 
 // parseFlags parses command-line flags and returns a cliAppConfig.
@@ -128,6 +129,15 @@ func main() {
 
 	// Create the gRPC service that exposes the engine's capabilities
 	grpcDiscoveryService := mapper.NewGRPCDiscoveryService(engine)
+	// Create the gRPC service for mapper's own health/status via monitoring.AgentService
+	// Cast engine to *mapper.SNMPDiscoveryEngine if NewMapperAgentService expects the concrete type
+	snmpEngine, ok := engine.(*mapper.SNMPDiscoveryEngine)
+	if !ok {
+		log.Printf("Failed to cast discovery engine to *mapper.SNMPDiscoveryEngine for health service")
+		return
+	}
+
+	grpcMapperAgentService := mapper.NewMapperAgentService(snmpEngine)
 
 	// Configure server options for the mapper's own gRPC server
 	serverOptions := &lifecycle.ServerOptions{
@@ -136,13 +146,18 @@ func main() {
 		Service:     engine, // The engine itself needs to implement lifecycle.Service (Start/Stop)
 		RegisterGRPCServices: []lifecycle.GRPCServiceRegistrar{
 			func(server *googlegrpc.Server) error {
+				// Register the primary discovery service
 				discoverypb.RegisterDiscoveryServiceServer(server, grpcDiscoveryService)
-				log.Printf("Registered DiscoveryServiceServer for the mapper.")
+				log.Printf("Registered discovery.DiscoveryServiceServer for the mapper.")
+
+				// Register the monitoring.AgentService for the mapper's own health
+				monitoringpb.RegisterAgentServiceServer(server, grpcMapperAgentService)
+				log.Printf("Registered monitoring.AgentServiceServer for the mapper's health.")
 
 				return nil
 			},
 		},
-		EnableHealthCheck: true,
+		EnableHealthCheck: true,                           // This will also register the standard grpc.health.v1.Health service
 		Security:          discoveryEngineConfig.Security, // Use the loaded/defaulted security for the mapper's gRPC server
 	}
 
