@@ -128,6 +128,7 @@ func convertInterfaceToProto(iface *DiscoveredInterface) (*proto.DiscoveredInter
 	// All values are within int32 range, safe to convert
 	return &proto.DiscoveredInterface{
 		DeviceIp:      iface.DeviceIP,
+		DeviceId:      iface.DeviceID,
 		IfIndex:       int32(iface.IfIndex), // #nosec G115 -- Value checked for int32 range prior to this conversion
 		IfName:        iface.IfName,
 		IfDescr:       iface.IfDescr,
@@ -167,7 +168,8 @@ func convertTopologyLinkToProto(link *TopologyLink) *proto.TopologyLink {
 		return &proto.TopologyLink{
 			Protocol:           link.Protocol,
 			LocalDeviceIp:      link.LocalDeviceIP,
-			LocalIfIndex:       0, // Default value when out of range
+			LocalDeviceId:      link.LocalDeviceID,
+			LocalIfIndex:       int32(link.LocalIfIndex),
 			LocalIfName:        link.LocalIfName,
 			NeighborChassisId:  link.NeighborChassisID,
 			NeighborPortId:     link.NeighborPortID,

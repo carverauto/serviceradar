@@ -130,6 +130,7 @@ message DiscoveredInterface {
   int32 if_oper_status = 10;      // Operational status (1=up, 2=down)
   int32 if_type = 11;             // Interface type
   map<string, string> metadata = 12; // Additional metadata
+  string device_id = 13;             // ID of the device this interface belongs to
 }
 
 // TopologyLink represents a discovered link between two devices
@@ -144,4 +145,5 @@ message TopologyLink {
   string neighbor_system_name = 8; // System name of the neighbor
   string neighbor_mgmt_addr = 9;  // Management address of the neighbor
   map<string, string> metadata = 10; // Additional metadata
+  string local_device_id = 11;       // ID of the local device
 }
