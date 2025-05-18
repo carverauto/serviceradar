@@ -1,0 +1,50 @@
+{
+  "workers": 20,
+  "timeout": "30s",
+  "retries": 3,
+  "max_active_jobs": 100,
+  "result_retention": "24h",
+  "default_credentials": {
+    "version": "v2c",
+    "community": "public"
+  },
+  "oids": {
+    "basic": [
+      ".1.3.6.1.2.1.1.1.0",
+      ".1.3.6.1.2.1.1.2.0",
+      ".1.3.6.1.2.1.1.5.0",
+      ".1.3.6.1.2.1.1.4.0",
+      ".1.3.6.1.2.1.1.6.0",
+      ".1.3.6.1.2.1.1.3.0"
+    ],
+    "interfaces": [
+      ".1.3.6.1.2.1.2.2.1",
+      ".1.3.6.1.2.1.31.1.1.1",
+      ".1.3.6.1.2.1.4.20.1"
+    ],
+    "topology": [
+      ".1.0.8802.1.1.2.1",
+      ".1.3.6.1.4.1.9.9.23.1"
+    ]
+  },
+  "stream_config": {
+    "device_stream": "sweep_results",
+    "interface_stream": "discovered_interfaces",
+    "topology_stream": "topology_discovery_events",
+    "agent_id": "snmp-discovery-agent",
+    "poller_id": "snmp-discovery-poller",
+    "publish_batch_size": 100,
+    "publish_retries": 3,
+    "publish_retry_interval": "5s"
+  },
+  "credentials": [
+    {
+      "targets": ["192.168.1.0/24"],
+      "version": "v2c",
+      "community": "public"
+    }
+  ],
+  "seeds": [
+    "192.168.1.0/24"
+  ]
+}

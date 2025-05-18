@@ -1,0 +1,147 @@
+syntax = "proto3";
+
+package discovery;
+
+option go_package = "github.com/carverauto/serviceradar/proto";
+
+// DiscoveryService defines the gRPC interface for network discovery
+service DiscoveryService {
+  // GetStatus returns the current status of the discovery service
+  rpc GetStatus(StatusRequest) returns (StatusResponse) {}
+
+  // StartDiscovery initiates a network discovery operation
+  rpc StartDiscovery(DiscoveryRequest) returns (DiscoveryResponse) {}
+
+  // GetDiscoveryResults retrieves results from a previously initiated discovery
+  rpc GetDiscoveryResults(ResultsRequest) returns (ResultsResponse) {}
+}
+
+// StatusRequest is used to query the status of the discovery service
+message StatusRequest {
+  string discovery_id = 1;  // Optional: if provided, get status of specific discovery job
+}
+
+// StatusResponse contains information about the discovery service status
+message StatusResponse {
+  bool available = 1;       // Whether the service is available
+  string status = 2;        // Current status description
+  repeated string active_discoveries = 3;  // List of active discovery job IDs
+  int32 pending_jobs = 4;   // Number of pending discovery jobs
+  int32 completed_jobs = 5; // Number of completed discovery jobs
+}
+
+// DiscoveryRequest initiates a new discovery operation
+message DiscoveryRequest {
+  enum DiscoveryType {
+    FULL = 0;               // Full discovery of all available information
+    BASIC = 1;              // Basic device discovery only
+    INTERFACES = 2;         // Interface discovery
+    TOPOLOGY = 3;           // Topology discovery (LLDP/CDP)
+  }
+
+  repeated string seeds = 1;          // List of IP addresses or CIDR ranges to scan
+  DiscoveryType type = 2;             // Type of discovery to perform
+  SNMPCredentials credentials = 3;    // SNMP credentials to use
+  map<string, string> options = 4;    // Additional discovery options
+  int32 concurrency = 5;              // Maximum number of concurrent operations
+  int32 timeout_seconds = 6;          // Timeout in seconds for each operation
+  int32 retries = 7;                  // Number of retries for failed operations
+  string agent_id = 8;                // ID of the agent performing discovery
+  string poller_id = 9;               // ID of the poller initiating discovery
+}
+
+// SNMPCredentials contains information needed to authenticate with SNMP devices
+message SNMPCredentials {
+  enum SNMPVersion {
+    V1 = 0;
+    V2C = 1;
+    V3 = 2;
+  }
+
+  SNMPVersion version = 1;                       // SNMP protocol version
+  string community = 2;                          // Community string for v1/v2c
+  string username = 3;                           // Username for v3
+  string auth_protocol = 4;                      // Auth protocol for v3 (MD5/SHA)
+  string auth_password = 5;                      // Auth password for v3
+  string privacy_protocol = 6;                   // Privacy protocol for v3 (DES/AES)
+  string privacy_password = 7;                   // Privacy password for v3
+  map<string, SNMPCredentials> target_specific = 8; // Credentials for specific targets
+}
+
+// DiscoveryResponse is returned when a discovery operation is initiated
+message DiscoveryResponse {
+  string discovery_id = 1;        // Unique ID for this discovery job
+  bool success = 2;               // Whether the discovery was successfully initiated
+  string message = 3;             // Status or error message
+  int32 estimated_duration = 4;   // Estimated duration in seconds
+}
+
+// ResultsRequest is used to retrieve results from a discovery operation
+message ResultsRequest {
+  string discovery_id = 1;        // ID of the discovery job
+  bool include_raw_data = 2;      // Whether to include raw SNMP data in the response
+}
+
+// ResultsResponse contains the results of a discovery operation
+message ResultsResponse {
+  string discovery_id = 1;                // ID of the discovery job
+  DiscoveryStatus status = 2;             // Status of the discovery job
+  repeated DiscoveredDevice devices = 3;  // List of discovered devices
+  repeated DiscoveredInterface interfaces = 4;  // List of discovered interfaces
+  repeated TopologyLink topology = 5;     // List of topology links
+  string error = 6;                       // Error message, if any
+  float progress = 7;                     // Progress percentage (0-100)
+}
+
+// DiscoveryStatus describes the current state of a discovery job
+enum DiscoveryStatus {
+  UNKNOWN = 0;
+  PENDING = 1;
+  RUNNING = 2;
+  COMPLETED = 3;
+  FAILED = 4;
+  CANCELED = 5;
+}
+
+// DiscoveredDevice represents a discovered network device
+message DiscoveredDevice {
+  string ip = 1;                  // IP address of the device
+  string mac = 2;                 // MAC address of the device (if available)
+  string hostname = 3;            // Hostname of the device
+  string sys_descr = 4;           // System description
+  string sys_object_id = 5;       // System object ID
+  string sys_contact = 6;         // System contact
+  string sys_location = 7;        // System location
+  int64 uptime = 8;               // System uptime in seconds
+  map<string, string> metadata = 9; // Additional metadata
+}
+
+// DiscoveredInterface represents a discovered network interface
+message DiscoveredInterface {
+  string device_ip = 1;           // IP address of the parent device
+  int32 if_index = 2;             // Interface index
+  string if_name = 3;             // Interface name
+  string if_descr = 4;            // Interface description
+  string if_alias = 5;            // Interface alias
+  int64 if_speed = 6;             // Interface speed in bits per second
+  string if_phys_address = 7;     // Interface physical (MAC) address
+  repeated string ip_addresses = 8; // IP addresses assigned to this interface
+  int32 if_admin_status = 9;      // Administrative status (1=up, 2=down)
+  int32 if_oper_status = 10;      // Operational status (1=up, 2=down)
+  int32 if_type = 11;             // Interface type
+  map<string, string> metadata = 12; // Additional metadata
+}
+
+// TopologyLink represents a discovered link between two devices
+message TopologyLink {
+  string protocol = 1;            // Protocol used to discover link (LLDP/CDP)
+  string local_device_ip = 2;     // IP of the local device
+  int32 local_if_index = 3;       // Index of the local interface
+  string local_if_name = 4;       // Name of the local interface
+  string neighbor_chassis_id = 5; // Chassis ID of the neighbor
+  string neighbor_port_id = 6;    // Port ID of the neighbor
+  string neighbor_port_descr = 7; // Port description of the neighbor
+  string neighbor_system_name = 8; // System name of the neighbor
+  string neighbor_mgmt_addr = 9;  // Management address of the neighbor
+  map<string, string> metadata = 10; // Additional metadata
+}
