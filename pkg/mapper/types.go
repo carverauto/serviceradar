@@ -20,9 +20,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/carverauto/serviceradar/pkg/models"
 	"sync"
 	"time"
+
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 // SNMPDiscoveryEngine implements the Engine interface using SNMP.
