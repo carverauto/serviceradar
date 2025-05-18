@@ -17,9 +17,10 @@
 package core
 
 import (
-	discoverypb "github.com/carverauto/serviceradar/proto/discovery"
 	"sync"
 	"time"
+
+	discoverypb "github.com/carverauto/serviceradar/proto/discovery"
 
 	"github.com/carverauto/serviceradar/pkg/checker/rperf"
 	"github.com/carverauto/serviceradar/pkg/checker/snmp"

@@ -4,20 +4,23 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/carverauto/serviceradar/pkg/db"
-	"github.com/carverauto/serviceradar/pkg/models"
+
 	"github.com/carverauto/serviceradar/proto"
-	discoverypb "github.com/carverauto/serviceradar/proto/discovery"
+
 	"log"
 	"time"
+
+	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/models"
+	discoverypb "github.com/carverauto/serviceradar/proto/discovery"
 )
 
 // processSNMPDiscoveryResults handles the data from SNMP discovery.
 func (s *Server) processSNMPDiscoveryResults(
 	ctx context.Context,
-	reportingPollerID string, // pollerID from the ReportStatus request, i.e., the one reporting this
-	svc *proto.ServiceStatus, // The ServiceStatus message containing discovery results
-	details json.RawMessage, // This is svc.Message, already parsed as json.RawMessage
+	reportingPollerID string,
+	svc *proto.ServiceStatus,
+	details json.RawMessage,
 	timestamp time.Time,
 ) error {
 	var payload SNMPDiscoveryDataPayload
@@ -32,11 +35,16 @@ func (s *Server) processSNMPDiscoveryResults(
 
 	// Fallback for discovery-specific IDs if not provided in payload
 	if discoveryAgentID == "" {
-		log.Printf("Warning: SNMPDiscoveryDataPayload.AgentID is empty for reportingPollerID %s. Falling back to svc.AgentId %s.", reportingPollerID, svc.AgentId)
+		log.Printf("Warning: SNMPDiscoveryDataPayload.AgentID is empty for reportingPollerID %s. "+
+			"Falling back to svc.AgentId %s.", reportingPollerID, svc.AgentId)
+
 		discoveryAgentID = svc.AgentId
 	}
+
 	if discoveryInitiatorPollerID == "" {
-		log.Printf("Warning: SNMPDiscoveryDataPayload.PollerID is empty for reportingPollerID %s. Falling back to reportingPollerID %s.", reportingPollerID, reportingPollerID)
+		log.Printf("Warning: SNMPDiscoveryDataPayload.PollerID is empty for reportingPollerID %s. "+
+			"Falling back to reportingPollerID %s.", reportingPollerID, reportingPollerID)
+
 		discoveryInitiatorPollerID = reportingPollerID
 	}
 
@@ -66,6 +74,7 @@ func (s *Server) processDiscoveredDevices(
 	timestamp time.Time,
 ) {
 	sweepResults := make([]*db.SweepResult, 0, len(devices))
+
 	for _, protoDevice := range devices {
 		if protoDevice == nil {
 			continue
@@ -92,34 +101,41 @@ func (s *Server) processDiscoveredDevices(
 	if err := s.DB.StoreSweepResults(ctx, sweepResults); err != nil {
 		log.Printf("Error publishing batch discovered devices to sweep_results for poller %s: %v", reportingPollerID, err)
 	} else {
-		log.Printf("Published %d discovered devices to sweep_results for poller %s (discovery by %s/%s)", 
+		log.Printf("Published %d discovered devices to sweep_results for poller %s (discovery by %s/%s)",
 			len(sweepResults), reportingPollerID, discoveryAgentID, discoveryInitiatorPollerID)
 	}
 }
 
 // extractDeviceMetadata extracts and formats metadata from a discovered device.
-func (s *Server) extractDeviceMetadata(protoDevice *discoverypb.DiscoveredDevice) map[string]string {
+func (*Server) extractDeviceMetadata(protoDevice *discoverypb.DiscoveredDevice) map[string]string {
 	deviceMetadata := make(map[string]string)
+
 	if protoDevice.Metadata != nil {
 		for k, v := range protoDevice.Metadata {
 			deviceMetadata[k] = v
 		}
 	}
+
 	if protoDevice.SysDescr != "" {
 		deviceMetadata["sys_descr"] = protoDevice.SysDescr
 	}
+
 	if protoDevice.SysObjectId != "" {
 		deviceMetadata["sys_object_id"] = protoDevice.SysObjectId
 	}
+
 	if protoDevice.SysContact != "" {
 		deviceMetadata["sys_contact"] = protoDevice.SysContact
 	}
+
 	if protoDevice.SysLocation != "" {
 		deviceMetadata["sys_location"] = protoDevice.SysLocation
 	}
+
 	if protoDevice.Uptime != 0 {
 		deviceMetadata["uptime"] = fmt.Sprintf("%d", protoDevice.Uptime)
 	}
+
 	return deviceMetadata
 }
 
@@ -133,6 +149,7 @@ func (s *Server) processDiscoveredInterfaces(
 	timestamp time.Time,
 ) {
 	modelInterfaces := make([]*models.DiscoveredInterface, 0, len(interfaces))
+
 	for _, protoIface := range interfaces {
 		if protoIface == nil {
 			continue
@@ -158,45 +175,51 @@ func (s *Server) processDiscoveredInterfaces(
 			IfOperStatus:  int(protoIface.IfOperStatus),
 			Metadata:      metadataJSON,
 		}
+
 		modelInterfaces = append(modelInterfaces, modelIface)
 	}
 
 	if err := s.DB.PublishBatchDiscoveredInterfaces(ctx, modelInterfaces); err != nil {
 		log.Printf("Error publishing batch discovered interfaces for poller %s: %v", reportingPollerID, err)
 	} else {
-		log.Printf("Published %d discovered interfaces for poller %s (discovery by %s/%s)", 
+		log.Printf("Published %d discovered interfaces for poller %s (discovery by %s/%s)",
 			len(modelInterfaces), reportingPollerID, discoveryAgentID, discoveryInitiatorPollerID)
 	}
 }
 
 // getOrGenerateDeviceID returns the device ID from the interface or generates one if not present.
-func (s *Server) getOrGenerateDeviceID(protoIface *discoverypb.DiscoveredInterface, agentID, pollerID string) string {
+func (*Server) getOrGenerateDeviceID(protoIface *discoverypb.DiscoveredInterface, agentID, pollerID string) string {
 	deviceID := protoIface.DeviceId
 	if deviceID == "" && protoIface.DeviceIp != "" {
 		deviceID = fmt.Sprintf("%s:%s:%s", protoIface.DeviceIp, agentID, pollerID)
 		log.Printf("Generated DeviceID for interface on %s: %s", protoIface.DeviceIp, deviceID)
 	}
+
 	return deviceID
 }
 
 // prepareInterfaceMetadata prepares the metadata JSON for an interface.
-func (s *Server) prepareInterfaceMetadata(protoIface *discoverypb.DiscoveredInterface) json.RawMessage {
+func (*Server) prepareInterfaceMetadata(protoIface *discoverypb.DiscoveredInterface) json.RawMessage {
 	finalMetadataMap := make(map[string]string)
+
 	if protoIface.Metadata != nil {
 		for k, v := range protoIface.Metadata {
 			finalMetadataMap[k] = v
 		}
 	}
+
 	if protoIface.IfType != 0 { // Add IfType from proto if present
 		finalMetadataMap["if_type"] = fmt.Sprintf("%d", protoIface.IfType)
 	}
 
 	metadataJSON, err := json.Marshal(finalMetadataMap)
 	if err != nil {
-		log.Printf("Error marshaling interface metadata for device %s, ifIndex %d: %v", 
+		log.Printf("Error marshaling interface metadata for device %s, ifIndex %d: %v",
 			protoIface.DeviceIp, protoIface.IfIndex, err)
+
 		metadataJSON = []byte("{}")
 	}
+
 	return metadataJSON
 }
 
@@ -210,6 +233,7 @@ func (s *Server) processDiscoveredTopology(
 	timestamp time.Time,
 ) {
 	modelTopologyEvents := make([]*models.TopologyDiscoveryEvent, 0, len(topology))
+
 	for _, protoLink := range topology {
 		if protoLink == nil {
 			continue
@@ -234,34 +258,38 @@ func (s *Server) processDiscoveredTopology(
 			NeighborManagementAddr: protoLink.NeighborMgmtAddr,
 			Metadata:               metadataJSON,
 		}
+
 		modelTopologyEvents = append(modelTopologyEvents, modelEvent)
 	}
 
 	if err := s.DB.PublishBatchTopologyDiscoveryEvents(ctx, modelTopologyEvents); err != nil {
 		log.Printf("Error publishing batch topology discovery events for poller %s: %v", reportingPollerID, err)
 	} else {
-		log.Printf("Published %d topology discovery events for poller %s (discovery by %s/%s)", 
+		log.Printf("Published %d topology discovery events for poller %s (discovery by %s/%s)",
 			len(modelTopologyEvents), reportingPollerID, discoveryAgentID, discoveryInitiatorPollerID)
 	}
 }
 
 // getOrGenerateLocalDeviceID returns the local device ID from the topology link or generates one if not present.
-func (s *Server) getOrGenerateLocalDeviceID(protoLink *discoverypb.TopologyLink, agentID, pollerID string) string {
+func (*Server) getOrGenerateLocalDeviceID(protoLink *discoverypb.TopologyLink, agentID, pollerID string) string {
 	localDeviceID := protoLink.LocalDeviceId
 	if localDeviceID == "" && protoLink.LocalDeviceIp != "" {
 		localDeviceID = fmt.Sprintf("%s:%s:%s", protoLink.LocalDeviceIp, agentID, pollerID)
 		log.Printf("Generated LocalDeviceID for link from %s: %s", protoLink.LocalDeviceIp, localDeviceID)
 	}
+
 	return localDeviceID
 }
 
 // prepareTopologyMetadata prepares the metadata JSON for a topology link.
-func (s *Server) prepareTopologyMetadata(protoLink *discoverypb.TopologyLink) json.RawMessage {
+func (*Server) prepareTopologyMetadata(protoLink *discoverypb.TopologyLink) json.RawMessage {
 	metadataJSON, err := json.Marshal(protoLink.Metadata) // protoLink.Metadata is map[string]string
 	if err != nil {
-		log.Printf("Error marshaling topology metadata for local device %s, ifIndex %d: %v", 
+		log.Printf("Error marshaling topology metadata for local device %s, ifIndex %d: %v",
 			protoLink.LocalDeviceIp, protoLink.LocalIfIndex, err)
+
 		metadataJSON = []byte("{}")
 	}
+
 	return metadataJSON
 }
