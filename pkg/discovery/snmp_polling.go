@@ -1097,7 +1097,8 @@ func (*SNMPDiscoveryEngine) associateIPsWithInterfaces(ipToIfIndex map[string]in
 }
 
 // finalizeInterfaces finalizes the interfaces by ensuring they have names and adding metadata
-func (e *SNMPDiscoveryEngine) finalizeInterfaces(ifMap map[int]*DiscoveredInterface, jobID string, agentID string, pollerID string) []*DiscoveredInterface {
+func (*SNMPDiscoveryEngine) finalizeInterfaces(
+	ifMap map[int]*DiscoveredInterface, jobID string, agentID string, pollerID string) []*DiscoveredInterface {
 	interfaces := make([]*DiscoveredInterface, 0, len(ifMap))
 
 	for _, iface := range ifMap {
@@ -1114,7 +1115,8 @@ func (e *SNMPDiscoveryEngine) finalizeInterfaces(ifMap map[int]*DiscoveredInterf
 		if iface.DeviceID == "" && iface.DeviceIP != "" && agentID != "" && pollerID != "" {
 			iface.DeviceID = fmt.Sprintf("%s:%s:%s", iface.DeviceIP, agentID, pollerID)
 		} else if iface.DeviceID == "" {
-			log.Printf("Job %s: Could not generate DeviceID for interface on %s due to missing components (agent: %s, poller: %s)", jobID, iface.DeviceIP, agentID, pollerID)
+			log.Printf("Job %s: Could not generate DeviceID for interface on %s due to"+
+				" missing components (agent: %s, poller: %s)", jobID, iface.DeviceIP, agentID, pollerID)
 		}
 
 		// Add metadata
@@ -1155,6 +1157,7 @@ func (e *SNMPDiscoveryEngine) processLLDPRemoteTableEntry(
 		} else if targetIP != "" {
 			log.Printf("Warning: AgentID or PollerID missing for job %s when creating LocalDeviceID for target %s",
 				jobID, targetIP)
+
 			localDeviceID = targetIP
 		}
 
@@ -1234,27 +1237,41 @@ func (*SNMPDiscoveryEngine) processLLDPManagementAddress(pdu gosnmp.SnmpPDU, lin
 	return nil
 }
 
+// isValidLLDPLink checks if a link has at least one neighbor identifier
+func (*SNMPDiscoveryEngine) isValidLLDPLink(link *TopologyLink) bool {
+	return link.NeighborChassisID != "" || link.NeighborSystemName != "" || link.NeighborPortID != ""
+}
+
+// setLocalDeviceIDIfNeeded sets the LocalDeviceID if it's empty but has other required components
+func (*SNMPDiscoveryEngine) setLocalDeviceIDIfNeeded(link *TopologyLink, agentID, pollerID, jobID string) {
+	if link.LocalDeviceID == "" && link.LocalDeviceIP != "" && agentID != "" && pollerID != "" {
+		link.LocalDeviceID = fmt.Sprintf("%s:%s:%s", link.LocalDeviceIP, agentID, pollerID)
+	} else if link.LocalDeviceID == "" {
+		log.Printf("Job %s: Could not generate LocalDeviceID for LLDP link on %s "+
+			"due to missing components (agent: %s, poller: %s)", jobID, link.LocalDeviceIP, agentID, pollerID)
+	}
+}
+
+// addLLDPMetadata adds metadata to a link
+func (*SNMPDiscoveryEngine) addLLDPMetadata(link *TopologyLink, jobID string) {
+	link.Metadata["discovery_id"] = jobID
+	link.Metadata["discovery_time"] = time.Now().Format(time.RFC3339)
+	link.Metadata["protocol"] = "LLDP"
+}
+
 // finalizeLLDPLinks validates and finalizes LLDP links
-func (*SNMPDiscoveryEngine) finalizeLLDPLinks(linkMap map[string]*TopologyLink, agentID, pollerID, jobID string) ([]*TopologyLink, error) {
+func (e *SNMPDiscoveryEngine) finalizeLLDPLinks(
+	linkMap map[string]*TopologyLink, agentID, pollerID, jobID string) ([]*TopologyLink, error) {
 	links := make([]*TopologyLink, 0, len(linkMap))
 
 	for _, link := range linkMap {
-		// Basic validation - need at least one neighbor identifier
-		if link.NeighborChassisID == "" && link.NeighborSystemName == "" && link.NeighborPortID == "" {
+		// Skip invalid links
+		if !e.isValidLLDPLink(link) {
 			continue
 		}
 
-		if link.LocalDeviceID == "" && link.LocalDeviceIP != "" && agentID != "" && pollerID != "" {
-			link.LocalDeviceID = fmt.Sprintf("%s:%s:%s", link.LocalDeviceIP, agentID, pollerID)
-		} else if link.LocalDeviceID == "" {
-			log.Printf("Job %s: Could not generate LocalDeviceID for LLDP link on %s due to missing components (agent: %s, poller: %s)", jobID, link.LocalDeviceIP, agentID, pollerID)
-		}
-
-		// Add metadata
-		link.Metadata["discovery_id"] = jobID
-		link.Metadata["discovery_time"] = time.Now().Format(time.RFC3339)
-		link.Metadata["protocol"] = "LLDP"
-
+		e.setLocalDeviceIDIfNeeded(link, agentID, pollerID, jobID)
+		e.addLLDPMetadata(link, jobID)
 		links = append(links, link)
 	}
 
@@ -1325,7 +1342,6 @@ func (e *SNMPDiscoveryEngine) processCDPPDU(
 // ensureCDPLinkExists creates a new topology link if it doesn't exist in the map
 func (e *SNMPDiscoveryEngine) ensureCDPLinkExists(
 	linkMap map[string]*TopologyLink, key, ifIndex, targetIP, agentID, pollerID, jobID string) {
-
 	if _, exists := linkMap[key]; !exists {
 		localDeviceID := e.createLocalDeviceID(targetIP, agentID, pollerID, jobID)
 		ifIdx, _ := strconv.Atoi(ifIndex)
@@ -1341,13 +1357,14 @@ func (e *SNMPDiscoveryEngine) ensureCDPLinkExists(
 }
 
 // createLocalDeviceID creates a local device ID based on available parameters
-func (e *SNMPDiscoveryEngine) createLocalDeviceID(targetIP, agentID, pollerID, jobID string) string {
+func (*SNMPDiscoveryEngine) createLocalDeviceID(targetIP, agentID, pollerID, jobID string) string {
 	if targetIP != "" && agentID != "" && pollerID != "" {
 		return fmt.Sprintf("%s:%s:%s", targetIP, agentID, pollerID)
 	} else if targetIP != "" {
 		log.Printf("Warning: AgentID or PollerID missing for job %s when creating LocalDeviceID for CDP target %s", jobID, targetIP)
 		return targetIP
 	}
+
 	return ""
 }
 
@@ -1364,7 +1381,7 @@ func (e *SNMPDiscoveryEngine) updateCDPLinkFromPDU(link *TopologyLink, oidSuffix
 }
 
 // updateCDPDeviceID updates the neighbor system name and chassis ID
-func (e *SNMPDiscoveryEngine) updateCDPDeviceID(link *TopologyLink, pdu gosnmp.SnmpPDU) {
+func (*SNMPDiscoveryEngine) updateCDPDeviceID(link *TopologyLink, pdu gosnmp.SnmpPDU) {
 	if pdu.Type == gosnmp.OctetString {
 		link.NeighborSystemName = string(pdu.Value.([]byte))
 		// Use as chassis ID if not set
@@ -1375,7 +1392,7 @@ func (e *SNMPDiscoveryEngine) updateCDPDeviceID(link *TopologyLink, pdu gosnmp.S
 }
 
 // updateCDPDevicePort updates the neighbor port ID and description
-func (e *SNMPDiscoveryEngine) updateCDPDevicePort(link *TopologyLink, pdu gosnmp.SnmpPDU) {
+func (*SNMPDiscoveryEngine) updateCDPDevicePort(link *TopologyLink, pdu gosnmp.SnmpPDU) {
 	if pdu.Type == gosnmp.OctetString {
 		port := string(pdu.Value.([]byte))
 		link.NeighborPortID = port
