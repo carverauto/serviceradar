@@ -1,3 +1,19 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package discovery
 
 import (
@@ -8,8 +24,8 @@ import (
 	"time"
 )
 
-// SnmpDiscoveryEngine implements the Engine interface using SNMP.
-type SnmpDiscoveryEngine struct {
+// SNMPDiscoveryEngine implements the Engine interface using SNMP.
+type SNMPDiscoveryEngine struct {
 	config        *Config
 	activeJobs    map[string]*DiscoveryJob
 	completedJobs map[string]*DiscoveryResults
@@ -21,7 +37,7 @@ type SnmpDiscoveryEngine struct {
 	wg            sync.WaitGroup
 }
 
-// DiscoveryType identifies the type of discovery to perform
+// DiscoveryType identifies the type of discovery to perform.
 type DiscoveryType string
 
 const (
@@ -31,7 +47,7 @@ const (
 	DiscoveryTypeTopology   DiscoveryType = "topology"
 )
 
-// SNMPVersion represents the SNMP protocol version
+// SNMPVersion represents the SNMP protocol version.
 type SNMPVersion string
 
 const (
@@ -40,11 +56,11 @@ const (
 	SNMPVersion3  SNMPVersion = "v3"
 )
 
-// DiscoveryParams contains parameters for a discovery operation
+// DiscoveryParams contains parameters for a discovery operation.
 type DiscoveryParams struct {
 	Seeds       []string          // IP addresses or CIDR ranges to scan
 	Type        DiscoveryType     // Type of discovery to perform
-	Credentials SNMPCredentials   // SNMP credentials to use
+	Credentials *SNMPCredentials  // SNMP credentials to use
 	Options     map[string]string // Additional discovery options
 	Concurrency int               // Maximum number of concurrent operations
 	Timeout     time.Duration     // Timeout for each operation
@@ -53,19 +69,19 @@ type DiscoveryParams struct {
 	PollerID    string            // ID of the poller initiating discovery
 }
 
-// SNMPCredentials contains information needed to authenticate with SNMP devices
+// SNMPCredentials contains information needed to authenticate with SNMP devices.
 type SNMPCredentials struct {
-	Version         SNMPVersion                // SNMP protocol version
-	Community       string                     // Community string for v1/v2c
-	Username        string                     // Username for v3
-	AuthProtocol    string                     // Auth protocol for v3 (MD5/SHA)
-	AuthPassword    string                     // Auth password for v3
-	PrivacyProtocol string                     // Privacy protocol for v3 (DES/AES)
-	PrivacyPassword string                     // Privacy password for v3
-	TargetSpecific  map[string]SNMPCredentials // Credentials for specific targets
+	Version         SNMPVersion                 // SNMP protocol version
+	Community       string                      // Community string for v1/v2c
+	Username        string                      // Username for v3
+	AuthProtocol    string                      // Auth protocol for v3 (MD5/SHA)
+	AuthPassword    string                      // Auth password for v3
+	PrivacyProtocol string                      // Privacy protocol for v3 (DES/AES)
+	PrivacyPassword string                      // Privacy password for v3
+	TargetSpecific  map[string]*SNMPCredentials // Credentials for specific targets
 }
 
-// DiscoveryStatusType describes the current state of a discovery job
+// DiscoveryStatusType describes the current state of a discovery job.
 type DiscoveryStatusType string
 
 const (
@@ -91,7 +107,7 @@ type DiscoveryStatus struct {
 	EstimatedSeconds int                 // Estimated remaining seconds
 }
 
-// DiscoveryJob represents a running discovery operation
+// DiscoveryJob represents a running discovery operation.
 type DiscoveryJob struct {
 	ID            string
 	Params        *DiscoveryParams
@@ -104,7 +120,7 @@ type DiscoveryJob struct {
 	mu            sync.RWMutex
 }
 
-// DiscoveryResults contains the results of a discovery operation
+// DiscoveryResults contains the results of a discovery operation.
 type DiscoveryResults struct {
 	DiscoveryID   string
 	Status        *DiscoveryStatus
@@ -114,7 +130,7 @@ type DiscoveryResults struct {
 	RawData       map[string]interface{} // Optional raw SNMP data
 }
 
-// DiscoveredDevice represents a discovered network device
+// DiscoveredDevice represents a discovered network device.
 type DiscoveredDevice struct {
 	IP          string
 	MAC         string
@@ -129,7 +145,7 @@ type DiscoveredDevice struct {
 	LastSeen    time.Time
 }
 
-// DiscoveredInterface represents a discovered network interface
+// DiscoveredInterface represents a discovered network interface.
 type DiscoveredInterface struct {
 	DeviceIP      string
 	DeviceID      string
@@ -174,6 +190,7 @@ type Config struct {
 
 func (c *Config) UnmarshalJSON(data []byte) error {
 	type Alias Config
+
 	aux := &struct {
 		Timeout         string `json:"timeout"`
 		ResultRetention string `json:"result_retention"`
@@ -202,6 +219,7 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 		if err != nil {
 			return fmt.Errorf("invalid timeout format: %w", err)
 		}
+
 		c.Timeout = duration
 	}
 
@@ -211,6 +229,7 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 		if err != nil {
 			return fmt.Errorf("invalid result_retention format: %w", err)
 		}
+
 		c.ResultRetention = duration
 	}
 
@@ -220,6 +239,7 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 		if err != nil {
 			return fmt.Errorf("invalid publish_retry_interval format: %w", err)
 		}
+
 		c.StreamConfig.PublishRetryInterval = duration
 	}
 
