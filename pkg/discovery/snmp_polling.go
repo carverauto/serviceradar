@@ -42,20 +42,20 @@ const (
 	oidSysLocation = ".1.3.6.1.2.1.1.6.0"
 
 	// Interface table OIDs
-	oidIfTable       = ".1.3.6.1.2.1.2.2.1"
-	oidIfIndex       = ".1.3.6.1.2.1.2.2.1.1"
-	oidIfDescr       = ".1.3.6.1.2.1.2.2.1.2"
-	oidIfType        = ".1.3.6.1.2.1.2.2.1.3"
-	oidIfMtu         = ".1.3.6.1.2.1.2.2.1.4"
+	oidIfTable = ".1.3.6.1.2.1.2.2.1"
+	// oidIfIndex       = ".1.3.6.1.2.1.2.2.1.1"
+	oidIfDescr = ".1.3.6.1.2.1.2.2.1.2"
+	oidIfType  = ".1.3.6.1.2.1.2.2.1.3"
+	// oidIfMtu         = ".1.3.6.1.2.1.2.2.1.4"
 	oidIfSpeed       = ".1.3.6.1.2.1.2.2.1.5"
 	oidIfPhysAddress = ".1.3.6.1.2.1.2.2.1.6"
 	oidIfAdminStatus = ".1.3.6.1.2.1.2.2.1.7"
 	oidIfOperStatus  = ".1.3.6.1.2.1.2.2.1.8"
 
 	// IP address table OIDs
-	oidIpAddrTable    = ".1.3.6.1.2.1.4.20.1"
-	oidIpAdEntAddr    = ".1.3.6.1.2.1.4.20.1.1"
-	oidIpAdEntIfIndex = ".1.3.6.1.2.1.4.20.1.2"
+	oidIPAddrTable    = ".1.3.6.1.2.1.4.20.1"
+	oidIPAdEntAddr    = ".1.3.6.1.2.1.4.20.1.1"
+	oidIPAdEntIfIndex = ".1.3.6.1.2.1.4.20.1.2"
 
 	// Extended interface table (ifXTable)
 	oidIfXTable    = ".1.3.6.1.2.1.31.1.1.1"
@@ -64,18 +64,20 @@ const (
 	oidIfHighSpeed = ".1.3.6.1.2.1.31.1.1.1.15"
 
 	// LLDP OIDs
-	oidLldpRemTable     = ".1.0.8802.1.1.2.1.4.1.1"
-	oidLldpRemChassisId = ".1.0.8802.1.1.2.1.4.1.1.5"
-	oidLldpRemPortId    = ".1.0.8802.1.1.2.1.4.1.1.7"
-	oidLldpRemPortDesc  = ".1.0.8802.1.1.2.1.4.1.1.8"
-	oidLldpRemSysName   = ".1.0.8802.1.1.2.1.4.1.1.9"
-	oidLldpRemManAddr   = ".1.0.8802.1.1.2.1.4.2.1.3"
+	oidLLDPRemTable = ".1.0.8802.1.1.2.1.4.1.1"
+	// oidLldpRemChassisId = ".1.0.8802.1.1.2.1.4.1.1.5"
+	// oidLldpRemPortId    = ".1.0.8802.1.1.2.1.4.1.1.7"
+	// oidLldpRemPortDesc  = ".1.0.8802.1.1.2.1.4.1.1.8"
+	// oidLldpRemSysName   = ".1.0.8802.1.1.2.1.4.1.1.9"
+	// oidLLDPRemManAddr = ".1.0.8802.1.1.2.1.4.2.1.3"
+	oidLLDPRemManAddr = ".1.0.8802.1.1.2.1.4.2.1.3"
 
 	// CDP OIDs (Cisco Discovery Protocol)
-	oidCdpCacheTable      = ".1.3.6.1.4.1.9.9.23.1.2.1.1"
-	oidCdpCacheDeviceId   = ".1.3.6.1.4.1.9.9.23.1.2.1.1.6"
-	oidCdpCacheDevicePort = ".1.3.6.1.4.1.9.9.23.1.2.1.1.7"
-	oidCdpCacheAddress    = ".1.3.6.1.4.1.9.9.23.1.2.1.1.4"
+	// oidCDPCacheTable = ".1.3.6.1.4.1.9.9.23.1.2.1.1"
+	oidCDPCacheTable = ".1.3.6.1.4.1.9.9.23.1.2.1.1"
+	// oidCdpCacheDeviceId   = ".1.3.6.1.4.1.9.9.23.1.2.1.1.6"
+	// oidCdpCacheDevicePort = ".1.3.6.1.4.1.9.9.23.1.2.1.1.7"
+	// oidCdpCacheAddress    = ".1.3.6.1.4.1.9.9.23.1.2.1.1.4"
 
 	// Default concurrency settings
 	defaultConcurrency = 10
@@ -83,7 +85,7 @@ const (
 )
 
 // handleEmptyTargetList updates job status when no valid targets are found
-func (e *SNMPDiscoveryEngine) handleEmptyTargetList(job *DiscoveryJob) {
+func (*SNMPDiscoveryEngine) handleEmptyTargetList(job *DiscoveryJob) {
 	job.mu.Lock()
 	job.Status.Status = DiscoveryStatusFailed
 	job.Status.Error = "No valid targets to scan after processing seeds"
@@ -94,7 +96,7 @@ func (e *SNMPDiscoveryEngine) handleEmptyTargetList(job *DiscoveryJob) {
 }
 
 // determineConcurrency calculates the appropriate concurrency level.
-func (e *SNMPDiscoveryEngine) determineConcurrency(job *DiscoveryJob, totalTargets int) int {
+func (*SNMPDiscoveryEngine) determineConcurrency(job *DiscoveryJob, totalTargets int) int {
 	concurrency := job.Params.Concurrency
 
 	if concurrency <= 0 {
@@ -178,7 +180,7 @@ func (e *SNMPDiscoveryEngine) startProgressTracking(job *DiscoveryJob, resultCha
 }
 
 // initializeJobProgress sets the initial progress value
-func (e *SNMPDiscoveryEngine) initializeJobProgress(job *DiscoveryJob) {
+func (*SNMPDiscoveryEngine) initializeJobProgress(job *DiscoveryJob) {
 	job.mu.Lock()
 	job.Status.Progress = 5 // Initial progress
 	job.mu.Unlock()
@@ -240,7 +242,7 @@ func (e *SNMPDiscoveryEngine) checkJobCancellation(job *DiscoveryJob) bool {
 }
 
 // finalizeJobStatus updates the job status after completion
-func (e *SNMPDiscoveryEngine) finalizeJobStatus(job *DiscoveryJob) {
+func (*SNMPDiscoveryEngine) finalizeJobStatus(job *DiscoveryJob) {
 	job.mu.Lock()
 	if job.Status.Status == DiscoveryStatusRunning {
 		job.Status.Status = DiscoveryStatusCompleted
@@ -457,7 +459,7 @@ func incrementIP(ip net.IP) {
 
 // checkAndMarkDiscovered checks if a target is already discovered and marks it as discovered
 // Returns true if the target should be processed (not already discovered)
-func (e *SNMPDiscoveryEngine) checkAndMarkDiscovered(job *DiscoveryJob, target string) bool {
+func (*SNMPDiscoveryEngine) checkAndMarkDiscovered(job *DiscoveryJob, target string) bool {
 	job.mu.Lock()
 	defer job.mu.Unlock()
 
@@ -596,7 +598,12 @@ func (e *SNMPDiscoveryEngine) scanTarget(job *DiscoveryJob, target string) {
 		log.Printf("Job %s: Failed to setup SNMP client for %s: %v", job.ID, target, err)
 		return
 	}
-	defer client.Conn.Close()
+	defer func(Conn net.Conn) {
+		err = Conn.Close()
+		if err != nil {
+			log.Printf("Job %s: Failed to close SNMP connection: %v", job.ID, err)
+		}
+	}(client.Conn)
 
 	// Query system information
 	device, err := e.querySysInfo(client, target, job.ID)
@@ -620,7 +627,7 @@ func (e *SNMPDiscoveryEngine) scanTarget(job *DiscoveryJob, target string) {
 }
 
 // initializeDevice creates and initializes a new DiscoveredDevice
-func (e *SNMPDiscoveryEngine) initializeDevice(target string) *DiscoveredDevice {
+func (*SNMPDiscoveryEngine) initializeDevice(target string) *DiscoveredDevice {
 	return &DiscoveredDevice{
 		IP:        target,
 		FirstSeen: time.Now(),
@@ -666,21 +673,21 @@ func (e *SNMPDiscoveryEngine) processSnmpVariable(device *DiscoveredDevice, v go
 }
 
 // setStringValue sets a string value from an SNMP PDU if it's the correct type
-func (e *SNMPDiscoveryEngine) setStringValue(target *string, v gosnmp.SnmpPDU) {
+func (*SNMPDiscoveryEngine) setStringValue(target *string, v gosnmp.SnmpPDU) {
 	if v.Type == gosnmp.OctetString {
 		*target = string(v.Value.([]byte))
 	}
 }
 
 // setObjectIDValue sets an object ID value from an SNMP PDU if it's the correct type
-func (e *SNMPDiscoveryEngine) setObjectIDValue(target *string, v gosnmp.SnmpPDU) {
+func (*SNMPDiscoveryEngine) setObjectIDValue(target *string, v gosnmp.SnmpPDU) {
 	if v.Type == gosnmp.ObjectIdentifier {
 		*target = v.Value.(string)
 	}
 }
 
 // setUptimeValue sets an uptime value from an SNMP PDU if it's the correct type
-func (e *SNMPDiscoveryEngine) setUptimeValue(target *int64, v gosnmp.SnmpPDU) {
+func (*SNMPDiscoveryEngine) setUptimeValue(target *int64, v gosnmp.SnmpPDU) {
 	if v.Type == gosnmp.TimeTicks {
 		*target = int64(v.Value.(uint32))
 	}
@@ -751,7 +758,7 @@ func (e *SNMPDiscoveryEngine) queryInterfaces(client *gosnmp.GoSNMP, target, job
 	}
 
 	// Get IP addresses from ipAddrTable
-	ipToIfIndex, err := e.walkIpAddrTable(client)
+	ipToIfIndex, err := e.walkIPAddrTable(client)
 	if err != nil {
 		return nil, err
 	}
@@ -805,7 +812,7 @@ func updateIfDescr(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
 // updateIfType updates the interface type
 func updateIfType(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
 	if pdu.Type == gosnmp.Integer {
-		iface.IfType = int(pdu.Value.(int))
+		iface.IfType = pdu.Value.(int)
 	}
 }
 
@@ -815,7 +822,7 @@ func updateIfSpeed(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
 	case gosnmp.Gauge32:
 		iface.IfSpeed = int64(pdu.Value.(uint))
 	case gosnmp.Counter32, gosnmp.Counter64:
-		iface.IfSpeed = int64(gosnmp.ToBigInt(pdu.Value).Int64())
+		iface.IfSpeed = gosnmp.ToBigInt(pdu.Value).Int64()
 	}
 }
 
@@ -829,14 +836,14 @@ func updateIfPhysAddress(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
 // updateIfAdminStatus updates the interface admin status
 func updateIfAdminStatus(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
 	if pdu.Type == gosnmp.Integer {
-		iface.IfAdminStatus = int(pdu.Value.(int))
+		iface.IfAdminStatus = pdu.Value.(int)
 	}
 }
 
 // updateIfOperStatus updates the interface operational status
 func updateIfOperStatus(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
 	if pdu.Type == gosnmp.Integer {
-		iface.IfOperStatus = int(pdu.Value.(int))
+		iface.IfOperStatus = pdu.Value.(int)
 	}
 }
 
@@ -936,10 +943,10 @@ func extractIPFromOID(oid string) (string, bool) {
 	return "", false
 }
 
-// handleIpAdEntIfIndex processes an ipAdEntIfIndex PDU and updates the IP to ifIndex mapping
-func handleIpAdEntIfIndex(pdu gosnmp.SnmpPDU, ipToIfIndex map[string]int) {
+// handleIPAdEntIfIndex processes an ipAdEntIfIndex PDU and updates the IP to ifIndex mapping
+func handleIPAdEntIfIndex(pdu gosnmp.SnmpPDU, ipToIfIndex map[string]int) {
 	if pdu.Type == gosnmp.Integer {
-		ifIndex := int(pdu.Value.(int))
+		ifIndex := pdu.Value.(int)
 
 		// Extract IP from OID (.1.3.6.1.2.1.4.20.1.2.X.X.X.X)
 		if ip, ok := extractIPFromOID(pdu.Name); ok {
@@ -948,8 +955,8 @@ func handleIpAdEntIfIndex(pdu gosnmp.SnmpPDU, ipToIfIndex map[string]int) {
 	}
 }
 
-// handleIpAdEntAddr processes an ipAdEntAddr PDU and updates the IP to ifIndex mapping
-func handleIpAdEntAddr(pdu gosnmp.SnmpPDU, ipToIfIndex map[string]int) {
+// handleIPAdEntAddr processes an ipAdEntAddr PDU and updates the IP to ifIndex mapping
+func handleIPAdEntAddr(pdu gosnmp.SnmpPDU, ipToIfIndex map[string]int) {
 	var ipString string
 
 	switch pdu.Type {
@@ -971,19 +978,19 @@ func handleIpAdEntAddr(pdu gosnmp.SnmpPDU, ipToIfIndex map[string]int) {
 	}
 }
 
-// walkIpAddrTable walks the ipAddrTable to get IP address information
-func (e *SNMPDiscoveryEngine) walkIpAddrTable(client *gosnmp.GoSNMP) (map[string]int, error) {
+// walkIPAddrTable walks the ipAddrTable to get IP address information
+func (e *SNMPDiscoveryEngine) walkIPAddrTable(client *gosnmp.GoSNMP) (map[string]int, error) {
 	ipToIfIndex := make(map[string]int)
 
-	err := client.BulkWalk(oidIpAddrTable, func(pdu gosnmp.SnmpPDU) error {
+	err := client.BulkWalk(oidIPAddrTable, func(pdu gosnmp.SnmpPDU) error {
 		// Handle ipAdEntIfIndex to get the mapping of IP to ifIndex
-		if strings.HasPrefix(pdu.Name, oidIpAdEntIfIndex) {
-			handleIpAdEntIfIndex(pdu, ipToIfIndex)
+		if strings.HasPrefix(pdu.Name, oidIPAdEntIfIndex) {
+			handleIPAdEntIfIndex(pdu, ipToIfIndex)
 		}
 
 		// Now get the actual IP addresses
-		if strings.HasPrefix(pdu.Name, oidIpAdEntAddr) {
-			handleIpAdEntAddr(pdu, ipToIfIndex)
+		if strings.HasPrefix(pdu.Name, oidIPAdEntAddr) {
+			handleIPAdEntAddr(pdu, ipToIfIndex)
 		}
 
 		return nil
@@ -1158,7 +1165,7 @@ func (e *SNMPDiscoveryEngine) queryLLDP(client *gosnmp.GoSNMP, target, jobID str
 	linkMap := make(map[string]*TopologyLink) // Key is "timeMark.localPort.index"
 
 	// Walk LLDP remote table
-	err := client.BulkWalk(oidLldpRemTable, func(pdu gosnmp.SnmpPDU) error {
+	err := client.BulkWalk(oidLLDPRemTable, func(pdu gosnmp.SnmpPDU) error {
 		return e.processLLDPRemoteTableEntry(pdu, linkMap, target)
 	})
 
@@ -1167,7 +1174,7 @@ func (e *SNMPDiscoveryEngine) queryLLDP(client *gosnmp.GoSNMP, target, jobID str
 	}
 
 	// Walk LLDP management address table for neighbor IPs
-	err = client.BulkWalk(oidLldpRemManAddr, func(pdu gosnmp.SnmpPDU) error {
+	err = client.BulkWalk(oidLLDPRemManAddr, func(pdu gosnmp.SnmpPDU) error {
 		return e.processLLDPManagementAddress(pdu, linkMap)
 	})
 	if err != nil {
@@ -1280,7 +1287,7 @@ func (e *SNMPDiscoveryEngine) queryCDP(client *gosnmp.GoSNMP, target, jobID stri
 	linkMap := make(map[string]*TopologyLink) // Key is "ifIndex.index"
 
 	// Walk CDP cache table
-	err := client.BulkWalk(oidCdpCacheTable, func(pdu gosnmp.SnmpPDU) error {
+	err := client.BulkWalk(oidCDPCacheTable, func(pdu gosnmp.SnmpPDU) error {
 		return e.processCDPPDU(pdu, linkMap, target)
 	})
 
@@ -1337,11 +1344,18 @@ func pingHost(ctx context.Context, host string) error {
 		return err
 	}
 
+	hostReachable := false
 	for result := range resultCh {
 		if !result.Available {
-			return fmt.Errorf("host unreachable")
+			// Don't return immediately, continue processing the channel
+			continue
 		}
 
+		// Mark that we found at least one successful ping
+		hostReachable = true
+	}
+
+	if hostReachable {
 		return nil
 	}
 
