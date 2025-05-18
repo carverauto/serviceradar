@@ -845,46 +845,103 @@ func (e *SnmpDiscoveryEngine) walkIfTable(client *gosnmp.GoSNMP, target string, 
 	return nil
 }
 
+// processIfXTablePDU processes a single PDU from the ifXTable walk
+func (e *SnmpDiscoveryEngine) processIfXTablePDU(pdu gosnmp.SnmpPDU, ifMap map[int]*DiscoveredInterface) error {
+	parts := strings.Split(pdu.Name, ".")
+	if len(parts) < 2 {
+		return nil
+	}
+
+	ifIndex, err := strconv.Atoi(parts[len(parts)-1])
+	if err != nil {
+		return nil
+	}
+
+	iface, exists := ifMap[ifIndex]
+	if !exists {
+		return nil
+	}
+
+	oidPrefix := strings.Join(parts[:len(parts)-1], ".")
+	e.updateInterfaceFromPDU(iface, "." + oidPrefix, pdu)
+
+	return nil
+}
+
+// updateInterfaceFromPDU updates interface properties based on the OID prefix and PDU value
+func (e *SnmpDiscoveryEngine) updateInterfaceFromPDU(iface *DiscoveredInterface, oidWithPrefix string, pdu gosnmp.SnmpPDU) {
+	switch oidWithPrefix {
+	case oidIfName:
+		if pdu.Type == gosnmp.OctetString {
+			iface.IfName = string(pdu.Value.([]byte))
+		}
+	case oidIfAlias:
+		if pdu.Type == gosnmp.OctetString {
+			iface.IfAlias = string(pdu.Value.([]byte))
+		}
+	case oidIfHighSpeed:
+		if pdu.Type == gosnmp.Gauge32 {
+			// IfHighSpeed is in Mbps, convert to bps
+			highSpeed := int64(pdu.Value.(uint)) * 1000000
+			if highSpeed > iface.IfSpeed {
+				iface.IfSpeed = highSpeed
+			}
+		}
+	}
+}
+
 // walkIfXTable walks the ifXTable to get additional interface information
 func (e *SnmpDiscoveryEngine) walkIfXTable(client *gosnmp.GoSNMP, ifMap map[int]*DiscoveredInterface) error {
 	err := client.BulkWalk(oidIfXTable, func(pdu gosnmp.SnmpPDU) error {
-		parts := strings.Split(pdu.Name, ".")
-		if len(parts) < 2 {
-			return nil
-		}
-
-		ifIndex, err := strconv.Atoi(parts[len(parts)-1])
-		if err != nil {
-			return nil
-		}
-
-		if iface, exists := ifMap[ifIndex]; exists {
-			oidPrefix := strings.Join(parts[:len(parts)-1], ".")
-
-			switch "." + oidPrefix {
-			case oidIfName:
-				if pdu.Type == gosnmp.OctetString {
-					iface.IfName = string(pdu.Value.([]byte))
-				}
-			case oidIfAlias:
-				if pdu.Type == gosnmp.OctetString {
-					iface.IfAlias = string(pdu.Value.([]byte))
-				}
-			case oidIfHighSpeed:
-				if pdu.Type == gosnmp.Gauge32 {
-					// IfHighSpeed is in Mbps, convert to bps
-					highSpeed := int64(pdu.Value.(uint)) * 1000000
-					if highSpeed > iface.IfSpeed {
-						iface.IfSpeed = highSpeed
-					}
-				}
-			}
-		}
-
-		return nil
+		return e.processIfXTablePDU(pdu, ifMap)
 	})
 
 	return err
+}
+
+// extractIPFromOID extracts an IP address from the last 4 parts of an OID
+func extractIPFromOID(oid string) (string, bool) {
+	parts := strings.Split(oid, ".")
+	if len(parts) >= 5 {
+		// Last 4 parts of OID are the IP address
+		return strings.Join(parts[len(parts)-4:], "."), true
+	}
+	return "", false
+}
+
+// handleIpAdEntIfIndex processes an ipAdEntIfIndex PDU and updates the IP to ifIndex mapping
+func handleIpAdEntIfIndex(pdu gosnmp.SnmpPDU, ipToIfIndex map[string]int) {
+	if pdu.Type == gosnmp.Integer {
+		ifIndex := int(pdu.Value.(int))
+
+		// Extract IP from OID (.1.3.6.1.2.1.4.20.1.2.X.X.X.X)
+		if ip, ok := extractIPFromOID(pdu.Name); ok {
+			ipToIfIndex[ip] = ifIndex
+		}
+	}
+}
+
+// handleIpAdEntAddr processes an ipAdEntAddr PDU and updates the IP to ifIndex mapping
+func handleIpAdEntAddr(pdu gosnmp.SnmpPDU, ipToIfIndex map[string]int) {
+	var ipString string
+
+	switch pdu.Type {
+	case gosnmp.IPAddress:
+		ipString = pdu.Value.(string)
+	case gosnmp.OctetString:
+		// Some devices return IP as octet string
+		ipBytes := pdu.Value.([]byte)
+		if len(ipBytes) == 4 {
+			ipString = fmt.Sprintf("%d.%d.%d.%d", ipBytes[0], ipBytes[1], ipBytes[2], ipBytes[3])
+		}
+	}
+
+	// If we got an IP, extract the IP from the OID too (for matching)
+	if ipString != "" {
+		if ip, ok := extractIPFromOID(pdu.Name); ok {
+			ipToIfIndex[ip] = 0 // Placeholder, will be filled by ipAdEntIfIndex
+		}
+	}
 }
 
 // walkIpAddrTable walks the ipAddrTable to get IP address information
@@ -894,43 +951,12 @@ func (e *SnmpDiscoveryEngine) walkIpAddrTable(client *gosnmp.GoSNMP) (map[string
 	err := client.BulkWalk(oidIpAddrTable, func(pdu gosnmp.SnmpPDU) error {
 		// Handle ipAdEntIfIndex to get the mapping of IP to ifIndex
 		if strings.HasPrefix(pdu.Name, oidIpAdEntIfIndex) {
-			if pdu.Type == gosnmp.Integer {
-				ifIndex := int(pdu.Value.(int))
-
-				// Extract IP from OID (.1.3.6.1.2.1.4.20.1.2.X.X.X.X)
-				parts := strings.Split(pdu.Name, ".")
-				if len(parts) >= 5 {
-					// Last 4 parts of OID are the IP address
-					ip := strings.Join(parts[len(parts)-4:], ".")
-					ipToIfIndex[ip] = ifIndex
-				}
-			}
+			handleIpAdEntIfIndex(pdu, ipToIfIndex)
 		}
 
 		// Now get the actual IP addresses
 		if strings.HasPrefix(pdu.Name, oidIpAdEntAddr) {
-			var ipString string
-
-			switch pdu.Type {
-			case gosnmp.IPAddress:
-				ipString = pdu.Value.(string)
-			case gosnmp.OctetString:
-				// Some devices return IP as octet string
-				ipBytes := pdu.Value.([]byte)
-				if len(ipBytes) == 4 {
-					ipString = fmt.Sprintf("%d.%d.%d.%d", ipBytes[0], ipBytes[1], ipBytes[2], ipBytes[3])
-				}
-			}
-
-			// If we got an IP, extract the IP from the OID too (for matching)
-			if ipString != "" {
-				parts := strings.Split(pdu.Name, ".")
-				if len(parts) >= 5 {
-					// Last 4 parts of OID are the IP address
-					ip := strings.Join(parts[len(parts)-4:], ".")
-					ipToIfIndex[ip] = 0 // Placeholder, will be filled by ipAdEntIfIndex
-				}
-			}
+			handleIpAdEntAddr(pdu, ipToIfIndex)
 		}
 
 		return nil
