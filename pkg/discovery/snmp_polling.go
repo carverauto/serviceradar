@@ -83,7 +83,7 @@ const (
 )
 
 // runDiscoveryJob performs the actual SNMP discovery for a job
-func (e *SnmpDiscoveryEngine) runDiscoveryJob(ctx context.Context, job *DiscoveryJob) {
+func (e *SnmpDiscoveryEngine) runDiscoveryJob(job *DiscoveryJob) {
 	log.Printf("Running discovery for job %s. Seeds: %v, Type: %s", job.ID, job.Params.Seeds, job.Params.Type)
 
 	// Process seeds into target IPs
@@ -132,7 +132,7 @@ func (e *SnmpDiscoveryEngine) runDiscoveryJob(ctx context.Context, job *Discover
 					return
 				default:
 					// Process target
-					if pingErr := pingHost(ctx, target); pingErr != nil {
+					if pingErr := pingHost(job.ctx, target); pingErr != nil {
 						log.Printf("Job %s: Host %s is not responding to ICMP ping: %v", job.ID, target, pingErr)
 						return
 					}
@@ -189,13 +189,17 @@ func (e *SnmpDiscoveryEngine) runDiscoveryJob(ctx context.Context, job *Discover
 			// Target sent to worker
 		case <-job.ctx.Done():
 			log.Printf("Job %s: Stopping target feed due to cancellation", job.ID)
+
 			close(targetChan)
 			close(resultChan)
+
 			return
 		case <-e.done:
 			log.Printf("Job %s: Stopping target feed due to engine shutdown", job.ID)
+
 			close(targetChan)
 			close(resultChan)
+
 			return
 		}
 	}
@@ -212,14 +216,18 @@ func (e *SnmpDiscoveryEngine) runDiscoveryJob(ctx context.Context, job *Discover
 		job.Status.Status = DiscoverStatusCanceled
 		job.Status.Error = "Job canceled during execution"
 		job.mu.Unlock()
+
 		log.Printf("Job %s: Canceled during execution", job.ID)
+
 		return
 	case <-e.done:
 		job.mu.Lock()
 		job.Status.Status = DiscoveryStatusFailed
 		job.Status.Error = "Engine shutting down"
 		job.mu.Unlock()
+
 		log.Printf("Job %s: Failed due to engine shutdown", job.ID)
+
 		return
 	default:
 		// Job completed successfully
@@ -233,6 +241,7 @@ func (e *SnmpDiscoveryEngine) runDiscoveryJob(ctx context.Context, job *Discover
 
 		if len(job.Results.Devices) == 0 {
 			job.Status.Error = "No SNMP devices found"
+
 			log.Printf("Job %s: Completed - no SNMP devices found", job.ID)
 		} else {
 			log.Printf("Job %s: Completed successfully. Found %d devices, %d interfaces, %d topology links",
@@ -253,21 +262,27 @@ func expandSeeds(seeds []string) []string {
 			ip, ipNet, err := net.ParseCIDR(seed)
 			if err != nil {
 				log.Printf("Invalid CIDR %s: %v", seed, err)
+
 				continue
 			}
 
 			// Check if range is too large
 			ones, bits := ipNet.Mask.Size()
 			hostBits := bits - ones
+
 			if hostBits > 8 { // More than 256 hosts
 				log.Printf("CIDR range %s too large (/%d), limiting scan", seed, ones)
+
 				// Only scan first 256 IPs
 				count := 0
+
 				for ip := ip.Mask(ipNet.Mask); ipNet.Contains(ip) && count < defaultMaxIPRange; incrementIP(ip) {
 					ipStr := ip.String()
+
 					if !seen[ipStr] {
 						targets = append(targets, ipStr)
 						seen[ipStr] = true
+
 						count++
 					}
 				}
@@ -275,6 +290,7 @@ func expandSeeds(seeds []string) []string {
 				// Process all IPs in the range
 				for ip := ip.Mask(ipNet.Mask); ipNet.Contains(ip); incrementIP(ip) {
 					ipStr := ip.String()
+
 					if !seen[ipStr] {
 						targets = append(targets, ipStr)
 						seen[ipStr] = true
@@ -290,29 +306,36 @@ func expandSeeds(seeds []string) []string {
 				// Calculate broadcast IP
 				broadcastIP := make(net.IP, len(ip))
 				copy(broadcastIP, ip.Mask(ipNet.Mask))
+
 				for i := range broadcastIP {
 					broadcastIP[i] |= ^ipNet.Mask[i]
 				}
+
 				broadcastIPStr := broadcastIP.String()
 
 				// Create a new slice without network and broadcast IPs
 				filteredTargets := make([]string, 0, len(targets))
+
 				for _, target := range targets {
 					if target != networkIP && target != broadcastIPStr {
 						filteredTargets = append(filteredTargets, target)
 					}
 				}
+
 				targets = filteredTargets
 			}
 		} else {
 			// It's a single IP
 			ip := net.ParseIP(seed)
+
 			if ip == nil {
 				log.Printf("Invalid IP %s", seed)
+
 				continue
 			}
 
 			ipStr := ip.String()
+
 			if !seen[ipStr] {
 				targets = append(targets, ipStr)
 				seen[ipStr] = true
@@ -327,6 +350,7 @@ func expandSeeds(seeds []string) []string {
 func incrementIP(ip net.IP) {
 	for j := len(ip) - 1; j >= 0; j-- {
 		ip[j]++
+
 		if ip[j] > 0 {
 			break
 		}
@@ -342,8 +366,10 @@ func (e *SnmpDiscoveryEngine) scanTarget(job *DiscoveryJob, target string) {
 	if job.discoveredIPs[target] {
 		log.Printf("Job %s: Skipping already discovered target %s", job.ID, target)
 		job.mu.Unlock()
+
 		return
 	}
+
 	job.discoveredIPs[target] = true
 	job.mu.Unlock()
 
@@ -351,6 +377,7 @@ func (e *SnmpDiscoveryEngine) scanTarget(job *DiscoveryJob, target string) {
 	client, err := e.createSNMPClient(target, job.Params.Credentials)
 	if err != nil {
 		log.Printf("Job %s: Failed to create SNMP client for %s: %v", job.ID, target, err)
+
 		return
 	}
 
@@ -358,6 +385,7 @@ func (e *SnmpDiscoveryEngine) scanTarget(job *DiscoveryJob, target string) {
 	if job.Params.Timeout > 0 {
 		client.Timeout = job.Params.Timeout
 	}
+
 	if job.Params.Retries > 0 {
 		client.Retries = job.Params.Retries
 	}
@@ -365,6 +393,7 @@ func (e *SnmpDiscoveryEngine) scanTarget(job *DiscoveryJob, target string) {
 	// Connect to target
 	if err := client.Connect(); err != nil {
 		log.Printf("Job %s: Failed to connect to %s: %v", job.ID, target, err)
+
 		return
 	}
 	defer client.Conn.Close()
@@ -608,7 +637,7 @@ func (e *SnmpDiscoveryEngine) queryInterfaces(client *gosnmp.GoSNMP, target, job
 	}
 
 	// Try to get additional interface info from ifXTable (if available)
-	client.BulkWalk(oidIfXTable, func(pdu gosnmp.SnmpPDU) error {
+	err = client.BulkWalk(oidIfXTable, func(pdu gosnmp.SnmpPDU) error {
 		parts := strings.Split(pdu.Name, ".")
 		if len(parts) < 2 {
 			return nil
@@ -644,11 +673,14 @@ func (e *SnmpDiscoveryEngine) queryInterfaces(client *gosnmp.GoSNMP, target, job
 
 		return nil
 	})
+	if err != nil {
+		return nil, err
+	}
 
 	// Get IP addresses from ipAddrTable
 	ipToIfIndex := make(map[string]int)
 
-	client.BulkWalk(oidIpAddrTable, func(pdu gosnmp.SnmpPDU) error {
+	err = client.BulkWalk(oidIpAddrTable, func(pdu gosnmp.SnmpPDU) error {
 		// Handle ipAdEntIfIndex to get the mapping of IP to ifIndex
 		if strings.HasPrefix(pdu.Name, oidIpAdEntIfIndex) {
 			if pdu.Type == gosnmp.Integer {
@@ -692,6 +724,9 @@ func (e *SnmpDiscoveryEngine) queryInterfaces(client *gosnmp.GoSNMP, target, job
 
 		return nil
 	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to walk ipAddrTable: %w", err)
+	}
 
 	// Associate IPs with interfaces
 	for ip, ifIndex := range ipToIfIndex {
@@ -748,7 +783,9 @@ func (e *SnmpDiscoveryEngine) queryLLDP(client *gosnmp.GoSNMP, target, jobID str
 		// Format: .1.0.8802.1.1.2.1.4.1.1.X.timeMark.localPort.index
 		timeMark := parts[len(parts)-3]
 		localPort := parts[len(parts)-2]
+
 		index := parts[len(parts)-1]
+
 		key := fmt.Sprintf("%s.%s.%s", timeMark, localPort, index)
 
 		// Create topology link if not exists
@@ -851,6 +888,7 @@ func (e *SnmpDiscoveryEngine) queryCDP(client *gosnmp.GoSNMP, target, jobID stri
 	// Walk CDP cache table
 	err := client.BulkWalk(oidCdpCacheTable, func(pdu gosnmp.SnmpPDU) error {
 		parts := strings.Split(pdu.Name, ".")
+
 		if len(parts) < 12 {
 			return nil
 		}
@@ -967,7 +1005,12 @@ func pingHost(ctx context.Context, host string) error {
 	if err != nil {
 		return err
 	}
-	defer sweeper.Stop(ctx)
+	defer func(sweeper *scan.ICMPSweeper, ctx context.Context) {
+		err := sweeper.Stop(ctx)
+		if err != nil {
+			log.Printf("Error stopping sweeper: %v", err)
+		}
+	}(sweeper, ctx)
 
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()

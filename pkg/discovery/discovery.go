@@ -119,7 +119,7 @@ func (e *SnmpDiscoveryEngine) StartDiscovery(ctx context.Context, params *Discov
 
 	// Create a new context for this specific job, derived from the incoming context.
 	// This allows the job to be canceled independently or if the parent ctx is canceled.
-	jobSpecificCtx, cancelFunc := context.WithCancel(ctx)
+	jobSpecificCtx, cancelFunc := context.WithCancel(context.Background())
 
 	job := &DiscoveryJob{
 		ID:     discoveryID,
@@ -299,7 +299,7 @@ func (e *SnmpDiscoveryEngine) worker(ctx context.Context, workerID int) {
 			job.Status.Progress = 5 // Indicate it's started
 
 			// Placeholder for actual discovery logic
-			e.runDiscoveryJob(ctx, job) // Pass job.ctx here
+			e.runDiscoveryJob(job) // Pass job.ctx here
 
 			// After job execution (success, failure, or cancellation handled within runDiscoveryJob)
 			e.mu.Lock()
