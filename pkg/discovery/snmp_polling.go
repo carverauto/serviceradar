@@ -818,11 +818,24 @@ func updateIfType(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
 
 // updateIfSpeed updates the interface speed
 func updateIfSpeed(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
+	//nolint:exhaustive // Default case handles all unlisted types
 	switch pdu.Type {
 	case gosnmp.Gauge32:
 		iface.IfSpeed = int64(pdu.Value.(uint))
 	case gosnmp.Counter32, gosnmp.Counter64:
 		iface.IfSpeed = gosnmp.ToBigInt(pdu.Value).Int64()
+	case gosnmp.Integer:
+		// For Integer type, convert to int64
+		if val, ok := pdu.Value.(int); ok {
+			iface.IfSpeed = int64(val)
+		}
+	case gosnmp.Uinteger32:
+		// For Uinteger32, convert to int64
+		if val, ok := pdu.Value.(uint32); ok {
+			iface.IfSpeed = int64(val)
+		}
+	default:
+		// All other types are not relevant for interface speed
 	}
 }
 
@@ -959,6 +972,7 @@ func handleIPAdEntIfIndex(pdu gosnmp.SnmpPDU, ipToIfIndex map[string]int) {
 func handleIPAdEntAddr(pdu gosnmp.SnmpPDU, ipToIfIndex map[string]int) {
 	var ipString string
 
+	//nolint:exhaustive // Default case handles all unlisted types
 	switch pdu.Type {
 	case gosnmp.IPAddress:
 		ipString = pdu.Value.(string)
@@ -968,44 +982,8 @@ func handleIPAdEntAddr(pdu gosnmp.SnmpPDU, ipToIfIndex map[string]int) {
 		if len(ipBytes) == 4 {
 			ipString = fmt.Sprintf("%d.%d.%d.%d", ipBytes[0], ipBytes[1], ipBytes[2], ipBytes[3])
 		}
-	case gosnmp.Boolean:
-		// Not expected to contain IP addresses
-	case gosnmp.Integer:
-		// Not expected to contain IP addresses
-	case gosnmp.BitString:
-		// Not expected to contain IP addresses
-	case gosnmp.Null:
-		// Not expected to contain IP addresses
-	case gosnmp.ObjectIdentifier:
-		// Not expected to contain IP addresses
-	case gosnmp.ObjectDescription:
-		// Not expected to contain IP addresses
-	case gosnmp.Counter32:
-		// Not expected to contain IP addresses
-	case gosnmp.Gauge32:
-		// Not expected to contain IP addresses
-	case gosnmp.TimeTicks:
-		// Not expected to contain IP addresses
-	case gosnmp.Opaque:
-		// Not expected to contain IP addresses
-	case gosnmp.NsapAddress:
-		// Not expected to contain IP addresses
-	case gosnmp.Counter64:
-		// Not expected to contain IP addresses
-	case gosnmp.Uinteger32:
-		// Not expected to contain IP addresses
-	case gosnmp.OpaqueFloat:
-		// Not expected to contain IP addresses
-	case gosnmp.OpaqueDouble:
-		// Not expected to contain IP addresses
-	case gosnmp.NoSuchObject:
-		// Not expected to contain IP addresses
-	case gosnmp.NoSuchInstance:
-		// Not expected to contain IP addresses
-	case gosnmp.EndOfMibView:
-		// Not expected to contain IP addresses
-	case gosnmp.EndOfContents:
-		// Not expected to contain IP addresses
+	default:
+		// All other types are not expected to contain IP addresses
 	}
 
 	// If we got an IP, extract the IP from the OID too (for matching)
