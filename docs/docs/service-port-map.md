@@ -11,14 +11,15 @@ This page provides a comprehensive reference of all ServiceRadar components and 
 
 The following table lists the primary ServiceRadar components and their default listening ports:
 
-| Component | Default Port | Protocol | Purpose |
-|-----------|--------------|----------|---------|
-| Agent | 50051 | gRPC/TCP | Service status collection and reporting |
-| Core Service API | 8090 | HTTP/TCP | API for Web UI and external integrations |
-| Core Service gRPC | 50052 | gRPC/TCP | Communication with Pollers |
-| Poller | 50053 | gRPC/TCP | Coordination of monitoring activities |
-| Web UI (Next.js) | 3000 | HTTP/TCP | Web interface (accessed via Nginx) |
-| Nginx | 80/443 | HTTP(S)/TCP | Web UI reverse proxy |
+| Component         | Default Port | Protocol | Purpose                                  |
+|-------------------|--------------|----------|------------------------------------------|
+| Agent             | 50051        | gRPC/TCP | Service status collection and reporting  |
+| Core Service API  | 8090         | HTTP/TCP | API for Web UI and external integrations |
+| Core Service gRPC | 50052        | gRPC/TCP | Communication with Pollers               |
+| Poller            | 50053        | gRPC/TCP | Coordination of monitoring activities    |
+| Mapper            | 50056        | gRPC/TCP | Network Discovery and Mapper Service     |
+| Web UI (Next.js)  | 3000         | HTTP/TCP | Web interface (accessed via Nginx)       |
+| Nginx             | 80/443       | HTTP(S)/TCP | Web UI reverse proxy                     |
 
 ## Storage and Configuration
 

@@ -298,20 +298,20 @@
     },
     "config_files": [
       {
-        "source": "packaging/poller/config/mapper.json",
+        "source": "packaging/mapper/config/mapper.json",
         "dest": "/etc/serviceradar/mapper.json",
         "optional": true
       }
     ],
     "systemd_service": {
-      "source": "packaging/poller/systemd/serviceradar-mapper.service",
+      "source": "packaging/mapper/systemd/serviceradar-mapper.service",
       "dest": "/lib/systemd/system/serviceradar-mapper.service"
     },
     "postinst": {
-      "source": "packaging/poller/scripts/postinstall.sh"
+      "source": "packaging/mapper/scripts/postinstall.sh"
     },
     "prerm": {
-      "source": "packaging/poller/scripts/preremove.sh"
+      "source": "packaging/mapper/scripts/preremove.sh"
     },
     "conffiles": [
       "/etc/serviceradar/mapper.json"

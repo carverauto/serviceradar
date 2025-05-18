@@ -19,13 +19,12 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
+	"github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/mapper"
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -34,29 +33,24 @@ import (
 	googlegrpc "google.golang.org/grpc"
 )
 
-// Config holds the command-line configuration options.
-type Config struct {
-	configFile   string
-	listenAddr   string
-	securityMode string
-	certDir      string
+// cliAppConfig holds the command-line configuration options.
+type cliAppConfig struct {
+	configFile string
+	listenAddr string
+	// dbAddr flag removed as it's not used by the mapper itself for publishing
 }
 
-// parseFlags parses command-line flags and returns a Config.
-func parseFlags() Config {
-	config := Config{}
-
-	flag.StringVar(&config.configFile, "config", "/etc/serviceradar/mapper.json", "Path to mapper config file")
-	flag.StringVar(&config.listenAddr, "listen", ":50056", "Address for mapper to listen on")
-	flag.StringVar(&config.securityMode, "security", "none", "Security mode for this checker (none, tls, mtls)")
-	flag.StringVar(&config.certDir, "cert-dir", "/etc/serviceradar/certs", "Directory for TLS certificates")
+// parseFlags parses command-line flags and returns a cliAppConfig.
+func parseFlags() cliAppConfig {
+	cfg := cliAppConfig{}
+	flag.StringVar(&cfg.configFile, "config", "/etc/serviceradar/mapper.json", "Path to mapper config file")
+	flag.StringVar(&cfg.listenAddr, "listen", ":50056", "Address for mapper to listen on")
 	flag.Parse()
-
-	return config
+	return cfg
 }
 
 func main() {
-	config := parseFlags()
+	appCfg := parseFlags()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -66,108 +60,92 @@ func main() {
 
 	go func() {
 		sig := <-sigChan
-
-		log.Printf("Received signal %v, initiating shutdown for discovery checker", sig)
-
+		log.Printf("Received signal %v, initiating shutdown for ServiceRadar Mapper", sig)
 		cancel()
 	}()
 
 	log.Printf("Starting ServiceRadar Mapper Service...")
 
-	// Load discovery configuration
-	discoveryEngineConfig, err := loadDiscoveryConfig(config)
-	if err != nil {
-		log.Printf("Failed to load mapper configuration: %v", err)
+	configLoader := config.NewConfig()
+	var discoveryEngineConfig mapper.Config // This is pkg/mapper/types.go:Config
 
-		return // Deferred cancel() will run
+	if appCfg.configFile == "" {
+		log.Fatal("Mapper configuration file must be specified using the -config flag.")
+		return
 	}
 
-	// Initialize the discovery engine
-	var publisher mapper.Publisher
-
-	engine, err := mapper.NewSnmpDiscoveryEngine(discoveryEngineConfig, publisher)
-	if err != nil {
-		log.Printf("Failed to initialize discovery engine: %v", err)
-
-		return // Deferred cancel() will run
+	if err := configLoader.LoadAndValidate(ctx, appCfg.configFile, &discoveryEngineConfig); err != nil {
+		log.Fatalf("Failed to load mapper configuration: %v", err)
+		return
 	}
 
-	// Create the gRPC service
+	// Apply SecurityConfig defaults if necessary, primarily for the mapper's own gRPC server
+	if discoveryEngineConfig.Security != nil {
+		if discoveryEngineConfig.Security.Role == "" {
+			discoveryEngineConfig.Security.Role = models.RoleChecker // Or a more specific role like RoleDiscoveryEngine
+		}
+		if discoveryEngineConfig.Security.ServerName == "" {
+			discoveryEngineConfig.Security.ServerName = "serviceradar.mapper"
+		}
+		log.Printf("Using Security Config for mapper gRPC server: Mode=%s, CertDir=%s, Role=%s, ServerName=%s",
+			discoveryEngineConfig.Security.Mode,
+			discoveryEngineConfig.Security.CertDir,
+			discoveryEngineConfig.Security.Role,
+			discoveryEngineConfig.Security.ServerName)
+		if discoveryEngineConfig.Security.TLS.CertFile != "" {
+			log.Printf("Mapper gRPC TLS CertFile: %s", discoveryEngineConfig.Security.TLS.CertFile)
+		}
+	} else {
+		log.Println("No 'security' block found in mapper configuration. Mapper gRPC server will start without mTLS.")
+		// If mTLS is mandatory for the mapper's own gRPC server, you might enforce a default here or fail.
+		// For now, assume lifecycle.RunServer handles nil SecurityConfig as "no security".
+		// Assign a default if needed for lifecycle.RunServer to function correctly without security.
+		discoveryEngineConfig.Security = &models.SecurityConfig{ // Default to no security for its own server if not specified
+			Mode:       "none",
+			Role:       models.RoleChecker, // Or RoleDiscoveryEngine
+			CertDir:    "",                 // Explicitly empty
+			ServerName: "serviceradar.mapper",
+		}
+		log.Printf("Defaulting mapper gRPC server security to: Mode=%s", discoveryEngineConfig.Security.Mode)
+	}
+
+	// Initialize the discovery engine.
+	// No direct database publisher is initialized here for the mapper.
+	// If a direct publishing mechanism were to be used, it would be set up here.
+	// For now, results are primarily available via gRPC.
+	var publisher mapper.Publisher // Intentionally nil, as per user's clarification
+
+	engine, err := mapper.NewSnmpDiscoveryEngine(&discoveryEngineConfig, publisher)
+	if err != nil {
+		log.Fatalf("Failed to initialize discovery engine: %v", err)
+
+		return
+	}
+
+	// Create the gRPC service that exposes the engine's capabilities
 	grpcDiscoveryService := mapper.NewGRPCDiscoveryService(engine)
 
-	// Configure server options
+	// Configure server options for the mapper's own gRPC server
 	serverOptions := &lifecycle.ServerOptions{
-		ListenAddr:  config.listenAddr,
-		ServiceName: "discovery_checker",
-		Service:     engine,
+		ListenAddr:  appCfg.listenAddr,
+		ServiceName: "serviceradar-mapper",
+		Service:     engine, // The engine itself needs to implement lifecycle.Service (Start/Stop)
 		RegisterGRPCServices: []lifecycle.GRPCServiceRegistrar{
 			func(server *googlegrpc.Server) error {
 				discoverypb.RegisterDiscoveryServiceServer(server, grpcDiscoveryService)
-				log.Printf("Registered DiscoveryServiceServer for the discovery checker.")
+				log.Printf("Registered DiscoveryServiceServer for the mapper.")
+
 				return nil
 			},
 		},
 		EnableHealthCheck: true,
-		Security:          createCheckerSecurityConfig(config),
+		Security:          discoveryEngineConfig.Security, // Use the loaded/defaulted security for the mapper's gRPC server
 	}
 
-	// Run the server
+	log.Printf("ServiceRadar Mapper gRPC server starting on %s", appCfg.listenAddr)
 	if err := lifecycle.RunServer(ctx, serverOptions); err != nil {
-		log.Printf("Mapper server error: %v", err)
-
-		return // Deferred cancel() will run
+		log.Printf("ServiceRadar Mapper server error: %v", err)
 	}
 
 	log.Println("ServiceRadar Mapper stopped")
-}
-
-// loadDiscoveryConfig loads the configuration for the discovery engine.
-func loadDiscoveryConfig(config Config) (*mapper.Config, error) {
-	if config.configFile == "" {
-		log.Println("No config file specified for discovery checker, using default in-memory config.")
-
-		return &mapper.Config{
-			Workers:         10,
-			Timeout:         30 * time.Second,
-			Retries:         3,
-			MaxActiveJobs:   10,
-			ResultRetention: 1 * time.Hour,
-			DefaultCredentials: mapper.SNMPCredentials{
-				Version:   mapper.SNMPVersion2c,
-				Community: "public",
-			},
-			StreamConfig: mapper.StreamConfig{},
-			OIDs: map[mapper.DiscoveryType][]string{
-				mapper.DiscoveryTypeBasic: {
-					".1.3.6.1.2.1.1.1.0", // sysDescr
-					".1.3.6.1.2.1.1.5.0", // sysName
-				},
-			},
-		}, nil
-	}
-
-	discoveryConfig, err := mapper.LoadConfigFromFile(config.configFile)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load discovery checker config from file '%s': %w", config.configFile, err)
-	}
-
-	log.Printf("Successfully loaded mapper config from %s", config.configFile)
-
-	return discoveryConfig, nil
-}
-
-// createCheckerSecurityConfig creates a security configuration
-func createCheckerSecurityConfig(config Config) *models.SecurityConfig {
-	return &models.SecurityConfig{
-		Mode:       models.SecurityMode(config.securityMode),
-		CertDir:    config.certDir,
-		Role:       models.RoleChecker,
-		ServerName: "serviceradar.mapper",
-		TLS: models.TLSConfig{
-			CertFile:     "server.crt",
-			KeyFile:      "server.key",
-			CAFile:       "ca.crt",
-			ClientCAFile: "ca.crt",
-		},
-	}
 }
