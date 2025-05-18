@@ -46,6 +46,7 @@ func parseFlags() cliAppConfig {
 	flag.StringVar(&cfg.configFile, "config", "/etc/serviceradar/mapper.json", "Path to mapper config file")
 	flag.StringVar(&cfg.listenAddr, "listen", ":50056", "Address for mapper to listen on")
 	flag.Parse()
+
 	return cfg
 }
 
@@ -61,21 +62,23 @@ func main() {
 	go func() {
 		sig := <-sigChan
 		log.Printf("Received signal %v, initiating shutdown for ServiceRadar Mapper", sig)
+
 		cancel()
 	}()
 
 	log.Printf("Starting ServiceRadar Mapper Service...")
 
 	configLoader := config.NewConfig()
+
 	var discoveryEngineConfig mapper.Config // This is pkg/mapper/types.go:Config
 
 	if appCfg.configFile == "" {
-		log.Fatal("Mapper configuration file must be specified using the -config flag.")
+		log.Printf("Mapper configuration file must be specified using the -config flag.")
 		return
 	}
 
 	if err := configLoader.LoadAndValidate(ctx, appCfg.configFile, &discoveryEngineConfig); err != nil {
-		log.Fatalf("Failed to load mapper configuration: %v", err)
+		log.Printf("Failed to load mapper configuration: %v", err)
 		return
 	}
 
@@ -84,28 +87,30 @@ func main() {
 		if discoveryEngineConfig.Security.Role == "" {
 			discoveryEngineConfig.Security.Role = models.RoleChecker // Or a more specific role like RoleDiscoveryEngine
 		}
+
 		if discoveryEngineConfig.Security.ServerName == "" {
 			discoveryEngineConfig.Security.ServerName = "serviceradar.mapper"
 		}
+
 		log.Printf("Using Security Config for mapper gRPC server: Mode=%s, CertDir=%s, Role=%s, ServerName=%s",
 			discoveryEngineConfig.Security.Mode,
 			discoveryEngineConfig.Security.CertDir,
 			discoveryEngineConfig.Security.Role,
 			discoveryEngineConfig.Security.ServerName)
+
 		if discoveryEngineConfig.Security.TLS.CertFile != "" {
 			log.Printf("Mapper gRPC TLS CertFile: %s", discoveryEngineConfig.Security.TLS.CertFile)
 		}
 	} else {
 		log.Println("No 'security' block found in mapper configuration. Mapper gRPC server will start without mTLS.")
-		// If mTLS is mandatory for the mapper's own gRPC server, you might enforce a default here or fail.
-		// For now, assume lifecycle.RunServer handles nil SecurityConfig as "no security".
-		// Assign a default if needed for lifecycle.RunServer to function correctly without security.
-		discoveryEngineConfig.Security = &models.SecurityConfig{ // Default to no security for its own server if not specified
+
+		discoveryEngineConfig.Security = &models.SecurityConfig{
 			Mode:       "none",
 			Role:       models.RoleChecker, // Or RoleDiscoveryEngine
 			CertDir:    "",                 // Explicitly empty
 			ServerName: "serviceradar.mapper",
 		}
+
 		log.Printf("Defaulting mapper gRPC server security to: Mode=%s", discoveryEngineConfig.Security.Mode)
 	}
 
@@ -117,8 +122,7 @@ func main() {
 
 	engine, err := mapper.NewSnmpDiscoveryEngine(&discoveryEngineConfig, publisher)
 	if err != nil {
-		log.Fatalf("Failed to initialize discovery engine: %v", err)
-
+		log.Printf("Failed to initialize discovery engine: %v", err)
 		return
 	}
 
@@ -143,6 +147,7 @@ func main() {
 	}
 
 	log.Printf("ServiceRadar Mapper gRPC server starting on %s", appCfg.listenAddr)
+
 	if err := lifecycle.RunServer(ctx, serverOptions); err != nil {
 		log.Printf("ServiceRadar Mapper server error: %v", err)
 	}
