@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/carverauto/serviceradar/pkg/models"
 	"sync"
 	"time"
 )
@@ -177,6 +178,18 @@ type TopologyLink struct {
 	Metadata           map[string]string
 }
 
+// SNMPCredentialConfig represents SNMP credentials for specific target IP ranges.
+type SNMPCredentialConfig struct {
+	Targets         []string    `json:"targets"`          // IP addresses or CIDR ranges
+	Version         SNMPVersion `json:"version"`          // SNMP version (v1, v2c, v3)
+	Community       string      `json:"community"`        // Community string for v1/v2c
+	Username        string      `json:"username"`         // Username for v3
+	AuthProtocol    string      `json:"auth_protocol"`    // Auth protocol for v3 (MD5/SHA)
+	AuthPassword    string      `json:"auth_password"`    // Auth password for v3
+	PrivacyProtocol string      `json:"privacy_protocol"` // Privacy protocol for v3 (DES/AES)
+	PrivacyPassword string      `json:"privacy_password"` // Privacy password for v3
+}
+
 type Config struct {
 	Workers            int                        `json:"workers"`
 	Timeout            time.Duration              `json:"timeout"`
@@ -186,6 +199,9 @@ type Config struct {
 	DefaultCredentials SNMPCredentials            `json:"default_credentials"`
 	OIDs               map[DiscoveryType][]string `json:"oids"`
 	StreamConfig       StreamConfig               `json:"stream_config"`
+	Credentials        []SNMPCredentialConfig     `json:"credentials"`
+	Seeds              []string                   `json:"seeds"`
+	Security           *models.SecurityConfig     `json:"security"` // Added
 }
 
 func (c *Config) UnmarshalJSON(data []byte) error {

@@ -13,49 +13,55 @@ ServiceRadar components communicate securely using mTLS with the following roles
 
 ```mermaid
 graph TB
-subgraph "Agent Node"
-    AG[Agent<br/>Role: Client+Server<br/>:50051]
-    SNMPCheck[SNMP Checker<br/>:50054]
-    DuskCheck[Dusk Checker<br/>:50052]
-    SweepCheck[Network Sweep]
-    AG --> SNMPCheck
-    AG --> DuskCheck
-    AG --> SweepCheck
-end
-    
-subgraph "Poller Service"
-    PL[Poller<br/>Role: Client+Server<br/>:50053]
-end
-    
-subgraph "Core Service"
-    CL[Core Service<br/>Role: Client+Server<br/>:50052]
-    DB[Proton DB<br/>:9440]
-    API[HTTP API<br/>:8090]
-    CL --> DB
-    CL --> API
-end
+    subgraph "Agent Node"
+        AG[Agent<br/>Role: Client+Server<br/>:50051]
+        SNMPCheck[SNMP Checker<br/>:50054]
+        DuskCheck[Dusk Checker<br/>:50052]
+        SweepCheck[Network Sweep]
+        AG --> SNMPCheck
+        AG --> DuskCheck
+        AG --> SweepCheck
+    end
 
-subgraph "KV Store"
-    KV[serviceradar-kv<br/>Role: Client+Server<br/>:50057]
-    NATS[NATS JetStream<br/>Role: Server<br/>:4222]
-    KV -->|mTLS Client| NATS
-    AG -->|mTLS Client| KV
-end
-    
-%% Client connections from Poller
-PL -->|mTLS Client| AG
-PL -->|mTLS Client| CL
-    
+    subgraph "Poller Service"
+        PL[Poller<br/>Role: Client+Server<br/>:50053]
+    end
+
+    subgraph "Core Service"
+        CL[Core Service<br/>Role: Client+Server<br/>:50052]
+        DB[Proton DB<br/>:9440]
+        API[HTTP API<br/>:8090]
+        CL --> DB
+        CL --> API
+    end
+
+    subgraph "KV Store"
+        KV[serviceradar-kv<br/>Role: Client+Server<br/>:50057]
+        NATS[NATS JetStream<br/>Role: Server<br/>:4222]
+        KV -->|mTLS Client| NATS
+        AG -->|mTLS Client| KV
+    end
+
+    subgraph "Mapper Service"
+        MAP[serviceradar-mapper<br/>Role: Server<br/>:50056]
+    end
+
+%% Client connections from Poller to Agent
+    PL -->|mTLS Client| AG
+
 %% Server connections to Poller
-HC1[Health Checks] -->|mTLS Client| PL
-    
-classDef server fill:#e1f5fe,stroke:#01579b
-classDef client fill:#f3e5f5,stroke:#4a148c
-classDef dual fill:#fff3e0,stroke:#e65100
-    
-class NATS,DB server
-class AG,PL,CL,KV dual
-class SNMPCheck,DuskCheck,SweepCheck client
+    HC1[Health Checks] -->|mTLS Client| PL
+
+%% Client connections from Agent to Mapper
+    AG -->|mTLS Client| MAP
+
+    classDef server fill:#e1f5fe,stroke:#01579b
+    classDef client fill:#f3e5f5,stroke:#4a148c
+    classDef dual fill:#fff3e0,stroke:#e65100
+
+    class NATS,DB,MAP server
+    class AG,PL,CL,KV dual
+    class SNMPCheck,DuskCheck,SweepCheck client
 ```
 
 ## Certificate Overview

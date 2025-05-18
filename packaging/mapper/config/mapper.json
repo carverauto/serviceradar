@@ -46,5 +46,17 @@
   ],
   "seeds": [
     "192.168.1.0/24"
-  ]
+  ],
+  "security": {
+    "mode": "mtls",
+    "cert_dir": "/etc/serviceradar/certs",
+    "role": "checker",
+    "server_name": "serviceradar.mapper",
+    "tls": {
+      "cert_file": "server.crt",
+      "key_file": "server.key",
+      "ca_file": "ca.crt",
+      "client_ca_file": "ca.crt"
+    }
+  }
 }
