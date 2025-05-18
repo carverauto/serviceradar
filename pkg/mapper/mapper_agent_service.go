@@ -27,11 +27,10 @@ import (
 // MapperAgentService implements the monitoring.AgentServiceServer for the mapper's own health.
 type MapperAgentService struct {
 	monitoringpb.UnimplementedAgentServiceServer
-	engine *SNMPDiscoveryEngine // To access engine status or other internal state
+	engine *SNMPDiscoveryEngine
 }
 
 // NewMapperAgentService creates a new MapperAgentService.
-// It takes *SNMPDiscoveryEngine to potentially query its status.
 func NewMapperAgentService(engine *SNMPDiscoveryEngine) *MapperAgentService {
 	return &MapperAgentService{
 		engine: engine,
@@ -39,12 +38,9 @@ func NewMapperAgentService(engine *SNMPDiscoveryEngine) *MapperAgentService {
 }
 
 // GetStatus implements the monitoring.AgentServiceServer interface.
-// This method provides the health status of the serviceradar-mapper service itself.
 func (s *MapperAgentService) GetStatus(_ context.Context, req *monitoringpb.StatusRequest) (*monitoringpb.StatusResponse, error) {
 	log.Printf("Mapper's monitoring.AgentService/GetStatus called with request: %+v", req)
 
-	// Implement logic to determine the actual health of the mapper.
-	// This is a basic check; more sophisticated checks can be added.
 	var isAvailable bool
 
 	var message string
@@ -71,7 +67,7 @@ func (s *MapperAgentService) GetStatus(_ context.Context, req *monitoringpb.Stat
 	return &monitoringpb.StatusResponse{
 		Available:   isAvailable,
 		Message:     message,
-		ServiceName: serviceName,                   // Identify the service providing the status
+		ServiceName: serviceName,
 		ServiceType: "service-instance",            // Type of entity being reported on
 		AgentId:     "serviceradar-mapper-monitor", // ID for the mapper itself acting for its status
 	}, nil
