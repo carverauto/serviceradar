@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package discovery
+package mapper
 
 import (
 	"context"
