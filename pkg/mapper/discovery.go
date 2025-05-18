@@ -15,7 +15,7 @@
  */
 
 // Package discovery pkg/discovery/discovery.go
-package discovery
+package mapper
 
 import (
 	"context"
