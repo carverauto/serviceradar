@@ -26,8 +26,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/discovery"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
+	"github.com/carverauto/serviceradar/pkg/mapper"
 	"github.com/carverauto/serviceradar/pkg/models"
 	discoverypb "github.com/carverauto/serviceradar/proto/discovery"
 
@@ -46,10 +46,10 @@ type Config struct {
 func parseFlags() Config {
 	config := Config{}
 
-	flag.StringVar(&config.configFile, "config", "/etc/serviceradar/discovery-checker.json", "Path to this discovery checker's config file")
-	flag.StringVar(&config.listenAddr, "listen", ":50056", "Address for this discovery checker to listen on")
+	flag.StringVar(&config.configFile, "config", "/etc/serviceradar/mapper.json", "Path to mapper config file")
+	flag.StringVar(&config.listenAddr, "listen", ":50056", "Address for mapper to listen on")
 	flag.StringVar(&config.securityMode, "security", "none", "Security mode for this checker (none, tls, mtls)")
-	flag.StringVar(&config.certDir, "cert-dir", "/etc/serviceradar/certs/discovery-checker", "Directory for this checker's certificates")
+	flag.StringVar(&config.certDir, "cert-dir", "/etc/serviceradar/certs", "Directory for TLS certificates")
 	flag.Parse()
 
 	return config
@@ -72,20 +72,20 @@ func main() {
 		cancel()
 	}()
 
-	log.Printf("Starting ServiceRadar Discovery Checker Plugin...")
+	log.Printf("Starting ServiceRadar Mapper Service...")
 
 	// Load discovery configuration
 	discoveryEngineConfig, err := loadDiscoveryConfig(config)
 	if err != nil {
-		log.Printf("Failed to load discovery checker configuration: %v", err)
+		log.Printf("Failed to load mapper configuration: %v", err)
 
 		return // Deferred cancel() will run
 	}
 
 	// Initialize the discovery engine
-	var publisher discovery.Publisher
+	var publisher mapper.Publisher
 
-	engine, err := discovery.NewSnmpDiscoveryEngine(discoveryEngineConfig, publisher)
+	engine, err := mapper.NewSnmpDiscoveryEngine(discoveryEngineConfig, publisher)
 	if err != nil {
 		log.Printf("Failed to initialize discovery engine: %v", err)
 
@@ -93,7 +93,7 @@ func main() {
 	}
 
 	// Create the gRPC service
-	grpcDiscoveryService := discovery.NewGRPCDiscoveryService(engine)
+	grpcDiscoveryService := mapper.NewGRPCDiscoveryService(engine)
 
 	// Configure server options
 	serverOptions := &lifecycle.ServerOptions{
@@ -113,32 +113,32 @@ func main() {
 
 	// Run the server
 	if err := lifecycle.RunServer(ctx, serverOptions); err != nil {
-		log.Printf("Discovery checker server error: %v", err)
+		log.Printf("Mapper server error: %v", err)
 
 		return // Deferred cancel() will run
 	}
 
-	log.Println("ServiceRadar Discovery Checker Plugin stopped")
+	log.Println("ServiceRadar Mapper stopped")
 }
 
 // loadDiscoveryConfig loads the configuration for the discovery engine.
-func loadDiscoveryConfig(config Config) (*discovery.Config, error) {
+func loadDiscoveryConfig(config Config) (*mapper.Config, error) {
 	if config.configFile == "" {
 		log.Println("No config file specified for discovery checker, using default in-memory config.")
 
-		return &discovery.Config{
+		return &mapper.Config{
 			Workers:         10,
 			Timeout:         30 * time.Second,
 			Retries:         3,
 			MaxActiveJobs:   10,
 			ResultRetention: 1 * time.Hour,
-			DefaultCredentials: discovery.SNMPCredentials{
-				Version:   discovery.SNMPVersion2c,
+			DefaultCredentials: mapper.SNMPCredentials{
+				Version:   mapper.SNMPVersion2c,
 				Community: "public",
 			},
-			StreamConfig: discovery.StreamConfig{},
-			OIDs: map[discovery.DiscoveryType][]string{
-				discovery.DiscoveryTypeBasic: {
+			StreamConfig: mapper.StreamConfig{},
+			OIDs: map[mapper.DiscoveryType][]string{
+				mapper.DiscoveryTypeBasic: {
 					".1.3.6.1.2.1.1.1.0", // sysDescr
 					".1.3.6.1.2.1.1.5.0", // sysName
 				},
@@ -146,12 +146,12 @@ func loadDiscoveryConfig(config Config) (*discovery.Config, error) {
 		}, nil
 	}
 
-	discoveryConfig, err := discovery.LoadConfigFromFile(config.configFile)
+	discoveryConfig, err := mapper.LoadConfigFromFile(config.configFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load discovery checker config from file '%s': %w", config.configFile, err)
 	}
 
-	log.Printf("Successfully loaded discovery checker config from %s", config.configFile)
+	log.Printf("Successfully loaded mapper config from %s", config.configFile)
 
 	return discoveryConfig, nil
 }
@@ -162,7 +162,7 @@ func createCheckerSecurityConfig(config Config) *models.SecurityConfig {
 		Mode:       models.SecurityMode(config.securityMode),
 		CertDir:    config.certDir,
 		Role:       models.RoleChecker,
-		ServerName: "discovery.checker.local",
+		ServerName: "serviceradar.mapper",
 		TLS: models.TLSConfig{
 			CertFile:     "server.crt",
 			KeyFile:      "server.key",
