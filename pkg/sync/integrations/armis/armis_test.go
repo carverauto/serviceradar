@@ -312,6 +312,10 @@ func TestArmisIntegration_FetchNoQueries(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
+	mockTokenProvider := NewMockTokenProvider(ctrl)
+	// Add expectation for GetAccessToken which is called before checking for empty queries
+	mockTokenProvider.EXPECT().GetAccessToken(gomock.Any()).Return("test-token", nil)
+
 	integration := &ArmisIntegration{
 		Config: &models.SourceConfig{
 			Endpoint: "https://armis.example.com",
@@ -322,7 +326,7 @@ func TestArmisIntegration_FetchNoQueries(t *testing.T) {
 			Queries: []models.QueryConfig{}, // Empty queries
 		},
 		PageSize:      100,
-		TokenProvider: NewMockTokenProvider(ctrl),
+		TokenProvider: mockTokenProvider,
 		DeviceFetcher: NewMockDeviceFetcher(ctrl),
 		KVWriter:      NewMockKVWriter(ctrl),
 	}
@@ -331,7 +335,7 @@ func TestArmisIntegration_FetchNoQueries(t *testing.T) {
 
 	assert.Nil(t, result)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no queries provided in config; at least one query is required")
+	assert.Contains(t, err.Error(), "no queries configured")
 }
 
 func createSuccessResponse(t *testing.T) *http.Response {
