@@ -41,7 +41,7 @@ func TestNew_ValidConfig(t *testing.T) {
 	mockGRPC.EXPECT().GetConnection().Return(nil).AnyTimes()
 
 	c := &Config{
-		Sources: map[string]models.SourceConfig{
+		Sources: map[string]*models.SourceConfig{
 			"armis": {
 				Type:        "armis",
 				Endpoint:    "http://example.com",
@@ -68,7 +68,7 @@ func TestNew_ValidConfig(t *testing.T) {
 	}
 
 	registry := map[string]IntegrationFactory{
-		"armis": func(_ context.Context, _ models.SourceConfig) Integration {
+		"armis": func(_ context.Context, _ *models.SourceConfig) Integration {
 			return NewMockIntegration(ctrl)
 		},
 	}
@@ -92,7 +92,7 @@ func TestSync_Success(t *testing.T) {
 	mockGRPC.EXPECT().GetConnection().Return(nil).AnyTimes()
 
 	c := &Config{
-		Sources: map[string]models.SourceConfig{
+		Sources: map[string]*models.SourceConfig{
 			"armis": {
 				Type:        "armis",
 				Endpoint:    "http://example.com",
@@ -119,7 +119,7 @@ func TestSync_Success(t *testing.T) {
 	}
 
 	registry := map[string]IntegrationFactory{
-		"armis": func(_ context.Context, _ models.SourceConfig) Integration {
+		"armis": func(_ context.Context, _ *models.SourceConfig) Integration {
 			return mockInteg
 		},
 	}
@@ -152,7 +152,7 @@ func TestStartAndStop(t *testing.T) {
 	mockGRPC.EXPECT().Close().Return(nil)
 
 	c := &Config{
-		Sources: map[string]models.SourceConfig{
+		Sources: map[string]*models.SourceConfig{
 			"armis": {
 				Type:        "armis",
 				Endpoint:    "http://example.com",
@@ -166,7 +166,7 @@ func TestStartAndStop(t *testing.T) {
 	}
 
 	registry := map[string]IntegrationFactory{
-		"armis": func(_ context.Context, _ models.SourceConfig) Integration {
+		"armis": func(_ context.Context, _ *models.SourceConfig) Integration {
 			return mockInteg
 		},
 	}
@@ -239,7 +239,7 @@ func TestStart_ContextCancellation(t *testing.T) {
 	mockGRPC.EXPECT().Close().Return(nil)
 
 	c := &Config{
-		Sources: map[string]models.SourceConfig{
+		Sources: map[string]*models.SourceConfig{
 			"armis": {
 				Type:        "armis",
 				Endpoint:    "http://example.com",
@@ -266,7 +266,7 @@ func TestStart_ContextCancellation(t *testing.T) {
 	}
 
 	registry := map[string]IntegrationFactory{
-		"armis": func(_ context.Context, _ models.SourceConfig) Integration {
+		"armis": func(_ context.Context, _ *models.SourceConfig) Integration {
 			return mockInteg
 		},
 	}
@@ -318,7 +318,7 @@ func TestSync_NetboxSuccess(t *testing.T) {
 	mockGRPC.EXPECT().GetConnection().Return(nil).AnyTimes()
 
 	c := &Config{
-		Sources: map[string]models.SourceConfig{
+		Sources: map[string]*models.SourceConfig{
 			"netbox": {
 				Type:        "netbox",
 				Endpoint:    "https://netbox.example.com",
@@ -331,7 +331,7 @@ func TestSync_NetboxSuccess(t *testing.T) {
 	}
 
 	registry := map[string]IntegrationFactory{
-		"netbox": func(_ context.Context, _ models.SourceConfig) Integration {
+		"netbox": func(_ context.Context, _ *models.SourceConfig) Integration {
 			return mockInteg
 		},
 	}

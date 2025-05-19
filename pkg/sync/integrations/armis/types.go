@@ -30,7 +30,7 @@ type ArmisIntegration struct {
 	// The Armis integration at this time is designed to work with the network sweeper
 	// and is not yet a full integration.
 	SweeperConfig *models.SweepConfig
-	Config        models.SourceConfig
+	Config        *models.SourceConfig
 	KVClient      proto.KVServiceClient
 	GRPCConn      *grpc.ClientConn
 	ServerName    string
@@ -88,7 +88,7 @@ type Device struct {
 
 // DefaultArmisIntegration provides the default implementations for the interfaces.
 type DefaultArmisIntegration struct {
-	Config     models.SourceConfig
+	Config     *models.SourceConfig
 	HTTPClient HTTPClient
 }
 

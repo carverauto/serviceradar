@@ -26,7 +26,61 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/carverauto/serviceradar/pkg/models"
 )
+
+// fetchDevicesForQuery fetches all devices for a single query.
+func (a *ArmisIntegration) fetchDevicesForQuery(
+	ctx context.Context,
+	accessToken string,
+	query models.QueryConfig,
+) ([]Device, error) {
+	log.Printf("Fetching devices for query '%s': %s", query.Label, query.Query)
+
+	devices := make([]Device, 0)
+
+	nextPage := 0
+
+	for nextPage >= 0 {
+		page, err := a.DeviceFetcher.FetchDevicesPage(ctx, accessToken, query.Query, nextPage, a.PageSize)
+		if err != nil {
+			log.Printf("Failed query '%s': %v", query.Label, err)
+			return nil, fmt.Errorf("failed query '%s': %w", query.Label, err)
+		}
+
+		// Append devices even if page is empty
+		devices = append(devices, page.Data.Results...)
+
+		if page.Data.Next != 0 {
+			nextPage = page.Data.Next
+		} else {
+			nextPage = -1
+		}
+
+		log.Printf("Fetched %d devices for '%s', total so far: %d", page.Data.Count, query.Label, len(devices))
+	}
+
+	return devices, nil
+}
+
+// createAndWriteSweepConfig creates a sweep config from the given IPs and writes it to the KV store.
+func (a *ArmisIntegration) createAndWriteSweepConfig(ctx context.Context, ips []string) error {
+	// Build sweep config using the base SweeperConfig from the integration instance
+	clonedConfig := *a.SweeperConfig // Shallow copy is generally fine for models.SweepConfig
+	clonedConfig.Networks = ips      // Update with dynamically fetched IPs
+	finalSweepConfig := &clonedConfig
+
+	log.Printf("Sweep config to be written: %+v", finalSweepConfig)
+
+	err := a.KVWriter.WriteSweepConfig(ctx, finalSweepConfig)
+	if err != nil {
+		// Log as warning, as per existing behavior for KV write errors during sweep config.
+		log.Printf("Warning: Failed to write full sweep config: %v", err)
+	}
+
+	return err
+}
 
 // Fetch retrieves devices from Armis and generates sweep config.
 func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error) {
@@ -36,40 +90,23 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error)
 	}
 
 	if len(a.Config.Queries) == 0 {
-		return nil, fmt.Errorf("no queries provided in config; at least one query is required")
+		return nil, errNoQueriesConfigured
 	}
 
-	allDevices := make([]Device, 0)
 	if a.PageSize <= 0 {
 		a.PageSize = 100
 	}
 
+	allDevices := make([]Device, 0)
+
+	// Fetch devices for each query
 	for _, q := range a.Config.Queries {
-		log.Printf("Fetching devices for query '%s': %s", q.Label, q.Query)
-
-		nextPage := 0
-		for {
-			if nextPage < 0 {
-				break
-			}
-
-			page, err := a.DeviceFetcher.FetchDevicesPage(ctx, accessToken, q.Query, nextPage, a.PageSize)
-			if err != nil {
-				log.Printf("Failed query '%s': %v", q.Label, err)
-				return nil, fmt.Errorf("failed query '%s': %w", q.Label, err)
-			}
-
-			// Append devices even if page is empty
-			allDevices = append(allDevices, page.Data.Results...)
-
-			if page.Data.Next != 0 {
-				nextPage = page.Data.Next
-			} else {
-				nextPage = -1
-			}
-
-			log.Printf("Fetched %d devices for '%s', total so far: %d", page.Data.Count, q.Label, len(allDevices))
+		devices, queryErr := a.fetchDevicesForQuery(ctx, accessToken, q)
+		if queryErr != nil {
+			return nil, queryErr
 		}
+
+		allDevices = append(allDevices, devices...)
 	}
 
 	// Process devices
@@ -77,25 +114,10 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error)
 
 	log.Printf("Fetched total of %d devices from Armis", len(allDevices))
 
-	// Build sweep config using the base SweeperConfig from the integration instance
-	clonedConfig := *a.SweeperConfig // Shallow copy is generally fine for models.SweepConfig
-	clonedConfig.Networks = ips      // Update with dynamically fetched IPs
-	finalSweepConfig := &clonedConfig
-
-	log.Printf("Sweep config to be written: %+v", finalSweepConfig)
-
-	err = a.KVWriter.WriteSweepConfig(ctx, finalSweepConfig)
+	// Create and write sweep config
+	err = a.createAndWriteSweepConfig(ctx, ips)
 	if err != nil {
-		// Log as warning, as per existing behavior for KV write errors during sweep config.
-		log.Printf("Warning: Failed to write full sweep config: %v", err)
-	}
-
-	log.Printf("Sweep config to be written: %+v", finalSweepConfig)
-
-	err = a.KVWriter.WriteSweepConfig(ctx, finalSweepConfig)
-	if err != nil {
-		// Log as warning, as per existing behavior for KV write errors during sweep config.
-		log.Printf("Warning: Failed to write full sweep config: %v", err)
+		return nil, fmt.Errorf("failed to write sweep config: %w", err)
 	}
 
 	return data, nil
