@@ -32,9 +32,9 @@ type SNMPMetricsManager struct {
 }
 
 // NewSNMPManager creates a new SNMPManager instance.
-func NewSNMPManager(db db.Service) SNMPManager {
+func NewSNMPManager(d db.Service) SNMPManager {
 	return &SNMPMetricsManager{
-		db: db,
+		db: d,
 	}
 }
 

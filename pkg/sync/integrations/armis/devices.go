@@ -31,10 +31,14 @@ import (
 )
 
 // fetchDevicesForQuery fetches all devices for a single query.
-func (a *ArmisIntegration) fetchDevicesForQuery(ctx context.Context, accessToken string, query models.QueryConfig) ([]Device, error) {
+func (a *ArmisIntegration) fetchDevicesForQuery(
+	ctx context.Context,
+	accessToken string,
+	query models.QueryConfig,
+) ([]Device, error) {
 	log.Printf("Fetching devices for query '%s': %s", query.Label, query.Query)
 
-	var devices []Device
+	devices := make([]Device, 0)
 
 	nextPage := 0
 
@@ -60,22 +64,23 @@ func (a *ArmisIntegration) fetchDevicesForQuery(ctx context.Context, accessToken
 	return devices, nil
 }
 
-// writeSweepConfigWithIPs creates and writes a sweep configuration with the provided IPs.
-func (a *ArmisIntegration) writeSweepConfigWithIPs(ctx context.Context, ips []string) error {
+// createAndWriteSweepConfig creates a sweep config from the given IPs and writes it to the KV store.
+func (a *ArmisIntegration) createAndWriteSweepConfig(ctx context.Context, ips []string) error {
 	// Build sweep config using the base SweeperConfig from the integration instance
 	var finalSweepConfig *models.SweepConfig
 
 	if a.SweeperConfig != nil {
-		// If we have a base config, clone it and update networks
 		clonedConfig := *a.SweeperConfig // Shallow copy is generally fine for models.SweepConfig
 		clonedConfig.Networks = ips      // Update with dynamically fetched IPs
 		finalSweepConfig = &clonedConfig
 	} else {
-		// If no base config exists, create a new one with just the networks
+		// If SweeperConfig is nil, create a new one with just the networks
 		finalSweepConfig = &models.SweepConfig{
 			Networks: ips,
 		}
 	}
+
+	log.Printf("Sweep config to be written: %+v", finalSweepConfig)
 
 	err := a.KVWriter.WriteSweepConfig(ctx, finalSweepConfig)
 	if err != nil {
@@ -88,14 +93,13 @@ func (a *ArmisIntegration) writeSweepConfigWithIPs(ctx context.Context, ips []st
 
 // Fetch retrieves devices from Armis and generates sweep config.
 func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error) {
-	// Check for empty queries first before making any API calls
-	if len(a.Config.Queries) == 0 {
-		return nil, errNoQueriesProvided
-	}
-
 	accessToken, err := a.TokenProvider.GetAccessToken(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get access token: %w", err)
+	}
+
+	if len(a.Config.Queries) == 0 {
+		return nil, errNoQueriesConfigured
 	}
 
 	if a.PageSize <= 0 {
@@ -104,10 +108,11 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error)
 
 	allDevices := make([]Device, 0)
 
+	// Fetch devices for each query
 	for _, q := range a.Config.Queries {
-		devices, err := a.fetchDevicesForQuery(ctx, accessToken, q)
-		if err != nil {
-			return nil, err
+		devices, queryErr := a.fetchDevicesForQuery(ctx, accessToken, q)
+		if queryErr != nil {
+			return nil, queryErr
 		}
 
 		allDevices = append(allDevices, devices...)
@@ -118,10 +123,9 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error)
 
 	log.Printf("Fetched total of %d devices from Armis", len(allDevices))
 
-	// Write sweep config but don't fail if it errors
-	if err := a.writeSweepConfigWithIPs(ctx, ips); err != nil {
-		log.Printf("Warning: Failed to write sweep config with IPs: %v", err)
-	}
+	// Create and write sweep config
+	// Errors from createAndWriteSweepConfig are logged but don't fail the Fetch operation
+	_ = a.createAndWriteSweepConfig(ctx, ips)
 
 	return data, nil
 }
@@ -136,6 +140,8 @@ func (d *DefaultArmisIntegration) FetchDevicesPage(
 	if from > 0 {
 		reqURL += fmt.Sprintf("&from=%d", from)
 	}
+
+	log.Printf("Sending request to: %s", reqURL)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, http.NoBody)
 	if err != nil {
@@ -202,10 +208,10 @@ func (*ArmisIntegration) processDevices(devices []Device) (data map[string][]byt
 
 		// Process IP addresses - handle comma-separated list of IPs
 		if device.IPAddress != "" {
-			// Split by comma to handle multiple IPs
+			// Split by comma and process each IP
 			ipList := strings.Split(device.IPAddress, ",")
 			for _, ipRaw := range ipList {
-				// Trim spaces and validate each IP
+				// Trim spaces and validate the IP
 				ip := strings.TrimSpace(ipRaw)
 				if ip != "" {
 					// Add to sweep list with /32 suffix

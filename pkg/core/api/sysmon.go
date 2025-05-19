@@ -100,14 +100,15 @@ func (s *APIServer) getSysmonMetrics(
 		return
 	}
 
-	// log CPU metrics
-	if metricType == "CPU" {
+	// log metrics based on type
+	switch metricType {
+	case "CPU":
 		log.Printf("Fetched %d CPU metrics for poller %s", len(metrics.([]db.SysmonCPUResponse)), pollerID)
-	} else if metricType == "memory" {
+	case "memory":
 		log.Printf("Fetched %d memory metrics for poller %s", len(metrics.([]db.SysmonMemoryResponse)), pollerID)
-	} else if metricType == "disk" {
+	case "disk":
 		log.Printf("Fetched %d disk metrics for poller %s", len(metrics.([]db.SysmonDiskResponse)), pollerID)
-	} else {
+	default:
 		log.Printf("Fetched %d unknown metrics for poller %s", len(metrics.([]db.SysmonDiskResponse)), pollerID)
 		return
 	}

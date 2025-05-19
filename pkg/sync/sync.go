@@ -150,7 +150,7 @@ func (s *SyncPoller) initializeIntegrations(ctx context.Context) {
 			continue
 		}
 
-		s.sources[name] = s.createIntegration(ctx, &src, factory)
+		s.sources[name] = s.createIntegration(ctx, src, factory)
 	}
 }
 

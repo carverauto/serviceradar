@@ -27,5 +27,5 @@ var (
 	errKVWriteError         = errors.New("KV write error")     // Added from line 350
 	errConnectionRefused    = errors.New("connection refused") // Added from line 496
 	errNotImplemented       = errors.New("not implemented")
-	errNoQueriesProvided    = errors.New("no queries provided in config; at least one query is required")
+	errNoQueriesConfigured  = errors.New("no queries configured") // Added from line 569
 )
