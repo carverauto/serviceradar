@@ -41,7 +41,7 @@ type Manager struct {
 
 var _ SysmonMetricsProvider = (*Manager)(nil)
 
-func NewManager(cfg models.MetricsConfig, db db.Service) *Manager {
+func NewManager(cfg models.MetricsConfig, d db.Service) *Manager {
 	if cfg.MaxPollers == 0 {
 		cfg.MaxPollers = 10000 // Reasonable default
 	}
@@ -49,7 +49,7 @@ func NewManager(cfg models.MetricsConfig, db db.Service) *Manager {
 	return &Manager{
 		config:    cfg,
 		evictList: list.New(),
-		db:        db,
+		db:        d,
 	}
 }
 
