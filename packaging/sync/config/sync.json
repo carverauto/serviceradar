@@ -17,14 +17,13 @@
   "sources": {
     "armis": {
       "type": "armis",
-      "endpoint": "${ARMIS_ENDPOINT:https://api.armis.example.com}",
+      "endpoint": "https://api.armis.example.com",
       "prefix": "armis/",
       "credentials": {
-        "secret_key": "${ARMIS_APIKEY:your-armis-secret-key-here}",
+        "secret_key": "your-armis-secret-key-here",
         "boundary": "Corporate",
         "page_size": "100"
       },
-      "queries": ${ARMIS_QUERIES:[{"label": "all_devices", "query": "in:devices orderBy=id boundaries:\"Corporate\""}]}
-}
-}
+      "queries": [{"label": "all_devices", "query": "in:devices orderBy=id boundaries:\"Corporate\""}]}
+  }
 }
