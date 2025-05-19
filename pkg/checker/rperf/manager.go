@@ -14,8 +14,8 @@ type rperfManagerImpl struct {
 }
 
 // NewRperfManager creates a new RperfManager instance.
-func NewRperfManager(db db.Service) RperfManager {
-	return &rperfManagerImpl{db: db}
+func NewRperfManager(d db.Service) RperfManager {
+	return &rperfManagerImpl{db: d}
 }
 
 // StoreRperfMetric stores an rperf metric in the database.

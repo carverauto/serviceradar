@@ -46,7 +46,7 @@ type Auth struct {
 	db     db.Service
 }
 
-func NewAuth(config *models.AuthConfig, db db.Service) *Auth {
+func NewAuth(config *models.AuthConfig, d db.Service) *Auth {
 	// Initialize goth providers
 	for provider, ssoConfig := range config.SSOProviders {
 		switch provider {
@@ -61,7 +61,7 @@ func NewAuth(config *models.AuthConfig, db db.Service) *Auth {
 		}
 	}
 
-	return &Auth{config: config, db: db}
+	return &Auth{config: config, db: d}
 }
 
 func (a *Auth) LoginLocal(ctx context.Context, username, password string) (*models.Token, error) {
