@@ -67,9 +67,18 @@ func (a *ArmisIntegration) fetchDevicesForQuery(
 // createAndWriteSweepConfig creates a sweep config from the given IPs and writes it to the KV store.
 func (a *ArmisIntegration) createAndWriteSweepConfig(ctx context.Context, ips []string) error {
 	// Build sweep config using the base SweeperConfig from the integration instance
-	clonedConfig := *a.SweeperConfig // Shallow copy is generally fine for models.SweepConfig
-	clonedConfig.Networks = ips      // Update with dynamically fetched IPs
-	finalSweepConfig := &clonedConfig
+	var finalSweepConfig *models.SweepConfig
+
+	if a.SweeperConfig != nil {
+		clonedConfig := *a.SweeperConfig // Shallow copy is generally fine for models.SweepConfig
+		clonedConfig.Networks = ips      // Update with dynamically fetched IPs
+		finalSweepConfig = &clonedConfig
+	} else {
+		// If SweeperConfig is nil, create a new one with just the networks
+		finalSweepConfig = &models.SweepConfig{
+			Networks: ips,
+		}
+	}
 
 	log.Printf("Sweep config to be written: %+v", finalSweepConfig)
 
@@ -115,10 +124,8 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error)
 	log.Printf("Fetched total of %d devices from Armis", len(allDevices))
 
 	// Create and write sweep config
-	err = a.createAndWriteSweepConfig(ctx, ips)
-	if err != nil {
-		return nil, fmt.Errorf("failed to write sweep config: %w", err)
-	}
+	// Errors from createAndWriteSweepConfig are logged but don't fail the Fetch operation
+	_ = a.createAndWriteSweepConfig(ctx, ips)
 
 	return data, nil
 }
@@ -199,13 +206,13 @@ func (*ArmisIntegration) processDevices(devices []Device) (data map[string][]byt
 		// Store device in KV with device ID as key
 		data[fmt.Sprintf("%d", device.ID)] = value
 
-		// Process IP addresses - take only the first IP from comma-separated list
+		// Process IP addresses - handle comma-separated list of IPs
 		if device.IPAddress != "" {
-			// Split by comma and take the first IP
+			// Split by comma and process each IP
 			ipList := strings.Split(device.IPAddress, ",")
-			if len(ipList) > 0 {
-				// Trim spaces and validate the first IP
-				ip := strings.TrimSpace(ipList[0])
+			for _, ipRaw := range ipList {
+				// Trim spaces and validate the IP
+				ip := strings.TrimSpace(ipRaw)
 				if ip != "" {
 					// Add to sweep list with /32 suffix
 					ips = append(ips, ip+"/32")
