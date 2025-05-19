@@ -157,9 +157,10 @@ func (s *InMemoryStore) processHostResult(r *models.Result, hostMap map[string]*
 
 	host.Available = true
 
-	if r.Target.Mode == models.ModeICMP {
+	switch r.Target.Mode {
+	case models.ModeICMP:
 		s.updateICMPStatus(host, r)
-	} else if r.Target.Mode == models.ModeTCP {
+	case models.ModeTCP:
 		s.processPortResult(host, r)
 	}
 

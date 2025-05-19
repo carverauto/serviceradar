@@ -95,10 +95,10 @@ func defaultIntegrationRegistry(
 	grpcClient GRPCClient,
 	serverName string) map[string]IntegrationFactory {
 	return map[string]IntegrationFactory{
-		integrationTypeArmis: func(ctx context.Context, config models.SourceConfig) Integration {
+		integrationTypeArmis: func(ctx context.Context, config *models.SourceConfig) Integration {
 			return integrations.NewArmisIntegration(ctx, config, kvClient, grpcClient.GetConnection(), serverName)
 		},
-		integrationTypeNetbox: func(ctx context.Context, config models.SourceConfig) Integration {
+		integrationTypeNetbox: func(ctx context.Context, config *models.SourceConfig) Integration {
 			integ := integrations.NewNetboxIntegration(ctx, config, kvClient, grpcClient.GetConnection(), serverName)
 			// Allow override via config
 			if val, ok := config.Credentials["expand_subnets"]; ok && val == "true" {
@@ -155,7 +155,7 @@ func (s *SyncPoller) initializeIntegrations(ctx context.Context) {
 }
 
 // createIntegration constructs an integration instance based on source type.
-func (*SyncPoller) createIntegration(ctx context.Context, src models.SourceConfig, factory IntegrationFactory) Integration {
+func (*SyncPoller) createIntegration(ctx context.Context, src *models.SourceConfig, factory IntegrationFactory) Integration {
 	return factory(ctx, src)
 }
 
