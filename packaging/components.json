@@ -274,6 +274,50 @@
     ]
   },
   {
+    "name": "mapper",
+    "package_name": "serviceradar-mapper",
+    "version": "1.0.39",
+    "description": "ServiceRadar Mapper Service",
+    "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
+    "architecture": "amd64",
+    "section": "utils",
+    "priority": "optional",
+    "deb": {
+      "depends": ["systemd"],
+      "dockerfile": null
+    },
+    "rpm": {
+      "depends": ["systemd"],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.simple",
+      "release": "1"
+    },
+    "binary": {
+      "source_path": "cmd/mapper",
+      "build_method": "go",
+      "output_path": "/usr/local/bin/serviceradar-mapper"
+    },
+    "config_files": [
+      {
+        "source": "packaging/mapper/config/mapper.json",
+        "dest": "/etc/serviceradar/mapper.json",
+        "optional": true
+      }
+    ],
+    "systemd_service": {
+      "source": "packaging/mapper/systemd/serviceradar-mapper.service",
+      "dest": "/lib/systemd/system/serviceradar-mapper.service"
+    },
+    "postinst": {
+      "source": "packaging/mapper/scripts/postinstall.sh"
+    },
+    "prerm": {
+      "source": "packaging/mapper/scripts/preremove.sh"
+    },
+    "conffiles": [
+      "/etc/serviceradar/mapper.json"
+    ]
+  },
+  {
     "name": "nats",
     "package_name": "serviceradar-nats",
     "version": "1.0.39",
