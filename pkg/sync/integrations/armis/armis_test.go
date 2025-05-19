@@ -312,6 +312,10 @@ func TestArmisIntegration_FetchNoQueries(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
+	mockTokenProvider := NewMockTokenProvider(ctrl)
+	// Add expectation for GetAccessToken which is called before checking for empty queries
+	mockTokenProvider.EXPECT().GetAccessToken(gomock.Any()).Return("test-token", nil)
+
 	integration := &ArmisIntegration{
 		Config: &models.SourceConfig{
 			Endpoint: "https://armis.example.com",
@@ -322,15 +326,30 @@ func TestArmisIntegration_FetchNoQueries(t *testing.T) {
 			Queries: []models.QueryConfig{}, // Empty queries
 		},
 		PageSize:      100,
-		TokenProvider: NewMockTokenProvider(ctrl),
+		TokenProvider: mockTokenProvider,
 		DeviceFetcher: NewMockDeviceFetcher(ctrl),
 		KVWriter:      NewMockKVWriter(ctrl),
 	}
 
 	result, err := integration.Fetch(context.Background())
+
 	assert.Nil(t, result)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "no queries provided in config; at least one query is required")
+	assert.Contains(t, err.Error(), "no queries configured")
+}
+
+func createSuccessResponse(t *testing.T) *http.Response {
+	t.Helper()
+
+	respData := createExpectedResponse(t)
+	respJSON, err := json.Marshal(respData)
+	require.NoError(t, err)
+
+	// Return a response with a NopCloser body that doesn't need explicit closing
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(bytes.NewReader(respJSON)),
+	}
 }
 
 func TestDefaultArmisIntegration_FetchDevicesPage(t *testing.T) {
@@ -340,7 +359,6 @@ func TestDefaultArmisIntegration_FetchDevicesPage(t *testing.T) {
 		query          string
 		from           int
 		length         int
-		mockResponse   func() *http.Response
 		mockError      error
 		expectedResult *SearchResponse
 		expectedError  string
@@ -351,7 +369,6 @@ func TestDefaultArmisIntegration_FetchDevicesPage(t *testing.T) {
 			query:          "in:devices",
 			from:           0,
 			length:         10,
-			mockResponse:   func() *http.Response { return createSuccessResponse(t) },
 			expectedResult: createExpectedResponse(t),
 			expectedError:  "",
 		},
@@ -359,15 +376,13 @@ func TestDefaultArmisIntegration_FetchDevicesPage(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			var resp *http.Response
-			if tc.mockResponse != nil {
-				resp = tc.mockResponse()
-				if resp != nil && resp.Body != nil {
-					defer resp.Body.Close()
-				}
+			// Create the response inside the test loop
+			mockResponse := createSuccessResponse(t)
+			if mockResponse != nil {
+				defer mockResponse.Body.Close()
 			}
 
-			impl := setupDefaultArmisIntegration(t, resp, tc.mockError)
+			impl := setupDefaultArmisIntegration(t, mockResponse, tc.mockError)
 
 			result, err := impl.FetchDevicesPage(context.Background(), tc.accessToken, tc.query, tc.from, tc.length)
 
@@ -381,15 +396,6 @@ func TestDefaultArmisIntegration_FetchDevicesPage(t *testing.T) {
 			}
 		})
 	}
-}
-
-func createSuccessResponse(t *testing.T) *http.Response {
-	t.Helper()
-
-	respData := createExpectedResponse(t)
-	respJSON, _ := json.Marshal(respData)
-
-	return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(respJSON))}
 }
 
 func createExpectedResponse(t *testing.T) *SearchResponse {
@@ -573,10 +579,13 @@ func TestDefaultKVWriter_WriteSweepConfig(t *testing.T) {
 				mock.Put(gomock.Any(), gomock.Any(), gomock.Any()).
 					DoAndReturn(func(_ context.Context, req *proto.PutRequest, _ ...grpc.CallOption) (*proto.PutResponse, error) {
 						assert.Equal(t, "agents/test-server/checkers/sweep/sweep.json", req.Key)
+
 						var config models.SweepConfig
+
 						err := json.Unmarshal(req.Value, &config)
 						require.NoError(t, err)
 						assert.Equal(t, testSweepConfig.Networks, config.Networks)
+
 						return &proto.PutResponse{}, nil
 					})
 			},
@@ -595,6 +604,7 @@ func TestDefaultKVWriter_WriteSweepConfig(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Log("Starting test case setup")
+
 			tc.setupMock(mockKV.EXPECT())
 
 			t.Log("Mock expectation set")

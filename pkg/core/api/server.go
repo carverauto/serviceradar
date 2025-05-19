@@ -73,9 +73,9 @@ func WithQueryExecutor(qe db.QueryExecutor) func(server *APIServer) {
 }
 
 // WithAuthService adds an authentication service to the API server
-func WithAuthService(auth auth.AuthService) func(server *APIServer) {
+func WithAuthService(a auth.AuthService) func(server *APIServer) {
 	return func(server *APIServer) {
-		server.authService = auth
+		server.authService = a
 	}
 }
 
