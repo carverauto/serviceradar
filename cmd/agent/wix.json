@@ -1,0 +1,9 @@
+{
+  "Name": "ServiceRadar-Agent",
+  "ProductCode": "{xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx}",
+  "Version": "1.0.0",
+  "Manufacturer": "My Company",
+  "Files": [
+    { "Source": "myprogram.exe", "Destination": "myprogram.exe" }
+  ]
+}
