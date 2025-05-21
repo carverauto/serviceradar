@@ -24,7 +24,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/gorilla/mux"
 )
@@ -94,9 +93,9 @@ func (s *APIServer) processRperfMetrics(
 	return models.RperfMetricResponse{Metrics: response}
 }
 
-// convertToAPIMetrics converts db.TimeseriesMetric to RperfMetric.
+// convertToAPIMetrics converts models.TimeseriesMetric to RperfMetric.
 // @ignore This is an internal helper function, not directly exposed as an API endpoint
-func convertToAPIMetrics(rperfMetrics []*db.TimeseriesMetric, pollerID string) []models.RperfMetric {
+func convertToAPIMetrics(rperfMetrics []*models.TimeseriesMetric, pollerID string) []models.RperfMetric {
 	response := make([]models.RperfMetric, 0, len(rperfMetrics))
 
 	for _, rm := range rperfMetrics {
@@ -143,7 +142,7 @@ func populateMetricFields(metric *models.RperfMetric, metadata map[string]interf
 	setStringField(&metric.Target, metadata, "target")
 	setBoolField(&metric.Success, metadata, "success")
 	setErrorField(&metric.Error, metadata, "error")
-	setFloat64Field(&metric.BitsPerSecond, metadata, "bits_per_second")
+	setFloat64Field(&metric.BitsPerSec, metadata, "bits_per_second")
 	setInt64Field(&metric.BytesReceived, metadata, "bytes_received")
 	setInt64Field(&metric.BytesSent, metadata, "bytes_sent")
 	setFloat64Field(&metric.Duration, metadata, "duration")

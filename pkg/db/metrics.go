@@ -42,7 +42,7 @@ func (db *DB) queryTimeseriesMetrics(
 	ctx context.Context,
 	pollerID, filterValue, filterColumn string,
 	start, end time.Time,
-) ([]TimeseriesMetric, error) {
+) ([]models.TimeseriesMetric, error) {
 	query := fmt.Sprintf(`
 		SELECT metric_name, metric_type, value, metadata, timestamp
 		FROM timeseries_metrics
@@ -56,10 +56,10 @@ func (db *DB) queryTimeseriesMetrics(
 	}
 	defer rows.Close()
 
-	var metrics []TimeseriesMetric
+	var metrics []models.TimeseriesMetric
 
 	for rows.Next() {
-		var metric TimeseriesMetric
+		var metric models.TimeseriesMetric
 
 		var metadataStr string
 
@@ -98,7 +98,7 @@ func (db *DB) queryTimeseriesMetrics(
 func (db *DB) storeRperfMetricsToBatch(
 	ctx context.Context,
 	pollerID string,
-	metrics []RperfMetric,
+	metrics []models.RperfMetric,
 	timestamp time.Time,
 ) (int, error) {
 	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO timeseries_metrics (* except _tp_time)")
@@ -180,8 +180,8 @@ func (db *DB) StoreRperfMetrics(ctx context.Context, pollerID, _, message string
 	}
 
 	var rperfData struct {
-		Results   []RperfMetric `json:"results"`
-		Timestamp string        `json:"timestamp"`
+		Results   []models.RperfMetric `json:"results"`
+		Timestamp string               `json:"timestamp"`
 	}
 
 	if err := json.Unmarshal([]byte(wrapper.Status), &rperfData); err != nil {
@@ -205,14 +205,14 @@ func (db *DB) StoreRperfMetrics(ctx context.Context, pollerID, _, message string
 }
 
 // StoreRperfMetricsBatch stores multiple rperf metrics in a single batch operation.
-func (db *DB) StoreRperfMetricsBatch(ctx context.Context, pollerID string, metrics []*RperfMetric, timestamp time.Time) error {
+func (db *DB) StoreRperfMetricsBatch(ctx context.Context, pollerID string, metrics []*models.RperfMetric, timestamp time.Time) error {
 	if len(metrics) == 0 {
 		log.Printf("No rperf metrics to store for poller %s", pollerID)
 		return nil
 	}
 
 	// Convert []*RperfMetric to []RperfMetric for compatibility
-	rperfMetrics := make([]RperfMetric, len(metrics))
+	rperfMetrics := make([]models.RperfMetric, len(metrics))
 	for i, m := range metrics {
 		rperfMetrics[i] = *m
 	}
@@ -233,7 +233,7 @@ func (db *DB) StoreRperfMetricsBatch(ctx context.Context, pollerID string, metri
 }
 
 // GetMetrics retrieves metrics for a specific poller and metric name.
-func (db *DB) GetMetrics(ctx context.Context, pollerID, metricName string, start, end time.Time) ([]TimeseriesMetric, error) {
+func (db *DB) GetMetrics(ctx context.Context, pollerID, metricName string, start, end time.Time) ([]models.TimeseriesMetric, error) {
 	metrics, err := db.queryTimeseriesMetrics(ctx, pollerID, metricName, "metric_name", start, end)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query metrics: %w", err)
@@ -243,7 +243,7 @@ func (db *DB) GetMetrics(ctx context.Context, pollerID, metricName string, start
 }
 
 // GetMetricsByType retrieves metrics for a specific poller and metric type.
-func (db *DB) GetMetricsByType(ctx context.Context, pollerID, metricType string, start, end time.Time) ([]TimeseriesMetric, error) {
+func (db *DB) GetMetricsByType(ctx context.Context, pollerID, metricType string, start, end time.Time) ([]models.TimeseriesMetric, error) {
 	metrics, err := db.queryTimeseriesMetrics(ctx, pollerID, metricType, "metric_type", start, end)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query metrics by type: %w", err)
@@ -283,7 +283,7 @@ func (db *DB) GetCPUMetrics(ctx context.Context, pollerID string, coreID int, st
 // StoreMetric stores a timeseries metric in the database.
 // This is optimized to use batch operations internally, making a single metric
 // store functionally similar to the batch operation but with a simpler API.
-func (db *DB) StoreMetric(ctx context.Context, pollerID string, metric *TimeseriesMetric) error {
+func (db *DB) StoreMetric(ctx context.Context, pollerID string, metric *models.TimeseriesMetric) error {
 	log.Printf("Storing metric: %v", metric)
 
 	// Convert metadata to JSON string
@@ -324,7 +324,7 @@ func (db *DB) StoreMetric(ctx context.Context, pollerID string, metric *Timeseri
 
 // BatchMetricsOperation executes a batch operation for timeseries metrics
 // This is a generic helper function that can be used by specialized metric functions
-func (db *DB) BatchMetricsOperation(ctx context.Context, pollerID string, metrics []*TimeseriesMetric) error {
+func (db *DB) BatchMetricsOperation(ctx context.Context, pollerID string, metrics []*models.TimeseriesMetric) error {
 	if len(metrics) == 0 {
 		return nil
 	}
