@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
@@ -21,7 +20,7 @@ func (m *Manager) StoreRperfMetrics(ctx context.Context, pollerID string, metric
 			"target":           result.Target,
 			"success":          result.Success,
 			"error":            result.Error,
-			"bits_per_second":  result.BitsPerSecond,
+			"bits_per_second":  result.BitsPerSec,
 			"bytes_received":   result.BytesReceived,
 			"bytes_sent":       result.BytesSent,
 			"duration":         result.Duration,
@@ -36,9 +35,9 @@ func (m *Manager) StoreRperfMetrics(ctx context.Context, pollerID string, metric
 			continue
 		}
 
-		metric := &db.TimeseriesMetric{
+		metric := &models.TimeseriesMetric{
 			Name:      metricName,
-			Value:     fmt.Sprintf("%f", result.BitsPerSecond),
+			Value:     fmt.Sprintf("%f", result.BitsPerSec),
 			Type:      "rperf",
 			Timestamp: timestamp,
 			Metadata:  json.RawMessage(metadata),
@@ -49,7 +48,7 @@ func (m *Manager) StoreRperfMetrics(ctx context.Context, pollerID string, metric
 			return fmt.Errorf("failed to store rperf metric: %w", err)
 		}
 
-		log.Printf("Stored rperf metric %s for poller %s: bits_per_second=%.2f", metricName, pollerID, result.BitsPerSecond)
+		log.Printf("Stored rperf metric %s for poller %s: bits_per_second=%.2f", metricName, pollerID, result.BitsPerSec)
 	}
 
 	return nil
@@ -90,7 +89,7 @@ func (m *Manager) GetRperfMetrics(ctx context.Context, pollerID, target string, 
 			Target:          metaMap["target"].(string),
 			Success:         metaMap["success"].(bool),
 			Error:           errorPtr,
-			BitsPerSecond:   metaMap["bits_per_second"].(float64),
+			BitsPerSec:      metaMap["bits_per_second"].(float64),
 			BytesReceived:   int64(metaMap["bytes_received"].(float64)),
 			BytesSent:       int64(metaMap["bytes_sent"].(float64)),
 			Duration:        metaMap["duration"].(float64),

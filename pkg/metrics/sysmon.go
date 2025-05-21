@@ -5,7 +5,6 @@ import (
 	"log"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
@@ -131,16 +130,16 @@ func (m *Manager) GetMemoryMetrics(ctx context.Context, pollerID string, start, 
 }
 
 // GetAllCPUMetrics retrieves all CPU metrics for a poller.
-func (m *Manager) GetAllCPUMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]db.SysmonCPUResponse, error) {
+func (m *Manager) GetAllCPUMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonCPUResponse, error) {
 	return m.db.GetAllCPUMetrics(ctx, pollerID, start, end)
 }
 
 // GetAllDiskMetricsGrouped retrieves all disk metrics for a poller, grouped by timestamp.
-func (m *Manager) GetAllDiskMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]db.SysmonDiskResponse, error) {
+func (m *Manager) GetAllDiskMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonDiskResponse, error) {
 	return m.db.GetAllDiskMetricsGrouped(ctx, pollerID, start, end)
 }
 
 // GetMemoryMetricsGrouped retrieves all memory metrics for a poller, grouped by timestamp.
-func (m *Manager) GetMemoryMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]db.SysmonMemoryResponse, error) {
+func (m *Manager) GetMemoryMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonMemoryResponse, error) {
 	return m.db.GetMemoryMetricsGrouped(ctx, pollerID, start, end)
 }

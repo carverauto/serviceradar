@@ -63,7 +63,7 @@ func (p *ProtonPublisher) PublishDevice(ctx context.Context, device *DiscoveredD
 	}
 
 	// Create sweep result
-	result := &db.SweepResult{
+	result := &models.SweepResult{
 		AgentID:         p.config.AgentID,
 		PollerID:        p.config.PollerID,
 		DiscoverySource: "snmp_discovery",
@@ -76,7 +76,7 @@ func (p *ProtonPublisher) PublishDevice(ctx context.Context, device *DiscoveredD
 	}
 
 	// Publish to Proton using the existing db.Service method
-	results := []*db.SweepResult{result}
+	results := []*models.SweepResult{result}
 	if err := p.dbService.StoreSweepResults(ctx, results); err != nil {
 		return fmt.Errorf("failed to publish device to sweep_results: %w", err)
 	}
@@ -193,7 +193,7 @@ func (p *ProtonPublisher) PublishBatchDevices(ctx context.Context, devices []*Di
 	}
 
 	// Convert all devices to sweep results
-	results := make([]*db.SweepResult, len(devices))
+	results := make([]*models.SweepResult, len(devices))
 
 	for i, device := range devices {
 		// Create metadata
@@ -213,7 +213,7 @@ func (p *ProtonPublisher) PublishBatchDevices(ctx context.Context, devices []*Di
 		hostname := device.Hostname
 		mac := device.MAC
 
-		results[i] = &db.SweepResult{
+		results[i] = &models.SweepResult{
 			AgentID:         p.config.AgentID,
 			PollerID:        p.config.PollerID,
 			DiscoverySource: "snmp_discovery",

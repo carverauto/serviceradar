@@ -14,7 +14,7 @@ import (
 	reflect "reflect"
 	time "time"
 
-	db "github.com/carverauto/serviceradar/pkg/db"
+	models "github.com/carverauto/serviceradar/pkg/models"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -426,10 +426,10 @@ func (m *MockSNMPManager) EXPECT() *MockSNMPManagerMockRecorder {
 }
 
 // GetSNMPMetrics mocks base method.
-func (m *MockSNMPManager) GetSNMPMetrics(ctx context.Context, nodeID string, startTime, endTime time.Time) ([]db.SNMPMetric, error) {
+func (m *MockSNMPManager) GetSNMPMetrics(ctx context.Context, nodeID string, startTime, endTime time.Time) ([]models.SNMPMetric, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetSNMPMetrics", ctx, nodeID, startTime, endTime)
-	ret0, _ := ret[0].([]db.SNMPMetric)
+	ret0, _ := ret[0].([]models.SNMPMetric)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

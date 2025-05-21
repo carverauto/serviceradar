@@ -3,24 +3,11 @@ package db
 import (
 	"context"
 	"fmt"
+	"github.com/carverauto/serviceradar/pkg/models"
 	"log"
-	"time"
 )
 
-// SweepResult represents a single sweep result to be stored.
-type SweepResult struct {
-	AgentID         string
-	PollerID        string
-	DiscoverySource string
-	IP              string
-	MAC             *string
-	Hostname        *string
-	Timestamp       time.Time
-	Available       bool
-	Metadata        map[string]string
-}
-
-func (db *DB) StoreSweepResults(ctx context.Context, results []*SweepResult) error {
+func (db *DB) StoreSweepResults(ctx context.Context, results []*models.SweepResult) error {
 	if len(results) == 0 {
 		return nil
 	}

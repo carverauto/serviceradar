@@ -18,11 +18,10 @@ package api
 
 import (
 	"encoding/json"
+	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"sync"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/checker/rperf"
-	"github.com/carverauto/serviceradar/pkg/checker/snmp"
 	"github.com/carverauto/serviceradar/pkg/core/auth"
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/metrics"
@@ -75,8 +74,8 @@ type APIServer struct {
 	router               *mux.Router
 	pollerHistoryHandler func(pollerID string) ([]PollerHistoryPoint, error)
 	metricsManager       metrics.MetricCollector
-	snmpManager          snmp.SNMPManager
-	rperfManager         rperf.RperfManager
+	snmpManager          metricstore.SNMPManager
+	rperfManager         metricstore.RperfManager
 	queryExecutor        db.QueryExecutor
 	knownPollers         []string
 	authService          auth.AuthService

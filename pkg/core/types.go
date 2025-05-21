@@ -17,13 +17,12 @@
 package core
 
 import (
+	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"sync"
 	"time"
 
 	discoverypb "github.com/carverauto/serviceradar/proto/discovery"
 
-	"github.com/carverauto/serviceradar/pkg/checker/rperf"
-	"github.com/carverauto/serviceradar/pkg/checker/snmp"
 	"github.com/carverauto/serviceradar/pkg/core/alerts"
 	"github.com/carverauto/serviceradar/pkg/core/api"
 	"github.com/carverauto/serviceradar/pkg/core/auth"
@@ -45,12 +44,12 @@ type Server struct {
 	pollerPatterns          []string
 	grpcServer              *grpc.Server
 	metrics                 *metrics.Manager
-	snmpManager             snmp.SNMPManager
-	rperfManager            rperf.RperfManager
+	snmpManager             metricstore.SNMPManager
+	rperfManager            metricstore.RperfManager
 	config                  *models.DBConfig
 	authService             *auth.Auth
-	metricBuffers           map[string][]*db.TimeseriesMetric
-	serviceBuffers          map[string][]*db.ServiceStatus
+	metricBuffers           map[string][]*models.TimeseriesMetric
+	serviceBuffers          map[string][]*models.ServiceStatus
 	sysmonBuffers           map[string][]*models.SysmonMetrics
 	bufferMu                sync.RWMutex
 	pollerStatusCache       map[string]*models.PollerStatus
