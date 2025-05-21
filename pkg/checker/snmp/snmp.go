@@ -64,7 +64,7 @@ func (s *SNMPMetricsManager) GetSNMPMetrics(ctx context.Context, pollerID string
 		if m.Metadata != nil {
 			var metadata map[string]interface{}
 
-			if err := json.Unmarshal(m.Metadata, &metadata); err != nil {
+			if err := json.Unmarshal(m.Metadata.([]byte), &metadata); err != nil {
 				log.Printf("Failed to unmarshal metadata for metric %s on poller %s: %v", m.Name, pollerID, err)
 
 				continue
