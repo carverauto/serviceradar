@@ -45,11 +45,37 @@ func (s *snmpManagerImpl) GetSNMPMetrics(ctx context.Context, pollerID string, s
 		}
 
 		// Extract scale and is_delta from metadata
-		if m.Metadata != nil { // m.Metadata is now json.RawMessage
+		if m.Metadata != nil {
 			var metadata map[string]interface{}
-			if err := json.Unmarshal(m.Metadata, &metadata); err != nil {
-				log.Printf("Failed to unmarshal metadata for metric %s on poller %s: %v", m.Name, pollerID, err)
-				continue
+
+			// Handle different possible types of m.Metadata
+			switch md := m.Metadata.(type) {
+			case []byte:
+				// If it's already []byte, use it directly
+				if err := json.Unmarshal(md, &metadata); err != nil {
+					log.Printf("Failed to unmarshal metadata for metric %s on poller %s: %v", m.Name, pollerID, err)
+					continue
+				}
+			case string:
+				// If it's a string, convert to []byte
+				if err := json.Unmarshal([]byte(md), &metadata); err != nil {
+					log.Printf("Failed to unmarshal metadata for metric %s on poller %s: %v", m.Name, pollerID, err)
+					continue
+				}
+			case map[string]interface{}:
+				// If it's already a map, use it directly
+				metadata = md
+			default:
+				// For other types, try to marshal and then unmarshal
+				metadataBytes, err := json.Marshal(m.Metadata)
+				if err != nil {
+					log.Printf("Failed to marshal metadata for metric %s on poller %s: %v", m.Name, pollerID, err)
+					continue
+				}
+				if err := json.Unmarshal(metadataBytes, &metadata); err != nil {
+					log.Printf("Failed to unmarshal metadata for metric %s on poller %s: %v", m.Name, pollerID, err)
+					continue
+				}
 			}
 
 			if scale, ok := metadata["scale"].(float64); ok {
