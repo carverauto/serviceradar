@@ -80,7 +80,7 @@ func (m *rperfManagerImpl) GetRperfMetrics(ctx context.Context, pollerID string,
 	for _, m := range tsMetrics {
 		if m.Metadata != nil {
 			var rperfMetric models.RperfMetric // Use metrics.RperfMetric
-			if err := json.Unmarshal(m.Metadata, &rperfMetric); err != nil {
+			if err := json.Unmarshal(m.Metadata.([]byte), &rperfMetric); err != nil {
 				log.Printf("Warning: failed to unmarshal rperf metadata for metric %s: %v", m.Name, err)
 				continue
 			}

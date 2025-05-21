@@ -88,9 +88,23 @@ func (s *APIServer) processRperfMetrics(
 		return models.RperfMetricResponse{Err: err}
 	}
 
-	response := convertToAPIMetrics(rperfMetrics, pollerID)
+	response := convertRperfMetricsToAPIMetrics(rperfMetrics)
 
 	return models.RperfMetricResponse{Metrics: response}
+}
+
+// convertRperfMetricsToAPIMetrics converts []*models.RperfMetric to []models.RperfMetric.
+// @ignore This is an internal helper function, not directly exposed as an API endpoint
+func convertRperfMetricsToAPIMetrics(rperfMetrics []*models.RperfMetric) []models.RperfMetric {
+	response := make([]models.RperfMetric, 0, len(rperfMetrics))
+
+	for _, rm := range rperfMetrics {
+		if rm != nil {
+			response = append(response, *rm)
+		}
+	}
+
+	return response
 }
 
 // convertToAPIMetrics converts models.TimeseriesMetric to RperfMetric.
