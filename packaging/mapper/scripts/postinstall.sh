@@ -19,6 +19,15 @@ mkdir -p /var/lib/serviceradar
 chown -R serviceradar:serviceradar /etc/serviceradar
 chmod -R 755 /etc/serviceradar
 
+# Set required capability for ICMP scanning
+if [ -x /usr/local/bin/serviceradar-mapper ]; then
+    setcap cap_net_raw=+ep /usr/local/bin/serviceradar-mapper || {
+        echo "Warning: Failed to set cap_net_raw capability on /usr/local/bin/serviceradar-mapper"
+        echo "ICMP scanning will not work without this capability. Ensure libcap2-bin is installed and run:"
+        echo "  sudo setcap cap_net_raw=+ep /usr/local/bin/serviceradar-mapper"
+    }
+fi
+
 # Reload systemd and manage service
 systemctl daemon-reload
 systemctl enable serviceradar-mapper

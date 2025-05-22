@@ -21,8 +21,6 @@ import (
 	"sync"
 	"time"
 
-	discoverypb "github.com/carverauto/serviceradar/proto/discovery"
-
 	"github.com/carverauto/serviceradar/pkg/core/alerts"
 	"github.com/carverauto/serviceradar/pkg/core/api"
 	"github.com/carverauto/serviceradar/pkg/core/auth"
@@ -77,10 +75,3 @@ type ServiceStatus struct {
 	Timestamp   time.Time
 }
 
-type SNMPDiscoveryDataPayload struct {
-	Devices    []*discoverypb.DiscoveredDevice    `json:"devices"`
-	Interfaces []*discoverypb.DiscoveredInterface `json:"interfaces"`
-	Topology   []*discoverypb.TopologyLink        `json:"topology"`
-	AgentID    string                             `json:"agent_id"`  // Agent that ran the discovery engine
-	PollerID   string                             `json:"poller_id"` // Poller that initiated the discovery
-}

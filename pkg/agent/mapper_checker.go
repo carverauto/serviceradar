@@ -1,3 +1,5 @@
+// pkg/agent/mapper_discovery_checker.go
+
 package agent
 
 import (
@@ -5,6 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sync" // Import sync for the Mutex
+	"time"
 
 	ggrpc "github.com/carverauto/serviceradar/pkg/grpc" // Alias to avoid conflict
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -35,6 +39,11 @@ type MapperDiscoveryChecker struct {
 	security      *models.SecurityConfig
 	client        *ggrpc.Client // gRPC client to the mapper service
 	mapperClient  mapper_proto.DiscoveryServiceClient
+
+	// New fields for tracking discovery job state
+	lastDiscoveryID   string
+	lastDiscoveryTime time.Time  // When the last job was initiated or its status was last updated
+	mu                sync.Mutex // Protects lastDiscoveryID and lastDiscoveryTime
 }
 
 // NewMapperDiscoveryChecker creates a new instance of MapperDiscoveryChecker.
@@ -71,77 +80,162 @@ func NewMapperDiscoveryChecker(ctx context.Context, mapperAddress, details strin
 	}, nil
 }
 
-// Check parses the discovery parameters from details and initiates a discovery job on the mapper.
-// It returns true if the job was successfully initiated, false otherwise.
+// Check parses the discovery parameters, optionally initiates a job,
+// and returns the status/results of the discovery.
 func (mdc *MapperDiscoveryChecker) Check(ctx context.Context) (bool, string) {
+	mdc.mu.Lock()
+	defer mdc.mu.Unlock()
+
 	var parsedDetails MapperDiscoveryDetails
+
 	if err := json.Unmarshal([]byte(mdc.details), &parsedDetails); err != nil {
-		return false, fmt.Sprintf("Failed to parse mapper discovery details: %v", err)
+		return false, fmt.Sprintf(`{"error": "Failed to parse mapper discovery details: %v"}`, err)
 	}
 
-	// Convert parsedDetails.Type string to proto.DiscoveryRequest_DiscoveryType enum
-	var discoveryType mapper_proto.DiscoveryRequest_DiscoveryType
-	switch parsedDetails.Type {
-	case "full":
-		discoveryType = mapper_proto.DiscoveryRequest_FULL
-	case "basic":
-		discoveryType = mapper_proto.DiscoveryRequest_BASIC
-	case "interfaces":
-		discoveryType = mapper_proto.DiscoveryRequest_INTERFACES
-	case "topology":
-		discoveryType = mapper_proto.DiscoveryRequest_TOPOLOGY
-	default:
-		return false, fmt.Sprintf("Unsupported discovery type: %s", parsedDetails.Type)
+	// Determine if we need to start a new discovery job
+	// A simple heuristic: if no job, or last job is very old (e.g., > 10 minutes from last update/start)
+	const jobStalenessThreshold = 10 * time.Minute // This should align with how often you want new discoveries
+	startNewJob := false
+
+	if mdc.lastDiscoveryID == "" || time.Since(mdc.lastDiscoveryTime) > jobStalenessThreshold {
+		startNewJob = true
+	} else {
+		// Check the status of the last job to see if it's completed or failed
+		statusResp, err := mdc.mapperClient.GetStatus(ctx, &mapper_proto.StatusRequest{DiscoveryId: mdc.lastDiscoveryID})
+		if err != nil {
+			// If we can't get status, assume it's stale/failed and try to restart
+			log.Printf("MapperDiscoveryChecker: Failed to get status for job %s (%v), attempting new job.", mdc.lastDiscoveryID, err)
+			startNewJob = true
+		} else {
+			switch statusResp.Status {
+			case mapper_proto.DiscoveryStatus_FAILED.String(), mapper_proto.DiscoveryStatus_CANCELED.String():
+				log.Printf("MapperDiscoveryChecker: Last discovery job %s is %s, initiating new job.", mdc.lastDiscoveryID, statusResp.Status)
+				startNewJob = true
+			}
+		}
 	}
 
-	// Convert parsedDetails.Credentials.Version string to proto.SNMPCredentials_Version enum
-	// var snmpVersion SNMPCredentials_Version
-	var snmpVersion mapper_proto.SNMPCredentials_SNMPVersion
-	switch parsedDetails.Credentials.Version {
-	case "v1":
-		snmpVersion = mapper_proto.SNMPCredentials_V1
-	case "v2c":
-		snmpVersion = mapper_proto.SNMPCredentials_V2C
-	case "v3":
-		snmpVersion = mapper_proto.SNMPCredentials_V3
-	default:
-		return false, fmt.Sprintf("Unsupported SNMP version: %s", parsedDetails.Credentials.Version)
+	if startNewJob {
+		log.Printf("MapperDiscoveryChecker: Initiating new discovery job.")
+
+		var discoveryType mapper_proto.DiscoveryRequest_DiscoveryType
+
+		switch parsedDetails.Type {
+		case "full":
+			discoveryType = mapper_proto.DiscoveryRequest_FULL
+		case "basic":
+			discoveryType = mapper_proto.DiscoveryRequest_BASIC
+		case "interfaces":
+			discoveryType = mapper_proto.DiscoveryRequest_INTERFACES
+		case "topology":
+			discoveryType = mapper_proto.DiscoveryRequest_TOPOLOGY
+		default:
+			return false, fmt.Sprintf(`{"error": "Unsupported discovery type: %s"}`, parsedDetails.Type)
+		}
+
+		var snmpVersion mapper_proto.SNMPCredentials_SNMPVersion
+
+		switch parsedDetails.Credentials.Version {
+		case "v1":
+			snmpVersion = mapper_proto.SNMPCredentials_V1
+		case "v2c":
+			snmpVersion = mapper_proto.SNMPCredentials_V2C
+		case "v3":
+			snmpVersion = mapper_proto.SNMPCredentials_V3
+		default:
+			return false, fmt.Sprintf(`{"error": "Unsupported SNMP version: %s"}`, parsedDetails.Credentials.Version)
+		}
+
+		req := &mapper_proto.DiscoveryRequest{
+			Seeds: parsedDetails.Seeds,
+			Type:  discoveryType,
+			Credentials: &mapper_proto.SNMPCredentials{
+				Version:   snmpVersion,
+				Community: parsedDetails.Credentials.Community,
+				// Add other SNMP v3 credentials here from parsedDetails if your config includes them
+			},
+			Concurrency:    int32(parsedDetails.Concurrency),
+			TimeoutSeconds: parsedDetails.TimeoutSeconds,
+			Retries:        parsedDetails.Retries,
+			AgentId:        parsedDetails.AgentId,
+			PollerId:       parsedDetails.PollerId,
+		}
+
+		resp, err := mdc.mapperClient.StartDiscovery(ctx, req)
+		if err != nil {
+			return false, fmt.Sprintf(`{"error": "Failed to start mapper discovery: %v"}`, err)
+		}
+
+		if !resp.Success {
+			return false, fmt.Sprintf(`{"error": "Mapper discovery reported failure on start: %s"}`, resp.Message)
+		}
+
+		mdc.lastDiscoveryID = resp.DiscoveryId
+		mdc.lastDiscoveryTime = time.Now() // Mark new job started
+
+		log.Printf("MapperDiscoveryChecker: New discovery job %s started successfully.", mdc.lastDiscoveryID)
 	}
 
-	// Construct the StartDiscoveryRequest for the mapper service
-	req := &mapper_proto.DiscoveryRequest{
-		Seeds: parsedDetails.Seeds,
-		Type:  discoveryType,
-		Credentials: &mapper_proto.SNMPCredentials{
-			Version:   snmpVersion,
-			Community: parsedDetails.Credentials.Community,
-			// Add other SNMP v3 credentials here from parsedDetails if your config includes them
-		},
-		Concurrency:    int32(parsedDetails.Concurrency),
-		TimeoutSeconds: parsedDetails.TimeoutSeconds,
-		Retries:        parsedDetails.Retries,
-		AgentId:        parsedDetails.AgentId,
-		PollerId:       parsedDetails.PollerId,
+	// Now, get the current status or results of the managed job
+	if mdc.lastDiscoveryID == "" {
+		return false, `{"status": "no_job_initiated", "message": "No discovery job initiated or found."}`
 	}
 
-	log.Printf("MapperDiscoveryChecker: Sending StartDiscovery request to %s: %+v", mdc.mapperAddress, req)
-	resp, err := mdc.mapperClient.StartDiscovery(ctx, req)
+	resultsResp, err := mdc.mapperClient.GetDiscoveryResults(ctx, &mapper_proto.ResultsRequest{
+		DiscoveryId:    mdc.lastDiscoveryID,
+		IncludeRawData: false, // Typically don't send raw data to core unless specifically needed
+	})
 	if err != nil {
-		return false, fmt.Sprintf("Failed to start mapper discovery: %v", err)
+		return false, fmt.Sprintf(`{"error": "Failed to get mapper discovery results for job %s: %v"}`, mdc.lastDiscoveryID, err)
 	}
 
-	if !resp.Success {
-		return false, fmt.Sprintf("Mapper discovery reported failure: %s", resp.Message)
+	// Update lastDiscoveryTime based on job's end time if available, otherwise current time
+	if resultsResp.GetStatus() == mapper_proto.DiscoveryStatus_COMPLETED || resultsResp.GetStatus() == mapper_proto.DiscoveryStatus_FAILED || resultsResp.GetStatus() == mapper_proto.DiscoveryStatus_CANCELED {
+		mdc.lastDiscoveryTime = time.Now() // Update last check time for staleness
 	}
 
-	// The StartDiscovery call only initiates the job.
-	// For a `checker.Check` method, typically you'd report if the *check itself* was successful.
-	// In this case, initiating the discovery job is the "check."
-	// If you needed to report the *status of the discovery job*, you'd need a separate mechanism
-	// or have this checker poll `mapper_proto.DiscoveryServiceClient.GetStatus` for the `DiscoveryId`.
-	message := fmt.Sprintf("Mapper discovery job started successfully. ID: %s, Est. Duration: %d seconds. Message: %s",
-		resp.DiscoveryId, resp.EstimatedDuration, resp.Message)
-	return true, message
+	// If the job is still running, report its progress
+	if resultsResp.Status != mapper_proto.DiscoveryStatus_COMPLETED && resultsResp.Status != mapper_proto.DiscoveryStatus_FAILED && resultsResp.Status != mapper_proto.DiscoveryStatus_CANCELED {
+		msg := fmt.Sprintf("Mapper discovery job %s is still %s (progress: %.1f%%, devices: %d, interfaces: %d, links: %d).",
+			mdc.lastDiscoveryID, resultsResp.Status.String(), resultsResp.Progress,
+			len(resultsResp.Devices), len(resultsResp.Interfaces), len(resultsResp.Topology))
+		statusJson, _ := json.Marshal(map[string]interface{}{
+			"status":               resultsResp.Status.String(),
+			"discovery_id":         resultsResp.DiscoveryId,
+			"progress":             resultsResp.Progress,
+			"devices_found":        len(resultsResp.Devices),
+			"interfaces_found":     len(resultsResp.Interfaces),
+			"topology_links_found": len(resultsResp.Topology),
+			"message":              msg,
+			"error":                resultsResp.Error,
+		})
+
+		// Report as available if the mapper service itself is healthy and job is processing
+		return true, string(statusJson)
+	}
+
+	// If job completed/failed/canceled, prepare the full SNMPDiscoveryDataPayload
+	payload := models.SNMPDiscoveryDataPayload{
+		Devices:    resultsResp.Devices,
+		Interfaces: resultsResp.Interfaces,
+		Topology:   resultsResp.Topology,
+		AgentID:    parsedDetails.AgentId,  // Propagate original agent ID
+		PollerID:   parsedDetails.PollerId, // Propagate original poller ID
+	}
+
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		return false, fmt.Sprintf(`{"error": "Failed to marshal SNMP discovery results payload: %v"}`, err)
+	}
+
+	// Report availability based on job outcome
+	available := resultsResp.Status == mapper_proto.DiscoveryStatus_COMPLETED
+
+	log.Printf("MapperDiscoveryChecker: Reporting job %s status: %s, available: %v. Found devices: %d, interfaces: %d, links: %d",
+		mdc.lastDiscoveryID, resultsResp.Status.String(), available,
+		len(resultsResp.Devices), len(resultsResp.Interfaces), len(resultsResp.Topology))
+
+	return available, string(payloadJSON)
 }
 
 // Close gracefully closes the gRPC client connection to the mapper.
@@ -149,5 +243,6 @@ func (mdc *MapperDiscoveryChecker) Close() error {
 	if mdc.client != nil {
 		return mdc.client.Close()
 	}
+
 	return nil
 }
