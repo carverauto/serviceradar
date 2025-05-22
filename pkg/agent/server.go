@@ -485,7 +485,7 @@ func (s *Server) handleRperfChecker(ctx context.Context, req *proto.StatusReques
 		ServiceName: "",
 		ServiceType: "grpc",
 		Details:     "",
-		AgentId:     s.config.AgentID, // Propagate AgentId
+		AgentId:     s.config.AgentID,
 	})
 }
 
@@ -516,6 +516,7 @@ func (s *Server) handleICMPCheck(ctx context.Context, req *proto.StatusRequest) 
 			ServiceName:  "icmp_check",
 			ServiceType:  "icmp",
 			ResponseTime: result.RespTime.Nanoseconds(),
+			AgentId:      s.config.AgentID,
 		}, nil
 	}
 
@@ -523,6 +524,9 @@ func (s *Server) handleICMPCheck(ctx context.Context, req *proto.StatusRequest) 
 }
 
 func (s *Server) handleDefaultChecker(ctx context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
+	// set the agentID in the request
+	req.AgentId = s.config.AgentID
+
 	c, err := s.getChecker(ctx, req)
 	if err != nil {
 		return nil, err
