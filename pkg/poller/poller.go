@@ -251,6 +251,9 @@ func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
 		}
 	}
 
+	log.Printf("Received StatusResponse: %+v", status)
+	log.Println("AgentId:", status.AgentId)
+
 	return &proto.ServiceStatus{
 		ServiceName:  sc.check.Name,
 		Available:    status.Available,
