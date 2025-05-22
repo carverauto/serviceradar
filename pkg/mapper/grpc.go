@@ -125,20 +125,19 @@ func convertInterfaceToProto(iface *DiscoveredInterface) (*proto.DiscoveredInter
 		return nil, false
 	}
 
-	// All values are within int32 range, safe to convert
 	return &proto.DiscoveredInterface{
 		DeviceIp:      iface.DeviceIP,
 		DeviceId:      iface.DeviceID,
-		IfIndex:       int32(iface.IfIndex), // #nosec G115 -- Value checked for int32 range prior to this conversion
+		IfIndex:       iface.IfIndex,
 		IfName:        iface.IfName,
 		IfDescr:       iface.IfDescr,
 		IfAlias:       iface.IfAlias,
 		IfSpeed:       iface.IfSpeed,
 		IfPhysAddress: iface.IfPhysAddress,
 		IpAddresses:   iface.IPAddresses,
-		IfAdminStatus: int32(iface.IfAdminStatus), // #nosec G115 -- Value checked for int32 range prior to this conversion
-		IfOperStatus:  int32(iface.IfOperStatus),  // #nosec G115 -- Value checked for int32 range prior to this conversion
-		IfType:        int32(iface.IfType),        // #nosec G115 -- Value checked for int32 range prior to this conversion
+		IfAdminStatus: iface.IfAdminStatus,
+		IfOperStatus:  iface.IfOperStatus,
+		IfType:        iface.IfType,
 		Metadata:      iface.Metadata,
 	}, true
 }

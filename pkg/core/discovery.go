@@ -180,15 +180,15 @@ func (s *Server) processDiscoveredInterfaces(
 			PollerID:      discoveryInitiatorPollerID,
 			DeviceIP:      protoIface.DeviceIp,
 			DeviceID:      deviceID,
-			IfIndex:       int(protoIface.IfIndex),
+			IfIndex:       protoIface.IfIndex,
 			IfName:        protoIface.IfName,
 			IfDescr:       protoIface.IfDescr,
 			IfAlias:       protoIface.IfAlias,
 			IfSpeed:       protoIface.IfSpeed,
 			IfPhysAddress: protoIface.IfPhysAddress,
 			IPAddresses:   protoIface.IpAddresses,
-			IfAdminStatus: int(protoIface.IfAdminStatus),
-			IfOperStatus:  int(protoIface.IfOperStatus),
+			IfAdminStatus: protoIface.IfAdminStatus,
+			IfOperStatus:  protoIface.IfOperStatus,
 			Metadata:      metadataJSON,
 		}
 

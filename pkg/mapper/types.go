@@ -151,16 +151,16 @@ type DiscoveredDevice struct {
 type DiscoveredInterface struct {
 	DeviceIP      string
 	DeviceID      string
-	IfIndex       int
+	IfIndex       int32
 	IfName        string
 	IfDescr       string
 	IfAlias       string
-	IfSpeed       int64
+	IfSpeed       uint64
 	IfPhysAddress string
 	IPAddresses   []string
-	IfAdminStatus int
-	IfOperStatus  int
-	IfType        int
+	IfAdminStatus int32
+	IfOperStatus  int32
+	IfType        int32
 	Metadata      map[string]string
 }
 
