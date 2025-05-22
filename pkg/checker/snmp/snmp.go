@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/carverauto/serviceradar/pkg/models"
 	"log"
 	"time"
 
@@ -39,7 +40,7 @@ func NewSNMPManager(d db.Service) SNMPManager {
 }
 
 // GetSNMPMetrics fetches SNMP metrics from the database for a given poller.
-func (s *SNMPMetricsManager) GetSNMPMetrics(ctx context.Context, pollerID string, startTime, endTime time.Time) ([]db.SNMPMetric, error) {
+func (s *SNMPMetricsManager) GetSNMPMetrics(ctx context.Context, pollerID string, startTime, endTime time.Time) ([]models.SNMPMetric, error) {
 	log.Printf("Fetching SNMP metrics for poller %s from %v to %v", pollerID, startTime, endTime)
 
 	metrics, err := s.db.GetMetricsByType(ctx, pollerID, "snmp", startTime, endTime)
@@ -47,10 +48,10 @@ func (s *SNMPMetricsManager) GetSNMPMetrics(ctx context.Context, pollerID string
 		return nil, fmt.Errorf("failed to query SNMP metrics: %w", err)
 	}
 
-	snmpMetrics := make([]db.SNMPMetric, 0, len(metrics))
+	snmpMetrics := make([]models.SNMPMetric, 0, len(metrics))
 
 	for _, m := range metrics {
-		snmpMetric := db.SNMPMetric{
+		snmpMetric := models.SNMPMetric{
 			OIDName:   m.Name,
 			Value:     m.Value,
 			ValueType: m.Type,
@@ -63,7 +64,7 @@ func (s *SNMPMetricsManager) GetSNMPMetrics(ctx context.Context, pollerID string
 		if m.Metadata != nil {
 			var metadata map[string]interface{}
 
-			if err := json.Unmarshal(m.Metadata.(json.RawMessage), &metadata); err != nil {
+			if err := json.Unmarshal(m.Metadata.([]byte), &metadata); err != nil {
 				log.Printf("Failed to unmarshal metadata for metric %s on poller %s: %v", m.Name, pollerID, err)
 
 				continue

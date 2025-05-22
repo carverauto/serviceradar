@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"log"
 	"net/http"
 	"net/url"
@@ -28,8 +29,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/checker/rperf"
-	"github.com/carverauto/serviceradar/pkg/checker/snmp"
 	"github.com/carverauto/serviceradar/pkg/core/auth"
 	"github.com/carverauto/serviceradar/pkg/db"
 	srHttp "github.com/carverauto/serviceradar/pkg/http"
@@ -87,14 +86,14 @@ func WithMetricsManager(m metrics.MetricCollector) func(server *APIServer) {
 }
 
 // WithSNMPManager adds an SNMP manager to the API server
-func WithSNMPManager(m snmp.SNMPManager) func(server *APIServer) {
+func WithSNMPManager(m metricstore.SNMPManager) func(server *APIServer) {
 	return func(server *APIServer) {
 		server.snmpManager = m
 	}
 }
 
 // WithRperfManager adds an rperf manager to the API server
-func WithRperfManager(m rperf.RperfManager) func(server *APIServer) {
+func WithRperfManager(m metricstore.RperfManager) func(server *APIServer) {
 	return func(server *APIServer) {
 		server.rperfManager = m
 	}

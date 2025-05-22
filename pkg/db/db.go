@@ -481,7 +481,7 @@ func dereferenceValue(v interface{}) interface{} {
 }
 
 // StoreMetrics stores multiple timeseries metrics in a single batch.
-func (db *DB) StoreMetrics(ctx context.Context, pollerID string, metrics []*TimeseriesMetric) error {
+func (db *DB) StoreMetrics(ctx context.Context, pollerID string, metrics []*models.TimeseriesMetric) error {
 	if len(metrics) == 0 {
 		return nil
 	}
@@ -594,7 +594,7 @@ func (db *DB) storeMemoryMetrics(ctx context.Context, pollerID string, memory mo
 }
 
 // UpdateServiceStatuses updates multiple service statuses in a single batch.
-func (db *DB) UpdateServiceStatuses(ctx context.Context, statuses []*ServiceStatus) error {
+func (db *DB) UpdateServiceStatuses(ctx context.Context, statuses []*models.ServiceStatus) error {
 	if len(statuses) == 0 {
 		return nil
 	}
@@ -771,7 +771,7 @@ func (db *DB) GetPollerStatus(ctx context.Context, pollerID string) (*models.Pol
 }
 
 // GetPollerServices retrieves services for a poller.
-func (db *DB) GetPollerServices(ctx context.Context, pollerID string) ([]ServiceStatus, error) {
+func (db *DB) GetPollerServices(ctx context.Context, pollerID string) ([]models.ServiceStatus, error) {
 	rows, err := db.Conn.Query(ctx, `
 		SELECT service_name, service_type, available, details, timestamp, agent_id
 		FROM table(service_status)
@@ -783,10 +783,10 @@ func (db *DB) GetPollerServices(ctx context.Context, pollerID string) ([]Service
 	}
 	defer CloseRows(rows)
 
-	var services []ServiceStatus
+	var services []models.ServiceStatus
 
 	for rows.Next() {
-		var s ServiceStatus
+		var s models.ServiceStatus
 
 		if err := rows.Scan(&s.ServiceName, &s.ServiceType, &s.Available, &s.Details, &s.Timestamp, &s.AgentID); err != nil {
 			return nil, fmt.Errorf("%w service row: %w", ErrFailedToScan, err)
@@ -799,7 +799,7 @@ func (db *DB) GetPollerServices(ctx context.Context, pollerID string) ([]Service
 }
 
 // GetPollerHistoryPoints retrieves history points for a poller.
-func (db *DB) GetPollerHistoryPoints(ctx context.Context, pollerID string, limit int) ([]PollerHistoryPoint, error) {
+func (db *DB) GetPollerHistoryPoints(ctx context.Context, pollerID string, limit int) ([]models.PollerHistoryPoint, error) {
 	rows, err := db.Conn.Query(ctx, `
 		SELECT timestamp, is_healthy
 		FROM table(poller_history)
@@ -812,10 +812,10 @@ func (db *DB) GetPollerHistoryPoints(ctx context.Context, pollerID string, limit
 	}
 	defer CloseRows(rows)
 
-	var points []PollerHistoryPoint
+	var points []models.PollerHistoryPoint
 
 	for rows.Next() {
-		var point PollerHistoryPoint
+		var point models.PollerHistoryPoint
 
 		if err := rows.Scan(&point.Timestamp, &point.IsHealthy); err != nil {
 			return nil, fmt.Errorf("%w history point: %w", ErrFailedToScan, err)
@@ -888,7 +888,7 @@ func (db *DB) IsPollerOffline(ctx context.Context, pollerID string, threshold ti
 }
 
 // UpdateServiceStatus updates a service's status.
-func (db *DB) UpdateServiceStatus(ctx context.Context, status *ServiceStatus) error {
+func (db *DB) UpdateServiceStatus(ctx context.Context, status *models.ServiceStatus) error {
 	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO service_status (* except _tp_time)")
 	if err != nil {
 		return fmt.Errorf("failed to prepare batch: %w", err)
@@ -914,7 +914,7 @@ func (db *DB) UpdateServiceStatus(ctx context.Context, status *ServiceStatus) er
 }
 
 // GetServiceHistory retrieves the recent history for a service.
-func (db *DB) GetServiceHistory(ctx context.Context, pollerID, serviceName string, limit int) ([]ServiceStatus, error) {
+func (db *DB) GetServiceHistory(ctx context.Context, pollerID, serviceName string, limit int) ([]models.ServiceStatus, error) {
 	rows, err := db.Conn.Query(ctx, `
 		SELECT timestamp, available, details
 		FROM table(service_status)
@@ -927,10 +927,10 @@ func (db *DB) GetServiceHistory(ctx context.Context, pollerID, serviceName strin
 	}
 	defer CloseRows(rows)
 
-	var history []ServiceStatus
+	var history []models.ServiceStatus
 
 	for rows.Next() {
-		var s ServiceStatus
+		var s models.ServiceStatus
 
 		s.PollerID = pollerID
 		s.ServiceName = serviceName
@@ -1039,7 +1039,6 @@ func (db *DB) ListPollerStatuses(ctx context.Context, patterns []string) ([]mode
 }
 
 // ListNeverReportedPollers retrieves poller IDs that have never reported (first_seen = last_seen).
-// ListNeverReportedPollers retrieves poller IDs that have never reported (first_seen = last_seen).
 func (db *DB) ListNeverReportedPollers(ctx context.Context, patterns []string) ([]string, error) {
 	query := `
         WITH history AS (
@@ -1129,7 +1128,7 @@ func (db *DB) GetAllMountPoints(ctx context.Context, pollerID string) ([]string,
 }
 
 // GetAllCPUMetrics retrieves all CPU metrics for a poller within a time range, grouped by timestamp.
-func (db *DB) GetAllCPUMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]SysmonCPUResponse, error) {
+func (db *DB) GetAllCPUMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonCPUResponse, error) {
 	rows, err := db.Conn.Query(ctx, `
 		SELECT timestamp, core_id, usage_percent
 		FROM table(cpu_metrics)
@@ -1165,10 +1164,10 @@ func (db *DB) GetAllCPUMetrics(ctx context.Context, pollerID string, start, end 
 		return nil, err
 	}
 
-	result := make([]SysmonCPUResponse, 0, len(data))
+	result := make([]models.SysmonCPUResponse, 0, len(data))
 
 	for ts, cpus := range data {
-		result = append(result, SysmonCPUResponse{
+		result = append(result, models.SysmonCPUResponse{
 			Cpus:      cpus,
 			Timestamp: ts,
 		})
@@ -1280,7 +1279,7 @@ func (db *DB) GetMemoryMetrics(ctx context.Context, pollerID string, start, end 
 }
 
 // GetAllDiskMetricsGrouped retrieves disk metrics grouped by timestamp.
-func (db *DB) GetAllDiskMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]SysmonDiskResponse, error) {
+func (db *DB) GetAllDiskMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonDiskResponse, error) {
 	rows, err := db.Conn.Query(ctx, `
 		SELECT timestamp, mount_point, used_bytes, total_bytes
 		FROM table(disk_metrics)
@@ -1318,10 +1317,10 @@ func (db *DB) GetAllDiskMetricsGrouped(ctx context.Context, pollerID string, sta
 		return nil, err
 	}
 
-	result := make([]SysmonDiskResponse, 0, len(data))
+	result := make([]models.SysmonDiskResponse, 0, len(data))
 
 	for ts, disks := range data {
-		result = append(result, SysmonDiskResponse{
+		result = append(result, models.SysmonDiskResponse{
 			Disks:     disks,
 			Timestamp: ts,
 		})
@@ -1336,7 +1335,7 @@ func (db *DB) GetAllDiskMetricsGrouped(ctx context.Context, pollerID string, sta
 }
 
 // GetMemoryMetricsGrouped retrieves memory metrics grouped by timestamp.
-func (db *DB) GetMemoryMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]SysmonMemoryResponse, error) {
+func (db *DB) GetMemoryMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonMemoryResponse, error) {
 	rows, err := db.Conn.Query(ctx, `
 		SELECT timestamp, used_bytes, total_bytes
 		FROM table(memory_metrics)
@@ -1350,7 +1349,7 @@ func (db *DB) GetMemoryMetricsGrouped(ctx context.Context, pollerID string, star
 	}
 	defer CloseRows(rows)
 
-	var result []SysmonMemoryResponse
+	var result []models.SysmonMemoryResponse
 
 	for rows.Next() {
 		var m models.MemoryMetric
@@ -1365,7 +1364,7 @@ func (db *DB) GetMemoryMetricsGrouped(ctx context.Context, pollerID string, star
 
 		m.Timestamp = timestamp
 
-		result = append(result, SysmonMemoryResponse{
+		result = append(result, models.SysmonMemoryResponse{
 			Memory:    m,
 			Timestamp: timestamp,
 		})

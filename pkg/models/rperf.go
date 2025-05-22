@@ -70,7 +70,7 @@ type RperfMetric struct {
 	// Test name or identifier
 	Name string `json:"name" example:"rperf_tcp_test"`
 	// Network throughput in bits per second
-	BitsPerSecond float64 `json:"bits_per_second" example:"943215000"`
+	BitsPerSec float64 `json:"bits_per_second" example:"943215000"`
 	// Total bytes received during the test
 	BytesReceived int64 `json:"bytes_received" example:"12582912"`
 	// Total bytes sent during the test

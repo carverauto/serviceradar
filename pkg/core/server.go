@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"log"
 	"os"
 	"path/filepath"
@@ -29,7 +30,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/checker/rperf"
 	"github.com/carverauto/serviceradar/pkg/checker/snmp"
 	"github.com/carverauto/serviceradar/pkg/core/alerts"
 	"github.com/carverauto/serviceradar/pkg/core/api"
@@ -90,12 +90,12 @@ func NewServer(ctx context.Context, config *models.DBConfig) (*Server, error) {
 		ShutdownChan:        make(chan struct{}),
 		pollerPatterns:      normalizedConfig.PollerPatterns,
 		metrics:             metricsManager,
-		snmpManager:         snmp.NewSNMPManager(database),
-		rperfManager:        rperf.NewRperfManager(database),
+		snmpManager:         metricstore.NewSNMPManager(database),
+		rperfManager:        metricstore.NewRperfManager(database),
 		config:              normalizedConfig,
 		authService:         auth.NewAuth(authConfig, database),
-		metricBuffers:       make(map[string][]*db.TimeseriesMetric),
-		serviceBuffers:      make(map[string][]*db.ServiceStatus),
+		metricBuffers:       make(map[string][]*models.TimeseriesMetric),
+		serviceBuffers:      make(map[string][]*models.ServiceStatus),
 		sysmonBuffers:       make(map[string][]*models.SysmonMetrics),
 		bufferMu:            sync.RWMutex{},
 		pollerStatusCache:   make(map[string]*models.PollerStatus),
@@ -668,7 +668,7 @@ func (s *Server) processServices(
 	services []*proto.ServiceStatus,
 	now time.Time) {
 	allServicesAvailable := true
-	serviceStatuses := make([]*db.ServiceStatus, 0, len(services))
+	serviceStatuses := make([]*models.ServiceStatus, 0, len(services))
 
 	for _, svc := range services {
 		apiService := s.createAPIService(svc)
@@ -681,13 +681,13 @@ func (s *Server) processServices(
 			log.Printf("Error processing details for service %s on poller %s: %v", svc.ServiceName, pollerID, err)
 		}
 
-		serviceStatuses = append(serviceStatuses, &db.ServiceStatus{
+		serviceStatuses = append(serviceStatuses, &models.ServiceStatus{
 			AgentID:     svc.AgentId,
 			PollerID:    svc.PollerId,
 			ServiceName: apiService.Name,
 			ServiceType: apiService.Type,
 			Available:   apiService.Available,
-			Details:     apiService.Message,
+			Details:     json.RawMessage(apiService.Message), // TODO: not sure if this is a good idea
 			Timestamp:   now,
 		})
 
@@ -893,7 +893,7 @@ func (s *Server) processRperfMetrics(pollerID string, details json.RawMessage, t
 		return fmt.Errorf("failed to parse rperf data: %w", err)
 	}
 
-	var timeseriesMetrics []*db.TimeseriesMetric
+	var timeseriesMetrics []*models.TimeseriesMetric
 
 	for _, result := range rperfData.Results {
 		if !result.Success {
@@ -943,7 +943,7 @@ func (s *Server) processRperfMetrics(pollerID string, details json.RawMessage, t
 		}
 
 		for _, m := range metricsToStore {
-			metric := &db.TimeseriesMetric{
+			metric := &models.TimeseriesMetric{
 				Name:      m.Name,
 				Value:     m.Value,
 				Type:      "rperf",
@@ -976,7 +976,7 @@ func (s *Server) processICMPMetrics(pollerID string, svc *proto.ServiceStatus, d
 		return fmt.Errorf("failed to parse ICMP data: %w", err)
 	}
 
-	metric := &db.TimeseriesMetric{
+	metric := &models.TimeseriesMetric{
 		Name:      fmt.Sprintf("icmp_%s_response_time_ms", svc.ServiceName),
 		Value:     fmt.Sprintf("%d", pingResult.ResponseTime),
 		Type:      "icmp",
@@ -1023,7 +1023,7 @@ func (s *Server) processSNMPMetrics(pollerID string, details json.RawMessage, ti
 		return fmt.Errorf("failed to parse SNMP data: %w", err)
 	}
 
-	var timeseriesMetrics []*db.TimeseriesMetric
+	var timeseriesMetrics []*models.TimeseriesMetric
 
 	for targetName, targetData := range snmpData {
 		for oidName, oidStatus := range targetData.OIDStatus {
@@ -1033,7 +1033,7 @@ func (s *Server) processSNMPMetrics(pollerID string, details json.RawMessage, ti
 			}
 
 			valueStr := fmt.Sprintf("%v", oidStatus.LastValue)
-			metric := &db.TimeseriesMetric{
+			metric := &models.TimeseriesMetric{
 				Name:      oidName,
 				Value:     valueStr,
 				Type:      "snmp",
@@ -1099,7 +1099,7 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, n
 		svc.Message = string(updatedMessage)
 	}
 
-	sweepResults := make([]*db.SweepResult, 0, len(sweepData.Hosts))
+	sweepResults := make([]*models.SweepResult, 0, len(sweepData.Hosts))
 
 	for _, host := range sweepData.Hosts {
 		if host.IP == "" {
@@ -1113,7 +1113,7 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, n
 			metadata = make(map[string]string)
 		}
 
-		sweepResult := &db.SweepResult{
+		sweepResult := &models.SweepResult{
 			AgentID:         svc.AgentID,
 			PollerID:        svc.PollerID,
 			DiscoverySource: "sweep",
@@ -1277,7 +1277,7 @@ func (s *Server) sendUnreportedPollersAlert(ctx context.Context, pollerIDs []str
 	}
 }
 
-func (s *Server) GetRperfManager() rperf.RperfManager {
+func (s *Server) GetRperfManager() metricstore.RperfManager {
 	return s.rperfManager
 }
 
