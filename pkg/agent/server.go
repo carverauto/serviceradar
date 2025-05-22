@@ -534,6 +534,13 @@ func (s *Server) handleDefaultChecker(ctx context.Context, req *proto.StatusRequ
 
 	available, message := c.Check(ctx)
 
+	// print out details from the request so we can see what was sent and what was asked for
+	log.Printf("Checker request - Type: %s, Name: %s, Details: %s",
+		req.GetServiceType(), req.GetServiceName(), req.GetDetails())
+
+	log.Println("Checker response (message):", message)
+	log.Printf("Checker response (avail): %v", available)
+
 	return &proto.StatusResponse{
 		Available:   available,
 		Message:     message,
