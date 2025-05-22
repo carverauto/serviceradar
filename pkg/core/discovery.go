@@ -184,7 +184,7 @@ func (s *Server) processDiscoveredInterfaces(
 			IfName:        protoIface.IfName,
 			IfDescr:       protoIface.IfDescr,
 			IfAlias:       protoIface.IfAlias,
-			IfSpeed:       protoIface.IfSpeed,
+			IfSpeed:       protoIface.IfSpeed.GetValue(), // Unwrap the uint64 value
 			IfPhysAddress: protoIface.IfPhysAddress,
 			IPAddresses:   protoIface.IpAddresses,
 			IfAdminStatus: protoIface.IfAdminStatus,

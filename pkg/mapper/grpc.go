@@ -18,6 +18,7 @@ package mapper
 
 import (
 	"context"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 	"log"
 	"math"
 	"time"
@@ -132,7 +133,7 @@ func convertInterfaceToProto(iface *DiscoveredInterface) (*proto.DiscoveredInter
 		IfName:        iface.IfName,
 		IfDescr:       iface.IfDescr,
 		IfAlias:       iface.IfAlias,
-		IfSpeed:       iface.IfSpeed,
+		IfSpeed:       wrapperspb.UInt64(iface.IfSpeed), // wrap the uint64 IfSpeed value
 		IfPhysAddress: iface.IfPhysAddress,
 		IpAddresses:   iface.IPAddresses,
 		IfAdminStatus: iface.IfAdminStatus,
