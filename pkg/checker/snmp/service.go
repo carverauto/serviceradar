@@ -32,29 +32,33 @@ const (
 	defaultServiceStatusTimeout = 5 * time.Second
 )
 
-func (s *SNMPService) Check(ctx context.Context) (status bool, msg string) {
+func (s *SNMPService) Check(ctx context.Context) (available bool, msg string) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	_, cancel := context.WithTimeout(ctx, defaultServiceStatusTimeout)
-	defer cancel()
-
-	// If no targets are configured, the service is not available
-	if len(s.collectors) == 0 {
-		return false, "no targets configured"
+	// Re-using the GetStatus logic to get the detailed map
+	statusMap, err := s.GetStatus(ctx)
+	if err != nil {
+		return false, fmt.Sprintf("Error getting detailed SNMP status: %v", err)
 	}
 
-	// Check each target's status
-	for name, collector := range s.collectors {
-		status := collector.GetStatus()
+	// Marshal the status map to JSON for the message content
+	statusJSON, err := json.Marshal(statusMap)
+	if err != nil {
+		return false, fmt.Sprintf("Error marshaling SNMP status to JSON: %v", err)
+	}
 
-		// If any target is unavailable, the service is considered unavailable
-		if !status.Available {
-			return false, fmt.Sprintf("target %s is unavailable: %s", name, status.Error)
+	// Determine overall availability
+	overallAvailable := true
+	for _, targetStatus := range statusMap {
+		if !targetStatus.Available {
+			overallAvailable = false
+			break
 		}
 	}
 
-	return true, ""
+	// Always return the marshaled JSON in the message, regardless of overall availability
+	return overallAvailable, string(statusJSON)
 }
 
 // NewSNMPService creates a new SNMP monitoring service.
