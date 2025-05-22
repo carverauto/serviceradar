@@ -63,17 +63,26 @@ func (p *ProcessChecker) validateProcessName() error {
 
 // Check validates if a process is running.
 func (p *ProcessChecker) Check(ctx context.Context) (isActive bool, statusMsg string) {
+	log.Printf("Checking process %q", p.ProcessName)
+
 	// Validate process name before executing command
 	if err := p.validateProcessName(); err != nil {
+		log.Printf("Failed to validate process name: %v", err)
 		return false, fmt.Sprintf("Invalid process name: %v", err)
 	}
 
-	cmd := exec.CommandContext(ctx, "systemctl", "is-active", p.ProcessName) //nolint:gosec // checking above
+	cmd := exec.CommandContext(ctx, "systemctl", "is-active", p.ProcessName)
+	log.Printf("Running command: %v", cmd)
 
 	output, err := cmd.Output()
 	if err != nil {
-		return false, fmt.Sprintf("Process %s is not running", p.ProcessName)
+		// Command failed, process is not active
+		return false, fmt.Sprintf("Process %s is not running: %v", p.ProcessName, err)
 	}
+
+	// Command succeeded, process is active
+	log.Printf("Process %s is running", p.ProcessName)
+	isActive = true
 
 	status := strings.TrimSpace(string(output))
 
