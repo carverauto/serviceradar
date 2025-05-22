@@ -52,7 +52,7 @@ type HealthServer struct {
 }
 
 // GetStatus implements the AgentService GetStatus method.
-func (s *PollerService) GetStatus(ctx context.Context, _ *proto.StatusRequest) (*proto.StatusResponse, error) {
+func (s *PollerService) GetStatus(ctx context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
 	s.checker.mu.RLock()
 	defer s.checker.mu.RUnlock()
 
@@ -70,6 +70,7 @@ func (s *PollerService) GetStatus(ctx context.Context, _ *proto.StatusRequest) (
 		return &proto.StatusResponse{
 			Available: false,
 			Message:   fmt.Sprintf("Failed to get status from SNMP service: %v", err),
+			AgentId:   req.AgentId,
 		}, nil
 	}
 
@@ -79,6 +80,7 @@ func (s *PollerService) GetStatus(ctx context.Context, _ *proto.StatusRequest) (
 		return &proto.StatusResponse{
 			Available: false,
 			Message:   fmt.Sprintf("Failed to marshal status to JSON: %v", err),
+			AgentId:   req.AgentId,
 		}, nil
 	}
 
@@ -97,6 +99,7 @@ func (s *PollerService) GetStatus(ctx context.Context, _ *proto.StatusRequest) (
 		Message:     string(statusJSON),
 		ServiceName: "snmp",
 		ServiceType: "snmp",
+		AgentId:     req.AgentId,
 	}, nil
 }
 
