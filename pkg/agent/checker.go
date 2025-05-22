@@ -71,7 +71,7 @@ func (p *ProcessChecker) Check(ctx context.Context) (isActive bool, statusMsg st
 		return false, fmt.Sprintf("Invalid process name: %v", err)
 	}
 
-	cmd := exec.CommandContext(ctx, "systemctl", "is-active", p.ProcessName)
+	cmd := exec.CommandContext(ctx, "systemctl", "is-active", p.ProcessName) //nolint:gosec // checking above
 	log.Printf("Running command: %v", cmd)
 
 	output, err := cmd.Output()
