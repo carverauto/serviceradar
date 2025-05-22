@@ -845,7 +845,7 @@ type DiscoveredInterface struct {
 	IfName        string                 `protobuf:"bytes,3,opt,name=if_name,json=ifName,proto3" json:"if_name,omitempty"`                                                                  // Interface name
 	IfDescr       string                 `protobuf:"bytes,4,opt,name=if_descr,json=ifDescr,proto3" json:"if_descr,omitempty"`                                                               // Interface description
 	IfAlias       string                 `protobuf:"bytes,5,opt,name=if_alias,json=ifAlias,proto3" json:"if_alias,omitempty"`                                                               // Interface alias
-	IfSpeed       int64                  `protobuf:"varint,6,opt,name=if_speed,json=ifSpeed,proto3" json:"if_speed,omitempty"`                                                              // Interface speed in bits per second
+	IfSpeed       uint64                 `protobuf:"varint,6,opt,name=if_speed,json=ifSpeed,proto3" json:"if_speed,omitempty"`                                                              // Interface speed in bits per second
 	IfPhysAddress string                 `protobuf:"bytes,7,opt,name=if_phys_address,json=ifPhysAddress,proto3" json:"if_phys_address,omitempty"`                                           // Interface physical (MAC) address
 	IpAddresses   []string               `protobuf:"bytes,8,rep,name=ip_addresses,json=ipAddresses,proto3" json:"ip_addresses,omitempty"`                                                   // IP addresses assigned to this interface
 	IfAdminStatus int32                  `protobuf:"varint,9,opt,name=if_admin_status,json=ifAdminStatus,proto3" json:"if_admin_status,omitempty"`                                          // Administrative status (1=up, 2=down)
@@ -922,7 +922,7 @@ func (x *DiscoveredInterface) GetIfAlias() string {
 	return ""
 }
 
-func (x *DiscoveredInterface) GetIfSpeed() int64 {
+func (x *DiscoveredInterface) GetIfSpeed() uint64 {
 	if x != nil {
 		return x.IfSpeed
 	}
@@ -1259,7 +1259,7 @@ var file_discovery_discovery_proto_rawDesc = string([]byte{
 	0x63, 0x72, 0x18, 0x04, 0x20, 0x01, 0x28, 0x09, 0x52, 0x07, 0x69, 0x66, 0x44, 0x65, 0x73, 0x63,
 	0x72, 0x12, 0x19, 0x0a, 0x08, 0x69, 0x66, 0x5f, 0x61, 0x6c, 0x69, 0x61, 0x73, 0x18, 0x05, 0x20,
 	0x01, 0x28, 0x09, 0x52, 0x07, 0x69, 0x66, 0x41, 0x6c, 0x69, 0x61, 0x73, 0x12, 0x19, 0x0a, 0x08,
-	0x69, 0x66, 0x5f, 0x73, 0x70, 0x65, 0x65, 0x64, 0x18, 0x06, 0x20, 0x01, 0x28, 0x03, 0x52, 0x07,
+	0x69, 0x66, 0x5f, 0x73, 0x70, 0x65, 0x65, 0x64, 0x18, 0x06, 0x20, 0x01, 0x28, 0x04, 0x52, 0x07,
 	0x69, 0x66, 0x53, 0x70, 0x65, 0x65, 0x64, 0x12, 0x26, 0x0a, 0x0f, 0x69, 0x66, 0x5f, 0x70, 0x68,
 	0x79, 0x73, 0x5f, 0x61, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x18, 0x07, 0x20, 0x01, 0x28, 0x09,
 	0x52, 0x0d, 0x69, 0x66, 0x50, 0x68, 0x79, 0x73, 0x41, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x12,

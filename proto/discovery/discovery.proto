@@ -123,7 +123,7 @@ message DiscoveredInterface {
   string if_name = 3;             // Interface name
   string if_descr = 4;            // Interface description
   string if_alias = 5;            // Interface alias
-  int64 if_speed = 6;             // Interface speed in bits per second
+  uint64 if_speed = 6;             // Interface speed in bits per second
   string if_phys_address = 7;     // Interface physical (MAC) address
   repeated string ip_addresses = 8; // IP addresses assigned to this interface
   int32 if_admin_status = 9;      // Administrative status (1=up, 2=down)

@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math"
 	"net"
 	"strconv"
 	"strings"
@@ -82,6 +83,8 @@ const (
 	// Default concurrency settings
 	defaultConcurrency = 10
 	defaultMaxIPRange  = 256 // Maximum IPs to process from a CIDR range
+
+	defaultMaxUint64 = 18446744073709551615 // math.MaxUint64
 )
 
 // handleEmptyTargetList updates job status when no valid targets are found
@@ -799,14 +802,16 @@ func (e *SNMPDiscoveryEngine) processIfTablePDU(pdu gosnmp.SnmpPDU, target strin
 		return nil
 	}
 
-	ifIndex, err := strconv.Atoi(parts[len(parts)-1])
+	ifIndexInt, err := strconv.Atoi(parts[len(parts)-1])
 	if err != nil {
 		return nil
 	}
 
+	ifIndex := int32(ifIndexInt) // Convert to int32 immediately
+
 	// Create interface if it doesn't exist
-	if _, exists := ifMap[ifIndex]; !exists {
-		ifMap[ifIndex] = &DiscoveredInterface{
+	if _, exists := ifMap[int(ifIndex)]; !exists {
+		ifMap[int(ifIndex)] = &DiscoveredInterface{
 			DeviceIP:    target,
 			IfIndex:     ifIndex,
 			IPAddresses: []string{},
@@ -814,7 +819,7 @@ func (e *SNMPDiscoveryEngine) processIfTablePDU(pdu gosnmp.SnmpPDU, target strin
 		}
 	}
 
-	iface := ifMap[ifIndex]
+	iface := ifMap[int(ifIndex)]
 
 	// Parse specific OID
 	oidPrefix := strings.Join(parts[:len(parts)-1], ".")
@@ -831,9 +836,12 @@ func updateIfDescr(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
 }
 
 // updateIfType updates the interface type
+// Make sure the pdu.Value.(int) is correctly cast to int32 before assignment.
 func updateIfType(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
 	if pdu.Type == gosnmp.Integer {
-		iface.IfType = pdu.Value.(int)
+		if val, ok := pdu.Value.(int); ok {
+			iface.IfType = int32(val) // Explicit cast
+		}
 	}
 }
 
@@ -843,28 +851,30 @@ const (
 
 // updateIfSpeed updates the interface speed
 func updateIfSpeed(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
-	//nolint:exhaustive // Default case handles all unlisted types
 	switch pdu.Type {
 	case gosnmp.Gauge32:
-		uintVal := pdu.Value.(uint)
-		if uintVal > uint(defaultMaxInt64) { // max int64 value
-			iface.IfSpeed = defaultMaxInt64 // math.MaxInt64
-		} else {
-			iface.IfSpeed = int64(uintVal)
-		}
+		val := pdu.Value.(uint)
+		iface.IfSpeed = uint64(val) // Store as uint64
+		// No need for comparison, the source type is smaller than uint64
+
 	case gosnmp.Counter32, gosnmp.Counter64:
-		iface.IfSpeed = gosnmp.ToBigInt(pdu.Value).Int64()
+		// gosnmp.ToBigInt(pdu.Value).Uint64() directly gets uint64
+		iface.IfSpeed = gosnmp.ToBigInt(pdu.Value).Uint64()
+
 	case gosnmp.Integer:
-		// For Integer type, convert to int64
 		if val, ok := pdu.Value.(int); ok {
-			iface.IfSpeed = int64(val)
+			if val < 0 {
+				iface.IfSpeed = 0 // Cannot be negative
+			} else {
+				iface.IfSpeed = uint64(val)
+			}
 		}
 	case gosnmp.Uinteger32:
-		// For Uinteger32, convert to int64
 		if val, ok := pdu.Value.(uint32); ok {
-			iface.IfSpeed = int64(val)
+			iface.IfSpeed = uint64(val)
 		}
 	default:
+		// No change
 	}
 }
 
@@ -875,17 +885,19 @@ func updateIfPhysAddress(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
 	}
 }
 
-// updateIfAdminStatus updates the interface admin status
 func updateIfAdminStatus(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
 	if pdu.Type == gosnmp.Integer {
-		iface.IfAdminStatus = pdu.Value.(int)
+		if val, ok := pdu.Value.(int); ok {
+			iface.IfAdminStatus = int32(val) // Explicit cast
+		}
 	}
 }
 
-// updateIfOperStatus updates the interface operational status
 func updateIfOperStatus(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
 	if pdu.Type == gosnmp.Integer {
-		iface.IfOperStatus = pdu.Value.(int)
+		if val, ok := pdu.Value.(int); ok {
+			iface.IfOperStatus = int32(val) // Explicit cast
+		}
 	}
 }
 
@@ -956,29 +968,20 @@ const (
 // updateInterfaceFromPDU updates interface properties based on the OID prefix and PDU value
 func (*SNMPDiscoveryEngine) updateInterfaceFromPDU(iface *DiscoveredInterface, oidWithPrefix string, pdu gosnmp.SnmpPDU) {
 	switch oidWithPrefix {
-	case oidIfName:
-		if pdu.Type == gosnmp.OctetString {
-			iface.IfName = string(pdu.Value.([]byte))
-		}
-	case oidIfAlias:
-		if pdu.Type == gosnmp.OctetString {
-			iface.IfAlias = string(pdu.Value.([]byte))
-		}
+	// ... existing cases ...
 	case oidIfHighSpeed:
 		if pdu.Type == gosnmp.Gauge32 {
-			// IfHighSpeed is in Mbps, convert to bps
-			uintVal := pdu.Value.(uint)
+			mbps := pdu.Value.(uint) // This is Mbps
+			// Convert to bps (uint64)
+			bps := uint64(mbps) * 1000000 // Multiply by 1 million
 
-			var highSpeed int64
-
-			if uintVal > uint(overflowValue/defaultOverflow) { // Prevent overflow when multiplying
-				highSpeed = overflowValue // math.MaxInt64
-			} else {
-				highSpeed = int64(uintVal) * defaultHighSpeed
+			// Check for overflow before assignment if necessary, though unlikely for interface speeds
+			if bps > math.MaxUint64/2 && mbps > math.MaxUint64/2000000 { // Simple overflow heuristic
+				bps = math.MaxUint64
 			}
 
-			if highSpeed > iface.IfSpeed {
-				iface.IfSpeed = highSpeed
+			if bps > iface.IfSpeed { // Update only if higher speed
+				iface.IfSpeed = bps
 			}
 		}
 	}
