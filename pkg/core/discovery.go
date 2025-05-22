@@ -38,7 +38,8 @@ func (s *Server) processSNMPDiscoveryResults(
 	details json.RawMessage,
 	timestamp time.Time,
 ) error {
-	var payload SNMPDiscoveryDataPayload
+	var payload models.SNMPDiscoveryDataPayload
+
 	if err := json.Unmarshal(details, &payload); err != nil {
 		log.Printf("Error unmarshaling SNMP discovery data for poller %s, service %s: %v. Payload: %s",
 			reportingPollerID, svc.ServiceName, err, string(details))
