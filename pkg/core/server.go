@@ -59,6 +59,7 @@ const (
 	defaultFlushInterval              = 10 * time.Second
 
 	snmpDiscoveryResultsServiceType = "snmp-discovery-results"
+	mapperDiscoveryServiceType      = "mapper_discovery" // Add this new constant
 )
 
 func NewServer(ctx context.Context, config *models.DBConfig) (*Server, error) {
@@ -766,7 +767,7 @@ func (s *Server) processMetrics(
 		}
 	case icmpServiceType:
 		return s.processICMPMetrics(pollerID, svc, details, now)
-	case snmpDiscoveryResultsServiceType:
+	case snmpDiscoveryResultsServiceType, mapperDiscoveryServiceType:
 		return s.processSNMPDiscoveryResults(ctx, pollerID, svc, details, now)
 	}
 
@@ -785,6 +786,9 @@ func (*Server) createAPIService(svc *proto.ServiceStatus) api.ServiceStatus {
 }
 
 func (*Server) parseServiceDetails(svc *proto.ServiceStatus) (json.RawMessage, error) {
+	// print out the raw message for debugging
+	log.Printf("Raw message for service %s: %s", svc.ServiceName, svc.Message)
+
 	sanitized := strings.ReplaceAll(svc.Message, `""`, `"`)
 
 	var details json.RawMessage
