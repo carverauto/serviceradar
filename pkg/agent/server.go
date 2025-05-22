@@ -485,7 +485,7 @@ func (s *Server) handleRperfChecker(ctx context.Context, req *proto.StatusReques
 		ServiceName: "",
 		ServiceType: "grpc",
 		Details:     "",
-		AgentId:     s.config.AgentID, // Propagate AgentId
+		AgentId:     s.config.AgentID,
 	})
 }
 
@@ -516,6 +516,7 @@ func (s *Server) handleICMPCheck(ctx context.Context, req *proto.StatusRequest) 
 			ServiceName:  "icmp_check",
 			ServiceType:  "icmp",
 			ResponseTime: result.RespTime.Nanoseconds(),
+			AgentId:      s.config.AgentID,
 		}, nil
 	}
 
@@ -523,12 +524,22 @@ func (s *Server) handleICMPCheck(ctx context.Context, req *proto.StatusRequest) 
 }
 
 func (s *Server) handleDefaultChecker(ctx context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
+	// set the agentID in the request
+	req.AgentId = s.config.AgentID
+
 	c, err := s.getChecker(ctx, req)
 	if err != nil {
 		return nil, err
 	}
 
 	available, message := c.Check(ctx)
+
+	// print out details from the request so we can see what was sent and what was asked for
+	log.Printf("Checker request - Type: %s, Name: %s, Details: %s",
+		req.GetServiceType(), req.GetServiceName(), req.GetDetails())
+
+	log.Println("Checker response (message):", message)
+	log.Printf("Checker response (avail): %v", available)
 
 	return &proto.StatusResponse{
 		Available:   available,
@@ -628,6 +639,7 @@ func (s *Server) getSweepStatus(ctx context.Context) (*proto.StatusResponse, err
 		Message:     "Sweep service not configured",
 		ServiceName: "network_sweep",
 		ServiceType: "sweep",
+		AgentId:     s.config.AgentID, // Ensure AgentId is set
 	}, nil
 }
 
