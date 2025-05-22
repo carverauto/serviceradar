@@ -26,7 +26,6 @@ import (
 	"log"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/models"
 	discoverypb "github.com/carverauto/serviceradar/proto/discovery"
 )
@@ -89,7 +88,7 @@ func (s *Server) processDiscoveredDevices(
 	reportingPollerID string,
 	timestamp time.Time,
 ) {
-	sweepResults := make([]*db.SweepResult, 0, len(devices))
+	sweepResults := make([]*models.SweepResult, 0, len(devices))
 
 	for _, protoDevice := range devices {
 		if protoDevice == nil {
@@ -100,7 +99,7 @@ func (s *Server) processDiscoveredDevices(
 		hostname := protoDevice.Hostname
 		mac := protoDevice.Mac
 
-		sweepResult := &db.SweepResult{
+		sweepResult := &models.SweepResult{
 			AgentID:         discoveryAgentID,
 			PollerID:        discoveryInitiatorPollerID,
 			DiscoverySource: "snmp_discovery",
