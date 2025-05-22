@@ -28,15 +28,15 @@ type DiscoveredInterface struct {
 	PollerID      string          `json:"poller_id"`
 	DeviceIP      string          `json:"device_ip"`
 	DeviceID      string          `json:"device_id"`
-	IfIndex       int             `json:"ifIndex"`
+	IfIndex       int32           `json:"ifIndex"`
 	IfName        string          `json:"ifName"`
 	IfDescr       string          `json:"ifDescr"`
 	IfAlias       string          `json:"ifAlias"`
-	IfSpeed       int64           `json:"ifSpeed"`
+	IfSpeed       uint64          `json:"ifSpeed"`
 	IfPhysAddress string          `json:"ifPhysAddress"`
 	IPAddresses   []string        `json:"ip_addresses"`
-	IfAdminStatus int             `json:"ifAdminStatus"`
-	IfOperStatus  int             `json:"ifOperStatus"`
+	IfAdminStatus int32           `json:"ifAdminStatus"`
+	IfOperStatus  int32           `json:"ifOperStatus"`
 	Metadata      json.RawMessage `json:"metadata"`
 }
 

@@ -26,7 +26,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -789,11 +788,9 @@ func (*Server) parseServiceDetails(svc *proto.ServiceStatus) (json.RawMessage, e
 	// print out the raw message for debugging
 	log.Printf("Raw message for service %s: %s", svc.ServiceName, svc.Message)
 
-	sanitized := strings.ReplaceAll(svc.Message, `""`, `"`)
-
 	var details json.RawMessage
 
-	if err := json.Unmarshal([]byte(sanitized), &details); err != nil {
+	if err := json.Unmarshal([]byte(svc.Message), &details); err != nil {
 		log.Printf("Error unmarshaling service details for %s: %v", svc.ServiceName, err)
 		return nil, err
 	}
@@ -861,7 +858,7 @@ func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, 
 	for i, cpu := range sysmonData.CPUs {
 		m.CPUs[i] = models.CPUMetric{
 			CoreID:       cpu.CoreID,
-			UsagePercent: float64(cpu.UsagePercent),
+			UsagePercent: cpu.UsagePercent,
 			Timestamp:    pollerTimestamp, // Use poller's timestamp
 		}
 	}
