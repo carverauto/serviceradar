@@ -69,8 +69,8 @@ func (m *rperfManagerImpl) StoreRperfMetric(ctx context.Context, pollerID string
 }
 
 // GetRperfMetrics retrieves rperf metrics for a poller within a time range.
+// pkg/metricstore/rperf_manager.go - MODIFIED
 func (m *rperfManagerImpl) GetRperfMetrics(ctx context.Context, pollerID string, startTime, endTime time.Time) ([]*models.RperfMetric, error) {
-	// Query the generic timeseries metrics
 	tsMetrics, err := m.db.GetMetricsByType(ctx, pollerID, "rperf", startTime, endTime)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query rperf timeseries metrics: %w", err)
@@ -79,13 +79,40 @@ func (m *rperfManagerImpl) GetRperfMetrics(ctx context.Context, pollerID string,
 	rperfMetrics := make([]*models.RperfMetric, 0, len(tsMetrics))
 	for _, m := range tsMetrics {
 		if m.Metadata != nil {
-			var rperfMetric models.RperfMetric // Use metrics.RperfMetric
-			if err := json.Unmarshal(m.Metadata.([]byte), &rperfMetric); err != nil {
+			var rperfMetric models.RperfMetric
+			var metadataBytes []byte // Temporary buffer for unmarshaling
+
+			// Handle different possible types of m.Metadata returned from the DB
+			switch md := m.Metadata.(type) {
+			case []byte:
+				// If it's already []byte (which json.RawMessage is), use it directly
+				metadataBytes = md
+			case string:
+				// If it's a string, convert to []byte
+				metadataBytes = []byte(md)
+			case json.RawMessage: // Explicitly handle json.RawMessage
+				metadataBytes = md
+			case map[string]interface{}:
+				// If it's already a map (e.g., if the DB driver unmarshaled it), marshal it back to bytes
+				var marshalErr error
+				metadataBytes, marshalErr = json.Marshal(md)
+				if marshalErr != nil {
+					log.Printf("Warning: failed to re-marshal map metadata for rperf metric %s: %v", m.Name, marshalErr)
+					continue
+				}
+			default:
+				log.Printf("Warning: Unsupported metadata type for rperf metric %s: %T", m.Name, m.Metadata)
+				continue
+			}
+
+			// Now unmarshal from the prepared bytes
+			if err := json.Unmarshal(metadataBytes, &rperfMetric); err != nil {
 				log.Printf("Warning: failed to unmarshal rperf metadata for metric %s: %v", m.Name, err)
 				continue
 			}
 			rperfMetrics = append(rperfMetrics, &rperfMetric)
 		}
 	}
+
 	return rperfMetrics, nil
 }
