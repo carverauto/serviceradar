@@ -628,6 +628,7 @@ func (s *Server) getSweepStatus(ctx context.Context) (*proto.StatusResponse, err
 		Message:     "Sweep service not configured",
 		ServiceName: "network_sweep",
 		ServiceType: "sweep",
+		AgentId:     s.config.AgentID, // Ensure AgentId is set
 	}, nil
 }
 
