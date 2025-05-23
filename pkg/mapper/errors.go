@@ -39,4 +39,5 @@ var (
 	ErrNoLLDPNeighborsFound    = errors.New("no LLDP neighbors found")
 	ErrNoCDPNeighborsFound     = errors.New("no CDP neighbors found")
 	ErrNoICMPResponse          = errors.New("no ICMP response")
+	ErrInt32RangeExceeded      = errors.New("value exceeds int32 range")
 )
