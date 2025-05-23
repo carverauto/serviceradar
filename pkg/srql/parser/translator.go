@@ -61,9 +61,30 @@ func (*Translator) getEntityPrimaryKey(entity models.EntityType) (string, bool) 
 	case models.Interfaces:
 		// For interfaces, a composite key of device_ip and ifIndex is typically used for uniqueness
 		return "device_ip, ifIndex", true
-	// Add other non-versioned_kv entities here if you want 'LATEST' to work for them using ROW_NUMBER()
-	// case models.Flows:
-	//    return "flow_id", true // Example: if you have a flow_id for flows to get latest flow per ID
+	case models.Devices:
+		// Devices is a versioned_kv stream, naturally providing latest
+		return "", false
+	case models.Flows:
+		// Assuming flow_id is the primary key for flows
+		return "flow_id", true
+	case models.Traps:
+		// Assuming trap_id or similar is the primary key for traps
+		return "", false
+	case models.Connections:
+		// Assuming connection_id or similar is the primary key for connections
+		return "", false
+	case models.Logs:
+		// Assuming log_id or similar is the primary key for logs
+		return "", false
+	case models.SweepResults:
+		// SweepResults is a versioned_kv stream
+		return "", false
+	case models.ICMPResults:
+		// ICMPResults is a versioned_kv stream
+		return "", false
+	case models.SNMPResults:
+		// SNMPResults is a versioned_kv stream
+		return "", false
 	default:
 		return "", false // Indicate LATEST is not supported for this entity or it's versioned_kv
 	}
@@ -117,6 +138,85 @@ func (t *Translator) buildClickHouseQuery(query *models.Query) (string, error) {
 	return sql.String(), nil
 }
 
+// getProtonBaseTableName returns the base table name for a given entity type
+func (t *Translator) getProtonBaseTableName(entity models.EntityType) string {
+	switch entity {
+	case models.Devices:
+		return "devices"
+	case models.Flows:
+		return "netflow_metrics"
+	case models.Interfaces:
+		return "discovered_interfaces"
+	case models.Traps:
+		return "traps"
+	case models.Connections:
+		return "connections"
+	case models.Logs:
+		return "logs"
+	case models.SweepResults:
+		return "sweep_results"
+	case models.ICMPResults:
+		return "icmp_results"
+	case models.SNMPResults:
+		return "snmp_results"
+	default:
+		return strings.ToLower(string(entity)) // Fallback
+	}
+}
+
+// validateLatestQuery checks if the LATEST query is valid for the given entity and query type
+func (t *Translator) validateLatestQuery(entity models.EntityType, queryType models.QueryType) (string, bool, error) {
+	// For non-versioned_kv streams (like 'discovered_interfaces'), use ROW_NUMBER()
+	primaryKey, ok := t.getEntityPrimaryKey(entity)
+	if !ok {
+		return "", false, fmt.Errorf("LATEST keyword not supported for entity '%s' without a defined primary key for Proton using ROW_NUMBER() method.", entity)
+	}
+
+	if queryType == models.Count {
+		return "", false, fmt.Errorf("COUNT with LATEST is not supported for non-versioned streams; consider 'SELECT count() FROM (SHOW <entity> LATEST)' in client side.")
+	}
+
+	return primaryKey, true, nil
+}
+
+// buildLatestCTE constructs a Common Table Expression (CTE) for getting the latest records
+func (t *Translator) buildLatestCTE(sql *strings.Builder, query *models.Query, baseTableName, primaryKey string) {
+	// Construct the CTE with ROW_NUMBER()
+	// IMPORTANT: Added table() wrapper around baseTableName here
+	sql.WriteString(fmt.Sprintf("WITH filtered_data AS (\n  SELECT * FROM table(%s)", baseTableName))
+	if len(query.Conditions) > 0 {
+		sql.WriteString(" WHERE ")
+		sql.WriteString(t.buildProtonWhere(query.Conditions))
+	}
+	sql.WriteString("\n),\n")
+
+	sql.WriteString(fmt.Sprintf("latest_records AS (\n  SELECT *, ROW_NUMBER() OVER (PARTITION BY %s ORDER BY _tp_time DESC) AS rn\n  FROM filtered_data\n)\n", primaryKey))
+
+	sql.WriteString("SELECT * EXCEPT rn FROM latest_records WHERE rn = 1")
+}
+
+// buildLatestProtonQuery builds a SQL query for Timeplus Proton with LATEST logic
+func (t *Translator) buildLatestProtonQuery(sql *strings.Builder, query *models.Query, baseTableName string) (string, error) {
+	// Handle 'devices' separately as it's a versioned_kv stream, naturally providing latest
+	if query.Entity == models.Devices {
+		t.buildStandardProtonQuery(sql, query, baseTableName)
+		return sql.String(), nil
+	}
+
+	// Validate the query for LATEST support
+	primaryKey, valid, err := t.validateLatestQuery(query.Entity, query.Type)
+	if !valid {
+		return "", err
+	}
+
+	// Build the CTE for latest records
+	t.buildLatestCTE(sql, query, baseTableName, primaryKey)
+
+	// As discussed, ORDER BY or LIMIT are implicitly ignored here for non-versioned streams with LATEST
+	// due to the streaming aggregation limitations.
+	return sql.String(), nil
+}
+
 // buildProtonQuery builds a SQL query for Timeplus Proton, handling LATEST logic.
 func (t *Translator) buildProtonQuery(query *models.Query) (string, error) {
 	if query == nil {
@@ -124,120 +224,49 @@ func (t *Translator) buildProtonQuery(query *models.Query) (string, error) {
 	}
 
 	var sql strings.Builder
-	var baseTableName string
-
-	// Determine the base table name
-	switch query.Entity {
-	case models.Devices:
-		baseTableName = "devices"
-	case models.Flows:
-		baseTableName = "netflow_metrics"
-	case models.Interfaces:
-		baseTableName = "discovered_interfaces"
-	case models.Traps:
-		baseTableName = "traps"
-	case models.Connections:
-		baseTableName = "connections"
-	case models.Logs:
-		baseTableName = "logs"
-	default:
-		baseTableName = strings.ToLower(string(query.Entity)) // Fallback
-	}
+	baseTableName := t.getProtonBaseTableName(query.Entity)
 
 	if query.IsLatest {
-		// Handle 'devices' separately as it's a versioned_kv stream, naturally providing latest
-		if query.Entity == models.Devices {
-			switch query.Type {
-			case models.Show, models.Find:
-				sql.WriteString("SELECT * FROM table(") // Added table() here
-			case models.Count:
-				sql.WriteString("SELECT COUNT(*) FROM table(") // Added table() here
-			}
-			sql.WriteString(baseTableName)
-			sql.WriteString(")") // Closing table()
+		return t.buildLatestProtonQuery(&sql, query, baseTableName)
+	}
+	// Non-LATEST Proton queries: return all historical records
+	t.buildStandardProtonQuery(&sql, query, baseTableName)
+	return sql.String(), nil
+}
 
-			if len(query.Conditions) > 0 {
-				sql.WriteString(" WHERE ")
-				sql.WriteString(t.buildProtonWhere(query.Conditions))
-			}
-			// ORDER BY and LIMIT are valid for versioned_kv streams, as they apply to the materialized latest state.
-			if len(query.OrderBy) > 0 {
-				sql.WriteString(" ORDER BY ")
-				var orderByParts []string
-				for _, item := range query.OrderBy {
-					direction := defaultAscending
-					if item.Direction == models.Descending {
-						direction = defaultDescending
-					}
-					orderByParts = append(orderByParts, fmt.Sprintf("%s %s", strings.ToLower(item.Field), direction))
-				}
-				sql.WriteString(strings.Join(orderByParts, ", "))
-			}
-			if query.HasLimit {
-				sql.WriteString(fmt.Sprintf(" LIMIT %d", query.Limit))
-			}
-		} else {
-			// For non-versioned_kv streams (like 'discovered_interfaces'), use ROW_NUMBER()
-			primaryKey, ok := t.getEntityPrimaryKey(query.Entity)
-			if !ok {
-				return "", fmt.Errorf("LATEST keyword not supported for entity '%s' without a defined primary key for Proton using ROW_NUMBER() method.", query.Entity)
-			}
+// buildStandardProtonQuery builds a standard Proton query with SELECT, FROM, WHERE, ORDER BY, and LIMIT clauses.
+// This helper function eliminates code duplication between different query paths.
+func (t *Translator) buildStandardProtonQuery(sql *strings.Builder, query *models.Query, baseTableName string) {
+	switch query.Type {
+	case models.Show, models.Find:
+		sql.WriteString("SELECT * FROM table(") // Added table() here
+	case models.Count:
+		sql.WriteString("SELECT COUNT(*) FROM table(") // Added table() here
+	}
+	sql.WriteString(baseTableName)
+	sql.WriteString(")") // Closing table()
 
-			if query.Type == models.Count {
-				return "", fmt.Errorf("COUNT with LATEST is not supported for non-versioned streams; consider 'SELECT count() FROM (SHOW <entity> LATEST)' in client side.")
-			}
-
-			// Construct the CTE with ROW_NUMBER()
-			// IMPORTANT: Added table() wrapper around baseTableName here
-			sql.WriteString(fmt.Sprintf("WITH filtered_data AS (\n  SELECT * FROM table(%s)", baseTableName))
-			if len(query.Conditions) > 0 {
-				sql.WriteString(" WHERE ")
-				sql.WriteString(t.buildProtonWhere(query.Conditions))
-			}
-			sql.WriteString("\n),\n")
-
-			sql.WriteString(fmt.Sprintf("latest_records AS (\n  SELECT *, ROW_NUMBER() OVER (PARTITION BY %s ORDER BY _tp_time DESC) AS rn\n  FROM filtered_data\n)\n", primaryKey))
-
-			sql.WriteString("SELECT * EXCEPT rn FROM latest_records WHERE rn = 1")
-
-			// As discussed, ORDER BY or LIMIT are implicitly ignored here for non-versioned streams with LATEST
-			// due to the streaming aggregation limitations.
-		}
-	} else {
-		// Non-LATEST Proton queries: return all historical records
-		switch query.Type {
-		case models.Show, models.Find:
-			sql.WriteString("SELECT * FROM table(") // Added table() here
-		case models.Count:
-			sql.WriteString("SELECT COUNT(*) FROM table(") // Added table() here
-		}
-		sql.WriteString(baseTableName)
-		sql.WriteString(")") // Closing table()
-
-		if len(query.Conditions) > 0 {
-			sql.WriteString(" WHERE ")
-			sql.WriteString(t.buildProtonWhere(query.Conditions))
-		}
-
-		if len(query.OrderBy) > 0 {
-			sql.WriteString(" ORDER BY ")
-			var orderByParts []string
-			for _, item := range query.OrderBy {
-				direction := defaultAscending
-				if item.Direction == models.Descending {
-					direction = defaultDescending
-				}
-				orderByParts = append(orderByParts, fmt.Sprintf("%s %s", strings.ToLower(item.Field), direction))
-			}
-			sql.WriteString(strings.Join(orderByParts, ", "))
-		}
-
-		if query.HasLimit {
-			sql.WriteString(fmt.Sprintf(" LIMIT %d", query.Limit))
-		}
+	if len(query.Conditions) > 0 {
+		sql.WriteString(" WHERE ")
+		sql.WriteString(t.buildProtonWhere(query.Conditions))
 	}
 
-	return sql.String(), nil
+	if len(query.OrderBy) > 0 {
+		sql.WriteString(" ORDER BY ")
+		var orderByParts []string
+		for _, item := range query.OrderBy {
+			direction := defaultAscending
+			if item.Direction == models.Descending {
+				direction = defaultDescending
+			}
+			orderByParts = append(orderByParts, fmt.Sprintf("%s %s", strings.ToLower(item.Field), direction))
+		}
+		sql.WriteString(strings.Join(orderByParts, ", "))
+	}
+
+	if query.HasLimit {
+		sql.WriteString(fmt.Sprintf(" LIMIT %d", query.Limit))
+	}
 }
 
 // conditionFormatter defines a function to format a condition for a specific operator.
