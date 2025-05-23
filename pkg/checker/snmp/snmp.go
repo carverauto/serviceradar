@@ -14,17 +14,18 @@
  * limitations under the License.
  */
 
+// Package snmp pkg/checker/snmp/snmp.go
 package snmp
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/carverauto/serviceradar/pkg/models"
 	"log"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 // SNMPMetricsManager implements the SNMPManager interface for handling SNMP metrics.

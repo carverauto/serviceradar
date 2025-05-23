@@ -21,11 +21,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/carverauto/serviceradar/pkg/models"
 	"log"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 type snmpManagerImpl struct {
