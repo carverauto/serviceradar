@@ -824,22 +824,34 @@ func updateIfDescr(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
 	}
 }
 
+// getInt32FromPDU safely converts an SNMP Integer PDU value to int32
+func getInt32FromPDU(pdu gosnmp.SnmpPDU, fieldName string) (int32, bool) {
+	if pdu.Type != gosnmp.Integer {
+		return 0, false
+	}
+
+	val, ok := pdu.Value.(int)
+	if !ok {
+		return 0, false
+	}
+
+	if val > math.MaxInt32 || val < math.MinInt32 {
+		log.Printf("Warning: %s %d exceeds int32 range, using closest valid value", fieldName, val)
+
+		if val > math.MaxInt32 {
+			return math.MaxInt32, true
+		} else {
+			return math.MinInt32, true
+		}
+	}
+
+	return int32(val), true
+}
+
 // updateIfType updates the interface type
 func updateIfType(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
-	if pdu.Type == gosnmp.Integer {
-		if val, ok := pdu.Value.(int); ok {
-			if val > math.MaxInt32 || val < math.MinInt32 {
-				log.Printf("Warning: ifType %d exceeds int32 range, using closest valid value", val)
-
-				if val > math.MaxInt32 {
-					iface.IfType = math.MaxInt32
-				} else {
-					iface.IfType = math.MinInt32
-				}
-			} else {
-				iface.IfType = int32(val)
-			}
-		}
+	if val, ok := getInt32FromPDU(pdu, "ifType"); ok {
+		iface.IfType = val
 	}
 }
 
@@ -971,9 +983,11 @@ func updateIfSpeed(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
 	case gosnmp.NoSuchObject, gosnmp.NoSuchInstance:
 		// Interface doesn't support speed reporting
 		log.Printf("Interface %d: ifSpeed not supported (NoSuchObject/Instance)", iface.IfIndex)
+
 		speed = 0
 	default:
 		log.Printf("Interface %d: Unexpected PDU type %v for ifSpeed, value: %v", iface.IfIndex, pdu.Type, pdu.Value)
+
 		speed = 0
 	}
 
@@ -991,38 +1005,14 @@ func updateIfPhysAddress(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
 }
 
 func updateIfAdminStatus(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
-	if pdu.Type == gosnmp.Integer {
-		if val, ok := pdu.Value.(int); ok {
-			if val > math.MaxInt32 || val < math.MinInt32 {
-				log.Printf("Warning: ifAdminStatus %d exceeds int32 range, using closest valid value", val)
-
-				if val > math.MaxInt32 {
-					iface.IfAdminStatus = math.MaxInt32
-				} else {
-					iface.IfAdminStatus = math.MinInt32
-				}
-			} else {
-				iface.IfAdminStatus = int32(val)
-			}
-		}
+	if val, ok := getInt32FromPDU(pdu, "ifAdminStatus"); ok {
+		iface.IfAdminStatus = val
 	}
 }
 
 func updateIfOperStatus(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
-	if pdu.Type == gosnmp.Integer {
-		if val, ok := pdu.Value.(int); ok {
-			if val > math.MaxInt32 || val < math.MinInt32 {
-				log.Printf("Warning: ifOperStatus %d exceeds int32 range, using closest valid value", val)
-
-				if val > math.MaxInt32 {
-					iface.IfOperStatus = math.MaxInt32
-				} else {
-					iface.IfOperStatus = math.MinInt32
-				}
-			} else {
-				iface.IfOperStatus = int32(val)
-			}
-		}
+	if val, ok := getInt32FromPDU(pdu, "ifOperStatus"); ok {
+		iface.IfOperStatus = val
 	}
 }
 
@@ -1856,8 +1846,8 @@ func pingHost(ctx context.Context, host string) error {
 
 func safeIntToInt32(value int, fieldName string) (int32, error) {
 	if value > math.MaxInt32 || value < math.MinInt32 {
-		return 0, fmt.Errorf("%s value %d exceeds int32 range [%d, %d]",
-			fieldName, value, math.MinInt32, math.MaxInt32)
+		return 0, fmt.Errorf("%s value %d exceeds int32 range [%d, %d]: %w",
+			fieldName, value, math.MinInt32, math.MaxInt32, ErrInt32RangeExceeded)
 	}
 
 	return int32(value), nil
