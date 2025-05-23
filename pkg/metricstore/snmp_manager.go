@@ -11,31 +11,72 @@ import (
 	"github.com/carverauto/serviceradar/pkg/db"
 )
 
-type snmpManagerImpl struct { // Renamed from SNMPMetricsManager
+type snmpManagerImpl struct {
 	db db.Service
 }
 
 // NewSNMPManager creates a new SNMPManager instance.
-func NewSNMPManager(d db.Service) SNMPManager { // Returns interface
+func NewSNMPManager(d db.Service) SNMPManager {
 	return &snmpManagerImpl{
 		db: d,
 	}
+}
+
+// parseMetadata extracts a map from various metadata formats
+func parseMetadata(metadataObj interface{}, metricName, pollerID string) (map[string]interface{}, bool) {
+	if metadataObj == nil {
+		return nil, false
+	}
+
+	var metadata map[string]interface{}
+
+	// Handle different possible types of metadata
+	switch md := metadataObj.(type) {
+	case []byte:
+		// If it's already []byte, use it directly
+		if err := json.Unmarshal(md, &metadata); err != nil {
+			log.Printf("Failed to unmarshal metadata for metric %s on poller %s: %v", metricName, pollerID, err)
+			return nil, false
+		}
+	case string:
+		// If it's a string, convert to []byte
+		if err := json.Unmarshal([]byte(md), &metadata); err != nil {
+			log.Printf("Failed to unmarshal metadata for metric %s on poller %s: %v", metricName, pollerID, err)
+			return nil, false
+		}
+	case map[string]interface{}:
+		// If it's already a map, use it directly
+		metadata = md
+	default:
+		// For other types, try to marshal and then unmarshal
+		metadataBytes, err := json.Marshal(metadataObj)
+		if err != nil {
+			log.Printf("Failed to marshal metadata for metric %s on poller %s: %v", metricName, pollerID, err)
+			return nil, false
+		}
+
+		if err := json.Unmarshal(metadataBytes, &metadata); err != nil {
+			log.Printf("Failed to unmarshal metadata for metric %s on poller %s: %v", metricName, pollerID, err)
+			return nil, false
+		}
+	}
+
+	return metadata, true
 }
 
 // GetSNMPMetrics fetches SNMP metrics from the database for a given poller.
 func (s *snmpManagerImpl) GetSNMPMetrics(ctx context.Context, pollerID string, startTime, endTime time.Time) ([]models.SNMPMetric, error) {
 	log.Printf("Fetching SNMP metrics for poller %s from %v to %v", pollerID, startTime, endTime)
 
-	// This call will now use the metrics.TimeseriesMetric from the new package
 	tsMetrics, err := s.db.GetMetricsByType(ctx, pollerID, "snmp", startTime, endTime)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query SNMP metrics: %w", err)
 	}
 
-	snmpMetrics := make([]models.SNMPMetric, 0, len(tsMetrics)) // Use metrics.SNMPMetric
+	snmpMetrics := make([]models.SNMPMetric, 0, len(tsMetrics))
 
-	for _, m := range tsMetrics { // Loop through metrics.TimeseriesMetric
-		snmpMetric := models.SNMPMetric{ // Create metrics.SNMPMetric
+	for _, m := range tsMetrics {
+		snmpMetric := models.SNMPMetric{
 			OIDName:   m.Name,
 			Value:     m.Value,
 			ValueType: m.Type,
@@ -45,47 +86,19 @@ func (s *snmpManagerImpl) GetSNMPMetrics(ctx context.Context, pollerID string, s
 		}
 
 		// Extract scale and is_delta from metadata
-		if m.Metadata != nil {
-			var metadata map[string]interface{}
-
-			// Handle different possible types of m.Metadata
-			switch md := m.Metadata.(type) {
-			case []byte:
-				// If it's already []byte, use it directly
-				if err := json.Unmarshal(md, &metadata); err != nil {
-					log.Printf("Failed to unmarshal metadata for metric %s on poller %s: %v", m.Name, pollerID, err)
-					continue
-				}
-			case string:
-				// If it's a string, convert to []byte
-				if err := json.Unmarshal([]byte(md), &metadata); err != nil {
-					log.Printf("Failed to unmarshal metadata for metric %s on poller %s: %v", m.Name, pollerID, err)
-					continue
-				}
-			case map[string]interface{}:
-				// If it's already a map, use it directly
-				metadata = md
-			default:
-				// For other types, try to marshal and then unmarshal
-				metadataBytes, err := json.Marshal(m.Metadata)
-				if err != nil {
-					log.Printf("Failed to marshal metadata for metric %s on poller %s: %v", m.Name, pollerID, err)
-					continue
-				}
-				if err := json.Unmarshal(metadataBytes, &metadata); err != nil {
-					log.Printf("Failed to unmarshal metadata for metric %s on poller %s: %v", m.Name, pollerID, err)
-					continue
-				}
-			}
-
+		metadata, ok := parseMetadata(m.Metadata, m.Name, pollerID)
+		if ok {
 			if scale, ok := metadata["scale"].(float64); ok {
 				snmpMetric.Scale = scale
 			}
+
 			if isDelta, ok := metadata["is_delta"].(bool); ok {
 				snmpMetric.IsDelta = isDelta
 			}
 		}
+
 		snmpMetrics = append(snmpMetrics, snmpMetric)
 	}
+
 	return snmpMetrics, nil
 }
