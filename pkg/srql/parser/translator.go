@@ -71,7 +71,23 @@ func (*Translator) toSQL(
 		sql.WriteString("SELECT COUNT(*) FROM ")
 	}
 
-	tableName := strings.ToLower(string(query.Entity))
+	tableName := "" // Initialize tableName here
+	switch query.Entity {
+	case models.Devices:
+		tableName = "devices"
+	case models.Flows:
+		tableName = "netflow_metrics"
+	case models.Interfaces: // Added
+		tableName = "discovered_interfaces"
+	case models.Traps:
+		tableName = "traps" // TODO: create
+	case models.Connections:
+		tableName = "connections" // TODO: missing? create
+	case models.Logs:
+		tableName = "logs" // TODO: also missing..
+	default:
+		tableName = strings.ToLower(string(query.Entity)) // Fallback for undefined entities
+	}
 
 	if isStream {
 		tableName = fmt.Sprintf("table(%s)", tableName)
