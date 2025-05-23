@@ -999,6 +999,7 @@ func updateIfSpeed(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
 	// Set a default value if we can't get the speed
 	var speed uint64 = 0
 
+	//nolint:exhaustive // Default case handles all unlisted types
 	switch pdu.Type {
 	case gosnmp.Gauge32:
 		speed = extractSpeedFromGauge32(pdu.Value, iface.IfIndex)
