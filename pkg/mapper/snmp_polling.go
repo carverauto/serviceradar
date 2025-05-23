@@ -832,6 +832,12 @@ func (e *SNMPDiscoveryEngine) processIfTablePDU(pdu gosnmp.SnmpPDU, target strin
 		return nil
 	}
 
+	// Check if ifIndexInt exceeds int32 max value to prevent overflow
+	if ifIndexInt > math.MaxInt32 {
+		log.Printf("Warning: ifIndex %d exceeds maximum int32 value, skipping interface", ifIndexInt)
+		return nil
+	}
+
 	ifIndex := int32(ifIndexInt) // Convert to int32 immediately
 
 	// Create interface if it doesn't exist
@@ -865,7 +871,13 @@ func updateIfDescr(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
 func updateIfType(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
 	if pdu.Type == gosnmp.Integer {
 		if val, ok := pdu.Value.(int); ok {
-			iface.IfType = int32(val) // Explicit cast
+			// Check if val exceeds int32 max value to prevent overflow
+			if val > math.MaxInt32 {
+				log.Printf("Warning: ifType %d exceeds maximum int32 value, using max int32 value", val)
+				iface.IfType = math.MaxInt32
+			} else {
+				iface.IfType = int32(val) // Explicit cast
+			}
 		}
 	}
 }
@@ -1003,7 +1015,13 @@ func updateIfPhysAddress(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
 func updateIfAdminStatus(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
 	if pdu.Type == gosnmp.Integer {
 		if val, ok := pdu.Value.(int); ok {
-			iface.IfAdminStatus = int32(val) // Explicit cast
+			// Check if val exceeds int32 max value to prevent overflow
+			if val > math.MaxInt32 {
+				log.Printf("Warning: ifAdminStatus %d exceeds maximum int32 value, using max int32 value", val)
+				iface.IfAdminStatus = math.MaxInt32
+			} else {
+				iface.IfAdminStatus = int32(val) // Explicit cast
+			}
 		}
 	}
 }
@@ -1011,7 +1029,13 @@ func updateIfAdminStatus(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
 func updateIfOperStatus(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
 	if pdu.Type == gosnmp.Integer {
 		if val, ok := pdu.Value.(int); ok {
-			iface.IfOperStatus = int32(val) // Explicit cast
+			// Check if val exceeds int32 max value to prevent overflow
+			if val > math.MaxInt32 {
+				log.Printf("Warning: ifOperStatus %d exceeds maximum int32 value, using max int32 value", val)
+				iface.IfOperStatus = math.MaxInt32
+			} else {
+				iface.IfOperStatus = int32(val) // Explicit cast
+			}
 		}
 	}
 }
@@ -1188,6 +1212,12 @@ func (e *SNMPDiscoveryEngine) processIfSpeedPDU(pdu gosnmp.SnmpPDU, target strin
 
 	// Create interface if it doesn't exist
 	if _, exists := ifMap[ifIndex]; !exists {
+		// Check if ifIndex exceeds int32 max value to prevent overflow
+		if ifIndex > math.MaxInt32 {
+			log.Printf("Warning: ifIndex %d exceeds maximum int32 value, skipping interface", ifIndex)
+			return nil
+		}
+
 		ifMap[ifIndex] = &DiscoveredInterface{
 			DeviceIP:    target,
 			IfIndex:     int32(ifIndex),
