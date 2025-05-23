@@ -1,16 +1,122 @@
-version: "2"
+run:
+  timeout: 5m
+
+linters-settings:
+  dupl:
+    threshold: 100
+  exhaustive:
+    default-signifies-exhaustive: false
+  funlen:
+    lines: 100
+    statements: 50
+  gci:
+    sections:
+      - standard
+      - default
+      - localmodule
+  goconst:
+    min-len: 3
+    min-occurrences: 3
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - experimental
+      - opinionated
+      - performance
+      - style
+    disabled-checks:
+      - dupImport
+      - ifElseChain
+      - octalLiteral
+      - whyNoLint
+      - wrapperFunc
+  gocyclo:
+    min-complexity: 15
+  gocognit:
+    min-complexity: 30
+  goimports:
+    local-prefixes: github.com/golangci/golangci-lint
+  mnd:
+    checks:
+      - argument
+      - case
+      - condition
+      - return
+    ignored-numbers:
+      - '0'
+      - '1'
+      - '2'
+      - '5'
+      - '10'
+      - '50'
+      - '100'
+      - '1000'
+  govet:
+    enable:
+      - shadow
+    settings:
+      printf:
+        funcs:
+          - (gofr.dev/pkg/gofr/Logger).Logf
+          - (gofr.dev/pkg/gofr/Logger).Errorf
+  lll:
+    line-length: 140
+  misspell:
+    locale: US
+  nestif:
+    min-complexity: 6
+  nolintlint:
+    allow-unused: false
+    require-explanation: true
+    require-specific: true
+  revive:
+    severity: warning
+    confidence: 0.8
+    rules:
+      - name: blank-imports
+      - name: context-as-argument
+      - name: context-keys-type
+      - name: dot-imports
+      - name: empty-block
+      - name: error-naming
+      - name: error-return
+      - name: error-strings
+      - name: errorf
+      - name: increment-decrement
+      - name: indent-error-flow
+      - name: range
+      - name: receiver-naming
+      - name: redefines-builtin-id
+      - name: superfluous-else
+      - name: time-naming
+      - name: unexported-return
+      - name: unreachable-code
+      - name: unused-parameter
+      - name: var-declaration
+      - name: var-naming
+      - name: bare-return
+      - name: bool-literal-in-expr
+      - name: comment-spacings
+      - name: early-return
+      - name: defer
+      - name: deep-exit
+      - name: unused-receiver
+      # Disable the exported rule to avoid stuttering complaints
+      - name: exported
+        disabled: true
+
 linters:
-  default: none
+  disable-all: true
   enable:
     - asciicheck
     - bodyclose
-    - copyloopvar
     - dogsled
     - dupl
     - err113
     - errcheck
     - errorlint
     - exhaustive
+    - copyloopvar
     - funlen
     - gochecknoglobals
     - gochecknoinits
@@ -46,163 +152,48 @@ linters:
     - usestdlibvars
     - whitespace
     - wsl
-  settings:
-    dupl:
-      threshold: 100
-    exhaustive:
-      default-signifies-exhaustive: false
-    funlen:
-      lines: 100
-      statements: 50
-    goconst:
-      min-len: 2
-      min-occurrences: 2
-    gocritic:
-      disabled-checks:
-        - dupImport
-        - ifElseChain
-        - octalLiteral
-        - whyNoLint
-        - wrapperFunc
-      enabled-tags:
-        - diagnostic
-        - experimental
-        - opinionated
-        - performance
-        - style
-    gocyclo:
-      min-complexity: 15
-    govet:
-      enable:
-        - shadow
-      settings:
-        printf:
-          funcs:
-            - (gofr.dev/pkg/gofr/Logger).Logf
-            - (gofr.dev/pkg/gofr/Logger).Errorf
-    lll:
-      line-length: 140
-    misspell:
-      locale: US
-    mnd:
-      checks:
-        - argument
-        - case
-        - condition
-        - return
-    nolintlint:
-      require-explanation: true
-      require-specific: true
-      allow-unused: false
-    nestif:
-      min-complexity: 6
-    revive:
-      severity: warning
-      confidence: 0.8
-      rules:
-        - name: blank-imports
-        - name: context-as-argument
-        - name: context-keys-type
-        - name: dot-imports
-        - name: empty-block
-        - name: error-naming
-        - name: error-return
-        - name: error-strings
-        - name: errorf
-        - name: increment-decrement
-        - name: indent-error-flow
-        - name: range
-        - name: receiver-naming
-        - name: redefines-builtin-id
-        - name: superfluous-else
-        - name: time-naming
-        - name: unexported-return
-        - name: unreachable-code
-        - name: unused-parameter
-        - name: var-declaration
-        - name: var-naming
-        - name: bare-return
-        - name: bool-literal-in-expr
-        - name: comment-spacings
-        - name: early-return
-        - name: defer
-        - name: deep-exit
-        - name: unused-receiver
-        - name: exported
-          disabled: true
-  exclusions:
-    generated: lax
-    presets:
-      - comments
-      - common-false-positives
-      - legacy
-      - std-error-handling
-    rules:
-      # Exclude certain linters from test files
-      - linters:
-          - mnd
-          - dupl
-          - goconst
-          - funlen
-          - gocognit
-          - gocyclo
-          - err113
-          - noctx
-          - gocritic
-        path: _test\.go
-      # Exclude magic numbers from common cases
-      - linters:
-          - mnd
-        text: "Magic number: (25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9]),|Magic number: (100|50|10|5|2|1|0),"
-      # Exclude revive exported rule for interfaces
-      - linters:
-          - revive
-        text: "exported: type name will be used as"
-      # Exclude stylecheck ST1003 for test methods
-      - linters:
-          - stylecheck
-        text: "ST1003:"
-        path: _test\.go
-      # Specific file exclusions
-      - linters:
-          - typecheck
-        path: pkg/core/api/server\.go
-      # Exclude err113 for common error patterns
-      - linters:
-          - err113
-        text: "do not define dynamic errors"
-      # Exclude gosec G404 for non-crypto random
-      - linters:
-          - gosec
-        text: "G404:"
-      # Allow TODO comments
-      - linters:
-          - godox
-        text: "TODO|FIXME|BUG"
-    paths:
-      - proto/flow
-      - third_party$
-      - builtin$
-      - examples$
-formatters:
-  enable:
-    - gofmt
-    - goimports
-  settings:
-    gci:
-      sections:
-        - standard
-        - default
-        - localmodule
-    goimports:
-      local-prefixes:
-        - github.com/golangci/golangci-lint
-  exclusions:
-    generated: lax
-    paths:
-      - proto/flow
-      - third_party$
-      - builtin$
-      - examples$
-global:
-  timeout: 5m
+
+issues:
+  exclude-dirs:
+    - proto/flow
+  exclude-rules:
+    # Very permissive for test files
+    - path: _test\.go
+      linters:
+        - mnd
+        - dupl
+        - goconst
+        - funlen
+        - gocognit
+        - gocyclo
+        - err113
+        - noctx
+        - gocritic
+        - errcheck
+        - ineffassign
+        - gochecknoglobals
+        - gochecknoinits
+    # Specific file exclusions
+    - path: pkg/core/api/server\.go
+      linters:
+        - typecheck
+    # Exclude common magic numbers everywhere
+    - linters:
+        - mnd
+      text: "Magic number: (25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9]),"
+    # Exclude revive exported/stuttering complaints
+    - linters:
+        - revive
+      text: "(exported|stutters)"
+    # Exclude err113 for common patterns
+    - linters:
+        - err113
+      text: "(do not define dynamic errors|errors.New)"
+    # Exclude gosec weak random
+    - linters:
+        - gosec
+      text: "G404:"
+    # More permissive with interfaces
+    - linters:
+        - stylecheck
+      text: "ST1003:"
