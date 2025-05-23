@@ -45,7 +45,7 @@ type MapperDiscoveryDetails struct {
 		Version   string `json:"version"`
 		Community string `json:"community"`
 	} `json:"credentials"`
-	Concurrency    int    `json:"concurrency,omitempty"`
+	Concurrency    int32  `json:"concurrency,omitempty"`
 	TimeoutSeconds int32  `json:"timeout_seconds,omitempty"`
 	Retries        int32  `json:"retries,omitempty"`
 	AgentID        string `json:"agent_id,omitempty"`
@@ -274,7 +274,7 @@ func (mdc *MapperDiscoveryChecker) startNewDiscoveryJob(ctx context.Context, det
 			Version:   snmpVersion,
 			Community: details.Credentials.Community,
 		},
-		Concurrency:    int32(details.Concurrency),
+		Concurrency:    details.Concurrency,
 		TimeoutSeconds: details.TimeoutSeconds,
 		Retries:        details.Retries,
 		AgentId:        details.AgentID,
