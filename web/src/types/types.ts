@@ -15,7 +15,7 @@
  */
 
 // src/types/types.ts
-import { SweepDetails } from './snmp';
+import { SweepDetails } from './snmp'; // Make sure this import is correctly pointing to your snmp.ts
 
 // Generic ServiceDetails for services like ICMP
 export interface GenericServiceDetails {
@@ -24,7 +24,7 @@ export interface GenericServiceDetails {
   available?: boolean;
   round_trip?: number;
   last_update?: string;
-  [key: string]: unknown;
+  [key: string]: unknown; // Allow for other fields not explicitly listed
 }
 
 // SNMP-specific details
@@ -36,8 +36,10 @@ export interface SnmpDeviceDetails {
       last_value?: number;
       last_update?: string;
       error_count?: number;
+      [key: string]: unknown; // Allow for other fields in oid_status
     };
   };
+  [key: string]: unknown; // Allow for other fields in SnmpDeviceDetails
 }
 
 export interface SnmpDetails {
@@ -58,42 +60,57 @@ export interface RperfResult {
     packets_lost?: number;
     packets_received?: number;
     packets_sent?: number;
+    [key: string]: unknown; // Allow for other fields in summary
   };
   target?: string;
+  [key: string]: unknown; // Allow for other fields in RperfResult
 }
 
 export interface RperfDetails {
   results?: RperfResult[];
-  Results?: RperfResult[];
+  Results?: RperfResult[]; // Backend might return with uppercase 'R'
   timestamp?: string;
+  [key: string]: unknown; // Allow for other fields in RperfDetails
 }
 
 // Union type for ServiceDetails
-// export type ServiceDetails = GenericServiceDetails | SweepDetails | SnmpDetails | RperfDetails | Record<string, any>;
-// Union type for ServiceDetails
+// This covers various types of 'details' payloads a service might have.
 export type ServiceDetails =
     | GenericServiceDetails
     | SweepDetails
     | SnmpDetails
     | RperfDetails
-    | { [key: string]: string | number | boolean | null | undefined };
+    | { [key: string]: string | number | boolean | null | undefined | object | unknown[] }; // Broad type for general JSON objects
 
-export type { SweepDetails } from './snmp';
-
+// Core Service interface: Represents the essential attributes of a service.
+// This is suitable for general display or when only core properties are needed.
 export interface Service {
-  group: string;
-  status: string;
-  name: string;
-  type: string;
-  available: boolean;
-  details?: ServiceDetails | string;
+  id?: string; // Added: Optional ID for the service itself, often present in API responses
+  group: string; // The logical group this service belongs to
+  status: string; // The service's current operational status (e.g., "OK", "ERROR", "UP", "DOWN")
+  name: string; // Human-readable name of the service (e.g., "Ping Service")
+  type: string; // Type of service (e.g., "icmp", "snmp", "grpc", "sweep", "network_discovery")
+  available: boolean; // Indicates current operational availability (derived from status)
+  details?: ServiceDetails | string; // Details can be a parsed object or a raw JSON string
+  [key: string]: unknown; // Allows for additional, non-standard fields that might come from the backend
+}
+
+// ServicePayload interface: Represents the full structure of a service object
+// as typically returned by the backend API (e.g., from /api/pollers/{pollerId}/services/{serviceName}).
+// It extends the core Service interface with API-specific metadata that is usually part of the top-level API response.
+export interface ServicePayload extends Service {
+  // `id`, `group`, `status`, `name`, `type`, `available`, `details` are inherited from `Service`
+  poller_id: string; // The ID of the poller that owns this service
+  service_name: string; // The programmatic name of the service (often unique within a poller, used in API paths)
+  last_update: string; // The ISO 8601 timestamp string of the last time this specific service's status was updated
+  // [key: string]: unknown; // Already inherited from Service, but can be explicitly re-added if needed for clarity
 }
 
 export interface Poller {
   poller_id: string;
   is_healthy: boolean;
   last_update: string;
-  services?: Service[];
+  services?: Service[]; // Services within a poller might be the basic Service interface, not full ServicePayloads
 }
 
 export interface ServiceStats {
@@ -102,18 +119,18 @@ export interface ServiceStats {
   avg_response_time: number;
 }
 
-
 export interface ServiceMetric {
-  service_name: string;
-  timestamp: string; // ISO string format
-  response_time: number;
-  response_time_ms?: number;
+  service_name: string; // The name of the service this metric belongs to
+  timestamp: string; // ISO string format for the metric timestamp
+  response_time: number; // Raw response time (e.g., in nanoseconds)
+  response_time_ms?: number; // Optional pre-converted response time in milliseconds
   [key: string]: unknown; // Allow additional fields if needed
 }
 
 export interface SystemStatus {
   total_pollers: number;
   healthy_pollers: number;
-  last_update: string;
-  service_stats: ServiceStats;
+  last_update: string; // Last update of the overall system status
+  service_stats: ServiceStats; // Summary statistics for services
+  [key: string]: unknown; // Allow additional fields if needed
 }

@@ -18,7 +18,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "next/navigation"; // <-- CHANGED: Revert to useRouter from next/navigation
 import {
     XAxis,
     YAxis,
@@ -33,17 +33,18 @@ import NetworkSweepView from "./NetworkSweepView";
 import { PingStatus } from "./NetworkStatus";
 import SNMPDashboard from "./SNMPDashboard";
 import { ArrowLeft } from "lucide-react";
-import { Service, ServiceMetric, ServiceDetails } from "@/types/types";
-import { SnmpDataPoint } from "@/types/snmp";
+// <-- CHANGED: Removed 'Service' from import as it's not directly used here
+import { ServiceMetric, ServiceDetails, SnmpDataPoint, ServicePayload } from "@/types/types";
+import { SysmonData } from "@/types/sysmon"; // <-- CHANGED: Direct import for SysmonData
 import RPerfDashboard from "@/components/RPerfDashboard";
-import { SysmonData } from "@/types/sysmon";
 import LanDiscoveryDashboard from "@/components/LANDiscoveryDashboard";
+
 
 // Define props interface
 interface ServiceDashboardProps {
     pollerId: string;
     serviceName: string;
-    initialService?: Service | null;
+    initialService?: ServicePayload | null; // CHANGED: Use ServicePayload here
     initialMetrics?: ServiceMetric[];
     initialSnmpData?: SnmpDataPoint[];
     initialSysmonData?: SysmonData | Record<string, never>;
@@ -60,8 +61,8 @@ const ServiceDashboard: React.FC<ServiceDashboardProps> = ({
                                                                initialError = null,
                                                                initialTimeRange = "1h",
                                                            }) => {
-    const router = useRouter();
-    const [serviceData] = useState<Service | null>(initialService);
+    const router = useRouter(); // <-- CHANGED: Correct useRouter hook usage
+    const [serviceData] = useState<ServicePayload | null>(initialService); // CHANGED: serviceData state also uses ServicePayload
     const [metricsData] = useState<ServiceMetric[]>(initialMetrics);
     const [snmpData] = useState<SnmpDataPoint[]>(initialSnmpData);
     const [loading] = useState(!initialService && !initialError);
@@ -79,7 +80,7 @@ const ServiceDashboard: React.FC<ServiceDashboardProps> = ({
         if (redirectToMetrics) {
             router.push(`/metrics?pollerId=${pollerId}`);
         }
-    }, [redirectToMetrics, router, pollerId]);
+    }, [redirectToMetrics, pollerId, router]);
 
     // Adjust chart height based on screen size
     useEffect(() => {
@@ -163,11 +164,11 @@ const ServiceDashboard: React.FC<ServiceDashboardProps> = ({
                                 dataKey="timestamp"
                                 type="number"
                                 domain={["auto", "auto"]}
-                                tickFormatter={(ts) => new Date(ts).toLocaleTimeString()}
+                                tickFormatter={(ts: number) => new Date(ts).toLocaleTimeString()}
                             />
                             <YAxis unit="ms" domain={["auto", "auto"]} />
                             <Tooltip
-                                labelFormatter={(ts) => new Date(ts).toLocaleString()}
+                                labelFormatter={(ts: number) => new Date(ts).toLocaleString()}
                                 formatter={(value: number) => [
                                     `${value.toFixed(2)} ms`,
                                     "Response Time",
@@ -212,7 +213,7 @@ const ServiceDashboard: React.FC<ServiceDashboardProps> = ({
                 <LanDiscoveryDashboard
                     pollerId={pollerId}
                     serviceName={serviceName}
-                    initialService={serviceData}
+                    initialService={serviceData} // Now serviceData is of type ServicePayload
                     initialError={null}
                     initialTimeRange={initialTimeRange}
                 />
