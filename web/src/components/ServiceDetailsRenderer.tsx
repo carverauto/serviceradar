@@ -25,6 +25,7 @@ import {
     ServiceDetails,
     RperfResult
 } from '@/types/types';
+import NetworkDiscoveryDetails from "@/components/NetworkDiscoveryDetails";
 
 interface ServiceDetailsRendererProps {
     service: Service;
@@ -70,6 +71,12 @@ const ServiceDetailsRenderer: React.FC<ServiceDetailsRendererProps> = ({ service
     // If details is undefined or null, show a fallback message
     if (!details) {
         return <div className="text-gray-500 italic">Service details not available</div>;
+    }
+
+    // Special handling for lan_discovery_via_mapper service
+    if (service.name === 'lan_discovery_via_mapper' || service.type === 'network_discovery') {
+        console.log("Rendering network discovery details");
+        return <NetworkDiscoveryDetails details={details} />;
     }
 
     // Type-specific summary rendering
