@@ -139,7 +139,7 @@ func (t *Translator) buildClickHouseQuery(query *models.Query) (string, error) {
 }
 
 // getProtonBaseTableName returns the base table name for a given entity type
-func (t *Translator) getProtonBaseTableName(entity models.EntityType) string {
+func (*Translator) getProtonBaseTableName(entity models.EntityType) string {
 	switch entity {
 	case models.Devices:
 		return "devices"
@@ -165,15 +165,18 @@ func (t *Translator) getProtonBaseTableName(entity models.EntityType) string {
 }
 
 // validateLatestQuery checks if the LATEST query is valid for the given entity and query type
-func (t *Translator) validateLatestQuery(entity models.EntityType, queryType models.QueryType) (string, bool, error) {
+func (t *Translator) validateLatestQuery(
+	entity models.EntityType, queryType models.QueryType) (primaryKey string, isValid bool, err error) {
 	// For non-versioned_kv streams (like 'discovered_interfaces'), use ROW_NUMBER()
 	primaryKey, ok := t.getEntityPrimaryKey(entity)
 	if !ok {
-		return "", false, fmt.Errorf("LATEST keyword not supported for entity '%s' without a defined primary key for Proton using ROW_NUMBER() method.", entity)
+		return "", false, fmt.Errorf("latest keyword not supported for entity '%s' "+
+			"without a defined primary key for Proton using ROW_NUMBER() method", entity)
 	}
 
 	if queryType == models.Count {
-		return "", false, fmt.Errorf("COUNT with LATEST is not supported for non-versioned streams; consider 'SELECT count() FROM (SHOW <entity> LATEST)' in client side.")
+		return "", false, fmt.Errorf("count with LATEST is not supported for " +
+			"non-versioned streams; consider 'SELECT count() FROM (SHOW <entity> LATEST)' in client side")
 	}
 
 	return primaryKey, true, nil
@@ -184,10 +187,12 @@ func (t *Translator) buildLatestCTE(sql *strings.Builder, query *models.Query, b
 	// Construct the CTE with ROW_NUMBER()
 	// IMPORTANT: Added table() wrapper around baseTableName here
 	sql.WriteString(fmt.Sprintf("WITH filtered_data AS (\n  SELECT * FROM table(%s)", baseTableName))
+
 	if len(query.Conditions) > 0 {
 		sql.WriteString(" WHERE ")
 		sql.WriteString(t.buildProtonWhere(query.Conditions))
 	}
+
 	sql.WriteString("\n),\n")
 
 	sql.WriteString(fmt.Sprintf("latest_records AS (\n  SELECT *, ROW_NUMBER() OVER (PARTITION BY %s ORDER BY _tp_time DESC) AS rn\n  FROM filtered_data\n)\n", primaryKey))
@@ -224,13 +229,16 @@ func (t *Translator) buildProtonQuery(query *models.Query) (string, error) {
 	}
 
 	var sql strings.Builder
+
 	baseTableName := t.getProtonBaseTableName(query.Entity)
 
 	if query.IsLatest {
 		return t.buildLatestProtonQuery(&sql, query, baseTableName)
 	}
+
 	// Non-LATEST Proton queries: return all historical records
 	t.buildStandardProtonQuery(&sql, query, baseTableName)
+
 	return sql.String(), nil
 }
 
@@ -243,6 +251,7 @@ func (t *Translator) buildStandardProtonQuery(sql *strings.Builder, query *model
 	case models.Count:
 		sql.WriteString("SELECT COUNT(*) FROM table(") // Added table() here
 	}
+
 	sql.WriteString(baseTableName)
 	sql.WriteString(")") // Closing table()
 
@@ -253,14 +262,18 @@ func (t *Translator) buildStandardProtonQuery(sql *strings.Builder, query *model
 
 	if len(query.OrderBy) > 0 {
 		sql.WriteString(" ORDER BY ")
+
 		var orderByParts []string
+
 		for _, item := range query.OrderBy {
 			direction := defaultAscending
 			if item.Direction == models.Descending {
 				direction = defaultDescending
 			}
+
 			orderByParts = append(orderByParts, fmt.Sprintf("%s %s", strings.ToLower(item.Field), direction))
 		}
+
 		sql.WriteString(strings.Join(orderByParts, ", "))
 	}
 

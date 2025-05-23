@@ -110,6 +110,14 @@ func (s *APIServer) executeQuery(ctx context.Context, query string, entity model
 		return s.queryExecutor.ExecuteQuery(ctx, query, "connections")
 	case models.Logs:
 		return s.queryExecutor.ExecuteQuery(ctx, query, "logs")
+	case models.Interfaces:
+		return s.queryExecutor.ExecuteQuery(ctx, query, "interfaces")
+	case models.SweepResults:
+		return s.queryExecutor.ExecuteQuery(ctx, query, "sweep_results")
+	case models.ICMPResults:
+		return s.queryExecutor.ExecuteQuery(ctx, query, "icmp_results")
+	case models.SNMPResults:
+		return s.queryExecutor.ExecuteQuery(ctx, query, "snmp_results")
 	default:
 		return nil, fmt.Errorf("%w: %s", errUnsupportedEntity, entity)
 	}
