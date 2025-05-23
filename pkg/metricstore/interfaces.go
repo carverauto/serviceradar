@@ -19,8 +19,9 @@ package metricstore
 
 import (
 	"context"
-	"github.com/carverauto/serviceradar/pkg/models"
 	"time"
+
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 //go:generate mockgen -destination=mock_metricstore.go -package=metricstore github.com/carverauto/serviceradar/pkg/metricstore RperfManager,SNMPManager

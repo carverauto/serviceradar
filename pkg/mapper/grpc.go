@@ -14,16 +14,17 @@
  * limitations under the License.
  */
 
+// Package mapper pkg/mapper/grpc.go
 package mapper
 
 import (
 	"context"
-	"google.golang.org/protobuf/types/known/wrapperspb"
 	"log"
 	"math"
 	"time"
 
 	proto "github.com/carverauto/serviceradar/proto/discovery"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 // GRPCDiscoveryService implements the gRPC interface for the discovery service
