@@ -161,7 +161,6 @@ func normalizeStructFields(v reflect.Value) error {
 // normalizeField normalizes a single field if it’s a *SecurityConfig.
 func normalizeField(field reflect.Value, fieldType *reflect.StructField) error {
 	if fieldType.Type != reflect.TypeOf((*models.SecurityConfig)(nil)) {
-
 		return nil
 	}
 
