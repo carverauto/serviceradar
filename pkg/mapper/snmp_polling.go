@@ -1308,20 +1308,28 @@ const (
 // updateInterfaceFromPDU updates interface properties based on the OID prefix and PDU value
 func (*SNMPDiscoveryEngine) updateInterfaceFromPDU(iface *DiscoveredInterface, oidWithPrefix string, pdu gosnmp.SnmpPDU) {
 	if oidWithPrefix == oidIfHighSpeed {
-		if pdu.Type == gosnmp.Gauge32 {
-			mbps := pdu.Value.(uint) // This is Mbps
-			// Convert to bps (uint64)
-			bps := uint64(mbps) * defaultHighSpeed // Multiply by 1 million
+		updateInterfaceHighSpeed(iface, pdu)
+	}
+}
 
-			// Check for overflow before assignment if necessary, though unlikely for interface speeds
-			if bps > math.MaxUint64/overflowHeuristicDivisor && mbps > math.MaxUint64/(overflowHeuristicDivisor*defaultHighSpeed) { // Simple overflow heuristic
-				bps = math.MaxUint64
-			}
+// updateInterfaceHighSpeed updates the interface speed from ifHighSpeed value
+func updateInterfaceHighSpeed(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
+	if pdu.Type != gosnmp.Gauge32 {
+		return
+	}
 
-			if bps > iface.IfSpeed { // Update only if higher speed
-				iface.IfSpeed = bps
-			}
-		}
+	mbps := pdu.Value.(uint) // This is Mbps
+	// Convert to bps (uint64)
+	bps := uint64(mbps) * defaultHighSpeed // Multiply by 1 million
+
+	// Check for overflow before assignment if necessary, though unlikely for interface speeds
+	if bps > math.MaxUint64/overflowHeuristicDivisor && mbps > math.MaxUint64/(overflowHeuristicDivisor*defaultHighSpeed) { // Simple overflow heuristic
+		bps = math.MaxUint64
+	}
+
+	// Update only if higher speed
+	if bps > iface.IfSpeed {
+		iface.IfSpeed = bps
 	}
 }
 
