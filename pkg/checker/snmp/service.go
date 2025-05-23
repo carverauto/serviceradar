@@ -15,7 +15,6 @@
  */
 
 // Package snmp pkg/checker/snmp/service.go
-
 package snmp
 
 import (
@@ -50,6 +49,7 @@ func (s *SNMPService) Check(ctx context.Context) (available bool, msg string) {
 
 	// Determine overall availability
 	overallAvailable := true
+
 	for _, targetStatus := range statusMap {
 		if !targetStatus.Available {
 			overallAvailable = false

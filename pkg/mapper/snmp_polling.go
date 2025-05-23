@@ -824,7 +824,7 @@ func updateIfDescr(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
 	}
 }
 
-// getInt32FromPDU safely converts an SNMP Integer PDU value to int32
+// getInt32FromPDU safely converts an SNMP Integer PDU value to int32.
 func getInt32FromPDU(pdu gosnmp.SnmpPDU, fieldName string) (int32, bool) {
 	if pdu.Type != gosnmp.Integer {
 		return 0, false
@@ -840,22 +840,22 @@ func getInt32FromPDU(pdu gosnmp.SnmpPDU, fieldName string) (int32, bool) {
 
 		if val > math.MaxInt32 {
 			return math.MaxInt32, true
-		} else {
-			return math.MinInt32, true
 		}
+
+		return math.MinInt32, true
 	}
 
 	return int32(val), true
 }
 
-// updateIfType updates the interface type
+// updateIfType updates the interface type.
 func updateIfType(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
 	if val, ok := getInt32FromPDU(pdu, "ifType"); ok {
 		iface.IfType = val
 	}
 }
 
-// convertToUint64 safely converts various numeric types to uint64
+// convertToUint64 safely converts various numeric types to uint64.
 func convertToUint64(value interface{}) (uint64, bool) {
 	switch v := value.(type) {
 	case uint:
@@ -881,12 +881,12 @@ func convertToUint64(value interface{}) (uint64, bool) {
 	return 0, false
 }
 
-// isMaxUint32 checks if the value is the maximum uint32 value
+// isMaxUint32 checks if the value is the maximum uint32 value.
 func isMaxUint32(value uint64) bool {
 	return value == maxUint32Value
 }
 
-// extractSpeedFromGauge32 extracts speed from Gauge32 type
+// extractSpeedFromGauge32 extracts speed from Gauge32 type.
 func extractSpeedFromGauge32(value interface{}, ifIndex int32) uint64 {
 	speed, ok := convertToUint64(value)
 	if !ok {
@@ -905,7 +905,7 @@ func extractSpeedFromGauge32(value interface{}, ifIndex int32) uint64 {
 	return speed
 }
 
-// extractSpeedFromCounter32 extracts speed from Counter32 type
+// extractSpeedFromCounter32 extracts speed from Counter32 type.
 func extractSpeedFromCounter32(value interface{}) uint64 {
 	speed, ok := convertToUint64(value)
 	if ok {
@@ -915,7 +915,7 @@ func extractSpeedFromCounter32(value interface{}) uint64 {
 	return 0
 }
 
-// extractSpeedFromCounter64 extracts speed from Counter64 type
+// extractSpeedFromCounter64 extracts speed from Counter64 type.
 func extractSpeedFromCounter64(value interface{}) uint64 {
 	// First try standard conversion
 	speed, ok := convertToUint64(value)
@@ -932,7 +932,7 @@ func extractSpeedFromCounter64(value interface{}) uint64 {
 	return 0
 }
 
-// extractSpeedFromInteger extracts speed from Integer type
+// extractSpeedFromInteger extracts speed from Integer type.
 func extractSpeedFromInteger(value interface{}) uint64 {
 	speed, ok := convertToUint64(value)
 	if ok {
@@ -942,7 +942,7 @@ func extractSpeedFromInteger(value interface{}) uint64 {
 	return 0
 }
 
-// extractSpeedFromUinteger32 extracts speed from Uinteger32 type
+// extractSpeedFromUinteger32 extracts speed from Uinteger32 type.
 func extractSpeedFromUinteger32(value interface{}) uint64 {
 	speed, ok := convertToUint64(value)
 	if ok {
@@ -952,7 +952,7 @@ func extractSpeedFromUinteger32(value interface{}) uint64 {
 	return 0
 }
 
-// extractSpeedFromOctetString extracts speed from OctetString type
+// extractSpeedFromOctetString extracts speed from OctetString type.
 func extractSpeedFromOctetString(value interface{}) uint64 {
 	if bytes, ok := value.([]byte); ok && len(bytes) >= 4 {
 		// Try to parse as big-endian uint32
