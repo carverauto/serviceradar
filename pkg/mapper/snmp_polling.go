@@ -800,7 +800,7 @@ func (e *SNMPDiscoveryEngine) queryInterfaces(
 
 	for _, iface := range interfaces {
 		switch {
-		case iface.IfSpeed == 4294967295:
+		case iface.IfSpeed == maxUint32Value:
 			maxSpeedCount++
 		case iface.IfSpeed > 0:
 			speedCount++
@@ -1300,6 +1300,9 @@ const (
 
 	// Network constants
 	maxUint32Value = 4294967295 // Maximum value for a uint32
+
+	// Overflow heuristic constants
+	overflowHeuristicDivisor = 2 // Divisor used in overflow detection heuristic
 )
 
 // updateInterfaceFromPDU updates interface properties based on the OID prefix and PDU value
@@ -1313,7 +1316,7 @@ func (*SNMPDiscoveryEngine) updateInterfaceFromPDU(iface *DiscoveredInterface, o
 			bps := uint64(mbps) * defaultHighSpeed // Multiply by 1 million
 
 			// Check for overflow before assignment if necessary, though unlikely for interface speeds
-			if bps > math.MaxUint64/2 && mbps > math.MaxUint64/(2*defaultHighSpeed) { // Simple overflow heuristic
+			if bps > math.MaxUint64/overflowHeuristicDivisor && mbps > math.MaxUint64/(overflowHeuristicDivisor*defaultHighSpeed) { // Simple overflow heuristic
 				bps = math.MaxUint64
 			}
 
