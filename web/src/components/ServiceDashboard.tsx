@@ -37,6 +37,7 @@ import { Service, ServiceMetric, ServiceDetails } from "@/types/types";
 import { SnmpDataPoint } from "@/types/snmp";
 import RPerfDashboard from "@/components/RPerfDashboard";
 import { SysmonData } from "@/types/sysmon";
+import LanDiscoveryDashboard from "@/components/LANDiscoveryDashboard";
 
 // Define props interface
 interface ServiceDashboardProps {
@@ -205,6 +206,19 @@ const ServiceDashboard: React.FC<ServiceDashboardProps> = ({
     const renderServiceContent = () => {
         if (!serviceData) return null;
 
+        // Handle LAN Discovery service
+        if (serviceData.name === 'lan_discovery_via_mapper' || serviceData.type === 'network_discovery') {
+            return (
+                <LanDiscoveryDashboard
+                    pollerId={pollerId}
+                    serviceName={serviceName}
+                    initialService={serviceData}
+                    initialError={null}
+                    initialTimeRange={initialTimeRange}
+                />
+            );
+        }
+
         if (serviceData.type === "snmp") {
             return (
                 <SNMPDashboard
@@ -337,6 +351,11 @@ const ServiceDashboard: React.FC<ServiceDashboardProps> = ({
                 </button>
             </div>
         );
+    }
+
+    // For LAN Discovery service, render only the dashboard component
+    if (serviceData && (serviceData.name === 'lan_discovery_via_mapper' || serviceData.type === 'network_discovery')) {
+        return renderServiceContent();
     }
 
     return (
