@@ -457,6 +457,10 @@ func (*QueryVisitor) getEntityType(ctx *gen.EntityContext) models.EntityType {
 		return models.Logs
 	}
 
+	if ctx.INTERFACES() != nil {
+		return models.Interfaces
+	}
+
 	return ""
 }
 

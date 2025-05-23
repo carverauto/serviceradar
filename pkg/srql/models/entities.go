@@ -9,6 +9,7 @@ const (
 	Traps       EntityType = "traps"
 	Connections EntityType = "connections"
 	Logs        EntityType = "logs"
+	Interfaces  EntityType = "interfaces"
 )
 
 // OperatorType represents a comparison operator
