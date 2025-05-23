@@ -694,13 +694,13 @@ func (s *Server) processServices(
 		apiStatus.Services = append(apiStatus.Services, apiService)
 
 		if svc.AgentId == "" {
-			log.Printf("Warning: Service %s on poller %s has empty AgentId", svc.ServiceName, svc.PollerId)
+			log.Printf("Warning: Service %s on poller %s has empty AgentID", svc.ServiceName, svc.PollerId)
 		} else {
-			log.Printf("Service %s on poller %s has AgentId: %s", svc.ServiceName, svc.PollerId, svc.AgentId)
+			log.Printf("Service %s on poller %s has AgentID: %s", svc.ServiceName, svc.PollerId, svc.AgentId)
 		}
 
 		if svc.PollerId == "" {
-			log.Printf("Warning: Service %s has empty PollerId, using fallback %s", svc.ServiceName, pollerID)
+			log.Printf("Warning: Service %s has empty PollerID, using fallback %s", svc.ServiceName, pollerID)
 		}
 	}
 

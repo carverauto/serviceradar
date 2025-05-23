@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+// Package core pkg/core/server_test.go
 package core
 
 import (
@@ -100,7 +101,8 @@ func TestNewServer(t *testing.T) {
 
 			if tt.name == "with_webhooks" {
 				assert.Len(t, server.webhooks, 1)
-				assert.Equal(t, "https://example.com/webhook", server.webhooks[0].(*alerts.WebhookAlerter).Config.URL)
+				assert.Equal(t, "https://example.com/webhook",
+					server.webhooks[0].(*alerts.WebhookAlerter).Config.URL)
 			}
 		})
 	}
@@ -167,13 +169,15 @@ func TestReportStatus(t *testing.T) {
 		LastSeen:  time.Now(),
 	}, nil).AnyTimes()
 
-	mockDB.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, status *models.PollerStatus) error {
+	mockDB.EXPECT().UpdatePollerStatus(
+		gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, status *models.PollerStatus) error {
 		assert.Equal(t, "test-poller", status.PollerID)
 		assert.True(t, status.IsHealthy)
 		return nil
 	}).AnyTimes()
 
-	mockDB.EXPECT().UpdateServiceStatuses(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, statuses []*models.ServiceStatus) error {
+	mockDB.EXPECT().UpdateServiceStatuses(
+		gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, statuses []*models.ServiceStatus) error {
 		t.Logf("TestReportStatus: UpdateServiceStatuses called with %d statuses: %+v", len(statuses), statuses)
 		return nil
 	}).AnyTimes()
@@ -737,7 +741,8 @@ func TestProcessStatusReportWithAgentID(t *testing.T) {
 		LastSeen:  now.Add(-10 * time.Minute),
 	}, nil).Times(1)
 	mockDB.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).Return(nil).Times(2)
-	mockDB.EXPECT().UpdateServiceStatuses(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, statuses []*models.ServiceStatus) error {
+	mockDB.EXPECT().UpdateServiceStatuses(gomock.Any(),
+		gomock.Any()).DoAndReturn(func(_ context.Context, statuses []*models.ServiceStatus) error {
 		t.Logf("UpdateServiceStatuses called with %d statuses: %+v", len(statuses), statuses)
 		assert.Len(t, statuses, 1, "Expected exactly one status")
 		assert.Equal(t, pollerID, statuses[0].PollerID)
@@ -763,7 +768,7 @@ func TestProcessStatusReportWithAgentID(t *testing.T) {
 	reportStatusCount := 0
 	wrappedReportStatus := func(ctx context.Context, req *proto.PollerStatusRequest) (*proto.PollerStatusResponse, error) {
 		reportStatusCount++
-		t.Logf("ReportStatus called %d times with PollerId: %s", reportStatusCount, req.PollerId)
+		t.Logf("ReportStatus called %d times with PollerID: %s", reportStatusCount, req.PollerId)
 
 		return server.ReportStatus(ctx, req)
 	}

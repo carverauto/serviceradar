@@ -52,7 +52,7 @@ func (s *Server) processSNMPDiscoveryResults(
 	// Fallback for discovery-specific IDs if not provided in payload
 	if discoveryAgentID == "" {
 		log.Printf("Warning: SNMPDiscoveryDataPayload.AgentID is empty for reportingPollerID %s. "+
-			"Falling back to svc.AgentId %s.", reportingPollerID, svc.AgentId)
+			"Falling back to svc.AgentID %s.", reportingPollerID, svc.AgentId)
 
 		discoveryAgentID = svc.AgentId
 	}

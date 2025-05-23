@@ -1039,7 +1039,8 @@ func matchesOIDPrefix(fullOID, prefixOID string) bool {
 }
 
 // updateInterfaceFromOID updates interface properties based on the OID and PDU
-func (e *SNMPDiscoveryEngine) updateInterfaceFromOID(iface *DiscoveredInterface, oidPrefix string, pdu gosnmp.SnmpPDU) {
+func (*SNMPDiscoveryEngine) updateInterfaceFromOID(
+	iface *DiscoveredInterface, oidPrefix string, pdu gosnmp.SnmpPDU) {
 	// Normalize the OID prefix
 	oidPrefix = strings.TrimPrefix(oidPrefix, ".")
 
@@ -1173,7 +1174,8 @@ func (e *SNMPDiscoveryEngine) walkIfTable(client *gosnmp.GoSNMP, target string, 
 	return nil
 }
 
-func (e *SNMPDiscoveryEngine) processIfSpeedPDU(pdu gosnmp.SnmpPDU, target string, ifMap map[int]*DiscoveredInterface) error {
+func (*SNMPDiscoveryEngine) processIfSpeedPDU(
+	pdu gosnmp.SnmpPDU, target string, ifMap map[int]*DiscoveredInterface) error {
 	// Extract ifIndex from OID (e.g., .1.3.6.1.2.1.2.2.1.5.1 -> 1)
 	parts := strings.Split(pdu.Name, ".")
 	if len(parts) < 1 {
@@ -1277,7 +1279,8 @@ func updateInterfaceHighSpeed(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
 	bps := uint64(mbps) * defaultHighSpeed // Multiply by 1 million
 
 	// Check for overflow before assignment if necessary, though unlikely for interface speeds
-	if bps > math.MaxUint64/overflowHeuristicDivisor && mbps > math.MaxUint64/(overflowHeuristicDivisor*defaultHighSpeed) { // Simple overflow heuristic
+	if bps > math.MaxUint64/overflowHeuristicDivisor &&
+		mbps > math.MaxUint64/(overflowHeuristicDivisor*defaultHighSpeed) { // Simple overflow heuristic
 		bps = math.MaxUint64
 	}
 
