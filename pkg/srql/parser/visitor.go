@@ -55,6 +55,7 @@ func (v *QueryVisitor) buildQuery(ctx interface{}, queryType models.QueryType) *
 
 	// Set query fields
 	v.setEntity(query, accessors)
+	v.setLatest(query, accessors) // New: Set IsLatest flag
 	v.setConditions(query, accessors.condition)
 	v.setOrderBy(query, accessors.orderByClause)
 	v.setLimit(query, accessors)
@@ -64,11 +65,12 @@ func (v *QueryVisitor) buildQuery(ctx interface{}, queryType models.QueryType) *
 
 // contextAccessors holds functions to access context-specific data.
 type contextAccessors struct {
-	childCount    int
-	getChild      func(int) antlr.Tree
-	condition     func() gen.IConditionContext
-	orderByClause func() gen.IOrderByClauseContext
-	limitToken    func() antlr.TerminalNode
+	childCount        int
+	getChild          func(int) antlr.Tree
+	latestModifierCtx antlr.Tree // Changed: Stores the actual context if present, nil otherwise
+	condition         func() gen.IConditionContext
+	orderByClause     func() gen.IOrderByClauseContext
+	limitToken        func() antlr.TerminalNode
 }
 
 // getContextAccessors returns context-specific accessors.
@@ -78,25 +80,28 @@ func (*QueryVisitor) getContextAccessors(ctx interface{}) (contextAccessors, boo
 	switch c := ctx.(type) {
 	case *gen.ShowStatementContext:
 		accessors = contextAccessors{
-			childCount:    c.GetChildCount(),
-			getChild:      c.GetChild,
-			condition:     c.Condition,
-			orderByClause: c.OrderByClause,
-			limitToken:    c.LIMIT,
+			childCount:        c.GetChildCount(),
+			getChild:          c.GetChild,
+			latestModifierCtx: c.LATEST_MODIFIER(),
+			condition:         c.Condition,
+			orderByClause:     c.OrderByClause,
+			limitToken:        c.LIMIT,
 		}
 	case *gen.FindStatementContext:
 		accessors = contextAccessors{
-			childCount:    c.GetChildCount(),
-			getChild:      c.GetChild,
-			condition:     c.Condition,
-			orderByClause: c.OrderByClause,
-			limitToken:    c.LIMIT,
+			childCount:        c.GetChildCount(),
+			getChild:          c.GetChild,
+			latestModifierCtx: c.LATEST_MODIFIER(),
+			condition:         c.Condition,
+			orderByClause:     c.OrderByClause,
+			limitToken:        c.LIMIT,
 		}
 	case *gen.CountStatementContext:
 		accessors = contextAccessors{
 			childCount: c.GetChildCount(),
 			getChild:   c.GetChild,
-			condition:  c.Condition,
+			// latestModifierCtx remains nil for CountStatementContext, which is correct
+			condition: c.Condition,
 		}
 	default:
 		return contextAccessors{}, false
@@ -113,6 +118,14 @@ func (v *QueryVisitor) setEntity(query *models.Query, accessors contextAccessors
 
 			return
 		}
+	}
+}
+
+// setLatest sets the query's IsLatest flag.
+func (*QueryVisitor) setLatest(query *models.Query, accessors contextAccessors) {
+	// Check if the LATEST_MODIFIER rule was present and successfully parsed
+	if accessors.latestModifierCtx != nil {
+		query.IsLatest = true
 	}
 }
 

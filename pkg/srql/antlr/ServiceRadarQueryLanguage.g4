@@ -8,11 +8,11 @@ query
     ;
 
 showStatement
-    : SHOW entity (WHERE condition)? (ORDER BY orderByClause)? (LIMIT INTEGER)?
+    : SHOW entity (WHERE condition)? (ORDER BY orderByClause)? (LIMIT INTEGER)? (LATEST_MODIFIER)?
     ;
 
 findStatement
-    : FIND entity (WHERE condition)? (ORDER BY orderByClause)? (LIMIT INTEGER)?
+    : FIND entity (WHERE condition)? (ORDER BY orderByClause)? (LIMIT INTEGER)? (LATEST_MODIFIER)?
     ;
 
 countStatement
@@ -89,6 +89,8 @@ value
     | MACADDRESS
     ;
 
+LATEST_MODIFIER : L A T E S T ; // Defined as a distinct rule for semantic clarity
+
 // Lexer Rules - All case insensitive
 SHOW : S H O W ;
 FIND : F I N D ;
@@ -97,6 +99,7 @@ WHERE : W H E R E ;
 ORDER : O R D E R ;
 BY : B Y ;
 LIMIT : L I M I T ;
+LATEST : L A T E S T ; // The token itself
 ASC : A S C ;
 DESC : D E S C ;
 AND : A N D ;
