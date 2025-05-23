@@ -132,7 +132,7 @@ func (t *Translator) buildClickHouseQuery(query *models.Query) (string, error) {
 	}
 
 	if query.HasLimit {
-		sql.WriteString(fmt.Sprintf(" LIMIT %d", query.Limit))
+		fmt.Fprintf(&sql, " LIMIT %d", query.Limit)
 	}
 
 	return sql.String(), nil
@@ -186,7 +186,7 @@ func (t *Translator) validateLatestQuery(
 func (t *Translator) buildLatestCTE(sql *strings.Builder, query *models.Query, baseTableName, primaryKey string) {
 	// Construct the CTE with ROW_NUMBER()
 	// IMPORTANT: Added table() wrapper around baseTableName here
-	sql.WriteString(fmt.Sprintf("WITH filtered_data AS (\n  SELECT * FROM table(%s)", baseTableName))
+	fmt.Fprintf(sql, "WITH filtered_data AS (\n  SELECT * FROM table(%s)", baseTableName)
 
 	if len(query.Conditions) > 0 {
 		sql.WriteString(" WHERE ")
@@ -195,7 +195,9 @@ func (t *Translator) buildLatestCTE(sql *strings.Builder, query *models.Query, b
 
 	sql.WriteString("\n),\n")
 
-	sql.WriteString(fmt.Sprintf("latest_records AS (\n  SELECT *, ROW_NUMBER() OVER (PARTITION BY %s ORDER BY _tp_time DESC) AS rn\n  FROM filtered_data\n)\n", primaryKey))
+	fmt.Fprintf(sql,
+		"latest_records AS (\n  SELECT *, ROW_NUMBER() OVER (PARTITION BY %s "+
+			"ORDER BY _tp_time DESC) AS rn\n  FROM filtered_data\n)\n", primaryKey)
 
 	sql.WriteString("SELECT * EXCEPT rn FROM latest_records WHERE rn = 1")
 }
@@ -278,7 +280,7 @@ func (t *Translator) buildStandardProtonQuery(sql *strings.Builder, query *model
 	}
 
 	if query.HasLimit {
-		sql.WriteString(fmt.Sprintf(" LIMIT %d", query.Limit))
+		fmt.Fprintf(sql, " LIMIT %d", query.Limit)
 	}
 }
 
