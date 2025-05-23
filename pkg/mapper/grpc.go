@@ -102,30 +102,8 @@ func (s *GRPCDiscoveryService) StartDiscovery(ctx context.Context, req *proto.Di
 }
 
 // convertInterfaceToProto converts a DiscoveredInterface to proto.DiscoveredInterface
-// and performs bounds checking on integer fields
 func convertInterfaceToProto(iface *DiscoveredInterface) (*proto.DiscoveredInterface, bool) {
-	// Check if values fit within int32 range
-	if iface.IfIndex > math.MaxInt32 || iface.IfIndex < math.MinInt32 {
-		log.Printf("Skipping interface for device %s: IfIndex %d out of int32 range", iface.DeviceIP, iface.IfIndex)
-		return nil, false
-	}
-
-	if iface.IfAdminStatus > math.MaxInt32 || iface.IfAdminStatus < math.MinInt32 {
-		log.Printf("Skipping interface for device %s: IfAdminStatus %d out of int32 range", iface.DeviceIP, iface.IfAdminStatus)
-		return nil, false
-	}
-
-	if iface.IfOperStatus > math.MaxInt32 || iface.IfOperStatus < math.MinInt32 {
-		log.Printf("Skipping interface for device %s: IfOperStatus %d out of int32 range", iface.DeviceIP, iface.IfOperStatus)
-		return nil, false
-	}
-
-	// Check IfType as well
-	if iface.IfType > math.MaxInt32 || iface.IfType < math.MinInt32 {
-		log.Printf("Skipping interface for device %s: IfType %d out of int32 range", iface.DeviceIP, iface.IfType)
-		return nil, false
-	}
-
+	// Since all fields are already of the correct type (int32), no bounds checking is needed
 	return &proto.DiscoveredInterface{
 		DeviceIp:      iface.DeviceIP,
 		DeviceId:      iface.DeviceID,
