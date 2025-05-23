@@ -25,6 +25,7 @@ entity
     | TRAPS
     | CONNECTIONS
     | LOGS
+    | INTERFACES
     ;
 
 condition
@@ -112,6 +113,7 @@ FLOWS : F L O W S ;
 TRAPS : T R A P S ;
 CONNECTIONS : C O N N E C T I O N S ;
 LOGS : L O G S ;
+INTERFACES : I N T E R F A C E S ;
 
 EQ : '=' | '==';
 NEQ : '!=' | '<>';
