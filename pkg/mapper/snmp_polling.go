@@ -157,7 +157,7 @@ func (e *SNMPDiscoveryEngine) startProgressTracking(job *DiscoveryJob, resultCha
 			processed++
 			// Update progress
 			job.mu.Lock()
-			progress := float64(processed)/float64(totalTargets)*90.0 + 5.0 // 5% at start, 5% at end
+			progress := float64(processed)/float64(totalTargets)*progressScanning + progressInitial // Initial progress + scanning progress
 
 			job.Status.Progress = progress
 			job.Status.DevicesFound = len(job.Results.Devices)
@@ -186,7 +186,7 @@ func (e *SNMPDiscoveryEngine) startProgressTracking(job *DiscoveryJob, resultCha
 // initializeJobProgress sets the initial progress value
 func (*SNMPDiscoveryEngine) initializeJobProgress(job *DiscoveryJob) {
 	job.mu.Lock()
-	job.Status.Progress = 5 // Initial progress
+	job.Status.Progress = progressInitial // Initial progress
 	job.mu.Unlock()
 
 	log.Printf("Job %s: Scan queue: %v", job.ID, job.scanQueue)
@@ -250,7 +250,7 @@ func (*SNMPDiscoveryEngine) finalizeJobStatus(job *DiscoveryJob) {
 	job.mu.Lock()
 	if job.Status.Status == DiscoveryStatusRunning {
 		job.Status.Status = DiscoveryStatusCompleted
-		job.Status.Progress = 100
+		job.Status.Progress = progressCompleted
 
 		if len(job.Results.Devices) == 0 {
 			job.Status.Error = "No SNMP devices found"
@@ -911,9 +911,9 @@ func convertToUint64(value interface{}) (uint64, bool) {
 	return 0, false
 }
 
-// isMaxUint32 checks if the value is the maximum uint32 value (4294967295)
+// isMaxUint32 checks if the value is the maximum uint32 value
 func isMaxUint32(value uint64) bool {
-	return value == 4294967295
+	return value == maxUint32Value
 }
 
 // extractSpeedFromGauge32 extracts speed from Gauge32 type
@@ -1023,7 +1023,7 @@ func updateIfSpeed(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
 	iface.IfSpeed = speed
 
 	log.Printf("Interface %d: Set ifSpeed to %d bps (%.2f Mbps)",
-		iface.IfIndex, iface.IfSpeed, float64(iface.IfSpeed)/1000000)
+		iface.IfIndex, iface.IfSpeed, float64(iface.IfSpeed)/defaultHighSpeed)
 }
 
 // updateIfPhysAddress updates the interface physical address
@@ -1178,7 +1178,7 @@ func (e *SNMPDiscoveryEngine) walkIfTable(client *gosnmp.GoSNMP, target string, 
 
 		// Track what OIDs we're getting
 		parts := strings.Split(pdu.Name, ".")
-		if len(parts) >= 2 {
+		if len(parts) >= defaultPartsLenCheck {
 			oidPrefix := strings.Join(parts[:len(parts)-1], ".")
 
 			processedOIDs[oidPrefix]++
@@ -1289,8 +1289,16 @@ func (e *SNMPDiscoveryEngine) processIfXTablePDU(pdu gosnmp.SnmpPDU, ifMap map[i
 
 const (
 	overflowValue    = 9223372036854775807
-	defaultHighSpeed = 1000000
+	defaultHighSpeed = 1000000 // 1 million, for converting Mbps to bps
 	defaultOverflow  = 1000000
+
+	// Progress calculation constants
+	progressInitial   = 5.0   // Initial progress percentage
+	progressScanning  = 90.0  // Percentage allocated for scanning
+	progressCompleted = 100.0 // Final progress percentage when completed
+
+	// Network constants
+	maxUint32Value = 4294967295 // Maximum value for a uint32
 )
 
 // updateInterfaceFromPDU updates interface properties based on the OID prefix and PDU value
@@ -1301,10 +1309,10 @@ func (*SNMPDiscoveryEngine) updateInterfaceFromPDU(iface *DiscoveredInterface, o
 		if pdu.Type == gosnmp.Gauge32 {
 			mbps := pdu.Value.(uint) // This is Mbps
 			// Convert to bps (uint64)
-			bps := uint64(mbps) * 1000000 // Multiply by 1 million
+			bps := uint64(mbps) * defaultHighSpeed // Multiply by 1 million
 
 			// Check for overflow before assignment if necessary, though unlikely for interface speeds
-			if bps > math.MaxUint64/2 && mbps > math.MaxUint64/2000000 { // Simple overflow heuristic
+			if bps > math.MaxUint64/2 && mbps > math.MaxUint64/(2*defaultHighSpeed) { // Simple overflow heuristic
 				bps = math.MaxUint64
 			}
 
