@@ -1,5 +1,20 @@
-// pkg/agent/mapper_discovery_checker.go
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 
+// Package agent pkg/agent/mapper_discovery_checker.go
 package agent
 
 import (
@@ -7,24 +22,21 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"sync" // Import sync for the Mutex
+	"sync"
 	"time"
 
-	ggrpc "github.com/carverauto/serviceradar/pkg/grpc" // Alias to avoid conflict
+	ggrpc "github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/models"
-	mapper_proto "github.com/carverauto/serviceradar/proto/discovery" // Alias for mapper's proto
+	mapper_proto "github.com/carverauto/serviceradar/proto/discovery"
 )
 
-// MapperDiscoveryDetails matches the JSON structure in your log
 type MapperDiscoveryDetails struct {
 	Seeds       []string `json:"seeds"`
 	Type        string   `json:"type"` // e.g., "full", "basic"
 	Credentials struct {
 		Version   string `json:"version"`
 		Community string `json:"community"`
-		// Add other SNMP v3 credentials if needed (Username, AuthProtocol, etc.)
 	} `json:"credentials"`
-	// Add other fields from DiscoveryParams if needed to fully configure the mapper
 	Concurrency    int    `json:"concurrency,omitempty"`
 	TimeoutSeconds int32  `json:"timeout_seconds,omitempty"` // Renamed to match proto
 	Retries        int32  `json:"retries,omitempty"`         // Renamed to match proto
@@ -35,9 +47,9 @@ type MapperDiscoveryDetails struct {
 // MapperDiscoveryChecker implements checker.Checker for initiating and monitoring mapper discovery jobs.
 type MapperDiscoveryChecker struct {
 	mapperAddress string
-	details       string // raw JSON string from config
+	details       string
 	security      *models.SecurityConfig
-	client        *ggrpc.Client // gRPC client to the mapper service
+	client        *ggrpc.Client
 	mapperClient  mapper_proto.DiscoveryServiceClient
 
 	// New fields for tracking discovery job state
@@ -47,7 +59,10 @@ type MapperDiscoveryChecker struct {
 }
 
 // NewMapperDiscoveryChecker creates a new instance of MapperDiscoveryChecker.
-func NewMapperDiscoveryChecker(ctx context.Context, mapperAddress, details string, security *models.SecurityConfig) (*MapperDiscoveryChecker, error) {
+func NewMapperDiscoveryChecker(
+	ctx context.Context,
+	mapperAddress, details string,
+	security *models.SecurityConfig) (*MapperDiscoveryChecker, error) {
 	log.Printf("Creating MapperDiscoveryChecker for mapper at %s with details: %s", mapperAddress, details)
 
 	// Build gRPC client config for connecting to the mapper service
@@ -62,6 +77,7 @@ func NewMapperDiscoveryChecker(ctx context.Context, mapperAddress, details strin
 		if err != nil {
 			return nil, fmt.Errorf("failed to create security provider for mapper discovery client: %w", err)
 		}
+
 		clientCfg.SecurityProvider = provider
 	}
 
@@ -80,6 +96,10 @@ func NewMapperDiscoveryChecker(ctx context.Context, mapperAddress, details strin
 	}, nil
 }
 
+const (
+	defaultJobStalenessThreshold = 10 * time.Minute // Default threshold for job staleness
+)
+
 // Check parses the discovery parameters, optionally initiates a job,
 // and returns the status/results of the discovery.
 func (mdc *MapperDiscoveryChecker) Check(ctx context.Context) (bool, string) {
@@ -94,22 +114,28 @@ func (mdc *MapperDiscoveryChecker) Check(ctx context.Context) (bool, string) {
 
 	// Determine if we need to start a new discovery job
 	// A simple heuristic: if no job, or last job is very old (e.g., > 10 minutes from last update/start)
-	const jobStalenessThreshold = 10 * time.Minute // This should align with how often you want new discoveries
+	const jobStalenessThreshold = defaultJobStalenessThreshold
+
 	startNewJob := false
 
 	if mdc.lastDiscoveryID == "" || time.Since(mdc.lastDiscoveryTime) > jobStalenessThreshold {
 		startNewJob = true
 	} else {
 		// Check the status of the last job to see if it's completed or failed
-		statusResp, err := mdc.mapperClient.GetStatus(ctx, &mapper_proto.StatusRequest{DiscoveryId: mdc.lastDiscoveryID})
+		statusResp, err := mdc.mapperClient.GetStatus(ctx,
+			&mapper_proto.StatusRequest{DiscoveryId: mdc.lastDiscoveryID})
 		if err != nil {
 			// If we can't get status, assume it's stale/failed and try to restart
-			log.Printf("MapperDiscoveryChecker: Failed to get status for job %s (%v), attempting new job.", mdc.lastDiscoveryID, err)
+			log.Printf("MapperDiscoveryChecker: Failed to get status for job %s (%v), "+
+				"attempting new job.", mdc.lastDiscoveryID, err)
+
 			startNewJob = true
 		} else {
 			switch statusResp.Status {
 			case mapper_proto.DiscoveryStatus_FAILED.String(), mapper_proto.DiscoveryStatus_CANCELED.String():
-				log.Printf("MapperDiscoveryChecker: Last discovery job %s is %s, initiating new job.", mdc.lastDiscoveryID, statusResp.Status)
+				log.Printf("MapperDiscoveryChecker: Last discovery job %s is %s, "+
+					"initiating new job.", mdc.lastDiscoveryID, statusResp.Status)
+
 				startNewJob = true
 			}
 		}
@@ -143,7 +169,8 @@ func (mdc *MapperDiscoveryChecker) Check(ctx context.Context) (bool, string) {
 		case "v3":
 			snmpVersion = mapper_proto.SNMPCredentials_V3
 		default:
-			return false, fmt.Sprintf(`{"error": "Unsupported SNMP version: %s"}`, parsedDetails.Credentials.Version)
+			return false, fmt.Sprintf(`{"error": "Unsupported SNMP version: %s"}`,
+				parsedDetails.Credentials.Version)
 		}
 
 		req := &mapper_proto.DiscoveryRequest{
@@ -167,7 +194,8 @@ func (mdc *MapperDiscoveryChecker) Check(ctx context.Context) (bool, string) {
 		}
 
 		if !resp.Success {
-			return false, fmt.Sprintf(`{"error": "Mapper discovery reported failure on start: %s"}`, resp.Message)
+			return false,
+				fmt.Sprintf(`{"error": "Mapper discovery reported failure on start: %s"}`, resp.Message)
 		}
 
 		mdc.lastDiscoveryID = resp.DiscoveryId
@@ -186,17 +214,23 @@ func (mdc *MapperDiscoveryChecker) Check(ctx context.Context) (bool, string) {
 		IncludeRawData: false, // Typically don't send raw data to core unless specifically needed
 	})
 	if err != nil {
-		return false, fmt.Sprintf(`{"error": "Failed to get mapper discovery results for job %s: %v"}`, mdc.lastDiscoveryID, err)
+		return false, fmt.Sprintf(`{"error": "Failed to get mapper discovery results for job %s: %v"}`,
+			mdc.lastDiscoveryID, err)
 	}
 
 	// Update lastDiscoveryTime based on job's end time if available, otherwise current time
-	if resultsResp.GetStatus() == mapper_proto.DiscoveryStatus_COMPLETED || resultsResp.GetStatus() == mapper_proto.DiscoveryStatus_FAILED || resultsResp.GetStatus() == mapper_proto.DiscoveryStatus_CANCELED {
+	if resultsResp.GetStatus() == mapper_proto.DiscoveryStatus_COMPLETED ||
+		resultsResp.GetStatus() == mapper_proto.DiscoveryStatus_FAILED ||
+		resultsResp.GetStatus() == mapper_proto.DiscoveryStatus_CANCELED {
 		mdc.lastDiscoveryTime = time.Now() // Update last check time for staleness
 	}
 
 	// If the job is still running, report its progress
-	if resultsResp.Status != mapper_proto.DiscoveryStatus_COMPLETED && resultsResp.Status != mapper_proto.DiscoveryStatus_FAILED && resultsResp.Status != mapper_proto.DiscoveryStatus_CANCELED {
-		msg := fmt.Sprintf("Mapper discovery job %s is still %s (progress: %.1f%%, devices: %d, interfaces: %d, links: %d).",
+	if resultsResp.Status != mapper_proto.DiscoveryStatus_COMPLETED &&
+		resultsResp.Status != mapper_proto.DiscoveryStatus_FAILED &&
+		resultsResp.Status != mapper_proto.DiscoveryStatus_CANCELED {
+		msg := fmt.Sprintf("Mapper discovery job %s is still %s "+
+			"(progress: %.1f%%, devices: %d, interfaces: %d, links: %d).",
 			mdc.lastDiscoveryID, resultsResp.Status.String(), resultsResp.Progress,
 			len(resultsResp.Devices), len(resultsResp.Interfaces), len(resultsResp.Topology))
 		statusJson, _ := json.Marshal(map[string]interface{}{
@@ -231,7 +265,8 @@ func (mdc *MapperDiscoveryChecker) Check(ctx context.Context) (bool, string) {
 	// Report availability based on job outcome
 	available := resultsResp.Status == mapper_proto.DiscoveryStatus_COMPLETED
 
-	log.Printf("MapperDiscoveryChecker: Reporting job %s status: %s, available: %v. Found devices: %d, interfaces: %d, links: %d",
+	log.Printf("MapperDiscoveryChecker: Reporting job %s status: %s, available: %v. "+
+		"Found devices: %d, interfaces: %d, links: %d",
 		mdc.lastDiscoveryID, resultsResp.Status.String(), available,
 		len(resultsResp.Devices), len(resultsResp.Interfaces), len(resultsResp.Topology))
 
