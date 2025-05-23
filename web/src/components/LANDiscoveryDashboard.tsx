@@ -26,9 +26,6 @@ import {
     Clock,
     RefreshCw,
     Search,
-    Filter,
-    ChevronDown,
-    ChevronUp,
     AlertCircle,
     CheckCircle,
     XCircle,
@@ -39,18 +36,27 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/components/AuthProvider';
 
-// --- START: UPDATED INTERFACES to match `snake_case` and nested `if_speed` ---
-interface Device {
-    name?: string; // Display name
-    ip_address?: string; // from 'ip'
-    mac_address?: string; // from 'mac'
-    description?: string; // from 'sys_descr'
-    type?: string; // from 'discovery_source'
-    vendor?: string; // from 'sys_contact'
-    last_seen?: string;
-    status?: string; // 'online', 'offline', 'unknown'
+// --- START: UPDATED INTERFACES to match `snake_case` and nested `if_speed` and remove 'any' types ---
 
-    // Raw properties from backend output (now explicitly snake_case)
+/**
+ * RawBackendLanDiscoveryData represents the direct JSON structure returned by the backend's LAN discovery service details.
+ * It contains snake_case keys as received from the Go backend.
+ */
+interface RawBackendLanDiscoveryData {
+    devices?: RawDevice[];
+    interfaces?: RawInterface[];
+    topology?: NetworkTopology;
+    last_discovery?: string;
+    discovery_duration?: number;
+    total_devices?: number;
+    active_devices?: number;
+    [key: string]: unknown; // Allow other unexpected top-level keys
+}
+
+/**
+ * RawDevice represents a device object directly from the backend payload (snake_case keys).
+ */
+interface RawDevice {
     device_id?: string;
     hostname?: string;
     ip?: string; // raw ip address
@@ -60,28 +66,20 @@ interface Device {
     sys_contact?: string; // directly on device object
     uptime?: number;
     discovery_source?: string;
-    // `is_available` is not consistently present in the devices object,
-    // so it's best to infer status based on `discovery_source` or `last_seen` or treat as optional.
-    // For now, we'll keep `is_available` in the `Device` interface but handle its absence gracefully.
-    is_available?: boolean; // This might be from the `show devices` query directly, not in the combined payload
-    metadata?: { // This metadata might be present in some payloads, so keeping it
+    is_available?: boolean;
+    last_seen?: string;
+    metadata?: {
         discovery_id?: string;
         discovery_time?: string;
-        [key: string]: any;
+        [key: string]: unknown; // Arbitrary metadata keys
     };
+    [key: string]: unknown; // Allow other unexpected keys
 }
 
-interface Interface {
-    name?: string; // Preferred display name (if_name or if_descr)
-    ip_address?: string; // First IP from ip_addresses array
-    mac_address?: string; // from 'if_phys_address'
-    status?: string; // 'up', 'down', etc. (derived from if_oper_status)
-    type?: string; // from 'if_type' (OID) or 'if_descr'
-    speed?: string; // Formatted speed (e.g., "1Gbps", "10Mbps")
-    duplex?: string; // (still optional, not in provided data)
-    mtu?: number; // (still optional, not in provided data)
-
-    // Raw properties from backend output (now explicitly snake_case)
+/**
+ * RawInterface represents an interface object directly from the backend payload (snake_case keys).
+ */
+interface RawInterface {
     device_ip?: string;
     if_index?: number;
     if_name?: string;
@@ -92,19 +90,108 @@ interface Interface {
     if_oper_status?: number;
     if_type?: number; // SNMP interface type OID
     ip_addresses?: string[];
-    metadata?: { // Metadata might still hold discovery_id, etc.
+    metadata?: {
         discovery_id?: string;
         discovery_time?: string;
-        [key: string]: any;
+        if_type?: string; // `if_type` might be string in metadata, number in root
+        [key: string]: unknown; // Arbitrary metadata keys
+    };
+    [key: string]: unknown; // Allow other unexpected keys
+}
+
+/**
+ * Device represents a parsed device object for display in the frontend.
+ * It uses camelCase keys for consistency with React component conventions.
+ */
+interface Device {
+    name?: string; // Display name (from hostname, ip, or device_id)
+    ip_address?: string; // from 'ip'
+    mac_address?: string; // from 'mac'
+    description?: string; // from 'sys_descr'
+    type?: string; // from 'discovery_source'
+    vendor?: string; // from 'sys_contact'
+    last_seen?: string;
+    status?: string; // 'online', 'offline', 'unknown'
+
+    // Raw properties from backend output (retained for comprehensive data)
+    device_id?: string;
+    hostname?: string;
+    ip?: string; // raw ip address
+    mac?: string; // raw mac address
+    sys_descr?: string;
+    sys_object_id?: string;
+    sys_contact?: string;
+    uptime?: number;
+    discovery_source?: string;
+    is_available?: boolean;
+    metadata?: {
+        discovery_id?: string;
+        discovery_time?: string;
+        [key: string]: unknown;
     };
 }
 
+/**
+ * Interface represents a parsed network interface object for display in the frontend.
+ * It uses camelCase keys.
+ */
+interface Interface {
+    name?: string; // Preferred display name (if_name or if_descr)
+    ip_address?: string; // First IP from ip_addresses array
+    mac_address?: string; // from 'if_phys_address'
+    status?: string; // 'up', 'down', etc. (derived from if_oper_status)
+    type?: string; // from 'if_type' (OID) or 'if_descr'
+    speed?: string; // Formatted speed (e.g., "1Gbps", "10Mbps")
+    duplex?: string;
+    mtu?: number;
+
+    // Raw properties from backend output (retained for comprehensive data)
+    device_ip?: string;
+    if_index?: number;
+    if_name?: string;
+    if_descr?: string;
+    if_speed?: { value?: number } | number;
+    if_phys_address?: string;
+    if_admin_status?: number;
+    if_oper_status?: number;
+    if_type?: number;
+    ip_addresses?: string[];
+    metadata?: {
+        discovery_id?: string;
+        discovery_time?: string;
+        if_type?: string;
+        [key: string]: unknown;
+    };
+}
+
+/**
+ * Basic types for topology nodes and edges to avoid `any`.
+ * More detailed types could be added if the topology is rendered visually.
+ */
+interface TopologyNode {
+    id: string;
+    label: string;
+    type?: string;
+    ip?: string;
+    [key: string]: unknown;
+}
+
+interface TopologyEdge {
+    from: string;
+    to: string;
+    label?: string;
+    [key: string]: unknown;
+}
+
 interface NetworkTopology {
-    nodes?: any[];
-    edges?: any[];
+    nodes?: TopologyNode[];
+    edges?: TopologyEdge[];
     subnets?: string[];
 }
 
+/**
+ * ParsedLanDiscoveryData represents the fully parsed and structured data for the dashboard.
+ */
 interface ParsedLanDiscoveryData {
     devices: Device[];
     interfaces: Interface[];
@@ -115,13 +202,33 @@ interface ParsedLanDiscoveryData {
     active_devices?: number;
 }
 
+/**
+ * ServicePayload represents the full service object returned by the API endpoint.
+ */
+interface ServicePayload {
+    id?: string; // Example: service ID (optional)
+    poller_id: string;
+    service_name: string;
+    status: string;
+    last_update: string; // ISO 8601 timestamp string
+    details: string | RawBackendLanDiscoveryData; // Can be JSON string or parsed object
+    [key: string]: unknown; // Allow other potential fields in the service object
+}
+
 interface LanDiscoveryDashboardProps {
     pollerId: string;
     serviceName: string;
-    initialService?: any;
+    initialService?: ServicePayload | null; // initialService can be null
     initialError?: string | null;
     initialTimeRange?: string; // Unused in this component but kept for consistency
 }
+
+// Define specific types for state variables that previously used 'any' with type assertions
+type FilterType = 'all' | 'devices' | 'interfaces';
+type SortBy = 'name' | 'ip' | 'status';
+type SortOrder = 'asc' | 'desc';
+type ViewMode = 'grid' | 'table';
+
 // --- END: UPDATED INTERFACES ---
 
 
@@ -138,15 +245,15 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(initialError);
     const [searchTerm, setSearchTerm] = useState('');
-    const [filterType, setFilterType] = useState<'all' | 'devices' | 'interfaces'>('all');
-    const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
-    const [sortBy, setSortBy] = useState<'name' | 'ip' | 'status'>('name');
-    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+    const [filterType, setFilterType] = useState<FilterType>('all');
+    const [viewMode, setViewMode] = useState<ViewMode>('grid');
+    const [sortBy, setSortBy] = useState<SortBy>('name');
+    const [sortOrder, setSortOrder] = useState<SortOrder>('asc');
     const [lastRefreshed, setLastRefreshed] = useState(new Date());
     const [isRefreshing, setIsRefreshing] = useState(false);
 
     // --- START: UPDATED parseBackendLanDiscoveryData ---
-    const parseBackendLanDiscoveryData = useCallback((rawDetails: any): ParsedLanDiscoveryData => {
+    const parseBackendLanDiscoveryData = useCallback((rawDetails: RawBackendLanDiscoveryData): ParsedLanDiscoveryData => {
         console.group("parseBackendLanDiscoveryData called");
         console.log("Raw details received for parsing:", rawDetails);
 
@@ -156,51 +263,46 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
             return { devices: [], interfaces: [], topology: {} };
         }
 
-        let devices: Device[] = [];
-        let interfaces: Interface[] = [];
+        const devices: Device[] = []; // Changed to const
+        const interfaces: Interface[] = []; // Changed to const
         let totalDevices = 0;
         let activeDevices = 0;
 
-        // The provided `console.log` shows `devices` and `interfaces` arrays directly at the top level
-        // if the `rawDetails` is already the parsed JSON object.
-        // If it was the raw `results` array, the previous logic (looking for `rawDetails.results`) would be needed.
-        // Assuming `rawDetails` itself is the object: `{"devices": [...], "interfaces": [...], ...}`
         const rawDevices = rawDetails.devices || [];
         const rawInterfaces = rawDetails.interfaces || [];
 
         // Process devices
         if (Array.isArray(rawDevices)) {
             console.log(`Processing ${rawDevices.length} raw devices.`);
-            rawDevices.forEach((item: any, index: number) => {
+            rawDevices.forEach((item: RawDevice, index: number) => { // Typed 'item' as RawDevice
                 console.groupCollapsed(`Processing raw device item ${index}`);
                 console.log("Raw device item:", item);
 
-                // Determine availability/status for devices
                 let deviceStatus = 'unknown';
-                // Prioritize 'is_available' if present, otherwise infer from 'active_devices' count later
                 if (typeof item.is_available === 'boolean') {
                     deviceStatus = item.is_available ? 'online' : 'offline';
-                } else if (item.ip) { // If it has an IP, assume it's "online" by default if no other status
-                    deviceStatus = 'online';
+                } else if (item.ip) {
+                    deviceStatus = 'online'; // Assume online if IP exists and no other status
                 }
 
                 devices.push({
                     name: item.hostname || item.ip || item.device_id || 'Unknown Device',
                     ip_address: item.ip,
-                    mac_address: item.mac, // Use 'mac' directly from device object
-                    description: item.sys_descr, // Use 'sys_descr' directly
+                    mac_address: item.mac,
+                    description: item.sys_descr,
                     type: item.discovery_source,
-                    vendor: item.sys_contact, // Use 'sys_contact' directly
-                    last_seen: item.last_seen, // Assuming this is also present if applicable
+                    vendor: item.sys_contact,
+                    last_seen: item.last_seen,
                     status: deviceStatus,
-                    // Keep raw fields for potential future use or debugging
+                    // Keep raw fields
                     device_id: item.device_id,
                     hostname: item.hostname,
                     ip: item.ip,
                     mac: item.mac,
                     sys_descr: item.sys_descr,
                     sys_contact: item.sys_contact,
-                    is_available: item.is_available, // Keep raw if it exists
+                    is_available: item.is_available,
+                    metadata: item.metadata,
                 });
                 console.groupEnd();
             });
@@ -211,12 +313,12 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
         // Process interfaces
         if (Array.isArray(rawInterfaces)) {
             console.log(`Processing ${rawInterfaces.length} raw interfaces.`);
-            rawInterfaces.forEach((item: any, index: number) => {
+            rawInterfaces.forEach((item: RawInterface, index: number) => { // Typed 'item' as RawInterface
                 console.groupCollapsed(`Processing raw interface item ${index}`);
                 console.log("Raw interface item:", item);
 
                 let ifaceStatus = 'unknown';
-                switch (item.if_oper_status) { // Use `if_oper_status` (snake_case)
+                switch (item.if_oper_status) {
                     case 1: ifaceStatus = 'up'; break;
                     case 2: ifaceStatus = 'down'; break;
                     case 3: ifaceStatus = 'testing'; break;
@@ -228,7 +330,6 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
                 }
 
                 let rawSpeedValue: number | undefined;
-                // Handle nested `if_speed.value` or direct `if_speed` number
                 if (typeof item.if_speed === 'object' && item.if_speed !== null && typeof item.if_speed.value === 'number') {
                     rawSpeedValue = item.if_speed.value;
                 } else if (typeof item.if_speed === 'number') {
@@ -242,23 +343,22 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
                         formattedSpeed = `${(speedInMbps / 1000).toFixed(1)}Gbps`;
                     } else if (speedInMbps >= 1) {
                         formattedSpeed = `${speedInMbps.toFixed(0)}Mbps`;
-                    } else { // Handle speeds less than 1 Mbps
-                        formattedSpeed = `${(rawSpeedValue / 1000).toFixed(0)}Kbps`; // Convert to Kbps for smaller values
+                    } else {
+                        formattedSpeed = `${(rawSpeedValue / 1000).toFixed(0)}Kbps`;
                         if (rawSpeedValue < 1000) formattedSpeed = `${rawSpeedValue}bps`;
                     }
                 } else if (rawSpeedValue === 0) {
                     formattedSpeed = '0 Mbps';
                 }
 
-
                 interfaces.push({
-                    name: item.if_name || item.if_descr || `Interface ${item.if_index || 'N/A'}`, // Use `if_name`, `if_descr` (snake_case)
+                    name: item.if_name || item.if_descr || `Interface ${item.if_index || 'N/A'}`,
                     ip_address: Array.isArray(item.ip_addresses) && item.ip_addresses.length > 0 ? item.ip_addresses[0] : undefined,
-                    mac_address: item.if_phys_address || '-', // Use `if_phys_address` (snake_case)
+                    mac_address: item.if_phys_address || '-',
                     status: ifaceStatus,
-                    type: item.metadata?.if_type || item.if_descr, // Use `if_descr` (snake_case)
+                    type: item.metadata?.if_type || item.if_descr,
                     speed: formattedSpeed,
-                    // Keep raw properties (snake_case) for potential future use
+                    // Keep raw properties
                     if_name: item.if_name,
                     if_descr: item.if_descr,
                     if_index: item.if_index,
@@ -275,11 +375,8 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
             console.warn("`rawDetails.interfaces` is not an array or is missing.", rawDetails.interfaces);
         }
 
-        // Use the total_devices and active_devices directly from the rawDetails if available,
-        // otherwise calculate from the parsed `devices` array.
         totalDevices = rawDetails.total_devices !== undefined ? rawDetails.total_devices : devices.length;
         activeDevices = rawDetails.active_devices !== undefined ? rawDetails.active_devices : devices.filter((d: Device) => d.status === 'online').length;
-
 
         const parsedResult = {
             devices,
@@ -292,7 +389,7 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
         };
 
         console.log("Final parsed result:", parsedResult);
-        console.groupEnd(); // End parseBackendLanDiscoveryData group
+        console.groupEnd();
         return parsedResult;
     }, []);
     // --- END: UPDATED parseBackendLanDiscoveryData ---
@@ -300,9 +397,8 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
     // Initialize data from props
     useEffect(() => {
         if (initialService) {
-            let rawDetails = initialService.details;
+            let rawDetails: string | RawBackendLanDiscoveryData = initialService.details;
             try {
-                // Safely parse initialService.details if it's a string (e.g., from JSON.RawMessage in Go)
                 if (typeof initialService.details === 'string') {
                     rawDetails = JSON.parse(initialService.details);
                 }
@@ -313,19 +409,18 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
                 return;
             }
 
-            const parsed = parseBackendLanDiscoveryData(rawDetails);
+            const parsed = parseBackendLanDiscoveryData(rawDetails as RawBackendLanDiscoveryData); // Cast after potential parsing
             setDiscoveryData(parsed);
             setIsLoading(false);
-            // Use service's last_update if available, otherwise current time
             setLastRefreshed(new Date(initialService.last_update || Date.now()));
         } else {
             console.warn("LANDiscoveryDashboard: No initial service data provided.");
             setError("No initial LAN discovery service data provided.");
             setIsLoading(false);
         }
-    }, [initialService, parseBackendLanDiscoveryData]); // Dependency array for useEffect
+    }, [initialService, parseBackendLanDiscoveryData]);
 
-    // Fetch latest data (updated to use the new parsing logic)
+    // Fetch latest data
     const fetchLatestData = useCallback(async () => {
         if (!pollerId || !serviceName) {
             console.warn("fetchLatestData: Missing pollerId or serviceName. Skipping fetch.");
@@ -353,8 +448,8 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
                 throw new Error(`Service data request failed: ${response.status} - ${errorText}`);
             }
 
-            const serviceData = await response.json();
-            let rawDetails = serviceData.details;
+            const serviceData: ServicePayload = await response.json(); // Typed serviceData
+            let rawDetails: string | RawBackendLanDiscoveryData = serviceData.details;
             try {
                 if (typeof serviceData.details === 'string') {
                     rawDetails = JSON.parse(serviceData.details);
@@ -363,9 +458,9 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
                 console.error('Error parsing refreshed serviceData.details JSON string:', e);
                 throw new Error('Failed to parse refreshed service details. Please check JSON format.');
             }
-            const parsed = parseBackendLanDiscoveryData(rawDetails);
+            const parsed = parseBackendLanDiscoveryData(rawDetails as RawBackendLanDiscoveryData);
             setDiscoveryData(parsed);
-            setLastRefreshed(new Date(serviceData.last_update || Date.now())); // Update last refreshed time
+            setLastRefreshed(new Date(serviceData.last_update || Date.now()));
             setError(null);
         } catch (err) {
             console.error('Error fetching LAN discovery data:', err);
@@ -376,16 +471,16 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
         }
     }, [pollerId, serviceName, token, parseBackendLanDiscoveryData]);
 
-    // Auto-refresh (calls fetchLatestData periodically)
+    // Auto-refresh
     useEffect(() => {
         const interval = setInterval(() => {
             fetchLatestData();
-        }, 30000); // Refresh every 30 seconds
+        }, 30000);
 
         return () => clearInterval(interval);
-    }, [fetchLatestData]); // Dependency array for useEffect
+    }, [fetchLatestData]);
 
-    // Filter and sort data (logic remains largely the same, but now operates on the parsed `discoveryData`)
+    // Filter and sort data
     const filteredData = useMemo(() => {
         const devices = discoveryData.devices || [];
         const interfaces = discoveryData.interfaces || [];
@@ -414,36 +509,44 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
                 (i.status && i.status.toLowerCase().includes(search)) ||
                 (i.type && i.type.toLowerCase().includes(search)) ||
                 (i.speed && i.speed.toLowerCase().includes(search)) ||
-                (i.if_descr && i.if_descr.toLowerCase().includes(search)) || // Use snake_case
-                (i.if_name && i.if_name.toLowerCase().includes(search))     // Use snake_case
+                (i.if_descr && i.if_descr.toLowerCase().includes(search)) ||
+                (i.if_name && i.if_name.toLowerCase().includes(search))
             );
         }
 
-        // Sort function
-        const sortFn = (a: any, b: any) => {
-            let aVal, bVal;
+        // Sort function, now correctly uses sortOrder
+        const sortFn = (a: Device | Interface, b: Device | Interface) => {
+            let aVal: string | number | undefined, bVal: string | number | undefined;
+            let comparisonResult: number;
+
             switch (sortBy) {
                 case 'ip':
                     const parseIp = (ip: string | undefined) => {
                         return ip ? ip.split('.').map(Number).reduce((acc, octet) => (acc << 8) + octet, 0) : 0;
                     };
-                    return parseIp(a.ip_address) - parseIp(b.ip_address);
+                    comparisonResult = parseIp(a.ip_address) - parseIp(b.ip_address);
+                    break;
                 case 'status':
-                    const statusOrder = { 'online': 1, 'up': 1, 'active': 1, 'warning': 2, 'offline': 3, 'down': 3, 'inactive': 3, 'unknown': 4, 'testing': 4, 'dormant':4, 'notpresent':4, 'lowerlayerdown':4 };
-                    aVal = statusOrder[String(a.status).toLowerCase()] || 99; // Ensure status is string
-                    bVal = statusOrder[String(b.status).toLowerCase()] || 99; // Ensure status is string
-                    if (aVal === bVal) {
-                        return String(a.name || '').localeCompare(String(b.name || '')); // Secondary sort by name
+                    const statusOrder: { [key: string]: number } = { 'online': 1, 'up': 1, 'active': 1, 'warning': 2, 'offline': 3, 'down': 3, 'inactive': 3, 'unknown': 4, 'testing': 4, 'dormant':4, 'notpresent':4, 'lowerlayerdown':4 };
+                    // Ensure status is string and fallback to empty string if undefined
+                    aVal = statusOrder[String(a.status || '').toLowerCase()] || 99;
+                    bVal = statusOrder[String(b.status || '').toLowerCase()] || 99;
+                    comparisonResult = aVal - bVal;
+                    if (comparisonResult === 0) { // Secondary sort by name if primary sort is equal
+                        const aName = (a as Device).name || (a as Device).hostname || (a as Interface).name || (a as Interface).if_descr || '';
+                        const bName = (b as Device).name || (b as Device).hostname || (b as Interface).name || (b as Interface).if_descr || '';
+                        comparisonResult = String(aName).localeCompare(String(bName));
                     }
-                    return aVal - bVal;
+                    break;
                 default: // 'name'
-                    aVal = a.name || a.hostname || a.ip_address || '';
-                    bVal = b.name || b.hostname || b.ip_address || '';
-                    return String(aVal).localeCompare(String(bVal));
+                    const aDisplayName = (a as Device).name || (a as Device).hostname || (a as Device).ip_address || (a as Interface).name || (a as Interface).if_descr || '';
+                    const bDisplayName = (b as Device).name || (b as Device).hostname || (b as Device).ip_address || (b as Interface).name || (b as Interface).if_descr || '';
+                    comparisonResult = String(aDisplayName).localeCompare(String(bDisplayName));
+                    break;
             }
+            return sortOrder === 'asc' ? comparisonResult : -comparisonResult;
         };
 
-        // Ensure currentFilteredDevices and currentFilteredInterfaces are always arrays before sorting
         if (Array.isArray(currentFilteredDevices)) {
             currentFilteredDevices.sort(sortFn);
         }
@@ -457,7 +560,7 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
         };
     }, [discoveryData, searchTerm, filterType, sortBy, sortOrder]);
 
-    // Get icon for device type (remains unchanged, but improved to check `name` and common UDM-Pro desc)
+    // Get icon for device type
     const getDeviceIcon = (device: Device) => {
         const type = device.type?.toLowerCase() || '';
         const description = device.description?.toLowerCase() || '';
@@ -470,12 +573,12 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
         return <Monitor className="h-5 w-5" />;
     };
 
-    // Get status color (remains unchanged)
+    // Get status color
     const getStatusColor = (status?: string) => {
         const s = status?.toLowerCase() || '';
         if (s === 'active' || s === 'online' || s === 'up') return 'text-green-500';
         if (s === 'inactive' || s === 'offline' || s === 'down') return 'text-red-500';
-        return 'text-gray-500'; // Default for unknown/testing etc.
+        return 'text-gray-500';
     };
 
     // Loading state
@@ -489,7 +592,7 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
         );
     }
 
-    // Error state (only show if no data at all, otherwise show stale data + error message)
+    // Error state
     if (error && discoveryData.devices.length === 0 && discoveryData.interfaces.length === 0) {
         return (
             <div className="bg-red-50 dark:bg-red-900/20 p-6 rounded-lg shadow">
@@ -624,7 +727,7 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
                     <div className="flex gap-2">
                         <select
                             value={filterType}
-                            onChange={(e) => setFilterType(e.target.value as any)}
+                            onChange={(e) => setFilterType(e.target.value as FilterType)}
                             className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                         >
                             <option value="all">All</option>
@@ -634,7 +737,7 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
 
                         <select
                             value={sortBy}
-                            onChange={(e) => setSortBy(e.target.value as any)}
+                            onChange={(e) => setSortBy(e.target.value as SortBy)}
                             className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                         >
                             <option value="name">Sort by Name</option>
@@ -671,7 +774,7 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
                 <div className="bg-white dark:bg-gray-800 rounded-lg p-8 text-center shadow">
                     <Search className="h-12 w-12 mx-auto text-gray-400 mb-3" />
                     <h3 className="text-lg font-semibold text-gray-900 dark:text-white">No Matching Results</h3>
-                    <p className="text-gray-500 dark:text-gray-400">No devices or interfaces match your search query "{searchTerm}".</p>
+                    <p className="text-gray-500 dark:text-gray-400">No devices or interfaces match your search query &#34;{searchTerm}&#34;.</p>
                 </div>
             )}
 
