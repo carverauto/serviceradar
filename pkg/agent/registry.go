@@ -76,19 +76,12 @@ func initRegistry() checker.Registry {
 
 	// Register the mapper_discovery checker
 	registry.Register("mapper_discovery",
-		func(ctx context.Context, serviceName, details string, security *models.SecurityConfig) (checker.Checker, error) {
+		func(ctx context.Context, _, details string, security *models.SecurityConfig) (checker.Checker, error) {
 			if details == "" {
 				return nil, errors.New("details field is required for mapper_discovery checks")
 			}
 
-			// The mapper service (serviceradar-mapper) typically listens on a specific port.
-			// This address should be configurable, but for now, we'll use the known default.
-			// From your logs: "Getting checker for request - Type: grpc, Name: mapper, Details: 127.0.0.1:50056"
-			// This implies the mapper's AgentService is on 127.0.0.1:50056, which is usually the same host/port
-			// for its other gRPC services like DiscoveryService.
-			mapperAddress := "127.0.0.1:50056" // *** IMPORTANT: Make sure this is the correct address for your mapper's gRPC services ***
-
-			return NewMapperDiscoveryChecker(ctx, mapperAddress, details, security)
+			return NewMapperDiscoveryChecker(ctx, details, security)
 		})
 
 	return registry
