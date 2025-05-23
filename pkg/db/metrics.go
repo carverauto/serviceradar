@@ -45,7 +45,7 @@ func (db *DB) queryTimeseriesMetrics(
 ) ([]models.TimeseriesMetric, error) {
 	query := fmt.Sprintf(`
 		SELECT metric_name, metric_type, value, metadata, timestamp
-		FROM timeseries_metrics
+		FROM table(timeseries_metrics)
 		WHERE poller_id = $1
 		AND %s = $2
 		AND timestamp BETWEEN $3 AND $4`, filterColumn)
@@ -257,7 +257,7 @@ func (db *DB) GetMetricsByType(ctx context.Context, pollerID, metricType string,
 func (db *DB) GetCPUMetrics(ctx context.Context, pollerID string, coreID int, start, end time.Time) ([]models.CPUMetric, error) {
 	rows, err := db.Conn.Query(ctx, `
 		SELECT timestamp, core_id, usage_percent
-		FROM cpu_metrics
+		FROM table(cpu_metrics)
 		WHERE poller_id = $1 AND core_id = $2 AND timestamp BETWEEN $3 AND $4
 		ORDER BY timestamp`,
 		pollerID, coreID, start, end)
