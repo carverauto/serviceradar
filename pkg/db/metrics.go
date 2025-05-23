@@ -108,7 +108,8 @@ func (db *DB) storeRperfMetricsToBatch(
 
 	storedCount := 0
 
-	for _, result := range metrics {
+	for i := 0; i < len(metrics); i++ {
+		result := &metrics[i]
 		if !result.Success {
 			log.Printf("Skipping metrics storage for failed rperf test (Target: %s) on poller %s. Error: %v",
 				result.Target, pollerID, result.Error)
