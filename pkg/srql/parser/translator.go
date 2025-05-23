@@ -80,11 +80,11 @@ func (*Translator) toSQL(
 	case models.Interfaces: // Added
 		tableName = "discovered_interfaces"
 	case models.Traps:
-		tableName = "traps" // Assuming a 'traps' table exists
+		tableName = "traps" // TODO: create
 	case models.Connections:
-		tableName = "connections" // Assuming a 'connections' table exists
+		tableName = "connections" // TODO: missing? create
 	case models.Logs:
-		tableName = "logs" // Assuming a 'logs' table exists
+		tableName = "logs" // TODO: also missing..
 	default:
 		tableName = strings.ToLower(string(query.Entity)) // Fallback for undefined entities
 	}
