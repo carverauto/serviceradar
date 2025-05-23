@@ -14,17 +14,18 @@
  * limitations under the License.
  */
 
+// Package snmp pkg/checker/snmp/snmp.go
 package snmp
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/carverauto/serviceradar/pkg/models"
 	"log"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 // SNMPMetricsManager implements the SNMPManager interface for handling SNMP metrics.
@@ -40,7 +41,8 @@ func NewSNMPManager(d db.Service) SNMPManager {
 }
 
 // GetSNMPMetrics fetches SNMP metrics from the database for a given poller.
-func (s *SNMPMetricsManager) GetSNMPMetrics(ctx context.Context, pollerID string, startTime, endTime time.Time) ([]models.SNMPMetric, error) {
+func (s *SNMPMetricsManager) GetSNMPMetrics(
+	ctx context.Context, pollerID string, startTime, endTime time.Time) ([]models.SNMPMetric, error) {
 	log.Printf("Fetching SNMP metrics for poller %s from %v to %v", pollerID, startTime, endTime)
 
 	metrics, err := s.db.GetMetricsByType(ctx, pollerID, "snmp", startTime, endTime)

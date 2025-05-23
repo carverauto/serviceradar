@@ -19,7 +19,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"log"
 	"net/http"
 	"time"
@@ -105,111 +104,4 @@ func convertRperfMetricsToAPIMetrics(rperfMetrics []*models.RperfMetric) []model
 	}
 
 	return response
-}
-
-// convertToAPIMetrics converts models.TimeseriesMetric to RperfMetric.
-// @ignore This is an internal helper function, not directly exposed as an API endpoint
-func convertToAPIMetrics(rperfMetrics []*models.TimeseriesMetric, pollerID string) []models.RperfMetric {
-	response := make([]models.RperfMetric, 0, len(rperfMetrics))
-
-	for _, rm := range rperfMetrics {
-		metric := models.RperfMetric{
-			Timestamp: rm.Timestamp,
-			Name:      rm.Name,
-		}
-
-		// Handle metadata based on its actual type
-		var metadata map[string]interface{}
-
-		switch md := rm.Metadata.(type) {
-		case map[string]interface{}:
-			// If it's already a map, use it directly
-			metadata = md
-		case json.RawMessage:
-			// If it's a json.RawMessage, unmarshal it
-			if err := json.Unmarshal(md, &metadata); err != nil {
-				log.Printf("Error unmarshaling json.RawMessage metadata for metric %s on poller %s: %v",
-					rm.Name, pollerID, err)
-
-				continue
-			}
-		default:
-			// For any other type, log the error and skip
-			log.Printf("Unsupported metadata type for metric %s on poller %s: %T",
-				rm.Name, pollerID, rm.Metadata)
-
-			continue
-		}
-
-		// Now that we have a map of metadata, populate the metric fields
-		populateMetricFields(&metric, metadata)
-
-		response = append(response, metric)
-	}
-
-	return response
-}
-
-// populateMetricFields populates an RperfMetric from metadata.
-// @ignore This is an internal helper function, not directly exposed as an API endpoint
-func populateMetricFields(metric *models.RperfMetric, metadata map[string]interface{}) {
-	setStringField(&metric.Target, metadata, "target")
-	setBoolField(&metric.Success, metadata, "success")
-	setErrorField(&metric.Error, metadata, "error")
-	setFloat64Field(&metric.BitsPerSec, metadata, "bits_per_second")
-	setInt64Field(&metric.BytesReceived, metadata, "bytes_received")
-	setInt64Field(&metric.BytesSent, metadata, "bytes_sent")
-	setFloat64Field(&metric.Duration, metadata, "duration")
-	setFloat64Field(&metric.JitterMs, metadata, "jitter_ms")
-	setFloat64Field(&metric.LossPercent, metadata, "loss_percent")
-	setInt64Field(&metric.PacketsLost, metadata, "packets_lost")
-	setInt64Field(&metric.PacketsReceived, metadata, "packets_received")
-	setInt64Field(&metric.PacketsSent, metadata, "packets_sent")
-}
-
-// setStringField sets a string field from metadata.
-// @ignore This is an internal helper function, not directly exposed as an API endpoint
-func setStringField(field *string, metadata map[string]interface{}, key string) {
-	if val, ok := metadata[key].(string); ok {
-		*field = val
-	}
-}
-
-// setBoolField sets a boolean field from metadata.
-// @ignore This is an internal helper function, not directly exposed as an API endpoint
-func setBoolField(field *bool, metadata map[string]interface{}, key string) {
-	if val, ok := metadata[key].(bool); ok {
-		*field = val
-	}
-}
-
-// setErrorField sets an error field from metadata.
-// @ignore This is an internal helper function, not directly exposed as an API endpoint
-func setErrorField(field **string, metadata map[string]interface{}, key string) {
-	if errVal, ok := metadata[key]; ok {
-		switch v := errVal.(type) {
-		case *string:
-			*field = v
-		case string:
-			if v != "" {
-				*field = &v
-			}
-		}
-	}
-}
-
-// setFloat64Field sets a float64 field from metadata.
-// @ignore This is an internal helper function, not directly exposed as an API endpoint
-func setFloat64Field(field *float64, metadata map[string]interface{}, key string) {
-	if val, ok := metadata[key].(float64); ok {
-		*field = val
-	}
-}
-
-// setInt64Field sets an int64 field from metadata.
-// @ignore This is an internal helper function, not directly exposed as an API endpoint
-func setInt64Field(field *int64, metadata map[string]interface{}, key string) {
-	if val, ok := metadata[key].(float64); ok {
-		*field = int64(val)
-	}
 }

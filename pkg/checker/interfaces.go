@@ -18,6 +18,7 @@ package checker
 
 import (
 	"context"
+
 	"encoding/json"
 )
 

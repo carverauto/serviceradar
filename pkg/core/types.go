@@ -14,10 +14,10 @@
  * limitations under the License.
  */
 
+// Package core pkg/core/types.go
 package core
 
 import (
-	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"sync"
 	"time"
 
@@ -27,6 +27,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/metrics"
+	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 )
@@ -74,4 +75,3 @@ type ServiceStatus struct {
 	Details     string
 	Timestamp   time.Time
 }
-

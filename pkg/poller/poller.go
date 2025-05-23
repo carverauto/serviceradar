@@ -252,7 +252,7 @@ func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
 	}
 
 	log.Printf("Received StatusResponse: %+v", status)
-	log.Println("AgentId:", status.AgentId)
+	log.Println("AgentID:", status.AgentId)
 
 	return &proto.ServiceStatus{
 		ServiceName:  sc.check.Name,
@@ -469,12 +469,12 @@ func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStat
 		// Add the poller ID to each status
 		status.PollerId = p.config.PollerID
 
-		log.Printf("PollerID: %s, ServiceName: %s, AgentId: %s",
+		log.Printf("PollerID: %s, ServiceName: %s, AgentID: %s",
 			status.PollerId, status.ServiceName, status.AgentId)
 
 		// Log warning if AgentID is missing (debugging aid)
 		if status.AgentId == "" {
-			log.Printf("Warning: ServiceStatus[%d] for %s has empty AgentId",
+			log.Printf("Warning: ServiceStatus[%d] for %s has empty AgentID",
 				i, status.ServiceName)
 		}
 	}
