@@ -64,22 +64,23 @@ func (m *rperfManagerImpl) StoreRperfMetric(ctx context.Context, pollerID string
 		},
 	}
 
-	// Call the underlying db.Service with the generic TimeseriesMetrics
-	return m.db.StoreMetrics(ctx, pollerID, metricsToStore) // StoreMetrics takes []*metrics.TimeseriesMetric
+	return m.db.StoreMetrics(ctx, pollerID, metricsToStore)
 }
 
 // GetRperfMetrics retrieves rperf metrics for a poller within a time range.
-// pkg/metricstore/rperf_manager.go - MODIFIED
-func (m *rperfManagerImpl) GetRperfMetrics(ctx context.Context, pollerID string, startTime, endTime time.Time) ([]*models.RperfMetric, error) {
+func (m *rperfManagerImpl) GetRperfMetrics(
+	ctx context.Context, pollerID string, startTime, endTime time.Time) ([]*models.RperfMetric, error) {
 	tsMetrics, err := m.db.GetMetricsByType(ctx, pollerID, "rperf", startTime, endTime)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query rperf timeseries metrics: %w", err)
 	}
 
 	rperfMetrics := make([]*models.RperfMetric, 0, len(tsMetrics))
+
 	for _, m := range tsMetrics {
 		if m.Metadata != nil {
 			var rperfMetric models.RperfMetric
+
 			var metadataBytes []byte // Temporary buffer for unmarshaling
 
 			// Handle different possible types of m.Metadata returned from the DB
@@ -95,6 +96,7 @@ func (m *rperfManagerImpl) GetRperfMetrics(ctx context.Context, pollerID string,
 			case map[string]interface{}:
 				// If it's already a map (e.g., if the DB driver unmarshaled it), marshal it back to bytes
 				var marshalErr error
+
 				metadataBytes, marshalErr = json.Marshal(md)
 				if marshalErr != nil {
 					log.Printf("Warning: failed to re-marshal map metadata for rperf metric %s: %v", m.Name, marshalErr)
@@ -110,6 +112,7 @@ func (m *rperfManagerImpl) GetRperfMetrics(ctx context.Context, pollerID string,
 				log.Printf("Warning: failed to unmarshal rperf metadata for metric %s: %v", m.Name, err)
 				continue
 			}
+
 			rperfMetrics = append(rperfMetrics, &rperfMetric)
 		}
 	}
