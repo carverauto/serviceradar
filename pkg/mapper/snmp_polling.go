@@ -799,11 +799,12 @@ func (e *SNMPDiscoveryEngine) queryInterfaces(
 	maxSpeedCount := 0
 
 	for _, iface := range interfaces {
-		if iface.IfSpeed == 4294967295 {
+		switch {
+		case iface.IfSpeed == 4294967295:
 			maxSpeedCount++
-		} else if iface.IfSpeed > 0 {
+		case iface.IfSpeed > 0:
 			speedCount++
-		} else {
+		default:
 			zeroSpeedCount++
 		}
 	}
