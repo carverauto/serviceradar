@@ -1307,9 +1307,7 @@ const (
 
 // updateInterfaceFromPDU updates interface properties based on the OID prefix and PDU value
 func (*SNMPDiscoveryEngine) updateInterfaceFromPDU(iface *DiscoveredInterface, oidWithPrefix string, pdu gosnmp.SnmpPDU) {
-	switch oidWithPrefix {
-	// ... existing cases ...
-	case oidIfHighSpeed:
+	if oidWithPrefix == oidIfHighSpeed {
 		if pdu.Type == gosnmp.Gauge32 {
 			mbps := pdu.Value.(uint) // This is Mbps
 			// Convert to bps (uint64)
