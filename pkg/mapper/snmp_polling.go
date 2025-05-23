@@ -874,6 +874,91 @@ const (
 	defaultMaxInt64 = 9223372036854775807
 )
 
+// extractSpeedFromGauge32 extracts speed from Gauge32 type
+func extractSpeedFromGauge32(value interface{}, ifIndex int32) uint64 {
+	var speed uint64 = 0
+
+	switch v := value.(type) {
+	case uint:
+		speed = uint64(v)
+	case uint32:
+		speed = uint64(v)
+	case uint64:
+		speed = v
+	case int:
+		if v >= 0 {
+			speed = uint64(v)
+		}
+	case int32:
+		if v >= 0 {
+			speed = uint64(v)
+		}
+	case int64:
+		if v >= 0 {
+			speed = uint64(v)
+		}
+	default:
+		log.Printf("Unexpected Gauge32 value type %T for ifSpeed: %v", v, v)
+	}
+
+	// Special handling for max uint32 value (4294967295)
+	if speed == 4294967295 {
+		log.Printf("Interface %d reports max speed (4294967295), checking ifHighSpeed", ifIndex)
+		// This usually means the speed is higher than can be represented in 32 bits
+		// We should check ifHighSpeed for this interface
+		speed = 0 // Will be updated by ifHighSpeed if available
+	}
+
+	return speed
+}
+
+// extractSpeedFromCounter32 extracts speed from Counter32 type
+func extractSpeedFromCounter32(value interface{}) uint64 {
+	if val, ok := value.(uint32); ok {
+		return uint64(val)
+	} else if val, ok := value.(uint); ok {
+		return uint64(val)
+	}
+	return 0
+}
+
+// extractSpeedFromCounter64 extracts speed from Counter64 type
+func extractSpeedFromCounter64(value interface{}) uint64 {
+	bigInt := gosnmp.ToBigInt(value)
+	if bigInt != nil {
+		return bigInt.Uint64()
+	}
+	return 0
+}
+
+// extractSpeedFromInteger extracts speed from Integer type
+func extractSpeedFromInteger(value interface{}) uint64 {
+	if val, ok := value.(int); ok {
+		if val < 0 {
+			return 0 // Cannot be negative
+		}
+		return uint64(val)
+	}
+	return 0
+}
+
+// extractSpeedFromUinteger32 extracts speed from Uinteger32 type
+func extractSpeedFromUinteger32(value interface{}) uint64 {
+	if val, ok := value.(uint32); ok {
+		return uint64(val)
+	}
+	return 0
+}
+
+// extractSpeedFromOctetString extracts speed from OctetString type
+func extractSpeedFromOctetString(value interface{}) uint64 {
+	if bytes, ok := value.([]byte); ok && len(bytes) >= 4 {
+		// Try to parse as big-endian uint32
+		return uint64(binary.BigEndian.Uint32(bytes[:4]))
+	}
+	return 0
+}
+
 // updateIfSpeed updates the interface speed
 // Also update the updateIfSpeed function to handle the special case of 4294967295:
 func updateIfSpeed(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
@@ -882,78 +967,21 @@ func updateIfSpeed(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
 
 	switch pdu.Type {
 	case gosnmp.Gauge32:
-		// Handle different types that gosnmp might use for Gauge32
-		switch v := pdu.Value.(type) {
-		case uint:
-			speed = uint64(v)
-		case uint32:
-			speed = uint64(v)
-		case uint64:
-			speed = v
-		case int:
-			if v >= 0 {
-				speed = uint64(v)
-			}
-		case int32:
-			if v >= 0 {
-				speed = uint64(v)
-			}
-		case int64:
-			if v >= 0 {
-				speed = uint64(v)
-			}
-		default:
-			log.Printf("Unexpected Gauge32 value type %T for ifSpeed: %v", v, v)
-		}
-
-		// Special handling for max uint32 value (4294967295)
-		if speed == 4294967295 {
-			log.Printf("Interface %d reports max speed (4294967295), checking ifHighSpeed", iface.IfIndex)
-			// This usually means the speed is higher than can be represented in 32 bits
-			// We should check ifHighSpeed for this interface
-			speed = 0 // Will be updated by ifHighSpeed if available
-		}
-
+		speed = extractSpeedFromGauge32(pdu.Value, iface.IfIndex)
 	case gosnmp.Counter32:
-		if val, ok := pdu.Value.(uint32); ok {
-			speed = uint64(val)
-		} else if val, ok := pdu.Value.(uint); ok {
-			speed = uint64(val)
-		}
-
+		speed = extractSpeedFromCounter32(pdu.Value)
 	case gosnmp.Counter64:
-		// gosnmp.ToBigInt(pdu.Value).Uint64() directly gets uint64
-		bigInt := gosnmp.ToBigInt(pdu.Value)
-		if bigInt != nil {
-			speed = bigInt.Uint64()
-		}
-
+		speed = extractSpeedFromCounter64(pdu.Value)
 	case gosnmp.Integer:
-		if val, ok := pdu.Value.(int); ok {
-			if val < 0 {
-				speed = 0 // Cannot be negative
-			} else {
-				speed = uint64(val)
-			}
-		}
-
+		speed = extractSpeedFromInteger(pdu.Value)
 	case gosnmp.Uinteger32:
-		if val, ok := pdu.Value.(uint32); ok {
-			speed = uint64(val)
-		}
-
+		speed = extractSpeedFromUinteger32(pdu.Value)
 	case gosnmp.OctetString:
-		// Some devices return speed as octet string
-		if bytes, ok := pdu.Value.([]byte); ok && len(bytes) >= 4 {
-			// Try to parse as big-endian uint32
-			speed = uint64(binary.BigEndian.Uint32(bytes[:4]))
-		}
-
+		speed = extractSpeedFromOctetString(pdu.Value)
 	case gosnmp.NoSuchObject, gosnmp.NoSuchInstance:
 		// Interface doesn't support speed reporting
 		log.Printf("Interface %d: ifSpeed not supported (NoSuchObject/Instance)", iface.IfIndex)
 		speed = 0
-
 	default:
 		log.Printf("Interface %d: Unexpected PDU type %v for ifSpeed, value: %v", iface.IfIndex, pdu.Type, pdu.Value)
 		speed = 0
