@@ -18,6 +18,7 @@ package mapper
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"log"
 	"math"
@@ -83,8 +84,6 @@ const (
 	// Default concurrency settings
 	defaultConcurrency = 10
 	defaultMaxIPRange  = 256 // Maximum IPs to process from a CIDR range
-
-	defaultMaxUint64 = 18446744073709551615 // math.MaxUint64
 )
 
 // handleEmptyTargetList updates job status when no valid targets are found
@@ -156,7 +155,7 @@ func (e *SNMPDiscoveryEngine) startProgressTracking(job *DiscoveryJob, resultCha
 			processed++
 			// Update progress
 			job.mu.Lock()
-			progress := float64(processed)/float64(totalTargets)*90.0 + 5.0 // 5% at start, 5% at end
+			progress := float64(processed)/float64(totalTargets)*progressScanning + progressInitial // Initial progress + scanning progress
 
 			job.Status.Progress = progress
 			job.Status.DevicesFound = len(job.Results.Devices)
@@ -185,7 +184,7 @@ func (e *SNMPDiscoveryEngine) startProgressTracking(job *DiscoveryJob, resultCha
 // initializeJobProgress sets the initial progress value
 func (*SNMPDiscoveryEngine) initializeJobProgress(job *DiscoveryJob) {
 	job.mu.Lock()
-	job.Status.Progress = 5 // Initial progress
+	job.Status.Progress = progressInitial // Initial progress
 	job.mu.Unlock()
 
 	log.Printf("Job %s: Scan queue: %v", job.ID, job.scanQueue)
@@ -249,7 +248,7 @@ func (*SNMPDiscoveryEngine) finalizeJobStatus(job *DiscoveryJob) {
 	job.mu.Lock()
 	if job.Status.Status == DiscoveryStatusRunning {
 		job.Status.Status = DiscoveryStatusCompleted
-		job.Status.Progress = 100
+		job.Status.Progress = progressCompleted
 
 		if len(job.Results.Devices) == 0 {
 			job.Status.Error = "No SNMP devices found"
@@ -774,59 +773,49 @@ func (e *SNMPDiscoveryEngine) queryInterfaces(
 
 	// Try to get additional interface info from ifXTable (if available)
 	if err := e.walkIfXTable(client, ifMap); err != nil {
-		return nil, err
+		log.Printf("Warning: Failed to walk ifXTable for %s (this is normal for some devices): %v", target, err)
 	}
+
+	// Specifically try to get ifHighSpeed for interfaces that need it
+	e.walkIfHighSpeed(client, ifMap)
 
 	// Get IP addresses from ipAddrTable
 	ipToIfIndex, err := e.walkIPAddrTable(client)
 	if err != nil {
-		return nil, err
+		log.Printf("Warning: Failed to walk ipAddrTable for %s: %v", target, err)
 	}
 
 	// Associate IPs with interfaces
 	e.associateIPsWithInterfaces(ipToIfIndex, ifMap)
 
 	// Convert map to slice and finalize interfaces
-	return e.finalizeInterfaces(ifMap, jobID, agentID, pollerID), nil
+	interfaces := e.finalizeInterfaces(ifMap, jobID, agentID, pollerID)
+
+	// Log summary
+	speedCount := 0
+	zeroSpeedCount := 0
+	maxSpeedCount := 0
+
+	for _, iface := range interfaces {
+		switch {
+		case iface.IfSpeed == maxUint32Value:
+			maxSpeedCount++
+		case iface.IfSpeed > 0:
+			speedCount++
+		default:
+			zeroSpeedCount++
+		}
+	}
+
+	log.Printf("Interface discovery for %s: Total=%d, WithSpeed=%d, ZeroSpeed=%d, MaxSpeed=%d",
+		target, len(interfaces), speedCount, zeroSpeedCount, maxSpeedCount)
+
+	return interfaces, nil
 }
 
 const (
 	defaultPartsLengthCheck = 2
 )
-
-// processIfTablePDU processes a single PDU from the ifTable walk
-func (e *SNMPDiscoveryEngine) processIfTablePDU(pdu gosnmp.SnmpPDU, target string, ifMap map[int]*DiscoveredInterface) error {
-	// Extract ifIndex from OID
-	parts := strings.Split(pdu.Name, ".")
-	if len(parts) < defaultPartsLengthCheck {
-		return nil
-	}
-
-	ifIndexInt, err := strconv.Atoi(parts[len(parts)-1])
-	if err != nil {
-		return nil
-	}
-
-	ifIndex := int32(ifIndexInt) // Convert to int32 immediately
-
-	// Create interface if it doesn't exist
-	if _, exists := ifMap[int(ifIndex)]; !exists {
-		ifMap[int(ifIndex)] = &DiscoveredInterface{
-			DeviceIP:    target,
-			IfIndex:     ifIndex,
-			IPAddresses: []string{},
-			Metadata:    make(map[string]string),
-		}
-	}
-
-	iface := ifMap[int(ifIndex)]
-
-	// Parse specific OID
-	oidPrefix := strings.Join(parts[:len(parts)-1], ".")
-	e.updateInterfaceFromOID(iface, "."+oidPrefix, pdu)
-
-	return nil
-}
 
 // updateIfDescr updates the interface description
 func updateIfDescr(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
@@ -835,47 +824,177 @@ func updateIfDescr(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
 	}
 }
 
-// updateIfType updates the interface type
-// Make sure the pdu.Value.(int) is correctly cast to int32 before assignment.
-func updateIfType(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
-	if pdu.Type == gosnmp.Integer {
-		if val, ok := pdu.Value.(int); ok {
-			iface.IfType = int32(val) // Explicit cast
+// getInt32FromPDU safely converts an SNMP Integer PDU value to int32
+func getInt32FromPDU(pdu gosnmp.SnmpPDU, fieldName string) (int32, bool) {
+	if pdu.Type != gosnmp.Integer {
+		return 0, false
+	}
+
+	val, ok := pdu.Value.(int)
+	if !ok {
+		return 0, false
+	}
+
+	if val > math.MaxInt32 || val < math.MinInt32 {
+		log.Printf("Warning: %s %d exceeds int32 range, using closest valid value", fieldName, val)
+
+		if val > math.MaxInt32 {
+			return math.MaxInt32, true
+		} else {
+			return math.MinInt32, true
 		}
+	}
+
+	return int32(val), true
+}
+
+// updateIfType updates the interface type
+func updateIfType(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
+	if val, ok := getInt32FromPDU(pdu, "ifType"); ok {
+		iface.IfType = val
 	}
 }
 
-const (
-	defaultMaxInt64 = 9223372036854775807
-)
+// convertToUint64 safely converts various numeric types to uint64
+func convertToUint64(value interface{}) (uint64, bool) {
+	switch v := value.(type) {
+	case uint:
+		return uint64(v), true
+	case uint32:
+		return uint64(v), true
+	case uint64:
+		return v, true
+	case int:
+		if v >= 0 {
+			return uint64(v), true
+		}
+	case int32:
+		if v >= 0 {
+			return uint64(v), true
+		}
+	case int64:
+		if v >= 0 {
+			return uint64(v), true
+		}
+	}
 
-// updateIfSpeed updates the interface speed
+	return 0, false
+}
+
+// isMaxUint32 checks if the value is the maximum uint32 value
+func isMaxUint32(value uint64) bool {
+	return value == maxUint32Value
+}
+
+// extractSpeedFromGauge32 extracts speed from Gauge32 type
+func extractSpeedFromGauge32(value interface{}, ifIndex int32) uint64 {
+	speed, ok := convertToUint64(value)
+	if !ok {
+		log.Printf("Unexpected Gauge32 value type %T for ifSpeed: %v", value, value)
+		return 0
+	}
+
+	// Special handling for max uint32 value (4294967295)
+	if isMaxUint32(speed) {
+		log.Printf("Interface %d reports max speed (4294967295), checking ifHighSpeed", ifIndex)
+		// This usually means the speed is higher than can be represented in 32 bits
+		// We should check ifHighSpeed for this interface
+		return 0 // Will be updated by ifHighSpeed if available
+	}
+
+	return speed
+}
+
+// extractSpeedFromCounter32 extracts speed from Counter32 type
+func extractSpeedFromCounter32(value interface{}) uint64 {
+	speed, ok := convertToUint64(value)
+	if ok {
+		return speed
+	}
+
+	return 0
+}
+
+// extractSpeedFromCounter64 extracts speed from Counter64 type
+func extractSpeedFromCounter64(value interface{}) uint64 {
+	// First try standard conversion
+	speed, ok := convertToUint64(value)
+	if ok {
+		return speed
+	}
+
+	// Fall back to gosnmp's BigInt conversion
+	bigInt := gosnmp.ToBigInt(value)
+	if bigInt != nil {
+		return bigInt.Uint64()
+	}
+
+	return 0
+}
+
+// extractSpeedFromInteger extracts speed from Integer type
+func extractSpeedFromInteger(value interface{}) uint64 {
+	speed, ok := convertToUint64(value)
+	if ok {
+		return speed
+	}
+
+	return 0
+}
+
+// extractSpeedFromUinteger32 extracts speed from Uinteger32 type
+func extractSpeedFromUinteger32(value interface{}) uint64 {
+	speed, ok := convertToUint64(value)
+	if ok {
+		return speed
+	}
+
+	return 0
+}
+
+// extractSpeedFromOctetString extracts speed from OctetString type
+func extractSpeedFromOctetString(value interface{}) uint64 {
+	if bytes, ok := value.([]byte); ok && len(bytes) >= 4 {
+		// Try to parse as big-endian uint32
+		return uint64(binary.BigEndian.Uint32(bytes[:4]))
+	}
+
+	return 0
+}
+
+// updateIfSpeed updates the interface speed.
 func updateIfSpeed(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
+	var speed uint64
+
+	//nolint:exhaustive // Default case handles all unlisted types
 	switch pdu.Type {
 	case gosnmp.Gauge32:
-		val := pdu.Value.(uint)
-		iface.IfSpeed = uint64(val) // Store as uint64
-		// No need for comparison, the source type is smaller than uint64
-
-	case gosnmp.Counter32, gosnmp.Counter64:
-		// gosnmp.ToBigInt(pdu.Value).Uint64() directly gets uint64
-		iface.IfSpeed = gosnmp.ToBigInt(pdu.Value).Uint64()
-
+		speed = extractSpeedFromGauge32(pdu.Value, iface.IfIndex)
+	case gosnmp.Counter32:
+		speed = extractSpeedFromCounter32(pdu.Value)
+	case gosnmp.Counter64:
+		speed = extractSpeedFromCounter64(pdu.Value)
 	case gosnmp.Integer:
-		if val, ok := pdu.Value.(int); ok {
-			if val < 0 {
-				iface.IfSpeed = 0 // Cannot be negative
-			} else {
-				iface.IfSpeed = uint64(val)
-			}
-		}
+		speed = extractSpeedFromInteger(pdu.Value)
 	case gosnmp.Uinteger32:
-		if val, ok := pdu.Value.(uint32); ok {
-			iface.IfSpeed = uint64(val)
-		}
+		speed = extractSpeedFromUinteger32(pdu.Value)
+	case gosnmp.OctetString:
+		speed = extractSpeedFromOctetString(pdu.Value)
+	case gosnmp.NoSuchObject, gosnmp.NoSuchInstance:
+		// Interface doesn't support speed reporting
+		log.Printf("Interface %d: ifSpeed not supported (NoSuchObject/Instance)", iface.IfIndex)
+
+		speed = 0
 	default:
-		// No change
+		log.Printf("Interface %d: Unexpected PDU type %v for ifSpeed, value: %v", iface.IfIndex, pdu.Type, pdu.Value)
+
+		speed = 0
 	}
+
+	iface.IfSpeed = speed
+
+	log.Printf("Interface %d: Set ifSpeed to %d bps (%.2f Mbps)",
+		iface.IfIndex, iface.IfSpeed, float64(iface.IfSpeed)/defaultHighSpeed)
 }
 
 // updateIfPhysAddress updates the interface physical address
@@ -886,48 +1005,212 @@ func updateIfPhysAddress(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
 }
 
 func updateIfAdminStatus(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
-	if pdu.Type == gosnmp.Integer {
-		if val, ok := pdu.Value.(int); ok {
-			iface.IfAdminStatus = int32(val) // Explicit cast
-		}
+	if val, ok := getInt32FromPDU(pdu, "ifAdminStatus"); ok {
+		iface.IfAdminStatus = val
 	}
 }
 
 func updateIfOperStatus(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
-	if pdu.Type == gosnmp.Integer {
-		if val, ok := pdu.Value.(int); ok {
-			iface.IfOperStatus = int32(val) // Explicit cast
-		}
+	if val, ok := getInt32FromPDU(pdu, "ifOperStatus"); ok {
+		iface.IfOperStatus = val
 	}
 }
 
+func matchesOIDPrefix(fullOID, prefixOID string) bool {
+	// Normalize OIDs by removing leading dots if present
+	fullOID = strings.TrimPrefix(fullOID, ".")
+	prefixOID = strings.TrimPrefix(prefixOID, ".")
+
+	// Check if the full OID starts with the prefix
+	if !strings.HasPrefix(fullOID, prefixOID) {
+		return false
+	}
+
+	// Make sure we're matching at a component boundary
+	// (i.e., not matching .1.3.6.1.2.1.2.2.11 when looking for .1.3.6.1.2.1.2.2.1)
+	if len(fullOID) > len(prefixOID) {
+		// The next character should be a dot
+		if fullOID[len(prefixOID)] != '.' {
+			return false
+		}
+	}
+
+	return true
+}
+
 // updateInterfaceFromOID updates interface properties based on the OID and PDU
-func (*SNMPDiscoveryEngine) updateInterfaceFromOID(iface *DiscoveredInterface, oidPrefix string, pdu gosnmp.SnmpPDU) {
-	switch oidPrefix {
-	case oidIfDescr:
+func (e *SNMPDiscoveryEngine) updateInterfaceFromOID(iface *DiscoveredInterface, oidPrefix string, pdu gosnmp.SnmpPDU) {
+	// Normalize the OID prefix
+	oidPrefix = strings.TrimPrefix(oidPrefix, ".")
+
+	// Log what we're processing
+	log.Printf("Checking OID %s against known interface OIDs", oidPrefix)
+
+	switch {
+	case matchesOIDPrefix(oidPrefix, strings.TrimPrefix(oidIfDescr, ".")):
+		log.Printf("Matched ifDescr for interface %d", iface.IfIndex)
 		updateIfDescr(iface, pdu)
-	case oidIfType:
+
+	case matchesOIDPrefix(oidPrefix, strings.TrimPrefix(oidIfType, ".")):
+		log.Printf("Matched ifType for interface %d", iface.IfIndex)
 		updateIfType(iface, pdu)
-	case oidIfSpeed:
+
+	case matchesOIDPrefix(oidPrefix, strings.TrimPrefix(oidIfSpeed, ".")):
+		log.Printf("Matched ifSpeed for interface %d: type=%v, value=%v", iface.IfIndex, pdu.Type, pdu.Value)
 		updateIfSpeed(iface, pdu)
-	case oidIfPhysAddress:
+
+	case matchesOIDPrefix(oidPrefix, strings.TrimPrefix(oidIfPhysAddress, ".")):
+		log.Printf("Matched ifPhysAddress for interface %d", iface.IfIndex)
 		updateIfPhysAddress(iface, pdu)
-	case oidIfAdminStatus:
+
+	case matchesOIDPrefix(oidPrefix, strings.TrimPrefix(oidIfAdminStatus, ".")):
+		log.Printf("Matched ifAdminStatus for interface %d", iface.IfIndex)
 		updateIfAdminStatus(iface, pdu)
-	case oidIfOperStatus:
+
+	case matchesOIDPrefix(oidPrefix, strings.TrimPrefix(oidIfOperStatus, ".")):
+		log.Printf("Matched ifOperStatus for interface %d", iface.IfIndex)
 		updateIfOperStatus(iface, pdu)
+
+	default:
+		// Log unmatched OIDs to help debugging
+		log.Printf("Unmatched OID %s for interface %d", oidPrefix, iface.IfIndex)
+	}
+}
+
+func (e *SNMPDiscoveryEngine) walkIfHighSpeed(client *gosnmp.GoSNMP, ifMap map[int]*DiscoveredInterface) {
+	// Check which interfaces need ifHighSpeed
+	var needsHighSpeed []int
+
+	for ifIndex, iface := range ifMap {
+		if iface.IfSpeed == 4294967295 || iface.IfSpeed == 0 {
+			needsHighSpeed = append(needsHighSpeed, ifIndex)
+		}
+	}
+
+	if len(needsHighSpeed) == 0 {
+		return
+	}
+
+	log.Printf("Checking ifHighSpeed for %d interfaces that reported max/zero speed", len(needsHighSpeed))
+
+	// Walk ifHighSpeed
+	err := client.BulkWalk(oidIfHighSpeed, func(pdu gosnmp.SnmpPDU) error {
+		// Extract ifIndex
+		parts := strings.Split(pdu.Name, ".")
+		if len(parts) < 1 {
+			return nil
+		}
+
+		ifIndexStr := parts[len(parts)-1]
+		ifIndex, err := strconv.Atoi(ifIndexStr)
+
+		if err != nil {
+			return nil
+		}
+
+		if iface, exists := ifMap[ifIndex]; exists {
+			e.updateInterfaceFromPDU(iface, oidIfHighSpeed, pdu)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		log.Printf("Failed to walk ifHighSpeed: %v", err)
 	}
 }
 
 // walkIfTable walks the ifTable to get basic interface information
 func (e *SNMPDiscoveryEngine) walkIfTable(client *gosnmp.GoSNMP, target string, ifMap map[int]*DiscoveredInterface) error {
+	// First, let's walk the entire ifTable
+	processedOIDs := make(map[string]int)
+
+	log.Printf("Starting SNMP walk of ifTable for target %s", target)
+
 	err := client.BulkWalk(oidIfTable, func(pdu gosnmp.SnmpPDU) error {
+		// Debug log each PDU
+		log.Printf("SNMP Walk PDU: OID=%s, Type=%v, Value=%v", pdu.Name, pdu.Type, pdu.Value)
+
+		// Track what OIDs we're getting
+		parts := strings.Split(pdu.Name, ".")
+		if len(parts) >= defaultPartsLenCheck {
+			oidPrefix := strings.Join(parts[:len(parts)-1], ".")
+
+			processedOIDs[oidPrefix]++
+		}
+
 		return e.processIfTablePDU(pdu, target, ifMap)
 	})
 
 	if err != nil {
 		return fmt.Errorf("failed to walk ifTable: %w", err)
 	}
+
+	// Log what we found
+	log.Printf("SNMP walk completed for %s, found %d unique OID prefixes", target, len(processedOIDs))
+
+	for oid, count := range processedOIDs {
+		log.Printf("  OID %s: %d values", oid, count)
+	}
+
+	// If we didn't get ifSpeed in the walk, try walking it specifically
+	ifSpeedOIDPrefix := strings.TrimSuffix(oidIfSpeed, ".0")
+
+	if count, found := processedOIDs[ifSpeedOIDPrefix]; !found || count == 0 {
+		log.Printf("ifSpeed not found in bulk walk, attempting specific walk of %s", ifSpeedOIDPrefix)
+
+		// Walk just the ifSpeed column
+		err := client.BulkWalk(ifSpeedOIDPrefix, func(pdu gosnmp.SnmpPDU) error {
+			log.Printf("ifSpeed specific walk PDU: OID=%s, Type=%v, Value=%v", pdu.Name, pdu.Type, pdu.Value)
+			return e.processIfSpeedPDU(pdu, target, ifMap)
+		})
+
+		if err != nil {
+			log.Printf("Specific ifSpeed walk failed: %v", err)
+		}
+	}
+
+	return nil
+}
+
+func (e *SNMPDiscoveryEngine) processIfSpeedPDU(pdu gosnmp.SnmpPDU, target string, ifMap map[int]*DiscoveredInterface) error {
+	// Extract ifIndex from OID (e.g., .1.3.6.1.2.1.2.2.1.5.1 -> 1)
+	parts := strings.Split(pdu.Name, ".")
+	if len(parts) < 1 {
+		return nil
+	}
+
+	ifIndexStr := parts[len(parts)-1]
+	ifIndexInt, err := strconv.Atoi(ifIndexStr)
+
+	if err != nil {
+		log.Printf("Failed to parse ifIndex from OID %s: %v", pdu.Name, err)
+		return nil
+	}
+
+	// FIXED: Safe conversion with error handling
+	ifIndex, err := safeIntToInt32(ifIndexInt, "ifIndex")
+	if err != nil {
+		log.Printf("Warning: %v, skipping interface", err)
+		return nil
+	}
+
+	// Create interface if it doesn't exist
+	if _, exists := ifMap[int(ifIndex)]; !exists {
+		ifMap[int(ifIndex)] = &DiscoveredInterface{
+			DeviceIP:    target,
+			IfIndex:     ifIndex,
+			IfSpeed:     0,
+			IPAddresses: []string{},
+			Metadata:    make(map[string]string),
+		}
+	}
+
+	iface := ifMap[int(ifIndex)]
+
+	// Process the speed value
+	log.Printf("Processing ifSpeed for interface %d: type=%v, value=%v", ifIndex, pdu.Type, pdu.Value)
+	updateIfSpeed(iface, pdu)
 
 	return nil
 }
@@ -961,29 +1244,46 @@ func (e *SNMPDiscoveryEngine) processIfXTablePDU(pdu gosnmp.SnmpPDU, ifMap map[i
 
 const (
 	overflowValue    = 9223372036854775807
-	defaultHighSpeed = 1000000
+	defaultHighSpeed = 1000000 // 1 million, for converting Mbps to bps
 	defaultOverflow  = 1000000
+
+	// Progress calculation constants
+	progressInitial   = 5.0   // Initial progress percentage
+	progressScanning  = 90.0  // Percentage allocated for scanning
+	progressCompleted = 100.0 // Final progress percentage when completed
+
+	// Network constants
+	maxUint32Value = 4294967295 // Maximum value for a uint32
+
+	// Overflow heuristic constants
+	overflowHeuristicDivisor = 2 // Divisor used in overflow detection heuristic
 )
 
 // updateInterfaceFromPDU updates interface properties based on the OID prefix and PDU value
 func (*SNMPDiscoveryEngine) updateInterfaceFromPDU(iface *DiscoveredInterface, oidWithPrefix string, pdu gosnmp.SnmpPDU) {
-	switch oidWithPrefix {
-	// ... existing cases ...
-	case oidIfHighSpeed:
-		if pdu.Type == gosnmp.Gauge32 {
-			mbps := pdu.Value.(uint) // This is Mbps
-			// Convert to bps (uint64)
-			bps := uint64(mbps) * 1000000 // Multiply by 1 million
+	if oidWithPrefix == oidIfHighSpeed {
+		updateInterfaceHighSpeed(iface, pdu)
+	}
+}
 
-			// Check for overflow before assignment if necessary, though unlikely for interface speeds
-			if bps > math.MaxUint64/2 && mbps > math.MaxUint64/2000000 { // Simple overflow heuristic
-				bps = math.MaxUint64
-			}
+// updateInterfaceHighSpeed updates the interface speed from ifHighSpeed value
+func updateInterfaceHighSpeed(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
+	if pdu.Type != gosnmp.Gauge32 {
+		return
+	}
 
-			if bps > iface.IfSpeed { // Update only if higher speed
-				iface.IfSpeed = bps
-			}
-		}
+	mbps := pdu.Value.(uint) // This is Mbps
+	// Convert to bps (uint64)
+	bps := uint64(mbps) * defaultHighSpeed // Multiply by 1 million
+
+	// Check for overflow before assignment if necessary, though unlikely for interface speeds
+	if bps > math.MaxUint64/overflowHeuristicDivisor && mbps > math.MaxUint64/(overflowHeuristicDivisor*defaultHighSpeed) { // Simple overflow heuristic
+		bps = math.MaxUint64
+	}
+
+	// Update only if higher speed
+	if bps > iface.IfSpeed {
+		iface.IfSpeed = bps
 	}
 }
 
@@ -1542,4 +1842,50 @@ func pingHost(ctx context.Context, host string) error {
 	}
 
 	return ErrNoICMPResponse
+}
+
+func safeIntToInt32(value int, fieldName string) (int32, error) {
+	if value > math.MaxInt32 || value < math.MinInt32 {
+		return 0, fmt.Errorf("%s value %d exceeds int32 range [%d, %d]: %w",
+			fieldName, value, math.MinInt32, math.MaxInt32, ErrInt32RangeExceeded)
+	}
+
+	return int32(value), nil
+}
+
+func (e *SNMPDiscoveryEngine) processIfTablePDU(pdu gosnmp.SnmpPDU, target string, ifMap map[int]*DiscoveredInterface) error {
+	// Extract ifIndex from OID
+	parts := strings.Split(pdu.Name, ".")
+	if len(parts) < defaultPartsLengthCheck {
+		return nil
+	}
+
+	ifIndexInt, err := strconv.Atoi(parts[len(parts)-1])
+	if err != nil {
+		return nil
+	}
+
+	ifIndex, err := safeIntToInt32(ifIndexInt, "ifIndex")
+	if err != nil {
+		log.Printf("Warning: %v, skipping interface", err)
+		return nil
+	}
+
+	// Create interface if it doesn't exist
+	if _, exists := ifMap[int(ifIndex)]; !exists {
+		ifMap[int(ifIndex)] = &DiscoveredInterface{
+			DeviceIP:    target,
+			IfIndex:     ifIndex,
+			IPAddresses: []string{},
+			Metadata:    make(map[string]string),
+		}
+	}
+
+	iface := ifMap[int(ifIndex)]
+
+	// Parse specific OID
+	oidPrefix := strings.Join(parts[:len(parts)-1], ".")
+	e.updateInterfaceFromOID(iface, "."+oidPrefix, pdu)
+
+	return nil
 }
