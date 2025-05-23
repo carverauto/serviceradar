@@ -779,9 +779,7 @@ func (e *SNMPDiscoveryEngine) queryInterfaces(
 	}
 
 	// Specifically try to get ifHighSpeed for interfaces that need it
-	if err := e.walkIfHighSpeed(client, ifMap); err != nil {
-		log.Printf("Warning: Failed to walk ifHighSpeed for %s: %v", target, err)
-	}
+	e.walkIfHighSpeed(client, ifMap)
 
 	// Get IP addresses from ipAddrTable
 	ipToIfIndex, err := e.walkIPAddrTable(client)
@@ -799,6 +797,7 @@ func (e *SNMPDiscoveryEngine) queryInterfaces(
 	speedCount := 0
 	zeroSpeedCount := 0
 	maxSpeedCount := 0
+
 	for _, iface := range interfaces {
 		if iface.IfSpeed == 4294967295 {
 			maxSpeedCount++
@@ -908,6 +907,7 @@ func convertToUint64(value interface{}) (uint64, bool) {
 			return uint64(v), true
 		}
 	}
+
 	return 0, false
 }
 
@@ -941,6 +941,7 @@ func extractSpeedFromCounter32(value interface{}) uint64 {
 	if ok {
 		return speed
 	}
+
 	return 0
 }
 
@@ -957,6 +958,7 @@ func extractSpeedFromCounter64(value interface{}) uint64 {
 	if bigInt != nil {
 		return bigInt.Uint64()
 	}
+
 	return 0
 }
 
@@ -966,6 +968,7 @@ func extractSpeedFromInteger(value interface{}) uint64 {
 	if ok {
 		return speed
 	}
+
 	return 0
 }
 
@@ -975,6 +978,7 @@ func extractSpeedFromUinteger32(value interface{}) uint64 {
 	if ok {
 		return speed
 	}
+
 	return 0
 }
 
@@ -984,6 +988,7 @@ func extractSpeedFromOctetString(value interface{}) uint64 {
 		// Try to parse as big-endian uint32
 		return uint64(binary.BigEndian.Uint32(bytes[:4]))
 	}
+
 	return 0
 }
 
@@ -1117,9 +1122,10 @@ func (e *SNMPDiscoveryEngine) updateInterfaceFromOID(iface *DiscoveredInterface,
 	}
 }
 
-func (e *SNMPDiscoveryEngine) walkIfHighSpeed(client *gosnmp.GoSNMP, ifMap map[int]*DiscoveredInterface) error {
+func (e *SNMPDiscoveryEngine) walkIfHighSpeed(client *gosnmp.GoSNMP, ifMap map[int]*DiscoveredInterface) {
 	// Check which interfaces need ifHighSpeed
-	needsHighSpeed := []int{}
+	var needsHighSpeed []int
+
 	for ifIndex, iface := range ifMap {
 		if iface.IfSpeed == 4294967295 || iface.IfSpeed == 0 {
 			needsHighSpeed = append(needsHighSpeed, ifIndex)
@@ -1127,7 +1133,7 @@ func (e *SNMPDiscoveryEngine) walkIfHighSpeed(client *gosnmp.GoSNMP, ifMap map[i
 	}
 
 	if len(needsHighSpeed) == 0 {
-		return nil
+		return
 	}
 
 	log.Printf("Checking ifHighSpeed for %d interfaces that reported max/zero speed", len(needsHighSpeed))
@@ -1142,6 +1148,7 @@ func (e *SNMPDiscoveryEngine) walkIfHighSpeed(client *gosnmp.GoSNMP, ifMap map[i
 
 		ifIndexStr := parts[len(parts)-1]
 		ifIndex, err := strconv.Atoi(ifIndexStr)
+
 		if err != nil {
 			return nil
 		}
@@ -1155,10 +1162,7 @@ func (e *SNMPDiscoveryEngine) walkIfHighSpeed(client *gosnmp.GoSNMP, ifMap map[i
 
 	if err != nil {
 		log.Printf("Failed to walk ifHighSpeed: %v", err)
-		// Not a critical error, some devices don't support it
 	}
-
-	return nil
 }
 
 // walkIfTable walks the ifTable to get basic interface information
@@ -1176,6 +1180,7 @@ func (e *SNMPDiscoveryEngine) walkIfTable(client *gosnmp.GoSNMP, target string, 
 		parts := strings.Split(pdu.Name, ".")
 		if len(parts) >= 2 {
 			oidPrefix := strings.Join(parts[:len(parts)-1], ".")
+
 			processedOIDs[oidPrefix]++
 		}
 
@@ -1188,12 +1193,14 @@ func (e *SNMPDiscoveryEngine) walkIfTable(client *gosnmp.GoSNMP, target string, 
 
 	// Log what we found
 	log.Printf("SNMP walk completed for %s, found %d unique OID prefixes", target, len(processedOIDs))
+
 	for oid, count := range processedOIDs {
 		log.Printf("  OID %s: %d values", oid, count)
 	}
 
 	// If we didn't get ifSpeed in the walk, try walking it specifically
 	ifSpeedOIDPrefix := strings.TrimSuffix(oidIfSpeed, ".0")
+
 	if count, found := processedOIDs[ifSpeedOIDPrefix]; !found || count == 0 {
 		log.Printf("ifSpeed not found in bulk walk, attempting specific walk of %s", ifSpeedOIDPrefix)
 
@@ -1221,6 +1228,7 @@ func (e *SNMPDiscoveryEngine) processIfSpeedPDU(pdu gosnmp.SnmpPDU, target strin
 
 	ifIndexStr := parts[len(parts)-1]
 	ifIndex, err := strconv.Atoi(ifIndexStr)
+
 	if err != nil {
 		log.Printf("Failed to parse ifIndex from OID %s: %v", pdu.Name, err)
 		return nil
