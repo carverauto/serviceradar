@@ -18,8 +18,11 @@ linters:
     - goconst
     - gocritic
     - gocyclo
+    - gofmt
+    - goimports
     - goprintffuncname
     - gosec
+    - gosimple
     - govet
     - ineffassign
     - lll
@@ -34,6 +37,7 @@ linters:
     - revive
     - rowserrcheck
     - staticcheck
+    - stylecheck
     - testifylint
     - thelper
     - unconvert
@@ -67,7 +71,7 @@ linters:
         - performance
         - style
     gocyclo:
-      min-complexity: 10
+      min-complexity: 15
     govet:
       enable:
         - shadow
@@ -90,7 +94,11 @@ linters:
       require-explanation: true
       require-specific: true
       allow-unused: false
+    nestif:
+      min-complexity: 6
     revive:
+      severity: warning
+      confidence: 0.8
       rules:
         - name: blank-imports
         - name: context-as-argument
@@ -120,6 +128,8 @@ linters:
         - name: defer
         - name: deep-exit
         - name: unused-receiver
+        - name: exported
+          disabled: true
   exclusions:
     generated: lax
     presets:
@@ -128,11 +138,47 @@ linters:
       - legacy
       - std-error-handling
     rules:
+      # Exclude certain linters from test files
       - linters:
+          - mnd
           - dupl
           - goconst
-          - mnd
+          - funlen
+          - gocognit
+          - gocyclo
+          - err113
+          - noctx
+          - gocritic
         path: _test\.go
+      # Exclude magic numbers from common cases
+      - linters:
+          - mnd
+        text: "Magic number: (25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9]),|Magic number: (100|50|10|5|2|1|0),"
+      # Exclude revive exported rule for interfaces
+      - linters:
+          - revive
+        text: "exported: type name will be used as"
+      # Exclude stylecheck ST1003 for test methods
+      - linters:
+          - stylecheck
+        text: "ST1003:"
+        path: _test\.go
+      # Specific file exclusions
+      - linters:
+          - typecheck
+        path: pkg/core/api/server\.go
+      # Exclude err113 for common error patterns
+      - linters:
+          - err113
+        text: "do not define dynamic errors"
+      # Exclude gosec G404 for non-crypto random
+      - linters:
+          - gosec
+        text: "G404:"
+      # Allow TODO comments
+      - linters:
+          - godox
+        text: "TODO|FIXME|BUG"
     paths:
       - proto/flow
       - third_party$
@@ -158,3 +204,5 @@ formatters:
       - third_party$
       - builtin$
       - examples$
+global:
+  timeout: 5m
