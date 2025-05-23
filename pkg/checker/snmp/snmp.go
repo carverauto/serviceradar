@@ -40,7 +40,8 @@ func NewSNMPManager(d db.Service) SNMPManager {
 }
 
 // GetSNMPMetrics fetches SNMP metrics from the database for a given poller.
-func (s *SNMPMetricsManager) GetSNMPMetrics(ctx context.Context, pollerID string, startTime, endTime time.Time) ([]models.SNMPMetric, error) {
+func (s *SNMPMetricsManager) GetSNMPMetrics(
+	ctx context.Context, pollerID string, startTime, endTime time.Time) ([]models.SNMPMetric, error) {
 	log.Printf("Fetching SNMP metrics for poller %s from %v to %v", pollerID, startTime, endTime)
 
 	metrics, err := s.db.GetMetricsByType(ctx, pollerID, "snmp", startTime, endTime)

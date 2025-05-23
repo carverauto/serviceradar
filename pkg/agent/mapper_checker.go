@@ -38,10 +38,10 @@ type MapperDiscoveryDetails struct {
 		Community string `json:"community"`
 	} `json:"credentials"`
 	Concurrency    int    `json:"concurrency,omitempty"`
-	TimeoutSeconds int32  `json:"timeout_seconds,omitempty"` // Renamed to match proto
-	Retries        int32  `json:"retries,omitempty"`         // Renamed to match proto
-	AgentId        string `json:"agent_id,omitempty"`
-	PollerId       string `json:"poller_id,omitempty"`
+	TimeoutSeconds int32  `json:"timeout_seconds,omitempty"`
+	Retries        int32  `json:"retries,omitempty"`
+	AgentID        string `json:"agent_id,omitempty"`
+	PollerID       string `json:"poller_id,omitempty"`
 }
 
 // MapperDiscoveryChecker implements checker.Checker for initiating and monitoring mapper discovery jobs.
@@ -184,8 +184,8 @@ func (mdc *MapperDiscoveryChecker) Check(ctx context.Context) (bool, string) {
 			Concurrency:    int32(parsedDetails.Concurrency),
 			TimeoutSeconds: parsedDetails.TimeoutSeconds,
 			Retries:        parsedDetails.Retries,
-			AgentId:        parsedDetails.AgentId,
-			PollerId:       parsedDetails.PollerId,
+			AgentId:        parsedDetails.AgentID,
+			PollerId:       parsedDetails.PollerID,
 		}
 
 		resp, err := mdc.mapperClient.StartDiscovery(ctx, req)
@@ -233,7 +233,7 @@ func (mdc *MapperDiscoveryChecker) Check(ctx context.Context) (bool, string) {
 			"(progress: %.1f%%, devices: %d, interfaces: %d, links: %d).",
 			mdc.lastDiscoveryID, resultsResp.Status.String(), resultsResp.Progress,
 			len(resultsResp.Devices), len(resultsResp.Interfaces), len(resultsResp.Topology))
-		statusJson, _ := json.Marshal(map[string]interface{}{
+		statusJSON, _ := json.Marshal(map[string]interface{}{
 			"status":               resultsResp.Status.String(),
 			"discovery_id":         resultsResp.DiscoveryId,
 			"progress":             resultsResp.Progress,
@@ -245,7 +245,7 @@ func (mdc *MapperDiscoveryChecker) Check(ctx context.Context) (bool, string) {
 		})
 
 		// Report as available if the mapper service itself is healthy and job is processing
-		return true, string(statusJson)
+		return true, string(statusJSON)
 	}
 
 	// If job completed/failed/canceled, prepare the full SNMPDiscoveryDataPayload
@@ -253,8 +253,8 @@ func (mdc *MapperDiscoveryChecker) Check(ctx context.Context) (bool, string) {
 		Devices:    resultsResp.Devices,
 		Interfaces: resultsResp.Interfaces,
 		Topology:   resultsResp.Topology,
-		AgentID:    parsedDetails.AgentId,  // Propagate original agent ID
-		PollerID:   parsedDetails.PollerId, // Propagate original poller ID
+		AgentID:    parsedDetails.AgentID,  // Propagate original agent ID
+		PollerID:   parsedDetails.PollerID, // Propagate original poller ID
 	}
 
 	payloadJSON, err := json.Marshal(payload)

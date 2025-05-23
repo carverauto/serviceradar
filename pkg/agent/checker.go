@@ -41,7 +41,8 @@ var (
 
 	// Common errors.
 	errInvalidProcessName = errors.New("invalid process name")
-	errInvalidCharacters  = errors.New("contains invalid characters (only alphanumeric, hyphens, underscores, and periods are allowed)")
+	errInvalidCharacters  = errors.New("contains invalid characters (only alphanumeric, " +
+		"hyphens, underscores, and periods are allowed)")
 )
 
 type ProcessChecker struct {
@@ -82,11 +83,13 @@ func (p *ProcessChecker) Check(ctx context.Context) (isActive bool, statusMsg st
 
 	// Command succeeded, process is active
 	log.Printf("Process %s is running", p.ProcessName)
+
 	isActive = true
 
 	status := strings.TrimSpace(string(output))
 
-	return isActive, fmt.Sprintf(`{"status": %q, "process_name": %q, "active": %t}`, status, p.ProcessName, isActive)
+	return isActive, fmt.Sprintf(`{"status": %q, "process_name": %q, "active": %t}`,
+		status, p.ProcessName, isActive)
 }
 
 type PortChecker struct {
@@ -148,5 +151,6 @@ func (p *PortChecker) Check(ctx context.Context) (isAccessible bool, statusMsg s
 	}
 
 	// Return raw data
-	return true, fmt.Sprintf(`{"host": "%q", "port": %d, "response_time": %d}`, p.Host, p.Port, responseTime)
+	return true, fmt.Sprintf(`{"host": "%q", "port": %d, "response_time": %d}`,
+		p.Host, p.Port, responseTime)
 }

@@ -1,8 +1,24 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package metricstore
 
 import (
 	"context"
-	"encoding/json" // For marshaling RperfMetric into metadata
+	"encoding/json"
 	"fmt"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"log"
@@ -26,7 +42,8 @@ const (
 
 // StoreRperfMetric stores an rperf metric in the database.
 // It takes a metrics.RperfMetric and converts it into generic metrics.TimeseriesMetric
-func (m *rperfManagerImpl) StoreRperfMetric(ctx context.Context, pollerID string, rperfResult *models.RperfMetric, timestamp time.Time) error {
+func (m *rperfManagerImpl) StoreRperfMetric(
+	ctx context.Context, pollerID string, rperfResult *models.RperfMetric, timestamp time.Time) error {
 	if !rperfResult.Success {
 		log.Printf("Skipping metrics storage for failed rperf test (Target: %s) on poller %s. Error: %v",
 			rperfResult.Target, pollerID, *rperfResult.Error)
@@ -36,8 +53,10 @@ func (m *rperfManagerImpl) StoreRperfMetric(ctx context.Context, pollerID string
 	// Marshal the original RperfMetric as metadata
 	metadataBytes, err := json.Marshal(rperfResult)
 	if err != nil {
-		return fmt.Errorf("failed to marshal rperf result metadata for poller %s, target %s: %w", pollerID, rperfResult.Target, err)
+		return fmt.Errorf("failed to marshal rperf result metadata for poller %s, target %s: %w",
+			pollerID, rperfResult.Target, err)
 	}
+
 	metadataRaw := json.RawMessage(metadataBytes)
 
 	metricsToStore := []*models.TimeseriesMetric{ // Use metrics.TimeseriesMetric
@@ -99,7 +118,8 @@ func (m *rperfManagerImpl) GetRperfMetrics(
 
 				metadataBytes, marshalErr = json.Marshal(md)
 				if marshalErr != nil {
-					log.Printf("Warning: failed to re-marshal map metadata for rperf metric %s: %v", m.Name, marshalErr)
+					log.Printf("Warning: failed to re-marshal map metadata "+
+						"for rperf metric %s: %v", m.Name, marshalErr)
 					continue
 				}
 			default:
