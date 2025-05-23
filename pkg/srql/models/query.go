@@ -4,6 +4,7 @@ package models
 type Query struct {
 	Type       QueryType
 	Entity     EntityType
+	IsLatest   bool // New field to indicate if the LATEST keyword was used
 	Conditions []Condition
 	OrderBy    []OrderByItem
 	Limit      int
