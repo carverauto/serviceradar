@@ -1,8 +1,9 @@
 package models
 
 import (
-	discoverypb "github.com/carverauto/serviceradar/proto/discovery"
 	"time"
+
+	discoverypb "github.com/carverauto/serviceradar/proto/discovery"
 )
 
 type Duration time.Duration

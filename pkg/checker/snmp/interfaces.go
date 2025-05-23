@@ -20,8 +20,9 @@ package snmp
 
 import (
 	"context"
-	"github.com/carverauto/serviceradar/pkg/models"
 	"time"
+
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 //go:generate mockgen -destination=mock_snmp.go -package=snmp github.com/carverauto/serviceradar/pkg/checker/snmp Collector,Aggregator,Service,CollectorFactory,AggregatorFactory,SNMPClient,SNMPManager,DataStore
