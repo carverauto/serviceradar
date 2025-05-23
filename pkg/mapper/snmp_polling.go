@@ -886,39 +886,50 @@ const (
 	defaultMaxInt64 = 9223372036854775807
 )
 
-// extractSpeedFromGauge32 extracts speed from Gauge32 type
-func extractSpeedFromGauge32(value interface{}, ifIndex int32) uint64 {
-	var speed uint64 = 0
-
+// convertToUint64 safely converts various numeric types to uint64
+func convertToUint64(value interface{}) (uint64, bool) {
 	switch v := value.(type) {
 	case uint:
-		speed = uint64(v)
+		return uint64(v), true
 	case uint32:
-		speed = uint64(v)
+		return uint64(v), true
 	case uint64:
-		speed = v
+		return v, true
 	case int:
 		if v >= 0 {
-			speed = uint64(v)
+			return uint64(v), true
 		}
 	case int32:
 		if v >= 0 {
-			speed = uint64(v)
+			return uint64(v), true
 		}
 	case int64:
 		if v >= 0 {
-			speed = uint64(v)
+			return uint64(v), true
 		}
-	default:
-		log.Printf("Unexpected Gauge32 value type %T for ifSpeed: %v", v, v)
+	}
+	return 0, false
+}
+
+// isMaxUint32 checks if the value is the maximum uint32 value (4294967295)
+func isMaxUint32(value uint64) bool {
+	return value == 4294967295
+}
+
+// extractSpeedFromGauge32 extracts speed from Gauge32 type
+func extractSpeedFromGauge32(value interface{}, ifIndex int32) uint64 {
+	speed, ok := convertToUint64(value)
+	if !ok {
+		log.Printf("Unexpected Gauge32 value type %T for ifSpeed: %v", value, value)
+		return 0
 	}
 
 	// Special handling for max uint32 value (4294967295)
-	if speed == 4294967295 {
+	if isMaxUint32(speed) {
 		log.Printf("Interface %d reports max speed (4294967295), checking ifHighSpeed", ifIndex)
 		// This usually means the speed is higher than can be represented in 32 bits
 		// We should check ifHighSpeed for this interface
-		speed = 0 // Will be updated by ifHighSpeed if available
+		return 0 // Will be updated by ifHighSpeed if available
 	}
 
 	return speed
@@ -926,16 +937,22 @@ func extractSpeedFromGauge32(value interface{}, ifIndex int32) uint64 {
 
 // extractSpeedFromCounter32 extracts speed from Counter32 type
 func extractSpeedFromCounter32(value interface{}) uint64 {
-	if val, ok := value.(uint32); ok {
-		return uint64(val)
-	} else if val, ok := value.(uint); ok {
-		return uint64(val)
+	speed, ok := convertToUint64(value)
+	if ok {
+		return speed
 	}
 	return 0
 }
 
 // extractSpeedFromCounter64 extracts speed from Counter64 type
 func extractSpeedFromCounter64(value interface{}) uint64 {
+	// First try standard conversion
+	speed, ok := convertToUint64(value)
+	if ok {
+		return speed
+	}
+
+	// Fall back to gosnmp's BigInt conversion
 	bigInt := gosnmp.ToBigInt(value)
 	if bigInt != nil {
 		return bigInt.Uint64()
@@ -945,19 +962,18 @@ func extractSpeedFromCounter64(value interface{}) uint64 {
 
 // extractSpeedFromInteger extracts speed from Integer type
 func extractSpeedFromInteger(value interface{}) uint64 {
-	if val, ok := value.(int); ok {
-		if val < 0 {
-			return 0 // Cannot be negative
-		}
-		return uint64(val)
+	speed, ok := convertToUint64(value)
+	if ok {
+		return speed
 	}
 	return 0
 }
 
 // extractSpeedFromUinteger32 extracts speed from Uinteger32 type
 func extractSpeedFromUinteger32(value interface{}) uint64 {
-	if val, ok := value.(uint32); ok {
-		return uint64(val)
+	speed, ok := convertToUint64(value)
+	if ok {
+		return speed
 	}
 	return 0
 }
