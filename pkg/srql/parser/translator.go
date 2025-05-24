@@ -299,45 +299,40 @@ type conditionFormatters struct {
 	is         conditionFormatter
 }
 
-// formatCondition is a generic condition formatter for SQL databases.
-func (t *Translator) formatCondition(cond *models.Condition, formatters conditionFormatters) string {
-	rawFieldName := cond.Field // Can be "field" or "func(field)"
-	operator := cond.Operator
-	rawValue := cond.Value
+// formatDateCondition handles date(field) = TODAY/YESTERDAY specifically
+func (t *Translator) formatDateCondition(fieldName, translatedFieldName string, value interface{}) (string, bool) {
+	if sVal, ok := value.(string); ok {
+		upperVal := strings.ToUpper(sVal)
+		if upperVal != "TODAY" && upperVal != "YESTERDAY" {
+			return "", false
+		}
 
-	// Handle date(field) = TODAY/YESTERDAY specifically
-	if lowerRawFieldName := strings.ToLower(rawFieldName); strings.HasPrefix(lowerRawFieldName, "date(") &&
-		operator == models.Equals {
-		if sVal, ok := rawValue.(string); ok {
-			translatedFieldName := t.translateFieldName(rawFieldName, t.DBType == ArangoDB) // pass Arango context
-
-			// For Proton and ClickHouse
-			if t.DBType == Proton || t.DBType == ClickHouse {
-				switch strings.ToUpper(sVal) {
-				case "TODAY":
-					return fmt.Sprintf("%s = today()", translatedFieldName)
-				case "YESTERDAY":
-					return fmt.Sprintf("%s = yesterday()", translatedFieldName)
-				}
+		// For Proton and ClickHouse
+		if t.DBType == Proton || t.DBType == ClickHouse {
+			if upperVal == "TODAY" {
+				return fmt.Sprintf("%s = today()", translatedFieldName), true
+			} else { // YESTERDAY
+				return fmt.Sprintf("%s = yesterday()", translatedFieldName), true
 			}
-			// For ArangoDB
-			if t.DBType == ArangoDB {
-				now := time.Now() // Consider passing time via context for testability
+		}
+
+		// For ArangoDB
+		if t.DBType == ArangoDB {
+			now := time.Now() // Consider passing time via context for testability
+			if upperVal == "TODAY" {
 				todayDateStr := now.Format("2006-01-02")
+				return fmt.Sprintf("%s = '%s'", translatedFieldName, todayDateStr), true
+			} else { // YESTERDAY
 				yesterdayDateStr := now.AddDate(0, 0, -1).Format("2006-01-02")
-				switch strings.ToUpper(sVal) {
-				case "TODAY":
-					return fmt.Sprintf("%s = '%s'", translatedFieldName, todayDateStr)
-				case "YESTERDAY":
-					return fmt.Sprintf("%s = '%s'", translatedFieldName, yesterdayDateStr)
-				}
+				return fmt.Sprintf("%s = '%s'", translatedFieldName, yesterdayDateStr), true
 			}
 		}
 	}
+	return "", false
+}
 
-	// Fallback to existing generic formatters
-	fieldName := t.translateFieldName(rawFieldName, t.DBType == ArangoDB && !strings.Contains(rawFieldName, "("))
-
+// formatOperatorCondition formats a condition based on its operator
+func (t *Translator) formatOperatorCondition(fieldName string, cond *models.Condition, formatters conditionFormatters) string {
 	switch {
 	case t.isComparisonOperator(cond.Operator):
 		return formatters.comparison(fieldName, cond.Operator, cond.Value)
@@ -354,6 +349,26 @@ func (t *Translator) formatCondition(cond *models.Condition, formatters conditio
 	default:
 		return ""
 	}
+}
+
+// formatCondition is a generic condition formatter for SQL databases.
+func (t *Translator) formatCondition(cond *models.Condition, formatters conditionFormatters) string {
+	rawFieldName := cond.Field // Can be "field" or "func(field)"
+	operator := cond.Operator
+	rawValue := cond.Value
+
+	// Handle date(field) = TODAY/YESTERDAY specifically
+	if lowerRawFieldName := strings.ToLower(rawFieldName); strings.HasPrefix(lowerRawFieldName, "date(") &&
+		operator == models.Equals {
+		translatedFieldName := t.translateFieldName(rawFieldName, t.DBType == ArangoDB) // pass Arango context
+		if result, handled := t.formatDateCondition(rawFieldName, translatedFieldName, rawValue); handled {
+			return result
+		}
+	}
+
+	// Fallback to existing generic formatters
+	fieldName := t.translateFieldName(rawFieldName, t.DBType == ArangoDB && !strings.Contains(rawFieldName, "("))
+	return t.formatOperatorCondition(fieldName, cond, formatters)
 }
 
 // buildProtonWhere builds a WHERE clause for Proton SQL.
