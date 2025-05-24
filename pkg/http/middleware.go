@@ -123,11 +123,6 @@ func APIKeyMiddlewareWithOptions(opts APIKeyOptions) func(next http.Handler) htt
 				}
 			}
 
-			// print out all of hte headers
-			for k, v := range r.Header {
-				log.Printf("Header: %s: %s", k, v)
-			}
-
 			// Check for API key
 			requestKey := r.Header.Get("X-API-Key")
 			if requestKey == "" {
