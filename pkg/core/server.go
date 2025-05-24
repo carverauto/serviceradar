@@ -25,6 +25,8 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -1010,43 +1012,103 @@ func (s *Server) processICMPMetrics(pollerID string, svc *proto.ServiceStatus, d
 }
 
 func (s *Server) processSNMPMetrics(pollerID string, details json.RawMessage, timestamp time.Time) error {
-	var snmpData map[string]struct {
-		Available bool                     `json:"available"`
-		LastPoll  string                   `json:"last_poll"`
-		OIDStatus map[string]OIDStatusData `json:"oid_status"`
+	// 'details' is the JSON string from SNMPService.Check(), which is a map[string]snmp.TargetStatus
+	var snmpReportData map[string]snmp.TargetStatus // Use the actual type from your snmp package
+
+	if err := json.Unmarshal(details, &snmpReportData); err != nil {
+		log.Printf("Error unmarshaling SNMP report data for poller %s: %v. Details: %s", pollerID, err, string(details))
+		return fmt.Errorf("failed to parse SNMP report data: %w", err)
 	}
 
-	if err := json.Unmarshal(details, &snmpData); err != nil {
-		return fmt.Errorf("failed to parse SNMP data: %w", err)
-	}
+	var newTimeseriesMetrics []*models.TimeseriesMetric
 
-	var timeseriesMetrics []*models.TimeseriesMetric
+	for targetName, targetData := range snmpReportData { // targetName here is your target_device_ip
+		if !targetData.Available {
+			// log.Printf("SNMP target %s not available, skipping metrics.", targetName)
+			continue
+		}
 
-	for targetName, targetData := range snmpData {
-		for oidName, oidStatus := range targetData.OIDStatus {
-			metadata := map[string]interface{}{
-				"target_name": targetName,
-				"last_poll":   targetData.LastPoll,
+		for oidConfigName, oidStatus := range targetData.OIDStatus { // oidConfigName is like "ifInOctets_4" or "sysUpTimeInstance"
+			var parsedIfIndex int32 = 0 // Default to 0 if not an interface metric or not parsable
+			var baseMetricName string = oidConfigName
+
+			// Attempt to parse ifIndex from the oidConfigName.
+			// This assumes OIDConfig.Name in your snmp.json is formatted like "metricName_ifIndex" or "metricName.ifIndex"
+			// for interface-specific metrics.
+			// For system-wide metrics (e.g., sysUpTime), ifIndex will remain 0, which is fine.
+
+			potentialIfIndexStr := ""
+			if strings.Contains(oidConfigName, "_") {
+				parts := strings.Split(oidConfigName, "_")
+				if len(parts) > 1 {
+					potentialIfIndexStr = parts[len(parts)-1]
+					baseMetricName = strings.Join(parts[:len(parts)-1], "_")
+				}
+			} else if strings.Contains(oidConfigName, ".") { // Common for OID-like names or when index is suffix after dot
+				parts := strings.Split(oidConfigName, ".")
+				if len(parts) > 1 {
+					// Check if the last part is purely numeric; if so, it's likely an index
+					if _, err := strconv.Atoi(parts[len(parts)-1]); err == nil {
+						potentialIfIndexStr = parts[len(parts)-1]
+						baseMetricName = strings.Join(parts[:len(parts)-1], ".")
+					}
+				}
+			}
+
+			if potentialIfIndexStr != "" {
+				parsed, err := strconv.ParseInt(potentialIfIndexStr, 10, 32)
+				if err == nil {
+					parsedIfIndex = int32(parsed)
+				} else {
+					// Not a parsable index, reset baseMetricName if it was changed
+					baseMetricName = oidConfigName
+					// log.Printf("Warning: Could not parse ifIndex from OIDConfig.Name '%s' for target '%s'", oidConfigName, targetName)
+				}
 			}
 
 			valueStr := fmt.Sprintf("%v", oidStatus.LastValue)
-			metric := &models.TimeseriesMetric{
-				Name:      oidName,
-				Value:     valueStr,
-				Type:      "snmp",
-				Timestamp: timestamp,
-				Metadata:  metadata,
+
+			// Metadata to keep (if any, beyond the extracted fields)
+			remainingMetadata := make(map[string]interface{})
+			remainingMetadata["original_oid_config_name"] = oidConfigName
+			// You can add other fields from oidStatus or targetData if needed
+			// For example, targetData.LastPoll could be useful context
+			remainingMetadata["target_last_poll_timestamp"] = targetData.LastPoll.Format(time.RFC3339Nano)
+			remainingMetadata["oid_last_update_timestamp"] = oidStatus.LastUpdate.Format(time.RFC3339Nano)
+			if oidStatus.ErrorCount > 0 {
+				remainingMetadata["oid_error_count"] = oidStatus.ErrorCount
+				remainingMetadata["oid_last_error"] = oidStatus.LastError
 			}
 
-			timeseriesMetrics = append(timeseriesMetrics, metric)
+			// Use the timestamp from the OID status if available and valid, otherwise fallback
+			metricTimestamp := timestamp // Fallback to the overall batch timestamp
+			if !oidStatus.LastUpdate.IsZero() {
+				metricTimestamp = oidStatus.LastUpdate
+			}
+
+			metric := &models.TimeseriesMetric{
+				PollerID:       pollerID,
+				TargetDeviceIP: targetName,     // This is the device IP/hostname from SNMP target config
+				IfIndex:        parsedIfIndex,  // Parsed ifIndex
+				Name:           baseMetricName, // The metric name without the index part
+				Type:           "snmp",
+				Value:          valueStr,
+				Timestamp:      metricTimestamp,   // More granular timestamp if available
+				Metadata:       remainingMetadata, // Store any other relevant info
+			}
+			newTimeseriesMetrics = append(newTimeseriesMetrics, metric)
 		}
 	}
 
-	// Buffer SNMP timeseriesMetrics
-	s.bufferMu.Lock()
-	s.metricBuffers[pollerID] = append(s.metricBuffers[pollerID], timeseriesMetrics...)
-	s.bufferMu.Unlock()
-
+	if len(newTimeseriesMetrics) > 0 {
+		s.bufferMu.Lock()
+		// Ensure the buffer for this pollerID exists
+		if _, ok := s.metricBuffers[pollerID]; !ok {
+			s.metricBuffers[pollerID] = []*models.TimeseriesMetric{}
+		}
+		s.metricBuffers[pollerID] = append(s.metricBuffers[pollerID], newTimeseriesMetrics...)
+		s.bufferMu.Unlock()
+	}
 	return nil
 }
 
