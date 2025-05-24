@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/timeplus-io/proton-go-driver/v2/lib/driver"
 	"log"
 	"time"
 
@@ -306,6 +307,8 @@ func (db *DB) StoreMetric(ctx context.Context, pollerID string, metric *models.T
 
 	err = batch.Append(
 		pollerID,
+		metric.TargetDeviceIP,
+		metric.IfIndex,
 		metric.Name,
 		metric.Type,
 		metric.Value,
@@ -352,6 +355,8 @@ func (db *DB) BatchMetricsOperation(ctx context.Context, pollerID string, metric
 
 		err = batch.Append(
 			pollerID,
+			metric.TargetDeviceIP,
+			metric.IfIndex,
 			metric.Name,
 			metric.Type,
 			metric.Value,
@@ -368,4 +373,134 @@ func (db *DB) BatchMetricsOperation(ctx context.Context, pollerID string, metric
 	}
 
 	return nil
+}
+
+// StoreMetrics stores multiple timeseries metrics in a single batch.
+func (db *DB) StoreMetrics(ctx context.Context, pollerID string, metrics []*models.TimeseriesMetric) error {
+	if len(metrics) == 0 {
+		return nil
+	}
+
+	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO timeseries_metrics (* except _tp_time)")
+	if err != nil {
+		return fmt.Errorf("failed to prepare batch: %w", err)
+	}
+
+	for _, metric := range metrics {
+		var finalMetadata map[string]string // Ensure this is map[string]string
+
+		if metric.Metadata != nil {
+			// Type assertion: Assume metric.Metadata is already map[string]string
+			// or can be safely converted. If it's map[string]interface{}, you'd
+			// need to iterate and convert.
+			var ok bool
+			finalMetadata, ok = metric.Metadata.(map[string]string)
+			if !ok {
+				// Handle the case where metric.Metadata is not map[string]string
+				// This might involve converting map[string]interface{} to map[string]string
+				// or logging an error if the type is unexpected.
+				// For simplicity now, let's assume it can be cast or is nil.
+				log.Printf("Warning: metric.Metadata for %s is not map[string]string, attempting conversion or using empty map", metric.Name)
+				tempMeta, isMapInterface := metric.Metadata.(map[string]interface{})
+				if isMapInterface {
+					finalMetadata = make(map[string]string)
+					for k, v := range tempMeta {
+						finalMetadata[k] = fmt.Sprintf("%v", v) // Convert all values to string
+					}
+				} else {
+					finalMetadata = make(map[string]string) // Use empty map if conversion fails
+				}
+			}
+		} else {
+			finalMetadata = make(map[string]string) // Use empty map if metric.Metadata is nil
+		}
+
+		err = batch.Append(
+			metric.PollerID,
+			metric.TargetDeviceIP,
+			metric.IfIndex,
+			metric.Name,
+			metric.Type,
+			metric.Value,
+			finalMetadata, // Pass the map[string]string directly
+			metric.Timestamp,
+		)
+		if err != nil {
+			log.Printf("Failed to append metric %s: %v", metric.Name, err)
+			// If one append fails, the whole batch might be problematic for some drivers.
+			// It's safer to return an error immediately or collect errors and not send the batch.
+			// For now, let's try returning the error to prevent the panic:
+			return fmt.Errorf("failed to append metric %s to batch: %w", metric.Name, err)
+		}
+	}
+
+	// Only send if all appends were successful (or if you decide to handle partial batches, which is complex)
+	if err := batch.Send(); err != nil {
+		return fmt.Errorf("failed to store metrics batch: %w", err)
+	}
+	return nil
+}
+
+// StoreSysmonMetrics stores sysmon metrics for CPU, disk, and memory.
+func (db *DB) StoreSysmonMetrics(ctx context.Context, pollerID string, metrics *models.SysmonMetrics, timestamp time.Time) error {
+	if err := db.storeCPUMetrics(ctx, pollerID, metrics.CPUs, timestamp); err != nil {
+		return fmt.Errorf("failed to store CPU metrics: %w", err)
+	}
+
+	if err := db.storeDiskMetrics(ctx, pollerID, metrics.Disks, timestamp); err != nil {
+		return fmt.Errorf("failed to store disk metrics: %w", err)
+	}
+
+	if err := db.storeMemoryMetrics(ctx, pollerID, metrics.Memory, timestamp); err != nil {
+		return fmt.Errorf("failed to store memory metrics: %w", err)
+	}
+
+	return nil
+}
+
+// storeCPUMetrics stores CPU metrics in a batch.
+func (db *DB) storeCPUMetrics(ctx context.Context, pollerID string, cpus []models.CPUMetric, timestamp time.Time) error {
+	if len(cpus) == 0 {
+		return nil
+	}
+
+	return db.executeBatch(ctx, "INSERT INTO cpu_metrics (* except _tp_time)", func(batch driver.Batch) error {
+		for _, cpu := range cpus {
+			if err := batch.Append(pollerID, timestamp, cpu.CoreID, cpu.UsagePercent); err != nil {
+				log.Printf("Failed to append CPU metric for core %d: %v", cpu.CoreID, err)
+				continue
+			}
+		}
+
+		return nil
+	})
+}
+
+// storeDiskMetrics stores disk metrics in a batch.
+func (db *DB) storeDiskMetrics(ctx context.Context, pollerID string, disks []models.DiskMetric, timestamp time.Time) error {
+	if len(disks) == 0 {
+		return nil
+	}
+
+	return db.executeBatch(ctx, "INSERT INTO disk_metrics (* except _tp_time)", func(batch driver.Batch) error {
+		for _, disk := range disks {
+			if err := batch.Append(pollerID, timestamp, disk.MountPoint, disk.UsedBytes, disk.TotalBytes); err != nil {
+				log.Printf("Failed to append disk metric for %s: %v", disk.MountPoint, err)
+				continue
+			}
+		}
+
+		return nil
+	})
+}
+
+// storeMemoryMetrics stores memory metrics in a batch.
+func (db *DB) storeMemoryMetrics(ctx context.Context, pollerID string, memory models.MemoryMetric, timestamp time.Time) error {
+	if memory.UsedBytes == 0 && memory.TotalBytes == 0 {
+		return nil
+	}
+
+	return db.executeBatch(ctx, "INSERT INTO memory_metrics (* except _tp_time)", func(batch driver.Batch) error {
+		return batch.Append(pollerID, timestamp, memory.UsedBytes, memory.TotalBytes)
+	})
 }
