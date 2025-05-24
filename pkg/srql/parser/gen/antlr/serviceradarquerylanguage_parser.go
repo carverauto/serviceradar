@@ -34,20 +34,21 @@ func serviceradarquerylanguageParserInit() {
 	staticData.LiteralNames = []string{
 		"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
 		"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-		"", "", "", "", "", "", "", "", "", "", "", "", "", "", "'>'", "'>='",
-		"'<'", "'<='", "", "", "'.'", "','", "'('", "')'", "'''", "'\"'", "'*'",
+		"", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "'>'",
+		"'>='", "'<'", "'<='", "", "", "'.'", "','", "'('", "')'", "'''", "'\"'",
+		"'*'",
 	}
 	staticData.SymbolicNames = []string{
 		"", "LATEST_MODIFIER", "SHOW", "FIND", "COUNT", "WHERE", "ORDER", "BY",
 		"LIMIT", "LATEST", "ASC", "DESC", "AND", "OR", "IN", "BETWEEN", "CONTAINS",
-		"IS", "NOT", "NULL", "DEVICES", "FLOWS", "TRAPS", "CONNECTIONS", "LOGS",
-		"INTERFACES", "STREAM_KW", "FROM", "TABLE_KW", "TUMBLE", "HOP", "GROUP_KW",
-		"HAVING", "EMIT", "AFTER", "WINDOW_KW", "CLOSE", "WITH_KW", "DELAY",
-		"PERIODIC", "JOIN", "ON", "AS", "LEFT", "RIGHT", "INNER", "EQ", "NEQ",
-		"GT", "GTE", "LT", "LTE", "LIKE", "BOOLEAN", "DOT", "COMMA", "LPAREN",
-		"RPAREN", "APOSTROPHE", "QUOTE", "STAR", "SECONDS_UNIT", "MINUTES_UNIT",
-		"HOURS_UNIT", "DAYS_UNIT", "ID", "INTEGER", "FLOAT", "STRING", "TIMESTAMP",
-		"IPADDRESS", "MACADDRESS", "WS",
+		"IS", "NOT", "NULL", "TODAY", "YESTERDAY", "DEVICES", "FLOWS", "TRAPS",
+		"CONNECTIONS", "LOGS", "INTERFACES", "STREAM_KW", "FROM", "TABLE_KW",
+		"TUMBLE", "HOP", "GROUP_KW", "HAVING", "EMIT", "AFTER", "WINDOW_KW",
+		"CLOSE", "WITH_KW", "DELAY", "PERIODIC", "JOIN", "ON", "AS", "LEFT",
+		"RIGHT", "INNER", "EQ", "NEQ", "GT", "GTE", "LT", "LTE", "LIKE", "BOOLEAN",
+		"DOT", "COMMA", "LPAREN", "RPAREN", "APOSTROPHE", "QUOTE", "STAR", "SECONDS_UNIT",
+		"MINUTES_UNIT", "HOURS_UNIT", "DAYS_UNIT", "ID", "INTEGER", "FLOAT",
+		"STRING", "TIMESTAMP", "IPADDRESS", "MACADDRESS", "WS",
 	}
 	staticData.RuleNames = []string{
 		"query", "showStatement", "findStatement", "countStatement", "streamStatement",
@@ -55,174 +56,177 @@ func serviceradarquerylanguageParserInit() {
 		"argumentList", "dataSource", "streamSourcePrimary", "windowFunction",
 		"durationOrField", "duration", "joinPart", "joinType", "whereClause",
 		"groupByClause", "fieldList", "havingClause", "orderByClauseS", "limitClauseS",
-		"emitClause", "entity", "condition", "expression", "valueList", "logicalOperator",
-		"comparisonOperator", "nullValue", "field", "orderByClause", "orderByItem",
-		"value",
+		"emitClause", "entity", "condition", "expression", "evaluable", "valueList",
+		"logicalOperator", "comparisonOperator", "nullValue", "field", "orderByClause",
+		"orderByItem", "value",
 	}
 	staticData.PredictionContextCache = antlr.NewPredictionContextCache()
 	staticData.serializedATN = []int32{
-		4, 1, 72, 368, 2, 0, 7, 0, 2, 1, 7, 1, 2, 2, 7, 2, 2, 3, 7, 3, 2, 4, 7,
+		4, 1, 74, 374, 2, 0, 7, 0, 2, 1, 7, 1, 2, 2, 7, 2, 2, 3, 7, 3, 2, 4, 7,
 		4, 2, 5, 7, 5, 2, 6, 7, 6, 2, 7, 7, 7, 2, 8, 7, 8, 2, 9, 7, 9, 2, 10, 7,
 		10, 2, 11, 7, 11, 2, 12, 7, 12, 2, 13, 7, 13, 2, 14, 7, 14, 2, 15, 7, 15,
 		2, 16, 7, 16, 2, 17, 7, 17, 2, 18, 7, 18, 2, 19, 7, 19, 2, 20, 7, 20, 2,
 		21, 7, 21, 2, 22, 7, 22, 2, 23, 7, 23, 2, 24, 7, 24, 2, 25, 7, 25, 2, 26,
 		7, 26, 2, 27, 7, 27, 2, 28, 7, 28, 2, 29, 7, 29, 2, 30, 7, 30, 2, 31, 7,
-		31, 2, 32, 7, 32, 2, 33, 7, 33, 2, 34, 7, 34, 1, 0, 1, 0, 1, 0, 1, 0, 3,
-		0, 75, 8, 0, 1, 1, 1, 1, 1, 1, 1, 1, 3, 1, 81, 8, 1, 1, 1, 1, 1, 1, 1,
-		3, 1, 86, 8, 1, 1, 1, 1, 1, 3, 1, 90, 8, 1, 1, 1, 3, 1, 93, 8, 1, 1, 2,
-		1, 2, 1, 2, 1, 2, 3, 2, 99, 8, 2, 1, 2, 1, 2, 1, 2, 3, 2, 104, 8, 2, 1,
-		2, 1, 2, 3, 2, 108, 8, 2, 1, 2, 3, 2, 111, 8, 2, 1, 3, 1, 3, 1, 3, 1, 3,
-		3, 3, 117, 8, 3, 1, 4, 1, 4, 3, 4, 121, 8, 4, 1, 4, 1, 4, 1, 4, 5, 4, 126,
-		8, 4, 10, 4, 12, 4, 129, 9, 4, 1, 4, 3, 4, 132, 8, 4, 1, 4, 3, 4, 135,
-		8, 4, 1, 4, 3, 4, 138, 8, 4, 1, 4, 3, 4, 141, 8, 4, 1, 4, 3, 4, 144, 8,
-		4, 1, 4, 3, 4, 147, 8, 4, 1, 5, 1, 5, 1, 5, 5, 5, 152, 8, 5, 10, 5, 12,
-		5, 155, 9, 5, 1, 5, 3, 5, 158, 8, 5, 1, 6, 1, 6, 1, 6, 3, 6, 163, 8, 6,
-		1, 7, 1, 7, 1, 7, 3, 7, 168, 8, 7, 1, 8, 1, 8, 1, 8, 1, 8, 3, 8, 174, 8,
-		8, 1, 8, 1, 8, 1, 9, 1, 9, 1, 9, 5, 9, 181, 8, 9, 10, 9, 12, 9, 184, 9,
-		9, 1, 10, 1, 10, 1, 10, 3, 10, 189, 8, 10, 1, 11, 1, 11, 3, 11, 193, 8,
-		11, 1, 11, 1, 11, 1, 11, 1, 11, 3, 11, 199, 8, 11, 1, 11, 1, 11, 1, 11,
-		1, 11, 1, 11, 3, 11, 206, 8, 11, 1, 11, 1, 11, 1, 11, 1, 11, 1, 11, 1,
-		11, 3, 11, 214, 8, 11, 1, 11, 1, 11, 3, 11, 218, 8, 11, 1, 12, 1, 12, 1,
-		13, 1, 13, 3, 13, 224, 8, 13, 1, 14, 1, 14, 1, 14, 1, 15, 3, 15, 230, 8,
-		15, 1, 15, 1, 15, 1, 15, 1, 15, 1, 15, 1, 16, 1, 16, 1, 17, 1, 17, 1, 17,
-		1, 18, 1, 18, 1, 18, 1, 18, 1, 19, 1, 19, 1, 19, 5, 19, 249, 8, 19, 10,
-		19, 12, 19, 252, 9, 19, 1, 20, 1, 20, 1, 20, 1, 21, 1, 21, 1, 21, 1, 21,
-		1, 21, 5, 21, 262, 8, 21, 10, 21, 12, 21, 265, 9, 21, 1, 22, 1, 22, 1,
-		22, 1, 23, 1, 23, 1, 23, 1, 23, 1, 23, 1, 23, 1, 23, 3, 23, 277, 8, 23,
-		1, 23, 1, 23, 3, 23, 281, 8, 23, 1, 24, 1, 24, 1, 25, 1, 25, 1, 25, 1,
-		25, 5, 25, 289, 8, 25, 10, 25, 12, 25, 292, 9, 25, 1, 26, 1, 26, 1, 26,
-		1, 26, 1, 26, 1, 26, 1, 26, 1, 26, 1, 26, 1, 26, 1, 26, 1, 26, 1, 26, 1,
+		31, 2, 32, 7, 32, 2, 33, 7, 33, 2, 34, 7, 34, 2, 35, 7, 35, 1, 0, 1, 0,
+		1, 0, 1, 0, 3, 0, 77, 8, 0, 1, 1, 1, 1, 1, 1, 1, 1, 3, 1, 83, 8, 1, 1,
+		1, 1, 1, 1, 1, 3, 1, 88, 8, 1, 1, 1, 1, 1, 3, 1, 92, 8, 1, 1, 1, 3, 1,
+		95, 8, 1, 1, 2, 1, 2, 1, 2, 1, 2, 3, 2, 101, 8, 2, 1, 2, 1, 2, 1, 2, 3,
+		2, 106, 8, 2, 1, 2, 1, 2, 3, 2, 110, 8, 2, 1, 2, 3, 2, 113, 8, 2, 1, 3,
+		1, 3, 1, 3, 1, 3, 3, 3, 119, 8, 3, 1, 4, 1, 4, 3, 4, 123, 8, 4, 1, 4, 1,
+		4, 1, 4, 5, 4, 128, 8, 4, 10, 4, 12, 4, 131, 9, 4, 1, 4, 3, 4, 134, 8,
+		4, 1, 4, 3, 4, 137, 8, 4, 1, 4, 3, 4, 140, 8, 4, 1, 4, 3, 4, 143, 8, 4,
+		1, 4, 3, 4, 146, 8, 4, 1, 4, 3, 4, 149, 8, 4, 1, 5, 1, 5, 1, 5, 5, 5, 154,
+		8, 5, 10, 5, 12, 5, 157, 9, 5, 1, 5, 3, 5, 160, 8, 5, 1, 6, 1, 6, 1, 6,
+		3, 6, 165, 8, 6, 1, 7, 1, 7, 1, 7, 3, 7, 170, 8, 7, 1, 8, 1, 8, 1, 8, 1,
+		8, 3, 8, 176, 8, 8, 1, 8, 1, 8, 1, 9, 1, 9, 1, 9, 5, 9, 183, 8, 9, 10,
+		9, 12, 9, 186, 9, 9, 1, 10, 1, 10, 1, 10, 3, 10, 191, 8, 10, 1, 11, 1,
+		11, 3, 11, 195, 8, 11, 1, 11, 1, 11, 1, 11, 1, 11, 3, 11, 201, 8, 11, 1,
+		11, 1, 11, 1, 11, 1, 11, 1, 11, 3, 11, 208, 8, 11, 1, 11, 1, 11, 1, 11,
+		1, 11, 1, 11, 1, 11, 3, 11, 216, 8, 11, 1, 11, 1, 11, 3, 11, 220, 8, 11,
+		1, 12, 1, 12, 1, 13, 1, 13, 3, 13, 226, 8, 13, 1, 14, 1, 14, 1, 14, 1,
+		15, 3, 15, 232, 8, 15, 1, 15, 1, 15, 1, 15, 1, 15, 1, 15, 1, 16, 1, 16,
+		1, 17, 1, 17, 1, 17, 1, 18, 1, 18, 1, 18, 1, 18, 1, 19, 1, 19, 1, 19, 5,
+		19, 251, 8, 19, 10, 19, 12, 19, 254, 9, 19, 1, 20, 1, 20, 1, 20, 1, 21,
+		1, 21, 1, 21, 1, 21, 1, 21, 5, 21, 264, 8, 21, 10, 21, 12, 21, 267, 9,
+		21, 1, 22, 1, 22, 1, 22, 1, 23, 1, 23, 1, 23, 1, 23, 1, 23, 1, 23, 1, 23,
+		3, 23, 279, 8, 23, 1, 23, 1, 23, 3, 23, 283, 8, 23, 1, 24, 1, 24, 1, 25,
+		1, 25, 1, 25, 1, 25, 5, 25, 291, 8, 25, 10, 25, 12, 25, 294, 9, 25, 1,
 		26, 1, 26, 1, 26, 1, 26, 1, 26, 1, 26, 1, 26, 1, 26, 1, 26, 1, 26, 1, 26,
-		1, 26, 1, 26, 1, 26, 1, 26, 3, 26, 322, 8, 26, 1, 27, 1, 27, 1, 27, 5,
-		27, 327, 8, 27, 10, 27, 12, 27, 330, 9, 27, 1, 28, 1, 28, 1, 29, 1, 29,
-		1, 30, 1, 30, 1, 30, 3, 30, 339, 8, 30, 1, 31, 1, 31, 1, 31, 1, 31, 1,
-		31, 1, 31, 1, 31, 1, 31, 1, 31, 1, 31, 1, 31, 3, 31, 352, 8, 31, 1, 32,
-		1, 32, 1, 32, 5, 32, 357, 8, 32, 10, 32, 12, 32, 360, 9, 32, 1, 33, 1,
-		33, 3, 33, 364, 8, 33, 1, 34, 1, 34, 1, 34, 0, 0, 35, 0, 2, 4, 6, 8, 10,
-		12, 14, 16, 18, 20, 22, 24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46,
-		48, 50, 52, 54, 56, 58, 60, 62, 64, 66, 68, 0, 8, 1, 0, 29, 30, 1, 0, 61,
-		64, 1, 0, 43, 45, 1, 0, 20, 25, 1, 0, 12, 13, 1, 0, 46, 52, 1, 0, 10, 11,
-		2, 0, 53, 53, 66, 71, 385, 0, 74, 1, 0, 0, 0, 2, 76, 1, 0, 0, 0, 4, 94,
-		1, 0, 0, 0, 6, 112, 1, 0, 0, 0, 8, 118, 1, 0, 0, 0, 10, 157, 1, 0, 0, 0,
-		12, 159, 1, 0, 0, 0, 14, 167, 1, 0, 0, 0, 16, 169, 1, 0, 0, 0, 18, 177,
-		1, 0, 0, 0, 20, 185, 1, 0, 0, 0, 22, 217, 1, 0, 0, 0, 24, 219, 1, 0, 0,
-		0, 26, 223, 1, 0, 0, 0, 28, 225, 1, 0, 0, 0, 30, 229, 1, 0, 0, 0, 32, 236,
-		1, 0, 0, 0, 34, 238, 1, 0, 0, 0, 36, 241, 1, 0, 0, 0, 38, 245, 1, 0, 0,
-		0, 40, 253, 1, 0, 0, 0, 42, 256, 1, 0, 0, 0, 44, 266, 1, 0, 0, 0, 46, 269,
-		1, 0, 0, 0, 48, 282, 1, 0, 0, 0, 50, 284, 1, 0, 0, 0, 52, 321, 1, 0, 0,
-		0, 54, 323, 1, 0, 0, 0, 56, 331, 1, 0, 0, 0, 58, 333, 1, 0, 0, 0, 60, 338,
-		1, 0, 0, 0, 62, 351, 1, 0, 0, 0, 64, 353, 1, 0, 0, 0, 66, 361, 1, 0, 0,
-		0, 68, 365, 1, 0, 0, 0, 70, 75, 3, 2, 1, 0, 71, 75, 3, 4, 2, 0, 72, 75,
-		3, 6, 3, 0, 73, 75, 3, 8, 4, 0, 74, 70, 1, 0, 0, 0, 74, 71, 1, 0, 0, 0,
-		74, 72, 1, 0, 0, 0, 74, 73, 1, 0, 0, 0, 75, 1, 1, 0, 0, 0, 76, 77, 5, 2,
-		0, 0, 77, 80, 3, 48, 24, 0, 78, 79, 5, 5, 0, 0, 79, 81, 3, 50, 25, 0, 80,
-		78, 1, 0, 0, 0, 80, 81, 1, 0, 0, 0, 81, 85, 1, 0, 0, 0, 82, 83, 5, 6, 0,
-		0, 83, 84, 5, 7, 0, 0, 84, 86, 3, 64, 32, 0, 85, 82, 1, 0, 0, 0, 85, 86,
-		1, 0, 0, 0, 86, 89, 1, 0, 0, 0, 87, 88, 5, 8, 0, 0, 88, 90, 5, 66, 0, 0,
-		89, 87, 1, 0, 0, 0, 89, 90, 1, 0, 0, 0, 90, 92, 1, 0, 0, 0, 91, 93, 5,
-		1, 0, 0, 92, 91, 1, 0, 0, 0, 92, 93, 1, 0, 0, 0, 93, 3, 1, 0, 0, 0, 94,
-		95, 5, 3, 0, 0, 95, 98, 3, 48, 24, 0, 96, 97, 5, 5, 0, 0, 97, 99, 3, 50,
-		25, 0, 98, 96, 1, 0, 0, 0, 98, 99, 1, 0, 0, 0, 99, 103, 1, 0, 0, 0, 100,
-		101, 5, 6, 0, 0, 101, 102, 5, 7, 0, 0, 102, 104, 3, 64, 32, 0, 103, 100,
-		1, 0, 0, 0, 103, 104, 1, 0, 0, 0, 104, 107, 1, 0, 0, 0, 105, 106, 5, 8,
-		0, 0, 106, 108, 5, 66, 0, 0, 107, 105, 1, 0, 0, 0, 107, 108, 1, 0, 0, 0,
-		108, 110, 1, 0, 0, 0, 109, 111, 5, 1, 0, 0, 110, 109, 1, 0, 0, 0, 110,
-		111, 1, 0, 0, 0, 111, 5, 1, 0, 0, 0, 112, 113, 5, 4, 0, 0, 113, 116, 3,
-		48, 24, 0, 114, 115, 5, 5, 0, 0, 115, 117, 3, 50, 25, 0, 116, 114, 1, 0,
-		0, 0, 116, 117, 1, 0, 0, 0, 117, 7, 1, 0, 0, 0, 118, 120, 5, 26, 0, 0,
-		119, 121, 3, 10, 5, 0, 120, 119, 1, 0, 0, 0, 120, 121, 1, 0, 0, 0, 121,
-		122, 1, 0, 0, 0, 122, 123, 5, 27, 0, 0, 123, 127, 3, 20, 10, 0, 124, 126,
-		3, 30, 15, 0, 125, 124, 1, 0, 0, 0, 126, 129, 1, 0, 0, 0, 127, 125, 1,
-		0, 0, 0, 127, 128, 1, 0, 0, 0, 128, 131, 1, 0, 0, 0, 129, 127, 1, 0, 0,
-		0, 130, 132, 3, 34, 17, 0, 131, 130, 1, 0, 0, 0, 131, 132, 1, 0, 0, 0,
-		132, 134, 1, 0, 0, 0, 133, 135, 3, 36, 18, 0, 134, 133, 1, 0, 0, 0, 134,
-		135, 1, 0, 0, 0, 135, 137, 1, 0, 0, 0, 136, 138, 3, 40, 20, 0, 137, 136,
-		1, 0, 0, 0, 137, 138, 1, 0, 0, 0, 138, 140, 1, 0, 0, 0, 139, 141, 3, 42,
-		21, 0, 140, 139, 1, 0, 0, 0, 140, 141, 1, 0, 0, 0, 141, 143, 1, 0, 0, 0,
-		142, 144, 3, 44, 22, 0, 143, 142, 1, 0, 0, 0, 143, 144, 1, 0, 0, 0, 144,
-		146, 1, 0, 0, 0, 145, 147, 3, 46, 23, 0, 146, 145, 1, 0, 0, 0, 146, 147,
-		1, 0, 0, 0, 147, 9, 1, 0, 0, 0, 148, 153, 3, 12, 6, 0, 149, 150, 5, 55,
-		0, 0, 150, 152, 3, 12, 6, 0, 151, 149, 1, 0, 0, 0, 152, 155, 1, 0, 0, 0,
-		153, 151, 1, 0, 0, 0, 153, 154, 1, 0, 0, 0, 154, 158, 1, 0, 0, 0, 155,
-		153, 1, 0, 0, 0, 156, 158, 5, 60, 0, 0, 157, 148, 1, 0, 0, 0, 157, 156,
-		1, 0, 0, 0, 158, 11, 1, 0, 0, 0, 159, 162, 3, 14, 7, 0, 160, 161, 5, 42,
-		0, 0, 161, 163, 5, 65, 0, 0, 162, 160, 1, 0, 0, 0, 162, 163, 1, 0, 0, 0,
-		163, 13, 1, 0, 0, 0, 164, 168, 3, 62, 31, 0, 165, 168, 3, 16, 8, 0, 166,
-		168, 3, 68, 34, 0, 167, 164, 1, 0, 0, 0, 167, 165, 1, 0, 0, 0, 167, 166,
-		1, 0, 0, 0, 168, 15, 1, 0, 0, 0, 169, 170, 5, 65, 0, 0, 170, 173, 5, 56,
-		0, 0, 171, 174, 3, 18, 9, 0, 172, 174, 5, 60, 0, 0, 173, 171, 1, 0, 0,
-		0, 173, 172, 1, 0, 0, 0, 173, 174, 1, 0, 0, 0, 174, 175, 1, 0, 0, 0, 175,
-		176, 5, 57, 0, 0, 176, 17, 1, 0, 0, 0, 177, 182, 3, 14, 7, 0, 178, 179,
-		5, 55, 0, 0, 179, 181, 3, 14, 7, 0, 180, 178, 1, 0, 0, 0, 181, 184, 1,
-		0, 0, 0, 182, 180, 1, 0, 0, 0, 182, 183, 1, 0, 0, 0, 183, 19, 1, 0, 0,
-		0, 184, 182, 1, 0, 0, 0, 185, 188, 3, 22, 11, 0, 186, 187, 5, 42, 0, 0,
-		187, 189, 5, 65, 0, 0, 188, 186, 1, 0, 0, 0, 188, 189, 1, 0, 0, 0, 189,
-		21, 1, 0, 0, 0, 190, 193, 3, 48, 24, 0, 191, 193, 5, 65, 0, 0, 192, 190,
-		1, 0, 0, 0, 192, 191, 1, 0, 0, 0, 193, 218, 1, 0, 0, 0, 194, 195, 5, 28,
-		0, 0, 195, 198, 5, 56, 0, 0, 196, 199, 3, 48, 24, 0, 197, 199, 5, 65, 0,
-		0, 198, 196, 1, 0, 0, 0, 198, 197, 1, 0, 0, 0, 199, 200, 1, 0, 0, 0, 200,
-		218, 5, 57, 0, 0, 201, 202, 3, 24, 12, 0, 202, 205, 5, 56, 0, 0, 203, 206,
-		3, 48, 24, 0, 204, 206, 5, 65, 0, 0, 205, 203, 1, 0, 0, 0, 205, 204, 1,
-		0, 0, 0, 206, 207, 1, 0, 0, 0, 207, 208, 5, 55, 0, 0, 208, 209, 3, 62,
-		31, 0, 209, 210, 5, 55, 0, 0, 210, 213, 3, 26, 13, 0, 211, 212, 5, 55,
-		0, 0, 212, 214, 3, 26, 13, 0, 213, 211, 1, 0, 0, 0, 213, 214, 1, 0, 0,
-		0, 214, 215, 1, 0, 0, 0, 215, 216, 5, 57, 0, 0, 216, 218, 1, 0, 0, 0, 217,
-		192, 1, 0, 0, 0, 217, 194, 1, 0, 0, 0, 217, 201, 1, 0, 0, 0, 218, 23, 1,
-		0, 0, 0, 219, 220, 7, 0, 0, 0, 220, 25, 1, 0, 0, 0, 221, 224, 3, 28, 14,
-		0, 222, 224, 3, 62, 31, 0, 223, 221, 1, 0, 0, 0, 223, 222, 1, 0, 0, 0,
-		224, 27, 1, 0, 0, 0, 225, 226, 5, 66, 0, 0, 226, 227, 7, 1, 0, 0, 227,
-		29, 1, 0, 0, 0, 228, 230, 3, 32, 16, 0, 229, 228, 1, 0, 0, 0, 229, 230,
-		1, 0, 0, 0, 230, 231, 1, 0, 0, 0, 231, 232, 5, 40, 0, 0, 232, 233, 3, 20,
-		10, 0, 233, 234, 5, 41, 0, 0, 234, 235, 3, 50, 25, 0, 235, 31, 1, 0, 0,
-		0, 236, 237, 7, 2, 0, 0, 237, 33, 1, 0, 0, 0, 238, 239, 5, 5, 0, 0, 239,
-		240, 3, 50, 25, 0, 240, 35, 1, 0, 0, 0, 241, 242, 5, 31, 0, 0, 242, 243,
-		5, 7, 0, 0, 243, 244, 3, 38, 19, 0, 244, 37, 1, 0, 0, 0, 245, 250, 3, 62,
-		31, 0, 246, 247, 5, 55, 0, 0, 247, 249, 3, 62, 31, 0, 248, 246, 1, 0, 0,
-		0, 249, 252, 1, 0, 0, 0, 250, 248, 1, 0, 0, 0, 250, 251, 1, 0, 0, 0, 251,
-		39, 1, 0, 0, 0, 252, 250, 1, 0, 0, 0, 253, 254, 5, 32, 0, 0, 254, 255,
-		3, 50, 25, 0, 255, 41, 1, 0, 0, 0, 256, 257, 5, 6, 0, 0, 257, 258, 5, 7,
-		0, 0, 258, 263, 3, 66, 33, 0, 259, 260, 5, 55, 0, 0, 260, 262, 3, 66, 33,
-		0, 261, 259, 1, 0, 0, 0, 262, 265, 1, 0, 0, 0, 263, 261, 1, 0, 0, 0, 263,
-		264, 1, 0, 0, 0, 264, 43, 1, 0, 0, 0, 265, 263, 1, 0, 0, 0, 266, 267, 5,
-		8, 0, 0, 267, 268, 5, 66, 0, 0, 268, 45, 1, 0, 0, 0, 269, 280, 5, 33, 0,
-		0, 270, 271, 5, 34, 0, 0, 271, 272, 5, 35, 0, 0, 272, 276, 5, 36, 0, 0,
-		273, 274, 5, 37, 0, 0, 274, 275, 5, 38, 0, 0, 275, 277, 3, 28, 14, 0, 276,
-		273, 1, 0, 0, 0, 276, 277, 1, 0, 0, 0, 277, 281, 1, 0, 0, 0, 278, 279,
-		5, 39, 0, 0, 279, 281, 3, 28, 14, 0, 280, 270, 1, 0, 0, 0, 280, 278, 1,
-		0, 0, 0, 281, 47, 1, 0, 0, 0, 282, 283, 7, 3, 0, 0, 283, 49, 1, 0, 0, 0,
-		284, 290, 3, 52, 26, 0, 285, 286, 3, 56, 28, 0, 286, 287, 3, 52, 26, 0,
-		287, 289, 1, 0, 0, 0, 288, 285, 1, 0, 0, 0, 289, 292, 1, 0, 0, 0, 290,
-		288, 1, 0, 0, 0, 290, 291, 1, 0, 0, 0, 291, 51, 1, 0, 0, 0, 292, 290, 1,
-		0, 0, 0, 293, 294, 3, 62, 31, 0, 294, 295, 3, 58, 29, 0, 295, 296, 3, 68,
-		34, 0, 296, 322, 1, 0, 0, 0, 297, 298, 3, 62, 31, 0, 298, 299, 5, 14, 0,
-		0, 299, 300, 5, 56, 0, 0, 300, 301, 3, 54, 27, 0, 301, 302, 5, 57, 0, 0,
-		302, 322, 1, 0, 0, 0, 303, 304, 3, 62, 31, 0, 304, 305, 5, 16, 0, 0, 305,
-		306, 5, 68, 0, 0, 306, 322, 1, 0, 0, 0, 307, 308, 5, 56, 0, 0, 308, 309,
-		3, 50, 25, 0, 309, 310, 5, 57, 0, 0, 310, 322, 1, 0, 0, 0, 311, 312, 3,
-		62, 31, 0, 312, 313, 5, 15, 0, 0, 313, 314, 3, 68, 34, 0, 314, 315, 5,
-		12, 0, 0, 315, 316, 3, 68, 34, 0, 316, 322, 1, 0, 0, 0, 317, 318, 3, 62,
-		31, 0, 318, 319, 5, 17, 0, 0, 319, 320, 3, 60, 30, 0, 320, 322, 1, 0, 0,
-		0, 321, 293, 1, 0, 0, 0, 321, 297, 1, 0, 0, 0, 321, 303, 1, 0, 0, 0, 321,
-		307, 1, 0, 0, 0, 321, 311, 1, 0, 0, 0, 321, 317, 1, 0, 0, 0, 322, 53, 1,
-		0, 0, 0, 323, 328, 3, 68, 34, 0, 324, 325, 5, 55, 0, 0, 325, 327, 3, 68,
-		34, 0, 326, 324, 1, 0, 0, 0, 327, 330, 1, 0, 0, 0, 328, 326, 1, 0, 0, 0,
-		328, 329, 1, 0, 0, 0, 329, 55, 1, 0, 0, 0, 330, 328, 1, 0, 0, 0, 331, 332,
-		7, 4, 0, 0, 332, 57, 1, 0, 0, 0, 333, 334, 7, 5, 0, 0, 334, 59, 1, 0, 0,
-		0, 335, 339, 5, 19, 0, 0, 336, 337, 5, 18, 0, 0, 337, 339, 5, 19, 0, 0,
-		338, 335, 1, 0, 0, 0, 338, 336, 1, 0, 0, 0, 339, 61, 1, 0, 0, 0, 340, 352,
-		5, 65, 0, 0, 341, 342, 3, 48, 24, 0, 342, 343, 5, 54, 0, 0, 343, 344, 5,
-		65, 0, 0, 344, 352, 1, 0, 0, 0, 345, 346, 3, 48, 24, 0, 346, 347, 5, 54,
-		0, 0, 347, 348, 5, 65, 0, 0, 348, 349, 5, 54, 0, 0, 349, 350, 5, 65, 0,
-		0, 350, 352, 1, 0, 0, 0, 351, 340, 1, 0, 0, 0, 351, 341, 1, 0, 0, 0, 351,
-		345, 1, 0, 0, 0, 352, 63, 1, 0, 0, 0, 353, 358, 3, 66, 33, 0, 354, 355,
-		5, 55, 0, 0, 355, 357, 3, 66, 33, 0, 356, 354, 1, 0, 0, 0, 357, 360, 1,
-		0, 0, 0, 358, 356, 1, 0, 0, 0, 358, 359, 1, 0, 0, 0, 359, 65, 1, 0, 0,
-		0, 360, 358, 1, 0, 0, 0, 361, 363, 3, 62, 31, 0, 362, 364, 7, 6, 0, 0,
-		363, 362, 1, 0, 0, 0, 363, 364, 1, 0, 0, 0, 364, 67, 1, 0, 0, 0, 365, 366,
-		7, 7, 0, 0, 366, 69, 1, 0, 0, 0, 43, 74, 80, 85, 89, 92, 98, 103, 107,
-		110, 116, 120, 127, 131, 134, 137, 140, 143, 146, 153, 157, 162, 167, 173,
-		182, 188, 192, 198, 205, 213, 217, 223, 229, 250, 263, 276, 280, 290, 321,
-		328, 338, 351, 358, 363,
+		1, 26, 1, 26, 1, 26, 1, 26, 1, 26, 1, 26, 1, 26, 1, 26, 1, 26, 1, 26, 1,
+		26, 1, 26, 1, 26, 1, 26, 1, 26, 1, 26, 1, 26, 3, 26, 324, 8, 26, 1, 27,
+		1, 27, 3, 27, 328, 8, 27, 1, 28, 1, 28, 1, 28, 5, 28, 333, 8, 28, 10, 28,
+		12, 28, 336, 9, 28, 1, 29, 1, 29, 1, 30, 1, 30, 1, 31, 1, 31, 1, 31, 3,
+		31, 345, 8, 31, 1, 32, 1, 32, 1, 32, 1, 32, 1, 32, 1, 32, 1, 32, 1, 32,
+		1, 32, 1, 32, 1, 32, 3, 32, 358, 8, 32, 1, 33, 1, 33, 1, 33, 5, 33, 363,
+		8, 33, 10, 33, 12, 33, 366, 9, 33, 1, 34, 1, 34, 3, 34, 370, 8, 34, 1,
+		35, 1, 35, 1, 35, 0, 0, 36, 0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22,
+		24, 26, 28, 30, 32, 34, 36, 38, 40, 42, 44, 46, 48, 50, 52, 54, 56, 58,
+		60, 62, 64, 66, 68, 70, 0, 8, 1, 0, 31, 32, 1, 0, 63, 66, 1, 0, 45, 47,
+		1, 0, 22, 27, 1, 0, 12, 13, 1, 0, 48, 54, 1, 0, 10, 11, 3, 0, 20, 21, 55,
+		55, 68, 73, 391, 0, 76, 1, 0, 0, 0, 2, 78, 1, 0, 0, 0, 4, 96, 1, 0, 0,
+		0, 6, 114, 1, 0, 0, 0, 8, 120, 1, 0, 0, 0, 10, 159, 1, 0, 0, 0, 12, 161,
+		1, 0, 0, 0, 14, 169, 1, 0, 0, 0, 16, 171, 1, 0, 0, 0, 18, 179, 1, 0, 0,
+		0, 20, 187, 1, 0, 0, 0, 22, 219, 1, 0, 0, 0, 24, 221, 1, 0, 0, 0, 26, 225,
+		1, 0, 0, 0, 28, 227, 1, 0, 0, 0, 30, 231, 1, 0, 0, 0, 32, 238, 1, 0, 0,
+		0, 34, 240, 1, 0, 0, 0, 36, 243, 1, 0, 0, 0, 38, 247, 1, 0, 0, 0, 40, 255,
+		1, 0, 0, 0, 42, 258, 1, 0, 0, 0, 44, 268, 1, 0, 0, 0, 46, 271, 1, 0, 0,
+		0, 48, 284, 1, 0, 0, 0, 50, 286, 1, 0, 0, 0, 52, 323, 1, 0, 0, 0, 54, 327,
+		1, 0, 0, 0, 56, 329, 1, 0, 0, 0, 58, 337, 1, 0, 0, 0, 60, 339, 1, 0, 0,
+		0, 62, 344, 1, 0, 0, 0, 64, 357, 1, 0, 0, 0, 66, 359, 1, 0, 0, 0, 68, 367,
+		1, 0, 0, 0, 70, 371, 1, 0, 0, 0, 72, 77, 3, 2, 1, 0, 73, 77, 3, 4, 2, 0,
+		74, 77, 3, 6, 3, 0, 75, 77, 3, 8, 4, 0, 76, 72, 1, 0, 0, 0, 76, 73, 1,
+		0, 0, 0, 76, 74, 1, 0, 0, 0, 76, 75, 1, 0, 0, 0, 77, 1, 1, 0, 0, 0, 78,
+		79, 5, 2, 0, 0, 79, 82, 3, 48, 24, 0, 80, 81, 5, 5, 0, 0, 81, 83, 3, 50,
+		25, 0, 82, 80, 1, 0, 0, 0, 82, 83, 1, 0, 0, 0, 83, 87, 1, 0, 0, 0, 84,
+		85, 5, 6, 0, 0, 85, 86, 5, 7, 0, 0, 86, 88, 3, 66, 33, 0, 87, 84, 1, 0,
+		0, 0, 87, 88, 1, 0, 0, 0, 88, 91, 1, 0, 0, 0, 89, 90, 5, 8, 0, 0, 90, 92,
+		5, 68, 0, 0, 91, 89, 1, 0, 0, 0, 91, 92, 1, 0, 0, 0, 92, 94, 1, 0, 0, 0,
+		93, 95, 5, 1, 0, 0, 94, 93, 1, 0, 0, 0, 94, 95, 1, 0, 0, 0, 95, 3, 1, 0,
+		0, 0, 96, 97, 5, 3, 0, 0, 97, 100, 3, 48, 24, 0, 98, 99, 5, 5, 0, 0, 99,
+		101, 3, 50, 25, 0, 100, 98, 1, 0, 0, 0, 100, 101, 1, 0, 0, 0, 101, 105,
+		1, 0, 0, 0, 102, 103, 5, 6, 0, 0, 103, 104, 5, 7, 0, 0, 104, 106, 3, 66,
+		33, 0, 105, 102, 1, 0, 0, 0, 105, 106, 1, 0, 0, 0, 106, 109, 1, 0, 0, 0,
+		107, 108, 5, 8, 0, 0, 108, 110, 5, 68, 0, 0, 109, 107, 1, 0, 0, 0, 109,
+		110, 1, 0, 0, 0, 110, 112, 1, 0, 0, 0, 111, 113, 5, 1, 0, 0, 112, 111,
+		1, 0, 0, 0, 112, 113, 1, 0, 0, 0, 113, 5, 1, 0, 0, 0, 114, 115, 5, 4, 0,
+		0, 115, 118, 3, 48, 24, 0, 116, 117, 5, 5, 0, 0, 117, 119, 3, 50, 25, 0,
+		118, 116, 1, 0, 0, 0, 118, 119, 1, 0, 0, 0, 119, 7, 1, 0, 0, 0, 120, 122,
+		5, 28, 0, 0, 121, 123, 3, 10, 5, 0, 122, 121, 1, 0, 0, 0, 122, 123, 1,
+		0, 0, 0, 123, 124, 1, 0, 0, 0, 124, 125, 5, 29, 0, 0, 125, 129, 3, 20,
+		10, 0, 126, 128, 3, 30, 15, 0, 127, 126, 1, 0, 0, 0, 128, 131, 1, 0, 0,
+		0, 129, 127, 1, 0, 0, 0, 129, 130, 1, 0, 0, 0, 130, 133, 1, 0, 0, 0, 131,
+		129, 1, 0, 0, 0, 132, 134, 3, 34, 17, 0, 133, 132, 1, 0, 0, 0, 133, 134,
+		1, 0, 0, 0, 134, 136, 1, 0, 0, 0, 135, 137, 3, 36, 18, 0, 136, 135, 1,
+		0, 0, 0, 136, 137, 1, 0, 0, 0, 137, 139, 1, 0, 0, 0, 138, 140, 3, 40, 20,
+		0, 139, 138, 1, 0, 0, 0, 139, 140, 1, 0, 0, 0, 140, 142, 1, 0, 0, 0, 141,
+		143, 3, 42, 21, 0, 142, 141, 1, 0, 0, 0, 142, 143, 1, 0, 0, 0, 143, 145,
+		1, 0, 0, 0, 144, 146, 3, 44, 22, 0, 145, 144, 1, 0, 0, 0, 145, 146, 1,
+		0, 0, 0, 146, 148, 1, 0, 0, 0, 147, 149, 3, 46, 23, 0, 148, 147, 1, 0,
+		0, 0, 148, 149, 1, 0, 0, 0, 149, 9, 1, 0, 0, 0, 150, 155, 3, 12, 6, 0,
+		151, 152, 5, 57, 0, 0, 152, 154, 3, 12, 6, 0, 153, 151, 1, 0, 0, 0, 154,
+		157, 1, 0, 0, 0, 155, 153, 1, 0, 0, 0, 155, 156, 1, 0, 0, 0, 156, 160,
+		1, 0, 0, 0, 157, 155, 1, 0, 0, 0, 158, 160, 5, 62, 0, 0, 159, 150, 1, 0,
+		0, 0, 159, 158, 1, 0, 0, 0, 160, 11, 1, 0, 0, 0, 161, 164, 3, 14, 7, 0,
+		162, 163, 5, 44, 0, 0, 163, 165, 5, 67, 0, 0, 164, 162, 1, 0, 0, 0, 164,
+		165, 1, 0, 0, 0, 165, 13, 1, 0, 0, 0, 166, 170, 3, 64, 32, 0, 167, 170,
+		3, 16, 8, 0, 168, 170, 3, 70, 35, 0, 169, 166, 1, 0, 0, 0, 169, 167, 1,
+		0, 0, 0, 169, 168, 1, 0, 0, 0, 170, 15, 1, 0, 0, 0, 171, 172, 5, 67, 0,
+		0, 172, 175, 5, 58, 0, 0, 173, 176, 3, 18, 9, 0, 174, 176, 5, 62, 0, 0,
+		175, 173, 1, 0, 0, 0, 175, 174, 1, 0, 0, 0, 175, 176, 1, 0, 0, 0, 176,
+		177, 1, 0, 0, 0, 177, 178, 5, 59, 0, 0, 178, 17, 1, 0, 0, 0, 179, 184,
+		3, 14, 7, 0, 180, 181, 5, 57, 0, 0, 181, 183, 3, 14, 7, 0, 182, 180, 1,
+		0, 0, 0, 183, 186, 1, 0, 0, 0, 184, 182, 1, 0, 0, 0, 184, 185, 1, 0, 0,
+		0, 185, 19, 1, 0, 0, 0, 186, 184, 1, 0, 0, 0, 187, 190, 3, 22, 11, 0, 188,
+		189, 5, 44, 0, 0, 189, 191, 5, 67, 0, 0, 190, 188, 1, 0, 0, 0, 190, 191,
+		1, 0, 0, 0, 191, 21, 1, 0, 0, 0, 192, 195, 3, 48, 24, 0, 193, 195, 5, 67,
+		0, 0, 194, 192, 1, 0, 0, 0, 194, 193, 1, 0, 0, 0, 195, 220, 1, 0, 0, 0,
+		196, 197, 5, 30, 0, 0, 197, 200, 5, 58, 0, 0, 198, 201, 3, 48, 24, 0, 199,
+		201, 5, 67, 0, 0, 200, 198, 1, 0, 0, 0, 200, 199, 1, 0, 0, 0, 201, 202,
+		1, 0, 0, 0, 202, 220, 5, 59, 0, 0, 203, 204, 3, 24, 12, 0, 204, 207, 5,
+		58, 0, 0, 205, 208, 3, 48, 24, 0, 206, 208, 5, 67, 0, 0, 207, 205, 1, 0,
+		0, 0, 207, 206, 1, 0, 0, 0, 208, 209, 1, 0, 0, 0, 209, 210, 5, 57, 0, 0,
+		210, 211, 3, 64, 32, 0, 211, 212, 5, 57, 0, 0, 212, 215, 3, 26, 13, 0,
+		213, 214, 5, 57, 0, 0, 214, 216, 3, 26, 13, 0, 215, 213, 1, 0, 0, 0, 215,
+		216, 1, 0, 0, 0, 216, 217, 1, 0, 0, 0, 217, 218, 5, 59, 0, 0, 218, 220,
+		1, 0, 0, 0, 219, 194, 1, 0, 0, 0, 219, 196, 1, 0, 0, 0, 219, 203, 1, 0,
+		0, 0, 220, 23, 1, 0, 0, 0, 221, 222, 7, 0, 0, 0, 222, 25, 1, 0, 0, 0, 223,
+		226, 3, 28, 14, 0, 224, 226, 3, 64, 32, 0, 225, 223, 1, 0, 0, 0, 225, 224,
+		1, 0, 0, 0, 226, 27, 1, 0, 0, 0, 227, 228, 5, 68, 0, 0, 228, 229, 7, 1,
+		0, 0, 229, 29, 1, 0, 0, 0, 230, 232, 3, 32, 16, 0, 231, 230, 1, 0, 0, 0,
+		231, 232, 1, 0, 0, 0, 232, 233, 1, 0, 0, 0, 233, 234, 5, 42, 0, 0, 234,
+		235, 3, 20, 10, 0, 235, 236, 5, 43, 0, 0, 236, 237, 3, 50, 25, 0, 237,
+		31, 1, 0, 0, 0, 238, 239, 7, 2, 0, 0, 239, 33, 1, 0, 0, 0, 240, 241, 5,
+		5, 0, 0, 241, 242, 3, 50, 25, 0, 242, 35, 1, 0, 0, 0, 243, 244, 5, 33,
+		0, 0, 244, 245, 5, 7, 0, 0, 245, 246, 3, 38, 19, 0, 246, 37, 1, 0, 0, 0,
+		247, 252, 3, 64, 32, 0, 248, 249, 5, 57, 0, 0, 249, 251, 3, 64, 32, 0,
+		250, 248, 1, 0, 0, 0, 251, 254, 1, 0, 0, 0, 252, 250, 1, 0, 0, 0, 252,
+		253, 1, 0, 0, 0, 253, 39, 1, 0, 0, 0, 254, 252, 1, 0, 0, 0, 255, 256, 5,
+		34, 0, 0, 256, 257, 3, 50, 25, 0, 257, 41, 1, 0, 0, 0, 258, 259, 5, 6,
+		0, 0, 259, 260, 5, 7, 0, 0, 260, 265, 3, 68, 34, 0, 261, 262, 5, 57, 0,
+		0, 262, 264, 3, 68, 34, 0, 263, 261, 1, 0, 0, 0, 264, 267, 1, 0, 0, 0,
+		265, 263, 1, 0, 0, 0, 265, 266, 1, 0, 0, 0, 266, 43, 1, 0, 0, 0, 267, 265,
+		1, 0, 0, 0, 268, 269, 5, 8, 0, 0, 269, 270, 5, 68, 0, 0, 270, 45, 1, 0,
+		0, 0, 271, 282, 5, 35, 0, 0, 272, 273, 5, 36, 0, 0, 273, 274, 5, 37, 0,
+		0, 274, 278, 5, 38, 0, 0, 275, 276, 5, 39, 0, 0, 276, 277, 5, 40, 0, 0,
+		277, 279, 3, 28, 14, 0, 278, 275, 1, 0, 0, 0, 278, 279, 1, 0, 0, 0, 279,
+		283, 1, 0, 0, 0, 280, 281, 5, 41, 0, 0, 281, 283, 3, 28, 14, 0, 282, 272,
+		1, 0, 0, 0, 282, 280, 1, 0, 0, 0, 283, 47, 1, 0, 0, 0, 284, 285, 7, 3,
+		0, 0, 285, 49, 1, 0, 0, 0, 286, 292, 3, 52, 26, 0, 287, 288, 3, 58, 29,
+		0, 288, 289, 3, 52, 26, 0, 289, 291, 1, 0, 0, 0, 290, 287, 1, 0, 0, 0,
+		291, 294, 1, 0, 0, 0, 292, 290, 1, 0, 0, 0, 292, 293, 1, 0, 0, 0, 293,
+		51, 1, 0, 0, 0, 294, 292, 1, 0, 0, 0, 295, 296, 3, 54, 27, 0, 296, 297,
+		3, 60, 30, 0, 297, 298, 3, 70, 35, 0, 298, 324, 1, 0, 0, 0, 299, 300, 3,
+		54, 27, 0, 300, 301, 5, 14, 0, 0, 301, 302, 5, 58, 0, 0, 302, 303, 3, 56,
+		28, 0, 303, 304, 5, 59, 0, 0, 304, 324, 1, 0, 0, 0, 305, 306, 3, 54, 27,
+		0, 306, 307, 5, 16, 0, 0, 307, 308, 5, 70, 0, 0, 308, 324, 1, 0, 0, 0,
+		309, 310, 5, 58, 0, 0, 310, 311, 3, 50, 25, 0, 311, 312, 5, 59, 0, 0, 312,
+		324, 1, 0, 0, 0, 313, 314, 3, 54, 27, 0, 314, 315, 5, 15, 0, 0, 315, 316,
+		3, 70, 35, 0, 316, 317, 5, 12, 0, 0, 317, 318, 3, 70, 35, 0, 318, 324,
+		1, 0, 0, 0, 319, 320, 3, 54, 27, 0, 320, 321, 5, 17, 0, 0, 321, 322, 3,
+		62, 31, 0, 322, 324, 1, 0, 0, 0, 323, 295, 1, 0, 0, 0, 323, 299, 1, 0,
+		0, 0, 323, 305, 1, 0, 0, 0, 323, 309, 1, 0, 0, 0, 323, 313, 1, 0, 0, 0,
+		323, 319, 1, 0, 0, 0, 324, 53, 1, 0, 0, 0, 325, 328, 3, 64, 32, 0, 326,
+		328, 3, 16, 8, 0, 327, 325, 1, 0, 0, 0, 327, 326, 1, 0, 0, 0, 328, 55,
+		1, 0, 0, 0, 329, 334, 3, 70, 35, 0, 330, 331, 5, 57, 0, 0, 331, 333, 3,
+		70, 35, 0, 332, 330, 1, 0, 0, 0, 333, 336, 1, 0, 0, 0, 334, 332, 1, 0,
+		0, 0, 334, 335, 1, 0, 0, 0, 335, 57, 1, 0, 0, 0, 336, 334, 1, 0, 0, 0,
+		337, 338, 7, 4, 0, 0, 338, 59, 1, 0, 0, 0, 339, 340, 7, 5, 0, 0, 340, 61,
+		1, 0, 0, 0, 341, 345, 5, 19, 0, 0, 342, 343, 5, 18, 0, 0, 343, 345, 5,
+		19, 0, 0, 344, 341, 1, 0, 0, 0, 344, 342, 1, 0, 0, 0, 345, 63, 1, 0, 0,
+		0, 346, 358, 5, 67, 0, 0, 347, 348, 3, 48, 24, 0, 348, 349, 5, 56, 0, 0,
+		349, 350, 5, 67, 0, 0, 350, 358, 1, 0, 0, 0, 351, 352, 3, 48, 24, 0, 352,
+		353, 5, 56, 0, 0, 353, 354, 5, 67, 0, 0, 354, 355, 5, 56, 0, 0, 355, 356,
+		5, 67, 0, 0, 356, 358, 1, 0, 0, 0, 357, 346, 1, 0, 0, 0, 357, 347, 1, 0,
+		0, 0, 357, 351, 1, 0, 0, 0, 358, 65, 1, 0, 0, 0, 359, 364, 3, 68, 34, 0,
+		360, 361, 5, 57, 0, 0, 361, 363, 3, 68, 34, 0, 362, 360, 1, 0, 0, 0, 363,
+		366, 1, 0, 0, 0, 364, 362, 1, 0, 0, 0, 364, 365, 1, 0, 0, 0, 365, 67, 1,
+		0, 0, 0, 366, 364, 1, 0, 0, 0, 367, 369, 3, 64, 32, 0, 368, 370, 7, 6,
+		0, 0, 369, 368, 1, 0, 0, 0, 369, 370, 1, 0, 0, 0, 370, 69, 1, 0, 0, 0,
+		371, 372, 7, 7, 0, 0, 372, 71, 1, 0, 0, 0, 44, 76, 82, 87, 91, 94, 100,
+		105, 109, 112, 118, 122, 129, 133, 136, 139, 142, 145, 148, 155, 159, 164,
+		169, 175, 184, 190, 194, 200, 207, 215, 219, 225, 231, 252, 265, 278, 282,
+		292, 323, 327, 334, 344, 357, 364, 369,
 	}
 	deserializer := antlr.NewATNDeserializer(nil)
 	staticData.atn = deserializer.Deserialize(staticData.serializedATN)
@@ -280,59 +284,61 @@ const (
 	ServiceRadarQueryLanguageParserIS              = 17
 	ServiceRadarQueryLanguageParserNOT             = 18
 	ServiceRadarQueryLanguageParserNULL            = 19
-	ServiceRadarQueryLanguageParserDEVICES         = 20
-	ServiceRadarQueryLanguageParserFLOWS           = 21
-	ServiceRadarQueryLanguageParserTRAPS           = 22
-	ServiceRadarQueryLanguageParserCONNECTIONS     = 23
-	ServiceRadarQueryLanguageParserLOGS            = 24
-	ServiceRadarQueryLanguageParserINTERFACES      = 25
-	ServiceRadarQueryLanguageParserSTREAM_KW       = 26
-	ServiceRadarQueryLanguageParserFROM            = 27
-	ServiceRadarQueryLanguageParserTABLE_KW        = 28
-	ServiceRadarQueryLanguageParserTUMBLE          = 29
-	ServiceRadarQueryLanguageParserHOP             = 30
-	ServiceRadarQueryLanguageParserGROUP_KW        = 31
-	ServiceRadarQueryLanguageParserHAVING          = 32
-	ServiceRadarQueryLanguageParserEMIT            = 33
-	ServiceRadarQueryLanguageParserAFTER           = 34
-	ServiceRadarQueryLanguageParserWINDOW_KW       = 35
-	ServiceRadarQueryLanguageParserCLOSE           = 36
-	ServiceRadarQueryLanguageParserWITH_KW         = 37
-	ServiceRadarQueryLanguageParserDELAY           = 38
-	ServiceRadarQueryLanguageParserPERIODIC        = 39
-	ServiceRadarQueryLanguageParserJOIN            = 40
-	ServiceRadarQueryLanguageParserON              = 41
-	ServiceRadarQueryLanguageParserAS              = 42
-	ServiceRadarQueryLanguageParserLEFT            = 43
-	ServiceRadarQueryLanguageParserRIGHT           = 44
-	ServiceRadarQueryLanguageParserINNER           = 45
-	ServiceRadarQueryLanguageParserEQ              = 46
-	ServiceRadarQueryLanguageParserNEQ             = 47
-	ServiceRadarQueryLanguageParserGT              = 48
-	ServiceRadarQueryLanguageParserGTE             = 49
-	ServiceRadarQueryLanguageParserLT              = 50
-	ServiceRadarQueryLanguageParserLTE             = 51
-	ServiceRadarQueryLanguageParserLIKE            = 52
-	ServiceRadarQueryLanguageParserBOOLEAN         = 53
-	ServiceRadarQueryLanguageParserDOT             = 54
-	ServiceRadarQueryLanguageParserCOMMA           = 55
-	ServiceRadarQueryLanguageParserLPAREN          = 56
-	ServiceRadarQueryLanguageParserRPAREN          = 57
-	ServiceRadarQueryLanguageParserAPOSTROPHE      = 58
-	ServiceRadarQueryLanguageParserQUOTE           = 59
-	ServiceRadarQueryLanguageParserSTAR            = 60
-	ServiceRadarQueryLanguageParserSECONDS_UNIT    = 61
-	ServiceRadarQueryLanguageParserMINUTES_UNIT    = 62
-	ServiceRadarQueryLanguageParserHOURS_UNIT      = 63
-	ServiceRadarQueryLanguageParserDAYS_UNIT       = 64
-	ServiceRadarQueryLanguageParserID              = 65
-	ServiceRadarQueryLanguageParserINTEGER         = 66
-	ServiceRadarQueryLanguageParserFLOAT           = 67
-	ServiceRadarQueryLanguageParserSTRING          = 68
-	ServiceRadarQueryLanguageParserTIMESTAMP       = 69
-	ServiceRadarQueryLanguageParserIPADDRESS       = 70
-	ServiceRadarQueryLanguageParserMACADDRESS      = 71
-	ServiceRadarQueryLanguageParserWS              = 72
+	ServiceRadarQueryLanguageParserTODAY           = 20
+	ServiceRadarQueryLanguageParserYESTERDAY       = 21
+	ServiceRadarQueryLanguageParserDEVICES         = 22
+	ServiceRadarQueryLanguageParserFLOWS           = 23
+	ServiceRadarQueryLanguageParserTRAPS           = 24
+	ServiceRadarQueryLanguageParserCONNECTIONS     = 25
+	ServiceRadarQueryLanguageParserLOGS            = 26
+	ServiceRadarQueryLanguageParserINTERFACES      = 27
+	ServiceRadarQueryLanguageParserSTREAM_KW       = 28
+	ServiceRadarQueryLanguageParserFROM            = 29
+	ServiceRadarQueryLanguageParserTABLE_KW        = 30
+	ServiceRadarQueryLanguageParserTUMBLE          = 31
+	ServiceRadarQueryLanguageParserHOP             = 32
+	ServiceRadarQueryLanguageParserGROUP_KW        = 33
+	ServiceRadarQueryLanguageParserHAVING          = 34
+	ServiceRadarQueryLanguageParserEMIT            = 35
+	ServiceRadarQueryLanguageParserAFTER           = 36
+	ServiceRadarQueryLanguageParserWINDOW_KW       = 37
+	ServiceRadarQueryLanguageParserCLOSE           = 38
+	ServiceRadarQueryLanguageParserWITH_KW         = 39
+	ServiceRadarQueryLanguageParserDELAY           = 40
+	ServiceRadarQueryLanguageParserPERIODIC        = 41
+	ServiceRadarQueryLanguageParserJOIN            = 42
+	ServiceRadarQueryLanguageParserON              = 43
+	ServiceRadarQueryLanguageParserAS              = 44
+	ServiceRadarQueryLanguageParserLEFT            = 45
+	ServiceRadarQueryLanguageParserRIGHT           = 46
+	ServiceRadarQueryLanguageParserINNER           = 47
+	ServiceRadarQueryLanguageParserEQ              = 48
+	ServiceRadarQueryLanguageParserNEQ             = 49
+	ServiceRadarQueryLanguageParserGT              = 50
+	ServiceRadarQueryLanguageParserGTE             = 51
+	ServiceRadarQueryLanguageParserLT              = 52
+	ServiceRadarQueryLanguageParserLTE             = 53
+	ServiceRadarQueryLanguageParserLIKE            = 54
+	ServiceRadarQueryLanguageParserBOOLEAN         = 55
+	ServiceRadarQueryLanguageParserDOT             = 56
+	ServiceRadarQueryLanguageParserCOMMA           = 57
+	ServiceRadarQueryLanguageParserLPAREN          = 58
+	ServiceRadarQueryLanguageParserRPAREN          = 59
+	ServiceRadarQueryLanguageParserAPOSTROPHE      = 60
+	ServiceRadarQueryLanguageParserQUOTE           = 61
+	ServiceRadarQueryLanguageParserSTAR            = 62
+	ServiceRadarQueryLanguageParserSECONDS_UNIT    = 63
+	ServiceRadarQueryLanguageParserMINUTES_UNIT    = 64
+	ServiceRadarQueryLanguageParserHOURS_UNIT      = 65
+	ServiceRadarQueryLanguageParserDAYS_UNIT       = 66
+	ServiceRadarQueryLanguageParserID              = 67
+	ServiceRadarQueryLanguageParserINTEGER         = 68
+	ServiceRadarQueryLanguageParserFLOAT           = 69
+	ServiceRadarQueryLanguageParserSTRING          = 70
+	ServiceRadarQueryLanguageParserTIMESTAMP       = 71
+	ServiceRadarQueryLanguageParserIPADDRESS       = 72
+	ServiceRadarQueryLanguageParserMACADDRESS      = 73
+	ServiceRadarQueryLanguageParserWS              = 74
 )
 
 // ServiceRadarQueryLanguageParser rules.
@@ -364,14 +370,15 @@ const (
 	ServiceRadarQueryLanguageParserRULE_entity                  = 24
 	ServiceRadarQueryLanguageParserRULE_condition               = 25
 	ServiceRadarQueryLanguageParserRULE_expression              = 26
-	ServiceRadarQueryLanguageParserRULE_valueList               = 27
-	ServiceRadarQueryLanguageParserRULE_logicalOperator         = 28
-	ServiceRadarQueryLanguageParserRULE_comparisonOperator      = 29
-	ServiceRadarQueryLanguageParserRULE_nullValue               = 30
-	ServiceRadarQueryLanguageParserRULE_field                   = 31
-	ServiceRadarQueryLanguageParserRULE_orderByClause           = 32
-	ServiceRadarQueryLanguageParserRULE_orderByItem             = 33
-	ServiceRadarQueryLanguageParserRULE_value                   = 34
+	ServiceRadarQueryLanguageParserRULE_evaluable               = 27
+	ServiceRadarQueryLanguageParserRULE_valueList               = 28
+	ServiceRadarQueryLanguageParserRULE_logicalOperator         = 29
+	ServiceRadarQueryLanguageParserRULE_comparisonOperator      = 30
+	ServiceRadarQueryLanguageParserRULE_nullValue               = 31
+	ServiceRadarQueryLanguageParserRULE_field                   = 32
+	ServiceRadarQueryLanguageParserRULE_orderByClause           = 33
+	ServiceRadarQueryLanguageParserRULE_orderByItem             = 34
+	ServiceRadarQueryLanguageParserRULE_value                   = 35
 )
 
 // IQueryContext is an interface to support dynamic dispatch.
@@ -510,7 +517,7 @@ func (s *QueryContext) ExitRule(listener antlr.ParseTreeListener) {
 func (p *ServiceRadarQueryLanguageParser) Query() (localctx IQueryContext) {
 	localctx = NewQueryContext(p, p.GetParserRuleContext(), p.GetState())
 	p.EnterRule(localctx, 0, ServiceRadarQueryLanguageParserRULE_query)
-	p.SetState(74)
+	p.SetState(76)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -520,28 +527,28 @@ func (p *ServiceRadarQueryLanguageParser) Query() (localctx IQueryContext) {
 	case ServiceRadarQueryLanguageParserSHOW:
 		p.EnterOuterAlt(localctx, 1)
 		{
-			p.SetState(70)
+			p.SetState(72)
 			p.ShowStatement()
 		}
 
 	case ServiceRadarQueryLanguageParserFIND:
 		p.EnterOuterAlt(localctx, 2)
 		{
-			p.SetState(71)
+			p.SetState(73)
 			p.FindStatement()
 		}
 
 	case ServiceRadarQueryLanguageParserCOUNT:
 		p.EnterOuterAlt(localctx, 3)
 		{
-			p.SetState(72)
+			p.SetState(74)
 			p.CountStatement()
 		}
 
 	case ServiceRadarQueryLanguageParserSTREAM_KW:
 		p.EnterOuterAlt(localctx, 4)
 		{
-			p.SetState(73)
+			p.SetState(75)
 			p.StreamStatement()
 		}
 
@@ -721,7 +728,7 @@ func (p *ServiceRadarQueryLanguageParser) ShowStatement() (localctx IShowStateme
 
 	p.EnterOuterAlt(localctx, 1)
 	{
-		p.SetState(76)
+		p.SetState(78)
 		p.Match(ServiceRadarQueryLanguageParserSHOW)
 		if p.HasError() {
 			// Recognition error - abort rule
@@ -729,10 +736,10 @@ func (p *ServiceRadarQueryLanguageParser) ShowStatement() (localctx IShowStateme
 		}
 	}
 	{
-		p.SetState(77)
+		p.SetState(79)
 		p.Entity()
 	}
-	p.SetState(80)
+	p.SetState(82)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -741,7 +748,7 @@ func (p *ServiceRadarQueryLanguageParser) ShowStatement() (localctx IShowStateme
 
 	if _la == ServiceRadarQueryLanguageParserWHERE {
 		{
-			p.SetState(78)
+			p.SetState(80)
 			p.Match(ServiceRadarQueryLanguageParserWHERE)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -749,12 +756,12 @@ func (p *ServiceRadarQueryLanguageParser) ShowStatement() (localctx IShowStateme
 			}
 		}
 		{
-			p.SetState(79)
+			p.SetState(81)
 			p.Condition()
 		}
 
 	}
-	p.SetState(85)
+	p.SetState(87)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -763,7 +770,7 @@ func (p *ServiceRadarQueryLanguageParser) ShowStatement() (localctx IShowStateme
 
 	if _la == ServiceRadarQueryLanguageParserORDER {
 		{
-			p.SetState(82)
+			p.SetState(84)
 			p.Match(ServiceRadarQueryLanguageParserORDER)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -771,7 +778,7 @@ func (p *ServiceRadarQueryLanguageParser) ShowStatement() (localctx IShowStateme
 			}
 		}
 		{
-			p.SetState(83)
+			p.SetState(85)
 			p.Match(ServiceRadarQueryLanguageParserBY)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -779,12 +786,12 @@ func (p *ServiceRadarQueryLanguageParser) ShowStatement() (localctx IShowStateme
 			}
 		}
 		{
-			p.SetState(84)
+			p.SetState(86)
 			p.OrderByClause()
 		}
 
 	}
-	p.SetState(89)
+	p.SetState(91)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -793,7 +800,7 @@ func (p *ServiceRadarQueryLanguageParser) ShowStatement() (localctx IShowStateme
 
 	if _la == ServiceRadarQueryLanguageParserLIMIT {
 		{
-			p.SetState(87)
+			p.SetState(89)
 			p.Match(ServiceRadarQueryLanguageParserLIMIT)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -801,7 +808,7 @@ func (p *ServiceRadarQueryLanguageParser) ShowStatement() (localctx IShowStateme
 			}
 		}
 		{
-			p.SetState(88)
+			p.SetState(90)
 			p.Match(ServiceRadarQueryLanguageParserINTEGER)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -810,7 +817,7 @@ func (p *ServiceRadarQueryLanguageParser) ShowStatement() (localctx IShowStateme
 		}
 
 	}
-	p.SetState(92)
+	p.SetState(94)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -819,7 +826,7 @@ func (p *ServiceRadarQueryLanguageParser) ShowStatement() (localctx IShowStateme
 
 	if _la == ServiceRadarQueryLanguageParserLATEST_MODIFIER {
 		{
-			p.SetState(91)
+			p.SetState(93)
 			p.Match(ServiceRadarQueryLanguageParserLATEST_MODIFIER)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -1000,7 +1007,7 @@ func (p *ServiceRadarQueryLanguageParser) FindStatement() (localctx IFindStateme
 
 	p.EnterOuterAlt(localctx, 1)
 	{
-		p.SetState(94)
+		p.SetState(96)
 		p.Match(ServiceRadarQueryLanguageParserFIND)
 		if p.HasError() {
 			// Recognition error - abort rule
@@ -1008,10 +1015,10 @@ func (p *ServiceRadarQueryLanguageParser) FindStatement() (localctx IFindStateme
 		}
 	}
 	{
-		p.SetState(95)
+		p.SetState(97)
 		p.Entity()
 	}
-	p.SetState(98)
+	p.SetState(100)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -1020,7 +1027,7 @@ func (p *ServiceRadarQueryLanguageParser) FindStatement() (localctx IFindStateme
 
 	if _la == ServiceRadarQueryLanguageParserWHERE {
 		{
-			p.SetState(96)
+			p.SetState(98)
 			p.Match(ServiceRadarQueryLanguageParserWHERE)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -1028,12 +1035,12 @@ func (p *ServiceRadarQueryLanguageParser) FindStatement() (localctx IFindStateme
 			}
 		}
 		{
-			p.SetState(97)
+			p.SetState(99)
 			p.Condition()
 		}
 
 	}
-	p.SetState(103)
+	p.SetState(105)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -1042,7 +1049,7 @@ func (p *ServiceRadarQueryLanguageParser) FindStatement() (localctx IFindStateme
 
 	if _la == ServiceRadarQueryLanguageParserORDER {
 		{
-			p.SetState(100)
+			p.SetState(102)
 			p.Match(ServiceRadarQueryLanguageParserORDER)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -1050,7 +1057,7 @@ func (p *ServiceRadarQueryLanguageParser) FindStatement() (localctx IFindStateme
 			}
 		}
 		{
-			p.SetState(101)
+			p.SetState(103)
 			p.Match(ServiceRadarQueryLanguageParserBY)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -1058,12 +1065,12 @@ func (p *ServiceRadarQueryLanguageParser) FindStatement() (localctx IFindStateme
 			}
 		}
 		{
-			p.SetState(102)
+			p.SetState(104)
 			p.OrderByClause()
 		}
 
 	}
-	p.SetState(107)
+	p.SetState(109)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -1072,7 +1079,7 @@ func (p *ServiceRadarQueryLanguageParser) FindStatement() (localctx IFindStateme
 
 	if _la == ServiceRadarQueryLanguageParserLIMIT {
 		{
-			p.SetState(105)
+			p.SetState(107)
 			p.Match(ServiceRadarQueryLanguageParserLIMIT)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -1080,7 +1087,7 @@ func (p *ServiceRadarQueryLanguageParser) FindStatement() (localctx IFindStateme
 			}
 		}
 		{
-			p.SetState(106)
+			p.SetState(108)
 			p.Match(ServiceRadarQueryLanguageParserINTEGER)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -1089,7 +1096,7 @@ func (p *ServiceRadarQueryLanguageParser) FindStatement() (localctx IFindStateme
 		}
 
 	}
-	p.SetState(110)
+	p.SetState(112)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -1098,7 +1105,7 @@ func (p *ServiceRadarQueryLanguageParser) FindStatement() (localctx IFindStateme
 
 	if _la == ServiceRadarQueryLanguageParserLATEST_MODIFIER {
 		{
-			p.SetState(109)
+			p.SetState(111)
 			p.Match(ServiceRadarQueryLanguageParserLATEST_MODIFIER)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -1237,7 +1244,7 @@ func (p *ServiceRadarQueryLanguageParser) CountStatement() (localctx ICountState
 
 	p.EnterOuterAlt(localctx, 1)
 	{
-		p.SetState(112)
+		p.SetState(114)
 		p.Match(ServiceRadarQueryLanguageParserCOUNT)
 		if p.HasError() {
 			// Recognition error - abort rule
@@ -1245,10 +1252,10 @@ func (p *ServiceRadarQueryLanguageParser) CountStatement() (localctx ICountState
 		}
 	}
 	{
-		p.SetState(113)
+		p.SetState(115)
 		p.Entity()
 	}
-	p.SetState(116)
+	p.SetState(118)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -1257,7 +1264,7 @@ func (p *ServiceRadarQueryLanguageParser) CountStatement() (localctx ICountState
 
 	if _la == ServiceRadarQueryLanguageParserWHERE {
 		{
-			p.SetState(114)
+			p.SetState(116)
 			p.Match(ServiceRadarQueryLanguageParserWHERE)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -1265,7 +1272,7 @@ func (p *ServiceRadarQueryLanguageParser) CountStatement() (localctx ICountState
 			}
 		}
 		{
-			p.SetState(115)
+			p.SetState(117)
 			p.Condition()
 		}
 
@@ -1545,29 +1552,29 @@ func (p *ServiceRadarQueryLanguageParser) StreamStatement() (localctx IStreamSta
 
 	p.EnterOuterAlt(localctx, 1)
 	{
-		p.SetState(118)
+		p.SetState(120)
 		p.Match(ServiceRadarQueryLanguageParserSTREAM_KW)
 		if p.HasError() {
 			// Recognition error - abort rule
 			goto errorExit
 		}
 	}
-	p.SetState(120)
+	p.SetState(122)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
 	}
 	_la = p.GetTokenStream().LA(1)
 
-	if (int64((_la-20)) & ^0x3f) == 0 && ((int64(1)<<(_la-20))&4469523356844095) != 0 {
+	if (int64((_la-20)) & ^0x3f) == 0 && ((int64(1)<<(_la-20))&17878093427376383) != 0 {
 		{
-			p.SetState(119)
+			p.SetState(121)
 			p.SelectList()
 		}
 
 	}
 	{
-		p.SetState(122)
+		p.SetState(124)
 		p.Match(ServiceRadarQueryLanguageParserFROM)
 		if p.HasError() {
 			// Recognition error - abort rule
@@ -1575,30 +1582,30 @@ func (p *ServiceRadarQueryLanguageParser) StreamStatement() (localctx IStreamSta
 		}
 	}
 	{
-		p.SetState(123)
+		p.SetState(125)
 		p.DataSource()
 	}
-	p.SetState(127)
+	p.SetState(129)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
 	}
 	_la = p.GetTokenStream().LA(1)
 
-	for (int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&62672162783232) != 0 {
+	for (int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&250688651132928) != 0 {
 		{
-			p.SetState(124)
+			p.SetState(126)
 			p.JoinPart()
 		}
 
-		p.SetState(129)
+		p.SetState(131)
 		p.GetErrorHandler().Sync(p)
 		if p.HasError() {
 			goto errorExit
 		}
 		_la = p.GetTokenStream().LA(1)
 	}
-	p.SetState(131)
+	p.SetState(133)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -1607,12 +1614,12 @@ func (p *ServiceRadarQueryLanguageParser) StreamStatement() (localctx IStreamSta
 
 	if _la == ServiceRadarQueryLanguageParserWHERE {
 		{
-			p.SetState(130)
+			p.SetState(132)
 			p.WhereClause()
 		}
 
 	}
-	p.SetState(134)
+	p.SetState(136)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -1621,12 +1628,12 @@ func (p *ServiceRadarQueryLanguageParser) StreamStatement() (localctx IStreamSta
 
 	if _la == ServiceRadarQueryLanguageParserGROUP_KW {
 		{
-			p.SetState(133)
+			p.SetState(135)
 			p.GroupByClause()
 		}
 
 	}
-	p.SetState(137)
+	p.SetState(139)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -1635,12 +1642,12 @@ func (p *ServiceRadarQueryLanguageParser) StreamStatement() (localctx IStreamSta
 
 	if _la == ServiceRadarQueryLanguageParserHAVING {
 		{
-			p.SetState(136)
+			p.SetState(138)
 			p.HavingClause()
 		}
 
 	}
-	p.SetState(140)
+	p.SetState(142)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -1649,12 +1656,12 @@ func (p *ServiceRadarQueryLanguageParser) StreamStatement() (localctx IStreamSta
 
 	if _la == ServiceRadarQueryLanguageParserORDER {
 		{
-			p.SetState(139)
+			p.SetState(141)
 			p.OrderByClauseS()
 		}
 
 	}
-	p.SetState(143)
+	p.SetState(145)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -1663,12 +1670,12 @@ func (p *ServiceRadarQueryLanguageParser) StreamStatement() (localctx IStreamSta
 
 	if _la == ServiceRadarQueryLanguageParserLIMIT {
 		{
-			p.SetState(142)
+			p.SetState(144)
 			p.LimitClauseS()
 		}
 
 	}
-	p.SetState(146)
+	p.SetState(148)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -1677,7 +1684,7 @@ func (p *ServiceRadarQueryLanguageParser) StreamStatement() (localctx IStreamSta
 
 	if _la == ServiceRadarQueryLanguageParserEMIT {
 		{
-			p.SetState(145)
+			p.SetState(147)
 			p.EmitClause()
 		}
 
@@ -1824,20 +1831,20 @@ func (p *ServiceRadarQueryLanguageParser) SelectList() (localctx ISelectListCont
 	p.EnterRule(localctx, 10, ServiceRadarQueryLanguageParserRULE_selectList)
 	var _la int
 
-	p.SetState(157)
+	p.SetState(159)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
 	}
 
 	switch p.GetTokenStream().LA(1) {
-	case ServiceRadarQueryLanguageParserDEVICES, ServiceRadarQueryLanguageParserFLOWS, ServiceRadarQueryLanguageParserTRAPS, ServiceRadarQueryLanguageParserCONNECTIONS, ServiceRadarQueryLanguageParserLOGS, ServiceRadarQueryLanguageParserINTERFACES, ServiceRadarQueryLanguageParserBOOLEAN, ServiceRadarQueryLanguageParserID, ServiceRadarQueryLanguageParserINTEGER, ServiceRadarQueryLanguageParserFLOAT, ServiceRadarQueryLanguageParserSTRING, ServiceRadarQueryLanguageParserTIMESTAMP, ServiceRadarQueryLanguageParserIPADDRESS, ServiceRadarQueryLanguageParserMACADDRESS:
+	case ServiceRadarQueryLanguageParserTODAY, ServiceRadarQueryLanguageParserYESTERDAY, ServiceRadarQueryLanguageParserDEVICES, ServiceRadarQueryLanguageParserFLOWS, ServiceRadarQueryLanguageParserTRAPS, ServiceRadarQueryLanguageParserCONNECTIONS, ServiceRadarQueryLanguageParserLOGS, ServiceRadarQueryLanguageParserINTERFACES, ServiceRadarQueryLanguageParserBOOLEAN, ServiceRadarQueryLanguageParserID, ServiceRadarQueryLanguageParserINTEGER, ServiceRadarQueryLanguageParserFLOAT, ServiceRadarQueryLanguageParserSTRING, ServiceRadarQueryLanguageParserTIMESTAMP, ServiceRadarQueryLanguageParserIPADDRESS, ServiceRadarQueryLanguageParserMACADDRESS:
 		p.EnterOuterAlt(localctx, 1)
 		{
-			p.SetState(148)
+			p.SetState(150)
 			p.SelectExpressionElement()
 		}
-		p.SetState(153)
+		p.SetState(155)
 		p.GetErrorHandler().Sync(p)
 		if p.HasError() {
 			goto errorExit
@@ -1846,7 +1853,7 @@ func (p *ServiceRadarQueryLanguageParser) SelectList() (localctx ISelectListCont
 
 		for _la == ServiceRadarQueryLanguageParserCOMMA {
 			{
-				p.SetState(149)
+				p.SetState(151)
 				p.Match(ServiceRadarQueryLanguageParserCOMMA)
 				if p.HasError() {
 					// Recognition error - abort rule
@@ -1854,11 +1861,11 @@ func (p *ServiceRadarQueryLanguageParser) SelectList() (localctx ISelectListCont
 				}
 			}
 			{
-				p.SetState(150)
+				p.SetState(152)
 				p.SelectExpressionElement()
 			}
 
-			p.SetState(155)
+			p.SetState(157)
 			p.GetErrorHandler().Sync(p)
 			if p.HasError() {
 				goto errorExit
@@ -1869,7 +1876,7 @@ func (p *ServiceRadarQueryLanguageParser) SelectList() (localctx ISelectListCont
 	case ServiceRadarQueryLanguageParserSTAR:
 		p.EnterOuterAlt(localctx, 2)
 		{
-			p.SetState(156)
+			p.SetState(158)
 			p.Match(ServiceRadarQueryLanguageParserSTAR)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -1994,10 +2001,10 @@ func (p *ServiceRadarQueryLanguageParser) SelectExpressionElement() (localctx IS
 
 	p.EnterOuterAlt(localctx, 1)
 	{
-		p.SetState(159)
+		p.SetState(161)
 		p.ExpressionSelectItem()
 	}
-	p.SetState(162)
+	p.SetState(164)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -2006,7 +2013,7 @@ func (p *ServiceRadarQueryLanguageParser) SelectExpressionElement() (localctx IS
 
 	if _la == ServiceRadarQueryLanguageParserAS {
 		{
-			p.SetState(160)
+			p.SetState(162)
 			p.Match(ServiceRadarQueryLanguageParserAS)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -2014,7 +2021,7 @@ func (p *ServiceRadarQueryLanguageParser) SelectExpressionElement() (localctx IS
 			}
 		}
 		{
-			p.SetState(161)
+			p.SetState(163)
 			p.Match(ServiceRadarQueryLanguageParserID)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -2156,7 +2163,7 @@ func (s *ExpressionSelectItemContext) ExitRule(listener antlr.ParseTreeListener)
 func (p *ServiceRadarQueryLanguageParser) ExpressionSelectItem() (localctx IExpressionSelectItemContext) {
 	localctx = NewExpressionSelectItemContext(p, p.GetParserRuleContext(), p.GetState())
 	p.EnterRule(localctx, 14, ServiceRadarQueryLanguageParserRULE_expressionSelectItem)
-	p.SetState(167)
+	p.SetState(169)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -2166,21 +2173,21 @@ func (p *ServiceRadarQueryLanguageParser) ExpressionSelectItem() (localctx IExpr
 	case 1:
 		p.EnterOuterAlt(localctx, 1)
 		{
-			p.SetState(164)
+			p.SetState(166)
 			p.Field()
 		}
 
 	case 2:
 		p.EnterOuterAlt(localctx, 2)
 		{
-			p.SetState(165)
+			p.SetState(167)
 			p.FunctionCall()
 		}
 
 	case 3:
 		p.EnterOuterAlt(localctx, 3)
 		{
-			p.SetState(166)
+			p.SetState(168)
 			p.Value()
 		}
 
@@ -2308,7 +2315,7 @@ func (p *ServiceRadarQueryLanguageParser) FunctionCall() (localctx IFunctionCall
 	p.EnterRule(localctx, 16, ServiceRadarQueryLanguageParserRULE_functionCall)
 	p.EnterOuterAlt(localctx, 1)
 	{
-		p.SetState(169)
+		p.SetState(171)
 		p.Match(ServiceRadarQueryLanguageParserID)
 		if p.HasError() {
 			// Recognition error - abort rule
@@ -2316,28 +2323,28 @@ func (p *ServiceRadarQueryLanguageParser) FunctionCall() (localctx IFunctionCall
 		}
 	}
 	{
-		p.SetState(170)
+		p.SetState(172)
 		p.Match(ServiceRadarQueryLanguageParserLPAREN)
 		if p.HasError() {
 			// Recognition error - abort rule
 			goto errorExit
 		}
 	}
-	p.SetState(173)
+	p.SetState(175)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
 	}
 	switch p.GetTokenStream().LA(1) {
-	case ServiceRadarQueryLanguageParserDEVICES, ServiceRadarQueryLanguageParserFLOWS, ServiceRadarQueryLanguageParserTRAPS, ServiceRadarQueryLanguageParserCONNECTIONS, ServiceRadarQueryLanguageParserLOGS, ServiceRadarQueryLanguageParserINTERFACES, ServiceRadarQueryLanguageParserBOOLEAN, ServiceRadarQueryLanguageParserID, ServiceRadarQueryLanguageParserINTEGER, ServiceRadarQueryLanguageParserFLOAT, ServiceRadarQueryLanguageParserSTRING, ServiceRadarQueryLanguageParserTIMESTAMP, ServiceRadarQueryLanguageParserIPADDRESS, ServiceRadarQueryLanguageParserMACADDRESS:
+	case ServiceRadarQueryLanguageParserTODAY, ServiceRadarQueryLanguageParserYESTERDAY, ServiceRadarQueryLanguageParserDEVICES, ServiceRadarQueryLanguageParserFLOWS, ServiceRadarQueryLanguageParserTRAPS, ServiceRadarQueryLanguageParserCONNECTIONS, ServiceRadarQueryLanguageParserLOGS, ServiceRadarQueryLanguageParserINTERFACES, ServiceRadarQueryLanguageParserBOOLEAN, ServiceRadarQueryLanguageParserID, ServiceRadarQueryLanguageParserINTEGER, ServiceRadarQueryLanguageParserFLOAT, ServiceRadarQueryLanguageParserSTRING, ServiceRadarQueryLanguageParserTIMESTAMP, ServiceRadarQueryLanguageParserIPADDRESS, ServiceRadarQueryLanguageParserMACADDRESS:
 		{
-			p.SetState(171)
+			p.SetState(173)
 			p.ArgumentList()
 		}
 
 	case ServiceRadarQueryLanguageParserSTAR:
 		{
-			p.SetState(172)
+			p.SetState(174)
 			p.Match(ServiceRadarQueryLanguageParserSTAR)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -2350,7 +2357,7 @@ func (p *ServiceRadarQueryLanguageParser) FunctionCall() (localctx IFunctionCall
 	default:
 	}
 	{
-		p.SetState(175)
+		p.SetState(177)
 		p.Match(ServiceRadarQueryLanguageParserRPAREN)
 		if p.HasError() {
 			// Recognition error - abort rule
@@ -2496,10 +2503,10 @@ func (p *ServiceRadarQueryLanguageParser) ArgumentList() (localctx IArgumentList
 
 	p.EnterOuterAlt(localctx, 1)
 	{
-		p.SetState(177)
+		p.SetState(179)
 		p.ExpressionSelectItem()
 	}
-	p.SetState(182)
+	p.SetState(184)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -2508,7 +2515,7 @@ func (p *ServiceRadarQueryLanguageParser) ArgumentList() (localctx IArgumentList
 
 	for _la == ServiceRadarQueryLanguageParserCOMMA {
 		{
-			p.SetState(178)
+			p.SetState(180)
 			p.Match(ServiceRadarQueryLanguageParserCOMMA)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -2516,11 +2523,11 @@ func (p *ServiceRadarQueryLanguageParser) ArgumentList() (localctx IArgumentList
 			}
 		}
 		{
-			p.SetState(179)
+			p.SetState(181)
 			p.ExpressionSelectItem()
 		}
 
-		p.SetState(184)
+		p.SetState(186)
 		p.GetErrorHandler().Sync(p)
 		if p.HasError() {
 			goto errorExit
@@ -2640,10 +2647,10 @@ func (p *ServiceRadarQueryLanguageParser) DataSource() (localctx IDataSourceCont
 
 	p.EnterOuterAlt(localctx, 1)
 	{
-		p.SetState(185)
+		p.SetState(187)
 		p.StreamSourcePrimary()
 	}
-	p.SetState(188)
+	p.SetState(190)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -2652,7 +2659,7 @@ func (p *ServiceRadarQueryLanguageParser) DataSource() (localctx IDataSourceCont
 
 	if _la == ServiceRadarQueryLanguageParserAS {
 		{
-			p.SetState(186)
+			p.SetState(188)
 			p.Match(ServiceRadarQueryLanguageParserAS)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -2660,7 +2667,7 @@ func (p *ServiceRadarQueryLanguageParser) DataSource() (localctx IDataSourceCont
 			}
 		}
 		{
-			p.SetState(187)
+			p.SetState(189)
 			p.Match(ServiceRadarQueryLanguageParserID)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -2877,7 +2884,7 @@ func (p *ServiceRadarQueryLanguageParser) StreamSourcePrimary() (localctx IStrea
 	p.EnterRule(localctx, 22, ServiceRadarQueryLanguageParserRULE_streamSourcePrimary)
 	var _la int
 
-	p.SetState(217)
+	p.SetState(219)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -2886,7 +2893,7 @@ func (p *ServiceRadarQueryLanguageParser) StreamSourcePrimary() (localctx IStrea
 	switch p.GetTokenStream().LA(1) {
 	case ServiceRadarQueryLanguageParserDEVICES, ServiceRadarQueryLanguageParserFLOWS, ServiceRadarQueryLanguageParserTRAPS, ServiceRadarQueryLanguageParserCONNECTIONS, ServiceRadarQueryLanguageParserLOGS, ServiceRadarQueryLanguageParserINTERFACES, ServiceRadarQueryLanguageParserID:
 		p.EnterOuterAlt(localctx, 1)
-		p.SetState(192)
+		p.SetState(194)
 		p.GetErrorHandler().Sync(p)
 		if p.HasError() {
 			goto errorExit
@@ -2895,13 +2902,13 @@ func (p *ServiceRadarQueryLanguageParser) StreamSourcePrimary() (localctx IStrea
 		switch p.GetTokenStream().LA(1) {
 		case ServiceRadarQueryLanguageParserDEVICES, ServiceRadarQueryLanguageParserFLOWS, ServiceRadarQueryLanguageParserTRAPS, ServiceRadarQueryLanguageParserCONNECTIONS, ServiceRadarQueryLanguageParserLOGS, ServiceRadarQueryLanguageParserINTERFACES:
 			{
-				p.SetState(190)
+				p.SetState(192)
 				p.Entity()
 			}
 
 		case ServiceRadarQueryLanguageParserID:
 			{
-				p.SetState(191)
+				p.SetState(193)
 				p.Match(ServiceRadarQueryLanguageParserID)
 				if p.HasError() {
 					// Recognition error - abort rule
@@ -2917,7 +2924,7 @@ func (p *ServiceRadarQueryLanguageParser) StreamSourcePrimary() (localctx IStrea
 	case ServiceRadarQueryLanguageParserTABLE_KW:
 		p.EnterOuterAlt(localctx, 2)
 		{
-			p.SetState(194)
+			p.SetState(196)
 			p.Match(ServiceRadarQueryLanguageParserTABLE_KW)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -2925,14 +2932,14 @@ func (p *ServiceRadarQueryLanguageParser) StreamSourcePrimary() (localctx IStrea
 			}
 		}
 		{
-			p.SetState(195)
+			p.SetState(197)
 			p.Match(ServiceRadarQueryLanguageParserLPAREN)
 			if p.HasError() {
 				// Recognition error - abort rule
 				goto errorExit
 			}
 		}
-		p.SetState(198)
+		p.SetState(200)
 		p.GetErrorHandler().Sync(p)
 		if p.HasError() {
 			goto errorExit
@@ -2941,13 +2948,13 @@ func (p *ServiceRadarQueryLanguageParser) StreamSourcePrimary() (localctx IStrea
 		switch p.GetTokenStream().LA(1) {
 		case ServiceRadarQueryLanguageParserDEVICES, ServiceRadarQueryLanguageParserFLOWS, ServiceRadarQueryLanguageParserTRAPS, ServiceRadarQueryLanguageParserCONNECTIONS, ServiceRadarQueryLanguageParserLOGS, ServiceRadarQueryLanguageParserINTERFACES:
 			{
-				p.SetState(196)
+				p.SetState(198)
 				p.Entity()
 			}
 
 		case ServiceRadarQueryLanguageParserID:
 			{
-				p.SetState(197)
+				p.SetState(199)
 				p.Match(ServiceRadarQueryLanguageParserID)
 				if p.HasError() {
 					// Recognition error - abort rule
@@ -2960,7 +2967,7 @@ func (p *ServiceRadarQueryLanguageParser) StreamSourcePrimary() (localctx IStrea
 			goto errorExit
 		}
 		{
-			p.SetState(200)
+			p.SetState(202)
 			p.Match(ServiceRadarQueryLanguageParserRPAREN)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -2971,18 +2978,18 @@ func (p *ServiceRadarQueryLanguageParser) StreamSourcePrimary() (localctx IStrea
 	case ServiceRadarQueryLanguageParserTUMBLE, ServiceRadarQueryLanguageParserHOP:
 		p.EnterOuterAlt(localctx, 3)
 		{
-			p.SetState(201)
+			p.SetState(203)
 			p.WindowFunction()
 		}
 		{
-			p.SetState(202)
+			p.SetState(204)
 			p.Match(ServiceRadarQueryLanguageParserLPAREN)
 			if p.HasError() {
 				// Recognition error - abort rule
 				goto errorExit
 			}
 		}
-		p.SetState(205)
+		p.SetState(207)
 		p.GetErrorHandler().Sync(p)
 		if p.HasError() {
 			goto errorExit
@@ -2991,13 +2998,13 @@ func (p *ServiceRadarQueryLanguageParser) StreamSourcePrimary() (localctx IStrea
 		switch p.GetTokenStream().LA(1) {
 		case ServiceRadarQueryLanguageParserDEVICES, ServiceRadarQueryLanguageParserFLOWS, ServiceRadarQueryLanguageParserTRAPS, ServiceRadarQueryLanguageParserCONNECTIONS, ServiceRadarQueryLanguageParserLOGS, ServiceRadarQueryLanguageParserINTERFACES:
 			{
-				p.SetState(203)
+				p.SetState(205)
 				p.Entity()
 			}
 
 		case ServiceRadarQueryLanguageParserID:
 			{
-				p.SetState(204)
+				p.SetState(206)
 				p.Match(ServiceRadarQueryLanguageParserID)
 				if p.HasError() {
 					// Recognition error - abort rule
@@ -3008,18 +3015,6 @@ func (p *ServiceRadarQueryLanguageParser) StreamSourcePrimary() (localctx IStrea
 		default:
 			p.SetError(antlr.NewNoViableAltException(p, nil, nil, nil, nil, nil))
 			goto errorExit
-		}
-		{
-			p.SetState(207)
-			p.Match(ServiceRadarQueryLanguageParserCOMMA)
-			if p.HasError() {
-				// Recognition error - abort rule
-				goto errorExit
-			}
-		}
-		{
-			p.SetState(208)
-			p.Field()
 		}
 		{
 			p.SetState(209)
@@ -3031,9 +3026,21 @@ func (p *ServiceRadarQueryLanguageParser) StreamSourcePrimary() (localctx IStrea
 		}
 		{
 			p.SetState(210)
+			p.Field()
+		}
+		{
+			p.SetState(211)
+			p.Match(ServiceRadarQueryLanguageParserCOMMA)
+			if p.HasError() {
+				// Recognition error - abort rule
+				goto errorExit
+			}
+		}
+		{
+			p.SetState(212)
 			p.DurationOrField()
 		}
-		p.SetState(213)
+		p.SetState(215)
 		p.GetErrorHandler().Sync(p)
 		if p.HasError() {
 			goto errorExit
@@ -3042,7 +3049,7 @@ func (p *ServiceRadarQueryLanguageParser) StreamSourcePrimary() (localctx IStrea
 
 		if _la == ServiceRadarQueryLanguageParserCOMMA {
 			{
-				p.SetState(211)
+				p.SetState(213)
 				p.Match(ServiceRadarQueryLanguageParserCOMMA)
 				if p.HasError() {
 					// Recognition error - abort rule
@@ -3050,13 +3057,13 @@ func (p *ServiceRadarQueryLanguageParser) StreamSourcePrimary() (localctx IStrea
 				}
 			}
 			{
-				p.SetState(212)
+				p.SetState(214)
 				p.DurationOrField()
 			}
 
 		}
 		{
-			p.SetState(215)
+			p.SetState(217)
 			p.Match(ServiceRadarQueryLanguageParserRPAREN)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -3164,7 +3171,7 @@ func (p *ServiceRadarQueryLanguageParser) WindowFunction() (localctx IWindowFunc
 
 	p.EnterOuterAlt(localctx, 1)
 	{
-		p.SetState(219)
+		p.SetState(221)
 		_la = p.GetTokenStream().LA(1)
 
 		if !(_la == ServiceRadarQueryLanguageParserTUMBLE || _la == ServiceRadarQueryLanguageParserHOP) {
@@ -3290,7 +3297,7 @@ func (s *DurationOrFieldContext) ExitRule(listener antlr.ParseTreeListener) {
 func (p *ServiceRadarQueryLanguageParser) DurationOrField() (localctx IDurationOrFieldContext) {
 	localctx = NewDurationOrFieldContext(p, p.GetParserRuleContext(), p.GetState())
 	p.EnterRule(localctx, 26, ServiceRadarQueryLanguageParserRULE_durationOrField)
-	p.SetState(223)
+	p.SetState(225)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -3300,14 +3307,14 @@ func (p *ServiceRadarQueryLanguageParser) DurationOrField() (localctx IDurationO
 	case ServiceRadarQueryLanguageParserINTEGER:
 		p.EnterOuterAlt(localctx, 1)
 		{
-			p.SetState(221)
+			p.SetState(223)
 			p.Duration()
 		}
 
 	case ServiceRadarQueryLanguageParserDEVICES, ServiceRadarQueryLanguageParserFLOWS, ServiceRadarQueryLanguageParserTRAPS, ServiceRadarQueryLanguageParserCONNECTIONS, ServiceRadarQueryLanguageParserLOGS, ServiceRadarQueryLanguageParserINTERFACES, ServiceRadarQueryLanguageParserID:
 		p.EnterOuterAlt(localctx, 2)
 		{
-			p.SetState(222)
+			p.SetState(224)
 			p.Field()
 		}
 
@@ -3426,7 +3433,7 @@ func (p *ServiceRadarQueryLanguageParser) Duration() (localctx IDurationContext)
 
 	p.EnterOuterAlt(localctx, 1)
 	{
-		p.SetState(225)
+		p.SetState(227)
 		p.Match(ServiceRadarQueryLanguageParserINTEGER)
 		if p.HasError() {
 			// Recognition error - abort rule
@@ -3434,10 +3441,10 @@ func (p *ServiceRadarQueryLanguageParser) Duration() (localctx IDurationContext)
 		}
 	}
 	{
-		p.SetState(226)
+		p.SetState(228)
 		_la = p.GetTokenStream().LA(1)
 
-		if !((int64((_la-61)) & ^0x3f) == 0 && ((int64(1)<<(_la-61))&15) != 0) {
+		if !((int64((_la-63)) & ^0x3f) == 0 && ((int64(1)<<(_la-63))&15) != 0) {
 			p.GetErrorHandler().RecoverInline(p)
 		} else {
 			p.GetErrorHandler().ReportMatch(p)
@@ -3590,22 +3597,22 @@ func (p *ServiceRadarQueryLanguageParser) JoinPart() (localctx IJoinPartContext)
 	var _la int
 
 	p.EnterOuterAlt(localctx, 1)
-	p.SetState(229)
+	p.SetState(231)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
 	}
 	_la = p.GetTokenStream().LA(1)
 
-	if (int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&61572651155456) != 0 {
+	if (int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&246290604621824) != 0 {
 		{
-			p.SetState(228)
+			p.SetState(230)
 			p.JoinType()
 		}
 
 	}
 	{
-		p.SetState(231)
+		p.SetState(233)
 		p.Match(ServiceRadarQueryLanguageParserJOIN)
 		if p.HasError() {
 			// Recognition error - abort rule
@@ -3613,11 +3620,11 @@ func (p *ServiceRadarQueryLanguageParser) JoinPart() (localctx IJoinPartContext)
 		}
 	}
 	{
-		p.SetState(232)
+		p.SetState(234)
 		p.DataSource()
 	}
 	{
-		p.SetState(233)
+		p.SetState(235)
 		p.Match(ServiceRadarQueryLanguageParserON)
 		if p.HasError() {
 			// Recognition error - abort rule
@@ -3625,7 +3632,7 @@ func (p *ServiceRadarQueryLanguageParser) JoinPart() (localctx IJoinPartContext)
 		}
 	}
 	{
-		p.SetState(234)
+		p.SetState(236)
 		p.Condition()
 	}
 
@@ -3729,10 +3736,10 @@ func (p *ServiceRadarQueryLanguageParser) JoinType() (localctx IJoinTypeContext)
 
 	p.EnterOuterAlt(localctx, 1)
 	{
-		p.SetState(236)
+		p.SetState(238)
 		_la = p.GetTokenStream().LA(1)
 
-		if !((int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&61572651155456) != 0) {
+		if !((int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&246290604621824) != 0) {
 			p.GetErrorHandler().RecoverInline(p)
 		} else {
 			p.GetErrorHandler().ReportMatch(p)
@@ -3845,7 +3852,7 @@ func (p *ServiceRadarQueryLanguageParser) WhereClause() (localctx IWhereClauseCo
 	p.EnterRule(localctx, 34, ServiceRadarQueryLanguageParserRULE_whereClause)
 	p.EnterOuterAlt(localctx, 1)
 	{
-		p.SetState(238)
+		p.SetState(240)
 		p.Match(ServiceRadarQueryLanguageParserWHERE)
 		if p.HasError() {
 			// Recognition error - abort rule
@@ -3853,7 +3860,7 @@ func (p *ServiceRadarQueryLanguageParser) WhereClause() (localctx IWhereClauseCo
 		}
 	}
 	{
-		p.SetState(239)
+		p.SetState(241)
 		p.Condition()
 	}
 
@@ -3967,7 +3974,7 @@ func (p *ServiceRadarQueryLanguageParser) GroupByClause() (localctx IGroupByClau
 	p.EnterRule(localctx, 36, ServiceRadarQueryLanguageParserRULE_groupByClause)
 	p.EnterOuterAlt(localctx, 1)
 	{
-		p.SetState(241)
+		p.SetState(243)
 		p.Match(ServiceRadarQueryLanguageParserGROUP_KW)
 		if p.HasError() {
 			// Recognition error - abort rule
@@ -3975,7 +3982,7 @@ func (p *ServiceRadarQueryLanguageParser) GroupByClause() (localctx IGroupByClau
 		}
 	}
 	{
-		p.SetState(242)
+		p.SetState(244)
 		p.Match(ServiceRadarQueryLanguageParserBY)
 		if p.HasError() {
 			// Recognition error - abort rule
@@ -3983,7 +3990,7 @@ func (p *ServiceRadarQueryLanguageParser) GroupByClause() (localctx IGroupByClau
 		}
 	}
 	{
-		p.SetState(243)
+		p.SetState(245)
 		p.FieldList()
 	}
 
@@ -4125,10 +4132,10 @@ func (p *ServiceRadarQueryLanguageParser) FieldList() (localctx IFieldListContex
 
 	p.EnterOuterAlt(localctx, 1)
 	{
-		p.SetState(245)
+		p.SetState(247)
 		p.Field()
 	}
-	p.SetState(250)
+	p.SetState(252)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -4137,7 +4144,7 @@ func (p *ServiceRadarQueryLanguageParser) FieldList() (localctx IFieldListContex
 
 	for _la == ServiceRadarQueryLanguageParserCOMMA {
 		{
-			p.SetState(246)
+			p.SetState(248)
 			p.Match(ServiceRadarQueryLanguageParserCOMMA)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -4145,11 +4152,11 @@ func (p *ServiceRadarQueryLanguageParser) FieldList() (localctx IFieldListContex
 			}
 		}
 		{
-			p.SetState(247)
+			p.SetState(249)
 			p.Field()
 		}
 
-		p.SetState(252)
+		p.SetState(254)
 		p.GetErrorHandler().Sync(p)
 		if p.HasError() {
 			goto errorExit
@@ -4262,7 +4269,7 @@ func (p *ServiceRadarQueryLanguageParser) HavingClause() (localctx IHavingClause
 	p.EnterRule(localctx, 40, ServiceRadarQueryLanguageParserRULE_havingClause)
 	p.EnterOuterAlt(localctx, 1)
 	{
-		p.SetState(253)
+		p.SetState(255)
 		p.Match(ServiceRadarQueryLanguageParserHAVING)
 		if p.HasError() {
 			// Recognition error - abort rule
@@ -4270,7 +4277,7 @@ func (p *ServiceRadarQueryLanguageParser) HavingClause() (localctx IHavingClause
 		}
 	}
 	{
-		p.SetState(254)
+		p.SetState(256)
 		p.Condition()
 	}
 
@@ -4422,7 +4429,7 @@ func (p *ServiceRadarQueryLanguageParser) OrderByClauseS() (localctx IOrderByCla
 
 	p.EnterOuterAlt(localctx, 1)
 	{
-		p.SetState(256)
+		p.SetState(258)
 		p.Match(ServiceRadarQueryLanguageParserORDER)
 		if p.HasError() {
 			// Recognition error - abort rule
@@ -4430,7 +4437,7 @@ func (p *ServiceRadarQueryLanguageParser) OrderByClauseS() (localctx IOrderByCla
 		}
 	}
 	{
-		p.SetState(257)
+		p.SetState(259)
 		p.Match(ServiceRadarQueryLanguageParserBY)
 		if p.HasError() {
 			// Recognition error - abort rule
@@ -4438,10 +4445,10 @@ func (p *ServiceRadarQueryLanguageParser) OrderByClauseS() (localctx IOrderByCla
 		}
 	}
 	{
-		p.SetState(258)
+		p.SetState(260)
 		p.OrderByItem()
 	}
-	p.SetState(263)
+	p.SetState(265)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -4450,7 +4457,7 @@ func (p *ServiceRadarQueryLanguageParser) OrderByClauseS() (localctx IOrderByCla
 
 	for _la == ServiceRadarQueryLanguageParserCOMMA {
 		{
-			p.SetState(259)
+			p.SetState(261)
 			p.Match(ServiceRadarQueryLanguageParserCOMMA)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -4458,11 +4465,11 @@ func (p *ServiceRadarQueryLanguageParser) OrderByClauseS() (localctx IOrderByCla
 			}
 		}
 		{
-			p.SetState(260)
+			p.SetState(262)
 			p.OrderByItem()
 		}
 
-		p.SetState(265)
+		p.SetState(267)
 		p.GetErrorHandler().Sync(p)
 		if p.HasError() {
 			goto errorExit
@@ -4563,7 +4570,7 @@ func (p *ServiceRadarQueryLanguageParser) LimitClauseS() (localctx ILimitClauseS
 	p.EnterRule(localctx, 44, ServiceRadarQueryLanguageParserRULE_limitClauseS)
 	p.EnterOuterAlt(localctx, 1)
 	{
-		p.SetState(266)
+		p.SetState(268)
 		p.Match(ServiceRadarQueryLanguageParserLIMIT)
 		if p.HasError() {
 			// Recognition error - abort rule
@@ -4571,7 +4578,7 @@ func (p *ServiceRadarQueryLanguageParser) LimitClauseS() (localctx ILimitClauseS
 		}
 	}
 	{
-		p.SetState(267)
+		p.SetState(269)
 		p.Match(ServiceRadarQueryLanguageParserINTEGER)
 		if p.HasError() {
 			// Recognition error - abort rule
@@ -4716,14 +4723,14 @@ func (p *ServiceRadarQueryLanguageParser) EmitClause() (localctx IEmitClauseCont
 
 	p.EnterOuterAlt(localctx, 1)
 	{
-		p.SetState(269)
+		p.SetState(271)
 		p.Match(ServiceRadarQueryLanguageParserEMIT)
 		if p.HasError() {
 			// Recognition error - abort rule
 			goto errorExit
 		}
 	}
-	p.SetState(280)
+	p.SetState(282)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -4732,7 +4739,7 @@ func (p *ServiceRadarQueryLanguageParser) EmitClause() (localctx IEmitClauseCont
 	switch p.GetTokenStream().LA(1) {
 	case ServiceRadarQueryLanguageParserAFTER:
 		{
-			p.SetState(270)
+			p.SetState(272)
 			p.Match(ServiceRadarQueryLanguageParserAFTER)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -4740,7 +4747,7 @@ func (p *ServiceRadarQueryLanguageParser) EmitClause() (localctx IEmitClauseCont
 			}
 		}
 		{
-			p.SetState(271)
+			p.SetState(273)
 			p.Match(ServiceRadarQueryLanguageParserWINDOW_KW)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -4748,14 +4755,14 @@ func (p *ServiceRadarQueryLanguageParser) EmitClause() (localctx IEmitClauseCont
 			}
 		}
 		{
-			p.SetState(272)
+			p.SetState(274)
 			p.Match(ServiceRadarQueryLanguageParserCLOSE)
 			if p.HasError() {
 				// Recognition error - abort rule
 				goto errorExit
 			}
 		}
-		p.SetState(276)
+		p.SetState(278)
 		p.GetErrorHandler().Sync(p)
 		if p.HasError() {
 			goto errorExit
@@ -4764,7 +4771,7 @@ func (p *ServiceRadarQueryLanguageParser) EmitClause() (localctx IEmitClauseCont
 
 		if _la == ServiceRadarQueryLanguageParserWITH_KW {
 			{
-				p.SetState(273)
+				p.SetState(275)
 				p.Match(ServiceRadarQueryLanguageParserWITH_KW)
 				if p.HasError() {
 					// Recognition error - abort rule
@@ -4772,7 +4779,7 @@ func (p *ServiceRadarQueryLanguageParser) EmitClause() (localctx IEmitClauseCont
 				}
 			}
 			{
-				p.SetState(274)
+				p.SetState(276)
 				p.Match(ServiceRadarQueryLanguageParserDELAY)
 				if p.HasError() {
 					// Recognition error - abort rule
@@ -4780,7 +4787,7 @@ func (p *ServiceRadarQueryLanguageParser) EmitClause() (localctx IEmitClauseCont
 				}
 			}
 			{
-				p.SetState(275)
+				p.SetState(277)
 				p.Duration()
 			}
 
@@ -4788,7 +4795,7 @@ func (p *ServiceRadarQueryLanguageParser) EmitClause() (localctx IEmitClauseCont
 
 	case ServiceRadarQueryLanguageParserPERIODIC:
 		{
-			p.SetState(278)
+			p.SetState(280)
 			p.Match(ServiceRadarQueryLanguageParserPERIODIC)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -4796,7 +4803,7 @@ func (p *ServiceRadarQueryLanguageParser) EmitClause() (localctx IEmitClauseCont
 			}
 		}
 		{
-			p.SetState(279)
+			p.SetState(281)
 			p.Duration()
 		}
 
@@ -4920,10 +4927,10 @@ func (p *ServiceRadarQueryLanguageParser) Entity() (localctx IEntityContext) {
 
 	p.EnterOuterAlt(localctx, 1)
 	{
-		p.SetState(282)
+		p.SetState(284)
 		_la = p.GetTokenStream().LA(1)
 
-		if !((int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&66060288) != 0) {
+		if !((int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&264241152) != 0) {
 			p.GetErrorHandler().RecoverInline(p)
 		} else {
 			p.GetErrorHandler().ReportMatch(p)
@@ -5102,10 +5109,10 @@ func (p *ServiceRadarQueryLanguageParser) Condition() (localctx IConditionContex
 
 	p.EnterOuterAlt(localctx, 1)
 	{
-		p.SetState(284)
+		p.SetState(286)
 		p.Expression()
 	}
-	p.SetState(290)
+	p.SetState(292)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -5114,15 +5121,15 @@ func (p *ServiceRadarQueryLanguageParser) Condition() (localctx IConditionContex
 
 	for _la == ServiceRadarQueryLanguageParserAND || _la == ServiceRadarQueryLanguageParserOR {
 		{
-			p.SetState(285)
+			p.SetState(287)
 			p.LogicalOperator()
 		}
 		{
-			p.SetState(286)
+			p.SetState(288)
 			p.Expression()
 		}
 
-		p.SetState(292)
+		p.SetState(294)
 		p.GetErrorHandler().Sync(p)
 		if p.HasError() {
 			goto errorExit
@@ -5151,7 +5158,7 @@ type IExpressionContext interface {
 	GetParser() antlr.Parser
 
 	// Getter signatures
-	Field() IFieldContext
+	Evaluable() IEvaluableContext
 	ComparisonOperator() IComparisonOperatorContext
 	AllValue() []IValueContext
 	Value(i int) IValueContext
@@ -5203,10 +5210,10 @@ func NewExpressionContext(parser antlr.Parser, parent antlr.ParserRuleContext, i
 
 func (s *ExpressionContext) GetParser() antlr.Parser { return s.parser }
 
-func (s *ExpressionContext) Field() IFieldContext {
+func (s *ExpressionContext) Evaluable() IEvaluableContext {
 	var t antlr.RuleContext
 	for _, ctx := range s.GetChildren() {
-		if _, ok := ctx.(IFieldContext); ok {
+		if _, ok := ctx.(IEvaluableContext); ok {
 			t = ctx.(antlr.RuleContext)
 			break
 		}
@@ -5216,7 +5223,7 @@ func (s *ExpressionContext) Field() IFieldContext {
 		return nil
 	}
 
-	return t.(IFieldContext)
+	return t.(IEvaluableContext)
 }
 
 func (s *ExpressionContext) ComparisonOperator() IComparisonOperatorContext {
@@ -5379,7 +5386,7 @@ func (s *ExpressionContext) ExitRule(listener antlr.ParseTreeListener) {
 func (p *ServiceRadarQueryLanguageParser) Expression() (localctx IExpressionContext) {
 	localctx = NewExpressionContext(p, p.GetParserRuleContext(), p.GetState())
 	p.EnterRule(localctx, 52, ServiceRadarQueryLanguageParserRULE_expression)
-	p.SetState(321)
+	p.SetState(323)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -5389,26 +5396,26 @@ func (p *ServiceRadarQueryLanguageParser) Expression() (localctx IExpressionCont
 	case 1:
 		p.EnterOuterAlt(localctx, 1)
 		{
-			p.SetState(293)
-			p.Field()
+			p.SetState(295)
+			p.Evaluable()
 		}
 		{
-			p.SetState(294)
+			p.SetState(296)
 			p.ComparisonOperator()
 		}
 		{
-			p.SetState(295)
+			p.SetState(297)
 			p.Value()
 		}
 
 	case 2:
 		p.EnterOuterAlt(localctx, 2)
 		{
-			p.SetState(297)
-			p.Field()
+			p.SetState(299)
+			p.Evaluable()
 		}
 		{
-			p.SetState(298)
+			p.SetState(300)
 			p.Match(ServiceRadarQueryLanguageParserIN)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5416,7 +5423,7 @@ func (p *ServiceRadarQueryLanguageParser) Expression() (localctx IExpressionCont
 			}
 		}
 		{
-			p.SetState(299)
+			p.SetState(301)
 			p.Match(ServiceRadarQueryLanguageParserLPAREN)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5424,11 +5431,11 @@ func (p *ServiceRadarQueryLanguageParser) Expression() (localctx IExpressionCont
 			}
 		}
 		{
-			p.SetState(300)
+			p.SetState(302)
 			p.ValueList()
 		}
 		{
-			p.SetState(301)
+			p.SetState(303)
 			p.Match(ServiceRadarQueryLanguageParserRPAREN)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5439,11 +5446,11 @@ func (p *ServiceRadarQueryLanguageParser) Expression() (localctx IExpressionCont
 	case 3:
 		p.EnterOuterAlt(localctx, 3)
 		{
-			p.SetState(303)
-			p.Field()
+			p.SetState(305)
+			p.Evaluable()
 		}
 		{
-			p.SetState(304)
+			p.SetState(306)
 			p.Match(ServiceRadarQueryLanguageParserCONTAINS)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5451,7 +5458,7 @@ func (p *ServiceRadarQueryLanguageParser) Expression() (localctx IExpressionCont
 			}
 		}
 		{
-			p.SetState(305)
+			p.SetState(307)
 			p.Match(ServiceRadarQueryLanguageParserSTRING)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5462,7 +5469,7 @@ func (p *ServiceRadarQueryLanguageParser) Expression() (localctx IExpressionCont
 	case 4:
 		p.EnterOuterAlt(localctx, 4)
 		{
-			p.SetState(307)
+			p.SetState(309)
 			p.Match(ServiceRadarQueryLanguageParserLPAREN)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5470,11 +5477,11 @@ func (p *ServiceRadarQueryLanguageParser) Expression() (localctx IExpressionCont
 			}
 		}
 		{
-			p.SetState(308)
+			p.SetState(310)
 			p.Condition()
 		}
 		{
-			p.SetState(309)
+			p.SetState(311)
 			p.Match(ServiceRadarQueryLanguageParserRPAREN)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5485,24 +5492,12 @@ func (p *ServiceRadarQueryLanguageParser) Expression() (localctx IExpressionCont
 	case 5:
 		p.EnterOuterAlt(localctx, 5)
 		{
-			p.SetState(311)
-			p.Field()
-		}
-		{
-			p.SetState(312)
-			p.Match(ServiceRadarQueryLanguageParserBETWEEN)
-			if p.HasError() {
-				// Recognition error - abort rule
-				goto errorExit
-			}
-		}
-		{
 			p.SetState(313)
-			p.Value()
+			p.Evaluable()
 		}
 		{
 			p.SetState(314)
-			p.Match(ServiceRadarQueryLanguageParserAND)
+			p.Match(ServiceRadarQueryLanguageParserBETWEEN)
 			if p.HasError() {
 				// Recognition error - abort rule
 				goto errorExit
@@ -5512,15 +5507,27 @@ func (p *ServiceRadarQueryLanguageParser) Expression() (localctx IExpressionCont
 			p.SetState(315)
 			p.Value()
 		}
+		{
+			p.SetState(316)
+			p.Match(ServiceRadarQueryLanguageParserAND)
+			if p.HasError() {
+				// Recognition error - abort rule
+				goto errorExit
+			}
+		}
+		{
+			p.SetState(317)
+			p.Value()
+		}
 
 	case 6:
 		p.EnterOuterAlt(localctx, 6)
 		{
-			p.SetState(317)
-			p.Field()
+			p.SetState(319)
+			p.Evaluable()
 		}
 		{
-			p.SetState(318)
+			p.SetState(320)
 			p.Match(ServiceRadarQueryLanguageParserIS)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5528,8 +5535,148 @@ func (p *ServiceRadarQueryLanguageParser) Expression() (localctx IExpressionCont
 			}
 		}
 		{
-			p.SetState(319)
+			p.SetState(321)
 			p.NullValue()
+		}
+
+	case antlr.ATNInvalidAltNumber:
+		goto errorExit
+	}
+
+errorExit:
+	if p.HasError() {
+		v := p.GetError()
+		localctx.SetException(v)
+		p.GetErrorHandler().ReportError(p, v)
+		p.GetErrorHandler().Recover(p, v)
+		p.SetError(nil)
+	}
+	p.ExitRule()
+	return localctx
+	goto errorExit // Trick to prevent compiler error if the label is not used
+}
+
+// IEvaluableContext is an interface to support dynamic dispatch.
+type IEvaluableContext interface {
+	antlr.ParserRuleContext
+
+	// GetParser returns the parser.
+	GetParser() antlr.Parser
+
+	// Getter signatures
+	Field() IFieldContext
+	FunctionCall() IFunctionCallContext
+
+	// IsEvaluableContext differentiates from other interfaces.
+	IsEvaluableContext()
+}
+
+type EvaluableContext struct {
+	antlr.BaseParserRuleContext
+	parser antlr.Parser
+}
+
+func NewEmptyEvaluableContext() *EvaluableContext {
+	var p = new(EvaluableContext)
+	antlr.InitBaseParserRuleContext(&p.BaseParserRuleContext, nil, -1)
+	p.RuleIndex = ServiceRadarQueryLanguageParserRULE_evaluable
+	return p
+}
+
+func InitEmptyEvaluableContext(p *EvaluableContext) {
+	antlr.InitBaseParserRuleContext(&p.BaseParserRuleContext, nil, -1)
+	p.RuleIndex = ServiceRadarQueryLanguageParserRULE_evaluable
+}
+
+func (*EvaluableContext) IsEvaluableContext() {}
+
+func NewEvaluableContext(parser antlr.Parser, parent antlr.ParserRuleContext, invokingState int) *EvaluableContext {
+	var p = new(EvaluableContext)
+
+	antlr.InitBaseParserRuleContext(&p.BaseParserRuleContext, parent, invokingState)
+
+	p.parser = parser
+	p.RuleIndex = ServiceRadarQueryLanguageParserRULE_evaluable
+
+	return p
+}
+
+func (s *EvaluableContext) GetParser() antlr.Parser { return s.parser }
+
+func (s *EvaluableContext) Field() IFieldContext {
+	var t antlr.RuleContext
+	for _, ctx := range s.GetChildren() {
+		if _, ok := ctx.(IFieldContext); ok {
+			t = ctx.(antlr.RuleContext)
+			break
+		}
+	}
+
+	if t == nil {
+		return nil
+	}
+
+	return t.(IFieldContext)
+}
+
+func (s *EvaluableContext) FunctionCall() IFunctionCallContext {
+	var t antlr.RuleContext
+	for _, ctx := range s.GetChildren() {
+		if _, ok := ctx.(IFunctionCallContext); ok {
+			t = ctx.(antlr.RuleContext)
+			break
+		}
+	}
+
+	if t == nil {
+		return nil
+	}
+
+	return t.(IFunctionCallContext)
+}
+
+func (s *EvaluableContext) GetRuleContext() antlr.RuleContext {
+	return s
+}
+
+func (s *EvaluableContext) ToStringTree(ruleNames []string, recog antlr.Recognizer) string {
+	return antlr.TreesStringTree(s, ruleNames, recog)
+}
+
+func (s *EvaluableContext) EnterRule(listener antlr.ParseTreeListener) {
+	if listenerT, ok := listener.(ServiceRadarQueryLanguageListener); ok {
+		listenerT.EnterEvaluable(s)
+	}
+}
+
+func (s *EvaluableContext) ExitRule(listener antlr.ParseTreeListener) {
+	if listenerT, ok := listener.(ServiceRadarQueryLanguageListener); ok {
+		listenerT.ExitEvaluable(s)
+	}
+}
+
+func (p *ServiceRadarQueryLanguageParser) Evaluable() (localctx IEvaluableContext) {
+	localctx = NewEvaluableContext(p, p.GetParserRuleContext(), p.GetState())
+	p.EnterRule(localctx, 54, ServiceRadarQueryLanguageParserRULE_evaluable)
+	p.SetState(327)
+	p.GetErrorHandler().Sync(p)
+	if p.HasError() {
+		goto errorExit
+	}
+
+	switch p.GetInterpreter().AdaptivePredict(p.BaseParser, p.GetTokenStream(), 38, p.GetParserRuleContext()) {
+	case 1:
+		p.EnterOuterAlt(localctx, 1)
+		{
+			p.SetState(325)
+			p.Field()
+		}
+
+	case 2:
+		p.EnterOuterAlt(localctx, 2)
+		{
+			p.SetState(326)
+			p.FunctionCall()
 		}
 
 	case antlr.ATNInvalidAltNumber:
@@ -5669,15 +5816,15 @@ func (s *ValueListContext) ExitRule(listener antlr.ParseTreeListener) {
 
 func (p *ServiceRadarQueryLanguageParser) ValueList() (localctx IValueListContext) {
 	localctx = NewValueListContext(p, p.GetParserRuleContext(), p.GetState())
-	p.EnterRule(localctx, 54, ServiceRadarQueryLanguageParserRULE_valueList)
+	p.EnterRule(localctx, 56, ServiceRadarQueryLanguageParserRULE_valueList)
 	var _la int
 
 	p.EnterOuterAlt(localctx, 1)
 	{
-		p.SetState(323)
+		p.SetState(329)
 		p.Value()
 	}
-	p.SetState(328)
+	p.SetState(334)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -5686,7 +5833,7 @@ func (p *ServiceRadarQueryLanguageParser) ValueList() (localctx IValueListContex
 
 	for _la == ServiceRadarQueryLanguageParserCOMMA {
 		{
-			p.SetState(324)
+			p.SetState(330)
 			p.Match(ServiceRadarQueryLanguageParserCOMMA)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -5694,11 +5841,11 @@ func (p *ServiceRadarQueryLanguageParser) ValueList() (localctx IValueListContex
 			}
 		}
 		{
-			p.SetState(325)
+			p.SetState(331)
 			p.Value()
 		}
 
-		p.SetState(330)
+		p.SetState(336)
 		p.GetErrorHandler().Sync(p)
 		if p.HasError() {
 			goto errorExit
@@ -5796,12 +5943,12 @@ func (s *LogicalOperatorContext) ExitRule(listener antlr.ParseTreeListener) {
 
 func (p *ServiceRadarQueryLanguageParser) LogicalOperator() (localctx ILogicalOperatorContext) {
 	localctx = NewLogicalOperatorContext(p, p.GetParserRuleContext(), p.GetState())
-	p.EnterRule(localctx, 56, ServiceRadarQueryLanguageParserRULE_logicalOperator)
+	p.EnterRule(localctx, 58, ServiceRadarQueryLanguageParserRULE_logicalOperator)
 	var _la int
 
 	p.EnterOuterAlt(localctx, 1)
 	{
-		p.SetState(331)
+		p.SetState(337)
 		_la = p.GetTokenStream().LA(1)
 
 		if !(_la == ServiceRadarQueryLanguageParserAND || _la == ServiceRadarQueryLanguageParserOR) {
@@ -5927,15 +6074,15 @@ func (s *ComparisonOperatorContext) ExitRule(listener antlr.ParseTreeListener) {
 
 func (p *ServiceRadarQueryLanguageParser) ComparisonOperator() (localctx IComparisonOperatorContext) {
 	localctx = NewComparisonOperatorContext(p, p.GetParserRuleContext(), p.GetState())
-	p.EnterRule(localctx, 58, ServiceRadarQueryLanguageParserRULE_comparisonOperator)
+	p.EnterRule(localctx, 60, ServiceRadarQueryLanguageParserRULE_comparisonOperator)
 	var _la int
 
 	p.EnterOuterAlt(localctx, 1)
 	{
-		p.SetState(333)
+		p.SetState(339)
 		_la = p.GetTokenStream().LA(1)
 
-		if !((int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&8936830510563328) != 0) {
+		if !((int64(_la) & ^0x3f) == 0 && ((int64(1)<<_la)&35747322042253312) != 0) {
 			p.GetErrorHandler().RecoverInline(p)
 		} else {
 			p.GetErrorHandler().ReportMatch(p)
@@ -6033,8 +6180,8 @@ func (s *NullValueContext) ExitRule(listener antlr.ParseTreeListener) {
 
 func (p *ServiceRadarQueryLanguageParser) NullValue() (localctx INullValueContext) {
 	localctx = NewNullValueContext(p, p.GetParserRuleContext(), p.GetState())
-	p.EnterRule(localctx, 60, ServiceRadarQueryLanguageParserRULE_nullValue)
-	p.SetState(338)
+	p.EnterRule(localctx, 62, ServiceRadarQueryLanguageParserRULE_nullValue)
+	p.SetState(344)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -6044,7 +6191,7 @@ func (p *ServiceRadarQueryLanguageParser) NullValue() (localctx INullValueContex
 	case ServiceRadarQueryLanguageParserNULL:
 		p.EnterOuterAlt(localctx, 1)
 		{
-			p.SetState(335)
+			p.SetState(341)
 			p.Match(ServiceRadarQueryLanguageParserNULL)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -6055,7 +6202,7 @@ func (p *ServiceRadarQueryLanguageParser) NullValue() (localctx INullValueContex
 	case ServiceRadarQueryLanguageParserNOT:
 		p.EnterOuterAlt(localctx, 2)
 		{
-			p.SetState(336)
+			p.SetState(342)
 			p.Match(ServiceRadarQueryLanguageParserNOT)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -6063,7 +6210,7 @@ func (p *ServiceRadarQueryLanguageParser) NullValue() (localctx INullValueContex
 			}
 		}
 		{
-			p.SetState(337)
+			p.SetState(343)
 			p.Match(ServiceRadarQueryLanguageParserNULL)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -6193,18 +6340,18 @@ func (s *FieldContext) ExitRule(listener antlr.ParseTreeListener) {
 
 func (p *ServiceRadarQueryLanguageParser) Field() (localctx IFieldContext) {
 	localctx = NewFieldContext(p, p.GetParserRuleContext(), p.GetState())
-	p.EnterRule(localctx, 62, ServiceRadarQueryLanguageParserRULE_field)
-	p.SetState(351)
+	p.EnterRule(localctx, 64, ServiceRadarQueryLanguageParserRULE_field)
+	p.SetState(357)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
 	}
 
-	switch p.GetInterpreter().AdaptivePredict(p.BaseParser, p.GetTokenStream(), 40, p.GetParserRuleContext()) {
+	switch p.GetInterpreter().AdaptivePredict(p.BaseParser, p.GetTokenStream(), 41, p.GetParserRuleContext()) {
 	case 1:
 		p.EnterOuterAlt(localctx, 1)
 		{
-			p.SetState(340)
+			p.SetState(346)
 			p.Match(ServiceRadarQueryLanguageParserID)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -6215,47 +6362,8 @@ func (p *ServiceRadarQueryLanguageParser) Field() (localctx IFieldContext) {
 	case 2:
 		p.EnterOuterAlt(localctx, 2)
 		{
-			p.SetState(341)
-			p.Entity()
-		}
-		{
-			p.SetState(342)
-			p.Match(ServiceRadarQueryLanguageParserDOT)
-			if p.HasError() {
-				// Recognition error - abort rule
-				goto errorExit
-			}
-		}
-		{
-			p.SetState(343)
-			p.Match(ServiceRadarQueryLanguageParserID)
-			if p.HasError() {
-				// Recognition error - abort rule
-				goto errorExit
-			}
-		}
-
-	case 3:
-		p.EnterOuterAlt(localctx, 3)
-		{
-			p.SetState(345)
-			p.Entity()
-		}
-		{
-			p.SetState(346)
-			p.Match(ServiceRadarQueryLanguageParserDOT)
-			if p.HasError() {
-				// Recognition error - abort rule
-				goto errorExit
-			}
-		}
-		{
 			p.SetState(347)
-			p.Match(ServiceRadarQueryLanguageParserID)
-			if p.HasError() {
-				// Recognition error - abort rule
-				goto errorExit
-			}
+			p.Entity()
 		}
 		{
 			p.SetState(348)
@@ -6267,6 +6375,45 @@ func (p *ServiceRadarQueryLanguageParser) Field() (localctx IFieldContext) {
 		}
 		{
 			p.SetState(349)
+			p.Match(ServiceRadarQueryLanguageParserID)
+			if p.HasError() {
+				// Recognition error - abort rule
+				goto errorExit
+			}
+		}
+
+	case 3:
+		p.EnterOuterAlt(localctx, 3)
+		{
+			p.SetState(351)
+			p.Entity()
+		}
+		{
+			p.SetState(352)
+			p.Match(ServiceRadarQueryLanguageParserDOT)
+			if p.HasError() {
+				// Recognition error - abort rule
+				goto errorExit
+			}
+		}
+		{
+			p.SetState(353)
+			p.Match(ServiceRadarQueryLanguageParserID)
+			if p.HasError() {
+				// Recognition error - abort rule
+				goto errorExit
+			}
+		}
+		{
+			p.SetState(354)
+			p.Match(ServiceRadarQueryLanguageParserDOT)
+			if p.HasError() {
+				// Recognition error - abort rule
+				goto errorExit
+			}
+		}
+		{
+			p.SetState(355)
 			p.Match(ServiceRadarQueryLanguageParserID)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -6411,15 +6558,15 @@ func (s *OrderByClauseContext) ExitRule(listener antlr.ParseTreeListener) {
 
 func (p *ServiceRadarQueryLanguageParser) OrderByClause() (localctx IOrderByClauseContext) {
 	localctx = NewOrderByClauseContext(p, p.GetParserRuleContext(), p.GetState())
-	p.EnterRule(localctx, 64, ServiceRadarQueryLanguageParserRULE_orderByClause)
+	p.EnterRule(localctx, 66, ServiceRadarQueryLanguageParserRULE_orderByClause)
 	var _la int
 
 	p.EnterOuterAlt(localctx, 1)
 	{
-		p.SetState(353)
+		p.SetState(359)
 		p.OrderByItem()
 	}
-	p.SetState(358)
+	p.SetState(364)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -6428,7 +6575,7 @@ func (p *ServiceRadarQueryLanguageParser) OrderByClause() (localctx IOrderByClau
 
 	for _la == ServiceRadarQueryLanguageParserCOMMA {
 		{
-			p.SetState(354)
+			p.SetState(360)
 			p.Match(ServiceRadarQueryLanguageParserCOMMA)
 			if p.HasError() {
 				// Recognition error - abort rule
@@ -6436,11 +6583,11 @@ func (p *ServiceRadarQueryLanguageParser) OrderByClause() (localctx IOrderByClau
 			}
 		}
 		{
-			p.SetState(355)
+			p.SetState(361)
 			p.OrderByItem()
 		}
 
-		p.SetState(360)
+		p.SetState(366)
 		p.GetErrorHandler().Sync(p)
 		if p.HasError() {
 			goto errorExit
@@ -6555,15 +6702,15 @@ func (s *OrderByItemContext) ExitRule(listener antlr.ParseTreeListener) {
 
 func (p *ServiceRadarQueryLanguageParser) OrderByItem() (localctx IOrderByItemContext) {
 	localctx = NewOrderByItemContext(p, p.GetParserRuleContext(), p.GetState())
-	p.EnterRule(localctx, 66, ServiceRadarQueryLanguageParserRULE_orderByItem)
+	p.EnterRule(localctx, 68, ServiceRadarQueryLanguageParserRULE_orderByItem)
 	var _la int
 
 	p.EnterOuterAlt(localctx, 1)
 	{
-		p.SetState(361)
+		p.SetState(367)
 		p.Field()
 	}
-	p.SetState(363)
+	p.SetState(369)
 	p.GetErrorHandler().Sync(p)
 	if p.HasError() {
 		goto errorExit
@@ -6572,7 +6719,7 @@ func (p *ServiceRadarQueryLanguageParser) OrderByItem() (localctx IOrderByItemCo
 
 	if _la == ServiceRadarQueryLanguageParserASC || _la == ServiceRadarQueryLanguageParserDESC {
 		{
-			p.SetState(362)
+			p.SetState(368)
 			_la = p.GetTokenStream().LA(1)
 
 			if !(_la == ServiceRadarQueryLanguageParserASC || _la == ServiceRadarQueryLanguageParserDESC) {
@@ -6613,6 +6760,8 @@ type IValueContext interface {
 	TIMESTAMP() antlr.TerminalNode
 	IPADDRESS() antlr.TerminalNode
 	MACADDRESS() antlr.TerminalNode
+	TODAY() antlr.TerminalNode
+	YESTERDAY() antlr.TerminalNode
 
 	// IsValueContext differentiates from other interfaces.
 	IsValueContext()
@@ -6678,6 +6827,14 @@ func (s *ValueContext) MACADDRESS() antlr.TerminalNode {
 	return s.GetToken(ServiceRadarQueryLanguageParserMACADDRESS, 0)
 }
 
+func (s *ValueContext) TODAY() antlr.TerminalNode {
+	return s.GetToken(ServiceRadarQueryLanguageParserTODAY, 0)
+}
+
+func (s *ValueContext) YESTERDAY() antlr.TerminalNode {
+	return s.GetToken(ServiceRadarQueryLanguageParserYESTERDAY, 0)
+}
+
 func (s *ValueContext) GetRuleContext() antlr.RuleContext {
 	return s
 }
@@ -6700,15 +6857,15 @@ func (s *ValueContext) ExitRule(listener antlr.ParseTreeListener) {
 
 func (p *ServiceRadarQueryLanguageParser) Value() (localctx IValueContext) {
 	localctx = NewValueContext(p, p.GetParserRuleContext(), p.GetState())
-	p.EnterRule(localctx, 68, ServiceRadarQueryLanguageParserRULE_value)
+	p.EnterRule(localctx, 70, ServiceRadarQueryLanguageParserRULE_value)
 	var _la int
 
 	p.EnterOuterAlt(localctx, 1)
 	{
-		p.SetState(365)
+		p.SetState(371)
 		_la = p.GetTokenStream().LA(1)
 
-		if !((int64((_la-53)) & ^0x3f) == 0 && ((int64(1)<<(_la-53))&516097) != 0) {
+		if !((int64((_la-20)) & ^0x3f) == 0 && ((int64(1)<<(_la-20))&17732957892509699) != 0) {
 			p.GetErrorHandler().RecoverInline(p)
 		} else {
 			p.GetErrorHandler().ReportMatch(p)

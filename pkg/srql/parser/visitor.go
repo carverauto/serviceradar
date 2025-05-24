@@ -1,12 +1,13 @@
 package parser
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
 	"github.com/antlr4-go/antlr/v4"
 	"github.com/carverauto/serviceradar/pkg/srql/models"
-	"github.com/carverauto/serviceradar/pkg/srql/parser/gen"
+	gen "github.com/carverauto/serviceradar/pkg/srql/parser/gen/antlr"
 )
 
 // QueryVisitor visits the parse tree and builds a Query model.
@@ -25,6 +26,55 @@ func (v *QueryVisitor) Visit(tree antlr.ParseTree) interface{} {
 		return v.VisitQuery(t)
 	}
 
+	return nil
+}
+
+func (v *QueryVisitor) VisitEvaluable(ctx *gen.EvaluableContext) interface{} {
+	if ctx.Field() != nil {
+		return v.VisitField(ctx.Field().(*gen.FieldContext))
+	}
+
+	if ctx.FunctionCall() != nil {
+		// Ensure VisitFunctionCall returns a string representation, e.g., "date(timestamp)"
+		return v.VisitFunctionCall(ctx.FunctionCall().(*gen.FunctionCallContext))
+	}
+
+	return "" // Should not happen with a valid parse tree
+}
+
+func (v *QueryVisitor) VisitFunctionCall(ctx *gen.FunctionCallContext) interface{} {
+	funcName := strings.ToLower(ctx.ID().GetText()) // Lowercase function name by convention
+	var args []string
+	if argListCtx := ctx.ArgumentList(); argListCtx != nil {
+		// Assuming VisitArgumentList returns []string or []interface{} that can be converted to []string
+		rawArgs := v.VisitArgumentList(argListCtx.(*gen.ArgumentListContext)).([]interface{})
+		for _, rawArg := range rawArgs {
+			args = append(args, fmt.Sprintf("%v", rawArg))
+		}
+	} else if ctx.STAR() != nil { // For COUNT(*)
+		args = append(args, "*")
+	}
+	return fmt.Sprintf("%s(%s)", funcName, strings.Join(args, ", "))
+}
+
+func (v *QueryVisitor) VisitArgumentList(ctx *gen.ArgumentListContext) interface{} {
+	var args []interface{} // Return []interface{} as arguments can be of different types
+	for _, selectItemCtx := range ctx.AllExpressionSelectItem() {
+		args = append(args, v.VisitExpressionSelectItem(selectItemCtx.(*gen.ExpressionSelectItemContext)))
+	}
+	return args
+}
+
+func (v *QueryVisitor) VisitExpressionSelectItem(ctx *gen.ExpressionSelectItemContext) interface{} {
+	if ctx.Field() != nil {
+		return v.VisitField(ctx.Field().(*gen.FieldContext))
+	}
+	if ctx.FunctionCall() != nil {
+		return v.VisitFunctionCall(ctx.FunctionCall().(*gen.FunctionCallContext))
+	}
+	if ctx.Value() != nil {
+		return v.VisitValue(ctx.Value().(*gen.ValueContext))
+	}
 	return nil
 }
 
@@ -239,15 +289,16 @@ func (v *QueryVisitor) VisitExpression(ctx *gen.ExpressionContext) interface{} {
 
 // Expression type checkers
 func (*QueryVisitor) isComparisonExpression(ctx *gen.ExpressionContext) bool {
-	return ctx.Field() != nil && ctx.ComparisonOperator() != nil && len(ctx.AllValue()) > 0
+	// return ctx.Field() != nil && ctx.ComparisonOperator() != nil && len(ctx.AllValue()) > 0 // OLD
+	return ctx.Evaluable() != nil && ctx.ComparisonOperator() != nil && len(ctx.AllValue()) > 0 // NEW
 }
 
 func (*QueryVisitor) isInExpression(ctx *gen.ExpressionContext) bool {
-	return ctx.Field() != nil && ctx.IN() != nil
+	return ctx.Evaluable() != nil && ctx.IN() != nil
 }
 
 func (*QueryVisitor) isContainsExpression(ctx *gen.ExpressionContext) bool {
-	return ctx.Field() != nil && ctx.CONTAINS() != nil
+	return ctx.Evaluable() != nil && ctx.CONTAINS() != nil
 }
 
 func (*QueryVisitor) isParenthesizedExpression(ctx *gen.ExpressionContext) bool {
@@ -255,47 +306,42 @@ func (*QueryVisitor) isParenthesizedExpression(ctx *gen.ExpressionContext) bool 
 }
 
 func (*QueryVisitor) isBetweenExpression(ctx *gen.ExpressionContext) bool {
-	return ctx.Field() != nil && ctx.BETWEEN() != nil
+	return ctx.Evaluable() != nil && ctx.BETWEEN() != nil
 }
 
 func (*QueryVisitor) isNullExpression(ctx *gen.ExpressionContext) bool {
-	return ctx.Field() != nil && ctx.IS() != nil
+	return ctx.Evaluable() != nil && ctx.IS() != nil
 }
 
 func (v *QueryVisitor) handleComparison(ctx *gen.ExpressionContext) models.Condition {
-	field := v.VisitField(ctx.Field().(*gen.FieldContext)).(string)
+	// lhs := v.VisitField(ctx.Field().(*gen.FieldContext)).(string) // OLD
+	lhs := v.VisitEvaluable(ctx.Evaluable().(*gen.EvaluableContext)).(string) // NEW
 	op := v.getOperatorType(ctx.ComparisonOperator().(*gen.ComparisonOperatorContext))
 	value := v.VisitValue(ctx.Value(0).(*gen.ValueContext))
 
 	return models.Condition{
-		Field:    field,
+		Field:    lhs, // Field can now be "date(timestamp)"
 		Operator: op,
-		Value:    value,
+		Value:    value, // Value can be "TODAY" or "YESTERDAY"
 	}
 }
 
 func (v *QueryVisitor) handleInOperator(ctx *gen.ExpressionContext) models.Condition {
-	field := v.VisitField(ctx.Field().(*gen.FieldContext)).(string)
+	// Corrected: Use Evaluable
+	evaluable := v.VisitEvaluable(ctx.Evaluable().(*gen.EvaluableContext)).(string)
 	valueListCtx := ctx.ValueList().(*gen.ValueListContext)
 	values := v.VisitValueList(valueListCtx).([]interface{})
 
-	return models.Condition{
-		Field:    field,
-		Operator: models.In,
-		Values:   values,
-	}
+	return models.Condition{Field: evaluable, Operator: models.In, Values: values}
 }
 
 func (v *QueryVisitor) handleContainsOperator(ctx *gen.ExpressionContext) models.Condition {
-	field := v.VisitField(ctx.Field().(*gen.FieldContext)).(string)
-	valueCtx := ctx.STRING().GetText()
+	// Corrected: Use Evaluable
+	evaluable := v.VisitEvaluable(ctx.Evaluable().(*gen.EvaluableContext)).(string)
+	valueCtx := ctx.STRING().GetText() // CONTAINS specifically takes a STRING in grammar
 	valueStr := valueCtx[1 : len(valueCtx)-1]
 
-	return models.Condition{
-		Field:    field,
-		Operator: models.Contains,
-		Value:    valueStr,
-	}
+	return models.Condition{Field: evaluable, Operator: models.Contains, Value: valueStr}
 }
 
 func (v *QueryVisitor) handleParenthesizedCondition(ctx *gen.ExpressionContext) models.Condition {
@@ -309,27 +355,20 @@ func (v *QueryVisitor) handleParenthesizedCondition(ctx *gen.ExpressionContext) 
 }
 
 func (v *QueryVisitor) handleBetweenOperator(ctx *gen.ExpressionContext) models.Condition {
-	field := v.VisitField(ctx.Field().(*gen.FieldContext)).(string)
+	// Corrected: Use Evaluable
+	evaluable := v.VisitEvaluable(ctx.Evaluable().(*gen.EvaluableContext)).(string)
 	value1 := v.VisitValue(ctx.Value(0).(*gen.ValueContext))
 	value2 := v.VisitValue(ctx.Value(1).(*gen.ValueContext))
 
-	return models.Condition{
-		Field:    field,
-		Operator: models.Between,
-		Values:   []interface{}{value1, value2},
-	}
+	return models.Condition{Field: evaluable, Operator: models.Between, Values: []interface{}{value1, value2}}
 }
 
 func (v *QueryVisitor) handleIsNullOperator(ctx *gen.ExpressionContext) models.Condition {
-	field := v.VisitField(ctx.Field().(*gen.FieldContext)).(string)
+	// Corrected: Use Evaluable
+	evaluable := v.VisitEvaluable(ctx.Evaluable().(*gen.EvaluableContext)).(string)
 	nullValueCtx := ctx.NullValue().(*gen.NullValueContext)
 	isNotNull := nullValueCtx.NOT() != nil
-
-	return models.Condition{
-		Field:    field,
-		Operator: models.Is,
-		Value:    isNotNull,
-	}
+	return models.Condition{Field: evaluable, Operator: models.Is, Value: isNotNull}
 }
 
 // VisitField visits the field rule.
@@ -427,6 +466,14 @@ func (*QueryVisitor) VisitValue(ctx *gen.ValueContext) interface{} {
 
 	if ctx.BOOLEAN() != nil {
 		return strings.ToLower(ctx.BOOLEAN().GetText()) == "true"
+	}
+
+	if ctx.TODAY() != nil {
+		return "TODAY" // Return as a special string
+	}
+
+	if ctx.YESTERDAY() != nil {
+		return "YESTERDAY" // Return as a special string
 	}
 
 	if ctx.TIMESTAMP() != nil {

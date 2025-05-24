@@ -111,12 +111,17 @@ condition
     ;
 
 expression
-    : field comparisonOperator value
-    | field IN LPAREN valueList RPAREN
-    | field CONTAINS STRING
+    : evaluable comparisonOperator value // Changed 'field' to 'evaluable'
+    | evaluable IN LPAREN valueList RPAREN
+    | evaluable CONTAINS STRING
     | LPAREN condition RPAREN
-    | field BETWEEN value AND value
-    | field IS nullValue
+    | evaluable BETWEEN value AND value
+    | evaluable IS nullValue
+    ;
+
+evaluable
+    : field
+    | functionCall
     ;
 
 valueList
@@ -168,6 +173,8 @@ value
     | TIMESTAMP
     | IPADDRESS
     | MACADDRESS
+    | TODAY
+    | YESTERDAY
     ;
 
 LATEST_MODIFIER : L A T E S T ;
@@ -176,7 +183,6 @@ LATEST_MODIFIER : L A T E S T ;
 // Lexer Rules
 // -----------------------------------------------------------------------------
 
-// --- Existing Keywords ---
 SHOW : S H O W ;
 FIND : F I N D ;
 COUNT : C O U N T ;
@@ -195,6 +201,8 @@ CONTAINS : C O N T A I N S ;
 IS : I S ;
 NOT : N O T ;
 NULL : N U L L ;
+TODAY : T O D A Y ;
+YESTERDAY : Y E S T E R D A Y ;
 
 // --- Entity Type Keywords ---
 DEVICES : D E V I C E S ;

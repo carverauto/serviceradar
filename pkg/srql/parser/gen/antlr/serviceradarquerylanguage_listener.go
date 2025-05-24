@@ -88,6 +88,9 @@ type ServiceRadarQueryLanguageListener interface {
 	// EnterExpression is called when entering the expression production.
 	EnterExpression(c *ExpressionContext)
 
+	// EnterEvaluable is called when entering the evaluable production.
+	EnterEvaluable(c *EvaluableContext)
+
 	// EnterValueList is called when entering the valueList production.
 	EnterValueList(c *ValueListContext)
 
@@ -192,6 +195,9 @@ type ServiceRadarQueryLanguageListener interface {
 
 	// ExitExpression is called when exiting the expression production.
 	ExitExpression(c *ExpressionContext)
+
+	// ExitEvaluable is called when exiting the evaluable production.
+	ExitEvaluable(c *EvaluableContext)
 
 	// ExitValueList is called when exiting the valueList production.
 	ExitValueList(c *ValueListContext)

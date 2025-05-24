@@ -188,6 +188,12 @@ func (s *BaseServiceRadarQueryLanguageListener) EnterExpression(ctx *ExpressionC
 // ExitExpression is called when production expression is exited.
 func (s *BaseServiceRadarQueryLanguageListener) ExitExpression(ctx *ExpressionContext) {}
 
+// EnterEvaluable is called when production evaluable is entered.
+func (s *BaseServiceRadarQueryLanguageListener) EnterEvaluable(ctx *EvaluableContext) {}
+
+// ExitEvaluable is called when production evaluable is exited.
+func (s *BaseServiceRadarQueryLanguageListener) ExitEvaluable(ctx *EvaluableContext) {}
+
 // EnterValueList is called when production valueList is entered.
 func (s *BaseServiceRadarQueryLanguageListener) EnterValueList(ctx *ValueListContext) {}
 
