@@ -260,9 +260,13 @@ ID          : [a-zA-Z_][a-zA-Z0-9_]*;
 INTEGER     : [0-9]+;
 FLOAT       : [0-9]+ '.' [0-9]*; // Allows .5 and 5.
 STRING      : (QUOTE .*? QUOTE) | (APOSTROPHE .*? APOSTROPHE);
-TIMESTAMP   : APOSTROPHE [0-9][0-9][0-9][0-9] '-' [0-9][0-9] '-' [0-9][0-9] ' ' [0-9][0-9] ':' [0-9][0-9] ':' [0-9][0-9] APOSTROPHE;
-IPADDRESS   : [0-9]+ ('.' [0-9]+){3}; // More precise IP address regex
-MACADDRESS  : [0-9a-fA-F][0-9a-fA-F] (':' [0-9a-fA-F][0-9a-fA-F]){5}; // More precise MAC address regex
+//TIMESTAMP   : APOSTROPHE [0-9][0-9][0-9][0-9] '-' [0-9][0-9] '-' [0-9][0-9] ' ' [0-9][0-9] ':' [0-9][0-9] ':' [0-9][0-9] APOSTROPHE;
+//IPADDRESS   : [0-9]+ ('.' [0-9]+){3}; // More precise IP address regex
+//MACADDRESS  : [0-9a-fA-F][0-9a-fA-F] (':' [0-9a-fA-F][0-9a-fA-F]){5}; // More precise MAC address regex
+TIMESTAMP : APOSTROPHE [0-9][0-9][0-9][0-9] '-' [0-9][0-9] '-' [0-9][0-9] ' ' [0-9][0-9] ':' [0-9][0-9] ':' [0-9][0-9] APOSTROPHE;
+IPADDRESS : [0-9]+ '.' [0-9]+ '.' [0-9]+ '.' [0-9]+;
+MACADDRESS : [0-9a-fA-F][0-9a-fA-F] ':' [0-9a-fA-F][0-9a-fA-F] ':' [0-9a-fA-F][0-9a-fA-F] ':' [0-9a-fA-F][0-9a-fA-F] ':' [0-9a-fA-F][0-9a-fA-F] ':' [0-9a-fA-F][0-9a-fA-F];
+
 
 // --- Case-Insensitive Letter Fragments ---
 // These are used to build the case-insensitive keywords above.
