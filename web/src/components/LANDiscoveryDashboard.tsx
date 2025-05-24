@@ -36,69 +36,13 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/components/AuthProvider';
 
+// NEW IMPORTS:
+import { ServicePayload } from '@/types/types'; // Import the correct ServicePayload
+import { RawBackendLanDiscoveryData, RawDevice, RawInterface } from '@/types/lan_discovery'; // Import raw types
+
 // --- START: UPDATED INTERFACES to match `snake_case` and nested `if_speed` and remove 'any' types ---
 
-/**
- * RawBackendLanDiscoveryData represents the direct JSON structure returned by the backend's LAN discovery service details.
- * It contains snake_case keys as received from the Go backend.
- */
-interface RawBackendLanDiscoveryData {
-    devices?: RawDevice[];
-    interfaces?: RawInterface[];
-    topology?: NetworkTopology;
-    last_discovery?: string;
-    discovery_duration?: number;
-    total_devices?: number;
-    active_devices?: number;
-    [key: string]: unknown; // Allow other unexpected top-level keys
-}
-
-/**
- * RawDevice represents a device object directly from the backend payload (snake_case keys).
- */
-interface RawDevice {
-    device_id?: string;
-    hostname?: string;
-    ip?: string; // raw ip address
-    mac?: string; // raw mac address
-    sys_descr?: string; // directly on device object
-    sys_object_id?: string;
-    sys_contact?: string; // directly on device object
-    uptime?: number;
-    discovery_source?: string;
-    is_available?: boolean;
-    last_seen?: string;
-    metadata?: {
-        discovery_id?: string;
-        discovery_time?: string;
-        [key: string]: unknown; // Arbitrary metadata keys
-    };
-    [key: string]: unknown; // Allow other unexpected keys
-}
-
-/**
- * RawInterface represents an interface object directly from the backend payload (snake_case keys).
- */
-interface RawInterface {
-    device_ip?: string;
-    if_index?: number;
-    if_name?: string;
-    if_descr?: string;
-    if_speed?: { value?: number } | number; // Can be object {value: number} or raw number
-    if_phys_address?: string;
-    if_admin_status?: number;
-    if_oper_status?: number;
-    if_type?: number; // SNMP interface type OID
-    ip_addresses?: string[];
-    metadata?: {
-        discovery_id?: string;
-        discovery_time?: string;
-        if_type?: string; // `if_type` might be string in metadata, number in root
-        [key: string]: unknown; // Arbitrary metadata keys
-    };
-    [key: string]: unknown; // Allow other unexpected keys
-}
-
+// Keep the *parsed* types for frontend display, but they are derived from RawBackendLanDiscoveryData
 /**
  * Device represents a parsed device object for display in the frontend.
  * It uses camelCase keys for consistency with React component conventions.
@@ -129,6 +73,8 @@ interface Device {
         discovery_time?: string;
         [key: string]: unknown;
     };
+    // Re-added index signature to match RawBackendLanDiscoveryData's flexibility if needed, but the explicit RawDevice type should handle most cases.
+    [key: string]: unknown;
 }
 
 /**
@@ -140,7 +86,7 @@ interface Interface {
     ip_address?: string; // First IP from ip_addresses array
     mac_address?: string; // from 'if_phys_address'
     status?: string; // 'up', 'down', etc. (derived from if_oper_status)
-    type?: string; // from 'if_type' (OID) or 'if_descr'
+    type?: string; // from 'if_type' (OID) or 'if_descr')
     speed?: string; // Formatted speed (e.g., "1Gbps", "10Mbps")
     duplex?: string;
     mtu?: number;
@@ -162,13 +108,15 @@ interface Interface {
         if_type?: string;
         [key: string]: unknown;
     };
+    // Re-added index signature
+    [key: string]: unknown;
 }
 
 /**
  * Basic types for topology nodes and edges to avoid `any`.
  * More detailed types could be added if the topology is rendered visually.
  */
-interface TopologyNode {
+interface ParsedNetworkTopologyNode { // Renamed for clarity to avoid clash with RawNetworkTopologyNode
     id: string;
     label: string;
     type?: string;
@@ -176,18 +124,19 @@ interface TopologyNode {
     [key: string]: unknown;
 }
 
-interface TopologyEdge {
+interface ParsedNetworkTopologyEdge { // Renamed for clarity
     from: string;
     to: string;
     label?: string;
     [key: string]: unknown;
 }
 
-interface NetworkTopology {
-    nodes?: TopologyNode[];
-    edges?: TopologyEdge[];
+interface ParsedNetworkTopology { // Renamed for clarity
+    nodes?: ParsedNetworkTopologyNode[];
+    edges?: ParsedNetworkTopologyEdge[];
     subnets?: string[];
 }
+
 
 /**
  * ParsedLanDiscoveryData represents the fully parsed and structured data for the dashboard.
@@ -195,25 +144,14 @@ interface NetworkTopology {
 interface ParsedLanDiscoveryData {
     devices: Device[];
     interfaces: Interface[];
-    topology?: NetworkTopology;
+    topology?: ParsedNetworkTopology; // Use the parsed topology
     last_discovery?: string;
     discovery_duration?: number;
     total_devices?: number;
     active_devices?: number;
 }
 
-/**
- * ServicePayload represents the full service object returned by the API endpoint.
- */
-interface ServicePayload {
-    id?: string; // Example: service ID (optional)
-    poller_id: string;
-    service_name: string;
-    status: string;
-    last_update: string; // ISO 8601 timestamp string
-    details: string | RawBackendLanDiscoveryData; // Can be JSON string or parsed object
-    [key: string]: unknown; // Allow other potential fields in the service object
-}
+// REMOVED LOCAL SERVICEPAYLOAD INTERFACE HERE. It is now imported from '@/types/types'
 
 interface LanDiscoveryDashboardProps {
     pollerId: string;
@@ -381,7 +319,7 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
         const parsedResult = {
             devices,
             interfaces,
-            topology: rawDetails.topology || {},
+            topology: rawDetails.topology || {}, // Use RawNetworkTopology from lan_discovery.ts
             last_discovery: rawDetails.last_discovery,
             discovery_duration: rawDetails.discovery_duration,
             total_devices: totalDevices,
@@ -397,10 +335,19 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
     // Initialize data from props
     useEffect(() => {
         if (initialService) {
-            let rawDetails: string | RawBackendLanDiscoveryData = initialService.details;
+            if (!initialService.details) {
+                console.warn('initialService.details is undefined');
+                setError('Service details are missing from the initial data');
+                setIsLoading(false);
+                return;
+            }
+
+            // Explicitly assert initialService.details to RawBackendLanDiscoveryData | string
+            // as this component is specifically for LAN_DISCOVERY services.
+            let rawDetails: RawBackendLanDiscoveryData | string = initialService.details as RawBackendLanDiscoveryData | string;
             try {
-                if (typeof initialService.details === 'string') {
-                    rawDetails = JSON.parse(initialService.details);
+                if (typeof rawDetails === 'string') {
+                    rawDetails = JSON.parse(rawDetails) as RawBackendLanDiscoveryData; // Cast result of parse
                 }
             } catch (e) {
                 console.error('Error parsing initialService.details JSON string:', e);
@@ -409,7 +356,7 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
                 return;
             }
 
-            const parsed = parseBackendLanDiscoveryData(rawDetails as RawBackendLanDiscoveryData); // Cast after potential parsing
+            const parsed = parseBackendLanDiscoveryData(rawDetails as RawBackendLanDiscoveryData); // Cast for `parseBackendLanDiscoveryData` argument
             setDiscoveryData(parsed);
             setIsLoading(false);
             setLastRefreshed(new Date(initialService.last_update || Date.now()));
@@ -449,10 +396,16 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
             }
 
             const serviceData: ServicePayload = await response.json(); // Typed serviceData
-            let rawDetails: string | RawBackendLanDiscoveryData = serviceData.details;
+
+            if (!serviceData.details) {
+                throw new Error('Service details are missing from the response');
+            }
+
+            // Apply type assertion here as well
+            let rawDetails: RawBackendLanDiscoveryData | string = serviceData.details as RawBackendLanDiscoveryData | string;
             try {
-                if (typeof serviceData.details === 'string') {
-                    rawDetails = JSON.parse(serviceData.details);
+                if (typeof rawDetails === 'string') { // Changed `serviceData.details` to `rawDetails`
+                    rawDetails = JSON.parse(rawDetails) as RawBackendLanDiscoveryData; // Cast result of parse
                 }
             } catch (e) {
                 console.error('Error parsing refreshed serviceData.details JSON string:', e);

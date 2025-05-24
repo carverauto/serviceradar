@@ -33,8 +33,8 @@ import NetworkSweepView from "./NetworkSweepView";
 import { PingStatus } from "./NetworkStatus";
 import SNMPDashboard from "./SNMPDashboard";
 import { ArrowLeft } from "lucide-react";
-// <-- CHANGED: Removed 'Service' from import as it's not directly used here
-import { ServiceMetric, ServiceDetails, SnmpDataPoint, ServicePayload } from "@/types/types";
+import { ServiceMetric, ServiceDetails, ServicePayload } from "@/types/types";
+import { SnmpDataPoint } from "@/types/snmp";
 import { SysmonData } from "@/types/sysmon"; // <-- CHANGED: Direct import for SysmonData
 import RPerfDashboard from "@/components/RPerfDashboard";
 import LanDiscoveryDashboard from "@/components/LANDiscoveryDashboard";

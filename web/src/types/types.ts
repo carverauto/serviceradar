@@ -16,6 +16,7 @@
 
 // src/types/types.ts
 import { SweepDetails } from './snmp'; // Make sure this import is correctly pointing to your snmp.ts
+import { RawBackendLanDiscoveryData } from './lan_discovery'; // NEW IMPORT
 
 // Generic ServiceDetails for services like ICMP
 export interface GenericServiceDetails {
@@ -80,6 +81,7 @@ export type ServiceDetails =
     | SweepDetails
     | SnmpDetails
     | RperfDetails
+    | RawBackendLanDiscoveryData // NEW ADDITION
     | { [key: string]: string | number | boolean | null | undefined | object | unknown[] }; // Broad type for general JSON objects
 
 // Core Service interface: Represents the essential attributes of a service.

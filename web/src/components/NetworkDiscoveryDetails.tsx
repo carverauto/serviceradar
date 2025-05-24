@@ -1,79 +1,18 @@
 // web/src/components/NetworkDiscoveryDetails.tsx
 import React from 'react';
+import { RawBackendLanDiscoveryData } from '@/types/lan_discovery';
 
-/**
- * RawBackendDevice represents a device object as it might be received directly from the backend JSON.
- * It uses snake_case keys where applicable and `unknown` for arbitrary additional properties.
- */
-interface RawBackendDevice {
-    name?: string; // Often a display name, may be derived
-    ip_address?: string; // Derived IP address
-    mac_address?: string; // Derived MAC address
-    description?: string;
-    // Raw properties from backend (snake_case)
-    device_id?: string;
-    hostname?: string;
-    ip?: string; // raw ip address
-    mac?: string; // raw mac address
-    sys_descr?: string;
-    sys_contact?: string;
-    discovery_source?: string;
-    [key: string]: unknown; // For any other properties not explicitly listed
-}
+// The original NetworkDiscoveryDetails.tsx had its own versions of these types.
+// Now, we import the raw backend types from the centralized location.
+// The component itself operates on these raw types, then renders them.
 
-/**
- * RawBackendInterface represents an interface object as it might be received directly from the backend JSON.
- * It uses snake_case keys where applicable and `unknown` for arbitrary additional properties.
- */
-interface RawBackendInterface {
-    name?: string; // Display name
-    ip_address?: string; // Derived IP address
-    mac_address?: string; // Derived MAC address
-    status?: string; // Derived status
-    // Raw properties from backend (snake_case)
-    if_index?: number;
-    if_name?: string;
-    if_descr?: string;
-    if_speed?: { value?: number } | number;
-    if_phys_address?: string;
-    if_admin_status?: number;
-    if_oper_status?: number;
-    if_type?: number;
-    ip_addresses?: string[];
-    [key: string]: unknown; // For any other properties not explicitly listed
-}
-
-/**
- * Basic interface for network topology, allowing for flexible structure with `unknown`.
- */
-interface NetworkTopology {
-    nodes?: { [key: string]: unknown }[];
-    edges?: { [key: string]: unknown }[];
-    subnets?: string[];
-    [key: string]: unknown; // For any other properties not explicitly listed at the top level of topology
-}
-
-/**
- * NetworkDiscoveryServiceDetails represents the expected structure of the parsed JSON details.
- * It's based on the raw `snake_case` keys likely coming from the Go backend.
- */
-interface NetworkDiscoveryServiceDetails {
-    devices?: RawBackendDevice[];
-    interfaces?: RawBackendInterface[];
-    topology?: NetworkTopology | null; // Can be null or a more complex object
-    last_discovery?: string;
-    discovery_duration?: number;
-    total_devices?: number;
-    active_devices?: number;
-    [key: string]: unknown; // Allow other top-level properties not explicitly listed
-}
 
 interface NetworkDiscoveryDetailsProps {
-    details: string | NetworkDiscoveryServiceDetails | null | undefined; // Can be JSON string, parsed object, null, or undefined
+    details: string | RawBackendLanDiscoveryData | null | undefined;
 }
 
 const NetworkDiscoveryDetails: React.FC<NetworkDiscoveryDetailsProps> = ({ details }) => {
-    let parsedDetails: NetworkDiscoveryServiceDetails | undefined;
+    let parsedDetails: RawBackendLanDiscoveryData | undefined;
 
     try {
         if (details === null || details === undefined) {
@@ -93,7 +32,6 @@ const NetworkDiscoveryDetails: React.FC<NetworkDiscoveryDetailsProps> = ({ detai
     }
 
     // Ensure devices and interfaces are arrays. Gracefully handle cases where they might be a single object
-    // (though the interfaces are defined as arrays, defensive programming is good).
     const safeDevices = Array.isArray(parsedDetails.devices) ? parsedDetails.devices : (parsedDetails.devices ? [parsedDetails.devices] : []);
     const safeInterfaces = Array.isArray(parsedDetails.interfaces) ? parsedDetails.interfaces : (parsedDetails.interfaces ? [parsedDetails.interfaces] : []);
 
@@ -106,8 +44,8 @@ const NetworkDiscoveryDetails: React.FC<NetworkDiscoveryDetailsProps> = ({ detai
                         {safeDevices.map((device, index) => (
                             <li key={index} className="text-sm text-gray-900 dark:text-white">
                                 {String(device.name || device.ip_address || device.hostname || 'Unknown Device')}
-                                {device.ip_address && ` (${String(device.ip_address)})`}
-                                {device.mac_address && ` [MAC: ${String(device.mac_address)}]`}
+                                {typeof device.ip_address === 'string' && ` (${device.ip_address})`}
+                                {typeof device.mac_address === 'string' && ` [MAC: ${device.mac_address}]`}
                             </li>
                         ))}
                     </ul>
@@ -123,9 +61,9 @@ const NetworkDiscoveryDetails: React.FC<NetworkDiscoveryDetailsProps> = ({ detai
                         {safeInterfaces.map((iface, index) => (
                             <li key={index} className="text-sm text-gray-900 dark:text-white">
                                 {String(iface.name || iface.ip_address || iface.if_descr || 'Unknown Interface')}
-                                {iface.ip_address && ` (${String(iface.ip_address)})`}
-                                {iface.mac_address && ` [MAC: ${String(iface.mac_address)}]`}
-                                {iface.status && ` (Status: ${String(iface.status)})`}
+                                {typeof iface.ip_address === 'string' && ` (${iface.ip_address})`}
+                                {typeof iface.mac_address === 'string' && ` [MAC: ${iface.mac_address}]`}
+                                {typeof iface.status === 'string' && ` (Status: ${iface.status})`}
                             </li>
                         ))}
                     </ul>
