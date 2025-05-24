@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"github.com/timeplus-io/proton-go-driver/v2/lib/driver"
 	"log"
+	"sort"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -503,4 +504,256 @@ func (db *DB) storeMemoryMetrics(ctx context.Context, pollerID string, memory mo
 	return db.executeBatch(ctx, "INSERT INTO memory_metrics (* except _tp_time)", func(batch driver.Batch) error {
 		return batch.Append(pollerID, timestamp, memory.UsedBytes, memory.TotalBytes)
 	})
+}
+
+// GetAllCPUMetrics retrieves all CPU metrics for a poller within a time range, grouped by timestamp.
+func (db *DB) GetAllCPUMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonCPUResponse, error) {
+	rows, err := db.Conn.Query(ctx, `
+		SELECT timestamp, core_id, usage_percent
+		FROM table(cpu_metrics)
+		WHERE poller_id = $1 AND timestamp BETWEEN $2 AND $3
+		ORDER BY timestamp DESC, core_id ASC`,
+		pollerID, start, end)
+	if err != nil {
+		log.Printf("Error querying all CPU metrics: %v", err)
+
+		return nil, fmt.Errorf("failed to query all CPU metrics: %w", err)
+	}
+	defer CloseRows(rows)
+
+	data := make(map[time.Time][]models.CPUMetric)
+
+	for rows.Next() {
+		var m models.CPUMetric
+
+		var timestamp time.Time
+
+		if err := rows.Scan(&timestamp, &m.CoreID, &m.UsagePercent); err != nil {
+			log.Printf("Error scanning CPU metric row: %v", err)
+			continue
+		}
+
+		m.Timestamp = timestamp
+		data[timestamp] = append(data[timestamp], m)
+	}
+
+	if err := rows.Err(); err != nil {
+		log.Printf("Error iterating CPU metrics rows: %v", err)
+
+		return nil, err
+	}
+
+	result := make([]models.SysmonCPUResponse, 0, len(data))
+
+	for ts, cpus := range data {
+		result = append(result, models.SysmonCPUResponse{
+			Cpus:      cpus,
+			Timestamp: ts,
+		})
+	}
+
+	// Sort by timestamp descending
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Timestamp.After(result[j].Timestamp)
+	})
+
+	return result, nil
+}
+
+// GetAllDiskMetrics retrieves all disk metrics for a poller.
+func (db *DB) GetAllDiskMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.DiskMetric, error) {
+	rows, err := db.Conn.Query(ctx, `
+		SELECT mount_point, used_bytes, total_bytes, timestamp
+		FROM table(disk_metrics)
+		WHERE poller_id = $1 AND timestamp BETWEEN $2 AND $3
+		ORDER BY timestamp DESC, mount_point ASC`,
+		pollerID, start, end)
+	if err != nil {
+		log.Printf("Error querying all disk metrics: %v", err)
+
+		return nil, fmt.Errorf("failed to query all disk metrics: %w", err)
+	}
+	defer CloseRows(rows)
+
+	var metrics []models.DiskMetric
+
+	for rows.Next() {
+		var m models.DiskMetric
+
+		if err = rows.Scan(&m.MountPoint, &m.UsedBytes, &m.TotalBytes, &m.Timestamp); err != nil {
+			log.Printf("Error scanning disk metric row: %v", err)
+
+			continue
+		}
+
+		metrics = append(metrics, m)
+	}
+
+	if err := rows.Err(); err != nil {
+		log.Printf("Error iterating disk metrics rows: %v", err)
+
+		return metrics, err
+	}
+
+	return metrics, nil
+}
+
+// GetDiskMetrics retrieves disk metrics for a specific mount point.
+func (db *DB) GetDiskMetrics(ctx context.Context, pollerID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error) {
+	rows, err := db.Conn.Query(ctx, `
+		SELECT timestamp, mount_point, used_bytes, total_bytes
+		FROM table(disk_metrics)
+		WHERE poller_id = $1 AND mount_point = $2 AND timestamp BETWEEN $3 AND $4
+		ORDER BY timestamp`,
+		pollerID, mountPoint, start, end)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query disk metrics: %w", err)
+	}
+	defer CloseRows(rows)
+
+	var metrics []models.DiskMetric
+
+	for rows.Next() {
+		var m models.DiskMetric
+
+		if err = rows.Scan(&m.Timestamp, &m.MountPoint, &m.UsedBytes, &m.TotalBytes); err != nil {
+			log.Printf("Error scanning disk metric row: %v", err)
+			continue
+		}
+
+		metrics = append(metrics, m)
+	}
+
+	return metrics, nil
+}
+
+// GetMemoryMetrics retrieves memory metrics.
+func (db *DB) GetMemoryMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.MemoryMetric, error) {
+	rows, err := db.Conn.Query(ctx, `
+		SELECT timestamp, used_bytes, total_bytes
+		FROM table(memory_metrics)
+		WHERE poller_id = $1 AND timestamp BETWEEN $2 AND $3
+		ORDER BY timestamp`,
+		pollerID, start, end)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query memory metrics: %w", err)
+	}
+	defer CloseRows(rows)
+
+	var metrics []models.MemoryMetric
+
+	for rows.Next() {
+		var m models.MemoryMetric
+
+		if err = rows.Scan(&m.Timestamp, &m.UsedBytes, &m.TotalBytes); err != nil {
+			log.Printf("Error scanning memory metric row: %v", err)
+
+			continue
+		}
+
+		metrics = append(metrics, m)
+	}
+
+	return metrics, nil
+}
+
+// GetAllDiskMetricsGrouped retrieves disk metrics grouped by timestamp.
+func (db *DB) GetAllDiskMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonDiskResponse, error) {
+	rows, err := db.Conn.Query(ctx, `
+		SELECT timestamp, mount_point, used_bytes, total_bytes
+		FROM table(disk_metrics)
+		WHERE poller_id = $1 AND timestamp BETWEEN $2 AND $3
+		ORDER BY timestamp DESC, mount_point ASC`,
+		pollerID, start, end)
+	if err != nil {
+		log.Printf("Error querying all disk metrics: %s", err)
+
+		return nil, fmt.Errorf("failed to query all disk metrics: %w", err)
+	}
+	defer CloseRows(rows)
+
+	data := make(map[time.Time][]models.DiskMetric)
+
+	for rows.Next() {
+		var m models.DiskMetric
+
+		var timestamp time.Time
+
+		if err = rows.Scan(&timestamp, &m.MountPoint, &m.UsedBytes, &m.TotalBytes); err != nil {
+			log.Printf("Error scanning disk metric row: %v", err)
+
+			continue
+		}
+
+		m.Timestamp = timestamp
+
+		data[timestamp] = append(data[timestamp], m)
+	}
+
+	if err := rows.Err(); err != nil {
+		log.Printf("Error iterating disk metrics rows: %v", err)
+
+		return nil, err
+	}
+
+	result := make([]models.SysmonDiskResponse, 0, len(data))
+
+	for ts, disks := range data {
+		result = append(result, models.SysmonDiskResponse{
+			Disks:     disks,
+			Timestamp: ts,
+		})
+	}
+
+	// Sort by timestamp descending
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Timestamp.After(result[j].Timestamp)
+	})
+
+	return result, nil
+}
+
+// GetMemoryMetricsGrouped retrieves memory metrics grouped by timestamp.
+func (db *DB) GetMemoryMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonMemoryResponse, error) {
+	rows, err := db.Conn.Query(ctx, `
+		SELECT timestamp, used_bytes, total_bytes
+		FROM table(memory_metrics)
+		WHERE poller_id = $1 AND timestamp BETWEEN $2 AND $3
+		ORDER BY timestamp DESC`,
+		pollerID, start, end)
+	if err != nil {
+		log.Printf("Error querying memory metrics: %v", err)
+
+		return nil, fmt.Errorf("failed to query memory metrics: %w", err)
+	}
+	defer CloseRows(rows)
+
+	var result []models.SysmonMemoryResponse
+
+	for rows.Next() {
+		var m models.MemoryMetric
+
+		var timestamp time.Time
+
+		if err = rows.Scan(&timestamp, &m.UsedBytes, &m.TotalBytes); err != nil {
+			log.Printf("Error scanning memory metric row: %v", err)
+
+			continue
+		}
+
+		m.Timestamp = timestamp
+
+		result = append(result, models.SysmonMemoryResponse{
+			Memory:    m,
+			Timestamp: timestamp,
+		})
+	}
+
+	if err := rows.Err(); err != nil {
+		log.Printf("Error iterating memory metrics rows: %v", err)
+
+		return nil, err
+	}
+
+	return result, nil
 }
