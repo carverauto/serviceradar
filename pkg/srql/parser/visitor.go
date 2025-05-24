@@ -297,7 +297,6 @@ func (v *QueryVisitor) VisitExpression(ctx *gen.ExpressionContext) interface{} {
 
 // Expression type checkers
 func (*QueryVisitor) isComparisonExpression(ctx *gen.ExpressionContext) bool {
-	// return ctx.Field() != nil && ctx.ComparisonOperator() != nil && len(ctx.AllValue()) > 0 // OLD
 	return ctx.Evaluable() != nil && ctx.ComparisonOperator() != nil && len(ctx.AllValue()) > 0 // NEW
 }
 
@@ -322,7 +321,6 @@ func (*QueryVisitor) isNullExpression(ctx *gen.ExpressionContext) bool {
 }
 
 func (v *QueryVisitor) handleComparison(ctx *gen.ExpressionContext) models.Condition {
-	// lhs := v.VisitField(ctx.Field().(*gen.FieldContext)).(string) // OLD
 	lhs := v.VisitEvaluable(ctx.Evaluable().(*gen.EvaluableContext)).(string) // NEW
 	op := v.getOperatorType(ctx.ComparisonOperator().(*gen.ComparisonOperatorContext))
 	value := v.VisitValue(ctx.Value(0).(*gen.ValueContext))

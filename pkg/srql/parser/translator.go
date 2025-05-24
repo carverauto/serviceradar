@@ -2,6 +2,7 @@ package parser
 
 import (
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -299,15 +300,20 @@ type conditionFormatters struct {
 	is         conditionFormatter
 }
 
+const (
+	defaultToday     = "TODAY"
+	defaultYesterday = "YESTERDAY"
+)
+
 // formatDateCondition handles date(field) = TODAY/YESTERDAY specifically
-func (t *Translator) formatDateCondition(fieldName, translatedFieldName string, value interface{}) (string, bool) {
+func (t *Translator) formatDateCondition(_, translatedFieldName string, value interface{}) (string, bool) {
 	sVal, ok := value.(string)
 	if !ok {
 		return "", false
 	}
 
 	upperVal := strings.ToUpper(sVal)
-	if upperVal != "TODAY" && upperVal != "YESTERDAY" {
+	if upperVal != defaultToday && upperVal != defaultYesterday {
 		return "", false
 	}
 
@@ -322,24 +328,27 @@ func (t *Translator) formatDateCondition(fieldName, translatedFieldName string, 
 }
 
 // formatProtonOrClickHouseDateCondition formats date conditions for Proton or ClickHouse
-func (t *Translator) formatProtonOrClickHouseDateCondition(fieldName string, dateValue string) string {
-	if dateValue == "TODAY" {
+func (*Translator) formatProtonOrClickHouseDateCondition(fieldName, dateValue string) string {
+	if dateValue == defaultToday {
 		return fmt.Sprintf("%s = today()", fieldName)
 	}
+
 	// Must be YESTERDAY based on validation in formatDateCondition
 	return fmt.Sprintf("%s = yesterday()", fieldName)
 }
 
 // formatArangoDBDateCondition formats date conditions for ArangoDB
-func (t *Translator) formatArangoDBDateCondition(fieldName string, dateValue string) string {
+func (*Translator) formatArangoDBDateCondition(fieldName, dateValue string) string {
 	now := time.Now() // Consider passing time via context for testability
 
-	if dateValue == "TODAY" {
+	if dateValue == defaultToday {
 		todayDateStr := now.Format("2006-01-02")
 		return fmt.Sprintf("%s = '%s'", fieldName, todayDateStr)
 	}
+
 	// Must be YESTERDAY based on validation in formatDateCondition
 	yesterdayDateStr := now.AddDate(0, 0, -1).Format("2006-01-02")
+
 	return fmt.Sprintf("%s = '%s'", fieldName, yesterdayDateStr)
 }
 
@@ -663,12 +672,7 @@ func (t *Translator) formatArangoDBCondition(cond *models.Condition) string {
 		// The value (cond.Value) from SRQL should be a string: "TODAY", "YESTERDAY", or a literal date "YYYY-MM-DD".
 		dateValueString, ok := cond.Value.(string)
 		if !ok {
-			// This case should ideally not be hit if the SRQL parser ensures date function values are strings/keywords.
-			// If cond.Value is not a string, this specific date logic cannot apply.
-			// We'll fall through to the main switch statement which will use formatArangoDBEqualsCondition.
-			// That helper will likely produce `doc.date(timestamp) == non_string_value`, which is incorrect AQL
-			// for this function, but maintains consistency with how other non-fixed paths would behave.
-			// The test cases imply cond.Value will be a string for these date comparisons.
+			log.Println("Warning: Expected string value for date condition, got:", cond.Value)
 		} else {
 			// Handle SRQL keywords TODAY, YESTERDAY, or a literal date string.
 			now := time.Now() // For testability, this could be injected (e.g., via Translator or context).
@@ -676,9 +680,9 @@ func (t *Translator) formatArangoDBCondition(cond *models.Condition) string {
 			yesterdayDateStr := now.AddDate(0, 0, -1).Format("2006-01-02")
 
 			switch strings.ToUpper(dateValueString) {
-			case "TODAY":
+			case defaultToday:
 				return fmt.Sprintf("%s == '%s'", arangoLHS, todayDateStr)
-			case "YESTERDAY":
+			case defaultYesterday:
 				return fmt.Sprintf("%s == '%s'", arangoLHS, yesterdayDateStr)
 			default:
 				// Assumes dateValueString is a literal date like "2023-10-20".
