@@ -5,6 +5,7 @@ query
     : showStatement
     | findStatement
     | countStatement
+    | streamStatement
     ;
 
 showStatement
@@ -17,6 +18,83 @@ findStatement
 
 countStatement
     : COUNT entity (WHERE condition)?
+    ;
+
+streamStatement
+    : STREAM_KW (selectList)?
+      FROM dataSource (joinPart)*
+      (whereClause)?
+      (groupByClause)?
+      (havingClause)?
+      (orderByClauseS)?
+      (limitClauseS)?
+      (emitClause)?
+    ;
+
+selectList
+    : selectExpressionElement (COMMA selectExpressionElement)*
+    | STAR
+    ;
+
+selectExpressionElement
+    : expressionSelectItem (AS ID)?
+    ;
+
+expressionSelectItem
+    : field
+    | functionCall
+    | value
+    ;
+
+functionCall
+    : ID LPAREN (argumentList | STAR)? RPAREN // STAR for COUNT(*)
+    ;
+
+argumentList
+    : expressionSelectItem (COMMA expressionSelectItem)*
+    ;
+
+dataSource
+    : streamSourcePrimary (AS ID)?
+    ;
+
+streamSourcePrimary
+    : (entity | ID)
+    | TABLE_KW LPAREN (entity | ID) RPAREN
+    | windowFunction LPAREN (entity | ID) COMMA field COMMA durationOrField (COMMA durationOrField)? RPAREN
+    ;
+
+windowFunction
+    : TUMBLE
+    | HOP
+    ;
+
+durationOrField
+    : duration
+    | field
+    ;
+
+duration
+    : INTEGER (SECONDS_UNIT | MINUTES_UNIT | HOURS_UNIT | DAYS_UNIT)
+    ;
+
+joinPart
+    : (joinType)? JOIN dataSource ON condition
+    ;
+
+joinType
+    : LEFT | RIGHT | INNER
+    ;
+
+whereClause     : WHERE condition ;
+groupByClause   : GROUP_KW BY fieldList ;
+fieldList       : field (COMMA field)* ;
+havingClause    : HAVING condition ;
+orderByClauseS  : ORDER BY orderByItem (COMMA orderByItem)* ;
+limitClauseS    : LIMIT INTEGER ;
+
+emitClause
+    : EMIT ( (AFTER WINDOW_KW CLOSE (WITH_KW DELAY duration)?) | (PERIODIC duration) )
     ;
 
 entity
@@ -65,13 +143,16 @@ nullValue
     | NOT NULL
     ;
 
+// Current field rule. For more complex scenarios like 'source.table.field'
+// you might consider generalizing to: field: ID (DOT ID)*;
+// However, the current rule supports 'ID' which is needed for 'event_time' in window functions.
 field
     : ID
     | entity DOT ID
     | entity DOT ID DOT ID
     ;
 
-orderByClause
+orderByClause // For SHOW/FIND statements
     : orderByItem (COMMA orderByItem)*
     ;
 
@@ -89,9 +170,13 @@ value
     | MACADDRESS
     ;
 
-LATEST_MODIFIER : L A T E S T ; // Defined as a distinct rule for semantic clarity
+LATEST_MODIFIER : L A T E S T ;
 
-// Lexer Rules - All case insensitive
+// -----------------------------------------------------------------------------
+// Lexer Rules
+// -----------------------------------------------------------------------------
+
+// --- Existing Keywords ---
 SHOW : S H O W ;
 FIND : F I N D ;
 COUNT : C O U N T ;
@@ -99,7 +184,7 @@ WHERE : W H E R E ;
 ORDER : O R D E R ;
 BY : B Y ;
 LIMIT : L I M I T ;
-LATEST : L A T E S T ; // The token itself
+LATEST : L A T E S T ;
 ASC : A S C ;
 DESC : D E S C ;
 AND : A N D ;
@@ -111,6 +196,7 @@ IS : I S ;
 NOT : N O T ;
 NULL : N U L L ;
 
+// --- Entity Type Keywords ---
 DEVICES : D E V I C E S ;
 FLOWS : F L O W S ;
 TRAPS : T R A P S ;
@@ -118,34 +204,68 @@ CONNECTIONS : C O N N E C T I O N S ;
 LOGS : L O G S ;
 INTERFACES : I N T E R F A C E S ;
 
-EQ : '=' | '==';
-NEQ : '!=' | '<>';
-GT : '>';
-GTE : '>=';
-LT : '<';
-LTE : '<=';
-LIKE : L I K E ;
+// --- New Keywords for Streaming and Joins ---
+// Suffix _KW is used for common words to avoid potential clashes with identifiers
+// or future language extensions if these words are used in other contexts.
+STREAM_KW   : S T R E A M ;
+FROM        : F R O M ;
+TABLE_KW    : T A B L E ;
+TUMBLE      : T U M B L E ;
+HOP         : H O P ;
+GROUP_KW    : G R O U P ;
+HAVING      : H A V I N G ;
+EMIT        : E M I T ;
+AFTER       : A F T E R ;
+WINDOW_KW   : W I N D O W ;
+CLOSE       : C L O S E ;
+WITH_KW     : W I T H ;
+DELAY       : D E L A Y ;
+PERIODIC    : P E R I O D I C ;
+JOIN        : J O I N ;
+ON          : O N ;
+AS          : A S ;
+LEFT        : L E F T ;
+RIGHT       : R I G H T ;
+INNER       : I N N E R ;
+// OUTER    : O U T E R ; // Uncomment if needed
 
-BOOLEAN : T R U E | F A L S E ;
+// --- Operators and Punctuation ---
+EQ          : '=' | '==';
+NEQ         : '!=' | '<>';
+GT          : '>';
+GTE         : '>=';
+LT          : '<';
+LTE         : '<=';
+LIKE        : L I K E ;
 
-DOT : '.';
-COMMA : ',';
-LPAREN : '(';
-RPAREN : ')';
-APOSTROPHE : '\'';
-QUOTE : '"';
+BOOLEAN     : T R U E | F A L S E ;
 
-ID : [a-zA-Z_][a-zA-Z0-9_]*;
-INTEGER : [0-9]+;
-FLOAT : [0-9]+ '.' [0-9]*;
-STRING : (QUOTE .*? QUOTE) | (APOSTROPHE .*? APOSTROPHE);
+DOT         : '.';
+COMMA       : ',';
+LPAREN      : '(';
+RPAREN      : ')';
+APOSTROPHE  : '\''; // Used by STRING, TIMESTAMP
+QUOTE       : '"';  // Used by STRING
+STAR        : '*' ;
 
-// Fixed the problematic lexer rules by removing implicit actions
-TIMESTAMP : APOSTROPHE [0-9][0-9][0-9][0-9] '-' [0-9][0-9] '-' [0-9][0-9] ' ' [0-9][0-9] ':' [0-9][0-9] ':' [0-9][0-9] APOSTROPHE;
-IPADDRESS : [0-9]+ '.' [0-9]+ '.' [0-9]+ '.' [0-9]+;
-MACADDRESS : [0-9a-fA-F][0-9a-fA-F] ':' [0-9a-fA-F][0-9a-fA-F] ':' [0-9a-fA-F][0-9a-fA-F] ':' [0-9a-fA-F][0-9a-fA-F] ':' [0-9a-fA-F][0-9a-fA-F] ':' [0-9a-fA-F][0-9a-fA-F];
+// --- Time Unit Tokens ---
+// These use the single-letter fragments defined below for case-insensitivity.
+SECONDS_UNIT : S ;
+MINUTES_UNIT : M ;
+HOURS_UNIT   : H ;
+DAYS_UNIT    : D ;
 
-// Fragment rules for case insensitivity
+// --- Literals and Identifiers ---
+ID          : [a-zA-Z_][a-zA-Z0-9_]*;
+INTEGER     : [0-9]+;
+FLOAT       : [0-9]+ '.' [0-9]*; // Allows .5 and 5.
+STRING      : (QUOTE .*? QUOTE) | (APOSTROPHE .*? APOSTROPHE);
+TIMESTAMP   : APOSTROPHE [0-9][0-9][0-9][0-9] '-' [0-9][0-9] '-' [0-9][0-9] ' ' [0-9][0-9] ':' [0-9][0-9] ':' [0-9][0-9] APOSTROPHE;
+IPADDRESS   : [0-9]+ ('.' [0-9]+){3}; // More precise IP address regex
+MACADDRESS  : [0-9a-fA-F][0-9a-fA-F] (':' [0-9a-fA-F][0-9a-fA-F]){5}; // More precise MAC address regex
+
+// --- Case-Insensitive Letter Fragments ---
+// These are used to build the case-insensitive keywords above.
 fragment A : [aA];
 fragment B : [bB];
 fragment C : [cC];
@@ -173,4 +293,5 @@ fragment X : [xX];
 fragment Y : [yY];
 fragment Z : [zZ];
 
-WS : [ \t\r\n]+ -> skip;
+// --- Whitespace ---
+WS  : [ \t\r\n]+ -> skip;
