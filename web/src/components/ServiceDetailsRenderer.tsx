@@ -18,14 +18,16 @@
 import React from 'react';
 import {
     Service,
-    SweepDetails,
     SnmpDetails,
     RperfDetails,
     GenericServiceDetails,
     ServiceDetails,
     RperfResult
 } from '@/types/types';
+import { SweepDetails } from '@/types/snmp'; // NEW IMPORT: Import SweepDetails from snmp.ts
 import NetworkDiscoveryDetails from "@/components/NetworkDiscoveryDetails";
+import { RawBackendLanDiscoveryData } from '@/types/lan_discovery'; // Import this type for assertion
+
 
 interface ServiceDetailsRendererProps {
     service: Service;
@@ -74,9 +76,10 @@ const ServiceDetailsRenderer: React.FC<ServiceDetailsRendererProps> = ({ service
     }
 
     // Special handling for lan_discovery_via_mapper service
-    if (service.name === 'lan_discovery_via_mapper' || service.type === 'network_discovery') {
+    if (service.name === 'lan_discovery_via_mapper' || service.type === 'network_discovery') { // Corrected typo here
         console.log("Rendering network discovery details");
-        return <NetworkDiscoveryDetails details={details} />;
+        // Type assert 'details' as it's guaranteed to be the correct type here
+        return <NetworkDiscoveryDetails details={details as RawBackendLanDiscoveryData | string | null | undefined} />;
     }
 
     // Type-specific summary rendering

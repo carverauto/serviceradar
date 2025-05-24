@@ -18,9 +18,11 @@
 import { Suspense } from "react";
 import ServiceDashboard from "../../../../components/ServiceDashboard";
 import { cookies } from "next/headers";
-import { Poller, ServiceMetric } from "@/types/types";
+import { Poller, ServiceMetric, ServicePayload } from "@/types/types";
 import { SnmpDataPoint } from "@/types/snmp";
-import { getApiUrl } from "@/lib/urlUtils";
+import { fetchFromAPI } from "@/lib/api";
+import { SysmonData } from "@/types/sysmon"; // Keep this import for the final SysmonData type
+import { fetchSystemData } from "@/components/Metrics/data-service"; // Import fetchSystemData
 
 // Define the params type as a Promise
 type Params = Promise<{ pollerid: string; servicename: string }>;
@@ -39,125 +41,73 @@ async function fetchServiceData(
     timeRange = "1h",
     token?: string,
 ) {
+    let service: ServicePayload | null = null;
+    let metrics: ServiceMetric[] = [];
+    const snmpData: SnmpDataPoint[] = [];
+    let sysmonData: SysmonData | Record<string, never> = {}; // Initialize with default empty object or full structure
+
     try {
-        const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090";
-        const apiKey = process.env.API_KEY || "";
+        // Fetch the specific service payload directly using fetchFromAPI.
+        service = await fetchFromAPI<ServicePayload>(
+            `/pollers/${pollerId}/services/${serviceName}`,
+            token
+        );
 
-        const pollersUrl = getApiUrl("pollers");
-
-        // Fetch poller information
-        const pollersResponse = await fetch(pollersUrl, {
-            headers: {
-                "X-API-Key": apiKey,
-                ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            },
-            cache: "no-store",
-        });
-
-        if (!pollersResponse.ok) {
-            throw new Error(`Pollers API request failed: ${pollersResponse.status}`);
+        if (!service) {
+            // Return all properties, even if service is null
+            return { error: "Service not found or failed to fetch", service: null, metrics, snmpData, sysmonData, timeRange };
         }
 
-        const pollers: Poller[] = await pollersResponse.json();
-        const poller = pollers.find((n) => n.poller_id === pollerId);
+        // Fetch poller information (still potentially needed if other parts of the page or ServiceDashboard expect Poller data)
+        const pollers: Poller[] | null = await fetchFromAPI<Poller[]>("/pollers", token);
+        const poller = pollers?.find((n) => n.poller_id === pollerId);
 
-        if (!poller) return { error: "Poller not found", service: null };
+        if (!poller) {
+            // Return all properties if poller data is inconsistent
+            return { error: "Poller data for service not found", service, metrics, snmpData, sysmonData, timeRange };
+        }
 
-        const service = poller.services?.find((s) => s.name === serviceName) || null;
-        if (!service) return { error: "Service not found", service: null };
-
-        let metrics: ServiceMetric[] = [];
-        try {
-            const metricsResponse = await fetch(
-                `${backendUrl}/api/pollers/${pollerId}/metrics`,
-                {
-                    headers: {
-                        "X-API-Key": apiKey,
-                        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-                    },
-                    cache: "no-store",
-                },
-            );
-
-            if (!metricsResponse.ok) {
-                console.error(`Metrics API failed: ${metricsResponse.status}`);
-            } else {
-                metrics = await metricsResponse.json();
-            }
-        } catch (metricsError) {
-            console.error("Error fetching metrics data:", metricsError);
+        // Fetch metrics for this poller
+        const allPollerMetrics: ServiceMetric[] | null = await fetchFromAPI<ServiceMetric[]>(
+            `/pollers/${pollerId}/metrics`,
+            token
+        );
+        if (allPollerMetrics) {
+            metrics = allPollerMetrics;
+        } else {
+            console.warn(`Metrics API failed for poller ${pollerId}: No data or error fetching.`);
         }
 
         const serviceMetrics = metrics.filter(
             (m) => m.service_name === serviceName,
         );
 
-        const snmpData: SnmpDataPoint[] = [];
         if (service.type === "snmp") {
-            // Add SNMP logic here if needed
+            // If SNMP data is needed on initial load, fetch it here
+            // For now, it will use `initialSnmpData=[]` from props default in ServiceDashboard
         }
 
-        // Fetch Sysmon metrics if the service is 'sysmon'
-        let sysmonData = {};
+        // If the service is 'sysmon', fetch the full SysmonData using the dedicated function
         if (serviceName.toLowerCase() === "sysmon") {
             try {
-                const end = new Date();
-                const start = new Date();
-                switch (timeRange) {
-                    case "6h":
-                        start.setHours(end.getHours() - 6);
-                        break;
-                    case "24h":
-                        start.setHours(end.getHours() - 24);
-                        break;
-                    default:
-                        start.setHours(end.getHours() - 1);
+                // Call fetchSystemData which already fetches and processes all Sysmon metrics
+                const fetchedSysmonData: SysmonData | null = await fetchSystemData(pollerId, timeRange);
+                if (fetchedSysmonData) {
+                    sysmonData = fetchedSysmonData;
+                } else {
+                    console.warn(`fetchSystemData returned null for poller ${pollerId}.`);
                 }
-
-                const queryParams = `?start=${encodeURIComponent(start.toISOString())}&end=${encodeURIComponent(end.toISOString())}`;
-
-                const [cpuResponse, diskResponse, memoryResponse] = await Promise.all([
-                    fetch(`${backendUrl}/api/pollers/${pollerId}/sysmon/cpu${queryParams}`, {
-                        headers: {
-                            "X-API-Key": apiKey,
-                            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-                        },
-                        cache: "no-store",
-                    }),
-                    fetch(`${backendUrl}/api/pollers/${pollerId}/sysmon/disk${queryParams}`, {
-                        headers: {
-                            "X-API-Key": apiKey,
-                            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-                        },
-                        cache: "no-store",
-                    }),
-                    fetch(`${backendUrl}/api/pollers/${pollerId}/sysmon/memory${queryParams}`, {
-                        headers: {
-                            "X-API-Key": apiKey,
-                            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-                        },
-                        cache: "no-store",
-                    }),
-                ]);
-
-                const cpuData = cpuResponse.ok ? await cpuResponse.json() : null;
-                const diskData = diskResponse.ok ? await diskResponse.json() : null;
-                const memoryData = memoryResponse.ok ? await memoryResponse.json() : null;
-
-                sysmonData = {
-                    cpu: cpuData || { cpus: [], timestamp: end.toISOString() },
-                    disk: diskData || { disks: [], timestamp: end.toISOString() },
-                    memory: memoryData || { memory: { used_bytes: 0, total_bytes: 1 }, timestamp: end.toISOString() },
-                };
             } catch (sysmonError) {
-                console.error("Error fetching Sysmon data:", sysmonError);
+                console.error("Error fetching Sysmon data with fetchSystemData:", sysmonError);
+                // On error, sysmonData remains its default empty object
             }
         }
 
         return { service, metrics: serviceMetrics, snmpData, sysmonData, timeRange };
     } catch (err) {
         console.error("Error fetching data:", err);
-        return { error: (err as Error).message, service: null };
+        // Ensure all properties are returned, even on top-level error
+        return { error: (err as Error).message, service, metrics, snmpData, sysmonData, timeRange };
     }
 }
 
@@ -175,6 +125,7 @@ export default async function Page(props: PageProps) {
     const timeRange = resolvedSearchParams.timeRange || "1h";
     const cookieStore = await cookies();
     const token = cookieStore.get("accessToken")?.value;
+
     const initialData = await fetchServiceData(pollerid, servicename, timeRange, token);
 
     return (
@@ -194,7 +145,7 @@ export default async function Page(props: PageProps) {
                     initialService={initialData.service}
                     initialMetrics={initialData.metrics || []}
                     initialSnmpData={initialData.snmpData || []}
-                    initialSysmonData={initialData.sysmonData || {}}
+                    initialSysmonData={initialData.sysmonData || {}} // This now correctly receives SysmonData or {}
                     initialError={initialData.error}
                     initialTimeRange={initialData.timeRange || "1h"}
                 />
