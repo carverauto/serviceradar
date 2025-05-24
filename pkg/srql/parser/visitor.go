@@ -44,7 +44,9 @@ func (v *QueryVisitor) VisitEvaluable(ctx *gen.EvaluableContext) interface{} {
 
 func (v *QueryVisitor) VisitFunctionCall(ctx *gen.FunctionCallContext) interface{} {
 	funcName := strings.ToLower(ctx.ID().GetText()) // Lowercase function name by convention
+
 	var args []string
+
 	if argListCtx := ctx.ArgumentList(); argListCtx != nil {
 		// Assuming VisitArgumentList returns []string or []interface{} that can be converted to []string
 		rawArgs := v.VisitArgumentList(argListCtx.(*gen.ArgumentListContext)).([]interface{})
@@ -54,14 +56,17 @@ func (v *QueryVisitor) VisitFunctionCall(ctx *gen.FunctionCallContext) interface
 	} else if ctx.STAR() != nil { // For COUNT(*)
 		args = append(args, "*")
 	}
+
 	return fmt.Sprintf("%s(%s)", funcName, strings.Join(args, ", "))
 }
 
 func (v *QueryVisitor) VisitArgumentList(ctx *gen.ArgumentListContext) interface{} {
-	var args []interface{} // Return []interface{} as arguments can be of different types
+	args := make([]interface{}, 0, len(ctx.AllExpressionSelectItem()))
+
 	for _, selectItemCtx := range ctx.AllExpressionSelectItem() {
 		args = append(args, v.VisitExpressionSelectItem(selectItemCtx.(*gen.ExpressionSelectItemContext)))
 	}
+
 	return args
 }
 
@@ -69,12 +74,15 @@ func (v *QueryVisitor) VisitExpressionSelectItem(ctx *gen.ExpressionSelectItemCo
 	if ctx.Field() != nil {
 		return v.VisitField(ctx.Field().(*gen.FieldContext))
 	}
+
 	if ctx.FunctionCall() != nil {
 		return v.VisitFunctionCall(ctx.FunctionCall().(*gen.FunctionCallContext))
 	}
+
 	if ctx.Value() != nil {
 		return v.VisitValue(ctx.Value().(*gen.ValueContext))
 	}
+
 	return nil
 }
 
@@ -368,6 +376,7 @@ func (v *QueryVisitor) handleIsNullOperator(ctx *gen.ExpressionContext) models.C
 	evaluable := v.VisitEvaluable(ctx.Evaluable().(*gen.EvaluableContext)).(string)
 	nullValueCtx := ctx.NullValue().(*gen.NullValueContext)
 	isNotNull := nullValueCtx.NOT() != nil
+
 	return models.Condition{Field: evaluable, Operator: models.Is, Value: isNotNull}
 }
 

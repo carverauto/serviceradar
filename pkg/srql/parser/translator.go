@@ -301,34 +301,46 @@ type conditionFormatters struct {
 
 // formatDateCondition handles date(field) = TODAY/YESTERDAY specifically
 func (t *Translator) formatDateCondition(fieldName, translatedFieldName string, value interface{}) (string, bool) {
-	if sVal, ok := value.(string); ok {
-		upperVal := strings.ToUpper(sVal)
-		if upperVal != "TODAY" && upperVal != "YESTERDAY" {
-			return "", false
-		}
-
-		// For Proton and ClickHouse
-		if t.DBType == Proton || t.DBType == ClickHouse {
-			if upperVal == "TODAY" {
-				return fmt.Sprintf("%s = today()", translatedFieldName), true
-			} else { // YESTERDAY
-				return fmt.Sprintf("%s = yesterday()", translatedFieldName), true
-			}
-		}
-
-		// For ArangoDB
-		if t.DBType == ArangoDB {
-			now := time.Now() // Consider passing time via context for testability
-			if upperVal == "TODAY" {
-				todayDateStr := now.Format("2006-01-02")
-				return fmt.Sprintf("%s = '%s'", translatedFieldName, todayDateStr), true
-			} else { // YESTERDAY
-				yesterdayDateStr := now.AddDate(0, 0, -1).Format("2006-01-02")
-				return fmt.Sprintf("%s = '%s'", translatedFieldName, yesterdayDateStr), true
-			}
-		}
+	sVal, ok := value.(string)
+	if !ok {
+		return "", false
 	}
-	return "", false
+
+	upperVal := strings.ToUpper(sVal)
+	if upperVal != "TODAY" && upperVal != "YESTERDAY" {
+		return "", false
+	}
+
+	switch t.DBType {
+	case Proton, ClickHouse:
+		return t.formatProtonOrClickHouseDateCondition(translatedFieldName, upperVal), true
+	case ArangoDB:
+		return t.formatArangoDBDateCondition(translatedFieldName, upperVal), true
+	default:
+		return "", false
+	}
+}
+
+// formatProtonOrClickHouseDateCondition formats date conditions for Proton or ClickHouse
+func (t *Translator) formatProtonOrClickHouseDateCondition(fieldName string, dateValue string) string {
+	if dateValue == "TODAY" {
+		return fmt.Sprintf("%s = today()", fieldName)
+	}
+	// Must be YESTERDAY based on validation in formatDateCondition
+	return fmt.Sprintf("%s = yesterday()", fieldName)
+}
+
+// formatArangoDBDateCondition formats date conditions for ArangoDB
+func (t *Translator) formatArangoDBDateCondition(fieldName string, dateValue string) string {
+	now := time.Now() // Consider passing time via context for testability
+
+	if dateValue == "TODAY" {
+		todayDateStr := now.Format("2006-01-02")
+		return fmt.Sprintf("%s = '%s'", fieldName, todayDateStr)
+	}
+	// Must be YESTERDAY based on validation in formatDateCondition
+	yesterdayDateStr := now.AddDate(0, 0, -1).Format("2006-01-02")
+	return fmt.Sprintf("%s = '%s'", fieldName, yesterdayDateStr)
 }
 
 // formatOperatorCondition formats a condition based on its operator
@@ -368,6 +380,7 @@ func (t *Translator) formatCondition(cond *models.Condition, formatters conditio
 
 	// Fallback to existing generic formatters
 	fieldName := t.translateFieldName(rawFieldName, t.DBType == ArangoDB && !strings.Contains(rawFieldName, "("))
+
 	return t.formatOperatorCondition(fieldName, cond, formatters)
 }
 
@@ -639,7 +652,6 @@ func (t *Translator) formatArangoDBCondition(cond *models.Condition) string {
 	if strings.HasPrefix(srqlFieldName, "date(") &&
 		strings.HasSuffix(srqlFieldName, ")") &&
 		cond.Operator == models.Equals {
-
 		// Extract the actual field name from inside "date(...)"
 		// e.g., "date(timestamp)" becomes "timestamp"
 		innerField := strings.TrimSuffix(strings.TrimPrefix(srqlFieldName, "date("), ")")
@@ -832,6 +844,7 @@ func (t *Translator) translateFieldName(fieldName string, forArangoDoc bool) str
 		if t.DBType == Proton {
 			return fmt.Sprintf("to_date(%s)", innerField)
 		}
+
 		if t.DBType == ClickHouse {
 			return fmt.Sprintf("toDate(%s)", innerField) // Use toDate for ClickHouse
 		}
