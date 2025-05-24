@@ -1,27 +1,45 @@
 // src/components/ApiQueryClient.tsx
 'use client';
 
-import React, { useState, useCallback } from 'react';
-import dynamic from 'next/dynamic';
-import { Loader2, Send, AlertTriangle, Table, Code, Eye, EyeOff } from 'lucide-react';
+import React, { useState, useCallback, useEffect } from 'react';
+import { Loader2, Send, AlertTriangle, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '@/components/AuthProvider';
+import ReactJson from "@microlink/react-json-view";
 
-// Dynamically import react-json-view to reduce initial bundle size
-const ReactJson = dynamic(() => import('react-json-view'), {
-    ssr: false,
-    loading: () => <p>Loading JSON viewer...</p>,
-});
 
 type ViewFormat = 'json' | 'table';
 
 const ApiQueryClient: React.FC = () => {
     const [query, setQuery] = useState<string>('');
-    const [results, setResults] = useState<any>(null);
+    const [results, setResults] = useState<unknown>(null);
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [error, setError] = useState<string | null>(null);
     const [viewFormat, setViewFormat] = useState<ViewFormat>('json');
     const [showRawJson, setShowRawJson] = useState<boolean>(false);
-    const { token } = useAuth(); // Get token if needed for client-side fetch (though middleware handles it for /api/*)
+    const { token } = useAuth();
+
+    const [jsonViewTheme, setJsonViewTheme] = useState<'rjv-default' | 'pop'>('rjv-default');
+
+    useEffect(() => {
+        const updateTheme = () => {
+            if (document.documentElement.classList.contains('dark')) {
+                setJsonViewTheme('pop');
+            } else {
+                setJsonViewTheme('rjv-default');
+            }
+        };
+        updateTheme();
+        const observer = new MutationObserver((mutationsList) => {
+            for (const mutation of mutationsList) {
+                if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
+                    updateTheme();
+                }
+            }
+        });
+        observer.observe(document.documentElement, { attributes: true });
+        return () => observer.disconnect();
+    }, []);
+
 
     const handleSubmit = useCallback(async (e?: React.FormEvent<HTMLFormElement>) => {
         if (e) e.preventDefault();
@@ -35,12 +53,16 @@ const ApiQueryClient: React.FC = () => {
         setResults(null);
 
         try {
+            const headers: HeadersInit = {
+                'Content-Type': 'application/json',
+            };
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+
             const response = await fetch('/api/query', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    // Authorization will be added by middleware if token exists
-                },
+                headers,
                 body: JSON.stringify({ query }),
             });
 
@@ -57,18 +79,39 @@ const ApiQueryClient: React.FC = () => {
         } finally {
             setIsLoading(false);
         }
-    }, [query]);
+    }, [query, token]);
 
-    const renderResultsTable = (data: any) => {
+    const renderResultsTable = (data: unknown) => {
         if (data === null || typeof data === 'undefined') return <p className="text-gray-500 dark:text-gray-400">No data to display.</p>;
 
-        const dataArray = Array.isArray(data) ? data : (typeof data === 'object' ? [data] : []);
+        // If data is a primitive type (not an array or object), display it directly.
+        if (typeof data !== 'object' && !Array.isArray(data)) {
+            return (
+                <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                    <thead className="bg-gray-50 dark:bg-gray-700">
+                    <tr><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Value</th></tr>
+                    </thead>
+                    <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                    <tr><td className="px-6 py-4 whitespace-pre-wrap break-all text-sm text-gray-900 dark:text-gray-100">{String(data)}</td></tr>
+                    </tbody>
+                </table>
+            );
+        }
+
+        let dataArray: unknown[];
+        if (Array.isArray(data)) {
+            dataArray = data;
+        } else if (typeof data === 'object' && data !== null) { // data is a non-null object
+            dataArray = [data];
+        } else { // Should not be reached if primitive check above is exhaustive
+            return <p className="text-gray-500 dark:text-gray-400">Cannot render this data type as table.</p>;
+        }
+
 
         if (dataArray.length === 0) {
             return <p className="text-gray-500 dark:text-gray-400">Query returned no results or an empty structure.</p>;
         }
 
-        // Handle array of primitives
         if (dataArray.every(item => typeof item !== 'object' || item === null)) {
             return (
                 <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
@@ -84,10 +127,9 @@ const ApiQueryClient: React.FC = () => {
             );
         }
 
-        // Handle array of objects or single object
         const firstItem = dataArray[0];
         if (typeof firstItem !== 'object' || firstItem === null) {
-            return <p className="text-gray-500 dark:text-gray-400">Cannot render non-object data as a table. Try JSON view.</p>;
+            return <p className="text-gray-500 dark:text-gray-400">Table view expects an array of objects or a single object. Data structure is mixed or starts with a non-object. Try JSON view.</p>;
         }
         const headers = Object.keys(firstItem);
 
@@ -106,11 +148,14 @@ const ApiQueryClient: React.FC = () => {
                     <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                     {dataArray.map((row, rowIndex) => (
                         <tr key={rowIndex} className="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                            {headers.map((header) => (
-                                <td key={`${rowIndex}-${header}`} className="px-6 py-4 whitespace-pre-wrap break-all text-sm text-gray-900 dark:text-gray-100">
-                                    {typeof row[header] === 'object' ? JSON.stringify(row[header]) : String(row[header])}
-                                </td>
-                            ))}
+                            {headers.map((header) => {
+                                const cellValue = (typeof row === 'object' && row !== null) ? (row as Record<string,unknown>)[header] : undefined;
+                                return (
+                                    <td key={`${rowIndex}-${header}`} className="px-6 py-4 whitespace-pre-wrap break-all text-sm text-gray-900 dark:text-gray-100">
+                                        {typeof cellValue === 'object' ? JSON.stringify(cellValue) : String(cellValue ?? '')}
+                                    </td>
+                                );
+                            })}
                         </tr>
                     ))}
                     </tbody>
@@ -125,6 +170,7 @@ const ApiQueryClient: React.FC = () => {
         { name: "Pollers Health", query: "SELECT poller_id, is_healthy, last_update FROM pollers" },
         { name: "Specific Poller", query: "SELECT * FROM pollers WHERE poller_id = 'poller-01'" },
     ];
+
 
     return (
         <div className="space-y-6">
@@ -160,7 +206,7 @@ const ApiQueryClient: React.FC = () => {
                                 <option value="json">JSON</option>
                                 <option value="table">Table</option>
                             </select>
-                            {viewFormat === 'json' && results && (
+                            {viewFormat === 'json' && Boolean(results) && ( /* Changed here */
                                 <button
                                     type="button"
                                     onClick={() => setShowRawJson(!showRawJson)}
@@ -224,19 +270,19 @@ const ApiQueryClient: React.FC = () => {
                 </div>
             )}
 
-            {results && !isLoading && (
+            {results !== null && !isLoading && (
                 <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
                     <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Results</h3>
                     {viewFormat === 'json' ? (
                         showRawJson ? (
                             <pre className="bg-gray-50 dark:bg-gray-900 p-4 rounded-md overflow-auto text-sm text-gray-800 dark:text-gray-200 max-h-[600px]">
-                {JSON.stringify(results, null, 2)}
-                </pre>
+                                {JSON.stringify(results, null, 2)}
+                            </pre>
                         ) : (
                             typeof results !== 'undefined' ? (
                                 <ReactJson
-                                    src={typeof results === 'object' ? results : { value: results }}
-                                    theme={document.documentElement.classList.contains('dark') ? "pop" : "rjv-default"} // or other dark themes like 'ashes', 'monokai'
+                                    src={typeof results === 'object' && results !== null ? results : { value: results }}
+                                    theme={jsonViewTheme}
                                     collapsed={false}
                                     displayDataTypes={false}
                                     enableClipboard={true}
