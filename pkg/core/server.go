@@ -64,8 +64,6 @@ const (
 func NewServer(ctx context.Context, config *models.DBConfig) (*Server, error) {
 	normalizedConfig := normalizeConfig(config)
 
-	log.Printf("normalized config: %+v", normalizedConfig)
-
 	database, err := db.New(ctx, normalizedConfig)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errDatabaseError, err)
@@ -205,8 +203,6 @@ func (s *Server) flushSysmonMetrics(ctx context.Context) {
 		if len(sysmonMetrics) == 0 {
 			continue
 		}
-
-		log.Printf("Flushing %d sysmon metrics for poller %s", len(sysmonMetrics), pollerID)
 
 		for _, metric := range sysmonMetrics {
 			if err := s.DB.StoreSysmonMetrics(ctx, pollerID, metric, metric.CPUs[0].Timestamp); err != nil {

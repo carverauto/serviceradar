@@ -261,7 +261,7 @@ const ApiQueryClient: React.FC = () => {
                             name="query"
                             rows={5}
                             className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500"
-                            placeholder="e.g., SELECT * FROM services WHERE status = 'critical'"
+                            placeholder="e.g., SHOW DEVICES"
                             value={query}
                             onChange={(e) => setQuery(e.target.value)}
                         />
