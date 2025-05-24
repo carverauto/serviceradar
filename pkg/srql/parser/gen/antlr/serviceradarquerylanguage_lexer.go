@@ -1,4 +1,4 @@
-// Code generated from ServiceRadarQueryLanguage.g4 by ANTLR 4.13.2. DO NOT EDIT.
+// Code generated from antlr/ServiceRadarQueryLanguage.g4 by ANTLR 4.13.2. DO NOT EDIT.
 
 package gen
 
