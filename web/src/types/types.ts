@@ -81,7 +81,7 @@ export type ServiceDetails =
     | SweepDetails
     | SnmpDetails
     | RperfDetails
-    | RawBackendLanDiscoveryData // NEW ADDITION
+    | RawBackendLanDiscoveryData
     | { [key: string]: string | number | boolean | null | undefined | object | unknown[] }; // Broad type for general JSON objects
 
 // Core Service interface: Represents the essential attributes of a service.
