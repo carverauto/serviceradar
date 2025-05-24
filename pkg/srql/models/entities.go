@@ -10,6 +10,11 @@ const (
 	Connections EntityType = "connections"
 	Logs        EntityType = "logs"
 	Interfaces  EntityType = "interfaces"
+	// New Entity Types for versioned_kv streams
+
+	SweepResults EntityType = "sweep_results" // Maps to 'sweep_results' stream
+	ICMPResults  EntityType = "icmp_results"  // Maps to 'icmp_results' stream
+	SNMPResults  EntityType = "snmp_results"  // Maps to 'snmp_results' stream
 )
 
 // OperatorType represents a comparison operator
