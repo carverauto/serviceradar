@@ -3,19 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { env } from 'next-runtime-env';
 
 export async function POST(req: NextRequest) {
-    const apiKey = env("API_KEY") || "";  // Change this line
-    const apiUrl = env("NEXT_PUBLIC_API_URL") || "http://localhost:8090";  // And optionally this one
-
-    console.log("[API Query Route] Received request to /api/query");
-
-    // Add an explicit check for apiKey early on
-    if (!apiKey) {
-        console.error("[API Query Route] Error: API_KEY is not configured in the environment.");
-        return NextResponse.json(
-            { error: "Server configuration error: API key is missing." },
-            { status: 500 }
-        );
-    }
+    const apiKey = env("API_KEY") || "";
+    const apiUrl = env("NEXT_PUBLIC_API_URL") || "http://localhost:8090";
 
     try {
         const body = await req.json();
@@ -46,10 +35,6 @@ export async function POST(req: NextRequest) {
             // but the Go backend will likely do it if it's missing.
         }
 
-        console.log(`[API Query Route] Forwarding to: ${apiUrl}/api/query. API Key Present: ${apiKey ? 'Yes' : 'No'}, Auth Header Present: ${authHeader ? 'Yes' : 'No'}`);
-        // Sensitive values (actual key/token) should not be logged directly in production.
-        // The current logging of presence is good.
-
         const backendResponse = await fetch(`${apiUrl}/api/query`, {
             method: "POST",
             headers: headersToBackend,
@@ -57,7 +42,6 @@ export async function POST(req: NextRequest) {
             cache: "no-store",
         });
 
-        // ... (rest of your error handling and response forwarding)
         if (!backendResponse.ok) {
             let errorData;
             const contentType = backendResponse.headers.get("content-type");
@@ -67,7 +51,7 @@ export async function POST(req: NextRequest) {
                 const textError = await backendResponse.text();
                 errorData = { error: "Backend returned non-JSON error response", details: textError.substring(0, 500) };
             }
-            console.error(`[API Query Route] Backend error ${backendResponse.status}:`, errorData);
+
             return NextResponse.json(
                 errorData || { error: "Failed to execute query on backend" },
                 { status: backendResponse.status },
@@ -78,7 +62,6 @@ export async function POST(req: NextRequest) {
         return NextResponse.json(responseData);
 
     } catch (error) {
-        console.error("[API Query Route] Error in route handler:", error);
         const errorMessage = error instanceof Error ? error.message : "Internal server error";
         return NextResponse.json(
             { error: "Internal server error processing query", details: errorMessage },
