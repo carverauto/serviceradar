@@ -65,6 +65,13 @@ function Navbar() {
                 {dropdownOpen && (
                     <div className="absolute top-full right-0 mt-2 w-48 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-md shadow-lg z-10">
                       <Link
+                          href="/query"
+                          className="block px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600"
+                          onClick={() => setDropdownOpen(false)} // Close dropdown on click
+                      >
+                        Query Tool
+                      </Link>
+                      <Link
                           href="/swagger/index.html"
                           className="block px-4 py-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600"
                       >
@@ -115,6 +122,9 @@ function Navbar() {
                   </Link>
                   <Link href="/pollers" onClick={() => {}} className="block px-2 py-1 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
                     Pollers
+                  </Link>
+                  <Link href="/query" onClick={toggleMobileMenu} className="block px-2 py-1 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
+                    Query Tool
                   </Link>
                   <Link href="/swagger/index.html" onClick={() => {}} className="block px-2 py-1 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
                     API Docs
