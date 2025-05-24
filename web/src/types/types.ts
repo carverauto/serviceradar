@@ -87,7 +87,7 @@ export type ServiceDetails =
 // Core Service interface: Represents the essential attributes of a service.
 // This is suitable for general display or when only core properties are needed.
 export interface Service {
-  id?: string; // Added: Optional ID for the service itself, often present in API responses
+  id?: string;
   group: string; // The logical group this service belongs to
   status: string; // The service's current operational status (e.g., "OK", "ERROR", "UP", "DOWN")
   name: string; // Human-readable name of the service (e.g., "Ping Service")
