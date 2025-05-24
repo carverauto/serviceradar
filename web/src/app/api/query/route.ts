@@ -1,10 +1,25 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 // src/app/api/query/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { env } from "next-runtime-env";
 
 export async function POST(req: NextRequest) {
-    const apiKey = env("API_KEY") || ""; // Server-side env
-    const apiUrl = env("NEXT_PUBLIC_API_URL") || "http://localhost:8090"; // Server-side env
+    const apiKey = process.env.API_KEY || "";
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090";
 
     try {
         const body = await req.json();
@@ -17,19 +32,24 @@ export async function POST(req: NextRequest) {
             );
         }
 
-        // Headers from the incoming request (managed by middleware.ts)
-        // The middleware should have already added X-API-Key and Authorization if applicable.
-        // We just need to ensure Content-Type is set for the backend.
-        const requestHeaders = new Headers(req.headers); // Clone headers from middleware
-        requestHeaders.set("Content-Type", "application/json");
-        // Remove host header to avoid issues with proxies
-        requestHeaders.delete("host");
+        // Get the authorization header if it exists
+        const authHeader = req.headers.get("Authorization");
 
+        // Create headers with API key and Content-Type
+        const headers: HeadersInit = {
+            "Content-Type": "application/json",
+            "X-API-Key": apiKey,
+        };
+
+        // Add Authorization header if present
+        if (authHeader) {
+            headers["Authorization"] = authHeader;
+        }
 
         const backendResponse = await fetch(`${apiUrl}/api/query`, {
             method: "POST",
-            headers: requestHeaders, // Pass through headers from middleware + Content-Type
-            body: JSON.stringify({ query }), // Send the query in the expected format
+            headers,
+            body: JSON.stringify({ query }),
             cache: "no-store",
         });
 
