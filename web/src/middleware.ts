@@ -53,6 +53,9 @@ export async function middleware(request: NextRequest) {
       request.nextUrl.pathname.startsWith(path)
   );
 
+  console.log(`[Middleware] Processing request: ${request.nextUrl.pathname}`);
+  console.log(`[Middleware] Adding X-API-Key: ${apiKey ? 'Yes' : 'No'}`);
+
   // Also consider API paths as special case
   const isApiPath = request.nextUrl.pathname.startsWith("/api/");
 
