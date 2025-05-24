@@ -1,10 +1,10 @@
 // src/app/api/query/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { env } from "next-runtime-env";
+import { env } from 'next-runtime-env';
 
 export async function POST(req: NextRequest) {
-    const apiKey = env("API_KEY") || ""; // Server-side env
-    const apiUrl = env("NEXT_PUBLIC_API_URL") || "http://localhost:8090"; // Server-side env
+    const apiKey = env("API_KEY") || "";
+    const apiUrl = env("NEXT_PUBLIC_API_URL") || "http://localhost:8090";
 
     try {
         const body = await req.json();
@@ -17,34 +17,51 @@ export async function POST(req: NextRequest) {
             );
         }
 
-        // Headers from the incoming request (managed by middleware.ts)
-        // The middleware should have already added X-API-Key and Authorization if applicable.
-        // We just need to ensure Content-Type is set for the backend.
-        const requestHeaders = new Headers(req.headers); // Clone headers from middleware
-        requestHeaders.set("Content-Type", "application/json");
-        // Remove host header to avoid issues with proxies
-        requestHeaders.delete("host");
+        const authHeader = req.headers.get("Authorization");
+        const headersToBackend: HeadersInit = {
+            "Content-Type": "application/json",
+            "X-API-Key": apiKey,
+        };
 
+        if (authHeader) {
+            headersToBackend["Authorization"] = authHeader;
+        } else {
+            // If AUTH_ENABLED is true (implicitly, as backend requires token),
+            // and authHeader is missing, this indicates a problem.
+            // Middleware should ideally catch this if AUTH_ENABLED=true and cookie is missing.
+            // If APIQueryClient also failed to send a token, this is where it would be missing.
+            console.warn("[API Query Route] Authorization header is missing from the incoming request.");
+            // Depending on how strict AUTH_ENABLED is, you might return 401 here,
+            // but the Go backend will likely do it if it's missing.
+        }
 
         const backendResponse = await fetch(`${apiUrl}/api/query`, {
             method: "POST",
-            headers: requestHeaders, // Pass through headers from middleware + Content-Type
-            body: JSON.stringify({ query }), // Send the query in the expected format
+            headers: headersToBackend,
+            body: JSON.stringify({ query }),
             cache: "no-store",
         });
 
-        const responseData = await backendResponse.json();
-
         if (!backendResponse.ok) {
+            let errorData;
+            const contentType = backendResponse.headers.get("content-type");
+            if (contentType && contentType.includes("application/json")) {
+                errorData = await backendResponse.json();
+            } else {
+                const textError = await backendResponse.text();
+                errorData = { error: "Backend returned non-JSON error response", details: textError.substring(0, 500) };
+            }
+
             return NextResponse.json(
-                responseData || { error: "Failed to execute query on backend" },
+                errorData || { error: "Failed to execute query on backend" },
                 { status: backendResponse.status },
             );
         }
 
+        const responseData = await backendResponse.json();
         return NextResponse.json(responseData);
+
     } catch (error) {
-        console.error("Error in /api/query route:", error);
         const errorMessage = error instanceof Error ? error.message : "Internal server error";
         return NextResponse.json(
             { error: "Internal server error processing query", details: errorMessage },
