@@ -44,7 +44,7 @@ import LanDiscoveryDashboard from "@/components/LANDiscoveryDashboard";
 interface ServiceDashboardProps {
     pollerId: string;
     serviceName: string;
-    initialService?: ServicePayload | null; // CHANGED: Use ServicePayload here
+    initialService?: ServicePayload | null;
     initialMetrics?: ServiceMetric[];
     initialSnmpData?: SnmpDataPoint[];
     initialSysmonData?: SysmonData | Record<string, never>;
@@ -61,8 +61,8 @@ const ServiceDashboard: React.FC<ServiceDashboardProps> = ({
                                                                initialError = null,
                                                                initialTimeRange = "1h",
                                                            }) => {
-    const router = useRouter(); // <-- CHANGED: Correct useRouter hook usage
-    const [serviceData] = useState<ServicePayload | null>(initialService); // CHANGED: serviceData state also uses ServicePayload
+    const router = useRouter();
+    const [serviceData] = useState<ServicePayload | null>(initialService);
     const [metricsData] = useState<ServiceMetric[]>(initialMetrics);
     const [snmpData] = useState<SnmpDataPoint[]>(initialSnmpData);
     const [loading] = useState(!initialService && !initialError);
