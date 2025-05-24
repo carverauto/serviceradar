@@ -19,6 +19,66 @@ type ServiceRadarQueryLanguageListener interface {
 	// EnterCountStatement is called when entering the countStatement production.
 	EnterCountStatement(c *CountStatementContext)
 
+	// EnterStreamStatement is called when entering the streamStatement production.
+	EnterStreamStatement(c *StreamStatementContext)
+
+	// EnterSelectList is called when entering the selectList production.
+	EnterSelectList(c *SelectListContext)
+
+	// EnterSelectExpressionElement is called when entering the selectExpressionElement production.
+	EnterSelectExpressionElement(c *SelectExpressionElementContext)
+
+	// EnterExpressionSelectItem is called when entering the expressionSelectItem production.
+	EnterExpressionSelectItem(c *ExpressionSelectItemContext)
+
+	// EnterFunctionCall is called when entering the functionCall production.
+	EnterFunctionCall(c *FunctionCallContext)
+
+	// EnterArgumentList is called when entering the argumentList production.
+	EnterArgumentList(c *ArgumentListContext)
+
+	// EnterDataSource is called when entering the dataSource production.
+	EnterDataSource(c *DataSourceContext)
+
+	// EnterStreamSourcePrimary is called when entering the streamSourcePrimary production.
+	EnterStreamSourcePrimary(c *StreamSourcePrimaryContext)
+
+	// EnterWindowFunction is called when entering the windowFunction production.
+	EnterWindowFunction(c *WindowFunctionContext)
+
+	// EnterDurationOrField is called when entering the durationOrField production.
+	EnterDurationOrField(c *DurationOrFieldContext)
+
+	// EnterDuration is called when entering the duration production.
+	EnterDuration(c *DurationContext)
+
+	// EnterJoinPart is called when entering the joinPart production.
+	EnterJoinPart(c *JoinPartContext)
+
+	// EnterJoinType is called when entering the joinType production.
+	EnterJoinType(c *JoinTypeContext)
+
+	// EnterWhereClause is called when entering the whereClause production.
+	EnterWhereClause(c *WhereClauseContext)
+
+	// EnterGroupByClause is called when entering the groupByClause production.
+	EnterGroupByClause(c *GroupByClauseContext)
+
+	// EnterFieldList is called when entering the fieldList production.
+	EnterFieldList(c *FieldListContext)
+
+	// EnterHavingClause is called when entering the havingClause production.
+	EnterHavingClause(c *HavingClauseContext)
+
+	// EnterOrderByClauseS is called when entering the orderByClauseS production.
+	EnterOrderByClauseS(c *OrderByClauseSContext)
+
+	// EnterLimitClauseS is called when entering the limitClauseS production.
+	EnterLimitClauseS(c *LimitClauseSContext)
+
+	// EnterEmitClause is called when entering the emitClause production.
+	EnterEmitClause(c *EmitClauseContext)
+
 	// EnterEntity is called when entering the entity production.
 	EnterEntity(c *EntityContext)
 
@@ -63,6 +123,66 @@ type ServiceRadarQueryLanguageListener interface {
 
 	// ExitCountStatement is called when exiting the countStatement production.
 	ExitCountStatement(c *CountStatementContext)
+
+	// ExitStreamStatement is called when exiting the streamStatement production.
+	ExitStreamStatement(c *StreamStatementContext)
+
+	// ExitSelectList is called when exiting the selectList production.
+	ExitSelectList(c *SelectListContext)
+
+	// ExitSelectExpressionElement is called when exiting the selectExpressionElement production.
+	ExitSelectExpressionElement(c *SelectExpressionElementContext)
+
+	// ExitExpressionSelectItem is called when exiting the expressionSelectItem production.
+	ExitExpressionSelectItem(c *ExpressionSelectItemContext)
+
+	// ExitFunctionCall is called when exiting the functionCall production.
+	ExitFunctionCall(c *FunctionCallContext)
+
+	// ExitArgumentList is called when exiting the argumentList production.
+	ExitArgumentList(c *ArgumentListContext)
+
+	// ExitDataSource is called when exiting the dataSource production.
+	ExitDataSource(c *DataSourceContext)
+
+	// ExitStreamSourcePrimary is called when exiting the streamSourcePrimary production.
+	ExitStreamSourcePrimary(c *StreamSourcePrimaryContext)
+
+	// ExitWindowFunction is called when exiting the windowFunction production.
+	ExitWindowFunction(c *WindowFunctionContext)
+
+	// ExitDurationOrField is called when exiting the durationOrField production.
+	ExitDurationOrField(c *DurationOrFieldContext)
+
+	// ExitDuration is called when exiting the duration production.
+	ExitDuration(c *DurationContext)
+
+	// ExitJoinPart is called when exiting the joinPart production.
+	ExitJoinPart(c *JoinPartContext)
+
+	// ExitJoinType is called when exiting the joinType production.
+	ExitJoinType(c *JoinTypeContext)
+
+	// ExitWhereClause is called when exiting the whereClause production.
+	ExitWhereClause(c *WhereClauseContext)
+
+	// ExitGroupByClause is called when exiting the groupByClause production.
+	ExitGroupByClause(c *GroupByClauseContext)
+
+	// ExitFieldList is called when exiting the fieldList production.
+	ExitFieldList(c *FieldListContext)
+
+	// ExitHavingClause is called when exiting the havingClause production.
+	ExitHavingClause(c *HavingClauseContext)
+
+	// ExitOrderByClauseS is called when exiting the orderByClauseS production.
+	ExitOrderByClauseS(c *OrderByClauseSContext)
+
+	// ExitLimitClauseS is called when exiting the limitClauseS production.
+	ExitLimitClauseS(c *LimitClauseSContext)
+
+	// ExitEmitClause is called when exiting the emitClause production.
+	ExitEmitClause(c *EmitClauseContext)
 
 	// ExitEntity is called when exiting the entity production.
 	ExitEntity(c *EntityContext)
