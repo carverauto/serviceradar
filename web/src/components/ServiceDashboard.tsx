@@ -18,7 +18,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useRouter } from "next/navigation"; // <-- CHANGED: Revert to useRouter from next/navigation
+import { useRouter } from "next/navigation";
 import {
     XAxis,
     YAxis,
@@ -35,7 +35,7 @@ import SNMPDashboard from "./SNMPDashboard";
 import { ArrowLeft } from "lucide-react";
 import { ServiceMetric, ServiceDetails, ServicePayload } from "@/types/types";
 import { SnmpDataPoint } from "@/types/snmp";
-import { SysmonData } from "@/types/sysmon"; // <-- CHANGED: Direct import for SysmonData
+import { SysmonData } from "@/types/sysmon";
 import RPerfDashboard from "@/components/RPerfDashboard";
 import LanDiscoveryDashboard from "@/components/LANDiscoveryDashboard";
 
