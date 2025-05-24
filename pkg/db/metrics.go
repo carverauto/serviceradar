@@ -46,11 +46,11 @@ func (db *DB) queryTimeseriesMetrics(
 	start, end time.Time,
 ) ([]models.TimeseriesMetric, error) {
 	query := fmt.Sprintf(`
-		SELECT metric_name, metric_type, value, metadata, timestamp
-		FROM table(timeseries_metrics)
-		WHERE poller_id = $1
-		AND %s = $2
-		AND timestamp BETWEEN $3 AND $4`, filterColumn)
+        SELECT metric_name, metric_type, value, metadata, timestamp, target_device_ip, ifIndex 
+        FROM table(timeseries_metrics)
+        WHERE poller_id = $1
+        AND %s = $2
+        AND timestamp BETWEEN $3 AND $4`, filterColumn)
 
 	rows, err := db.Conn.Query(ctx, query, pollerID, filterValue, start, end)
 	if err != nil {
@@ -63,27 +63,31 @@ func (db *DB) queryTimeseriesMetrics(
 	for rows.Next() {
 		var metric models.TimeseriesMetric
 
-		var metadataStr string
+		var metadataMap map[string]string
 
+		// Ensure your models.TimeseriesMetric includes TargetDeviceIP and IfIndex fields
+		// if they are not already there. Let's assume they are for now.
 		err := rows.Scan(
 			&metric.Name,
 			&metric.Type,
 			&metric.Value,
-			&metadataStr,
+			&metadataMap, // <<<< CHANGED: Scan directly into the map
 			&metric.Timestamp,
+			&metric.TargetDeviceIP, // Scan new field
+			&metric.IfIndex,        // Scan new field
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan metric row: %w", err)
 		}
 
-		if metadataStr != "" {
-			var rawMetadata json.RawMessage
-
-			if err := json.Unmarshal([]byte(metadataStr), &rawMetadata); err != nil {
-				log.Printf("Warning: failed to unmarshal metadata for metric %s: %v. Raw: %s", metric.Name, err, metadataStr)
-			} else {
-				metric.Metadata = rawMetadata
-			}
+		// Assign the scanned map to metric.Metadata (which should be interface{} or map[string]string)
+		// If metric.Metadata is interface{}, this direct assignment is fine.
+		// If it's json.RawMessage, you'd need to marshal metadataMap to JSON if that's the desired model structure.
+		// Assuming metric.Metadata is interface{} and can hold map[string]string:
+		if metadataMap != nil { // Only assign if not nil, to avoid nil map in model if DB stores empty map as nil
+			metric.Metadata = metadataMap
+		} else {
+			metric.Metadata = make(map[string]string) // Or nil, depending on desired model state
 		}
 
 		metrics = append(metrics, metric)
@@ -286,19 +290,29 @@ func (db *DB) GetCPUMetrics(ctx context.Context, pollerID string, coreID int, st
 // StoreMetric stores a timeseries metric in the database.
 // This is optimized to use batch operations internally, making a single metric
 // store functionally similar to the batch operation but with a simpler API.
+// StoreMetric stores a timeseries metric in the database.
 func (db *DB) StoreMetric(ctx context.Context, pollerID string, metric *models.TimeseriesMetric) error {
-	log.Printf("Storing metric: %v", metric)
+	log.Printf("Storing single metric: PollerID=%s, Name=%s, TargetIP=%s, IfIndex=%d", pollerID, metric.Name, metric.TargetDeviceIP, metric.IfIndex)
 
-	// Convert metadata to JSON string
-	var metadataStr string
-
+	var finalMetadata map[string]string
 	if metric.Metadata != nil {
-		metadataBytes, err := json.Marshal(metric.Metadata)
-		if err != nil {
-			return fmt.Errorf("failed to marshal metadata: %w", err)
+		var ok bool
+		finalMetadata, ok = metric.Metadata.(map[string]string)
+		if !ok {
+			log.Printf("Warning (StoreMetric): metric.Metadata for %s (poller: %s, target: %s) is not map[string]string, attempting conversion. Original type: %T", metric.Name, pollerID, metric.TargetDeviceIP, metric.Metadata)
+			tempMeta, isMapInterface := metric.Metadata.(map[string]interface{})
+			if isMapInterface {
+				finalMetadata = make(map[string]string)
+				for k, v := range tempMeta {
+					finalMetadata[k] = fmt.Sprintf("%v", v)
+				}
+			} else {
+				log.Printf("Warning (StoreMetric): metric.Metadata for %s (poller: %s, target: %s) was not map[string]interface{} either. Using empty map.", metric.Name, pollerID, metric.TargetDeviceIP)
+				finalMetadata = make(map[string]string)
+			}
 		}
-
-		metadataStr = string(metadataBytes)
+	} else {
+		finalMetadata = make(map[string]string)
 	}
 
 	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO timeseries_metrics (* except _tp_time)")
@@ -313,10 +327,11 @@ func (db *DB) StoreMetric(ctx context.Context, pollerID string, metric *models.T
 		metric.Name,
 		metric.Type,
 		metric.Value,
-		metadataStr,
+		finalMetadata, // Pass the map[string]string
 		metric.Timestamp,
 	)
 	if err != nil {
+		log.Printf("Failed to append single metric %s (poller: %s, target: %s) to batch: %v. Metadata type used: %T, Metadata content: %+v", metric.Name, pollerID, metric.TargetDeviceIP, err, finalMetadata, finalMetadata)
 		return fmt.Errorf("failed to append metric: %w", err)
 	}
 
@@ -391,17 +406,10 @@ func (db *DB) StoreMetrics(ctx context.Context, pollerID string, metrics []*mode
 		var finalMetadata map[string]string // Ensure this is map[string]string
 
 		if metric.Metadata != nil {
-			// Type assertion: Assume metric.Metadata is already map[string]string
-			// or can be safely converted. If it's map[string]interface{}, you'd
-			// need to iterate and convert.
 			var ok bool
 			finalMetadata, ok = metric.Metadata.(map[string]string)
 			if !ok {
-				// Handle the case where metric.Metadata is not map[string]string
-				// This might involve converting map[string]interface{} to map[string]string
-				// or logging an error if the type is unexpected.
-				// For simplicity now, let's assume it can be cast or is nil.
-				log.Printf("Warning: metric.Metadata for %s is not map[string]string, attempting conversion or using empty map", metric.Name)
+				log.Printf("Warning: metric.Metadata for %s (poller: %s, target: %s) is not map[string]string, attempting conversion or using empty map. Original type: %T", metric.Name, pollerID, metric.TargetDeviceIP, metric.Metadata)
 				tempMeta, isMapInterface := metric.Metadata.(map[string]interface{})
 				if isMapInterface {
 					finalMetadata = make(map[string]string)
@@ -409,15 +417,19 @@ func (db *DB) StoreMetrics(ctx context.Context, pollerID string, metrics []*mode
 						finalMetadata[k] = fmt.Sprintf("%v", v) // Convert all values to string
 					}
 				} else {
-					finalMetadata = make(map[string]string) // Use empty map if conversion fails
+					// If not map[string]interface{}, and not map[string]string, use an empty map.
+					// This could happen if Metadata is e.g. json.RawMessage or another unexpected type.
+					log.Printf("Warning: metric.Metadata for %s (poller: %s, target: %s) was not map[string]interface{} either. Using empty map.", metric.Name, pollerID, metric.TargetDeviceIP)
+					finalMetadata = make(map[string]string)
 				}
 			}
 		} else {
 			finalMetadata = make(map[string]string) // Use empty map if metric.Metadata is nil
 		}
 
+		// IMPORTANT: Use the pollerID from the function arguments for the first column
 		err = batch.Append(
-			metric.PollerID,
+			pollerID, // Use the function argument pollerID for the 'poller_id' stream column
 			metric.TargetDeviceIP,
 			metric.IfIndex,
 			metric.Name,
@@ -427,15 +439,12 @@ func (db *DB) StoreMetrics(ctx context.Context, pollerID string, metrics []*mode
 			metric.Timestamp,
 		)
 		if err != nil {
-			log.Printf("Failed to append metric %s: %v", metric.Name, err)
-			// If one append fails, the whole batch might be problematic for some drivers.
-			// It's safer to return an error immediately or collect errors and not send the batch.
-			// For now, let's try returning the error to prevent the panic:
+			// Log the full error from batch.Append
+			log.Printf("Failed to append metric %s (poller: %s, target: %s) to batch: %v. Metadata type used: %T, Metadata content: %+v", metric.Name, pollerID, metric.TargetDeviceIP, err, finalMetadata, finalMetadata)
 			return fmt.Errorf("failed to append metric %s to batch: %w", metric.Name, err)
 		}
 	}
 
-	// Only send if all appends were successful (or if you decide to handle partial batches, which is complex)
 	if err := batch.Send(); err != nil {
 		return fmt.Errorf("failed to store metrics batch: %w", err)
 	}

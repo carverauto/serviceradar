@@ -132,7 +132,7 @@ type TimeseriesMetric struct {
 	Value          string      `json:"value"` // Store as string for flexibility
 	Type           string      `json:"type"`  // Metric type identifier
 	Timestamp      time.Time   `json:"timestamp"`
-	Metadata       interface{} `json:"metadata"`
+	Metadata       interface{} `json:"metadata,omitempty"` // Can hold map[string]string or map[string]interface{}
 }
 
 // SNMPMetric represents an SNMP metric.
