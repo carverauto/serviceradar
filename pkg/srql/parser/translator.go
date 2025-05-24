@@ -3,6 +3,7 @@ package parser
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/carverauto/serviceradar/pkg/srql/models"
 )
@@ -300,7 +301,42 @@ type conditionFormatters struct {
 
 // formatCondition is a generic condition formatter for SQL databases.
 func (t *Translator) formatCondition(cond *models.Condition, formatters conditionFormatters) string {
-	fieldName := strings.ToLower(cond.Field)
+	rawFieldName := cond.Field // Can be "field" or "func(field)"
+	operator := cond.Operator
+	rawValue := cond.Value
+
+	// Handle date(field) = TODAY/YESTERDAY specifically
+	if lowerRawFieldName := strings.ToLower(rawFieldName); strings.HasPrefix(lowerRawFieldName, "date(") &&
+		operator == models.Equals {
+		if sVal, ok := rawValue.(string); ok {
+			translatedFieldName := t.translateFieldName(rawFieldName, t.DBType == ArangoDB) // pass Arango context
+
+			// For Proton and ClickHouse
+			if t.DBType == Proton || t.DBType == ClickHouse {
+				switch strings.ToUpper(sVal) {
+				case "TODAY":
+					return fmt.Sprintf("%s = today()", translatedFieldName)
+				case "YESTERDAY":
+					return fmt.Sprintf("%s = yesterday()", translatedFieldName)
+				}
+			}
+			// For ArangoDB
+			if t.DBType == ArangoDB {
+				now := time.Now() // Consider passing time via context for testability
+				todayDateStr := now.Format("2006-01-02")
+				yesterdayDateStr := now.AddDate(0, 0, -1).Format("2006-01-02")
+				switch strings.ToUpper(sVal) {
+				case "TODAY":
+					return fmt.Sprintf("%s = '%s'", translatedFieldName, todayDateStr)
+				case "YESTERDAY":
+					return fmt.Sprintf("%s = '%s'", translatedFieldName, yesterdayDateStr)
+				}
+			}
+		}
+	}
+
+	// Fallback to existing generic formatters
+	fieldName := t.translateFieldName(rawFieldName, t.DBType == ArangoDB && !strings.Contains(rawFieldName, "("))
 
 	switch {
 	case t.isComparisonOperator(cond.Operator):
@@ -365,7 +401,26 @@ func (*Translator) isComparisonOperator(op models.OperatorType) bool {
 
 // formatComparisonCondition formats a basic comparison condition.
 func (t *Translator) formatComparisonCondition(fieldName string, op models.OperatorType, value interface{}) string {
-	return fmt.Sprintf("%s %s %s", fieldName, op, t.formatClickHouseValue(value)) // Reuse ClickHouse value formatter for both
+	// fieldName is now pre-translated if it was a function like toDate(timestamp)
+	// or doc.field for Arango.
+	// Value is the original value from the query (e.g. "some_string", 123)
+	// It does NOT include "TODAY" or "YESTERDAY" here if handled above.
+	return fmt.Sprintf("%s %s %s", fieldName, op, t.formatGenericValue(value, t.DBType))
+}
+
+func (t *Translator) formatGenericValue(value interface{}, dbType DatabaseType) string {
+	// This function should handle basic types correctly for each DB.
+	// It should NOT re-interpret "TODAY" or "YESTERDAY" as they are handled earlier.
+	switch dbType {
+	case Proton:
+		return t.formatProtonValue(value)
+	case ClickHouse:
+		return t.formatClickHouseValue(value)
+	case ArangoDB:
+		return t.formatArangoDBValue(value)
+	default:
+		return fmt.Sprintf("%v", value) // Basic fallback
+	}
 }
 
 // formatProtonLikeCondition formats a LIKE condition.
@@ -690,6 +745,37 @@ func (*Translator) formatArangoDBValue(value interface{}) string {
 	default:
 		return fmt.Sprintf("%v", v)
 	}
+}
+
+func (t *Translator) translateFieldName(fieldName string, forArangoDoc bool) string {
+	lowerFieldName := strings.ToLower(fieldName)
+
+	if strings.HasPrefix(lowerFieldName, "date(") && strings.HasSuffix(lowerFieldName, ")") {
+		// Extract actual field name from "date(actual_field)"
+		innerField := strings.TrimSuffix(strings.TrimPrefix(lowerFieldName, "date("), ")")
+
+		if t.DBType == Proton || t.DBType == ClickHouse {
+			return fmt.Sprintf("toDate(%s)", innerField)
+		}
+
+		if t.DBType == ArangoDB {
+			// For ArangoDB, if timestamp is stored as ISO8601 string.
+			// This extracts 'YYYY-MM-DD' part.
+			// AQL's DATE_TRUNC might be better if available and applicable.
+			if forArangoDoc {
+				return fmt.Sprintf("SUBSTRING(doc.%s, 0, 10)", innerField)
+			}
+
+			return fmt.Sprintf("SUBSTRING(%s, 0, 10)", innerField) // For general use if not in doc context
+		}
+	}
+
+	// Default field handling (lowercase and prefix for ArangoDB)
+	if t.DBType == ArangoDB && forArangoDoc && !strings.Contains(lowerFieldName, ".") { // simple field for arango
+		return fmt.Sprintf("doc.%s", lowerFieldName)
+	}
+
+	return lowerFieldName
 }
 
 // translateOperator maps operator types to their string representations
