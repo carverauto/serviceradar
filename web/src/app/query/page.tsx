@@ -1,11 +1,8 @@
+'use client';
+
 // src/app/query/page.tsx
 import React, { Suspense } from 'react';
 import ApiQueryClient from "@/components/APIQueryClient";
-
-export const metadata = {
-    title: 'API Query Tool - ServiceRadar',
-    description: 'Execute queries against the ServiceRadar API.',
-};
 
 export default function QueryPage() {
     return (
