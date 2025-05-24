@@ -72,6 +72,8 @@ func TestSRQLParsingAndTranslation(t *testing.T) { // Renamed for clarity
 			name:  "Simple show query for devices",
 			query: "show devices",
 			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				assert.Equal(t, models.Show, query.Type)
 				assert.Equal(t, models.Devices, query.Entity)
@@ -82,13 +84,14 @@ func TestSRQLParsingAndTranslation(t *testing.T) { // Renamed for clarity
 				assert.Equal(t, "FOR doc IN devices\n  RETURN doc", aql)
 				sqlP, _ := protonTranslator.Translate(query)
 				assert.Equal(t, "SELECT * FROM table(devices)", sqlP)
-
 			},
 		},
 		{
 			name:  "Show query for devices with IP condition",
 			query: "show devices where ip = '192.168.1.1'",
 			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				assert.Equal(t, models.Show, query.Type)
 				assert.Equal(t, models.Devices, query.Entity)
@@ -108,6 +111,8 @@ func TestSRQLParsingAndTranslation(t *testing.T) { // Renamed for clarity
 			query:         "shoe devices",
 			expectedError: true,
 			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
+
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), "syntax error") // Or the specific error from your listener
 				assert.Nil(t, query)
@@ -118,6 +123,8 @@ func TestSRQLParsingAndTranslation(t *testing.T) { // Renamed for clarity
 			name:  "Show sweep_results for TODAY and available",
 			query: "show sweep_results where date(timestamp) = TODAY and available = true",
 			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				assert.Equal(t, models.Show, query.Type)
 				assert.Equal(t, models.SweepResults, query.Entity) // Make sure this entity type is correct
@@ -139,19 +146,23 @@ func TestSRQLParsingAndTranslation(t *testing.T) { // Renamed for clarity
 				// Test Proton translation
 				sqlP, errP := protonTranslator.Translate(query)
 				require.NoError(t, errP)
-				assert.Equal(t, "SELECT * FROM table(sweep_results) WHERE to_date(timestamp) = today() AND available = true", sqlP)
+				assert.Equal(t, "SELECT * FROM table(sweep_results) "+
+					"WHERE to_date(timestamp) = today() AND available = true", sqlP)
 
 				// Test ClickHouse translation
 				sqlCH, errCH := clickhouseTranslator.Translate(query)
 				require.NoError(t, errCH)
-				assert.Equal(t, "SELECT * FROM sweep_results WHERE toDate(timestamp) = today() AND available = true", sqlCH) // Assuming toDate for CH
+				assert.Equal(t, "SELECT * FROM sweep_results WHERE "+
+					"toDate(timestamp) = today() AND available = true", sqlCH) // Assuming toDate for CH
 
 				// Test ArangoDB translation
 				aql, errA := arangoTranslator.Translate(query)
 				require.NoError(t, errA)
 				todayDateStr := time.Now().Format("2006-01-02")
 				// Assuming SUBSTRING for Arango if timestamp is string, or DATE_TRUNC if native date
-				expectedAQL := fmt.Sprintf("FOR doc IN sweep_results\n  FILTER SUBSTRING(doc.timestamp, 0, 10) == '%s' AND doc.available == true\n  RETURN doc", todayDateStr)
+				expectedAQL := fmt.Sprintf("FOR doc IN sweep_results\n  "+
+					"FILTER SUBSTRING(doc.timestamp, 0, 10) == '%s' AND doc.available == true\n  "+
+					"RETURN doc", todayDateStr)
 				assert.Equal(t, expectedAQL, aql)
 			},
 		},
@@ -159,26 +170,32 @@ func TestSRQLParsingAndTranslation(t *testing.T) { // Renamed for clarity
 			name:  "Show sweep_results for YESTERDAY and not available",
 			query: "show sweep_results where date(timestamp) = YESTERDAY and available = false",
 			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				assert.Equal(t, models.SweepResults, query.Entity)
 				require.Len(t, query.Conditions, 2)
 
 				assert.Equal(t, "date(timestamp)", query.Conditions[0].Field)
 				assert.Equal(t, "YESTERDAY", query.Conditions[0].Value)
-				assert.Equal(t, false, query.Conditions[1].Value.(bool)) // Ensure boolean parsing
+				assert.False(t, query.Conditions[1].Value.(bool)) // Ensure boolean parsing
 
 				// Proton
 				sqlP, _ := protonTranslator.Translate(query)
-				assert.Equal(t, "SELECT * FROM table(sweep_results) WHERE to_date(timestamp) = yesterday() AND available = false", sqlP)
+				assert.Equal(t, "SELECT * FROM table(sweep_results) "+
+					"WHERE to_date(timestamp) = yesterday() AND available = false", sqlP)
 
 				// ClickHouse
 				sqlCH, _ := clickhouseTranslator.Translate(query)
-				assert.Equal(t, "SELECT * FROM sweep_results WHERE toDate(timestamp) = yesterday() AND available = false", sqlCH)
+				assert.Equal(t, "SELECT * FROM sweep_results WHERE toDate(timestamp) = yesterday() "+
+					"AND available = false", sqlCH)
 
 				// ArangoDB
 				aql, _ := arangoTranslator.Translate(query)
 				yesterdayDateStr := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
-				expectedAQL := fmt.Sprintf("FOR doc IN sweep_results\n  FILTER SUBSTRING(doc.timestamp, 0, 10) == '%s' AND doc.available == false\n  RETURN doc", yesterdayDateStr)
+				expectedAQL := fmt.Sprintf(
+					"FOR doc IN sweep_results\n  FILTER SUBSTRING(doc.timestamp, 0, 10) == '%s' "+
+						"AND doc.available == false\n  RETURN doc", yesterdayDateStr)
 				assert.Equal(t, expectedAQL, aql)
 			},
 		},
@@ -186,6 +203,8 @@ func TestSRQLParsingAndTranslation(t *testing.T) { // Renamed for clarity
 			name:  "Show sweep_results for a specific date string",
 			query: "show sweep_results where date(timestamp) = '2023-10-20'",
 			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				assert.Equal(t, models.SweepResults, query.Entity)
 				require.Len(t, query.Conditions, 1)
@@ -210,6 +229,8 @@ func TestSRQLParsingAndTranslation(t *testing.T) { // Renamed for clarity
 			name:  "Count sweep_results for TODAY",
 			query: "count sweep_results where date(timestamp) = TODAY",
 			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				assert.Equal(t, models.Count, query.Type)
 				assert.Equal(t, models.SweepResults, query.Entity)
@@ -226,6 +247,8 @@ func TestSRQLParsingAndTranslation(t *testing.T) { // Renamed for clarity
 			name:  "Show sweep_results with case-insensitive DATE function and TODAY keyword",
 			query: "show sweep_results where DATE(timestamp) = today", // DATE and today are mixed case
 			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
+
 				require.NoError(t, err)
 				assert.Equal(t, "date(timestamp)", query.Conditions[0].Field) // Visitor should lowercase func name
 				assert.Equal(t, "TODAY", query.Conditions[0].Value)           // Visitor should normalize keyword
@@ -245,12 +268,14 @@ func TestSRQLParsingAndTranslation(t *testing.T) { // Renamed for clarity
 			parsedQuery, err := p.Parse(tc.query) // Use 'parsedQuery' to avoid conflict
 			if tc.expectedError {
 				require.Error(t, err)
+
 				if err != nil { // Check if an error actually occurred
 					assert.Contains(t, err.Error(), "syntax error", "Error message should indicate syntax error")
 				}
 			} else {
 				require.NoError(t, err, "Query parsing failed unexpectedly")
 			}
+
 			tc.validate(t, parsedQuery, err)
 		})
 	}
