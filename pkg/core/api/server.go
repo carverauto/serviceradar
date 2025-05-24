@@ -764,8 +764,18 @@ func (h httpError) Error() string {
 	return fmt.Sprintf("HTTP %d: %s", h.Status, h.Message)
 }
 
-// writeError writes an HTTP error response with the given message and status.
-// @ignore This is an internal helper function, not directly exposed as an API endpoint
-func writeError(w http.ResponseWriter, message string, status int) {
-	http.Error(w, message, status)
+func writeError(w http.ResponseWriter, message string, statusCode int) {
+	w.Header().Set("Content-Type", "application/json")
+
+	w.WriteHeader(statusCode)
+
+	errResponse := models.ErrorResponse{
+		Message: message,
+		Status:  statusCode,
+	}
+
+	if err := json.NewEncoder(w).Encode(errResponse); err != nil {
+		// Fallback in case encoding fails
+		http.Error(w, "Failed to encode error response", http.StatusInternalServerError)
+	}
 }
