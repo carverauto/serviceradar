@@ -170,17 +170,27 @@ func (s *Server) flushAllBuffers(ctx context.Context) {
 }
 
 // flushMetrics flushes metric buffers to the database.
+// flushMetrics flushes metric buffers to the database.
 func (s *Server) flushMetrics(ctx context.Context) {
 	for pollerID, timeseriesMetrics := range s.metricBuffers {
 		if len(timeseriesMetrics) == 0 {
 			continue
 		}
 
-		if err := s.DB.StoreMetrics(ctx, pollerID, timeseriesMetrics); err != nil {
-			log.Printf("Failed to flush timeseriesMetrics for poller %s: %v", pollerID, err)
-		}
-
+		metricsToFlush := make([]*models.TimeseriesMetric, len(timeseriesMetrics))
+		copy(metricsToFlush, timeseriesMetrics)
+		// It's important to clear the original buffer slice for this poller ID
+		// under the lock to prevent race conditions if new metrics come in
+		// while StoreMetrics is running.
 		s.metricBuffers[pollerID] = nil
+
+		if err := s.DB.StoreMetrics(ctx, pollerID, metricsToFlush); err != nil {
+			// THIS IS THE CRUCIAL LOG IF WRITES ARE FAILING
+			log.Printf("CRITICAL DB WRITE ERROR: Failed to flush/StoreMetrics for poller %s: %v. Number of metrics attempted: %d", pollerID, err, len(metricsToFlush))
+			// Depending on retry strategy, you might re-add metricsToFlush to a retry buffer
+		} else {
+			log.Printf("Successfully flushed %d timeseries metrics for poller %s", len(metricsToFlush), pollerID)
+		}
 	}
 }
 
@@ -902,20 +912,41 @@ func (s *Server) processRperfMetrics(pollerID string, details json.RawMessage, t
 			continue
 		}
 
-		metadata := map[string]interface{}{
-			"target":           result.Target,
-			"success":          result.Success,
-			"error":            result.Error,
-			"bits_per_second":  result.Summary.BitsPerSecond,
-			"bytes_received":   result.Summary.BytesReceived,
-			"bytes_sent":       result.Summary.BytesSent,
-			"duration":         result.Summary.Duration,
-			"jitter_ms":        result.Summary.JitterMs,
-			"loss_percent":     result.Summary.LossPercent,
-			"packets_lost":     result.Summary.PacketsLost,
-			"packets_received": result.Summary.PacketsReceived,
-			"packets_sent":     result.Summary.PacketsSent,
+		/*
+			metadata := map[string]interface{}{
+				"target":           result.Target,
+				"success":          result.Success,
+				"error":            result.Error,
+				"bits_per_second":  result.Summary.BitsPerSecond,
+				"bytes_received":   result.Summary.BytesReceived,
+				"bytes_sent":       result.Summary.BytesSent,
+				"duration":         result.Summary.Duration,
+				"jitter_ms":        result.Summary.JitterMs,
+				"loss_percent":     result.Summary.LossPercent,
+				"packets_lost":     result.Summary.PacketsLost,
+				"packets_received": result.Summary.PacketsReceived,
+				"packets_sent":     result.Summary.PacketsSent,
+			}
+		*/
+		metadata := make(map[string]string) // <<<< MODIFIED HERE
+		metadata["target"] = result.Target
+		metadata["success"] = fmt.Sprintf("%t", result.Success)
+		// Handle potential nil error string
+		if result.Error != nil {
+			metadata["error"] = *result.Error
+		} else {
+			metadata["error"] = ""
 		}
+
+		metadata["bits_per_second"] = fmt.Sprintf("%f", result.Summary.BitsPerSecond)
+		metadata["bytes_received"] = fmt.Sprintf("%d", result.Summary.BytesReceived)
+		metadata["bytes_sent"] = fmt.Sprintf("%d", result.Summary.BytesSent)
+		metadata["duration"] = fmt.Sprintf("%f", result.Summary.Duration)
+		metadata["jitter_ms"] = fmt.Sprintf("%f", result.Summary.JitterMs)
+		metadata["loss_percent"] = fmt.Sprintf("%f", result.Summary.LossPercent)
+		metadata["packets_lost"] = fmt.Sprintf("%d", result.Summary.PacketsLost)
+		metadata["packets_received"] = fmt.Sprintf("%d", result.Summary.PacketsReceived)
+		metadata["packets_sent"] = fmt.Sprintf("%d", result.Summary.PacketsSent)
 
 		const (
 			defaultFmt                  = "%.2f"
@@ -980,11 +1011,11 @@ func (s *Server) processICMPMetrics(pollerID string, svc *proto.ServiceStatus, d
 		Value:     fmt.Sprintf("%d", pingResult.ResponseTime),
 		Type:      "icmp",
 		Timestamp: now,
-		Metadata: map[string]interface{}{
+		Metadata: map[string]string{
 			"host":          pingResult.Host,
-			"response_time": pingResult.ResponseTime,
-			"packet_loss":   pingResult.PacketLoss,
-			"available":     pingResult.Available,
+			"response_time": fmt.Sprintf("%d", pingResult.ResponseTime),
+			"packet_loss":   fmt.Sprintf("%f", pingResult.PacketLoss),
+			"available":     fmt.Sprintf("%t", pingResult.Available),
 		},
 	}
 
@@ -1068,15 +1099,27 @@ func (s *Server) processSNMPMetrics(pollerID string, details json.RawMessage, ti
 
 			valueStr := fmt.Sprintf("%v", oidStatus.LastValue)
 
-			// Metadata to keep (if any, beyond the extracted fields)
-			remainingMetadata := make(map[string]interface{})
+			/*
+				// Metadata to keep (if any, beyond the extracted fields)
+				remainingMetadata := make(map[string]interface{})
+				remainingMetadata["original_oid_config_name"] = oidConfigName
+				// You can add other fields from oidStatus or targetData if needed
+				// For example, targetData.LastPoll could be useful context
+				remainingMetadata["target_last_poll_timestamp"] = targetData.LastPoll.Format(time.RFC3339Nano)
+				remainingMetadata["oid_last_update_timestamp"] = oidStatus.LastUpdate.Format(time.RFC3339Nano)
+				if oidStatus.ErrorCount > 0 {
+					remainingMetadata["oid_error_count"] = oidStatus.ErrorCount
+					remainingMetadata["oid_last_error"] = oidStatus.LastError
+				}
+
+			*/
+
+			remainingMetadata := make(map[string]string) // <<<< MODIFIED HERE
 			remainingMetadata["original_oid_config_name"] = oidConfigName
-			// You can add other fields from oidStatus or targetData if needed
-			// For example, targetData.LastPoll could be useful context
 			remainingMetadata["target_last_poll_timestamp"] = targetData.LastPoll.Format(time.RFC3339Nano)
 			remainingMetadata["oid_last_update_timestamp"] = oidStatus.LastUpdate.Format(time.RFC3339Nano)
 			if oidStatus.ErrorCount > 0 {
-				remainingMetadata["oid_error_count"] = oidStatus.ErrorCount
+				remainingMetadata["oid_error_count"] = fmt.Sprintf("%d", oidStatus.ErrorCount) // Ensure string
 				remainingMetadata["oid_last_error"] = oidStatus.LastError
 			}
 
