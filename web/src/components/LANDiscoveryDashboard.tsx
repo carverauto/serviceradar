@@ -36,13 +36,9 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/components/AuthProvider';
 
-// NEW IMPORTS:
-import { ServicePayload } from '@/types/types'; // Import the correct ServicePayload
-import { RawBackendLanDiscoveryData, RawDevice, RawInterface } from '@/types/lan_discovery'; // Import raw types
+import { ServicePayload } from '@/types/types';
+import { RawBackendLanDiscoveryData, RawDevice, RawInterface } from '@/types/lan_discovery';
 
-// --- START: UPDATED INTERFACES to match `snake_case` and nested `if_speed` and remove 'any' types ---
-
-// Keep the *parsed* types for frontend display, but they are derived from RawBackendLanDiscoveryData
 /**
  * Device represents a parsed device object for display in the frontend.
  * It uses camelCase keys for consistency with React component conventions.
@@ -73,7 +69,6 @@ interface Device {
         discovery_time?: string;
         [key: string]: unknown;
     };
-    // Re-added index signature to match RawBackendLanDiscoveryData's flexibility if needed, but the explicit RawDevice type should handle most cases.
     [key: string]: unknown;
 }
 
@@ -116,7 +111,7 @@ interface Interface {
  * Basic types for topology nodes and edges to avoid `any`.
  * More detailed types could be added if the topology is rendered visually.
  */
-interface ParsedNetworkTopologyNode { // Renamed for clarity to avoid clash with RawNetworkTopologyNode
+interface ParsedNetworkTopologyNode {
     id: string;
     label: string;
     type?: string;
@@ -124,14 +119,14 @@ interface ParsedNetworkTopologyNode { // Renamed for clarity to avoid clash with
     [key: string]: unknown;
 }
 
-interface ParsedNetworkTopologyEdge { // Renamed for clarity
+interface ParsedNetworkTopologyEdge {
     from: string;
     to: string;
     label?: string;
     [key: string]: unknown;
 }
 
-interface ParsedNetworkTopology { // Renamed for clarity
+interface ParsedNetworkTopology {
     nodes?: ParsedNetworkTopologyNode[];
     edges?: ParsedNetworkTopologyEdge[];
     subnets?: string[];
@@ -144,30 +139,25 @@ interface ParsedNetworkTopology { // Renamed for clarity
 interface ParsedLanDiscoveryData {
     devices: Device[];
     interfaces: Interface[];
-    topology?: ParsedNetworkTopology; // Use the parsed topology
+    topology?: ParsedNetworkTopology;
     last_discovery?: string;
     discovery_duration?: number;
     total_devices?: number;
     active_devices?: number;
 }
 
-// REMOVED LOCAL SERVICEPAYLOAD INTERFACE HERE. It is now imported from '@/types/types'
-
 interface LanDiscoveryDashboardProps {
     pollerId: string;
     serviceName: string;
-    initialService?: ServicePayload | null; // initialService can be null
+    initialService?: ServicePayload | null;
     initialError?: string | null;
-    initialTimeRange?: string; // Unused in this component but kept for consistency
+    initialTimeRange?: string;
 }
 
-// Define specific types for state variables that previously used 'any' with type assertions
 type FilterType = 'all' | 'devices' | 'interfaces';
 type SortBy = 'name' | 'ip' | 'status';
 type SortOrder = 'asc' | 'desc';
 type ViewMode = 'grid' | 'table';
-
-// --- END: UPDATED INTERFACES ---
 
 
 const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
@@ -175,7 +165,6 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
                                                                          serviceName,
                                                                          initialService = null,
                                                                          initialError = null,
-                                                                         // initialTimeRange // Unused in this component
                                                                      }) => {
     const router = useRouter();
     const { token } = useAuth();
@@ -190,7 +179,6 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
     const [lastRefreshed, setLastRefreshed] = useState(new Date());
     const [isRefreshing, setIsRefreshing] = useState(false);
 
-    // --- START: UPDATED parseBackendLanDiscoveryData ---
     const parseBackendLanDiscoveryData = useCallback((rawDetails: RawBackendLanDiscoveryData): ParsedLanDiscoveryData => {
         console.group("parseBackendLanDiscoveryData called");
         console.log("Raw details received for parsing:", rawDetails);
@@ -220,7 +208,7 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
                 if (typeof item.is_available === 'boolean') {
                     deviceStatus = item.is_available ? 'online' : 'offline';
                 } else if (item.ip) {
-                    deviceStatus = 'online'; // Assume online if IP exists and no other status
+                    deviceStatus = 'online';
                 }
 
                 devices.push({
@@ -251,7 +239,7 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
         // Process interfaces
         if (Array.isArray(rawInterfaces)) {
             console.log(`Processing ${rawInterfaces.length} raw interfaces.`);
-            rawInterfaces.forEach((item: RawInterface, index: number) => { // Typed 'item' as RawInterface
+            rawInterfaces.forEach((item: RawInterface, index: number) => {
                 console.groupCollapsed(`Processing raw interface item ${index}`);
                 console.log("Raw interface item:", item);
 
@@ -330,7 +318,6 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
         console.groupEnd();
         return parsedResult;
     }, []);
-    // --- END: UPDATED parseBackendLanDiscoveryData ---
 
     // Initialize data from props
     useEffect(() => {
@@ -342,8 +329,6 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
                 return;
             }
 
-            // Explicitly assert initialService.details to RawBackendLanDiscoveryData | string
-            // as this component is specifically for LAN_DISCOVERY services.
             let rawDetails: RawBackendLanDiscoveryData | string = initialService.details as RawBackendLanDiscoveryData | string;
             try {
                 if (typeof rawDetails === 'string') {
@@ -401,7 +386,6 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
                 throw new Error('Service details are missing from the response');
             }
 
-            // Apply type assertion here as well
             let rawDetails: RawBackendLanDiscoveryData | string = serviceData.details as RawBackendLanDiscoveryData | string;
             try {
                 if (typeof rawDetails === 'string') { // Changed `serviceData.details` to `rawDetails`

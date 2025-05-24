@@ -21,10 +21,9 @@ import { cookies } from "next/headers";
 import { Poller, ServiceMetric, ServicePayload } from "@/types/types";
 import { SnmpDataPoint } from "@/types/snmp";
 import { fetchFromAPI } from "@/lib/api";
-import { SysmonData } from "@/types/sysmon"; // Keep this import for the final SysmonData type
-import { fetchSystemData } from "@/components/Metrics/data-service"; // Import fetchSystemData
+import { SysmonData } from "@/types/sysmon";
+import { fetchSystemData } from "@/components/Metrics/data-service";
 
-// Define the params type as a Promise
 type Params = Promise<{ pollerid: string; servicename: string }>;
 
 // Define props type
@@ -44,17 +43,15 @@ async function fetchServiceData(
     let service: ServicePayload | null = null;
     let metrics: ServiceMetric[] = [];
     const snmpData: SnmpDataPoint[] = [];
-    let sysmonData: SysmonData | Record<string, never> = {}; // Initialize with default empty object or full structure
+    let sysmonData: SysmonData | Record<string, never> = {};
 
     try {
-        // Fetch the specific service payload directly using fetchFromAPI.
         service = await fetchFromAPI<ServicePayload>(
             `/pollers/${pollerId}/services/${serviceName}`,
             token
         );
 
         if (!service) {
-            // Return all properties, even if service is null
             return { error: "Service not found or failed to fetch", service: null, metrics, snmpData, sysmonData, timeRange };
         }
 
@@ -145,7 +142,7 @@ export default async function Page(props: PageProps) {
                     initialService={initialData.service}
                     initialMetrics={initialData.metrics || []}
                     initialSnmpData={initialData.snmpData || []}
-                    initialSysmonData={initialData.sysmonData || {}} // This now correctly receives SysmonData or {}
+                    initialSysmonData={initialData.sysmonData || {}}
                     initialError={initialData.error}
                     initialTimeRange={initialData.timeRange || "1h"}
                 />

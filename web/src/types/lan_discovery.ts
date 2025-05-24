@@ -1,13 +1,28 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+
 // src/types/lan_discovery.ts
-// Re-typing some of the interfaces that were local to LANDiscoveryDashboard.tsx
-// to centralize them and make them properly part of the ServiceDetails union.
 
 export interface RawDevice {
     device_id?: string;
     hostname?: string;
-    ip?: string; // raw ip address
-    mac?: string; // raw mac address
-    sys_descr?: string; // directly on device object
+    ip?: string;
+    mac?: string;
+    sys_descr?: string;
     sys_object_id?: string;
     sys_contact?: string;
     uptime?: number;
@@ -42,7 +57,7 @@ export interface RawInterface {
     [key: string]: unknown;
 }
 
-export interface RawNetworkTopologyNode { // Renamed to clearly be raw
+export interface RawNetworkTopologyNode {
     id: string;
     label: string;
     type?: string;
@@ -50,14 +65,14 @@ export interface RawNetworkTopologyNode { // Renamed to clearly be raw
     [key: string]: unknown;
 }
 
-export interface RawNetworkTopologyEdge { // Renamed
+export interface RawNetworkTopologyEdge {
     from: string;
     to: string;
     label?: string;
     [key: string]: unknown;
 }
 
-export interface RawNetworkTopology { // Renamed
+export interface RawNetworkTopology {
     nodes?: RawNetworkTopologyNode[];
     edges?: RawNetworkTopologyEdge[];
     subnets?: string[];
@@ -67,7 +82,7 @@ export interface RawNetworkTopology { // Renamed
 export interface RawBackendLanDiscoveryData {
     devices?: RawDevice[];
     interfaces?: RawInterface[];
-    topology?: RawNetworkTopology; // Use RawNetworkTopology
+    topology?: RawNetworkTopology;
     last_discovery?: string;
     discovery_duration?: number;
     total_devices?: number;

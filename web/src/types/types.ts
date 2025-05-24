@@ -15,8 +15,8 @@
  */
 
 // src/types/types.ts
-import { SweepDetails } from './snmp'; // Make sure this import is correctly pointing to your snmp.ts
-import { RawBackendLanDiscoveryData } from './lan_discovery'; // NEW IMPORT
+import { SweepDetails } from './snmp';
+import { RawBackendLanDiscoveryData } from './lan_discovery';
 
 // Generic ServiceDetails for services like ICMP
 export interface GenericServiceDetails {
@@ -101,11 +101,9 @@ export interface Service {
 // as typically returned by the backend API (e.g., from /api/pollers/{pollerId}/services/{serviceName}).
 // It extends the core Service interface with API-specific metadata that is usually part of the top-level API response.
 export interface ServicePayload extends Service {
-  // `id`, `group`, `status`, `name`, `type`, `available`, `details` are inherited from `Service`
   poller_id: string; // The ID of the poller that owns this service
   service_name: string; // The programmatic name of the service (often unique within a poller, used in API paths)
   last_update: string; // The ISO 8601 timestamp string of the last time this specific service's status was updated
-  // [key: string]: unknown; // Already inherited from Service, but can be explicitly re-added if needed for clarity
 }
 
 export interface Poller {
