@@ -294,26 +294,7 @@ func (db *DB) GetCPUMetrics(ctx context.Context, pollerID string, coreID int, st
 func (db *DB) StoreMetric(ctx context.Context, pollerID string, metric *models.TimeseriesMetric) error {
 	log.Printf("Storing single metric: PollerID=%s, Name=%s, TargetIP=%s, IfIndex=%d", pollerID, metric.Name, metric.TargetDeviceIP, metric.IfIndex)
 
-	var finalMetadata map[string]string
-	if metric.Metadata != nil {
-		var ok bool
-		finalMetadata, ok = metric.Metadata.(map[string]string)
-		if !ok {
-			log.Printf("Warning (StoreMetric): metric.Metadata for %s (poller: %s, target: %s) is not map[string]string, attempting conversion. Original type: %T", metric.Name, pollerID, metric.TargetDeviceIP, metric.Metadata)
-			tempMeta, isMapInterface := metric.Metadata.(map[string]interface{})
-			if isMapInterface {
-				finalMetadata = make(map[string]string)
-				for k, v := range tempMeta {
-					finalMetadata[k] = fmt.Sprintf("%v", v)
-				}
-			} else {
-				log.Printf("Warning (StoreMetric): metric.Metadata for %s (poller: %s, target: %s) was not map[string]interface{} either. Using empty map.", metric.Name, pollerID, metric.TargetDeviceIP)
-				finalMetadata = make(map[string]string)
-			}
-		}
-	} else {
-		finalMetadata = make(map[string]string)
-	}
+	finalMetadata := convertMetadataToStringMap(metric, pollerID, "StoreMetric")
 
 	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO timeseries_metrics (* except _tp_time)")
 	if err != nil {
@@ -340,6 +321,34 @@ func (db *DB) StoreMetric(ctx context.Context, pollerID string, metric *models.T
 	}
 
 	return nil
+}
+
+// convertMetadataToStringMap converts metric.Metadata to map[string]string
+// It handles different input types and provides appropriate logging
+func convertMetadataToStringMap(metric *models.TimeseriesMetric, pollerID string, functionName string) map[string]string {
+	var finalMetadata map[string]string
+
+	if metric.Metadata != nil {
+		var ok bool
+		finalMetadata, ok = metric.Metadata.(map[string]string)
+		if !ok {
+			log.Printf("Warning (%s): metric.Metadata for %s (poller: %s, target: %s) is not map[string]string, attempting conversion. Original type: %T", functionName, metric.Name, pollerID, metric.TargetDeviceIP, metric.Metadata)
+			tempMeta, isMapInterface := metric.Metadata.(map[string]interface{})
+			if isMapInterface {
+				finalMetadata = make(map[string]string)
+				for k, v := range tempMeta {
+					finalMetadata[k] = fmt.Sprintf("%v", v)
+				}
+			} else {
+				log.Printf("Warning (%s): metric.Metadata for %s (poller: %s, target: %s) was not map[string]interface{} either. Using empty map.", functionName, metric.Name, pollerID, metric.TargetDeviceIP)
+				finalMetadata = make(map[string]string)
+			}
+		}
+	} else {
+		finalMetadata = make(map[string]string)
+	}
+
+	return finalMetadata
 }
 
 // BatchMetricsOperation executes a batch operation for timeseries metrics
@@ -403,29 +412,7 @@ func (db *DB) StoreMetrics(ctx context.Context, pollerID string, metrics []*mode
 	}
 
 	for _, metric := range metrics {
-		var finalMetadata map[string]string // Ensure this is map[string]string
-
-		if metric.Metadata != nil {
-			var ok bool
-			finalMetadata, ok = metric.Metadata.(map[string]string)
-			if !ok {
-				log.Printf("Warning: metric.Metadata for %s (poller: %s, target: %s) is not map[string]string, attempting conversion or using empty map. Original type: %T", metric.Name, pollerID, metric.TargetDeviceIP, metric.Metadata)
-				tempMeta, isMapInterface := metric.Metadata.(map[string]interface{})
-				if isMapInterface {
-					finalMetadata = make(map[string]string)
-					for k, v := range tempMeta {
-						finalMetadata[k] = fmt.Sprintf("%v", v) // Convert all values to string
-					}
-				} else {
-					// If not map[string]interface{}, and not map[string]string, use an empty map.
-					// This could happen if Metadata is e.g. json.RawMessage or another unexpected type.
-					log.Printf("Warning: metric.Metadata for %s (poller: %s, target: %s) was not map[string]interface{} either. Using empty map.", metric.Name, pollerID, metric.TargetDeviceIP)
-					finalMetadata = make(map[string]string)
-				}
-			}
-		} else {
-			finalMetadata = make(map[string]string) // Use empty map if metric.Metadata is nil
-		}
+		finalMetadata := convertMetadataToStringMap(metric, pollerID, "StoreMetrics")
 
 		// IMPORTANT: Use the pollerID from the function arguments for the first column
 		err = batch.Append(
