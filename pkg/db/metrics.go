@@ -20,12 +20,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/timeplus-io/proton-go-driver/v2/lib/driver"
 	"log"
 	"sort"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/timeplus-io/proton-go-driver/v2/lib/driver"
 )
 
 const (
@@ -292,7 +292,8 @@ func (db *DB) GetCPUMetrics(ctx context.Context, pollerID string, coreID int, st
 // store functionally similar to the batch operation but with a simpler API.
 // StoreMetric stores a timeseries metric in the database.
 func (db *DB) StoreMetric(ctx context.Context, pollerID string, metric *models.TimeseriesMetric) error {
-	log.Printf("Storing single metric: PollerID=%s, Name=%s, TargetIP=%s, IfIndex=%d", pollerID, metric.Name, metric.TargetDeviceIP, metric.IfIndex)
+	log.Printf("Storing single metric: PollerID=%s, Name=%s, TargetIP=%s, IfIndex=%d",
+		pollerID, metric.Name, metric.TargetDeviceIP, metric.IfIndex)
 
 	finalMetadata := convertMetadataToStringMap(metric, pollerID, "StoreMetric")
 
@@ -312,7 +313,10 @@ func (db *DB) StoreMetric(ctx context.Context, pollerID string, metric *models.T
 		metric.Timestamp,
 	)
 	if err != nil {
-		log.Printf("Failed to append single metric %s (poller: %s, target: %s) to batch: %v. Metadata type used: %T, Metadata content: %+v", metric.Name, pollerID, metric.TargetDeviceIP, err, finalMetadata, finalMetadata)
+		log.Printf("Failed to append single metric %s (poller: %s, target: %s) to batch: %v. "+
+			"Metadata type used: %T, Metadata content: %+v",
+			metric.Name, pollerID, metric.TargetDeviceIP, err, finalMetadata, finalMetadata)
+
 		return fmt.Errorf("failed to append metric: %w", err)
 	}
 
@@ -325,22 +329,31 @@ func (db *DB) StoreMetric(ctx context.Context, pollerID string, metric *models.T
 
 // convertMetadataToStringMap converts metric.Metadata to map[string]string
 // It handles different input types and provides appropriate logging
-func convertMetadataToStringMap(metric *models.TimeseriesMetric, pollerID string, functionName string) map[string]string {
+func convertMetadataToStringMap(
+	metric *models.TimeseriesMetric, pollerID string, functionName string) map[string]string {
 	var finalMetadata map[string]string
 
 	if metric.Metadata != nil {
 		var ok bool
+
 		finalMetadata, ok = metric.Metadata.(map[string]string)
 		if !ok {
-			log.Printf("Warning (%s): metric.Metadata for %s (poller: %s, target: %s) is not map[string]string, attempting conversion. Original type: %T", functionName, metric.Name, pollerID, metric.TargetDeviceIP, metric.Metadata)
+			log.Printf("Warning (%s): metric.Metadata for %s (poller: %s, target: %s) "+
+				"is not map[string]string, attempting conversion. Original type: %T",
+				functionName, metric.Name, pollerID, metric.TargetDeviceIP, metric.Metadata)
+
 			tempMeta, isMapInterface := metric.Metadata.(map[string]interface{})
 			if isMapInterface {
 				finalMetadata = make(map[string]string)
+
 				for k, v := range tempMeta {
 					finalMetadata[k] = fmt.Sprintf("%v", v)
 				}
 			} else {
-				log.Printf("Warning (%s): metric.Metadata for %s (poller: %s, target: %s) was not map[string]interface{} either. Using empty map.", functionName, metric.Name, pollerID, metric.TargetDeviceIP)
+				log.Printf("Warning (%s): metric.Metadata for %s (poller: %s, target: %s) was "+
+					"not map[string]interface{} either. Using empty map.",
+					functionName, metric.Name, pollerID, metric.TargetDeviceIP)
+
 				finalMetadata = make(map[string]string)
 			}
 		}
@@ -427,7 +440,10 @@ func (db *DB) StoreMetrics(ctx context.Context, pollerID string, metrics []*mode
 		)
 		if err != nil {
 			// Log the full error from batch.Append
-			log.Printf("Failed to append metric %s (poller: %s, target: %s) to batch: %v. Metadata type used: %T, Metadata content: %+v", metric.Name, pollerID, metric.TargetDeviceIP, err, finalMetadata, finalMetadata)
+			log.Printf("Failed to append metric %s (poller: %s, target: %s) to batch: %v."+
+				" Metadata type used: %T, Metadata content: %+v", metric.Name, pollerID,
+				metric.TargetDeviceIP, err, finalMetadata, finalMetadata)
+
 			return fmt.Errorf("failed to append metric %s to batch: %w", metric.Name, err)
 		}
 	}
@@ -435,11 +451,13 @@ func (db *DB) StoreMetrics(ctx context.Context, pollerID string, metrics []*mode
 	if err := batch.Send(); err != nil {
 		return fmt.Errorf("failed to store metrics batch: %w", err)
 	}
+
 	return nil
 }
 
 // StoreSysmonMetrics stores sysmon metrics for CPU, disk, and memory.
-func (db *DB) StoreSysmonMetrics(ctx context.Context, pollerID string, metrics *models.SysmonMetrics, timestamp time.Time) error {
+func (db *DB) StoreSysmonMetrics(
+	ctx context.Context, pollerID string, metrics *models.SysmonMetrics, timestamp time.Time) error {
 	if err := db.storeCPUMetrics(ctx, pollerID, metrics.CPUs, timestamp); err != nil {
 		return fmt.Errorf("failed to store CPU metrics: %w", err)
 	}

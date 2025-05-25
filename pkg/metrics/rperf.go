@@ -64,7 +64,9 @@ func (m *Manager) GetRperfMetrics(ctx context.Context, pollerID, target string, 
 
 	metrics := make([]models.RperfMetric, 0, len(dbMetrics))
 
-	for _, dm := range dbMetrics {
+	for i := range dbMetrics {
+		dm := &dbMetrics[i] // Access the element by reference
+
 		metadata, ok := dm.Metadata.(json.RawMessage)
 		if !ok {
 			log.Printf("Invalid metadata for rperf metric %s, poller %s", dm.Name, pollerID)
@@ -72,6 +74,7 @@ func (m *Manager) GetRperfMetrics(ctx context.Context, pollerID, target string, 
 		}
 
 		var metaMap map[string]interface{}
+
 		if err := json.Unmarshal(metadata, &metaMap); err != nil {
 			log.Printf("Failed to unmarshal metadata for rperf metric %s, poller %s: %v", dm.Name, pollerID, err)
 			continue

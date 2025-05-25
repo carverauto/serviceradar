@@ -97,8 +97,8 @@ func (m *rperfManagerImpl) GetRperfMetrics(
 
 	rperfMetrics := make([]*models.RperfMetric, 0, len(tsMetrics))
 
-	for _, m := range tsMetrics {
-		if m.Metadata == nil {
+	for i := range tsMetrics {
+		if tsMetrics[i].Metadata == nil {
 			continue
 		}
 
@@ -106,8 +106,8 @@ func (m *rperfManagerImpl) GetRperfMetrics(
 
 		var metadataBytes []byte // Temporary buffer for unmarshaling
 
-		// Handle different possible types of m.Metadata returned from the DB
-		switch md := m.Metadata.(type) {
+		// Handle different possible types of tsMetrics[i].Metadata returned from the DB
+		switch md := tsMetrics[i].Metadata.(type) {
 		case []byte:
 			// If it's already []byte (which json.RawMessage is), use it directly
 			metadataBytes = md
@@ -123,17 +123,17 @@ func (m *rperfManagerImpl) GetRperfMetrics(
 			metadataBytes, marshalErr = json.Marshal(md)
 			if marshalErr != nil {
 				log.Printf("Warning: failed to re-marshal map metadata "+
-					"for rperf metric %s: %v", m.Name, marshalErr)
+					"for rperf metric %s: %v", tsMetrics[i].Name, marshalErr)
 				continue
 			}
 		default:
-			log.Printf("Warning: Unsupported metadata type for rperf metric %s: %T", m.Name, m.Metadata)
+			log.Printf("Warning: Unsupported metadata type for rperf metric %s: %T", tsMetrics[i].Name, tsMetrics[i].Metadata)
 			continue
 		}
 
 		// Now unmarshal from the prepared bytes
 		if err := json.Unmarshal(metadataBytes, &rperfMetric); err != nil {
-			log.Printf("Warning: failed to unmarshal rperf metadata for metric %s: %v", m.Name, err)
+			log.Printf("Warning: failed to unmarshal rperf metadata for metric %s: %v", tsMetrics[i].Name, err)
 			continue
 		}
 
