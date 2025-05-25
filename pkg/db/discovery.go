@@ -95,9 +95,6 @@ func (db *DB) PublishDiscoveredInterface(ctx context.Context, iface *models.Disc
 		return fmt.Errorf("failed to publish interface data: %w", err)
 	}
 
-	log.Printf("Successfully published interface %s (%d) for device %s",
-		iface.IfName, iface.IfIndex, iface.DeviceIP)
-
 	return nil
 }
 
@@ -167,9 +164,6 @@ func (db *DB) PublishTopologyDiscoveryEvent(ctx context.Context, event *models.T
 		return fmt.Errorf("failed to publish topology data: %w", err)
 	}
 
-	log.Printf("Successfully published topology link between %s:%s and %s:%s",
-		event.LocalDeviceIP, event.LocalIfName, event.NeighborSystemName, event.NeighborPortID)
-
 	return nil
 }
 
@@ -209,8 +203,6 @@ func (db *DB) PublishBatchDiscoveredInterfaces(ctx context.Context, interfaces [
 		}
 	}
 
-	log.Printf("Published batch of %d interfaces", len(interfaces))
-
 	return lastErr
 }
 
@@ -246,8 +238,6 @@ func (db *DB) PublishBatchTopologyDiscoveryEvents(ctx context.Context, events []
 			}
 		}
 	}
-
-	log.Printf("Published batch of %d topology events", len(events))
 
 	return lastErr
 }
