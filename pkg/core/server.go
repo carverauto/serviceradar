@@ -170,7 +170,6 @@ func (s *Server) flushAllBuffers(ctx context.Context) {
 }
 
 // flushMetrics flushes metric buffers to the database.
-// flushMetrics flushes metric buffers to the database.
 func (s *Server) flushMetrics(ctx context.Context) {
 	for pollerID, timeseriesMetrics := range s.metricBuffers {
 		if len(timeseriesMetrics) == 0 {
