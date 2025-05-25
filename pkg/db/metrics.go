@@ -345,7 +345,8 @@ func (db *DB) BatchMetricsOperation(ctx context.Context, pollerID string, metric
 		// Validate metadata as JSON if non-empty
 		if metadataStr != "" {
 			var temp interface{}
-			if err := json.Unmarshal([]byte(metadataStr), &temp); err != nil {
+
+			if err = json.Unmarshal([]byte(metadataStr), &temp); err != nil {
 				log.Printf("Invalid JSON metadata for metric %s (poller: %s, target: %s): %v",
 					metric.Name, pollerID, metric.TargetDeviceIP, err)
 				continue
@@ -392,7 +393,8 @@ func (db *DB) StoreMetrics(ctx context.Context, pollerID string, metrics []*mode
 		// Validate metadata as JSON if non-empty
 		if metadataStr != "" {
 			var temp interface{}
-			if err := json.Unmarshal([]byte(metadataStr), &temp); err != nil {
+
+			if err = json.Unmarshal([]byte(metadataStr), &temp); err != nil {
 				log.Printf("Invalid JSON metadata for metric %s (poller: %s, target: %s): %v",
 					metric.Name, pollerID, metric.TargetDeviceIP, err)
 				continue

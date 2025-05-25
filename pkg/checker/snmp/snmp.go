@@ -41,7 +41,7 @@ func NewSNMPManager(d db.Service) SNMPManager {
 }
 
 // parseMetadata extracts a map from a JSON string metadata
-func parseMetadata(metadataStr string, metricName, pollerID string) (map[string]interface{}, bool) {
+func parseMetadata(metadataStr, metricName, pollerID string) (map[string]interface{}, bool) {
 	if metadataStr == "" {
 		log.Printf("Warning: empty metadata for metric %s on poller %s", metricName, pollerID)
 		return nil, false
