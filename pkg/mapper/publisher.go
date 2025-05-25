@@ -81,8 +81,6 @@ func (p *ProtonPublisher) PublishDevice(ctx context.Context, device *DiscoveredD
 		return fmt.Errorf("failed to publish device to sweep_results: %w", err)
 	}
 
-	log.Printf("Published device %s (%s) to sweep_results stream", device.IP, device.Hostname)
-
 	return nil
 }
 
@@ -134,9 +132,6 @@ func (p *ProtonPublisher) PublishInterface(ctx context.Context, iface *Discovere
 		return fmt.Errorf("failed to publish interface to discovered_interfaces: %w", err)
 	}
 
-	log.Printf("Published interface %s (%d) for device %s to discovered_interfaces stream",
-		iface.IfName, iface.IfIndex, iface.DeviceIP)
-
 	return nil
 }
 
@@ -179,9 +174,6 @@ func (p *ProtonPublisher) PublishTopologyLink(ctx context.Context, link *Topolog
 	if err := p.dbService.PublishTopologyDiscoveryEvent(ctx, topologyEvent); err != nil {
 		return fmt.Errorf("failed to publish topology link to topology_discovery_events: %w", err)
 	}
-
-	log.Printf("Published topology link between %s:%s and %s:%s to topology_discovery_events stream",
-		link.LocalDeviceIP, link.LocalIfName, link.NeighborSystemName, link.NeighborPortID)
 
 	return nil
 }
@@ -230,8 +222,6 @@ func (p *ProtonPublisher) PublishBatchDevices(ctx context.Context, devices []*Di
 	if err := p.dbService.StoreSweepResults(ctx, results); err != nil {
 		return fmt.Errorf("failed to publish batch devices: %w", err)
 	}
-
-	log.Printf("Published batch of %d devices to sweep_results stream", len(devices))
 
 	return nil
 }

@@ -116,9 +116,6 @@ func (s *Server) processDiscoveredDevices(
 
 	if err := s.DB.StoreSweepResults(ctx, sweepResults); err != nil {
 		log.Printf("Error publishing batch discovered devices to sweep_results for poller %s: %v", reportingPollerID, err)
-	} else {
-		log.Printf("Published %d discovered devices to sweep_results for poller %s (discovery by %s/%s)",
-			len(sweepResults), reportingPollerID, discoveryAgentID, discoveryInitiatorPollerID)
 	}
 }
 
@@ -197,9 +194,6 @@ func (s *Server) processDiscoveredInterfaces(
 
 	if err := s.DB.PublishBatchDiscoveredInterfaces(ctx, modelInterfaces); err != nil {
 		log.Printf("Error publishing batch discovered interfaces for poller %s: %v", reportingPollerID, err)
-	} else {
-		log.Printf("Published %d discovered interfaces for poller %s (discovery by %s/%s)",
-			len(modelInterfaces), reportingPollerID, discoveryAgentID, discoveryInitiatorPollerID)
 	}
 }
 
@@ -208,7 +202,6 @@ func (*Server) getOrGenerateDeviceID(protoIface *discoverypb.DiscoveredInterface
 	deviceID := protoIface.DeviceId
 	if deviceID == "" && protoIface.DeviceIp != "" {
 		deviceID = fmt.Sprintf("%s:%s:%s", protoIface.DeviceIp, agentID, pollerID)
-		log.Printf("Generated DeviceID for interface on %s: %s", protoIface.DeviceIp, deviceID)
 	}
 
 	return deviceID
@@ -280,9 +273,6 @@ func (s *Server) processDiscoveredTopology(
 
 	if err := s.DB.PublishBatchTopologyDiscoveryEvents(ctx, modelTopologyEvents); err != nil {
 		log.Printf("Error publishing batch topology discovery events for poller %s: %v", reportingPollerID, err)
-	} else {
-		log.Printf("Published %d topology discovery events for poller %s (discovery by %s/%s)",
-			len(modelTopologyEvents), reportingPollerID, discoveryAgentID, discoveryInitiatorPollerID)
 	}
 }
 
