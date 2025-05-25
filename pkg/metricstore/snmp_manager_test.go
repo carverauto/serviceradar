@@ -2,7 +2,6 @@ package metricstore
 
 import (
 	"context"
-
 	"testing"
 	"time"
 
@@ -29,6 +28,14 @@ func TestSNMPManager_StoreSNMPMetric(t *testing.T) {
 		IsDelta:   true,
 	}
 
+	// Set up expectation for StoreMetric
+	mockDB.EXPECT().StoreMetric(
+		gomock.Any(),  // Context
+		"test-poller", // PollerID
+		gomock.Any(),  // TimeseriesMetric (use Any for simplicity, or match specific fields)
+	).Return(nil).Times(1)
+
+	// Test valid metric
 	err := manager.StoreSNMPMetric(context.Background(), "test-poller", metric, time.Now())
 	require.NoError(t, err)
 
@@ -43,34 +50,3 @@ func TestSNMPManager_StoreSNMPMetric(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "OIDName is empty")
 }
-
-/*
-func TestSNMPManager_GetSNMPMetrics(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	mockDB := db.NewMockService(ctrl)
-
-	manager := NewSNMPManager(mockDB)
-	// Insert test data
-	tsMetric := &models.TimeseriesMetric{
-		Name:      "sysUpTime",
-		Type:      "snmp",
-		Value:     "12345",
-		Timestamp: time.Now(),
-		Metadata:  `{"scale":2.0,"is_delta":true}`,
-	}
-
-
-	err := db.StoreMetric(context.Background(), "test-poller", tsMetric)
-	assert.NoError(t, err)
-
-	metrics, err := manager.GetSNMPMetrics(context.Background(), "test-poller", time.Now().Add(-1*time.Hour), time.Now())
-	assert.NoError(t, err)
-	assert.NotEmpty(t, metrics)
-	assert.Equal(t, 2.0, metrics[0].Scale)
-	assert.True(t, metrics[0].IsDelta)
-}
-
-
-*/
