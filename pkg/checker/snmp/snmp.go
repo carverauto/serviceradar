@@ -52,22 +52,22 @@ func (s *SNMPMetricsManager) GetSNMPMetrics(
 
 	snmpMetrics := make([]models.SNMPMetric, 0, len(metrics))
 
-	for _, m := range metrics {
+	for i := range metrics {
 		snmpMetric := models.SNMPMetric{
-			OIDName:   m.Name,
-			Value:     m.Value,
-			ValueType: m.Type,
-			Timestamp: m.Timestamp,
+			OIDName:   metrics[i].Name,
+			Value:     metrics[i].Value,
+			ValueType: metrics[i].Type,
+			Timestamp: metrics[i].Timestamp,
 			Scale:     1.0, // Default value
 			IsDelta:   false,
 		}
 
 		// Extract scale and is_delta from metadata
-		if m.Metadata != nil {
+		if metrics[i].Metadata != nil {
 			var metadata map[string]interface{}
 
-			if err := json.Unmarshal(m.Metadata.([]byte), &metadata); err != nil {
-				log.Printf("Failed to unmarshal metadata for metric %s on poller %s: %v", m.Name, pollerID, err)
+			if err := json.Unmarshal(metrics[i].Metadata.([]byte), &metadata); err != nil {
+				log.Printf("Failed to unmarshal metadata for metric %s on poller %s: %v", metrics[i].Name, pollerID, err)
 
 				continue
 			}
