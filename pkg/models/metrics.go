@@ -125,14 +125,14 @@ type SysmonMetricData struct {
 
 // TimeseriesMetric represents a generic timeseries datapoint.
 type TimeseriesMetric struct {
-	PollerID       string      `json:"poller_id"` // Unique identifier for the poller that collected this metric
-	Name           string      `json:"name"`
-	TargetDeviceIP string      `json:"target_device_ip"` // IP address of the device this metric is for
-	IfIndex        int32       `json:"if_index"`
-	Value          string      `json:"value"` // Store as string for flexibility
-	Type           string      `json:"type"`  // Metric type identifier
-	Timestamp      time.Time   `json:"timestamp"`
-	Metadata       interface{} `json:"metadata,omitempty"` // Can hold map[string]string or map[string]interface{}
+	PollerID       string    `json:"poller_id"` // Unique identifier for the poller that collected this metric
+	Name           string    `json:"name"`
+	TargetDeviceIP string    `json:"target_device_ip"` // IP address of the device this metric is for
+	IfIndex        int32     `json:"if_index"`
+	Value          string    `json:"value"` // Store as string for flexibility
+	Type           string    `json:"type"`  // Metric type identifier
+	Timestamp      time.Time `json:"timestamp"`
+	Metadata       string    `json:"metadata"`
 }
 
 // SNMPMetric represents an SNMP metric.
