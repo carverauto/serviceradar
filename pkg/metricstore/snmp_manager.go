@@ -39,14 +39,15 @@ func NewSNMPManager(d db.Service) SNMPManager {
 	}
 }
 
-// parseMetadata extracts a map from a JSON string metadata
-func parseMetadata(metadataStr string, metricName, pollerID string) (map[string]interface{}, bool) {
+// parseMetadata extracts a map from a JSON string metadata.
+func parseMetadata(metadataStr, metricName, pollerID string) (map[string]interface{}, bool) {
 	if metadataStr == "" {
 		log.Printf("Warning: empty metadata for metric %s on poller %s", metricName, pollerID)
 		return nil, false
 	}
 
 	var metadata map[string]interface{}
+
 	if err := json.Unmarshal([]byte(metadataStr), &metadata); err != nil {
 		log.Printf("Failed to unmarshal metadata for metric %s on poller %s: %v", metricName, pollerID, err)
 		return nil, false
@@ -66,6 +67,7 @@ func (s *snmpManagerImpl) StoreSNMPMetric(
 	if metric.OIDName == "" {
 		return fmt.Errorf("SNMP metric OIDName is empty")
 	}
+
 	if metric.ValueType == "" {
 		return fmt.Errorf("SNMP metric ValueType is empty")
 	}
@@ -79,6 +81,7 @@ func (s *snmpManagerImpl) StoreSNMPMetric(
 		return fmt.Errorf("failed to marshal SNMP metric metadata for poller %s, OID %s: %w",
 			pollerID, metric.OIDName, err)
 	}
+
 	metadataStr := string(metadataBytes)
 
 	// Create TimeseriesMetric
@@ -97,6 +100,7 @@ func (s *snmpManagerImpl) StoreSNMPMetric(
 	}
 
 	log.Printf("Stored SNMP metric for poller %s, OID %s", pollerID, metric.OIDName)
+
 	return nil
 }
 
@@ -128,6 +132,7 @@ func (s *snmpManagerImpl) GetSNMPMetrics(
 			if scale, ok := metadata["scale"].(float64); ok {
 				snmpMetric.Scale = scale
 			}
+
 			if isDelta, ok := metadata["is_delta"].(bool); ok {
 				snmpMetric.IsDelta = isDelta
 			}

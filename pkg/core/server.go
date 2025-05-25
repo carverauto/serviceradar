@@ -901,11 +901,13 @@ func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, 
 // server.go
 func (s *Server) processRperfMetrics(pollerID string, details json.RawMessage, timestamp time.Time) error {
 	var rperfData models.RperfMetricData
+
 	if err := json.Unmarshal(details, &rperfData); err != nil {
 		return fmt.Errorf("failed to parse rperf data: %w", err)
 	}
 
 	var timeseriesMetrics []*models.TimeseriesMetric
+
 	for _, result := range rperfData.Results {
 		if !result.Success {
 			log.Printf("Skipping timeseriesMetrics storage for failed rperf test (Target: %s) on poller %s. Error: %v",
@@ -936,6 +938,7 @@ func (s *Server) processRperfMetrics(pollerID string, details json.RawMessage, t
 				pollerID, result.Target, err)
 			continue
 		}
+
 		metadataStr := string(metadataBytes)
 
 		const (
@@ -970,6 +973,7 @@ func (s *Server) processRperfMetrics(pollerID string, details json.RawMessage, t
 				Timestamp: timestamp,
 				Metadata:  metadataStr,
 			}
+
 			timeseriesMetrics = append(timeseriesMetrics, metric)
 		}
 	}
