@@ -35,4 +35,5 @@ type RperfManager interface {
 // SNMPManager defines the interface for managing SNMP metrics.
 type SNMPManager interface {
 	GetSNMPMetrics(ctx context.Context, nodeID string, startTime, endTime time.Time) ([]models.SNMPMetric, error)
+	StoreSNMPMetric(ctx context.Context, pollerID string, metric *models.SNMPMetric, timestamp time.Time) error
 }

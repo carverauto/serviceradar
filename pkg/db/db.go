@@ -166,7 +166,7 @@ func getMetricsStreamStatements() []string {
 			metric_name string,
 			metric_type string,
 			value string,
-			metadata map(string, string),
+			metadata string,
 			timestamp DateTime64(3) DEFAULT now64(3)
 		)`,
 	}

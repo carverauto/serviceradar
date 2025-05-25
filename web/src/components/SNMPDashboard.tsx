@@ -79,35 +79,100 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
     }, []);
 
     // Analyze the metrics to discover related pairs
+    // Inside SNMPDashboard.tsx
+
     const metricGroups = useMemo((): MetricGroup[] => {
         if (!availableMetrics.length) return [];
 
-        const groups: { [key: string]: string[] } = {};
+        const groups: { [key: string]: { metrics: string[]; isInterfaceType: boolean } } = {};
+        const processedMetrics = new Set<string>();
 
-        availableMetrics.forEach((metric) => {
-            const match = metric.match(/(if)(In|Out)(Octets|Errors|Discards|Packets)_(\d+)/i);
+        // Pass 1: Specifically look for global "ifInOctets" and "ifOutOctets"
+        if (availableMetrics.includes("ifInOctets") && availableMetrics.includes("ifOutOctets")) {
+            const baseKey = "ifOctets_global"; // Use a distinct key for this global pair
+            groups[baseKey] = { metrics: ["ifInOctets", "ifOutOctets"].sort(), isInterfaceType: true };
+            processedMetrics.add("ifInOctets");
+            processedMetrics.add("ifOutOctets");
+        }
+
+        // Pass 2: Handle indexed metrics (e.g., ifInOctets_1, ifOutOctets_1)
+        const indexedMetricsMap: { [key: string]: string[] } = {};
+        availableMetrics.forEach(metric => {
+            if (processedMetrics.has(metric)) return; // Skip if already part of the global pair
+
+            const match = metric.match(/^(if)(In|Out)(Octets|Errors|Discards|Packets)_(\d+)$/i);
             if (match) {
-                const [, prefix, , type, interface_id] = match;
-                const baseKey = `${prefix}${type}_${interface_id}`;
-                if (!groups[baseKey]) {
-                    groups[baseKey] = [];
-                }
-                groups[baseKey].push(metric);
-                return;
-            }
+                const [, prefix, , type, , interfaceId] = match;
+                const baseKeyForIndexed = `${prefix}${type}_${interfaceId}`; // e.g., "ifOctets_1"
 
-            if (!Object.values(groups).flat().includes(metric)) {
-                groups[metric] = [metric];
+                if (!indexedMetricsMap[baseKeyForIndexed]) {
+                    indexedMetricsMap[baseKeyForIndexed] = [];
+                }
+                indexedMetricsMap[baseKeyForIndexed].push(metric);
+                processedMetrics.add(metric); // Mark as processed for indexed grouping
             }
         });
 
+        for (const [baseKey, metricsForInterface] of Object.entries(indexedMetricsMap)) {
+            if (metricsForInterface.length > 0) {
+                // Ensure not to overwrite global pair key if names were to clash (unlikely with "_global" suffix)
+                if (!groups[baseKey]) {
+                    groups[baseKey] = { metrics: metricsForInterface.sort(), isInterfaceType: true };
+                }
+            }
+        }
+
+        // Pass 3: Add any remaining metrics (not part of global or indexed pairs) as individual groups
+        availableMetrics.forEach(metric => {
+            if (!processedMetrics.has(metric)) {
+                // Double-check it's not already in any group's metrics list
+                // This check is mostly defensive, as `processedMetrics` should cover it.
+                let alreadyGrouped = false;
+                for(const groupData of Object.values(groups)){
+                    if(groupData.metrics.includes(metric)){
+                        alreadyGrouped = true;
+                        break;
+                    }
+                }
+                if(!alreadyGrouped){
+                    groups[metric] = { metrics: [metric], isInterfaceType: false };
+                }
+            }
+        });
+
+        // Convert the groups object into the MetricGroup[] array structure
         return Object.entries(groups)
-            .map(([baseKey, metrics]) => ({
+            .map(([baseKey, data]) => ({
                 baseKey,
-                metrics,
-                hasPair: metrics.length > 1,
+                metrics: data.metrics,
+                // A group `hasPair` if it's an interface type, has 2+ metrics, and includes both "In" and "Out" variants.
+                // This specifically makes "ifOctets_global" a pair if both "ifInOctets" and "ifOutOctets" were added.
+                hasPair: (baseKey === "ifOctets_global" && data.metrics.length === 2) ||
+                    (data.isInterfaceType && data.metrics.length >= 2 &&
+                        data.metrics.some(m => m.toLowerCase().includes("in")) &&
+                        data.metrics.some(m => m.toLowerCase().includes("out"))),
             }))
-            .sort((a, b) => (b.hasPair ? 1 : 0) - (a.hasPair ? 1 : 0));
+            .sort((a, b) => {
+                // Prioritization:
+                // 1. "ifOctets_global" pair
+                // 2. Other "ifOctets_X" indexed pairs
+                // 3. Other general pairs
+                // 4. Single metrics
+                const isAMainOctets = a.baseKey === "ifOctets_global";
+                const isBMainOctets = b.baseKey === "ifOctets_global";
+                if (isAMainOctets && !isBMainOctets) return -1; // a (main octets) comes first
+                if (!isAMainOctets && isBMainOctets) return 1;  // b (main octets) comes first
+
+                const isAOctetsPair = a.baseKey.toLowerCase().includes("ifoctets") && a.hasPair;
+                const isBOctetsPair = b.baseKey.toLowerCase().includes("ifoctets") && b.hasPair;
+                if (isAOctetsPair && !isBOctetsPair) return -1;
+                if (!isAOctetsPair && isBOctetsPair) return 1;
+
+                if (a.hasPair && !b.hasPair) return -1;
+                if (!a.hasPair && b.hasPair) return 1;
+
+                return a.baseKey.localeCompare(b.baseKey); // Alphabetical for same-priority
+            });
     }, [availableMetrics]);
 
     // Adjust chart height based on screen size
