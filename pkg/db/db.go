@@ -161,12 +161,12 @@ func getMetricsStreamStatements() []string {
 
 		`CREATE STREAM IF NOT EXISTS timeseries_metrics (
 			poller_id string,
-			target_device_ip string,     -- NEW: Extracted from metadata.target_name
-			ifIndex int32,               -- NEW: Extracted/parsed, e.g. from metric_name
+			target_device_ip string,
+			status string, -- e.g., 'ok', 'warning', 'critical'
+			ifIndex int32, 
 			metric_name string,
 			metric_type string,
 			value string,
-			metadata map(string, string),
 			timestamp DateTime64(3) DEFAULT now64(3)
 		)`,
 	}

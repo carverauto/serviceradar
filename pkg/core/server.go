@@ -911,26 +911,6 @@ func (s *Server) processRperfMetrics(pollerID string, details json.RawMessage, t
 			continue
 		}
 
-		metadata := make(map[string]string)
-		metadata["target"] = result.Target
-		metadata["success"] = fmt.Sprintf("%t", result.Success)
-		// Handle potential nil error string
-		if result.Error != nil {
-			metadata["error"] = *result.Error
-		} else {
-			metadata["error"] = ""
-		}
-
-		metadata["bits_per_second"] = fmt.Sprintf("%f", result.Summary.BitsPerSecond)
-		metadata["bytes_received"] = fmt.Sprintf("%d", result.Summary.BytesReceived)
-		metadata["bytes_sent"] = fmt.Sprintf("%d", result.Summary.BytesSent)
-		metadata["duration"] = fmt.Sprintf("%f", result.Summary.Duration)
-		metadata["jitter_ms"] = fmt.Sprintf("%f", result.Summary.JitterMs)
-		metadata["loss_percent"] = fmt.Sprintf("%f", result.Summary.LossPercent)
-		metadata["packets_lost"] = fmt.Sprintf("%d", result.Summary.PacketsLost)
-		metadata["packets_received"] = fmt.Sprintf("%d", result.Summary.PacketsReceived)
-		metadata["packets_sent"] = fmt.Sprintf("%d", result.Summary.PacketsSent)
-
 		const (
 			defaultFmt                  = "%.2f"
 			defaultLossFmt              = "%.1f"
