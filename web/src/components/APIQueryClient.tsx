@@ -238,7 +238,7 @@ const ApiQueryClient: React.FC = () => {
         },
         {
             name: 'Latest Sweep Results',
-            query: 'show sweep_results where available = false LATEST',
+            query: 'show sweep_results',
         },
     ];
 

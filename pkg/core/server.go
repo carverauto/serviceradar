@@ -389,7 +389,7 @@ func (s *Server) GetMetricsManager() metrics.MetricCollector {
 	return s.metrics
 }
 
-func (s *Server) GetSNMPManager() snmp.SNMPManager {
+func (s *Server) GetSNMPManager() metricstore.SNMPManager {
 	return s.snmpManager
 }
 
@@ -488,9 +488,10 @@ func (s *Server) sendShutdownNotification(ctx context.Context) error {
 	}
 
 	alert := &alerts.WebhookAlert{
-		Level:     alerts.Warning,
-		Title:     "Core Service Stopping",
-		Message:   fmt.Sprintf("ServiceRadar core service shutting down at %s", time.Now().Format(time.RFC3339)),
+		Level: alerts.Warning,
+		Title: "Core Service Stopping",
+		Message: fmt.Sprintf("ServiceRadar core service shutting down at %s",
+			time.Now().Format(time.RFC3339)),
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		PollerID:  "core",
 		Details: map[string]any{
@@ -511,9 +512,10 @@ func (s *Server) Shutdown(ctx context.Context) {
 
 	if len(s.webhooks) > 0 {
 		alert := alerts.WebhookAlert{
-			Level:     alerts.Warning,
-			Title:     "Core Service Stopping",
-			Message:   fmt.Sprintf("ServiceRadar core service shutting down at %s", time.Now().Format(time.RFC3339)),
+			Level: alerts.Warning,
+			Title: "Core Service Stopping",
+			Message: fmt.Sprintf("ServiceRadar core service shutting down at %s",
+				time.Now().Format(time.RFC3339)),
 			Timestamp: time.Now().UTC().Format(time.RFC3339),
 			PollerID:  "core",
 			Details: map[string]any{
@@ -685,7 +687,8 @@ func (s *Server) processServices(
 		}
 
 		if err := s.processServiceDetails(ctx, pollerID, &apiService, svc, now); err != nil {
-			log.Printf("Error processing details for service %s on poller %s: %v", svc.ServiceName, pollerID, err)
+			log.Printf("Error processing details for service %s on poller %s: %v",
+				svc.ServiceName, pollerID, err)
 		}
 
 		serviceStatuses = append(serviceStatuses, &models.ServiceStatus{
@@ -845,7 +848,8 @@ func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, 
 		return fmt.Errorf("failed to parse inner sysmon data: %w", err)
 	}
 
-	log.Printf("Parsed %d CPU metrics for poller %s with timestamp %s", len(sysmonData.CPUs), pollerID, sysmonData.Timestamp)
+	log.Printf("Parsed %d CPU metrics for poller %s with timestamp %s",
+		len(sysmonData.CPUs), pollerID, sysmonData.Timestamp)
 
 	// Parse the poller's timestamp
 	pollerTimestamp, err := time.Parse(time.RFC3339Nano, sysmonData.Timestamp)
@@ -894,6 +898,7 @@ func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, 
 	return nil
 }
 
+// server.go
 func (s *Server) processRperfMetrics(pollerID string, details json.RawMessage, timestamp time.Time) error {
 	var rperfData models.RperfMetricData
 
@@ -907,29 +912,34 @@ func (s *Server) processRperfMetrics(pollerID string, details json.RawMessage, t
 		if !result.Success {
 			log.Printf("Skipping timeseriesMetrics storage for failed rperf test (Target: %s) on poller %s. Error: %v",
 				result.Target, pollerID, result.Error)
-
 			continue
 		}
 
-		metadata := make(map[string]string)
-		metadata["target"] = result.Target
-		metadata["success"] = fmt.Sprintf("%t", result.Success)
-		// Handle potential nil error string
-		if result.Error != nil {
-			metadata["error"] = *result.Error
-		} else {
-			metadata["error"] = ""
+		// Create RperfMetric for metadata
+		rperfMetric := models.RperfMetric{
+			Target:          result.Target,
+			Success:         result.Success,
+			Error:           result.Error,
+			BitsPerSec:      result.Summary.BitsPerSecond,
+			BytesReceived:   result.Summary.BytesReceived,
+			BytesSent:       result.Summary.BytesSent,
+			Duration:        result.Summary.Duration,
+			JitterMs:        result.Summary.JitterMs,
+			LossPercent:     result.Summary.LossPercent,
+			PacketsLost:     result.Summary.PacketsLost,
+			PacketsReceived: result.Summary.PacketsReceived,
+			PacketsSent:     result.Summary.PacketsSent,
 		}
 
-		metadata["bits_per_second"] = fmt.Sprintf("%f", result.Summary.BitsPerSecond)
-		metadata["bytes_received"] = fmt.Sprintf("%d", result.Summary.BytesReceived)
-		metadata["bytes_sent"] = fmt.Sprintf("%d", result.Summary.BytesSent)
-		metadata["duration"] = fmt.Sprintf("%f", result.Summary.Duration)
-		metadata["jitter_ms"] = fmt.Sprintf("%f", result.Summary.JitterMs)
-		metadata["loss_percent"] = fmt.Sprintf("%f", result.Summary.LossPercent)
-		metadata["packets_lost"] = fmt.Sprintf("%d", result.Summary.PacketsLost)
-		metadata["packets_received"] = fmt.Sprintf("%d", result.Summary.PacketsReceived)
-		metadata["packets_sent"] = fmt.Sprintf("%d", result.Summary.PacketsSent)
+		// Marshal the RperfMetric as metadata
+		metadataBytes, err := json.Marshal(rperfMetric)
+		if err != nil {
+			log.Printf("Failed to marshal rperf metadata for poller %s, target %s: %v",
+				pollerID, result.Target, err)
+			continue
+		}
+
+		metadataStr := string(metadataBytes)
 
 		const (
 			defaultFmt                  = "%.2f"
@@ -961,7 +971,7 @@ func (s *Server) processRperfMetrics(pollerID string, details json.RawMessage, t
 				Value:     m.Value,
 				Type:      "rperf",
 				Timestamp: timestamp,
-				Metadata:  metadata,
+				Metadata:  metadataStr,
 			}
 
 			timeseriesMetrics = append(timeseriesMetrics, metric)
@@ -976,7 +986,8 @@ func (s *Server) processRperfMetrics(pollerID string, details json.RawMessage, t
 	return nil
 }
 
-func (s *Server) processICMPMetrics(pollerID string, svc *proto.ServiceStatus, details json.RawMessage, now time.Time) error {
+func (s *Server) processICMPMetrics(
+	pollerID string, svc *proto.ServiceStatus, details json.RawMessage, now time.Time) error {
 	var pingResult struct {
 		Host         string  `json:"host"`
 		ResponseTime int64   `json:"response_time"`
@@ -989,17 +1000,30 @@ func (s *Server) processICMPMetrics(pollerID string, svc *proto.ServiceStatus, d
 		return fmt.Errorf("failed to parse ICMP data: %w", err)
 	}
 
+	// Create metadata map
+	metadata := map[string]string{
+		"host":          pingResult.Host,
+		"response_time": fmt.Sprintf("%d", pingResult.ResponseTime),
+		"packet_loss":   fmt.Sprintf("%f", pingResult.PacketLoss),
+		"available":     fmt.Sprintf("%t", pingResult.Available),
+	}
+
+	// Marshal metadata to JSON string
+	metadataBytes, err := json.Marshal(metadata)
+	if err != nil {
+		log.Printf("Failed to marshal ICMP metadata for service %s, poller %s: %v",
+			svc.ServiceName, pollerID, err)
+		return fmt.Errorf("failed to marshal ICMP metadata: %w", err)
+	}
+
+	metadataStr := string(metadataBytes)
+
 	metric := &models.TimeseriesMetric{
 		Name:      fmt.Sprintf("icmp_%s_response_time_ms", svc.ServiceName),
 		Value:     fmt.Sprintf("%d", pingResult.ResponseTime),
 		Type:      "icmp",
 		Timestamp: now,
-		Metadata: map[string]string{
-			"host":          pingResult.Host,
-			"response_time": fmt.Sprintf("%d", pingResult.ResponseTime),
-			"packet_loss":   fmt.Sprintf("%f", pingResult.PacketLoss),
-			"available":     fmt.Sprintf("%t", pingResult.Available),
-		},
+		Metadata:  metadataStr, // Use JSON string
 	}
 
 	// Buffer ICMP metric
@@ -1079,25 +1103,37 @@ func createSNMPMetric(
 	remainingMetadata["oid_last_update_timestamp"] = oidStatus.LastUpdate.Format(time.RFC3339Nano)
 
 	if oidStatus.ErrorCount > 0 {
-		remainingMetadata["oid_error_count"] = fmt.Sprintf("%d", oidStatus.ErrorCount) // Ensure string
+		remainingMetadata["oid_error_count"] = fmt.Sprintf("%d", oidStatus.ErrorCount)
 		remainingMetadata["oid_last_error"] = oidStatus.LastError
 	}
 
+	// Marshal metadata to JSON string
+	metadataBytes, err := json.Marshal(remainingMetadata)
+	if err != nil {
+		log.Printf("Failed to marshal SNMP metadata for poller %s, OID %s: %v", pollerID, oidConfigName, err)
+
+		// Return a metric with empty metadata to avoid skipping valid data
+		remainingMetadata = map[string]string{}
+		metadataBytes, _ = json.Marshal(remainingMetadata)
+	}
+
+	metadataStr := string(metadataBytes)
+
 	// Use the timestamp from the OID status if available and valid, otherwise fallback
-	metricTimestamp := timestamp // Fallback to the overall batch timestamp
+	metricTimestamp := timestamp
 	if !oidStatus.LastUpdate.IsZero() {
 		metricTimestamp = oidStatus.LastUpdate
 	}
 
 	return &models.TimeseriesMetric{
 		PollerID:       pollerID,
-		TargetDeviceIP: targetName,     // This is the device IP/hostname from SNMP target config
-		IfIndex:        parsedIfIndex,  // Parsed ifIndex
-		Name:           baseMetricName, // The metric name without the index part
+		TargetDeviceIP: targetName,
+		IfIndex:        parsedIfIndex,
+		Name:           baseMetricName,
 		Type:           "snmp",
 		Value:          valueStr,
-		Timestamp:      metricTimestamp,   // More granular timestamp if available
-		Metadata:       remainingMetadata, // Store any other relevant info
+		Timestamp:      metricTimestamp,
+		Metadata:       metadataStr, // Use JSON string
 	}
 }
 

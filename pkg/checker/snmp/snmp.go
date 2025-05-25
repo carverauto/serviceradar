@@ -40,6 +40,23 @@ func NewSNMPManager(d db.Service) SNMPManager {
 	}
 }
 
+// parseMetadata extracts a map from a JSON string metadata
+func parseMetadata(metadataStr, metricName, pollerID string) (map[string]interface{}, bool) {
+	if metadataStr == "" {
+		log.Printf("Warning: empty metadata for metric %s on poller %s", metricName, pollerID)
+		return nil, false
+	}
+
+	var metadata map[string]interface{}
+
+	if err := json.Unmarshal([]byte(metadataStr), &metadata); err != nil {
+		log.Printf("Failed to unmarshal metadata for metric %s on poller %s: %v", metricName, pollerID, err)
+		return nil, false
+	}
+
+	return metadata, true
+}
+
 // GetSNMPMetrics fetches SNMP metrics from the database for a given poller.
 func (s *SNMPMetricsManager) GetSNMPMetrics(
 	ctx context.Context, pollerID string, startTime, endTime time.Time) ([]models.SNMPMetric, error) {
@@ -63,15 +80,8 @@ func (s *SNMPMetricsManager) GetSNMPMetrics(
 		}
 
 		// Extract scale and is_delta from metadata
-		if metrics[i].Metadata != nil {
-			var metadata map[string]interface{}
-
-			if err := json.Unmarshal(metrics[i].Metadata.([]byte), &metadata); err != nil {
-				log.Printf("Failed to unmarshal metadata for metric %s on poller %s: %v", metrics[i].Name, pollerID, err)
-
-				continue
-			}
-
+		metadata, ok := parseMetadata(metrics[i].Metadata, metrics[i].Name, pollerID)
+		if ok {
 			if scale, ok := metadata["scale"].(float64); ok {
 				snmpMetric.Scale = scale
 			}
