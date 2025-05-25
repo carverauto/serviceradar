@@ -4,11 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/timeplus-io/proton-go-driver/v2/lib/driver"
 	"log"
 	"strings"
 	"time"
+
+	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/timeplus-io/proton-go-driver/v2/lib/driver"
 )
 
 // GetPollerStatus retrieves a poller's current status.

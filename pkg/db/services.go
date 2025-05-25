@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"fmt"
+
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
