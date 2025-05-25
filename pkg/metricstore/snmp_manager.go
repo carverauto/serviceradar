@@ -92,18 +92,18 @@ func (s *snmpManagerImpl) GetSNMPMetrics(ctx context.Context, pollerID string, s
 
 	snmpMetrics := make([]models.SNMPMetric, 0, len(tsMetrics))
 
-	for _, m := range tsMetrics {
+	for i := range tsMetrics {
 		snmpMetric := models.SNMPMetric{
-			OIDName:   m.Name,
-			Value:     m.Value,
-			ValueType: m.Type,
-			Timestamp: m.Timestamp,
+			OIDName:   tsMetrics[i].Name,
+			Value:     tsMetrics[i].Value,
+			ValueType: tsMetrics[i].Type,
+			Timestamp: tsMetrics[i].Timestamp,
 			Scale:     1.0, // Default value
 			IsDelta:   false,
 		}
 
 		// Extract scale and is_delta from metadata
-		metadata, ok := parseMetadata(m.Metadata, m.Name, pollerID)
+		metadata, ok := parseMetadata(tsMetrics[i].Metadata, tsMetrics[i].Name, pollerID)
 		if ok {
 			if scale, ok := metadata["scale"].(float64); ok {
 				snmpMetric.Scale = scale
