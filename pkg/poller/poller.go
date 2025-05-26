@@ -176,12 +176,18 @@ func (p *Poller) Close() error {
 	return nil
 }
 
-func newAgentPoller(name string, config *AgentConfig, client proto.AgentServiceClient, timeout time.Duration) *AgentPoller {
+func newAgentPoller(
+	name string,
+	config *AgentConfig,
+	client proto.AgentServiceClient,
+	timeout time.Duration,
+	poller *Poller) *AgentPoller {
 	return &AgentPoller{
 		name:    name,
 		config:  config,
 		client:  client,
 		timeout: timeout,
+		poller:  poller,
 	}
 }
 
@@ -201,7 +207,7 @@ func (ap *AgentPoller) ExecuteChecks(ctx context.Context) []*proto.ServiceStatus
 		go func(check Check) {
 			defer wg.Done()
 
-			svcCheck := newServiceCheck(ap.client, check)
+			svcCheck := newServiceCheck(ap.client, check, ap.poller.config.PollerID)
 			results <- svcCheck.execute(checkCtx)
 		}(check)
 	}
@@ -220,10 +226,11 @@ func (ap *AgentPoller) ExecuteChecks(ctx context.Context) []*proto.ServiceStatus
 	return statuses
 }
 
-func newServiceCheck(client proto.AgentServiceClient, check Check) *ServiceCheck {
+func newServiceCheck(client proto.AgentServiceClient, check Check, pollerID string) *ServiceCheck {
 	return &ServiceCheck{
-		client: client,
-		check:  check,
+		client:   client,
+		check:    check,
+		pollerID: pollerID,
 	}
 }
 
@@ -233,6 +240,7 @@ func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
 		ServiceName: sc.check.Name,
 		ServiceType: sc.check.Type,
 		Details:     sc.check.Details,
+		PollerId:    sc.pollerID,
 	}
 
 	if sc.check.Type == "port" {
@@ -248,6 +256,7 @@ func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
 			Available:   false,
 			Message:     err.Error(),
 			ServiceType: sc.check.Type,
+			PollerId:    sc.pollerID,
 		}
 	}
 
@@ -260,7 +269,8 @@ func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
 		Message:      status.Message,
 		ServiceType:  sc.check.Type,
 		ResponseTime: status.ResponseTime,
-		AgentId:      status.AgentId, // Preserve the agent_id
+		AgentId:      status.AgentId,
+		PollerId:     sc.pollerID,
 	}
 }
 
@@ -453,7 +463,7 @@ func (p *Poller) pollAgent(
 	}
 
 	client := proto.NewAgentServiceClient(agent.client.GetConnection())
-	poller := newAgentPoller(agentName, agentConfig, client, defaultTimeout)
+	poller := newAgentPoller(agentName, agentConfig, client, defaultTimeout, p)
 
 	statuses := poller.ExecuteChecks(ctx)
 

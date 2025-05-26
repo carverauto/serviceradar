@@ -35,10 +35,12 @@ message DeviceStatusRequest {
 message StatusRequest {
   string service_name = 1; // Type of service to check (process, port, dusk)
   string service_type = 2; // Type of service (process, port, grpc, etc)
-  string details = 3;      // Additional details (e.g., process name)
-  int32 port = 4;          // Port number for port checks
-  string agent_id = 5;     // Agent ID for traceability
+  string agent_id = 3;     // Agent ID for traceability
+  string poller_id = 4;    // Poller ID for traceability
+  string details = 5;      // Additional details (e.g., process name)
+  int32 port = 6;          // Port number for port checks
 }
+
 
 message StatusResponse {
   bool available = 1;
@@ -47,6 +49,7 @@ message StatusResponse {
   string service_type = 4;
   int64 response_time = 5; // Raw response time in nanoseconds
   string agent_id = 6;     // Agent ID for traceability
+  string poller_id = 7;    // Poller ID for traceability
 }
 
 message PollerStatusRequest {
