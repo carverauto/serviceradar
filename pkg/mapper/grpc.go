@@ -30,11 +30,11 @@ import (
 // GRPCDiscoveryService implements the gRPC interface for the discovery service
 type GRPCDiscoveryService struct {
 	proto.UnimplementedDiscoveryServiceServer
-	engine DiscoveryEngine
+	engine Mapper
 }
 
 // NewGRPCDiscoveryService creates a new gRPC discovery service
-func NewGRPCDiscoveryService(engine DiscoveryEngine) *GRPCDiscoveryService {
+func NewGRPCDiscoveryService(engine Mapper) *GRPCDiscoveryService {
 	return &GRPCDiscoveryService{
 		engine: engine,
 	}
