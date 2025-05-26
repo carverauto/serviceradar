@@ -167,12 +167,12 @@ func (x *StatusRequest) GetPort() int32 {
 type StatusResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Available     bool                   `protobuf:"varint,1,opt,name=available,proto3" json:"available,omitempty"`
-	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"` // Raw data as JSON
+	Message       []byte                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"` // New field
 	ServiceName   string                 `protobuf:"bytes,3,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`
 	ServiceType   string                 `protobuf:"bytes,4,opt,name=service_type,json=serviceType,proto3" json:"service_type,omitempty"`
-	ResponseTime  int64                  `protobuf:"varint,5,opt,name=response_time,json=responseTime,proto3" json:"response_time,omitempty"` // Raw response time in nanoseconds
-	AgentId       string                 `protobuf:"bytes,6,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`                 // Agent ID for traceability
-	PollerId      string                 `protobuf:"bytes,7,opt,name=poller_id,json=pollerId,proto3" json:"poller_id,omitempty"`              // Poller ID for traceability
+	ResponseTime  int64                  `protobuf:"varint,5,opt,name=response_time,json=responseTime,proto3" json:"response_time,omitempty"`
+	AgentId       string                 `protobuf:"bytes,6,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	PollerId      string                 `protobuf:"bytes,7,opt,name=poller_id,json=pollerId,proto3" json:"poller_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -214,11 +214,11 @@ func (x *StatusResponse) GetAvailable() bool {
 	return false
 }
 
-func (x *StatusResponse) GetMessage() string {
+func (x *StatusResponse) GetMessage() []byte {
 	if x != nil {
 		return x.Message
 	}
-	return ""
+	return nil
 }
 
 func (x *StatusResponse) GetServiceName() string {
@@ -372,7 +372,7 @@ type ServiceStatus struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ServiceName   string                 `protobuf:"bytes,1,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`
 	Available     bool                   `protobuf:"varint,2,opt,name=available,proto3" json:"available,omitempty"`
-	Message       string                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
+	Message       []byte                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"` // Changed to bytes
 	ServiceType   string                 `protobuf:"bytes,4,opt,name=service_type,json=serviceType,proto3" json:"service_type,omitempty"`
 	ResponseTime  int64                  `protobuf:"varint,5,opt,name=response_time,json=responseTime,proto3" json:"response_time,omitempty"`
 	AgentId       string                 `protobuf:"bytes,6,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`    // Agent ID for traceability
@@ -425,11 +425,11 @@ func (x *ServiceStatus) GetAvailable() bool {
 	return false
 }
 
-func (x *ServiceStatus) GetMessage() string {
+func (x *ServiceStatus) GetMessage() []byte {
 	if x != nil {
 		return x.Message
 	}
-	return ""
+	return nil
 }
 
 func (x *ServiceStatus) GetServiceType() string {
@@ -611,7 +611,7 @@ var file_monitoring_proto_rawDesc = string([]byte{
 	0x01, 0x0a, 0x0e, 0x53, 0x74, 0x61, 0x74, 0x75, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73,
 	0x65, 0x12, 0x1c, 0x0a, 0x09, 0x61, 0x76, 0x61, 0x69, 0x6c, 0x61, 0x62, 0x6c, 0x65, 0x18, 0x01,
 	0x20, 0x01, 0x28, 0x08, 0x52, 0x09, 0x61, 0x76, 0x61, 0x69, 0x6c, 0x61, 0x62, 0x6c, 0x65, 0x12,
-	0x18, 0x0a, 0x07, 0x6d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09,
+	0x18, 0x0a, 0x07, 0x6d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0c,
 	0x52, 0x07, 0x6d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x12, 0x21, 0x0a, 0x0c, 0x73, 0x65, 0x72,
 	0x76, 0x69, 0x63, 0x65, 0x5f, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09, 0x52,
 	0x0b, 0x73, 0x65, 0x72, 0x76, 0x69, 0x63, 0x65, 0x4e, 0x61, 0x6d, 0x65, 0x12, 0x21, 0x0a, 0x0c,
@@ -642,7 +642,7 @@ var file_monitoring_proto_rawDesc = string([]byte{
 	0x65, 0x72, 0x76, 0x69, 0x63, 0x65, 0x4e, 0x61, 0x6d, 0x65, 0x12, 0x1c, 0x0a, 0x09, 0x61, 0x76,
 	0x61, 0x69, 0x6c, 0x61, 0x62, 0x6c, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x08, 0x52, 0x09, 0x61,
 	0x76, 0x61, 0x69, 0x6c, 0x61, 0x62, 0x6c, 0x65, 0x12, 0x18, 0x0a, 0x07, 0x6d, 0x65, 0x73, 0x73,
-	0x61, 0x67, 0x65, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09, 0x52, 0x07, 0x6d, 0x65, 0x73, 0x73, 0x61,
+	0x61, 0x67, 0x65, 0x18, 0x03, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x07, 0x6d, 0x65, 0x73, 0x73, 0x61,
 	0x67, 0x65, 0x12, 0x21, 0x0a, 0x0c, 0x73, 0x65, 0x72, 0x76, 0x69, 0x63, 0x65, 0x5f, 0x74, 0x79,
 	0x70, 0x65, 0x18, 0x04, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0b, 0x73, 0x65, 0x72, 0x76, 0x69, 0x63,
 	0x65, 0x54, 0x79, 0x70, 0x65, 0x12, 0x23, 0x0a, 0x0d, 0x72, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73,

@@ -111,6 +111,8 @@ type ICMPResponse struct {
 	ResponseTime int64   `json:"response_time"` // in nanoseconds
 	PacketLoss   float64 `json:"packet_loss"`
 	Available    bool    `json:"available"`
+	AgentID      string  `json:"agent_id,omitempty"`  // Optional agent ID for context
+	PollerID     string  `json:"poller_id,omitempty"` // Optional poller ID for context
 }
 
 // UnmarshalJSON implements the json.Unmarshaler interface to allow parsing of a Duration from a JSON string or number.

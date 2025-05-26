@@ -205,15 +205,11 @@ func (s *SNMPService) GetServiceStatus(ctx context.Context, req *proto.StatusReq
 		return nil, fmt.Errorf("%w: %s", ErrInvalidServiceType, req.ServiceType)
 	}
 
-	// set a context with timeout
-	_, cancel := context.WithTimeout(ctx, defaultServiceStatusTimeout)
-	defer cancel()
-
 	status, err := s.GetStatus(ctx)
 	if err != nil {
 		return &proto.StatusResponse{
 			Available: false,
-			Message:   fmt.Sprintf("Error getting status: %v", err),
+			Message:   jsonError(fmt.Sprintf("Error getting status: %v", err)),
 		}, nil
 	}
 
@@ -222,27 +218,31 @@ func (s *SNMPService) GetServiceStatus(ctx context.Context, req *proto.StatusReq
 	if err != nil {
 		return &proto.StatusResponse{
 			Available: false,
-			Message:   fmt.Sprintf("Error marshaling status: %v", err),
+			Message:   jsonError(fmt.Sprintf("Error marshaling status: %v", err)),
 		}, nil
 	}
 
 	// Determine overall availability
 	available := true
-
 	for _, targetStatus := range status {
 		if !targetStatus.Available {
 			available = false
-
 			break
 		}
 	}
 
 	return &proto.StatusResponse{
 		Available:   available,
-		Message:     string(statusJSON),
+		Message:     statusJSON, // Use []byte directly
 		ServiceName: "snmp",
 		ServiceType: "snmp",
 	}, nil
+}
+
+// jsonError creates a JSON-encoded error message as []byte
+func jsonError(msg string) []byte {
+	data, _ := json.Marshal(map[string]string{"error": msg})
+	return data
 }
 
 // initializeTarget sets up collector and aggregator for a target.
