@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/carverauto/serviceradar/proto"
 	"log"
 	"os"
 	"path/filepath"
@@ -133,7 +134,7 @@ func loadMapperConfig(ctx context.Context) (*MapperConfig, error) {
 const defaultJobIntervalThreshold = 10 * time.Second
 
 // Check parses the discovery parameters, optionally initiates a job, and returns the status/results
-func (mdc *MapperDiscoveryChecker) Check(ctx context.Context, req *discovery.StatusRequest) (bool, json.RawMessage) {
+func (mdc *MapperDiscoveryChecker) Check(ctx context.Context, req *proto.StatusRequest) (bool, json.RawMessage) {
 	mdc.mu.Lock()
 	defer mdc.mu.Unlock()
 
@@ -141,19 +142,27 @@ func (mdc *MapperDiscoveryChecker) Check(ctx context.Context, req *discovery.Sta
 		return false, jsonError("No StatusRequest provided")
 	}
 
+	// Parse discovery details
 	var parsedDetails MapperDiscoveryDetails
 	if err := json.Unmarshal([]byte(mdc.details), &parsedDetails); err != nil {
 		return false, jsonError(fmt.Sprintf("Failed to parse mapper discovery details: %v", err))
 	}
 
+	// Map proto.StatusRequest to discovery.StatusRequest
 	if parsedDetails.AgentID == "" {
 		parsedDetails.AgentID = req.AgentId
 		log.Printf("MapperDiscoveryChecker: Using AgentID %s from StatusRequest", req.AgentId)
 	}
-
 	if parsedDetails.PollerID == "" {
 		parsedDetails.PollerID = req.PollerId
 		log.Printf("MapperDiscoveryChecker: Using PollerID %s from StatusRequest", req.PollerId)
+	}
+
+	// Create discovery.StatusRequest for gRPC call
+	discoveryReq := &discovery.StatusRequest{
+		DiscoveryId: mdc.lastDiscoveryID,
+		AgentId:     parsedDetails.AgentID,
+		PollerId:    parsedDetails.PollerID,
 	}
 
 	startNewJob := mdc.shouldStartNewJob(ctx)
@@ -172,7 +181,7 @@ func (mdc *MapperDiscoveryChecker) Check(ctx context.Context, req *discovery.Sta
 		return false, data
 	}
 
-	return mdc.processJobResults(ctx, &parsedDetails)
+	return mdc.processJobResults(ctx, discoveryReq, &parsedDetails)
 }
 
 func (mdc *MapperDiscoveryChecker) startNewDiscoveryJob(ctx context.Context, details *MapperDiscoveryDetails) json.RawMessage {
@@ -236,8 +245,8 @@ func (mdc *MapperDiscoveryChecker) shouldStartNewJob(ctx context.Context) bool {
 	return false
 }
 
-func (mdc *MapperDiscoveryChecker) processJobResults(ctx context.Context, details *MapperDiscoveryDetails) (bool, json.RawMessage) {
-	resultsReq := &discovery.ResultsRequest{DiscoveryId: mdc.lastDiscoveryID}
+func (mdc *MapperDiscoveryChecker) processJobResults(ctx context.Context, discoveryReq *discovery.StatusRequest, details *MapperDiscoveryDetails) (bool, json.RawMessage) {
+	resultsReq := &discovery.ResultsRequest{DiscoveryId: discoveryReq.DiscoveryId}
 	resultsResp, err := mdc.mapperClient.GetDiscoveryResults(ctx, resultsReq)
 	if err != nil {
 		return false, jsonError(fmt.Sprintf("Failed to get discovery results: %v", err))
@@ -247,11 +256,11 @@ func (mdc *MapperDiscoveryChecker) processJobResults(ctx context.Context, detail
 		return false, jsonError(resultsResp.Error)
 	}
 
-	if resultsResp.Status == discovery.DiscoveryStatus_FAILED.String() {
+	if resultsResp.Status == discovery.DiscoveryStatus_FAILED {
 		return false, jsonError(fmt.Sprintf("Discovery job %s failed: %s", mdc.lastDiscoveryID, resultsResp.Error))
 	}
 
-	if resultsResp.Status != discovery.DiscoveryStatus_COMPLETED.String() {
+	if resultsResp.Status != discovery.DiscoveryStatus_COMPLETED {
 		return mdc.formatProgressStatus(resultsResp)
 	}
 
@@ -292,7 +301,7 @@ func (mdc *MapperDiscoveryChecker) formatFinalResults(resultsResp *discovery.Res
 		return false, jsonError(fmt.Sprintf("Failed to marshal SNMP discovery results payload: %v", err))
 	}
 
-	available := resultsResp.Status == discovery.DiscoveryStatus_COMPLETED.String()
+	available := resultsResp.Status == discovery.DiscoveryStatus_COMPLETED
 	log.Printf("MapperDiscoveryChecker: Reporting job %s status: %s, available: %v. Found devices: %d, interfaces: %d, links: %d",
 		mdc.lastDiscoveryID, resultsResp.Status, available,
 		len(resultsResp.Devices), len(resultsResp.Interfaces), len(resultsResp.Topology))
@@ -334,10 +343,4 @@ func (mdc *MapperDiscoveryChecker) Close() error {
 		return mdc.client.Close()
 	}
 	return nil
-}
-
-// Helper function to create error JSON
-func jsonError(msg string) json.RawMessage {
-	data, _ := json.Marshal(map[string]string{"error": msg})
-	return data
 }

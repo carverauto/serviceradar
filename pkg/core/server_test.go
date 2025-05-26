@@ -227,6 +227,7 @@ func TestReportStatus(t *testing.T) {
 	t.Logf("TestReportStatus: serviceBuffers before test-poller: %+v", server.serviceBuffers)
 	server.bufferMu.Unlock()
 
+	icmpMessage := `{"host":"192.168.1.1","response_time":10,"packet_loss":0,"available":true}`
 	resp, err = server.ReportStatus(context.Background(), &proto.PollerStatusRequest{
 		PollerId:  "test-poller",
 		Timestamp: time.Now().Unix(),
@@ -235,7 +236,7 @@ func TestReportStatus(t *testing.T) {
 				ServiceName: "icmp-service",
 				ServiceType: "icmp",
 				Available:   true,
-				Message:     `{"host":"192.168.1.1","response_time":10,"packet_loss":0,"available":true}`,
+				Message:     []byte(icmpMessage), // Convert string to []byte
 				AgentId:     "test-agent",
 			},
 		},
@@ -293,9 +294,9 @@ func getSweepTestCases(now time.Time) []struct {
 		{
 			name: "Valid timestamp with hosts",
 			inputMessage: `{
-				"network": "192.168.1.0/24", "total_hosts": 10, "available_hosts": 5, 
-				"last_sweep": 1678886400, "hosts": [{"host": "192.168.1.1", "available": true, 
-				"mac": "00:11:22:33:44:55", "hostname": "host1"}]}`,
+"network": "192.168.1.0/24", "total_hosts": 10, "available_hosts": 5,
+"last_sweep": 1678886400, "hosts": [{"host": "192.168.1.1", "available": true,
+"mac": "00:11:22:33:44:55", "hostname": "host1"}]}`,
 			expectedSweep: proto.SweepServiceStatus{
 				Network:        "192.168.1.0/24",
 				TotalHosts:     10,
@@ -330,7 +331,7 @@ func TestProcessSweepData(t *testing.T) {
 		t.Run(tests[i].name, func(t *testing.T) {
 			tt := &tests[i]
 			svc := &api.ServiceStatus{
-				Message: tt.inputMessage,
+				Message: []byte(tt.inputMessage), // Convert string to []byte
 			}
 
 			// Set up mock expectation for StoreSweepResults only when hosts are present
@@ -344,7 +345,6 @@ func TestProcessSweepData(t *testing.T) {
 							assert.Equal(t, "host1", *results[0].Hostname, "Expected correct hostname")
 							assert.True(t, results[0].Available, "Expected host to be available")
 						}
-
 						return nil
 					})
 			}
@@ -357,12 +357,12 @@ func TestProcessSweepData(t *testing.T) {
 // verifySweepTestCase verifies a single test case for TestProcessSweepData
 func verifySweepTestCase(ctx context.Context, t *testing.T, server *Server, svc *api.ServiceStatus,
 	tt *struct {
-		name          string
-		inputMessage  string
-		expectedSweep proto.SweepServiceStatus
-		expectError   bool
-		hasHosts      bool
-	}, now time.Time) {
+	name          string
+	inputMessage  string
+	expectedSweep proto.SweepServiceStatus
+	expectError   bool
+	hasHosts      bool
+}, now time.Time) {
 	t.Helper()
 
 	err := server.processSweepData(ctx, svc, now)
@@ -374,7 +374,7 @@ func verifySweepTestCase(ctx context.Context, t *testing.T, server *Server, svc 
 	require.NoError(t, err)
 
 	var sweepData proto.SweepServiceStatus
-	err = json.Unmarshal([]byte(svc.Message), &sweepData)
+	err = json.Unmarshal(svc.Message, &sweepData)
 	require.NoError(t, err)
 
 	assert.Equal(t, tt.expectedSweep.Network, sweepData.Network)
@@ -407,23 +407,23 @@ func TestProcessSNMPMetrics(t *testing.T) {
 
 	// Test data
 	detailsJSON := `{
-        "router.example.com": {
-            "available": true,
-            "last_poll": "2025-03-20T12:34:56Z",
-            "oid_status": {
-                "1.3.6.1.2.1.1.3.0": {
-                    "last_value": 123456789,
-                    "last_update": "2025-03-20T12:34:56Z",
-                    "error_count": 0
-                },
-                "1.3.6.1.2.1.2.2.1.10.1": {
-                    "last_value": 987654321,
-                    "last_update": "2025-03-20T12:34:56Z",
-                    "error_count": 0
-                }
-            }
-        }
-    }`
+"router.example.com": {
+"available": true,
+"last_poll": "2025-03-20T12:34:56Z",
+"oid_status": {
+"1.3.6.1.2.1.1.3.0": {
+"last_value": 123456789,
+"last_update": "2025-03-20T12:34:56Z",
+"error_count": 0
+},
+"1.3.6.1.2.1.2.2.1.10.1": {
+"last_value": 987654321,
+"last_update": "2025-03-20T12:34:56Z",
+"error_count": 0
+}
+}
+}
+}`
 
 	var details json.RawMessage
 	err := json.Unmarshal([]byte(detailsJSON), &details)
@@ -557,7 +557,7 @@ func TestEvaluatePollerHealth(t *testing.T) {
 
 	// Mock alert and API update for offline case
 	mockWebhook.EXPECT().Alert(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-	mockAPI.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).AnyTimes()
+	mockAPI.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	server := &Server{
 		DB:                  mockDB,
@@ -706,6 +706,7 @@ func setupTestServer(
 
 // createTestRequest creates a test PollerStatusRequest with the given poller and agent IDs
 func createTestRequest(pollerID, agentID string, now time.Time) *proto.PollerStatusRequest {
+	statusMessage := `{"status":"ok"}`
 	return &proto.PollerStatusRequest{
 		PollerId:  pollerID,
 		Timestamp: now.Unix(),
@@ -714,7 +715,7 @@ func createTestRequest(pollerID, agentID string, now time.Time) *proto.PollerSta
 				ServiceName: "test-service",
 				ServiceType: "test",
 				Available:   true,
-				Message:     `{"status":"ok"}`,
+				Message:     []byte(statusMessage), // Convert string to []byte
 				AgentId:     agentID,
 				PollerId:    pollerID,
 			},
