@@ -35,7 +35,7 @@ const (
 )
 
 // cleanupRoutine periodically cleans up completed jobs.
-func (e *SNMPDiscoveryEngine) cleanupRoutine(ctx context.Context) {
+func (e *DiscoveryEngine) cleanupRoutine(ctx context.Context) {
 	ticker := time.NewTicker(
 		e.config.ResultRetention / defaultResultRetentionDivisor) // Clean more frequently than retention
 	defer ticker.Stop()
@@ -57,7 +57,7 @@ func (e *SNMPDiscoveryEngine) cleanupRoutine(ctx context.Context) {
 }
 
 // cleanupCompletedJobs removes old completed jobs.
-func (e *SNMPDiscoveryEngine) cleanupCompletedJobs() {
+func (e *DiscoveryEngine) cleanupCompletedJobs() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -94,7 +94,7 @@ func LoadConfigFromFile(filename string) (*Config, error) {
 }
 
 // createSNMPClient creates an SNMP client for the given target and credentials
-func (e *SNMPDiscoveryEngine) createSNMPClient(targetIP string, credentials *SNMPCredentials) (*gosnmp.GoSNMP, error) {
+func (e *DiscoveryEngine) createSNMPClient(targetIP string, credentials *SNMPCredentials) (*gosnmp.GoSNMP, error) {
 	// Check if there are target-specific credentials
 	if credentials.TargetSpecific != nil {
 		if targetCreds, ok := credentials.TargetSpecific[targetIP]; ok {
@@ -122,7 +122,7 @@ func (e *SNMPDiscoveryEngine) createSNMPClient(targetIP string, credentials *SNM
 }
 
 // configureClientVersion sets up the SNMP client based on the version in the credentials
-func (e *SNMPDiscoveryEngine) configureClientVersion(client *gosnmp.GoSNMP, credentials *SNMPCredentials) error {
+func (e *DiscoveryEngine) configureClientVersion(client *gosnmp.GoSNMP, credentials *SNMPCredentials) error {
 	switch credentials.Version {
 	case SNMPVersion1:
 		client.Version = gosnmp.Version1
@@ -152,7 +152,7 @@ func (e *SNMPDiscoveryEngine) configureClientVersion(client *gosnmp.GoSNMP, cred
 }
 
 // configureV3Authentication sets up the authentication protocol for SNMPv3
-func (*SNMPDiscoveryEngine) configureV3Authentication(usm *gosnmp.UsmSecurityParameters, credentials *SNMPCredentials) {
+func (*DiscoveryEngine) configureV3Authentication(usm *gosnmp.UsmSecurityParameters, credentials *SNMPCredentials) {
 	switch strings.ToUpper(credentials.AuthProtocol) {
 	case "MD5":
 		usm.AuthenticationProtocol = gosnmp.MD5
@@ -176,7 +176,7 @@ func (*SNMPDiscoveryEngine) configureV3Authentication(usm *gosnmp.UsmSecurityPar
 }
 
 // configureV3Privacy sets up the privacy protocol for SNMPv3
-func (*SNMPDiscoveryEngine) configureV3Privacy(usm *gosnmp.UsmSecurityParameters, credentials *SNMPCredentials) {
+func (*DiscoveryEngine) configureV3Privacy(usm *gosnmp.UsmSecurityParameters, credentials *SNMPCredentials) {
 	switch strings.ToUpper(credentials.PrivacyProtocol) {
 	case "DES":
 		usm.PrivacyProtocol = gosnmp.DES

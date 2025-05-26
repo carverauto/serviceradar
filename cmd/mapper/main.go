@@ -38,7 +38,7 @@ func main() {
 
 var (
 	errFailedToLoadMapperConfig    = fmt.Errorf("failed to load mapper configuration")
-	errFailedToTypeCastEngine      = fmt.Errorf("failed to cast discovery engine to *mapper.SNMPDiscoveryEngine for health service")
+	errFailedToTypeCastEngine      = fmt.Errorf("failed to cast discovery engine to *mapper.DiscoveryEngine for health service")
 	errFailedToInitDiscoveryEngine = fmt.Errorf("failed to initialize discovery engine")
 )
 
@@ -66,7 +66,7 @@ func run() error {
 	// TODO: Create a proper publisher implementation
 	var publisher mapper.Publisher
 
-	engine, err := mapper.NewSnmpDiscoveryEngine(&cfg, publisher)
+	engine, err := mapper.NewDiscoveryEngine(&cfg, publisher)
 	if err != nil {
 		return fmt.Errorf("%w: %w", errFailedToInitDiscoveryEngine, err)
 	}
@@ -74,7 +74,7 @@ func run() error {
 	// Create gRPC services
 	grpcDiscoveryService := mapper.NewGRPCDiscoveryService(engine)
 
-	snmpEngine, ok := engine.(*mapper.SNMPDiscoveryEngine)
+	snmpEngine, ok := engine.(*mapper.DiscoveryEngine)
 	if !ok {
 		return errFailedToTypeCastEngine
 	}
