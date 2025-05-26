@@ -14,13 +14,13 @@
  * limitations under the License.
  */
 
-// Package discovery pkg/discovery/interfaces.go
+// Package mapper pkg/discovery/interfaces.go
 package mapper
 
 import "context"
 
-// DiscoveryEngine is the main interface for network discovery operations
-type DiscoveryEngine interface {
+// Mapper is the main interface for network discovery operations
+type Mapper interface {
 	// Start initializes and starts the discovery engine
 	Start(ctx context.Context) error
 

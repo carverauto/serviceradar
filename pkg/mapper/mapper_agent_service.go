@@ -27,11 +27,11 @@ import (
 // MapperAgentService implements the monitoring.AgentServiceServer for the mapper's own health.
 type MapperAgentService struct {
 	monitoringpb.UnimplementedAgentServiceServer
-	engine *SNMPDiscoveryEngine
+	engine *DiscoveryEngine
 }
 
 // NewMapperAgentService creates a new MapperAgentService.
-func NewMapperAgentService(engine *SNMPDiscoveryEngine) *MapperAgentService {
+func NewMapperAgentService(engine *DiscoveryEngine) *MapperAgentService {
 	return &MapperAgentService{
 		engine: engine,
 	}

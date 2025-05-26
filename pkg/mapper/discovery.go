@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-// Package discovery pkg/discovery/discovery.go
+// Package mapper pkg/discovery/discovery.go
 package mapper
 
 import (
@@ -26,13 +26,13 @@ import (
 	"github.com/google/uuid"
 )
 
-// NewSnmpDiscoveryEngine creates a new SNMP discovery engine with the given configuration
-func NewSnmpDiscoveryEngine(config *Config, publisher Publisher) (DiscoveryEngine, error) {
+// NewDiscoveryEngine creates a new discovery engine with the given configuration
+func NewDiscoveryEngine(config *Config, publisher Publisher) (Mapper, error) {
 	if err := validateConfig(config); err != nil {
 		return nil, fmt.Errorf("invalid discovery engine configuration: %w", err)
 	}
 
-	engine := &SNMPDiscoveryEngine{
+	engine := &DiscoveryEngine{
 		config:        config,
 		activeJobs:    make(map[string]*DiscoveryJob),
 		completedJobs: make(map[string]*DiscoveryResults),
@@ -47,8 +47,8 @@ func NewSnmpDiscoveryEngine(config *Config, publisher Publisher) (DiscoveryEngin
 }
 
 // Start initializes and starts the discovery engine
-func (e *SNMPDiscoveryEngine) Start(ctx context.Context) error {
-	log.Printf("Starting SNMPDiscoveryEngine with %d workers and %d max active jobs...", e.workers, e.config.MaxActiveJobs)
+func (e *DiscoveryEngine) Start(ctx context.Context) error {
+	log.Printf("Starting DiscoveryEngine with %d workers and %d max active jobs...", e.workers, e.config.MaxActiveJobs)
 
 	e.wg.Add(e.workers) // Add worker count to WaitGroup
 
@@ -64,7 +64,7 @@ func (e *SNMPDiscoveryEngine) Start(ctx context.Context) error {
 		e.cleanupRoutine(ctx) // This function is in utils.go
 	}()
 
-	log.Println("SNMPDiscoveryEngine started.")
+	log.Println("DiscoveryEngine started.")
 
 	return nil
 }
@@ -74,8 +74,8 @@ const (
 )
 
 // Stop gracefully shuts down the discovery engine
-func (e *SNMPDiscoveryEngine) Stop(ctx context.Context) error {
-	log.Println("Stopping SNMPDiscoveryEngine...")
+func (e *DiscoveryEngine) Stop(ctx context.Context) error {
+	log.Println("Stopping DiscoveryEngine...")
 
 	// Signal all goroutines to stop
 	close(e.done)
@@ -92,25 +92,25 @@ func (e *SNMPDiscoveryEngine) Stop(ctx context.Context) error {
 
 	select {
 	case <-waitChan:
-		log.Println("All SNMPDiscoveryEngine goroutines stopped.")
+		log.Println("All DiscoveryEngine goroutines stopped.")
 	case <-ctx.Done():
-		log.Printf("SNMPDiscoveryEngine stop timed out or context canceled: %v", ctx.Err())
+		log.Printf("DiscoveryEngine stop timed out or context canceled: %v", ctx.Err())
 		return ctx.Err()
 	case <-time.After(defaultFallbackTimeout): // Fallback timeout
-		log.Println("SNMPDiscoveryEngine stop timed out after 10s.")
+		log.Println("DiscoveryEngine stop timed out after 10s.")
 		return ErrDiscoveryStopTimeout
 	}
 
 	// Close jobChan after workers have stopped to prevent sending to closed channel
 	close(e.jobChan)
 
-	log.Println("SNMPDiscoveryEngine stopped.")
+	log.Println("DiscoveryEngine stopped.")
 
 	return nil
 }
 
 // StartDiscovery initiates a discovery operation with the given parameters.
-func (e *SNMPDiscoveryEngine) StartDiscovery(ctx context.Context, params *DiscoveryParams) (string, error) {
+func (e *DiscoveryEngine) StartDiscovery(ctx context.Context, params *DiscoveryParams) (string, error) {
 	e.mu.Lock()
 	// Intentionally not using defer e.mu.Unlock() here because of the select block
 	// that might block. We will unlock manually before returning or if an error occurs early.
@@ -187,7 +187,7 @@ func (e *SNMPDiscoveryEngine) StartDiscovery(ctx context.Context, params *Discov
 }
 
 // GetDiscoveryStatus retrieves the status of a discovery operation
-func (e *SNMPDiscoveryEngine) GetDiscoveryStatus(_ context.Context, discoveryID string) (*DiscoveryStatus, error) {
+func (e *DiscoveryEngine) GetDiscoveryStatus(_ context.Context, discoveryID string) (*DiscoveryStatus, error) {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
@@ -209,7 +209,7 @@ func (e *SNMPDiscoveryEngine) GetDiscoveryStatus(_ context.Context, discoveryID 
 }
 
 // GetDiscoveryResults retrieves the results of a completed discovery operation
-func (e *SNMPDiscoveryEngine) GetDiscoveryResults(_ context.Context, discoveryID string, includeRawData bool) (*DiscoveryResults, error) {
+func (e *DiscoveryEngine) GetDiscoveryResults(_ context.Context, discoveryID string, includeRawData bool) (*DiscoveryResults, error) {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 
@@ -232,7 +232,7 @@ func (e *SNMPDiscoveryEngine) GetDiscoveryResults(_ context.Context, discoveryID
 }
 
 // CancelDiscovery cancels an in-progress discovery operation
-func (e *SNMPDiscoveryEngine) CancelDiscovery(_ context.Context, discoveryID string) error {
+func (e *DiscoveryEngine) CancelDiscovery(_ context.Context, discoveryID string) error {
 	e.mu.Lock()
 	job, ok := e.activeJobs[discoveryID]
 
@@ -269,7 +269,7 @@ func (e *SNMPDiscoveryEngine) CancelDiscovery(_ context.Context, discoveryID str
 }
 
 // worker processes discovery jobs from jobChan
-func (e *SNMPDiscoveryEngine) worker(ctx context.Context, workerID int) {
+func (e *DiscoveryEngine) worker(ctx context.Context, workerID int) {
 	defer e.wg.Done()
 
 	log.Printf("Discovery worker %d started.", workerID)

@@ -26,8 +26,8 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-// SNMPDiscoveryEngine implements the Engine interface using SNMP.
-type SNMPDiscoveryEngine struct {
+// DiscoveryEngine implements the Engine interface using SNMP.
+type DiscoveryEngine struct {
 	config        *Config
 	activeJobs    map[string]*DiscoveryJob
 	completedJobs map[string]*DiscoveryResults
