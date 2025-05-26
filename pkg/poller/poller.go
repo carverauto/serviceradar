@@ -18,6 +18,7 @@ package poller
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"sync"
@@ -235,7 +236,6 @@ func newServiceCheck(client proto.AgentServiceClient, check Check, pollerID stri
 }
 
 func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
-	// a longer interval between polling periods.
 	req := &proto.StatusRequest{
 		ServiceName: sc.check.Name,
 		ServiceType: sc.check.Type,
@@ -251,17 +251,26 @@ func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
 
 	status, err := sc.client.GetStatus(ctx, req)
 	if err != nil {
+		log.Printf("Service check failed for %s: %v", sc.check.Name, err)
+
+		msg := "Service check failed"
+
+		message, err := json.Marshal(map[string]string{"error": msg})
+		if err != nil {
+			log.Printf("Failed to marshal error message: %v", err)
+			message = []byte(msg) // Fallback to plain string if marshal fails
+		}
+
 		return &proto.ServiceStatus{
 			ServiceName: sc.check.Name,
 			Available:   false,
-			Message:     err.Error(),
+			Message:     message,
 			ServiceType: sc.check.Type,
 			PollerId:    sc.pollerID,
 		}
 	}
 
-	log.Printf("Received StatusResponse: %+v", status)
-	log.Println("AgentID:", status.AgentId)
+	log.Printf("Received StatusResponse: available=%v, message=%s", status.Available, status.Message)
 
 	return &proto.ServiceStatus{
 		ServiceName:  sc.check.Name,

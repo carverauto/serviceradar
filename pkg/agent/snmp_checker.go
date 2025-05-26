@@ -18,6 +18,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -110,20 +111,21 @@ func NewSNMPChecker(ctx context.Context, address string, security *models.Securi
 	return c, nil
 }
 
-func (c *SNMPChecker) Check(ctx context.Context) (available bool, msg string) {
+func (c *SNMPChecker) Check(ctx context.Context, req *proto.StatusRequest) (available bool, msg json.RawMessage) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	req := &proto.StatusRequest{
+	reqCheck := &proto.StatusRequest{
 		ServiceType: "snmp",
 		ServiceName: "snmp",
+		AgentId:     req.AgentId,
+		PollerId:    req.PollerId,
 	}
 
-	resp, err := c.agentClient.GetStatus(ctx, req)
+	resp, err := c.agentClient.GetStatus(ctx, reqCheck)
 	if err != nil {
 		log.Printf("Failed to get SNMP status: %v", err)
-
-		return false, fmt.Sprintf("Failed to get status: %v", err)
+		return false, jsonError(fmt.Sprintf("Failed to get status: %v", err))
 	}
 
 	return resp.Available, resp.Message

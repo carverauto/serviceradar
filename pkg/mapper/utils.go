@@ -18,11 +18,9 @@ package mapper
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net"
-	"os"
 	"strings"
 	"time"
 
@@ -76,22 +74,6 @@ func (e *DiscoveryEngine) cleanupCompletedJobs() {
 	}
 
 	log.Printf("Removed %d expired completed jobs", removed)
-}
-
-// LoadConfigFromFile loads the discovery engine configuration from a JSON file
-func LoadConfigFromFile(filename string) (*Config, error) {
-	data, err := os.ReadFile(filename)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
-	}
-
-	var config Config
-
-	if err := json.Unmarshal(data, &config); err != nil {
-		return nil, fmt.Errorf("failed to parse config file: %w", err)
-	}
-
-	return &config, nil
 }
 
 // createSNMPClient creates an SNMP client for the given target and credentials

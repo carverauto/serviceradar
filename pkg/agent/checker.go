@@ -19,8 +19,10 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/carverauto/serviceradar/proto"
 	"log"
 	"net"
 	"os/exec"
@@ -63,33 +65,40 @@ func (p *ProcessChecker) validateProcessName() error {
 }
 
 // Check validates if a process is running.
-func (p *ProcessChecker) Check(ctx context.Context) (isActive bool, statusMsg string) {
+func (p *ProcessChecker) Check(ctx context.Context, req *proto.StatusRequest) (isActive bool, statusMsg json.RawMessage) {
 	log.Printf("Checking process %q", p.ProcessName)
 
-	// Validate process name before executing command
 	if err := p.validateProcessName(); err != nil {
 		log.Printf("Failed to validate process name: %v", err)
-		return false, fmt.Sprintf("Invalid process name: %v", err)
+		return false, jsonError(fmt.Sprintf("Invalid process name: %v", err))
 	}
 
-	cmd := exec.CommandContext(ctx, "systemctl", "is-active", p.ProcessName) //nolint:gosec // checking above
+	cmd := exec.CommandContext(ctx, "systemctl", "is-active", p.ProcessName)
 	log.Printf("Running command: %v", cmd)
 
 	output, err := cmd.Output()
 	if err != nil {
-		// Command failed, process is not active
-		return false, fmt.Sprintf("Process %s is not running: %v", p.ProcessName, err)
+		return false, jsonError(fmt.Sprintf("Process %s is not running: %v", p.ProcessName, err))
 	}
 
-	// Command succeeded, process is active
 	log.Printf("Process %s is running", p.ProcessName)
 
 	isActive = true
-
 	status := strings.TrimSpace(string(output))
 
-	return isActive, fmt.Sprintf(`{"status": %q, "process_name": %q, "active": %t}`,
-		status, p.ProcessName, isActive)
+	resp := map[string]interface{}{
+		"status":       status,
+		"process_name": p.ProcessName,
+		"active":       isActive,
+		"agent_id":     req.AgentId,
+		"poller_id":    req.PollerId,
+	}
+	data, err := json.Marshal(resp)
+	if err != nil {
+		return false, jsonError(fmt.Sprintf("Failed to marshal response: %v", err))
+	}
+
+	return isActive, data
 }
 
 type PortChecker struct {
@@ -131,26 +140,46 @@ func NewPortChecker(details string) (*PortChecker, error) {
 }
 
 // Check validates if a port is accessible.
-func (p *PortChecker) Check(ctx context.Context) (isAccessible bool, statusMsg string) {
+func (p *PortChecker) Check(ctx context.Context, req *proto.StatusRequest) (isAccessible bool, statusMsg json.RawMessage) {
 	var d net.Dialer
-
 	addr := fmt.Sprintf("%s:%d", p.Host, p.Port)
 
 	start := time.Now()
-
 	conn, err := d.DialContext(ctx, "tcp", addr)
 	if err != nil {
-		return false, fmt.Sprintf(`{"error": "Port %d is not accessible: %v"}`, p.Port, err)
+		return false, jsonError(fmt.Sprintf("Port %d is not accessible: %v", p.Port, err))
 	}
 
 	responseTime := time.Since(start).Nanoseconds()
 
 	if err = conn.Close(); err != nil {
 		log.Printf("Error closing connection: %v", err)
-		return false, `{"error": "Error closing connection"}`
+		return false, jsonError("Error closing connection")
 	}
 
-	// Return raw data
-	return true, fmt.Sprintf(`{"host": "%q", "port": %d, "response_time": %d}`,
-		p.Host, p.Port, responseTime)
+	resp := map[string]interface{}{
+		"host":          p.Host,
+		"port":          p.Port,
+		"response_time": responseTime,
+	}
+	data, err := json.Marshal(resp)
+	if err != nil {
+		return false, jsonError(fmt.Sprintf("Failed to marshal response: %v", err))
+	}
+
+	return true, data
+}
+
+func (p *PortChecker) Close() error {
+	return nil // No resources to close
+}
+
+// Helper function to create error JSON
+func jsonError(msg string) json.RawMessage {
+	data, _ := json.Marshal(map[string]string{"error": msg})
+	return data
+}
+
+func (p *ProcessChecker) Close() error {
+	return nil // No resources to close
 }
