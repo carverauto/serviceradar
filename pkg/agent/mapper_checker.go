@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/carverauto/serviceradar/proto"
 	"log"
 	"os"
 	"path/filepath"
@@ -70,38 +71,31 @@ type MapperDiscoveryChecker struct {
 func NewMapperDiscoveryChecker(
 	ctx context.Context,
 	details string,
-	security *models.SecurityConfig) (*MapperDiscoveryChecker, error) {
+	security *models.SecurityConfig,
+) (*MapperDiscoveryChecker, error) {
 	log.Printf("Creating MapperDiscoveryChecker with details: %s", details)
 
-	// Load mapper configuration
 	mapperConfig, err := loadMapperConfig(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load mapper configuration: %w", err)
 	}
 
-	log.Printf("Connecting to mapper at %s", mapperConfig.Address)
-
-	// Build gRPC client config for connecting to the mapper service
 	clientCfg := ggrpc.ClientConfig{
 		Address:    mapperConfig.Address,
-		MaxRetries: 3, // Can be made configurable
+		MaxRetries: 3,
 	}
 
-	// Apply security configuration to the client
 	if security != nil {
-		provider, providerErr := ggrpc.NewSecurityProvider(ctx, security)
-		if providerErr != nil {
-			return nil,
-				fmt.Errorf("failed to create security provider for mapper discovery client: %w", providerErr)
+		provider, err := ggrpc.NewSecurityProvider(ctx, security)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create security provider: %w", err)
 		}
-
 		clientCfg.SecurityProvider = provider
 	}
 
-	// Establish the gRPC connection
 	client, err := ggrpc.NewClient(ctx, clientCfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to mapper service for discovery: %w", err)
+		return nil, fmt.Errorf("failed to connect to mapper service: %w", err)
 	}
 
 	return &MapperDiscoveryChecker{
@@ -153,11 +147,22 @@ const (
 	defaultJobStalenessThreshold = 10 * time.Minute // Default threshold for job staleness
 )
 
+// Add context key for StatusRequest
+type contextKey string
+
+const statusRequestKey contextKey = "statusRequest"
+
 // Check parses the discovery parameters, optionally initiates a job,
 // and returns the status/results of the discovery.
 func (mdc *MapperDiscoveryChecker) Check(ctx context.Context) (available bool, statusJSON string) {
 	mdc.mu.Lock()
 	defer mdc.mu.Unlock()
+
+	// Get StatusRequest from context or modify Check to accept it
+	req, ok := ctx.Value(statusRequestKey).(*proto.StatusRequest)
+	if !ok {
+		return false, `{"error": "No StatusRequest in context"}`
+	}
 
 	var parsedDetails *MapperDiscoveryDetails
 
@@ -167,6 +172,10 @@ func (mdc *MapperDiscoveryChecker) Check(ctx context.Context) (available bool, s
 
 		return available, statusJSON
 	}
+
+	// Set IDs from request
+	parsedDetails.AgentID = req.AgentId
+	parsedDetails.PollerID = req.PollerId
 
 	// Check if we need to start a new job
 	startNewJob := mdc.shouldStartNewJob(ctx)

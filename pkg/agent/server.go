@@ -425,6 +425,8 @@ func (s *Server) connectToChecker(ctx context.Context, checkerConfig *CheckerCon
 }
 
 func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
+	req.AgentId = s.config.AgentID
+
 	var response *proto.StatusResponse
 
 	switch {
@@ -441,6 +443,7 @@ func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*prot
 	// Include AgentID in the response
 	if response != nil {
 		response.AgentId = s.config.AgentID
+		response.PollerId = req.PollerId
 	}
 
 	return response, nil
@@ -546,7 +549,8 @@ func (s *Server) handleDefaultChecker(ctx context.Context, req *proto.StatusRequ
 		Message:     message,
 		ServiceName: req.ServiceName,
 		ServiceType: req.ServiceType,
-		AgentId:     s.config.AgentID, // Ensure AgentID is set
+		AgentId:     req.AgentId,
+		PollerId:    req.PollerId,
 	}, nil
 }
 
@@ -649,21 +653,16 @@ func (s *Server) getChecker(ctx context.Context, req *proto.StatusRequest) (chec
 
 	key := fmt.Sprintf("%s:%s:%s", req.GetServiceType(), req.GetServiceName(), req.GetDetails())
 
-	log.Printf("Getting checker for request - Type: %s, Name: %s, Details: %s",
-		req.GetServiceType(), req.GetServiceName(), req.GetDetails())
-
 	if check, exists := s.checkers[key]; exists {
 		return check, nil
 	}
 
-	details := req.GetDetails()
+	// Add StatusRequest to context
+	ctx = context.WithValue(ctx, statusRequestKey, req)
 
-	log.Printf("Creating new checker with details: %s", details)
-
-	check, err := s.registry.Get(ctx, req.ServiceType, req.ServiceName, details, s.config.Security)
+	check, err := s.registry.Get(ctx, req.ServiceType, req.ServiceName, req.Details, s.config.Security)
 	if err != nil {
 		log.Printf("Failed to create checker for key %s: %v", key, err)
-
 		return nil, fmt.Errorf("failed to create checker: %w", err)
 	}
 
