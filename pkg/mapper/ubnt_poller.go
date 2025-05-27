@@ -77,7 +77,7 @@ func (e *DiscoveryEngine) createUniFiClient(apiConfig UniFiAPIConfig) *http.Clie
 		Timeout: e.config.Timeout,
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: apiConfig.InsecureSkipVerify,
+				InsecureSkipVerify: apiConfig.InsecureSkipVerify, //nolint:gosec // G402: Allow insecure connections to Ubiquti devices
 			},
 		},
 	}
@@ -405,11 +405,11 @@ func (*DiscoveryEngine) processUplinkInfo(
 	job *DiscoveryJob,
 	device *UniFiDevice,
 	deviceCache map[string]struct {
-	IP       string
-	Name     string
-	MAC      string
-	DeviceID string
-},
+		IP       string
+		Name     string
+		MAC      string
+		DeviceID string
+	},
 	apiConfig UniFiAPIConfig,
 	site UniFiSite) []*TopologyLink {
 	var links []*TopologyLink
@@ -732,6 +732,7 @@ func (e *DiscoveryEngine) processSwitchInterfaces(
 		// Safe conversion to prevent integer overflow
 		var ifIndex int32
 		if port.Idx <= defaultMaxValueInt32 { // Max value for int32
+			//nolint:gosec // G115: This is a safe conversion since we check the value
 			ifIndex = int32(port.Idx)
 		} else {
 			ifIndex = defaultMaxValueInt32 // Use max int32 value if overflow would occur
@@ -746,7 +747,7 @@ func (e *DiscoveryEngine) processSwitchInterfaces(
 		}
 
 		// Direct conversion for admin status
-		var ifAdminStatus int32 = int32(adminStatus)
+		var ifAdminStatus = int32(adminStatus) //nolint:gosec // G115: This is a safe conversion since adminStatus is 1 or 2
 
 		iface := &DiscoveredInterface{
 			DeviceIP:      device.IPAddress,
@@ -756,7 +757,7 @@ func (e *DiscoveryEngine) processSwitchInterfaces(
 			IfDescr:       ifDescr,
 			IfSpeed:       ifSpeed,
 			IfAdminStatus: ifAdminStatus,
-			IfOperStatus:  int32(operStatus), // operStatus is 1 or 2, so this is safe
+			IfOperStatus:  int32(operStatus), //nolint:gosec // G115: This is a safe conversion since operStatus is 1 or 2
 			Metadata:      metadata,
 		}
 
