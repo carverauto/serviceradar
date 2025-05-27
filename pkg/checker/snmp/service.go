@@ -224,6 +224,7 @@ func (s *SNMPService) GetServiceStatus(ctx context.Context, req *proto.StatusReq
 
 	// Determine overall availability
 	available := true
+
 	for _, targetStatus := range status {
 		if !targetStatus.Available {
 			available = false

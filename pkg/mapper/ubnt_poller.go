@@ -213,6 +213,7 @@ func (e *DiscoveryEngine) fetchUniFiDevicesForSite(
 	DeviceID string
 }, error) {
 	devicesURL := fmt.Sprintf("%s/sites/%s/devices?limit=50", apiConfig.BaseURL, site.ID)
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, devicesURL, http.NoBody)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create devices request for %s, site %s: %w", apiConfig.Name, site.Name, err)
@@ -287,6 +288,7 @@ func (e *DiscoveryEngine) fetchDeviceDetails(
 	site UniFiSite,
 	deviceID string) (*UniFiDeviceDetails, error) {
 	detailsURL := fmt.Sprintf("%s/sites/%s/devices/%s", apiConfig.BaseURL, site.ID, deviceID)
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, detailsURL, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create details request for device %s: %w",
@@ -691,8 +693,10 @@ func (e *DiscoveryEngine) processSwitchInterfaces(
 
 	for i := range switchInterfaces.Ports {
 		port := &switchInterfaces.Ports[i]
+
 		adminStatus := 1 // Up by default
 		operStatus := 1  // Up by default
+
 		if strings.EqualFold(port.State, "down") || strings.EqualFold(port.State, "disabled") {
 			adminStatus = 2 // Down
 			operStatus = 2  // Down
@@ -701,6 +705,7 @@ func (e *DiscoveryEngine) processSwitchInterfaces(
 		// Correctly derive IfName and IfDescr
 		ifName := fmt.Sprintf("Port-%d", port.Idx)
 		ifDescr := fmt.Sprintf("%s Port %d", device.Name, port.Idx)
+
 		if port.Connector != "" { // Add connector type if available
 			ifDescr = fmt.Sprintf("%s Port %d (%s)", device.Name, port.Idx, port.Connector)
 		}
@@ -730,6 +735,7 @@ func (e *DiscoveryEngine) processSwitchInterfaces(
 			Metadata:      metadata,
 			// IfPhysAddress is not directly available here for switch ports from this endpoint
 		}
+
 		interfaces = append(interfaces, iface)
 	}
 

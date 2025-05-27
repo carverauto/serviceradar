@@ -93,6 +93,7 @@ func (p *ProcessChecker) Check(ctx context.Context, req *proto.StatusRequest) (i
 		"agent_id":     req.AgentId,
 		"poller_id":    req.PollerId,
 	}
+
 	data, err := json.Marshal(resp)
 	if err != nil {
 		return false, jsonError(fmt.Sprintf("Failed to marshal response: %v", err))
@@ -142,9 +143,11 @@ func NewPortChecker(details string) (*PortChecker, error) {
 // Check validates if a port is accessible.
 func (p *PortChecker) Check(ctx context.Context, req *proto.StatusRequest) (isAccessible bool, statusMsg json.RawMessage) {
 	var d net.Dialer
+
 	addr := fmt.Sprintf("%s:%d", p.Host, p.Port)
 
 	start := time.Now()
+
 	conn, err := d.DialContext(ctx, "tcp", addr)
 	if err != nil {
 		return false, jsonError(fmt.Sprintf("Port %d is not accessible: %v", p.Port, err))
@@ -162,6 +165,7 @@ func (p *PortChecker) Check(ctx context.Context, req *proto.StatusRequest) (isAc
 		"port":          p.Port,
 		"response_time": responseTime,
 	}
+
 	data, err := json.Marshal(resp)
 	if err != nil {
 		return false, jsonError(fmt.Sprintf("Failed to marshal response: %v", err))

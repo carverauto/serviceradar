@@ -65,6 +65,7 @@ func (p *ICMPChecker) Check(ctx context.Context, req *proto.StatusRequest) (isAc
 		AgentID:      req.AgentId,
 		PollerID:     req.PollerId,
 	}
+
 	data, err := json.Marshal(resp)
 	if err != nil {
 		log.Printf("failed to marshal ICMP response: %v", err)
