@@ -564,20 +564,22 @@ func (e *DiscoveryEngine) addOrUpdateDeviceToResults(job *DiscoveryJob, newDevic
 }
 
 // ensureDeviceID ensures the DeviceID is populated if possible
-func (e *DiscoveryEngine) ensureDeviceID(job *DiscoveryJob, device *DiscoveredDevice) {
+func (*DiscoveryEngine) ensureDeviceID(job *DiscoveryJob, device *DiscoveredDevice) {
 	if device.DeviceID == "" && device.IP != "" && job.Params.AgentID != "" && job.Params.PollerID != "" {
 		device.DeviceID = fmt.Sprintf("%s:%s:%s", job.Params.AgentID, job.Params.PollerID, device.IP)
 	}
 }
 
 // isDeviceMatch checks if two devices match based on DeviceID or IP
-func (e *DiscoveryEngine) isDeviceMatch(existingDevice, newDevice *DiscoveredDevice) bool {
+func (*DiscoveryEngine) isDeviceMatch(existingDevice, newDevice *DiscoveredDevice) bool {
 	if newDevice.DeviceID != "" && existingDevice.DeviceID == newDevice.DeviceID {
 		return true
 	}
+
 	if existingDevice.IP == newDevice.IP { // Fallback to IP match
 		return true
 	}
+
 	return false
 }
 
