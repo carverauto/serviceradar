@@ -21,24 +21,24 @@ import (
 	"context"
 	"log"
 
-	monitoringpb "github.com/carverauto/serviceradar/proto"
+	"github.com/carverauto/serviceradar/proto"
 )
 
-// MapperAgentService implements the monitoring.AgentServiceServer for the mapper's own health.
-type MapperAgentService struct {
-	monitoringpb.UnimplementedAgentServiceServer
+// AgentService implements the proto.AgentServiceServer for the mapper's own health.
+type AgentService struct {
+	proto.UnimplementedAgentServiceServer
 	engine *DiscoveryEngine
 }
 
-// NewMapperAgentService creates a new MapperAgentService.
-func NewMapperAgentService(engine *DiscoveryEngine) *MapperAgentService {
-	return &MapperAgentService{
+// NewAgentService creates a new AgentService.
+func NewAgentService(engine *DiscoveryEngine) *AgentService {
+	return &AgentService{
 		engine: engine,
 	}
 }
 
 // GetStatus implements the monitoring.AgentServiceServer interface.
-func (s *MapperAgentService) GetStatus(_ context.Context, req *monitoringpb.StatusRequest) (*monitoringpb.StatusResponse, error) {
+func (s *AgentService) GetStatus(_ context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
 	log.Printf("Mapper's monitoring.AgentService/GetStatus called with request: %+v", req)
 
 	var isAvailable bool
@@ -64,9 +64,9 @@ func (s *MapperAgentService) GetStatus(_ context.Context, req *monitoringpb.Stat
 
 	serviceName := "serviceradar-mapper"
 
-	return &monitoringpb.StatusResponse{
+	return &proto.StatusResponse{
 		Available:   isAvailable,
-		Message:     message,
+		Message:     []byte(message),
 		ServiceName: serviceName,
 		ServiceType: "service-instance",            // Type of entity being reported on
 		AgentId:     "serviceradar-mapper-monitor", // ID for the mapper itself acting for its status

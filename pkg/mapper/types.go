@@ -111,15 +111,16 @@ type DiscoveryStatus struct {
 
 // DiscoveryJob represents a running discovery operation.
 type DiscoveryJob struct {
-	ID            string
-	Params        *DiscoveryParams
-	Status        *DiscoveryStatus
-	Results       *DiscoveryResults
-	ctx           context.Context
-	cancelFunc    context.CancelFunc
-	discoveredIPs map[string]bool
-	scanQueue     []string
-	mu            sync.RWMutex
+	ID             string
+	Params         *DiscoveryParams
+	Status         *DiscoveryStatus
+	Results        *DiscoveryResults
+	ctx            context.Context
+	cancelFunc     context.CancelFunc
+	discoveredIPs  map[string]bool
+	scanQueue      []string
+	mu             sync.RWMutex
+	uniFiSiteCache map[string][]UniFiSite // Key: baseURL, Value: list of sites
 }
 
 // DiscoveryResults contains the results of a discovery operation.
@@ -134,6 +135,7 @@ type DiscoveryResults struct {
 
 // DiscoveredDevice represents a discovered network device.
 type DiscoveredDevice struct {
+	DeviceID    string // Unique identifier for the device (agentID:pollerID:deviceIP)
 	IP          string
 	MAC         string
 	Hostname    string
@@ -169,7 +171,7 @@ type TopologyLink struct {
 	Protocol           string
 	LocalDeviceIP      string
 	LocalDeviceID      string
-	LocalIfIndex       int
+	LocalIfIndex       int32
 	LocalIfName        string
 	NeighborChassisID  string
 	NeighborPortID     string
@@ -202,7 +204,15 @@ type Config struct {
 	StreamConfig       StreamConfig               `json:"stream_config"`
 	Credentials        []SNMPCredentialConfig     `json:"credentials"`
 	Seeds              []string                   `json:"seeds"`
-	Security           *models.SecurityConfig     `json:"security"` // Added
+	Security           *models.SecurityConfig     `json:"security"`
+	UniFiAPIs          []UniFiAPIConfig           `json:"unifi_apis"`
+}
+
+type UniFiAPIConfig struct {
+	BaseURL            string `json:"base_url"`
+	APIKey             string `json:"api_key"`
+	Name               string `json:"name"`                           // Optional name for identifying the controller
+	InsecureSkipVerify bool   `json:"insecure_skip_verify,omitempty"` // Skip TLS verification
 }
 
 func (c *Config) UnmarshalJSON(data []byte) error {

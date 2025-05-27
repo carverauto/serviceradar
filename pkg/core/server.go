@@ -697,7 +697,7 @@ func (s *Server) processServices(
 			ServiceName: apiService.Name,
 			ServiceType: apiService.Type,
 			Available:   apiService.Available,
-			Details:     json.RawMessage(apiService.Message), // TODO: not sure if this is a good idea
+			Details:     apiService.Message,
 			Timestamp:   now,
 		})
 
@@ -727,8 +727,10 @@ func (s *Server) processServiceDetails(
 	pollerID string,
 	apiService *api.ServiceStatus,
 	svc *proto.ServiceStatus,
-	now time.Time) error {
-	if svc.Message == "" {
+	now time.Time,
+) error {
+	// Check if svc.Message is nil or empty
+	if len(svc.Message) == 0 {
 		log.Printf("No message content for service %s on poller %s", svc.ServiceName, pollerID)
 		return s.handleService(ctx, apiService, now)
 	}
@@ -750,7 +752,6 @@ func (s *Server) processServiceDetails(
 	if err := s.processMetrics(ctx, pollerID, svc, details, now); err != nil {
 		log.Printf("Error processing metrics for service %s on poller %s: %v",
 			svc.ServiceName, pollerID, err)
-
 		return err
 	}
 
@@ -795,12 +796,9 @@ func (*Server) createAPIService(svc *proto.ServiceStatus) api.ServiceStatus {
 }
 
 func (*Server) parseServiceDetails(svc *proto.ServiceStatus) (json.RawMessage, error) {
-	// print out the raw message for debugging
-	log.Printf("Raw message for service %s: %s", svc.ServiceName, svc.Message)
-
 	var details json.RawMessage
 
-	if err := json.Unmarshal([]byte(svc.Message), &details); err != nil {
+	if err := json.Unmarshal(svc.Message, &details); err != nil {
 		log.Printf("Error unmarshaling service details for %s: %v", svc.ServiceName, err)
 		return nil, err
 	}
@@ -1216,7 +1214,7 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, n
 		} `json:"hosts"`
 	}
 
-	if err := json.Unmarshal([]byte(svc.Message), &sweepData); err != nil {
+	if err := json.Unmarshal(svc.Message, &sweepData); err != nil {
 		return fmt.Errorf("%w: %w", errInvalidSweepData, err)
 	}
 
@@ -1237,7 +1235,7 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, n
 			return fmt.Errorf("failed to marshal updated sweep data: %w", err)
 		}
 
-		svc.Message = string(updatedMessage)
+		svc.Message = updatedMessage
 	}
 
 	sweepResults := make([]*models.SweepResult, 0, len(sweepData.Hosts))

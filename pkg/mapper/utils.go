@@ -18,10 +18,9 @@ package mapper
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
-	"os"
+	"net"
 	"strings"
 	"time"
 
@@ -75,22 +74,6 @@ func (e *DiscoveryEngine) cleanupCompletedJobs() {
 	}
 
 	log.Printf("Removed %d expired completed jobs", removed)
-}
-
-// LoadConfigFromFile loads the discovery engine configuration from a JSON file
-func LoadConfigFromFile(filename string) (*Config, error) {
-	data, err := os.ReadFile(filename)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read config file: %w", err)
-	}
-
-	var config Config
-
-	if err := json.Unmarshal(data, &config); err != nil {
-		return nil, fmt.Errorf("failed to parse config file: %w", err)
-	}
-
-	return &config, nil
 }
 
 // createSNMPClient creates an SNMP client for the given target and credentials
@@ -191,4 +174,171 @@ func (*DiscoveryEngine) configureV3Privacy(usm *gosnmp.UsmSecurityParameters, cr
 		usm.PrivacyProtocol = gosnmp.AES256
 		usm.PrivacyPassphrase = credentials.PrivacyPassword
 	}
+}
+
+// processSingleIP processes a single IP address
+func processSingleIP(ipStr string, seen map[string]bool) string {
+	ip := net.ParseIP(ipStr)
+
+	if ip == nil {
+		log.Printf("Invalid IP %s", ipStr)
+		return ""
+	}
+
+	ipStr = ip.String()
+
+	if !seen[ipStr] {
+		seen[ipStr] = true
+		return ipStr
+	}
+
+	return ""
+}
+
+// incrementIP increments an IP address by 1
+func incrementIP(ip net.IP) {
+	for j := len(ip) - 1; j >= 0; j-- {
+		ip[j]++
+
+		if ip[j] > 0 {
+			break
+		}
+	}
+}
+
+const (
+	defaultHostBitsCheckMin = 8
+)
+
+// collectIPsFromRange collects IPs from a CIDR range, limiting if necessary
+func collectIPsFromRange(ip net.IP, ipNet *net.IPNet, hostBits int, seen map[string]bool) []string {
+	var targets []string
+
+	if hostBits > defaultHostBitsCheckMin { // More than 256 hosts
+		log.Printf("CIDR range %s too large (/%d), limiting scan", ipNet.String(), hostBits)
+
+		// Only scan first 256 IPs
+		count := 0
+		ipCopy := make(net.IP, len(ip))
+
+		copy(ipCopy, ip)
+
+		for i := ipCopy.Mask(ipNet.Mask); ipNet.Contains(ip) && count < defaultMaxIPRange; incrementIP(ip) {
+			// changed from ip to i, to avoid modifying the original IP
+			ipStr := i.String()
+
+			if !seen[ipStr] {
+				targets = append(targets, ipStr)
+				seen[ipStr] = true
+				count++
+			}
+		}
+	} else {
+		// Process all IPs in the range
+		ipCopy := make(net.IP, len(ip))
+		copy(ipCopy, ip)
+
+		for ip := ipCopy.Mask(ipNet.Mask); ipNet.Contains(ip); incrementIP(ip) {
+			ipStr := ip.String()
+
+			if !seen[ipStr] {
+				targets = append(targets, ipStr)
+				seen[ipStr] = true
+			}
+		}
+	}
+
+	return targets
+}
+
+// filterNetworkAndBroadcast removes network and broadcast addresses from the targets
+func filterNetworkAndBroadcast(targets []string, ip net.IP, ipNet *net.IPNet) []string {
+	// Skip first and last IP if they exist in the targets
+	networkIP := ip.Mask(ipNet.Mask).String()
+
+	// Calculate broadcast IP
+	broadcastIP := make(net.IP, len(ip))
+	copy(broadcastIP, ip.Mask(ipNet.Mask))
+
+	for i := range broadcastIP {
+		broadcastIP[i] |= ^ipNet.Mask[i]
+	}
+
+	broadcastIPStr := broadcastIP.String()
+
+	// Create a new slice without network and broadcast IPs
+	filteredTargets := make([]string, 0, len(targets))
+
+	for _, target := range targets {
+		if target != networkIP && target != broadcastIPStr {
+			filteredTargets = append(filteredTargets, target)
+		}
+	}
+
+	return filteredTargets
+}
+
+// expandSeeds expands CIDR ranges and individual IPs into a list of IPs
+func expandSeeds(seeds []string) []string {
+	var targets []string
+
+	seen := make(map[string]bool) // To avoid duplicates
+
+	for _, seed := range seeds {
+		// Check if the seed is a CIDR notation
+		if strings.Contains(seed, "/") {
+			cidrTargets := expandCIDR(seed, seen)
+			targets = append(targets, cidrTargets...)
+		} else {
+			// It's a single IP
+			if ipTarget := processSingleIP(seed, seen); ipTarget != "" {
+				targets = append(targets, ipTarget)
+			}
+		}
+	}
+
+	return targets
+}
+
+const (
+	// 31 - broadcast
+	defaultBroadCastMask = 31
+	defaultCountCheckMin = 2
+)
+
+// expandCIDR expands a CIDR notation into individual IP addresses
+func expandCIDR(cidr string, seen map[string]bool) []string {
+	var targets []string
+
+	ip, ipNet, err := net.ParseCIDR(cidr)
+	if err != nil {
+		log.Printf("Invalid CIDR %s: %v", cidr, err)
+		return targets
+	}
+
+	// Check if range is too large
+	ones, bits := ipNet.Mask.Size()
+	hostBits := bits - ones
+
+	// Collect IPs based on range size
+	targets = collectIPsFromRange(ip, ipNet, hostBits, seen)
+
+	// Filter out network and broadcast addresses if needed
+	if ip.To4() != nil && ones < defaultBroadCastMask && len(targets) > defaultCountCheckMin {
+		targets = filterNetworkAndBroadcast(targets, ip, ipNet)
+	}
+
+	return targets
+}
+
+// createLocalDeviceID creates a local device ID based on available parameters
+func (*DiscoveryEngine) createLocalDeviceID(targetIP, agentID, pollerID, jobID string) string {
+	if targetIP != "" && agentID != "" && pollerID != "" {
+		return fmt.Sprintf("%s:%s:%s", targetIP, agentID, pollerID)
+	} else if targetIP != "" {
+		log.Printf("Warning: AgentID or PollerID missing for job %s when creating LocalDeviceID for CDP target %s", jobID, targetIP)
+		return targetIP
+	}
+
+	return ""
 }

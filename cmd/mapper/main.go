@@ -79,7 +79,7 @@ func run() error {
 		return errFailedToTypeCastEngine
 	}
 
-	grpcMapperAgentService := mapper.NewMapperAgentService(snmpEngine)
+	grpcMapperAgentService := mapper.NewAgentService(snmpEngine)
 
 	// Create server options
 	opts := &lifecycle.ServerOptions{
