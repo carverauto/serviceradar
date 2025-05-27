@@ -141,7 +141,7 @@ func NewPortChecker(details string) (*PortChecker, error) {
 }
 
 // Check validates if a port is accessible.
-func (p *PortChecker) Check(ctx context.Context, req *proto.StatusRequest) (isAccessible bool, statusMsg json.RawMessage) {
+func (p *PortChecker) Check(ctx context.Context, _ *proto.StatusRequest) (isAccessible bool, statusMsg json.RawMessage) {
 	var d net.Dialer
 
 	addr := fmt.Sprintf("%s:%d", p.Host, p.Port)
@@ -174,7 +174,7 @@ func (p *PortChecker) Check(ctx context.Context, req *proto.StatusRequest) (isAc
 	return true, data
 }
 
-func (p *PortChecker) Close() error {
+func (*PortChecker) Close() error {
 	return nil // No resources to close
 }
 
@@ -184,6 +184,6 @@ func jsonError(msg string) json.RawMessage {
 	return data
 }
 
-func (p *ProcessChecker) Close() error {
+func (*ProcessChecker) Close() error {
 	return nil // No resources to close
 }
