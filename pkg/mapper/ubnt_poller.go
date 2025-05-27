@@ -402,11 +402,11 @@ func (e *DiscoveryEngine) processUplinkInfo(
 	job *DiscoveryJob,
 	device *UniFiDevice,
 	deviceCache map[string]struct {
-	IP       string
-	Name     string
-	MAC      string
-	DeviceID string
-},
+		IP       string
+		Name     string
+		MAC      string
+		DeviceID string
+	},
 	apiConfig UniFiAPIConfig,
 	site UniFiSite) []*TopologyLink {
 	var links []*TopologyLink
@@ -567,7 +567,7 @@ func (e *DiscoveryEngine) fetchUniFiDevices(
 	// Consider pagination if many devices per site: ?limit=X&offset=Y
 	devicesURL := fmt.Sprintf("%s/sites/%s/devices?limit=100", apiConfig.BaseURL, site.ID)
 
-	req, err := http.NewRequest(http.MethodGet, devicesURL, nil)
+	req, err := http.NewRequest(http.MethodGet, devicesURL, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create devices request for %s, site %s: %w",
 			apiConfig.Name, site.Name, err)
@@ -690,7 +690,7 @@ func (e *DiscoveryEngine) processSwitchInterfaces(
 		port := &switchInterfaces.Ports[i]
 		adminStatus := 1 // Up by default
 		operStatus := 1  // Up by default
-		if strings.ToLower(port.State) == "down" || strings.ToLower(port.State) == "disabled" {
+		if strings.EqualFold(port.State, "down") || strings.EqualFold(port.State, "disabled") {
 			adminStatus = 2 // Down
 			operStatus = 2  // Down
 		}
