@@ -28,14 +28,14 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-// SNMPMetricsManager implements the SNMPManager interface for handling SNMP metrics.
-type SNMPMetricsManager struct {
+// MetricsManager implements the SNMPManager interface for handling SNMP metrics.
+type MetricsManager struct {
 	db db.Service
 }
 
 // NewSNMPManager creates a new SNMPManager instance.
 func NewSNMPManager(d db.Service) SNMPManager {
-	return &SNMPMetricsManager{
+	return &MetricsManager{
 		db: d,
 	}
 }
@@ -58,7 +58,7 @@ func parseMetadata(metadataStr, metricName, pollerID string) (map[string]interfa
 }
 
 // GetSNMPMetrics fetches SNMP metrics from the database for a given poller.
-func (s *SNMPMetricsManager) GetSNMPMetrics(
+func (s *MetricsManager) GetSNMPMetrics(
 	ctx context.Context, pollerID string, startTime, endTime time.Time) ([]models.SNMPMetric, error) {
 	log.Printf("Fetching SNMP metrics for poller %s from %v to %v", pollerID, startTime, endTime)
 

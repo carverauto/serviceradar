@@ -20,12 +20,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/carverauto/serviceradar/proto"
 	"log"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/scan"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 const (
