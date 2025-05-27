@@ -396,11 +396,11 @@ func (e *DiscoveryEngine) processUplinkInfo(
 	job *DiscoveryJob,
 	device UniFiDevice,
 	deviceCache map[string]struct {
-	IP       string
-	Name     string
-	MAC      string
-	DeviceID string
-},
+		IP       string
+		Name     string
+		MAC      string
+		DeviceID string
+	},
 	apiConfig UniFiAPIConfig,
 	site UniFiSite) []*TopologyLink {
 	var links []*TopologyLink
@@ -763,9 +763,9 @@ func (e *DiscoveryEngine) querySingleUniFiDevices(
 	allInterfaces := make([]*DiscoveredInterface, 0, len(unifiDevices))
 
 	// Process each device
-	for _, unifiDevice := range unifiDevices {
+	for i := range unifiDevices {
 		// Create discovered device
-		device := e.createDiscoveredDevice(job, unifiDevice, apiConfig, site, agentID, pollerID)
+		device := e.createDiscoveredDevice(job, unifiDevices[i], apiConfig, site, agentID, pollerID)
 		if device == nil {
 			continue // Skip this device if it was filtered out
 		}
@@ -773,7 +773,7 @@ func (e *DiscoveryEngine) querySingleUniFiDevices(
 		devices = append(devices, device)
 
 		// Process device interfaces
-		interfaces := e.processDeviceInterfaces(job, unifiDevice, device.DeviceID, apiConfig, site)
+		interfaces := e.processDeviceInterfaces(job, unifiDevices[i], device.DeviceID, apiConfig, site)
 
 		allInterfaces = append(allInterfaces, interfaces...)
 	}
