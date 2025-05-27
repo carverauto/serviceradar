@@ -52,7 +52,7 @@ type UniFiInterfaces struct {
 // UniFiDeviceDetails represents detailed device information
 type UniFiDeviceDetails struct {
 	LLDPTable []struct {
-		LocalPortIdx    int    `json:"local_port_idx"`
+		LocalPortIdx    int32  `json:"local_port_idx"`
 		LocalPortName   string `json:"local_port_name"`
 		ChassisID       string `json:"chassis_id"`
 		PortID          string `json:"port_id"`
@@ -61,7 +61,7 @@ type UniFiDeviceDetails struct {
 		ManagementAddr  string `json:"management_address"`
 	} `json:"lldp_table"`
 	PortTable []struct {
-		PortIdx         int    `json:"port_idx"`
+		PortIdx         int32  `json:"port_idx"`
 		Name            string `json:"name"`
 		ConnectedDevice struct {
 			MAC  string `json:"mac"`

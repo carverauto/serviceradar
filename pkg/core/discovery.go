@@ -257,7 +257,7 @@ func (s *Server) processDiscoveredTopology(
 			PollerID:               discoveryInitiatorPollerID,
 			LocalDeviceIP:          protoLink.LocalDeviceIp,
 			LocalDeviceID:          localDeviceID,
-			LocalIfIndex:           int(protoLink.LocalIfIndex), // Model uses int, DB uses int32
+			LocalIfIndex:           protoLink.LocalIfIndex,
 			LocalIfName:            protoLink.LocalIfName,
 			ProtocolType:           protoLink.Protocol,
 			NeighborChassisID:      protoLink.NeighborChassisId,

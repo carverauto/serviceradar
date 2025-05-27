@@ -47,7 +47,7 @@ type TopologyDiscoveryEvent struct {
 	PollerID               string    `json:"poller_id"`
 	LocalDeviceIP          string    `json:"local_device_ip"`
 	LocalDeviceID          string    `json:"local_device_id"`
-	LocalIfIndex           int       `json:"local_ifIndex"` // DB schema is int32, Proton driver should handle
+	LocalIfIndex           int32     `json:"local_ifIndex"` // DB schema is int32, Proton driver should handle
 	LocalIfName            string    `json:"local_ifName"`
 	ProtocolType           string    `json:"protocol_type"` // "LLDP" or "CDP"
 	NeighborChassisID      string    `json:"neighbor_chassis_id"`
