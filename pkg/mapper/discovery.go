@@ -624,7 +624,7 @@ func (e *DiscoveryEngine) updateExistingDevice(job *DiscoveryJob, index int, new
 }
 
 // updateDeviceMetadata updates the metadata of an existing device
-func (e *DiscoveryEngine) updateDeviceMetadata(job *DiscoveryJob, index int, newDevice *DiscoveredDevice) {
+func (*DiscoveryEngine) updateDeviceMetadata(job *DiscoveryJob, index int, newDevice *DiscoveredDevice) {
 	if job.Results.Devices[index].Metadata == nil {
 		job.Results.Devices[index].Metadata = make(map[string]string)
 	}
@@ -957,7 +957,7 @@ func (*DiscoveryEngine) finalizeDevice(device *DiscoveredDevice, target, jobID s
 }
 
 // finalizeInterfaces finalizes the interfaces by ensuring they have names and adding metadata
-func (e *DiscoveryEngine) finalizeInterfaces(
+func (*DiscoveryEngine) finalizeInterfaces(
 	job *DiscoveryJob, ifMap map[int]*DiscoveredInterface, jobID string, agentID string, pollerID string) []*DiscoveredInterface {
 	interfaces := make([]*DiscoveredInterface, 0, len(ifMap))
 
