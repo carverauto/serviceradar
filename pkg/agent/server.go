@@ -435,9 +435,6 @@ func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*prot
 		req.PollerId = "unknown-poller" // Fallback to avoid empty
 	}
 
-	// Store StatusRequest in context
-	ctx = context.WithValue(ctx, "status_request", req)
-
 	var response *proto.StatusResponse
 
 	switch {

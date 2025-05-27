@@ -84,9 +84,9 @@ func NewMapperDiscoveryChecker(
 	}
 
 	if security != nil {
-		provider, err := ggrpc.NewSecurityProvider(ctx, security)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create security provider: %w", err)
+		provider, providerErr := ggrpc.NewSecurityProvider(ctx, security)
+		if providerErr != nil {
+			return nil, fmt.Errorf("failed to create security provider: %w", providerErr)
 		}
 
 		clientCfg.SecurityProvider = provider
@@ -122,7 +122,7 @@ func loadMapperConfig(ctx context.Context) (*MapperConfig, error) {
 
 	cfgLoader := config.NewConfig()
 	if err := cfgLoader.LoadAndValidate(ctx, configPath, &cfg); err != nil {
-		return nil, fmt.Errorf("failed to load mapper config: %v", err)
+		return nil, fmt.Errorf("failed to load mapper config: %w", err)
 	}
 
 	if cfg.Address == "" {
