@@ -902,7 +902,7 @@ func (e *DiscoveryEngine) processLLDPRemoteTableEntry(
 			Protocol:      "LLDP",
 			LocalDeviceIP: targetIP,
 			LocalDeviceID: localDeviceID,
-			LocalIfIndex:  localPortIdx,
+			LocalIfIndex:  int32(localPortIdx),
 			Metadata:      make(map[string]string),
 		}
 	}
@@ -1086,7 +1086,7 @@ func (e *DiscoveryEngine) ensureCDPLinkExists(
 			Protocol:      "CDP",
 			LocalDeviceIP: targetIP,
 			LocalDeviceID: localDeviceID,
-			LocalIfIndex:  ifIdx,
+			LocalIfIndex:  int32(ifIdx),
 			Metadata:      make(map[string]string),
 		}
 	}

@@ -171,7 +171,7 @@ type TopologyLink struct {
 	Protocol           string
 	LocalDeviceIP      string
 	LocalDeviceID      string
-	LocalIfIndex       int
+	LocalIfIndex       int32
 	LocalIfName        string
 	NeighborChassisID  string
 	NeighborPortID     string

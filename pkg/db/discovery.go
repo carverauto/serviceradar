@@ -98,11 +98,6 @@ func (db *DB) PublishDiscoveredInterface(ctx context.Context, iface *models.Disc
 	return nil
 }
 
-const (
-	defaultMaxInt32 = 2147483647
-	defaultMinInt32 = -2147483648
-)
-
 // PublishTopologyDiscoveryEvent publishes a topology discovery event to the topology_discovery_events stream
 func (db *DB) PublishTopologyDiscoveryEvent(ctx context.Context, event *models.TopologyDiscoveryEvent) error {
 	// Validate required fields
@@ -153,25 +148,12 @@ func (db *DB) PublishTopologyDiscoveryEvent(ctx context.Context, event *models.T
 
 	// Append to batch - ensuring all 18 arguments are provided
 	err = batch.Append(
-		event.Timestamp,     // 1
-		event.AgentID,       // 2
-		event.PollerID,      // 3
-		event.LocalDeviceIP, // 4
-		event.LocalDeviceID, // 5
-		func() int32 {
-			// Safe conversion from int to int32 to prevent overflow
-			if event.LocalIfIndex > defaultMaxInt32 || event.LocalIfIndex < defaultMinInt32 {
-				log.Printf("Warning: LocalIfIndex %d is outside int32 range, clamping to int32 bounds", event.LocalIfIndex)
-
-				if event.LocalIfIndex > defaultMaxInt32 {
-					return defaultMaxInt32 // Max int32 value
-				}
-
-				return defaultMinInt32 // Min int32 value
-			}
-
-			return int32(event.LocalIfIndex) //nolint:gosec // G115 (ensure int32 for DB with overflow protection)
-		}(), // 6 (ensure int32 for DB with overflow protection)
+		event.Timestamp,              // 1
+		event.AgentID,                // 2
+		event.PollerID,               // 3
+		event.LocalDeviceIP,          // 4
+		event.LocalDeviceID,          // 5
+		event.LocalIfIndex,           // 6
 		event.LocalIfName,            // 7
 		event.ProtocolType,           // 8
 		event.NeighborChassisID,      // 9
