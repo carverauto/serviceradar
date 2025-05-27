@@ -361,18 +361,6 @@ func validateConfig(config *Config) error {
 	return nil
 }
 
-// scanTarget performs SNMP scanning of a single target IP
-func (e *DiscoveryEngine) scanTarget(job *DiscoveryJob, targetIP, agentID, pollerID string) {
-	log.Printf("Job %s: scanTarget called for %s. This function might be deprecated or used for single/direct scans.", job.ID, targetIP)
-	// This function's body would be the SNMP polling logic, similar to scanTargetForSNMP.
-	// If runDiscoveryJob is the only entry point, this original scanTarget might not be hit by workers anymore.
-	// For now, let it call the SNMP-specific one.
-	if !e.checkAndMarkDiscovered(job, targetIP) {
-		return
-	}
-	e.scanTargetForSNMP(job, targetIP, agentID, pollerID)
-}
-
 // initializeDevice creates and initializes a new DiscoveredDevice
 func (*DiscoveryEngine) initializeDevice(target string) *DiscoveredDevice {
 	return &DiscoveredDevice{
@@ -400,37 +388,6 @@ func (e *DiscoveryEngine) publishTopologyLinks(job *DiscoveryJob, links []*Topol
 				log.Printf("Job %s: Failed to publish %s link %s/%d: %v",
 					job.ID, protocol, target, link.LocalIfIndex, err)
 			}
-		}
-	}
-}
-
-// checkAndMarkDiscovered checks if a target is already discovered and marks it as discovered
-// Returns true if the target should be processed (not already discovered)
-func (*DiscoveryEngine) checkAndMarkDiscovered(job *DiscoveryJob, target string) bool {
-	job.mu.Lock()
-	defer job.mu.Unlock()
-
-	if job.discoveredIPs[target] {
-		log.Printf("Job %s: Skipping already discovered target %s", job.ID, target)
-		return false
-	}
-
-	job.discoveredIPs[target] = true
-
-	return true
-}
-
-// publishDevice adds a device to results and publishes it if a publisher is available
-func (e *DiscoveryEngine) publishDevice(job *DiscoveryJob, device *DiscoveredDevice) {
-	// Add device to results
-	job.mu.Lock()
-	job.Results.Devices = append(job.Results.Devices, device)
-	job.mu.Unlock()
-
-	// Publish device
-	if e.publisher != nil {
-		if err := e.publisher.PublishDevice(job.ctx, device); err != nil {
-			log.Printf("Job %s: Failed to publish device %s: %v", job.ID, device.IP, err)
 		}
 	}
 }
@@ -503,50 +460,6 @@ func (e *DiscoveryEngine) startWorkers(
 			log.Printf("Job %s: Worker %d finished processing targets.", job.ID, workerID)
 		}(i)
 	}
-}
-
-// startProgressTracking starts a goroutine to track job progress
-func (e *DiscoveryEngine) startProgressTracking(job *DiscoveryJob, resultChan <-chan bool, totalTargets int) {
-	go func() {
-		processed := 0
-
-		for range resultChan {
-			processed++
-			// Update progress
-			job.mu.Lock()
-			progress := float64(processed)/float64(totalTargets)*progressScanning + progressInitial // Initial progress + scanning progress
-
-			job.Status.Progress = progress
-			job.Status.DevicesFound = len(job.Results.Devices)
-			job.Status.InterfacesFound = len(job.Results.Interfaces)
-			job.Status.TopologyLinks = len(job.Results.TopologyLinks)
-
-			log.Printf("Job %s: Progress %.2f%%, Devices: %d, Interfaces: %d, Links: %d",
-				job.ID, job.Status.Progress, job.Status.DevicesFound,
-				job.Status.InterfacesFound, job.Status.TopologyLinks)
-			job.mu.Unlock()
-
-			// Check for cancellation
-			select {
-			case <-job.ctx.Done():
-				log.Printf("Job %s: Progress tracking stopping due to cancellation", job.ID)
-				return
-			case <-e.done:
-				log.Printf("Job %s: Progress tracking stopping due to engine shutdown", job.ID)
-				return
-			default:
-			}
-		}
-	}()
-}
-
-// initializeJobProgress sets the initial progress value
-func (*DiscoveryEngine) initializeJobProgress(job *DiscoveryJob) {
-	job.mu.Lock()
-	job.Status.Progress = progressInitial // Initial progress
-	job.mu.Unlock()
-
-	log.Printf("Job %s: Scan queue: %v", job.ID, job.scanQueue)
 }
 
 // feedTargetsToWorkers sends targets to worker goroutines
@@ -870,47 +783,6 @@ func (e *DiscoveryEngine) scanTargetForSNMP(job *DiscoveryJob, snmpTargetIP, age
 	}
 }
 
-// startSNMPPollingWorkers launches worker goroutines to process SNMP targets.
-func (e *DiscoveryEngine) startSNMPPollingWorkers(
-	job *DiscoveryJob, wg *sync.WaitGroup, targetChan <-chan string, resultChan chan<- bool, concurrency int) {
-	for i := 0; i < concurrency; i++ {
-		wg.Add(1)
-		go func(workerID int) {
-			defer wg.Done()
-			for target := range targetChan {
-				select {
-				case <-job.ctx.Done():
-					log.Printf("Job %s: SNMP Worker %d stopping due to cancellation", job.ID, workerID)
-					resultChan <- false // Indicate non-completion or error
-					return
-				case <-e.done:
-					log.Printf("Job %s: SNMP Worker %d stopping due to engine shutdown", job.ID, workerID)
-					resultChan <- false // Indicate non-completion or error
-					return
-				default:
-					// checkAndMarkDiscovered is implicitly handled by the fact that job.scanQueue for SNMP phase
-					// already contains unique IPs. If an IP was processed by another worker, that's fine.
-					// The critical part is that job.discoveredIPs (used by checkAndMarkDiscovered) should not
-					// prevent an IP from being SNMP scanned if it was only "discovered" via UniFi in phase 1
-					// but not yet SNMP scanned.
-					// The current logic of job.scanQueue being populated with unique IPs from allPotentialSNMPTargets
-					// and workers consuming this queue means each target is processed by one worker.
-
-					if pingErr := pingHost(job.ctx, target); pingErr != nil {
-						log.Printf("Job %s: Host %s is not responding to ICMP ping for SNMP poll: %v", job.ID, target, pingErr)
-						resultChan <- false // Indicate failure for this target
-						continue            // Skip SNMP polling if ping fails
-					}
-
-					e.scanTargetForSNMP(job, target, job.Params.AgentID, job.Params.PollerID)
-					resultChan <- true // Indicate completion for progress tracking
-				}
-			}
-		}(i)
-	}
-}
-
-// trackJobProgress starts a goroutine to track job progress for a specific phase
 // trackJobProgress starts a goroutine to track job progress for a specific phase
 func (e *DiscoveryEngine) trackJobProgress(job *DiscoveryJob, resultChan <-chan bool, totalTargets int, baseProgress float64, progressRange float64) {
 	processed := 0

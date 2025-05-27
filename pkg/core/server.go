@@ -796,8 +796,6 @@ func (*Server) createAPIService(svc *proto.ServiceStatus) api.ServiceStatus {
 }
 
 func (*Server) parseServiceDetails(svc *proto.ServiceStatus) (json.RawMessage, error) {
-	log.Printf("Raw message for service %s: %s", svc.ServiceName, svc.Message)
-
 	var details json.RawMessage
 
 	if err := json.Unmarshal(svc.Message, &details); err != nil {
