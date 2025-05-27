@@ -88,6 +88,7 @@ func NewMapperDiscoveryChecker(
 		if err != nil {
 			return nil, fmt.Errorf("failed to create security provider: %w", err)
 		}
+
 		clientCfg.SecurityProvider = provider
 	}
 
@@ -118,6 +119,7 @@ func loadMapperConfig(ctx context.Context) (*MapperConfig, error) {
 	}
 
 	var cfg MapperConfig
+
 	cfgLoader := config.NewConfig()
 	if err := cfgLoader.LoadAndValidate(ctx, configPath, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to load mapper config: %v", err)
@@ -184,7 +186,8 @@ func (mdc *MapperDiscoveryChecker) Check(ctx context.Context, req *proto.StatusR
 	return mdc.processJobResults(ctx, discoveryReq, &parsedDetails)
 }
 
-func (mdc *MapperDiscoveryChecker) startNewDiscoveryJob(ctx context.Context, details *MapperDiscoveryDetails) json.RawMessage {
+func (mdc *MapperDiscoveryChecker) startNewDiscoveryJob(
+	ctx context.Context, details *MapperDiscoveryDetails) json.RawMessage {
 	discoveryType, err := getDiscoveryType(details.Type)
 	if err != nil {
 		return jsonError(err.Error())
@@ -232,21 +235,27 @@ func (mdc *MapperDiscoveryChecker) shouldStartNewJob(ctx context.Context) bool {
 
 	statusResp, err := mdc.mapperClient.GetStatus(ctx, &discovery.StatusRequest{DiscoveryId: mdc.lastDiscoveryID})
 	if err != nil {
-		log.Printf("MapperDiscoveryChecker: Failed to get status for job %s (%v), attempting new job.", mdc.lastDiscoveryID, err)
+		log.Printf("MapperDiscoveryChecker: Failed to get status for job %s (%v), attempting new job.",
+			mdc.lastDiscoveryID, err)
 		return true
 	}
 
 	switch statusResp.Status {
 	case "FAILED", "CANCELED":
-		log.Printf("MapperDiscoveryChecker: Last discovery job %s is %s, initiating new job.", mdc.lastDiscoveryID, statusResp.Status)
+		log.Printf("MapperDiscoveryChecker: Last discovery job %s is %s, initiating new job.",
+			mdc.lastDiscoveryID, statusResp.Status)
 		return true
 	}
 
 	return false
 }
 
-func (mdc *MapperDiscoveryChecker) processJobResults(ctx context.Context, discoveryReq *discovery.StatusRequest, details *MapperDiscoveryDetails) (bool, json.RawMessage) {
+func (mdc *MapperDiscoveryChecker) processJobResults(
+	ctx context.Context,
+	discoveryReq *discovery.StatusRequest,
+	details *MapperDiscoveryDetails) (bool, json.RawMessage) {
 	resultsReq := &discovery.ResultsRequest{DiscoveryId: discoveryReq.DiscoveryId}
+
 	resultsResp, err := mdc.mapperClient.GetDiscoveryResults(ctx, resultsReq)
 	if err != nil {
 		return false, jsonError(fmt.Sprintf("Failed to get discovery results: %v", err))
@@ -257,7 +266,8 @@ func (mdc *MapperDiscoveryChecker) processJobResults(ctx context.Context, discov
 	}
 
 	if resultsResp.Status == discovery.DiscoveryStatus_FAILED {
-		return false, jsonError(fmt.Sprintf("Discovery job %s failed: %s", mdc.lastDiscoveryID, resultsResp.Error))
+		return false, jsonError(fmt.Sprintf("Discovery job %s failed: %s",
+			mdc.lastDiscoveryID, resultsResp.Error))
 	}
 
 	if resultsResp.Status != discovery.DiscoveryStatus_COMPLETED {
@@ -275,11 +285,13 @@ func (mdc *MapperDiscoveryChecker) formatProgressStatus(resultsResp *discovery.R
 		"devices_found":        len(resultsResp.Devices),
 		"interfaces_found":     len(resultsResp.Interfaces),
 		"topology_links_found": len(resultsResp.Topology),
-		"message": fmt.Sprintf("Mapper discovery job %s is still %s (progress: %.1f%%, devices: %d, interfaces: %d, links: %d).",
+		"message": fmt.Sprintf("Mapper discovery job %s is still %s (progress: %.1f%%, "+
+			"devices: %d, interfaces: %d, links: %d).",
 			mdc.lastDiscoveryID, resultsResp.Status, resultsResp.Progress,
 			len(resultsResp.Devices), len(resultsResp.Interfaces), len(resultsResp.Topology)),
 		"error": resultsResp.Error,
 	}
+
 	data, err := json.Marshal(resp)
 	if err != nil {
 		return false, jsonError(fmt.Sprintf("Failed to marshal progress status: %v", err))
@@ -288,7 +300,8 @@ func (mdc *MapperDiscoveryChecker) formatProgressStatus(resultsResp *discovery.R
 	return true, data
 }
 
-func (mdc *MapperDiscoveryChecker) formatFinalResults(resultsResp *discovery.ResultsResponse, details *MapperDiscoveryDetails) (bool, json.RawMessage) {
+func (mdc *MapperDiscoveryChecker) formatFinalResults(
+	resultsResp *discovery.ResultsResponse, details *MapperDiscoveryDetails) (bool, json.RawMessage) {
 	payload := models.SNMPDiscoveryDataPayload{
 		Devices:    resultsResp.Devices,
 		Interfaces: resultsResp.Interfaces,
@@ -296,12 +309,14 @@ func (mdc *MapperDiscoveryChecker) formatFinalResults(resultsResp *discovery.Res
 		AgentID:    details.AgentID,
 		PollerID:   details.PollerID,
 	}
+
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return false, jsonError(fmt.Sprintf("Failed to marshal SNMP discovery results payload: %v", err))
 	}
 
 	available := resultsResp.Status == discovery.DiscoveryStatus_COMPLETED
+
 	log.Printf("MapperDiscoveryChecker: Reporting job %s status: %s, available: %v. Found devices: %d, interfaces: %d, links: %d",
 		mdc.lastDiscoveryID, resultsResp.Status, available,
 		len(resultsResp.Devices), len(resultsResp.Interfaces), len(resultsResp.Topology))

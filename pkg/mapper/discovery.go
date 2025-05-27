@@ -743,9 +743,11 @@ func (e *DiscoveryEngine) processUniFiSeed(
 		e.queryUniFiDevices(ctx, job, seedIP, job.Params.AgentID, job.Params.PollerID)
 	if err == nil {
 		job.mu.Lock()
+
 		for _, device := range devicesFromUniFi {
 			if device.IP != "" { // Only add devices with valid IPs
 				e.addOrUpdateDeviceToResults(job, device)
+
 				allPotentialSNMPTargets[device.IP] = true
 			}
 		}

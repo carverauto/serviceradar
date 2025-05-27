@@ -172,6 +172,7 @@ func (e *ExternalChecker) getServiceDetails(ctx context.Context) (healthy bool, 
 		"response_time": responseTime,
 		"available":     status.Available,
 	}
+
 	data, err := json.Marshal(resp)
 	if err != nil {
 		return false, jsonError(fmt.Sprintf("Failed to marshal response: %v", err))
