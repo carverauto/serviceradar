@@ -87,6 +87,7 @@ func (s *PollerService) GetStatus(ctx context.Context, req *proto.StatusRequest)
 
 	// Determine overall availability based on target statuses
 	available := true
+
 	for _, targetStatus := range statusMap {
 		if !targetStatus.Available {
 			available = false
