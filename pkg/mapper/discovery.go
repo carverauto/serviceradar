@@ -581,24 +581,31 @@ func (e *DiscoveryEngine) updateExistingDevice(job *DiscoveryJob, index int, new
 	if newDevice.Hostname != "" {
 		job.Results.Devices[index].Hostname = newDevice.Hostname
 	}
+
 	if newDevice.MAC != "" {
 		job.Results.Devices[index].MAC = newDevice.MAC
 	}
+
 	if newDevice.SysDescr != "" {
 		job.Results.Devices[index].SysDescr = newDevice.SysDescr
 	}
+
 	if newDevice.SysObjectID != "" {
 		job.Results.Devices[index].SysObjectID = newDevice.SysObjectID
 	}
+
 	if newDevice.SysContact != "" {
 		job.Results.Devices[index].SysContact = newDevice.SysContact
 	}
+
 	if newDevice.SysLocation != "" {
 		job.Results.Devices[index].SysLocation = newDevice.SysLocation
 	}
+
 	if newDevice.Uptime != 0 {
 		job.Results.Devices[index].Uptime = newDevice.Uptime
 	}
+
 	job.Results.Devices[index].LastSeen = time.Now()
 
 	// Update metadata
@@ -755,8 +762,8 @@ func (e *DiscoveryEngine) processUniFiSeed(job *DiscoveryJob, seedIP string, all
 
 // setupAndExecuteSNMPPolling sets up and executes the SNMP polling phase
 func (e *DiscoveryEngine) setupAndExecuteSNMPPolling(job *DiscoveryJob, allPotentialSNMPTargets map[string]bool, initialSeeds []string) bool {
-	// Prepare scan queue
 	job.scanQueue = make([]string, 0, len(allPotentialSNMPTargets))
+
 	for ip := range allPotentialSNMPTargets {
 		if ip != "" {
 			job.scanQueue = append(job.scanQueue, ip)

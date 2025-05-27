@@ -311,7 +311,7 @@ func (e *DiscoveryEngine) processLLDPTable(
 	details *UniFiDeviceDetails,
 	apiConfig UniFiAPIConfig,
 	site UniFiSite) []*TopologyLink {
-	var links []*TopologyLink
+	links := make([]*TopologyLink, 0, len(details.LLDPTable))
 
 	for _, entry := range details.LLDPTable {
 		link := &TopologyLink{
@@ -589,7 +589,6 @@ func (e *DiscoveryEngine) createDiscoveredDevice(
 	apiConfig UniFiAPIConfig,
 	site UniFiSite,
 	agentID, pollerID string) *DiscoveredDevice {
-
 	if device.IPAddress == "" {
 		log.Printf("Job %s: UniFi device %s (ID: %s, MAC: %s) has no IP address, skipping.", job.ID, device.Name, device.ID, device.MAC)
 		return nil
@@ -657,7 +656,7 @@ func (e *DiscoveryEngine) processSwitchInterfaces(
 	switchInterfaces UniFiInterfaces,
 	apiConfig UniFiAPIConfig,
 	site UniFiSite) []*DiscoveredInterface {
-	var interfaces []*DiscoveredInterface
+	interfaces := make([]*DiscoveredInterface, 0, len(switchInterfaces.Ports))
 
 	for _, port := range switchInterfaces.Ports {
 		adminStatus := 1 // Up by default
@@ -740,9 +739,10 @@ func (e *DiscoveryEngine) querySingleUniFiDevices(
 		return nil, nil, err
 	}
 
-	var devices []*DiscoveredDevice
+	devices := make([]*DiscoveredDevice, 0, len(unifiDevices))
 
-	var allInterfaces []*DiscoveredInterface
+	// Pre-allocate allInterfaces with a reasonable estimate (at least one interface per device)
+	allInterfaces := make([]*DiscoveredInterface, 0, len(unifiDevices))
 
 	// Process each device
 	for _, unifiDevice := range unifiDevices {
