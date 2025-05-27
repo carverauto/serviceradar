@@ -21,7 +21,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/carverauto/serviceradar/proto"
 	"log"
 	"os"
 	"path/filepath"
@@ -31,6 +30,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/config"
 	ggrpc "github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/proto"
 	discovery "github.com/carverauto/serviceradar/proto/discovery"
 )
 

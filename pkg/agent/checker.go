@@ -22,7 +22,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/carverauto/serviceradar/proto"
 	"log"
 	"net"
 	"os/exec"
@@ -30,6 +29,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/carverauto/serviceradar/proto"
 )
 
 const (
