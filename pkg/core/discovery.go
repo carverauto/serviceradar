@@ -257,7 +257,7 @@ func (s *Server) processDiscoveredTopology(
 			PollerID:               discoveryInitiatorPollerID,
 			LocalDeviceIP:          protoLink.LocalDeviceIp,
 			LocalDeviceID:          localDeviceID,
-			LocalIfIndex:           int(protoLink.LocalIfIndex),
+			LocalIfIndex:           int(protoLink.LocalIfIndex), // Model uses int, DB uses int32
 			LocalIfName:            protoLink.LocalIfName,
 			ProtocolType:           protoLink.Protocol,
 			NeighborChassisID:      protoLink.NeighborChassisId,
@@ -265,7 +265,13 @@ func (s *Server) processDiscoveredTopology(
 			NeighborPortDescr:      protoLink.NeighborPortDescr,
 			NeighborSystemName:     protoLink.NeighborSystemName,
 			NeighborManagementAddr: protoLink.NeighborMgmtAddr,
-			Metadata:               metadataJSON,
+			// BGP fields are not in discoverypb.TopologyLink yet, so they will be empty/zero.
+			// This is fine as the DB schema allows nulls.
+			NeighborBGPRouterID: "", // Default to empty string
+			NeighborIPAddress:   "", // Default to empty string
+			NeighborAS:          0,  // Default to 0
+			BGPSessionState:     "", // Default to empty string
+			Metadata:            metadataJSON,
 		}
 
 		modelTopologyEvents = append(modelTopologyEvents, modelEvent)
