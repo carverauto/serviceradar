@@ -842,11 +842,7 @@ func (e *DiscoveryEngine) executeSNMPPolling(
 	wgSNMP.Wait()
 	close(resultChanSNMP)
 
-	if e.checkJobCancellation(job) {
-		return false
-	}
-
-	return true
+	return !e.checkJobCancellation(job)
 }
 
 // scanTargetForSNMP performs SNMP-specific discovery for a single target.
