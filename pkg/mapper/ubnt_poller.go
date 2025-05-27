@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -422,11 +423,11 @@ func (e *DiscoveryEngine) queryUniFiDevices(
 
 func (e *DiscoveryEngine) querySingleUniFiDevices(
 	job *DiscoveryJob,
-	targetIP string,
+	targetIP string, // Contextual IP, not used for filtering devices from controller here
 	apiConfig UniFiAPIConfig,
 	site UniFiSite,
 	agentID, pollerID string) ([]*DiscoveredDevice, []*DiscoveredInterface, error) {
-	log.Printf("Job %s: Querying UniFi devices from %s, site %s for %s",
+	log.Printf("Job %s: Querying UniFi devices from %s, site %s (context: %s)",
 		job.ID, apiConfig.Name, site.Name, targetIP)
 
 	client := e.createUniFiClient(apiConfig)
@@ -435,7 +436,8 @@ func (e *DiscoveryEngine) querySingleUniFiDevices(
 		"Content-Type": "application/json",
 	}
 
-	devicesURL := fmt.Sprintf("%s/sites/%s/devices?limit=50", apiConfig.BaseURL, site.ID)
+	// Consider pagination if many devices per site: ?limit=X&offset=Y
+	devicesURL := fmt.Sprintf("%s/sites/%s/devices?limit=100", apiConfig.BaseURL, site.ID)
 	req, err := http.NewRequest("GET", devicesURL, nil)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create devices request for %s, site %s: %w", apiConfig.Name, site.Name, err)
@@ -452,7 +454,8 @@ func (e *DiscoveryEngine) querySingleUniFiDevices(
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, nil, fmt.Errorf("devices request for %s, site %s failed with status: %d", apiConfig.Name, site.Name, resp.StatusCode)
+		bodyBytes, _ := io.ReadAll(resp.Body) // Read body for error context
+		return nil, nil, fmt.Errorf("devices request for %s, site %s failed with status: %d, body: %s", apiConfig.Name, site.Name, resp.StatusCode, string(bodyBytes))
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -460,73 +463,83 @@ func (e *DiscoveryEngine) querySingleUniFiDevices(
 		return nil, nil, fmt.Errorf("failed to read devices response body from %s, site %s: %w", apiConfig.Name, site.Name, err)
 	}
 
-	log.Printf("Job %s: Devices response from %s, site %s: %s", job.ID, apiConfig.Name, site.Name, string(body))
+	log.Printf("Job %s: Devices response from %s, site %s (first 500 chars): %.500s", job.ID, apiConfig.Name, site.Name, string(body))
 
 	var deviceResp struct {
 		Data []UniFiDevice `json:"data"`
 	}
 	if err := json.Unmarshal(body, &deviceResp); err != nil {
-		return nil, nil, fmt.Errorf("failed to parse devices response from %s, site %s: %w", apiConfig.Name, site.Name, err)
+		return nil, nil, fmt.Errorf("failed to parse devices response from %s, site %s: %w. Body: %s", apiConfig.Name, site.Name, err, string(body))
 	}
 
 	var devices []*DiscoveredDevice
-
 	var interfaces []*DiscoveredInterface
 
 	for _, device := range deviceResp.Data {
+		if device.IPAddress == "" {
+			log.Printf("Job %s: UniFi device %s (ID: %s, MAC: %s) has no IP address, skipping.", job.ID, device.Name, device.ID, device.MAC)
+			continue
+		}
+
 		if agentID == "" || pollerID == "" {
-			log.Printf("Job %s: Missing agentID (%s) or pollerID (%s) for device %s, skipping", job.ID, agentID, pollerID, device.IPAddress)
+			log.Printf("Job %s: Missing agentID (%s) or pollerID (%s) for UniFi device %s (%s), cannot generate unique DeviceID, skipping.", job.ID, agentID, pollerID, device.Name, device.IPAddress)
 			continue
 		}
 
 		deviceID := fmt.Sprintf("%s:%s:%s", agentID, pollerID, device.IPAddress)
 		deviceObj := &DiscoveredDevice{
-			DeviceID:  deviceID,
-			IP:        device.IPAddress,
-			MAC:       device.MAC,
-			Hostname:  device.Name,
-			FirstSeen: time.Now(),
-			LastSeen:  time.Now(),
+			DeviceID: deviceID,
+			IP:       device.IPAddress,
+			MAC:      device.MAC,
+			Hostname: device.Name,
 			Metadata: map[string]string{
-				"discovery_id":    job.ID,
-				"discovery_time":  time.Now().Format(time.RFC3339),
 				"source":          "unifi-api",
 				"controller_url":  apiConfig.BaseURL,
 				"site_id":         site.ID,
 				"site_name":       site.Name,
 				"controller_name": apiConfig.Name,
-				"unifi_device_id": device.ID,
+				// "unifi_model":     device.Model,
+				"unifi_device_id": device.ID, // Store the UniFi internal device ID
 			},
 		}
 		devices = append(devices, deviceObj)
 
-		// Process interfaces
-		if len(device.Interfaces) > 0 {
-			var uniFiInterfaces UniFiInterfaces
+		if device.Interfaces != nil {
+			var uniFiSwitchInterfaces UniFiInterfaces
+			isSwitchInterfaces := false
 
-			if err := json.Unmarshal(device.Interfaces, &uniFiInterfaces); err == nil {
-				for _, port := range uniFiInterfaces.Ports {
-					adminStatus := 1 // Up
-					operStatus := 1  // Up
-					if port.State == "DOWN" {
+			if errUnmarshal := json.Unmarshal(device.Interfaces, &uniFiSwitchInterfaces); errUnmarshal == nil && len(uniFiSwitchInterfaces.Ports) > 0 {
+				isSwitchInterfaces = true
+				for _, port := range uniFiSwitchInterfaces.Ports {
+					adminStatus := 1 // Up by default
+					operStatus := 1  // Up by default
+					if strings.ToLower(port.State) == "down" || strings.ToLower(port.State) == "disabled" {
 						adminStatus = 2 // Down
 						operStatus = 2  // Down
 					}
+
+					// Correctly derive IfName and IfDescr
 					ifName := fmt.Sprintf("Port-%d", port.Idx)
+					ifDescr := fmt.Sprintf("%s Port %d", device.Name, port.Idx)
+					if port.Connector != "" { // Add connector type if available
+						ifDescr = fmt.Sprintf("%s Port %d (%s)", device.Name, port.Idx, port.Connector)
+					}
+
 					metadata := map[string]string{
-						"discovery_id":    job.ID,
-						"discovery_time":  time.Now().Format(time.RFC3339),
 						"source":          "unifi-api",
 						"controller_url":  apiConfig.BaseURL,
 						"site_id":         site.ID,
 						"site_name":       site.Name,
 						"controller_name": apiConfig.Name,
 						"connector":       port.Connector,
+						"port_state":      port.State,
+						"max_speed_mbps":  fmt.Sprintf("%d", port.MaxSpeedMbps),
 					}
-					if port.PoE.Enabled {
+					if port.PoE.Enabled || port.PoE.Standard != "" {
 						metadata["poe_standard"] = port.PoE.Standard
 						metadata["poe_type"] = fmt.Sprintf("%d", port.PoE.Type)
 						metadata["poe_state"] = port.PoE.State
+						metadata["poe_enabled"] = fmt.Sprintf("%t", port.PoE.Enabled)
 					}
 
 					iface := &DiscoveredInterface{
@@ -534,16 +547,25 @@ func (e *DiscoveryEngine) querySingleUniFiDevices(
 						DeviceID:      deviceID,
 						IfIndex:       int32(port.Idx),
 						IfName:        ifName,
-						IfDescr:       fmt.Sprintf("%s Port %d", device.Name, port.Idx),
-						IfSpeed:       uint64(port.SpeedMbps * 1000000),
+						IfDescr:       ifDescr,
+						IfSpeed:       uint64(port.SpeedMbps * 1000000), // Mbps to bps
 						IfAdminStatus: int32(adminStatus),
 						IfOperStatus:  int32(operStatus),
 						Metadata:      metadata,
+						// IfPhysAddress is not directly available here for switch ports from this endpoint
 					}
 					interfaces = append(interfaces, iface)
 				}
-			} else {
-				log.Printf("Job %s: Failed to parse interfaces for device %s from %s, site %s: %v", job.ID, device.ID, apiConfig.Name, site.Name, err)
+			}
+
+			if !isSwitchInterfaces {
+				rawInterfacesStr := string(device.Interfaces)
+				// APs often report simple `["radios"]`. We don't create interfaces for these yet from UniFi.
+				// SNMP polling should pick up WLAN interfaces if the AP responds to SNMP.
+				if rawInterfacesStr != "" && rawInterfacesStr != `["radios"]` && rawInterfacesStr != `[]` { // also check for empty array
+					log.Printf("Job %s: Device %s (%s) has non-standard UniFi interfaces structure: %s. Unmarshal error (if any): %v",
+						job.ID, device.Name, device.ID, rawInterfacesStr, err) // err here is from the previous unmarshal attempt
+				}
 			}
 		}
 	}
