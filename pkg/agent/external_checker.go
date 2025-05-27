@@ -122,6 +122,7 @@ func NewExternalChecker(
 func (e *ExternalChecker) Check(ctx context.Context, req *proto.StatusRequest) (healthy bool, details json.RawMessage) {
 	if e.canUseCachedStatus() {
 		log.Printf("ExternalChecker %s: Using cached health status: %v", e.serviceName, e.healthStatus)
+
 		if !e.healthStatus {
 			return false, jsonError("Service unhealthy (cached status)")
 		}
@@ -139,14 +140,18 @@ func (e *ExternalChecker) Check(ctx context.Context, req *proto.StatusRequest) (
 	healthy, err := e.performHealthCheck(ctx, req.ServiceName)
 	if err != nil || !healthy {
 		e.updateHealthStatus(false)
+
 		log.Printf("ExternalChecker %s: Health check failed (Healthy: %v, Err: %v)", e.serviceName, healthy, err)
+
 		if err != nil {
 			return false, jsonError(fmt.Sprintf("Health check failed: %v", err))
 		}
+
 		return false, jsonError("Service reported unhealthy")
 	}
 
 	e.updateHealthStatus(true)
+
 	log.Printf("ExternalChecker %s: Health check succeeded", e.serviceName)
 
 	return e.getServiceDetails(ctx)

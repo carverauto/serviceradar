@@ -444,11 +444,13 @@ func (e *DiscoveryEngine) startWorkers(
 					log.Printf("Job %s: Worker %d (target: %s) stopping due to cancellation",
 						job.ID, workerID, target)
 					resultChan <- false // Signal non-completion
+
 					return
 				case <-e.done:
 					log.Printf("Job %s: Worker %d (target: %s) stopping due to engine shutdown",
 						job.ID, workerID, target)
 					resultChan <- false // Signal non-completion
+
 					return
 				default:
 					// Ping host before processing
@@ -715,23 +717,30 @@ func (e *DiscoveryEngine) checkPhaseJobCancellation(job *DiscoveryJob, seedIP, p
 	select {
 	case <-job.ctx.Done():
 		log.Printf("Job %s: %s phase canceled for seed %s.", job.ID, phaseName, seedIP)
+
 		job.mu.Lock()
+
 		if job.Status.Status != DiscoverStatusCanceled && job.Status.Status != DiscoveryStatusFailed {
 			job.Status.Status = DiscoverStatusCanceled
 			job.Status.Error = fmt.Sprintf("Job canceled during %s phase", phaseName)
 			job.Status.EndTime = time.Now()
 		}
+
 		job.mu.Unlock()
+
 		return true
 	case <-e.done:
 		log.Printf("Job %s: %s phase stopped due to engine shutdown for seed %s.", job.ID, phaseName, seedIP)
 		job.mu.Lock()
+
 		if job.Status.Status != DiscoverStatusCanceled && job.Status.Status != DiscoveryStatusFailed {
 			job.Status.Status = DiscoveryStatusFailed
 			job.Status.Error = fmt.Sprintf("Engine shutting down during %s phase", phaseName)
 			job.Status.EndTime = time.Now()
 		}
+
 		job.mu.Unlock()
+
 		return true
 	default:
 		return false
