@@ -613,6 +613,7 @@ func (e *DiscoveryEngine) updateDeviceMetadata(job *DiscoveryJob, index int, new
 	if job.Results.Devices[index].Metadata == nil {
 		job.Results.Devices[index].Metadata = make(map[string]string)
 	}
+
 	for k, v := range newDevice.Metadata {
 		job.Results.Devices[index].Metadata[k] = v
 	}
