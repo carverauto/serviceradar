@@ -358,12 +358,12 @@ func TestProcessSweepData(t *testing.T) {
 // verifySweepTestCase verifies a single test case for TestProcessSweepData
 func verifySweepTestCase(ctx context.Context, t *testing.T, server *Server, svc *api.ServiceStatus,
 	tt *struct {
-	name          string
-	inputMessage  string
-	expectedSweep proto.SweepServiceStatus
-	expectError   bool
-	hasHosts      bool
-}, now time.Time) {
+		name          string
+		inputMessage  string
+		expectedSweep proto.SweepServiceStatus
+		expectError   bool
+		hasHosts      bool
+	}, now time.Time) {
 	t.Helper()
 
 	err := server.processSweepData(ctx, svc, now)

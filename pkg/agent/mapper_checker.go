@@ -115,6 +115,7 @@ func loadMapperConfig(ctx context.Context) (*MapperConfig, error) {
 			log.Printf("Mapper config not found at %s, using default address", configPath)
 			return &MapperConfig{Address: "127.0.0.1:50056"}, nil
 		}
+
 		return nil, fmt.Errorf("config file error: %w", err)
 	}
 
@@ -181,7 +182,9 @@ func (mdc *MapperDiscoveryChecker) Check(ctx context.Context, req *proto.StatusR
 			"status":  "no_job_initiated",
 			"message": "No discovery job initiated or found.",
 		}
+
 		data, _ := json.Marshal(resp)
+
 		return false, data
 	}
 
@@ -359,5 +362,6 @@ func (mdc *MapperDiscoveryChecker) Close() error {
 	if mdc.client != nil {
 		return mdc.client.Close()
 	}
+
 	return nil
 }

@@ -91,6 +91,7 @@ func (e *DiscoveryEngine) fetchUniFiSites(ctx context.Context, job *DiscoveryJob
 	if sites, exists := job.uniFiSiteCache[apiConfig.BaseURL]; exists {
 		job.mu.RUnlock()
 		log.Printf("Job %s: Using cached sites for %s", job.ID, apiConfig.Name)
+
 		return sites, nil
 	}
 	job.mu.RUnlock()
