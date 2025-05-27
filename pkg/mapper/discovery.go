@@ -799,8 +799,13 @@ func (e *DiscoveryEngine) setupAndExecuteSNMPPolling(
 	targetChanSNMP := make(chan string, concurrency*defaultConcurrencyMultiplier)
 	resultChanSNMP := make(chan bool, totalSNMPTargets)
 
+	// Create a wrapper function that matches the targetProcessorFunc type
+	snmpWrapper := func(job *DiscoveryJob, targetIP, agentID, pollerID string) {
+		e.scanTargetForSNMP(job.ctx, job, targetIP, agentID, pollerID)
+	}
+
 	// Start workers and progress tracking
-	e.startWorkers(job, &wgSNMP, targetChanSNMP, resultChanSNMP, concurrency, e.scanTargetForSNMP)
+	e.startWorkers(job, &wgSNMP, targetChanSNMP, resultChanSNMP, concurrency, snmpWrapper)
 
 	baseSNMPProgress := progressInitial / 3
 	rangeSNMPProgress := progressScanning - baseSNMPProgress
