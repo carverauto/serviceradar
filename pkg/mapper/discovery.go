@@ -540,66 +540,96 @@ const (
 // addOrUpdateDeviceToResults adds or updates a device in the job's results.
 // It assumes job.mu is already locked if called from a context where it's needed.
 func (e *DiscoveryEngine) addOrUpdateDeviceToResults(job *DiscoveryJob, newDevice *DiscoveredDevice) {
-	// Ensure DeviceID is populated if possible, this is crucial for uniqueness
-	if newDevice.DeviceID == "" && newDevice.IP != "" && job.Params.AgentID != "" && job.Params.PollerID != "" {
-		newDevice.DeviceID = fmt.Sprintf("%s:%s:%s", job.Params.AgentID, job.Params.PollerID, newDevice.IP)
-	}
+	e.ensureDeviceID(job, newDevice)
 
+	// Try to find and update an existing device
 	for i, existingDevice := range job.Results.Devices {
-		match := false
-		if newDevice.DeviceID != "" && existingDevice.DeviceID == newDevice.DeviceID {
-			match = true
-		} else if existingDevice.IP == newDevice.IP { // Fallback to IP match
-			match = true
-		}
-
-		if match {
-			// Update existing device
-			if newDevice.Hostname != "" {
-				job.Results.Devices[i].Hostname = newDevice.Hostname
-			}
-			if newDevice.MAC != "" {
-				job.Results.Devices[i].MAC = newDevice.MAC
-			}
-			if newDevice.SysDescr != "" {
-				job.Results.Devices[i].SysDescr = newDevice.SysDescr
-			}
-			if newDevice.SysObjectID != "" {
-				job.Results.Devices[i].SysObjectID = newDevice.SysObjectID
-			}
-			if newDevice.SysContact != "" {
-				job.Results.Devices[i].SysContact = newDevice.SysContact
-			}
-			if newDevice.SysLocation != "" {
-				job.Results.Devices[i].SysLocation = newDevice.SysLocation
-			}
-			if newDevice.Uptime != 0 {
-				job.Results.Devices[i].Uptime = newDevice.Uptime
-			}
-			job.Results.Devices[i].LastSeen = time.Now()
-
-			if job.Results.Devices[i].Metadata == nil {
-				job.Results.Devices[i].Metadata = make(map[string]string)
-			}
-			for k, v := range newDevice.Metadata {
-				job.Results.Devices[i].Metadata[k] = v
-			}
-			if e.publisher != nil {
-				if err := e.publisher.PublishDevice(job.ctx, job.Results.Devices[i]); err != nil {
-					log.Printf("Job %s: Failed to re-publish updated device %s: %v", job.ID, job.Results.Devices[i].IP, err)
-				}
-			}
+		if e.isDeviceMatch(existingDevice, newDevice) {
+			e.updateExistingDevice(job, i, newDevice)
 			return
 		}
 	}
-	// Not found, append
+
+	// Not found, append as a new device
+	e.addNewDevice(job, newDevice)
+}
+
+// ensureDeviceID ensures the DeviceID is populated if possible
+func (e *DiscoveryEngine) ensureDeviceID(job *DiscoveryJob, device *DiscoveredDevice) {
+	if device.DeviceID == "" && device.IP != "" && job.Params.AgentID != "" && job.Params.PollerID != "" {
+		device.DeviceID = fmt.Sprintf("%s:%s:%s", job.Params.AgentID, job.Params.PollerID, device.IP)
+	}
+}
+
+// isDeviceMatch checks if two devices match based on DeviceID or IP
+func (e *DiscoveryEngine) isDeviceMatch(existingDevice, newDevice *DiscoveredDevice) bool {
+	if newDevice.DeviceID != "" && existingDevice.DeviceID == newDevice.DeviceID {
+		return true
+	}
+	if existingDevice.IP == newDevice.IP { // Fallback to IP match
+		return true
+	}
+	return false
+}
+
+// updateExistingDevice updates an existing device with information from a new device
+func (e *DiscoveryEngine) updateExistingDevice(job *DiscoveryJob, index int, newDevice *DiscoveredDevice) {
+	// Update non-empty fields
+	if newDevice.Hostname != "" {
+		job.Results.Devices[index].Hostname = newDevice.Hostname
+	}
+	if newDevice.MAC != "" {
+		job.Results.Devices[index].MAC = newDevice.MAC
+	}
+	if newDevice.SysDescr != "" {
+		job.Results.Devices[index].SysDescr = newDevice.SysDescr
+	}
+	if newDevice.SysObjectID != "" {
+		job.Results.Devices[index].SysObjectID = newDevice.SysObjectID
+	}
+	if newDevice.SysContact != "" {
+		job.Results.Devices[index].SysContact = newDevice.SysContact
+	}
+	if newDevice.SysLocation != "" {
+		job.Results.Devices[index].SysLocation = newDevice.SysLocation
+	}
+	if newDevice.Uptime != 0 {
+		job.Results.Devices[index].Uptime = newDevice.Uptime
+	}
+	job.Results.Devices[index].LastSeen = time.Now()
+
+	// Update metadata
+	e.updateDeviceMetadata(job, index, newDevice)
+
+	// Publish updated device
+	e.publishDevice(job, job.Results.Devices[index])
+}
+
+// updateDeviceMetadata updates the metadata of an existing device
+func (e *DiscoveryEngine) updateDeviceMetadata(job *DiscoveryJob, index int, newDevice *DiscoveredDevice) {
+	if job.Results.Devices[index].Metadata == nil {
+		job.Results.Devices[index].Metadata = make(map[string]string)
+	}
+	for k, v := range newDevice.Metadata {
+		job.Results.Devices[index].Metadata[k] = v
+	}
+}
+
+// addNewDevice adds a new device to the results
+func (e *DiscoveryEngine) addNewDevice(job *DiscoveryJob, newDevice *DiscoveredDevice) {
 	newDevice.FirstSeen = time.Now()
 	newDevice.LastSeen = time.Now()
 	job.Results.Devices = append(job.Results.Devices, newDevice)
 
+	// Publish new device
+	e.publishDevice(job, newDevice)
+}
+
+// publishDevice publishes a device via the publisher if available
+func (e *DiscoveryEngine) publishDevice(job *DiscoveryJob, device *DiscoveredDevice) {
 	if e.publisher != nil {
-		if err := e.publisher.PublishDevice(job.ctx, newDevice); err != nil {
-			log.Printf("Job %s: Failed to publish new device %s: %v", job.ID, newDevice.IP, err)
+		if err := e.publisher.PublishDevice(job.ctx, device); err != nil {
+			log.Printf("Job %s: Failed to publish device %s: %v", job.ID, device.IP, err)
 		}
 	}
 }
