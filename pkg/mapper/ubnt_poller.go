@@ -590,12 +590,14 @@ func (e *DiscoveryEngine) createDiscoveredDevice(
 	site UniFiSite,
 	agentID, pollerID string) *DiscoveredDevice {
 	if device.IPAddress == "" {
-		log.Printf("Job %s: UniFi device %s (ID: %s, MAC: %s) has no IP address, skipping.", job.ID, device.Name, device.ID, device.MAC)
+		log.Printf("Job %s: UniFi device %s (ID: %s, MAC: %s) has no IP address, skipping.",
+			job.ID, device.Name, device.ID, device.MAC)
 		return nil
 	}
 
 	if agentID == "" || pollerID == "" {
-		log.Printf("Job %s: Missing agentID (%s) or pollerID (%s) for UniFi device %s (%s), cannot generate unique DeviceID, skipping.", job.ID, agentID, pollerID, device.Name, device.IPAddress)
+		log.Printf("Job %s: Missing agentID (%s) or pollerID (%s) for UniFi device %s (%s), "+
+			"cannot generate unique DeviceID, skipping.", job.ID, agentID, pollerID, device.Name, device.IPAddress)
 		return nil
 	}
 
