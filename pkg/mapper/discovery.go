@@ -420,7 +420,6 @@ func (*DiscoveryEngine) determineConcurrency(job *DiscoveryJob, totalTargets int
 
 type targetProcessorFunc func(job *DiscoveryJob, targetIP, agentID, pollerID string)
 
-// startWorkers launches worker goroutines to process targets.
 // startWorkers launches worker goroutines to process targets using the provided processor function.
 func (e *DiscoveryEngine) startWorkers(
 	job *DiscoveryJob,
@@ -432,8 +431,10 @@ func (e *DiscoveryEngine) startWorkers(
 ) {
 	for i := 0; i < concurrency; i++ {
 		wg.Add(1)
+
 		go func(workerID int) {
 			defer wg.Done()
+
 			for target := range targetChan {
 				select {
 				case <-job.ctx.Done():
@@ -449,7 +450,8 @@ func (e *DiscoveryEngine) startWorkers(
 					if pingErr := pingHost(job.ctx, target); pingErr != nil {
 						log.Printf("Job %s: Host %s is not responding to ICMP ping by worker %d: %v", job.ID, target, workerID, pingErr)
 						resultChan <- false // Signal failure for this target
-						continue            // Allow worker to process next target
+
+						continue // Allow worker to process next target
 					}
 
 					// Process target using the provided processor function
@@ -457,6 +459,7 @@ func (e *DiscoveryEngine) startWorkers(
 					resultChan <- true // Signal completion for progress tracking
 				}
 			}
+
 			log.Printf("Job %s: Worker %d finished processing targets.", job.ID, workerID)
 		}(i)
 	}
@@ -658,6 +661,7 @@ func (e *DiscoveryEngine) runDiscoveryJob(job *DiscoveryJob) {
 // handleUniFiDiscoveryPhase performs the UniFi discovery phase and collects potential SNMP targets
 func (e *DiscoveryEngine) handleUniFiDiscoveryPhase(job *DiscoveryJob, initialSeeds []string) map[string]bool {
 	allPotentialSNMPTargets := make(map[string]bool)
+
 	for _, seedIP := range initialSeeds {
 		if seedIP != "" { // Ensure seedIP is valid before adding
 			allPotentialSNMPTargets[seedIP] = true
@@ -727,12 +731,15 @@ func (e *DiscoveryEngine) processUniFiSeed(job *DiscoveryJob, seedIP string, all
 				allPotentialSNMPTargets[device.IP] = true
 			}
 		}
+
 		for _, iface := range interfacesFromUniFi {
 			if iface.DeviceID == "" && iface.DeviceIP != "" && job.Params.AgentID != "" && job.Params.PollerID != "" {
 				iface.DeviceID = fmt.Sprintf("%s:%s:%s", job.Params.AgentID, job.Params.PollerID, iface.DeviceIP)
 			}
+
 			job.Results.Interfaces = append(job.Results.Interfaces, iface)
 		}
+
 		job.mu.Unlock()
 
 		for _, iface := range interfacesFromUniFi {
@@ -765,7 +772,9 @@ func (e *DiscoveryEngine) setupAndExecuteSNMPPolling(job *DiscoveryJob, allPoten
 
 	// Setup for SNMP polling
 	concurrency := e.determineConcurrency(job, totalSNMPTargets)
+
 	var wgSNMP sync.WaitGroup
+
 	targetChanSNMP := make(chan string, concurrency*defaultConcurrencyMultiplier)
 	resultChanSNMP := make(chan bool, totalSNMPTargets)
 
@@ -774,6 +783,7 @@ func (e *DiscoveryEngine) setupAndExecuteSNMPPolling(job *DiscoveryJob, allPoten
 
 	baseSNMPProgress := progressInitial / 3
 	rangeSNMPProgress := progressScanning - baseSNMPProgress
+
 	go e.trackJobProgress(job, resultChanSNMP, totalSNMPTargets, baseSNMPProgress, rangeSNMPProgress)
 
 	job.mu.Lock()
@@ -790,15 +800,20 @@ func (e *DiscoveryEngine) setupAndExecuteSNMPPolling(job *DiscoveryJob, allPoten
 func (e *DiscoveryEngine) executeSNMPPolling(job *DiscoveryJob, targetChanSNMP chan<- string, resultChanSNMP chan bool, wgSNMP *sync.WaitGroup) bool {
 	if e.feedTargetsToWorkers(job, targetChanSNMP) { // This closes targetChanSNMP
 		wgSNMP.Wait()
+
 		close(resultChanSNMP)
+
 		job.mu.Lock()
+
 		if job.Status.Status != DiscoverStatusCanceled && job.Status.Status != DiscoveryStatusFailed {
 			job.Status.Status = DiscoverStatusCanceled
 			job.Status.Error = "Job canceled during SNMP polling phase"
 			job.Status.EndTime = time.Now()
 		}
+
 		job.mu.Unlock()
 		log.Printf("Job %s: SNMP target feeding/processing was canceled.", job.ID)
+
 		return false
 	}
 
@@ -828,6 +843,7 @@ func (e *DiscoveryEngine) scanTargetForSNMP(job *DiscoveryJob, snmpTargetIP, age
 		log.Printf("Job %s: Failed to setup SNMP client for %s: %v", job.ID, snmpTargetIP, err)
 		return
 	}
+
 	defer func() {
 		if cErr := client.Conn.Close(); cErr != nil {
 			log.Printf("Job %s: Error closing SNMP connection for %s: %v", job.ID, snmpTargetIP, cErr)
@@ -857,17 +873,21 @@ func (e *DiscoveryEngine) scanTargetForSNMP(job *DiscoveryJob, snmpTargetIP, age
 func (e *DiscoveryEngine) trackJobProgress(job *DiscoveryJob, resultChan <-chan bool, totalTargets int, baseProgress float64, progressRange float64) {
 	processed := 0
 	successful := 0
+
 	for success := range resultChan {
 		processed++
+
 		if success {
 			successful++
 		}
 
 		job.mu.Lock()
 		currentProgress := baseProgress
+
 		if totalTargets > 0 {
 			currentProgress += (float64(processed) / float64(totalTargets)) * progressRange
 		}
+
 		job.Status.Progress = currentProgress
 		job.Status.DevicesFound = len(job.Results.Devices)
 		job.Status.InterfacesFound = len(job.Results.Interfaces)
@@ -876,6 +896,7 @@ func (e *DiscoveryEngine) trackJobProgress(job *DiscoveryJob, resultChan <-chan 
 		log.Printf("Job %s: Progress %.2f%% (%d/%d processed, %d successful). Devices: %d, Interfaces: %d, Links: %d",
 			job.ID, job.Status.Progress, processed, totalTargets, successful,
 			job.Status.DevicesFound, job.Status.InterfacesFound, job.Status.TopologyLinks)
+
 		job.mu.Unlock()
 
 		select {

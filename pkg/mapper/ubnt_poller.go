@@ -102,13 +102,16 @@ func (e *DiscoveryEngine) fetchUniFiSites(job *DiscoveryJob, apiConfig UniFiAPIC
 	}
 
 	sitesURL := fmt.Sprintf("%s/sites", apiConfig.BaseURL)
+
 	req, err := http.NewRequest("GET", sitesURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sites request for %s: %w", apiConfig.Name, err)
 	}
+
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
+
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch sites from %s: %w", apiConfig.Name, err)
@@ -122,6 +125,7 @@ func (e *DiscoveryEngine) fetchUniFiSites(job *DiscoveryJob, apiConfig UniFiAPIC
 	var sitesResp struct {
 		Data []UniFiSite `json:"data"`
 	}
+
 	if err := json.NewDecoder(resp.Body).Decode(&sitesResp); err != nil {
 		return nil, fmt.Errorf("failed to parse sites response from %s: %w", apiConfig.Name, err)
 	}
@@ -135,6 +139,7 @@ func (e *DiscoveryEngine) fetchUniFiSites(job *DiscoveryJob, apiConfig UniFiAPIC
 	if job.uniFiSiteCache == nil {
 		job.uniFiSiteCache = make(map[string][]UniFiSite)
 	}
+
 	job.uniFiSiteCache[apiConfig.BaseURL] = sitesResp.Data
 	job.mu.Unlock()
 
@@ -145,6 +150,7 @@ func (e *DiscoveryEngine) queryUniFiAPI(job *DiscoveryJob, targetIP, agentID, po
 	log.Printf("Job %s: Querying UniFi APIs for %s", job.ID, targetIP)
 
 	var allLinks []*TopologyLink
+
 	seenLinks := make(map[string]struct{})
 
 	for _, apiConfig := range e.config.UniFiAPIs {
@@ -170,6 +176,7 @@ func (e *DiscoveryEngine) queryUniFiAPI(job *DiscoveryJob, targetIP, agentID, po
 				linkKey := fmt.Sprintf("%s:%s:%s:%s", link.LocalDeviceIP, link.NeighborMgmtAddr, link.Protocol, site.ID)
 				if _, exists := seenLinks[linkKey]; !exists {
 					seenLinks[linkKey] = struct{}{}
+
 					allLinks = append(allLinks, link)
 				}
 			}
@@ -205,9 +212,11 @@ func (e *DiscoveryEngine) fetchUniFiDevicesForSite(
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create devices request for %s, site %s: %w", apiConfig.Name, site.Name, err)
 	}
+
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
+
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to fetch devices from %s, site %s: %w", apiConfig.Name, site.Name, err)
@@ -222,6 +231,7 @@ func (e *DiscoveryEngine) fetchUniFiDevicesForSite(
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read devices response body from %s, site %s: %w", apiConfig.Name, site.Name, err)
 	}
+
 	log.Printf("Job %s: Devices response from %s, site %s: %s", job.ID, apiConfig.Name, site.Name, string(body))
 
 	var deviceResp struct {
@@ -239,11 +249,12 @@ func (e *DiscoveryEngine) fetchUniFiDevicesForSite(
 	})
 
 	for _, device := range deviceResp.Data {
-		// Generate DeviceID
 		deviceID := device.IPAddress
+
 		if agentID != "" && pollerID != "" && device.IPAddress != "" {
 			deviceID = fmt.Sprintf("%s:%s:%s", agentID, pollerID, device.IPAddress)
 		}
+
 		deviceCache[device.ID] = struct {
 			IP       string
 			Name     string
@@ -268,9 +279,11 @@ func (e *DiscoveryEngine) fetchDeviceDetails(
 	if err != nil {
 		return nil, fmt.Errorf("failed to create details request for device %s: %w", deviceID, err)
 	}
+
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
+
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch details for device %s: %w", deviceID, err)
@@ -282,6 +295,7 @@ func (e *DiscoveryEngine) fetchDeviceDetails(
 	}
 
 	var details UniFiDeviceDetails
+
 	if err := json.NewDecoder(resp.Body).Decode(&details); err != nil {
 		return nil, fmt.Errorf("failed to parse details for device %s: %w", deviceID, err)
 	}
@@ -321,6 +335,7 @@ func (e *DiscoveryEngine) processLLDPTable(
 				"controller_name": apiConfig.Name,
 			},
 		}
+
 		links = append(links, link)
 	}
 
@@ -358,6 +373,7 @@ func (e *DiscoveryEngine) processPortTable(
 					"controller_name": apiConfig.Name,
 				},
 			}
+
 			links = append(links, link)
 		}
 	}
@@ -408,14 +424,11 @@ func (e *DiscoveryEngine) processUplinkInfo(
 	return links
 }
 
-// ubnt_poller.go
 func (e *DiscoveryEngine) querySingleUniFiAPI(
 	job *DiscoveryJob,
 	targetIP, agentID, pollerID string,
 	apiConfig UniFiAPIConfig,
 	site UniFiSite) ([]*TopologyLink, error) {
-	log.Printf("Job %s: Querying UniFi API %s, site %s for %s", job.ID, apiConfig.Name, site.Name, targetIP)
-
 	client := e.createUniFiClient(apiConfig)
 	headers := map[string]string{
 		"X-API-Key":    apiConfig.APIKey,
@@ -436,6 +449,7 @@ func (e *DiscoveryEngine) querySingleUniFiAPI(
 		if targetIP != "" && device.IPAddress != targetIP {
 			continue
 		}
+
 		if !contains(device.Features, "switching") && targetIP != "" {
 			continue
 		}
@@ -474,7 +488,9 @@ func (e *DiscoveryEngine) queryUniFiDevices(
 	log.Printf("Job %s: Querying UniFi devices for %s", job.ID, targetIP)
 
 	var allDevices []*DiscoveredDevice
+
 	var allInterfaces []*DiscoveredInterface
+
 	seenDevices := make(map[string]struct{})
 
 	for _, apiConfig := range e.config.UniFiAPIs {
@@ -498,11 +514,14 @@ func (e *DiscoveryEngine) queryUniFiDevices(
 
 			for _, device := range devices {
 				deviceKey := fmt.Sprintf("%s:%s", device.IP, site.ID)
+
 				if _, exists := seenDevices[deviceKey]; !exists {
 					seenDevices[deviceKey] = struct{}{}
+
 					allDevices = append(allDevices, device)
 				}
 			}
+
 			allInterfaces = append(allInterfaces, interfaces...)
 		}
 	}
@@ -518,7 +537,6 @@ func (e *DiscoveryEngine) fetchUniFiDevices(
 	job *DiscoveryJob,
 	apiConfig UniFiAPIConfig,
 	site UniFiSite) ([]UniFiDevice, error) {
-
 	client := e.createUniFiClient(apiConfig)
 	headers := map[string]string{
 		"X-API-Key":    apiConfig.APIKey,
@@ -527,6 +545,7 @@ func (e *DiscoveryEngine) fetchUniFiDevices(
 
 	// Consider pagination if many devices per site: ?limit=X&offset=Y
 	devicesURL := fmt.Sprintf("%s/sites/%s/devices?limit=100", apiConfig.BaseURL, site.ID)
+
 	req, err := http.NewRequest("GET", devicesURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create devices request for %s, site %s: %w", apiConfig.Name, site.Name, err)
@@ -582,6 +601,7 @@ func (e *DiscoveryEngine) createDiscoveredDevice(
 	}
 
 	deviceID := fmt.Sprintf("%s:%s:%s", agentID, pollerID, device.IPAddress)
+
 	return &DiscoveredDevice{
 		DeviceID: deviceID,
 		IP:       device.IPAddress,
@@ -605,12 +625,12 @@ func (e *DiscoveryEngine) processDeviceInterfaces(
 	deviceID string,
 	apiConfig UniFiAPIConfig,
 	site UniFiSite) []*DiscoveredInterface {
-
 	if device.Interfaces == nil {
 		return nil
 	}
 
 	var interfaces []*DiscoveredInterface
+
 	var uniFiSwitchInterfaces UniFiInterfaces
 
 	// Try to unmarshal as switch interfaces
@@ -631,7 +651,7 @@ func (e *DiscoveryEngine) processDeviceInterfaces(
 }
 
 func (e *DiscoveryEngine) processSwitchInterfaces(
-	job *DiscoveryJob,
+	_ *DiscoveryJob,
 	device UniFiDevice,
 	deviceID string,
 	switchInterfaces UniFiInterfaces,
@@ -717,13 +737,13 @@ func (e *DiscoveryEngine) querySingleUniFiDevices(
 	log.Printf("Job %s: Querying UniFi devices from %s, site %s (context: %s)",
 		job.ID, apiConfig.Name, site.Name, targetIP)
 
-	// Fetch devices from UniFi API
 	unifiDevices, err := e.fetchUniFiDevices(job, apiConfig, site)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	var devices []*DiscoveredDevice
+
 	var allInterfaces []*DiscoveredInterface
 
 	// Process each device
@@ -738,6 +758,7 @@ func (e *DiscoveryEngine) querySingleUniFiDevices(
 
 		// Process device interfaces
 		interfaces := e.processDeviceInterfaces(job, unifiDevice, device.DeviceID, apiConfig, site)
+
 		allInterfaces = append(allInterfaces, interfaces...)
 	}
 
