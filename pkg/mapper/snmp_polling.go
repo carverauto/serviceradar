@@ -382,7 +382,7 @@ func isMaxUint32(value uint64) bool {
 }
 
 // extractSpeedFromGauge32 extracts speed from Gauge32 type.
-func extractSpeedFromGauge32(value interface{}, ifIndex int32) uint64 {
+func extractSpeedFromGauge32(value interface{}) uint64 {
 	speed, ok := convertToUint64(value)
 	if !ok {
 		log.Printf("Unexpected Gauge32 value type %T for ifSpeed: %v", value, value)
@@ -463,7 +463,7 @@ func updateIfSpeed(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
 	//nolint:exhaustive // Default case handles all unlisted types
 	switch pdu.Type {
 	case gosnmp.Gauge32:
-		speed = extractSpeedFromGauge32(pdu.Value, iface.IfIndex)
+		speed = extractSpeedFromGauge32(pdu.Value)
 	case gosnmp.Counter32:
 		speed = extractSpeedFromCounter32(pdu.Value)
 	case gosnmp.Counter64:

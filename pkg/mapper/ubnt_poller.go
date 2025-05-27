@@ -199,7 +199,7 @@ var (
 )
 
 // fetchUniFiDevicesForSite fetches devices from a UniFi site and creates a device cache
-func (e *DiscoveryEngine) fetchUniFiDevicesForSite(
+func (*DiscoveryEngine) fetchUniFiDevicesForSite(
 	ctx context.Context,
 	job *DiscoveryJob,
 	client *http.Client,
@@ -247,6 +247,7 @@ func (e *DiscoveryEngine) fetchUniFiDevicesForSite(
 	var deviceResp struct {
 		Data []UniFiDevice `json:"data"`
 	}
+
 	if err := json.Unmarshal(body, &deviceResp); err != nil {
 		return nil, nil, fmt.Errorf("failed to parse devices response from %s, site %s: %w",
 			apiConfig.Name, site.Name, err)
@@ -279,7 +280,7 @@ func (e *DiscoveryEngine) fetchUniFiDevicesForSite(
 }
 
 // fetchDeviceDetails fetches detailed information for a specific device
-func (e *DiscoveryEngine) fetchDeviceDetails(
+func (*DiscoveryEngine) fetchDeviceDetails(
 	ctx context.Context,
 	_ *DiscoveryJob,
 	client *http.Client,
@@ -320,7 +321,7 @@ func (e *DiscoveryEngine) fetchDeviceDetails(
 }
 
 // processLLDPTable processes LLDP table entries and creates topology links
-func (e *DiscoveryEngine) processLLDPTable(
+func (*DiscoveryEngine) processLLDPTable(
 	job *DiscoveryJob,
 	device *UniFiDevice,
 	deviceID string,
@@ -360,7 +361,7 @@ func (e *DiscoveryEngine) processLLDPTable(
 }
 
 // processPortTable processes port table entries and creates topology links
-func (e *DiscoveryEngine) processPortTable(
+func (*DiscoveryEngine) processPortTable(
 	job *DiscoveryJob,
 	device *UniFiDevice,
 	deviceID string,
@@ -400,15 +401,15 @@ func (e *DiscoveryEngine) processPortTable(
 }
 
 // processUplinkInfo processes uplink information and creates topology links
-func (e *DiscoveryEngine) processUplinkInfo(
+func (*DiscoveryEngine) processUplinkInfo(
 	job *DiscoveryJob,
 	device *UniFiDevice,
 	deviceCache map[string]struct {
-		IP       string
-		Name     string
-		MAC      string
-		DeviceID string
-	},
+	IP       string
+	Name     string
+	MAC      string
+	DeviceID string
+},
 	apiConfig UniFiAPIConfig,
 	site UniFiSite) []*TopologyLink {
 	var links []*TopologyLink
@@ -606,6 +607,7 @@ func (e *DiscoveryEngine) fetchUniFiDevices(
 	var deviceResp struct {
 		Data []*UniFiDevice `json:"data"`
 	}
+
 	if err := json.Unmarshal(body, &deviceResp); err != nil {
 		return nil, fmt.Errorf("failed to parse devices response from %s, site %s: %w. Body: %s",
 			apiConfig.Name, site.Name, err, string(body))
@@ -614,7 +616,7 @@ func (e *DiscoveryEngine) fetchUniFiDevices(
 	return deviceResp.Data, nil
 }
 
-func (e *DiscoveryEngine) createDiscoveredDevice(
+func (*DiscoveryEngine) createDiscoveredDevice(
 	job *DiscoveryJob,
 	device *UniFiDevice,
 	apiConfig UniFiAPIConfig,
@@ -721,7 +723,7 @@ func (e *DiscoveryEngine) processSwitchInterfaces(
 			"max_speed_mbps":  fmt.Sprintf("%d", port.MaxSpeedMbps),
 		}
 
-		e.addPoEMetadata(metadata, *port)
+		e.addPoEMetadata(metadata, port)
 
 		iface := &DiscoveredInterface{
 			DeviceIP:      device.IPAddress,
@@ -742,7 +744,7 @@ func (e *DiscoveryEngine) processSwitchInterfaces(
 	return interfaces
 }
 
-func (e *DiscoveryEngine) addPoEMetadata(metadata map[string]string, port struct {
+func (*DiscoveryEngine) addPoEMetadata(metadata map[string]string, port *struct {
 	Idx          int    `json:"idx"`
 	State        string `json:"state"`
 	Connector    string `json:"connector"`
