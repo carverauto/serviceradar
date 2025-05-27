@@ -73,7 +73,10 @@ func (p *ProcessChecker) Check(ctx context.Context, req *proto.StatusRequest) (i
 		return false, jsonError(fmt.Sprintf("Invalid process name: %v", err))
 	}
 
-	cmd := exec.CommandContext(ctx, "systemctl", "is-active", p.ProcessName)
+	// Use the validated process name which is guaranteed to be safe
+	// as it only contains alphanumeric chars, hyphens, underscores, and periods
+	validatedProcessName := p.ProcessName
+	cmd := exec.CommandContext(ctx, "systemctl", "is-active", validatedProcessName)
 	log.Printf("Running command: %v", cmd)
 
 	output, err := cmd.Output()
