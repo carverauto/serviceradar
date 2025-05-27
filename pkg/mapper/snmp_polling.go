@@ -32,6 +32,17 @@ import (
 	"github.com/gosnmp/gosnmp"
 )
 
+// safeInt32 safely converts an int to int32, preventing overflow
+func safeInt32(val int) int32 {
+	if val > math.MaxInt32 {
+		return math.MaxInt32
+	} else if val < math.MinInt32 {
+		return math.MinInt32
+	}
+
+	return int32(val)
+}
+
 // Common SNMP OIDs - defined as constants for clarity and maintainability
 const (
 	// System OIDs
@@ -902,7 +913,7 @@ func (e *DiscoveryEngine) processLLDPRemoteTableEntry(
 			Protocol:      "LLDP",
 			LocalDeviceIP: targetIP,
 			LocalDeviceID: localDeviceID,
-			LocalIfIndex:  int32(localPortIdx),
+			LocalIfIndex:  safeInt32(localPortIdx),
 			Metadata:      make(map[string]string),
 		}
 	}
@@ -1086,7 +1097,7 @@ func (e *DiscoveryEngine) ensureCDPLinkExists(
 			Protocol:      "CDP",
 			LocalDeviceIP: targetIP,
 			LocalDeviceID: localDeviceID,
-			LocalIfIndex:  int32(ifIdx),
+			LocalIfIndex:  safeInt32(ifIdx),
 			Metadata:      make(map[string]string),
 		}
 	}
