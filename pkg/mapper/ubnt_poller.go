@@ -684,6 +684,10 @@ func (e *DiscoveryEngine) processDeviceInterfaces(
 	return interfaces
 }
 
+const (
+	defaultMaxValueInt32 = 0x7FFFFFFF // Max value for int32
+)
+
 func (e *DiscoveryEngine) processSwitchInterfaces(
 	_ *DiscoveryJob,
 	device *UniFiDevice,
@@ -725,17 +729,35 @@ func (e *DiscoveryEngine) processSwitchInterfaces(
 
 		e.addPoEMetadata(metadata, port)
 
+		// Safe conversion to prevent integer overflow
+		var ifIndex int32
+		if port.Idx <= defaultMaxValueInt32 { // Max value for int32
+			ifIndex = int32(port.Idx)
+		} else {
+			ifIndex = defaultMaxValueInt32 // Use max int32 value if overflow would occur
+		}
+
+		// Safe conversion for speed calculation
+		var ifSpeed uint64
+		if port.SpeedMbps >= 0 && port.SpeedMbps <= (1<<64-1)/1000000 { // Check if multiplication won't overflow uint64
+			ifSpeed = uint64(port.SpeedMbps) * 1000000 // Convert to uint64 first, then multiply
+		} else {
+			ifSpeed = 0xFFFFFFFFFFFFFFFF // Use max uint64 value if overflow would occur
+		}
+
+		// Direct conversion for admin status
+		var ifAdminStatus int32 = int32(adminStatus)
+
 		iface := &DiscoveredInterface{
 			DeviceIP:      device.IPAddress,
 			DeviceID:      deviceID,
-			IfIndex:       int32(port.Idx),
+			IfIndex:       ifIndex,
 			IfName:        ifName,
 			IfDescr:       ifDescr,
-			IfSpeed:       uint64(port.SpeedMbps * 1000000), // Mbps to bps
-			IfAdminStatus: int32(adminStatus),
-			IfOperStatus:  int32(operStatus),
+			IfSpeed:       ifSpeed,
+			IfAdminStatus: ifAdminStatus,
+			IfOperStatus:  int32(operStatus), // operStatus is 1 or 2, so this is safe
 			Metadata:      metadata,
-			// IfPhysAddress is not directly available here for switch ports from this endpoint
 		}
 
 		interfaces = append(interfaces, iface)
