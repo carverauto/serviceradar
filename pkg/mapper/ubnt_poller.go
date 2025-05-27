@@ -588,16 +588,16 @@ func (e *DiscoveryEngine) createDiscoveredDevice(
 	device UniFiDevice,
 	apiConfig UniFiAPIConfig,
 	site UniFiSite,
-	agentID, pollerID string) (*DiscoveredDevice, error) {
+	agentID, pollerID string) *DiscoveredDevice {
 
 	if device.IPAddress == "" {
 		log.Printf("Job %s: UniFi device %s (ID: %s, MAC: %s) has no IP address, skipping.", job.ID, device.Name, device.ID, device.MAC)
-		return nil, nil
+		return nil
 	}
 
 	if agentID == "" || pollerID == "" {
 		log.Printf("Job %s: Missing agentID (%s) or pollerID (%s) for UniFi device %s (%s), cannot generate unique DeviceID, skipping.", job.ID, agentID, pollerID, device.Name, device.IPAddress)
-		return nil, nil
+		return nil
 	}
 
 	deviceID := fmt.Sprintf("%s:%s:%s", agentID, pollerID, device.IPAddress)
@@ -616,7 +616,7 @@ func (e *DiscoveryEngine) createDiscoveredDevice(
 			// "unifi_model":     device.Model,
 			"unifi_device_id": device.ID, // Store the UniFi internal device ID
 		},
-	}, nil
+	}
 }
 
 func (e *DiscoveryEngine) processDeviceInterfaces(
@@ -657,7 +657,6 @@ func (e *DiscoveryEngine) processSwitchInterfaces(
 	switchInterfaces UniFiInterfaces,
 	apiConfig UniFiAPIConfig,
 	site UniFiSite) []*DiscoveredInterface {
-
 	var interfaces []*DiscoveredInterface
 
 	for _, port := range switchInterfaces.Ports {
@@ -733,7 +732,6 @@ func (e *DiscoveryEngine) querySingleUniFiDevices(
 	apiConfig UniFiAPIConfig,
 	site UniFiSite,
 	agentID, pollerID string) ([]*DiscoveredDevice, []*DiscoveredInterface, error) {
-
 	log.Printf("Job %s: Querying UniFi devices from %s, site %s (context: %s)",
 		job.ID, apiConfig.Name, site.Name, targetIP)
 
@@ -749,9 +747,9 @@ func (e *DiscoveryEngine) querySingleUniFiDevices(
 	// Process each device
 	for _, unifiDevice := range unifiDevices {
 		// Create discovered device
-		device, err := e.createDiscoveredDevice(job, unifiDevice, apiConfig, site, agentID, pollerID)
-		if err != nil || device == nil {
-			continue // Skip this device if there was an error or it was filtered out
+		device := e.createDiscoveredDevice(job, unifiDevice, apiConfig, site, agentID, pollerID)
+		if device == nil {
+			continue // Skip this device if it was filtered out
 		}
 
 		devices = append(devices, device)
