@@ -104,7 +104,7 @@ func (e *DiscoveryEngine) fetchUniFiSites(ctx context.Context, job *DiscoveryJob
 
 	sitesURL := fmt.Sprintf("%s/sites", apiConfig.BaseURL)
 
-	req, err := http.NewRequestWithContext(ctx, "GET", sitesURL, http.NoBody)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, sitesURL, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sites request for %s: %w", apiConfig.Name, err)
 	}
@@ -213,7 +213,7 @@ func (e *DiscoveryEngine) fetchUniFiDevicesForSite(
 	DeviceID string
 }, error) {
 	devicesURL := fmt.Sprintf("%s/sites/%s/devices?limit=50", apiConfig.BaseURL, site.ID)
-	req, err := http.NewRequestWithContext(ctx, "GET", devicesURL, http.NoBody)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, devicesURL, http.NoBody)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create devices request for %s, site %s: %w", apiConfig.Name, site.Name, err)
 	}
@@ -287,7 +287,7 @@ func (e *DiscoveryEngine) fetchDeviceDetails(
 	site UniFiSite,
 	deviceID string) (*UniFiDeviceDetails, error) {
 	detailsURL := fmt.Sprintf("%s/sites/%s/devices/%s", apiConfig.BaseURL, site.ID, deviceID)
-	req, err := http.NewRequestWithContext(ctx, "GET", detailsURL, http.NoBody)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, detailsURL, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create details request for device %s: %w",
 			deviceID, err)
@@ -567,7 +567,7 @@ func (e *DiscoveryEngine) fetchUniFiDevices(
 	// Consider pagination if many devices per site: ?limit=X&offset=Y
 	devicesURL := fmt.Sprintf("%s/sites/%s/devices?limit=100", apiConfig.BaseURL, site.ID)
 
-	req, err := http.NewRequest("GET", devicesURL, nil)
+	req, err := http.NewRequest(http.MethodGet, devicesURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create devices request for %s, site %s: %w",
 			apiConfig.Name, site.Name, err)
