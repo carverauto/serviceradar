@@ -18,9 +18,9 @@ package checker
 
 import (
 	"context"
-	"github.com/carverauto/serviceradar/proto"
-
 	"encoding/json"
+
+	"github.com/carverauto/serviceradar/proto"
 )
 
 // Checker defines how to check a service's status.
