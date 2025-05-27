@@ -130,6 +130,7 @@ func loadMapperConfig(ctx context.Context) (*MapperConfig, error) {
 	}
 
 	log.Printf("Loaded mapper config from %s: address=%s", configPath, cfg.Address)
+
 	return &cfg, nil
 }
 
@@ -155,6 +156,7 @@ func (mdc *MapperDiscoveryChecker) Check(ctx context.Context, req *proto.StatusR
 		parsedDetails.AgentID = req.AgentId
 		log.Printf("MapperDiscoveryChecker: Using AgentID %s from StatusRequest", req.AgentId)
 	}
+
 	if parsedDetails.PollerID == "" {
 		parsedDetails.PollerID = req.PollerId
 		log.Printf("MapperDiscoveryChecker: Using PollerID %s from StatusRequest", req.PollerId)

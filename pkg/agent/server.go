@@ -430,6 +430,7 @@ func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*prot
 		req.AgentId = s.config.AgentID
 		log.Printf("Set AgentId to %s for request: %+v", req.AgentId, req)
 	}
+
 	if req.PollerId == "" {
 		log.Printf("Warning: PollerId is empty in request: %+v", req)
 		req.PollerId = "unknown-poller" // Fallback to avoid empty

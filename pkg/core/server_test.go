@@ -345,6 +345,7 @@ func TestProcessSweepData(t *testing.T) {
 							assert.Equal(t, "host1", *results[0].Hostname, "Expected correct hostname")
 							assert.True(t, results[0].Available, "Expected host to be available")
 						}
+
 						return nil
 					})
 			}
@@ -357,12 +358,12 @@ func TestProcessSweepData(t *testing.T) {
 // verifySweepTestCase verifies a single test case for TestProcessSweepData
 func verifySweepTestCase(ctx context.Context, t *testing.T, server *Server, svc *api.ServiceStatus,
 	tt *struct {
-		name          string
-		inputMessage  string
-		expectedSweep proto.SweepServiceStatus
-		expectError   bool
-		hasHosts      bool
-	}, now time.Time) {
+	name          string
+	inputMessage  string
+	expectedSweep proto.SweepServiceStatus
+	expectError   bool
+	hasHosts      bool
+}, now time.Time) {
 	t.Helper()
 
 	err := server.processSweepData(ctx, svc, now)
@@ -707,6 +708,7 @@ func setupTestServer(
 // createTestRequest creates a test PollerStatusRequest with the given poller and agent IDs
 func createTestRequest(pollerID, agentID string, now time.Time) *proto.PollerStatusRequest {
 	statusMessage := `{"status":"ok"}`
+
 	return &proto.PollerStatusRequest{
 		PollerId:  pollerID,
 		Timestamp: now.Unix(),

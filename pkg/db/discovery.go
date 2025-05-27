@@ -107,9 +107,11 @@ func (db *DB) PublishTopologyDiscoveryEvent(ctx context.Context, event *models.T
 	if event.LocalDeviceIP == "" {
 		return ErrLocalDeviceIPRequired
 	}
+
 	if event.AgentID == "" {
 		return ErrAgentIDRequired
 	}
+
 	if event.ProtocolType == "" {
 		return ErrProtocolTypeRequired
 	}
@@ -130,9 +132,11 @@ func (db *DB) PublishTopologyDiscoveryEvent(ctx context.Context, event *models.T
 
 	// Handle metadata - it's a json.RawMessage in the model
 	var metadata map[string]string
+
 	if len(event.Metadata) > 0 {
 		if err = json.Unmarshal(event.Metadata, &metadata); err != nil {
 			log.Printf("Warning: unable to parse topology event metadata: %v. Storing as raw string or empty map.", err)
+
 			// Fallback: try to store raw string if it's a valid JSON string, or empty map
 			rawMetaStr := string(event.Metadata)
 			if json.Valid(event.Metadata) {

@@ -27,10 +27,6 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
-const (
-	defaultServiceStatusTimeout = 5 * time.Second
-)
-
 func (s *SNMPService) Check(ctx context.Context) (available bool, msg string) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

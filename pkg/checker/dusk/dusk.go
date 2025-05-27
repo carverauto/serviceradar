@@ -116,6 +116,7 @@ func (s *DuskBlockService) GetStatus(ctx context.Context, _ *proto.StatusRequest
 	blockDetailsJSON, err := json.Marshal(blockData)
 	if err != nil {
 		log.Printf("Error marshaling block details: %v", err)
+
 		return &proto.StatusResponse{
 			Available: true,
 			Message:   jsonError("Dusk node is healthy but failed to marshal block details"),
