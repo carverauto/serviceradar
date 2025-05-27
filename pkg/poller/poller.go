@@ -258,6 +258,7 @@ func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
 		message, err := json.Marshal(map[string]string{"error": msg})
 		if err != nil {
 			log.Printf("Failed to marshal error message: %v", err)
+
 			message = []byte(msg) // Fallback to plain string if marshal fails
 		}
 
