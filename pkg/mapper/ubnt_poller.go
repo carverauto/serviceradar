@@ -503,7 +503,9 @@ func (e *DiscoveryEngine) querySingleUniFiAPI(
 }
 
 func (e *DiscoveryEngine) queryUniFiDevices(
-	job *DiscoveryJob, targetIP, agentID, pollerID string) ([]*DiscoveredDevice, []*DiscoveredInterface, error) {
+	ctx context.Context,
+	job *DiscoveryJob,
+	targetIP, agentID, pollerID string) ([]*DiscoveredDevice, []*DiscoveredInterface, error) {
 	log.Printf("Job %s: Querying UniFi devices for %s", job.ID, targetIP)
 
 	var allDevices []*DiscoveredDevice
@@ -525,7 +527,7 @@ func (e *DiscoveryEngine) queryUniFiDevices(
 		}
 
 		for _, site := range sites {
-			devices, interfaces, err := e.querySingleUniFiDevices(job, targetIP, apiConfig, site, agentID, pollerID)
+			devices, interfaces, err := e.querySingleUniFiDevices(ctx, job, targetIP, apiConfig, site, agentID, pollerID)
 			if err != nil {
 				log.Printf("Job %s: Failed to query UniFi devices from %s, site %s: %v",
 					job.ID, apiConfig.Name, site.Name, err)
@@ -555,6 +557,7 @@ func (e *DiscoveryEngine) queryUniFiDevices(
 }
 
 func (e *DiscoveryEngine) fetchUniFiDevices(
+	ctx context.Context,
 	job *DiscoveryJob,
 	apiConfig UniFiAPIConfig,
 	site UniFiSite) ([]*UniFiDevice, error) {
@@ -567,7 +570,7 @@ func (e *DiscoveryEngine) fetchUniFiDevices(
 	// Consider pagination if many devices per site: ?limit=X&offset=Y
 	devicesURL := fmt.Sprintf("%s/sites/%s/devices?limit=100", apiConfig.BaseURL, site.ID)
 
-	req, err := http.NewRequest(http.MethodGet, devicesURL, http.NoBody)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, devicesURL, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create devices request for %s, site %s: %w",
 			apiConfig.Name, site.Name, err)
@@ -755,6 +758,7 @@ func (e *DiscoveryEngine) addPoEMetadata(metadata map[string]string, port struct
 }
 
 func (e *DiscoveryEngine) querySingleUniFiDevices(
+	ctx context.Context,
 	job *DiscoveryJob,
 	targetIP string, // Contextual IP, not used for filtering devices from controller here
 	apiConfig UniFiAPIConfig,
@@ -763,7 +767,7 @@ func (e *DiscoveryEngine) querySingleUniFiDevices(
 	log.Printf("Job %s: Querying UniFi devices from %s, site %s (context: %s)",
 		job.ID, apiConfig.Name, site.Name, targetIP)
 
-	unifiDevices, err := e.fetchUniFiDevices(job, apiConfig, site)
+	unifiDevices, err := e.fetchUniFiDevices(ctx, job, apiConfig, site)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -302,7 +302,7 @@ func (e *DiscoveryEngine) worker(ctx context.Context, workerID int) {
 			job.Status.Progress = 5 // Indicate it's started
 
 			// Placeholder for actual discovery logic
-			e.runDiscoveryJob(job) // Pass job.ctx here
+			e.runDiscoveryJob(ctx, job) // Pass job.ctx here
 
 			// After job execution (success, failure, or cancellation handled within runDiscoveryJob)
 			e.mu.Lock()
@@ -652,7 +652,7 @@ func (e *DiscoveryEngine) publishDevice(job *DiscoveryJob, device *DiscoveredDev
 }
 
 // runDiscoveryJob performs the actual discovery for a job, now in two phases.
-func (e *DiscoveryEngine) runDiscoveryJob(job *DiscoveryJob) {
+func (e *DiscoveryEngine) runDiscoveryJob(ctx context.Context, job *DiscoveryJob) {
 	log.Printf("Running discovery for job %s. Seeds: %v, Type: %s", job.ID, job.Params.Seeds, job.Params.Type)
 
 	initialSeeds := expandSeeds(job.Params.Seeds)
@@ -662,7 +662,7 @@ func (e *DiscoveryEngine) runDiscoveryJob(job *DiscoveryJob) {
 	}
 
 	// Phase 1: UniFi Device Discovery
-	allPotentialSNMPTargets := e.handleUniFiDiscoveryPhase(job, initialSeeds)
+	allPotentialSNMPTargets := e.handleUniFiDiscoveryPhase(ctx, job, initialSeeds)
 
 	// Phase 2: SNMP Polling
 	if !e.setupAndExecuteSNMPPolling(job, allPotentialSNMPTargets, initialSeeds) {
@@ -673,7 +673,8 @@ func (e *DiscoveryEngine) runDiscoveryJob(job *DiscoveryJob) {
 }
 
 // handleUniFiDiscoveryPhase performs the UniFi discovery phase and collects potential SNMP targets
-func (e *DiscoveryEngine) handleUniFiDiscoveryPhase(job *DiscoveryJob, initialSeeds []string) map[string]bool {
+func (e *DiscoveryEngine) handleUniFiDiscoveryPhase(
+	ctx context.Context, job *DiscoveryJob, initialSeeds []string) map[string]bool {
 	allPotentialSNMPTargets := make(map[string]bool)
 
 	for _, seedIP := range initialSeeds {
@@ -698,7 +699,7 @@ func (e *DiscoveryEngine) handleUniFiDiscoveryPhase(job *DiscoveryJob, initialSe
 		}
 
 		if len(e.config.UniFiAPIs) > 0 {
-			e.processUniFiSeed(job, seedIP, allPotentialSNMPTargets)
+			e.processUniFiSeed(ctx, job, seedIP, allPotentialSNMPTargets)
 		}
 	}
 
@@ -737,9 +738,9 @@ func (e *DiscoveryEngine) checkPhaseJobCancellation(job *DiscoveryJob, seedIP, p
 
 // processUniFiSeed processes a single seed IP for UniFi discovery
 func (e *DiscoveryEngine) processUniFiSeed(
-	job *DiscoveryJob, seedIP string, allPotentialSNMPTargets map[string]bool) {
+	ctx context.Context, job *DiscoveryJob, seedIP string, allPotentialSNMPTargets map[string]bool) {
 	devicesFromUniFi, interfacesFromUniFi, err :=
-		e.queryUniFiDevices(job, seedIP, job.Params.AgentID, job.Params.PollerID)
+		e.queryUniFiDevices(ctx, job, seedIP, job.Params.AgentID, job.Params.PollerID)
 	if err == nil {
 		job.mu.Lock()
 		for _, device := range devicesFromUniFi {
@@ -894,7 +895,9 @@ func (e *DiscoveryEngine) scanTargetForSNMP(
 }
 
 // trackJobProgress starts a goroutine to track job progress for a specific phase
-func (e *DiscoveryEngine) trackJobProgress(job *DiscoveryJob, resultChan <-chan bool, totalTargets int, baseProgress float64, progressRange float64) {
+func (e *DiscoveryEngine) trackJobProgress(
+	job *DiscoveryJob,
+	resultChan <-chan bool, totalTargets int, baseProgress, progressRange float64) {
 	processed := 0
 	successful := 0
 
