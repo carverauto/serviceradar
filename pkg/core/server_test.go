@@ -358,12 +358,12 @@ func TestProcessSweepData(t *testing.T) {
 // verifySweepTestCase verifies a single test case for TestProcessSweepData
 func verifySweepTestCase(ctx context.Context, t *testing.T, server *Server, svc *api.ServiceStatus,
 	tt *struct {
-		name          string
-		inputMessage  string
-		expectedSweep proto.SweepServiceStatus
-		expectError   bool
-		hasHosts      bool
-	}, now time.Time) {
+	name          string
+	inputMessage  string
+	expectedSweep proto.SweepServiceStatus
+	expectError   bool
+	hasHosts      bool
+}, now time.Time) {
 	t.Helper()
 
 	err := server.processSweepData(ctx, svc, now)
@@ -550,7 +550,7 @@ func TestEvaluatePollerHealth(t *testing.T) {
 		PollerID:  "test-poller",
 		IsHealthy: true,
 		FirstSeen: time.Now().Add(-1 * time.Hour),
-		LastSeen:  time.Now(),
+		LastSeen:  time.Now().Add(-10 * time.Minute),
 	}, nil).AnyTimes()
 
 	// Mock UpdatePollerStatus for offline case
@@ -558,7 +558,7 @@ func TestEvaluatePollerHealth(t *testing.T) {
 
 	// Mock alert and API update for offline case
 	mockWebhook.EXPECT().Alert(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-	mockAPI.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	mockAPI.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).Return().AnyTimes() // Fixed: Removed Return(nil)
 
 	server := &Server{
 		DB:                  mockDB,
@@ -566,6 +566,7 @@ func TestEvaluatePollerHealth(t *testing.T) {
 		apiServer:           mockAPI,
 		pollerStatusCache:   make(map[string]*models.PollerStatus),
 		pollerStatusUpdates: make(map[string]*models.PollerStatus),
+		alertThreshold:      5 * time.Minute, // Set threshold to match test
 	}
 
 	now := time.Now()
