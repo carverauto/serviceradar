@@ -454,7 +454,8 @@ func (e *DiscoveryEngine) querySingleUniFiAPI(
 	var links []*TopologyLink
 
 	// Process each device
-	for _, device := range devices {
+	for i := range devices {
+		device := &devices[i]
 		// Skip if IP doesn't match target (when specified) or not a switching device
 		if targetIP != "" && device.IPAddress != targetIP {
 			continue
@@ -478,15 +479,15 @@ func (e *DiscoveryEngine) querySingleUniFiAPI(
 		}
 
 		// Process LLDP table
-		lldpLinks := e.processLLDPTable(job, device, deviceID, details, apiConfig, site)
+		lldpLinks := e.processLLDPTable(job, *device, deviceID, details, apiConfig, site)
 		links = append(links, lldpLinks...)
 
 		// Process port table
-		portLinks := e.processPortTable(job, device, deviceID, details, apiConfig, site)
+		portLinks := e.processPortTable(job, *device, deviceID, details, apiConfig, site)
 		links = append(links, portLinks...)
 
 		// Process uplink information
-		uplinkLinks := e.processUplinkInfo(job, device, deviceCache, apiConfig, site)
+		uplinkLinks := e.processUplinkInfo(job, *device, deviceCache, apiConfig, site)
 		links = append(links, uplinkLinks...)
 	}
 
