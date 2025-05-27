@@ -187,41 +187,40 @@ var (
 	ErrNoUniFiNeighborsFound = errors.New("no UniFi neighbors found")
 )
 
-// ubnt_poller.go
-func (e *DiscoveryEngine) querySingleUniFiAPI(
+// fetchUniFiDevicesForSite fetches devices from a UniFi site and creates a device cache
+func (e *DiscoveryEngine) fetchUniFiDevicesForSite(
 	job *DiscoveryJob,
-	targetIP, agentID, pollerID string,
+	client *http.Client,
+	headers map[string]string,
 	apiConfig UniFiAPIConfig,
-	site UniFiSite) ([]*TopologyLink, error) {
-	log.Printf("Job %s: Querying UniFi API %s, site %s for %s", job.ID, apiConfig.Name, site.Name, targetIP)
-
-	client := e.createUniFiClient(apiConfig)
-	headers := map[string]string{
-		"X-API-Key":    apiConfig.APIKey,
-		"Content-Type": "application/json",
-	}
-
+	site UniFiSite,
+	agentID, pollerID string) ([]UniFiDevice, map[string]struct {
+	IP       string
+	Name     string
+	MAC      string
+	DeviceID string
+}, error) {
 	devicesURL := fmt.Sprintf("%s/sites/%s/devices?limit=50", apiConfig.BaseURL, site.ID)
 	req, err := http.NewRequest("GET", devicesURL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create devices request for %s, site %s: %w", apiConfig.Name, site.Name, err)
+		return nil, nil, fmt.Errorf("failed to create devices request for %s, site %s: %w", apiConfig.Name, site.Name, err)
 	}
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch devices from %s, site %s: %w", apiConfig.Name, site.Name, err)
+		return nil, nil, fmt.Errorf("failed to fetch devices from %s, site %s: %w", apiConfig.Name, site.Name, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("devices request for %s, site %s failed with status: %d", apiConfig.Name, site.Name, resp.StatusCode)
+		return nil, nil, fmt.Errorf("devices request for %s, site %s failed with status: %d", apiConfig.Name, site.Name, resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read devices response body from %s, site %s: %w", apiConfig.Name, site.Name, err)
+		return nil, nil, fmt.Errorf("failed to read devices response body from %s, site %s: %w", apiConfig.Name, site.Name, err)
 	}
 	log.Printf("Job %s: Devices response from %s, site %s: %s", job.ID, apiConfig.Name, site.Name, string(body))
 
@@ -229,7 +228,7 @@ func (e *DiscoveryEngine) querySingleUniFiAPI(
 		Data []UniFiDevice `json:"data"`
 	}
 	if err := json.Unmarshal(body, &deviceResp); err != nil {
-		return nil, fmt.Errorf("failed to parse devices response from %s, site %s: %w", apiConfig.Name, site.Name, err)
+		return nil, nil, fmt.Errorf("failed to parse devices response from %s, site %s: %w", apiConfig.Name, site.Name, err)
 	}
 
 	deviceCache := make(map[string]struct {
@@ -238,6 +237,7 @@ func (e *DiscoveryEngine) querySingleUniFiAPI(
 		MAC      string
 		DeviceID string
 	})
+
 	for _, device := range deviceResp.Data {
 		// Generate DeviceID
 		deviceID := device.IPAddress
@@ -252,9 +252,186 @@ func (e *DiscoveryEngine) querySingleUniFiAPI(
 		}{device.IPAddress, device.Name, device.MAC, deviceID}
 	}
 
+	return deviceResp.Data, deviceCache, nil
+}
+
+// fetchDeviceDetails fetches detailed information for a specific device
+func (e *DiscoveryEngine) fetchDeviceDetails(
+	job *DiscoveryJob,
+	client *http.Client,
+	headers map[string]string,
+	apiConfig UniFiAPIConfig,
+	site UniFiSite,
+	deviceID string) (*UniFiDeviceDetails, error) {
+	detailsURL := fmt.Sprintf("%s/sites/%s/devices/%s", apiConfig.BaseURL, site.ID, deviceID)
+	req, err := http.NewRequest("GET", detailsURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create details request for device %s: %w", deviceID, err)
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch details for device %s: %w", deviceID, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("details request for device %s failed with status: %d", deviceID, resp.StatusCode)
+	}
+
+	var details UniFiDeviceDetails
+	if err := json.NewDecoder(resp.Body).Decode(&details); err != nil {
+		return nil, fmt.Errorf("failed to parse details for device %s: %w", deviceID, err)
+	}
+
+	return &details, nil
+}
+
+// processLLDPTable processes LLDP table entries and creates topology links
+func (e *DiscoveryEngine) processLLDPTable(
+	job *DiscoveryJob,
+	device UniFiDevice,
+	deviceID string,
+	details *UniFiDeviceDetails,
+	apiConfig UniFiAPIConfig,
+	site UniFiSite) []*TopologyLink {
 	var links []*TopologyLink
 
-	for _, device := range deviceResp.Data {
+	for _, entry := range details.LLDPTable {
+		link := &TopologyLink{
+			Protocol:           "LLDP",
+			LocalDeviceIP:      device.IPAddress,
+			LocalDeviceID:      deviceID,
+			LocalIfIndex:       entry.LocalPortIdx,
+			LocalIfName:        entry.LocalPortName,
+			NeighborChassisID:  entry.ChassisID,
+			NeighborPortID:     entry.PortID,
+			NeighborPortDescr:  entry.PortDescription,
+			NeighborSystemName: entry.SystemName,
+			NeighborMgmtAddr:   entry.ManagementAddr,
+			Metadata: map[string]string{
+				"discovery_id":    job.ID,
+				"discovery_time":  time.Now().Format(time.RFC3339),
+				"source":          "unifi-api",
+				"controller_url":  apiConfig.BaseURL,
+				"site_id":         site.ID,
+				"site_name":       site.Name,
+				"controller_name": apiConfig.Name,
+			},
+		}
+		links = append(links, link)
+	}
+
+	return links
+}
+
+// processPortTable processes port table entries and creates topology links
+func (e *DiscoveryEngine) processPortTable(
+	job *DiscoveryJob,
+	device UniFiDevice,
+	deviceID string,
+	details *UniFiDeviceDetails,
+	apiConfig UniFiAPIConfig,
+	site UniFiSite) []*TopologyLink {
+	var links []*TopologyLink
+
+	for _, port := range details.PortTable {
+		if port.ConnectedDevice.MAC != "" {
+			link := &TopologyLink{
+				Protocol:           "UniFi-API",
+				LocalDeviceIP:      device.IPAddress,
+				LocalDeviceID:      deviceID,
+				LocalIfIndex:       port.PortIdx,
+				LocalIfName:        port.Name,
+				NeighborChassisID:  port.ConnectedDevice.MAC,
+				NeighborSystemName: port.ConnectedDevice.Name,
+				NeighborMgmtAddr:   port.ConnectedDevice.IP,
+				Metadata: map[string]string{
+					"discovery_id":    job.ID,
+					"discovery_time":  time.Now().Format(time.RFC3339),
+					"source":          "unifi-api",
+					"controller_url":  apiConfig.BaseURL,
+					"site_id":         site.ID,
+					"site_name":       site.Name,
+					"controller_name": apiConfig.Name,
+				},
+			}
+			links = append(links, link)
+		}
+	}
+
+	return links
+}
+
+// processUplinkInfo processes uplink information and creates topology links
+func (e *DiscoveryEngine) processUplinkInfo(
+	job *DiscoveryJob,
+	device UniFiDevice,
+	deviceCache map[string]struct {
+		IP       string
+		Name     string
+		MAC      string
+		DeviceID string
+	},
+	apiConfig UniFiAPIConfig,
+	site UniFiSite) []*TopologyLink {
+	var links []*TopologyLink
+
+	if uplinkID := device.Uplink.DeviceID; uplinkID != "" {
+		if uplink, exists := deviceCache[uplinkID]; exists {
+			link := &TopologyLink{
+				Protocol:           "UniFi-API",
+				LocalDeviceIP:      uplink.IP,
+				LocalDeviceID:      uplink.DeviceID,
+				LocalIfIndex:       0,
+				NeighborChassisID:  device.MAC,
+				NeighborSystemName: device.Name,
+				NeighborMgmtAddr:   device.IPAddress,
+				Metadata: map[string]string{
+					"discovery_id":       job.ID,
+					"discovery_time":     time.Now().Format(time.RFC3339),
+					"source":             "unifi-api",
+					"controller_url":     apiConfig.BaseURL,
+					"site_id":            site.ID,
+					"site_name":          site.Name,
+					"controller_name":    apiConfig.Name,
+					"uplink_device_id":   uplinkID,
+					"uplink_device_name": uplink.Name,
+				},
+			}
+			links = append(links, link)
+		}
+	}
+
+	return links
+}
+
+// ubnt_poller.go
+func (e *DiscoveryEngine) querySingleUniFiAPI(
+	job *DiscoveryJob,
+	targetIP, agentID, pollerID string,
+	apiConfig UniFiAPIConfig,
+	site UniFiSite) ([]*TopologyLink, error) {
+	log.Printf("Job %s: Querying UniFi API %s, site %s for %s", job.ID, apiConfig.Name, site.Name, targetIP)
+
+	client := e.createUniFiClient(apiConfig)
+	headers := map[string]string{
+		"X-API-Key":    apiConfig.APIKey,
+		"Content-Type": "application/json",
+	}
+
+	// Fetch devices and create device cache
+	devices, deviceCache, err := e.fetchUniFiDevicesForSite(job, client, headers, apiConfig, site, agentID, pollerID)
+	if err != nil {
+		return nil, err
+	}
+
+	var links []*TopologyLink
+
+	// Process each device
+	for _, device := range devices {
 		// Skip if IP doesn't match target (when specified) or not a switching device
 		if targetIP != "" && device.IPAddress != targetIP {
 			continue
@@ -269,108 +446,24 @@ func (e *DiscoveryEngine) querySingleUniFiAPI(
 			deviceID = fmt.Sprintf("%s:%s:%s", agentID, pollerID, device.IPAddress)
 		}
 
-		detailsURL := fmt.Sprintf("%s/sites/%s/devices/%s", apiConfig.BaseURL, site.ID, device.ID)
-		req, err := http.NewRequest("GET", detailsURL, nil)
+		// Fetch device details
+		details, err := e.fetchDeviceDetails(job, client, headers, apiConfig, site, device.ID)
 		if err != nil {
-			log.Printf("Job %s: Failed to create details request for device %s on %s, site %s: %v", job.ID, device.ID, apiConfig.Name, site.Name, err)
-			continue
-		}
-		for k, v := range headers {
-			req.Header.Set(k, v)
-		}
-		resp, err := client.Do(req)
-		if err != nil {
-			log.Printf("Job %s: Failed to fetch details for device %s on %s, site %s: %v", job.ID, device.ID, apiConfig.Name, site.Name, err)
-			continue
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			log.Printf("Job %s: Details request for device %s on %s, site %s failed with status: %d", job.ID, device.ID, apiConfig.Name, site.Name, resp.StatusCode)
+			log.Printf("Job %s: %v", job.ID, err)
 			continue
 		}
 
-		var details UniFiDeviceDetails
-		if err := json.NewDecoder(resp.Body).Decode(&details); err != nil {
-			log.Printf("Job %s: Failed to parse details for device %s on %s, site %s: %v", job.ID, device.ID, apiConfig.Name, site.Name, err)
-			continue
-		}
+		// Process LLDP table
+		lldpLinks := e.processLLDPTable(job, device, deviceID, details, apiConfig, site)
+		links = append(links, lldpLinks...)
 
-		for _, entry := range details.LLDPTable {
-			link := &TopologyLink{
-				Protocol:           "LLDP",
-				LocalDeviceIP:      device.IPAddress,
-				LocalDeviceID:      deviceID,
-				LocalIfIndex:       entry.LocalPortIdx,
-				LocalIfName:        entry.LocalPortName,
-				NeighborChassisID:  entry.ChassisID,
-				NeighborPortID:     entry.PortID,
-				NeighborPortDescr:  entry.PortDescription,
-				NeighborSystemName: entry.SystemName,
-				NeighborMgmtAddr:   entry.ManagementAddr,
-				Metadata: map[string]string{
-					"discovery_id":    job.ID,
-					"discovery_time":  time.Now().Format(time.RFC3339),
-					"source":          "unifi-api",
-					"controller_url":  apiConfig.BaseURL,
-					"site_id":         site.ID,
-					"site_name":       site.Name,
-					"controller_name": apiConfig.Name,
-				},
-			}
-			links = append(links, link)
-		}
+		// Process port table
+		portLinks := e.processPortTable(job, device, deviceID, details, apiConfig, site)
+		links = append(links, portLinks...)
 
-		for _, port := range details.PortTable {
-			if port.ConnectedDevice.MAC != "" {
-				link := &TopologyLink{
-					Protocol:           "UniFi-API",
-					LocalDeviceIP:      device.IPAddress,
-					LocalDeviceID:      deviceID,
-					LocalIfIndex:       port.PortIdx,
-					LocalIfName:        port.Name,
-					NeighborChassisID:  port.ConnectedDevice.MAC,
-					NeighborSystemName: port.ConnectedDevice.Name,
-					NeighborMgmtAddr:   port.ConnectedDevice.IP,
-					Metadata: map[string]string{
-						"discovery_id":    job.ID,
-						"discovery_time":  time.Now().Format(time.RFC3339),
-						"source":          "unifi-api",
-						"controller_url":  apiConfig.BaseURL,
-						"site_id":         site.ID,
-						"site_name":       site.Name,
-						"controller_name": apiConfig.Name,
-					},
-				}
-				links = append(links, link)
-			}
-		}
-
-		if uplinkID := device.Uplink.DeviceID; uplinkID != "" {
-			if uplink, exists := deviceCache[uplinkID]; exists {
-				link := &TopologyLink{
-					Protocol:           "UniFi-API",
-					LocalDeviceIP:      uplink.IP,
-					LocalDeviceID:      uplink.DeviceID, // Use cached DeviceID
-					LocalIfIndex:       0,
-					NeighborChassisID:  device.MAC,
-					NeighborSystemName: device.Name,
-					NeighborMgmtAddr:   device.IPAddress,
-					Metadata: map[string]string{
-						"discovery_id":       job.ID,
-						"discovery_time":     time.Now().Format(time.RFC3339),
-						"source":             "unifi-api",
-						"controller_url":     apiConfig.BaseURL,
-						"site_id":            site.ID,
-						"site_name":          site.Name,
-						"controller_name":    apiConfig.Name,
-						"uplink_device_id":   uplinkID,
-						"uplink_device_name": uplink.Name,
-					},
-				}
-				links = append(links, link)
-			}
-		}
+		// Process uplink information
+		uplinkLinks := e.processUplinkInfo(job, device, deviceCache, apiConfig, site)
+		links = append(links, uplinkLinks...)
 	}
 
 	return links, nil
