@@ -21,6 +21,8 @@ service DiscoveryService {
 // StatusRequest is used to query the status of the discovery service
 message StatusRequest {
   string discovery_id = 1;  // Optional: if provided, get status of specific discovery job
+  string agent_id = 2;      // ID of the agent requesting status
+  string poller_id = 3;     // ID of the poller requesting status
 }
 
 // StatusResponse contains information about the discovery service status

@@ -101,7 +101,7 @@ func (s *DuskBlockService) GetStatus(ctx context.Context, _ *proto.StatusRequest
 	if s.checker.ws == nil {
 		return &proto.StatusResponse{
 			Available: false,
-			Message:   "WebSocket connection not established",
+			Message:   jsonError("WebSocket connection not established"),
 		}, nil
 	}
 
@@ -119,7 +119,7 @@ func (s *DuskBlockService) GetStatus(ctx context.Context, _ *proto.StatusRequest
 
 		return &proto.StatusResponse{
 			Available: true,
-			Message:   "Dusk node is healthy but failed to marshal block details",
+			Message:   jsonError("Dusk node is healthy but failed to marshal block details"),
 		}, nil
 	}
 
@@ -127,7 +127,7 @@ func (s *DuskBlockService) GetStatus(ctx context.Context, _ *proto.StatusRequest
 
 	return &proto.StatusResponse{
 		Available: true,
-		Message:   string(blockDetailsJSON),
+		Message:   blockDetailsJSON, // Use []byte directly
 	}, nil
 }
 
@@ -442,5 +442,10 @@ func (d *DuskChecker) GetStatusData() json.RawMessage {
 
 	data, _ := json.Marshal(d.lastBlock)
 
+	return data
+}
+
+func jsonError(msg string) json.RawMessage {
+	data, _ := json.Marshal(map[string]string{"error": msg})
 	return data
 }

@@ -119,6 +119,9 @@ func (db *DB) PublishTopologyDiscoveryEvent(ctx context.Context, event *models.T
 	}
 
 	// Prepare a batch insert
+	// The stream `topology_discovery_events` has 18 user-defined columns.
+	// The INSERT statement `INSERT INTO topology_discovery_events (* except _tp_time)`
+	// means we need to provide values for all 18 columns.
 	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO topology_discovery_events (* except _tp_time)")
 	if err != nil {
 		return fmt.Errorf("failed to prepare batch: %w", err)
@@ -128,32 +131,43 @@ func (db *DB) PublishTopologyDiscoveryEvent(ctx context.Context, event *models.T
 	var metadata map[string]string
 
 	if len(event.Metadata) > 0 {
-		// Try to unmarshal the RawMessage
 		if err = json.Unmarshal(event.Metadata, &metadata); err != nil {
-			log.Printf("Warning: unable to parse topology event metadata: %v", err)
+			log.Printf("Warning: unable to parse topology event metadata: %v. Storing as raw string or empty map.", err)
 
-			metadata = make(map[string]string)
+			// Fallback: try to store raw string if it's a valid JSON string, or empty map
+			rawMetaStr := string(event.Metadata)
+			if json.Valid(event.Metadata) {
+				metadata = map[string]string{"raw_metadata": rawMetaStr}
+			} else {
+				metadata = make(map[string]string)
+			}
 		}
 	} else {
 		metadata = make(map[string]string)
 	}
 
-	// Append to batch
+	// Append to batch - ensuring all 18 arguments are provided
 	err = batch.Append(
-		event.Timestamp,
-		event.AgentID,
-		event.PollerID,
-		event.LocalDeviceIP,
-		event.LocalDeviceID,
-		event.LocalIfIndex,
-		event.LocalIfName,
-		event.ProtocolType,
-		event.NeighborChassisID,
-		event.NeighborPortID,
-		event.NeighborPortDescr,
-		event.NeighborSystemName,
-		event.NeighborManagementAddr,
-		metadata,
+		event.Timestamp,              // 1
+		event.AgentID,                // 2
+		event.PollerID,               // 3
+		event.LocalDeviceIP,          // 4
+		event.LocalDeviceID,          // 5
+		event.LocalIfIndex,           // 6
+		event.LocalIfName,            // 7
+		event.ProtocolType,           // 8
+		event.NeighborChassisID,      // 9
+		event.NeighborPortID,         // 10
+		event.NeighborPortDescr,      // 11
+		event.NeighborSystemName,     // 12
+		event.NeighborManagementAddr, // 13
+		// BGP specific fields from the model
+		event.NeighborBGPRouterID, // 14
+		event.NeighborIPAddress,   // 15
+		event.NeighborAS,          // 16
+		event.BGPSessionState,     // 17
+		// Metadata
+		metadata, // 18
 	)
 	if err != nil {
 		return fmt.Errorf("failed to append topology data: %w", err)

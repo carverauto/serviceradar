@@ -139,23 +139,11 @@ func convertDeviceToProto(device *DiscoveredDevice) *proto.DiscoveredDevice {
 
 // convertTopologyLinkToProto converts a TopologyLink to proto.TopologyLink
 func convertTopologyLinkToProto(link *TopologyLink) *proto.TopologyLink {
-	// Check if LocalIfIndex is within int32 range
-	var safeLocalIfIndex int32
-
-	if link.LocalIfIndex > math.MaxInt32 || link.LocalIfIndex < math.MinInt32 {
-		log.Printf("Warning: LocalIfIndex %d out of int32 range for link from device %s, using default value 0",
-			link.LocalIfIndex, link.LocalDeviceIP)
-
-		safeLocalIfIndex = 0
-	} else {
-		safeLocalIfIndex = int32(link.LocalIfIndex)
-	}
-
 	return &proto.TopologyLink{
 		Protocol:           link.Protocol,
 		LocalDeviceIp:      link.LocalDeviceIP,
 		LocalDeviceId:      link.LocalDeviceID,
-		LocalIfIndex:       safeLocalIfIndex,
+		LocalIfIndex:       link.LocalIfIndex,
 		LocalIfName:        link.LocalIfName,
 		NeighborChassisId:  link.NeighborChassisID,
 		NeighborPortId:     link.NeighborPortID,

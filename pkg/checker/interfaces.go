@@ -18,13 +18,14 @@ package checker
 
 import (
 	"context"
-
 	"encoding/json"
+
+	"github.com/carverauto/serviceradar/proto"
 )
 
 // Checker defines how to check a service's status.
 type Checker interface {
-	Check(ctx context.Context) (bool, string)
+	Check(ctx context.Context, req *proto.StatusRequest) (bool, json.RawMessage)
 }
 
 // StatusProvider allows plugins to provide detailed status data.
@@ -37,3 +38,8 @@ type HealthChecker interface {
 	Checker
 	StatusProvider
 }
+
+// Context key for StatusRequest
+type contextKey string
+
+const StatusRequestKey contextKey = "statusRequest"
