@@ -134,6 +134,7 @@ func (e *ExternalChecker) Check(ctx context.Context, req *proto.StatusRequest) (
 	if err := e.ensureConnected(ctx); err != nil {
 		e.updateHealthStatus(false)
 		log.Printf("ExternalChecker %s: Connection failed: %v", e.serviceName, err)
+
 		return false, jsonError(fmt.Sprintf("Failed to connect: %v", err))
 	}
 

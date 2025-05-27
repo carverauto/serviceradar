@@ -709,6 +709,7 @@ func (e *DiscoveryEngine) handleUniFiDiscoveryPhase(
 
 	log.Printf("Job %s: Phase 1 - UniFi Discovery completed. Found %d potential SNMP targets.",
 		job.ID, len(allPotentialSNMPTargets))
+
 	return allPotentialSNMPTargets
 }
 

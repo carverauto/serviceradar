@@ -573,6 +573,7 @@ func (s *Server) getSweepStatus(ctx context.Context) (*proto.StatusResponse, err
 	}
 
 	message := jsonError("No sweep service configured")
+
 	return &proto.StatusResponse{
 		Available:   false,
 		Message:     message,
