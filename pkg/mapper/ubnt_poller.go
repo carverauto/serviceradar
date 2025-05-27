@@ -168,7 +168,7 @@ func (e *DiscoveryEngine) queryUniFiAPI(
 		}
 
 		for _, site := range sites {
-			links, err := e.querySingleUniFiAPI(job, targetIP, agentID, pollerID, apiConfig, site)
+			links, err := e.querySingleUniFiAPI(ctx, job, targetIP, agentID, pollerID, apiConfig, site)
 			if err != nil {
 				log.Printf("Job %s: Failed to query UniFi API %s, site %s: %v",
 					job.ID, apiConfig.Name, site.Name, err)
@@ -200,6 +200,7 @@ var (
 
 // fetchUniFiDevicesForSite fetches devices from a UniFi site and creates a device cache
 func (e *DiscoveryEngine) fetchUniFiDevicesForSite(
+	ctx context.Context,
 	job *DiscoveryJob,
 	client *http.Client,
 	headers map[string]string,
@@ -212,7 +213,7 @@ func (e *DiscoveryEngine) fetchUniFiDevicesForSite(
 	DeviceID string
 }, error) {
 	devicesURL := fmt.Sprintf("%s/sites/%s/devices?limit=50", apiConfig.BaseURL, site.ID)
-	req, err := http.NewRequest("GET", devicesURL, http.NoBody)
+	req, err := http.NewRequestWithContext(ctx, "GET", devicesURL, http.NoBody)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create devices request for %s, site %s: %w", apiConfig.Name, site.Name, err)
 	}
@@ -278,6 +279,7 @@ func (e *DiscoveryEngine) fetchUniFiDevicesForSite(
 
 // fetchDeviceDetails fetches detailed information for a specific device
 func (e *DiscoveryEngine) fetchDeviceDetails(
+	ctx context.Context,
 	_ *DiscoveryJob,
 	client *http.Client,
 	headers map[string]string,
@@ -285,7 +287,7 @@ func (e *DiscoveryEngine) fetchDeviceDetails(
 	site UniFiSite,
 	deviceID string) (*UniFiDeviceDetails, error) {
 	detailsURL := fmt.Sprintf("%s/sites/%s/devices/%s", apiConfig.BaseURL, site.ID, deviceID)
-	req, err := http.NewRequest("GET", detailsURL, http.NoBody)
+	req, err := http.NewRequestWithContext(ctx, "GET", detailsURL, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create details request for device %s: %w",
 			deviceID, err)
@@ -400,11 +402,11 @@ func (e *DiscoveryEngine) processUplinkInfo(
 	job *DiscoveryJob,
 	device *UniFiDevice,
 	deviceCache map[string]struct {
-		IP       string
-		Name     string
-		MAC      string
-		DeviceID string
-	},
+	IP       string
+	Name     string
+	MAC      string
+	DeviceID string
+},
 	apiConfig UniFiAPIConfig,
 	site UniFiSite) []*TopologyLink {
 	var links []*TopologyLink
@@ -439,6 +441,7 @@ func (e *DiscoveryEngine) processUplinkInfo(
 }
 
 func (e *DiscoveryEngine) querySingleUniFiAPI(
+	ctx context.Context,
 	job *DiscoveryJob,
 	targetIP, agentID, pollerID string,
 	apiConfig UniFiAPIConfig,
@@ -450,7 +453,8 @@ func (e *DiscoveryEngine) querySingleUniFiAPI(
 	}
 
 	// Fetch devices and create device cache
-	devices, deviceCache, err := e.fetchUniFiDevicesForSite(job, client, headers, apiConfig, site, agentID, pollerID)
+	devices, deviceCache, err :=
+		e.fetchUniFiDevicesForSite(ctx, job, client, headers, apiConfig, site, agentID, pollerID)
 	if err != nil {
 		return nil, err
 	}
@@ -476,7 +480,7 @@ func (e *DiscoveryEngine) querySingleUniFiAPI(
 		}
 
 		// Fetch device details
-		details, err := e.fetchDeviceDetails(job, client, headers, apiConfig, site, device.ID)
+		details, err := e.fetchDeviceDetails(ctx, job, client, headers, apiConfig, site, device.ID)
 		if err != nil {
 			log.Printf("Job %s: %v", job.ID, err)
 			continue
@@ -514,7 +518,7 @@ func (e *DiscoveryEngine) queryUniFiDevices(
 			continue
 		}
 
-		sites, err := e.fetchUniFiSites(job, apiConfig)
+		sites, err := e.fetchUniFiSites(job.ctx, job, apiConfig)
 		if err != nil {
 			log.Printf("Job %s: Failed to fetch sites for %s: %v", job.ID, apiConfig.Name, err)
 			continue
