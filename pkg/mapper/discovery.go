@@ -846,11 +846,12 @@ func (e *DiscoveryEngine) executeSNMPPolling(
 }
 
 // scanTargetForSNMP performs SNMP-specific discovery for a single target.
-func (e *DiscoveryEngine) scanTargetForSNMP(job *DiscoveryJob, snmpTargetIP, agentID, pollerID string) {
+func (e *DiscoveryEngine) scanTargetForSNMP(
+	ctx context.Context, job *DiscoveryJob, snmpTargetIP, agentID, pollerID string) {
 	log.Printf("Job %s: SNMP Scanning target %s", job.ID, snmpTargetIP)
 
 	if len(e.config.UniFiAPIs) > 0 && (job.Params.Type == DiscoveryTypeFull || job.Params.Type == DiscoveryTypeTopology) {
-		links, err := e.queryUniFiAPI(job, snmpTargetIP, agentID, pollerID)
+		links, err := e.queryUniFiAPI(ctx, job, snmpTargetIP, agentID, pollerID)
 		if err == nil && len(links) > 0 {
 			e.publishTopologyLinks(job, links, snmpTargetIP, "UniFi-API")
 		}

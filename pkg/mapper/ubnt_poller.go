@@ -1,6 +1,7 @@
 package mapper
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
@@ -82,7 +83,7 @@ func (e *DiscoveryEngine) createUniFiClient(apiConfig UniFiAPIConfig) *http.Clie
 	}
 }
 
-func (e *DiscoveryEngine) fetchUniFiSites(job *DiscoveryJob, apiConfig UniFiAPIConfig) ([]UniFiSite, error) {
+func (e *DiscoveryEngine) fetchUniFiSites(ctx context.Context, job *DiscoveryJob, apiConfig UniFiAPIConfig) ([]UniFiSite, error) {
 	log.Printf("Job %s: Fetching sites for UniFi API: %s", job.ID, apiConfig.Name)
 
 	// Check cache
@@ -103,7 +104,7 @@ func (e *DiscoveryEngine) fetchUniFiSites(job *DiscoveryJob, apiConfig UniFiAPIC
 
 	sitesURL := fmt.Sprintf("%s/sites", apiConfig.BaseURL)
 
-	req, err := http.NewRequest("GET", sitesURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", sitesURL, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create sites request for %s: %w", apiConfig.Name, err)
 	}
@@ -147,7 +148,7 @@ func (e *DiscoveryEngine) fetchUniFiSites(job *DiscoveryJob, apiConfig UniFiAPIC
 }
 
 func (e *DiscoveryEngine) queryUniFiAPI(
-	job *DiscoveryJob, targetIP, agentID, pollerID string) ([]*TopologyLink, error) {
+	ctx context.Context, job *DiscoveryJob, targetIP, agentID, pollerID string) ([]*TopologyLink, error) {
 	log.Printf("Job %s: Querying UniFi APIs for %s", job.ID, targetIP)
 
 	var allLinks []*TopologyLink
@@ -160,7 +161,7 @@ func (e *DiscoveryEngine) queryUniFiAPI(
 			continue
 		}
 
-		sites, err := e.fetchUniFiSites(job, apiConfig)
+		sites, err := e.fetchUniFiSites(ctx, job, apiConfig)
 		if err != nil {
 			log.Printf("Job %s: Failed to fetch sites for %s: %v", job.ID, apiConfig.Name, err)
 			continue
@@ -211,7 +212,7 @@ func (e *DiscoveryEngine) fetchUniFiDevicesForSite(
 	DeviceID string
 }, error) {
 	devicesURL := fmt.Sprintf("%s/sites/%s/devices?limit=50", apiConfig.BaseURL, site.ID)
-	req, err := http.NewRequest("GET", devicesURL, nil)
+	req, err := http.NewRequest("GET", devicesURL, http.NoBody)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create devices request for %s, site %s: %w", apiConfig.Name, site.Name, err)
 	}
@@ -256,7 +257,8 @@ func (e *DiscoveryEngine) fetchUniFiDevicesForSite(
 		DeviceID string
 	})
 
-	for _, device := range deviceResp.Data {
+	for i := range deviceResp.Data {
+		device := &deviceResp.Data[i]
 		deviceID := device.IPAddress
 
 		if agentID != "" && pollerID != "" && device.IPAddress != "" {
@@ -276,14 +278,14 @@ func (e *DiscoveryEngine) fetchUniFiDevicesForSite(
 
 // fetchDeviceDetails fetches detailed information for a specific device
 func (e *DiscoveryEngine) fetchDeviceDetails(
-	job *DiscoveryJob,
+	_ *DiscoveryJob,
 	client *http.Client,
 	headers map[string]string,
 	apiConfig UniFiAPIConfig,
 	site UniFiSite,
 	deviceID string) (*UniFiDeviceDetails, error) {
 	detailsURL := fmt.Sprintf("%s/sites/%s/devices/%s", apiConfig.BaseURL, site.ID, deviceID)
-	req, err := http.NewRequest("GET", detailsURL, nil)
+	req, err := http.NewRequest("GET", detailsURL, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create details request for device %s: %w",
 			deviceID, err)
@@ -316,14 +318,15 @@ func (e *DiscoveryEngine) fetchDeviceDetails(
 // processLLDPTable processes LLDP table entries and creates topology links
 func (e *DiscoveryEngine) processLLDPTable(
 	job *DiscoveryJob,
-	device UniFiDevice,
+	device *UniFiDevice,
 	deviceID string,
 	details *UniFiDeviceDetails,
 	apiConfig UniFiAPIConfig,
 	site UniFiSite) []*TopologyLink {
 	links := make([]*TopologyLink, 0, len(details.LLDPTable))
 
-	for _, entry := range details.LLDPTable {
+	for i := range details.LLDPTable {
+		entry := &details.LLDPTable[i]
 		link := &TopologyLink{
 			Protocol:           "LLDP",
 			LocalDeviceIP:      device.IPAddress,
@@ -355,14 +358,15 @@ func (e *DiscoveryEngine) processLLDPTable(
 // processPortTable processes port table entries and creates topology links
 func (e *DiscoveryEngine) processPortTable(
 	job *DiscoveryJob,
-	device UniFiDevice,
+	device *UniFiDevice,
 	deviceID string,
 	details *UniFiDeviceDetails,
 	apiConfig UniFiAPIConfig,
 	site UniFiSite) []*TopologyLink {
 	var links []*TopologyLink
 
-	for _, port := range details.PortTable {
+	for i := range details.PortTable {
+		port := &details.PortTable[i]
 		if port.ConnectedDevice.MAC != "" {
 			link := &TopologyLink{
 				Protocol:           "UniFi-API",
@@ -394,7 +398,7 @@ func (e *DiscoveryEngine) processPortTable(
 // processUplinkInfo processes uplink information and creates topology links
 func (e *DiscoveryEngine) processUplinkInfo(
 	job *DiscoveryJob,
-	device UniFiDevice,
+	device *UniFiDevice,
 	deviceCache map[string]struct {
 		IP       string
 		Name     string
@@ -479,15 +483,15 @@ func (e *DiscoveryEngine) querySingleUniFiAPI(
 		}
 
 		// Process LLDP table
-		lldpLinks := e.processLLDPTable(job, *device, deviceID, details, apiConfig, site)
+		lldpLinks := e.processLLDPTable(job, device, deviceID, details, apiConfig, site)
 		links = append(links, lldpLinks...)
 
 		// Process port table
-		portLinks := e.processPortTable(job, *device, deviceID, details, apiConfig, site)
+		portLinks := e.processPortTable(job, device, deviceID, details, apiConfig, site)
 		links = append(links, portLinks...)
 
 		// Process uplink information
-		uplinkLinks := e.processUplinkInfo(job, *device, deviceCache, apiConfig, site)
+		uplinkLinks := e.processUplinkInfo(job, device, deviceCache, apiConfig, site)
 		links = append(links, uplinkLinks...)
 	}
 
@@ -524,7 +528,8 @@ func (e *DiscoveryEngine) queryUniFiDevices(
 				continue
 			}
 
-			for _, device := range devices {
+			for i := range devices {
+				device := devices[i]
 				deviceKey := fmt.Sprintf("%s:%s", device.IP, site.ID)
 
 				if _, exists := seenDevices[deviceKey]; !exists {
@@ -548,7 +553,7 @@ func (e *DiscoveryEngine) queryUniFiDevices(
 func (e *DiscoveryEngine) fetchUniFiDevices(
 	job *DiscoveryJob,
 	apiConfig UniFiAPIConfig,
-	site UniFiSite) ([]UniFiDevice, error) {
+	site UniFiSite) ([]*UniFiDevice, error) {
 	client := e.createUniFiClient(apiConfig)
 	headers := map[string]string{
 		"X-API-Key":    apiConfig.APIKey,
@@ -590,7 +595,7 @@ func (e *DiscoveryEngine) fetchUniFiDevices(
 		job.ID, apiConfig.Name, site.Name, string(body))
 
 	var deviceResp struct {
-		Data []UniFiDevice `json:"data"`
+		Data []*UniFiDevice `json:"data"`
 	}
 	if err := json.Unmarshal(body, &deviceResp); err != nil {
 		return nil, fmt.Errorf("failed to parse devices response from %s, site %s: %w. Body: %s",
@@ -602,7 +607,7 @@ func (e *DiscoveryEngine) fetchUniFiDevices(
 
 func (e *DiscoveryEngine) createDiscoveredDevice(
 	job *DiscoveryJob,
-	device UniFiDevice,
+	device *UniFiDevice,
 	apiConfig UniFiAPIConfig,
 	site UniFiSite,
 	agentID, pollerID string) *DiscoveredDevice {
@@ -639,7 +644,7 @@ func (e *DiscoveryEngine) createDiscoveredDevice(
 
 func (e *DiscoveryEngine) processDeviceInterfaces(
 	job *DiscoveryJob,
-	device UniFiDevice,
+	device *UniFiDevice,
 	deviceID string,
 	apiConfig UniFiAPIConfig,
 	site UniFiSite) []*DiscoveredInterface {
@@ -670,14 +675,15 @@ func (e *DiscoveryEngine) processDeviceInterfaces(
 
 func (e *DiscoveryEngine) processSwitchInterfaces(
 	_ *DiscoveryJob,
-	device UniFiDevice,
+	device *UniFiDevice,
 	deviceID string,
 	switchInterfaces UniFiInterfaces,
 	apiConfig UniFiAPIConfig,
 	site UniFiSite) []*DiscoveredInterface {
 	interfaces := make([]*DiscoveredInterface, 0, len(switchInterfaces.Ports))
 
-	for _, port := range switchInterfaces.Ports {
+	for i := range switchInterfaces.Ports {
+		port := &switchInterfaces.Ports[i]
 		adminStatus := 1 // Up by default
 		operStatus := 1  // Up by default
 		if strings.ToLower(port.State) == "down" || strings.ToLower(port.State) == "disabled" {
@@ -703,7 +709,7 @@ func (e *DiscoveryEngine) processSwitchInterfaces(
 			"max_speed_mbps":  fmt.Sprintf("%d", port.MaxSpeedMbps),
 		}
 
-		e.addPoEMetadata(metadata, port)
+		e.addPoEMetadata(metadata, *port)
 
 		iface := &DiscoveredInterface{
 			DeviceIP:      device.IPAddress,
