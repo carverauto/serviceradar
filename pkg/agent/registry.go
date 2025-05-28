@@ -62,7 +62,16 @@ func initRegistry() checker.Registry {
 				return nil, errDetailsRequiredGRPC
 			}
 
-			return NewExternalChecker(ctx, serviceName, "grpc", details, security)
+			actualGrpcServiceCheckName := serviceName // Default to the configured serviceName
+
+			switch serviceName {
+			case "sysmon":
+				actualGrpcServiceCheckName = "monitoring.AgentService"
+			case "mapper":
+				actualGrpcServiceCheckName = "discovery.DiscoveryService"
+			}
+
+			return NewExternalChecker(ctx, serviceName, "grpc", details, actualGrpcServiceCheckName, security)
 		})
 
 	// Register the SNMP checker
