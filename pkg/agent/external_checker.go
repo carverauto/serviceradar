@@ -180,7 +180,7 @@ func (e *ExternalChecker) getServiceDetails(ctx context.Context) (healthy bool, 
 	// Unmarshal the status.Message to preserve its JSON structure
 	var message map[string]interface{}
 
-	if err := json.Unmarshal(status.Message, &message); err != nil {
+	if err = json.Unmarshal(status.Message, &message); err != nil {
 		log.Printf("ExternalChecker %s: Failed to unmarshal status message: %v", e.serviceName, err)
 		return false, jsonError(fmt.Sprintf("Failed to unmarshal status message: %v", err))
 	}
