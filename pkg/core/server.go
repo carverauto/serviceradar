@@ -886,15 +886,38 @@ func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, 
 }
 
 func (s *Server) processRperfMetrics(pollerID string, details json.RawMessage, timestamp time.Time) error {
-	var rperfData models.RperfMetricData
+	log.Printf("Processing rperf metrics for poller %s with details: %s", pollerID, string(details))
 
-	if err := json.Unmarshal(details, &rperfData); err != nil {
+	// Define the full structure of the rperf payload
+	var rperfPayload struct {
+		Available    bool  `json:"available"`
+		ResponseTime int64 `json:"response_time"`
+		Status       struct {
+			Results []struct {
+				Target  string             `json:"target"`
+				Success bool               `json:"success"`
+				Error   *string            `json:"error"`
+				Status  models.RperfMetric `json:"status"` // Updated to match "status" field
+			} `json:"results"`
+			Timestamp string `json:"timestamp"`
+		} `json:"status"`
+	}
+
+	if err := json.Unmarshal(details, &rperfPayload); err != nil {
+		log.Printf("Error unmarshaling rperf data for poller %s: %v", pollerID, err)
 		return fmt.Errorf("failed to parse rperf data: %w", err)
+	}
+
+	// Parse the timestamp
+	pollerTimestamp, err := time.Parse(time.RFC3339Nano, rperfPayload.Status.Timestamp)
+	if err != nil {
+		log.Printf("Invalid timestamp in rperf data for poller %s: %v, using server timestamp", pollerID, err)
+		pollerTimestamp = timestamp
 	}
 
 	var timeseriesMetrics []*models.TimeseriesMetric
 
-	for _, result := range rperfData.Results {
+	for _, result := range rperfPayload.Status.Results {
 		if !result.Success {
 			log.Printf("Skipping timeseriesMetrics storage for failed rperf test (Target: %s) on poller %s. Error: %v",
 				result.Target, pollerID, result.Error)
@@ -906,15 +929,16 @@ func (s *Server) processRperfMetrics(pollerID string, details json.RawMessage, t
 			Target:          result.Target,
 			Success:         result.Success,
 			Error:           result.Error,
-			BitsPerSec:      result.Summary.BitsPerSecond,
-			BytesReceived:   result.Summary.BytesReceived,
-			BytesSent:       result.Summary.BytesSent,
-			Duration:        result.Summary.Duration,
-			JitterMs:        result.Summary.JitterMs,
-			LossPercent:     result.Summary.LossPercent,
-			PacketsLost:     result.Summary.PacketsLost,
-			PacketsReceived: result.Summary.PacketsReceived,
-			PacketsSent:     result.Summary.PacketsSent,
+			BitsPerSec:      result.Status.BitsPerSec,
+			BytesReceived:   result.Status.BytesReceived,
+			BytesSent:       result.Status.BytesSent,
+			Duration:        result.Status.Duration,
+			JitterMs:        result.Status.JitterMs,
+			LossPercent:     result.Status.LossPercent,
+			PacketsLost:     result.Status.PacketsLost,
+			PacketsReceived: result.Status.PacketsReceived,
+			PacketsSent:     result.Status.PacketsSent,
+			ResponseTime:    rperfPayload.ResponseTime,
 		}
 
 		// Marshal the RperfMetric as metadata
@@ -939,15 +963,19 @@ func (s *Server) processRperfMetrics(pollerID string, details json.RawMessage, t
 		}{
 			{
 				Name:  fmt.Sprintf("rperf_%s_bandwidth_mbps", result.Target),
-				Value: fmt.Sprintf(defaultFmt, result.Summary.BitsPerSecond/defaultBitsPerSecondDivisor),
+				Value: fmt.Sprintf(defaultFmt, result.Status.BitsPerSec/defaultBitsPerSecondDivisor),
 			},
 			{
 				Name:  fmt.Sprintf("rperf_%s_jitter_ms", result.Target),
-				Value: fmt.Sprintf(defaultFmt, result.Summary.JitterMs),
+				Value: fmt.Sprintf(defaultFmt, result.Status.JitterMs),
 			},
 			{
 				Name:  fmt.Sprintf("rperf_%s_loss_percent", result.Target),
-				Value: fmt.Sprintf(defaultLossFmt, result.Summary.LossPercent),
+				Value: fmt.Sprintf(defaultLossFmt, result.Status.LossPercent),
+			},
+			{
+				Name:  fmt.Sprintf("rperf_%s_response_time_ns", result.Target),
+				Value: fmt.Sprintf("%d", rperfPayload.ResponseTime),
 			},
 		}
 
@@ -956,7 +984,7 @@ func (s *Server) processRperfMetrics(pollerID string, details json.RawMessage, t
 				Name:      m.Name,
 				Value:     m.Value,
 				Type:      "rperf",
-				Timestamp: timestamp,
+				Timestamp: pollerTimestamp,
 				Metadata:  metadataStr,
 			}
 
@@ -968,6 +996,9 @@ func (s *Server) processRperfMetrics(pollerID string, details json.RawMessage, t
 	s.bufferMu.Lock()
 	s.metricBuffers[pollerID] = append(s.metricBuffers[pollerID], timeseriesMetrics...)
 	s.bufferMu.Unlock()
+
+	log.Printf("Parsed %d rperf metrics for poller %s with timestamp %s",
+		len(timeseriesMetrics), pollerID, pollerTimestamp.Format(time.RFC3339))
 
 	return nil
 }
