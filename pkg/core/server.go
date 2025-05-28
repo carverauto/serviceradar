@@ -815,6 +815,9 @@ const (
 )
 
 func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, timestamp time.Time) error {
+	// print out the details for debug
+	log.Printf("Processing sysmon metrics for poller %s with details: %s", pollerID, string(details))
+
 	var outerData struct {
 		Status       string `json:"status"`
 		ResponseTime int64  `json:"response_time"`

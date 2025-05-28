@@ -143,10 +143,6 @@ generate-proto: ## Generate Go and Rust code from protobuf definitions
 		--go_out=proto --go_opt=paths=source_relative \
 		--go-grpc_out=proto --go-grpc_opt=paths=source_relative \
 		proto/flow/flow.proto
-	@protoc -I=cmd/checkers/sysmon/src/proto \
-		--go_out=cmd/checkers/sysmon/src/proto --go_opt=paths=source_relative \
-		--go-grpc_out=cmd/checkers/sysmon/src/proto --go-grpc_opt=paths=source_relative \
-		cmd/checkers/sysmon/src/proto/monitoring.proto
 	@echo "$(COLOR_BOLD)Generated Go protobuf code$(COLOR_RESET)"
 
 .PHONY: build
