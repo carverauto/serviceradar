@@ -42,15 +42,16 @@ const (
 )
 
 type ExternalChecker struct {
-	serviceName         string
-	serviceType         string
-	address             string
-	clientConfig        ggrpc.ClientConfig // Pre-configured with SecurityProvider
-	grpcClient          *ggrpc.Client      // Managed connection
-	clientMu            sync.Mutex         // Protects grpcClient
-	healthCheckInterval time.Duration      // Dynamic backoff interval
-	lastHealthCheck     time.Time          // Last health check timestamp
-	healthStatus        bool               // Last known health status
+	serviceName          string
+	serviceType          string
+	address              string
+	grpcServiceCheckName string             // NEW FIELD: Actual gRPC service name for health checks (e.g., "monitoring.AgentService")
+	clientConfig         ggrpc.ClientConfig // Pre-configured with SecurityProvider
+	grpcClient           *ggrpc.Client      // Managed connection
+	clientMu             sync.Mutex         // Protects grpcClient
+	healthCheckInterval  time.Duration      // Dynamic backoff interval
+	lastHealthCheck      time.Time          // Last health check timestamp
+	healthStatus         bool               // Last known health status
 }
 
 var (
@@ -65,10 +66,11 @@ var (
 
 func NewExternalChecker(
 	ctx context.Context,
-	serviceName, serviceType, address string,
+	serviceName, serviceType, address, grpcServiceCheckName string,
 	security *models.SecurityConfig,
 ) (*ExternalChecker, error) {
-	log.Printf("Configuring new external checker name=%s type=%s at %s", serviceName, serviceType, address)
+	log.Printf("Configuring new external checker name=%s type=%s at %s, grpc_service_name=%s",
+		serviceName, serviceType, address, grpcServiceCheckName)
 
 	if address == "" {
 		return nil, errAddressRequired
@@ -104,17 +106,19 @@ func NewExternalChecker(
 	}
 
 	checker := &ExternalChecker{
-		serviceName:         serviceName,
-		serviceType:         serviceType,
-		address:             address,
-		clientConfig:        clientCfg,
-		grpcClient:          nil,
-		healthCheckInterval: initialHealthInterval,
-		lastHealthCheck:     time.Time{},
-		healthStatus:        false,
+		serviceName:          serviceName,
+		serviceType:          serviceType,
+		address:              address,
+		grpcServiceCheckName: grpcServiceCheckName,
+		clientConfig:         clientCfg,
+		grpcClient:           nil,
+		healthCheckInterval:  initialHealthInterval,
+		lastHealthCheck:      time.Time{},
+		healthStatus:         false,
 	}
 
-	log.Printf("Successfully configured external checker name=%s type=%s", serviceName, serviceType)
+	log.Printf("Successfully configured external checker name=%s type=%s, grpc_service_name=%s",
+		serviceName, serviceType, grpcServiceCheckName)
 
 	return checker, nil
 }
@@ -173,8 +177,17 @@ func (e *ExternalChecker) getServiceDetails(ctx context.Context) (healthy bool, 
 
 	responseTime := time.Since(start).Nanoseconds()
 
+	// Unmarshal the status.Message to preserve its JSON structure
+	var message map[string]interface{}
+
+	if err := json.Unmarshal(status.Message, &message); err != nil {
+		log.Printf("ExternalChecker %s: Failed to unmarshal status message: %v", e.serviceName, err)
+		return false, jsonError(fmt.Sprintf("Failed to unmarshal status message: %v", err))
+	}
+
+	// Create response with nested status object
 	resp := map[string]interface{}{
-		"status":        status.Message,
+		"status":        message["status"], // Use the nested status field directly
 		"response_time": responseTime,
 		"available":     status.Available,
 	}
@@ -244,8 +257,8 @@ func (e *ExternalChecker) ensureConnected(ctx context.Context) error {
 	return fmt.Errorf("failed to connect after %d attempts: %w", maxRetries, lastErr)
 }
 
-func (e *ExternalChecker) performHealthCheck(ctx context.Context, serviceName string) (bool, error) {
-	healthy, err := e.grpcClient.CheckHealth(ctx, serviceName)
+func (e *ExternalChecker) performHealthCheck(ctx context.Context, _ string) (bool, error) {
+	healthy, err := e.grpcClient.CheckHealth(ctx, e.grpcServiceCheckName)
 	if err != nil {
 		return false, fmt.Errorf("health check failed: %w", err)
 	}

@@ -18,7 +18,7 @@ syntax = "proto3";
 
 package monitoring;
 
-// option go_package = "github.com/carverauto/serviceradar/cmd/checkers/sysmon/src/proto";
+option go_package = "github.com/carverauto/serviceradar/cmd/checkers/sysmon/src/proto";
 
 service AgentService {
   rpc GetStatus(StatusRequest) returns (StatusResponse) {}

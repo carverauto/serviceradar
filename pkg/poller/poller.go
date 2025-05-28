@@ -271,7 +271,12 @@ func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
 		}
 	}
 
-	log.Printf("Received StatusResponse: available=%v, message=%s", status.Available, status.Message)
+	log.Printf("Received StatusResponse from %v: available=%v, message=%s, type=%s",
+		sc.check.Name,
+		status.Available,
+		status.Message,
+		status.ServiceType,
+	)
 
 	return &proto.ServiceStatus{
 		ServiceName:  sc.check.Name,
