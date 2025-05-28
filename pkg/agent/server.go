@@ -428,7 +428,6 @@ func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*prot
 	// Ensure AgentId and PollerId are set
 	if req.AgentId == "" {
 		req.AgentId = s.config.AgentID
-		log.Printf("Set AgentId to %s for request: %+v", req.AgentId, req)
 	}
 
 	if req.PollerId == "" {
