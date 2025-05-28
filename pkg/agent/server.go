@@ -428,7 +428,6 @@ func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*prot
 	// Ensure AgentId and PollerId are set
 	if req.AgentId == "" {
 		req.AgentId = s.config.AgentID
-		log.Printf("Set AgentId to %s for request: %+v", req.AgentId, req)
 	}
 
 	if req.PollerId == "" {
@@ -547,8 +546,6 @@ func (s *Server) handleDefaultChecker(ctx context.Context, req *proto.StatusRequ
 
 	log.Printf("Checker request - Type: %s, Name: %s, Details: %s",
 		req.GetServiceType(), req.GetServiceName(), req.GetDetails())
-	log.Println("Checker response (message):", string(message))
-	log.Printf("Checker response (avail): %v", available)
 
 	if !json.Valid(message) {
 		log.Printf("Invalid JSON from checker %s: %s", req.ServiceName, message)

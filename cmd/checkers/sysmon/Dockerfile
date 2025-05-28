@@ -50,12 +50,12 @@ RUN ls -l /usr/local/bin/ && \
 
 # Configuration and user setup
 WORKDIR /etc/serviceradar/checkers
-RUN echo '{"listen_addr":"0.0.0.0:50060","security":{"tls_enabled":false},"poll_interval":30,"zfs":null,"filesystems":[{"name":"/","type":"ext4","monitor":true}]}' > sysmon.json.example
+RUN echo '{"listen_addr":"0.0.0.0:50083","security":{"tls_enabled":false},"poll_interval":30,"zfs":null,"filesystems":[{"name":"/","type":"ext4","monitor":true}]}' > sysmon.json.example
 RUN groupadd -r serviceradar && useradd -r -g serviceradar serviceradar && \
     chown -R serviceradar:serviceradar /etc/serviceradar/checkers
 
 USER serviceradar
-EXPOSE 50060
+EXPOSE 50083
 
 CMD ["/bin/sh", "-c", "if [ \"$USE_ZFS\" = \"true\" ] && command -v zfs >/dev/null; then /usr/local/bin/serviceradar-sysmon-checker-zfs --config /etc/serviceradar/checkers/sysmon.json; else /usr/local/bin/serviceradar-sysmon-checker-nonzfs --config /etc/serviceradar/checkers/sysmon.json; fi"]
 
