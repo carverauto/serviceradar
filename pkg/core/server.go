@@ -815,67 +815,49 @@ const (
 )
 
 func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, timestamp time.Time) error {
-	// print out the details for debug
 	log.Printf("Processing sysmon metrics for poller %s with details: %s", pollerID, string(details))
 
-	var outerData struct {
-		Status       string `json:"status"`
-		ResponseTime int64  `json:"response_time"`
-		Available    bool   `json:"available"`
+	// Define the full structure of the message payload
+	var sysmonPayload struct {
+		Available    bool  `json:"available"`
+		ResponseTime int64 `json:"response_time"`
+		Status       struct {
+			Timestamp string              `json:"timestamp"`
+			HostID    string              `json:"host_id"`
+			CPUs      []models.CPUMetric  `json:"cpus"`
+			Disks     []models.DiskMetric `json:"disks"`
+			Memory    models.MemoryMetric `json:"memory"`
+		} `json:"status"`
 	}
 
-	if err := json.Unmarshal(details, &outerData); err != nil {
-		log.Printf("Error unmarshaling outer sysmon data for poller %s: %v", pollerID, err)
-
-		return fmt.Errorf("failed to parse outer sysmon data: %w", err)
+	if err := json.Unmarshal(details, &sysmonPayload); err != nil {
+		log.Printf("Error unmarshaling sysmon data for poller %s: %v", pollerID, err)
+		return fmt.Errorf("failed to parse sysmon data: %w", err)
 	}
-
-	if outerData.Status == "" {
-		log.Printf("Empty status field in sysmon data for poller %s", pollerID)
-		return errEmptyStatusField
-	}
-
-	var sysmonData struct {
-		Timestamp string              `json:"timestamp"`
-		HostID    string              `json:"host_id"`
-		CPUs      []models.CPUMetric  `json:"cpus"`
-		Disks     []models.DiskMetric `json:"disks"`
-		Memory    models.MemoryMetric `json:"memory"`
-	}
-
-	if err := json.Unmarshal([]byte(outerData.Status), &sysmonData); err != nil {
-		log.Printf("Error unmarshaling inner sysmon data for poller %s: %v", pollerID, err)
-
-		return fmt.Errorf("failed to parse inner sysmon data: %w", err)
-	}
-
-	log.Printf("Parsed %d CPU metrics for poller %s with timestamp %s",
-		len(sysmonData.CPUs), pollerID, sysmonData.Timestamp)
 
 	// Parse the poller's timestamp
-	pollerTimestamp, err := time.Parse(time.RFC3339Nano, sysmonData.Timestamp)
+	pollerTimestamp, err := time.Parse(time.RFC3339Nano, sysmonPayload.Status.Timestamp)
 	if err != nil {
 		log.Printf("Invalid timestamp in sysmon data for poller %s: %v, using server timestamp", pollerID, err)
-
 		pollerTimestamp = timestamp
 	}
 
-	hasMemoryData := sysmonData.Memory.TotalBytes > 0 || sysmonData.Memory.UsedBytes > 0
+	hasMemoryData := sysmonPayload.Status.Memory.TotalBytes > 0 || sysmonPayload.Status.Memory.UsedBytes > 0
 	m := &models.SysmonMetrics{
-		CPUs:   make([]models.CPUMetric, len(sysmonData.CPUs)),
-		Disks:  make([]models.DiskMetric, len(sysmonData.Disks)),
+		CPUs:   make([]models.CPUMetric, len(sysmonPayload.Status.CPUs)),
+		Disks:  make([]models.DiskMetric, len(sysmonPayload.Status.Disks)),
 		Memory: models.MemoryMetric{},
 	}
 
-	for i, cpu := range sysmonData.CPUs {
+	for i, cpu := range sysmonPayload.Status.CPUs {
 		m.CPUs[i] = models.CPUMetric{
 			CoreID:       cpu.CoreID,
 			UsagePercent: cpu.UsagePercent,
-			Timestamp:    pollerTimestamp, // Use poller's timestamp
+			Timestamp:    pollerTimestamp,
 		}
 	}
 
-	for i, disk := range sysmonData.Disks {
+	for i, disk := range sysmonPayload.Status.Disks {
 		m.Disks[i] = models.DiskMetric{
 			MountPoint: disk.MountPoint,
 			UsedBytes:  disk.UsedBytes,
@@ -886,8 +868,8 @@ func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, 
 
 	if hasMemoryData {
 		m.Memory = models.MemoryMetric{
-			UsedBytes:  sysmonData.Memory.UsedBytes,
-			TotalBytes: sysmonData.Memory.TotalBytes,
+			UsedBytes:  sysmonPayload.Status.Memory.UsedBytes,
+			TotalBytes: sysmonPayload.Status.Memory.TotalBytes,
 			Timestamp:  pollerTimestamp,
 		}
 	}
@@ -896,10 +878,12 @@ func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, 
 	s.sysmonBuffers[pollerID] = append(s.sysmonBuffers[pollerID], m)
 	s.bufferMu.Unlock()
 
+	log.Printf("Parsed %d CPU metrics for poller %s with timestamp %s",
+		len(sysmonPayload.Status.CPUs), pollerID, sysmonPayload.Status.Timestamp)
+
 	return nil
 }
 
-// server.go
 func (s *Server) processRperfMetrics(pollerID string, details json.RawMessage, timestamp time.Time) error {
 	var rperfData models.RperfMetricData
 
