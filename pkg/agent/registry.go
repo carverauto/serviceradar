@@ -63,12 +63,12 @@ func initRegistry() checker.Registry {
 			}
 
 			actualGrpcServiceCheckName := serviceName // Default to the configured serviceName
+
 			switch serviceName {
 			case "sysmon":
 				actualGrpcServiceCheckName = "monitoring.AgentService"
 			case "mapper":
 				actualGrpcServiceCheckName = "discovery.DiscoveryService"
-				// Add more cases for other external gRPC checkers as needed
 			}
 
 			return NewExternalChecker(ctx, serviceName, "grpc", details, actualGrpcServiceCheckName, security)

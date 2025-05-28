@@ -839,6 +839,7 @@ func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, 
 	pollerTimestamp, err := time.Parse(time.RFC3339Nano, sysmonPayload.Status.Timestamp)
 	if err != nil {
 		log.Printf("Invalid timestamp in sysmon data for poller %s: %v, using server timestamp", pollerID, err)
+
 		pollerTimestamp = timestamp
 	}
 
