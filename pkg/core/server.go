@@ -885,89 +885,162 @@ func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, 
 	return nil
 }
 
-func (s *Server) processRperfMetrics(pollerID string, details json.RawMessage, timestamp time.Time) error {
-	var rperfData models.RperfMetricData
-
-	if err := json.Unmarshal(details, &rperfData); err != nil {
-		return fmt.Errorf("failed to parse rperf data: %w", err)
+// parseRperfPayload unmarshals the rperf payload and extracts the timestamp
+func (*Server) parseRperfPayload(details json.RawMessage, timestamp time.Time) (struct {
+	Available    bool  `json:"available"`
+	ResponseTime int64 `json:"response_time"`
+	Status       struct {
+		Results []*struct {
+			Target  string             `json:"target"`
+			Success bool               `json:"success"`
+			Error   *string            `json:"error"`
+			Status  models.RperfMetric `json:"status"`
+		} `json:"results"`
+		Timestamp string `json:"timestamp"`
+	} `json:"status"`
+}, time.Time, error) {
+	var rperfPayload struct {
+		Available    bool  `json:"available"`
+		ResponseTime int64 `json:"response_time"`
+		Status       struct {
+			Results []*struct {
+				Target  string             `json:"target"`
+				Success bool               `json:"success"`
+				Error   *string            `json:"error"`
+				Status  models.RperfMetric `json:"status"` // Updated to match "status" field
+			} `json:"results"`
+			Timestamp string `json:"timestamp"`
+		} `json:"status"`
 	}
 
-	var timeseriesMetrics []*models.TimeseriesMetric
+	if err := json.Unmarshal(details, &rperfPayload); err != nil {
+		return rperfPayload, timestamp, fmt.Errorf("failed to parse rperf data: %w", err)
+	}
 
-	for _, result := range rperfData.Results {
-		if !result.Success {
-			log.Printf("Skipping timeseriesMetrics storage for failed rperf test (Target: %s) on poller %s. Error: %v",
-				result.Target, pollerID, result.Error)
-			continue
+	// Parse the timestamp
+	pollerTimestamp, err := time.Parse(time.RFC3339Nano, rperfPayload.Status.Timestamp)
+	if err != nil {
+		pollerTimestamp = timestamp
+	}
+
+	return rperfPayload, pollerTimestamp, nil
+}
+
+// processRperfResult processes a single rperf result and returns the corresponding metrics
+func (*Server) processRperfResult(result *struct {
+	Target  string             `json:"target"`
+	Success bool               `json:"success"`
+	Error   *string            `json:"error"`
+	Status  models.RperfMetric `json:"status"`
+}, pollerID string, responseTime int64, pollerTimestamp time.Time) ([]*models.TimeseriesMetric, error) {
+	if !result.Success {
+		return nil, fmt.Errorf("skipping failed rperf test (Target: %s). Error: %v", result.Target, result.Error)
+	}
+
+	// Create RperfMetric for metadata
+	rperfMetric := models.RperfMetric{
+		Target:          result.Target,
+		Success:         result.Success,
+		Error:           result.Error,
+		BitsPerSec:      result.Status.BitsPerSec,
+		BytesReceived:   result.Status.BytesReceived,
+		BytesSent:       result.Status.BytesSent,
+		Duration:        result.Status.Duration,
+		JitterMs:        result.Status.JitterMs,
+		LossPercent:     result.Status.LossPercent,
+		PacketsLost:     result.Status.PacketsLost,
+		PacketsReceived: result.Status.PacketsReceived,
+		PacketsSent:     result.Status.PacketsSent,
+		ResponseTime:    responseTime,
+	}
+
+	// Marshal the RperfMetric as metadata
+	metadataBytes, err := json.Marshal(rperfMetric)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal rperf metadata for target %s: %w", result.Target, err)
+	}
+
+	metadataStr := string(metadataBytes)
+
+	var timeseriesMetrics = make([]*models.TimeseriesMetric, 0, 4) // Pre-allocate for 4 metrics
+
+	const (
+		defaultFmt                  = "%.2f"
+		defaultLossFmt              = "%.1f"
+		defaultBitsPerSecondDivisor = 1e6
+	)
+
+	metricsToStore := []struct {
+		Name  string
+		Value string
+	}{
+		{
+			Name:  fmt.Sprintf("rperf_%s_bandwidth_mbps", result.Target),
+			Value: fmt.Sprintf(defaultFmt, result.Status.BitsPerSec/defaultBitsPerSecondDivisor),
+		},
+		{
+			Name:  fmt.Sprintf("rperf_%s_jitter_ms", result.Target),
+			Value: fmt.Sprintf(defaultFmt, result.Status.JitterMs),
+		},
+		{
+			Name:  fmt.Sprintf("rperf_%s_loss_percent", result.Target),
+			Value: fmt.Sprintf(defaultLossFmt, result.Status.LossPercent),
+		},
+		{
+			Name:  fmt.Sprintf("rperf_%s_response_time_ns", result.Target),
+			Value: fmt.Sprintf("%d", responseTime),
+		},
+	}
+
+	for _, m := range metricsToStore {
+		metric := &models.TimeseriesMetric{
+			Name:      m.Name,
+			Value:     m.Value,
+			Type:      "rperf",
+			Timestamp: pollerTimestamp,
+			Metadata:  metadataStr,
+			PollerID:  pollerID,
 		}
 
-		// Create RperfMetric for metadata
-		rperfMetric := models.RperfMetric{
-			Target:          result.Target,
-			Success:         result.Success,
-			Error:           result.Error,
-			BitsPerSec:      result.Summary.BitsPerSecond,
-			BytesReceived:   result.Summary.BytesReceived,
-			BytesSent:       result.Summary.BytesSent,
-			Duration:        result.Summary.Duration,
-			JitterMs:        result.Summary.JitterMs,
-			LossPercent:     result.Summary.LossPercent,
-			PacketsLost:     result.Summary.PacketsLost,
-			PacketsReceived: result.Summary.PacketsReceived,
-			PacketsSent:     result.Summary.PacketsSent,
-		}
+		timeseriesMetrics = append(timeseriesMetrics, metric)
+	}
 
-		// Marshal the RperfMetric as metadata
-		metadataBytes, err := json.Marshal(rperfMetric)
+	return timeseriesMetrics, nil
+}
+
+// bufferRperfMetrics adds the metrics to the buffer for the given poller
+func (s *Server) bufferRperfMetrics(pollerID string, metrics []*models.TimeseriesMetric) {
+	s.bufferMu.Lock()
+	s.metricBuffers[pollerID] = append(s.metricBuffers[pollerID], metrics...)
+	s.bufferMu.Unlock()
+}
+
+func (s *Server) processRperfMetrics(pollerID string, details json.RawMessage, timestamp time.Time) error {
+	log.Printf("Processing rperf metrics for poller %s with details: %s", pollerID, string(details))
+
+	rperfPayload, pollerTimestamp, err := s.parseRperfPayload(details, timestamp)
+	if err != nil {
+		log.Printf("Error unmarshaling rperf data for poller %s: %v", pollerID, err)
+		return err
+	}
+
+	var allMetrics []*models.TimeseriesMetric
+
+	for i := range rperfPayload.Status.Results {
+		rperfResult, err := s.processRperfResult(rperfPayload.Status.Results[i], pollerID, rperfPayload.ResponseTime, pollerTimestamp)
 		if err != nil {
-			log.Printf("Failed to marshal rperf metadata for poller %s, target %s: %v",
-				pollerID, result.Target, err)
+			log.Printf("%v", err)
 			continue
 		}
 
-		metadataStr := string(metadataBytes)
-
-		const (
-			defaultFmt                  = "%.2f"
-			defaultLossFmt              = "%.1f"
-			defaultBitsPerSecondDivisor = 1e6
-		)
-
-		metricsToStore := []struct {
-			Name  string
-			Value string
-		}{
-			{
-				Name:  fmt.Sprintf("rperf_%s_bandwidth_mbps", result.Target),
-				Value: fmt.Sprintf(defaultFmt, result.Summary.BitsPerSecond/defaultBitsPerSecondDivisor),
-			},
-			{
-				Name:  fmt.Sprintf("rperf_%s_jitter_ms", result.Target),
-				Value: fmt.Sprintf(defaultFmt, result.Summary.JitterMs),
-			},
-			{
-				Name:  fmt.Sprintf("rperf_%s_loss_percent", result.Target),
-				Value: fmt.Sprintf(defaultLossFmt, result.Summary.LossPercent),
-			},
-		}
-
-		for _, m := range metricsToStore {
-			metric := &models.TimeseriesMetric{
-				Name:      m.Name,
-				Value:     m.Value,
-				Type:      "rperf",
-				Timestamp: timestamp,
-				Metadata:  metadataStr,
-			}
-
-			timeseriesMetrics = append(timeseriesMetrics, metric)
-		}
+		allMetrics = append(allMetrics, rperfResult...)
 	}
 
 	// Buffer rperf timeseriesMetrics
-	s.bufferMu.Lock()
-	s.metricBuffers[pollerID] = append(s.metricBuffers[pollerID], timeseriesMetrics...)
-	s.bufferMu.Unlock()
+	s.bufferRperfMetrics(pollerID, allMetrics)
+
+	log.Printf("Parsed %d rperf metrics for poller %s with timestamp %s",
+		len(allMetrics), pollerID, pollerTimestamp.Format(time.RFC3339))
 
 	return nil
 }
