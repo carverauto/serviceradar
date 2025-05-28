@@ -215,14 +215,26 @@ impl RPerfService for RPerfServiceImpl {
         &self,
         _request: Request<StatusRequest>,
     ) -> Result<Response<StatusResponse>, Status> {
+        let start_time = std::time::Instant::now();
+
         let pollers = match timeout(Duration::from_secs(1), self.target_pollers.read()).await {
             Ok(guard) => guard,
             Err(_) => {
                 debug!("Timeout acquiring read lock on target_pollers, returning default response");
+                let outer_data = serde_json::json!({
+                    "error": "Service is running (status unavailable due to lock timeout)",
+                    "response_time": 0,
+                    "available": true
+                });
+                let message_bytes = serde_json::to_vec(&outer_data).unwrap_or_default();
                 return Ok(Response::new(StatusResponse {
                     available: true,
+                    message: message_bytes,
+                    service_name: "rperf".to_string(),
+                    service_type: "network_performance".to_string(),
+                    response_time: 0,
+                    agent_id: "".to_string(),
                     version: env!("CARGO_PKG_VERSION").to_string(),
-                    message: "Service is running (status unavailable due to lock timeout)".to_string(),
                 }));
             }
         };
@@ -234,8 +246,7 @@ impl RPerfService for RPerfServiceImpl {
                     "target": poller.target_name(),
                     "success": last_result.success,
                     "error": last_result.error,
-                    "results_json": last_result.results_json,
-                    "summary": {
+                    "status": {
                         "duration": last_result.summary.duration,
                         "bytes_sent": last_result.summary.bytes_sent,
                         "bytes_received": last_result.summary.bytes_received,
@@ -253,21 +264,39 @@ impl RPerfService for RPerfServiceImpl {
                     "target": poller.target_name(),
                     "success": false,
                     "error": "No test results available yet",
-                    "results_json": "",
-                    "summary": serde_json::json!({})
+                    "status": {}
                 }));
             }
         }
 
-        let message = serde_json::to_string(&results).unwrap_or_else(|e| {
-            error!("Failed to serialize test results: {}", e);
-            "Service is running but failed to serialize test results".to_string()
+        let outer_data = serde_json::json!({
+            "status": {
+                "results": results,
+                "timestamp": chrono::Utc::now().to_rfc3339()
+            },
+            "response_time": start_time.elapsed().as_nanos() as i64,
+            "available": !results.is_empty()
         });
 
+        let message_bytes = serde_json::to_vec(&outer_data).unwrap_or_else(|e| {
+            error!("Failed to serialize test results: {}", e);
+            serde_json::to_vec(&serde_json::json!({
+                "error": "Failed to serialize test results",
+                "response_time": start_time.elapsed().as_nanos() as i64,
+                "available": false
+            })).unwrap_or_default()
+        });
+
+        let response_time = start_time.elapsed().as_nanos() as i64;
+
         Ok(Response::new(StatusResponse {
-            available: true,
+            available: !results.is_empty(),
+            message: message_bytes,
+            service_name: "rperf".to_string(),
+            service_type: "network_performance".to_string(),
+            response_time,
+            agent_id: "".to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
-            message,
         }))
     }
 }
@@ -287,13 +316,19 @@ impl AgentService for RPerfServiceImpl {
         let pollers = match timeout(Duration::from_secs(1), self.target_pollers.read()).await {
             Ok(guard) => guard,
             Err(_) => {
+                let outer_data = serde_json::json!({
+                    "error": "Service is running (status unavailable due to lock timeout)",
+                    "response_time": 0,
+                    "available": true
+                });
+                let message_bytes = serde_json::to_vec(&outer_data).unwrap_or_default();
                 return Ok(Response::new(monitoring::StatusResponse {
                     available: true,
-                    message: r#"{"error": "Service is running (status unavailable due to lock timeout)"}"#.to_string(),
+                    message: message_bytes,
                     service_name: req.service_name,
                     service_type: req.service_type,
                     response_time: 0,
-                    agent_id: "".to_string(),
+                    agent_id: req.agent_id,
                 }));
             }
         };
@@ -308,7 +343,7 @@ impl AgentService for RPerfServiceImpl {
                         "target": poller.target_name(),
                         "success": last_result.success,
                         "error": last_result.error,
-                        "summary": {
+                        "status": {
                             "bits_per_second": last_result.summary.bits_per_second,
                             "bytes_received": last_result.summary.bytes_received,
                             "bytes_sent": last_result.summary.bytes_sent,
@@ -325,26 +360,33 @@ impl AgentService for RPerfServiceImpl {
             }
         }
 
-        // Wrap the results in a top-level object
-        let response_json = serde_json::json!({
-            "results": results,
-            "timestamp": chrono::Utc::now().to_rfc3339(),
+        let outer_data = serde_json::json!({
+            "status": {
+                "results": results,
+                "timestamp": chrono::Utc::now().to_rfc3339()
+            },
+            "response_time": start_time.elapsed().as_nanos() as i64,
+            "available": !results.is_empty()
         });
 
-        let message = serde_json::to_string(&response_json).unwrap_or_else(|e| {
+        let message_bytes = serde_json::to_vec(&outer_data).unwrap_or_else(|e| {
             error!("Failed to serialize test results: {}", e);
-            r#"{"error": "Failed to serialize test results"}"#.to_string()
+            serde_json::to_vec(&serde_json::json!({
+                "error": "Failed to serialize test results",
+                "response_time": start_time.elapsed().as_nanos() as i64,
+                "available": false
+            })).unwrap_or_default()
         });
 
         let response_time = start_time.elapsed().as_nanos() as i64;
 
         Ok(Response::new(monitoring::StatusResponse {
             available: !results.is_empty(),
-            message,
+            message: message_bytes,
             service_name: req.service_name,
             service_type: req.service_type,
             response_time,
-            agent_id: "".to_string(),
+            agent_id: req.agent_id,
         }))
     }
 }

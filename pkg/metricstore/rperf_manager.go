@@ -43,16 +43,19 @@ const (
 )
 
 // StoreRperfMetric stores an rperf metric in the database.
-// It takes a models.RperfMetric and converts it into generic models.TimeseriesMetric
 func (m *rperfManagerImpl) StoreRperfMetric(
 	ctx context.Context, pollerID string, rperfResult *models.RperfMetric, timestamp time.Time) error {
+	if rperfResult == nil {
+		return fmt.Errorf("rperf metric is nil")
+	}
+
 	if !rperfResult.Success {
 		log.Printf("Skipping metrics storage for failed rperf test (Target: %s) on poller %s. Error: %v",
-			rperfResult.Target, pollerID, *rperfResult.Error)
+			rperfResult.Target, pollerID, rperfResult.Error)
 		return nil
 	}
 
-	// Marshal the original RperfMetric as metadata
+	// Marshal the RperfMetric as metadata
 	metadataBytes, err := json.Marshal(rperfResult)
 	if err != nil {
 		return fmt.Errorf("failed to marshal rperf result metadata for poller %s, target %s: %w",
@@ -83,24 +86,35 @@ func (m *rperfManagerImpl) StoreRperfMetric(
 			Timestamp: timestamp,
 			Metadata:  metadataStr,
 		},
+		{
+			Name:      fmt.Sprintf("rperf_%s_response_time_ns", rperfResult.Target),
+			Value:     fmt.Sprintf("%d", rperfResult.ResponseTime),
+			Type:      "rperf",
+			Timestamp: timestamp,
+			Metadata:  metadataStr,
+		},
 	}
 
-	return m.db.StoreMetrics(ctx, pollerID, metricsToStore)
+	if err := m.db.StoreMetrics(ctx, pollerID, metricsToStore); err != nil {
+		return fmt.Errorf("failed to store rperf metrics for poller %s, target %s: %w",
+			pollerID, rperfResult.Target, err)
+	}
+
+	log.Printf("Stored %d rperf metrics for poller %s, target %s", len(metricsToStore), pollerID, rperfResult.Target)
+	return nil
 }
 
 // parseLegacyRperfMetadata attempts to parse legacy string-based metadata into an RperfMetric.
-// It returns the parsed metric and a boolean indicating success.
 func parseLegacyRperfMetadata(metricName, pollerID, metadataStr string) (*models.RperfMetric, bool) {
 	var legacyMetadata map[string]string
 
 	if err := json.Unmarshal([]byte(metadataStr), &legacyMetadata); err != nil {
-		log.Printf("Warning: failed to unmarshal rperf metadata for metric %s on poller %s: %v", metricName, pollerID, err)
+		log.Printf("Warning: failed to unmarshal legacy rperf metadata for metric %s on poller %s: %v", metricName, pollerID, err)
 		return nil, false
 	}
 
 	var rperfMetric models.RperfMetric
 
-	// Populate RperfMetric from legacy metadata
 	rperfMetric.Target = legacyMetadata["target"]
 	rperfMetric.Success = legacyMetadata["success"] == "true"
 
@@ -109,16 +123,13 @@ func parseLegacyRperfMetadata(metricName, pollerID, metadataStr string) (*models
 		rperfMetric.Error = &errStr
 	}
 
-	// Convert string values to numeric types
-	bitsPerSec, err := strconv.ParseFloat(legacyMetadata["bits_per_second"], 64)
-	if err != nil {
-		log.Printf("Warning: invalid bits_per_second in metadata for metric %s: %v", metricName, err)
+	if bitsPerSec, err := strconv.ParseFloat(legacyMetadata["bits_per_second"], 64); err == nil {
+		rperfMetric.BitsPerSec = bitsPerSec
+	} else {
+		log.Printf("Warning: invalid bits_per_second in legacy metadata for metric %s: %v", metricName, err)
 		return nil, false
 	}
 
-	rperfMetric.BitsPerSec = bitsPerSec
-
-	// Parse optional numeric fields
 	if bytesReceived, err := strconv.ParseInt(legacyMetadata["bytes_received"], 10, 64); err == nil {
 		rperfMetric.BytesReceived = bytesReceived
 	}
@@ -151,12 +162,34 @@ func parseLegacyRperfMetadata(metricName, pollerID, metadataStr string) (*models
 		rperfMetric.PacketsSent = packetsSent
 	}
 
+	if responseTime, err := strconv.ParseInt(legacyMetadata["response_time"], 10, 64); err == nil {
+		rperfMetric.ResponseTime = responseTime
+	}
+
+	if agentID, ok := legacyMetadata["agent_id"]; ok {
+		rperfMetric.AgentID = agentID
+	}
+
+	if serviceName, ok := legacyMetadata["service_name"]; ok {
+		rperfMetric.ServiceName = serviceName
+	}
+
+	if serviceType, ok := legacyMetadata["service_type"]; ok {
+		rperfMetric.ServiceType = serviceType
+	}
+
+	if version, ok := legacyMetadata["version"]; ok {
+		rperfMetric.Version = version
+	}
+
 	return &rperfMetric, true
 }
 
 // GetRperfMetrics retrieves rperf metrics for a poller within a time range.
 func (m *rperfManagerImpl) GetRperfMetrics(
 	ctx context.Context, pollerID string, startTime, endTime time.Time) ([]*models.RperfMetric, error) {
+	log.Printf("Fetching rperf metrics for poller %s from %v to %v", pollerID, startTime, endTime)
+
 	tsMetrics, err := m.db.GetMetricsByType(ctx, pollerID, "rperf", startTime, endTime)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query rperf timeseries metrics: %w", err)
@@ -173,18 +206,19 @@ func (m *rperfManagerImpl) GetRperfMetrics(
 		var rperfMetric models.RperfMetric
 
 		if err := json.Unmarshal([]byte(tsMetrics[i].Metadata), &rperfMetric); err == nil {
-			// Successful unmarshal, add to results
+			rperfMetric.Timestamp = tsMetrics[i].Timestamp // Ensure timestamp is set
 			rperfMetrics = append(rperfMetrics, &rperfMetric)
 			continue
 		}
 
-		// Handle legacy string-based metadata
-		log.Printf("Attempting to parse legacy metadata for rperf metric %s on poller %s", tsMetrics[i].Name, pollerID)
+		log.Printf("Failed to unmarshal rperf metadata for metric %s on poller %s, attempting legacy parsing", tsMetrics[i].Name, pollerID)
 
 		if parsedMetric, success := parseLegacyRperfMetadata(tsMetrics[i].Name, pollerID, tsMetrics[i].Metadata); success {
+			parsedMetric.Timestamp = tsMetrics[i].Timestamp
 			rperfMetrics = append(rperfMetrics, parsedMetric)
 		}
 	}
 
+	log.Printf("Retrieved %d rperf metrics for poller %s", len(rperfMetrics), pollerID)
 	return rperfMetrics, nil
 }
