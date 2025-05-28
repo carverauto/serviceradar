@@ -81,7 +81,8 @@ impl SysmonService {
 
         let (mut health_reporter, health_service) = tonic_health::server::health_reporter();
         health_reporter
-            .set_serving::<AgentServiceServer<Arc<SysmonService>>>()
+            .set_service_status("", tonic_health::ServingStatus::Serving) // Overall server
+            // .set_serving::<AgentServiceServer<Arc<SysmonService>>>()
             .await;
         debug!("Health service configured");
 
@@ -152,16 +153,28 @@ impl AgentService for SysmonService {
             .ok_or_else(|| Status::unavailable("No metrics available yet"))?;
 
         debug!("Returning metrics with timestamp {}", metrics.timestamp);
-        let message = serde_json::to_string(&metrics).map_err(|e| {
-            error!("Failed to serialize metrics: {}", e);
-            Status::internal(format!("Failed to serialize metrics: {}", e))
+
+        // Create the outer JSON object
+        let outer_data = serde_json::json!({
+            "status": serde_json::to_string(&metrics).map_err(|e| {
+                error!("Failed to serialize metrics: {}", e);
+                Status::internal(format!("Failed to serialize metrics: {}", e))
+            })?,
+            "response_time": start_time.elapsed().as_nanos() as i64,
+            "available": true
+        });
+
+        // Serialize to bytes instead of string
+        let message = serde_json::to_vec(&outer_data).map_err(|e| {
+            error!("Failed to serialize outer data to bytes: {}", e);
+            Status::internal(format!("Failed to serialize outer data: {}", e))
         })?;
 
         let response_time = start_time.elapsed().as_nanos() as i64;
         debug!("GetStatus response prepared: response_time={}ns", response_time);
         Ok(Response::new(monitoring::StatusResponse {
             available: true,
-            message,
+            message, // Now a Vec<u8>
             service_name: req.service_name,
             service_type: req.service_type,
             response_time,
