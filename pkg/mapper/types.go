@@ -37,6 +37,30 @@ type DiscoveryEngine struct {
 	publisher     Publisher
 	done          chan struct{}
 	wg            sync.WaitGroup
+	scheduledJobs map[string]*ScheduledJob
+}
+
+// ScheduledJob represents a running scheduled discovery job
+type ScheduledJob struct {
+	Name      string
+	Interval  time.Duration
+	Enabled   bool
+	Params    *DiscoveryParams
+	LastRun   time.Time
+	NextRun   time.Time
+	LastJobID string
+	ticker    *time.Ticker
+	stopChan  chan struct{}
+}
+
+// ScheduledJobStatus represents the status of a scheduled job
+type ScheduledJobStatus struct {
+	Name      string    `json:"name"`
+	Enabled   bool      `json:"enabled"`
+	Interval  string    `json:"interval"`
+	LastRun   time.Time `json:"last_run"`
+	NextRun   time.Time `json:"next_run"`
+	LastJobID string    `json:"last_job_id"`
 }
 
 // DiscoveryType identifies the type of discovery to perform.
@@ -193,6 +217,18 @@ type SNMPCredentialConfig struct {
 	PrivacyPassword string      `json:"privacy_password"` // Privacy password for v3
 }
 
+type ScheduledJobConfig struct {
+	Name        string          `json:"name"`
+	Interval    string          `json:"interval"`
+	Enabled     bool            `json:"enabled"`
+	Seeds       []string        `json:"seeds"`
+	Type        string          `json:"type"`
+	Credentials SNMPCredentials `json:"credentials"`
+	Concurrency int             `json:"concurrency"`
+	Timeout     string          `json:"timeout"`
+	Retries     int             `json:"retries"`
+}
+
 type Config struct {
 	Workers            int                        `json:"workers"`
 	Timeout            time.Duration              `json:"timeout"`
@@ -206,6 +242,7 @@ type Config struct {
 	Seeds              []string                   `json:"seeds"`
 	Security           *models.SecurityConfig     `json:"security"`
 	UniFiAPIs          []UniFiAPIConfig           `json:"unifi_apis"`
+	ScheduledJobs      []ScheduledJobConfig       `json:"scheduled_jobs"`
 }
 
 type UniFiAPIConfig struct {

@@ -52,7 +52,7 @@ func (e *DiscoveryEngine) Start(ctx context.Context) error {
 	log.Printf("Starting DiscoveryEngine with %d workers and %d max active jobs...",
 		e.workers, e.config.MaxActiveJobs)
 
-	e.wg.Add(e.workers) // Add worker count to WaitGroup
+	e.wg.Add(e.workers)
 
 	for i := 0; i < e.workers; i++ {
 		go e.worker(ctx, i)
@@ -63,8 +63,14 @@ func (e *DiscoveryEngine) Start(ctx context.Context) error {
 
 	go func() {
 		defer e.wg.Done()
-		e.cleanupRoutine(ctx) // This function is in utils.go
+
+		e.cleanupRoutine(ctx)
 	}()
+
+	// Start scheduled jobs
+	if err := e.StartScheduledJobs(ctx); err != nil {
+		log.Printf("Failed to start scheduled jobs: %v", err)
+	}
 
 	log.Println("DiscoveryEngine started.")
 
@@ -78,6 +84,8 @@ const (
 // Stop gracefully shuts down the discovery engine
 func (e *DiscoveryEngine) Stop(ctx context.Context) error {
 	log.Println("Stopping DiscoveryEngine...")
+
+	e.StopScheduledJobs()
 
 	// Signal all goroutines to stop
 	close(e.done)

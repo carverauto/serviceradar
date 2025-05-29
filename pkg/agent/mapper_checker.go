@@ -34,6 +34,8 @@ import (
 	discovery "github.com/carverauto/serviceradar/proto/discovery"
 )
 
+const defaultJobIntervalThreshold = 24 * time.Hour // Only allow new discoveries once per day via agent
+
 // MapperConfig represents the configuration for the mapper service
 type MapperConfig struct {
 	Address string `json:"address"` // Address of the mapper service
@@ -46,11 +48,12 @@ type MapperDiscoveryDetails struct {
 		Version   string `json:"version"`
 		Community string `json:"community"`
 	} `json:"credentials"`
-	Concurrency    int32  `json:"concurrency,omitempty"`
-	TimeoutSeconds int32  `json:"timeout_seconds,omitempty"`
-	Retries        int32  `json:"retries,omitempty"`
-	AgentID        string `json:"agent_id,omitempty"`
-	PollerID       string `json:"poller_id,omitempty"`
+	Concurrency    int32             `json:"concurrency,omitempty"`
+	TimeoutSeconds int32             `json:"timeout_seconds,omitempty"`
+	Retries        int32             `json:"retries,omitempty"`
+	AgentID        string            `json:"agent_id,omitempty"`
+	PollerID       string            `json:"poller_id,omitempty"`
+	Options        map[string]string `json:"options,omitempty"`
 }
 
 // MapperDiscoveryChecker implements checker.Checker for initiating and monitoring mapper discovery jobs.
@@ -135,8 +138,6 @@ func loadMapperConfig(ctx context.Context) (*MapperConfig, error) {
 	return &cfg, nil
 }
 
-const defaultJobIntervalThreshold = 10 * time.Second
-
 // Check parses the discovery parameters, optionally initiates a job, and returns the status/results
 func (mdc *MapperDiscoveryChecker) Check(ctx context.Context, req *proto.StatusRequest) (bool, json.RawMessage) {
 	mdc.mu.Lock()
@@ -152,43 +153,81 @@ func (mdc *MapperDiscoveryChecker) Check(ctx context.Context, req *proto.StatusR
 		return false, jsonError(fmt.Sprintf("Failed to parse mapper discovery details: %v", err))
 	}
 
-	// Map proto.StatusRequest to discovery.StatusRequest
+	// Use agent/poller IDs from request
 	if parsedDetails.AgentID == "" {
 		parsedDetails.AgentID = req.AgentId
-		log.Printf("MapperDiscoveryChecker: Using AgentID %s from StatusRequest", req.AgentId)
 	}
-
 	if parsedDetails.PollerID == "" {
 		parsedDetails.PollerID = req.PollerId
-		log.Printf("MapperDiscoveryChecker: Using PollerID %s from StatusRequest", req.PollerId)
 	}
 
-	// Create discovery.StatusRequest for gRPC call
-	discoveryReq := &discovery.StatusRequest{
-		DiscoveryId: mdc.lastDiscoveryID,
-		AgentId:     parsedDetails.AgentID,
-		PollerId:    parsedDetails.PollerID,
+	// IMPORTANT: By default, DO NOT start new discoveries
+	// The mapper should handle its own scheduled discoveries
+	// Only start a new discovery if explicitly requested
+	startNewJob := false
+
+	// Check if we're explicitly asked to trigger a discovery
+	if triggerValue, exists := parsedDetails.Options["trigger_discovery"]; exists {
+		startNewJob = triggerValue == "true"
+		log.Printf("MapperDiscoveryChecker: Explicit discovery trigger requested: %v", startNewJob)
 	}
 
-	startNewJob := mdc.shouldStartNewJob(ctx)
-	if startNewJob {
+	// If we should start a new job and enough time has passed
+	if startNewJob && mdc.shouldStartNewJob(ctx) {
 		if errorMsg := mdc.startNewDiscoveryJob(ctx, &parsedDetails); errorMsg != nil {
 			return false, errorMsg
 		}
 	}
 
-	if mdc.lastDiscoveryID == "" {
-		resp := map[string]string{
-			"status":  "no_job_initiated",
-			"message": "No discovery job initiated or found.",
+	// Try to get the latest discovery status from the mapper
+	statusResp, err := mdc.mapperClient.GetStatus(ctx, &discovery.StatusRequest{
+		AgentId:  parsedDetails.AgentID,
+		PollerId: parsedDetails.PollerID,
+	})
+
+	if err != nil {
+		return false, jsonError(fmt.Sprintf("Failed to get mapper status: %v", err))
+	}
+
+	// If we have active discoveries, use the most recent one
+	if len(statusResp.ActiveDiscoveries) > 0 {
+		// Use the first (most recent) active discovery
+		mdc.lastDiscoveryID = statusResp.ActiveDiscoveries[0]
+
+		log.Printf("MapperDiscoveryChecker: Using active discovery %s", mdc.lastDiscoveryID)
+	} else if mdc.lastDiscoveryID == "" {
+		// No active discoveries and no last known discovery
+		resp := map[string]interface{}{
+			"status":         "idle",
+			"message":        "No active discoveries. Mapper runs discoveries on its configured schedule.",
+			"scheduled_jobs": "Check mapper configuration for scheduled job intervals",
 		}
 
 		data, _ := json.Marshal(resp)
 
-		return false, data
+		return true, data // Return true because the mapper service is healthy, just idle
 	}
 
-	return mdc.processJobResults(ctx, discoveryReq, &parsedDetails)
+	// If we have a discovery ID, get its results
+	if mdc.lastDiscoveryID != "" {
+		discoveryReq := &discovery.StatusRequest{
+			DiscoveryId: mdc.lastDiscoveryID,
+			AgentId:     parsedDetails.AgentID,
+			PollerId:    parsedDetails.PollerID,
+		}
+
+		return mdc.processJobResults(ctx, discoveryReq, &parsedDetails)
+	}
+
+	// Default response
+	resp := map[string]interface{}{
+		"status":  "no_discovery",
+		"message": "No discovery ID available",
+	}
+
+	data, _ := json.Marshal(resp)
+
+	return false, data
 }
 
 func (mdc *MapperDiscoveryChecker) startNewDiscoveryJob(
