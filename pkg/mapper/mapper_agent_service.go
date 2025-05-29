@@ -19,6 +19,7 @@ package mapper
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 
 	"github.com/carverauto/serviceradar/proto"
@@ -41,34 +42,58 @@ func NewAgentService(engine *DiscoveryEngine) *AgentService {
 func (s *AgentService) GetStatus(_ context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
 	log.Printf("Mapper's monitoring.AgentService/GetStatus called with request: %+v", req)
 
-	var isAvailable bool
-
-	var message string
+	isAvailable := false
+	message := map[string]interface{}{
+		"status":  "unavailable",
+		"message": "serviceradar-mapper is not operational",
+	}
 
 	if s.engine != nil {
-		// A simple check: if the engine's 'done' channel is closed, it's stopping or stopped.
-		// This is a simplistic check. A more robust health check might involve
-		// checking active workers, error rates, etc.
+		// Check if the engine is operational by verifying active workers or job channel status
 		select {
-		case <-s.engine.done:
-			isAvailable = false
-			message = "serviceradar-mapper is stopping or stopped"
+		case job, ok := <-s.engine.jobChan:
+			if ok {
+				// Put the job back to avoid consuming it
+				select {
+				case s.engine.jobChan <- job:
+				default:
+					log.Printf("Failed to restore job to channel")
+				}
+
+				isAvailable = true
+
+				message["status"] = "operational"
+				message["message"] = "serviceradar-mapper is operational"
+			}
 		default:
-			isAvailable = true
-			message = "serviceradar-mapper is operational"
+			// Check if there are active jobs
+			s.engine.mu.RLock()
+			hasActiveJobs := len(s.engine.activeJobs) > 0
+			s.engine.mu.RUnlock()
+
+			if hasActiveJobs {
+				isAvailable = true
+
+				message["status"] = "operational"
+				message["message"] = "serviceradar-mapper is operational with active jobs"
+			}
 		}
-	} else {
-		isAvailable = false
-		message = "serviceradar-mapper engine not initialized"
+	}
+
+	// Marshal message to JSON bytes
+	messageBytes, err := json.Marshal(message)
+	if err != nil {
+		log.Printf("Failed to marshal status message: %v", err)
+		return nil, err
 	}
 
 	serviceName := "serviceradar-mapper"
 
 	return &proto.StatusResponse{
 		Available:   isAvailable,
-		Message:     []byte(message),
+		Message:     messageBytes,
 		ServiceName: serviceName,
-		ServiceType: "service-instance",            // Type of entity being reported on
-		AgentId:     "serviceradar-mapper-monitor", // ID for the mapper itself acting for its status
+		ServiceType: "service-instance",
+		AgentId:     "serviceradar-mapper-monitor",
 	}, nil
 }
