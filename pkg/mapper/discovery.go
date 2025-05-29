@@ -247,7 +247,6 @@ func (e *DiscoveryEngine) startScheduledJob(ctx context.Context, name string, pa
 }
 
 // StartDiscovery initiates a discovery operation with the given parameters.
-// StartDiscovery initiates a discovery operation with the given parameters.
 func (e *DiscoveryEngine) StartDiscovery(ctx context.Context, params *DiscoveryParams) (string, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
