@@ -41,7 +41,7 @@ func NewDiscoveryEngine(config *Config, publisher Publisher) (Mapper, error) {
 		workers:       config.Workers,
 		publisher:     publisher,
 		done:          make(chan struct{}),
-		// mu is initialized by default (zero value is usable)
+		schedulers:    make(map[string]*time.Ticker),
 	}
 
 	return engine, nil
@@ -60,10 +60,16 @@ func (e *DiscoveryEngine) Start(ctx context.Context) error {
 
 	// Start cleanup routine for completed jobs
 	e.wg.Add(1)
-
 	go func() {
 		defer e.wg.Done()
-		e.cleanupRoutine(ctx) // This function is in utils.go
+		e.cleanupRoutine(ctx)
+	}()
+
+	// Start scheduled jobs
+	e.wg.Add(1)
+	go func() {
+		defer e.wg.Done()
+		e.scheduleJobs(ctx)
 	}()
 
 	log.Println("DiscoveryEngine started.")
@@ -79,16 +85,22 @@ const (
 func (e *DiscoveryEngine) Stop(ctx context.Context) error {
 	log.Println("Stopping DiscoveryEngine...")
 
+	// Stop all schedulers
+	e.mu.Lock()
+	for name, ticker := range e.schedulers {
+		ticker.Stop()
+		log.Printf("Stopped scheduler for job %s", name)
+	}
+	e.schedulers = make(map[string]*time.Ticker) // Reset schedulers
+	e.mu.Unlock()
+
 	// Signal all goroutines to stop
 	close(e.done)
 
 	// Wait for all goroutines to finish
-	// Use a timeout to prevent hanging indefinitely
 	waitChan := make(chan struct{})
-
 	go func() {
 		e.wg.Wait()
-
 		close(waitChan)
 	}()
 
@@ -98,17 +110,125 @@ func (e *DiscoveryEngine) Stop(ctx context.Context) error {
 	case <-ctx.Done():
 		log.Printf("DiscoveryEngine stop timed out or context canceled: %v", ctx.Err())
 		return ctx.Err()
-	case <-time.After(defaultFallbackTimeout): // Fallback timeout
+	case <-time.After(defaultFallbackTimeout):
 		log.Println("DiscoveryEngine stop timed out after 10s.")
 		return ErrDiscoveryStopTimeout
 	}
 
-	// Close jobChan after workers have stopped to prevent sending to closed channel
+	// Close jobChan after workers have stopped
 	close(e.jobChan)
 
 	log.Println("DiscoveryEngine stopped.")
 
 	return nil
+}
+
+// scheduleJobs starts tickers for each enabled scheduled job
+func (e *DiscoveryEngine) scheduleJobs(ctx context.Context) {
+	log.Println("Starting scheduled jobs...")
+
+	for _, jobConfig := range e.config.ScheduledJobs {
+		if !jobConfig.Enabled {
+			log.Printf("Scheduled job %s is disabled, skipping", jobConfig.Name)
+			continue
+		}
+
+		interval, err := time.ParseDuration(jobConfig.Interval)
+		if err != nil {
+			log.Printf("Invalid interval for job %s: %v, skipping", jobConfig.Name, err)
+			continue
+		}
+
+		if interval <= 0 {
+			log.Printf("Invalid interval for job %s: must be positive, skipping", jobConfig.Name)
+			continue
+		}
+
+		timeout, err := time.ParseDuration(jobConfig.Timeout)
+		if err != nil {
+			log.Printf("Invalid timeout for job %s: %v, using default config timeout", jobConfig.Name, err)
+			timeout = e.config.Timeout
+		}
+
+		// Map job type to DiscoveryType
+		var discoveryType DiscoveryType
+		switch jobConfig.Type {
+		case "full":
+			discoveryType = DiscoveryTypeFull
+		case "basic":
+			discoveryType = DiscoveryTypeBasic
+		case "interfaces":
+			discoveryType = DiscoveryTypeInterfaces
+		case "topology":
+			discoveryType = DiscoveryTypeTopology
+		default:
+			log.Printf("Invalid type for job %s: %s, skipping", jobConfig.Name, jobConfig.Type)
+			continue
+		}
+
+		params := &DiscoveryParams{
+			Seeds:       jobConfig.Seeds,
+			Type:        discoveryType,
+			Credentials: &jobConfig.Credentials,
+			Options:     jobConfig.Options,
+			Concurrency: jobConfig.Concurrency,
+			Timeout:     timeout,
+			Retries:     jobConfig.Retries,
+			AgentID:     e.config.StreamConfig.AgentID,
+			PollerID:    e.config.StreamConfig.PollerID,
+		}
+
+		// Start the job immediately
+		e.startScheduledJob(ctx, jobConfig.Name, params)
+
+		// Create ticker for periodic execution
+		ticker := time.NewTicker(interval)
+		e.mu.Lock()
+		e.schedulers[jobConfig.Name] = ticker
+		e.mu.Unlock()
+
+		e.wg.Add(1)
+		go func(name string, params *DiscoveryParams) {
+			defer e.wg.Done()
+			log.Printf("Scheduler started for job %s with interval %v", name, interval)
+			for {
+				select {
+				case <-ctx.Done():
+					log.Printf("Scheduler for job %s stopping due to context cancellation", name)
+					ticker.Stop()
+					return
+				case <-e.done:
+					log.Printf("Scheduler for job %s stopping due to engine shutdown", name)
+					ticker.Stop()
+					return
+				case <-ticker.C:
+					e.startScheduledJob(ctx, name, params)
+				}
+			}
+		}(jobConfig.Name, params)
+	}
+
+	log.Println("All scheduled jobs initialized.")
+}
+
+// startScheduledJob initiates a discovery job
+func (e *DiscoveryEngine) startScheduledJob(ctx context.Context, name string, params *DiscoveryParams) {
+	log.Printf("Starting scheduled job %s", name)
+
+	discoveryID, err := e.StartDiscovery(ctx, params)
+	if err != nil {
+		log.Printf("Failed to start scheduled job %s: %v", name, err)
+		return
+	}
+
+	// Add job name to job metadata
+	e.mu.RLock()
+	if job, exists := e.activeJobs[discoveryID]; exists {
+		job.Results.RawData["scheduled_job_name"] = name
+	}
+	e.mu.RUnlock()
+
+	log.Printf("Scheduled job %s started with discovery ID %s", name, discoveryID)
 }
 
 // StartDiscovery initiates a discovery operation with the given parameters.
@@ -349,18 +469,49 @@ func validateConfig(config *Config) error {
 
 	if config.Timeout <= 0 {
 		config.Timeout = defaultTimeout
-
 		log.Printf("Discovery config: Timeout not set or invalid, defaulting to %v", config.Timeout)
 	}
 
 	if config.ResultRetention <= 0 {
 		config.ResultRetention = defaultResultRetention
-
-		log.Printf("Discovery config: ResultRetention not set or invalid, defaulting to %v",
-			config.ResultRetention)
+		log.Printf("Discovery config: ResultRetention not set or invalid, defaulting to %v", config.ResultRetention)
 	}
 
-	// Further checks for OIDs, StreamConfig etc. can be added here
+	// Validate scheduled jobs
+	for _, job := range config.ScheduledJobs {
+		if job.Name == "" {
+			return fmt.Errorf("scheduled job missing name")
+		}
+
+		if job.Enabled {
+			if _, err := time.ParseDuration(job.Interval); err != nil {
+				return fmt.Errorf("invalid interval for job %s: %w", job.Name, err)
+			}
+
+			if len(job.Seeds) == 0 {
+				return fmt.Errorf("job %s has no seeds", job.Name)
+			}
+
+			if job.Type == "" {
+				return fmt.Errorf("job %s missing type", job.Name)
+			}
+
+			if job.Concurrency < 0 {
+				return fmt.Errorf("job %s has invalid concurrency: %d", job.Name, job.Concurrency)
+			}
+
+			if job.Retries < 0 {
+				return fmt.Errorf("job %s has invalid retries: %d", job.Name, job.Retries)
+			}
+
+			if job.Timeout != "" {
+				if _, err := time.ParseDuration(job.Timeout); err != nil {
+					return fmt.Errorf("invalid timeout for job %s: %w", job.Name, err)
+				}
+			}
+		}
+	}
+
 	return nil
 }
 

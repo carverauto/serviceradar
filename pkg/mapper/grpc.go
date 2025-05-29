@@ -24,6 +24,8 @@ import (
 	"time"
 
 	proto "github.com/carverauto/serviceradar/proto/discovery"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
@@ -165,18 +167,83 @@ func (s *GRPCDiscoveryService) GetDiscoveryResults(ctx context.Context, req *pro
 	}
 
 	// Convert to proto response
+	return convertResultsToProto(results, req.DiscoveryId, req.IncludeRawData)
+}
+
+// GetLatestCachedResults implements the DiscoveryService interface
+func (s *GRPCDiscoveryService) GetLatestCachedResults(ctx context.Context, req *proto.GetLatestCachedResultsRequest) (*proto.ResultsResponse, error) {
+	log.Printf("Received GetLatestCachedResults request: %v", req)
+
+	// Cast engine to DiscoveryEngine to access completedJobs
+	engine, ok := s.engine.(*DiscoveryEngine)
+	if !ok {
+		return nil, status.Error(codes.Internal, "internal engine type mismatch")
+	}
+
+	engine.mu.RLock()
+	defer engine.mu.RUnlock()
+
+	var latestResults *DiscoveryResults
+	var latestDiscoveryID string
+	var latestEndTime time.Time
+
+	// Iterate through completed jobs to find the most recent one
+	for discoveryID, results := range engine.completedJobs {
+		// Skip jobs with zero end time (invalid or not completed)
+		if results.Status.EndTime.IsZero() {
+			continue
+		}
+
+		// Filter by AgentID and PollerID if specified
+		if req.AgentId != "" || req.PollerId != "" {
+			// Find the job to get its parameters
+			var job *DiscoveryJob
+			for _, activeJob := range engine.activeJobs {
+				if activeJob.ID == discoveryID {
+					job = activeJob
+					break
+				}
+			}
+			// If job is not active, parameters are not available, so skip
+			if job == nil {
+				continue
+			}
+			if req.AgentId != "" && job.Params.AgentID != req.AgentId {
+				continue
+			}
+			if req.PollerId != "" && job.Params.PollerID != req.PollerId {
+				continue
+			}
+		}
+
+		// Update latest if this job is newer
+		if latestResults == nil || results.Status.EndTime.After(latestEndTime) {
+			latestResults = results
+			latestDiscoveryID = discoveryID
+			latestEndTime = results.Status.EndTime
+		}
+	}
+
+	if latestResults == nil {
+		return nil, status.Error(codes.NotFound, "no completed discovery results found")
+	}
+
+	// Convert results to proto response
+	return convertResultsToProto(latestResults, latestDiscoveryID, req.IncludeRawData)
+}
+
+// convertResultsToProto converts DiscoveryResults to proto.ResultsResponse
+func convertResultsToProto(results *DiscoveryResults, discoveryID string, includeRawData bool) (*proto.ResultsResponse, error) {
 	status := statusTypeToProtoStatus(results.Status.Status)
 
 	// Convert devices
 	protoDevices := make([]*proto.DiscoveredDevice, len(results.Devices))
-
 	for i, device := range results.Devices {
 		protoDevices[i] = convertDeviceToProto(device)
 	}
 
 	// Convert interfaces with bounds checking
 	protoInterfaces := make([]*proto.DiscoveredInterface, 0, len(results.Interfaces))
-
 	for _, iface := range results.Interfaces {
 		protoIface, valid := convertInterfaceToProto(iface)
 		if valid {
@@ -186,19 +253,29 @@ func (s *GRPCDiscoveryService) GetDiscoveryResults(ctx context.Context, req *pro
 
 	// Convert topology links
 	protoLinks := make([]*proto.TopologyLink, len(results.TopologyLinks))
-
 	for i, link := range results.TopologyLinks {
 		protoLinks[i] = convertTopologyLinkToProto(link)
 	}
 
+	// Prepare metadata
+	metadata := make(map[string]string)
+	if includeRawData && results.RawData != nil {
+		for k, v := range results.RawData {
+			if str, ok := v.(string); ok {
+				metadata[k] = str
+			}
+		}
+	}
+
 	return &proto.ResultsResponse{
-		DiscoveryId: req.DiscoveryId,
+		DiscoveryId: discoveryID,
 		Status:      status,
 		Devices:     protoDevices,
 		Interfaces:  protoInterfaces,
 		Topology:    protoLinks,
 		Error:       results.Status.Error,
 		Progress:    float32(results.Status.Progress),
+		Metadata:    metadata,
 	}, nil
 }
 
@@ -250,7 +327,6 @@ func protoToSNMPCredentials(creds *proto.SNMPCredentials) *SNMPCredentials {
 	// Convert target-specific credentials
 	if len(creds.TargetSpecific) > 0 {
 		result.TargetSpecific = make(map[string]*SNMPCredentials)
-
 		for target, targetCreds := range creds.TargetSpecific {
 			result.TargetSpecific[target] = protoToSNMPCredentials(targetCreds)
 		}
@@ -294,7 +370,6 @@ func estimateDuration(params *DiscoveryParams) int32 {
 
 	// Base time per device based on discovery type
 	var timePerDevice int
-
 	switch params.Type {
 	case DiscoveryTypeFull:
 		timePerDevice = defaultTimePerDeviceFull
@@ -339,4 +414,5 @@ const (
 	defaultTimePerDeviceInterfaces = 5
 	defaultTimePerDeviceTopology   = 5
 	defaultTimePerDevice           = 10
+	defaultConcurrency             = 10
 )

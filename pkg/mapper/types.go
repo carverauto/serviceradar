@@ -37,6 +37,7 @@ type DiscoveryEngine struct {
 	publisher     Publisher
 	done          chan struct{}
 	wg            sync.WaitGroup
+	schedulers    map[string]*time.Ticker
 }
 
 // DiscoveryType identifies the type of discovery to perform.
@@ -193,6 +194,20 @@ type SNMPCredentialConfig struct {
 	PrivacyPassword string      `json:"privacy_password"` // Privacy password for v3
 }
 
+// ScheduledJob represents a scheduled discovery job configuration
+type ScheduledJob struct {
+	Name        string            `json:"name"`
+	Interval    string            `json:"interval"`
+	Enabled     bool              `json:"enabled"`
+	Seeds       []string          `json:"seeds"`
+	Type        string            `json:"type"`
+	Credentials SNMPCredentials   `json:"credentials"`
+	Concurrency int               `json:"concurrency"`
+	Timeout     string            `json:"timeout"`
+	Retries     int               `json:"retries"`
+	Options     map[string]string `json:"options"`
+}
+
 type Config struct {
 	Workers            int                        `json:"workers"`
 	Timeout            time.Duration              `json:"timeout"`
@@ -206,6 +221,7 @@ type Config struct {
 	Seeds              []string                   `json:"seeds"`
 	Security           *models.SecurityConfig     `json:"security"`
 	UniFiAPIs          []UniFiAPIConfig           `json:"unifi_apis"`
+	ScheduledJobs      []ScheduledJob             `json:"scheduled_jobs"`
 }
 
 type UniFiAPIConfig struct {
@@ -231,6 +247,18 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 			PublishRetries       int    `json:"publish_retries"`
 			PublishRetryInterval string `json:"publish_retry_interval"`
 		} `json:"stream_config"`
+		ScheduledJobs []struct {
+			Name        string            `json:"name"`
+			Interval    string            `json:"interval"`
+			Enabled     bool              `json:"enabled"`
+			Seeds       []string          `json:"seeds"`
+			Type        string            `json:"type"`
+			Credentials SNMPCredentials   `json:"credentials"`
+			Concurrency int               `json:"concurrency"`
+			Timeout     string            `json:"timeout"`
+			Retries     int               `json:"retries"`
+			Options     map[string]string `json:"options"`
+		} `json:"scheduled_jobs"`
 		*Alias
 	}{
 		Alias: (*Alias)(c),
@@ -246,7 +274,6 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 		if err != nil {
 			return fmt.Errorf("invalid timeout format: %w", err)
 		}
-
 		c.Timeout = duration
 	}
 
@@ -256,7 +283,6 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 		if err != nil {
 			return fmt.Errorf("invalid result_retention format: %w", err)
 		}
-
 		c.ResultRetention = duration
 	}
 
@@ -266,8 +292,26 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 		if err != nil {
 			return fmt.Errorf("invalid publish_retry_interval format: %w", err)
 		}
-
 		c.StreamConfig.PublishRetryInterval = duration
+	}
+
+	// Parse ScheduledJobs
+	c.ScheduledJobs = make([]ScheduledJob, len(aux.ScheduledJobs))
+	for i, job := range aux.ScheduledJobs {
+		c.ScheduledJobs[i] = ScheduledJob{
+			Name:        job.Name,
+			Interval:    job.Interval,
+			Enabled:     job.Enabled,
+			Seeds:       job.Seeds,
+			Type:        job.Type,
+			Credentials: job.Credentials,
+			Concurrency: job.Concurrency,
+			Retries:     job.Retries,
+			Options:     job.Options,
+		}
+		if job.Timeout != "" {
+			c.ScheduledJobs[i].Timeout = job.Timeout
+		}
 	}
 
 	return nil

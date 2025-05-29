@@ -91,9 +91,7 @@ const (
 	// oidCdpCacheDevicePort = ".1.3.6.1.4.1.9.9.23.1.2.1.1.7"
 	// oidCdpCacheAddress    = ".1.3.6.1.4.1.9.9.23.1.2.1.1.4"
 
-	// Default concurrency settings
-	defaultConcurrency = 10
-	defaultMaxIPRange  = 256 // Maximum IPs to process from a CIDR range
+	defaultMaxIPRange = 256 // Maximum IPs to process from a CIDR range
 )
 
 // handleInterfaceDiscoverySNMP queries and publishes interface information
