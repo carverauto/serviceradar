@@ -28,12 +28,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/checker/rperf"
-	"github.com/carverauto/serviceradar/pkg/checker/snmp"
 	"github.com/carverauto/serviceradar/pkg/core/auth"
 	"github.com/carverauto/serviceradar/pkg/db"
 	srHttp "github.com/carverauto/serviceradar/pkg/http"
 	"github.com/carverauto/serviceradar/pkg/metrics"
+	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/srql/parser"
 	"github.com/carverauto/serviceradar/pkg/swagger"
@@ -87,14 +86,14 @@ func WithMetricsManager(m metrics.MetricCollector) func(server *APIServer) {
 }
 
 // WithSNMPManager adds an SNMP manager to the API server
-func WithSNMPManager(m snmp.SNMPManager) func(server *APIServer) {
+func WithSNMPManager(m metricstore.SNMPManager) func(server *APIServer) {
 	return func(server *APIServer) {
 		server.snmpManager = m
 	}
 }
 
 // WithRperfManager adds an rperf manager to the API server
-func WithRperfManager(m rperf.RperfManager) func(server *APIServer) {
+func WithRperfManager(m metricstore.RperfManager) func(server *APIServer) {
 	return func(server *APIServer) {
 		server.rperfManager = m
 	}
@@ -765,8 +764,18 @@ func (h httpError) Error() string {
 	return fmt.Sprintf("HTTP %d: %s", h.Status, h.Message)
 }
 
-// writeError writes an HTTP error response with the given message and status.
-// @ignore This is an internal helper function, not directly exposed as an API endpoint
-func writeError(w http.ResponseWriter, message string, status int) {
-	http.Error(w, message, status)
+func writeError(w http.ResponseWriter, message string, statusCode int) {
+	w.Header().Set("Content-Type", "application/json")
+
+	w.WriteHeader(statusCode)
+
+	errResponse := models.ErrorResponse{
+		Message: message,
+		Status:  statusCode,
+	}
+
+	if err := json.NewEncoder(w).Encode(errResponse); err != nil {
+		// Fallback in case encoding fails
+		http.Error(w, "Failed to encode error response", http.StatusInternalServerError)
+	}
 }

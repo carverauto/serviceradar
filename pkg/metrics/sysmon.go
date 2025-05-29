@@ -5,11 +5,11 @@ import (
 	"log"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-func (m *Manager) StoreSysmonMetrics(ctx context.Context, pollerID string, metrics *models.SysmonMetrics, timestamp time.Time) error {
+func (m *Manager) StoreSysmonMetrics(
+	ctx context.Context, pollerID string, metrics *models.SysmonMetrics, timestamp time.Time) error {
 	dbMetrics := &models.SysmonMetrics{
 		CPUs:   make([]models.CPUMetric, len(metrics.CPUs)),
 		Disks:  make([]models.DiskMetric, len(metrics.Disks)),
@@ -47,7 +47,8 @@ func (m *Manager) StoreSysmonMetrics(ctx context.Context, pollerID string, metri
 	return nil
 }
 
-func (m *Manager) GetCPUMetrics(ctx context.Context, pollerID string, coreID int, start, end time.Time) ([]models.CPUMetric, error) {
+func (m *Manager) GetCPUMetrics(
+	ctx context.Context, pollerID string, coreID int, start, end time.Time) ([]models.CPUMetric, error) {
 	dbMetrics, err := m.db.GetCPUMetrics(ctx, pollerID, coreID, start, end)
 	if err != nil {
 		return nil, err
@@ -65,7 +66,8 @@ func (m *Manager) GetCPUMetrics(ctx context.Context, pollerID string, coreID int
 	return metrics, nil
 }
 
-func (m *Manager) GetDiskMetrics(ctx context.Context, pollerID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error) {
+func (m *Manager) GetDiskMetrics(
+	ctx context.Context, pollerID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error) {
 	dbMetrics, err := m.db.GetDiskMetrics(ctx, pollerID, mountPoint, start, end)
 	if err != nil {
 		return nil, err
@@ -85,7 +87,8 @@ func (m *Manager) GetDiskMetrics(ctx context.Context, pollerID, mountPoint strin
 }
 
 // GetAllDiskMetrics retrieves disk metrics for all mount points for a given poller.
-func (m *Manager) GetAllDiskMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.DiskMetric, error) {
+func (m *Manager) GetAllDiskMetrics(
+	ctx context.Context, pollerID string, start, end time.Time) ([]models.DiskMetric, error) {
 	// Use the DB service's GetAllDiskMetrics method
 	dbMetrics, err := m.db.GetAllDiskMetrics(ctx, pollerID, start, end)
 	if err != nil {
@@ -112,7 +115,8 @@ func (m *Manager) GetAllDiskMetrics(ctx context.Context, pollerID string, start,
 	return metrics, nil
 }
 
-func (m *Manager) GetMemoryMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.MemoryMetric, error) {
+func (m *Manager) GetMemoryMetrics(
+	ctx context.Context, pollerID string, start, end time.Time) ([]models.MemoryMetric, error) {
 	dbMetrics, err := m.db.GetMemoryMetrics(ctx, pollerID, start, end)
 	if err != nil {
 		return nil, err
@@ -131,16 +135,19 @@ func (m *Manager) GetMemoryMetrics(ctx context.Context, pollerID string, start, 
 }
 
 // GetAllCPUMetrics retrieves all CPU metrics for a poller.
-func (m *Manager) GetAllCPUMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]db.SysmonCPUResponse, error) {
+func (m *Manager) GetAllCPUMetrics(
+	ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonCPUResponse, error) {
 	return m.db.GetAllCPUMetrics(ctx, pollerID, start, end)
 }
 
 // GetAllDiskMetricsGrouped retrieves all disk metrics for a poller, grouped by timestamp.
-func (m *Manager) GetAllDiskMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]db.SysmonDiskResponse, error) {
+func (m *Manager) GetAllDiskMetricsGrouped(
+	ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonDiskResponse, error) {
 	return m.db.GetAllDiskMetricsGrouped(ctx, pollerID, start, end)
 }
 
 // GetMemoryMetricsGrouped retrieves all memory metrics for a poller, grouped by timestamp.
-func (m *Manager) GetMemoryMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]db.SysmonMemoryResponse, error) {
+func (m *Manager) GetMemoryMetricsGrouped(
+	ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonMemoryResponse, error) {
 	return m.db.GetMemoryMetricsGrouped(ctx, pollerID, start, end)
 }

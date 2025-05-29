@@ -81,9 +81,16 @@ impl SysmonService {
 
         let (mut health_reporter, health_service) = tonic_health::server::health_reporter();
         health_reporter
-            .set_serving::<AgentServiceServer<Arc<SysmonService>>>()
+            // .set_service_status("", tonic_health::ServingStatus::Serving) // Overall server
+            .set_service_status("", tonic_health::ServingStatus::Serving)
             .await;
         debug!("Health service configured");
+
+        // Register health for the specific AgentService
+        health_reporter
+            .set_serving::<AgentServiceServer<Arc<SysmonService>>>() // This registers for "monitoring.AgentService"
+            .await;
+        debug!("Health service configured for overall server and AgentService");
 
         let reflection_service = ReflectionBuilder::configure()
             .register_encoded_file_descriptor_set(FILE_DESCRIPTOR_SET_MONITORING)
@@ -149,22 +156,32 @@ impl AgentService for SysmonService {
         let metrics = collector
             .get_latest_metrics()
             .await
-            .ok_or_else(|| Status::unavailable("No metrics available yet"))?;
+            .ok_or_else(|| Status::unavailable("No metrics available yet"))?; // metrics is MetricSample
 
         debug!("Returning metrics with timestamp {}", metrics.timestamp);
-        let message = serde_json::to_string(&metrics).map_err(|e| {
-            error!("Failed to serialize metrics: {}", e);
-            Status::internal(format!("Failed to serialize metrics: {}", e))
+
+        // Create the outer JSON object, embedding the metrics struct directly
+        let outer_data = serde_json::json!({
+            "status": metrics, // Embed the MetricSample struct directly. It's already Serialize.
+            "response_time": start_time.elapsed().as_nanos() as i64,
+            "available": true // This 'available' is part of the JSON payload in StatusResponse.message
+        });
+
+        // Serialize the outer_data to bytes
+        let message_bytes = serde_json::to_vec(&outer_data).map_err(|e| {
+            error!("Failed to serialize outer data to bytes: {}", e);
+            Status::internal(format!("Failed to serialize outer data: {}", e))
         })?;
 
-        let response_time = start_time.elapsed().as_nanos() as i64;
-        debug!("GetStatus response prepared: response_time={}ns", response_time);
+        let response_time_ns = start_time.elapsed().as_nanos() as i64;
+        debug!("GetStatus response prepared: response_time={}ns, message_size={}", response_time_ns, message_bytes.len());
+
         Ok(Response::new(monitoring::StatusResponse {
-            available: true,
-            message,
+            available: true, // This is the top-level 'available' in the gRPC StatusResponse message
+            message: message_bytes, // This is Vec<u8>
             service_name: req.service_name,
             service_type: req.service_type,
-            response_time,
+            response_time: response_time_ns,
         }))
     }
 }

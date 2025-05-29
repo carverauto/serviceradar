@@ -22,7 +22,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 //go:generate mockgen -destination=mock_snmp.go -package=snmp github.com/carverauto/serviceradar/pkg/checker/snmp Collector,Aggregator,Service,CollectorFactory,AggregatorFactory,SNMPClient,SNMPManager,DataStore
@@ -87,7 +87,7 @@ type SNMPClient interface {
 // SNMPManager defines the interface for managing SNMP data.
 type SNMPManager interface {
 	// GetSNMPMetrics fetches SNMP metrics from the database for a given node.
-	GetSNMPMetrics(ctx context.Context, nodeID string, startTime, endTime time.Time) ([]db.SNMPMetric, error)
+	GetSNMPMetrics(ctx context.Context, nodeID string, startTime, endTime time.Time) ([]models.SNMPMetric, error)
 }
 
 // DataStore defines how to store SNMP data.

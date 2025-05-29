@@ -261,25 +261,28 @@ func TestExternalChecker(t *testing.T) {
 	}
 
 	tests := []struct {
-		name        string
-		serviceName string
-		serviceType string
-		address     string
-		wantErr     bool
+		name            string
+		serviceName     string
+		grpcServiceName string
+		serviceType     string
+		address         string
+		wantErr         bool
 	}{
 		{
-			name:        "invalid address",
-			serviceName: "test-service",
-			serviceType: "grpc",
-			address:     "invalid:address",
-			wantErr:     true,
+			name:            "invalid address",
+			serviceName:     "test-service",
+			serviceType:     "grpc",
+			grpcServiceName: "monitoring.AgentService",
+			address:         "invalid:address",
+			wantErr:         true,
 		},
 		{
-			name:        "empty address",
-			serviceName: "test-service",
-			serviceType: "grpc",
-			address:     "",
-			wantErr:     true,
+			name:            "empty address",
+			serviceName:     "test-service",
+			grpcServiceName: "monitoring.AgentService",
+			serviceType:     "grpc",
+			address:         "",
+			wantErr:         true,
 		},
 		// Note: We can't easily test a valid gRPC connection here without a running server,
 		// so we're limited to error cases unless we mock or set up a test server.
@@ -289,7 +292,7 @@ func TestExternalChecker(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 
-			checker, err := NewExternalChecker(ctx, tt.serviceName, tt.serviceType, tt.address, security)
+			checker, err := NewExternalChecker(ctx, tt.serviceName, tt.serviceType, tt.address, tt.grpcServiceName, security)
 			if tt.wantErr {
 				require.Error(t, err)
 				assert.Nil(t, checker)

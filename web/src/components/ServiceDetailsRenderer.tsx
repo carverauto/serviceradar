@@ -18,20 +18,22 @@
 import React from 'react';
 import {
     Service,
-    SweepDetails,
     SnmpDetails,
     RperfDetails,
     GenericServiceDetails,
     ServiceDetails,
     RperfResult
 } from '@/types/types';
+import { SweepDetails } from '@/types/snmp';
+import NetworkDiscoveryDetails from "@/components/NetworkDiscoveryDetails";
+import { RawBackendLanDiscoveryData } from '@/types/lan_discovery';
+
 
 interface ServiceDetailsRendererProps {
     service: Service;
 }
 
 const ServiceDetailsRenderer: React.FC<ServiceDetailsRendererProps> = ({ service }) => {
-    // Helper function to format timestamps
     const formatTimestamp = (timestamp: string | number): string => {
         try {
             return new Date(timestamp).toLocaleString();
@@ -40,14 +42,12 @@ const ServiceDetailsRenderer: React.FC<ServiceDetailsRendererProps> = ({ service
         }
     };
 
-    // Helper function to calculate average for arrays of numbers
     const calculateAverage = (values: number[]): number => {
         if (!values || values.length === 0) return 0;
         const sum = values.reduce((acc, val) => acc + val, 0);
         return sum / values.length;
     };
 
-    // Helper function to convert bytes to a human-readable format
     const formatBytes = (bytes: number): string => {
         if (bytes < 1024) return `${bytes} B`;
         if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`;
@@ -64,12 +64,13 @@ const ServiceDetailsRenderer: React.FC<ServiceDetailsRendererProps> = ({ service
         details = undefined;
     }
 
-    // Log the details for debugging
-    console.log(`Service: ${service.name}, Type: ${service.type}, Details:`, details);
-
     // If details is undefined or null, show a fallback message
     if (!details) {
         return <div className="text-gray-500 italic">Service details not available</div>;
+    }
+
+    if (service.name === 'lan_discovery_via_mapper' || service.type === 'network_discovery') {
+        return <NetworkDiscoveryDetails details={details as RawBackendLanDiscoveryData | string | null | undefined} />;
     }
 
     // Type-specific summary rendering
@@ -190,9 +191,6 @@ const ServiceDetailsRenderer: React.FC<ServiceDetailsRendererProps> = ({ service
 
         // Ensure results is an array, default to empty array if undefined
         const safeResults = Array.isArray(results) ? results : [];
-
-        // Log the results for debugging
-        console.log(`Rperf Results for ${service.name}:`, safeResults);
 
         const successCount = safeResults.filter((result: RperfResult) => result.success || result.success).length;
         const bitsPerSecond = calculateAverage(safeResults.map((result: RperfResult) => result.summary?.bits_per_second || 0));

@@ -6,7 +6,7 @@ import (
 
 	"github.com/antlr4-go/antlr/v4"
 	"github.com/carverauto/serviceradar/pkg/srql/models"
-	"github.com/carverauto/serviceradar/pkg/srql/parser/gen"
+	gen "github.com/carverauto/serviceradar/pkg/srql/parser/gen/antlr"
 )
 
 // Parser is responsible for parsing network query language strings

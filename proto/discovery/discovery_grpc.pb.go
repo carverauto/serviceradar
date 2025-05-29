@@ -19,9 +19,10 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	DiscoveryService_GetStatus_FullMethodName           = "/discovery.DiscoveryService/GetStatus"
-	DiscoveryService_StartDiscovery_FullMethodName      = "/discovery.DiscoveryService/StartDiscovery"
-	DiscoveryService_GetDiscoveryResults_FullMethodName = "/discovery.DiscoveryService/GetDiscoveryResults"
+	DiscoveryService_GetStatus_FullMethodName              = "/discovery.DiscoveryService/GetStatus"
+	DiscoveryService_StartDiscovery_FullMethodName         = "/discovery.DiscoveryService/StartDiscovery"
+	DiscoveryService_GetDiscoveryResults_FullMethodName    = "/discovery.DiscoveryService/GetDiscoveryResults"
+	DiscoveryService_GetLatestCachedResults_FullMethodName = "/discovery.DiscoveryService/GetLatestCachedResults"
 )
 
 // DiscoveryServiceClient is the client API for DiscoveryService service.
@@ -36,6 +37,8 @@ type DiscoveryServiceClient interface {
 	StartDiscovery(ctx context.Context, in *DiscoveryRequest, opts ...grpc.CallOption) (*DiscoveryResponse, error)
 	// GetDiscoveryResults retrieves results from a previously initiated discovery
 	GetDiscoveryResults(ctx context.Context, in *ResultsRequest, opts ...grpc.CallOption) (*ResultsResponse, error)
+	// GetLatestCachedResults retrieves the latest cached results of discovery operations
+	GetLatestCachedResults(ctx context.Context, in *GetLatestCachedResultsRequest, opts ...grpc.CallOption) (*ResultsResponse, error)
 }
 
 type discoveryServiceClient struct {
@@ -76,6 +79,16 @@ func (c *discoveryServiceClient) GetDiscoveryResults(ctx context.Context, in *Re
 	return out, nil
 }
 
+func (c *discoveryServiceClient) GetLatestCachedResults(ctx context.Context, in *GetLatestCachedResultsRequest, opts ...grpc.CallOption) (*ResultsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ResultsResponse)
+	err := c.cc.Invoke(ctx, DiscoveryService_GetLatestCachedResults_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // DiscoveryServiceServer is the server API for DiscoveryService service.
 // All implementations must embed UnimplementedDiscoveryServiceServer
 // for forward compatibility.
@@ -88,6 +101,8 @@ type DiscoveryServiceServer interface {
 	StartDiscovery(context.Context, *DiscoveryRequest) (*DiscoveryResponse, error)
 	// GetDiscoveryResults retrieves results from a previously initiated discovery
 	GetDiscoveryResults(context.Context, *ResultsRequest) (*ResultsResponse, error)
+	// GetLatestCachedResults retrieves the latest cached results of discovery operations
+	GetLatestCachedResults(context.Context, *GetLatestCachedResultsRequest) (*ResultsResponse, error)
 	mustEmbedUnimplementedDiscoveryServiceServer()
 }
 
@@ -106,6 +121,9 @@ func (UnimplementedDiscoveryServiceServer) StartDiscovery(context.Context, *Disc
 }
 func (UnimplementedDiscoveryServiceServer) GetDiscoveryResults(context.Context, *ResultsRequest) (*ResultsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetDiscoveryResults not implemented")
+}
+func (UnimplementedDiscoveryServiceServer) GetLatestCachedResults(context.Context, *GetLatestCachedResultsRequest) (*ResultsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetLatestCachedResults not implemented")
 }
 func (UnimplementedDiscoveryServiceServer) mustEmbedUnimplementedDiscoveryServiceServer() {}
 func (UnimplementedDiscoveryServiceServer) testEmbeddedByValue()                          {}
@@ -182,6 +200,24 @@ func _DiscoveryService_GetDiscoveryResults_Handler(srv interface{}, ctx context.
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DiscoveryService_GetLatestCachedResults_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetLatestCachedResultsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DiscoveryServiceServer).GetLatestCachedResults(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DiscoveryService_GetLatestCachedResults_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DiscoveryServiceServer).GetLatestCachedResults(ctx, req.(*GetLatestCachedResultsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // DiscoveryService_ServiceDesc is the grpc.ServiceDesc for DiscoveryService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -200,6 +236,10 @@ var DiscoveryService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetDiscoveryResults",
 			Handler:    _DiscoveryService_GetDiscoveryResults_Handler,
+		},
+		{
+			MethodName: "GetLatestCachedResults",
+			Handler:    _DiscoveryService_GetLatestCachedResults_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

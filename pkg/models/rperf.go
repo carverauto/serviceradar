@@ -70,7 +70,7 @@ type RperfMetric struct {
 	// Test name or identifier
 	Name string `json:"name" example:"rperf_tcp_test"`
 	// Network throughput in bits per second
-	BitsPerSecond float64 `json:"bits_per_second" example:"943215000"`
+	BitsPerSec float64 `json:"bits_per_second" example:"943215000"`
 	// Total bytes received during the test
 	BytesReceived int64 `json:"bytes_received" example:"12582912"`
 	// Total bytes sent during the test
@@ -91,8 +91,18 @@ type RperfMetric struct {
 	Success bool `json:"success" example:"true"`
 	// Target hostname or IP address
 	Target string `json:"target" example:"192.168.1.1"`
+	// ResponseTime in milliseconds
+	ResponseTime int64 `json:"response_time" example:"15"`
 	// Error message if test failed (null if successful)
 	Error *string `json:"error,omitempty" example:"connection refused"`
+	// AgentID of the agent that performed the test
+	AgentID string `json:"agent_id"`
+	// ServiceName of the service that performed the test
+	ServiceName string `json:"service_name"`
+	// ServiceType of the service that performed the test
+	ServiceType string `json:"service_type"`
+	// Version of the rperf service used for the test
+	Version string `json:"version"`
 }
 
 // RperfMetricResponse represents the API response for rperf metrics.
