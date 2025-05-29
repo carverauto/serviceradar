@@ -258,9 +258,13 @@ func (e *ExternalChecker) ensureConnected(ctx context.Context) error {
 	return fmt.Errorf("failed to connect after %d attempts: %w", maxRetries, lastErr)
 }
 
+const (
+	defaultMonitoringServiceName = "monitoring.AgentService"
+)
+
 func (e *ExternalChecker) performHealthCheck(ctx context.Context, _ string) (bool, error) {
 	// If grpcServiceCheckName is "monitoring.AgentService", use custom health check
-	if e.grpcServiceCheckName == "monitoring.AgentService" {
+	if e.grpcServiceCheckName == defaultMonitoringServiceName {
 		agentClient := proto.NewAgentServiceClient(e.grpcClient.GetConnection())
 
 		resp, err := agentClient.GetStatus(ctx, &proto.StatusRequest{

@@ -43,7 +43,9 @@ func (s *AgentService) GetStatus(_ context.Context, req *proto.StatusRequest) (*
 				default:
 					log.Printf("Failed to restore job to channel")
 				}
+
 				isAvailable = true
+
 				message["status"] = "operational"
 				message["message"] = "serviceradar-mapper is operational"
 			}
@@ -52,8 +54,10 @@ func (s *AgentService) GetStatus(_ context.Context, req *proto.StatusRequest) (*
 			s.engine.mu.RLock()
 			hasActiveJobs := len(s.engine.activeJobs) > 0
 			s.engine.mu.RUnlock()
+
 			if hasActiveJobs {
 				isAvailable = true
+
 				message["status"] = "operational"
 				message["message"] = "serviceradar-mapper is operational with active jobs"
 			}

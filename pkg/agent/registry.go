@@ -63,17 +63,17 @@ func initRegistry() checker.Registry {
 			}
 
 			// Determine the actual gRPC service name to use for health checks
-			actualGrpcServiceCheckName := "monitoring.AgentService" // Default
+			var actualGrpcServiceCheckName string
 
 			switch serviceName {
 			case "sysmon":
-				actualGrpcServiceCheckName = "monitoring.AgentService"
+				actualGrpcServiceCheckName = defaultMonitoringServiceName
 			case "mapper":
 				// For mapper, we should use the monitoring.AgentService
 				// but the CheckHealth method needs to be modified to handle this
-				actualGrpcServiceCheckName = "monitoring.AgentService"
+				actualGrpcServiceCheckName = defaultMonitoringServiceName
 			case "rperf-checker":
-				actualGrpcServiceCheckName = "monitoring.AgentService"
+				actualGrpcServiceCheckName = defaultMonitoringServiceName
 			default:
 				// For other services, use the standard health check
 				actualGrpcServiceCheckName = "" // Empty string means use standard gRPC health
