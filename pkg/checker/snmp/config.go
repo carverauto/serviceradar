@@ -29,11 +29,11 @@ import (
 
 // SNMPConfig is a local copy of models.SNMPConfig to allow receiver methods
 type SNMPConfig struct {
-	NodeAddress string
-	Timeout     models.Duration
-	ListenAddr  string
-	Security    *models.SecurityConfig
-	Targets     []Target
+	NodeAddress string                 `json:"node_address"`
+	Timeout     models.Duration        `json:"timeout"`
+	ListenAddr  string                 `json:"listen_addr"`
+	Security    *models.SecurityConfig `json:"security"`
+	Targets     []Target               `json:"targets"`
 }
 
 const (

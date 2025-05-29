@@ -78,36 +78,87 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
         return metric;
     }, []);
 
-    // Analyze the metrics to discover related pairs
+    // Analyze the metrics to discover related pairs (reverted to original logic)
     const metricGroups = useMemo((): MetricGroup[] => {
         if (!availableMetrics.length) return [];
 
-        const groups: { [key: string]: string[] } = {};
+        const groups: { [key: string]: { metrics: string[]; isInterfaceType: boolean } } = {};
+        const processedMetrics = new Set<string>();
 
-        availableMetrics.forEach((metric) => {
-            const match = metric.match(/(if)(In|Out)(Octets|Errors|Discards|Packets)_(\d+)/i);
+        // Pass 1: Specifically look for global "ifInOctets" and "ifOutOctets"
+        if (availableMetrics.includes("ifInOctets") && availableMetrics.includes("ifOutOctets")) {
+            const baseKey = "ifOctets_global";
+            groups[baseKey] = { metrics: ["ifInOctets", "ifOutOctets"].sort(), isInterfaceType: true };
+            processedMetrics.add("ifInOctets");
+            processedMetrics.add("ifOutOctets");
+        }
+
+        // Pass 2: Handle indexed metrics (e.g., ifInOctets_4, ifOutOctets_4)
+        const indexedMetricsMap: { [key: string]: string[] } = {};
+        availableMetrics.forEach(metric => {
+            if (processedMetrics.has(metric)) return;
+
+            const match = metric.match(/^(if)(In|Out)(Octets|Errors|Discards|Packets)_(\d+)$/i);
             if (match) {
-                const [, prefix, , type, interface_id] = match;
-                const baseKey = `${prefix}${type}_${interface_id}`;
-                if (!groups[baseKey]) {
-                    groups[baseKey] = [];
+                const [, prefix, , type, interfaceId] = match;
+                const baseKeyForIndexed = `${prefix}${type}_${interfaceId}`;
+                if (!indexedMetricsMap[baseKeyForIndexed]) {
+                    indexedMetricsMap[baseKeyForIndexed] = [];
                 }
-                groups[baseKey].push(metric);
-                return;
+                indexedMetricsMap[baseKeyForIndexed].push(metric);
+                processedMetrics.add(metric);
             }
+        });
 
-            if (!Object.values(groups).flat().includes(metric)) {
-                groups[metric] = [metric];
+        for (const [baseKey, metricsForInterface] of Object.entries(indexedMetricsMap)) {
+            if (metricsForInterface.length > 0) {
+                if (!groups[baseKey]) {
+                    groups[baseKey] = { metrics: metricsForInterface.sort(), isInterfaceType: true };
+                }
+            }
+        }
+
+        // Pass 3: Add any remaining metrics as individual groups
+        availableMetrics.forEach(metric => {
+            if (!processedMetrics.has(metric)) {
+                let alreadyGrouped = false;
+                for(const groupData of Object.values(groups)){
+                    if(groupData.metrics.includes(metric)){
+                        alreadyGrouped = true;
+                        break;
+                    }
+                }
+                if(!alreadyGrouped){
+                    groups[metric] = { metrics: [metric], isInterfaceType: false };
+                }
             }
         });
 
         return Object.entries(groups)
-            .map(([baseKey, metrics]) => ({
+            .map(([baseKey, data]) => ({
                 baseKey,
-                metrics,
-                hasPair: metrics.length > 1,
+                metrics: data.metrics,
+                hasPair: (baseKey === "ifOctets_global" && data.metrics.length === 2) ||
+                    (data.isInterfaceType && data.metrics.length >= 2 &&
+                        data.metrics.some(m => m.toLowerCase().includes("in")) &&
+                        data.metrics.some(m => m.toLowerCase().includes("out"))),
             }))
-            .sort((a, b) => (b.hasPair ? 1 : 0) - (a.hasPair ? 1 : 0));
+            .sort((a, b) => {
+                const isAMainOctets = a.baseKey === "ifOctets_global";
+                const isBMainOctets = b.baseKey === "ifOctets_global";
+                if (isAMainOctets && !isBMainOctets) return -1;
+                if (!isAMainOctets && isBMainOctets) return 1;
+
+                const isAOctetsPair = a.baseKey.toLowerCase().includes("ifoctets") && a.hasPair;
+                const isBOctetsPair = b.baseKey.toLowerCase().includes("ifoctets") && b.hasPair;
+                if (isAOctetsPair && !isBOctetsPair) return -1;
+                if (!isAOctetsPair && isBOctetsPair) return 1;
+
+                if (a.hasPair && !b.hasPair) return -1;
+                if (!a.hasPair && b.hasPair) return 1;
+
+                return a.baseKey.localeCompare(b.baseKey);
+            });
     }, [availableMetrics]);
 
     // Adjust chart height based on screen size
@@ -149,10 +200,7 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
                         start.setHours(end.getHours() - 1);
                 }
 
-                // Use the Next.js API routes instead of direct calls
                 const snmpUrl = `/api/pollers/${pollerId}/snmp?start=${start.toISOString()}&end=${end.toISOString()}`;
-
-                // Include the authorization token
                 const headers: HeadersInit = {
                     'Content-Type': 'application/json',
                 };
@@ -213,9 +261,21 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
                 if (currentValue >= prevValue) {
                     rate = (currentValue - prevValue) / timeDiff;
                 } else {
-                    const is32Bit = prevValue < 4294967295;
-                    const maxVal = is32Bit ? 4294967295 : Number.MAX_SAFE_INTEGER;
-                    rate = ((maxVal - prevValue) + currentValue) / timeDiff;
+                    // Check for rollover or reset
+                    const is32Bit = prevValue <= 4294967295;
+                    const maxVal = is32Bit ? 4294967295 : 18446744073709551615; // Support 64-bit counters
+                    if (currentValue < prevValue && (maxVal - prevValue) > 0) {
+                        rate = ((maxVal - prevValue) + currentValue) / timeDiff;
+                    } else {
+                        // Likely a reset (e.g., device reboot), skip this interval
+                        rate = 0;
+                    }
+                }
+
+                // Sanity check: Cap unrealistic rates
+                if (rate > 10000000) { // 10 MB/s threshold - adjust based on your network
+                    console.warn(`Unrealistic rate detected: ${rate} B/s at ${point.timestamp}`);
+                    rate = 0;
                 }
 
                 return {
@@ -275,7 +335,7 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
         }
     }, [selectedMetric, snmpData, timeRange, processCounterData, viewMode]);
 
-    // Process data for combined view
+    // Process data for combined view with timestamp alignment
     useEffect(() => {
         if (snmpData.length > 0 && viewMode === 'combined' && metricGroups.length > 0) {
             try {
@@ -311,10 +371,12 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
 
                     processed.forEach(point => {
                         const timestamp = new Date(point.timestamp).getTime();
-                        if (!allMetricsData[timestamp]) {
-                            allMetricsData[timestamp] = { timestamp };
+                        // Round to the nearest 10 seconds to align timestamps
+                        const roundedTimestamp = Math.round(timestamp / 10000) * 10000;
+                        if (!allMetricsData[roundedTimestamp]) {
+                            allMetricsData[roundedTimestamp] = { timestamp: roundedTimestamp };
                         }
-                        allMetricsData[timestamp][metric] = point.rate || 0;
+                        allMetricsData[roundedTimestamp][metric] = point.rate || 0;
                     });
                 });
 
@@ -461,8 +523,8 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
                             />
                             <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-500"></div>
                             <span className="ml-2 text-sm font-medium text-gray-800 dark:text-gray-300">
-                {viewMode === 'combined' ? 'Combined' : 'Single'}
-              </span>
+                                {viewMode === 'combined' ? 'Combined' : 'Single'}
+                            </span>
                         </label>
                     </div>
 
@@ -541,6 +603,7 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
                                                 stackId="1"
                                                 name={metric}
                                                 isAnimationActive={false}
+                                                connectNulls={true} // Smooth out gaps
                                             />
                                         );
                                     })}

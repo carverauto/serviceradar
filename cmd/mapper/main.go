@@ -19,107 +19,85 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
-	"os"
-	"os/signal"
-	"syscall"
 
 	"github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/mapper"
 	monitoringpb "github.com/carverauto/serviceradar/proto"
 	discoverypb "github.com/carverauto/serviceradar/proto/discovery"
-
-	googlegrpc "google.golang.org/grpc"
+	"google.golang.org/grpc"
 )
 
-// cliAppConfig holds the command-line configuration options.
-type cliAppConfig struct {
-	configFile string
-	listenAddr string
+func main() {
+	if err := run(); err != nil {
+		log.Fatalf("Fatal error: %v", err)
+	}
 }
 
-// parseFlags parses command-line flags and returns a cliAppConfig.
-func parseFlags() cliAppConfig {
-	cfg := cliAppConfig{}
-	flag.StringVar(&cfg.configFile, "config", "/etc/serviceradar/mapper.json", "Path to mapper config file")
-	flag.StringVar(&cfg.listenAddr, "listen", ":50056", "Address for mapper to listen on")
+var (
+	errFailedToLoadMapperConfig    = fmt.Errorf("failed to load mapper configuration")
+	errFailedToTypeCastEngine      = fmt.Errorf("failed to cast discovery engine to *mapper.DiscoveryEngine for health service")
+	errFailedToInitDiscoveryEngine = fmt.Errorf("failed to initialize discovery engine")
+)
+
+func run() error {
+	// Parse command line flags
+	configFile := flag.String("config", "/etc/serviceradar/mapper.json", "Path to mapper config file")
+	listenAddr := flag.String("listen", ":50056", "Address for mapper to listen on")
+
 	flag.Parse()
 
-	return cfg
-}
+	// Setup a context we can use for loading the config and running the server
+	ctx := context.Background()
 
-func main() {
-	appCfg := parseFlags()
+	// Initialize configuration loader
+	cfgLoader := config.NewConfig()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	// Load configuration with context
+	var cfg mapper.Config
 
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-	go func() {
-		sig := <-sigChan
-		log.Printf("Received signal %v, initiating shutdown for ServiceRadar Mapper", sig)
-
-		cancel()
-	}()
-
-	log.Printf("Starting ServiceRadar Mapper Service...")
-
-	configLoader := config.NewConfig()
-
-	var discoveryEngineConfig mapper.Config
-
-	if appCfg.configFile == "" {
-		log.Printf("Mapper configuration file must be specified using the -config flag.")
-		return
+	if err := cfgLoader.LoadAndValidate(ctx, *configFile, &cfg); err != nil {
+		return fmt.Errorf("%w: %w", errFailedToLoadMapperConfig, err)
 	}
 
-	if err := configLoader.LoadAndValidate(ctx, appCfg.configFile, &discoveryEngineConfig); err != nil {
-		log.Printf("Failed to load mapper configuration: %v", err)
-		return
-	}
-
+	// Create discovery engine with a nil publisher for now
+	// TODO: Create a proper publisher implementation
 	var publisher mapper.Publisher
 
-	engine, err := mapper.NewSnmpDiscoveryEngine(&discoveryEngineConfig, publisher)
+	engine, err := mapper.NewDiscoveryEngine(&cfg, publisher)
 	if err != nil {
-		log.Printf("Failed to initialize discovery engine: %v", err)
-		return
+		return fmt.Errorf("%w: %w", errFailedToInitDiscoveryEngine, err)
 	}
 
+	// Create gRPC services
 	grpcDiscoveryService := mapper.NewGRPCDiscoveryService(engine)
 
-	snmpEngine, ok := engine.(*mapper.SNMPDiscoveryEngine)
+	snmpEngine, ok := engine.(*mapper.DiscoveryEngine)
 	if !ok {
-		log.Printf("Failed to cast discovery engine to *mapper.SNMPDiscoveryEngine for health service")
-		return
+		return errFailedToTypeCastEngine
 	}
 
-	grpcMapperAgentService := mapper.NewMapperAgentService(snmpEngine)
+	grpcMapperAgentService := mapper.NewAgentService(snmpEngine)
 
-	serverOptions := &lifecycle.ServerOptions{
-		ListenAddr:  appCfg.listenAddr,
-		ServiceName: "serviceradar-mapper",
-		Service:     engine,
+	// Create server options
+	opts := &lifecycle.ServerOptions{
+		ListenAddr:        *listenAddr,
+		ServiceName:       "serviceradar-mapper",
+		Service:           engine,
+		EnableHealthCheck: true,
 		RegisterGRPCServices: []lifecycle.GRPCServiceRegistrar{
-			func(server *googlegrpc.Server) error {
-				discoverypb.RegisterDiscoveryServiceServer(server, grpcDiscoveryService)
-				monitoringpb.RegisterAgentServiceServer(server, grpcMapperAgentService)
-
+			func(s *grpc.Server) error {
+				discoverypb.RegisterDiscoveryServiceServer(s, grpcDiscoveryService)
+				monitoringpb.RegisterAgentServiceServer(s, grpcMapperAgentService)
 				return nil
 			},
 		},
-		EnableHealthCheck: true,
-		Security:          discoveryEngineConfig.Security,
+		Security: cfg.Security,
 	}
 
-	log.Printf("ServiceRadar Mapper gRPC server starting on %s", appCfg.listenAddr)
+	log.Printf("Starting ServiceRadar Mapper Service on %s", *listenAddr)
 
-	if err := lifecycle.RunServer(ctx, serverOptions); err != nil {
-		log.Printf("ServiceRadar Mapper server error: %v", err)
-	}
-
-	log.Println("ServiceRadar Mapper stopped")
+	return lifecycle.RunServer(ctx, opts)
 }

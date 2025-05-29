@@ -425,6 +425,16 @@ func (s *Server) connectToChecker(ctx context.Context, checkerConfig *CheckerCon
 }
 
 func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
+	// Ensure AgentId and PollerId are set
+	if req.AgentId == "" {
+		req.AgentId = s.config.AgentID
+	}
+
+	if req.PollerId == "" {
+		log.Printf("Warning: PollerId is empty in request: %+v", req)
+		req.PollerId = "unknown-poller" // Fallback to avoid empty
+	}
+
 	var response *proto.StatusResponse
 
 	switch {
@@ -441,6 +451,7 @@ func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*prot
 	// Include AgentID in the response
 	if response != nil {
 		response.AgentId = s.config.AgentID
+		response.PollerId = req.PollerId
 	}
 
 	return response, nil
@@ -485,7 +496,7 @@ func (s *Server) handleRperfChecker(ctx context.Context, req *proto.StatusReques
 		ServiceName: "",
 		ServiceType: "grpc",
 		Details:     "",
-		AgentId:     s.config.AgentID, // Propagate AgentId
+		AgentId:     s.config.AgentID,
 	})
 }
 
@@ -512,10 +523,11 @@ func (s *Server) handleICMPCheck(ctx context.Context, req *proto.StatusRequest) 
 
 		return &proto.StatusResponse{
 			Available:    result.Available,
-			Message:      string(jsonResp),
+			Message:      jsonResp,
 			ServiceName:  "icmp_check",
 			ServiceType:  "icmp",
 			ResponseTime: result.RespTime.Nanoseconds(),
+			AgentId:      s.config.AgentID,
 		}, nil
 	}
 
@@ -523,19 +535,48 @@ func (s *Server) handleICMPCheck(ctx context.Context, req *proto.StatusRequest) 
 }
 
 func (s *Server) handleDefaultChecker(ctx context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
+	req.AgentId = s.config.AgentID
+
 	c, err := s.getChecker(ctx, req)
 	if err != nil {
 		return nil, err
 	}
 
-	available, message := c.Check(ctx)
+	available, message := c.Check(ctx, req)
+
+	log.Printf("Checker request - Type: %s, Name: %s, Details: %s",
+		req.GetServiceType(), req.GetServiceName(), req.GetDetails())
+
+	if !json.Valid(message) {
+		log.Printf("Invalid JSON from checker %s: %s", req.ServiceName, message)
+		return nil, fmt.Errorf("invalid JSON response from checker")
+	}
 
 	return &proto.StatusResponse{
 		Available:   available,
-		Message:     message,
+		Message:     message, // json.RawMessage is []byte
 		ServiceName: req.ServiceName,
 		ServiceType: req.ServiceType,
-		AgentId:     s.config.AgentID, // Ensure AgentId is set
+		AgentId:     req.AgentId,
+		PollerId:    req.PollerId,
+	}, nil
+}
+
+func (s *Server) getSweepStatus(ctx context.Context) (*proto.StatusResponse, error) {
+	for _, svc := range s.services {
+		if provider, ok := svc.(SweepStatusProvider); ok {
+			return provider.GetStatus(ctx)
+		}
+	}
+
+	message := jsonError("No sweep service configured")
+
+	return &proto.StatusResponse{
+		Available:   false,
+		Message:     message,
+		ServiceName: "network_sweep",
+		ServiceType: "sweep",
+		AgentId:     s.config.AgentID,
 	}, nil
 }
 
@@ -616,42 +657,19 @@ func (s *Server) loadCheckerConfigs(ctx context.Context, cfgLoader *config.Confi
 	return nil
 }
 
-func (s *Server) getSweepStatus(ctx context.Context) (*proto.StatusResponse, error) {
-	for _, svc := range s.services {
-		if provider, ok := svc.(SweepStatusProvider); ok {
-			return provider.GetStatus(ctx)
-		}
-	}
-
-	return &proto.StatusResponse{
-		Available:   false,
-		Message:     "Sweep service not configured",
-		ServiceName: "network_sweep",
-		ServiceType: "sweep",
-	}, nil
-}
-
 func (s *Server) getChecker(ctx context.Context, req *proto.StatusRequest) (checker.Checker, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	key := fmt.Sprintf("%s:%s:%s", req.GetServiceType(), req.GetServiceName(), req.GetDetails())
 
-	log.Printf("Getting checker for request - Type: %s, Name: %s, Details: %s",
-		req.GetServiceType(), req.GetServiceName(), req.GetDetails())
-
 	if check, exists := s.checkers[key]; exists {
 		return check, nil
 	}
 
-	details := req.GetDetails()
-
-	log.Printf("Creating new checker with details: %s", details)
-
-	check, err := s.registry.Get(ctx, req.ServiceType, req.ServiceName, details, s.config.Security)
+	check, err := s.registry.Get(ctx, req.ServiceType, req.ServiceName, req.Details, s.config.Security)
 	if err != nil {
 		log.Printf("Failed to create checker for key %s: %v", key, err)
-
 		return nil, fmt.Errorf("failed to create checker: %w", err)
 	}
 

@@ -15,7 +15,6 @@
  */
 
 // Package snmp pkg/checker/snmp/service.go
-
 package snmp
 
 import (
@@ -28,33 +27,34 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
-const (
-	defaultServiceStatusTimeout = 5 * time.Second
-)
-
-func (s *SNMPService) Check(ctx context.Context) (status bool, msg string) {
+func (s *SNMPService) Check(ctx context.Context) (available bool, msg string) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	_, cancel := context.WithTimeout(ctx, defaultServiceStatusTimeout)
-	defer cancel()
-
-	// If no targets are configured, the service is not available
-	if len(s.collectors) == 0 {
-		return false, "no targets configured"
+	// Re-using the GetStatus logic to get the detailed map
+	statusMap, err := s.GetStatus(ctx)
+	if err != nil {
+		return false, fmt.Sprintf("Error getting detailed SNMP status: %v", err)
 	}
 
-	// Check each target's status
-	for name, collector := range s.collectors {
-		status := collector.GetStatus()
+	// Marshal the status map to JSON for the message content
+	statusJSON, err := json.Marshal(statusMap)
+	if err != nil {
+		return false, fmt.Sprintf("Error marshaling SNMP status to JSON: %v", err)
+	}
 
-		// If any target is unavailable, the service is considered unavailable
-		if !status.Available {
-			return false, fmt.Sprintf("target %s is unavailable: %s", name, status.Error)
+	// Determine overall availability
+	overallAvailable := true
+
+	for _, targetStatus := range statusMap {
+		if !targetStatus.Available {
+			overallAvailable = false
+			break
 		}
 	}
 
-	return true, ""
+	// Always return the marshaled JSON in the message, regardless of overall availability
+	return overallAvailable, string(statusJSON)
 }
 
 // NewSNMPService creates a new SNMP monitoring service.
@@ -201,15 +201,11 @@ func (s *SNMPService) GetServiceStatus(ctx context.Context, req *proto.StatusReq
 		return nil, fmt.Errorf("%w: %s", ErrInvalidServiceType, req.ServiceType)
 	}
 
-	// set a context with timeout
-	_, cancel := context.WithTimeout(ctx, defaultServiceStatusTimeout)
-	defer cancel()
-
 	status, err := s.GetStatus(ctx)
 	if err != nil {
 		return &proto.StatusResponse{
 			Available: false,
-			Message:   fmt.Sprintf("Error getting status: %v", err),
+			Message:   jsonError(fmt.Sprintf("Error getting status: %v", err)),
 		}, nil
 	}
 
@@ -218,7 +214,7 @@ func (s *SNMPService) GetServiceStatus(ctx context.Context, req *proto.StatusReq
 	if err != nil {
 		return &proto.StatusResponse{
 			Available: false,
-			Message:   fmt.Sprintf("Error marshaling status: %v", err),
+			Message:   jsonError(fmt.Sprintf("Error marshaling status: %v", err)),
 		}, nil
 	}
 
@@ -228,17 +224,22 @@ func (s *SNMPService) GetServiceStatus(ctx context.Context, req *proto.StatusReq
 	for _, targetStatus := range status {
 		if !targetStatus.Available {
 			available = false
-
 			break
 		}
 	}
 
 	return &proto.StatusResponse{
 		Available:   available,
-		Message:     string(statusJSON),
+		Message:     statusJSON, // Use []byte directly
 		ServiceName: "snmp",
 		ServiceType: "snmp",
 	}, nil
+}
+
+// jsonError creates a JSON-encoded error message as []byte
+func jsonError(msg string) []byte {
+	data, _ := json.Marshal(map[string]string{"error": msg})
+	return data
 }
 
 // initializeTarget sets up collector and aggregator for a target.
