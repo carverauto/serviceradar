@@ -118,7 +118,6 @@ type DiscoveryJob struct {
 	Results        *DiscoveryResults
 	ctx            context.Context
 	cancelFunc     context.CancelFunc
-	discoveredIPs  map[string]bool
 	scanQueue      []string
 	mu             sync.RWMutex
 	uniFiSiteCache map[string][]UniFiSite // Key: baseURL, Value: list of sites
@@ -221,7 +220,7 @@ type Config struct {
 	Seeds              []string                   `json:"seeds"`
 	Security           *models.SecurityConfig     `json:"security"`
 	UniFiAPIs          []UniFiAPIConfig           `json:"unifi_apis"`
-	ScheduledJobs      []ScheduledJob             `json:"scheduled_jobs"`
+	ScheduledJobs      []*ScheduledJob            `json:"scheduled_jobs"`
 }
 
 type UniFiAPIConfig struct {
@@ -296,21 +295,21 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 	}
 
 	// Parse ScheduledJobs
-	c.ScheduledJobs = make([]ScheduledJob, len(aux.ScheduledJobs))
-	for i, job := range aux.ScheduledJobs {
-		c.ScheduledJobs[i] = ScheduledJob{
-			Name:        job.Name,
-			Interval:    job.Interval,
-			Enabled:     job.Enabled,
-			Seeds:       job.Seeds,
-			Type:        job.Type,
-			Credentials: job.Credentials,
-			Concurrency: job.Concurrency,
-			Retries:     job.Retries,
-			Options:     job.Options,
+	c.ScheduledJobs = make([]*ScheduledJob, len(aux.ScheduledJobs))
+	for i := 0; i < len(aux.ScheduledJobs); i++ {
+		c.ScheduledJobs[i] = &ScheduledJob{
+			Name:        aux.ScheduledJobs[i].Name,
+			Interval:    aux.ScheduledJobs[i].Interval,
+			Enabled:     aux.ScheduledJobs[i].Enabled,
+			Seeds:       aux.ScheduledJobs[i].Seeds,
+			Type:        aux.ScheduledJobs[i].Type,
+			Credentials: aux.ScheduledJobs[i].Credentials,
+			Concurrency: aux.ScheduledJobs[i].Concurrency,
+			Retries:     aux.ScheduledJobs[i].Retries,
+			Options:     aux.ScheduledJobs[i].Options,
 		}
-		if job.Timeout != "" {
-			c.ScheduledJobs[i].Timeout = job.Timeout
+		if aux.ScheduledJobs[i].Timeout != "" {
+			c.ScheduledJobs[i].Timeout = aux.ScheduledJobs[i].Timeout
 		}
 	}
 
