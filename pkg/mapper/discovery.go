@@ -60,6 +60,7 @@ func (e *DiscoveryEngine) Start(ctx context.Context) error {
 
 	// Start cleanup routine for completed jobs
 	e.wg.Add(1)
+
 	go func() {
 		defer e.wg.Done()
 		e.cleanupRoutine(ctx)
@@ -67,6 +68,7 @@ func (e *DiscoveryEngine) Start(ctx context.Context) error {
 
 	// Start scheduled jobs
 	e.wg.Add(1)
+
 	go func() {
 		defer e.wg.Done()
 		e.scheduleJobs(ctx)
@@ -127,7 +129,8 @@ func (e *DiscoveryEngine) Stop(ctx context.Context) error {
 func (e *DiscoveryEngine) scheduleJobs(ctx context.Context) {
 	log.Println("Starting scheduled jobs...")
 
-	for _, jobConfig := range e.config.ScheduledJobs {
+	for i := range e.config.ScheduledJobs {
+		jobConfig := e.config.ScheduledJobs[i]
 		if !jobConfig.Enabled {
 			log.Printf("Scheduled job %s is disabled, skipping", jobConfig.Name)
 			continue
@@ -152,6 +155,7 @@ func (e *DiscoveryEngine) scheduleJobs(ctx context.Context) {
 
 		// Map job type to DiscoveryType
 		var discoveryType DiscoveryType
+
 		switch jobConfig.Type {
 		case "full":
 			discoveryType = DiscoveryTypeFull
@@ -169,7 +173,7 @@ func (e *DiscoveryEngine) scheduleJobs(ctx context.Context) {
 		params := &DiscoveryParams{
 			Seeds:       jobConfig.Seeds,
 			Type:        discoveryType,
-			Credentials: &jobConfig.Credentials,
+			Credentials: &(jobConfig.Credentials),
 			Options:     jobConfig.Options,
 			Concurrency: jobConfig.Concurrency,
 			Timeout:     timeout,
@@ -183,23 +187,29 @@ func (e *DiscoveryEngine) scheduleJobs(ctx context.Context) {
 
 		// Create ticker for periodic execution
 		ticker := time.NewTicker(interval)
+
 		e.mu.Lock()
 		e.schedulers[jobConfig.Name] = ticker
 		e.mu.Unlock()
 
 		e.wg.Add(1)
+
 		go func(name string, params *DiscoveryParams) {
 			defer e.wg.Done()
+
 			log.Printf("Scheduler started for job %s with interval %v", name, interval)
+
 			for {
 				select {
 				case <-ctx.Done():
 					log.Printf("Scheduler for job %s stopping due to context cancellation", name)
 					ticker.Stop()
+
 					return
 				case <-e.done:
 					log.Printf("Scheduler for job %s stopping due to engine shutdown", name)
 					ticker.Stop()
+
 					return
 				case <-ticker.C:
 					e.startScheduledJob(ctx, name, params)
@@ -286,6 +296,7 @@ func (e *DiscoveryEngine) StartDiscovery(ctx context.Context, params *DiscoveryP
 	default:
 		cancel() // Clean up context
 		delete(e.activeJobs, discoveryID)
+
 		return "", fmt.Errorf("job queue full, cannot enqueue discovery job")
 	}
 
@@ -467,37 +478,48 @@ func validateConfig(config *Config) error {
 	}
 
 	// Validate scheduled jobs
-	for _, job := range config.ScheduledJobs {
-		if job.Name == "" {
-			return fmt.Errorf("scheduled job missing name")
+	for i := range config.ScheduledJobs {
+		if err := validateScheduledJob(config.ScheduledJobs[i]); err != nil {
+			return err
 		}
+	}
 
-		if job.Enabled {
-			if _, err := time.ParseDuration(job.Interval); err != nil {
-				return fmt.Errorf("invalid interval for job %s: %w", job.Name, err)
-			}
+	return nil
+}
 
-			if len(job.Seeds) == 0 {
-				return fmt.Errorf("job %s has no seeds", job.Name)
-			}
+// validateScheduledJob validates a single scheduled job configuration
+func validateScheduledJob(job *ScheduledJob) error {
+	if job.Name == "" {
+		return fmt.Errorf("scheduled job missing name")
+	}
 
-			if job.Type == "" {
-				return fmt.Errorf("job %s missing type", job.Name)
-			}
+	if !job.Enabled {
+		return nil
+	}
 
-			if job.Concurrency < 0 {
-				return fmt.Errorf("job %s has invalid concurrency: %d", job.Name, job.Concurrency)
-			}
+	if _, err := time.ParseDuration(job.Interval); err != nil {
+		return fmt.Errorf("invalid interval for job %s: %w", job.Name, err)
+	}
 
-			if job.Retries < 0 {
-				return fmt.Errorf("job %s has invalid retries: %d", job.Name, job.Retries)
-			}
+	if len(job.Seeds) == 0 {
+		return fmt.Errorf("job %s has no seeds", job.Name)
+	}
 
-			if job.Timeout != "" {
-				if _, err := time.ParseDuration(job.Timeout); err != nil {
-					return fmt.Errorf("invalid timeout for job %s: %w", job.Name, err)
-				}
-			}
+	if job.Type == "" {
+		return fmt.Errorf("job %s missing type", job.Name)
+	}
+
+	if job.Concurrency < 0 {
+		return fmt.Errorf("job %s has invalid concurrency: %d", job.Name, job.Concurrency)
+	}
+
+	if job.Retries < 0 {
+		return fmt.Errorf("job %s has invalid retries: %d", job.Name, job.Retries)
+	}
+
+	if job.Timeout != "" {
+		if _, err := time.ParseDuration(job.Timeout); err != nil {
+			return fmt.Errorf("invalid timeout for job %s: %w", job.Name, err)
 		}
 	}
 

@@ -131,10 +131,10 @@ func (mdc *MapperDiscoveryChecker) Check(ctx context.Context, req *proto.StatusR
 	}
 
 	var checkerDetails MapperDiscoveryDetails
+
 	if req.Details != "" { // req.Details is the JSON string from the checker's configuration
 		if err := json.Unmarshal([]byte(req.Details), &checkerDetails); err != nil {
 			log.Printf("MapperDiscoveryChecker: Failed to parse details JSON: %v. Details: %s. Using defaults.", err, req.Details)
-			// Continue with default IncludeRawData = false
 		}
 	}
 
@@ -156,11 +156,13 @@ func (mdc *MapperDiscoveryChecker) Check(ctx context.Context, req *proto.StatusR
 	if err != nil {
 		errMsg := fmt.Sprintf("Failed to get latest cached discovery results from mapper: %v", err)
 		log.Printf("MapperDiscoveryChecker: %s", errMsg)
+
 		return false, jsonError(errMsg) // Checker is unavailable if gRPC call fails
 	}
 
 	// Process the ResultsResponse from the mapper
 	var isDataUsable bool // Indicates if the data itself is complete/useful
+
 	var responseData json.RawMessage
 
 	if resultsResp.Error != "" {
@@ -178,22 +180,40 @@ func (mdc *MapperDiscoveryChecker) Check(ctx context.Context, req *proto.StatusR
 		case discovery.DiscoveryStatus_RUNNING:
 			// Mapper is actively running its scheduled job. Data might be partial or from a previous run.
 			log.Printf("MapperDiscoveryChecker: Mapper status is RUNNING. Progress: %.1f%%", resultsResp.Progress)
+
 			isDataUsable = len(resultsResp.Devices) > 0 // Usable if some devices are present
 			_, responseData = mdc.formatProgressStatus(resultsResp)
 		case discovery.DiscoveryStatus_PENDING:
 			// Mapper's job is pending, or no data cached yet.
 			log.Printf("MapperDiscoveryChecker: Mapper status is PENDING. No significant data expected.")
+
 			isDataUsable = false
 			_, responseData = mdc.formatProgressStatus(resultsResp)
 		case discovery.DiscoveryStatus_FAILED:
 			// The mapper's last discovery attempt failed. Service is up, but data is problematic.
 			errMsg := fmt.Sprintf("Latest cached discovery from mapper shows FAILED status: %s", resultsResp.Error)
 			log.Printf("MapperDiscoveryChecker: %s", errMsg)
+
 			isDataUsable = false
 			responseData = jsonError(errMsg)
-		default: // UNKNOWN, CANCELED by mapper internally, etc.
-			errMsg := fmt.Sprintf("Mapper returned unhandled or no-data status: %s. Error: %s", resultsResp.Status, resultsResp.Error)
+		case discovery.DiscoveryStatus_UNKNOWN:
+			// The mapper returned an unknown status.
+			errMsg := fmt.Sprintf("Mapper returned UNKNOWN status. Error: %s", resultsResp.Error)
 			log.Printf("MapperDiscoveryChecker: %s", errMsg)
+
+			isDataUsable = false
+			responseData = jsonError(errMsg)
+		case discovery.DiscoveryStatus_CANCELED:
+			// The mapper's discovery was canceled.
+			errMsg := fmt.Sprintf("Mapper discovery was CANCELED. Error: %s", resultsResp.Error)
+			log.Printf("MapperDiscoveryChecker: %s", errMsg)
+
+			isDataUsable = false
+			responseData = jsonError(errMsg)
+		default:
+			errMsg := fmt.Sprintf("Mapper returned unhandled status: %s. Error: %s", resultsResp.Status, resultsResp.Error)
+			log.Printf("MapperDiscoveryChecker: %s", errMsg)
+
 			isDataUsable = false
 			responseData = jsonError(errMsg)
 		}
@@ -245,7 +265,6 @@ func (mdc *MapperDiscoveryChecker) formatFinalResults(
 	resultsResp *discovery.ResultsResponse,
 	requestingAgentID string,
 	requestingPollerID string) (bool, json.RawMessage) {
-
 	// The AgentID and PollerID in the SNMPDiscoveryDataPayload should ideally reflect the context
 	// of the data generation. If the mapper's ResultsResponse includes this (e.g., in metadata),
 	// it should be used. Otherwise, using the requesting agent/poller IDs provides retrieval context.

@@ -1066,7 +1066,7 @@ func (e *DiscoveryEngine) processCDPPDU(
 }
 
 // ensureCDPLinkExists creates a new topology link if it doesn't exist in the map
-func (e *DiscoveryEngine) ensureCDPLinkExists(
+func (*DiscoveryEngine) ensureCDPLinkExists(
 	linkMap map[string]*TopologyLink, key, ifIndex, targetIP, jobID string) {
 	if _, exists := linkMap[key]; !exists {
 		localDeviceID := fmt.Sprintf("%s:%s", targetIP, jobID)

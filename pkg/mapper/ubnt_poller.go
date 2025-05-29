@@ -634,10 +634,10 @@ func (*DiscoveryEngine) createDiscoveredDevice(
 	if device.IPAddress == "" {
 		log.Printf("Job %s: UniFi device %s (ID: %s, MAC: %s) has no IP address, skipping.",
 			job.ID, device.Name, device.ID, device.MAC)
+
 		return nil
 	}
 
-	// deviceID := fmt.Sprintf("%s:%s:%s", agentID, pollerID, device.IPAddress)
 	deviceID := fmt.Sprintf("%s:%s", device.IPAddress, device.MAC) // Use IP+MAC as unique identifier
 
 	return &DiscoveredDevice{
