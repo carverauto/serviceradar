@@ -1,7 +1,7 @@
 {
   "product": "serviceradar-agent",
   "company": "Carver Automation Corporation",
-  "license": "LICENSE.txt",
+  "license": "LICENSE",
   "version": "1.0.40",
   "upgrade-code": "8615055C-D8E0-404C-93BE-441C503BA6F0",
   "files": {
