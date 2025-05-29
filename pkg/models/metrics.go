@@ -17,7 +17,9 @@
 // Package models pkg/models/metrics.go
 package models
 
-import "time"
+import (
+	"time"
+)
 
 // MetricPoint represents a single performance metric measurement.
 // @Description A single point of performance metric data with timestamp information.
@@ -121,6 +123,18 @@ type SysmonMetricData struct {
 	} `json:"memory"`
 }
 
+// TimeseriesMetric represents a generic timeseries datapoint.
+type TimeseriesMetric struct {
+	PollerID       string    `json:"poller_id"` // Unique identifier for the poller that collected this metric
+	Name           string    `json:"name"`
+	TargetDeviceIP string    `json:"target_device_ip"` // IP address of the device this metric is for
+	IfIndex        int32     `json:"if_index"`
+	Value          string    `json:"value"` // Store as string for flexibility
+	Type           string    `json:"type"`  // Metric type identifier
+	Timestamp      time.Time `json:"timestamp"`
+	Metadata       string    `json:"metadata"`
+}
+
 // SNMPMetric represents an SNMP metric.
 // @Description A metric collected via SNMP, including its value, type, and timestamp.
 type SNMPMetric struct {
@@ -147,4 +161,35 @@ type SNMPMetric struct {
 	// Whether the metric represents a delta value
 	// @example false
 	IsDelta bool `json:"is_delta"`
+}
+
+// SweepResult represents a single sweep result to be stored.
+type SweepResult struct {
+	AgentID         string            `json:"agent_id"`
+	PollerID        string            `json:"poller_id"`
+	DiscoverySource string            `json:"discovery_source"`
+	IP              string            `json:"ip"`
+	MAC             *string           `json:"mac,omitempty"`
+	Hostname        *string           `json:"hostname,omitempty"`
+	Timestamp       time.Time         `json:"timestamp"`
+	Available       bool              `json:"available"`
+	Metadata        map[string]string `json:"metadata,omitempty"`
+}
+
+// SysmonDiskResponse represents a disk metrics response grouped by timestamp.
+type SysmonDiskResponse struct {
+	Disks     []DiskMetric `json:"disks"`
+	Timestamp time.Time    `json:"timestamp"`
+}
+
+// SysmonMemoryResponse represents a memory metrics response.
+type SysmonMemoryResponse struct {
+	Memory    MemoryMetric `json:"memory"`
+	Timestamp time.Time    `json:"timestamp"`
+}
+
+// SysmonCPUResponse represents a CPU metrics response grouped by timestamp.
+type SysmonCPUResponse struct {
+	Cpus      []CPUMetric `json:"cpus"`
+	Timestamp time.Time   `json:"timestamp"`
 }

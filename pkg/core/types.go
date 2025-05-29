@@ -14,22 +14,20 @@
  * limitations under the License.
  */
 
+// Package core pkg/core/types.go
 package core
 
 import (
 	"sync"
 	"time"
 
-	discoverypb "github.com/carverauto/serviceradar/proto/discovery"
-
-	"github.com/carverauto/serviceradar/pkg/checker/rperf"
-	"github.com/carverauto/serviceradar/pkg/checker/snmp"
 	"github.com/carverauto/serviceradar/pkg/core/alerts"
 	"github.com/carverauto/serviceradar/pkg/core/api"
 	"github.com/carverauto/serviceradar/pkg/core/auth"
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/metrics"
+	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 )
@@ -45,12 +43,12 @@ type Server struct {
 	pollerPatterns          []string
 	grpcServer              *grpc.Server
 	metrics                 *metrics.Manager
-	snmpManager             snmp.SNMPManager
-	rperfManager            rperf.RperfManager
+	snmpManager             metricstore.SNMPManager
+	rperfManager            metricstore.RperfManager
 	config                  *models.DBConfig
 	authService             *auth.Auth
-	metricBuffers           map[string][]*db.TimeseriesMetric
-	serviceBuffers          map[string][]*db.ServiceStatus
+	metricBuffers           map[string][]*models.TimeseriesMetric
+	serviceBuffers          map[string][]*models.ServiceStatus
 	sysmonBuffers           map[string][]*models.SysmonMetrics
 	bufferMu                sync.RWMutex
 	pollerStatusCache       map[string]*models.PollerStatus
@@ -76,12 +74,4 @@ type ServiceStatus struct {
 	Available   bool
 	Details     string
 	Timestamp   time.Time
-}
-
-type SNMPDiscoveryDataPayload struct {
-	Devices    []*discoverypb.DiscoveredDevice    `json:"devices"`
-	Interfaces []*discoverypb.DiscoveredInterface `json:"interfaces"`
-	Topology   []*discoverypb.TopologyLink        `json:"topology"`
-	AgentID    string                             `json:"agent_id"`  // Agent that ran the discovery engine
-	PollerID   string                             `json:"poller_id"` // Poller that initiated the discovery
 }

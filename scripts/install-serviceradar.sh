@@ -20,8 +20,8 @@
 set -e
 
 # Configuration
-VERSION="1.0.39"
-RELEASE_TAG="1.0.39"
+VERSION="1.0.40"
+RELEASE_TAG="1.0.40-pre4"
 RELEASE_URL="https://github.com/carverauto/serviceradar/releases/download/${RELEASE_TAG}"
 TEMP_DIR="/tmp/serviceradar-install"
 POLLER_CONFIG="/etc/serviceradar/poller.json"

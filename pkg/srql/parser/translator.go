@@ -2,7 +2,9 @@ package parser
 
 import (
 	"fmt"
+	"log"
 	"strings"
+	"time"
 
 	"github.com/carverauto/serviceradar/pkg/srql/models"
 )
@@ -35,10 +37,10 @@ func (t *Translator) Translate(query *models.Query) (string, error) {
 	}
 
 	switch t.DBType {
-	case ClickHouse:
-		return t.toSQL(query, t.buildClickHouseWhere, errCannotTranslateNilQueryClickHouse, false)
 	case Proton:
-		return t.toSQL(query, t.buildProtonWhere, errCannotTranslateNilQueryProton, true)
+		return t.buildProtonQuery(query)
+	case ClickHouse:
+		return t.buildClickHouseQuery(query)
 	case ArangoDB:
 		return t.toArangoDB(query)
 	default:
@@ -54,16 +56,51 @@ const (
 	defaultBoolValueFalse = "false"
 )
 
-// toSQL is a generic SQL builder for Proton and ClickHouse. The unused bool is 'isStream' for Proton.
-func (*Translator) toSQL(
-	query *models.Query,
-	whereBuilder func([]models.Condition) string, nilQueryError error, isStream bool) (string, error) {
+// getEntityPrimaryKey returns the assumed primary key for an entity, used for LATEST queries.
+// This is used for non-versioned_kv streams that need ROW_NUMBER()
+func (*Translator) getEntityPrimaryKey(entity models.EntityType) (string, bool) {
+	switch entity {
+	case models.Interfaces:
+		// For interfaces, a composite key of device_ip and ifIndex is typically used for uniqueness
+		return "device_ip, ifIndex", true
+	case models.Devices:
+		// Devices is a versioned_kv stream, naturally providing latest
+		return "", false
+	case models.Flows:
+		// Assuming flow_id is the primary key for flows
+		return "flow_id", true
+	case models.Traps:
+		// Assuming trap_id or similar is the primary key for traps
+		return "", false
+	case models.Connections:
+		// Assuming connection_id or similar is the primary key for connections
+		return "", false
+	case models.Logs:
+		// Assuming log_id or similar is the primary key for logs
+		return "", false
+	case models.SweepResults:
+		// SweepResults is a versioned_kv stream
+		return "", false
+	case models.ICMPResults:
+		// ICMPResults is a versioned_kv stream
+		return "", false
+	case models.SNMPResults:
+		// SNMPResults is a versioned_kv stream
+		return "", false
+	default:
+		return "", false // Indicate LATEST is not supported for this entity or it's versioned_kv
+	}
+}
+
+// buildClickHouseQuery builds a SQL query for ClickHouse.
+func (t *Translator) buildClickHouseQuery(query *models.Query) (string, error) {
 	if query == nil {
-		return "", nilQueryError
+		return "", errCannotTranslateNilQueryClickHouse
 	}
 
 	var sql strings.Builder
 
+	// Note: LATEST is not applied to ClickHouse here.
 	switch query.Type {
 	case models.Show, models.Find:
 		sql.WriteString("SELECT * FROM ")
@@ -71,17 +108,11 @@ func (*Translator) toSQL(
 		sql.WriteString("SELECT COUNT(*) FROM ")
 	}
 
-	tableName := strings.ToLower(string(query.Entity))
-
-	if isStream {
-		tableName = fmt.Sprintf("table(%s)", tableName)
-	}
-
-	sql.WriteString(tableName)
+	sql.WriteString(strings.ToLower(string(query.Entity)))
 
 	if len(query.Conditions) > 0 {
 		sql.WriteString(" WHERE ")
-		sql.WriteString(whereBuilder(query.Conditions))
+		sql.WriteString(t.buildClickHouseWhere(query.Conditions))
 	}
 
 	if len(query.OrderBy) > 0 {
@@ -103,10 +134,156 @@ func (*Translator) toSQL(
 	}
 
 	if query.HasLimit {
-		sql.WriteString(fmt.Sprintf(" LIMIT %d", query.Limit))
+		fmt.Fprintf(&sql, " LIMIT %d", query.Limit)
 	}
 
 	return sql.String(), nil
+}
+
+// getProtonBaseTableName returns the base table name for a given entity type
+func (*Translator) getProtonBaseTableName(entity models.EntityType) string {
+	switch entity {
+	case models.Devices:
+		return "devices"
+	case models.Flows:
+		return "netflow_metrics"
+	case models.Interfaces:
+		return "discovered_interfaces"
+	case models.Traps:
+		return "traps"
+	case models.Connections:
+		return "connections"
+	case models.Logs:
+		return "logs"
+	case models.SweepResults:
+		return "sweep_results"
+	case models.ICMPResults:
+		return "icmp_results"
+	case models.SNMPResults:
+		return "snmp_results"
+	default:
+		return strings.ToLower(string(entity)) // Fallback
+	}
+}
+
+// validateLatestQuery checks if the LATEST query is valid for the given entity and query type
+func (t *Translator) validateLatestQuery(
+	entity models.EntityType, queryType models.QueryType) (primaryKey string, isValid bool, err error) {
+	// For non-versioned_kv streams (like 'discovered_interfaces'), use ROW_NUMBER()
+	primaryKey, ok := t.getEntityPrimaryKey(entity)
+	if !ok {
+		return "", false, fmt.Errorf("latest keyword not supported for entity '%s' "+
+			"without a defined primary key for Proton using ROW_NUMBER() method", entity)
+	}
+
+	if queryType == models.Count {
+		return "", false, fmt.Errorf("count with LATEST is not supported for " +
+			"non-versioned streams; consider 'SELECT count() FROM (SHOW <entity> LATEST)' in client side")
+	}
+
+	return primaryKey, true, nil
+}
+
+// buildLatestCTE constructs a Common Table Expression (CTE) for getting the latest records
+func (t *Translator) buildLatestCTE(sql *strings.Builder, query *models.Query, baseTableName, primaryKey string) {
+	// Construct the CTE with ROW_NUMBER()
+	// IMPORTANT: Added table() wrapper around baseTableName here
+	fmt.Fprintf(sql, "WITH filtered_data AS (\n  SELECT * FROM table(%s)", baseTableName)
+
+	if len(query.Conditions) > 0 {
+		sql.WriteString(" WHERE ")
+		sql.WriteString(t.buildProtonWhere(query.Conditions))
+	}
+
+	sql.WriteString("\n),\n")
+
+	fmt.Fprintf(sql,
+		"latest_records AS (\n  SELECT *, ROW_NUMBER() OVER (PARTITION BY %s "+
+			"ORDER BY _tp_time DESC) AS rn\n  FROM filtered_data\n)\n", primaryKey)
+
+	sql.WriteString("SELECT * EXCEPT rn FROM latest_records WHERE rn = 1")
+}
+
+// buildLatestProtonQuery builds a SQL query for Timeplus Proton with LATEST logic
+func (t *Translator) buildLatestProtonQuery(sql *strings.Builder, query *models.Query, baseTableName string) (string, error) {
+	// Handle 'devices' separately as it's a versioned_kv stream, naturally providing latest
+	if query.Entity == models.Devices {
+		t.buildStandardProtonQuery(sql, query, baseTableName)
+		return sql.String(), nil
+	}
+
+	// Validate the query for LATEST support
+	primaryKey, valid, err := t.validateLatestQuery(query.Entity, query.Type)
+	if !valid {
+		return "", err
+	}
+
+	// Build the CTE for latest records
+	t.buildLatestCTE(sql, query, baseTableName, primaryKey)
+
+	// As discussed, ORDER BY or LIMIT are implicitly ignored here for non-versioned streams with LATEST
+	// due to the streaming aggregation limitations.
+	return sql.String(), nil
+}
+
+// buildProtonQuery builds a SQL query for Timeplus Proton, handling LATEST logic.
+func (t *Translator) buildProtonQuery(query *models.Query) (string, error) {
+	if query == nil {
+		return "", errCannotTranslateNilQueryProton
+	}
+
+	var sql strings.Builder
+
+	baseTableName := t.getProtonBaseTableName(query.Entity)
+
+	if query.IsLatest {
+		return t.buildLatestProtonQuery(&sql, query, baseTableName)
+	}
+
+	// Non-LATEST Proton queries: return all historical records
+	t.buildStandardProtonQuery(&sql, query, baseTableName)
+
+	return sql.String(), nil
+}
+
+// buildStandardProtonQuery builds a standard Proton query with SELECT, FROM, WHERE, ORDER BY, and LIMIT clauses.
+// This helper function eliminates code duplication between different query paths.
+func (t *Translator) buildStandardProtonQuery(sql *strings.Builder, query *models.Query, baseTableName string) {
+	switch query.Type {
+	case models.Show, models.Find:
+		sql.WriteString("SELECT * FROM table(") // Added table() here
+	case models.Count:
+		sql.WriteString("SELECT COUNT(*) FROM table(") // Added table() here
+	}
+
+	sql.WriteString(baseTableName)
+	sql.WriteString(")") // Closing table()
+
+	if len(query.Conditions) > 0 {
+		sql.WriteString(" WHERE ")
+		sql.WriteString(t.buildProtonWhere(query.Conditions))
+	}
+
+	if len(query.OrderBy) > 0 {
+		sql.WriteString(" ORDER BY ")
+
+		var orderByParts []string
+
+		for _, item := range query.OrderBy {
+			direction := defaultAscending
+			if item.Direction == models.Descending {
+				direction = defaultDescending
+			}
+
+			orderByParts = append(orderByParts, fmt.Sprintf("%s %s", strings.ToLower(item.Field), direction))
+		}
+
+		sql.WriteString(strings.Join(orderByParts, ", "))
+	}
+
+	if query.HasLimit {
+		fmt.Fprintf(sql, " LIMIT %d", query.Limit)
+	}
 }
 
 // conditionFormatter defines a function to format a condition for a specific operator.
@@ -123,10 +300,60 @@ type conditionFormatters struct {
 	is         conditionFormatter
 }
 
-// formatCondition is a generic condition formatter for SQL databases.
-func (t *Translator) formatCondition(cond *models.Condition, formatters conditionFormatters) string {
-	fieldName := strings.ToLower(cond.Field)
+const (
+	defaultToday     = "TODAY"
+	defaultYesterday = "YESTERDAY"
+)
 
+// formatDateCondition handles date(field) = TODAY/YESTERDAY specifically
+func (t *Translator) formatDateCondition(_, translatedFieldName string, value interface{}) (string, bool) {
+	sVal, ok := value.(string)
+	if !ok {
+		return "", false
+	}
+
+	upperVal := strings.ToUpper(sVal)
+	if upperVal != defaultToday && upperVal != defaultYesterday {
+		return "", false
+	}
+
+	switch t.DBType {
+	case Proton, ClickHouse:
+		return t.formatProtonOrClickHouseDateCondition(translatedFieldName, upperVal), true
+	case ArangoDB:
+		return t.formatArangoDBDateCondition(translatedFieldName, upperVal), true
+	default:
+		return "", false
+	}
+}
+
+// formatProtonOrClickHouseDateCondition formats date conditions for Proton or ClickHouse
+func (*Translator) formatProtonOrClickHouseDateCondition(fieldName, dateValue string) string {
+	if dateValue == defaultToday {
+		return fmt.Sprintf("%s = today()", fieldName)
+	}
+
+	// Must be YESTERDAY based on validation in formatDateCondition
+	return fmt.Sprintf("%s = yesterday()", fieldName)
+}
+
+// formatArangoDBDateCondition formats date conditions for ArangoDB
+func (*Translator) formatArangoDBDateCondition(fieldName, dateValue string) string {
+	now := time.Now() // Consider passing time via context for testability
+
+	if dateValue == defaultToday {
+		todayDateStr := now.Format("2006-01-02")
+		return fmt.Sprintf("%s = '%s'", fieldName, todayDateStr)
+	}
+
+	// Must be YESTERDAY based on validation in formatDateCondition
+	yesterdayDateStr := now.AddDate(0, 0, -1).Format("2006-01-02")
+
+	return fmt.Sprintf("%s = '%s'", fieldName, yesterdayDateStr)
+}
+
+// formatOperatorCondition formats a condition based on its operator
+func (t *Translator) formatOperatorCondition(fieldName string, cond *models.Condition, formatters conditionFormatters) string {
 	switch {
 	case t.isComparisonOperator(cond.Operator):
 		return formatters.comparison(fieldName, cond.Operator, cond.Value)
@@ -143,6 +370,27 @@ func (t *Translator) formatCondition(cond *models.Condition, formatters conditio
 	default:
 		return ""
 	}
+}
+
+// formatCondition is a generic condition formatter for SQL databases.
+func (t *Translator) formatCondition(cond *models.Condition, formatters conditionFormatters) string {
+	rawFieldName := cond.Field // Can be "field" or "func(field)"
+	operator := cond.Operator
+	rawValue := cond.Value
+
+	// Handle date(field) = TODAY/YESTERDAY specifically
+	if lowerRawFieldName := strings.ToLower(rawFieldName); strings.HasPrefix(lowerRawFieldName, "date(") &&
+		operator == models.Equals {
+		translatedFieldName := t.translateFieldName(rawFieldName, t.DBType == ArangoDB) // pass Arango context
+		if result, handled := t.formatDateCondition(rawFieldName, translatedFieldName, rawValue); handled {
+			return result
+		}
+	}
+
+	// Fallback to existing generic formatters
+	fieldName := t.translateFieldName(rawFieldName, t.DBType == ArangoDB && !strings.Contains(rawFieldName, "("))
+
+	return t.formatOperatorCondition(fieldName, cond, formatters)
 }
 
 // buildProtonWhere builds a WHERE clause for Proton SQL.
@@ -190,7 +438,26 @@ func (*Translator) isComparisonOperator(op models.OperatorType) bool {
 
 // formatComparisonCondition formats a basic comparison condition.
 func (t *Translator) formatComparisonCondition(fieldName string, op models.OperatorType, value interface{}) string {
-	return fmt.Sprintf("%s %s %s", fieldName, op, t.formatClickHouseValue(value)) // Reuse ClickHouse value formatter for both
+	// fieldName is now pre-translated if it was a function like to_date(timestamp)
+	// or doc.field for Arango.
+	// Value is the original value from the query (e.g. "some_string", 123)
+	// It does NOT include "TODAY" or "YESTERDAY" here if handled above.
+	return fmt.Sprintf("%s %s %s", fieldName, op, t.formatGenericValue(value, t.DBType))
+}
+
+func (t *Translator) formatGenericValue(value interface{}, dbType DatabaseType) string {
+	// This function should handle basic types correctly for each DB.
+	// It should NOT re-interpret "TODAY" or "YESTERDAY" as they are handled earlier.
+	switch dbType {
+	case Proton:
+		return t.formatProtonValue(value)
+	case ClickHouse:
+		return t.formatClickHouseValue(value)
+	case ArangoDB:
+		return t.formatArangoDBValue(value)
+	default:
+		return fmt.Sprintf("%v", value) // Basic fallback
+	}
 }
 
 // formatProtonLikeCondition formats a LIKE condition.
@@ -381,27 +648,81 @@ func (t *Translator) buildArangoDBFilter(conditions []models.Condition) string {
 }
 
 // formatArangoDBCondition formats a single condition for ArangoDB AQL.
+// It specifically handles the translation of SRQL `date(field) = 'value'` (where value can be TODAY, YESTERDAY, or a date string)
+// into the correct AQL `SUBSTRING(doc.field, 0, 10) = 'YYYY-MM-DD'`.
+// For other operators or fields not matching this pattern, it delegates to other specific helper functions.
 func (t *Translator) formatArangoDBCondition(cond *models.Condition) string {
-	fieldName := strings.ToLower(cond.Field)
+	// srqlFieldName is the raw field identifier from the SRQL query, lowercased.
+	// Examples: "status", "ip", "date(timestamp)", "some_other_function(field)"
+	srqlFieldName := strings.ToLower(cond.Field)
 
+	// Special handling for: date(any_field) = 'date_string_or_keyword'
+	// This is the primary fix for the failing ArangoDB test cases.
+	if strings.HasPrefix(srqlFieldName, "date(") &&
+		strings.HasSuffix(srqlFieldName, ")") &&
+		cond.Operator == models.Equals {
+		// Extract the actual field name from inside "date(...)"
+		// e.g., "date(timestamp)" becomes "timestamp"
+		innerField := strings.TrimSuffix(strings.TrimPrefix(srqlFieldName, "date("), ")")
+
+		// Construct the ArangoDB Left Hand Side (LHS) for date comparison using SUBSTRING.
+		// e.g., "SUBSTRING(doc.timestamp, 0, 10)"
+		arangoLHS := fmt.Sprintf("SUBSTRING(doc.%s, 0, 10)", innerField)
+
+		// The value (cond.Value) from SRQL should be a string: "TODAY", "YESTERDAY", or a literal date "YYYY-MM-DD".
+		dateValueString, ok := cond.Value.(string)
+		if !ok {
+			log.Println("Warning: Expected string value for date condition, got:", cond.Value)
+		} else {
+			// Handle SRQL keywords TODAY, YESTERDAY, or a literal date string.
+			now := time.Now() // For testability, this could be injected (e.g., via Translator or context).
+			todayDateStr := now.Format("2006-01-02")
+			yesterdayDateStr := now.AddDate(0, 0, -1).Format("2006-01-02")
+
+			switch strings.ToUpper(dateValueString) {
+			case defaultToday:
+				return fmt.Sprintf("%s == '%s'", arangoLHS, todayDateStr)
+			case defaultYesterday:
+				return fmt.Sprintf("%s == '%s'", arangoLHS, yesterdayDateStr)
+			default:
+				// Assumes dateValueString is a literal date like "2023-10-20".
+				// t.formatArangoDBValue will handle quoting if it's a string.
+				return fmt.Sprintf("%s == %s", arangoLHS, t.formatArangoDBValue(dateValueString))
+			}
+		}
+	}
+
+	// Fallback for all other conditions:
+	// - Conditions not matching the "date(...) = 'string_value'" pattern.
+	// - Conditions using operators other than models.Equals.
+	// These will use the existing helper functions. These helpers typically expect
+	// the srqlFieldName and prepend "doc." to it. If srqlFieldName is "date(timestamp)",
+	// they might produce "doc.date(timestamp)" which is not the SUBSTRING version.
+	// This part of the code remains consistent with the behavior *before* this specific fix,
+	// meaning other function translations or uses with other operators might still need refinement
+	// in those respective helper functions.
 	switch cond.Operator {
 	case models.Equals:
-		return t.formatArangoDBEqualsCondition(fieldName, cond.Value)
+		// This case is reached if the specific date equality logic above was not triggered.
+		// e.g., field is not date(), operator is not equals, or value was not a string for date().
+		return t.formatArangoDBEqualsCondition(srqlFieldName, cond.Value)
 	case models.NotEquals:
-		return t.formatArangoDBNotEqualsCondition(fieldName, cond.Value)
+		return t.formatArangoDBNotEqualsCondition(srqlFieldName, cond.Value)
 	case models.GreaterThan, models.GreaterThanOrEquals, models.LessThan, models.LessThanOrEquals:
-		return t.formatArangoDBComparisonCondition(fieldName, cond.Operator, cond.Value)
+		return t.formatArangoDBComparisonCondition(srqlFieldName, cond.Operator, cond.Value)
 	case models.Like:
-		return t.formatArangoDBLikeCondition(fieldName, cond.Value)
+		return t.formatArangoDBLikeCondition(srqlFieldName, cond.Value)
 	case models.Contains:
-		return t.formatArangoDBContainsCondition(fieldName, cond.Value)
+		return t.formatArangoDBContainsCondition(srqlFieldName, cond.Value)
 	case models.In:
-		return t.formatArangoDBInCondition(fieldName, cond.Values)
+		return t.formatArangoDBInCondition(srqlFieldName, cond.Values)
 	case models.Between:
-		return t.formatArangoDBBetweenCondition(fieldName, cond.Values)
+		return t.formatArangoDBBetweenCondition(srqlFieldName, cond.Values)
 	case models.Is:
-		return t.formatArangoDBIsCondition(fieldName, cond.Value)
+		return t.formatArangoDBIsCondition(srqlFieldName, cond.Value)
 	default:
+		// Fallback for any unhandled operator.
+		// Consider logging an error or returning a specific error value.
 		return ""
 	}
 }
@@ -515,6 +836,41 @@ func (*Translator) formatArangoDBValue(value interface{}) string {
 	default:
 		return fmt.Sprintf("%v", v)
 	}
+}
+
+func (t *Translator) translateFieldName(fieldName string, forArangoDoc bool) string {
+	lowerFieldName := strings.ToLower(fieldName)
+
+	if strings.HasPrefix(lowerFieldName, "date(") && strings.HasSuffix(lowerFieldName, ")") {
+		// Extract actual field name from "date(actual_field)"
+		innerField := strings.TrimSuffix(strings.TrimPrefix(lowerFieldName, "date("), ")")
+
+		if t.DBType == Proton {
+			return fmt.Sprintf("to_date(%s)", innerField)
+		}
+
+		if t.DBType == ClickHouse {
+			return fmt.Sprintf("toDate(%s)", innerField) // Use toDate for ClickHouse
+		}
+
+		if t.DBType == ArangoDB {
+			// For ArangoDB, if timestamp is stored as ISO8601 string.
+			// This extracts 'YYYY-MM-DD' part.
+			// AQL's DATE_TRUNC might be better if available and applicable.
+			if forArangoDoc {
+				return fmt.Sprintf("SUBSTRING(doc.%s, 0, 10)", innerField)
+			}
+
+			return fmt.Sprintf("SUBSTRING(%s, 0, 10)", innerField) // For general use if not in doc context
+		}
+	}
+
+	// Default field handling (lowercase and prefix for ArangoDB)
+	if t.DBType == ArangoDB && forArangoDoc && !strings.Contains(lowerFieldName, ".") { // simple field for arango
+		return fmt.Sprintf("doc.%s", lowerFieldName)
+	}
+
+	return lowerFieldName
 }
 
 // translateOperator maps operator types to their string representations

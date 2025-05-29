@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package discovery;
 
+import "google/protobuf/wrappers.proto"; // Import the wrappers
+
 option go_package = "github.com/carverauto/serviceradar/proto";
 
 // DiscoveryService defines the gRPC interface for network discovery
@@ -14,11 +16,23 @@ service DiscoveryService {
 
   // GetDiscoveryResults retrieves results from a previously initiated discovery
   rpc GetDiscoveryResults(ResultsRequest) returns (ResultsResponse) {}
+
+  // GetLatestCachedResults retrieves the latest cached results of discovery operations
+  rpc GetLatestCachedResults(GetLatestCachedResultsRequest) returns (ResultsResponse) {}
+}
+
+message GetLatestCachedResultsRequest {
+  string agent_id = 1;      // ID of the agent requesting
+  string poller_id = 2;     // ID of the poller requesting
+  bool include_raw_data = 3; // Whether to include raw SNMP data
+  // string scope = 4; // Optional: if mapper has multiple internal scheduled jobs/scopes
 }
 
 // StatusRequest is used to query the status of the discovery service
 message StatusRequest {
   string discovery_id = 1;  // Optional: if provided, get status of specific discovery job
+  string agent_id = 2;      // ID of the agent requesting status
+  string poller_id = 3;     // ID of the poller requesting status
 }
 
 // StatusResponse contains information about the discovery service status
@@ -91,6 +105,7 @@ message ResultsResponse {
   repeated TopologyLink topology = 5;     // List of topology links
   string error = 6;                       // Error message, if any
   float progress = 7;                     // Progress percentage (0-100)
+  map<string, string> metadata = 8;
 }
 
 // DiscoveryStatus describes the current state of a discovery job
@@ -119,18 +134,18 @@ message DiscoveredDevice {
 // DiscoveredInterface represents a discovered network interface
 message DiscoveredInterface {
   string device_ip = 1;           // IP address of the parent device
-  int32 if_index = 2;             // Interface index
-  string if_name = 3;             // Interface name
-  string if_descr = 4;            // Interface description
-  string if_alias = 5;            // Interface alias
-  int64 if_speed = 6;             // Interface speed in bits per second
-  string if_phys_address = 7;     // Interface physical (MAC) address
-  repeated string ip_addresses = 8; // IP addresses assigned to this interface
-  int32 if_admin_status = 9;      // Administrative status (1=up, 2=down)
-  int32 if_oper_status = 10;      // Operational status (1=up, 2=down)
-  int32 if_type = 11;             // Interface type
-  map<string, string> metadata = 12; // Additional metadata
-  string device_id = 13;             // ID of the device this interface belongs to
+  string device_id = 2;
+  int32 if_index = 3;             // Interface index
+  string if_name = 4;             // Interface name
+  string if_descr = 5;            // Interface description
+  string if_alias = 6;            // Interface alias
+  google.protobuf.UInt64Value if_speed = 7; // Interface speed in bits per second, optional
+  string if_phys_address = 8;     // Interface physical (MAC) address
+  repeated string ip_addresses = 9; // IP addresses assigned to this interface
+  int32 if_admin_status = 10;      // Administrative status (1=up, 2=down)
+  int32 if_oper_status = 11;      // Operational status (1=up, 2=down)
+  int32 if_type = 12;             // Interface type
+  map<string, string> metadata = 13; // Additional metadata
 }
 
 // TopologyLink represents a discovered link between two devices

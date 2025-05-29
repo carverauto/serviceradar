@@ -20,7 +20,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/db"
@@ -56,6 +55,7 @@ func (p *ProtonPublisher) PublishDevice(ctx context.Context, device *DiscoveredD
 	metadata["sys_contact"] = device.SysContact
 	metadata["sys_location"] = device.SysLocation
 	metadata["uptime"] = fmt.Sprintf("%d", device.Uptime)
+	metadata["device_id"] = device.DeviceID
 
 	// Add any additional metadata
 	for k, v := range device.Metadata {
@@ -63,7 +63,7 @@ func (p *ProtonPublisher) PublishDevice(ctx context.Context, device *DiscoveredD
 	}
 
 	// Create sweep result
-	result := &db.SweepResult{
+	result := &models.SweepResult{
 		AgentID:         p.config.AgentID,
 		PollerID:        p.config.PollerID,
 		DiscoverySource: "snmp_discovery",
@@ -76,12 +76,10 @@ func (p *ProtonPublisher) PublishDevice(ctx context.Context, device *DiscoveredD
 	}
 
 	// Publish to Proton using the existing db.Service method
-	results := []*db.SweepResult{result}
+	results := []*models.SweepResult{result}
 	if err := p.dbService.StoreSweepResults(ctx, results); err != nil {
 		return fmt.Errorf("failed to publish device to sweep_results: %w", err)
 	}
-
-	log.Printf("Published device %s (%s) to sweep_results stream", device.IP, device.Hostname)
 
 	return nil
 }
@@ -134,9 +132,6 @@ func (p *ProtonPublisher) PublishInterface(ctx context.Context, iface *Discovere
 		return fmt.Errorf("failed to publish interface to discovered_interfaces: %w", err)
 	}
 
-	log.Printf("Published interface %s (%d) for device %s to discovered_interfaces stream",
-		iface.IfName, iface.IfIndex, iface.DeviceIP)
-
 	return nil
 }
 
@@ -180,9 +175,6 @@ func (p *ProtonPublisher) PublishTopologyLink(ctx context.Context, link *Topolog
 		return fmt.Errorf("failed to publish topology link to topology_discovery_events: %w", err)
 	}
 
-	log.Printf("Published topology link between %s:%s and %s:%s to topology_discovery_events stream",
-		link.LocalDeviceIP, link.LocalIfName, link.NeighborSystemName, link.NeighborPortID)
-
 	return nil
 }
 
@@ -193,7 +185,7 @@ func (p *ProtonPublisher) PublishBatchDevices(ctx context.Context, devices []*Di
 	}
 
 	// Convert all devices to sweep results
-	results := make([]*db.SweepResult, len(devices))
+	results := make([]*models.SweepResult, len(devices))
 
 	for i, device := range devices {
 		// Create metadata
@@ -213,7 +205,7 @@ func (p *ProtonPublisher) PublishBatchDevices(ctx context.Context, devices []*Di
 		hostname := device.Hostname
 		mac := device.MAC
 
-		results[i] = &db.SweepResult{
+		results[i] = &models.SweepResult{
 			AgentID:         p.config.AgentID,
 			PollerID:        p.config.PollerID,
 			DiscoverySource: "snmp_discovery",
@@ -230,8 +222,6 @@ func (p *ProtonPublisher) PublishBatchDevices(ctx context.Context, devices []*Di
 	if err := p.dbService.StoreSweepResults(ctx, results); err != nil {
 		return fmt.Errorf("failed to publish batch devices: %w", err)
 	}
-
-	log.Printf("Published batch of %d devices to sweep_results stream", len(devices))
 
 	return nil
 }

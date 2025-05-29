@@ -103,13 +103,13 @@ func (s *APIServer) getSysmonMetrics(
 	// log metrics based on type
 	switch metricType {
 	case "CPU":
-		log.Printf("Fetched %d CPU metrics for poller %s", len(metrics.([]db.SysmonCPUResponse)), pollerID)
+		log.Printf("Fetched %d CPU metrics for poller %s", len(metrics.([]models.SysmonCPUResponse)), pollerID)
 	case "memory":
-		log.Printf("Fetched %d memory metrics for poller %s", len(metrics.([]db.SysmonMemoryResponse)), pollerID)
+		log.Printf("Fetched %d memory metrics for poller %s", len(metrics.([]models.SysmonMemoryResponse)), pollerID)
 	case "disk":
-		log.Printf("Fetched %d disk metrics for poller %s", len(metrics.([]db.SysmonDiskResponse)), pollerID)
+		log.Printf("Fetched %d disk metrics for poller %s", len(metrics.([]models.SysmonDiskResponse)), pollerID)
 	default:
-		log.Printf("Fetched %d unknown metrics for poller %s", len(metrics.([]db.SysmonDiskResponse)), pollerID)
+		log.Printf("Fetched %d unknown metrics for poller %s", len(metrics.([]models.SysmonDiskResponse)), pollerID)
 		return
 	}
 
@@ -139,7 +139,7 @@ func (s *APIServer) getSysmonMetrics(
 // @Security ApiKeyAuth
 func (s *APIServer) getSysmonCPUMetrics(w http.ResponseWriter, r *http.Request) {
 	fetch := func(ctx context.Context, provider db.SysmonMetricsProvider, pollerID string, startTime, endTime time.Time) (interface{}, error) {
-		return fetchMetrics[db.SysmonCPUResponse](ctx, pollerID, startTime, endTime, provider.GetAllCPUMetrics)
+		return fetchMetrics[models.SysmonCPUResponse](ctx, pollerID, startTime, endTime, provider.GetAllCPUMetrics)
 	}
 	s.getSysmonMetrics(w, r, fetch, "CPU")
 }
@@ -152,7 +152,7 @@ func (s *APIServer) getSysmonCPUMetrics(w http.ResponseWriter, r *http.Request) 
 // @Param id path string true "Poller ID"
 // @Param start query string false "Start time in RFC3339 format (default: 24h ago)"
 // @Param end query string false "End time in RFC3339 format (default: now)"
-// @Success 200 {array} db.SysmonMemoryResponse "Memory metrics data grouped by timestamp"
+// @Success 200 {array} models.SysmonMemoryResponse "Memory metrics data grouped by timestamp"
 // @Failure 400 {object} models.ErrorResponse "Invalid request parameters"
 // @Failure 404 {object} models.ErrorResponse "No metrics found"
 // @Failure 500 {object} models.ErrorResponse "Internal server error"
@@ -161,7 +161,7 @@ func (s *APIServer) getSysmonCPUMetrics(w http.ResponseWriter, r *http.Request) 
 // @Security ApiKeyAuth
 func (s *APIServer) getSysmonMemoryMetrics(w http.ResponseWriter, r *http.Request) {
 	fetch := func(ctx context.Context, provider db.SysmonMetricsProvider, pollerID string, startTime, endTime time.Time) (interface{}, error) {
-		return fetchMetrics[db.SysmonMemoryResponse](ctx, pollerID, startTime, endTime, provider.GetMemoryMetricsGrouped)
+		return fetchMetrics[models.SysmonMemoryResponse](ctx, pollerID, startTime, endTime, provider.GetMemoryMetricsGrouped)
 	}
 
 	s.getSysmonMetrics(w, r, fetch, "memory")
@@ -187,7 +187,7 @@ func (*APIServer) fetchDiskMetrics(
 		return groupDiskMetricsByTimestamp(metrics.([]models.DiskMetric)), nil
 	}
 
-	return fetchMetrics[db.SysmonDiskResponse](ctx, pollerID, startTime, endTime, provider.GetAllDiskMetricsGrouped)
+	return fetchMetrics[models.SysmonDiskResponse](ctx, pollerID, startTime, endTime, provider.GetAllDiskMetricsGrouped)
 }
 
 // @Summary Get disk metrics
@@ -199,7 +199,7 @@ func (*APIServer) fetchDiskMetrics(
 // @Param mount_point query string false "Filter by specific mount point"
 // @Param start query string false "Start time in RFC3339 format (default: 24h ago)"
 // @Param end query string false "End time in RFC3339 format (default: now)"
-// @Success 200 {array} db.SysmonDiskResponse "Disk metrics data grouped by timestamp"
+// @Success 200 {array} models.SysmonDiskResponse "Disk metrics data grouped by timestamp"
 // @Failure 400 {object} models.ErrorResponse "Invalid request parameters"
 // @Failure 404 {object} models.ErrorResponse "No metrics found"
 // @Failure 500 {object} models.ErrorResponse "Internal server error"
@@ -218,7 +218,7 @@ func (s *APIServer) getSysmonDiskMetrics(w http.ResponseWriter, r *http.Request)
 
 // groupDiskMetricsByTimestamp groups a slice of DiskMetric by timestamp into SysmonDiskResponse.
 // @ignore This is an internal helper function, not directly exposed as an API endpoint
-func groupDiskMetricsByTimestamp(metrics []models.DiskMetric) []db.SysmonDiskResponse {
+func groupDiskMetricsByTimestamp(metrics []models.DiskMetric) []models.SysmonDiskResponse {
 	// Map to group metrics by timestamp
 	timestampMap := make(map[time.Time][]models.DiskMetric)
 
@@ -229,10 +229,10 @@ func groupDiskMetricsByTimestamp(metrics []models.DiskMetric) []db.SysmonDiskRes
 	}
 
 	// Convert to SysmonDiskResponse
-	result := make([]db.SysmonDiskResponse, 0, len(timestampMap))
+	result := make([]models.SysmonDiskResponse, 0, len(timestampMap))
 
 	for ts, disks := range timestampMap {
-		result = append(result, db.SysmonDiskResponse{
+		result = append(result, models.SysmonDiskResponse{
 			Timestamp: ts,
 			Disks:     disks,
 		})

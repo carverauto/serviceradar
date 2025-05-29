@@ -34,7 +34,12 @@ type ServiceStatus struct {
 	// Type of service (e.g., "process", "port", "database", etc.)
 	Type string `json:"type" example:"database"`
 	// Detailed service-specific information as a JSON object
-	Details json.RawMessage `json:"details,omitempty"`
+	Details     json.RawMessage `json:"details,omitempty"`
+	PollerID    string          `json:"poller_id" example:"poller-prod-east-01"`
+	AgentID     string          `json:"agent_id" example:"agent-prod-east-01"`
+	ServiceName string          `json:"service_name" example:"postgres"`
+	ServiceType string          `json:"service_type" example:"database"`
+	Timestamp   time.Time       `json:"timestamp" example:"2020-11-10T23:00:00+09:00"`
 }
 
 // PollerStatus represents the status of a poller.

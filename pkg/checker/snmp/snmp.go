@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+// Package snmp pkg/checker/snmp/snmp.go
 package snmp
 
 import (
@@ -24,22 +25,41 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/db"
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-// SNMPMetricsManager implements the SNMPManager interface for handling SNMP metrics.
-type SNMPMetricsManager struct {
+// MetricsManager implements the SNMPManager interface for handling SNMP metrics.
+type MetricsManager struct {
 	db db.Service
 }
 
 // NewSNMPManager creates a new SNMPManager instance.
 func NewSNMPManager(d db.Service) SNMPManager {
-	return &SNMPMetricsManager{
+	return &MetricsManager{
 		db: d,
 	}
 }
 
+// parseMetadata extracts a map from a JSON string metadata
+func parseMetadata(metadataStr, metricName, pollerID string) (map[string]interface{}, bool) {
+	if metadataStr == "" {
+		log.Printf("Warning: empty metadata for metric %s on poller %s", metricName, pollerID)
+		return nil, false
+	}
+
+	var metadata map[string]interface{}
+
+	if err := json.Unmarshal([]byte(metadataStr), &metadata); err != nil {
+		log.Printf("Failed to unmarshal metadata for metric %s on poller %s: %v", metricName, pollerID, err)
+		return nil, false
+	}
+
+	return metadata, true
+}
+
 // GetSNMPMetrics fetches SNMP metrics from the database for a given poller.
-func (s *SNMPMetricsManager) GetSNMPMetrics(ctx context.Context, pollerID string, startTime, endTime time.Time) ([]db.SNMPMetric, error) {
+func (s *MetricsManager) GetSNMPMetrics(
+	ctx context.Context, pollerID string, startTime, endTime time.Time) ([]models.SNMPMetric, error) {
 	log.Printf("Fetching SNMP metrics for poller %s from %v to %v", pollerID, startTime, endTime)
 
 	metrics, err := s.db.GetMetricsByType(ctx, pollerID, "snmp", startTime, endTime)
@@ -47,28 +67,21 @@ func (s *SNMPMetricsManager) GetSNMPMetrics(ctx context.Context, pollerID string
 		return nil, fmt.Errorf("failed to query SNMP metrics: %w", err)
 	}
 
-	snmpMetrics := make([]db.SNMPMetric, 0, len(metrics))
+	snmpMetrics := make([]models.SNMPMetric, 0, len(metrics))
 
-	for _, m := range metrics {
-		snmpMetric := db.SNMPMetric{
-			OIDName:   m.Name,
-			Value:     m.Value,
-			ValueType: m.Type,
-			Timestamp: m.Timestamp,
+	for i := range metrics {
+		snmpMetric := models.SNMPMetric{
+			OIDName:   metrics[i].Name,
+			Value:     metrics[i].Value,
+			ValueType: metrics[i].Type,
+			Timestamp: metrics[i].Timestamp,
 			Scale:     1.0, // Default value
 			IsDelta:   false,
 		}
 
 		// Extract scale and is_delta from metadata
-		if m.Metadata != nil {
-			var metadata map[string]interface{}
-
-			if err := json.Unmarshal(m.Metadata.(json.RawMessage), &metadata); err != nil {
-				log.Printf("Failed to unmarshal metadata for metric %s on poller %s: %v", m.Name, pollerID, err)
-
-				continue
-			}
-
+		metadata, ok := parseMetadata(metrics[i].Metadata, metrics[i].Name, pollerID)
+		if ok {
 			if scale, ok := metadata["scale"].(float64); ok {
 				snmpMetric.Scale = scale
 			}

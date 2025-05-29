@@ -91,10 +91,10 @@ func (mr *MockServiceMockRecorder) ExecuteQuery(ctx, query any, params ...any) *
 }
 
 // GetAllCPUMetrics mocks base method.
-func (m *MockService) GetAllCPUMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]SysmonCPUResponse, error) {
+func (m *MockService) GetAllCPUMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonCPUResponse, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetAllCPUMetrics", ctx, pollerID, start, end)
-	ret0, _ := ret[0].([]SysmonCPUResponse)
+	ret0, _ := ret[0].([]models.SysmonCPUResponse)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -121,10 +121,10 @@ func (mr *MockServiceMockRecorder) GetAllDiskMetrics(ctx, pollerID, start, end a
 }
 
 // GetAllDiskMetricsGrouped mocks base method.
-func (m *MockService) GetAllDiskMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]SysmonDiskResponse, error) {
+func (m *MockService) GetAllDiskMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonDiskResponse, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetAllDiskMetricsGrouped", ctx, pollerID, start, end)
-	ret0, _ := ret[0].([]SysmonDiskResponse)
+	ret0, _ := ret[0].([]models.SysmonDiskResponse)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -196,10 +196,10 @@ func (mr *MockServiceMockRecorder) GetMemoryMetrics(ctx, pollerID, start, end an
 }
 
 // GetMemoryMetricsGrouped mocks base method.
-func (m *MockService) GetMemoryMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]SysmonMemoryResponse, error) {
+func (m *MockService) GetMemoryMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonMemoryResponse, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetMemoryMetricsGrouped", ctx, pollerID, start, end)
-	ret0, _ := ret[0].([]SysmonMemoryResponse)
+	ret0, _ := ret[0].([]models.SysmonMemoryResponse)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -211,10 +211,10 @@ func (mr *MockServiceMockRecorder) GetMemoryMetricsGrouped(ctx, pollerID, start,
 }
 
 // GetMetrics mocks base method.
-func (m *MockService) GetMetrics(ctx context.Context, pollerID, metricName string, start, end time.Time) ([]TimeseriesMetric, error) {
+func (m *MockService) GetMetrics(ctx context.Context, pollerID, metricName string, start, end time.Time) ([]models.TimeseriesMetric, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetMetrics", ctx, pollerID, metricName, start, end)
-	ret0, _ := ret[0].([]TimeseriesMetric)
+	ret0, _ := ret[0].([]models.TimeseriesMetric)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -226,10 +226,10 @@ func (mr *MockServiceMockRecorder) GetMetrics(ctx, pollerID, metricName, start, 
 }
 
 // GetMetricsByType mocks base method.
-func (m *MockService) GetMetricsByType(ctx context.Context, pollerID, metricType string, start, end time.Time) ([]TimeseriesMetric, error) {
+func (m *MockService) GetMetricsByType(ctx context.Context, pollerID, metricType string, start, end time.Time) ([]models.TimeseriesMetric, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetMetricsByType", ctx, pollerID, metricType, start, end)
-	ret0, _ := ret[0].([]TimeseriesMetric)
+	ret0, _ := ret[0].([]models.TimeseriesMetric)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -256,10 +256,10 @@ func (mr *MockServiceMockRecorder) GetPollerHistory(ctx, pollerID any) *gomock.C
 }
 
 // GetPollerHistoryPoints mocks base method.
-func (m *MockService) GetPollerHistoryPoints(ctx context.Context, pollerID string, limit int) ([]PollerHistoryPoint, error) {
+func (m *MockService) GetPollerHistoryPoints(ctx context.Context, pollerID string, limit int) ([]models.PollerHistoryPoint, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetPollerHistoryPoints", ctx, pollerID, limit)
-	ret0, _ := ret[0].([]PollerHistoryPoint)
+	ret0, _ := ret[0].([]models.PollerHistoryPoint)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -271,10 +271,10 @@ func (mr *MockServiceMockRecorder) GetPollerHistoryPoints(ctx, pollerID, limit a
 }
 
 // GetPollerServices mocks base method.
-func (m *MockService) GetPollerServices(ctx context.Context, pollerID string) ([]ServiceStatus, error) {
+func (m *MockService) GetPollerServices(ctx context.Context, pollerID string) ([]models.ServiceStatus, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetPollerServices", ctx, pollerID)
-	ret0, _ := ret[0].([]ServiceStatus)
+	ret0, _ := ret[0].([]models.ServiceStatus)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -301,10 +301,10 @@ func (mr *MockServiceMockRecorder) GetPollerStatus(ctx, pollerID any) *gomock.Ca
 }
 
 // GetServiceHistory mocks base method.
-func (m *MockService) GetServiceHistory(ctx context.Context, pollerID, serviceName string, limit int) ([]ServiceStatus, error) {
+func (m *MockService) GetServiceHistory(ctx context.Context, pollerID, serviceName string, limit int) ([]models.ServiceStatus, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetServiceHistory", ctx, pollerID, serviceName, limit)
-	ret0, _ := ret[0].([]ServiceStatus)
+	ret0, _ := ret[0].([]models.ServiceStatus)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -447,7 +447,7 @@ func (mr *MockServiceMockRecorder) PublishTopologyDiscoveryEvent(ctx, event any)
 }
 
 // StoreMetric mocks base method.
-func (m *MockService) StoreMetric(ctx context.Context, pollerID string, metric *TimeseriesMetric) error {
+func (m *MockService) StoreMetric(ctx context.Context, pollerID string, metric *models.TimeseriesMetric) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "StoreMetric", ctx, pollerID, metric)
 	ret0, _ := ret[0].(error)
@@ -461,7 +461,7 @@ func (mr *MockServiceMockRecorder) StoreMetric(ctx, pollerID, metric any) *gomoc
 }
 
 // StoreMetrics mocks base method.
-func (m *MockService) StoreMetrics(ctx context.Context, pollerID string, metrics []*TimeseriesMetric) error {
+func (m *MockService) StoreMetrics(ctx context.Context, pollerID string, metrics []*models.TimeseriesMetric) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "StoreMetrics", ctx, pollerID, metrics)
 	ret0, _ := ret[0].(error)
@@ -503,7 +503,7 @@ func (mr *MockServiceMockRecorder) StoreRperfMetrics(ctx, pollerID, serviceName,
 }
 
 // StoreSweepResults mocks base method.
-func (m *MockService) StoreSweepResults(ctx context.Context, results []*SweepResult) error {
+func (m *MockService) StoreSweepResults(ctx context.Context, results []*models.SweepResult) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "StoreSweepResults", ctx, results)
 	ret0, _ := ret[0].(error)
@@ -559,7 +559,7 @@ func (mr *MockServiceMockRecorder) UpdatePollerStatus(ctx, status any) *gomock.C
 }
 
 // UpdateServiceStatus mocks base method.
-func (m *MockService) UpdateServiceStatus(ctx context.Context, status *ServiceStatus) error {
+func (m *MockService) UpdateServiceStatus(ctx context.Context, status *models.ServiceStatus) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateServiceStatus", ctx, status)
 	ret0, _ := ret[0].(error)
@@ -573,7 +573,7 @@ func (mr *MockServiceMockRecorder) UpdateServiceStatus(ctx, status any) *gomock.
 }
 
 // UpdateServiceStatuses mocks base method.
-func (m *MockService) UpdateServiceStatuses(ctx context.Context, statuses []*ServiceStatus) error {
+func (m *MockService) UpdateServiceStatuses(ctx context.Context, statuses []*models.ServiceStatus) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateServiceStatuses", ctx, statuses)
 	ret0, _ := ret[0].(error)
@@ -611,10 +611,10 @@ func (m *MockSysmonMetricsProvider) EXPECT() *MockSysmonMetricsProviderMockRecor
 }
 
 // GetAllCPUMetrics mocks base method.
-func (m *MockSysmonMetricsProvider) GetAllCPUMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]SysmonCPUResponse, error) {
+func (m *MockSysmonMetricsProvider) GetAllCPUMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonCPUResponse, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetAllCPUMetrics", ctx, pollerID, start, end)
-	ret0, _ := ret[0].([]SysmonCPUResponse)
+	ret0, _ := ret[0].([]models.SysmonCPUResponse)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -641,10 +641,10 @@ func (mr *MockSysmonMetricsProviderMockRecorder) GetAllDiskMetrics(ctx, pollerID
 }
 
 // GetAllDiskMetricsGrouped mocks base method.
-func (m *MockSysmonMetricsProvider) GetAllDiskMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]SysmonDiskResponse, error) {
+func (m *MockSysmonMetricsProvider) GetAllDiskMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonDiskResponse, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetAllDiskMetricsGrouped", ctx, pollerID, start, end)
-	ret0, _ := ret[0].([]SysmonDiskResponse)
+	ret0, _ := ret[0].([]models.SysmonDiskResponse)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -716,10 +716,10 @@ func (mr *MockSysmonMetricsProviderMockRecorder) GetMemoryMetrics(ctx, pollerID,
 }
 
 // GetMemoryMetricsGrouped mocks base method.
-func (m *MockSysmonMetricsProvider) GetMemoryMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]SysmonMemoryResponse, error) {
+func (m *MockSysmonMetricsProvider) GetMemoryMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonMemoryResponse, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetMemoryMetricsGrouped", ctx, pollerID, start, end)
-	ret0, _ := ret[0].([]SysmonMemoryResponse)
+	ret0, _ := ret[0].([]models.SysmonMemoryResponse)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
