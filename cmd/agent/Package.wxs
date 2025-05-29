@@ -1,0 +1,44 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Id="CarverAuto.ServiceRadar_Agent" Name="ServiceRadar Agent" 
+           Manufacturer="Carver Automation" Version="1.0.40">
+    <StandardDirectory Id="ProgramFilesFolder">
+      <Directory Id="INSTALLFOLDER" Name="ServiceRadarAgent">
+        <Component Id="ServiceRadarAgentComponent" Guid="67f76769-1395-4334-a294-3141db9ff2f9">
+          <File Source="serviceradar-agent.exe" />
+          <ServiceInstall
+            Id="ServiceRadarAgentInstall"
+            Type="ownProcess"
+            Vital="yes"
+            Name="ServiceRadarAgent"
+            DisplayName="ServiceRadar Agent"
+            Description="Carver ServiceRadar Agent"
+            Start="auto"
+            ErrorControl="normal"
+            Account="NT AUTHORITY\LocalService"
+          />
+          <ServiceControl
+            Id="ServiceRadarAgentControl"
+            Name="ServiceRadarAgent"
+            Start="install"
+            Stop="both"
+            Remove="uninstall"
+            Wait="no"
+          />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="CommonAppDataFolder">
+      <Directory Id="ETC" Name="etc">
+        <Directory Id="SR_ETC" Name="serviceradar">
+          <Component Id="AgentConfigComponent" Guid="5364164b-a057-4c33-80a5-926bba5327bc">
+            <File Id="AgentConfigFile" Source="..\..\packaging\agent\config\agent.json" KeyPath="yes"/>
+          </Component>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+    <Feature Id="ProductFeature" Title="ServiceRadar Agent" Level="1">
+      <ComponentRef Id="ServiceRadarAgentComponent" />
+      <ComponentRef Id="AgentConfigComponent" />
+    </Feature>
+  </Package>
+</Wix>

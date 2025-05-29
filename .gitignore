@@ -208,3 +208,6 @@ target/
 
 .venv
 .bin
+
+cmd/agent/out
+*~
