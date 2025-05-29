@@ -179,9 +179,9 @@ func (e *ExternalChecker) getServiceDetails(ctx context.Context) (healthy bool, 
 
 	// Unmarshal the status.Message to preserve its JSON structure
 	var message map[string]interface{}
-
 	if err = json.Unmarshal(status.Message, &message); err != nil {
-		log.Printf("ExternalChecker %s: Failed to unmarshal status message: %v", e.serviceName, err)
+		log.Printf("ExternalChecker %s: Failed to unmarshal status message: %v, raw message: %s",
+			e.serviceName, err, string(status.Message))
 		return false, jsonError(fmt.Sprintf("Failed to unmarshal status message: %v", err))
 	}
 
@@ -194,6 +194,7 @@ func (e *ExternalChecker) getServiceDetails(ctx context.Context) (healthy bool, 
 
 	data, err := json.Marshal(resp)
 	if err != nil {
+		log.Printf("ExternalChecker %s: Failed to marshal response: %v", e.serviceName, err)
 		return false, jsonError(fmt.Sprintf("Failed to marshal response: %v", err))
 	}
 
@@ -258,6 +259,22 @@ func (e *ExternalChecker) ensureConnected(ctx context.Context) error {
 }
 
 func (e *ExternalChecker) performHealthCheck(ctx context.Context, _ string) (bool, error) {
+	// If grpcServiceCheckName is "monitoring.AgentService", use custom health check
+	if e.grpcServiceCheckName == "monitoring.AgentService" {
+		agentClient := proto.NewAgentServiceClient(e.grpcClient.GetConnection())
+
+		resp, err := agentClient.GetStatus(ctx, &proto.StatusRequest{
+			ServiceName: e.serviceName,
+			ServiceType: e.serviceType,
+		})
+		if err != nil {
+			return false, fmt.Errorf("custom health check failed: %w", err)
+		}
+
+		return resp.Available, nil
+	}
+
+	// Otherwise use standard gRPC health check
 	healthy, err := e.grpcClient.CheckHealth(ctx, e.grpcServiceCheckName)
 	if err != nil {
 		return false, fmt.Errorf("health check failed: %w", err)
