@@ -21,11 +21,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/checker/rperf"
-	"github.com/carverauto/serviceradar/pkg/checker/snmp"
 	"github.com/carverauto/serviceradar/pkg/core/auth"
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/metrics"
+	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/srql/parser"
 	"github.com/gorilla/mux"
@@ -36,7 +35,7 @@ type ServiceStatus struct {
 	PollerID  string          `json:"poller_id"`
 	Name      string          `json:"name"`
 	Available bool            `json:"available"`
-	Message   string          `json:"message"`
+	Message   []byte          `json:"message"`
 	Type      string          `json:"type"`    // e.g., "process", "port", "blockchain", etc.
 	Details   json.RawMessage `json:"details"` // Flexible field for service-specific data
 }
@@ -75,8 +74,8 @@ type APIServer struct {
 	router               *mux.Router
 	pollerHistoryHandler func(pollerID string) ([]PollerHistoryPoint, error)
 	metricsManager       metrics.MetricCollector
-	snmpManager          snmp.SNMPManager
-	rperfManager         rperf.RperfManager
+	snmpManager          metricstore.SNMPManager
+	rperfManager         metricstore.RperfManager
 	queryExecutor        db.QueryExecutor
 	knownPollers         []string
 	authService          auth.AuthService

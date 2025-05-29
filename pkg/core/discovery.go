@@ -26,7 +26,6 @@ import (
 	"log"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/models"
 	discoverypb "github.com/carverauto/serviceradar/proto/discovery"
 )
@@ -39,7 +38,8 @@ func (s *Server) processSNMPDiscoveryResults(
 	details json.RawMessage,
 	timestamp time.Time,
 ) error {
-	var payload SNMPDiscoveryDataPayload
+	var payload models.SNMPDiscoveryDataPayload
+
 	if err := json.Unmarshal(details, &payload); err != nil {
 		log.Printf("Error unmarshaling SNMP discovery data for poller %s, service %s: %v. Payload: %s",
 			reportingPollerID, svc.ServiceName, err, string(details))
@@ -52,7 +52,7 @@ func (s *Server) processSNMPDiscoveryResults(
 	// Fallback for discovery-specific IDs if not provided in payload
 	if discoveryAgentID == "" {
 		log.Printf("Warning: SNMPDiscoveryDataPayload.AgentID is empty for reportingPollerID %s. "+
-			"Falling back to svc.AgentId %s.", reportingPollerID, svc.AgentId)
+			"Falling back to svc.AgentID %s.", reportingPollerID, svc.AgentId)
 
 		discoveryAgentID = svc.AgentId
 	}
@@ -89,7 +89,7 @@ func (s *Server) processDiscoveredDevices(
 	reportingPollerID string,
 	timestamp time.Time,
 ) {
-	sweepResults := make([]*db.SweepResult, 0, len(devices))
+	sweepResults := make([]*models.SweepResult, 0, len(devices))
 
 	for _, protoDevice := range devices {
 		if protoDevice == nil {
@@ -100,7 +100,7 @@ func (s *Server) processDiscoveredDevices(
 		hostname := protoDevice.Hostname
 		mac := protoDevice.Mac
 
-		sweepResult := &db.SweepResult{
+		sweepResult := &models.SweepResult{
 			AgentID:         discoveryAgentID,
 			PollerID:        discoveryInitiatorPollerID,
 			DiscoverySource: "snmp_discovery",
@@ -116,9 +116,6 @@ func (s *Server) processDiscoveredDevices(
 
 	if err := s.DB.StoreSweepResults(ctx, sweepResults); err != nil {
 		log.Printf("Error publishing batch discovered devices to sweep_results for poller %s: %v", reportingPollerID, err)
-	} else {
-		log.Printf("Published %d discovered devices to sweep_results for poller %s (discovery by %s/%s)",
-			len(sweepResults), reportingPollerID, discoveryAgentID, discoveryInitiatorPollerID)
 	}
 }
 
@@ -180,15 +177,15 @@ func (s *Server) processDiscoveredInterfaces(
 			PollerID:      discoveryInitiatorPollerID,
 			DeviceIP:      protoIface.DeviceIp,
 			DeviceID:      deviceID,
-			IfIndex:       int(protoIface.IfIndex),
+			IfIndex:       protoIface.IfIndex,
 			IfName:        protoIface.IfName,
 			IfDescr:       protoIface.IfDescr,
 			IfAlias:       protoIface.IfAlias,
-			IfSpeed:       protoIface.IfSpeed,
+			IfSpeed:       protoIface.IfSpeed.GetValue(), // Unwrap the uint64 value
 			IfPhysAddress: protoIface.IfPhysAddress,
 			IPAddresses:   protoIface.IpAddresses,
-			IfAdminStatus: int(protoIface.IfAdminStatus),
-			IfOperStatus:  int(protoIface.IfOperStatus),
+			IfAdminStatus: protoIface.IfAdminStatus,
+			IfOperStatus:  protoIface.IfOperStatus,
 			Metadata:      metadataJSON,
 		}
 
@@ -197,9 +194,6 @@ func (s *Server) processDiscoveredInterfaces(
 
 	if err := s.DB.PublishBatchDiscoveredInterfaces(ctx, modelInterfaces); err != nil {
 		log.Printf("Error publishing batch discovered interfaces for poller %s: %v", reportingPollerID, err)
-	} else {
-		log.Printf("Published %d discovered interfaces for poller %s (discovery by %s/%s)",
-			len(modelInterfaces), reportingPollerID, discoveryAgentID, discoveryInitiatorPollerID)
 	}
 }
 
@@ -208,7 +202,6 @@ func (*Server) getOrGenerateDeviceID(protoIface *discoverypb.DiscoveredInterface
 	deviceID := protoIface.DeviceId
 	if deviceID == "" && protoIface.DeviceIp != "" {
 		deviceID = fmt.Sprintf("%s:%s:%s", protoIface.DeviceIp, agentID, pollerID)
-		log.Printf("Generated DeviceID for interface on %s: %s", protoIface.DeviceIp, deviceID)
 	}
 
 	return deviceID
@@ -264,7 +257,7 @@ func (s *Server) processDiscoveredTopology(
 			PollerID:               discoveryInitiatorPollerID,
 			LocalDeviceIP:          protoLink.LocalDeviceIp,
 			LocalDeviceID:          localDeviceID,
-			LocalIfIndex:           int(protoLink.LocalIfIndex),
+			LocalIfIndex:           protoLink.LocalIfIndex,
 			LocalIfName:            protoLink.LocalIfName,
 			ProtocolType:           protoLink.Protocol,
 			NeighborChassisID:      protoLink.NeighborChassisId,
@@ -272,7 +265,13 @@ func (s *Server) processDiscoveredTopology(
 			NeighborPortDescr:      protoLink.NeighborPortDescr,
 			NeighborSystemName:     protoLink.NeighborSystemName,
 			NeighborManagementAddr: protoLink.NeighborMgmtAddr,
-			Metadata:               metadataJSON,
+			// BGP fields are not in discoverypb.TopologyLink yet, so they will be empty/zero.
+			// This is fine as the DB schema allows nulls.
+			NeighborBGPRouterID: "", // Default to empty string
+			NeighborIPAddress:   "", // Default to empty string
+			NeighborAS:          0,  // Default to 0
+			BGPSessionState:     "", // Default to empty string
+			Metadata:            metadataJSON,
 		}
 
 		modelTopologyEvents = append(modelTopologyEvents, modelEvent)
@@ -280,9 +279,6 @@ func (s *Server) processDiscoveredTopology(
 
 	if err := s.DB.PublishBatchTopologyDiscoveryEvents(ctx, modelTopologyEvents); err != nil {
 		log.Printf("Error publishing batch topology discovery events for poller %s: %v", reportingPollerID, err)
-	} else {
-		log.Printf("Published %d topology discovery events for poller %s (discovery by %s/%s)",
-			len(modelTopologyEvents), reportingPollerID, discoveryAgentID, discoveryInitiatorPollerID)
 	}
 }
 

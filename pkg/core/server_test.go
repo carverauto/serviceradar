@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+// Package core pkg/core/server_test.go
 package core
 
 import (
@@ -24,12 +25,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/carverauto/serviceradar/pkg/checker/snmp"
 	"github.com/carverauto/serviceradar/pkg/core/alerts"
 	"github.com/carverauto/serviceradar/pkg/core/api"
 	"github.com/carverauto/serviceradar/pkg/core/auth"
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/metrics"
+	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 	"github.com/stretchr/testify/assert"
@@ -100,7 +101,8 @@ func TestNewServer(t *testing.T) {
 
 			if tt.name == "with_webhooks" {
 				assert.Len(t, server.webhooks, 1)
-				assert.Equal(t, "https://example.com/webhook", server.webhooks[0].(*alerts.WebhookAlerter).Config.URL)
+				assert.Equal(t, "https://example.com/webhook",
+					server.webhooks[0].(*alerts.WebhookAlerter).Config.URL)
 			}
 		})
 	}
@@ -131,11 +133,11 @@ func newServerWithDB(_ context.Context, config *models.DBConfig, database db.Ser
 		ShutdownChan:        make(chan struct{}),
 		pollerPatterns:      normalizedConfig.PollerPatterns,
 		metrics:             metricsManager,
-		snmpManager:         snmp.NewSNMPManager(database),
+		snmpManager:         metricstore.NewSNMPManager(database),
 		config:              normalizedConfig,
 		authService:         auth.NewAuth(authConfig, database),
-		metricBuffers:       make(map[string][]*db.TimeseriesMetric),
-		serviceBuffers:      make(map[string][]*db.ServiceStatus),
+		metricBuffers:       make(map[string][]*models.TimeseriesMetric),
+		serviceBuffers:      make(map[string][]*models.ServiceStatus),
 		sysmonBuffers:       make(map[string][]*models.SysmonMetrics),
 		bufferMu:            sync.RWMutex{},
 		pollerStatusCache:   make(map[string]*models.PollerStatus),
@@ -167,20 +169,22 @@ func TestReportStatus(t *testing.T) {
 		LastSeen:  time.Now(),
 	}, nil).AnyTimes()
 
-	mockDB.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, status *models.PollerStatus) error {
+	mockDB.EXPECT().UpdatePollerStatus(
+		gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, status *models.PollerStatus) error {
 		assert.Equal(t, "test-poller", status.PollerID)
 		assert.True(t, status.IsHealthy)
 		return nil
 	}).AnyTimes()
 
-	mockDB.EXPECT().UpdateServiceStatuses(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, statuses []*db.ServiceStatus) error {
+	mockDB.EXPECT().UpdateServiceStatuses(
+		gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, statuses []*models.ServiceStatus) error {
 		t.Logf("TestReportStatus: UpdateServiceStatuses called with %d statuses: %+v", len(statuses), statuses)
 		return nil
 	}).AnyTimes()
 
 	// Expect StoreMetrics for icmp-service
 	mockDB.EXPECT().StoreMetrics(gomock.Any(), "test-poller",
-		gomock.Any()).DoAndReturn(func(_ context.Context, pollerID string, metrics []*db.TimeseriesMetric) error {
+		gomock.Any()).DoAndReturn(func(_ context.Context, pollerID string, metrics []*models.TimeseriesMetric) error {
 		t.Logf("TestReportStatus: StoreMetrics called for poller %s with %d metrics", pollerID, len(metrics))
 		return nil
 	}).AnyTimes()
@@ -192,8 +196,8 @@ func TestReportStatus(t *testing.T) {
 		config:              &models.DBConfig{KnownPollers: []string{"test-poller"}},
 		metrics:             metricsManager,
 		apiServer:           mockAPI,
-		metricBuffers:       make(map[string][]*db.TimeseriesMetric),
-		serviceBuffers:      make(map[string][]*db.ServiceStatus),
+		metricBuffers:       make(map[string][]*models.TimeseriesMetric),
+		serviceBuffers:      make(map[string][]*models.ServiceStatus),
 		sysmonBuffers:       make(map[string][]*models.SysmonMetrics),
 		pollerStatusCache:   make(map[string]*models.PollerStatus),
 		pollerStatusUpdates: make(map[string]*models.PollerStatus),
@@ -202,7 +206,7 @@ func TestReportStatus(t *testing.T) {
 
 	// Test unknown poller
 	server.bufferMu.Lock()
-	server.serviceBuffers = make(map[string][]*db.ServiceStatus)
+	server.serviceBuffers = make(map[string][]*models.ServiceStatus)
 	t.Logf("TestReportStatus: serviceBuffers before unknown-poller: %+v", server.serviceBuffers)
 	server.bufferMu.Unlock()
 
@@ -213,16 +217,17 @@ func TestReportStatus(t *testing.T) {
 
 	server.flushAllBuffers(context.Background())
 	server.bufferMu.Lock()
-	server.serviceBuffers = make(map[string][]*db.ServiceStatus)
+	server.serviceBuffers = make(map[string][]*models.ServiceStatus)
 	t.Logf("TestReportStatus: serviceBuffers after unknown-poller: %+v", server.serviceBuffers)
 	server.bufferMu.Unlock()
 
 	// Test valid poller with ICMP service
 	server.bufferMu.Lock()
-	server.serviceBuffers = make(map[string][]*db.ServiceStatus)
+	server.serviceBuffers = make(map[string][]*models.ServiceStatus)
 	t.Logf("TestReportStatus: serviceBuffers before test-poller: %+v", server.serviceBuffers)
 	server.bufferMu.Unlock()
 
+	icmpMessage := `{"host":"192.168.1.1","response_time":10,"packet_loss":0,"available":true}`
 	resp, err = server.ReportStatus(context.Background(), &proto.PollerStatusRequest{
 		PollerId:  "test-poller",
 		Timestamp: time.Now().Unix(),
@@ -231,7 +236,7 @@ func TestReportStatus(t *testing.T) {
 				ServiceName: "icmp-service",
 				ServiceType: "icmp",
 				Available:   true,
-				Message:     `{"host":"192.168.1.1","response_time":10,"packet_loss":0,"available":true}`,
+				Message:     []byte(icmpMessage), // Convert string to []byte
 				AgentId:     "test-agent",
 			},
 		},
@@ -242,7 +247,7 @@ func TestReportStatus(t *testing.T) {
 
 	server.flushAllBuffers(context.Background())
 	server.bufferMu.Lock()
-	server.serviceBuffers = make(map[string][]*db.ServiceStatus)
+	server.serviceBuffers = make(map[string][]*models.ServiceStatus)
 	t.Logf("TestReportStatus: serviceBuffers after test-poller: %+v", server.serviceBuffers)
 	server.bufferMu.Unlock()
 }
@@ -289,9 +294,9 @@ func getSweepTestCases(now time.Time) []struct {
 		{
 			name: "Valid timestamp with hosts",
 			inputMessage: `{
-				"network": "192.168.1.0/24", "total_hosts": 10, "available_hosts": 5, 
-				"last_sweep": 1678886400, "hosts": [{"host": "192.168.1.1", "available": true, 
-				"mac": "00:11:22:33:44:55", "hostname": "host1"}]}`,
+"network": "192.168.1.0/24", "total_hosts": 10, "available_hosts": 5,
+"last_sweep": 1678886400, "hosts": [{"host": "192.168.1.1", "available": true,
+"mac": "00:11:22:33:44:55", "hostname": "host1"}]}`,
 			expectedSweep: proto.SweepServiceStatus{
 				Network:        "192.168.1.0/24",
 				TotalHosts:     10,
@@ -326,13 +331,13 @@ func TestProcessSweepData(t *testing.T) {
 		t.Run(tests[i].name, func(t *testing.T) {
 			tt := &tests[i]
 			svc := &api.ServiceStatus{
-				Message: tt.inputMessage,
+				Message: []byte(tt.inputMessage), // Convert string to []byte
 			}
 
 			// Set up mock expectation for StoreSweepResults only when hosts are present
 			if !tt.expectError && tt.hasHosts {
 				mockDB.EXPECT().StoreSweepResults(gomock.Any(), gomock.Any()).DoAndReturn(
-					func(_ context.Context, results []*db.SweepResult) error {
+					func(_ context.Context, results []*models.SweepResult) error {
 						if tt.name == "Valid timestamp with hosts" {
 							assert.Len(t, results, 1, "Expected one sweep result")
 							assert.Equal(t, "192.168.1.1", results[0].IP, "Expected correct IP")
@@ -370,7 +375,7 @@ func verifySweepTestCase(ctx context.Context, t *testing.T, server *Server, svc 
 	require.NoError(t, err)
 
 	var sweepData proto.SweepServiceStatus
-	err = json.Unmarshal([]byte(svc.Message), &sweepData)
+	err = json.Unmarshal(svc.Message, &sweepData)
 	require.NoError(t, err)
 
 	assert.Equal(t, tt.expectedSweep.Network, sweepData.Network)
@@ -394,7 +399,7 @@ func TestProcessSNMPMetrics(t *testing.T) {
 
 	server := &Server{
 		DB:            mockDB,
-		metricBuffers: make(map[string][]*db.TimeseriesMetric),
+		metricBuffers: make(map[string][]*models.TimeseriesMetric),
 		bufferMu:      sync.RWMutex{},
 	}
 
@@ -403,23 +408,23 @@ func TestProcessSNMPMetrics(t *testing.T) {
 
 	// Test data
 	detailsJSON := `{
-        "router.example.com": {
-            "available": true,
-            "last_poll": "2025-03-20T12:34:56Z",
-            "oid_status": {
-                "1.3.6.1.2.1.1.3.0": {
-                    "last_value": 123456789,
-                    "last_update": "2025-03-20T12:34:56Z",
-                    "error_count": 0
-                },
-                "1.3.6.1.2.1.2.2.1.10.1": {
-                    "last_value": 987654321,
-                    "last_update": "2025-03-20T12:34:56Z",
-                    "error_count": 0
-                }
-            }
-        }
-    }`
+"router.example.com": {
+"available": true,
+"last_poll": "2025-03-20T12:34:56Z",
+"oid_status": {
+"1.3.6.1.2.1.1.3.0": {
+"last_value": 123456789,
+"last_update": "2025-03-20T12:34:56Z",
+"error_count": 0
+},
+"1.3.6.1.2.1.2.2.1.10.1": {
+"last_value": 987654321,
+"last_update": "2025-03-20T12:34:56Z",
+"error_count": 0
+}
+}
+}
+}`
 
 	var details json.RawMessage
 	err := json.Unmarshal([]byte(detailsJSON), &details)
@@ -545,7 +550,7 @@ func TestEvaluatePollerHealth(t *testing.T) {
 		PollerID:  "test-poller",
 		IsHealthy: true,
 		FirstSeen: time.Now().Add(-1 * time.Hour),
-		LastSeen:  time.Now(),
+		LastSeen:  time.Now().Add(-10 * time.Minute),
 	}, nil).AnyTimes()
 
 	// Mock UpdatePollerStatus for offline case
@@ -553,7 +558,7 @@ func TestEvaluatePollerHealth(t *testing.T) {
 
 	// Mock alert and API update for offline case
 	mockWebhook.EXPECT().Alert(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-	mockAPI.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).AnyTimes()
+	mockAPI.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).Return().AnyTimes() // Fixed: Removed Return(nil)
 
 	server := &Server{
 		DB:                  mockDB,
@@ -561,6 +566,7 @@ func TestEvaluatePollerHealth(t *testing.T) {
 		apiServer:           mockAPI,
 		pollerStatusCache:   make(map[string]*models.PollerStatus),
 		pollerStatusUpdates: make(map[string]*models.PollerStatus),
+		alertThreshold:      5 * time.Minute, // Set threshold to match test
 	}
 
 	now := time.Now()
@@ -667,7 +673,7 @@ func setupTestServer(
 		DB:                      mockDB,
 		webhooks:                []alerts.AlertService{mockAlerter},
 		apiServer:               mockAPIServer,
-		serviceBuffers:          make(map[string][]*db.ServiceStatus),
+		serviceBuffers:          make(map[string][]*models.ServiceStatus),
 		bufferMu:                sync.RWMutex{},
 		pollerStatusUpdateMutex: sync.Mutex{},
 		pollerStatusUpdates:     make(map[string]*models.PollerStatus),
@@ -678,8 +684,8 @@ func setupTestServer(
 
 	// Clear all buffers and caches for isolation
 	server.bufferMu.Lock()
-	server.serviceBuffers = make(map[string][]*db.ServiceStatus)
-	server.metricBuffers = make(map[string][]*db.TimeseriesMetric)
+	server.serviceBuffers = make(map[string][]*models.ServiceStatus)
+	server.metricBuffers = make(map[string][]*models.TimeseriesMetric)
 	server.sysmonBuffers = make(map[string][]*models.SysmonMetrics)
 	t.Logf("Initial serviceBuffers: %+v", server.serviceBuffers)
 	server.bufferMu.Unlock()
@@ -702,6 +708,8 @@ func setupTestServer(
 
 // createTestRequest creates a test PollerStatusRequest with the given poller and agent IDs
 func createTestRequest(pollerID, agentID string, now time.Time) *proto.PollerStatusRequest {
+	statusMessage := `{"status":"ok"}`
+
 	return &proto.PollerStatusRequest{
 		PollerId:  pollerID,
 		Timestamp: now.Unix(),
@@ -710,7 +718,7 @@ func createTestRequest(pollerID, agentID string, now time.Time) *proto.PollerSta
 				ServiceName: "test-service",
 				ServiceType: "test",
 				Available:   true,
-				Message:     `{"status":"ok"}`,
+				Message:     []byte(statusMessage), // Convert string to []byte
 				AgentId:     agentID,
 				PollerId:    pollerID,
 			},
@@ -737,14 +745,15 @@ func TestProcessStatusReportWithAgentID(t *testing.T) {
 		LastSeen:  now.Add(-10 * time.Minute),
 	}, nil).Times(1)
 	mockDB.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).Return(nil).Times(2)
-	mockDB.EXPECT().UpdateServiceStatuses(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, statuses []*db.ServiceStatus) error {
+	mockDB.EXPECT().UpdateServiceStatuses(gomock.Any(),
+		gomock.Any()).DoAndReturn(func(_ context.Context, statuses []*models.ServiceStatus) error {
 		t.Logf("UpdateServiceStatuses called with %d statuses: %+v", len(statuses), statuses)
 		assert.Len(t, statuses, 1, "Expected exactly one status")
 		assert.Equal(t, pollerID, statuses[0].PollerID)
 		assert.Equal(t, "test-service", statuses[0].ServiceName)
 		assert.Equal(t, "test", statuses[0].ServiceType)
 		assert.True(t, statuses[0].Available)
-		assert.JSONEq(t, `{"status":"ok"}`, statuses[0].Details)
+		assert.JSONEq(t, `{"status":"ok"}`, string(statuses[0].Details))
 		assert.Equal(t, agentID, statuses[0].AgentID)
 		return nil
 	}).Times(1)
@@ -755,7 +764,7 @@ func TestProcessStatusReportWithAgentID(t *testing.T) {
 
 	// Clear buffers before ReportStatus
 	server.bufferMu.Lock()
-	server.serviceBuffers = make(map[string][]*db.ServiceStatus)
+	server.serviceBuffers = make(map[string][]*models.ServiceStatus)
 	t.Logf("serviceBuffers before ReportStatus: %+v", server.serviceBuffers)
 	server.bufferMu.Unlock()
 
@@ -763,7 +772,7 @@ func TestProcessStatusReportWithAgentID(t *testing.T) {
 	reportStatusCount := 0
 	wrappedReportStatus := func(ctx context.Context, req *proto.PollerStatusRequest) (*proto.PollerStatusResponse, error) {
 		reportStatusCount++
-		t.Logf("ReportStatus called %d times with PollerId: %s", reportStatusCount, req.PollerId)
+		t.Logf("ReportStatus called %d times with PollerID: %s", reportStatusCount, req.PollerId)
 
 		return server.ReportStatus(ctx, req)
 	}
@@ -779,6 +788,6 @@ func TestProcessStatusReportWithAgentID(t *testing.T) {
 	time.Sleep(100 * time.Millisecond) // Wait for flush
 	server.bufferMu.Lock()
 	t.Logf("serviceBuffers after flush: %+v", server.serviceBuffers)
-	server.serviceBuffers = make(map[string][]*db.ServiceStatus)
+	server.serviceBuffers = make(map[string][]*models.ServiceStatus)
 	server.bufferMu.Unlock()
 }

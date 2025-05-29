@@ -22,7 +22,7 @@ If monitoring ZFS pools/datasets:
 - Example `sysmon.json`:
   ```json
   {
-      "listen_addr": "0.0.0.0:50060",
+      "listen_addr": "0.0.0.0:50083",
       "zfs": {
           "enabled": true,
           "pools": ["rpool"],
@@ -37,7 +37,7 @@ If monitoring ZFS pools/datasets:
 The checker works without ZFS by monitoring standard filesystems (e.g., ext4) using `sysinfo`. The default configuration (`/etc/serviceradar/checkers/sysmon.json`) disables ZFS:
 ```json
 {
-    "listen_addr": "0.0.0.0:50060",
+    "listen_addr": "0.0.0.0:50083",
     "zfs": null,
     "filesystems": [{"name": "/", "type": "ext4", "monitor": true}]
 }

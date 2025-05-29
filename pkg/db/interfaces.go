@@ -31,15 +31,6 @@ type QueryExecutor interface {
 	ExecuteQuery(ctx context.Context, query string, params ...interface{}) ([]map[string]interface{}, error)
 }
 
-// TimeseriesMetric represents a generic timeseries datapoint.
-type TimeseriesMetric struct {
-	Name      string      `json:"name"`
-	Value     string      `json:"value"` // Store as string for flexibility
-	Type      string      `json:"type"`  // Metric type identifier
-	Timestamp time.Time   `json:"timestamp"`
-	Metadata  interface{} `json:"metadata"` // Additional type-specific metadata
-}
-
 // Service represents all database operations for Timeplus Proton.
 type Service interface {
 	Close() error
@@ -49,7 +40,7 @@ type Service interface {
 	UpdatePollerStatus(ctx context.Context, status *models.PollerStatus) error
 	GetPollerStatus(ctx context.Context, pollerID string) (*models.PollerStatus, error)
 	GetPollerHistory(ctx context.Context, pollerID string) ([]models.PollerStatus, error)
-	GetPollerHistoryPoints(ctx context.Context, pollerID string, limit int) ([]PollerHistoryPoint, error)
+	GetPollerHistoryPoints(ctx context.Context, pollerID string, limit int) ([]models.PollerHistoryPoint, error)
 	IsPollerOffline(ctx context.Context, pollerID string, threshold time.Duration) (bool, error)
 	ListPollers(ctx context.Context) ([]string, error)
 	DeletePoller(ctx context.Context, pollerID string) error
@@ -58,19 +49,19 @@ type Service interface {
 
 	// Service operations.
 
-	UpdateServiceStatus(ctx context.Context, status *ServiceStatus) error
-	UpdateServiceStatuses(ctx context.Context, statuses []*ServiceStatus) error
-	GetPollerServices(ctx context.Context, pollerID string) ([]ServiceStatus, error)
-	GetServiceHistory(ctx context.Context, pollerID, serviceName string, limit int) ([]ServiceStatus, error)
+	UpdateServiceStatus(ctx context.Context, status *models.ServiceStatus) error
+	UpdateServiceStatuses(ctx context.Context, statuses []*models.ServiceStatus) error
+	GetPollerServices(ctx context.Context, pollerID string) ([]models.ServiceStatus, error)
+	GetServiceHistory(ctx context.Context, pollerID, serviceName string, limit int) ([]models.ServiceStatus, error)
 
 	// Maintenance operations.
 
 	// Generic timeseries methods.
 
-	StoreMetric(ctx context.Context, pollerID string, metric *TimeseriesMetric) error
-	StoreMetrics(ctx context.Context, pollerID string, metrics []*TimeseriesMetric) error
-	GetMetrics(ctx context.Context, pollerID, metricName string, start, end time.Time) ([]TimeseriesMetric, error)
-	GetMetricsByType(ctx context.Context, pollerID, metricType string, start, end time.Time) ([]TimeseriesMetric, error)
+	StoreMetric(ctx context.Context, pollerID string, metric *models.TimeseriesMetric) error
+	StoreMetrics(ctx context.Context, pollerID string, metrics []*models.TimeseriesMetric) error
+	GetMetrics(ctx context.Context, pollerID, metricName string, start, end time.Time) ([]models.TimeseriesMetric, error)
+	GetMetricsByType(ctx context.Context, pollerID, metricType string, start, end time.Time) ([]models.TimeseriesMetric, error)
 
 	// Query (SRQL) operations.
 
@@ -84,9 +75,9 @@ type Service interface {
 	GetMemoryMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.MemoryMetric, error)
 	GetAllDiskMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.DiskMetric, error)
 	GetAllMountPoints(ctx context.Context, pollerID string) ([]string, error)
-	GetAllCPUMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]SysmonCPUResponse, error)
-	GetAllDiskMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]SysmonDiskResponse, error)
-	GetMemoryMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]SysmonMemoryResponse, error)
+	GetAllCPUMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonCPUResponse, error)
+	GetAllDiskMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonDiskResponse, error)
+	GetMemoryMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonMemoryResponse, error)
 
 	// Rperf.
 
@@ -103,7 +94,7 @@ type Service interface {
 
 	// Sweep operations.
 
-	StoreSweepResults(ctx context.Context, results []*SweepResult) error
+	StoreSweepResults(ctx context.Context, results []*models.SweepResult) error
 
 	// Discovery operations.
 
@@ -115,13 +106,13 @@ type Service interface {
 
 // SysmonMetricsProvider interface defines operations for system monitoring metrics.
 type SysmonMetricsProvider interface {
-	GetAllCPUMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]SysmonCPUResponse, error)
+	GetAllCPUMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonCPUResponse, error)
 	GetCPUMetrics(ctx context.Context, pollerID string, coreID int, start, end time.Time) ([]models.CPUMetric, error)
-	GetAllDiskMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]SysmonDiskResponse, error)
+	GetAllDiskMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonDiskResponse, error)
 	GetDiskMetrics(ctx context.Context, pollerID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error)
 	GetAllDiskMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.DiskMetric, error)
 	GetAllMountPoints(ctx context.Context, pollerID string) ([]string, error)
-	GetMemoryMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]SysmonMemoryResponse, error)
+	GetMemoryMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonMemoryResponse, error)
 	GetMemoryMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.MemoryMetric, error)
 }
 

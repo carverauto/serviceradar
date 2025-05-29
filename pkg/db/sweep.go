@@ -1,26 +1,31 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+// Package db pkg/db/sweep.go
 package db
 
 import (
 	"context"
 	"fmt"
 	"log"
-	"time"
+
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-// SweepResult represents a single sweep result to be stored.
-type SweepResult struct {
-	AgentID         string
-	PollerID        string
-	DiscoverySource string
-	IP              string
-	MAC             *string
-	Hostname        *string
-	Timestamp       time.Time
-	Available       bool
-	Metadata        map[string]string
-}
-
-func (db *DB) StoreSweepResults(ctx context.Context, results []*SweepResult) error {
+func (db *DB) StoreSweepResults(ctx context.Context, results []*models.SweepResult) error {
 	if len(results) == 0 {
 		return nil
 	}
