@@ -225,6 +225,8 @@ func (e *DiscoveryEngine) startScheduledJob(ctx context.Context, name string, pa
 	e.mu.RLock()
 	if job, exists := e.activeJobs[discoveryID]; exists {
 		job.Results.RawData["scheduled_job_name"] = name
+		job.Results.RawData["agent_id"] = params.AgentID
+		job.Results.RawData["poller_id"] = params.PollerID
 	}
 	e.mu.RUnlock()
 
@@ -232,80 +234,67 @@ func (e *DiscoveryEngine) startScheduledJob(ctx context.Context, name string, pa
 }
 
 // StartDiscovery initiates a discovery operation with the given parameters.
+// StartDiscovery initiates a discovery operation with the given parameters.
 func (e *DiscoveryEngine) StartDiscovery(ctx context.Context, params *DiscoveryParams) (string, error) {
 	e.mu.Lock()
-	// Intentionally not using defer e.mu.Unlock() here because of the select block
-	// that might block. We will unlock manually before returning or if an error occurs early.
+	defer e.mu.Unlock()
 
-	discoveryID := uuid.New().String()
+	// Validate params
+	if len(params.Seeds) == 0 {
+		return "", fmt.Errorf("no seeds provided")
+	}
 
-	// Create a new context for this specific job, derived from the incoming context.
-	// This allows the job to be canceled independently or if the parent ctx is canceled.
-	jobSpecificCtx, cancelFunc := context.WithCancel(context.Background())
+	// Generate a unique discovery ID
+	discoveryID := generateDiscoveryID()
+
+	// Create a job-specific cancellable context
+	jobCtx, cancel := context.WithCancel(ctx)
+
+	// Create a new discovery job
+	results := &DiscoveryResults{
+		Status: &DiscoveryStatus{
+			Status:    DiscoveryStatusPending,
+			Progress:  0,
+			StartTime: time.Now(),
+		},
+		Devices:       make([]*DiscoveredDevice, 0),
+		Interfaces:    make([]*DiscoveredInterface, 0),
+		TopologyLinks: make([]*TopologyLink, 0),
+		RawData:       make(map[string]interface{}),
+	}
+
+	// Initialize RawData with AgentID and PollerID
+	results.RawData["agent_id"] = params.AgentID
+	results.RawData["poller_id"] = params.PollerID
 
 	job := &DiscoveryJob{
-		ID:     discoveryID,
-		Params: params,
-		Status: &DiscoveryStatus{
-			DiscoveryID: discoveryID,
-			Status:      DiscoveryStatusPending,
-			StartTime:   time.Now(),
-			Progress:    0.0,
-		},
-		Results: &DiscoveryResults{
-			DiscoveryID: discoveryID,
-			Devices:     []*DiscoveredDevice{},
-			Interfaces:  []*DiscoveredInterface{},
-			RawData:     make(map[string]interface{}),
-		},
-		ctx:           jobSpecificCtx, // Assign the job-specific context here
-		cancelFunc:    cancelFunc,
-		discoveredIPs: make(map[string]bool),
-		// scanQueue will be populated by the worker
+		ID:         discoveryID,
+		Params:     params,
+		Results:    results,
+		Status:     results.Status, // Point to the same status
+		ctx:        jobCtx,
+		cancelFunc: cancel,
 	}
 
-	// Check if we can accept new jobs based on the map size first (primary gate)
-	if len(e.activeJobs) >= e.config.MaxActiveJobs {
-		e.mu.Unlock() // Unlock before potentially blocking or returning
-		cancelFunc()  // Cancel the job's context as it won't be processed
+	// Store the job
+	e.activeJobs[discoveryID] = job
 
-		log.Printf("Discovery engine at capacity (MaxActiveJobs map limit), job %s rejected.", discoveryID)
-
-		return "", ErrDiscoveryAtCapacity
-	}
-
-	// Try to send to jobChan (secondary gate, indicates worker availability)
+	// Enqueue the job
 	select {
 	case e.jobChan <- job:
-		// Job submitted successfully
-		e.activeJobs[discoveryID] = job // Add to active jobs *after* successfully sending to channel
-		e.mu.Unlock()                   // Unlock after all shared state modification
-
-		log.Printf("Discovery job %s submitted with %d seeds.", discoveryID, len(params.Seeds))
-
-		return discoveryID, nil
-	case <-ctx.Done(): // Incoming request context canceled
-		e.mu.Unlock()
-		cancelFunc() // Clean up the job-specific context
-
-		log.Printf("Job %s submission canceled because parent context was done: %v", discoveryID, ctx.Err())
-
-		return "", ctx.Err()
-	case <-e.done: // Engine is shutting down
-		e.mu.Unlock()
-		cancelFunc() // Clean up the job-specific context
-
-		log.Printf("Job %s submission failed because engine is shutting down.", discoveryID)
-
-		return "", ErrDiscoveryShuttingDown
-	default: // jobChan is full, workers are at capacity
-		e.mu.Unlock()
-		cancelFunc() // Clean up the job-specific context
-
-		log.Printf("Discovery engine at capacity (jobChan full), job %s rejected.", discoveryID)
-
-		return "", ErrDiscoveryWorkersBusy
+		log.Printf("Discovery job %s enqueued", discoveryID)
+	default:
+		cancel() // Clean up context
+		delete(e.activeJobs, discoveryID)
+		return "", fmt.Errorf("job queue full, cannot enqueue discovery job")
 	}
+
+	return discoveryID, nil
+}
+
+// generateDiscoveryID creates a unique ID for a discovery job
+func generateDiscoveryID() string {
+	return uuid.New().String()
 }
 
 // GetDiscoveryStatus retrieves the status of a discovery operation
@@ -572,7 +561,7 @@ func (*DiscoveryEngine) determineConcurrency(job *DiscoveryJob, totalTargets int
 	return concurrency
 }
 
-type targetProcessorFunc func(job *DiscoveryJob, targetIP, agentID, pollerID string)
+type targetProcessorFunc func(job *DiscoveryJob, targetIP string)
 
 // startWorkers launches worker goroutines to process targets using the provided processor function.
 func (e *DiscoveryEngine) startWorkers(
@@ -614,7 +603,7 @@ func (e *DiscoveryEngine) startWorkers(
 					}
 
 					// Process target using the provided processor function
-					processor(job, target, job.Params.AgentID, job.Params.PollerID)
+					processor(job, target)
 					resultChan <- true // Signal completion for progress tracking
 				}
 			}
@@ -903,7 +892,7 @@ func (e *DiscoveryEngine) checkPhaseJobCancellation(job *DiscoveryJob, seedIP, p
 func (e *DiscoveryEngine) processUniFiSeed(
 	ctx context.Context, job *DiscoveryJob, seedIP string, allPotentialSNMPTargets map[string]bool) {
 	devicesFromUniFi, interfacesFromUniFi, err :=
-		e.queryUniFiDevices(ctx, job, seedIP, job.Params.AgentID, job.Params.PollerID)
+		e.queryUniFiDevices(ctx, job, seedIP)
 	if err == nil {
 		job.mu.Lock()
 
@@ -966,8 +955,8 @@ func (e *DiscoveryEngine) setupAndExecuteSNMPPolling(
 	resultChanSNMP := make(chan bool, totalSNMPTargets)
 
 	// Create a wrapper function that matches the targetProcessorFunc type
-	snmpWrapper := func(job *DiscoveryJob, targetIP, agentID, pollerID string) {
-		e.scanTargetForSNMP(job.ctx, job, targetIP, agentID, pollerID)
+	snmpWrapper := func(job *DiscoveryJob, targetIP string) {
+		e.scanTargetForSNMP(job.ctx, job, targetIP)
 	}
 
 	// Start workers and progress tracking
@@ -1018,11 +1007,11 @@ func (e *DiscoveryEngine) executeSNMPPolling(
 
 // scanTargetForSNMP performs SNMP-specific discovery for a single target.
 func (e *DiscoveryEngine) scanTargetForSNMP(
-	ctx context.Context, job *DiscoveryJob, snmpTargetIP, agentID, pollerID string) {
+	ctx context.Context, job *DiscoveryJob, snmpTargetIP string) {
 	log.Printf("Job %s: SNMP Scanning target %s", job.ID, snmpTargetIP)
 
 	if len(e.config.UniFiAPIs) > 0 && (job.Params.Type == DiscoveryTypeFull || job.Params.Type == DiscoveryTypeTopology) {
-		links, err := e.queryUniFiAPI(ctx, job, snmpTargetIP, agentID, pollerID)
+		links, err := e.queryUniFiAPI(ctx, job, snmpTargetIP)
 		if err == nil && len(links) > 0 {
 			e.publishTopologyLinks(job, links, snmpTargetIP, "UniFi-API")
 		}
@@ -1051,11 +1040,11 @@ func (e *DiscoveryEngine) scanTargetForSNMP(
 	job.mu.Unlock()
 
 	if job.Params.Type == DiscoveryTypeFull || job.Params.Type == DiscoveryTypeInterfaces {
-		e.handleInterfaceDiscoverySNMP(job, client, snmpTargetIP, agentID, pollerID)
+		e.handleInterfaceDiscoverySNMP(job, client, snmpTargetIP)
 	}
 
 	if job.Params.Type == DiscoveryTypeFull || job.Params.Type == DiscoveryTypeTopology {
-		e.handleTopologyDiscoverySNMP(job, client, snmpTargetIP, agentID, pollerID)
+		e.handleTopologyDiscoverySNMP(job, client, snmpTargetIP)
 	}
 }
 
@@ -1119,7 +1108,7 @@ func (*DiscoveryEngine) finalizeDevice(device *DiscoveredDevice, target, jobID s
 
 // finalizeInterfaces finalizes the interfaces by ensuring they have names and adding metadata
 func (*DiscoveryEngine) finalizeInterfaces(
-	job *DiscoveryJob, ifMap map[int]*DiscoveredInterface, jobID string, agentID string, pollerID string) []*DiscoveredInterface {
+	job *DiscoveryJob, ifMap map[int]*DiscoveredInterface, jobID string) []*DiscoveredInterface {
 	interfaces := make([]*DiscoveredInterface, 0, len(ifMap))
 
 	// Cache devices by IP for lookup
@@ -1138,18 +1127,6 @@ func (*DiscoveryEngine) finalizeInterfaces(
 				iface.IfName = iface.IfDescr
 			} else {
 				iface.IfName = fmt.Sprintf("Interface-%d", iface.IfIndex)
-			}
-		}
-
-		if iface.DeviceID == "" && iface.DeviceIP != "" {
-			if device, exists := deviceMap[iface.DeviceIP]; exists && device.DeviceID != "" {
-				iface.DeviceID = device.DeviceID
-			} else if agentID != "" && pollerID != "" {
-				iface.DeviceID = fmt.Sprintf("%s:%s:%s", iface.DeviceIP, agentID, pollerID)
-			} else {
-				iface.DeviceID = iface.DeviceIP
-				log.Printf("Job %s: Missing agentID or pollerID for interface on %s, using IP as DeviceID",
-					jobID, iface.DeviceIP)
 			}
 		}
 

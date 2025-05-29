@@ -194,28 +194,6 @@ func (s *GRPCDiscoveryService) GetLatestCachedResults(ctx context.Context, req *
 			continue
 		}
 
-		// Filter by AgentID and PollerID if specified
-		if req.AgentId != "" || req.PollerId != "" {
-			// Find the job to get its parameters
-			var job *DiscoveryJob
-			for _, activeJob := range engine.activeJobs {
-				if activeJob.ID == discoveryID {
-					job = activeJob
-					break
-				}
-			}
-			// If job is not active, parameters are not available, so skip
-			if job == nil {
-				continue
-			}
-			if req.AgentId != "" && job.Params.AgentID != req.AgentId {
-				continue
-			}
-			if req.PollerId != "" && job.Params.PollerID != req.PollerId {
-				continue
-			}
-		}
-
 		// Update latest if this job is newer
 		if latestResults == nil || results.Status.EndTime.After(latestEndTime) {
 			latestResults = results
