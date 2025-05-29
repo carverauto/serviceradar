@@ -96,8 +96,8 @@ const (
 
 // handleInterfaceDiscoverySNMP queries and publishes interface information
 func (e *DiscoveryEngine) handleInterfaceDiscoverySNMP(
-	job *DiscoveryJob, client *gosnmp.GoSNMP, target, agentID, pollerID string) {
-	interfaces, err := e.queryInterfaces(job, client, target, job.ID, agentID, pollerID)
+	job *DiscoveryJob, client *gosnmp.GoSNMP, target string) {
+	interfaces, err := e.queryInterfaces(job, client, target, job.ID)
 	if err != nil {
 		log.Printf("Job %s: Failed to query interfaces for %s: %v", job.ID, target, err)
 		return
@@ -125,9 +125,9 @@ func (e *DiscoveryEngine) handleInterfaceDiscoverySNMP(
 
 // handleTopologyDiscoverySNMP queries and publishes topology information (LLDP or CDP)
 func (e *DiscoveryEngine) handleTopologyDiscoverySNMP(
-	job *DiscoveryJob, client *gosnmp.GoSNMP, targetIP, agentID, pollerID string) {
+	job *DiscoveryJob, client *gosnmp.GoSNMP, targetIP string) {
 	// Try LLDP first
-	lldpLinks, lldpErr := e.queryLLDP(client, targetIP, agentID, pollerID, job.ID)
+	lldpLinks, lldpErr := e.queryLLDP(client, targetIP, job.ID)
 	if lldpErr == nil && len(lldpLinks) > 0 {
 		e.publishTopologyLinks(job, lldpLinks, targetIP, "LLDP")
 		return
@@ -136,7 +136,7 @@ func (e *DiscoveryEngine) handleTopologyDiscoverySNMP(
 	log.Printf("Job %s: LLDP not supported or no neighbors on %s: %v", job.ID, targetIP, lldpErr)
 
 	// Try CDP if LLDP failed
-	cdpLinks, cdpErr := e.queryCDP(client, targetIP, agentID, pollerID, job.ID)
+	cdpLinks, cdpErr := e.queryCDP(client, targetIP, job.ID)
 	if cdpErr == nil && len(cdpLinks) > 0 {
 		e.publishTopologyLinks(job, cdpLinks, targetIP, "CDP")
 		return
@@ -266,7 +266,7 @@ func (e *DiscoveryEngine) querySysInfo(client *gosnmp.GoSNMP, target, jobID stri
 
 // queryInterfaces queries interface information via SNMP
 func (e *DiscoveryEngine) queryInterfaces(
-	job *DiscoveryJob, client *gosnmp.GoSNMP, target, jobID, agentID, pollerID string) ([]*DiscoveredInterface, error) {
+	job *DiscoveryJob, client *gosnmp.GoSNMP, target, jobID string) ([]*DiscoveredInterface, error) {
 	// Map to store interfaces by index
 	ifMap := make(map[int]*DiscoveredInterface)
 
@@ -293,7 +293,7 @@ func (e *DiscoveryEngine) queryInterfaces(
 	e.associateIPsWithInterfaces(ipToIfIndex, ifMap)
 
 	// Convert map to slice and finalize interfaces
-	interfaces := e.finalizeInterfaces(job, ifMap, jobID, agentID, pollerID)
+	interfaces := e.finalizeInterfaces(job, ifMap, jobID)
 
 	// Log summary
 	speedCount := 0
@@ -880,7 +880,7 @@ const (
 
 // processLLDPRemoteTableEntry processes a single LLDP remote table entry
 func (e *DiscoveryEngine) processLLDPRemoteTableEntry(
-	pdu gosnmp.SnmpPDU, linkMap map[string]*TopologyLink, targetIP, agentID, pollerID, jobID string) error {
+	pdu gosnmp.SnmpPDU, linkMap map[string]*TopologyLink, targetIP, jobID string) error {
 	parts := strings.Split(pdu.Name, ".")
 	if len(parts) < defaultLLDPPartsCount {
 		return nil
@@ -896,15 +896,7 @@ func (e *DiscoveryEngine) processLLDPRemoteTableEntry(
 
 	// Create topology link if not exists
 	if _, exists := linkMap[key]; !exists {
-		localDeviceID := ""
-		if targetIP != "" && agentID != "" && pollerID != "" {
-			localDeviceID = fmt.Sprintf("%s:%s:%s", targetIP, agentID, pollerID)
-		} else if targetIP != "" {
-			log.Printf("Warning: AgentID or PollerID missing for job %s when creating LocalDeviceID for target %s",
-				jobID, targetIP)
-
-			localDeviceID = targetIP
-		}
+		localDeviceID := fmt.Sprintf("%s:%s", targetIP, jobID)
 
 		localPortIdx, _ := strconv.Atoi(localPort)
 		linkMap[key] = &TopologyLink{
@@ -987,16 +979,6 @@ func (*DiscoveryEngine) isValidLLDPLink(link *TopologyLink) bool {
 	return link.NeighborChassisID != "" || link.NeighborSystemName != "" || link.NeighborPortID != ""
 }
 
-// setLocalDeviceIDIfNeeded sets the LocalDeviceID if it's empty but has other required components
-func (*DiscoveryEngine) setLocalDeviceIDIfNeeded(link *TopologyLink, agentID, pollerID, jobID string) {
-	if link.LocalDeviceID == "" && link.LocalDeviceIP != "" && agentID != "" && pollerID != "" {
-		link.LocalDeviceID = fmt.Sprintf("%s:%s:%s", link.LocalDeviceIP, agentID, pollerID)
-	} else if link.LocalDeviceID == "" {
-		log.Printf("Job %s: Could not generate LocalDeviceID for LLDP link on %s "+
-			"due to missing components (agent: %s, poller: %s)", jobID, link.LocalDeviceIP, agentID, pollerID)
-	}
-}
-
 // addLLDPMetadata adds metadata to a link
 func (*DiscoveryEngine) addLLDPMetadata(link *TopologyLink, jobID string) {
 	link.Metadata["discovery_id"] = jobID
@@ -1006,7 +988,7 @@ func (*DiscoveryEngine) addLLDPMetadata(link *TopologyLink, jobID string) {
 
 // finalizeLLDPLinks validates and finalizes LLDP links
 func (e *DiscoveryEngine) finalizeLLDPLinks(
-	linkMap map[string]*TopologyLink, agentID, pollerID, jobID string) ([]*TopologyLink, error) {
+	linkMap map[string]*TopologyLink, jobID string) ([]*TopologyLink, error) {
 	links := make([]*TopologyLink, 0, len(linkMap))
 
 	for _, link := range linkMap {
@@ -1015,7 +997,6 @@ func (e *DiscoveryEngine) finalizeLLDPLinks(
 			continue
 		}
 
-		e.setLocalDeviceIDIfNeeded(link, agentID, pollerID, jobID)
 		e.addLLDPMetadata(link, jobID)
 		links = append(links, link)
 	}
@@ -1028,12 +1009,12 @@ func (e *DiscoveryEngine) finalizeLLDPLinks(
 }
 
 // queryLLDP queries LLDP topology information
-func (e *DiscoveryEngine) queryLLDP(client *gosnmp.GoSNMP, targetIP, agentID, pollerID, jobID string) ([]*TopologyLink, error) {
+func (e *DiscoveryEngine) queryLLDP(client *gosnmp.GoSNMP, targetIP, jobID string) ([]*TopologyLink, error) {
 	linkMap := make(map[string]*TopologyLink) // Key is "timeMark.localPort.index"
 
 	// Walk LLDP remote table
 	err := client.BulkWalk(oidLLDPRemTable, func(pdu gosnmp.SnmpPDU) error {
-		return e.processLLDPRemoteTableEntry(pdu, linkMap, targetIP, agentID, pollerID, jobID)
+		return e.processLLDPRemoteTableEntry(pdu, linkMap, targetIP, jobID)
 	})
 
 	if err != nil {
@@ -1048,7 +1029,7 @@ func (e *DiscoveryEngine) queryLLDP(client *gosnmp.GoSNMP, targetIP, agentID, po
 		return nil, err
 	}
 
-	return e.finalizeLLDPLinks(linkMap, agentID, pollerID, jobID)
+	return e.finalizeLLDPLinks(linkMap, jobID)
 }
 
 const (
@@ -1057,7 +1038,7 @@ const (
 
 // processCDPPDU processes a single CDP PDU and updates the link map
 func (e *DiscoveryEngine) processCDPPDU(
-	pdu gosnmp.SnmpPDU, linkMap map[string]*TopologyLink, targetIP, agentID, pollerID, jobID string) error {
+	pdu gosnmp.SnmpPDU, linkMap map[string]*TopologyLink, targetIP, jobID string) error {
 	parts := strings.Split(pdu.Name, ".")
 
 	if len(parts) < defaultPartsCount {
@@ -1071,7 +1052,7 @@ func (e *DiscoveryEngine) processCDPPDU(
 	key := fmt.Sprintf("%s.%s", ifIndex, index)
 
 	// Create topology link if not exists
-	e.ensureCDPLinkExists(linkMap, key, ifIndex, targetIP, agentID, pollerID, jobID)
+	e.ensureCDPLinkExists(linkMap, key, ifIndex, targetIP, jobID)
 
 	link := linkMap[key]
 
@@ -1086,9 +1067,9 @@ func (e *DiscoveryEngine) processCDPPDU(
 
 // ensureCDPLinkExists creates a new topology link if it doesn't exist in the map
 func (e *DiscoveryEngine) ensureCDPLinkExists(
-	linkMap map[string]*TopologyLink, key, ifIndex, targetIP, agentID, pollerID, jobID string) {
+	linkMap map[string]*TopologyLink, key, ifIndex, targetIP, jobID string) {
 	if _, exists := linkMap[key]; !exists {
-		localDeviceID := e.createLocalDeviceID(targetIP, agentID, pollerID, jobID)
+		localDeviceID := fmt.Sprintf("%s:%s", targetIP, jobID)
 		ifIdx, _ := strconv.Atoi(ifIndex)
 
 		linkMap[key] = &TopologyLink{
@@ -1184,12 +1165,12 @@ func (*DiscoveryEngine) finalizeCDPLinks(linkMap map[string]*TopologyLink, jobID
 }
 
 // queryCDP queries CDP (Cisco Discovery Protocol) topology information
-func (e *DiscoveryEngine) queryCDP(client *gosnmp.GoSNMP, targetIP, agentID, pollerID, jobID string) ([]*TopologyLink, error) {
+func (e *DiscoveryEngine) queryCDP(client *gosnmp.GoSNMP, targetIP, jobID string) ([]*TopologyLink, error) {
 	linkMap := make(map[string]*TopologyLink) // Key is "ifIndex.index"
 
 	// Walk CDP cache table
 	err := client.BulkWalk(oidCDPCacheTable, func(pdu gosnmp.SnmpPDU) error {
-		return e.processCDPPDU(pdu, linkMap, targetIP, agentID, pollerID, jobID)
+		return e.processCDPPDU(pdu, linkMap, targetIP, jobID)
 	})
 
 	if err != nil {

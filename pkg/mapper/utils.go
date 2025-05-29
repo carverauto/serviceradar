@@ -330,15 +330,3 @@ func expandCIDR(cidr string, seen map[string]bool) []string {
 
 	return targets
 }
-
-// createLocalDeviceID creates a local device ID based on available parameters
-func (*DiscoveryEngine) createLocalDeviceID(targetIP, agentID, pollerID, jobID string) string {
-	if targetIP != "" && agentID != "" && pollerID != "" {
-		return fmt.Sprintf("%s:%s:%s", targetIP, agentID, pollerID)
-	} else if targetIP != "" {
-		log.Printf("Warning: AgentID or PollerID missing for job %s when creating LocalDeviceID for CDP target %s", jobID, targetIP)
-		return targetIP
-	}
-
-	return ""
-}
