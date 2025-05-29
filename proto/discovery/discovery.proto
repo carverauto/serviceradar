@@ -16,6 +16,16 @@ service DiscoveryService {
 
   // GetDiscoveryResults retrieves results from a previously initiated discovery
   rpc GetDiscoveryResults(ResultsRequest) returns (ResultsResponse) {}
+
+  // GetLatestCachedResults retrieves the latest cached results of discovery operations
+  rpc GetLatestCachedResults(GetLatestCachedResultsRequest) returns (ResultsResponse) {}
+}
+
+message GetLatestCachedResultsRequest {
+  string agent_id = 1;      // ID of the agent requesting
+  string poller_id = 2;     // ID of the poller requesting
+  bool include_raw_data = 3; // Whether to include raw SNMP data
+  // string scope = 4; // Optional: if mapper has multiple internal scheduled jobs/scopes
 }
 
 // StatusRequest is used to query the status of the discovery service
@@ -95,6 +105,7 @@ message ResultsResponse {
   repeated TopologyLink topology = 5;     // List of topology links
   string error = 6;                       // Error message, if any
   float progress = 7;                     // Progress percentage (0-100)
+  map<string, string> metadata = 8;
 }
 
 // DiscoveryStatus describes the current state of a discovery job

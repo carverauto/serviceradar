@@ -165,7 +165,7 @@ func (e *DiscoveryEngine) fetchUniFiSites(ctx context.Context, job *DiscoveryJob
 }
 
 func (e *DiscoveryEngine) queryUniFiAPI(
-	ctx context.Context, job *DiscoveryJob, targetIP, agentID, pollerID string) ([]*TopologyLink, error) {
+	ctx context.Context, job *DiscoveryJob, targetIP string) ([]*TopologyLink, error) {
 	log.Printf("Job %s: Querying UniFi APIs for %s", job.ID, targetIP)
 
 	var allLinks []*TopologyLink
@@ -185,7 +185,7 @@ func (e *DiscoveryEngine) queryUniFiAPI(
 		}
 
 		for _, site := range sites {
-			links, err := e.querySingleUniFiAPI(ctx, job, targetIP, agentID, pollerID, apiConfig, site)
+			links, err := e.querySingleUniFiAPI(ctx, job, targetIP, apiConfig, site)
 			if err != nil {
 				log.Printf("Job %s: Failed to query UniFi API %s, site %s: %v",
 					job.ID, apiConfig.Name, site.Name, err)
@@ -222,8 +222,7 @@ func (*DiscoveryEngine) fetchUniFiDevicesForSite(
 	client *http.Client,
 	headers map[string]string,
 	apiConfig UniFiAPIConfig,
-	site UniFiSite,
-	agentID, pollerID string) ([]UniFiDevice, map[string]struct {
+	site UniFiSite) ([]UniFiDevice, map[string]struct {
 	IP       string
 	Name     string
 	MAC      string
@@ -279,11 +278,8 @@ func (*DiscoveryEngine) fetchUniFiDevicesForSite(
 
 	for i := range deviceResp.Data {
 		device := &deviceResp.Data[i]
-		deviceID := device.IPAddress
 
-		if agentID != "" && pollerID != "" && device.IPAddress != "" {
-			deviceID = fmt.Sprintf("%s:%s:%s", agentID, pollerID, device.IPAddress)
-		}
+		deviceID := fmt.Sprintf("%s:%s", device.IPAddress, device.MAC)
 
 		deviceCache[device.ID] = struct {
 			IP       string
@@ -463,7 +459,7 @@ func (*DiscoveryEngine) processUplinkInfo(
 func (e *DiscoveryEngine) querySingleUniFiAPI(
 	ctx context.Context,
 	job *DiscoveryJob,
-	targetIP, agentID, pollerID string,
+	targetIP string,
 	apiConfig UniFiAPIConfig,
 	site UniFiSite) ([]*TopologyLink, error) {
 	client := e.createUniFiClient(apiConfig)
@@ -474,7 +470,7 @@ func (e *DiscoveryEngine) querySingleUniFiAPI(
 
 	// Fetch devices and create device cache
 	devices, deviceCache, err :=
-		e.fetchUniFiDevicesForSite(ctx, job, client, headers, apiConfig, site, agentID, pollerID)
+		e.fetchUniFiDevicesForSite(ctx, job, client, headers, apiConfig, site)
 	if err != nil {
 		return nil, err
 	}
@@ -493,11 +489,8 @@ func (e *DiscoveryEngine) querySingleUniFiAPI(
 			continue
 		}
 
-		// Generate DeviceID
-		deviceID := device.IPAddress
-		if agentID != "" && pollerID != "" && device.IPAddress != "" {
-			deviceID = fmt.Sprintf("%s:%s:%s", agentID, pollerID, device.IPAddress)
-		}
+		// generate DeviceID using IP+MAC
+		deviceID := fmt.Sprintf("%s:%s", device.IPAddress, device.MAC)
 
 		// Fetch device details
 		details, err := e.fetchDeviceDetails(ctx, job, client, headers, apiConfig, site, device.ID)
@@ -525,7 +518,7 @@ func (e *DiscoveryEngine) querySingleUniFiAPI(
 func (e *DiscoveryEngine) queryUniFiDevices(
 	ctx context.Context,
 	job *DiscoveryJob,
-	targetIP, agentID, pollerID string) ([]*DiscoveredDevice, []*DiscoveredInterface, error) {
+	targetIP string) ([]*DiscoveredDevice, []*DiscoveredInterface, error) {
 	log.Printf("Job %s: Querying UniFi devices for %s", job.ID, targetIP)
 
 	var allDevices []*DiscoveredDevice
@@ -547,7 +540,7 @@ func (e *DiscoveryEngine) queryUniFiDevices(
 		}
 
 		for _, site := range sites {
-			devices, interfaces, err := e.querySingleUniFiDevices(ctx, job, targetIP, apiConfig, site, agentID, pollerID)
+			devices, interfaces, err := e.querySingleUniFiDevices(ctx, job, targetIP, apiConfig, site)
 			if err != nil {
 				log.Printf("Job %s: Failed to query UniFi devices from %s, site %s: %v",
 					job.ID, apiConfig.Name, site.Name, err)
@@ -637,21 +630,15 @@ func (*DiscoveryEngine) createDiscoveredDevice(
 	job *DiscoveryJob,
 	device *UniFiDevice,
 	apiConfig UniFiAPIConfig,
-	site UniFiSite,
-	agentID, pollerID string) *DiscoveredDevice {
+	site UniFiSite) *DiscoveredDevice {
 	if device.IPAddress == "" {
 		log.Printf("Job %s: UniFi device %s (ID: %s, MAC: %s) has no IP address, skipping.",
 			job.ID, device.Name, device.ID, device.MAC)
+
 		return nil
 	}
 
-	if agentID == "" || pollerID == "" {
-		log.Printf("Job %s: Missing agentID (%s) or pollerID (%s) for UniFi device %s (%s), "+
-			"cannot generate unique DeviceID, skipping.", job.ID, agentID, pollerID, device.Name, device.IPAddress)
-		return nil
-	}
-
-	deviceID := fmt.Sprintf("%s:%s:%s", agentID, pollerID, device.IPAddress)
+	deviceID := fmt.Sprintf("%s:%s", device.IPAddress, device.MAC) // Use IP+MAC as unique identifier
 
 	return &DiscoveredDevice{
 		DeviceID: deviceID,
@@ -810,8 +797,7 @@ func (e *DiscoveryEngine) querySingleUniFiDevices(
 	job *DiscoveryJob,
 	targetIP string, // Contextual IP, not used for filtering devices from controller here
 	apiConfig UniFiAPIConfig,
-	site UniFiSite,
-	agentID, pollerID string) ([]*DiscoveredDevice, []*DiscoveredInterface, error) {
+	site UniFiSite) ([]*DiscoveredDevice, []*DiscoveredInterface, error) {
 	log.Printf("Job %s: Querying UniFi devices from %s, site %s (context: %s)",
 		job.ID, apiConfig.Name, site.Name, targetIP)
 
@@ -828,7 +814,7 @@ func (e *DiscoveryEngine) querySingleUniFiDevices(
 	// Process each device
 	for i := range unifiDevices {
 		// Create discovered device
-		device := e.createDiscoveredDevice(job, unifiDevices[i], apiConfig, site, agentID, pollerID)
+		device := e.createDiscoveredDevice(job, unifiDevices[i], apiConfig, site)
 		if device == nil {
 			continue // Skip this device if it was filtered out
 		}
