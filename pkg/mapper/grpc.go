@@ -24,6 +24,8 @@ import (
 	"time"
 
 	proto "github.com/carverauto/serviceradar/proto/discovery"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
@@ -46,14 +48,14 @@ func (s *GRPCDiscoveryService) GetStatus(ctx context.Context, req *proto.StatusR
 
 	// If a discovery ID is provided, get status for that job
 	if req.DiscoveryId != "" {
-		status, err := s.engine.GetDiscoveryStatus(ctx, req.DiscoveryId)
+		discoveryStatus, err := s.engine.GetDiscoveryStatus(ctx, req.DiscoveryId)
 		if err != nil {
 			return nil, err
 		}
 
 		return &proto.StatusResponse{
 			Available:         true,
-			Status:            statusTypeToString(status.Status),
+			Status:            statusTypeToString(discoveryStatus.Status),
 			ActiveDiscoveries: []string{req.DiscoveryId},
 			PendingJobs:       0,
 			CompletedJobs:     0,
@@ -165,7 +167,55 @@ func (s *GRPCDiscoveryService) GetDiscoveryResults(ctx context.Context, req *pro
 	}
 
 	// Convert to proto response
-	status := statusTypeToProtoStatus(results.Status.Status)
+	return convertResultsToProto(results, req.DiscoveryId, req.IncludeRawData)
+}
+
+// GetLatestCachedResults implements the DiscoveryService interface
+func (s *GRPCDiscoveryService) GetLatestCachedResults(
+	_ context.Context, req *proto.GetLatestCachedResultsRequest) (*proto.ResultsResponse, error) {
+	log.Printf("Received GetLatestCachedResults request: %v", req)
+
+	// Cast engine to DiscoveryEngine to access completedJobs
+	engine, ok := s.engine.(*DiscoveryEngine)
+	if !ok {
+		return nil, status.Error(codes.Internal, "internal engine type mismatch")
+	}
+
+	engine.mu.RLock()
+	defer engine.mu.RUnlock()
+
+	var latestResults *DiscoveryResults
+
+	var latestDiscoveryID string
+
+	var latestEndTime time.Time
+
+	// Iterate through completed jobs to find the most recent one
+	for discoveryID, results := range engine.completedJobs {
+		// Skip jobs with zero end time (invalid or not completed)
+		if results.Status.EndTime.IsZero() {
+			continue
+		}
+
+		// Update latest if this job is newer
+		if latestResults == nil || results.Status.EndTime.After(latestEndTime) {
+			latestResults = results
+			latestDiscoveryID = discoveryID
+			latestEndTime = results.Status.EndTime
+		}
+	}
+
+	if latestResults == nil {
+		return nil, status.Error(codes.NotFound, "no completed discovery results found")
+	}
+
+	// Convert results to proto response
+	return convertResultsToProto(latestResults, latestDiscoveryID, req.IncludeRawData)
+}
+
+// convertResultsToProto converts DiscoveryResults to proto.ResultsResponse
+func convertResultsToProto(results *DiscoveryResults, discoveryID string, includeRawData bool) (*proto.ResultsResponse, error) {
+	protoStatus := statusTypeToProtoStatus(results.Status.Status)
 
 	// Convert devices
 	protoDevices := make([]*proto.DiscoveredDevice, len(results.Devices))
@@ -179,6 +229,7 @@ func (s *GRPCDiscoveryService) GetDiscoveryResults(ctx context.Context, req *pro
 
 	for _, iface := range results.Interfaces {
 		protoIface, valid := convertInterfaceToProto(iface)
+
 		if valid {
 			protoInterfaces = append(protoInterfaces, protoIface)
 		}
@@ -191,14 +242,26 @@ func (s *GRPCDiscoveryService) GetDiscoveryResults(ctx context.Context, req *pro
 		protoLinks[i] = convertTopologyLinkToProto(link)
 	}
 
+	// Prepare metadata
+	metadata := make(map[string]string)
+
+	if includeRawData && results.RawData != nil {
+		for k, v := range results.RawData {
+			if str, ok := v.(string); ok {
+				metadata[k] = str
+			}
+		}
+	}
+
 	return &proto.ResultsResponse{
-		DiscoveryId: req.DiscoveryId,
-		Status:      status,
+		DiscoveryId: discoveryID,
+		Status:      protoStatus,
 		Devices:     protoDevices,
 		Interfaces:  protoInterfaces,
 		Topology:    protoLinks,
 		Error:       results.Status.Error,
 		Progress:    float32(results.Status.Progress),
+		Metadata:    metadata,
 	}, nil
 }
 
@@ -250,7 +313,6 @@ func protoToSNMPCredentials(creds *proto.SNMPCredentials) *SNMPCredentials {
 	// Convert target-specific credentials
 	if len(creds.TargetSpecific) > 0 {
 		result.TargetSpecific = make(map[string]*SNMPCredentials)
-
 		for target, targetCreds := range creds.TargetSpecific {
 			result.TargetSpecific[target] = protoToSNMPCredentials(targetCreds)
 		}
@@ -339,4 +401,5 @@ const (
 	defaultTimePerDeviceInterfaces = 5
 	defaultTimePerDeviceTopology   = 5
 	defaultTimePerDevice           = 10
+	defaultConcurrency             = 10
 )
