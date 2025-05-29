@@ -93,6 +93,7 @@ func (e *DiscoveryEngine) Stop(ctx context.Context) error {
 		ticker.Stop()
 		log.Printf("Stopped scheduler for job %s", name)
 	}
+
 	e.schedulers = make(map[string]*time.Ticker) // Reset schedulers
 	e.mu.Unlock()
 
@@ -101,6 +102,7 @@ func (e *DiscoveryEngine) Stop(ctx context.Context) error {
 
 	// Wait for all goroutines to finish
 	waitChan := make(chan struct{})
+
 	go func() {
 		e.wg.Wait()
 		close(waitChan)
@@ -150,6 +152,7 @@ func (e *DiscoveryEngine) scheduleJobs(ctx context.Context) {
 		timeout, err := time.ParseDuration(jobConfig.Timeout)
 		if err != nil {
 			log.Printf("Invalid timeout for job %s: %v, using default config timeout", jobConfig.Name, err)
+
 			timeout = e.config.Timeout
 		}
 
