@@ -273,6 +273,7 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 		if err != nil {
 			return fmt.Errorf("invalid timeout format: %w", err)
 		}
+
 		c.Timeout = duration
 	}
 
@@ -282,6 +283,7 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 		if err != nil {
 			return fmt.Errorf("invalid result_retention format: %w", err)
 		}
+
 		c.ResultRetention = duration
 	}
 
@@ -291,6 +293,7 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 		if err != nil {
 			return fmt.Errorf("invalid publish_retry_interval format: %w", err)
 		}
+
 		c.StreamConfig.PublishRetryInterval = duration
 	}
 
@@ -308,6 +311,7 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 			Retries:     aux.ScheduledJobs[i].Retries,
 			Options:     aux.ScheduledJobs[i].Options,
 		}
+
 		if aux.ScheduledJobs[i].Timeout != "" {
 			c.ScheduledJobs[i].Timeout = aux.ScheduledJobs[i].Timeout
 		}

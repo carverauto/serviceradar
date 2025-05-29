@@ -21,15 +21,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
+	"log"
+	"os"
+	"path/filepath"
+	"sync"
+
 	"github.com/carverauto/serviceradar/pkg/config"
 	ggrpc "github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 	discovery "github.com/carverauto/serviceradar/proto/discovery"
-	"log"
-	"os"
-	"path/filepath"
-	"sync"
 )
 
 // MapperConfig represents the configuration for the mapper service
@@ -182,13 +184,13 @@ func (mdc *MapperDiscoveryChecker) Check(ctx context.Context, req *proto.StatusR
 			log.Printf("MapperDiscoveryChecker: Mapper status is RUNNING. Progress: %.1f%%", resultsResp.Progress)
 
 			isDataUsable = len(resultsResp.Devices) > 0 // Usable if some devices are present
-			_, responseData = mdc.formatProgressStatus(resultsResp)
+			responseData = mdc.formatProgressStatus(resultsResp)
 		case discovery.DiscoveryStatus_PENDING:
 			// Mapper's job is pending, or no data cached yet.
 			log.Printf("MapperDiscoveryChecker: Mapper status is PENDING. No significant data expected.")
 
 			isDataUsable = false
-			_, responseData = mdc.formatProgressStatus(resultsResp)
+			responseData = mdc.formatProgressStatus(resultsResp)
 		case discovery.DiscoveryStatus_FAILED:
 			// The mapper's last discovery attempt failed. Service is up, but data is problematic.
 			errMsg := fmt.Sprintf("Latest cached discovery from mapper shows FAILED status: %s", resultsResp.Error)
@@ -228,8 +230,7 @@ func (mdc *MapperDiscoveryChecker) Check(ctx context.Context, req *proto.StatusR
 }
 
 // formatProgressStatus formats in-progress or partial discovery results.
-// The first boolean it returns indicates if the data is considered complete and usable by the agent (typically false for progress).
-func (mdc *MapperDiscoveryChecker) formatProgressStatus(resultsResp *discovery.ResultsResponse) (bool, json.RawMessage) {
+func (*MapperDiscoveryChecker) formatProgressStatus(resultsResp *discovery.ResultsResponse) json.RawMessage {
 	message := fmt.Sprintf("Mapper discovery status: %s (progress: %.1f%%). Devices: %d, Interfaces: %d, Links: %d.",
 		resultsResp.Status, resultsResp.Progress,
 		len(resultsResp.Devices), len(resultsResp.Interfaces), len(resultsResp.Topology))
@@ -251,17 +252,13 @@ func (mdc *MapperDiscoveryChecker) formatProgressStatus(resultsResp *discovery.R
 	data, err := json.Marshal(resp)
 	if err != nil {
 		log.Printf("MapperDiscoveryChecker: Failed to marshal progress status: %v", err)
-		return false, jsonError(fmt.Sprintf("Failed to marshal progress status: %v", err))
+		return jsonError(fmt.Sprintf("Failed to marshal progress status: %v", err))
 	}
 
-	// For progress, data is not considered fully "usable" in the sense of being complete.
-	// However, if status is RUNNING and there's data, it might be partially usable.
-	isDataUsable := resultsResp.Status == discovery.DiscoveryStatus_RUNNING && len(resultsResp.Devices) > 0
-
-	return isDataUsable, data
+	return data
 }
 
-func (mdc *MapperDiscoveryChecker) formatFinalResults(
+func (*MapperDiscoveryChecker) formatFinalResults(
 	resultsResp *discovery.ResultsResponse,
 	requestingAgentID string,
 	requestingPollerID string) (bool, json.RawMessage) {
