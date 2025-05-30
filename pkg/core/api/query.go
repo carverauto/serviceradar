@@ -210,32 +210,45 @@ func (s *APIServer) executeQuery(ctx context.Context, query string, entity model
 	// For Proton, we don't need to pass an additional parameter as the entity is already
 	// properly formatted in the query with table() function
 	if s.dbType == parser.Proton {
-		return s.queryExecutor.ExecuteQuery(ctx, query)
+		results, err := s.queryExecutor.ExecuteQuery(ctx, query)
+		if err != nil {
+			return nil, fmt.Errorf("query error: %w", err)
+		}
+		return results, nil
 	}
 
 	// For other database types, use the existing logic
+	var results []map[string]interface{}
+	var err error
+
 	switch entity {
 	case models.Devices:
-		return s.queryExecutor.ExecuteQuery(ctx, query, "devices")
+		results, err = s.queryExecutor.ExecuteQuery(ctx, query, "devices")
 	case models.Flows:
-		return s.queryExecutor.ExecuteQuery(ctx, query, "flows")
+		results, err = s.queryExecutor.ExecuteQuery(ctx, query, "flows")
 	case models.Traps:
-		return s.queryExecutor.ExecuteQuery(ctx, query, "traps")
+		results, err = s.queryExecutor.ExecuteQuery(ctx, query, "traps")
 	case models.Connections:
-		return s.queryExecutor.ExecuteQuery(ctx, query, "connections")
+		results, err = s.queryExecutor.ExecuteQuery(ctx, query, "connections")
 	case models.Logs:
-		return s.queryExecutor.ExecuteQuery(ctx, query, "logs")
+		results, err = s.queryExecutor.ExecuteQuery(ctx, query, "logs")
 	case models.Interfaces:
-		return s.queryExecutor.ExecuteQuery(ctx, query, "interfaces")
+		results, err = s.queryExecutor.ExecuteQuery(ctx, query, "interfaces")
 	case models.SweepResults:
-		return s.queryExecutor.ExecuteQuery(ctx, query, "sweep_results")
+		results, err = s.queryExecutor.ExecuteQuery(ctx, query, "sweep_results")
 	case models.ICMPResults:
-		return s.queryExecutor.ExecuteQuery(ctx, query, "icmp_results")
+		results, err = s.queryExecutor.ExecuteQuery(ctx, query, "icmp_results")
 	case models.SNMPResults:
-		return s.queryExecutor.ExecuteQuery(ctx, query, "snmp_results")
+		results, err = s.queryExecutor.ExecuteQuery(ctx, query, "snmp_results")
 	default:
 		return nil, fmt.Errorf("%w: %s", errUnsupportedEntity, entity)
 	}
+
+	if err != nil {
+		return nil, fmt.Errorf("query error: %w", err)
+	}
+
+	return results, nil
 }
 
 // decodeCursor decodes a Base64-encoded cursor into a map
