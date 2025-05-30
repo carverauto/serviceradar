@@ -80,7 +80,7 @@ func validateQueryRequest(req *QueryRequest) (errMsg string, statusCode int, ok 
 		return errMsg, statusCode, ok
 	}
 
-	// Default limit if not specified
+	// Set default limit to 10 if not specified or invalid
 	if req.Limit <= 0 {
 		req.Limit = 10
 	}
@@ -88,7 +88,6 @@ func validateQueryRequest(req *QueryRequest) (errMsg string, statusCode int, ok 
 	// Validate direction
 	if req.Direction != "" && req.Direction != DirectionNext && req.Direction != DirectionPrev {
 		errMsg = fmt.Sprintf("Direction must be '%s' or '%s'", DirectionNext, DirectionPrev)
-
 		statusCode = http.StatusBadRequest
 		ok = false
 
@@ -142,9 +141,16 @@ func (s *APIServer) prepareQuery(req *QueryRequest) (*models.Query, map[string]i
 		query.Conditions = append(query.Conditions, buildCursorConditions(query, cursorData, req.Direction)...)
 	}
 
-	// Set or update LIMIT
-	query.Limit = req.Limit
-	query.HasLimit = true
+	// Set LIMIT: prioritize SRQL query's LIMIT, then req.Limit, then default to 10
+	if !query.HasLimit {
+		if req.Limit > 0 {
+			query.Limit = req.Limit
+			query.HasLimit = true
+		} else {
+			query.Limit = 10
+			query.HasLimit = true
+		}
+	}
 
 	return query, cursorData, nil
 }
