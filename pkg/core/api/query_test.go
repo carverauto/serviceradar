@@ -407,10 +407,10 @@ func TestHandleSRQLQuery(t *testing.T) {
 			setupMock:      func() {},
 			validateResp: func(t *testing.T, w *httptest.ResponseRecorder) {
 				assert.Equal(t, http.StatusBadRequest, w.Code)
-				var resp map[string]string
+				var resp map[string]interface{}
 				err := json.Unmarshal(w.Body.Bytes(), &resp)
 				require.NoError(t, err)
-				assert.Contains(t, resp["error"], "Invalid request body")
+				assert.Contains(t, resp["message"], "Invalid request body")
 			},
 		},
 		{
@@ -421,10 +421,10 @@ func TestHandleSRQLQuery(t *testing.T) {
 			setupMock:      func() {},
 			validateResp: func(t *testing.T, w *httptest.ResponseRecorder) {
 				assert.Equal(t, http.StatusBadRequest, w.Code)
-				var resp map[string]string
+				var resp map[string]interface{}
 				err := json.Unmarshal(w.Body.Bytes(), &resp)
 				require.NoError(t, err)
-				assert.Contains(t, resp["error"], "Query string is required")
+				assert.Contains(t, resp["message"], "Query string is required")
 			},
 		},
 		{
@@ -435,10 +435,10 @@ func TestHandleSRQLQuery(t *testing.T) {
 			setupMock:      func() {},
 			validateResp: func(t *testing.T, w *httptest.ResponseRecorder) {
 				assert.Equal(t, http.StatusBadRequest, w.Code)
-				var resp map[string]string
+				var resp map[string]interface{}
 				err := json.Unmarshal(w.Body.Bytes(), &resp)
 				require.NoError(t, err)
-				assert.Contains(t, resp["error"], "failed to parse query")
+				assert.Contains(t, resp["message"], "failed to parse query")
 			},
 		},
 	}
