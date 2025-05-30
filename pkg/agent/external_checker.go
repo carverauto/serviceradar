@@ -204,6 +204,11 @@ func (e *ExternalChecker) getServiceDetails(ctx context.Context) (healthy bool, 
 func (e *ExternalChecker) canUseCachedStatus() bool {
 	now := time.Now()
 
+	if !e.healthStatus {
+		// For unhealthy status, use a shorter cache duration to retry sooner
+		return !e.lastHealthCheck.IsZero() && now.Sub(e.lastHealthCheck) < (e.healthCheckInterval/2)
+	}
+
 	return !e.lastHealthCheck.IsZero() && now.Sub(e.lastHealthCheck) < e.healthCheckInterval
 }
 
