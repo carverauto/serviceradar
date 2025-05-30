@@ -43,44 +43,25 @@ func (s *AgentService) GetStatus(_ context.Context, req *proto.StatusRequest) (*
 	log.Printf("Mapper's monitoring.AgentService/GetStatus called with request: %+v", req)
 
 	isAvailable := false
+
 	message := map[string]interface{}{
 		"status":  "unavailable",
 		"message": "serviceradar-mapper is not operational",
 	}
 
 	if s.engine != nil {
-		// Check if the engine is operational by verifying active workers or job channel status
-		select {
-		case job, ok := <-s.engine.jobChan:
-			if ok {
-				// Put the job back to avoid consuming it
-				select {
-				case s.engine.jobChan <- job:
-				default:
-					log.Printf("Failed to restore job to channel")
-				}
+		// Check if engine is initialized and running
+		s.engine.mu.RLock()
+		isRunning := s.engine.done != nil && len(s.engine.schedulers) > 0 // Check for active schedulers
+		s.engine.mu.RUnlock()
 
-				isAvailable = true
-
-				message["status"] = "operational"
-				message["message"] = "serviceradar-mapper is operational"
-			}
-		default:
-			// Check if there are active jobs
-			s.engine.mu.RLock()
-			hasActiveJobs := len(s.engine.activeJobs) > 0
-			s.engine.mu.RUnlock()
-
-			if hasActiveJobs {
-				isAvailable = true
-
-				message["status"] = "operational"
-				message["message"] = "serviceradar-mapper is operational with active jobs"
-			}
+		if isRunning {
+			isAvailable = true
+			message["status"] = "operational"
+			message["message"] = "serviceradar-mapper is operational"
 		}
 	}
 
-	// Marshal message to JSON bytes
 	messageBytes, err := json.Marshal(message)
 	if err != nil {
 		log.Printf("Failed to marshal status message: %v", err)
