@@ -34,8 +34,6 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-//go:generate mockgen -destination=mock_api.go -package=api github.com/carverauto/serviceradar/pkg/core/api Service
-
 // TestValidateQueryRequest tests the validateQueryRequest function
 func TestValidateQueryRequest(t *testing.T) {
 	tests := []struct {
