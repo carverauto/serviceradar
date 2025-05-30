@@ -4,6 +4,8 @@
   "retries": 3,
   "max_active_jobs": 100,
   "result_retention": "24h",
+  "mapper_agent_id": "default-mapper",
+  "mapper_instance_id": "serviceradar-mapper-01",
   "default_credentials": {
     "version": "v2c",
     "community": "public"
@@ -32,20 +34,43 @@
     "interface_stream": "discovered_interfaces",
     "topology_stream": "topology_discovery_events",
     "agent_id": "snmp-discovery-agent",
-    "poller_id": "snmp-discovery-poller",
     "publish_batch_size": 100,
     "publish_retries": 3,
     "publish_retry_interval": "5s"
   },
   "credentials": [
     {
-      "targets": ["192.168.1.0/24"],
+      "targets": ["192.168.2.0/24"],
       "version": "v2c",
       "community": "public"
     }
   ],
-  "seeds": [
-    "192.168.1.0/24"
+  "scheduled_jobs": [
+    {
+      "name": "primary-lan-discovery",
+      "interval": "1h",
+      "enabled": true,
+      "seeds": ["192.168.2.1"],
+      "type": "full",
+      "credentials": {
+        "version": "v2c",
+        "community": "public"
+      },
+      "concurrency": 10,
+      "timeout": "45s",
+      "retries": 2,
+      "options": {
+        "trigger_discovery": "false"
+      }
+    }
+  ],
+  "unifi_apis": [
+    {
+      "name": "Main Controller",
+      "base_url": "https://192.168.1.1/proxy/network/integration/v1",
+      "api_key": "UbiquitiAPIkey",
+      "insecure_skip_verify": true
+    }
   ],
   "security": {
     "mode": "mtls",
@@ -53,10 +78,10 @@
     "role": "checker",
     "server_name": "serviceradar.mapper",
     "tls": {
-      "cert_file": "server.crt",
-      "key_file": "server.key",
-      "ca_file": "ca.crt",
-      "client_ca_file": "ca.crt"
+      "cert_file": "checkers.pem",
+      "key_file": "checkers-key.pem",
+      "ca_file": "root.pem",
+      "client_ca_file": "root.pem"
     }
   }
 }
