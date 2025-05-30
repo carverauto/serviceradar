@@ -214,11 +214,13 @@ func (s *APIServer) executeQuery(ctx context.Context, query string, entity model
 		if err != nil {
 			return nil, fmt.Errorf("query error: %w", err)
 		}
+
 		return results, nil
 	}
 
 	// For other database types, use the existing logic
 	var results []map[string]interface{}
+
 	var err error
 
 	switch entity {

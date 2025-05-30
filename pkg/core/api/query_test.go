@@ -128,6 +128,8 @@ func TestPrepareQuery(t *testing.T) {
 			expectError: false,
 			setupMock:   func(*APIServer) {},
 			validateQuery: func(t *testing.T, query *models.Query, _ map[string]interface{}) {
+				t.Helper()
+
 				assert.Equal(t, models.Devices, query.Entity)
 				assert.Equal(t, 10, query.Limit)
 				assert.True(t, query.HasLimit)
@@ -146,6 +148,8 @@ func TestPrepareQuery(t *testing.T) {
 			expectError: false,
 			setupMock:   func(*APIServer) {},
 			validateQuery: func(t *testing.T, query *models.Query, _ map[string]interface{}) {
+				t.Helper()
+
 				assert.Equal(t, models.Interfaces, query.Entity)
 				assert.Equal(t, 20, query.Limit)
 				assert.True(t, query.HasLimit)
@@ -166,6 +170,8 @@ func TestPrepareQuery(t *testing.T) {
 			expectError: false,
 			setupMock:   func(*APIServer) {},
 			validateQuery: func(t *testing.T, query *models.Query, cursorData map[string]interface{}) {
+				t.Helper()
+
 				assert.Equal(t, models.Devices, query.Entity)
 				assert.Equal(t, 10, query.Limit)
 				assert.True(t, query.HasLimit)
@@ -218,19 +224,23 @@ func TestPrepareQuery(t *testing.T) {
 			s := &APIServer{
 				dbType: tt.dbType,
 			}
+
 			tt.setupMock(s)
 
 			query, cursorData, err := s.prepareQuery(tt.req)
 			if tt.expectError {
 				require.Error(t, err)
+
 				if tt.errorContains != "" {
 					assert.Contains(t, err.Error(), tt.errorContains)
 				}
+
 				return
 			}
 
 			require.NoError(t, err)
 			require.NotNil(t, query)
+
 			tt.validateQuery(t, query, cursorData)
 		})
 	}
@@ -277,6 +287,8 @@ func TestExecuteQueryAndBuildResponse(t *testing.T) {
 					}, nil)
 			},
 			validateResp: func(t *testing.T, resp *QueryResponse) {
+				t.Helper()
+
 				assert.Len(t, resp.Results, 2)
 				assert.Equal(t, "192.168.1.1", resp.Results[0]["ip"])
 				assert.Equal(t, "192.168.1.2", resp.Results[1]["ip"])
@@ -329,6 +341,8 @@ func TestExecuteQueryAndBuildResponse(t *testing.T) {
 					Return([]map[string]interface{}{}, nil)
 			},
 			validateResp: func(t *testing.T, resp *QueryResponse) {
+				t.Helper()
+
 				assert.Empty(t, resp.Results)
 				assert.Equal(t, 10, resp.Pagination.Limit)
 				assert.Empty(t, resp.Pagination.NextCursor)
@@ -343,19 +357,23 @@ func TestExecuteQueryAndBuildResponse(t *testing.T) {
 				dbType:        tt.dbType,
 				queryExecutor: mockQueryExecutor,
 			}
+
 			tt.setupMock()
 
 			resp, err := s.executeQueryAndBuildResponse(context.Background(), tt.query, tt.req)
 			if tt.expectError {
 				require.Error(t, err)
+
 				if tt.errorContains != "" {
 					assert.Contains(t, err.Error(), tt.errorContains)
 				}
+
 				return
 			}
 
 			require.NoError(t, err)
 			require.NotNil(t, resp)
+
 			tt.validateResp(t, resp)
 		})
 	}
@@ -390,8 +408,12 @@ func TestHandleSRQLQuery(t *testing.T) {
 					}, nil)
 			},
 			validateResp: func(t *testing.T, w *httptest.ResponseRecorder) {
+				t.Helper()
+
 				assert.Equal(t, http.StatusOK, w.Code)
+
 				var resp QueryResponse
+
 				err := json.Unmarshal(w.Body.Bytes(), &resp)
 				require.NoError(t, err)
 				assert.Len(t, resp.Results, 1)
@@ -406,8 +428,12 @@ func TestHandleSRQLQuery(t *testing.T) {
 			expectedStatus: http.StatusBadRequest,
 			setupMock:      func() {},
 			validateResp: func(t *testing.T, w *httptest.ResponseRecorder) {
+				t.Helper()
+
 				assert.Equal(t, http.StatusBadRequest, w.Code)
+
 				var resp map[string]interface{}
+
 				err := json.Unmarshal(w.Body.Bytes(), &resp)
 				require.NoError(t, err)
 				assert.Contains(t, resp["message"], "Invalid request body")
@@ -420,8 +446,12 @@ func TestHandleSRQLQuery(t *testing.T) {
 			expectedStatus: http.StatusBadRequest,
 			setupMock:      func() {},
 			validateResp: func(t *testing.T, w *httptest.ResponseRecorder) {
+				t.Helper()
+
 				assert.Equal(t, http.StatusBadRequest, w.Code)
+
 				var resp map[string]interface{}
+
 				err := json.Unmarshal(w.Body.Bytes(), &resp)
 				require.NoError(t, err)
 				assert.Contains(t, resp["message"], "Query string is required")
@@ -434,8 +464,12 @@ func TestHandleSRQLQuery(t *testing.T) {
 			expectedStatus: http.StatusBadRequest,
 			setupMock:      func() {},
 			validateResp: func(t *testing.T, w *httptest.ResponseRecorder) {
+				t.Helper()
+
 				assert.Equal(t, http.StatusBadRequest, w.Code)
+
 				var resp map[string]interface{}
+
 				err := json.Unmarshal(w.Body.Bytes(), &resp)
 				require.NoError(t, err)
 				assert.Contains(t, resp["message"], "failed to parse query")
@@ -449,10 +483,12 @@ func TestHandleSRQLQuery(t *testing.T) {
 				dbType:        tt.dbType,
 				queryExecutor: mockQueryExecutor,
 			}
+
 			tt.setupMock()
 
 			req := httptest.NewRequest(http.MethodPost, "/api/query", strings.NewReader(tt.requestBody))
 			req.Header.Set("Content-Type", "application/json")
+
 			w := httptest.NewRecorder()
 
 			s.handleSRQLQuery(w, req)
@@ -479,10 +515,10 @@ func TestExecuteQuery(t *testing.T) {
 		validateResp  func(*testing.T, []map[string]interface{})
 	}{
 		{
-			name:    "Proton query",
-			query:   "SELECT * FROM table(devices)",
-			entity:  models.Devices,
-			dbType:  parser.Proton,
+			name:   "Proton query",
+			query:  "SELECT * FROM table(devices)",
+			entity: models.Devices,
+			dbType: parser.Proton,
 			setupMock: func() {
 				mockQueryExecutor.EXPECT().
 					ExecuteQuery(gomock.Any(), "SELECT * FROM table(devices)").
@@ -491,15 +527,17 @@ func TestExecuteQuery(t *testing.T) {
 					}, nil)
 			},
 			validateResp: func(t *testing.T, results []map[string]interface{}) {
+				t.Helper()
+
 				assert.Len(t, results, 1)
 				assert.Equal(t, "192.168.1.1", results[0]["ip"])
 			},
 		},
 		{
-			name:    "ClickHouse devices query",
-			query:   "SELECT * FROM devices",
-			entity:  models.Devices,
-			dbType:  parser.ClickHouse,
+			name:   "ClickHouse devices query",
+			query:  "SELECT * FROM devices",
+			entity: models.Devices,
+			dbType: parser.ClickHouse,
 			setupMock: func() {
 				mockQueryExecutor.EXPECT().
 					ExecuteQuery(gomock.Any(), "SELECT * FROM devices", "devices").
@@ -508,15 +546,17 @@ func TestExecuteQuery(t *testing.T) {
 					}, nil)
 			},
 			validateResp: func(t *testing.T, results []map[string]interface{}) {
+				t.Helper()
+
 				assert.Len(t, results, 1)
 				assert.Equal(t, "192.168.1.1", results[0]["ip"])
 			},
 		},
 		{
-			name:    "ClickHouse interfaces query",
-			query:   "SELECT * FROM interfaces",
-			entity:  models.Interfaces,
-			dbType:  parser.ClickHouse,
+			name:   "ClickHouse interfaces query",
+			query:  "SELECT * FROM interfaces",
+			entity: models.Interfaces,
+			dbType: parser.ClickHouse,
 			setupMock: func() {
 				mockQueryExecutor.EXPECT().
 					ExecuteQuery(gomock.Any(), "SELECT * FROM interfaces", "interfaces").
@@ -525,6 +565,8 @@ func TestExecuteQuery(t *testing.T) {
 					}, nil)
 			},
 			validateResp: func(t *testing.T, results []map[string]interface{}) {
+				t.Helper()
+
 				assert.Len(t, results, 1)
 				assert.Equal(t, "192.168.1.1", results[0]["device_ip"])
 				assert.Equal(t, 1, results[0]["ifIndex"])
@@ -562,19 +604,24 @@ func TestExecuteQuery(t *testing.T) {
 				dbType:        tt.dbType,
 				queryExecutor: mockQueryExecutor,
 			}
+
 			tt.setupMock()
 
 			results, err := s.executeQuery(context.Background(), tt.query, tt.entity)
+
 			if tt.expectError {
 				require.Error(t, err)
+
 				if tt.errorContains != "" {
 					assert.Contains(t, err.Error(), tt.errorContains)
 				}
+
 				return
 			}
 
 			require.NoError(t, err)
 			require.NotNil(t, results)
+
 			tt.validateResp(t, results)
 		})
 	}
