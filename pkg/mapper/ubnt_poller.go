@@ -418,11 +418,11 @@ func (*DiscoveryEngine) processUplinkInfo(
 	job *DiscoveryJob,
 	device *UniFiDevice,
 	deviceCache map[string]struct {
-		IP       string
-		Name     string
-		MAC      string
-		DeviceID string
-	},
+	IP       string
+	Name     string
+	MAC      string
+	DeviceID string
+},
 	apiConfig UniFiAPIConfig,
 	site UniFiSite) []*TopologyLink {
 	var links []*TopologyLink
@@ -530,6 +530,29 @@ func (e *DiscoveryEngine) queryUniFiDevices(
 		if apiConfig.BaseURL == "" || apiConfig.APIKey == "" {
 			log.Printf("Job %s: Skipping incomplete UniFi API config: %s", job.ID, apiConfig.Name)
 			continue
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, nil, fmt.Errorf("UniFi discovery canceled: %w", ctx.Err())
+		default:
+		}
+
+		// Health check
+		client := e.createUniFiClient(apiConfig)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiConfig.BaseURL, nil)
+		if err == nil {
+			req.Header.Set("X-API-Key", apiConfig.APIKey)
+			resp, err := client.Do(req)
+			if err != nil || resp.StatusCode != http.StatusOK {
+				log.Printf("Job %s: UniFi controller %s health check failed: %v, status: %d",
+					job.ID, apiConfig.Name, err, resp.StatusCode)
+				if resp != nil {
+					resp.Body.Close()
+				}
+				continue
+			}
+			resp.Body.Close()
 		}
 
 		sites, err := e.fetchUniFiSites(ctx, job, apiConfig)

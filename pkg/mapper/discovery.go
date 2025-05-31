@@ -826,8 +826,12 @@ func (e *DiscoveryEngine) publishDevice(job *DiscoveryJob, device *DiscoveredDev
 func (e *DiscoveryEngine) runDiscoveryJob(ctx context.Context, job *DiscoveryJob) {
 	log.Printf("Running discovery for job %s. Seeds: %v, Type: %s", job.ID, job.Params.Seeds, job.Params.Type)
 
-	// Set a timeout for the entire job
-	jobCtx, cancel := context.WithTimeout(ctx, e.config.Timeout*time.Duration(job.Params.Retries+1))
+	// Use job-specific timeout or default
+	timeout := e.config.Timeout * time.Duration(job.Params.Retries+1)
+	if job.Params.Timeout > 0 {
+		timeout = job.Params.Timeout * time.Duration(job.Params.Retries+1)
+	}
+	jobCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	initialSeeds := expandSeeds(job.Params.Seeds)
@@ -838,8 +842,24 @@ func (e *DiscoveryEngine) runDiscoveryJob(ctx context.Context, job *DiscoveryJob
 
 	// Phase 1: UniFi Device Discovery
 	allPotentialSNMPTargets := e.handleUniFiDiscoveryPhase(jobCtx, job, initialSeeds)
-	if e.checkJobCancellation(job) {
+	select {
+	case <-jobCtx.Done():
+		job.mu.Lock()
+		job.Status.Status = DiscoverStatusCanceled
+		job.Status.Error = fmt.Sprintf("Job timed out during UniFi discovery phase: %v", jobCtx.Err())
+		job.Status.EndTime = time.Now()
+		job.mu.Unlock()
+		log.Printf("Job %s: Timed out during UniFi discovery phase: %v", job.ID, jobCtx.Err())
+		e.finalizeJobStatus(job) // Ensure job is marked complete
 		return
+	case <-job.ctx.Done():
+		e.checkJobCancellation(job)
+		return
+	case <-e.done:
+		e.checkJobCancellation(job)
+		return
+	default:
+		// Continue to Phase 2
 	}
 
 	// Phase 2: SNMP Polling
