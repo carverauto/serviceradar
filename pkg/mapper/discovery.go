@@ -594,7 +594,7 @@ func (e *DiscoveryEngine) startWorkers(
 	targetChan <-chan string,
 	resultChan chan<- bool,
 	concurrency int,
-	processor targetProcessorFunc, // Function to process each target
+	processor targetProcessorFunc,
 ) {
 	for i := 0; i < concurrency; i++ {
 		wg.Add(1)
@@ -603,36 +603,58 @@ func (e *DiscoveryEngine) startWorkers(
 			defer wg.Done()
 
 			for target := range targetChan {
+				success := false
+
+				// Always send a result at the end
+				defer func() {
+					select {
+					case resultChan <- success:
+						// Result sent
+					default:
+						// Channel might be full or closed, don't block
+					}
+				}()
+
 				select {
 				case <-job.ctx.Done():
-					log.Printf("Job %s: Worker %d (target: %s) stopping due to cancellation",
-						job.ID, workerID, target)
-					resultChan <- false // Signal non-completion
-
+					log.Printf("Job %s: Worker %d stopping (target: %s)", job.ID, workerID, target)
 					return
 				case <-e.done:
-					log.Printf("Job %s: Worker %d (target: %s) stopping due to engine shutdown",
-						job.ID, workerID, target)
-					resultChan <- false // Signal non-completion
-
+					log.Printf("Job %s: Worker %d stopping - engine shutdown", job.ID, workerID)
 					return
 				default:
-					// Ping host before processing
-					if pingErr := pingHost(job.ctx, target); pingErr != nil {
-						log.Printf("Job %s: Host %s is not responding to ICMP ping by worker %d: %v",
-							job.ID, target, workerID, pingErr)
-						resultChan <- false // Signal failure for this target
+					// Ping with timeout
+					pingCtx, pingCancel := context.WithTimeout(job.ctx, 5*time.Second)
+					pingErr := pingHost(pingCtx, target)
+					pingCancel()
 
-						continue // Allow worker to process next target
+					if pingErr != nil {
+						log.Printf("Job %s: Host %s ping failed: %v", job.ID, target, pingErr)
+						continue // Process next target
 					}
 
-					// Process target using the provided processor function
-					processor(job, target)
-					resultChan <- true // Signal completion for progress tracking
+					// Process target with overall timeout
+					targetCtx, targetCancel := context.WithTimeout(job.ctx, 2*time.Minute)
+
+					targetDone := make(chan struct{})
+					go func() {
+						processor(job, target)
+						close(targetDone)
+					}()
+
+					select {
+					case <-targetDone:
+						success = true
+					case <-targetCtx.Done():
+						log.Printf("Job %s: Worker %d timeout for %s", job.ID, workerID, target)
+						success = false
+					}
+
+					targetCancel()
 				}
 			}
 
-			log.Printf("Job %s: Worker %d finished processing targets.", job.ID, workerID)
+			log.Printf("Job %s: Worker %d finished", job.ID, workerID)
 		}(i)
 	}
 }
@@ -1027,49 +1049,6 @@ func (e *DiscoveryEngine) executeSNMPPolling(
 	close(resultChanSNMP)
 
 	return !e.checkJobCancellation(job)
-}
-
-// scanTargetForSNMP performs SNMP-specific discovery for a single target.
-func (e *DiscoveryEngine) scanTargetForSNMP(
-	ctx context.Context, job *DiscoveryJob, snmpTargetIP string) {
-	log.Printf("Job %s: SNMP Scanning target %s", job.ID, snmpTargetIP)
-
-	if len(e.config.UniFiAPIs) > 0 && (job.Params.Type == DiscoveryTypeFull || job.Params.Type == DiscoveryTypeTopology) {
-		links, err := e.queryUniFiAPI(ctx, job, snmpTargetIP)
-		if err == nil && len(links) > 0 {
-			e.publishTopologyLinks(job, links, snmpTargetIP, "UniFi-API")
-		}
-	}
-
-	client, err := e.setupSNMPClient(job, snmpTargetIP)
-	if err != nil {
-		log.Printf("Job %s: Failed to setup SNMP client for %s: %v", job.ID, snmpTargetIP, err)
-		return
-	}
-
-	defer func() {
-		if cErr := client.Conn.Close(); cErr != nil {
-			log.Printf("Job %s: Error closing SNMP connection for %s: %v", job.ID, snmpTargetIP, cErr)
-		}
-	}()
-
-	deviceSNMP, err := e.querySysInfo(client, snmpTargetIP, job.ID)
-	if err != nil {
-		log.Printf("Job %s: Failed to query system info via SNMP for %s: %v", job.ID, snmpTargetIP, err)
-		return
-	}
-
-	job.mu.Lock()
-	e.addOrUpdateDeviceToResults(job, deviceSNMP) // Handles publishing internally
-	job.mu.Unlock()
-
-	if job.Params.Type == DiscoveryTypeFull || job.Params.Type == DiscoveryTypeInterfaces {
-		e.handleInterfaceDiscoverySNMP(job, client, snmpTargetIP)
-	}
-
-	if job.Params.Type == DiscoveryTypeFull || job.Params.Type == DiscoveryTypeTopology {
-		e.handleTopologyDiscoverySNMP(job, client, snmpTargetIP)
-	}
 }
 
 // trackJobProgress starts a goroutine to track job progress for a specific phase

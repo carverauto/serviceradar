@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/gosnmp/gosnmp"
 	"io"
 	"log"
 	"net/http"
@@ -828,6 +829,29 @@ func (e *DiscoveryEngine) querySingleUniFiDevices(
 	}
 
 	return devices, allInterfaces, nil
+}
+
+func (e *DiscoveryEngine) querySysInfoWithTimeout(client *gosnmp.GoSNMP, target, jobID string, timeout time.Duration) (*DiscoveredDevice, error) {
+	done := make(chan struct {
+		device *DiscoveredDevice
+		err    error
+	}, 1)
+
+	go func() {
+		device, err := e.querySysInfo(client, target, jobID)
+
+		done <- struct {
+			device *DiscoveredDevice
+			err    error
+		}{device, err}
+	}()
+
+	select {
+	case result := <-done:
+		return result.device, result.err
+	case <-time.After(timeout):
+		return nil, fmt.Errorf("SNMP query timeout for %s", target)
+	}
 }
 
 // Helper function to check if a slice contains a string
