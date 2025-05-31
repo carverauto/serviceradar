@@ -829,23 +829,23 @@ func handleIPAdEntAddr(pdu gosnmp.SnmpPDU, ipToIfIndex map[string]int) {
 }
 
 // walkIPAddrTable walks the ipAddrTable to get IP address information
-func (*DiscoveryEngine) walkIPAddrTable(client *gosnmp.GoSNMP) (map[string]int, error) {
+func (e *DiscoveryEngine) walkIPAddrTable(client *gosnmp.GoSNMP) (map[string]int, error) {
 	ipToIfIndex := make(map[string]int)
-
 	err := client.BulkWalk(oidIPAddrTable, func(pdu gosnmp.SnmpPDU) error {
-		// Handle ipAdEntIfIndex to get the mapping of IP to ifIndex
 		if strings.HasPrefix(pdu.Name, oidIPAdEntIfIndex) {
 			handleIPAdEntIfIndex(pdu, ipToIfIndex)
 		}
 
-		// Now get the actual IP addresses
 		if strings.HasPrefix(pdu.Name, oidIPAdEntAddr) {
 			handleIPAdEntAddr(pdu, ipToIfIndex)
+
+			if ip, ok := extractIPFromOID(pdu.Name); ok {
+				log.Printf("Discovered IP address %s in ipAddrTable", ip)
+			}
 		}
 
 		return nil
 	})
-
 	if err != nil {
 		return nil, fmt.Errorf("failed to walk ipAddrTable: %w", err)
 	}
