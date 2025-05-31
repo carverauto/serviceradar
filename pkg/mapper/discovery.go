@@ -479,6 +479,23 @@ func validateConfig(config *Config) error {
 		log.Printf("Discovery config: ResultRetention not set or invalid, defaulting to %v", config.ResultRetention)
 	}
 
+	// Validate UniFi API configurations
+	for i, apiConfig := range config.UniFiAPIs {
+		if err := validateUniFiAPIConfig(apiConfig); err != nil {
+			log.Printf("Disabling UniFi API config %s due to validation failure: %v", apiConfig.Name, err)
+			config.UniFiAPIs[i].BaseURL = "" // Mark as disabled
+			continue
+		}
+
+		// Perform reachability check
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if !isControllerReachable(ctx, apiConfig) {
+			log.Printf("Disabling UniFi API config %s because controller is unreachable", apiConfig.Name)
+			config.UniFiAPIs[i].BaseURL = "" // Mark as disabled
+		}
+	}
+
 	// Validate scheduled jobs
 	for i := range config.ScheduledJobs {
 		if err := validateScheduledJob(config.ScheduledJobs[i]); err != nil {
@@ -820,24 +837,61 @@ func (e *DiscoveryEngine) publishDevice(job *DiscoveryJob, device *DiscoveredDev
 }
 
 // runDiscoveryJob performs the actual discovery for a job, now in two phases.
-func (e *DiscoveryEngine) runDiscoveryJob(ctx context.Context, job *DiscoveryJob) {
-	log.Printf("Running discovery for job %s. Seeds: %v, Type: %s", job.ID, job.Params.Seeds, job.Params.Type)
+func (e *DiscoveryEngine) queryUniFiDevices(
+	ctx context.Context,
+	job *DiscoveryJob,
+	targetIP string,
+) ([]*DiscoveredDevice, []*DiscoveredInterface, error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("Job %s: Panic in queryUniFiDevices for target %s: %v", job.ID, targetIP, r)
+		}
+	}()
 
-	initialSeeds := expandSeeds(job.Params.Seeds)
-	if len(initialSeeds) == 0 {
-		e.handleEmptyTargetList(job)
-		return
+	log.Printf("Job %s: Querying UniFi devices for %s", job.ID, targetIP)
+
+	var allDevices []*DiscoveredDevice
+	var allInterfaces []*DiscoveredInterface
+	seenDevices := make(map[string]struct{})
+
+	for _, apiConfig := range e.config.UniFiAPIs {
+		if apiConfig.BaseURL == "" || apiConfig.APIKey == "" {
+			log.Printf("Job %s: Skipping disabled or incomplete UniFi API config: %s", job.ID, apiConfig.Name)
+			continue
+		}
+
+		sites, err := e.fetchUniFiSites(ctx, job, apiConfig)
+		if err != nil {
+			log.Printf("Job %s: Failed to fetch sites for %s: %v", job.ID, apiConfig.Name, err)
+			continue
+		}
+
+		for _, site := range sites {
+			devices, interfaces, err := e.querySingleUniFiDevices(ctx, job, targetIP, apiConfig, site)
+			if err != nil {
+				log.Printf("Job %s: Failed to query UniFi devices from %s, site %s: %v",
+					job.ID, apiConfig.Name, site.Name, err)
+				continue
+			}
+
+			for i := range devices {
+				device := devices[i]
+				deviceKey := fmt.Sprintf("%s:%s", device.IP, site.ID)
+				if _, exists := seenDevices[deviceKey]; !exists {
+					seenDevices[deviceKey] = struct{}{}
+					allDevices = append(allDevices, device)
+				}
+			}
+
+			allInterfaces = append(allInterfaces, interfaces...)
+		}
 	}
 
-	// Phase 1: UniFi Device Discovery
-	allPotentialSNMPTargets := e.handleUniFiDiscoveryPhase(ctx, job, initialSeeds)
-
-	// Phase 2: SNMP Polling
-	if !e.setupAndExecuteSNMPPolling(job, allPotentialSNMPTargets, initialSeeds) {
-		return
+	if len(allDevices) == 0 {
+		return nil, nil, fmt.Errorf("no UniFi devices found")
 	}
 
-	e.finalizeJobStatus(job)
+	return allDevices, allInterfaces, nil
 }
 
 // handleUniFiDiscoveryPhase performs the UniFi discovery phase and collects potential SNMP targets

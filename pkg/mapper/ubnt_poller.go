@@ -24,9 +24,12 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/cenkalti/backoff/v4"
 )
 
 // UniFiSite represents a site from the UniFi API
@@ -87,72 +90,140 @@ type UniFiDeviceDetails struct {
 	} `json:"port_table"`
 }
 
-// createUniFiClient initializes an HTTP client for UniFi API calls with configured timeout and TLS settings.
 func (e *DiscoveryEngine) createUniFiClient(apiConfig UniFiAPIConfig) *http.Client {
 	return &http.Client{
-		Timeout: e.config.Timeout,
+		Timeout: 5 * time.Second, // Short timeout for unreachable controllers
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{
 				InsecureSkipVerify: apiConfig.InsecureSkipVerify, //nolint:gosec // G402: Allow insecure connections to Ubiquti devices
 			},
+			DialContext: (&net.Dialer{
+				Timeout:   5 * time.Second,
+				KeepAlive: 30 * time.Second,
+			}).DialContext,
 		},
 	}
 }
 
+func (e *DiscoveryEngine) validateUniFiAPIConfig(apiConfig UniFiAPIConfig) error {
+	if apiConfig.BaseURL == "" {
+		return fmt.Errorf("UniFi API config %s has empty BaseURL", apiConfig.Name)
+	}
+
+	if apiConfig.APIKey == "" {
+		return fmt.Errorf("UniFi API config %s has empty APIKey", apiConfig.Name)
+	}
+
+	if !strings.HasPrefix(apiConfig.BaseURL, "http://") && !strings.HasPrefix(apiConfig.BaseURL, "https://") {
+		return fmt.Errorf("UniFi API config %s has invalid BaseURL: %s", apiConfig.Name, apiConfig.BaseURL)
+	}
+
+	return nil
+}
+
+func (e *DiscoveryEngine) isControllerReachable(ctx context.Context, apiConfig UniFiAPIConfig) bool {
+	client := e.createUniFiClient(apiConfig)
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, apiConfig.BaseURL, http.NoBody)
+	if err != nil {
+		log.Printf("Failed to create reachability check request for %s: %v", apiConfig.Name, err)
+		return false
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("Controller %s is unreachable: %v", apiConfig.Name, err)
+		return false
+	}
+	defer resp.Body.Close()
+
+	return resp.StatusCode >= 200 && resp.StatusCode < 400
+}
+
 func (e *DiscoveryEngine) fetchUniFiSites(ctx context.Context, job *DiscoveryJob, apiConfig UniFiAPIConfig) ([]UniFiSite, error) {
 	log.Printf("Job %s: Fetching sites for UniFi API: %s", job.ID, apiConfig.Name)
+
+	// Validate API configuration
+	if err := e.validateUniFiAPIConfig(apiConfig); err != nil {
+		return nil, fmt.Errorf("invalid UniFi API config: %w", err)
+	}
+
+	// Check reachability before using cache
+	if !e.isControllerReachable(ctx, apiConfig) {
+		return nil, fmt.Errorf("controller %s is unreachable", apiConfig.Name)
+	}
 
 	// Check cache
 	job.mu.RLock()
 	if sites, exists := job.uniFiSiteCache[apiConfig.BaseURL]; exists {
 		job.mu.RUnlock()
 		log.Printf("Job %s: Using cached sites for %s", job.ID, apiConfig.Name)
-
 		return sites, nil
 	}
 	job.mu.RUnlock()
 
-	client := e.createUniFiClient(apiConfig)
-
-	headers := map[string]string{
-		"X-API-Key":    apiConfig.APIKey,
-		"Content-Type": "application/json",
-	}
-
 	sitesURL := fmt.Sprintf("%s/sites", apiConfig.BaseURL)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, sitesURL, http.NoBody)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create sites request for %s: %w", apiConfig.Name, err)
-	}
-
-	for k, v := range headers {
-		req.Header.Set(k, v)
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch sites from %s: %w", apiConfig.Name, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("sites request for %s failed with status: %d", apiConfig.Name, resp.StatusCode)
-	}
 
 	var sitesResp struct {
 		Data []UniFiSite `json:"data"`
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&sitesResp); err != nil {
-		return nil, fmt.Errorf("failed to parse sites response from %s: %w", apiConfig.Name, err)
+	// Retry with exponential backoff
+	operation := func() error {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, sitesURL, http.NoBody)
+		if err != nil {
+			return fmt.Errorf("failed to create sites request for %s: %w", apiConfig.Name, err)
+		}
+
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+
+		resp, err := client.Do(req)
+		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) || strings.Contains(err.Error(), "connection refused") || strings.Contains(err.Error(), "no such host") {
+				return backoff.Permanent(fmt.Errorf("controller %s is unreachable: %w", apiConfig.Name, err))
+			}
+			return fmt.Errorf("failed to fetch sites from %s: %w", apiConfig.Name, err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			return backoff.Permanent(fmt.Errorf("sites request for %s failed with status: %d, body: %s",
+				apiConfig.Name, resp.StatusCode, string(body)))
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("failed to read sites response body from %s: %w", apiConfig.Name, err)
+		}
+
+		if len(body) == 0 {
+			return backoff.Permanent(fmt.Errorf("empty response body from %s", apiConfig.Name))
+		}
+
+		if err := json.Unmarshal(body, &sitesResp); err != nil {
+			return backoff.Permanent(fmt.Errorf("failed to parse sites response from %s: %w, body: %s",
+				apiConfig.Name, err, string(body)))
+		}
+
+		if len(sitesResp.Data) == 0 {
+			return backoff.Permanent(fmt.Errorf("no sites found for %s", apiConfig.Name))
+		}
+
+		return nil
 	}
 
-	if len(sitesResp.Data) == 0 {
-		return nil, fmt.Errorf("no sites found for %s", apiConfig.Name)
+	backoffStrategy := backoff.NewExponentialBackOff()
+	backoffStrategy.InitialInterval = 500 * time.Millisecond
+	backoffStrategy.MaxInterval = 5 * time.Second
+	backoffStrategy.MaxElapsedTime = 15 * time.Second
+
+	if err := backoff.Retry(operation, backoff.WithContext(backoffStrategy, ctx)); err != nil {
+		return nil, err
 	}
 
-	// Cache sites
+	// Cache sites only if successful
 	job.mu.Lock()
 	if job.uniFiSiteCache == nil {
 		job.uniFiSiteCache = make(map[string][]UniFiSite)
@@ -513,117 +584,6 @@ func (e *DiscoveryEngine) querySingleUniFiAPI(
 	}
 
 	return links, nil
-}
-
-func (e *DiscoveryEngine) queryUniFiDevices(
-	ctx context.Context,
-	job *DiscoveryJob,
-	targetIP string) ([]*DiscoveredDevice, []*DiscoveredInterface, error) {
-	log.Printf("Job %s: Querying UniFi devices for %s", job.ID, targetIP)
-
-	var allDevices []*DiscoveredDevice
-
-	var allInterfaces []*DiscoveredInterface
-
-	seenDevices := make(map[string]struct{})
-
-	for _, apiConfig := range e.config.UniFiAPIs {
-		if apiConfig.BaseURL == "" || apiConfig.APIKey == "" {
-			log.Printf("Job %s: Skipping incomplete UniFi API config: %s", job.ID, apiConfig.Name)
-			continue
-		}
-
-		sites, err := e.fetchUniFiSites(job.ctx, job, apiConfig)
-		if err != nil {
-			log.Printf("Job %s: Failed to fetch sites for %s: %v", job.ID, apiConfig.Name, err)
-			continue
-		}
-
-		for _, site := range sites {
-			devices, interfaces, err := e.querySingleUniFiDevices(ctx, job, targetIP, apiConfig, site)
-			if err != nil {
-				log.Printf("Job %s: Failed to query UniFi devices from %s, site %s: %v",
-					job.ID, apiConfig.Name, site.Name, err)
-				continue
-			}
-
-			for i := range devices {
-				device := devices[i]
-				deviceKey := fmt.Sprintf("%s:%s", device.IP, site.ID)
-
-				if _, exists := seenDevices[deviceKey]; !exists {
-					seenDevices[deviceKey] = struct{}{}
-
-					allDevices = append(allDevices, device)
-				}
-			}
-
-			allInterfaces = append(allInterfaces, interfaces...)
-		}
-	}
-
-	if len(allDevices) == 0 {
-		return nil, nil, fmt.Errorf("no UniFi devices found")
-	}
-
-	return allDevices, allInterfaces, nil
-}
-
-func (e *DiscoveryEngine) fetchUniFiDevices(
-	ctx context.Context,
-	job *DiscoveryJob,
-	apiConfig UniFiAPIConfig,
-	site UniFiSite) ([]*UniFiDevice, error) {
-	client := e.createUniFiClient(apiConfig)
-	headers := map[string]string{
-		"X-API-Key":    apiConfig.APIKey,
-		"Content-Type": "application/json",
-	}
-
-	// Consider pagination if many devices per site: ?limit=X&offset=Y
-	devicesURL := fmt.Sprintf("%s/sites/%s/devices?limit=100", apiConfig.BaseURL, site.ID)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, devicesURL, http.NoBody)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create devices request for %s, site %s: %w",
-			apiConfig.Name, site.Name, err)
-	}
-
-	for k, v := range headers {
-		req.Header.Set(k, v)
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch devices from %s, site %s: %w", apiConfig.Name, site.Name, err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body) // Read body for error context
-		return nil, fmt.Errorf("devices request for %s, site %s failed with status: %d, body: %s",
-			apiConfig.Name, site.Name, resp.StatusCode, string(bodyBytes))
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read devices response body from %s, site %s: %w",
-			apiConfig.Name, site.Name, err)
-	}
-
-	log.Printf("Job %s: Devices response from %s, site %s (first 500 chars): %.500s",
-		job.ID, apiConfig.Name, site.Name, string(body))
-
-	var deviceResp struct {
-		Data []*UniFiDevice `json:"data"`
-	}
-
-	if err := json.Unmarshal(body, &deviceResp); err != nil {
-		return nil, fmt.Errorf("failed to parse devices response from %s, site %s: %w. Body: %s",
-			apiConfig.Name, site.Name, err, string(body))
-	}
-
-	return deviceResp.Data, nil
 }
 
 func (*DiscoveryEngine) createDiscoveredDevice(
