@@ -828,6 +828,100 @@ func handleIPAdEntAddr(pdu gosnmp.SnmpPDU, ipToIfIndex map[string]int) {
 	}
 }
 
+func (e *DiscoveryEngine) scanTargetForSNMP(
+	ctx context.Context, job *DiscoveryJob, snmpTargetIP string) {
+	log.Printf("Job %s: SNMP Scanning target %s", job.ID, snmpTargetIP)
+
+	if len(e.config.UniFiAPIs) > 0 && (job.Params.Type == DiscoveryTypeFull || job.Params.Type == DiscoveryTypeTopology) {
+		links, err := e.queryUniFiAPI(ctx, job, snmpTargetIP)
+		if err == nil && len(links) > 0 {
+			e.publishTopologyLinks(job, links, snmpTargetIP, "UniFi-API")
+		}
+	}
+
+	client, err := e.setupSNMPClient(job, snmpTargetIP)
+	if err != nil {
+		log.Printf("Job %s: Failed to setup SNMP client for %s: %v", job.ID, snmpTargetIP, err)
+		return
+	}
+
+	// Ensure connection doesn't hang
+	connectCtx, connectCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer connectCancel()
+
+	connectDone := make(chan error, 1)
+	go func() {
+		connectDone <- client.Connect()
+	}()
+
+	select {
+	case err := <-connectDone:
+		if err != nil {
+			log.Printf("Job %s: Failed to connect SNMP for %s: %v", job.ID, snmpTargetIP, err)
+			return
+		}
+	case <-connectCtx.Done():
+		log.Printf("Job %s: SNMP connect timeout for %s", job.ID, snmpTargetIP)
+		return
+	}
+
+	defer func() {
+		// Don't let close hang either
+		go func() {
+			if cErr := client.Conn.Close(); cErr != nil {
+				log.Printf("Job %s: Error closing SNMP connection for %s: %v", job.ID, snmpTargetIP, cErr)
+			}
+		}()
+	}()
+
+	// Use the timeout wrapper
+	deviceSNMP, err := e.querySysInfoWithTimeout(client, snmpTargetIP, job.ID, 15*time.Second)
+	if err != nil {
+		log.Printf("Job %s: Failed to query system info via SNMP for %s: %v", job.ID, snmpTargetIP, err)
+		return
+	}
+
+	job.mu.Lock()
+	e.addOrUpdateDeviceToResults(job, deviceSNMP)
+	job.mu.Unlock()
+
+	if job.Params.Type == DiscoveryTypeFull || job.Params.Type == DiscoveryTypeInterfaces {
+		// Add timeout for interface discovery
+		ifDone := make(chan struct{})
+		go func() {
+			e.handleInterfaceDiscoverySNMP(job, client, snmpTargetIP)
+			close(ifDone)
+		}()
+
+		select {
+		case <-ifDone:
+			// Completed
+		case <-time.After(30 * time.Second):
+			log.Printf("Job %s: Interface discovery timeout for %s", job.ID, snmpTargetIP)
+		case <-ctx.Done():
+			log.Printf("Job %s: Interface discovery canceled for %s", job.ID, snmpTargetIP)
+		}
+	}
+
+	if job.Params.Type == DiscoveryTypeFull || job.Params.Type == DiscoveryTypeTopology {
+		// Add timeout for topology discovery
+		topoDone := make(chan struct{})
+		go func() {
+			e.handleTopologyDiscoverySNMP(job, client, snmpTargetIP)
+			close(topoDone)
+		}()
+
+		select {
+		case <-topoDone:
+			// Completed
+		case <-time.After(30 * time.Second):
+			log.Printf("Job %s: Topology discovery timeout for %s", job.ID, snmpTargetIP)
+		case <-ctx.Done():
+			log.Printf("Job %s: Topology discovery canceled for %s", job.ID, snmpTargetIP)
+		}
+	}
+}
+
 // walkIPAddrTable walks the ipAddrTable to get IP address information
 func (*DiscoveryEngine) walkIPAddrTable(client *gosnmp.GoSNMP) (map[string]int, error) {
 	ipToIfIndex := make(map[string]int)
