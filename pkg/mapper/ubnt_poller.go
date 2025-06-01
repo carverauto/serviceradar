@@ -27,6 +27,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/gosnmp/gosnmp"
 )
 
 // UniFiSite represents a site from the UniFi API
@@ -490,7 +492,11 @@ func (e *DiscoveryEngine) querySingleUniFiAPI(
 		}
 
 		// generate DeviceID using IP+MAC
-		deviceID := fmt.Sprintf("%s:%s", device.IPAddress, device.MAC)
+		// deviceID := fmt.Sprintf("%s:%s", device.IPAddress, device.MAC)
+		deviceID := ""
+		if device.MAC != "" && job.Params.AgentID != "" && job.Params.PollerID != "" {
+			deviceID = GenerateDeviceID(device.MAC)
+		}
 
 		// Fetch device details
 		details, err := e.fetchDeviceDetails(ctx, job, client, headers, apiConfig, site, device.ID)
@@ -518,14 +524,16 @@ func (e *DiscoveryEngine) querySingleUniFiAPI(
 func (e *DiscoveryEngine) queryUniFiDevices(
 	ctx context.Context,
 	job *DiscoveryJob,
-	targetIP string) ([]*DiscoveredDevice, []*DiscoveredInterface, error) {
+	targetIP string,
+) ([]*DiscoveredDevice, []*DiscoveredInterface, error) {
 	log.Printf("Job %s: Querying UniFi devices for %s", job.ID, targetIP)
 
 	var allDevices []*DiscoveredDevice
 
 	var allInterfaces []*DiscoveredInterface
 
-	seenDevices := make(map[string]struct{})
+	seenMACs := make(map[string]string) // MAC -> primary IP
+	errorsEncountered := 0
 
 	for _, apiConfig := range e.config.UniFiAPIs {
 		if apiConfig.BaseURL == "" || apiConfig.APIKey == "" {
@@ -536,6 +544,9 @@ func (e *DiscoveryEngine) queryUniFiDevices(
 		sites, err := e.fetchUniFiSites(job.ctx, job, apiConfig)
 		if err != nil {
 			log.Printf("Job %s: Failed to fetch sites for %s: %v", job.ID, apiConfig.Name, err)
+
+			errorsEncountered++
+
 			continue
 		}
 
@@ -544,26 +555,43 @@ func (e *DiscoveryEngine) queryUniFiDevices(
 			if err != nil {
 				log.Printf("Job %s: Failed to query UniFi devices from %s, site %s: %v",
 					job.ID, apiConfig.Name, site.Name, err)
+
+				errorsEncountered++
+
 				continue
 			}
 
-			for i := range devices {
-				device := devices[i]
-				deviceKey := fmt.Sprintf("%s:%s", device.IP, site.ID)
-
-				if _, exists := seenDevices[deviceKey]; !exists {
-					seenDevices[deviceKey] = struct{}{}
-
-					allDevices = append(allDevices, device)
+			for _, device := range devices {
+				if device.IP == "" {
+					continue
 				}
+
+				if primaryIP, seen := seenMACs[device.MAC]; seen {
+					log.Printf("Job %s: Device with MAC %s already seen with IP %s, skipping IP %s",
+						job.ID, device.MAC, primaryIP, device.IP)
+
+					device.Metadata["alternate_ip_"+device.IP] = device.IP
+
+					continue
+				}
+
+				seenMACs[device.MAC] = device.IP
+				allDevices = append(allDevices, device)
 			}
 
 			allInterfaces = append(allInterfaces, interfaces...)
+
+			log.Printf("Job %s: Fetched %d devices and %d interfaces from %s, site %s",
+				job.ID, len(devices), len(interfaces), apiConfig.Name, site.Name)
 		}
 	}
 
 	if len(allDevices) == 0 {
-		return nil, nil, fmt.Errorf("no UniFi devices found")
+		if errorsEncountered == len(e.config.UniFiAPIs) {
+			return nil, nil, fmt.Errorf("no UniFi devices found; all %d API attempts failed", errorsEncountered)
+		}
+
+		log.Printf("Job %s: No UniFi devices found for %s, but some APIs succeeded", job.ID, targetIP)
 	}
 
 	return allDevices, allInterfaces, nil
@@ -638,7 +666,11 @@ func (*DiscoveryEngine) createDiscoveredDevice(
 		return nil
 	}
 
-	deviceID := fmt.Sprintf("%s:%s", device.IPAddress, device.MAC) // Use IP+MAC as unique identifier
+	// Generate standardized device ID
+	deviceID := ""
+	if device.MAC != "" && job.Params.AgentID != "" && job.Params.PollerID != "" {
+		deviceID = GenerateDeviceID(device.MAC)
+	}
 
 	return &DiscoveredDevice{
 		DeviceID: deviceID,
@@ -662,7 +694,8 @@ func (e *DiscoveryEngine) processDeviceInterfaces(
 	device *UniFiDevice,
 	deviceID string,
 	apiConfig UniFiAPIConfig,
-	site UniFiSite) []*DiscoveredInterface {
+	site UniFiSite,
+) []*DiscoveredInterface {
 	if device.Interfaces == nil {
 		return nil
 	}
@@ -671,18 +704,24 @@ func (e *DiscoveryEngine) processDeviceInterfaces(
 
 	var uniFiSwitchInterfaces UniFiInterfaces
 
-	// Try to unmarshal as switch interfaces
-	if err := json.Unmarshal(device.Interfaces, &uniFiSwitchInterfaces); err == nil && len(uniFiSwitchInterfaces.Ports) > 0 {
-		interfaces = e.processSwitchInterfaces(job, device, deviceID, uniFiSwitchInterfaces, apiConfig, site)
-	} else {
-		// Handle non-standard interface structures
+	if err := json.Unmarshal(device.Interfaces, &uniFiSwitchInterfaces); err != nil {
 		rawInterfacesStr := string(device.Interfaces)
-		// APs often report simple `["radios"]`. We don't create interfaces for these yet from UniFi.
-		// SNMP polling should pick up WLAN interfaces if the AP responds to SNMP.
-		if rawInterfacesStr != "" && rawInterfacesStr != `["radios"]` && rawInterfacesStr != `[]` { // also check for empty array
-			log.Printf("Job %s: Device %s (%s) has non-standard UniFi interfaces structure: %s. Unmarshal error (if any): %v",
-				job.ID, device.Name, device.ID, rawInterfacesStr, err)
+
+		if rawInterfacesStr == `["ports"]` || rawInterfacesStr == `[]` || rawInterfacesStr == `["radios"]` {
+			log.Printf("Job %s: Device %s (%s) has interfaces field %s, skipping interface discovery",
+				job.ID, device.Name, device.ID, rawInterfacesStr)
+
+			return nil
 		}
+
+		log.Printf("Job %s: Device %s (%s) has non-standard UniFi interfaces structure: %s. Unmarshal error: %v",
+			job.ID, device.Name, device.ID, rawInterfacesStr, err)
+
+		return nil
+	}
+
+	if len(uniFiSwitchInterfaces.Ports) > 0 {
+		interfaces = e.processSwitchInterfaces(job, device, deviceID, uniFiSwitchInterfaces, apiConfig, site)
 	}
 
 	return interfaces
@@ -693,13 +732,17 @@ const (
 )
 
 func (e *DiscoveryEngine) processSwitchInterfaces(
-	_ *DiscoveryJob,
+	job *DiscoveryJob,
 	device *UniFiDevice,
 	deviceID string,
 	switchInterfaces UniFiInterfaces,
 	apiConfig UniFiAPIConfig,
 	site UniFiSite) []*DiscoveredInterface {
 	interfaces := make([]*DiscoveredInterface, 0, len(switchInterfaces.Ports))
+	// Ensure we have a proper device ID
+	if deviceID == "" && device.MAC != "" && job.Params.AgentID != "" && job.Params.PollerID != "" {
+		deviceID = GenerateDeviceID(device.MAC)
+	}
 
 	for i := range switchInterfaces.Ports {
 		port := &switchInterfaces.Ports[i]
@@ -735,6 +778,7 @@ func (e *DiscoveryEngine) processSwitchInterfaces(
 
 		// Safe conversion to prevent integer overflow
 		var ifIndex int32
+
 		if port.Idx <= defaultMaxValueInt32 { // Max value for int32
 			//nolint:gosec // G115: This is a safe conversion since we check the value
 			ifIndex = int32(port.Idx)
@@ -744,6 +788,7 @@ func (e *DiscoveryEngine) processSwitchInterfaces(
 
 		// Safe conversion for speed calculation
 		var ifSpeed uint64
+
 		if port.SpeedMbps >= 0 && port.SpeedMbps <= (1<<64-1)/1000000 { // Check if multiplication won't overflow uint64
 			ifSpeed = uint64(port.SpeedMbps) * 1000000 // Convert to uint64 first, then multiply
 		} else {
@@ -788,7 +833,7 @@ func (*DiscoveryEngine) addPoEMetadata(metadata map[string]string, port *struct 
 		metadata["poe_standard"] = port.PoE.Standard
 		metadata["poe_type"] = fmt.Sprintf("%d", port.PoE.Type)
 		metadata["poe_state"] = port.PoE.State
-		metadata["poe_enabled"] = fmt.Sprintf("%t", port.PoE.Enabled)
+		metadata["poe_enabled"] = "true"
 	}
 }
 
@@ -815,6 +860,7 @@ func (e *DiscoveryEngine) querySingleUniFiDevices(
 	for i := range unifiDevices {
 		// Create discovered device
 		device := e.createDiscoveredDevice(job, unifiDevices[i], apiConfig, site)
+
 		if device == nil {
 			continue // Skip this device if it was filtered out
 		}
@@ -830,13 +876,26 @@ func (e *DiscoveryEngine) querySingleUniFiDevices(
 	return devices, allInterfaces, nil
 }
 
-// Helper function to check if a slice contains a string
-func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
+func (e *DiscoveryEngine) querySysInfoWithTimeout(
+	client *gosnmp.GoSNMP, job *DiscoveryJob, target string, timeout time.Duration) (*DiscoveredDevice, error) {
+	done := make(chan struct {
+		device *DiscoveredDevice
+		err    error
+	}, 1)
 
-	return false
+	go func() {
+		device, err := e.querySysInfo(client, target, job)
+
+		done <- struct {
+			device *DiscoveredDevice
+			err    error
+		}{device, err}
+	}()
+
+	select {
+	case result := <-done:
+		return result.device, result.err
+	case <-time.After(timeout):
+		return nil, fmt.Errorf("SNMP query timeout for %s", target)
+	}
 }

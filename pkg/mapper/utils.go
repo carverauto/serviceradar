@@ -330,3 +330,35 @@ func expandCIDR(cidr string, seen map[string]bool) []string {
 
 	return targets
 }
+
+func GenerateDeviceID(mac string) string {
+	if mac == "" {
+		return ""
+	}
+
+	return mac // Use raw MAC as DeviceID, no normalization for now
+}
+
+func GenerateDeviceIDFromIP(ip string) string {
+	if ip == "" {
+		return ""
+	}
+
+	return "ip-" + ip // Fallback for devices without MAC
+}
+
+// NormalizeMAC normalizes a MAC address for consistent formatting
+func NormalizeMAC(mac string) string {
+	return strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(mac, ":", ""), "-", ""))
+}
+
+// Helper function to check if a slice contains a string
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+
+	return false
+}

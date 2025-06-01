@@ -286,6 +286,7 @@ func (e *DiscoveryEngine) StartDiscovery(ctx context.Context, params *DiscoveryP
 		Status:     results.Status, // Point to the same status
 		ctx:        jobCtx,
 		cancelFunc: cancel,
+		deviceMap:  make(map[string]*DeviceInterfaceMap),
 	}
 
 	// Store the job
@@ -511,6 +512,17 @@ func validateScheduledJob(job *ScheduledJob) error {
 		return fmt.Errorf("job %s missing type", job.Name)
 	}
 
+	// Validate that job.Type is one of the valid DiscoveryType values
+	validTypes := map[string]bool{
+		string(DiscoveryTypeFull):       true,
+		string(DiscoveryTypeBasic):      true,
+		string(DiscoveryTypeInterfaces): true,
+		string(DiscoveryTypeTopology):   true,
+	}
+	if !validTypes[job.Type] {
+		return fmt.Errorf("job %s has invalid type: %s", job.Name, job.Type)
+	}
+
 	if job.Concurrency < 0 {
 		return fmt.Errorf("job %s has invalid concurrency: %d", job.Name, job.Concurrency)
 	}
@@ -571,11 +583,17 @@ func (*DiscoveryEngine) handleEmptyTargetList(job *DiscoveryJob) {
 }
 
 // determineConcurrency calculates the appropriate concurrency level.
-func (*DiscoveryEngine) determineConcurrency(job *DiscoveryJob, totalTargets int) int {
+func (e *DiscoveryEngine) determineConcurrency(job *DiscoveryJob, totalTargets int) int {
 	concurrency := job.Params.Concurrency
 
 	if concurrency <= 0 {
-		concurrency = defaultConcurrency
+		// For small target lists (5 or fewer), use the target count
+		// For large target lists (more than 5), use the worker count
+		if totalTargets <= 5 {
+			concurrency = totalTargets
+		} else {
+			concurrency = e.workers
+		}
 	}
 
 	if concurrency > totalTargets {
@@ -594,7 +612,7 @@ func (e *DiscoveryEngine) startWorkers(
 	targetChan <-chan string,
 	resultChan chan<- bool,
 	concurrency int,
-	processor targetProcessorFunc, // Function to process each target
+	processor targetProcessorFunc,
 ) {
 	for i := 0; i < concurrency; i++ {
 		wg.Add(1)
@@ -603,36 +621,62 @@ func (e *DiscoveryEngine) startWorkers(
 			defer wg.Done()
 
 			for target := range targetChan {
+				success := false
+
 				select {
 				case <-job.ctx.Done():
-					log.Printf("Job %s: Worker %d (target: %s) stopping due to cancellation",
-						job.ID, workerID, target)
-					resultChan <- false // Signal non-completion
-
+					log.Printf("Job %s: Worker %d stopping (target: %s)", job.ID, workerID, target)
 					return
 				case <-e.done:
-					log.Printf("Job %s: Worker %d (target: %s) stopping due to engine shutdown",
-						job.ID, workerID, target)
-					resultChan <- false // Signal non-completion
-
+					log.Printf("Job %s: Worker %d stopping - engine shutdown", job.ID, workerID)
 					return
 				default:
-					// Ping host before processing
-					if pingErr := pingHost(job.ctx, target); pingErr != nil {
-						log.Printf("Job %s: Host %s is not responding to ICMP ping by worker %d: %v",
-							job.ID, target, workerID, pingErr)
-						resultChan <- false // Signal failure for this target
+					// Ping with timeout
+					pingCtx, pingCancel := context.WithTimeout(job.ctx, 5*time.Second)
+					pingErr := pingHost(pingCtx, target)
 
-						continue // Allow worker to process next target
+					pingCancel()
+
+					if pingErr != nil {
+						log.Printf("Job %s: Host %s ping failed: %v", job.ID, target, pingErr)
+						// Send result for failed ping
+						select {
+						case resultChan <- success:
+						default:
+						}
+
+						continue // Process next target
 					}
 
-					// Process target using the provided processor function
-					processor(job, target)
-					resultChan <- true // Signal completion for progress tracking
+					// Process target with overall timeout
+					targetCtx, targetCancel := context.WithTimeout(job.ctx, 2*time.Minute)
+
+					targetDone := make(chan struct{})
+					go func() {
+						processor(job, target)
+						close(targetDone)
+					}()
+
+					select {
+					case <-targetDone:
+						success = true
+					case <-targetCtx.Done():
+						log.Printf("Job %s: Worker %d timeout for %s", job.ID, workerID, target)
+
+						success = false
+					}
+
+					targetCancel()
+
+					// Send result after processing target
+					select {
+					case resultChan <- success:
+					default:
+					}
 				}
 			}
 
-			log.Printf("Job %s: Worker %d finished processing targets.", job.ID, workerID)
+			log.Printf("Job %s: Worker %d finished", job.ID, workerID)
 		}(i)
 	}
 }
@@ -664,36 +708,49 @@ func (e *DiscoveryEngine) feedTargetsToWorkers(job *DiscoveryJob, targetChan cha
 
 // checkJobCancellation checks if the job was canceled or the engine is shutting down
 // Returns true if the job was canceled
-func (e *DiscoveryEngine) checkJobCancellation(job *DiscoveryJob) bool {
+func (e *DiscoveryEngine) checkPhaseJobCancellation(job *DiscoveryJob, seedIP, phaseName string) bool {
 	select {
 	case <-job.ctx.Done():
+		log.Printf("Job %s: %s phase canceled for seed %s: %v", job.ID, phaseName, seedIP, job.ctx.Err())
 		job.mu.Lock()
-		job.Status.Status = DiscoverStatusCanceled
-		job.Status.Error = "Job canceled during execution"
-		job.mu.Unlock()
 
-		log.Printf("Job %s: Canceled during execution", job.ID)
+		if job.Status.Status != DiscoverStatusCanceled && job.Status.Status != DiscoveryStatusFailed {
+			job.Status.Status = DiscoverStatusCanceled
+			job.Status.Error = fmt.Sprintf("Job canceled during %s phase: %v", phaseName, job.ctx.Err())
+			job.Status.EndTime = time.Now()
+		}
+
+		job.mu.Unlock()
 
 		return true
 	case <-e.done:
+		log.Printf("Job %s: %s phase stopped due to engine shutdown for seed %s", job.ID, phaseName, seedIP)
 		job.mu.Lock()
-		job.Status.Status = DiscoveryStatusFailed
-		job.Status.Error = "Engine shutting down"
-		job.mu.Unlock()
 
-		log.Printf("Job %s: Failed due to engine shutdown", job.ID)
+		if job.Status.Status != DiscoverStatusCanceled && job.Status.Status != DiscoveryStatusFailed {
+			job.Status.Status = DiscoveryStatusFailed
+			job.Status.Error = fmt.Sprintf("Engine shutting down during %s phase", phaseName)
+			job.Status.EndTime = time.Now()
+		}
+
+		job.mu.Unlock()
 
 		return true
 	default:
-		// Job completed successfully
 		return false
 	}
 }
 
 // finalizeJobStatus updates the job status after completion
-func (*DiscoveryEngine) finalizeJobStatus(job *DiscoveryJob) {
+func (e *DiscoveryEngine) finalizeJobStatus(job *DiscoveryJob) {
 	job.mu.Lock()
+	defer job.mu.Unlock()
+
 	if job.Status.Status == DiscoveryStatusRunning {
+		// Step 1: Deduplicate devices using the device map
+		e.deduplicateDevices(job)
+
+		// Step 2: Update status
 		job.Status.Status = DiscoveryStatusCompleted
 		job.Status.Progress = progressCompleted
 
@@ -705,7 +762,264 @@ func (*DiscoveryEngine) finalizeJobStatus(job *DiscoveryJob) {
 				job.ID, len(job.Results.Devices), len(job.Results.Interfaces), len(job.Results.TopologyLinks))
 		}
 	}
-	job.mu.Unlock()
+}
+
+// deviceGroup represents a group of devices that might be the same based on shared attributes
+type deviceGroup struct {
+	DeviceIDs map[string]struct{}
+	MACs      map[string]struct{}
+	IPs       map[string]struct{}
+	SysName   string
+}
+
+func (e *DiscoveryEngine) deduplicateDevices(job *DiscoveryJob) {
+	// Step 1: Group devices by shared attributes
+	deviceGroups := e.buildDeviceGroups(job)
+
+	// Step 2: Use topology links to further merge groups
+	deviceGroups = e.mergeGroupsByTopologyLinks(job, deviceGroups)
+
+	// Step 3: Rebuild the device list
+	newDevices := e.rebuildDeviceList(job, deviceGroups)
+
+	// Step 4: Update interfaces to point to the primary DeviceID
+	e.updateInterfaceDeviceIDs(job, deviceGroups)
+
+	// Update the results
+	job.Results.Devices = newDevices
+}
+
+// buildDeviceGroups groups devices by shared attributes (IPs, MACs, system names)
+func (e *DiscoveryEngine) buildDeviceGroups(job *DiscoveryJob) map[string]*deviceGroup {
+	deviceGroups := make(map[string]*deviceGroup) // Primary DeviceID -> group
+
+	for deviceID, deviceEntry := range job.deviceMap {
+		matchedGroupID := e.findMatchingGroup(deviceGroups, deviceEntry)
+
+		if matchedGroupID == "" {
+			// Create a new group
+			deviceGroups[deviceID] = e.createNewDeviceGroup(deviceID, deviceEntry)
+		} else {
+			// Merge into existing group
+			e.mergeIntoExistingGroup(deviceGroups[matchedGroupID], deviceID, deviceEntry)
+		}
+	}
+
+	return deviceGroups
+}
+
+// findMatchingGroup finds a matching device group based on shared attributes
+func (*DiscoveryEngine) findMatchingGroup(deviceGroups map[string]*deviceGroup, deviceEntry *DeviceInterfaceMap) string {
+	for groupID, group := range deviceGroups {
+		// Match by shared IP
+		for ip := range deviceEntry.IPs {
+			if _, exists := group.IPs[ip]; exists {
+				return groupID
+			}
+		}
+
+		// Match by shared MAC
+		for mac := range deviceEntry.MACs {
+			if _, exists := group.MACs[mac]; exists {
+				return groupID
+			}
+		}
+
+		// Match by system name (if non-empty)
+		if deviceEntry.SysName != "" && group.SysName == deviceEntry.SysName {
+			return groupID
+		}
+	}
+
+	return ""
+}
+
+// createNewDeviceGroup creates a new device group for a device
+func (*DiscoveryEngine) createNewDeviceGroup(deviceID string, deviceEntry *DeviceInterfaceMap) *deviceGroup {
+	group := &deviceGroup{
+		DeviceIDs: map[string]struct{}{deviceID: {}},
+		MACs:      make(map[string]struct{}),
+		IPs:       make(map[string]struct{}),
+		SysName:   deviceEntry.SysName,
+	}
+
+	for mac := range deviceEntry.MACs {
+		group.MACs[mac] = struct{}{}
+	}
+
+	for ip := range deviceEntry.IPs {
+		group.IPs[ip] = struct{}{}
+	}
+
+	return group
+}
+
+// mergeIntoExistingGroup merges a device into an existing group
+func (*DiscoveryEngine) mergeIntoExistingGroup(group *deviceGroup, deviceID string, deviceEntry *DeviceInterfaceMap) {
+	group.DeviceIDs[deviceID] = struct{}{}
+
+	for mac := range deviceEntry.MACs {
+		group.MACs[mac] = struct{}{}
+	}
+
+	for ip := range deviceEntry.IPs {
+		group.IPs[ip] = struct{}{}
+	}
+
+	if group.SysName == "" && deviceEntry.SysName != "" {
+		group.SysName = deviceEntry.SysName
+	}
+}
+
+// mergeGroupsByTopologyLinks uses topology links to further merge device groups
+func (e *DiscoveryEngine) mergeGroupsByTopologyLinks(job *DiscoveryJob, deviceGroups map[string]*deviceGroup) map[string]*deviceGroup {
+	for _, link := range job.Results.TopologyLinks {
+		localDeviceID := e.findDeviceIDByIP(job, link.LocalDeviceIP)
+		neighborDeviceID := e.findDeviceIDByIP(job, link.NeighborMgmtAddr)
+
+		if localDeviceID != "" && neighborDeviceID != "" && localDeviceID != neighborDeviceID {
+			localGroupID := e.findGroupIDForDevice(deviceGroups, localDeviceID)
+			neighborGroupID := e.findGroupIDForDevice(deviceGroups, neighborDeviceID)
+
+			if localGroupID != neighborGroupID && localGroupID != "" && neighborGroupID != "" {
+				// Merge the groups
+				e.mergeDeviceGroups(deviceGroups, localGroupID, neighborGroupID)
+			}
+		}
+	}
+
+	return deviceGroups
+}
+
+// findDeviceIDByIP finds a device ID by its IP address
+func (*DiscoveryEngine) findDeviceIDByIP(job *DiscoveryJob, ip string) string {
+	for deviceID, deviceEntry := range job.deviceMap {
+		if _, exists := deviceEntry.IPs[ip]; exists {
+			return deviceID
+		}
+	}
+
+	return ""
+}
+
+// findGroupIDForDevice finds the group ID for a device
+func (*DiscoveryEngine) findGroupIDForDevice(deviceGroups map[string]*deviceGroup, deviceID string) string {
+	for groupID, group := range deviceGroups {
+		if _, exists := group.DeviceIDs[deviceID]; exists {
+			return groupID
+		}
+	}
+
+	return ""
+}
+
+// mergeDeviceGroups merges two device groups
+func (*DiscoveryEngine) mergeDeviceGroups(deviceGroups map[string]*deviceGroup, targetGroupID, sourceGroupID string) {
+	targetGroup := deviceGroups[targetGroupID]
+	sourceGroup := deviceGroups[sourceGroupID]
+
+	for deviceID := range sourceGroup.DeviceIDs {
+		targetGroup.DeviceIDs[deviceID] = struct{}{}
+	}
+
+	for mac := range sourceGroup.MACs {
+		targetGroup.MACs[mac] = struct{}{}
+	}
+
+	for ip := range sourceGroup.IPs {
+		targetGroup.IPs[ip] = struct{}{}
+	}
+
+	if targetGroup.SysName == "" && sourceGroup.SysName != "" {
+		targetGroup.SysName = sourceGroup.SysName
+	}
+
+	delete(deviceGroups, sourceGroupID)
+}
+
+// rebuildDeviceList rebuilds the device list with merged metadata
+func (e *DiscoveryEngine) rebuildDeviceList(job *DiscoveryJob, deviceGroups map[string]*deviceGroup) []*DiscoveredDevice {
+	newDevices := make([]*DiscoveredDevice, 0)
+
+	for primaryDeviceID, group := range deviceGroups {
+		primaryDevice := e.findPrimaryDevice(job, primaryDeviceID)
+
+		if primaryDevice == nil {
+			continue
+		}
+
+		e.mergeDeviceMetadata(job, primaryDevice, group)
+		newDevices = append(newDevices, primaryDevice)
+	}
+
+	return newDevices
+}
+
+// findPrimaryDevice finds the primary device by its ID
+func (*DiscoveryEngine) findPrimaryDevice(job *DiscoveryJob, primaryDeviceID string) *DiscoveredDevice {
+	for _, device := range job.Results.Devices {
+		if device.DeviceID == primaryDeviceID {
+			return device
+		}
+	}
+
+	return nil
+}
+
+// mergeDeviceMetadata merges metadata from other devices in the group
+func (e *DiscoveryEngine) mergeDeviceMetadata(job *DiscoveryJob, primaryDevice *DiscoveredDevice, group *deviceGroup) {
+	for deviceID := range group.DeviceIDs {
+		if deviceID == primaryDevice.DeviceID {
+			continue
+		}
+
+		for _, device := range job.Results.Devices {
+			if device.DeviceID == deviceID {
+				e.copyMetadataToDevice(primaryDevice, device)
+				e.addAlternateIPs(primaryDevice, group.IPs)
+			}
+		}
+	}
+}
+
+// copyMetadataToDevice copies metadata from source device to target device
+func (*DiscoveryEngine) copyMetadataToDevice(targetDevice, sourceDevice *DiscoveredDevice) {
+	for k, v := range sourceDevice.Metadata {
+		if _, exists := targetDevice.Metadata[k]; !exists {
+			if targetDevice.Metadata == nil {
+				targetDevice.Metadata = make(map[string]string)
+			}
+
+			targetDevice.Metadata[k] = v
+		}
+	}
+}
+
+// addAlternateIPs adds alternate IPs to device metadata
+func (*DiscoveryEngine) addAlternateIPs(device *DiscoveredDevice, ips map[string]struct{}) {
+	for ip := range ips {
+		if ip != device.IP {
+			altIPKey := fmt.Sprintf("alternate_ip_%s", ip)
+
+			if device.Metadata == nil {
+				device.Metadata = make(map[string]string)
+			}
+
+			device.Metadata[altIPKey] = ip
+		}
+	}
+}
+
+// updateInterfaceDeviceIDs updates interfaces to point to the primary DeviceID
+func (*DiscoveryEngine) updateInterfaceDeviceIDs(job *DiscoveryJob, deviceGroups map[string]*deviceGroup) {
+	for _, iface := range job.Results.Interfaces {
+		for groupID, group := range deviceGroups {
+			if _, exists := group.IPs[iface.DeviceIP]; exists {
+				iface.DeviceID = groupID
+				break
+			}
+		}
+	}
 }
 
 const (
@@ -713,39 +1027,73 @@ const (
 )
 
 // addOrUpdateDeviceToResults adds or updates a device in the job's results.
-// It assumes job.mu is already locked if called from a context where it's needed.
 func (e *DiscoveryEngine) addOrUpdateDeviceToResults(job *DiscoveryJob, newDevice *DiscoveredDevice) {
-	e.ensureDeviceID(job, newDevice)
+	e.ensureDeviceID(newDevice)
 
-	// Try to find and update an existing device
+	// Look for an existing device to merge with
 	for i, existingDevice := range job.Results.Devices {
 		if e.isDeviceMatch(existingDevice, newDevice) {
 			e.updateExistingDevice(job, i, newDevice)
+
+			if existingDevice.IP != newDevice.IP {
+				altIPKey := fmt.Sprintf("alternate_ip_%s", newDevice.IP)
+
+				if existingDevice.Metadata == nil {
+					existingDevice.Metadata = make(map[string]string)
+				}
+
+				existingDevice.Metadata[altIPKey] = newDevice.IP
+
+				log.Printf("Job %s: Device %s (MAC: %s, DeviceID: %s) updated with alternate IP %s "+
+					"(primary: %s, source: %s)",
+					job.ID, existingDevice.Hostname, existingDevice.MAC,
+					existingDevice.DeviceID, newDevice.IP, existingDevice.IP, newDevice.Metadata["source"])
+			}
+
 			return
 		}
 	}
 
-	// Not found, append as a new device
+	// Add to device map
+	if deviceEntry, exists := job.deviceMap[newDevice.DeviceID]; exists {
+		deviceEntry.MACs[newDevice.MAC] = struct{}{}
+		deviceEntry.IPs[newDevice.IP] = struct{}{}
+
+		if newDevice.Hostname != "" {
+			deviceEntry.SysName = newDevice.Hostname
+		}
+	} else {
+		job.deviceMap[newDevice.DeviceID] = &DeviceInterfaceMap{
+			DeviceID:   newDevice.DeviceID,
+			MACs:       map[string]struct{}{newDevice.MAC: {}},
+			IPs:        map[string]struct{}{newDevice.IP: {}},
+			SysName:    newDevice.Hostname,
+			Interfaces: []*DiscoveredInterface{},
+		}
+	}
+
+	log.Printf("Job %s: Adding new device %s (IP: %s, MAC: %s, DeviceID: %s, source: %s)",
+		job.ID, newDevice.Hostname, newDevice.IP, newDevice.MAC, newDevice.DeviceID, newDevice.Metadata["source"])
+
 	e.addNewDevice(job, newDevice)
 }
 
 // ensureDeviceID ensures the DeviceID is populated if possible
-func (*DiscoveryEngine) ensureDeviceID(job *DiscoveryJob, device *DiscoveredDevice) {
-	if device.DeviceID == "" && device.IP != "" && job.Params.AgentID != "" && job.Params.PollerID != "" {
-		device.DeviceID = fmt.Sprintf("%s:%s:%s", job.Params.AgentID, job.Params.PollerID, device.IP)
+func (*DiscoveryEngine) ensureDeviceID(device *DiscoveredDevice) {
+	if device.DeviceID == "" && device.MAC != "" {
+		device.DeviceID = GenerateDeviceID(device.MAC)
+	} else if device.DeviceID == "" {
+		device.DeviceID = GenerateDeviceIDFromIP(device.IP)
 	}
 }
 
-// isDeviceMatch checks if two devices match based on DeviceID or IP
 func (*DiscoveryEngine) isDeviceMatch(existingDevice, newDevice *DiscoveredDevice) bool {
-	if newDevice.DeviceID != "" && existingDevice.DeviceID == newDevice.DeviceID {
+	// First check by DeviceID if both have it
+	if newDevice.DeviceID != "" && existingDevice.DeviceID != "" && newDevice.DeviceID == existingDevice.DeviceID {
 		return true
 	}
 
-	if existingDevice.IP == newDevice.IP { // Fallback to IP match
-		return true
-	}
-
+	// Temporarily disable MAC-based matching until we build the interface-to-device map
 	return false
 }
 
@@ -824,6 +1172,7 @@ func (e *DiscoveryEngine) runDiscoveryJob(ctx context.Context, job *DiscoveryJob
 	log.Printf("Running discovery for job %s. Seeds: %v, Type: %s", job.ID, job.Params.Seeds, job.Params.Type)
 
 	initialSeeds := expandSeeds(job.Params.Seeds)
+
 	if len(initialSeeds) == 0 {
 		e.handleEmptyTargetList(job)
 		return
@@ -832,21 +1181,44 @@ func (e *DiscoveryEngine) runDiscoveryJob(ctx context.Context, job *DiscoveryJob
 	// Phase 1: UniFi Device Discovery
 	allPotentialSNMPTargets := e.handleUniFiDiscoveryPhase(ctx, job, initialSeeds)
 
-	// Phase 2: SNMP Polling
-	if !e.setupAndExecuteSNMPPolling(job, allPotentialSNMPTargets, initialSeeds) {
+	if e.checkPhaseJobCancellation(job, "", "UniFi discovery") {
+		log.Printf("Job %s: UniFi Discovery phase was canceled", job.ID)
+
+		e.finalizeJobStatus(job)
+
 		return
 	}
+
+	log.Printf("Job %s: Transitioning to SNMP Polling phase", job.ID)
+
+	// Phase 2: SNMP Polling
+	if allPotentialSNMPTargets == nil {
+		allPotentialSNMPTargets = make(map[string]bool)
+		for _, seed := range initialSeeds {
+			allPotentialSNMPTargets[seed] = true
+		}
+
+		log.Printf("Job %s: No UniFi targets found, falling back to initial seeds: %v", job.ID, initialSeeds)
+	}
+
+	if !e.setupAndExecuteSNMPPolling(job, allPotentialSNMPTargets, initialSeeds) {
+		log.Printf("Job %s: SNMP Polling phase failed or was canceled", job.ID)
+	}
+
+	log.Printf("Job %s: Finalizing job status", job.ID)
 
 	e.finalizeJobStatus(job)
 }
 
 // handleUniFiDiscoveryPhase performs the UniFi discovery phase and collects potential SNMP targets
 func (e *DiscoveryEngine) handleUniFiDiscoveryPhase(
-	ctx context.Context, job *DiscoveryJob, initialSeeds []string) map[string]bool {
+	ctx context.Context, job *DiscoveryJob, initialSeeds []string,
+) map[string]bool {
 	allPotentialSNMPTargets := make(map[string]bool)
+	seenMACs := make(map[string]string)
 
 	for _, seedIP := range initialSeeds {
-		if seedIP != "" { // Ensure seedIP is valid before adding
+		if seedIP != "" {
 			allPotentialSNMPTargets[seedIP] = true
 		}
 	}
@@ -857,8 +1229,11 @@ func (e *DiscoveryEngine) handleUniFiDiscoveryPhase(
 
 	log.Printf("Job %s: Phase 1 - UniFi Discovery starting with %d initial seeds.", job.ID, len(initialSeeds))
 
+	devicesFound := 0
+	interfacesFound := 0
+
 	for _, seedIP := range initialSeeds {
-		if seedIP == "" { // Skip empty seed IPs that might have resulted from expansion
+		if seedIP == "" {
 			continue
 		}
 
@@ -867,86 +1242,69 @@ func (e *DiscoveryEngine) handleUniFiDiscoveryPhase(
 		}
 
 		if len(e.config.UniFiAPIs) > 0 {
-			e.processUniFiSeed(ctx, job, seedIP, allPotentialSNMPTargets)
+			devices, interfaces, err := e.queryUniFiDevices(ctx, job, seedIP)
+			if err != nil {
+				log.Printf("Job %s: UniFi discovery for seed %s failed: %v", job.ID, seedIP, err)
+
+				continue
+			}
+
+			devicesFound += len(devices)
+			interfacesFound += len(interfaces)
+
+			job.mu.Lock()
+			e.processDevicesForSNMPTargets(job, devices, allPotentialSNMPTargets, seenMACs)
+
+			for _, iface := range interfaces {
+				if iface.DeviceID == "" && iface.DeviceIP != "" && job.Params.AgentID != "" && job.Params.PollerID != "" {
+					iface.DeviceID = fmt.Sprintf("%s:%s:%s",
+						job.Params.AgentID, job.Params.PollerID, iface.DeviceIP)
+				}
+
+				job.Results.Interfaces = append(job.Results.Interfaces, iface)
+			}
+
+			job.mu.Unlock()
+
+			for _, iface := range interfaces {
+				if pubErr := e.publisher.PublishInterface(job.ctx, iface); pubErr != nil {
+					log.Printf("Job %s: Failed to publish UniFi interface for %s: %v",
+						job.ID, iface.DeviceIP, pubErr)
+				}
+			}
 		}
 	}
 
-	log.Printf("Job %s: Phase 1 - UniFi Discovery completed. Found %d potential SNMP targets.",
-		job.ID, len(allPotentialSNMPTargets))
+	log.Printf("Job %s: Phase 1 - UniFi Discovery completed. Found %d devices, %d interfaces, %d potential SNMP targets.",
+		job.ID, devicesFound, interfacesFound, len(allPotentialSNMPTargets))
 
 	return allPotentialSNMPTargets
 }
 
-// checkPhaseJobCancellation checks if the job has been canceled or the engine is shutting down
-func (e *DiscoveryEngine) checkPhaseJobCancellation(job *DiscoveryJob, seedIP, phaseName string) bool {
-	select {
-	case <-job.ctx.Done():
-		log.Printf("Job %s: %s phase canceled for seed %s.", job.ID, phaseName, seedIP)
+// processDevicesForSNMPTargets processes devices for SNMP targets with MAC-based deduplication
+func (e *DiscoveryEngine) processDevicesForSNMPTargets(
+	job *DiscoveryJob, devices []*DiscoveredDevice,
+	allPotentialSNMPTargets map[string]bool, seenMACs map[string]string) {
+	for _, device := range devices {
+		if device.IP != "" {
+			e.addOrUpdateDeviceToResults(job, device)
 
-		job.mu.Lock()
+			if device.MAC != "" {
+				normalizedMAC := NormalizeMAC(device.MAC)
+				if primaryIP, seen := seenMACs[normalizedMAC]; !seen {
+					seenMACs[normalizedMAC] = device.IP
+					allPotentialSNMPTargets[device.IP] = true
 
-		if job.Status.Status != DiscoverStatusCanceled && job.Status.Status != DiscoveryStatusFailed {
-			job.Status.Status = DiscoverStatusCanceled
-			job.Status.Error = fmt.Sprintf("Job canceled during %s phase", phaseName)
-			job.Status.EndTime = time.Now()
-		}
-
-		job.mu.Unlock()
-
-		return true
-	case <-e.done:
-		log.Printf("Job %s: %s phase stopped due to engine shutdown for seed %s.", job.ID, phaseName, seedIP)
-		job.mu.Lock()
-
-		if job.Status.Status != DiscoverStatusCanceled && job.Status.Status != DiscoveryStatusFailed {
-			job.Status.Status = DiscoveryStatusFailed
-			job.Status.Error = fmt.Sprintf("Engine shutting down during %s phase", phaseName)
-			job.Status.EndTime = time.Now()
-		}
-
-		job.mu.Unlock()
-
-		return true
-	default:
-		return false
-	}
-}
-
-// processUniFiSeed processes a single seed IP for UniFi discovery
-func (e *DiscoveryEngine) processUniFiSeed(
-	ctx context.Context, job *DiscoveryJob, seedIP string, allPotentialSNMPTargets map[string]bool) {
-	devicesFromUniFi, interfacesFromUniFi, err :=
-		e.queryUniFiDevices(ctx, job, seedIP)
-	if err == nil {
-		job.mu.Lock()
-
-		for _, device := range devicesFromUniFi {
-			if device.IP != "" { // Only add devices with valid IPs
-				e.addOrUpdateDeviceToResults(job, device)
-
+					log.Printf("Job %s: Adding device %s (MAC: %s) with IP %s to SNMP targets",
+						job.ID, device.Hostname, device.MAC, device.IP)
+				} else {
+					log.Printf("Job %s: Device %s (MAC: %s) already in SNMP targets with IP %s, skipping IP %s",
+						job.ID, device.Hostname, device.MAC, primaryIP, device.IP)
+				}
+			} else {
 				allPotentialSNMPTargets[device.IP] = true
 			}
 		}
-
-		for _, iface := range interfacesFromUniFi {
-			if iface.DeviceID == "" && iface.DeviceIP != "" && job.Params.AgentID != "" && job.Params.PollerID != "" {
-				iface.DeviceID = fmt.Sprintf("%s:%s:%s",
-					job.Params.AgentID, job.Params.PollerID, iface.DeviceIP)
-			}
-
-			job.Results.Interfaces = append(job.Results.Interfaces, iface)
-		}
-
-		job.mu.Unlock()
-
-		for _, iface := range interfacesFromUniFi {
-			if pubErr := e.publisher.PublishInterface(job.ctx, iface); pubErr != nil {
-				log.Printf("Job %s: Failed to publish UniFi interface for %s: %v",
-					job.ID, iface.DeviceIP, pubErr)
-			}
-		}
-	} else {
-		log.Printf("Job %s: Failed to query UniFi devices using seed %s: %v", job.ID, seedIP, err)
 	}
 }
 
@@ -965,6 +1323,7 @@ func (e *DiscoveryEngine) setupAndExecuteSNMPPolling(
 	if totalSNMPTargets == 0 {
 		log.Printf("Job %s: No SNMP targets to poll (seeds: %v, UniFiAPIs count: %d).",
 			job.ID, initialSeeds, len(e.config.UniFiAPIs))
+
 		return true
 	}
 
@@ -1024,52 +1383,11 @@ func (e *DiscoveryEngine) executeSNMPPolling(
 	}
 
 	wgSNMP.Wait()
+
 	close(resultChanSNMP)
 
-	return !e.checkJobCancellation(job)
-}
-
-// scanTargetForSNMP performs SNMP-specific discovery for a single target.
-func (e *DiscoveryEngine) scanTargetForSNMP(
-	ctx context.Context, job *DiscoveryJob, snmpTargetIP string) {
-	log.Printf("Job %s: SNMP Scanning target %s", job.ID, snmpTargetIP)
-
-	if len(e.config.UniFiAPIs) > 0 && (job.Params.Type == DiscoveryTypeFull || job.Params.Type == DiscoveryTypeTopology) {
-		links, err := e.queryUniFiAPI(ctx, job, snmpTargetIP)
-		if err == nil && len(links) > 0 {
-			e.publishTopologyLinks(job, links, snmpTargetIP, "UniFi-API")
-		}
-	}
-
-	client, err := e.setupSNMPClient(job, snmpTargetIP)
-	if err != nil {
-		log.Printf("Job %s: Failed to setup SNMP client for %s: %v", job.ID, snmpTargetIP, err)
-		return
-	}
-
-	defer func() {
-		if cErr := client.Conn.Close(); cErr != nil {
-			log.Printf("Job %s: Error closing SNMP connection for %s: %v", job.ID, snmpTargetIP, cErr)
-		}
-	}()
-
-	deviceSNMP, err := e.querySysInfo(client, snmpTargetIP, job.ID)
-	if err != nil {
-		log.Printf("Job %s: Failed to query system info via SNMP for %s: %v", job.ID, snmpTargetIP, err)
-		return
-	}
-
-	job.mu.Lock()
-	e.addOrUpdateDeviceToResults(job, deviceSNMP) // Handles publishing internally
-	job.mu.Unlock()
-
-	if job.Params.Type == DiscoveryTypeFull || job.Params.Type == DiscoveryTypeInterfaces {
-		e.handleInterfaceDiscoverySNMP(job, client, snmpTargetIP)
-	}
-
-	if job.Params.Type == DiscoveryTypeFull || job.Params.Type == DiscoveryTypeTopology {
-		e.handleTopologyDiscoverySNMP(job, client, snmpTargetIP)
-	}
+	// Corrected method name: checkPhaseJobCancellation instead of checkJobCancellation
+	return !e.checkPhaseJobCancellation(job, "", "SNMP polling")
 }
 
 // trackJobProgress starts a goroutine to track job progress for a specific phase
