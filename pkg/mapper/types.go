@@ -120,7 +120,8 @@ type DiscoveryJob struct {
 	cancelFunc     context.CancelFunc
 	scanQueue      []string
 	mu             sync.RWMutex
-	uniFiSiteCache map[string][]UniFiSite // Key: baseURL, Value: list of sites
+	uniFiSiteCache map[string][]UniFiSite         // Key: baseURL, Value: list of sites
+	deviceMap      map[string]*DeviceInterfaceMap // DeviceID -> DeviceInterfaceMap
 }
 
 // DiscoveryResults contains the results of a discovery operation.
@@ -330,4 +331,12 @@ type StreamConfig struct {
 	PublishBatchSize     int
 	PublishRetries       int
 	PublishRetryInterval time.Duration
+}
+
+type DeviceInterfaceMap struct {
+	DeviceID   string              // Primary DeviceID (based on primary MAC)
+	MACs       map[string]struct{} // All MACs associated with this device
+	IPs        map[string]struct{} // All IPs associated with this device
+	SysName    string              // System name (from SNMP or UniFi)
+	Interfaces []*DiscoveredInterface
 }
