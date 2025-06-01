@@ -248,13 +248,13 @@ func (*DiscoveryEngine) setUptimeValue(target *int64, v gosnmp.SnmpPDU) {
 }
 
 // getMACAddress tries to get the MAC address of a device using SNMP
-func (*DiscoveryEngine) getMACAddress(client *gosnmp.GoSNMP, target, jobID string) (string, error) {
+func (*DiscoveryEngine) getMACAddress(client *gosnmp.GoSNMP, target, jobID string) string {
 	// Try ifPhysAddress.1 (first interface)
 	macOID := ".1.3.6.1.2.1.2.2.1.6.1"
 
 	result, err := client.Get([]string{macOID})
 	if err == nil && len(result.Variables) > 0 && result.Variables[0].Type == gosnmp.OctetString {
-		return formatMACAddress(result.Variables[0].Value.([]byte)), nil
+		return formatMACAddress(result.Variables[0].Value.([]byte))
 	}
 
 	// If still empty, try walking ifPhysAddress table to find any MAC
@@ -276,7 +276,7 @@ func (*DiscoveryEngine) getMACAddress(client *gosnmp.GoSNMP, target, jobID strin
 		log.Printf("Job %s: Failed to walk ifPhysAddress for MAC on %s: %v", jobID, target, err)
 	}
 
-	return mac, nil
+	return mac
 }
 
 // generateDeviceID generates a device ID based on MAC or IP
@@ -325,7 +325,7 @@ func (e *DiscoveryEngine) querySysInfo(client *gosnmp.GoSNMP, target string, job
 
 	// After getting basic info, try to get MAC if not already set
 	if device.MAC == "" {
-		device.MAC, _ = e.getMACAddress(client, target, job.ID)
+		device.MAC = e.getMACAddress(client, target, job.ID)
 	}
 
 	// Generate device ID

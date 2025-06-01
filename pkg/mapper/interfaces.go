@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+//go:generate mockgen -destination=mock_mapper.go -package=mapper github.com/carverauto/serviceradar/pkg/mapper Mapper,Publisher
+
 // Package mapper pkg/discovery/interfaces.go
 package mapper
 

@@ -419,11 +419,11 @@ func (*DiscoveryEngine) processUplinkInfo(
 	job *DiscoveryJob,
 	device *UniFiDevice,
 	deviceCache map[string]struct {
-	IP       string
-	Name     string
-	MAC      string
-	DeviceID string
-},
+		IP       string
+		Name     string
+		MAC      string
+		DeviceID string
+	},
 	apiConfig UniFiAPIConfig,
 	site UniFiSite) []*TopologyLink {
 	var links []*TopologyLink
