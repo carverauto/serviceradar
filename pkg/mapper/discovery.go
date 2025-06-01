@@ -737,178 +737,248 @@ func (e *DiscoveryEngine) finalizeJobStatus(job *DiscoveryJob) {
 	}
 }
 
-func (e *DiscoveryEngine) deduplicateDevices(job *DiscoveryJob) {
-	// Build a graph of devices that might be the same based on shared IPs, MACs, and system names
-	type deviceGroup struct {
-		DeviceIDs map[string]struct{}
-		MACs      map[string]struct{}
-		IPs       map[string]struct{}
-		SysName   string
-	}
+// deviceGroup represents a group of devices that might be the same based on shared attributes
+type deviceGroup struct {
+	DeviceIDs map[string]struct{}
+	MACs      map[string]struct{}
+	IPs       map[string]struct{}
+	SysName   string
+}
 
+func (e *DiscoveryEngine) deduplicateDevices(job *DiscoveryJob) {
+	// Step 1: Group devices by shared attributes
+	deviceGroups := e.buildDeviceGroups(job)
+
+	// Step 2: Use topology links to further merge groups
+	deviceGroups = e.mergeGroupsByTopologyLinks(job, deviceGroups)
+
+	// Step 3: Rebuild the device list
+	newDevices := e.rebuildDeviceList(job, deviceGroups)
+
+	// Step 4: Update interfaces to point to the primary DeviceID
+	e.updateInterfaceDeviceIDs(job, deviceGroups)
+
+	// Update the results
+	job.Results.Devices = newDevices
+}
+
+// buildDeviceGroups groups devices by shared attributes (IPs, MACs, system names)
+func (e *DiscoveryEngine) buildDeviceGroups(job *DiscoveryJob) map[string]*deviceGroup {
 	deviceGroups := make(map[string]*deviceGroup) // Primary DeviceID -> group
 
-	// Step 1: Group devices by shared attributes
 	for deviceID, deviceEntry := range job.deviceMap {
-		matchedGroupID := ""
-		for groupID, group := range deviceGroups {
-			// Match by shared IP
-			for ip := range deviceEntry.IPs {
-				if _, exists := group.IPs[ip]; exists {
-					matchedGroupID = groupID
-					break
-				}
-			}
-			// Match by shared MAC
-			if matchedGroupID == "" {
-				for mac := range deviceEntry.MACs {
-					if _, exists := group.MACs[mac]; exists {
-						matchedGroupID = groupID
-						break
-					}
-				}
-			}
-			// Match by system name (if non-empty)
-			if matchedGroupID == "" && deviceEntry.SysName != "" && group.SysName == deviceEntry.SysName {
-				matchedGroupID = groupID
-			}
-			if matchedGroupID != "" {
-				break
-			}
-		}
+		matchedGroupID := e.findMatchingGroup(deviceGroups, deviceEntry)
 
 		if matchedGroupID == "" {
 			// Create a new group
-			deviceGroups[deviceID] = &deviceGroup{
-				DeviceIDs: map[string]struct{}{deviceID: {}},
-				MACs:      make(map[string]struct{}),
-				IPs:       make(map[string]struct{}),
-				SysName:   deviceEntry.SysName,
-			}
-			for mac := range deviceEntry.MACs {
-				deviceGroups[deviceID].MACs[mac] = struct{}{}
-			}
-			for ip := range deviceEntry.IPs {
-				deviceGroups[deviceID].IPs[ip] = struct{}{}
-			}
+			deviceGroups[deviceID] = e.createNewDeviceGroup(deviceID, deviceEntry)
 		} else {
 			// Merge into existing group
-			group := deviceGroups[matchedGroupID]
-			group.DeviceIDs[deviceID] = struct{}{}
-			for mac := range deviceEntry.MACs {
-				group.MACs[mac] = struct{}{}
-			}
-			for ip := range deviceEntry.IPs {
-				group.IPs[ip] = struct{}{}
-			}
-			if group.SysName == "" && deviceEntry.SysName != "" {
-				group.SysName = deviceEntry.SysName
-			}
+			e.mergeIntoExistingGroup(deviceGroups[matchedGroupID], deviceID, deviceEntry)
 		}
 	}
 
-	// Step 2: Use topology links to further merge groups
+	return deviceGroups
+}
+
+// findMatchingGroup finds a matching device group based on shared attributes
+func (e *DiscoveryEngine) findMatchingGroup(deviceGroups map[string]*deviceGroup, deviceEntry *DeviceInterfaceMap) string {
+	for groupID, group := range deviceGroups {
+		// Match by shared IP
+		for ip := range deviceEntry.IPs {
+			if _, exists := group.IPs[ip]; exists {
+				return groupID
+			}
+		}
+
+		// Match by shared MAC
+		for mac := range deviceEntry.MACs {
+			if _, exists := group.MACs[mac]; exists {
+				return groupID
+			}
+		}
+
+		// Match by system name (if non-empty)
+		if deviceEntry.SysName != "" && group.SysName == deviceEntry.SysName {
+			return groupID
+		}
+	}
+
+	return ""
+}
+
+// createNewDeviceGroup creates a new device group for a device
+func (e *DiscoveryEngine) createNewDeviceGroup(deviceID string, deviceEntry *DeviceInterfaceMap) *deviceGroup {
+	group := &deviceGroup{
+		DeviceIDs: map[string]struct{}{deviceID: {}},
+		MACs:      make(map[string]struct{}),
+		IPs:       make(map[string]struct{}),
+		SysName:   deviceEntry.SysName,
+	}
+
+	for mac := range deviceEntry.MACs {
+		group.MACs[mac] = struct{}{}
+	}
+
+	for ip := range deviceEntry.IPs {
+		group.IPs[ip] = struct{}{}
+	}
+
+	return group
+}
+
+// mergeIntoExistingGroup merges a device into an existing group
+func (e *DiscoveryEngine) mergeIntoExistingGroup(group *deviceGroup, deviceID string, deviceEntry *DeviceInterfaceMap) {
+	group.DeviceIDs[deviceID] = struct{}{}
+
+	for mac := range deviceEntry.MACs {
+		group.MACs[mac] = struct{}{}
+	}
+
+	for ip := range deviceEntry.IPs {
+		group.IPs[ip] = struct{}{}
+	}
+
+	if group.SysName == "" && deviceEntry.SysName != "" {
+		group.SysName = deviceEntry.SysName
+	}
+}
+
+// mergeGroupsByTopologyLinks uses topology links to further merge device groups
+func (e *DiscoveryEngine) mergeGroupsByTopologyLinks(job *DiscoveryJob, deviceGroups map[string]*deviceGroup) map[string]*deviceGroup {
 	for _, link := range job.Results.TopologyLinks {
-		localDeviceID := ""
-		neighborDeviceID := ""
-
-		// Find local device
-		for deviceID, deviceEntry := range job.deviceMap {
-			if _, exists := deviceEntry.IPs[link.LocalDeviceIP]; exists {
-				localDeviceID = deviceID
-				break
-			}
-		}
-
-		// Find neighbor device
-		for deviceID, deviceEntry := range job.deviceMap {
-			if _, exists := deviceEntry.IPs[link.NeighborMgmtAddr]; exists {
-				neighborDeviceID = deviceID
-				break
-			}
-		}
+		localDeviceID := e.findDeviceIDByIP(job, link.LocalDeviceIP)
+		neighborDeviceID := e.findDeviceIDByIP(job, link.NeighborMgmtAddr)
 
 		if localDeviceID != "" && neighborDeviceID != "" && localDeviceID != neighborDeviceID {
-			localGroupID := ""
-			neighborGroupID := ""
-			for groupID, group := range deviceGroups {
-				if _, exists := group.DeviceIDs[localDeviceID]; exists {
-					localGroupID = groupID
-				}
-				if _, exists := group.DeviceIDs[neighborDeviceID]; exists {
-					neighborGroupID = groupID
-				}
-			}
+			localGroupID := e.findGroupIDForDevice(deviceGroups, localDeviceID)
+			neighborGroupID := e.findGroupIDForDevice(deviceGroups, neighborDeviceID)
 
 			if localGroupID != neighborGroupID && localGroupID != "" && neighborGroupID != "" {
 				// Merge the groups
-				localGroup := deviceGroups[localGroupID]
-				neighborGroup := deviceGroups[neighborGroupID]
-				for deviceID := range neighborGroup.DeviceIDs {
-					localGroup.DeviceIDs[deviceID] = struct{}{}
-				}
-				for mac := range neighborGroup.MACs {
-					localGroup.MACs[mac] = struct{}{}
-				}
-				for ip := range neighborGroup.IPs {
-					localGroup.IPs[ip] = struct{}{}
-				}
-				if localGroup.SysName == "" && neighborGroup.SysName != "" {
-					localGroup.SysName = neighborGroup.SysName
-				}
-				delete(deviceGroups, neighborGroupID)
+				e.mergeDeviceGroups(deviceGroups, localGroupID, neighborGroupID)
 			}
 		}
 	}
 
-	// Step 3: Rebuild the device list
-	newDevices := make([]*DiscoveredDevice, 0)
-	for primaryDeviceID, group := range deviceGroups {
-		// Find the primary device
-		var primaryDevice *DiscoveredDevice
-		for _, device := range job.Results.Devices {
-			if device.DeviceID == primaryDeviceID {
-				primaryDevice = device
-				break
-			}
+	return deviceGroups
+}
+
+// findDeviceIDByIP finds a device ID by its IP address
+func (e *DiscoveryEngine) findDeviceIDByIP(job *DiscoveryJob, ip string) string {
+	for deviceID, deviceEntry := range job.deviceMap {
+		if _, exists := deviceEntry.IPs[ip]; exists {
+			return deviceID
 		}
+	}
+	return ""
+}
+
+// findGroupIDForDevice finds the group ID for a device
+func (e *DiscoveryEngine) findGroupIDForDevice(deviceGroups map[string]*deviceGroup, deviceID string) string {
+	for groupID, group := range deviceGroups {
+		if _, exists := group.DeviceIDs[deviceID]; exists {
+			return groupID
+		}
+	}
+	return ""
+}
+
+// mergeDeviceGroups merges two device groups
+func (e *DiscoveryEngine) mergeDeviceGroups(deviceGroups map[string]*deviceGroup, targetGroupID, sourceGroupID string) {
+	targetGroup := deviceGroups[targetGroupID]
+	sourceGroup := deviceGroups[sourceGroupID]
+
+	for deviceID := range sourceGroup.DeviceIDs {
+		targetGroup.DeviceIDs[deviceID] = struct{}{}
+	}
+
+	for mac := range sourceGroup.MACs {
+		targetGroup.MACs[mac] = struct{}{}
+	}
+
+	for ip := range sourceGroup.IPs {
+		targetGroup.IPs[ip] = struct{}{}
+	}
+
+	if targetGroup.SysName == "" && sourceGroup.SysName != "" {
+		targetGroup.SysName = sourceGroup.SysName
+	}
+
+	delete(deviceGroups, sourceGroupID)
+}
+
+// rebuildDeviceList rebuilds the device list with merged metadata
+func (e *DiscoveryEngine) rebuildDeviceList(job *DiscoveryJob, deviceGroups map[string]*deviceGroup) []*DiscoveredDevice {
+	newDevices := make([]*DiscoveredDevice, 0)
+
+	for primaryDeviceID, group := range deviceGroups {
+		primaryDevice := e.findPrimaryDevice(job, primaryDeviceID)
 
 		if primaryDevice == nil {
 			continue
 		}
 
-		// Merge metadata from other devices in the group
-		for deviceID := range group.DeviceIDs {
-			if deviceID == primaryDeviceID {
-				continue
-			}
-			for _, device := range job.Results.Devices {
-				if device.DeviceID == deviceID {
-					for k, v := range device.Metadata {
-						if _, exists := primaryDevice.Metadata[k]; !exists {
-							if primaryDevice.Metadata == nil {
-								primaryDevice.Metadata = make(map[string]string)
-							}
-							primaryDevice.Metadata[k] = v
-						}
-					}
-					for ip := range group.IPs {
-						if ip != primaryDevice.IP {
-							altIPKey := fmt.Sprintf("alternate_ip_%s", ip)
-							if primaryDevice.Metadata == nil {
-								primaryDevice.Metadata = make(map[string]string)
-							}
-							primaryDevice.Metadata[altIPKey] = ip
-						}
-					}
-				}
-			}
-		}
-
+		e.mergeDeviceMetadata(job, primaryDevice, group)
 		newDevices = append(newDevices, primaryDevice)
 	}
 
-	// Step 4: Update interfaces to point to the primary DeviceID
+	return newDevices
+}
+
+// findPrimaryDevice finds the primary device by its ID
+func (e *DiscoveryEngine) findPrimaryDevice(job *DiscoveryJob, primaryDeviceID string) *DiscoveredDevice {
+	for _, device := range job.Results.Devices {
+		if device.DeviceID == primaryDeviceID {
+			return device
+		}
+	}
+	return nil
+}
+
+// mergeDeviceMetadata merges metadata from other devices in the group
+func (e *DiscoveryEngine) mergeDeviceMetadata(job *DiscoveryJob, primaryDevice *DiscoveredDevice, group *deviceGroup) {
+	for deviceID := range group.DeviceIDs {
+		if deviceID == primaryDevice.DeviceID {
+			continue
+		}
+
+		for _, device := range job.Results.Devices {
+			if device.DeviceID == deviceID {
+				e.copyMetadataToDevice(primaryDevice, device)
+				e.addAlternateIPs(primaryDevice, group.IPs)
+			}
+		}
+	}
+}
+
+// copyMetadataToDevice copies metadata from source device to target device
+func (e *DiscoveryEngine) copyMetadataToDevice(targetDevice, sourceDevice *DiscoveredDevice) {
+	for k, v := range sourceDevice.Metadata {
+		if _, exists := targetDevice.Metadata[k]; !exists {
+			if targetDevice.Metadata == nil {
+				targetDevice.Metadata = make(map[string]string)
+			}
+			targetDevice.Metadata[k] = v
+		}
+	}
+}
+
+// addAlternateIPs adds alternate IPs to device metadata
+func (e *DiscoveryEngine) addAlternateIPs(device *DiscoveredDevice, ips map[string]struct{}) {
+	for ip := range ips {
+		if ip != device.IP {
+			altIPKey := fmt.Sprintf("alternate_ip_%s", ip)
+			if device.Metadata == nil {
+				device.Metadata = make(map[string]string)
+			}
+			device.Metadata[altIPKey] = ip
+		}
+	}
+}
+
+// updateInterfaceDeviceIDs updates interfaces to point to the primary DeviceID
+func (e *DiscoveryEngine) updateInterfaceDeviceIDs(job *DiscoveryJob, deviceGroups map[string]*deviceGroup) {
 	for _, iface := range job.Results.Interfaces {
 		for groupID, group := range deviceGroups {
 			if _, exists := group.IPs[iface.DeviceIP]; exists {
@@ -917,9 +987,6 @@ func (e *DiscoveryEngine) deduplicateDevices(job *DiscoveryJob) {
 			}
 		}
 	}
-
-	// Update the results
-	job.Results.Devices = newDevices
 }
 
 const (
@@ -1137,25 +1204,7 @@ func (e *DiscoveryEngine) handleUniFiDiscoveryPhase(
 			interfacesFound += len(interfaces)
 
 			job.mu.Lock()
-			for _, device := range devices {
-				if device.IP != "" {
-					e.addOrUpdateDeviceToResults(job, device)
-					if device.MAC != "" {
-						normalizedMAC := NormalizeMAC(device.MAC)
-						if primaryIP, seen := seenMACs[normalizedMAC]; !seen {
-							seenMACs[normalizedMAC] = device.IP
-							allPotentialSNMPTargets[device.IP] = true
-							log.Printf("Job %s: Adding device %s (MAC: %s) with IP %s to SNMP targets",
-								job.ID, device.Hostname, device.MAC, device.IP)
-						} else {
-							log.Printf("Job %s: Device %s (MAC: %s) already in SNMP targets with IP %s, skipping IP %s",
-								job.ID, device.Hostname, device.MAC, primaryIP, device.IP)
-						}
-					} else {
-						allPotentialSNMPTargets[device.IP] = true
-					}
-				}
-			}
+			e.processDevicesForSNMPTargets(job, devices, allPotentialSNMPTargets, seenMACs)
 
 			for _, iface := range interfaces {
 				if iface.DeviceID == "" && iface.DeviceIP != "" && job.Params.AgentID != "" && job.Params.PollerID != "" {
@@ -1191,31 +1240,7 @@ func (e *DiscoveryEngine) processUniFiSeedWithDedupe(
 		e.queryUniFiDevices(ctx, job, seedIP)
 	if err == nil {
 		job.mu.Lock()
-
-		for _, device := range devicesFromUniFi {
-			if device.IP != "" { // Only add devices with valid IPs
-				e.addOrUpdateDeviceToResults(job, device)
-
-				// Only add to SNMP targets if we haven't seen this MAC before
-				if device.MAC != "" {
-					normalizedMAC := NormalizeMAC(device.MAC)
-					if primaryIP, seen := seenMACs[normalizedMAC]; !seen {
-						// First time seeing this MAC, use this IP as primary
-						seenMACs[normalizedMAC] = device.IP
-						allPotentialSNMPTargets[device.IP] = true
-						log.Printf("Job %s: Adding device %s (MAC: %s) with IP %s to SNMP targets",
-							job.ID, device.Hostname, device.MAC, device.IP)
-					} else {
-						// Already seen this MAC, log but don't add to SNMP targets
-						log.Printf("Job %s: Device %s (MAC: %s) already in SNMP targets with IP %s, skipping IP %s",
-							job.ID, device.Hostname, device.MAC, primaryIP, device.IP)
-					}
-				} else {
-					// No MAC, add by IP (might be duplicate but we can't tell)
-					allPotentialSNMPTargets[device.IP] = true
-				}
-			}
-		}
+		e.processDevicesForSNMPTargets(job, devicesFromUniFi, allPotentialSNMPTargets, seenMACs)
 
 		for _, iface := range interfacesFromUniFi {
 			if iface.DeviceID == "" && iface.DeviceIP != "" && job.Params.AgentID != "" && job.Params.PollerID != "" {
@@ -1236,6 +1261,32 @@ func (e *DiscoveryEngine) processUniFiSeedWithDedupe(
 		}
 	} else {
 		log.Printf("Job %s: Failed to query UniFi devices using seed %s: %v", job.ID, seedIP, err)
+	}
+}
+
+// processDevicesForSNMPTargets processes devices for SNMP targets with MAC-based deduplication
+func (e *DiscoveryEngine) processDevicesForSNMPTargets(
+	job *DiscoveryJob, devices []*DiscoveredDevice,
+	allPotentialSNMPTargets map[string]bool, seenMACs map[string]string) {
+
+	for _, device := range devices {
+		if device.IP != "" {
+			e.addOrUpdateDeviceToResults(job, device)
+			if device.MAC != "" {
+				normalizedMAC := NormalizeMAC(device.MAC)
+				if primaryIP, seen := seenMACs[normalizedMAC]; !seen {
+					seenMACs[normalizedMAC] = device.IP
+					allPotentialSNMPTargets[device.IP] = true
+					log.Printf("Job %s: Adding device %s (MAC: %s) with IP %s to SNMP targets",
+						job.ID, device.Hostname, device.MAC, device.IP)
+				} else {
+					log.Printf("Job %s: Device %s (MAC: %s) already in SNMP targets with IP %s, skipping IP %s",
+						job.ID, device.Hostname, device.MAC, primaryIP, device.IP)
+				}
+			} else {
+				allPotentialSNMPTargets[device.IP] = true
+			}
+		}
 	}
 }
 
