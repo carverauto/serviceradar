@@ -743,6 +743,19 @@ func (e *DiscoveryEngine) addOrUpdateDeviceToResults(job *DiscoveryJob, newDevic
 	for i, existingDevice := range job.Results.Devices {
 		if e.isDeviceMatch(existingDevice, newDevice) {
 			e.updateExistingDevice(job, i, newDevice)
+
+			// If the IP is different, add it to metadata to track multiple IPs
+			if existingDevice.IP != newDevice.IP {
+				// Store alternate IPs in metadata
+				altIPKey := fmt.Sprintf("alternate_ip_%s", newDevice.IP)
+				if job.Results.Devices[i].Metadata == nil {
+					job.Results.Devices[i].Metadata = make(map[string]string)
+				}
+				job.Results.Devices[i].Metadata[altIPKey] = newDevice.IP
+
+				log.Printf("Job %s: Device %s (MAC: %s) found with alternate IP %s (primary: %s)",
+					job.ID, existingDevice.Hostname, existingDevice.MAC, newDevice.IP, existingDevice.IP)
+			}
 			return
 		}
 	}
@@ -877,6 +890,9 @@ func (e *DiscoveryEngine) handleUniFiDiscoveryPhase(
 	ctx context.Context, job *DiscoveryJob, initialSeeds []string) map[string]bool {
 	allPotentialSNMPTargets := make(map[string]bool)
 
+	// Track MACs we've seen to avoid duplicate SNMP targets for the same device
+	seenMACs := make(map[string]string) // MAC -> primary IP
+
 	for _, seedIP := range initialSeeds {
 		if seedIP != "" { // Ensure seedIP is valid before adding
 			allPotentialSNMPTargets[seedIP] = true
@@ -899,7 +915,7 @@ func (e *DiscoveryEngine) handleUniFiDiscoveryPhase(
 		}
 
 		if len(e.config.UniFiAPIs) > 0 {
-			e.processUniFiSeed(ctx, job, seedIP, allPotentialSNMPTargets)
+			e.processUniFiSeedWithDedupe(ctx, job, seedIP, allPotentialSNMPTargets, seenMACs)
 		}
 	}
 
@@ -907,6 +923,63 @@ func (e *DiscoveryEngine) handleUniFiDiscoveryPhase(
 		job.ID, len(allPotentialSNMPTargets))
 
 	return allPotentialSNMPTargets
+}
+
+// processUniFiSeedWithDedupe processes a single seed IP for UniFi discovery with MAC-based deduplication
+func (e *DiscoveryEngine) processUniFiSeedWithDedupe(
+	ctx context.Context, job *DiscoveryJob, seedIP string,
+	allPotentialSNMPTargets map[string]bool, seenMACs map[string]string) {
+
+	devicesFromUniFi, interfacesFromUniFi, err :=
+		e.queryUniFiDevices(ctx, job, seedIP)
+	if err == nil {
+		job.mu.Lock()
+
+		for _, device := range devicesFromUniFi {
+			if device.IP != "" { // Only add devices with valid IPs
+				e.addOrUpdateDeviceToResults(job, device)
+
+				// Only add to SNMP targets if we haven't seen this MAC before
+				if device.MAC != "" {
+					normalizedMAC := NormalizeMAC(device.MAC)
+					if primaryIP, seen := seenMACs[normalizedMAC]; !seen {
+						// First time seeing this MAC, use this IP as primary
+						seenMACs[normalizedMAC] = device.IP
+						allPotentialSNMPTargets[device.IP] = true
+						log.Printf("Job %s: Adding device %s (MAC: %s) with IP %s to SNMP targets",
+							job.ID, device.Hostname, device.MAC, device.IP)
+					} else {
+						// Already seen this MAC, log but don't add to SNMP targets
+						log.Printf("Job %s: Device %s (MAC: %s) already in SNMP targets with IP %s, skipping IP %s",
+							job.ID, device.Hostname, device.MAC, primaryIP, device.IP)
+					}
+				} else {
+					// No MAC, add by IP (might be duplicate but we can't tell)
+					allPotentialSNMPTargets[device.IP] = true
+				}
+			}
+		}
+
+		for _, iface := range interfacesFromUniFi {
+			if iface.DeviceID == "" && iface.DeviceIP != "" && job.Params.AgentID != "" && job.Params.PollerID != "" {
+				iface.DeviceID = fmt.Sprintf("%s:%s:%s",
+					job.Params.AgentID, job.Params.PollerID, iface.DeviceIP)
+			}
+
+			job.Results.Interfaces = append(job.Results.Interfaces, iface)
+		}
+
+		job.mu.Unlock()
+
+		for _, iface := range interfacesFromUniFi {
+			if pubErr := e.publisher.PublishInterface(job.ctx, iface); pubErr != nil {
+				log.Printf("Job %s: Failed to publish UniFi interface for %s: %v",
+					job.ID, iface.DeviceIP, pubErr)
+			}
+		}
+	} else {
+		log.Printf("Job %s: Failed to query UniFi devices using seed %s: %v", job.ID, seedIP, err)
+	}
 }
 
 // checkPhaseJobCancellation checks if the job has been canceled or the engine is shutting down
