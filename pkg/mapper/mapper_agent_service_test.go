@@ -1,3 +1,19 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package mapper
 
 import (
@@ -8,6 +24,7 @@ import (
 
 	"github.com/carverauto/serviceradar/proto"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
 
@@ -77,10 +94,8 @@ func TestGetStatusWithDifferentEngineStates(t *testing.T) {
 			name: "engine running",
 			setupEngine: func() *DiscoveryEngine {
 				return &DiscoveryEngine{
-					done: make(chan struct{}),
-					schedulers: map[string]*time.Ticker{
-						"test": &time.Ticker{},
-					},
+					done:       make(chan struct{}),
+					schedulers: map[string]*time.Ticker{"test": {}},
 				}
 			},
 			expectedStatus: true,
@@ -96,7 +111,7 @@ func TestGetStatusWithDifferentEngineStates(t *testing.T) {
 			service := NewAgentService(tt.setupEngine())
 			resp, err := service.GetStatus(ctx, req)
 
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			assert.NotNil(t, resp)
 			assert.Equal(t, tt.expectedStatus, resp.Available)
 			assert.Equal(t, "serviceradar-mapper", resp.ServiceName)
@@ -105,8 +120,9 @@ func TestGetStatusWithDifferentEngineStates(t *testing.T) {
 
 			// Verify message content
 			var message map[string]interface{}
+
 			err = json.Unmarshal(resp.Message, &message)
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			assert.Equal(t, tt.expectedMsg["status"], message["status"])
 			assert.Equal(t, tt.expectedMsg["message"], message["message"])
 		})
@@ -124,10 +140,8 @@ func TestGetStatusWithMockEngine(t *testing.T) {
 
 	// Create a real DiscoveryEngine with the necessary fields for testing
 	engine := &DiscoveryEngine{
-		done: make(chan struct{}),
-		schedulers: map[string]*time.Ticker{
-			"test": &time.Ticker{},
-		},
+		done:       make(chan struct{}),
+		schedulers: map[string]*time.Ticker{"test": {}},
 	}
 
 	// Create the service with the real engine
@@ -136,20 +150,21 @@ func TestGetStatusWithMockEngine(t *testing.T) {
 	// Test the GetStatus method
 	resp, err := service.GetStatus(ctx, req)
 
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, resp)
 	assert.True(t, resp.Available)
 	assert.Equal(t, "serviceradar-mapper", resp.ServiceName)
 
 	// Verify message content
 	var message map[string]interface{}
+
 	err = json.Unmarshal(resp.Message, &message)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, "operational", message["status"])
 	assert.Equal(t, "serviceradar-mapper is operational", message["message"])
 }
 
-func TestGetStatusJsonError(t *testing.T) {
+func TestGetStatusJsonError(_ *testing.T) {
 	// This test is to verify error handling when json.Marshal fails
 	// However, since it's difficult to make json.Marshal fail in a normal test,
 	// we'll skip implementing this test case. In a real-world scenario,
@@ -158,33 +173,33 @@ func TestGetStatusJsonError(t *testing.T) {
 
 	// The test would look something like this:
 	/*
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
 
-	ctx := context.Background()
-	req := &proto.StatusRequest{}
+		ctx := context.Background()
+		req := &proto.StatusRequest{}
 
-	// Create a mock engine
-	engine := &DiscoveryEngine{
-		done: make(chan struct{}),
-		schedulers: map[string]*time.Ticker{
-			"test": &time.Ticker{},
-		},
-	}
+		// Create a mock engine
+		engine := &DiscoveryEngine{
+			done: make(chan struct{}),
+			schedulers: map[string]*time.Ticker{
+				"test": &time.Ticker{},
+			},
+		}
 
-	service := NewAgentService(engine)
+		service := NewAgentService(engine)
 
-	// Patch json.Marshal to return an error
-	patch := monkey.Patch(json.Marshal, func(interface{}) ([]byte, error) {
-		return nil, errors.New("mock marshal error")
-	})
-	defer patch.Unpatch()
+		// Patch json.Marshal to return an error
+		patch := monkey.Patch(json.Marshal, func(interface{}) ([]byte, error) {
+			return nil, errors.New("mock marshal error")
+		})
+		defer patch.Unpatch()
 
-	// Test the GetStatus method
-	resp, err := service.GetStatus(ctx, req)
+		// Test the GetStatus method
+		resp, err := service.GetStatus(ctx, req)
 
-	assert.Error(t, err)
-	assert.Nil(t, resp)
-	assert.Contains(t, err.Error(), "mock marshal error")
+		assert.Error(t, err)
+		assert.Nil(t, resp)
+		assert.Contains(t, err.Error(), "mock marshal error")
 	*/
 }

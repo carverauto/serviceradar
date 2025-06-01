@@ -1,3 +1,19 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package mapper
 
 import (
@@ -143,6 +159,7 @@ func TestGetInt32FromPDU(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result, ok := getInt32FromPDU(tt.pdu, tt.fieldName)
 			assert.Equal(t, tt.ok, ok)
+
 			if ok {
 				assert.Equal(t, tt.expected, result)
 			}
@@ -229,6 +246,7 @@ func TestConvertToUint64(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result, ok := convertToUint64(tt.input)
 			assert.Equal(t, tt.ok, ok)
+
 			if ok {
 				assert.Equal(t, tt.expected, result)
 			}
@@ -291,7 +309,7 @@ func TestExtractSpeedFromGauge32(t *testing.T) {
 		{
 			name:     "max uint32",
 			input:    uint32(4294967295), // 2^32 - 1
-			expected: 0, // Should return 0 for max uint32 as it indicates we need to check ifHighSpeed
+			expected: 0,                  // Should return 0 for max uint32 as it indicates we need to check ifHighSpeed
 		},
 		{
 			name:     "wrong type",
@@ -680,7 +698,9 @@ func TestSetStringValue(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			engine := &DiscoveryEngine{}
+
 			var target string
+
 			if tt.name == "wrong type" {
 				target = "original"
 			}
@@ -726,7 +746,9 @@ func TestSetObjectIDValue(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			engine := &DiscoveryEngine{}
+
 			var target string
+
 			if tt.name == "wrong type" {
 				target = "original"
 			}
@@ -772,7 +794,9 @@ func TestSetUptimeValue(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			engine := &DiscoveryEngine{}
+
 			var target int64
+
 			if tt.name == "wrong type" {
 				target = 9999
 			}
@@ -1076,8 +1100,8 @@ func TestUpdateInterfaceFromOID(t *testing.T) {
 		expected  *DiscoveredInterface
 	}{
 		{
-			name: "ifDescr update",
-			iface: &DiscoveredInterface{},
+			name:      "ifDescr update",
+			iface:     &DiscoveredInterface{},
 			oidPrefix: oidIfDescr,
 			pdu: gosnmp.SnmpPDU{
 				Name:  oidIfDescr + ".1",
@@ -1089,8 +1113,8 @@ func TestUpdateInterfaceFromOID(t *testing.T) {
 			},
 		},
 		{
-			name: "ifType update",
-			iface: &DiscoveredInterface{},
+			name:      "ifType update",
+			iface:     &DiscoveredInterface{},
 			oidPrefix: oidIfType,
 			pdu: gosnmp.SnmpPDU{
 				Name:  oidIfType + ".1",
@@ -1102,8 +1126,8 @@ func TestUpdateInterfaceFromOID(t *testing.T) {
 			},
 		},
 		{
-			name: "ifSpeed update",
-			iface: &DiscoveredInterface{},
+			name:      "ifSpeed update",
+			iface:     &DiscoveredInterface{},
 			oidPrefix: oidIfSpeed,
 			pdu: gosnmp.SnmpPDU{
 				Name:  oidIfSpeed + ".1",
@@ -1115,8 +1139,8 @@ func TestUpdateInterfaceFromOID(t *testing.T) {
 			},
 		},
 		{
-			name: "ifPhysAddress update",
-			iface: &DiscoveredInterface{},
+			name:      "ifPhysAddress update",
+			iface:     &DiscoveredInterface{},
 			oidPrefix: oidIfPhysAddress,
 			pdu: gosnmp.SnmpPDU{
 				Name:  oidIfPhysAddress + ".1",
@@ -1128,8 +1152,8 @@ func TestUpdateInterfaceFromOID(t *testing.T) {
 			},
 		},
 		{
-			name: "ifAdminStatus update",
-			iface: &DiscoveredInterface{},
+			name:      "ifAdminStatus update",
+			iface:     &DiscoveredInterface{},
 			oidPrefix: oidIfAdminStatus,
 			pdu: gosnmp.SnmpPDU{
 				Name:  oidIfAdminStatus + ".1",
@@ -1141,8 +1165,8 @@ func TestUpdateInterfaceFromOID(t *testing.T) {
 			},
 		},
 		{
-			name: "ifOperStatus update",
-			iface: &DiscoveredInterface{},
+			name:      "ifOperStatus update",
+			iface:     &DiscoveredInterface{},
 			oidPrefix: oidIfOperStatus,
 			pdu: gosnmp.SnmpPDU{
 				Name:  oidIfOperStatus + ".1",
@@ -1154,8 +1178,8 @@ func TestUpdateInterfaceFromOID(t *testing.T) {
 			},
 		},
 		{
-			name: "ifName update",
-			iface: &DiscoveredInterface{},
+			name:      "ifName update",
+			iface:     &DiscoveredInterface{},
 			oidPrefix: oidIfName,
 			pdu: gosnmp.SnmpPDU{
 				Name:  oidIfName + ".1",
@@ -1167,8 +1191,8 @@ func TestUpdateInterfaceFromOID(t *testing.T) {
 			},
 		},
 		{
-			name: "ifAlias update",
-			iface: &DiscoveredInterface{},
+			name:      "ifAlias update",
+			iface:     &DiscoveredInterface{},
 			oidPrefix: oidIfAlias,
 			pdu: gosnmp.SnmpPDU{
 				Name:  oidIfAlias + ".1",

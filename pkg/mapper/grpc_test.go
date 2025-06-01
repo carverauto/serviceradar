@@ -1,3 +1,19 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package mapper
 
 import (
@@ -7,6 +23,7 @@ import (
 
 	proto "github.com/carverauto/serviceradar/proto/discovery"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -42,7 +59,7 @@ func TestGetStatus(t *testing.T) {
 		DiscoveryId: discoveryID,
 	})
 
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, resp)
 	assert.True(t, resp.Available)
 	assert.Equal(t, "running", resp.Status)
@@ -51,7 +68,7 @@ func TestGetStatus(t *testing.T) {
 	// Test without discovery ID (overall service status)
 	resp, err = service.GetStatus(ctx, &proto.StatusRequest{})
 
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, resp)
 	assert.True(t, resp.Available)
 	assert.Equal(t, "running", resp.Status)
@@ -91,13 +108,14 @@ func TestGRPCStartDiscovery(t *testing.T) {
 			assert.Equal(t, int(req.Retries), params.Retries)
 			assert.Equal(t, SNMPVersion2c, params.Credentials.Version)
 			assert.Equal(t, req.Credentials.Community, params.Credentials.Community)
+
 			return discoveryID, nil
 		},
 	)
 
 	resp, err := service.StartDiscovery(ctx, req)
 
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, resp)
 	assert.Equal(t, discoveryID, resp.DiscoveryId)
 	assert.True(t, resp.Success)
@@ -108,7 +126,7 @@ func TestGRPCStartDiscovery(t *testing.T) {
 
 	resp, err = service.StartDiscovery(ctx, req)
 
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Nil(t, resp)
 }
 
@@ -162,11 +180,11 @@ func TestGRPCGetDiscoveryResults(t *testing.T) {
 		IncludeRawData: includeRawData,
 	})
 
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, resp)
 	assert.Equal(t, discoveryID, resp.DiscoveryId)
 	assert.Equal(t, proto.DiscoveryStatus_COMPLETED, resp.Status)
-	assert.Equal(t, float32(100), resp.Progress)
+	assert.InEpsilon(t, float32(100), resp.Progress, 0.0001)
 	assert.Len(t, resp.Devices, 1)
 	assert.Len(t, resp.Interfaces, 1)
 	assert.Len(t, resp.Topology, 1)
@@ -184,7 +202,7 @@ func TestGRPCGetDiscoveryResults(t *testing.T) {
 		IncludeRawData: includeRawData,
 	})
 
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Nil(t, resp)
 }
 
@@ -200,7 +218,7 @@ func TestGetLatestCachedResults(t *testing.T) {
 		MaxActiveJobs: 5,
 		Timeout:       30 * time.Second,
 	}, mockPublisher)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	service := NewGRPCDiscoveryService(engine)
 	ctx := context.Background()
@@ -229,7 +247,7 @@ func TestGetLatestCachedResults(t *testing.T) {
 		IncludeRawData: true,
 	})
 
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, resp)
 	assert.Equal(t, discoveryID, resp.DiscoveryId)
 	assert.Equal(t, proto.DiscoveryStatus_COMPLETED, resp.Status)
@@ -241,7 +259,7 @@ func TestGetLatestCachedResults(t *testing.T) {
 
 	resp, err = service.GetLatestCachedResults(ctx, &proto.GetLatestCachedResultsRequest{})
 
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Nil(t, resp)
 	assert.Equal(t, codes.NotFound, status.Code(err))
 }
@@ -376,10 +394,10 @@ func TestConvertResultsToProto(t *testing.T) {
 
 	resp, err := convertResultsToProto(results, discoveryID, includeRawData)
 
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, discoveryID, resp.DiscoveryId)
 	assert.Equal(t, proto.DiscoveryStatus_COMPLETED, resp.Status)
-	assert.Equal(t, float32(100), resp.Progress)
+	assert.InEpsilon(t, float32(100), resp.Progress, 0.0001)
 	assert.Equal(t, "no error", resp.Error)
 	assert.Len(t, resp.Devices, 1)
 	assert.Len(t, resp.Interfaces, 1)
@@ -550,6 +568,8 @@ func TestEstimateDuration(t *testing.T) {
 				Type:  DiscoveryTypeBasic,
 			},
 			check: func(t *testing.T, duration int32) {
+				t.Helper()
+
 				// Basic formula: (seeds * 10 * timePerDeviceBasic) / concurrency * overhead
 				// With default values: (2 * 10 * 2) / 10 * 1.2 = 4.8 -> 4
 				assert.Equal(t, int32(4), duration)
@@ -562,6 +582,8 @@ func TestEstimateDuration(t *testing.T) {
 				Type:  DiscoveryTypeFull,
 			},
 			check: func(t *testing.T, duration int32) {
+				t.Helper()
+
 				// (3 * 10 * 10) / 10 * 1.2 = 36
 				assert.Equal(t, int32(36), duration)
 			},
@@ -574,6 +596,8 @@ func TestEstimateDuration(t *testing.T) {
 				Concurrency: 5,
 			},
 			check: func(t *testing.T, duration int32) {
+				t.Helper()
+
 				// (2 * 10 * 2) / 5 * 1.2 = 9.6 -> 9
 				assert.Equal(t, int32(9), duration)
 			},
@@ -586,6 +610,8 @@ func TestEstimateDuration(t *testing.T) {
 				Concurrency: 0,
 			},
 			check: func(t *testing.T, duration int32) {
+				t.Helper()
+
 				// (2 * 10 * 2) / 10 * 1.2 = 4.8 -> 4
 				assert.Equal(t, int32(4), duration)
 			},
