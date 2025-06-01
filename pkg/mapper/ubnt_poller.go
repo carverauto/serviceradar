@@ -833,7 +833,7 @@ func (*DiscoveryEngine) addPoEMetadata(metadata map[string]string, port *struct 
 		metadata["poe_standard"] = port.PoE.Standard
 		metadata["poe_type"] = fmt.Sprintf("%d", port.PoE.Type)
 		metadata["poe_state"] = port.PoE.State
-		metadata["poe_enabled"] = fmt.Sprintf("%t", port.PoE.Enabled)
+		metadata["poe_enabled"] = "true"
 	}
 }
 
