@@ -1361,7 +1361,6 @@ func (e *DiscoveryEngine) setupAndExecuteSNMPPolling(
 }
 
 // executeSNMPPolling executes the SNMP polling phase
-// executeSNMPPolling executes the SNMP polling phase
 func (e *DiscoveryEngine) executeSNMPPolling(
 	job *DiscoveryJob, targetChanSNMP chan<- string, resultChanSNMP chan bool, wgSNMP *sync.WaitGroup) bool {
 	if e.feedTargetsToWorkers(job, targetChanSNMP) { // This closes targetChanSNMP
