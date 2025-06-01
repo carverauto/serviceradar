@@ -843,14 +843,14 @@ func (e *DiscoveryEngine) querySingleUniFiDevices(
 	return devices, allInterfaces, nil
 }
 
-func (e *DiscoveryEngine) querySysInfoWithTimeout(client *gosnmp.GoSNMP, job *DiscoveryJob, target, jobID string, timeout time.Duration) (*DiscoveredDevice, error) {
+func (e *DiscoveryEngine) querySysInfoWithTimeout(client *gosnmp.GoSNMP, job *DiscoveryJob, target string, timeout time.Duration) (*DiscoveredDevice, error) {
 	done := make(chan struct {
 		device *DiscoveredDevice
 		err    error
 	}, 1)
 
 	go func() {
-		device, err := e.querySysInfo(client, target, jobID, job)
+		device, err := e.querySysInfo(client, target, job)
 
 		done <- struct {
 			device *DiscoveredDevice

@@ -346,3 +346,12 @@ func GenerateDeviceID(agentID, pollerID, mac string) string {
 func NormalizeMAC(mac string) string {
 	return strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(mac, ":", ""), "-", ""))
 }
+
+// GenerateDeviceIDFromIP creates a device ID when MAC is not available
+// This should only be used as a fallback
+func GenerateDeviceIDFromIP(agentID, pollerID, ip string) string {
+	if ip == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s:%s:ip-%s", agentID, pollerID, ip)
+}
