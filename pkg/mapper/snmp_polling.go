@@ -96,7 +96,8 @@ const (
 
 // handleInterfaceDiscoverySNMP queries and publishes interface information
 func (e *DiscoveryEngine) handleInterfaceDiscoverySNMP(
-	job *DiscoveryJob, client *gosnmp.GoSNMP, target string) {
+	job *DiscoveryJob, client *gosnmp.GoSNMP, target string,
+) {
 	interfaces, err := e.queryInterfaces(job, client, target, job.ID)
 	if err != nil {
 		log.Printf("Job %s: Failed to query interfaces for %s: %v", job.ID, target, err)
@@ -107,12 +108,30 @@ func (e *DiscoveryEngine) handleInterfaceDiscoverySNMP(
 		return
 	}
 
-	// Add interfaces to results
+	// Lock the job while modifying results and device map
 	job.mu.Lock()
-	job.Results.Interfaces = append(job.Results.Interfaces, interfaces...)
-	job.mu.Unlock()
+	defer job.mu.Unlock()
 
-	// Publish interfaces
+	var deviceID string
+	for _, device := range job.Results.Devices {
+		if device.IP == target {
+			deviceID = device.DeviceID
+			break
+		}
+	}
+
+	if deviceEntry, exists := job.deviceMap[deviceID]; exists {
+		deviceEntry.Interfaces = append(deviceEntry.Interfaces, interfaces...)
+		for _, iface := range interfaces {
+			deviceEntry.IPs[iface.DeviceIP] = struct{}{}
+			if iface.IfPhysAddress != "" {
+				deviceEntry.MACs[iface.IfPhysAddress] = struct{}{}
+			}
+		}
+	}
+
+	job.Results.Interfaces = append(job.Results.Interfaces, interfaces...)
+
 	if e.publisher != nil {
 		for _, iface := range interfaces {
 			if err := e.publisher.PublishInterface(job.ctx, iface); err != nil {
@@ -261,23 +280,39 @@ func (e *DiscoveryEngine) querySysInfo(client *gosnmp.GoSNMP, target string, job
 	// Finalize device setup
 	e.finalizeDevice(device, target, job.ID)
 
-	// After getting basic info, try to get MAC from first interface if not already set
+	// After getting basic info, try multiple methods to get MAC if not already set
 	if device.MAC == "" {
-		// Try to get MAC from ifPhysAddress of first interface
-		macOID := ".1.3.6.1.2.1.2.2.1.6.1" // ifPhysAddress.1
+		// Try ifPhysAddress.1 (first interface)
+		macOID := ".1.3.6.1.2.1.2.2.1.6.1"
 		result, err := client.Get([]string{macOID})
-		if err == nil && len(result.Variables) > 0 {
-			if result.Variables[0].Type == gosnmp.OctetString {
-				device.MAC = formatMACAddress(result.Variables[0].Value.([]byte))
+		if err == nil && len(result.Variables) > 0 && result.Variables[0].Type == gosnmp.OctetString {
+			device.MAC = formatMACAddress(result.Variables[0].Value.([]byte))
+		}
+
+		// If still empty, try walking ifPhysAddress table to find any MAC
+		if device.MAC == "" {
+			err := client.BulkWalk(oidIfPhysAddress, func(pdu gosnmp.SnmpPDU) error {
+				if pdu.Type == gosnmp.OctetString {
+					mac := formatMACAddress(pdu.Value.([]byte))
+					if mac != "" {
+						device.MAC = mac
+						return fmt.Errorf("found MAC, stopping walk")
+					}
+				}
+				return nil
+			})
+			if err != nil && !strings.Contains(err.Error(), "found MAC, stopping walk") {
+				log.Printf("Job %s: Failed to walk ifPhysAddress for MAC on %s: %v", job.ID, target, err)
 			}
 		}
 	}
 
 	// Generate device ID if we have MAC
 	if device.MAC != "" && device.DeviceID == "" {
-		// Need to get agent/poller from job context
-		// This might need to be passed in as parameters
-		device.DeviceID = GenerateDeviceID(job.Params.AgentID, job.Params.PollerID, device.MAC)
+		device.DeviceID = GenerateDeviceID(device.MAC)
+	} else if device.DeviceID == "" {
+		// Fallback to IP-based DeviceID as a last resort
+		device.DeviceID = GenerateDeviceIDFromIP(target)
 	}
 
 	return device, nil
@@ -864,7 +899,8 @@ func handleIPAdEntAddr(pdu gosnmp.SnmpPDU, ipToIfIndex map[string]int) {
 }
 
 func (e *DiscoveryEngine) scanTargetForSNMP(
-	ctx context.Context, job *DiscoveryJob, snmpTargetIP string) {
+	ctx context.Context, job *DiscoveryJob, snmpTargetIP string,
+) {
 	log.Printf("Job %s: SNMP Scanning target %s", job.ID, snmpTargetIP)
 
 	if len(e.config.UniFiAPIs) > 0 && (job.Params.Type == DiscoveryTypeFull || job.Params.Type == DiscoveryTypeTopology) {
@@ -880,7 +916,6 @@ func (e *DiscoveryEngine) scanTargetForSNMP(
 		return
 	}
 
-	// Ensure connection doesn't hang
 	connectCtx, connectCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer connectCancel()
 
@@ -896,12 +931,11 @@ func (e *DiscoveryEngine) scanTargetForSNMP(
 			return
 		}
 	case <-connectCtx.Done():
-		log.Printf("Job %s: SNMP connect timeout for %s", job.ID, snmpTargetIP)
+		log.Printf("Job %s: SNMP connect timeout for %s, skipping", job.ID, snmpTargetIP)
 		return
 	}
 
 	defer func() {
-		// Don't let close hang either
 		go func() {
 			if cErr := client.Conn.Close(); cErr != nil {
 				log.Printf("Job %s: Error closing SNMP connection for %s: %v", job.ID, snmpTargetIP, cErr)
@@ -909,19 +943,18 @@ func (e *DiscoveryEngine) scanTargetForSNMP(
 		}()
 	}()
 
-	// Use the timeout wrapper
 	deviceSNMP, err := e.querySysInfoWithTimeout(client, job, snmpTargetIP, 15*time.Second)
 	if err != nil {
-		log.Printf("Job %s: Failed to query system info via SNMP for %s: %v", job.ID, snmpTargetIP, err)
+		log.Printf("Job %s: Failed to query system info via SNMP for %s: %v, skipping", job.ID, snmpTargetIP, err)
 		return
 	}
 
+	// Lock the job while modifying results and device map
 	job.mu.Lock()
 	e.addOrUpdateDeviceToResults(job, deviceSNMP)
 	job.mu.Unlock()
 
 	if job.Params.Type == DiscoveryTypeFull || job.Params.Type == DiscoveryTypeInterfaces {
-		// Add timeout for interface discovery
 		ifDone := make(chan struct{})
 		go func() {
 			e.handleInterfaceDiscoverySNMP(job, client, snmpTargetIP)
@@ -930,7 +963,6 @@ func (e *DiscoveryEngine) scanTargetForSNMP(
 
 		select {
 		case <-ifDone:
-			// Completed
 		case <-time.After(30 * time.Second):
 			log.Printf("Job %s: Interface discovery timeout for %s", job.ID, snmpTargetIP)
 		case <-ctx.Done():
@@ -939,7 +971,6 @@ func (e *DiscoveryEngine) scanTargetForSNMP(
 	}
 
 	if job.Params.Type == DiscoveryTypeFull || job.Params.Type == DiscoveryTypeTopology {
-		// Add timeout for topology discovery
 		topoDone := make(chan struct{})
 		go func() {
 			e.handleTopologyDiscoverySNMP(job, client, snmpTargetIP)
@@ -948,7 +979,6 @@ func (e *DiscoveryEngine) scanTargetForSNMP(
 
 		select {
 		case <-topoDone:
-			// Completed
 		case <-time.After(30 * time.Second):
 			log.Printf("Job %s: Topology discovery timeout for %s", job.ID, snmpTargetIP)
 		case <-ctx.Done():
@@ -1219,7 +1249,7 @@ func (e *DiscoveryEngine) ensureCDPLinkExists(
 		job.mu.RUnlock()
 
 		if localDeviceID == "" {
-			localDeviceID = GenerateDeviceIDFromIP(job.Params.AgentID, job.Params.PollerID, targetIP)
+			localDeviceID = GenerateDeviceIDFromIP(targetIP)
 		}
 
 		ifIdx, _ := strconv.Atoi(ifIndex)
