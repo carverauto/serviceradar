@@ -512,6 +512,17 @@ func validateScheduledJob(job *ScheduledJob) error {
 		return fmt.Errorf("job %s missing type", job.Name)
 	}
 
+	// Validate that job.Type is one of the valid DiscoveryType values
+	validTypes := map[string]bool{
+		string(DiscoveryTypeFull):       true,
+		string(DiscoveryTypeBasic):      true,
+		string(DiscoveryTypeInterfaces): true,
+		string(DiscoveryTypeTopology):   true,
+	}
+	if !validTypes[job.Type] {
+		return fmt.Errorf("job %s has invalid type: %s", job.Name, job.Type)
+	}
+
 	if job.Concurrency < 0 {
 		return fmt.Errorf("job %s has invalid concurrency: %d", job.Name, job.Concurrency)
 	}
@@ -572,11 +583,17 @@ func (*DiscoveryEngine) handleEmptyTargetList(job *DiscoveryJob) {
 }
 
 // determineConcurrency calculates the appropriate concurrency level.
-func (*DiscoveryEngine) determineConcurrency(job *DiscoveryJob, totalTargets int) int {
+func (e *DiscoveryEngine) determineConcurrency(job *DiscoveryJob, totalTargets int) int {
 	concurrency := job.Params.Concurrency
 
 	if concurrency <= 0 {
-		concurrency = defaultConcurrency
+		// For small target lists (5 or fewer), use the target count
+		// For large target lists (more than 5), use the worker count
+		if totalTargets <= 5 {
+			concurrency = totalTargets
+		} else {
+			concurrency = e.workers
+		}
 	}
 
 	if concurrency > totalTargets {
