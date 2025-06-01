@@ -136,7 +136,7 @@ func (e *DiscoveryEngine) handleTopologyDiscoverySNMP(
 	log.Printf("Job %s: LLDP not supported or no neighbors on %s: %v", job.ID, targetIP, lldpErr)
 
 	// Try CDP if LLDP failed
-	cdpLinks, cdpErr := e.queryCDP(client, targetIP, job.ID)
+	cdpLinks, cdpErr := e.queryCDP(client, targetIP, job)
 	if cdpErr == nil && len(cdpLinks) > 0 {
 		e.publishTopologyLinks(job, cdpLinks, targetIP, "CDP")
 		return
@@ -228,7 +228,7 @@ func (*DiscoveryEngine) setUptimeValue(target *int64, v gosnmp.SnmpPDU) {
 }
 
 // querySysInfo queries basic system information via SNMP
-func (e *DiscoveryEngine) querySysInfo(client *gosnmp.GoSNMP, target, jobID string, job *DiscoveryJob) (*DiscoveredDevice, error) {
+func (e *DiscoveryEngine) querySysInfo(client *gosnmp.GoSNMP, target string, job *DiscoveryJob) (*DiscoveredDevice, error) {
 	// System OIDs to query
 	oids := []string{
 		oidSysDescr,
@@ -259,7 +259,7 @@ func (e *DiscoveryEngine) querySysInfo(client *gosnmp.GoSNMP, target, jobID stri
 	}
 
 	// Finalize device setup
-	e.finalizeDevice(device, target, jobID)
+	e.finalizeDevice(device, target, job.ID)
 
 	// After getting basic info, try to get MAC from first interface if not already set
 	if device.MAC == "" {
@@ -289,8 +289,19 @@ func (e *DiscoveryEngine) queryInterfaces(
 	// Map to store interfaces by index
 	ifMap := make(map[int]*DiscoveredInterface)
 
+	// Get the device ID for this target
+	var deviceID string
+	job.mu.RLock()
+	for _, device := range job.Results.Devices {
+		if device.IP == target {
+			deviceID = device.DeviceID
+			break
+		}
+	}
+	job.mu.RUnlock()
+
 	// Walk ifTable to get basic interface information
-	if err := e.walkIfTable(client, target, ifMap); err != nil {
+	if err := e.walkIfTable(client, target, ifMap, deviceID); err != nil {
 		return nil, err
 	}
 
@@ -627,7 +638,12 @@ func (e *DiscoveryEngine) walkIfHighSpeed(client *gosnmp.GoSNMP, ifMap map[int]*
 }
 
 // walkIfTable walks the ifTable to get basic interface information
-func (e *DiscoveryEngine) walkIfTable(client *gosnmp.GoSNMP, target string, ifMap map[int]*DiscoveredInterface) error {
+func (e *DiscoveryEngine) walkIfTable(
+	client *gosnmp.GoSNMP,
+	target string,
+	ifMap map[int]*DiscoveredInterface,
+	deviceID string,
+) error {
 	// First, let's walk the entire ifTable
 	processedOIDs := make(map[string]int)
 
@@ -642,7 +658,7 @@ func (e *DiscoveryEngine) walkIfTable(client *gosnmp.GoSNMP, target string, ifMa
 			processedOIDs[oidPrefix]++
 		}
 
-		return e.processIfTablePDU(pdu, target, ifMap)
+		return e.processIfTablePDU(pdu, target, deviceID, ifMap)
 	})
 
 	if err != nil {
@@ -894,7 +910,7 @@ func (e *DiscoveryEngine) scanTargetForSNMP(
 	}()
 
 	// Use the timeout wrapper
-	deviceSNMP, err := e.querySysInfoWithTimeout(client, job, snmpTargetIP, job.ID, 15*time.Second)
+	deviceSNMP, err := e.querySysInfoWithTimeout(client, job, snmpTargetIP, 15*time.Second)
 	if err != nil {
 		log.Printf("Job %s: Failed to query system info via SNMP for %s: %v", job.ID, snmpTargetIP, err)
 		return
@@ -1160,7 +1176,7 @@ const (
 
 // processCDPPDU processes a single CDP PDU and updates the link map
 func (e *DiscoveryEngine) processCDPPDU(
-	pdu gosnmp.SnmpPDU, linkMap map[string]*TopologyLink, targetIP, jobID string) error {
+	pdu gosnmp.SnmpPDU, linkMap map[string]*TopologyLink, targetIP string, job *DiscoveryJob) error {
 	parts := strings.Split(pdu.Name, ".")
 
 	if len(parts) < defaultPartsCount {
@@ -1174,7 +1190,7 @@ func (e *DiscoveryEngine) processCDPPDU(
 	key := fmt.Sprintf("%s.%s", ifIndex, index)
 
 	// Create topology link if not exists
-	e.ensureCDPLinkExists(linkMap, key, ifIndex, targetIP, jobID)
+	e.ensureCDPLinkExists(linkMap, key, ifIndex, targetIP, job)
 
 	link := linkMap[key]
 
@@ -1188,12 +1204,25 @@ func (e *DiscoveryEngine) processCDPPDU(
 }
 
 // ensureCDPLinkExists creates a new topology link if it doesn't exist in the map
-func (*DiscoveryEngine) ensureCDPLinkExists(
-	linkMap map[string]*TopologyLink, key, ifIndex, targetIP, jobID string) {
+func (e *DiscoveryEngine) ensureCDPLinkExists(
+	linkMap map[string]*TopologyLink, key, ifIndex, targetIP string, job *DiscoveryJob) {
 	if _, exists := linkMap[key]; !exists {
-		localDeviceID := fmt.Sprintf("%s:%s", targetIP, jobID)
-		ifIdx, _ := strconv.Atoi(ifIndex)
+		// Get the actual device ID
+		var localDeviceID string
+		job.mu.RLock()
+		for _, device := range job.Results.Devices {
+			if device.IP == targetIP {
+				localDeviceID = device.DeviceID
+				break
+			}
+		}
+		job.mu.RUnlock()
 
+		if localDeviceID == "" {
+			localDeviceID = GenerateDeviceIDFromIP(job.Params.AgentID, job.Params.PollerID, targetIP)
+		}
+
+		ifIdx, _ := strconv.Atoi(ifIndex)
 		linkMap[key] = &TopologyLink{
 			Protocol:      "CDP",
 			LocalDeviceIP: targetIP,
@@ -1262,7 +1291,7 @@ func (*DiscoveryEngine) extractCDPIPAddress(bytes []byte) string {
 }
 
 // finalizeCDPLinks converts the link map to a slice and adds metadata
-func (*DiscoveryEngine) finalizeCDPLinks(linkMap map[string]*TopologyLink, jobID string) ([]*TopologyLink, error) {
+func (*DiscoveryEngine) finalizeCDPLinks(linkMap map[string]*TopologyLink, job *DiscoveryJob) ([]*TopologyLink, error) {
 	links := make([]*TopologyLink, 0, len(linkMap))
 
 	for _, link := range linkMap {
@@ -1272,7 +1301,7 @@ func (*DiscoveryEngine) finalizeCDPLinks(linkMap map[string]*TopologyLink, jobID
 		}
 
 		// Add metadata
-		link.Metadata["discovery_id"] = jobID
+		link.Metadata["discovery_id"] = job.ID
 		link.Metadata["discovery_time"] = time.Now().Format(time.RFC3339)
 		link.Metadata["protocol"] = "CDP"
 
@@ -1287,19 +1316,19 @@ func (*DiscoveryEngine) finalizeCDPLinks(linkMap map[string]*TopologyLink, jobID
 }
 
 // queryCDP queries CDP (Cisco Discovery Protocol) topology information
-func (e *DiscoveryEngine) queryCDP(client *gosnmp.GoSNMP, targetIP, jobID string) ([]*TopologyLink, error) {
+func (e *DiscoveryEngine) queryCDP(client *gosnmp.GoSNMP, targetIP string, job *DiscoveryJob) ([]*TopologyLink, error) {
 	linkMap := make(map[string]*TopologyLink) // Key is "ifIndex.index"
 
 	// Walk CDP cache table
 	err := client.BulkWalk(oidCDPCacheTable, func(pdu gosnmp.SnmpPDU) error {
-		return e.processCDPPDU(pdu, linkMap, targetIP, jobID)
+		return e.processCDPPDU(pdu, linkMap, targetIP, job)
 	})
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to walk CDP table: %w", err)
 	}
 
-	return e.finalizeCDPLinks(linkMap, jobID)
+	return e.finalizeCDPLinks(linkMap, job)
 }
 
 // formatMACAddress formats a byte array as a MAC address string
@@ -1386,7 +1415,8 @@ func safeIntToInt32(value int, fieldName string) (int32, error) {
 	return int32(value), nil
 }
 
-func (e *DiscoveryEngine) processIfTablePDU(pdu gosnmp.SnmpPDU, target string, ifMap map[int]*DiscoveredInterface) error {
+func (e *DiscoveryEngine) processIfTablePDU(
+	pdu gosnmp.SnmpPDU, target, deviceID string, ifMap map[int]*DiscoveredInterface) error {
 	// Extract ifIndex from OID
 	parts := strings.Split(pdu.Name, ".")
 	if len(parts) < defaultPartsLengthCheck {
@@ -1408,6 +1438,7 @@ func (e *DiscoveryEngine) processIfTablePDU(pdu gosnmp.SnmpPDU, target string, i
 	if _, exists := ifMap[int(ifIndex)]; !exists {
 		ifMap[int(ifIndex)] = &DiscoveredInterface{
 			DeviceIP:    target,
+			DeviceID:    deviceID,
 			IfIndex:     ifIndex,
 			IPAddresses: []string{},
 			Metadata:    make(map[string]string),
