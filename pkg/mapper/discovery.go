@@ -1070,17 +1070,25 @@ func (e *DiscoveryEngine) runDiscoveryJob(ctx context.Context, job *DiscoveryJob
 
 	// Phase 1: UniFi Device Discovery
 	allPotentialSNMPTargets := e.handleUniFiDiscoveryPhase(ctx, job, initialSeeds)
-	if allPotentialSNMPTargets == nil {
-		log.Printf("Job %s: UniFi Discovery phase failed or was canceled", job.ID)
+	if e.checkPhaseJobCancellation(job, "", "UniFi discovery") {
+		log.Printf("Job %s: UniFi Discovery phase was canceled", job.ID)
+		e.finalizeJobStatus(job)
 		return
 	}
 
 	log.Printf("Job %s: Transitioning to SNMP Polling phase", job.ID)
 
 	// Phase 2: SNMP Polling
+	if allPotentialSNMPTargets == nil {
+		allPotentialSNMPTargets = make(map[string]bool)
+		for _, seed := range initialSeeds {
+			allPotentialSNMPTargets[seed] = true
+		}
+		log.Printf("Job %s: No UniFi targets found, falling back to initial seeds: %v", job.ID, initialSeeds)
+	}
+
 	if !e.setupAndExecuteSNMPPolling(job, allPotentialSNMPTargets, initialSeeds) {
 		log.Printf("Job %s: SNMP Polling phase failed or was canceled", job.ID)
-		return
 	}
 
 	log.Printf("Job %s: Finalizing job status", job.ID)
