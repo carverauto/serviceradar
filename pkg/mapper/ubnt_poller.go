@@ -22,12 +22,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/gosnmp/gosnmp"
 	"io"
 	"log"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/gosnmp/gosnmp"
 )
 
 // UniFiSite represents a site from the UniFi API
