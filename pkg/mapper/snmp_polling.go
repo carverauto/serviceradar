@@ -113,6 +113,7 @@ func (e *DiscoveryEngine) handleInterfaceDiscoverySNMP(
 	defer job.mu.Unlock()
 
 	var deviceID string
+
 	for _, device := range job.Results.Devices {
 		if device.IP == target {
 			deviceID = device.DeviceID
@@ -247,9 +248,10 @@ func (*DiscoveryEngine) setUptimeValue(target *int64, v gosnmp.SnmpPDU) {
 }
 
 // getMACAddress tries to get the MAC address of a device using SNMP
-func (e *DiscoveryEngine) getMACAddress(client *gosnmp.GoSNMP, target, jobID string) (string, error) {
+func (*DiscoveryEngine) getMACAddress(client *gosnmp.GoSNMP, target, jobID string) (string, error) {
 	// Try ifPhysAddress.1 (first interface)
 	macOID := ".1.3.6.1.2.1.2.2.1.6.1"
+
 	result, err := client.Get([]string{macOID})
 	if err == nil && len(result.Variables) > 0 && result.Variables[0].Type == gosnmp.OctetString {
 		return formatMACAddress(result.Variables[0].Value.([]byte)), nil
@@ -257,6 +259,7 @@ func (e *DiscoveryEngine) getMACAddress(client *gosnmp.GoSNMP, target, jobID str
 
 	// If still empty, try walking ifPhysAddress table to find any MAC
 	var mac string
+
 	err = client.BulkWalk(oidIfPhysAddress, func(pdu gosnmp.SnmpPDU) error {
 		if pdu.Type == gosnmp.OctetString {
 			formattedMAC := formatMACAddress(pdu.Value.([]byte))
@@ -265,8 +268,10 @@ func (e *DiscoveryEngine) getMACAddress(client *gosnmp.GoSNMP, target, jobID str
 				return fmt.Errorf("found MAC, stopping walk")
 			}
 		}
+
 		return nil
 	})
+
 	if err != nil && !strings.Contains(err.Error(), "found MAC, stopping walk") {
 		log.Printf("Job %s: Failed to walk ifPhysAddress for MAC on %s: %v", jobID, target, err)
 	}
@@ -275,7 +280,7 @@ func (e *DiscoveryEngine) getMACAddress(client *gosnmp.GoSNMP, target, jobID str
 }
 
 // generateDeviceID generates a device ID based on MAC or IP
-func (e *DiscoveryEngine) generateDeviceID(device *DiscoveredDevice, target string) {
+func (*DiscoveryEngine) generateDeviceID(device *DiscoveredDevice, target string) {
 	if device.MAC != "" && device.DeviceID == "" {
 		device.DeviceID = GenerateDeviceID(device.MAC)
 	} else if device.DeviceID == "" {
@@ -337,6 +342,7 @@ func (e *DiscoveryEngine) queryInterfaces(
 
 	// Get the device ID for this target
 	var deviceID string
+
 	job.mu.RLock()
 	for _, device := range job.Results.Devices {
 		if device.IP == target {
@@ -344,6 +350,7 @@ func (e *DiscoveryEngine) queryInterfaces(
 			break
 		}
 	}
+
 	job.mu.RUnlock()
 
 	// Walk ifTable to get basic interface information
@@ -920,7 +927,7 @@ func (e *DiscoveryEngine) checkUniFiAPI(ctx context.Context, job *DiscoveryJob, 
 }
 
 // connectSNMPClient attempts to connect to the SNMP client with a timeout
-func (e *DiscoveryEngine) connectSNMPClient(ctx context.Context, client *gosnmp.GoSNMP, job *DiscoveryJob, snmpTargetIP string) error {
+func (*DiscoveryEngine) connectSNMPClient(ctx context.Context, client *gosnmp.GoSNMP, job *DiscoveryJob, snmpTargetIP string) error {
 	connectCtx, connectCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer connectCancel()
 
@@ -944,7 +951,7 @@ func (e *DiscoveryEngine) connectSNMPClient(ctx context.Context, client *gosnmp.
 }
 
 // performDiscoveryWithTimeout is a helper function to perform discovery operations with timeout
-func (e *DiscoveryEngine) performDiscoveryWithTimeout(
+func (*DiscoveryEngine) performDiscoveryWithTimeout(
 	ctx context.Context,
 	job *DiscoveryJob,
 	client *gosnmp.GoSNMP,
@@ -1012,7 +1019,7 @@ func (e *DiscoveryEngine) scanTargetForSNMP(
 	}
 
 	// Connect to SNMP client
-	if err := e.connectSNMPClient(ctx, client, job, snmpTargetIP); err != nil {
+	if err = e.connectSNMPClient(ctx, client, job, snmpTargetIP); err != nil {
 		return
 	}
 
@@ -1111,13 +1118,16 @@ func (e *DiscoveryEngine) processLLDPRemoteTableEntry(
 
 	// Get the actual device ID from the discovered device
 	job.mu.RLock()
+
 	var localDeviceID string
+
 	for _, device := range job.Results.Devices {
 		if device.IP == targetIP {
 			localDeviceID = device.DeviceID
 			break
 		}
 	}
+
 	job.mu.RUnlock()
 
 	// Create topology link if not exists
@@ -1290,18 +1300,21 @@ func (e *DiscoveryEngine) processCDPPDU(
 }
 
 // ensureCDPLinkExists creates a new topology link if it doesn't exist in the map
-func (e *DiscoveryEngine) ensureCDPLinkExists(
+func (*DiscoveryEngine) ensureCDPLinkExists(
 	linkMap map[string]*TopologyLink, key, ifIndex, targetIP string, job *DiscoveryJob) {
 	if _, exists := linkMap[key]; !exists {
 		// Get the actual device ID
 		var localDeviceID string
+
 		job.mu.RLock()
+
 		for _, device := range job.Results.Devices {
 			if device.IP == targetIP {
 				localDeviceID = device.DeviceID
 				break
 			}
 		}
+
 		job.mu.RUnlock()
 
 		if localDeviceID == "" {
@@ -1309,6 +1322,7 @@ func (e *DiscoveryEngine) ensureCDPLinkExists(
 		}
 
 		ifIdx, _ := strconv.Atoi(ifIndex)
+
 		linkMap[key] = &TopologyLink{
 			Protocol:      "CDP",
 			LocalDeviceIP: targetIP,
