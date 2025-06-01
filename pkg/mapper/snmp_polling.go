@@ -863,6 +863,7 @@ func updateInterfaceHighSpeed(iface *DiscoveredInterface, pdu gosnmp.SnmpPDU) {
 		if v < 0 {
 			return
 		}
+
 		mbps = uint64(v)
 	default:
 		return

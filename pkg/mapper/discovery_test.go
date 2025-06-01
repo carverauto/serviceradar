@@ -1,3 +1,19 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package mapper
 
 import (
@@ -6,6 +22,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewDiscoveryEngine(t *testing.T) {
@@ -61,16 +78,17 @@ func TestNewDiscoveryEngine(t *testing.T) {
 			engine, err := NewDiscoveryEngine(tt.config, mockPublisher)
 
 			if tt.expectError {
-				assert.Error(t, err)
+				require.Error(t, err)
 				assert.Nil(t, engine)
 			} else {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 				assert.NotNil(t, engine)
 
 				// Verify default values are set when needed
 				if tt.config != nil && tt.config.Timeout <= 0 {
 					assert.Equal(t, defaultTimeout, tt.config.Timeout)
 				}
+
 				if tt.config != nil && tt.config.ResultRetention <= 0 {
 					assert.Equal(t, defaultResultRetention, tt.config.ResultRetention)
 				}
@@ -88,7 +106,7 @@ func TestStartDiscovery(t *testing.T) {
 	}
 
 	engine, err := NewDiscoveryEngine(config, mockPublisher)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, engine)
 
 	// Test with empty seeds
@@ -98,13 +116,13 @@ func TestStartDiscovery(t *testing.T) {
 		Type:  DiscoveryTypeBasic,
 	}
 	_, err = engine.StartDiscovery(ctx, params)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no seeds provided")
 
 	// Test with valid params
 	params.Seeds = []string{"192.168.1.1"}
 	discoveryID, err := engine.StartDiscovery(ctx, params)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotEmpty(t, discoveryID)
 
 	// Verify job was created and enqueued
@@ -121,13 +139,13 @@ func TestGetDiscoveryStatus(t *testing.T) {
 	}
 
 	engine, err := NewDiscoveryEngine(config, mockPublisher)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, engine)
 
 	// Test with non-existent discovery ID
 	ctx := context.Background()
 	status, err := engine.GetDiscoveryStatus(ctx, "non-existent-id")
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Nil(t, status)
 
 	// Start a discovery job
@@ -136,12 +154,12 @@ func TestGetDiscoveryStatus(t *testing.T) {
 		Type:  DiscoveryTypeBasic,
 	}
 	discoveryID, err := engine.StartDiscovery(ctx, params)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotEmpty(t, discoveryID)
 
 	// Get status of the job
 	status, err = engine.GetDiscoveryStatus(ctx, discoveryID)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, status)
 	assert.Equal(t, DiscoveryStatusPending, status.Status)
 }
@@ -155,13 +173,13 @@ func TestGetDiscoveryResults(t *testing.T) {
 	}
 
 	engine, err := NewDiscoveryEngine(config, mockPublisher)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, engine)
 
 	// Test with non-existent discovery ID
 	ctx := context.Background()
 	results, err := engine.GetDiscoveryResults(ctx, "non-existent-id", false)
-	assert.Error(t, err)
+	require.Error(t, err)
 	assert.Nil(t, results)
 
 	// Start a discovery job
@@ -169,8 +187,9 @@ func TestGetDiscoveryResults(t *testing.T) {
 		Seeds: []string{"192.168.1.1"},
 		Type:  DiscoveryTypeBasic,
 	}
+
 	discoveryID, err := engine.StartDiscovery(ctx, params)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotEmpty(t, discoveryID)
 
 	// Move job to completed jobs for testing
@@ -182,7 +201,7 @@ func TestGetDiscoveryResults(t *testing.T) {
 
 	// Get results of the job
 	results, err = engine.GetDiscoveryResults(ctx, discoveryID, false)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, results)
 	assert.Equal(t, DiscoveryStatusCompleted, results.Status.Status)
 }
@@ -196,13 +215,13 @@ func TestCancelDiscovery(t *testing.T) {
 	}
 
 	engine, err := NewDiscoveryEngine(config, mockPublisher)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, engine)
 
 	// Test with non-existent discovery ID
 	ctx := context.Background()
 	err = engine.CancelDiscovery(ctx, "non-existent-id")
-	assert.Error(t, err)
+	require.Error(t, err)
 
 	// Start a discovery job
 	params := &DiscoveryParams{
@@ -210,12 +229,12 @@ func TestCancelDiscovery(t *testing.T) {
 		Type:  DiscoveryTypeBasic,
 	}
 	discoveryID, err := engine.StartDiscovery(ctx, params)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotEmpty(t, discoveryID)
 
 	// Cancel the job
 	err = engine.CancelDiscovery(ctx, discoveryID)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Verify job was canceled
 	discoveryEngine := engine.(*DiscoveryEngine)
@@ -224,7 +243,7 @@ func TestCancelDiscovery(t *testing.T) {
 
 	// Verify job status was updated
 	results, err := engine.GetDiscoveryResults(ctx, discoveryID, false)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, DiscoverStatusCanceled, results.Status.Status)
 }
 
@@ -380,7 +399,7 @@ func TestInitializeDevice(t *testing.T) {
 	}
 
 	engine, err := NewDiscoveryEngine(config, mockPublisher)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, engine)
 
 	discoveryEngine := engine.(*DiscoveryEngine)
@@ -391,8 +410,8 @@ func TestInitializeDevice(t *testing.T) {
 
 	assert.NotNil(t, device)
 	assert.Equal(t, target, device.IP)
-	assert.Empty(t, device.DeviceID) // DeviceID should be empty initially
-	assert.Empty(t, device.Hostname) // Hostname should be empty initially
+	assert.Empty(t, device.DeviceID)  // DeviceID should be empty initially
+	assert.Empty(t, device.Hostname)  // Hostname should be empty initially
 	assert.NotNil(t, device.Metadata) // Metadata should be initialized
 }
 
@@ -405,7 +424,7 @@ func TestDetermineConcurrency(t *testing.T) {
 	}
 
 	engine, err := NewDiscoveryEngine(config, mockPublisher)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, engine)
 
 	discoveryEngine := engine.(*DiscoveryEngine)
@@ -440,7 +459,7 @@ func TestEnsureDeviceID(t *testing.T) {
 	}
 
 	engine, err := NewDiscoveryEngine(config, mockPublisher)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, engine)
 
 	discoveryEngine := engine.(*DiscoveryEngine)
@@ -454,7 +473,7 @@ func TestEnsureDeviceID(t *testing.T) {
 
 	// Test with existing DeviceID
 	device = &DiscoveredDevice{
-		IP: "192.168.1.1",
+		IP:       "192.168.1.1",
 		DeviceID: "existing-id",
 	}
 	discoveryEngine.ensureDeviceID(device)
@@ -470,7 +489,7 @@ func TestHandleEmptyTargetList(t *testing.T) {
 	}
 
 	engine, err := NewDiscoveryEngine(config, mockPublisher)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, engine)
 
 	discoveryEngine := engine.(*DiscoveryEngine)

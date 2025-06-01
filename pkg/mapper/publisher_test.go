@@ -1,3 +1,19 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package mapper
 
 import (
@@ -9,6 +25,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
 
@@ -47,10 +64,10 @@ func TestNewProtonPublisher(t *testing.T) {
 			publisher, err := NewProtonPublisher(tt.dbService, tt.config)
 
 			if tt.expectError {
-				assert.Error(t, err)
+				require.Error(t, err)
 				assert.Nil(t, publisher)
 			} else {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 				assert.NotNil(t, publisher)
 			}
 		})
@@ -68,7 +85,7 @@ func TestPublishDevice(t *testing.T) {
 	}
 
 	publisher, err := NewProtonPublisher(mockDB, config)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, publisher)
 
 	ctx := context.Background()
@@ -89,7 +106,7 @@ func TestPublishDevice(t *testing.T) {
 
 	// Test successful publish
 	mockDB.EXPECT().StoreSweepResults(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, results []*models.SweepResult) error {
+		func(_ context.Context, results []*models.SweepResult) error {
 			assert.Len(t, results, 1)
 			assert.Equal(t, config.AgentID, results[0].AgentID)
 			assert.Equal(t, config.PollerID, results[0].PollerID)
@@ -113,12 +130,14 @@ func TestPublishDevice(t *testing.T) {
 	)
 
 	err = publisher.PublishDevice(ctx, device)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Test error case
 	mockDB.EXPECT().StoreSweepResults(gomock.Any(), gomock.Any()).Return(errMockDB)
+
 	err = publisher.PublishDevice(ctx, device)
-	assert.Error(t, err)
+
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to publish device")
 }
 
@@ -133,7 +152,7 @@ func TestPublishInterface(t *testing.T) {
 	}
 
 	publisher, err := NewProtonPublisher(mockDB, config)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, publisher)
 
 	ctx := context.Background()
@@ -157,7 +176,7 @@ func TestPublishInterface(t *testing.T) {
 
 	// Test successful publish
 	mockDB.EXPECT().PublishDiscoveredInterface(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, discoveredInterface *models.DiscoveredInterface) error {
+		func(_ context.Context, discoveredInterface *models.DiscoveredInterface) error {
 			assert.Equal(t, config.AgentID, discoveredInterface.AgentID)
 			assert.Equal(t, config.PollerID, discoveredInterface.PollerID)
 			assert.Equal(t, iface.DeviceIP, discoveredInterface.DeviceIP)
@@ -174,7 +193,8 @@ func TestPublishInterface(t *testing.T) {
 
 			// Check metadata
 			var metadata map[string]string
-			assert.NoError(t, json.Unmarshal(discoveredInterface.Metadata, &metadata))
+
+			require.NoError(t, json.Unmarshal(discoveredInterface.Metadata, &metadata))
 			assert.Equal(t, "custom_value", metadata["custom_key"])
 			assert.Equal(t, "6", metadata["if_type"])
 
@@ -183,12 +203,14 @@ func TestPublishInterface(t *testing.T) {
 	)
 
 	err = publisher.PublishInterface(ctx, iface)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Test error case
 	mockDB.EXPECT().PublishDiscoveredInterface(gomock.Any(), gomock.Any()).Return(errMockDB)
+
 	err = publisher.PublishInterface(ctx, iface)
-	assert.Error(t, err)
+
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to publish interface")
 }
 
@@ -203,7 +225,7 @@ func TestPublishTopologyLink(t *testing.T) {
 	}
 
 	publisher, err := NewProtonPublisher(mockDB, config)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, publisher)
 
 	ctx := context.Background()
@@ -225,7 +247,7 @@ func TestPublishTopologyLink(t *testing.T) {
 
 	// Test successful publish
 	mockDB.EXPECT().PublishTopologyDiscoveryEvent(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, event *models.TopologyDiscoveryEvent) error {
+		func(_ context.Context, event *models.TopologyDiscoveryEvent) error {
 			assert.Equal(t, config.AgentID, event.AgentID)
 			assert.Equal(t, config.PollerID, event.PollerID)
 			assert.Equal(t, link.LocalDeviceIP, event.LocalDeviceIP)
@@ -241,7 +263,8 @@ func TestPublishTopologyLink(t *testing.T) {
 
 			// Check metadata
 			var metadata map[string]string
-			assert.NoError(t, json.Unmarshal(event.Metadata, &metadata))
+
+			require.NoError(t, json.Unmarshal(event.Metadata, &metadata))
 			assert.Equal(t, "custom_value", metadata["custom_key"])
 
 			return nil
@@ -249,12 +272,14 @@ func TestPublishTopologyLink(t *testing.T) {
 	)
 
 	err = publisher.PublishTopologyLink(ctx, link)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Test error case
 	mockDB.EXPECT().PublishTopologyDiscoveryEvent(gomock.Any(), gomock.Any()).Return(errMockDB)
+
 	err = publisher.PublishTopologyLink(ctx, link)
-	assert.Error(t, err)
+
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to publish topology link")
 }
 
@@ -269,7 +294,7 @@ func TestPublishBatchDevices(t *testing.T) {
 	}
 
 	publisher, err := NewProtonPublisher(mockDB, config)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, publisher)
 
 	// Cast to concrete type to access batch methods
@@ -279,31 +304,31 @@ func TestPublishBatchDevices(t *testing.T) {
 
 	// Test with empty batch
 	err = protonPublisher.PublishBatchDevices(ctx, []*DiscoveredDevice{})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Test with devices
 	devices := []*DiscoveredDevice{
 		{
-			DeviceID:    "test-device-1",
-			IP:          "192.168.1.1",
-			MAC:         "00:11:22:33:44:55",
-			Hostname:    "test-host-1",
-			SysDescr:    "Test System 1",
-			Metadata:    map[string]string{"key1": "value1"},
+			DeviceID: "test-device-1",
+			IP:       "192.168.1.1",
+			MAC:      "00:11:22:33:44:55",
+			Hostname: "test-host-1",
+			SysDescr: "Test System 1",
+			Metadata: map[string]string{"key1": "value1"},
 		},
 		{
-			DeviceID:    "test-device-2",
-			IP:          "192.168.1.2",
-			MAC:         "00:11:22:33:44:66",
-			Hostname:    "test-host-2",
-			SysDescr:    "Test System 2",
-			Metadata:    map[string]string{"key2": "value2"},
+			DeviceID: "test-device-2",
+			IP:       "192.168.1.2",
+			MAC:      "00:11:22:33:44:66",
+			Hostname: "test-host-2",
+			SysDescr: "Test System 2",
+			Metadata: map[string]string{"key2": "value2"},
 		},
 	}
 
 	// Test successful publish
 	mockDB.EXPECT().StoreSweepResults(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, results []*models.SweepResult) error {
+		func(_ context.Context, results []*models.SweepResult) error {
 			assert.Len(t, results, 2)
 
 			// Check first device
@@ -327,12 +352,14 @@ func TestPublishBatchDevices(t *testing.T) {
 	)
 
 	err = protonPublisher.PublishBatchDevices(ctx, devices)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Test error case
 	mockDB.EXPECT().StoreSweepResults(gomock.Any(), gomock.Any()).Return(errMockDB)
+
 	err = protonPublisher.PublishBatchDevices(ctx, devices)
-	assert.Error(t, err)
+
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to publish batch devices")
 }
 
@@ -347,7 +374,7 @@ func TestPublishBatchInterfaces(t *testing.T) {
 	}
 
 	publisher, err := NewProtonPublisher(mockDB, config)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, publisher)
 
 	// Cast to concrete type to access batch methods
@@ -357,24 +384,24 @@ func TestPublishBatchInterfaces(t *testing.T) {
 
 	interfaces := []*DiscoveredInterface{
 		{
-			DeviceIP:      "192.168.1.1",
-			DeviceID:      "test-device-1",
-			IfIndex:       1,
-			IfName:        "eth0",
-			Metadata:      map[string]string{"key1": "value1"},
+			DeviceIP: "192.168.1.1",
+			DeviceID: "test-device-1",
+			IfIndex:  1,
+			IfName:   "eth0",
+			Metadata: map[string]string{"key1": "value1"},
 		},
 		{
-			DeviceIP:      "192.168.1.2",
-			DeviceID:      "test-device-2",
-			IfIndex:       2,
-			IfName:        "eth1",
-			Metadata:      map[string]string{"key2": "value2"},
+			DeviceIP: "192.168.1.2",
+			DeviceID: "test-device-2",
+			IfIndex:  2,
+			IfName:   "eth1",
+			Metadata: map[string]string{"key2": "value2"},
 		},
 	}
 
 	// Test successful publish
 	mockDB.EXPECT().PublishBatchDiscoveredInterfaces(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, modelInterfaces []*models.DiscoveredInterface) error {
+		func(_ context.Context, modelInterfaces []*models.DiscoveredInterface) error {
 			assert.Len(t, modelInterfaces, 2)
 
 			// Check first interface
@@ -398,11 +425,13 @@ func TestPublishBatchInterfaces(t *testing.T) {
 	)
 
 	err = protonPublisher.PublishBatchInterfaces(ctx, interfaces)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Test error case
 	mockDB.EXPECT().PublishBatchDiscoveredInterfaces(gomock.Any(), gomock.Any()).Return(errMockDB)
+
 	err = protonPublisher.PublishBatchInterfaces(ctx, interfaces)
+
 	assert.Error(t, err)
 }
 
@@ -417,7 +446,7 @@ func TestPublishBatchTopologyLinks(t *testing.T) {
 	}
 
 	publisher, err := NewProtonPublisher(mockDB, config)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.NotNil(t, publisher)
 
 	// Cast to concrete type to access batch methods
@@ -427,26 +456,26 @@ func TestPublishBatchTopologyLinks(t *testing.T) {
 
 	links := []*TopologyLink{
 		{
-			Protocol:           "lldp",
-			LocalDeviceIP:      "192.168.1.1",
-			LocalDeviceID:      "test-device-1",
-			LocalIfIndex:       1,
-			LocalIfName:        "eth0",
-			Metadata:           map[string]string{"key1": "value1"},
+			Protocol:      "lldp",
+			LocalDeviceIP: "192.168.1.1",
+			LocalDeviceID: "test-device-1",
+			LocalIfIndex:  1,
+			LocalIfName:   "eth0",
+			Metadata:      map[string]string{"key1": "value1"},
 		},
 		{
-			Protocol:           "cdp",
-			LocalDeviceIP:      "192.168.1.2",
-			LocalDeviceID:      "test-device-2",
-			LocalIfIndex:       2,
-			LocalIfName:        "eth1",
-			Metadata:           map[string]string{"key2": "value2"},
+			Protocol:      "cdp",
+			LocalDeviceIP: "192.168.1.2",
+			LocalDeviceID: "test-device-2",
+			LocalIfIndex:  2,
+			LocalIfName:   "eth1",
+			Metadata:      map[string]string{"key2": "value2"},
 		},
 	}
 
 	// Test successful publish
 	mockDB.EXPECT().PublishBatchTopologyDiscoveryEvents(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, events []*models.TopologyDiscoveryEvent) error {
+		func(_ context.Context, events []*models.TopologyDiscoveryEvent) error {
 			assert.Len(t, events, 2)
 
 			// Check first link
@@ -472,10 +501,12 @@ func TestPublishBatchTopologyLinks(t *testing.T) {
 	)
 
 	err = protonPublisher.PublishBatchTopologyLinks(ctx, links)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Test error case
 	mockDB.EXPECT().PublishBatchTopologyDiscoveryEvents(gomock.Any(), gomock.Any()).Return(errMockDB)
+
 	err = protonPublisher.PublishBatchTopologyLinks(ctx, links)
+
 	assert.Error(t, err)
 }

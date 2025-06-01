@@ -1,3 +1,19 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package mapper
 
 import (
@@ -10,6 +26,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCreateUniFiClient(t *testing.T) {
@@ -154,10 +171,10 @@ func TestFetchUniFiSites(t *testing.T) {
 
 			// Check results
 			if tt.expectError {
-				assert.Error(t, err)
+				require.Error(t, err)
 				assert.Nil(t, sites)
 			} else {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 				assert.NotNil(t, sites)
 				assert.Equal(t, len(tt.serverResponse), len(sites))
 
@@ -281,11 +298,11 @@ func TestFetchUniFiDevicesForSite(t *testing.T) {
 
 			// Check results
 			if tt.expectError {
-				assert.Error(t, err)
+				require.Error(t, err)
 				assert.Nil(t, devices)
 				assert.Nil(t, deviceCache)
 			} else {
-				assert.NoError(t, err)
+				require.NoError(t, err)
 				assert.NotNil(t, devices)
 				assert.Equal(t, len(tt.serverResponse), len(devices))
 
@@ -360,7 +377,7 @@ func TestProcessLLDPTable(t *testing.T) {
 
 	// Check results
 	assert.NotNil(t, links)
-	assert.Equal(t, 1, len(links))
+	assert.Len(t, links, 1)
 
 	link := links[0]
 	assert.Equal(t, "LLDP", link.Protocol)
@@ -453,7 +470,7 @@ func TestProcessPortTable(t *testing.T) {
 
 	// Check results
 	assert.NotNil(t, links)
-	assert.Equal(t, 1, len(links)) // Only one port has a connected device
+	assert.Len(t, links, 1) // Only one port has a connected device
 
 	link := links[0]
 	assert.Equal(t, "UniFi-API", link.Protocol)
@@ -524,7 +541,7 @@ func TestProcessUplinkInfo(t *testing.T) {
 
 	// Check results
 	assert.NotNil(t, links)
-	assert.Equal(t, 1, len(links))
+	assert.Len(t, links, 1)
 
 	link := links[0]
 	assert.Equal(t, "UniFi-API", link.Protocol)
@@ -611,8 +628,8 @@ func TestCreateDiscoveredDevice(t *testing.T) {
 
 func TestAddPoEMetadata(t *testing.T) {
 	tests := []struct {
-		name     string
-		port     *struct {
+		name string
+		port *struct {
 			Idx          int    `json:"idx"`
 			State        string `json:"state"`
 			Connector    string `json:"connector"`
