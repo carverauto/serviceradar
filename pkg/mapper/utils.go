@@ -331,27 +331,23 @@ func expandCIDR(cidr string, seen map[string]bool) []string {
 	return targets
 }
 
-func GenerateDeviceID(agentID, pollerID, mac string) string {
-	// Normalize MAC address: remove colons/dashes and convert to lowercase
-	normalizedMAC := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(mac, ":", ""), "-", ""))
-
-	if normalizedMAC == "" {
-		return "" // Don't generate ID without MAC
+func GenerateDeviceID(mac string) string {
+	if mac == "" {
+		return ""
 	}
 
-	return fmt.Sprintf("%s:%s:%s", agentID, pollerID, normalizedMAC)
+	return mac // Use raw MAC as DeviceID, no normalization for now
+}
+
+func GenerateDeviceIDFromIP(ip string) string {
+	if ip == "" {
+		return ""
+	}
+
+	return "ip-" + ip // Fallback for devices without MAC
 }
 
 // NormalizeMAC normalizes a MAC address for consistent formatting
 func NormalizeMAC(mac string) string {
 	return strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(mac, ":", ""), "-", ""))
-}
-
-// GenerateDeviceIDFromIP creates a device ID when MAC is not available
-// This should only be used as a fallback
-func GenerateDeviceIDFromIP(agentID, pollerID, ip string) string {
-	if ip == "" {
-		return ""
-	}
-	return fmt.Sprintf("%s:%s:ip-%s", agentID, pollerID, ip)
 }
