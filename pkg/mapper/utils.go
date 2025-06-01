@@ -330,3 +330,19 @@ func expandCIDR(cidr string, seen map[string]bool) []string {
 
 	return targets
 }
+
+func GenerateDeviceID(agentID, pollerID, mac string) string {
+	// Normalize MAC address: remove colons/dashes and convert to lowercase
+	normalizedMAC := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(mac, ":", ""), "-", ""))
+
+	if normalizedMAC == "" {
+		return "" // Don't generate ID without MAC
+	}
+
+	return fmt.Sprintf("%s:%s:%s", agentID, pollerID, normalizedMAC)
+}
+
+// NormalizeMAC normalizes a MAC address for consistent formatting
+func NormalizeMAC(mac string) string {
+	return strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(mac, ":", ""), "-", ""))
+}

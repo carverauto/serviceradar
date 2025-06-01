@@ -127,7 +127,7 @@ func (e *DiscoveryEngine) handleInterfaceDiscoverySNMP(
 func (e *DiscoveryEngine) handleTopologyDiscoverySNMP(
 	job *DiscoveryJob, client *gosnmp.GoSNMP, targetIP string) {
 	// Try LLDP first
-	lldpLinks, lldpErr := e.queryLLDP(client, targetIP, job.ID)
+	lldpLinks, lldpErr := e.queryLLDP(client, targetIP, job)
 	if lldpErr == nil && len(lldpLinks) > 0 {
 		e.publishTopologyLinks(job, lldpLinks, targetIP, "LLDP")
 		return
@@ -228,7 +228,7 @@ func (*DiscoveryEngine) setUptimeValue(target *int64, v gosnmp.SnmpPDU) {
 }
 
 // querySysInfo queries basic system information via SNMP
-func (e *DiscoveryEngine) querySysInfo(client *gosnmp.GoSNMP, target, jobID string) (*DiscoveredDevice, error) {
+func (e *DiscoveryEngine) querySysInfo(client *gosnmp.GoSNMP, target, jobID string, job *DiscoveryJob) (*DiscoveredDevice, error) {
 	// System OIDs to query
 	oids := []string{
 		oidSysDescr,
@@ -260,6 +260,25 @@ func (e *DiscoveryEngine) querySysInfo(client *gosnmp.GoSNMP, target, jobID stri
 
 	// Finalize device setup
 	e.finalizeDevice(device, target, jobID)
+
+	// After getting basic info, try to get MAC from first interface if not already set
+	if device.MAC == "" {
+		// Try to get MAC from ifPhysAddress of first interface
+		macOID := ".1.3.6.1.2.1.2.2.1.6.1" // ifPhysAddress.1
+		result, err := client.Get([]string{macOID})
+		if err == nil && len(result.Variables) > 0 {
+			if result.Variables[0].Type == gosnmp.OctetString {
+				device.MAC = formatMACAddress(result.Variables[0].Value.([]byte))
+			}
+		}
+	}
+
+	// Generate device ID if we have MAC
+	if device.MAC != "" && device.DeviceID == "" {
+		// Need to get agent/poller from job context
+		// This might need to be passed in as parameters
+		device.DeviceID = GenerateDeviceID(job.Params.AgentID, job.Params.PollerID, device.MAC)
+	}
 
 	return device, nil
 }
@@ -875,7 +894,7 @@ func (e *DiscoveryEngine) scanTargetForSNMP(
 	}()
 
 	// Use the timeout wrapper
-	deviceSNMP, err := e.querySysInfoWithTimeout(client, snmpTargetIP, job.ID, 15*time.Second)
+	deviceSNMP, err := e.querySysInfoWithTimeout(client, job, snmpTargetIP, job.ID, 15*time.Second)
 	if err != nil {
 		log.Printf("Job %s: Failed to query system info via SNMP for %s: %v", job.ID, snmpTargetIP, err)
 		return
@@ -974,7 +993,7 @@ const (
 
 // processLLDPRemoteTableEntry processes a single LLDP remote table entry
 func (e *DiscoveryEngine) processLLDPRemoteTableEntry(
-	pdu gosnmp.SnmpPDU, linkMap map[string]*TopologyLink, targetIP, jobID string) error {
+	pdu gosnmp.SnmpPDU, linkMap map[string]*TopologyLink, targetIP string, job *DiscoveryJob) error {
 	parts := strings.Split(pdu.Name, ".")
 	if len(parts) < defaultLLDPPartsCount {
 		return nil
@@ -988,10 +1007,19 @@ func (e *DiscoveryEngine) processLLDPRemoteTableEntry(
 
 	key := fmt.Sprintf("%s.%s.%s", timeMark, localPort, index)
 
+	// Get the actual device ID from the discovered device
+	job.mu.RLock()
+	var localDeviceID string
+	for _, device := range job.Results.Devices {
+		if device.IP == targetIP {
+			localDeviceID = device.DeviceID
+			break
+		}
+	}
+	job.mu.RUnlock()
+
 	// Create topology link if not exists
 	if _, exists := linkMap[key]; !exists {
-		localDeviceID := fmt.Sprintf("%s:%s", targetIP, jobID)
-
 		localPortIdx, _ := strconv.Atoi(localPort)
 		linkMap[key] = &TopologyLink{
 			Protocol:      "LLDP",
@@ -1082,7 +1110,7 @@ func (*DiscoveryEngine) addLLDPMetadata(link *TopologyLink, jobID string) {
 
 // finalizeLLDPLinks validates and finalizes LLDP links
 func (e *DiscoveryEngine) finalizeLLDPLinks(
-	linkMap map[string]*TopologyLink, jobID string) ([]*TopologyLink, error) {
+	linkMap map[string]*TopologyLink, job *DiscoveryJob) ([]*TopologyLink, error) {
 	links := make([]*TopologyLink, 0, len(linkMap))
 
 	for _, link := range linkMap {
@@ -1091,7 +1119,7 @@ func (e *DiscoveryEngine) finalizeLLDPLinks(
 			continue
 		}
 
-		e.addLLDPMetadata(link, jobID)
+		e.addLLDPMetadata(link, job.ID)
 		links = append(links, link)
 	}
 
@@ -1103,12 +1131,12 @@ func (e *DiscoveryEngine) finalizeLLDPLinks(
 }
 
 // queryLLDP queries LLDP topology information
-func (e *DiscoveryEngine) queryLLDP(client *gosnmp.GoSNMP, targetIP, jobID string) ([]*TopologyLink, error) {
+func (e *DiscoveryEngine) queryLLDP(client *gosnmp.GoSNMP, targetIP string, job *DiscoveryJob) ([]*TopologyLink, error) {
 	linkMap := make(map[string]*TopologyLink) // Key is "timeMark.localPort.index"
 
 	// Walk LLDP remote table
 	err := client.BulkWalk(oidLLDPRemTable, func(pdu gosnmp.SnmpPDU) error {
-		return e.processLLDPRemoteTableEntry(pdu, linkMap, targetIP, jobID)
+		return e.processLLDPRemoteTableEntry(pdu, linkMap, targetIP, job)
 	})
 
 	if err != nil {
@@ -1123,7 +1151,7 @@ func (e *DiscoveryEngine) queryLLDP(client *gosnmp.GoSNMP, targetIP, jobID strin
 		return nil, err
 	}
 
-	return e.finalizeLLDPLinks(linkMap, jobID)
+	return e.finalizeLLDPLinks(linkMap, job)
 }
 
 const (

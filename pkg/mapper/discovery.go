@@ -752,20 +752,30 @@ func (e *DiscoveryEngine) addOrUpdateDeviceToResults(job *DiscoveryJob, newDevic
 }
 
 // ensureDeviceID ensures the DeviceID is populated if possible
-func (*DiscoveryEngine) ensureDeviceID(job *DiscoveryJob, device *DiscoveredDevice) {
-	if device.DeviceID == "" && device.IP != "" && job.Params.AgentID != "" && job.Params.PollerID != "" {
-		device.DeviceID = fmt.Sprintf("%s:%s:%s", job.Params.AgentID, job.Params.PollerID, device.IP)
+func (e *DiscoveryEngine) ensureDeviceID(job *DiscoveryJob, device *DiscoveredDevice) {
+	if device.DeviceID == "" && device.MAC != "" && job.Params.AgentID != "" && job.Params.PollerID != "" {
+		device.DeviceID = GenerateDeviceID(job.Params.AgentID, job.Params.PollerID, device.MAC)
 	}
 }
 
-// isDeviceMatch checks if two devices match based on DeviceID or IP
-func (*DiscoveryEngine) isDeviceMatch(existingDevice, newDevice *DiscoveredDevice) bool {
+func (e *DiscoveryEngine) isDeviceMatch(existingDevice, newDevice *DiscoveredDevice) bool {
+	// First check by DeviceID if both have it
 	if newDevice.DeviceID != "" && existingDevice.DeviceID == newDevice.DeviceID {
 		return true
 	}
 
-	if existingDevice.IP == newDevice.IP { // Fallback to IP match
-		return true
+	// Then check by normalized MAC if both have it
+	if newDevice.MAC != "" && existingDevice.MAC != "" {
+		if NormalizeMAC(newDevice.MAC) == NormalizeMAC(existingDevice.MAC) {
+			return true
+		}
+	}
+
+	// Fallback to IP match only if no MAC available
+	if newDevice.MAC == "" || existingDevice.MAC == "" {
+		if existingDevice.IP == newDevice.IP {
+			return true
+		}
 	}
 
 	return false
