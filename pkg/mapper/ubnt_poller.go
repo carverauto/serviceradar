@@ -419,11 +419,11 @@ func (*DiscoveryEngine) processUplinkInfo(
 	job *DiscoveryJob,
 	device *UniFiDevice,
 	deviceCache map[string]struct {
-		IP       string
-		Name     string
-		MAC      string
-		DeviceID string
-	},
+	IP       string
+	Name     string
+	MAC      string
+	DeviceID string
+},
 	apiConfig UniFiAPIConfig,
 	site UniFiSite) []*TopologyLink {
 	var links []*TopologyLink
@@ -528,7 +528,9 @@ func (e *DiscoveryEngine) queryUniFiDevices(
 	log.Printf("Job %s: Querying UniFi devices for %s", job.ID, targetIP)
 
 	var allDevices []*DiscoveredDevice
+
 	var allInterfaces []*DiscoveredInterface
+
 	seenMACs := make(map[string]string) // MAC -> primary IP
 	errorsEncountered := 0
 
@@ -541,7 +543,9 @@ func (e *DiscoveryEngine) queryUniFiDevices(
 		sites, err := e.fetchUniFiSites(job.ctx, job, apiConfig)
 		if err != nil {
 			log.Printf("Job %s: Failed to fetch sites for %s: %v", job.ID, apiConfig.Name, err)
+
 			errorsEncountered++
+
 			continue
 		}
 
@@ -550,7 +554,9 @@ func (e *DiscoveryEngine) queryUniFiDevices(
 			if err != nil {
 				log.Printf("Job %s: Failed to query UniFi devices from %s, site %s: %v",
 					job.ID, apiConfig.Name, site.Name, err)
+
 				errorsEncountered++
+
 				continue
 			}
 
@@ -558,17 +564,22 @@ func (e *DiscoveryEngine) queryUniFiDevices(
 				if device.IP == "" {
 					continue
 				}
+
 				if primaryIP, seen := seenMACs[device.MAC]; seen {
 					log.Printf("Job %s: Device with MAC %s already seen with IP %s, skipping IP %s",
 						job.ID, device.MAC, primaryIP, device.IP)
+
 					device.Metadata["alternate_ip_"+device.IP] = device.IP
+
 					continue
 				}
+
 				seenMACs[device.MAC] = device.IP
 				allDevices = append(allDevices, device)
 			}
 
 			allInterfaces = append(allInterfaces, interfaces...)
+
 			log.Printf("Job %s: Fetched %d devices and %d interfaces from %s, site %s",
 				job.ID, len(devices), len(interfaces), apiConfig.Name, site.Name)
 		}
@@ -578,6 +589,7 @@ func (e *DiscoveryEngine) queryUniFiDevices(
 		if errorsEncountered == len(e.config.UniFiAPIs) {
 			return nil, nil, fmt.Errorf("no UniFi devices found; all %d API attempts failed", errorsEncountered)
 		}
+
 		log.Printf("Job %s: No UniFi devices found for %s, but some APIs succeeded", job.ID, targetIP)
 	}
 
@@ -690,15 +702,20 @@ func (e *DiscoveryEngine) processDeviceInterfaces(
 	var interfaces []*DiscoveredInterface
 
 	var uniFiSwitchInterfaces UniFiInterfaces
+
 	if err := json.Unmarshal(device.Interfaces, &uniFiSwitchInterfaces); err != nil {
 		rawInterfacesStr := string(device.Interfaces)
+
 		if rawInterfacesStr == `["ports"]` || rawInterfacesStr == `[]` || rawInterfacesStr == `["radios"]` {
 			log.Printf("Job %s: Device %s (%s) has interfaces field %s, skipping interface discovery",
 				job.ID, device.Name, device.ID, rawInterfacesStr)
+
 			return nil
 		}
+
 		log.Printf("Job %s: Device %s (%s) has non-standard UniFi interfaces structure: %s. Unmarshal error: %v",
 			job.ID, device.Name, device.ID, rawInterfacesStr, err)
+
 		return nil
 	}
 
@@ -760,6 +777,7 @@ func (e *DiscoveryEngine) processSwitchInterfaces(
 
 		// Safe conversion to prevent integer overflow
 		var ifIndex int32
+
 		if port.Idx <= defaultMaxValueInt32 { // Max value for int32
 			//nolint:gosec // G115: This is a safe conversion since we check the value
 			ifIndex = int32(port.Idx)
@@ -769,6 +787,7 @@ func (e *DiscoveryEngine) processSwitchInterfaces(
 
 		// Safe conversion for speed calculation
 		var ifSpeed uint64
+
 		if port.SpeedMbps >= 0 && port.SpeedMbps <= (1<<64-1)/1000000 { // Check if multiplication won't overflow uint64
 			ifSpeed = uint64(port.SpeedMbps) * 1000000 // Convert to uint64 first, then multiply
 		} else {
@@ -840,6 +859,7 @@ func (e *DiscoveryEngine) querySingleUniFiDevices(
 	for i := range unifiDevices {
 		// Create discovered device
 		device := e.createDiscoveredDevice(job, unifiDevices[i], apiConfig, site)
+
 		if device == nil {
 			continue // Skip this device if it was filtered out
 		}
@@ -855,7 +875,8 @@ func (e *DiscoveryEngine) querySingleUniFiDevices(
 	return devices, allInterfaces, nil
 }
 
-func (e *DiscoveryEngine) querySysInfoWithTimeout(client *gosnmp.GoSNMP, job *DiscoveryJob, target string, timeout time.Duration) (*DiscoveredDevice, error) {
+func (e *DiscoveryEngine) querySysInfoWithTimeout(
+	client *gosnmp.GoSNMP, job *DiscoveryJob, target string, timeout time.Duration) (*DiscoveredDevice, error) {
 	done := make(chan struct {
 		device *DiscoveredDevice
 		err    error
@@ -876,15 +897,4 @@ func (e *DiscoveryEngine) querySysInfoWithTimeout(client *gosnmp.GoSNMP, job *Di
 	case <-time.After(timeout):
 		return nil, fmt.Errorf("SNMP query timeout for %s", target)
 	}
-}
-
-// Helper function to check if a slice contains a string
-func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-
-	return false
 }
