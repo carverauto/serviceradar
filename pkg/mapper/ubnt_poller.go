@@ -491,7 +491,11 @@ func (e *DiscoveryEngine) querySingleUniFiAPI(
 		}
 
 		// generate DeviceID using IP+MAC
-		deviceID := fmt.Sprintf("%s:%s", device.IPAddress, device.MAC)
+		// deviceID := fmt.Sprintf("%s:%s", device.IPAddress, device.MAC)
+		deviceID := ""
+		if device.MAC != "" && job.Params.AgentID != "" && job.Params.PollerID != "" {
+			deviceID = GenerateDeviceID(job.Params.AgentID, job.Params.PollerID, device.MAC)
+		}
 
 		// Fetch device details
 		details, err := e.fetchDeviceDetails(ctx, job, client, headers, apiConfig, site, device.ID)
@@ -639,7 +643,11 @@ func (*DiscoveryEngine) createDiscoveredDevice(
 		return nil
 	}
 
-	deviceID := fmt.Sprintf("%s:%s", device.IPAddress, device.MAC) // Use IP+MAC as unique identifier
+	// Generate standardized device ID
+	deviceID := ""
+	if device.MAC != "" && job.Params.AgentID != "" && job.Params.PollerID != "" {
+		deviceID = GenerateDeviceID(job.Params.AgentID, job.Params.PollerID, device.MAC)
+	}
 
 	return &DiscoveredDevice{
 		DeviceID: deviceID,
@@ -694,13 +702,17 @@ const (
 )
 
 func (e *DiscoveryEngine) processSwitchInterfaces(
-	_ *DiscoveryJob,
+	job *DiscoveryJob,
 	device *UniFiDevice,
 	deviceID string,
 	switchInterfaces UniFiInterfaces,
 	apiConfig UniFiAPIConfig,
 	site UniFiSite) []*DiscoveredInterface {
 	interfaces := make([]*DiscoveredInterface, 0, len(switchInterfaces.Ports))
+	// Ensure we have a proper device ID
+	if deviceID == "" && device.MAC != "" && job.Params.AgentID != "" && job.Params.PollerID != "" {
+		deviceID = GenerateDeviceID(job.Params.AgentID, job.Params.PollerID, device.MAC)
+	}
 
 	for i := range switchInterfaces.Ports {
 		port := &switchInterfaces.Ports[i]
@@ -831,14 +843,14 @@ func (e *DiscoveryEngine) querySingleUniFiDevices(
 	return devices, allInterfaces, nil
 }
 
-func (e *DiscoveryEngine) querySysInfoWithTimeout(client *gosnmp.GoSNMP, target, jobID string, timeout time.Duration) (*DiscoveredDevice, error) {
+func (e *DiscoveryEngine) querySysInfoWithTimeout(client *gosnmp.GoSNMP, job *DiscoveryJob, target, jobID string, timeout time.Duration) (*DiscoveredDevice, error) {
 	done := make(chan struct {
 		device *DiscoveredDevice
 		err    error
 	}, 1)
 
 	go func() {
-		device, err := e.querySysInfo(client, target, jobID)
+		device, err := e.querySysInfo(client, target, jobID, job)
 
 		done <- struct {
 			device *DiscoveredDevice
