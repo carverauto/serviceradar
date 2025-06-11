@@ -210,9 +210,10 @@ func (*ArmisIntegration) processDevices(devices []Device) (data map[string][]byt
 		if device.IPAddress != "" {
 			// Split by comma and process each IP
 			ipList := strings.Split(device.IPAddress, ",")
-			for _, ipRaw := range ipList {
-				// Trim spaces and validate the IP
-				ip := strings.TrimSpace(ipRaw)
+			if len(ipList) > 0 {
+				// Trim spaces and validate the first IP only
+				ip := strings.TrimSpace(ipList[0])
+
 				if ip != "" {
 					// Add to sweep list with /32 suffix
 					ips = append(ips, ip+"/32")
