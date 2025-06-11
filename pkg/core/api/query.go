@@ -112,7 +112,7 @@ func (s *APIServer) prepareQuery(req *QueryRequest) (*models.Query, map[string]i
 	}
 
 	// Validate entity
-	if query.Entity != models.Devices && query.Entity != models.Interfaces {
+	if query.Entity != models.Devices && query.Entity != models.Interfaces && query.Entity != models.SweepResults {
 		return nil, nil, errors.New("pagination is only supported for devices and interfaces")
 	}
 
@@ -342,8 +342,17 @@ func buildEntitySpecificConditions(entity models.EntityType, cursorData map[stri
 				LogicalOp: models.Or,
 			})
 		}
+	case models.SweepResults:
+		if ip, ok := cursorData["ip"]; ok {
+			conditions = append(conditions, models.Condition{
+				Field:     "ip",
+				Operator:  models.NotEquals,
+				Value:     ip,
+				LogicalOp: models.Or,
+			})
+		}
 	case models.Flows, models.Traps, models.Connections, models.Logs,
-		models.SweepResults, models.ICMPResults, models.SNMPResults:
+		models.ICMPResults, models.SNMPResults:
 	}
 
 	return conditions
@@ -412,6 +421,10 @@ func addEntityFields(cursorData, result map[string]interface{}, entity models.En
 		if ifIndex, ok := result["ifIndex"]; ok {
 			cursorData["ifIndex"] = ifIndex
 		}
+	case models.SweepResults:
+		if ip, ok := result["ip"]; ok {
+			cursorData["ip"] = ip
+		}
 	case models.Flows:
 		// No additional fields needed for now
 	case models.Traps:
@@ -419,8 +432,6 @@ func addEntityFields(cursorData, result map[string]interface{}, entity models.En
 	case models.Connections:
 		// No additional fields needed for now
 	case models.Logs:
-		// No additional fields needed for now
-	case models.SweepResults:
 		// No additional fields needed for now
 	case models.ICMPResults:
 		// No additional fields needed for now

@@ -131,8 +131,8 @@ jspm_packages/
 .tern-port
 
 .idea
-.bin
-bin
+#.bin
+#bin
 
 pnpm-lock.yaml
 
@@ -140,7 +140,7 @@ pnpm-lock.yaml
 
 # Ignore the elements repository that gets cloned in on npm install
 elements/
-.bin/
+#.bin/
 
 # binaries
 ./poller
@@ -207,4 +207,4 @@ target/
 *.pdb
 
 .venv
-.bin
+#.bin
