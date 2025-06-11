@@ -40,7 +40,7 @@ func TestArmisIntegration_Fetch(t *testing.T) {
 	expectedDevices := getExpectedDevices()
 	firstPageResp := getFirstPageResponse(expectedDevices)
 	expectedSweepConfig := &models.SweepConfig{
-		Networks: []string{"192.168.1.1/32", "192.168.1.2/32", "10.0.0.1/32"},
+		Networks: []string{"192.168.1.1/32", "192.168.1.2/32"},
 	}
 
 	setupArmisMocks(t, mocks, firstPageResp, expectedSweepConfig)
