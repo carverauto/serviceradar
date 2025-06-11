@@ -12,14 +12,14 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.3
-	github.com/gosnmp/gosnmp v1.40.0
+	github.com/gosnmp/gosnmp v1.41.0
 	github.com/markbates/goth v1.81.0
 	github.com/nats-io/nats.go v1.42.0
 	github.com/spiffe/go-spiffe/v2 v2.5.0
 	github.com/stretchr/testify v1.10.0
 	github.com/swaggo/http-swagger v1.3.4
 	github.com/swaggo/swag v1.16.4
-	github.com/timeplus-io/proton-go-driver/v2 v2.1.1
+	github.com/timeplus-io/proton-go-driver/v2 v2.1.2
 	go.uber.org/mock v0.5.2
 	golang.org/x/crypto v0.39.0
 	golang.org/x/net v0.41.0
