@@ -19,7 +19,7 @@ require (
 	github.com/stretchr/testify v1.10.0
 	github.com/swaggo/http-swagger v1.3.4
 	github.com/swaggo/swag v1.16.4
-	github.com/timeplus-io/proton-go-driver/v2 v2.1.1
+	github.com/timeplus-io/proton-go-driver/v2 v2.1.2
 	go.uber.org/mock v0.5.2
 	golang.org/x/crypto v0.38.0
 	golang.org/x/net v0.40.0
