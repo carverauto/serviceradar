@@ -5,7 +5,6 @@ import (
 	"embed"
 	"fmt"
 	"log"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -31,6 +30,7 @@ func RunMigrations(ctx context.Context, conn proton.Conn) error {
 	if err != nil {
 		return fmt.Errorf("failed to get applied migrations: %w", err)
 	}
+
 	log.Printf("Found %d applied migrations.", len(appliedMigrations))
 
 	// 3. Get all available migrations from the filesystem.
@@ -38,6 +38,7 @@ func RunMigrations(ctx context.Context, conn proton.Conn) error {
 	if err != nil {
 		return fmt.Errorf("failed to get available migrations: %w", err)
 	}
+
 	log.Printf("Found %d available migrations.", len(availableMigrations))
 
 	// 4. Apply any migrations that have not yet been run.
@@ -64,10 +65,12 @@ func RunMigrations(ctx context.Context, conn proton.Conn) error {
 		if err := recordMigration(ctx, conn, version); err != nil {
 			return fmt.Errorf("failed to record migration %s: %w", migrationFile, err)
 		}
+
 		log.Printf("Successfully applied and recorded migration: %s", migrationFile)
 	}
 
 	log.Println("=== Database Migrations Finished ===")
+
 	return nil
 }
 
@@ -87,13 +90,17 @@ func getAppliedMigrations(ctx context.Context, conn proton.Conn) (map[string]str
 	defer rows.Close()
 
 	applied := make(map[string]struct{})
+
 	for rows.Next() {
 		var version string
+
 		if err := rows.Scan(&version); err != nil {
 			return nil, err
 		}
+
 		applied[version] = struct{}{}
 	}
+
 	return applied, nil
 }
 
@@ -104,6 +111,7 @@ func getAvailableMigrations() ([]string, error) {
 	}
 
 	var available []string
+
 	for _, file := range files {
 		if !file.IsDir() && strings.HasSuffix(file.Name(), ".up.sql") {
 			available = append(available, file.Name())
@@ -112,6 +120,7 @@ func getAvailableMigrations() ([]string, error) {
 
 	// Sort migrations by version (filename)
 	sort.Strings(available)
+
 	return available, nil
 }
 
@@ -120,9 +129,11 @@ func recordMigration(ctx context.Context, conn proton.Conn, version string) erro
 	if err != nil {
 		return err
 	}
+
 	if err := batch.Append(version); err != nil {
 		return err
 	}
+
 	return batch.Send()
 }
 

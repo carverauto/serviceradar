@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"reflect"
 	"time"
 
@@ -506,7 +507,7 @@ func (db *DB) GetAllMountPoints(ctx context.Context, pollerID string) ([]string,
 		SELECT DISTINCT mount_point
 		FROM table(disk_metrics)
 		WHERE poller_id = $1 
-		ORDER BY mount_point ASC`,
+		ORDER BY mount_point`,
 		pollerID)
 	if err != nil {
 		log.Printf("Error querying mount points: %v", err)
