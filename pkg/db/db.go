@@ -113,6 +113,11 @@ func New(ctx context.Context, config *models.DBConfig) (Service, error) {
 		return nil, fmt.Errorf("%w: %w", ErrFailedOpenDB, err)
 	}
 
+	// Run database migrations before initializing schema
+	if err := RunMigrations(ctx, conn); err != nil {
+		return nil, fmt.Errorf("failed to run database migrations: %w", err)
+	}
+
 	db := &DB{Conn: conn}
 
 	if err := db.initSchema(ctx); err != nil {
@@ -502,7 +507,7 @@ func (db *DB) GetAllMountPoints(ctx context.Context, pollerID string) ([]string,
 		SELECT DISTINCT mount_point
 		FROM table(disk_metrics)
 		WHERE poller_id = $1 
-		ORDER BY mount_point ASC`,
+		ORDER BY mount_point`,
 		pollerID)
 	if err != nil {
 		log.Printf("Error querying mount points: %v", err)
