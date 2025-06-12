@@ -115,6 +115,8 @@ func NewArmisIntegration(
 		DeviceFetcher: defaultImpl,
 		KVWriter:      kvWriter,
 		SweeperConfig: defaultSweepCfg,
+		SweepQuerier:  sweepQuerier,
+		Updater:       armisUpdater,
 	}
 }
 

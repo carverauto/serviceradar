@@ -81,7 +81,7 @@ func NewSweepResultsQuery(apiEndpoint, apiKey string, httpClient HTTPClient) *Sw
 
 // GetTodaysSweepResults queries for today's sweep results
 func (s *SweepResultsQuery) GetTodaysSweepResults(ctx context.Context) ([]SweepResult, error) {
-	query := "show sweep_results where date(timestamp) = TODAY"
+	query := "show sweep_results where date(timestamp) = TODAY and discovery_source = \"sweep\""
 	return s.executeSweepQuery(ctx, query, 1000) // Get up to 1000 results
 }
 
@@ -272,4 +272,3 @@ func (s *SweepResultsQuery) GetAvailabilityStats(ctx context.Context, ips []stri
 
 	return availabilityMap, nil
 }
-
