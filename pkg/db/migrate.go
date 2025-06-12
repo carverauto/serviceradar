@@ -116,7 +116,7 @@ func getAvailableMigrations() ([]string, error) {
 }
 
 func recordMigration(ctx context.Context, conn proton.Conn, version string) error {
-	batch, err := conn.PrepareBatch(ctx, fmt.Sprintf("INSERT INTO %s", migrationsTable))
+	batch, err := conn.PrepareBatch(ctx, fmt.Sprintf("INSERT INTO %s (version)", migrationsTable))
 	if err != nil {
 		return err
 	}
