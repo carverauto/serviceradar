@@ -1078,11 +1078,14 @@ func (s *Server) processICMPMetrics(
 	metadataStr := string(metadataBytes)
 
 	metric := &models.TimeseriesMetric{
-		Name:      fmt.Sprintf("icmp_%s_response_time_ms", svc.ServiceName),
-		Value:     fmt.Sprintf("%d", pingResult.ResponseTime),
-		Type:      "icmp",
-		Timestamp: now,
-		Metadata:  metadataStr, // Use JSON string
+		Name:           fmt.Sprintf("icmp_%s_response_time_ms", svc.ServiceName),
+		Value:          fmt.Sprintf("%d", pingResult.ResponseTime),
+		Type:           "icmp",
+		Timestamp:      now,
+		Metadata:       metadataStr, // Use JSON string
+		TargetDeviceIP: pingResult.Host,
+		IfIndex:        0,
+		PollerID:       pollerID,
 	}
 
 	// Buffer ICMP metric
