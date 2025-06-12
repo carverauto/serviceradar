@@ -113,6 +113,11 @@ func New(ctx context.Context, config *models.DBConfig) (Service, error) {
 		return nil, fmt.Errorf("%w: %w", ErrFailedOpenDB, err)
 	}
 
+	// Run database migrations before initializing schema
+	if err := RunMigrations(ctx, conn); err != nil {
+		return nil, fmt.Errorf("failed to run database migrations: %w", err)
+	}
+
 	db := &DB{Conn: conn}
 
 	if err := db.initSchema(ctx); err != nil {
