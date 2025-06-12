@@ -41,6 +41,10 @@ type ArmisIntegration struct {
 	TokenProvider TokenProvider
 	DeviceFetcher DeviceFetcher
 	KVWriter      KVWriter
+
+	// Interfaces for querying sweep results and updating Armis devices
+	SweepQuerier SweepResultsQuerier
+	Updater      ArmisUpdater
 }
 
 // AccessTokenResponse represents the Armis API access token response.
