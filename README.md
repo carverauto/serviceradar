@@ -29,7 +29,7 @@ ServiceRadar provides a simple installation script for deploying all components:
 
 ```bash
 # All-in-One Installation (non-interactive mode)
-curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.40/install-serviceradar.sh | bash -s -- --all --non-interactive
+curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.43/install-serviceradar.sh | bash -s -- --all --non-interactive
 ```
 
 For detailed installation options including component-specific deployments and optional checkers, see [INSTALL.md](INSTALL.md).
