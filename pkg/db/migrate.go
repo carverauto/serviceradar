@@ -77,7 +77,7 @@ func RunMigrations(ctx context.Context, conn proton.Conn) error {
 
 // executeMultiStatementMigration splits a migration file into individual SQL statements
 // and executes them one by one, handling both single and multi-statement migrations.
-func executeMultiStatementMigration(ctx context.Context, conn proton.Conn, content string, filename string) error {
+func executeMultiStatementMigration(ctx context.Context, conn proton.Conn, content, filename string) error {
 	// Split the content into individual statements
 	statements := splitSQLStatements(content)
 
@@ -103,9 +103,12 @@ func executeMultiStatementMigration(ctx context.Context, conn proton.Conn, conte
 
 			// Execute with extended context timeout
 			migrationCtx, cancel := context.WithTimeout(ctx, 30*time.Minute)
-			defer cancel()
 
-			if err := conn.Exec(migrationCtx, stmt); err != nil {
+			err := conn.Exec(migrationCtx, stmt)
+			// Call cancel immediately after the operation completes
+			cancel()
+
+			if err != nil {
 				return fmt.Errorf("failed to execute statement %d: %w\nStatement: %s", i+1, err, stmt)
 			}
 
@@ -128,7 +131,9 @@ func executeMultiStatementMigration(ctx context.Context, conn proton.Conn, conte
 // It handles comments and ensures semicolons inside strings are not treated as delimiters.
 func splitSQLStatements(content string) []string {
 	var statements []string
+
 	var currentStatement strings.Builder
+
 	lines := strings.Split(content, "\n")
 
 	for _, line := range lines {
@@ -139,6 +144,7 @@ func splitSQLStatements(content string) []string {
 			if currentStatement.Len() > 0 {
 				currentStatement.WriteString("\n")
 			}
+
 			continue
 		}
 
@@ -146,6 +152,7 @@ func splitSQLStatements(content string) []string {
 		if currentStatement.Len() > 0 {
 			currentStatement.WriteString("\n")
 		}
+
 		currentStatement.WriteString(line)
 
 		// Check if this line ends with a semicolon (simple check, may need refinement for complex cases)
@@ -154,9 +161,11 @@ func splitSQLStatements(content string) []string {
 			stmt := currentStatement.String()
 			stmt = strings.TrimSpace(stmt)
 			stmt = strings.TrimSuffix(stmt, ";")
+
 			if stmt != "" {
 				statements = append(statements, stmt)
 			}
+
 			currentStatement.Reset()
 		}
 	}
@@ -165,6 +174,7 @@ func splitSQLStatements(content string) []string {
 	if currentStatement.Len() > 0 {
 		stmt := strings.TrimSpace(currentStatement.String())
 		stmt = strings.TrimSuffix(stmt, ";")
+
 		if stmt != "" {
 			statements = append(statements, stmt)
 		}
