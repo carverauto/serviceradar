@@ -87,7 +87,7 @@ func TestSweepResultsQuery_GetTodaysSweepResults(t *testing.T) {
 			if err != nil {
 				return nil, err
 			}
-			assert.Equal(t, "show sweep_results where date(timestamp) = TODAY", queryReq.Query)
+			assert.Equal(t, "show sweep_results where date(timestamp) = TODAY and discovery_source = \"sweep\"", queryReq.Query)
 			assert.Equal(t, 1000, queryReq.Limit)
 
 			return &http.Response{
