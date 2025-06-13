@@ -18,6 +18,7 @@ It provides real-time monitoring of internal services, with cloud-based alerting
 - **Real-time Monitoring**: Monitor services and infrastructure in hard-to-reach places
 - **Distributed Architecture**: Components can be installed across different hosts to suit your needs
 - **SNMP Integration**: Collect and visualize network metrics
+- **Network Mapper**: Discovery Engine uses SNMP/LLDP/CDP and API to discover devices, interfaces, and topology
 - **Security**: Support for mTLS to secure communications between components and API key authentication for web UI
 - **Alerting**: Webhook-based alerts (Discord, etc.) to notify you of issues
 - **Specialized Monitoring**: Support for specific node types like Dusk Network nodes
@@ -28,7 +29,7 @@ ServiceRadar provides a simple installation script for deploying all components:
 
 ```bash
 # All-in-One Installation (non-interactive mode)
-curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.40/install-serviceradar.sh | bash -s -- --all --non-interactive
+curl -sSL https://github.com/carverauto/serviceradar/releases/download/1.0.43/install-serviceradar.sh | bash -s -- --all --non-interactive
 ```
 
 For detailed installation options including component-specific deployments and optional checkers, see [INSTALL.md](INSTALL.md).
