@@ -1,5 +1,15 @@
 -- Migration that preserves data using supported functions
 
+-- Step 0: ensure the old stream exists (empty on brand-new clusters)
+CREATE STREAM IF NOT EXISTS timeseries_metrics (
+    poller_id   string,
+    metric_name string,
+    metric_type string,
+    value       string,
+    metadata    string,
+    timestamp   DateTime64(3) DEFAULT now64(3)
+);
+
 -- Step 1: Create new stream with updated schema
 CREATE STREAM IF NOT EXISTS timeseries_metrics_new (
     poller_id string,
