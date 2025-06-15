@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"time"
 )
@@ -82,6 +83,9 @@ func NewSweepResultsQuery(apiEndpoint, apiKey string, httpClient HTTPClient) *Sw
 // GetTodaysSweepResults queries for today's sweep results
 func (s *SweepResultsQuery) GetTodaysSweepResults(ctx context.Context) ([]SweepResult, error) {
 	query := "show sweep_results where date(timestamp) = TODAY and discovery_source = \"sweep\""
+
+	log.Println("Executing SRQL query for today's sweep results:", query)
+
 	return s.executeSweepQuery(ctx, query, 1000) // Get up to 1000 results
 }
 
@@ -157,6 +161,11 @@ func (s *SweepResultsQuery) executeQuery(ctx context.Context, queryReq QueryRequ
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal query request: %w", err)
 	}
+
+	// log the request for debugging
+	log.Printf("Executing SRQL query: %s", queryReq.Query)
+	// log the request body
+	log.Printf("Request body: %s", string(reqBody))
 
 	// Create the HTTP request
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
