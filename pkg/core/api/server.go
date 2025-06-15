@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"strings"
@@ -107,36 +108,69 @@ func (s *APIServer) setupRoutes() {
 	s.setupProtectedRoutes()
 }
 
-// setupMiddleware configures CORS and API key middleware.
+// setupMiddleware configures CORS middleware.
 func (s *APIServer) setupMiddleware() {
 	corsConfig := models.CORSConfig{
 		AllowedOrigins:   s.corsConfig.AllowedOrigins,
 		AllowCredentials: s.corsConfig.AllowCredentials,
 	}
 
-	apiKeyOpts := srHttp.NewAPIKeyOptions(os.Getenv("API_KEY"))
-	apiKeyOpts.ExcludePaths = []string{
-		"/swagger/",
-		"/swagger/doc.json",
-		"/swagger/host.json",
-		"/swagger/index.html",
-		"/swagger/swagger.json",
-		"/swagger/swagger.yaml",
-		"/swagger/swagger-ui-bundle.js",
-		"/swagger/swagger-ui-standalone-preset.js",
-		"/swagger/swagger-ui.css",
-		"/swagger/favicon-32x32.png",
-		"/swagger/favicon-16x16.png",
-	}
-
 	middlewareChain := func(next http.Handler) http.Handler {
-		return srHttp.CommonMiddleware(
-			srHttp.APIKeyMiddlewareWithOptions(apiKeyOpts)(next),
-			corsConfig,
-		)
+		// The authentication middleware is now applied selectively in setupProtectedRoutes
+		return srHttp.CommonMiddleware(next, corsConfig)
 	}
 
 	s.router.Use(middlewareChain)
+}
+
+// authenticationMiddleware provides flexible authentication, allowing either a Bearer token or an API key.
+func (s *APIServer) authenticationMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Option 1: Authenticate with a Bearer token.
+		authHeader := r.Header.Get("Authorization")
+		if s.authService != nil && strings.HasPrefix(authHeader, "Bearer ") {
+			// Use the existing auth.AuthMiddleware to validate the token and enrich the context.
+			// We use a test recorder to "catch" the result of the middleware without it writing
+			// a premature response. This allows us to fall back to the API key check.
+			var isAuthenticated bool
+			var enrichedRequest *http.Request
+			recorder := httptest.NewRecorder()
+
+			// This handler will only be called by the authMiddleware if the token is valid.
+			dummyHandler := http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+				isAuthenticated = true
+				enrichedRequest = req // Capture the request with the new context
+			})
+
+			authMiddleware := auth.AuthMiddleware(s.authService)
+			authMiddleware(dummyHandler).ServeHTTP(recorder, r)
+
+			if isAuthenticated {
+				// Token was valid, proceed with the original flow using the enriched request.
+				next.ServeHTTP(w, enrichedRequest)
+				return
+			}
+			// If not authenticated, we don't fail yet; we fall through to check the API key.
+		}
+
+		// Option 2: Authenticate with an API Key.
+		apiKey := os.Getenv("API_KEY")
+		if apiKey != "" && r.Header.Get("X-API-Key") == apiKey {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// If neither method is successful, and auth is configured, deny access.
+		isAuthEnabled := os.Getenv("AUTH_ENABLED") == "true"
+		apiKeyConfigured := apiKey != ""
+		if isAuthEnabled || apiKeyConfigured {
+			writeError(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		// Fallback for development: if no auth is configured, allow the request.
+		next.ServeHTTP(w, r)
+	})
 }
 
 // setupSwaggerRoutes configures routes for Swagger UI and documentation.
@@ -310,9 +344,8 @@ func (s *APIServer) setupAuthRoutes() {
 func (s *APIServer) setupProtectedRoutes() {
 	protected := s.router.PathPrefix("/api").Subrouter()
 
-	if os.Getenv("AUTH_ENABLED") == "true" && s.authService != nil {
-		protected.Use(auth.AuthMiddleware(s.authService))
-	}
+	// Use the new flexible authentication middleware for all protected API routes.
+	protected.Use(s.authenticationMiddleware)
 
 	protected.HandleFunc("/pollers", s.getPollers).Methods("GET")
 	protected.HandleFunc("/pollers/{id}", s.getPoller).Methods("GET")

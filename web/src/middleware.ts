@@ -19,11 +19,10 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { env } from "next-runtime-env";
 
-
-// Update in src/middleware.ts
 export async function middleware(request: NextRequest) {
   const apiKey = env("API_KEY") || "";
   const isAuthEnabled = env("AUTH_ENABLED") === "true";
+  const requestHeaders = new Headers(request.headers);
 
   // Handle OPTIONS preflight
   if (request.method === "OPTIONS") {
@@ -32,8 +31,7 @@ export async function middleware(request: NextRequest) {
       headers: {
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-        "Access-Control-Allow-Headers":
-            "Content-Type, Authorization, X-API-Key",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization, X-API-Key",
       },
     });
   }
@@ -44,61 +42,58 @@ export async function middleware(request: NextRequest) {
     "/auth",
     "/serviceRadar.svg",
     "/favicons",
-    "/_next",  // Add Next.js assets path
-    "/api/auth" // Add authentication API routes
+    "/_next",  // Next.js assets
+    "/api/auth" // Authentication API routes
   ];
 
-  // Check if this is a public path
-  const isPublicPath = publicPaths.some(path =>
-      request.nextUrl.pathname.startsWith(path)
-  );
-
-  // Also consider API paths as special case
-  const isApiPath = request.nextUrl.pathname.startsWith("/api/");
-
-  // If public path, simply pass through with API key if needed
+  // Check if the request path is public
+  const isPublicPath = publicPaths.some(path => request.nextUrl.pathname.startsWith(path));
   if (isPublicPath) {
-    const requestHeaders = new Headers(request.headers);
-    if (apiKey && !isAuthEnabled) {
-      requestHeaders.set("X-API-Key", apiKey);
-    }
-    return NextResponse.next({ request: { headers: requestHeaders } });
+    return NextResponse.next();
   }
 
-  // For API paths, always include the API key
-  if (isApiPath) {
-    const requestHeaders = new Headers(request.headers);
-    if (apiKey) {
-      requestHeaders.set("X-API-Key", apiKey);
+  // --- Main Logic for Authenticated Routes ---
+
+  const accessToken = request.cookies.get("accessToken")?.value;
+  const requestApiKey = request.headers.get("x-api-key");
+
+  // For API routes, we allow either a bearer token or a valid API key
+  if (request.nextUrl.pathname.startsWith("/api/")) {
+    // Option 1: Valid Bearer Token (for UI-driven requests)
+    if (accessToken) {
+      requestHeaders.set("Authorization", `Bearer ${accessToken}`);
+      // Also forward the API key for services that might need it internally
+      if (apiKey) {
+        requestHeaders.set("X-API-Key", apiKey);
+      }
+      return NextResponse.next({ request: { headers: requestHeaders } });
     }
 
-    // Forward the auth token if present
-    const token = request.cookies.get("accessToken")?.value;
-    if (token) {
-      requestHeaders.set("Authorization", `Bearer ${token}`);
-    } else if (isAuthEnabled) {
-      // If auth is enabled and no token for API, return 401
-      return NextResponse.json(
-          { error: "Authentication required" },
-          { status: 401 }
-      );
+    // Option 2: Valid API Key (for server-to-server requests like serviceradar-sync)
+    if (requestApiKey && requestApiKey === apiKey) {
+      // The API key is valid. We let the request through.
+      // We also set the X-API-Key header to ensure the backend receives it.
+      requestHeaders.set("X-API-Key", requestApiKey);
+      return NextResponse.next({ request: { headers: requestHeaders } });
     }
 
-    return NextResponse.next({ request: { headers: requestHeaders } });
+    // If we reach here, it's an API request with no valid credentials.
+    // Only return 401 if authentication is globally enabled.
+    if (isAuthEnabled) {
+      return NextResponse.json({ error: "Authentication required" }, { status: 401 });
+    }
   }
 
-  // For all other paths, require authentication if enabled
-  const requestHeaders = new Headers(request.headers);
-  const token = request.cookies.get("accessToken")?.value;
-
+  // For all other protected paths (i.e., the web UI pages), we require a bearer token if auth is enabled.
   if (isAuthEnabled) {
-    if (!token) {
-      // Redirect to login for non-API routes without a token
+    if (!accessToken) {
+      // No token, redirect to the login page.
       return NextResponse.redirect(new URL("/login", request.url));
     }
-    requestHeaders.set("Authorization", `Bearer ${token}`);
+    // Token exists, add it to the request headers for downstream use.
+    requestHeaders.set("Authorization", `Bearer ${accessToken}`);
   } else if (apiKey) {
-    // If auth is disabled, use API key
+    // If auth is disabled, fall back to using the system-wide API key for non-page requests.
     requestHeaders.set("X-API-Key", apiKey);
   }
 
