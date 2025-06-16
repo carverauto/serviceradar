@@ -19,6 +19,12 @@ Create a JSON file with the following fields:
 }
 ```
 
+Decision rules are loaded from the KV store using the following key pattern:
+
+```
+agents/<agent-id>/<stream-name>/<subject>/<decision_key>.json
+```
+
 Optionally add TLS settings:
 
 ```json
