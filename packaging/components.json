@@ -661,6 +661,51 @@
     ]
   },
   {
+    "name": "trapd",
+    "package_name": "serviceradar-trapd",
+    "version": "1.0.43",
+    "description": "ServiceRadar SNMP trap receiver service",
+    "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
+    "architecture": "amd64",
+    "section": "net",
+    "priority": "optional",
+    "deb": {
+      "depends": ["systemd"],
+      "dockerfile": "cmd/trapd/Dockerfile"
+    },
+    "rpm": {
+      "depends": ["systemd"],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.rust",
+      "release": "1"
+    },
+    "binary": {
+      "build_method": "rust",
+      "source_path": "cmd/trapd",
+      "output_path": "/usr/local/bin/serviceradar-trapd",
+      "docker_output_path": "/output/serviceradar-trapd"
+    },
+    "custom_steps": [],
+    "config_files": [
+      {
+        "source": "packaging/trapd/config/trapd.json",
+        "dest": "/etc/serviceradar/trapd.json"
+      }
+    ],
+    "systemd_service": {
+      "source": "packaging/trapd/systemd/serviceradar-trapd.service",
+      "dest": "/lib/systemd/system/serviceradar-trapd.service"
+    },
+    "postinst": {
+      "source": "packaging/trapd/scripts/postinstall.sh"
+    },
+    "prerm": {
+      "source": "packaging/trapd/scripts/preremove.sh"
+    },
+    "conffiles": [
+      "/etc/serviceradar/trapd.json"
+    ]
+  },
+  {
     "name": "cli",
     "package_name": "serviceradar-cli",
     "version": "1.0.43",
