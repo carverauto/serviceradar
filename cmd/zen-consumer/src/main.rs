@@ -31,7 +31,6 @@ struct SecurityConfig {
 
 #[derive(Debug, Deserialize, Clone)]
 struct Config {
-    listen_addr: String,
     nats_url: String,
     stream_name: String,
     consumer_name: String,
