@@ -1,7 +1,7 @@
 [package]
 edition = "2018"
-name = "flowgger"
-version = "0.3.3"
+name = "serviceradar-flowgger"
+version = "0.3.4"
 authors = ["Frank Denis <github@pureftpd.org>", "Matteo Bigoi <bigo@crisidev.org>", "Vivien Chene <viv.chene@gmail.com>", "Francesco Berni <kurojishi@kurojishi.me>"]
 build = "build.rs"
 repository = "https://github.com/awslabs/flowgger"
@@ -10,7 +10,7 @@ license = "ISC"
 documentation="https://github.com/awslabs/flowgger/wiki"
 
 [[bin]]
-name = "flowgger"
+name = "serviceradar-flowgger"
 path = "src/main.rs"
 
 [lib]
@@ -20,7 +20,7 @@ path = "src/lib.rs"
 [features]
 capnp-recompile = ["capnpc", "capnp"]
 coroutines = ["may", "tls"]
-default = ["syslog", "kafka-output", "file", "redis", "capnp-recompile", "tls", "gelf", "ltsv"]
+default = ["syslog", "tls", "gelf" ]
 redis-input = ["redis"]
 kafka-output = ["kafka"]
 nats-output = ["async-nats", "tokio"]
