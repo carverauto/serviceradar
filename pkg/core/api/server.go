@@ -133,11 +133,13 @@ func (s *APIServer) authenticationMiddleware(next http.Handler) http.Handler {
 			// We use a test recorder to "catch" the result of the middleware without it writing
 			// a premature response. This allows us to fall back to the API key check.
 			var isAuthenticated bool
+
 			var enrichedRequest *http.Request
+
 			recorder := httptest.NewRecorder()
 
 			// This handler will only be called by the authMiddleware if the token is valid.
-			dummyHandler := http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
+			dummyHandler := http.HandlerFunc(func(_ http.ResponseWriter, req *http.Request) {
 				isAuthenticated = true
 				enrichedRequest = req // Capture the request with the new context
 			})
@@ -148,9 +150,9 @@ func (s *APIServer) authenticationMiddleware(next http.Handler) http.Handler {
 			if isAuthenticated {
 				// Token was valid, proceed with the original flow using the enriched request.
 				next.ServeHTTP(w, enrichedRequest)
+
 				return
 			}
-			// If not authenticated, we don't fail yet; we fall through to check the API key.
 		}
 
 		// Option 2: Authenticate with an API Key.
@@ -162,9 +164,11 @@ func (s *APIServer) authenticationMiddleware(next http.Handler) http.Handler {
 
 		// If neither method is successful, and auth is configured, deny access.
 		isAuthEnabled := os.Getenv("AUTH_ENABLED") == "true"
+
 		apiKeyConfigured := apiKey != ""
 		if isAuthEnabled || apiKeyConfigured {
 			writeError(w, "Unauthorized", http.StatusUnauthorized)
+
 			return
 		}
 

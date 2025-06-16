@@ -364,14 +364,17 @@ func TestExecuteQueryAndBuildResponse(t *testing.T) {
 			resp, err := s.executeQueryAndBuildResponse(context.Background(), tt.query, tt.req)
 			if tt.expectError {
 				require.Error(t, err)
+
 				if tt.errorContains != "" {
 					assert.Contains(t, err.Error(), tt.errorContains)
 				}
+
 				return
 			}
 
 			require.NoError(t, err)
 			require.NotNil(t, resp)
+
 			if tt.validateResp != nil {
 				tt.validateResp(t, resp)
 			}
@@ -410,9 +413,12 @@ func TestHandleSRQLQuery(t *testing.T) {
 			validateResp: func(t *testing.T, w *httptest.ResponseRecorder) {
 				t.Helper()
 				assert.Equal(t, http.StatusOK, w.Code)
+
 				var resp QueryResponse
+
 				err := json.Unmarshal(w.Body.Bytes(), &resp)
 				require.NoError(t, err)
+
 				assert.Len(t, resp.Results, 1)
 				assert.Equal(t, "192.168.1.1", resp.Results[0]["ip"])
 				assert.Equal(t, 10, resp.Pagination.Limit)
@@ -427,8 +433,11 @@ func TestHandleSRQLQuery(t *testing.T) {
 			validateResp: func(t *testing.T, w *httptest.ResponseRecorder) {
 				t.Helper()
 				assert.Equal(t, http.StatusBadRequest, w.Code)
+
 				var resp map[string]interface{}
+
 				err := json.Unmarshal(w.Body.Bytes(), &resp)
+
 				require.NoError(t, err)
 				assert.Contains(t, resp["message"], "Invalid request body")
 			},
@@ -442,8 +451,11 @@ func TestHandleSRQLQuery(t *testing.T) {
 			validateResp: func(t *testing.T, w *httptest.ResponseRecorder) {
 				t.Helper()
 				assert.Equal(t, http.StatusBadRequest, w.Code)
+
 				var resp map[string]interface{}
+
 				err := json.Unmarshal(w.Body.Bytes(), &resp)
+
 				require.NoError(t, err)
 				assert.Contains(t, resp["message"], "Query string is required")
 			},
@@ -471,9 +483,12 @@ func TestHandleSRQLQuery(t *testing.T) {
 				dbType:        tt.dbType,
 				queryExecutor: mockQueryExecutor,
 			}
+
 			tt.setupMock()
+
 			req := httptest.NewRequest(http.MethodPost, "/api/query", strings.NewReader(tt.requestBody))
 			req.Header.Set("Content-Type", "application/json")
+
 			w := httptest.NewRecorder()
 			s.handleSRQLQuery(w, req)
 			tt.validateResp(t, w)
@@ -488,6 +503,7 @@ func TestCursorFunctions(t *testing.T) {
 		cursor := "eyJpcCI6IjE5Mi4xNjguMS4xIiwibGFzdF9zZWVuIjoiMjAyNS0wNS0zMFQxMjowMDowMFoifQ=="
 		decoded, err := decodeCursor(cursor)
 		require.NoError(t, err)
+
 		assert.Equal(t, "192.168.1.1", decoded["ip"])
 		assert.Equal(t, "2025-05-30T12:00:00Z", decoded["last_seen"])
 
@@ -515,6 +531,7 @@ func TestCursorFunctions(t *testing.T) {
 				{Field: "ip", Direction: models.Descending}, // Secondary sort key
 			},
 		}
+
 		cursorData := map[string]interface{}{
 			"ip":        "192.168.1.1",
 			"last_seen": "2025-05-30T12:00:00Z",
@@ -566,10 +583,12 @@ func TestCursorFunctions(t *testing.T) {
 	// Test createCursorData
 	t.Run("createCursorData", func(t *testing.T) {
 		now := time.Now()
+
 		result := map[string]interface{}{
 			"ip":        "192.168.1.1",
 			"last_seen": now,
 		}
+
 		cursorData := createCursorData(result, "last_seen")
 		assert.Equal(t, now.Format(time.RFC3339), cursorData["last_seen"])
 	})
@@ -578,6 +597,7 @@ func TestCursorFunctions(t *testing.T) {
 	t.Run("addEntityFields", func(t *testing.T) {
 		cursorData := make(map[string]interface{})
 		result := map[string]interface{}{"ip": "192.168.1.1"}
+
 		addEntityFields(cursorData, result, models.Devices)
 		assert.Equal(t, "192.168.1.1", cursorData["ip"])
 	})
@@ -602,22 +622,27 @@ func TestCursorFunctions(t *testing.T) {
 				{Field: "last_seen", Direction: models.Descending},
 			},
 		}
+
 		results := []map[string]interface{}{
 			{"ip": "192.168.1.1", "last_seen": "2025-05-30T12:00:00Z"},
 			{"ip": "192.168.1.2", "last_seen": "2025-05-29T12:00:00Z"},
 		}
+
 		nextCursor, prevCursor := generateCursors(query, results, parser.Proton)
+
 		assert.NotEmpty(t, nextCursor, "Next cursor should be present on a full page")
 		assert.NotEmpty(t, prevCursor)
 
 		// Test with fewer results than limit
 		query.Limit = 5
 		nextCursor, prevCursor = generateCursors(query, results, parser.Proton)
+
 		assert.Empty(t, nextCursor, "Next cursor should be empty when results are less than limit")
 		assert.NotEmpty(t, prevCursor)
 
 		// Test with empty results
 		nextCursor, prevCursor = generateCursors(query, []map[string]interface{}{}, parser.Proton)
+
 		assert.Empty(t, nextCursor)
 		assert.Empty(t, prevCursor)
 	})

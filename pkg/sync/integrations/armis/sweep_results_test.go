@@ -82,11 +82,14 @@ func TestSweepResultsQuery_GetTodaysSweepResults(t *testing.T) {
 
 			// Verify query
 			var queryReq QueryRequest
+
 			body, _ := io.ReadAll(req.Body)
+
 			err := json.Unmarshal(body, &queryReq)
 			if err != nil {
 				return nil, err
 			}
+
 			assert.Equal(t, "show sweep_results where date(timestamp) = TODAY and discovery_source = \"sweep\"", queryReq.Query)
 			assert.Equal(t, 1000, queryReq.Limit)
 
@@ -106,7 +109,7 @@ func TestSweepResultsQuery_GetTodaysSweepResults(t *testing.T) {
 
 	assert.Equal(t, "192.168.1.1", results[0].IP)
 	assert.True(t, results[0].Available)
-	assert.Equal(t, 12.5, results[0].RTT)
+	assert.InDelta(t, 12.5, results[0].RTT, 0.0001)
 	assert.Equal(t, "icmp", results[0].Protocol)
 
 	assert.Equal(t, "192.168.1.2", results[1].IP)
@@ -150,8 +153,13 @@ func TestSweepResultsQuery_GetSweepResultsForIPs(t *testing.T) {
 		func(req *http.Request) (*http.Response, error) {
 			// Verify query contains the IP list
 			var queryReq QueryRequest
+
 			body, _ := io.ReadAll(req.Body)
-			json.Unmarshal(body, &queryReq)
+
+			err := json.Unmarshal(body, &queryReq)
+			if err != nil {
+				return nil, err
+			}
 
 			expectedQuery := "show sweep_results where ip IN ('192.168.1.1', '192.168.1.2', '192.168.1.3') and date(timestamp) = TODAY"
 			assert.Equal(t, expectedQuery, queryReq.Query)
@@ -223,8 +231,13 @@ func TestSweepResultsQuery_Pagination(t *testing.T) {
 		mockHTTPClient.EXPECT().Do(gomock.Any()).DoAndReturn(
 			func(req *http.Request) (*http.Response, error) {
 				var queryReq QueryRequest
+
 				body, _ := io.ReadAll(req.Body)
-				json.Unmarshal(body, &queryReq)
+
+				err := json.Unmarshal(body, &queryReq)
+				if err != nil {
+					return nil, err
+				}
 
 				// First call should have no cursor
 				assert.Empty(t, queryReq.Cursor)
@@ -238,8 +251,13 @@ func TestSweepResultsQuery_Pagination(t *testing.T) {
 		mockHTTPClient.EXPECT().Do(gomock.Any()).DoAndReturn(
 			func(req *http.Request) (*http.Response, error) {
 				var queryReq QueryRequest
+
 				body, _ := io.ReadAll(req.Body)
-				json.Unmarshal(body, &queryReq)
+
+				err := json.Unmarshal(body, &queryReq)
+				if err != nil {
+					return nil, err
+				}
 
 				// Second call should have the cursor from first response
 				assert.Equal(t, "eyJpcCI6IjE5Mi4xNjguMS4xIn0=", queryReq.Cursor)
@@ -364,7 +382,7 @@ func TestArmisIntegration_PrepareArmisUpdate(t *testing.T) {
 	assert.Equal(t, 1, updates[0].DeviceID)
 	assert.Equal(t, "192.168.1.1", updates[0].IP)
 	assert.True(t, updates[0].Available)
-	assert.Equal(t, 10.5, updates[0].RTT)
+	assert.InDelta(t, 10.5, updates[0].RTT, 0.0001)
 
 	// Check device 2 (should use first IP)
 	assert.Equal(t, 2, updates[1].DeviceID)

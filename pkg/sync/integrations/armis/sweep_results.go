@@ -97,28 +97,33 @@ func (s *SweepResultsQuery) GetSweepResultsForIPs(ctx context.Context, ips []str
 
 	// Build IP list for the IN clause
 	ipList := ""
+
 	for i, ip := range ips {
 		if i > 0 {
 			ipList += ", "
 		}
+
 		ipList += fmt.Sprintf("'%s'", ip)
 	}
 
 	query := fmt.Sprintf("show sweep_results where ip IN (%s) and date(timestamp) = TODAY", ipList)
+
 	return s.executeSweepQuery(ctx, query, len(ips)*2) // Allow for multiple results per IP
 }
 
 // GetRecentSweepResults queries for sweep results within a time range
-func (s *SweepResultsQuery) GetRecentSweepResults(ctx context.Context, hours int) ([]SweepResult, error) {
+func (s *SweepResultsQuery) GetRecentSweepResults(ctx context.Context, _ int) ([]SweepResult, error) {
 	// For now, we'll use TODAY as SRQL doesn't support relative time queries yet
 	// In the future, this could be enhanced to support actual time ranges
 	query := "show sweep_results where date(timestamp) = TODAY order by timestamp desc"
+
 	return s.executeSweepQuery(ctx, query, 1000)
 }
 
 // executeSweepQuery executes an SRQL query and returns sweep results
 func (s *SweepResultsQuery) executeSweepQuery(ctx context.Context, query string, limit int) ([]SweepResult, error) {
 	var allResults []SweepResult
+
 	cursor := ""
 
 	for {
@@ -136,10 +141,7 @@ func (s *SweepResultsQuery) executeSweepQuery(ctx context.Context, query string,
 		}
 
 		// Convert results
-		results, err := s.convertToSweepResults(response.Results)
-		if err != nil {
-			return nil, fmt.Errorf("failed to convert results: %w", err)
-		}
+		results := s.convertToSweepResults(response.Results)
 
 		allResults = append(allResults, results...)
 
@@ -211,7 +213,7 @@ func (s *SweepResultsQuery) executeQuery(ctx context.Context, queryReq QueryRequ
 }
 
 // convertToSweepResults converts raw query results to SweepResult structs
-func (s *SweepResultsQuery) convertToSweepResults(rawResults []map[string]interface{}) ([]SweepResult, error) {
+func (*SweepResultsQuery) convertToSweepResults(rawResults []map[string]interface{}) []SweepResult {
 	results := make([]SweepResult, 0, len(rawResults))
 
 	for _, raw := range rawResults {
@@ -257,7 +259,7 @@ func (s *SweepResultsQuery) convertToSweepResults(rawResults []map[string]interf
 		results = append(results, result)
 	}
 
-	return results, nil
+	return results
 }
 
 // GetAvailabilityStats returns availability statistics for the given IPs

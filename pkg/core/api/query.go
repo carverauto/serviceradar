@@ -393,20 +393,22 @@ func buildCursorConditions(query *models.Query, cursorData map[string]interface{
 	// It builds a clause like: (field1 < val1) OR (field1 = val1 AND field2 < val2) ...
 
 	// The outer container for all the OR groups
-	var outerOrConditions []models.Condition
+	outerOrConditions := make([]models.Condition, 0, len(query.OrderBy))
 
 	// Iterate through each OrderBy item to build the nested clauses
 	for i, orderItem := range query.OrderBy {
 		// Create the AND conditions for this level of nesting
-		var currentLevelAnds []models.Condition
+		currentLevelAnds := make([]models.Condition, 0, i+1)
 
 		// Add equality checks for all previous sort keys
 		for j := 0; j < i; j++ {
 			prevItem := query.OrderBy[j]
+
 			prevValue, ok := cursorData[prevItem.Field]
 			if !ok {
 				continue
 			} // Should not happen with a valid cursor
+
 			currentLevelAnds = append(currentLevelAnds, models.Condition{
 				Field:     prevItem.Field,
 				Operator:  models.Equals,
@@ -417,10 +419,12 @@ func buildCursorConditions(query *models.Query, cursorData map[string]interface{
 
 		// Add the main inequality check for the current sort key
 		op := determineOperator(direction, orderItem.Direction)
+
 		cursorValue, ok := cursorData[orderItem.Field]
 		if !ok {
 			continue
 		}
+
 		currentLevelAnds = append(currentLevelAnds, models.Condition{
 			Field:     orderItem.Field,
 			Operator:  op,
@@ -517,7 +521,6 @@ func encodeCursor(cursorData map[string]interface{}) string {
 
 // generateCursors creates next and previous cursors from query results.
 func generateCursors(query *models.Query, results []map[string]interface{}, _ parser.DatabaseType) (nextCursor, prevCursor string) {
-
 	if len(results) == 0 {
 		return "", "" // No results, so no cursors.
 	}

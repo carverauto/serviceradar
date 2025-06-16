@@ -4,11 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/carverauto/serviceradar/pkg/models"
 	"log"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/carverauto/serviceradar/pkg/models"
 )
 
 // ArmisDeviceStatus represents the status of a device to be sent to Armis
@@ -22,9 +23,10 @@ type ArmisDeviceStatus struct {
 }
 
 // PrepareArmisUpdate prepares device status updates for Armis based on sweep results
-func (a *ArmisIntegration) PrepareArmisUpdate(ctx context.Context, devices []Device, sweepResults []SweepResult) []ArmisDeviceStatus {
+func (a *ArmisIntegration) PrepareArmisUpdate(_ context.Context, devices []Device, sweepResults []SweepResult) []ArmisDeviceStatus {
 	// Create a map of IP to most recent sweep result
 	resultMap := make(map[string]SweepResult)
+
 	for _, result := range sweepResults {
 		if existing, exists := resultMap[result.IP]; !exists || result.Timestamp.After(existing.Timestamp) {
 			resultMap[result.IP] = result
@@ -32,16 +34,17 @@ func (a *ArmisIntegration) PrepareArmisUpdate(ctx context.Context, devices []Dev
 	}
 
 	// Prepare status updates
-	var updates []ArmisDeviceStatus
-	for _, device := range devices {
+	updates := make([]ArmisDeviceStatus, 0, len(devices))
+
+	for i := range devices {
 		// Extract the first IP from the device (Armis can have comma-separated IPs)
-		ip := extractFirstIP(device.IPAddress)
+		ip := extractFirstIP(devices[i].IPAddress)
 		if ip == "" {
 			continue
 		}
 
 		status := ArmisDeviceStatus{
-			DeviceID:        device.ID,
+			DeviceID:        devices[i].ID,
 			IP:              ip,
 			Available:       false, // Default to unavailable
 			ServiceRadarURL: fmt.Sprintf("%s/api/query?q=show+sweep_results+where+ip='%s'", a.Config.Endpoint, ip),
@@ -66,6 +69,7 @@ func extractFirstIP(ipList string) string {
 	if len(ips) > 0 {
 		return strings.TrimSpace(ips[0])
 	}
+
 	return ""
 }
 
@@ -79,12 +83,15 @@ func (a *ArmisIntegration) GetDeviceAvailabilityReport(ctx context.Context) (*Av
 
 	// Extract devices and IPs
 	var devices []Device
+
 	var allIPs []string
 
 	for _, deviceData := range data {
 		var device Device
-		if err := json.Unmarshal(deviceData, &device); err == nil {
+
+		if err = json.Unmarshal(deviceData, &device); err == nil {
 			devices = append(devices, device)
+
 			if ip := extractFirstIP(device.IPAddress); ip != "" {
 				allIPs = append(allIPs, ip)
 			}
@@ -118,8 +125,9 @@ func (a *ArmisIntegration) GetDeviceAvailabilityReport(ctx context.Context) (*Av
 
 	// Group by risk level (if available)
 	report.ByRiskLevel = make(map[string]*RiskLevelStats)
-	for _, device := range devices {
-		riskLevel := getRiskLevelCategory(device.RiskLevel)
+
+	for i := range devices {
+		riskLevel := getRiskLevelCategory(devices[i].RiskLevel)
 
 		if _, exists := report.ByRiskLevel[riskLevel]; !exists {
 			report.ByRiskLevel[riskLevel] = &RiskLevelStats{}
@@ -128,7 +136,7 @@ func (a *ArmisIntegration) GetDeviceAvailabilityReport(ctx context.Context) (*Av
 		stats := report.ByRiskLevel[riskLevel]
 		stats.Total++
 
-		if ip := extractFirstIP(device.IPAddress); ip != "" {
+		if ip := extractFirstIP(devices[i].IPAddress); ip != "" {
 			if available, tested := availStats[ip]; tested {
 				stats.Tested++
 				if available {
@@ -204,8 +212,8 @@ func (a *ArmisIntegration) BatchUpdateDeviceAttributes(ctx context.Context, devi
 	}
 
 	// Update each device
-	for _, device := range devices {
-		ip := extractFirstIP(device.IPAddress)
+	for i := range devices {
+		ip := extractFirstIP(devices[i].IPAddress)
 		if ip == "" {
 			continue
 		}
@@ -226,9 +234,8 @@ func (a *ArmisIntegration) BatchUpdateDeviceAttributes(ctx context.Context, devi
 		}
 
 		if len(attributes) > 0 && a.Updater != nil {
-			if err := a.Updater.UpdateDeviceCustomAttributes(ctx, device.ID, attributes); err != nil {
-				log.Printf("Failed to update attributes for device %d: %v", device.ID, err)
-				// Continue with other devices
+			if err := a.Updater.UpdateDeviceCustomAttributes(ctx, devices[i].ID, attributes); err != nil {
+				log.Printf("Failed to update attributes for device %d: %v", devices[i].ID, err)
 			}
 		}
 	}
@@ -237,15 +244,19 @@ func (a *ArmisIntegration) BatchUpdateDeviceAttributes(ctx context.Context, devi
 }
 
 // UpdateDeviceStatus sends device availability status back to Armis
-func (u *DefaultArmisUpdater) UpdateDeviceStatus(ctx context.Context, updates []ArmisDeviceStatus) error {
+func (*DefaultArmisUpdater) UpdateDeviceStatus(_ context.Context, updates []ArmisDeviceStatus) error {
 	// TODO: Implement based on Armis API documentation
 	log.Printf("UpdateDeviceStatus called with %d updates (not implemented)", len(updates))
 	return nil
 }
 
 // UpdateDeviceCustomAttributes updates custom attributes on Armis devices
-func (u *DefaultArmisUpdater) UpdateDeviceCustomAttributes(ctx context.Context, deviceID int, attributes map[string]interface{}) error {
+func (*DefaultArmisUpdater) UpdateDeviceCustomAttributes(_ context.Context, deviceID int, attributes map[string]interface{}) error {
 	// TODO: Implement based on Armis API documentation
 	log.Printf("UpdateDeviceCustomAttributes called for device %d (not implemented)", deviceID)
+
+	// print attributes for debugging
+	log.Printf("Attributes: %v", attributes)
+
 	return nil
 }
