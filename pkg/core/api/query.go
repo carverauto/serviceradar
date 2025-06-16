@@ -515,25 +515,27 @@ func encodeCursor(cursorData map[string]interface{}) string {
 	return base64.StdEncoding.EncodeToString(bytes)
 }
 
-// generateCursors creates next and previous cursors from query results
+// generateCursors creates next and previous cursors from query results.
 func generateCursors(query *models.Query, results []map[string]interface{}, _ parser.DatabaseType) (nextCursor, prevCursor string) {
+
 	if len(results) == 0 {
-		return "", ""
+		return "", "" // No results, so no cursors.
+	}
+
+	if query.HasLimit && len(results) == query.Limit {
+		orderField := query.OrderBy[0].Field
+		lastResult := results[len(results)-1]
+		nextCursorData := createCursorData(lastResult, orderField)
+		addEntityFields(nextCursorData, lastResult, query.Entity)
+
+		nextCursor = encodeCursor(nextCursorData)
 	}
 
 	orderField := query.OrderBy[0].Field
-
-	// Generate next cursor from last result
-	lastResult := results[len(results)-1]
-	nextCursorData := createCursorData(lastResult, orderField)
-
-	addEntityFields(nextCursorData, lastResult, query.Entity)
-
-	// Generate prev cursor from first result
 	firstResult := results[0]
 	prevCursorData := createCursorData(firstResult, orderField)
-
 	addEntityFields(prevCursorData, firstResult, query.Entity)
+	prevCursor = encodeCursor(prevCursorData)
 
-	return encodeCursor(nextCursorData), encodeCursor(prevCursorData)
+	return nextCursor, prevCursor
 }
