@@ -33,6 +33,8 @@ chown serviceradar:serviceradar /var/log/serviceradar
 # Set proper ownership and permissions
 chmod 755 /usr/local/bin/serviceradar-trapd
 chmod 644 /etc/serviceradar/trapd.json
+chown serviceradar:serviceradar /usr/local/bin/serviceradar-trapd
+chown serviceradar:serviceradar /etc/serviceradar/trapd.json
 
 # Set required capability for to listen for SNMP traps
 if [ -x /usr/local/bin/serviceradar-trapd ]; then
