@@ -111,15 +111,11 @@ func (s *APIServer) prepareQuery(req *QueryRequest) (*models.Query, map[string]i
 		return nil, nil, fmt.Errorf("failed to parse query: %w", err)
 	}
 
-	// Validate entity. It's good you added SweepResults here.
+	// Validate entity
 	if query.Entity != models.Devices && query.Entity != models.Interfaces && query.Entity != models.SweepResults {
 		return nil, nil, errors.New("pagination is only supported for devices, interfaces, and sweep_results")
 	}
 
-	// --- CORRECTED SECTION START ---
-
-	// Step 1: Ensure a default sort order exists if none is provided.
-	// This block should NOT be commented out.
 	var defaultOrderField string
 	if len(query.OrderBy) == 0 {
 		defaultOrderField = "_tp_time" // Default for Proton
@@ -148,8 +144,6 @@ func (s *APIServer) prepareQuery(req *QueryRequest) (*models.Query, map[string]i
 		}
 	}
 
-	// --- CORRECTED SECTION END ---
-
 	// Handle cursor
 	var cursorData map[string]interface{}
 
@@ -159,8 +153,6 @@ func (s *APIServer) prepareQuery(req *QueryRequest) (*models.Query, map[string]i
 			return nil, nil, errors.New("invalid cursor")
 		}
 
-		// IMPORTANT: Ensure you have also replaced the `buildCursorConditions` function
-		// with the new, correct implementation as discussed previously.
 		query.Conditions = append(query.Conditions, buildCursorConditions(query, cursorData, req.Direction)...)
 	}
 
