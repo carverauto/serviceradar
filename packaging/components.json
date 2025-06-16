@@ -630,7 +630,7 @@
     },
     "rpm": {
       "depends": ["systemd"],
-      "dockerfile": "docker/rpm/Dockerfile.rpm.rust",
+      "dockerfile": "docker/rpm/Dockerfile.rpm.rust.flowgger",
       "release": "1"
     },
     "binary": {
@@ -675,7 +675,7 @@
     },
     "rpm": {
       "depends": ["systemd"],
-      "dockerfile": "docker/rpm/Dockerfile.rpm.rust",
+      "dockerfile": "docker/rpm/Dockerfile.rpm.rust.trapd",
       "release": "1"
     },
     "binary": {
