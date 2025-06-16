@@ -693,13 +693,20 @@ func TestCursorFunctions(t *testing.T) {
 		}
 
 		conditions := buildCursorConditions(query, cursorData, DirectionNext)
-		assert.Len(t, conditions, 2)
-		assert.Equal(t, "last_seen", conditions[0].Field)
-		assert.Equal(t, models.LessThan, conditions[0].Operator)
-		assert.Equal(t, "2025-05-30T12:00:00Z", conditions[0].Value)
-		assert.Equal(t, "ip", conditions[1].Field)
-		assert.Equal(t, models.NotEquals, conditions[1].Operator)
-		assert.Equal(t, "192.168.1.1", conditions[1].Value)
+		// The function should return a single complex condition grouping the
+		// order field and entity-specific conditions with parentheses.
+		assert.Len(t, conditions, 1)
+		assert.True(t, conditions[0].IsComplex)
+		assert.Equal(t, models.And, conditions[0].LogicalOp)
+
+		complex := conditions[0].Complex
+		require.Len(t, complex, 2)
+		assert.Equal(t, "last_seen", complex[0].Field)
+		assert.Equal(t, models.LessThan, complex[0].Operator)
+		assert.Equal(t, "2025-05-30T12:00:00Z", complex[0].Value)
+		assert.Equal(t, "ip", complex[1].Field)
+		assert.Equal(t, models.NotEquals, complex[1].Operator)
+		assert.Equal(t, "192.168.1.1", complex[1].Value)
 
 		// Test with missing order field
 		cursorData = map[string]interface{}{"ip": "192.168.1.1"}

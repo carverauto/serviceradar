@@ -375,21 +375,29 @@ func buildCursorConditions(query *models.Query, cursorData map[string]interface{
 	// Determine operator based on direction and sort order
 	op := determineOperator(direction, query.OrderBy[0].Direction)
 
-	conditions := []models.Condition{{
-		Field:     orderField,
-		Operator:  op,
-		Value:     orderValue,
-		LogicalOp: models.And,
-	}}
-
-	// Add entity-specific conditions
-	entityConditions := buildEntitySpecificConditions(query.Entity, cursorData)
-
-	if len(entityConditions) > 0 {
-		conditions = append(conditions, entityConditions...)
+	// Build the base condition for the order field
+	baseCond := models.Condition{
+		Field:    orderField,
+		Operator: op,
+		Value:    orderValue,
 	}
 
-	return conditions
+	// Add entity-specific conditions to be OR'ed with the base condition
+	entityConditions := buildEntitySpecificConditions(query.Entity, cursorData)
+	complexConds := []models.Condition{baseCond}
+
+	if len(entityConditions) > 0 {
+		complexConds = append(complexConds, entityConditions...)
+	}
+
+	// Wrap all cursor-related conditions in a single complex condition. This
+	// ensures the generated SQL groups them with parentheses like:
+	// WHERE ... AND (_tp_time < value OR ip != value)
+	return []models.Condition{{
+		LogicalOp: models.And,
+		IsComplex: true,
+		Complex:   complexConds,
+	}}
 }
 
 // createCursorData creates cursor data from a result
