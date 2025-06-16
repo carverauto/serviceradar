@@ -27,7 +27,7 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/db"
-	"github.com/carverauto/serviceradar/pkg/srql/models" // <--- FIX #1: ADDED THIS IMPORT
+	"github.com/carverauto/serviceradar/pkg/srql/models"
 	"github.com/carverauto/serviceradar/pkg/srql/parser"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -518,9 +518,6 @@ func TestCursorFunctions(t *testing.T) {
 		assert.Equal(t, models.GreaterThan, determineOperator(DirectionNext, models.Ascending))
 		assert.Equal(t, models.LessThan, determineOperator(DirectionPrev, models.Ascending))
 	})
-
-	// FIX #2: REMOVED the test for the now-deleted buildEntitySpecificConditions function
-	// t.Run("buildEntitySpecificConditions", func(t *testing.T) { ... })
 
 	// Test buildCursorConditions
 	t.Run("buildCursorConditions with multi-key sort", func(t *testing.T) {
