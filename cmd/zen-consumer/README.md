@@ -13,7 +13,8 @@ Create a JSON file with the following fields:
   "consumer_name": "zen-consumer",
   "subjects": ["events"],
   "decision_key": "example-decision",
-  "rules_dir": "/etc/serviceradar/zen-rules",
+  "agent_id": "agent-01",
+  "kv_bucket": "serviceradar-kv",
   "result_subject": "events.processed"
 }
 ```
@@ -27,7 +28,8 @@ Optionally add TLS settings:
   "consumer_name": "zen-consumer",
   "subjects": ["events"],
   "decision_key": "example-decision",
-  "rules_dir": "/etc/serviceradar/zen-rules",
+  "agent_id": "agent-01",
+  "kv_bucket": "serviceradar-kv",
   "result_subject": "events.processed",
   "security": {
     "cert_file": "/etc/serviceradar/certs/zen-consumer.pem",
