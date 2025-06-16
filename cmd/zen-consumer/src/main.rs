@@ -114,12 +114,7 @@ async fn process_message(
     msg: &Message,
 ) -> Result<()> {
     let event: serde_json::Value = serde_json::from_slice(&msg.payload)?;
-    let decision_key = format!(
-        "{}/{}/{}",
-        cfg.stream_name,
-        msg.subject,
-        cfg.decision_key
-    );
+    let decision_key = format!("{}/{}/{}", cfg.stream_name, msg.subject, cfg.decision_key);
     let resp = engine
         .evaluate(&decision_key, event.into())
         .await
@@ -178,5 +173,48 @@ async fn main() -> Result<()> {
                     .map_err(|e| anyhow::anyhow!(e.to_string()))?;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_config_from_file() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/zen-consumer.json");
+        let cfg = Config::from_file(path).unwrap();
+        assert_eq!(cfg.nats_url, "nats://127.0.0.1:4222");
+        assert_eq!(cfg.stream_name, "events");
+        assert_eq!(cfg.consumer_name, "zen-consumer");
+        assert_eq!(cfg.subjects, vec!["events".to_string()]);
+        assert_eq!(cfg.decision_key, "example-decision");
+        assert_eq!(cfg.agent_id, "agent-01");
+        assert_eq!(cfg.kv_bucket, "serviceradar-kv");
+        assert_eq!(cfg.result_subject.as_deref(), Some("events.processed"));
+    }
+
+    #[test]
+    fn test_config_validate_missing_fields() {
+        let cfg = Config {
+            nats_url: String::new(),
+            stream_name: String::new(),
+            consumer_name: String::new(),
+            subjects: Vec::new(),
+            result_subject: None,
+            decision_key: String::new(),
+            kv_bucket: String::new(),
+            agent_id: String::new(),
+            security: None,
+        };
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn test_host_switch_testdata_parses() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/host_switch.json");
+        let data = std::fs::read_to_string(path).unwrap();
+        let parsed: zen_engine::model::DecisionContent = serde_json::from_str(&data).unwrap();
+        assert!(!parsed.nodes.is_empty());
     }
 }
