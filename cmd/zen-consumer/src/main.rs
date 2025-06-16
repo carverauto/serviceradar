@@ -9,10 +9,13 @@ use async_nats::jetstream::{self, consumer::pull::Config as PullConfig, Message}
 use async_nats::{Client, ConnectOptions};
 use futures::StreamExt;
 use zen_engine::handler::custom_node_adapter::NoopCustomNode;
-use zen_engine::loader::{FilesystemLoader, FilesystemLoaderOptions};
+
 use zen_engine::DecisionEngine;
 
-type EngineType = DecisionEngine<FilesystemLoader, NoopCustomNode>;
+mod kv_loader;
+use kv_loader::KvLoader;
+
+type EngineType = DecisionEngine<KvLoader, NoopCustomNode>;
 
 #[derive(Parser, Debug)]
 #[command(name = "serviceradar-zen-consumer")]
@@ -38,8 +41,14 @@ struct Config {
     subjects: Vec<String>,
     result_subject: Option<String>,
     decision_key: String,
-    rules_dir: String,
+    #[serde(default = "default_kv_bucket")]
+    kv_bucket: String,
+    agent_id: String,
     security: Option<SecurityConfig>,
+}
+
+fn default_kv_bucket() -> String {
+    "serviceradar-kv".to_string()
 }
 
 impl Config {
@@ -63,8 +72,8 @@ impl Config {
         if self.decision_key.is_empty() {
             anyhow::bail!("decision_key is required");
         }
-        if self.rules_dir.is_empty() {
-            anyhow::bail!("rules_dir is required");
+        if self.agent_id.is_empty() {
+            anyhow::bail!("agent_id is required");
         }
         if self.subjects.is_empty() {
             anyhow::bail!("at least one subject is required");
@@ -88,12 +97,10 @@ async fn connect_nats(cfg: &Config) -> Result<(Client, jetstream::Context)> {
     Ok((client, js))
 }
 
-fn build_engine(cfg: &Config) -> Result<EngineType> {
-    let options = FilesystemLoaderOptions {
-        keep_in_memory: true,
-        root: cfg.rules_dir.clone(),
-    };
-    let loader = FilesystemLoader::new(options);
+async fn build_engine(cfg: &Config, js: &jetstream::Context) -> Result<EngineType> {
+    let store = js.get_key_value(&cfg.kv_bucket).await?;
+    let prefix = format!("agents/{}/zen-rules", cfg.agent_id);
+    let loader = KvLoader::new(store, prefix);
     Ok(DecisionEngine::new(
         std::sync::Arc::new(loader),
         std::sync::Arc::new(zen_engine::handler::custom_node_adapter::NoopCustomNode::default()),
@@ -140,7 +147,7 @@ async fn main() -> Result<()> {
         )
         .await?;
 
-    let engine = build_engine(&cfg)?;
+    let engine = build_engine(&cfg, &js).await?;
 
     loop {
         let mut messages = consumer
