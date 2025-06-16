@@ -115,6 +115,7 @@ func (a *ArmisIntegration) fetchAndProcessDevices(ctx context.Context) (map[stri
 		if queryErr != nil {
 			return nil, nil, queryErr
 		}
+
 		allDevices = append(allDevices, devices...)
 	}
 
@@ -140,22 +141,28 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error)
 	// Step 2: Check if the updater and querier are configured. If not, we are done.
 	if a.Updater == nil || a.SweepQuerier == nil {
 		log.Println("Armis updater/querier not configured, skipping status update correlation.")
+
 		return data, nil
 	}
+
 	log.Println("Armis updater and querier are configured, proceeding with sweep result correlation.")
 
 	// Step 3: Query for sweep results.
 	sweepResults, err := a.SweepQuerier.GetTodaysSweepResults(ctx)
 	if err != nil {
 		log.Printf("Failed to get sweep results, skipping update: %v", err)
+
 		return data, nil // Return originally fetched data without failing the sync
 	}
+
 	log.Printf("Successfully queried %d sweep results.", len(sweepResults))
 
 	// Step 4: Prepare and send status updates back to Armis.
 	updates := a.PrepareArmisUpdate(ctx, devices, sweepResults)
+
 	if len(updates) > 0 {
 		log.Printf("Prepared %d status updates to send to Armis.", len(updates))
+
 		if err := a.Updater.UpdateDeviceStatus(ctx, updates); err != nil {
 			// Log the error but don't fail the entire sync operation.
 			log.Printf("Failed to update device status in Armis: %v", err)
@@ -168,9 +175,11 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error)
 
 	// Step 5: Enrich the KV data with sweep results.
 	enrichedData := make(map[string][]byte)
+
 	for key, deviceData := range data {
 		enrichedData[key] = deviceData
 	}
+
 	if len(sweepResults) > 0 {
 		if sweepResultsData, err := json.Marshal(sweepResults); err == nil {
 			enrichedData["_sweep_results"] = sweepResultsData

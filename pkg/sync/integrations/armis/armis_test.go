@@ -92,7 +92,7 @@ func TestArmisIntegration_Fetch_WithUpdaterAndCorrelation(t *testing.T) {
 			assert.Equal(t, 1, updates[0].DeviceID)
 			assert.Equal(t, "192.168.1.1", updates[0].IP)
 			assert.True(t, updates[0].Available)
-			assert.Equal(t, 15.5, updates[0].RTT)
+			assert.InEpsilon(t, 15.5, updates[0].RTT, 0.0001)
 
 			// Device 2 had a sweep result and was not available
 			assert.Equal(t, 2, updates[1].DeviceID)
@@ -108,12 +108,14 @@ func TestArmisIntegration_Fetch_WithUpdaterAndCorrelation(t *testing.T) {
 	// 4. Assert the results
 	require.NoError(t, err)
 	require.NotNil(t, result)
+
 	// Expect 3 items: 2 devices + 1 for "_sweep_results"
 	assert.Len(t, result, 3)
 
 	// Verify original devices are still present in the result map
 	_, device1Exists := result["1"]
 	assert.True(t, device1Exists)
+
 	_, device2Exists := result["2"]
 	assert.True(t, device2Exists)
 
@@ -122,8 +124,10 @@ func TestArmisIntegration_Fetch_WithUpdaterAndCorrelation(t *testing.T) {
 	require.True(t, sweepResultsExist)
 
 	var storedSweepResults []SweepResult
+
 	err = json.Unmarshal(sweepResultsData, &storedSweepResults)
 	require.NoError(t, err)
+
 	assert.Len(t, storedSweepResults, 2)
 	assert.Equal(t, "192.168.1.1", storedSweepResults[0].IP)
 }

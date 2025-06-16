@@ -77,6 +77,7 @@ func NewArmisIntegration(
 
 	// Initialize SweepResultsQuerier if ServiceRadar API credentials are provided
 	var sweepQuerier armis.SweepResultsQuerier
+
 	serviceRadarAPIKey := config.Credentials["api_key"]
 	serviceRadarEndpoint := config.Credentials["serviceradar_endpoint"]
 
