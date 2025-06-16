@@ -19,7 +19,7 @@ use clap::Parser;
 use env_logger::Env;
 use log::{info, warn};
 use serde::Serialize;
-use std::net::SocketAddr;
+use std::{net::SocketAddr, path::PathBuf};
 use tokio::net::UdpSocket;
 
 mod config;
@@ -59,7 +59,18 @@ async fn main() -> Result<()> {
 
     let socket = UdpSocket::bind(&cfg.listen_addr).await?;
 
-    let nats_client = async_nats::connect(&cfg.nats_url).await?;
+    let nats_client = if let Some(sec) = &cfg.security {
+        let mut opts = async_nats::ConnectOptions::new();
+        if let Some(ca) = &sec.ca_file {
+            opts = opts.add_root_certificates(PathBuf::from(ca));
+        }
+        if let (Some(cert), Some(key)) = (&sec.cert_file, &sec.key_file) {
+            opts = opts.add_client_certificate(PathBuf::from(cert), PathBuf::from(key));
+        }
+        opts.connect(&cfg.nats_url).await?
+    } else {
+        async_nats::connect(&cfg.nats_url).await?
+    };
     let js = async_nats::jetstream::new(nats_client);
 
     let mut buf = vec![0u8; 65535];
