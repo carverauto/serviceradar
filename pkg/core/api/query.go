@@ -376,9 +376,10 @@ func buildCursorConditions(query *models.Query, cursorData map[string]interface{
 	op := determineOperator(direction, query.OrderBy[0].Direction)
 
 	conditions := []models.Condition{{
-		Field:    orderField,
-		Operator: op,
-		Value:    orderValue,
+		Field:     orderField,
+		Operator:  op,
+		Value:     orderValue,
+		LogicalOp: models.And,
 	}}
 
 	// Add entity-specific conditions
