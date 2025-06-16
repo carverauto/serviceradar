@@ -9,7 +9,7 @@ Create a JSON file with the following fields:
 ```json
 {
   "listen_addr": "0.0.0.0:162",
-  "nats_url": "nats://localhost:4222",
+  "nats_url": "nats://127.0.0.1:4222",
   "subject": "snmp.traps"
 }
 ```
@@ -19,7 +19,7 @@ Optionally enable TLS by adding a `security` section:
 ```json
 {
   "listen_addr": "0.0.0.0:162",
-  "nats_url": "nats://localhost:4222",
+  "nats_url": "nats://127.0.0.1:4222",
   "subject": "snmp.traps",
   "security": {
     "cert_file": "/etc/serviceradar/certs/trapd.pem",
