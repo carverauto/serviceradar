@@ -5,7 +5,7 @@ After=network-online.target
 [Service]
 Type=simple
 Environment="RUST_LOG=info"
-ExecStart=/usr/local/bin/serviceradar-trapd -config /etc/serviceradar/trapd.json
+ExecStart=/usr/local/bin/serviceradar-trapd --config /etc/serviceradar/trapd.json
 ExecReload=/bin/kill -s HUP $MAINPID
 ExecStop=/bin/kill -s SIGINT $MAINPID
 User=serviceradar
