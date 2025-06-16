@@ -6,11 +6,11 @@ use serde::Deserialize;
 use std::{fs, path::PathBuf};
 
 use async_nats::jetstream::{self, consumer::pull::Config as PullConfig, Message};
-use async_nats::{ConnectOptions, Client};
+use async_nats::{Client, ConnectOptions};
 use futures::StreamExt;
-use zen_engine::{DecisionEngine};
-use zen_engine::loader::{FilesystemLoader, FilesystemLoaderOptions};
 use zen_engine::handler::custom_node_adapter::NoopCustomNode;
+use zen_engine::loader::{FilesystemLoader, FilesystemLoaderOptions};
+use zen_engine::DecisionEngine;
 
 type EngineType = DecisionEngine<FilesystemLoader, NoopCustomNode>;
 
@@ -34,6 +34,8 @@ struct Config {
     nats_url: String,
     stream_name: String,
     consumer_name: String,
+    #[serde(default)]
+    subjects: Vec<String>,
     result_subject: Option<String>,
     decision_key: String,
     rules_dir: String,
@@ -63,6 +65,9 @@ impl Config {
         }
         if self.rules_dir.is_empty() {
             anyhow::bail!("rules_dir is required");
+        }
+        if self.subjects.is_empty() {
+            anyhow::bail!("at least one subject is required");
         }
         Ok(())
     }
@@ -95,7 +100,12 @@ fn build_engine(cfg: &Config) -> Result<EngineType> {
     ))
 }
 
-async fn process_message(engine: &EngineType, cfg: &Config, client: &Client, msg: &Message) -> Result<()> {
+async fn process_message(
+    engine: &EngineType,
+    cfg: &Config,
+    client: &Client,
+    msg: &Message,
+) -> Result<()> {
     let event: serde_json::Value = serde_json::from_slice(&msg.payload)?;
     let resp = engine
         .evaluate(&cfg.decision_key, event.into())
@@ -124,6 +134,7 @@ async fn main() -> Result<()> {
             &cfg.consumer_name,
             PullConfig {
                 durable_name: Some(cfg.consumer_name.clone()),
+                filter_subjects: cfg.subjects.clone(),
                 ..Default::default()
             },
         )
@@ -141,11 +152,17 @@ async fn main() -> Result<()> {
             let message = message.map_err(|e| anyhow::anyhow!(e.to_string()))?;
             if let Err(e) = process_message(&engine, &cfg, &client, &message).await {
                 warn!("processing failed: {e}");
-                if let Err(e) = message.ack_with(async_nats::jetstream::AckKind::Nak(None)).await {
+                if let Err(e) = message
+                    .ack_with(async_nats::jetstream::AckKind::Nak(None))
+                    .await
+                {
                     warn!("failed to NAK: {e}");
                 }
             } else {
-                message.ack().await.map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                message
+                    .ack()
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
             }
         }
     }

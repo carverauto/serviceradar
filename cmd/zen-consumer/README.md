@@ -11,6 +11,7 @@ Create a JSON file with the following fields:
   "nats_url": "nats://127.0.0.1:4222",
   "stream_name": "events",
   "consumer_name": "zen-consumer",
+  "subjects": ["events"],
   "decision_key": "example-decision",
   "rules_dir": "/etc/serviceradar/zen-rules",
   "result_subject": "events.processed"
@@ -24,6 +25,7 @@ Optionally add TLS settings:
   "nats_url": "nats://127.0.0.1:4222",
   "stream_name": "events",
   "consumer_name": "zen-consumer",
+  "subjects": ["events"],
   "decision_key": "example-decision",
   "rules_dir": "/etc/serviceradar/zen-rules",
   "result_subject": "events.processed",
