@@ -111,23 +111,44 @@ func (s *APIServer) prepareQuery(req *QueryRequest) (*models.Query, map[string]i
 		return nil, nil, fmt.Errorf("failed to parse query: %w", err)
 	}
 
-	// Validate entity
+	// Validate entity. It's good you added SweepResults here.
 	if query.Entity != models.Devices && query.Entity != models.Interfaces && query.Entity != models.SweepResults {
-		return nil, nil, errors.New("pagination is only supported for devices and interfaces")
+		return nil, nil, errors.New("pagination is only supported for devices, interfaces, and sweep_results")
 	}
 
-	// Ensure ORDER BY exists for stable pagination
+	// --- CORRECTED SECTION START ---
+
+	// Step 1: Ensure a default sort order exists if none is provided.
+	// This block should NOT be commented out.
+	var defaultOrderField string
 	if len(query.OrderBy) == 0 {
-		defaultOrderField := "_tp_time"
+		defaultOrderField = "_tp_time" // Default for Proton
 
 		if s.dbType != parser.Proton {
-			defaultOrderField = "last_seen" // Adjust for ClickHouse/ArangoDB
+			defaultOrderField = "last_seen" // Adjust for other DBs
 		}
 
 		query.OrderBy = []models.OrderByItem{
 			{Field: defaultOrderField, Direction: models.Descending},
 		}
+	} else {
+		// If an OrderBy exists, use its primary field as the "default" for the next check.
+		defaultOrderField = query.OrderBy[0].Field
 	}
+
+	// Step 2: Ensure the sort order is stable by adding a tie-breaker field.
+	// This runs after the default is set, ensuring stability for all paginated queries.
+	if len(query.OrderBy) == 1 && query.OrderBy[0].Field == defaultOrderField {
+		if query.Entity == models.SweepResults || query.Entity == models.Devices {
+			// Add 'ip' as a default secondary sort key for stable pagination.
+			query.OrderBy = append(query.OrderBy, models.OrderByItem{
+				Field:     "ip",
+				Direction: models.Descending, // Must be consistent
+			})
+		}
+	}
+
+	// --- CORRECTED SECTION END ---
 
 	// Handle cursor
 	var cursorData map[string]interface{}
@@ -138,6 +159,8 @@ func (s *APIServer) prepareQuery(req *QueryRequest) (*models.Query, map[string]i
 			return nil, nil, errors.New("invalid cursor")
 		}
 
+		// IMPORTANT: Ensure you have also replaced the `buildCursorConditions` function
+		// with the new, correct implementation as discussed previously.
 		query.Conditions = append(query.Conditions, buildCursorConditions(query, cursorData, req.Direction)...)
 	}
 
@@ -311,6 +334,7 @@ func determineOperator(direction string, sortDirection models.SortDirection) mod
 }
 
 // buildEntitySpecificConditions builds additional conditions specific to the entity type
+/*
 func buildEntitySpecificConditions(entity models.EntityType, cursorData map[string]interface{}) []models.Condition {
 	var conditions []models.Condition
 
@@ -357,46 +381,75 @@ func buildEntitySpecificConditions(entity models.EntityType, cursorData map[stri
 
 	return conditions
 }
+*/
 
+// In query.go, replace the existing buildCursorConditions with this new version
 func buildCursorConditions(query *models.Query, cursorData map[string]interface{}, direction string) []models.Condition {
-	// Guard: must have at least one order by field
 	if len(query.OrderBy) == 0 {
 		return nil
 	}
 
-	orderField := query.OrderBy[0].Field
+	// This function now correctly handles multi-column keyset pagination.
+	// It builds a clause like: (field1 < val1) OR (field1 = val1 AND field2 < val2) ...
 
-	// Guard: cursor must contain the order field
-	orderValue, ok := cursorData[orderField]
-	if !ok {
-		return nil
+	// The outer container for all the OR groups
+	var outerOrConditions []models.Condition
+
+	// Iterate through each OrderBy item to build the nested clauses
+	for i, orderItem := range query.OrderBy {
+		// Create the AND conditions for this level of nesting
+		var currentLevelAnds []models.Condition
+
+		// Add equality checks for all previous sort keys
+		for j := 0; j < i; j++ {
+			prevItem := query.OrderBy[j]
+			prevValue, ok := cursorData[prevItem.Field]
+			if !ok {
+				continue
+			} // Should not happen with a valid cursor
+			currentLevelAnds = append(currentLevelAnds, models.Condition{
+				Field:     prevItem.Field,
+				Operator:  models.Equals,
+				Value:     prevValue,
+				LogicalOp: models.And,
+			})
+		}
+
+		// Add the main inequality check for the current sort key
+		op := determineOperator(direction, orderItem.Direction)
+		cursorValue, ok := cursorData[orderItem.Field]
+		if !ok {
+			continue
+		}
+		currentLevelAnds = append(currentLevelAnds, models.Condition{
+			Field:     orderItem.Field,
+			Operator:  op,
+			Value:     cursorValue,
+			LogicalOp: models.And,
+		})
+
+		// Group the AND conditions into a complex condition
+		outerOrConditions = append(outerOrConditions, models.Condition{
+			IsComplex: true,
+			Complex:   currentLevelAnds,
+			LogicalOp: models.Or,
+		})
 	}
 
-	// Determine operator based on direction and sort order
-	op := determineOperator(direction, query.OrderBy[0].Direction)
-
-	// Build the base condition for the order field
-	baseCond := models.Condition{
-		Field:    orderField,
-		Operator: op,
-		Value:    orderValue,
+	// If there's only one OR condition, we don't need to wrap it again.
+	if len(outerOrConditions) == 1 {
+		return []models.Condition{{
+			LogicalOp: models.And,
+			IsComplex: true,
+			Complex:   outerOrConditions[0].Complex,
+		}}
 	}
 
-	// Add entity-specific conditions to be OR'ed with the base condition
-	entityConditions := buildEntitySpecificConditions(query.Entity, cursorData)
-	complexConds := []models.Condition{baseCond}
-
-	if len(entityConditions) > 0 {
-		complexConds = append(complexConds, entityConditions...)
-	}
-
-	// Wrap all cursor-related conditions in a single complex condition. This
-	// ensures the generated SQL groups them with parentheses like:
-	// WHERE ... AND (_tp_time < value OR ip != value)
+	// Wrap all the OR groups in a final complex AND condition
 	return []models.Condition{{
 		LogicalOp: models.And,
 		IsComplex: true,
-		Complex:   complexConds,
+		Complex:   outerOrConditions,
 	}}
 }
 
