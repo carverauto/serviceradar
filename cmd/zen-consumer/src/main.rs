@@ -99,7 +99,7 @@ async fn connect_nats(cfg: &Config) -> Result<(Client, jetstream::Context)> {
 
 async fn build_engine(cfg: &Config, js: &jetstream::Context) -> Result<EngineType> {
     let store = js.get_key_value(&cfg.kv_bucket).await?;
-    let prefix = format!("agents/{}/zen-rules", cfg.agent_id);
+    let prefix = format!("agents/{}", cfg.agent_id);
     let loader = KvLoader::new(store, prefix);
     Ok(DecisionEngine::new(
         std::sync::Arc::new(loader),
@@ -114,8 +114,14 @@ async fn process_message(
     msg: &Message,
 ) -> Result<()> {
     let event: serde_json::Value = serde_json::from_slice(&msg.payload)?;
+    let decision_key = format!(
+        "{}/{}/{}",
+        cfg.stream_name,
+        msg.subject,
+        cfg.decision_key
+    );
     let resp = engine
-        .evaluate(&cfg.decision_key, event.into())
+        .evaluate(&decision_key, event.into())
         .await
         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
     if let Some(subject) = &cfg.result_subject {
