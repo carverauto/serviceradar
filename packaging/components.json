@@ -616,6 +616,51 @@
     ]
   },
   {
+    "name": "flowgger",
+    "package_name": "serviceradar-flowgger",
+    "version": "1.0.43",
+    "description": "ServiceRadar Flowgger log ingestion service",
+    "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
+    "architecture": "amd64",
+    "section": "net",
+    "priority": "optional",
+    "deb": {
+      "depends": ["systemd"],
+      "dockerfile": "cmd/flowgger/Dockerfile"
+    },
+    "rpm": {
+      "depends": ["systemd"],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.rust",
+      "release": "1"
+    },
+    "binary": {
+      "build_method": "rust",
+      "source_path": "cmd/flowgger",
+      "output_path": "/usr/local/bin/serviceradar-flowgger",
+      "docker_output_path": "/output/serviceradar-flowgger"
+    },
+    "custom_steps": [],
+    "config_files": [
+      {
+        "source": "packaging/flowgger/config/flowgger.toml",
+        "dest": "/etc/serviceradar/flowgger.toml"
+      }
+    ],
+    "systemd_service": {
+      "source": "packaging/flowgger/systemd/serviceradar-flowgger.service",
+      "dest": "/lib/systemd/system/serviceradar-flowgger.service"
+    },
+    "postinst": {
+      "source": "packaging/flowgger/scripts/postinstall.sh"
+    },
+    "prerm": {
+      "source": "packaging/flowgger/scripts/preremove.sh"
+    },
+    "conffiles": [
+      "/etc/serviceradar/flowgger.toml"
+    ]
+  },
+  {
     "name": "cli",
     "package_name": "serviceradar-cli",
     "version": "1.0.43",
