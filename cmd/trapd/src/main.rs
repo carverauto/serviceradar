@@ -17,7 +17,7 @@
 use anyhow::Result;
 use clap::Parser;
 use env_logger::Env;
-use log::{error, info, warn};
+use log::{info, warn};
 use serde::Serialize;
 use std::net::SocketAddr;
 use tokio::net::UdpSocket;
@@ -70,7 +70,7 @@ async fn main() -> Result<()> {
             Ok(pdu) => {
                 let msg = build_message(&pdu, addr);
                 let payload = serde_json::to_vec(&msg)?;
-                if let Err(e) = js.publish(&cfg.subject, payload.into()).await?.await {
+                if let Err(e) = js.publish(cfg.subject.clone(), payload.into()).await?.await {
                     warn!("Failed to publish trap: {e}");
                 }
             }
