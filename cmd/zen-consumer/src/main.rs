@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use env_logger::Env;
-use log::warn;
+use log::{debug, info, warn};
 use serde::Deserialize;
 use std::{fs, path::PathBuf};
 
@@ -94,6 +94,7 @@ async fn connect_nats(cfg: &Config) -> Result<(Client, jetstream::Context)> {
         }
     }
     let client = opts.connect(&cfg.nats_url).await?;
+    info!("connected to nats at {}", cfg.nats_url);
     let js = jetstream::new(client.clone());
     Ok((client, js))
 }
@@ -102,6 +103,7 @@ async fn build_engine(cfg: &Config, js: &jetstream::Context) -> Result<SharedEng
     let store = js.get_key_value(&cfg.kv_bucket).await?;
     let prefix = format!("agents/{}", cfg.agent_id);
     let loader = KvLoader::new(store, prefix);
+    info!("initialized decision engine with bucket {}", cfg.kv_bucket);
     Ok(std::sync::Arc::new(DecisionEngine::new(
         std::sync::Arc::new(loader),
         std::sync::Arc::new(zen_engine::handler::custom_node_adapter::NoopCustomNode::default()),
@@ -114,18 +116,21 @@ async fn process_message(
     client: &Client,
     msg: &Message,
 ) -> Result<()> {
+    debug!("processing message on subject {}", msg.subject);
     let event: serde_json::Value = serde_json::from_slice(&msg.payload)?;
     let decision_key = format!("{}/{}/{}", cfg.stream_name, msg.subject, cfg.decision_key);
     let resp = engine
         .evaluate(&decision_key, event.into())
         .await
         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    debug!("decision {} evaluated", decision_key);
     if let Some(subject) = &cfg.result_subject {
         let data = serde_json::to_vec(&resp)?;
         client
             .publish(subject.clone(), data.into())
             .await
             .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        debug!("published result to {}", subject);
     }
     Ok(())
 }
@@ -138,6 +143,7 @@ async fn main() -> Result<()> {
 
     let (client, js) = connect_nats(&cfg).await?;
     let stream = js.get_stream(&cfg.stream_name).await?;
+    info!("using stream {}", cfg.stream_name);
     let consumer = stream
         .get_or_create_consumer(
             &cfg.consumer_name,
@@ -148,6 +154,7 @@ async fn main() -> Result<()> {
             },
         )
         .await?;
+    info!("using consumer {}", cfg.consumer_name);
 
     let engine = build_engine(&cfg, &js).await?;
     let watch_engine = engine.clone();
@@ -159,12 +166,15 @@ async fn main() -> Result<()> {
         }
     });
 
+    info!("waiting for messages on subjects: {:?}", cfg.subjects);
+
     loop {
         let mut messages = consumer
             .stream()
             .max_messages_per_batch(10)
             .messages()
             .await?;
+        debug!("waiting for up to 10 messages");
         while let Some(message) = messages.next().await {
             let message = message.map_err(|e| anyhow::anyhow!(e.to_string()))?;
             if let Err(e) = process_message(&engine, &cfg, &client, &message).await {
@@ -175,11 +185,17 @@ async fn main() -> Result<()> {
                 {
                     warn!("failed to NAK: {e}");
                 }
+                if let Ok(info) = message.info() {
+                    debug!("nacked message {}", info.stream_sequence);
+                }
             } else {
                 message
                     .ack()
                     .await
                     .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                if let Ok(info) = message.info() {
+                    debug!("acknowledged message {}", info.stream_sequence);
+                }
             }
         }
     }
@@ -232,6 +248,7 @@ async fn watch_rules(engine: SharedEngine, cfg: Config, js: jetstream::Context) 
     let store = js.get_key_value(&cfg.kv_bucket).await?;
     let prefix = format!("agents/{}/{}/", cfg.agent_id, cfg.stream_name);
     let mut watcher = store.watch(format!("{}>", prefix)).await?;
+    info!("watching rules under {}", prefix);
     while let Some(entry) = watcher.next().await {
         match entry {
             Ok(e) if matches!(e.operation, async_nats::jetstream::kv::Operation::Put) => {
