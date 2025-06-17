@@ -3,7 +3,7 @@ use clap::Parser;
 use env_logger::Env;
 use log::{debug, info, warn};
 use serde::Deserialize;
-use std::{fs, path::PathBuf};
+use std::{fs, path::PathBuf, time::Duration};
 
 use async_nats::jetstream::{
     self,
@@ -22,6 +22,8 @@ use kv_loader::KvLoader;
 
 type EngineType = DecisionEngine<KvLoader, NoopCustomNode>;
 type SharedEngine = std::sync::Arc<EngineType>;
+
+const BATCH_TIMEOUT: Duration = Duration::from_secs(1);
 
 #[derive(Parser, Debug)]
 #[command(name = "serviceradar-zen-consumer")]
@@ -227,9 +229,13 @@ async fn main() -> Result<()> {
         let mut messages = consumer
             .stream()
             .max_messages_per_batch(10)
+            .expires(BATCH_TIMEOUT)
             .messages()
             .await?;
-        debug!("waiting for up to 10 messages");
+        debug!(
+            "waiting for up to 10 messages or {:?} timeout",
+            BATCH_TIMEOUT
+        );
         while let Some(message) = messages.next().await {
             let message = message.map_err(|e| anyhow::anyhow!(e.to_string()))?;
             if let Err(e) = process_message(&engine, &cfg, &js, &message).await {
