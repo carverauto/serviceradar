@@ -2,7 +2,7 @@
   "nats_url": "nats://127.0.0.1:4222",
   "stream_name": "FLOWGGER",
   "consumer_name": "zen-consumer",
-  "subjects": ["logs.app"],
+  "subjects": ["syslog"],
   "decision_key": "example-decision",
   "agent_id": "agent-01",
   "kv_bucket": "serviceradar-kv",
