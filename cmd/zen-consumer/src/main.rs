@@ -144,16 +144,38 @@ async fn main() -> Result<()> {
     let (client, js) = connect_nats(&cfg).await?;
     let stream = js.get_stream(&cfg.stream_name).await?;
     info!("using stream {}", cfg.stream_name);
-    let consumer = stream
-        .get_or_create_consumer(
-            &cfg.consumer_name,
-            PullConfig {
-                durable_name: Some(cfg.consumer_name.clone()),
-                filter_subjects: cfg.subjects.clone(),
-                ..Default::default()
-            },
-        )
-        .await?;
+    let desired_cfg = PullConfig {
+        durable_name: Some(cfg.consumer_name.clone()),
+        filter_subjects: cfg.subjects.clone(),
+        ..Default::default()
+    };
+    let consumer = match stream.consumer_info(&cfg.consumer_name).await {
+        Ok(info) => {
+            if info.config.filter_subjects != cfg.subjects {
+                warn!(
+                    "consumer {} configuration changed, recreating",
+                    cfg.consumer_name
+                );
+                stream
+                    .delete_consumer(&cfg.consumer_name)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+                stream
+                    .create_consumer(desired_cfg.clone())
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?
+            } else {
+                stream
+                    .get_consumer(&cfg.consumer_name)
+                    .await
+                    .map_err(|e| anyhow::anyhow!(e.to_string()))?
+            }
+        }
+        Err(_) => stream
+            .create_consumer(desired_cfg.clone())
+            .await
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?,
+    };
     info!("using consumer {}", cfg.consumer_name);
 
     let engine = build_engine(&cfg, &js).await?;
