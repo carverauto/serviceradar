@@ -5,7 +5,12 @@ use log::{debug, info, warn};
 use serde::Deserialize;
 use std::{fs, path::PathBuf};
 
-use async_nats::jetstream::{self, consumer::pull::Config as PullConfig, Message};
+use async_nats::jetstream::{
+    self,
+    consumer::pull::Config as PullConfig,
+    stream::{Config as StreamConfig, StorageType},
+    Message,
+};
 use async_nats::{Client, ConnectOptions};
 use futures::StreamExt;
 use zen_engine::handler::custom_node_adapter::NoopCustomNode;
@@ -142,7 +147,22 @@ async fn main() -> Result<()> {
     let cfg = Config::from_file(&cli.config)?;
 
     let (_client, js) = connect_nats(&cfg).await?;
-    let stream = js.get_stream(&cfg.stream_name).await?;
+    let stream = match js.get_stream(&cfg.stream_name).await {
+        Ok(s) => s,
+        Err(_) => {
+            let mut subjects = cfg.subjects.clone();
+            if let Some(res) = &cfg.result_subject {
+                subjects.push(res.clone());
+            }
+            let sc = StreamConfig {
+                name: cfg.stream_name.clone(),
+                subjects,
+                storage: StorageType::File,
+                ..Default::default()
+            };
+            js.get_or_create_stream(sc).await?
+        }
+    };
     info!("using stream {}", cfg.stream_name);
     let desired_cfg = PullConfig {
         durable_name: Some(cfg.consumer_name.clone()),
@@ -232,9 +252,9 @@ mod tests {
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/zen-consumer.json");
         let cfg = Config::from_file(path).unwrap();
         assert_eq!(cfg.nats_url, "nats://127.0.0.1:4222");
-        assert_eq!(cfg.stream_name, "FLOWGGER");
+        assert_eq!(cfg.stream_name, "events");
         assert_eq!(cfg.consumer_name, "zen-consumer");
-        assert_eq!(cfg.subjects, vec!["syslog".to_string()]);
+        assert_eq!(cfg.subjects, vec!["events.syslog".to_string()]);
         assert_eq!(cfg.decision_key, "example-decision");
         assert_eq!(cfg.agent_id, "agent-01");
         assert_eq!(cfg.kv_bucket, "serviceradar-kv");
