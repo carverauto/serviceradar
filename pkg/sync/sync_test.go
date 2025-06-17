@@ -73,7 +73,7 @@ func TestNew_ValidConfig(t *testing.T) {
 		},
 	}
 
-	syncer, err := New(context.Background(), c, mockKV, mockGRPC, registry, mockClock)
+	syncer, err := New(context.Background(), c, mockKV, nil, nil, registry, mockClock)
 	require.NoError(t, err)
 	assert.NotNil(t, syncer)
 	assert.NotNil(t, syncer.poller)
@@ -131,7 +131,7 @@ func TestSync_Success(t *testing.T) {
 		Value: []byte("data"),
 	}, gomock.Any()).Return(&proto.PutResponse{}, nil)
 
-	syncer, err := New(context.Background(), c, mockKV, mockGRPC, registry, mockClock)
+	syncer, err := New(context.Background(), c, mockKV, nil, nil, registry, mockClock)
 	require.NoError(t, err)
 
 	err = syncer.Sync(context.Background())
@@ -149,7 +149,6 @@ func TestStartAndStop(t *testing.T) {
 	mockTicker := poller.NewMockTicker(ctrl)
 
 	mockGRPC.EXPECT().GetConnection().Return(nil).AnyTimes()
-	mockGRPC.EXPECT().Close().Return(nil)
 
 	c := &Config{
 		Sources: map[string]*models.SourceConfig{
@@ -183,7 +182,7 @@ func TestStartAndStop(t *testing.T) {
 	mockInteg.EXPECT().Fetch(gomock.Any()).Return(data, nil).Times(2) // Initial poll + 1 tick
 	mockKV.EXPECT().Put(gomock.Any(), gomock.Any(), gomock.Any()).Return(&proto.PutResponse{}, nil).Times(2)
 
-	syncer, err := New(context.Background(), c, mockKV, mockGRPC, registry, mockClock)
+	syncer, err := New(context.Background(), c, mockKV, nil, nil, registry, mockClock)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -236,7 +235,6 @@ func TestStart_ContextCancellation(t *testing.T) {
 	mockTicker := poller.NewMockTicker(ctrl)
 
 	mockGRPC.EXPECT().GetConnection().Return(nil).AnyTimes()
-	mockGRPC.EXPECT().Close().Return(nil)
 
 	c := &Config{
 		Sources: map[string]*models.SourceConfig{
@@ -286,7 +284,7 @@ func TestStart_ContextCancellation(t *testing.T) {
 		Value: []byte("data"),
 	}, gomock.Any()).Return(&proto.PutResponse{}, nil)
 
-	syncer, err := New(context.Background(), c, mockKV, mockGRPC, registry, mockClock)
+	syncer, err := New(context.Background(), c, mockKV, nil, nil, registry, mockClock)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -343,7 +341,7 @@ func TestSync_NetboxSuccess(t *testing.T) {
 		Value: []byte(`{"id":1,"name":"device1","primary_ip4":{"address":"192.168.1.1/24"}}`),
 	}, gomock.Any()).Return(&proto.PutResponse{}, nil)
 
-	syncer, err := New(context.Background(), c, mockKV, mockGRPC, registry, mockClock)
+	syncer, err := New(context.Background(), c, mockKV, nil, nil, registry, mockClock)
 	require.NoError(t, err)
 
 	err = syncer.Sync(context.Background())

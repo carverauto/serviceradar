@@ -82,6 +82,11 @@ func (a *ArmisIntegration) createAndWriteSweepConfig(ctx context.Context, ips []
 
 	log.Printf("Sweep config to be written: %+v", finalSweepConfig)
 
+	if a.KVWriter == nil {
+		log.Printf("KVWriter not configured, skipping sweep config write")
+		return nil
+	}
+
 	err := a.KVWriter.WriteSweepConfig(ctx, finalSweepConfig)
 	if err != nil {
 		// Log as warning, as per existing behavior for KV write errors during sweep config.
@@ -136,6 +141,36 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error)
 	data, devices, err := a.fetchAndProcessDevices(ctx)
 	if err != nil {
 		return nil, err
+	}
+
+	if a.JS != nil && a.Subject != "" {
+		for _, dev := range devices {
+			msg := models.Device{
+				DeviceID:        fmt.Sprintf("armis-%d", dev.ID),
+				DiscoverySource: "armis",
+				IP:              dev.IPAddress,
+				MAC:             dev.MacAddress,
+				Hostname:        dev.Name,
+				FirstSeen:       dev.FirstSeen,
+				LastSeen:        dev.LastSeen,
+				IsAvailable:     true,
+				Metadata: map[string]interface{}{
+					"armis_device_id": fmt.Sprintf("%d", dev.ID),
+					"type":            dev.Type,
+					"risk_level":      fmt.Sprintf("%d", dev.RiskLevel),
+				},
+			}
+
+			payload, perr := json.Marshal(msg)
+			if perr != nil {
+				log.Printf("Failed to marshal device %d: %v", dev.ID, perr)
+				continue
+			}
+
+			if _, perr = a.JS.Publish(ctx, a.Subject, payload); perr != nil {
+				log.Printf("Failed to publish device %d: %v", dev.ID, perr)
+			}
+		}
 	}
 
 	// Step 2: Check if the updater and querier are configured. If not, we are done.

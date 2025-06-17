@@ -22,6 +22,7 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
+	"github.com/nats-io/nats.go/jetstream"
 	"google.golang.org/grpc"
 )
 
@@ -41,6 +42,9 @@ type ArmisIntegration struct {
 	TokenProvider TokenProvider
 	DeviceFetcher DeviceFetcher
 	KVWriter      KVWriter
+
+	JS      jetstream.JetStream
+	Subject string
 
 	// Interfaces for querying sweep results and updating Armis devices
 	SweepQuerier SweepResultsQuerier
