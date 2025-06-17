@@ -25,6 +25,10 @@ Decision rules are loaded from the KV store using the following key pattern:
 agents/<agent-id>/<stream-name>/<subject>/<decision_key>.json
 ```
 
+Ensure the subject specified in `result_subject` is part of a JetStream stream
+so processed results are persisted. For example, create a stream that includes
+`events.processed` before running the consumer.
+
 Optionally add TLS settings:
 
 ```json
