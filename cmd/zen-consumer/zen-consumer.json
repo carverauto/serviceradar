@@ -1,8 +1,8 @@
 {
   "nats_url": "nats://127.0.0.1:4222",
-  "stream_name": "FLOWGGER",
+  "stream_name": "events",
   "consumer_name": "zen-consumer",
-  "subjects": ["syslog"],
+  "subjects": ["events.syslog"],
   "decision_key": "example-decision",
   "agent_id": "agent-01",
   "kv_bucket": "serviceradar-kv",

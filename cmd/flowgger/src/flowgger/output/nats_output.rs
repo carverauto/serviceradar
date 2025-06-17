@@ -47,7 +47,7 @@ impl NATSOutput {
 
         // ---- optional w/ sane defaults ----
         let stream  = cfg.lookup("output.nats_stream")
-            .map_or("FLOWGGER".into(), |v| v.as_str().unwrap().to_owned());
+            .map_or("events".into(), |v| v.as_str().unwrap().to_owned());
         let timeout = Duration::from_millis(
             cfg.lookup("output.nats_timeout")
                 .map_or(30_000, |v| v.as_integer().unwrap() as u64));
