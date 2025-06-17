@@ -20,11 +20,19 @@ RUN echo "BINARY_PATH=${BINARY_PATH}" && \
 # Copy source files - fail if not found
 COPY ${BINARY_PATH}/Cargo.toml .
 COPY ${BINARY_PATH}/Cargo.lock .
+COPY ${BINARY_PATH}/build.rs .
 COPY ${BINARY_PATH}/src ./src/
 
-RUN apt-get update && \
-	apt-get install -y openssl && \
-    rm -rf /var/lib/apt/lists/*
+#RUN apt update && \
+#	apt install -y openssl && \
+#    rm -rf /var/lib/apt/lists/*
+
+# Install openssl dependencies using dnf
+RUN dnf install -y openssl-devel && \
+    echo "OpenSSL development libraries installed successfully" && \
+    dnf clean all && \
+    echo "DNF cache cleaned"
+
 
 # Build the Rust binary
 RUN echo "Building Rust binary..." && \
@@ -38,6 +46,8 @@ COPY packaging/specs/serviceradar-${COMPONENT}.spec SPECS/
 RUN mkdir -p SOURCES/${COMPONENT}/systemd SOURCES/${COMPONENT}/config
 COPY packaging/${COMPONENT}/systemd/serviceradar-${COMPONENT}.service SOURCES/${COMPONENT}/systemd/
 COPY packaging/${COMPONENT}/config/flowgger.toml SOURCES/${COMPONENT}/config/
+COPY cmd/flowgger/build.rs ./
+
 
 # Build the RPM
 RUN sed -i "s/%{version}/${VERSION}/g" SPECS/serviceradar-${COMPONENT}.spec && \
