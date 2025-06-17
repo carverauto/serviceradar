@@ -257,8 +257,13 @@ func (*ArmisIntegration) processDevices(devices []Device) (data map[string][]byt
 	for i := range devices {
 		device := &devices[i] // Use a pointer to avoid copying the struct
 
-		// Marshal the device to JSON
-		value, err := json.Marshal(device)
+		enriched := DeviceWithMetadata{
+			Device:   *device,
+			Metadata: map[string]string{"armis_device_id": fmt.Sprintf("%d", device.ID)},
+		}
+
+		// Marshal the device with metadata to JSON
+		value, err := json.Marshal(enriched)
 		if err != nil {
 			log.Printf("Failed to marshal device %d: %v", device.ID, err)
 			continue
