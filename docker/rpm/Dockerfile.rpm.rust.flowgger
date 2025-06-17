@@ -22,6 +22,10 @@ COPY ${BINARY_PATH}/Cargo.toml .
 COPY ${BINARY_PATH}/Cargo.lock .
 COPY ${BINARY_PATH}/src ./src/
 
+RUN apt-get update && \
+	apt-get install -y openssl && \
+    rm -rf /var/lib/apt/lists/*
+
 # Build the Rust binary
 RUN echo "Building Rust binary..." && \
     cargo build --release --target x86_64-unknown-linux-gnu --verbose && \
