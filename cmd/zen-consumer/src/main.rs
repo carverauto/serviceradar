@@ -16,6 +16,7 @@ mod kv_loader;
 use kv_loader::KvLoader;
 
 type EngineType = DecisionEngine<KvLoader, NoopCustomNode>;
+type SharedEngine = std::sync::Arc<EngineType>;
 
 #[derive(Parser, Debug)]
 #[command(name = "serviceradar-zen-consumer")]
@@ -97,18 +98,18 @@ async fn connect_nats(cfg: &Config) -> Result<(Client, jetstream::Context)> {
     Ok((client, js))
 }
 
-async fn build_engine(cfg: &Config, js: &jetstream::Context) -> Result<EngineType> {
+async fn build_engine(cfg: &Config, js: &jetstream::Context) -> Result<SharedEngine> {
     let store = js.get_key_value(&cfg.kv_bucket).await?;
     let prefix = format!("agents/{}", cfg.agent_id);
     let loader = KvLoader::new(store, prefix);
-    Ok(DecisionEngine::new(
+    Ok(std::sync::Arc::new(DecisionEngine::new(
         std::sync::Arc::new(loader),
         std::sync::Arc::new(zen_engine::handler::custom_node_adapter::NoopCustomNode::default()),
-    ))
+    )))
 }
 
 async fn process_message(
-    engine: &EngineType,
+    engine: &SharedEngine,
     cfg: &Config,
     client: &Client,
     msg: &Message,
@@ -149,6 +150,14 @@ async fn main() -> Result<()> {
         .await?;
 
     let engine = build_engine(&cfg, &js).await?;
+    let watch_engine = engine.clone();
+    let watch_cfg = cfg.clone();
+    let watch_js = js.clone();
+    tokio::spawn(async move {
+        if let Err(e) = watch_rules(watch_engine, watch_cfg, watch_js).await {
+            warn!("rule watch failed: {e}");
+        }
+    });
 
     loop {
         let mut messages = consumer
@@ -217,4 +226,27 @@ mod tests {
         let parsed: zen_engine::model::DecisionContent = serde_json::from_str(&data).unwrap();
         assert!(!parsed.nodes.is_empty());
     }
+}
+
+async fn watch_rules(engine: SharedEngine, cfg: Config, js: jetstream::Context) -> Result<()> {
+    let store = js.get_key_value(&cfg.kv_bucket).await?;
+    let prefix = format!("agents/{}/{}/", cfg.agent_id, cfg.stream_name);
+    let mut watcher = store.watch(format!("{}>", prefix)).await?;
+    while let Some(entry) = watcher.next().await {
+        match entry {
+            Ok(e) if matches!(e.operation, async_nats::jetstream::kv::Operation::Put) => {
+                if let Err(err) = engine.get_decision(&e.key).await {
+                    warn!("failed to reload rule {}: {}", e.key, err);
+                } else {
+                    log::info!("reloaded rule {} revision {}", e.key, e.revision);
+                }
+            }
+            Ok(_) => {}
+            Err(err) => {
+                warn!("watch error: {err}");
+                break;
+            }
+        }
+    }
+    Ok(())
 }
