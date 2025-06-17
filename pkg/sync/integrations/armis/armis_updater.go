@@ -1,9 +1,11 @@
 package armis
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -244,19 +246,112 @@ func (a *ArmisIntegration) BatchUpdateDeviceAttributes(ctx context.Context, devi
 }
 
 // UpdateDeviceStatus sends device availability status back to Armis
-func (*DefaultArmisUpdater) UpdateDeviceStatus(_ context.Context, updates []ArmisDeviceStatus) error {
-	// TODO: Implement based on Armis API documentation
-	log.Printf("UpdateDeviceStatus called with %d updates (not implemented)", len(updates))
+func (u *DefaultArmisUpdater) UpdateDeviceStatus(ctx context.Context, updates []ArmisDeviceStatus) error {
+	if len(updates) == 0 {
+		return nil
+	}
+
+	accessToken, err := u.TokenProvider.GetAccessToken(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get access token: %w", err)
+	}
+
+	type upsertBody struct {
+		Upsert struct {
+			DeviceID int         `json:"deviceId"`
+			Key      string      `json:"key"`
+			Value    interface{} `json:"value"`
+		} `json:"upsert"`
+	}
+
+	operations := make([]upsertBody, 0, len(updates)*3)
+
+	for _, upd := range updates {
+		// Always send availability and last checked
+		opAvail := upsertBody{}
+		opAvail.Upsert.DeviceID = upd.DeviceID
+		opAvail.Upsert.Key = "serviceradar_available"
+		opAvail.Upsert.Value = upd.Available
+		operations = append(operations, opAvail)
+
+		opChecked := upsertBody{}
+		opChecked.Upsert.DeviceID = upd.DeviceID
+		opChecked.Upsert.Key = "serviceradar_last_checked"
+		opChecked.Upsert.Value = upd.LastChecked.Format(time.RFC3339)
+		operations = append(operations, opChecked)
+
+		if upd.RTT > 0 {
+			opRTT := upsertBody{}
+			opRTT.Upsert.DeviceID = upd.DeviceID
+			opRTT.Upsert.Key = "serviceradar_rtt_ms"
+			opRTT.Upsert.Value = upd.RTT
+			operations = append(operations, opRTT)
+		}
+
+		if upd.ServiceRadarURL != "" {
+			opURL := upsertBody{}
+			opURL.Upsert.DeviceID = upd.DeviceID
+			opURL.Upsert.Key = "serviceradar_url"
+			opURL.Upsert.Value = upd.ServiceRadarURL
+			operations = append(operations, opURL)
+		}
+	}
+
+	bodyBytes, err := json.Marshal(operations)
+	if err != nil {
+		return fmt.Errorf("failed to marshal payload: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		fmt.Sprintf("%s/api/v1/devices/custom-properties/_bulk/", u.Config.Endpoint),
+		bytes.NewReader(bodyBytes))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", accessToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := u.HTTPClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return fmt.Errorf("%w: %d, response: %s", errUnexpectedStatusCode, resp.StatusCode, string(respBody))
+	}
+
+	log.Printf("Armis bulk update response: %s", string(respBody))
 	return nil
 }
 
 // UpdateDeviceCustomAttributes updates custom attributes on Armis devices
-func (*DefaultArmisUpdater) UpdateDeviceCustomAttributes(_ context.Context, deviceID int, attributes map[string]interface{}) error {
-	// TODO: Implement based on Armis API documentation
-	log.Printf("UpdateDeviceCustomAttributes called for device %d (not implemented)", deviceID)
+func (u *DefaultArmisUpdater) UpdateDeviceCustomAttributes(ctx context.Context, deviceID int, attributes map[string]interface{}) error {
+	if len(attributes) == 0 {
+		return nil
+	}
 
-	// print attributes for debugging
-	log.Printf("Attributes: %v", attributes)
+	updates := make([]ArmisDeviceStatus, 1)
+	updates[0].DeviceID = deviceID
 
-	return nil
+	if v, ok := attributes["serviceradar_available"].(bool); ok {
+		updates[0].Available = v
+	}
+	if v, ok := attributes["serviceradar_last_checked"].(string); ok {
+		if ts, err := time.Parse(time.RFC3339, v); err == nil {
+			updates[0].LastChecked = ts
+		}
+	}
+	if v, ok := attributes["serviceradar_rtt_ms"].(float64); ok {
+		updates[0].RTT = v
+	}
+	if v, ok := attributes["serviceradar_url"].(string); ok {
+		updates[0].ServiceRadarURL = v
+	}
+
+	return u.UpdateDeviceStatus(ctx, updates)
 }
