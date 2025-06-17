@@ -17,3 +17,7 @@ serde_json = "1.0"
 tokio = { version = "1.44", features = ["full"] }
 zen-engine = "0.47"
 futures = "0.3"
+
+[[bin]]
+name = "zen-put-rule"
+path = "src/bin/put_rule.rs"
