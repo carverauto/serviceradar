@@ -144,6 +144,7 @@ The Armis integration:
 - Fetches device information from Armis
 - Creates device records in the KV store
 - Automatically generates network sweep configurations for discovered devices
+- Stores the Armis device ID in each device's metadata for later correlation
 
 #### Armis-Specific Options
 
