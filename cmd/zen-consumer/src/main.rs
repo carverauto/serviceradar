@@ -46,6 +46,7 @@ struct Config {
     #[serde(default)]
     subjects: Vec<String>,
     result_subject: Option<String>,
+    result_subject_suffix: Option<String>,
     decision_key: String,
     #[serde(default = "default_kv_bucket")]
     kv_bucket: String,
@@ -129,8 +130,15 @@ async fn process_message(
         .await
         .map_err(|e| anyhow::anyhow!(e.to_string()))?;
     debug!("decision {} evaluated", decision_key);
-    if let Some(subject) = &cfg.result_subject {
-        let data = serde_json::to_vec(&resp)?;
+    let data = serde_json::to_vec(&resp)?;
+    if let Some(suffix) = &cfg.result_subject_suffix {
+        let result_subject = format!("{}.{}", msg.subject, suffix.trim_start_matches('.'));
+        js.publish(result_subject.clone(), data.clone().into())
+            .await?
+            .await
+            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        debug!("published result to {}", result_subject);
+    } else if let Some(subject) = &cfg.result_subject {
         js.publish(subject.clone(), data.into())
             .await?
             .await
@@ -153,6 +161,11 @@ async fn main() -> Result<()> {
             let mut subjects = cfg.subjects.clone();
             if let Some(res) = &cfg.result_subject {
                 subjects.push(res.clone());
+            }
+            if let Some(suffix) = &cfg.result_subject_suffix {
+                for s in &cfg.subjects {
+                    subjects.push(format!("{}.{}", s, suffix.trim_start_matches('.')));
+                }
             }
             let sc = StreamConfig {
                 name: cfg.stream_name.clone(),
@@ -258,7 +271,7 @@ mod tests {
         assert_eq!(cfg.decision_key, "example-decision");
         assert_eq!(cfg.agent_id, "agent-01");
         assert_eq!(cfg.kv_bucket, "serviceradar-kv");
-        assert_eq!(cfg.result_subject.as_deref(), Some("events.processed"));
+        assert_eq!(cfg.result_subject_suffix.as_deref(), Some(".processed"));
     }
 
     #[test]
@@ -269,6 +282,7 @@ mod tests {
             consumer_name: String::new(),
             subjects: Vec::new(),
             result_subject: None,
+            result_subject_suffix: None,
             decision_key: String::new(),
             kv_bucket: String::new(),
             agent_id: String::new(),
