@@ -21,11 +21,13 @@ import (
 	"log"
 	"sync"
 
-	"github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/poller"
 	"github.com/carverauto/serviceradar/pkg/sync/integrations"
 	"github.com/carverauto/serviceradar/proto"
+	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
+	grpcstd "google.golang.org/grpc"
 )
 
 const (
@@ -35,12 +37,13 @@ const (
 
 // SyncPoller manages synchronization using poller.Poller.
 type SyncPoller struct {
-	poller     *poller.Poller
-	config     Config
-	kvClient   KVClient
-	grpcClient GRPCClient
-	sources    map[string]Integration
-	registry   map[string]IntegrationFactory
+	poller   *poller.Poller
+	config   Config
+	kvClient KVClient
+	js       jetstream.JetStream
+	natsConn *nats.Conn
+	sources  map[string]Integration
+	registry map[string]IntegrationFactory
 }
 
 // New creates a new SyncPoller with explicit dependencies, leveraging poller.Poller.
@@ -48,7 +51,8 @@ func New(
 	ctx context.Context,
 	config *Config,
 	kvClient KVClient,
-	grpcClient GRPCClient,
+	js jetstream.JetStream,
+	nc *nats.Conn,
 	registry map[string]IntegrationFactory,
 	clock poller.Clock,
 ) (*SyncPoller, error) {
@@ -73,12 +77,13 @@ func New(
 	}
 
 	s := &SyncPoller{
-		poller:     p,
-		config:     *config,
-		kvClient:   kvClient,
-		grpcClient: grpcClient,
-		sources:    make(map[string]Integration),
-		registry:   registry,
+		poller:   p,
+		config:   *config,
+		kvClient: kvClient,
+		js:       js,
+		natsConn: nc,
+		sources:  make(map[string]Integration),
+		registry: registry,
 	}
 
 	s.initializeIntegrations(ctx)
@@ -93,13 +98,25 @@ func New(
 func defaultIntegrationRegistry(
 	kvClient proto.KVServiceClient,
 	grpcClient GRPCClient,
-	serverName string) map[string]IntegrationFactory {
+	serverName string,
+	js jetstream.JetStream,
+	subjectPrefix string,
+) map[string]IntegrationFactory {
 	return map[string]IntegrationFactory{
 		integrationTypeArmis: func(ctx context.Context, config *models.SourceConfig) Integration {
-			return integrations.NewArmisIntegration(ctx, config, kvClient, grpcClient.GetConnection(), serverName)
+			subject := subjectPrefix + ".armis"
+			var conn *grpcstd.ClientConn
+			if grpcClient != nil {
+				conn = grpcClient.GetConnection()
+			}
+			return integrations.NewArmisIntegration(ctx, config, kvClient, conn, serverName, js, subject)
 		},
 		integrationTypeNetbox: func(ctx context.Context, config *models.SourceConfig) Integration {
-			integ := integrations.NewNetboxIntegration(ctx, config, kvClient, grpcClient.GetConnection(), serverName)
+			var conn *grpcstd.ClientConn
+			if grpcClient != nil {
+				conn = grpcClient.GetConnection()
+			}
+			integ := integrations.NewNetboxIntegration(ctx, config, kvClient, conn, serverName)
 			// Allow override via config
 			if val, ok := config.Credentials["expand_subnets"]; ok && val == "true" {
 				integ.ExpandSubnets = true
@@ -111,26 +128,24 @@ func defaultIntegrationRegistry(
 
 // NewWithGRPC sets up the gRPC client for production use with default integrations.
 func NewWithGRPC(ctx context.Context, config *Config) (*SyncPoller, error) {
-	clientCfg := grpc.ClientConfig{
-		Address:    config.KVAddress,
-		MaxRetries: 3,
-	}
-
+	var natsOpts []nats.Option
 	if config.Security != nil {
-		provider, err := grpc.NewSecurityProvider(ctx, config.Security)
-		if err != nil {
-			return nil, err
-		}
-
-		clientCfg.SecurityProvider = provider
+		natsOpts = append(natsOpts,
+			nats.ClientCert(config.Security.TLS.CertFile, config.Security.TLS.KeyFile),
+			nats.RootCAs(config.Security.TLS.CAFile),
+		)
 	}
 
-	client, err := grpc.NewClient(ctx, clientCfg)
+	nc, err := nats.Connect(config.NATSURL, natsOpts...)
 	if err != nil {
 		return nil, err
 	}
 
-	kvClient := proto.NewKVServiceClient(client.GetConnection())
+	js, err := jetstream.New(nc)
+	if err != nil {
+		nc.Close()
+		return nil, err
+	}
 
 	// Use config.Security.ServerName if available, otherwise default to empty string
 	serverName := ""
@@ -138,7 +153,7 @@ func NewWithGRPC(ctx context.Context, config *Config) (*SyncPoller, error) {
 		serverName = config.Security.ServerName
 	}
 
-	return New(ctx, config, kvClient, client, defaultIntegrationRegistry(kvClient, client, serverName), nil)
+	return New(ctx, config, nil, js, nc, defaultIntegrationRegistry(nil, nil, serverName, js, "discovery.devices"), nil)
 }
 
 func (s *SyncPoller) initializeIntegrations(ctx context.Context) {
@@ -168,14 +183,8 @@ func (s *SyncPoller) Start(ctx context.Context) error {
 func (s *SyncPoller) Stop(ctx context.Context) error {
 	err := s.poller.Stop(ctx)
 
-	if s.grpcClient != nil {
-		if closeErr := s.grpcClient.Close(); closeErr != nil {
-			log.Printf("Failed to close gRPC client: %v", closeErr)
-
-			if err == nil {
-				err = closeErr
-			}
-		}
+	if s.natsConn != nil {
+		s.natsConn.Close()
 	}
 
 	return err
