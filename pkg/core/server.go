@@ -1316,10 +1316,15 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, n
 			metadata = make(map[string]string)
 		}
 
+		discoverySrc := "sweep"
+		if src, ok := metadata["discovery_source"]; ok && src != "" {
+			discoverySrc = src
+		}
+
 		sweepResult := &models.SweepResult{
 			AgentID:         svc.AgentID,
 			PollerID:        svc.PollerID,
-			DiscoverySource: "sweep",
+			DiscoverySource: discoverySrc,
 			IP:              host.IP,
 			MAC:             host.MAC,
 			Hostname:        host.Hostname,

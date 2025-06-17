@@ -47,6 +47,10 @@ func TestArmisIntegration_Fetch_NoUpdater(t *testing.T) {
 	firstPageResp := getFirstPageResponse(expectedDevices)
 	expectedSweepConfig := &models.SweepConfig{
 		Networks: []string{"192.168.1.1/32", "192.168.1.2/32"},
+		HostMetadata: map[string]map[string]string{
+			"192.168.1.1": {"armis_device_id": "1", "discovery_source": "armis"},
+			"192.168.1.2": {"armis_device_id": "2", "discovery_source": "armis"},
+		},
 	}
 
 	setupArmisMocks(t, mocks, firstPageResp, expectedSweepConfig)
@@ -292,6 +296,12 @@ func TestArmisIntegration_FetchWithMultiplePages(t *testing.T) {
 	expectedQuery := "in:devices orderBy=id"
 	expectedSweepConfig := &models.SweepConfig{
 		Networks: []string{"192.168.1.1/32", "192.168.1.2/32", "192.168.1.3/32", "192.168.1.4/32"},
+		HostMetadata: map[string]map[string]string{
+			"192.168.1.1": {"armis_device_id": "1", "discovery_source": "armis"},
+			"192.168.1.2": {"armis_device_id": "2", "discovery_source": "armis"},
+			"192.168.1.3": {"armis_device_id": "3", "discovery_source": "armis"},
+			"192.168.1.4": {"armis_device_id": "4", "discovery_source": "armis"},
+		},
 	}
 
 	integration.TokenProvider.(*MockTokenProvider).
@@ -380,7 +390,7 @@ func TestArmisIntegration_FetchErrorHandling(t *testing.T) {
 					"test-token", "in:devices orderBy=id", 0, 100).Return(firstPageResp, nil)
 				i.KVWriter.(*MockKVWriter).
 					EXPECT().WriteSweepConfig(gomock.Any(),
-					&models.SweepConfig{Networks: []string{"192.168.1.1/32"}}).Return(errKVWriteError)
+					&models.SweepConfig{Networks: []string{"192.168.1.1/32"}, HostMetadata: map[string]map[string]string{"192.168.1.1": {"armis_device_id": "1", "discovery_source": "armis"}}}).Return(errKVWriteError)
 			},
 			expectedError: "",
 		},

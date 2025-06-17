@@ -53,6 +53,7 @@ type unmarshalConfig struct {
 		Timeout     durationWrapper `json:"timeout,omitempty"`
 		MaxBatch    int             `json:"max_batch"`
 	} `json:"tcp_settings"`
-	EnableHighPerformanceICMP bool `json:"high_perf_icmp,omitempty"`
-	ICMPRateLimit             int  `json:"icmp_rate_limit,omitempty"`
+	EnableHighPerformanceICMP bool                         `json:"high_perf_icmp,omitempty"`
+	ICMPRateLimit             int                          `json:"icmp_rate_limit,omitempty"`
+	HostMetadata              map[string]map[string]string `json:"host_metadata,omitempty"`
 }

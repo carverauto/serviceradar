@@ -65,18 +65,26 @@ func (a *ArmisIntegration) fetchDevicesForQuery(
 }
 
 // createAndWriteSweepConfig creates a sweep config from the given IPs and writes it to the KV store.
-func (a *ArmisIntegration) createAndWriteSweepConfig(ctx context.Context, ips []string) error {
+func (a *ArmisIntegration) createAndWriteSweepConfig(ctx context.Context, ips []string, hostMeta map[string]map[string]string) error {
 	// Build sweep config using the base SweeperConfig from the integration instance
 	var finalSweepConfig *models.SweepConfig
 
 	if a.SweeperConfig != nil {
 		clonedConfig := *a.SweeperConfig // Shallow copy is generally fine for models.SweepConfig
 		clonedConfig.Networks = ips      // Update with dynamically fetched IPs
+		if clonedConfig.HostMetadata == nil {
+			clonedConfig.HostMetadata = hostMeta
+		} else {
+			for k, v := range hostMeta {
+				clonedConfig.HostMetadata[k] = v
+			}
+		}
 		finalSweepConfig = &clonedConfig
 	} else {
 		// If SweeperConfig is nil, create a new one with just the networks
 		finalSweepConfig = &models.SweepConfig{
-			Networks: ips,
+			Networks:     ips,
+			HostMetadata: hostMeta,
 		}
 	}
 
@@ -120,11 +128,11 @@ func (a *ArmisIntegration) fetchAndProcessDevices(ctx context.Context) (map[stri
 	}
 
 	// Process devices
-	data, ips := a.processDevices(allDevices)
+	data, ips, hostMeta := a.processDevices(allDevices)
 	log.Printf("Fetched total of %d devices from Armis", len(allDevices))
 
 	// Create and write sweep config
-	_ = a.createAndWriteSweepConfig(ctx, ips)
+	_ = a.createAndWriteSweepConfig(ctx, ips, hostMeta)
 
 	return data, allDevices, nil
 }
@@ -250,9 +258,10 @@ func (d *DefaultArmisIntegration) FetchDevicesPage(
 }
 
 // processDevices converts devices to KV data and extracts IPs.
-func (*ArmisIntegration) processDevices(devices []Device) (data map[string][]byte, ips []string) {
+func (*ArmisIntegration) processDevices(devices []Device) (data map[string][]byte, ips []string, hostMeta map[string]map[string]string) {
 	data = make(map[string][]byte)
 	ips = make([]string, 0, len(devices))
+	hostMeta = make(map[string]map[string]string)
 
 	for i := range devices {
 		device := &devices[i] // Use a pointer to avoid copying the struct
@@ -283,10 +292,14 @@ func (*ArmisIntegration) processDevices(devices []Device) (data map[string][]byt
 				if ip != "" {
 					// Add to sweep list with /32 suffix
 					ips = append(ips, ip+"/32")
+					hostMeta[ip] = map[string]string{
+						"armis_device_id":  fmt.Sprintf("%d", device.ID),
+						"discovery_source": "armis",
+					}
 				}
 			}
 		}
 	}
 
-	return data, ips
+	return data, ips, hostMeta
 }

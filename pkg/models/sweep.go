@@ -56,8 +56,9 @@ type Config struct {
 		Timeout     time.Duration
 		MaxBatch    int
 	}
-	EnableHighPerformanceICMP bool `json:"high_perf_icmp,omitempty"`
-	ICMPRateLimit             int  `json:"icmp_rate_limit,omitempty"`
+	EnableHighPerformanceICMP bool                         `json:"high_perf_icmp,omitempty"`
+	ICMPRateLimit             int                          `json:"icmp_rate_limit,omitempty"`
+	HostMetadata              map[string]map[string]string `json:"host_metadata,omitempty"`
 }
 
 type SweepMode string
@@ -150,13 +151,14 @@ type SweepSummary struct {
 
 // SweepConfig defines the network sweep tool configuration.
 type SweepConfig struct {
-	Networks      []string `json:"networks"`
-	Ports         []int    `json:"ports"`
-	SweepModes    []string `json:"sweep_modes"`
-	Interval      string   `json:"interval"`
-	Concurrency   int      `json:"concurrency"`
-	Timeout       string   `json:"timeout"`
-	IcmpCount     int      `json:"icmp_count"`
-	HighPerfIcmp  bool     `json:"high_perf_icmp"`
-	IcmpRateLimit int      `json:"icmp_rate_limit"`
+	Networks      []string                     `json:"networks"`
+	Ports         []int                        `json:"ports"`
+	SweepModes    []string                     `json:"sweep_modes"`
+	Interval      string                       `json:"interval"`
+	Concurrency   int                          `json:"concurrency"`
+	Timeout       string                       `json:"timeout"`
+	IcmpCount     int                          `json:"icmp_count"`
+	HighPerfIcmp  bool                         `json:"high_perf_icmp"`
+	IcmpRateLimit int                          `json:"icmp_rate_limit"`
+	HostMetadata  map[string]map[string]string `json:"host_metadata,omitempty"`
 }

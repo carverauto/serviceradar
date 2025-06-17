@@ -434,6 +434,15 @@ func (s *NetworkSweeper) processResult(ctx context.Context, result *models.Resul
 	return nil
 }
 
+func cloneMap(in map[string]interface{}) map[string]interface{} {
+	out := make(map[string]interface{}, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+
+	return out
+}
+
 // generateTargets creates scan targets from the configuration.
 func (s *NetworkSweeper) generateTargets() ([]models.Target, error) {
 	var targets []models.Target
@@ -453,17 +462,32 @@ func (s *NetworkSweeper) generateTargets() ([]models.Target, error) {
 			"total_hosts": len(ips),
 		}
 
+		hostMeta := s.config.HostMetadata
+
 		for _, ip := range ips {
 			if containsMode(s.config.SweepModes, models.ModeICMP) {
 				target := scan.TargetFromIP(ip, models.ModeICMP)
-				target.Metadata = metadata
+				// Clone base metadata per target
+				m := cloneMap(metadata)
+				if hm, ok := hostMeta[ip]; ok {
+					for k, v := range hm {
+						m[k] = v
+					}
+				}
+				target.Metadata = m
 				targets = append(targets, target)
 			}
 
 			if containsMode(s.config.SweepModes, models.ModeTCP) {
 				for _, port := range s.config.Ports {
 					target := scan.TargetFromIP(ip, models.ModeTCP, port)
-					target.Metadata = metadata
+					m := cloneMap(metadata)
+					if hm, ok := hostMeta[ip]; ok {
+						for k, v := range hm {
+							m[k] = v
+						}
+					}
+					target.Metadata = m
 					targets = append(targets, target)
 				}
 			}
