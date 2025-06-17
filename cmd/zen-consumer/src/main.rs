@@ -113,7 +113,7 @@ async fn build_engine(cfg: &Config, js: &jetstream::Context) -> Result<SharedEng
 async fn process_message(
     engine: &SharedEngine,
     cfg: &Config,
-    client: &Client,
+    js: &jetstream::Context,
     msg: &Message,
 ) -> Result<()> {
     debug!("processing message on subject {}", msg.subject);
@@ -126,8 +126,8 @@ async fn process_message(
     debug!("decision {} evaluated", decision_key);
     if let Some(subject) = &cfg.result_subject {
         let data = serde_json::to_vec(&resp)?;
-        client
-            .publish(subject.clone(), data.into())
+        js.publish(subject.clone(), data.into())
+            .await?
             .await
             .map_err(|e| anyhow::anyhow!(e.to_string()))?;
         debug!("published result to {}", subject);
@@ -141,7 +141,7 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     let cfg = Config::from_file(&cli.config)?;
 
-    let (client, js) = connect_nats(&cfg).await?;
+    let (_client, js) = connect_nats(&cfg).await?;
     let stream = js.get_stream(&cfg.stream_name).await?;
     info!("using stream {}", cfg.stream_name);
     let desired_cfg = PullConfig {
@@ -199,7 +199,7 @@ async fn main() -> Result<()> {
         debug!("waiting for up to 10 messages");
         while let Some(message) = messages.next().await {
             let message = message.map_err(|e| anyhow::anyhow!(e.to_string()))?;
-            if let Err(e) = process_message(&engine, &cfg, &client, &message).await {
+            if let Err(e) = process_message(&engine, &cfg, &js, &message).await {
                 warn!("processing failed: {e}");
                 if let Err(e) = message
                     .ack_with(async_nats::jetstream::AckKind::Nak(None))
@@ -232,9 +232,9 @@ mod tests {
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/zen-consumer.json");
         let cfg = Config::from_file(path).unwrap();
         assert_eq!(cfg.nats_url, "nats://127.0.0.1:4222");
-        assert_eq!(cfg.stream_name, "events");
+        assert_eq!(cfg.stream_name, "FLOWGGER");
         assert_eq!(cfg.consumer_name, "zen-consumer");
-        assert_eq!(cfg.subjects, vec!["events".to_string()]);
+        assert_eq!(cfg.subjects, vec!["syslog".to_string()]);
         assert_eq!(cfg.decision_key, "example-decision");
         assert_eq!(cfg.agent_id, "agent-01");
         assert_eq!(cfg.kv_bucket, "serviceradar-kv");
