@@ -31,13 +31,14 @@ const (
 
 var (
 	errMissingSources = errors.New("at least one source must be defined")
-	errMissingKV      = errors.New("kv_address is required")
+	errMissingNATS    = errors.New("nats_url is required")
 	errMissingFields  = errors.New("source missing required fields (type, endpoint, prefix)")
 )
 
 type Config struct {
 	Sources      map[string]*models.SourceConfig `json:"sources"`       // e.g., "armis": {...}, "netbox": {...}
-	KVAddress    string                          `json:"kv_address"`    // KV gRPC server address
+	KVAddress    string                          `json:"kv_address"`    // KV gRPC server address (optional)
+	NATSURL      string                          `json:"nats_url"`      // NATS server URL for JetStream
 	PollInterval models.Duration                 `json:"poll_interval"` // Polling interval
 	Security     *models.SecurityConfig          `json:"security"`      // mTLS config
 }
@@ -47,8 +48,8 @@ func (c *Config) Validate() error {
 		return errMissingSources
 	}
 
-	if c.KVAddress == "" {
-		return errMissingKV
+	if c.NATSURL == "" {
+		c.NATSURL = "nats://localhost:4222"
 	}
 
 	if time.Duration(c.PollInterval) == 0 {

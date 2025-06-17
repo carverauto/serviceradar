@@ -117,3 +117,43 @@ func (db *DB) GetDeviceByID(ctx context.Context, deviceID string) (*models.Devic
 
 	return &d, nil
 }
+
+// StoreDevices stores a batch of devices into the devices stream.
+func (db *DB) StoreDevices(ctx context.Context, devices []*models.Device) error {
+	if len(devices) == 0 {
+		return nil
+	}
+
+	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO devices (* except _tp_time)")
+	if err != nil {
+		return fmt.Errorf("failed to prepare batch: %w", err)
+	}
+
+	for _, d := range devices {
+		meta := make(map[string]string)
+		for k, v := range d.Metadata {
+			meta[k] = fmt.Sprintf("%v", v)
+		}
+
+		if err := batch.Append(
+			d.DeviceID,
+			d.PollerID,
+			d.DiscoverySource,
+			d.IP,
+			d.MAC,
+			d.Hostname,
+			d.FirstSeen,
+			d.LastSeen,
+			d.IsAvailable,
+			meta,
+		); err != nil {
+			log.Printf("Failed to append device %s: %v", d.DeviceID, err)
+		}
+	}
+
+	if err := batch.Send(); err != nil {
+		return fmt.Errorf("failed to send batch: %w", err)
+	}
+
+	return nil
+}
