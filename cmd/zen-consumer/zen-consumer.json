@@ -6,7 +6,7 @@
   "decision_key": "example-decision",
   "agent_id": "agent-01",
   "kv_bucket": "serviceradar-kv",
-  "result_subject": "events.processed",
+  "result_subject_suffix": ".processed",
   "security": {
     "cert_file": "/Users/mfreeman/src/flowgger-tls-test/client-cert.pem",
     "key_file": "/Users/mfreeman/src/flowgger-tls-test/client-key.pem",

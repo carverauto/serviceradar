@@ -36,6 +36,7 @@ struct Config {
     #[serde(default)]
     subjects: Vec<String>,
     result_subject: Option<String>,
+    result_subject_suffix: Option<String>,
     decision_key: String,
     #[serde(default = "default_kv_bucket")]
     kv_bucket: String,
