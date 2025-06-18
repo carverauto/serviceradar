@@ -46,6 +46,7 @@ The Sync service is configured via `/etc/serviceradar/sync.json`:
   "kv_address": "192.168.2.23:50057",
   "listen_addr": "192.168.2.23:50058",
   "poll_interval": "5m",
+  "nats_url": "tls://192.168.2.23:4222",
   "security": {
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
@@ -80,6 +81,7 @@ The Sync service is configured via `/etc/serviceradar/sync.json`:
 | `kv_address` | Address and port of the KV service | N/A | Yes |
 | `listen_addr` | Address and port for the Sync service to listen on | N/A | Yes |
 | `poll_interval` | How often to fetch and update data | `30m` | No |
+| `nats_url` | URL for connecting to the NATS Server | `nats://127.0.0.1:4222` | No |
 | `security` | mTLS security settings | N/A | Yes |
 
 ### Source Configuration
@@ -416,6 +418,7 @@ Here's a comprehensive example that includes multiple data sources:
   "kv_address": "192.168.2.23:50057",
   "listen_addr": "192.168.2.23:50058",
   "poll_interval": "5m",
+  "nats_url": "tls://192.168.2.23:4222",
   "security": {
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
