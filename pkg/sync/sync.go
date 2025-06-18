@@ -340,6 +340,8 @@ func (s *SyncPoller) publishDevices(ctx context.Context, sourceType string, devi
 		subject = s.config.Domain + "." + subject
 	}
 
+	log.Printf("Publishing to subject: %s", subject)
+
 	for _, dev := range devices {
 		payload, err := json.Marshal(dev)
 		if err != nil {
