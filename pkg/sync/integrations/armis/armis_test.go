@@ -103,7 +103,7 @@ func TestArmisIntegration_Fetch_WithUpdaterAndCorrelation(t *testing.T) {
 		}).Return(nil)
 
 	// 3. Execute the method under test
-	result, devices, err := integration.Fetch(context.Background())
+	result, _, err := integration.Fetch(context.Background())
 
 	// 4. Assert the results
 	require.NoError(t, err)
@@ -305,7 +305,7 @@ func TestArmisIntegration_FetchWithMultiplePages(t *testing.T) {
 	integration.KVWriter.(*MockKVWriter).
 		EXPECT().WriteSweepConfig(gomock.Any(), expectedSweepConfig).Return(nil)
 
-	result, devices, err := integration.Fetch(context.Background())
+	result, _, err := integration.Fetch(context.Background())
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -392,7 +392,7 @@ func TestArmisIntegration_FetchErrorHandling(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.setupMocks(integration)
 
-			result, devices, err := integration.Fetch(context.Background())
+			result, _, err := integration.Fetch(context.Background())
 			if tc.expectedError != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.expectedError)
@@ -428,7 +428,7 @@ func TestArmisIntegration_FetchNoQueries(t *testing.T) {
 		KVWriter:      NewMockKVWriter(ctrl),
 	}
 
-	result, devices, err := integration.Fetch(context.Background())
+	result, _, err := integration.Fetch(context.Background())
 
 	assert.Nil(t, result)
 	require.Error(t, err)
