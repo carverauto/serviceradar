@@ -33,6 +33,7 @@ var (
 	errMissingSources = errors.New("at least one source must be defined")
 	errMissingNATS    = errors.New("nats_url is required")
 	errMissingFields  = errors.New("source missing required fields (type, endpoint, prefix)")
+	errMissingStream  = errors.New("stream_name is required")
 )
 
 type Config struct {
@@ -40,6 +41,8 @@ type Config struct {
 	KVAddress    string                          `json:"kv_address"`    // KV gRPC server address (optional)
 	NATSURL      string                          `json:"nats_url"`      // NATS server URL for JetStream
 	Domain       string                          `json:"domain"`        // JetStream domain (optional)
+	StreamName   string                          `json:"stream_name"`   // JetStream stream name
+	Subject      string                          `json:"subject"`       // Subject prefix for device publishes
 	PollInterval models.Duration                 `json:"poll_interval"` // Polling interval
 	Security     *models.SecurityConfig          `json:"security"`      // mTLS config for gRPC/KV
 	NATSSecurity *models.SecurityConfig          `json:"nats_security"` // Optional mTLS config for NATS
@@ -52,6 +55,14 @@ func (c *Config) Validate() error {
 
 	if c.NATSURL == "" {
 		c.NATSURL = "nats://localhost:4222"
+	}
+
+	if c.StreamName == "" {
+		return errMissingStream
+	}
+
+	if c.Subject == "" {
+		c.Subject = "discovery.devices"
 	}
 
 	if time.Duration(c.PollInterval) == 0 {

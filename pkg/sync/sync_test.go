@@ -51,6 +51,8 @@ func TestNew_ValidConfig(t *testing.T) {
 		},
 		KVAddress:    "localhost:50051",
 		PollInterval: models.Duration(1 * time.Second),
+		StreamName:   "devices",
+		Subject:      "discovery.devices",
 		Security: &models.SecurityConfig{
 			Mode: "mtls",
 			Role: models.RolePoller,
@@ -73,7 +75,7 @@ func TestNew_ValidConfig(t *testing.T) {
 		},
 	}
 
-	syncer, err := New(context.Background(), c, mockKV, nil, nil, registry, nil, "", mockClock)
+	syncer, err := New(context.Background(), c, mockKV, nil, nil, registry, nil, mockClock)
 	require.NoError(t, err)
 	assert.NotNil(t, syncer)
 	assert.NotNil(t, syncer.poller)
@@ -102,6 +104,8 @@ func TestSync_Success(t *testing.T) {
 		},
 		KVAddress:    "localhost:50051",
 		PollInterval: models.Duration(1 * time.Second),
+		StreamName:   "devices",
+		Subject:      "discovery.devices",
 		Security: &models.SecurityConfig{
 			Mode: "mtls",
 			Role: models.RolePoller,
@@ -131,7 +135,7 @@ func TestSync_Success(t *testing.T) {
 		Value: []byte("data"),
 	}, gomock.Any()).Return(&proto.PutResponse{}, nil)
 
-	syncer, err := New(context.Background(), c, mockKV, nil, nil, registry, nil, "", mockClock)
+	syncer, err := New(context.Background(), c, mockKV, nil, nil, registry, nil, mockClock)
 	require.NoError(t, err)
 
 	err = syncer.Sync(context.Background())
@@ -161,6 +165,8 @@ func TestStartAndStop(t *testing.T) {
 		},
 		KVAddress:    "localhost:50051",
 		PollInterval: models.Duration(500 * time.Millisecond),
+		StreamName:   "devices",
+		Subject:      "discovery.devices",
 		Security:     &models.SecurityConfig{},
 	}
 
@@ -182,7 +188,7 @@ func TestStartAndStop(t *testing.T) {
 	mockInteg.EXPECT().Fetch(gomock.Any()).Return(data, nil, nil).Times(2) // Initial poll + 1 tick
 	mockKV.EXPECT().Put(gomock.Any(), gomock.Any(), gomock.Any()).Return(&proto.PutResponse{}, nil).Times(2)
 
-	syncer, err := New(context.Background(), c, mockKV, nil, nil, registry, nil, "", mockClock)
+	syncer, err := New(context.Background(), c, mockKV, nil, nil, registry, nil, mockClock)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -247,6 +253,8 @@ func TestStart_ContextCancellation(t *testing.T) {
 		},
 		KVAddress:    "localhost:50051",
 		PollInterval: models.Duration(1 * time.Second),
+		StreamName:   "devices",
+		Subject:      "discovery.devices",
 		Security: &models.SecurityConfig{
 			Mode: "mtls",
 			Role: models.RolePoller,
@@ -284,7 +292,7 @@ func TestStart_ContextCancellation(t *testing.T) {
 		Value: []byte("data"),
 	}, gomock.Any()).Return(&proto.PutResponse{}, nil)
 
-	syncer, err := New(context.Background(), c, mockKV, nil, nil, registry, nil, "", mockClock)
+	syncer, err := New(context.Background(), c, mockKV, nil, nil, registry, nil, mockClock)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -326,6 +334,8 @@ func TestSync_NetboxSuccess(t *testing.T) {
 		},
 		KVAddress:    "localhost:50051",
 		PollInterval: models.Duration(1 * time.Second),
+		StreamName:   "devices",
+		Subject:      "discovery.devices",
 	}
 
 	registry := map[string]IntegrationFactory{
@@ -341,7 +351,7 @@ func TestSync_NetboxSuccess(t *testing.T) {
 		Value: []byte(`{"id":1,"name":"device1","primary_ip4":{"address":"192.168.1.1/24"}}`),
 	}, gomock.Any()).Return(&proto.PutResponse{}, nil)
 
-	syncer, err := New(context.Background(), c, mockKV, nil, nil, registry, nil, "", mockClock)
+	syncer, err := New(context.Background(), c, mockKV, nil, nil, registry, nil, mockClock)
 	require.NoError(t, err)
 
 	err = syncer.Sync(context.Background())
