@@ -47,6 +47,7 @@ The Sync service is configured via `/etc/serviceradar/sync.json`:
   "listen_addr": "192.168.2.23:50058",
   "poll_interval": "5m",
   "nats_url": "tls://192.168.2.23:4222",
+  "domain": "edge",
   "security": {
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
@@ -106,6 +107,7 @@ The Sync service is configured via `/etc/serviceradar/sync.json`:
 | `listen_addr` | Address and port for the Sync service to listen on | N/A | Yes |
 | `poll_interval` | How often to fetch and update data | `30m` | No |
 | `nats_url` | URL for connecting to the NATS Server | `nats://127.0.0.1:4222` | No |
+| `domain` | JetStream domain for the NATS server | N/A | No |
 | `security` | mTLS security settings for gRPC/KV | N/A | Yes |
 | `nats_security` | mTLS security settings for NATS | (uses `security` if omitted) | No |
 

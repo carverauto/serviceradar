@@ -39,6 +39,7 @@ type Config struct {
 	Sources      map[string]*models.SourceConfig `json:"sources"`       // e.g., "armis": {...}, "netbox": {...}
 	KVAddress    string                          `json:"kv_address"`    // KV gRPC server address (optional)
 	NATSURL      string                          `json:"nats_url"`      // NATS server URL for JetStream
+	Domain       string                          `json:"domain"`        // JetStream domain (optional)
 	PollInterval models.Duration                 `json:"poll_interval"` // Polling interval
 	Security     *models.SecurityConfig          `json:"security"`      // mTLS config for gRPC/KV
 	NATSSecurity *models.SecurityConfig          `json:"nats_security"` // Optional mTLS config for NATS
