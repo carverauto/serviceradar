@@ -327,7 +327,11 @@ func (s *SyncPoller) writeToKV(ctx context.Context, sourceName string, data map[
 }
 
 func (s *SyncPoller) publishDevices(ctx context.Context, sourceType string, devices []models.Device) {
+	log.Printf("Publishing %d devices", len(devices))
+
 	if s.js == nil || len(devices) == 0 {
+		log.Printf("No JetStream publishing devices found")
+
 		return
 	}
 
