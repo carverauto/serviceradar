@@ -15,6 +15,18 @@
       "client_ca_file": "root.pem"
     }
   },
+  "nats_security": {
+    "mode": "mtls",
+    "cert_dir": "/etc/serviceradar/certs",
+    "server_name": "nats-serviceradar",
+    "role": "poller",
+    "tls": {
+      "cert_file": "sync.pem",
+      "key_file": "sync-key.pem",
+      "ca_file": "root.pem",
+      "client_ca_file": "root.pem"
+    }
+  },
   "sources": {
     "armis": {
       "type": "armis",
@@ -25,10 +37,12 @@
         "boundary": "Corporate",
         "page_size": "100"
       },
-      "queries": [{
-        "label": "all_devices",
-        "query": "in:devices orderBy=id boundaries:\"Corporate\""
-      }]
+      "queries": [
+        {
+          "label": "all_devices",
+          "query": "in:devices orderBy=id boundaries:\"Corporate\""
+        }
+      ]
     }
   }
 }

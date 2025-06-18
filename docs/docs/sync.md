@@ -59,6 +59,30 @@ The Sync service is configured via `/etc/serviceradar/sync.json`:
       "client_ca_file": "root.pem"
     }
   },
+  "nats_security": {
+    "mode": "mtls",
+    "cert_dir": "/etc/serviceradar/certs",
+    "server_name": "nats-serviceradar",
+    "role": "poller",
+    "tls": {
+      "cert_file": "sync.pem",
+      "key_file": "sync-key.pem",
+      "ca_file": "root.pem",
+      "client_ca_file": "root.pem"
+    }
+  },
+  "nats_security": {
+    "mode": "mtls",
+    "cert_dir": "/etc/serviceradar/certs",
+    "server_name": "nats-serviceradar",
+    "role": "poller",
+    "tls": {
+      "cert_file": "sync.pem",
+      "key_file": "sync-key.pem",
+      "ca_file": "root.pem",
+      "client_ca_file": "root.pem"
+    }
+  },
   "sources": {
     "netbox": {
       "type": "netbox",
@@ -82,7 +106,8 @@ The Sync service is configured via `/etc/serviceradar/sync.json`:
 | `listen_addr` | Address and port for the Sync service to listen on | N/A | Yes |
 | `poll_interval` | How often to fetch and update data | `30m` | No |
 | `nats_url` | URL for connecting to the NATS Server | `nats://127.0.0.1:4222` | No |
-| `security` | mTLS security settings | N/A | Yes |
+| `security` | mTLS security settings for gRPC/KV | N/A | Yes |
+| `nats_security` | mTLS security settings for NATS | (uses `security` if omitted) | No |
 
 ### Source Configuration
 
@@ -423,6 +448,18 @@ Here's a comprehensive example that includes multiple data sources:
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
     "server_name": "192.168.2.23",
+    "role": "poller",
+    "tls": {
+      "cert_file": "sync.pem",
+      "key_file": "sync-key.pem",
+      "ca_file": "root.pem",
+      "client_ca_file": "root.pem"
+    }
+  },
+  "nats_security": {
+    "mode": "mtls",
+    "cert_dir": "/etc/serviceradar/certs",
+    "server_name": "nats-serviceradar",
     "role": "poller",
     "tls": {
       "cert_file": "sync.pem",
