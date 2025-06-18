@@ -23,6 +23,7 @@ type DeviceConsumerConfig struct {
 	StreamName   string                 `json:"stream_name"`
 	ConsumerName string                 `json:"consumer_name"`
 	Security     *models.SecurityConfig `json:"security"`
+	DBSecurity   *models.SecurityConfig `json:"db_security"`
 	Database     models.ProtonDatabase  `json:"database"`
 }
 
@@ -38,6 +39,9 @@ func (c *DeviceConsumerConfig) UnmarshalJSON(data []byte) error {
 	*c = DeviceConsumerConfig(alias.Alias)
 	if c.Security != nil && c.Security.CertDir != "" {
 		config.NormalizeTLSPaths(&c.Security.TLS, c.Security.CertDir)
+	}
+	if c.DBSecurity != nil && c.DBSecurity.CertDir != "" {
+		config.NormalizeTLSPaths(&c.DBSecurity.TLS, c.DBSecurity.CertDir)
 	}
 	return nil
 }

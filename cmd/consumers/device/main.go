@@ -25,13 +25,18 @@ func main() {
 		log.Fatalf("Device consumer config validation failed: %v", err)
 	}
 
+	dbSecurity := devCfg.Security
+	if devCfg.DBSecurity != nil {
+		dbSecurity = devCfg.DBSecurity
+	}
+
 	dbConfig := &models.DBConfig{
 		DBAddr:   devCfg.Database.Addresses[0],
 		DBName:   devCfg.Database.Name,
 		DBUser:   devCfg.Database.Username,
 		DBPass:   devCfg.Database.Password,
 		Database: devCfg.Database,
-		Security: devCfg.Security,
+		Security: dbSecurity,
 	}
 
 	dbService, err := db.New(ctx, dbConfig)
