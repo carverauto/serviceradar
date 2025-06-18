@@ -44,7 +44,12 @@ func (s *Service) Start(ctx context.Context) error {
 		return err
 	}
 	s.nc = nc
-	js, err := jetstream.New(nc)
+	var js jetstream.JetStream
+	if s.cfg.Domain != "" {
+		js, err = jetstream.NewWithDomain(nc, s.cfg.Domain)
+	} else {
+		js, err = jetstream.New(nc)
+	}
 	if err != nil {
 		nc.Close()
 		return err
