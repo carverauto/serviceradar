@@ -25,6 +25,8 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
@@ -48,12 +50,13 @@ func (n *NetboxIntegration) Fetch(ctx context.Context) (map[string][]byte, []mod
 	}
 
 	data, ips := n.processDevices(deviceResp)
+	modelDevs := n.convertToModelsDevices(deviceResp.Results)
 
 	log.Printf("Fetched %d devices from NetBox", len(deviceResp.Results))
 
 	n.writeSweepConfig(ctx, ips)
 
-	return data, nil, nil
+	return data, modelDevs, nil
 }
 
 // fetchDevices sends the HTTP request to the NetBox API.
@@ -188,4 +191,44 @@ func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) 
 	}
 
 	log.Printf("Wrote sweep config to %s", configKey)
+}
+
+// convertToModelsDevices converts NetBox devices to the generic models.Device type.
+func (*NetboxIntegration) convertToModelsDevices(devices []Device) []models.Device {
+	out := make([]models.Device, 0, len(devices))
+
+	for _, dev := range devices {
+		ip := dev.PrimaryIP4.Address
+		if strings.Contains(ip, "/") {
+			parsed, _, err := net.ParseCIDR(ip)
+			if err == nil {
+				ip = parsed.String()
+			}
+		}
+
+		var firstSeen, lastSeen time.Time
+		if t, err := time.Parse(time.RFC3339, dev.Created); err == nil {
+			firstSeen = t
+		}
+		if t, err := time.Parse(time.RFC3339, dev.LastUpdated); err == nil {
+			lastSeen = t
+		}
+
+		out = append(out, models.Device{
+			DeviceID:        fmt.Sprintf("netbox-%d", dev.ID),
+			DiscoverySource: "netbox",
+			IP:              ip,
+			Hostname:        dev.Name,
+			FirstSeen:       firstSeen,
+			LastSeen:        lastSeen,
+			IsAvailable:     true,
+			Metadata: map[string]interface{}{
+				"netbox_device_id": fmt.Sprintf("%d", dev.ID),
+				"role":             dev.Role.Name,
+				"site":             dev.Site.Name,
+			},
+		})
+	}
+
+	return out
 }
