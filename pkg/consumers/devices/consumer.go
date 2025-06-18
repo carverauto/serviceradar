@@ -16,7 +16,7 @@ type Consumer struct {
 	consumer     jetstream.Consumer
 }
 
-func NewConsumer(ctx context.Context, js jetstream.JetStream, streamName, consumerName string) (*Consumer, error) {
+func NewConsumer(ctx context.Context, js jetstream.JetStream, streamName, consumerName, subject string) (*Consumer, error) {
 	log.Printf("Creating/getting pull consumer: stream=%s, consumer=%s", streamName, consumerName)
 	consumer, err := js.Consumer(ctx, streamName, consumerName)
 	if err != nil {
@@ -26,6 +26,9 @@ func NewConsumer(ctx context.Context, js jetstream.JetStream, streamName, consum
 			AckWait:       30 * time.Second,
 			MaxDeliver:    3,
 			MaxAckPending: 1000,
+		}
+		if subject != "" {
+			cfg.FilterSubject = subject
 		}
 		consumer, err = js.CreateConsumer(ctx, streamName, cfg)
 		if err != nil {
