@@ -25,6 +25,7 @@ import (
 
 	ggrpc "github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/natsutil"
 	"github.com/carverauto/serviceradar/pkg/poller"
 	"github.com/carverauto/serviceradar/pkg/sync/integrations"
 	"github.com/carverauto/serviceradar/proto"
@@ -136,9 +137,15 @@ func defaultIntegrationRegistry(
 func NewWithGRPC(ctx context.Context, config *Config) (*SyncPoller, error) {
 	var natsOpts []nats.Option
 	if config.Security != nil {
+		tlsConf, err := natsutil.TLSConfig(config.Security)
+		if err != nil {
+			return nil, fmt.Errorf("failed to build NATS TLS config: %w", err)
+		}
+
 		natsOpts = append(natsOpts,
-			nats.ClientCert(config.Security.TLS.CertFile, config.Security.TLS.KeyFile),
+			nats.Secure(tlsConf),
 			nats.RootCAs(config.Security.TLS.CAFile),
+			nats.ClientCert(config.Security.TLS.CertFile, config.Security.TLS.KeyFile),
 		)
 	}
 
