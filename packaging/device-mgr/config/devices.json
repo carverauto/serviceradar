@@ -2,8 +2,8 @@
   "listen_addr": "0.0.0.0:50059",
   "nats_url": "nats://127.0.0.1:4222",
   "domain": "edge",
-  "stream_name": "events",
-  "subject": "events.devices",
+  "stream_name": "devices",
+  "subject": "discover.devices.>",
   "consumer_name": "device-db-writer",
   "database": {
     "addresses": [
