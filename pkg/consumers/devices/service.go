@@ -9,6 +9,7 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
+	"github.com/carverauto/serviceradar/pkg/natsutil"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -34,9 +35,15 @@ func NewService(cfg *DeviceConsumerConfig, dbService db.Service) (*Service, erro
 func (s *Service) Start(ctx context.Context) error {
 	var opts []nats.Option
 	if s.cfg.Security != nil {
+		tlsConf, err := natsutil.TLSConfig(s.cfg.Security)
+		if err != nil {
+			return fmt.Errorf("failed to build NATS TLS config: %w", err)
+		}
+
 		opts = append(opts,
-			nats.ClientCert(s.cfg.Security.TLS.CertFile, s.cfg.Security.TLS.KeyFile),
+			nats.Secure(tlsConf),
 			nats.RootCAs(s.cfg.Security.TLS.CAFile),
+			nats.ClientCert(s.cfg.Security.TLS.CertFile, s.cfg.Security.TLS.KeyFile),
 		)
 	}
 	nc, err := nats.Connect(s.cfg.NATSURL, opts...)
