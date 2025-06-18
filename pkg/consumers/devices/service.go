@@ -64,7 +64,7 @@ func (s *Service) Start(ctx context.Context) error {
 		nc.Close()
 		return fmt.Errorf("failed to get stream info: %w", err)
 	}
-	s.consumer, err = NewConsumer(ctx, js, s.cfg.StreamName, s.cfg.ConsumerName)
+	s.consumer, err = NewConsumer(ctx, js, s.cfg.StreamName, s.cfg.ConsumerName, s.cfg.Subject)
 	if err != nil {
 		nc.Close()
 		return err
