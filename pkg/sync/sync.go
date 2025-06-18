@@ -61,7 +61,6 @@ func New(
 	nc *nats.Conn,
 	registry map[string]IntegrationFactory,
 	grpcClient GRPCClient,
-	subjectPrefix string,
 	clock poller.Clock,
 ) (*SyncPoller, error) {
 	if err := config.Validate(); err != nil {
@@ -90,7 +89,7 @@ func New(
 		kvClient:      kvClient,
 		js:            js,
 		natsConn:      nc,
-		subjectPrefix: subjectPrefix,
+		subjectPrefix: config.Subject,
 		sources:       make(map[string]Integration),
 		registry:      registry,
 		grpcClient:    grpcClient,
@@ -170,6 +169,18 @@ func NewWithGRPC(ctx context.Context, config *Config) (*SyncPoller, error) {
 		return nil, err
 	}
 
+	if config.StreamName != "" {
+		stream, err := js.Stream(ctx, config.StreamName)
+		if err != nil {
+			nc.Close()
+			return nil, fmt.Errorf("failed to get stream %s: %w", config.StreamName, err)
+		}
+		if _, err = stream.Info(ctx); err != nil {
+			nc.Close()
+			return nil, fmt.Errorf("failed to get stream info: %w", err)
+		}
+	}
+
 	var (
 		kvClient   proto.KVServiceClient
 		grpcClient GRPCClient
@@ -209,7 +220,7 @@ func NewWithGRPC(ctx context.Context, config *Config) (*SyncPoller, error) {
 		serverName = config.Security.ServerName
 	}
 
-	syncer, err := New(ctx, config, kvClient, js, nc, defaultIntegrationRegistry(kvClient, grpcClient, serverName), grpcClient, "discovery.devices", nil)
+	syncer, err := New(ctx, config, kvClient, js, nc, defaultIntegrationRegistry(kvClient, grpcClient, serverName), grpcClient, nil)
 	if err != nil {
 		if grpcClient != nil {
 			_ = grpcClient.Close()
@@ -321,6 +332,9 @@ func (s *SyncPoller) publishDevices(ctx context.Context, sourceType string, devi
 	}
 
 	subject := s.subjectPrefix + "." + sourceType
+	if s.config.Domain != "" {
+		subject = s.config.Domain + "." + subject
+	}
 
 	for _, dev := range devices {
 		payload, err := json.Marshal(dev)
