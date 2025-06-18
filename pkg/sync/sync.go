@@ -136,16 +136,21 @@ func defaultIntegrationRegistry(
 // NewWithGRPC sets up the gRPC client for production use with default integrations.
 func NewWithGRPC(ctx context.Context, config *Config) (*SyncPoller, error) {
 	var natsOpts []nats.Option
-	if config.Security != nil {
-		tlsConf, err := natsutil.TLSConfig(config.Security)
+	natsSec := config.Security
+	if config.NATSSecurity != nil {
+		natsSec = config.NATSSecurity
+	}
+
+	if natsSec != nil {
+		tlsConf, err := natsutil.TLSConfig(natsSec)
 		if err != nil {
 			return nil, fmt.Errorf("failed to build NATS TLS config: %w", err)
 		}
 
 		natsOpts = append(natsOpts,
 			nats.Secure(tlsConf),
-			nats.RootCAs(config.Security.TLS.CAFile),
-			nats.ClientCert(config.Security.TLS.CertFile, config.Security.TLS.KeyFile),
+			nats.RootCAs(natsSec.TLS.CAFile),
+			nats.ClientCert(natsSec.TLS.CertFile, natsSec.TLS.KeyFile),
 		)
 	}
 
