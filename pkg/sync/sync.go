@@ -159,7 +159,12 @@ func NewWithGRPC(ctx context.Context, config *Config) (*SyncPoller, error) {
 		return nil, err
 	}
 
-	js, err := jetstream.New(nc)
+	var js jetstream.JetStream
+	if config.Domain != "" {
+		js, err = jetstream.NewWithDomain(nc, config.Domain)
+	} else {
+		js, err = jetstream.New(nc)
+	}
 	if err != nil {
 		nc.Close()
 		return nil, err
