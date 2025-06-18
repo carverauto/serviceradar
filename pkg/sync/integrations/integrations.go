@@ -27,7 +27,6 @@ import (
 	"github.com/carverauto/serviceradar/pkg/sync/integrations/armis"
 	"github.com/carverauto/serviceradar/pkg/sync/integrations/netbox"
 	"github.com/carverauto/serviceradar/proto"
-	"github.com/nats-io/nats.go/jetstream"
 	"google.golang.org/grpc"
 )
 
@@ -38,8 +37,6 @@ func NewArmisIntegration(
 	kvClient proto.KVServiceClient,
 	grpcConn *grpc.ClientConn,
 	serverName string,
-	js jetstream.JetStream,
-	subject string,
 ) *armis.ArmisIntegration {
 	// Extract page size if specified
 	pageSize := 100 // default
@@ -121,8 +118,6 @@ func NewArmisIntegration(
 		SweeperConfig: defaultSweepCfg,
 		SweepQuerier:  sweepQuerier,
 		Updater:       armisUpdater,
-		JS:            js,
-		Subject:       subject,
 	}
 }
 
