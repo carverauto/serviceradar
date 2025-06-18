@@ -13,11 +13,11 @@
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
     "server_name": "127.0.0.1",
-    "role": "client",
+    "role": "core",
     "tls": {
-      "cert_file": "/etc/nats/certs/nats-server.pem",
-      "key_file": "/etc/nats/certs/nats-server-key.pem",
-      "ca_file": "/etc/nats/certs/root.pem"
+      "cert_file": "/etc/serviceradar/certs/core.pem",
+      "key_file": "/etc/serviceradar/certs/core-key.pem",
+      "ca_file": "/etc/serviceradar/certs/root.pem"
     }
   },
   "db_security": {
