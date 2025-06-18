@@ -151,6 +151,11 @@ func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[
 
 // writeSweepConfig generates and writes the sweep Config to KV.
 func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) {
+	if n.KvClient == nil {
+		log.Print("KV client not configured; skipping sweep config write")
+
+		return
+	}
 	sweepConfig := models.SweepConfig{
 		Networks:      ips,
 		Ports:         []int{22, 80, 443, 3389, 445, 8080},
