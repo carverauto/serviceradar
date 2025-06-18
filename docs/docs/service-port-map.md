@@ -11,23 +11,25 @@ This page provides a comprehensive reference of all ServiceRadar components and 
 
 The following table lists the primary ServiceRadar components and their default listening ports:
 
-| Component         | Default Port | Protocol | Purpose                                  |
-|-------------------|--------------|----------|------------------------------------------|
-| Agent             | 50051        | gRPC/TCP | Service status collection and reporting  |
-| Core Service API  | 8090         | HTTP/TCP | API for Web UI and external integrations |
-| Core Service gRPC | 50052        | gRPC/TCP | Communication with Pollers               |
-| Poller            | 50053        | gRPC/TCP | Coordination of monitoring activities    |
-| Mapper            | 50056        | gRPC/TCP | Network Discovery and Mapper Service     |
-| Web UI (Next.js)  | 3000         | HTTP/TCP | Web interface (accessed via Nginx)       |
+| Component         | Default Port | Protocol    | Purpose                                  |
+|-------------------|--------------|-------------|------------------------------------------|
+| Agent             | 50051        | gRPC/TCP    | Service status collection and reporting  |
+| Core Service API  | 8090         | HTTP/TCP    | API for Web UI and external integrations |
+| Core Service gRPC | 50052        | gRPC/TCP    | Communication with Pollers               |
+| Poller            | 50053        | gRPC/TCP    | Coordination of monitoring activities    |
+| Device Manager    | 50054        | gRPC/TCP    | Device management and configuration      |
+| Mapper            | 50056        | gRPC/TCP    | Network Discovery and Mapper Service     |
+| Web UI (Next.js)  | 3000         | HTTP/TCP    | Web interface (accessed via Nginx)       |
 | Nginx             | 80/443       | HTTP(S)/TCP | Web UI reverse proxy                     |
 
 ## Storage and Configuration
 
-| Component | Default Port | Protocol | Purpose |
-|-----------|--------------|----------|---------|
-| KV Store | 50057 | gRPC/TCP | Key-value store for dynamic configuration |
-| NATS JetStream | 4222 | TCP | Messaging and KV storage (localhost only) |
-| Sync Service | 50058 | gRPC/TCP | Integration with external data sources |
+| Component          | Default Port | Protocol | Purpose                                   |
+|--------------------|--------------|----------|-------------------------------------------|
+| Timeplus Proton DB | 9440         | TCP      | Time-series database for metrics          |
+| KV Store           | 50057        | gRPC/TCP | Key-value store for dynamic configuration |
+| NATS JetStream     | 4222         | TCP      | Messaging and KV storage (localhost only) |
+| Sync Service       | 50058        | gRPC/TCP | Integration with external data sources    |
 
 ## Checker Components
 
@@ -38,12 +40,19 @@ The following table lists the primary ServiceRadar components and their default 
 | Dusk Checker   | 50082        | gRPC/TCP | Dusk network node monitoring            |
 | SysMon Checker | 50083        | gRPC/TCP | SysMon (sysinfo/zfs) metrics collection |
 
+## Event Ingestion
+
+| Component          | Default Port | Protocol | Purpose                   |
+|--------------------|--------------|----------|---------------------------|
+| SNMP Trap Receiver | 162          | UDP      | SNMP trap collection      |
+| Syslog Receiver    | 514          | UDP      | Syslog message collection |
+
 ## Network Performance Components
 
-| Component | Port Range | Protocol | Purpose |
-|-----------|------------|----------|---------|
-| rperf Server | 5199 | TCP/UDP | Network performance server control port |
-| rperf Data Ports | 5200-5210 | TCP/UDP | Network performance test traffic |
+| Component        | Port Range | Protocol | Purpose                                 |
+|------------------|------------|----------|-----------------------------------------|
+| rperf Server     | 5199       | TCP/UDP  | Network performance server control port |
+| rperf Data Ports | 5200-5210  | TCP/UDP  | Network performance test traffic        |
 
 ## Important Considerations
 

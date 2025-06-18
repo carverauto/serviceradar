@@ -14,14 +14,17 @@ import (
 func main() {
 	ctx := context.Background()
 	cfgLoader := config.NewConfig()
-	configPath := "/etc/serviceradar/consumers/device.json"
+	configPath := "/etc/serviceradar/devices.json"
+
 	var devCfg devices.DeviceConsumerConfig
+
 	if err := cfgLoader.LoadAndValidate(ctx, configPath, &devCfg); err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
 	if err := devCfg.Validate(); err != nil {
 		log.Fatalf("Device consumer config validation failed: %v", err)
 	}
+
 	dbConfig := &models.DBConfig{
 		DBAddr:   devCfg.Database.Addresses[0],
 		DBName:   devCfg.Database.Name,
@@ -30,14 +33,17 @@ func main() {
 		Database: devCfg.Database,
 		Security: devCfg.Security,
 	}
+
 	dbService, err := db.New(ctx, dbConfig)
 	if err != nil {
 		log.Fatalf("Failed to initialize database service: %v", err)
 	}
+
 	svc, err := devices.NewService(&devCfg, dbService)
 	if err != nil {
 		log.Fatalf("Failed to initialize device consumer service: %v", err)
 	}
+
 	opts := &lifecycle.ServerOptions{
 		ListenAddr:        devCfg.ListenAddr,
 		ServiceName:       "device-consumer",
@@ -45,6 +51,7 @@ func main() {
 		EnableHealthCheck: true,
 		Security:          devCfg.Security,
 	}
+
 	if err := lifecycle.RunServer(ctx, opts); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
