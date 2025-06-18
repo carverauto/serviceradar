@@ -99,19 +99,19 @@
     },
     "config_files": [
       {
-        "source": "packaging/device-manager/config/devices.json",
+        "source": "packaging/device-mgr/config/devices.json",
         "dest": "/etc/serviceradar/devices.json"
       }
     ],
     "systemd_service": {
-      "source": "packaging/device-manager/systemd/serviceradar-device-mgr.service",
+      "source": "packaging/device-mgr/systemd/serviceradar-device-mgr.service",
       "dest": "/lib/systemd/system/serviceradar-device-mgr.service"
     },
     "postinst": {
-      "source": "packaging/device-manager/scripts/postinstall.sh"
+      "source": "packaging/device-mgr/scripts/postinstall.sh"
     },
     "prerm": {
-      "source": "packaging/device-manager/scripts/preremove.sh"
+      "source": "packaging/device-mgr/scripts/preremove.sh"
     },
     "conffiles": [
       "/etc/serviceradar/devices.json"
