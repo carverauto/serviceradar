@@ -18,6 +18,7 @@ package sync
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"sync"
@@ -39,14 +40,15 @@ const (
 
 // SyncPoller manages synchronization using poller.Poller.
 type SyncPoller struct {
-	poller     *poller.Poller
-	config     Config
-	kvClient   KVClient
-	js         jetstream.JetStream
-	natsConn   *nats.Conn
-	sources    map[string]Integration
-	registry   map[string]IntegrationFactory
-	grpcClient GRPCClient
+	poller        *poller.Poller
+	config        Config
+	kvClient      KVClient
+	js            jetstream.JetStream
+	natsConn      *nats.Conn
+	subjectPrefix string
+	sources       map[string]Integration
+	registry      map[string]IntegrationFactory
+	grpcClient    GRPCClient
 }
 
 // New creates a new SyncPoller with explicit dependencies, leveraging poller.Poller.
@@ -58,6 +60,7 @@ func New(
 	nc *nats.Conn,
 	registry map[string]IntegrationFactory,
 	grpcClient GRPCClient,
+	subjectPrefix string,
 	clock poller.Clock,
 ) (*SyncPoller, error) {
 	if err := config.Validate(); err != nil {
@@ -81,14 +84,15 @@ func New(
 	}
 
 	s := &SyncPoller{
-		poller:     p,
-		config:     *config,
-		kvClient:   kvClient,
-		js:         js,
-		natsConn:   nc,
-		sources:    make(map[string]Integration),
-		registry:   registry,
-		grpcClient: grpcClient,
+		poller:        p,
+		config:        *config,
+		kvClient:      kvClient,
+		js:            js,
+		natsConn:      nc,
+		subjectPrefix: subjectPrefix,
+		sources:       make(map[string]Integration),
+		registry:      registry,
+		grpcClient:    grpcClient,
 	}
 
 	s.initializeIntegrations(ctx)
@@ -104,17 +108,14 @@ func defaultIntegrationRegistry(
 	kvClient proto.KVServiceClient,
 	grpcClient GRPCClient,
 	serverName string,
-	js jetstream.JetStream,
-	subjectPrefix string,
 ) map[string]IntegrationFactory {
 	return map[string]IntegrationFactory{
 		integrationTypeArmis: func(ctx context.Context, config *models.SourceConfig) Integration {
-			subject := subjectPrefix + ".armis"
 			var conn *grpcstd.ClientConn
 			if grpcClient != nil {
 				conn = grpcClient.GetConnection()
 			}
-			return integrations.NewArmisIntegration(ctx, config, kvClient, conn, serverName, js, subject)
+			return integrations.NewArmisIntegration(ctx, config, kvClient, conn, serverName)
 		},
 		integrationTypeNetbox: func(ctx context.Context, config *models.SourceConfig) Integration {
 			var conn *grpcstd.ClientConn
@@ -191,7 +192,7 @@ func NewWithGRPC(ctx context.Context, config *Config) (*SyncPoller, error) {
 		serverName = config.Security.ServerName
 	}
 
-	syncer, err := New(ctx, config, kvClient, js, nc, defaultIntegrationRegistry(kvClient, grpcClient, serverName, js, "discovery.devices"), grpcClient, nil)
+	syncer, err := New(ctx, config, kvClient, js, nc, defaultIntegrationRegistry(kvClient, grpcClient, serverName), grpcClient, "discovery.devices", nil)
 	if err != nil {
 		if grpcClient != nil {
 			_ = grpcClient.Close()
@@ -255,7 +256,7 @@ func (s *SyncPoller) Sync(ctx context.Context) error {
 		go func(name string, integ Integration) {
 			defer wg.Done()
 
-			data, err := integ.Fetch(ctx)
+			data, devices, err := integ.Fetch(ctx)
 
 			if err != nil {
 				errChan <- err
@@ -264,6 +265,8 @@ func (s *SyncPoller) Sync(ctx context.Context) error {
 			}
 
 			s.writeToKV(ctx, name, data)
+			srcType := s.config.Sources[name].Type
+			s.publishDevices(ctx, srcType, devices)
 		}(name, integration)
 	}
 
@@ -291,6 +294,26 @@ func (s *SyncPoller) writeToKV(ctx context.Context, sourceName string, data map[
 
 		if err != nil {
 			log.Printf("Failed to write %s to KV: %v", fullKey, err)
+		}
+	}
+}
+
+func (s *SyncPoller) publishDevices(ctx context.Context, sourceType string, devices []models.Device) {
+	if s.js == nil || len(devices) == 0 {
+		return
+	}
+
+	subject := s.subjectPrefix + "." + sourceType
+
+	for _, dev := range devices {
+		payload, err := json.Marshal(dev)
+		if err != nil {
+			log.Printf("Failed to marshal device %s: %v", dev.DeviceID, err)
+			continue
+		}
+
+		if _, err = s.js.Publish(ctx, subject, payload); err != nil {
+			log.Printf("Failed to publish device %s: %v", dev.DeviceID, err)
 		}
 	}
 }

@@ -125,7 +125,7 @@ func TestSync_Success(t *testing.T) {
 	}
 
 	data := map[string][]byte{"devices": []byte("data")}
-	mockInteg.EXPECT().Fetch(gomock.Any()).Return(data, nil)
+	mockInteg.EXPECT().Fetch(gomock.Any()).Return(data, nil, nil)
 	mockKV.EXPECT().Put(gomock.Any(), &proto.PutRequest{
 		Key:   "armis/devices",
 		Value: []byte("data"),
@@ -179,7 +179,7 @@ func TestStartAndStop(t *testing.T) {
 
 	data := map[string][]byte{"devices": []byte("data")}
 
-	mockInteg.EXPECT().Fetch(gomock.Any()).Return(data, nil).Times(2) // Initial poll + 1 tick
+	mockInteg.EXPECT().Fetch(gomock.Any()).Return(data, nil, nil).Times(2) // Initial poll + 1 tick
 	mockKV.EXPECT().Put(gomock.Any(), gomock.Any(), gomock.Any()).Return(&proto.PutResponse{}, nil).Times(2)
 
 	syncer, err := New(context.Background(), c, mockKV, nil, nil, registry, nil, mockClock)
@@ -278,7 +278,7 @@ func TestStart_ContextCancellation(t *testing.T) {
 
 	data := map[string][]byte{"devices": []byte("data")}
 
-	mockInteg.EXPECT().Fetch(gomock.Any()).Return(data, nil)
+	mockInteg.EXPECT().Fetch(gomock.Any()).Return(data, nil, nil)
 	mockKV.EXPECT().Put(gomock.Any(), &proto.PutRequest{
 		Key:   "armis/devices",
 		Value: []byte("data"),
@@ -335,7 +335,7 @@ func TestSync_NetboxSuccess(t *testing.T) {
 	}
 
 	data := map[string][]byte{"1": []byte(`{"id":1,"name":"device1","primary_ip4":{"address":"192.168.1.1/24"}}`)}
-	mockInteg.EXPECT().Fetch(gomock.Any()).Return(data, nil)
+	mockInteg.EXPECT().Fetch(gomock.Any()).Return(data, nil, nil)
 	mockKV.EXPECT().Put(gomock.Any(), &proto.PutRequest{
 		Key:   "netbox/1",
 		Value: []byte(`{"id":1,"name":"device1","primary_ip4":{"address":"192.168.1.1/24"}}`),

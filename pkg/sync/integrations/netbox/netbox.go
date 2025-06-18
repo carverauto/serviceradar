@@ -35,16 +35,16 @@ var (
 )
 
 // Fetch retrieves devices from NetBox and generates sweep config.
-func (n *NetboxIntegration) Fetch(ctx context.Context) (map[string][]byte, error) {
+func (n *NetboxIntegration) Fetch(ctx context.Context) (map[string][]byte, []models.Device, error) {
 	resp, err := n.fetchDevices(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer n.closeResponse(resp)
 
 	deviceResp, err := n.decodeResponse(resp)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	data, ips := n.processDevices(deviceResp)
@@ -53,7 +53,7 @@ func (n *NetboxIntegration) Fetch(ctx context.Context) (map[string][]byte, error
 
 	n.writeSweepConfig(ctx, ips)
 
-	return data, nil
+	return data, nil, nil
 }
 
 // fetchDevices sends the HTTP request to the NetBox API.
