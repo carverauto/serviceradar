@@ -1,10 +1,13 @@
 {
   "listen_addr": "0.0.0.0:50059",
   "nats_url": "nats://127.0.0.1:4222",
+  "domain": "edge",
   "stream_name": "devices",
   "consumer_name": "device-db-writer",
   "database": {
-    "addresses": ["127.0.0.1:9440"],
+    "addresses": [
+      "127.0.0.1:9440"
+    ],
     "name": "default",
     "username": "default",
     "password": "changeme"

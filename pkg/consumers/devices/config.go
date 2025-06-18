@@ -22,6 +22,7 @@ type DeviceConsumerConfig struct {
 	NATSURL      string                 `json:"nats_url"`
 	StreamName   string                 `json:"stream_name"`
 	ConsumerName string                 `json:"consumer_name"`
+	Domain       string                 `json:"domain"`
 	Security     *models.SecurityConfig `json:"security"`
 	DBSecurity   *models.SecurityConfig `json:"db_security"`
 	Database     models.ProtonDatabase  `json:"database"`
