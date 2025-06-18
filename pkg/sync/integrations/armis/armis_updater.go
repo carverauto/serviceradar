@@ -78,7 +78,7 @@ func extractFirstIP(ipList string) string {
 // GetDeviceAvailabilityReport generates a report of device availability
 func (a *ArmisIntegration) GetDeviceAvailabilityReport(ctx context.Context) (*AvailabilityReport, error) {
 	// Fetch current devices from Armis
-	data, err := a.Fetch(ctx)
+	data, _, err := a.Fetch(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch devices: %w", err)
 	}
