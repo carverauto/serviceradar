@@ -134,50 +134,44 @@ func (a *ArmisIntegration) fetchAndProcessDevices(ctx context.Context) (map[stri
 	return data, allDevices, nil
 }
 
+func (*ArmisIntegration) convertToModelsDevices(devices []Device) []models.Device {
+	out := make([]models.Device, 0, len(devices))
+	for _, dev := range devices {
+		out = append(out, models.Device{
+			DeviceID:        fmt.Sprintf("armis-%d", dev.ID),
+			DiscoverySource: "armis",
+			IP:              dev.IPAddress,
+			MAC:             dev.MacAddress,
+			Hostname:        dev.Name,
+			FirstSeen:       dev.FirstSeen,
+			LastSeen:        dev.LastSeen,
+			IsAvailable:     true,
+			Metadata: map[string]interface{}{
+				"armis_device_id": fmt.Sprintf("%d", dev.ID),
+				"type":            dev.Type,
+				"risk_level":      fmt.Sprintf("%d", dev.RiskLevel),
+			},
+		})
+	}
+	return out
+}
+
 // Fetch retrieves devices from Armis. If the updater is configured, it also
 // correlates sweep results and sends status updates back to Armis.
-func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error) {
+func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, []models.Device, error) {
 	// Step 1: Fetch devices and create the initial KV data and sweep config.
 	data, devices, err := a.fetchAndProcessDevices(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	if a.JS != nil && a.Subject != "" {
-		for _, dev := range devices {
-			msg := models.Device{
-				DeviceID:        fmt.Sprintf("armis-%d", dev.ID),
-				DiscoverySource: "armis",
-				IP:              dev.IPAddress,
-				MAC:             dev.MacAddress,
-				Hostname:        dev.Name,
-				FirstSeen:       dev.FirstSeen,
-				LastSeen:        dev.LastSeen,
-				IsAvailable:     true,
-				Metadata: map[string]interface{}{
-					"armis_device_id": fmt.Sprintf("%d", dev.ID),
-					"type":            dev.Type,
-					"risk_level":      fmt.Sprintf("%d", dev.RiskLevel),
-				},
-			}
-
-			payload, perr := json.Marshal(msg)
-			if perr != nil {
-				log.Printf("Failed to marshal device %d: %v", dev.ID, perr)
-				continue
-			}
-
-			if _, perr = a.JS.Publish(ctx, a.Subject, payload); perr != nil {
-				log.Printf("Failed to publish device %d: %v", dev.ID, perr)
-			}
-		}
-	}
+	modelDevs := a.convertToModelsDevices(devices)
 
 	// Step 2: Check if the updater and querier are configured. If not, we are done.
 	if a.Updater == nil || a.SweepQuerier == nil {
 		log.Println("Armis updater/querier not configured, skipping status update correlation.")
 
-		return data, nil
+		return data, modelDevs, nil
 	}
 
 	log.Println("Armis updater and querier are configured, proceeding with sweep result correlation.")
@@ -187,7 +181,7 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error)
 	if err != nil {
 		log.Printf("Failed to get sweep results, skipping update: %v", err)
 
-		return data, nil // Return originally fetched data without failing the sync
+		return data, modelDevs, nil // Return originally fetched data without failing the sync
 	}
 
 	log.Printf("Successfully queried %d sweep results.", len(sweepResults))
@@ -223,7 +217,7 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error)
 		}
 	}
 
-	return enrichedData, nil
+	return enrichedData, modelDevs, nil
 }
 
 // FetchDevicesPage fetches a single page of devices from the Armis API.
