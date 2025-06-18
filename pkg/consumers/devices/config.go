@@ -20,6 +20,7 @@ var (
 type DeviceConsumerConfig struct {
 	ListenAddr   string                 `json:"listen_addr"`
 	NATSURL      string                 `json:"nats_url"`
+	Subject      string                 `json:"subject"`
 	StreamName   string                 `json:"stream_name"`
 	ConsumerName string                 `json:"consumer_name"`
 	Domain       string                 `json:"domain"`
