@@ -384,14 +384,22 @@
     },
     "build_method": "external",
     "external_binary": {
-      "source_url": "https://github.com/nats-io/nats-server/releases/download/v2.11.1/nats-server-v2.11.1-linux-amd64.tar.gz",
-      "extract_path": "nats-server-v2.11.1-linux-amd64/nats-server",
+      "source_url": "https://github.com/nats-io/nats-server/releases/download/v2.11.4/nats-server-v2.11.4-linux-amd64.tar.gz",
+      "extract_path": "nats-server-v2.11.4-linux-amd64/nats-server",
       "output_path": "/usr/bin/nats-server"
     },
     "config_files": [
       {
         "source": "packaging/nats/config/nats-server.conf",
         "dest": "/etc/nats/nats-server.conf"
+      },
+      {
+        "source": "packaging/nats/config/nats-cloud.conf",
+        "dest": "/etc/nats/templates/nats-cloud.conf"
+      },
+      {
+        "source": "packaging/nats/config/nats-leaf.conf",
+        "dest": "/etc/nats/templates/nats-leaf.conf"
       }
     ],
     "systemd_service": {

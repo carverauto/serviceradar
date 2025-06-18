@@ -1,1 +1,23 @@
-{}
+{
+  "listen_addr": "0.0.0.0:50054",
+  "nats_url": "nats://127.0.0.1:4222",
+  "stream_name": "devices",
+  "consumer_name": "device-db-writer",
+  "database": {
+    "addresses": ["127.0.0.1:9440"],
+    "name": "serviceradar",
+    "username": "default",
+    "password": "your_proton_password"
+  },
+  "security": {
+    "mode": "mtls",
+    "cert_dir": "/etc/serviceradar/certs",
+    "server_name": "127.0.0.1",
+    "role": "client",
+    "tls": {
+      "cert_file": "consumer.pem",
+      "key_file": "consumer-key.pem",
+      "ca_file": "root.pem"
+    }
+  }
+}
