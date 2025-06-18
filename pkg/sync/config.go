@@ -40,7 +40,8 @@ type Config struct {
 	KVAddress    string                          `json:"kv_address"`    // KV gRPC server address (optional)
 	NATSURL      string                          `json:"nats_url"`      // NATS server URL for JetStream
 	PollInterval models.Duration                 `json:"poll_interval"` // Polling interval
-	Security     *models.SecurityConfig          `json:"security"`      // mTLS config
+	Security     *models.SecurityConfig          `json:"security"`      // mTLS config for gRPC/KV
+	NATSSecurity *models.SecurityConfig          `json:"nats_security"` // Optional mTLS config for NATS
 }
 
 func (c *Config) Validate() error {
@@ -64,20 +65,24 @@ func (c *Config) Validate() error {
 
 	// Normalize TLS paths if security is configured
 	if c.Security != nil {
-		c.normalizeCertPaths()
+		c.normalizeCertPaths(c.Security)
+	}
+
+	if c.NATSSecurity != nil {
+		c.normalizeCertPaths(c.NATSSecurity)
 	}
 
 	return nil
 }
 
 // normalizeCertPaths ensures all TLS file paths are absolute by prepending CertDir.
-func (c *Config) normalizeCertPaths() {
-	certDir := c.Security.CertDir
+func (c *Config) normalizeCertPaths(sec *models.SecurityConfig) {
+	certDir := sec.CertDir
 	if certDir == "" {
 		return
 	}
 
-	tls := &c.Security.TLS // Use pointer to modify the original struct
+	tls := &sec.TLS // Use pointer to modify the original struct
 
 	if !filepath.IsAbs(tls.CertFile) {
 		tls.CertFile = filepath.Join(certDir, tls.CertFile)
