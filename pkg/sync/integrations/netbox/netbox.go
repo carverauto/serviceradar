@@ -37,6 +37,9 @@ var (
 )
 
 // Fetch retrieves devices from NetBox and generates sweep config.
+// integrations/netbox/netbox.go
+
+// Fetch retrieves devices from NetBox and generates sweep config.
 func (n *NetboxIntegration) Fetch(ctx context.Context) (map[string][]byte, []models.Device, error) {
 	resp, err := n.fetchDevices(ctx)
 	if err != nil {
@@ -50,6 +53,7 @@ func (n *NetboxIntegration) Fetch(ctx context.Context) (map[string][]byte, []mod
 	}
 
 	data, ips := n.processDevices(deviceResp)
+	// This call now uses the method with the 'n' receiver, giving it access to the config.
 	modelDevs := n.convertToModelsDevices(deviceResp.Results)
 
 	log.Printf("Fetched %d devices from NetBox", len(deviceResp.Results))
@@ -199,7 +203,7 @@ func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) 
 		return // Or simply return to avoid writing a config with an unpredictable key
 	}
 
-  sweepConfig := models.SweepConfig{
+	sweepConfig := models.SweepConfig{
 		Networks:      ips,
 		Ports:         []int{22, 80, 443, 3389, 445, 8080},
 		SweepModes:    []string{"icmp", "tcp"},
@@ -238,13 +242,19 @@ func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) 
 }
 
 // convertToModelsDevices converts NetBox devices to the generic models.Device type.
-func (*NetboxIntegration) convertToModelsDevices(devices []Device) []models.Device {
+// The function signature is changed to (n *NetboxIntegration) to access the instance's config.
+func (n *NetboxIntegration) convertToModelsDevices(devices []Device) []models.Device {
 	out := make([]models.Device, 0, len(devices))
+
+	// Get the agent and poller IDs from this source's specific configuration.
+	agentID := n.Config.AgentID
+	pollerID := n.Config.PollerID
 
 	for i := range devices {
 		dev := &devices[i]
 		ip := dev.PrimaryIP4.Address
 
+		// Strip CIDR mask if present
 		if strings.Contains(ip, "/") {
 			parsed, _, err := net.ParseCIDR(ip)
 			if err == nil {
@@ -253,23 +263,29 @@ func (*NetboxIntegration) convertToModelsDevices(devices []Device) []models.Devi
 		}
 
 		var firstSeen, lastSeen time.Time
-
 		if t, err := time.Parse(time.RFC3339, dev.Created); err == nil {
 			firstSeen = t
 		}
-
 		if t, err := time.Parse(time.RFC3339, dev.LastUpdated); err == nil {
 			lastSeen = t
 		}
 
+		// FIX: Construct the device_id in the 'ip:agent_id:poller_id' format.
+		deviceID := fmt.Sprintf("%s:%s:%s", ip, agentID, pollerID)
+
 		out = append(out, models.Device{
-			DeviceID:        fmt.Sprintf("netbox-%d", dev.ID),
+			// --- Corrected Fields ---
+			DeviceID: deviceID, // Use the correctly formatted device ID.
+			AgentID:  agentID,  // Populate the AgentID field.
+			PollerID: pollerID, // Populate the PollerID field.
+			// --- End Corrected Fields ---
 			DiscoverySource: "netbox",
 			IP:              ip,
 			Hostname:        dev.Name,
+			MAC:             "", // Netbox device endpoint doesn't typically provide this.
 			FirstSeen:       firstSeen,
 			LastSeen:        lastSeen,
-			IsAvailable:     true,
+			IsAvailable:     true, // Assume available; sweep will verify.
 			Metadata: map[string]interface{}{
 				"netbox_device_id": fmt.Sprintf("%d", dev.ID),
 				"role":             dev.Role.Name,
@@ -277,6 +293,5 @@ func (*NetboxIntegration) convertToModelsDevices(devices []Device) []models.Devi
 			},
 		})
 	}
-
 	return out
 }
