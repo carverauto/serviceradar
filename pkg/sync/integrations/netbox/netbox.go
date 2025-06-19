@@ -25,6 +25,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
@@ -117,33 +118,58 @@ func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[
 	data = make(map[string][]byte)
 	ips = make([]string, 0, len(deviceResp.Results))
 
+	agentID := n.Config.AgentID
+	pollerID := n.Config.PollerID
+	now := time.Now()
+
 	for i := range deviceResp.Results {
 		device := &deviceResp.Results[i]
 
-		value, err := json.Marshal(device)
+		if device.PrimaryIP4.Address == "" {
+			continue
+		}
+
+		ip, _, err := net.ParseCIDR(device.PrimaryIP4.Address)
+		if err != nil {
+			log.Printf("Failed to parse IP %s: %v", device.PrimaryIP4.Address, err)
+			continue
+		}
+
+		ipStr := ip.String()
+
+		if n.ExpandSubnets {
+			ips = append(ips, device.PrimaryIP4.Address)
+		} else {
+			ips = append(ips, fmt.Sprintf("%s/32", ipStr))
+		}
+
+		deviceID := fmt.Sprintf("%s:%s:%s", ipStr, agentID, pollerID)
+
+		metadata := map[string]interface{}{
+			"netbox_device_id": fmt.Sprintf("%d", device.ID),
+			"role":             device.Role.Name,
+			"site":             device.Site.Name,
+		}
+
+		modelDevice := &models.Device{
+			DeviceID:        deviceID,
+			PollerID:        pollerID,
+			DiscoverySource: "netbox",
+			IP:              ipStr,
+			Hostname:        device.Name,
+			FirstSeen:       now,
+			LastSeen:        now,
+			IsAvailable:     true,
+			Metadata:        metadata,
+		}
+
+		value, err := json.Marshal(modelDevice)
 		if err != nil {
 			log.Printf("Failed to marshal device %d: %v", device.ID, err)
 			continue
 		}
 
-		data[fmt.Sprintf("%d", device.ID)] = value
-
-		if device.PrimaryIP4.Address != "" {
-			if n.ExpandSubnets {
-				ips = append(ips, device.PrimaryIP4.Address) // Keep /24 if desired
-			} else {
-				ip, _, err := net.ParseCIDR(device.PrimaryIP4.Address)
-				if err != nil {
-					log.Printf("Failed to parse IP %s: %v", device.PrimaryIP4.Address, err)
-					continue
-				}
-
-				// add /32 to the IP address
-				newIPAddress := fmt.Sprintf("%s/32", ip.String())
-
-				ips = append(ips, newIPAddress)
-			}
-		}
+		data[deviceID] = value
 	}
 
 	return data, ips
