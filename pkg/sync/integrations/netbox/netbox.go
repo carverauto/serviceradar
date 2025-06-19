@@ -177,6 +177,22 @@ func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[
 
 // writeSweepConfig generates and writes the sweep Config to KV.
 func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) {
+	if n.KvClient == nil {
+		log.Print("KV client not configured; skipping sweep config write")
+		return
+	}
+
+	// AgentID to be used for the sweep config key.
+	// We prioritize the agent_id set on the source config itself.
+	agentIDForConfig := n.Config.AgentID
+	if agentIDForConfig == "" {
+		// As a fallback, we could use ServerName, but logging a warning is better
+		// to encourage explicit configuration.
+		log.Printf("Warning: agent_id not set for Netbox source. Sweep config key may be incorrect.")
+		// If you need a fallback, you can use: agentIDForConfig = n.ServerName
+		return // Or simply return to avoid writing a config with an unpredictable key
+	}
+
 	sweepConfig := models.SweepConfig{
 		Networks:      ips,
 		Ports:         []int{22, 80, 443, 3389, 445, 8080},
@@ -196,7 +212,8 @@ func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) 
 		return
 	}
 
-	configKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", n.ServerName)
+	// The key now uses the explicitly configured AgentID, making it predictable.
+	configKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", agentIDForConfig)
 	_, err = n.KvClient.Put(ctx, &proto.PutRequest{
 		Key:   configKey,
 		Value: configJSON,
