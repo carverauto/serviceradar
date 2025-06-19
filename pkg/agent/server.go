@@ -457,7 +457,9 @@ func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*prot
 	// Include AgentID in the response
 	if response != nil {
 		response.AgentId = s.config.AgentID
-		response.PollerId = req.PollerId
+		if response.PollerId == "" {
+			response.PollerId = req.PollerId
+		}
 	}
 
 	return response, nil
