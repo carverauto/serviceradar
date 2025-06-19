@@ -357,3 +357,111 @@ func TestSync_NetboxSuccess(t *testing.T) {
 	err = syncer.Sync(context.Background())
 	assert.NoError(t, err)
 }
+
+func TestCreateIntegrationAppliesDefaults(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockKV := NewMockKVClient(ctrl)
+	mockGRPC := NewMockGRPCClient(ctrl)
+	mockClock := poller.NewMockClock(ctrl)
+
+	mockGRPC.EXPECT().GetConnection().Return(nil).AnyTimes()
+
+	var gotAgent, gotPoller string
+
+	registry := map[string]IntegrationFactory{
+		"netbox": func(_ context.Context, cfg *models.SourceConfig) Integration {
+			gotAgent = cfg.AgentID
+			gotPoller = cfg.PollerID
+			return NewMockIntegration(ctrl)
+		},
+	}
+
+	c := &Config{
+		AgentID:      "global-agent",
+		PollerID:     "global-poller",
+		KVAddress:    "localhost:50051",
+		PollInterval: models.Duration(1 * time.Second),
+		Sources: map[string]*models.SourceConfig{
+			"netbox": {
+				Type:     "netbox",
+				Endpoint: "https://netbox.example.com",
+				Prefix:   "netbox/",
+				AgentID:  "source-agent",
+				PollerID: "source-poller",
+			},
+		},
+	}
+
+	_, err := New(context.Background(), c, mockKV, mockGRPC, registry, mockClock)
+	require.NoError(t, err)
+
+	assert.Equal(t, "source-agent", gotAgent)
+	assert.Equal(t, "source-poller", gotPoller)
+}
+
+func TestCreateIntegrationUsesGlobalDefaults(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockKV := NewMockKVClient(ctrl)
+	mockGRPC := NewMockGRPCClient(ctrl)
+
+	mockGRPC.EXPECT().GetConnection().Return(nil).AnyTimes()
+
+	var gotAgent, gotPoller string
+
+	registry := map[string]IntegrationFactory{
+		"netbox": func(_ context.Context, cfg *models.SourceConfig) Integration {
+			gotAgent = cfg.AgentID
+			gotPoller = cfg.PollerID
+			return NewMockIntegration(ctrl)
+		},
+	}
+
+	c := &Config{
+		AgentID:      "global-agent",
+		PollerID:     "global-poller",
+		KVAddress:    "localhost:50051",
+		PollInterval: models.Duration(1 * time.Second),
+		Sources: map[string]*models.SourceConfig{
+			"netbox": {
+				Type:     "netbox",
+				Endpoint: "https://netbox.example.com",
+				Prefix:   "netbox/",
+			},
+		},
+	}
+
+	_, err := New(context.Background(), c, mockKV, mockGRPC, registry, nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, "global-agent", gotAgent)
+	assert.Equal(t, "global-poller", gotPoller)
+}
+
+func TestWriteToKVTransformsDeviceID(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockKV := NewMockKVClient(ctrl)
+
+	s := &SyncPoller{
+		config: Config{Sources: map[string]*models.SourceConfig{
+			"netbox": {Prefix: "netbox/"},
+		}},
+		kvClient: mockKV,
+	}
+
+	data := map[string][]byte{
+		"10.0.0.1:agent1:poller1": []byte("val"),
+	}
+
+	mockKV.EXPECT().Put(gomock.Any(), &proto.PutRequest{
+		Key:   "netbox/agent1/poller1/10.0.0.1",
+		Value: []byte("val"),
+	}, gomock.Any()).Return(&proto.PutResponse{}, nil)
+
+	s.writeToKV(context.Background(), "netbox", data)
+}

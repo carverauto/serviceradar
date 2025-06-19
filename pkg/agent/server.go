@@ -149,9 +149,11 @@ func createSweepService(sweepConfig *SweepConfig, kvStore KVStore, cfg *ServerCo
 		Timeout:     time.Duration(sweepConfig.Timeout),
 	}
 
-	serverName := cfg.AgentID
-	if cfg.AgentName != "" {
-		serverName = cfg.AgentName
+	// Prioritize AgentID as the unique identifier for the KV path.
+	// Fall back to AgentName if AgentID is not set.
+	serverName := cfg.AgentName
+	if cfg.AgentID != "" {
+		serverName = cfg.AgentID
 	}
 
 	configKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", serverName)
@@ -221,11 +223,15 @@ func (s *Server) loadConfigurations(ctx context.Context, cfgLoader *config.Confi
 	// Define paths for sweep config
 	fileSweepConfigPath := filepath.Join(s.configDir, "sweep", "sweep.json")
 
-	// Use AgentName for KV path, fall back to AgentID if not set
-	serverName := s.config.AgentID // Default to AgentID
+	// Prioritize AgentID as the unique identifier for the KV path.
+	// Fall back to AgentName if AgentID is not set.
+	serverName := s.config.AgentName // Default to AgentName
+	if s.config.AgentID != "" {
+		serverName = s.config.AgentID // Prefer AgentID
+	}
 
-	if s.config.AgentName != "" {
-		serverName = s.config.AgentName // Prefer AgentName
+	if serverName == "" {
+		log.Printf("Warning: agent_id and agent_name are not set. KV paths for sweep config will be incorrect.")
 	}
 
 	kvSweepConfigPath := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", serverName)

@@ -283,12 +283,15 @@ func (d *DefaultArmisIntegration) FetchDevicesPage(
 }
 
 // processDevices converts devices to KV data and extracts IPs.
-func (*ArmisIntegration) processDevices(devices []Device) (data map[string][]byte, ips []string) {
+func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]byte, ips []string) {
 	data = make(map[string][]byte)
 	ips = make([]string, 0, len(devices))
 
+	agentID := a.Config.AgentID
+	pollerID := a.Config.PollerID
+
 	for i := range devices {
-		device := &devices[i] // Use a pointer to avoid copying the struct
+		d := &devices[i] // Use a pointer to avoid copying the struct
 
 		enriched := DeviceWithMetadata{
 			Device:   *device,
@@ -317,7 +320,46 @@ func (*ArmisIntegration) processDevices(devices []Device) (data map[string][]byt
 					// Add to sweep list with /32 suffix
 					ips = append(ips, ip+"/32")
 				}
+		}
+
+		ipList := strings.Split(d.IPAddress, ",")
+		for _, ipRaw := range ipList {
+			ip := strings.TrimSpace(ipRaw)
+			if ip == "" {
+				continue
 			}
+
+			deviceID := fmt.Sprintf("%s:%s:%s", ip, agentID, pollerID)
+
+			metadata := map[string]interface{}{
+				"armis_id":     fmt.Sprintf("%d", d.ID),
+				"type":         d.Type,
+				"category":     d.Category,
+				"manufacturer": d.Manufacturer,
+				"model":        d.Model,
+			}
+
+			modelDevice := &models.Device{
+				DeviceID:        deviceID,
+				PollerID:        pollerID,
+				DiscoverySource: "armis",
+				IP:              ip,
+				MAC:             d.MacAddress,
+				Hostname:        d.Name,
+				FirstSeen:       d.FirstSeen,
+				LastSeen:        d.LastSeen,
+				IsAvailable:     true,
+				Metadata:        metadata,
+			}
+
+			value, err := json.Marshal(modelDevice)
+			if err != nil {
+				log.Printf("Failed to marshal device %d: %v", d.ID, err)
+				continue
+			}
+
+			data[deviceID] = value
+			ips = append(ips, ip+"/32")
 		}
 	}
 

@@ -144,7 +144,9 @@ func (t *Translator) buildClickHouseQuery(query *models.Query) (string, error) {
 func (*Translator) getProtonBaseTableName(entity models.EntityType) string {
 	switch entity {
 	case models.Devices:
-		return "devices"
+		// Queries for devices should reference the unified stream
+		// populated by the materialized view.
+		return "unified_devices"
 	case models.Flows:
 		return "netflow_metrics"
 	case models.Interfaces:
