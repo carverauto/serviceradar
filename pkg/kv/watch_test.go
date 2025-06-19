@@ -17,11 +17,13 @@ type fakeKeyWatcher struct {
 }
 
 func (f *fakeKeyWatcher) Updates() <-chan jetstream.KeyValueEntry { return f.updates }
+
 func (f *fakeKeyWatcher) Stop() error {
 	if !f.stopped {
 		f.stopped = true
 		close(f.updates)
 	}
+
 	return nil
 }
 
@@ -43,7 +45,7 @@ type fakeKV struct {
 	err     error
 }
 
-func (f *fakeKV) Watch(ctx context.Context, key string, opts ...jetstream.WatchOpt) (jetstream.KeyWatcher, error) {
+func (f *fakeKV) Watch(_ context.Context, _ string, _ ...jetstream.WatchOpt) (jetstream.KeyWatcher, error) {
 	return f.watcher, f.err
 }
 
@@ -51,13 +53,14 @@ func (f *fakeKV) WatchAll(ctx context.Context, opts ...jetstream.WatchOpt) (jets
 	return f.Watch(ctx, "", opts...)
 }
 
-func (f *fakeKV) WatchFiltered(ctx context.Context, keys []string, opts ...jetstream.WatchOpt) (jetstream.KeyWatcher, error) {
+func (f *fakeKV) WatchFiltered(ctx context.Context, _ []string, opts ...jetstream.WatchOpt) (jetstream.KeyWatcher, error) {
 	return f.Watch(ctx, "", opts...)
 }
 
 func TestNatsStoreWatch_ForwardUpdates(t *testing.T) {
 	updates := make(chan jetstream.KeyValueEntry, 1)
 	watcher := &fakeKeyWatcher{updates: updates}
+
 	kv := &fakeKV{watcher: watcher}
 	ns := &NatsStore{kv: kv, ctx: context.Background()}
 
@@ -86,6 +89,7 @@ func TestNatsStoreWatch_ForwardUpdates(t *testing.T) {
 func TestNatsStoreWatch_ContextCancel(t *testing.T) {
 	updates := make(chan jetstream.KeyValueEntry)
 	watcher := &fakeKeyWatcher{updates: updates}
+
 	kv := &fakeKV{watcher: watcher}
 	ns := &NatsStore{kv: kv, ctx: context.Background()}
 

@@ -126,6 +126,7 @@ func (a *ArmisIntegration) fetchAndProcessDevices(ctx context.Context) (map[stri
 
 	// Process devices
 	data, ips := a.processDevices(allDevices)
+
 	log.Printf("Fetched total of %d devices from Armis", len(allDevices))
 
 	// Create and write sweep config
@@ -136,7 +137,9 @@ func (a *ArmisIntegration) fetchAndProcessDevices(ctx context.Context) (map[stri
 
 func (*ArmisIntegration) convertToModelsDevices(devices []Device) []models.Device {
 	out := make([]models.Device, 0, len(devices))
-	for _, dev := range devices {
+
+	for i := range devices {
+		dev := &devices[i] // Use a pointer to avoid copying the struct
 		out = append(out, models.Device{
 			DeviceID:        fmt.Sprintf("armis-%d", dev.ID),
 			DiscoverySource: "armis",
@@ -153,6 +156,7 @@ func (*ArmisIntegration) convertToModelsDevices(devices []Device) []models.Devic
 			},
 		})
 	}
+
 	return out
 }
 

@@ -21,6 +21,7 @@ func main() {
 	if err := cfgLoader.LoadAndValidate(ctx, configPath, &devCfg); err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
+
 	if err := devCfg.Validate(); err != nil {
 		log.Fatalf("Device consumer config validation failed: %v", err)
 	}

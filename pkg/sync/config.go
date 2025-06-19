@@ -31,7 +31,6 @@ const (
 
 var (
 	errMissingSources = errors.New("at least one source must be defined")
-	errMissingNATS    = errors.New("nats_url is required")
 	errMissingFields  = errors.New("source missing required fields (type, endpoint, prefix)")
 	errMissingStream  = errors.New("stream_name is required")
 )
@@ -90,7 +89,7 @@ func (c *Config) Validate() error {
 }
 
 // normalizeCertPaths ensures all TLS file paths are absolute by prepending CertDir.
-func (c *Config) normalizeCertPaths(sec *models.SecurityConfig) {
+func (*Config) normalizeCertPaths(sec *models.SecurityConfig) {
 	certDir := sec.CertDir
 	if certDir == "" {
 		return

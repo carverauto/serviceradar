@@ -217,6 +217,7 @@ func (s *Server) flushSysmonMetrics(ctx context.Context) {
 
 		for _, metric := range sysmonMetrics {
 			var ts time.Time
+
 			switch {
 			case len(metric.CPUs) > 0:
 				ts = metric.CPUs[0].Timestamp
