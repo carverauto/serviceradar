@@ -7,6 +7,7 @@ import (
 // Device represents a network device.
 type Device struct {
 	DeviceID        string                 `json:"device_id"`
+	AgentID         string                 `json:"agent_id"`
 	PollerID        string                 `json:"poller_id"`
 	DiscoverySource string                 `json:"discovery_source"`
 	IP              string                 `json:"ip"`
