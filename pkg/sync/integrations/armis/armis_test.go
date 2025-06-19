@@ -20,10 +20,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"reflect"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -62,6 +62,8 @@ func setupArmisIntegration(t *testing.T) (*ArmisIntegration, *armisMocks) {
 		Config: &models.SourceConfig{
 			Endpoint: "https://armis.example.com",
 			Prefix:   "armis/",
+			AgentID:  "test-agent",
+			PollerID: "test-poller",
 			Credentials: map[string]string{
 				"secret_key": "test-secret-key",
 				"boundary":   "Corporate",
@@ -142,20 +144,30 @@ func verifyArmisResults(t *testing.T, result map[string][]byte, err error, expec
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
-	assert.Len(t, result, 2)
+	assert.Len(t, result, 3)
 
 	for i := range expectedDevices {
 		expected := &expectedDevices[i]
-		deviceData, exists := result[strconv.Itoa(expected.ID)]
 
-		require.True(t, exists)
+		ips := strings.Split(expected.IPAddress, ",")
+		for _, ipRaw := range ips {
+			ip := strings.TrimSpace(ipRaw)
+			if ip == "" {
+				continue
+			}
 
-		var device Device
-		err = json.Unmarshal(deviceData, &device)
-		require.NoError(t, err)
+			key := fmt.Sprintf("%s:test-agent:test-poller", ip)
+			deviceData, exists := result[key]
+			require.True(t, exists, "device with key %s should exist", key)
 
-		assert.Equal(t, expected.ID, device.ID)
-		assert.Equal(t, expected.IPAddress, device.IPAddress)
+			var device models.Device
+			err = json.Unmarshal(deviceData, &device)
+			require.NoError(t, err)
+
+			assert.Equal(t, key, device.DeviceID)
+			assert.Equal(t, ip, device.IP)
+			assert.Equal(t, "test-poller", device.PollerID)
+		}
 	}
 }
 
@@ -167,6 +179,8 @@ func TestArmisIntegration_FetchWithMultiplePages(t *testing.T) {
 		Config: &models.SourceConfig{
 			Endpoint: "https://armis.example.com",
 			Prefix:   "armis/",
+			AgentID:  "test-agent",
+			PollerID: "test-poller",
 			Credentials: map[string]string{
 				"secret_key": "test-secret-key",
 			},
@@ -219,8 +233,9 @@ func TestArmisIntegration_FetchWithMultiplePages(t *testing.T) {
 	assert.Len(t, result, 4)
 
 	for i := 1; i <= 4; i++ {
-		_, exists := result[strconv.Itoa(i)]
-		assert.True(t, exists, "Device with ID %d should exist in results", i)
+		key := fmt.Sprintf("192.168.1.%d:test-agent:test-poller", i)
+		_, exists := result[key]
+		assert.True(t, exists, "Device with key %s should exist in results", key)
 	}
 }
 
