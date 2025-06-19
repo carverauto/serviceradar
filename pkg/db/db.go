@@ -371,7 +371,7 @@ func getMaterializedViewStatements() []string {
 		// View that unions device updates from the devices stream and sweep_results.
 		`CREATE VIEW IF NOT EXISTS device_updates_stream AS
         SELECT
-            device_id,
+            concat(ip, ':', agent_id, ':', poller_id) AS device_id,
             ip,
             poller_id,
             hostname,
@@ -386,7 +386,7 @@ func getMaterializedViewStatements() []string {
         FROM devices
         UNION ALL
         SELECT
-            concat(ip, ':', poller_id) AS device_id,
+            concat(ip, ':', agent_id, ':', poller_id) AS device_id,
             ip,
             poller_id,
             hostname,
