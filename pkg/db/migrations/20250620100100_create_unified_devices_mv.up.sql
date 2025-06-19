@@ -1,6 +1,6 @@
 DROP VIEW IF EXISTS devices_view;
 DROP VIEW IF EXISTS device_updates_stream;
-DROP MATERIALIZED VIEW IF EXISTS unified_devices_mv;
+DROP VIEW IF EXISTS unified_devices_mv;
 
 CREATE VIEW IF NOT EXISTS device_updates_stream AS
 SELECT
@@ -44,7 +44,7 @@ SELECT
     arg_max(is_available, update_time) AS is_available,
     min(first_seen) AS first_seen,
     max(last_seen) AS last_seen,
-    arrayReduce('mapUpdate', groupArray(metadata)) AS metadata,
+    array_reduce('mapUpdate', group_array(metadata)) AS metadata,
     arg_max(agent_id, update_time) AS agent_id
 FROM device_updates_stream
 GROUP BY device_id;
