@@ -430,24 +430,23 @@ func (s *SyncPoller) publishDevices(ctx context.Context, sourceType string, devi
 
 	if s.js == nil || len(devices) == 0 {
 		log.Printf("No JetStream publishing devices found")
+
 		return
 	}
 
 	subject := s.subjectPrefix + "." + sourceType
+
 	if s.config.Domain != "" {
 		subject = s.config.Domain + "." + subject
 	}
+
 	log.Printf("Publishing to subject: %s", subject)
 
 	for i := range devices {
-		// FIX: REMOVE these two lines that incorrectly overwrite the IDs.
-		// The device object now arrives with the correct IDs from the integration.
-		// devices[i].AgentID = s.config.AgentID
-		// devices[i].PollerID = s.config.PollerID
-
 		payload, err := json.Marshal(devices[i])
 		if err != nil {
 			log.Printf("Failed to marshal device %s: %v", devices[i].DeviceID, err)
+
 			continue
 		}
 

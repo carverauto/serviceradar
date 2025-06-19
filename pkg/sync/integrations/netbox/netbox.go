@@ -37,9 +37,6 @@ var (
 )
 
 // Fetch retrieves devices from NetBox and generates sweep config.
-// integrations/netbox/netbox.go
-
-// Fetch retrieves devices from NetBox and generates sweep config.
 func (n *NetboxIntegration) Fetch(ctx context.Context) (map[string][]byte, []models.Device, error) {
 	resp, err := n.fetchDevices(ctx)
 	if err != nil {
@@ -52,14 +49,14 @@ func (n *NetboxIntegration) Fetch(ctx context.Context) (map[string][]byte, []mod
 		return nil, nil, err
 	}
 
-	data, ips := n.processDevices(deviceResp)
-	// This call now uses the method with the 'n' receiver, giving it access to the config.
-	modelDevs := n.convertToModelsDevices(deviceResp.Results)
+	// Call the refactored function and get all consistent data in one go.
+	data, ips, modelDevs := n.processDevices(deviceResp)
 
 	log.Printf("Fetched %d devices from NetBox", len(deviceResp.Results))
 
 	n.writeSweepConfig(ctx, ips)
 
+	// Return the consistent data for both KV store and NATS publishing.
 	return data, modelDevs, nil
 }
 
@@ -120,9 +117,13 @@ func (*NetboxIntegration) decodeResponse(resp *http.Response) (DeviceResponse, e
 }
 
 // processDevices converts devices to KV data and extracts IPs.
-func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[string][]byte, ips []string) {
+// integrations/netbox/netbox.go
+
+// processDevices converts devices to KV data, extracts IPs, and returns the list of devices.
+func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[string][]byte, ips []string, modelDevs []models.Device) {
 	data = make(map[string][]byte)
 	ips = make([]string, 0, len(deviceResp.Results))
+	modelDevs = make([]models.Device, 0, len(deviceResp.Results))
 
 	agentID := n.Config.AgentID
 	pollerID := n.Config.PollerID
@@ -149,10 +150,7 @@ func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[
 			ips = append(ips, fmt.Sprintf("%s/32", ipStr))
 		}
 
-		// The key for the KV store, using the format "agentID/ipAddress"
 		kvKey := fmt.Sprintf("%s/%s", agentID, ipStr)
-
-		// The device ID within the JSON value, updated to remove the poller ID.
 		deviceID := fmt.Sprintf("%s:%s:%s", ipStr, agentID, pollerID)
 
 		metadata := map[string]interface{}{
@@ -161,12 +159,15 @@ func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[
 			"site":             device.Site.Name,
 		}
 
-		modelDevice := &models.Device{
+		// Create the single, authoritative models.Device object here.
+		modelDevice := models.Device{
 			DeviceID:        deviceID,
+			AgentID:         agentID,
 			PollerID:        pollerID,
 			DiscoverySource: "netbox",
 			IP:              ipStr,
 			Hostname:        device.Name,
+			MAC:             "", // MAC address is not available in this Netbox API endpoint
 			FirstSeen:       now,
 			LastSeen:        now,
 			IsAvailable:     true,
@@ -179,11 +180,12 @@ func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[
 			continue
 		}
 
-		// Use the new, valid key for the map.
 		data[kvKey] = value
+		// Add the consistently created device to the slice to be returned.
+		modelDevs = append(modelDevs, modelDevice)
 	}
 
-	return data, ips
+	return data, ips, modelDevs
 }
 
 // writeSweepConfig generates and writes the sweep Config to KV.
@@ -200,6 +202,7 @@ func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) 
 		// to encourage explicit configuration.
 		log.Printf("Warning: agent_id not set for Netbox source. Sweep config key may be incorrect.")
 		// If you need a fallback, you can use: agentIDForConfig = n.ServerName
+
 		return // Or simply return to avoid writing a config with an unpredictable key
 	}
 
