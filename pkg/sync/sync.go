@@ -155,8 +155,19 @@ func (s *SyncPoller) initializeIntegrations(ctx context.Context) {
 }
 
 // createIntegration constructs an integration instance based on source type.
-func (*SyncPoller) createIntegration(ctx context.Context, src *models.SourceConfig, factory IntegrationFactory) Integration {
-	return factory(ctx, src)
+func (s *SyncPoller) createIntegration(ctx context.Context, src *models.SourceConfig, factory IntegrationFactory) Integration {
+	// Apply global defaults for AgentID and PollerID if not explicitly set
+	cfgCopy := *src
+
+	if cfgCopy.AgentID == "" {
+		cfgCopy.AgentID = s.config.AgentID
+	}
+
+	if cfgCopy.PollerID == "" {
+		cfgCopy.PollerID = s.config.PollerID
+	}
+
+	return factory(ctx, &cfgCopy)
 }
 
 // Start delegates to poller.Poller.Start, using PollFunc for syncing.
