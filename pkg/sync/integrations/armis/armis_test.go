@@ -51,8 +51,8 @@ func TestArmisIntegration_Fetch_NoUpdater(t *testing.T) {
 
 	setupArmisMocks(t, mocks, firstPageResp, expectedSweepConfig)
 
-	result, err := integration.Fetch(context.Background())
-	verifyArmisResults(t, result, err, expectedDevices)
+	result, devices, err := integration.Fetch(context.Background())
+	verifyArmisResults(t, result, devices, err, expectedDevices)
 
 	// Ensure that the enrichment data was not added
 	_, exists := result["_sweep_results"]
@@ -103,7 +103,7 @@ func TestArmisIntegration_Fetch_WithUpdaterAndCorrelation(t *testing.T) {
 		}).Return(nil)
 
 	// 3. Execute the method under test
-	result, err := integration.Fetch(context.Background())
+	result, _, err := integration.Fetch(context.Background())
 
 	// 4. Assert the results
 	require.NoError(t, err)
@@ -225,7 +225,7 @@ func setupArmisMocks(t *testing.T, mocks *armisMocks, resp *SearchResponse, expe
 	mocks.KVWriter.EXPECT().WriteSweepConfig(gomock.Any(), expectedSweepConfig).Return(nil)
 }
 
-func verifyArmisResults(t *testing.T, result map[string][]byte, err error, expectedDevices []Device) {
+func verifyArmisResults(t *testing.T, result map[string][]byte, devices []models.Device, err error, expectedDevices []Device) {
 	t.Helper()
 
 	require.NoError(t, err)
@@ -246,6 +246,8 @@ func verifyArmisResults(t *testing.T, result map[string][]byte, err error, expec
 		assert.Equal(t, expected.ID, device.ID)
 		assert.Equal(t, expected.IPAddress, device.IPAddress)
 	}
+
+	assert.Len(t, devices, len(expectedDevices))
 }
 
 func TestArmisIntegration_FetchWithMultiplePages(t *testing.T) {
@@ -303,7 +305,7 @@ func TestArmisIntegration_FetchWithMultiplePages(t *testing.T) {
 	integration.KVWriter.(*MockKVWriter).
 		EXPECT().WriteSweepConfig(gomock.Any(), expectedSweepConfig).Return(nil)
 
-	result, err := integration.Fetch(context.Background())
+	result, _, err := integration.Fetch(context.Background())
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -390,7 +392,7 @@ func TestArmisIntegration_FetchErrorHandling(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.setupMocks(integration)
 
-			result, err := integration.Fetch(context.Background())
+			result, _, err := integration.Fetch(context.Background())
 			if tc.expectedError != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.expectedError)
@@ -426,7 +428,7 @@ func TestArmisIntegration_FetchNoQueries(t *testing.T) {
 		KVWriter:      NewMockKVWriter(ctrl),
 	}
 
-	result, err := integration.Fetch(context.Background())
+	result, _, err := integration.Fetch(context.Background())
 
 	assert.Nil(t, result)
 	require.Error(t, err)
@@ -717,4 +719,56 @@ func TestDefaultKVWriter_WriteSweepConfig(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDefaultArmisUpdater_UpdateDeviceStatus(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockHTTP := NewMockHTTPClient(ctrl)
+	mockToken := NewMockTokenProvider(ctrl)
+
+	updater := &DefaultArmisUpdater{
+		Config:        &models.SourceConfig{Endpoint: "https://armis.example.com"},
+		HTTPClient:    mockHTTP,
+		TokenProvider: mockToken,
+	}
+
+	updates := []ArmisDeviceStatus{
+		{
+			DeviceID:    1,
+			Available:   true,
+			LastChecked: time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC),
+			RTT:         10.5,
+		},
+		{
+			DeviceID:    2,
+			Available:   false,
+			LastChecked: time.Date(2025, 1, 1, 12, 5, 0, 0, time.UTC),
+		},
+	}
+
+	mockToken.EXPECT().GetAccessToken(gomock.Any()).Return("token", nil)
+	mockHTTP.EXPECT().Do(gomock.Any()).DoAndReturn(
+		func(req *http.Request) (*http.Response, error) {
+			require.Equal(t, http.MethodPost, req.Method)
+			require.Equal(t, "https://armis.example.com/api/v1/devices/custom-properties/_bulk/", req.URL.String())
+			require.Equal(t, "token", req.Header.Get("Authorization"))
+
+			body, err := io.ReadAll(req.Body)
+			require.NoError(t, err)
+
+			var payload []map[string]map[string]interface{}
+			err = json.Unmarshal(body, &payload)
+			require.NoError(t, err)
+
+			// Expect 6 operations: 3 for device1, 2 for device2 (no RTT)
+			require.Len(t, payload, 5, "payload length")
+
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"success": true}`))}, nil
+		},
+	)
+
+	err := updater.UpdateDeviceStatus(context.Background(), updates)
+	require.NoError(t, err)
 }
