@@ -24,6 +24,8 @@ type DeviceConsumerConfig struct {
 	StreamName   string                 `json:"stream_name"`
 	ConsumerName string                 `json:"consumer_name"`
 	Domain       string                 `json:"domain"`
+	AgentID      string                 `json:"agent_id"`
+	PollerID     string                 `json:"poller_id"`
 	Security     *models.SecurityConfig `json:"security"`
 	DBSecurity   *models.SecurityConfig `json:"db_security"`
 	Database     models.ProtonDatabase  `json:"database"`

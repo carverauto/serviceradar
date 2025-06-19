@@ -19,11 +19,13 @@ var (
 )
 
 type Processor struct {
-	db db.Service
+	db       db.Service
+	agentID  string
+	pollerID string
 }
 
-func NewProcessor(dbService db.Service) *Processor {
-	return &Processor{db: dbService}
+func NewProcessor(agentID, pollerID string, dbService db.Service) *Processor {
+	return &Processor{db: dbService, agentID: agentID, pollerID: pollerID}
 }
 
 func (p *Processor) Process(ctx context.Context, msg jetstream.Msg) error {
@@ -35,6 +37,12 @@ func (p *Processor) Process(ctx context.Context, msg jetstream.Msg) error {
 	if err := json.Unmarshal(data, &device); err != nil {
 		log.Printf("Failed to unmarshal device: %v", err)
 		return ErrUnmarshal
+	}
+	if device.AgentID == "" {
+		device.AgentID = p.agentID
+	}
+	if device.PollerID == "" {
+		device.PollerID = p.pollerID
 	}
 	if device.FirstSeen.IsZero() {
 		device.FirstSeen = time.Now()

@@ -28,7 +28,7 @@ func NewService(cfg *DeviceConsumerConfig, dbService db.Service) (*Service, erro
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
-	svc := &Service{cfg: cfg, processor: NewProcessor(dbService), db: dbService}
+	svc := &Service{cfg: cfg, processor: NewProcessor(cfg.AgentID, cfg.PollerID, dbService), db: dbService}
 	return svc, nil
 }
 
