@@ -126,7 +126,7 @@ func (db *DB) StoreDevices(ctx context.Context, devices []*models.Device) error 
 		return nil
 	}
 
-	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO devices (* except _tp_time)")
+	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO devices (device_id, agent_id, poller_id, discovery_source, ip, mac, hostname, first_seen, last_seen, is_available, metadata)")
 	if err != nil {
 		return fmt.Errorf("failed to prepare batch: %w", err)
 	}
@@ -150,7 +150,8 @@ func (db *DB) StoreDevices(ctx context.Context, devices []*models.Device) error 
 			d.IsAvailable,
 			meta,
 		); err != nil {
-			log.Printf("Failed to append device %s: %v", d.DeviceID, err)
+			batch.Abort()
+			return fmt.Errorf("failed to append device %s: %w", d.DeviceID, err)
 		}
 	}
 
