@@ -189,35 +189,58 @@ func (d *DefaultArmisIntegration) FetchDevicesPage(
 }
 
 // processDevices converts devices to KV data and extracts IPs.
-func (*ArmisIntegration) processDevices(devices []Device) (data map[string][]byte, ips []string) {
+func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]byte, ips []string) {
 	data = make(map[string][]byte)
 	ips = make([]string, 0, len(devices))
 
-	for i := range devices {
-		device := &devices[i] // Use a pointer to avoid copying the struct
+	agentID := a.Config.AgentID
+	pollerID := a.Config.PollerID
 
-		// Marshal the device to JSON
-		value, err := json.Marshal(device)
-		if err != nil {
-			log.Printf("Failed to marshal device %d: %v", device.ID, err)
+	for i := range devices {
+		d := &devices[i] // Use a pointer to avoid copying the struct
+
+		if d.IPAddress == "" {
 			continue
 		}
 
-		// Store device in KV with device ID as key
-		data[fmt.Sprintf("%d", device.ID)] = value
-
-		// Process IP addresses - handle comma-separated list of IPs
-		if device.IPAddress != "" {
-			// Split by comma and process each IP
-			ipList := strings.Split(device.IPAddress, ",")
-			for _, ipRaw := range ipList {
-				// Trim spaces and validate the IP
-				ip := strings.TrimSpace(ipRaw)
-				if ip != "" {
-					// Add to sweep list with /32 suffix
-					ips = append(ips, ip+"/32")
-				}
+		ipList := strings.Split(d.IPAddress, ",")
+		for _, ipRaw := range ipList {
+			ip := strings.TrimSpace(ipRaw)
+			if ip == "" {
+				continue
 			}
+
+			deviceID := fmt.Sprintf("%s:%s:%s", ip, agentID, pollerID)
+
+			metadata := map[string]interface{}{
+				"armis_id":     fmt.Sprintf("%d", d.ID),
+				"type":         d.Type,
+				"category":     d.Category,
+				"manufacturer": d.Manufacturer,
+				"model":        d.Model,
+			}
+
+			modelDevice := &models.Device{
+				DeviceID:        deviceID,
+				PollerID:        pollerID,
+				DiscoverySource: "armis",
+				IP:              ip,
+				MAC:             d.MacAddress,
+				Hostname:        d.Name,
+				FirstSeen:       d.FirstSeen,
+				LastSeen:        d.LastSeen,
+				IsAvailable:     true,
+				Metadata:        metadata,
+			}
+
+			value, err := json.Marshal(modelDevice)
+			if err != nil {
+				log.Printf("Failed to marshal device %d: %v", d.ID, err)
+				continue
+			}
+
+			data[deviceID] = value
+			ips = append(ips, ip+"/32")
 		}
 	}
 
