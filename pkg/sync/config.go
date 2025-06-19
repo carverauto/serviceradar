@@ -44,6 +44,8 @@ type Config struct {
 	StreamName   string                          `json:"stream_name"`   // JetStream stream name
 	Subject      string                          `json:"subject"`       // Subject prefix for device publishes
 	PollInterval models.Duration                 `json:"poll_interval"` // Polling interval
+	AgentID      string                          `json:"agent_id"`      // Agent ID for device records
+	PollerID     string                          `json:"poller_id"`     // Poller ID for device records
 	Security     *models.SecurityConfig          `json:"security"`      // mTLS config for gRPC/KV
 	NATSSecurity *models.SecurityConfig          `json:"nats_security"` // Optional mTLS config for NATS
 }

@@ -46,6 +46,8 @@ The Sync service is configured via `/etc/serviceradar/sync.json`:
   "kv_address": "192.168.2.23:50057",
   "listen_addr": "192.168.2.23:50058",
   "poll_interval": "5m",
+  "agent_id": "default-agent",
+  "poller_id": "default-poller",
   "nats_url": "tls://192.168.2.23:4222",
   "stream_name": "devices",
   "subject": "discovery.devices",
@@ -108,6 +110,8 @@ The Sync service is configured via `/etc/serviceradar/sync.json`:
 | `kv_address` | Address and port of the KV service | N/A | Yes |
 | `listen_addr` | Address and port for the Sync service to listen on | N/A | Yes |
 | `poll_interval` | How often to fetch and update data | `30m` | No |
+| `agent_id` | Agent ID to assign to published devices | N/A | Yes |
+| `poller_id` | Poller ID to assign to published devices | N/A | Yes |
 | `nats_url` | URL for connecting to the NATS Server | `nats://127.0.0.1:4222` | No |
 | `stream_name` | JetStream stream for device messages | `devices` | Yes |
 | `subject` | Base subject for published devices | `discovery.devices` | No |
