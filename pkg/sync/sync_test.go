@@ -432,3 +432,28 @@ func TestCreateIntegrationUsesGlobalDefaults(t *testing.T) {
 	assert.Equal(t, "global-agent", gotAgent)
 	assert.Equal(t, "global-poller", gotPoller)
 }
+
+func TestWriteToKVTransformsDeviceID(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockKV := NewMockKVClient(ctrl)
+
+	s := &SyncPoller{
+		config: Config{Sources: map[string]*models.SourceConfig{
+			"netbox": {Prefix: "netbox/"},
+		}},
+		kvClient: mockKV,
+	}
+
+	data := map[string][]byte{
+		"10.0.0.1:agent1:poller1": []byte("val"),
+	}
+
+	mockKV.EXPECT().Put(gomock.Any(), &proto.PutRequest{
+		Key:   "netbox/agent1/poller1/10.0.0.1",
+		Value: []byte("val"),
+	}, gomock.Any()).Return(&proto.PutResponse{}, nil)
+
+	s.writeToKV(context.Background(), "netbox", data)
+}
