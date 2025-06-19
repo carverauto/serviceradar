@@ -326,6 +326,7 @@ func (u *DefaultArmisUpdater) UpdateDeviceStatus(ctx context.Context, updates []
 	}
 
 	log.Printf("Armis bulk update response: %s", string(respBody))
+
 	return nil
 }
 
@@ -341,14 +342,17 @@ func (u *DefaultArmisUpdater) UpdateDeviceCustomAttributes(ctx context.Context, 
 	if v, ok := attributes["serviceradar_available"].(bool); ok {
 		updates[0].Available = v
 	}
+
 	if v, ok := attributes["serviceradar_last_checked"].(string); ok {
 		if ts, err := time.Parse(time.RFC3339, v); err == nil {
 			updates[0].LastChecked = ts
 		}
 	}
+
 	if v, ok := attributes["serviceradar_rtt_ms"].(float64); ok {
 		updates[0].RTT = v
 	}
+
 	if v, ok := attributes["serviceradar_url"].(string); ok {
 		updates[0].ServiceRadarURL = v
 	}

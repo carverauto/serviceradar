@@ -159,6 +159,7 @@ func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) 
 
 		return
 	}
+
 	sweepConfig := models.SweepConfig{
 		Networks:      ips,
 		Ports:         []int{22, 80, 443, 3389, 445, 8080},
@@ -197,8 +198,10 @@ func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) 
 func (*NetboxIntegration) convertToModelsDevices(devices []Device) []models.Device {
 	out := make([]models.Device, 0, len(devices))
 
-	for _, dev := range devices {
+	for i := range devices {
+		dev := &devices[i]
 		ip := dev.PrimaryIP4.Address
+
 		if strings.Contains(ip, "/") {
 			parsed, _, err := net.ParseCIDR(ip)
 			if err == nil {
@@ -207,9 +210,11 @@ func (*NetboxIntegration) convertToModelsDevices(devices []Device) []models.Devi
 		}
 
 		var firstSeen, lastSeen time.Time
+
 		if t, err := time.Parse(time.RFC3339, dev.Created); err == nil {
 			firstSeen = t
 		}
+
 		if t, err := time.Parse(time.RFC3339, dev.LastUpdated); err == nil {
 			lastSeen = t
 		}

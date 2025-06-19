@@ -112,30 +112,38 @@ func defaultIntegrationRegistry(
 	return map[string]IntegrationFactory{
 		integrationTypeArmis: func(ctx context.Context, config *models.SourceConfig) Integration {
 			var conn *grpcstd.ClientConn
+
 			if grpcClient != nil {
 				conn = grpcClient.GetConnection()
 			}
+
 			return integrations.NewArmisIntegration(ctx, config, kvClient, conn, serverName)
 		},
 		integrationTypeNetbox: func(ctx context.Context, config *models.SourceConfig) Integration {
 			var conn *grpcstd.ClientConn
+
 			if grpcClient != nil {
 				conn = grpcClient.GetConnection()
 			}
+
 			integ := integrations.NewNetboxIntegration(ctx, config, kvClient, conn, serverName)
+
 			// Allow override via config
 			if val, ok := config.Credentials["expand_subnets"]; ok && val == "true" {
 				integ.ExpandSubnets = true
 			}
+
 			return integ
 		},
 	}
 }
 
-// NewWithGRPC sets up the gRPC client for production use with default integrations.
-func NewWithGRPC(ctx context.Context, config *Config) (*SyncPoller, error) {
+// setupNATSConnection creates a NATS connection with the provided configuration.
+func setupNATSConnection(config *Config) (*nats.Conn, error) {
 	var natsOpts []nats.Option
+
 	natsSec := config.Security
+
 	if config.NATSSecurity != nil {
 		natsSec = config.NATSSecurity
 	}
@@ -153,79 +161,153 @@ func NewWithGRPC(ctx context.Context, config *Config) (*SyncPoller, error) {
 		)
 	}
 
-	nc, err := nats.Connect(config.NATSURL, natsOpts...)
-	if err != nil {
-		return nil, err
-	}
+	return nats.Connect(config.NATSURL, natsOpts...)
+}
 
-	var js jetstream.JetStream
+// setupJetStream creates a JetStream instance from a NATS connection.
+func setupJetStream(ctx context.Context, nc *nats.Conn, config *Config) (jetstream.JetStream, error) {
+	var (
+		js  jetstream.JetStream
+		err error
+	)
+
 	if config.Domain != "" {
 		js, err = jetstream.NewWithDomain(nc, config.Domain)
 	} else {
 		js, err = jetstream.New(nc)
 	}
+
 	if err != nil {
-		nc.Close()
 		return nil, err
 	}
 
 	if config.StreamName != "" {
 		stream, err := js.Stream(ctx, config.StreamName)
+
 		if err != nil {
-			nc.Close()
 			return nil, fmt.Errorf("failed to get stream %s: %w", config.StreamName, err)
 		}
+
 		if _, err = stream.Info(ctx); err != nil {
-			nc.Close()
 			return nil, fmt.Errorf("failed to get stream info: %w", err)
 		}
 	}
 
+	return js, nil
+}
+
+// setupGRPCClient creates a gRPC client for KV service if an address is provided.
+func setupGRPCClient(ctx context.Context, config *Config) (proto.KVServiceClient, GRPCClient, error) {
 	var (
 		kvClient   proto.KVServiceClient
 		grpcClient GRPCClient
 	)
 
-	if config.KVAddress != "" {
-		clientCfg := ggrpc.ClientConfig{
-			Address:    config.KVAddress,
-			MaxRetries: 3,
-		}
-		if config.Security != nil {
-			provider, errSec := ggrpc.NewSecurityProvider(ctx, config.Security)
-			if errSec != nil {
-				nc.Close()
-				return nil, fmt.Errorf("failed to create security provider: %w", errSec)
-			}
-
-			clientCfg.SecurityProvider = provider
-		}
-
-		c, errCli := ggrpc.NewClient(ctx, clientCfg)
-		if errCli != nil {
-			nc.Close()
-			if clientCfg.SecurityProvider != nil {
-				_ = clientCfg.SecurityProvider.Close()
-			}
-			return nil, fmt.Errorf("failed to create KV gRPC client: %w", errCli)
-		}
-
-		grpcClient = c
-		kvClient = proto.NewKVServiceClient(c.GetConnection())
+	if config.KVAddress == "" {
+		return nil, nil, nil
 	}
 
-	// Use config.Security.ServerName if available, otherwise default to empty string
-	serverName := ""
+	clientCfg := ggrpc.ClientConfig{
+		Address:    config.KVAddress,
+		MaxRetries: 3,
+	}
+
 	if config.Security != nil {
-		serverName = config.Security.ServerName
+		provider, errSec := ggrpc.NewSecurityProvider(ctx, config.Security)
+		if errSec != nil {
+			return nil, nil, fmt.Errorf("failed to create security provider: %w", errSec)
+		}
+
+		clientCfg.SecurityProvider = provider
 	}
 
-	syncer, err := New(ctx, config, kvClient, js, nc, defaultIntegrationRegistry(kvClient, grpcClient, serverName), grpcClient, nil)
-	if err != nil {
-		if grpcClient != nil {
-			_ = grpcClient.Close()
+	c, errCli := ggrpc.NewClient(ctx, clientCfg)
+	if errCli != nil {
+		if clientCfg.SecurityProvider != nil {
+			_ = clientCfg.SecurityProvider.Close()
 		}
+
+		return nil, nil, fmt.Errorf("failed to create KV gRPC client: %w", errCli)
+	}
+
+	grpcClient = c
+	kvClient = proto.NewKVServiceClient(c.GetConnection())
+
+	return kvClient, grpcClient, nil
+}
+
+// getServerName extracts the server name from the security configuration.
+func getServerName(config *Config) string {
+	if config.Security != nil {
+		return config.Security.ServerName
+	}
+
+	return ""
+}
+
+// cleanupResources closes the provided resources in case of an error.
+func cleanupResources(nc *nats.Conn, grpcClient GRPCClient) {
+	if grpcClient != nil {
+		_ = grpcClient.Close()
+	}
+
+	if nc != nil {
 		nc.Close()
+	}
+}
+
+// createSyncer creates a new SyncPoller instance with the provided dependencies.
+func createSyncer(
+	ctx context.Context,
+	config *Config,
+	kvClient KVClient,
+	js jetstream.JetStream,
+	nc *nats.Conn,
+	grpcClient GRPCClient,
+) (*SyncPoller, error) {
+	serverName := getServerName(config)
+
+	return New(
+		ctx,
+		config,
+		kvClient,
+		js,
+		nc,
+		defaultIntegrationRegistry(kvClient, grpcClient, serverName),
+		grpcClient,
+		nil,
+	)
+}
+
+// NewWithGRPC sets up the gRPC client for production use with default integrations.
+func NewWithGRPC(ctx context.Context, config *Config) (*SyncPoller, error) {
+	// Setup NATS connection
+	nc, err := setupNATSConnection(config)
+	if err != nil {
+		return nil, err
+	}
+
+	// Setup JetStream
+	js, err := setupJetStream(ctx, nc, config)
+	if err != nil {
+		cleanupResources(nc, nil)
+
+		return nil, err
+	}
+
+	// Setup gRPC client
+	kvClient, grpcClient, err := setupGRPCClient(ctx, config)
+	if err != nil {
+		cleanupResources(nc, nil)
+
+		return nil, err
+	}
+
+	// Create syncer
+	syncer, err := createSyncer(ctx, config, kvClient, js, nc, grpcClient)
+	if err != nil {
+		cleanupResources(nc, grpcClient)
+
 		return nil, err
 	}
 
@@ -336,23 +418,27 @@ func (s *SyncPoller) publishDevices(ctx context.Context, sourceType string, devi
 	}
 
 	subject := s.subjectPrefix + "." + sourceType
+
 	if s.config.Domain != "" {
 		subject = s.config.Domain + "." + subject
 	}
 
 	log.Printf("Publishing to subject: %s", subject)
 
-	for _, dev := range devices {
-		dev.AgentID = s.config.AgentID
-		dev.PollerID = s.config.PollerID
-		payload, err := json.Marshal(dev)
+	for i := range devices {
+		devices[i].AgentID = s.config.AgentID
+
+		devices[i].PollerID = s.config.PollerID
+
+		payload, err := json.Marshal(devices[i])
+
 		if err != nil {
-			log.Printf("Failed to marshal device %s: %v", dev.DeviceID, err)
+			log.Printf("Failed to marshal device %s: %v", devices[i].DeviceID, err)
 			continue
 		}
 
 		if _, err = s.js.Publish(ctx, subject, payload); err != nil {
-			log.Printf("Failed to publish device %s: %v", dev.DeviceID, err)
+			log.Printf("Failed to publish device %s: %v", devices[i].DeviceID, err)
 		}
 	}
 }

@@ -128,7 +128,8 @@ func (db *DB) StoreDevices(ctx context.Context, devices []*models.Device) error 
 
 	log.Printf("Storing %d devices", len(devices))
 
-	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO devices (device_id, agent_id, poller_id, discovery_source, ip, mac, hostname, first_seen, last_seen, is_available, metadata)")
+	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO devices (device_id, agent_id, "+
+		"poller_id, discovery_source, ip, mac, hostname, first_seen, last_seen, is_available, metadata)")
 	if err != nil {
 		return fmt.Errorf("failed to prepare batch: %w", err)
 	}
@@ -152,7 +153,11 @@ func (db *DB) StoreDevices(ctx context.Context, devices []*models.Device) error 
 			d.IsAvailable,
 			meta,
 		); err != nil {
-			batch.Abort()
+			err := batch.Abort()
+			if err != nil {
+				return err
+			}
+
 			return fmt.Errorf("failed to append device %s: %w", d.DeviceID, err)
 		}
 	}
