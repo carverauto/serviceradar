@@ -143,7 +143,11 @@ func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[
 			ips = append(ips, fmt.Sprintf("%s/32", ipStr))
 		}
 
-		deviceID := fmt.Sprintf("%s:%s:%s", ipStr, agentID, pollerID)
+		// The key for the KV store, using the format "agentID/ipAddress"
+		kvKey := fmt.Sprintf("%s/%s", agentID, ipStr)
+
+		// The device ID within the JSON value, updated to remove the poller ID.
+		deviceID := fmt.Sprintf("%s:%s", ipStr, agentID)
 
 		metadata := map[string]interface{}{
 			"netbox_device_id": fmt.Sprintf("%d", device.ID),
@@ -169,7 +173,8 @@ func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[
 			continue
 		}
 
-		data[deviceID] = value
+		// Use the new, valid key for the map.
+		data[kvKey] = value
 	}
 
 	return data, ips
