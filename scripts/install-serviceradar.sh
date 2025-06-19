@@ -400,6 +400,14 @@ setup_mtls_certificates() {
     if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_CORE" = "true" ]; then
         components="$components,web,nats,kv,sync"
     fi
+
+    # If NATS Edge mode is selected, we need a separate cert for the leaf node connection.
+    # The serviceradar CLI should generate this with a CN of 'serviceradar-edge'.
+    if [ "$NATS_MODE" = "2" ]; then
+        log "Adding nats-leaf to certificate generation for Edge mode."
+        components="$components,nats-leaf"
+    fi
+
     if [ "$INSTALL_ALL" = "true" ] || [ "$INSTALL_POLLER" = "true" ]; then
         components="$components,poller"
     fi
@@ -858,6 +866,80 @@ update_configs_for_mtls() {
     success "Configuration files updated for mTLS"
 }
 
+prompt_nats_mode() {
+    # Check if NATS is being installed to avoid unnecessary prompts
+    if ! [[ " ${packages_to_install[*]} " =~ " serviceradar-nats " ]]; then
+        return
+    fi
+
+    if [ "$INTERACTIVE" = "true" ]; then
+        header "Select NATS Server Mode"
+        echo -e "${COLOR_CYAN}Please choose the NATS server deployment mode:${COLOR_RESET}"
+        echo -e "${COLOR_WHITE}  1) Standalone (Default: single server for all-in-one installs)${COLOR_RESET}"
+        echo -e "${COLOR_WHITE}  2) Edge (Leaf Node that connects to a Cloud NATS server)${COLOR_RESET}"
+        echo -e "${COLOR_WHITE}  3) Cloud (Accepts connections from Edge Leaf Nodes)${COLOR_RESET}"
+
+        read_with_timeout "${COLOR_CYAN}Enter choice [1]:${COLOR_RESET}" "1" NATS_MODE
+    else
+        NATS_MODE=${NATS_MODE:-"1"} # Default to standalone in non-interactive
+    fi
+}
+
+configure_nats() {
+    # Check if NATS was installed
+    if ! command -v nats-server >/dev/null 2>&1 || [ -z "$NATS_MODE" ]; then
+        return
+    fi
+
+    header "Configuring NATS Server"
+    local template_dir="/etc/nats/templates"
+    local target_conf="/etc/nats/nats-server.conf"
+    local selected_template=""
+
+    case "$NATS_MODE" in
+        1)
+            log "Setting up NATS in Standalone mode."
+            selected_template="nats-standalone.conf"
+            ;;
+        2)
+            log "Setting up NATS in Edge (Leaf Node) mode."
+            selected_template="nats-leaf.conf"
+            if [ "$INTERACTIVE" = "true" ]; then
+                local cloud_host
+                read_with_timeout "${COLOR_CYAN}Enter the public DNS or IP of your Cloud NATS server:${COLOR_RESET}" "" cloud_host
+                if [ -z "$cloud_host" ]; then
+                    error "Cloud NATS server address is required for Edge mode."
+                fi
+                cp "${template_dir}/${selected_template}" "${target_conf}"
+                # Use a different delimiter for sed to avoid issues with slashes in URLs/IPs
+                sed -i "s|cloud-nats.yourdomain.com|${cloud_host}|g" "${target_conf}"
+            else
+                cp "${template_dir}/${selected_template}" "${target_conf}"
+                log "${COLOR_YELLOW}WARNING: NATS Edge mode requires the cloud server address. You must manually edit ${target_conf} and set the correct 'url'.${COLOR_RESET}"
+            fi
+            ;;
+        3)
+            log "Setting up NATS in Cloud mode."
+            selected_template="nats-cloud.conf"
+            ;;
+        *)
+            error "Invalid NATS mode selected."
+            ;;
+    esac
+
+    if [ "$NATS_MODE" != "2" ]; then
+       if [ -f "${template_dir}/${selected_template}" ]; then
+            cp "${template_dir}/${selected_template}" "${target_conf}"
+        else
+            error "NATS template file ${template_dir}/${selected_template} not found!"
+        fi
+    fi
+
+    chown nats:serviceradar "${target_conf}"
+    chmod 640 "${target_conf}"
+    success "NATS configuration set to use ${selected_template}."
+}
+
 # Main installation logic
 main() {
     display_banner
@@ -912,6 +994,8 @@ main() {
     else
         install_single_package "serviceradar-cli" ""
     fi
+
+    prompt_nats_mode
 
     # Install main components
     core_packages=("serviceradar-core" "serviceradar-proton" "serviceradar-web" "serviceradar-nats" "serviceradar-kv" "serviceradar-sync")
