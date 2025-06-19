@@ -83,7 +83,7 @@ func TestSRQLParsingAndTranslation(t *testing.T) { // Renamed for clarity
 				aql, _ := arangoTranslator.Translate(query)
 				assert.Equal(t, "FOR doc IN devices\n  RETURN doc", aql)
 				sqlP, _ := protonTranslator.Translate(query)
-				assert.Equal(t, "SELECT * FROM table(devices)", sqlP)
+				assert.Equal(t, "SELECT * FROM table(unified_devices)", sqlP)
 			},
 		},
 		{
@@ -103,7 +103,7 @@ func TestSRQLParsingAndTranslation(t *testing.T) { // Renamed for clarity
 				sqlCH, _ := clickhouseTranslator.Translate(query)
 				assert.Equal(t, "SELECT * FROM devices WHERE ip = '192.168.1.1'", sqlCH)
 				sqlP, _ := protonTranslator.Translate(query)
-				assert.Equal(t, "SELECT * FROM table(devices) WHERE ip = '192.168.1.1'", sqlP)
+				assert.Equal(t, "SELECT * FROM table(unified_devices) WHERE ip = '192.168.1.1'", sqlP)
 			},
 		},
 		{
