@@ -24,7 +24,31 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-//go:generate mockgen -destination=mock_armis.go -package=armis github.com/carverauto/serviceradar/pkg/sync/integrations/armis HTTPClient,TokenProvider,DeviceFetcher,KVWriter
+//go:generate mockgen -destination=mock_armis.go -package=armis github.com/carverauto/serviceradar/pkg/sync/integrations/armis HTTPClient,TokenProvider,DeviceFetcher,KVWriter,SweepResultsQuerier,ArmisUpdater
+
+// SweepResultsQuerier defines the interface for querying sweep results
+type SweepResultsQuerier interface {
+	// GetTodaysSweepResults queries for all sweep results from today
+	GetTodaysSweepResults(ctx context.Context) ([]SweepResult, error)
+
+	// GetSweepResultsForIPs queries sweep results for specific IP addresses
+	GetSweepResultsForIPs(ctx context.Context, ips []string) ([]SweepResult, error)
+
+	// GetRecentSweepResults queries for sweep results within a time range
+	GetRecentSweepResults(ctx context.Context, hours int) ([]SweepResult, error)
+
+	// GetAvailabilityStats returns a map of IP to availability status
+	GetAvailabilityStats(ctx context.Context, ips []string) (map[string]bool, error)
+}
+
+// ArmisUpdater defines the interface for updating device status in Armis
+type ArmisUpdater interface {
+	// UpdateDeviceStatus sends device availability status back to Armis
+	UpdateDeviceStatus(ctx context.Context, updates []ArmisDeviceStatus) error
+
+	// UpdateDeviceCustomAttributes updates custom attributes on Armis devices
+	UpdateDeviceCustomAttributes(ctx context.Context, deviceID int, attributes map[string]interface{}) error
+}
 
 // HTTPClient defines the interface for making HTTP requests.
 type HTTPClient interface {

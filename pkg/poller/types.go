@@ -33,6 +33,7 @@ type AgentPoller struct {
 	name    string
 	config  *AgentConfig
 	timeout time.Duration
+	poller  *Poller
 }
 
 // AgentConnection represents a connection to an agent.
@@ -60,8 +61,9 @@ type Poller struct {
 
 // ServiceCheck manages a single service check operation.
 type ServiceCheck struct {
-	client proto.AgentServiceClient
-	check  Check
+	client   proto.AgentServiceClient
+	check    Check
+	pollerID string
 }
 
 // Duration is a wrapper around time.Duration for JSON unmarshaling.

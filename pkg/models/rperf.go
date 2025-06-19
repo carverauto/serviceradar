@@ -91,8 +91,18 @@ type RperfMetric struct {
 	Success bool `json:"success" example:"true"`
 	// Target hostname or IP address
 	Target string `json:"target" example:"192.168.1.1"`
+	// ResponseTime in milliseconds
+	ResponseTime int64 `json:"response_time" example:"15"`
 	// Error message if test failed (null if successful)
 	Error *string `json:"error,omitempty" example:"connection refused"`
+	// AgentID of the agent that performed the test
+	AgentID string `json:"agent_id"`
+	// ServiceName of the service that performed the test
+	ServiceName string `json:"service_name"`
+	// ServiceType of the service that performed the test
+	ServiceType string `json:"service_type"`
+	// Version of the rperf service used for the test
+	Version string `json:"version"`
 }
 
 // RperfMetricResponse represents the API response for rperf metrics.

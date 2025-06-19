@@ -11,6 +11,10 @@
           "poller",
           "kv",
           "sync",
+          "device-mgr",
+          "trapd",
+          "mapper",
+          "flowgger",
           "nats",
           "web",
           "sysmon",
@@ -68,6 +72,49 @@
     "conffiles": [
       "/etc/serviceradar/core.json",
       "/etc/serviceradar/api.env"
+    ]
+  },
+  {
+    "name": "device-mgr",
+    "package_name": "serviceradar-device-mgr",
+    "version": "1.0.44",
+    "description": "ServiceRadar Device Manager Service",
+    "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
+    "architecture": "amd64",
+    "section": "utils",
+    "priority": "optional",
+    "deb": {
+      "depends": ["systemd", "jq"],
+      "dockerfile": null
+    },
+    "rpm": {
+      "depends": ["systemd", "jq"],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.simple",
+      "release": "1"
+    },
+    "binary": {
+      "source_path": "cmd/consumers/device",
+      "build_method": "go",
+      "output_path": "/usr/local/bin/serviceradar-device-mgr"
+    },
+    "config_files": [
+      {
+        "source": "packaging/device-mgr/config/devices.json",
+        "dest": "/etc/serviceradar/devices.json"
+      }
+    ],
+    "systemd_service": {
+      "source": "packaging/device-mgr/systemd/serviceradar-device-mgr.service",
+      "dest": "/lib/systemd/system/serviceradar-device-mgr.service"
+    },
+    "postinst": {
+      "source": "packaging/device-mgr/scripts/postinstall.sh"
+    },
+    "prerm": {
+      "source": "packaging/device-mgr/scripts/preremove.sh"
+    },
+    "conffiles": [
+      "/etc/serviceradar/devices.json"
     ]
   },
   {
@@ -337,14 +384,22 @@
     },
     "build_method": "external",
     "external_binary": {
-      "source_url": "https://github.com/nats-io/nats-server/releases/download/v2.11.1/nats-server-v2.11.1-linux-amd64.tar.gz",
-      "extract_path": "nats-server-v2.11.1-linux-amd64/nats-server",
+      "source_url": "https://github.com/nats-io/nats-server/releases/download/v2.11.4/nats-server-v2.11.4-linux-amd64.tar.gz",
+      "extract_path": "nats-server-v2.11.4-linux-amd64/nats-server",
       "output_path": "/usr/bin/nats-server"
     },
     "config_files": [
       {
         "source": "packaging/nats/config/nats-server.conf",
         "dest": "/etc/nats/nats-server.conf"
+      },
+      {
+        "source": "packaging/nats/config/nats-cloud.conf",
+        "dest": "/etc/nats/templates/nats-cloud.conf"
+      },
+      {
+        "source": "packaging/nats/config/nats-leaf.conf",
+        "dest": "/etc/nats/templates/nats-leaf.conf"
       }
     ],
     "systemd_service": {
@@ -467,7 +522,7 @@
     "binary": {
       "source_path": "cmd/checkers/dusk",
       "build_method": "go",
-      "output_path": "/usr/local/bin/dusk-checker"
+      "output_path": "/usr/local/bin/serviceradar-dusk-checker"
     },
     "config_files": [
       {
@@ -613,6 +668,96 @@
     },
     "conffiles": [
       "/etc/serviceradar/checkers/rperf.json.example"
+    ]
+  },
+  {
+    "name": "flowgger",
+    "package_name": "serviceradar-flowgger",
+    "version": "1.0.44",
+    "description": "ServiceRadar Flowgger log ingestion service",
+    "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
+    "architecture": "amd64",
+    "section": "net",
+    "priority": "optional",
+    "deb": {
+      "depends": ["systemd"],
+      "dockerfile": "cmd/flowgger/Dockerfile"
+    },
+    "rpm": {
+      "depends": ["systemd"],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.rust.flowgger",
+      "release": "1"
+    },
+    "binary": {
+      "build_method": "rust",
+      "source_path": "cmd/flowgger",
+      "output_path": "/usr/local/bin/serviceradar-flowgger",
+      "docker_output_path": "/output/serviceradar-flowgger"
+    },
+    "custom_steps": [],
+    "config_files": [
+      {
+        "source": "packaging/flowgger/config/flowgger.toml",
+        "dest": "/etc/serviceradar/flowgger.toml"
+      }
+    ],
+    "systemd_service": {
+      "source": "packaging/flowgger/systemd/serviceradar-flowgger.service",
+      "dest": "/lib/systemd/system/serviceradar-flowgger.service"
+    },
+    "postinst": {
+      "source": "packaging/flowgger/scripts/postinstall.sh"
+    },
+    "prerm": {
+      "source": "packaging/flowgger/scripts/preremove.sh"
+    },
+    "conffiles": [
+      "/etc/serviceradar/flowgger.toml"
+    ]
+  },
+  {
+    "name": "trapd",
+    "package_name": "serviceradar-trapd",
+    "version": "1.0.44",
+    "description": "ServiceRadar SNMP trap receiver service",
+    "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
+    "architecture": "amd64",
+    "section": "net",
+    "priority": "optional",
+    "deb": {
+      "depends": ["systemd"],
+      "dockerfile": "cmd/trapd/Dockerfile"
+    },
+    "rpm": {
+      "depends": ["systemd"],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.rust.trapd",
+      "release": "1"
+    },
+    "binary": {
+      "build_method": "rust",
+      "source_path": "cmd/trapd",
+      "output_path": "/usr/local/bin/serviceradar-trapd",
+      "docker_output_path": "/output/serviceradar-trapd"
+    },
+    "custom_steps": [],
+    "config_files": [
+      {
+        "source": "packaging/trapd/config/trapd.json",
+        "dest": "/etc/serviceradar/trapd.json"
+      }
+    ],
+    "systemd_service": {
+      "source": "packaging/trapd/systemd/serviceradar-trapd.service",
+      "dest": "/lib/systemd/system/serviceradar-trapd.service"
+    },
+    "postinst": {
+      "source": "packaging/trapd/scripts/postinstall.sh"
+    },
+    "prerm": {
+      "source": "packaging/trapd/scripts/preremove.sh"
+    },
+    "conffiles": [
+      "/etc/serviceradar/trapd.json"
     ]
   },
   {

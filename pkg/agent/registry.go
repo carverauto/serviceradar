@@ -62,7 +62,24 @@ func initRegistry() checker.Registry {
 				return nil, errDetailsRequiredGRPC
 			}
 
-			return NewExternalChecker(ctx, serviceName, "grpc", details, security)
+			// Determine the actual gRPC service name to use for health checks
+			var actualGrpcServiceCheckName string
+
+			switch serviceName {
+			case "sysmon":
+				actualGrpcServiceCheckName = defaultMonitoringServiceName
+			case "mapper":
+				// For mapper, we should use the monitoring.AgentService
+				// but the CheckHealth method needs to be modified to handle this
+				actualGrpcServiceCheckName = defaultMonitoringServiceName
+			case "rperf-checker":
+				actualGrpcServiceCheckName = defaultMonitoringServiceName
+			default:
+				// For other services, use the standard health check
+				actualGrpcServiceCheckName = "" // Empty string means use standard gRPC health
+			}
+
+			return NewExternalChecker(ctx, serviceName, "grpc", details, actualGrpcServiceCheckName, security)
 		})
 
 	// Register the SNMP checker

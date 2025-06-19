@@ -2,7 +2,25 @@
   "kv_address": "localhost:50057",
   "listen_addr": ":50058",
   "poll_interval": "30m",
+  "agent_id": "default-agent",
+  "poller_id": "default-poller",
+  "nats_url": "nats://127.0.0.1:4222",
+  "stream_name": "devices",
+  "subject": "discovery.devices",
+  "domain": "edge",
   "security": {
+    "mode": "mtls",
+    "cert_dir": "/etc/serviceradar/certs",
+    "server_name": "nats-serviceradar",
+    "role": "poller",
+    "tls": {
+      "cert_file": "sync.pem",
+      "key_file": "sync-key.pem",
+      "ca_file": "root.pem",
+      "client_ca_file": "root.pem"
+    }
+  },
+  "nats_security": {
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
     "server_name": "nats-serviceradar",

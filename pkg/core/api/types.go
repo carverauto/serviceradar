@@ -35,7 +35,7 @@ type ServiceStatus struct {
 	PollerID  string          `json:"poller_id"`
 	Name      string          `json:"name"`
 	Available bool            `json:"available"`
-	Message   string          `json:"message"`
+	Message   []byte          `json:"message"`
 	Type      string          `json:"type"`    // e.g., "process", "port", "blockchain", etc.
 	Details   json.RawMessage `json:"details"` // Flexible field for service-specific data
 }

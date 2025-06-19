@@ -14,6 +14,7 @@ import (
 	reflect "reflect"
 	time "time"
 
+	models "github.com/carverauto/serviceradar/pkg/models"
 	proto "github.com/carverauto/serviceradar/proto"
 	gomock "go.uber.org/mock/gomock"
 	grpc "google.golang.org/grpc"
@@ -200,12 +201,13 @@ func (m *MockIntegration) EXPECT() *MockIntegrationMockRecorder {
 }
 
 // Fetch mocks base method.
-func (m *MockIntegration) Fetch(ctx context.Context) (map[string][]byte, error) {
+func (m *MockIntegration) Fetch(ctx context.Context) (map[string][]byte, []models.Device, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Fetch", ctx)
 	ret0, _ := ret[0].(map[string][]byte)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
+	ret1, _ := ret[1].([]models.Device)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
 }
 
 // Fetch indicates an expected call of Fetch.

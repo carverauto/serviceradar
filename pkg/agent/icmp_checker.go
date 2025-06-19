@@ -25,6 +25,7 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/scan"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 const (
@@ -41,18 +42,18 @@ func NewICMPChecker(host string) (*ICMPChecker, error) {
 	return &ICMPChecker{Host: host, scanner: scanner}, nil
 }
 
-func (p *ICMPChecker) Check(ctx context.Context) (isAccessible bool, statusMsg string) {
+func (p *ICMPChecker) Check(ctx context.Context, req *proto.StatusRequest) (isAccessible bool, statusMsg json.RawMessage) {
 	target := models.Target{Host: p.Host, Mode: models.ModeICMP}
 
 	resultChan, err := p.scanner.Scan(ctx, []models.Target{target})
 	if err != nil {
-		return false, fmt.Sprintf(`{"error": "%v"}`, err)
+		return false, jsonError(fmt.Sprintf("ICMP scan failed: %v", err))
 	}
 
 	var result models.Result
+
 	for r := range resultChan {
 		result = r
-
 		break
 	}
 
@@ -61,16 +62,17 @@ func (p *ICMPChecker) Check(ctx context.Context) (isAccessible bool, statusMsg s
 		ResponseTime: result.RespTime.Nanoseconds(),
 		PacketLoss:   result.PacketLoss,
 		Available:    result.Available,
+		AgentID:      req.AgentId,
+		PollerID:     req.PollerId,
 	}
 
-	jsonResp, err := json.Marshal(resp)
+	data, err := json.Marshal(resp)
 	if err != nil {
 		log.Printf("failed to marshal ICMP response: %v", err)
-
-		return false, fmt.Sprintf(`{"error": "%v"}`, err)
+		return false, jsonError(fmt.Sprintf("Failed to marshal response: %v", err))
 	}
 
-	return result.Available, string(jsonResp)
+	return result.Available, data
 }
 
 func (p *ICMPChecker) Close(ctx context.Context) error {

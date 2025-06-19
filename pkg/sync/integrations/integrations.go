@@ -75,6 +75,36 @@ func NewArmisIntegration(
 		IcmpRateLimit: 5000,
 	}
 
+	// Initialize SweepResultsQuerier if ServiceRadar API credentials are provided
+	var sweepQuerier armis.SweepResultsQuerier
+
+	serviceRadarAPIKey := config.Credentials["api_key"]
+	serviceRadarEndpoint := config.Credentials["serviceradar_endpoint"]
+
+	// If no specific ServiceRadar endpoint is provided, assume it's on the same host
+	if serviceRadarEndpoint == "" && serviceRadarAPIKey != "" {
+		// Extract host from Armis endpoint if possible, otherwise use localhost
+		serviceRadarEndpoint = "http://localhost:8080"
+	}
+
+	if serviceRadarAPIKey != "" && serviceRadarEndpoint != "" {
+		sweepQuerier = armis.NewSweepResultsQuery(
+			serviceRadarEndpoint,
+			serviceRadarAPIKey,
+			httpClient,
+		)
+	}
+
+	// Initialize ArmisUpdater (placeholder - needs actual implementation based on Armis API)
+	var armisUpdater armis.ArmisUpdater
+	if config.Credentials["enable_status_updates"] == "true" {
+		armisUpdater = armis.NewArmisUpdater(
+			config,
+			httpClient,
+			defaultImpl, // Using defaultImpl as TokenProvider
+		)
+	}
+
 	return &armis.ArmisIntegration{
 		Config:        config,
 		KVClient:      kvClient,
@@ -86,6 +116,8 @@ func NewArmisIntegration(
 		DeviceFetcher: defaultImpl,
 		KVWriter:      kvWriter,
 		SweeperConfig: defaultSweepCfg,
+		SweepQuerier:  sweepQuerier,
+		Updater:       armisUpdater,
 	}
 }
 

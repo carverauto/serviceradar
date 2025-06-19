@@ -1,0 +1,6 @@
+[this_is_a_valid_section]
+this_is_valid_field = "this is a valid value"
+
+[this_is_a_valid_section.with_a_valid_subsection]
+this_is_another_valid_field.dotted = "with a valid value"
+integer_value = 42

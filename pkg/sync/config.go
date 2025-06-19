@@ -31,20 +31,22 @@ const (
 
 var (
 	errMissingSources = errors.New("at least one source must be defined")
-	errMissingKV      = errors.New("kv_address is required")
 	errMissingFields  = errors.New("source missing required fields (type, endpoint, prefix)")
+	errMissingStream  = errors.New("stream_name is required")
 )
 
 type Config struct {
 	Sources      map[string]*models.SourceConfig `json:"sources"`       // e.g., "armis": {...}, "netbox": {...}
-	KVAddress    string                          `json:"kv_address"`    // KV gRPC server address
+	KVAddress    string                          `json:"kv_address"`    // KV gRPC server address (optional)
+	NATSURL      string                          `json:"nats_url"`      // NATS server URL for JetStream
+	Domain       string                          `json:"domain"`        // JetStream domain (optional)
+	StreamName   string                          `json:"stream_name"`   // JetStream stream name
+	Subject      string                          `json:"subject"`       // Subject prefix for device publishes
 	PollInterval models.Duration                 `json:"poll_interval"` // Polling interval
-	Security     *models.SecurityConfig          `json:"security"`      // mTLS config
-
-	// Optional defaults for device publishing. Individual sources can
-	// override these values with their own `agent_id` and `poller_id`.
-	AgentID  string `json:"agent_id,omitempty"`
-	PollerID string `json:"poller_id,omitempty"`
+	AgentID      string                          `json:"agent_id"`      // Agent ID for device records
+	PollerID     string                          `json:"poller_id"`     // Poller ID for device records
+	Security     *models.SecurityConfig          `json:"security"`      // mTLS config for gRPC/KV
+	NATSSecurity *models.SecurityConfig          `json:"nats_security"` // Optional mTLS config for NATS
 }
 
 func (c *Config) Validate() error {
@@ -52,8 +54,16 @@ func (c *Config) Validate() error {
 		return errMissingSources
 	}
 
-	if c.KVAddress == "" {
-		return errMissingKV
+	if c.NATSURL == "" {
+		c.NATSURL = "nats://localhost:4222"
+	}
+
+	if c.StreamName == "" {
+		return errMissingStream
+	}
+
+	if c.Subject == "" {
+		c.Subject = "discovery.devices"
 	}
 
 	if time.Duration(c.PollInterval) == 0 {
@@ -68,20 +78,24 @@ func (c *Config) Validate() error {
 
 	// Normalize TLS paths if security is configured
 	if c.Security != nil {
-		c.normalizeCertPaths()
+		c.normalizeCertPaths(c.Security)
+	}
+
+	if c.NATSSecurity != nil {
+		c.normalizeCertPaths(c.NATSSecurity)
 	}
 
 	return nil
 }
 
 // normalizeCertPaths ensures all TLS file paths are absolute by prepending CertDir.
-func (c *Config) normalizeCertPaths() {
-	certDir := c.Security.CertDir
+func (*Config) normalizeCertPaths(sec *models.SecurityConfig) {
+	certDir := sec.CertDir
 	if certDir == "" {
 		return
 	}
 
-	tls := &c.Security.TLS // Use pointer to modify the original struct
+	tls := &sec.TLS // Use pointer to modify the original struct
 
 	if !filepath.IsAbs(tls.CertFile) {
 		tls.CertFile = filepath.Join(certDir, tls.CertFile)
