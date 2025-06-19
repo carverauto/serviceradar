@@ -147,7 +147,7 @@ func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[
 		kvKey := fmt.Sprintf("%s/%s", agentID, ipStr)
 
 		// The device ID within the JSON value, updated to remove the poller ID.
-		deviceID := fmt.Sprintf("%s:%s", ipStr, agentID)
+		deviceID := fmt.Sprintf("%s:%s:%s", ipStr, agentID, pollerID)
 
 		metadata := map[string]interface{}{
 			"netbox_device_id": fmt.Sprintf("%d", device.ID),
@@ -223,6 +223,9 @@ func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) 
 		Key:   configKey,
 		Value: configJSON,
 	})
+
+	// log the key/value pair for debugging
+	log.Printf("Writing sweep config to %s: %s", configKey, string(configJSON))
 
 	if err != nil {
 		log.Printf("Failed to write sweep config to %s: %v", configKey, err)
