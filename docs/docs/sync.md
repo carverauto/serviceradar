@@ -93,6 +93,8 @@ Each source in the `sources` map requires:
 | `prefix` | Key prefix in the KV store | Yes |
 | `credentials` | Authentication credentials (API keys, tokens) | Yes |
 | `insecure_skip_verify` | Skip TLS verification for self-signed certificates | No |
+| `agent_id` | Override the default agent ID for devices from this source | No |
+| `poller_id` | Override the default poller ID for devices from this source | No |
 
 ## Supported Integrations
 
@@ -134,6 +136,8 @@ The NetBox integration:
   "type": "armis",
   "endpoint": "https://api.armis.com/api/v1/devices",
   "prefix": "armis/",
+  "agent_id": "agent-prod-dc1",
+  "poller_id": "poller-prod-dc1",
   "credentials": {
     "api_key": "your_armis_api_key"
   }
@@ -432,6 +436,8 @@ Here's a comprehensive example that includes multiple data sources:
       "type": "netbox",
       "endpoint": "https://192.168.2.73",
       "prefix": "netbox/",
+      "agent_id": "agent-lab-west",
+      "poller_id": "poller-lab-west",
       "credentials": {
         "api_token": "72d72b0ddddddd3f7951051cd78cd7c",
         "expand_subnets": "true"
@@ -442,6 +448,8 @@ Here's a comprehensive example that includes multiple data sources:
       "type": "armis",
       "endpoint": "https://api.armis.internal/v1/devices",
       "prefix": "armis/",
+      "agent_id": "agent-prod-dc1",
+      "poller_id": "poller-prod-dc1",
       "credentials": {
         "api_key": "your_armis_api_key"
       }

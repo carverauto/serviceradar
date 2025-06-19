@@ -90,7 +90,7 @@ To design and implement an SNMP discovery engine that can:
 
 **4.4 Data Output and Storage (Proton Integration)**
 *   FR4.1: Successfully discovered basic device information (sysName, IP, MAC (if found as a system-level MAC)) should contribute to the `devices` stream in Proton. The `discovery_source` should be marked as 'snmp_discovery'.
-    *   This may involve publishing to an intermediate stream like `snmp_device_candidates` or directly enhancing entries in `snmp_results` which then feeds `devices_mv`.
+    *   This may involve publishing to an intermediate stream like `snmp_device_candidates` or directly enhancing entries in `snmp_results` which then feeds `unified_devices_mv`.
 *   FR4.2: Detailed interface information (as per FR3.2) for each discovered device must be published to the `discovered_interfaces` Proton stream. Data must conform to the existing schema:
     *   Fields: `timestamp`, `agent_id` (of the discovery agent), `poller_id` (of the poller tasking discovery, if applicable, otherwise system/discovery engine ID), `device_ip`, `device_id`, `ifIndex`, `ifName`, `ifDescr`, `ifAlias`, `ifSpeed`, `ifPhysAddress`, `ip_addresses` (array), `ifAdminStatus`, `ifOperStatus`, `metadata`.
 *   FR4.3: Discovered neighbor information (LLDP/CDP, as per FR3.3) must be published to the `topology_discovery_events` Proton stream. Data must conform to the existing schema:
@@ -161,7 +161,7 @@ graph TD
 
     ProtonPublisher -->|Device Info, Interface Info, Neighbor Info| ProtonStreams[Timeplus Proton Streams<br>- snmp_results<br>- discovered_interfaces<br>- topology_discovery_events]
 
-    ProtonStreams -->|devices_mv| DevicesStream[Proton 'devices' Stream]
+    ProtonStreams -->|unified_devices_mv| DevicesStream[Proton 'unified_devices' Stream]
 
     %% This part is outside the scope of this PRD but shows context
     subgraph "Downstream (ADR-02)"

@@ -282,6 +282,20 @@ func getVersionedKVStreamStatements() []string {
        PRIMARY KEY (ip, agent_id, poller_id)
        SETTINGS mode='versioned_kv', version_column='_tp_time'`,
 
+		`CREATE STREAM IF NOT EXISTS device_manager_devices (
+          agent_id string,
+          poller_id string,
+          discovery_source string,
+          ip string,
+          mac nullable(string),
+          hostname nullable(string),
+          timestamp DateTime64(3) DEFAULT now64(3),
+          available boolean,
+          metadata map(string, string)
+       )
+       PRIMARY KEY (ip, agent_id, poller_id)
+       SETTINGS mode='versioned_kv', version_column='_tp_time'`,
+
 		`CREATE STREAM IF NOT EXISTS icmp_results (
           agent_id string,
           poller_id string,
@@ -325,29 +339,83 @@ func getVersionedKVStreamStatements() []string {
        )
        PRIMARY KEY (device_id)
        SETTINGS mode='versioned_kv', version_column='_tp_time'`,
+
+		// Stream storing the unified device state produced by the materialized view.
+		`CREATE STREAM IF NOT EXISTS unified_devices (
+          device_id string,
+          ip string,
+          poller_id string,
+          hostname Nullable(string),
+          mac Nullable(string),
+          discovery_source string,
+          is_available boolean,
+          first_seen DateTime64(3),
+          last_seen DateTime64(3),
+          metadata Map(string, string),
+          agent_id string
+       )
+       PRIMARY KEY (device_id)
+       SETTINGS mode='versioned_kv', version_column='_tp_time'`,
 	}
 }
 
-// getMaterializedViewStatements returns the SQL statements for creating materialized views.
+// getMaterializedViewStatements returns the SQL statements for migrating from
+// the old materialized view to the new live view.
 func getMaterializedViewStatements() []string {
 	return []string{
-		// Materialized View
-		// The MV will insert into the system-generated _tp_time column in 'devices'
-		`CREATE MATERIALIZED VIEW IF NOT EXISTS devices_mv INTO devices AS
+		// Clean up any old views from previous iterations.
+		`DROP VIEW IF EXISTS devices_view`,
+		`DROP VIEW IF EXISTS device_updates_stream`,
+		`DROP MATERIALIZED VIEW IF EXISTS unified_devices_mv`,
+
+		// View that unions device updates from the devices stream and sweep_results.
+		`CREATE VIEW IF NOT EXISTS device_updates_stream AS
         SELECT
-            concat(ip, ':', agent_id, ':', poller_id) AS device_id,
-            agent_id,
-            poller_id,
-            discovery_source,
+            device_id,
             ip,
-            mac,
+            poller_id,
             hostname,
+            mac,
+            discovery_source,
+            is_available,
+            first_seen,
+            last_seen,
+            metadata,
+            agent_id,
+            last_seen AS update_time
+        FROM devices
+        UNION ALL
+        SELECT
+            concat(ip, ':', poller_id) AS device_id,
+            ip,
+            poller_id,
+            hostname,
+            mac,
+            discovery_source,
+            available AS is_available,
             timestamp AS first_seen,
             timestamp AS last_seen,
-            available AS is_available,
             metadata,
-            now64(3) AS _tp_time
+            agent_id,
+            timestamp AS update_time
         FROM sweep_results`,
+
+		// Materialized view that aggregates the latest state per device.
+		`CREATE MATERIALIZED VIEW IF NOT EXISTS unified_devices_mv INTO unified_devices AS
+        SELECT
+            device_id,
+            arg_max(ip, update_time) AS ip,
+            arg_max(poller_id, update_time) AS poller_id,
+            arg_max(hostname, update_time) AS hostname,
+            arg_max(mac, update_time) AS mac,
+            arg_max(discovery_source, update_time) AS discovery_source,
+            arg_max(is_available, update_time) AS is_available,
+            min(first_seen) AS first_seen,
+            max(last_seen) AS last_seen,
+            arg_max(metadata, update_time) AS metadata,
+            arg_max(agent_id, update_time) AS agent_id
+        FROM device_updates_stream
+        GROUP BY device_id`,
 	}
 }
 
@@ -364,8 +432,9 @@ func getCreateStreamStatements() []string {
 }
 
 // initSchema creates the database streams for Proton, excluding netflow_metrics.
-// Note: devices_mv is a minimal materialized view streaming from sweep_results only.
-// Historical data is not processed; devices populates naturally from new data.
+// The unified_devices_mv materialized view aggregates data from both the devices
+// stream and sweep_results via the device_updates_stream view.
+// Historical data is not processed; streams populate naturally from new data.
 // Streams use ChangelogStream engine to support continuous streaming for materialized views.
 func (db *DB) initSchema(ctx context.Context) error {
 	log.Println("=== Initializing schema with db.go version: 2025-05-13-v23 ===")

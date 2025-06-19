@@ -40,6 +40,11 @@ type Config struct {
 	KVAddress    string                          `json:"kv_address"`    // KV gRPC server address
 	PollInterval models.Duration                 `json:"poll_interval"` // Polling interval
 	Security     *models.SecurityConfig          `json:"security"`      // mTLS config
+
+	// Optional defaults for device publishing. Individual sources can
+	// override these values with their own `agent_id` and `poller_id`.
+	AgentID  string `json:"agent_id,omitempty"`
+	PollerID string `json:"poller_id,omitempty"`
 }
 
 func (c *Config) Validate() error {
