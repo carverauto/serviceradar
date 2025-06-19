@@ -25,6 +25,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -36,25 +37,26 @@ var (
 )
 
 // Fetch retrieves devices from NetBox and generates sweep config.
-func (n *NetboxIntegration) Fetch(ctx context.Context) (map[string][]byte, error) {
+func (n *NetboxIntegration) Fetch(ctx context.Context) (map[string][]byte, []models.Device, error) {
 	resp, err := n.fetchDevices(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer n.closeResponse(resp)
 
 	deviceResp, err := n.decodeResponse(resp)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	data, ips := n.processDevices(deviceResp)
+	modelDevs := n.convertToModelsDevices(deviceResp.Results)
 
 	log.Printf("Fetched %d devices from NetBox", len(deviceResp.Results))
 
 	n.writeSweepConfig(ctx, ips)
 
-	return data, nil
+	return data, modelDevs, nil
 }
 
 // fetchDevices sends the HTTP request to the NetBox API.
@@ -184,7 +186,6 @@ func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[
 func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) {
 	if n.KvClient == nil {
 		log.Print("KV client not configured; skipping sweep config write")
-		return
 	}
 
 	// AgentID to be used for the sweep config key.
@@ -198,7 +199,7 @@ func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) 
 		return // Or simply return to avoid writing a config with an unpredictable key
 	}
 
-	sweepConfig := models.SweepConfig{
+  sweepConfig := models.SweepConfig{
 		Networks:      ips,
 		Ports:         []int{22, 80, 443, 3389, 445, 8080},
 		SweepModes:    []string{"icmp", "tcp"},
@@ -234,4 +235,48 @@ func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) 
 	}
 
 	log.Printf("Wrote sweep config to %s", configKey)
+}
+
+// convertToModelsDevices converts NetBox devices to the generic models.Device type.
+func (*NetboxIntegration) convertToModelsDevices(devices []Device) []models.Device {
+	out := make([]models.Device, 0, len(devices))
+
+	for i := range devices {
+		dev := &devices[i]
+		ip := dev.PrimaryIP4.Address
+
+		if strings.Contains(ip, "/") {
+			parsed, _, err := net.ParseCIDR(ip)
+			if err == nil {
+				ip = parsed.String()
+			}
+		}
+
+		var firstSeen, lastSeen time.Time
+
+		if t, err := time.Parse(time.RFC3339, dev.Created); err == nil {
+			firstSeen = t
+		}
+
+		if t, err := time.Parse(time.RFC3339, dev.LastUpdated); err == nil {
+			lastSeen = t
+		}
+
+		out = append(out, models.Device{
+			DeviceID:        fmt.Sprintf("netbox-%d", dev.ID),
+			DiscoverySource: "netbox",
+			IP:              ip,
+			Hostname:        dev.Name,
+			FirstSeen:       firstSeen,
+			LastSeen:        lastSeen,
+			IsAvailable:     true,
+			Metadata: map[string]interface{}{
+				"netbox_device_id": fmt.Sprintf("%d", dev.ID),
+				"role":             dev.Role.Name,
+				"site":             dev.Site.Name,
+			},
+		})
+	}
+
+	return out
 }

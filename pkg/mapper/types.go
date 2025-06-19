@@ -26,8 +26,8 @@ import (
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
-// SNMPDiscoveryEngine implements the Engine interface using SNMP.
-type SNMPDiscoveryEngine struct {
+// DiscoveryEngine implements the Engine interface using SNMP.
+type DiscoveryEngine struct {
 	config        *Config
 	activeJobs    map[string]*DiscoveryJob
 	completedJobs map[string]*DiscoveryResults
@@ -37,6 +37,7 @@ type SNMPDiscoveryEngine struct {
 	publisher     Publisher
 	done          chan struct{}
 	wg            sync.WaitGroup
+	schedulers    map[string]*time.Ticker
 }
 
 // DiscoveryType identifies the type of discovery to perform.
@@ -111,15 +112,16 @@ type DiscoveryStatus struct {
 
 // DiscoveryJob represents a running discovery operation.
 type DiscoveryJob struct {
-	ID            string
-	Params        *DiscoveryParams
-	Status        *DiscoveryStatus
-	Results       *DiscoveryResults
-	ctx           context.Context
-	cancelFunc    context.CancelFunc
-	discoveredIPs map[string]bool
-	scanQueue     []string
-	mu            sync.RWMutex
+	ID             string
+	Params         *DiscoveryParams
+	Status         *DiscoveryStatus
+	Results        *DiscoveryResults
+	ctx            context.Context
+	cancelFunc     context.CancelFunc
+	scanQueue      []string
+	mu             sync.RWMutex
+	uniFiSiteCache map[string][]UniFiSite         // Key: baseURL, Value: list of sites
+	deviceMap      map[string]*DeviceInterfaceMap // DeviceID -> DeviceInterfaceMap
 }
 
 // DiscoveryResults contains the results of a discovery operation.
@@ -134,6 +136,7 @@ type DiscoveryResults struct {
 
 // DiscoveredDevice represents a discovered network device.
 type DiscoveredDevice struct {
+	DeviceID    string // Unique identifier for the device (agentID:pollerID:deviceIP)
 	IP          string
 	MAC         string
 	Hostname    string
@@ -169,7 +172,7 @@ type TopologyLink struct {
 	Protocol           string
 	LocalDeviceIP      string
 	LocalDeviceID      string
-	LocalIfIndex       int
+	LocalIfIndex       int32
 	LocalIfName        string
 	NeighborChassisID  string
 	NeighborPortID     string
@@ -191,6 +194,20 @@ type SNMPCredentialConfig struct {
 	PrivacyPassword string      `json:"privacy_password"` // Privacy password for v3
 }
 
+// ScheduledJob represents a scheduled discovery job configuration
+type ScheduledJob struct {
+	Name        string            `json:"name"`
+	Interval    string            `json:"interval"`
+	Enabled     bool              `json:"enabled"`
+	Seeds       []string          `json:"seeds"`
+	Type        string            `json:"type"`
+	Credentials SNMPCredentials   `json:"credentials"`
+	Concurrency int               `json:"concurrency"`
+	Timeout     string            `json:"timeout"`
+	Retries     int               `json:"retries"`
+	Options     map[string]string `json:"options"`
+}
+
 type Config struct {
 	Workers            int                        `json:"workers"`
 	Timeout            time.Duration              `json:"timeout"`
@@ -202,7 +219,16 @@ type Config struct {
 	StreamConfig       StreamConfig               `json:"stream_config"`
 	Credentials        []SNMPCredentialConfig     `json:"credentials"`
 	Seeds              []string                   `json:"seeds"`
-	Security           *models.SecurityConfig     `json:"security"` // Added
+	Security           *models.SecurityConfig     `json:"security"`
+	UniFiAPIs          []UniFiAPIConfig           `json:"unifi_apis"`
+	ScheduledJobs      []*ScheduledJob            `json:"scheduled_jobs"`
+}
+
+type UniFiAPIConfig struct {
+	BaseURL            string `json:"base_url"`
+	APIKey             string `json:"api_key"`
+	Name               string `json:"name"`                           // Optional name for identifying the controller
+	InsecureSkipVerify bool   `json:"insecure_skip_verify,omitempty"` // Skip TLS verification
 }
 
 func (c *Config) UnmarshalJSON(data []byte) error {
@@ -221,6 +247,18 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 			PublishRetries       int    `json:"publish_retries"`
 			PublishRetryInterval string `json:"publish_retry_interval"`
 		} `json:"stream_config"`
+		ScheduledJobs []struct {
+			Name        string            `json:"name"`
+			Interval    string            `json:"interval"`
+			Enabled     bool              `json:"enabled"`
+			Seeds       []string          `json:"seeds"`
+			Type        string            `json:"type"`
+			Credentials SNMPCredentials   `json:"credentials"`
+			Concurrency int               `json:"concurrency"`
+			Timeout     string            `json:"timeout"`
+			Retries     int               `json:"retries"`
+			Options     map[string]string `json:"options"`
+		} `json:"scheduled_jobs"`
 		*Alias
 	}{
 		Alias: (*Alias)(c),
@@ -260,6 +298,26 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 		c.StreamConfig.PublishRetryInterval = duration
 	}
 
+	// Parse ScheduledJobs
+	c.ScheduledJobs = make([]*ScheduledJob, len(aux.ScheduledJobs))
+	for i := 0; i < len(aux.ScheduledJobs); i++ {
+		c.ScheduledJobs[i] = &ScheduledJob{
+			Name:        aux.ScheduledJobs[i].Name,
+			Interval:    aux.ScheduledJobs[i].Interval,
+			Enabled:     aux.ScheduledJobs[i].Enabled,
+			Seeds:       aux.ScheduledJobs[i].Seeds,
+			Type:        aux.ScheduledJobs[i].Type,
+			Credentials: aux.ScheduledJobs[i].Credentials,
+			Concurrency: aux.ScheduledJobs[i].Concurrency,
+			Retries:     aux.ScheduledJobs[i].Retries,
+			Options:     aux.ScheduledJobs[i].Options,
+		}
+
+		if aux.ScheduledJobs[i].Timeout != "" {
+			c.ScheduledJobs[i].Timeout = aux.ScheduledJobs[i].Timeout
+		}
+	}
+
 	return nil
 }
 
@@ -273,4 +331,12 @@ type StreamConfig struct {
 	PublishBatchSize     int
 	PublishRetries       int
 	PublishRetryInterval time.Duration
+}
+
+type DeviceInterfaceMap struct {
+	DeviceID   string              // Primary DeviceID (based on primary MAC)
+	MACs       map[string]struct{} // All MACs associated with this device
+	IPs        map[string]struct{} // All IPs associated with this device
+	SysName    string              // System name (from SNMP or UniFi)
+	Interfaces []*DiscoveredInterface
 }

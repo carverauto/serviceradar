@@ -46,10 +46,40 @@ The Sync service is configured via `/etc/serviceradar/sync.json`:
   "kv_address": "192.168.2.23:50057",
   "listen_addr": "192.168.2.23:50058",
   "poll_interval": "5m",
+  "agent_id": "default-agent",
+  "poller_id": "default-poller",
+  "nats_url": "tls://192.168.2.23:4222",
+  "stream_name": "devices",
+  "subject": "discovery.devices",
+  "domain": "edge",
   "security": {
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
     "server_name": "192.168.2.23",
+    "role": "poller",
+    "tls": {
+      "cert_file": "sync.pem",
+      "key_file": "sync-key.pem",
+      "ca_file": "root.pem",
+      "client_ca_file": "root.pem"
+    }
+  },
+  "nats_security": {
+    "mode": "mtls",
+    "cert_dir": "/etc/serviceradar/certs",
+    "server_name": "nats-serviceradar",
+    "role": "poller",
+    "tls": {
+      "cert_file": "sync.pem",
+      "key_file": "sync-key.pem",
+      "ca_file": "root.pem",
+      "client_ca_file": "root.pem"
+    }
+  },
+  "nats_security": {
+    "mode": "mtls",
+    "cert_dir": "/etc/serviceradar/certs",
+    "server_name": "nats-serviceradar",
     "role": "poller",
     "tls": {
       "cert_file": "sync.pem",
@@ -80,7 +110,14 @@ The Sync service is configured via `/etc/serviceradar/sync.json`:
 | `kv_address` | Address and port of the KV service | N/A | Yes |
 | `listen_addr` | Address and port for the Sync service to listen on | N/A | Yes |
 | `poll_interval` | How often to fetch and update data | `30m` | No |
-| `security` | mTLS security settings | N/A | Yes |
+| `agent_id` | Agent ID to assign to published devices | N/A | Yes |
+| `poller_id` | Poller ID to assign to published devices | N/A | Yes |
+| `nats_url` | URL for connecting to the NATS Server | `nats://127.0.0.1:4222` | No |
+| `stream_name` | JetStream stream for device messages | `devices` | Yes |
+| `subject` | Base subject for published devices | `discovery.devices` | No |
+| `domain` | JetStream domain for the NATS server | N/A | No |
+| `security` | mTLS security settings for gRPC/KV | N/A | Yes |
+| `nats_security` | mTLS security settings for NATS | (uses `security` if omitted) | No |
 
 ### Source Configuration
 
@@ -148,6 +185,7 @@ The Armis integration:
 - Fetches device information from Armis
 - Creates device records in the KV store
 - Automatically generates network sweep configurations for discovered devices
+- Stores the Armis device ID in each device's metadata for later correlation
 
 #### Armis-Specific Options
 
@@ -419,10 +457,23 @@ Here's a comprehensive example that includes multiple data sources:
   "kv_address": "192.168.2.23:50057",
   "listen_addr": "192.168.2.23:50058",
   "poll_interval": "5m",
+  "nats_url": "tls://192.168.2.23:4222",
   "security": {
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
     "server_name": "192.168.2.23",
+    "role": "poller",
+    "tls": {
+      "cert_file": "sync.pem",
+      "key_file": "sync-key.pem",
+      "ca_file": "root.pem",
+      "client_ca_file": "root.pem"
+    }
+  },
+  "nats_security": {
+    "mode": "mtls",
+    "cert_dir": "/etc/serviceradar/certs",
+    "server_name": "nats-serviceradar",
     "role": "poller",
     "tls": {
       "cert_file": "sync.pem",

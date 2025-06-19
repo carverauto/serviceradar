@@ -1,0 +1,10 @@
+{
+  "listen_addr": "0.0.0.0:162",
+  "nats_url": "nats://127.0.0.1:4222",
+  "subject": "snmp.traps",
+  "security": {
+    "cert_file": "/etc/serviceradar/certs/trapd.pem",
+    "key_file": "/etc/serviceradar/certs/trapd-key.pem",
+    "ca_file": "/etc/serviceradar/certs/root.pem"
+  }
+}

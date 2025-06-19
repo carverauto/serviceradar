@@ -98,11 +98,10 @@ func (s *SweepService) UpdateConfig(config *models.Config) error {
 func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, error) {
 	log.Printf("Fetching sweep status")
 
-	summary, err := s.sweeper.GetStatus(ctx) // Delegate to NetworkSweeper's GetStatus
+	summary, err := s.sweeper.GetStatus(ctx)
 	if err != nil {
 		log.Printf("Failed to get sweep summary: %v", err)
-
-		return nil, fmt.Errorf("failed to get sweep summary: %w", err)
+		return nil, fmt.Errorf("failed to get sweep status: %w", err)
 	}
 
 	s.mu.RLock()
@@ -125,23 +124,34 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, er
 		DefinedCIDRs:   len(s.config.Networks),
 		UniqueIPs:      s.stats.uniqueIPs,
 	}
-
 	s.mu.RUnlock()
 
 	statusJSON, err := json.Marshal(data)
 	if err != nil {
 		log.Printf("Failed to marshal status: %v", err)
-
 		return nil, fmt.Errorf("failed to marshal sweep status: %w", err)
 	}
 
 	return &proto.StatusResponse{
 		Available:    true,
-		Message:      string(statusJSON),
+		Message:      statusJSON, // Use bytes directly
 		ServiceName:  "network_sweep",
 		ServiceType:  "sweep",
 		ResponseTime: time.Since(time.Unix(summary.LastSweep, 0)).Nanoseconds(),
 	}, nil
+}
+
+func (s *SweepService) Check(ctx context.Context, _ *proto.StatusRequest) (bool, json.RawMessage) {
+	resp, err := s.GetStatus(ctx)
+	if err != nil {
+		return false, jsonError(err.Error())
+	}
+
+	return resp.Available, resp.Message
+}
+
+func (s *SweepService) Close() error {
+	return s.Stop(context.Background())
 }
 
 // applyDefaultConfig sets default values for the config.

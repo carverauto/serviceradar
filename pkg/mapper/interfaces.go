@@ -14,13 +14,15 @@
  * limitations under the License.
  */
 
-// Package discovery pkg/discovery/interfaces.go
+//go:generate mockgen -destination=mock_mapper.go -package=mapper github.com/carverauto/serviceradar/pkg/mapper Mapper,Publisher
+
+// Package mapper pkg/discovery/interfaces.go
 package mapper
 
 import "context"
 
-// DiscoveryEngine is the main interface for network discovery operations
-type DiscoveryEngine interface {
+// Mapper is the main interface for network discovery operations
+type Mapper interface {
 	// Start initializes and starts the discovery engine
 	Start(ctx context.Context) error
 

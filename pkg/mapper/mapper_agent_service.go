@@ -19,56 +19,62 @@ package mapper
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 
-	monitoringpb "github.com/carverauto/serviceradar/proto"
+	"github.com/carverauto/serviceradar/proto"
 )
 
-// MapperAgentService implements the monitoring.AgentServiceServer for the mapper's own health.
-type MapperAgentService struct {
-	monitoringpb.UnimplementedAgentServiceServer
-	engine *SNMPDiscoveryEngine
+// AgentService implements the proto.AgentServiceServer for the mapper's own health.
+type AgentService struct {
+	proto.UnimplementedAgentServiceServer
+	engine *DiscoveryEngine
 }
 
-// NewMapperAgentService creates a new MapperAgentService.
-func NewMapperAgentService(engine *SNMPDiscoveryEngine) *MapperAgentService {
-	return &MapperAgentService{
+// NewAgentService creates a new AgentService.
+func NewAgentService(engine *DiscoveryEngine) *AgentService {
+	return &AgentService{
 		engine: engine,
 	}
 }
 
 // GetStatus implements the monitoring.AgentServiceServer interface.
-func (s *MapperAgentService) GetStatus(_ context.Context, req *monitoringpb.StatusRequest) (*monitoringpb.StatusResponse, error) {
+func (s *AgentService) GetStatus(_ context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
 	log.Printf("Mapper's monitoring.AgentService/GetStatus called with request: %+v", req)
 
-	var isAvailable bool
+	isAvailable := false
 
-	var message string
+	message := map[string]interface{}{
+		"status":  "unavailable",
+		"message": "serviceradar-mapper is not operational",
+	}
 
 	if s.engine != nil {
-		// A simple check: if the engine's 'done' channel is closed, it's stopping or stopped.
-		// This is a simplistic check. A more robust health check might involve
-		// checking active workers, error rates, etc.
-		select {
-		case <-s.engine.done:
-			isAvailable = false
-			message = "serviceradar-mapper is stopping or stopped"
-		default:
+		// Check if engine is initialized and running
+		s.engine.mu.RLock()
+		isRunning := s.engine.done != nil && len(s.engine.schedulers) > 0 // Check for active schedulers
+		s.engine.mu.RUnlock()
+
+		if isRunning {
 			isAvailable = true
-			message = "serviceradar-mapper is operational"
+			message["status"] = "operational"
+			message["message"] = "serviceradar-mapper is operational"
 		}
-	} else {
-		isAvailable = false
-		message = "serviceradar-mapper engine not initialized"
+	}
+
+	messageBytes, err := json.Marshal(message)
+	if err != nil {
+		log.Printf("Failed to marshal status message: %v", err)
+		return nil, err
 	}
 
 	serviceName := "serviceradar-mapper"
 
-	return &monitoringpb.StatusResponse{
+	return &proto.StatusResponse{
 		Available:   isAvailable,
-		Message:     message,
+		Message:     messageBytes,
 		ServiceName: serviceName,
-		ServiceType: "service-instance",            // Type of entity being reported on
-		AgentId:     "serviceradar-mapper-monitor", // ID for the mapper itself acting for its status
+		ServiceType: "service-instance",
+		AgentId:     "serviceradar-mapper-monitor",
 	}, nil
 }

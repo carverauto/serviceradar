@@ -59,6 +59,7 @@ tidy: ## Tidy and format Go code
 	@echo "$(COLOR_BOLD)Formatting Rust code$(COLOR_RESET)"
 	@cd cmd/checkers/rperf-client && $(RUSTFMT) src/*.rs
 	@cd cmd/checkers/sysmon && $(RUSTFMT) src/*.rs
+	@cd cmd/trapd && $(RUSTFMT) src/*.rs
 
 .PHONY: get-golangcilint
 get-golangcilint: ## Install golangci-lint
@@ -72,6 +73,7 @@ lint: get-golangcilint ## Run linting checks
 	@echo "$(COLOR_BOLD)Running Rust linter$(COLOR_RESET)"
 	@cd cmd/checkers/rperf-client && $(CARGO) clippy -- -D warnings
 	@cd cmd/checkers/sysmon && $(CARGO) clippy -- -D warnings
+	@cd cmd/trapd && $(CARGO) clippy -- -D warnings
 
 .PHONY: test
 test: ## Run all tests with coverage
@@ -82,7 +84,8 @@ test: ## Run all tests with coverage
 	@echo "$(COLOR_BOLD)Running Rust tests$(COLOR_RESET)"
 	@cd cmd/checkers/rperf-client && $(CARGO) test
 	@cd cmd/checkers/sysmon && $(CARGO) test
-
+	@cd cmd/trapd && $(CARGO) test
+	
 .PHONY: check-coverage
 check-coverage: test ## Check test coverage against thresholds
 	@echo "$(COLOR_BOLD)Checking test coverage$(COLOR_RESET)"
@@ -119,6 +122,7 @@ clean: ## Clean up build artifacts
 	@rm -rf serviceradar-*_* release-artifacts/
 	@cd cmd/checkers/rperf-client && $(CARGO) clean
 	@cd cmd/checkers/sysmon && $(CARGO) clean
+	@cd cmd/trapd && $(CARGO) clean
 
 .PHONY: generate-proto
 generate-proto: ## Generate Go and Rust code from protobuf definitions
@@ -143,10 +147,6 @@ generate-proto: ## Generate Go and Rust code from protobuf definitions
 		--go_out=proto --go_opt=paths=source_relative \
 		--go-grpc_out=proto --go-grpc_opt=paths=source_relative \
 		proto/flow/flow.proto
-	@protoc -I=cmd/checkers/sysmon/src/proto \
-		--go_out=cmd/checkers/sysmon/src/proto --go_opt=paths=source_relative \
-		--go-grpc_out=cmd/checkers/sysmon/src/proto --go-grpc_opt=paths=source_relative \
-		cmd/checkers/sysmon/src/proto/monitoring.proto
 	@echo "$(COLOR_BOLD)Generated Go protobuf code$(COLOR_RESET)"
 
 .PHONY: build

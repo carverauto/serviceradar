@@ -55,6 +55,7 @@ func (p *ProtonPublisher) PublishDevice(ctx context.Context, device *DiscoveredD
 	metadata["sys_contact"] = device.SysContact
 	metadata["sys_location"] = device.SysLocation
 	metadata["uptime"] = fmt.Sprintf("%d", device.Uptime)
+	metadata["device_id"] = device.DeviceID
 
 	// Add any additional metadata
 	for k, v := range device.Metadata {

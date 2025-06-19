@@ -18,6 +18,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -41,15 +42,16 @@ const (
 )
 
 type ExternalChecker struct {
-	serviceName         string
-	serviceType         string
-	address             string
-	clientConfig        ggrpc.ClientConfig // Pre-configured with SecurityProvider
-	grpcClient          *ggrpc.Client      // Managed connection
-	clientMu            sync.Mutex         // Protects grpcClient
-	healthCheckInterval time.Duration      // Dynamic backoff interval
-	lastHealthCheck     time.Time          // Last health check timestamp
-	healthStatus        bool               // Last known health status
+	serviceName          string
+	serviceType          string
+	address              string
+	grpcServiceCheckName string             // NEW FIELD: Actual gRPC service name for health checks (e.g., "monitoring.AgentService")
+	clientConfig         ggrpc.ClientConfig // Pre-configured with SecurityProvider
+	grpcClient           *ggrpc.Client      // Managed connection
+	clientMu             sync.Mutex         // Protects grpcClient
+	healthCheckInterval  time.Duration      // Dynamic backoff interval
+	lastHealthCheck      time.Time          // Last health check timestamp
+	healthStatus         bool               // Last known health status
 }
 
 var (
@@ -64,10 +66,11 @@ var (
 
 func NewExternalChecker(
 	ctx context.Context,
-	serviceName, serviceType, address string,
+	serviceName, serviceType, address, grpcServiceCheckName string,
 	security *models.SecurityConfig,
 ) (*ExternalChecker, error) {
-	log.Printf("Configuring new external checker name=%s type=%s at %s", serviceName, serviceType, address)
+	log.Printf("Configuring new external checker name=%s type=%s at %s, grpc_service_name=%s",
+		serviceName, serviceType, address, grpcServiceCheckName)
 
 	if address == "" {
 		return nil, errAddressRequired
@@ -103,81 +106,108 @@ func NewExternalChecker(
 	}
 
 	checker := &ExternalChecker{
-		serviceName:         serviceName,
-		serviceType:         serviceType,
-		address:             address,
-		clientConfig:        clientCfg,
-		grpcClient:          nil,
-		healthCheckInterval: initialHealthInterval,
-		lastHealthCheck:     time.Time{},
-		healthStatus:        false,
+		serviceName:          serviceName,
+		serviceType:          serviceType,
+		address:              address,
+		grpcServiceCheckName: grpcServiceCheckName,
+		clientConfig:         clientCfg,
+		grpcClient:           nil,
+		healthCheckInterval:  initialHealthInterval,
+		lastHealthCheck:      time.Time{},
+		healthStatus:         false,
 	}
 
-	log.Printf("Successfully configured external checker name=%s type=%s", serviceName, serviceType)
+	log.Printf("Successfully configured external checker name=%s type=%s, grpc_service_name=%s",
+		serviceName, serviceType, grpcServiceCheckName)
 
 	return checker, nil
 }
 
-func (e *ExternalChecker) Check(ctx context.Context) (healthy bool, details string) {
-	// Use RLock initially to check cached health status
+func (e *ExternalChecker) Check(ctx context.Context, req *proto.StatusRequest) (healthy bool, details json.RawMessage) {
 	if e.canUseCachedStatus() {
 		log.Printf("ExternalChecker %s: Using cached health status: %v", e.serviceName, e.healthStatus)
 
 		if !e.healthStatus {
-			healthy = false
-			details = "Service unhealthy (cached status)"
-
-			return healthy, details
+			return false, jsonError("Service unhealthy (cached status)")
 		}
 	}
 
-	// Lock for connection management and health check
 	e.clientMu.Lock()
 	defer e.clientMu.Unlock()
 
-	// Ensure the client is connected
 	if err := e.ensureConnected(ctx); err != nil {
 		e.updateHealthStatus(false)
-
 		log.Printf("ExternalChecker %s: Connection failed: %v", e.serviceName, err)
 
-		healthy = false
-		details = fmt.Sprintf("Failed to connect: %v", err)
-
-		return healthy, details
+		return false, jsonError(fmt.Sprintf("Failed to connect: %v", err))
 	}
 
-	// Perform health check with retry logic
-	healthy, err := e.performHealthCheck(ctx)
+	healthy, err := e.performHealthCheck(ctx, req.ServiceName)
 	if err != nil || !healthy {
 		e.updateHealthStatus(false)
 
 		log.Printf("ExternalChecker %s: Health check failed (Healthy: %v, Err: %v)", e.serviceName, healthy, err)
 
 		if err != nil {
-			healthy = false
-			details = fmt.Sprintf("Health check failed: %v", err)
-
-			return healthy, details
+			return false, jsonError(fmt.Sprintf("Health check failed: %v", err))
 		}
 
-		healthy = false
-		details = "Service reported unhealthy"
-
-		return healthy, details
+		return false, jsonError("Service reported unhealthy")
 	}
 
-	// Update health status on success
 	e.updateHealthStatus(true)
 
 	log.Printf("ExternalChecker %s: Health check succeeded", e.serviceName)
 
-	// Optionally fetch detailed status
 	return e.getServiceDetails(ctx)
+}
+
+func (e *ExternalChecker) getServiceDetails(ctx context.Context) (healthy bool, details json.RawMessage) {
+	agentClient := proto.NewAgentServiceClient(e.grpcClient.GetConnection())
+	start := time.Now()
+
+	status, err := agentClient.GetStatus(ctx, &proto.StatusRequest{
+		ServiceName: e.serviceName,
+		ServiceType: e.serviceType,
+	})
+	if err != nil {
+		log.Printf("ExternalChecker %s: Failed to get status details: %v", e.serviceName, err)
+		return false, jsonError(fmt.Sprintf("Failed to get status: %v", err))
+	}
+
+	responseTime := time.Since(start).Nanoseconds()
+
+	// Unmarshal the status.Message to preserve its JSON structure
+	var message map[string]interface{}
+	if err = json.Unmarshal(status.Message, &message); err != nil {
+		log.Printf("ExternalChecker %s: Failed to unmarshal status message: %v, raw message: %s",
+			e.serviceName, err, string(status.Message))
+		return false, jsonError(fmt.Sprintf("Failed to unmarshal status message: %v", err))
+	}
+
+	// Create response with nested status object
+	resp := map[string]interface{}{
+		"status":        message["status"], // Use the nested status field directly
+		"response_time": responseTime,
+		"available":     status.Available,
+	}
+
+	data, err := json.Marshal(resp)
+	if err != nil {
+		log.Printf("ExternalChecker %s: Failed to marshal response: %v", e.serviceName, err)
+		return false, jsonError(fmt.Sprintf("Failed to marshal response: %v", err))
+	}
+
+	return status.Available, data
 }
 
 func (e *ExternalChecker) canUseCachedStatus() bool {
 	now := time.Now()
+
+	if !e.healthStatus {
+		// For unhealthy status, use a shorter cache duration to retry sooner
+		return !e.lastHealthCheck.IsZero() && now.Sub(e.lastHealthCheck) < (e.healthCheckInterval/2)
+	}
 
 	return !e.lastHealthCheck.IsZero() && now.Sub(e.lastHealthCheck) < e.healthCheckInterval
 }
@@ -233,37 +263,33 @@ func (e *ExternalChecker) ensureConnected(ctx context.Context) error {
 	return fmt.Errorf("failed to connect after %d attempts: %w", maxRetries, lastErr)
 }
 
-func (e *ExternalChecker) performHealthCheck(ctx context.Context) (bool, error) {
-	healthy, err := e.grpcClient.CheckHealth(ctx, "")
+const (
+	defaultMonitoringServiceName = "monitoring.AgentService"
+)
+
+func (e *ExternalChecker) performHealthCheck(ctx context.Context, _ string) (bool, error) {
+	// If grpcServiceCheckName is "monitoring.AgentService", use custom health check
+	if e.grpcServiceCheckName == defaultMonitoringServiceName {
+		agentClient := proto.NewAgentServiceClient(e.grpcClient.GetConnection())
+
+		resp, err := agentClient.GetStatus(ctx, &proto.StatusRequest{
+			ServiceName: e.serviceName,
+			ServiceType: e.serviceType,
+		})
+		if err != nil {
+			return false, fmt.Errorf("custom health check failed: %w", err)
+		}
+
+		return resp.Available, nil
+	}
+
+	// Otherwise use standard gRPC health check
+	healthy, err := e.grpcClient.CheckHealth(ctx, e.grpcServiceCheckName)
 	if err != nil {
 		return false, fmt.Errorf("health check failed: %w", err)
 	}
 
 	return healthy, nil
-}
-
-func (e *ExternalChecker) getServiceDetails(ctx context.Context) (healthy bool, details string) {
-	agentClient := proto.NewAgentServiceClient(e.grpcClient.GetConnection())
-	start := time.Now()
-
-	status, err := agentClient.GetStatus(ctx, &proto.StatusRequest{
-		ServiceName: e.serviceName,
-		ServiceType: e.serviceType,
-	})
-	if err != nil {
-		log.Printf("ExternalChecker %s: Failed to get status details: %v", e.serviceName, err)
-
-		return false, fmt.Sprintf(`{"error": "Failed to get status: %v"}`, err)
-	}
-
-	responseTime := time.Since(start).Nanoseconds()
-
-	// Use the Available field from the StatusResponse to determine health
-	healthy = status.Available
-	details = fmt.Sprintf(`{"status": %q, "response_time": %d, "available": %t}`,
-		status.Message, responseTime, status.Available)
-
-	return healthy, details
 }
 
 func (e *ExternalChecker) updateHealthStatus(healthy bool) {

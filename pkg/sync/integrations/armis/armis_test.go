@@ -26,6 +26,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
@@ -35,18 +36,100 @@ import (
 	"google.golang.org/grpc"
 )
 
-func TestArmisIntegration_Fetch(t *testing.T) {
+// TestArmisIntegration_Fetch_NoUpdater tests the fetch logic when no updater is configured.
+func TestArmisIntegration_Fetch_NoUpdater(t *testing.T) {
 	integration, mocks := setupArmisIntegration(t)
+	// Explicitly disable the updater and querier for this test case
+	integration.Updater = nil
+	integration.SweepQuerier = nil
+
 	expectedDevices := getExpectedDevices()
 	firstPageResp := getFirstPageResponse(expectedDevices)
 	expectedSweepConfig := &models.SweepConfig{
-		Networks: []string{"192.168.1.1/32", "192.168.1.2/32", "10.0.0.1/32"},
+		Networks: []string{"192.168.1.1/32", "192.168.1.2/32"},
 	}
 
 	setupArmisMocks(t, mocks, firstPageResp, expectedSweepConfig)
 
-	result, err := integration.Fetch(context.Background())
-	verifyArmisResults(t, result, err, expectedDevices)
+	result, devices, err := integration.Fetch(context.Background())
+	verifyArmisResults(t, result, devices, err, expectedDevices)
+
+	// Ensure that the enrichment data was not added
+	_, exists := result["_sweep_results"]
+	assert.False(t, exists)
+}
+
+// TestArmisIntegration_Fetch_WithUpdaterAndCorrelation tests the full fetch/correlation/update workflow.
+func TestArmisIntegration_Fetch_WithUpdaterAndCorrelation(t *testing.T) {
+	// 1. Setup
+	integration, mocks := setupArmisIntegration(t)
+	expectedDevices := getExpectedDevices()
+	firstPageResp := getFirstPageResponse(expectedDevices)
+
+	// Mock sweep results, one for each device IP
+	mockSweepResults := []SweepResult{
+		{IP: "192.168.1.1", Available: true, Timestamp: time.Now(), RTT: 15.5},
+		{IP: "192.168.1.2", Available: false, Timestamp: time.Now(), Error: "timeout"},
+	}
+
+	// 2. Define mock expectations
+	testAccessToken := "test-access-token"
+	expectedQuery := "in:devices orderBy=id boundaries:\"Corporate\""
+
+	// Expectations for the initial device fetch
+	mocks.TokenProvider.EXPECT().GetAccessToken(gomock.Any()).Return(testAccessToken, nil)
+	mocks.DeviceFetcher.EXPECT().FetchDevicesPage(gomock.Any(), testAccessToken, expectedQuery, 0, 100).Return(firstPageResp, nil)
+	mocks.KVWriter.EXPECT().WriteSweepConfig(gomock.Any(), gomock.Any()).Return(nil)
+
+	// Expectations for the new correlation logic
+	mocks.SweepQuerier.EXPECT().GetTodaysSweepResults(gomock.Any()).Return(mockSweepResults, nil)
+	mocks.Updater.EXPECT().UpdateDeviceStatus(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, updates []ArmisDeviceStatus) error {
+			// Verify the content of the updates being sent to Armis
+			require.Len(t, updates, 2)
+
+			// Device 1 had a sweep result and was available
+			assert.Equal(t, 1, updates[0].DeviceID)
+			assert.Equal(t, "192.168.1.1", updates[0].IP)
+			assert.True(t, updates[0].Available)
+			assert.InEpsilon(t, 15.5, updates[0].RTT, 0.0001)
+
+			// Device 2 had a sweep result and was not available
+			assert.Equal(t, 2, updates[1].DeviceID)
+			assert.Equal(t, "192.168.1.2", updates[1].IP)
+			assert.False(t, updates[1].Available)
+
+			return nil
+		}).Return(nil)
+
+	// 3. Execute the method under test
+	result, _, err := integration.Fetch(context.Background())
+
+	// 4. Assert the results
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// Expect 3 items: 2 devices + 1 for "_sweep_results"
+	assert.Len(t, result, 3)
+
+	// Verify original devices are still present in the result map
+	_, device1Exists := result["1"]
+	assert.True(t, device1Exists)
+
+	_, device2Exists := result["2"]
+	assert.True(t, device2Exists)
+
+	// Verify that the sweep results were added to the map for enrichment
+	sweepResultsData, sweepResultsExist := result["_sweep_results"]
+	require.True(t, sweepResultsExist)
+
+	var storedSweepResults []SweepResult
+
+	err = json.Unmarshal(sweepResultsData, &storedSweepResults)
+	require.NoError(t, err)
+
+	assert.Len(t, storedSweepResults, 2)
+	assert.Equal(t, "192.168.1.1", storedSweepResults[0].IP)
 }
 
 func setupArmisIntegration(t *testing.T) (*ArmisIntegration, *armisMocks) {
@@ -56,6 +139,8 @@ func setupArmisIntegration(t *testing.T) (*ArmisIntegration, *armisMocks) {
 		TokenProvider: NewMockTokenProvider(ctrl),
 		DeviceFetcher: NewMockDeviceFetcher(ctrl),
 		KVWriter:      NewMockKVWriter(ctrl),
+		SweepQuerier:  NewMockSweepResultsQuerier(ctrl),
+		Updater:       NewMockArmisUpdater(ctrl),
 	}
 
 	return &ArmisIntegration{
@@ -76,6 +161,8 @@ func setupArmisIntegration(t *testing.T) (*ArmisIntegration, *armisMocks) {
 		TokenProvider: mocks.TokenProvider,
 		DeviceFetcher: mocks.DeviceFetcher,
 		KVWriter:      mocks.KVWriter,
+		SweepQuerier:  mocks.SweepQuerier,
+		Updater:       mocks.Updater,
 	}, mocks
 }
 
@@ -83,6 +170,8 @@ type armisMocks struct {
 	TokenProvider *MockTokenProvider
 	DeviceFetcher *MockDeviceFetcher
 	KVWriter      *MockKVWriter
+	SweepQuerier  *MockSweepResultsQuerier
+	Updater       *MockArmisUpdater
 }
 
 func getExpectedDevices() []Device {
@@ -138,7 +227,7 @@ func setupArmisMocks(t *testing.T, mocks *armisMocks, resp *SearchResponse, expe
 	mocks.KVWriter.EXPECT().WriteSweepConfig(gomock.Any(), expectedSweepConfig).Return(nil)
 }
 
-func verifyArmisResults(t *testing.T, result map[string][]byte, err error, expectedDevices []Device) {
+func verifyArmisResults(t *testing.T, result map[string][]byte, devices []models.Device, err error, expectedDevices []Device) {
 	t.Helper()
 
 	require.NoError(t, err)
@@ -169,6 +258,8 @@ func verifyArmisResults(t *testing.T, result map[string][]byte, err error, expec
 			assert.Equal(t, "test-poller", device.PollerID)
 		}
 	}
+
+	assert.Len(t, devices, len(expectedDevices))
 }
 
 func TestArmisIntegration_FetchWithMultiplePages(t *testing.T) {
@@ -192,6 +283,9 @@ func TestArmisIntegration_FetchWithMultiplePages(t *testing.T) {
 		TokenProvider: NewMockTokenProvider(ctrl),
 		DeviceFetcher: NewMockDeviceFetcher(ctrl),
 		KVWriter:      NewMockKVWriter(ctrl),
+		// Explicitly nil for this test's scope
+		Updater:      nil,
+		SweepQuerier: nil,
 	}
 
 	testAccessToken := "test-access-token"
@@ -225,7 +319,7 @@ func TestArmisIntegration_FetchWithMultiplePages(t *testing.T) {
 	integration.KVWriter.(*MockKVWriter).
 		EXPECT().WriteSweepConfig(gomock.Any(), expectedSweepConfig).Return(nil)
 
-	result, err := integration.Fetch(context.Background())
+	result, _, err := integration.Fetch(context.Background())
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -258,6 +352,9 @@ func TestArmisIntegration_FetchErrorHandling(t *testing.T) {
 		TokenProvider: NewMockTokenProvider(ctrl),
 		DeviceFetcher: NewMockDeviceFetcher(ctrl),
 		KVWriter:      NewMockKVWriter(ctrl),
+		// Explicitly nil for this test's scope
+		Updater:      nil,
+		SweepQuerier: nil,
 	}
 
 	testCases := []struct {
@@ -310,7 +407,7 @@ func TestArmisIntegration_FetchErrorHandling(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tc.setupMocks(integration)
 
-			result, err := integration.Fetch(context.Background())
+			result, _, err := integration.Fetch(context.Background())
 			if tc.expectedError != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.expectedError)
@@ -346,7 +443,7 @@ func TestArmisIntegration_FetchNoQueries(t *testing.T) {
 		KVWriter:      NewMockKVWriter(ctrl),
 	}
 
-	result, err := integration.Fetch(context.Background())
+	result, _, err := integration.Fetch(context.Background())
 
 	assert.Nil(t, result)
 	require.Error(t, err)
@@ -637,4 +734,56 @@ func TestDefaultKVWriter_WriteSweepConfig(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDefaultArmisUpdater_UpdateDeviceStatus(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockHTTP := NewMockHTTPClient(ctrl)
+	mockToken := NewMockTokenProvider(ctrl)
+
+	updater := &DefaultArmisUpdater{
+		Config:        &models.SourceConfig{Endpoint: "https://armis.example.com"},
+		HTTPClient:    mockHTTP,
+		TokenProvider: mockToken,
+	}
+
+	updates := []ArmisDeviceStatus{
+		{
+			DeviceID:    1,
+			Available:   true,
+			LastChecked: time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC),
+			RTT:         10.5,
+		},
+		{
+			DeviceID:    2,
+			Available:   false,
+			LastChecked: time.Date(2025, 1, 1, 12, 5, 0, 0, time.UTC),
+		},
+	}
+
+	mockToken.EXPECT().GetAccessToken(gomock.Any()).Return("token", nil)
+	mockHTTP.EXPECT().Do(gomock.Any()).DoAndReturn(
+		func(req *http.Request) (*http.Response, error) {
+			require.Equal(t, http.MethodPost, req.Method)
+			require.Equal(t, "https://armis.example.com/api/v1/devices/custom-properties/_bulk/", req.URL.String())
+			require.Equal(t, "token", req.Header.Get("Authorization"))
+
+			body, err := io.ReadAll(req.Body)
+			require.NoError(t, err)
+
+			var payload []map[string]map[string]interface{}
+			err = json.Unmarshal(body, &payload)
+			require.NoError(t, err)
+
+			// Expect 6 operations: 3 for device1, 2 for device2 (no RTT)
+			require.Len(t, payload, 5, "payload length")
+
+			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"success": true}`))}, nil
+		},
+	)
+
+	err := updater.UpdateDeviceStatus(context.Background(), updates)
+	require.NoError(t, err)
 }

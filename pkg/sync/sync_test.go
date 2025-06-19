@@ -51,6 +51,8 @@ func TestNew_ValidConfig(t *testing.T) {
 		},
 		KVAddress:    "localhost:50051",
 		PollInterval: models.Duration(1 * time.Second),
+		StreamName:   "devices",
+		Subject:      "discovery.devices",
 		Security: &models.SecurityConfig{
 			Mode: "mtls",
 			Role: models.RolePoller,
@@ -73,7 +75,7 @@ func TestNew_ValidConfig(t *testing.T) {
 		},
 	}
 
-	syncer, err := New(context.Background(), c, mockKV, mockGRPC, registry, mockClock)
+	syncer, err := New(context.Background(), c, mockKV, nil, nil, registry, nil, mockClock)
 	require.NoError(t, err)
 	assert.NotNil(t, syncer)
 	assert.NotNil(t, syncer.poller)
@@ -102,6 +104,8 @@ func TestSync_Success(t *testing.T) {
 		},
 		KVAddress:    "localhost:50051",
 		PollInterval: models.Duration(1 * time.Second),
+		StreamName:   "devices",
+		Subject:      "discovery.devices",
 		Security: &models.SecurityConfig{
 			Mode: "mtls",
 			Role: models.RolePoller,
@@ -125,13 +129,13 @@ func TestSync_Success(t *testing.T) {
 	}
 
 	data := map[string][]byte{"devices": []byte("data")}
-	mockInteg.EXPECT().Fetch(gomock.Any()).Return(data, nil)
+	mockInteg.EXPECT().Fetch(gomock.Any()).Return(data, nil, nil)
 	mockKV.EXPECT().Put(gomock.Any(), &proto.PutRequest{
 		Key:   "armis/devices",
 		Value: []byte("data"),
 	}, gomock.Any()).Return(&proto.PutResponse{}, nil)
 
-	syncer, err := New(context.Background(), c, mockKV, mockGRPC, registry, mockClock)
+	syncer, err := New(context.Background(), c, mockKV, nil, nil, registry, nil, mockClock)
 	require.NoError(t, err)
 
 	err = syncer.Sync(context.Background())
@@ -149,7 +153,6 @@ func TestStartAndStop(t *testing.T) {
 	mockTicker := poller.NewMockTicker(ctrl)
 
 	mockGRPC.EXPECT().GetConnection().Return(nil).AnyTimes()
-	mockGRPC.EXPECT().Close().Return(nil)
 
 	c := &Config{
 		Sources: map[string]*models.SourceConfig{
@@ -162,6 +165,8 @@ func TestStartAndStop(t *testing.T) {
 		},
 		KVAddress:    "localhost:50051",
 		PollInterval: models.Duration(500 * time.Millisecond),
+		StreamName:   "devices",
+		Subject:      "discovery.devices",
 		Security:     &models.SecurityConfig{},
 	}
 
@@ -180,10 +185,10 @@ func TestStartAndStop(t *testing.T) {
 
 	data := map[string][]byte{"devices": []byte("data")}
 
-	mockInteg.EXPECT().Fetch(gomock.Any()).Return(data, nil).Times(2) // Initial poll + 1 tick
+	mockInteg.EXPECT().Fetch(gomock.Any()).Return(data, nil, nil).Times(2) // Initial poll + 1 tick
 	mockKV.EXPECT().Put(gomock.Any(), gomock.Any(), gomock.Any()).Return(&proto.PutResponse{}, nil).Times(2)
 
-	syncer, err := New(context.Background(), c, mockKV, mockGRPC, registry, mockClock)
+	syncer, err := New(context.Background(), c, mockKV, nil, nil, registry, nil, mockClock)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -236,7 +241,6 @@ func TestStart_ContextCancellation(t *testing.T) {
 	mockTicker := poller.NewMockTicker(ctrl)
 
 	mockGRPC.EXPECT().GetConnection().Return(nil).AnyTimes()
-	mockGRPC.EXPECT().Close().Return(nil)
 
 	c := &Config{
 		Sources: map[string]*models.SourceConfig{
@@ -249,6 +253,8 @@ func TestStart_ContextCancellation(t *testing.T) {
 		},
 		KVAddress:    "localhost:50051",
 		PollInterval: models.Duration(1 * time.Second),
+		StreamName:   "devices",
+		Subject:      "discovery.devices",
 		Security: &models.SecurityConfig{
 			Mode: "mtls",
 			Role: models.RolePoller,
@@ -280,13 +286,13 @@ func TestStart_ContextCancellation(t *testing.T) {
 
 	data := map[string][]byte{"devices": []byte("data")}
 
-	mockInteg.EXPECT().Fetch(gomock.Any()).Return(data, nil)
+	mockInteg.EXPECT().Fetch(gomock.Any()).Return(data, nil, nil)
 	mockKV.EXPECT().Put(gomock.Any(), &proto.PutRequest{
 		Key:   "armis/devices",
 		Value: []byte("data"),
 	}, gomock.Any()).Return(&proto.PutResponse{}, nil)
 
-	syncer, err := New(context.Background(), c, mockKV, mockGRPC, registry, mockClock)
+	syncer, err := New(context.Background(), c, mockKV, nil, nil, registry, nil, mockClock)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -328,6 +334,8 @@ func TestSync_NetboxSuccess(t *testing.T) {
 		},
 		KVAddress:    "localhost:50051",
 		PollInterval: models.Duration(1 * time.Second),
+		StreamName:   "devices",
+		Subject:      "discovery.devices",
 	}
 
 	registry := map[string]IntegrationFactory{
@@ -337,13 +345,13 @@ func TestSync_NetboxSuccess(t *testing.T) {
 	}
 
 	data := map[string][]byte{"1": []byte(`{"id":1,"name":"device1","primary_ip4":{"address":"192.168.1.1/24"}}`)}
-	mockInteg.EXPECT().Fetch(gomock.Any()).Return(data, nil)
+	mockInteg.EXPECT().Fetch(gomock.Any()).Return(data, nil, nil)
 	mockKV.EXPECT().Put(gomock.Any(), &proto.PutRequest{
 		Key:   "netbox/1",
 		Value: []byte(`{"id":1,"name":"device1","primary_ip4":{"address":"192.168.1.1/24"}}`),
 	}, gomock.Any()).Return(&proto.PutResponse{}, nil)
 
-	syncer, err := New(context.Background(), c, mockKV, mockGRPC, registry, mockClock)
+	syncer, err := New(context.Background(), c, mockKV, nil, nil, registry, nil, mockClock)
 	require.NoError(t, err)
 
 	err = syncer.Sync(context.Background())

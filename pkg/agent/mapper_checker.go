@@ -14,23 +14,24 @@
  * limitations under the License.
  */
 
-// Package agent pkg/agent/mapper_discovery_checker.go
+// Package agent pkg/agent/mapper_checker.go
 package agent
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+
 	"log"
 	"os"
 	"path/filepath"
 	"sync"
-	"time"
 
 	"github.com/carverauto/serviceradar/pkg/config"
 	ggrpc "github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/models"
-	mapperproto "github.com/carverauto/serviceradar/proto/discovery"
+	"github.com/carverauto/serviceradar/proto"
+	discovery "github.com/carverauto/serviceradar/proto/discovery"
 )
 
 // MapperConfig represents the configuration for the mapper service
@@ -39,17 +40,7 @@ type MapperConfig struct {
 }
 
 type MapperDiscoveryDetails struct {
-	Seeds       []string `json:"seeds"`
-	Type        string   `json:"type"` // e.g., "full", "basic"
-	Credentials struct {
-		Version   string `json:"version"`
-		Community string `json:"community"`
-	} `json:"credentials"`
-	Concurrency    int32  `json:"concurrency,omitempty"`
-	TimeoutSeconds int32  `json:"timeout_seconds,omitempty"`
-	Retries        int32  `json:"retries,omitempty"`
-	AgentID        string `json:"agent_id,omitempty"`
-	PollerID       string `json:"poller_id,omitempty"`
+	IncludeRawData bool `json:"include_raw_data,omitempty"`
 }
 
 // MapperDiscoveryChecker implements checker.Checker for initiating and monitoring mapper discovery jobs.
@@ -58,50 +49,40 @@ type MapperDiscoveryChecker struct {
 	details       string
 	security      *models.SecurityConfig
 	client        *ggrpc.Client
-	mapperClient  mapperproto.DiscoveryServiceClient
-
-	// New fields for tracking discovery job state
-	lastDiscoveryID   string
-	lastDiscoveryTime time.Time  // When the last job was initiated or its status was last updated
-	mu                sync.Mutex // Protects lastDiscoveryID and lastDiscoveryTime
+	mapperClient  discovery.DiscoveryServiceClient
+	mu            sync.Mutex
 }
 
 // NewMapperDiscoveryChecker creates a new instance of MapperDiscoveryChecker.
 func NewMapperDiscoveryChecker(
 	ctx context.Context,
 	details string,
-	security *models.SecurityConfig) (*MapperDiscoveryChecker, error) {
+	security *models.SecurityConfig,
+) (*MapperDiscoveryChecker, error) {
 	log.Printf("Creating MapperDiscoveryChecker with details: %s", details)
 
-	// Load mapper configuration
 	mapperConfig, err := loadMapperConfig(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load mapper configuration: %w", err)
 	}
 
-	log.Printf("Connecting to mapper at %s", mapperConfig.Address)
-
-	// Build gRPC client config for connecting to the mapper service
 	clientCfg := ggrpc.ClientConfig{
 		Address:    mapperConfig.Address,
-		MaxRetries: 3, // Can be made configurable
+		MaxRetries: 3,
 	}
 
-	// Apply security configuration to the client
 	if security != nil {
 		provider, providerErr := ggrpc.NewSecurityProvider(ctx, security)
 		if providerErr != nil {
-			return nil,
-				fmt.Errorf("failed to create security provider for mapper discovery client: %w", providerErr)
+			return nil, fmt.Errorf("failed to create security provider: %w", providerErr)
 		}
 
 		clientCfg.SecurityProvider = provider
 	}
 
-	// Establish the gRPC connection
 	client, err := ggrpc.NewClient(ctx, clientCfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to mapper service for discovery: %w", err)
+		return nil, fmt.Errorf("failed to connect to mapper service: %w", err)
 	}
 
 	return &MapperDiscoveryChecker{
@@ -109,7 +90,7 @@ func NewMapperDiscoveryChecker(
 		details:       details,
 		security:      security,
 		client:        client,
-		mapperClient:  mapperproto.NewDiscoveryServiceClient(client.GetConnection()),
+		mapperClient:  discovery.NewDiscoveryServiceClient(client.GetConnection()),
 	}, nil
 }
 
@@ -117,15 +98,10 @@ func NewMapperDiscoveryChecker(
 func loadMapperConfig(ctx context.Context) (*MapperConfig, error) {
 	configPath := filepath.Join(defaultConfigPath, "mapper.json")
 
-	// Check if config file exists
 	if _, err := os.Stat(configPath); err != nil {
-		// If file doesn't exist, return a default configuration
 		if os.IsNotExist(err) {
 			log.Printf("Mapper config not found at %s, using default address", configPath)
-
-			return &MapperConfig{
-				Address: "127.0.0.1:50056", // Default address
-			}, nil
+			return &MapperConfig{Address: "127.0.0.1:50056"}, nil
 		}
 
 		return nil, fmt.Errorf("config file error: %w", err)
@@ -134,12 +110,10 @@ func loadMapperConfig(ctx context.Context) (*MapperConfig, error) {
 	var cfg MapperConfig
 
 	cfgLoader := config.NewConfig()
-
 	if err := cfgLoader.LoadAndValidate(ctx, configPath, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to load mapper config: %w", err)
 	}
 
-	// Validate the configuration
 	if cfg.Address == "" {
 		return nil, fmt.Errorf("mapper address cannot be empty")
 	}
@@ -149,240 +123,169 @@ func loadMapperConfig(ctx context.Context) (*MapperConfig, error) {
 	return &cfg, nil
 }
 
-const (
-	defaultJobStalenessThreshold = 10 * time.Minute // Default threshold for job staleness
-)
-
-// Check parses the discovery parameters, optionally initiates a job,
-// and returns the status/results of the discovery.
-func (mdc *MapperDiscoveryChecker) Check(ctx context.Context) (available bool, statusJSON string) {
+// Check parses the discovery parameters, optionally initiates a job, and returns the status/results
+func (mdc *MapperDiscoveryChecker) Check(ctx context.Context, req *proto.StatusRequest) (bool, json.RawMessage) {
 	mdc.mu.Lock()
 	defer mdc.mu.Unlock()
 
-	var parsedDetails *MapperDiscoveryDetails
-
-	if err := json.Unmarshal([]byte(mdc.details), &parsedDetails); err != nil {
-		available = false
-		statusJSON = fmt.Sprintf(`{"error": "Failed to parse mapper discovery details: %v"}`, err)
-
-		return available, statusJSON
+	if req == nil {
+		return false, jsonError("No StatusRequest provided for MapperDiscoveryChecker")
 	}
 
-	// Check if we need to start a new job
-	startNewJob := mdc.shouldStartNewJob(ctx)
+	var checkerDetails MapperDiscoveryDetails
 
-	if startNewJob {
-		errorMsg := mdc.startNewDiscoveryJob(ctx, parsedDetails)
-		if errorMsg != "" {
-			available = false
-			statusJSON = errorMsg
-
-			return available, statusJSON
+	if req.Details != "" { // req.Details is the JSON string from the checker's configuration
+		if err := json.Unmarshal([]byte(req.Details), &checkerDetails); err != nil {
+			log.Printf("MapperDiscoveryChecker: Failed to parse details JSON: %v. Details: %s. Using defaults.", err, req.Details)
 		}
 	}
 
-	// Get the current status or results of the managed job
-	if mdc.lastDiscoveryID == "" {
-		available = false
-		statusJSON = `{"status": "no_job_initiated", "message": "No discovery job initiated or found."}`
+	agentIDForMapperCall := req.AgentId
+	pollerIDForMapperCall := req.PollerId
 
-		return available, statusJSON
+	// Construct the request for the new/modified gRPC method
+	latestResultsReq := &discovery.GetLatestCachedResultsRequest{ // Assuming this new request type
+		AgentId:        agentIDForMapperCall,
+		PollerId:       pollerIDForMapperCall,
+		IncludeRawData: checkerDetails.IncludeRawData,
 	}
 
-	return mdc.processJobResults(ctx, parsedDetails)
-}
+	log.Printf("MapperDiscoveryChecker: Requesting latest cached results. AgentID: %s, PollerID: %s, IncludeRaw: %t",
+		agentIDForMapperCall, pollerIDForMapperCall, checkerDetails.IncludeRawData)
 
-// shouldStartNewJob determines if a new discovery job should be started
-func (mdc *MapperDiscoveryChecker) shouldStartNewJob(ctx context.Context) bool {
-	// A simple heuristic: if no job, or last job is very old (e.g., > 10 minutes from last update/start)
-	const jobStalenessThreshold = defaultJobStalenessThreshold
-
-	if mdc.lastDiscoveryID == "" || time.Since(mdc.lastDiscoveryTime) > jobStalenessThreshold {
-		return true
-	}
-
-	// Check the status of the last job to see if it's completed or failed
-	statusResp, err := mdc.mapperClient.GetStatus(ctx,
-		&mapperproto.StatusRequest{DiscoveryId: mdc.lastDiscoveryID})
+	// Call the new gRPC method (ensure your proto client 'mdc.mapperClient' has this method)
+	resultsResp, err := mdc.mapperClient.GetLatestCachedResults(ctx, latestResultsReq)
 	if err != nil {
-		// If we can't get status, assume it's stale/failed and try to restart
-		log.Printf("MapperDiscoveryChecker: Failed to get status for job %s (%v), "+
-			"attempting new job.", mdc.lastDiscoveryID, err)
+		errMsg := fmt.Sprintf("Failed to get latest cached discovery results from mapper: %v", err)
+		log.Printf("MapperDiscoveryChecker: %s", errMsg)
 
-		return true
+		return false, jsonError(errMsg) // Checker is unavailable if gRPC call fails
 	}
 
-	switch statusResp.Status {
-	case mapperproto.DiscoveryStatus_FAILED.String(), mapperproto.DiscoveryStatus_CANCELED.String():
-		log.Printf("MapperDiscoveryChecker: Last discovery job %s is %s, "+
-			"initiating new job.", mdc.lastDiscoveryID, statusResp.Status)
+	// Process the ResultsResponse from the mapper
+	var isDataUsable bool // Indicates if the data itself is complete/useful
 
-		return true
+	var responseData json.RawMessage
+
+	if resultsResp.Error != "" {
+		errMsg := fmt.Sprintf("Mapper reported error for latest cached results: %s", resultsResp.Error)
+		log.Printf("MapperDiscoveryChecker: %s", errMsg)
+		// Mapper service is up (it responded), but there's an application error with the data.
+		isDataUsable = false
+		responseData = jsonError(errMsg)
+	} else {
+		switch resultsResp.Status {
+		case discovery.DiscoveryStatus_COMPLETED:
+			// Data is complete from mapper's perspective.
+			// 'isDataUsable' can further check if devices were actually found.
+			isDataUsable, responseData = mdc.formatFinalResults(resultsResp, agentIDForMapperCall, pollerIDForMapperCall)
+		case discovery.DiscoveryStatus_RUNNING:
+			// Mapper is actively running its scheduled job. Data might be partial or from a previous run.
+			log.Printf("MapperDiscoveryChecker: Mapper status is RUNNING. Progress: %.1f%%", resultsResp.Progress)
+
+			isDataUsable = len(resultsResp.Devices) > 0 // Usable if some devices are present
+			responseData = mdc.formatProgressStatus(resultsResp)
+		case discovery.DiscoveryStatus_PENDING:
+			// Mapper's job is pending, or no data cached yet.
+			log.Printf("MapperDiscoveryChecker: Mapper status is PENDING. No significant data expected.")
+
+			isDataUsable = false
+			responseData = mdc.formatProgressStatus(resultsResp)
+		case discovery.DiscoveryStatus_FAILED:
+			// The mapper's last discovery attempt failed. Service is up, but data is problematic.
+			errMsg := fmt.Sprintf("Latest cached discovery from mapper shows FAILED status: %s", resultsResp.Error)
+			log.Printf("MapperDiscoveryChecker: %s", errMsg)
+
+			isDataUsable = false
+			responseData = jsonError(errMsg)
+		case discovery.DiscoveryStatus_UNKNOWN:
+			// The mapper returned an unknown status.
+			errMsg := fmt.Sprintf("Mapper returned UNKNOWN status. Error: %s", resultsResp.Error)
+			log.Printf("MapperDiscoveryChecker: %s", errMsg)
+
+			isDataUsable = false
+			responseData = jsonError(errMsg)
+		case discovery.DiscoveryStatus_CANCELED:
+			// The mapper's discovery was canceled.
+			errMsg := fmt.Sprintf("Mapper discovery was CANCELED. Error: %s", resultsResp.Error)
+			log.Printf("MapperDiscoveryChecker: %s", errMsg)
+
+			isDataUsable = false
+			responseData = jsonError(errMsg)
+		default:
+			errMsg := fmt.Sprintf("Mapper returned unhandled status: %s. Error: %s", resultsResp.Status, resultsResp.Error)
+			log.Printf("MapperDiscoveryChecker: %s", errMsg)
+
+			isDataUsable = false
+			responseData = jsonError(errMsg)
+		}
 	}
 
-	return false
+	log.Printf("MapperDiscoveryChecker: Reporting. Mapper Status: %s, IsDataUsableByAgent: %v, Devices: %d",
+		resultsResp.Status, isDataUsable, len(resultsResp.Devices))
+
+	// The first boolean (overall checker availability) is true because the mapper service responded.
+	// The 'responseData' carries the actual status of the discovery data.
+	return true, responseData
 }
 
-// getDiscoveryType converts a string discovery type to the corresponding proto enum
-func getDiscoveryType(typeStr string) (mapperproto.DiscoveryRequest_DiscoveryType, error) {
-	switch typeStr {
-	case "full":
-		return mapperproto.DiscoveryRequest_FULL, nil
-	case "basic":
-		return mapperproto.DiscoveryRequest_BASIC, nil
-	case "interfaces":
-		return mapperproto.DiscoveryRequest_INTERFACES, nil
-	case "topology":
-		return mapperproto.DiscoveryRequest_TOPOLOGY, nil
-	default:
-		return 0, fmt.Errorf("unsupported discovery type: %s", typeStr)
-	}
-}
-
-// getSNMPVersion converts a string SNMP version to the corresponding proto enum
-func getSNMPVersion(versionStr string) (mapperproto.SNMPCredentials_SNMPVersion, error) {
-	switch versionStr {
-	case "v1":
-		return mapperproto.SNMPCredentials_V1, nil
-	case "v2c":
-		return mapperproto.SNMPCredentials_V2C, nil
-	case "v3":
-		return mapperproto.SNMPCredentials_V3, nil
-	default:
-		return 0, fmt.Errorf("unsupported SNMP version: %s", versionStr)
-	}
-}
-
-// startNewDiscoveryJob initiates a new discovery job
-func (mdc *MapperDiscoveryChecker) startNewDiscoveryJob(ctx context.Context, details *MapperDiscoveryDetails) string {
-	log.Printf("MapperDiscoveryChecker: Initiating new discovery job.")
-
-	discoveryType, err := getDiscoveryType(details.Type)
-	if err != nil {
-		return fmt.Sprintf(`{"error": %q}`, err.Error())
-	}
-
-	snmpVersion, err := getSNMPVersion(details.Credentials.Version)
-	if err != nil {
-		return fmt.Sprintf(`{"error": %q}`, err.Error())
-	}
-
-	req := &mapperproto.DiscoveryRequest{
-		Seeds: details.Seeds,
-		Type:  discoveryType,
-		Credentials: &mapperproto.SNMPCredentials{
-			Version:   snmpVersion,
-			Community: details.Credentials.Community,
-		},
-		Concurrency:    details.Concurrency,
-		TimeoutSeconds: details.TimeoutSeconds,
-		Retries:        details.Retries,
-		AgentId:        details.AgentID,
-		PollerId:       details.PollerID,
-	}
-
-	resp, err := mdc.mapperClient.StartDiscovery(ctx, req)
-	if err != nil {
-		return fmt.Sprintf(`{"error": "Failed to start mapper discovery: %v"}`, err)
-	}
-
-	if !resp.Success {
-		return fmt.Sprintf(`{"error": "Mapper discovery reported failure on start: %s"}`, resp.Message)
-	}
-
-	mdc.lastDiscoveryID = resp.DiscoveryId
-	mdc.lastDiscoveryTime = time.Now() // Mark new job started
-
-	log.Printf("MapperDiscoveryChecker: New discovery job %s started successfully.", mdc.lastDiscoveryID)
-
-	return ""
-}
-
-// processJobResults gets and processes the results of the current job.
-func (mdc *MapperDiscoveryChecker) processJobResults(
-	ctx context.Context, details *MapperDiscoveryDetails) (available bool, statusJSON string) {
-	resultsResp, err := mdc.mapperClient.GetDiscoveryResults(ctx, &mapperproto.ResultsRequest{
-		DiscoveryId:    mdc.lastDiscoveryID,
-		IncludeRawData: false, // Typically don't send raw data to core unless specifically needed
-	})
-	if err != nil {
-		available = false
-		statusJSON = fmt.Sprintf(`{"error": "Failed to get mapper discovery results for job %s: %v"}`,
-			mdc.lastDiscoveryID, err)
-
-		return available, statusJSON
-	}
-
-	// Update lastDiscoveryTime based on job's end time if available, otherwise current time
-	if resultsResp.GetStatus() == mapperproto.DiscoveryStatus_COMPLETED ||
-		resultsResp.GetStatus() == mapperproto.DiscoveryStatus_FAILED ||
-		resultsResp.GetStatus() == mapperproto.DiscoveryStatus_CANCELED {
-		mdc.lastDiscoveryTime = time.Now() // Update last check time for staleness
-	}
-
-	// If the job is still running, report its progress
-	if resultsResp.Status != mapperproto.DiscoveryStatus_COMPLETED &&
-		resultsResp.Status != mapperproto.DiscoveryStatus_FAILED &&
-		resultsResp.Status != mapperproto.DiscoveryStatus_CANCELED {
-		return mdc.formatProgressStatus(resultsResp)
-	}
-
-	return mdc.formatFinalResults(resultsResp, details)
-}
-
-// formatProgressStatus formats the status of an in-progress job.
-func (mdc *MapperDiscoveryChecker) formatProgressStatus(resultsResp *mapperproto.ResultsResponse) (available bool, statusJSON string) {
-	msg := fmt.Sprintf("Mapper discovery job %s is still %s "+
-		"(progress: %.1f%%, devices: %d, interfaces: %d, links: %d).",
-		mdc.lastDiscoveryID, resultsResp.Status.String(), resultsResp.Progress,
+// formatProgressStatus formats in-progress or partial discovery results.
+func (*MapperDiscoveryChecker) formatProgressStatus(resultsResp *discovery.ResultsResponse) json.RawMessage {
+	message := fmt.Sprintf("Mapper discovery status: %s (progress: %.1f%%). Devices: %d, Interfaces: %d, Links: %d.",
+		resultsResp.Status, resultsResp.Progress,
 		len(resultsResp.Devices), len(resultsResp.Interfaces), len(resultsResp.Topology))
-	statusBytes, _ := json.Marshal(map[string]interface{}{
-		"status":               resultsResp.Status.String(),
-		"discovery_id":         resultsResp.DiscoveryId,
+	if resultsResp.Error != "" {
+		message += " Error: " + resultsResp.Error
+	}
+
+	resp := map[string]interface{}{
+		"status":               resultsResp.Status.String(), // Use String() for enum to get "PENDING", "RUNNING", etc.
+		"discovery_id":         resultsResp.DiscoveryId,     // Mapper's internal ID for the job that produced the cache
 		"progress":             resultsResp.Progress,
 		"devices_found":        len(resultsResp.Devices),
 		"interfaces_found":     len(resultsResp.Interfaces),
 		"topology_links_found": len(resultsResp.Topology),
-		"message":              msg,
+		"message":              message,
 		"error":                resultsResp.Error,
-	})
+	}
 
-	available = true
-	statusJSON = string(statusBytes)
+	data, err := json.Marshal(resp)
+	if err != nil {
+		log.Printf("MapperDiscoveryChecker: Failed to marshal progress status: %v", err)
+		return jsonError(fmt.Sprintf("Failed to marshal progress status: %v", err))
+	}
 
-	return available, statusJSON
+	return data
 }
 
-// formatFinalResults formats the final results of a completed job.
-func (mdc *MapperDiscoveryChecker) formatFinalResults(
-	resultsResp *mapperproto.ResultsResponse, details *MapperDiscoveryDetails) (available bool, payloadJSON string) {
-	// If job completed/failed/canceled, prepare the full SNMPDiscoveryDataPayload
+func (*MapperDiscoveryChecker) formatFinalResults(
+	resultsResp *discovery.ResultsResponse,
+	requestingAgentID string,
+	requestingPollerID string) (bool, json.RawMessage) {
+	// The AgentID and PollerID in the SNMPDiscoveryDataPayload should ideally reflect the context
+	// of the data generation. If the mapper's ResultsResponse includes this (e.g., in metadata),
+	// it should be used. Otherwise, using the requesting agent/poller IDs provides retrieval context.
 	payload := models.SNMPDiscoveryDataPayload{
 		Devices:    resultsResp.Devices,
 		Interfaces: resultsResp.Interfaces,
 		Topology:   resultsResp.Topology,
-		AgentID:    details.AgentID,  // Propagate original agent ID
-		PollerID:   details.PollerID, // Propagate original poller ID
+		AgentID:    requestingAgentID,  // Context of who is requesting/retrieving the cache
+		PollerID:   requestingPollerID, // Context of who is requesting/retrieving the cache
 	}
 
-	jsonBytes, err := json.Marshal(payload)
+	data, err := json.Marshal(payload)
 	if err != nil {
-		available = false
-		payloadJSON = fmt.Sprintf(`{"error": "Failed to marshal SNMP discovery results payload: %v"}`, err)
-
-		return available, payloadJSON
+		log.Printf("MapperDiscoveryChecker: Failed to marshal SNMP discovery results payload: %v", err)
+		return false, jsonError(fmt.Sprintf("Failed to marshal SNMP discovery results payload: %v", err))
 	}
 
-	// Report availability based on job outcome
-	available = resultsResp.Status == mapperproto.DiscoveryStatus_COMPLETED
-	payloadJSON = string(jsonBytes)
+	// Data is considered usable if the status is COMPLETED and there are devices.
+	isDataUsable := resultsResp.Status == discovery.DiscoveryStatus_COMPLETED && len(resultsResp.Devices) > 0
 
-	log.Printf("MapperDiscoveryChecker: Reporting job %s status: %s, available: %v. "+
-		"Found devices: %d, interfaces: %d, links: %d",
-		mdc.lastDiscoveryID, resultsResp.Status.String(), available,
-		len(resultsResp.Devices), len(resultsResp.Interfaces), len(resultsResp.Topology))
+	log.Printf("MapperDiscoveryChecker: Formatted final results. Mapper Status: %s, IsDataUsableByAgent: %v. Devices: %d",
+		resultsResp.Status, isDataUsable, len(resultsResp.Devices))
 
-	return available, payloadJSON
+	return isDataUsable, data
 }
 
 // Close gracefully closes the gRPC client connection to the mapper.

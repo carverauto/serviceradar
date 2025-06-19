@@ -34,6 +34,7 @@ cd serviceradar-nats-build
 mkdir -p DEBIAN
 mkdir -p lib/systemd/system
 mkdir -p etc/nats
+mkdir -p etc/nats/templates
 
 echo "Preparing ServiceRadar NATS package files..."
 
@@ -66,6 +67,13 @@ else
     echo "Error: serviceradar-nats.service not found at $SERVICE_SRC"
     exit 1
 fi
+
+# Copy NATS config templates instead of a single default config
+echo "Copying NATS configuration templates..."
+CONFIG_DIR="${PACKAGING_DIR}/nats/config"
+cp "${CONFIG_DIR}/nats-standalone.conf" etc/nats/templates/
+cp "${CONFIG_DIR}/nats-cloud.conf" etc/nats/templates/
+cp "${CONFIG_DIR}/nats-edge-leaf.conf" etc/nats/templates/
 
 # Copy default config file (only if it doesn't exist on the target system)
 CONFIG_SRC="${PACKAGING_DIR}/nats/config/nats-server.conf"

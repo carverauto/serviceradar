@@ -24,5 +24,4 @@ var (
 	errInvalidSweepData   = errors.New("invalid sweep data")
 	errFailedToSendAlerts = errors.New("failed to send alerts")
 	errJWTSecretRequired  = errors.New("JWT_SECRET environment variable is required")
-	errEmptyStatusField   = errors.New("empty status field")
 )
