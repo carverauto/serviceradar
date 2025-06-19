@@ -19,11 +19,19 @@
       "type": "armis",
       "endpoint": "https://api.armis.example.com",
       "prefix": "armis/",
+      "agent_id": "agent-prod-dc1",
+      "poller_id": "poller-prod-dc1",
       "credentials": {
         "secret_key": "your-armis-secret-key-here",
         "boundary": "Corporate",
         "page_size": "100"
       },
-      "queries": [{"label": "all_devices", "query": "in:devices orderBy=id boundaries:\"Corporate\""}]}
+      "queries": [
+        {
+          "label": "all_devices",
+          "query": "in:devices orderBy=id boundaries:\"Corporate\""
+        }
+      ]
+    }
   }
 }
