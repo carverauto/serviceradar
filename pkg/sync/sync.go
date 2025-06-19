@@ -18,7 +18,9 @@ package sync
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"strings"
 	"sync"
 
 	"github.com/carverauto/serviceradar/pkg/grpc"
@@ -229,9 +231,14 @@ func (s *SyncPoller) Sync(ctx context.Context) error {
 }
 
 func (s *SyncPoller) writeToKV(ctx context.Context, sourceName string, data map[string][]byte) {
-	prefix := s.config.Sources[sourceName].Prefix
+	prefix := strings.TrimSuffix(s.config.Sources[sourceName].Prefix, "/")
+
 	for key, value := range data {
-		fullKey := prefix + key
+		fullKey := prefix + "/" + key
+
+		if agent, poller, ip, ok := parseDeviceID(key); ok {
+			fullKey = fmt.Sprintf("%s/%s/%s/%s", prefix, agent, poller, ip)
+		}
 
 		_, err := s.kvClient.Put(ctx, &proto.PutRequest{
 			Key:   fullKey,
@@ -242,6 +249,27 @@ func (s *SyncPoller) writeToKV(ctx context.Context, sourceName string, data map[
 			log.Printf("Failed to write %s to KV: %v", fullKey, err)
 		}
 	}
+}
+
+// parseDeviceID splits a device ID of the form "ip:agent_id:poller_id" into its components.
+// It returns agent_id, poller_id, ip, and true on success. If the string does not match
+// the expected format, ok will be false.
+func parseDeviceID(id string) (string, string, string, bool) {
+	last := strings.LastIndex(id, ":")
+	if last == -1 {
+		return "", "", id, false
+	}
+
+	second := strings.LastIndex(id[:last], ":")
+	if second == -1 {
+		return "", "", id, false
+	}
+
+	ip := id[:second]
+	agent := id[second+1 : last]
+	poller := id[last+1:]
+
+	return agent, poller, ip, true
 }
 
 // NewDefault provides a production-ready constructor with default settings.
