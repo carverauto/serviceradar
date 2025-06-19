@@ -1,48 +1,70 @@
--- This migration file should be updated to contain the following logic
+-- Migration: Simple fix for unified devices
+-- Date: 20250620200000
+-- Description: Uses a single materialized view to prevent overwriting issues
 
--- Drop the previous, simple materialized view if it exists
+-- Step 1: Clean up existing views
+DROP VIEW IF EXISTS all_sources_to_unified_mv;
 DROP VIEW IF EXISTS sweep_to_unified_mv;
+DROP VIEW IF EXISTS devices_to_unified_mv;
 
--- Create a new, smarter materialized view for sweep results
-CREATE MATERIALIZED VIEW IF NOT EXISTS sweep_to_unified_mv INTO unified_devices AS
+-- Step 2: Ensure unified_devices stream exists
+CREATE STREAM IF NOT EXISTS unified_devices (
+    device_id string,
+    ip string,
+    poller_id string,
+    hostname nullable(string),
+    mac nullable(string),
+    discovery_source string,
+    is_available boolean,
+    first_seen DateTime64(3),
+    last_seen DateTime64(3),
+    metadata map(string, string),
+    agent_id string
+)
+PRIMARY KEY (device_id)
+SETTINGS mode='versioned_kv', version_column='_tp_time';
+
+-- Step 3: Only create ONE materialized view for devices stream
+-- This prevents the overwriting issue
+CREATE MATERIALIZED VIEW IF NOT EXISTS devices_to_unified_mv INTO unified_devices AS
 SELECT
-    -- The key for the join
-    s.device_id,
+    device_id,
+    ip,
+    poller_id,
+    hostname,
+    mac,
+    discovery_source,
+    is_available,
+    first_seen,
+    last_seen,
+    agent_id,
+    metadata,
+    last_seen AS _tp_time
+FROM devices;
 
-    -- Take the latest IP, agent, and poller from the sweep result
-    s.ip,
-    s.agent_id,
-    s.poller_id,
+-- Step 4: Manually insert all sweep_results data as a one-time operation
+-- This ensures sweep data is in unified_devices but won't be overwritten
+INSERT INTO unified_devices
+SELECT
+    concat(ip, ':', agent_id, ':', poller_id) AS device_id,
+    ip,
+    poller_id,
+    hostname,
+    mac,
+    discovery_source,
+    available AS is_available,
+    timestamp AS first_seen,
+    timestamp AS last_seen,
+    agent_id,
+    metadata,
+    -- Use a timestamp slightly before current time to ensure devices stream wins
+    date_sub(now64(3), INTERVAL 1 SECOND) AS _tp_time
+FROM sweep_results
+WHERE (ip, agent_id, poller_id) NOT IN (
+    SELECT ip, agent_id, poller_id FROM devices
+);
 
-    --  ****** THE FIX IS HERE ******
-    -- Prioritize existing hostname; only use sweep's hostname if the existing one is null.
-    COALESCE(d.hostname, s.hostname) AS hostname,
-
-    -- Prioritize existing MAC address.
-    COALESCE(d.mac, s.mac) AS mac,
-
-    -- If the device already exists, preserve its original discovery source.
-    -- Otherwise, set it to 'sweep'.
-    COALESCE(d.discovery_source, s.discovery_source) as discovery_source,
-
-    -- Always update availability from the sweep, as this is its primary purpose.
-    s.is_available,
-
-    -- Preserve the original first_seen time, but update last_seen.
-    d.first_seen,
-    s.last_seen,
-
-    -- Prioritize existing metadata. Only use the sweep's metadata if none exists.
-    COALESCE(d.metadata, s.metadata) as metadata,
-
-    -- Provide the version column for the 'unified_devices' versioned_kv stream
-    s._tp_time
-
-FROM
-    -- s is the new sweep result
-    (SELECT *, concat(ip, ':', agent_id, ':', poller_id) as device_id, timestamp as _tp_time FROM sweep_results) AS s
-        LEFT JOIN
-    -- d is the device's current state in our destination table
-        unified_devices AS d
-    ON
-        s.device_id = d.device_id;
+-- Step 5: Create a scheduled job or trigger to periodically sync sweep_results
+-- This would need to be done outside the migration, in your application code
+-- Example pseudo-code:
+-- Every 5 minutes: INSERT INTO unified_devices SELECT ... FROM sweep_results WHERE [new records only]

@@ -83,3 +83,43 @@ func (db *DB) StoreSweepResults(ctx context.Context, results []*models.SweepResu
 
 	return nil
 }
+
+// SyncSweepResultsToUnifiedDevices syncs new sweep results to unified_devices
+// This should be called periodically (e.g., every 5 minutes) to ensure
+// sweep discoveries are included in the unified view
+func (db *DB) SyncSweepResultsToUnifiedDevices(ctx context.Context) error {
+	query := `
+    INSERT INTO unified_devices
+    SELECT
+        concat(ip, ':', agent_id, ':', poller_id) AS device_id,
+        ip,
+        poller_id,
+        hostname,
+        mac,
+        discovery_source,
+        available AS is_available,
+        timestamp AS first_seen,
+        timestamp AS last_seen,
+        agent_id,
+        metadata,
+        -- Use a timestamp slightly in the past so integration data takes precedence
+        date_sub(now64(3), INTERVAL 1 SECOND) AS _tp_time
+    FROM sweep_results s
+    WHERE 
+        -- Only sync devices not already managed by integrations
+        (s.ip, s.agent_id, s.poller_id) NOT IN (
+            SELECT ip, agent_id, poller_id FROM devices
+        )
+        -- Only sync new devices or updates
+        AND s.timestamp > (
+            SELECT COALESCE(MAX(last_seen), toDateTime64('1970-01-01', 3))
+            FROM unified_devices
+            WHERE discovery_source IN ('sweep', 'snmp_discovery')
+        )`
+
+	if err := db.Conn.Exec(ctx, query); err != nil {
+		return fmt.Errorf("failed to sync sweep results: %w", err)
+	}
+
+	return nil
+}
