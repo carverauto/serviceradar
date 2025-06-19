@@ -343,6 +343,8 @@ func (s *SyncPoller) publishDevices(ctx context.Context, sourceType string, devi
 	log.Printf("Publishing to subject: %s", subject)
 
 	for _, dev := range devices {
+		dev.AgentID = s.config.AgentID
+		dev.PollerID = s.config.PollerID
 		payload, err := json.Marshal(dev)
 		if err != nil {
 			log.Printf("Failed to marshal device %s: %v", dev.DeviceID, err)

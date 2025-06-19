@@ -19,9 +19,9 @@ var (
 
 // GetDevicesByIP retrieves devices with a specific IP address.
 func (db *DB) GetDevicesByIP(ctx context.Context, ip string) ([]*models.Device, error) {
-	query := `SELECT 
-        device_id, poller_id, discovery_source, ip, mac, hostname, 
-        first_seen, last_seen, is_available, metadata 
+	query := `SELECT
+        device_id, agent_id, poller_id, discovery_source, ip, mac, hostname,
+        first_seen, last_seen, is_available, metadata
     FROM table(devices)
     WHERE ip = ?`
 
@@ -40,6 +40,7 @@ func (db *DB) GetDevicesByIP(ctx context.Context, ip string) ([]*models.Device, 
 
 		err := rows.Scan(
 			&d.DeviceID,
+			&d.AgentID,
 			&d.PollerID,
 			&d.DiscoverySource,
 			&d.IP,
@@ -72,11 +73,11 @@ func (db *DB) GetDevicesByIP(ctx context.Context, ip string) ([]*models.Device, 
 
 // GetDeviceByID retrieves a device by its ID.
 func (db *DB) GetDeviceByID(ctx context.Context, deviceID string) (*models.Device, error) {
-	query := `SELECT 
-        device_id, poller_id, discovery_source, ip, mac, hostname, 
-        first_seen, last_seen, is_available, metadata 
+	query := `SELECT
+        device_id, agent_id, poller_id, discovery_source, ip, mac, hostname,
+        first_seen, last_seen, is_available, metadata
     FROM table(devices)
-    WHERE device_id = ? 
+    WHERE device_id = ?
     LIMIT 1`
 
 	rows, err := db.Conn.Query(ctx, query, deviceID)
@@ -95,6 +96,7 @@ func (db *DB) GetDeviceByID(ctx context.Context, deviceID string) (*models.Devic
 
 	err = rows.Scan(
 		&d.DeviceID,
+		&d.AgentID,
 		&d.PollerID,
 		&d.DiscoverySource,
 		&d.IP,
@@ -137,6 +139,7 @@ func (db *DB) StoreDevices(ctx context.Context, devices []*models.Device) error 
 
 		if err := batch.Append(
 			d.DeviceID,
+			d.AgentID,
 			d.PollerID,
 			d.DiscoverySource,
 			d.IP,
