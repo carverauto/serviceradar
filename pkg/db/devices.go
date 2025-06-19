@@ -126,6 +126,8 @@ func (db *DB) StoreDevices(ctx context.Context, devices []*models.Device) error 
 		return nil
 	}
 
+	log.Printf("Storing %d devices", len(devices))
+
 	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO devices (device_id, agent_id, poller_id, discovery_source, ip, mac, hostname, first_seen, last_seen, is_available, metadata)")
 	if err != nil {
 		return fmt.Errorf("failed to prepare batch: %w", err)

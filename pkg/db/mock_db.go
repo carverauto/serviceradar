@@ -418,20 +418,6 @@ func (mr *MockServiceMockRecorder) PublishBatchTopologyDiscoveryEvents(ctx, even
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublishBatchTopologyDiscoveryEvents", reflect.TypeOf((*MockService)(nil).PublishBatchTopologyDiscoveryEvents), ctx, events)
 }
 
-// StoreDevices mocks base method.
-func (m *MockService) StoreDevices(ctx context.Context, devices []*models.Device) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "StoreDevices", ctx, devices)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// StoreDevices indicates an expected call of StoreDevices.
-func (mr *MockServiceMockRecorder) StoreDevices(ctx, devices any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreDevices", reflect.TypeOf((*MockService)(nil).StoreDevices), ctx, devices)
-}
-
 // PublishDiscoveredInterface mocks base method.
 func (m *MockService) PublishDiscoveredInterface(ctx context.Context, iface *models.DiscoveredInterface) error {
 	m.ctrl.T.Helper()
@@ -458,6 +444,20 @@ func (m *MockService) PublishTopologyDiscoveryEvent(ctx context.Context, event *
 func (mr *MockServiceMockRecorder) PublishTopologyDiscoveryEvent(ctx, event any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublishTopologyDiscoveryEvent", reflect.TypeOf((*MockService)(nil).PublishTopologyDiscoveryEvent), ctx, event)
+}
+
+// StoreDevices mocks base method.
+func (m *MockService) StoreDevices(ctx context.Context, devices []*models.Device) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "StoreDevices", ctx, devices)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// StoreDevices indicates an expected call of StoreDevices.
+func (mr *MockServiceMockRecorder) StoreDevices(ctx, devices any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreDevices", reflect.TypeOf((*MockService)(nil).StoreDevices), ctx, devices)
 }
 
 // StoreMetric mocks base method.
