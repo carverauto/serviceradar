@@ -120,33 +120,63 @@ func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[
 	data = make(map[string][]byte)
 	ips = make([]string, 0, len(deviceResp.Results))
 
+	agentID := n.Config.AgentID
+	pollerID := n.Config.PollerID
+	now := time.Now()
+
 	for i := range deviceResp.Results {
 		device := &deviceResp.Results[i]
 
-		value, err := json.Marshal(device)
+		if device.PrimaryIP4.Address == "" {
+			continue
+		}
+
+		ip, _, err := net.ParseCIDR(device.PrimaryIP4.Address)
+		if err != nil {
+			log.Printf("Failed to parse IP %s: %v", device.PrimaryIP4.Address, err)
+			continue
+		}
+
+		ipStr := ip.String()
+
+		if n.ExpandSubnets {
+			ips = append(ips, device.PrimaryIP4.Address)
+		} else {
+			ips = append(ips, fmt.Sprintf("%s/32", ipStr))
+		}
+
+		// The key for the KV store, using the format "agentID/ipAddress"
+		kvKey := fmt.Sprintf("%s/%s", agentID, ipStr)
+
+		// The device ID within the JSON value, updated to remove the poller ID.
+		deviceID := fmt.Sprintf("%s:%s:%s", ipStr, agentID, pollerID)
+
+		metadata := map[string]interface{}{
+			"netbox_device_id": fmt.Sprintf("%d", device.ID),
+			"role":             device.Role.Name,
+			"site":             device.Site.Name,
+		}
+
+		modelDevice := &models.Device{
+			DeviceID:        deviceID,
+			PollerID:        pollerID,
+			DiscoverySource: "netbox",
+			IP:              ipStr,
+			Hostname:        device.Name,
+			FirstSeen:       now,
+			LastSeen:        now,
+			IsAvailable:     true,
+			Metadata:        metadata,
+		}
+
+		value, err := json.Marshal(modelDevice)
 		if err != nil {
 			log.Printf("Failed to marshal device %d: %v", device.ID, err)
 			continue
 		}
 
-		data[fmt.Sprintf("%d", device.ID)] = value
-
-		if device.PrimaryIP4.Address != "" {
-			if n.ExpandSubnets {
-				ips = append(ips, device.PrimaryIP4.Address) // Keep /24 if desired
-			} else {
-				ip, _, err := net.ParseCIDR(device.PrimaryIP4.Address)
-				if err != nil {
-					log.Printf("Failed to parse IP %s: %v", device.PrimaryIP4.Address, err)
-					continue
-				}
-
-				// add /32 to the IP address
-				newIPAddress := fmt.Sprintf("%s/32", ip.String())
-
-				ips = append(ips, newIPAddress)
-			}
-		}
+		// Use the new, valid key for the map.
+		data[kvKey] = value
 	}
 
 	return data, ips
@@ -156,11 +186,20 @@ func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[
 func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) {
 	if n.KvClient == nil {
 		log.Print("KV client not configured; skipping sweep config write")
-
-		return
 	}
 
-	sweepConfig := models.SweepConfig{
+	// AgentID to be used for the sweep config key.
+	// We prioritize the agent_id set on the source config itself.
+	agentIDForConfig := n.Config.AgentID
+	if agentIDForConfig == "" {
+		// As a fallback, we could use ServerName, but logging a warning is better
+		// to encourage explicit configuration.
+		log.Printf("Warning: agent_id not set for Netbox source. Sweep config key may be incorrect.")
+		// If you need a fallback, you can use: agentIDForConfig = n.ServerName
+		return // Or simply return to avoid writing a config with an unpredictable key
+	}
+
+  sweepConfig := models.SweepConfig{
 		Networks:      ips,
 		Ports:         []int{22, 80, 443, 3389, 445, 8080},
 		SweepModes:    []string{"icmp", "tcp"},
@@ -179,11 +218,15 @@ func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) 
 		return
 	}
 
-	configKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", n.ServerName)
+	// The key now uses the explicitly configured AgentID, making it predictable.
+	configKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", agentIDForConfig)
 	_, err = n.KvClient.Put(ctx, &proto.PutRequest{
 		Key:   configKey,
 		Value: configJSON,
 	})
+
+	// log the key/value pair for debugging
+	log.Printf("Writing sweep config to %s: %s", configKey, string(configJSON))
 
 	if err != nil {
 		log.Printf("Failed to write sweep config to %s: %v", configKey, err)

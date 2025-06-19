@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 
 	ggrpc "github.com/carverauto/serviceradar/pkg/grpc"
@@ -328,8 +329,19 @@ func (s *SyncPoller) initializeIntegrations(ctx context.Context) {
 }
 
 // createIntegration constructs an integration instance based on source type.
-func (*SyncPoller) createIntegration(ctx context.Context, src *models.SourceConfig, factory IntegrationFactory) Integration {
-	return factory(ctx, src)
+func (s *SyncPoller) createIntegration(ctx context.Context, src *models.SourceConfig, factory IntegrationFactory) Integration {
+	// Apply global defaults for AgentID and PollerID if not explicitly set
+	cfgCopy := *src
+
+	if cfgCopy.AgentID == "" {
+		cfgCopy.AgentID = s.config.AgentID
+	}
+
+	if cfgCopy.PollerID == "" {
+		cfgCopy.PollerID = s.config.PollerID
+	}
+
+	return factory(ctx, &cfgCopy)
 }
 
 // Start delegates to poller.Poller.Start, using PollFunc for syncing.
@@ -393,9 +405,14 @@ func (s *SyncPoller) Sync(ctx context.Context) error {
 }
 
 func (s *SyncPoller) writeToKV(ctx context.Context, sourceName string, data map[string][]byte) {
-	prefix := s.config.Sources[sourceName].Prefix
+	prefix := strings.TrimSuffix(s.config.Sources[sourceName].Prefix, "/")
+
 	for key, value := range data {
-		fullKey := prefix + key
+		fullKey := prefix + "/" + key
+
+		if agent, poller, ip, ok := parseDeviceID(key); ok {
+			fullKey = fmt.Sprintf("%s/%s/%s/%s", prefix, agent, poller, ip)
+		}
 
 		_, err := s.kvClient.Put(ctx, &proto.PutRequest{
 			Key:   fullKey,
@@ -407,6 +424,7 @@ func (s *SyncPoller) writeToKV(ctx context.Context, sourceName string, data map[
 		}
 	}
 }
+
 
 func (s *SyncPoller) publishDevices(ctx context.Context, sourceType string, devices []models.Device) {
 	log.Printf("Publishing %d devices", len(devices))
@@ -441,6 +459,27 @@ func (s *SyncPoller) publishDevices(ctx context.Context, sourceType string, devi
 			log.Printf("Failed to publish device %s: %v", devices[i].DeviceID, err)
 		}
 	}
+}
+
+// parseDeviceID splits a device ID of the form "ip:agent_id:poller_id" into its components.
+// It returns agent_id, poller_id, ip, and true on success. If the string does not match
+// the expected format, ok will be false.
+func parseDeviceID(id string) (string, string, string, bool) {
+	last := strings.LastIndex(id, ":")
+	if last == -1 {
+		return "", "", id, false
+	}
+
+	second := strings.LastIndex(id[:last], ":")
+	if second == -1 {
+		return "", "", id, false
+	}
+
+	ip := id[:second]
+	agent := id[second+1 : last]
+	poller := id[last+1:]
+
+	return agent, poller, ip, true
 }
 
 // NewDefault provides a production-ready constructor with default settings.
