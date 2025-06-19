@@ -95,6 +95,7 @@ type Service interface {
 	// Sweep operations.
 
 	StoreSweepResults(ctx context.Context, results []*models.SweepResult) error
+	SyncSweepResultsToUnifiedDevices(context.Context) error
 
 	// Discovery operations.
 

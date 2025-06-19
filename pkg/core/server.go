@@ -110,6 +110,20 @@ func NewServer(ctx context.Context, config *models.DBConfig) (*Server, error) {
 	go server.flushBuffers(ctx)
 	go server.flushPollerStatusUpdates(ctx)
 
+	// Start periodic sync
+	/*
+		go func() {
+			ticker := time.NewTicker(5 * time.Minute)
+			defer ticker.Stop()
+
+			for range ticker.C {
+				if err := db.SyncSweepResultsToUnifiedDevices(context.Background()); err != nil {
+					log.Printf("Error syncing sweep results: %v", err)
+				}
+			}
+		}()
+	*/
+
 	server.initializeWebhooks(normalizedConfig.Webhooks)
 
 	return server, nil
