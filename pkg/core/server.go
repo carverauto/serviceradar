@@ -216,7 +216,17 @@ func (s *Server) flushSysmonMetrics(ctx context.Context) {
 		}
 
 		for _, metric := range sysmonMetrics {
-			if err := s.DB.StoreSysmonMetrics(ctx, pollerID, metric, metric.CPUs[0].Timestamp); err != nil {
+			var ts time.Time
+			switch {
+			case len(metric.CPUs) > 0:
+				ts = metric.CPUs[0].Timestamp
+			case len(metric.Disks) > 0:
+				ts = metric.Disks[0].Timestamp
+			default:
+				ts = metric.Memory.Timestamp
+			}
+
+			if err := s.DB.StoreSysmonMetrics(ctx, pollerID, metric, ts); err != nil {
 				log.Printf("Failed to flush sysmon metrics for poller %s: %v", pollerID, err)
 			}
 		}
