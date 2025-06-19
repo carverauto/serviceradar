@@ -367,9 +367,11 @@ func (s *SyncPoller) Stop(ctx context.Context) error {
 }
 
 // Sync performs the synchronization of data from sources to KV.
+// sync.go
+
+// Sync performs the synchronization of data from sources to KV.
 func (s *SyncPoller) Sync(ctx context.Context) error {
 	var wg sync.WaitGroup
-
 	errChan := make(chan error, len(s.sources))
 
 	for name, integration := range s.sources {
@@ -379,16 +381,14 @@ func (s *SyncPoller) Sync(ctx context.Context) error {
 			defer wg.Done()
 
 			data, devices, err := integ.Fetch(ctx)
-
 			if err != nil {
 				errChan <- err
-
 				return
 			}
 
 			s.writeToKV(ctx, name, data)
-			srcType := s.config.Sources[name].Type
-			s.publishDevices(ctx, srcType, devices)
+			// FIX: Pass the source name ('name') instead of the source type.
+			s.publishDevices(ctx, name, devices)
 		}(name, integration)
 	}
 
@@ -410,8 +410,8 @@ func (s *SyncPoller) writeToKV(ctx context.Context, sourceName string, data map[
 	for key, value := range data {
 		fullKey := prefix + "/" + key
 
-		if agent, poller, ip, ok := parseDeviceID(key); ok {
-			fullKey = fmt.Sprintf("%s/%s/%s/%s", prefix, agent, poller, ip)
+		if agent, p, ip, ok := parseDeviceID(key); ok {
+			fullKey = fmt.Sprintf("%s/%s/%s/%s", prefix, agent, p, ip)
 		}
 
 		_, err := s.kvClient.Put(ctx, &proto.PutRequest{
@@ -425,31 +425,27 @@ func (s *SyncPoller) writeToKV(ctx context.Context, sourceName string, data map[
 	}
 }
 
-
 func (s *SyncPoller) publishDevices(ctx context.Context, sourceType string, devices []models.Device) {
 	log.Printf("Publishing %d devices", len(devices))
 
 	if s.js == nil || len(devices) == 0 {
 		log.Printf("No JetStream publishing devices found")
-
 		return
 	}
 
 	subject := s.subjectPrefix + "." + sourceType
-
 	if s.config.Domain != "" {
 		subject = s.config.Domain + "." + subject
 	}
-
 	log.Printf("Publishing to subject: %s", subject)
 
 	for i := range devices {
-		devices[i].AgentID = s.config.AgentID
-
-		devices[i].PollerID = s.config.PollerID
+		// FIX: REMOVE these two lines that incorrectly overwrite the IDs.
+		// The device object now arrives with the correct IDs from the integration.
+		// devices[i].AgentID = s.config.AgentID
+		// devices[i].PollerID = s.config.PollerID
 
 		payload, err := json.Marshal(devices[i])
-
 		if err != nil {
 			log.Printf("Failed to marshal device %s: %v", devices[i].DeviceID, err)
 			continue

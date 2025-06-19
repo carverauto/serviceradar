@@ -294,34 +294,21 @@ func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]b
 		d := &devices[i] // Use a pointer to avoid copying the struct
 
 		enriched := DeviceWithMetadata{
-			Device:   *device,
-			Metadata: map[string]string{"armis_device_id": fmt.Sprintf("%d", device.ID)},
+			Device:   *d,
+			Metadata: map[string]string{"armis_device_id": fmt.Sprintf("%d", d.ID)},
 		}
 
 		// Marshal the device with metadata to JSON
 		value, err := json.Marshal(enriched)
 		if err != nil {
-			log.Printf("Failed to marshal device %d: %v", device.ID, err)
+			log.Printf("Failed to marshal device %d: %v", d.ID, err)
 			continue
 		}
 
 		// Store device in KV with device ID as key
-		data[fmt.Sprintf("%d", device.ID)] = value
+		data[fmt.Sprintf("%d", d.ID)] = value
 
 		// Process IP addresses - handle comma-separated list of IPs
-		if device.IPAddress != "" {
-			// Split by comma and process each IP
-			ipList := strings.Split(device.IPAddress, ",")
-			if len(ipList) > 0 {
-				// Trim spaces and validate the first IP only
-				ip := strings.TrimSpace(ipList[0])
-
-				if ip != "" {
-					// Add to sweep list with /32 suffix
-					ips = append(ips, ip+"/32")
-				}
-		}
-
 		ipList := strings.Split(d.IPAddress, ",")
 		for _, ipRaw := range ipList {
 			ip := strings.TrimSpace(ipRaw)
