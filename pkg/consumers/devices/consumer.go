@@ -40,7 +40,7 @@ func NewConsumer(ctx context.Context, js jetstream.JetStream, streamName, consum
 }
 
 const (
-	defaultMaxPullMessages = 10
+	defaultMaxPullMessages = 50
 	defaultPullExpiry      = 30 * time.Second
 	defaultMaxRetries      = 3
 )
@@ -61,6 +61,25 @@ func (*Consumer) handleMessage(ctx context.Context, msg jetstream.Msg, processor
 	_ = msg.Ack()
 }
 
+func (c *Consumer) handleBatch(ctx context.Context, msgs []jetstream.Msg, processor *Processor) {
+	processed, err := processor.ProcessBatch(ctx, msgs)
+	if err != nil {
+		log.Printf("Failed to process device batch: %v", err)
+		for _, msg := range processed {
+			metadata, _ := msg.Metadata()
+			if metadata.NumDelivered >= defaultMaxRetries {
+				_ = msg.Ack()
+			} else {
+				_ = msg.Nak()
+			}
+		}
+		return
+	}
+	for _, msg := range processed {
+		_ = msg.Ack()
+	}
+}
+
 func (c *Consumer) ProcessMessages(ctx context.Context, processor *Processor) {
 	log.Printf("Starting pull consumer for stream %s, consumer %s", c.streamName, c.consumerName)
 	for {
@@ -75,9 +94,16 @@ func (c *Consumer) ProcessMessages(ctx context.Context, processor *Processor) {
 				time.Sleep(time.Second)
 				continue
 			}
+
+			batch := make([]jetstream.Msg, 0, defaultMaxPullMessages)
 			for msg := range msgs.Messages() {
-				c.handleMessage(ctx, msg, processor)
+				batch = append(batch, msg)
 			}
+
+			if len(batch) > 0 {
+				c.handleBatch(ctx, batch, processor)
+			}
+
 			if fetchErr := msgs.Error(); fetchErr != nil {
 				log.Printf("Fetch error: %v", fetchErr)
 			}
