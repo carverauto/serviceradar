@@ -4,7 +4,7 @@ DROP MATERIALIZED VIEW IF EXISTS unified_devices_mv;
 
 CREATE VIEW IF NOT EXISTS device_updates_stream AS
 SELECT
-    device_id,
+    concat(ip, ':', agent_id, ':', poller_id) AS device_id,
     ip,
     poller_id,
     hostname,
@@ -19,7 +19,7 @@ SELECT
 FROM devices
 UNION ALL
 SELECT
-    concat(ip, ':', poller_id) AS device_id,
+    concat(ip, ':', agent_id, ':', poller_id) AS device_id,
     ip,
     poller_id,
     hostname,
