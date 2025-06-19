@@ -417,7 +417,7 @@ func getMaterializedViewStatements() []string {
             arg_max(is_available, update_time) AS is_available,
             min(first_seen) AS first_seen,
             max(last_seen) AS last_seen,
-            arg_max(metadata, update_time) AS metadata,
+            arrayReduce('mapUpdate', groupArray(metadata)) AS metadata,
             arg_max(agent_id, update_time) AS agent_id
         FROM device_updates_stream
         GROUP BY device_id`,
