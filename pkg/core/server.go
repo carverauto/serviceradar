@@ -646,7 +646,7 @@ func (s *Server) processStatusReport(
 		}
 
 		apiStatus := s.createPollerStatus(req, now)
-		s.processServices(ctx, req.PollerId, apiStatus, req.Services, now)
+		s.processServices(ctx, req.PollerId, req.Partition, apiStatus, req.Services, now)
 
 		if err := s.updatePollerState(ctx, req.PollerId, apiStatus, currentState, now); err != nil {
 			log.Printf("Failed to update poller state for %s: %v", req.PollerId, err)
@@ -666,7 +666,7 @@ func (s *Server) processStatusReport(
 	}
 
 	apiStatus := s.createPollerStatus(req, now)
-	s.processServices(ctx, req.PollerId, apiStatus, req.Services, now)
+	s.processServices(ctx, req.PollerId, req.Partition, apiStatus, req.Services, now)
 
 	return apiStatus, nil
 }
@@ -684,6 +684,7 @@ func (*Server) createPollerStatus(req *proto.PollerStatusRequest, now time.Time)
 func (s *Server) processServices(
 	ctx context.Context,
 	pollerID string,
+	partition string,
 	apiStatus *api.PollerStatus,
 	services []*proto.ServiceStatus,
 	now time.Time) {
@@ -697,7 +698,7 @@ func (s *Server) processServices(
 			allServicesAvailable = false
 		}
 
-		if err := s.processServiceDetails(ctx, pollerID, &apiService, svc, now); err != nil {
+		if err := s.processServiceDetails(ctx, pollerID, partition, &apiService, svc, now); err != nil {
 			log.Printf("Error processing details for service %s on poller %s: %v",
 				svc.ServiceName, pollerID, err)
 		}
@@ -736,6 +737,7 @@ func (s *Server) processServices(
 func (s *Server) processServiceDetails(
 	ctx context.Context,
 	pollerID string,
+	partition string,
 	apiService *api.ServiceStatus,
 	svc *proto.ServiceStatus,
 	now time.Time,
@@ -760,7 +762,7 @@ func (s *Server) processServiceDetails(
 
 	apiService.Details = details
 
-	if err := s.processMetrics(ctx, pollerID, svc, details, now); err != nil {
+	if err := s.processMetrics(ctx, pollerID, partition, svc, details, now); err != nil {
 		log.Printf("Error processing metrics for service %s on poller %s: %v",
 			svc.ServiceName, pollerID, err)
 		return err
@@ -773,6 +775,7 @@ func (s *Server) processServiceDetails(
 func (s *Server) processMetrics(
 	ctx context.Context,
 	pollerID string,
+	partition string,
 	svc *proto.ServiceStatus,
 	details json.RawMessage,
 	now time.Time) error {
@@ -789,7 +792,7 @@ func (s *Server) processMetrics(
 	case icmpServiceType:
 		return s.processICMPMetrics(pollerID, svc, details, now)
 	case snmpDiscoveryResultsServiceType, mapperDiscoveryServiceType:
-		return s.processSNMPDiscoveryResults(ctx, pollerID, svc, details, now)
+		return s.processSNMPDiscoveryResults(ctx, pollerID, partition, svc, details, now)
 	}
 
 	return nil
