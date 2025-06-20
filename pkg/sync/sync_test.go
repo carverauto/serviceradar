@@ -378,12 +378,14 @@ func TestCreateIntegrationAppliesDefaults(t *testing.T) {
 		},
 	}
 
-	c := &Config{
-		AgentID:      "global-agent",
-		PollerID:     "global-poller",
-		KVAddress:    "localhost:50051",
-		PollInterval: models.Duration(1 * time.Second),
-		Sources: map[string]*models.SourceConfig{
+        c := &Config{
+                AgentID:      "global-agent",
+                PollerID:     "global-poller",
+                KVAddress:    "localhost:50051",
+                PollInterval: models.Duration(1 * time.Second),
+                StreamName:   "devices",
+                Subject:      "discovery.devices",
+                Sources: map[string]*models.SourceConfig{
 			"netbox": {
 				Type:     "netbox",
 				Endpoint: "https://netbox.example.com",
@@ -394,7 +396,7 @@ func TestCreateIntegrationAppliesDefaults(t *testing.T) {
 		},
 	}
 
-	_, err := New(context.Background(), c, mockKV, mockGRPC, registry, mockClock)
+        _, err := New(context.Background(), c, mockKV, nil, nil, registry, mockGRPC, mockClock)
 	require.NoError(t, err)
 
 	assert.Equal(t, "source-agent", gotAgent)
@@ -420,12 +422,14 @@ func TestCreateIntegrationUsesGlobalDefaults(t *testing.T) {
 		},
 	}
 
-	c := &Config{
-		AgentID:      "global-agent",
-		PollerID:     "global-poller",
-		KVAddress:    "localhost:50051",
-		PollInterval: models.Duration(1 * time.Second),
-		Sources: map[string]*models.SourceConfig{
+        c := &Config{
+                AgentID:      "global-agent",
+                PollerID:     "global-poller",
+                KVAddress:    "localhost:50051",
+                PollInterval: models.Duration(1 * time.Second),
+                StreamName:   "devices",
+                Subject:      "discovery.devices",
+                Sources: map[string]*models.SourceConfig{
 			"netbox": {
 				Type:     "netbox",
 				Endpoint: "https://netbox.example.com",
@@ -434,7 +438,7 @@ func TestCreateIntegrationUsesGlobalDefaults(t *testing.T) {
 		},
 	}
 
-	_, err := New(context.Background(), c, mockKV, mockGRPC, registry, nil)
+        _, err := New(context.Background(), c, mockKV, nil, nil, registry, mockGRPC, nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, "global-agent", gotAgent)
