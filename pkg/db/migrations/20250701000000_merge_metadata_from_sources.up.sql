@@ -20,9 +20,11 @@ SELECT
     s.available AS is_available,
     coalesce(u.first_seen, s.timestamp) AS first_seen,
     s.timestamp AS last_seen,
-    if(length(s.metadata) > 0,
-       mapUpdate(if_null(u.metadata, map()), s.metadata),
-       u.metadata) AS metadata,
+    if(
+        length(s.metadata) > 0,
+        if(isNull(u.metadata), s.metadata, mapUpdate(u.metadata, s.metadata)),
+        u.metadata
+    ) AS metadata,
     s.agent_id,
     s.timestamp AS _tp_time
 FROM sweep_results AS s
