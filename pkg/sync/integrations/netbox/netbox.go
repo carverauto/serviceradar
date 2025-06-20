@@ -25,7 +25,6 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -115,9 +114,6 @@ func (*NetboxIntegration) decodeResponse(resp *http.Response) (DeviceResponse, e
 
 	return deviceResp, nil
 }
-
-// processDevices converts devices to KV data and extracts IPs.
-// integrations/netbox/netbox.go
 
 // processDevices converts devices to KV data, extracts IPs, and returns the list of devices.
 func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[string][]byte, ips []string, events []*models.SweepResult) {
@@ -247,59 +243,4 @@ func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) 
 	}
 
 	log.Printf("Wrote sweep config to %s", configKey)
-}
-
-// convertToModelsDevices converts NetBox devices to the generic models.Device type.
-// The function signature is changed to (n *NetboxIntegration) to access the instance's config.
-func (n *NetboxIntegration) convertToModelsDevices(devices []Device) []models.Device {
-	out := make([]models.Device, 0, len(devices))
-
-	// Get the agent and poller IDs from this source's specific configuration.
-	agentID := n.Config.AgentID
-	pollerID := n.Config.PollerID
-
-	for i := range devices {
-		dev := &devices[i]
-		ip := dev.PrimaryIP4.Address
-
-		// Strip CIDR mask if present
-		if strings.Contains(ip, "/") {
-			parsed, _, err := net.ParseCIDR(ip)
-			if err == nil {
-				ip = parsed.String()
-			}
-		}
-
-		var firstSeen, lastSeen time.Time
-		if t, err := time.Parse(time.RFC3339, dev.Created); err == nil {
-			firstSeen = t
-		}
-		if t, err := time.Parse(time.RFC3339, dev.LastUpdated); err == nil {
-			lastSeen = t
-		}
-
-		// FIX: Construct the device_id in the 'ip:agent_id:poller_id' format.
-		deviceID := fmt.Sprintf("%s:%s:%s", ip, agentID, pollerID)
-
-		out = append(out, models.Device{
-			// --- Corrected Fields ---
-			DeviceID: deviceID, // Use the correctly formatted device ID.
-			AgentID:  agentID,  // Populate the AgentID field.
-			PollerID: pollerID, // Populate the PollerID field.
-			// --- End Corrected Fields ---
-			DiscoverySource: "netbox",
-			IP:              ip,
-			Hostname:        dev.Name,
-			MAC:             "", // Netbox device endpoint doesn't typically provide this.
-			FirstSeen:       firstSeen,
-			LastSeen:        lastSeen,
-			IsAvailable:     true, // Assume available; sweep will verify.
-			Metadata: map[string]interface{}{
-				"netbox_device_id": fmt.Sprintf("%d", dev.ID),
-				"role":             dev.Role.Name,
-				"site":             dev.Site.Name,
-			},
-		})
-	}
-	return out
 }

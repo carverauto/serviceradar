@@ -349,6 +349,7 @@ func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]b
 			}
 
 			data[deviceID] = value
+
 			ips = append(ips, ip+"/32")
 		}
 	}

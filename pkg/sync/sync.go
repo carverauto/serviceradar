@@ -367,11 +367,9 @@ func (s *SyncPoller) Stop(ctx context.Context) error {
 }
 
 // Sync performs the synchronization of data from sources to KV.
-// sync.go
-
-// Sync performs the synchronization of data from sources to KV.
 func (s *SyncPoller) Sync(ctx context.Context) error {
 	var wg sync.WaitGroup
+
 	errChan := make(chan error, len(s.sources))
 
 	for name, integration := range s.sources {
@@ -458,7 +456,7 @@ func (s *SyncPoller) publishEvents(ctx context.Context, sourceType string, event
 // parseDeviceID splits a device ID of the form "ip:agent_id:poller_id" into its components.
 // It returns agent_id, poller_id, ip, and true on success. If the string does not match
 // the expected format, ok will be false.
-func parseDeviceID(id string) (string, string, string, bool) {
+func parseDeviceID(id string) (agent, poller, ip string, ok bool) {
 	last := strings.LastIndex(id, ":")
 	if last == -1 {
 		return "", "", id, false
@@ -469,9 +467,9 @@ func parseDeviceID(id string) (string, string, string, bool) {
 		return "", "", id, false
 	}
 
-	ip := id[:second]
-	agent := id[second+1 : last]
-	poller := id[last+1:]
+	ip = id[:second]
+	agent = id[second+1 : last]
+	poller = id[last+1:]
 
 	return agent, poller, ip, true
 }

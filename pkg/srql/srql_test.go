@@ -232,15 +232,18 @@ func TestSRQLParsingAndTranslation(t *testing.T) { // Renamed for clarity
 
 				// Proton
 				sqlP, _ := protonTranslator.Translate(query)
-				assert.Equal(t, "SELECT * FROM table(sweep_results) WHERE to_date(timestamp) = '2023-10-20' AND discovery_source = 'sweep'", sqlP)
+				assert.Equal(t, "SELECT * FROM table(sweep_results) WHERE to_date(timestamp) = "+
+					"'2023-10-20' AND discovery_source = 'sweep'", sqlP)
 
 				// ClickHouse
 				sqlCH, _ := clickhouseTranslator.Translate(query)
-				assert.Equal(t, "SELECT * FROM sweep_results WHERE toDate(timestamp) = '2023-10-20' AND discovery_source = 'sweep'", sqlCH)
+				assert.Equal(t, "SELECT * FROM sweep_results WHERE toDate(timestamp) = "+
+					"'2023-10-20' AND discovery_source = 'sweep'", sqlCH)
 
 				// ArangoDB
 				aql, _ := arangoTranslator.Translate(query)
-				expectedAQL := "FOR doc IN sweep_results\n  FILTER SUBSTRING(doc.timestamp, 0, 10) == '2023-10-20' AND doc.discovery_source == 'sweep'\n  RETURN doc"
+				expectedAQL := "FOR doc IN sweep_results\n  FILTER SUBSTRING(doc.timestamp, 0, 10) " +
+					"== '2023-10-20' AND doc.discovery_source == 'sweep'\n  RETURN doc"
 				assert.Equal(t, expectedAQL, aql)
 			},
 		},
