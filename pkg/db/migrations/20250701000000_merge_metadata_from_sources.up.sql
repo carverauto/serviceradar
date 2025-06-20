@@ -22,7 +22,7 @@ SELECT
     s.timestamp AS last_seen,
     if(
         length(s.metadata) > 0,
-        if(isNull(u.metadata), s.metadata, mapUpdate(u.metadata, s.metadata)),
+        if(is_null(u.metadata), s.metadata, map_update(u.metadata, s.metadata)),
         u.metadata
     ) AS metadata,
     s.agent_id,
