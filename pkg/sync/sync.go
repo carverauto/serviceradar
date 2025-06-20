@@ -380,15 +380,14 @@ func (s *SyncPoller) Sync(ctx context.Context) error {
 		go func(name string, integ Integration) {
 			defer wg.Done()
 
-			data, devices, err := integ.Fetch(ctx)
+			data, events, err := integ.Fetch(ctx)
 			if err != nil {
 				errChan <- err
 				return
 			}
 
 			s.writeToKV(ctx, name, data)
-			// FIX: Pass the source name ('name') instead of the source type.
-			s.publishDevices(ctx, name, devices)
+			s.publishEvents(ctx, name, events)
 		}(name, integration)
 	}
 
@@ -425,11 +424,11 @@ func (s *SyncPoller) writeToKV(ctx context.Context, sourceName string, data map[
 	}
 }
 
-func (s *SyncPoller) publishDevices(ctx context.Context, sourceType string, devices []models.Device) {
-	log.Printf("Publishing %d devices", len(devices))
+func (s *SyncPoller) publishEvents(ctx context.Context, sourceType string, events []*models.SweepResult) {
+	log.Printf("Publishing %d discovery events", len(events))
 
-	if s.js == nil || len(devices) == 0 {
-		log.Printf("No JetStream publishing devices found")
+	if s.js == nil || len(events) == 0 {
+		log.Printf("No JetStream publishing events found")
 
 		return
 	}
@@ -442,16 +441,16 @@ func (s *SyncPoller) publishDevices(ctx context.Context, sourceType string, devi
 
 	log.Printf("Publishing to subject: %s", subject)
 
-	for i := range devices {
-		payload, err := json.Marshal(devices[i])
+	for i := range events {
+		payload, err := json.Marshal(events[i])
 		if err != nil {
-			log.Printf("Failed to marshal device %s: %v", devices[i].DeviceID, err)
+			log.Printf("Failed to marshal discovery event for %s: %v", events[i].IP, err)
 
 			continue
 		}
 
 		if _, err = s.js.Publish(ctx, subject, payload); err != nil {
-			log.Printf("Failed to publish device %s: %v", devices[i].DeviceID, err)
+			log.Printf("Failed to publish discovery event for %s: %v", events[i].IP, err)
 		}
 	}
 }
