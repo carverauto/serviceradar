@@ -452,14 +452,22 @@ func TestWriteToKVTransformsDeviceID(t *testing.T) {
 	mockKV := NewMockKVClient(ctrl)
 
 	s := &SyncPoller{
-		config: Config{Sources: map[string]*models.SourceConfig{
-			"netbox": {Prefix: "netbox/"},
-		}},
+		config: Config{
+			Sources: map[string]*models.SourceConfig{
+				"netbox": {
+					Prefix:   "netbox/",
+					AgentID:  "agent1",
+					PollerID: "poller1",
+				},
+			},
+			AgentID:  "agent1",
+			PollerID: "poller1",
+		},
 		kvClient: mockKV,
 	}
 
 	data := map[string][]byte{
-		"10.0.0.1:agent1:poller1": []byte("val"),
+		"partition1:10.0.0.1": []byte("val"),
 	}
 
 	mockKV.EXPECT().Put(gomock.Any(), &proto.PutRequest{
