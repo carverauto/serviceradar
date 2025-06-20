@@ -162,10 +162,11 @@ func setupArmisIntegration(t *testing.T) (*ArmisIntegration, *armisMocks) {
 
 	return &ArmisIntegration{
 		Config: &models.SourceConfig{
-			Endpoint: "https://armis.example.com",
-			Prefix:   "armis/",
-			AgentID:  "test-agent",
-			PollerID: "test-poller",
+			Endpoint:  "https://armis.example.com",
+			Prefix:    "armis/",
+			AgentID:   "test-agent",
+			PollerID:  "test-poller",
+			Partition: "test-partition",
 			Credentials: map[string]string{
 				"secret_key": "test-secret-key",
 				"boundary":   "Corporate",
@@ -279,7 +280,7 @@ func verifyArmisResults(t *testing.T, result map[string][]byte, events []*models
 				continue
 			}
 
-			key := fmt.Sprintf("%s:test-agent:test-poller", ip)
+			key := fmt.Sprintf("test-partition:%s", ip)
 			deviceData, exists := result[key]
 
 			require.True(t, exists, "device with key %s should exist", key)
@@ -310,10 +311,11 @@ func TestArmisIntegration_FetchWithMultiplePages(t *testing.T) {
 
 	integration := &ArmisIntegration{
 		Config: &models.SourceConfig{
-			Endpoint: "https://armis.example.com",
-			Prefix:   "armis/",
-			AgentID:  "test-agent",
-			PollerID: "test-poller",
+			Endpoint:  "https://armis.example.com",
+			Prefix:    "armis/",
+			AgentID:   "test-agent",
+			PollerID:  "test-poller",
+			Partition: "test-partition",
 			Credentials: map[string]string{
 				"secret_key": "test-secret-key",
 			},
@@ -369,7 +371,7 @@ func TestArmisIntegration_FetchWithMultiplePages(t *testing.T) {
 	assert.Len(t, result, 8)
 
 	for i := 1; i <= 4; i++ {
-		key := fmt.Sprintf("192.168.1.%d:test-agent:test-poller", i)
+		key := fmt.Sprintf("test-partition:192.168.1.%d", i)
 		_, exists := result[key]
 		assert.True(t, exists, "Device with key %s should exist in results", key)
 	}
