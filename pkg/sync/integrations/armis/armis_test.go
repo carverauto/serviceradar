@@ -46,13 +46,13 @@ func TestArmisIntegration_Fetch_NoUpdater(t *testing.T) {
 	expectedDevices := getExpectedDevices()
 	firstPageResp := getFirstPageResponse(expectedDevices)
 	expectedSweepConfig := &models.SweepConfig{
-		Networks: []string{"192.168.1.1/32", "192.168.1.2/32"},
+		Networks: []string{"192.168.1.1/32", "192.168.1.2/32", "10.0.0.1/32"},
 	}
 
 	setupArmisMocks(t, mocks, firstPageResp, expectedSweepConfig)
 
-	result, devices, err := integration.Fetch(context.Background())
-	verifyArmisResults(t, result, devices, err, expectedDevices)
+	result, events, err := integration.Fetch(context.Background())
+	verifyArmisResults(t, result, events, err, expectedDevices)
 
 	// Ensure that the enrichment data was not added
 	_, exists := result["_sweep_results"]
@@ -109,8 +109,25 @@ func TestArmisIntegration_Fetch_WithUpdaterAndCorrelation(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
-	// Expect 3 items: 2 devices + 1 for "_sweep_results"
-	assert.Len(t, result, 3)
+	// Expect 6 items: 5 device entries + 1 for "_sweep_results"
+	expectedLen := len(expectedDevices)
+
+	for i := range expectedDevices {
+		ips := strings.Split(expectedDevices[i].IPAddress, ",")
+
+		for _, ipRaw := range ips {
+			ip := strings.TrimSpace(ipRaw)
+			if ip != "" {
+				expectedLen++
+			}
+		}
+	}
+
+	if _, ok := result["_sweep_results"]; ok {
+		expectedLen++
+	}
+
+	assert.Len(t, result, expectedLen)
 
 	// Verify original devices are still present in the result map
 	_, device1Exists := result["1"]
@@ -227,18 +244,35 @@ func setupArmisMocks(t *testing.T, mocks *armisMocks, resp *SearchResponse, expe
 	mocks.KVWriter.EXPECT().WriteSweepConfig(gomock.Any(), expectedSweepConfig).Return(nil)
 }
 
-func verifyArmisResults(t *testing.T, result map[string][]byte, devices []models.Device, err error, expectedDevices []Device) {
+func verifyArmisResults(t *testing.T, result map[string][]byte, events []*models.SweepResult, err error, expectedDevices []Device) {
 	t.Helper()
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
-	assert.Len(t, result, 3)
+	expectedLen := len(expectedDevices)
+
+	for _, ed := range expectedDevices {
+		ips := strings.Split(ed.IPAddress, ",")
+		for _, ipRaw := range ips {
+			ip := strings.TrimSpace(ipRaw)
+			if ip != "" {
+				expectedLen++
+			}
+		}
+	}
+
+	if _, ok := result["_sweep_results"]; ok {
+		expectedLen++
+	}
+
+	assert.Len(t, result, expectedLen)
 
 	for i := range expectedDevices {
 		expected := &expectedDevices[i]
 
 		ips := strings.Split(expected.IPAddress, ",")
+
 		for _, ipRaw := range ips {
 			ip := strings.TrimSpace(ipRaw)
 			if ip == "" {
@@ -247,19 +281,27 @@ func verifyArmisResults(t *testing.T, result map[string][]byte, devices []models
 
 			key := fmt.Sprintf("%s:test-agent:test-poller", ip)
 			deviceData, exists := result[key]
+
 			require.True(t, exists, "device with key %s should exist", key)
 
-			var device models.Device
+			var device models.SweepResult
+
 			err = json.Unmarshal(deviceData, &device)
 			require.NoError(t, err)
 
-			assert.Equal(t, key, device.DeviceID)
 			assert.Equal(t, ip, device.IP)
 			assert.Equal(t, "test-poller", device.PollerID)
 		}
 	}
 
-	assert.Len(t, devices, len(expectedDevices))
+	assert.Len(t, events, len(expectedDevices))
+
+	for i, ev := range events {
+		exp := expectedDevices[i]
+
+		require.Equal(t, exp.IPAddress, ev.IP)
+		require.Equal(t, "test-poller", ev.PollerID)
+	}
 }
 
 func TestArmisIntegration_FetchWithMultiplePages(t *testing.T) {
@@ -324,7 +366,7 @@ func TestArmisIntegration_FetchWithMultiplePages(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
-	assert.Len(t, result, 4)
+	assert.Len(t, result, 8)
 
 	for i := 1; i <= 4; i++ {
 		key := fmt.Sprintf("192.168.1.%d:test-agent:test-poller", i)

@@ -1,0 +1,1 @@
+DROP VIEW IF EXISTS devices_mv;

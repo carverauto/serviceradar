@@ -378,17 +378,14 @@ func (s *SyncPoller) Sync(ctx context.Context) error {
 		go func(name string, integ Integration) {
 			defer wg.Done()
 
-			data, devices, err := integ.Fetch(ctx)
-
+			data, events, err := integ.Fetch(ctx)
 			if err != nil {
 				errChan <- err
-
 				return
 			}
 
 			s.writeToKV(ctx, name, data)
-			srcType := s.config.Sources[name].Type
-			s.publishDevices(ctx, srcType, devices)
+			s.publishEvents(ctx, name, events)
 		}(name, integration)
 	}
 
@@ -410,8 +407,8 @@ func (s *SyncPoller) writeToKV(ctx context.Context, sourceName string, data map[
 	for key, value := range data {
 		fullKey := prefix + "/" + key
 
-		if agent, poller, ip, ok := parseDeviceID(key); ok {
-			fullKey = fmt.Sprintf("%s/%s/%s/%s", prefix, agent, poller, ip)
+		if agent, p, ip, ok := parseDeviceID(key); ok {
+			fullKey = fmt.Sprintf("%s/%s/%s/%s", prefix, agent, p, ip)
 		}
 
 		_, err := s.kvClient.Put(ctx, &proto.PutRequest{
@@ -425,12 +422,11 @@ func (s *SyncPoller) writeToKV(ctx context.Context, sourceName string, data map[
 	}
 }
 
+func (s *SyncPoller) publishEvents(ctx context.Context, sourceType string, events []*models.SweepResult) {
+	log.Printf("Publishing %d discovery events", len(events))
 
-func (s *SyncPoller) publishDevices(ctx context.Context, sourceType string, devices []models.Device) {
-	log.Printf("Publishing %d devices", len(devices))
-
-	if s.js == nil || len(devices) == 0 {
-		log.Printf("No JetStream publishing devices found")
+	if s.js == nil || len(events) == 0 {
+		log.Printf("No JetStream publishing events found")
 
 		return
 	}
@@ -443,20 +439,16 @@ func (s *SyncPoller) publishDevices(ctx context.Context, sourceType string, devi
 
 	log.Printf("Publishing to subject: %s", subject)
 
-	for i := range devices {
-		devices[i].AgentID = s.config.AgentID
-
-		devices[i].PollerID = s.config.PollerID
-
-		payload, err := json.Marshal(devices[i])
-
+	for i := range events {
+		payload, err := json.Marshal(events[i])
 		if err != nil {
-			log.Printf("Failed to marshal device %s: %v", devices[i].DeviceID, err)
+			log.Printf("Failed to marshal discovery event for %s: %v", events[i].IP, err)
+
 			continue
 		}
 
 		if _, err = s.js.Publish(ctx, subject, payload); err != nil {
-			log.Printf("Failed to publish device %s: %v", devices[i].DeviceID, err)
+			log.Printf("Failed to publish discovery event for %s: %v", events[i].IP, err)
 		}
 	}
 }
@@ -464,7 +456,7 @@ func (s *SyncPoller) publishDevices(ctx context.Context, sourceType string, devi
 // parseDeviceID splits a device ID of the form "ip:agent_id:poller_id" into its components.
 // It returns agent_id, poller_id, ip, and true on success. If the string does not match
 // the expected format, ok will be false.
-func parseDeviceID(id string) (string, string, string, bool) {
+func parseDeviceID(id string) (agent, poller, ip string, ok bool) {
 	last := strings.LastIndex(id, ":")
 	if last == -1 {
 		return "", "", id, false
@@ -475,9 +467,9 @@ func parseDeviceID(id string) (string, string, string, bool) {
 		return "", "", id, false
 	}
 
-	ip := id[:second]
-	agent := id[second+1 : last]
-	poller := id[last+1:]
+	ip = id[:second]
+	agent = id[second+1 : last]
+	poller = id[last+1:]
 
 	return agent, poller, ip, true
 }

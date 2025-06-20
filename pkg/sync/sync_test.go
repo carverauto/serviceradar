@@ -22,7 +22,7 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/carverauto/serviceradar/pkg/poller" // Import poller for mocks
+	"github.com/carverauto/serviceradar/pkg/poller"
 	"github.com/carverauto/serviceradar/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -383,6 +383,8 @@ func TestCreateIntegrationAppliesDefaults(t *testing.T) {
 		PollerID:     "global-poller",
 		KVAddress:    "localhost:50051",
 		PollInterval: models.Duration(1 * time.Second),
+		StreamName:   "devices",
+		Subject:      "discovery.devices",
 		Sources: map[string]*models.SourceConfig{
 			"netbox": {
 				Type:     "netbox",
@@ -394,7 +396,7 @@ func TestCreateIntegrationAppliesDefaults(t *testing.T) {
 		},
 	}
 
-	_, err := New(context.Background(), c, mockKV, mockGRPC, registry, mockClock)
+	_, err := New(context.Background(), c, mockKV, nil, nil, registry, mockGRPC, mockClock)
 	require.NoError(t, err)
 
 	assert.Equal(t, "source-agent", gotAgent)
@@ -425,6 +427,8 @@ func TestCreateIntegrationUsesGlobalDefaults(t *testing.T) {
 		PollerID:     "global-poller",
 		KVAddress:    "localhost:50051",
 		PollInterval: models.Duration(1 * time.Second),
+		StreamName:   "devices",
+		Subject:      "discovery.devices",
 		Sources: map[string]*models.SourceConfig{
 			"netbox": {
 				Type:     "netbox",
@@ -434,7 +438,7 @@ func TestCreateIntegrationUsesGlobalDefaults(t *testing.T) {
 		},
 	}
 
-	_, err := New(context.Background(), c, mockKV, mockGRPC, registry, nil)
+	_, err := New(context.Background(), c, mockKV, nil, nil, registry, mockGRPC, nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, "global-agent", gotAgent)
