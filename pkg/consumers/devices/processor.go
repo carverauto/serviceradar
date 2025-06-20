@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"time"
 
@@ -35,6 +36,66 @@ func (p *Processor) prepareDevice(msg jetstream.Msg) (*models.Device, error) {
 		return nil, ErrEmptyMessage
 	}
 
+	// Attempt to unmarshal into SweepResult first. If successful, convert it to
+	// a Device. This supports events from discovery integrations that publish
+	// SweepResult messages instead of full Device records.
+	var sweep models.SweepResult
+	if err := json.Unmarshal(data, &sweep); err == nil && sweep.IP != "" {
+		device := &models.Device{
+			DeviceID:        "",
+			AgentID:         sweep.AgentID,
+			PollerID:        sweep.PollerID,
+			DiscoverySource: sweep.DiscoverySource,
+			IP:              sweep.IP,
+			MAC:             "",
+			Hostname:        "",
+			FirstSeen:       sweep.Timestamp,
+			LastSeen:        sweep.Timestamp,
+			IsAvailable:     sweep.Available,
+			Metadata:        make(map[string]interface{}),
+		}
+
+		if sweep.MAC != nil {
+			device.MAC = *sweep.MAC
+		}
+
+		if sweep.Hostname != nil {
+			device.Hostname = *sweep.Hostname
+		}
+
+		if sweep.Partition != "" {
+			device.DeviceID = fmt.Sprintf("%s:%s", sweep.Partition, sweep.IP)
+		}
+
+		for k, v := range sweep.Metadata {
+			device.Metadata[k] = v
+		}
+
+		if device.AgentID == "" {
+			device.AgentID = p.agentID
+		}
+
+		if device.PollerID == "" {
+			device.PollerID = p.pollerID
+		}
+
+		if device.DeviceID == "" {
+			device.DeviceID = fmt.Sprintf("%s:%s", sweep.Partition, sweep.IP)
+		}
+
+		// If timestamp is zero, set to now for both fields.
+		if device.FirstSeen.IsZero() {
+			device.FirstSeen = time.Now()
+		}
+
+		if device.LastSeen.IsZero() {
+			device.LastSeen = time.Now()
+		}
+
+		return device, nil
+	}
+
+	// Fall back to unmarshalling directly into Device for backward compatibility
 	var device models.Device
 	if err := json.Unmarshal(data, &device); err != nil {
 		log.Printf("Failed to unmarshal device: %v", err)

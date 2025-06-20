@@ -3,7 +3,7 @@
   "nats_url": "nats://127.0.0.1:4222",
   "domain": "edge",
   "stream_name": "devices",
-  "subject": "discover.devices.>",
+  "subject": "discovery.devices.>",
   "consumer_name": "device-db-writer",
   "agent_id": "agent-default",
   "poller_id": "poller-default",
