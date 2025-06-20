@@ -34,6 +34,7 @@ import (
 func (s *Server) processSNMPDiscoveryResults(
 	ctx context.Context,
 	reportingPollerID string,
+	partition string,
 	svc *proto.ServiceStatus,
 	details json.RawMessage,
 	timestamp time.Time,
@@ -70,11 +71,11 @@ func (s *Server) processSNMPDiscoveryResults(
 	}
 
 	if len(payload.Interfaces) > 0 {
-		s.processDiscoveredInterfaces(ctx, payload.Interfaces, discoveryAgentID, discoveryInitiatorPollerID, reportingPollerID, timestamp)
+		s.processDiscoveredInterfaces(ctx, payload.Interfaces, discoveryAgentID, discoveryInitiatorPollerID, partition, reportingPollerID, timestamp)
 	}
 
 	if len(payload.Topology) > 0 {
-		s.processDiscoveredTopology(ctx, payload.Topology, discoveryAgentID, discoveryInitiatorPollerID, reportingPollerID, timestamp)
+		s.processDiscoveredTopology(ctx, payload.Topology, discoveryAgentID, discoveryInitiatorPollerID, partition, reportingPollerID, timestamp)
 	}
 
 	return nil
@@ -158,6 +159,7 @@ func (s *Server) processDiscoveredInterfaces(
 	interfaces []*discoverypb.DiscoveredInterface,
 	discoveryAgentID string,
 	discoveryInitiatorPollerID string,
+	partition string,
 	reportingPollerID string,
 	timestamp time.Time,
 ) {
@@ -168,7 +170,7 @@ func (s *Server) processDiscoveredInterfaces(
 			continue
 		}
 
-		deviceID := s.getOrGenerateDeviceID(protoIface, discoveryAgentID, discoveryInitiatorPollerID)
+		deviceID := s.getOrGenerateDeviceID(protoIface, partition)
 		metadataJSON := s.prepareInterfaceMetadata(protoIface)
 
 		modelIface := &models.DiscoveredInterface{
@@ -198,10 +200,10 @@ func (s *Server) processDiscoveredInterfaces(
 }
 
 // getOrGenerateDeviceID returns the device ID from the interface or generates one if not present.
-func (*Server) getOrGenerateDeviceID(protoIface *discoverypb.DiscoveredInterface, agentID, pollerID string) string {
+func (*Server) getOrGenerateDeviceID(protoIface *discoverypb.DiscoveredInterface, partition string) string {
 	deviceID := protoIface.DeviceId
 	if deviceID == "" && protoIface.DeviceIp != "" {
-		deviceID = fmt.Sprintf("%s:%s:%s", protoIface.DeviceIp, agentID, pollerID)
+		deviceID = fmt.Sprintf("%s:%s", partition, protoIface.DeviceIp)
 	}
 
 	return deviceID
@@ -238,6 +240,7 @@ func (s *Server) processDiscoveredTopology(
 	topology []*discoverypb.TopologyLink,
 	discoveryAgentID string,
 	discoveryInitiatorPollerID string,
+	partition string,
 	reportingPollerID string,
 	timestamp time.Time,
 ) {
@@ -248,7 +251,7 @@ func (s *Server) processDiscoveredTopology(
 			continue
 		}
 
-		localDeviceID := s.getOrGenerateLocalDeviceID(protoLink, discoveryAgentID, discoveryInitiatorPollerID)
+		localDeviceID := s.getOrGenerateLocalDeviceID(protoLink, partition)
 		metadataJSON := s.prepareTopologyMetadata(protoLink)
 
 		modelEvent := &models.TopologyDiscoveryEvent{
@@ -283,10 +286,10 @@ func (s *Server) processDiscoveredTopology(
 }
 
 // getOrGenerateLocalDeviceID returns the local device ID from the topology link or generates one if not present.
-func (*Server) getOrGenerateLocalDeviceID(protoLink *discoverypb.TopologyLink, agentID, pollerID string) string {
+func (*Server) getOrGenerateLocalDeviceID(protoLink *discoverypb.TopologyLink, partition string) string {
 	localDeviceID := protoLink.LocalDeviceId
 	if localDeviceID == "" && protoLink.LocalDeviceIp != "" {
-		localDeviceID = fmt.Sprintf("%s:%s:%s", protoLink.LocalDeviceIp, agentID, pollerID)
+		localDeviceID = fmt.Sprintf("%s:%s", partition, protoLink.LocalDeviceIp)
 		log.Printf("Generated LocalDeviceID for link from %s: %s", protoLink.LocalDeviceIp, localDeviceID)
 	}
 
