@@ -123,6 +123,7 @@ func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[
 
 	agentID := n.Config.AgentID
 	pollerID := n.Config.PollerID
+	partition := n.Config.Partition
 	now := time.Now()
 
 	for i := range deviceResp.Results {
@@ -159,6 +160,7 @@ func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[
 		event := &models.SweepResult{
 			AgentID:         agentID,
 			PollerID:        pollerID,
+			Partition:       partition,
 			DiscoverySource: "netbox",
 			IP:              ipStr,
 			Hostname:        &hostname,
