@@ -508,6 +508,7 @@ func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStat
 		Services:  statuses,
 		PollerId:  p.config.PollerID,
 		Timestamp: time.Now().Unix(),
+		Partition: p.config.Partition,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to report status to core: %w", err)
