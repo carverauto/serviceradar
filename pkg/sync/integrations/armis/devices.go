@@ -150,6 +150,7 @@ func (a *ArmisIntegration) convertToSweepResults(devices []Device) []*models.Swe
 		out = append(out, &models.SweepResult{
 			AgentID:         a.Config.AgentID,
 			PollerID:        a.Config.PollerID,
+			Partition:       a.Config.Partition,
 			DiscoverySource: "armis",
 			IP:              dev.IPAddress,
 			MAC:             &mac,

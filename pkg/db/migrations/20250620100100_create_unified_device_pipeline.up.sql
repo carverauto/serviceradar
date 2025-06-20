@@ -6,6 +6,7 @@ DROP STREAM IF EXISTS devices;
 CREATE STREAM IF NOT EXISTS sweep_results (
     agent_id string,
     poller_id string,
+    partition string,
     discovery_source string,
     ip string,
     mac nullable(string),
@@ -34,7 +35,7 @@ SETTINGS mode='versioned_kv', version_column='_tp_time';
 CREATE MATERIALIZED VIEW IF NOT EXISTS unified_device_pipeline_mv
 INTO unified_devices
 AS SELECT
-    concat(ip, ':', agent_id, ':', poller_id) AS device_id,
+    concat(partition, ':', ip) AS device_id,
     ip,
     poller_id,
     hostname,
