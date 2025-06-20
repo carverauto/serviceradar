@@ -67,7 +67,7 @@ func (s *Server) processSNMPDiscoveryResults(
 
 	// Process each type of discovery data
 	if len(payload.Devices) > 0 {
-		s.processDiscoveredDevices(ctx, payload.Devices, discoveryAgentID, discoveryInitiatorPollerID, reportingPollerID, timestamp)
+		s.processDiscoveredDevices(ctx, payload.Devices, discoveryAgentID, discoveryInitiatorPollerID, partition, reportingPollerID, timestamp)
 	}
 
 	if len(payload.Interfaces) > 0 {
@@ -87,6 +87,7 @@ func (s *Server) processDiscoveredDevices(
 	devices []*discoverypb.DiscoveredDevice,
 	discoveryAgentID string,
 	discoveryInitiatorPollerID string,
+	partition string,
 	reportingPollerID string,
 	timestamp time.Time,
 ) {
@@ -104,6 +105,7 @@ func (s *Server) processDiscoveredDevices(
 		sweepResult := &models.SweepResult{
 			AgentID:         discoveryAgentID,
 			PollerID:        discoveryInitiatorPollerID,
+			Partition:       partition,
 			DiscoverySource: "snmp_discovery",
 			IP:              protoDevice.Ip,
 			MAC:             &mac,
