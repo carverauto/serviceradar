@@ -22,7 +22,7 @@ DROP VIEW IF EXISTS unified_device_pipeline_mv;
 
 -- Add new array column with an empty array default
 ALTER STREAM unified_devices
-    ADD COLUMN discovery_sources Array(String) DEFAULT [] AFTER mac;
+    ADD COLUMN discovery_sources array(string) DEFAULT [] AFTER mac;
 
 -- Populate array column from existing discovery_source values
 ALTER STREAM unified_devices
