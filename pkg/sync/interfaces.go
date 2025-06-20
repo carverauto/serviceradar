@@ -43,7 +43,7 @@ type GRPCClient interface {
 
 // Integration defines the interface for fetching data from external sources.
 type Integration interface {
-	Fetch(ctx context.Context) (map[string][]byte, []models.Device, error)
+	Fetch(ctx context.Context) (map[string][]byte, []*models.SweepResult, error)
 }
 
 // IntegrationFactory defines a function type for creating integrations.

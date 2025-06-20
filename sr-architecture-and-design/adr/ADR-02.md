@@ -174,7 +174,7 @@ ArangoDB will be the primary master for detailed device attributes, interface in
 
 4. **Core Service & Proton:**
     - Receives data and writes to respective Proton streams.
-    - `unified_devices_mv` updates the `unified_devices` stream.
+    - `unified_devices_mv` merges sweep results with existing device metadata and updates the `unified_devices` stream.
 
 5. **ArangoDB Sync Service (New):**
     - Subscribes to relevant Proton streams:

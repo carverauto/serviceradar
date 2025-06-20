@@ -135,25 +135,28 @@ func (a *ArmisIntegration) fetchAndProcessDevices(ctx context.Context) (map[stri
 	return data, allDevices, nil
 }
 
-func (*ArmisIntegration) convertToModelsDevices(devices []Device) []models.Device {
-	out := make([]models.Device, 0, len(devices))
+func (a *ArmisIntegration) convertToSweepResults(devices []Device) []*models.SweepResult {
+	out := make([]*models.SweepResult, 0, len(devices))
 
 	for i := range devices {
-		dev := &devices[i] // Use a pointer to avoid copying the struct
-		out = append(out, models.Device{
-			DeviceID:        fmt.Sprintf("armis-%d", dev.ID),
+		dev := &devices[i]
+		hostname := dev.Name
+		mac := dev.MacAddress
+		meta := map[string]string{
+			"armis_device_id": fmt.Sprintf("%d", dev.ID),
+			"type":            dev.Type,
+			"risk_level":      fmt.Sprintf("%d", dev.RiskLevel),
+		}
+		out = append(out, &models.SweepResult{
+			AgentID:         a.Config.AgentID,
+			PollerID:        a.Config.PollerID,
 			DiscoverySource: "armis",
 			IP:              dev.IPAddress,
-			MAC:             dev.MacAddress,
-			Hostname:        dev.Name,
-			FirstSeen:       dev.FirstSeen,
-			LastSeen:        dev.LastSeen,
-			IsAvailable:     true,
-			Metadata: map[string]interface{}{
-				"armis_device_id": fmt.Sprintf("%d", dev.ID),
-				"type":            dev.Type,
-				"risk_level":      fmt.Sprintf("%d", dev.RiskLevel),
-			},
+			MAC:             &mac,
+			Hostname:        &hostname,
+			Timestamp:       dev.FirstSeen,
+			Available:       true,
+			Metadata:        meta,
 		})
 	}
 
@@ -162,20 +165,20 @@ func (*ArmisIntegration) convertToModelsDevices(devices []Device) []models.Devic
 
 // Fetch retrieves devices from Armis. If the updater is configured, it also
 // correlates sweep results and sends status updates back to Armis.
-func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, []models.Device, error) {
+func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, []*models.SweepResult, error) {
 	// Step 1: Fetch devices and create the initial KV data and sweep config.
 	data, devices, err := a.fetchAndProcessDevices(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	modelDevs := a.convertToModelsDevices(devices)
+	modelEvents := a.convertToSweepResults(devices)
 
 	// Step 2: Check if the updater and querier are configured. If not, we are done.
 	if a.Updater == nil || a.SweepQuerier == nil {
 		log.Println("Armis updater/querier not configured, skipping status update correlation.")
 
-		return data, modelDevs, nil
+		return data, modelEvents, nil
 	}
 
 	log.Println("Armis updater and querier are configured, proceeding with sweep result correlation.")
@@ -185,7 +188,7 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, []mode
 	if err != nil {
 		log.Printf("Failed to get sweep results, skipping update: %v", err)
 
-		return data, modelDevs, nil // Return originally fetched data without failing the sync
+		return data, modelEvents, nil // Return originally fetched data without failing the sync
 	}
 
 	log.Printf("Successfully queried %d sweep results.", len(sweepResults))
@@ -221,7 +224,7 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, []mode
 		}
 	}
 
-	return enrichedData, modelDevs, nil
+	return enrichedData, modelEvents, nil
 }
 
 // FetchDevicesPage fetches a single page of devices from the Armis API.
@@ -294,34 +297,21 @@ func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]b
 		d := &devices[i] // Use a pointer to avoid copying the struct
 
 		enriched := DeviceWithMetadata{
-			Device:   *device,
-			Metadata: map[string]string{"armis_device_id": fmt.Sprintf("%d", device.ID)},
+			Device:   *d,
+			Metadata: map[string]string{"armis_device_id": fmt.Sprintf("%d", d.ID)},
 		}
 
 		// Marshal the device with metadata to JSON
 		value, err := json.Marshal(enriched)
 		if err != nil {
-			log.Printf("Failed to marshal device %d: %v", device.ID, err)
+			log.Printf("Failed to marshal device %d: %v", d.ID, err)
 			continue
 		}
 
 		// Store device in KV with device ID as key
-		data[fmt.Sprintf("%d", device.ID)] = value
+		data[fmt.Sprintf("%d", d.ID)] = value
 
 		// Process IP addresses - handle comma-separated list of IPs
-		if device.IPAddress != "" {
-			// Split by comma and process each IP
-			ipList := strings.Split(device.IPAddress, ",")
-			if len(ipList) > 0 {
-				// Trim spaces and validate the first IP only
-				ip := strings.TrimSpace(ipList[0])
-
-				if ip != "" {
-					// Add to sweep list with /32 suffix
-					ips = append(ips, ip+"/32")
-				}
-		}
-
 		ipList := strings.Split(d.IPAddress, ",")
 		for _, ipRaw := range ipList {
 			ip := strings.TrimSpace(ipRaw)
@@ -359,6 +349,7 @@ func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]b
 			}
 
 			data[deviceID] = value
+
 			ips = append(ips, ip+"/32")
 		}
 	}

@@ -23,6 +23,61 @@ type Translator struct {
 	DBType DatabaseType
 }
 
+// applyDefaultFilters adds implicit conditions for certain entities when the
+// user query omits them. Currently this ensures `sweep_results` only returns
+// records with `discovery_source = 'sweep'` unless another discovery_source
+// condition is specified.
+func (*Translator) applyDefaultFilters(q *models.Query) {
+	if q == nil {
+		return
+	}
+
+	switch q.Entity {
+	case models.SweepResults:
+		if !hasDiscoverySourceCondition(q.Conditions) {
+			cond := models.Condition{
+				Field:    "discovery_source",
+				Operator: models.Equals,
+				Value:    "sweep",
+			}
+
+			if len(q.Conditions) > 0 {
+				cond.LogicalOp = models.And
+			}
+
+			q.Conditions = append(q.Conditions, cond)
+		}
+	case models.Devices:
+		// No default filters for Devices
+	case models.Flows:
+		// No default filters for Flows
+	case models.Traps:
+		// No default filters for Traps
+	case models.Connections:
+		// No default filters for Connections
+	case models.Logs:
+		// No default filters for Logs
+	case models.Interfaces:
+		// No default filters for Interfaces
+	case models.ICMPResults:
+		// No default filters for ICMPResults
+	case models.SNMPResults:
+	}
+}
+
+// hasDiscoverySourceCondition checks if a condition on discovery_source already
+// exists in the provided slice. Nested conditions are not inspected to keep the
+// check simple.
+func hasDiscoverySourceCondition(conds []models.Condition) bool {
+	for _, c := range conds {
+		if strings.EqualFold(c.Field, "discovery_source") {
+			return true
+		}
+	}
+
+	return false
+}
+
 // NewTranslator creates a new Translator
 func NewTranslator(dbType DatabaseType) *Translator {
 	return &Translator{
@@ -35,6 +90,9 @@ func (t *Translator) Translate(query *models.Query) (string, error) {
 	if query == nil {
 		return "", errCannotTranslateNilQuery
 	}
+
+	// Apply any implicit filters based on the entity type
+	t.applyDefaultFilters(query)
 
 	switch t.DBType {
 	case Proton:
