@@ -341,6 +341,10 @@ func (s *SyncPoller) createIntegration(ctx context.Context, src *models.SourceCo
 		cfgCopy.PollerID = s.config.PollerID
 	}
 
+	if cfgCopy.Partition == "" {
+		cfgCopy.Partition = "default"
+	}
+
 	return factory(ctx, &cfgCopy)
 }
 

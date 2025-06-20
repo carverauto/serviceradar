@@ -132,6 +132,7 @@ Each source in the `sources` map requires:
 | `insecure_skip_verify` | Skip TLS verification for self-signed certificates | No |
 | `agent_id` | Override the default agent ID for devices from this source | No |
 | `poller_id` | Override the default poller ID for devices from this source | No |
+| `partition` | Device partition name used to build `device_id` | No (defaults to `default`) |
 
 ## Supported Integrations
 
@@ -157,6 +158,7 @@ The NetBox integration:
 - Creates monitor configurations based on device types and services
 - Stores the configurations in the KV store with prefix `netbox/`
 - Supports subnet expansion with the `expand_subnets` option
+- If `partition` is omitted, devices are assigned to the `default` partition
 
 #### NetBox-Specific Options
 
@@ -377,6 +379,7 @@ The NetBox integration:
 5. Writes the complete sweep configuration to the KV store
 
 If `expand_subnets` is enabled, the integration will use the subnet masks as defined in NetBox. Otherwise, it treats all IPs as /32 (individual hosts).
+Discovered devices are stored using the configured `partition`. When omitted, `default` is used.
 
 ## Firewall Configuration
 
