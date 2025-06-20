@@ -407,8 +407,19 @@ func (s *SyncPoller) writeToKV(ctx context.Context, sourceName string, data map[
 	for key, value := range data {
 		fullKey := prefix + "/" + key
 
-		if part, ip, ok := parseDeviceID(key); ok {
-			fullKey = fmt.Sprintf("%s/%s/%s", prefix, part, ip)
+		if _, ip, ok := parseDeviceID(key); ok {
+			srcCfg := s.config.Sources[sourceName]
+			agentID := srcCfg.AgentID
+			if agentID == "" {
+				agentID = s.config.AgentID
+			}
+
+			pollerID := srcCfg.PollerID
+			if pollerID == "" {
+				pollerID = s.config.PollerID
+			}
+
+			fullKey = fmt.Sprintf("%s/%s/%s/%s", prefix, agentID, pollerID, ip)
 		}
 
 		_, err := s.kvClient.Put(ctx, &proto.PutRequest{
