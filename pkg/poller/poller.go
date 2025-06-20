@@ -494,8 +494,11 @@ func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStat
 		// Add the poller ID to each status
 		status.PollerId = p.config.PollerID
 
-		log.Printf("PollerID: %s, ServiceName: %s, AgentID: %s",
-			status.PollerId, status.ServiceName, status.AgentId)
+		// add the partition to each status
+		status.Partition = p.config.Partition
+
+		log.Printf("Partition: %s, PollerID: %s, ServiceName: %s, AgentID: %s",
+			status.Partition, status.PollerId, status.ServiceName, status.AgentId)
 
 		// Log warning if AgentID is missing (debugging aid)
 		if status.AgentId == "" {
