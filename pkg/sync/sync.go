@@ -407,8 +407,8 @@ func (s *SyncPoller) writeToKV(ctx context.Context, sourceName string, data map[
 	for key, value := range data {
 		fullKey := prefix + "/" + key
 
-		if agent, p, ip, ok := parseDeviceID(key); ok {
-			fullKey = fmt.Sprintf("%s/%s/%s/%s", prefix, agent, p, ip)
+		if part, ip, ok := parseDeviceID(key); ok {
+			fullKey = fmt.Sprintf("%s/%s/%s", prefix, part, ip)
 		}
 
 		_, err := s.kvClient.Put(ctx, &proto.PutRequest{
@@ -453,25 +453,22 @@ func (s *SyncPoller) publishEvents(ctx context.Context, sourceType string, event
 	}
 }
 
-// parseDeviceID splits a device ID of the form "ip:agent_id:poller_id" into its components.
-// It returns agent_id, poller_id, ip, and true on success. If the string does not match
-// the expected format, ok will be false.
-func parseDeviceID(id string) (agent, poller, ip string, ok bool) {
-	last := strings.LastIndex(id, ":")
-	if last == -1 {
-		return "", "", id, false
+// parseDeviceID splits a device ID of the form "partition:ip" into its components.
+// It returns partition, ip, and true on success. If the string does not contain a colon
+// or the partition is empty, ok will be false.
+func parseDeviceID(id string) (partition, ip string, ok bool) {
+	idx := strings.Index(id, ":")
+	if idx == -1 {
+		return "", id, false
 	}
 
-	second := strings.LastIndex(id[:last], ":")
-	if second == -1 {
-		return "", "", id, false
+	partition = id[:idx]
+	ip = id[idx+1:]
+	if partition == "" || ip == "" {
+		return "", id, false
 	}
 
-	ip = id[:second]
-	agent = id[second+1 : last]
-	poller = id[last+1:]
-
-	return agent, poller, ip, true
+	return partition, ip, true
 }
 
 // NewDefault provides a production-ready constructor with default settings.
