@@ -24,6 +24,10 @@ DROP VIEW IF EXISTS unified_device_pipeline_mv;
 ALTER STREAM unified_devices
     ADD COLUMN IF NOT EXISTS discovery_sources array(string) DEFAULT [] AFTER mac;
 
+-- Ensure old discovery_source column exists so we can migrate its values
+ALTER STREAM unified_devices
+    ADD COLUMN IF NOT EXISTS discovery_source string;
+
 -- Populate array column from existing discovery_source values
 ALTER STREAM unified_devices
     UPDATE discovery_sources = [discovery_source]
