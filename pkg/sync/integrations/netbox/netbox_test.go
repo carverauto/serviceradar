@@ -35,7 +35,7 @@ func TestProcessDevices_UsesIDs(t *testing.T) {
 	require.Equal(t, "10.0.0.1/32", ips[0])
 	require.Len(t, data, 1)
 
-	b, ok := data["test-partition:10.0.0.1"]
+       b, ok := data["agent/10.0.0.1"]
 	require.True(t, ok)
 
 	var event models.SweepResult
