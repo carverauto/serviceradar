@@ -147,7 +147,7 @@ func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[
 			ips = append(ips, fmt.Sprintf("%s/32", ipStr))
 		}
 
-		kvKey := fmt.Sprintf("%s:%s", partition, ipStr)
+               kvKey := fmt.Sprintf("%s/%s", agentID, ipStr)
 
 		metadata := map[string]interface{}{
 			"netbox_device_id": fmt.Sprintf("%d", device.ID),
