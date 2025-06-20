@@ -39,18 +39,20 @@ ALTER STREAM unified_devices DROP COLUMN IF EXISTS discovery_source;
 -- Recreate materialized view with array merge logic
 CREATE MATERIALIZED VIEW unified_device_pipeline_mv
 INTO unified_devices
-AS SELECT
-    concat(partition, ':', ip) AS device_id,
+AS
+WITH concat(partition, ':', ip) AS device_id
+SELECT
+    device_id,
     ip,
     poller_id,
     hostname,
     mac,
     arrayDistinct(arrayConcat(
-        ifnull((SELECT discovery_sources FROM unified_devices WHERE device_id = concat(partition, ':', ip) ORDER BY _tp_time DESC LIMIT 1), []),
+        ifnull((SELECT discovery_sources FROM unified_devices WHERE device_id = device_id ORDER BY _tp_time DESC LIMIT 1), []),
         [discovery_source]
     )) AS discovery_sources,
     available AS is_available,
-    coalesce((SELECT first_seen FROM unified_devices WHERE device_id = concat(partition, ':', ip) ORDER BY _tp_time DESC LIMIT 1), timestamp) AS first_seen,
+    coalesce((SELECT first_seen FROM unified_devices WHERE device_id = device_id ORDER BY _tp_time DESC LIMIT 1), timestamp) AS first_seen,
     timestamp AS last_seen,
     metadata,
     agent_id,
