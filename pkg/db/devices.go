@@ -22,7 +22,7 @@ func (db *DB) GetDevicesByIP(ctx context.Context, ip string) ([]*models.Device, 
 	query := `SELECT
         device_id, agent_id, poller_id, discovery_source, ip, mac, hostname,
         first_seen, last_seen, is_available, metadata
-    FROM table(devices)
+    FROM table(unified_devices)
     WHERE ip = ?`
 
 	rows, err := db.Conn.Query(ctx, query, ip)
@@ -76,7 +76,7 @@ func (db *DB) GetDeviceByID(ctx context.Context, deviceID string) (*models.Devic
 	query := `SELECT
         device_id, agent_id, poller_id, discovery_source, ip, mac, hostname,
         first_seen, last_seen, is_available, metadata
-    FROM table(devices)
+    FROM table(unified_devices)
     WHERE device_id = ?
     LIMIT 1`
 
@@ -120,7 +120,7 @@ func (db *DB) GetDeviceByID(ctx context.Context, deviceID string) (*models.Devic
 	return &d, nil
 }
 
-// StoreDevices stores a batch of devices into the devices stream.
+// StoreDevices stores a batch of devices into the unified_devices stream.
 func (db *DB) StoreDevices(ctx context.Context, devices []*models.Device) error {
 	if len(devices) == 0 {
 		return nil
@@ -128,7 +128,7 @@ func (db *DB) StoreDevices(ctx context.Context, devices []*models.Device) error 
 
 	log.Printf("Storing %d devices", len(devices))
 
-	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO devices (device_id, agent_id, "+
+	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO unified_devices (device_id, agent_id, "+
 		"poller_id, discovery_source, ip, mac, hostname, first_seen, last_seen, is_available, metadata)")
 	if err != nil {
 		return fmt.Errorf("failed to prepare batch: %w", err)
