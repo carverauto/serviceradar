@@ -58,7 +58,7 @@ type DeviceInfo struct {
     LastSeen        int64    `json:"last_seen"`                 // Unix timestamp of last observation
 
     // Discovery metadata
-    DiscoverySource string   `json:"discovery_source"`          // How device was discovered (network_sweep, icmp, snmp, etc.)
+    DiscoverySources []string `json:"discovery_sources"`        // Sources that reported the device
     DiscoveryTime   int64    `json:"discovery_time,omitempty"`  // When first discovered
 
     // Network information
@@ -93,7 +93,7 @@ type Device struct {
     DeviceID        string                 `json:"device_id"`        // Unique identifier
     AgentID         string                 `json:"agent_id"`         // Agent that discovered the device
     PollerID        string                 `json:"poller_id"`        // Poller that reported the device
-    DiscoverySource string                 `json:"discovery_source"` // How device was discovered
+    DiscoverySources []string               `json:"discovery_sources"` // Sources that reported the device
     IP              string                 `json:"ip"`               // IP address
     MAC             string                 `json:"mac,omitempty"`    // MAC address
     Hostname        string                 `json:"hostname,omitempty"` // DNS hostname
@@ -141,7 +141,7 @@ type Device struct {
 
 ### Proton Database Streams
 - Maintain existing streams (`sweep_results`, `icmp_results`, `snmp_results`) with fields for `ip`, `mac`, `hostname`, `open_ports`, `available`, `timestamp`, `agent_id`, `poller_id`, and `metadata`.
-- Create a `devices` stream with fields for `device_id`, `agent_id`, `poller_id`, `discovery_source`, `ip`, `mac`, `hostname`, `first_seen`, `last_seen`, `is_available`, and `metadata`.
+- Create a `devices` stream with fields for `device_id`, `agent_id`, `poller_id`, `discovery_sources`, `ip`, `mac`, `hostname`, `first_seen`, `last_seen`, `is_available`, and `metadata`.
 - Implement a materialized view to derive `devices` from raw streams, supporting efficient querying by `IP`, `agent_id`, and `poller_id`.
 - Use batch insertion for raw stream writes to handle large volumes.
 
@@ -161,7 +161,7 @@ type Device struct {
 Maintain a single source of truth in the `devices` stream with:
 - Identification (`IP`, `MAC`, `hostname`, `agent_id`, `poller_id`).
 - Status (`is_available`, `last_seen`).
-- Discovery details (`discovery_source`, `first_seen`).
+- Discovery details (`discovery_sources`, `first_seen`).
 - Extensible metadata.
 
 ### 2. Stream-Based Device Derivation

@@ -42,17 +42,17 @@ func (p *Processor) prepareDevice(msg jetstream.Msg) (*models.Device, error) {
 	var sweep models.SweepResult
 	if err := json.Unmarshal(data, &sweep); err == nil && sweep.IP != "" {
 		device := &models.Device{
-			DeviceID:        "",
-			AgentID:         sweep.AgentID,
-			PollerID:        sweep.PollerID,
-			DiscoverySource: sweep.DiscoverySource,
-			IP:              sweep.IP,
-			MAC:             "",
-			Hostname:        "",
-			FirstSeen:       sweep.Timestamp,
-			LastSeen:        sweep.Timestamp,
-			IsAvailable:     sweep.Available,
-			Metadata:        make(map[string]interface{}),
+			DeviceID:         "",
+			AgentID:          sweep.AgentID,
+			PollerID:         sweep.PollerID,
+			DiscoverySources: []string{sweep.DiscoverySource},
+			IP:               sweep.IP,
+			MAC:              "",
+			Hostname:         "",
+			FirstSeen:        sweep.Timestamp,
+			LastSeen:         sweep.Timestamp,
+			IsAvailable:      sweep.Available,
+			Metadata:         make(map[string]interface{}),
 		}
 
 		if sweep.MAC != nil {
