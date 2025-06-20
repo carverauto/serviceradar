@@ -362,3 +362,30 @@ func contains(slice []string, item string) bool {
 
 	return false
 }
+
+// addAlternateIP stores an alternate IP in the given metadata map using
+// sequential keys (alternate_ip, alternate_ip_2, ...). The updated map is
+// returned for convenience.
+func addAlternateIP(metadata map[string]string, ip string) map[string]string {
+	if ip == "" {
+		return metadata
+	}
+	if metadata == nil {
+		metadata = make(map[string]string)
+	}
+
+	index := 1
+	for {
+		key := "alternate_ip"
+		if index > 1 {
+			key = fmt.Sprintf("alternate_ip_%d", index)
+		}
+		if _, exists := metadata[key]; !exists {
+			metadata[key] = ip
+			break
+		}
+		index++
+	}
+
+	return metadata
+}
