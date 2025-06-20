@@ -1,14 +1,35 @@
--- Add discovery_sources array to unified_devices and update the materialized view
+-- migrations/20250622120000_add_discovery_sources_to_unified_devices.up.sql
 
--- Ensure the unified_devices stream exists in case the previous migration
--- failed to create it (e.g. on older clusters)
+-- Final script using a robust LEFT JOIN and standard functions
+-- to avoid engine-specific limitations.
+
+-- Step 1: Drop all related objects to ensure a clean slate.
+DROP VIEW IF EXISTS unified_device_pipeline_mv;
+DROP STREAM IF EXISTS unified_devices;
+DROP STREAM IF EXISTS sweep_results;
+
+-- Step 2: Recreate the sweep_results stream.
+CREATE STREAM IF NOT EXISTS sweep_results (
+    agent_id string,
+    poller_id string,
+    partition string,
+    discovery_source string,
+    ip string,
+    mac nullable(string),
+    hostname nullable(string),
+    timestamp DateTime64(3),
+    available boolean,
+    metadata map(string, string)
+);
+
+-- Step 3: Recreate the unified_devices stream.
 CREATE STREAM IF NOT EXISTS unified_devices (
     device_id string,
     ip string,
     poller_id string,
     hostname nullable(string),
     mac nullable(string),
-    discovery_source string,
+    discovery_sources array(string),
     is_available boolean,
     first_seen DateTime64(3),
     last_seen DateTime64(3),
@@ -17,44 +38,28 @@ CREATE STREAM IF NOT EXISTS unified_devices (
 ) PRIMARY KEY (device_id)
 SETTINGS mode='versioned_kv', version_column='_tp_time';
 
--- Drop existing materialized view
-DROP VIEW IF EXISTS unified_device_pipeline_mv;
-
--- Add new array column with an empty array default
-ALTER STREAM unified_devices
-    ADD COLUMN IF NOT EXISTS discovery_sources array(string) DEFAULT [] AFTER mac;
-
--- Ensure old discovery_source column exists so we can migrate its values
-ALTER STREAM unified_devices
-    ADD COLUMN IF NOT EXISTS discovery_source string;
-
--- Populate array column from existing discovery_source values
-ALTER STREAM unified_devices
-    UPDATE discovery_sources = [discovery_source]
-    WHERE discovery_source IS NOT NULL;
-
--- Remove old discovery_source column
-ALTER STREAM unified_devices DROP COLUMN IF EXISTS discovery_source;
-
--- Recreate materialized view with array merge logic
+-- Step 4: Recreate the materialized view with conditional logic.
 CREATE MATERIALIZED VIEW unified_device_pipeline_mv
 INTO unified_devices
 AS
-WITH concat(partition, ':', ip) AS device_id
 SELECT
-    device_id,
-    ip,
-    poller_id,
-    hostname,
-    mac,
-    arrayDistinct(arrayConcat(
-        ifnull((SELECT discovery_sources FROM unified_devices WHERE device_id = device_id ORDER BY _tp_time DESC LIMIT 1), []),
-        [discovery_source]
-    )) AS discovery_sources,
-    available AS is_available,
-    coalesce((SELECT first_seen FROM unified_devices WHERE device_id = device_id ORDER BY _tp_time DESC LIMIT 1), timestamp) AS first_seen,
-    timestamp AS last_seen,
-    metadata,
-    agent_id,
-    timestamp AS _tp_time
-FROM sweep_results;
+    concat(s.partition, ':', s.ip) AS device_id,
+    s.ip,
+    s.poller_id,
+    s.hostname,
+    s.mac,
+    -- If new source is already in the array, return the old array.
+    -- Otherwise, append the new source to the old array.
+    if(
+            index_of(if_null(u.discovery_sources, []), s.discovery_source) > 0,
+            u.discovery_sources,
+            array_push_back(if_null(u.discovery_sources, []), s.discovery_source)
+    ) AS discovery_sources,
+    s.available AS is_available,
+    coalesce(u.first_seen, s.timestamp) AS first_seen,
+    s.timestamp AS last_seen,
+    s.metadata,
+    s.agent_id,
+    s.timestamp AS _tp_time
+FROM sweep_results AS s
+         LEFT JOIN unified_devices AS u ON concat(s.partition, ':', s.ip) = u.device_id;
