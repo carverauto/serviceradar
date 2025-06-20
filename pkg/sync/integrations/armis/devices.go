@@ -330,16 +330,16 @@ func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]b
 			}
 
 			modelDevice := &models.Device{
-				DeviceID:        deviceID,
-				PollerID:        pollerID,
-				DiscoverySource: "armis",
-				IP:              ip,
-				MAC:             d.MacAddress,
-				Hostname:        d.Name,
-				FirstSeen:       d.FirstSeen,
-				LastSeen:        d.LastSeen,
-				IsAvailable:     true,
-				Metadata:        metadata,
+				DeviceID:         deviceID,
+				PollerID:         pollerID,
+				DiscoverySources: []string{"armis"},
+				IP:               ip,
+				MAC:              d.MacAddress,
+				Hostname:         d.Name,
+				FirstSeen:        d.FirstSeen,
+				LastSeen:         d.LastSeen,
+				IsAvailable:      true,
+				Metadata:         metadata,
 			}
 
 			value, err := json.Marshal(modelDevice)
