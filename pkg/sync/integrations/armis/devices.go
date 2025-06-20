@@ -291,7 +291,6 @@ func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]b
 	data = make(map[string][]byte)
 	ips = make([]string, 0, len(devices))
 
-	agentID := a.Config.AgentID
 	pollerID := a.Config.PollerID
 
 	for i := range devices {
@@ -320,7 +319,7 @@ func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]b
 				continue
 			}
 
-			deviceID := fmt.Sprintf("%s:%s:%s", ip, agentID, pollerID)
+			deviceID := fmt.Sprintf("%s:%s", a.Config.Partition, ip)
 
 			metadata := map[string]interface{}{
 				"armis_id":     fmt.Sprintf("%d", d.ID),
