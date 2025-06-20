@@ -27,7 +27,7 @@ type Translator struct {
 // user query omits them. Currently this ensures `sweep_results` only returns
 // records with `discovery_source = 'sweep'` unless another discovery_source
 // condition is specified.
-func (t *Translator) applyDefaultFilters(q *models.Query) {
+func (*Translator) applyDefaultFilters(q *models.Query) {
 	if q == nil {
 		return
 	}
@@ -40,11 +40,28 @@ func (t *Translator) applyDefaultFilters(q *models.Query) {
 				Operator: models.Equals,
 				Value:    "sweep",
 			}
+
 			if len(q.Conditions) > 0 {
 				cond.LogicalOp = models.And
 			}
+
 			q.Conditions = append(q.Conditions, cond)
 		}
+	case models.Devices:
+		// No default filters for Devices
+	case models.Flows:
+		// No default filters for Flows
+	case models.Traps:
+		// No default filters for Traps
+	case models.Connections:
+		// No default filters for Connections
+	case models.Logs:
+		// No default filters for Logs
+	case models.Interfaces:
+		// No default filters for Interfaces
+	case models.ICMPResults:
+		// No default filters for ICMPResults
+	case models.SNMPResults:
 	}
 }
 
@@ -57,6 +74,7 @@ func hasDiscoverySourceCondition(conds []models.Condition) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
