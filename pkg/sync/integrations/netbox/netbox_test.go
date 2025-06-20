@@ -30,18 +30,23 @@ func TestProcessDevices_UsesIDs(t *testing.T) {
 		},
 	}}
 
-	data, ips := integ.processDevices(resp)
-	require.Len(t, ips, 1)
-	require.Equal(t, "10.0.0.1/32", ips[0])
-	require.Len(t, data, 1)
+        data, ips, events := integ.processDevices(resp)
+        require.Len(t, ips, 1)
+        require.Equal(t, "10.0.0.1/32", ips[0])
+        require.Len(t, data, 1)
 
-	b, ok := data["10.0.0.1:agent:poller"]
-	require.True(t, ok)
+        b, ok := data["agent/10.0.0.1"]
+        require.True(t, ok)
 
-	var dev models.Device
-	err := json.Unmarshal(b, &dev)
-	require.NoError(t, err)
+        var event models.SweepResult
+        err := json.Unmarshal(b, &event)
+        require.NoError(t, err)
 
-	require.Equal(t, "poller", dev.PollerID)
-	require.Equal(t, "10.0.0.1:agent:poller", dev.DeviceID)
+        require.Equal(t, "poller", event.PollerID)
+        require.Equal(t, "10.0.0.1", event.IP)
+
+        require.Len(t, events, 1)
+        require.Equal(t, "10.0.0.1", events[0].IP)
+        require.Equal(t, "poller", events[0].PollerID)
+        require.Equal(t, "netbox", events[0].DiscoverySource)
 }
