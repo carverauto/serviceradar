@@ -22,7 +22,7 @@ DROP VIEW IF EXISTS unified_device_pipeline_mv;
 
 -- Add new array column with an empty array default
 ALTER STREAM unified_devices
-    ADD COLUMN discovery_sources array(string) DEFAULT [] AFTER mac;
+    ADD COLUMN IF NOT EXISTS discovery_sources array(string) DEFAULT [] AFTER mac;
 
 -- Populate array column from existing discovery_source values
 ALTER STREAM unified_devices
@@ -30,7 +30,7 @@ ALTER STREAM unified_devices
     WHERE discovery_source IS NOT NULL;
 
 -- Remove old discovery_source column
-ALTER STREAM unified_devices DROP COLUMN discovery_source;
+ALTER STREAM unified_devices DROP COLUMN IF EXISTS discovery_source;
 
 -- Recreate materialized view with array merge logic
 CREATE MATERIALIZED VIEW unified_device_pipeline_mv
