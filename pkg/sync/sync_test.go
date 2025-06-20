@@ -477,3 +477,43 @@ func TestWriteToKVTransformsDeviceID(t *testing.T) {
 
 	s.writeToKV(context.Background(), "netbox", data)
 }
+
+func TestCreateIntegrationSetsDefaultPartition(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockKV := NewMockKVClient(ctrl)
+	mockGRPC := NewMockGRPCClient(ctrl)
+
+	mockGRPC.EXPECT().GetConnection().Return(nil).AnyTimes()
+
+	var gotPartition string
+
+	registry := map[string]IntegrationFactory{
+		"netbox": func(_ context.Context, cfg *models.SourceConfig) Integration {
+			gotPartition = cfg.Partition
+			return NewMockIntegration(ctrl)
+		},
+	}
+
+	c := &Config{
+		AgentID:      "global-agent",
+		PollerID:     "global-poller",
+		KVAddress:    "localhost:50051",
+		PollInterval: models.Duration(1 * time.Second),
+		StreamName:   "devices",
+		Subject:      "discovery.devices",
+		Sources: map[string]*models.SourceConfig{
+			"netbox": {
+				Type:     "netbox",
+				Endpoint: "https://netbox.example.com",
+				Prefix:   "netbox/",
+			},
+		},
+	}
+
+	_, err := New(context.Background(), c, mockKV, nil, nil, registry, mockGRPC, nil)
+	require.NoError(t, err)
+
+	assert.Equal(t, "default", gotPartition)
+}
