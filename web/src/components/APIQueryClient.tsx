@@ -28,6 +28,13 @@ type ViewFormat = 'json' | 'table';
 const ApiQueryClient: React.FC = () => {
     const [query, setQuery] = useState<string>('');
     const [results, setResults] = useState<unknown>(null);
+    const [responseData, setResponseData] = useState<unknown>(null);
+    const [pagination, setPagination] = useState<{
+        next_cursor?: string;
+        prev_cursor?: string;
+        limit?: number;
+    } | null>(null);
+    const [limit, setLimit] = useState<number>(10);
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [error, setError] = useState<string | null>(null);
     const [viewFormat, setViewFormat] = useState<ViewFormat>('json');
@@ -57,7 +64,11 @@ const ApiQueryClient: React.FC = () => {
     }, []);
 
     const handleSubmit = useCallback(
-        async (e?: React.FormEvent<HTMLFormElement>) => {
+        async (
+            e?: React.FormEvent<HTMLFormElement>,
+            cursorParam?: string,
+            directionParam?: 'next' | 'prev'
+        ) => {
             if (e) e.preventDefault();
             if (!query.trim()) {
                 setError('Query cannot be empty.');
@@ -67,22 +78,36 @@ const ApiQueryClient: React.FC = () => {
             setIsLoading(true);
             setError(null);
             setResults(null);
+            setResponseData(null);
 
             try {
+                const body: Record<string, unknown> = { query, limit };
+                if (cursorParam) body.cursor = cursorParam;
+                if (directionParam) body.direction = directionParam;
+
                 const options: RequestInit = {
                     method: 'POST', // Explicitly set POST
                     headers: {
                         'Content-Type': 'application/json',
                         ...(token ? { Authorization: `Bearer ${token}` } : {}),
                     },
-                    body: JSON.stringify({ query }),
+                    body: JSON.stringify(body),
                     cache: 'no-store' as RequestCache,
                     credentials: 'include',
                 };
 
                 const data = await fetchAPI('/query', options);
 
-                setResults(data);
+                setResponseData(data);
+                if (data && typeof data === 'object' && 'results' in data) {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    const d = data as any;
+                    setResults(d.results);
+                    setPagination(d.pagination ?? null);
+                } else {
+                    setResults(data);
+                    setPagination(null);
+                }
             } catch (err) {
                 setError(
                     err instanceof Error
@@ -90,11 +115,13 @@ const ApiQueryClient: React.FC = () => {
                         : 'An unknown error occurred while executing the query.'
                 );
                 setResults(null);
+                setResponseData(null);
+                setPagination(null);
             } finally {
                 setIsLoading(false);
             }
         },
-        [query, token]
+        [query, token, limit]
     );
 
     const renderResultsTable = (data: unknown) => {
@@ -284,7 +311,7 @@ const ApiQueryClient: React.FC = () => {
                                 <option value="json">JSON</option>
                                 <option value="table">Table</option>
                             </select>
-                            {viewFormat === 'json' && Boolean(results) && (
+                            {viewFormat === 'json' && Boolean(responseData) && (
                                 <button
                                     type="button"
                                     onClick={() => setShowRawJson(!showRawJson)}
@@ -298,6 +325,26 @@ const ApiQueryClient: React.FC = () => {
                                     )}
                                 </button>
                             )}
+                        </div>
+                        <div className="flex items-center space-x-2">
+                            <label
+                                htmlFor="limit"
+                                className="text-sm font-medium text-gray-700 dark:text-gray-300"
+                            >
+                                Limit:
+                            </label>
+                            <select
+                                id="limit"
+                                value={limit}
+                                onChange={(e) => setLimit(Number(e.target.value))}
+                                className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-blue-500 focus:border-blue-500"
+                            >
+                                {[10, 20, 50, 100].map((val) => (
+                                    <option key={val} value={val}>
+                                        {val}
+                                    </option>
+                                ))}
+                            </select>
                         </div>
                         <button
                             type="submit"
@@ -354,14 +401,14 @@ const ApiQueryClient: React.FC = () => {
                 </div>
             )}
 
-            {isLoading && !results && (
+            {isLoading && !responseData && (
                 <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow text-center">
                     <Loader2 className="animate-spin h-8 w-8 text-blue-600 dark:text-blue-400 mx-auto mb-2" />
                     <p className="text-gray-600 dark:text-gray-400">Fetching results...</p>
                 </div>
             )}
 
-            {results !== null && !isLoading && (
+            {responseData !== null && !isLoading && (
                 <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
                     <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
                         Results
@@ -369,14 +416,14 @@ const ApiQueryClient: React.FC = () => {
                     {viewFormat === 'json' ? (
                         showRawJson ? (
                             <pre className="bg-gray-50 dark:bg-gray-900 p-4 rounded-md overflow-auto text-sm text-gray-800 dark:text-gray-200 max-h-[600px]">
-                                {JSON.stringify(results, null, 2)}
+                                {JSON.stringify(responseData, null, 2)}
                             </pre>
-                        ) : typeof results !== 'undefined' ? (
+                        ) : typeof responseData !== 'undefined' ? (
                             <ReactJson
                                 src={
-                                    typeof results === 'object' && results !== null
-                                        ? results
-                                        : { value: results }
+                                    typeof responseData === 'object' && responseData !== null
+                                        ? responseData
+                                        : { value: responseData }
                                 }
                                 theme={jsonViewTheme}
                                 collapsed={false}
@@ -396,6 +443,25 @@ const ApiQueryClient: React.FC = () => {
                         )
                     ) : (
                         renderResultsTable(results)
+                    )}
+
+                    {pagination && (pagination.prev_cursor || pagination.next_cursor) && (
+                        <div className="flex justify-between items-center mt-4">
+                            <button
+                                onClick={() => handleSubmit(undefined, pagination.prev_cursor, 'prev')}
+                                disabled={!pagination.prev_cursor}
+                                className="px-3 py-1 rounded bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 disabled:opacity-50"
+                            >
+                                Previous
+                            </button>
+                            <button
+                                onClick={() => handleSubmit(undefined, pagination.next_cursor, 'next')}
+                                disabled={!pagination.next_cursor}
+                                className="px-3 py-1 rounded bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 disabled:opacity-50"
+                            >
+                                Next
+                            </button>
+                        </div>
                     )}
                 </div>
             )}
