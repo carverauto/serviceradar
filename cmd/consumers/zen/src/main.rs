@@ -52,7 +52,6 @@ struct RuleEntry {
 
 #[derive(Debug, Deserialize, Clone)]
 struct DecisionGroupConfig {
-    order: u32,
     name: String,
     #[serde(default)]
     subjects: Vec<String>,
@@ -115,24 +114,17 @@ impl Config {
 
     fn ordered_rules_for_subject(&self, subject: &str) -> Vec<String> {
         if !self.decision_groups.is_empty() {
-            let mut groups: Vec<_> = self
+            if let Some(group) = self
                 .decision_groups
                 .iter()
-                .filter(|g| g.subjects.is_empty() || g.subjects.iter().any(|s| s == subject))
-                .cloned()
-                .collect();
-            groups.sort_by_key(|g| g.order);
-            let mut keys = Vec::new();
-            for mut g in groups {
-                g.rules.sort_by_key(|r| r.order);
-                for r in g.rules {
-                    keys.push(r.key);
-                }
+                .find(|g| g.subjects.is_empty() || g.subjects.iter().any(|s| s == subject))
+            {
+                let mut rules = group.rules.clone();
+                rules.sort_by_key(|r| r.order);
+                return rules.into_iter().map(|r| r.key).collect();
             }
-            keys
-        } else {
-            self.decision_keys.clone()
         }
+        self.decision_keys.clone()
     }
 }
 
