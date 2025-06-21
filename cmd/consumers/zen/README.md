@@ -14,7 +14,6 @@ Create a JSON file with the following fields:
   "subjects": ["events.syslog", "events.snmp"],
   "decision_groups": [
     {
-      "order": 1,
       "name": "syslog",
       "subjects": ["events.syslog"],
       "rules": [
@@ -23,7 +22,6 @@ Create a JSON file with the following fields:
       ]
     },
     {
-      "order": 2,
       "name": "snmp",
       "subjects": ["events.snmp"],
       "rules": [
@@ -37,11 +35,11 @@ Create a JSON file with the following fields:
 }
 ```
 
-`decision_groups` allows rules to be organized into ordered, named groups.
-Each group can specify a list of `subjects` it applies to and has an explicit
-`order` field. Rules within a group are processed sequentially with the output of
-one rule becoming the input for the next. Only groups matching the incoming
-message subject are evaluated in order.
+`decision_groups` allows rules to be organized into named groups.
+Each group can specify a list of `subjects` it applies to. When a message
+arrives, the first group matching its subject is selected and its rules are
+processed sequentially, with the output of one rule becoming the input for the
+next.
 
 If a rule is missing from the key-value bucket it will be skipped and the
 consumer will continue evaluating the remaining keys.
@@ -67,7 +65,6 @@ Optionally add TLS settings:
   "subjects": ["events.syslog", "events.snmp"],
   "decision_groups": [
     {
-      "order": 1,
       "name": "syslog",
       "subjects": ["events.syslog"],
       "rules": [
@@ -76,7 +73,6 @@ Optionally add TLS settings:
       ]
     },
     {
-      "order": 2,
       "name": "snmp",
       "subjects": ["events.snmp"],
       "rules": [

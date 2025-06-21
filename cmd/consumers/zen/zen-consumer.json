@@ -5,7 +5,6 @@
   "subjects": ["events.syslog", "events.snmp"],
   "decision_groups": [
     {
-      "order": 1,
       "name": "syslog",
       "subjects": ["events.syslog"],
       "rules": [
@@ -14,7 +13,6 @@
       ]
     },
     {
-      "order": 2,
       "name": "snmp",
       "subjects": ["events.snmp"],
       "rules": [
