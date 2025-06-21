@@ -328,6 +328,14 @@ async fn watch_rules(engine: SharedEngine, cfg: Config, js: jetstream::Context) 
     let mut watcher = store.watch(format!("{}>", prefix)).await?;
     info!("watching rules under {}", prefix);
     while let Some(entry) = watcher.next().await {
+        if let Ok(ref e) = entry {
+            debug!(
+                "watch event key={} op={:?} rev={}",
+                e.key,
+                e.operation,
+                e.revision
+            );
+        }
         match entry {
             Ok(e) if matches!(e.operation, async_nats::jetstream::kv::Operation::Put) => {
                 let key = e.key.trim_start_matches(&prefix).trim_end_matches(".json");
