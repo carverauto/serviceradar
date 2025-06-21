@@ -12,7 +12,7 @@ Create a JSON file with the following fields:
   "stream_name": "events",
   "consumer_name": "zen-consumer",
   "subjects": ["events.syslog"],
-  "decision_keys": ["example-decision"],
+  "decision_keys": ["strip_full_message", "cef_severity"],
   "agent_id": "agent-01",
   "kv_bucket": "serviceradar-kv",
   "result_subject_suffix": ".processed"
@@ -20,7 +20,9 @@ Create a JSON file with the following fields:
 ```
 
 `decision_keys` accepts multiple rule names allowing a single consumer to
-evaluate several rules for each incoming event.
+evaluate several rules for each incoming event. Rules are executed sequentially
+in the order they are listed, with the output of each rule becoming the input
+for the next.
 
 If a rule is missing from the key-value bucket it will be skipped and the
 consumer will continue evaluating the remaining keys.
@@ -44,7 +46,7 @@ Optionally add TLS settings:
   "stream_name": "events",
   "consumer_name": "zen-consumer",
   "subjects": ["events.syslog"],
-  "decision_keys": ["example-decision"],
+  "decision_keys": ["strip_full_message", "cef_severity"],
   "agent_id": "agent-01",
   "kv_bucket": "serviceradar-kv",
   "result_subject_suffix": ".processed",

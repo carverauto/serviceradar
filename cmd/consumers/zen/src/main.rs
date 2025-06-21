@@ -130,10 +130,10 @@ async fn process_message(
     msg: &Message,
 ) -> Result<()> {
     debug!("processing message on subject {}", msg.subject);
-    let event: serde_json::Value = serde_json::from_slice(&msg.payload)?;
+    let mut context: serde_json::Value = serde_json::from_slice(&msg.payload)?;
     for key in &cfg.decision_keys {
         let dkey = format!("{}/{}/{}", cfg.stream_name, msg.subject, key);
-        let resp = match engine.evaluate(&dkey, event.clone().into()).await {
+        let resp = match engine.evaluate(&dkey, context.clone().into()).await {
             Ok(r) => r,
             Err(e) => {
                 if let zen_engine::EvaluationError::LoaderError(le) = e.as_ref() {
@@ -147,6 +147,7 @@ async fn process_message(
         };
         debug!("decision {} evaluated", dkey);
         let resp_json = serde_json::to_value(&resp)?;
+        context = resp_json.clone();
         let ce = EventBuilderV10::new()
             .id(Uuid::new_v4().to_string())
             .source(Url::parse(&format!(
@@ -320,7 +321,10 @@ mod tests {
         assert_eq!(cfg.stream_name, "events");
         assert_eq!(cfg.consumer_name, "zen-consumer");
         assert_eq!(cfg.subjects, vec!["events.syslog".to_string()]);
-        assert_eq!(cfg.decision_keys, vec!["example-decision".to_string()]);
+        assert_eq!(
+            cfg.decision_keys,
+            vec!["strip_full_message".to_string(), "cef_severity".to_string()]
+        );
         assert_eq!(cfg.agent_id, "agent-01");
         assert_eq!(cfg.kv_bucket, "serviceradar-kv");
         assert_eq!(cfg.result_subject_suffix.as_deref(), Some(".processed"));

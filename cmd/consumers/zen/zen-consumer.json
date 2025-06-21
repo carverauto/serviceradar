@@ -3,7 +3,7 @@
   "stream_name": "events",
   "consumer_name": "zen-consumer",
   "subjects": ["events.syslog"],
-  "decision_keys": ["example-decision"],
+  "decision_keys": ["strip_full_message", "cef_severity"],
   "agent_id": "agent-01",
   "kv_bucket": "serviceradar-kv",
   "result_subject_suffix": ".processed",
