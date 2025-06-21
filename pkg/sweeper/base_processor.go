@@ -160,8 +160,16 @@ func (p *BaseProcessor) Process(result *models.Result) error {
 	p.updateLastSweepTime()
 	p.updateTotalHosts(result)
 
-	host := p.getOrCreateHost(result.Target.Host, time.Now())
-	host.LastSeen = time.Now()
+	now := time.Now()
+	host := p.getOrCreateHost(result.Target.Host, now)
+
+	// Update host timestamps
+	host.LastSeen = now
+
+	// Propagate timestamps back to the result so stores have accurate
+	// first/last seen values.
+	result.FirstSeen = host.FirstSeen
+	result.LastSeen = host.LastSeen
 
 	switch result.Target.Mode {
 	case models.ModeICMP:
