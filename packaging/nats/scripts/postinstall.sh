@@ -38,8 +38,3 @@ if [ -f "/lib/systemd/system/serviceradar-${component_dir}.service" ]; then
     systemctl enable "serviceradar-${component_dir}"
     systemctl start "serviceradar-${component_dir}"
 fi
-
-# Set required capability for ICMP scanning if this is the agent
-if [ "${component_dir}" = "agent" ] && [ -x /usr/local/bin/serviceradar-agent ]; then
-    setcap cap_net_raw=+ep /usr/local/bin/serviceradar-agent
-fi

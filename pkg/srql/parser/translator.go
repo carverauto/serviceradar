@@ -23,6 +23,61 @@ type Translator struct {
 	DBType DatabaseType
 }
 
+// applyDefaultFilters adds implicit conditions for certain entities when the
+// user query omits them. Currently this ensures `sweep_results` only returns
+// records with `discovery_source = 'sweep'` unless another discovery_source
+// condition is specified.
+func (*Translator) applyDefaultFilters(q *models.Query) {
+	if q == nil {
+		return
+	}
+
+	switch q.Entity {
+	case models.SweepResults:
+		if !hasDiscoverySourceCondition(q.Conditions) {
+			cond := models.Condition{
+				Field:    "discovery_source",
+				Operator: models.Equals,
+				Value:    "sweep",
+			}
+
+			if len(q.Conditions) > 0 {
+				cond.LogicalOp = models.And
+			}
+
+			q.Conditions = append(q.Conditions, cond)
+		}
+	case models.Devices:
+		// No default filters for Devices
+	case models.Flows:
+		// No default filters for Flows
+	case models.Traps:
+		// No default filters for Traps
+	case models.Connections:
+		// No default filters for Connections
+	case models.Logs:
+		// No default filters for Logs
+	case models.Interfaces:
+		// No default filters for Interfaces
+	case models.ICMPResults:
+		// No default filters for ICMPResults
+	case models.SNMPResults:
+	}
+}
+
+// hasDiscoverySourceCondition checks if a condition on discovery_source already
+// exists in the provided slice. Nested conditions are not inspected to keep the
+// check simple.
+func hasDiscoverySourceCondition(conds []models.Condition) bool {
+	for _, c := range conds {
+		if strings.EqualFold(c.Field, "discovery_source") {
+			return true
+		}
+	}
+
+	return false
+}
+
 // NewTranslator creates a new Translator
 func NewTranslator(dbType DatabaseType) *Translator {
 	return &Translator{
@@ -35,6 +90,9 @@ func (t *Translator) Translate(query *models.Query) (string, error) {
 	if query == nil {
 		return "", errCannotTranslateNilQuery
 	}
+
+	// Apply any implicit filters based on the entity type
+	t.applyDefaultFilters(query)
 
 	switch t.DBType {
 	case Proton:
@@ -144,7 +202,9 @@ func (t *Translator) buildClickHouseQuery(query *models.Query) (string, error) {
 func (*Translator) getProtonBaseTableName(entity models.EntityType) string {
 	switch entity {
 	case models.Devices:
-		return "devices"
+		// Queries for devices should reference the unified stream
+		// populated by the materialized view.
+		return "unified_devices"
 	case models.Flows:
 		return "netflow_metrics"
 	case models.Interfaces:
@@ -438,6 +498,31 @@ func (*Translator) isComparisonOperator(op models.OperatorType) bool {
 
 // formatComparisonCondition formats a basic comparison condition.
 func (t *Translator) formatComparisonCondition(fieldName string, op models.OperatorType, value interface{}) string {
+	lowerField := strings.ToLower(fieldName)
+
+	if lowerField == "discovery_sources" {
+		formatted := t.formatGenericValue(value, t.DBType)
+
+		switch t.DBType {
+		case Proton, ClickHouse:
+			if op == models.Equals {
+				return fmt.Sprintf("has(discovery_sources, %s)", formatted)
+			}
+
+			if op == models.NotEquals {
+				return fmt.Sprintf("NOT has(discovery_sources, %s)", formatted)
+			}
+		case ArangoDB:
+			if op == models.Equals {
+				return fmt.Sprintf("CONTAINS(doc.discovery_sources, %s)", formatted)
+			}
+
+			if op == models.NotEquals {
+				return fmt.Sprintf("NOT CONTAINS(doc.discovery_sources, %s)", formatted)
+			}
+		}
+	}
+
 	// fieldName is now pre-translated if it was a function like to_date(timestamp)
 	// or doc.field for Arango.
 	// Value is the original value from the query (e.g. "some_string", 123)
