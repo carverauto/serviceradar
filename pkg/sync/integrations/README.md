@@ -86,6 +86,8 @@ Each entry in the `sources` map defines a connection to an external system.
 | `insecure_skip_verify` | `boolean` | If `true`, the HTTP client will skip TLS certificate verification. Use with caution.                                                                                                                              | No       |
 | `credentials`          | `object`  | A map of strings containing authentication tokens, keys, and other integration-specific settings.                                                                                                                | **Yes**  |
 | `queries`              | `array`   | (Armis only) An array of AQL queries to run against the Armis API to fetch devices.                                                                                                                               | **Yes**  |
+| `sweep_interval`       | `string`  | How often agents should sweep discovered networks. Uses Go duration format (e.g., "5m").
+        | No |
 
 ---
 
