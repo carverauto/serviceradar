@@ -19,6 +19,7 @@ package sync
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -185,7 +186,22 @@ func setupJetStream(ctx context.Context, nc *nats.Conn, config *Config) (jetstre
 	if config.StreamName != "" {
 		stream, err := js.Stream(ctx, config.StreamName)
 
-		if err != nil {
+		if errors.Is(err, jetstream.ErrStreamNotFound) {
+			subject := config.Subject + ".>"
+			if config.Domain != "" {
+				subject = config.Domain + "." + subject
+			}
+
+			sc := jetstream.StreamConfig{
+				Name:     config.StreamName,
+				Subjects: []string{subject},
+			}
+
+			stream, err = js.CreateOrUpdateStream(ctx, sc)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create stream %s: %w", config.StreamName, err)
+			}
+		} else if err != nil {
 			return nil, fmt.Errorf("failed to get stream %s: %w", config.StreamName, err)
 		}
 

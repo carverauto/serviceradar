@@ -18,6 +18,7 @@ package netflow
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -92,7 +93,19 @@ func (s *Service) Start(ctx context.Context) error {
 
 	// Verify stream configuration
 	stream, err := js.Stream(ctx, s.cfg.StreamName)
-	if err != nil {
+	if errors.Is(err, jetstream.ErrStreamNotFound) {
+		sc := jetstream.StreamConfig{
+			Name:     s.cfg.StreamName,
+			Subjects: []string{s.cfg.StreamName},
+		}
+
+		stream, err = js.CreateOrUpdateStream(ctx, sc)
+		if err != nil {
+			s.nc.Close()
+
+			return fmt.Errorf("failed to create stream %s: %w", s.cfg.StreamName, err)
+		}
+	} else if err != nil {
 		s.nc.Close()
 
 		return fmt.Errorf("failed to get stream %s: %w", s.cfg.StreamName, err)
