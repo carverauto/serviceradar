@@ -133,10 +133,18 @@ async fn process_message(
     let event: serde_json::Value = serde_json::from_slice(&msg.payload)?;
     for key in &cfg.decision_keys {
         let dkey = format!("{}/{}/{}", cfg.stream_name, msg.subject, key);
-        let resp = engine
-            .evaluate(&dkey, event.clone().into())
-            .await
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+        let resp = match engine.evaluate(&dkey, event.clone().into()).await {
+            Ok(r) => r,
+            Err(e) => {
+                if let zen_engine::EvaluationError::LoaderError(le) = e.as_ref() {
+                    if let zen_engine::loader::LoaderError::NotFound(_) = le.as_ref() {
+                        debug!("rule {} not found, skipping", dkey);
+                        continue;
+                    }
+                }
+                return Err(anyhow::anyhow!(e.to_string()));
+            }
+        };
         debug!("decision {} evaluated", dkey);
         let resp_json = serde_json::to_value(&resp)?;
         let ce = EventBuilderV10::new()
@@ -353,9 +361,7 @@ async fn watch_rules(engine: SharedEngine, cfg: Config, js: jetstream::Context) 
         if let Ok(ref e) = entry {
             debug!(
                 "watch event key={} op={:?} rev={}",
-                e.key,
-                e.operation,
-                e.revision
+                e.key, e.operation, e.revision
             );
         }
         match entry {
