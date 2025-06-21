@@ -109,7 +109,7 @@ func (s *Server) processDiscoveredDevices(
 			AgentID:         discoveryAgentID,
 			PollerID:        discoveryInitiatorPollerID,
 			Partition:       partition,
-			DiscoverySource: "snmp_discovery",
+                        DiscoverySource: "mapper",
 			IP:              protoDevice.Ip,
 			MAC:             &mac,
 			Hostname:        &hostname,
