@@ -45,6 +45,20 @@ struct SecurityConfig {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+struct RuleEntry {
+    order: u32,
+    key: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct DecisionGroupConfig {
+    order: u32,
+    name: String,
+    #[serde(default)]
+    rules: Vec<RuleEntry>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
 struct Config {
     nats_url: String,
     stream_name: String,
@@ -55,6 +69,8 @@ struct Config {
     result_subject_suffix: Option<String>,
     #[serde(default)]
     decision_keys: Vec<String>,
+    #[serde(default)]
+    decision_groups: Vec<DecisionGroupConfig>,
     #[serde(default = "default_kv_bucket")]
     kv_bucket: String,
     agent_id: String,
@@ -83,8 +99,8 @@ impl Config {
         if self.consumer_name.is_empty() {
             anyhow::bail!("consumer_name is required");
         }
-        if self.decision_keys.is_empty() {
-            anyhow::bail!("at least one decision_key is required");
+        if self.decision_keys.is_empty() && self.decision_groups.is_empty() {
+            anyhow::bail!("at least one decision_key or decision_group is required");
         }
         if self.agent_id.is_empty() {
             anyhow::bail!("agent_id is required");
@@ -93,6 +109,23 @@ impl Config {
             anyhow::bail!("at least one subject is required");
         }
         Ok(())
+    }
+
+    fn ordered_rules(&self) -> Vec<String> {
+        if !self.decision_groups.is_empty() {
+            let mut groups = self.decision_groups.clone();
+            groups.sort_by_key(|g| g.order);
+            let mut keys = Vec::new();
+            for mut g in groups {
+                g.rules.sort_by_key(|r| r.order);
+                for r in g.rules {
+                    keys.push(r.key);
+                }
+            }
+            keys
+        } else {
+            self.decision_keys.clone()
+        }
     }
 }
 
@@ -131,7 +164,7 @@ async fn process_message(
 ) -> Result<()> {
     debug!("processing message on subject {}", msg.subject);
     let mut context: serde_json::Value = serde_json::from_slice(&msg.payload)?;
-    for key in &cfg.decision_keys {
+    for key in cfg.ordered_rules() {
         let dkey = format!("{}/{}/{}", cfg.stream_name, msg.subject, key);
         let resp = match engine.evaluate(&dkey, context.clone().into()).await {
             Ok(r) => r,
@@ -321,10 +354,11 @@ mod tests {
         assert_eq!(cfg.stream_name, "events");
         assert_eq!(cfg.consumer_name, "zen-consumer");
         assert_eq!(cfg.subjects, vec!["events.syslog".to_string()]);
-        assert_eq!(
-            cfg.decision_keys,
-            vec!["strip_full_message".to_string(), "cef_severity".to_string()]
-        );
+        assert_eq!(cfg.decision_groups.len(), 2);
+        assert_eq!(cfg.decision_groups[0].name, "pre_process");
+        assert_eq!(cfg.decision_groups[0].rules[0].key, "strip_full_message");
+        assert_eq!(cfg.decision_groups[1].name, "classification");
+        assert_eq!(cfg.decision_groups[1].rules[0].key, "cef_severity");
         assert_eq!(cfg.agent_id, "agent-01");
         assert_eq!(cfg.kv_bucket, "serviceradar-kv");
         assert_eq!(cfg.result_subject_suffix.as_deref(), Some(".processed"));
@@ -340,6 +374,7 @@ mod tests {
             result_subject: None,
             result_subject_suffix: None,
             decision_keys: Vec::new(),
+            decision_groups: Vec::new(),
             kv_bucket: String::new(),
             agent_id: String::new(),
             security: None,

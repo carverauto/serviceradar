@@ -12,17 +12,32 @@ Create a JSON file with the following fields:
   "stream_name": "events",
   "consumer_name": "zen-consumer",
   "subjects": ["events.syslog"],
-  "decision_keys": ["strip_full_message", "cef_severity"],
+  "decision_groups": [
+    {
+      "order": 1,
+      "name": "pre_process",
+      "rules": [
+        {"order": 1, "key": "strip_full_message"}
+      ]
+    },
+    {
+      "order": 2,
+      "name": "classification",
+      "rules": [
+        {"order": 1, "key": "cef_severity"}
+      ]
+    }
+  ],
   "agent_id": "agent-01",
   "kv_bucket": "serviceradar-kv",
   "result_subject_suffix": ".processed"
 }
 ```
 
-`decision_keys` accepts multiple rule names allowing a single consumer to
-evaluate several rules for each incoming event. Rules are executed sequentially
-in the order they are listed, with the output of each rule becoming the input
-for the next.
+`decision_groups` allows rules to be organized into ordered groups. Each group
+and rule has an explicit `order` field so execution does not rely on the JSON
+array layout. Rules within a group are processed sequentially with the output of
+one rule becoming the input for the next, then the next group is evaluated.
 
 If a rule is missing from the key-value bucket it will be skipped and the
 consumer will continue evaluating the remaining keys.
@@ -46,7 +61,22 @@ Optionally add TLS settings:
   "stream_name": "events",
   "consumer_name": "zen-consumer",
   "subjects": ["events.syslog"],
-  "decision_keys": ["strip_full_message", "cef_severity"],
+  "decision_groups": [
+    {
+      "order": 1,
+      "name": "pre_process",
+      "rules": [
+        {"order": 1, "key": "strip_full_message"}
+      ]
+    },
+    {
+      "order": 2,
+      "name": "classification",
+      "rules": [
+        {"order": 1, "key": "cef_severity"}
+      ]
+    }
+  ],
   "agent_id": "agent-01",
   "kv_bucket": "serviceradar-kv",
   "result_subject_suffix": ".processed",
