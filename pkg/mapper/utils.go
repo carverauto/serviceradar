@@ -371,12 +371,15 @@ func addAlternateIP(metadata map[string]string, ip string) map[string]string {
 	if ip == "" {
 		return metadata
 	}
+
 	if metadata == nil {
 		metadata = make(map[string]string)
 	}
 
 	const key = "alternate_ips"
+
 	var ips []string
+
 	if existing, ok := metadata[key]; ok && existing != "" {
 		// Attempt to decode existing JSON array. If it fails, treat the
 		// value as a single comma-separated string for backward

@@ -414,11 +414,13 @@ func (s *SyncPoller) writeToKV(ctx context.Context, sourceName string, data map[
 		if _, ip, ok := parseDeviceID(key); ok {
 			srcCfg := s.config.Sources[sourceName]
 			agentID := srcCfg.AgentID
+
 			if agentID == "" {
 				agentID = s.config.AgentID
 			}
 
 			pollerID := srcCfg.PollerID
+
 			if pollerID == "" {
 				pollerID = s.config.PollerID
 			}
@@ -479,6 +481,7 @@ func parseDeviceID(id string) (partition, ip string, ok bool) {
 
 	partition = id[:idx]
 	ip = id[idx+1:]
+
 	if partition == "" || ip == "" {
 		return "", id, false
 	}

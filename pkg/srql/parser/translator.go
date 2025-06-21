@@ -502,11 +502,13 @@ func (t *Translator) formatComparisonCondition(fieldName string, op models.Opera
 
 	if lowerField == "discovery_sources" {
 		formatted := t.formatGenericValue(value, t.DBType)
+
 		switch t.DBType {
 		case Proton, ClickHouse:
 			if op == models.Equals {
 				return fmt.Sprintf("has(discovery_sources, %s)", formatted)
 			}
+
 			if op == models.NotEquals {
 				return fmt.Sprintf("NOT has(discovery_sources, %s)", formatted)
 			}
@@ -514,6 +516,7 @@ func (t *Translator) formatComparisonCondition(fieldName string, op models.Opera
 			if op == models.Equals {
 				return fmt.Sprintf("CONTAINS(doc.discovery_sources, %s)", formatted)
 			}
+
 			if op == models.NotEquals {
 				return fmt.Sprintf("NOT CONTAINS(doc.discovery_sources, %s)", formatted)
 			}
