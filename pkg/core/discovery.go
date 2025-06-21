@@ -67,15 +67,18 @@ func (s *Server) processSNMPDiscoveryResults(
 
 	// Process each type of discovery data
 	if len(payload.Devices) > 0 {
-		s.processDiscoveredDevices(ctx, payload.Devices, discoveryAgentID, discoveryInitiatorPollerID, partition, reportingPollerID, timestamp)
+		s.processDiscoveredDevices(ctx, payload.Devices, discoveryAgentID, discoveryInitiatorPollerID,
+			partition, reportingPollerID, timestamp)
 	}
 
 	if len(payload.Interfaces) > 0 {
-		s.processDiscoveredInterfaces(ctx, payload.Interfaces, discoveryAgentID, discoveryInitiatorPollerID, partition, reportingPollerID, timestamp)
+		s.processDiscoveredInterfaces(ctx, payload.Interfaces, discoveryAgentID, discoveryInitiatorPollerID,
+			partition, reportingPollerID, timestamp)
 	}
 
 	if len(payload.Topology) > 0 {
-		s.processDiscoveredTopology(ctx, payload.Topology, discoveryAgentID, discoveryInitiatorPollerID, partition, reportingPollerID, timestamp)
+		s.processDiscoveredTopology(ctx, payload.Topology, discoveryAgentID, discoveryInitiatorPollerID,
+			partition, reportingPollerID, timestamp)
 	}
 
 	return nil
