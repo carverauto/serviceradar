@@ -36,8 +36,9 @@
     "armis": {
       "type": "armis",
       "endpoint": "https://api.armis.example.com",
-      "prefix": "armis/",
-      "agent_id": "agent-prod-dc1",
+    "prefix": "armis/",
+    "sweep_interval": "10m",
+    "agent_id": "agent-prod-dc1",
       "poller_id": "poller-prod-dc1",
       "credentials": {
         "secret_key": "your-armis-secret-key-here",

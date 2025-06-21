@@ -174,8 +174,9 @@ The NetBox integration:
 "armis": {
   "type": "armis",
   "endpoint": "https://api.armis.com/api/v1/devices",
-  "prefix": "armis/",
-  "agent_id": "agent-prod-dc1",
+    "prefix": "armis/",
+    "sweep_interval": "10m",
+    "agent_id": "agent-prod-dc1",
   "poller_id": "poller-prod-dc1",
   "credentials": {
     "api_key": "your_armis_api_key"
@@ -489,8 +490,9 @@ Here's a comprehensive example that includes multiple data sources:
     "netbox": {
       "type": "netbox",
       "endpoint": "https://192.168.2.73",
-      "prefix": "netbox/",
-      "agent_id": "agent-lab-west",
+    "prefix": "netbox/",
+    "sweep_interval": "5m",
+    "agent_id": "agent-lab-west",
       "poller_id": "poller-lab-west",
       "credentials": {
         "api_token": "72d72b0ddddddd3f7951051cd78cd7c",
