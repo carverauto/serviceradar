@@ -2,6 +2,7 @@ package devices
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -74,7 +75,22 @@ func (s *Service) Start(ctx context.Context) error {
 	s.js = js
 
 	stream, err := js.Stream(ctx, s.cfg.StreamName)
-	if err != nil {
+	if errors.Is(err, jetstream.ErrStreamNotFound) {
+		sc := jetstream.StreamConfig{
+			Name: s.cfg.StreamName,
+		}
+
+		if s.cfg.Subject != "" {
+			sc.Subjects = []string{s.cfg.Subject}
+		}
+
+		stream, err = js.CreateOrUpdateStream(ctx, sc)
+		if err != nil {
+			nc.Close()
+
+			return fmt.Errorf("failed to create stream %s: %w", s.cfg.StreamName, err)
+		}
+	} else if err != nil {
 		nc.Close()
 
 		return fmt.Errorf("failed to get stream %s: %w", s.cfg.StreamName, err)
