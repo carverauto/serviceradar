@@ -209,11 +209,16 @@ func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) 
 		return // Or simply return to avoid writing a config with an unpredictable key
 	}
 
+	interval := n.Config.SweepInterval
+	if interval == "" {
+		interval = "5m"
+	}
+
 	sweepConfig := models.SweepConfig{
 		Networks:      ips,
 		Ports:         []int{22, 80, 443, 3389, 445, 8080},
 		SweepModes:    []string{"icmp", "tcp"},
-		Interval:      "5m",
+		Interval:      interval,
 		Concurrency:   50,
 		Timeout:       "10s",
 		IcmpCount:     1,
