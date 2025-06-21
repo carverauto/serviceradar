@@ -646,7 +646,7 @@ func (s *Server) processStatusReport(
 		}
 
 		apiStatus := s.createPollerStatus(req, now)
-		s.processServices(ctx, req.PollerId, apiStatus, req.Services, now)
+		s.processServices(ctx, req.PollerId, req.Partition, apiStatus, req.Services, now)
 
 		if err := s.updatePollerState(ctx, req.PollerId, apiStatus, currentState, now); err != nil {
 			log.Printf("Failed to update poller state for %s: %v", req.PollerId, err)
@@ -666,7 +666,7 @@ func (s *Server) processStatusReport(
 	}
 
 	apiStatus := s.createPollerStatus(req, now)
-	s.processServices(ctx, req.PollerId, apiStatus, req.Services, now)
+	s.processServices(ctx, req.PollerId, req.Partition, apiStatus, req.Services, now)
 
 	return apiStatus, nil
 }
@@ -684,6 +684,7 @@ func (*Server) createPollerStatus(req *proto.PollerStatusRequest, now time.Time)
 func (s *Server) processServices(
 	ctx context.Context,
 	pollerID string,
+	partition string,
 	apiStatus *api.PollerStatus,
 	services []*proto.ServiceStatus,
 	now time.Time) {
@@ -697,7 +698,7 @@ func (s *Server) processServices(
 			allServicesAvailable = false
 		}
 
-		if err := s.processServiceDetails(ctx, pollerID, &apiService, svc, now); err != nil {
+		if err := s.processServiceDetails(ctx, pollerID, partition, &apiService, svc, now); err != nil {
 			log.Printf("Error processing details for service %s on poller %s: %v",
 				svc.ServiceName, pollerID, err)
 		}
@@ -736,6 +737,7 @@ func (s *Server) processServices(
 func (s *Server) processServiceDetails(
 	ctx context.Context,
 	pollerID string,
+	partition string,
 	apiService *api.ServiceStatus,
 	svc *proto.ServiceStatus,
 	now time.Time,
@@ -743,7 +745,7 @@ func (s *Server) processServiceDetails(
 	// Check if svc.Message is nil or empty
 	if len(svc.Message) == 0 {
 		log.Printf("No message content for service %s on poller %s", svc.ServiceName, pollerID)
-		return s.handleService(ctx, apiService, now)
+		return s.handleService(ctx, apiService, partition, now)
 	}
 
 	details, err := s.parseServiceDetails(svc)
@@ -755,24 +757,25 @@ func (s *Server) processServiceDetails(
 			return fmt.Errorf("failed to parse snmp-discovery-results payload: %w", err)
 		}
 
-		return s.handleService(ctx, apiService, now)
+		return s.handleService(ctx, apiService, partition, now)
 	}
 
 	apiService.Details = details
 
-	if err := s.processMetrics(ctx, pollerID, svc, details, now); err != nil {
+	if err := s.processMetrics(ctx, pollerID, partition, svc, details, now); err != nil {
 		log.Printf("Error processing metrics for service %s on poller %s: %v",
 			svc.ServiceName, pollerID, err)
 		return err
 	}
 
-	return s.handleService(ctx, apiService, now)
+	return s.handleService(ctx, apiService, partition, now)
 }
 
 // processMetrics handles metrics processing for all service types.
 func (s *Server) processMetrics(
 	ctx context.Context,
 	pollerID string,
+	partition string,
 	svc *proto.ServiceStatus,
 	details json.RawMessage,
 	now time.Time) error {
@@ -789,7 +792,7 @@ func (s *Server) processMetrics(
 	case icmpServiceType:
 		return s.processICMPMetrics(pollerID, svc, details, now)
 	case snmpDiscoveryResultsServiceType, mapperDiscoveryServiceType:
-		return s.processSNMPDiscoveryResults(ctx, pollerID, svc, details, now)
+		return s.processSNMPDiscoveryResults(ctx, pollerID, partition, svc, details, now)
 	}
 
 	return nil
@@ -1267,9 +1270,9 @@ func (s *Server) processSNMPMetrics(pollerID string, details json.RawMessage, ti
 	return nil
 }
 
-func (s *Server) handleService(ctx context.Context, svc *api.ServiceStatus, now time.Time) error {
+func (s *Server) handleService(ctx context.Context, svc *api.ServiceStatus, partition string, now time.Time) error {
 	if svc.Type == sweepService {
-		if err := s.processSweepData(ctx, svc, now); err != nil {
+		if err := s.processSweepData(ctx, svc, partition, now); err != nil {
 			return fmt.Errorf("failed to process sweep data: %w", err)
 		}
 	}
@@ -1277,7 +1280,7 @@ func (s *Server) handleService(ctx context.Context, svc *api.ServiceStatus, now 
 	return nil
 }
 
-func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, now time.Time) error {
+func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, partition string, now time.Time) error {
 	var sweepData struct {
 		proto.SweepServiceStatus
 		Hosts []struct {
@@ -1330,6 +1333,7 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, n
 		sweepResult := &models.SweepResult{
 			AgentID:         svc.AgentID,
 			PollerID:        svc.PollerID,
+			Partition:       partition,
 			DiscoverySource: "sweep",
 			IP:              host.IP,
 			MAC:             host.MAC,
