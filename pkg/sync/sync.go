@@ -184,33 +184,51 @@ func setupJetStream(ctx context.Context, nc *nats.Conn, config *Config) (jetstre
 	}
 
 	if config.StreamName != "" {
-		stream, err := js.Stream(ctx, config.StreamName)
-
-		if errors.Is(err, jetstream.ErrStreamNotFound) {
-			subject := config.Subject + ".>"
-			if config.Domain != "" {
-				subject = config.Domain + "." + subject
-			}
-
-			sc := jetstream.StreamConfig{
-				Name:     config.StreamName,
-				Subjects: []string{subject},
-			}
-
-			stream, err = js.CreateOrUpdateStream(ctx, sc)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create stream %s: %w", config.StreamName, err)
-			}
-		} else if err != nil {
-			return nil, fmt.Errorf("failed to get stream %s: %w", config.StreamName, err)
-		}
-
-		if _, err = stream.Info(ctx); err != nil {
-			return nil, fmt.Errorf("failed to get stream info: %w", err)
+		if err := ensureStreamExists(ctx, js, config); err != nil {
+			return nil, err
 		}
 	}
 
 	return js, nil
+}
+
+// ensureStreamExists checks if a stream exists and creates it if it doesn't.
+// It also verifies the stream is accessible by fetching its info.
+func ensureStreamExists(ctx context.Context, js jetstream.JetStream, config *Config) error {
+	stream, err := js.Stream(ctx, config.StreamName)
+
+	if errors.Is(err, jetstream.ErrStreamNotFound) {
+		return createStream(ctx, js, config)
+	} else if err != nil {
+		return fmt.Errorf("failed to get stream %s: %w", config.StreamName, err)
+	}
+
+	// Verify stream is accessible
+	if _, err = stream.Info(ctx); err != nil {
+		return fmt.Errorf("failed to get stream info: %w", err)
+	}
+
+	return nil
+}
+
+// createStream creates a new stream with the configured name and subjects.
+func createStream(ctx context.Context, js jetstream.JetStream, config *Config) error {
+	subject := config.Subject + ".>"
+	if config.Domain != "" {
+		subject = config.Domain + "." + subject
+	}
+
+	sc := jetstream.StreamConfig{
+		Name:     config.StreamName,
+		Subjects: []string{subject},
+	}
+
+	_, err := js.CreateOrUpdateStream(ctx, sc)
+	if err != nil {
+		return fmt.Errorf("failed to create stream %s: %w", config.StreamName, err)
+	}
+
+	return nil
 }
 
 // setupGRPCClient creates a gRPC client for KV service if an address is provided.

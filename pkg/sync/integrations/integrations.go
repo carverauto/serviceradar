@@ -64,10 +64,15 @@ func NewArmisIntegration(
 		ServerName: serverName,
 	}
 
+	interval := config.SweepInterval
+	if interval == "" {
+		interval = "10m"
+	}
+
 	defaultSweepCfg := &models.SweepConfig{
 		Ports:         []int{22, 80, 443, 3389, 445, 5985, 5986, 8080},
 		SweepModes:    []string{"icmp", "tcp"},
-		Interval:      "10m",
+		Interval:      interval,
 		Concurrency:   100,
 		Timeout:       "15s",
 		IcmpCount:     1,

@@ -14,6 +14,11 @@ type SourceConfig struct {
 	AgentID   string `json:"agent_id,omitempty"`
 	PollerID  string `json:"poller_id,omitempty"`
 	Partition string `json:"partition,omitempty"`
+
+	// SweepInterval allows configuring how often agents should sweep the
+	// networks discovered by this source. If empty, a sensible default is
+	// used by each integration.
+	SweepInterval string `json:"sweep_interval,omitempty"`
 }
 
 // QueryConfig represents a single labeled AQL/ASQ query.
