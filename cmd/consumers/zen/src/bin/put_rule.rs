@@ -19,9 +19,9 @@ struct Cli {
     /// Subject of the messages this rule applies to
     #[arg(short, long)]
     subject: String,
-    /// Name of the decision key to store under (defaults to config)
+    /// Name of the decision key to store under
     #[arg(long)]
-    key: Option<String>,
+    key: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -40,7 +40,6 @@ struct Config {
     subjects: Vec<String>,
     result_subject: Option<String>,
     result_subject_suffix: Option<String>,
-    decision_key: Option<String>,
     #[serde(default = "default_kv_bucket")]
     kv_bucket: String,
     agent_id: String,
@@ -80,10 +79,7 @@ async fn main() -> Result<()> {
     let js = connect_nats(&cfg).await?;
     let store = js.get_key_value(&cfg.kv_bucket).await?;
     let data = fs::read(&cli.file).context("Failed to read rule file")?;
-    let rule_key = cli
-        .key
-        .or_else(|| cfg.decision_key.clone())
-        .ok_or_else(|| anyhow::anyhow!("decision key required"))?;
+    let rule_key = cli.key;
     let key = format!(
         "agents/{}/{}/{}/{}.json",
         cfg.agent_id, cfg.stream_name, cli.subject, rule_key
