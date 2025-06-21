@@ -56,6 +56,7 @@ message PollerStatusRequest {
   string poller_id = 2;
   string agent_id = 3; // Agent ID for traceability
   int64 timestamp = 4;
+  string partition = 5; // Partition identifier
 }
 
 message PollerStatusResponse {
@@ -70,6 +71,7 @@ message ServiceStatus {
   int64 response_time = 5;
   string agent_id = 6;     // Agent ID for traceability
   string poller_id = 7;     // Poller ID for traceability
+  string partition = 8; // Partition identifier
 }
 
 message SweepServiceStatus {

@@ -2,7 +2,25 @@
   "kv_address": "localhost:50057",
   "listen_addr": ":50058",
   "poll_interval": "30m",
+  "agent_id": "default-agent",
+  "poller_id": "default-poller",
+  "nats_url": "nats://127.0.0.1:4222",
+  "stream_name": "devices",
+  "subject": "discovery.devices",
+  "domain": "edge",
   "security": {
+    "mode": "mtls",
+    "cert_dir": "/etc/serviceradar/certs",
+    "server_name": "nats-serviceradar",
+    "role": "poller",
+    "tls": {
+      "cert_file": "sync.pem",
+      "key_file": "sync-key.pem",
+      "ca_file": "root.pem",
+      "client_ca_file": "root.pem"
+    }
+  },
+  "nats_security": {
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
     "server_name": "nats-serviceradar",
@@ -19,11 +37,19 @@
       "type": "armis",
       "endpoint": "https://api.armis.example.com",
       "prefix": "armis/",
+      "agent_id": "agent-prod-dc1",
+      "poller_id": "poller-prod-dc1",
       "credentials": {
         "secret_key": "your-armis-secret-key-here",
         "boundary": "Corporate",
         "page_size": "100"
       },
-      "queries": [{"label": "all_devices", "query": "in:devices orderBy=id boundaries:\"Corporate\""}]}
+      "queries": [
+        {
+          "label": "all_devices",
+          "query": "in:devices orderBy=id boundaries:\"Corporate\""
+        }
+      ]
+    }
   }
 }

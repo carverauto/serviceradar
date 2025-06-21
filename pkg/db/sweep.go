@@ -61,6 +61,7 @@ func (db *DB) StoreSweepResults(ctx context.Context, results []*models.SweepResu
 		err = batch.Append(
 			result.AgentID,
 			result.PollerID,
+			result.Partition,
 			result.DiscoverySource,
 			result.IP,
 			result.MAC,

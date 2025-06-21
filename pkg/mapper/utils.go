@@ -18,6 +18,7 @@ package mapper
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -361,4 +362,43 @@ func contains(slice []string, item string) bool {
 	}
 
 	return false
+}
+
+// addAlternateIP stores an alternate IP in the given metadata map under the
+// "alternate_ips" key as a JSON array. The updated map is returned for
+// convenience.
+func addAlternateIP(metadata map[string]string, ip string) map[string]string {
+	if ip == "" {
+		return metadata
+	}
+
+	if metadata == nil {
+		metadata = make(map[string]string)
+	}
+
+	const key = "alternate_ips"
+
+	var ips []string
+
+	if existing, ok := metadata[key]; ok && existing != "" {
+		// Attempt to decode existing JSON array. If it fails, treat the
+		// value as a single comma-separated string for backward
+		// compatibility.
+		if err := json.Unmarshal([]byte(existing), &ips); err != nil {
+			ips = strings.Split(existing, ",")
+		}
+	}
+
+	for _, existing := range ips {
+		if existing == ip {
+			return metadata
+		}
+	}
+
+	ips = append(ips, ip)
+	if data, err := json.Marshal(ips); err == nil {
+		metadata[key] = string(data)
+	}
+
+	return metadata
 }

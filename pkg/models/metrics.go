@@ -167,6 +167,7 @@ type SNMPMetric struct {
 type SweepResult struct {
 	AgentID         string            `json:"agent_id"`
 	PollerID        string            `json:"poller_id"`
+	Partition       string            `json:"partition"`
 	DiscoverySource string            `json:"discovery_source"`
 	IP              string            `json:"ip"`
 	MAC             *string           `json:"mac,omitempty"`

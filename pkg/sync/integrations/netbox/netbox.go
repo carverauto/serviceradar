@@ -25,6 +25,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
@@ -35,25 +36,27 @@ var (
 )
 
 // Fetch retrieves devices from NetBox and generates sweep config.
-func (n *NetboxIntegration) Fetch(ctx context.Context) (map[string][]byte, error) {
+func (n *NetboxIntegration) Fetch(ctx context.Context) (map[string][]byte, []*models.SweepResult, error) {
 	resp, err := n.fetchDevices(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer n.closeResponse(resp)
 
 	deviceResp, err := n.decodeResponse(resp)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	data, ips := n.processDevices(deviceResp)
+	// Call the refactored function and get all consistent data in one go.
+	data, ips, events := n.processDevices(deviceResp)
 
 	log.Printf("Fetched %d devices from NetBox", len(deviceResp.Results))
 
 	n.writeSweepConfig(ctx, ips)
 
-	return data, nil
+	// Return the consistent data for both KV store and NATS publishing.
+	return data, events, nil
 }
 
 // fetchDevices sends the HTTP request to the NetBox API.
@@ -112,45 +115,100 @@ func (*NetboxIntegration) decodeResponse(resp *http.Response) (DeviceResponse, e
 	return deviceResp, nil
 }
 
-// processDevices converts devices to KV data and extracts IPs.
-func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[string][]byte, ips []string) {
+// processDevices converts devices to KV data, extracts IPs, and returns the list of devices.
+func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[string][]byte, ips []string, events []*models.SweepResult) {
 	data = make(map[string][]byte)
 	ips = make([]string, 0, len(deviceResp.Results))
+	events = make([]*models.SweepResult, 0, len(deviceResp.Results))
+
+	agentID := n.Config.AgentID
+	pollerID := n.Config.PollerID
+	partition := n.Config.Partition
+	now := time.Now()
 
 	for i := range deviceResp.Results {
 		device := &deviceResp.Results[i]
 
-		value, err := json.Marshal(device)
+		if device.PrimaryIP4.Address == "" {
+			continue
+		}
+
+		ip, _, err := net.ParseCIDR(device.PrimaryIP4.Address)
+		if err != nil {
+			log.Printf("Failed to parse IP %s: %v", device.PrimaryIP4.Address, err)
+			continue
+		}
+
+		ipStr := ip.String()
+
+		if n.ExpandSubnets {
+			ips = append(ips, device.PrimaryIP4.Address)
+		} else {
+			ips = append(ips, fmt.Sprintf("%s/32", ipStr))
+		}
+
+		kvKey := fmt.Sprintf("%s/%s", agentID, ipStr)
+
+		metadata := map[string]interface{}{
+			"netbox_device_id": fmt.Sprintf("%d", device.ID),
+			"role":             device.Role.Name,
+			"site":             device.Site.Name,
+		}
+
+		// Create discovery event (sweep result style)
+		hostname := device.Name
+		event := &models.SweepResult{
+			AgentID:         agentID,
+			PollerID:        pollerID,
+			Partition:       partition,
+			DiscoverySource: "netbox",
+			IP:              ipStr,
+			Hostname:        &hostname,
+			Timestamp:       now,
+			Available:       true,
+			Metadata:        map[string]string{},
+		}
+
+		for k, v := range metadata {
+			if str, ok := v.(string); ok {
+				event.Metadata[k] = str
+			} else {
+				event.Metadata[k] = fmt.Sprintf("%v", v)
+			}
+		}
+
+		value, err := json.Marshal(event)
 		if err != nil {
 			log.Printf("Failed to marshal device %d: %v", device.ID, err)
 			continue
 		}
 
-		data[fmt.Sprintf("%d", device.ID)] = value
-
-		if device.PrimaryIP4.Address != "" {
-			if n.ExpandSubnets {
-				ips = append(ips, device.PrimaryIP4.Address) // Keep /24 if desired
-			} else {
-				ip, _, err := net.ParseCIDR(device.PrimaryIP4.Address)
-				if err != nil {
-					log.Printf("Failed to parse IP %s: %v", device.PrimaryIP4.Address, err)
-					continue
-				}
-
-				// add /32 to the IP address
-				newIPAddress := fmt.Sprintf("%s/32", ip.String())
-
-				ips = append(ips, newIPAddress)
-			}
-		}
+		data[kvKey] = value
+		// Add the consistently created device to the slice to be returned.
+		events = append(events, event)
 	}
 
-	return data, ips
+	return data, ips, events
 }
 
 // writeSweepConfig generates and writes the sweep Config to KV.
 func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) {
+	if n.KvClient == nil {
+		log.Print("KV client not configured; skipping sweep config write")
+	}
+
+	// AgentID to be used for the sweep config key.
+	// We prioritize the agent_id set on the source config itself.
+	agentIDForConfig := n.Config.AgentID
+	if agentIDForConfig == "" {
+		// As a fallback, we could use ServerName, but logging a warning is better
+		// to encourage explicit configuration.
+		log.Printf("Warning: agent_id not set for Netbox source. Sweep config key may be incorrect.")
+		// If you need a fallback, you can use: agentIDForConfig = n.ServerName
+
+		return // Or simply return to avoid writing a config with an unpredictable key
+	}
+
 	sweepConfig := models.SweepConfig{
 		Networks:      ips,
 		Ports:         []int{22, 80, 443, 3389, 445, 8080},
@@ -170,11 +228,15 @@ func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) 
 		return
 	}
 
-	configKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", n.ServerName)
+	// The key now uses the explicitly configured AgentID, making it predictable.
+	configKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", agentIDForConfig)
 	_, err = n.KvClient.Put(ctx, &proto.PutRequest{
 		Key:   configKey,
 		Value: configJSON,
 	})
+
+	// log the key/value pair for debugging
+	log.Printf("Writing sweep config to %s: %s", configKey, string(configJSON))
 
 	if err != nil {
 		log.Printf("Failed to write sweep config to %s: %v", configKey, err)
