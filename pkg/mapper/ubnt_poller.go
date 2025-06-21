@@ -570,7 +570,7 @@ func (e *DiscoveryEngine) queryUniFiDevices(
 					log.Printf("Job %s: Device with MAC %s already seen with IP %s, skipping IP %s",
 						job.ID, device.MAC, primaryIP, device.IP)
 
-					device.Metadata["alternate_ip_"+device.IP] = device.IP
+					device.Metadata = addAlternateIP(device.Metadata, device.IP)
 
 					continue
 				}

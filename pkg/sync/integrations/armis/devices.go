@@ -150,6 +150,7 @@ func (a *ArmisIntegration) convertToSweepResults(devices []Device) []*models.Swe
 		out = append(out, &models.SweepResult{
 			AgentID:         a.Config.AgentID,
 			PollerID:        a.Config.PollerID,
+			Partition:       a.Config.Partition,
 			DiscoverySource: "armis",
 			IP:              dev.IPAddress,
 			MAC:             &mac,
@@ -290,7 +291,6 @@ func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]b
 	data = make(map[string][]byte)
 	ips = make([]string, 0, len(devices))
 
-	agentID := a.Config.AgentID
 	pollerID := a.Config.PollerID
 
 	for i := range devices {
@@ -319,7 +319,7 @@ func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]b
 				continue
 			}
 
-			deviceID := fmt.Sprintf("%s:%s:%s", ip, agentID, pollerID)
+			deviceID := fmt.Sprintf("%s:%s", a.Config.Partition, ip)
 
 			metadata := map[string]interface{}{
 				"armis_id":     fmt.Sprintf("%d", d.ID),
@@ -330,16 +330,16 @@ func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]b
 			}
 
 			modelDevice := &models.Device{
-				DeviceID:        deviceID,
-				PollerID:        pollerID,
-				DiscoverySource: "armis",
-				IP:              ip,
-				MAC:             d.MacAddress,
-				Hostname:        d.Name,
-				FirstSeen:       d.FirstSeen,
-				LastSeen:        d.LastSeen,
-				IsAvailable:     true,
-				Metadata:        metadata,
+				DeviceID:         deviceID,
+				PollerID:         pollerID,
+				DiscoverySources: []string{"armis"},
+				IP:               ip,
+				MAC:              d.MacAddress,
+				Hostname:         d.Name,
+				FirstSeen:        d.FirstSeen,
+				LastSeen:         d.LastSeen,
+				IsAvailable:      true,
+				Metadata:         metadata,
 			}
 
 			value, err := json.Marshal(modelDevice)

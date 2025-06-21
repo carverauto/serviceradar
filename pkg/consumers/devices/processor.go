@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"time"
 
@@ -31,16 +32,78 @@ func NewProcessor(agentID, pollerID string, dbService db.Service) *Processor {
 // prepareDevice converts a JetStream message into a Device model.
 func (p *Processor) prepareDevice(msg jetstream.Msg) (*models.Device, error) {
 	data := msg.Data()
+
 	if len(data) == 0 {
 		return nil, ErrEmptyMessage
 	}
 
+	// Attempt to unmarshal into SweepResult first. If successful, convert it to
+	// a Device. This supports events from discovery integrations that publish
+	// SweepResult messages instead of full Device records.
+	var sweep models.SweepResult
+
+	if err := json.Unmarshal(data, &sweep); err == nil && sweep.IP != "" {
+		device := p.convertSweepResultToDevice(&sweep)
+		return device, nil
+	}
+
+	// Fall back to unmarshalling directly into Device for backward compatibility
 	var device models.Device
+
 	if err := json.Unmarshal(data, &device); err != nil {
 		log.Printf("Failed to unmarshal device: %v", err)
 		return nil, ErrUnmarshal
 	}
 
+	p.setDeviceDefaults(&device)
+
+	return &device, nil
+}
+
+// convertSweepResultToDevice converts a SweepResult to a Device.
+func (p *Processor) convertSweepResultToDevice(sweep *models.SweepResult) *models.Device {
+	device := &models.Device{
+		DeviceID:         "",
+		AgentID:          sweep.AgentID,
+		PollerID:         sweep.PollerID,
+		DiscoverySources: []string{sweep.DiscoverySource},
+		IP:               sweep.IP,
+		MAC:              "",
+		Hostname:         "",
+		FirstSeen:        sweep.Timestamp,
+		LastSeen:         sweep.Timestamp,
+		IsAvailable:      sweep.Available,
+		Metadata:         make(map[string]interface{}),
+	}
+
+	if sweep.MAC != nil {
+		device.MAC = *sweep.MAC
+	}
+
+	if sweep.Hostname != nil {
+		device.Hostname = *sweep.Hostname
+	}
+
+	if sweep.Partition != "" {
+		device.DeviceID = fmt.Sprintf("%s:%s", sweep.Partition, sweep.IP)
+	}
+
+	for k, v := range sweep.Metadata {
+		device.Metadata[k] = v
+	}
+
+	p.setDeviceDefaults(device)
+
+	// Set DeviceID if it's still empty after applying defaults
+	if device.DeviceID == "" {
+		device.DeviceID = fmt.Sprintf("%s:%s", sweep.Partition, sweep.IP)
+	}
+
+	return device
+}
+
+// setDeviceDefaults sets default values for a Device.
+func (p *Processor) setDeviceDefaults(device *models.Device) {
 	if device.AgentID == "" {
 		device.AgentID = p.agentID
 	}
@@ -49,13 +112,12 @@ func (p *Processor) prepareDevice(msg jetstream.Msg) (*models.Device, error) {
 		device.PollerID = p.pollerID
 	}
 
+	// If timestamp is zero, set to now for both fields.
 	if device.FirstSeen.IsZero() {
 		device.FirstSeen = time.Now()
 	}
 
 	device.LastSeen = time.Now()
-
-	return &device, nil
 }
 
 // storeBatch persists a slice of devices using the DB service.
