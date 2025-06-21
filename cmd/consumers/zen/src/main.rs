@@ -27,6 +27,7 @@ type EngineType = DecisionEngine<KvLoader, NoopCustomNode>;
 type SharedEngine = std::sync::Arc<EngineType>;
 
 const BATCH_TIMEOUT: Duration = Duration::from_secs(1);
+const MAX_RETRIES: i64 = 3;
 
 #[derive(Parser, Debug)]
 #[command(name = "serviceradar-zen-consumer")]
@@ -256,14 +257,35 @@ async fn main() -> Result<()> {
             let message = message.map_err(|e| anyhow::anyhow!(e.to_string()))?;
             if let Err(e) = process_message(&engine, &cfg, &js, &message).await {
                 warn!("processing failed: {e}");
-                if let Err(e) = message
-                    .ack_with(async_nats::jetstream::AckKind::Nak(None))
-                    .await
-                {
-                    warn!("failed to NAK: {e}");
-                }
-                if let Ok(info) = message.info() {
-                    debug!("nacked message {}", info.stream_sequence);
+                match message.info() {
+                    Ok(info) if info.delivered >= MAX_RETRIES => {
+                        if let Err(e) = message.ack().await {
+                            warn!("failed to Ack: {e}");
+                        } else {
+                            debug!(
+                                "acknowledged message {} after {} retries",
+                                info.stream_sequence, info.delivered
+                            );
+                        }
+                    }
+                    Ok(info) => {
+                        if let Err(e) = message
+                            .ack_with(async_nats::jetstream::AckKind::Nak(None))
+                            .await
+                        {
+                            warn!("failed to NAK: {e}");
+                        } else {
+                            debug!("nacked message {}", info.stream_sequence);
+                        }
+                    }
+                    Err(_) => {
+                        if let Err(e) = message
+                            .ack_with(async_nats::jetstream::AckKind::Nak(None))
+                            .await
+                        {
+                            warn!("failed to NAK: {e}");
+                        }
+                    }
                 }
             } else {
                 message
