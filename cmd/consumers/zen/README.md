@@ -12,12 +12,15 @@ Create a JSON file with the following fields:
   "stream_name": "events",
   "consumer_name": "zen-consumer",
   "subjects": ["events.syslog"],
-  "decision_key": "example-decision",
+  "decision_keys": ["example-decision"],
   "agent_id": "agent-01",
   "kv_bucket": "serviceradar-kv",
   "result_subject_suffix": ".processed"
 }
 ```
+
+`decision_keys` accepts multiple rule names allowing a single consumer to
+evaluate several rules for each incoming event.
 
 Decision rules are loaded from the KV store using the following key pattern:
 
@@ -38,7 +41,7 @@ Optionally add TLS settings:
   "stream_name": "events",
   "consumer_name": "zen-consumer",
   "subjects": ["events.syslog"],
-  "decision_key": "example-decision",
+  "decision_keys": ["example-decision"],
   "agent_id": "agent-01",
   "kv_bucket": "serviceradar-kv",
   "result_subject_suffix": ".processed",
