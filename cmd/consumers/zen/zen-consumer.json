@@ -1,0 +1,15 @@
+{
+  "nats_url": "nats://127.0.0.1:4222",
+  "stream_name": "events",
+  "consumer_name": "zen-consumer",
+  "subjects": ["events.syslog"],
+  "decision_key": "example-decision",
+  "agent_id": "agent-01",
+  "kv_bucket": "serviceradar-kv",
+  "result_subject_suffix": ".processed",
+  "security": {
+    "cert_file": "/Users/mfreeman/src/flowgger-tls-test/client-cert.pem",
+    "key_file": "/Users/mfreeman/src/flowgger-tls-test/client-key.pem",
+    "ca_file": "/Users/mfreeman/src/flowgger-tls-test/ca.pem"
+  }
+}
