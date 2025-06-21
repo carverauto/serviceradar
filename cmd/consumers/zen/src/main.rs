@@ -52,7 +52,6 @@ struct Config {
     subjects: Vec<String>,
     result_subject: Option<String>,
     result_subject_suffix: Option<String>,
-    decision_key: Option<String>,
     #[serde(default)]
     decision_keys: Vec<String>,
     #[serde(default = "default_kv_bucket")]
@@ -83,7 +82,7 @@ impl Config {
         if self.consumer_name.is_empty() {
             anyhow::bail!("consumer_name is required");
         }
-        if self.decision_keys.is_empty() && self.decision_key.as_deref().unwrap_or("").is_empty() {
+        if self.decision_keys.is_empty() {
             anyhow::bail!("at least one decision_key is required");
         }
         if self.agent_id.is_empty() {
@@ -131,14 +130,7 @@ async fn process_message(
 ) -> Result<()> {
     debug!("processing message on subject {}", msg.subject);
     let event: serde_json::Value = serde_json::from_slice(&msg.payload)?;
-    let keys = if !cfg.decision_keys.is_empty() {
-        cfg.decision_keys.clone()
-    } else if let Some(k) = &cfg.decision_key {
-        vec![k.clone()]
-    } else {
-        vec![]
-    };
-    for key in keys {
+    for key in &cfg.decision_keys {
         let dkey = format!("{}/{}/{}", cfg.stream_name, msg.subject, key);
         let resp = engine
             .evaluate(&dkey, event.clone().into())
@@ -313,7 +305,6 @@ mod tests {
             subjects: Vec::new(),
             result_subject: None,
             result_subject_suffix: None,
-            decision_key: None,
             decision_keys: Vec::new(),
             kv_bucket: String::new(),
             agent_id: String::new(),
