@@ -25,8 +25,8 @@ impl KvLoader {
         };
         match self.store.get(full_key).await {
             Ok(Some(bytes)) => {
-                let content: DecisionContent = serde_json::from_slice(&bytes)
-                    .map_err(|e| LoaderError::Internal {
+                let content: DecisionContent =
+                    serde_json::from_slice(&bytes).map_err(|e| LoaderError::Internal {
                         key: key.to_string(),
                         source: e.into(),
                     })?;
@@ -47,4 +47,3 @@ impl DecisionLoader for KvLoader {
         async move { self.load_from_kv(key).await }
     }
 }
-
