@@ -113,7 +113,7 @@ func TestPublishDevice(t *testing.T) {
 			assert.Equal(t, device.IP, results[0].IP)
 			assert.Equal(t, device.MAC, *results[0].MAC)
 			assert.Equal(t, device.Hostname, *results[0].Hostname)
-			assert.Equal(t, "snmp_discovery", results[0].DiscoverySource)
+                        assert.Equal(t, "mapper", results[0].DiscoverySource)
 			assert.True(t, results[0].Available)
 
 			// Check metadata

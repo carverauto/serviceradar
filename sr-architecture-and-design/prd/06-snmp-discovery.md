@@ -89,7 +89,7 @@ To design and implement an SNMP discovery engine that can:
 *   FR3.4: **Basic Device Reachability:** The engine should confirm SNMP connectivity to a device before attempting detailed discovery. This can update/create an entry in `snmp_results`.
 
 **4.4 Data Output and Storage (Proton Integration)**
-*   FR4.1: Successfully discovered basic device information (sysName, IP, MAC (if found as a system-level MAC)) should contribute to the `devices` stream in Proton. The `discovery_source` should be marked as 'snmp_discovery'.
+*   FR4.1: Successfully discovered basic device information (sysName, IP, MAC (if found as a system-level MAC)) should contribute to the `devices` stream in Proton. The `discovery_source` should be marked as 'mapper'.
     *   This may involve publishing to an intermediate stream like `snmp_device_candidates` or directly enhancing entries in `snmp_results` which then feeds `unified_devices_mv`.
 *   FR4.2: Detailed interface information (as per FR3.2) for each discovered device must be published to the `discovered_interfaces` Proton stream. Data must conform to the existing schema:
     *   Fields: `timestamp`, `agent_id` (of the discovery agent), `poller_id` (of the poller tasking discovery, if applicable, otherwise system/discovery engine ID), `device_ip`, `device_id`, `ifIndex`, `ifName`, `ifDescr`, `ifAlias`, `ifSpeed`, `ifPhysAddress`, `ip_addresses` (array), `ifAdminStatus`, `ifOperStatus`, `metadata`.
@@ -177,7 +177,7 @@ The engine will produce data matching the schemas of:
 *   `db.SweepResult` (for `snmp_results` stream, indicating basic availability and high-level info):
     *   `agent_id`: ID of the discovery engine instance.
     *   `poller_id`: (If applicable) ID of poller tasking discovery.
-    *   `discovery_source`: "snmp" or "snmp_discovery".
+    *   `discovery_source`: "snmp" or "mapper".
     *   `ip`: Device IP.
     *   `mac`: Device base MAC (if discoverable).
     *   `hostname`: `sysName`.
