@@ -2,18 +2,21 @@
   "nats_url": "nats://127.0.0.1:4222",
   "stream_name": "events",
   "consumer_name": "zen-consumer",
-  "subjects": ["events.syslog"],
+  "subjects": ["events.syslog", "events.snmp"],
   "decision_groups": [
     {
       "order": 1,
-      "name": "pre_process",
+      "name": "syslog",
+      "subjects": ["events.syslog"],
       "rules": [
-        {"order": 1, "key": "strip_full_message"}
+        {"order": 1, "key": "strip_full_message"},
+        {"order": 2, "key": "cef_severity"}
       ]
     },
     {
       "order": 2,
-      "name": "classification",
+      "name": "snmp",
+      "subjects": ["events.snmp"],
       "rules": [
         {"order": 1, "key": "cef_severity"}
       ]

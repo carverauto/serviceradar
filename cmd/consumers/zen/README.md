@@ -11,18 +11,21 @@ Create a JSON file with the following fields:
   "nats_url": "nats://127.0.0.1:4222",
   "stream_name": "events",
   "consumer_name": "zen-consumer",
-  "subjects": ["events.syslog"],
+  "subjects": ["events.syslog", "events.snmp"],
   "decision_groups": [
     {
       "order": 1,
-      "name": "pre_process",
+      "name": "syslog",
+      "subjects": ["events.syslog"],
       "rules": [
-        {"order": 1, "key": "strip_full_message"}
+        {"order": 1, "key": "strip_full_message"},
+        {"order": 2, "key": "cef_severity"}
       ]
     },
     {
       "order": 2,
-      "name": "classification",
+      "name": "snmp",
+      "subjects": ["events.snmp"],
       "rules": [
         {"order": 1, "key": "cef_severity"}
       ]
@@ -34,10 +37,11 @@ Create a JSON file with the following fields:
 }
 ```
 
-`decision_groups` allows rules to be organized into ordered groups. Each group
-and rule has an explicit `order` field so execution does not rely on the JSON
-array layout. Rules within a group are processed sequentially with the output of
-one rule becoming the input for the next, then the next group is evaluated.
+`decision_groups` allows rules to be organized into ordered, named groups.
+Each group can specify a list of `subjects` it applies to and has an explicit
+`order` field. Rules within a group are processed sequentially with the output of
+one rule becoming the input for the next. Only groups matching the incoming
+message subject are evaluated in order.
 
 If a rule is missing from the key-value bucket it will be skipped and the
 consumer will continue evaluating the remaining keys.
@@ -60,18 +64,21 @@ Optionally add TLS settings:
   "nats_url": "nats://127.0.0.1:4222",
   "stream_name": "events",
   "consumer_name": "zen-consumer",
-  "subjects": ["events.syslog"],
+  "subjects": ["events.syslog", "events.snmp"],
   "decision_groups": [
     {
       "order": 1,
-      "name": "pre_process",
+      "name": "syslog",
+      "subjects": ["events.syslog"],
       "rules": [
-        {"order": 1, "key": "strip_full_message"}
+        {"order": 1, "key": "strip_full_message"},
+        {"order": 2, "key": "cef_severity"}
       ]
     },
     {
       "order": 2,
-      "name": "classification",
+      "name": "snmp",
+      "subjects": ["events.snmp"],
       "rules": [
         {"order": 1, "key": "cef_severity"}
       ]

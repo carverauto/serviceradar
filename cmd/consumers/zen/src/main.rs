@@ -55,6 +55,8 @@ struct DecisionGroupConfig {
     order: u32,
     name: String,
     #[serde(default)]
+    subjects: Vec<String>,
+    #[serde(default)]
     rules: Vec<RuleEntry>,
 }
 
@@ -111,9 +113,14 @@ impl Config {
         Ok(())
     }
 
-    fn ordered_rules(&self) -> Vec<String> {
+    fn ordered_rules_for_subject(&self, subject: &str) -> Vec<String> {
         if !self.decision_groups.is_empty() {
-            let mut groups = self.decision_groups.clone();
+            let mut groups: Vec<_> = self
+                .decision_groups
+                .iter()
+                .filter(|g| g.subjects.is_empty() || g.subjects.iter().any(|s| s == subject))
+                .cloned()
+                .collect();
             groups.sort_by_key(|g| g.order);
             let mut keys = Vec::new();
             for mut g in groups {
@@ -164,7 +171,7 @@ async fn process_message(
 ) -> Result<()> {
     debug!("processing message on subject {}", msg.subject);
     let mut context: serde_json::Value = serde_json::from_slice(&msg.payload)?;
-    for key in cfg.ordered_rules() {
+    for key in cfg.ordered_rules_for_subject(&msg.subject) {
         let dkey = format!("{}/{}/{}", cfg.stream_name, msg.subject, key);
         let resp = match engine.evaluate(&dkey, context.clone().into()).await {
             Ok(r) => r,
@@ -353,11 +360,14 @@ mod tests {
         assert_eq!(cfg.nats_url, "nats://127.0.0.1:4222");
         assert_eq!(cfg.stream_name, "events");
         assert_eq!(cfg.consumer_name, "zen-consumer");
-        assert_eq!(cfg.subjects, vec!["events.syslog".to_string()]);
+        assert_eq!(cfg.subjects, vec!["events.syslog", "events.snmp"]);
         assert_eq!(cfg.decision_groups.len(), 2);
-        assert_eq!(cfg.decision_groups[0].name, "pre_process");
+        assert_eq!(cfg.decision_groups[0].name, "syslog");
+        assert_eq!(cfg.decision_groups[0].subjects, vec!["events.syslog"]);
         assert_eq!(cfg.decision_groups[0].rules[0].key, "strip_full_message");
-        assert_eq!(cfg.decision_groups[1].name, "classification");
+        assert_eq!(cfg.decision_groups[0].rules[1].key, "cef_severity");
+        assert_eq!(cfg.decision_groups[1].name, "snmp");
+        assert_eq!(cfg.decision_groups[1].subjects, vec!["events.snmp"]);
         assert_eq!(cfg.decision_groups[1].rules[0].key, "cef_severity");
         assert_eq!(cfg.agent_id, "agent-01");
         assert_eq!(cfg.kv_bucket, "serviceradar-kv");
