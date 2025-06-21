@@ -22,6 +22,9 @@ Create a JSON file with the following fields:
 `decision_keys` accepts multiple rule names allowing a single consumer to
 evaluate several rules for each incoming event.
 
+If a rule is missing from the key-value bucket it will be skipped and the
+consumer will continue evaluating the remaining keys.
+
 Decision rules are loaded from the KV store using the following key pattern:
 
 ```
