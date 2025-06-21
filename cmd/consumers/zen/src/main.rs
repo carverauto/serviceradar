@@ -15,6 +15,9 @@ use async_nats::{Client, ConnectOptions};
 use futures::StreamExt;
 use zen_engine::handler::custom_node_adapter::NoopCustomNode;
 
+use cloudevents::{EventBuilder, EventBuilderV10};
+use url::Url;
+use uuid::Uuid;
 use zen_engine::DecisionEngine;
 
 mod kv_loader;
@@ -49,7 +52,9 @@ struct Config {
     subjects: Vec<String>,
     result_subject: Option<String>,
     result_subject_suffix: Option<String>,
-    decision_key: String,
+    decision_key: Option<String>,
+    #[serde(default)]
+    decision_keys: Vec<String>,
     #[serde(default = "default_kv_bucket")]
     kv_bucket: String,
     agent_id: String,
@@ -78,8 +83,8 @@ impl Config {
         if self.consumer_name.is_empty() {
             anyhow::bail!("consumer_name is required");
         }
-        if self.decision_key.is_empty() {
-            anyhow::bail!("decision_key is required");
+        if self.decision_keys.is_empty() && self.decision_key.as_deref().unwrap_or("").is_empty() {
+            anyhow::bail!("at least one decision_key is required");
         }
         if self.agent_id.is_empty() {
             anyhow::bail!("agent_id is required");
@@ -126,26 +131,45 @@ async fn process_message(
 ) -> Result<()> {
     debug!("processing message on subject {}", msg.subject);
     let event: serde_json::Value = serde_json::from_slice(&msg.payload)?;
-    let decision_key = format!("{}/{}/{}", cfg.stream_name, msg.subject, cfg.decision_key);
-    let resp = engine
-        .evaluate(&decision_key, event.into())
-        .await
-        .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-    debug!("decision {} evaluated", decision_key);
-    let data = serde_json::to_vec(&resp)?;
-    if let Some(suffix) = &cfg.result_subject_suffix {
-        let result_subject = format!("{}.{}", msg.subject, suffix.trim_start_matches('.'));
-        js.publish(result_subject.clone(), data.clone().into())
-            .await?
+    let keys = if !cfg.decision_keys.is_empty() {
+        cfg.decision_keys.clone()
+    } else if let Some(k) = &cfg.decision_key {
+        vec![k.clone()]
+    } else {
+        vec![]
+    };
+    for key in keys {
+        let dkey = format!("{}/{}/{}", cfg.stream_name, msg.subject, key);
+        let resp = engine
+            .evaluate(&dkey, event.clone().into())
             .await
             .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-        debug!("published result to {}", result_subject);
-    } else if let Some(subject) = &cfg.result_subject {
-        js.publish(subject.clone(), data.into())
-            .await?
-            .await
-            .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-        debug!("published result to {}", subject);
+        debug!("decision {} evaluated", dkey);
+        let resp_json = serde_json::to_value(&resp)?;
+        let ce = EventBuilderV10::new()
+            .id(Uuid::new_v4().to_string())
+            .source(Url::parse(&format!(
+                "nats://{}/{}",
+                cfg.stream_name, msg.subject
+            ))?)
+            .ty(key.clone())
+            .data("application/json", resp_json)
+            .build()?;
+        let data = serde_json::to_vec(&ce)?;
+        if let Some(suffix) = &cfg.result_subject_suffix {
+            let result_subject = format!("{}.{}", msg.subject, suffix.trim_start_matches('.'));
+            js.publish(result_subject.clone(), data.clone().into())
+                .await?
+                .await
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            debug!("published result to {}", result_subject);
+        } else if let Some(subject) = &cfg.result_subject {
+            js.publish(subject.clone(), data.clone().into())
+                .await?
+                .await
+                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            debug!("published result to {}", subject);
+        }
     }
     Ok(())
 }
@@ -274,7 +298,7 @@ mod tests {
         assert_eq!(cfg.stream_name, "events");
         assert_eq!(cfg.consumer_name, "zen-consumer");
         assert_eq!(cfg.subjects, vec!["events.syslog".to_string()]);
-        assert_eq!(cfg.decision_key, "example-decision");
+        assert_eq!(cfg.decision_keys, vec!["example-decision".to_string()]);
         assert_eq!(cfg.agent_id, "agent-01");
         assert_eq!(cfg.kv_bucket, "serviceradar-kv");
         assert_eq!(cfg.result_subject_suffix.as_deref(), Some(".processed"));
@@ -289,7 +313,8 @@ mod tests {
             subjects: Vec::new(),
             result_subject: None,
             result_subject_suffix: None,
-            decision_key: String::new(),
+            decision_key: None,
+            decision_keys: Vec::new(),
             kv_bucket: String::new(),
             agent_id: String::new(),
             security: None,
@@ -314,10 +339,11 @@ async fn watch_rules(engine: SharedEngine, cfg: Config, js: jetstream::Context) 
     while let Some(entry) = watcher.next().await {
         match entry {
             Ok(e) if matches!(e.operation, async_nats::jetstream::kv::Operation::Put) => {
-                if let Err(err) = engine.get_decision(&e.key).await {
-                    warn!("failed to reload rule {}: {}", e.key, err);
+                let key = e.key.trim_start_matches(&prefix).trim_end_matches(".json");
+                if let Err(err) = engine.get_decision(key).await {
+                    warn!("failed to reload rule {}: {}", key, err);
                 } else {
-                    log::info!("reloaded rule {} revision {}", e.key, e.revision);
+                    log::info!("reloaded rule {} revision {}", key, e.revision);
                 }
             }
             Ok(_) => {}
