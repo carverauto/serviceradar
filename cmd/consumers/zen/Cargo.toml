@@ -1,9 +1,9 @@
 [package]
-name = "serviceradar-zen-consumer"
+name = "serviceradar-zen"
 version = "0.1.0"
 edition = "2021"
 authors = ["ServiceRadar Team"]
-description = "NATS consumer using gorules zen engine"
+description = "NATS consumer using GoRules Zen engine"
 license = "Apache-2.0"
 
 [dependencies]
