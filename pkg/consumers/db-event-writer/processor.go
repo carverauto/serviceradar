@@ -129,7 +129,9 @@ func (p *Processor) ProcessBatch(ctx context.Context, msgs []jetstream.Msg) ([]j
 		return nil, nil
 	}
 
-	query := fmt.Sprintf("INSERT INTO %s (specversion, id, source, type, datacontenttype, subject, remote_addr, host, level, severity, short_message, event_timestamp, version, raw_data) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", p.table)
+	query := fmt.Sprintf("INSERT INTO %s (specversion, id, source, type, datacontenttype, "+
+		"subject, remote_addr, host, level, severity, short_message, event_timestamp, version, raw_data) "+
+		"VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", p.table)
 
 	batch, err := p.conn.PrepareBatch(ctx, query)
 	if err != nil {
