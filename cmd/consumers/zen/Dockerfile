@@ -31,6 +31,9 @@ RUN mkdir -p /output
 # Copy the binary from the builder stage to both /usr/local/bin and /output
 COPY --from=builder /usr/src/serviceradar-zen/target/x86_64-unknown-linux-gnu/release/serviceradar-zen /usr/local/bin/serviceradar-zen
 COPY --from=builder /usr/src/serviceradar-zen/target/x86_64-unknown-linux-gnu/release/serviceradar-zen /output/serviceradar-zen
+# Ship the zen-put-rule helper as well
+COPY --from=builder /usr/src/serviceradar-zen/target/x86_64-unknown-linux-gnu/release/zen-put-rule /usr/local/bin/zen-put-rule
+COPY --from=builder /usr/src/serviceradar-zen/target/x86_64-unknown-linux-gnu/release/zen-put-rule /output/zen-put-rule
 
 # Configuration and user setup
 WORKDIR /etc/serviceradar
@@ -41,6 +44,6 @@ RUN groupadd -r serviceradar && useradd -r -g serviceradar serviceradar && \
     chown -R serviceradar:serviceradar /etc/serviceradar
 
 USER serviceradar
-EXPOSE 50059
+EXPOSE 50040
 
 CMD ["/usr/local/bin/serviceradar-zen", "--config", "/etc/serviceradar/consumers/zen-consumer.json"]
