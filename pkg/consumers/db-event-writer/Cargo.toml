@@ -1,0 +1,20 @@
+[package]
+name = "serviceradar-db-event-writer"
+version = "0.1.0"
+edition = "2021"
+authors = ["ServiceRadar Team"]
+description = "NATS consumer that writes CloudEvents to Proton"
+license = "Apache-2.0"
+
+[dependencies]
+anyhow = "1.0"
+async-nats = "0.42"
+clap = { version = "4.3", features = ["derive", "env"] }
+env_logger = "0.10"
+log = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.44", features = ["full"] }
+proton_client = "0.1"
+futures = "0.3"
+clickhouse = { version = "0.13", features = ["inserter", "watch"] }
