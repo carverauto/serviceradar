@@ -94,6 +94,6 @@ Optionally add TLS settings:
 ## Building and Running
 
 ```bash
-cargo build --release -p serviceradar-zen-consumer
-./target/release/serviceradar-zen-consumer --config zen-consumer.json
+cargo build --release -p serviceradar-zen
+./target/release/serviceradar-zen --config zen-consumer.json
 ```
