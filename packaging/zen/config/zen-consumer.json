@@ -1,5 +1,6 @@
 {
   "nats_url": "nats://127.0.0.1:4222",
+  "domain": "edge",
   "stream_name": "events",
   "consumer_name": "zen-consumer",
   "subjects": ["events.syslog", "events.snmp"],
