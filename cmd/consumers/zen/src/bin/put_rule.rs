@@ -34,6 +34,8 @@ struct SecurityConfig {
 #[derive(Debug, Deserialize, Clone)]
 struct Config {
     nats_url: String,
+    #[serde(default)]
+    domain: Option<String>,
     stream_name: String,
     consumer_name: String,
     #[serde(default)]
@@ -69,7 +71,12 @@ async fn connect_nats(cfg: &Config) -> Result<jetstream::Context> {
         }
     }
     let client = opts.connect(&cfg.nats_url).await?;
-    Ok(jetstream::new(client))
+    let js = if let Some(domain) = &cfg.domain {
+        jetstream::with_domain(client, domain)
+    } else {
+        jetstream::new(client)
+    };
+    Ok(js)
 }
 
 #[tokio::main]
