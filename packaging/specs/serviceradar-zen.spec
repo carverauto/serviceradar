@@ -16,19 +16,26 @@ This package provides the ServiceRadar Zen consumer service, which is responsibl
 mkdir -p %{buildroot}/usr/local/bin
 mkdir -p %{buildroot}/lib/systemd/system
 mkdir -p %{buildroot}/etc/serviceradar/consumers
+mkdir -p %{buildroot}/etc/serviceradar/zen/rules
 
 # Install the binary (assumes binary is built at /src/cmd/zen/target/release/serviceradar-zen)
 install -m 755 %{_builddir}/serviceradar-zen %{buildroot}/usr/local/bin/
+install -m 755 %{_builddir}/zen-put-rule %{buildroot}/usr/local/bin/
 
 # Install systemd service and config files from packaging directory
 install -m 644 %{_sourcedir}/zen/systemd/serviceradar-zen.service %{buildroot}/lib/systemd/system/
 install -m 644 %{_sourcedir}/zen/config/zen-consumer.json %{buildroot}/etc/serviceradar/consumers/
+install -m 644 %{_sourcedir}/zen/rules/*.json %{buildroot}/etc/serviceradar/zen/rules/
 
 %files
 %attr(0755, root, root) /usr/local/bin/serviceradar-zen
+%attr(0755, root, root) /usr/local/bin/zen-put-rule
 %config(noreplace) %attr(0644, serviceradar, serviceradar) /etc/serviceradar/consumers/zen-consumer.json
+%config(noreplace) %attr(0644, serviceradar, serviceradar) /etc/serviceradar/zen/rules/*.json
 %attr(0644, root, root) /lib/systemd/system/serviceradar-zen.service
 %dir %attr(0755, root, root) /etc/serviceradar
+%dir %attr(0755, root, root) /etc/serviceradar/zen
+%dir %attr(0755, root, root) /etc/serviceradar/zen/rules
 
 %pre
 # Create serviceradar user if it doesn't exist
@@ -40,6 +47,7 @@ fi
 %systemd_post serviceradar-zen.service
 chown -R serviceradar:serviceradar /etc/serviceradar
 chmod 755 /usr/local/bin/serviceradar-zen
+chmod 755 /usr/local/bin/zen-put-rule
 
 %preun
 %systemd_preun serviceradar-zen.service
