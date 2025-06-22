@@ -1,8 +1,9 @@
+
 # PRD: AIOps Capabilities for ServiceRadar with DeepCausality
 
 **Author:** [Michael Freeman]
 **Date:** June 22, 2025
-**Version:** 1.0
+**Version:** 1.1 (Revised based on author feedback)
 
 ## 1. Introduction
 
@@ -46,7 +47,8 @@ When a service failure is detected, ServiceRadar will use DeepCausality to analy
     *   **Host Context:** Agent data (process status, CPU/memory usage, port availability).
     *   **Configuration Context:** Data from the KV Store regarding configuration changes, device additions, etc., synced via the Sync Service.
     *   **Dependency Context:** A model of service dependencies (e.g., Web UI depends on Core API, which depends on the Proton Database).
-*   **Causal Model Execution:** Upon detecting a service failure, the Core Service will trigger a causal analysis model.
+*   **Hypergraph-based Topology:** The relationships between components across different contexts will be modeled as a **hypergraph**. This allows the system to represent both simple dependencies (`A -> B`) and complex, multi-factor causal events `(A + B + C) -> D`, which is critical for accurately modeling real-world failure domains.
+*   **Deterministic Causal Model Execution:** Upon detecting a service failure, the Core Service will trigger a causal analysis model based on **pre-defined, deterministic rules.**
 *   **Enriched Alerting:** The resulting alert will be enriched with the identified root cause.
     *   **Example Alert:** "Service 'Web-UI' is down. **Root Cause:** High packet loss detected on host `10.1.1.5` starting at 14:32 UTC. This host's network configuration was modified at 14:30 UTC."
 *   **User Story:** As Alice, when I receive an alert that the payment gateway is down, I want the system to tell me that the cause was a database configuration change, so I don't waste time investigating the application servers.
@@ -59,9 +61,9 @@ Leverage DeepCausality to identify precursor patterns that indicate a high proba
 
 #### Requirements
 
-*   **Temporal Pattern Recognition:** The system will analyze time-series data from the Proton database to build causal models of pre-failure states.
+*   **Temporal Pattern Recognition:** The system will analyze time-series data from the Proton database to build causal models of **known pre-failure states.**
 *   **Predictive Alerting:** When a known pre-failure pattern is detected, a new type of "predictive" or "warning" alert will be generated.
-    *   **Example Alert:** "**PREDICTIVE ALERT:** Service 'API-Gateway' is at high risk of failure. Memory usage has been increasing by 5% every 10 minutes for the past hour, while response latency has increased by 20ms. This pattern has led to failure in 95% of past occurrences."
+    *   **Example Alert:** "**PREDICTIVE ALERT:** Service 'API-Gateway' is at high risk of failure. Memory usage has been increasing by 5% every 10 minutes for the past hour, while response latency has increased by 20ms. **This pattern is a known deterministic precursor to failure state `MEM_EXHAUSTION`.**"
 *   **Configurable Models:** Provide a mechanism (e.g., a JSON configuration) to define the causaloids or patterns to look for.
 *   **User Story:** As Bob, I want to be notified when network jitter on the VoIP gateway is trending upwards in a way that historically leads to call quality degradation, so I can fix it before users complain.
 
@@ -74,10 +76,24 @@ Provide a user interface within the ServiceRadar Web UI to visualize the chain o
 #### Requirements
 
 *   **Timeline View:** Display a timeline of events leading up to and including the failure.
-*   **Graph Visualization:** For a given incident, render a directed graph showing the nodes (services, hosts, configurations) and edges (causal relationships) that connect the root cause to the final symptom.
+*   **Graph Visualization:** For a given incident, render a directed **(hyper)graph** showing the nodes (services, hosts, configurations) and edges (causal relationships) that connect the root cause to the final symptom. **The visualization must be capable of showing multiple events contributing to a single effect.**
 *   **Interactive Exploration:** Allow users to click on nodes in the graph to see detailed metrics and logs for that component at that point in time.
 *   **Integration with Alerts:** Alerts in the dashboard should link directly to the causal graph visualization for that incident.
 *   **User Story:** As Alice, after seeing a root cause alert, I want to view a graph that visually explains the connection between a code deployment, a subsequent database slowdown, and the eventual application timeout.
+
+### 3.4. Automated Remediation via Causal State Machine (Future Phase)
+
+#### Description
+**This feature introduces a control layer that connects causal inference to automated action. By defining a state machine driven by causal events, ServiceRadar will be able to not only diagnose problems but also trigger automated remediation workflows, creating a closed-loop AIOps system.**
+
+#### Requirements
+*   **Causal State Machine Definition:** Provide a configuration file (e.g., YAML) where users can define states for a service (e.g., `Normal`, `Degraded`, `Critical`, `Remediating`).
+*   **Inference-to-State Mapping:** Allow users to map causal inferences from DeepCausality to specific state transitions. (e.g., Inference `MemoryLeakDetected` -> transition to `Degraded` state).
+*   **State-to-Action Mapping:** Allow users to associate a specific action with each state entry. Actions could include:
+    *   Executing a local script.
+    *   Calling a webhook (e.g., to trigger an Ansible Tower job).
+    *   Creating a ticket in a system like Jira.
+*   **User Story:** As an SRE, when a memory leak is proactively detected in a web server, I want the system to automatically move it into a "Remediating" state, which triggers a script to gracefully restart the service during a low-traffic period, without any manual intervention.
 
 ## 4. Non-Functional Requirements
 
@@ -91,14 +107,14 @@ Provide a user interface within the ServiceRadar Web UI to visualize the chain o
 ### Phase 1: Backend Integration & Core RCA
 
 *   Integrate the DeepCausality library into the ServiceRadar Core Service.
-*   Implement the multi-context data ingestion pipeline.
-*   Develop the first set of causal models for basic root cause analysis (e.g., linking network issues to service failures).
+*   Implement the multi-context data ingestion pipeline, **modeling the topology as a hypergraph.**
+*   Develop the first set of **deterministic** causal models for basic root cause analysis.
 *   Implement enriched alerting via webhooks.
 *   **Goal:** Deliver initial RCA capabilities to a select group of internal users.
 
 ### Phase 2: Predictive Analysis & Model Expansion
 
-*   Develop and deploy predictive failure models.
+*   Develop and deploy predictive failure models based on **deterministic pre-failure state patterns.**
 *   Introduce the "predictive alert" type.
 *   Expand the library of causal models to cover more complex scenarios (e.g., multi-service cascading failures).
 *   **Goal:** Enable proactive monitoring and reduce the frequency of reactive incidents.
@@ -109,6 +125,13 @@ Provide a user interface within the ServiceRadar Web UI to visualize the chain o
 *   Integrate the visualization with the alerting system.
 *   Refine models based on feedback from earlier phases.
 *   **Goal:** Make the full AIOps feature set available to all users.
+
+### Phase 4: Automated Remediation
+
+*   **Implement the Causal State Machine and control layer within the Core Service.**
+*   **Build the configuration interface for defining states and actions.**
+*   **Integrate with common automation tools (e.g., webhooks, script execution).**
+*   **Goal: Enable closed-loop, automated remediation for common, well-understood failures.**
 
 ## 6. Success Metrics
 
