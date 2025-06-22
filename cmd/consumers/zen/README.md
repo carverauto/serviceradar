@@ -1,6 +1,6 @@
-# serviceradar-zen-consumer
+# serviceradar-zen
 
-`serviceradar-zen-consumer` listens to a JetStream consumer and evaluates each message using the [gorules/zen](https://github.com/gorules/zen) decision engine.
+`serviceradar-zen` listens to a JetStream consumer and evaluates each message using the [gorules/zen](https://github.com/gorules/zen) decision engine.
 
 ## Configuration
 
