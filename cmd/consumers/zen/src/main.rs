@@ -1,3 +1,4 @@
+use serde_json::Value;
 use anyhow::{Context, Result};
 use clap::Parser;
 use env_logger::Env;
@@ -155,7 +156,6 @@ async fn build_engine(cfg: &Config, js: &jetstream::Context) -> Result<SharedEng
     )))
 }
 
-
 async fn process_message(
     engine: &SharedEngine,
     cfg: &Config,
@@ -165,16 +165,9 @@ async fn process_message(
     debug!("processing message on subject {}", msg.subject);
     let mut context: serde_json::Value = serde_json::from_slice(&msg.payload)?;
 
-    // Get the rules once
     let rules = cfg.ordered_rules_for_subject(&msg.subject);
+    let event_type = rules.last().map(String::as_str).unwrap_or("processed");
 
-    // Determine the last rule's key for the event type *before* the loop.
-    // This is very clear about intent.
-    let event_type = rules.last()
-        .map(String::as_str) // Get the last key as a &str if it exists
-        .unwrap_or("processed"); // Your robust fallback
-
-    // Iterate by reference (&rules), which is slightly more idiomatic.
     for key in &rules {
         let dkey = format!("{}/{}/{}", cfg.stream_name, msg.subject, key);
         let resp = match engine.evaluate(&dkey, context.clone().into()).await {
@@ -190,11 +183,11 @@ async fn process_message(
             }
         };
         debug!("decision {} evaluated", dkey);
-        context = serde_json::to_value(&resp)?;
+        // *** THIS IS THE FIX ***
+        // Extract only the result for the next iteration's context.
+        context = Value::from(resp.result);
     }
 
-    // Nothing to do if no rules were processed, and we don't want to republish
-    // an identical message. However, if rules *were* processed, we publish.
     if !rules.is_empty() {
         let ce = EventBuilderV10::new()
             .id(Uuid::new_v4().to_string())
@@ -202,29 +195,18 @@ async fn process_message(
                 "nats://{}/{}",
                 cfg.stream_name, msg.subject
             ))?)
-            .ty(event_type) // Use the determined event type
+            .ty(event_type.to_string())
             .data("application/json", context)
             .build()?;
 
         let data = serde_json::to_vec(&ce)?;
         if let Some(suffix) = &cfg.result_subject_suffix {
             let result_subject = format!("{}.{}", msg.subject, suffix.trim_start_matches('.'));
-
-            // 1. Log the subject string first, while you still own it.
             debug!("published result to {}", result_subject);
-
-            // 2. Now, move the string into the publish function. This is fine.
-            js.publish(result_subject, data.clone().into())
-                .await?
-                .await
-                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            js.publish(result_subject, data.into()).await?.await?;
         } else if let Some(subject) = &cfg.result_subject {
-            // This block was already correct because it was cloning the subject
-            js.publish(subject.clone(), data.clone().into())
-                .await?
-                .await
-                .map_err(|e| anyhow::anyhow!(e.to_string()))?;
             debug!("published result to {}", subject);
+            js.publish(subject.clone(), data.into()).await?.await?;
         }
     }
 
