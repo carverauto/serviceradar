@@ -9,8 +9,7 @@ format = "rfc3164"
 type = "nats"
 format = "gelf"
 framing = "noop" # NATS output handles its own framing
-# Partition for overlapping IP spaces
-partition = "default"
+partition = "default" # Partition for overlapping IP spaces
 
 # NATS JetStream specific settings
 nats_url = "nats://127.0.0.1:4222"
