@@ -299,6 +299,12 @@ build_component() {
             ls -l "${pkg_root}${output_path}" || { echo "Error: Binary not copied to package root"; exit 1; }
             test -s "${pkg_root}${output_path}" || { echo "Error: Binary is empty"; exit 1; }
 
+            # Copy zen-put-rule helper for zen component
+            if [ "$component" = "zen" ]; then
+                docker cp "${container_id}:/output/zen-put-rule" "${pkg_root}/usr/local/bin/zen-put-rule" || { echo "Error: Failed to copy zen-put-rule"; exit 1; }
+                ls -l "${pkg_root}/usr/local/bin/zen-put-rule" || { echo "Error: zen-put-rule not copied"; exit 1; }
+            fi
+
             # Copy ZFS binary for sysmon
             if [ "$component" = "sysmon" ]; then
                 zfs_output_path="/output/serviceradar-sysmon-checker-zfs"

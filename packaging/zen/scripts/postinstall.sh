@@ -31,12 +31,15 @@ fi
 mkdir -p /var/lib/serviceradar
 mkdir -p /etc/serviceradar/checkers
 mkdir -p /etc/serviceradar/consumers
+mkdir -p /etc/serviceradar/zen/rules
 
 # Set proper ownership and permissions
 chown -R serviceradar:serviceradar /etc/serviceradar/checkers
 chown -R serviceradar:serviceradar /etc/serviceradar/consumers
+chown -R serviceradar:serviceradar /etc/serviceradar/zen
 chown -R serviceradar:serviceradar /var/lib/serviceradar
 chmod 755 /usr/local/bin/serviceradar-zen
+chmod 755 /usr/local/bin/zen-put-rule
 chmod 644 /etc/serviceradar/consumers/zen-consumer.json
 
 # Enable and start the service
