@@ -4,6 +4,7 @@
   "domain": "edge",
   "partition": "default",
   "stream_name": "events",
+  "table": "events",
   "subject": "events.syslog.processed",
   "consumer_name": "db-event-writer",
   "agent_id": "agent-default",
