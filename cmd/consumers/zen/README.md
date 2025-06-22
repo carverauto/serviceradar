@@ -9,6 +9,7 @@ Create a JSON file with the following fields:
 ```json
 {
   "nats_url": "nats://127.0.0.1:4222",
+  "domain": "edge",
   "stream_name": "events",
   "consumer_name": "zen-consumer",
   "subjects": ["events.syslog", "events.snmp"],
@@ -60,6 +61,7 @@ Optionally add TLS settings:
 ```json
 {
   "nats_url": "nats://127.0.0.1:4222",
+  "domain": "edge",
   "stream_name": "events",
   "consumer_name": "zen-consumer",
   "subjects": ["events.syslog", "events.snmp"],
