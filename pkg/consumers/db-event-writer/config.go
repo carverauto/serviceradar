@@ -35,7 +35,9 @@ type DBEventWriterConfig struct {
 // UnmarshalJSON ensures TLS paths are normalized.
 func (c *DBEventWriterConfig) UnmarshalJSON(data []byte) error {
 	type Alias DBEventWriterConfig
+
 	var alias struct{ Alias }
+
 	alias.Alias = Alias{}
 
 	if err := json.Unmarshal(data, &alias); err != nil {
@@ -62,21 +64,27 @@ func (c *DBEventWriterConfig) Validate() error {
 	if c.ListenAddr == "" {
 		errs = append(errs, ErrMissingListenAddr)
 	}
+
 	if c.NATSURL == "" {
 		errs = append(errs, ErrMissingNATSURL)
 	}
+
 	if c.StreamName == "" {
 		errs = append(errs, ErrMissingStreamName)
 	}
+
 	if c.ConsumerName == "" {
 		errs = append(errs, ErrMissingConsumerName)
 	}
+
 	if c.Table == "" {
 		errs = append(errs, ErrMissingTableName)
 	}
+
 	if c.Database.Name == "" || len(c.Database.Addresses) == 0 {
 		errs = append(errs, ErrMissingDatabaseConfig)
 	}
+
 	if len(errs) > 0 {
 		return errors.Join(errs...)
 	}

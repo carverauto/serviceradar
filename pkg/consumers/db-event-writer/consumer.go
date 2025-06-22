@@ -58,6 +58,7 @@ func (*Consumer) handleBatch(ctx context.Context, msgs []jetstream.Msg, processo
 
 		for _, msg := range processed {
 			metadata, _ := msg.Metadata()
+
 			if metadata.NumDelivered >= defaultMaxRetries {
 				_ = msg.Ack()
 			} else {
@@ -87,6 +88,7 @@ func (c *Consumer) ProcessMessages(ctx context.Context, processor *Processor) {
 			if err != nil {
 				log.Printf("Failed to fetch messages: %v", err)
 				time.Sleep(time.Second)
+
 				continue
 			}
 
