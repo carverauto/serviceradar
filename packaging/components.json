@@ -654,7 +654,12 @@
       "build_method": "rust",
       "output_path": "/usr/local/bin/serviceradar-zen"
     },
-    "config_files": [],
+    "config_files": [
+      {
+        "source": "packaging/zen/config/zen-consumer.json",
+        "dest": "/etc/serviceradar/consumers/zen-consumer.json"
+      }
+    ],
     "systemd_service": {
       "source": "packaging/zen/systemd/serviceradar-zen.service",
       "dest": "/lib/systemd/system/serviceradar-zen.service"
@@ -665,7 +670,9 @@
     "prerm": {
       "source": "packaging/zen/scripts/preremove.sh"
     },
-    "conffiles": [],
+    "conffiles": [
+      "/etc/serviceradar/consumers/zen-consumer.json"
+    ],
     "additional_dirs": [
       "/var/log/zen"
     ]
