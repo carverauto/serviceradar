@@ -2,6 +2,7 @@ package dbeventwriter
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/carverauto/serviceradar/pkg/db"
@@ -13,6 +14,22 @@ import (
 type Processor struct {
 	conn  proton.Conn
 	table string
+}
+
+// parseCloudEvent attempts to extract the `data` field from a CloudEvent.
+// It returns the data as a JSON string and true on success. If the message is
+// not a valid CloudEvent or does not contain a `data` field, ok will be false.
+func parseCloudEvent(b []byte) (string, bool) {
+	var tmp struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(b, &tmp); err != nil {
+		return "", false
+	}
+	if len(tmp.Data) == 0 {
+		return "", false
+	}
+	return string(tmp.Data), true
 }
 
 // NewProcessor creates a Processor using the provided db.Service.
@@ -40,7 +57,11 @@ func (p *Processor) ProcessBatch(ctx context.Context, msgs []jetstream.Msg) ([]j
 	processed := make([]jetstream.Msg, 0, len(msgs))
 
 	for _, msg := range msgs {
-		if err := batch.Append(string(msg.Data())); err != nil {
+		data := msg.Data()
+		if ceData, ok := parseCloudEvent(data); ok {
+			data = []byte(ceData)
+		}
+		if err := batch.Append(string(data)); err != nil {
 			return processed, err
 		}
 		processed = append(processed, msg)
