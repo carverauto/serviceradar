@@ -23,6 +23,14 @@ func main() {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
 
+	// Explicitly normalize paths after loading
+	if cfg.Security != nil && cfg.Security.CertDir != "" {
+		config.NormalizeTLSPaths(&cfg.Security.TLS, cfg.Security.CertDir)
+	}
+	if cfg.DBSecurity != nil && cfg.DBSecurity.CertDir != "" {
+		config.NormalizeTLSPaths(&cfg.DBSecurity.TLS, cfg.DBSecurity.CertDir)
+	}
+
 	if err := cfg.Validate(); err != nil {
 		log.Fatalf("DB event writer config validation failed: %v", err)
 	}

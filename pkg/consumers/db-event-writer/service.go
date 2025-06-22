@@ -42,26 +42,8 @@ func NewService(cfg *DBEventWriterConfig, dbService db.Service) (*Service, error
 	return svc, nil
 }
 
-func (s *Service) initSchema(ctx context.Context) error {
-	dbImpl, ok := s.db.(*db.DB)
-	if !ok {
-		return errDBServiceNotDB
-	}
-
-	query := fmt.Sprintf(`CREATE STREAM IF NOT EXISTS %s (
-        message string,
-        _tp_time DateTime64(3) DEFAULT now64(3)
-    )`, s.cfg.Table)
-
-	return dbImpl.Conn.Exec(ctx, query)
-}
-
 // Start connects to NATS and begins processing messages.
 func (s *Service) Start(ctx context.Context) error {
-	if err := s.initSchema(ctx); err != nil {
-		return fmt.Errorf("failed to initialize schema: %w", err)
-	}
-
 	var opts []nats.Option
 
 	if s.cfg.Security != nil {
