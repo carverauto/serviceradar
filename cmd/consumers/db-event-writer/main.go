@@ -14,9 +14,11 @@ import (
 func main() {
 	ctx := context.Background()
 	cfgLoader := config.NewConfig()
+
 	configPath := "/etc/serviceradar/consumers/db-event-writer.json"
 
 	var cfg dbeventwriter.DBEventWriterConfig
+
 	if err := cfgLoader.LoadAndValidate(ctx, configPath, &cfg); err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}

@@ -23,12 +23,15 @@ func parseCloudEvent(b []byte) (string, bool) {
 	var tmp struct {
 		Data json.RawMessage `json:"data"`
 	}
+
 	if err := json.Unmarshal(b, &tmp); err != nil {
 		return "", false
 	}
+
 	if len(tmp.Data) == 0 {
 		return "", false
 	}
+
 	return string(tmp.Data), true
 }
 
@@ -49,6 +52,7 @@ func (p *Processor) ProcessBatch(ctx context.Context, msgs []jetstream.Msg) ([]j
 	}
 
 	query := fmt.Sprintf("INSERT INTO %s (message) VALUES (?)", p.table)
+
 	batch, err := p.conn.PrepareBatch(ctx, query)
 	if err != nil {
 		return nil, err
@@ -58,12 +62,15 @@ func (p *Processor) ProcessBatch(ctx context.Context, msgs []jetstream.Msg) ([]j
 
 	for _, msg := range msgs {
 		data := msg.Data()
+
 		if ceData, ok := parseCloudEvent(data); ok {
 			data = []byte(ceData)
 		}
+
 		if err := batch.Append(string(data)); err != nil {
 			return processed, err
 		}
+
 		processed = append(processed, msg)
 	}
 

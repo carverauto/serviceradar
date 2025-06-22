@@ -38,6 +38,7 @@ func NewService(cfg *DBEventWriterConfig, dbService db.Service) (*Service, error
 	}
 
 	svc := &Service{cfg: cfg, processor: proc, db: dbService}
+
 	return svc, nil
 }
 
@@ -62,11 +63,13 @@ func (s *Service) Start(ctx context.Context) error {
 	}
 
 	var opts []nats.Option
+
 	if s.cfg.Security != nil {
 		tlsConf, err := natsutil.TLSConfig(s.cfg.Security)
 		if err != nil {
 			return fmt.Errorf("failed to build NATS TLS config: %w", err)
 		}
+
 		opts = append(opts,
 			nats.Secure(tlsConf),
 			nats.RootCAs(s.cfg.Security.TLS.CAFile),
@@ -78,26 +81,32 @@ func (s *Service) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
 	s.nc = nc
 
 	var js jetstream.JetStream
+
 	if s.cfg.Domain != "" {
 		js, err = jetstream.NewWithDomain(nc, s.cfg.Domain)
 	} else {
 		js, err = jetstream.New(nc)
 	}
+
 	if err != nil {
 		nc.Close()
 		return err
 	}
+
 	s.js = js
 
 	stream, err := js.Stream(ctx, s.cfg.StreamName)
 	if errors.Is(err, jetstream.ErrStreamNotFound) {
 		sc := jetstream.StreamConfig{Name: s.cfg.StreamName}
+
 		if s.cfg.Subject != "" {
 			sc.Subjects = []string{s.cfg.Subject}
 		}
+
 		stream, err = js.CreateOrUpdateStream(ctx, sc)
 		if err != nil {
 			nc.Close()
@@ -105,11 +114,13 @@ func (s *Service) Start(ctx context.Context) error {
 		}
 	} else if err != nil {
 		nc.Close()
+
 		return fmt.Errorf("failed to get stream %s: %w", s.cfg.StreamName, err)
 	}
 
 	if _, err = stream.Info(ctx); err != nil {
 		nc.Close()
+
 		return fmt.Errorf("failed to get stream info: %w", err)
 	}
 
@@ -120,12 +131,14 @@ func (s *Service) Start(ctx context.Context) error {
 	}
 
 	s.wg.Add(1)
+
 	go func() {
 		defer s.wg.Done()
 		s.consumer.ProcessMessages(ctx, s.processor)
 	}()
 
 	log.Printf("DB event writer started for stream %s, consumer %s", s.cfg.StreamName, s.cfg.ConsumerName)
+
 	return nil
 }
 
@@ -139,12 +152,15 @@ func (s *Service) Stop(ctx context.Context) error {
 	if s.db != nil {
 		_ = s.db.Close()
 	}
+
 	if s.nc != nil {
 		s.nc.Close()
 	}
 
 	s.wg.Wait()
+
 	log.Println("DB event writer stopped")
+
 	return nil
 }
 
