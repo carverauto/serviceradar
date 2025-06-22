@@ -63,6 +63,8 @@ struct DecisionGroupConfig {
 #[derive(Debug, Deserialize, Clone)]
 struct Config {
     nats_url: String,
+    #[serde(default)]
+    domain: Option<String>,
     stream_name: String,
     consumer_name: String,
     #[serde(default)]
@@ -141,7 +143,11 @@ async fn connect_nats(cfg: &Config) -> Result<(Client, jetstream::Context)> {
     }
     let client = opts.connect(&cfg.nats_url).await?;
     info!("connected to nats at {}", cfg.nats_url);
-    let js = jetstream::new(client.clone());
+    let js = if let Some(domain) = &cfg.domain {
+        jetstream::with_domain(client.clone(), domain)
+    } else {
+        jetstream::new(client.clone())
+    };
     Ok((client, js))
 }
 
@@ -353,6 +359,7 @@ mod tests {
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/zen-consumer.json");
         let cfg = Config::from_file(path).unwrap();
         assert_eq!(cfg.nats_url, "nats://127.0.0.1:4222");
+        assert_eq!(cfg.domain.as_deref(), Some("edge"));
         assert_eq!(cfg.stream_name, "events");
         assert_eq!(cfg.consumer_name, "zen-consumer");
         assert_eq!(cfg.subjects, vec!["events.syslog", "events.snmp"]);
@@ -373,6 +380,7 @@ mod tests {
     fn test_config_validate_missing_fields() {
         let cfg = Config {
             nats_url: String::new(),
+            domain: None,
             stream_name: String::new(),
             consumer_name: String::new(),
             subjects: Vec::new(),
