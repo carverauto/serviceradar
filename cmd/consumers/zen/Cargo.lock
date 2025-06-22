@@ -2319,7 +2319,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "serviceradar-zen-consumer"
+name = "serviceradar-zen"
 version = "0.1.0"
 dependencies = [
  "anyhow",

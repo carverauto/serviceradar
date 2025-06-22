@@ -16,6 +16,7 @@
           "mapper",
           "flowgger",
           "nats",
+          "zen",
           "web",
           "sysmon",
           "snmp",
@@ -585,6 +586,44 @@
     },
     "conffiles": [
       "/etc/serviceradar/checkers/snmp.json"
+    ]
+  },
+  {
+    "name": "zen",
+    "package_name": "serviceradar-zen",
+    "version": "1.0.44",
+    "description": "ServiceRadar Zen Consumer Service",
+    "maintainer": "Carver Automation Corporation <mfreeman@carverauto.dev>",
+    "architecture": "amd64",
+    "section": "net",
+    "priority": "optional",
+    "deb": {
+      "depends": ["systemd"],
+      "dockerfile": "cmd/consumers/zen/Dockerfile"
+    },
+    "rpm": {
+      "depends": ["systemd"],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.rust.zen",
+      "release": "1"
+    },
+    "binary": {
+      "build_method": "rust",
+      "output_path": "/usr/local/bin/serviceradar-zen"
+    },
+    "config_files": [],
+    "systemd_service": {
+      "source": "packaging/zen/systemd/serviceradar-zen.service",
+      "dest": "/lib/systemd/system/serviceradar-zen.service"
+    },
+    "postinst": {
+      "source": "packaging/zen/scripts/postinstall.sh"
+    },
+    "prerm": {
+      "source": "packaging/zen/scripts/preremove.sh"
+    },
+    "conffiles": [],
+    "additional_dirs": [
+      "/var/log/zen"
     ]
   },
   {

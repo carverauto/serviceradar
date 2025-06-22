@@ -1,6 +1,6 @@
-# serviceradar-zen-consumer
+# serviceradar-zen
 
-`serviceradar-zen-consumer` listens to a JetStream consumer and evaluates each message using the [gorules/zen](https://github.com/gorules/zen) decision engine.
+`serviceradar-zen` listens to a JetStream consumer and evaluates each message using the [gorules/zen](https://github.com/gorules/zen) decision engine.
 
 ## Configuration
 
@@ -94,6 +94,6 @@ Optionally add TLS settings:
 ## Building and Running
 
 ```bash
-cargo build --release -p serviceradar-zen-consumer
-./target/release/serviceradar-zen-consumer --config zen-consumer.json
+cargo build --release -p serviceradar-zen
+./target/release/serviceradar-zen --config zen-consumer.json
 ```
