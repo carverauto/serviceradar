@@ -9,6 +9,8 @@ import (
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/models"
+	monitoringpb "github.com/carverauto/serviceradar/proto"
+	"google.golang.org/grpc"
 )
 
 func main() {
@@ -60,12 +62,20 @@ func main() {
 		log.Fatalf("Failed to initialize event writer service: %v", err)
 	}
 
+	agentService := dbeventwriter.NewAgentService(svc)
+
 	opts := &lifecycle.ServerOptions{
 		ListenAddr:        cfg.ListenAddr,
 		ServiceName:       "db-event-writer",
 		Service:           svc,
 		EnableHealthCheck: true,
-		Security:          cfg.Security,
+		RegisterGRPCServices: []lifecycle.GRPCServiceRegistrar{
+			func(s *grpc.Server) error {
+				monitoringpb.RegisterAgentServiceServer(s, agentService)
+				return nil
+			},
+		},
+		Security: cfg.Security,
 	}
 
 	if err := lifecycle.RunServer(ctx, opts); err != nil {
