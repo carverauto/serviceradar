@@ -183,8 +183,6 @@ async fn process_message(
             }
         };
         debug!("decision {} evaluated", dkey);
-        // *** THIS IS THE FIX ***
-        // Extract only the result for the next iteration's context.
         context = Value::from(resp.result);
     }
 
