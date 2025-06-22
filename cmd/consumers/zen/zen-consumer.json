@@ -2,7 +2,6 @@
   "nats_url": "nats://127.0.0.1:4222",
   "stream_name": "events",
   "consumer_name": "zen-consumer",
-<<<<<<< HEAD
   "subjects": ["events.syslog", "events.snmp"],
   "decision_groups": [
     {
@@ -21,10 +20,6 @@
       ]
     }
   ],
-=======
-  "subjects": ["events.syslog"],
-  "decision_keys": ["example-decision", "cef_severity"],
->>>>>>> 090b5f7 (sync)
   "agent_id": "agent-01",
   "kv_bucket": "serviceradar-kv",
   "result_subject_suffix": ".processed",
