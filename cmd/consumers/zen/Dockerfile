@@ -34,7 +34,8 @@ COPY --from=builder /usr/src/serviceradar-zen/target/x86_64-unknown-linux-gnu/re
 
 # Configuration and user setup
 WORKDIR /etc/serviceradar
-COPY packaging/zen/config/zen-consumer.json ./zen-consumer.json
+RUN mkdir -p consumers
+COPY packaging/zen/config/zen-consumer.json ./consumers/zen-consumer.json
 
 RUN groupadd -r serviceradar && useradd -r -g serviceradar serviceradar && \
     chown -R serviceradar:serviceradar /etc/serviceradar
@@ -42,4 +43,4 @@ RUN groupadd -r serviceradar && useradd -r -g serviceradar serviceradar && \
 USER serviceradar
 EXPOSE 50059
 
-CMD ["/usr/local/bin/serviceradar-zen", "--config", "/etc/serviceradar/zen-consumer.json"]
+CMD ["/usr/local/bin/serviceradar-zen", "--config", "/etc/serviceradar/consumers/zen-consumer.json"]
