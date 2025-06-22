@@ -1,0 +1,29 @@
+{
+  "nodes": [
+    { "id": "inputNode", "type": "inputNode", "name": "Request", "position": {"x": 80, "y": 150} },
+    {
+      "id": "cefTable",
+      "type": "decisionTableNode",
+      "name": "CEF Severity",
+      "position": {"x": 300, "y": 150},
+      "content": {
+        "hitPolicy": "first",
+        "inputs": [ {"field": "short_message", "id": "fld_msg", "name": "Short", "type": "expression"} ],
+        "outputs": [ {"field": "severity", "id": "fld_sev", "name": "Severity", "type": "expression"} ],
+        "rules": [
+          {"_id": "r0", "fld_msg": "contains(short_message, '|0|') or contains(short_message, '|1|') or contains(short_message, '|2|') or contains(short_message, '|3|')", "fld_sev": "'Low'"},
+          {"_id": "r1", "fld_msg": "contains(short_message, '|4|') or contains(short_message, '|5|') or contains(short_message, '|6|')", "fld_sev": "'Medium'"},
+          {"_id": "r2", "fld_msg": "contains(short_message, '|7|') or contains(short_message, '|8|')", "fld_sev": "'High'"},
+          {"_id": "r3", "fld_msg": "contains(short_message, '|9|') or contains(short_message, '|10|')", "fld_sev": "'Very High'"},
+          {"_id": "r4", "fld_msg": "", "fld_sev": "'Unknown'"}
+        ]
+      }
+    },
+    { "id": "outputNode", "type": "outputNode", "name": "Response", "position": {"x": 560, "y": 150} }
+  ],
+  "edges": [
+    {"id": "e1", "sourceId": "inputNode", "targetId": "cefTable", "type": "edge"},
+    {"id": "e2", "sourceId": "cefTable", "targetId": "outputNode", "type": "edge"},
+    {"id": "e3", "sourceId": "inputNode", "targetId": "outputNode", "type": "edge"}
+  ]
+}
