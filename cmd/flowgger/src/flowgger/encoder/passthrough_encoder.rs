@@ -58,6 +58,7 @@ fn test_passthrough_encode() {
     let record = Record {
         ts: 1.2,
         hostname: "abcd".to_string(),
+        remote_addr: None,
         facility: None,
         severity: None,
         appname: None,
@@ -93,6 +94,7 @@ fn test_passthrough_encode_with_prepend() {
     let record = Record {
         ts: 1.2,
         hostname: "abcd".to_string(),
+        remote_addr: None,
         facility: None,
         severity: None,
         appname: None,
@@ -128,6 +130,7 @@ fn test_passthrough_encode_no_msg() {
     let record = Record {
         ts: 1.2,
         hostname: "abcd".to_string(),
+        remote_addr: None,
         facility: None,
         severity: None,
         appname: None,

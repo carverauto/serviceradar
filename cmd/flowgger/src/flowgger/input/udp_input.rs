@@ -76,12 +76,12 @@ impl Input for UdpInput {
             (decoder.clone_boxed(), encoder.clone_boxed());
         let mut buf = [0; MAX_UDP_PACKET_SIZE];
         loop {
-            let (length, _src) = match socket.recv_from(&mut buf) {
+            let (length, src) = match socket.recv_from(&mut buf) {
                 Ok(res) => res,
                 Err(_) => continue,
             };
             let line = &buf[..length];
-            if let Err(e) = handle_record_maybe_compressed(line, &tx, &decoder, &encoder) {
+            if let Err(e) = handle_record_maybe_compressed(line, src, &tx, &decoder, &encoder) {
                 let _ = writeln!(stderr(), "{}", e);
             }
         }
@@ -99,6 +99,7 @@ impl Input for UdpInput {
 /// supported compression format
 pub fn handle_record_maybe_compressed(
     line: &[u8],
+    src: SocketAddr,
     tx: &SyncSender<Vec<u8>>,
     decoder: &Box<dyn Decoder>,
     encoder: &Box<dyn Encoder>,
@@ -108,17 +109,17 @@ pub fn handle_record_maybe_compressed(
     {
         let mut decompressed = Vec::with_capacity(MAX_UDP_PACKET_SIZE * MAX_COMPRESSION_RATIO);
         match ZlibDecoder::new(line).read_to_end(&mut decompressed) {
-            Ok(_) => handle_record(&decompressed, tx, decoder, encoder),
+            Ok(_) => handle_record(&decompressed, src, tx, decoder, encoder),
             Err(_) => Err("Corrupted compressed (zlib) record"),
         }
     } else if line.len() >= 24 && (line[0] == 0x1f && line[1] == 0x8b && line[2] == 0x08) {
         let mut decompressed = Vec::with_capacity(MAX_UDP_PACKET_SIZE * MAX_COMPRESSION_RATIO);
         match GzDecoder::new(line).read_to_end(&mut decompressed) {
-            Ok(_) => handle_record(&decompressed, tx, decoder, encoder),
+            Ok(_) => handle_record(&decompressed, src, tx, decoder, encoder),
             Err(_) => Err("Corrupted compressed (gzip) record"),
         }
     } else {
-        handle_record(line, tx, decoder, encoder)
+        handle_record(line, src, tx, decoder, encoder)
     }
 }
 
@@ -128,6 +129,7 @@ pub fn handle_record_maybe_compressed(
 /// `Invalid UTF-8 input`: The record is not in a valid utf-8 format, it could be a non supported compression format
 fn handle_record(
     line: &[u8],
+    src: SocketAddr,
     tx: &SyncSender<Vec<u8>>,
     decoder: &Box<dyn Decoder>,
     encoder: &Box<dyn Encoder>,
@@ -136,7 +138,8 @@ fn handle_record(
         Err(_) => return Err("Invalid UTF-8 input"),
         Ok(line) => line,
     };
-    let decoded = decoder.decode(line)?;
+    let mut decoded = decoder.decode(line)?;
+    decoded.remote_addr = Some(src.ip().to_string());
     let reencoded = encoder.encode(decoded)?;
     tx.send(reencoded).unwrap();
     Ok(())
@@ -199,7 +202,14 @@ mod test {
     #[test]
     fn test_udp_input_handle_record_uncompressed() {
         let (line, tx, rx, decoder, encoder) = handle_record_set_up();
-        handle_record_maybe_compressed(line.as_bytes(), &tx, &decoder, &encoder).unwrap();
+        handle_record_maybe_compressed(
+            line.as_bytes(),
+            "127.0.0.1:12345".parse().unwrap(),
+            &tx,
+            &decoder,
+            &encoder,
+        )
+        .unwrap();
         let transmitted = rx.recv().unwrap();
         assert_eq!(str::from_utf8(&transmitted).unwrap(), line);
     }
@@ -213,7 +223,14 @@ mod test {
             Err(e) => panic!("Compressing line {}, raised Error {:?}", line, e),
         }
         let compressed_line = compressor.finish().unwrap();
-        handle_record_maybe_compressed(&compressed_line, &tx, &decoder, &encoder).unwrap();
+        handle_record_maybe_compressed(
+            &compressed_line,
+            "127.0.0.1:12345".parse().unwrap(),
+            &tx,
+            &decoder,
+            &encoder,
+        )
+        .unwrap();
         let transmitted = rx.recv().unwrap();
         assert_eq!(str::from_utf8(&transmitted).unwrap(), line);
     }
@@ -227,7 +244,14 @@ mod test {
             Err(e) => panic!("Compressing line {}, raised Error {:?}", line, e),
         }
         let compressed_line = compressor.finish().unwrap();
-        handle_record_maybe_compressed(&compressed_line, &tx, &decoder, &encoder).unwrap();
+        handle_record_maybe_compressed(
+            &compressed_line,
+            "127.0.0.1:12345".parse().unwrap(),
+            &tx,
+            &decoder,
+            &encoder,
+        )
+        .unwrap();
         let transmitted = rx.recv().unwrap();
         assert_eq!(str::from_utf8(&transmitted).unwrap(), line);
     }
@@ -243,6 +267,13 @@ mod test {
         }
         let mut compressed_line = compressor.finish().unwrap();
         compressed_line.truncate(5);
-        handle_record_maybe_compressed(&compressed_line, &tx, &decoder, &encoder).unwrap();
+        handle_record_maybe_compressed(
+            &compressed_line,
+            "127.0.0.1:12345".parse().unwrap(),
+            &tx,
+            &decoder,
+            &encoder,
+        )
+        .unwrap();
     }
 }
