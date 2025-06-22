@@ -15,7 +15,7 @@ COPY cmd/consumers/zen/src ./src/
 
 # Build for x86_64-unknown-linux-gnu
 RUN rustup target add x86_64-unknown-linux-gnu && \
-    cargo build --features nats-output --release --target x86_64-unknown-linux-gnu
+    cargo build --release --target x86_64-unknown-linux-gnu
 
 # Runtime stage
 FROM debian:bullseye-slim
