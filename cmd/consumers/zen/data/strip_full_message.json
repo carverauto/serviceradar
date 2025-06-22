@@ -16,6 +16,7 @@
   ],
   "edges": [
     { "id": "e1", "sourceId": "inputNode", "targetId": "stripFullMessage", "type": "edge" },
-    { "id": "e2", "sourceId": "stripFullMessage", "targetId": "outputNode", "type": "edge" }
+    { "id": "e2", "sourceId": "stripFullMessage", "targetId": "outputNode", "type": "edge" },
+    { "id": "e3", "sourceId": "inputNode", "targetId": "outputNode", "type": "edge" }
   ]
 }

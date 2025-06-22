@@ -151,9 +151,10 @@ async fn build_engine(cfg: &Config, js: &jetstream::Context) -> Result<SharedEng
     info!("initialized decision engine with bucket {}", cfg.kv_bucket);
     Ok(std::sync::Arc::new(DecisionEngine::new(
         std::sync::Arc::new(loader),
-        std::sync::Arc::new(zen_engine::handler::custom_node_adapter::NoopCustomNode::default()),
+        std::sync::Arc::new(NoopCustomNode::default()),
     )))
 }
+
 
 async fn process_message(
     engine: &SharedEngine,
@@ -163,7 +164,18 @@ async fn process_message(
 ) -> Result<()> {
     debug!("processing message on subject {}", msg.subject);
     let mut context: serde_json::Value = serde_json::from_slice(&msg.payload)?;
-    for key in cfg.ordered_rules_for_subject(&msg.subject) {
+
+    // Get the rules once
+    let rules = cfg.ordered_rules_for_subject(&msg.subject);
+
+    // Determine the last rule's key for the event type *before* the loop.
+    // This is very clear about intent.
+    let event_type = rules.last()
+        .map(String::as_str) // Get the last key as a &str if it exists
+        .unwrap_or("processed"); // Your robust fallback
+
+    // Iterate by reference (&rules), which is slightly more idiomatic.
+    for key in &rules {
         let dkey = format!("{}/{}/{}", cfg.stream_name, msg.subject, key);
         let resp = match engine.evaluate(&dkey, context.clone().into()).await {
             Ok(r) => r,
@@ -178,26 +190,36 @@ async fn process_message(
             }
         };
         debug!("decision {} evaluated", dkey);
-        let resp_json = serde_json::to_value(&resp)?;
-        context = resp_json.clone();
+        context = serde_json::to_value(&resp)?;
+    }
+
+    // Nothing to do if no rules were processed, and we don't want to republish
+    // an identical message. However, if rules *were* processed, we publish.
+    if !rules.is_empty() {
         let ce = EventBuilderV10::new()
             .id(Uuid::new_v4().to_string())
             .source(Url::parse(&format!(
                 "nats://{}/{}",
                 cfg.stream_name, msg.subject
             ))?)
-            .ty(key.clone())
-            .data("application/json", resp_json)
+            .ty(event_type) // Use the determined event type
+            .data("application/json", context)
             .build()?;
+
         let data = serde_json::to_vec(&ce)?;
         if let Some(suffix) = &cfg.result_subject_suffix {
             let result_subject = format!("{}.{}", msg.subject, suffix.trim_start_matches('.'));
-            js.publish(result_subject.clone(), data.clone().into())
+
+            // 1. Log the subject string first, while you still own it.
+            debug!("published result to {}", result_subject);
+
+            // 2. Now, move the string into the publish function. This is fine.
+            js.publish(result_subject, data.clone().into())
                 .await?
                 .await
                 .map_err(|e| anyhow::anyhow!(e.to_string()))?;
-            debug!("published result to {}", result_subject);
         } else if let Some(subject) = &cfg.result_subject {
+            // This block was already correct because it was cloning the subject
             js.publish(subject.clone(), data.clone().into())
                 .await?
                 .await
@@ -205,6 +227,7 @@ async fn process_message(
             debug!("published result to {}", subject);
         }
     }
+
     Ok(())
 }
 
@@ -311,7 +334,7 @@ async fn main() -> Result<()> {
                     }
                     Ok(info) => {
                         if let Err(e) = message
-                            .ack_with(async_nats::jetstream::AckKind::Nak(None))
+                            .ack_with(jetstream::AckKind::Nak(None))
                             .await
                         {
                             warn!("failed to NAK: {e}");
@@ -321,7 +344,7 @@ async fn main() -> Result<()> {
                     }
                     Err(_) => {
                         if let Err(e) = message
-                            .ack_with(async_nats::jetstream::AckKind::Nak(None))
+                            .ack_with(jetstream::AckKind::Nak(None))
                             .await
                         {
                             warn!("failed to NAK: {e}");
@@ -387,7 +410,7 @@ mod tests {
     #[test]
     fn test_host_switch_testdata_parses() {
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/testdata/host_switch.json");
-        let data = std::fs::read_to_string(path).unwrap();
+        let data = fs::read_to_string(path).unwrap();
         let parsed: zen_engine::model::DecisionContent = serde_json::from_str(&data).unwrap();
         assert!(!parsed.nodes.is_empty());
     }
@@ -406,12 +429,12 @@ async fn watch_rules(engine: SharedEngine, cfg: Config, js: jetstream::Context) 
             );
         }
         match entry {
-            Ok(e) if matches!(e.operation, async_nats::jetstream::kv::Operation::Put) => {
+            Ok(e) if matches!(e.operation, jetstream::kv::Operation::Put) => {
                 let key = e.key.trim_start_matches(&prefix).trim_end_matches(".json");
                 if let Err(err) = engine.get_decision(key).await {
                     warn!("failed to reload rule {}: {}", key, err);
                 } else {
-                    log::info!("reloaded rule {} revision {}", key, e.revision);
+                    info!("reloaded rule {} revision {}", key, e.revision);
                 }
             }
             Ok(_) => {}
