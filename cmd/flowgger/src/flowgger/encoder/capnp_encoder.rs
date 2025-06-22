@@ -125,6 +125,7 @@ mod tests {
         let record = Record {
             ts: 1385053862.3072,
             hostname: "example.org".to_string(),
+            remote_addr: None,
             facility: None,
             severity: Some(1),
             appname: Some("appname".to_string()),
@@ -157,6 +158,7 @@ mod tests {
         let record = Record {
             ts: 1385053862.3072,
             hostname: "example.org".to_string(),
+            remote_addr: None,
             facility: None,
             severity: Some(1),
             appname: Some("appname".to_string()),
@@ -191,6 +193,7 @@ mod tests {
         let record = Record {
             ts: 1385053862.3072,
             hostname: "example.org".to_string(),
+            remote_addr: None,
             facility: None,
             severity: Some(1),
             appname: Some("appname".to_string()),

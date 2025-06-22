@@ -141,6 +141,7 @@ fn test_ltsv_full_encode_no_sd() {
     let record = Record {
         ts,
         hostname: "testhostname".to_string(),
+        remote_addr: None,
         facility: Some(2),
         severity: Some(7),
         appname: Some("appname".to_string()),
@@ -166,6 +167,7 @@ fn test_ltsv_full_encode_multiple_sd() {
     let record = Record {
         ts,
         hostname: "testhostname".to_string(),
+        remote_addr: None,
         facility: Some(2),
         severity: Some(7),
         appname: Some("appname".to_string()),

@@ -155,6 +155,7 @@ fn handle_message(message: record_capnp::record::Reader) -> Result<Record, &'sta
     Ok(Record {
         ts,
         hostname,
+        remote_addr: None,
         facility,
         severity,
         appname,
@@ -179,6 +180,7 @@ mod tests {
         let expected = Record {
             ts: 1385053862.3072,
             hostname: "example.org".to_string(),
+            remote_addr: None,
             facility: None,
             severity: Some(1),
             appname: Some("appname".to_string()),

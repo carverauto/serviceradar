@@ -108,6 +108,7 @@ impl Decoder for GelfDecoder {
         let record = Record {
             ts: ts.unwrap_or_else(|| utils::PreciseTimestamp::now().as_f64()),
             hostname: hostname.ok_or("Missing hostname")?,
+            remote_addr: None,
             facility: None,
             severity,
             appname: None,

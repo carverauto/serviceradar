@@ -113,6 +113,7 @@ fn test_rfc3164_encode() {
     let record = Record {
         ts,
         hostname: "testhostname".to_string(),
+        remote_addr: None,
         facility: None,
         severity: None,
         appname: None,
@@ -137,6 +138,7 @@ fn test_rfc3164_withpri_encode() {
     let record = Record {
         ts,
         hostname: "testhostname".to_string(),
+        remote_addr: None,
         facility: Some(2),
         severity: Some(7),
         appname: None,
@@ -172,6 +174,7 @@ fn test_rfc3164_encode_with_prepend() {
     let record = Record {
         ts,
         hostname: "testhostname".to_string(),
+        remote_addr: None,
         facility: None,
         severity: None,
         appname: None,
@@ -204,6 +207,7 @@ fn test_rfc3164_full_encode() {
     let record = Record {
         ts,
         hostname: "testhostname".to_string(),
+        remote_addr: None,
         facility: Some(2),
         severity: Some(7),
         appname: Some("appname".to_string()),
@@ -234,6 +238,7 @@ fn test_rfc3164_full_encode_multiple_sd() {
     let record = Record {
         ts,
         hostname: "testhostname".to_string(),
+        remote_addr: None,
         facility: Some(2),
         severity: Some(7),
         appname: Some("appname".to_string()),
