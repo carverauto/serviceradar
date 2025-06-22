@@ -11,16 +11,35 @@ Create a JSON file with the following fields:
   "nats_url": "nats://127.0.0.1:4222",
   "stream_name": "events",
   "consumer_name": "zen-consumer",
-  "subjects": ["events.syslog"],
-  "decision_keys": ["example-decision"],
+  "subjects": ["events.syslog", "events.snmp"],
+  "decision_groups": [
+    {
+      "name": "syslog",
+      "subjects": ["events.syslog"],
+      "rules": [
+        {"order": 1, "key": "strip_full_message"},
+        {"order": 2, "key": "cef_severity"}
+      ]
+    },
+    {
+      "name": "snmp",
+      "subjects": ["events.snmp"],
+      "rules": [
+        {"order": 1, "key": "cef_severity"}
+      ]
+    }
+  ],
   "agent_id": "agent-01",
   "kv_bucket": "serviceradar-kv",
   "result_subject_suffix": ".processed"
 }
 ```
 
-`decision_keys` accepts multiple rule names allowing a single consumer to
-evaluate several rules for each incoming event.
+`decision_groups` allows rules to be organized into named groups.
+Each group can specify a list of `subjects` it applies to. When a message
+arrives, the first group matching its subject is selected and its rules are
+processed sequentially, with the output of one rule becoming the input for the
+next.
 
 If a rule is missing from the key-value bucket it will be skipped and the
 consumer will continue evaluating the remaining keys.
@@ -43,8 +62,24 @@ Optionally add TLS settings:
   "nats_url": "nats://127.0.0.1:4222",
   "stream_name": "events",
   "consumer_name": "zen-consumer",
-  "subjects": ["events.syslog"],
-  "decision_keys": ["example-decision"],
+  "subjects": ["events.syslog", "events.snmp"],
+  "decision_groups": [
+    {
+      "name": "syslog",
+      "subjects": ["events.syslog"],
+      "rules": [
+        {"order": 1, "key": "strip_full_message"},
+        {"order": 2, "key": "cef_severity"}
+      ]
+    },
+    {
+      "name": "snmp",
+      "subjects": ["events.snmp"],
+      "rules": [
+        {"order": 1, "key": "cef_severity"}
+      ]
+    }
+  ],
   "agent_id": "agent-01",
   "kv_bucket": "serviceradar-kv",
   "result_subject_suffix": ".processed",

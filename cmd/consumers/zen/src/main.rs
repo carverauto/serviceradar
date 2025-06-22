@@ -45,6 +45,21 @@ struct SecurityConfig {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+struct RuleEntry {
+    order: u32,
+    key: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+struct DecisionGroupConfig {
+    name: String,
+    #[serde(default)]
+    subjects: Vec<String>,
+    #[serde(default)]
+    rules: Vec<RuleEntry>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
 struct Config {
     nats_url: String,
     stream_name: String,
@@ -55,6 +70,8 @@ struct Config {
     result_subject_suffix: Option<String>,
     #[serde(default)]
     decision_keys: Vec<String>,
+    #[serde(default)]
+    decision_groups: Vec<DecisionGroupConfig>,
     #[serde(default = "default_kv_bucket")]
     kv_bucket: String,
     agent_id: String,
@@ -83,8 +100,8 @@ impl Config {
         if self.consumer_name.is_empty() {
             anyhow::bail!("consumer_name is required");
         }
-        if self.decision_keys.is_empty() {
-            anyhow::bail!("at least one decision_key is required");
+        if self.decision_keys.is_empty() && self.decision_groups.is_empty() {
+            anyhow::bail!("at least one decision_key or decision_group is required");
         }
         if self.agent_id.is_empty() {
             anyhow::bail!("agent_id is required");
@@ -93,6 +110,21 @@ impl Config {
             anyhow::bail!("at least one subject is required");
         }
         Ok(())
+    }
+
+    fn ordered_rules_for_subject(&self, subject: &str) -> Vec<String> {
+        if !self.decision_groups.is_empty() {
+            if let Some(group) = self
+                .decision_groups
+                .iter()
+                .find(|g| g.subjects.is_empty() || g.subjects.iter().any(|s| s == subject))
+            {
+                let mut rules = group.rules.clone();
+                rules.sort_by_key(|r| r.order);
+                return rules.into_iter().map(|r| r.key).collect();
+            }
+        }
+        self.decision_keys.clone()
     }
 }
 
@@ -130,10 +162,10 @@ async fn process_message(
     msg: &Message,
 ) -> Result<()> {
     debug!("processing message on subject {}", msg.subject);
-    let event: serde_json::Value = serde_json::from_slice(&msg.payload)?;
-    for key in &cfg.decision_keys {
+    let mut context: serde_json::Value = serde_json::from_slice(&msg.payload)?;
+    for key in cfg.ordered_rules_for_subject(&msg.subject) {
         let dkey = format!("{}/{}/{}", cfg.stream_name, msg.subject, key);
-        let resp = match engine.evaluate(&dkey, event.clone().into()).await {
+        let resp = match engine.evaluate(&dkey, context.clone().into()).await {
             Ok(r) => r,
             Err(e) => {
                 if let zen_engine::EvaluationError::LoaderError(le) = e.as_ref() {
@@ -147,6 +179,7 @@ async fn process_message(
         };
         debug!("decision {} evaluated", dkey);
         let resp_json = serde_json::to_value(&resp)?;
+        context = resp_json.clone();
         let ce = EventBuilderV10::new()
             .id(Uuid::new_v4().to_string())
             .source(Url::parse(&format!(
@@ -319,8 +352,15 @@ mod tests {
         assert_eq!(cfg.nats_url, "nats://127.0.0.1:4222");
         assert_eq!(cfg.stream_name, "events");
         assert_eq!(cfg.consumer_name, "zen-consumer");
-        assert_eq!(cfg.subjects, vec!["events.syslog".to_string()]);
-        assert_eq!(cfg.decision_keys, vec!["example-decision".to_string()]);
+        assert_eq!(cfg.subjects, vec!["events.syslog", "events.snmp"]);
+        assert_eq!(cfg.decision_groups.len(), 2);
+        assert_eq!(cfg.decision_groups[0].name, "syslog");
+        assert_eq!(cfg.decision_groups[0].subjects, vec!["events.syslog"]);
+        assert_eq!(cfg.decision_groups[0].rules[0].key, "strip_full_message");
+        assert_eq!(cfg.decision_groups[0].rules[1].key, "cef_severity");
+        assert_eq!(cfg.decision_groups[1].name, "snmp");
+        assert_eq!(cfg.decision_groups[1].subjects, vec!["events.snmp"]);
+        assert_eq!(cfg.decision_groups[1].rules[0].key, "cef_severity");
         assert_eq!(cfg.agent_id, "agent-01");
         assert_eq!(cfg.kv_bucket, "serviceradar-kv");
         assert_eq!(cfg.result_subject_suffix.as_deref(), Some(".processed"));
@@ -336,6 +376,7 @@ mod tests {
             result_subject: None,
             result_subject_suffix: None,
             decision_keys: Vec::new(),
+            decision_groups: Vec::new(),
             kv_bucket: String::new(),
             agent_id: String::new(),
             security: None,
