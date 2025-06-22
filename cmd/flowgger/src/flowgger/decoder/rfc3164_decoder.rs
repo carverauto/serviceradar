@@ -71,6 +71,7 @@ fn decode_rfc_standard(pri: &Pri, msg: &str, line: &str) -> Result<Record, &'sta
         let record = Record {
             ts,
             hostname: _hostname.to_owned(),
+            remote_addr: None,
             facility: pri.facility,
             severity: pri.severity,
             appname: None,
@@ -106,6 +107,7 @@ fn decode_rfc_custom(pri: &Pri, msg: &str, line: &str) -> Result<Record, &'stati
         let record = Record {
             ts,
             hostname: _hostname.to_owned(),
+            remote_addr: None,
             facility: pri.facility,
             severity: pri.severity,
             appname: None,

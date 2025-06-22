@@ -109,6 +109,7 @@ fn test_rfc5424_encode() {
     let record = Record {
         ts,
         hostname: "testhostname".to_string(),
+        remote_addr: None,
         facility: None,
         severity: None,
         appname: None,
@@ -133,6 +134,7 @@ fn test_rfc5424_full_encode() {
     let record = Record {
         ts,
         hostname: "testhostname".to_string(),
+        remote_addr: None,
         facility: Some(3),
         severity: Some(1),
         appname: Some("appname".to_string()),
@@ -169,6 +171,7 @@ fn test_rfc5424_full_encode_multiple_sd() {
     let record = Record {
         ts,
         hostname: "testhostname".to_string(),
+        remote_addr: None,
         facility: Some(3),
         severity: Some(1),
         appname: Some("appname".to_string()),

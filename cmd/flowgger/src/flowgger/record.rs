@@ -71,6 +71,8 @@ impl fmt::Display for StructuredData {
 pub struct Record {
     pub ts: f64,
     pub hostname: String,
+    /// Optional source IP address of the client that sent the log.
+    pub remote_addr: Option<String>,
     pub facility: Option<u8>,
     pub severity: Option<u8>,
     pub appname: Option<String>,
@@ -114,10 +116,11 @@ fn test_structured_data_display() {
 
 #[test]
 fn test_record_display() {
-    let expected_debug = r#"Record { ts: 123.456, hostname: "hostname", facility: Some(3), severity: Some(8), appname: Some("app"), procid: Some("123"), msgid: None, msg: Some("msg"), full_msg: None, sd: None }"#;
+    let expected_debug = r#"Record { ts: 123.456, hostname: "hostname", remote_addr: None, facility: Some(3), severity: Some(8), appname: Some("app"), procid: Some("123"), msgid: None, msg: Some("msg"), full_msg: None, sd: None }"#;
     let record = Record {
         ts: 123.456,
         hostname: "hostname".to_string(),
+        remote_addr: None,
         facility: Some(3),
         severity: Some(8),
         appname: Some("app".to_string()),
