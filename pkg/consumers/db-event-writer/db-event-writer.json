@@ -1,0 +1,6 @@
+{
+  "nats_url": "nats://127.0.0.1:4222",
+  "stream_name": "events",
+  "consumer_name": "db-event-writer",
+  "clickhouse_url": "http://localhost:8123"
+}
