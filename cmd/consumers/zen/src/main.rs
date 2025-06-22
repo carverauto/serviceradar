@@ -31,7 +31,7 @@ const BATCH_TIMEOUT: Duration = Duration::from_secs(1);
 const MAX_RETRIES: i64 = 3;
 
 #[derive(Parser, Debug)]
-#[command(name = "serviceradar-zen-consumer")]
+#[command(name = "serviceradar-zen")]
 struct Cli {
     /// Path to configuration file
     #[arg(short, long, env = "ZEN_CONFIG")]
