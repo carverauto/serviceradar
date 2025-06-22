@@ -23,6 +23,7 @@
   ],
   "edges": [
     {"id": "e1", "sourceId": "inputNode", "targetId": "cefTable", "type": "edge"},
-    {"id": "e2", "sourceId": "cefTable", "targetId": "outputNode", "type": "edge"}
+    {"id": "e2", "sourceId": "cefTable", "targetId": "outputNode", "type": "edge"},
+    {"id": "e3", "sourceId": "inputNode", "targetId": "outputNode", "type": "edge"}
   ]
 }
