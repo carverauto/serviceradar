@@ -1,5 +1,5 @@
 -- Creates a stream to store CloudEvents from syslog, with a flattened data structure.
-CREATE STREAM IF NOT EXISTS cloudevents_syslog (
+CREATE STREAM IF NOT EXISTS events (
     -- CloudEvents Context Attributes
     specversion string,
     id string,
