@@ -43,10 +43,8 @@ RUN sed -i "s/%{version}/${VERSION}/g" SPECS/serviceradar-${COMPONENT}.spec && \
     mkdir -p BUILD && \
     echo "Listing binary directory contents:" && \
     ls -la /src/${BINARY_PATH}/target/x86_64-unknown-linux-gnu/release/ && \
-    # Determine the correct binary name based on actual files
-    export BINARY_FILE=$(find /src/${BINARY_PATH}/target/x86_64-unknown-linux-gnu/release/ -type f -executable -not -name "*.d" | grep -v "\.so" | head -1) && \
-    echo "Found binary: ${BINARY_FILE}" && \
-    cp "${BINARY_FILE}" BUILD/serviceradar-${COMPONENT} && \
+    cp /src/${BINARY_PATH}/target/x86_64-unknown-linux-gnu/release/serviceradar-zen BUILD/serviceradar-zen && \
+    cp /src/${BINARY_PATH}/target/x86_64-unknown-linux-gnu/release/zen-put-rule BUILD/zen-put-rule && \
     rpmbuild -bb SPECS/serviceradar-${COMPONENT}.spec && \
     echo "Checking RPM build output:" && \
     find RPMS -type f -name "*.rpm" && \

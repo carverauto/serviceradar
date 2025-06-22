@@ -658,6 +658,18 @@
       {
         "source": "packaging/zen/config/zen-consumer.json",
         "dest": "/etc/serviceradar/consumers/zen-consumer.json"
+      },
+      {
+        "source": "packaging/zen/rules/cef_severity.json",
+        "dest": "/etc/serviceradar/zen/rules/cef_severity.json"
+      },
+      {
+        "source": "packaging/zen/rules/passthrough.json",
+        "dest": "/etc/serviceradar/zen/rules/passthrough.json"
+      },
+      {
+        "source": "packaging/zen/rules/strip_full_message.json",
+        "dest": "/etc/serviceradar/zen/rules/strip_full_message.json"
       }
     ],
     "systemd_service": {
@@ -671,10 +683,14 @@
       "source": "packaging/zen/scripts/preremove.sh"
     },
     "conffiles": [
-      "/etc/serviceradar/consumers/zen-consumer.json"
+      "/etc/serviceradar/consumers/zen-consumer.json",
+      "/etc/serviceradar/zen/rules/cef_severity.json",
+      "/etc/serviceradar/zen/rules/passthrough.json",
+      "/etc/serviceradar/zen/rules/strip_full_message.json"
     ],
     "additional_dirs": [
-      "/var/log/zen"
+      "/var/log/zen",
+      "/etc/serviceradar/zen/rules"
     ]
   },
   {
