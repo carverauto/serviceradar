@@ -1,0 +1,22 @@
+[package]
+name = "serviceradar-db-event-writer"
+version = "0.1.0"
+edition = "2021"
+authors = ["ServiceRadar Team"]
+description = "JetStream consumer writing CloudEvents to Timeplus Proton"
+license = "Apache-2.0"
+
+[dependencies]
+anyhow = "1"
+async-nats = "0.42"
+clap = { version = "4.3", features = ["derive", "env"] }
+env_logger = "0.10"
+log = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1", features = ["full"] }
+proton_client = "0.1"
+clickhouse = "0.13"
+futures = "0.3"
+cloudevents-sdk = "0.8"
+

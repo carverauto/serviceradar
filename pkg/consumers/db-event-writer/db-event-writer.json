@@ -1,0 +1,7 @@
+{
+  "nats_url": "nats://127.0.0.1:4222",
+  "stream_name": "events",
+  "consumer_name": "db-writer",
+  "subjects": ["events.syslog.processed", "events.snmp.processed"],
+  "proton_url": "http://localhost:8123"
+}
