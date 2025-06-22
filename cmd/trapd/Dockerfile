@@ -40,6 +40,6 @@ RUN groupadd -r serviceradar && useradd -r -g serviceradar serviceradar && \
     chown -R serviceradar:serviceradar /etc/serviceradar
 
 USER serviceradar
-EXPOSE 50059
+EXPOSE 162
 
 CMD ["/usr/local/bin/serviceradar-trapd", "/etc/serviceradar/trapd.json"]

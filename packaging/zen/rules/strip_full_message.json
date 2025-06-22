@@ -1,0 +1,22 @@
+{
+  "nodes": [
+    { "id": "inputNode", "type": "inputNode", "name": "Request", "position": { "x": 80, "y": 150 } },
+    {
+      "id": "stripFullMessage",
+      "type": "expressionNode",
+      "name": "Strip Full Message",
+      "position": { "x": 300, "y": 150 },
+      "content": {
+        "expressions": [
+          { "id": "expr1", "key": "full_message", "value": "null" }
+        ]
+      }
+    },
+    { "id": "outputNode", "type": "outputNode", "name": "Response", "position": { "x": 560, "y": 150 } }
+  ],
+  "edges": [
+    { "id": "e1", "sourceId": "inputNode", "targetId": "stripFullMessage", "type": "edge" },
+    { "id": "e2", "sourceId": "stripFullMessage", "targetId": "outputNode", "type": "edge" },
+    { "id": "e3", "sourceId": "inputNode", "targetId": "outputNode", "type": "edge" }
+  ]
+}
