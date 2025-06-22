@@ -32,7 +32,8 @@ struct Config {
     nats_url: String,
     stream_name: String,
     consumer_name: String,
-    clickhouse_url: String,
+    /// URL for connecting to the Timeplus Proton database (ClickHouse compatible)
+    proton_url: String,
     security: Option<SecurityConfig>,
 }
 
@@ -54,8 +55,8 @@ impl Config {
         if self.consumer_name.is_empty() {
             anyhow::bail!("consumer_name is required");
         }
-        if self.clickhouse_url.is_empty() {
-            anyhow::bail!("clickhouse_url is required");
+        if self.proton_url.is_empty() {
+            anyhow::bail!("proton_url is required");
         }
         Ok(())
     }
@@ -145,7 +146,7 @@ async fn main() -> Result<()> {
         Err(_) => stream.create_consumer(desired).await?,
     };
 
-    let ch = ChClient::default().with_url(&cfg.clickhouse_url);
+    let ch = ChClient::default().with_url(&cfg.proton_url);
     ch.query(
         "CREATE TABLE IF NOT EXISTS events (
             specversion String,

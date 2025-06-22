@@ -3,7 +3,7 @@ name = "db-event-writer"
 version = "0.1.0"
 edition = "2021"
 authors = ["ServiceRadar Team"]
-description = "NATS JetStream consumer that writes CloudEvents to ClickHouse"
+description = "NATS JetStream consumer that writes CloudEvents to Timeplus Proton"
 license = "Apache-2.0"
 
 [dependencies]
