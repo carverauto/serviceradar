@@ -44,6 +44,6 @@ RUN groupadd -r serviceradar && useradd -r -g serviceradar serviceradar && \
     chown -R serviceradar:serviceradar /etc/serviceradar
 
 USER serviceradar
-EXPOSE 50059
+EXPOSE 50040
 
 CMD ["/usr/local/bin/serviceradar-zen", "--config", "/etc/serviceradar/consumers/zen-consumer.json"]

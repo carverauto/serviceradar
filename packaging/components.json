@@ -95,7 +95,7 @@
       "release": "1"
     },
     "binary": {
-      "source_path": "cmd/consumers/device",
+      "source_path": "cmd/consumers/db-event-writer",
       "build_method": "go",
       "output_path": "/usr/local/bin/serviceradar-event-writer"
     },
