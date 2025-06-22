@@ -51,7 +51,8 @@ fi
 # Copy zen-consumer.json from the filesystem
 ZEN_CONF_SRC="${PACKAGING_DIR}/config/zen-consumer.json"
 if [ -f "$ZEN_CONF_SRC" ]; then
-    cp "$ZEN_CONF_SRC" etc/serviceradar/zen-consumer.json
+    mkdir -p etc/serviceradar/consumers
+    cp "$ZEN_CONF_SRC" etc/serviceradar/consumers/zen-consumer.json
     echo "Copied zen-consumer.json from $ZEN_CONF_SRC"
 else
     echo "Error: zen-consumer.json not found at $ZEN_CONF_SRC"
