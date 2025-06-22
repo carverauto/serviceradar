@@ -15,18 +15,18 @@ This package provides the ServiceRadar Zen consumer service, which is responsibl
 %install
 mkdir -p %{buildroot}/usr/local/bin
 mkdir -p %{buildroot}/lib/systemd/system
-mkdir -p %{buildroot}/etc/serviceradar
+mkdir -p %{buildroot}/etc/serviceradar/consumers
 
 # Install the binary (assumes binary is built at /src/cmd/zen/target/release/serviceradar-zen)
 install -m 755 %{_builddir}/serviceradar-zen %{buildroot}/usr/local/bin/
 
 # Install systemd service and config files from packaging directory
 install -m 644 %{_sourcedir}/zen/systemd/serviceradar-zen.service %{buildroot}/lib/systemd/system/
-install -m 644 %{_sourcedir}/zen/config/zen-consumer.json %{buildroot}/etc/serviceradar/
+install -m 644 %{_sourcedir}/zen/config/zen-consumer.json %{buildroot}/etc/serviceradar/consumers/
 
 %files
 %attr(0755, root, root) /usr/local/bin/serviceradar-zen
-%config(noreplace) %attr(0644, serviceradar, serviceradar) /etc/serviceradar/zen.json
+%config(noreplace) %attr(0644, serviceradar, serviceradar) /etc/serviceradar/consumers/zen-consumer.json
 %attr(0644, root, root) /lib/systemd/system/serviceradar-zen.service
 %dir %attr(0755, root, root) /etc/serviceradar
 
