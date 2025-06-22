@@ -4,7 +4,7 @@ FROM ghcr.io/carverauto/rockylinux9-rust-rpm-base:latest AS builder
 ARG VERSION=1.0.33
 ARG RELEASE=1
 ARG COMPONENT=zen
-ARG BINARY_PATH=cmd/zen
+ARG BINARY_PATH=cmd/consumers/zen
 
 # Set working directory
 WORKDIR /src/${BINARY_PATH}
