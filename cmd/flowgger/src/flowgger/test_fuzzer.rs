@@ -14,7 +14,7 @@
 ///
 /// This function will return an error if the default config does not exists, is unreadable, or is not valid
 /// toml format
-#[cfg(test)]
+#[cfg(all(test, feature = "file"))]
 mod tests {
     extern crate quickcheck;
     extern crate tempdir;
@@ -37,6 +37,7 @@ mod tests {
     use flowgger::get_decoder_rfc3164;
     use flowgger::get_encoder_rfc3164;
     use flowgger::get_output_file;
+    use flowgger::output::Output;
     use flowgger::input::udp_input::handle_record_maybe_compressed;
     use flowgger::merger;
 
@@ -182,7 +183,7 @@ mod tests {
                 x.as_str().expect("output.format must be a string")
             });
 
-        let output = get_output_file(&config);
+        let output: Box<dyn Output> = get_output_file(&config);
         let output_type = config
             .lookup("output.type")
             .map_or(DEFAULT_OUTPUT_TYPE, |x| {
@@ -222,8 +223,13 @@ mod tests {
             let sync_sender: &mut SyncSender<Vec<u8>> = &mut context.sync_sender;
             let encoder: &mut Box<dyn Encoder> = &mut context.encoder;
             let decoder: &mut Box<dyn Decoder> = &mut context.decoder;
-            let _result =
-                handle_record_maybe_compressed(data.as_bytes(), &sync_sender, &decoder, &encoder);
+            let _result = handle_record_maybe_compressed(
+                data.as_bytes(),
+                "127.0.0.1:12345".parse().unwrap(),
+                &sync_sender,
+                &decoder,
+                &encoder,
+            );
 
             drop(guard);
         }

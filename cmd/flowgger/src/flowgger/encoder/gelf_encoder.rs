@@ -84,6 +84,9 @@ impl Encoder for GelfEncoder {
         if let Some(procid) = record.procid {
             map = map.insert("process_id".to_owned(), Value::String(procid));
         }
+        if let Some(addr) = record.remote_addr {
+            map = map.insert("_remote_addr".to_owned(), Value::String(addr));
+        }
         if let Some(sd_vec) = record.sd {
             for &ref sd in &sd_vec {
                 // Warning: Gelf doesn't have a concept of structued data. In case there are
@@ -131,6 +134,7 @@ mod tests {
         let record = Record {
             ts: 1385053862.3072,
             hostname: "example.org".to_string(),
+            remote_addr: None,
             facility: None,
             severity: Some(1),
             appname: Some("appname".to_string()),
@@ -154,12 +158,37 @@ mod tests {
         let record = Record {
             ts: 1385053862.3072,
             hostname: "".to_string(),
+            remote_addr: None,
             facility: None,
             severity: Some(1),
             appname: None,
             procid: None,
             msgid: None,
             msg: Some("A short message that helps you identify what is going on".to_string()),
+            full_msg: None,
+            sd: None,
+        };
+        let encoder = GelfEncoder::new(&config);
+        assert_eq!(
+            String::from_utf8_lossy(&encoder.encode(record).unwrap()),
+            expected_msg
+        );
+    }
+
+    #[test]
+    fn test_gelf_encode_with_remote_addr() {
+        let expected_msg = r#"{"_remote_addr":"10.0.0.1","host":"example.org","short_message":"msg","timestamp":1.0,"version":"1.1"}"#;
+        let config = Config::from_string("").unwrap();
+        let record = Record {
+            ts: 1.0,
+            hostname: "example.org".to_string(),
+            remote_addr: Some("10.0.0.1".to_string()),
+            facility: None,
+            severity: None,
+            appname: None,
+            procid: None,
+            msgid: None,
+            msg: Some("msg".to_string()),
             full_msg: None,
             sd: None,
         };
@@ -180,6 +209,7 @@ mod tests {
         let record = Record {
             ts: 1385053862.3072,
             hostname: "".to_string(),
+            remote_addr: None,
             facility: None,
             severity: Some(1),
             appname: None,
@@ -227,6 +257,7 @@ mod tests {
         let record = Record {
             ts: 1385053862.3072,
             hostname: "example.org".to_string(),
+            remote_addr: None,
             facility: None,
             severity: Some(1),
             appname: Some("appname".to_string()),
