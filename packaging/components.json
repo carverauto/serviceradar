@@ -11,7 +11,14 @@
           "poller",
           "kv",
           "sync",
+          "device-mgr",
+          "event-writer",
+          "trapd",
+          "mapper",
+          "flowgger",
+          "goflow2",
           "nats",
+          "zen",
           "web",
           "sysmon",
           "snmp",
@@ -24,7 +31,7 @@
   {
     "name": "core",
     "package_name": "serviceradar-core",
-    "version": "1.0.40",
+    "version": "1.0.44",
     "description": "ServiceRadar Core API service",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -71,9 +78,132 @@
     ]
   },
   {
+    "name": "event-writer",
+    "package_name": "serviceradar-event-writer",
+    "version": "1.0.44",
+    "description": "ServiceRadar DB Event Writer Service",
+    "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
+    "architecture": "amd64",
+    "section": "utils",
+    "priority": "optional",
+    "deb": {
+      "depends": ["systemd", "jq"],
+      "dockerfile": null
+    },
+    "rpm": {
+      "depends": ["systemd", "jq"],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.simple",
+      "release": "1"
+    },
+    "binary": {
+      "source_path": "cmd/consumers/db-event-writer",
+      "build_method": "go",
+      "output_path": "/usr/local/bin/serviceradar-event-writer"
+    },
+    "config_files": [
+      {
+        "source": "packaging/event-writer/config/db-event-writer.json",
+        "dest": "/etc/serviceradar/consumers/db-event-writer.json"
+      }
+    ],
+    "systemd_service": {
+      "source": "packaging/event-writer/systemd/serviceradar-event-writer.service",
+      "dest": "/lib/systemd/system/serviceradar-event-writer.service"
+    },
+    "postinst": {
+      "source": "packaging/event-writer/scripts/postinstall.sh"
+    },
+    "prerm": {
+      "source": "packaging/event-writer/scripts/preremove.sh"
+    },
+    "conffiles": [
+      "/etc/serviceradar/consumers/db-event-writer.json"
+    ]
+  },
+  {
+    "name": "goflow2",
+    "package_name": "serviceradar-goflow2",
+    "version": "1.0.0",
+    "description": "goflow2 with NATS JetStream support",
+    "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
+    "architecture": "amd64",
+    "section": "net",
+    "priority": "optional",
+    "deb": {
+      "depends": ["systemd"],
+      "dockerfile": null
+    },
+    "rpm": {
+      "depends": ["systemd"],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.goflow2",
+      "release": "1"
+    },
+    "build_method": "external",
+    "external_binary": {
+      "source_url": "https://github.com/mfreeman/goflow2/archive/refs/heads/main.zip",
+      "binary_is_archive": true,
+      "extract_command": "git clone https://github.com/mfreeman451/goflow2.git goflow2-src && (cd goflow2-src && git checkout main && GOOS=linux GOARCH=amd64 go build -o ${OUTPUT_PATH} ./cmd/goflow2)",
+      "output_path": "/usr/local/bin/goflow2"
+    },
+    "systemd_service": {
+      "source": "packaging/goflow2/systemd/serviceradar-goflow2.service",
+      "dest": "/lib/systemd/system/serviceradar-goflow2.service"
+    },
+    "postinst": {
+      "source": "packaging/goflow2/scripts/postinstall.sh"
+    },
+    "prerm": {
+      "source": "packaging/goflow2/scripts/preremove.sh"
+    },
+    "conffiles": []
+  },
+  {
+    "name": "device-mgr",
+    "package_name": "serviceradar-device-mgr",
+    "version": "1.0.44",
+    "description": "ServiceRadar Device Manager Service",
+    "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
+    "architecture": "amd64",
+    "section": "utils",
+    "priority": "optional",
+    "deb": {
+      "depends": ["systemd", "jq"],
+      "dockerfile": null
+    },
+    "rpm": {
+      "depends": ["systemd", "jq"],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.simple",
+      "release": "1"
+    },
+    "binary": {
+      "source_path": "cmd/consumers/device",
+      "build_method": "go",
+      "output_path": "/usr/local/bin/serviceradar-device-mgr"
+    },
+    "config_files": [
+      {
+        "source": "packaging/device-mgr/config/devices.json",
+        "dest": "/etc/serviceradar/devices.json"
+      }
+    ],
+    "systemd_service": {
+      "source": "packaging/device-mgr/systemd/serviceradar-device-mgr.service",
+      "dest": "/lib/systemd/system/serviceradar-device-mgr.service"
+    },
+    "postinst": {
+      "source": "packaging/device-mgr/scripts/postinstall.sh"
+    },
+    "prerm": {
+      "source": "packaging/device-mgr/scripts/preremove.sh"
+    },
+    "conffiles": [
+      "/etc/serviceradar/devices.json"
+    ]
+  },
+  {
     "name": "proton",
     "package_name": "serviceradar-proton",
-    "version": "1.0.40",
+    "version": "1.0.44",
     "description": "ServiceRadar Proton Server (Stream Processing Engine)",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -138,7 +268,7 @@
   {
     "name": "web",
     "package_name": "serviceradar-web",
-    "version": "1.0.40",
+    "version": "1.0.44",
     "description": "ServiceRadar web interface",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -184,7 +314,7 @@
   {
     "name": "agent",
     "package_name": "serviceradar-agent",
-    "version": "1.0.40",
+    "version": "1.0.44",
     "description": "ServiceRadar Agent Service",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -232,7 +362,7 @@
   {
     "name": "poller",
     "package_name": "serviceradar-poller",
-    "version": "1.0.40",
+    "version": "1.0.44",
     "description": "ServiceRadar Poller Service",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -276,7 +406,7 @@
   {
     "name": "mapper",
     "package_name": "serviceradar-mapper",
-    "version": "1.0.40",
+    "version": "1.0.44",
     "description": "ServiceRadar Mapper Service",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -320,7 +450,7 @@
   {
     "name": "nats",
     "package_name": "serviceradar-nats",
-    "version": "1.0.40",
+    "version": "1.0.44",
     "description": "ServiceRadar NATS JetStream service",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -337,14 +467,22 @@
     },
     "build_method": "external",
     "external_binary": {
-      "source_url": "https://github.com/nats-io/nats-server/releases/download/v2.11.1/nats-server-v2.11.1-linux-amd64.tar.gz",
-      "extract_path": "nats-server-v2.11.1-linux-amd64/nats-server",
+      "source_url": "https://github.com/nats-io/nats-server/releases/download/v2.11.4/nats-server-v2.11.4-linux-amd64.tar.gz",
+      "extract_path": "nats-server-v2.11.4-linux-amd64/nats-server",
       "output_path": "/usr/bin/nats-server"
     },
     "config_files": [
       {
         "source": "packaging/nats/config/nats-server.conf",
         "dest": "/etc/nats/nats-server.conf"
+      },
+      {
+        "source": "packaging/nats/config/nats-cloud.conf",
+        "dest": "/etc/nats/templates/nats-cloud.conf"
+      },
+      {
+        "source": "packaging/nats/config/nats-leaf.conf",
+        "dest": "/etc/nats/templates/nats-leaf.conf"
       }
     ],
     "systemd_service": {
@@ -368,7 +506,7 @@
   {
     "name": "kv",
     "package_name": "serviceradar-kv",
-    "version": "1.0.40",
+    "version": "1.0.44",
     "description": "ServiceRadar Key-Value store",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -411,7 +549,7 @@
   {
     "name": "sync",
     "package_name": "serviceradar-sync",
-    "version": "1.0.40",
+    "version": "1.0.44",
     "description": "ServiceRadar Key-Value store Sync service",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -454,7 +592,7 @@
   {
     "name": "dusk-checker",
     "package_name": "serviceradar-dusk",
-    "version": "1.0.40",
+    "version": "1.0.44",
     "description": "ServiceRadar Dusk node checker",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -467,7 +605,7 @@
     "binary": {
       "source_path": "cmd/checkers/dusk",
       "build_method": "go",
-      "output_path": "/usr/local/bin/dusk-checker"
+      "output_path": "/usr/local/bin/serviceradar-dusk-checker"
     },
     "config_files": [
       {
@@ -492,7 +630,7 @@
   {
     "name": "snmp-checker",
     "package_name": "serviceradar-snmp-checker",
-    "version": "1.0.40",
+    "version": "1.0.44",
     "description": "ServiceRadar SNMP poller",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -533,9 +671,71 @@
     ]
   },
   {
+    "name": "zen",
+    "package_name": "serviceradar-zen",
+    "version": "1.0.44",
+    "description": "ServiceRadar Zen Consumer Service",
+    "maintainer": "Carver Automation Corporation <mfreeman@carverauto.dev>",
+    "architecture": "amd64",
+    "section": "net",
+    "priority": "optional",
+    "deb": {
+      "depends": ["systemd"],
+      "dockerfile": "cmd/consumers/zen/Dockerfile"
+    },
+    "rpm": {
+      "depends": ["systemd"],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.rust.zen",
+      "release": "1"
+    },
+      "binary": {
+        "build_method": "rust",
+        "source_path": "cmd/consumers/zen",
+        "output_path": "/usr/local/bin/serviceradar-zen"
+      },
+    "config_files": [
+      {
+        "source": "packaging/zen/config/zen-consumer.json",
+        "dest": "/etc/serviceradar/consumers/zen-consumer.json"
+      },
+      {
+        "source": "packaging/zen/rules/cef_severity.json",
+        "dest": "/etc/serviceradar/zen/rules/cef_severity.json"
+      },
+      {
+        "source": "packaging/zen/rules/passthrough.json",
+        "dest": "/etc/serviceradar/zen/rules/passthrough.json"
+      },
+      {
+        "source": "packaging/zen/rules/strip_full_message.json",
+        "dest": "/etc/serviceradar/zen/rules/strip_full_message.json"
+      }
+    ],
+    "systemd_service": {
+      "source": "packaging/zen/systemd/serviceradar-zen.service",
+      "dest": "/lib/systemd/system/serviceradar-zen.service"
+    },
+    "postinst": {
+      "source": "packaging/zen/scripts/postinstall.sh"
+    },
+    "prerm": {
+      "source": "packaging/zen/scripts/preremove.sh"
+    },
+    "conffiles": [
+      "/etc/serviceradar/consumers/zen-consumer.json",
+      "/etc/serviceradar/zen/rules/cef_severity.json",
+      "/etc/serviceradar/zen/rules/passthrough.json",
+      "/etc/serviceradar/zen/rules/strip_full_message.json"
+    ],
+    "additional_dirs": [
+      "/var/log/zen",
+      "/etc/serviceradar/zen/rules"
+    ]
+  },
+  {
     "name": "rperf",
     "package_name": "serviceradar-rperf",
-    "version": "1.0.40",
+    "version": "1.0.44",
     "description": "ServiceRadar RPerf Network Performance Testing Tool",
     "maintainer": "Carver Automation Corporation <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -573,7 +773,7 @@
   {
     "name": "rperf-checker",
     "package_name": "serviceradar-rperf-checker",
-    "version": "1.0.40",
+    "version": "1.0.44",
     "description": "ServiceRadar RPerf Network Performance Test Checker",
     "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
     "architecture": "amd64",
@@ -616,9 +816,99 @@
     ]
   },
   {
+    "name": "flowgger",
+    "package_name": "serviceradar-flowgger",
+    "version": "1.0.44",
+    "description": "ServiceRadar Flowgger log ingestion service",
+    "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
+    "architecture": "amd64",
+    "section": "net",
+    "priority": "optional",
+    "deb": {
+      "depends": ["systemd"],
+      "dockerfile": "cmd/flowgger/Dockerfile"
+    },
+    "rpm": {
+      "depends": ["systemd"],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.rust.flowgger",
+      "release": "1"
+    },
+    "binary": {
+      "build_method": "rust",
+      "source_path": "cmd/flowgger",
+      "output_path": "/usr/local/bin/serviceradar-flowgger",
+      "docker_output_path": "/output/serviceradar-flowgger"
+    },
+    "custom_steps": [],
+    "config_files": [
+      {
+        "source": "packaging/flowgger/config/flowgger.toml",
+        "dest": "/etc/serviceradar/flowgger.toml"
+      }
+    ],
+    "systemd_service": {
+      "source": "packaging/flowgger/systemd/serviceradar-flowgger.service",
+      "dest": "/lib/systemd/system/serviceradar-flowgger.service"
+    },
+    "postinst": {
+      "source": "packaging/flowgger/scripts/postinstall.sh"
+    },
+    "prerm": {
+      "source": "packaging/flowgger/scripts/preremove.sh"
+    },
+    "conffiles": [
+      "/etc/serviceradar/flowgger.toml"
+    ]
+  },
+  {
+    "name": "trapd",
+    "package_name": "serviceradar-trapd",
+    "version": "1.0.44",
+    "description": "ServiceRadar SNMP trap receiver service",
+    "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
+    "architecture": "amd64",
+    "section": "net",
+    "priority": "optional",
+    "deb": {
+      "depends": ["systemd"],
+      "dockerfile": "cmd/trapd/Dockerfile"
+    },
+    "rpm": {
+      "depends": ["systemd"],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.rust.trapd",
+      "release": "1"
+    },
+    "binary": {
+      "build_method": "rust",
+      "source_path": "cmd/trapd",
+      "output_path": "/usr/local/bin/serviceradar-trapd",
+      "docker_output_path": "/output/serviceradar-trapd"
+    },
+    "custom_steps": [],
+    "config_files": [
+      {
+        "source": "packaging/trapd/config/trapd.json",
+        "dest": "/etc/serviceradar/trapd.json"
+      }
+    ],
+    "systemd_service": {
+      "source": "packaging/trapd/systemd/serviceradar-trapd.service",
+      "dest": "/lib/systemd/system/serviceradar-trapd.service"
+    },
+    "postinst": {
+      "source": "packaging/trapd/scripts/postinstall.sh"
+    },
+    "prerm": {
+      "source": "packaging/trapd/scripts/preremove.sh"
+    },
+    "conffiles": [
+      "/etc/serviceradar/trapd.json"
+    ]
+  },
+  {
     "name": "cli",
     "package_name": "serviceradar-cli",
-    "version": "1.0.40",
+    "version": "1.0.44",
     "description": "ServiceRadar CLI tool",
     "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
     "architecture": "amd64",
@@ -651,7 +941,7 @@
   {
     "name": "sysmon",
     "package_name": "serviceradar-sysmon-checker",
-    "version": "1.0.40",
+    "version": "1.0.44",
     "description": "ServiceRadar System Monitor checker",
     "maintainer": "Carver Automation Corporation <support@carverauto.dev>",
     "architecture": "amd64",

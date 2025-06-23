@@ -42,6 +42,7 @@
     "listen_addr": ":50053",
     "poll_interval": "30s",
     "poller_id": "default-poller",
+    "partition": "default",
     "service_name": "PollerService",
     "service_type": "grpc",
     "security": {

@@ -41,6 +41,10 @@ type ArmisIntegration struct {
 	TokenProvider TokenProvider
 	DeviceFetcher DeviceFetcher
 	KVWriter      KVWriter
+
+	// Interfaces for querying sweep results and updating Armis devices
+	SweepQuerier SweepResultsQuerier
+	Updater      ArmisUpdater
 }
 
 // AccessTokenResponse represents the Armis API access token response.
@@ -84,6 +88,14 @@ type Device struct {
 	BusinessImpact   string      `json:"businessImpact"`
 	Visibility       string      `json:"visibility"`
 	Site             interface{} `json:"site"`
+}
+
+// DeviceWithMetadata represents an Armis device along with ServiceRadar metadata.
+// The Metadata field is not provided by the Armis API but is used internally to
+// persist additional information such as the Armis device ID.
+type DeviceWithMetadata struct {
+	Device
+	Metadata map[string]string `json:"metadata,omitempty"`
 }
 
 // DefaultArmisIntegration provides the default implementations for the interfaces.

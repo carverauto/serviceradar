@@ -1,0 +1,26 @@
+[package]
+name = "serviceradar-trapd"
+version = "0.1.0"
+edition = "2021"
+authors = ["ServiceRadar Team"]
+description = "SNMP Trap receiver for ServiceRadar"
+license = "Apache-2.0"
+
+[dependencies]
+anyhow = "1.0"
+async-nats = "0.42.0"
+bytes = "1.5"
+clap = { version = "4.3", features = ["derive", "env"] }
+env_logger = "0.10"
+log = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+snmp2 = { version = "0.4.8", features = ["tokio"] }
+tokio = { version = "1.44", features = ["full"] }
+prost = "0.11"
+tonic = { version = "0.9", features = ["tls"] }
+tonic-health = "0.9"
+tonic-reflection = "0.9"
+
+[build-dependencies]
+tonic-build = "0.9"

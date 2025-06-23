@@ -999,13 +999,7 @@ func (*DiscoveryEngine) copyMetadataToDevice(targetDevice, sourceDevice *Discove
 func (*DiscoveryEngine) addAlternateIPs(device *DiscoveredDevice, ips map[string]struct{}) {
 	for ip := range ips {
 		if ip != device.IP {
-			altIPKey := fmt.Sprintf("alternate_ip_%s", ip)
-
-			if device.Metadata == nil {
-				device.Metadata = make(map[string]string)
-			}
-
-			device.Metadata[altIPKey] = ip
+			device.Metadata = addAlternateIP(device.Metadata, ip)
 		}
 	}
 }
@@ -1036,13 +1030,7 @@ func (e *DiscoveryEngine) addOrUpdateDeviceToResults(job *DiscoveryJob, newDevic
 			e.updateExistingDevice(job, i, newDevice)
 
 			if existingDevice.IP != newDevice.IP {
-				altIPKey := fmt.Sprintf("alternate_ip_%s", newDevice.IP)
-
-				if existingDevice.Metadata == nil {
-					existingDevice.Metadata = make(map[string]string)
-				}
-
-				existingDevice.Metadata[altIPKey] = newDevice.IP
+				existingDevice.Metadata = addAlternateIP(existingDevice.Metadata, newDevice.IP)
 
 				log.Printf("Job %s: Device %s (MAC: %s, DeviceID: %s) updated with alternate IP %s "+
 					"(primary: %s, source: %s)",

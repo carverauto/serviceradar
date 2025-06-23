@@ -243,6 +243,7 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 			TopologyStream       string `json:"topology_stream"`
 			AgentID              string `json:"agent_id"`
 			PollerID             string `json:"poller_id"`
+			Partition            string `json:"partition"`
 			PublishBatchSize     int    `json:"publish_batch_size"`
 			PublishRetries       int    `json:"publish_retries"`
 			PublishRetryInterval string `json:"publish_retry_interval"`
@@ -328,6 +329,7 @@ type StreamConfig struct {
 	TopologyStream       string
 	AgentID              string
 	PollerID             string
+	Partition            string
 	PublishBatchSize     int
 	PublishRetries       int
 	PublishRetryInterval time.Duration
