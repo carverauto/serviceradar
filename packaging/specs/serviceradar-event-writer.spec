@@ -16,7 +16,7 @@ ServiceRadar Device Manager
 
 %install
 mkdir -p %{buildroot}/usr/local/bin
-mkdir -p %{buildroot}/etc/serviceradar
+mkdir -p %{buildroot}/etc/serviceradar/consumers
 mkdir -p %{buildroot}/lib/systemd/system
 
 install -m 755 %{_builddir}/serviceradar-event-writer %{buildroot}/usr/local/bin/
