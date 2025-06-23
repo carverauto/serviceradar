@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y \
 COPY cmd/consumers/zen/Cargo.toml cmd/consumers/zen/Cargo.lock* ./
 COPY cmd/consumers/zen/src ./src/
 COPY cmd/consumers/zen/build.rs ./
+COPY proto ./proto/
 
 # Build for x86_64-unknown-linux-gnu
 RUN rustup target add x86_64-unknown-linux-gnu && \
