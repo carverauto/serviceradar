@@ -83,7 +83,7 @@ async fn main() -> Result<()> {
 
     let socket = UdpSocket::bind(&cfg.listen_addr).await?;
 
-    let nats_client = if let Some(sec) = &cfg.security {
+    let nats_client = if let Some(sec) = &cfg.nats_security {
         let mut opts = async_nats::ConnectOptions::new();
         if let Some(ca) = &sec.ca_file {
             opts = opts.add_root_certificates(PathBuf::from(ca));
@@ -95,7 +95,21 @@ async fn main() -> Result<()> {
     } else {
         async_nats::connect(&cfg.nats_url).await?
     };
-    let js = async_nats::jetstream::new(nats_client);
+    let js = if let Some(domain) = &cfg.nats_domain {
+        async_nats::jetstream::with_domain(nats_client, domain)
+    } else {
+        async_nats::jetstream::new(nats_client)
+    };
+
+    let stream_config = async_nats::jetstream::stream::Config {
+        name: cfg.stream_name.clone(),
+        subjects: vec![cfg.subject.clone()],
+        storage: async_nats::jetstream::stream::StorageType::File,
+        ..Default::default()
+    };
+    if let Err(e) = js.get_or_create_stream(stream_config).await {
+        warn!("failed to ensure stream {}: {e}", cfg.stream_name);
+    }
 
     let mut buf = vec![0u8; 65535];
     loop {
