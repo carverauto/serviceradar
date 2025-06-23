@@ -24,8 +24,6 @@ COPY ${BINARY_PATH}/Cargo.toml .
 COPY ${BINARY_PATH}/Cargo.lock .
 COPY ${BINARY_PATH}/src ./src/
 COPY ${BINARY_PATH}/build.rs .
-COPY ${BINARY_PATH}/monitoring_descriptor.bin .
-COPY ${BINARY_PATH}/rperf_descriptor.bin .
 
 # Build the Rust binary
 RUN echo "Building Rust binary..." && \
