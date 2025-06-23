@@ -44,10 +44,10 @@ The following table lists the primary ServiceRadar components and their default 
 
 ## Event Ingestion
 
-| Component          | Default Port | Protocol | Purpose                   |
-|--------------------|--------------|----------|---------------------------|
-| SNMP Trap Receiver | 162          | UDP      | SNMP trap collection      |
-| Syslog Receiver    | 514          | UDP      | Syslog message collection |
+| Component          | Default Port | Protocol      | Purpose                     |
+|--------------------|--------------|---------------|-----------------------------|
+| SNMP Trap Receiver | 162, 50043   | UDP, gRPC/TCP | SNMP trap collection        |
+| Syslog Receiver    | 514          | UDP           | Syslog message collection   |
 
 ## Network Performance Components
 
