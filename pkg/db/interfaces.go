@@ -102,6 +102,8 @@ type Service interface {
 	PublishTopologyDiscoveryEvent(ctx context.Context, event *models.TopologyDiscoveryEvent) error
 	PublishBatchDiscoveredInterfaces(ctx context.Context, interfaces []*models.DiscoveredInterface) error
 	PublishBatchTopologyDiscoveryEvents(ctx context.Context, events []*models.TopologyDiscoveryEvent) error
+
+	StoreDevices(ctx context.Context, devices []*models.Device) error
 }
 
 // SysmonMetricsProvider interface defines operations for system monitoring metrics.

@@ -82,6 +82,11 @@ func (a *ArmisIntegration) createAndWriteSweepConfig(ctx context.Context, ips []
 
 	log.Printf("Sweep config to be written: %+v", finalSweepConfig)
 
+	if a.KVWriter == nil {
+		log.Printf("KVWriter not configured, skipping sweep config write")
+		return nil
+	}
+
 	err := a.KVWriter.WriteSweepConfig(ctx, finalSweepConfig)
 	if err != nil {
 		// Log as warning, as per existing behavior for KV write errors during sweep config.
@@ -91,15 +96,16 @@ func (a *ArmisIntegration) createAndWriteSweepConfig(ctx context.Context, ips []
 	return err
 }
 
-// Fetch retrieves devices from Armis and generates sweep config.
-func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error) {
+// fetchAndProcessDevices is an unexported method that handles the core logic of fetching devices from Armis,
+// processing them, and writing a sweep config. It returns the processed data map and the raw device slice.
+func (a *ArmisIntegration) fetchAndProcessDevices(ctx context.Context) (map[string][]byte, []Device, error) {
 	accessToken, err := a.TokenProvider.GetAccessToken(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get access token: %w", err)
+		return nil, nil, fmt.Errorf("failed to get access token: %w", err)
 	}
 
 	if len(a.Config.Queries) == 0 {
-		return nil, errNoQueriesConfigured
+		return nil, nil, errNoQueriesConfigured
 	}
 
 	if a.PageSize <= 0 {
@@ -112,7 +118,7 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error)
 	for _, q := range a.Config.Queries {
 		devices, queryErr := a.fetchDevicesForQuery(ctx, accessToken, q)
 		if queryErr != nil {
-			return nil, queryErr
+			return nil, nil, queryErr
 		}
 
 		allDevices = append(allDevices, devices...)
@@ -124,10 +130,102 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, error)
 	log.Printf("Fetched total of %d devices from Armis", len(allDevices))
 
 	// Create and write sweep config
-	// Errors from createAndWriteSweepConfig are logged but don't fail the Fetch operation
 	_ = a.createAndWriteSweepConfig(ctx, ips)
 
-	return data, nil
+	return data, allDevices, nil
+}
+
+func (a *ArmisIntegration) convertToSweepResults(devices []Device) []*models.SweepResult {
+	out := make([]*models.SweepResult, 0, len(devices))
+
+	for i := range devices {
+		dev := &devices[i]
+		hostname := dev.Name
+		mac := dev.MacAddress
+		meta := map[string]string{
+			"armis_device_id": fmt.Sprintf("%d", dev.ID),
+			"type":            dev.Type,
+			"risk_level":      fmt.Sprintf("%d", dev.RiskLevel),
+		}
+		out = append(out, &models.SweepResult{
+			AgentID:         a.Config.AgentID,
+			PollerID:        a.Config.PollerID,
+			Partition:       a.Config.Partition,
+			DiscoverySource: "armis",
+			IP:              dev.IPAddress,
+			MAC:             &mac,
+			Hostname:        &hostname,
+			Timestamp:       dev.FirstSeen,
+			Available:       true,
+			Metadata:        meta,
+		})
+	}
+
+	return out
+}
+
+// Fetch retrieves devices from Armis. If the updater is configured, it also
+// correlates sweep results and sends status updates back to Armis.
+func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, []*models.SweepResult, error) {
+	// Step 1: Fetch devices and create the initial KV data and sweep config.
+	data, devices, err := a.fetchAndProcessDevices(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	modelEvents := a.convertToSweepResults(devices)
+
+	// Step 2: Check if the updater and querier are configured. If not, we are done.
+	if a.Updater == nil || a.SweepQuerier == nil {
+		log.Println("Armis updater/querier not configured, skipping status update correlation.")
+
+		return data, modelEvents, nil
+	}
+
+	log.Println("Armis updater and querier are configured, proceeding with sweep result correlation.")
+
+	// Step 3: Query for sweep results.
+	sweepResults, err := a.SweepQuerier.GetTodaysSweepResults(ctx)
+	if err != nil {
+		log.Printf("Failed to get sweep results, skipping update: %v", err)
+
+		return data, modelEvents, nil // Return originally fetched data without failing the sync
+	}
+
+	log.Printf("Successfully queried %d sweep results.", len(sweepResults))
+
+	// Step 4: Prepare and send status updates back to Armis.
+	updates := a.PrepareArmisUpdate(ctx, devices, sweepResults)
+
+	if len(updates) > 0 {
+		log.Printf("Prepared %d status updates to send to Armis.", len(updates))
+
+		if err := a.Updater.UpdateDeviceStatus(ctx, updates); err != nil {
+			// Log the error but don't fail the entire sync operation.
+			log.Printf("Failed to update device status in Armis: %v", err)
+		} else {
+			log.Println("Successfully invoked the Armis device status updater.")
+		}
+	} else {
+		log.Println("No device status updates to send to Armis.")
+	}
+
+	// Step 5: Enrich the KV data with sweep results.
+	enrichedData := make(map[string][]byte)
+
+	for key, deviceData := range data {
+		enrichedData[key] = deviceData
+	}
+
+	if len(sweepResults) > 0 {
+		if sweepResultsData, err := json.Marshal(sweepResults); err == nil {
+			enrichedData["_sweep_results"] = sweepResultsData
+		} else {
+			log.Printf("Warning: failed to marshal sweep results for KV store: %v", err)
+		}
+	}
+
+	return enrichedData, modelEvents, nil
 }
 
 // FetchDevicesPage fetches a single page of devices from the Armis API.
@@ -189,36 +287,70 @@ func (d *DefaultArmisIntegration) FetchDevicesPage(
 }
 
 // processDevices converts devices to KV data and extracts IPs.
-func (*ArmisIntegration) processDevices(devices []Device) (data map[string][]byte, ips []string) {
+func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]byte, ips []string) {
 	data = make(map[string][]byte)
 	ips = make([]string, 0, len(devices))
 
-	for i := range devices {
-		device := &devices[i] // Use a pointer to avoid copying the struct
+	pollerID := a.Config.PollerID
 
-		// Marshal the device to JSON
-		value, err := json.Marshal(device)
+	for i := range devices {
+		d := &devices[i] // Use a pointer to avoid copying the struct
+
+		enriched := DeviceWithMetadata{
+			Device:   *d,
+			Metadata: map[string]string{"armis_device_id": fmt.Sprintf("%d", d.ID)},
+		}
+
+		// Marshal the device with metadata to JSON
+		value, err := json.Marshal(enriched)
 		if err != nil {
-			log.Printf("Failed to marshal device %d: %v", device.ID, err)
+			log.Printf("Failed to marshal device %d: %v", d.ID, err)
 			continue
 		}
 
 		// Store device in KV with device ID as key
-		data[fmt.Sprintf("%d", device.ID)] = value
+		data[fmt.Sprintf("%d", d.ID)] = value
 
 		// Process IP addresses - handle comma-separated list of IPs
-		if device.IPAddress != "" {
-			// Split by comma and process each IP
-			ipList := strings.Split(device.IPAddress, ",")
-			if len(ipList) > 0 {
-				// Trim spaces and validate the first IP only
-				ip := strings.TrimSpace(ipList[0])
-
-				if ip != "" {
-					// Add to sweep list with /32 suffix
-					ips = append(ips, ip+"/32")
-				}
+		ipList := strings.Split(d.IPAddress, ",")
+		for _, ipRaw := range ipList {
+			ip := strings.TrimSpace(ipRaw)
+			if ip == "" {
+				continue
 			}
+
+			deviceID := fmt.Sprintf("%s:%s", a.Config.Partition, ip)
+
+			metadata := map[string]interface{}{
+				"armis_id":     fmt.Sprintf("%d", d.ID),
+				"type":         d.Type,
+				"category":     d.Category,
+				"manufacturer": d.Manufacturer,
+				"model":        d.Model,
+			}
+
+			modelDevice := &models.Device{
+				DeviceID:         deviceID,
+				PollerID:         pollerID,
+				DiscoverySources: []string{"armis"},
+				IP:               ip,
+				MAC:              d.MacAddress,
+				Hostname:         d.Name,
+				FirstSeen:        d.FirstSeen,
+				LastSeen:         d.LastSeen,
+				IsAvailable:      true,
+				Metadata:         metadata,
+			}
+
+			value, err := json.Marshal(modelDevice)
+			if err != nil {
+				log.Printf("Failed to marshal device %d: %v", d.ID, err)
+				continue
+			}
+
+			data[deviceID] = value
+
+			ips = append(ips, ip+"/32")
 		}
 	}
 

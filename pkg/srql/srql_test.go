@@ -83,7 +83,7 @@ func TestSRQLParsingAndTranslation(t *testing.T) { // Renamed for clarity
 				aql, _ := arangoTranslator.Translate(query)
 				assert.Equal(t, "FOR doc IN devices\n  RETURN doc", aql)
 				sqlP, _ := protonTranslator.Translate(query)
-				assert.Equal(t, "SELECT * FROM table(devices)", sqlP)
+				assert.Equal(t, "SELECT * FROM table(unified_devices)", sqlP)
 			},
 		},
 		{
@@ -103,7 +103,7 @@ func TestSRQLParsingAndTranslation(t *testing.T) { // Renamed for clarity
 				sqlCH, _ := clickhouseTranslator.Translate(query)
 				assert.Equal(t, "SELECT * FROM devices WHERE ip = '192.168.1.1'", sqlCH)
 				sqlP, _ := protonTranslator.Translate(query)
-				assert.Equal(t, "SELECT * FROM table(devices) WHERE ip = '192.168.1.1'", sqlP)
+				assert.Equal(t, "SELECT * FROM table(unified_devices) WHERE ip = '192.168.1.1'", sqlP)
 			},
 		},
 		{
@@ -116,6 +116,25 @@ func TestSRQLParsingAndTranslation(t *testing.T) { // Renamed for clarity
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), "syntax error") // Or the specific error from your listener
 				assert.Nil(t, query)
+			},
+		},
+		{
+			name:  "Show sweep_results defaults to sweep discovery source",
+			query: "show sweep_results",
+			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
+
+				require.NoError(t, err)
+				assert.Equal(t, models.SweepResults, query.Entity)
+				assert.Empty(t, query.Conditions)
+
+				sqlP, errP := protonTranslator.Translate(query)
+				require.NoError(t, errP)
+				assert.Equal(t, "SELECT * FROM table(sweep_results) WHERE discovery_source = 'sweep'", sqlP)
+
+				sqlCH, errCH := clickhouseTranslator.Translate(query)
+				require.NoError(t, errCH)
+				assert.Equal(t, "SELECT * FROM sweep_results WHERE discovery_source = 'sweep'", sqlCH)
 			},
 		},
 		// --- New Test Cases for sweep_results and date functions ---
@@ -147,13 +166,13 @@ func TestSRQLParsingAndTranslation(t *testing.T) { // Renamed for clarity
 				sqlP, errP := protonTranslator.Translate(query)
 				require.NoError(t, errP)
 				assert.Equal(t, "SELECT * FROM table(sweep_results) "+
-					"WHERE to_date(timestamp) = today() AND available = true", sqlP)
+					"WHERE to_date(timestamp) = today() AND available = true AND discovery_source = 'sweep'", sqlP)
 
 				// Test ClickHouse translation
 				sqlCH, errCH := clickhouseTranslator.Translate(query)
 				require.NoError(t, errCH)
 				assert.Equal(t, "SELECT * FROM sweep_results WHERE "+
-					"toDate(timestamp) = today() AND available = true", sqlCH) // Assuming toDate for CH
+					"toDate(timestamp) = today() AND available = true AND discovery_source = 'sweep'", sqlCH) // Assuming toDate for CH
 
 				// Test ArangoDB translation
 				aql, errA := arangoTranslator.Translate(query)
@@ -161,7 +180,7 @@ func TestSRQLParsingAndTranslation(t *testing.T) { // Renamed for clarity
 				todayDateStr := time.Now().Format("2006-01-02")
 				// Assuming SUBSTRING for Arango if timestamp is string, or DATE_TRUNC if native date
 				expectedAQL := fmt.Sprintf("FOR doc IN sweep_results\n  "+
-					"FILTER SUBSTRING(doc.timestamp, 0, 10) == '%s' AND doc.available == true\n  "+
+					"FILTER SUBSTRING(doc.timestamp, 0, 10) == '%s' AND doc.available == true AND doc.discovery_source == 'sweep'\n  "+
 					"RETURN doc", todayDateStr)
 				assert.Equal(t, expectedAQL, aql)
 			},
@@ -183,19 +202,19 @@ func TestSRQLParsingAndTranslation(t *testing.T) { // Renamed for clarity
 				// Proton
 				sqlP, _ := protonTranslator.Translate(query)
 				assert.Equal(t, "SELECT * FROM table(sweep_results) "+
-					"WHERE to_date(timestamp) = yesterday() AND available = false", sqlP)
+					"WHERE to_date(timestamp) = yesterday() AND available = false AND discovery_source = 'sweep'", sqlP)
 
 				// ClickHouse
 				sqlCH, _ := clickhouseTranslator.Translate(query)
 				assert.Equal(t, "SELECT * FROM sweep_results WHERE toDate(timestamp) = yesterday() "+
-					"AND available = false", sqlCH)
+					"AND available = false AND discovery_source = 'sweep'", sqlCH)
 
 				// ArangoDB
 				aql, _ := arangoTranslator.Translate(query)
 				yesterdayDateStr := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
 				expectedAQL := fmt.Sprintf(
 					"FOR doc IN sweep_results\n  FILTER SUBSTRING(doc.timestamp, 0, 10) == '%s' "+
-						"AND doc.available == false\n  RETURN doc", yesterdayDateStr)
+						"AND doc.available == false AND doc.discovery_source == 'sweep'\n  RETURN doc", yesterdayDateStr)
 				assert.Equal(t, expectedAQL, aql)
 			},
 		},
@@ -213,15 +232,18 @@ func TestSRQLParsingAndTranslation(t *testing.T) { // Renamed for clarity
 
 				// Proton
 				sqlP, _ := protonTranslator.Translate(query)
-				assert.Equal(t, "SELECT * FROM table(sweep_results) WHERE to_date(timestamp) = '2023-10-20'", sqlP)
+				assert.Equal(t, "SELECT * FROM table(sweep_results) WHERE to_date(timestamp) = "+
+					"'2023-10-20' AND discovery_source = 'sweep'", sqlP)
 
 				// ClickHouse
 				sqlCH, _ := clickhouseTranslator.Translate(query)
-				assert.Equal(t, "SELECT * FROM sweep_results WHERE toDate(timestamp) = '2023-10-20'", sqlCH)
+				assert.Equal(t, "SELECT * FROM sweep_results WHERE toDate(timestamp) = "+
+					"'2023-10-20' AND discovery_source = 'sweep'", sqlCH)
 
 				// ArangoDB
 				aql, _ := arangoTranslator.Translate(query)
-				expectedAQL := "FOR doc IN sweep_results\n  FILTER SUBSTRING(doc.timestamp, 0, 10) == '2023-10-20'\n  RETURN doc"
+				expectedAQL := "FOR doc IN sweep_results\n  FILTER SUBSTRING(doc.timestamp, 0, 10) " +
+					"== '2023-10-20' AND doc.discovery_source == 'sweep'\n  RETURN doc"
 				assert.Equal(t, expectedAQL, aql)
 			},
 		},
@@ -240,7 +262,7 @@ func TestSRQLParsingAndTranslation(t *testing.T) { // Renamed for clarity
 
 				// Proton
 				sqlP, _ := protonTranslator.Translate(query)
-				assert.Equal(t, "SELECT COUNT(*) FROM table(sweep_results) WHERE to_date(timestamp) = today()", sqlP)
+				assert.Equal(t, "SELECT COUNT(*) FROM table(sweep_results) WHERE to_date(timestamp) = today() AND discovery_source = 'sweep'", sqlP)
 			},
 		},
 		{
@@ -254,7 +276,7 @@ func TestSRQLParsingAndTranslation(t *testing.T) { // Renamed for clarity
 				assert.Equal(t, "TODAY", query.Conditions[0].Value)           // Visitor should normalize keyword
 
 				sqlP, _ := protonTranslator.Translate(query)
-				assert.Equal(t, "SELECT * FROM table(sweep_results) WHERE to_date(timestamp) = today()", sqlP)
+				assert.Equal(t, "SELECT * FROM table(sweep_results) WHERE to_date(timestamp) = today() AND discovery_source = 'sweep'", sqlP)
 			},
 		},
 		// Add more tests:

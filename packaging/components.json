@@ -11,7 +11,14 @@
           "poller",
           "kv",
           "sync",
+          "device-mgr",
+          "event-writer",
+          "trapd",
+          "mapper",
+          "flowgger",
+          "goflow2",
           "nats",
+          "zen",
           "web",
           "sysmon",
           "snmp",
@@ -68,6 +75,129 @@
     "conffiles": [
       "/etc/serviceradar/core.json",
       "/etc/serviceradar/api.env"
+    ]
+  },
+  {
+    "name": "event-writer",
+    "package_name": "serviceradar-event-writer",
+    "version": "1.0.44",
+    "description": "ServiceRadar DB Event Writer Service",
+    "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
+    "architecture": "amd64",
+    "section": "utils",
+    "priority": "optional",
+    "deb": {
+      "depends": ["systemd", "jq"],
+      "dockerfile": null
+    },
+    "rpm": {
+      "depends": ["systemd", "jq"],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.simple",
+      "release": "1"
+    },
+    "binary": {
+      "source_path": "cmd/consumers/db-event-writer",
+      "build_method": "go",
+      "output_path": "/usr/local/bin/serviceradar-event-writer"
+    },
+    "config_files": [
+      {
+        "source": "packaging/event-writer/config/db-event-writer.json",
+        "dest": "/etc/serviceradar/consumers/db-event-writer.json"
+      }
+    ],
+    "systemd_service": {
+      "source": "packaging/event-writer/systemd/serviceradar-event-writer.service",
+      "dest": "/lib/systemd/system/serviceradar-event-writer.service"
+    },
+    "postinst": {
+      "source": "packaging/event-writer/scripts/postinstall.sh"
+    },
+    "prerm": {
+      "source": "packaging/event-writer/scripts/preremove.sh"
+    },
+    "conffiles": [
+      "/etc/serviceradar/consumers/db-event-writer.json"
+    ]
+  },
+  {
+    "name": "goflow2",
+    "package_name": "serviceradar-goflow2",
+    "version": "1.0.0",
+    "description": "goflow2 with NATS JetStream support",
+    "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
+    "architecture": "amd64",
+    "section": "net",
+    "priority": "optional",
+    "deb": {
+      "depends": ["systemd"],
+      "dockerfile": null
+    },
+    "rpm": {
+      "depends": ["systemd"],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.goflow2",
+      "release": "1"
+    },
+    "build_method": "external",
+    "external_binary": {
+      "source_url": "https://github.com/mfreeman/goflow2/archive/refs/heads/main.zip",
+      "binary_is_archive": true,
+      "extract_command": "git clone https://github.com/mfreeman451/goflow2.git goflow2-src && (cd goflow2-src && git checkout main && GOOS=linux GOARCH=amd64 go build -o ${OUTPUT_PATH} ./cmd/goflow2)",
+      "output_path": "/usr/local/bin/goflow2"
+    },
+    "systemd_service": {
+      "source": "packaging/goflow2/systemd/serviceradar-goflow2.service",
+      "dest": "/lib/systemd/system/serviceradar-goflow2.service"
+    },
+    "postinst": {
+      "source": "packaging/goflow2/scripts/postinstall.sh"
+    },
+    "prerm": {
+      "source": "packaging/goflow2/scripts/preremove.sh"
+    },
+    "conffiles": []
+  },
+  {
+    "name": "device-mgr",
+    "package_name": "serviceradar-device-mgr",
+    "version": "1.0.44",
+    "description": "ServiceRadar Device Manager Service",
+    "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
+    "architecture": "amd64",
+    "section": "utils",
+    "priority": "optional",
+    "deb": {
+      "depends": ["systemd", "jq"],
+      "dockerfile": null
+    },
+    "rpm": {
+      "depends": ["systemd", "jq"],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.simple",
+      "release": "1"
+    },
+    "binary": {
+      "source_path": "cmd/consumers/device",
+      "build_method": "go",
+      "output_path": "/usr/local/bin/serviceradar-device-mgr"
+    },
+    "config_files": [
+      {
+        "source": "packaging/device-mgr/config/devices.json",
+        "dest": "/etc/serviceradar/devices.json"
+      }
+    ],
+    "systemd_service": {
+      "source": "packaging/device-mgr/systemd/serviceradar-device-mgr.service",
+      "dest": "/lib/systemd/system/serviceradar-device-mgr.service"
+    },
+    "postinst": {
+      "source": "packaging/device-mgr/scripts/postinstall.sh"
+    },
+    "prerm": {
+      "source": "packaging/device-mgr/scripts/preremove.sh"
+    },
+    "conffiles": [
+      "/etc/serviceradar/devices.json"
     ]
   },
   {
@@ -337,14 +467,22 @@
     },
     "build_method": "external",
     "external_binary": {
-      "source_url": "https://github.com/nats-io/nats-server/releases/download/v2.11.1/nats-server-v2.11.1-linux-amd64.tar.gz",
-      "extract_path": "nats-server-v2.11.1-linux-amd64/nats-server",
+      "source_url": "https://github.com/nats-io/nats-server/releases/download/v2.11.4/nats-server-v2.11.4-linux-amd64.tar.gz",
+      "extract_path": "nats-server-v2.11.4-linux-amd64/nats-server",
       "output_path": "/usr/bin/nats-server"
     },
     "config_files": [
       {
         "source": "packaging/nats/config/nats-server.conf",
         "dest": "/etc/nats/nats-server.conf"
+      },
+      {
+        "source": "packaging/nats/config/nats-cloud.conf",
+        "dest": "/etc/nats/templates/nats-cloud.conf"
+      },
+      {
+        "source": "packaging/nats/config/nats-leaf.conf",
+        "dest": "/etc/nats/templates/nats-leaf.conf"
       }
     ],
     "systemd_service": {
@@ -533,6 +671,68 @@
     ]
   },
   {
+    "name": "zen",
+    "package_name": "serviceradar-zen",
+    "version": "1.0.44",
+    "description": "ServiceRadar Zen Consumer Service",
+    "maintainer": "Carver Automation Corporation <mfreeman@carverauto.dev>",
+    "architecture": "amd64",
+    "section": "net",
+    "priority": "optional",
+    "deb": {
+      "depends": ["systemd"],
+      "dockerfile": "cmd/consumers/zen/Dockerfile"
+    },
+    "rpm": {
+      "depends": ["systemd"],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.rust.zen",
+      "release": "1"
+    },
+      "binary": {
+        "build_method": "rust",
+        "source_path": "cmd/consumers/zen",
+        "output_path": "/usr/local/bin/serviceradar-zen"
+      },
+    "config_files": [
+      {
+        "source": "packaging/zen/config/zen-consumer.json",
+        "dest": "/etc/serviceradar/consumers/zen-consumer.json"
+      },
+      {
+        "source": "packaging/zen/rules/cef_severity.json",
+        "dest": "/etc/serviceradar/zen/rules/cef_severity.json"
+      },
+      {
+        "source": "packaging/zen/rules/passthrough.json",
+        "dest": "/etc/serviceradar/zen/rules/passthrough.json"
+      },
+      {
+        "source": "packaging/zen/rules/strip_full_message.json",
+        "dest": "/etc/serviceradar/zen/rules/strip_full_message.json"
+      }
+    ],
+    "systemd_service": {
+      "source": "packaging/zen/systemd/serviceradar-zen.service",
+      "dest": "/lib/systemd/system/serviceradar-zen.service"
+    },
+    "postinst": {
+      "source": "packaging/zen/scripts/postinstall.sh"
+    },
+    "prerm": {
+      "source": "packaging/zen/scripts/preremove.sh"
+    },
+    "conffiles": [
+      "/etc/serviceradar/consumers/zen-consumer.json",
+      "/etc/serviceradar/zen/rules/cef_severity.json",
+      "/etc/serviceradar/zen/rules/passthrough.json",
+      "/etc/serviceradar/zen/rules/strip_full_message.json"
+    ],
+    "additional_dirs": [
+      "/var/log/zen",
+      "/etc/serviceradar/zen/rules"
+    ]
+  },
+  {
     "name": "rperf",
     "package_name": "serviceradar-rperf",
     "version": "1.0.44",
@@ -630,7 +830,7 @@
     },
     "rpm": {
       "depends": ["systemd"],
-      "dockerfile": "docker/rpm/Dockerfile.rpm.rust",
+      "dockerfile": "docker/rpm/Dockerfile.rpm.rust.flowgger",
       "release": "1"
     },
     "binary": {
@@ -675,7 +875,7 @@
     },
     "rpm": {
       "depends": ["systemd"],
-      "dockerfile": "docker/rpm/Dockerfile.rpm.rust",
+      "dockerfile": "docker/rpm/Dockerfile.rpm.rust.trapd",
       "release": "1"
     },
     "binary": {

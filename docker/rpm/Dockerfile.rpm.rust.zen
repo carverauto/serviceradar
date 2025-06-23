@@ -1,0 +1,73 @@
+# Use pre-built base image
+FROM ghcr.io/carverauto/rockylinux9-rust-rpm-base:latest AS builder
+
+ARG VERSION=1.0.33
+ARG RELEASE=1
+ARG COMPONENT=zen
+ARG BINARY_PATH=cmd/consumers/zen
+
+# Set working directory
+WORKDIR /src/${BINARY_PATH}
+
+RUN rustup update nightly && rustup default nightly
+
+# Print debug information
+RUN echo "BINARY_PATH=${BINARY_PATH}" && \
+    echo "COMPONENT=${COMPONENT}" && \
+    echo "VERSION=${VERSION}" && \
+    echo "RELEASE=${RELEASE}" && \
+    echo "Current directory: $(pwd)" && \
+    ls -la /src || echo "No /src directory yet"
+
+# Copy source files - fail if not found
+COPY ${BINARY_PATH}/Cargo.toml .
+COPY ${BINARY_PATH}/Cargo.lock .
+COPY ${BINARY_PATH}/src ./src/
+COPY ${BINARY_PATH}/build.rs .
+
+# Include shared protobuf definitions
+RUN mkdir -p ../../../proto
+COPY proto ../../../proto/
+
+# Build the Rust binary
+RUN echo "Building Rust binary..." && \
+    cargo build --release --target x86_64-unknown-linux-gnu --verbose && \
+    echo "Build completed successfully" && \
+    ls -la target/x86_64-unknown-linux-gnu/release/
+
+# Set up RPM build environment
+WORKDIR /root/rpmbuild
+COPY packaging/specs/serviceradar-${COMPONENT}.spec SPECS/
+RUN mkdir -p SOURCES/${COMPONENT}/systemd SOURCES/${COMPONENT}/config
+RUN mkdir -p SOURCES/${COMPONENT}/systemd \
+    SOURCES/${COMPONENT}/config \
+    SOURCES/${COMPONENT}/rules
+COPY packaging/${COMPONENT}/systemd/serviceradar-${COMPONENT}.service SOURCES/${COMPONENT}/systemd/
+COPY packaging/${COMPONENT}/config/zen-consumer.json SOURCES/${COMPONENT}/config/
+COPY packaging/${COMPONENT}/rules/*.json SOURCES/${COMPONENT}/rules/
+
+# Build the RPM
+RUN sed -i "s/%{version}/${VERSION}/g" SPECS/serviceradar-${COMPONENT}.spec && \
+    sed -i "s/%{release}/${RELEASE}/g" SPECS/serviceradar-${COMPONENT}.spec && \
+    mkdir -p BUILD && \
+    echo "Listing binary directory contents:" && \
+    ls -la /src/${BINARY_PATH}/target/x86_64-unknown-linux-gnu/release/ && \
+    cp /src/${BINARY_PATH}/target/x86_64-unknown-linux-gnu/release/serviceradar-zen BUILD/serviceradar-zen && \
+    cp /src/${BINARY_PATH}/target/x86_64-unknown-linux-gnu/release/zen-put-rule BUILD/zen-put-rule && \
+    rpmbuild -bb SPECS/serviceradar-${COMPONENT}.spec && \
+    echo "Checking RPM build output:" && \
+    find RPMS -type f -name "*.rpm" && \
+    mkdir -p /output && \
+    find RPMS -type f -name "*.rpm" -exec cp {} /output/ \; && \
+    ls -la /output/
+
+# Final stage using RockyLinux
+FROM rockylinux:9
+
+WORKDIR /rpms
+# Copy ALL RPM files from the builder's output directory
+COPY --from=builder /output/*.rpm ./
+# Add validation step
+RUN ls -la /rpms/
+
+CMD ["ls", "-la", "/rpms/"]

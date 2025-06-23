@@ -32,6 +32,7 @@ impl Decoder for RFC5424Decoder {
         let record = Record {
             ts,
             hostname: hostname.to_owned(),
+            remote_addr: None,
             facility: Some(pri_version.facility),
             severity: Some(pri_version.severity),
             appname: Some(appname.to_owned()),
