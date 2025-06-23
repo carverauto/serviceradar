@@ -7,7 +7,7 @@
     "key_file": "/etc/serviceradar/certs/trapd-key.pem",
     "ca_file": "/etc/serviceradar/certs/root.pem"
   },
-  "grpc_listen_addr": "0.0.0.0:50056",
+  "grpc_listen_addr": "0.0.0.0:50043",
   "grpc_security": {
     "cert_file": "/etc/serviceradar/certs/core.pem",
     "key_file": "/etc/serviceradar/certs/core-key.pem",
