@@ -25,7 +25,6 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"strings"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 )
@@ -147,12 +146,13 @@ func (a *ArmisIntegration) convertToSweepResults(devices []Device) []*models.Swe
 			"type":            dev.Type,
 			"risk_level":      fmt.Sprintf("%d", dev.RiskLevel),
 		}
+		ip := extractFirstIP(dev.IPAddress)
 		out = append(out, &models.SweepResult{
 			AgentID:         a.Config.AgentID,
 			PollerID:        a.Config.PollerID,
 			Partition:       a.Config.Partition,
 			DiscoverySource: "armis",
-			IP:              dev.IPAddress,
+			IP:              ip,
 			MAC:             &mac,
 			Hostname:        &hostname,
 			Timestamp:       dev.FirstSeen,
@@ -311,47 +311,44 @@ func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]b
 		// Store device in KV with device ID as key
 		data[fmt.Sprintf("%d", d.ID)] = value
 
-		// Process IP addresses - handle comma-separated list of IPs
-		ipList := strings.Split(d.IPAddress, ",")
-		for _, ipRaw := range ipList {
-			ip := strings.TrimSpace(ipRaw)
-			if ip == "" {
-				continue
-			}
-
-			deviceID := fmt.Sprintf("%s:%s", a.Config.Partition, ip)
-
-			metadata := map[string]interface{}{
-				"armis_id":     fmt.Sprintf("%d", d.ID),
-				"type":         d.Type,
-				"category":     d.Category,
-				"manufacturer": d.Manufacturer,
-				"model":        d.Model,
-			}
-
-			modelDevice := &models.Device{
-				DeviceID:         deviceID,
-				PollerID:         pollerID,
-				DiscoverySources: []string{"armis"},
-				IP:               ip,
-				MAC:              d.MacAddress,
-				Hostname:         d.Name,
-				FirstSeen:        d.FirstSeen,
-				LastSeen:         d.LastSeen,
-				IsAvailable:      true,
-				Metadata:         metadata,
-			}
-
-			value, err := json.Marshal(modelDevice)
-			if err != nil {
-				log.Printf("Failed to marshal device %d: %v", d.ID, err)
-				continue
-			}
-
-			data[deviceID] = value
-
-			ips = append(ips, ip+"/32")
+		// Only consider the first IP address returned by Armis
+		ip := extractFirstIP(d.IPAddress)
+		if ip == "" {
+			continue
 		}
+
+		deviceID := fmt.Sprintf("%s:%s", a.Config.Partition, ip)
+
+		metadata := map[string]interface{}{
+			"armis_id":     fmt.Sprintf("%d", d.ID),
+			"type":         d.Type,
+			"category":     d.Category,
+			"manufacturer": d.Manufacturer,
+			"model":        d.Model,
+		}
+
+		modelDevice := &models.Device{
+			DeviceID:         deviceID,
+			PollerID:         pollerID,
+			DiscoverySources: []string{"armis"},
+			IP:               ip,
+			MAC:              d.MacAddress,
+			Hostname:         d.Name,
+			FirstSeen:        d.FirstSeen,
+			LastSeen:         d.LastSeen,
+			IsAvailable:      true,
+			Metadata:         metadata,
+		}
+
+		value, err = json.Marshal(modelDevice)
+		if err != nil {
+			log.Printf("Failed to marshal device %d: %v", d.ID, err)
+			continue
+		}
+
+		data[deviceID] = value
+
+		ips = append(ips, ip+"/32")
 	}
 
 	return data, ips
