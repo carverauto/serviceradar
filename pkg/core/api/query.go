@@ -325,56 +325,6 @@ func determineOperator(direction string, sortDirection models.SortDirection) mod
 	return op
 }
 
-// buildEntitySpecificConditions builds additional conditions specific to the entity type
-/*
-func buildEntitySpecificConditions(entity models.EntityType, cursorData map[string]interface{}) []models.Condition {
-	var conditions []models.Condition
-
-	switch entity {
-	case models.Devices:
-		if ip, ok := cursorData["ip"]; ok {
-			conditions = append(conditions, models.Condition{
-				Field:     "ip",
-				Operator:  models.NotEquals,
-				Value:     ip,
-				LogicalOp: models.Or,
-			})
-		}
-	case models.Interfaces:
-		if deviceIP, ok := cursorData["device_ip"]; ok {
-			conditions = append(conditions, models.Condition{
-				Field:     "device_ip",
-				Operator:  models.NotEquals,
-				Value:     deviceIP,
-				LogicalOp: models.Or,
-			})
-		}
-
-		if ifIndex, ok := cursorData["ifIndex"]; ok {
-			conditions = append(conditions, models.Condition{
-				Field:     "ifIndex",
-				Operator:  models.NotEquals,
-				Value:     ifIndex,
-				LogicalOp: models.Or,
-			})
-		}
-	case models.SweepResults:
-		if ip, ok := cursorData["ip"]; ok {
-			conditions = append(conditions, models.Condition{
-				Field:     "ip",
-				Operator:  models.NotEquals,
-				Value:     ip,
-				LogicalOp: models.Or,
-			})
-		}
-	case models.Flows, models.Traps, models.Connections, models.Logs,
-		models.ICMPResults, models.SNMPResults:
-	}
-
-	return conditions
-}
-*/
-
 // In query.go, replace the existing buildCursorConditions with this new version
 func buildCursorConditions(query *models.Query, cursorData map[string]interface{}, direction string) []models.Condition {
 	if len(query.OrderBy) == 0 {
@@ -391,15 +341,6 @@ func buildCursorConditions(query *models.Query, cursorData map[string]interface{
 	for i, orderItem := range query.OrderBy {
 		// Create the AND conditions for this level of nesting
 		currentLevelAnds := make([]models.Condition, 0, i+1)
-
-		/*
-			conditions := []models.Condition{{
-				Field:     orderField,
-				Operator:  op,
-				Value:     orderValue,
-				LogicalOp: models.And,
-			}}
-		*/
 
 		// Add equality checks for all previous sort keys
 		for j := 0; j < i; j++ {
