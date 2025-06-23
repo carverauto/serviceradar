@@ -13,6 +13,7 @@ COPY cmd/consumers/zen/Cargo.toml cmd/consumers/zen/Cargo.lock* ./
 COPY cmd/consumers/zen/src ./src/
 COPY cmd/consumers/zen/build.rs ./
 COPY proto ./proto/
+COPY proto /usr/proto
 
 # Build for x86_64-unknown-linux-gnu
 RUN rustup target add x86_64-unknown-linux-gnu && \
