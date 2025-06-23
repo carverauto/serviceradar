@@ -24,8 +24,10 @@ COPY ${BINARY_PATH}/Cargo.toml .
 COPY ${BINARY_PATH}/Cargo.lock .
 COPY ${BINARY_PATH}/src ./src/
 COPY ${BINARY_PATH}/build.rs .
-COPY ${BINARY_PATH}/monitoring_descriptor.bin .
-COPY ${BINARY_PATH}/rperf_descriptor.bin .
+
+# Include shared protobuf definitions
+RUN mkdir -p ../../../proto
+COPY proto ../../../proto/
 
 # Build the Rust binary
 RUN echo "Building Rust binary..." && \
@@ -37,8 +39,12 @@ RUN echo "Building Rust binary..." && \
 WORKDIR /root/rpmbuild
 COPY packaging/specs/serviceradar-${COMPONENT}.spec SPECS/
 RUN mkdir -p SOURCES/${COMPONENT}/systemd SOURCES/${COMPONENT}/config
+RUN mkdir -p SOURCES/${COMPONENT}/systemd \
+    SOURCES/${COMPONENT}/config \
+    SOURCES/${COMPONENT}/rules
 COPY packaging/${COMPONENT}/systemd/serviceradar-${COMPONENT}.service SOURCES/${COMPONENT}/systemd/
 COPY packaging/${COMPONENT}/config/zen-consumer.json SOURCES/${COMPONENT}/config/
+COPY packaging/${COMPONENT}/rules/*.json SOURCES/${COMPONENT}/rules/
 
 # Build the RPM
 RUN sed -i "s/%{version}/${VERSION}/g" SPECS/serviceradar-${COMPONENT}.spec && \
