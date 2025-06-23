@@ -3,14 +3,14 @@
   "nats_url": "nats://127.0.0.1:4222",
   "subject": "snmp.traps",
   "security": {
-    "cert_file": "/etc/serviceradar/certs/trapd.pem",
-    "key_file": "/etc/serviceradar/certs/trapd-key.pem",
+    "cert_file": "/etc/serviceradar/certs/nats-client.pem",
+    "key_file": "/etc/serviceradar/certs/nats-client-key.pem",
     "ca_file": "/etc/serviceradar/certs/root.pem"
   },
   "grpc_listen_addr": "0.0.0.0:50043",
   "grpc_security": {
-    "cert_file": "/etc/serviceradar/certs/core.pem",
-    "key_file": "/etc/serviceradar/certs/core-key.pem",
+    "cert_file": "/etc/serviceradar/certs/trapd.pem",
+    "key_file": "/etc/serviceradar/certs/trapd-key.pem",
     "ca_file": "/etc/serviceradar/certs/root.pem"
   }
 }
