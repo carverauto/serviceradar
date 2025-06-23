@@ -392,9 +392,17 @@ func buildCursorConditions(query *models.Query, cursorData map[string]interface{
 		// Create the AND conditions for this level of nesting
 		currentLevelAnds := make([]models.Condition, 0, i+1)
 
+	conditions := []models.Condition{{
+		Field:     orderField,
+		Operator:  op,
+		Value:     orderValue,
+		LogicalOp: models.And,
+	}}
+
 		// Add equality checks for all previous sort keys
 		for j := 0; j < i; j++ {
 			prevItem := query.OrderBy[j]
+
 
 			prevValue, ok := cursorData[prevItem.Field]
 			if !ok {
