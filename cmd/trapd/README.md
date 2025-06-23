@@ -29,6 +29,28 @@ Optionally enable TLS by adding a `security` section:
 }
 ```
 
+To enable the gRPC health check server, add `grpc_listen_addr` and optional
+`grpc_security` settings:
+
+```json
+{
+  "listen_addr": "0.0.0.0:162",
+  "nats_url": "nats://127.0.0.1:4222",
+  "subject": "snmp.traps",
+  "security": {
+    "cert_file": "/etc/serviceradar/certs/trapd.pem",
+    "key_file": "/etc/serviceradar/certs/trapd-key.pem",
+    "ca_file": "/etc/serviceradar/certs/root.pem"
+  },
+  "grpc_listen_addr": "0.0.0.0:50056",
+  "grpc_security": {
+    "cert_file": "/etc/serviceradar/certs/core.pem",
+    "key_file": "/etc/serviceradar/certs/core-key.pem",
+    "ca_file": "/etc/serviceradar/certs/root.pem"
+  }
+}
+```
+
 Run the service with:
 
 ```sh
