@@ -25,6 +25,10 @@ COPY ${BINARY_PATH}/Cargo.lock .
 COPY ${BINARY_PATH}/src ./src/
 COPY ${BINARY_PATH}/build.rs .
 
+# Include shared protobuf definitions
+RUN mkdir -p ../proto
+COPY proto ../proto/
+
 # Build the Rust binary
 RUN echo "Building Rust binary..." && \
     cargo build --release --target x86_64-unknown-linux-gnu --verbose && \
