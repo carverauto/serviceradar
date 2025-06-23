@@ -56,6 +56,7 @@ type Config struct {
 	CoreAddress  string                 `json:"core_address"`
 	PollInterval models.Duration        `json:"poll_interval"`
 	PollerID     string                 `json:"poller_id"`
+	Partition    string                 `json:"partition"`
 	Security     *models.SecurityConfig `json:"security"`
 }
 
@@ -67,6 +68,10 @@ func (c *Config) Validate() error {
 
 	if c.PollerID == "" {
 		return errPollerIDRequired
+	}
+
+	if c.Partition == "" {
+		c.Partition = "default"
 	}
 
 	if len(c.Agents) == 0 {

@@ -366,7 +366,7 @@ func verifySweepTestCase(ctx context.Context, t *testing.T, server *Server, svc 
 	}, now time.Time) {
 	t.Helper()
 
-	err := server.processSweepData(ctx, svc, now)
+	err := server.processSweepData(ctx, svc, "default", now)
 	if tt.expectError {
 		assert.Error(t, err)
 		return

@@ -113,19 +113,34 @@ func (s *APIServer) prepareQuery(req *QueryRequest) (*models.Query, map[string]i
 
 	// Validate entity
 	if query.Entity != models.Devices && query.Entity != models.Interfaces && query.Entity != models.SweepResults {
-		return nil, nil, errors.New("pagination is only supported for devices and interfaces")
+		return nil, nil, errors.New("pagination is only supported for devices, interfaces, and sweep_results")
 	}
 
-	// Ensure ORDER BY exists for stable pagination
+	var defaultOrderField string
 	if len(query.OrderBy) == 0 {
-		defaultOrderField := "_tp_time"
+		defaultOrderField = "_tp_time" // Default for Proton
 
 		if s.dbType != parser.Proton {
-			defaultOrderField = "last_seen" // Adjust for ClickHouse/ArangoDB
+			defaultOrderField = "last_seen" // Adjust for other DBs
 		}
 
 		query.OrderBy = []models.OrderByItem{
 			{Field: defaultOrderField, Direction: models.Descending},
+		}
+	} else {
+		// If an OrderBy exists, use its primary field as the "default" for the next check.
+		defaultOrderField = query.OrderBy[0].Field
+	}
+
+	// Step 2: Ensure the sort order is stable by adding a tie-breaker field.
+	// This runs after the default is set, ensuring stability for all paginated queries.
+	if len(query.OrderBy) == 1 && query.OrderBy[0].Field == defaultOrderField {
+		if query.Entity == models.SweepResults || query.Entity == models.Devices {
+			// Add 'ip' as a default secondary sort key for stable pagination.
+			query.OrderBy = append(query.OrderBy, models.OrderByItem{
+				Field:     "ip",
+				Direction: models.Descending, // Must be consistent
+			})
 		}
 	}
 
@@ -311,6 +326,7 @@ func determineOperator(direction string, sortDirection models.SortDirection) mod
 }
 
 // buildEntitySpecificConditions builds additional conditions specific to the entity type
+/*
 func buildEntitySpecificConditions(entity models.EntityType, cursorData map[string]interface{}) []models.Condition {
 	var conditions []models.Condition
 
@@ -357,23 +373,24 @@ func buildEntitySpecificConditions(entity models.EntityType, cursorData map[stri
 
 	return conditions
 }
+*/
 
+// In query.go, replace the existing buildCursorConditions with this new version
 func buildCursorConditions(query *models.Query, cursorData map[string]interface{}, direction string) []models.Condition {
-	// Guard: must have at least one order by field
 	if len(query.OrderBy) == 0 {
 		return nil
 	}
 
-	orderField := query.OrderBy[0].Field
+	// This function now correctly handles multi-column keyset pagination.
+	// It builds a clause like: (field1 < val1) OR (field1 = val1 AND field2 < val2) ...
 
-	// Guard: cursor must contain the order field
-	orderValue, ok := cursorData[orderField]
-	if !ok {
-		return nil
-	}
+	// The outer container for all the OR groups
+	outerOrConditions := make([]models.Condition, 0, len(query.OrderBy))
 
-	// Determine operator based on direction and sort order
-	op := determineOperator(direction, query.OrderBy[0].Direction)
+	// Iterate through each OrderBy item to build the nested clauses
+	for i, orderItem := range query.OrderBy {
+		// Create the AND conditions for this level of nesting
+		currentLevelAnds := make([]models.Condition, 0, i+1)
 
 	conditions := []models.Condition{{
 		Field:     orderField,
@@ -382,14 +399,62 @@ func buildCursorConditions(query *models.Query, cursorData map[string]interface{
 		LogicalOp: models.And,
 	}}
 
-	// Add entity-specific conditions
-	entityConditions := buildEntitySpecificConditions(query.Entity, cursorData)
+		// Add equality checks for all previous sort keys
+		for j := 0; j < i; j++ {
+			prevItem := query.OrderBy[j]
 
-	if len(entityConditions) > 0 {
-		conditions = append(conditions, entityConditions...)
+
+			prevValue, ok := cursorData[prevItem.Field]
+			if !ok {
+				continue
+			} // Should not happen with a valid cursor
+
+			currentLevelAnds = append(currentLevelAnds, models.Condition{
+				Field:     prevItem.Field,
+				Operator:  models.Equals,
+				Value:     prevValue,
+				LogicalOp: models.And,
+			})
+		}
+
+		// Add the main inequality check for the current sort key
+		op := determineOperator(direction, orderItem.Direction)
+
+		cursorValue, ok := cursorData[orderItem.Field]
+		if !ok {
+			continue
+		}
+
+		currentLevelAnds = append(currentLevelAnds, models.Condition{
+			Field:     orderItem.Field,
+			Operator:  op,
+			Value:     cursorValue,
+			LogicalOp: models.And,
+		})
+
+		// Group the AND conditions into a complex condition
+		outerOrConditions = append(outerOrConditions, models.Condition{
+			IsComplex: true,
+			Complex:   currentLevelAnds,
+			LogicalOp: models.Or,
+		})
 	}
 
-	return conditions
+	// If there's only one OR condition, we don't need to wrap it again.
+	if len(outerOrConditions) == 1 {
+		return []models.Condition{{
+			LogicalOp: models.And,
+			IsComplex: true,
+			Complex:   outerOrConditions[0].Complex,
+		}}
+	}
+
+	// Wrap all the OR groups in a final complex AND condition
+	return []models.Condition{{
+		LogicalOp: models.And,
+		IsComplex: true,
+		Complex:   outerOrConditions,
+	}}
 }
 
 // createCursorData creates cursor data from a result
@@ -454,25 +519,26 @@ func encodeCursor(cursorData map[string]interface{}) string {
 	return base64.StdEncoding.EncodeToString(bytes)
 }
 
-// generateCursors creates next and previous cursors from query results
+// generateCursors creates next and previous cursors from query results.
 func generateCursors(query *models.Query, results []map[string]interface{}, _ parser.DatabaseType) (nextCursor, prevCursor string) {
 	if len(results) == 0 {
-		return "", ""
+		return "", "" // No results, so no cursors.
+	}
+
+	if query.HasLimit && len(results) == query.Limit {
+		orderField := query.OrderBy[0].Field
+		lastResult := results[len(results)-1]
+		nextCursorData := createCursorData(lastResult, orderField)
+		addEntityFields(nextCursorData, lastResult, query.Entity)
+
+		nextCursor = encodeCursor(nextCursorData)
 	}
 
 	orderField := query.OrderBy[0].Field
-
-	// Generate next cursor from last result
-	lastResult := results[len(results)-1]
-	nextCursorData := createCursorData(lastResult, orderField)
-
-	addEntityFields(nextCursorData, lastResult, query.Entity)
-
-	// Generate prev cursor from first result
 	firstResult := results[0]
 	prevCursorData := createCursorData(firstResult, orderField)
-
 	addEntityFields(prevCursorData, firstResult, query.Entity)
+	prevCursor = encodeCursor(prevCursorData)
 
-	return encodeCursor(nextCursorData), encodeCursor(prevCursorData)
+	return nextCursor, prevCursor
 }

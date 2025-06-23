@@ -1,0 +1,5 @@
+{
+  "hosts": ["192.168.2.23", "trapd.serviceradar"],
+  "key": {"algo": "ecdsa", "size": 256},
+  "names": [{"O": "ServiceRadar", "CN": "trapd.serviceradar"}]
+}

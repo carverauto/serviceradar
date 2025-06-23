@@ -46,10 +46,40 @@ The Sync service is configured via `/etc/serviceradar/sync.json`:
   "kv_address": "192.168.2.23:50057",
   "listen_addr": "192.168.2.23:50058",
   "poll_interval": "5m",
+  "agent_id": "default-agent",
+  "poller_id": "default-poller",
+  "nats_url": "tls://192.168.2.23:4222",
+  "stream_name": "devices",
+  "subject": "discovery.devices",
+  "domain": "edge",
   "security": {
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
     "server_name": "192.168.2.23",
+    "role": "poller",
+    "tls": {
+      "cert_file": "sync.pem",
+      "key_file": "sync-key.pem",
+      "ca_file": "root.pem",
+      "client_ca_file": "root.pem"
+    }
+  },
+  "nats_security": {
+    "mode": "mtls",
+    "cert_dir": "/etc/serviceradar/certs",
+    "server_name": "nats-serviceradar",
+    "role": "poller",
+    "tls": {
+      "cert_file": "sync.pem",
+      "key_file": "sync-key.pem",
+      "ca_file": "root.pem",
+      "client_ca_file": "root.pem"
+    }
+  },
+  "nats_security": {
+    "mode": "mtls",
+    "cert_dir": "/etc/serviceradar/certs",
+    "server_name": "nats-serviceradar",
     "role": "poller",
     "tls": {
       "cert_file": "sync.pem",
@@ -80,7 +110,14 @@ The Sync service is configured via `/etc/serviceradar/sync.json`:
 | `kv_address` | Address and port of the KV service | N/A | Yes |
 | `listen_addr` | Address and port for the Sync service to listen on | N/A | Yes |
 | `poll_interval` | How often to fetch and update data | `30m` | No |
-| `security` | mTLS security settings | N/A | Yes |
+| `agent_id` | Agent ID to assign to published devices | N/A | Yes |
+| `poller_id` | Poller ID to assign to published devices | N/A | Yes |
+| `nats_url` | URL for connecting to the NATS Server | `nats://127.0.0.1:4222` | No |
+| `stream_name` | JetStream stream for device messages | `devices` | Yes |
+| `subject` | Base subject for published devices | `discovery.devices` | No |
+| `domain` | JetStream domain for the NATS server | N/A | No |
+| `security` | mTLS security settings for gRPC/KV | N/A | Yes |
+| `nats_security` | mTLS security settings for NATS | (uses `security` if omitted) | No |
 
 ### Source Configuration
 
@@ -93,6 +130,9 @@ Each source in the `sources` map requires:
 | `prefix` | Key prefix in the KV store | Yes |
 | `credentials` | Authentication credentials (API keys, tokens) | Yes |
 | `insecure_skip_verify` | Skip TLS verification for self-signed certificates | No |
+| `agent_id` | Override the default agent ID for devices from this source | No |
+| `poller_id` | Override the default poller ID for devices from this source | No |
+| `partition` | Device partition name used to build `device_id` | No (defaults to `default`) |
 
 ## Supported Integrations
 
@@ -118,6 +158,7 @@ The NetBox integration:
 - Creates monitor configurations based on device types and services
 - Stores the configurations in the KV store with prefix `netbox/`
 - Supports subnet expansion with the `expand_subnets` option
+- If `partition` is omitted, devices are assigned to the `default` partition
 
 #### NetBox-Specific Options
 
@@ -133,7 +174,10 @@ The NetBox integration:
 "armis": {
   "type": "armis",
   "endpoint": "https://api.armis.com/api/v1/devices",
-  "prefix": "armis/",
+    "prefix": "armis/",
+    "sweep_interval": "10m",
+    "agent_id": "agent-prod-dc1",
+  "poller_id": "poller-prod-dc1",
   "credentials": {
     "api_key": "your_armis_api_key"
   }
@@ -144,6 +188,7 @@ The Armis integration:
 - Fetches device information from Armis
 - Creates device records in the KV store
 - Automatically generates network sweep configurations for discovered devices
+- Stores the Armis device ID in each device's metadata for later correlation
 
 #### Armis-Specific Options
 
@@ -335,6 +380,7 @@ The NetBox integration:
 5. Writes the complete sweep configuration to the KV store
 
 If `expand_subnets` is enabled, the integration will use the subnet masks as defined in NetBox. Otherwise, it treats all IPs as /32 (individual hosts).
+Discovered devices are stored using the configured `partition`. When omitted, `default` is used.
 
 ## Firewall Configuration
 
@@ -415,6 +461,7 @@ Here's a comprehensive example that includes multiple data sources:
   "kv_address": "192.168.2.23:50057",
   "listen_addr": "192.168.2.23:50058",
   "poll_interval": "5m",
+  "nats_url": "tls://192.168.2.23:4222",
   "security": {
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
@@ -427,11 +474,26 @@ Here's a comprehensive example that includes multiple data sources:
       "client_ca_file": "root.pem"
     }
   },
+  "nats_security": {
+    "mode": "mtls",
+    "cert_dir": "/etc/serviceradar/certs",
+    "server_name": "nats-serviceradar",
+    "role": "poller",
+    "tls": {
+      "cert_file": "sync.pem",
+      "key_file": "sync-key.pem",
+      "ca_file": "root.pem",
+      "client_ca_file": "root.pem"
+    }
+  },
   "sources": {
     "netbox": {
       "type": "netbox",
       "endpoint": "https://192.168.2.73",
-      "prefix": "netbox/",
+    "prefix": "netbox/",
+    "sweep_interval": "5m",
+    "agent_id": "agent-lab-west",
+      "poller_id": "poller-lab-west",
       "credentials": {
         "api_token": "72d72b0ddddddd3f7951051cd78cd7c",
         "expand_subnets": "true"
@@ -442,6 +504,8 @@ Here's a comprehensive example that includes multiple data sources:
       "type": "armis",
       "endpoint": "https://api.armis.internal/v1/devices",
       "prefix": "armis/",
+      "agent_id": "agent-prod-dc1",
+      "poller_id": "poller-prod-dc1",
       "credentials": {
         "api_key": "your_armis_api_key"
       }

@@ -1,0 +1,30 @@
+# /lib/systemd/system/serviceradar-goflow2.service
+
+[Unit]
+Description=ServiceRadar goflow2 Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Specifies the user and group to run as.
+User=serviceradar
+Group=serviceradar
+
+# Load configuration from the environment file.
+# The '-' prefix means systemd won't fail if the file is missing.
+EnvironmentFile=-/etc/serviceradar/goflow2.conf
+
+# The command to start the service.
+# The $GOFLOW2_OPTS variable is loaded from the EnvironmentFile.
+ExecStart=/usr/local/bin/serviceradar-goflow2 $GOFLOW2_OPTS
+
+# Restart policy
+Restart=always
+RestartSec=10
+
+# Resource limits
+LimitNOFILE=65535
+LimitNPROC=65535
+
+[Install]
+WantedBy=multi-user.target

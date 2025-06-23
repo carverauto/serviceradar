@@ -204,6 +204,7 @@ impl Decoder for LTSVDecoder {
         let record = Record {
             ts: ts.ok_or("Missing timestamp")?,
             hostname: hostname.ok_or("Missing hostname")?,
+            remote_addr: None,
             facility: None,
             severity,
             appname: None,

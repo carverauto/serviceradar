@@ -1,0 +1,20 @@
+[Unit]
+Description=ServiceRadar Zen Consumer
+After=network-online.target
+
+[Service]
+Type=simple
+Environment="RUST_LOG=info"
+ExecStart=/usr/local/bin/serviceradar-zen --config /etc/serviceradar/consumers/zen-consumer.json
+ExecReload=/bin/kill -s HUP $MAINPID
+ExecStop=/bin/kill -s SIGINT $MAINPID
+User=serviceradar
+Group=serviceradar
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/zen/zen.log
+StandardError=append:/var/log/zen/zen.log
+LimitNOFILE=800000
+
+[Install]
+WantedBy=multi-user.target

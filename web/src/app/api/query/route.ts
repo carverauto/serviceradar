@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
         const backendResponse = await fetch(`${apiUrl}/api/query`, {
             method: "POST",
             headers: headersToBackend,
-            body: JSON.stringify({ query }),
+            body: JSON.stringify(body),
             cache: "no-store",
         });
 

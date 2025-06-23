@@ -66,7 +66,8 @@ func (p *ProtonPublisher) PublishDevice(ctx context.Context, device *DiscoveredD
 	result := &models.SweepResult{
 		AgentID:         p.config.AgentID,
 		PollerID:        p.config.PollerID,
-		DiscoverySource: "snmp_discovery",
+		Partition:       p.config.Partition,
+		DiscoverySource: "mapper",
 		IP:              device.IP,
 		MAC:             &device.MAC,
 		Hostname:        &device.Hostname,
@@ -208,7 +209,8 @@ func (p *ProtonPublisher) PublishBatchDevices(ctx context.Context, devices []*Di
 		results[i] = &models.SweepResult{
 			AgentID:         p.config.AgentID,
 			PollerID:        p.config.PollerID,
-			DiscoverySource: "snmp_discovery",
+			Partition:       p.config.Partition,
+			DiscoverySource: "mapper",
 			IP:              device.IP,
 			MAC:             &mac,
 			Hostname:        &hostname,

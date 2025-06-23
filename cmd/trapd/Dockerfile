@@ -4,14 +4,15 @@ FROM rust:latest AS builder
 WORKDIR /usr/src/serviceradar-trapd
 
 # Install dependencies for building
-#RUN apt-get update && apt-get install -y \
-#    protobuf-compiler \
-#    && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y \
+    protobuf-compiler \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy project files
 COPY cmd/trapd/Cargo.toml cmd/trapd/Cargo.lock* ./
 COPY cmd/trapd/src ./src/
-# COPY cmd/trapd/build.rs ./
+COPY cmd/trapd/build.rs ./
+COPY proto ./proto/
 
 # Build for x86_64-unknown-linux-gnu
 RUN rustup target add x86_64-unknown-linux-gnu && \
@@ -40,6 +41,7 @@ RUN groupadd -r serviceradar && useradd -r -g serviceradar serviceradar && \
     chown -R serviceradar:serviceradar /etc/serviceradar
 
 USER serviceradar
-EXPOSE 50059
+EXPOSE 162
+EXPOSE 50056
 
 CMD ["/usr/local/bin/serviceradar-trapd", "/etc/serviceradar/trapd.json"]

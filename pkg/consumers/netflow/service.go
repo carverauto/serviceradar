@@ -18,6 +18,7 @@ package netflow
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -25,6 +26,7 @@ import (
 
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
+	"github.com/carverauto/serviceradar/pkg/natsutil"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 )
@@ -63,9 +65,15 @@ func (s *Service) Start(ctx context.Context) error {
 	}
 
 	// Connect to NATS with mTLS
+	tlsConf, err := natsutil.TLSConfig(s.cfg.Security)
+	if err != nil {
+		return fmt.Errorf("failed to build NATS TLS config: %w", err)
+	}
+
 	nc, err := nats.Connect(s.cfg.NATSURL,
-		nats.ClientCert(s.cfg.Security.TLS.CertFile, s.cfg.Security.TLS.KeyFile),
+		nats.Secure(tlsConf),
 		nats.RootCAs(s.cfg.Security.TLS.CAFile),
+		nats.ClientCert(s.cfg.Security.TLS.CertFile, s.cfg.Security.TLS.KeyFile),
 	)
 	if err != nil {
 		return err
@@ -85,7 +93,19 @@ func (s *Service) Start(ctx context.Context) error {
 
 	// Verify stream configuration
 	stream, err := js.Stream(ctx, s.cfg.StreamName)
-	if err != nil {
+	if errors.Is(err, jetstream.ErrStreamNotFound) {
+		sc := jetstream.StreamConfig{
+			Name:     s.cfg.StreamName,
+			Subjects: []string{s.cfg.StreamName},
+		}
+
+		stream, err = js.CreateOrUpdateStream(ctx, sc)
+		if err != nil {
+			s.nc.Close()
+
+			return fmt.Errorf("failed to create stream %s: %w", s.cfg.StreamName, err)
+		}
+	} else if err != nil {
 		s.nc.Close()
 
 		return fmt.Errorf("failed to get stream %s: %w", s.cfg.StreamName, err)

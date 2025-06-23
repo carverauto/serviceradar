@@ -9,11 +9,13 @@ format = "rfc3164"
 type = "nats"
 format = "gelf"
 framing = "noop" # NATS output handles its own framing
+# Partition for overlapping IP spaces
+partition = "default"
 
 # NATS JetStream specific settings
 nats_url = "nats://127.0.0.1:4222"
-nats_subject = "flowgger.syslog"
-nats_stream = "FLOWGGER" # Optional: defaults to "FLOWGGER"
+nats_subject = "events.syslog"
+nats_stream = "events" # Optional: defaults to "events"
 nats_timeout = 30000 # Optional: ACK timeout in ms, defaults to 30000
 nats_tls_ca_file = "/etc/serviceradar/certs/root.pem"
 nats_tls_cert = "/etc/serviceradar/certs/checkers.pem"

@@ -174,7 +174,7 @@ ArangoDB will be the primary master for detailed device attributes, interface in
 
 4. **Core Service & Proton:**
     - Receives data and writes to respective Proton streams.
-    - `devices_mv` updates the `devices` stream.
+    - `unified_devices_mv` merges sweep results with existing device metadata and updates the `unified_devices` stream.
 
 5. **ArangoDB Sync Service (New):**
     - Subscribes to relevant Proton streams:
@@ -348,7 +348,7 @@ SRQL will be the primary way users interact with this correlated data.
 - Modify SNMP checkers/pollers to populate these new streams.
 - Ensure `discovered_interfaces` preserves full history of interface changes rather than maintaining just current state.
 - Enforce metadata enrichment (`target_device_ip`, `ifIndex`) in `timeseries_metrics` for SNMP interface metrics.
-- Update `devices_mv` materialized view to include relationship metadata.
+ - Update `unified_devices_mv` to include relationship metadata.
 - Test data flow into these Proton streams.
 
 ### Phase 2: ArangoDB Integration (3 weeks)

@@ -1,0 +1,38 @@
+{
+  "nats_url": "nats://127.0.0.1:4222",
+  "domain": "edge",
+  "stream_name": "events",
+  "consumer_name": "zen-consumer",
+  "subjects": ["events.syslog", "events.snmp"],
+  "decision_groups": [
+    {
+      "name": "syslog",
+      "subjects": ["events.syslog"],
+      "rules": [
+        {"order": 1, "key": "strip_full_message"},
+        {"order": 2, "key": "cef_severity"}
+      ]
+    },
+    {
+      "name": "snmp",
+      "subjects": ["events.snmp"],
+      "rules": [
+        {"order": 1, "key": "cef_severity"}
+      ]
+    }
+  ],
+  "agent_id": "agent-01",
+  "kv_bucket": "serviceradar-kv",
+  "listen_addr": "0.0.0.0:50040",
+  "result_subject_suffix": ".processed",
+  "security": {
+    "cert_file": "/etc/serviceradar/certs/zen-consumer.pem",
+    "key_file": "/etc/serviceradar/certs/zen-consumer-key.pem",
+    "ca_file": "/etc/serviceradar/certs/root.pem"
+  },
+  "grpc_security": {
+    "cert_file": "/etc/serviceradar/certs/core.pem",
+    "key_file": "/etc/serviceradar/certs/core-key.pem",
+    "ca_file": "/etc/serviceradar/certs/root.pem"
+  }
+}

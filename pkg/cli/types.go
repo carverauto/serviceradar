@@ -55,6 +55,7 @@ type PollerConfig struct {
 	ListenAddr   string                 `json:"listen_addr"`
 	PollInterval string                 `json:"poll_interval"`
 	PollerID     string                 `json:"poller_id"`
+	Partition    string                 `json:"partition"`
 	ServiceName  string                 `json:"service_name"`
 	ServiceType  string                 `json:"service_type"`
 	Security     json.RawMessage        `json:"security,omitempty"`
