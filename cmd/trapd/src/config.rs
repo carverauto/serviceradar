@@ -31,6 +31,8 @@ pub struct Config {
     pub nats_url: String,
     pub subject: String,
     pub security: Option<SecurityConfig>,
+    pub grpc_listen_addr: Option<String>,
+    pub grpc_security: Option<SecurityConfig>,
 }
 
 impl Config {
@@ -50,6 +52,19 @@ impl Config {
         }
         if self.subject.is_empty() {
             anyhow::bail!("subject is required");
+        }
+        if let Some(addr) = &self.grpc_listen_addr {
+            if addr.is_empty() {
+                anyhow::bail!("grpc_listen_addr cannot be empty if provided");
+            }
+            if self.grpc_security.is_some() {
+                // ensure cert/key/ca all provided
+                if let Some(sec) = &self.grpc_security {
+                    if sec.cert_file.is_none() || sec.key_file.is_none() || sec.ca_file.is_none() {
+                        anyhow::bail!("grpc_security requires cert_file, key_file, and ca_file");
+                    }
+                }
+            }
         }
         Ok(())
     }
