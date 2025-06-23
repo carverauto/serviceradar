@@ -255,37 +255,15 @@ func (u *DefaultArmisUpdater) UpdateDeviceStatus(ctx context.Context, updates []
 		} `json:"upsert"`
 	}
 
-	operations := make([]upsertBody, 0, len(updates)*3)
+	operations := make([]upsertBody, 0, len(updates))
 
 	for _, upd := range updates {
-		// Always send availability and last checked
-		opAvail := upsertBody{}
-		opAvail.Upsert.DeviceID = upd.DeviceID
-		opAvail.Upsert.Key = "serviceradar_available"
-		opAvail.Upsert.Value = upd.Available
-		operations = append(operations, opAvail)
-
-		opChecked := upsertBody{}
-		opChecked.Upsert.DeviceID = upd.DeviceID
-		opChecked.Upsert.Key = "serviceradar_last_checked"
-		opChecked.Upsert.Value = upd.LastChecked.Format(time.RFC3339)
-		operations = append(operations, opChecked)
-
-		if upd.RTT > 0 {
-			opRTT := upsertBody{}
-			opRTT.Upsert.DeviceID = upd.DeviceID
-			opRTT.Upsert.Key = "serviceradar_rtt_ms"
-			opRTT.Upsert.Value = upd.RTT
-			operations = append(operations, opRTT)
-		}
-
-		if upd.ServiceRadarURL != "" {
-			opURL := upsertBody{}
-			opURL.Upsert.DeviceID = upd.DeviceID
-			opURL.Upsert.Key = "serviceradar_url"
-			opURL.Upsert.Value = upd.ServiceRadarURL
-			operations = append(operations, opURL)
-		}
+		// Only update the SERVICERADAR_COMPLIANT custom field
+		op := upsertBody{}
+		op.Upsert.DeviceID = upd.DeviceID
+		op.Upsert.Key = "SERVICERADAR_COMPLIANT"
+		op.Upsert.Value = upd.Available
+		operations = append(operations, op)
 	}
 
 	bodyBytes, err := json.Marshal(operations)
