@@ -25,6 +25,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 )
@@ -141,10 +142,13 @@ func (a *ArmisIntegration) convertToSweepResults(devices []Device) []*models.Swe
 		dev := &devices[i]
 		hostname := dev.Name
 		mac := dev.MacAddress
+		tag := ""
+		if len(dev.Tags) > 0 {
+			tag = strings.Join(dev.Tags, ",")
+		}
 		meta := map[string]string{
 			"armis_device_id": fmt.Sprintf("%d", dev.ID),
-			"type":            dev.Type,
-			"risk_level":      fmt.Sprintf("%d", dev.RiskLevel),
+			"tag":             tag,
 		}
 		ip := extractFirstIP(dev.IPAddress)
 		out = append(out, &models.SweepResult{
@@ -296,9 +300,13 @@ func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]b
 	for i := range devices {
 		d := &devices[i] // Use a pointer to avoid copying the struct
 
+		tag := ""
+		if len(d.Tags) > 0 {
+			tag = strings.Join(d.Tags, ",")
+		}
 		enriched := DeviceWithMetadata{
 			Device:   *d,
-			Metadata: map[string]string{"armis_device_id": fmt.Sprintf("%d", d.ID)},
+			Metadata: map[string]string{"armis_device_id": fmt.Sprintf("%d", d.ID), "tag": tag},
 		}
 
 		// Marshal the device with metadata to JSON
@@ -320,11 +328,8 @@ func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]b
 		deviceID := fmt.Sprintf("%s:%s", a.Config.Partition, ip)
 
 		metadata := map[string]interface{}{
-			"armis_id":     fmt.Sprintf("%d", d.ID),
-			"type":         d.Type,
-			"category":     d.Category,
-			"manufacturer": d.Manufacturer,
-			"model":        d.Model,
+			"armis_id": fmt.Sprintf("%d", d.ID),
+			"tag":      tag,
 		}
 
 		modelDevice := &models.Device{

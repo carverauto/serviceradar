@@ -223,16 +223,7 @@ func (a *ArmisIntegration) BatchUpdateDeviceAttributes(ctx context.Context, devi
 		attributes := make(map[string]interface{})
 
 		if result, exists := resultMap[ip]; exists {
-			attributes["serviceradar_available"] = result.Available
-			attributes["serviceradar_last_checked"] = result.Timestamp.Format(time.RFC3339)
-
-			if result.Available && result.RTT > 0 {
-				attributes["serviceradar_rtt_ms"] = result.RTT
-			}
-
-			if result.Error != "" {
-				attributes["serviceradar_last_error"] = result.Error
-			}
+			attributes["SERVICERADAR_COMPLIANT"] = result.Available
 		}
 
 		if len(attributes) > 0 && a.Updater != nil {
@@ -336,26 +327,57 @@ func (u *DefaultArmisUpdater) UpdateDeviceCustomAttributes(ctx context.Context, 
 		return nil
 	}
 
-	updates := make([]ArmisDeviceStatus, 1)
-	updates[0].DeviceID = deviceID
-
-	if v, ok := attributes["serviceradar_available"].(bool); ok {
-		updates[0].Available = v
+	accessToken, err := u.TokenProvider.GetAccessToken(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get access token: %w", err)
 	}
 
-	if v, ok := attributes["serviceradar_last_checked"].(string); ok {
-		if ts, err := time.Parse(time.RFC3339, v); err == nil {
-			updates[0].LastChecked = ts
-		}
+	type upsertBody struct {
+		Upsert struct {
+			DeviceID int         `json:"deviceId"`
+			Key      string      `json:"key"`
+			Value    interface{} `json:"value"`
+		} `json:"upsert"`
 	}
 
-	if v, ok := attributes["serviceradar_rtt_ms"].(float64); ok {
-		updates[0].RTT = v
+	operations := make([]upsertBody, 0, len(attributes))
+	for k, v := range attributes {
+		op := upsertBody{}
+		op.Upsert.DeviceID = deviceID
+		op.Upsert.Key = k
+		op.Upsert.Value = v
+		operations = append(operations, op)
 	}
 
-	if v, ok := attributes["serviceradar_url"].(string); ok {
-		updates[0].ServiceRadarURL = v
+	bodyBytes, err := json.Marshal(operations)
+	if err != nil {
+		return fmt.Errorf("failed to marshal payload: %w", err)
 	}
 
-	return u.UpdateDeviceStatus(ctx, updates)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		fmt.Sprintf("%s/api/v1/devices/custom-properties/_bulk/", u.Config.Endpoint),
+		bytes.NewReader(bodyBytes))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", accessToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := u.HTTPClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return fmt.Errorf("%w: %d, response: %s", errUnexpectedStatusCode, resp.StatusCode, string(respBody))
+	}
+
+	log.Printf("Armis custom attribute update response: %s", string(respBody))
+
+	return nil
 }
