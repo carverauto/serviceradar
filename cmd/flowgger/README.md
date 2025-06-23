@@ -7,3 +7,18 @@ Run: `./target/release/flowgger flowgger.toml`
 
 ## Support
 This fork is maintained for ServiceRadar. We welcome contributions aligned with this use case but cannot support other applications.
+
+## gRPC Health Checks
+
+Flowgger can expose a gRPC health endpoint compatible with ServiceRadar's monitoring
+protocol. Enable it by adding a `grpc` section to `flowgger.toml`:
+
+```toml
+[grpc]
+listen_addr = "0.0.0.0:50057"
+tls_ca_file = "/etc/serviceradar/certs/root.pem"
+tls_cert = "/etc/serviceradar/certs/core.pem"
+tls_key = "/etc/serviceradar/certs/core-key.pem"
+```
+
+These certificates are separate from the NATS credentials used for JetStream.

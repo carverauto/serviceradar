@@ -20,3 +20,9 @@ nats_timeout = 30000 # Optional: ACK timeout in ms, defaults to 30000
 nats_tls_ca_file = "/etc/serviceradar/certs/root.pem"
 nats_tls_cert = "/etc/serviceradar/certs/checkers.pem"
 nats_tls_key = "/etc/serviceradar/certs/checkers-key.pem"
+
+[grpc]
+listen_addr = "0.0.0.0:50057"
+tls_ca_file = "/etc/serviceradar/certs/root.pem"
+tls_cert = "/etc/serviceradar/certs/core.pem"
+tls_key = "/etc/serviceradar/certs/core-key.pem"

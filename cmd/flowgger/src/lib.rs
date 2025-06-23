@@ -6,6 +6,7 @@ extern crate may;
 pub mod record_capnp;
 
 pub mod flowgger;
+pub mod grpc;
 
 /// Start a flowgger instance starting from a file path
 ///
