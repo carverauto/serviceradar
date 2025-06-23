@@ -16,6 +16,7 @@
           "trapd",
           "mapper",
           "flowgger",
+          "goflow2",
           "nats",
           "zen",
           "web",
@@ -118,6 +119,43 @@
     "conffiles": [
       "/etc/serviceradar/consumers/db-event-writer.json"
     ]
+  },
+  {
+    "name": "goflow2",
+    "package_name": "serviceradar-goflow2",
+    "version": "1.0.0",
+    "description": "goflow2 with NATS JetStream support",
+    "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
+    "architecture": "amd64",
+    "section": "net",
+    "priority": "optional",
+    "deb": {
+      "depends": ["systemd"],
+      "dockerfile": null
+    },
+    "rpm": {
+      "depends": ["systemd"],
+      "dockerfile": "docker/rpm/Dockerfile.rpm.simple",
+      "release": "1"
+    },
+    "build_method": "external",
+    "external_binary": {
+      "source_url": "https://github.com/mfreeman/goflow2/archive/refs/heads/main.zip",
+      "binary_is_archive": true,
+      "extract_command": "git clone https://github.com/mfreeman451/goflow2.git goflow2-src && (cd goflow2-src && git checkout main && GOOS=linux GOARCH=amd64 go build -o ${OUTPUT_PATH} ./cmd/goflow2)",
+      "output_path": "/usr/local/bin/goflow2"
+    },
+    "systemd_service": {
+      "source": "packaging/goflow2/systemd/serviceradar-goflow2.service",
+      "dest": "/lib/systemd/system/serviceradar-goflow2.service"
+    },
+    "postinst": {
+      "source": "packaging/goflow2/scripts/postinstall.sh"
+    },
+    "prerm": {
+      "source": "packaging/goflow2/scripts/preremove.sh"
+    },
+    "conffiles": []
   },
   {
     "name": "device-mgr",
