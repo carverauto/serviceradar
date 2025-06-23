@@ -688,10 +688,11 @@
       "dockerfile": "docker/rpm/Dockerfile.rpm.rust.zen",
       "release": "1"
     },
-    "binary": {
-      "build_method": "rust",
-      "output_path": "/usr/local/bin/serviceradar-zen"
-    },
+      "binary": {
+        "build_method": "rust",
+        "source_path": "cmd/consumers/zen",
+        "output_path": "/usr/local/bin/serviceradar-zen"
+      },
     "config_files": [
       {
         "source": "packaging/zen/config/zen-consumer.json",
