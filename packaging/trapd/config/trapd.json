@@ -1,8 +1,10 @@
 {
   "listen_addr": "0.0.0.0:162",
   "nats_url": "nats://127.0.0.1:4222",
+  "nats_domain": "edge",
+  "stream_name": "events",
   "subject": "snmp.traps",
-  "security": {
+  "nats_security": {
     "cert_file": "/etc/serviceradar/certs/nats-client.pem",
     "key_file": "/etc/serviceradar/certs/nats-client-key.pem",
     "ca_file": "/etc/serviceradar/certs/root.pem"
