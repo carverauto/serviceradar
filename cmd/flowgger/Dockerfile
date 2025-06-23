@@ -4,14 +4,15 @@ FROM rust:latest AS builder
 WORKDIR /usr/src/serviceradar-flowgger
 
 # Install dependencies for building
-#RUN apt-get update && apt-get install -y \
-#    protobuf-compiler \
-#    && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y \
+    protobuf-compiler \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy project files
 COPY cmd/flowgger/Cargo.toml cmd/flowgger/Cargo.lock* ./
 COPY cmd/flowgger/src ./src/
 COPY cmd/flowgger/build.rs ./
+COPY proto ./proto/
 
 # Build for x86_64-unknown-linux-gnu
 RUN rustup target add x86_64-unknown-linux-gnu && \

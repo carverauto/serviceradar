@@ -23,7 +23,7 @@ coroutines = ["may", "tls"]
 default = ["syslog", "tls", "gelf" ]
 redis-input = ["redis"]
 kafka-output = ["kafka"]
-nats-output = ["async-nats", "tokio"]
+nats-output = ["async-nats"]
 tls = ["openssl"]
 gelf = ["serde", "serde_json"]
 ltsv = []
@@ -36,6 +36,9 @@ file = ["notify", "glob"]
 [build-dependencies.capnpc]
 version = "0.10"
 optional = true
+
+[build-dependencies]
+tonic-build = "0.9"
 
 [dependencies]
 capnp = { version = "0.14", optional = true }
@@ -55,7 +58,11 @@ may = { version = "~0.3", optional = true }
 toml = "0.5"
 time = { version = "0.3", features = ["parsing", "formatting"] }
 time-tz = "0.3"
-tokio       = { version = "1.45.1", features = ["rt-multi-thread", "macros", "sync"], optional = true }
+tokio       = { version = "1.45.1", features = ["rt-multi-thread", "macros", "sync"] }
+prost = "0.11"
+tonic = { version = "0.9", features = ["tls"] }
+tonic-health = "0.9"
+tonic-reflection = "0.9"
 
 [dev-dependencies]
 tempdir = "0.3"
