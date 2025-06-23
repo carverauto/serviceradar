@@ -108,4 +108,5 @@ type DefaultArmisIntegration struct {
 type DefaultKVWriter struct {
 	KVClient   proto.KVServiceClient
 	ServerName string
+	AgentID    string
 }
