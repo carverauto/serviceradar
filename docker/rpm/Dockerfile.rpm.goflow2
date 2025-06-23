@@ -1,0 +1,55 @@
+FROM --platform=linux/amd64 golang:1.24-bullseye AS builder
+
+# Build arguments with defaults
+ARG GOFLOW2_REPO=https://github.com/mfreeman451/goflow2.git
+ARG GOFLOW2_REF=main
+
+WORKDIR /src
+
+# Install git
+RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+
+# Clone and build goflow2
+RUN git clone ${GOFLOW2_REPO} goflow2-src \
+    && cd goflow2-src \
+    && git checkout ${GOFLOW2_REF} \
+    && GOOS=linux GOARCH=amd64 go build -o /build-out/serviceradar-goflow2 ./cmd/goflow2
+
+# Stage 2: Build RPM
+FROM --platform=linux/amd64 rockylinux:9 AS rpm-builder
+
+RUN dnf clean all && \
+    dnf update -y && \
+    dnf install -y --nogpgcheck --skip-broken \
+    rpm-build \
+    rpmdevtools \
+    systemd-devel \
+    policycoreutils-python-utils \
+    gcc make git
+
+RUN rpmdev-setuptree
+
+# Create directories
+RUN mkdir -p /root/rpmbuild/SOURCES/systemd /root/rpmbuild/SOURCES/config
+
+# Copy built binary
+COPY --from=builder /build-out/serviceradar-goflow2 /root/rpmbuild/BUILD/
+
+# Copy packaging files
+COPY packaging /root/rpmbuild/SOURCES/packaging/
+COPY packaging/specs/serviceradar-goflow2.spec /root/rpmbuild/SPECS/
+RUN cp -v /root/rpmbuild/SOURCES/packaging/goflow2/systemd/serviceradar-goflow2.service /root/rpmbuild/SOURCES/systemd/ && \
+    cp -v /root/rpmbuild/SOURCES/packaging/goflow2/config/goflow2.conf /root/rpmbuild/SOURCES/config/
+
+ARG VERSION=1.0.0
+ARG RELEASE=1
+RUN RPM_VERSION=$(echo ${VERSION} | sed 's/-/_/g') && \
+    rpmbuild -bb \
+      --define "version ${RPM_VERSION}" \
+      --define "release ${RELEASE}" \
+      /root/rpmbuild/SPECS/serviceradar-goflow2.spec
+
+FROM rockylinux:9
+WORKDIR /rpms
+COPY --from=rpm-builder /root/rpmbuild/RPMS/*/*.rpm .
+CMD ["/bin/bash"]
