@@ -706,6 +706,7 @@ func TestDefaultKVWriter_WriteSweepConfig(t *testing.T) {
 	kvWriter := &DefaultKVWriter{
 		KVClient:   mockKV,
 		ServerName: "test-server",
+		AgentID:    "test-server",
 	}
 
 	testSweepConfig := &models.SweepConfig{
