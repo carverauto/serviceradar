@@ -11,7 +11,7 @@ WORKDIR /usr/src/serviceradar-zen
 # Copy project files
 COPY cmd/consumers/zen/Cargo.toml cmd/consumers/zen/Cargo.lock* ./
 COPY cmd/consumers/zen/src ./src/
-# COPY cmd/consumers/zen/build.rs ./
+COPY cmd/consumers/zen/build.rs ./
 
 # Build for x86_64-unknown-linux-gnu
 RUN rustup target add x86_64-unknown-linux-gnu && \
