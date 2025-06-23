@@ -135,7 +135,7 @@
     },
     "rpm": {
       "depends": ["systemd"],
-      "dockerfile": "docker/rpm/Dockerfile.rpm.simple",
+      "dockerfile": "docker/rpm/Dockerfile.rpm.goflow2",
       "release": "1"
     },
     "build_method": "external",
