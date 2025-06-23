@@ -95,6 +95,7 @@ use self::output::KafkaOutput;
 #[cfg(feature = "tls")]
 use self::output::TlsOutput;
 use self::output::{DebugOutput, Output};
+use crate::grpc::{spawn_server, GrpcConfig};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::sync::{Arc, Mutex};
 
@@ -247,8 +248,8 @@ fn get_output(output_type: &str, config: &Config) -> Box<dyn Output> {
             }
         }
         "tls" | "syslog-tls" => get_output_tls(config),
-        "file"               => get_output_file(config),
-        _                    => panic!("Invalid output type: {}", output_type),
+        "file" => get_output_file(config),
+        _ => panic!("Invalid output type: {}", output_type),
     }
 }
 
@@ -476,6 +477,27 @@ pub fn start(config_file: &str) {
         });
     let (tx, rx): (SyncSender<Vec<u8>>, Receiver<Vec<u8>>) = sync_channel(queue_size);
     let arx = Arc::new(Mutex::new(rx));
+
+    if let Some(addr_val) = config.lookup("grpc.listen_addr") {
+        if let Some(addr) = addr_val.as_str() {
+            let cfg = GrpcConfig {
+                listen_addr: addr.to_string(),
+                cert_file: config
+                    .lookup("grpc.tls_cert")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
+                key_file: config
+                    .lookup("grpc.tls_key")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
+                ca_file: config
+                    .lookup("grpc.tls_ca_file")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string()),
+            };
+            spawn_server(cfg);
+        }
+    }
 
     output.start(arx, merger);
     input.accept(tx, decoder, encoder);
