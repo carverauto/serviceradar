@@ -4,9 +4,9 @@ FROM rust:latest AS builder
 WORKDIR /usr/src/serviceradar-zen
 
 # Install dependencies for building
-#RUN apt-get update && apt-get install -y \
-#    protobuf-compiler \
-#    && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y \
+    protobuf-compiler \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy project files
 COPY cmd/consumers/zen/Cargo.toml cmd/consumers/zen/Cargo.lock* ./
