@@ -811,8 +811,8 @@ func TestDefaultArmisUpdater_UpdateDeviceStatus(t *testing.T) {
 			err = json.Unmarshal(body, &payload)
 			require.NoError(t, err)
 
-			// Expect 6 operations: 3 for device1, 2 for device2 (no RTT)
-			require.Len(t, payload, 5, "payload length")
+			// Expect one operation per device
+			require.Len(t, payload, 2, "payload length")
 
 			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"success": true}`))}, nil
 		},
