@@ -25,12 +25,21 @@ pub struct SecurityConfig {
     pub ca_file: Option<String>,
 }
 
+fn default_stream_name() -> String {
+    "events".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub listen_addr: String,
     pub nats_url: String,
+    #[serde(default)]
+    pub nats_domain: Option<String>,
+    #[serde(default = "default_stream_name")]
+    pub stream_name: String,
     pub subject: String,
-    pub security: Option<SecurityConfig>,
+    #[serde(default, alias = "security")]
+    pub nats_security: Option<SecurityConfig>,
     pub grpc_listen_addr: Option<String>,
     pub grpc_security: Option<SecurityConfig>,
 }
@@ -50,8 +59,18 @@ impl Config {
         if self.nats_url.is_empty() {
             anyhow::bail!("nats_url is required");
         }
+        if self.stream_name.is_empty() {
+            anyhow::bail!("stream_name is required");
+        }
         if self.subject.is_empty() {
             anyhow::bail!("subject is required");
+        }
+        if let Some(sec) = &self.nats_security {
+            if sec.cert_file.is_some() || sec.key_file.is_some() || sec.ca_file.is_some() {
+                if sec.cert_file.is_none() || sec.key_file.is_none() || sec.ca_file.is_none() {
+                    anyhow::bail!("nats_security requires cert_file, key_file, and ca_file when any are provided");
+                }
+            }
         }
         if let Some(addr) = &self.grpc_listen_addr {
             if addr.is_empty() {
