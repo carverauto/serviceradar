@@ -46,7 +46,7 @@ func TestArmisIntegration_Fetch_NoUpdater(t *testing.T) {
 	expectedDevices := getExpectedDevices()
 	firstPageResp := getFirstPageResponse(expectedDevices)
 	expectedSweepConfig := &models.SweepConfig{
-		Networks: []string{"192.168.1.1/32", "192.168.1.2/32", "10.0.0.1/32"},
+		Networks: []string{"192.168.1.1/32", "192.168.1.2/32"},
 	}
 
 	setupArmisMocks(t, mocks, firstPageResp, expectedSweepConfig)
@@ -113,13 +113,9 @@ func TestArmisIntegration_Fetch_WithUpdaterAndCorrelation(t *testing.T) {
 	expectedLen := len(expectedDevices)
 
 	for i := range expectedDevices {
-		ips := strings.Split(expectedDevices[i].IPAddress, ",")
-
-		for _, ipRaw := range ips {
-			ip := strings.TrimSpace(ipRaw)
-			if ip != "" {
-				expectedLen++
-			}
+		ip := extractFirstIP(expectedDevices[i].IPAddress)
+		if ip != "" {
+			expectedLen++
 		}
 	}
 
@@ -254,12 +250,9 @@ func verifyArmisResults(t *testing.T, result map[string][]byte, events []*models
 	expectedLen := len(expectedDevices)
 
 	for _, ed := range expectedDevices {
-		ips := strings.Split(ed.IPAddress, ",")
-		for _, ipRaw := range ips {
-			ip := strings.TrimSpace(ipRaw)
-			if ip != "" {
-				expectedLen++
-			}
+		ip := extractFirstIP(ed.IPAddress)
+		if ip != "" {
+			expectedLen++
 		}
 	}
 
@@ -272,27 +265,23 @@ func verifyArmisResults(t *testing.T, result map[string][]byte, events []*models
 	for i := range expectedDevices {
 		expected := &expectedDevices[i]
 
-		ips := strings.Split(expected.IPAddress, ",")
-
-		for _, ipRaw := range ips {
-			ip := strings.TrimSpace(ipRaw)
-			if ip == "" {
-				continue
-			}
-
-			key := fmt.Sprintf("test-partition:%s", ip)
-			deviceData, exists := result[key]
-
-			require.True(t, exists, "device with key %s should exist", key)
-
-			var device models.SweepResult
-
-			err = json.Unmarshal(deviceData, &device)
-			require.NoError(t, err)
-
-			assert.Equal(t, ip, device.IP)
-			assert.Equal(t, "test-poller", device.PollerID)
+		ip := extractFirstIP(expected.IPAddress)
+		if ip == "" {
+			continue
 		}
+
+		key := fmt.Sprintf("test-partition:%s", ip)
+		deviceData, exists := result[key]
+
+		require.True(t, exists, "device with key %s should exist", key)
+
+		var device models.SweepResult
+
+		err = json.Unmarshal(deviceData, &device)
+		require.NoError(t, err)
+
+		assert.Equal(t, ip, device.IP)
+		assert.Equal(t, "test-poller", device.PollerID)
 	}
 
 	assert.Len(t, events, len(expectedDevices))
@@ -300,7 +289,7 @@ func verifyArmisResults(t *testing.T, result map[string][]byte, events []*models
 	for i, ev := range events {
 		exp := expectedDevices[i]
 
-		require.Equal(t, exp.IPAddress, ev.IP)
+		require.Equal(t, extractFirstIP(exp.IPAddress), ev.IP)
 		require.Equal(t, "test-poller", ev.PollerID)
 	}
 }
