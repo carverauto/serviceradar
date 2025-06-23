@@ -9,6 +9,8 @@ import (
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/models"
+	monitoringpb "github.com/carverauto/serviceradar/proto"
+	"google.golang.org/grpc"
 )
 
 func main() {
@@ -50,12 +52,20 @@ func main() {
 		log.Fatalf("Failed to initialize device consumer service: %v", err)
 	}
 
+	agentService := devices.NewAgentService(svc)
+
 	opts := &lifecycle.ServerOptions{
 		ListenAddr:        devCfg.ListenAddr,
 		ServiceName:       "device-consumer",
 		Service:           svc,
 		EnableHealthCheck: true,
-		Security:          devCfg.Security,
+		RegisterGRPCServices: []lifecycle.GRPCServiceRegistrar{
+			func(s *grpc.Server) error {
+				monitoringpb.RegisterAgentServiceServer(s, agentService)
+				return nil
+			},
+		},
+		Security: devCfg.Security,
 	}
 
 	if err := lifecycle.RunServer(ctx, opts); err != nil {
