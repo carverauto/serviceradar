@@ -1,9 +1,9 @@
-use serde_json::Value;
 use anyhow::{Context, Result};
 use clap::Parser;
 use env_logger::Env;
 use log::{debug, info, warn};
 use serde::Deserialize;
+use serde_json::Value;
 use std::{fs, path::PathBuf, time::Duration};
 
 use async_nats::jetstream::{
@@ -17,9 +17,23 @@ use futures::StreamExt;
 use zen_engine::handler::custom_node_adapter::NoopCustomNode;
 
 use cloudevents::{EventBuilder, EventBuilderV10};
+use tonic::{
+    transport::{Certificate, Identity, Server, ServerTlsConfig},
+    Request, Response, Status,
+};
+use tonic_health::server::health_reporter;
+use tonic_reflection::server::Builder as ReflectionBuilder;
 use url::Url;
 use uuid::Uuid;
 use zen_engine::DecisionEngine;
+
+pub mod monitoring {
+    tonic::include_proto!("monitoring");
+}
+use monitoring::agent_service_server::{AgentService, AgentServiceServer};
+
+const FILE_DESCRIPTOR_SET_MONITORING: &[u8] =
+    include_bytes!(concat!(env!("OUT_DIR"), "/monitoring_descriptor.bin"));
 
 mod kv_loader;
 use kv_loader::KvLoader;
@@ -78,11 +92,18 @@ struct Config {
     #[serde(default = "default_kv_bucket")]
     kv_bucket: String,
     agent_id: String,
+    #[serde(default = "default_listen_addr")]
+    listen_addr: String,
     security: Option<SecurityConfig>,
+    grpc_security: Option<SecurityConfig>,
 }
 
 fn default_kv_bucket() -> String {
     "serviceradar-kv".to_string()
+}
+
+fn default_listen_addr() -> String {
+    "0.0.0.0:50055".to_string()
 }
 
 impl Config {
@@ -96,6 +117,9 @@ impl Config {
     fn validate(&self) -> Result<()> {
         if self.nats_url.is_empty() {
             anyhow::bail!("nats_url is required");
+        }
+        if self.listen_addr.is_empty() {
+            anyhow::bail!("listen_addr is required");
         }
         if self.stream_name.is_empty() {
             anyhow::bail!("stream_name is required");
@@ -111,6 +135,11 @@ impl Config {
         }
         if self.subjects.is_empty() {
             anyhow::bail!("at least one subject is required");
+        }
+        if let Some(sec) = &self.grpc_security {
+            if sec.cert_file.is_none() || sec.key_file.is_none() || sec.ca_file.is_none() {
+                anyhow::bail!("grpc_security requires cert_file, key_file, and ca_file");
+            }
         }
         Ok(())
     }
@@ -290,6 +319,13 @@ async fn main() -> Result<()> {
         }
     });
 
+    let grpc_cfg = cfg.clone();
+    tokio::spawn(async move {
+        if let Err(e) = start_grpc_server(grpc_cfg).await {
+            warn!("gRPC server failed: {e}");
+        }
+    });
+
     info!("waiting for messages on subjects: {:?}", cfg.subjects);
 
     loop {
@@ -319,20 +355,14 @@ async fn main() -> Result<()> {
                         }
                     }
                     Ok(info) => {
-                        if let Err(e) = message
-                            .ack_with(jetstream::AckKind::Nak(None))
-                            .await
-                        {
+                        if let Err(e) = message.ack_with(jetstream::AckKind::Nak(None)).await {
                             warn!("failed to NAK: {e}");
                         } else {
                             debug!("nacked message {}", info.stream_sequence);
                         }
                     }
                     Err(_) => {
-                        if let Err(e) = message
-                            .ack_with(jetstream::AckKind::Nak(None))
-                            .await
-                        {
+                        if let Err(e) = message.ack_with(jetstream::AckKind::Nak(None)).await {
                             warn!("failed to NAK: {e}");
                         }
                     }
@@ -374,6 +404,8 @@ mod tests {
         assert_eq!(cfg.agent_id, "agent-01");
         assert_eq!(cfg.kv_bucket, "serviceradar-kv");
         assert_eq!(cfg.result_subject_suffix.as_deref(), Some(".processed"));
+        assert_eq!(cfg.listen_addr, "0.0.0.0:50055");
+        assert!(cfg.grpc_security.is_some());
     }
 
     #[test]
@@ -390,7 +422,9 @@ mod tests {
             decision_groups: Vec::new(),
             kv_bucket: String::new(),
             agent_id: String::new(),
+            listen_addr: String::new(),
             security: None,
+            grpc_security: None,
         };
         assert!(cfg.validate().is_err());
     }
@@ -432,5 +466,68 @@ async fn watch_rules(engine: SharedEngine, cfg: Config, js: jetstream::Context) 
             }
         }
     }
+    Ok(())
+}
+
+#[derive(Debug, Default)]
+struct ZenAgentService;
+
+#[tonic::async_trait]
+impl AgentService for ZenAgentService {
+    async fn get_status(
+        &self,
+        request: Request<monitoring::StatusRequest>,
+    ) -> Result<Response<monitoring::StatusResponse>, Status> {
+        let req = request.into_inner();
+        let start = std::time::Instant::now();
+        let msg = serde_json::json!({
+            "status": "operational",
+            "message": "zen-consumer is operational",
+        });
+        let data = serde_json::to_vec(&msg).unwrap_or_default();
+        Ok(Response::new(monitoring::StatusResponse {
+            available: true,
+            message: data,
+            service_name: req.service_name,
+            service_type: req.service_type,
+            response_time: start.elapsed().as_nanos() as i64,
+            agent_id: req.agent_id,
+            poller_id: req.poller_id,
+        }))
+    }
+}
+
+async fn start_grpc_server(cfg: Config) -> Result<()> {
+    let addr: std::net::SocketAddr = cfg.listen_addr.parse()?;
+    let service = ZenAgentService::default();
+    let (mut health_reporter, health_service) = health_reporter();
+    health_reporter
+        .set_serving::<AgentServiceServer<ZenAgentService>>()
+        .await;
+
+    let reflection_service = ReflectionBuilder::configure()
+        .register_encoded_file_descriptor_set(FILE_DESCRIPTOR_SET_MONITORING)
+        .build()?;
+
+    let mut server_builder = Server::builder();
+    if let Some(sec) = &cfg.grpc_security {
+        if let (Some(cert), Some(key), Some(ca)) = (&sec.cert_file, &sec.key_file, &sec.ca_file) {
+            let cert = std::fs::read_to_string(cert)?;
+            let key = std::fs::read_to_string(key)?;
+            let identity = Identity::from_pem(cert.as_bytes(), key.as_bytes());
+            let ca_cert = std::fs::read_to_string(ca)?;
+            let ca = Certificate::from_pem(ca_cert.as_bytes());
+            let tls = ServerTlsConfig::new().identity(identity).client_ca_root(ca);
+            server_builder = server_builder.tls_config(tls)?;
+        }
+    }
+
+    server_builder
+        .add_service(health_service)
+        .add_service(AgentServiceServer::new(service))
+        .add_service(reflection_service)
+        .serve(addr)
+        .await?;
+
     Ok(())
 }

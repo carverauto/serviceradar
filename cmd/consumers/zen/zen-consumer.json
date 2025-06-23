@@ -23,10 +23,16 @@
   ],
   "agent_id": "agent-01",
   "kv_bucket": "serviceradar-kv",
+  "listen_addr": "0.0.0.0:50055",
   "result_subject_suffix": ".processed",
   "security": {
     "cert_file": "/Users/mfreeman/src/flowgger-tls-test/client-cert.pem",
     "key_file": "/Users/mfreeman/src/flowgger-tls-test/client-key.pem",
+    "ca_file": "/Users/mfreeman/src/flowgger-tls-test/ca.pem"
+  },
+  "grpc_security": {
+    "cert_file": "/Users/mfreeman/src/flowgger-tls-test/server-cert.pem",
+    "key_file": "/Users/mfreeman/src/flowgger-tls-test/server-key.pem",
     "ca_file": "/Users/mfreeman/src/flowgger-tls-test/ca.pem"
   }
 }
