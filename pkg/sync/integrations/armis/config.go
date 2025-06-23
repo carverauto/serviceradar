@@ -36,8 +36,8 @@ func (kw *DefaultKVWriter) WriteSweepConfig(ctx context.Context, sweepConfig *mo
 		return fmt.Errorf("failed to marshal sweep config: %w", err)
 	}
 
-	// Use a configurable key, defaulting to "config/<serverName>/network-sweep"
-	configKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", kw.ServerName)
+	// Use a configurable key, defaulting to "config/agentID/network-sweep"
+	configKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", kw.AgentID)
 	_, err = kw.KVClient.Put(ctx, &proto.PutRequest{
 		Key:   configKey,
 		Value: configJSON,
