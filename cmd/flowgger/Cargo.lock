@@ -2211,6 +2211,7 @@ dependencies = [
 name = "serviceradar-flowgger"
 version = "0.3.4"
 dependencies = [
+ "anyhow",
  "async-nats",
  "capnp 0.14.11",
  "capnpc",
