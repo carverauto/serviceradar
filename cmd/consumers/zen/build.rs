@@ -8,7 +8,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build_server(true)
         .build_client(false)
         .file_descriptor_set_path(&descriptor_path)
-        .compile(&["../../../proto/monitoring.proto"], &["../../../proto"])?;
-    println!("cargo:rerun-if-changed=../../../proto/monitoring.proto");
+        .compile(&["proto/monitoring.proto"], &["proto"])?;
+    println!("cargo:rerun-if-changed=proto/monitoring.proto");
     Ok(())
 }
