@@ -6,6 +6,8 @@ extern crate may;
 pub mod record_capnp;
 
 pub mod flowgger;
+#[cfg(feature = "grpc-health")]
+pub mod grpc;
 
 /// Start a flowgger instance starting from a file path
 ///

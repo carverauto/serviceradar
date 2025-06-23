@@ -31,6 +31,9 @@ mod utils;
 #[cfg(test)]
 mod test_fuzzer;
 
+#[cfg(feature = "grpc-health")]
+use crate::grpc;
+
 use std::io::{stderr, Write};
 
 #[cfg(feature = "capnp-recompile")]
@@ -476,6 +479,37 @@ pub fn start(config_file: &str) {
         });
     let (tx, rx): (SyncSender<Vec<u8>>, Receiver<Vec<u8>>) = sync_channel(queue_size);
     let arx = Arc::new(Mutex::new(rx));
+
+    #[cfg(feature = "grpc-health")]
+    if let Some(addr_val) = config.lookup("grpc.listen_addr") {
+        if let Some(addr_str) = addr_val.as_str() {
+            let addr: std::net::SocketAddr = addr_str.parse().expect("invalid grpc.listen_addr");
+            let cert = config
+                .lookup("grpc.cert_file")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_owned());
+            let key = config
+                .lookup("grpc.key_file")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_owned());
+            let ca = config
+                .lookup("grpc.ca_file")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_owned());
+
+            std::thread::spawn(move || {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("tokio runtime");
+                rt.block_on(async move {
+                    if let Err(e) = grpc::serve(addr, cert, key, ca).await {
+                        eprintln!("gRPC server error: {e}");
+                    }
+                });
+            });
+        }
+    }
 
     output.start(arx, merger);
     input.accept(tx, decoder, encoder);

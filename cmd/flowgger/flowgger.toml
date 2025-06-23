@@ -19,3 +19,9 @@ nats_timeout = 30000 # Optional: ACK timeout in ms, defaults to 30000
 nats_tls_ca_file = "/Users/mfreeman/src/flowgger-tls-test/ca.pem"
 nats_tls_cert = "/Users/mfreeman/src/flowgger-tls-test/client-cert.pem"
 nats_tls_key = "/Users/mfreeman/src/flowgger-tls-test/client-key.pem"
+
+[grpc]
+# listen_addr = "127.0.0.1:50044"
+# cert_file = "/path/to/server.pem"
+# key_file = "/path/to/server-key.pem"
+# ca_file = "/path/to/ca.pem"

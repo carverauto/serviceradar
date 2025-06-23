@@ -24,6 +24,7 @@ default = ["syslog", "tls", "gelf" ]
 redis-input = ["redis"]
 kafka-output = ["kafka"]
 nats-output = ["async-nats", "tokio"]
+grpc-health = ["tokio", "tonic", "tonic-health", "tonic-reflection"]
 tls = ["openssl"]
 gelf = ["serde", "serde_json"]
 ltsv = []
@@ -56,6 +57,9 @@ toml = "0.5"
 time = { version = "0.3", features = ["parsing", "formatting"] }
 time-tz = "0.3"
 tokio       = { version = "1.45.1", features = ["rt-multi-thread", "macros", "sync"], optional = true }
+tonic = { version = "0.9", features = ["tls"], optional = true }
+tonic-health = { version = "0.9", optional = true }
+tonic-reflection = { version = "0.9", optional = true }
 
 [dev-dependencies]
 tempdir = "0.3"
