@@ -62,6 +62,7 @@ func NewArmisIntegration(
 	kvWriter := &armis.DefaultKVWriter{
 		KVClient:   kvClient,
 		ServerName: serverName,
+		AgentID:    config.AgentID,
 	}
 
 	interval := config.SweepInterval
