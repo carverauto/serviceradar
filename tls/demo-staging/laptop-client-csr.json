@@ -1,0 +1,12 @@
+{
+  "CN": "laptop-client",
+  "key": {
+    "algo": "ecdsa",
+    "size": 256
+  },
+  "names": [
+    {
+      "O": "ServiceRadar"
+    }
+  ]
+}
