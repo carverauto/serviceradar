@@ -111,7 +111,7 @@ const AnalyticsDashboard = () => {
                     'Content-Type': 'application/json',
                     ...(token && { Authorization: `Bearer ${token}` }),
                 },
-                body: JSON.stringify({ query: 'show devices' }),
+                body: JSON.stringify({ query: 'count devices' }),
                 cache: 'no-store',
             });
 
