@@ -66,11 +66,19 @@ func TestArmisIntegration_Fetch_WithUpdaterAndCorrelation(t *testing.T) {
 	expectedDevices := getExpectedDevices()
 	firstPageResp := getFirstPageResponse(expectedDevices)
 
-	// Mock sweep results, one for each device IP
-	mockSweepResults := []SweepResult{
-		{IP: "192.168.1.1", Available: true, Timestamp: time.Now(), RTT: 15.5},
-		{IP: "192.168.1.2", Available: false, Timestamp: time.Now(), Error: "timeout"},
-	}
+    // Mock device states returned by the sweep querier
+    mockDeviceStates := []DeviceState{
+            {
+                    IP:          "192.168.1.1",
+                    IsAvailable: true,
+                    Metadata:    map[string]interface{}{"armis_device_id": "1"},
+            },
+            {
+                    IP:          "192.168.1.2",
+                    IsAvailable: false,
+                    Metadata:    map[string]interface{}{"armis_device_id": "2"},
+            },
+    }
 
 	// 2. Define mock expectations
 	testAccessToken := "test-access-token"
@@ -81,23 +89,22 @@ func TestArmisIntegration_Fetch_WithUpdaterAndCorrelation(t *testing.T) {
 	mocks.DeviceFetcher.EXPECT().FetchDevicesPage(gomock.Any(), testAccessToken, expectedQuery, 0, 100).Return(firstPageResp, nil)
 	mocks.KVWriter.EXPECT().WriteSweepConfig(gomock.Any(), gomock.Any()).Return(nil)
 
-	// Expectations for the new correlation logic
-	mocks.SweepQuerier.EXPECT().GetTodaysSweepResults(gomock.Any()).Return(mockSweepResults, nil)
-	mocks.Updater.EXPECT().UpdateDeviceStatus(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, updates []ArmisDeviceStatus) error {
-			// Verify the content of the updates being sent to Armis
-			require.Len(t, updates, 2)
+    // Expectations for the new correlation logic
+    mocks.SweepQuerier.EXPECT().GetDeviceStatesBySource(gomock.Any(), "armis").Return(mockDeviceStates, nil)
+    mocks.Updater.EXPECT().UpdateDeviceStatus(gomock.Any(), gomock.Any()).
+                DoAndReturn(func(_ context.Context, updates []ArmisDeviceStatus) error {
+                        // Verify the content of the updates being sent to Armis
+                        require.Len(t, updates, 2)
 
-			// Device 1 had a sweep result and was available
-			assert.Equal(t, 1, updates[0].DeviceID)
-			assert.Equal(t, "192.168.1.1", updates[0].IP)
-			assert.True(t, updates[0].Available)
-			assert.InEpsilon(t, 15.5, updates[0].RTT, 0.0001)
+                        // Device 1 had a sweep result and was available
+                        assert.Equal(t, 1, updates[0].DeviceID)
+                        assert.Equal(t, "192.168.1.1", updates[0].IP)
+                        assert.True(t, updates[0].Available)
 
-			// Device 2 had a sweep result and was not available
-			assert.Equal(t, 2, updates[1].DeviceID)
-			assert.Equal(t, "192.168.1.2", updates[1].IP)
-			assert.False(t, updates[1].Available)
+                        // Device 2 had a sweep result and was not available
+                        assert.Equal(t, 2, updates[1].DeviceID)
+                        assert.Equal(t, "192.168.1.2", updates[1].IP)
+                        assert.False(t, updates[1].Available)
 
 			return nil
 		}).Return(nil)
@@ -132,17 +139,9 @@ func TestArmisIntegration_Fetch_WithUpdaterAndCorrelation(t *testing.T) {
 	_, device2Exists := result["2"]
 	assert.True(t, device2Exists)
 
-	// Verify that the sweep results were added to the map for enrichment
-	sweepResultsData, sweepResultsExist := result["_sweep_results"]
-	require.True(t, sweepResultsExist)
-
-	var storedSweepResults []SweepResult
-
-	err = json.Unmarshal(sweepResultsData, &storedSweepResults)
-	require.NoError(t, err)
-
-	assert.Len(t, storedSweepResults, 2)
-	assert.Equal(t, "192.168.1.1", storedSweepResults[0].IP)
+        // Verify that no sweep results enrichment data was added
+        _, sweepResultsExist := result["_sweep_results"]
+        assert.False(t, sweepResultsExist)
 }
 
 func setupArmisIntegration(t *testing.T) (*ArmisIntegration, *armisMocks) {
@@ -738,31 +737,30 @@ func TestDefaultKVWriter_WriteSweepConfig(t *testing.T) {
 	}{
 		{
 			name: "successful write",
-			setupMock: func(mock *mockKVClientRecorder) {
-				t.Log("Setting up mock expectation for PutMany")
-				mock.PutMany(gomock.Any(), gomock.Any(), gomock.Any()).
-					DoAndReturn(func(_ context.Context, req *proto.PutManyRequest, _ ...grpc.CallOption) (*proto.PutManyResponse, error) {
-						assert.Equal(t, 1, len(req.Entries))
-						assert.Equal(t, "agents/test-server/checkers/sweep/sweep.json", req.Entries[0].Key)
+                       setupMock: func(mock *mockKVClientRecorder) {
+                               t.Log("Setting up mock expectation for Put")
+                               mock.Put(gomock.Any(), gomock.Any(), gomock.Any()).
+                                       DoAndReturn(func(_ context.Context, req *proto.PutRequest, _ ...grpc.CallOption) (*proto.PutResponse, error) {
+                                               assert.Equal(t, "agents/test-server/checkers/sweep/sweep.json", req.Key)
 
-						var config models.SweepConfig
-						err := json.Unmarshal(req.Entries[0].Value, &config)
-						require.NoError(t, err)
-						assert.Equal(t, testSweepConfig.Networks, config.Networks)
+                                               var config models.SweepConfig
+                                               err := json.Unmarshal(req.Value, &config)
+                                               require.NoError(t, err)
+                                               assert.Equal(t, testSweepConfig.Networks, config.Networks)
 
-						return &proto.PutManyResponse{}, nil
-					})
-			},
-			expectedError: "",
-		},
-		{
-			name: "KV client error",
-			setupMock: func(mock *mockKVClientRecorder) {
-				t.Log("Setting up mock expectation for PutMany with error")
-				mock.PutMany(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, errNetworkError)
-			},
-			expectedError: "failed to write sweep config",
-		},
+                                               return &proto.PutResponse{}, nil
+                                       })
+                       },
+                       expectedError: "",
+               },
+               {
+                       name: "KV client error",
+                       setupMock: func(mock *mockKVClientRecorder) {
+                               t.Log("Setting up mock expectation for Put with error")
+                               mock.Put(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, errNetworkError)
+                       },
+                       expectedError: "failed to write sweep config",
+               },
 	}
 
 	for _, tc := range testCases {
