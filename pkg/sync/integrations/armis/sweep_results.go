@@ -25,7 +25,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"strings"
 	"time"
 )
 
@@ -45,73 +44,6 @@ type SweepResultsQuery struct {
 	APIEndpoint string // ServiceRadar API endpoint
 	APIKey      string // API key for authentication
 	HTTPClient  HTTPClient
-}
-
-// GetTodaysSweepResults retrieves today's sweep results from ServiceRadar.
-func (s *SweepResultsQuery) GetTodaysSweepResults(ctx context.Context) ([]SweepResult, error) {
-	query := "show sweep_results where date(timestamp) = TODAY and discovery_source = \"sweep\""
-	limit := 1000
-	var all []SweepResult
-	cursor := ""
-	for {
-		req := QueryRequest{Query: query, Limit: limit, Cursor: cursor}
-		resp, err := s.executeQuery(ctx, req)
-		if err != nil {
-			return nil, err
-		}
-		results := s.convertToSweepResults(resp.Results)
-		all = append(all, results...)
-		if resp.Pagination.NextCursor == "" || len(results) == 0 {
-			break
-		}
-		cursor = resp.Pagination.NextCursor
-	}
-	return all, nil
-}
-
-// GetSweepResultsForIPs retrieves sweep results for a list of IPs.
-func (s *SweepResultsQuery) GetSweepResultsForIPs(ctx context.Context, ips []string) ([]SweepResult, error) {
-	quoted := make([]string, len(ips))
-	for i, ip := range ips {
-		quoted[i] = fmt.Sprintf("'%s'", ip)
-	}
-	query := fmt.Sprintf("show sweep_results where ip IN (%s) and date(timestamp) = TODAY", strings.Join(quoted, ", "))
-	limit := 1000
-	var all []SweepResult
-	cursor := ""
-	for {
-		req := QueryRequest{Query: query, Limit: limit, Cursor: cursor}
-		resp, err := s.executeQuery(ctx, req)
-		if err != nil {
-			return nil, err
-		}
-		results := s.convertToSweepResults(resp.Results)
-		all = append(all, results...)
-		if resp.Pagination.NextCursor == "" || len(results) == 0 {
-			break
-		}
-		cursor = resp.Pagination.NextCursor
-	}
-	return all, nil
-}
-
-// GetAvailabilityStats returns availability status for the given IPs using the latest result for each IP.
-func (s *SweepResultsQuery) GetAvailabilityStats(ctx context.Context, ips []string) (map[string]bool, error) {
-	results, err := s.GetSweepResultsForIPs(ctx, ips)
-	if err != nil {
-		return nil, err
-	}
-
-	avail := make(map[string]bool, len(ips))
-	latest := make(map[string]time.Time, len(ips))
-	for _, r := range results {
-		if ts, ok := latest[r.IP]; !ok || r.Timestamp.After(ts) {
-			avail[r.IP] = r.Available
-			latest[r.IP] = r.Timestamp
-		}
-	}
-
-	return avail, nil
 }
 
 // QueryRequest represents the SRQL query request
