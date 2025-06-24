@@ -145,6 +145,16 @@ func (n *NatsStore) Put(ctx context.Context, key string, value []byte, _ time.Du
 	return nil
 }
 
+// PutMany stores multiple key/value pairs. TTL is ignored in this implementation.
+func (n *NatsStore) PutMany(ctx context.Context, entries []KeyValueEntry, _ time.Duration) error {
+	for _, e := range entries {
+		if _, err := n.kv.Put(ctx, e.Key, e.Value); err != nil {
+			return fmt.Errorf("failed to put key %s: %w", e.Key, err)
+		}
+	}
+	return nil
+}
+
 func (n *NatsStore) Delete(ctx context.Context, key string) error {
 	err := n.kv.Delete(ctx, key)
 	if err != nil && !errors.Is(err, jetstream.ErrKeyNotFound) {

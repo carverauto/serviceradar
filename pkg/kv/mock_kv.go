@@ -99,6 +99,20 @@ func (mr *MockKVStoreMockRecorder) Put(ctx, key, value, ttl any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Put", reflect.TypeOf((*MockKVStore)(nil).Put), ctx, key, value, ttl)
 }
 
+// PutMany mocks base method.
+func (m *MockKVStore) PutMany(ctx context.Context, entries []KeyValueEntry, ttl time.Duration) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PutMany", ctx, entries, ttl)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// PutMany indicates an expected call of PutMany.
+func (mr *MockKVStoreMockRecorder) PutMany(ctx, entries, ttl any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PutMany", reflect.TypeOf((*MockKVStore)(nil).PutMany), ctx, entries, ttl)
+}
+
 // Watch mocks base method.
 func (m *MockKVStore) Watch(ctx context.Context, key string) (<-chan []byte, error) {
 	m.ctrl.T.Helper()

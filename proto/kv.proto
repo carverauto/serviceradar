@@ -28,6 +28,9 @@ service KVService {
   // Put stores a value for a given key with an optional TTL.
   rpc Put(PutRequest) returns (PutResponse) {}
 
+  // PutMany stores multiple key/value pairs in a single request.
+  rpc PutMany(PutManyRequest) returns (PutManyResponse) {}
+
   // Delete removes a key and its value from the store.
   rpc Delete(DeleteRequest) returns (DeleteResponse) {}
 
@@ -57,6 +60,21 @@ message PutRequest {
 message PutResponse {
   // Empty for now; could add status or version info later
 }
+
+// KeyValueEntry represents a single key/value pair for PutMany.
+message KeyValueEntry {
+  string key = 1;
+  bytes value = 2;
+}
+
+// PutManyRequest is the request message for the PutMany operation.
+message PutManyRequest {
+  repeated KeyValueEntry entries = 1;
+  int64 ttl_seconds = 2;  // TTL in seconds, 0 for no expiration
+}
+
+// PutManyResponse is the response message for the PutMany operation.
+message PutManyResponse {}
 
 // DeleteRequest is the request message for the Delete operation.
 message DeleteRequest {

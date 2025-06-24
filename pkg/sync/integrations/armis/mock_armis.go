@@ -257,6 +257,21 @@ func (mr *MockSweepResultsQuerierMockRecorder) GetTodaysSweepResults(ctx any) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTodaysSweepResults", reflect.TypeOf((*MockSweepResultsQuerier)(nil).GetTodaysSweepResults), ctx)
 }
 
+// GetDeviceStatesBySource mocks base method.
+func (m *MockSweepResultsQuerier) GetDeviceStatesBySource(ctx context.Context, source string) ([]DeviceState, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDeviceStatesBySource", ctx, source)
+	ret0, _ := ret[0].([]DeviceState)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDeviceStatesBySource indicates an expected call of GetDeviceStatesBySource.
+func (mr *MockSweepResultsQuerierMockRecorder) GetDeviceStatesBySource(ctx, source any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceStatesBySource", reflect.TypeOf((*MockSweepResultsQuerier)(nil).GetDeviceStatesBySource), ctx, source)
+}
+
 // MockArmisUpdater is a mock of ArmisUpdater interface.
 type MockArmisUpdater struct {
 	ctrl     *gomock.Controller
