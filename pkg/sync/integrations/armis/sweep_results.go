@@ -80,39 +80,66 @@ func NewSweepResultsQuery(apiEndpoint, apiKey string, httpClient HTTPClient) *Sw
 	}
 }
 
-func (s *SweepResultsQuery) ExecuteGenericQuery(ctx context.Context, query string, limit int) ([]SweepResult, error) {
-	var allResults []SweepResult
+func (s *SweepResultsQuery) GetDeviceStatesBySource(ctx context.Context, source string) ([]DeviceState, error) {
+	// Use a large limit to ensure all devices are fetched.
+	query := fmt.Sprintf("show devices where discovery_sources = '%s'", source)
+	limit := 10000
+
+	var allDeviceStates []DeviceState
 
 	cursor := ""
 
 	for {
-		// Prepare the query request
 		queryReq := QueryRequest{
 			Query:  query,
 			Limit:  limit,
 			Cursor: cursor,
 		}
 
-		// Execute the query
 		response, err := s.executeQuery(ctx, queryReq)
 		if err != nil {
-			return nil, fmt.Errorf("failed to execute query: %w", err)
+			return nil, fmt.Errorf("failed to execute device query: %w", err)
 		}
 
-		// Convert results
-		results := s.convertToSweepResults(response.Results)
+		// Use a new, dedicated converter for device states
+		states := s.convertToDeviceStates(response.Results)
+		allDeviceStates = append(allDeviceStates, states...)
 
-		allResults = append(allResults, results...)
-
-		// Check if there are more results
-		if response.Pagination.NextCursor == "" || len(results) == 0 {
+		if response.Pagination.NextCursor == "" || len(states) == 0 {
 			break
 		}
 
 		cursor = response.Pagination.NextCursor
 	}
 
-	return allResults, nil
+	return allDeviceStates, nil
+}
+
+// convertToDeviceStates parses the raw map from a 'show devices' query
+// into a slice of typed DeviceState structs.
+func (s *SweepResultsQuery) convertToDeviceStates(rawResults []map[string]interface{}) []DeviceState {
+	states := make([]DeviceState, 0, len(rawResults))
+
+	for _, raw := range rawResults {
+		state := DeviceState{}
+
+		if ip, ok := raw["ip"].(string); ok {
+			state.IP = ip
+		}
+
+		// Note the field name is 'is_available' in the devices view
+		if isAvailable, ok := raw["is_available"].(bool); ok {
+			state.IsAvailable = isAvailable
+		}
+
+		if meta, ok := raw["metadata"].(map[string]interface{}); ok {
+			state.Metadata = meta
+		}
+
+		states = append(states, state)
+	}
+
+	return states
 }
 
 // executeQuery executes an SRQL query against the ServiceRadar API

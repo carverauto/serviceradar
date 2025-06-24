@@ -28,8 +28,7 @@ import (
 
 // SweepResultsQuerier defines the interface for querying sweep results
 type SweepResultsQuerier interface {
-	// ExecuteGenericQuery executes an SRQL query and returns the raw results.
-	ExecuteGenericQuery(ctx context.Context, query string, limit int) ([]map[string]interface{}, error)
+	GetDeviceStatesBySource(ctx context.Context, source string) ([]DeviceState, error)
 }
 
 // ArmisUpdater defines the interface for updating device status in Armis
