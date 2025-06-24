@@ -75,112 +75,11 @@ func extractFirstIP(ipList string) string {
 	return ""
 }
 
-// GetDeviceAvailabilityReport generates a report of device availability
-func (a *ArmisIntegration) GetDeviceAvailabilityReport(ctx context.Context) (*AvailabilityReport, error) {
-	// Fetch current devices from Armis
-	data, _, err := a.Fetch(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch devices: %w", err)
-	}
-
-	// Extract devices and IPs
-	var devices []Device
-
-	var allIPs []string
-
-	for _, deviceData := range data {
-		var device Device
-
-		if err = json.Unmarshal(deviceData, &device); err == nil {
-			devices = append(devices, device)
-
-			if ip := extractFirstIP(device.IPAddress); ip != "" {
-				allIPs = append(allIPs, ip)
-			}
-		}
-	}
-
-	// Get availability stats
-	availStats, err := a.SweepQuerier.GetAvailabilityStats(ctx, allIPs)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get availability stats: %w", err)
-	}
-
-	// Build report
-	report := &AvailabilityReport{
-		Timestamp:     time.Now(),
-		TotalDevices:  len(devices),
-		DevicesWithIP: len(allIPs),
-		TestedDevices: len(availStats),
-	}
-
-	// Calculate statistics
-	for _, isAvailable := range availStats {
-		if isAvailable {
-			report.AvailableDevices++
-		}
-	}
-
-	if report.TestedDevices > 0 {
-		report.AvailabilityPercentage = float64(report.AvailableDevices) / float64(report.TestedDevices) * 100
-	}
-
-	// Group by risk level (if available)
-	report.ByRiskLevel = make(map[string]*RiskLevelStats)
-
-	for i := range devices {
-		riskLevel := getRiskLevelCategory(devices[i].RiskLevel)
-
-		if _, exists := report.ByRiskLevel[riskLevel]; !exists {
-			report.ByRiskLevel[riskLevel] = &RiskLevelStats{}
-		}
-
-		stats := report.ByRiskLevel[riskLevel]
-		stats.Total++
-
-		if ip := extractFirstIP(devices[i].IPAddress); ip != "" {
-			if available, tested := availStats[ip]; tested {
-				stats.Tested++
-				if available {
-					stats.Available++
-				}
-			}
-		}
-	}
-
-	return report, nil
-}
-
-// AvailabilityReport represents a device availability report
-type AvailabilityReport struct {
-	Timestamp              time.Time                  `json:"timestamp"`
-	TotalDevices           int                        `json:"total_devices"`
-	DevicesWithIP          int                        `json:"devices_with_ip"`
-	TestedDevices          int                        `json:"tested_devices"`
-	AvailableDevices       int                        `json:"available_devices"`
-	AvailabilityPercentage float64                    `json:"availability_percentage"`
-	ByRiskLevel            map[string]*RiskLevelStats `json:"by_risk_level,omitempty"`
-}
-
 // RiskLevelStats represents availability statistics for a risk level
 type RiskLevelStats struct {
 	Total     int `json:"total"`
 	Tested    int `json:"tested"`
 	Available int `json:"available"`
-}
-
-// getRiskLevelCategory categorizes risk levels
-func getRiskLevelCategory(riskLevel int) string {
-	switch {
-	case riskLevel >= 8:
-		return "critical"
-	case riskLevel >= 5:
-		return "high"
-	case riskLevel >= 3:
-		return "medium"
-	default:
-		return "low"
-	}
 }
 
 // DefaultArmisUpdater implements the ArmisUpdater interface
@@ -223,16 +122,7 @@ func (a *ArmisIntegration) BatchUpdateDeviceAttributes(ctx context.Context, devi
 		attributes := make(map[string]interface{})
 
 		if result, exists := resultMap[ip]; exists {
-			attributes["serviceradar_available"] = result.Available
-			attributes["serviceradar_last_checked"] = result.Timestamp.Format(time.RFC3339)
-
-			if result.Available && result.RTT > 0 {
-				attributes["serviceradar_rtt_ms"] = result.RTT
-			}
-
-			if result.Error != "" {
-				attributes["serviceradar_last_error"] = result.Error
-			}
+			attributes["SERVICERADAR_COMPLIANT"] = result.Available
 		}
 
 		if len(attributes) > 0 && a.Updater != nil {
@@ -264,37 +154,15 @@ func (u *DefaultArmisUpdater) UpdateDeviceStatus(ctx context.Context, updates []
 		} `json:"upsert"`
 	}
 
-	operations := make([]upsertBody, 0, len(updates)*3)
+	operations := make([]upsertBody, 0, len(updates))
 
 	for _, upd := range updates {
-		// Always send availability and last checked
-		opAvail := upsertBody{}
-		opAvail.Upsert.DeviceID = upd.DeviceID
-		opAvail.Upsert.Key = "serviceradar_available"
-		opAvail.Upsert.Value = upd.Available
-		operations = append(operations, opAvail)
-
-		opChecked := upsertBody{}
-		opChecked.Upsert.DeviceID = upd.DeviceID
-		opChecked.Upsert.Key = "serviceradar_last_checked"
-		opChecked.Upsert.Value = upd.LastChecked.Format(time.RFC3339)
-		operations = append(operations, opChecked)
-
-		if upd.RTT > 0 {
-			opRTT := upsertBody{}
-			opRTT.Upsert.DeviceID = upd.DeviceID
-			opRTT.Upsert.Key = "serviceradar_rtt_ms"
-			opRTT.Upsert.Value = upd.RTT
-			operations = append(operations, opRTT)
-		}
-
-		if upd.ServiceRadarURL != "" {
-			opURL := upsertBody{}
-			opURL.Upsert.DeviceID = upd.DeviceID
-			opURL.Upsert.Key = "serviceradar_url"
-			opURL.Upsert.Value = upd.ServiceRadarURL
-			operations = append(operations, opURL)
-		}
+		// Only update the SERVICERADAR_COMPLIANT custom field
+		op := upsertBody{}
+		op.Upsert.DeviceID = upd.DeviceID
+		op.Upsert.Key = "SERVICERADAR_COMPLIANT"
+		op.Upsert.Value = upd.Available
+		operations = append(operations, op)
 	}
 
 	bodyBytes, err := json.Marshal(operations)
@@ -336,26 +204,57 @@ func (u *DefaultArmisUpdater) UpdateDeviceCustomAttributes(ctx context.Context, 
 		return nil
 	}
 
-	updates := make([]ArmisDeviceStatus, 1)
-	updates[0].DeviceID = deviceID
-
-	if v, ok := attributes["serviceradar_available"].(bool); ok {
-		updates[0].Available = v
+	accessToken, err := u.TokenProvider.GetAccessToken(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get access token: %w", err)
 	}
 
-	if v, ok := attributes["serviceradar_last_checked"].(string); ok {
-		if ts, err := time.Parse(time.RFC3339, v); err == nil {
-			updates[0].LastChecked = ts
-		}
+	type upsertBody struct {
+		Upsert struct {
+			DeviceID int         `json:"deviceId"`
+			Key      string      `json:"key"`
+			Value    interface{} `json:"value"`
+		} `json:"upsert"`
 	}
 
-	if v, ok := attributes["serviceradar_rtt_ms"].(float64); ok {
-		updates[0].RTT = v
+	operations := make([]upsertBody, 0, len(attributes))
+	for k, v := range attributes {
+		op := upsertBody{}
+		op.Upsert.DeviceID = deviceID
+		op.Upsert.Key = k
+		op.Upsert.Value = v
+		operations = append(operations, op)
 	}
 
-	if v, ok := attributes["serviceradar_url"].(string); ok {
-		updates[0].ServiceRadarURL = v
+	bodyBytes, err := json.Marshal(operations)
+	if err != nil {
+		return fmt.Errorf("failed to marshal payload: %w", err)
 	}
 
-	return u.UpdateDeviceStatus(ctx, updates)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		fmt.Sprintf("%s/api/v1/devices/custom-properties/_bulk/", u.Config.Endpoint),
+		bytes.NewReader(bodyBytes))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", accessToken)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := u.HTTPClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return fmt.Errorf("%w: %d, response: %s", errUnexpectedStatusCode, resp.StatusCode, string(respBody))
+	}
+
+	log.Printf("Armis custom attribute update response: %s", string(respBody))
+
+	return nil
 }
