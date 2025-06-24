@@ -22,7 +22,7 @@ import { Search, Settings, ChevronDown } from 'lucide-react';
 export default function Header() {
 
     return (
-        <header className="h-16 flex-shrink-0 bg-[#1C1B22] border-b border-gray-700 flex items-center justify-between px-6 text-gray-300">
+        <header className="h-16 flex-shrink-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between px-6 text-gray-600 dark:text-gray-300">
             <div className="flex-1 max-w-xl mx-4">
                 <div className="relative">
                     <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -31,26 +31,26 @@ export default function Header() {
                     <input
                         type="text"
                         placeholder="Search using SRQL query"
-                        className="w-full bg-[#25252e] border border-gray-600 rounded-md py-2 pl-10 pr-4 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500"
+                        className="w-full bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md py-2 pl-10 pr-4 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                 </div>
             </div>
 
             <div className="flex items-center gap-4">
-                <button className="flex items-center gap-2 px-3 py-1.5 border border-gray-600 rounded-md text-sm hover:bg-gray-700/50">
+                <button className="flex items-center gap-2 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md text-sm hover:bg-gray-100 dark:hover:bg-gray-700">
                     All Pollers
                     <ChevronDown className="h-4 w-4" />
                 </button>
-                <button className="flex items-center gap-2 px-3 py-1.5 border border-gray-600 rounded-md text-sm hover:bg-gray-700/50">
+                <button className="flex items-center gap-2 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md text-sm hover:bg-gray-100 dark:hover:bg-gray-700">
                     All Partitions
                     <ChevronDown className="h-4 w-4" />
                 </button>
-                <button className="flex items-center gap-2 px-3 py-1.5 border border-gray-600 rounded-md text-sm hover:bg-gray-700/50">
+                <button className="flex items-center gap-2 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md text-sm hover:bg-gray-100 dark:hover:bg-gray-700">
                     Last 7 Days
                     <ChevronDown className="h-4 w-4" />
                 </button>
-                <button className="p-2 rounded-full hover:bg-gray-700/50"><Settings className="h-5 w-5" /></button>
-                <button className="w-9 h-9 flex items-center justify-center bg-violet-600 rounded-full text-white font-bold text-sm">M</button>
+                <button className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"><Settings className="h-5 w-5" /></button>
+                <button className="w-9 h-9 flex items-center justify-center bg-blue-600 rounded-full text-white font-bold text-sm">M</button>
             </div>
         </header>
     );
