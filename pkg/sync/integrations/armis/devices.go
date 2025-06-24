@@ -172,10 +172,9 @@ func (a *ArmisIntegration) convertToSweepResults(devices []Device) []*models.Swe
 // Fetch retrieves devices from Armis. If the updater is configured, it also
 // correlates sweep results and sends status updates back to Armis.
 // Fetch handles the full sync cycle for Armis.
+// Fetch handles the full sync cycle for Armis.
 func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, []*models.SweepResult, error) {
 	// Part 1: Discovery (Armis -> ServiceRadar)
-	// This fetches from the Armis API and configures the sweepers via KV store.
-	// This is still necessary to get devices into the system.
 	data, devices, err := a.fetchAndProcessDevices(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -183,28 +182,21 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, []*mod
 	modelEvents := a.convertToSweepResults(devices)
 
 	// Part 2: Update (ServiceRadar -> Armis)
-	// If the updater isn't enabled, we are done.
 	if a.Updater == nil || a.SweepQuerier == nil {
 		log.Println("Armis updater not configured, skipping status update.")
 		return data, modelEvents, nil
 	}
 
-	log.Println("Armis updater configured. Querying ServiceRadar for device states.")
-
-	// Step 2a: Execute the efficient query against the unified devices view.
-	srqlQuery := `show devices where discovery_sources = "armis"`
-	log.Printf("Executing SRQL query: %s", srqlQuery)
-
-	// Use the generic querier to get results. Set a high limit to get all devices.
-	deviceQueryResults, err := a.SweepQuerier.ExecuteGenericQuery(ctx, srqlQuery, 10000)
+	// Call the new dedicated function to get device states
+	deviceStates, err := a.SweepQuerier.GetDeviceStatesBySource(ctx, "armis")
 	if err != nil {
-		log.Printf("Failed to query devices from ServiceRadar, skipping update: %v", err)
-		return data, modelEvents, nil // Don't fail the sync
+		log.Printf("Failed to query device states from ServiceRadar, skipping update: %v", err)
+		return data, modelEvents, nil
 	}
-	log.Printf("Successfully queried %d devices from ServiceRadar.", len(deviceQueryResults))
+	log.Printf("Successfully queried %d device states from ServiceRadar.", len(deviceStates))
 
-	// Step 2b: Prepare status updates from the query results.
-	updates := a.prepareArmisUpdateFromDeviceQuery(deviceQueryResults)
+	// Prepare updates using the new typed slice
+	updates := a.prepareArmisUpdateFromDeviceStates(deviceStates)
 	if len(updates) > 0 {
 		log.Printf("Prepared %d status updates to send to Armis.", len(updates))
 		if err := a.Updater.UpdateDeviceStatus(ctx, updates); err != nil {
@@ -216,8 +208,35 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, []*mod
 		log.Println("No device status updates to send to Armis.")
 	}
 
-	// Return the data from Part 1 for the KV store and NATS.
 	return data, modelEvents, nil
+}
+
+// Renamed and updated to accept the new typed slice
+func (a *ArmisIntegration) prepareArmisUpdateFromDeviceStates(states []DeviceState) []ArmisDeviceStatus {
+	updates := make([]ArmisDeviceStatus, 0, len(states))
+	for _, state := range states {
+		var armisDeviceID int
+		if state.Metadata != nil {
+			// Extract the armis_device_id we stored during the initial discovery
+			if idStr, ok := state.Metadata["armis_device_id"].(string); ok {
+				id, err := strconv.Atoi(idStr)
+				if err == nil {
+					armisDeviceID = id
+				}
+			}
+		}
+
+		if state.IP == "" || armisDeviceID == 0 {
+			continue // Cannot update Armis without the original device ID
+		}
+
+		updates = append(updates, ArmisDeviceStatus{
+			DeviceID:  armisDeviceID,
+			IP:        state.IP,
+			Available: state.IsAvailable,
+		})
+	}
+	return updates
 }
 
 // prepareArmisUpdateFromDeviceQuery processes the results of a 'show devices'

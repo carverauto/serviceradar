@@ -75,112 +75,11 @@ func extractFirstIP(ipList string) string {
 	return ""
 }
 
-// GetDeviceAvailabilityReport generates a report of device availability
-func (a *ArmisIntegration) GetDeviceAvailabilityReport(ctx context.Context) (*AvailabilityReport, error) {
-	// Fetch current devices from Armis
-	data, _, err := a.Fetch(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch devices: %w", err)
-	}
-
-	// Extract devices and IPs
-	var devices []Device
-
-	var allIPs []string
-
-	for _, deviceData := range data {
-		var device Device
-
-		if err = json.Unmarshal(deviceData, &device); err == nil {
-			devices = append(devices, device)
-
-			if ip := extractFirstIP(device.IPAddress); ip != "" {
-				allIPs = append(allIPs, ip)
-			}
-		}
-	}
-
-	// Get availability stats
-	availStats, err := a.SweepQuerier.GetAvailabilityStats(ctx, allIPs)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get availability stats: %w", err)
-	}
-
-	// Build report
-	report := &AvailabilityReport{
-		Timestamp:     time.Now(),
-		TotalDevices:  len(devices),
-		DevicesWithIP: len(allIPs),
-		TestedDevices: len(availStats),
-	}
-
-	// Calculate statistics
-	for _, isAvailable := range availStats {
-		if isAvailable {
-			report.AvailableDevices++
-		}
-	}
-
-	if report.TestedDevices > 0 {
-		report.AvailabilityPercentage = float64(report.AvailableDevices) / float64(report.TestedDevices) * 100
-	}
-
-	// Group by risk level (if available)
-	report.ByRiskLevel = make(map[string]*RiskLevelStats)
-
-	for i := range devices {
-		riskLevel := getRiskLevelCategory(devices[i].RiskLevel)
-
-		if _, exists := report.ByRiskLevel[riskLevel]; !exists {
-			report.ByRiskLevel[riskLevel] = &RiskLevelStats{}
-		}
-
-		stats := report.ByRiskLevel[riskLevel]
-		stats.Total++
-
-		if ip := extractFirstIP(devices[i].IPAddress); ip != "" {
-			if available, tested := availStats[ip]; tested {
-				stats.Tested++
-				if available {
-					stats.Available++
-				}
-			}
-		}
-	}
-
-	return report, nil
-}
-
-// AvailabilityReport represents a device availability report
-type AvailabilityReport struct {
-	Timestamp              time.Time                  `json:"timestamp"`
-	TotalDevices           int                        `json:"total_devices"`
-	DevicesWithIP          int                        `json:"devices_with_ip"`
-	TestedDevices          int                        `json:"tested_devices"`
-	AvailableDevices       int                        `json:"available_devices"`
-	AvailabilityPercentage float64                    `json:"availability_percentage"`
-	ByRiskLevel            map[string]*RiskLevelStats `json:"by_risk_level,omitempty"`
-}
-
 // RiskLevelStats represents availability statistics for a risk level
 type RiskLevelStats struct {
 	Total     int `json:"total"`
 	Tested    int `json:"tested"`
 	Available int `json:"available"`
-}
-
-// getRiskLevelCategory categorizes risk levels
-func getRiskLevelCategory(riskLevel int) string {
-	switch {
-	case riskLevel >= 8:
-		return "critical"
-	case riskLevel >= 5:
-		return "high"
-	case riskLevel >= 3:
-		return "medium"
-	default:
-		return "low"
-	}
 }
 
 // DefaultArmisUpdater implements the ArmisUpdater interface
