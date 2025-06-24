@@ -104,15 +104,35 @@ func (mr *MockKVClientMockRecorder) Put(ctx, in any, opts ...any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Put", reflect.TypeOf((*MockKVClient)(nil).Put), varargs...)
 }
 
+// PutMany mocks base method.
+func (m *MockKVClient) PutMany(ctx context.Context, in *proto.PutManyRequest, opts ...grpc.CallOption) (*proto.PutManyResponse, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, in}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "PutMany", varargs...)
+	ret0, _ := ret[0].(*proto.PutManyResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// PutMany indicates an expected call of PutMany.
+func (mr *MockKVClientMockRecorder) PutMany(ctx, in any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, in}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PutMany", reflect.TypeOf((*MockKVClient)(nil).PutMany), varargs...)
+}
+
 // Watch mocks base method.
-func (m *MockKVClient) Watch(ctx context.Context, in *proto.WatchRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[proto.WatchResponse], error) {
+func (m *MockKVClient) Watch(ctx context.Context, in *proto.WatchRequest, opts ...grpc.CallOption) (proto.KVService_WatchClient, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, in}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "Watch", varargs...)
-	ret0, _ := ret[0].(grpc.ServerStreamingClient[proto.WatchResponse])
+	ret0, _ := ret[0].(proto.KVService_WatchClient)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

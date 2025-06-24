@@ -678,6 +678,24 @@ func (m *mockKVClient) Put(ctx context.Context, in *proto.PutRequest, opts ...gr
 	return ret0, ret1
 }
 
+func (m *mockKVClient) PutMany(ctx context.Context, in *proto.PutManyRequest, opts ...grpc.CallOption) (*proto.PutManyResponse, error) {
+	m.ctrl.T.Helper()
+	varargs := []interface{}{ctx, in}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "PutMany", varargs...)
+	ret0, _ := ret[0].(*proto.PutManyResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+func (mr *mockKVClientRecorder) PutMany(ctx, in interface{}, opts ...interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]interface{}{ctx, in}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PutMany", reflect.TypeOf((*mockKVClient)(nil).PutMany), varargs...)
+}
+
 func (mr *mockKVClientRecorder) Put(ctx, in interface{}, opts ...interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 
@@ -721,18 +739,18 @@ func TestDefaultKVWriter_WriteSweepConfig(t *testing.T) {
 		{
 			name: "successful write",
 			setupMock: func(mock *mockKVClientRecorder) {
-				t.Log("Setting up mock expectation for Put")
-				mock.Put(gomock.Any(), gomock.Any(), gomock.Any()).
-					DoAndReturn(func(_ context.Context, req *proto.PutRequest, _ ...grpc.CallOption) (*proto.PutResponse, error) {
-						assert.Equal(t, "agents/test-server/checkers/sweep/sweep.json", req.Key)
+				t.Log("Setting up mock expectation for PutMany")
+				mock.PutMany(gomock.Any(), gomock.Any(), gomock.Any()).
+					DoAndReturn(func(_ context.Context, req *proto.PutManyRequest, _ ...grpc.CallOption) (*proto.PutManyResponse, error) {
+						assert.Equal(t, 1, len(req.Entries))
+						assert.Equal(t, "agents/test-server/checkers/sweep/sweep.json", req.Entries[0].Key)
 
 						var config models.SweepConfig
-
-						err := json.Unmarshal(req.Value, &config)
+						err := json.Unmarshal(req.Entries[0].Value, &config)
 						require.NoError(t, err)
 						assert.Equal(t, testSweepConfig.Networks, config.Networks)
 
-						return &proto.PutResponse{}, nil
+						return &proto.PutManyResponse{}, nil
 					})
 			},
 			expectedError: "",
@@ -740,8 +758,8 @@ func TestDefaultKVWriter_WriteSweepConfig(t *testing.T) {
 		{
 			name: "KV client error",
 			setupMock: func(mock *mockKVClientRecorder) {
-				t.Log("Setting up mock expectation for Put with error")
-				mock.Put(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, errNetworkError)
+				t.Log("Setting up mock expectation for PutMany with error")
+				mock.PutMany(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, errNetworkError)
 			},
 			expectedError: "failed to write sweep config",
 		},
