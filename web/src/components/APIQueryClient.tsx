@@ -39,7 +39,7 @@ const ApiQueryClient: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [viewFormat, setViewFormat] = useState<ViewFormat>('json');
     const [showRawJson, setShowRawJson] = useState<boolean>(false);
-    const { token, isAuthEnabled } = useAuth();
+    const { token } = useAuth();
 
     const [jsonViewTheme, setJsonViewTheme] = useState<'rjv-default' | 'pop'>('rjv-default');
 

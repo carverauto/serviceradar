@@ -94,6 +94,7 @@ const SimpleBarChart = ({ data, yMax }) => (
 const AnalyticsDashboard = () => {
     const { token } = useAuth();
     const [deviceCount, setDeviceCount] = useState<number | null>(null);
+    const [newDeviceCount, setNewDeviceCount] = useState<number | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
@@ -122,8 +123,13 @@ const AnalyticsDashboard = () => {
 
             const data = await response.json();
 
-            if (data && Array.isArray(data.results)) {
-                setDeviceCount(data.results.length);
+            if (
+                data &&
+                Array.isArray(data.results) &&
+                data.results.length > 0 &&
+                typeof data.results[0]["count()"] === 'number'
+            ) {
+                setDeviceCount(data.results[0]["count()"]);
             } else {
                 throw new Error('Unexpected data format for device count.');
             }
@@ -136,11 +142,50 @@ const AnalyticsDashboard = () => {
         }
     }, [token, deviceCount]);
 
+    const fetchNewDeviceCount = useCallback(async () => {
+        try {
+            const response = await fetch('/api/query', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(token && { Authorization: `Bearer ${token}` }),
+                },
+                body: JSON.stringify({ query: "count devices where first_seen > now() - 7d" }),
+                cache: 'no-store',
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`API Error: ${response.status} ${errorText}`);
+            }
+
+            const data = await response.json();
+
+            if (
+                data &&
+                Array.isArray(data.results) &&
+                data.results.length > 0 &&
+                typeof data.results[0]["count()"] === 'number'
+            ) {
+                setNewDeviceCount(data.results[0]["count()"]);
+            } else {
+                throw new Error('Unexpected data format for new device count.');
+            }
+        } catch (err) {
+            console.error("Failed to fetch new device count:", err);
+            setNewDeviceCount(null);
+        }
+    }, [token]);
+
     useEffect(() => {
         fetchDeviceCount();
-        const interval = setInterval(fetchDeviceCount, REFRESH_INTERVAL);
+        fetchNewDeviceCount();
+        const interval = setInterval(() => {
+            fetchDeviceCount();
+            fetchNewDeviceCount();
+        }, REFRESH_INTERVAL);
         return () => clearInterval(interval);
-    }, [fetchDeviceCount]);
+    }, [fetchDeviceCount, fetchNewDeviceCount]);
 
     return (
         <div className="space-y-6">
@@ -154,8 +199,11 @@ const AnalyticsDashboard = () => {
                             error ? 'Error' :
                                 deviceCount !== null ? deviceCount.toLocaleString() : 'N/A'
                     }
-                    // TODO: The subValue is still hardcoded and can be wired up next
-                    subValue="4,171 new"
+                    subValue={
+                        newDeviceCount !== null
+                            ? `${newDeviceCount.toLocaleString()} new`
+                            : 'N/A'
+                    }
                 />
                 <StatCard icon={<AlertTriangle />} title="Critical risk devices" value="13.7k" alert />
                 <StatCard icon={<ShieldOff />} title="Threat activities" value="0" />
