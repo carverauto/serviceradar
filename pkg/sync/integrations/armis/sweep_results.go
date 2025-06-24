@@ -117,7 +117,7 @@ func (s *SweepResultsQuery) GetDeviceStatesBySource(ctx context.Context, source 
 
 // convertToDeviceStates parses the raw map from a 'show devices' query
 // into a slice of typed DeviceState structs.
-func (s *SweepResultsQuery) convertToDeviceStates(rawResults []map[string]interface{}) []DeviceState {
+func (*SweepResultsQuery) convertToDeviceStates(rawResults []map[string]interface{}) []DeviceState {
 	states := make([]DeviceState, 0, len(rawResults))
 
 	for _, raw := range rawResults {

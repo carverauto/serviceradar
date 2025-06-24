@@ -152,6 +152,7 @@ func (n *NatsStore) PutMany(ctx context.Context, entries []KeyValueEntry, _ time
 			return fmt.Errorf("failed to put key %s: %w", e.Key, err)
 		}
 	}
+
 	return nil
 }
 
