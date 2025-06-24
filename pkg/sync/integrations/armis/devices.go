@@ -144,14 +144,18 @@ func (a *ArmisIntegration) convertToSweepResults(devices []Device) []*models.Swe
 		hostname := dev.Name
 		mac := dev.MacAddress
 		tag := ""
+
 		if len(dev.Tags) > 0 {
 			tag = strings.Join(dev.Tags, ",")
 		}
+
 		meta := map[string]string{
 			"armis_device_id": fmt.Sprintf("%d", dev.ID),
 			"tag":             tag,
 		}
+
 		ip := extractFirstIP(dev.IPAddress)
+
 		out = append(out, &models.SweepResult{
 			AgentID:         a.Config.AgentID,
 			PollerID:        a.Config.PollerID,
@@ -171,14 +175,13 @@ func (a *ArmisIntegration) convertToSweepResults(devices []Device) []*models.Swe
 
 // Fetch retrieves devices from Armis. If the updater is configured, it also
 // correlates sweep results and sends status updates back to Armis.
-// Fetch handles the full sync cycle for Armis.
-// Fetch handles the full sync cycle for Armis.
 func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, []*models.SweepResult, error) {
 	// Part 1: Discovery (Armis -> ServiceRadar)
 	data, devices, err := a.fetchAndProcessDevices(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
+
 	modelEvents := a.convertToSweepResults(devices)
 
 	// Part 2: Update (ServiceRadar -> Armis)
@@ -193,12 +196,15 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, []*mod
 		log.Printf("Failed to query device states from ServiceRadar, skipping update: %v", err)
 		return data, modelEvents, nil
 	}
+
 	log.Printf("Successfully queried %d device states from ServiceRadar.", len(deviceStates))
 
 	// Prepare updates using the new typed slice
 	updates := a.prepareArmisUpdateFromDeviceStates(deviceStates)
+
 	if len(updates) > 0 {
 		log.Printf("Prepared %d status updates to send to Armis.", len(updates))
+
 		if err := a.Updater.UpdateDeviceStatus(ctx, updates); err != nil {
 			log.Printf("Failed to update device status in Armis: %v", err)
 		} else {
@@ -211,11 +217,12 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, []*mod
 	return data, modelEvents, nil
 }
 
-// Renamed and updated to accept the new typed slice
-func (a *ArmisIntegration) prepareArmisUpdateFromDeviceStates(states []DeviceState) []ArmisDeviceStatus {
+func (*ArmisIntegration) prepareArmisUpdateFromDeviceStates(states []DeviceState) []ArmisDeviceStatus {
 	updates := make([]ArmisDeviceStatus, 0, len(states))
+
 	for _, state := range states {
 		var armisDeviceID int
+
 		if state.Metadata != nil {
 			// Extract the armis_device_id we stored during the initial discovery
 			if idStr, ok := state.Metadata["armis_device_id"].(string); ok {
@@ -236,12 +243,13 @@ func (a *ArmisIntegration) prepareArmisUpdateFromDeviceStates(states []DeviceSta
 			Available: state.IsAvailable,
 		})
 	}
+
 	return updates
 }
 
 // prepareArmisUpdateFromDeviceQuery processes the results of a 'show devices'
 // SRQL query and prepares them for an Armis status update.
-func (a *ArmisIntegration) prepareArmisUpdateFromDeviceQuery(results []map[string]interface{}) []ArmisDeviceStatus {
+func (*ArmisIntegration) prepareArmisUpdateFromDeviceQuery(results []map[string]interface{}) []ArmisDeviceStatus {
 	updates := make([]ArmisDeviceStatus, 0, len(results))
 
 	for _, deviceData := range results {
@@ -249,6 +257,7 @@ func (a *ArmisIntegration) prepareArmisUpdateFromDeviceQuery(results []map[strin
 		isAvailable, _ := deviceData["is_available"].(bool)
 
 		var armisDeviceID int
+
 		if metadata, ok := deviceData["metadata"].(map[string]interface{}); ok {
 			if idStr, ok := metadata["armis_device_id"].(string); ok {
 				id, err := strconv.Atoi(idStr)
@@ -345,6 +354,7 @@ func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]b
 		if len(d.Tags) > 0 {
 			tag = strings.Join(d.Tags, ",")
 		}
+
 		enriched := DeviceWithMetadata{
 			Device:   *d,
 			Metadata: map[string]string{"armis_device_id": fmt.Sprintf("%d", d.ID), "tag": tag},

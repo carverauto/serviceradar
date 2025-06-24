@@ -66,10 +66,10 @@ func TestArmisIntegration_Fetch_WithUpdaterAndCorrelation(t *testing.T) {
 	expectedDevices := getExpectedDevices()
 	firstPageResp := getFirstPageResponse(expectedDevices)
 
-	// Mock sweep results, one for each device IP
-	mockSweepResults := []SweepResult{
-		{IP: "192.168.1.1", Available: true, Timestamp: time.Now(), RTT: 15.5},
-		{IP: "192.168.1.2", Available: false, Timestamp: time.Now(), Error: "timeout"},
+	// Mock device states, one for each device IP
+	mockDeviceStates := []DeviceState{
+		{IP: "192.168.1.1", IsAvailable: true, Metadata: map[string]interface{}{"armis_device_id": "1"}},
+		{IP: "192.168.1.2", IsAvailable: false, Metadata: map[string]interface{}{"armis_device_id": "2"}},
 	}
 
 	// 2. Define mock expectations
@@ -82,7 +82,7 @@ func TestArmisIntegration_Fetch_WithUpdaterAndCorrelation(t *testing.T) {
 	mocks.KVWriter.EXPECT().WriteSweepConfig(gomock.Any(), gomock.Any()).Return(nil)
 
 	// Expectations for the new correlation logic
-	mocks.SweepQuerier.EXPECT().GetTodaysSweepResults(gomock.Any()).Return(mockSweepResults, nil)
+	mocks.SweepQuerier.EXPECT().GetDeviceStatesBySource(gomock.Any(), "armis").Return(mockDeviceStates, nil)
 	mocks.Updater.EXPECT().UpdateDeviceStatus(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, updates []ArmisDeviceStatus) error {
 			// Verify the content of the updates being sent to Armis
@@ -92,18 +92,16 @@ func TestArmisIntegration_Fetch_WithUpdaterAndCorrelation(t *testing.T) {
 			assert.Equal(t, 1, updates[0].DeviceID)
 			assert.Equal(t, "192.168.1.1", updates[0].IP)
 			assert.True(t, updates[0].Available)
-			assert.InEpsilon(t, 15.5, updates[0].RTT, 0.0001)
 
 			// Device 2 had a sweep result and was not available
 			assert.Equal(t, 2, updates[1].DeviceID)
 			assert.Equal(t, "192.168.1.2", updates[1].IP)
 			assert.False(t, updates[1].Available)
-
 			return nil
 		}).Return(nil)
 
 	// 3. Execute the method under test
-	result, _, err := integration.Fetch(context.Background())
+	result, events, err := integration.Fetch(context.Background())
 
 	// 4. Assert the results
 	require.NoError(t, err)
@@ -132,17 +130,9 @@ func TestArmisIntegration_Fetch_WithUpdaterAndCorrelation(t *testing.T) {
 	_, device2Exists := result["2"]
 	assert.True(t, device2Exists)
 
-	// Verify that the sweep results were added to the map for enrichment
-	sweepResultsData, sweepResultsExist := result["_sweep_results"]
-	require.True(t, sweepResultsExist)
-
-	var storedSweepResults []SweepResult
-
-	err = json.Unmarshal(sweepResultsData, &storedSweepResults)
-	require.NoError(t, err)
-
-	assert.Len(t, storedSweepResults, 2)
-	assert.Equal(t, "192.168.1.1", storedSweepResults[0].IP)
+	// Verify sweep results were returned as events
+	require.Len(t, events, 2)
+	assert.Equal(t, "192.168.1.1", events[0].IP)
 }
 
 func setupArmisIntegration(t *testing.T) (*ArmisIntegration, *armisMocks) {
@@ -680,19 +670,25 @@ func (m *mockKVClient) Put(ctx context.Context, in *proto.PutRequest, opts ...gr
 
 func (m *mockKVClient) PutMany(ctx context.Context, in *proto.PutManyRequest, opts ...grpc.CallOption) (*proto.PutManyResponse, error) {
 	m.ctrl.T.Helper()
+
 	varargs := []interface{}{ctx, in}
+
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
+
 	ret := m.ctrl.Call(m, "PutMany", varargs...)
 	ret0, _ := ret[0].(*proto.PutManyResponse)
 	ret1, _ := ret[1].(error)
+
 	return ret0, ret1
 }
 
 func (mr *mockKVClientRecorder) PutMany(ctx, in interface{}, opts ...interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
+
 	varargs := append([]interface{}{ctx, in}, opts...)
+
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PutMany", reflect.TypeOf((*mockKVClient)(nil).PutMany), varargs...)
 }
 
@@ -707,9 +703,11 @@ func (mr *mockKVClientRecorder) Put(ctx, in interface{}, opts ...interface{}) *g
 func (*mockKVClient) Get(_ context.Context, _ *proto.GetRequest, _ ...grpc.CallOption) (*proto.GetResponse, error) {
 	return nil, errNotImplemented
 }
+
 func (*mockKVClient) Delete(_ context.Context, _ *proto.DeleteRequest, _ ...grpc.CallOption) (*proto.DeleteResponse, error) {
 	return nil, errNotImplemented
 }
+
 func (*mockKVClient) Watch(_ context.Context, _ *proto.WatchRequest, _ ...grpc.CallOption) (proto.KVService_WatchClient, error) {
 	return nil, errNotImplemented
 }
@@ -742,7 +740,7 @@ func TestDefaultKVWriter_WriteSweepConfig(t *testing.T) {
 				t.Log("Setting up mock expectation for PutMany")
 				mock.PutMany(gomock.Any(), gomock.Any(), gomock.Any()).
 					DoAndReturn(func(_ context.Context, req *proto.PutManyRequest, _ ...grpc.CallOption) (*proto.PutManyResponse, error) {
-						assert.Equal(t, 1, len(req.Entries))
+						assert.Len(t, req.Entries, 1)
 						assert.Equal(t, "agents/test-server/checkers/sweep/sweep.json", req.Entries[0].Key)
 
 						var config models.SweepConfig
@@ -826,6 +824,7 @@ func TestDefaultArmisUpdater_UpdateDeviceStatus(t *testing.T) {
 			require.NoError(t, err)
 
 			var payload []map[string]map[string]interface{}
+
 			err = json.Unmarshal(body, &payload)
 			require.NoError(t, err)
 
@@ -838,4 +837,111 @@ func TestDefaultArmisUpdater_UpdateDeviceStatus(t *testing.T) {
 
 	err := updater.UpdateDeviceStatus(context.Background(), updates)
 	require.NoError(t, err)
+}
+
+// TestProcessDevices verifies that Armis devices are converted into KV entries and IP list
+func TestProcessDevices(t *testing.T) {
+	integ := &ArmisIntegration{
+		Config: &models.SourceConfig{PollerID: "poller", Partition: "part"},
+	}
+
+	devices := []Device{
+		{ID: 1, IPAddress: "192.168.1.1", MacAddress: "aa:bb", Name: "dev1", Tags: []string{"t1"}},
+		{ID: 2, IPAddress: "192.168.1.2,10.0.0.1", MacAddress: "cc:dd", Name: "dev2"},
+	}
+
+	data, ips := integ.processDevices(devices)
+
+	require.Len(t, data, 4) // two device keys and two sweep device entries
+	assert.ElementsMatch(t, []string{"part:192.168.1.1", "part:192.168.1.2"}, keysWithPrefix(data, "part:"))
+	assert.ElementsMatch(t, []string{"192.168.1.1/32", "192.168.1.2/32"}, ips)
+
+	raw := data["1"]
+
+	var withMeta DeviceWithMetadata
+
+	require.NoError(t, json.Unmarshal(raw, &withMeta))
+	assert.Equal(t, 1, withMeta.ID)
+	assert.Equal(t, "t1", withMeta.Metadata["tag"])
+}
+
+// keysWithPrefix returns map keys that have the given prefix
+func keysWithPrefix(m map[string][]byte, prefix string) []string {
+	var out []string
+
+	for k := range m {
+		if len(k) >= len(prefix) && k[:len(prefix)] == prefix {
+			out = append(out, k)
+		}
+	}
+
+	return out
+}
+
+func TestPrepareArmisUpdateFromDeviceStates(t *testing.T) {
+	integ := &ArmisIntegration{}
+	states := []DeviceState{
+		{IP: "1.1.1.1", IsAvailable: true, Metadata: map[string]interface{}{"armis_device_id": "10"}},
+		{IP: "", IsAvailable: true, Metadata: map[string]interface{}{"armis_device_id": "11"}},
+		{IP: "2.2.2.2", IsAvailable: false},
+	}
+
+	updates := integ.prepareArmisUpdateFromDeviceStates(states)
+	require.Len(t, updates, 1)
+	assert.Equal(t, 10, updates[0].DeviceID)
+	assert.Equal(t, "1.1.1.1", updates[0].IP)
+	assert.True(t, updates[0].Available)
+}
+
+func TestPrepareArmisUpdateFromDeviceQuery(t *testing.T) {
+	integ := &ArmisIntegration{}
+	results := []map[string]interface{}{
+		{"ip": "1.1.1.1", "is_available": true, "metadata": map[string]interface{}{"armis_device_id": "5"}},
+		{"ip": "", "is_available": true, "metadata": map[string]interface{}{"armis_device_id": "6"}},
+		{"ip": "2.2.2.2", "is_available": false},
+	}
+
+	updates := integ.prepareArmisUpdateFromDeviceQuery(results)
+
+	require.Len(t, updates, 1)
+
+	assert.Equal(t, 5, updates[0].DeviceID)
+	assert.Equal(t, "1.1.1.1", updates[0].IP)
+	assert.True(t, updates[0].Available)
+}
+
+func TestConvertToDeviceStates(t *testing.T) {
+	q := &SweepResultsQuery{}
+
+	raw := []map[string]interface{}{
+		{"ip": "1.1.1.1", "is_available": true, "metadata": map[string]interface{}{"x": "y"}},
+	}
+
+	states := q.convertToDeviceStates(raw)
+
+	require.Len(t, states, 1)
+
+	assert.Equal(t, "1.1.1.1", states[0].IP)
+	assert.True(t, states[0].IsAvailable)
+	assert.Equal(t, "y", states[0].Metadata["x"])
+}
+
+func TestConvertToSweepResults(t *testing.T) {
+	q := &SweepResultsQuery{}
+
+	ts := time.Now().UTC()
+
+	raw := []map[string]interface{}{
+		{"ip": "1.1.1.1", "available": true, "timestamp": ts.Format(time.RFC3339), "rtt": 1.5, "port": 80.0, "protocol": "icmp"},
+	}
+
+	res := q.convertToSweepResults(raw)
+
+	require.Len(t, res, 1)
+	assert.Equal(t, "1.1.1.1", res[0].IP)
+	assert.True(t, res[0].Available)
+	assert.WithinDuration(t, ts, res[0].Timestamp, time.Second)
+	assert.InEpsilon(t, 1.5, res[0].RTT, 0.0001)
+	assert.Equal(t, 80, res[0].Port)
+	assert.Equal(t, "icmp", res[0].Protocol)
 }
