@@ -351,3 +351,5 @@ const DevicesDashboard = () => {
         </div>
     );
 }
+
+export default DevicesDashboard;
