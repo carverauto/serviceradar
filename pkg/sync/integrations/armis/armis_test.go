@@ -66,10 +66,10 @@ func TestArmisIntegration_Fetch_WithUpdaterAndCorrelation(t *testing.T) {
 	expectedDevices := getExpectedDevices()
 	firstPageResp := getFirstPageResponse(expectedDevices)
 
-	// Mock sweep results, one for each device IP
-	mockSweepResults := []SweepResult{
-		{IP: "192.168.1.1", Available: true, Timestamp: time.Now(), RTT: 15.5},
-		{IP: "192.168.1.2", Available: false, Timestamp: time.Now(), Error: "timeout"},
+	// Mock device states, one for each device IP
+	mockDeviceStates := []DeviceState{
+		{IP: "192.168.1.1", IsAvailable: true, Metadata: map[string]interface{}{"armis_device_id": "1"}},
+		{IP: "192.168.1.2", IsAvailable: false, Metadata: map[string]interface{}{"armis_device_id": "2"}},
 	}
 
 	// 2. Define mock expectations
@@ -82,7 +82,7 @@ func TestArmisIntegration_Fetch_WithUpdaterAndCorrelation(t *testing.T) {
 	mocks.KVWriter.EXPECT().WriteSweepConfig(gomock.Any(), gomock.Any()).Return(nil)
 
 	// Expectations for the new correlation logic
-	mocks.SweepQuerier.EXPECT().GetTodaysSweepResults(gomock.Any()).Return(mockSweepResults, nil)
+	mocks.SweepQuerier.EXPECT().GetDeviceStatesBySource(gomock.Any(), "armis").Return(mockDeviceStates, nil)
 	mocks.Updater.EXPECT().UpdateDeviceStatus(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, updates []ArmisDeviceStatus) error {
 			// Verify the content of the updates being sent to Armis
@@ -92,18 +92,16 @@ func TestArmisIntegration_Fetch_WithUpdaterAndCorrelation(t *testing.T) {
 			assert.Equal(t, 1, updates[0].DeviceID)
 			assert.Equal(t, "192.168.1.1", updates[0].IP)
 			assert.True(t, updates[0].Available)
-			assert.InEpsilon(t, 15.5, updates[0].RTT, 0.0001)
 
 			// Device 2 had a sweep result and was not available
 			assert.Equal(t, 2, updates[1].DeviceID)
 			assert.Equal(t, "192.168.1.2", updates[1].IP)
 			assert.False(t, updates[1].Available)
-
 			return nil
 		}).Return(nil)
 
 	// 3. Execute the method under test
-	result, _, err := integration.Fetch(context.Background())
+	result, events, err := integration.Fetch(context.Background())
 
 	// 4. Assert the results
 	require.NoError(t, err)
@@ -132,17 +130,9 @@ func TestArmisIntegration_Fetch_WithUpdaterAndCorrelation(t *testing.T) {
 	_, device2Exists := result["2"]
 	assert.True(t, device2Exists)
 
-	// Verify that the sweep results were added to the map for enrichment
-	sweepResultsData, sweepResultsExist := result["_sweep_results"]
-	require.True(t, sweepResultsExist)
-
-	var storedSweepResults []SweepResult
-
-	err = json.Unmarshal(sweepResultsData, &storedSweepResults)
-	require.NoError(t, err)
-
-	assert.Len(t, storedSweepResults, 2)
-	assert.Equal(t, "192.168.1.1", storedSweepResults[0].IP)
+	// Verify sweep results were returned as events
+	require.Len(t, events, 2)
+	assert.Equal(t, "192.168.1.1", events[0].IP)
 }
 
 func setupArmisIntegration(t *testing.T) (*ArmisIntegration, *armisMocks) {
