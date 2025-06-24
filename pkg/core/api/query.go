@@ -111,12 +111,54 @@ func (s *APIServer) prepareQuery(req *QueryRequest) (*models.Query, map[string]i
 		return nil, nil, fmt.Errorf("failed to parse query: %w", err)
 	}
 
-	// Validate entity
-	if query.Entity != models.Devices && query.Entity != models.Interfaces && query.Entity != models.SweepResults {
-		return nil, nil, errors.New("pagination is only supported for devices, interfaces, and sweep_results")
+	var cursorData map[string]interface{}
+
+	// Only apply pagination/ordering logic for SHOW or FIND queries
+	if query.Type == models.Show || query.Type == models.Find {
+		var err error
+
+		cursorData, err = s.setupPaginationAndOrdering(query, req)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 
+	// Set query limit
+	s.setQueryLimit(query, req.Limit)
+
+	return query, cursorData, nil
+}
+
+// setupPaginationAndOrdering handles pagination and ordering logic for SHOW or FIND queries
+func (s *APIServer) setupPaginationAndOrdering(query *models.Query, req *QueryRequest) (map[string]interface{}, error) {
+	// Validate entity for pagination
+	if query.Entity != models.Devices && query.Entity != models.Interfaces && query.Entity != models.SweepResults {
+		return nil, errors.New("pagination is only supported for devices, interfaces, and sweep_results")
+	}
+
+	s.setupOrderByFields(query)
+
+	// Handle cursor
+	var cursorData map[string]interface{}
+
+	var err error
+
+	if req.Cursor != "" {
+		cursorData, err = decodeCursor(req.Cursor)
+		if err != nil {
+			return nil, errors.New("invalid cursor")
+		}
+
+		query.Conditions = append(query.Conditions, buildCursorConditions(query, cursorData, req.Direction)...)
+	}
+
+	return cursorData, nil
+}
+
+// setupOrderByFields sets up the order by fields for the query
+func (s *APIServer) setupOrderByFields(query *models.Query) {
 	var defaultOrderField string
+
 	if len(query.OrderBy) == 0 {
 		defaultOrderField = "_tp_time" // Default for Proton
 
@@ -132,8 +174,7 @@ func (s *APIServer) prepareQuery(req *QueryRequest) (*models.Query, map[string]i
 		defaultOrderField = query.OrderBy[0].Field
 	}
 
-	// Step 2: Ensure the sort order is stable by adding a tie-breaker field.
-	// This runs after the default is set, ensuring stability for all paginated queries.
+	// Ensure the sort order is stable by adding a tie-breaker field.
 	if len(query.OrderBy) == 1 && query.OrderBy[0].Field == defaultOrderField {
 		if query.Entity == models.SweepResults || query.Entity == models.Devices {
 			// Add 'ip' as a default secondary sort key for stable pagination.
@@ -143,31 +184,19 @@ func (s *APIServer) prepareQuery(req *QueryRequest) (*models.Query, map[string]i
 			})
 		}
 	}
+}
 
-	// Handle cursor
-	var cursorData map[string]interface{}
-
-	if req.Cursor != "" {
-		cursorData, err = decodeCursor(req.Cursor)
-		if err != nil {
-			return nil, nil, errors.New("invalid cursor")
-		}
-
-		query.Conditions = append(query.Conditions, buildCursorConditions(query, cursorData, req.Direction)...)
-	}
-
-	// Set LIMIT: prioritize SRQL query's LIMIT, then req.Limit, then default to 10
+// setQueryLimit sets the limit for the query
+func (*APIServer) setQueryLimit(query *models.Query, requestLimit int) {
 	if !query.HasLimit {
-		if req.Limit > 0 {
-			query.Limit = req.Limit
+		if requestLimit > 0 {
+			query.Limit = requestLimit
 			query.HasLimit = true
 		} else {
 			query.Limit = 10
 			query.HasLimit = true
 		}
 	}
-
-	return query, cursorData, nil
 }
 
 // executeQueryAndBuildResponse executes the query and builds the response
@@ -463,10 +492,22 @@ func encodeCursor(cursorData map[string]interface{}) string {
 
 // generateCursors creates next and previous cursors from query results.
 func generateCursors(query *models.Query, results []map[string]interface{}, _ parser.DatabaseType) (nextCursor, prevCursor string) {
+	// FIX 1: Cursors are not applicable for COUNT queries. Return immediately.
+	if query.Type == models.Count {
+		return "", ""
+	}
+
 	if len(results) == 0 {
 		return "", "" // No results, so no cursors.
 	}
 
+	// FIX 2: Add a safety check. Only proceed if an OrderBy clause exists.
+	if len(query.OrderBy) == 0 {
+		return "", ""
+	}
+
+	// This logic will now only run for SHOW/FIND queries that have results
+	// and an OrderBy clause, which is safe.
 	if query.HasLimit && len(results) == query.Limit {
 		orderField := query.OrderBy[0].Field
 		lastResult := results[len(results)-1]
