@@ -80,48 +80,7 @@ func NewSweepResultsQuery(apiEndpoint, apiKey string, httpClient HTTPClient) *Sw
 	}
 }
 
-// GetTodaysSweepResults queries for today's sweep results
-func (s *SweepResultsQuery) GetTodaysSweepResults(ctx context.Context) ([]SweepResult, error) {
-	query := "show sweep_results where date(timestamp) = TODAY and discovery_source = \"sweep\""
-
-	log.Println("Executing SRQL query for today's sweep results:", query)
-
-	return s.executeSweepQuery(ctx, query, 1000) // Get up to 1000 results
-}
-
-// GetSweepResultsForIPs queries sweep results for specific IP addresses
-func (s *SweepResultsQuery) GetSweepResultsForIPs(ctx context.Context, ips []string) ([]SweepResult, error) {
-	if len(ips) == 0 {
-		return []SweepResult{}, nil
-	}
-
-	// Build IP list for the IN clause
-	ipList := ""
-
-	for i, ip := range ips {
-		if i > 0 {
-			ipList += ", "
-		}
-
-		ipList += fmt.Sprintf("'%s'", ip)
-	}
-
-	query := fmt.Sprintf("show sweep_results where ip IN (%s) and date(timestamp) = TODAY", ipList)
-
-	return s.executeSweepQuery(ctx, query, len(ips)*2) // Allow for multiple results per IP
-}
-
-// GetRecentSweepResults queries for sweep results within a time range
-func (s *SweepResultsQuery) GetRecentSweepResults(ctx context.Context, _ int) ([]SweepResult, error) {
-	// For now, we'll use TODAY as SRQL doesn't support relative time queries yet
-	// In the future, this could be enhanced to support actual time ranges
-	query := "show sweep_results where date(timestamp) = TODAY order by timestamp desc"
-
-	return s.executeSweepQuery(ctx, query, 1000)
-}
-
-// executeSweepQuery executes an SRQL query and returns sweep results
-func (s *SweepResultsQuery) executeSweepQuery(ctx context.Context, query string, limit int) ([]SweepResult, error) {
+func (s *SweepResultsQuery) ExecuteGenericQuery(ctx context.Context, query string, limit int) ([]SweepResult, error) {
 	var allResults []SweepResult
 
 	cursor := ""
@@ -260,26 +219,4 @@ func (*SweepResultsQuery) convertToSweepResults(rawResults []map[string]interfac
 	}
 
 	return results
-}
-
-// GetAvailabilityStats returns availability statistics for the given IPs
-func (s *SweepResultsQuery) GetAvailabilityStats(ctx context.Context, ips []string) (map[string]bool, error) {
-	results, err := s.GetSweepResultsForIPs(ctx, ips)
-	if err != nil {
-		return nil, err
-	}
-
-	// Create a map of IP to availability status
-	// Use the most recent result for each IP
-	availabilityMap := make(map[string]bool)
-	latestTimestamp := make(map[string]time.Time)
-
-	for _, result := range results {
-		if existing, exists := latestTimestamp[result.IP]; !exists || result.Timestamp.After(existing) {
-			availabilityMap[result.IP] = result.Available
-			latestTimestamp[result.IP] = result.Timestamp
-		}
-	}
-
-	return availabilityMap, nil
 }
