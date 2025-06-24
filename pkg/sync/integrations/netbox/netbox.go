@@ -235,9 +235,13 @@ func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) 
 
 	// The key now uses the explicitly configured AgentID, making it predictable.
 	configKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", agentIDForConfig)
-	_, err = n.KvClient.Put(ctx, &proto.PutRequest{
-		Key:   configKey,
-		Value: configJSON,
+	_, err = n.KvClient.PutMany(ctx, &proto.PutManyRequest{
+		Entries: []*proto.KeyValueEntry{
+			{
+				Key:   configKey,
+				Value: configJSON,
+			},
+		},
 	})
 
 	// log the key/value pair for debugging
