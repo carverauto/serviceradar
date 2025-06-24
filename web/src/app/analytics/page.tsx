@@ -1,0 +1,6 @@
+// src/app/analytics/page.tsx
+import AnalyticsDashboard from '@/components/AnalyticsDashboard';
+
+export default function AnalyticsPage() {
+    return <AnalyticsDashboard />;
+}

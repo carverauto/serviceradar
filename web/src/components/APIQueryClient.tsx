@@ -18,7 +18,7 @@
 'use client';
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { Loader2, Send, AlertTriangle, Eye, EyeOff } from 'lucide-react';
+import { Loader2, Send, AlertTriangle, Eye, EyeOff, FileJson, Table } from 'lucide-react';
 import { useAuth } from '@/components/AuthProvider';
 import ReactJson from '@microlink/react-json-view';
 import { fetchAPI } from '@/lib/client-api';
@@ -34,12 +34,12 @@ const ApiQueryClient: React.FC = () => {
         prev_cursor?: string;
         limit?: number;
     } | null>(null);
-    const [limit, setLimit] = useState<number>(10);
+    const [limit, setLimit] = useState<number>(20);
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [error, setError] = useState<string | null>(null);
     const [viewFormat, setViewFormat] = useState<ViewFormat>('json');
     const [showRawJson, setShowRawJson] = useState<boolean>(false);
-    const { token } = useAuth();
+    const { token, isAuthEnabled } = useAuth();
 
     const [jsonViewTheme, setJsonViewTheme] = useState<'rjv-default' | 'pop'>('rjv-default');
 
@@ -271,75 +271,63 @@ const ApiQueryClient: React.FC = () => {
 
     return (
         <div className="space-y-6">
-            <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
-                <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
+            <div className="bg-[#25252e] border border-gray-700 p-6 rounded-lg shadow-lg">
+                <h2 className="text-xl font-bold text-white mb-4">
                     API Query Tool
                 </h2>
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div>
                         <label
                             htmlFor="query"
-                            className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1"
+                            className="block text-sm font-medium text-gray-300 mb-2"
                         >
-                            Enter your query:
+                            Enter your ServiceRadar Query Language (SRQL) query:
                         </label>
                         <textarea
                             id="query"
                             name="query"
                             rows={5}
-                            className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500"
-                            placeholder="e.g., SHOW DEVICES"
+                            className="w-full p-3 font-mono text-sm border border-gray-600 rounded-md shadow-sm focus:ring-violet-500 focus:border-violet-500 bg-[#16151c] text-gray-100 placeholder-gray-500"
+                            placeholder="e.g., show devices where status = 'offline'"
                             value={query}
                             onChange={(e) => setQuery(e.target.value)}
                         />
                     </div>
 
-                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <div className="flex flex-wrap justify-between items-center gap-4 pt-4 border-t border-gray-700">
                         <div className="flex items-center space-x-2">
                             <label
                                 htmlFor="viewFormat"
-                                className="text-sm font-medium text-gray-700 dark:text-gray-300"
+                                className="text-sm font-medium text-gray-300"
                             >
                                 View as:
                             </label>
-                            <select
-                                id="viewFormat"
-                                value={viewFormat}
-                                onChange={(e) => setViewFormat(e.target.value as ViewFormat)}
-                                className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-blue-500 focus:border-blue-500"
-                            >
-                                <option value="json">JSON</option>
-                                <option value="table">Table</option>
-                            </select>
-                            {viewFormat === 'json' && Boolean(responseData) && (
-                                <button
-                                    type="button"
-                                    onClick={() => setShowRawJson(!showRawJson)}
-                                    title={showRawJson ? 'Show Rich JSON View' : 'Show Raw JSON'}
-                                    className="p-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600"
-                                >
-                                    {showRawJson ? (
-                                        <Eye className="h-5 w-5" />
-                                    ) : (
-                                        <EyeOff className="h-5 w-5" />
-                                    )}
+                            <div className="flex items-center rounded-md border border-gray-600 bg-[#16151c]">
+                                <button type="button" onClick={() => setViewFormat('json')} className={`px-3 py-1.5 rounded-l-md flex items-center gap-2 ${viewFormat === 'json' ? 'bg-violet-600 text-white' : 'text-gray-400 hover:bg-gray-700'}`}>
+                                    <FileJson size={16} /> JSON
                                 </button>
-                            )}
+                                <button type="button" onClick={() => setViewFormat('table')} className={`px-3 py-1.5 rounded-r-md flex items-center gap-2 ${viewFormat === 'table' ? 'bg-violet-600 text-white' : 'text-gray-400 hover:bg-gray-700'}`}>
+                                    <Table size={16} /> Table
+                                </button>
+                            </div>
                         </div>
                         <div className="flex items-center space-x-2">
                             <label
                                 htmlFor="limit"
-                                className="text-sm font-medium text-gray-700 dark:text-gray-300"
+                                className="text-sm font-medium text-gray-300"
                             >
                                 Limit:
                             </label>
                             <select
                                 id="limit"
                                 value={limit}
-                                onChange={(e) => setLimit(Number(e.target.value))}
-                                className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-blue-500 focus:border-blue-500"
+                                onChange={(e) => {
+                                    setLimit(Number(e.target.value));
+                                    setPagination(null); // Reset pagination on limit change
+                                }}
+                                className="px-3 py-2 border border-gray-600 rounded-md shadow-sm bg-[#16151c] text-gray-100 focus:ring-violet-500 focus:border-violet-500"
                             >
-                                {[10, 20, 50, 100].map((val) => (
+                                {[20, 50, 100, 200].map((val) => (
                                     <option key={val} value={val}>
                                         {val}
                                     </option>
@@ -349,7 +337,7 @@ const ApiQueryClient: React.FC = () => {
                         <button
                             type="submit"
                             disabled={isLoading}
-                            className="w-full sm:w-auto px-6 py-2.5 bg-blue-600 text-white font-medium rounded-md shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                            className="w-full sm:w-auto px-6 py-2 bg-violet-600 text-white font-semibold rounded-md shadow-sm hover:bg-violet-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-violet-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
                         >
                             {isLoading ? (
                                 <>
@@ -365,30 +353,26 @@ const ApiQueryClient: React.FC = () => {
                         </button>
                     </div>
                 </form>
-                <div className="mt-4">
-                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">
-                        Example Queries:
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                        {exampleQueries.map((eg) => (
-                            <button
-                                key={eg.name}
-                                onClick={() => {
-                                    setQuery(eg.query);
-                                    handleSubmit();
-                                }}
-                                disabled={isLoading}
-                                className="px-3 py-1 text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50"
-                            >
-                                {eg.name}
-                            </button>
-                        ))}
-                    </div>
+            </div>
+
+            <div className="bg-[#25252e] border border-gray-700 p-4 rounded-lg shadow-lg">
+                <h3 className="text-md font-semibold text-gray-200 mb-3">Example Queries</h3>
+                <div className="flex flex-wrap gap-2">
+                    {exampleQueries.map((eg) => (
+                        <button
+                            key={eg.name}
+                            onClick={() => setQuery(eg.query)}
+                            disabled={isLoading}
+                            className="px-3 py-1 text-xs bg-gray-700/50 text-gray-300 rounded-full hover:bg-gray-600/50 disabled:opacity-50"
+                        >
+                            {eg.name}
+                        </button>
+                    ))}
                 </div>
             </div>
 
             {error && (
-                <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-lg shadow flex items-start">
+                <div className="bg-red-900/20 border border-red-500/30 p-4 rounded-lg shadow flex items-start">
                     <AlertTriangle className="h-5 w-5 text-red-500 mr-3 flex-shrink-0" />
                     <div>
                         <h3 className="text-md font-semibold text-red-700 dark:text-red-400">
@@ -402,67 +386,74 @@ const ApiQueryClient: React.FC = () => {
             )}
 
             {isLoading && !responseData && (
-                <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow text-center">
-                    <Loader2 className="animate-spin h-8 w-8 text-blue-600 dark:text-blue-400 mx-auto mb-2" />
+                <div className="bg-[#25252e] border border-gray-700 p-6 rounded-lg shadow text-center">
+                    <Loader2 className="animate-spin h-8 w-8 text-violet-400 mx-auto mb-2" />
                     <p className="text-gray-600 dark:text-gray-400">Fetching results...</p>
                 </div>
             )}
 
             {responseData !== null && !isLoading && (
-                <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow">
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-                        Results
-                    </h3>
-                    {viewFormat === 'json' ? (
-                        showRawJson ? (
-                            <pre className="bg-gray-50 dark:bg-gray-900 p-4 rounded-md overflow-auto text-sm text-gray-800 dark:text-gray-200 max-h-[600px]">
+                <div className="bg-[#25252e] border border-gray-700 rounded-lg shadow-lg">
+                    <div className="p-4 border-b border-gray-700 flex justify-between items-center">
+                        <h3 className="text-lg font-semibold text-white">Results</h3>
+                        {viewFormat === 'json' && (
+                            <button type="button" onClick={() => setShowRawJson(!showRawJson)} title={showRawJson ? 'Show Rich JSON View' : 'Show Raw JSON'} className="p-2 rounded-md hover:bg-gray-700 text-gray-400">
+                                {showRawJson ? <Eye className="h-5 w-5" /> : <EyeOff className="h-5 w-5" />}
+                            </button>
+                        )}
+                    </div>
+                    <div className="p-4">
+                        {viewFormat === 'json' ? (
+                            showRawJson ? (
+                                <pre className="bg-[#16151c] p-4 rounded-md overflow-auto text-sm text-gray-200 max-h-[600px]">
                                 {JSON.stringify(responseData, null, 2)}
                             </pre>
-                        ) : typeof responseData !== 'undefined' ? (
-                            <ReactJson
-                                src={
-                                    typeof responseData === 'object' && responseData !== null
-                                        ? responseData
-                                        : { value: responseData }
-                                }
-                                theme={jsonViewTheme}
-                                collapsed={false}
-                                displayDataTypes={false}
-                                enableClipboard={true}
-                                style={{
-                                    padding: '1rem',
-                                    borderRadius: '0.375rem',
-                                    maxHeight: '600px',
-                                    overflowY: 'auto',
-                                }}
-                            />
+                            ) : typeof responseData !== 'undefined' ? (
+                                <ReactJson
+                                    src={
+                                        typeof responseData === 'object' && responseData !== null
+                                            ? responseData
+                                            : { value: responseData }
+                                    }
+                                    theme={jsonViewTheme}
+                                    collapsed={false}
+                                    displayDataTypes={false}
+                                    enableClipboard={true}
+                                    style={{
+                                        padding: '1rem',
+                                        borderRadius: '0.375rem',
+                                        maxHeight: '600px',
+                                        overflowY: 'auto',
+                                    }}
+                                />
+                            ) : (
+                                <p className="text-gray-500 dark:text-gray-400">
+                                    No data to display in JSON format.
+                                </p>
+                            )
                         ) : (
-                            <p className="text-gray-500 dark:text-gray-400">
-                                No data to display in JSON format.
-                            </p>
-                        )
-                    ) : (
-                        renderResultsTable(results)
-                    )}
+                            renderResultsTable(results)
+                        )}
 
-                    {pagination && (pagination.prev_cursor || pagination.next_cursor) && (
-                        <div className="flex justify-between items-center mt-4">
-                            <button
-                                onClick={() => handleSubmit(undefined, pagination.prev_cursor, 'prev')}
-                                disabled={!pagination.prev_cursor}
-                                className="px-3 py-1 rounded bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 disabled:opacity-50"
-                            >
-                                Previous
-                            </button>
-                            <button
-                                onClick={() => handleSubmit(undefined, pagination.next_cursor, 'next')}
-                                disabled={!pagination.next_cursor}
-                                className="px-3 py-1 rounded bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 disabled:opacity-50"
-                            >
-                                Next
-                            </button>
-                        </div>
-                    )}
+                        {pagination && (pagination.prev_cursor || pagination.next_cursor) && (
+                            <div className="flex justify-between items-center pt-4 border-t border-gray-700">
+                                <button
+                                    onClick={() => handleSubmit(undefined, pagination.prev_cursor, 'prev')}
+                                    disabled={!pagination.prev_cursor}
+                                    className="px-3 py-1 rounded bg-gray-700 text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    Previous
+                                </button>
+                                <button
+                                    onClick={() => handleSubmit(undefined, pagination.next_cursor, 'next')}
+                                    disabled={!pagination.next_cursor}
+                                    className="px-3 py-1 rounded bg-gray-700 text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    Next
+                                </button>
+                            </div>
+                        )}
+                    </div>
                 </div>
             )}
         </div>

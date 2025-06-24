@@ -16,53 +16,47 @@
 
 'use client';
 
-import { createContext, useState, useEffect, useContext } from 'react';
-import Navbar from '../components/Navbar';
-import Sidebar from '../components/Sidebar.jsx';
+import { createContext, useState, useEffect, useContext, ReactNode } from 'react';
+
+interface ThemeContextType {
+    darkMode: boolean;
+    setDarkMode: (dark: boolean) => void;
+}
 
 // Create context for theme management
-export const ThemeContext = createContext({
+export const ThemeContext = createContext<ThemeContextType>({
     darkMode: false,
     setDarkMode: () => {},
 });
 
-export function Providers({ children }) {
-    const [darkMode, setDarkMode] = useState(false);
+export function Providers({ children }: { children: ReactNode }) {
+    const [darkMode, setDarkMode] = useState(true); // Default to dark
     const [mounted, setMounted] = useState(false);
 
     // Effect for initial load of dark mode preference
     useEffect(() => {
         const savedMode = localStorage.getItem('darkMode');
-        setDarkMode(savedMode === 'true');
+        // Set dark mode based on saved preference, or default to true
+        setDarkMode(savedMode !== null ? savedMode === 'true' : true);
         setMounted(true);
     }, []);
 
     // Effect to save dark mode preference when it changes
     useEffect(() => {
         if (mounted) {
-            localStorage.setItem('darkMode', darkMode);
+            localStorage.setItem('darkMode', String(darkMode));
             document.documentElement.classList.toggle('dark', darkMode);
         }
     }, [darkMode, mounted]);
 
-    // Prevent flash of incorrect theme
+    // Prevents a flash of the incorrect theme on page load
     if (!mounted) {
         return null;
     }
 
     return (
         <ThemeContext.Provider value={{ darkMode, setDarkMode }}>
-            <div className={darkMode ? 'dark' : ''}>
-                <div className="min-h-screen bg-gray-100 dark:bg-gray-900 transition-colors flex">
-                    <Sidebar />
-                    <div className="flex-1 flex flex-col">
-                        <Navbar />
-                        <main className="container mx-auto px-4 py-8 flex-1">
-                            {children}
-                        </main>
-                    </div>
-                </div>
-            </div>
+            {children}
         </ThemeContext.Provider>
     );
 }
