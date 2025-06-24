@@ -28,17 +28,7 @@ import (
 
 // SweepResultsQuerier defines the interface for querying sweep results
 type SweepResultsQuerier interface {
-	// GetTodaysSweepResults queries for all sweep results from today
-	GetTodaysSweepResults(ctx context.Context) ([]SweepResult, error)
-
-	// GetSweepResultsForIPs queries sweep results for specific IP addresses
-	GetSweepResultsForIPs(ctx context.Context, ips []string) ([]SweepResult, error)
-
-	// GetRecentSweepResults queries for sweep results within a time range
-	GetRecentSweepResults(ctx context.Context, hours int) ([]SweepResult, error)
-
-	// GetAvailabilityStats returns a map of IP to availability status
-	GetAvailabilityStats(ctx context.Context, ips []string) (map[string]bool, error)
+	GetDeviceStatesBySource(ctx context.Context, source string) ([]DeviceState, error)
 }
 
 // ArmisUpdater defines the interface for updating device status in Armis

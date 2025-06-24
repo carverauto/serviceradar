@@ -25,6 +25,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -44,6 +45,73 @@ type SweepResultsQuery struct {
 	APIEndpoint string // ServiceRadar API endpoint
 	APIKey      string // API key for authentication
 	HTTPClient  HTTPClient
+}
+
+// GetTodaysSweepResults retrieves today's sweep results from ServiceRadar.
+func (s *SweepResultsQuery) GetTodaysSweepResults(ctx context.Context) ([]SweepResult, error) {
+	query := "show sweep_results where date(timestamp) = TODAY and discovery_source = \"sweep\""
+	limit := 1000
+	var all []SweepResult
+	cursor := ""
+	for {
+		req := QueryRequest{Query: query, Limit: limit, Cursor: cursor}
+		resp, err := s.executeQuery(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		results := s.convertToSweepResults(resp.Results)
+		all = append(all, results...)
+		if resp.Pagination.NextCursor == "" || len(results) == 0 {
+			break
+		}
+		cursor = resp.Pagination.NextCursor
+	}
+	return all, nil
+}
+
+// GetSweepResultsForIPs retrieves sweep results for a list of IPs.
+func (s *SweepResultsQuery) GetSweepResultsForIPs(ctx context.Context, ips []string) ([]SweepResult, error) {
+	quoted := make([]string, len(ips))
+	for i, ip := range ips {
+		quoted[i] = fmt.Sprintf("'%s'", ip)
+	}
+	query := fmt.Sprintf("show sweep_results where ip IN (%s) and date(timestamp) = TODAY", strings.Join(quoted, ", "))
+	limit := 1000
+	var all []SweepResult
+	cursor := ""
+	for {
+		req := QueryRequest{Query: query, Limit: limit, Cursor: cursor}
+		resp, err := s.executeQuery(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		results := s.convertToSweepResults(resp.Results)
+		all = append(all, results...)
+		if resp.Pagination.NextCursor == "" || len(results) == 0 {
+			break
+		}
+		cursor = resp.Pagination.NextCursor
+	}
+	return all, nil
+}
+
+// GetAvailabilityStats returns availability status for the given IPs using the latest result for each IP.
+func (s *SweepResultsQuery) GetAvailabilityStats(ctx context.Context, ips []string) (map[string]bool, error) {
+	results, err := s.GetSweepResultsForIPs(ctx, ips)
+	if err != nil {
+		return nil, err
+	}
+
+	avail := make(map[string]bool, len(ips))
+	latest := make(map[string]time.Time, len(ips))
+	for _, r := range results {
+		if ts, ok := latest[r.IP]; !ok || r.Timestamp.After(ts) {
+			avail[r.IP] = r.Available
+			latest[r.IP] = r.Timestamp
+		}
+	}
+
+	return avail, nil
 }
 
 // QueryRequest represents the SRQL query request
@@ -80,80 +148,66 @@ func NewSweepResultsQuery(apiEndpoint, apiKey string, httpClient HTTPClient) *Sw
 	}
 }
 
-// GetTodaysSweepResults queries for today's sweep results
-func (s *SweepResultsQuery) GetTodaysSweepResults(ctx context.Context) ([]SweepResult, error) {
-	query := "show sweep_results where date(timestamp) = TODAY and discovery_source = \"sweep\""
+func (s *SweepResultsQuery) GetDeviceStatesBySource(ctx context.Context, source string) ([]DeviceState, error) {
+	// Use a large limit to ensure all devices are fetched.
+	query := fmt.Sprintf("show devices where discovery_sources = '%s'", source)
+	limit := 10000
 
-	log.Println("Executing SRQL query for today's sweep results:", query)
-
-	return s.executeSweepQuery(ctx, query, 1000) // Get up to 1000 results
-}
-
-// GetSweepResultsForIPs queries sweep results for specific IP addresses
-func (s *SweepResultsQuery) GetSweepResultsForIPs(ctx context.Context, ips []string) ([]SweepResult, error) {
-	if len(ips) == 0 {
-		return []SweepResult{}, nil
-	}
-
-	// Build IP list for the IN clause
-	ipList := ""
-
-	for i, ip := range ips {
-		if i > 0 {
-			ipList += ", "
-		}
-
-		ipList += fmt.Sprintf("'%s'", ip)
-	}
-
-	query := fmt.Sprintf("show sweep_results where ip IN (%s) and date(timestamp) = TODAY", ipList)
-
-	return s.executeSweepQuery(ctx, query, len(ips)*2) // Allow for multiple results per IP
-}
-
-// GetRecentSweepResults queries for sweep results within a time range
-func (s *SweepResultsQuery) GetRecentSweepResults(ctx context.Context, _ int) ([]SweepResult, error) {
-	// For now, we'll use TODAY as SRQL doesn't support relative time queries yet
-	// In the future, this could be enhanced to support actual time ranges
-	query := "show sweep_results where date(timestamp) = TODAY order by timestamp desc"
-
-	return s.executeSweepQuery(ctx, query, 1000)
-}
-
-// executeSweepQuery executes an SRQL query and returns sweep results
-func (s *SweepResultsQuery) executeSweepQuery(ctx context.Context, query string, limit int) ([]SweepResult, error) {
-	var allResults []SweepResult
+	var allDeviceStates []DeviceState
 
 	cursor := ""
 
 	for {
-		// Prepare the query request
 		queryReq := QueryRequest{
 			Query:  query,
 			Limit:  limit,
 			Cursor: cursor,
 		}
 
-		// Execute the query
 		response, err := s.executeQuery(ctx, queryReq)
 		if err != nil {
-			return nil, fmt.Errorf("failed to execute query: %w", err)
+			return nil, fmt.Errorf("failed to execute device query: %w", err)
 		}
 
-		// Convert results
-		results := s.convertToSweepResults(response.Results)
+		// Use a new, dedicated converter for device states
+		states := s.convertToDeviceStates(response.Results)
+		allDeviceStates = append(allDeviceStates, states...)
 
-		allResults = append(allResults, results...)
-
-		// Check if there are more results
-		if response.Pagination.NextCursor == "" || len(results) == 0 {
+		if response.Pagination.NextCursor == "" || len(states) == 0 {
 			break
 		}
 
 		cursor = response.Pagination.NextCursor
 	}
 
-	return allResults, nil
+	return allDeviceStates, nil
+}
+
+// convertToDeviceStates parses the raw map from a 'show devices' query
+// into a slice of typed DeviceState structs.
+func (s *SweepResultsQuery) convertToDeviceStates(rawResults []map[string]interface{}) []DeviceState {
+	states := make([]DeviceState, 0, len(rawResults))
+
+	for _, raw := range rawResults {
+		state := DeviceState{}
+
+		if ip, ok := raw["ip"].(string); ok {
+			state.IP = ip
+		}
+
+		// Note the field name is 'is_available' in the devices view
+		if isAvailable, ok := raw["is_available"].(bool); ok {
+			state.IsAvailable = isAvailable
+		}
+
+		if meta, ok := raw["metadata"].(map[string]interface{}); ok {
+			state.Metadata = meta
+		}
+
+		states = append(states, state)
+	}
+
+	return states
 }
 
 // executeQuery executes an SRQL query against the ServiceRadar API
@@ -260,26 +314,4 @@ func (*SweepResultsQuery) convertToSweepResults(rawResults []map[string]interfac
 	}
 
 	return results
-}
-
-// GetAvailabilityStats returns availability statistics for the given IPs
-func (s *SweepResultsQuery) GetAvailabilityStats(ctx context.Context, ips []string) (map[string]bool, error) {
-	results, err := s.GetSweepResultsForIPs(ctx, ips)
-	if err != nil {
-		return nil, err
-	}
-
-	// Create a map of IP to availability status
-	// Use the most recent result for each IP
-	availabilityMap := make(map[string]bool)
-	latestTimestamp := make(map[string]time.Time)
-
-	for _, result := range results {
-		if existing, exists := latestTimestamp[result.IP]; !exists || result.Timestamp.After(existing) {
-			availabilityMap[result.IP] = result.Available
-			latestTimestamp[result.IP] = result.Timestamp
-		}
-	}
-
-	return availabilityMap, nil
 }

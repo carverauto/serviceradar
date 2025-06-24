@@ -34,6 +34,10 @@ type KVStore interface {
 	// If ttl is zero, the value persists indefinitely (or until explicitly deleted, depending on the backend).
 	Put(ctx context.Context, key string, value []byte, ttl time.Duration) error
 
+	// PutMany stores multiple key/value pairs in a single operation.
+	// The ttl parameter applies to all entries.
+	PutMany(ctx context.Context, entries []KeyValueEntry, ttl time.Duration) error
+
 	// Delete removes the key and its associated value from the store.
 	Delete(ctx context.Context, key string) error
 

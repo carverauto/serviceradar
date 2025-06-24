@@ -110,3 +110,10 @@ type DefaultKVWriter struct {
 	ServerName string
 	AgentID    string
 }
+
+// DeviceState represents the consolidated state of a device from the unified view.
+type DeviceState struct {
+	IP          string
+	IsAvailable bool
+	Metadata    map[string]interface{}
+}

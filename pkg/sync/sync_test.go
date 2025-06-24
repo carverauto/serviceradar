@@ -130,10 +130,9 @@ func TestSync_Success(t *testing.T) {
 
 	data := map[string][]byte{"devices": []byte("data")}
 	mockInteg.EXPECT().Fetch(gomock.Any()).Return(data, nil, nil)
-	mockKV.EXPECT().Put(gomock.Any(), &proto.PutRequest{
-		Key:   "armis/devices",
-		Value: []byte("data"),
-	}, gomock.Any()).Return(&proto.PutResponse{}, nil)
+	mockKV.EXPECT().PutMany(gomock.Any(), &proto.PutManyRequest{
+		Entries: []*proto.KeyValueEntry{{Key: "armis/devices", Value: []byte("data")}},
+	}, gomock.Any()).Return(&proto.PutManyResponse{}, nil)
 
 	syncer, err := New(context.Background(), c, mockKV, nil, nil, registry, nil, mockClock)
 	require.NoError(t, err)
@@ -186,7 +185,7 @@ func TestStartAndStop(t *testing.T) {
 	data := map[string][]byte{"devices": []byte("data")}
 
 	mockInteg.EXPECT().Fetch(gomock.Any()).Return(data, nil, nil).Times(2) // Initial poll + 1 tick
-	mockKV.EXPECT().Put(gomock.Any(), gomock.Any(), gomock.Any()).Return(&proto.PutResponse{}, nil).Times(2)
+	mockKV.EXPECT().PutMany(gomock.Any(), gomock.Any(), gomock.Any()).Return(&proto.PutManyResponse{}, nil).Times(2)
 
 	syncer, err := New(context.Background(), c, mockKV, nil, nil, registry, nil, mockClock)
 	require.NoError(t, err)
@@ -287,10 +286,9 @@ func TestStart_ContextCancellation(t *testing.T) {
 	data := map[string][]byte{"devices": []byte("data")}
 
 	mockInteg.EXPECT().Fetch(gomock.Any()).Return(data, nil, nil)
-	mockKV.EXPECT().Put(gomock.Any(), &proto.PutRequest{
-		Key:   "armis/devices",
-		Value: []byte("data"),
-	}, gomock.Any()).Return(&proto.PutResponse{}, nil)
+	mockKV.EXPECT().PutMany(gomock.Any(), &proto.PutManyRequest{
+		Entries: []*proto.KeyValueEntry{{Key: "armis/devices", Value: []byte("data")}},
+	}, gomock.Any()).Return(&proto.PutManyResponse{}, nil)
 
 	syncer, err := New(context.Background(), c, mockKV, nil, nil, registry, nil, mockClock)
 	require.NoError(t, err)
@@ -346,10 +344,9 @@ func TestSync_NetboxSuccess(t *testing.T) {
 
 	data := map[string][]byte{"1": []byte(`{"id":1,"name":"device1","primary_ip4":{"address":"192.168.1.1/24"}}`)}
 	mockInteg.EXPECT().Fetch(gomock.Any()).Return(data, nil, nil)
-	mockKV.EXPECT().Put(gomock.Any(), &proto.PutRequest{
-		Key:   "netbox/1",
-		Value: []byte(`{"id":1,"name":"device1","primary_ip4":{"address":"192.168.1.1/24"}}`),
-	}, gomock.Any()).Return(&proto.PutResponse{}, nil)
+	mockKV.EXPECT().PutMany(gomock.Any(), &proto.PutManyRequest{
+		Entries: []*proto.KeyValueEntry{{Key: "netbox/1", Value: []byte(`{"id":1,"name":"device1","primary_ip4":{"address":"192.168.1.1/24"}}`)}},
+	}, gomock.Any()).Return(&proto.PutManyResponse{}, nil)
 
 	syncer, err := New(context.Background(), c, mockKV, nil, nil, registry, nil, mockClock)
 	require.NoError(t, err)
@@ -470,10 +467,9 @@ func TestWriteToKVTransformsDeviceID(t *testing.T) {
 		"partition1:10.0.0.1": []byte("val"),
 	}
 
-	mockKV.EXPECT().Put(gomock.Any(), &proto.PutRequest{
-		Key:   "netbox/agent1/poller1/10.0.0.1",
-		Value: []byte("val"),
-	}, gomock.Any()).Return(&proto.PutResponse{}, nil)
+	mockKV.EXPECT().PutMany(gomock.Any(), &proto.PutManyRequest{
+		Entries: []*proto.KeyValueEntry{{Key: "netbox/agent1/poller1/10.0.0.1", Value: []byte("val")}},
+	}, gomock.Any()).Return(&proto.PutManyResponse{}, nil)
 
 	s.writeToKV(context.Background(), "netbox", data)
 }

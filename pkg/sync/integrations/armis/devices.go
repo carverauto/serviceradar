@@ -25,6 +25,8 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strconv"
+	"strings"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 )
@@ -141,10 +143,13 @@ func (a *ArmisIntegration) convertToSweepResults(devices []Device) []*models.Swe
 		dev := &devices[i]
 		hostname := dev.Name
 		mac := dev.MacAddress
+		tag := ""
+		if len(dev.Tags) > 0 {
+			tag = strings.Join(dev.Tags, ",")
+		}
 		meta := map[string]string{
 			"armis_device_id": fmt.Sprintf("%d", dev.ID),
-			"type":            dev.Type,
-			"risk_level":      fmt.Sprintf("%d", dev.RiskLevel),
+			"tag":             tag,
 		}
 		ip := extractFirstIP(dev.IPAddress)
 		out = append(out, &models.SweepResult{
@@ -166,42 +171,35 @@ func (a *ArmisIntegration) convertToSweepResults(devices []Device) []*models.Swe
 
 // Fetch retrieves devices from Armis. If the updater is configured, it also
 // correlates sweep results and sends status updates back to Armis.
+// Fetch handles the full sync cycle for Armis.
+// Fetch handles the full sync cycle for Armis.
 func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, []*models.SweepResult, error) {
-	// Step 1: Fetch devices and create the initial KV data and sweep config.
+	// Part 1: Discovery (Armis -> ServiceRadar)
 	data, devices, err := a.fetchAndProcessDevices(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
-
 	modelEvents := a.convertToSweepResults(devices)
 
-	// Step 2: Check if the updater and querier are configured. If not, we are done.
+	// Part 2: Update (ServiceRadar -> Armis)
 	if a.Updater == nil || a.SweepQuerier == nil {
-		log.Println("Armis updater/querier not configured, skipping status update correlation.")
-
+		log.Println("Armis updater not configured, skipping status update.")
 		return data, modelEvents, nil
 	}
 
-	log.Println("Armis updater and querier are configured, proceeding with sweep result correlation.")
-
-	// Step 3: Query for sweep results.
-	sweepResults, err := a.SweepQuerier.GetTodaysSweepResults(ctx)
+	// Call the new dedicated function to get device states
+	deviceStates, err := a.SweepQuerier.GetDeviceStatesBySource(ctx, "armis")
 	if err != nil {
-		log.Printf("Failed to get sweep results, skipping update: %v", err)
-
-		return data, modelEvents, nil // Return originally fetched data without failing the sync
+		log.Printf("Failed to query device states from ServiceRadar, skipping update: %v", err)
+		return data, modelEvents, nil
 	}
+	log.Printf("Successfully queried %d device states from ServiceRadar.", len(deviceStates))
 
-	log.Printf("Successfully queried %d sweep results.", len(sweepResults))
-
-	// Step 4: Prepare and send status updates back to Armis.
-	updates := a.PrepareArmisUpdate(ctx, devices, sweepResults)
-
+	// Prepare updates using the new typed slice
+	updates := a.prepareArmisUpdateFromDeviceStates(deviceStates)
 	if len(updates) > 0 {
 		log.Printf("Prepared %d status updates to send to Armis.", len(updates))
-
 		if err := a.Updater.UpdateDeviceStatus(ctx, updates); err != nil {
-			// Log the error but don't fail the entire sync operation.
 			log.Printf("Failed to update device status in Armis: %v", err)
 		} else {
 			log.Println("Successfully invoked the Armis device status updater.")
@@ -210,22 +208,69 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, []*mod
 		log.Println("No device status updates to send to Armis.")
 	}
 
-	// Step 5: Enrich the KV data with sweep results.
-	enrichedData := make(map[string][]byte)
+	return data, modelEvents, nil
+}
 
-	for key, deviceData := range data {
-		enrichedData[key] = deviceData
-	}
-
-	if len(sweepResults) > 0 {
-		if sweepResultsData, err := json.Marshal(sweepResults); err == nil {
-			enrichedData["_sweep_results"] = sweepResultsData
-		} else {
-			log.Printf("Warning: failed to marshal sweep results for KV store: %v", err)
+// Renamed and updated to accept the new typed slice
+func (a *ArmisIntegration) prepareArmisUpdateFromDeviceStates(states []DeviceState) []ArmisDeviceStatus {
+	updates := make([]ArmisDeviceStatus, 0, len(states))
+	for _, state := range states {
+		var armisDeviceID int
+		if state.Metadata != nil {
+			// Extract the armis_device_id we stored during the initial discovery
+			if idStr, ok := state.Metadata["armis_device_id"].(string); ok {
+				id, err := strconv.Atoi(idStr)
+				if err == nil {
+					armisDeviceID = id
+				}
+			}
 		}
+
+		if state.IP == "" || armisDeviceID == 0 {
+			continue // Cannot update Armis without the original device ID
+		}
+
+		updates = append(updates, ArmisDeviceStatus{
+			DeviceID:  armisDeviceID,
+			IP:        state.IP,
+			Available: state.IsAvailable,
+		})
+	}
+	return updates
+}
+
+// prepareArmisUpdateFromDeviceQuery processes the results of a 'show devices'
+// SRQL query and prepares them for an Armis status update.
+func (a *ArmisIntegration) prepareArmisUpdateFromDeviceQuery(results []map[string]interface{}) []ArmisDeviceStatus {
+	updates := make([]ArmisDeviceStatus, 0, len(results))
+
+	for _, deviceData := range results {
+		ip, _ := deviceData["ip"].(string)
+		isAvailable, _ := deviceData["is_available"].(bool)
+
+		var armisDeviceID int
+		if metadata, ok := deviceData["metadata"].(map[string]interface{}); ok {
+			if idStr, ok := metadata["armis_device_id"].(string); ok {
+				id, err := strconv.Atoi(idStr)
+				if err == nil {
+					armisDeviceID = id
+				}
+			}
+		}
+
+		// To update Armis, we must have the device's original ID.
+		if ip == "" || armisDeviceID == 0 {
+			continue
+		}
+
+		updates = append(updates, ArmisDeviceStatus{
+			DeviceID:  armisDeviceID,
+			IP:        ip,
+			Available: isAvailable,
+		})
 	}
 
-	return enrichedData, modelEvents, nil
+	return updates
 }
 
 // FetchDevicesPage fetches a single page of devices from the Armis API.
@@ -296,9 +341,13 @@ func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]b
 	for i := range devices {
 		d := &devices[i] // Use a pointer to avoid copying the struct
 
+		tag := ""
+		if len(d.Tags) > 0 {
+			tag = strings.Join(d.Tags, ",")
+		}
 		enriched := DeviceWithMetadata{
 			Device:   *d,
-			Metadata: map[string]string{"armis_device_id": fmt.Sprintf("%d", d.ID)},
+			Metadata: map[string]string{"armis_device_id": fmt.Sprintf("%d", d.ID), "tag": tag},
 		}
 
 		// Marshal the device with metadata to JSON
@@ -320,11 +369,8 @@ func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]b
 		deviceID := fmt.Sprintf("%s:%s", a.Config.Partition, ip)
 
 		metadata := map[string]interface{}{
-			"armis_id":     fmt.Sprintf("%d", d.ID),
-			"type":         d.Type,
-			"category":     d.Category,
-			"manufacturer": d.Manufacturer,
-			"model":        d.Model,
+			"armis_id": fmt.Sprintf("%d", d.ID),
+			"tag":      tag,
 		}
 
 		modelDevice := &models.Device{
