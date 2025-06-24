@@ -197,66 +197,6 @@ func (m *MockSweepResultsQuerier) EXPECT() *MockSweepResultsQuerierMockRecorder 
 	return m.recorder
 }
 
-// GetAvailabilityStats mocks base method.
-func (m *MockSweepResultsQuerier) GetAvailabilityStats(ctx context.Context, ips []string) (map[string]bool, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetAvailabilityStats", ctx, ips)
-	ret0, _ := ret[0].(map[string]bool)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetAvailabilityStats indicates an expected call of GetAvailabilityStats.
-func (mr *MockSweepResultsQuerierMockRecorder) GetAvailabilityStats(ctx, ips any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAvailabilityStats", reflect.TypeOf((*MockSweepResultsQuerier)(nil).GetAvailabilityStats), ctx, ips)
-}
-
-// GetRecentSweepResults mocks base method.
-func (m *MockSweepResultsQuerier) GetRecentSweepResults(ctx context.Context, hours int) ([]SweepResult, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetRecentSweepResults", ctx, hours)
-	ret0, _ := ret[0].([]SweepResult)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetRecentSweepResults indicates an expected call of GetRecentSweepResults.
-func (mr *MockSweepResultsQuerierMockRecorder) GetRecentSweepResults(ctx, hours any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetRecentSweepResults", reflect.TypeOf((*MockSweepResultsQuerier)(nil).GetRecentSweepResults), ctx, hours)
-}
-
-// GetSweepResultsForIPs mocks base method.
-func (m *MockSweepResultsQuerier) GetSweepResultsForIPs(ctx context.Context, ips []string) ([]SweepResult, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetSweepResultsForIPs", ctx, ips)
-	ret0, _ := ret[0].([]SweepResult)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetSweepResultsForIPs indicates an expected call of GetSweepResultsForIPs.
-func (mr *MockSweepResultsQuerierMockRecorder) GetSweepResultsForIPs(ctx, ips any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSweepResultsForIPs", reflect.TypeOf((*MockSweepResultsQuerier)(nil).GetSweepResultsForIPs), ctx, ips)
-}
-
-// GetTodaysSweepResults mocks base method.
-func (m *MockSweepResultsQuerier) GetTodaysSweepResults(ctx context.Context) ([]SweepResult, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetTodaysSweepResults", ctx)
-	ret0, _ := ret[0].([]SweepResult)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// GetTodaysSweepResults indicates an expected call of GetTodaysSweepResults.
-func (mr *MockSweepResultsQuerierMockRecorder) GetTodaysSweepResults(ctx any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTodaysSweepResults", reflect.TypeOf((*MockSweepResultsQuerier)(nil).GetTodaysSweepResults), ctx)
-}
-
 // GetDeviceStatesBySource mocks base method.
 func (m *MockSweepResultsQuerier) GetDeviceStatesBySource(ctx context.Context, source string) ([]DeviceState, error) {
 	m.ctrl.T.Helper()
