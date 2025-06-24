@@ -16,9 +16,12 @@
 
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Cell } from 'recharts';
 import { Monitor, AlertTriangle, ShieldOff, Bell, Plus, MoreHorizontal } from 'lucide-react';
+import { useAuth } from './AuthProvider';
+
+const REFRESH_INTERVAL = 30000; // 30 seconds
 
 const StatCard = ({ icon, title, value, subValue, alert = false }) => (
     <div className={`bg-[#25252e] border border-gray-700 p-4 rounded-lg flex items-center gap-4`}>
@@ -89,11 +92,71 @@ const SimpleBarChart = ({ data, yMax }) => (
 
 
 const AnalyticsDashboard = () => {
+    const { token } = useAuth();
+    const [deviceCount, setDeviceCount] = useState<number | null>(null);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
+    const fetchDeviceCount = useCallback(async () => {
+        // Don't set isLoading to true on subsequent refreshes to avoid UI flicker
+        if (deviceCount === null) {
+            setIsLoading(true);
+        }
+        setError(null);
+
+        try {
+            const response = await fetch('/api/query', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(token && { Authorization: `Bearer ${token}` }),
+                },
+                body: JSON.stringify({ query: 'show devices' }),
+                cache: 'no-store',
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`API Error: ${response.status} ${errorText}`);
+            }
+
+            const data = await response.json();
+
+            if (data && Array.isArray(data.results)) {
+                setDeviceCount(data.results.length);
+            } else {
+                throw new Error('Unexpected data format for device count.');
+            }
+        } catch (err) {
+            console.error("Failed to fetch device count:", err);
+            setError(err instanceof Error ? err.message : 'Unknown error');
+            setDeviceCount(null); // Clear previous count on error
+        } finally {
+            setIsLoading(false);
+        }
+    }, [token, deviceCount]);
+
+    useEffect(() => {
+        fetchDeviceCount();
+        const interval = setInterval(fetchDeviceCount, REFRESH_INTERVAL);
+        return () => clearInterval(interval);
+    }, [fetchDeviceCount]);
+
     return (
         <div className="space-y-6">
             {/* Stat Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <StatCard icon={<Monitor />} title="Devices" value="140k" subValue="4,171 new" />
+                <StatCard
+                    icon={<Monitor />}
+                    title="Devices"
+                    value={
+                        isLoading && deviceCount === null ? '...' :
+                            error ? 'Error' :
+                                deviceCount !== null ? deviceCount.toLocaleString() : 'N/A'
+                    }
+                    // TODO: The subValue is still hardcoded and can be wired up next
+                    subValue="4,171 new"
+                />
                 <StatCard icon={<AlertTriangle />} title="Critical risk devices" value="13.7k" alert />
                 <StatCard icon={<ShieldOff />} title="Threat activities" value="0" />
                 <StatCard icon={<Bell />} title="Unhandled alerts" value="0" />
