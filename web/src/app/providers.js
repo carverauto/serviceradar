@@ -18,6 +18,7 @@
 
 import { createContext, useState, useEffect, useContext } from 'react';
 import Navbar from '../components/Navbar';
+import Sidebar from '../components/Sidebar.jsx';
 
 // Create context for theme management
 export const ThemeContext = createContext({
@@ -52,11 +53,14 @@ export function Providers({ children }) {
     return (
         <ThemeContext.Provider value={{ darkMode, setDarkMode }}>
             <div className={darkMode ? 'dark' : ''}>
-                <div className="min-h-screen bg-gray-100 dark:bg-gray-900 transition-colors">
-                    <Navbar />
-                    <main className="container mx-auto px-4 py-8">
-                        {children}
-                    </main>
+                <div className="min-h-screen bg-gray-100 dark:bg-gray-900 transition-colors flex">
+                    <Sidebar />
+                    <div className="flex-1 flex flex-col">
+                        <Navbar />
+                        <main className="container mx-auto px-4 py-8 flex-1">
+                            {children}
+                        </main>
+                    </div>
                 </div>
             </div>
         </ThemeContext.Provider>

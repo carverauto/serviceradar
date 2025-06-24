@@ -49,6 +49,9 @@ function Navbar() {
 
             <div className="hidden md:flex items-center space-x-6">
               <Link href="/" className="text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100">
+                Home
+              </Link>
+              <Link href="/dashboard" className="text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100">
                 Dashboard
               </Link>
               <Link href="/pollers" className="text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100">
@@ -118,6 +121,9 @@ function Navbar() {
               <div className="md:hidden mt-3 py-2 border-t border-gray-200 dark:border-gray-700 w-full overflow-x-auto">
                 <div className="flex flex-col space-y-3">
                   <Link href="/" onClick={() => {}} className="block px-2 py-1 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
+                    Home
+                  </Link>
+                  <Link href="/dashboard" onClick={() => {}} className="block px-2 py-1 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
                     Dashboard
                   </Link>
                   <Link href="/pollers" onClick={() => {}} className="block px-2 py-1 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
