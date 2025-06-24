@@ -82,7 +82,13 @@ func TestArmisIntegration_Fetch_WithUpdaterAndCorrelation(t *testing.T) {
 	mocks.KVWriter.EXPECT().WriteSweepConfig(gomock.Any(), gomock.Any()).Return(nil)
 
 	// Expectations for the new correlation logic
-	mocks.SweepQuerier.EXPECT().GetTodaysSweepResults(gomock.Any()).Return(mockSweepResults, nil)
+	expectedIPs := []string{"192.168.1.1", "192.168.1.2"}
+	mocks.SweepQuerier.EXPECT().GetSweepResultsForIPs(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, ips []string) ([]SweepResult, error) {
+			// The order of IPs is not important; ensure both are present
+			require.ElementsMatch(t, expectedIPs, ips)
+			return mockSweepResults, nil
+		})
 	mocks.Updater.EXPECT().UpdateDeviceStatus(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, updates []ArmisDeviceStatus) error {
 			// Verify the content of the updates being sent to Armis
@@ -109,7 +115,7 @@ func TestArmisIntegration_Fetch_WithUpdaterAndCorrelation(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
-	// Expect 6 items: 5 device entries + 1 for "_sweep_results"
+	// Expect 4 items: one entry per device and IP
 	expectedLen := len(expectedDevices)
 
 	for i := range expectedDevices {
@@ -117,10 +123,6 @@ func TestArmisIntegration_Fetch_WithUpdaterAndCorrelation(t *testing.T) {
 		if ip != "" {
 			expectedLen++
 		}
-	}
-
-	if _, ok := result["_sweep_results"]; ok {
-		expectedLen++
 	}
 
 	assert.Len(t, result, expectedLen)
@@ -132,17 +134,9 @@ func TestArmisIntegration_Fetch_WithUpdaterAndCorrelation(t *testing.T) {
 	_, device2Exists := result["2"]
 	assert.True(t, device2Exists)
 
-	// Verify that the sweep results were added to the map for enrichment
-	sweepResultsData, sweepResultsExist := result["_sweep_results"]
-	require.True(t, sweepResultsExist)
-
-	var storedSweepResults []SweepResult
-
-	err = json.Unmarshal(sweepResultsData, &storedSweepResults)
-	require.NoError(t, err)
-
-	assert.Len(t, storedSweepResults, 2)
-	assert.Equal(t, "192.168.1.1", storedSweepResults[0].IP)
+	// There should be no sweep_results entry in the result map
+	_, sweepResultsExist := result["_sweep_results"]
+	assert.False(t, sweepResultsExist)
 }
 
 func setupArmisIntegration(t *testing.T) (*ArmisIntegration, *armisMocks) {
@@ -254,10 +248,6 @@ func verifyArmisResults(t *testing.T, result map[string][]byte, events []*models
 		if ip != "" {
 			expectedLen++
 		}
-	}
-
-	if _, ok := result["_sweep_results"]; ok {
-		expectedLen++
 	}
 
 	assert.Len(t, result, expectedLen)
