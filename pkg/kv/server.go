@@ -89,6 +89,22 @@ func (s *Server) Put(ctx context.Context, req *proto.PutRequest) (*proto.PutResp
 	return &proto.PutResponse{}, nil
 }
 
+// PutMany implements the PutMany RPC.
+func (s *Server) PutMany(ctx context.Context, req *proto.PutManyRequest) (*proto.PutManyResponse, error) {
+	ttl := time.Duration(req.TtlSeconds) * time.Second
+
+	entries := make([]KeyValueEntry, len(req.Entries))
+	for i, e := range req.Entries {
+		entries[i] = KeyValueEntry{Key: e.Key, Value: e.Value}
+	}
+
+	if err := s.store.PutMany(ctx, entries, ttl); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to put many: %v", err)
+	}
+
+	return &proto.PutManyResponse{}, nil
+}
+
 // Delete implements the Delete RPC.
 func (s *Server) Delete(ctx context.Context, req *proto.DeleteRequest) (*proto.DeleteResponse, error) {
 	err := s.store.Delete(ctx, req.Key)

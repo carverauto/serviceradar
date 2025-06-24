@@ -442,6 +442,8 @@ func (s *SyncPoller) Sync(ctx context.Context) error {
 func (s *SyncPoller) writeToKV(ctx context.Context, sourceName string, data map[string][]byte) {
 	prefix := strings.TrimSuffix(s.config.Sources[sourceName].Prefix, "/")
 
+	entries := make([]*proto.KeyValueEntry, 0, len(data))
+
 	for key, value := range data {
 		fullKey := prefix + "/" + key
 
@@ -462,14 +464,15 @@ func (s *SyncPoller) writeToKV(ctx context.Context, sourceName string, data map[
 			fullKey = fmt.Sprintf("%s/%s/%s/%s", prefix, agentID, pollerID, ip)
 		}
 
-		_, err := s.kvClient.Put(ctx, &proto.PutRequest{
-			Key:   fullKey,
-			Value: value,
-		})
+		entries = append(entries, &proto.KeyValueEntry{Key: fullKey, Value: value})
+	}
 
-		if err != nil {
-			log.Printf("Failed to write %s to KV: %v", fullKey, err)
-		}
+	if len(entries) == 0 {
+		return
+	}
+
+	if _, err := s.kvClient.PutMany(ctx, &proto.PutManyRequest{Entries: entries}); err != nil {
+		log.Printf("Failed to write batch to KV: %v", err)
 	}
 }
 
