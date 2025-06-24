@@ -218,6 +218,7 @@ func (u *DefaultArmisUpdater) UpdateDeviceCustomAttributes(ctx context.Context, 
 	}
 
 	operations := make([]upsertBody, 0, len(attributes))
+
 	for k, v := range attributes {
 		op := upsertBody{}
 		op.Upsert.DeviceID = deviceID
