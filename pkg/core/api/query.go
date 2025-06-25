@@ -478,8 +478,10 @@ func encodeCursor(cursorData map[string]interface{}) string {
 
 // generateCursors creates next and previous cursors from query results.
 func generateCursors(query *models.Query, results []map[string]interface{}, _ parser.DatabaseType) (nextCursor, prevCursor string) {
-	if len(results) == 0 {
-		return "", "" // No results, so no cursors.
+	// COUNT queries and queries without an explicit order-by clause do not
+	// support pagination. Additionally, skip when there are no results.
+	if len(results) == 0 || query.Type == models.Count || len(query.OrderBy) == 0 {
+		return "", "" // No cursors generated.
 	}
 
 	if query.HasLimit && len(results) == query.Limit {
