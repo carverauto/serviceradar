@@ -831,7 +831,7 @@ func TestDefaultArmisUpdater_UpdateDeviceStatus(t *testing.T) {
 			// Expect one operation per device
 			require.Len(t, payload, 2, "payload length")
 
-			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"success": true}`))}, nil
+			return &http.Response{StatusCode: http.StatusMultiStatus, Body: io.NopCloser(strings.NewReader(`[{"result":{},"status":202}]`))}, nil
 		},
 	)
 
