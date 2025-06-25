@@ -17,31 +17,50 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Cell } from 'recharts';
-import { Monitor, AlertTriangle, ShieldOff, Bell, Plus, MoreHorizontal } from 'lucide-react';
+import {
+    BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Cell, Tooltip, Legend
+} from 'recharts';
+import {
+    Monitor, AlertTriangle, Activity, ServerOff, Plus, MoreHorizontal, Server
+} from 'lucide-react';
 import { useAuth } from './AuthProvider';
+import { Service } from "@/types/types";
+import { Device } from "@/types/devices";
 
-const REFRESH_INTERVAL = 30000; // 30 seconds
+const REFRESH_INTERVAL = 60000; // 60 seconds
 
-const StatCard = ({ icon, title, value, subValue, alert = false }) => (
+// Reusable component for the top statistic cards
+const StatCard = ({ icon, title, value, subValue, alert = false, isLoading = false }) => (
     <div className={`bg-[#25252e] border border-gray-700 p-4 rounded-lg flex items-center gap-4`}>
-        <div className={`p-2 rounded-md ${alert ? 'bg-red-500/20 text-red-400' : 'bg-gray-600/30 text-gray-300'}`}>
+        <div className={`p-3 rounded-md ${
+            alert ? 'bg-red-900/50 text-red-400'
+                : title.includes('Latency') ? 'bg-yellow-900/50 text-yellow-400'
+                    : 'bg-blue-900/50 text-blue-400'
+        }`}>
             {React.cloneElement(icon, { className: 'h-6 w-6' })}
         </div>
-        <div className="flex items-baseline gap-x-3">
-            <p className="text-2xl font-bold text-white">{value}</p>
-            <p className="text-sm text-gray-400">{title}</p>
-            {subValue && <p className="text-sm text-gray-500">| {subValue}</p>}
+        <div className="flex-1">
+            {isLoading ? (
+                <>
+                    <div className="h-7 w-20 bg-gray-700 rounded-md animate-pulse"></div>
+                    <div className="h-4 w-24 bg-gray-700 rounded-md animate-pulse mt-2"></div>
+                </>
+            ) : (
+                <>
+                    <p className="text-2xl font-bold text-white">{value}</p>
+                    <p className="text-sm text-gray-400">{title} {subValue && <span className="text-gray-500">| {subValue}</span>}</p>
+                </>
+            )}
         </div>
     </div>
 );
 
-const ChartWidget = ({ title, children, pagination, moreOptions = true }) => (
-    <div className="bg-[#25252e] border border-gray-700 rounded-lg p-4 flex flex-col h-[300px]">
-        <div className="flex justify-between items-center mb-4">
+// Reusable component for the chart widgets
+const ChartWidget = ({ title, children, moreOptions = true }) => (
+    <div className="bg-[#25252e] border border-gray-700/80 rounded-lg p-4 flex flex-col h-[320px]">
+        <div className="flex justify-between items-start mb-4">
             <h3 className="font-semibold text-white">{title}</h3>
             <div className="flex items-center gap-x-2">
-                {pagination && <div className="text-xs text-gray-400">{pagination}</div>}
                 {moreOptions && <button className="text-gray-400 hover:text-white"><MoreHorizontal size={20} /></button>}
             </div>
         </div>
@@ -49,6 +68,7 @@ const ChartWidget = ({ title, children, pagination, moreOptions = true }) => (
     </div>
 );
 
+// "No Data to Show" component for charts
 const NoData = () => (
     <div className="flex flex-col items-center justify-center h-full text-center text-gray-500">
         <div className="w-16 h-12 relative mb-2">
@@ -59,29 +79,19 @@ const NoData = () => (
     </div>
 );
 
-
-const mockBarData = [
-    { name: 'Computers', value: 89800, color: '#3b82f6' },
-    { name: 'Handhelds', value: 16700, color: '#8b5cf6' },
-    { name: 'Communications', value: 16000, color: '#60a5fa' },
-    { name: 'Network Equip...', value: 7525, color: '#60a5fa' },
-    { name: 'Imaging', value: 3536, color: '#a78bfa' },
-    { name: 'Multimedia', value: 961, color: '#a78bfa' },
-    { name: 'Automations', value: 560, color: '#a78bfa' },
-];
-
-const SimpleBarChart = ({ data, yMax }) => (
+// Bar Chart component for reuse
+const SimpleBarChart = ({ data }) => (
     <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-            <XAxis dataKey="name" tick={{ fill: '#9ca3af', fontSize: 12 }} axisLine={false} tickLine={false} />
-            <YAxis
-                tickFormatter={(value) => `${value / 1000}k`}
-                tick={{ fill: '#9ca3af', fontSize: 12 }}
-                domain={[0, yMax]}
-                axisLine={false}
-                tickLine={false}
+        <BarChart data={data} margin={{ top: 10, right: 10, left: -10, bottom: 5 }}>
+            <XAxis dataKey="name" tick={{ fill: '#9ca3af', fontSize: 12 }} axisLine={false} tickLine={false} interval={0} />
+            <YAxis tick={{ fill: '#9ca3af', fontSize: 12 }} axisLine={false} tickLine={false} />
+            <Tooltip
+                cursor={{ fill: 'rgba(100, 116, 139, 0.1)' }}
+                contentStyle={{ backgroundColor: '#16151c', border: '1px solid #4b5563', borderRadius: '0.5rem' }}
+                labelStyle={{ color: '#d1d5db' }}
             />
-            <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+            <Legend wrapperStyle={{fontSize: "12px"}}/>
+            <Bar dataKey="value" name="Count" radius={[4, 4, 0, 0]}>
                 {data.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.color} />
                 ))}
@@ -90,156 +100,167 @@ const SimpleBarChart = ({ data, yMax }) => (
     </ResponsiveContainer>
 );
 
-
 const AnalyticsDashboard = () => {
     const { token } = useAuth();
-    const [deviceCount, setDeviceCount] = useState<number | null>(null);
-    const [newDeviceCount, setNewDeviceCount] = useState<number | null>(null);
+    const [stats, setStats] = useState({
+        totalDevices: 0,
+        offlineDevices: 0,
+        highLatencyServices: 0,
+        failingServices: 0,
+    });
+    const [chartData, setChartData] = useState({
+        deviceAvailability: [],
+        topLatencyServices: [],
+        servicesByType: [],
+        discoveryBySource: [],
+    });
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    const fetchDeviceCount = useCallback(async () => {
-        // Don't set isLoading to true on subsequent refreshes to avoid UI flicker
-        if (deviceCount === null) {
-            setIsLoading(true);
+    const postQuery = useCallback(async (query: string) => {
+        const response = await fetch('/api/query', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                ...(token && { Authorization: `Bearer ${token}` }),
+            },
+            body: JSON.stringify({ query, limit: 1000 }), // Limit to prevent massive data pulls
+        });
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Failed to execute query');
         }
+        return response.json();
+    }, [token]);
+
+    const fetchData = useCallback(async () => {
+        setIsLoading(true);
         setError(null);
 
         try {
-            const response = await fetch('/api/query', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...(token && { Authorization: `Bearer ${token}` }),
-                },
-                body: JSON.stringify({ query: 'count devices' }),
-                cache: 'no-store',
+            const [
+                totalDevicesRes,
+                offlineDevicesRes,
+                failingServicesRes,
+                icmpServicesRes,
+                allServicesRes,
+                allDevicesRes,
+            ] = await Promise.all([
+                postQuery('COUNT DEVICES'),
+                postQuery('COUNT DEVICES WHERE is_available = false'),
+                postQuery('COUNT SERVICES WHERE available = false'),
+                postQuery('SHOW SERVICES WHERE type = "icmp"'),
+                postQuery('SHOW SERVICES'),
+                postQuery('SHOW DEVICES'),
+            ]);
+
+            const totalDevices = totalDevicesRes.results[0]?.['count()'] || 0;
+            const offlineDevices = offlineDevicesRes.results[0]?.['count()'] || 0;
+            const failingServices = failingServicesRes.results[0]?.['count()'] || 0;
+
+            const highLatencyServices = icmpServicesRes.results.filter((s: Service) => {
+                const details = s.details as { response_time?: number };
+                return details?.response_time && details.response_time > 100 * 1e6; // 100ms in ns
+            }).length;
+
+            setStats({ totalDevices, offlineDevices, highLatencyServices, failingServices });
+
+            // Prepare chart data
+            setChartData({
+                deviceAvailability: [
+                    { name: 'Online', value: totalDevices - offlineDevices, color: '#3b82f6' },
+                    { name: 'Offline', value: offlineDevices, color: '#ef4444' }
+                ],
+                topLatencyServices: (icmpServicesRes.results as Service[])
+                    .map(s => ({ ...s, details: s.details as { response_time?: number } }))
+                    .filter(s => s.details?.response_time)
+                    .sort((a, b) => (b.details.response_time ?? 0) - (a.details.response_time ?? 0))
+                    .slice(0, 5)
+                    .map((s, i) => ({
+                        name: s.name,
+                        value: (s.details.response_time ?? 0) / 1e6, // to ms
+                        color: ['#ef4444', '#f97316', '#eab308', '#84cc16', '#22c55e'][i]
+                    })),
+                servicesByType: Object.entries((allServicesRes.results as Service[]).reduce((acc, s) => {
+                    acc[s.type] = (acc[s.type] || 0) + 1;
+                    return acc;
+                }, {} as Record<string, number>)).map(([name, value], i) => ({ name, value, color: ['#3b82f6', '#8b5cf6', '#60a5fa', '#a78bfa', '#d8b4fe'][i % 5] })),
+                discoveryBySource: Object.entries((allDevicesRes.results as Device[]).reduce((acc, d) => {
+                    d.discovery_sources.forEach(source => {
+                        acc[source] = (acc[source] || 0) + 1;
+                    });
+                    return acc;
+                }, {} as Record<string, number>)).map(([name, value], i) => ({ name, value, color: ['#3b82f6', '#8b5cf6', '#60a5fa', '#a78bfa', '#d8b4fe'][i % 5] })),
             });
 
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`API Error: ${response.status} ${errorText}`);
-            }
-
-            const data = await response.json();
-
-            if (
-                data &&
-                Array.isArray(data.results) &&
-                data.results.length > 0 &&
-                typeof data.results[0]["count()"] === 'number'
-            ) {
-                setDeviceCount(data.results[0]["count()"]);
-            } else {
-                throw new Error('Unexpected data format for device count.');
-            }
-        } catch (err) {
-            console.error("Failed to fetch device count:", err);
-            setError(err instanceof Error ? err.message : 'Unknown error');
-            setDeviceCount(null); // Clear previous count on error
+        } catch (e) {
+            setError(e instanceof Error ? e.message : "An unknown error occurred.");
         } finally {
             setIsLoading(false);
         }
-    }, [token, deviceCount]);
-
-    const fetchNewDeviceCount = useCallback(async () => {
-        try {
-            const response = await fetch('/api/query', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...(token && { Authorization: `Bearer ${token}` }),
-                },
-                body: JSON.stringify({ query: "count devices where first_seen > now() - 7d" }),
-                cache: 'no-store',
-            });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`API Error: ${response.status} ${errorText}`);
-            }
-
-            const data = await response.json();
-
-            if (
-                data &&
-                Array.isArray(data.results) &&
-                data.results.length > 0 &&
-                typeof data.results[0]["count()"] === 'number'
-            ) {
-                setNewDeviceCount(data.results[0]["count()"]);
-            } else {
-                throw new Error('Unexpected data format for new device count.');
-            }
-        } catch (err) {
-            console.error("Failed to fetch new device count:", err);
-            setNewDeviceCount(null);
-        }
-    }, [token]);
+    }, [postQuery]);
 
     useEffect(() => {
-        fetchDeviceCount();
-        fetchNewDeviceCount();
+        fetchData();
         const interval = setInterval(() => {
-            fetchDeviceCount();
-            fetchNewDeviceCount();
+            fetchData();
         }, REFRESH_INTERVAL);
         return () => clearInterval(interval);
-    }, [fetchDeviceCount, fetchNewDeviceCount]);
+    }, [fetchData]);
 
     return (
         <div className="space-y-6">
+            {error && (
+                <div className="bg-red-900/20 border border-red-500/30 p-4 rounded-lg">
+                    <p className="text-red-400">Error: {error}</p>
+                </div>
+            )}
             {/* Stat Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <StatCard
-                    icon={<Monitor />}
-                    title="Devices"
-                    value={
-                        isLoading && deviceCount === null ? '...' :
-                            error ? 'Error' :
-                                deviceCount !== null ? deviceCount.toLocaleString() : 'N/A'
-                    }
-                    subValue={
-                        newDeviceCount !== null
-                            ? `${newDeviceCount.toLocaleString()} new`
-                            : 'N/A'
-                    }
+                    icon={<Server />}
+                    title="Total Devices"
+                    value={stats.totalDevices.toLocaleString()}
+                    isLoading={isLoading}
                 />
-                <StatCard icon={<AlertTriangle />} title="Critical risk devices" value="13.7k" alert />
-                <StatCard icon={<ShieldOff />} title="Threat activities" value="0" />
-                <StatCard icon={<Bell />} title="Unhandled alerts" value="0" />
+                <StatCard
+                    icon={<ServerOff />}
+                    title="Offline Devices"
+                    value={stats.offlineDevices.toLocaleString()}
+                    alert
+                    isLoading={isLoading}
+                />
+                <StatCard
+                    icon={<Activity />}
+                    title="High Latency Services"
+                    value={stats.highLatencyServices.toLocaleString()}
+                    alert={stats.highLatencyServices > 0}
+                    isLoading={isLoading}
+                />
+                <StatCard
+                    icon={<AlertTriangle />}
+                    title="Failing Services"
+                    value={stats.failingServices.toLocaleString()}
+                    alert
+                    isLoading={isLoading}
+                />
             </div>
 
-            {/* Vulnerabilities Section */}
+            {/* Network & Performance Analytics Section */}
             <div>
-                <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-xl font-bold text-white">Vulnerabilities</h2>
-                    <div className="flex items-center gap-2">
-                        <button className="p-2 bg-violet-600 rounded-md hover:bg-violet-700">
-                            <Plus className="h-5 w-5 text-white" />
-                        </button>
-                        <button className="p-2 text-gray-400 hover:text-white hover:bg-gray-700/50 rounded-md">
-                            <MoreHorizontal className="h-5 w-5" />
-                        </button>
-                    </div>
-                </div>
+                <h2 className="text-xl font-bold text-white mb-4">Network & Performance Analytics</h2>
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <ChartWidget title="Devices Scanned by Vulnerability Scanner">
-                        <NoData />
+                    <ChartWidget title="Device Availability">
+                        {chartData.deviceAvailability.length > 0 ? <SimpleBarChart data={chartData.deviceAvailability} /> : <NoData />}
                     </ChartWidget>
-                    <ChartWidget title="Devices Not Scanned by Vulnerability Scanner" pagination="< 1 - 7 of 12 >">
-                        <SimpleBarChart data={mockBarData} yMax={100000} />
+                    <ChartWidget title="Top 5 High Latency Services (ms)">
+                        {chartData.topLatencyServices.length > 0 ? <SimpleBarChart data={chartData.topLatencyServices} /> : <NoData />}
                     </ChartWidget>
-                    <ChartWidget title="High Risk Devices Not Scanned in Last 30 Days">
-                        <SimpleBarChart data={[
-                            { name: 'Category A', value: 673, color: '#3b82f6'},
-                            { name: 'Category B', value: 525, color: '#8b5cf6'}
-                        ]} yMax={750} />
+                    <ChartWidget title="Services by Type">
+                        {chartData.servicesByType.length > 0 ? <SimpleBarChart data={chartData.servicesByType} /> : <NoData />}
                     </ChartWidget>
-                    <ChartWidget title="Devices with Confirmed High or Critical Vulnerabilities and No Scan in Last 30 Days">
-                        <SimpleBarChart data={[
-                            { name: 'Device Type X', value: 3424, color: '#3b82f6'}
-                        ]} yMax={4000} />
+                    <ChartWidget title="Device Discovery Sources">
+                        {chartData.discoveryBySource.length > 0 ? <SimpleBarChart data={chartData.discoveryBySource} /> : <NoData />}
                     </ChartWidget>
                 </div>
             </div>
