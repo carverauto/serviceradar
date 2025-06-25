@@ -87,6 +87,22 @@ func TestSRQLParsingAndTranslation(t *testing.T) { // Renamed for clarity
 			},
 		},
 		{
+			name:  "Simple show query for services",
+			query: "show services",
+			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
+
+				require.NoError(t, err)
+				assert.Equal(t, models.Show, query.Type)
+				assert.Equal(t, models.Services, query.Entity)
+
+				sqlCH, _ := clickhouseTranslator.Translate(query)
+				assert.Equal(t, "SELECT * FROM services", sqlCH)
+				sqlP, _ := protonTranslator.Translate(query)
+				assert.Equal(t, "SELECT * FROM table(services)", sqlP)
+			},
+		},
+		{
 			name:  "Show query for devices with IP condition",
 			query: "show devices where ip = '192.168.1.1'",
 			validate: func(t *testing.T, query *models.Query, err error) {
