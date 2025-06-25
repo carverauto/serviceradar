@@ -24,7 +24,7 @@ import {
     Monitor, AlertTriangle, Activity, ServerOff, Plus, MoreHorizontal, Server
 } from 'lucide-react';
 import { useAuth } from '../AuthProvider';
-import { ServiceEntry } from "@/types/types";
+import {Service, ServiceEntry, Poller, GenericServiceDetails} from "@/types/types";
 import { Device } from "@/types/devices";
 
 const REFRESH_INTERVAL = 60000; // 60 seconds
@@ -138,43 +138,79 @@ const Dashboard = () => {
         setError(null);
 
         try {
+            // Use Promise.all to fetch data concurrently
             const [
                 totalDevicesRes,
                 offlineDevicesRes,
-                failingServicesRes,
-                icmpServicesRes,
                 allServicesRes,
                 allDevicesRes,
+                pollersData,
             ] = await Promise.all([
                 postQuery('COUNT DEVICES'),
                 postQuery('COUNT DEVICES WHERE is_available = false'),
-                postQuery('COUNT SERVICES WHERE available = false'),
-                postQuery('SHOW SERVICES WHERE service_type = "icmp"'),
                 postQuery('SHOW SERVICES'),
                 postQuery('SHOW DEVICES'),
+                // Fetch pollers to get detailed service status and latency, which is not available in the 'SERVICES' stream
+                fetch('/api/pollers', {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(token && { Authorization: `Bearer ${token}` }),
+                    },
+                }).then(res => {
+                    if (!res.ok) throw new Error('Failed to fetch pollers data for analytics');
+                    return res.json() as Promise<Poller[]>;
+                }),
             ]);
 
+            // Calculate stats
             const totalDevices = totalDevicesRes.results[0]?.['count()'] || 0;
             const offlineDevices = offlineDevicesRes.results[0]?.['count()'] || 0;
-            const failingServices = failingServicesRes.results[0]?.['count()'] || 0;
 
-            const highLatencyServices = 0; // 'services' stream does not contain latency info
+            let failingServices = 0;
+            let highLatencyServices = 0;
+            const latencyThreshold = 100 * 1000000; // 100ms in nanoseconds
+            const latencyData: { name: string; value: number }[] = [];
+
+            pollersData.forEach(poller => {
+                poller.services?.forEach(service => {
+                    if (!service.available) {
+                        failingServices++;
+                    }
+                    if (service.type === 'icmp' && service.available && service.details) {
+                        try {
+                            const details = (typeof service.details === 'string' ? JSON.parse(service.details) : service.details) as GenericServiceDetails;
+                            if (details?.response_time) {
+                                const responseTimeMs = details.response_time / 1000000;
+                                latencyData.push({ name: service.name, value: responseTimeMs });
+                                if (details.response_time > latencyThreshold) {
+                                    highLatencyServices++;
+                                }
+                            }
+                        } catch (e) { /* ignore parse errors */ }
+                    }
+                });
+            });
 
             setStats({ totalDevices, offlineDevices, highLatencyServices, failingServices });
 
             // Prepare chart data
+            const topLatencyServices = latencyData
+                .sort((a, b) => b.value - a.value)
+                .slice(0, 5)
+                .map((item, i) => ({ ...item, color: ['#f59e0b', '#facc15', '#fef08a', '#fde68a', '#fcd34d'][i % 5] }));
+
             setChartData({
                 deviceAvailability: [
                     { name: 'Online', value: totalDevices - offlineDevices, color: '#3b82f6' },
                     { name: 'Offline', value: offlineDevices, color: '#ef4444' }
                 ],
-                topLatencyServices: [],
+                topLatencyServices: topLatencyServices,
                 servicesByType: Object.entries((allServicesRes.results as ServiceEntry[]).reduce((acc, s) => {
                     acc[s.service_type] = (acc[s.service_type] || 0) + 1;
                     return acc;
                 }, {} as Record<string, number>)).map(([name, value], i) => ({ name, value, color: ['#3b82f6', '#8b5cf6', '#60a5fa', '#a78bfa', '#d8b4fe'][i % 5] })),
                 discoveryBySource: Object.entries((allDevicesRes.results as Device[]).reduce((acc, d) => {
-                    d.discovery_sources.forEach(source => {
+                    (d.discovery_sources || []).forEach(source => {
                         acc[source] = (acc[source] || 0) + 1;
                     });
                     return acc;
@@ -186,7 +222,7 @@ const Dashboard = () => {
         } finally {
             setIsLoading(false);
         }
-    }, [postQuery]);
+    }, [postQuery, token]);
 
     useEffect(() => {
         fetchData();
