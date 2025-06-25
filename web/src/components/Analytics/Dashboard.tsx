@@ -149,7 +149,7 @@ const Dashboard = () => {
                 postQuery('COUNT DEVICES'),
                 postQuery('COUNT DEVICES WHERE is_available = false'),
                 postQuery('COUNT SERVICES WHERE available = false'),
-                postQuery('SHOW SERVICES WHERE type = "icmp"'),
+                postQuery('SHOW SERVICES WHERE service_type = "icmp"'),
                 postQuery('SHOW SERVICES'),
                 postQuery('SHOW DEVICES'),
             ]);
