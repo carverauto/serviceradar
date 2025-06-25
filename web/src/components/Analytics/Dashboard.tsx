@@ -24,7 +24,7 @@ import {
     Monitor, AlertTriangle, Activity, ServerOff, Plus, MoreHorizontal, Server
 } from 'lucide-react';
 import { useAuth } from '../AuthProvider';
-import { Service } from "@/types/types";
+import { ServiceEntry } from "@/types/types";
 import { Device } from "@/types/devices";
 
 const REFRESH_INTERVAL = 60000; // 60 seconds
@@ -158,10 +158,7 @@ const Dashboard = () => {
             const offlineDevices = offlineDevicesRes.results[0]?.['count()'] || 0;
             const failingServices = failingServicesRes.results[0]?.['count()'] || 0;
 
-            const highLatencyServices = icmpServicesRes.results.filter((s: Service) => {
-                const details = s.details as { response_time?: number };
-                return details?.response_time && details.response_time > 100 * 1e6; // 100ms in ns
-            }).length;
+            const highLatencyServices = 0; // 'services' stream does not contain latency info
 
             setStats({ totalDevices, offlineDevices, highLatencyServices, failingServices });
 
@@ -171,18 +168,9 @@ const Dashboard = () => {
                     { name: 'Online', value: totalDevices - offlineDevices, color: '#3b82f6' },
                     { name: 'Offline', value: offlineDevices, color: '#ef4444' }
                 ],
-                topLatencyServices: (icmpServicesRes.results as Service[])
-                    .map(s => ({ ...s, details: s.details as { response_time?: number } }))
-                    .filter(s => s.details?.response_time)
-                    .sort((a, b) => (b.details.response_time ?? 0) - (a.details.response_time ?? 0))
-                    .slice(0, 5)
-                    .map((s, i) => ({
-                        name: s.name,
-                        value: (s.details.response_time ?? 0) / 1e6, // to ms
-                        color: ['#ef4444', '#f97316', '#eab308', '#84cc16', '#22c55e'][i]
-                    })),
-                servicesByType: Object.entries((allServicesRes.results as Service[]).reduce((acc, s) => {
-                    acc[s.type] = (acc[s.type] || 0) + 1;
+                topLatencyServices: [],
+                servicesByType: Object.entries((allServicesRes.results as ServiceEntry[]).reduce((acc, s) => {
+                    acc[s.service_type] = (acc[s.service_type] || 0) + 1;
                     return acc;
                 }, {} as Record<string, number>)).map(([name, value], i) => ({ name, value, color: ['#3b82f6', '#8b5cf6', '#60a5fa', '#a78bfa', '#d8b4fe'][i % 5] })),
                 discoveryBySource: Object.entries((allDevicesRes.results as Device[]).reduce((acc, d) => {
