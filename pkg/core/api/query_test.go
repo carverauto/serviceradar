@@ -177,6 +177,26 @@ func TestPrepareQuery(t *testing.T) {
 			},
 		},
 		{
+			name: "Valid query for services",
+			req: &QueryRequest{
+				Query: "show services",
+				Limit: 15,
+			},
+			dbType:      parser.Proton,
+			expectError: false,
+			setupMock:   func(*APIServer) {},
+			validateQuery: func(t *testing.T, query *models.Query, _ map[string]interface{}) {
+				t.Helper()
+
+				assert.Equal(t, models.Services, query.Entity)
+				assert.Equal(t, 15, query.Limit)
+				assert.True(t, query.HasLimit)
+				assert.Len(t, query.OrderBy, 2)
+				assert.Equal(t, "_tp_time", query.OrderBy[0].Field)
+				assert.Equal(t, "service_name", query.OrderBy[1].Field)
+			},
+		},
+		{
 			name: "Count devices should skip pagination",
 			req: &QueryRequest{
 				Query: "count devices",
