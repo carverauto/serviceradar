@@ -23,7 +23,7 @@ import {
 import {
     Monitor, AlertTriangle, Activity, ServerOff, Plus, MoreHorizontal, Server
 } from 'lucide-react';
-import { useAuth } from '../Utils/AuthProvider';
+import { useAuth } from '../AuthProvider';
 import { Service } from "@/types/types";
 import { Device } from "@/types/devices";
 

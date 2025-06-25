@@ -1,5 +1,5 @@
 import './globals.css';
-import { AuthProvider } from '@/components/utils/AuthProvider';
+import { AuthProvider } from '@/components/AuthProvider';
 import Header from '@/components/Header';
 import { Providers } from './providers';
 import Sidebar from '@/components/Sidebar';

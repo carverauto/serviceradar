@@ -5,7 +5,7 @@ import { useAuth } from '@/components/AuthProvider';
 import { Event, Pagination, EventsApiResponse } from '@/types/events';
 import {
     Bell,
-    ShieldExclamation,
+    ShieldAlert,
     AlertTriangle as AlertTriangleIcon,
     ChevronDown,
     ChevronRight,
@@ -237,7 +237,7 @@ const EventsDashboard = () => {
                 <StatCard
                     title="Critical"
                     value={stats.critical.toLocaleString()}
-                    icon={<ShieldExclamation className="h-6 w-6 text-red-400" />}
+                    icon={<ShieldAlert className="h-6 w-6 text-red-400" />}
                     isLoading={statsLoading}
                 />
                 <StatCard
