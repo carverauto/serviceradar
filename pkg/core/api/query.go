@@ -113,8 +113,8 @@ func (s *APIServer) prepareQuery(req *QueryRequest) (*models.Query, map[string]i
 
 	// Validate entity for pagination. COUNT queries don't need pagination support.
 	if query.Type != models.Count {
-		if query.Entity != models.Devices && query.Entity != models.Interfaces && query.Entity != models.SweepResults && query.Entity != models.Events {
-			return nil, nil, errors.New("pagination is only supported for devices, interfaces, sweep_results, and events")
+		if query.Entity != models.Devices && query.Entity != models.Services && query.Entity != models.Interfaces && query.Entity != models.SweepResults && query.Entity != models.Events {
+			return nil, nil, errors.New("pagination is only supported for devices, services, interfaces, sweep_results, and events")
 		}
 	}
 
@@ -140,11 +140,18 @@ func (s *APIServer) prepareQuery(req *QueryRequest) (*models.Query, map[string]i
 		// Step 2: Ensure the sort order is stable by adding a tie-breaker field.
 		// This runs after the default is set, ensuring stability for all paginated queries.
 		if len(query.OrderBy) == 1 && query.OrderBy[0].Field == defaultOrderField {
-			if query.Entity == models.SweepResults || query.Entity == models.Devices {
+			switch query.Entity {
+			case models.SweepResults, models.Devices:
 				// Add 'ip' as a default secondary sort key for stable pagination.
 				query.OrderBy = append(query.OrderBy, models.OrderByItem{
 					Field:     "ip",
 					Direction: models.Descending, // Must be consistent
+				})
+			case models.Services:
+				// Use service_name as the secondary sort key for services.
+				query.OrderBy = append(query.OrderBy, models.OrderByItem{
+					Field:     "service_name",
+					Direction: models.Descending,
 				})
 			}
 		}
@@ -279,6 +286,8 @@ func (s *APIServer) executeQuery(ctx context.Context, query string, entity model
 		results, err = s.queryExecutor.ExecuteQuery(ctx, query, "connections")
 	case models.Logs:
 		results, err = s.queryExecutor.ExecuteQuery(ctx, query, "logs")
+	case models.Services:
+		results, err = s.queryExecutor.ExecuteQuery(ctx, query, "services")
 	case models.Interfaces:
 		results, err = s.queryExecutor.ExecuteQuery(ctx, query, "interfaces")
 	case models.SweepResults:
@@ -442,6 +451,10 @@ func addEntityFields(cursorData, result map[string]interface{}, entity models.En
 	case models.SweepResults:
 		if ip, ok := result["ip"]; ok {
 			cursorData["ip"] = ip
+		}
+	case models.Services:
+		if serviceName, ok := result["service_name"]; ok {
+			cursorData["service_name"] = serviceName
 		}
 	case models.Flows:
 		// No additional fields needed for now
