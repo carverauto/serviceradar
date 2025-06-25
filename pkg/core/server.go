@@ -96,6 +96,7 @@ func NewServer(ctx context.Context, config *models.DBConfig) (*Server, error) {
 		authService:         auth.NewAuth(authConfig, database),
 		metricBuffers:       make(map[string][]*models.TimeseriesMetric),
 		serviceBuffers:      make(map[string][]*models.ServiceStatus),
+		serviceListBuffers:  make(map[string][]*models.Service),
 		sysmonBuffers:       make(map[string][]*models.SysmonMetrics),
 		bufferMu:            sync.RWMutex{},
 		pollerStatusCache:   make(map[string]*models.PollerStatus),
@@ -166,6 +167,7 @@ func (s *Server) flushAllBuffers(ctx context.Context) {
 
 	s.flushMetrics(ctx)
 	s.flushServiceStatuses(ctx)
+	s.flushServices(ctx)
 	s.flushSysmonMetrics(ctx)
 }
 
@@ -205,6 +207,21 @@ func (s *Server) flushServiceStatuses(ctx context.Context) {
 		}
 
 		s.serviceBuffers[pollerID] = nil
+	}
+}
+
+// flushServices flushes service inventory data to the database.
+func (s *Server) flushServices(ctx context.Context) {
+	for pollerID, services := range s.serviceListBuffers {
+		if len(services) == 0 {
+			continue
+		}
+
+		if err := s.DB.StoreServices(ctx, services); err != nil {
+			log.Printf("Failed to flush services for poller %s: %v", pollerID, err)
+		}
+
+		s.serviceListBuffers[pollerID] = nil
 	}
 }
 
@@ -690,6 +707,7 @@ func (s *Server) processServices(
 	now time.Time) {
 	allServicesAvailable := true
 	serviceStatuses := make([]*models.ServiceStatus, 0, len(services))
+	serviceList := make([]*models.Service, 0, len(services))
 
 	for _, svc := range services {
 		apiService := s.createAPIService(svc)
@@ -713,6 +731,14 @@ func (s *Server) processServices(
 			Timestamp:   now,
 		})
 
+		serviceList = append(serviceList, &models.Service{
+			PollerID:    pollerID,
+			ServiceName: svc.ServiceName,
+			ServiceType: svc.ServiceType,
+			AgentID:     svc.AgentId,
+			Timestamp:   now,
+		})
+
 		apiStatus.Services = append(apiStatus.Services, apiService)
 
 		if svc.AgentId == "" {
@@ -728,6 +754,7 @@ func (s *Server) processServices(
 
 	s.bufferMu.Lock()
 	s.serviceBuffers[pollerID] = append(s.serviceBuffers[pollerID], serviceStatuses...)
+	s.serviceListBuffers[pollerID] = append(s.serviceListBuffers[pollerID], serviceList...)
 	s.bufferMu.Unlock()
 
 	apiStatus.IsHealthy = allServicesAvailable
