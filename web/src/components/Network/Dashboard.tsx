@@ -154,7 +154,7 @@ const SNMPDeviceList: React.FC = () => {
         setError(null);
 
         try {
-            const whereClauses = ["'snmp' IN discovery_sources"];
+            const whereClauses = ["discovery_sources = 'snmp'"];
 
             if (debouncedSearchTerm) {
                 whereClauses.push(`(ip LIKE '%${debouncedSearchTerm}%' OR hostname LIKE '%${debouncedSearchTerm}%')`);
@@ -169,10 +169,10 @@ const SNMPDeviceList: React.FC = () => {
             // Fetch stats in parallel
             const [onlineRes, offlineRes] = await Promise.all([
                 postQuery<{ results: [{ 'count()': number }[]] }>(
-                    "COUNT DEVICES WHERE 'snmp' IN discovery_sources AND is_available = true"
+                    "COUNT DEVICES WHERE discovery_sources = 'snmp' AND is_available = true"
                 ),
                 postQuery<{ results: [{ 'count()': number }[]] }>(
-                    "COUNT DEVICES WHERE 'snmp' IN discovery_sources AND is_available = false"
+                    "COUNT DEVICES WHERE discovery_sources = 'snmp' AND is_available = false"
                 ),
             ]);
 
@@ -446,7 +446,7 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
                         ...(token && { Authorization: `Bearer ${token}` })
                     },
                     body: JSON.stringify({
-                        query: "COUNT DEVICES WHERE 'snmp' IN discovery_sources"
+                        query: "COUNT DEVICES WHERE discovery_sources = 'snmp'"
                     }),
                 });
 
