@@ -9,6 +9,7 @@ const (
 	Traps       EntityType = "traps"
 	Connections EntityType = "connections"
 	Logs        EntityType = "logs"
+	Services    EntityType = "services"
 	Interfaces  EntityType = "interfaces"
 	// New Entity Types for versioned_kv streams
 
