@@ -49,6 +49,7 @@ type Server struct {
 	authService             *auth.Auth
 	metricBuffers           map[string][]*models.TimeseriesMetric
 	serviceBuffers          map[string][]*models.ServiceStatus
+	serviceListBuffers      map[string][]*models.Service
 	sysmonBuffers           map[string][]*models.SysmonMetrics
 	bufferMu                sync.RWMutex
 	pollerStatusCache       map[string]*models.PollerStatus

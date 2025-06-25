@@ -53,6 +53,8 @@ type Service interface {
 	UpdateServiceStatuses(ctx context.Context, statuses []*models.ServiceStatus) error
 	GetPollerServices(ctx context.Context, pollerID string) ([]models.ServiceStatus, error)
 	GetServiceHistory(ctx context.Context, pollerID, serviceName string, limit int) ([]models.ServiceStatus, error)
+	// StoreServices stores a batch of service records in the services stream.
+	StoreServices(ctx context.Context, services []*models.Service) error
 
 	// Maintenance operations.
 

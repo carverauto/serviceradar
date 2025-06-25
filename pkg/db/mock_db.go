@@ -530,6 +530,20 @@ func (mr *MockServiceMockRecorder) StoreSweepResults(ctx, results any) *gomock.C
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreSweepResults", reflect.TypeOf((*MockService)(nil).StoreSweepResults), ctx, results)
 }
 
+// StoreServices mocks base method.
+func (m *MockService) StoreServices(ctx context.Context, services []*models.Service) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "StoreServices", ctx, services)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// StoreServices indicates an expected call of StoreServices.
+func (mr *MockServiceMockRecorder) StoreServices(ctx, services any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreServices", reflect.TypeOf((*MockService)(nil).StoreServices), ctx, services)
+}
+
 // StoreSysmonMetrics mocks base method.
 func (m *MockService) StoreSysmonMetrics(ctx context.Context, pollerID string, metrics *models.SysmonMetrics, timestamp time.Time) error {
 	m.ctrl.T.Helper()
