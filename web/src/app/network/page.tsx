@@ -15,20 +15,21 @@
 */
 import { Suspense } from 'react';
 import { cookies } from 'next/headers';
-import { fetchFromAPI } from '@/lib/api';
 import { Poller } from '@/types/types';
 import NetworkDashboard from '@/components/Network/Dashboard';
-import { unstable_noStore as noStore } from 'next/cache';
+// Import new cached data function
+import { getCachedPollers } from '@/lib/data';
 
 export const metadata = {
     title: 'Network - ServiceRadar',
     description: 'Unified view of network discovery, sweeps, and SNMP data.',
 };
 
+// This function now uses the cached pollers function.
+// `noStore()` has been removed.
 async function fetchNetworkData(token?: string): Promise<{ pollers: Poller[] }> {
-    noStore();
     try {
-        const pollers = await fetchFromAPI<Poller[]>('/pollers', token);
+        const pollers = await getCachedPollers(token);
         return { pollers: pollers || [] };
     } catch (error) {
         console.error("Error fetching network data:", error);
