@@ -154,7 +154,12 @@ const SNMPDeviceList: React.FC = () => {
         setError(null);
 
         try {
-            const whereClauses = ["sys_descr != ''"];
+            // Filter devices that have been discovered via SNMP. The
+            // discovery_sources array contains the mechanisms that found a
+            // device. Using `discovery_sources = 'snmp'` leverages SRQL's
+            // array contains semantics to match any device where the SNMP
+            // source is present.
+            const whereClauses = ["discovery_sources = 'snmp'"];
 
             if (debouncedSearchTerm) {
                 whereClauses.push(`(ip LIKE '%${debouncedSearchTerm}%' OR hostname LIKE '%${debouncedSearchTerm}%')`);
@@ -169,10 +174,10 @@ const SNMPDeviceList: React.FC = () => {
             // Fetch stats in parallel
             const [onlineRes, offlineRes] = await Promise.all([
                 postQuery<{ results: [{ 'count()': number }[]] }>(
-                    "COUNT DEVICES WHERE sys_descr != '' AND is_available = true"
+                    "COUNT DEVICES WHERE discovery_sources = 'snmp' AND is_available = true"
                 ),
                 postQuery<{ results: [{ 'count()': number }[]] }>(
-                    "COUNT DEVICES WHERE sys_descr != '' AND is_available = false"
+                    "COUNT DEVICES WHERE discovery_sources = 'snmp' AND is_available = false"
                 ),
             ]);
 
@@ -473,8 +478,11 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
                         'Content-Type': 'application/json',
                         ...(token && { Authorization: `Bearer ${token}` })
                     },
-                    body: JSON.stringify({ // Changed query to be more robust
-                        query: "COUNT DEVICES WHERE sys_descr != ''"
+                    body: JSON.stringify({
+                        // Count devices that have SNMP data available by
+                        // checking the discovery_sources array for the 'snmp'
+                        // indicator.
+                        query: "COUNT DEVICES WHERE discovery_sources = 'snmp'"
                     }),
                 });
 
