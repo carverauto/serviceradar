@@ -154,6 +154,11 @@ const SNMPDeviceList: React.FC = () => {
         setError(null);
 
         try {
+            // Filter devices that have been discovered via SNMP. The
+            // discovery_sources array contains the mechanisms that found a
+            // device. Using `discovery_sources = 'snmp'` leverages SRQL's
+            // array contains semantics to match any device where the SNMP
+            // source is present.
             const whereClauses = ["discovery_sources = 'snmp'"];
 
             if (debouncedSearchTerm) {
@@ -474,6 +479,9 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
                         ...(token && { Authorization: `Bearer ${token}` })
                     },
                     body: JSON.stringify({
+                        // Count devices that have SNMP data available by
+                        // checking the discovery_sources array for the 'snmp'
+                        // indicator.
                         query: "COUNT DEVICES WHERE discovery_sources = 'snmp'"
                     }),
                 });
@@ -526,15 +534,21 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
                         <div className="bg-[#25252e] border border-gray-700/80 rounded-lg p-4">
                             <h3 className="font-semibold text-white mb-4">Active Network Tasks</h3>
                             <div className="space-y-3">
-                                {[...discoveryServices, ...sweepServices].map(service => (
+                                {[...discoveryServices, ...sweepServices, ...snmpServices].map(service => (
                                     <div
                                         key={service.id || service.name}
                                         className="flex items-center justify-between p-3 bg-gray-800/50 rounded-md"
                                     >
                                         <div className="flex items-center gap-3">
-                                            {service.type === 'network_discovery' ?
-                                                <Globe size={20} className="text-blue-400" /> :
+                                            {service.type === 'network_discovery' ? (
+                                                <Globe size={20} className="text-blue-400" />
+                                            ) : service.type === 'sweep' ? (
                                                 <Scan size={20} className="text-green-400" />
+                                            ) : service.type === 'snmp' ? (
+                                                <Rss size={20} className="text-teal-400" />
+                                            ) : (
+                                                <Activity size={20} className="text-gray-400" />
+                                            )
                                             }
                                             <div>
                                                 <p className="font-medium text-white">{service.name}</p>
@@ -619,7 +633,39 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
                 );
 
             case 'snmp':
-                return <SNMPDeviceList />;
+                return (
+                    <div className="space-y-6">
+                        <div>
+                            <h2 className="text-xl font-bold text-white mb-4">SNMP Services</h2>
+                            {snmpServices.length === 0 ? (
+                                <div className="text-center p-8 bg-[#25252e] border border-gray-700/80 rounded-lg">
+                                    <p className="text-gray-400">No active SNMP monitoring services found.</p>
+                                </div>
+                            ) : (
+                                <div className="space-y-4">
+                                    {snmpServices.map(service => (
+                                        <div key={service.id || service.name} className="bg-[#25252e] border border-gray-700/80 rounded-lg p-4 flex justify-between items-center">
+                                            <div className="flex items-center gap-3">
+                                                <Rss size={24} className="text-teal-400" />
+                                                <div>
+                                                    <p className="font-semibold text-white">{service.name}</p>
+                                                    <p className="text-sm text-gray-400">{service.poller_id}</p>
+                                                </div>
+                                            </div>
+                                            <button
+                                                onClick={() => router.push(`/service/${service.poller_id}/${service.name}`)}
+                                                className="text-sm bg-violet-600 px-3 py-1.5 rounded-md hover:bg-violet-700"
+                                            >
+                                                View Dashboard
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                        <SNMPDeviceList />
+                    </div>
+                );
 
             case 'netflow':
                 return (
