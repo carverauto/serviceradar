@@ -423,10 +423,38 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
         return discoveryServices.reduce((acc, service) => {
             if (service.details) {
                 try {
-                    const details: RawBackendLanDiscoveryData = typeof service.details === 'string' ?
-                        JSON.parse(service.details) :
-                        service.details;
-                    return acc + (details.total_devices || 0);
+                    const details: RawBackendLanDiscoveryData = typeof service.details === 'string'
+                        ? JSON.parse(service.details)
+                        : service.details;
+
+                    const deviceCount = details.total_devices !== undefined
+                        ? details.total_devices
+                        : Array.isArray(details.devices)
+                            ? details.devices.length
+                            : 0;
+
+                    return acc + deviceCount;
+                } catch {
+                    return acc;
+                }
+            }
+            return acc;
+        }, 0);
+    }, [discoveryServices]);
+
+    const totalDiscoveredInterfaces = useMemo(() => {
+        return discoveryServices.reduce((acc, service) => {
+            if (service.details) {
+                try {
+                    const details: RawBackendLanDiscoveryData = typeof service.details === 'string'
+                        ? JSON.parse(service.details)
+                        : service.details;
+
+                    const ifaceCount = Array.isArray(details.interfaces)
+                        ? details.interfaces.length
+                        : 0;
+
+                    return acc + ifaceCount;
                 } catch {
                     return acc;
                 }
@@ -471,11 +499,16 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
             case 'overview':
                 return (
                     <div className="space-y-6">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                             <StatCard
-                                title="Total Discovered Devices"
+                                title="Discovered Devices"
                                 value={totalDiscoveredDevices.toLocaleString()}
                                 icon={<RouterIcon size={24} />}
+                            />
+                            <StatCard
+                                title="Discovered Interfaces"
+                                value={totalDiscoveredInterfaces.toLocaleString()}
+                                icon={<Network size={24} />}
                             />
                             <StatCard
                                 title="Active Network Sweeps"
