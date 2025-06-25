@@ -15,7 +15,7 @@
 */
 'use client';
 import React, { useState, useEffect, useCallback, useMemo, Fragment } from 'react';
-import { useAuth } from '@/components/AuthProvider';
+import { useAuth } from '@/components/Utils/AuthProvider';
 import { Device, Pagination, DevicesApiResponse } from '@/types/devices';
 import { Server, CheckCircle, XCircle, ChevronDown, ChevronRight, Search, Loader2, AlertTriangle, ArrowUp, ArrowDown } from 'lucide-react';
 import ReactJson from '@microlink/react-json-view';
@@ -36,7 +36,7 @@ const StatCard = ({ title, value, icon, isLoading }: { title: string; value: str
         </div>
     </div>
 );
-const DevicesDashboard = () => {
+const Dashboard = () => {
     const {token} = useAuth();
     const [devices, setDevices] = useState<Device[]>([]);
     const [pagination, setPagination] = useState<Pagination | null>(null);
@@ -352,4 +352,4 @@ const DevicesDashboard = () => {
     );
 }
 
-export default DevicesDashboard;
+export default Dashboard;
