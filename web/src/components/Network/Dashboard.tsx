@@ -70,7 +70,7 @@ const StatCard = ({
 }) => (
     <div className="bg-[#25252e] border border-gray-700/80 p-4 rounded-lg">
         <div className="flex items-center">
-            <div className="p-3 bg-gray-700/50 rounded-md mr-4 text-violet-400">
+            <div className="p-3 bg-gray-700/50 rounded-md mr-4 text-green-400">
                 {icon}
             </div>
             <div>
@@ -100,7 +100,7 @@ const TabButton = ({
     <button
         onClick={onClick}
         className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-            isActive ? 'bg-violet-600 text-white' : 'text-gray-300 hover:bg-gray-700/50'
+            isActive ? 'bg-green-600 text-white' : 'text-gray-300 hover:bg-gray-700/50'
         }`}
     >
         <Icon className="h-5 w-5" />
@@ -206,7 +206,7 @@ const SNMPDeviceList: React.FC = () => {
     const getSourceColor = (source: string) => {
         const lowerSource = source.toLowerCase();
         if (lowerSource.includes('netbox')) return 'bg-blue-600/50 text-blue-200';
-        if (lowerSource.includes('sweep')) return 'bg-purple-600/50 text-purple-200';
+        if (lowerSource.includes('sweep')) return 'bg-green-600/50 text-green-200';
         if (lowerSource.includes('snmp')) return 'bg-teal-600/50 text-teal-200';
         return 'bg-gray-600/50 text-gray-200';
     };
@@ -243,7 +243,7 @@ const SNMPDeviceList: React.FC = () => {
                             placeholder="Search devices..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full pl-10 pr-4 py-2 border border-gray-600 rounded-lg bg-[#1C1B22] text-white focus:ring-violet-500 focus:border-violet-500"
+                            className="w-full pl-10 pr-4 py-2 border border-gray-600 rounded-lg bg-[#1C1B22] text-white focus:ring-green-500 focus:border-green-500"
                         />
                     </div>
                 </div>
@@ -543,7 +543,7 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
                                             {service.type === 'network_discovery' ? (
                                                 <Globe size={20} className="text-blue-400" />
                                             ) : service.type === 'sweep' ? (
-                                                <Scan size={20} className="text-purple-400" />
+                                                <Scan size={20} className="text-green-400" />
                                             ) : service.type === 'snmp' ? (
                                                 <Rss size={20} className="text-teal-400" />
                                             ) : (
@@ -590,7 +590,7 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
                                     </div>
                                     <button
                                         onClick={() => router.push(`/service/${service.poller_id}/${service.name}`)}
-                                        className="text-sm bg-violet-600 px-3 py-1.5 rounded-md hover:bg-violet-700"
+                                        className="text-sm bg-green-600 px-3 py-1.5 rounded-md hover:bg-green-700"
                                     >
                                         View Details
                                     </button>
@@ -614,7 +614,7 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
                                     className="bg-[#25252e] border border-gray-700/80 rounded-lg p-4 flex justify-between items-center"
                                 >
                                     <div className="flex items-center gap-3">
-                                        <Scan size={24} className="text-purple-400" />
+                                        <Scan size={24} className="text-green-400" />
                                         <div>
                                             <p className="font-semibold text-white">{service.name}</p>
                                             <p className="text-sm text-gray-400">{service.poller_id}</p>
@@ -622,7 +622,7 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
                                     </div>
                                     <button
                                         onClick={() => router.push(`/service/${service.poller_id}/${service.name}`)}
-                                        className="text-sm bg-violet-600 px-3 py-1.5 rounded-md hover:bg-violet-700"
+                                        className="text-sm bg-green-600 px-3 py-1.5 rounded-md hover:bg-green-700"
                                     >
                                         View Results
                                     </button>

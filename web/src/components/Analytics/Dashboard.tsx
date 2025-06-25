@@ -73,7 +73,7 @@ const NoData = () => (
     <div className="flex flex-col items-center justify-center h-full text-center text-gray-500">
         <div className="w-16 h-12 relative mb-2">
             <div className="absolute top-0 left-0 w-8 h-12 bg-gray-600 transform -skew-x-12"></div>
-            <div className="absolute top-0 left-8 w-8 h-12 bg-violet-600 transform -skew-x-12"></div>
+            <div className="absolute top-0 left-8 w-8 h-12 bg-green-600 transform -skew-x-12"></div>
         </div>
         <p>No data to show</p>
     </div>
@@ -208,13 +208,13 @@ const Dashboard = () => {
                 servicesByType: Object.entries((allServicesRes.results as ServiceEntry[]).reduce((acc, s) => {
                     acc[s.service_type] = (acc[s.service_type] || 0) + 1;
                     return acc;
-                }, {} as Record<string, number>)).map(([name, value], i) => ({ name, value, color: ['#3b82f6', '#8b5cf6', '#60a5fa', '#a78bfa', '#d8b4fe'][i % 5] })),
+                }, {} as Record<string, number>)).map(([name, value], i) => ({ name, value, color: ['#3b82f6', '#50fa7b', '#60a5fa', '#50fa7b', '#50fa7b'][i % 5] })),
                 discoveryBySource: Object.entries((allDevicesRes.results as Device[]).reduce((acc, d) => {
                     (d.discovery_sources || []).forEach(source => {
                         acc[source] = (acc[source] || 0) + 1;
                     });
                     return acc;
-                }, {} as Record<string, number>)).map(([name, value], i) => ({ name, value, color: ['#3b82f6', '#8b5cf6', '#60a5fa', '#a78bfa', '#d8b4fe'][i % 5] })),
+                }, {} as Record<string, number>)).map(([name, value], i) => ({ name, value, color: ['#3b82f6', '#50fa7b', '#60a5fa', '#50fa7b', '#50fa7b'][i % 5] })),
             });
 
         } catch (e) {
