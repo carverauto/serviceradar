@@ -100,7 +100,7 @@ const TabButton = ({
     <button
         onClick={onClick}
         className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md transition-colors ${
-            isActive ? 'bg-green-600 text-white' : 'text-gray-300 hover:bg-gray-700/50'
+            isActive ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-gray-700/50'
         }`}
     >
         <Icon className="h-5 w-5" />
@@ -654,7 +654,7 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
                                             </div>
                                             <button
                                                 onClick={() => router.push(`/service/${service.poller_id}/${service.name}`)}
-                                                className="text-sm bg-violet-600 px-3 py-1.5 rounded-md hover:bg-violet-700"
+                                                className="text-sm bg-green-600 px-3 py-1.5 rounded-md hover:bg-green-700"
                                             >
                                                 View Dashboard
                                             </button>
