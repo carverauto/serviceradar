@@ -15,7 +15,7 @@
 */
 'use client';
 import React, { useState, useEffect, useCallback, useMemo, Fragment } from 'react';
-import { useAuth } from '@/components/Utils/AuthProvider';
+import { useAuth } from '@/components/AuthProvider';
 import { Device, Pagination, DevicesApiResponse } from '@/types/devices';
 import { Server, CheckCircle, XCircle, ChevronDown, ChevronRight, Search, Loader2, AlertTriangle, ArrowUp, ArrowDown } from 'lucide-react';
 import ReactJson from '@microlink/react-json-view';

@@ -15,7 +15,7 @@
  */
 
 import { useState, useMemo } from 'react';
-import ExportButton from './ExportButton';
+import ExportButton from '../Utils/ExportButton';
 import { Filter, Search, ChevronDown, ChevronUp, Info, X } from 'lucide-react';
 
 const compareIPAddresses = (ip1, ip2) => {

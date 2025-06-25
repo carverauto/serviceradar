@@ -29,15 +29,15 @@ import {
     CartesianGrid,
     ResponsiveContainer,
 } from "recharts";
-import NetworkSweepView from "./NetworkSweepView";
-import { PingStatus } from "./NetworkStatus";
-import SNMPDashboard from "./SNMPDashboard";
+import NetworkSweepView from "../Network/NetworkSweepView";
+import { PingStatus } from "../Network/NetworkStatus";
+import SNMPDashboard from "../Network/SNMPDashboard";
 import { ArrowLeft } from "lucide-react";
 import { ServiceMetric, ServiceDetails, ServicePayload } from "@/types/types";
 import { SnmpDataPoint } from "@/types/snmp";
 import { SysmonData } from "@/types/sysmon";
-import RPerfDashboard from "@/components/RPerfDashboard";
-import LanDiscoveryDashboard from "@/components/LANDiscoveryDashboard";
+import RPerfDashboard from "@/components/Network/RPerfDashboard";
+import LanDiscoveryDashboard from "@/components/Network/LANDiscoveryDashboard";
 
 
 // Define props interface
@@ -52,7 +52,7 @@ interface ServiceDashboardProps {
     initialTimeRange?: string;
 }
 
-const ServiceDashboard: React.FC<ServiceDashboardProps> = ({
+const Dashboard: React.FC<ServiceDashboardProps> = ({
                                                                pollerId,
                                                                serviceName,
                                                                initialService = null,
@@ -395,4 +395,4 @@ const ServiceDashboard: React.FC<ServiceDashboardProps> = ({
     );
 };
 
-export default React.memo(ServiceDashboard);
+export default React.memo(Dashboard);
