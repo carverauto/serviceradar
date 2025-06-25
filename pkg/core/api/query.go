@@ -111,59 +111,67 @@ func (s *APIServer) prepareQuery(req *QueryRequest) (*models.Query, map[string]i
 		return nil, nil, fmt.Errorf("failed to parse query: %w", err)
 	}
 
-	// Validate entity
-	if query.Entity != models.Devices && query.Entity != models.Interfaces && query.Entity != models.SweepResults && query.Entity != models.Events {
-		return nil, nil, errors.New("pagination is only supported for devices, interfaces, sweep_results, and events")
-	}
-
-	var defaultOrderField string
-	if len(query.OrderBy) == 0 {
-		defaultOrderField = "_tp_time" // Default for Proton
-
-		if s.dbType != parser.Proton {
-			defaultOrderField = "last_seen" // Adjust for other DBs
-		}
-
-		query.OrderBy = []models.OrderByItem{
-			{Field: defaultOrderField, Direction: models.Descending},
-		}
-	} else {
-		// If an OrderBy exists, use its primary field as the "default" for the next check.
-		defaultOrderField = query.OrderBy[0].Field
-	}
-
-	// Step 2: Ensure the sort order is stable by adding a tie-breaker field.
-	// This runs after the default is set, ensuring stability for all paginated queries.
-	if len(query.OrderBy) == 1 && query.OrderBy[0].Field == defaultOrderField {
-		if query.Entity == models.SweepResults || query.Entity == models.Devices {
-			// Add 'ip' as a default secondary sort key for stable pagination.
-			query.OrderBy = append(query.OrderBy, models.OrderByItem{
-				Field:     "ip",
-				Direction: models.Descending, // Must be consistent
-			})
+	// Validate entity for pagination. COUNT queries don't need pagination support.
+	if query.Type != models.Count {
+		if query.Entity != models.Devices && query.Entity != models.Interfaces && query.Entity != models.SweepResults && query.Entity != models.Events {
+			return nil, nil, errors.New("pagination is only supported for devices, interfaces, sweep_results, and events")
 		}
 	}
 
-	// Handle cursor
-	var cursorData map[string]interface{}
+	// For COUNT queries, pagination ordering is unnecessary and may generate
+	// invalid SQL (e.g., ORDER BY without GROUP BY). Skip order/limit logic.
+	if query.Type != models.Count {
+		var defaultOrderField string
+		if len(query.OrderBy) == 0 {
+			defaultOrderField = "_tp_time" // Default for Proton
 
-	if req.Cursor != "" {
-		cursorData, err = decodeCursor(req.Cursor)
-		if err != nil {
-			return nil, nil, errors.New("invalid cursor")
-		}
+			if s.dbType != parser.Proton {
+				defaultOrderField = "last_seen" // Adjust for other DBs
+			}
 
-		query.Conditions = append(query.Conditions, buildCursorConditions(query, cursorData, req.Direction)...)
-	}
-
-	// Set LIMIT: prioritize SRQL query's LIMIT, then req.Limit, then default to 10
-	if !query.HasLimit {
-		if req.Limit > 0 {
-			query.Limit = req.Limit
-			query.HasLimit = true
+			query.OrderBy = []models.OrderByItem{
+				{Field: defaultOrderField, Direction: models.Descending},
+			}
 		} else {
-			query.Limit = 10
-			query.HasLimit = true
+			// If an OrderBy exists, use its primary field as the "default" for the next check.
+			defaultOrderField = query.OrderBy[0].Field
+		}
+
+		// Step 2: Ensure the sort order is stable by adding a tie-breaker field.
+		// This runs after the default is set, ensuring stability for all paginated queries.
+		if len(query.OrderBy) == 1 && query.OrderBy[0].Field == defaultOrderField {
+			if query.Entity == models.SweepResults || query.Entity == models.Devices {
+				// Add 'ip' as a default secondary sort key for stable pagination.
+				query.OrderBy = append(query.OrderBy, models.OrderByItem{
+					Field:     "ip",
+					Direction: models.Descending, // Must be consistent
+				})
+			}
+		}
+	}
+
+	// Cursor and LIMIT processing are irrelevant for COUNT queries
+	var cursorData map[string]interface{}
+	if query.Type != models.Count {
+		// Handle cursor
+		if req.Cursor != "" {
+			cursorData, err = decodeCursor(req.Cursor)
+			if err != nil {
+				return nil, nil, errors.New("invalid cursor")
+			}
+
+			query.Conditions = append(query.Conditions, buildCursorConditions(query, cursorData, req.Direction)...)
+		}
+
+		// Set LIMIT: prioritize SRQL query's LIMIT, then req.Limit, then default to 10
+		if !query.HasLimit {
+			if req.Limit > 0 {
+				query.Limit = req.Limit
+				query.HasLimit = true
+			} else {
+				query.Limit = 10
+				query.HasLimit = true
+			}
 		}
 	}
 
