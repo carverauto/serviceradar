@@ -19,10 +19,9 @@ import { Suspense } from "react";
 import { cookies } from "next/headers";
 import PollerDetail from "../../../components/PollerDetail";
 import { Poller, ServiceMetric } from "@/types/types";
-import { fetchFromAPI } from "@/lib/api";
-import { unstable_noStore as noStore } from "next/cache";
+// Import the new cached data functions
+import { getCachedPoller, getCachedPollerMetrics, getCachedPollerHistory } from "@/lib/data";
 
-export const revalidate = 0;
 
 // Define the history entry type
 interface PollerHistoryEntry {
@@ -38,33 +37,22 @@ interface RouteProps {
     params: Params;
 }
 
+// fetchPollerData is now much simpler and uses cached functions.
+// `unstable_noStore()` is removed.
 async function fetchPollerData(pollerId: string, token?: string) {
-    noStore();
     try {
-        // Fetch poller information
-        const pollers = await fetchFromAPI<Poller[]>("/pollers", token);
-        if (!pollers) throw new Error("Failed to fetch pollers");
+        // Fetch poller, metrics, and history in parallel.
+        // `React.cache` ensures that if `getCachedPoller` (which calls `getCachedPollers`)
+        // was already called in this render, it won't re-fetch.
+        const [poller, metrics, history] = await Promise.all([
+            getCachedPoller(pollerId, token),
+            getCachedPollerMetrics(pollerId, token),
+            getCachedPollerHistory(pollerId, token),
+        ]);
 
-        const poller = pollers.find(n => n.poller_id === pollerId);
         if (!poller) throw new Error(`Poller ${pollerId} not found`);
 
-        // Fetch metrics for this poller
-        const metrics = await fetchFromAPI<ServiceMetric[]>(`/pollers/${pollerId}/metrics`, token);
-
-        // Fetch history data if available
-        let history: PollerHistoryEntry[] = [];
-        try {
-            const historyData = await fetchFromAPI<PollerHistoryEntry[]>(`/pollers/${pollerId}/history`, token);
-            // Check if historyData is not null before assigning
-            if (historyData) {
-                history = historyData;
-            }
-        } catch (e) {
-            console.warn(`Could not fetch history for ${pollerId}:`, e);
-            // Continue without history data
-        }
-
-        return { poller: poller, metrics: metrics || [], history: history || [], error: undefined };
+        return { poller, metrics, history, error: undefined };
     } catch (error) {
         console.error(`Error fetching data for poller ${pollerId}:`, error);
         return { poller: undefined, metrics: [], history: [], error: (error as Error).message };
