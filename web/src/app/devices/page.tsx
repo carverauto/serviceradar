@@ -15,7 +15,7 @@
 */
 
 import { Suspense } from 'react';
-import DevicesDashboard from '@/components/DevicesDashboard';
+import DevicesDashboard from '@/components/Devices/Dashboard';
 import { unstable_noStore as noStore } from "next/cache";
 
 export const metadata = {
