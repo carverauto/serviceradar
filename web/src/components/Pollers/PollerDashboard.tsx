@@ -251,7 +251,7 @@ const PollerDashboard: React.FC<PollerDashboardProps> = ({
                     <select
                         value={filterStatus}
                         onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setFilterStatus(e.target.value)}
-                        className="border border-gray-700 rounded-lg bg-[#25252e] text-white px-3 py-2 focus:ring-violet-500 focus:border-violet-500"
+                        className="border border-gray-700 rounded-lg bg-[#25252e] text-white px-3 py-2 focus:ring-green-500 focus:border-green-500"
                     >
                         <option value="all">All Status</option>
                         <option value="healthy">Healthy</option>
@@ -266,7 +266,7 @@ const PollerDashboard: React.FC<PollerDashboardProps> = ({
                     <div
                         key={poller.id}
                         className={`bg-[#25252e] border border-gray-700 rounded-lg shadow-lg overflow-hidden transition-all duration-300 ${
-                            expandedPoller === poller.id ? 'ring-2 ring-violet-500' : ''
+                            expandedPoller === poller.id ? 'ring-2 ring-green-500' : ''
                         }`}
                     >
                         <div className="p-4 flex justify-between items-center cursor-pointer hover:bg-gray-700/30" onClick={() => toggleExpand(poller.id)}>
@@ -375,7 +375,7 @@ const PollerDashboard: React.FC<PollerDashboardProps> = ({
                                 </div>
                                 <div className="mt-4 flex justify-end">
                                     <button
-                                        className="px-4 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg flex items-center transition-colors text-sm"
+                                        className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg flex items-center transition-colors text-sm"
                                         onClick={(e) => { e.stopPropagation(); viewDetailedDashboard(poller.id); }}
                                     >
                                         <Zap className="h-4 w-4 mr-2" /> View Detailed Dashboard

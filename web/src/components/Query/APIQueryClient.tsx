@@ -287,7 +287,7 @@ const ApiQueryClient: React.FC = () => {
                             id="query"
                             name="query"
                             rows={5}
-                            className="w-full p-3 font-mono text-sm border border-gray-600 rounded-md shadow-sm focus:ring-violet-500 focus:border-violet-500 bg-[#16151c] text-gray-100 placeholder-gray-500"
+                            className="w-full p-3 font-mono text-sm border border-gray-600 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500 bg-[#16151c] text-gray-100 placeholder-gray-500"
                             placeholder="e.g., show devices where status = 'offline'"
                             value={query}
                             onChange={(e) => setQuery(e.target.value)}
@@ -303,10 +303,10 @@ const ApiQueryClient: React.FC = () => {
                                 View as:
                             </label>
                             <div className="flex items-center rounded-md border border-gray-600 bg-[#16151c]">
-                                <button type="button" onClick={() => setViewFormat('json')} className={`px-3 py-1.5 rounded-l-md flex items-center gap-2 ${viewFormat === 'json' ? 'bg-violet-600 text-white' : 'text-gray-400 hover:bg-gray-700'}`}>
+                                <button type="button" onClick={() => setViewFormat('json')} className={`px-3 py-1.5 rounded-l-md flex items-center gap-2 ${viewFormat === 'json' ? 'bg-green-600 text-white' : 'text-gray-400 hover:bg-gray-700'}`}>
                                     <FileJson size={16} /> JSON
                                 </button>
-                                <button type="button" onClick={() => setViewFormat('table')} className={`px-3 py-1.5 rounded-r-md flex items-center gap-2 ${viewFormat === 'table' ? 'bg-violet-600 text-white' : 'text-gray-400 hover:bg-gray-700'}`}>
+                                <button type="button" onClick={() => setViewFormat('table')} className={`px-3 py-1.5 rounded-r-md flex items-center gap-2 ${viewFormat === 'table' ? 'bg-green-600 text-white' : 'text-gray-400 hover:bg-gray-700'}`}>
                                     <Table size={16} /> Table
                                 </button>
                             </div>
@@ -325,7 +325,7 @@ const ApiQueryClient: React.FC = () => {
                                     setLimit(Number(e.target.value));
                                     setPagination(null); // Reset pagination on limit change
                                 }}
-                                className="px-3 py-2 border border-gray-600 rounded-md shadow-sm bg-[#16151c] text-gray-100 focus:ring-violet-500 focus:border-violet-500"
+                                className="px-3 py-2 border border-gray-600 rounded-md shadow-sm bg-[#16151c] text-gray-100 focus:ring-green-500 focus:border-green-500"
                             >
                                 {[20, 50, 100, 200].map((val) => (
                                     <option key={val} value={val}>
@@ -337,7 +337,7 @@ const ApiQueryClient: React.FC = () => {
                         <button
                             type="submit"
                             disabled={isLoading}
-                            className="w-full sm:w-auto px-6 py-2 bg-violet-600 text-white font-semibold rounded-md shadow-sm hover:bg-violet-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-violet-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                            className="w-full sm:w-auto px-6 py-2 bg-green-600 text-white font-semibold rounded-md shadow-sm hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
                         >
                             {isLoading ? (
                                 <>
@@ -387,7 +387,7 @@ const ApiQueryClient: React.FC = () => {
 
             {isLoading && !responseData && (
                 <div className="bg-[#25252e] border border-gray-700 p-6 rounded-lg shadow text-center">
-                    <Loader2 className="animate-spin h-8 w-8 text-violet-400 mx-auto mb-2" />
+                    <Loader2 className="animate-spin h-8 w-8 text-green-400 mx-auto mb-2" />
                     <p className="text-gray-600 dark:text-gray-400">Fetching results...</p>
                 </div>
             )}
