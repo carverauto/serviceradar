@@ -285,6 +285,7 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
                     type: item.metadata?.if_type || item.if_descr,
                     speed: formattedSpeed,
                     // Keep raw properties
+                    device_ip: item.device_ip,
                     if_name: item.if_name,
                     if_descr: item.if_descr,
                     if_index: item.if_index,
@@ -711,7 +712,7 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
                 <div className="bg-white dark:bg-gray-800 rounded-lg p-8 text-center shadow">
                     <Search className="h-12 w-12 mx-auto text-gray-400 mb-3" />
                     <h3 className="text-lg font-semibold text-gray-900 dark:text-white">No Matching Results</h3>
-                    <p className="text-gray-500 dark:text-gray-400">No devices or interfaces match your search query &#34;{searchTerm}&#34;.</p>
+                    <p className="text-gray-500 dark:text-gray-400">No devices or interfaces match your search query "{searchTerm}".</p>
                 </div>
             )}
 
@@ -886,7 +887,7 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
                             </thead>
                             <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                             {filteredData.interfaces.map((iface, index) => (
-                                <tr key={`${iface.if_index ?? 'no-ifindex'}-${iface.mac_address ?? index}`} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                                <tr key={`${iface.device_ip || 'no-ip'}-${iface.if_index ?? index}-${iface.mac_address || 'no-mac'}`} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
                                         {iface.name || iface.if_descr || iface.if_name || 'Unknown'}
                                     </td>
