@@ -263,7 +263,7 @@ const EventsDashboard = () => {
                             placeholder="Search events..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full pl-10 pr-4 py-2 border border-gray-600 rounded-lg bg-[#1C1B22] text-white focus:ring-violet-500 focus:border-violet-500"
+                            className="w-full pl-10 pr-4 py-2 border border-gray-600 rounded-lg bg-[#1C1B22] text-white focus:ring-green-500 focus:border-green-500"
                         />
                     </div>
 
@@ -275,7 +275,7 @@ const EventsDashboard = () => {
                             id="severityFilter"
                             value={filterSeverity}
                             onChange={(e) => setFilterSeverity(e.target.value as any)}
-                            className="border border-gray-600 rounded-lg bg-[#1C1B22] text-white px-3 py-2 focus:ring-violet-500 focus:border-violet-500"
+                            className="border border-gray-600 rounded-lg bg-[#1C1B22] text-white px-3 py-2 focus:ring-green-500 focus:border-green-500"
                         >
                             <option value="all">All</option>
                             <option value="Critical">Critical</option>

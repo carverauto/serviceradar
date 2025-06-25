@@ -626,7 +626,7 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
                                 {discoveryData.interfaces?.length || 0}
                             </p>
                         </div>
-                        <Network className="h-8 w-8 text-purple-500" />
+                        <Network className="h-8 w-8 text-green-500" />
                     </div>
                 </div>
 
