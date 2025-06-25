@@ -213,7 +213,7 @@ const SystemMetrics = ({ pollerId = 'poller-01', initialData = null }) => {
                                             name="CPU"
                                             type="monotone"
                                             dataKey="cpu"
-                                            stroke="#8B5CF6"
+                                            stroke="#50FA7B"
                                             dot={false}
                                             activeDot={{ r: 5 }}
                                             isAnimationActive={false}

@@ -26,7 +26,7 @@ const StatCard = ({ icon, title, value, subValue, alert = false, dropdown = fals
         <div className={`p-3 rounded-md ${
             alert ? 'bg-red-900/50 text-red-400'
                 : title.includes('Threat') ? 'bg-yellow-900/50 text-yellow-400'
-                    : title.includes('Unhandled') ? 'bg-violet-900/50 text-violet-400'
+                    : title.includes('Unhandled') ? 'bg-green-900/50 text-green-400'
                         : 'bg-blue-900/50 text-blue-400'
         }`}>
             {React.cloneElement(icon, { className: 'h-6 w-6' })}
@@ -62,7 +62,7 @@ const NoData = () => (
     <div className="flex flex-col items-center justify-center h-full text-center text-gray-500">
         <div className="w-16 h-12 relative mb-2">
             <div className="absolute top-0 left-0 w-8 h-12 bg-gray-600 transform -skew-x-12"></div>
-            <div className="absolute top-0 left-8 w-8 h-12 bg-violet-600 transform -skew-x-12"></div>
+            <div className="absolute top-0 left-8 w-8 h-12 bg-green-600 transform -skew-x-12"></div>
         </div>
         <p>No data to show</p>
     </div>
@@ -97,17 +97,17 @@ const SimpleBarChart = ({ data, yAxisFormatter, yDomain }) => (
 // Mock data for the charts
 const devicesNotScannedData = [
     { name: 'Computers', value: 89800, color: '#3b82f6' },
-    { name: 'Handhelds', value: 16700, color: '#8b5cf6' },
+    { name: 'Handhelds', value: 16700, color: '#50fa7b' },
     { name: 'Communications', value: 16000, color: '#60a5fa' },
     { name: 'Network Equip...', value: 7525, color: '#60a5fa' },
-    { name: 'Imaging', value: 3536, color: '#a78bfa' },
-    { name: 'Multimedia', value: 961, color: '#a78bfa' },
-    { name: 'Automations', value: 560, color: '#a78bfa' },
+    { name: 'Imaging', value: 3536, color: '#50fa7b' },
+    { name: 'Multimedia', value: 961, color: '#50fa7b' },
+    { name: 'Automations', value: 560, color: '#50fa7b' },
 ];
 
 const highRiskNotScannedData = [
     { name: 'Computers', value: 673, color: '#3b82f6'},
-    { name: 'Handhelds', value: 525, color: '#8b5cf6'}
+    { name: 'Handhelds', value: 525, color: '#50fa7b'}
 ];
 
 const criticalVulnsNoScanData = [
@@ -136,7 +136,7 @@ export default function HomePage() {
                         <button className="text-gray-400 hover:text-white"><ChevronDown size={16} /></button>
                     </div>
                     <div className="flex items-center gap-2">
-                        <button className="p-2 bg-violet-600 rounded-md hover:bg-violet-700">
+                        <button className="p-2 bg-green-600 rounded-md hover:bg-green-700">
                             <Plus className="h-5 w-5 text-white" />
                         </button>
                         <button className="p-2 text-gray-400 hover:text-white hover:bg-gray-700/50 rounded-md">

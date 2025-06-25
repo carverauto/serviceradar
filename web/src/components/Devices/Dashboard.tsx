@@ -163,7 +163,7 @@ const Dashboard = () => {
     const getSourceColor = (source: string) => {
         const lowerSource = source.toLowerCase();
         if (lowerSource.includes('netbox')) return 'bg-blue-600/50 text-blue-200';
-        if (lowerSource.includes('sweep')) return 'bg-purple-600/50 text-purple-200';
+        if (lowerSource.includes('sweep')) return 'bg-green-600/50 text-green-200';
         if (lowerSource.includes('mapper')) return 'bg-green-600/50 text-green-200';
         if (lowerSource.includes('unifi')) return 'bg-sky-600/50 text-sky-200';
         return 'bg-gray-600/50 text-gray-200';
@@ -217,7 +217,7 @@ const Dashboard = () => {
                             placeholder="Search by IP, hostname, or ID..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full pl-10 pr-4 py-2 border border-gray-600 rounded-lg bg-[#1C1B22] text-white focus:ring-violet-500 focus:border-violet-500"
+                            className="w-full pl-10 pr-4 py-2 border border-gray-600 rounded-lg bg-[#1C1B22] text-white focus:ring-green-500 focus:border-green-500"
                         />
                     </div>
                     <div className="flex items-center gap-4">
@@ -226,7 +226,7 @@ const Dashboard = () => {
                             id="statusFilter"
                             value={filterStatus}
                             onChange={(e) => setFilterStatus(e.target.value as 'all' | 'online' | 'offline')}
-                            className="border border-gray-600 rounded-lg bg-[#1C1B22] text-white px-3 py-2 focus:ring-violet-500 focus:border-violet-500"
+                            className="border border-gray-600 rounded-lg bg-[#1C1B22] text-white px-3 py-2 focus:ring-green-500 focus:border-green-500"
                         >
                             <option value="all">All</option>
                             <option value="online">Online</option>
