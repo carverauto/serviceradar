@@ -158,6 +158,25 @@ func TestPrepareQuery(t *testing.T) {
 			},
 		},
 		{
+			name: "Valid query for events",
+			req: &QueryRequest{
+				Query: "show events",
+				Limit: 5,
+			},
+			dbType:      parser.Proton,
+			expectError: false,
+			setupMock:   func(*APIServer) {},
+			validateQuery: func(t *testing.T, query *models.Query, _ map[string]interface{}) {
+				t.Helper()
+
+				assert.Equal(t, models.Events, query.Entity)
+				assert.Equal(t, 5, query.Limit)
+				assert.True(t, query.HasLimit)
+				assert.Len(t, query.OrderBy, 1)
+				assert.Equal(t, "_tp_time", query.OrderBy[0].Field)
+			},
+		},
+		{
 			name: "Valid query with cursor",
 			req: &QueryRequest{
 				Query:     "show devices",

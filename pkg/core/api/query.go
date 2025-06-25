@@ -112,8 +112,8 @@ func (s *APIServer) prepareQuery(req *QueryRequest) (*models.Query, map[string]i
 	}
 
 	// Validate entity
-	if query.Entity != models.Devices && query.Entity != models.Interfaces && query.Entity != models.SweepResults {
-		return nil, nil, errors.New("pagination is only supported for devices, interfaces, and sweep_results")
+	if query.Entity != models.Devices && query.Entity != models.Interfaces && query.Entity != models.SweepResults && query.Entity != models.Events {
+		return nil, nil, errors.New("pagination is only supported for devices, interfaces, sweep_results, and events")
 	}
 
 	var defaultOrderField string
@@ -279,6 +279,8 @@ func (s *APIServer) executeQuery(ctx context.Context, query string, entity model
 		results, err = s.queryExecutor.ExecuteQuery(ctx, query, "icmp_results")
 	case models.SNMPResults:
 		results, err = s.queryExecutor.ExecuteQuery(ctx, query, "snmp_results")
+	case models.Events:
+		results, err = s.queryExecutor.ExecuteQuery(ctx, query, "events")
 	default:
 		return nil, fmt.Errorf("%w: %s", errUnsupportedEntity, entity)
 	}
@@ -444,6 +446,11 @@ func addEntityFields(cursorData, result map[string]interface{}, entity models.En
 	case models.ICMPResults:
 		// No additional fields needed for now
 	case models.SNMPResults:
+		// No additional fields needed for now
+	case models.Events:
+		if id, ok := result["id"]; ok {
+			cursorData["id"] = id
+		}
 	}
 }
 
