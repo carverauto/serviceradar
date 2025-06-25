@@ -82,7 +82,7 @@ func NewSweepResultsQuery(apiEndpoint, apiKey string, httpClient HTTPClient) *Sw
 
 func (s *SweepResultsQuery) GetDeviceStatesBySource(ctx context.Context, source string) ([]DeviceState, error) {
 	// Use a large limit to ensure all devices are fetched.
-	query := fmt.Sprintf("show devices where discovery_sources = '%s'", source)
+	query := fmt.Sprintf("show devices where discovery_sources = '%s' and discovery_sources = 'sweep'", source)
 	limit := 10000
 
 	var allDeviceStates []DeviceState
