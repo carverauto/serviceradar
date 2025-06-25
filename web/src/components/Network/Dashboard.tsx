@@ -17,7 +17,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, Fragment } from 'react';
-import { Poller, Service, ServiceDetails } from '@/types/types';
+import { Poller, Service } from '@/types/types';
 import { RawBackendLanDiscoveryData } from '@/types/lan_discovery';
 import { Device, DevicesApiResponse, Pagination } from '@/types/devices';
 import { useAuth } from '@/components/AuthProvider';
@@ -154,7 +154,7 @@ const SNMPDeviceList: React.FC = () => {
         setError(null);
 
         try {
-            let whereClauses = ["'snmp' IN discovery_sources"];
+            const whereClauses = ["'snmp' IN discovery_sources"];
 
             if (debouncedSearchTerm) {
                 whereClauses.push(`(ip LIKE '%${debouncedSearchTerm}%' OR hostname LIKE '%${debouncedSearchTerm}%')`);
@@ -387,7 +387,7 @@ const SNMPDeviceList: React.FC = () => {
 };
 
 // Main Network Dashboard Component
-const NetworkDashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
+const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
     const [activeTab, setActiveTab] = useState<TabName>('overview');
     const [snmpDeviceCount, setSnmpDeviceCount] = useState<number>(0);
     const [loadingStats, setLoadingStats] = useState(true);
@@ -646,4 +646,4 @@ const NetworkDashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) =
     );
 };
 
-export default NetworkDashboard;
+export default Dashboard;

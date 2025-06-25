@@ -23,7 +23,7 @@ import {
 import {
     Monitor, AlertTriangle, Activity, ServerOff, Plus, MoreHorizontal, Server
 } from 'lucide-react';
-import { useAuth } from './AuthProvider';
+import { useAuth } from '../Utils/AuthProvider';
 import { Service } from "@/types/types";
 import { Device } from "@/types/devices";
 
@@ -100,7 +100,7 @@ const SimpleBarChart = ({ data }) => (
     </ResponsiveContainer>
 );
 
-const AnalyticsDashboard = () => {
+const Dashboard = () => {
     const { token } = useAuth();
     const [stats, setStats] = useState({
         totalDevices: 0,
@@ -268,4 +268,4 @@ const AnalyticsDashboard = () => {
     );
 };
 
-export default AnalyticsDashboard;
+export default Dashboard;

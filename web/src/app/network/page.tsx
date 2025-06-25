@@ -17,7 +17,7 @@ import { Suspense } from 'react';
 import { cookies } from 'next/headers';
 import { fetchFromAPI } from '@/lib/api';
 import { Poller } from '@/types/types';
-import NetworkDashboard from '@/components/NetworkDashboard';
+import NetworkDashboard from '@/components/Network/Dashboard';
 import { unstable_noStore as noStore } from 'next/cache';
 
 export const metadata = {
