@@ -136,6 +136,9 @@ func (*Translator) getEntityPrimaryKey(entity models.EntityType) (string, bool) 
 	case models.Logs:
 		// Assuming log_id or similar is the primary key for logs
 		return "", false
+	case models.Services:
+		// Services stream is versioned_kv, latest handled automatically
+		return "", false
 	case models.SweepResults:
 		// SweepResults is a versioned_kv stream
 		return "", false
@@ -218,6 +221,8 @@ func (*Translator) getProtonBaseTableName(entity models.EntityType) string {
 		return "connections"
 	case models.Logs:
 		return "logs"
+	case models.Services:
+		return "services"
 	case models.SweepResults:
 		return "sweep_results"
 	case models.ICMPResults:
