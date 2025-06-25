@@ -279,6 +279,21 @@ func TestSRQLParsingAndTranslation(t *testing.T) { // Renamed for clarity
 				assert.Equal(t, "SELECT * FROM table(sweep_results) WHERE to_date(timestamp) = today() AND discovery_source = 'sweep'", sqlP)
 			},
 		},
+		{
+			name:  "Show events simple query",
+			query: "show events",
+			validate: func(t *testing.T, query *models.Query, err error) {
+				t.Helper()
+
+				require.NoError(t, err)
+				assert.Equal(t, models.Events, query.Entity)
+				assert.Empty(t, query.Conditions)
+
+				sqlP, errP := protonTranslator.Translate(query)
+				require.NoError(t, errP)
+				assert.Equal(t, "SELECT * FROM table(events)", sqlP)
+			},
+		},
 		// Add more tests:
 		// - Multiple conditions with date(timestamp) and other fields
 		// - date(timestamp) with LATEST keyword (clarify expected behavior for LATEST with date filters)

@@ -107,6 +107,7 @@ entity
     | SWEEP_RESULTS
     | ICMP_RESULTS
     | SNMP_RESULTS
+    | EVENTS
     ;
 
 condition
@@ -217,6 +218,7 @@ INTERFACES : I N T E R F A C E S ;
 SWEEP_RESULTS : S W E E P '_' R E S U L T S ;
 ICMP_RESULTS  : I C M P '_' R E S U L T S ;
 SNMP_RESULTS  : S N M P '_' R E S U L T S ;
+EVENTS        : E V E N T S ;
 
 // --- New Keywords for Streaming and Joins ---
 // Suffix _KW is used for common words to avoid potential clashes with identifiers

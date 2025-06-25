@@ -540,6 +540,10 @@ func (*QueryVisitor) getEntityType(ctx *gen.EntityContext) models.EntityType {
 		return models.SNMPResults
 	}
 
+	if ctx.EVENTS() != nil {
+		return models.Events
+	}
+
 	// If 'sweep_results' is not a keyword but matched as a general ID within the entity rule
 	// you might need a more generic way if your 'entity' rule is just 'ID'
 	// For instance, if entity: ID; then ctx.GetText() is the way.
@@ -560,6 +564,8 @@ func (*QueryVisitor) getEntityType(ctx *gen.EntityContext) models.EntityType {
 		return models.ICMPResults
 	case "snmp_results":
 		return models.SNMPResults
+	case "events":
+		return models.Events
 	}
 
 	return models.EntityType(entityText) // Fallback for entities potentially parsed as ID
