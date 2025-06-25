@@ -679,4 +679,21 @@ func TestCursorFunctions(t *testing.T) {
 		assert.Empty(t, nextCursor)
 		assert.Empty(t, prevCursor)
 	})
+
+	// generateCursors should return empty cursors for COUNT queries
+	t.Run("generateCursors_count_query", func(t *testing.T) {
+		query := &models.Query{
+			Type:   models.Count,
+			Entity: models.Events,
+		}
+
+		results := []map[string]interface{}{
+			{"count": 5},
+		}
+
+		nextCursor, prevCursor := generateCursors(query, results, parser.Proton)
+
+		assert.Empty(t, nextCursor)
+		assert.Empty(t, prevCursor)
+	})
 }
