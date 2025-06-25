@@ -177,6 +177,23 @@ func TestPrepareQuery(t *testing.T) {
 			},
 		},
 		{
+			name: "Count devices should skip pagination",
+			req: &QueryRequest{
+				Query: "count devices",
+			},
+			dbType:      parser.Proton,
+			expectError: false,
+			setupMock:   func(*APIServer) {},
+			validateQuery: func(t *testing.T, query *models.Query, _ map[string]interface{}) {
+				t.Helper()
+
+				assert.Equal(t, models.Count, query.Type)
+				assert.Equal(t, models.Devices, query.Entity)
+				assert.False(t, query.HasLimit)
+				assert.Len(t, query.OrderBy, 0)
+			},
+		},
+		{
 			name: "Valid query with cursor",
 			req: &QueryRequest{
 				Query:     "show devices",
