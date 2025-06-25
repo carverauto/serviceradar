@@ -202,6 +202,8 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, []*mod
 	// Prepare updates using the new typed slice
 	updates := a.prepareArmisUpdateFromDeviceStates(deviceStates)
 
+	log.Println("Updates:", updates)
+
 	if len(updates) > 0 {
 		log.Printf("Prepared %d status updates to send to Armis.", len(updates))
 
