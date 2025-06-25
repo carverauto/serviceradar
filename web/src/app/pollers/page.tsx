@@ -20,92 +20,45 @@ import { Suspense } from "react";
 import { cookies } from "next/headers";
 import { ServiceMetric, Poller } from "@/types/types";
 import PollerDashboard from "@/components/PollerDashboard";
+// Import the new cached data functions
+import { getCachedPollers, getCachedPollerMetrics } from "@/lib/data";
 
-export const revalidate = 0;
-
+// This function is no longer exported as it's part of the page's render logic
+// It now uses the cached data fetching functions for better performance.
 async function fetchPollersWithMetrics(token?: string): Promise<{
   pollers: Poller[];
   serviceMetrics: { [key: string]: ServiceMetric[] };
 }> {
   try {
-    // For server-side fetches in production
-    let baseUrl;
-    let pollersUrl;
-
-    if (typeof window === "undefined") {
-      // Server-side context - need absolute URL
-      baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090";
-
-      // Ensure URL has protocol
-      if (!baseUrl.startsWith('http')) {
-        baseUrl = `http://${baseUrl}`;
-      }
-
-      pollersUrl = `${baseUrl}/api/pollers`;
-    } else {
-      // Client-side context - can use relative URL
-      pollersUrl = "/api/pollers";
-    }
-
-    const apiKey = process.env.API_KEY || "";
-
-    const pollersResponse = await fetch(pollersUrl, {
-      headers: {
-        "X-API-Key": apiKey,
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      cache: "no-store",
-    });
-
-    if (!pollersResponse.ok) {
-      throw new Error(`Pollers API request failed: ${pollersResponse.status}`);
-    }
-
-    const pollers: Poller[] = await pollersResponse.json();
+    const pollers = await getCachedPollers(token);
     const serviceMetrics: { [key: string]: ServiceMetric[] } = {};
 
+    // This loop still represents an N+1 fetching pattern.
+    // While React.cache will memoize requests for the same poller within a single render,
+    // it's more efficient to have a backend endpoint that returns all metrics at once if possible.
     for (const poller of pollers) {
-      const icmpServices =
-          poller.services?.filter((s) => s.type === "icmp") || [];
-
-      if (icmpServices.length > 0) {
-        try {
-          // Use the same baseUrl construct for metrics
-          const metricsUrl = `${baseUrl}/api/pollers/${poller.poller_id}/metrics`;
-
-          const metricsResponse = await fetch(
-              metricsUrl,
-              {
-                headers: {
-                  "X-API-Key": apiKey,
-                  ...(token ? { Authorization: `Bearer ${token}` } : {}),
-                },
-                cache: "no-store",
-              },
-          );
-
-          if (!metricsResponse.ok) {
-            continue;
-          }
-
-          const allPollerMetrics: ServiceMetric[] = await metricsResponse.json();
-
-          for (const service of icmpServices) {
-            const serviceMetricsData = allPollerMetrics.filter(
-                (m) => m.service_name === service.name,
-            );
-            const key = `${poller.poller_id}-${service.name}`;
-            serviceMetrics[key] = serviceMetricsData;
-          }
-        } catch (error) {
-          console.error(`Error fetching metrics for ${poller.poller_id}:`, error);
+        // We only fetch metrics if there are ICMP services, as per original logic
+        const icmpServices = poller.services?.filter((s) => s.type === "icmp") || [];
+        if (icmpServices.length > 0) {
+            try {
+                const allPollerMetrics = await getCachedPollerMetrics(poller.poller_id, token);
+                for (const service of icmpServices) {
+                    const serviceMetricsData = allPollerMetrics.filter(
+                        (m) => m.service_name === service.name,
+                    );
+                    const key = `${poller.poller_id}-${service.name}`;
+                    serviceMetrics[key] = serviceMetricsData;
+                }
+            } catch (error) {
+                // Log and continue if metrics for one poller fail
+                console.error(`Error fetching metrics for ${poller.poller_id}:`, error);
+            }
         }
-      }
     }
 
-    return { pollers: pollers, serviceMetrics };
+    return { pollers, serviceMetrics };
   } catch (error) {
-    console.error("Error fetching pollers:", error);
+    console.error("Error fetching pollers and their metrics:", error);
     return { pollers: [], serviceMetrics: {} };
   }
 }

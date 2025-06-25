@@ -15,19 +15,21 @@
  */
 
 import { cookies } from "next/headers";
-import { fetchFromAPI } from "@/lib/api";
 import { SystemStatus, Poller } from "@/types/types";
-import { unstable_noStore as noStore } from "next/cache";
 import DashboardWrapper from "@/components/DashboardWrapper";
 import { Suspense } from "react";
+// Import the new cached data functions
+import { getCachedPollers, getCachedSystemStatus } from "@/lib/data";
 
+// This function now uses cached data, making it much faster on subsequent loads.
+// The `noStore()` call is removed.
 async function fetchStatus(token?: string): Promise<SystemStatus | null> {
-  noStore();
   try {
-    const statusData = await fetchFromAPI<SystemStatus>("/status", token);
+    // Fetch status and pollers from our new cached functions
+    const statusData = await getCachedSystemStatus(token);
     if (!statusData) throw new Error("Failed to fetch status");
 
-    const pollersData = await fetchFromAPI<Poller[]>("/pollers", token);
+    const pollersData = await getCachedPollers(token);
     if (!pollersData) throw new Error("Failed to fetch pollers");
 
     // Calculate service statistics (unchanged)
