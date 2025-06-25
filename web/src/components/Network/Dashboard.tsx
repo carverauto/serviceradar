@@ -54,7 +54,7 @@ interface ServiceWithPoller extends Service {
     poller_id: string;
 }
 
-type TabName = 'overview' | 'discovery' | 'sweeps' | 'snmp' | 'netflow';
+type TabName = 'overview' | 'discovery' | 'sweeps' | 'snmp' | 'applications' | 'netflow';
 
 // Helper: Stat Card Component
 const StatCard = ({
@@ -399,10 +399,11 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
     const router = useRouter();
     const { token } = useAuth();
 
-    const { discoveryServices, sweepServices, snmpServices } = useMemo(() => {
+    const { discoveryServices, sweepServices, snmpServices, applicationServices } = useMemo(() => {
         const discovery: ServiceWithPoller[] = [];
         const sweep: ServiceWithPoller[] = [];
         const snmp: ServiceWithPoller[] = [];
+        const apps: ServiceWithPoller[] = [];
 
         initialPollers.forEach(poller => {
             poller.services?.forEach(service => {
@@ -413,6 +414,8 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
                     sweep.push(serviceWithPollerId);
                 } else if (service.type === 'snmp') {
                     snmp.push(serviceWithPollerId);
+                } else if (service.type === 'grpc' || ['dusk', 'rusk', 'grpc', 'rperf-checker'].includes(service.name)) {
+                    apps.push(serviceWithPollerId);
                 }
             });
         });
@@ -420,7 +423,8 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
         return {
             discoveryServices: discovery,
             sweepServices: sweep,
-            snmpServices: snmp
+            snmpServices: snmp,
+            applicationServices: apps
         };
     }, [initialPollers]);
 
@@ -667,6 +671,38 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
                     </div>
                 );
 
+            case 'applications':
+                return (
+                    <div className="space-y-4">
+                        {applicationServices.length === 0 ? (
+                            <p className="text-gray-400 text-center p-8">
+                                No application services found.
+                            </p>
+                        ) : (
+                            applicationServices.map(service => (
+                                <div
+                                    key={service.id || service.name}
+                                    className="bg-[#25252e] border border-gray-700/80 rounded-lg p-4 flex justify-between items-center"
+                                >
+                                    <div className="flex items-center gap-3">
+                                        <Server size={24} className="text-orange-400" />
+                                        <div>
+                                            <p className="font-semibold text-white">{service.name}</p>
+                                            <p className="text-sm text-gray-400">{service.poller_id}</p>
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={() => router.push(`/service/${service.poller_id}/${service.name}`)}
+                                        className="text-sm bg-blue-600 px-3 py-1.5 rounded-md hover:bg-blue-700"
+                                    >
+                                        {service.name === 'rperf-checker' ? 'View Metrics' : 'View Dashboard'}
+                                    </button>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                );
+
             case 'netflow':
                 return (
                     <div className="text-center p-12 bg-[#25252e] border border-gray-700/80 rounded-lg">
@@ -709,6 +745,12 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
                         icon={Rss}
                         isActive={activeTab === 'snmp'}
                         onClick={() => setActiveTab('snmp')}
+                    />
+                    <TabButton
+                        label="Applications"
+                        icon={Server}
+                        isActive={activeTab === 'applications'}
+                        onClick={() => setActiveTab('applications')}
                     />
                     <TabButton
                         label="Netflow"
