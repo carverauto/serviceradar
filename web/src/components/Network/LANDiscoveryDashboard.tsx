@@ -886,7 +886,7 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
                             </thead>
                             <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                             {filteredData.interfaces.map((iface, index) => (
-                                <tr key={iface.if_index || iface.mac_address || `interface-${index}`} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                                <tr key={`${iface.if_index ?? 'no-ifindex'}-${iface.mac_address ?? index}`} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
                                         {iface.name || iface.if_descr || iface.if_name || 'Unknown'}
                                     </td>
