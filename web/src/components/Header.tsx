@@ -50,7 +50,21 @@ export default function Header() {
                     },
                     body: JSON.stringify({ query: 'show pollers' }),
                 });
-                setPollers(data.results || []);
+                const rawResults = Array.isArray(data.results) ? data.results : [];
+                const uniquePollerIds = new Set<string>();
+                const processedPollers: Poller[] = [];
+
+                rawResults.forEach((item: any) => {
+                    if (item && typeof item === 'object' && typeof item.poller_id === 'string') {
+                        const trimmedId = item.poller_id.trim();
+                        if (trimmedId !== '' && !uniquePollerIds.has(trimmedId)) {
+                            uniquePollerIds.add(trimmedId);
+                            processedPollers.push({ poller_id: trimmedId });
+                        }
+                    }
+                });
+                console.log('Raw pollers data:', data.results);
+                setPollers(processedPollers);
             } catch (error) {
                 console.error('Failed to fetch pollers:', error);
             }
@@ -66,7 +80,7 @@ export default function Header() {
                     },
                     body: JSON.stringify({ query: 'show sweep_results | distinct partition' }),
                 });
-                setPartitions(data.results || []);
+                setPartitions(Array.from(new Set(data.results.map((p: Partition) => p.partition))).map((p: string) => ({ partition: p })) || []);
             } catch (error) {
                 console.error('Failed to fetch partitions:', error);
             }

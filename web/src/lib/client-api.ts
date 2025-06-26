@@ -148,7 +148,7 @@ export async function fetchWithCache(
 export async function fetchAPI(
   endpoint: string,
   customOptions: RequestInit = {},
-): Promise<SystemStatus> {
+): Promise<any> {
   const apiUrl = endpoint.startsWith("/api/") ? endpoint : `/api/${endpoint}`;
 
   const defaultOptions: RequestInit = {
