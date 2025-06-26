@@ -17,6 +17,7 @@
 // web/src/components/NetworkDiscoveryDetails.tsx
 import React from 'react';
 import { RawBackendLanDiscoveryData } from '@/types/lan_discovery';
+import InterfaceTable from './InterfaceTable';
 
 interface NetworkDiscoveryDetailsProps {
     details: string | RawBackendLanDiscoveryData | null | undefined;
@@ -68,16 +69,13 @@ const NetworkDiscoveryDetails: React.FC<NetworkDiscoveryDetailsProps> = ({ detai
             <div>
                 <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Interfaces</h4>
                 {safeInterfaces.length > 0 ? (
-                    <ul className="list-disc list-inside space-y-1">
-                        {safeInterfaces.map((iface, index) => (
-                            <li key={index} className="text-sm text-gray-900 dark:text-white">
-                                {String(iface.name || iface.ip_address || iface.if_descr || 'Unknown Interface')}
-                                {typeof iface.ip_address === 'string' && ` (${iface.ip_address})`}
-                                {typeof iface.mac_address === 'string' && ` [MAC: ${iface.mac_address}]`}
-                                {typeof iface.status === 'string' && ` (Status: ${iface.status})`}
-                            </li>
-                        ))}
-                    </ul>
+                    <div className="mt-4">
+                        <InterfaceTable 
+                            interfaces={safeInterfaces} 
+                            showDeviceColumn={false}
+                            jsonViewTheme="pop"
+                        />
+                    </div>
                 ) : (
                     <p className="text-sm text-gray-500 italic">No interfaces discovered.</p>
                 )}
