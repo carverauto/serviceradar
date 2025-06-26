@@ -2,7 +2,7 @@
 
 // src/app/query/page.tsx
 import React, { Suspense } from 'react';
-import ApiQueryClient from "@/components/APIQueryClient";
+import ApiQueryClient from "@/components/Query/APIQueryClient";
 
 export default function QueryPage() {
     return (
