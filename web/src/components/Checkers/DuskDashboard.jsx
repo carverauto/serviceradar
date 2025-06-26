@@ -146,9 +146,9 @@ const DuskDashboard = ({ initialDuskService = null, pollerId, initialError = nul
     setAutoRefreshEnabled(!autoRefreshEnabled);
   };
 
-  // Handler to go back to pollers list
-  const handleBackToPollers = () => {
-    router.push('/pollers');
+  // Handler to go back to the main dashboard
+  const handleBackToDashboard = () => {
+    router.push('/dashboard');
   };
 
   // Adjust chart height based on screen size
@@ -189,11 +189,11 @@ const DuskDashboard = ({ initialDuskService = null, pollerId, initialError = nul
               Dusk Node Monitor - {pollerId}
             </h2>
             <button
-                onClick={handleBackToPollers}
+                onClick={handleBackToDashboard}
                 className="px-4 py-2 bg-gray-100 dark:bg-gray-700 dark:text-gray-100 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors flex items-center self-start"
             >
               <ArrowLeft className="mr-2 h-4 w-4" />
-              Back to Pollers
+              Back to Dashboard
             </button>
           </div>
 
@@ -229,11 +229,11 @@ const DuskDashboard = ({ initialDuskService = null, pollerId, initialError = nul
         <div className="flex justify-between items-center">
           <div className="flex items-center gap-2">
             <button
-                onClick={handleBackToPollers}
+                onClick={handleBackToDashboard}
                 className="p-2 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
             >
               <ArrowLeft className="h-5 w-5" />
-              <span className="sr-only">Back to Pollers</span>
+              <span className="sr-only">Back to Dashboard</span>
             </button>
             <h2 className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-gray-100">
               Dusk Node Monitor - {pollerId}
