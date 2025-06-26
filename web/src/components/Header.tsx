@@ -31,7 +31,9 @@ interface Partition {
 }
 
 export default function Header() {
-    const [query, setQuery] = useState('');
+    const [query, setQuery] = useState('show devices');
+    const [selectedPoller, setSelectedPoller] = useState<string | null>(null);
+    const [selectedPartition, setSelectedPartition] = useState<string | null>(null);
     const [pollers, setPollers] = useState<Poller[]>([]);
     const [partitions, setPartitions] = useState<Partition[]>([]);
     const [showPollers, setShowPollers] = useState(false);
@@ -90,6 +92,27 @@ export default function Header() {
         fetchPartitions();
     }, [token]);
 
+    useEffect(() => {
+        let newQuery = 'show devices';
+        if (selectedPoller) {
+            newQuery += ` | where poller_id = '${selectedPoller}'`;
+        }
+        if (selectedPartition) {
+            newQuery += ` | where partition = '${selectedPartition}'`;
+        }
+        setQuery(newQuery);
+    }, [selectedPoller, selectedPartition]);
+
+    const handlePollerSelect = (pollerId: string) => {
+        setSelectedPoller(pollerId);
+        setShowPollers(false);
+    };
+
+    const handlePartitionSelect = (partition: string) => {
+        setSelectedPartition(partition);
+        setShowPartitions(false);
+    };
+
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();
         if (query.trim()) {
@@ -115,36 +138,6 @@ export default function Header() {
             </div>
 
             <div className="flex items-center gap-4">
-                <div className="relative">
-                    <button onClick={() => setShowPollers(!showPollers)} className="flex items-center gap-2 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md text-sm hover:bg-gray-100 dark:hover:bg-gray-700">
-                        All Pollers
-                        <ChevronDown className="h-4 w-4" />
-                    </button>
-                    {showPollers && (
-                        <div className="absolute right-0 mt-2 w-56 rounded-md shadow-lg bg-white dark:bg-gray-800 ring-1 ring-black ring-opacity-5">
-                            <div className="py-1" role="menu" aria-orientation="vertical" aria-labelledby="options-menu">
-                                {pollers.map((poller) => (
-                                    <a href="#" key={poller.poller_id} className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700" role="menuitem">{poller.poller_id}</a>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-                </div>
-                <div className="relative">
-                    <button onClick={() => setShowPartitions(!showPartitions)} className="flex items-center gap-2 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md text-sm hover:bg-gray-100 dark:hover:bg-gray-700">
-                        All Partitions
-                        <ChevronDown className="h-4 w-4" />
-                    </button>
-                    {showPartitions && (
-                        <div className="absolute right-0 mt-2 w-56 rounded-md shadow-lg bg-white dark:bg-gray-800 ring-1 ring-black ring-opacity-5">
-                            <div className="py-1" role="menu" aria-orientation="vertical" aria-labelledby="options-menu">
-                                {partitions.map((partition, index) => (
-                                     <a href="#" key={`${partition.partition}-${index}`} className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700" role="menuitem">{partition.partition}</a>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-                </div>
                 <button className="flex items-center gap-2 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md text-sm hover:bg-gray-100 dark:hover:bg-gray-700">
                     Last 7 Days
                     <ChevronDown className="h-4 w-4" />
