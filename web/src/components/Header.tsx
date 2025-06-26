@@ -18,7 +18,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, Settings, ChevronDown } from 'lucide-react';
+import { Search, Settings, ChevronDown, Send } from 'lucide-react';
 import { useAuth } from './AuthProvider';
 import { fetchAPI } from '@/lib/client-api';
 
@@ -123,17 +123,27 @@ export default function Header() {
     return (
         <header className="h-16 flex-shrink-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between px-6 text-gray-600 dark:text-gray-300">
             <div className="flex-1 flex items-center gap-4 mx-4">
-                <form onSubmit={handleSearch} className="relative flex-1">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                        <Search className="h-5 w-5 text-gray-400" />
+                <form onSubmit={handleSearch} className="relative flex-1 flex">
+                    <div className="relative flex-1">
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                            <Search className="h-5 w-5 text-gray-400" />
+                        </div>
+                        <input
+                            type="text"
+                            placeholder="Search using SRQL query"
+                            className="w-full bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-l-md py-2 pl-10 pr-4 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            value={query}
+                            onChange={(e) => setQuery(e.target.value)}
+                        />
                     </div>
-                    <input
-                        type="text"
-                        placeholder="Search using SRQL query"
-                        className="w-full bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md py-2 pl-10 pr-4 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        value={query}
-                        onChange={(e) => setQuery(e.target.value)}
-                    />
+                    <button
+                        type="submit"
+                        className="px-4 py-2 bg-blue-500 text-white border border-blue-500 rounded-r-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 flex items-center gap-2"
+                        title="Execute Query"
+                    >
+                        <Send className="h-4 w-4" />
+                        <span className="hidden sm:inline">Search</span>
+                    </button>
                 </form>
 
                 <div className="relative">

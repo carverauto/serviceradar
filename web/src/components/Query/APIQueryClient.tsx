@@ -19,13 +19,14 @@
 
 import React, { useState, useCallback, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
-import {Loader2, Send, AlertTriangle, Eye, EyeOff, FileJson, Table, ChevronDown} from 'lucide-react';
+import {Loader2, AlertTriangle, Eye, EyeOff, FileJson, Table, ChevronDown} from 'lucide-react';
 import { useAuth } from '@/components/AuthProvider';
 import ReactJson from '@microlink/react-json-view';
 import { fetchAPI } from '@/lib/client-api';
 import { Poller, Partition } from '@/types/types';
 import { Device } from '@/types/devices';
 import DeviceTable from '@/components/Devices/DeviceTable';
+import InterfaceTable, { NetworkInterface } from '@/components/Network/InterfaceTable';
 
 type ViewFormat = 'json' | 'table';
 
@@ -83,6 +84,9 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
                 if (cursorParam) body.cursor = cursorParam;
                 if (directionParam) body.direction = directionParam;
 
+                console.log('About to execute query:', q);
+                console.log('Request body:', body);
+
                 const options: RequestInit = {
                     method: 'POST', // Explicitly set POST
                     headers: {
@@ -94,7 +98,18 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
                     credentials: 'include',
                 };
 
-                const data: unknown = await fetchAPI('/query', options);
+                console.log('Making request to /query...');
+                
+                // Add timeout to prevent hanging requests
+                const timeoutPromise = new Promise((_, reject) => {
+                    setTimeout(() => reject(new Error('Request timeout after 30 seconds')), 30000);
+                });
+                
+                const data: unknown = await Promise.race([
+                    fetchAPI('/query', options),
+                    timeoutPromise
+                ]);
+                console.log('Received response:', data);
 
                 setResponseData(data);
                 if (data && typeof data === 'object' && 'results' in data) {
@@ -105,13 +120,16 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
                     // Debug logging
                     console.log('Query:', q);
                     console.log('Is device query?', isDeviceQuery(q));
+                    console.log('Is interface query?', isInterfaceQuery(q));
                     console.log('Results sample:', Array.isArray(d.results) ? d.results[0] : 'Not an array');
                     console.log('Is device data?', isDeviceData(d.results));
+                    console.log('Is interface data?', isInterfaceData(d.results));
                 } else {
                     setResults(data);
                     setPagination(null);
                 }
             } catch (err) {
+                console.error('Query execution error:', err);
                 setError(
                     err instanceof Error
                         ? err.message
@@ -225,6 +243,13 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
                normalizedQuery.startsWith('COUNT DEVICES');
     };
 
+    const isInterfaceQuery = (query: string): boolean => {
+        const normalizedQuery = query.trim().toUpperCase();
+        return normalizedQuery.startsWith('SHOW INTERFACES') || 
+               normalizedQuery.startsWith('FIND INTERFACES') ||
+               normalizedQuery.startsWith('COUNT INTERFACES');
+    };
+
     const isDeviceData = (data: unknown): data is Device[] => {
         if (!Array.isArray(data) || data.length === 0) return false;
         const firstItem = data[0];
@@ -234,6 +259,27 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
             'device_id' in firstItem &&
             'ip' in firstItem &&
             'discovery_sources' in firstItem
+        );
+    };
+
+    const isInterfaceData = (data: unknown): data is NetworkInterface[] => {
+        if (!Array.isArray(data) || data.length === 0) return false;
+        const firstItem = data[0];
+        return (
+            typeof firstItem === 'object' &&
+            firstItem !== null &&
+            (
+                // Snake_case properties (from LAN Discovery)
+                'if_index' in firstItem ||
+                'if_name' in firstItem ||
+                'if_descr' in firstItem ||
+                // CamelCase properties (from SHOW INTERFACES query)
+                'ifIndex' in firstItem ||
+                'ifName' in firstItem ||
+                'ifDescr' in firstItem ||
+                // Generic interface patterns
+                ('name' in firstItem && ('ip_address' in firstItem || 'mac_address' in firstItem))
+            )
         );
     };
 
@@ -369,6 +415,14 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
             query: 'show devices',
         },
         {
+            name: 'Test Query',
+            query: 'show pollers',
+        },
+        {
+            name: 'All Interfaces',
+            query: 'show interfaces',
+        },
+        {
             name: 'Critical Traps Today',
             query: 'show traps where severity = "critical" and date(timestamp) = TODAY',
         },
@@ -385,25 +439,17 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
     return (
         <div className="space-y-6">
             <div className="bg-[#25252e] border border-gray-700 p-6 rounded-lg shadow-lg">
-                <h2 className="text-xl font-bold text-white mb-4">
-                    API Query Tool
-                </h2>
-                <form onSubmit={handleSubmit} className="space-y-4">
-                    <div>
-                        <label htmlFor="query" className="block text-sm font-medium text-gray-300 mb-2">
-                            SRQL Query
-                        </label>
-                        <textarea
-                            id="query"
-                            rows={3}
-                            value={query}
-                            onChange={(e) => setQuery(e.target.value)}
-                            placeholder="Enter your SRQL query here..."
-                            className="block w-full px-4 py-3 border border-gray-600 rounded-md shadow-sm bg-[#16151c] text-gray-100 placeholder-gray-500 focus:ring-green-500 focus:border-green-500"
-                        />
+                <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-xl font-bold text-white">
+                        Query Results
+                    </h2>
+                    <div className="text-sm text-gray-400">
+                        {query && (
+                            <span>Query: <code className="bg-gray-700 px-2 py-1 rounded">{query}</code></span>
+                        )}
                     </div>
-                </form>
-                <div className="flex flex-wrap justify-between items-center gap-4 pt-4 border-t border-gray-700">
+                </div>
+                <div className="flex flex-wrap justify-between items-center gap-4">
                     <div className="flex items-center space-x-2">
                         <label
                             htmlFor="viewFormat"
@@ -475,27 +521,6 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
                             </div>
                         )}
                     </div>
-                    <button
-                        type="submit"
-                        onClick={(e) => {
-                            e.preventDefault();
-                            handleSubmit(undefined, undefined, undefined, query);
-                        }}
-                        disabled={isLoading}
-                        className="w-full sm:w-auto px-6 py-2 bg-green-600 text-white font-semibold rounded-md shadow-sm hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
-                    >
-                        {isLoading ? (
-                            <>
-                                <Loader2 className="animate-spin h-5 w-5 mr-2" />
-                                Executing...
-                            </>
-                        ) : (
-                            <>
-                                <Send className="h-5 w-5 mr-2" />
-                                Execute Query
-                            </>
-                        )}
-                    </button>
                 </div>
             </div>
 
@@ -505,7 +530,10 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
                     {exampleQueries.map((eg) => (
                         <button
                             key={eg.name}
-                            onClick={() => setQuery(eg.query)}
+                            onClick={() => {
+                                setQuery(eg.query);
+                                handleSubmit(undefined, undefined, undefined, eg.query);
+                            }}
                             disabled={isLoading}
                             className="px-3 py-1 text-xs bg-gray-700/50 text-gray-300 rounded-full hover:bg-gray-600/50 disabled:opacity-50"
                         >
@@ -549,6 +577,8 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
                     <div className="p-4">
                         {isDeviceQuery(query) && isDeviceData(results) ? (
                             <DeviceTable devices={results as Device[]} />
+                        ) : isInterfaceQuery(query) && isInterfaceData(results) ? (
+                            <InterfaceTable interfaces={results as NetworkInterface[]} showDeviceColumn={true} jsonViewTheme={jsonViewTheme} />
                         ) : viewFormat === 'json' ? (
                             showRawJson ? (
                                 <pre className="bg-[#16151c] p-4 rounded-md overflow-auto text-sm text-gray-200 max-h-[600px]">
