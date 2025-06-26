@@ -28,7 +28,7 @@ export default function HomePage() {
 
     return (
         <div className="flex items-center justify-center min-h-screen">
-            <p className="text-white text-lg">Redirecting to Analytics...</p>
+            <p className="text-gray-900 dark:text-white text-lg">Redirecting to Analytics...</p>
         </div>
     );
 }

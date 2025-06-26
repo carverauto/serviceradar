@@ -31,24 +31,24 @@ const REFRESH_INTERVAL = 60000; // 60 seconds
 
 // Reusable component for the top statistic cards
 const StatCard = ({ icon: Icon, title, value, subValue, alert = false, isLoading = false }: { icon: React.ElementType; title: string; value: string | number; subValue?: string; alert?: boolean; isLoading?: boolean }) => (
-    <div className={`bg-[#25252e] border border-gray-700 p-4 rounded-lg flex items-center gap-4`}>
+    <div className={`bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 p-4 rounded-lg flex items-center gap-4`}>
         <div className={`p-3 rounded-md ${
-            alert ? 'bg-red-900/50 text-red-400'
-                : title.includes('Latency') ? 'bg-yellow-900/50 text-yellow-400'
-                    : 'bg-blue-900/50 text-blue-400'
+            alert ? 'bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400'
+                : title.includes('Latency') ? 'bg-yellow-100 dark:bg-yellow-900/50 text-yellow-600 dark:text-yellow-400'
+                    : 'bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-400'
         }`}>
             <Icon className='h-6 w-6' />
         </div>
         <div className="flex-1">
             {isLoading ? (
                 <>
-                    <div className="h-7 w-20 bg-gray-700 rounded-md animate-pulse"></div>
-                    <div className="h-4 w-24 bg-gray-700 rounded-md animate-pulse mt-2"></div>
+                    <div className="h-7 w-20 bg-gray-200 dark:bg-gray-700 rounded-md animate-pulse"></div>
+                    <div className="h-4 w-24 bg-gray-200 dark:bg-gray-700 rounded-md animate-pulse mt-2"></div>
                 </>
             ) : (
                 <>
-                    <p className="text-2xl font-bold text-white">{value}</p>
-                    <p className="text-sm text-gray-400">{title} {subValue && <span className="text-gray-500">| {subValue}</span>}</p>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{value}</p>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">{title} {subValue && <span className="text-gray-600 dark:text-gray-500">| {subValue}</span>}</p>
                 </>
             )}
         </div>
@@ -57,11 +57,11 @@ const StatCard = ({ icon: Icon, title, value, subValue, alert = false, isLoading
 
 // Reusable component for the chart widgets
 const ChartWidget = ({ title, children, moreOptions = true }: { title: string; children: React.ReactNode; moreOptions?: boolean }) => (
-    <div className="bg-[#25252e] border border-gray-700/80 rounded-lg p-4 flex flex-col h-[320px]">
+    <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-4 flex flex-col h-[320px]">
         <div className="flex justify-between items-start mb-4">
-            <h3 className="font-semibold text-white">{title}</h3>
+            <h3 className="font-semibold text-gray-900 dark:text-white">{title}</h3>
             <div className="flex items-center gap-x-2">
-                {moreOptions && <button className="text-gray-400 hover:text-white"><MoreHorizontal size={20} /></button>}
+                {moreOptions && <button className="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"><MoreHorizontal size={20} /></button>}
             </div>
         </div>
         <div className="flex-1">{children}</div>
@@ -70,7 +70,7 @@ const ChartWidget = ({ title, children, moreOptions = true }: { title: string; c
 
 // "No Data to Show" component for charts
 const NoData = () => (
-    <div className="flex flex-col items-center justify-center h-full text-center text-gray-500">
+    <div className="flex flex-col items-center justify-center h-full text-center text-gray-600 dark:text-gray-500">
         <div className="w-16 h-12 relative mb-2">
             <div className="absolute top-0 left-0 w-8 h-12 bg-gray-600 transform -skew-x-12"></div>
             <div className="absolute top-0 left-8 w-8 h-12 bg-green-600 transform -skew-x-12"></div>
@@ -277,7 +277,7 @@ const Dashboard = () => {
 
             {/* Network & Performance Analytics Section */}
             <div>
-                <h2 className="text-xl font-bold text-white mb-4">Network & Performance Analytics</h2>
+                <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">Network & Performance Analytics</h2>
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     <ChartWidget title="Device Availability">
                         {chartData.deviceAvailability.length > 0 ? <SimpleBarChart data={chartData.deviceAvailability} /> : <NoData />}
