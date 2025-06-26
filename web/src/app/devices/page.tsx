@@ -30,8 +30,8 @@ export default function DevicesPage() {
 
     return (
         <div className="space-y-6">
-            <h1 className="text-2xl font-bold text-white">Device Inventory</h1>
-            <Suspense fallback={<div className="text-center p-8 text-gray-400">Loading device inventory...</div>}>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Device Inventory</h1>
+            <Suspense fallback={<div className="text-center p-8 text-gray-600 dark:text-gray-400">Loading device inventory...</div>}>
                 <DevicesDashboard />
             </Suspense>
         </div>

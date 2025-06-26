@@ -15,8 +15,8 @@ export default function RootLayout({
     children: React.ReactNode;
 }) {
     return (
-        <html lang="en" className="dark" style={{ colorScheme: 'dark' }}>
-        <body className="bg-[#1C1B22]">
+        <html lang="en">
+        <body className="bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white">
         <Providers>
             <AuthProvider>
                 <div className="flex h-screen overflow-hidden">

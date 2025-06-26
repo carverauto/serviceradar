@@ -22,15 +22,15 @@ import ReactJson from '@microlink/react-json-view';
 import { useDebounce } from 'use-debounce';
 type SortableKeys = 'ip' | 'hostname' | 'last_seen' | 'first_seen' | 'poller_id';
 const StatCard = ({ title, value, icon, isLoading }: { title: string; value: string | number; icon: React.ReactNode; isLoading: boolean }) => (
-    <div className="bg-[#25252e] border border-gray-700 p-4 rounded-lg">
+    <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 p-4 rounded-lg">
         <div className="flex items-center">
-            <div className="p-2 bg-gray-700/50 rounded-md mr-4">{icon}</div>
+            <div className="p-2 bg-blue-100 dark:bg-gray-700/50 rounded-md mr-4 text-blue-600 dark:text-blue-400">{icon}</div>
             <div>
-                <p className="text-sm text-gray-400">{title}</p>
+                <p className="text-sm text-gray-600 dark:text-gray-400">{title}</p>
                 {isLoading ? (
-                    <div className="h-7 w-20 bg-gray-700 rounded-md animate-pulse mt-1"></div>
+                    <div className="h-7 w-20 bg-gray-200 dark:bg-gray-700 rounded-md animate-pulse mt-1"></div>
                 ) : (
-                    <p className="text-2xl font-bold text-white">{value}</p>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{value}</p>
                 )}
             </div>
         </div>
@@ -185,7 +185,7 @@ const Dashboard = () => {
         label: string
     }) => (
         <th scope="col"
-            className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider cursor-pointer"
+            className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider cursor-pointer"
             onClick={() => handleSort(aKey)}>
             <div className="flex items-center">
                 {label}
@@ -200,14 +200,14 @@ const Dashboard = () => {
         <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <StatCard title="Total Devices" value={stats.total.toLocaleString()}
-                          icon={<Server className="h-6 w-6 text-gray-300"/>} isLoading={statsLoading}/>
+                          icon={<Server className="h-6 w-6 text-blue-600 dark:text-gray-300"/>} isLoading={statsLoading}/>
                 <StatCard title="Online" value={stats.online.toLocaleString()}
                           icon={<CheckCircle className="h-6 w-6 text-green-400"/>} isLoading={statsLoading}/>
                 <StatCard title="Offline" value={stats.offline.toLocaleString()}
                           icon={<XCircle className="h-6 w-6 text-red-400"/>} isLoading={statsLoading}/>
             </div>
 
-            <div className="bg-[#25252e] border border-gray-700 rounded-lg shadow-lg">
+            <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg shadow-lg">
                 <div
                     className="p-4 flex flex-col md:flex-row gap-4 justify-between items-center border-b border-gray-700">
                     <div className="relative w-full md:w-1/3">
@@ -217,16 +217,16 @@ const Dashboard = () => {
                             placeholder="Search by IP, hostname, or ID..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full pl-10 pr-4 py-2 border border-gray-600 rounded-lg bg-[#1C1B22] text-white focus:ring-green-500 focus:border-green-500"
+                            className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-green-500 focus:border-green-500"
                         />
                     </div>
                     <div className="flex items-center gap-4">
-                        <label htmlFor="statusFilter" className="text-sm text-gray-300">Status:</label>
+                        <label htmlFor="statusFilter" className="text-sm text-gray-600 dark:text-gray-300">Status:</label>
                         <select
                             id="statusFilter"
                             value={filterStatus}
                             onChange={(e) => setFilterStatus(e.target.value as 'all' | 'online' | 'offline')}
-                            className="border border-gray-600 rounded-lg bg-[#1C1B22] text-white px-3 py-2 focus:ring-green-500 focus:border-green-500"
+                            className="border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white px-3 py-2 focus:ring-green-500 focus:border-green-500"
                         >
                             <option value="all">All</option>
                             <option value="online">Online</option>
@@ -236,22 +236,22 @@ const Dashboard = () => {
                 </div>
 
                 <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-700">
-                        <thead className="bg-gray-800/50">
+                    <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                        <thead className="bg-gray-50 dark:bg-gray-800/50">
                         <tr>
                             <th scope="col" className="w-12"></th>
                             <th scope="col"
-                                className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Status
+                                className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">Status
                             </th>
                             <TableHeader aKey="ip" label="Device"/>
                             <th scope="col"
-                                className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Sources
+                                className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">Sources
                             </th>
                             <TableHeader aKey="poller_id" label="Poller"/>
                             <TableHeader aKey="last_seen" label="Last Seen"/>
                         </tr>
                         </thead>
-                        <tbody className="bg-[#25252e] divide-y divide-gray-700">
+                        <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                         {devicesLoading ? (
                             <tr>
                                 <td colSpan={6} className="text-center p-8"><Loader2
@@ -284,9 +284,9 @@ const Dashboard = () => {
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             <div
-                                                className="text-sm font-medium text-white">{device.hostname || device.ip}</div>
+                                                className="text-sm font-medium text-gray-900 dark:text-white">{device.hostname || device.ip}</div>
                                             <div
-                                                className="text-sm text-gray-400">{device.hostname ? device.ip : device.mac}</div>
+                                                className="text-sm text-gray-600 dark:text-gray-400">{device.hostname ? device.ip : device.mac}</div>
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             <div className="flex flex-wrap gap-1">
@@ -298,14 +298,14 @@ const Dashboard = () => {
                                                 ))}
                                             </div>
                                         </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{device.poller_id}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">{formatDate(device.last_seen)}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-300">{device.poller_id}</td>
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-300">{formatDate(device.last_seen)}</td>
                                     </tr>
                                     {expandedRow === device.device_id && (
                                         <tr className="bg-gray-800/50">
                                             <td colSpan={6} className="p-0">
                                                 <div className="p-4">
-                                                    <h4 className="text-md font-semibold text-white mb-2">Metadata</h4>
+                                                    <h4 className="text-md font-semibold text-gray-900 dark:text-white mb-2">Metadata</h4>
                                                     <ReactJson
                                                         src={device.metadata}
                                                         theme="pop"
@@ -334,14 +334,14 @@ const Dashboard = () => {
                         <button
                             onClick={() => fetchDevices(pagination.prev_cursor, 'prev')}
                             disabled={!pagination.prev_cursor || devicesLoading}
-                            className="px-4 py-2 bg-gray-700 text-white rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             Previous
                         </button>
                         <button
                             onClick={() => fetchDevices(pagination.next_cursor, 'next')}
                             disabled={!pagination.next_cursor || devicesLoading}
-                            className="px-4 py-2 bg-gray-700 text-white rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             Next
                         </button>

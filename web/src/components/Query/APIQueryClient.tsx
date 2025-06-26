@@ -383,7 +383,7 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
         <div className="space-y-4">
             {/* Show example queries only when no query has been executed yet */}
             {!responseData && !isLoading && !error && (
-                <div className="bg-[#25252e] border border-gray-700 p-4 rounded-lg">
+                <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 p-4 rounded-lg">
                     <h3 className="text-sm font-medium text-gray-300 mb-3">Try these example queries:</h3>
                     <div className="flex flex-wrap gap-2">
                         {exampleQueries.map((eg) => (
@@ -417,7 +417,7 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
             )}
 
             {isLoading && !responseData && (
-                <div className="bg-[#25252e] border border-gray-700 p-4 rounded-lg text-center">
+                <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 p-4 rounded-lg text-center">
                     <div className="flex items-center justify-center gap-2">
                         <Loader2 className="animate-spin h-5 w-5 text-green-400" />
                         <span className="text-sm text-gray-400">Fetching results...</span>
@@ -426,7 +426,7 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
             )}
 
             {responseData !== null && !isLoading && (
-                <div className="bg-[#25252e] border border-gray-700 rounded-lg shadow-lg">
+                <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg shadow-lg">
                     <div className="p-4 border-b border-gray-700 flex flex-wrap justify-between items-center gap-4">
                         <div className="flex items-center gap-4">
                             <h3 className="text-lg font-semibold text-white">Results</h3>
@@ -436,7 +436,7 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
                         </div>
                         <div className="flex items-center gap-2">
                             {/* View Format Toggle */}
-                            <div className="flex items-center rounded-md border border-gray-600 bg-[#16151c]">
+                            <div className="flex items-center rounded-md border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-900">
                                 <button type="button" onClick={() => setViewFormat('json')} className={`px-2 py-1 text-xs rounded-l-md flex items-center gap-1 ${viewFormat === 'json' ? 'bg-green-600 text-white' : 'text-gray-400 hover:bg-gray-700'}`}>
                                     <FileJson size={14} /> JSON
                                 </button>
@@ -459,7 +459,7 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
                                     setLimit(Number(e.target.value));
                                     setPagination(null);
                                 }}
-                                className="px-2 py-1 text-xs border border-gray-600 rounded-md bg-[#16151c] text-gray-100 focus:ring-green-500 focus:border-green-500"
+                                className="px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded-md bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100 focus:ring-green-500 focus:border-green-500"
                             >
                                 {[20, 50, 100, 200].map((val) => (
                                     <option key={val} value={val}>{val}</option>
@@ -470,7 +470,7 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
                     <div className="p-4">
                         {viewFormat === 'json' ? (
                             showRawJson ? (
-                                <pre className="bg-[#16151c] p-4 rounded-md overflow-auto text-sm text-gray-200 max-h-[600px]">
+                                <pre className="bg-gray-100 dark:bg-gray-900 p-4 rounded-md overflow-auto text-sm text-gray-800 dark:text-gray-200 max-h-[600px]">
                                 {JSON.stringify(responseData, null, 2)}
                             </pre>
                             ) : typeof responseData !== 'undefined' ? (

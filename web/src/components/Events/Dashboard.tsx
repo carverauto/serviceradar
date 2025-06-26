@@ -32,17 +32,17 @@ const StatCard = ({
     icon: React.ReactNode;
     isLoading: boolean
 }) => (
-    <div className="bg-[#25252e] border border-gray-700 p-4 rounded-lg">
+    <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 p-4 rounded-lg">
         <div className="flex items-center">
-            <div className="p-2 bg-gray-700/50 rounded-md mr-4">
+            <div className="p-2 bg-orange-100 dark:bg-gray-700/50 rounded-md mr-4 text-orange-600 dark:text-orange-400">
                 {icon}
             </div>
             <div>
-                <p className="text-sm text-gray-400">{title}</p>
+                <p className="text-sm text-gray-600 dark:text-gray-400">{title}</p>
                 {isLoading ? (
-                    <div className="h-7 w-20 bg-gray-700 rounded-md animate-pulse mt-1"></div>
+                    <div className="h-7 w-20 bg-gray-200 dark:bg-gray-700 rounded-md animate-pulse mt-1"></div>
                 ) : (
-                    <p className="text-2xl font-bold text-white">{value}</p>
+                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{value}</p>
                 )}
             </div>
         </div>
@@ -180,15 +180,15 @@ const EventsDashboard = () => {
 
         switch (lowerSeverity) {
             case 'critical':
-                return 'bg-red-600/50 text-red-200 border border-red-500/60';
+                return 'bg-red-100 dark:bg-red-600/50 text-red-800 dark:text-red-200 border border-red-300 dark:border-red-500/60';
             case 'high':
-                return 'bg-orange-500/50 text-orange-200 border border-orange-400/60';
+                return 'bg-orange-100 dark:bg-orange-500/50 text-orange-800 dark:text-orange-200 border border-orange-300 dark:border-orange-400/60';
             case 'medium':
-                return 'bg-yellow-500/50 text-yellow-200 border border-yellow-400/60';
+                return 'bg-yellow-100 dark:bg-yellow-500/50 text-yellow-800 dark:text-yellow-200 border border-yellow-300 dark:border-yellow-400/60';
             case 'low':
-                return 'bg-sky-600/50 text-sky-200 border border-sky-500/60';
+                return 'bg-sky-100 dark:bg-sky-600/50 text-sky-800 dark:text-sky-200 border border-sky-300 dark:border-sky-500/60';
             default:
-                return 'bg-gray-600/50 text-gray-200 border border-gray-500/60';
+                return 'bg-gray-100 dark:bg-gray-600/50 text-gray-800 dark:text-gray-200 border border-gray-300 dark:border-gray-500/60';
         }
     };
 
@@ -209,7 +209,7 @@ const EventsDashboard = () => {
     }) => (
         <th
             scope="col"
-            className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider cursor-pointer"
+            className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider cursor-pointer"
             onClick={() => handleSort(aKey)}
         >
             <div className="flex items-center">
@@ -231,7 +231,7 @@ const EventsDashboard = () => {
                 <StatCard
                     title="Total Events"
                     value={stats.total.toLocaleString()}
-                    icon={<Bell className="h-6 w-6 text-gray-300" />}
+                    icon={<Bell className="h-6 w-6 text-orange-600 dark:text-gray-300" />}
                     isLoading={statsLoading}
                 />
                 <StatCard
@@ -254,8 +254,8 @@ const EventsDashboard = () => {
                 />
             </div>
 
-            <div className="bg-[#25252e] border border-gray-700 rounded-lg shadow-lg">
-                <div className="p-4 flex flex-col md:flex-row gap-4 justify-between items-center border-b border-gray-700">
+            <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg shadow-lg">
+                <div className="p-4 flex flex-col md:flex-row gap-4 justify-between items-center border-b border-gray-200 dark:border-gray-700">
                     <div className="relative w-full md:w-1/3">
                         <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
                         <input
@@ -263,19 +263,19 @@ const EventsDashboard = () => {
                             placeholder="Search events..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full pl-10 pr-4 py-2 border border-gray-600 rounded-lg bg-[#1C1B22] text-white focus:ring-green-500 focus:border-green-500"
+                            className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-green-500 focus:border-green-500"
                         />
                     </div>
 
                     <div className="flex items-center gap-4">
-                        <label htmlFor="severityFilter" className="text-sm text-gray-300">
+                        <label htmlFor="severityFilter" className="text-sm text-gray-700 dark:text-gray-300">
                             Severity:
                         </label>
                         <select
                             id="severityFilter"
                             value={filterSeverity}
                             onChange={(e) => setFilterSeverity(e.target.value as 'all' | 'Low' | 'Medium' | 'High' | 'Critical')}
-                            className="border border-gray-600 rounded-lg bg-[#1C1B22] text-white px-3 py-2 focus:ring-green-500 focus:border-green-500"
+                            className="border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white px-3 py-2 focus:ring-green-500 focus:border-green-500"
                         >
                             <option value="all">All</option>
                             <option value="Critical">Critical</option>
@@ -287,8 +287,8 @@ const EventsDashboard = () => {
                 </div>
 
                 <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-700">
-                        <thead className="bg-gray-800/50">
+                    <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                        <thead className="bg-gray-100 dark:bg-gray-800/50">
                         <tr>
                             <th scope="col" className="w-12"></th>
                             <TableHeader aKey="event_timestamp" label="Timestamp" />
@@ -296,14 +296,14 @@ const EventsDashboard = () => {
                             <TableHeader aKey="host" label="Host" />
                             <th
                                 scope="col"
-                                className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider"
+                                className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider"
                             >
                                 Message
                             </th>
                         </tr>
                         </thead>
 
-                        <tbody className="bg-[#25252e] divide-y divide-gray-700">
+                        <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                         {eventsLoading ? (
                             <tr>
                                 <td colSpan={5} className="text-center p-8">
@@ -312,25 +312,25 @@ const EventsDashboard = () => {
                             </tr>
                         ) : error ? (
                             <tr>
-                                <td colSpan={5} className="text-center p-8 text-red-400">
+                                <td colSpan={5} className="text-center p-8 text-red-500 dark:text-red-400">
                                     <AlertCircle className="mx-auto h-6 w-6 mb-2" />
                                     {error}
                                 </td>
                             </tr>
                         ) : events.length === 0 ? (
                             <tr>
-                                <td colSpan={5} className="text-center p-8 text-gray-400">
+                                <td colSpan={5} className="text-center p-8 text-gray-600 dark:text-gray-400">
                                     No events found.
                                 </td>
                             </tr>
                         ) : (
                             events.map(event => (
                                 <Fragment key={event.id}>
-                                    <tr className="hover:bg-gray-700/30">
+                                    <tr className="hover:bg-gray-100 dark:hover:bg-gray-700/30">
                                         <td className="pl-4">
                                             <button
                                                 onClick={() => setExpandedRow(expandedRow === event.id ? null : event.id)}
-                                                className="p-1 rounded-full hover:bg-gray-600"
+                                                className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-400"
                                             >
                                                 {expandedRow === event.id ? (
                                                     <ChevronDown className="h-5 w-5" />
@@ -339,7 +339,7 @@ const EventsDashboard = () => {
                                                 )}
                                             </button>
                                         </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
                                             {formatDate(event.event_timestamp)}
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap">
@@ -347,11 +347,11 @@ const EventsDashboard = () => {
                           {event.severity}
                         </span>
                                         </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
                                             {event.host}
                                         </td>
                                         <td
-                                            className="px-6 py-4 whitespace-nowrap text-sm text-gray-300 font-mono max-w-lg truncate"
+                                            className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300 font-mono max-w-lg truncate"
                                             title={event.short_message}
                                         >
                                             {event.short_message}
@@ -359,10 +359,10 @@ const EventsDashboard = () => {
                                     </tr>
 
                                     {expandedRow === event.id && (
-                                        <tr className="bg-gray-800/50">
+                                        <tr className="bg-gray-100 dark:bg-gray-800/50">
                                             <td colSpan={5} className="p-0">
                                                 <div className="p-4">
-                                                    <h4 className="text-md font-semibold text-white mb-2">
+                                                    <h4 className="text-md font-semibold text-gray-900 dark:text-white mb-2">
                                                         Raw Event Data
                                                     </h4>
                                                     <ReactJson
@@ -391,18 +391,18 @@ const EventsDashboard = () => {
                 </div>
 
                 {pagination && (pagination.prev_cursor || pagination.next_cursor) && (
-                    <div className="p-4 flex items-center justify-between border-t border-gray-700">
+                    <div className="p-4 flex items-center justify-between border-t border-gray-200 dark:border-gray-700">
                         <button
                             onClick={() => fetchEvents(pagination.prev_cursor, 'prev')}
                             disabled={!pagination.prev_cursor || eventsLoading}
-                            className="px-4 py-2 bg-gray-700 text-white rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             Previous
                         </button>
                         <button
                             onClick={() => fetchEvents(pagination.next_cursor, 'next')}
                             disabled={!pagination.next_cursor || eventsLoading}
-                            className="px-4 py-2 bg-gray-700 text-white rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             Next
                         </button>

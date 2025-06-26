@@ -28,8 +28,8 @@ export default function EventsPage() {
 
     return (
         <div className="space-y-6">
-            <h1 className="text-2xl font-bold text-white">Events</h1>
-            <Suspense fallback={<div className="text-center p-8 text-gray-400">Loading events...</div>}>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Events</h1>
+            <Suspense fallback={<div className="text-center p-8 text-gray-600 dark:text-gray-400">Loading events...</div>}>
                 <EventsDashboard />
             </Suspense>
         </div>
