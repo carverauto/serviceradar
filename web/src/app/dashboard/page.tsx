@@ -14,82 +14,15 @@
  * limitations under the License.
  */
 
-import { cookies } from "next/headers";
-import { SystemStatus, Poller } from "@/types/types";
-import DashboardWrapper from "@/components/DashboardWrapper";
+import Dashboard from "@/components/Analytics/Dashboard";
 import { Suspense } from "react";
-// Import the new cached data functions
-import { getCachedPollers, getCachedSystemStatus } from "@/lib/data";
-
-// This function now uses cached data, making it much faster on subsequent loads.
-// The `noStore()` call is removed.
-async function fetchStatus(token?: string): Promise<SystemStatus | null> {
-  try {
-    // Fetch status and pollers from our new cached functions
-    const statusData = await getCachedSystemStatus(token);
-    if (!statusData) throw new Error("Failed to fetch status");
-
-    const pollersData = await getCachedPollers(token);
-    if (!pollersData) throw new Error("Failed to fetch pollers");
-
-    // Calculate service statistics (unchanged)
-    let totalServices = 0;
-    let offlineServices = 0;
-    let totalResponseTime = 0;
-    let servicesWithResponseTime = 0;
-
-    pollersData.forEach((poller: Poller) => {
-      if (poller.services && Array.isArray(poller.services)) {
-        totalServices += poller.services.length;
-        poller.services.forEach((service) => {
-          if (!service.available) offlineServices++;
-          if (service.type === "icmp" && service.details) {
-            try {
-              const details =
-                typeof service.details === "string"
-                  ? JSON.parse(service.details)
-                  : service.details;
-              if (details && details.response_time) {
-                totalResponseTime += details.response_time;
-                servicesWithResponseTime++;
-              }
-            } catch (e) {
-              console.error("Error parsing service details:", e);
-            }
-          }
-        });
-      }
-    });
-
-    const avgResponseTime =
-      servicesWithResponseTime > 0
-        ? totalResponseTime / servicesWithResponseTime
-        : 0;
-
-    return {
-      ...statusData,
-      service_stats: {
-        total_services: totalServices,
-        offline_services: offlineServices,
-        avg_response_time: avgResponseTime,
-      },
-    };
-  } catch (error) {
-    console.error("Error fetching status:", error);
-    return null;
-  }
-}
 
 export default async function HomePage() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get("accessToken")?.value;
-  const initialData = await fetchStatus(token);
-
   return (
     <div>
       <h1 className="text-2xl font-bold mb-6">Dashboard</h1>
       <Suspense fallback={<div>Loading dashboard...</div>}>
-        <DashboardWrapper initialData={initialData} />
+        <Dashboard />
       </Suspense>
     </div>
   );
