@@ -19,11 +19,10 @@
 
 import React, { useState, useCallback, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
-import {Loader2, AlertTriangle, Eye, EyeOff, FileJson, Table, ChevronDown} from 'lucide-react';
+import {Loader2, AlertTriangle, Eye, EyeOff, FileJson, Table} from 'lucide-react';
 import { useAuth } from '@/components/AuthProvider';
 import ReactJson from '@microlink/react-json-view';
 import { fetchAPI } from '@/lib/client-api';
-import { Poller, Partition } from '@/types/types';
 import { Device } from '@/types/devices';
 import DeviceTable from '@/components/Devices/DeviceTable';
 import InterfaceTable, { NetworkInterface } from '@/components/Network/InterfaceTable';
@@ -48,16 +47,10 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
     const [limit, setLimit] = useState<number>(20);
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [error, setError] = useState<string | null>(null);
-    const [viewFormat, setViewFormat] = useState<ViewFormat>('json');
+    const [viewFormat, setViewFormat] = useState<ViewFormat>('table');
     const [showRawJson, setShowRawJson] = useState<boolean>(false);
     const { token } = useAuth();
 
-    const [pollers, setPollers] = useState<Poller[]>([]);
-    const [partitions, setPartitions] = useState<Partition[]>([]);
-    const [showPollers, setShowPollers] = useState(false);
-    const [showPartitions, setShowPartitions] = useState(false);
-    const [selectedPoller, setSelectedPoller] = useState<string | null>(null);
-    const [selectedPartition, setSelectedPartition] = useState<string | null>(null);
 
     const [jsonViewTheme, setJsonViewTheme] = useState<'rjv-default' | 'pop'>('rjv-default');
 
@@ -163,66 +156,7 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
         return () => observer.disconnect();
     }, []);
 
-    useEffect(() => {
-        const fetchPollers = async () => {
-            try {
-                const data: { results: { poller_id: string }[] } = await fetchAPI('/query', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        ...(token && { Authorization: `Bearer ${token}` }),
-                    },
-                    body: JSON.stringify({ query: 'show pollers' }),
-                });
-                const rawResults = Array.isArray(data.results) ? (data.results as { poller_id: string }[]) : [];
-                const uniquePollerIds = new Set<string>();
-                const processedPollers: Poller[] = [];
 
-                rawResults.forEach((item: { poller_id: string }) => {
-                    if (item && typeof item === 'object' && typeof item.poller_id === 'string') {
-                        const trimmedId = item.poller_id.trim();
-                        if (trimmedId !== '' && !uniquePollerIds.has(trimmedId)) {
-                            uniquePollerIds.add(trimmedId);
-                            processedPollers.push({ poller_id: trimmedId, is_healthy: true, last_update: new Date().toISOString() });
-                        }
-                    }
-                });
-                console.log('Raw pollers data:', (data as { results: { poller_id: string }[] }).results);
-                setPollers(processedPollers);
-            } catch (error) {
-                console.error('Failed to fetch pollers:', error);
-            }
-        };
-
-        const fetchPartitions = async () => {
-            try {
-                const data = await fetchAPI<{ results: { partition: string }[] }>('/query', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        ...(token && { Authorization: `Bearer ${token}` }),
-                    },
-                    body: JSON.stringify({ query: 'show sweep_results | distinct partition' }),
-                });
-                setPartitions(Array.from(new Set(data.results.map((p: Partition) => p.partition))).map((p: string) => ({ partition: p })) || []);
-            } catch (error) {
-                console.error('Failed to fetch partitions:', error);
-            }
-        };
-
-        fetchPollers();
-        fetchPartitions();
-    }, [token]);
-
-    const handlePollerSelect = (pollerId: string | null) => {
-        setSelectedPoller(pollerId);
-        setShowPollers(false);
-    };
-
-    const handlePartitionSelect = (partition: string | null) => {
-        setSelectedPartition(partition);
-        setShowPartitions(false);
-    };
 
     const isDeviceQuery = (query: string): boolean => {
         const normalizedQuery = query.trim().toUpperCase();
@@ -446,111 +380,27 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
     ];
 
     return (
-        <div className="space-y-6">
-            <div className="bg-[#25252e] border border-gray-700 p-6 rounded-lg shadow-lg">
-                <div className="flex items-center justify-between mb-4">
-                    <h2 className="text-xl font-bold text-white">
-                        Query Results
-                    </h2>
-                    <div className="text-sm text-gray-400">
-                        {query && (
-                            <span>Query: <code className="bg-gray-700 px-2 py-1 rounded">{query}</code></span>
-                        )}
-                    </div>
-                </div>
-                <div className="flex flex-wrap justify-between items-center gap-4">
-                    <div className="flex items-center space-x-2">
-                        <label
-                            htmlFor="viewFormat"
-                            className="text-sm font-medium text-gray-300"
-                        >
-                            View as:
-                        </label>
-                        <div className="flex items-center rounded-md border border-gray-600 bg-[#16151c]">
-                            <button type="button" onClick={() => setViewFormat('json')} className={`px-3 py-1.5 rounded-l-md flex items-center gap-2 ${viewFormat === 'json' ? 'bg-green-600 text-white' : 'text-gray-400 hover:bg-gray-700'}`}>
-                                <FileJson size={16} /> JSON
+        <div className="space-y-4">
+            {/* Show example queries only when no query has been executed yet */}
+            {!responseData && !isLoading && !error && (
+                <div className="bg-[#25252e] border border-gray-700 p-4 rounded-lg">
+                    <h3 className="text-sm font-medium text-gray-300 mb-3">Try these example queries:</h3>
+                    <div className="flex flex-wrap gap-2">
+                        {exampleQueries.map((eg) => (
+                            <button
+                                key={eg.name}
+                                onClick={() => {
+                                    setQuery(eg.query);
+                                    handleSubmit(undefined, undefined, undefined, eg.query);
+                                }}
+                                className="px-3 py-1 text-xs bg-gray-700/50 text-gray-300 rounded-full hover:bg-gray-600/50 transition-colors"
+                            >
+                                {eg.name}
                             </button>
-                            <button type="button" onClick={() => setViewFormat('table')} className={`px-3 py-1.5 rounded-r-md flex items-center gap-2 ${viewFormat === 'table' ? 'bg-green-600 text-white' : 'text-gray-400 hover:bg-gray-700'}`}>
-                                <Table size={16} /> Table
-                            </button>
-                        </div>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                        <label
-                            htmlFor="limit"
-                            className="text-sm font-medium text-gray-300"
-                        >
-                            Limit:
-                        </label>
-                        <select
-                            id="limit"
-                            value={limit}
-                            onChange={(e) => {
-                                setLimit(Number(e.target.value));
-                                setPagination(null); // Reset pagination on limit change
-                            }}
-                            className="px-3 py-2 border border-gray-600 rounded-md shadow-sm bg-[#16151c] text-gray-100 focus:ring-green-500 focus:border-green-500"
-                        >
-                            {[20, 50, 100, 200].map((val) => (
-                                <option key={val} value={val}>
-                                    {val}
-                                </option>
-                            ))}
-                        </select>
-                    </div>
-                    <div className="relative">
-                        <button onClick={() => setShowPollers(!showPollers)} className="flex items-center gap-2 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md text-sm hover:bg-gray-100 dark:hover:bg-gray-700">
-                            {selectedPoller ? selectedPoller : 'All Pollers'}
-                            <ChevronDown className="h-4 w-4" />
-                        </button>
-                        {showPollers && (
-                            <div className="absolute right-0 mt-2 w-56 rounded-md shadow-lg bg-white dark:bg-gray-800 ring-1 ring-black ring-opacity-5">
-                                <div className="py-1" role="menu" aria-orientation="vertical" aria-labelledby="options-menu">
-                                    <a href="#" key="all-pollers" onClick={() => handlePollerSelect(null)} className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700" role="menuitem">All Pollers</a>
-                                    {pollers.map((poller) => (
-                                        <a href="#" key={poller.poller_id} onClick={() => handlePollerSelect(poller.poller_id)} className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700" role="menuitem">{poller.poller_id}</a>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                    <div className="relative">
-                        <button onClick={() => setShowPartitions(!showPartitions)} className="flex items-center gap-2 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md text-sm hover:bg-gray-100 dark:hover:bg-gray-700">
-                            {selectedPartition ? selectedPartition : 'All Partitions'}
-                            <ChevronDown className="h-4 w-4" />
-                        </button>
-                        {showPartitions && (
-                            <div className="absolute right-0 mt-2 w-56 rounded-md shadow-lg bg-white dark:bg-gray-800 ring-1 ring-black ring-opacity-5">
-                                <div className="py-1" role="menu" aria-orientation="vertical" aria-labelledby="options-menu">
-                                    <a href="#" key="all-partitions" onClick={() => handlePartitionSelect(null)} className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700" role="menuitem">All Partitions</a>
-                                    {partitions.map((partition, index) => (
-                                        <a href="#" key={`${partition.partition}-${index}`} onClick={() => handlePartitionSelect(partition.partition)} className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700" role="menuitem">{partition.partition}</a>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
+                        ))}
                     </div>
                 </div>
-            </div>
-
-            <div className="bg-[#25252e] border border-gray-700 p-4 rounded-lg shadow-lg">
-                <h3 className="text-md font-semibold text-gray-200 mb-3">Example Queries</h3>
-                <div className="flex flex-wrap gap-2">
-                    {exampleQueries.map((eg) => (
-                        <button
-                            key={eg.name}
-                            onClick={() => {
-                                setQuery(eg.query);
-                                handleSubmit(undefined, undefined, undefined, eg.query);
-                            }}
-                            disabled={isLoading}
-                            className="px-3 py-1 text-xs bg-gray-700/50 text-gray-300 rounded-full hover:bg-gray-600/50 disabled:opacity-50"
-                        >
-                            {eg.name}
-                        </button>
-                    ))}
-                </div>
-            </div>
+            )}
 
             {error && (
                 <div className="bg-red-900/20 border border-red-500/30 p-4 rounded-lg shadow flex items-start">
@@ -567,30 +417,58 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
             )}
 
             {isLoading && !responseData && (
-                <div className="bg-[#25252e] border border-gray-700 p-6 rounded-lg shadow text-center">
-                    <Loader2 className="animate-spin h-8 w-8 text-green-400 mx-auto mb-2" />
-                    <p className="text-gray-600 dark:text-gray-400">Fetching results...</p>
+                <div className="bg-[#25252e] border border-gray-700 p-4 rounded-lg text-center">
+                    <div className="flex items-center justify-center gap-2">
+                        <Loader2 className="animate-spin h-5 w-5 text-green-400" />
+                        <span className="text-sm text-gray-400">Fetching results...</span>
+                    </div>
                 </div>
             )}
 
             {responseData !== null && !isLoading && (
                 <div className="bg-[#25252e] border border-gray-700 rounded-lg shadow-lg">
-                    <div className="p-4 border-b border-gray-700 flex justify-between items-center">
-                        <h3 className="text-lg font-semibold text-white">Results</h3>
-                        {viewFormat === 'json' && (
-                            <button type="button" onClick={() => setShowRawJson(!showRawJson)} title={showRawJson ? 'Show Rich JSON View' : 'Show Raw JSON'} className="p-2 rounded-md hover:bg-gray-700 text-gray-400">
-                                {showRawJson ? <Eye className="h-5 w-5" /> : <EyeOff className="h-5 w-5" />}
-                            </button>
-                        )}
+                    <div className="p-4 border-b border-gray-700 flex flex-wrap justify-between items-center gap-4">
+                        <div className="flex items-center gap-4">
+                            <h3 className="text-lg font-semibold text-white">Results</h3>
+                            {query && (
+                                <code className="text-xs bg-gray-700 px-2 py-1 rounded text-gray-300">{query}</code>
+                            )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                            {/* View Format Toggle */}
+                            <div className="flex items-center rounded-md border border-gray-600 bg-[#16151c]">
+                                <button type="button" onClick={() => setViewFormat('json')} className={`px-2 py-1 text-xs rounded-l-md flex items-center gap-1 ${viewFormat === 'json' ? 'bg-green-600 text-white' : 'text-gray-400 hover:bg-gray-700'}`}>
+                                    <FileJson size={14} /> JSON
+                                </button>
+                                <button type="button" onClick={() => setViewFormat('table')} className={`px-2 py-1 text-xs rounded-r-md flex items-center gap-1 ${viewFormat === 'table' ? 'bg-green-600 text-white' : 'text-gray-400 hover:bg-gray-700'}`}>
+                                    <Table size={14} /> Table
+                                </button>
+                            </div>
+                            
+                            {/* JSON View Toggle */}
+                            {viewFormat === 'json' && (
+                                <button type="button" onClick={() => setShowRawJson(!showRawJson)} title={showRawJson ? 'Show Rich JSON View' : 'Show Raw JSON'} className="p-1.5 rounded-md hover:bg-gray-700 text-gray-400">
+                                    {showRawJson ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                                </button>
+                            )}
+                            
+                            {/* Limit Selector */}
+                            <select
+                                value={limit}
+                                onChange={(e) => {
+                                    setLimit(Number(e.target.value));
+                                    setPagination(null);
+                                }}
+                                className="px-2 py-1 text-xs border border-gray-600 rounded-md bg-[#16151c] text-gray-100 focus:ring-green-500 focus:border-green-500"
+                            >
+                                {[20, 50, 100, 200].map((val) => (
+                                    <option key={val} value={val}>{val}</option>
+                                ))}
+                            </select>
+                        </div>
                     </div>
                     <div className="p-4">
-                        {isDeviceQuery(query) && isDeviceData(results) ? (
-                            <DeviceTable devices={results as Device[]} />
-                        ) : isInterfaceQuery(query) && isInterfaceData(results) ? (
-                            <InterfaceTable interfaces={results as NetworkInterface[]} showDeviceColumn={true} jsonViewTheme={jsonViewTheme} />
-                        ) : isSweepQuery(query) && isSweepData(results) ? (
-                            <SweepResultsTable sweepResults={results as SweepResult[]} showPollerColumn={true} showPartitionColumn={true} jsonViewTheme={jsonViewTheme} />
-                        ) : viewFormat === 'json' ? (
+                        {viewFormat === 'json' ? (
                             showRawJson ? (
                                 <pre className="bg-[#16151c] p-4 rounded-md overflow-auto text-sm text-gray-200 max-h-[600px]">
                                 {JSON.stringify(responseData, null, 2)}
@@ -619,7 +497,17 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
                                 </p>
                             )
                         ) : (
-                            renderResultsTable(results)
+                            /* Table view - use specialized components when available */
+                            isDeviceQuery(query) && isDeviceData(results) ? (
+                                <DeviceTable devices={results as Device[]} />
+                            ) : isInterfaceQuery(query) && isInterfaceData(results) ? (
+                                <InterfaceTable interfaces={results as NetworkInterface[]} showDeviceColumn={true} jsonViewTheme={jsonViewTheme} />
+                            ) : isSweepQuery(query) && isSweepData(results) ? (
+                                <SweepResultsTable sweepResults={results as SweepResult[]} showPollerColumn={true} showPartitionColumn={true} jsonViewTheme={jsonViewTheme} />
+                            ) : (
+                                /* Fallback to generic table */
+                                renderResultsTable(results)
+                            )
                         )}
 
                         {pagination && (pagination.prev_cursor || pagination.next_cursor) && (

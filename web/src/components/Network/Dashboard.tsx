@@ -160,12 +160,9 @@ const SNMPDeviceList: React.FC = () => {
         setError(null);
 
         try {
-            // Filter devices that have been discovered via SNMP. The
-            // discovery_sources array contains the mechanisms that found a
-            // device. Using `discovery_sources = 'snmp'` leverages SRQL's
-            // array contains semantics to match any device where the SNMP
-            // source is present.
-            const whereClauses = ["discovery_sources = 'snmp'"];
+            // Show all devices for now since SNMP array query syntax
+            // is not supported in current SRQL version
+            const whereClauses = ["device_id IS NOT NULL"];
 
             if (debouncedSearchTerm) {
                 whereClauses.push(`(ip LIKE '%${debouncedSearchTerm}%' OR hostname LIKE '%${debouncedSearchTerm}%')`);
@@ -177,13 +174,13 @@ const SNMPDeviceList: React.FC = () => {
             setDevices(data.results || []);
             setPagination(data.pagination || null);
 
-            // Fetch stats in parallel
+            // Fetch stats in parallel (using all devices for now)
             const [onlineRes, offlineRes] = await Promise.all([
                 postQuery<{ results: { 'count()': number }[] }>(
-                    "COUNT DEVICES WHERE discovery_sources = 'snmp' AND is_available = true"
+                    "COUNT DEVICES WHERE is_available = true"
                 ),
                 postQuery<{ results: { 'count()': number }[] }>(
-                    "COUNT DEVICES WHERE discovery_sources = 'snmp' AND is_available = false"
+                    "COUNT DEVICES WHERE is_available = false"
                 ),
             ]);
 
@@ -221,7 +218,7 @@ const SNMPDeviceList: React.FC = () => {
         <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <StatCard
-                    title="Total SNMP Devices"
+                    title="Total Devices"
                     value={(stats.online + stats.offline).toLocaleString()}
                     icon={<Server size={24} />}
                     isLoading={loading}
@@ -265,7 +262,7 @@ const SNMPDeviceList: React.FC = () => {
                     </div>
                 ) : devices.length === 0 ? (
                     <div className="text-center p-8 text-gray-400">
-                        No SNMP devices found.
+                        No devices found.
                     </div>
                 ) : (
                     <div className="overflow-x-auto">
@@ -419,7 +416,7 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
     };
 
     const handleSnmpDevicesClick = () => {
-        router.push('/query?q=' + encodeURIComponent('show devices where discovery_sources contains "snmp"'));
+        router.push('/query?q=' + encodeURIComponent('show devices where device_id IS NOT NULL'));
     };
 
     const { discoveryServices, sweepServices, snmpServices, applicationServices } = useMemo(() => {
@@ -506,10 +503,9 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
                         ...(token && { Authorization: `Bearer ${token}` })
                     },
                     body: JSON.stringify({
-                        // Count devices that have SNMP data available by
-                        // checking the discovery_sources array for the 'snmp'
-                        // indicator.
-                        query: "COUNT DEVICES WHERE discovery_sources = 'snmp'"
+                        // Count total devices for now since SNMP array query syntax
+                        // is not supported in current SRQL version
+                        query: "COUNT DEVICES"
                     }),
                 });
 
@@ -554,7 +550,7 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
                                 onClick={handleActiveSweepsClick}
                             />
                             <StatCard
-                                title="SNMP Monitored Devices"
+                                title="Total Devices"
                                 value={snmpDeviceCount.toLocaleString()}
                                 icon={<Rss size={24} />}
                                 isLoading={loadingStats}
