@@ -21,10 +21,10 @@ import {
     BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Cell, Tooltip, Legend
 } from 'recharts';
 import {
-    Monitor, AlertTriangle, Activity, ServerOff, Plus, MoreHorizontal, Server
+    AlertTriangle, Activity, ServerOff, MoreHorizontal, Server
 } from 'lucide-react';
 import { useAuth } from '../AuthProvider';
-import {Service, ServiceEntry, Poller, GenericServiceDetails} from "@/types/types";
+import {ServiceEntry, Poller, GenericServiceDetails} from "@/types/types";
 import { Device } from "@/types/devices";
 
 const REFRESH_INTERVAL = 60000; // 60 seconds
@@ -186,7 +186,7 @@ const Dashboard = () => {
                                     highLatencyServices++;
                                 }
                             }
-                        } catch (e) { /* ignore parse errors */ }
+                        } catch { /* ignore parse errors */ }
                     }
                 });
             });
