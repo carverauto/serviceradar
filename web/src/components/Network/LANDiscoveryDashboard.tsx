@@ -38,6 +38,7 @@ import { useAuth } from '@/components/AuthProvider';
 
 import { ServicePayload } from '@/types/types';
 import { RawBackendLanDiscoveryData, RawDevice, RawInterface } from '@/types/lan_discovery';
+import InterfaceTable from './InterfaceTable';
 
 /**
  * Device represents a parsed device object for display in the frontend.
@@ -863,57 +864,12 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
                             Network Interfaces ({filteredData.interfaces.length})
                         </h2>
                     </div>
-
-                    <div className="overflow-x-auto">
-                        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                            <thead className="bg-gray-50 dark:bg-gray-700">
-                            <tr>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                    Interface
-                                </th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                    IP Address
-                                </th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                    MAC Address
-                                </th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                    Speed
-                                </th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
-                                    Status
-                                </th>
-                            </tr>
-                            </thead>
-                            <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                            {filteredData.interfaces.map((iface, index) => (
-                                <tr key={`${iface.device_ip || 'no-ip'}-${iface.if_index ?? index}-${iface.mac_address || 'no-mac'}`} className="hover:bg-gray-50 dark:hover:bg-gray-700">
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-                                        {iface.name || iface.if_descr || iface.if_name || 'Unknown'}
-                                    </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900 dark:text-white">
-                                        {iface.ip_address || '-'}
-                                    </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900 dark:text-white">
-                                        {iface.mac_address || '-'}
-                                    </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
-                                        {iface.speed || '-'}
-                                    </td>
-                                    <td className="px-6 py-4 whitespace-nowrap">
-                                            <span className={`inline-flex items-center ${getStatusColor(iface.status)}`}>
-                                                {iface.status === 'up' || iface.status === 'active' ? (
-                                                    <CheckCircle className="h-4 w-4" />
-                                                ) : (
-                                                    <XCircle className="h-4 w-4" />
-                                                )}
-                                                <span className="ml-1 text-sm">{iface.status || 'Unknown'}</span>
-                                            </span>
-                                    </td>
-                                </tr>
-                            ))}
-                            </tbody>
-                        </table>
+                    <div className="p-4">
+                        <InterfaceTable 
+                            interfaces={filteredData.interfaces} 
+                            showDeviceColumn={true}
+                            jsonViewTheme="pop"
+                        />
                     </div>
                 </div>
             )}

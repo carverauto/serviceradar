@@ -17,7 +17,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Search, Settings, ChevronDown, Send } from 'lucide-react';
 import { useAuth } from './AuthProvider';
 import { fetchAPI } from '@/lib/client-api';
@@ -39,6 +39,7 @@ export default function Header() {
     const [showPollers, setShowPollers] = useState(false);
     const [showPartitions, setShowPartitions] = useState(false);
     const router = useRouter();
+    const searchParams = useSearchParams();
     const { token } = useAuth();
 
     useEffect(() => {
@@ -91,6 +92,14 @@ export default function Header() {
         fetchPollers();
         fetchPartitions();
     }, [token]);
+
+    // Sync query input with URL parameters
+    useEffect(() => {
+        const queryParam = searchParams.get('q');
+        if (queryParam) {
+            setQuery(queryParam);
+        }
+    }, [searchParams]);
 
     useEffect(() => {
         let newQuery = 'show devices';

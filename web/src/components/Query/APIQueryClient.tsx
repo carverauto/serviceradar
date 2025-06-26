@@ -27,6 +27,7 @@ import { Poller, Partition } from '@/types/types';
 import { Device } from '@/types/devices';
 import DeviceTable from '@/components/Devices/DeviceTable';
 import InterfaceTable, { NetworkInterface } from '@/components/Network/InterfaceTable';
+import SweepResultsTable, { SweepResult } from '@/components/Network/SweepResultsTable';
 
 type ViewFormat = 'json' | 'table';
 
@@ -84,9 +85,6 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
                 if (cursorParam) body.cursor = cursorParam;
                 if (directionParam) body.direction = directionParam;
 
-                console.log('About to execute query:', q);
-                console.log('Request body:', body);
-
                 const options: RequestInit = {
                     method: 'POST', // Explicitly set POST
                     headers: {
@@ -98,8 +96,6 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
                     credentials: 'include',
                 };
 
-                console.log('Making request to /query...');
-                
                 // Add timeout to prevent hanging requests
                 const timeoutPromise = new Promise((_, reject) => {
                     setTimeout(() => reject(new Error('Request timeout after 30 seconds')), 30000);
@@ -109,7 +105,6 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
                     fetchAPI('/query', options),
                     timeoutPromise
                 ]);
-                console.log('Received response:', data);
 
                 setResponseData(data);
                 if (data && typeof data === 'object' && 'results' in data) {
@@ -117,13 +112,6 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
                     setResults(d.results);
                     setPagination(d.pagination ?? null);
                     
-                    // Debug logging
-                    console.log('Query:', q);
-                    console.log('Is device query?', isDeviceQuery(q));
-                    console.log('Is interface query?', isInterfaceQuery(q));
-                    console.log('Results sample:', Array.isArray(d.results) ? d.results[0] : 'Not an array');
-                    console.log('Is device data?', isDeviceData(d.results));
-                    console.log('Is interface data?', isInterfaceData(d.results));
                 } else {
                     setResults(data);
                     setPagination(null);
@@ -250,6 +238,14 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
                normalizedQuery.startsWith('COUNT INTERFACES');
     };
 
+    const isSweepQuery = (query: string): boolean => {
+        const normalizedQuery = query.trim().toUpperCase();
+        return normalizedQuery.startsWith('SHOW SWEEP') || 
+               normalizedQuery.startsWith('FIND SWEEP') ||
+               normalizedQuery.startsWith('COUNT SWEEP');
+    };
+
+
     const isDeviceData = (data: unknown): data is Device[] => {
         if (!Array.isArray(data) || data.length === 0) return false;
         const firstItem = data[0];
@@ -280,6 +276,19 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
                 // Generic interface patterns
                 ('name' in firstItem && ('ip_address' in firstItem || 'mac_address' in firstItem))
             )
+        );
+    };
+
+    const isSweepData = (data: unknown): data is SweepResult[] => {
+        if (!Array.isArray(data) || data.length === 0) return false;
+        const firstItem = data[0];
+        return (
+            typeof firstItem === 'object' &&
+            firstItem !== null &&
+            'available' in firstItem &&
+            'discovery_source' in firstItem &&
+            'ip' in firstItem &&
+            'timestamp' in firstItem
         );
     };
 
@@ -579,6 +588,8 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
                             <DeviceTable devices={results as Device[]} />
                         ) : isInterfaceQuery(query) && isInterfaceData(results) ? (
                             <InterfaceTable interfaces={results as NetworkInterface[]} showDeviceColumn={true} jsonViewTheme={jsonViewTheme} />
+                        ) : isSweepQuery(query) && isSweepData(results) ? (
+                            <SweepResultsTable sweepResults={results as SweepResult[]} showPollerColumn={true} showPartitionColumn={true} jsonViewTheme={jsonViewTheme} />
                         ) : viewFormat === 'json' ? (
                             showRawJson ? (
                                 <pre className="bg-[#16151c] p-4 rounded-md overflow-auto text-sm text-gray-200 max-h-[600px]">

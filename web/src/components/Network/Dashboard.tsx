@@ -60,14 +60,21 @@ const StatCard = ({
                       title,
                       value,
                       icon,
-                      isLoading
+                      isLoading,
+                      onClick
                   }: {
     title: string;
     value: string | number;
     icon: React.ReactNode,
-    isLoading?: boolean
+    isLoading?: boolean,
+    onClick?: () => void
 }) => (
-    <div className="bg-[#25252e] border border-gray-700/80 p-4 rounded-lg">
+    <div 
+        className={`bg-[#25252e] border border-gray-700/80 p-4 rounded-lg ${
+            onClick ? 'cursor-pointer hover:bg-gray-700/30 transition-colors duration-200' : ''
+        }`}
+        onClick={onClick}
+    >
         <div className="flex items-center">
             <div className="p-3 bg-gray-700/50 rounded-md mr-4 text-green-400">
                 {icon}
@@ -398,6 +405,23 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
     const router = useRouter();
     const { token } = useAuth();
 
+    // Click handlers for stat cards
+    const handleDiscoveredDevicesClick = () => {
+        router.push('/query?q=' + encodeURIComponent('show devices'));
+    };
+
+    const handleDiscoveredInterfacesClick = () => {
+        router.push('/query?q=' + encodeURIComponent('show interfaces'));
+    };
+
+    const handleActiveSweepsClick = () => {
+        router.push('/query?q=' + encodeURIComponent('show sweep_results'));
+    };
+
+    const handleSnmpDevicesClick = () => {
+        router.push('/query?q=' + encodeURIComponent('show devices where discovery_sources contains "snmp"'));
+    };
+
     const { discoveryServices, sweepServices, snmpServices, applicationServices } = useMemo(() => {
         const discovery: ServiceWithPoller[] = [];
         const sweep: ServiceWithPoller[] = [];
@@ -515,22 +539,26 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
                                 title="Discovered Devices"
                                 value={totalDiscoveredDevices.toLocaleString()}
                                 icon={<RouterIcon size={24} />}
+                                onClick={handleDiscoveredDevicesClick}
                             />
                             <StatCard
                                 title="Discovered Interfaces"
                                 value={totalDiscoveredInterfaces.toLocaleString()}
                                 icon={<Network size={24} />}
+                                onClick={handleDiscoveredInterfacesClick}
                             />
                             <StatCard
                                 title="Active Network Sweeps"
                                 value={sweepServices.length}
                                 icon={<Scan size={24} />}
+                                onClick={handleActiveSweepsClick}
                             />
                             <StatCard
                                 title="SNMP Monitored Devices"
                                 value={snmpDeviceCount.toLocaleString()}
                                 icon={<Rss size={24} />}
                                 isLoading={loadingStats}
+                                onClick={handleSnmpDevicesClick}
                             />
                         </div>
 
