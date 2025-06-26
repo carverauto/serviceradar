@@ -19,7 +19,7 @@
 
 import React, { useState, useCallback, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Loader2, Send, AlertTriangle, Eye, EyeOff, FileJson, Table } from 'lucide-react';
+import {Loader2, Send, AlertTriangle, Eye, EyeOff, FileJson, Table, ChevronDown} from 'lucide-react';
 import { useAuth } from '@/components/AuthProvider';
 import ReactJson from '@microlink/react-json-view';
 import { fetchAPI } from '@/lib/client-api';
@@ -42,6 +42,13 @@ const ApiQueryClient: React.FC = () => {
     const [viewFormat, setViewFormat] = useState<ViewFormat>('json');
     const [showRawJson, setShowRawJson] = useState<boolean>(false);
     const { token } = useAuth();
+
+    const [pollers, setPollers] = useState<Poller[]>([]);
+    const [partitions, setPartitions] = useState<Partition[]>([]);
+    const [showPollers, setShowPollers] = useState(false);
+    const [showPartitions, setShowPartitions] = useState(false);
+    const [selectedPoller, setSelectedPoller] = useState<string | null>(null);
+    const [selectedPartition, setSelectedPartition] = useState<string | null>(null);
 
     const [jsonViewTheme, setJsonViewTheme] = useState<'rjv-default' | 'pop'>('rjv-default');
 
@@ -72,6 +79,67 @@ const ApiQueryClient: React.FC = () => {
         observer.observe(document.documentElement, { attributes: true });
         return () => observer.disconnect();
     }, []);
+
+    useEffect(() => {
+        const fetchPollers = async () => {
+            try {
+                const data = await fetchAPI('/query', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(token && { Authorization: `Bearer ${token}` }),
+                    },
+                    body: JSON.stringify({ query: 'show pollers' }),
+                });
+                const rawResults = Array.isArray(data.results) ? data.results : [];
+                const uniquePollerIds = new Set<string>();
+                const processedPollers: Poller[] = [];
+
+                rawResults.forEach((item: any) => {
+                    if (item && typeof item === 'object' && typeof item.poller_id === 'string') {
+                        const trimmedId = item.poller_id.trim();
+                        if (trimmedId !== '' && !uniquePollerIds.has(trimmedId)) {
+                            uniquePollerIds.add(trimmedId);
+                            processedPollers.push({ poller_id: trimmedId });
+                        }
+                    }
+                });
+                console.log('Raw pollers data:', data.results);
+                setPollers(processedPollers);
+            } catch (error) {
+                console.error('Failed to fetch pollers:', error);
+            }
+        };
+
+        const fetchPartitions = async () => {
+            try {
+                const data = await fetchAPI('/query', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(token && { Authorization: `Bearer ${token}` }),
+                    },
+                    body: JSON.stringify({ query: 'show sweep_results | distinct partition' }),
+                });
+                setPartitions(Array.from(new Set(data.results.map((p: Partition) => p.partition))).map((p: string) => ({ partition: p })) || []);
+            } catch (error) {
+                console.error('Failed to fetch partitions:', error);
+            }
+        };
+
+        fetchPollers();
+        fetchPartitions();
+    }, [token]);
+
+    const handlePollerSelect = (pollerId: string | null) => {
+        setSelectedPoller(pollerId);
+        setShowPollers(false);
+    };
+
+    const handlePartitionSelect = (partition: string | null) => {
+        setSelectedPartition(partition);
+        setShowPartitions(false);
+    };
 
     const handleSubmit = useCallback(
         async (
@@ -287,84 +355,97 @@ const ApiQueryClient: React.FC = () => {
                 <h2 className="text-xl font-bold text-white mb-4">
                     API Query Tool
                 </h2>
-                <form onSubmit={handleSubmit} className="space-y-4">
-                    <div>
+                <div className="flex flex-wrap justify-between items-center gap-4 pt-4 border-t border-gray-700">
+                    <div className="flex items-center space-x-2">
                         <label
-                            htmlFor="query"
-                            className="block text-sm font-medium text-gray-300 mb-2"
+                            htmlFor="viewFormat"
+                            className="text-sm font-medium text-gray-300"
                         >
-                            Enter your ServiceRadar Query Language (SRQL) query:
+                            View as:
                         </label>
-                        <textarea
-                            id="query"
-                            name="query"
-                            rows={5}
-                            className="w-full p-3 font-mono text-sm border border-gray-600 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500 bg-[#16151c] text-gray-100 placeholder-gray-500"
-                            placeholder="e.g., show devices where status = 'offline'"
-                            value={query}
-                            onChange={(e) => setQuery(e.target.value)}
-                        />
+                        <div className="flex items-center rounded-md border border-gray-600 bg-[#16151c]">
+                            <button type="button" onClick={() => setViewFormat('json')} className={`px-3 py-1.5 rounded-l-md flex items-center gap-2 ${viewFormat === 'json' ? 'bg-green-600 text-white' : 'text-gray-400 hover:bg-gray-700'}`}>
+                                <FileJson size={16} /> JSON
+                            </button>
+                            <button type="button" onClick={() => setViewFormat('table')} className={`px-3 py-1.5 rounded-r-md flex items-center gap-2 ${viewFormat === 'table' ? 'bg-green-600 text-white' : 'text-gray-400 hover:bg-gray-700'}`}>
+                                <Table size={16} /> Table
+                            </button>
+                        </div>
                     </div>
-
-                    <div className="flex flex-wrap justify-between items-center gap-4 pt-4 border-t border-gray-700">
-                        <div className="flex items-center space-x-2">
-                            <label
-                                htmlFor="viewFormat"
-                                className="text-sm font-medium text-gray-300"
-                            >
-                                View as:
-                            </label>
-                            <div className="flex items-center rounded-md border border-gray-600 bg-[#16151c]">
-                                <button type="button" onClick={() => setViewFormat('json')} className={`px-3 py-1.5 rounded-l-md flex items-center gap-2 ${viewFormat === 'json' ? 'bg-green-600 text-white' : 'text-gray-400 hover:bg-gray-700'}`}>
-                                    <FileJson size={16} /> JSON
-                                </button>
-                                <button type="button" onClick={() => setViewFormat('table')} className={`px-3 py-1.5 rounded-r-md flex items-center gap-2 ${viewFormat === 'table' ? 'bg-green-600 text-white' : 'text-gray-400 hover:bg-gray-700'}`}>
-                                    <Table size={16} /> Table
-                                </button>
-                            </div>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                            <label
-                                htmlFor="limit"
-                                className="text-sm font-medium text-gray-300"
-                            >
-                                Limit:
-                            </label>
-                            <select
-                                id="limit"
-                                value={limit}
-                                onChange={(e) => {
-                                    setLimit(Number(e.target.value));
-                                    setPagination(null); // Reset pagination on limit change
-                                }}
-                                className="px-3 py-2 border border-gray-600 rounded-md shadow-sm bg-[#16151c] text-gray-100 focus:ring-green-500 focus:border-green-500"
-                            >
-                                {[20, 50, 100, 200].map((val) => (
-                                    <option key={val} value={val}>
-                                        {val}
-                                    </option>
-                                ))}
-                            </select>
-                        </div>
-                        <button
-                            type="submit"
-                            disabled={isLoading}
-                            className="w-full sm:w-auto px-6 py-2 bg-green-600 text-white font-semibold rounded-md shadow-sm hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                    <div className="flex items-center space-x-2">
+                        <label
+                            htmlFor="limit"
+                            className="text-sm font-medium text-gray-300"
                         >
-                            {isLoading ? (
-                                <>
-                                    <Loader2 className="animate-spin h-5 w-5 mr-2" />
-                                    Executing...
-                                </>
-                            ) : (
-                                <>
-                                    <Send className="h-5 w-5 mr-2" />
-                                    Execute Query
-                                </>
-                            )}
-                        </button>
+                            Limit:
+                        </label>
+                        <select
+                            id="limit"
+                            value={limit}
+                            onChange={(e) => {
+                                setLimit(Number(e.target.value));
+                                setPagination(null); // Reset pagination on limit change
+                            }}
+                            className="px-3 py-2 border border-gray-600 rounded-md shadow-sm bg-[#16151c] text-gray-100 focus:ring-green-500 focus:border-green-500"
+                        >
+                            {[20, 50, 100, 200].map((val) => (
+                                <option key={val} value={val}>
+                                    {val}
+                                </option>
+                            ))}
+                        </select>
                     </div>
-                </form>
+                    <div className="relative">
+                        <button onClick={() => setShowPollers(!showPollers)} className="flex items-center gap-2 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md text-sm hover:bg-gray-100 dark:hover:bg-gray-700">
+                            {selectedPoller ? selectedPoller : 'All Pollers'}
+                            <ChevronDown className="h-4 w-4" />
+                        </button>
+                        {showPollers && (
+                            <div className="absolute right-0 mt-2 w-56 rounded-md shadow-lg bg-white dark:bg-gray-800 ring-1 ring-black ring-opacity-5">
+                                <div className="py-1" role="menu" aria-orientation="vertical" aria-labelledby="options-menu">
+                                    <a href="#" key="all-pollers" onClick={() => handlePollerSelect(null)} className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700" role="menuitem">All Pollers</a>
+                                    {pollers.map((poller) => (
+                                        <a href="#" key={poller.poller_id} onClick={() => handlePollerSelect(poller.poller_id)} className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700" role="menuitem">{poller.poller_id}</a>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                    <div className="relative">
+                        <button onClick={() => setShowPartitions(!showPartitions)} className="flex items-center gap-2 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md text-sm hover:bg-gray-100 dark:hover:bg-gray-700">
+                            {selectedPartition ? selectedPartition : 'All Partitions'}
+                            <ChevronDown className="h-4 w-4" />
+                        </button>
+                        {showPartitions && (
+                            <div className="absolute right-0 mt-2 w-56 rounded-md shadow-lg bg-white dark:bg-gray-800 ring-1 ring-black ring-opacity-5">
+                                <div className="py-1" role="menu" aria-orientation="vertical" aria-labelledby="options-menu">
+                                    <a href="#" key="all-partitions" onClick={() => handlePartitionSelect(null)} className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700" role="menuitem">All Partitions</a>
+                                    {partitions.map((partition, index) => (
+                                        <a href="#" key={`${partition.partition}-${index}`} onClick={() => handlePartitionSelect(partition.partition)} className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700" role="menuitem">{partition.partition}</a>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => handleSubmit(undefined, undefined, undefined, query)}
+                        disabled={isLoading}
+                        className="w-full sm:w-auto px-6 py-2 bg-green-600 text-white font-semibold rounded-md shadow-sm hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                    >
+                        {isLoading ? (
+                            <>
+                                <Loader2 className="animate-spin h-5 w-5 mr-2" />
+                                Executing...
+                            </>
+                        ) : (
+                            <>
+                                <Send className="h-5 w-5 mr-2" />
+                                Execute Query
+                            </>
+                        )}
+                    </button>
+                </div>
             </div>
 
             <div className="bg-[#25252e] border border-gray-700 p-4 rounded-lg shadow-lg">
