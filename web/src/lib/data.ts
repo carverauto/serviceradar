@@ -17,6 +17,7 @@
 // src/lib/data.ts
 import { cache } from 'react';
 import { Poller, ServiceMetric, SystemStatus, ServicePayload } from '@/types/types';
+import { HistoryEntry } from '@/app/api/pollers/[id]/history/route';
 import { SnmpDataPoint } from '@/types/snmp';
 import { fetchFromAPI } from './api';
 
@@ -51,8 +52,8 @@ export const getCachedPoller = cache(
  * Fetches the history for a specific poller and caches the result.
  */
 export const getCachedPollerHistory = cache(
-    async (pollerId: string, token?: string): Promise<any[]> => {
-        return (await fetchFromAPI<any[]>(`/pollers/${pollerId}/history`, token, {
+    async (pollerId: string, token?: string): Promise<HistoryEntry[]> => {
+        return (await fetchFromAPI<HistoryEntry[]>(`/pollers/${pollerId}/history`, token, {
             next: { revalidate: REVALIDATE_SECONDS },
         })) || [];
     }

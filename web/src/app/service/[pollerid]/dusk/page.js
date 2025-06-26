@@ -16,7 +16,7 @@
 
 // src/app/service/[pollerid]/dusk/page.js
 import { Suspense } from 'react';
-import DuskDashboard from '../../../../components/DuskDashboard';
+import DuskDashboard from '@/components/Checkers/DuskDashboard';
 
 export const revalidate = 0;
 

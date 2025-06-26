@@ -25,7 +25,7 @@ import {
     RperfResult
 } from '@/types/types';
 import { SweepDetails } from '@/types/snmp';
-import NetworkDiscoveryDetails from "@/components/NetworkDiscoveryDetails";
+import NetworkDiscoveryDetails from "@/components/Network/NetworkDiscoveryDetails";
 import { RawBackendLanDiscoveryData } from '@/types/lan_discovery';
 
 

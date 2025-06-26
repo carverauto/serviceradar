@@ -274,7 +274,7 @@ const EventsDashboard = () => {
                         <select
                             id="severityFilter"
                             value={filterSeverity}
-                            onChange={(e) => setFilterSeverity(e.target.value as any)}
+                            onChange={(e) => setFilterSeverity(e.target.value as 'all' | 'Low' | 'Medium' | 'High' | 'Critical')}
                             className="border border-gray-600 rounded-lg bg-[#1C1B22] text-white px-3 py-2 focus:ring-green-500 focus:border-green-500"
                         >
                             <option value="all">All</option>

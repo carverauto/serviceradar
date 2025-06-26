@@ -30,14 +30,14 @@ import { Device } from "@/types/devices";
 const REFRESH_INTERVAL = 60000; // 60 seconds
 
 // Reusable component for the top statistic cards
-const StatCard = ({ icon, title, value, subValue, alert = false, isLoading = false }) => (
+const StatCard = ({ icon: Icon, title, value, subValue, alert = false, isLoading = false }: { icon: React.ElementType; title: string; value: string | number; subValue?: string; alert?: boolean; isLoading?: boolean }) => (
     <div className={`bg-[#25252e] border border-gray-700 p-4 rounded-lg flex items-center gap-4`}>
         <div className={`p-3 rounded-md ${
             alert ? 'bg-red-900/50 text-red-400'
                 : title.includes('Latency') ? 'bg-yellow-900/50 text-yellow-400'
                     : 'bg-blue-900/50 text-blue-400'
         }`}>
-            {React.cloneElement(icon, { className: 'h-6 w-6' })}
+            <Icon className='h-6 w-6' />
         </div>
         <div className="flex-1">
             {isLoading ? (
@@ -56,7 +56,7 @@ const StatCard = ({ icon, title, value, subValue, alert = false, isLoading = fal
 );
 
 // Reusable component for the chart widgets
-const ChartWidget = ({ title, children, moreOptions = true }) => (
+const ChartWidget = ({ title, children, moreOptions = true }: { title: string; children: React.ReactNode; moreOptions?: boolean }) => (
     <div className="bg-[#25252e] border border-gray-700/80 rounded-lg p-4 flex flex-col h-[320px]">
         <div className="flex justify-between items-start mb-4">
             <h3 className="font-semibold text-white">{title}</h3>
@@ -80,7 +80,7 @@ const NoData = () => (
 );
 
 // Bar Chart component for reuse
-const SimpleBarChart = ({ data }) => (
+const SimpleBarChart = ({ data }: { data: { name: string; value: number; color: string }[] }) => (
     <ResponsiveContainer width="100%" height="100%">
         <BarChart data={data} margin={{ top: 10, right: 10, left: -10, bottom: 5 }}>
             <XAxis dataKey="name" tick={{ fill: '#9ca3af', fontSize: 12 }} axisLine={false} tickLine={false} interval={0} />
@@ -108,7 +108,12 @@ const Dashboard = () => {
         highLatencyServices: 0,
         failingServices: 0,
     });
-    const [chartData, setChartData] = useState({
+    const [chartData, setChartData] = useState<{
+        deviceAvailability: { name: string; value: number; color: string }[];
+        topLatencyServices: { name: string; value: number; color: string }[];
+        servicesByType: { name: string; value: number; color: string }[];
+        discoveryBySource: { name: string; value: number; color: string }[];
+    }>({
         deviceAvailability: [],
         topLatencyServices: [],
         servicesByType: [],
@@ -242,27 +247,27 @@ const Dashboard = () => {
             {/* Stat Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <StatCard
-                    icon={<Server />}
+                    icon={Server}
                     title="Total Devices"
                     value={stats.totalDevices.toLocaleString()}
                     isLoading={isLoading}
                 />
                 <StatCard
-                    icon={<ServerOff />}
+                    icon={ServerOff}
                     title="Offline Devices"
                     value={stats.offlineDevices.toLocaleString()}
                     alert
                     isLoading={isLoading}
                 />
                 <StatCard
-                    icon={<Activity />}
+                    icon={Activity}
                     title="High Latency Services"
                     value={stats.highLatencyServices.toLocaleString()}
                     alert={stats.highLatencyServices > 0}
                     isLoading={isLoading}
                 />
                 <StatCard
-                    icon={<AlertTriangle />}
+                    icon={AlertTriangle}
                     title="Failing Services"
                     value={stats.failingServices.toLocaleString()}
                     alert
