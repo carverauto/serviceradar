@@ -77,3 +77,7 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250505200425-f936aa4a68b2 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+replace github.com/carverauto/serviceradar/pkg/srql/parser/gen/antlr => ./pkg/srql/parser/gen/antlr
+
+replace github.com/carverauto/serviceradar => ./

@@ -197,6 +197,25 @@ func TestPrepareQuery(t *testing.T) {
 			},
 		},
 		{
+			name: "Valid query for pollers",
+			req: &QueryRequest{
+				Query: "show pollers",
+				Limit: 5,
+			},
+			dbType:      parser.Proton,
+			expectError: false,
+			setupMock:   func(*APIServer) {},
+			validateQuery: func(t *testing.T, query *models.Query, _ map[string]interface{}) {
+				t.Helper()
+
+				assert.Equal(t, models.Pollers, query.Entity)
+				assert.Equal(t, 5, query.Limit)
+				assert.True(t, query.HasLimit)
+				assert.Len(t, query.OrderBy, 1)
+				assert.Equal(t, "_tp_time", query.OrderBy[0].Field)
+			},
+		},
+		{
 			name: "Count devices should skip pagination",
 			req: &QueryRequest{
 				Query: "count devices",
@@ -653,6 +672,12 @@ func TestCursorFunctions(t *testing.T) {
 
 		addEntityFields(cursorData, result, models.Devices)
 		assert.Equal(t, "192.168.1.1", cursorData["ip"])
+
+		// Test for Pollers entity
+		cursorData = make(map[string]interface{})
+		result = map[string]interface{}{"poller_id": "test-poller-1"}
+		addEntityFields(cursorData, result, models.Pollers)
+		assert.Equal(t, "test-poller-1", cursorData["poller_id"])
 	})
 
 	// Test encodeCursor

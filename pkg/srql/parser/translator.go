@@ -151,6 +151,8 @@ func (*Translator) getEntityPrimaryKey(entity models.EntityType) (string, bool) 
 	case models.Events:
 		// Events stream is append-only
 		return "", false
+	case models.Pollers:
+		return "poller_id", true
 	default:
 		return "", false // Indicate LATEST is not supported for this entity or it's versioned_kv
 	}
@@ -231,6 +233,8 @@ func (*Translator) getProtonBaseTableName(entity models.EntityType) string {
 		return "snmp_results"
 	case models.Events:
 		return "events"
+	case models.Pollers:
+		return "pollers"
 	default:
 		return strings.ToLower(string(entity)) // Fallback
 	}

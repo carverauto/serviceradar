@@ -113,8 +113,8 @@ func (s *APIServer) prepareQuery(req *QueryRequest) (*models.Query, map[string]i
 
 	// Validate entity for pagination. COUNT queries don't need pagination support.
 	if query.Type != models.Count {
-		if query.Entity != models.Devices && query.Entity != models.Services && query.Entity != models.Interfaces && query.Entity != models.SweepResults && query.Entity != models.Events {
-			return nil, nil, errors.New("pagination is only supported for devices, services, interfaces, sweep_results, and events")
+		if query.Entity != models.Devices && query.Entity != models.Services && query.Entity != models.Interfaces && query.Entity != models.SweepResults && query.Entity != models.Events && query.Entity != models.Pollers {
+			return nil, nil, errors.New("pagination is only supported for devices, services, interfaces, sweep_results, events, and pollers")
 		}
 	}
 
@@ -298,6 +298,8 @@ func (s *APIServer) executeQuery(ctx context.Context, query string, entity model
 		results, err = s.queryExecutor.ExecuteQuery(ctx, query, "snmp_results")
 	case models.Events:
 		results, err = s.queryExecutor.ExecuteQuery(ctx, query, "events")
+	case models.Pollers:
+		results, err = s.queryExecutor.ExecuteQuery(ctx, query, "pollers")
 	default:
 		return nil, fmt.Errorf("%w: %s", errUnsupportedEntity, entity)
 	}
@@ -471,6 +473,10 @@ func addEntityFields(cursorData, result map[string]interface{}, entity models.En
 	case models.Events:
 		if id, ok := result["id"]; ok {
 			cursorData["id"] = id
+		}
+	case models.Pollers:
+		if pollerID, ok := result["poller_id"]; ok {
+			cursorData["poller_id"] = pollerID
 		}
 	}
 }

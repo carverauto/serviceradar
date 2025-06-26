@@ -16,15 +16,77 @@
 
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { Search, Settings, ChevronDown } from 'lucide-react';
+import { useAuth } from './AuthProvider';
+import { fetchAPI } from '@/lib/client-api';
+
+interface Poller {
+    poller_id: string;
+}
+
+interface Partition {
+    partition: string;
+}
 
 export default function Header() {
+    const [query, setQuery] = useState('');
+    const [pollers, setPollers] = useState<Poller[]>([]);
+    const [partitions, setPartitions] = useState<Partition[]>([]);
+    const [showPollers, setShowPollers] = useState(false);
+    const [showPartitions, setShowPartitions] = useState(false);
+    const router = useRouter();
+    const { token } = useAuth();
+
+    useEffect(() => {
+        const fetchPollers = async () => {
+            try {
+                const data = await fetchAPI('/query', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(token && { Authorization: `Bearer ${token}` }),
+                    },
+                    body: JSON.stringify({ query: 'show pollers' }),
+                });
+                setPollers(data.results || []);
+            } catch (error) {
+                console.error('Failed to fetch pollers:', error);
+            }
+        };
+
+        const fetchPartitions = async () => {
+            try {
+                const data = await fetchAPI('/query', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(token && { Authorization: `Bearer ${token}` }),
+                    },
+                    body: JSON.stringify({ query: 'show sweep_results | distinct partition' }),
+                });
+                setPartitions(data.results || []);
+            } catch (error) {
+                console.error('Failed to fetch partitions:', error);
+            }
+        };
+
+        fetchPollers();
+        fetchPartitions();
+    }, [token]);
+
+    const handleSearch = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (query.trim()) {
+            router.push(`/query?q=${encodeURIComponent(query)}`);
+        }
+    };
 
     return (
         <header className="h-16 flex-shrink-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between px-6 text-gray-600 dark:text-gray-300">
             <div className="flex-1 max-w-xl mx-4">
-                <div className="relative">
+                <form onSubmit={handleSearch} className="relative">
                     <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                         <Search className="h-5 w-5 text-gray-400" />
                     </div>
@@ -32,19 +94,43 @@ export default function Header() {
                         type="text"
                         placeholder="Search using SRQL query"
                         className="w-full bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md py-2 pl-10 pr-4 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
                     />
-                </div>
+                </form>
             </div>
 
             <div className="flex items-center gap-4">
-                <button className="flex items-center gap-2 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md text-sm hover:bg-gray-100 dark:hover:bg-gray-700">
-                    All Pollers
-                    <ChevronDown className="h-4 w-4" />
-                </button>
-                <button className="flex items-center gap-2 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md text-sm hover:bg-gray-100 dark:hover:bg-gray-700">
-                    All Partitions
-                    <ChevronDown className="h-4 w-4" />
-                </button>
+                <div className="relative">
+                    <button onClick={() => setShowPollers(!showPollers)} className="flex items-center gap-2 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md text-sm hover:bg-gray-100 dark:hover:bg-gray-700">
+                        All Pollers
+                        <ChevronDown className="h-4 w-4" />
+                    </button>
+                    {showPollers && (
+                        <div className="absolute right-0 mt-2 w-56 rounded-md shadow-lg bg-white dark:bg-gray-800 ring-1 ring-black ring-opacity-5">
+                            <div className="py-1" role="menu" aria-orientation="vertical" aria-labelledby="options-menu">
+                                {pollers.map((poller) => (
+                                    <a href="#" key={poller.poller_id} className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700" role="menuitem">{poller.poller_id}</a>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+                <div className="relative">
+                    <button onClick={() => setShowPartitions(!showPartitions)} className="flex items-center gap-2 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md text-sm hover:bg-gray-100 dark:hover:bg-gray-700">
+                        All Partitions
+                        <ChevronDown className="h-4 w-4" />
+                    </button>
+                    {showPartitions && (
+                        <div className="absolute right-0 mt-2 w-56 rounded-md shadow-lg bg-white dark:bg-gray-800 ring-1 ring-black ring-opacity-5">
+                            <div className="py-1" role="menu" aria-orientation="vertical" aria-labelledby="options-menu">
+                                {partitions.map((partition, index) => (
+                                     <a href="#" key={`${partition.partition}-${index}`} className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700" role="menuitem">{partition.partition}</a>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
                 <button className="flex items-center gap-2 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md text-sm hover:bg-gray-100 dark:hover:bg-gray-700">
                     Last 7 Days
                     <ChevronDown className="h-4 w-4" />

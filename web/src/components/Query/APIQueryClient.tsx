@@ -18,6 +18,7 @@
 'use client';
 
 import React, { useState, useCallback, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Loader2, Send, AlertTriangle, Eye, EyeOff, FileJson, Table } from 'lucide-react';
 import { useAuth } from '@/components/AuthProvider';
 import ReactJson from '@microlink/react-json-view';
@@ -26,6 +27,7 @@ import { fetchAPI } from '@/lib/client-api';
 type ViewFormat = 'json' | 'table';
 
 const ApiQueryClient: React.FC = () => {
+    const searchParams = useSearchParams();
     const [query, setQuery] = useState<string>('');
     const [results, setResults] = useState<unknown>(null);
     const [responseData, setResponseData] = useState<unknown>(null);
@@ -42,6 +44,14 @@ const ApiQueryClient: React.FC = () => {
     const { token } = useAuth();
 
     const [jsonViewTheme, setJsonViewTheme] = useState<'rjv-default' | 'pop'>('rjv-default');
+
+    useEffect(() => {
+        const initialQuery = searchParams.get('q');
+        if (initialQuery) {
+            setQuery(initialQuery);
+            handleSubmit(undefined, undefined, undefined, initialQuery);
+        }
+    }, [searchParams]);
 
     useEffect(() => {
         const updateTheme = () => {
@@ -67,10 +77,12 @@ const ApiQueryClient: React.FC = () => {
         async (
             e?: React.FormEvent<HTMLFormElement>,
             cursorParam?: string,
-            directionParam?: 'next' | 'prev'
+            directionParam?: 'next' | 'prev',
+            currentQuery?: string
         ) => {
             if (e) e.preventDefault();
-            if (!query.trim()) {
+            const q = currentQuery || query;
+            if (!q.trim()) {
                 setError('Query cannot be empty.');
                 return;
             }
@@ -81,7 +93,7 @@ const ApiQueryClient: React.FC = () => {
             setResponseData(null);
 
             try {
-                const body: Record<string, unknown> = { query, limit };
+                const body: Record<string, unknown> = { query: q, limit };
                 if (cursorParam) body.cursor = cursorParam;
                 if (directionParam) body.direction = directionParam;
 

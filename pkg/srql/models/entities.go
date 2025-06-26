@@ -11,6 +11,7 @@ const (
 	Logs        EntityType = "logs"
 	Services    EntityType = "services"
 	Interfaces  EntityType = "interfaces"
+	Pollers     EntityType = "pollers"
 	// New Entity Types for versioned_kv streams
 
 	SweepResults EntityType = "sweep_results" // Maps to 'sweep_results' stream
