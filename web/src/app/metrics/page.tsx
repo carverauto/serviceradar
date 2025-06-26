@@ -12,8 +12,8 @@ export default function MetricsPage() {
     return (
         <div className="space-y-6">
             <div className="flex justify-between items-center">
-                <h1 className="text-2xl font-bold">System Metrics</h1>
-                <Link href="/dashboard" className="text-gray-400 hover:text-gray-200 flex items-center">
+                <h1 className="text-2xl font-bold text-gray-900 dark:text-white">System Metrics</h1>
+                <Link href="/dashboard" className="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 flex items-center">
                     <span className="mr-2">←</span> Back to Dashboard
                 </Link>
             </div>

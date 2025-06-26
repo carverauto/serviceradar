@@ -234,17 +234,24 @@ func (s *Server) flushSysmonMetrics(ctx context.Context) {
 
 		for _, metric := range sysmonMetrics {
 			var ts time.Time
+			var agentID, hostID string
 
 			switch {
 			case len(metric.CPUs) > 0:
 				ts = metric.CPUs[0].Timestamp
+				agentID = metric.CPUs[0].AgentID
+				hostID = metric.CPUs[0].HostID
 			case len(metric.Disks) > 0:
 				ts = metric.Disks[0].Timestamp
+				agentID = metric.Disks[0].AgentID
+				hostID = metric.Disks[0].HostID
 			default:
 				ts = metric.Memory.Timestamp
+				agentID = metric.Memory.AgentID
+				hostID = metric.Memory.HostID
 			}
 
-			if err := s.DB.StoreSysmonMetrics(ctx, pollerID, metric, ts); err != nil {
+			if err := s.DB.StoreSysmonMetrics(ctx, pollerID, agentID, hostID, metric, ts); err != nil {
 				log.Printf("Failed to flush sysmon metrics for poller %s: %v", pollerID, err)
 			}
 		}
@@ -814,7 +821,7 @@ func (s *Server) processMetrics(
 		case rperfServiceType:
 			return s.processRperfMetrics(pollerID, details, now)
 		case sysmonServiceType:
-			return s.processSysmonMetrics(pollerID, details, now)
+			return s.processSysmonMetrics(pollerID, svc.AgentId, details, now)
 		}
 	case icmpServiceType:
 		return s.processICMPMetrics(pollerID, svc, details, now)
@@ -855,8 +862,8 @@ const (
 	sysmonServiceType = "sysmon"
 )
 
-func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, timestamp time.Time) error {
-	log.Printf("Processing sysmon metrics for poller %s with details: %s", pollerID, string(details))
+func (s *Server) processSysmonMetrics(pollerID, agentID string, details json.RawMessage, timestamp time.Time) error {
+	log.Printf("Processing sysmon metrics for poller %s, agent %s with details: %s", pollerID, agentID, string(details))
 
 	// Define the full structure of the message payload
 	var sysmonPayload struct {
@@ -896,6 +903,8 @@ func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, 
 			CoreID:       cpu.CoreID,
 			UsagePercent: cpu.UsagePercent,
 			Timestamp:    pollerTimestamp,
+			HostID:       sysmonPayload.Status.HostID,
+			AgentID:      agentID,
 		}
 	}
 
@@ -905,6 +914,8 @@ func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, 
 			UsedBytes:  disk.UsedBytes,
 			TotalBytes: disk.TotalBytes,
 			Timestamp:  pollerTimestamp,
+			HostID:     sysmonPayload.Status.HostID,
+			AgentID:    agentID,
 		}
 	}
 
@@ -913,6 +924,8 @@ func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, 
 			UsedBytes:  sysmonPayload.Status.Memory.UsedBytes,
 			TotalBytes: sysmonPayload.Status.Memory.TotalBytes,
 			Timestamp:  pollerTimestamp,
+			HostID:     sysmonPayload.Status.HostID,
+			AgentID:    agentID,
 		}
 	}
 

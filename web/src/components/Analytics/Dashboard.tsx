@@ -26,6 +26,7 @@ import {
 import { useAuth } from '../AuthProvider';
 import {ServiceEntry, Poller, GenericServiceDetails} from "@/types/types";
 import { Device } from "@/types/devices";
+import SysmonOverviewWidget from './SysmonOverviewWidget';
 
 const REFRESH_INTERVAL = 60000; // 60 seconds
 
@@ -278,13 +279,14 @@ const Dashboard = () => {
             {/* Network & Performance Analytics Section */}
             <div>
                 <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">Network & Performance Analytics</h2>
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
                     <ChartWidget title="Device Availability">
                         {chartData.deviceAvailability.length > 0 ? <SimpleBarChart data={chartData.deviceAvailability} /> : <NoData />}
                     </ChartWidget>
                     <ChartWidget title="Top 5 High Latency Services (ms)">
                         {chartData.topLatencyServices.length > 0 ? <SimpleBarChart data={chartData.topLatencyServices} /> : <NoData />}
                     </ChartWidget>
+                    <SysmonOverviewWidget />
                     <ChartWidget title="Services by Type">
                         {chartData.servicesByType.length > 0 ? <SimpleBarChart data={chartData.servicesByType} /> : <NoData />}
                     </ChartWidget>
