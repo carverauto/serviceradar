@@ -21,7 +21,6 @@ import React from 'react';
 import dynamic from 'next/dynamic';
 import { useSearchParams } from 'next/navigation';
 import DeviceAttributionBanner from './DeviceAttributionBanner';
-import AgentIdentificationNote from './AgentIdentificationNote';
 
 const SystemMetrics = dynamic(() => import('./system-metrics'), {
     ssr: false,
@@ -34,7 +33,6 @@ const SystemMetricsWrapper = () => {
 
     return (
         <div>
-            <AgentIdentificationNote />
             <DeviceAttributionBanner pollerId={pollerId} />
             <SystemMetrics pollerId={pollerId} />
         </div>
