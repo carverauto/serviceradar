@@ -712,7 +712,7 @@ const LanDiscoveryDashboard: React.FC<LanDiscoveryDashboardProps> = ({
                 <div className="bg-white dark:bg-gray-800 rounded-lg p-8 text-center shadow">
                     <Search className="h-12 w-12 mx-auto text-gray-400 mb-3" />
                     <h3 className="text-lg font-semibold text-gray-900 dark:text-white">No Matching Results</h3>
-                    <p className="text-gray-500 dark:text-gray-400">No devices or interfaces match your search query "{searchTerm}".</p>
+                    <p className="text-gray-500 dark:text-gray-400">No devices or interfaces match your search query &quot;{searchTerm}&quot;.</p>
                 </div>
             )}
 

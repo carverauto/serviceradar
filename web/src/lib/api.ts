@@ -17,7 +17,7 @@
 // web/src/lib/api.ts - server-side utilities with TypeScript
 import { SystemStatus, Poller } from "@/types/types";
 import { env } from 'next-runtime-env';
-import type { NextFetchRequestConfig } from 'next/server';
+
 
 // This function is updated to be more flexible with caching.
 // It now accepts NextFetchRequestConfig to control caching behavior.
@@ -64,7 +64,7 @@ export async function fetchFromAPI<T>(
         let errorBody;
         try {
             errorBody = await response.json();
-        } catch (e) {
+        } catch {
             errorBody = await response.text();
         }
         console.error(`API request to ${apiUrl} failed with status ${response.status}:`, errorBody);

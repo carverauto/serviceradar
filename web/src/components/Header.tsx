@@ -44,7 +44,7 @@ export default function Header() {
     useEffect(() => {
         const fetchPollers = async () => {
             try {
-                const data = await fetchAPI('/query', {
+                const data = await fetchAPI<{ results: { poller_id: string }[] }>('/query', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -52,11 +52,11 @@ export default function Header() {
                     },
                     body: JSON.stringify({ query: 'show pollers' }),
                 });
-                const rawResults = Array.isArray(data.results) ? data.results : [];
+                const rawResults = Array.isArray(data.results) ? data.results as { poller_id: string }[] : [];
                 const uniquePollerIds = new Set<string>();
                 const processedPollers: Poller[] = [];
 
-                rawResults.forEach((item: any) => {
+                rawResults.forEach((item: { poller_id: string }) => {
                     if (item && typeof item === 'object' && typeof item.poller_id === 'string') {
                         const trimmedId = item.poller_id.trim();
                         if (trimmedId !== '' && !uniquePollerIds.has(trimmedId)) {
@@ -74,7 +74,7 @@ export default function Header() {
 
         const fetchPartitions = async () => {
             try {
-                const data = await fetchAPI('/query', {
+                const data = await fetchAPI<{ results: { partition: string }[] }>('/query', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -103,12 +103,12 @@ export default function Header() {
         setQuery(newQuery);
     }, [selectedPoller, selectedPartition]);
 
-    const handlePollerSelect = (pollerId: string) => {
+    const handlePollerSelect = (pollerId: string | null) => {
         setSelectedPoller(pollerId);
         setShowPollers(false);
     };
 
-    const handlePartitionSelect = (partition: string) => {
+    const handlePartitionSelect = (partition: string | null) => {
         setSelectedPartition(partition);
         setShowPartitions(false);
     };
@@ -122,8 +122,8 @@ export default function Header() {
 
     return (
         <header className="h-16 flex-shrink-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between px-6 text-gray-600 dark:text-gray-300">
-            <div className="flex-1 max-w-xl mx-4">
-                <form onSubmit={handleSearch} className="relative">
+            <div className="flex-1 flex items-center gap-4 mx-4">
+                <form onSubmit={handleSearch} className="relative flex-1">
                     <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                         <Search className="h-5 w-5 text-gray-400" />
                     </div>
@@ -135,6 +135,39 @@ export default function Header() {
                         onChange={(e) => setQuery(e.target.value)}
                     />
                 </form>
+
+                <div className="relative">
+                    <button onClick={() => setShowPollers(!showPollers)} className="flex items-center gap-2 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md text-sm hover:bg-gray-100 dark:hover:bg-gray-700">
+                        {selectedPoller ? selectedPoller : 'All Pollers'}
+                        <ChevronDown className="h-4 w-4" />
+                    </button>
+                    {showPollers && (
+                        <div className="absolute right-0 mt-2 w-56 rounded-md shadow-lg bg-white dark:bg-gray-800 ring-1 ring-black ring-opacity-5 z-10">
+                            <div className="py-1" role="menu" aria-orientation="vertical" aria-labelledby="options-menu">
+                                <a href="#" onClick={() => handlePollerSelect(null)} className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700" role="menuitem">All Pollers</a>
+                                {pollers.map((poller) => (
+                                    <a href="#" key={poller.poller_id} onClick={() => handlePollerSelect(poller.poller_id)} className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700" role="menuitem">{poller.poller_id}</a>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+                <div className="relative">
+                    <button onClick={() => setShowPartitions(!showPartitions)} className="flex items-center gap-2 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md text-sm hover:bg-gray-100 dark:hover:bg-gray-700">
+                        {selectedPartition ? selectedPartition : 'All Partitions'}
+                        <ChevronDown className="h-4 w-4" />
+                    </button>
+                    {showPartitions && (
+                        <div className="absolute right-0 mt-2 w-56 rounded-md shadow-lg bg-white dark:bg-gray-800 ring-1 ring-black ring-opacity-5 z-10">
+                            <div className="py-1" role="menu" aria-orientation="vertical" aria-labelledby="options-menu">
+                                <a href="#" onClick={() => handlePartitionSelect(null)} className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700" role="menuitem">All Partitions</a>
+                                {partitions.map((partition, index) => (
+                                    <a href="#" key={`${partition.partition}-${index}`} onClick={() => handlePartitionSelect(partition.partition)} className="block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700" role="menuitem">{partition.partition}</a>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
             </div>
 
             <div className="flex items-center gap-4">

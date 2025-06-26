@@ -23,11 +23,9 @@ import { Device, DevicesApiResponse, Pagination } from '@/types/devices';
 import { useAuth } from '@/components/AuthProvider';
 import { useRouter } from 'next/navigation';
 import {
-    Wifi,
     Router as RouterIcon,
     Network,
     Scan,
-    Cpu,
     Server,
     CheckCircle,
     XCircle,
@@ -35,7 +33,8 @@ import {
     Activity,
     Globe,
     Rss,
-    Info,
+    
+    
     AlertTriangle,
     Loader2,
     Search,
@@ -124,7 +123,7 @@ const SNMPDeviceList: React.FC = () => {
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
     const [expandedRow, setExpandedRow] = useState<string | null>(null);
 
-    const postQuery = useCallback(async <T extends DevicesApiResponse | { results: { 'count()': number }[] }>(
+    const postQuery = useCallback(async <T extends DevicesApiResponse | { results: { 'count()': number }[] | { 'count()': number }[] }>(
         query: string,
         cursor?: string,
         direction?: 'next' | 'prev'
@@ -173,10 +172,10 @@ const SNMPDeviceList: React.FC = () => {
 
             // Fetch stats in parallel
             const [onlineRes, offlineRes] = await Promise.all([
-                postQuery<{ results: [{ 'count()': number }[]] }>(
+                postQuery<{ results: { 'count()': number }[] }>(
                     "COUNT DEVICES WHERE discovery_sources = 'snmp' AND is_available = true"
                 ),
-                postQuery<{ results: [{ 'count()': number }[]] }>(
+                postQuery<{ results: { 'count()': number }[] }>(
                     "COUNT DEVICES WHERE discovery_sources = 'snmp' AND is_available = false"
                 ),
             ]);

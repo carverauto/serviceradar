@@ -23,12 +23,19 @@ import {Loader2, Send, AlertTriangle, Eye, EyeOff, FileJson, Table, ChevronDown}
 import { useAuth } from '@/components/AuthProvider';
 import ReactJson from '@microlink/react-json-view';
 import { fetchAPI } from '@/lib/client-api';
+import { Poller, Partition } from '@/types/types';
+import { Device } from '@/types/devices';
+import DeviceTable from '@/components/Devices/DeviceTable';
 
 type ViewFormat = 'json' | 'table';
 
-const ApiQueryClient: React.FC = () => {
+interface ApiQueryClientProps {
+    query: string;
+}
+
+const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) => {
     const searchParams = useSearchParams();
-    const [query, setQuery] = useState<string>('');
+    const [query, setQuery] = useState<string>(initialQuery);
     const [results, setResults] = useState<unknown>(null);
     const [responseData, setResponseData] = useState<unknown>(null);
     const [pagination, setPagination] = useState<{
@@ -51,95 +58,6 @@ const ApiQueryClient: React.FC = () => {
     const [selectedPartition, setSelectedPartition] = useState<string | null>(null);
 
     const [jsonViewTheme, setJsonViewTheme] = useState<'rjv-default' | 'pop'>('rjv-default');
-
-    useEffect(() => {
-        const initialQuery = searchParams.get('q');
-        if (initialQuery) {
-            setQuery(initialQuery);
-            handleSubmit(undefined, undefined, undefined, initialQuery);
-        }
-    }, [searchParams]);
-
-    useEffect(() => {
-        const updateTheme = () => {
-            if (document.documentElement.classList.contains('dark')) {
-                setJsonViewTheme('pop');
-            } else {
-                setJsonViewTheme('rjv-default');
-            }
-        };
-        updateTheme();
-        const observer = new MutationObserver((mutationsList) => {
-            for (const mutation of mutationsList) {
-                if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
-                    updateTheme();
-                }
-            }
-        });
-        observer.observe(document.documentElement, { attributes: true });
-        return () => observer.disconnect();
-    }, []);
-
-    useEffect(() => {
-        const fetchPollers = async () => {
-            try {
-                const data = await fetchAPI('/query', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        ...(token && { Authorization: `Bearer ${token}` }),
-                    },
-                    body: JSON.stringify({ query: 'show pollers' }),
-                });
-                const rawResults = Array.isArray(data.results) ? data.results : [];
-                const uniquePollerIds = new Set<string>();
-                const processedPollers: Poller[] = [];
-
-                rawResults.forEach((item: any) => {
-                    if (item && typeof item === 'object' && typeof item.poller_id === 'string') {
-                        const trimmedId = item.poller_id.trim();
-                        if (trimmedId !== '' && !uniquePollerIds.has(trimmedId)) {
-                            uniquePollerIds.add(trimmedId);
-                            processedPollers.push({ poller_id: trimmedId });
-                        }
-                    }
-                });
-                console.log('Raw pollers data:', data.results);
-                setPollers(processedPollers);
-            } catch (error) {
-                console.error('Failed to fetch pollers:', error);
-            }
-        };
-
-        const fetchPartitions = async () => {
-            try {
-                const data = await fetchAPI('/query', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        ...(token && { Authorization: `Bearer ${token}` }),
-                    },
-                    body: JSON.stringify({ query: 'show sweep_results | distinct partition' }),
-                });
-                setPartitions(Array.from(new Set(data.results.map((p: Partition) => p.partition))).map((p: string) => ({ partition: p })) || []);
-            } catch (error) {
-                console.error('Failed to fetch partitions:', error);
-            }
-        };
-
-        fetchPollers();
-        fetchPartitions();
-    }, [token]);
-
-    const handlePollerSelect = (pollerId: string | null) => {
-        setSelectedPoller(pollerId);
-        setShowPollers(false);
-    };
-
-    const handlePartitionSelect = (partition: string | null) => {
-        setSelectedPartition(partition);
-        setShowPartitions(false);
-    };
 
     const handleSubmit = useCallback(
         async (
@@ -176,14 +94,19 @@ const ApiQueryClient: React.FC = () => {
                     credentials: 'include',
                 };
 
-                const data = await fetchAPI('/query', options);
+                const data: unknown = await fetchAPI('/query', options);
 
                 setResponseData(data);
                 if (data && typeof data === 'object' && 'results' in data) {
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    const d = data as any;
+                    const d = data as { results: unknown; pagination?: { next_cursor?: string; prev_cursor?: string; limit?: number; } };
                     setResults(d.results);
                     setPagination(d.pagination ?? null);
+                    
+                    // Debug logging
+                    console.log('Query:', q);
+                    console.log('Is device query?', isDeviceQuery(q));
+                    console.log('Results sample:', Array.isArray(d.results) ? d.results[0] : 'Not an array');
+                    console.log('Is device data?', isDeviceData(d.results));
                 } else {
                     setResults(data);
                     setPagination(null);
@@ -203,6 +126,116 @@ const ApiQueryClient: React.FC = () => {
         },
         [query, token, limit]
     );
+
+    useEffect(() => {
+        const initialQueryFromParams = searchParams.get('q');
+        if (initialQueryFromParams) {
+            setQuery(initialQueryFromParams);
+            handleSubmit(undefined, undefined, undefined, initialQueryFromParams);
+        } else {
+            setQuery(initialQuery); // Set initial query from props if no search param
+        }
+    }, [searchParams, handleSubmit, initialQuery]);
+
+    useEffect(() => {
+        const updateTheme = () => {
+            if (document.documentElement.classList.contains('dark')) {
+                setJsonViewTheme('pop');
+            } else {
+                setJsonViewTheme('rjv-default');
+            }
+        };
+        updateTheme();
+        const observer = new MutationObserver((mutationsList) => {
+            for (const mutation of mutationsList) {
+                if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
+                    updateTheme();
+                }
+            }
+        });
+        observer.observe(document.documentElement, { attributes: true });
+        return () => observer.disconnect();
+    }, []);
+
+    useEffect(() => {
+        const fetchPollers = async () => {
+            try {
+                const data: { results: { poller_id: string }[] } = await fetchAPI('/query', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(token && { Authorization: `Bearer ${token}` }),
+                    },
+                    body: JSON.stringify({ query: 'show pollers' }),
+                });
+                const rawResults = Array.isArray(data.results) ? (data.results as { poller_id: string }[]) : [];
+                const uniquePollerIds = new Set<string>();
+                const processedPollers: Poller[] = [];
+
+                rawResults.forEach((item: { poller_id: string }) => {
+                    if (item && typeof item === 'object' && typeof item.poller_id === 'string') {
+                        const trimmedId = item.poller_id.trim();
+                        if (trimmedId !== '' && !uniquePollerIds.has(trimmedId)) {
+                            uniquePollerIds.add(trimmedId);
+                            processedPollers.push({ poller_id: trimmedId, is_healthy: true, last_update: new Date().toISOString() });
+                        }
+                    }
+                });
+                console.log('Raw pollers data:', (data as { results: { poller_id: string }[] }).results);
+                setPollers(processedPollers);
+            } catch (error) {
+                console.error('Failed to fetch pollers:', error);
+            }
+        };
+
+        const fetchPartitions = async () => {
+            try {
+                const data = await fetchAPI<{ results: { partition: string }[] }>('/query', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(token && { Authorization: `Bearer ${token}` }),
+                    },
+                    body: JSON.stringify({ query: 'show sweep_results | distinct partition' }),
+                });
+                setPartitions(Array.from(new Set(data.results.map((p: Partition) => p.partition))).map((p: string) => ({ partition: p })) || []);
+            } catch (error) {
+                console.error('Failed to fetch partitions:', error);
+            }
+        };
+
+        fetchPollers();
+        fetchPartitions();
+    }, [token]);
+
+    const handlePollerSelect = (pollerId: string | null) => {
+        setSelectedPoller(pollerId);
+        setShowPollers(false);
+    };
+
+    const handlePartitionSelect = (partition: string | null) => {
+        setSelectedPartition(partition);
+        setShowPartitions(false);
+    };
+
+    const isDeviceQuery = (query: string): boolean => {
+        const normalizedQuery = query.trim().toUpperCase();
+        return normalizedQuery.startsWith('SHOW DEVICES') || 
+               normalizedQuery.startsWith('FIND DEVICES') ||
+               normalizedQuery.startsWith('COUNT DEVICES');
+    };
+
+    const isDeviceData = (data: unknown): data is Device[] => {
+        if (!Array.isArray(data) || data.length === 0) return false;
+        const firstItem = data[0];
+        return (
+            typeof firstItem === 'object' &&
+            firstItem !== null &&
+            'device_id' in firstItem &&
+            'ip' in firstItem &&
+            'discovery_sources' in firstItem
+        );
+    };
 
     const renderResultsTable = (data: unknown) => {
         if (data === null || typeof data === 'undefined')
@@ -355,6 +388,21 @@ const ApiQueryClient: React.FC = () => {
                 <h2 className="text-xl font-bold text-white mb-4">
                     API Query Tool
                 </h2>
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <div>
+                        <label htmlFor="query" className="block text-sm font-medium text-gray-300 mb-2">
+                            SRQL Query
+                        </label>
+                        <textarea
+                            id="query"
+                            rows={3}
+                            value={query}
+                            onChange={(e) => setQuery(e.target.value)}
+                            placeholder="Enter your SRQL query here..."
+                            className="block w-full px-4 py-3 border border-gray-600 rounded-md shadow-sm bg-[#16151c] text-gray-100 placeholder-gray-500 focus:ring-green-500 focus:border-green-500"
+                        />
+                    </div>
+                </form>
                 <div className="flex flex-wrap justify-between items-center gap-4 pt-4 border-t border-gray-700">
                     <div className="flex items-center space-x-2">
                         <label
@@ -428,8 +476,11 @@ const ApiQueryClient: React.FC = () => {
                         )}
                     </div>
                     <button
-                        type="button"
-                        onClick={() => handleSubmit(undefined, undefined, undefined, query)}
+                        type="submit"
+                        onClick={(e) => {
+                            e.preventDefault();
+                            handleSubmit(undefined, undefined, undefined, query);
+                        }}
                         disabled={isLoading}
                         className="w-full sm:w-auto px-6 py-2 bg-green-600 text-white font-semibold rounded-md shadow-sm hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
                     >
@@ -496,7 +547,9 @@ const ApiQueryClient: React.FC = () => {
                         )}
                     </div>
                     <div className="p-4">
-                        {viewFormat === 'json' ? (
+                        {isDeviceQuery(query) && isDeviceData(results) ? (
+                            <DeviceTable devices={results as Device[]} />
+                        ) : viewFormat === 'json' ? (
                             showRawJson ? (
                                 <pre className="bg-[#16151c] p-4 rounded-md overflow-auto text-sm text-gray-200 max-h-[600px]">
                                 {JSON.stringify(responseData, null, 2)}

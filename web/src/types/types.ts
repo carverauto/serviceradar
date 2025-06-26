@@ -64,7 +64,7 @@ export interface RperfResult {
     [key: string]: unknown; // Allow for other fields in summary
   };
   target?: string;
-  [key: string]: unknown; // Allow for other fields in RperfResult
+  [key: string]: unknown; // Allow for other fields in RperfDetails
 }
 
 export interface RperfDetails {
@@ -121,6 +121,10 @@ export interface Poller {
   is_healthy: boolean;
   last_update: string;
   services?: Service[]; // Services within a poller might be the basic Service interface, not full ServicePayloads
+}
+
+export interface Partition {
+  partition: string;
 }
 
 export interface ServiceStats {
