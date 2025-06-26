@@ -260,7 +260,7 @@ func (mr *MockStructuredMetricCollectorMockRecorder) StoreRperfMetrics(ctx, poll
 }
 
 // StoreSysmonMetrics mocks base method.
-func (m *MockStructuredMetricCollector) StoreSysmonMetrics(ctx context.Context, pollerID string, metrics *models.SysmonMetrics, timestamp time.Time) error {
+func (m *MockStructuredMetricCollector) StoreSysmonMetrics(ctx context.Context, pollerID, agentID, hostID string, metrics *models.SysmonMetrics, timestamp time.Time) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "StoreSysmonMetrics", ctx, pollerID, metrics, timestamp)
 	ret0, _ := ret[0].(error)

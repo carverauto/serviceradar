@@ -65,6 +65,10 @@ type CPUMetric struct {
 	UsagePercent float64 `json:"usage_percent" example:"45.2"`
 	// When this metric was collected
 	Timestamp time.Time `json:"timestamp" example:"2025-04-24T14:15:22Z"`
+	// Host identifier for the agent that collected this metric
+	HostID string `json:"host_id,omitempty" example:"server-east-1"`
+	// ServiceRadar agent identifier
+	AgentID string `json:"agent_id,omitempty" example:"agent-1234"`
 }
 
 // DiskMetric represents disk usage for a single mount point.
@@ -78,6 +82,10 @@ type DiskMetric struct {
 	TotalBytes uint64 `json:"total_bytes" example:"107374182400"`
 	// When this metric was collected
 	Timestamp time.Time `json:"timestamp" example:"2025-04-24T14:15:22Z"`
+	// Host identifier for the agent that collected this metric
+	HostID string `json:"host_id,omitempty" example:"server-east-1"`
+	// ServiceRadar agent identifier
+	AgentID string `json:"agent_id,omitempty" example:"agent-1234"`
 }
 
 // MemoryMetric represents system memory usage.
@@ -89,6 +97,10 @@ type MemoryMetric struct {
 	TotalBytes uint64 `json:"total_bytes" example:"17179869184"`
 	// When this metric was collected
 	Timestamp time.Time `json:"timestamp" example:"2025-04-24T14:15:22Z"`
+	// Host identifier for the agent that collected this metric
+	HostID string `json:"host_id,omitempty" example:"server-east-1"`
+	// ServiceRadar agent identifier
+	AgentID string `json:"agent_id,omitempty" example:"agent-1234"`
 }
 
 // SysmonMetricData represents the raw data received from the sysmon service.

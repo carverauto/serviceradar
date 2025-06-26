@@ -255,7 +255,7 @@ func (db *DB) GetMetricsByType(ctx context.Context, pollerID, metricType string,
 // GetCPUMetrics retrieves CPU metrics for a specific core.
 func (db *DB) GetCPUMetrics(ctx context.Context, pollerID string, coreID int, start, end time.Time) ([]models.CPUMetric, error) {
 	rows, err := db.Conn.Query(ctx, `
-		SELECT timestamp, core_id, usage_percent
+		SELECT timestamp, agent_id, host_id, core_id, usage_percent
 		FROM table(cpu_metrics)
 		WHERE poller_id = $1 AND core_id = $2 AND timestamp BETWEEN $3 AND $4
 		ORDER BY timestamp`,
@@ -269,11 +269,14 @@ func (db *DB) GetCPUMetrics(ctx context.Context, pollerID string, coreID int, st
 
 	for rows.Next() {
 		var m models.CPUMetric
+		var agentID, hostID string
 
-		if err := rows.Scan(&m.Timestamp, &m.CoreID, &m.UsagePercent); err != nil {
+		if err := rows.Scan(&m.Timestamp, &agentID, &hostID, &m.CoreID, &m.UsagePercent); err != nil {
 			return nil, fmt.Errorf("failed to scan CPU metric: %w", err)
 		}
 
+		m.AgentID = agentID
+		m.HostID = hostID
 		metrics = append(metrics, m)
 	}
 
@@ -427,16 +430,16 @@ func (db *DB) StoreMetrics(ctx context.Context, pollerID string, metrics []*mode
 
 // StoreSysmonMetrics stores sysmon metrics for CPU, disk, and memory.
 func (db *DB) StoreSysmonMetrics(
-	ctx context.Context, pollerID string, metrics *models.SysmonMetrics, timestamp time.Time) error {
-	if err := db.storeCPUMetrics(ctx, pollerID, metrics.CPUs, timestamp); err != nil {
+	ctx context.Context, pollerID, agentID, hostID string, metrics *models.SysmonMetrics, timestamp time.Time) error {
+	if err := db.storeCPUMetrics(ctx, pollerID, agentID, hostID, metrics.CPUs, timestamp); err != nil {
 		return fmt.Errorf("failed to store CPU metrics: %w", err)
 	}
 
-	if err := db.storeDiskMetrics(ctx, pollerID, metrics.Disks, timestamp); err != nil {
+	if err := db.storeDiskMetrics(ctx, pollerID, agentID, hostID, metrics.Disks, timestamp); err != nil {
 		return fmt.Errorf("failed to store disk metrics: %w", err)
 	}
 
-	if err := db.storeMemoryMetrics(ctx, pollerID, metrics.Memory, timestamp); err != nil {
+	if err := db.storeMemoryMetrics(ctx, pollerID, agentID, hostID, metrics.Memory, timestamp); err != nil {
 		return fmt.Errorf("failed to store memory metrics: %w", err)
 	}
 
@@ -444,14 +447,14 @@ func (db *DB) StoreSysmonMetrics(
 }
 
 // storeCPUMetrics stores CPU metrics in a batch.
-func (db *DB) storeCPUMetrics(ctx context.Context, pollerID string, cpus []models.CPUMetric, timestamp time.Time) error {
+func (db *DB) storeCPUMetrics(ctx context.Context, pollerID, agentID, hostID string, cpus []models.CPUMetric, timestamp time.Time) error {
 	if len(cpus) == 0 {
 		return nil
 	}
 
 	return db.executeBatch(ctx, "INSERT INTO cpu_metrics (* except _tp_time)", func(batch driver.Batch) error {
 		for _, cpu := range cpus {
-			if err := batch.Append(pollerID, timestamp, cpu.CoreID, cpu.UsagePercent); err != nil {
+			if err := batch.Append(pollerID, agentID, hostID, timestamp, cpu.CoreID, cpu.UsagePercent); err != nil {
 				log.Printf("Failed to append CPU metric for core %d: %v", cpu.CoreID, err)
 				continue
 			}
@@ -462,14 +465,14 @@ func (db *DB) storeCPUMetrics(ctx context.Context, pollerID string, cpus []model
 }
 
 // storeDiskMetrics stores disk metrics in a batch.
-func (db *DB) storeDiskMetrics(ctx context.Context, pollerID string, disks []models.DiskMetric, timestamp time.Time) error {
+func (db *DB) storeDiskMetrics(ctx context.Context, pollerID, agentID, hostID string, disks []models.DiskMetric, timestamp time.Time) error {
 	if len(disks) == 0 {
 		return nil
 	}
 
 	return db.executeBatch(ctx, "INSERT INTO disk_metrics (* except _tp_time)", func(batch driver.Batch) error {
 		for _, disk := range disks {
-			if err := batch.Append(pollerID, timestamp, disk.MountPoint, disk.UsedBytes, disk.TotalBytes); err != nil {
+			if err := batch.Append(pollerID, agentID, hostID, timestamp, disk.MountPoint, disk.UsedBytes, disk.TotalBytes); err != nil {
 				log.Printf("Failed to append disk metric for %s: %v", disk.MountPoint, err)
 				continue
 			}
@@ -480,20 +483,20 @@ func (db *DB) storeDiskMetrics(ctx context.Context, pollerID string, disks []mod
 }
 
 // storeMemoryMetrics stores memory metrics in a batch.
-func (db *DB) storeMemoryMetrics(ctx context.Context, pollerID string, memory models.MemoryMetric, timestamp time.Time) error {
+func (db *DB) storeMemoryMetrics(ctx context.Context, pollerID, agentID, hostID string, memory models.MemoryMetric, timestamp time.Time) error {
 	if memory.UsedBytes == 0 && memory.TotalBytes == 0 {
 		return nil
 	}
 
 	return db.executeBatch(ctx, "INSERT INTO memory_metrics (* except _tp_time)", func(batch driver.Batch) error {
-		return batch.Append(pollerID, timestamp, memory.UsedBytes, memory.TotalBytes)
+		return batch.Append(pollerID, agentID, hostID, timestamp, memory.UsedBytes, memory.TotalBytes)
 	})
 }
 
 // GetAllCPUMetrics retrieves all CPU metrics for a poller within a time range, grouped by timestamp.
 func (db *DB) GetAllCPUMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonCPUResponse, error) {
 	rows, err := db.Conn.Query(ctx, `
-		SELECT timestamp, core_id, usage_percent
+		SELECT timestamp, agent_id, host_id, core_id, usage_percent
 		FROM table(cpu_metrics)
 		WHERE poller_id = $1 AND timestamp BETWEEN $2 AND $3
 		ORDER BY timestamp DESC, core_id ASC`,
@@ -509,15 +512,17 @@ func (db *DB) GetAllCPUMetrics(ctx context.Context, pollerID string, start, end 
 
 	for rows.Next() {
 		var m models.CPUMetric
-
+		var agentID, hostID string
 		var timestamp time.Time
 
-		if err := rows.Scan(&timestamp, &m.CoreID, &m.UsagePercent); err != nil {
+		if err := rows.Scan(&timestamp, &agentID, &hostID, &m.CoreID, &m.UsagePercent); err != nil {
 			log.Printf("Error scanning CPU metric row: %v", err)
 			continue
 		}
 
 		m.Timestamp = timestamp
+		m.AgentID = agentID
+		m.HostID = hostID
 		data[timestamp] = append(data[timestamp], m)
 	}
 
@@ -547,7 +552,7 @@ func (db *DB) GetAllCPUMetrics(ctx context.Context, pollerID string, start, end 
 // GetAllDiskMetrics retrieves all disk metrics for a poller.
 func (db *DB) GetAllDiskMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.DiskMetric, error) {
 	rows, err := db.Conn.Query(ctx, `
-		SELECT mount_point, used_bytes, total_bytes, timestamp
+		SELECT mount_point, used_bytes, total_bytes, timestamp, agent_id, host_id
 		FROM table(disk_metrics)
 		WHERE poller_id = $1 AND timestamp BETWEEN $2 AND $3
 		ORDER BY timestamp DESC, mount_point ASC`,
@@ -564,7 +569,7 @@ func (db *DB) GetAllDiskMetrics(ctx context.Context, pollerID string, start, end
 	for rows.Next() {
 		var m models.DiskMetric
 
-		if err = rows.Scan(&m.MountPoint, &m.UsedBytes, &m.TotalBytes, &m.Timestamp); err != nil {
+		if err = rows.Scan(&m.MountPoint, &m.UsedBytes, &m.TotalBytes, &m.Timestamp, &m.AgentID, &m.HostID); err != nil {
 			log.Printf("Error scanning disk metric row: %v", err)
 
 			continue
@@ -585,7 +590,7 @@ func (db *DB) GetAllDiskMetrics(ctx context.Context, pollerID string, start, end
 // GetDiskMetrics retrieves disk metrics for a specific mount point.
 func (db *DB) GetDiskMetrics(ctx context.Context, pollerID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error) {
 	rows, err := db.Conn.Query(ctx, `
-		SELECT timestamp, mount_point, used_bytes, total_bytes
+		SELECT timestamp, mount_point, used_bytes, total_bytes, agent_id, host_id
 		FROM table(disk_metrics)
 		WHERE poller_id = $1 AND mount_point = $2 AND timestamp BETWEEN $3 AND $4
 		ORDER BY timestamp`,
@@ -600,7 +605,7 @@ func (db *DB) GetDiskMetrics(ctx context.Context, pollerID, mountPoint string, s
 	for rows.Next() {
 		var m models.DiskMetric
 
-		if err = rows.Scan(&m.Timestamp, &m.MountPoint, &m.UsedBytes, &m.TotalBytes); err != nil {
+		if err = rows.Scan(&m.Timestamp, &m.MountPoint, &m.UsedBytes, &m.TotalBytes, &m.AgentID, &m.HostID); err != nil {
 			log.Printf("Error scanning disk metric row: %v", err)
 			continue
 		}
@@ -614,7 +619,7 @@ func (db *DB) GetDiskMetrics(ctx context.Context, pollerID, mountPoint string, s
 // GetMemoryMetrics retrieves memory metrics.
 func (db *DB) GetMemoryMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.MemoryMetric, error) {
 	rows, err := db.Conn.Query(ctx, `
-		SELECT timestamp, used_bytes, total_bytes
+		SELECT timestamp, used_bytes, total_bytes, agent_id, host_id
 		FROM table(memory_metrics)
 		WHERE poller_id = $1 AND timestamp BETWEEN $2 AND $3
 		ORDER BY timestamp`,
@@ -629,7 +634,7 @@ func (db *DB) GetMemoryMetrics(ctx context.Context, pollerID string, start, end 
 	for rows.Next() {
 		var m models.MemoryMetric
 
-		if err = rows.Scan(&m.Timestamp, &m.UsedBytes, &m.TotalBytes); err != nil {
+		if err = rows.Scan(&m.Timestamp, &m.UsedBytes, &m.TotalBytes, &m.AgentID, &m.HostID); err != nil {
 			log.Printf("Error scanning memory metric row: %v", err)
 
 			continue
@@ -644,7 +649,7 @@ func (db *DB) GetMemoryMetrics(ctx context.Context, pollerID string, start, end 
 // GetAllDiskMetricsGrouped retrieves disk metrics grouped by timestamp.
 func (db *DB) GetAllDiskMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonDiskResponse, error) {
 	rows, err := db.Conn.Query(ctx, `
-		SELECT timestamp, mount_point, used_bytes, total_bytes
+		SELECT timestamp, mount_point, used_bytes, total_bytes, agent_id, host_id
 		FROM table(disk_metrics)
 		WHERE poller_id = $1 AND timestamp BETWEEN $2 AND $3
 		ORDER BY timestamp DESC, mount_point ASC`,
@@ -660,17 +665,15 @@ func (db *DB) GetAllDiskMetricsGrouped(ctx context.Context, pollerID string, sta
 
 	for rows.Next() {
 		var m models.DiskMetric
-
 		var timestamp time.Time
 
-		if err = rows.Scan(&timestamp, &m.MountPoint, &m.UsedBytes, &m.TotalBytes); err != nil {
+		if err = rows.Scan(&timestamp, &m.MountPoint, &m.UsedBytes, &m.TotalBytes, &m.AgentID, &m.HostID); err != nil {
 			log.Printf("Error scanning disk metric row: %v", err)
 
 			continue
 		}
 
 		m.Timestamp = timestamp
-
 		data[timestamp] = append(data[timestamp], m)
 	}
 
@@ -700,7 +703,7 @@ func (db *DB) GetAllDiskMetricsGrouped(ctx context.Context, pollerID string, sta
 // GetMemoryMetricsGrouped retrieves memory metrics grouped by timestamp.
 func (db *DB) GetMemoryMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonMemoryResponse, error) {
 	rows, err := db.Conn.Query(ctx, `
-		SELECT timestamp, used_bytes, total_bytes
+		SELECT timestamp, used_bytes, total_bytes, agent_id, host_id
 		FROM table(memory_metrics)
 		WHERE poller_id = $1 AND timestamp BETWEEN $2 AND $3
 		ORDER BY timestamp DESC`,
@@ -716,17 +719,15 @@ func (db *DB) GetMemoryMetricsGrouped(ctx context.Context, pollerID string, star
 
 	for rows.Next() {
 		var m models.MemoryMetric
-
 		var timestamp time.Time
 
-		if err = rows.Scan(&timestamp, &m.UsedBytes, &m.TotalBytes); err != nil {
+		if err = rows.Scan(&timestamp, &m.UsedBytes, &m.TotalBytes, &m.AgentID, &m.HostID); err != nil {
 			log.Printf("Error scanning memory metric row: %v", err)
 
 			continue
 		}
 
 		m.Timestamp = timestamp
-
 		result = append(result, models.SysmonMemoryResponse{
 			Memory:    m,
 			Timestamp: timestamp,
