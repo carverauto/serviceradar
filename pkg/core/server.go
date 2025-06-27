@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -39,6 +40,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
+	"google.golang.org/grpc/peer"
 )
 
 const (
@@ -661,37 +663,41 @@ func (s *Server) findAgentID(services []*proto.ServiceStatus) string {
 }
 
 // registerServiceDevice creates or updates a device entry for a poller and/or agent
+// This treats the agent/poller as a service running on a real host device within a specific partition
 func (s *Server) registerServiceDevice(ctx context.Context, pollerID, agentID, partition string, timestamp time.Time) error {
-	// Generate service-specific IP addressing and device ID
-	var serviceIP string
-	var serviceType string
-	var hostname string
-	
-	// Determine service type and IP based on the relationship between poller and agent
-	if agentID == "" {
-		// Pure poller
-		serviceType = "poller"
-		serviceIP = fmt.Sprintf("127.0.1.%d", hashStringToIP(pollerID))
-		hostname = pollerID
-	} else if agentID == pollerID {
-		// Combined poller/agent
-		serviceType = "agent_poller"
-		serviceIP = fmt.Sprintf("127.0.2.%d", hashStringToIP(pollerID))
-		hostname = pollerID
-	} else {
-		// Separate agent
-		serviceType = "agent"
-		serviceIP = fmt.Sprintf("127.0.3.%d", hashStringToIP(agentID))
-		hostname = agentID
-	}
-
 	// Use default partition if none provided
 	if partition == "" {
 		partition = "default"
 	}
 
-	// Generate device ID following the partition:ip schema
-	deviceID := fmt.Sprintf("%s:%s", partition, serviceIP)
+	// Determine the host IP address where this service is running
+	hostIP := s.getServiceHostIP(ctx, pollerID, agentID)
+	if hostIP == "" {
+		// Fallback to localhost if we can't determine the real IP
+		hostIP = "127.0.0.1"
+		log.Printf("Warning: Could not determine host IP for poller %s, using localhost", pollerID)
+	}
+
+	// Generate device ID following the partition:ip schema for the actual host
+	deviceID := fmt.Sprintf("%s:%s", partition, hostIP)
+
+	// Determine service types based on the relationship between poller and agent
+	var serviceTypes []string
+	var primaryServiceID string
+	
+	if agentID == "" {
+		// Pure poller
+		serviceTypes = []string{"poller"}
+		primaryServiceID = pollerID
+	} else if agentID == pollerID {
+		// Combined poller/agent
+		serviceTypes = []string{"poller", "agent"}
+		primaryServiceID = pollerID
+	} else {
+		// Separate agent
+		serviceTypes = []string{"agent"}
+		primaryServiceID = agentID
+	}
 
 	// Check if device already exists to determine FirstSeen timestamp
 	firstSeen := timestamp
@@ -700,27 +706,38 @@ func (s *Server) registerServiceDevice(ctx context.Context, pollerID, agentID, p
 		firstSeen = existingDevice.FirstSeen
 	}
 
-	// Create the device metadata including version info if available
+	// Create the device metadata including service information
+	// Note: metadata must be map[string]string per database schema
 	metadata := map[string]interface{}{
-		"service_type":   serviceType,
-		"service_status": "online",
-		"device_type":    "service_device",
-		"last_heartbeat": timestamp.Format(time.RFC3339),
+		"device_type":      "host",
+		"service_types":    strings.Join(serviceTypes, ","), // Convert array to comma-separated string
+		"service_status":   "online",
+		"last_heartbeat":   timestamp.Format(time.RFC3339),
+		"primary_service":  primaryServiceID,
 	}
 
-	// If we have both poller and agent IDs, include both in metadata
-	if agentID != "" && agentID != pollerID {
+	// Add poller-specific metadata if this host runs a poller
+	if pollerID != "" {
 		metadata["poller_id"] = pollerID
-		metadata["agent_id"] = agentID
+		metadata["poller_status"] = "active"
 	}
 
-	// Construct the Device object
+	// Add agent-specific metadata if this host runs an agent
+	if agentID != "" && agentID != pollerID {
+		metadata["agent_id"] = agentID
+		metadata["agent_status"] = "active"
+	}
+
+	// Try to get hostname from the service ID or use IP as fallback
+	hostname := s.getServiceHostname(primaryServiceID, hostIP)
+
+	// Construct the Device object representing the host device
 	device := &models.Device{
 		DeviceID:         deviceID,
-		PollerID:         pollerID,
-		AgentID:          agentID,
-		IP:               serviceIP,
-		Hostname:         hostname,
+		PollerID:         pollerID,         // The poller managing this device (may be itself)
+		AgentID:          agentID,          // The agent running on this device (may be empty)
+		IP:               hostIP,           // Real host IP address
+		Hostname:         hostname,         // Real or derived hostname
 		DiscoverySources: []string{"self-reported"},
 		IsAvailable:      true,
 		LastSeen:         timestamp,
@@ -733,25 +750,69 @@ func (s *Server) registerServiceDevice(ctx context.Context, pollerID, agentID, p
 		return fmt.Errorf("failed to store service device: %w", err)
 	}
 
-	log.Printf("Successfully registered service device %s (type: %s) for poller %s", 
-		deviceID, serviceType, pollerID)
+	log.Printf("Successfully registered host device %s (services: %v) for poller %s", 
+		deviceID, serviceTypes, pollerID)
 	
 	return nil
 }
 
-// hashStringToIP creates a simple hash of a string to generate the last octet of an IP
-func hashStringToIP(s string) int {
-	hash := 0
-	for _, char := range s {
-		hash = (hash*31 + int(char)) & 0xFF
+// getServiceHostIP attempts to determine the real IP address of the host running the service
+func (s *Server) getServiceHostIP(ctx context.Context, pollerID, agentID string) string {
+	// Try to extract the IP from the gRPC peer context
+	if p, ok := peer.FromContext(ctx); ok {
+		if addr := p.Addr; addr != nil {
+			// Parse the address to extract just the IP part
+			if tcpAddr, ok := addr.(*net.TCPAddr); ok {
+				ip := tcpAddr.IP.String()
+				// Avoid returning loopback addresses unless they're explicitly configured
+				if !isLoopbackIP(ip) {
+					log.Printf("Extracted real host IP %s for service %s", ip, pollerID)
+					return ip
+				}
+			}
+			// For other address types, try to parse as host:port
+			if host, _, err := net.SplitHostPort(addr.String()); err == nil {
+				// Validate that it's a proper IP
+				if ip := net.ParseIP(host); ip != nil && !isLoopbackIP(host) {
+					log.Printf("Parsed host IP %s for service %s", host, pollerID)
+					return host
+				}
+			}
+		}
 	}
-	// Ensure we don't use 0 or 255 (reserved)
-	if hash == 0 {
-		hash = 1
-	} else if hash == 255 {
-		hash = 254
+	
+	// Additional strategies could be implemented here:
+	// 1. Query a service registry based on pollerID/agentID
+	// 2. Use reverse DNS lookup on service ID if it's a hostname
+	// 3. Check configuration for known service -> IP mappings
+	// 4. Use environment variables or config files
+	
+	// Return empty to trigger fallback to localhost
+	return ""
+}
+
+// isLoopbackIP checks if an IP address is a loopback address
+func isLoopbackIP(ipStr string) bool {
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return false
 	}
-	return hash
+	return ip.IsLoopback()
+}
+
+// getServiceHostname attempts to determine the hostname for a service
+func (s *Server) getServiceHostname(serviceID, hostIP string) string {
+	// TODO: In a real implementation, this could:
+	// 1. Perform reverse DNS lookup on the IP
+	// 2. Query a hostname registry
+	// 3. Use the service ID as hostname if it's already a hostname
+	
+	// For now, use the service ID as hostname if it looks like one,
+	// otherwise use the IP
+	if serviceID != "" && (len(serviceID) > 7) { // Simple heuristic
+		return serviceID
+	}
+	return hostIP
 }
 
 func (s *Server) processStatusReport(
@@ -785,10 +846,10 @@ func (s *Server) processStatusReport(
 		// Register the poller/agent as a device
 		go func() {
 			// Run in a separate goroutine to not block the main status report flow.
-			// Use a new context to avoid cancellation from the original request.
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			// Use the original context to preserve gRPC peer information but with a timeout
+			timeoutCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 			defer cancel()
-			if err := s.registerServiceDevice(ctx, req.PollerId, s.findAgentID(req.Services), req.Partition, now); err != nil {
+			if err := s.registerServiceDevice(timeoutCtx, req.PollerId, s.findAgentID(req.Services), req.Partition, now); err != nil {
 				log.Printf("Failed to register service device for poller %s: %v", req.PollerId, err)
 			}
 		}()
@@ -810,10 +871,10 @@ func (s *Server) processStatusReport(
 	// Register the poller/agent as a device for new pollers too
 	go func() {
 		// Run in a separate goroutine to not block the main status report flow.
-		// Use a new context to avoid cancellation from the original request.
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		// Use the original context to preserve gRPC peer information but with a timeout
+		timeoutCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
-		if err := s.registerServiceDevice(ctx, req.PollerId, s.findAgentID(req.Services), req.Partition, now); err != nil {
+		if err := s.registerServiceDevice(timeoutCtx, req.PollerId, s.findAgentID(req.Services), req.Partition, now); err != nil {
 			log.Printf("Failed to register service device for poller %s: %v", req.PollerId, err)
 		}
 	}()
