@@ -32,7 +32,7 @@ const REVALIDATE_SECONDS = 15;
 export const getCachedPollers = cache(
   async (token?: string): Promise<Poller[]> => {
     return (await fetchFromAPI<Poller[]>('/pollers', token, {
-      next: { revalidate: REVALIDATE_SECONDS },
+      revalidate: REVALIDATE_SECONDS,
     })) || [];
   }
 );
@@ -54,7 +54,7 @@ export const getCachedPoller = cache(
 export const getCachedPollerHistory = cache(
     async (pollerId: string, token?: string): Promise<HistoryEntry[]> => {
         return (await fetchFromAPI<HistoryEntry[]>(`/pollers/${pollerId}/history`, token, {
-            next: { revalidate: REVALIDATE_SECONDS },
+            revalidate: REVALIDATE_SECONDS,
         })) || [];
     }
 );
@@ -65,7 +65,7 @@ export const getCachedPollerHistory = cache(
 export const getCachedPollerMetrics = cache(
     async (pollerId: string, token?: string): Promise<ServiceMetric[]> => {
         return (await fetchFromAPI<ServiceMetric[]>(`/pollers/${pollerId}/metrics`, token, {
-            next: { revalidate: REVALIDATE_SECONDS },
+            revalidate: REVALIDATE_SECONDS,
         })) || [];
     }
 );
@@ -76,7 +76,7 @@ export const getCachedPollerMetrics = cache(
 export const getCachedService = cache(
     async (pollerId: string, serviceName: string, token?: string): Promise<ServicePayload | null> => {
         return await fetchFromAPI<ServicePayload>(`/pollers/${pollerId}/services/${serviceName}`, token, {
-            next: { revalidate: REVALIDATE_SECONDS },
+            revalidate: REVALIDATE_SECONDS,
         });
     }
 );
@@ -87,7 +87,7 @@ export const getCachedService = cache(
 export const getCachedSystemStatus = cache(
     async (token?: string): Promise<SystemStatus | null> => {
         return await fetchFromAPI<SystemStatus>('/status', token, {
-            next: { revalidate: REVALIDATE_SECONDS },
+            revalidate: REVALIDATE_SECONDS,
         });
     }
 );
@@ -109,7 +109,7 @@ export const getCachedSnmpData = cache(
         return (await fetchFromAPI<SnmpDataPoint[]>(
             endpoint,
             token,
-            { next: { revalidate: REVALIDATE_SECONDS } }
+            { revalidate: REVALIDATE_SECONDS }
         )) || [];
     }
 );

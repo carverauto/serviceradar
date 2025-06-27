@@ -107,10 +107,10 @@ const EventsDashboard = () => {
         try {
             // Use cached queries to prevent duplicates
             const [totalRes, criticalRes, highRes, lowRes] = await Promise.all([
-                cachedQuery<{ results: [{ 'count()': number }] }>('COUNT EVENTS', token, 30000),
-                cachedQuery<{ results: [{ 'count()': number }] }>("COUNT EVENTS WHERE severity = 'Critical'", token, 30000),
-                cachedQuery<{ results: [{ 'count()': number }] }>("COUNT EVENTS WHERE severity = 'High'", token, 30000),
-                cachedQuery<{ results: [{ 'count()': number }] }>("COUNT EVENTS WHERE severity = 'Low'", token, 30000),
+                cachedQuery<{ results: [{ 'count()': number }] }>('COUNT EVENTS', token || undefined, 30000),
+                cachedQuery<{ results: [{ 'count()': number }] }>("COUNT EVENTS WHERE severity = 'Critical'", token || undefined, 30000),
+                cachedQuery<{ results: [{ 'count()': number }] }>("COUNT EVENTS WHERE severity = 'High'", token || undefined, 30000),
+                cachedQuery<{ results: [{ 'count()': number }] }>("COUNT EVENTS WHERE severity = 'Low'", token || undefined, 30000),
             ]);
 
             setStats({
