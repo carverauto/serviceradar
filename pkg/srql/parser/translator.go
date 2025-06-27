@@ -32,36 +32,30 @@ func (*Translator) applyDefaultFilters(q *models.Query) {
 		return
 	}
 
-	switch q.Entity {
-	case models.SweepResults:
-		if !hasDiscoverySourceCondition(q.Conditions) {
-			cond := models.Condition{
-				Field:    "discovery_source",
-				Operator: models.Equals,
-				Value:    "sweep",
-			}
+	// Currently, only SweepResults needs a default filter
+	if q.Entity == models.SweepResults {
+		applySweepResultsDefaultFilter(q)
+	}
 
-			if len(q.Conditions) > 0 {
-				cond.LogicalOp = models.And
-			}
+	// Other entity types don't have default filters:
+	// - Devices, Flows, Traps, Connections, Logs, Interfaces
+	// - ICMPResults, SNMPResults, Services, Pollers, Events
+}
 
-			q.Conditions = append(q.Conditions, cond)
+// applySweepResultsDefaultFilter adds the default discovery_source filter for SweepResults
+func applySweepResultsDefaultFilter(q *models.Query) {
+	if !hasDiscoverySourceCondition(q.Conditions) {
+		cond := models.Condition{
+			Field:    "discovery_source",
+			Operator: models.Equals,
+			Value:    "sweep",
 		}
-	case models.Devices:
-		// No default filters for Devices
-	case models.Flows:
-		// No default filters for Flows
-	case models.Traps:
-		// No default filters for Traps
-	case models.Connections:
-		// No default filters for Connections
-	case models.Logs:
-		// No default filters for Logs
-	case models.Interfaces:
-		// No default filters for Interfaces
-	case models.ICMPResults:
-		// No default filters for ICMPResults
-	case models.SNMPResults:
+
+		if len(q.Conditions) > 0 {
+			cond.LogicalOp = models.And
+		}
+
+		q.Conditions = append(q.Conditions, cond)
 	}
 }
 
