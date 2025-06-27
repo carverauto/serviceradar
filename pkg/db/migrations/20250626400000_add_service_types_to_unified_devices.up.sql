@@ -14,7 +14,7 @@ CREATE STREAM IF NOT EXISTS unified_devices (
     poller_id string,
     hostname nullable(string),
     mac nullable(string),
-    discovery_source string,
+    discovery_sources array(string),
     is_available boolean,
     first_seen DateTime64(3),
     last_seen DateTime64(3),
@@ -35,18 +35,23 @@ SETTINGS mode='versioned_kv', version_column='_tp_time';
 CREATE MATERIALIZED VIEW IF NOT EXISTS unified_device_pipeline_mv
 INTO unified_devices
 AS SELECT
-    concat(partition, ':', ip) AS device_id,
-    ip,
-    poller_id,
-    hostname,
-    mac,
-    discovery_source,
-    available AS is_available,
-    timestamp AS first_seen,
-    timestamp AS last_seen,
-    metadata,
-    agent_id,
-    timestamp AS _tp_time,
+    concat(s.partition, ':', s.ip) AS device_id,
+    s.ip,
+    s.poller_id,
+    s.hostname,
+    s.mac,
+    -- Handle discovery sources array properly
+    if(
+        index_of(if_null(u.discovery_sources, []), s.discovery_source) > 0,
+        u.discovery_sources,
+        array_push_back(if_null(u.discovery_sources, []), s.discovery_source)
+    ) AS discovery_sources,
+    s.available AS is_available,
+    coalesce(u.first_seen, s.timestamp) AS first_seen,
+    s.timestamp AS last_seen,
+    s.metadata,
+    s.agent_id,
+    s.timestamp AS _tp_time,
     -- Default values for network devices
     'network_device' AS device_type,
     NULL AS service_type,
@@ -54,4 +59,5 @@ AS SELECT
     NULL AS last_heartbeat,
     NULL AS os_info,
     NULL AS version_info
-FROM sweep_results;
+FROM sweep_results AS s
+LEFT JOIN unified_devices AS u ON concat(s.partition, ':', s.ip) = u.device_id;

@@ -75,7 +75,7 @@ export default function Header() {
         const fetchPartitions = async () => {
             try {
                 const data = await cachedQuery<{ results: { partition: string }[] }>(
-                    'SELECT DISTINCT partition FROM table(sweep_results)',
+                    'SHOW SWEEP_RESULTS',
                     token
                 );
                 setPartitions(Array.from(new Set(data.results.map((p: Partition) => p.partition))).map((p: string) => ({ partition: p })) || []);

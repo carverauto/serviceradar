@@ -17,6 +17,7 @@
 'use client';
 
 import { createContext, useState, useEffect, useContext, ReactNode } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
 interface ThemeContextType {
     darkMode: boolean;
@@ -27,6 +28,18 @@ interface ThemeContextType {
 export const ThemeContext = createContext<ThemeContextType>({
     darkMode: false,
     setDarkMode: () => {},
+});
+
+// Create a client instance for React Query
+const queryClient = new QueryClient({
+    defaultOptions: {
+        queries: {
+            staleTime: 30000, // 30 seconds
+            gcTime: 300000, // 5 minutes (was cacheTime in v4)
+            refetchOnWindowFocus: false,
+            retry: 1,
+        },
+    },
 });
 
 export function Providers({ children }: { children: ReactNode }) {
@@ -55,9 +68,11 @@ export function Providers({ children }: { children: ReactNode }) {
     }
 
     return (
-        <ThemeContext.Provider value={{ darkMode, setDarkMode }}>
-            {children}
-        </ThemeContext.Provider>
+        <QueryClientProvider client={queryClient}>
+            <ThemeContext.Provider value={{ darkMode, setDarkMode }}>
+                {children}
+            </ThemeContext.Provider>
+        </QueryClientProvider>
     );
 }
 
