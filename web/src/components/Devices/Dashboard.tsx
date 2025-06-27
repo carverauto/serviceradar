@@ -20,7 +20,6 @@ import { Device, Pagination, DevicesApiResponse } from '@/types/devices';
 import { Server, CheckCircle, XCircle, ChevronDown, ChevronRight, Search, Loader2, AlertTriangle, ArrowUp, ArrowDown } from 'lucide-react';
 import ReactJson from '@microlink/react-json-view';
 import { useDebounce } from 'use-debounce';
-import SysmonStatusIndicator from './SysmonStatusIndicator';
 type SortableKeys = 'ip' | 'hostname' | 'last_seen' | 'first_seen' | 'poller_id';
 const StatCard = ({ title, value, icon, isLoading }: { title: string; value: string | number; icon: React.ReactNode; isLoading: boolean }) => (
     <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 p-4 rounded-lg">
@@ -249,26 +248,23 @@ const Dashboard = () => {
                                 className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">Sources
                             </th>
                             <TableHeader aKey="poller_id" label="Poller"/>
-                            <th scope="col"
-                                className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">Sysmon
-                            </th>
                             <TableHeader aKey="last_seen" label="Last Seen"/>
                         </tr>
                         </thead>
                         <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                         {devicesLoading ? (
                             <tr>
-                                <td colSpan={7} className="text-center p-8"><Loader2
+                                <td colSpan={6} className="text-center p-8"><Loader2
                                     className="h-8 w-8 text-gray-400 animate-spin mx-auto"/></td>
                             </tr>
                         ) : error ? (
                             <tr>
-                                <td colSpan={7} className="text-center p-8 text-red-400"><AlertTriangle
+                                <td colSpan={6} className="text-center p-8 text-red-400"><AlertTriangle
                                     className="mx-auto h-6 w-6 mb-2"/>{error}</td>
                             </tr>
                         ) : devices.length === 0 ? (
                             <tr>
-                                <td colSpan={7} className="text-center p-8 text-gray-400">No devices found.</td>
+                                <td colSpan={6} className="text-center p-8 text-gray-400">No devices found.</td>
                             </tr>
                         ) : (
                             devices.map(device => (
@@ -303,19 +299,11 @@ const Dashboard = () => {
                                             </div>
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-300">{device.poller_id}</td>
-                                        <td className="px-6 py-4 whitespace-nowrap">
-                                            <SysmonStatusIndicator 
-                                                pollerId={device.poller_id}
-                                                deviceIp={device.ip}
-                                                agentId={device.agent_id}
-                                                compact={true}
-                                            />
-                                        </td>
                                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-300">{formatDate(device.last_seen)}</td>
                                     </tr>
                                     {expandedRow === device.device_id && (
                                         <tr className="bg-gray-800/50">
-                                            <td colSpan={7} className="p-0">
+                                            <td colSpan={6} className="p-0">
                                                 <div className="p-4">
                                                     <h4 className="text-md font-semibold text-gray-900 dark:text-white mb-2">Metadata</h4>
                                                     <ReactJson

@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -262,6 +263,8 @@ func (s *APIServer) executeQuery(ctx context.Context, query string, entity model
 	// For Proton, we don't need to pass an additional parameter as the entity is already
 	// properly formatted in the query with table() function
 	if s.dbType == parser.Proton {
+		log.Println("Executing Proton query:", query)
+
 		results, err := s.queryExecutor.ExecuteQuery(ctx, query)
 		if err != nil {
 			return nil, fmt.Errorf("query error: %w", err)
