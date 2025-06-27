@@ -56,7 +56,8 @@ message PollerStatusRequest {
   string poller_id = 2;
   string agent_id = 3; // Agent ID for traceability
   int64 timestamp = 4;
-  string partition = 5; // Partition identifier
+  string partition = 5; // Partition identifier (REQUIRED)
+  string source_ip = 6; // Host IP where poller/agent is running (REQUIRED)
 }
 
 message PollerStatusResponse {
