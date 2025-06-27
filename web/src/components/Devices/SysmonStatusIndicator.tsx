@@ -23,8 +23,6 @@ import Link from 'next/link';
 
 interface SysmonStatusIndicatorProps {
     pollerId: string;
-    deviceIp: string;
-    agentId: string;
     compact?: boolean;
 }
 
@@ -38,8 +36,6 @@ interface SysmonStatus {
 
 const SysmonStatusIndicator: React.FC<SysmonStatusIndicatorProps> = ({ 
     pollerId, 
-    deviceIp, 
-    agentId, 
     compact = false 
 }) => {
     const { token } = useAuth();
@@ -93,7 +89,7 @@ const SysmonStatusIndicator: React.FC<SysmonStatusIndicatorProps> = ({
                         error: 'API error'
                     });
                 }
-            } catch (err) {
+            } catch {
                 setStatus({
                     hasData: false,
                     error: 'Connection failed'
