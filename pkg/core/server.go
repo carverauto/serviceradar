@@ -23,7 +23,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -40,7 +39,6 @@ import (
 	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
-	"google.golang.org/grpc/peer"
 )
 
 const (
@@ -664,22 +662,30 @@ func (s *Server) findAgentID(services []*proto.ServiceStatus) string {
 
 // registerServiceDevice creates or updates a device entry for a poller and/or agent
 // This treats the agent/poller as a service running on a real host device within a specific partition
-func (s *Server) registerServiceDevice(ctx context.Context, pollerID, agentID, partition string, timestamp time.Time) error {
-	// Use default partition if none provided
-	if partition == "" {
-		partition = "default"
+//
+// Source of Truth Principle:
+// The agent/poller is the ONLY reliable source of truth for its location (partition and host IP).
+// This information MUST be provided by the client in the status report, not inferred by the server.
+// 
+// Requirements:
+// - partition: MUST be provided in the PollerStatusRequest
+// - sourceIP: MUST be provided in the PollerStatusRequest
+// - If either is missing, the device registration is rejected to prevent orphaned records
+//
+// This approach ensures:
+// - No duplicate devices with placeholder IPs (e.g., 127.0.0.1)
+// - Stable device IDs from the first check-in
+// - Correct handling of NAT, proxies, and load balancers
+// - Simple, reliable logic with no "magic" convergence
+func (s *Server) registerServiceDevice(ctx context.Context, pollerID, agentID, partition, sourceIP string, timestamp time.Time) error {
+	// Validate required fields - the client MUST provide its location
+	if partition == "" || sourceIP == "" {
+		return fmt.Errorf("CRITICAL: Cannot register device for poller %s - missing required location data (partition=%q, source_ip=%q)", 
+			pollerID, partition, sourceIP)
 	}
 
-	// Determine the host IP address where this service is running
-	hostIP := s.getServiceHostIP(ctx, pollerID, agentID)
-	if hostIP == "" {
-		// Fallback to localhost if we can't determine the real IP
-		hostIP = "127.0.0.1"
-		log.Printf("Warning: Could not determine host IP for poller %s, using localhost", pollerID)
-	}
-
-	// Generate device ID following the partition:ip schema for the actual host
-	deviceID := fmt.Sprintf("%s:%s", partition, hostIP)
+	// Generate device ID following the partition:ip schema using the reported location
+	deviceID := fmt.Sprintf("%s:%s", partition, sourceIP)
 
 	// Determine service types based on the relationship between poller and agent
 	var serviceTypes []string
@@ -729,14 +735,14 @@ func (s *Server) registerServiceDevice(ctx context.Context, pollerID, agentID, p
 	}
 
 	// Try to get hostname from the service ID or use IP as fallback
-	hostname := s.getServiceHostname(primaryServiceID, hostIP)
+	hostname := s.getServiceHostname(primaryServiceID, sourceIP)
 
 	// Construct the Device object representing the host device
 	device := &models.Device{
 		DeviceID:         deviceID,
 		PollerID:         pollerID,         // The poller managing this device (may be itself)
 		AgentID:          agentID,          // The agent running on this device (may be empty)
-		IP:               hostIP,           // Real host IP address
+		IP:               sourceIP,         // Host IP as reported by the service
 		Hostname:         hostname,         // Real or derived hostname
 		DiscoverySources: []string{"self-reported"},
 		IsAvailable:      true,
@@ -756,49 +762,6 @@ func (s *Server) registerServiceDevice(ctx context.Context, pollerID, agentID, p
 	return nil
 }
 
-// getServiceHostIP attempts to determine the real IP address of the host running the service
-func (s *Server) getServiceHostIP(ctx context.Context, pollerID, agentID string) string {
-	// Try to extract the IP from the gRPC peer context
-	if p, ok := peer.FromContext(ctx); ok {
-		if addr := p.Addr; addr != nil {
-			// Parse the address to extract just the IP part
-			if tcpAddr, ok := addr.(*net.TCPAddr); ok {
-				ip := tcpAddr.IP.String()
-				// Avoid returning loopback addresses unless they're explicitly configured
-				if !isLoopbackIP(ip) {
-					log.Printf("Extracted real host IP %s for service %s", ip, pollerID)
-					return ip
-				}
-			}
-			// For other address types, try to parse as host:port
-			if host, _, err := net.SplitHostPort(addr.String()); err == nil {
-				// Validate that it's a proper IP
-				if ip := net.ParseIP(host); ip != nil && !isLoopbackIP(host) {
-					log.Printf("Parsed host IP %s for service %s", host, pollerID)
-					return host
-				}
-			}
-		}
-	}
-	
-	// Additional strategies could be implemented here:
-	// 1. Query a service registry based on pollerID/agentID
-	// 2. Use reverse DNS lookup on service ID if it's a hostname
-	// 3. Check configuration for known service -> IP mappings
-	// 4. Use environment variables or config files
-	
-	// Return empty to trigger fallback to localhost
-	return ""
-}
-
-// isLoopbackIP checks if an IP address is a loopback address
-func isLoopbackIP(ipStr string) bool {
-	ip := net.ParseIP(ipStr)
-	if ip == nil {
-		return false
-	}
-	return ip.IsLoopback()
-}
 
 // getServiceHostname attempts to determine the hostname for a service
 func (s *Server) getServiceHostname(serviceID, hostIP string) string {
@@ -846,10 +809,9 @@ func (s *Server) processStatusReport(
 		// Register the poller/agent as a device
 		go func() {
 			// Run in a separate goroutine to not block the main status report flow.
-			// Use the original context to preserve gRPC peer information but with a timeout
-			timeoutCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			timeoutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
-			if err := s.registerServiceDevice(timeoutCtx, req.PollerId, s.findAgentID(req.Services), req.Partition, now); err != nil {
+			if err := s.registerServiceDevice(timeoutCtx, req.PollerId, s.findAgentID(req.Services), req.Partition, req.SourceIp, now); err != nil {
 				log.Printf("Failed to register service device for poller %s: %v", req.PollerId, err)
 			}
 		}()
@@ -871,10 +833,9 @@ func (s *Server) processStatusReport(
 	// Register the poller/agent as a device for new pollers too
 	go func() {
 		// Run in a separate goroutine to not block the main status report flow.
-		// Use the original context to preserve gRPC peer information but with a timeout
-		timeoutCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		timeoutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		if err := s.registerServiceDevice(timeoutCtx, req.PollerId, s.findAgentID(req.Services), req.Partition, now); err != nil {
+		if err := s.registerServiceDevice(timeoutCtx, req.PollerId, s.findAgentID(req.Services), req.Partition, req.SourceIp, now); err != nil {
 			log.Printf("Failed to register service device for poller %s: %v", req.PollerId, err)
 		}
 	}()
@@ -2036,6 +1997,13 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 
 	if req.PollerId == "" {
 		return nil, errEmptyPollerID
+	}
+
+	// Validate required location fields - critical for device registration
+	if req.Partition == "" || req.SourceIp == "" {
+		log.Printf("CRITICAL: Status report from poller %s missing required location data (partition=%q, source_ip=%q). Device registration will be skipped.",
+			req.PollerId, req.Partition, req.SourceIp)
+		// Continue processing the status report but device registration will fail gracefully
 	}
 
 	if !s.isKnownPoller(req.PollerId) {
