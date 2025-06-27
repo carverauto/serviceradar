@@ -96,6 +96,7 @@ func NewServer(ctx context.Context, config *models.DBConfig) (*Server, error) {
 		authService:         auth.NewAuth(authConfig, database),
 		metricBuffers:       make(map[string][]*models.TimeseriesMetric),
 		serviceBuffers:      make(map[string][]*models.ServiceStatus),
+		serviceListBuffers:  make(map[string][]*models.Service),
 		sysmonBuffers:       make(map[string][]*models.SysmonMetrics),
 		bufferMu:            sync.RWMutex{},
 		pollerStatusCache:   make(map[string]*models.PollerStatus),
@@ -166,6 +167,7 @@ func (s *Server) flushAllBuffers(ctx context.Context) {
 
 	s.flushMetrics(ctx)
 	s.flushServiceStatuses(ctx)
+	s.flushServices(ctx)
 	s.flushSysmonMetrics(ctx)
 }
 
@@ -208,6 +210,21 @@ func (s *Server) flushServiceStatuses(ctx context.Context) {
 	}
 }
 
+// flushServices flushes service inventory data to the database.
+func (s *Server) flushServices(ctx context.Context) {
+	for pollerID, services := range s.serviceListBuffers {
+		if len(services) == 0 {
+			continue
+		}
+
+		if err := s.DB.StoreServices(ctx, services); err != nil {
+			log.Printf("Failed to flush services for poller %s: %v", pollerID, err)
+		}
+
+		s.serviceListBuffers[pollerID] = nil
+	}
+}
+
 // flushSysmonMetrics flushes system monitor metrics to the database.
 func (s *Server) flushSysmonMetrics(ctx context.Context) {
 	for pollerID, sysmonMetrics := range s.sysmonBuffers {
@@ -218,16 +235,24 @@ func (s *Server) flushSysmonMetrics(ctx context.Context) {
 		for _, metric := range sysmonMetrics {
 			var ts time.Time
 
+			var agentID, hostID string
+
 			switch {
 			case len(metric.CPUs) > 0:
 				ts = metric.CPUs[0].Timestamp
+				agentID = metric.CPUs[0].AgentID
+				hostID = metric.CPUs[0].HostID
 			case len(metric.Disks) > 0:
 				ts = metric.Disks[0].Timestamp
+				agentID = metric.Disks[0].AgentID
+				hostID = metric.Disks[0].HostID
 			default:
 				ts = metric.Memory.Timestamp
+				agentID = metric.Memory.AgentID
+				hostID = metric.Memory.HostID
 			}
 
-			if err := s.DB.StoreSysmonMetrics(ctx, pollerID, metric, ts); err != nil {
+			if err := s.DB.StoreSysmonMetrics(ctx, pollerID, agentID, hostID, metric, ts); err != nil {
 				log.Printf("Failed to flush sysmon metrics for poller %s: %v", pollerID, err)
 			}
 		}
@@ -626,6 +651,136 @@ func (s *Server) getPollerHealthState(ctx context.Context, pollerID string) (boo
 	return status.IsHealthy, nil
 }
 
+// findAgentID extracts the agent ID from the services if available
+func (*Server) findAgentID(services []*proto.ServiceStatus) string {
+	for _, svc := range services {
+		if svc.AgentId != "" {
+			return svc.AgentId
+		}
+	}
+
+	return ""
+}
+
+// registerServiceDevice creates or updates a device entry for a poller and/or agent
+// This treats the agent/poller as a service running on a real host device within a specific partition
+//
+// Source of Truth Principle:
+// The agent/poller is the ONLY reliable source of truth for its location (partition and host IP).
+// This information MUST be provided by the client in the status report, not inferred by the server.
+//
+// Requirements:
+// - partition: MUST be provided in the PollerStatusRequest
+// - sourceIP: MUST be provided in the PollerStatusRequest
+// - If either is missing, the device registration is rejected to prevent orphaned records
+//
+// This approach ensures:
+// - No duplicate devices with placeholder IPs (e.g., 127.0.0.1)
+// - Stable device IDs from the first check-in
+// - Correct handling of NAT, proxies, and load balancers
+// - Simple, reliable logic with no "magic" convergence
+func (s *Server) registerServiceDevice(ctx context.Context, pollerID, agentID, partition, sourceIP string, timestamp time.Time) error {
+	// Validate required fields - the client MUST provide its location
+	if partition == "" || sourceIP == "" {
+		return fmt.Errorf("CRITICAL: Cannot register device for poller %s - missing required location data (partition=%q, source_ip=%q)",
+			pollerID, partition, sourceIP)
+	}
+
+	// Generate device ID following the partition:ip schema using the reported location
+	deviceID := fmt.Sprintf("%s:%s", partition, sourceIP)
+
+	// Determine service types based on the relationship between poller and agent
+	var serviceTypes []string
+
+	var primaryServiceID string
+
+	if agentID == "" {
+		// Pure poller
+		serviceTypes = []string{"poller"}
+		primaryServiceID = pollerID
+	} else if agentID == pollerID {
+		// Combined poller/agent
+		serviceTypes = []string{"poller", "agent"}
+		primaryServiceID = pollerID
+	} else {
+		// Separate agent
+		serviceTypes = []string{"agent"}
+		primaryServiceID = agentID
+	}
+
+	// Check if device already exists to determine FirstSeen timestamp
+	firstSeen := timestamp
+
+	existingDevice, err := s.DB.GetDeviceByID(ctx, deviceID)
+	if err == nil && !existingDevice.FirstSeen.IsZero() {
+		firstSeen = existingDevice.FirstSeen
+	}
+
+	// Create the device metadata including service information
+	// Note: metadata must be map[string]string per database schema
+	metadata := map[string]interface{}{
+		"device_type":     "host",
+		"service_types":   strings.Join(serviceTypes, ","), // Convert array to comma-separated string
+		"service_status":  "online",
+		"last_heartbeat":  timestamp.Format(time.RFC3339),
+		"primary_service": primaryServiceID,
+	}
+
+	// Add poller-specific metadata if this host runs a poller
+	if pollerID != "" {
+		metadata["poller_id"] = pollerID
+		metadata["poller_status"] = "active"
+	}
+
+	// Add agent-specific metadata if this host runs an agent
+	if agentID != "" && agentID != pollerID {
+		metadata["agent_id"] = agentID
+		metadata["agent_status"] = "active"
+	}
+
+	// Try to get hostname from the service ID or use IP as fallback
+	hostname := s.getServiceHostname(primaryServiceID, sourceIP)
+
+	// Construct the Device object representing the host device
+	device := &models.Device{
+		DeviceID:         deviceID,
+		PollerID:         pollerID, // The poller managing this device (may be itself)
+		AgentID:          agentID,  // The agent running on this device (may be empty)
+		IP:               sourceIP, // Host IP as reported by the service
+		Hostname:         hostname, // Real or derived hostname
+		DiscoverySources: []string{"self-reported"},
+		IsAvailable:      true,
+		LastSeen:         timestamp,
+		FirstSeen:        firstSeen,
+		Metadata:         metadata,
+	}
+
+	// Store the device using the existing StoreDevices function
+	if err := s.DB.StoreDevices(ctx, []*models.Device{device}); err != nil {
+		return fmt.Errorf("failed to store service device: %w", err)
+	}
+
+	log.Printf("Successfully registered host device %s (services: %v) for poller %s",
+		deviceID, serviceTypes, pollerID)
+
+	return nil
+}
+
+// getServiceHostname attempts to determine the hostname for a service
+func (*Server) getServiceHostname(serviceID, hostIP string) string {
+	// TODO: In a real implementation, this could:
+	// 1. Perform reverse DNS lookup on the IP
+	// 2. Query a hostname registry
+	// 3. Use the service ID as hostname if it's already a hostname
+	// For now, use the service ID as hostname if it looks like one,
+	// otherwise use the IP
+	if serviceID != "" && (len(serviceID) > 7) { // Simple heuristic
+		return serviceID
+	}
+
+	return hostIP
+}
+
 func (s *Server) processStatusReport(
 	ctx context.Context, req *proto.PollerStatusRequest, now time.Time) (*api.PollerStatus, error) {
 	pollerStatus := &models.PollerStatus{
@@ -654,6 +809,22 @@ func (s *Server) processStatusReport(
 			return nil, err
 		}
 
+		// Register the poller/agent as a device
+		go func() {
+			// Run in a separate goroutine to not block the main status report flow.
+			// Skip registration if location data is missing. A warning is already logged in ReportStatus.
+			if req.Partition == "" || req.SourceIp == "" {
+				return
+			}
+
+			timeoutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			if err := s.registerServiceDevice(timeoutCtx, req.PollerId, s.findAgentID(req.Services), req.Partition, req.SourceIp, now); err != nil {
+				log.Printf("Failed to register service device for poller %s: %v", req.PollerId, err)
+			}
+		}()
+
 		return apiStatus, nil
 	}
 
@@ -667,6 +838,22 @@ func (s *Server) processStatusReport(
 
 	apiStatus := s.createPollerStatus(req, now)
 	s.processServices(ctx, req.PollerId, req.Partition, apiStatus, req.Services, now)
+
+	// Register the poller/agent as a device for new pollers too
+	go func() {
+		// Run in a separate goroutine to not block the main status report flow.
+		// Skip registration if location data is missing. A warning is already logged in ReportStatus.
+		if req.Partition == "" || req.SourceIp == "" {
+			return
+		}
+
+		timeoutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		if err := s.registerServiceDevice(timeoutCtx, req.PollerId, s.findAgentID(req.Services), req.Partition, req.SourceIp, now); err != nil {
+			log.Printf("Failed to register service device for poller %s: %v", req.PollerId, err)
+		}
+	}()
 
 	return apiStatus, nil
 }
@@ -690,6 +877,7 @@ func (s *Server) processServices(
 	now time.Time) {
 	allServicesAvailable := true
 	serviceStatuses := make([]*models.ServiceStatus, 0, len(services))
+	serviceList := make([]*models.Service, 0, len(services))
 
 	for _, svc := range services {
 		apiService := s.createAPIService(svc)
@@ -713,6 +901,14 @@ func (s *Server) processServices(
 			Timestamp:   now,
 		})
 
+		serviceList = append(serviceList, &models.Service{
+			PollerID:    pollerID,
+			ServiceName: svc.ServiceName,
+			ServiceType: svc.ServiceType,
+			AgentID:     svc.AgentId,
+			Timestamp:   now,
+		})
+
 		apiStatus.Services = append(apiStatus.Services, apiService)
 
 		if svc.AgentId == "" {
@@ -728,6 +924,7 @@ func (s *Server) processServices(
 
 	s.bufferMu.Lock()
 	s.serviceBuffers[pollerID] = append(s.serviceBuffers[pollerID], serviceStatuses...)
+	s.serviceListBuffers[pollerID] = append(s.serviceListBuffers[pollerID], serviceList...)
 	s.bufferMu.Unlock()
 
 	apiStatus.IsHealthy = allServicesAvailable
@@ -787,7 +984,7 @@ func (s *Server) processMetrics(
 		case rperfServiceType:
 			return s.processRperfMetrics(pollerID, details, now)
 		case sysmonServiceType:
-			return s.processSysmonMetrics(pollerID, details, now)
+			return s.processSysmonMetrics(pollerID, svc.AgentId, details, now)
 		}
 	case icmpServiceType:
 		return s.processICMPMetrics(pollerID, svc, details, now)
@@ -828,8 +1025,8 @@ const (
 	sysmonServiceType = "sysmon"
 )
 
-func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, timestamp time.Time) error {
-	log.Printf("Processing sysmon metrics for poller %s with details: %s", pollerID, string(details))
+func (s *Server) processSysmonMetrics(pollerID, agentID string, details json.RawMessage, timestamp time.Time) error {
+	log.Printf("Processing sysmon metrics for poller %s, agent %s with details: %s", pollerID, agentID, string(details))
 
 	// Define the full structure of the message payload
 	var sysmonPayload struct {
@@ -869,6 +1066,8 @@ func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, 
 			CoreID:       cpu.CoreID,
 			UsagePercent: cpu.UsagePercent,
 			Timestamp:    pollerTimestamp,
+			HostID:       sysmonPayload.Status.HostID,
+			AgentID:      agentID,
 		}
 	}
 
@@ -878,6 +1077,8 @@ func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, 
 			UsedBytes:  disk.UsedBytes,
 			TotalBytes: disk.TotalBytes,
 			Timestamp:  pollerTimestamp,
+			HostID:     sysmonPayload.Status.HostID,
+			AgentID:    agentID,
 		}
 	}
 
@@ -886,6 +1087,8 @@ func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, 
 			UsedBytes:  sysmonPayload.Status.Memory.UsedBytes,
 			TotalBytes: sysmonPayload.Status.Memory.TotalBytes,
 			Timestamp:  pollerTimestamp,
+			HostID:     sysmonPayload.Status.HostID,
+			AgentID:    agentID,
 		}
 	}
 
@@ -1316,21 +1519,15 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 		svc.Message = updatedMessage
 	}
 
-	sweepResults := make([]*models.SweepResult, 0, len(sweepData.Hosts))
+	resultsToStore := make([]*models.SweepResult, 0, len(sweepData.Hosts))
 
 	for _, host := range sweepData.Hosts {
 		if host.IP == "" {
 			log.Printf("Skipping host with empty IP for poller %s", svc.PollerID)
-
 			continue
 		}
 
-		metadata := host.Metadata
-		if metadata == nil {
-			metadata = make(map[string]string)
-		}
-
-		sweepResult := &models.SweepResult{
+		result := &models.SweepResult{
 			AgentID:         svc.AgentID,
 			PollerID:        svc.PollerID,
 			Partition:       partition,
@@ -1340,20 +1537,18 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 			Hostname:        host.Hostname,
 			Timestamp:       now,
 			Available:       host.Available,
-			Metadata:        metadata,
+			Metadata:        host.Metadata,
 		}
-
-		sweepResults = append(sweepResults, sweepResult)
+		resultsToStore = append(resultsToStore, result)
 	}
 
-	// if sweepResults is empty, we don't need to store anything
-	if len(sweepResults) == 0 {
+	if len(resultsToStore) == 0 {
 		log.Printf("No sweep results to store for poller %s", svc.PollerID)
 
 		return nil
 	}
 
-	if err := s.DB.StoreSweepResults(ctx, sweepResults); err != nil {
+	if err := s.DB.StoreSweepResults(ctx, resultsToStore); err != nil {
 		return fmt.Errorf("failed to store sweep results: %w", err)
 	}
 
@@ -1809,6 +2004,13 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 
 	if req.PollerId == "" {
 		return nil, errEmptyPollerID
+	}
+
+	// Validate required location fields - critical for device registration
+	if req.Partition == "" || req.SourceIp == "" {
+		log.Printf("CRITICAL: Status report from poller %s missing required "+
+			"location data (partition=%q, source_ip=%q). Device registration will be skipped.",
+			req.PollerId, req.Partition, req.SourceIp)
 	}
 
 	if !s.isKnownPoller(req.PollerId) {

@@ -53,6 +53,8 @@ type Service interface {
 	UpdateServiceStatuses(ctx context.Context, statuses []*models.ServiceStatus) error
 	GetPollerServices(ctx context.Context, pollerID string) ([]models.ServiceStatus, error)
 	GetServiceHistory(ctx context.Context, pollerID, serviceName string, limit int) ([]models.ServiceStatus, error)
+	// StoreServices stores a batch of service records in the services stream.
+	StoreServices(ctx context.Context, services []*models.Service) error
 
 	// Maintenance operations.
 
@@ -69,7 +71,7 @@ type Service interface {
 
 	// Sysmon metric operations.
 
-	StoreSysmonMetrics(ctx context.Context, pollerID string, metrics *models.SysmonMetrics, timestamp time.Time) error
+	StoreSysmonMetrics(ctx context.Context, pollerID, agentID, hostID string, metrics *models.SysmonMetrics, timestamp time.Time) error
 	GetCPUMetrics(ctx context.Context, pollerID string, coreID int, start, end time.Time) ([]models.CPUMetric, error)
 	GetDiskMetrics(ctx context.Context, pollerID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error)
 	GetMemoryMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.MemoryMetric, error)
@@ -103,7 +105,10 @@ type Service interface {
 	PublishBatchDiscoveredInterfaces(ctx context.Context, interfaces []*models.DiscoveredInterface) error
 	PublishBatchTopologyDiscoveryEvents(ctx context.Context, events []*models.TopologyDiscoveryEvent) error
 
+	// Device operations.
 	StoreDevices(ctx context.Context, devices []*models.Device) error
+	GetDeviceByID(ctx context.Context, deviceID string) (*models.Device, error)
+	GetDevicesByIP(ctx context.Context, ip string) ([]*models.Device, error)
 }
 
 // SysmonMetricsProvider interface defines operations for system monitoring metrics.

@@ -152,9 +152,92 @@ func TestPrepareQuery(t *testing.T) {
 				assert.Equal(t, models.Interfaces, query.Entity)
 				assert.Equal(t, 20, query.Limit)
 				assert.True(t, query.HasLimit)
-				assert.Len(t, query.OrderBy, 1) // No tie-breaker for interfaces yet
+				assert.Len(t, query.OrderBy, 2) // Now includes tie-breaker
 				assert.Equal(t, "_tp_time", query.OrderBy[0].Field)
 				assert.Equal(t, models.Descending, query.OrderBy[0].Direction)
+				assert.Equal(t, "device_ip", query.OrderBy[1].Field)
+				assert.Equal(t, models.Descending, query.OrderBy[1].Direction)
+			},
+		},
+		{
+			name: "Valid query for events",
+			req: &QueryRequest{
+				Query: "show events",
+				Limit: 5,
+			},
+			dbType:      parser.Proton,
+			expectError: false,
+			setupMock:   func(*APIServer) {},
+			validateQuery: func(t *testing.T, query *models.Query, _ map[string]interface{}) {
+				t.Helper()
+
+				assert.Equal(t, models.Events, query.Entity)
+				assert.Equal(t, 5, query.Limit)
+				assert.True(t, query.HasLimit)
+				assert.Len(t, query.OrderBy, 2) // Now includes tie-breaker
+				assert.Equal(t, "_tp_time", query.OrderBy[0].Field)
+				assert.Equal(t, models.Descending, query.OrderBy[0].Direction)
+				assert.Equal(t, "id", query.OrderBy[1].Field)
+				assert.Equal(t, models.Descending, query.OrderBy[1].Direction)
+			},
+		},
+		{
+			name: "Valid query for services",
+			req: &QueryRequest{
+				Query: "show services",
+				Limit: 15,
+			},
+			dbType:      parser.Proton,
+			expectError: false,
+			setupMock:   func(*APIServer) {},
+			validateQuery: func(t *testing.T, query *models.Query, _ map[string]interface{}) {
+				t.Helper()
+
+				assert.Equal(t, models.Services, query.Entity)
+				assert.Equal(t, 15, query.Limit)
+				assert.True(t, query.HasLimit)
+				assert.Len(t, query.OrderBy, 2)
+				assert.Equal(t, "_tp_time", query.OrderBy[0].Field)
+				assert.Equal(t, "service_name", query.OrderBy[1].Field)
+			},
+		},
+		{
+			name: "Valid query for pollers",
+			req: &QueryRequest{
+				Query: "show pollers",
+				Limit: 5,
+			},
+			dbType:      parser.Proton,
+			expectError: false,
+			setupMock:   func(*APIServer) {},
+			validateQuery: func(t *testing.T, query *models.Query, _ map[string]interface{}) {
+				t.Helper()
+
+				assert.Equal(t, models.Pollers, query.Entity)
+				assert.Equal(t, 5, query.Limit)
+				assert.True(t, query.HasLimit)
+				assert.Len(t, query.OrderBy, 2) // Now includes tie-breaker
+				assert.Equal(t, "_tp_time", query.OrderBy[0].Field)
+				assert.Equal(t, models.Descending, query.OrderBy[0].Direction)
+				assert.Equal(t, "poller_id", query.OrderBy[1].Field)
+				assert.Equal(t, models.Descending, query.OrderBy[1].Direction)
+			},
+		},
+		{
+			name: "Count devices should skip pagination",
+			req: &QueryRequest{
+				Query: "count devices",
+			},
+			dbType:      parser.Proton,
+			expectError: false,
+			setupMock:   func(*APIServer) {},
+			validateQuery: func(t *testing.T, query *models.Query, _ map[string]interface{}) {
+				t.Helper()
+
+				assert.Equal(t, models.Count, query.Type)
+				assert.Equal(t, models.Devices, query.Entity)
+				assert.False(t, query.HasLimit)
+				assert.Empty(t, query.OrderBy, "Count queries should not have an OrderBy clause")
 			},
 		},
 		{
@@ -597,6 +680,12 @@ func TestCursorFunctions(t *testing.T) {
 
 		addEntityFields(cursorData, result, models.Devices)
 		assert.Equal(t, "192.168.1.1", cursorData["ip"])
+
+		// Test for Pollers entity
+		cursorData = make(map[string]interface{})
+		result = map[string]interface{}{"poller_id": "test-poller-1"}
+		addEntityFields(cursorData, result, models.Pollers)
+		assert.Equal(t, "test-poller-1", cursorData["poller_id"])
 	})
 
 	// Test encodeCursor
@@ -639,6 +728,23 @@ func TestCursorFunctions(t *testing.T) {
 
 		// Test with empty results
 		nextCursor, prevCursor = generateCursors(query, []map[string]interface{}{}, parser.Proton)
+
+		assert.Empty(t, nextCursor)
+		assert.Empty(t, prevCursor)
+	})
+
+	// generateCursors should return empty cursors for COUNT queries
+	t.Run("generateCursors_count_query", func(t *testing.T) {
+		query := &models.Query{
+			Type:   models.Count,
+			Entity: models.Events,
+		}
+
+		results := []map[string]interface{}{
+			{"count": 5},
+		}
+
+		nextCursor, prevCursor := generateCursors(query, results, parser.Proton)
 
 		assert.Empty(t, nextCursor)
 		assert.Empty(t, prevCursor)

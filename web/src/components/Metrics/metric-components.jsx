@@ -28,7 +28,7 @@ export const CpuCard = ({ data }) => {
             warning={data.warning}
             critical={data.critical}
             change={data.change}
-            icon={<Cpu size={16} className="mr-2 text-purple-500 dark:text-purple-400" />}
+            icon={<Cpu size={16} className="mr-2 text-green-500 dark:text-green-400" />}
         />
     );
 };
@@ -44,7 +44,7 @@ export const CpuChart = ({ data }) => {
                         <XAxis dataKey="formattedTime" stroke="#6B7280" tick={{ fontSize: 12 }} />
                         <YAxis domain={[0, 100]} stroke="#6B7280" tick={{ fontSize: 12 }} />
                         <Tooltip content={<CustomTooltip />} />
-                        <Area type="monotone" dataKey="value" stroke="#8B5CF6" fill="#8B5CF6" fillOpacity={0.2} name={`CPU Usage (${data.unit})`} />
+                        <Area type="monotone" dataKey="value" stroke="#50FA7B" fill="#50FA7B" fillOpacity={0.2} name={`CPU Usage (${data.unit})`} />
                         <ReferenceLine y={data.warning} stroke="#F59E0B" strokeDasharray="3 3" />
                         <ReferenceLine y={data.critical} stroke="#EF4444" strokeDasharray="3 3" />
                     </AreaChart>
@@ -65,7 +65,7 @@ export const CpuCoresChart = ({ cores }) => {
                         <XAxis dataKey="name" stroke="#6B7280" />
                         <YAxis domain={[0, 100]} stroke="#6B7280" />
                         <Tooltip />
-                        <Bar dataKey="value" name="Usage (%)" fill="#8B5CF6" />
+                        <Bar dataKey="value" name="Usage (%)" fill="#50FA7B" />
                     </BarChart>
                 </ResponsiveContainer>
             </div>

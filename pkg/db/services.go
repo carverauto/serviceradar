@@ -97,3 +97,33 @@ func (db *DB) GetServiceHistory(ctx context.Context, pollerID, serviceName strin
 
 	return history, nil
 }
+
+// StoreServices stores information about monitored services in the services stream.
+func (db *DB) StoreServices(ctx context.Context, services []*models.Service) error {
+	if len(services) == 0 {
+		return nil
+	}
+
+	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO services (* except _tp_time)")
+	if err != nil {
+		return fmt.Errorf("failed to prepare batch: %w", err)
+	}
+
+	for _, svc := range services {
+		if err := batch.Append(
+			svc.PollerID,
+			svc.ServiceName,
+			svc.ServiceType,
+			svc.AgentID,
+			svc.Timestamp,
+		); err != nil {
+			return fmt.Errorf("failed to append service %s: %w", svc.ServiceName, err)
+		}
+	}
+
+	if err := batch.Send(); err != nil {
+		return fmt.Errorf("%w services: %w", ErrFailedToInsert, err)
+	}
+
+	return nil
+}

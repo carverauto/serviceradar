@@ -14,81 +14,21 @@
  * limitations under the License.
  */
 
-import { cookies } from "next/headers";
-import { fetchFromAPI } from "@/lib/api";
-import { SystemStatus, Poller } from "@/types/types";
-import { unstable_noStore as noStore } from "next/cache";
-import DashboardWrapper from "@/components/DashboardWrapper";
-import { Suspense } from "react";
+'use client';
 
-async function fetchStatus(token?: string): Promise<SystemStatus | null> {
-  noStore();
-  try {
-    const statusData = await fetchFromAPI<SystemStatus>("/status", token);
-    if (!statusData) throw new Error("Failed to fetch status");
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 
-    const pollersData = await fetchFromAPI<Poller[]>("/pollers", token);
-    if (!pollersData) throw new Error("Failed to fetch pollers");
+export default function HomePage() {
+    const router = useRouter();
 
-    // Calculate service statistics (unchanged)
-    let totalServices = 0;
-    let offlineServices = 0;
-    let totalResponseTime = 0;
-    let servicesWithResponseTime = 0;
+    useEffect(() => {
+        router.replace('/analytics');
+    }, [router]);
 
-    pollersData.forEach((poller: Poller) => {
-      if (poller.services && Array.isArray(poller.services)) {
-        totalServices += poller.services.length;
-        poller.services.forEach((service) => {
-          if (!service.available) offlineServices++;
-          if (service.type === "icmp" && service.details) {
-            try {
-              const details =
-                typeof service.details === "string"
-                  ? JSON.parse(service.details)
-                  : service.details;
-              if (details && details.response_time) {
-                totalResponseTime += details.response_time;
-                servicesWithResponseTime++;
-              }
-            } catch (e) {
-              console.error("Error parsing service details:", e);
-            }
-          }
-        });
-      }
-    });
-
-    const avgResponseTime =
-      servicesWithResponseTime > 0
-        ? totalResponseTime / servicesWithResponseTime
-        : 0;
-
-    return {
-      ...statusData,
-      service_stats: {
-        total_services: totalServices,
-        offline_services: offlineServices,
-        avg_response_time: avgResponseTime,
-      },
-    };
-  } catch (error) {
-    console.error("Error fetching status:", error);
-    return null;
-  }
-}
-
-export default async function HomePage() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get("accessToken")?.value;
-  const initialData = await fetchStatus(token);
-
-  return (
-    <div>
-      <h1 className="text-2xl font-bold mb-6">Dashboard</h1>
-      <Suspense fallback={<div>Loading dashboard...</div>}>
-        <DashboardWrapper initialData={initialData} />
-      </Suspense>
-    </div>
-  );
+    return (
+        <div className="flex items-center justify-center min-h-screen">
+            <p className="text-gray-900 dark:text-white text-lg">Redirecting to Analytics...</p>
+        </div>
+    );
 }

@@ -94,10 +94,10 @@ func (s *Server) processDiscoveredDevices(
 	reportingPollerID string,
 	timestamp time.Time,
 ) {
-	sweepResults := make([]*models.SweepResult, 0, len(devices))
+	resultsToStore := make([]*models.SweepResult, 0, len(devices))
 
 	for _, protoDevice := range devices {
-		if protoDevice == nil {
+		if protoDevice == nil || protoDevice.Ip == "" {
 			continue
 		}
 
@@ -105,7 +105,7 @@ func (s *Server) processDiscoveredDevices(
 		hostname := protoDevice.Hostname
 		mac := protoDevice.Mac
 
-		sweepResult := &models.SweepResult{
+		result := &models.SweepResult{
 			AgentID:         discoveryAgentID,
 			PollerID:        discoveryInitiatorPollerID,
 			Partition:       partition,
@@ -117,11 +117,11 @@ func (s *Server) processDiscoveredDevices(
 			Available:       true, // Assumed true if discovered via SNMP
 			Metadata:        deviceMetadata,
 		}
-		sweepResults = append(sweepResults, sweepResult)
+		resultsToStore = append(resultsToStore, result)
 	}
 
-	if err := s.DB.StoreSweepResults(ctx, sweepResults); err != nil {
-		log.Printf("Error publishing batch discovered devices to sweep_results for poller %s: %v", reportingPollerID, err)
+	if err := s.DB.StoreSweepResults(ctx, resultsToStore); err != nil {
+		log.Printf("Error storing batch discovered results for poller %s: %v", reportingPollerID, err)
 	}
 }
 

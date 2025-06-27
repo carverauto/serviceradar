@@ -18,7 +18,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 // Define the expected history data structure
-interface HistoryEntry {
+export interface HistoryEntry {
   timestamp: string; // ISO string
   is_healthy: boolean;
   [key: string]: unknown; // Allow additional fields

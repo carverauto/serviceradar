@@ -103,10 +103,13 @@ entity
     | TRAPS
     | CONNECTIONS
     | LOGS
+    | SERVICES
     | INTERFACES
     | SWEEP_RESULTS
     | ICMP_RESULTS
     | SNMP_RESULTS
+    | EVENTS
+    | POLLERS
     ;
 
 condition
@@ -213,10 +216,13 @@ FLOWS : F L O W S ;
 TRAPS : T R A P S ;
 CONNECTIONS : C O N N E C T I O N S ;
 LOGS : L O G S ;
+SERVICES    : S E R V I C E S ;
 INTERFACES : I N T E R F A C E S ;
 SWEEP_RESULTS : S W E E P '_' R E S U L T S ;
 ICMP_RESULTS  : I C M P '_' R E S U L T S ;
 SNMP_RESULTS  : S N M P '_' R E S U L T S ;
+EVENTS        : E V E N T S ;
+POLLERS       : P O L L E R S ;
 
 // --- New Keywords for Streaming and Joins ---
 // Suffix _KW is used for common words to avoid potential clashes with identifiers
