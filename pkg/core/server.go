@@ -809,6 +809,10 @@ func (s *Server) processStatusReport(
 		// Register the poller/agent as a device
 		go func() {
 			// Run in a separate goroutine to not block the main status report flow.
+			// Skip registration if location data is missing. A warning is already logged in ReportStatus.
+			if req.Partition == "" || req.SourceIp == "" {
+				return
+			}
 			timeoutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			if err := s.registerServiceDevice(timeoutCtx, req.PollerId, s.findAgentID(req.Services), req.Partition, req.SourceIp, now); err != nil {
@@ -833,6 +837,10 @@ func (s *Server) processStatusReport(
 	// Register the poller/agent as a device for new pollers too
 	go func() {
 		// Run in a separate goroutine to not block the main status report flow.
+		// Skip registration if location data is missing. A warning is already logged in ReportStatus.
+		if req.Partition == "" || req.SourceIp == "" {
+			return
+		}
 		timeoutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := s.registerServiceDevice(timeoutCtx, req.PollerId, s.findAgentID(req.Services), req.Partition, req.SourceIp, now); err != nil {
@@ -1504,21 +1512,15 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 		svc.Message = updatedMessage
 	}
 
-	sweepResults := make([]*models.SweepResult, 0, len(sweepData.Hosts))
+	resultsToStore := make([]*models.SweepResult, 0, len(sweepData.Hosts))
 
 	for _, host := range sweepData.Hosts {
 		if host.IP == "" {
 			log.Printf("Skipping host with empty IP for poller %s", svc.PollerID)
-
 			continue
 		}
 
-		metadata := host.Metadata
-		if metadata == nil {
-			metadata = make(map[string]string)
-		}
-
-		sweepResult := &models.SweepResult{
+		result := &models.SweepResult{
 			AgentID:         svc.AgentID,
 			PollerID:        svc.PollerID,
 			Partition:       partition,
@@ -1528,20 +1530,18 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 			Hostname:        host.Hostname,
 			Timestamp:       now,
 			Available:       host.Available,
-			Metadata:        metadata,
+			Metadata:        host.Metadata,
 		}
-
-		sweepResults = append(sweepResults, sweepResult)
+		resultsToStore = append(resultsToStore, result)
 	}
 
-	// if sweepResults is empty, we don't need to store anything
-	if len(sweepResults) == 0 {
+	if len(resultsToStore) == 0 {
 		log.Printf("No sweep results to store for poller %s", svc.PollerID)
 
 		return nil
 	}
 
-	if err := s.DB.StoreSweepResults(ctx, sweepResults); err != nil {
+	if err := s.DB.StoreSweepResults(ctx, resultsToStore); err != nil {
 		return fmt.Errorf("failed to store sweep results: %w", err)
 	}
 
