@@ -32,14 +32,14 @@ func (*Translator) applyDefaultFilters(q *models.Query) {
 		return
 	}
 
+	// Other entity types don't have default filters:
+	// - Devices, Flows, Traps, Connections, Logs, Interfaces
+	// - ICMPResults, SNMPResults, Services, Pollers, Events
+
 	// Currently, only SweepResults needs a default filter
 	if q.Entity == models.SweepResults {
 		applySweepResultsDefaultFilter(q)
 	}
-
-	// Other entity types don't have default filters:
-	// - Devices, Flows, Traps, Connections, Logs, Interfaces
-	// - ICMPResults, SNMPResults, Services, Pollers, Events
 }
 
 // applySweepResultsDefaultFilter adds the default discovery_source filter for SweepResults

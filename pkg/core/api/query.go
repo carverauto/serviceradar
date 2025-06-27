@@ -168,14 +168,14 @@ func (s *APIServer) setupOrderFields(query *models.Query) {
 			})
 		// These entities don't need additional sort fields
 		case models.Flows, models.Traps, models.Connections, models.Logs:
-			// No additional sort fields needed
 		}
 	}
 }
 
 // processCursorAndLimit handles cursor decoding and limit setting for a query
-func (s *APIServer) processCursorAndLimit(query *models.Query, req *QueryRequest) (map[string]interface{}, error) {
+func (*APIServer) processCursorAndLimit(query *models.Query, req *QueryRequest) (map[string]interface{}, error) {
 	var cursorData map[string]interface{}
+
 	var err error
 
 	// Handle cursor
@@ -218,6 +218,7 @@ func isValidPaginationEntity(entity models.EntityType) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -239,6 +240,7 @@ func (s *APIServer) prepareQuery(req *QueryRequest) (*models.Query, map[string]i
 	// For COUNT queries, pagination ordering is unnecessary and may generate
 	// invalid SQL (e.g., ORDER BY without GROUP BY). Skip order/limit logic.
 	var cursorData map[string]interface{}
+
 	if query.Type != models.Count {
 		// Setup order fields
 		s.setupOrderFields(query)
@@ -338,7 +340,7 @@ func (s *APIServer) executeProtonQuery(ctx context.Context, query string) ([]map
 }
 
 // getTableNameForEntity returns the table name for a given entity type
-func (s *APIServer) getTableNameForEntity(entity models.EntityType) (string, error) {
+func (*APIServer) getTableNameForEntity(entity models.EntityType) (string, error) {
 	switch entity {
 	case models.Devices:
 		return "devices", nil

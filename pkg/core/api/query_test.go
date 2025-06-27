@@ -229,7 +229,7 @@ func TestPrepareQuery(t *testing.T) {
 				assert.Equal(t, models.Count, query.Type)
 				assert.Equal(t, models.Devices, query.Entity)
 				assert.False(t, query.HasLimit)
-				assert.Len(t, query.OrderBy, 0)
+				assert.Empty(t, query.OrderBy, "Count queries should not have an OrderBy clause")
 			},
 		},
 		{
