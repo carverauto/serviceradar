@@ -21,7 +21,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Search, Settings, ChevronDown, Send, ExternalLink, Sun, Moon, User, LogOut } from 'lucide-react';
 import { useAuth } from './AuthProvider';
 import { useTheme } from '@/app/providers';
-import { fetchAPI } from '@/lib/client-api';
+import { cachedQuery } from '@/lib/cached-query';
 
 interface Poller {
     poller_id: string;
@@ -49,14 +49,10 @@ export default function Header() {
     useEffect(() => {
         const fetchPollers = async () => {
             try {
-                const data = await fetchAPI<{ results: { poller_id: string }[] }>('/query', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        ...(token && { Authorization: `Bearer ${token}` }),
-                    },
-                    body: JSON.stringify({ query: 'show pollers' }),
-                });
+                const data = await cachedQuery<{ results: { poller_id: string }[] }>(
+                    'show pollers',
+                    token
+                );
                 const rawResults = Array.isArray(data.results) ? data.results as { poller_id: string }[] : [];
                 const uniquePollerIds = new Set<string>();
                 const processedPollers: Poller[] = [];
@@ -70,7 +66,6 @@ export default function Header() {
                         }
                     }
                 });
-                console.log('Raw pollers data:', data.results);
                 setPollers(processedPollers);
             } catch (error) {
                 console.error('Failed to fetch pollers:', error);
@@ -79,14 +74,10 @@ export default function Header() {
 
         const fetchPartitions = async () => {
             try {
-                const data = await fetchAPI<{ results: { partition: string }[] }>('/query', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        ...(token && { Authorization: `Bearer ${token}` }),
-                    },
-                    body: JSON.stringify({ query: 'show sweep_results | distinct partition' }),
-                });
+                const data = await cachedQuery<{ results: { partition: string }[] }>(
+                    'SELECT DISTINCT partition FROM table(sweep_results)',
+                    token
+                );
                 setPartitions(Array.from(new Set(data.results.map((p: Partition) => p.partition))).map((p: string) => ({ partition: p })) || []);
             } catch (error) {
                 console.error('Failed to fetch partitions:', error);

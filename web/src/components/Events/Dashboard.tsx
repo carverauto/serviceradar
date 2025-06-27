@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import ReactJson from '@microlink/react-json-view';
 import { useDebounce } from 'use-debounce';
+import { cachedQuery } from '@/lib/cached-query';
 
 type SortableKeys = 'event_timestamp' | 'host' | 'severity';
 
@@ -104,11 +105,12 @@ const EventsDashboard = () => {
         setStatsLoading(true);
 
         try {
+            // Use cached queries to prevent duplicates
             const [totalRes, criticalRes, highRes, lowRes] = await Promise.all([
-                postQuery<{ results: [{ 'count()': number }] }>('COUNT EVENTS'),
-                postQuery<{ results: [{ 'count()': number }] }>("COUNT EVENTS WHERE severity = 'Critical'"),
-                postQuery<{ results: [{ 'count()': number }] }>("COUNT EVENTS WHERE severity = 'High'"),
-                postQuery<{ results: [{ 'count()': number }] }>("COUNT EVENTS WHERE severity = 'Low'"),
+                cachedQuery<{ results: [{ 'count()': number }] }>('COUNT EVENTS', token, 30000),
+                cachedQuery<{ results: [{ 'count()': number }] }>("COUNT EVENTS WHERE severity = 'Critical'", token, 30000),
+                cachedQuery<{ results: [{ 'count()': number }] }>("COUNT EVENTS WHERE severity = 'High'", token, 30000),
+                cachedQuery<{ results: [{ 'count()': number }] }>("COUNT EVENTS WHERE severity = 'Low'", token, 30000),
             ]);
 
             setStats({
@@ -122,7 +124,7 @@ const EventsDashboard = () => {
         } finally {
             setStatsLoading(false);
         }
-    }, [postQuery]);
+    }, [token]);
 
     const fetchEvents = useCallback(async (cursor?: string, direction?: 'next' | 'prev') => {
         setEventsLoading(true);
@@ -159,10 +161,12 @@ const EventsDashboard = () => {
     }, [postQuery, debouncedSearchTerm, filterSeverity, sortBy, sortOrder]);
 
     useEffect(() => {
+        // Fetch stats on mount
         fetchStats();
     }, [fetchStats]);
 
     useEffect(() => {
+        // Fetch events when dependencies change
         fetchEvents();
     }, [fetchEvents]);
 

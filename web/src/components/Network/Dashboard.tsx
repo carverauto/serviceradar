@@ -126,11 +126,15 @@ const TabButton = ({
 // SNMP Device List Component (for the SNMP Tab)
 type SortableKeys = 'ip' | 'hostname' | 'last_seen' | 'first_seen' | 'poller_id';
 
-const SNMPDeviceList: React.FC = () => {
+interface SNMPDeviceListProps {
+    initialStats?: { online: number; offline: number };
+}
+
+const SNMPDeviceList: React.FC<SNMPDeviceListProps> = ({ initialStats }) => {
     const { token } = useAuth();
     const [devices, setDevices] = useState<Device[]>([]);
     const [pagination, setPagination] = useState<Pagination | null>(null);
-    const [stats, setStats] = useState({ online: 0, offline: 0 });
+    const [stats, setStats] = useState(initialStats || { online: 0, offline: 0 });
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
@@ -183,26 +187,28 @@ const SNMPDeviceList: React.FC = () => {
             setDevices(data.results || []);
             setPagination(data.pagination || null);
 
-            // Fetch stats in parallel (using all devices for now)
-            const [onlineRes, offlineRes] = await Promise.all([
-                postQuery<{ results: { 'count()': number }[] }>(
-                    "COUNT DEVICES WHERE is_available = true"
-                ),
-                postQuery<{ results: { 'count()': number }[] }>(
-                    "COUNT DEVICES WHERE is_available = false"
-                ),
-            ]);
+            // Only fetch stats if not provided as initial stats
+            if (!initialStats) {
+                const [onlineRes, offlineRes] = await Promise.all([
+                    postQuery<{ results: { 'count()': number }[] }>(
+                        "COUNT DEVICES WHERE is_available = true"
+                    ),
+                    postQuery<{ results: { 'count()': number }[] }>(
+                        "COUNT DEVICES WHERE is_available = false"
+                    ),
+                ]);
 
-            setStats({
-                online: onlineRes.results[0]?.['count()'] || 0,
-                offline: offlineRes.results[0]?.['count()'] || 0,
-            });
+                setStats({
+                    online: onlineRes.results[0]?.['count()'] || 0,
+                    offline: offlineRes.results[0]?.['count()'] || 0,
+                });
+            }
         } catch (e) {
             setError(e instanceof Error ? e.message : "An unknown error occurred.");
         } finally {
             setLoading(false);
         }
-    }, [postQuery, debouncedSearchTerm, sortBy, sortOrder]);
+    }, [postQuery, debouncedSearchTerm, sortBy, sortOrder, initialStats]);
 
     useEffect(() => {
         fetchDevices();
@@ -406,7 +412,7 @@ const SNMPDeviceList: React.FC = () => {
 // Main Network Dashboard Component
 const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
     const [activeTab, setActiveTab] = useState<TabName>('overview');
-    const [snmpDeviceCount, setSnmpDeviceCount] = useState<number>(0);
+    const [deviceStats, setDeviceStats] = useState<{ total: number; online: number; offline: number }>({ total: 0, online: 0, offline: 0 });
     const [loadingStats, setLoadingStats] = useState(true);
     const router = useRouter();
     const { token } = useAuth();
@@ -502,36 +508,50 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
     }, [discoveryServices]);
 
     useEffect(() => {
-        const fetchSnmpCount = async () => {
+        const fetchDeviceStats = async () => {
             setLoadingStats(true);
             try {
-                const response = await fetch('/api/query', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        ...(token && { Authorization: `Bearer ${token}` })
-                    },
-                    body: JSON.stringify({
-                        // Count total devices for now since SNMP array query syntax
-                        // is not supported in current SRQL version
-                        query: "COUNT DEVICES"
-                    }),
+                // Fetch all stats in parallel to reduce queries
+                const [totalRes, onlineRes, offlineRes] = await Promise.all([
+                    fetch('/api/query', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...(token && { Authorization: `Bearer ${token}` })
+                        },
+                        body: JSON.stringify({ query: "COUNT DEVICES" }),
+                    }).then(r => r.json()),
+                    fetch('/api/query', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...(token && { Authorization: `Bearer ${token}` })
+                        },
+                        body: JSON.stringify({ query: "COUNT DEVICES WHERE is_available = true" }),
+                    }).then(r => r.json()),
+                    fetch('/api/query', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...(token && { Authorization: `Bearer ${token}` })
+                        },
+                        body: JSON.stringify({ query: "COUNT DEVICES WHERE is_available = false" }),
+                    }).then(r => r.json()),
+                ]);
+
+                setDeviceStats({
+                    total: totalRes.results[0]?.['count()'] || 0,
+                    online: onlineRes.results[0]?.['count()'] || 0,
+                    offline: offlineRes.results[0]?.['count()'] || 0,
                 });
-
-                if (!response.ok) {
-                    throw new Error('Failed to fetch SNMP device count');
-                }
-
-                const data = await response.json();
-                setSnmpDeviceCount(data.results[0]?.['count()'] || 0);
             } catch (error) {
-                console.error(error);
+                console.error('Failed to fetch device stats:', error);
             } finally {
                 setLoadingStats(false);
             }
         };
 
-        fetchSnmpCount();
+        fetchDeviceStats();
     }, [token]);
 
     const renderTabContent = () => {
@@ -560,7 +580,7 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
                             />
                             <StatCard
                                 title="Total Devices"
-                                value={snmpDeviceCount.toLocaleString()}
+                                value={deviceStats.total.toLocaleString()}
                                 icon={<Rss size={24} />}
                                 isLoading={loadingStats}
                                 onClick={handleSnmpDevicesClick}
@@ -699,7 +719,7 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
                                 </div>
                             )}
                         </div>
-                        <SNMPDeviceList />
+                        <SNMPDeviceList initialStats={{ online: deviceStats.online, offline: deviceStats.offline }} />
                     </div>
                 );
 
