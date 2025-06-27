@@ -119,8 +119,8 @@ export async function fetchWithCache(
   }
 
   // Create a new request and store it
-  const fetchPromise = fetchAPI(apiUrl, options)
-    .then((data) => {
+  const fetchPromise = fetchAPI<SystemStatus>(apiUrl, options)
+    .then((data: SystemStatus) => {
       // Store in cache
       apiCache.set(cacheKey, {
         data,
@@ -145,10 +145,10 @@ export async function fetchWithCache(
 /**
  * Simple fetch with API key and optional token
  */
-export async function fetchAPI(
+export async function fetchAPI<T>( 
   endpoint: string,
   customOptions: RequestInit = {},
-): Promise<SystemStatus> {
+): Promise<T> {
   const apiUrl = endpoint.startsWith("/api/") ? endpoint : `/api/${endpoint}`;
 
   const defaultOptions: RequestInit = {

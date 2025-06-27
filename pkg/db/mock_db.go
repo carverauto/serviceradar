@@ -165,6 +165,36 @@ func (mr *MockServiceMockRecorder) GetCPUMetrics(ctx, pollerID, coreID, start, e
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCPUMetrics", reflect.TypeOf((*MockService)(nil).GetCPUMetrics), ctx, pollerID, coreID, start, end)
 }
 
+// GetDeviceByID mocks base method.
+func (m *MockService) GetDeviceByID(ctx context.Context, deviceID string) (*models.Device, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDeviceByID", ctx, deviceID)
+	ret0, _ := ret[0].(*models.Device)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDeviceByID indicates an expected call of GetDeviceByID.
+func (mr *MockServiceMockRecorder) GetDeviceByID(ctx, deviceID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceByID", reflect.TypeOf((*MockService)(nil).GetDeviceByID), ctx, deviceID)
+}
+
+// GetDevicesByIP mocks base method.
+func (m *MockService) GetDevicesByIP(ctx context.Context, ip string) ([]*models.Device, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDevicesByIP", ctx, ip)
+	ret0, _ := ret[0].([]*models.Device)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDevicesByIP indicates an expected call of GetDevicesByIP.
+func (mr *MockServiceMockRecorder) GetDevicesByIP(ctx, ip any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDevicesByIP", reflect.TypeOf((*MockService)(nil).GetDevicesByIP), ctx, ip)
+}
+
 // GetDiskMetrics mocks base method.
 func (m *MockService) GetDiskMetrics(ctx context.Context, pollerID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error) {
 	m.ctrl.T.Helper()
@@ -516,6 +546,20 @@ func (mr *MockServiceMockRecorder) StoreRperfMetrics(ctx, pollerID, serviceName,
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreRperfMetrics", reflect.TypeOf((*MockService)(nil).StoreRperfMetrics), ctx, pollerID, serviceName, message, timestamp)
 }
 
+// StoreServices mocks base method.
+func (m *MockService) StoreServices(ctx context.Context, services []*models.Service) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "StoreServices", ctx, services)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// StoreServices indicates an expected call of StoreServices.
+func (mr *MockServiceMockRecorder) StoreServices(ctx, services any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreServices", reflect.TypeOf((*MockService)(nil).StoreServices), ctx, services)
+}
+
 // StoreSweepResults mocks base method.
 func (m *MockService) StoreSweepResults(ctx context.Context, results []*models.SweepResult) error {
 	m.ctrl.T.Helper()
@@ -531,17 +575,17 @@ func (mr *MockServiceMockRecorder) StoreSweepResults(ctx, results any) *gomock.C
 }
 
 // StoreSysmonMetrics mocks base method.
-func (m *MockService) StoreSysmonMetrics(ctx context.Context, pollerID string, metrics *models.SysmonMetrics, timestamp time.Time) error {
+func (m *MockService) StoreSysmonMetrics(ctx context.Context, pollerID, agentID, hostID string, metrics *models.SysmonMetrics, timestamp time.Time) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "StoreSysmonMetrics", ctx, pollerID, metrics, timestamp)
+	ret := m.ctrl.Call(m, "StoreSysmonMetrics", ctx, pollerID, agentID, hostID, metrics, timestamp)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // StoreSysmonMetrics indicates an expected call of StoreSysmonMetrics.
-func (mr *MockServiceMockRecorder) StoreSysmonMetrics(ctx, pollerID, metrics, timestamp any) *gomock.Call {
+func (mr *MockServiceMockRecorder) StoreSysmonMetrics(ctx, pollerID, agentID, hostID, metrics, timestamp any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreSysmonMetrics", reflect.TypeOf((*MockService)(nil).StoreSysmonMetrics), ctx, pollerID, metrics, timestamp)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreSysmonMetrics", reflect.TypeOf((*MockService)(nil).StoreSysmonMetrics), ctx, pollerID, agentID, hostID, metrics, timestamp)
 }
 
 // StoreUser mocks base method.

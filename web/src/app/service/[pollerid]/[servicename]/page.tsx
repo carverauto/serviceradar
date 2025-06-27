@@ -16,7 +16,7 @@
 
 // src/app/service/[pollerid]/[servicename]/page.tsx
 import { Suspense } from "react";
-import ServiceDashboard from "../../../../components/ServiceDashboard";
+import ServiceDashboard from "../../../../components/Service/Dashboard";
 import { cookies } from "next/headers";
 import { Poller, ServiceMetric, ServicePayload } from "@/types/types";
 import { SnmpDataPoint } from "@/types/snmp";

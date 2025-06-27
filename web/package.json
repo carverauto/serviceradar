@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@microlink/react-json-view": "^1.26.2",
+    "@tanstack/react-query": "^5.81.2",
     "knip": "^5.57.2",
     "lodash": "^4.17.21",
     "lucide-react": "^0.476.0",
@@ -20,6 +21,7 @@
     "recharts": "^2.15.1",
     "styled-jsx": "^5.1.6",
     "tailwindcss-animate": "^1.0.7",
+    "use-debounce": "^10.0.5",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

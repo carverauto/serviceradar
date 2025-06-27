@@ -20,6 +20,7 @@
 import React from 'react';
 import dynamic from 'next/dynamic';
 import { useSearchParams } from 'next/navigation';
+import DeviceAttributionBanner from './DeviceAttributionBanner';
 
 const SystemMetrics = dynamic(() => import('./system-metrics'), {
     ssr: false,
@@ -30,7 +31,12 @@ const SystemMetricsWrapper = () => {
     const searchParams = useSearchParams();
     const pollerId = searchParams.get('pollerId') || 'poller-01'; // Fallback to 'poller-01' if not provided
 
-    return <SystemMetrics pollerId={pollerId} />;
+    return (
+        <div>
+            <DeviceAttributionBanner pollerId={pollerId} />
+            <SystemMetrics pollerId={pollerId} />
+        </div>
+    );
 };
 
 export default SystemMetricsWrapper;

@@ -18,9 +18,15 @@
 import { SystemStatus, Poller } from "@/types/types";
 import { env } from 'next-runtime-env';
 
+
+// This function is updated to be more flexible with caching.
+// It now accepts NextFetchRequestConfig to control caching behavior.
+// By default, it will not cache (revalidate: 0), preserving behavior for
+// parts of the app that haven't been updated to the new caching strategy.
 export async function fetchFromAPI<T>(
     endpoint: string,
     token?: string,
+    nextFetchOptions?: NextFetchRequestConfig,
 ): Promise<T | null> {
   const normalizedEndpoint = endpoint.replace(/^\/+/, "");
 
@@ -38,7 +44,7 @@ export async function fetchFromAPI<T>(
   }
 
   const headers: HeadersInit = { "Content-Type": "application/json" };
-  const apiKey = process.env.API_KEY;
+  const apiKey = env('API_KEY'); // Use next-runtime-env for consistency
   if (apiKey) {
     headers["X-API-Key"] = apiKey;
   }
@@ -49,12 +55,20 @@ export async function fetchFromAPI<T>(
   try {
     const response = await fetch(apiUrl, {
       headers,
-      cache: "no-store",
+      // Use provided next.js fetch options, or default to no caching.
+      next: nextFetchOptions || { revalidate: 0 },
       credentials: "include",
     });
 
     if (!response.ok) {
-      throw new Error(`API request failed: ${response.status}`);
+        let errorBody;
+        try {
+            errorBody = await response.json();
+        } catch {
+            errorBody = await response.text();
+        }
+        console.error(`API request to ${apiUrl} failed with status ${response.status}:`, errorBody);
+        throw new Error(`API request failed: ${response.status}`);
     }
 
     return response.json();

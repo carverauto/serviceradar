@@ -32,36 +32,30 @@ func (*Translator) applyDefaultFilters(q *models.Query) {
 		return
 	}
 
-	switch q.Entity {
-	case models.SweepResults:
-		if !hasDiscoverySourceCondition(q.Conditions) {
-			cond := models.Condition{
-				Field:    "discovery_source",
-				Operator: models.Equals,
-				Value:    "sweep",
-			}
+	// Other entity types don't have default filters:
+	// - Devices, Flows, Traps, Connections, Logs, Interfaces
+	// - ICMPResults, SNMPResults, Services, Pollers, Events
 
-			if len(q.Conditions) > 0 {
-				cond.LogicalOp = models.And
-			}
+	// Currently, only SweepResults needs a default filter
+	if q.Entity == models.SweepResults {
+		applySweepResultsDefaultFilter(q)
+	}
+}
 
-			q.Conditions = append(q.Conditions, cond)
+// applySweepResultsDefaultFilter adds the default discovery_source filter for SweepResults
+func applySweepResultsDefaultFilter(q *models.Query) {
+	if !hasDiscoverySourceCondition(q.Conditions) {
+		cond := models.Condition{
+			Field:    "discovery_source",
+			Operator: models.Equals,
+			Value:    "sweep",
 		}
-	case models.Devices:
-		// No default filters for Devices
-	case models.Flows:
-		// No default filters for Flows
-	case models.Traps:
-		// No default filters for Traps
-	case models.Connections:
-		// No default filters for Connections
-	case models.Logs:
-		// No default filters for Logs
-	case models.Interfaces:
-		// No default filters for Interfaces
-	case models.ICMPResults:
-		// No default filters for ICMPResults
-	case models.SNMPResults:
+
+		if len(q.Conditions) > 0 {
+			cond.LogicalOp = models.And
+		}
+
+		q.Conditions = append(q.Conditions, cond)
 	}
 }
 
@@ -136,6 +130,9 @@ func (*Translator) getEntityPrimaryKey(entity models.EntityType) (string, bool) 
 	case models.Logs:
 		// Assuming log_id or similar is the primary key for logs
 		return "", false
+	case models.Services:
+		// Services stream is versioned_kv, latest handled automatically
+		return "", false
 	case models.SweepResults:
 		// SweepResults is a versioned_kv stream
 		return "", false
@@ -145,6 +142,11 @@ func (*Translator) getEntityPrimaryKey(entity models.EntityType) (string, bool) 
 	case models.SNMPResults:
 		// SNMPResults is a versioned_kv stream
 		return "", false
+	case models.Events:
+		// Events stream is append-only
+		return "", false
+	case models.Pollers:
+		return "poller_id", true
 	default:
 		return "", false // Indicate LATEST is not supported for this entity or it's versioned_kv
 	}
@@ -215,12 +217,18 @@ func (*Translator) getProtonBaseTableName(entity models.EntityType) string {
 		return "connections"
 	case models.Logs:
 		return "logs"
+	case models.Services:
+		return "services"
 	case models.SweepResults:
 		return "sweep_results"
 	case models.ICMPResults:
 		return "icmp_results"
 	case models.SNMPResults:
 		return "snmp_results"
+	case models.Events:
+		return "events"
+	case models.Pollers:
+		return "pollers"
 	default:
 		return strings.ToLower(string(entity)) // Fallback
 	}

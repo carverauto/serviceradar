@@ -18,6 +18,14 @@
 
 import { fetchFromAPI } from '@/lib/api';
 
+// Cache store for metrics data
+const metricsCache = new Map();
+const pendingRequests = new Map();
+
+// Cache configuration
+const CACHE_TTL = 10000; // 10 seconds cache TTL
+const MIN_FETCH_INTERVAL = 1000; // Minimum 1 second between fetches for the same key
+
 // Helper function to convert bytes to GB, handling string inputs
 const bytesToGB = (bytes) => {
     const parsedBytes = parseInt(bytes);
@@ -276,26 +284,97 @@ export const fetchSystemData = async (pollerId, timeRange = '1h') => {
     }
 };
 
-// Custom fetch with timeout
+// Custom fetch with timeout and caching
 const fetchWithTimeout = async (url, timeout = 8000) => {
-    try {
-        // First try to get from API
-        const fetchPromise = fetchFromAPI(url);
-
-        // Set up timeout
-        const timeoutPromise = new Promise((_, reject) => {
-            setTimeout(() => {
-                reject(new Error(`Request timed out after ${timeout}ms`));
-            }, timeout);
-        });
-
-        // Race between fetch and timeout
-        return Promise.race([fetchPromise, timeoutPromise]);
-    } catch (error) {
-        console.error(`Fetch error for ${url}:`, error);
-        throw error;
+    const cacheKey = url;
+    const now = Date.now();
+    
+    // Check if we have valid cached data
+    const cached = metricsCache.get(cacheKey);
+    if (cached && (now - cached.timestamp) < CACHE_TTL) {
+        console.log(`[Cache Hit] Returning cached data for: ${url}`);
+        return cached.data;
     }
+    
+    // Check if there's already a pending request for this URL
+    if (pendingRequests.has(cacheKey)) {
+        console.log(`[Request Dedup] Waiting for existing request: ${url}`);
+        return pendingRequests.get(cacheKey);
+    }
+    
+    // Create the fetch promise
+    const fetchPromise = (async () => {
+        try {
+            // Check if we need to throttle requests
+            if (cached && (now - cached.timestamp) < MIN_FETCH_INTERVAL) {
+                console.log(`[Throttled] Using stale cache for: ${url}`);
+                return cached.data;
+            }
+            
+            console.log(`[Fetching] Making API request: ${url}`);
+            
+            // First try to get from API
+            const apiPromise = fetchFromAPI(url);
+
+            // Set up timeout
+            const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => {
+                    reject(new Error(`Request timed out after ${timeout}ms`));
+                }, timeout);
+            });
+
+            // Race between fetch and timeout
+            const data = await Promise.race([apiPromise, timeoutPromise]);
+            
+            // Cache the successful response
+            metricsCache.set(cacheKey, {
+                data,
+                timestamp: now
+            });
+            
+            // Clean up pending request
+            pendingRequests.delete(cacheKey);
+            
+            return data;
+        } catch (error) {
+            // Clean up pending request on error
+            pendingRequests.delete(cacheKey);
+            
+            // If we have stale cached data, return it instead of failing
+            if (cached) {
+                console.warn(`[Fallback] Using stale cache due to error: ${error.message}`);
+                return cached.data;
+            }
+            
+            throw error;
+        }
+    })();
+    
+    // Store the pending request
+    pendingRequests.set(cacheKey, fetchPromise);
+    
+    return fetchPromise;
 };
+
+// Cleanup old cache entries periodically
+const cleanupCache = () => {
+    const now = Date.now();
+    const expiredKeys = [];
+    
+    metricsCache.forEach((value, key) => {
+        if (now - value.timestamp > CACHE_TTL * 2) {
+            expiredKeys.push(key);
+        }
+    });
+    
+    expiredKeys.forEach(key => {
+        metricsCache.delete(key);
+        console.log(`[Cache Cleanup] Removed expired entry: ${key}`);
+    });
+};
+
+// Run cache cleanup every 30 seconds
+setInterval(cleanupCache, 30000);
 
 // Generate default data points if API fails
 const generateDefaultDataPoints = () => {
@@ -314,6 +393,13 @@ const generateDefaultDataPoints = () => {
     }
 
     return points.reverse();
+};
+
+// Clear all cached metrics data
+export const clearMetricsCache = () => {
+    metricsCache.clear();
+    pendingRequests.clear();
+    console.log('[Cache] Cleared all metrics cache');
 };
 
 // Combines data from CPU, memory, and disk metrics for the combined chart

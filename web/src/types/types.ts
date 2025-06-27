@@ -64,7 +64,7 @@ export interface RperfResult {
     [key: string]: unknown; // Allow for other fields in summary
   };
   target?: string;
-  [key: string]: unknown; // Allow for other fields in RperfResult
+  [key: string]: unknown; // Allow for other fields in RperfDetails
 }
 
 export interface RperfDetails {
@@ -97,6 +97,16 @@ export interface Service {
   [key: string]: unknown; // Allows for additional, non-standard fields that might come from the backend
 }
 
+// ServiceEntry represents a record from the services inventory stream.
+export interface ServiceEntry {
+  _tp_time?: string;
+  agent_id: string;
+  poller_id: string;
+  service_name: string;
+  service_type: string;
+  timestamp: string;
+}
+
 // ServicePayload interface: Represents the full structure of a service object
 // as typically returned by the backend API (e.g., from /api/pollers/{pollerId}/services/{serviceName}).
 // It extends the core Service interface with API-specific metadata that is usually part of the top-level API response.
@@ -111,6 +121,10 @@ export interface Poller {
   is_healthy: boolean;
   last_update: string;
   services?: Service[]; // Services within a poller might be the basic Service interface, not full ServicePayloads
+}
+
+export interface Partition {
+  partition: string;
 }
 
 export interface ServiceStats {
