@@ -650,6 +650,110 @@ func (s *Server) getPollerHealthState(ctx context.Context, pollerID string) (boo
 	return status.IsHealthy, nil
 }
 
+// findAgentID extracts the agent ID from the services if available
+func (s *Server) findAgentID(services []*proto.ServiceStatus) string {
+	for _, svc := range services {
+		if svc.AgentId != "" {
+			return svc.AgentId
+		}
+	}
+	return ""
+}
+
+// registerServiceDevice creates or updates a device entry for a poller and/or agent
+func (s *Server) registerServiceDevice(ctx context.Context, pollerID, agentID, partition string, timestamp time.Time) error {
+	// Generate service-specific IP addressing and device ID
+	var serviceIP string
+	var serviceType string
+	var hostname string
+	
+	// Determine service type and IP based on the relationship between poller and agent
+	if agentID == "" {
+		// Pure poller
+		serviceType = "poller"
+		serviceIP = fmt.Sprintf("127.0.1.%d", hashStringToIP(pollerID))
+		hostname = pollerID
+	} else if agentID == pollerID {
+		// Combined poller/agent
+		serviceType = "agent_poller"
+		serviceIP = fmt.Sprintf("127.0.2.%d", hashStringToIP(pollerID))
+		hostname = pollerID
+	} else {
+		// Separate agent
+		serviceType = "agent"
+		serviceIP = fmt.Sprintf("127.0.3.%d", hashStringToIP(agentID))
+		hostname = agentID
+	}
+
+	// Use default partition if none provided
+	if partition == "" {
+		partition = "default"
+	}
+
+	// Generate device ID following the partition:ip schema
+	deviceID := fmt.Sprintf("%s:%s", partition, serviceIP)
+
+	// Check if device already exists to determine FirstSeen timestamp
+	firstSeen := timestamp
+	existingDevice, err := s.DB.GetDeviceByID(ctx, deviceID)
+	if err == nil && !existingDevice.FirstSeen.IsZero() {
+		firstSeen = existingDevice.FirstSeen
+	}
+
+	// Create the device metadata including version info if available
+	metadata := map[string]interface{}{
+		"service_type":   serviceType,
+		"service_status": "online",
+		"device_type":    "service_device",
+		"last_heartbeat": timestamp.Format(time.RFC3339),
+	}
+
+	// If we have both poller and agent IDs, include both in metadata
+	if agentID != "" && agentID != pollerID {
+		metadata["poller_id"] = pollerID
+		metadata["agent_id"] = agentID
+	}
+
+	// Construct the Device object
+	device := &models.Device{
+		DeviceID:         deviceID,
+		PollerID:         pollerID,
+		AgentID:          agentID,
+		IP:               serviceIP,
+		Hostname:         hostname,
+		DiscoverySources: []string{"self-reported"},
+		IsAvailable:      true,
+		LastSeen:         timestamp,
+		FirstSeen:        firstSeen,
+		Metadata:         metadata,
+	}
+
+	// Store the device using the existing StoreDevices function
+	if err := s.DB.StoreDevices(ctx, []*models.Device{device}); err != nil {
+		return fmt.Errorf("failed to store service device: %w", err)
+	}
+
+	log.Printf("Successfully registered service device %s (type: %s) for poller %s", 
+		deviceID, serviceType, pollerID)
+	
+	return nil
+}
+
+// hashStringToIP creates a simple hash of a string to generate the last octet of an IP
+func hashStringToIP(s string) int {
+	hash := 0
+	for _, char := range s {
+		hash = (hash*31 + int(char)) & 0xFF
+	}
+	// Ensure we don't use 0 or 255 (reserved)
+	if hash == 0 {
+		hash = 1
+	} else if hash == 255 {
+		hash = 254
+	}
+	return hash
+}
+
 func (s *Server) processStatusReport(
 	ctx context.Context, req *proto.PollerStatusRequest, now time.Time) (*api.PollerStatus, error) {
 	pollerStatus := &models.PollerStatus{
@@ -678,6 +782,17 @@ func (s *Server) processStatusReport(
 			return nil, err
 		}
 
+		// Register the poller/agent as a device
+		go func() {
+			// Run in a separate goroutine to not block the main status report flow.
+			// Use a new context to avoid cancellation from the original request.
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := s.registerServiceDevice(ctx, req.PollerId, s.findAgentID(req.Services), req.Partition, now); err != nil {
+				log.Printf("Failed to register service device for poller %s: %v", req.PollerId, err)
+			}
+		}()
+
 		return apiStatus, nil
 	}
 
@@ -691,6 +806,17 @@ func (s *Server) processStatusReport(
 
 	apiStatus := s.createPollerStatus(req, now)
 	s.processServices(ctx, req.PollerId, req.Partition, apiStatus, req.Services, now)
+
+	// Register the poller/agent as a device for new pollers too
+	go func() {
+		// Run in a separate goroutine to not block the main status report flow.
+		// Use a new context to avoid cancellation from the original request.
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := s.registerServiceDevice(ctx, req.PollerId, s.findAgentID(req.Services), req.Partition, now); err != nil {
+			log.Printf("Failed to register service device for poller %s: %v", req.PollerId, err)
+		}
+	}()
 
 	return apiStatus, nil
 }
