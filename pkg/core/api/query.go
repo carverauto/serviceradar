@@ -102,6 +102,125 @@ func validateQueryRequest(req *QueryRequest) (errMsg string, statusCode int, ok 
 	return errMsg, statusCode, ok
 }
 
+// setupOrderFields configures the order fields for a query
+func (s *APIServer) setupOrderFields(query *models.Query) {
+	var defaultOrderField string
+	if len(query.OrderBy) == 0 {
+		defaultOrderField = "_tp_time" // Default for Proton
+
+		if s.dbType != parser.Proton {
+			defaultOrderField = "last_seen" // Adjust for other DBs
+		}
+
+		query.OrderBy = []models.OrderByItem{
+			{Field: defaultOrderField, Direction: models.Descending},
+		}
+	} else {
+		// If an OrderBy exists, use its primary field as the "default" for the next check.
+		defaultOrderField = query.OrderBy[0].Field
+	}
+
+	// Step 2: Ensure the sort order is stable by adding a tie-breaker field.
+	// This runs after the default is set, ensuring stability for all paginated queries.
+	if len(query.OrderBy) == 1 && query.OrderBy[0].Field == defaultOrderField {
+		switch query.Entity {
+		case models.SweepResults, models.Devices:
+			// Add 'ip' as a default secondary sort key for stable pagination.
+			query.OrderBy = append(query.OrderBy, models.OrderByItem{
+				Field:     "ip",
+				Direction: models.Descending, // Must be consistent
+			})
+		case models.Services:
+			// Use service_name as the secondary sort key for services.
+			query.OrderBy = append(query.OrderBy, models.OrderByItem{
+				Field:     "service_name",
+				Direction: models.Descending,
+			})
+		case models.Interfaces:
+			// Use device_ip as the secondary sort key for interfaces.
+			query.OrderBy = append(query.OrderBy, models.OrderByItem{
+				Field:     "device_ip",
+				Direction: models.Descending,
+			})
+		case models.Events:
+			// Use id as the secondary sort key for events.
+			query.OrderBy = append(query.OrderBy, models.OrderByItem{
+				Field:     "id",
+				Direction: models.Descending,
+			})
+		case models.Pollers:
+			// Use poller_id as the secondary sort key for pollers.
+			query.OrderBy = append(query.OrderBy, models.OrderByItem{
+				Field:     "poller_id",
+				Direction: models.Descending,
+			})
+		case models.ICMPResults:
+			// Use ip as the secondary sort key for ICMP results.
+			query.OrderBy = append(query.OrderBy, models.OrderByItem{
+				Field:     "ip",
+				Direction: models.Descending,
+			})
+		case models.SNMPResults:
+			// Use ip as the secondary sort key for SNMP results.
+			query.OrderBy = append(query.OrderBy, models.OrderByItem{
+				Field:     "ip",
+				Direction: models.Descending,
+			})
+		// These entities don't need additional sort fields
+		case models.Flows, models.Traps, models.Connections, models.Logs:
+			// No additional sort fields needed
+		}
+	}
+}
+
+// processCursorAndLimit handles cursor decoding and limit setting for a query
+func (s *APIServer) processCursorAndLimit(query *models.Query, req *QueryRequest) (map[string]interface{}, error) {
+	var cursorData map[string]interface{}
+	var err error
+
+	// Handle cursor
+	if req.Cursor != "" {
+		cursorData, err = decodeCursor(req.Cursor)
+		if err != nil {
+			return nil, errors.New("invalid cursor")
+		}
+
+		query.Conditions = append(query.Conditions, buildCursorConditions(query, cursorData, req.Direction)...)
+	}
+
+	// Set LIMIT: prioritize SRQL query's LIMIT, then req.Limit, then default to 10
+	if !query.HasLimit {
+		if req.Limit > 0 {
+			query.Limit = req.Limit
+			query.HasLimit = true
+		} else {
+			query.Limit = 10
+			query.HasLimit = true
+		}
+	}
+
+	return cursorData, nil
+}
+
+// isValidPaginationEntity checks if the entity supports pagination
+func isValidPaginationEntity(entity models.EntityType) bool {
+	validEntities := []models.EntityType{
+		models.Devices,
+		models.Services,
+		models.Interfaces,
+		models.SweepResults,
+		models.Events,
+		models.Pollers,
+	}
+
+	for _, validEntity := range validEntities {
+		if entity == validEntity {
+			return true
+		}
+	}
+	return false
+}
+
 // prepareQuery prepares the SRQL query with pagination settings
 func (s *APIServer) prepareQuery(req *QueryRequest) (*models.Query, map[string]interface{}, error) {
 	// Parse the SRQL query
@@ -113,73 +232,21 @@ func (s *APIServer) prepareQuery(req *QueryRequest) (*models.Query, map[string]i
 	}
 
 	// Validate entity for pagination. COUNT queries don't need pagination support.
-	if query.Type != models.Count {
-		if query.Entity != models.Devices && query.Entity != models.Services && query.Entity != models.Interfaces && query.Entity != models.SweepResults && query.Entity != models.Events && query.Entity != models.Pollers {
-			return nil, nil, errors.New("pagination is only supported for devices, services, interfaces, sweep_results, events, and pollers")
-		}
+	if query.Type != models.Count && !isValidPaginationEntity(query.Entity) {
+		return nil, nil, errors.New("pagination is only supported for devices, services, interfaces, sweep_results, events, and pollers")
 	}
 
 	// For COUNT queries, pagination ordering is unnecessary and may generate
 	// invalid SQL (e.g., ORDER BY without GROUP BY). Skip order/limit logic.
-	if query.Type != models.Count {
-		var defaultOrderField string
-		if len(query.OrderBy) == 0 {
-			defaultOrderField = "_tp_time" // Default for Proton
-
-			if s.dbType != parser.Proton {
-				defaultOrderField = "last_seen" // Adjust for other DBs
-			}
-
-			query.OrderBy = []models.OrderByItem{
-				{Field: defaultOrderField, Direction: models.Descending},
-			}
-		} else {
-			// If an OrderBy exists, use its primary field as the "default" for the next check.
-			defaultOrderField = query.OrderBy[0].Field
-		}
-
-		// Step 2: Ensure the sort order is stable by adding a tie-breaker field.
-		// This runs after the default is set, ensuring stability for all paginated queries.
-		if len(query.OrderBy) == 1 && query.OrderBy[0].Field == defaultOrderField {
-			switch query.Entity {
-			case models.SweepResults, models.Devices:
-				// Add 'ip' as a default secondary sort key for stable pagination.
-				query.OrderBy = append(query.OrderBy, models.OrderByItem{
-					Field:     "ip",
-					Direction: models.Descending, // Must be consistent
-				})
-			case models.Services:
-				// Use service_name as the secondary sort key for services.
-				query.OrderBy = append(query.OrderBy, models.OrderByItem{
-					Field:     "service_name",
-					Direction: models.Descending,
-				})
-			}
-		}
-	}
-
-	// Cursor and LIMIT processing are irrelevant for COUNT queries
 	var cursorData map[string]interface{}
 	if query.Type != models.Count {
-		// Handle cursor
-		if req.Cursor != "" {
-			cursorData, err = decodeCursor(req.Cursor)
-			if err != nil {
-				return nil, nil, errors.New("invalid cursor")
-			}
+		// Setup order fields
+		s.setupOrderFields(query)
 
-			query.Conditions = append(query.Conditions, buildCursorConditions(query, cursorData, req.Direction)...)
-		}
-
-		// Set LIMIT: prioritize SRQL query's LIMIT, then req.Limit, then default to 10
-		if !query.HasLimit {
-			if req.Limit > 0 {
-				query.Limit = req.Limit
-				query.HasLimit = true
-			} else {
-				query.Limit = 10
-				query.HasLimit = true
-			}
+		// Process cursor and limit
+		cursorData, err = s.processCursorAndLimit(query, req)
+		if err != nil {
+			return nil, nil, err
 		}
 	}
 
@@ -258,55 +325,65 @@ var (
 	errUnsupportedEntity = errors.New("unsupported entity")
 )
 
+// executeProtonQuery executes a query specifically for Proton database type
+func (s *APIServer) executeProtonQuery(ctx context.Context, query string) ([]map[string]interface{}, error) {
+	log.Println("Executing Proton query:", query)
+
+	results, err := s.queryExecutor.ExecuteQuery(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("query error: %w", err)
+	}
+
+	return results, nil
+}
+
+// getTableNameForEntity returns the table name for a given entity type
+func (s *APIServer) getTableNameForEntity(entity models.EntityType) (string, error) {
+	switch entity {
+	case models.Devices:
+		return "devices", nil
+	case models.Flows:
+		return "flows", nil
+	case models.Traps:
+		return "traps", nil
+	case models.Connections:
+		return "connections", nil
+	case models.Logs:
+		return "logs", nil
+	case models.Services:
+		return "services", nil
+	case models.Interfaces:
+		return "interfaces", nil
+	case models.SweepResults:
+		return "sweep_results", nil
+	case models.ICMPResults:
+		return "icmp_results", nil
+	case models.SNMPResults:
+		return "snmp_results", nil
+	case models.Events:
+		return "events", nil
+	case models.Pollers:
+		return "pollers", nil
+	default:
+		return "", fmt.Errorf("%w: %s", errUnsupportedEntity, entity)
+	}
+}
+
 // executeQuery executes the translated query against the database.
 func (s *APIServer) executeQuery(ctx context.Context, query string, entity models.EntityType) ([]map[string]interface{}, error) {
 	// For Proton, we don't need to pass an additional parameter as the entity is already
 	// properly formatted in the query with table() function
 	if s.dbType == parser.Proton {
-		log.Println("Executing Proton query:", query)
-
-		results, err := s.queryExecutor.ExecuteQuery(ctx, query)
-		if err != nil {
-			return nil, fmt.Errorf("query error: %w", err)
-		}
-
-		return results, nil
+		return s.executeProtonQuery(ctx, query)
 	}
 
 	// For other database types, use the existing logic
-	var results []map[string]interface{}
-
-	var err error
-
-	switch entity {
-	case models.Devices:
-		results, err = s.queryExecutor.ExecuteQuery(ctx, query, "devices")
-	case models.Flows:
-		results, err = s.queryExecutor.ExecuteQuery(ctx, query, "flows")
-	case models.Traps:
-		results, err = s.queryExecutor.ExecuteQuery(ctx, query, "traps")
-	case models.Connections:
-		results, err = s.queryExecutor.ExecuteQuery(ctx, query, "connections")
-	case models.Logs:
-		results, err = s.queryExecutor.ExecuteQuery(ctx, query, "logs")
-	case models.Services:
-		results, err = s.queryExecutor.ExecuteQuery(ctx, query, "services")
-	case models.Interfaces:
-		results, err = s.queryExecutor.ExecuteQuery(ctx, query, "interfaces")
-	case models.SweepResults:
-		results, err = s.queryExecutor.ExecuteQuery(ctx, query, "sweep_results")
-	case models.ICMPResults:
-		results, err = s.queryExecutor.ExecuteQuery(ctx, query, "icmp_results")
-	case models.SNMPResults:
-		results, err = s.queryExecutor.ExecuteQuery(ctx, query, "snmp_results")
-	case models.Events:
-		results, err = s.queryExecutor.ExecuteQuery(ctx, query, "events")
-	case models.Pollers:
-		results, err = s.queryExecutor.ExecuteQuery(ctx, query, "pollers")
-	default:
-		return nil, fmt.Errorf("%w: %s", errUnsupportedEntity, entity)
+	tableName, err := s.getTableNameForEntity(entity)
+	if err != nil {
+		return nil, err
 	}
 
+	results, err := s.queryExecutor.ExecuteQuery(ctx, query, tableName)
 	if err != nil {
 		return nil, fmt.Errorf("query error: %w", err)
 	}
@@ -440,46 +517,29 @@ func createCursorData(result map[string]interface{}, orderField string) map[stri
 
 // addEntityFields adds entity-specific fields to cursor data
 func addEntityFields(cursorData, result map[string]interface{}, entity models.EntityType) {
-	switch entity {
-	case models.Devices:
-		if ip, ok := result["ip"]; ok {
-			cursorData["ip"] = ip
-		}
-	case models.Interfaces:
-		if deviceIP, ok := result["device_ip"]; ok {
-			cursorData["device_ip"] = deviceIP
-		}
+	// Map entity types to the fields that should be copied from result to cursor data
+	entityFieldMap := map[models.EntityType][]string{
+		models.Devices:      {"ip"},
+		models.Interfaces:   {"device_ip", "ifIndex"},
+		models.SweepResults: {"ip"},
+		models.Services:     {"service_name"},
+		models.Events:       {"id"},
+		models.Pollers:      {"poller_id"},
+		// The following entities don't need additional fields:
+		// models.Flows, models.Traps, models.Connections, models.Logs,
+		// models.ICMPResults, models.SNMPResults
+	}
 
-		if ifIndex, ok := result["ifIndex"]; ok {
-			cursorData["ifIndex"] = ifIndex
-		}
-	case models.SweepResults:
-		if ip, ok := result["ip"]; ok {
-			cursorData["ip"] = ip
-		}
-	case models.Services:
-		if serviceName, ok := result["service_name"]; ok {
-			cursorData["service_name"] = serviceName
-		}
-	case models.Flows:
-		// No additional fields needed for now
-	case models.Traps:
-		// No additional fields needed for now
-	case models.Connections:
-		// No additional fields needed for now
-	case models.Logs:
-		// No additional fields needed for now
-	case models.ICMPResults:
-		// No additional fields needed for now
-	case models.SNMPResults:
-		// No additional fields needed for now
-	case models.Events:
-		if id, ok := result["id"]; ok {
-			cursorData["id"] = id
-		}
-	case models.Pollers:
-		if pollerID, ok := result["poller_id"]; ok {
-			cursorData["poller_id"] = pollerID
+	// Get the fields to copy for this entity type
+	fields, exists := entityFieldMap[entity]
+	if !exists {
+		return // No fields to copy for this entity type
+	}
+
+	// Copy each field from result to cursorData if it exists
+	for _, field := range fields {
+		if value, ok := result[field]; ok {
+			cursorData[field] = value
 		}
 	}
 }
