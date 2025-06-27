@@ -269,6 +269,7 @@ func (db *DB) GetCPUMetrics(ctx context.Context, pollerID string, coreID int, st
 
 	for rows.Next() {
 		var m models.CPUMetric
+
 		var agentID, hostID string
 
 		if err := rows.Scan(&m.Timestamp, &agentID, &hostID, &m.CoreID, &m.UsagePercent); err != nil {
@@ -277,6 +278,7 @@ func (db *DB) GetCPUMetrics(ctx context.Context, pollerID string, coreID int, st
 
 		m.AgentID = agentID
 		m.HostID = hostID
+
 		metrics = append(metrics, m)
 	}
 
@@ -465,14 +467,16 @@ func (db *DB) storeCPUMetrics(ctx context.Context, pollerID, agentID, hostID str
 }
 
 // storeDiskMetrics stores disk metrics in a batch.
-func (db *DB) storeDiskMetrics(ctx context.Context, pollerID, agentID, hostID string, disks []models.DiskMetric, timestamp time.Time) error {
+func (db *DB) storeDiskMetrics(
+	ctx context.Context, pollerID, agentID, hostID string, disks []models.DiskMetric, timestamp time.Time) error {
 	if len(disks) == 0 {
 		return nil
 	}
 
 	return db.executeBatch(ctx, "INSERT INTO disk_metrics (* except _tp_time)", func(batch driver.Batch) error {
 		for _, disk := range disks {
-			if err := batch.Append(pollerID, agentID, hostID, timestamp, disk.MountPoint, disk.UsedBytes, disk.TotalBytes); err != nil {
+			if err := batch.Append(pollerID, agentID, hostID, timestamp, disk.MountPoint,
+				disk.UsedBytes, disk.TotalBytes); err != nil {
 				log.Printf("Failed to append disk metric for %s: %v", disk.MountPoint, err)
 				continue
 			}
@@ -483,7 +487,8 @@ func (db *DB) storeDiskMetrics(ctx context.Context, pollerID, agentID, hostID st
 }
 
 // storeMemoryMetrics stores memory metrics in a batch.
-func (db *DB) storeMemoryMetrics(ctx context.Context, pollerID, agentID, hostID string, memory models.MemoryMetric, timestamp time.Time) error {
+func (db *DB) storeMemoryMetrics(
+	ctx context.Context, pollerID, agentID, hostID string, memory models.MemoryMetric, timestamp time.Time) error {
 	if memory.UsedBytes == 0 && memory.TotalBytes == 0 {
 		return nil
 	}
@@ -494,7 +499,8 @@ func (db *DB) storeMemoryMetrics(ctx context.Context, pollerID, agentID, hostID 
 }
 
 // GetAllCPUMetrics retrieves all CPU metrics for a poller within a time range, grouped by timestamp.
-func (db *DB) GetAllCPUMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonCPUResponse, error) {
+func (db *DB) GetAllCPUMetrics(
+	ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonCPUResponse, error) {
 	rows, err := db.Conn.Query(ctx, `
 		SELECT timestamp, agent_id, host_id, core_id, usage_percent
 		FROM table(cpu_metrics)
@@ -512,7 +518,9 @@ func (db *DB) GetAllCPUMetrics(ctx context.Context, pollerID string, start, end 
 
 	for rows.Next() {
 		var m models.CPUMetric
+
 		var agentID, hostID string
+
 		var timestamp time.Time
 
 		if err := rows.Scan(&timestamp, &agentID, &hostID, &m.CoreID, &m.UsagePercent); err != nil {
@@ -665,6 +673,7 @@ func (db *DB) GetAllDiskMetricsGrouped(ctx context.Context, pollerID string, sta
 
 	for rows.Next() {
 		var m models.DiskMetric
+
 		var timestamp time.Time
 
 		if err = rows.Scan(&timestamp, &m.MountPoint, &m.UsedBytes, &m.TotalBytes, &m.AgentID, &m.HostID); err != nil {
@@ -719,6 +728,7 @@ func (db *DB) GetMemoryMetricsGrouped(ctx context.Context, pollerID string, star
 
 	for rows.Next() {
 		var m models.MemoryMetric
+
 		var timestamp time.Time
 
 		if err = rows.Scan(&timestamp, &m.UsedBytes, &m.TotalBytes, &m.AgentID, &m.HostID); err != nil {

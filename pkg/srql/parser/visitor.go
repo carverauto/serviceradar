@@ -531,6 +531,7 @@ func (*QueryVisitor) getEntityType(ctx *gen.EntityContext) models.EntityType {
 	case "pollers":
 		return models.Pollers
 	}
+
 	return models.EntityType(entityText)
 }
 

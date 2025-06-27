@@ -234,6 +234,7 @@ func (s *Server) flushSysmonMetrics(ctx context.Context) {
 
 		for _, metric := range sysmonMetrics {
 			var ts time.Time
+
 			var agentID, hostID string
 
 			switch {
@@ -651,12 +652,13 @@ func (s *Server) getPollerHealthState(ctx context.Context, pollerID string) (boo
 }
 
 // findAgentID extracts the agent ID from the services if available
-func (s *Server) findAgentID(services []*proto.ServiceStatus) string {
+func (*Server) findAgentID(services []*proto.ServiceStatus) string {
 	for _, svc := range services {
 		if svc.AgentId != "" {
 			return svc.AgentId
 		}
 	}
+
 	return ""
 }
 
@@ -666,7 +668,7 @@ func (s *Server) findAgentID(services []*proto.ServiceStatus) string {
 // Source of Truth Principle:
 // The agent/poller is the ONLY reliable source of truth for its location (partition and host IP).
 // This information MUST be provided by the client in the status report, not inferred by the server.
-// 
+//
 // Requirements:
 // - partition: MUST be provided in the PollerStatusRequest
 // - sourceIP: MUST be provided in the PollerStatusRequest
@@ -680,7 +682,7 @@ func (s *Server) findAgentID(services []*proto.ServiceStatus) string {
 func (s *Server) registerServiceDevice(ctx context.Context, pollerID, agentID, partition, sourceIP string, timestamp time.Time) error {
 	// Validate required fields - the client MUST provide its location
 	if partition == "" || sourceIP == "" {
-		return fmt.Errorf("CRITICAL: Cannot register device for poller %s - missing required location data (partition=%q, source_ip=%q)", 
+		return fmt.Errorf("CRITICAL: Cannot register device for poller %s - missing required location data (partition=%q, source_ip=%q)",
 			pollerID, partition, sourceIP)
 	}
 
@@ -689,8 +691,9 @@ func (s *Server) registerServiceDevice(ctx context.Context, pollerID, agentID, p
 
 	// Determine service types based on the relationship between poller and agent
 	var serviceTypes []string
+
 	var primaryServiceID string
-	
+
 	if agentID == "" {
 		// Pure poller
 		serviceTypes = []string{"poller"}
@@ -707,6 +710,7 @@ func (s *Server) registerServiceDevice(ctx context.Context, pollerID, agentID, p
 
 	// Check if device already exists to determine FirstSeen timestamp
 	firstSeen := timestamp
+
 	existingDevice, err := s.DB.GetDeviceByID(ctx, deviceID)
 	if err == nil && !existingDevice.FirstSeen.IsZero() {
 		firstSeen = existingDevice.FirstSeen
@@ -715,11 +719,11 @@ func (s *Server) registerServiceDevice(ctx context.Context, pollerID, agentID, p
 	// Create the device metadata including service information
 	// Note: metadata must be map[string]string per database schema
 	metadata := map[string]interface{}{
-		"device_type":      "host",
-		"service_types":    strings.Join(serviceTypes, ","), // Convert array to comma-separated string
-		"service_status":   "online",
-		"last_heartbeat":   timestamp.Format(time.RFC3339),
-		"primary_service":  primaryServiceID,
+		"device_type":     "host",
+		"service_types":   strings.Join(serviceTypes, ","), // Convert array to comma-separated string
+		"service_status":  "online",
+		"last_heartbeat":  timestamp.Format(time.RFC3339),
+		"primary_service": primaryServiceID,
 	}
 
 	// Add poller-specific metadata if this host runs a poller
@@ -740,10 +744,10 @@ func (s *Server) registerServiceDevice(ctx context.Context, pollerID, agentID, p
 	// Construct the Device object representing the host device
 	device := &models.Device{
 		DeviceID:         deviceID,
-		PollerID:         pollerID,         // The poller managing this device (may be itself)
-		AgentID:          agentID,          // The agent running on this device (may be empty)
-		IP:               sourceIP,         // Host IP as reported by the service
-		Hostname:         hostname,         // Real or derived hostname
+		PollerID:         pollerID, // The poller managing this device (may be itself)
+		AgentID:          agentID,  // The agent running on this device (may be empty)
+		IP:               sourceIP, // Host IP as reported by the service
+		Hostname:         hostname, // Real or derived hostname
 		DiscoverySources: []string{"self-reported"},
 		IsAvailable:      true,
 		LastSeen:         timestamp,
@@ -756,25 +760,24 @@ func (s *Server) registerServiceDevice(ctx context.Context, pollerID, agentID, p
 		return fmt.Errorf("failed to store service device: %w", err)
 	}
 
-	log.Printf("Successfully registered host device %s (services: %v) for poller %s", 
+	log.Printf("Successfully registered host device %s (services: %v) for poller %s",
 		deviceID, serviceTypes, pollerID)
-	
+
 	return nil
 }
 
-
 // getServiceHostname attempts to determine the hostname for a service
-func (s *Server) getServiceHostname(serviceID, hostIP string) string {
+func (*Server) getServiceHostname(serviceID, hostIP string) string {
 	// TODO: In a real implementation, this could:
 	// 1. Perform reverse DNS lookup on the IP
 	// 2. Query a hostname registry
 	// 3. Use the service ID as hostname if it's already a hostname
-	
 	// For now, use the service ID as hostname if it looks like one,
 	// otherwise use the IP
 	if serviceID != "" && (len(serviceID) > 7) { // Simple heuristic
 		return serviceID
 	}
+
 	return hostIP
 }
 
@@ -813,8 +816,10 @@ func (s *Server) processStatusReport(
 			if req.Partition == "" || req.SourceIp == "" {
 				return
 			}
+
 			timeoutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
+
 			if err := s.registerServiceDevice(timeoutCtx, req.PollerId, s.findAgentID(req.Services), req.Partition, req.SourceIp, now); err != nil {
 				log.Printf("Failed to register service device for poller %s: %v", req.PollerId, err)
 			}
@@ -841,8 +846,10 @@ func (s *Server) processStatusReport(
 		if req.Partition == "" || req.SourceIp == "" {
 			return
 		}
+
 		timeoutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
+
 		if err := s.registerServiceDevice(timeoutCtx, req.PollerId, s.findAgentID(req.Services), req.Partition, req.SourceIp, now); err != nil {
 			log.Printf("Failed to register service device for poller %s: %v", req.PollerId, err)
 		}
@@ -2001,9 +2008,9 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 
 	// Validate required location fields - critical for device registration
 	if req.Partition == "" || req.SourceIp == "" {
-		log.Printf("CRITICAL: Status report from poller %s missing required location data (partition=%q, source_ip=%q). Device registration will be skipped.",
+		log.Printf("CRITICAL: Status report from poller %s missing required "+
+			"location data (partition=%q, source_ip=%q). Device registration will be skipped.",
 			req.PollerId, req.Partition, req.SourceIp)
-		// Continue processing the status report but device registration will fail gracefully
 	}
 
 	if !s.isKnownPoller(req.PollerId) {
