@@ -123,20 +123,39 @@ const Dashboard = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
+    // Simple in-memory cache for 30 seconds
+    const cacheRef = React.useRef<Map<string, { data: unknown; timestamp: number }>>(new Map());
+    
     const postQuery = useCallback(async (query: string) => {
+        const cacheKey = query;
+        const now = Date.now();
+        
+        // Check cache first (30 second TTL)
+        const cached = cacheRef.current.get(cacheKey);
+        if (cached && (now - cached.timestamp) < 30000) {
+            console.log(`[Cache Hit] ${query}`);
+            return cached.data;
+        }
+        
+        console.log(`[API Call] ${query}`);
         const response = await fetch('/api/query', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 ...(token && { Authorization: `Bearer ${token}` }),
             },
-            body: JSON.stringify({ query, limit: 1000 }), // Limit to prevent massive data pulls
+            body: JSON.stringify({ query, limit: 1000 }),
         });
         if (!response.ok) {
             const errorData = await response.json();
             throw new Error(errorData.error || 'Failed to execute query');
         }
-        return response.json();
+        const data = await response.json();
+        
+        // Cache the result
+        cacheRef.current.set(cacheKey, { data, timestamp: now });
+        
+        return data;
     }, [token]);
 
     const fetchData = useCallback(async () => {

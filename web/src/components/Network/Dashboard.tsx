@@ -44,6 +44,7 @@ import {
 } from 'lucide-react';
 import ReactJson from '@microlink/react-json-view';
 import { useDebounce } from 'use-debounce';
+import { cachedQuery } from '@/lib/cached-query';
 
 interface NetworkDashboardProps {
     initialPollers: Poller[];
@@ -130,7 +131,7 @@ interface SNMPDeviceListProps {
     initialStats?: { online: number; offline: number };
 }
 
-const SNMPDeviceList: React.FC<SNMPDeviceListProps> = ({ initialStats }) => {
+const SNMPDeviceList: React.FC<SNMPDeviceListProps> = React.memo(({ initialStats }) => {
     const { token } = useAuth();
     const [devices, setDevices] = useState<Device[]>([]);
     const [pagination, setPagination] = useState<Pagination | null>(null);
@@ -189,12 +190,17 @@ const SNMPDeviceList: React.FC<SNMPDeviceListProps> = ({ initialStats }) => {
 
             // Only fetch stats if not provided as initial stats
             if (!initialStats) {
+                // Use cached queries to prevent duplicates
                 const [onlineRes, offlineRes] = await Promise.all([
-                    postQuery<{ results: { 'count()': number }[] }>(
-                        "COUNT DEVICES WHERE is_available = true"
+                    cachedQuery<{ results: { 'count()': number }[] }>(
+                        "COUNT DEVICES WHERE is_available = true",
+                        token,
+                        30000
                     ),
-                    postQuery<{ results: { 'count()': number }[] }>(
-                        "COUNT DEVICES WHERE is_available = false"
+                    cachedQuery<{ results: { 'count()': number }[] }>(
+                        "COUNT DEVICES WHERE is_available = false",
+                        token,
+                        30000
                     ),
                 ]);
 
@@ -407,7 +413,9 @@ const SNMPDeviceList: React.FC<SNMPDeviceListProps> = ({ initialStats }) => {
             </div>
         </div>
     );
-};
+});
+
+SNMPDeviceList.displayName = 'SNMPDeviceList';
 
 // Main Network Dashboard Component
 const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
@@ -507,52 +515,43 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
         }, 0);
     }, [discoveryServices]);
 
-    useEffect(() => {
-        const fetchDeviceStats = async () => {
-            setLoadingStats(true);
-            try {
-                // Fetch all stats in parallel to reduce queries
-                const [totalRes, onlineRes, offlineRes] = await Promise.all([
-                    fetch('/api/query', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            ...(token && { Authorization: `Bearer ${token}` })
-                        },
-                        body: JSON.stringify({ query: "COUNT DEVICES" }),
-                    }).then(r => r.json()),
-                    fetch('/api/query', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            ...(token && { Authorization: `Bearer ${token}` })
-                        },
-                        body: JSON.stringify({ query: "COUNT DEVICES WHERE is_available = true" }),
-                    }).then(r => r.json()),
-                    fetch('/api/query', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            ...(token && { Authorization: `Bearer ${token}` })
-                        },
-                        body: JSON.stringify({ query: "COUNT DEVICES WHERE is_available = false" }),
-                    }).then(r => r.json()),
-                ]);
+    const fetchDeviceStats = useCallback(async () => {
+        setLoadingStats(true);
+        try {
+            // Use cached queries to prevent duplicates
+            const [totalRes, onlineRes, offlineRes] = await Promise.all([
+                cachedQuery<{ results: [{ 'count()': number }] }>(
+                    "COUNT DEVICES",
+                    token,
+                    30000 // 30 second cache
+                ),
+                cachedQuery<{ results: [{ 'count()': number }] }>(
+                    "COUNT DEVICES WHERE is_available = true",
+                    token,
+                    30000
+                ),
+                cachedQuery<{ results: [{ 'count()': number }] }>(
+                    "COUNT DEVICES WHERE is_available = false",
+                    token,
+                    30000
+                ),
+            ]);
 
-                setDeviceStats({
-                    total: totalRes.results[0]?.['count()'] || 0,
-                    online: onlineRes.results[0]?.['count()'] || 0,
-                    offline: offlineRes.results[0]?.['count()'] || 0,
-                });
-            } catch (error) {
-                console.error('Failed to fetch device stats:', error);
-            } finally {
-                setLoadingStats(false);
-            }
-        };
-
-        fetchDeviceStats();
+            setDeviceStats({
+                total: totalRes.results[0]?.['count()'] || 0,
+                online: onlineRes.results[0]?.['count()'] || 0,
+                offline: offlineRes.results[0]?.['count()'] || 0,
+            });
+        } catch (error) {
+            console.error('Failed to fetch device stats:', error);
+        } finally {
+            setLoadingStats(false);
+        }
     }, [token]);
+
+    useEffect(() => {
+        fetchDeviceStats();
+    }, [fetchDeviceStats]);
 
     const renderTabContent = () => {
         switch (activeTab) {
@@ -719,7 +718,10 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
                                 </div>
                             )}
                         </div>
-                        <SNMPDeviceList initialStats={{ online: deviceStats.online, offline: deviceStats.offline }} />
+                        {/* Only render SNMPDeviceList when SNMP tab is active and we have stats */}
+                        {activeTab === 'snmp' && !loadingStats && (
+                            <SNMPDeviceList initialStats={{ online: deviceStats.online, offline: deviceStats.offline }} />
+                        )}
                     </div>
                 );
 
