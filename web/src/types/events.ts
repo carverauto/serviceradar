@@ -26,4 +26,4 @@ export interface EventsApiResponse {
     error?: string;
 }
 
-export { Pagination };
+export type { Pagination };

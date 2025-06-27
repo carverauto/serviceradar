@@ -194,12 +194,12 @@ const SNMPDeviceList: React.FC<SNMPDeviceListProps> = React.memo(({ initialStats
                 const [onlineRes, offlineRes] = await Promise.all([
                     cachedQuery<{ results: { 'count()': number }[] }>(
                         "COUNT DEVICES WHERE is_available = true",
-                        token,
+                        token || undefined,
                         30000
                     ),
                     cachedQuery<{ results: { 'count()': number }[] }>(
                         "COUNT DEVICES WHERE is_available = false",
-                        token,
+                        token || undefined,
                         30000
                     ),
                 ]);
@@ -214,7 +214,7 @@ const SNMPDeviceList: React.FC<SNMPDeviceListProps> = React.memo(({ initialStats
         } finally {
             setLoading(false);
         }
-    }, [postQuery, debouncedSearchTerm, sortBy, sortOrder, initialStats]);
+    }, [postQuery, debouncedSearchTerm, sortBy, sortOrder, initialStats, token]);
 
     useEffect(() => {
         fetchDevices();
@@ -522,17 +522,17 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
             const [totalRes, onlineRes, offlineRes] = await Promise.all([
                 cachedQuery<{ results: [{ 'count()': number }] }>(
                     "COUNT DEVICES",
-                    token,
+                    token || undefined,
                     30000 // 30 second cache
                 ),
                 cachedQuery<{ results: [{ 'count()': number }] }>(
                     "COUNT DEVICES WHERE is_available = true",
-                    token,
+                    token || undefined,
                     30000
                 ),
                 cachedQuery<{ results: [{ 'count()': number }] }>(
                     "COUNT DEVICES WHERE is_available = false",
-                    token,
+                    token || undefined,
                     30000
                 ),
             ]);

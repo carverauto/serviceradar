@@ -51,7 +51,7 @@ export default function Header() {
             try {
                 const data = await cachedQuery<{ results: { poller_id: string }[] }>(
                     'show pollers',
-                    token
+                    token || undefined
                 );
                 const rawResults = Array.isArray(data.results) ? data.results as { poller_id: string }[] : [];
                 const uniquePollerIds = new Set<string>();
@@ -76,7 +76,7 @@ export default function Header() {
             try {
                 const data = await cachedQuery<{ results: { partition: string }[] }>(
                     'SHOW SWEEP_RESULTS',
-                    token
+                    token || undefined
                 );
                 setPartitions(Array.from(new Set(data.results.map((p: Partition) => p.partition))).map((p: string) => ({ partition: p })) || []);
             } catch (error) {
