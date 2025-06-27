@@ -18,7 +18,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/components/AuthProvider';
-import { Activity, Server, AlertTriangle, ExternalLink } from 'lucide-react';
+import { Activity, AlertTriangle, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
 
 interface SysmonAgent {
@@ -132,7 +132,7 @@ const SysmonOverviewWidget: React.FC = () => {
 
             try {
                 const pollers = await fetchPollers();
-                const agentPromises = pollers.map(async (poller: any) => {
+                const agentPromises = pollers.map(async (poller: { poller_id: string }) => {
                     const [deviceInfo, sysmonData] = await Promise.all([
                         fetchDevicesForPoller(poller.poller_id),
                         fetchSysmonData(poller.poller_id)

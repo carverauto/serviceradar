@@ -18,8 +18,16 @@
 
 import { fetchAPI } from '@/lib/client-api';
 
+// Cache entry interface
+interface CacheEntry<T> {
+    data: T;
+    timestamp: number;
+}
+
 // Cache store for query results
-const queryCache = new Map<string, { data: any; timestamp: number }>();
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const queryCache = new Map<string, CacheEntry<any>>();
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const pendingQueries = new Map<string, Promise<any>>();
 
 // Cache configuration
@@ -34,7 +42,7 @@ export async function cachedQuery<T>(
     const now = Date.now();
     
     // Check if we have valid cached data
-    const cached = queryCache.get(cacheKey);
+    const cached = queryCache.get(cacheKey) as CacheEntry<T> | undefined;
     if (cached && (now - cached.timestamp) < ttl) {
         console.log(`[Query Cache Hit] ${query}`);
         return cached.data;
@@ -43,7 +51,7 @@ export async function cachedQuery<T>(
     // Check if there's already a pending request
     if (pendingQueries.has(cacheKey)) {
         console.log(`[Query Dedup] Waiting for existing query: ${query}`);
-        return pendingQueries.get(cacheKey);
+        return pendingQueries.get(cacheKey) as Promise<T>;
     }
     
     // Create the query promise
@@ -77,7 +85,7 @@ export async function cachedQuery<T>(
             // If we have stale cached data, return it instead of failing
             if (cached) {
                 console.warn(`[Query Fallback] Using stale cache due to error: ${error}`);
-                return cached.data;
+                return cached.data as T;
             }
             
             throw error;

@@ -18,7 +18,6 @@
 
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/components/AuthProvider';
-import { Device } from '@/types/devices';
 import { Server, MapPin, Clock, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
 
