@@ -21,7 +21,7 @@ import {
     BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Cell, Tooltip, Legend
 } from 'recharts';
 import {
-    AlertTriangle, Activity, ServerOff, MoreHorizontal, Server, Gauge
+    AlertTriangle, Activity, ServerOff, MoreHorizontal, Server
 } from 'lucide-react';
 import { useAuth } from '../AuthProvider';
 import {ServiceEntry, Poller, GenericServiceDetails} from "@/types/types";
@@ -254,18 +254,20 @@ const Dashboard = () => {
             });
 
             // Calculate average rperf bandwidth (in Mbps)
+            /*
             let avgRperfBandwidth = 0;
             if (allRperfData.length > 0) {
                 const recentRperfData = allRperfData
                     .filter(metric => metric.success)
                     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
                     .slice(0, 10); // Get last 10 successful measurements
-                
+
                 if (recentRperfData.length > 0) {
-                    const totalBandwidth = recentRperfData.reduce((sum, metric) => sum + (metric.bits_per_second / 1000000), 0);
-                    avgRperfBandwidth = Math.round(totalBandwidth / recentRperfData.length);
+                     const totalBandwidth = recentRperfData.reduce((sum, metric) => sum + (metric.bits_per_second / 1000000), 0);
+                     avgRperfBandwidth = Math.round(totalBandwidth / recentRperfData.length);
                 }
             }
+             */
 
             setStats({ totalDevices, offlineDevices, highLatencyServices, failingServices });
 
