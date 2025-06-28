@@ -67,6 +67,8 @@ type CPUMetric struct {
 	Timestamp time.Time `json:"timestamp" example:"2025-04-24T14:15:22Z"`
 	// Host identifier for the agent that collected this metric
 	HostID string `json:"host_id,omitempty" example:"server-east-1"`
+	// Host IP address for the agent that collected this metric
+	HostIP string `json:"host_ip,omitempty" example:"192.168.1.100"`
 	// ServiceRadar agent identifier
 	AgentID string `json:"agent_id,omitempty" example:"agent-1234"`
 }
@@ -84,6 +86,8 @@ type DiskMetric struct {
 	Timestamp time.Time `json:"timestamp" example:"2025-04-24T14:15:22Z"`
 	// Host identifier for the agent that collected this metric
 	HostID string `json:"host_id,omitempty" example:"server-east-1"`
+	// Host IP address for the agent that collected this metric
+	HostIP string `json:"host_ip,omitempty" example:"192.168.1.100"`
 	// ServiceRadar agent identifier
 	AgentID string `json:"agent_id,omitempty" example:"agent-1234"`
 }
@@ -99,6 +103,8 @@ type MemoryMetric struct {
 	Timestamp time.Time `json:"timestamp" example:"2025-04-24T14:15:22Z"`
 	// Host identifier for the agent that collected this metric
 	HostID string `json:"host_id,omitempty" example:"server-east-1"`
+	// Host IP address for the agent that collected this metric
+	HostIP string `json:"host_ip,omitempty" example:"192.168.1.100"`
 	// ServiceRadar agent identifier
 	AgentID string `json:"agent_id,omitempty" example:"agent-1234"`
 }

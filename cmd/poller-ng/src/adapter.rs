@@ -314,6 +314,8 @@ impl ProtonAdapter {
                             let request = Request::new(proto::StatusRequest {
                                 service_name: check_clone.service_name.clone(),
                                 service_type: check_clone.service_type.clone(),
+                                agent_id: agent_name.to_string(),
+                                poller_id: self.poller_id.clone(),
                                 details: check_clone.details.clone().unwrap_or_default(),
                                 port: check_clone.port.unwrap_or(0),
                             });
@@ -327,6 +329,7 @@ impl ProtonAdapter {
                                         message: response.message,
                                         service_type: response.service_type,
                                         response_time: response.response_time,
+                                        agent_id: response.agent_id,
                                     })
                                 }
                                 Err(e) => {
@@ -338,6 +341,7 @@ impl ProtonAdapter {
                                         message: format!("Check failed: {}", e),
                                         service_type: check_clone.service_type.clone(),
                                         response_time: 0,
+                                        agent_id: agent_name.to_string(),
                                     })
                                 }
                             }
@@ -387,6 +391,7 @@ impl ProtonAdapter {
                     message: s.message.clone(),
                     service_type: s.service_type.clone(),
                     response_time: s.response_time,
+                    agent_id: s.agent_id.clone(),
                 })
                 .collect();
 
@@ -578,6 +583,7 @@ impl proto::poller_service_server::PollerService for ProtonAdapter {
                 message: s.message.clone(),
                 service_type: s.service_type.clone(),
                 response_time: s.response_time,
+                agent_id: s.agent_id.clone(),
             })
             .collect();
 

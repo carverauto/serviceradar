@@ -146,8 +146,8 @@ impl AgentService for SysmonService {
     ) -> Result<Response<monitoring::StatusResponse>, Status> {
         let req = request.into_inner();
         info!(
-            "Received GetStatus: service_name={}, service_type={}, details={}",
-            req.service_name, req.service_type, req.details
+            "Received GetStatus: service_name={}, service_type={}, agent_id={}, poller_id={}, details={}",
+            req.service_name, req.service_type, req.agent_id, req.poller_id, req.details
         );
         debug!("Processing GetStatus request");
 
