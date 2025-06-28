@@ -45,51 +45,65 @@ const MultiSysmonMetrics: React.FC<MultiSysmonMetricsProps> = ({ pollerId, prese
     const [selectedService, setSelectedService] = useState<string | null>(null);
 
     useEffect(() => {
-        const fetchSysmonServices = async () => {
+        const checkSysmonAvailability = async () => {
             setLoading(true);
             setError(null);
 
             try {
-                const response = await fetch(`/api/pollers/${pollerId}/services`, {
-                    headers: {
-                        'Content-Type': 'application/json',
-                        ...(token && { Authorization: `Bearer ${token}` })
-                    },
-                });
+                // Instead of looking for sysmon in the services API, 
+                // check if sysmon data is available by testing the sysmon endpoints
+                const end = new Date();
+                const start = new Date(end.getTime() - 60 * 60 * 1000); // Last hour
+                const queryParams = `?start=${encodeURIComponent(start.toISOString())}&end=${encodeURIComponent(end.toISOString())}`;
+                
+                // Test if any sysmon data is available
+                const [cpuResponse, memoryResponse] = await Promise.all([
+                    fetch(`/api/pollers/${pollerId}/sysmon/cpu${queryParams}`, {
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...(token && { Authorization: `Bearer ${token}` })
+                        },
+                    }).catch(() => null),
+                    fetch(`/api/pollers/${pollerId}/sysmon/memory${queryParams}`, {
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...(token && { Authorization: `Bearer ${token}` })
+                        },
+                    }).catch(() => null)
+                ]);
 
-                if (response.ok) {
-                    const services = await response.json();
+                // Check if we got any sysmon data
+                const hasCpuData = cpuResponse?.ok;
+                const hasMemoryData = memoryResponse?.ok;
+                
+                if (hasCpuData || hasMemoryData) {
+                    // Create a virtual sysmon service since the data is available
+                    const virtualSysmonService: SysmonService = {
+                        agent_id: preselectedAgentId || 'default-agent',
+                        poller_id: pollerId,
+                        name: 'sysmon',
+                        available: true,
+                        type: 'sysmon',
+                        service_name: 'sysmon',
+                        service_type: 'sysmon'
+                    };
                     
-                    // Filter for sysmon services
-                    const sysmonServices = services.filter((service: SysmonService) => 
-                        service.service_type === 'sysmon' || 
-                        service.type === 'sysmon' ||
-                        service.service_name?.toLowerCase().includes('sysmon')
-                    );
-
-                    setSysmonServices(sysmonServices);
-                    
-                    // Auto-select service: prefer preselected agent, then first available
-                    if (sysmonServices.length > 0) {
-                        if (preselectedAgentId && sysmonServices.find(s => s.agent_id === preselectedAgentId)) {
-                            setSelectedService(preselectedAgentId);
-                        } else {
-                            setSelectedService(sysmonServices[0].agent_id || sysmonServices[0].service_name);
-                        }
-                    }
+                    setSysmonServices([virtualSysmonService]);
+                    setSelectedService(virtualSysmonService.agent_id);
                 } else {
-                    setError('Failed to fetch services');
+                    // No sysmon data available
+                    setSysmonServices([]);
                 }
             } catch (err) {
-                console.error('Error fetching sysmon services:', err);
-                setError('Connection failed');
+                console.error('Error checking sysmon availability:', err);
+                setError('Failed to check sysmon availability');
             } finally {
                 setLoading(false);
             }
         };
 
         if (pollerId) {
-            fetchSysmonServices();
+            checkSysmonAvailability();
         }
     }, [pollerId, token, preselectedAgentId]);
 
