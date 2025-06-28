@@ -21,11 +21,12 @@ import {
     BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Cell, Tooltip, Legend
 } from 'recharts';
 import {
-    AlertTriangle, Activity, ServerOff, MoreHorizontal, Server
+    AlertTriangle, Activity, ServerOff, MoreHorizontal, Server, Gauge
 } from 'lucide-react';
 import { useAuth } from '../AuthProvider';
 import {ServiceEntry, Poller, GenericServiceDetails} from "@/types/types";
 import { Device } from "@/types/devices";
+import { RperfMetric } from "@/types/rperf";
 import SysmonOverviewWidget from './SysmonOverviewWidget';
 
 const REFRESH_INTERVAL = 60000; // 60 seconds
@@ -114,11 +115,13 @@ const Dashboard = () => {
         topLatencyServices: { name: string; value: number; color: string }[];
         servicesByType: { name: string; value: number; color: string }[];
         discoveryBySource: { name: string; value: number; color: string }[];
+        rperfBandwidth: { name: string; value: number; color: string }[];
     }>({
         deviceAvailability: [],
         topLatencyServices: [],
         servicesByType: [],
         discoveryBySource: [],
+        rperfBandwidth: [],
     });
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -187,6 +190,40 @@ const Dashboard = () => {
                 }),
             ]);
 
+            // Fetch rperf data from all pollers that have rperf services
+            const rperfPollers = pollersData.filter(poller => 
+                poller.services?.some(s => s.type === 'grpc' && s.name === 'rperf-checker')
+            );
+            
+            // Get data for the last 24 hours
+            const endTime = new Date();
+            const startTime = new Date(endTime.getTime() - 24 * 60 * 60 * 1000);
+            
+            const rperfPromises = rperfPollers.map(poller => {
+                const url = `/api/pollers/${poller.poller_id}/rperf?start=${startTime.toISOString()}&end=${endTime.toISOString()}`;
+                
+                return fetch(url, {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(token && { Authorization: `Bearer ${token}` }),
+                    },
+                })
+                .then(res => {
+                    if (!res.ok) {
+                        console.error(`RPerf API error for poller ${poller.poller_id}: ${res.status}`);
+                        return [];
+                    }
+                    return res.json() as Promise<RperfMetric[]>;
+                })
+                .catch((err) => {
+                    console.error(`Error fetching rperf for poller ${poller.poller_id}:`, err);
+                    return [];
+                });
+            });
+            
+            const rperfDataArrays = await Promise.all(rperfPromises);
+            const allRperfData = rperfDataArrays.flat();
+
             // Calculate stats
             const totalDevices = totalDevicesRes.results[0]?.['count()'] || 0;
             const offlineDevices = offlineDevicesRes.results[0]?.['count()'] || 0;
@@ -216,7 +253,70 @@ const Dashboard = () => {
                 });
             });
 
+            // Calculate average rperf bandwidth (in Mbps)
+            let avgRperfBandwidth = 0;
+            if (allRperfData.length > 0) {
+                const recentRperfData = allRperfData
+                    .filter(metric => metric.success)
+                    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+                    .slice(0, 10); // Get last 10 successful measurements
+                
+                if (recentRperfData.length > 0) {
+                    const totalBandwidth = recentRperfData.reduce((sum, metric) => sum + (metric.bits_per_second / 1000000), 0);
+                    avgRperfBandwidth = Math.round(totalBandwidth / recentRperfData.length);
+                }
+            }
+
             setStats({ totalDevices, offlineDevices, highLatencyServices, failingServices });
+
+            // Prepare rperf bandwidth data for chart
+            const rperfBandwidthData: { name: string; value: number; color: string }[] = [];
+            if (allRperfData.length > 0) {
+                // Group by target and calculate average bandwidth for each
+                const successfulMetrics = allRperfData.filter(metric => metric.success);
+                
+                // Track which sources (pollers) are measuring each target
+                const targetBandwidths = successfulMetrics.reduce((acc, metric) => {
+                    if (!acc[metric.target]) {
+                        acc[metric.target] = { total: 0, count: 0, sources: new Set<string>() };
+                    }
+                    acc[metric.target].total += metric.bits_per_second / 1000000; // Convert to Mbps
+                    acc[metric.target].count += 1;
+                    
+                    // Track the source poller if available
+                    if (metric.agent_id) {
+                        acc[metric.target].sources.add(metric.agent_id);
+                    }
+                    
+                    return acc;
+                }, {} as Record<string, { total: number; count: number; sources: Set<string> }>);
+
+                // Convert to chart data format and sort by bandwidth
+                Object.entries(targetBandwidths)
+                    .map(([target, data]) => {
+                        let displayName = target;
+                        if (data.sources.size > 1) {
+                            // Multiple sources measuring this target
+                            displayName = `${target} (${data.sources.size} sources)`;
+                        } else if (data.sources.size === 1 && rperfPollers.length > 1) {
+                            // Single source but multiple pollers exist - show which one
+                            const sourceName = Array.from(data.sources)[0];
+                            displayName = `${target} (${sourceName})`;
+                        }
+                        return {
+                            name: displayName,
+                            value: Math.round(data.total / data.count),
+                        };
+                    })
+                    .sort((a, b) => b.value - a.value)
+                    .slice(0, 5) // Top 5 targets
+                    .forEach((item, i) => {
+                        rperfBandwidthData.push({
+                            ...item,
+                            color: ['#3b82f6', '#60a5fa', '#93c5fd', '#dbeafe', '#eff6ff'][i % 5]
+                        });
+                    });
+            }
 
             // Prepare chart data
             const topLatencyServices = latencyData
@@ -240,6 +340,7 @@ const Dashboard = () => {
                     });
                     return acc;
                 }, {} as Record<string, number>)).map(([name, value], i) => ({ name, value, color: ['#3b82f6', '#50fa7b', '#60a5fa', '#50fa7b', '#50fa7b'][i % 5] })),
+                rperfBandwidth: rperfBandwidthData,
             });
 
         } catch (e) {
@@ -311,6 +412,9 @@ const Dashboard = () => {
                     </ChartWidget>
                     <ChartWidget title="Device Discovery Sources">
                         {chartData.discoveryBySource.length > 0 ? <SimpleBarChart data={chartData.discoveryBySource} /> : <NoData />}
+                    </ChartWidget>
+                    <ChartWidget title="RPerf Bandwidth by Target (Mbps)">
+                        {chartData.rperfBandwidth.length > 0 ? <SimpleBarChart data={chartData.rperfBandwidth} /> : <NoData />}
                     </ChartWidget>
                 </div>
             </div>
