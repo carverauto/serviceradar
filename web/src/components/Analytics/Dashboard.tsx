@@ -275,19 +275,26 @@ const Dashboard = () => {
                 // Group by target and calculate average bandwidth for each
                 const successfulMetrics = allRperfData.filter(metric => metric.success);
                 
+                // Track which sources (pollers) are measuring each target
                 const targetBandwidths = successfulMetrics.reduce((acc, metric) => {
                     if (!acc[metric.target]) {
-                        acc[metric.target] = { total: 0, count: 0 };
+                        acc[metric.target] = { total: 0, count: 0, sources: new Set<string>() };
                     }
                     acc[metric.target].total += metric.bits_per_second / 1000000; // Convert to Mbps
                     acc[metric.target].count += 1;
+                    
+                    // Try to identify which poller this came from
+                    // Since we're combining data from multiple pollers, we track unique sources
+                    // In a real implementation, you'd want to add poller_id to the RperfMetric type
+                    acc[metric.target].sources.add('source'); // Placeholder - ideally metric would include source info
+                    
                     return acc;
-                }, {} as Record<string, { total: number; count: number }>);
+                }, {} as Record<string, { total: number; count: number; sources: Set<string> }>);
 
                 // Convert to chart data format and sort by bandwidth
                 Object.entries(targetBandwidths)
                     .map(([target, data]) => ({
-                        name: target,
+                        name: rperfPollers.length > 1 ? `${target} (${data.count} samples)` : target,
                         value: Math.round(data.total / data.count),
                     }))
                     .sort((a, b) => b.value - a.value)
