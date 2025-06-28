@@ -28,7 +28,6 @@ import {ServiceEntry, Poller, GenericServiceDetails} from "@/types/types";
 import { Device } from "@/types/devices";
 import { RperfMetric } from "@/types/rperf";
 import SysmonOverviewWidget from './SysmonOverviewWidget';
-import SysmonDebug from '../Debug/SysmonDebug';
 
 const REFRESH_INTERVAL = 60000; // 60 seconds
 
@@ -408,9 +407,6 @@ const Dashboard = () => {
                         {chartData.topLatencyServices.length > 0 ? <SimpleBarChart data={chartData.topLatencyServices} /> : <NoData />}
                     </ChartWidget>
                     <SysmonOverviewWidget />
-                    <div className="col-span-full">
-                        <SysmonDebug />
-                    </div>
                     <ChartWidget title="Services by Type">
                         {chartData.servicesByType.length > 0 ? <SimpleBarChart data={chartData.servicesByType} /> : <NoData />}
                     </ChartWidget>
