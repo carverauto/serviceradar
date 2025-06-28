@@ -43,6 +43,7 @@
     "poll_interval": "30s",
     "poller_id": "default-poller",
     "partition": "default",
+    "source_ip": "127.0.0.1",
     "service_name": "PollerService",
     "service_type": "grpc",
     "security": {
