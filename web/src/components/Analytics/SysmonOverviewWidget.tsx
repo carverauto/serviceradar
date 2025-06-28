@@ -111,10 +111,10 @@ const SysmonOverviewWidget: React.FC = () => {
                 return null;
             }
 
-            // Determine if the agent is active (has data within the last 10 minutes)
-            const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+            // Determine if the agent is active (has data within the last 2 hours)
+            const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
             const isActive = [latestCpu, latestMemory, latestDisk].some(data => 
-                data && new Date(data.timestamp) > tenMinutesAgo
+                data && new Date(data.timestamp) > twoHoursAgo
             );
 
             // Extract agent info from any available metric (CPU cores, memory, or disk)
@@ -252,7 +252,7 @@ const SysmonOverviewWidget: React.FC = () => {
             <div className="flex justify-between items-start mb-4">
                 <h3 className="font-semibold text-gray-900 dark:text-white">Sysmon Agents</h3>
                 <Link 
-                    href={`/metrics${agents.length > 0 && agents[0].isActive ? `?pollerId=${encodeURIComponent(agents[0].pollerId)}${agents[0].deviceInfo?.agent_id ? `&agentId=${encodeURIComponent(agents[0].deviceInfo.agent_id)}` : ''}` : ''}`}
+                    href={`/metrics${agents.length > 0 ? `?pollerId=${encodeURIComponent(agents[0].pollerId)}${agents[0].deviceInfo?.agent_id ? `&agentId=${encodeURIComponent(agents[0].deviceInfo.agent_id)}` : ''}` : ''}`}
                     className="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
                 >
                     <ExternalLink size={16} />
@@ -288,18 +288,18 @@ const SysmonOverviewWidget: React.FC = () => {
                                     <div className="text-sm font-medium text-gray-900 dark:text-white">
                                         {agent.deviceInfo?.hostname || agent.deviceInfo?.ip || agent.pollerId}
                                     </div>
-                                    {agent.isActive && (
+                                    {(agent.lastCpuReading !== undefined || agent.lastMemoryReading !== undefined) && (
                                         <div className="text-xs text-gray-600 dark:text-gray-400">
-                                            CPU: {agent.lastCpuReading?.toFixed(1)}% | 
-                                            Mem: {agent.lastMemoryReading?.toFixed(1)}%
+                                            CPU: {agent.lastCpuReading?.toFixed(1) || 'N/A'}% | 
+                                            Mem: {agent.lastMemoryReading?.toFixed(1) || 'N/A'}%
                                         </div>
                                     )}
                                 </div>
                             </div>
-                            {agent.isActive && (
+                            {agent.deviceInfo && (
                                 <Link 
                                     href={`/metrics?pollerId=${encodeURIComponent(agent.pollerId)}${agent.deviceInfo?.agent_id ? `&agentId=${encodeURIComponent(agent.deviceInfo.agent_id)}` : ''}`}
-                                    className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200"
+                                    className={`${agent.isActive ? 'text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200' : 'text-gray-400 dark:text-gray-600'}`}
                                     title={`View metrics for ${agent.deviceInfo?.hostname || agent.pollerId}`}
                                 >
                                     <Activity size={14} />
