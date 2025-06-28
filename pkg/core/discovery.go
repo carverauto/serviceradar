@@ -20,12 +20,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-
-	"github.com/carverauto/serviceradar/proto"
-
 	"log"
+	"strings"
 	"time"
 
+	"github.com/carverauto/serviceradar/proto"
 	"github.com/carverauto/serviceradar/pkg/models"
 	discoverypb "github.com/carverauto/serviceradar/proto/discovery"
 )
@@ -155,7 +154,89 @@ func (*Server) extractDeviceMetadata(protoDevice *discoverypb.DiscoveredDevice) 
 		deviceMetadata["uptime"] = fmt.Sprintf("%d", protoDevice.Uptime)
 	}
 
+	// Classify device type based on hostname, sys_descr, and sys_object_id
+	deviceType := classifyDeviceType(protoDevice.Hostname, protoDevice.SysDescr, protoDevice.SysObjectId)
+	if deviceType != "" {
+		deviceMetadata["device_type"] = deviceType
+	}
+
 	return deviceMetadata
+}
+
+// classifyDeviceType determines the device type based on available information
+func classifyDeviceType(hostname, sysDescr, sysObjectId string) string {
+	// Convert to lowercase for easier matching
+	hostnameLower := strings.ToLower(hostname)
+	sysDescrLower := strings.ToLower(sysDescr)
+	
+	// Ubiquiti devices
+	if strings.Contains(hostnameLower, "usw") || strings.Contains(hostnameLower, "unifi") {
+		if strings.Contains(hostnameLower, "poe") {
+			return "switch_poe"
+		}
+		return "switch"
+	}
+	
+	// Ubiquiti Access Points
+	if strings.Contains(hostnameLower, "nano") && strings.Contains(hostnameLower, "hd") {
+		return "wireless_ap"
+	}
+	if strings.Contains(hostnameLower, "u6") || strings.Contains(hostnameLower, "u7") {
+		return "wireless_ap"
+	}
+	
+	// Check sys_descr for more detailed classification
+	if strings.Contains(sysDescrLower, "ubiquiti") || strings.Contains(sysDescrLower, "unifi") {
+		if strings.Contains(sysDescrLower, "switch") {
+			return "switch"
+		}
+		if strings.Contains(sysDescrLower, "access point") || strings.Contains(sysDescrLower, "wireless") {
+			return "wireless_ap"
+		}
+		if strings.Contains(sysDescrLower, "gateway") || strings.Contains(sysDescrLower, "router") {
+			return "router"
+		}
+		return "network_device"
+	}
+	
+	// Generic classification based on sys_descr
+	if strings.Contains(sysDescrLower, "switch") {
+		return "switch"
+	}
+	if strings.Contains(sysDescrLower, "router") {
+		return "router"
+	}
+	if strings.Contains(sysDescrLower, "access point") || strings.Contains(sysDescrLower, "wireless") {
+		return "wireless_ap"
+	}
+	if strings.Contains(sysDescrLower, "firewall") {
+		return "firewall"
+	}
+	if strings.Contains(sysDescrLower, "server") {
+		return "server"
+	}
+	if strings.Contains(sysDescrLower, "linux") || strings.Contains(sysDescrLower, "windows") || strings.Contains(sysDescrLower, "host") {
+		return "host"
+	}
+	
+	// Check OID for known vendors
+	if sysObjectId != "" {
+		// Cisco OIDs typically start with 1.3.6.1.4.1.9
+		if strings.HasPrefix(sysObjectId, "1.3.6.1.4.1.9") {
+			return "cisco_device"
+		}
+		// HP/HPE OIDs typically start with 1.3.6.1.4.1.11
+		if strings.HasPrefix(sysObjectId, "1.3.6.1.4.1.11") {
+			return "hp_device"
+		}
+		// Ubiquiti OIDs typically start with 1.3.6.1.4.1.41112
+		if strings.HasPrefix(sysObjectId, "1.3.6.1.4.1.41112") {
+			return "ubiquiti_device"
+		}
+	}
+	
+	// Default fallback
+	return "network_device"
 }
 
 // processDiscoveredInterfaces handles processing and storing interface information from SNMP discovery.
