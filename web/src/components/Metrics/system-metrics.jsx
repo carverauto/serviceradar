@@ -32,7 +32,7 @@ import {
     FilesystemDetails,
 } from './metric-components';
 
-const SystemMetrics = ({ pollerId = 'poller-01', initialData = null }) => {
+const SystemMetrics = ({ pollerId, initialData = null }) => {
     const [data, setData] = useState(initialData);
     const [loading, setLoading] = useState(!initialData);
     const [error, setError] = useState(null);

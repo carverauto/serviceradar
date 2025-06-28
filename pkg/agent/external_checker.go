@@ -159,10 +159,10 @@ func (e *ExternalChecker) Check(ctx context.Context, req *proto.StatusRequest) (
 
 	log.Printf("ExternalChecker %s: Health check succeeded", e.serviceName)
 
-	return e.getServiceDetails(ctx)
+	return e.getServiceDetails(ctx, req)
 }
 
-func (e *ExternalChecker) getServiceDetails(ctx context.Context) (healthy bool, details json.RawMessage) {
+func (e *ExternalChecker) getServiceDetails(ctx context.Context, req *proto.StatusRequest) (healthy bool, details json.RawMessage) {
 	agentClient := proto.NewAgentServiceClient(e.grpcClient.GetConnection())
 	start := time.Now()
 

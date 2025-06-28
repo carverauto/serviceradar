@@ -1035,6 +1035,7 @@ func (s *Server) processSysmonMetrics(pollerID, agentID string, details json.Raw
 		Status       struct {
 			Timestamp string              `json:"timestamp"`
 			HostID    string              `json:"host_id"`
+			HostIP    string              `json:"host_ip"`
 			CPUs      []models.CPUMetric  `json:"cpus"`
 			Disks     []models.DiskMetric `json:"disks"`
 			Memory    models.MemoryMetric `json:"memory"`
@@ -1067,6 +1068,7 @@ func (s *Server) processSysmonMetrics(pollerID, agentID string, details json.Raw
 			UsagePercent: cpu.UsagePercent,
 			Timestamp:    pollerTimestamp,
 			HostID:       sysmonPayload.Status.HostID,
+			HostIP:       sysmonPayload.Status.HostIP,
 			AgentID:      agentID,
 		}
 	}
@@ -1078,6 +1080,7 @@ func (s *Server) processSysmonMetrics(pollerID, agentID string, details json.Raw
 			TotalBytes: disk.TotalBytes,
 			Timestamp:  pollerTimestamp,
 			HostID:     sysmonPayload.Status.HostID,
+			HostIP:     sysmonPayload.Status.HostIP,
 			AgentID:    agentID,
 		}
 	}
@@ -1088,6 +1091,7 @@ func (s *Server) processSysmonMetrics(pollerID, agentID string, details json.Raw
 			TotalBytes: sysmonPayload.Status.Memory.TotalBytes,
 			Timestamp:  pollerTimestamp,
 			HostID:     sysmonPayload.Status.HostID,
+			HostIP:     sysmonPayload.Status.HostIP,
 			AgentID:    agentID,
 		}
 	}
@@ -1098,6 +1102,31 @@ func (s *Server) processSysmonMetrics(pollerID, agentID string, details json.Raw
 
 	log.Printf("Parsed %d CPU metrics for poller %s with timestamp %s",
 		len(sysmonPayload.Status.CPUs), pollerID, sysmonPayload.Status.Timestamp)
+
+	// Create device record automatically if we have host IP
+	if sysmonPayload.Status.HostIP != "" && sysmonPayload.Status.HostIP != "unknown" {
+		sweepResult := &models.SweepResult{
+			AgentID:         agentID,
+			PollerID:        pollerID,
+			Partition:       pollerID, // Use poller_id as partition
+			DiscoverySource: "sysmon",
+			IP:              sysmonPayload.Status.HostIP,
+			Hostname:        &sysmonPayload.Status.HostID,
+			Timestamp:       pollerTimestamp,
+			Available:       true,
+			Metadata: map[string]string{
+				"source":      "sysmon",
+				"last_update": pollerTimestamp.Format(time.RFC3339),
+			},
+		}
+
+		// Store the sweep result to automatically create device record
+		if err := s.DB.StoreSweepResults(context.Background(), []*models.SweepResult{sweepResult}); err != nil {
+			log.Printf("Warning: Failed to create device record for sysmon host %s: %v", sysmonPayload.Status.HostIP, err)
+		} else {
+			log.Printf("Created/updated device record for sysmon host %s (hostname: %s)", sysmonPayload.Status.HostIP, sysmonPayload.Status.HostID)
+		}
+	}
 
 	return nil
 }
