@@ -283,20 +283,31 @@ const Dashboard = () => {
                     acc[metric.target].total += metric.bits_per_second / 1000000; // Convert to Mbps
                     acc[metric.target].count += 1;
                     
-                    // Try to identify which poller this came from
-                    // Since we're combining data from multiple pollers, we track unique sources
-                    // In a real implementation, you'd want to add poller_id to the RperfMetric type
-                    acc[metric.target].sources.add('source'); // Placeholder - ideally metric would include source info
+                    // Track the source poller if available
+                    if (metric.agent_id) {
+                        acc[metric.target].sources.add(metric.agent_id);
+                    }
                     
                     return acc;
                 }, {} as Record<string, { total: number; count: number; sources: Set<string> }>);
 
                 // Convert to chart data format and sort by bandwidth
                 Object.entries(targetBandwidths)
-                    .map(([target, data]) => ({
-                        name: rperfPollers.length > 1 ? `${target} (${data.count} samples)` : target,
-                        value: Math.round(data.total / data.count),
-                    }))
+                    .map(([target, data]) => {
+                        let displayName = target;
+                        if (data.sources.size > 1) {
+                            // Multiple sources measuring this target
+                            displayName = `${target} (${data.sources.size} sources)`;
+                        } else if (data.sources.size === 1 && rperfPollers.length > 1) {
+                            // Single source but multiple pollers exist - show which one
+                            const sourceName = Array.from(data.sources)[0];
+                            displayName = `${target} (${sourceName})`;
+                        }
+                        return {
+                            name: displayName,
+                            value: Math.round(data.total / data.count),
+                        };
+                    })
                     .sort((a, b) => b.value - a.value)
                     .slice(0, 5) // Top 5 targets
                     .forEach((item, i) => {
