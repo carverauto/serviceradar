@@ -65,72 +65,93 @@ const SysmonOverviewWidget: React.FC = () => {
 
     const fetchSysmonAgentInfo = useCallback(async (pollerId: string) => {
         try {
-            // Query the unified sysmon metrics materialized view
-            const query = `
-                SELECT 
-                    agent_id,
-                    host_id,
-                    poller_id,
-                    max(timestamp) as last_update,
-                    avg(avg_cpu_usage) as avg_cpu_usage,
-                    any(total_memory_bytes) as total_memory_bytes,
-                    any(used_memory_bytes) as used_memory_bytes,
-                    any(total_disk_bytes) as total_disk_bytes,
-                    any(used_disk_bytes) as used_disk_bytes,
-                    if(max(timestamp) > now() - interval 10 minute, true, false) as is_active
-                FROM unified_sysmon_metrics
-                WHERE poller_id = '${pollerId}' 
-                    AND timestamp > now() - interval 1 hour
-                GROUP BY agent_id, host_id, poller_id
-                HAVING is_active = true
-                ORDER BY last_update DESC
-                LIMIT 1
-            `;
+            // Use the dedicated sysmon API endpoints instead of the query API
+            const endTime = new Date();
+            const startTime = new Date(endTime.getTime() - 60 * 60 * 1000); // Last hour
             
-            const response = await fetch('/api/query', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...(token && { Authorization: `Bearer ${token}` })
-                },
-                body: JSON.stringify({ query }),
-            });
+            const [cpuResponse, memoryResponse, diskResponse] = await Promise.all([
+                fetch(`/api/pollers/${pollerId}/sysmon/cpu?start=${startTime.toISOString()}&end=${endTime.toISOString()}`, {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(token && { Authorization: `Bearer ${token}` })
+                    }
+                }),
+                fetch(`/api/pollers/${pollerId}/sysmon/memory?start=${startTime.toISOString()}&end=${endTime.toISOString()}`, {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(token && { Authorization: `Bearer ${token}` })
+                    }
+                }),
+                fetch(`/api/pollers/${pollerId}/sysmon/disk?start=${startTime.toISOString()}&end=${endTime.toISOString()}`, {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(token && { Authorization: `Bearer ${token}` })
+                    }
+                })
+            ]);
 
-            if (!response.ok) return null;
-            const data = await response.json();
-            const agentInfo = data.results?.[0] || null;
-            
-            console.log(`Sysmon agent info for ${pollerId}:`, agentInfo);
-            
-            if (agentInfo) {
-                // If host_id is "unknown", try to get hostname from devices
-                let hostname = agentInfo.host_id;
-                if (hostname === 'unknown' || !hostname) {
-                    // For demo-staging poller, default to the sysmon host
-                    hostname = pollerId === 'demo-staging' ? 'proxmox-07' : 'Unknown Host';
-                }
-                
-                // Calculate memory usage percentage from the unified metrics
-                const memoryUsagePercent = agentInfo.total_memory_bytes && agentInfo.used_memory_bytes
-                    ? (agentInfo.used_memory_bytes / agentInfo.total_memory_bytes) * 100
-                    : 0;
-                
-                return {
-                    hostname: hostname,
-                    ip: 'Unknown IP', // Host IP not in unified view yet
-                    agent_id: agentInfo.agent_id,
-                    avg_cpu_usage: agentInfo.avg_cpu_usage,
-                    memory_usage_percent: memoryUsagePercent,
-                    total_memory_bytes: agentInfo.total_memory_bytes,
-                    used_memory_bytes: agentInfo.used_memory_bytes,
-                    total_disk_bytes: agentInfo.total_disk_bytes,
-                    used_disk_bytes: agentInfo.used_disk_bytes,
-                    last_update: agentInfo.last_update,
-                    is_active: agentInfo.is_active
-                };
+            if (!cpuResponse.ok && !memoryResponse.ok && !diskResponse.ok) {
+                return null;
             }
+
+            const [cpuData, memoryData, diskData] = await Promise.all([
+                cpuResponse.ok ? cpuResponse.json() : [],
+                memoryResponse.ok ? memoryResponse.json() : [],
+                diskResponse.ok ? diskResponse.json() : []
+            ]);
             
-            return null;
+            console.log(`Sysmon data for ${pollerId}:`, { cpuData, memoryData, diskData });
+
+            // Get the most recent data from each metric type
+            const latestCpu = cpuData.length > 0 ? cpuData[cpuData.length - 1] : null;
+            const latestMemory = memoryData.length > 0 ? memoryData[memoryData.length - 1] : null;
+            const latestDisk = diskData.length > 0 ? diskData[diskData.length - 1] : null;
+
+            if (!latestCpu && !latestMemory && !latestDisk) {
+                return null;
+            }
+
+            // Determine if the agent is active (has data within the last 10 minutes)
+            const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+            const isActive = [latestCpu, latestMemory, latestDisk].some(data => 
+                data && new Date(data.timestamp) > tenMinutesAgo
+            );
+
+            // Extract agent info from any available metric (CPU cores, memory, or disk)
+            const agentInfo = latestCpu?.cpus?.[0] || latestMemory?.memory || latestDisk;
+            const hostname = agentInfo?.host_id || (pollerId === 'demo-staging' ? 'serviceradar-demo-staging' : 'Unknown Host');
+            const agentId = agentInfo?.agent_id || 'unknown';
+
+            // Calculate average CPU usage from all cores
+            let avgCpuUsage = 0;
+            if (latestCpu?.cpus && latestCpu.cpus.length > 0) {
+                const totalUsage = latestCpu.cpus.reduce((sum, core) => sum + core.usage_percent, 0);
+                avgCpuUsage = totalUsage / latestCpu.cpus.length;
+            }
+
+            // Calculate memory usage percentage
+            let memoryUsagePercent = 0;
+            if (latestMemory?.memory) {
+                const totalMemory = latestMemory.memory.total_bytes;
+                const usedMemory = latestMemory.memory.used_bytes;
+                if (totalMemory && usedMemory) {
+                    memoryUsagePercent = (usedMemory / totalMemory) * 100;
+                }
+            }
+
+            return {
+                hostname: hostname,
+                ip: 'Unknown IP', // IP not available in these endpoints
+                agent_id: agentId,
+                avg_cpu_usage: avgCpuUsage,
+                memory_usage_percent: memoryUsagePercent,
+                total_memory_bytes: latestMemory?.memory?.total_bytes,
+                used_memory_bytes: latestMemory?.memory?.used_bytes,
+                total_disk_bytes: latestDisk?.disk?.total_bytes,
+                used_disk_bytes: latestDisk?.disk?.used_bytes,
+                last_update: latestCpu?.timestamp || latestMemory?.timestamp || latestDisk?.timestamp,
+                is_active: isActive
+            };
         } catch (err) {
             console.error(`Error fetching sysmon agent info for poller ${pollerId}:`, err);
             return null;
