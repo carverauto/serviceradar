@@ -24,7 +24,7 @@ import {
     AlertTriangle, Activity, ServerOff, MoreHorizontal, Server
 } from 'lucide-react';
 import { useAuth } from '../AuthProvider';
-import {ServiceEntry, Poller, GenericServiceDetails} from "@/types/types";
+import {Poller, GenericServiceDetails} from "@/types/types";
 import { Device } from "@/types/devices";
 import { RperfMetric } from "@/types/rperf";
 import HighUtilizationWidget from './HighUtilizationWidget';
@@ -113,13 +113,13 @@ const Dashboard = () => {
     const [chartData, setChartData] = useState<{
         deviceAvailability: { name: string; value: number; color: string }[];
         topLatencyServices: { name: string; value: number; color: string }[];
-        servicesByType: { name: string; value: number; color: string }[];
+        criticalEvents: { name: string; value: number; color: string }[];
         discoveryBySource: { name: string; value: number; color: string }[];
         rperfBandwidth: { name: string; value: number; color: string }[];
     }>({
         deviceAvailability: [],
         topLatencyServices: [],
-        servicesByType: [],
+        criticalEvents: [],
         discoveryBySource: [],
         rperfBandwidth: [],
     });
@@ -170,13 +170,19 @@ const Dashboard = () => {
             const [
                 totalDevicesRes,
                 offlineDevicesRes,
-                allServicesRes,
+                criticalEventsRes,
+                highEventsRes,
+                mediumEventsRes,
+                lowEventsRes,
                 allDevicesRes,
                 pollersData,
             ] = await Promise.all([
                 postQuery('COUNT DEVICES'),
                 postQuery('COUNT DEVICES WHERE is_available = false'),
-                postQuery('SHOW SERVICES'),
+                postQuery("COUNT EVENTS WHERE severity = 'Critical'"),
+                postQuery("COUNT EVENTS WHERE severity = 'High'"),
+                postQuery("COUNT EVENTS WHERE severity = 'Medium'"),
+                postQuery("COUNT EVENTS WHERE severity = 'Low'"),
                 postQuery('SHOW DEVICES'),
                 // Fetch pollers to get detailed service status and latency, which is not available in the 'SERVICES' stream
                 fetch('/api/pollers', {
@@ -326,16 +332,21 @@ const Dashboard = () => {
                 .slice(0, 5)
                 .map((item, i) => ({ ...item, color: ['#f59e0b', '#facc15', '#fef08a', '#fde68a', '#fcd34d'][i % 5] }));
 
+            // Prepare critical events data
+            const criticalEventsData = [
+                { name: 'Critical', value: criticalEventsRes.results[0]?.['count()'] || 0, color: '#ef4444' },
+                { name: 'High', value: highEventsRes.results[0]?.['count()'] || 0, color: '#f97316' },
+                { name: 'Medium', value: mediumEventsRes.results[0]?.['count()'] || 0, color: '#eab308' },
+                { name: 'Low', value: lowEventsRes.results[0]?.['count()'] || 0, color: '#3b82f6' }
+            ].filter(item => item.value > 0); // Only show severity levels that have events
+
             setChartData({
                 deviceAvailability: [
                     { name: 'Online', value: totalDevices - offlineDevices, color: '#3b82f6' },
                     { name: 'Offline', value: offlineDevices, color: '#ef4444' }
                 ],
                 topLatencyServices: topLatencyServices,
-                servicesByType: Object.entries((allServicesRes.results as ServiceEntry[]).reduce((acc, s) => {
-                    acc[s.service_type] = (acc[s.service_type] || 0) + 1;
-                    return acc;
-                }, {} as Record<string, number>)).map(([name, value], i) => ({ name, value, color: ['#3b82f6', '#50fa7b', '#60a5fa', '#50fa7b', '#50fa7b'][i % 5] })),
+                criticalEvents: criticalEventsData,
                 discoveryBySource: Object.entries((allDevicesRes.results as Device[]).reduce((acc, d) => {
                     (d.discovery_sources || []).forEach(source => {
                         acc[source] = (acc[source] || 0) + 1;
@@ -409,8 +420,8 @@ const Dashboard = () => {
                         {chartData.topLatencyServices.length > 0 ? <SimpleBarChart data={chartData.topLatencyServices} /> : <NoData />}
                     </ChartWidget>
                     <HighUtilizationWidget />
-                    <ChartWidget title="Services by Type">
-                        {chartData.servicesByType.length > 0 ? <SimpleBarChart data={chartData.servicesByType} /> : <NoData />}
+                    <ChartWidget title="Events by Severity">
+                        {chartData.criticalEvents.length > 0 ? <SimpleBarChart data={chartData.criticalEvents} /> : <NoData />}
                     </ChartWidget>
                     <ChartWidget title="Device Discovery Sources">
                         {chartData.discoveryBySource.length > 0 ? <SimpleBarChart data={chartData.discoveryBySource} /> : <NoData />}
