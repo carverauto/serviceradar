@@ -26,6 +26,7 @@ pub struct ServiceStatus {
     pub message: String,
     pub service_type: String,
     pub response_time: i64,
+    pub agent_id: String,
 }
 
 // Sysmon specific types

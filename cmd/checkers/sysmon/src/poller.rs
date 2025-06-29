@@ -20,10 +20,11 @@ use anyhow::Result;
 use chrono::Utc;
 use serde::Serialize;
 use sysinfo::{System, Disks, CpuRefreshKind};
-use log::{debug, warn};
+use log::{debug, warn, info};
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
 use std::time::Duration;
+use std::net::UdpSocket;
 
 #[cfg(feature = "zfs")]
 use libzetta::zpool::{ZpoolEngine, ZpoolOpen3};
@@ -53,6 +54,7 @@ pub struct MemoryMetric {
 pub struct MetricSample {
     pub timestamp: String,
     pub host_id: String,
+    pub host_ip: String,
     pub cpus: Vec<CpuMetric>,
     pub disks: Vec<DiskMetric>,
     pub memory: MemoryMetric,
@@ -61,6 +63,7 @@ pub struct MetricSample {
 #[derive(Debug)]
 pub struct MetricsCollector {
     host_id: String,
+    host_ip: String,
     filesystems: Vec<String>,
     #[cfg(feature = "zfs")]
     zfs_pools: Vec<String>,
@@ -72,14 +75,20 @@ pub struct MetricsCollector {
 
 impl MetricsCollector {
     pub fn new(host_id: String, filesystems: Vec<String>, zfs_pools: Vec<String>, zfs_datasets: bool) -> Self {
-        debug!("Creating MetricsCollector: host_id={}, filesystems={:?}, zfs_pools={:?}, zfs_datasets={}",
-            host_id, filesystems, zfs_pools, zfs_datasets);
+        let host_ip = Self::get_local_ip().unwrap_or_else(|| {
+            warn!("Failed to determine local IP address, using 'unknown'");
+            "unknown".to_string()
+        });
+        
+        debug!("Creating MetricsCollector: host_id={}, host_ip={}, filesystems={:?}, zfs_pools={:?}, zfs_datasets={}",
+            host_id, host_ip, filesystems, zfs_pools, zfs_datasets);
         let mut system = System::new_all();
         system.refresh_cpu_specifics(CpuRefreshKind::everything()); // Initial CPU refresh
         system.refresh_memory(); // Initial memory refresh
         let system = Arc::new(Mutex::new(system));
         Self {
             host_id,
+            host_ip,
             filesystems,
             #[cfg(feature = "zfs")]
             zfs_pools,
@@ -87,6 +96,38 @@ impl MetricsCollector {
             zfs_datasets,
             latest_metrics: Arc::new(RwLock::new(None)),
             system,
+        }
+    }
+
+    fn get_local_ip() -> Option<String> {
+        // Try to connect to a remote address to determine the local IP
+        // This doesn't actually send data, just determines which interface would be used
+        match UdpSocket::bind("0.0.0.0:0") {
+            Ok(socket) => {
+                match socket.connect("8.8.8.8:80") {
+                    Ok(_) => {
+                        match socket.local_addr() {
+                            Ok(addr) => {
+                                let ip = addr.ip().to_string();
+                                info!("Detected local IP address: {}", ip);
+                                Some(ip)
+                            }
+                            Err(e) => {
+                                warn!("Failed to get local address: {}", e);
+                                None
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        warn!("Failed to connect to determine local IP: {}", e);
+                        None
+                    }
+                }
+            }
+            Err(e) => {
+                warn!("Failed to bind UDP socket: {}", e);
+                None
+            }
         }
     }
 
@@ -271,6 +312,7 @@ impl MetricsCollector {
         let sample = MetricSample {
             timestamp,
             host_id: self.host_id.clone(),
+            host_ip: self.host_ip.clone(),
             cpus,
             disks,
             memory,

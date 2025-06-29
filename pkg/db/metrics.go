@@ -488,7 +488,7 @@ func (db *DB) storeDiskMetrics(
 
 // storeMemoryMetrics stores memory metrics in a batch.
 func (db *DB) storeMemoryMetrics(
-	ctx context.Context, pollerID, agentID, hostID string, memory models.MemoryMetric, timestamp time.Time) error {
+	ctx context.Context, pollerID, agentID, hostID string, memory *models.MemoryMetric, timestamp time.Time) error {
 	if memory.UsedBytes == 0 && memory.TotalBytes == 0 {
 		return nil
 	}

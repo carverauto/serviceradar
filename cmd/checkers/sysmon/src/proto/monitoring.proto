@@ -48,6 +48,7 @@ message StatusResponse {
 message MetricSample {
   int64 timestamp = 1;
   string host_id = 2;
+  string host_ip = 3;
   message Cpu {
     int32 core_id = 1;
     float usage_percent = 2;
@@ -61,9 +62,9 @@ message MetricSample {
     uint64 used_bytes = 1;
     uint64 total_bytes = 2;
   }
-  repeated Cpu cpus = 3;
-  repeated Disk disks = 4;
-  Memory memory = 5;
+  repeated Cpu cpus = 4;
+  repeated Disk disks = 5;
+  Memory memory = 6;
 }
 
 message PollerStatusRequest {

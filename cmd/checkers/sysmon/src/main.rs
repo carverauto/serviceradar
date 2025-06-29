@@ -87,8 +87,18 @@ async fn main() -> Result<()> {
     debug!("ZFS config: pools={:?}, datasets={}", zfs_pools, zfs_datasets);
 
     let host_id = std::env::var("HOSTNAME").unwrap_or_else(|_| {
-        warn!("HOSTNAME env var not set, using 'unknown'");
-        "unknown".to_string()
+        // Try to get the actual hostname from the system
+        match hostname::get() {
+            Ok(hostname) => {
+                let hostname_str = hostname.to_string_lossy().to_string();
+                info!("HOSTNAME env var not set, using system hostname: {}", hostname_str);
+                hostname_str
+            }
+            Err(e) => {
+                warn!("Failed to get system hostname: {}, using 'unknown'", e);
+                "unknown".to_string()
+            }
+        }
     });
     debug!("Using host_id: {}", host_id);
 
