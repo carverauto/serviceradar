@@ -454,9 +454,10 @@ func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*prot
 		response, _ = s.handleDefaultChecker(ctx, req)
 	}
 
-	// Include AgentID in the response
+	// Include AgentID and PartitionID in the response
 	if response != nil {
 		response.AgentId = s.config.AgentID
+		response.PartitionId = s.config.PartitionID
 		if response.PollerId == "" {
 			response.PollerId = req.PollerId
 		}

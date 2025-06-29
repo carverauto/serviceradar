@@ -9,7 +9,7 @@ import (
 )
 
 func (m *Manager) StoreSysmonMetrics(
-	ctx context.Context, pollerID, agentID, hostID string, metrics *models.SysmonMetrics, timestamp time.Time) error {
+	ctx context.Context, pollerID, agentID, hostID, partition string, metrics *models.SysmonMetrics, timestamp time.Time) error {
 	dbMetrics := &models.SysmonMetrics{
 		CPUs:   make([]models.CPUMetric, len(metrics.CPUs)),
 		Disks:  make([]models.DiskMetric, len(metrics.Disks)),
@@ -45,7 +45,7 @@ func (m *Manager) StoreSysmonMetrics(
 		AgentID:    agentID,
 	}
 
-	if err := m.db.StoreSysmonMetrics(ctx, pollerID, agentID, hostID, dbMetrics, timestamp); err != nil {
+	if err := m.db.StoreSysmonMetrics(ctx, pollerID, agentID, hostID, partition, dbMetrics, timestamp); err != nil {
 		log.Printf("Failed to store sysmon metrics for poller %s: %v", pollerID, err)
 		return err
 	}
@@ -148,20 +148,20 @@ func (m *Manager) GetMemoryMetrics(
 	return metrics, nil
 }
 
-// GetAllCPUMetrics retrieves all CPU metrics for a poller.
+// GetAllCPUMetrics retrieves all CPU metrics for an agent.
 func (m *Manager) GetAllCPUMetrics(
-	ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonCPUResponse, error) {
-	return m.db.GetAllCPUMetrics(ctx, pollerID, start, end)
+	ctx context.Context, agentID string, hostID *string, start, end time.Time) ([]models.SysmonCPUResponse, error) {
+	return m.db.GetAllCPUMetrics(ctx, agentID, hostID, start, end)
 }
 
-// GetAllDiskMetricsGrouped retrieves all disk metrics for a poller, grouped by timestamp.
+// GetAllDiskMetricsGrouped retrieves all disk metrics for an agent, grouped by timestamp.
 func (m *Manager) GetAllDiskMetricsGrouped(
-	ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonDiskResponse, error) {
-	return m.db.GetAllDiskMetricsGrouped(ctx, pollerID, start, end)
+	ctx context.Context, agentID string, hostID *string, start, end time.Time) ([]models.SysmonDiskResponse, error) {
+	return m.db.GetAllDiskMetricsGrouped(ctx, agentID, hostID, start, end)
 }
 
-// GetMemoryMetricsGrouped retrieves all memory metrics for a poller, grouped by timestamp.
+// GetMemoryMetricsGrouped retrieves all memory metrics for an agent, grouped by timestamp.
 func (m *Manager) GetMemoryMetricsGrouped(
-	ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonMemoryResponse, error) {
-	return m.db.GetMemoryMetricsGrouped(ctx, pollerID, start, end)
+	ctx context.Context, agentID string, hostID *string, start, end time.Time) ([]models.SysmonMemoryResponse, error) {
+	return m.db.GetMemoryMetricsGrouped(ctx, agentID, hostID, start, end)
 }

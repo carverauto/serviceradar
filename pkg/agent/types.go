@@ -77,6 +77,7 @@ type CheckerConfig struct {
 // ServerConfig holds the configuration for the agent server.
 type ServerConfig struct {
 	AgentID     string                 `json:"agent_id"`             // Unique identifier for this agent
+	PartitionID string                 `json:"partition_id,omitempty"` // Partition identifier for data segregation
 	AgentName   string                 `json:"agent_name,omitempty"` // Explicit name for KV namespacing
 	ListenAddr  string                 `json:"listen_addr"`
 	Security    *models.SecurityConfig `json:"security"`

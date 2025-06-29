@@ -50,7 +50,7 @@ type Server struct {
 	metricBuffers           map[string][]*models.TimeseriesMetric
 	serviceBuffers          map[string][]*models.ServiceStatus
 	serviceListBuffers      map[string][]*models.Service
-	sysmonBuffers           map[string][]*models.SysmonMetrics
+	// sysmonBuffers        map[string][]*models.SysmonMetrics // DEPRECATED: metrics stored directly now
 	bufferMu                sync.RWMutex
 	pollerStatusCache       map[string]*models.PollerStatus
 	pollerStatusUpdates     map[string]*models.PollerStatus

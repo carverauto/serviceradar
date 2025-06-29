@@ -71,15 +71,15 @@ type Service interface {
 
 	// Sysmon metric operations.
 
-	StoreSysmonMetrics(ctx context.Context, pollerID, agentID, hostID string, metrics *models.SysmonMetrics, timestamp time.Time) error
-	GetCPUMetrics(ctx context.Context, pollerID string, coreID int, start, end time.Time) ([]models.CPUMetric, error)
-	GetDiskMetrics(ctx context.Context, pollerID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error)
-	GetMemoryMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.MemoryMetric, error)
-	GetAllDiskMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.DiskMetric, error)
-	GetAllMountPoints(ctx context.Context, pollerID string) ([]string, error)
-	GetAllCPUMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonCPUResponse, error)
-	GetAllDiskMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonDiskResponse, error)
-	GetMemoryMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonMemoryResponse, error)
+	StoreSysmonMetrics(ctx context.Context, pollerID, agentID, hostID, partition string, metrics *models.SysmonMetrics, timestamp time.Time) error
+	GetCPUMetrics(ctx context.Context, agentID string, coreID int, start, end time.Time) ([]models.CPUMetric, error)
+	GetDiskMetrics(ctx context.Context, agentID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error)
+	GetMemoryMetrics(ctx context.Context, agentID string, start, end time.Time) ([]models.MemoryMetric, error)
+	GetAllDiskMetrics(ctx context.Context, agentID string, start, end time.Time) ([]models.DiskMetric, error)
+	GetAllMountPoints(ctx context.Context, agentID string) ([]string, error)
+	GetAllCPUMetrics(ctx context.Context, agentID string, hostID *string, start, end time.Time) ([]models.SysmonCPUResponse, error)
+	GetAllDiskMetricsGrouped(ctx context.Context, agentID string, hostID *string, start, end time.Time) ([]models.SysmonDiskResponse, error)
+	GetMemoryMetricsGrouped(ctx context.Context, agentID string, hostID *string, start, end time.Time) ([]models.SysmonMemoryResponse, error)
 
 	// Rperf.
 
@@ -113,14 +113,14 @@ type Service interface {
 
 // SysmonMetricsProvider interface defines operations for system monitoring metrics.
 type SysmonMetricsProvider interface {
-	GetAllCPUMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonCPUResponse, error)
-	GetCPUMetrics(ctx context.Context, pollerID string, coreID int, start, end time.Time) ([]models.CPUMetric, error)
-	GetAllDiskMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonDiskResponse, error)
-	GetDiskMetrics(ctx context.Context, pollerID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error)
-	GetAllDiskMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.DiskMetric, error)
-	GetAllMountPoints(ctx context.Context, pollerID string) ([]string, error)
-	GetMemoryMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonMemoryResponse, error)
-	GetMemoryMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.MemoryMetric, error)
+	GetAllCPUMetrics(ctx context.Context, agentID string, hostID *string, start, end time.Time) ([]models.SysmonCPUResponse, error)
+	GetCPUMetrics(ctx context.Context, agentID string, coreID int, start, end time.Time) ([]models.CPUMetric, error)
+	GetAllDiskMetricsGrouped(ctx context.Context, agentID string, hostID *string, start, end time.Time) ([]models.SysmonDiskResponse, error)
+	GetDiskMetrics(ctx context.Context, agentID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error)
+	GetAllDiskMetrics(ctx context.Context, agentID string, start, end time.Time) ([]models.DiskMetric, error)
+	GetAllMountPoints(ctx context.Context, agentID string) ([]string, error)
+	GetMemoryMetricsGrouped(ctx context.Context, agentID string, hostID *string, start, end time.Time) ([]models.SysmonMemoryResponse, error)
+	GetMemoryMetrics(ctx context.Context, agentID string, start, end time.Time) ([]models.MemoryMetric, error)
 }
 
 // Rows represents multiple database rows.

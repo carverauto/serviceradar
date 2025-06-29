@@ -33,11 +33,11 @@ import (
 // fetchMetrics is a generic helper to fetch metrics and handle errors.
 func fetchMetrics[T any](
 	ctx context.Context,
-	pollerID string,
+	agentID string,
 	startTime, endTime time.Time,
 	getMetrics func(context.Context, string, time.Time, time.Time) ([]T, error),
 ) (interface{}, error) {
-	metrics, err := getMetrics(ctx, pollerID, startTime, endTime)
+	metrics, err := getMetrics(ctx, agentID, startTime, endTime)
 	if err != nil {
 		return nil, &httpError{"Internal server error", http.StatusInternalServerError}
 	}
@@ -55,17 +55,24 @@ func (s *APIServer) getSysmonMetrics(
 	w http.ResponseWriter,
 	r *http.Request,
 	fetchMetrics func(
-		ctx context.Context,
-		provider db.SysmonMetricsProvider,
-		pollerID string,
-		startTime, endTime time.Time) (interface{}, error),
+	ctx context.Context,
+	provider db.SysmonMetricsProvider,
+	agentID string,
+	hostID *string,
+	startTime, endTime time.Time) (interface{}, error),
 	metricType string,
 ) {
 	ctx := r.Context()
 
 	vars := mux.Vars(r)
 
-	pollerID := vars["id"]
+	agentID := vars["id"]
+
+	// Extract optional host_id from query parameters
+	var hostID *string
+	if h := r.URL.Query().Get("host_id"); h != "" {
+		hostID = &h
+	}
 
 	// Parse time range
 	startTime, endTime, err := parseTimeRange(r.URL.Query())
@@ -78,22 +85,29 @@ func (s *APIServer) getSysmonMetrics(
 	// Validate metrics provider
 	metricsProvider, ok := s.metricsManager.(db.SysmonMetricsProvider)
 	if !ok {
-		log.Printf("WARNING: Metrics manager does not implement SysmonMetricsProvider for poller %s", pollerID)
+		log.Printf("WARNING: Metrics manager does not implement SysmonMetricsProvider for agent %s", agentID)
 		writeError(w, "System metrics not supported by this server", http.StatusNotImplemented)
 
 		return
 	}
 
+	// debug log for metrics provider
+	if hostID != nil {
+		log.Printf("Using SysmonMetricsProvider for agent %s, host %s", agentID, *hostID)
+	} else {
+		log.Printf("Using SysmonMetricsProvider for agent %s (all hosts)", agentID)
+	}
+
 	// Fetch metrics
-	metrics, err := fetchMetrics(ctx, metricsProvider, pollerID, startTime, endTime)
+	metrics, err := fetchMetrics(ctx, metricsProvider, agentID, hostID, startTime, endTime)
 	if err != nil {
 		var httpErr *httpError
 
 		if errors.As(err, &httpErr) {
-			log.Printf("Error fetching %s metrics for poller %s: %v", metricType, pollerID, err)
+			log.Printf("Error fetching %s metrics for agent %s: %v", metricType, agentID, err)
 			writeError(w, httpErr.Message, httpErr.Status)
 		} else {
-			log.Printf("Unexpected error fetching %s metrics for poller %s: %v", metricType, pollerID, err)
+			log.Printf("Unexpected error fetching %s metrics for agent %s: %v", metricType, agentID, err)
 			writeError(w, "Internal server error", http.StatusInternalServerError)
 		}
 
@@ -103,13 +117,13 @@ func (s *APIServer) getSysmonMetrics(
 	// log metrics based on type
 	switch metricType {
 	case "CPU":
-		log.Printf("Fetched %d CPU metrics for poller %s", len(metrics.([]models.SysmonCPUResponse)), pollerID)
+		log.Printf("Fetched %d CPU metrics for agent %s", len(metrics.([]models.SysmonCPUResponse)), agentID)
 	case "memory":
-		log.Printf("Fetched %d memory metrics for poller %s", len(metrics.([]models.SysmonMemoryResponse)), pollerID)
+		log.Printf("Fetched %d memory metrics for agent %s", len(metrics.([]models.SysmonMemoryResponse)), agentID)
 	case "disk":
-		log.Printf("Fetched %d disk metrics for poller %s", len(metrics.([]models.SysmonDiskResponse)), pollerID)
+		log.Printf("Fetched %d disk metrics for agent %s", len(metrics.([]models.SysmonDiskResponse)), agentID)
 	default:
-		log.Printf("Fetched %d unknown metrics for poller %s", len(metrics.([]models.SysmonDiskResponse)), pollerID)
+		log.Printf("Fetched %d unknown metrics for agent %s", len(metrics.([]models.SysmonDiskResponse)), agentID)
 		return
 	}
 
@@ -117,17 +131,18 @@ func (s *APIServer) getSysmonMetrics(
 	w.Header().Set("Content-Type", "application/json")
 
 	if err := json.NewEncoder(w).Encode(metrics); err != nil {
-		log.Printf("Error encoding %s metrics response: %v", metricType, pollerID)
+		log.Printf("Error encoding %s metrics response: %v", metricType, agentID)
 		writeError(w, "Error encoding response", http.StatusInternalServerError)
 	}
 }
 
 // @Summary Get CPU metrics
-// @Description Retrieves CPU usage metrics for a specific poller within a time range
+// @Description Retrieves CPU usage metrics for a specific agent within a time range
 // @Tags Sysmon
 // @Accept json
 // @Produce json
-// @Param id path string true "Poller ID"
+// @Param id path string true "Agent ID"
+// @Param host_id query string false "Filter by specific host ID (optional)"
 // @Param start query string false "Start time in RFC3339 format (default: 24h ago)"
 // @Param end query string false "End time in RFC3339 format (default: now)"
 // @Success 200 {array} models.CPUMetric "CPU metrics data"
@@ -135,21 +150,22 @@ func (s *APIServer) getSysmonMetrics(
 // @Failure 404 {object} models.ErrorResponse "No metrics found"
 // @Failure 500 {object} models.ErrorResponse "Internal server error"
 // @Failure 501 {object} models.ErrorResponse "System metrics not supported"
-// @Router /pollers/{id}/sysmon/cpu [get]
+// @Router /agents/{id}/sysmon/cpu [get]
 // @Security ApiKeyAuth
 func (s *APIServer) getSysmonCPUMetrics(w http.ResponseWriter, r *http.Request) {
-	fetch := func(ctx context.Context, provider db.SysmonMetricsProvider, pollerID string, startTime, endTime time.Time) (interface{}, error) {
-		return fetchMetrics[models.SysmonCPUResponse](ctx, pollerID, startTime, endTime, provider.GetAllCPUMetrics)
+	fetch := func(ctx context.Context, provider db.SysmonMetricsProvider, agentID string, hostID *string, startTime, endTime time.Time) (interface{}, error) {
+		return provider.GetAllCPUMetrics(ctx, agentID, hostID, startTime, endTime)
 	}
 	s.getSysmonMetrics(w, r, fetch, "CPU")
 }
 
 // @Summary Get memory metrics
-// @Description Retrieves memory usage metrics for a specific poller within a time range
+// @Description Retrieves memory usage metrics for a specific agent within a time range
 // @Tags Sysmon
 // @Accept json
 // @Produce json
-// @Param id path string true "Poller ID"
+// @Param id path string true "Agent ID"
+// @Param host_id query string false "Filter by specific host ID (optional)"
 // @Param start query string false "Start time in RFC3339 format (default: 24h ago)"
 // @Param end query string false "End time in RFC3339 format (default: now)"
 // @Success 200 {array} models.SysmonMemoryResponse "Memory metrics data grouped by timestamp"
@@ -157,11 +173,11 @@ func (s *APIServer) getSysmonCPUMetrics(w http.ResponseWriter, r *http.Request) 
 // @Failure 404 {object} models.ErrorResponse "No metrics found"
 // @Failure 500 {object} models.ErrorResponse "Internal server error"
 // @Failure 501 {object} models.ErrorResponse "System metrics not supported"
-// @Router /pollers/{id}/sysmon/memory [get]
+// @Router /agents/{id}/sysmon/memory [get]
 // @Security ApiKeyAuth
 func (s *APIServer) getSysmonMemoryMetrics(w http.ResponseWriter, r *http.Request) {
-	fetch := func(ctx context.Context, provider db.SysmonMetricsProvider, pollerID string, startTime, endTime time.Time) (interface{}, error) {
-		return fetchMetrics[models.SysmonMemoryResponse](ctx, pollerID, startTime, endTime, provider.GetMemoryMetricsGrouped)
+	fetch := func(ctx context.Context, provider db.SysmonMetricsProvider, agentID string, hostID *string, startTime, endTime time.Time) (interface{}, error) {
+		return provider.GetMemoryMetricsGrouped(ctx, agentID, hostID, startTime, endTime)
 	}
 
 	s.getSysmonMetrics(w, r, fetch, "memory")
@@ -172,13 +188,15 @@ func (s *APIServer) getSysmonMemoryMetrics(w http.ResponseWriter, r *http.Reques
 func (*APIServer) fetchDiskMetrics(
 	ctx context.Context,
 	provider db.SysmonMetricsProvider,
-	pollerID, mountPoint string,
+	agentID string,
+	hostID *string,
+	mountPoint string,
 	startTime, endTime time.Time,
 ) (interface{}, error) {
 	if mountPoint != "" {
-		metrics, err := fetchMetrics[models.DiskMetric](ctx, pollerID, startTime, endTime,
-			func(ctx context.Context, pollerID string, startTime, endTime time.Time) ([]models.DiskMetric, error) {
-				return provider.GetDiskMetrics(ctx, pollerID, mountPoint, startTime, endTime)
+		metrics, err := fetchMetrics[models.DiskMetric](ctx, agentID, startTime, endTime,
+			func(ctx context.Context, agentID string, startTime, endTime time.Time) ([]models.DiskMetric, error) {
+				return provider.GetDiskMetrics(ctx, agentID, mountPoint, startTime, endTime)
 			})
 		if err != nil {
 			return nil, err
@@ -187,15 +205,16 @@ func (*APIServer) fetchDiskMetrics(
 		return groupDiskMetricsByTimestamp(metrics.([]models.DiskMetric)), nil
 	}
 
-	return fetchMetrics[models.SysmonDiskResponse](ctx, pollerID, startTime, endTime, provider.GetAllDiskMetricsGrouped)
+	return provider.GetAllDiskMetricsGrouped(ctx, agentID, hostID, startTime, endTime)
 }
 
 // @Summary Get disk metrics
-// @Description Retrieves disk usage metrics for a specific poller within a time range
+// @Description Retrieves disk usage metrics for a specific agent within a time range
 // @Tags Sysmon
 // @Accept json
 // @Produce json
-// @Param id path string true "Poller ID"
+// @Param id path string true "Agent ID"
+// @Param host_id query string false "Filter by specific host ID (optional)"
 // @Param mount_point query string false "Filter by specific mount point"
 // @Param start query string false "Start time in RFC3339 format (default: 24h ago)"
 // @Param end query string false "End time in RFC3339 format (default: now)"
@@ -204,13 +223,13 @@ func (*APIServer) fetchDiskMetrics(
 // @Failure 404 {object} models.ErrorResponse "No metrics found"
 // @Failure 500 {object} models.ErrorResponse "Internal server error"
 // @Failure 501 {object} models.ErrorResponse "System metrics not supported"
-// @Router /pollers/{id}/sysmon/disk [get]
+// @Router /agents/{id}/sysmon/disk [get]
 // @Security ApiKeyAuth
 func (s *APIServer) getSysmonDiskMetrics(w http.ResponseWriter, r *http.Request) {
-	fetch := func(ctx context.Context, provider db.SysmonMetricsProvider, pollerID string, startTime, endTime time.Time) (interface{}, error) {
+	fetch := func(ctx context.Context, provider db.SysmonMetricsProvider, agentID string, hostID *string, startTime, endTime time.Time) (interface{}, error) {
 		mountPoint := r.URL.Query().Get("mount_point")
 
-		return s.fetchDiskMetrics(ctx, provider, pollerID, mountPoint, startTime, endTime)
+		return s.fetchDiskMetrics(ctx, provider, agentID, hostID, mountPoint, startTime, endTime)
 	}
 
 	s.getSysmonMetrics(w, r, fetch, "disk")

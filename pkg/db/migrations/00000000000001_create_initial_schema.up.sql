@@ -24,7 +24,8 @@ CREATE STREAM IF NOT EXISTS service_status (
     available bool,
     details string,
     timestamp DateTime64(3) DEFAULT now64(3),
-    agent_id string
+    agent_id string,
+    partition string
 );
 
 CREATE STREAM IF NOT EXISTS users (
@@ -128,7 +129,8 @@ CREATE STREAM IF NOT EXISTS events (
 -- Services Stream (from 20250702...)
 CREATE STREAM IF NOT EXISTS services (
     poller_id string, service_name string, service_type string,
-    agent_id string, timestamp DateTime64(3) DEFAULT now64(3)
+    agent_id string, timestamp DateTime64(3) DEFAULT now64(3),
+    partition string
 ) PRIMARY KEY (poller_id, service_name)
 SETTINGS mode='versioned_kv', version_column='_tp_time';
 

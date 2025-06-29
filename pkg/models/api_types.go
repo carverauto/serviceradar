@@ -38,6 +38,7 @@ type ServiceStatus struct {
 	PollerID    string          `json:"poller_id" example:"poller-prod-east-01"`
 	AgentID     string          `json:"agent_id" example:"agent-prod-east-01"`
 	ServiceName string          `json:"service_name" example:"postgres"`
+	Partition   string          `json:"partition"`
 	ServiceType string          `json:"service_type" example:"database"`
 	Timestamp   time.Time       `json:"timestamp" example:"2020-11-10T23:00:00+09:00"`
 }

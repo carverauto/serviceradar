@@ -9,4 +9,5 @@ type Service struct {
 	ServiceType string    `json:"service_type"`
 	AgentID     string    `json:"agent_id"`
 	Timestamp   time.Time `json:"timestamp"`
+	Partition   string    `json:"partition"`
 }

@@ -288,6 +288,7 @@ func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
 		ResponseTime: status.ResponseTime,
 		AgentId:      status.AgentId,
 		PollerId:     sc.pollerID,
+		Partition:    status.PartitionId,
 	}
 }
 

@@ -228,14 +228,14 @@ func (db *DB) executeBatch(ctx context.Context, query string, appendFunc func(dr
 	return nil
 }
 
-// GetAllMountPoints retrieves all unique mount points for a poller.
-func (db *DB) GetAllMountPoints(ctx context.Context, pollerID string) ([]string, error) {
+// GetAllMountPoints retrieves all unique mount points for an agent.
+func (db *DB) GetAllMountPoints(ctx context.Context, agentID string) ([]string, error) {
 	rows, err := db.Conn.Query(ctx, `
 		SELECT DISTINCT mount_point
 		FROM table(disk_metrics)
-		WHERE poller_id = $1 
+		WHERE agent_id = $1 
 		ORDER BY mount_point`,
-		pollerID)
+		agentID)
 	if err != nil {
 		log.Printf("Error querying mount points: %v", err)
 		return nil, fmt.Errorf("failed to query mount points: %w", err)
@@ -256,7 +256,7 @@ func (db *DB) GetAllMountPoints(ctx context.Context, pollerID string) ([]string,
 		mountPoints = append(mountPoints, mountPoint)
 	}
 
-	log.Printf("Found %d unique mount points for poller %s", len(mountPoints), pollerID)
+	log.Printf("Found %d unique mount points for agent %s", len(mountPoints), agentID)
 
 	return mountPoints, nil
 }

@@ -52,9 +52,9 @@ type StructuredMetricCollector interface {
 
 // SysmonMetricsProvider interface extension.
 type SysmonMetricsProvider interface {
-	GetAllCPUMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonCPUResponse, error)
-	GetCPUMetrics(ctx context.Context, pollerID string, coreID int, start, end time.Time) ([]models.CPUMetric, error)
-	GetAllDiskMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonDiskResponse, error)
-	GetDiskMetrics(ctx context.Context, pollerID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error)
-	GetMemoryMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonMemoryResponse, error)
+	GetAllCPUMetrics(ctx context.Context, agentID string, hostID *string, start, end time.Time) ([]models.SysmonCPUResponse, error)
+	GetCPUMetrics(ctx context.Context, agentID string, coreID int, start, end time.Time) ([]models.CPUMetric, error)
+	GetAllDiskMetricsGrouped(ctx context.Context, agentID string, hostID *string, start, end time.Time) ([]models.SysmonDiskResponse, error)
+	GetDiskMetrics(ctx context.Context, agentID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error)
+	GetMemoryMetricsGrouped(ctx context.Context, agentID string, hostID *string, start, end time.Time) ([]models.SysmonMemoryResponse, error)
 }

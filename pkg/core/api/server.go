@@ -360,9 +360,9 @@ func (s *APIServer) setupProtectedRoutes() {
 	protected.HandleFunc("/pollers/{id}/services", s.getPollerServices).Methods("GET")
 	protected.HandleFunc("/pollers/{id}/services/{service}", s.getServiceDetails).Methods("GET")
 	protected.HandleFunc("/pollers/{id}/snmp", s.getSNMPData).Methods("GET")
-	protected.HandleFunc("/pollers/{id}/sysmon/cpu", s.getSysmonCPUMetrics).Methods("GET")
-	protected.HandleFunc("/pollers/{id}/sysmon/disk", s.getSysmonDiskMetrics).Methods("GET")
-	protected.HandleFunc("/pollers/{id}/sysmon/memory", s.getSysmonMemoryMetrics).Methods("GET")
+	protected.HandleFunc("/agents/{id}/sysmon/cpu", s.getSysmonCPUMetrics).Methods("GET")
+	protected.HandleFunc("/agents/{id}/sysmon/disk", s.getSysmonDiskMetrics).Methods("GET")
+	protected.HandleFunc("/agents/{id}/sysmon/memory", s.getSysmonMemoryMetrics).Methods("GET")
 	protected.HandleFunc("/query", s.handleSRQLQuery).Methods("POST")
 }
 

@@ -13,7 +13,10 @@ func (db *DB) UpdateServiceStatuses(ctx context.Context, statuses []*models.Serv
 		return nil
 	}
 
-	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO service_status (* except _tp_time)")
+	insertQuery := `INSERT INTO service_status (
+		poller_id, service_name, service_type, available, details, timestamp, agent_id, partition
+	)`
+	batch, err := db.Conn.PrepareBatch(ctx, insertQuery)
 	if err != nil {
 		return fmt.Errorf("failed to prepare batch: %w", err)
 	}
@@ -27,6 +30,7 @@ func (db *DB) UpdateServiceStatuses(ctx context.Context, statuses []*models.Serv
 			status.Details,
 			status.Timestamp,
 			status.AgentID,
+			status.Partition,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to append service status for %s: %w", status.ServiceName, err)
@@ -104,7 +108,10 @@ func (db *DB) StoreServices(ctx context.Context, services []*models.Service) err
 		return nil
 	}
 
-	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO services (* except _tp_time)")
+	insertQuery := `INSERT INTO services (
+		poller_id, service_name, service_type, agent_id, timestamp, partition
+	)`
+	batch, err := db.Conn.PrepareBatch(ctx, insertQuery)
 	if err != nil {
 		return fmt.Errorf("failed to prepare batch: %w", err)
 	}
@@ -116,6 +123,7 @@ func (db *DB) StoreServices(ctx context.Context, services []*models.Service) err
 			svc.ServiceType,
 			svc.AgentID,
 			svc.Timestamp,
+			svc.Partition,
 		); err != nil {
 			return fmt.Errorf("failed to append service %s: %w", svc.ServiceName, err)
 		}

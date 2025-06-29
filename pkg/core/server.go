@@ -97,7 +97,7 @@ func NewServer(ctx context.Context, config *models.DBConfig) (*Server, error) {
 		metricBuffers:       make(map[string][]*models.TimeseriesMetric),
 		serviceBuffers:      make(map[string][]*models.ServiceStatus),
 		serviceListBuffers:  make(map[string][]*models.Service),
-		sysmonBuffers:       make(map[string][]*models.SysmonMetrics),
+		// sysmonBuffers:    make(map[string][]*models.SysmonMetrics), // DEPRECATED
 		bufferMu:            sync.RWMutex{},
 		pollerStatusCache:   make(map[string]*models.PollerStatus),
 		pollerStatusUpdates: make(map[string]*models.PollerStatus),
@@ -168,7 +168,7 @@ func (s *Server) flushAllBuffers(ctx context.Context) {
 	s.flushMetrics(ctx)
 	s.flushServiceStatuses(ctx)
 	s.flushServices(ctx)
-	s.flushSysmonMetrics(ctx)
+	// s.flushSysmonMetrics(ctx) - Removed: sysmon metrics are now stored directly, not buffered
 }
 
 // flushMetrics flushes metric buffers to the database.
@@ -225,41 +225,11 @@ func (s *Server) flushServices(ctx context.Context) {
 	}
 }
 
-// flushSysmonMetrics flushes system monitor metrics to the database.
-func (s *Server) flushSysmonMetrics(ctx context.Context) {
-	for pollerID, sysmonMetrics := range s.sysmonBuffers {
-		if len(sysmonMetrics) == 0 {
-			continue
-		}
-
-		for _, metric := range sysmonMetrics {
-			var ts time.Time
-
-			var agentID, hostID string
-
-			switch {
-			case len(metric.CPUs) > 0:
-				ts = metric.CPUs[0].Timestamp
-				agentID = metric.CPUs[0].AgentID
-				hostID = metric.CPUs[0].HostID
-			case len(metric.Disks) > 0:
-				ts = metric.Disks[0].Timestamp
-				agentID = metric.Disks[0].AgentID
-				hostID = metric.Disks[0].HostID
-			default:
-				ts = metric.Memory.Timestamp
-				agentID = metric.Memory.AgentID
-				hostID = metric.Memory.HostID
-			}
-
-			if err := s.DB.StoreSysmonMetrics(ctx, pollerID, agentID, hostID, metric, ts); err != nil {
-				log.Printf("Failed to flush sysmon metrics for poller %s: %v", pollerID, err)
-			}
-		}
-
-		s.sysmonBuffers[pollerID] = nil
-	}
-}
+// flushSysmonMetrics - DEPRECATED: Sysmon metrics are now stored directly in processSysmonMetrics
+// func (s *Server) flushSysmonMetrics(ctx context.Context) {
+// 	// This function is no longer used - sysmon metrics are stored directly
+// 	// rather than being buffered and flushed periodically
+// }
 
 const (
 	defaultMetricsRetention  = 100
@@ -898,6 +868,7 @@ func (s *Server) processServices(
 			ServiceType: apiService.Type,
 			Available:   apiService.Available,
 			Details:     apiService.Message,
+			Partition:   svc.Partition,
 			Timestamp:   now,
 		})
 
@@ -906,6 +877,7 @@ func (s *Server) processServices(
 			ServiceName: svc.ServiceName,
 			ServiceType: svc.ServiceType,
 			AgentID:     svc.AgentId,
+			Partition:   svc.Partition,
 			Timestamp:   now,
 		})
 
@@ -984,7 +956,7 @@ func (s *Server) processMetrics(
 		case rperfServiceType:
 			return s.processRperfMetrics(pollerID, details, now)
 		case sysmonServiceType:
-			return s.processSysmonMetrics(pollerID, svc.AgentId, details, now)
+			return s.processSysmonMetrics(pollerID, partition, svc.AgentId, details, now)
 		}
 	case icmpServiceType:
 		return s.processICMPMetrics(pollerID, svc, details, now)
@@ -1025,7 +997,7 @@ const (
 	sysmonServiceType = "sysmon"
 )
 
-func (s *Server) processSysmonMetrics(pollerID, agentID string, details json.RawMessage, timestamp time.Time) error {
+func (s *Server) processSysmonMetrics(pollerID, partition, agentID string, details json.RawMessage, timestamp time.Time) error {
 	log.Printf("Processing sysmon metrics for poller %s, agent %s with details: %s", pollerID, agentID, string(details))
 
 	// Define the full structure of the message payload
@@ -1096,9 +1068,11 @@ func (s *Server) processSysmonMetrics(pollerID, agentID string, details json.Raw
 		}
 	}
 
-	s.bufferMu.Lock()
-	s.sysmonBuffers[pollerID] = append(s.sysmonBuffers[pollerID], m)
-	s.bufferMu.Unlock()
+	// Store metrics directly to database with partition information
+	if err := s.DB.StoreSysmonMetrics(context.Background(), pollerID, agentID, sysmonPayload.Status.HostID, partition, m, pollerTimestamp); err != nil {
+		log.Printf("Failed to store sysmon metrics for poller %s: %v", pollerID, err)
+		return fmt.Errorf("failed to store sysmon metrics: %w", err)
+	}
 
 	log.Printf("Parsed %d CPU metrics for poller %s with timestamp %s",
 		len(sysmonPayload.Status.CPUs), pollerID, sysmonPayload.Status.Timestamp)
@@ -1108,7 +1082,7 @@ func (s *Server) processSysmonMetrics(pollerID, agentID string, details json.Raw
 		sweepResult := &models.SweepResult{
 			AgentID:         agentID,
 			PollerID:        pollerID,
-			Partition:       pollerID, // Use poller_id as partition
+			Partition:       partition, // Use actual partition from request
 			DiscoverySource: "sysmon",
 			IP:              sysmonPayload.Status.HostIP,
 			Hostname:        &sysmonPayload.Status.HostID,
