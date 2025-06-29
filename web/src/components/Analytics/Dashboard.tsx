@@ -27,7 +27,7 @@ import { useAuth } from '../AuthProvider';
 import {ServiceEntry, Poller, GenericServiceDetails} from "@/types/types";
 import { Device } from "@/types/devices";
 import { RperfMetric } from "@/types/rperf";
-import SysmonOverviewWidget from './SysmonOverviewWidget';
+import HighUtilizationWidget from './HighUtilizationWidget';
 
 const REFRESH_INTERVAL = 60000; // 60 seconds
 
@@ -408,7 +408,7 @@ const Dashboard = () => {
                     <ChartWidget title="Top 5 High Latency Services (ms)">
                         {chartData.topLatencyServices.length > 0 ? <SimpleBarChart data={chartData.topLatencyServices} /> : <NoData />}
                     </ChartWidget>
-                    <SysmonOverviewWidget />
+                    <HighUtilizationWidget />
                     <ChartWidget title="Services by Type">
                         {chartData.servicesByType.length > 0 ? <SimpleBarChart data={chartData.servicesByType} /> : <NoData />}
                     </ChartWidget>
