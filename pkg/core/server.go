@@ -1059,7 +1059,7 @@ func (s *Server) processSysmonMetrics(pollerID, agentID string, details json.Raw
 	m := &models.SysmonMetrics{
 		CPUs:   make([]models.CPUMetric, len(sysmonPayload.Status.CPUs)),
 		Disks:  make([]models.DiskMetric, len(sysmonPayload.Status.Disks)),
-		Memory: models.MemoryMetric{},
+		Memory: &models.MemoryMetric{},
 	}
 
 	for i, cpu := range sysmonPayload.Status.CPUs {
@@ -1086,7 +1086,7 @@ func (s *Server) processSysmonMetrics(pollerID, agentID string, details json.Raw
 	}
 
 	if hasMemoryData {
-		m.Memory = models.MemoryMetric{
+		m.Memory = &models.MemoryMetric{
 			UsedBytes:  sysmonPayload.Status.Memory.UsedBytes,
 			TotalBytes: sysmonPayload.Status.Memory.TotalBytes,
 			Timestamp:  pollerTimestamp,

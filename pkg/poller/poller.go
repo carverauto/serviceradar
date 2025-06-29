@@ -227,7 +227,7 @@ func (ap *AgentPoller) ExecuteChecks(ctx context.Context) []*proto.ServiceStatus
 	return statuses
 }
 
-func newServiceCheck(client proto.AgentServiceClient, check Check, pollerID string, agentName string) *ServiceCheck {
+func newServiceCheck(client proto.AgentServiceClient, check Check, pollerID, agentName string) *ServiceCheck {
 	return &ServiceCheck{
 		client:    client,
 		check:     check,
@@ -514,7 +514,7 @@ func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStat
 		PollerId:  p.config.PollerID,
 		Timestamp: time.Now().Unix(),
 		Partition: p.config.Partition,
-		SourceIp:  p.config.SourceIp,
+		SourceIp:  p.config.SourceIP,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to report status to core: %w", err)

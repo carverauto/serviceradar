@@ -24,8 +24,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/carverauto/serviceradar/proto"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/proto"
 	discoverypb "github.com/carverauto/serviceradar/proto/discovery"
 )
 
@@ -163,78 +163,135 @@ func (*Server) extractDeviceMetadata(protoDevice *discoverypb.DiscoveredDevice) 
 	return deviceMetadata
 }
 
-// classifyDeviceType determines the device type based on available information
-func classifyDeviceType(hostname, sysDescr, sysObjectId string) string {
-	// Convert to lowercase for easier matching
+const (
+	defaultWirelessAPType = "wireless_ap"
+	defaultSwitchType     = "switch"
+	defaultRouterType     = "router"
+)
+
+// checkHostnameForDeviceType determines device type based on hostname patterns
+func checkHostnameForDeviceType(hostname string) string {
 	hostnameLower := strings.ToLower(hostname)
-	sysDescrLower := strings.ToLower(sysDescr)
-	
-	// Ubiquiti devices
+
+	// Ubiquiti switches
 	if strings.Contains(hostnameLower, "usw") || strings.Contains(hostnameLower, "unifi") {
 		if strings.Contains(hostnameLower, "poe") {
 			return "switch_poe"
 		}
-		return "switch"
+
+		return defaultSwitchType
 	}
-	
+
 	// Ubiquiti Access Points
-	if strings.Contains(hostnameLower, "nano") && strings.Contains(hostnameLower, "hd") {
-		return "wireless_ap"
+	if (strings.Contains(hostnameLower, "nano") && strings.Contains(hostnameLower, "hd")) ||
+		strings.Contains(hostnameLower, "u6") || strings.Contains(hostnameLower, "u7") {
+		return defaultWirelessAPType
 	}
-	if strings.Contains(hostnameLower, "u6") || strings.Contains(hostnameLower, "u7") {
-		return "wireless_ap"
+
+	return ""
+}
+
+// checkSysDescrForUbiquiti checks if the system description indicates a Ubiquiti device
+func checkSysDescrForUbiquiti(sysDescr string) string {
+	sysDescrLower := strings.ToLower(sysDescr)
+
+	if !strings.Contains(sysDescrLower, "ubiquiti") && !strings.Contains(sysDescrLower, "unifi") {
+		return ""
 	}
-	
-	// Check sys_descr for more detailed classification
-	if strings.Contains(sysDescrLower, "ubiquiti") || strings.Contains(sysDescrLower, "unifi") {
-		if strings.Contains(sysDescrLower, "switch") {
-			return "switch"
-		}
-		if strings.Contains(sysDescrLower, "access point") || strings.Contains(sysDescrLower, "wireless") {
-			return "wireless_ap"
-		}
-		if strings.Contains(sysDescrLower, "gateway") || strings.Contains(sysDescrLower, "router") {
-			return "router"
-		}
-		return "network_device"
+
+	if strings.Contains(sysDescrLower, defaultSwitchType) {
+		return defaultSwitchType
 	}
-	
-	// Generic classification based on sys_descr
-	if strings.Contains(sysDescrLower, "switch") {
-		return "switch"
-	}
-	if strings.Contains(sysDescrLower, "router") {
-		return "router"
-	}
+
 	if strings.Contains(sysDescrLower, "access point") || strings.Contains(sysDescrLower, "wireless") {
-		return "wireless_ap"
+		return defaultWirelessAPType
 	}
+
+	if strings.Contains(sysDescrLower, "gateway") || strings.Contains(sysDescrLower, defaultRouterType) {
+		return defaultRouterType
+	}
+
+	return "network_device"
+}
+
+// checkSysDescrForGenericType checks for generic device types in system description
+func checkSysDescrForGenericType(sysDescr string) string {
+	sysDescrLower := strings.ToLower(sysDescr)
+
+	if strings.Contains(sysDescrLower, defaultSwitchType) {
+		return defaultSwitchType
+	}
+
+	if strings.Contains(sysDescrLower, defaultRouterType) {
+		return defaultRouterType
+	}
+
+	if strings.Contains(sysDescrLower, "access point") || strings.Contains(sysDescrLower, "wireless") {
+		return defaultWirelessAPType
+	}
+
 	if strings.Contains(sysDescrLower, "firewall") {
 		return "firewall"
 	}
+
 	if strings.Contains(sysDescrLower, "server") {
 		return "server"
 	}
-	if strings.Contains(sysDescrLower, "linux") || strings.Contains(sysDescrLower, "windows") || strings.Contains(sysDescrLower, "host") {
+
+	if strings.Contains(sysDescrLower, "linux") || strings.Contains(sysDescrLower, "windows") ||
+		strings.Contains(sysDescrLower, "host") {
 		return "host"
 	}
-	
-	// Check OID for known vendors
-	if sysObjectId != "" {
-		// Cisco OIDs typically start with 1.3.6.1.4.1.9
-		if strings.HasPrefix(sysObjectId, "1.3.6.1.4.1.9") {
-			return "cisco_device"
-		}
-		// HP/HPE OIDs typically start with 1.3.6.1.4.1.11
-		if strings.HasPrefix(sysObjectId, "1.3.6.1.4.1.11") {
-			return "hp_device"
-		}
-		// Ubiquiti OIDs typically start with 1.3.6.1.4.1.41112
-		if strings.HasPrefix(sysObjectId, "1.3.6.1.4.1.41112") {
-			return "ubiquiti_device"
-		}
+
+	return ""
+}
+
+// checkSysObjectIDForVendor identifies the vendor based on system object ID
+func checkSysObjectIDForVendor(sysObjectID string) string {
+	if sysObjectID == "" {
+		return ""
 	}
-	
+
+	// Cisco OIDs
+	if strings.HasPrefix(sysObjectID, "1.3.6.1.4.1.9") {
+		return "cisco_device"
+	}
+
+	// HP/HPE OIDs
+	if strings.HasPrefix(sysObjectID, "1.3.6.1.4.1.11") {
+		return "hp_device"
+	}
+
+	// Ubiquiti OIDs
+	if strings.HasPrefix(sysObjectID, "1.3.6.1.4.1.41112") {
+		return "ubiquiti_device"
+	}
+
+	return ""
+}
+
+// classifyDeviceType determines the device type based on available information
+func classifyDeviceType(hostname, sysDescr, sysObjectID string) string {
+	// Try to classify based on hostname
+	if deviceType := checkHostnameForDeviceType(hostname); deviceType != "" {
+		return deviceType
+	}
+
+	// Try to classify based on Ubiquiti-specific system description
+	if deviceType := checkSysDescrForUbiquiti(sysDescr); deviceType != "" {
+		return deviceType
+	}
+
+	// Try to classify based on generic system description
+	if deviceType := checkSysDescrForGenericType(sysDescr); deviceType != "" {
+		return deviceType
+	}
+
+	// Try to classify based on system object ID
+	if deviceType := checkSysObjectIDForVendor(sysObjectID); deviceType != "" {
+		return deviceType
+	}
+
 	// Default fallback
 	return "network_device"
 }
