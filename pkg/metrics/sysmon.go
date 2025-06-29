@@ -13,7 +13,7 @@ func (m *Manager) StoreSysmonMetrics(
 	dbMetrics := &models.SysmonMetrics{
 		CPUs:   make([]models.CPUMetric, len(metrics.CPUs)),
 		Disks:  make([]models.DiskMetric, len(metrics.Disks)),
-		Memory: models.MemoryMetric{},
+		Memory: &models.MemoryMetric{},
 	}
 
 	for i, cpu := range metrics.CPUs {
@@ -37,7 +37,7 @@ func (m *Manager) StoreSysmonMetrics(
 		}
 	}
 
-	dbMetrics.Memory = models.MemoryMetric{
+	dbMetrics.Memory = &models.MemoryMetric{
 		UsedBytes:  metrics.Memory.UsedBytes,
 		TotalBytes: metrics.Memory.TotalBytes,
 		Timestamp:  timestamp,

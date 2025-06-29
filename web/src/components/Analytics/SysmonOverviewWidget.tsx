@@ -125,7 +125,7 @@ const SysmonOverviewWidget: React.FC = () => {
             // Calculate average CPU usage from all cores
             let avgCpuUsage = 0;
             if (latestCpu?.cpus && latestCpu.cpus.length > 0) {
-                const totalUsage = latestCpu.cpus.reduce((sum, core) => sum + core.usage_percent, 0);
+                const totalUsage = latestCpu.cpus.reduce((sum: number, core: { usage_percent: number }) => sum + core.usage_percent, 0);
                 avgCpuUsage = totalUsage / latestCpu.cpus.length;
             }
 

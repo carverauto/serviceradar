@@ -53,7 +53,7 @@ type SysmonMetrics struct {
 	// Disk usage metrics for various mount points
 	Disks []DiskMetric `json:"disks"`
 	// Memory usage metrics
-	Memory MemoryMetric `json:"memory"`
+	Memory *MemoryMetric `json:"memory"`
 }
 
 // CPUMetric represents CPU utilization for a single core.

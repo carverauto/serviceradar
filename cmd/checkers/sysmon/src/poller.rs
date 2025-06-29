@@ -24,7 +24,7 @@ use log::{debug, warn, info};
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
 use std::time::Duration;
-use std::net::{UdpSocket, SocketAddr};
+use std::net::UdpSocket;
 
 #[cfg(feature = "zfs")]
 use libzetta::zpool::{ZpoolEngine, ZpoolOpen3};
