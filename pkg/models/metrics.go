@@ -71,6 +71,8 @@ type CPUMetric struct {
 	HostIP string `json:"host_ip,omitempty" example:"192.168.1.100"`
 	// ServiceRadar agent identifier
 	AgentID string `json:"agent_id,omitempty" example:"agent-1234"`
+	// Partition this metric belongs to
+	Partition string `json:"partition,omitempty" example:"default"`
 }
 
 // DiskMetric represents disk usage for a single mount point.
@@ -90,6 +92,8 @@ type DiskMetric struct {
 	HostIP string `json:"host_ip,omitempty" example:"192.168.1.100"`
 	// ServiceRadar agent identifier
 	AgentID string `json:"agent_id,omitempty" example:"agent-1234"`
+	// Partition this metric belongs to
+	Partition string `json:"partition,omitempty" example:"default"`
 }
 
 // MemoryMetric represents system memory usage.
@@ -107,6 +111,8 @@ type MemoryMetric struct {
 	HostIP string `json:"host_ip,omitempty" example:"192.168.1.100"`
 	// ServiceRadar agent identifier
 	AgentID string `json:"agent_id,omitempty" example:"agent-1234"`
+	// Partition this metric belongs to
+	Partition string `json:"partition,omitempty" example:"default"`
 }
 
 // SysmonMetricData represents the raw data received from the sysmon service.
@@ -143,7 +149,8 @@ type SysmonMetricData struct {
 
 // TimeseriesMetric represents a generic timeseries datapoint.
 type TimeseriesMetric struct {
-	PollerID       string    `json:"poller_id"` // Unique identifier for the poller that collected this metric
+	AgentID        string    `json:"agent_id"`  // Unique identifier for the agent that collected this metric
+	Partition      string    `json:"partition"` // Partition this metric belongs to
 	Name           string    `json:"name"`
 	TargetDeviceIP string    `json:"target_device_ip"` // IP address of the device this metric is for
 	IfIndex        int32     `json:"if_index"`

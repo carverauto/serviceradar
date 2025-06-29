@@ -113,7 +113,6 @@ func (p *ProtonPublisher) PublishInterface(ctx context.Context, iface *Discovere
 	discoveredInterface := &models.DiscoveredInterface{
 		Timestamp:     time.Now(),
 		AgentID:       p.config.AgentID,
-		PollerID:      p.config.PollerID,
 		DeviceIP:      iface.DeviceIP,
 		DeviceID:      iface.DeviceID,
 		IfIndex:       iface.IfIndex,
@@ -157,7 +156,6 @@ func (p *ProtonPublisher) PublishTopologyLink(ctx context.Context, link *Topolog
 	topologyEvent := &models.TopologyDiscoveryEvent{
 		Timestamp:              time.Now(),
 		AgentID:                p.config.AgentID,
-		PollerID:               p.config.PollerID,
 		LocalDeviceIP:          link.LocalDeviceIP,
 		LocalDeviceID:          link.LocalDeviceID,
 		LocalIfIndex:           link.LocalIfIndex,
@@ -236,7 +234,6 @@ func (p *ProtonPublisher) PublishBatchInterfaces(ctx context.Context, interfaces
 		modelInterfaces[i] = &models.DiscoveredInterface{
 			Timestamp:     time.Now(),
 			AgentID:       p.config.AgentID,
-			PollerID:      p.config.PollerID,
 			DeviceIP:      iface.DeviceIP,
 			DeviceID:      iface.DeviceID,
 			IfIndex:       iface.IfIndex,
@@ -270,7 +267,6 @@ func (p *ProtonPublisher) PublishBatchTopologyLinks(ctx context.Context, links [
 		modelEvents[i] = &models.TopologyDiscoveryEvent{
 			Timestamp:              time.Now(),
 			AgentID:                p.config.AgentID,
-			PollerID:               p.config.PollerID,
 			LocalDeviceIP:          link.LocalDeviceIP,
 			LocalDeviceID:          link.LocalDeviceID,
 			LocalIfIndex:           link.LocalIfIndex,

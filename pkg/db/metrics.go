@@ -381,7 +381,7 @@ func (db *DB) BatchMetricsOperation(ctx context.Context, pollerID string, metric
 }
 
 // StoreMetrics stores multiple timeseries metrics in a single batch.
-func (db *DB) StoreMetrics(ctx context.Context, pollerID string, metrics []*models.TimeseriesMetric) error {
+func (db *DB) StoreMetrics(ctx context.Context, agentID, partition string, metrics []*models.TimeseriesMetric) error {
 	if len(metrics) == 0 {
 		return nil
 	}
@@ -400,14 +400,15 @@ func (db *DB) StoreMetrics(ctx context.Context, pollerID string, metrics []*mode
 			var temp interface{}
 
 			if err = json.Unmarshal([]byte(metadataStr), &temp); err != nil {
-				log.Printf("Invalid JSON metadata for metric %s (poller: %s, target: %s): %v",
-					metric.Name, pollerID, metric.TargetDeviceIP, err)
+				log.Printf("Invalid JSON metadata for metric %s (agent: %s, parition:%s target: %s): %v",
+					metric.Name, agentID, partition, metric.TargetDeviceIP, err)
 				continue
 			}
 		}
 
 		err = batch.Append(
-			pollerID,
+			agentID,
+			partition,
 			metric.TargetDeviceIP,
 			metric.IfIndex,
 			metric.Name,
@@ -417,8 +418,8 @@ func (db *DB) StoreMetrics(ctx context.Context, pollerID string, metrics []*mode
 			metric.Timestamp,
 		)
 		if err != nil {
-			log.Printf("Failed to append metric %s (poller: %s, target: %s) to batch: %v. Metadata: %s",
-				metric.Name, pollerID, metric.TargetDeviceIP, err, metadataStr)
+			log.Printf("Failed to append metric %s (agent: %s, partition: %s, target: %s) to batch: %v. Metadata: %s",
+				metric.Name, agentID, partition, metric.TargetDeviceIP, err, metadataStr)
 			return fmt.Errorf("failed to append metric %s to batch: %w", metric.Name, err)
 		}
 	}
@@ -432,16 +433,16 @@ func (db *DB) StoreMetrics(ctx context.Context, pollerID string, metrics []*mode
 
 // StoreSysmonMetrics stores sysmon metrics for CPU, disk, and memory.
 func (db *DB) StoreSysmonMetrics(
-	ctx context.Context, pollerID, agentID, hostID, partition string, metrics *models.SysmonMetrics, timestamp time.Time) error {
-	if err := db.storeCPUMetrics(ctx, pollerID, agentID, hostID, partition, metrics.CPUs, timestamp); err != nil {
+	ctx context.Context, pollerID, agentID, partition, hostID string, metrics *models.SysmonMetrics, timestamp time.Time) error {
+	if err := db.storeCPUMetrics(ctx, agentID, partition, hostID, metrics.CPUs, timestamp); err != nil {
 		return fmt.Errorf("failed to store CPU metrics: %w", err)
 	}
 
-	if err := db.storeDiskMetrics(ctx, pollerID, agentID, hostID, partition, metrics.Disks, timestamp); err != nil {
+	if err := db.storeDiskMetrics(ctx, agentID, partition, hostID, metrics.Disks, timestamp); err != nil {
 		return fmt.Errorf("failed to store disk metrics: %w", err)
 	}
 
-	if err := db.storeMemoryMetrics(ctx, pollerID, agentID, hostID, partition, metrics.Memory, timestamp); err != nil {
+	if err := db.storeMemoryMetrics(ctx, agentID, partition, hostID, metrics.Memory, timestamp); err != nil {
 		return fmt.Errorf("failed to store memory metrics: %w", err)
 	}
 
@@ -449,18 +450,18 @@ func (db *DB) StoreSysmonMetrics(
 }
 
 // storeCPUMetrics stores CPU metrics in a batch.
-func (db *DB) storeCPUMetrics(ctx context.Context, pollerID, agentID, hostID, partition string, cpus []models.CPUMetric, timestamp time.Time) error {
+func (db *DB) storeCPUMetrics(ctx context.Context, agentID, partition, hostID string, cpus []models.CPUMetric, timestamp time.Time) error {
 	if len(cpus) == 0 {
 		return nil
 	}
 
 	insertQuery := `INSERT INTO cpu_metrics (
-		poller_id, agent_id, host_id, timestamp, core_id, usage_percent, partition
+		agent_id, partition, host_id, timestamp, core_id, usage_percent
 	)`
 
 	return db.executeBatch(ctx, insertQuery, func(batch driver.Batch) error {
 		for _, cpu := range cpus {
-			if err := batch.Append(pollerID, agentID, hostID, timestamp, cpu.CoreID, cpu.UsagePercent, partition); err != nil {
+			if err := batch.Append(agentID, partition, hostID, timestamp, cpu.CoreID, cpu.UsagePercent); err != nil {
 				log.Printf("Failed to append CPU metric for core %d: %v", cpu.CoreID, err)
 				return err // Return error immediately instead of continuing
 			}
@@ -472,18 +473,18 @@ func (db *DB) storeCPUMetrics(ctx context.Context, pollerID, agentID, hostID, pa
 
 // storeDiskMetrics stores disk metrics in a batch.
 func (db *DB) storeDiskMetrics(
-	ctx context.Context, pollerID, agentID, hostID, partition string, disks []models.DiskMetric, timestamp time.Time) error {
+	ctx context.Context, agentID, partition, hostID string, disks []models.DiskMetric, timestamp time.Time) error {
 	if len(disks) == 0 {
 		return nil
 	}
 
 	insertQuery := `INSERT INTO disk_metrics (
-		poller_id, agent_id, host_id, timestamp, mount_point, used_bytes, total_bytes, partition
+		agent_id, partition, host_id, timestamp, mount_point, used_bytes, total_bytes
 	)`
 
 	return db.executeBatch(ctx, insertQuery, func(batch driver.Batch) error {
 		for _, disk := range disks {
-			if err := batch.Append(pollerID, agentID, hostID, timestamp, disk.MountPoint,
+			if err := batch.Append(agentID, partition, hostID, timestamp, disk.MountPoint,
 				disk.UsedBytes, disk.TotalBytes, partition); err != nil {
 				log.Printf("Failed to append disk metric for %s: %v", disk.MountPoint, err)
 				return err // Return error immediately instead of continuing
@@ -496,42 +497,42 @@ func (db *DB) storeDiskMetrics(
 
 // storeMemoryMetrics stores memory metrics in a batch.
 func (db *DB) storeMemoryMetrics(
-	ctx context.Context, pollerID, agentID, hostID, partition string, memory *models.MemoryMetric, timestamp time.Time) error {
+	ctx context.Context, agentID, partition, hostID string, memory *models.MemoryMetric, timestamp time.Time) error {
 	if memory.UsedBytes == 0 && memory.TotalBytes == 0 {
 		return nil
 	}
 
 	insertQuery := `INSERT INTO memory_metrics (
-		poller_id, agent_id, host_id, timestamp, used_bytes, total_bytes, partition
+		agent_id, partition, host_id, timestamp, used_bytes, total_bytes
 	)`
 
 	return db.executeBatch(ctx, insertQuery, func(batch driver.Batch) error {
-		return batch.Append(pollerID, agentID, hostID, timestamp, memory.UsedBytes, memory.TotalBytes, partition)
+		return batch.Append(agentID, partition, hostID, timestamp, memory.UsedBytes, memory.TotalBytes)
 	})
 }
 
 // GetAllCPUMetrics retrieves all CPU metrics for an agent within a time range, grouped by timestamp.
 func (db *DB) GetAllCPUMetrics(
-	ctx context.Context, agentID string, hostID *string, start, end time.Time) ([]models.SysmonCPUResponse, error) {
+	ctx context.Context, agentID, partition string, hostID *string, start, end time.Time) ([]models.SysmonCPUResponse, error) {
 	var query string
 	var args []interface{}
-	
+
 	if hostID != nil {
 		query = `
-			SELECT timestamp, agent_id, host_id, core_id, usage_percent, partition
+			SELECT timestamp, agent_id, partition, host_id, core_id, usage_percent
 			FROM table(cpu_metrics)
-			WHERE agent_id = $1 AND host_id = $2 AND timestamp BETWEEN $3 AND $4
+			WHERE agent_id = $1 AND AND partition = $2 AND host_id = $3 AND timestamp BETWEEN $4 AND $5
 			ORDER BY timestamp DESC, core_id ASC`
-		args = []interface{}{agentID, *hostID, start, end}
+		args = []interface{}{agentID, partition, *hostID, start, end}
 	} else {
 		query = `
-			SELECT timestamp, agent_id, host_id, core_id, usage_percent, partition
+			SELECT timestamp, agent_id, partition, host_id, core_id, usage_percent
 			FROM table(cpu_metrics)
-			WHERE agent_id = $1 AND timestamp BETWEEN $2 AND $3
+			WHERE agent_id = $1 AND partition = $2 AND timestamp BETWEEN $3 AND $4
 			ORDER BY timestamp DESC, core_id ASC`
-		args = []interface{}{agentID, start, end}
+		args = []interface{}{agentID, partition, start, end}
 	}
-	
+
 	rows, err := db.Conn.Query(ctx, query, args...)
 	if err != nil {
 		log.Printf("Error querying all CPU metrics: %v", err)
@@ -545,17 +546,18 @@ func (db *DB) GetAllCPUMetrics(
 	for rows.Next() {
 		var m models.CPUMetric
 
-		var agentID, hostID, partition string
+		var agentID, partition, hostID string
 
 		var timestamp time.Time
 
-		if err := rows.Scan(&timestamp, &agentID, &hostID, &m.CoreID, &m.UsagePercent, &partition); err != nil {
+		if err := rows.Scan(&timestamp, &agentID, &partition, &hostID, &m.CoreID, &m.UsagePercent); err != nil {
 			log.Printf("Error scanning CPU metric row: %v", err)
 			continue
 		}
 
 		m.Timestamp = timestamp
 		m.AgentID = agentID
+		m.Partition = partition
 		m.HostID = hostID
 		data[timestamp] = append(data[timestamp], m)
 	}
@@ -584,13 +586,13 @@ func (db *DB) GetAllCPUMetrics(
 }
 
 // GetAllDiskMetrics retrieves all disk metrics for an agent.
-func (db *DB) GetAllDiskMetrics(ctx context.Context, agentID string, start, end time.Time) ([]models.DiskMetric, error) {
+func (db *DB) GetAllDiskMetrics(ctx context.Context, agentID, partition string, start, end time.Time) ([]models.DiskMetric, error) {
 	rows, err := db.Conn.Query(ctx, `
-		SELECT mount_point, used_bytes, total_bytes, timestamp, agent_id, host_id, partition
+		SELECT mount_point, used_bytes, total_bytes, timestamp, agent_id, partition, host_id
 		FROM table(disk_metrics)
-		WHERE agent_id = $1 AND timestamp BETWEEN $2 AND $3
+		WHERE agent_id = $1 AND partition = $2 AND timestamp BETWEEN $3 AND $4
 		ORDER BY timestamp DESC, mount_point ASC`,
-		agentID, start, end)
+		agentID, partition, start, end)
 	if err != nil {
 		log.Printf("Error querying all disk metrics: %v", err)
 
@@ -603,8 +605,7 @@ func (db *DB) GetAllDiskMetrics(ctx context.Context, agentID string, start, end 
 	for rows.Next() {
 		var m models.DiskMetric
 
-		var partition string
-		if err = rows.Scan(&m.MountPoint, &m.UsedBytes, &m.TotalBytes, &m.Timestamp, &m.AgentID, &m.HostID, &partition); err != nil {
+		if err = rows.Scan(&m.MountPoint, &m.UsedBytes, &m.TotalBytes, &m.Timestamp, &m.AgentID, &m.Partition, &m.HostID); err != nil {
 			log.Printf("Error scanning disk metric row: %v", err)
 
 			continue
@@ -623,13 +624,13 @@ func (db *DB) GetAllDiskMetrics(ctx context.Context, agentID string, start, end 
 }
 
 // GetDiskMetrics retrieves disk metrics for a specific mount point.
-func (db *DB) GetDiskMetrics(ctx context.Context, agentID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error) {
+func (db *DB) GetDiskMetrics(ctx context.Context, agentID, partition, mountPoint string, start, end time.Time) ([]models.DiskMetric, error) {
 	rows, err := db.Conn.Query(ctx, `
-		SELECT timestamp, mount_point, used_bytes, total_bytes, agent_id, host_id, partition
+		SELECT timestamp, mount_point, used_bytes, total_bytes, agent_id, partition, host_id
 		FROM table(disk_metrics)
-		WHERE agent_id = $1 AND mount_point = $2 AND timestamp BETWEEN $3 AND $4
+		WHERE agent_id = $1 AND partition = $2 AND mount_point = $3 AND timestamp BETWEEN $4 AND $5
 		ORDER BY timestamp`,
-		agentID, mountPoint, start, end)
+		agentID, partition, mountPoint, start, end)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query disk metrics: %w", err)
 	}
@@ -640,8 +641,7 @@ func (db *DB) GetDiskMetrics(ctx context.Context, agentID, mountPoint string, st
 	for rows.Next() {
 		var m models.DiskMetric
 
-		var partition string
-		if err = rows.Scan(&m.Timestamp, &m.MountPoint, &m.UsedBytes, &m.TotalBytes, &m.AgentID, &m.HostID, &partition); err != nil {
+		if err = rows.Scan(&m.Timestamp, &m.MountPoint, &m.UsedBytes, &m.TotalBytes, &m.AgentID, &m.Partition, &m.HostID); err != nil {
 			log.Printf("Error scanning disk metric row: %v", err)
 			continue
 		}
@@ -653,13 +653,13 @@ func (db *DB) GetDiskMetrics(ctx context.Context, agentID, mountPoint string, st
 }
 
 // GetMemoryMetrics retrieves memory metrics.
-func (db *DB) GetMemoryMetrics(ctx context.Context, agentID string, start, end time.Time) ([]models.MemoryMetric, error) {
+func (db *DB) GetMemoryMetrics(ctx context.Context, agentID, partition string, start, end time.Time) ([]models.MemoryMetric, error) {
 	rows, err := db.Conn.Query(ctx, `
 		SELECT timestamp, used_bytes, total_bytes, agent_id, host_id, partition
 		FROM table(memory_metrics)
-		WHERE agent_id = $1 AND timestamp BETWEEN $2 AND $3
+		WHERE agent_id = $1 AND partition = $2 AND timestamp BETWEEN $3 AND $4
 		ORDER BY timestamp`,
-		agentID, start, end)
+		agentID, partition, start, end)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query memory metrics: %w", err)
 	}
@@ -670,8 +670,7 @@ func (db *DB) GetMemoryMetrics(ctx context.Context, agentID string, start, end t
 	for rows.Next() {
 		var m models.MemoryMetric
 
-		var partition string
-		if err = rows.Scan(&m.Timestamp, &m.UsedBytes, &m.TotalBytes, &m.AgentID, &m.HostID, &partition); err != nil {
+		if err = rows.Scan(&m.Timestamp, &m.UsedBytes, &m.TotalBytes, &m.AgentID, &m.Partition, &m.HostID); err != nil {
 			log.Printf("Error scanning memory metric row: %v", err)
 
 			continue
@@ -684,26 +683,26 @@ func (db *DB) GetMemoryMetrics(ctx context.Context, agentID string, start, end t
 }
 
 // GetAllDiskMetricsGrouped retrieves disk metrics grouped by timestamp.
-func (db *DB) GetAllDiskMetricsGrouped(ctx context.Context, agentID string, hostID *string, start, end time.Time) ([]models.SysmonDiskResponse, error) {
+func (db *DB) GetAllDiskMetricsGrouped(ctx context.Context, agentID, partition string, hostID *string, start, end time.Time) ([]models.SysmonDiskResponse, error) {
 	var query string
 	var args []interface{}
-	
+
 	if hostID != nil {
 		query = `
-			SELECT timestamp, mount_point, used_bytes, total_bytes, agent_id, host_id, partition
+			SELECT timestamp, mount_point, used_bytes, total_bytes, agent_id, partition, host_id
 			FROM table(disk_metrics)
-			WHERE agent_id = $1 AND host_id = $2 AND timestamp BETWEEN $3 AND $4
+			WHERE agent_id = $1 AND partition = $2 AND host_id = $3 AND timestamp BETWEEN $4 AND $5
 			ORDER BY timestamp DESC, mount_point ASC`
-		args = []interface{}{agentID, *hostID, start, end}
+		args = []interface{}{agentID, partition, *hostID, start, end}
 	} else {
 		query = `
-			SELECT timestamp, mount_point, used_bytes, total_bytes, agent_id, host_id, partition
+			SELECT timestamp, mount_point, used_bytes, total_bytes, agent_id, partition, host_id
 			FROM table(disk_metrics)
-			WHERE agent_id = $1 AND timestamp BETWEEN $2 AND $3
+			WHERE agent_id = $1 AND partition = $2 AND timestamp BETWEEN $3 AND $4
 			ORDER BY timestamp DESC, mount_point ASC`
-		args = []interface{}{agentID, start, end}
+		args = []interface{}{agentID, partition, start, end}
 	}
-	
+
 	rows, err := db.Conn.Query(ctx, query, args...)
 	if err != nil {
 		log.Printf("Error querying all disk metrics: %s", err)
@@ -718,9 +717,8 @@ func (db *DB) GetAllDiskMetricsGrouped(ctx context.Context, agentID string, host
 		var m models.DiskMetric
 
 		var timestamp time.Time
-		var partition string
 
-		if err = rows.Scan(&timestamp, &m.MountPoint, &m.UsedBytes, &m.TotalBytes, &m.AgentID, &m.HostID, &partition); err != nil {
+		if err = rows.Scan(&timestamp, &m.MountPoint, &m.UsedBytes, &m.TotalBytes, &m.AgentID, &m.Partition, &m.HostID); err != nil {
 			log.Printf("Error scanning disk metric row: %v", err)
 
 			continue
@@ -754,26 +752,26 @@ func (db *DB) GetAllDiskMetricsGrouped(ctx context.Context, agentID string, host
 }
 
 // GetMemoryMetricsGrouped retrieves memory metrics grouped by timestamp.
-func (db *DB) GetMemoryMetricsGrouped(ctx context.Context, agentID string, hostID *string, start, end time.Time) ([]models.SysmonMemoryResponse, error) {
+func (db *DB) GetMemoryMetricsGrouped(ctx context.Context, agentID, partition string, hostID *string, start, end time.Time) ([]models.SysmonMemoryResponse, error) {
 	var query string
 	var args []interface{}
-	
+
 	if hostID != nil {
 		query = `
-			SELECT timestamp, used_bytes, total_bytes, agent_id, host_id, partition
+			SELECT timestamp, used_bytes, total_bytes, agent_id, partition, host_id 
 			FROM table(memory_metrics)
-			WHERE agent_id = $1 AND host_id = $2 AND timestamp BETWEEN $3 AND $4
+			WHERE agent_id = $1 AND partition = $2 AND host_id = $3 AND timestamp BETWEEN $4 AND $5
 			ORDER BY timestamp DESC`
-		args = []interface{}{agentID, *hostID, start, end}
+		args = []interface{}{agentID, partition, *hostID, start, end}
 	} else {
 		query = `
 			SELECT timestamp, used_bytes, total_bytes, agent_id, host_id, partition
 			FROM table(memory_metrics)
-			WHERE agent_id = $1 AND timestamp BETWEEN $2 AND $3
+			WHERE agent_id = $1 AND AND partition = $2 AND timestamp BETWEEN $3 AND $4
 			ORDER BY timestamp DESC`
-		args = []interface{}{agentID, start, end}
+		args = []interface{}{agentID, partition, start, end}
 	}
-	
+
 	rows, err := db.Conn.Query(ctx, query, args...)
 	if err != nil {
 		log.Printf("Error querying memory metrics: %v", err)
@@ -788,9 +786,8 @@ func (db *DB) GetMemoryMetricsGrouped(ctx context.Context, agentID string, hostI
 		var m models.MemoryMetric
 
 		var timestamp time.Time
-		var partition string
 
-		if err = rows.Scan(&timestamp, &m.UsedBytes, &m.TotalBytes, &m.AgentID, &m.HostID, &partition); err != nil {
+		if err = rows.Scan(&timestamp, &m.UsedBytes, &m.TotalBytes, &m.AgentID, &m.Partition, &m.HostID); err != nil {
 			log.Printf("Error scanning memory metric row: %v", err)
 
 			continue

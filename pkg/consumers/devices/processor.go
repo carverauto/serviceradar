@@ -65,7 +65,7 @@ func (p *Processor) convertSweepResultToDevice(sweep *models.SweepResult) *model
 	device := &models.Device{
 		DeviceID:         "",
 		AgentID:          sweep.AgentID,
-		PollerID:         sweep.PollerID,
+		Partition:        sweep.Partition,
 		DiscoverySources: []string{sweep.DiscoverySource},
 		IP:               sweep.IP,
 		MAC:              "",
@@ -106,10 +106,6 @@ func (p *Processor) convertSweepResultToDevice(sweep *models.SweepResult) *model
 func (p *Processor) setDeviceDefaults(device *models.Device) {
 	if device.AgentID == "" {
 		device.AgentID = p.agentID
-	}
-
-	if device.PollerID == "" {
-		device.PollerID = p.pollerID
 	}
 
 	// If timestamp is zero, set to now for both fields.

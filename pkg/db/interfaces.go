@@ -52,7 +52,7 @@ type Service interface {
 	UpdateServiceStatus(ctx context.Context, status *models.ServiceStatus) error
 	UpdateServiceStatuses(ctx context.Context, statuses []*models.ServiceStatus) error
 	GetPollerServices(ctx context.Context, pollerID string) ([]models.ServiceStatus, error)
-	GetServiceHistory(ctx context.Context, pollerID, serviceName string, limit int) ([]models.ServiceStatus, error)
+	GetServiceHistory(ctx context.Context, partition, serviceName string, limit int) ([]models.ServiceStatus, error)
 	// StoreServices stores a batch of service records in the services stream.
 	StoreServices(ctx context.Context, services []*models.Service) error
 
@@ -60,10 +60,10 @@ type Service interface {
 
 	// Generic timeseries methods.
 
-	StoreMetric(ctx context.Context, pollerID string, metric *models.TimeseriesMetric) error
-	StoreMetrics(ctx context.Context, pollerID string, metrics []*models.TimeseriesMetric) error
-	GetMetrics(ctx context.Context, pollerID, metricName string, start, end time.Time) ([]models.TimeseriesMetric, error)
-	GetMetricsByType(ctx context.Context, pollerID, metricType string, start, end time.Time) ([]models.TimeseriesMetric, error)
+	StoreMetric(ctx context.Context, agentID, partition string, metric *models.TimeseriesMetric) error
+	StoreMetrics(ctx context.Context, agentID, partition string, metrics []*models.TimeseriesMetric) error
+	GetMetrics(ctx context.Context, agentID, partition, metricName string, start, end time.Time) ([]models.TimeseriesMetric, error)
+	GetMetricsByType(ctx context.Context, metricType string, start, end time.Time) ([]models.TimeseriesMetric, error)
 
 	// Query (SRQL) operations.
 
@@ -71,13 +71,13 @@ type Service interface {
 
 	// Sysmon metric operations.
 
-	StoreSysmonMetrics(ctx context.Context, pollerID, agentID, hostID, partition string, metrics *models.SysmonMetrics, timestamp time.Time) error
-	GetCPUMetrics(ctx context.Context, agentID string, coreID int, start, end time.Time) ([]models.CPUMetric, error)
-	GetDiskMetrics(ctx context.Context, agentID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error)
-	GetMemoryMetrics(ctx context.Context, agentID string, start, end time.Time) ([]models.MemoryMetric, error)
-	GetAllDiskMetrics(ctx context.Context, agentID string, start, end time.Time) ([]models.DiskMetric, error)
-	GetAllMountPoints(ctx context.Context, agentID string) ([]string, error)
-	GetAllCPUMetrics(ctx context.Context, agentID string, hostID *string, start, end time.Time) ([]models.SysmonCPUResponse, error)
+	StoreSysmonMetrics(ctx context.Context, agentID, partition, hostID string, metrics *models.SysmonMetrics, timestamp time.Time) error
+	GetCPUMetrics(ctx context.Context, agentID, partition string, coreID int, start, end time.Time) ([]models.CPUMetric, error)
+	GetDiskMetrics(ctx context.Context, agentID, partition, mountPoint string, start, end time.Time) ([]models.DiskMetric, error)
+	GetMemoryMetrics(ctx context.Context, agentID, partition string, start, end time.Time) ([]models.MemoryMetric, error)
+	GetAllDiskMetrics(ctx context.Context, agentID, partition string, start, end time.Time) ([]models.DiskMetric, error)
+	GetAllMountPoints(ctx context.Context, agentID, partition string) ([]string, error)
+	GetAllCPUMetrics(ctx context.Context, agentID, partition string, hostID *string, start, end time.Time) ([]models.SysmonCPUResponse, error)
 	GetAllDiskMetricsGrouped(ctx context.Context, agentID string, hostID *string, start, end time.Time) ([]models.SysmonDiskResponse, error)
 	GetMemoryMetricsGrouped(ctx context.Context, agentID string, hostID *string, start, end time.Time) ([]models.SysmonMemoryResponse, error)
 

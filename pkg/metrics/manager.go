@@ -83,13 +83,13 @@ func (m *Manager) CleanupStalePollers(staleDuration time.Duration) {
 	})
 }
 
-func (m *Manager) AddMetric(nodeID string, timestamp time.Time, responseTime int64, serviceName string) error {
+func (m *Manager) AddMetric(agentID string, timestamp time.Time, responseTime int64, serviceName string) error {
 	if !m.config.Enabled {
 		return nil
 	}
 
 	// Update LRU tracking first
-	m.updateNodeLRU(nodeID)
+	m.updateNodeLRU(agentID)
 
 	// Check if we need to evict
 	if m.nodeCount.Load() >= int64(m.config.MaxPollers) {
@@ -98,8 +98,8 @@ func (m *Manager) AddMetric(nodeID string, timestamp time.Time, responseTime int
 		}
 	}
 
-	// Load or create metric store for this node
-	store, loaded := m.nodes.LoadOrStore(nodeID, NewBuffer(int(m.config.Retention)))
+	// Load or create metric store for this agent
+	store, loaded := m.nodes.LoadOrStore(agentID, NewBuffer(int(m.config.Retention)))
 	if !loaded {
 		m.nodeCount.Add(1)
 		m.activeNodes.Add(1)
@@ -161,18 +161,18 @@ func (m *Manager) GetActiveNodes() int64 {
 }
 
 // GetAllMountPoints retrieves all unique mount points for a given poller.
-func (m *Manager) GetAllMountPoints(ctx context.Context, pollerID string) ([]string, error) {
-	log.Printf("Retrieving all mount points for poller %s", pollerID)
+func (m *Manager) GetAllMountPoints(ctx context.Context, agentID, partition string) ([]string, error) {
+	log.Printf("Retrieving all mount points for agent %s", agentID)
 
 	// Call the database service to get all mount points
-	mountPoints, err := m.db.GetAllMountPoints(ctx, pollerID)
+	mountPoints, err := m.db.GetAllMountPoints(ctx, agentID, partition)
 	if err != nil {
-		log.Printf("Error retrieving mount points for poller %s: %v", pollerID, err)
+		log.Printf("Error retrieving mount points for agent %s: %v", agentID, err)
 		return nil, err
 	}
 
 	if len(mountPoints) == 0 {
-		log.Printf("No mount points found for poller %s", pollerID)
+		log.Printf("No mount points found for agent %s", agentID)
 		return []string{}, nil
 	}
 

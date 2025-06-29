@@ -150,13 +150,13 @@ func (m *Manager) GetMemoryMetrics(
 
 // GetAllCPUMetrics retrieves all CPU metrics for an agent.
 func (m *Manager) GetAllCPUMetrics(
-	ctx context.Context, agentID string, hostID *string, start, end time.Time) ([]models.SysmonCPUResponse, error) {
-	return m.db.GetAllCPUMetrics(ctx, agentID, hostID, start, end)
+	ctx context.Context, agentID, partition string, hostID *string, start, end time.Time) ([]models.SysmonCPUResponse, error) {
+	return m.db.GetAllCPUMetrics(ctx, agentID, partition, hostID, start, end)
 }
 
 // GetAllDiskMetricsGrouped retrieves all disk metrics for an agent, grouped by timestamp.
 func (m *Manager) GetAllDiskMetricsGrouped(
-	ctx context.Context, agentID string, hostID *string, start, end time.Time) ([]models.SysmonDiskResponse, error) {
+	ctx context.Context, agentID, string, hostID *string, start, end time.Time) ([]models.SysmonDiskResponse, error) {
 	return m.db.GetAllDiskMetricsGrouped(ctx, agentID, hostID, start, end)
 }
 

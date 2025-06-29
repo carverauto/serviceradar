@@ -25,7 +25,7 @@ import (
 type DiscoveredInterface struct {
 	Timestamp     time.Time       `json:"timestamp"`
 	AgentID       string          `json:"agent_id"`
-	PollerID      string          `json:"poller_id"`
+	Partition     string          `json:"partition"`
 	DeviceIP      string          `json:"device_ip"`
 	DeviceID      string          `json:"device_id"`
 	IfIndex       int32           `json:"ifIndex"`
@@ -44,7 +44,7 @@ type DiscoveredInterface struct {
 type TopologyDiscoveryEvent struct {
 	Timestamp              time.Time `json:"timestamp"`
 	AgentID                string    `json:"agent_id"`
-	PollerID               string    `json:"poller_id"`
+	Partition              string    `json:"partition"`
 	LocalDeviceIP          string    `json:"local_device_ip"`
 	LocalDeviceID          string    `json:"local_device_id"`
 	LocalIfIndex           int32     `json:"local_ifIndex"` // DB schema is int32, Proton driver should handle

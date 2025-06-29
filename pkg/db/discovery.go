@@ -72,7 +72,7 @@ func (db *DB) PublishDiscoveredInterface(ctx context.Context, iface *models.Disc
 	err = batch.Append(
 		iface.Timestamp,
 		iface.AgentID,
-		iface.PollerID,
+		iface.Partition,
 		iface.DeviceIP,
 		iface.DeviceID,
 		iface.IfIndex,
@@ -150,7 +150,7 @@ func (db *DB) PublishTopologyDiscoveryEvent(ctx context.Context, event *models.T
 	err = batch.Append(
 		event.Timestamp,              // 1
 		event.AgentID,                // 2
-		event.PollerID,               // 3
+		event.Partition,              // 3
 		event.LocalDeviceIP,          // 4
 		event.LocalDeviceID,          // 5
 		event.LocalIfIndex,           // 6

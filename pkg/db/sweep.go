@@ -47,11 +47,6 @@ func (db *DB) StoreSweepResults(ctx context.Context, results []*models.SweepResu
 			continue
 		}
 
-		if result.PollerID == "" {
-			log.Printf("Skipping sweep result with empty PollerID for IP %s", result.IP)
-			continue
-		}
-
 		// Ensure Metadata is a map[string]string; use empty map if nil
 		metadata := result.Metadata
 		if metadata == nil {
@@ -60,7 +55,6 @@ func (db *DB) StoreSweepResults(ctx context.Context, results []*models.SweepResu
 
 		err = batch.Append(
 			result.AgentID,
-			result.PollerID,
 			result.Partition,
 			result.DiscoverySource,
 			result.IP,

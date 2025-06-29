@@ -66,17 +66,17 @@ func (s *Server) processSNMPDiscoveryResults(
 
 	// Process each type of discovery data
 	if len(payload.Devices) > 0 {
-		s.processDiscoveredDevices(ctx, payload.Devices, discoveryAgentID, discoveryInitiatorPollerID,
+		s.processDiscoveredDevices(ctx, payload.Devices, discoveryAgentID,
 			partition, reportingPollerID, timestamp)
 	}
 
 	if len(payload.Interfaces) > 0 {
-		s.processDiscoveredInterfaces(ctx, payload.Interfaces, discoveryAgentID, discoveryInitiatorPollerID,
+		s.processDiscoveredInterfaces(ctx, payload.Interfaces, discoveryAgentID,
 			partition, reportingPollerID, timestamp)
 	}
 
 	if len(payload.Topology) > 0 {
-		s.processDiscoveredTopology(ctx, payload.Topology, discoveryAgentID, discoveryInitiatorPollerID,
+		s.processDiscoveredTopology(ctx, payload.Topology, discoveryAgentID,
 			partition, reportingPollerID, timestamp)
 	}
 
@@ -88,7 +88,6 @@ func (s *Server) processDiscoveredDevices(
 	ctx context.Context,
 	devices []*discoverypb.DiscoveredDevice,
 	discoveryAgentID string,
-	discoveryInitiatorPollerID string,
 	partition string,
 	reportingPollerID string,
 	timestamp time.Time,
@@ -106,7 +105,6 @@ func (s *Server) processDiscoveredDevices(
 
 		result := &models.SweepResult{
 			AgentID:         discoveryAgentID,
-			PollerID:        discoveryInitiatorPollerID,
 			Partition:       partition,
 			DiscoverySource: "mapper",
 			IP:              protoDevice.Ip,
@@ -301,7 +299,6 @@ func (s *Server) processDiscoveredInterfaces(
 	ctx context.Context,
 	interfaces []*discoverypb.DiscoveredInterface,
 	discoveryAgentID string,
-	discoveryInitiatorPollerID string,
 	partition string,
 	reportingPollerID string,
 	timestamp time.Time,
@@ -319,7 +316,6 @@ func (s *Server) processDiscoveredInterfaces(
 		modelIface := &models.DiscoveredInterface{
 			Timestamp:     timestamp,
 			AgentID:       discoveryAgentID,
-			PollerID:      discoveryInitiatorPollerID,
 			DeviceIP:      protoIface.DeviceIp,
 			DeviceID:      deviceID,
 			IfIndex:       protoIface.IfIndex,
@@ -382,7 +378,6 @@ func (s *Server) processDiscoveredTopology(
 	ctx context.Context,
 	topology []*discoverypb.TopologyLink,
 	discoveryAgentID string,
-	discoveryInitiatorPollerID string,
 	partition string,
 	reportingPollerID string,
 	timestamp time.Time,
@@ -400,7 +395,6 @@ func (s *Server) processDiscoveredTopology(
 		modelEvent := &models.TopologyDiscoveryEvent{
 			Timestamp:              timestamp,
 			AgentID:                discoveryAgentID,
-			PollerID:               discoveryInitiatorPollerID,
 			LocalDeviceIP:          protoLink.LocalDeviceIp,
 			LocalDeviceID:          localDeviceID,
 			LocalIfIndex:           protoLink.LocalIfIndex,

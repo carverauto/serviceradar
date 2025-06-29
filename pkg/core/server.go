@@ -84,19 +84,19 @@ func NewServer(ctx context.Context, config *models.DBConfig) (*Server, error) {
 	metricsManager := metrics.NewManager(metricsConfig, database)
 
 	server := &Server{
-		DB:                  database,
-		alertThreshold:      normalizedConfig.AlertThreshold,
-		webhooks:            make([]alerts.AlertService, 0),
-		ShutdownChan:        make(chan struct{}),
-		pollerPatterns:      normalizedConfig.PollerPatterns,
-		metrics:             metricsManager,
-		snmpManager:         metricstore.NewSNMPManager(database),
-		rperfManager:        metricstore.NewRperfManager(database),
-		config:              normalizedConfig,
-		authService:         auth.NewAuth(authConfig, database),
-		metricBuffers:       make(map[string][]*models.TimeseriesMetric),
-		serviceBuffers:      make(map[string][]*models.ServiceStatus),
-		serviceListBuffers:  make(map[string][]*models.Service),
+		DB:                 database,
+		alertThreshold:     normalizedConfig.AlertThreshold,
+		webhooks:           make([]alerts.AlertService, 0),
+		ShutdownChan:       make(chan struct{}),
+		pollerPatterns:     normalizedConfig.PollerPatterns,
+		metrics:            metricsManager,
+		snmpManager:        metricstore.NewSNMPManager(database),
+		rperfManager:       metricstore.NewRperfManager(database),
+		config:             normalizedConfig,
+		authService:        auth.NewAuth(authConfig, database),
+		metricBuffers:      make(map[string][]*models.TimeseriesMetric),
+		serviceBuffers:     make(map[string][]*models.ServiceStatus),
+		serviceListBuffers: make(map[string][]*models.Service),
 		// sysmonBuffers:    make(map[string][]*models.SysmonMetrics), // DEPRECATED
 		bufferMu:            sync.RWMutex{},
 		pollerStatusCache:   make(map[string]*models.PollerStatus),
@@ -173,7 +173,7 @@ func (s *Server) flushAllBuffers(ctx context.Context) {
 
 // flushMetrics flushes metric buffers to the database.
 func (s *Server) flushMetrics(ctx context.Context) {
-	for pollerID, timeseriesMetrics := range s.metricBuffers {
+	for agentID, timeseriesMetrics := range s.metricBuffers {
 		if len(timeseriesMetrics) == 0 {
 			continue
 		}
@@ -183,14 +183,14 @@ func (s *Server) flushMetrics(ctx context.Context) {
 		// It's important to clear the original buffer slice for this poller ID
 		// under the lock to prevent race conditions if new metrics come in
 		// while StoreMetrics is running.
-		s.metricBuffers[pollerID] = nil
+		s.metricBuffers[agentID] = nil
 
-		if err := s.DB.StoreMetrics(ctx, pollerID, metricsToFlush); err != nil {
+		if err := s.DB.StoreMetrics(ctx, agentID, partition, metricsToFlush); err != nil {
 			log.Printf("CRITICAL DB WRITE ERROR: Failed to flush/StoreMetrics for poller %s: %v. "+
-				"Number of metrics attempted: %d", pollerID, err, len(metricsToFlush))
+				"Number of metrics attempted: %d", agentID, err, len(metricsToFlush))
 		} else {
-			log.Printf("Successfully flushed %d timeseries metrics for poller %s",
-				len(metricsToFlush), pollerID)
+			log.Printf("Successfully flushed %d timeseries metrics for agent %s",
+				len(metricsToFlush), agentID)
 		}
 	}
 }
@@ -714,7 +714,6 @@ func (s *Server) registerServiceDevice(ctx context.Context, pollerID, agentID, p
 	// Construct the Device object representing the host device
 	device := &models.Device{
 		DeviceID:         deviceID,
-		PollerID:         pollerID, // The poller managing this device (may be itself)
 		AgentID:          agentID,  // The agent running on this device (may be empty)
 		IP:               sourceIP, // Host IP as reported by the service
 		Hostname:         hostname, // Real or derived hostname
@@ -1069,7 +1068,7 @@ func (s *Server) processSysmonMetrics(pollerID, partition, agentID string, detai
 	}
 
 	// Store metrics directly to database with partition information
-	if err := s.DB.StoreSysmonMetrics(context.Background(), pollerID, agentID, sysmonPayload.Status.HostID, partition, m, pollerTimestamp); err != nil {
+	if err := s.DB.StoreSysmonMetrics(context.Background(), agentID, sysmonPayload.Status.HostID, partition, m, pollerTimestamp); err != nil {
 		log.Printf("Failed to store sysmon metrics for poller %s: %v", pollerID, err)
 		return fmt.Errorf("failed to store sysmon metrics: %w", err)
 	}
@@ -1152,7 +1151,7 @@ func (*Server) processRperfResult(result *struct {
 	Success bool               `json:"success"`
 	Error   *string            `json:"error"`
 	Status  models.RperfMetric `json:"status"`
-}, pollerID string, responseTime int64, pollerTimestamp time.Time) ([]*models.TimeseriesMetric, error) {
+}, agentID string, responseTime int64, pollerTimestamp time.Time) ([]*models.TimeseriesMetric, error) {
 	if !result.Success {
 		return nil, fmt.Errorf("skipping failed rperf test (Target: %s). Error: %v", result.Target, result.Error)
 	}
@@ -1219,7 +1218,7 @@ func (*Server) processRperfResult(result *struct {
 			Type:      "rperf",
 			Timestamp: pollerTimestamp,
 			Metadata:  metadataStr,
-			PollerID:  pollerID,
+			AgentID:   agentID,
 		}
 
 		timeseriesMetrics = append(timeseriesMetrics, metric)
@@ -1266,7 +1265,7 @@ func (s *Server) processRperfMetrics(pollerID string, details json.RawMessage, t
 }
 
 func (s *Server) processICMPMetrics(
-	pollerID string, svc *proto.ServiceStatus, details json.RawMessage, now time.Time) error {
+	agentID string, svc *proto.ServiceStatus, details json.RawMessage, now time.Time) error {
 	var pingResult struct {
 		Host         string  `json:"host"`
 		ResponseTime int64   `json:"response_time"`
@@ -1290,8 +1289,8 @@ func (s *Server) processICMPMetrics(
 	// Marshal metadata to JSON string
 	metadataBytes, err := json.Marshal(metadata)
 	if err != nil {
-		log.Printf("Failed to marshal ICMP metadata for service %s, poller %s: %v",
-			svc.ServiceName, pollerID, err)
+		log.Printf("Failed to marshal ICMP metadata for service %s, agent %s: %v",
+			svc.ServiceName, agentID, err)
 		return fmt.Errorf("failed to marshal ICMP metadata: %w", err)
 	}
 
@@ -1305,18 +1304,18 @@ func (s *Server) processICMPMetrics(
 		Metadata:       metadataStr, // Use JSON string
 		TargetDeviceIP: pingResult.Host,
 		IfIndex:        0,
-		PollerID:       pollerID,
+		AgentID:        agentID,
 	}
 
 	// Buffer ICMP metric
 	s.bufferMu.Lock()
-	s.metricBuffers[pollerID] = append(s.metricBuffers[pollerID], metric)
+	s.metricBuffers[agentID] = append(s.metricBuffers[agentID], metric)
 	s.bufferMu.Unlock()
 
 	// Add to in-memory ring buffer for dashboard display
 	if s.metrics != nil {
 		err := s.metrics.AddMetric(
-			pollerID,
+			agentID,
 			now,
 			pingResult.ResponseTime,
 			svc.ServiceName,
@@ -1325,7 +1324,7 @@ func (s *Server) processICMPMetrics(
 			log.Printf("Failed to add ICMP metric to in-memory buffer for %s: %v", svc.ServiceName, err)
 		}
 	} else {
-		log.Printf("Metrics manager is nil in processICMPMetrics for poller %s", pollerID)
+		log.Printf("Metrics manager is nil in processICMPMetrics for agent %s", agentID)
 	}
 
 	return nil
@@ -1368,7 +1367,7 @@ func parseOIDConfigName(oidConfigName string) (baseMetricName string, parsedIfIn
 
 // createSNMPMetric creates a new timeseries metric from SNMP data
 func createSNMPMetric(
-	pollerID string,
+	agentID string,
 	targetName string,
 	oidConfigName string,
 	oidStatus snmp.OIDStatus,
@@ -1392,7 +1391,7 @@ func createSNMPMetric(
 	// Marshal metadata to JSON string
 	metadataBytes, err := json.Marshal(remainingMetadata)
 	if err != nil {
-		log.Printf("Failed to marshal SNMP metadata for poller %s, OID %s: %v", pollerID, oidConfigName, err)
+		log.Printf("Failed to marshal SNMP metadata for agent %s, OID %s: %v", agentID, oidConfigName, err)
 
 		// Return a metric with empty metadata to avoid skipping valid data
 		remainingMetadata = map[string]string{}
@@ -1408,7 +1407,7 @@ func createSNMPMetric(
 	}
 
 	return &models.TimeseriesMetric{
-		PollerID:       pollerID,
+		AgentID:        agentID,
 		TargetDeviceIP: targetName,
 		IfIndex:        parsedIfIndex,
 		Name:           baseMetricName,
@@ -1436,13 +1435,13 @@ func (s *Server) bufferMetrics(pollerID string, metrics []*models.TimeseriesMetr
 	s.metricBuffers[pollerID] = append(s.metricBuffers[pollerID], metrics...)
 }
 
-func (s *Server) processSNMPMetrics(pollerID string, details json.RawMessage, timestamp time.Time) error {
+func (s *Server) processSNMPMetrics(agentID string, details json.RawMessage, timestamp time.Time) error {
 	// 'details' is the JSON string from SNMPService.Check(), which is a map[string]snmp.TargetStatus
 	var snmpReportData map[string]snmp.TargetStatus
 
 	if err := json.Unmarshal(details, &snmpReportData); err != nil {
-		log.Printf("Error unmarshaling SNMP report data for poller %s: %v. Details: %s",
-			pollerID, err, string(details))
+		log.Printf("Error unmarshaling SNMP report data for agent %s: %v. Details: %s",
+			agentID, err, string(details))
 		return fmt.Errorf("failed to parse SNMP report data: %w", err)
 	}
 
@@ -1457,7 +1456,7 @@ func (s *Server) processSNMPMetrics(pollerID string, details json.RawMessage, ti
 			baseMetricName, parsedIfIndex := parseOIDConfigName(oidConfigName)
 
 			metric := createSNMPMetric(
-				pollerID,
+				agentID,
 				targetName,
 				oidConfigName,
 				oidStatus,
@@ -1471,7 +1470,7 @@ func (s *Server) processSNMPMetrics(pollerID string, details json.RawMessage, ti
 		}
 	}
 
-	s.bufferMetrics(pollerID, newTimeseriesMetrics)
+	s.bufferMetrics(agentID, newTimeseriesMetrics)
 
 	return nil
 }

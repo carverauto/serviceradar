@@ -347,8 +347,6 @@ func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]b
 	data = make(map[string][]byte)
 	ips = make([]string, 0, len(devices))
 
-	pollerID := a.Config.PollerID
-
 	for i := range devices {
 		d := &devices[i] // Use a pointer to avoid copying the struct
 
@@ -387,7 +385,7 @@ func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]b
 
 		modelDevice := &models.Device{
 			DeviceID:         deviceID,
-			PollerID:         pollerID,
+			AgentID:          a.Config.AgentID,
 			DiscoverySources: []string{"armis"},
 			IP:               ip,
 			MAC:              d.MacAddress,

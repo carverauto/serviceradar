@@ -14,7 +14,7 @@ func (db *DB) UpdateServiceStatuses(ctx context.Context, statuses []*models.Serv
 	}
 
 	insertQuery := `INSERT INTO service_status (
-		poller_id, service_name, service_type, available, details, timestamp, agent_id, partition
+		service_name, service_type, available, details, timestamp, agent_id, partition
 	)`
 	batch, err := db.Conn.PrepareBatch(ctx, insertQuery)
 	if err != nil {
@@ -23,7 +23,6 @@ func (db *DB) UpdateServiceStatuses(ctx context.Context, statuses []*models.Serv
 
 	for _, status := range statuses {
 		err = batch.Append(
-			status.PollerID,
 			status.ServiceName,
 			status.ServiceType,
 			status.Available,
@@ -52,7 +51,7 @@ func (db *DB) UpdateServiceStatus(ctx context.Context, status *models.ServiceSta
 	}
 
 	err = batch.Append(
-		status.PollerID,
+		status.AgentID,
 		status.ServiceName,
 		status.ServiceType,
 		status.Available,
@@ -71,14 +70,14 @@ func (db *DB) UpdateServiceStatus(ctx context.Context, status *models.ServiceSta
 }
 
 // GetServiceHistory retrieves the recent history for a service.
-func (db *DB) GetServiceHistory(ctx context.Context, pollerID, serviceName string, limit int) ([]models.ServiceStatus, error) {
+func (db *DB) GetServiceHistory(ctx context.Context, agentID, serviceName string, limit int) ([]models.ServiceStatus, error) {
 	rows, err := db.Conn.Query(ctx, `
 		SELECT timestamp, available, details
 		FROM table(service_status)
-		WHERE poller_id = $1 AND service_name = $2
+		WHERE agent_id = $1 AND service_name = $2
 		ORDER BY timestamp DESC
 		LIMIT $3`,
-		pollerID, serviceName, limit)
+		agentID, serviceName, limit)
 	if err != nil {
 		return nil, fmt.Errorf("%w service history: %w", ErrFailedToQuery, err)
 	}
@@ -89,7 +88,7 @@ func (db *DB) GetServiceHistory(ctx context.Context, pollerID, serviceName strin
 	for rows.Next() {
 		var s models.ServiceStatus
 
-		s.PollerID = pollerID
+		s.AgentID = agentID
 		s.ServiceName = serviceName
 
 		if err := rows.Scan(&s.Timestamp, &s.Available, &s.Details); err != nil {
@@ -109,7 +108,7 @@ func (db *DB) StoreServices(ctx context.Context, services []*models.Service) err
 	}
 
 	insertQuery := `INSERT INTO services (
-		poller_id, service_name, service_type, agent_id, timestamp, partition
+		agent_id, service_name, service_type, timestamp, partition
 	)`
 	batch, err := db.Conn.PrepareBatch(ctx, insertQuery)
 	if err != nil {
@@ -118,10 +117,9 @@ func (db *DB) StoreServices(ctx context.Context, services []*models.Service) err
 
 	for _, svc := range services {
 		if err := batch.Append(
-			svc.PollerID,
+			svc.AgentID,
 			svc.ServiceName,
 			svc.ServiceType,
-			svc.AgentID,
 			svc.Timestamp,
 			svc.Partition,
 		); err != nil {
