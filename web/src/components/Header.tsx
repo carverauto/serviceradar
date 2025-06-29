@@ -32,7 +32,7 @@ interface Partition {
 }
 
 export default function Header() {
-    const [query, setQuery] = useState('show devices');
+    const [query, setQuery] = useState('');
     const [selectedPoller, setSelectedPoller] = useState<string | null>(null);
     const [selectedPartition, setSelectedPartition] = useState<string | null>(null);
     const [pollers, setPollers] = useState<Poller[]>([]);
@@ -97,14 +97,16 @@ export default function Header() {
     }, [searchParams]);
 
     useEffect(() => {
-        let newQuery = 'show devices';
-        if (selectedPoller) {
-            newQuery += ` | where poller_id = '${selectedPoller}'`;
+        if (selectedPoller || selectedPartition) {
+            let newQuery = 'show devices';
+            if (selectedPoller) {
+                newQuery += ` | where poller_id = '${selectedPoller}'`;
+            }
+            if (selectedPartition) {
+                newQuery += ` | where partition = '${selectedPartition}'`;
+            }
+            setQuery(newQuery);
         }
-        if (selectedPartition) {
-            newQuery += ` | where partition = '${selectedPartition}'`;
-        }
-        setQuery(newQuery);
     }, [selectedPoller, selectedPartition]);
 
     // Close dropdowns when clicking outside
