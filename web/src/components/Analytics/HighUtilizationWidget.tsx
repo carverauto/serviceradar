@@ -20,6 +20,52 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 import { AlertTriangle, Cpu, HardDrive, MemoryStick, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
+import { Poller } from '@/types/types';
+
+interface CpuCore {
+    core_id: string;
+    usage_percent: number;
+    host_id?: string;
+    agent_id?: string;
+}
+
+interface CpuMetric {
+    timestamp: string;
+    cpus: CpuCore[];
+}
+
+interface MemoryInfo {
+    total_bytes: number;
+    used_bytes: number;
+    host_id?: string;
+    agent_id?: string;
+}
+
+interface MemoryMetric {
+    timestamp: string;
+    memory: MemoryInfo;
+}
+
+interface DiskInfo {
+    total_bytes: number;
+    used_bytes: number;
+    mount_point?: string;
+    host_id?: string;
+    agent_id?: string;
+}
+
+interface DiskMetric {
+    timestamp: string;
+    disks?: DiskInfo[];
+    disk?: DiskInfo; // Legacy support
+}
+
+interface SysmonPollerData {
+    pollerId: string;
+    cpuData: CpuMetric[];
+    memoryData: MemoryMetric[];
+    diskData: DiskMetric[];
+}
 
 interface HighUtilizationService {
     host_id: string;
@@ -68,7 +114,7 @@ const HighUtilizationWidget: React.FC = () => {
             const endTime = new Date();
             const startTime = new Date(endTime.getTime() - 5 * 60 * 1000); // Last 5 minutes for more recent data
             
-            const sysmonPromises = pollers.map(async (poller: any) => {
+            const sysmonPromises = pollers.map(async (poller: Poller) => {
                 const [cpuResponse, memoryResponse, diskResponse] = await Promise.all([
                     fetch(`/api/pollers/${poller.poller_id}/sysmon/cpu?start=${startTime.toISOString()}&end=${endTime.toISOString()}`, {
                         headers: {
@@ -94,7 +140,7 @@ const HighUtilizationWidget: React.FC = () => {
                 const memoryData = memoryResponse.ok ? await memoryResponse.json() : [];
                 const diskData = diskResponse.ok ? await diskResponse.json() : [];
                 
-                return { pollerId: poller.poller_id, cpuData, memoryData, diskData };
+                return { pollerId: poller.poller_id, cpuData, memoryData, diskData } as SysmonPollerData;
             });
             
             const allSysmonData = await Promise.all(sysmonPromises);
@@ -113,7 +159,7 @@ const HighUtilizationWidget: React.FC = () => {
                 if (cpuData.length > 0) {
                     const latestCpu = cpuData[cpuData.length - 1];
                     if (latestCpu?.cpus && latestCpu.cpus.length > 0) {
-                        const avgCpuUsage = latestCpu.cpus.reduce((sum: number, core: any) => sum + core.usage_percent, 0) / latestCpu.cpus.length;
+                        const avgCpuUsage = latestCpu.cpus.reduce((sum: number, core: CpuCore) => sum + core.usage_percent, 0) / latestCpu.cpus.length;
                         const agentInfo = latestCpu.cpus[0];
                         
                         if (avgCpuUsage > 90) {
@@ -186,7 +232,7 @@ const HighUtilizationWidget: React.FC = () => {
                     
                     if (disks.length > 0) {
                         // Process each disk and find the one with highest usage
-                        disks.forEach(disk => {
+                        disks.forEach((disk: DiskInfo) => {
                             const diskUsagePercent = (disk.used_bytes / disk.total_bytes) * 100;
                             
                             const existingService = highUtilizationServices.find(s => 
