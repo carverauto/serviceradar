@@ -100,6 +100,13 @@ func WithRperfManager(m metricstore.RperfManager) func(server *APIServer) {
 	}
 }
 
+// WithDBService adds a database service to the API server
+func WithDBService(db db.Service) func(server *APIServer) {
+	return func(server *APIServer) {
+		server.dbService = db
+	}
+}
+
 // setupRoutes configures the HTTP routes for the API server.
 func (s *APIServer) setupRoutes() {
 	s.setupMiddleware()
@@ -364,6 +371,11 @@ func (s *APIServer) setupProtectedRoutes() {
 	protected.HandleFunc("/pollers/{id}/sysmon/disk", s.getSysmonDiskMetrics).Methods("GET")
 	protected.HandleFunc("/pollers/{id}/sysmon/memory", s.getSysmonMemoryMetrics).Methods("GET")
 	protected.HandleFunc("/query", s.handleSRQLQuery).Methods("POST")
+
+	// Device-centric endpoints
+	protected.HandleFunc("/devices", s.getDevices).Methods("GET")
+	protected.HandleFunc("/devices/{id}", s.getDevice).Methods("GET")
+	protected.HandleFunc("/devices/{id}/metrics", s.getDeviceMetrics).Methods("GET")
 }
 
 // @Summary Get SNMP data
@@ -814,5 +826,178 @@ func writeError(w http.ResponseWriter, message string, statusCode int) {
 	if err := json.NewEncoder(w).Encode(errResponse); err != nil {
 		// Fallback in case encoding fails
 		http.Error(w, "Failed to encode error response", http.StatusInternalServerError)
+	}
+}
+
+// @Summary Get all devices
+// @Description Retrieves a list of all devices in the network
+// @Tags Devices
+// @Accept json
+// @Produce json
+// @Param limit query int false "Number of devices to return"
+// @Param page query int false "Page number for pagination"
+// @Param search query string false "Search term for device filtering"
+// @Param status query string false "Filter by device status (online/offline)"
+// @Success 200 {array} models.Device "List of devices"
+// @Failure 400 {object} models.ErrorResponse "Invalid request parameters"
+// @Failure 500 {object} models.ErrorResponse "Internal server error"
+// @Router /api/devices [get]
+// @Security ApiKeyAuth
+func (s *APIServer) getDevices(w http.ResponseWriter, r *http.Request) {
+	// Set a timeout for the request
+	ctx, cancel := context.WithTimeout(r.Context(), defaultTimeout)
+	defer cancel()
+
+	// Build SRQL query based on parameters
+	query := "SHOW DEVICES"
+	whereClauses := []string{}
+
+	// Get query parameters
+	searchTerm := r.URL.Query().Get("search")
+	status := r.URL.Query().Get("status")
+
+	// Add search filter
+	if searchTerm != "" {
+		whereClauses = append(whereClauses, fmt.Sprintf("(ip LIKE '%%%s%%' OR hostname LIKE '%%%s%%' OR device_id LIKE '%%%s%%')", 
+			searchTerm, searchTerm, searchTerm))
+	}
+
+	// Add status filter
+	if status == "online" {
+		whereClauses = append(whereClauses, "is_available = true")
+	} else if status == "offline" {
+		whereClauses = append(whereClauses, "is_available = false")
+	}
+
+	// Combine where clauses
+	if len(whereClauses) > 0 {
+		query += " WHERE " + strings.Join(whereClauses, " AND ")
+	}
+
+	// Add ordering
+	query += " ORDER BY last_seen DESC"
+
+	// Add limit
+	limit := r.URL.Query().Get("limit")
+	if limit != "" {
+		query += " LIMIT " + limit
+	} else {
+		query += " LIMIT 100" // Default limit
+	}
+
+	// Execute the SRQL query
+	result, err := s.queryExecutor.ExecuteQuery(ctx, query)
+	if err != nil {
+		log.Printf("Error executing devices query: %v", err)
+		writeError(w, "Failed to retrieve devices", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(result); err != nil {
+		log.Printf("Error encoding devices response: %v", err)
+		writeError(w, "Failed to encode response", http.StatusInternalServerError)
+	}
+}
+
+// @Summary Get specific device
+// @Description Retrieves details for a specific device by device ID
+// @Tags Devices
+// @Accept json
+// @Produce json
+// @Param id path string true "Device ID (format: partition:ip)"
+// @Success 200 {object} models.Device "Device details"
+// @Failure 400 {object} models.ErrorResponse "Invalid device ID"
+// @Failure 404 {object} models.ErrorResponse "Device not found"
+// @Failure 500 {object} models.ErrorResponse "Internal server error"
+// @Router /api/devices/{id} [get]
+// @Security ApiKeyAuth
+func (s *APIServer) getDevice(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	deviceID := vars["id"]
+
+	// Set a timeout for the request
+	ctx, cancel := context.WithTimeout(r.Context(), defaultTimeout)
+	defer cancel()
+
+	// Use the device manager to get device details
+	if s.dbService == nil {
+		writeError(w, "Database not configured", http.StatusInternalServerError)
+		return
+	}
+
+	device, err := s.dbService.GetDeviceByID(ctx, deviceID)
+	if err != nil {
+		log.Printf("Error fetching device %s: %v", deviceID, err)
+		writeError(w, "Device not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(device); err != nil {
+		log.Printf("Error encoding device response: %v", err)
+		writeError(w, "Failed to encode response", http.StatusInternalServerError)
+	}
+}
+
+// @Summary Get device metrics
+// @Description Retrieves all metrics for a specific device within a time range
+// @Tags Devices
+// @Accept json
+// @Produce json
+// @Param id path string true "Device ID (format: partition:ip)"
+// @Param start query string false "Start time in RFC3339 format"
+// @Param end query string false "End time in RFC3339 format"
+// @Param type query string false "Filter by metric type (snmp, icmp, rperf, sysmon)"
+// @Success 200 {array} models.TimeseriesMetric "Device metrics"
+// @Failure 400 {object} models.ErrorResponse "Invalid request parameters"
+// @Failure 404 {object} models.ErrorResponse "Device not found"
+// @Failure 500 {object} models.ErrorResponse "Internal server error"
+// @Router /api/devices/{id}/metrics [get]
+// @Security ApiKeyAuth
+func (s *APIServer) getDeviceMetrics(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	deviceID := vars["id"]
+
+	// Set a timeout for the request
+	ctx, cancel := context.WithTimeout(r.Context(), defaultTimeout)
+	defer cancel()
+
+	// Parse time range
+	startTime, endTime, err := parseTimeRange(r.URL.Query())
+	if err != nil {
+		writeError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Check if database is configured
+	if s.dbService == nil {
+		writeError(w, "Database not configured", http.StatusInternalServerError)
+		return
+	}
+
+	// Get metric type filter
+	metricType := r.URL.Query().Get("type")
+
+	var metrics []models.TimeseriesMetric
+
+	if metricType != "" {
+		// Get metrics filtered by type
+		metrics, err = s.dbService.GetMetricsForDeviceByType(ctx, deviceID, metricType, startTime, endTime)
+	} else {
+		// Get all metrics for the device
+		metrics, err = s.dbService.GetMetricsForDevice(ctx, deviceID, startTime, endTime)
+	}
+
+	if err != nil {
+		log.Printf("Error fetching metrics for device %s: %v", deviceID, err)
+		writeError(w, "Failed to fetch device metrics", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(metrics); err != nil {
+		log.Printf("Error encoding device metrics response: %v", err)
+		writeError(w, "Failed to encode response", http.StatusInternalServerError)
 	}
 }

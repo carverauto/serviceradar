@@ -801,7 +801,7 @@ func (s *Server) processStatusReport(
 		}
 
 		apiStatus := s.createPollerStatus(req, now)
-		s.processServices(ctx, req.PollerId, req.Partition, apiStatus, req.Services, now)
+		s.processServices(ctx, req.PollerId, req.Partition, req.SourceIp, apiStatus, req.Services, now)
 
 		if err := s.updatePollerState(ctx, req.PollerId, apiStatus, currentState, now); err != nil {
 			log.Printf("Failed to update poller state for %s: %v", req.PollerId, err)
@@ -837,7 +837,7 @@ func (s *Server) processStatusReport(
 	}
 
 	apiStatus := s.createPollerStatus(req, now)
-	s.processServices(ctx, req.PollerId, req.Partition, apiStatus, req.Services, now)
+	s.processServices(ctx, req.PollerId, req.Partition, req.SourceIp, apiStatus, req.Services, now)
 
 	// Register the poller/agent as a device for new pollers too
 	go func() {
@@ -872,6 +872,7 @@ func (s *Server) processServices(
 	ctx context.Context,
 	pollerID string,
 	partition string,
+	sourceIP string,
 	apiStatus *api.PollerStatus,
 	services []*proto.ServiceStatus,
 	now time.Time) {
@@ -886,7 +887,7 @@ func (s *Server) processServices(
 			allServicesAvailable = false
 		}
 
-		if err := s.processServiceDetails(ctx, pollerID, partition, &apiService, svc, now); err != nil {
+		if err := s.processServiceDetails(ctx, pollerID, partition, sourceIP, &apiService, svc, now); err != nil {
 			log.Printf("Error processing details for service %s on poller %s: %v",
 				svc.ServiceName, pollerID, err)
 		}
@@ -935,6 +936,7 @@ func (s *Server) processServiceDetails(
 	ctx context.Context,
 	pollerID string,
 	partition string,
+	sourceIP string,
 	apiService *api.ServiceStatus,
 	svc *proto.ServiceStatus,
 	now time.Time,
@@ -959,7 +961,7 @@ func (s *Server) processServiceDetails(
 
 	apiService.Details = details
 
-	if err := s.processMetrics(ctx, pollerID, partition, svc, details, now); err != nil {
+	if err := s.processMetrics(ctx, pollerID, partition, sourceIP, svc, details, now); err != nil {
 		log.Printf("Error processing metrics for service %s on poller %s: %v",
 			svc.ServiceName, pollerID, err)
 		return err
@@ -973,21 +975,22 @@ func (s *Server) processMetrics(
 	ctx context.Context,
 	pollerID string,
 	partition string,
+	sourceIP string,
 	svc *proto.ServiceStatus,
 	details json.RawMessage,
 	now time.Time) error {
 	switch svc.ServiceType {
 	case snmpServiceType:
-		return s.processSNMPMetrics(pollerID, details, now)
+		return s.processSNMPMetrics(pollerID, partition, details, now)
 	case grpcServiceType:
 		switch svc.ServiceName {
 		case rperfServiceType:
-			return s.processRperfMetrics(pollerID, details, now)
+			return s.processRperfMetrics(pollerID, partition, details, now)
 		case sysmonServiceType:
-			return s.processSysmonMetrics(pollerID, svc.AgentId, details, now)
+			return s.processSysmonMetrics(pollerID, partition, svc.AgentId, details, now)
 		}
 	case icmpServiceType:
-		return s.processICMPMetrics(pollerID, svc, details, now)
+		return s.processICMPMetrics(pollerID, partition, sourceIP, svc, details, now)
 	case snmpDiscoveryResultsServiceType, mapperDiscoveryServiceType:
 		return s.processSNMPDiscoveryResults(ctx, pollerID, partition, svc, details, now)
 	}
@@ -1025,7 +1028,7 @@ const (
 	sysmonServiceType = "sysmon"
 )
 
-func (s *Server) processSysmonMetrics(pollerID, agentID string, details json.RawMessage, timestamp time.Time) error {
+func (s *Server) processSysmonMetrics(pollerID, partition, agentID string, details json.RawMessage, timestamp time.Time) error {
 	log.Printf("Processing sysmon metrics for poller %s, agent %s with details: %s", pollerID, agentID, string(details))
 
 	// Define the full structure of the message payload
@@ -1108,7 +1111,7 @@ func (s *Server) processSysmonMetrics(pollerID, agentID string, details json.Raw
 		sweepResult := &models.SweepResult{
 			AgentID:         agentID,
 			PollerID:        pollerID,
-			Partition:       pollerID, // Use poller_id as partition
+			Partition:       partition, // Use actual partition instead of poller_id
 			DiscoverySource: "sysmon",
 			IP:              sysmonPayload.Status.HostIP,
 			Hostname:        &sysmonPayload.Status.HostID,
@@ -1178,7 +1181,7 @@ func (*Server) processRperfResult(result *struct {
 	Success bool               `json:"success"`
 	Error   *string            `json:"error"`
 	Status  models.RperfMetric `json:"status"`
-}, pollerID string, responseTime int64, pollerTimestamp time.Time) ([]*models.TimeseriesMetric, error) {
+}, pollerID string, partition string, responseTime int64, pollerTimestamp time.Time) ([]*models.TimeseriesMetric, error) {
 	if !result.Success {
 		return nil, fmt.Errorf("skipping failed rperf test (Target: %s). Error: %v", result.Target, result.Error)
 	}
@@ -1240,12 +1243,15 @@ func (*Server) processRperfResult(result *struct {
 
 	for _, m := range metricsToStore {
 		metric := &models.TimeseriesMetric{
-			Name:      m.Name,
-			Value:     m.Value,
-			Type:      "rperf",
-			Timestamp: pollerTimestamp,
-			Metadata:  metadataStr,
-			PollerID:  pollerID,
+			Name:           m.Name,
+			Value:          m.Value,
+			Type:           "rperf",
+			Timestamp:      pollerTimestamp,
+			Metadata:       metadataStr,
+			PollerID:       pollerID,
+			TargetDeviceIP: result.Target,
+			DeviceID:       fmt.Sprintf("%s:%s", partition, result.Target),
+			Partition:      partition,
 		}
 
 		timeseriesMetrics = append(timeseriesMetrics, metric)
@@ -1261,7 +1267,7 @@ func (s *Server) bufferRperfMetrics(pollerID string, metrics []*models.Timeserie
 	s.bufferMu.Unlock()
 }
 
-func (s *Server) processRperfMetrics(pollerID string, details json.RawMessage, timestamp time.Time) error {
+func (s *Server) processRperfMetrics(pollerID string, partition string, details json.RawMessage, timestamp time.Time) error {
 	log.Printf("Processing rperf metrics for poller %s with details: %s", pollerID, string(details))
 
 	rperfPayload, pollerTimestamp, err := s.parseRperfPayload(details, timestamp)
@@ -1273,7 +1279,7 @@ func (s *Server) processRperfMetrics(pollerID string, details json.RawMessage, t
 	var allMetrics []*models.TimeseriesMetric
 
 	for i := range rperfPayload.Status.Results {
-		rperfResult, err := s.processRperfResult(rperfPayload.Status.Results[i], pollerID, rperfPayload.ResponseTime, pollerTimestamp)
+		rperfResult, err := s.processRperfResult(rperfPayload.Status.Results[i], pollerID, partition, rperfPayload.ResponseTime, pollerTimestamp)
 		if err != nil {
 			log.Printf("%v", err)
 			continue
@@ -1292,7 +1298,7 @@ func (s *Server) processRperfMetrics(pollerID string, details json.RawMessage, t
 }
 
 func (s *Server) processICMPMetrics(
-	pollerID string, svc *proto.ServiceStatus, details json.RawMessage, now time.Time) error {
+	pollerID string, partition string, sourceIP string, svc *proto.ServiceStatus, details json.RawMessage, now time.Time) error {
 	var pingResult struct {
 		Host         string  `json:"host"`
 		ResponseTime int64   `json:"response_time"`
@@ -1330,6 +1336,8 @@ func (s *Server) processICMPMetrics(
 		Timestamp:      now,
 		Metadata:       metadataStr, // Use JSON string
 		TargetDeviceIP: pingResult.Host,
+		DeviceID:       fmt.Sprintf("%s:%s", partition, sourceIP),
+		Partition:      partition,
 		IfIndex:        0,
 		PollerID:       pollerID,
 	}
@@ -1395,6 +1403,7 @@ func parseOIDConfigName(oidConfigName string) (baseMetricName string, parsedIfIn
 // createSNMPMetric creates a new timeseries metric from SNMP data
 func createSNMPMetric(
 	pollerID string,
+	partition string,
 	targetName string,
 	oidConfigName string,
 	oidStatus snmp.OIDStatus,
@@ -1436,6 +1445,8 @@ func createSNMPMetric(
 	return &models.TimeseriesMetric{
 		PollerID:       pollerID,
 		TargetDeviceIP: targetName,
+		DeviceID:       fmt.Sprintf("%s:%s", partition, targetName),
+		Partition:      partition,
 		IfIndex:        parsedIfIndex,
 		Name:           baseMetricName,
 		Type:           "snmp",
@@ -1462,7 +1473,7 @@ func (s *Server) bufferMetrics(pollerID string, metrics []*models.TimeseriesMetr
 	s.metricBuffers[pollerID] = append(s.metricBuffers[pollerID], metrics...)
 }
 
-func (s *Server) processSNMPMetrics(pollerID string, details json.RawMessage, timestamp time.Time) error {
+func (s *Server) processSNMPMetrics(pollerID string, partition string, details json.RawMessage, timestamp time.Time) error {
 	// 'details' is the JSON string from SNMPService.Check(), which is a map[string]snmp.TargetStatus
 	var snmpReportData map[string]snmp.TargetStatus
 
@@ -1484,6 +1495,7 @@ func (s *Server) processSNMPMetrics(pollerID string, details json.RawMessage, ti
 
 			metric := createSNMPMetric(
 				pollerID,
+				partition,
 				targetName,
 				oidConfigName,
 				oidStatus,

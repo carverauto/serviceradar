@@ -47,7 +47,7 @@ func (db *DB) queryTimeseriesMetrics(
 	start, end time.Time,
 ) ([]models.TimeseriesMetric, error) {
 	query := fmt.Sprintf(`
-        SELECT metric_name, metric_type, value, metadata, timestamp, target_device_ip, ifIndex 
+        SELECT metric_name, metric_type, value, metadata, timestamp, target_device_ip, ifIndex, device_id, partition 
         FROM table(timeseries_metrics)
         WHERE poller_id = $1
         AND %s = $2
@@ -75,6 +75,8 @@ func (db *DB) queryTimeseriesMetrics(
 			&metric.Timestamp,
 			&metric.TargetDeviceIP,
 			&metric.IfIndex,
+			&metric.DeviceID,
+			&metric.Partition,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan metric row: %w", err)
@@ -144,11 +146,15 @@ func (db *DB) storeRperfMetricsToBatch(
 		for _, m := range metricsToStore {
 			err = batch.Append(
 				pollerID,
+				result.Target,      // target_device_ip
+				0,                  // ifIndex (not applicable for rperf)
 				m.Name,
 				"rperf",
 				m.Value,
 				metadataStr,
 				timestamp,
+				"",                 // device_id (to be populated later)
+				"",                 // partition (to be populated later)
 			)
 			if err != nil {
 				log.Printf("Failed to append rperf metric %s for poller %s: %v", m.Name, pollerID, err)
@@ -317,6 +323,8 @@ func (db *DB) StoreMetric(ctx context.Context, pollerID string, metric *models.T
 		metric.Value,
 		metadataStr, // Use metadata string directly
 		metric.Timestamp,
+		metric.DeviceID,
+		metric.Partition,
 	)
 	if err != nil {
 		log.Printf("Failed to append single metric %s (poller: %s, target: %s) to batch: %v. Metadata: %s",
@@ -367,6 +375,8 @@ func (db *DB) BatchMetricsOperation(ctx context.Context, pollerID string, metric
 			metric.Value,
 			metadataStr,
 			metric.Timestamp,
+			metric.DeviceID,
+			metric.Partition,
 		)
 		if err != nil {
 			log.Printf("Failed to append metric %s to batch: %v", metric.Name, err)
@@ -415,6 +425,8 @@ func (db *DB) StoreMetrics(ctx context.Context, pollerID string, metrics []*mode
 			metric.Value,
 			metadataStr,
 			metric.Timestamp,
+			metric.DeviceID,
+			metric.Partition,
 		)
 		if err != nil {
 			log.Printf("Failed to append metric %s (poller: %s, target: %s) to batch: %v. Metadata: %s",
@@ -751,4 +763,127 @@ func (db *DB) GetMemoryMetricsGrouped(ctx context.Context, pollerID string, star
 	}
 
 	return result, nil
+}
+
+// GetMetricsForDevice retrieves all metrics for a specific device within a time range.
+func (db *DB) GetMetricsForDevice(ctx context.Context, deviceID string, start, end time.Time) ([]models.TimeseriesMetric, error) {
+	query := fmt.Sprintf(`
+        SELECT metric_name, metric_type, value, metadata, timestamp, target_device_ip, ifIndex, device_id, partition, poller_id
+        FROM table(timeseries_metrics)
+        WHERE device_id = '%s' AND timestamp BETWEEN '%s' AND '%s'
+        ORDER BY timestamp DESC`,
+		deviceID, start.Format(time.RFC3339), end.Format(time.RFC3339))
+
+	rows, err := db.Conn.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query metrics for device %s: %w", deviceID, err)
+	}
+	defer rows.Close()
+
+	var metrics []models.TimeseriesMetric
+
+	for rows.Next() {
+		var m models.TimeseriesMetric
+
+		if err := rows.Scan(
+			&m.Name,
+			&m.Type,
+			&m.Value,
+			&m.Metadata,
+			&m.Timestamp,
+			&m.TargetDeviceIP,
+			&m.IfIndex,
+			&m.DeviceID,
+			&m.Partition,
+			&m.PollerID,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan metric for device %s: %w", deviceID, err)
+		}
+
+		metrics = append(metrics, m)
+	}
+
+	return metrics, nil
+}
+
+// GetMetricsForDeviceByType retrieves metrics for a specific device filtered by metric type.
+func (db *DB) GetMetricsForDeviceByType(ctx context.Context, deviceID, metricType string, start, end time.Time) ([]models.TimeseriesMetric, error) {
+	query := fmt.Sprintf(`
+        SELECT metric_name, metric_type, value, metadata, timestamp, target_device_ip, ifIndex, device_id, partition, poller_id
+        FROM table(timeseries_metrics)
+        WHERE device_id = '%s' AND metric_type = '%s' AND timestamp BETWEEN '%s' AND '%s'
+        ORDER BY timestamp DESC`,
+		deviceID, metricType, start.Format(time.RFC3339), end.Format(time.RFC3339))
+
+	rows, err := db.Conn.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query %s metrics for device %s: %w", metricType, deviceID, err)
+	}
+	defer rows.Close()
+
+	var metrics []models.TimeseriesMetric
+
+	for rows.Next() {
+		var m models.TimeseriesMetric
+
+		if err := rows.Scan(
+			&m.Name,
+			&m.Type,
+			&m.Value,
+			&m.Metadata,
+			&m.Timestamp,
+			&m.TargetDeviceIP,
+			&m.IfIndex,
+			&m.DeviceID,
+			&m.Partition,
+			&m.PollerID,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan %s metric for device %s: %w", metricType, deviceID, err)
+		}
+
+		metrics = append(metrics, m)
+	}
+
+	return metrics, nil
+}
+
+// GetMetricsForPartition retrieves all metrics for devices within a specific partition.
+func (db *DB) GetMetricsForPartition(ctx context.Context, partition string, start, end time.Time) ([]models.TimeseriesMetric, error) {
+	query := fmt.Sprintf(`
+        SELECT metric_name, metric_type, value, metadata, timestamp, target_device_ip, ifIndex, device_id, partition, poller_id
+        FROM table(timeseries_metrics)
+        WHERE partition = '%s' AND timestamp BETWEEN '%s' AND '%s'
+        ORDER BY timestamp DESC`,
+		partition, start.Format(time.RFC3339), end.Format(time.RFC3339))
+
+	rows, err := db.Conn.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query metrics for partition %s: %w", partition, err)
+	}
+	defer rows.Close()
+
+	var metrics []models.TimeseriesMetric
+
+	for rows.Next() {
+		var m models.TimeseriesMetric
+
+		if err := rows.Scan(
+			&m.Name,
+			&m.Type,
+			&m.Value,
+			&m.Metadata,
+			&m.Timestamp,
+			&m.TargetDeviceIP,
+			&m.IfIndex,
+			&m.DeviceID,
+			&m.Partition,
+			&m.PollerID,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan metric for partition %s: %w", partition, err)
+		}
+
+		metrics = append(metrics, m)
+	}
+
+	return metrics, nil
 }
