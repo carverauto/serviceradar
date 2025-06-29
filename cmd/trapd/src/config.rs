@@ -66,10 +66,8 @@ impl Config {
             anyhow::bail!("subject is required");
         }
         if let Some(sec) = &self.nats_security {
-            if sec.cert_file.is_some() || sec.key_file.is_some() || sec.ca_file.is_some() {
-                if sec.cert_file.is_none() || sec.key_file.is_none() || sec.ca_file.is_none() {
-                    anyhow::bail!("nats_security requires cert_file, key_file, and ca_file when any are provided");
-                }
+            if (sec.cert_file.is_some() || sec.key_file.is_some() || sec.ca_file.is_some()) && (sec.cert_file.is_none() || sec.key_file.is_none() || sec.ca_file.is_none()) {
+                anyhow::bail!("nats_security requires cert_file, key_file, and ca_file when any are provided");
             }
         }
         if let Some(addr) = &self.grpc_listen_addr {
