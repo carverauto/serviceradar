@@ -16,7 +16,7 @@
 
 'use client';
 
-import React, { useState, Fragment } from 'react';
+import React, { useState, Fragment, useEffect } from 'react';
 import { CheckCircle, XCircle, ChevronDown, ChevronRight, ArrowUp, ArrowDown } from 'lucide-react';
 import ReactJson from '@microlink/react-json-view';
 import { Device } from '@/types/devices';
@@ -28,15 +28,18 @@ interface DeviceTableProps {
     onSort?: (key: SortableKeys) => void;
     sortBy?: SortableKeys;
     sortOrder?: 'asc' | 'desc';
+    showSparklines?: boolean;
 }
 
 const DeviceTable: React.FC<DeviceTableProps> = ({ 
     devices,
     onSort,
     sortBy = 'last_seen',
-    sortOrder = 'desc'
+    sortOrder = 'desc',
+    showSparklines = true
 }) => {
     const [expandedRow, setExpandedRow] = useState<string | null>(null);
+    const [deviceMetrics, setDeviceMetrics] = useState<Record<string, DeviceMetric[]>>({});
 
     const getSourceColor = (source: string) => {
         const lowerSource = source.toLowerCase();
@@ -54,6 +57,46 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
             return 'Invalid Date';
         }
     };
+
+    // Fetch SNMP metrics for devices that support it
+    useEffect(() => {
+        if (!showSparklines) return;
+
+        const fetchDeviceMetrics = async (device: Device) => {
+            try {
+                const end = new Date();
+                const start = new Date();
+                start.setHours(end.getHours() - 1); // Last hour of data
+
+                const response = await fetch(
+                    `/api/pollers/${device.poller_id}/snmp?start=${start.toISOString()}&end=${end.toISOString()}`,
+                    { cache: 'no-store' }
+                );
+
+                if (response.ok) {
+                    const data: DeviceMetric[] = await response.json();
+                    // Only show sparklines for devices that have interface metrics
+                    const hasInterfaceMetrics = data.some(m => 
+                        m.oid_name?.includes('ifInOctets') || m.oid_name?.includes('ifOutOctets')
+                    );
+                    
+                    if (hasInterfaceMetrics) {
+                        setDeviceMetrics(prev => ({
+                            ...prev,
+                            [device.device_id]: data
+                        }));
+                    }
+                }
+            } catch (error) {
+                console.error(`Error fetching metrics for device ${device.ip}:`, error);
+            }
+        };
+
+        // Fetch metrics for all devices
+        devices.forEach(device => {
+            fetchDeviceMetrics(device);
+        });
+    }, [devices, showSparklines]);
 
     const TableHeader = ({ aKey, label }: { aKey: SortableKeys; label: string }) => (
         <th 
@@ -92,6 +135,11 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
                             Sources
                         </th>
                         <TableHeader aKey="poller_id" label="Poller" />
+                        {showSparklines && (
+                            <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                                Bandwidth
+                            </th>
+                        )}
                         <TableHeader aKey="last_seen" label="Last Seen" />
                     </tr>
                 </thead>
@@ -145,7 +193,7 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
                             </tr>
                             {expandedRow === device.device_id && (
                                 <tr className="bg-gray-800/50">
-                                    <td colSpan={6} className="p-0">
+                                    <td colSpan={showSparklines ? 7 : 6} className="p-0">
                                         <div className="p-4">
                                             <h4 className="text-md font-semibold text-white mb-2">
                                                 Metadata

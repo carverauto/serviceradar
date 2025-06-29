@@ -17,7 +17,9 @@
 import React, { useState, useEffect, useCallback, Fragment } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 import { Device, Pagination, DevicesApiResponse } from '@/types/devices';
-import { Server, CheckCircle, XCircle, ChevronDown, ChevronRight, Search, Loader2, AlertTriangle, ArrowUp, ArrowDown } from 'lucide-react';
+import { ServiceMetric } from '@/types/types';
+import { Server, CheckCircle, XCircle, ChevronDown, ChevronRight, Search, Loader2, AlertTriangle, ArrowUp, ArrowDown, BarChart3 } from 'lucide-react';
+import ServiceSparkline from '@/components/Service/ServiceSparkline';
 import ReactJson from '@microlink/react-json-view';
 import { useDebounce } from 'use-debounce';
 type SortableKeys = 'ip' | 'hostname' | 'last_seen' | 'first_seen' | 'poller_id';
@@ -54,6 +56,7 @@ const Dashboard = () => {
     const [sortBy, setSortBy] = useState<SortableKeys>('last_seen');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
     const [expandedRow, setExpandedRow] = useState<string | null>(null);
+    const [deviceMetrics, setDeviceMetrics] = useState<Record<string, ServiceMetric[]>>({});
     const postQuery = useCallback(async <T, >(query: string, cursor?: string, direction?: 'next' | 'prev'): Promise<T> => {
         const body: Record<string, unknown> = {
             query,
@@ -143,6 +146,41 @@ const Dashboard = () => {
         }
     }, [postQuery, debouncedSearchTerm, filterStatus, sortBy, sortOrder]);
 
+    const fetchDeviceMetrics = useCallback(async (devices: Device[]) => {
+        if (!token || devices.length === 0) return;
+        
+        const metricsMap: Record<string, ServiceMetric[]> = {};
+        
+        for (const device of devices) {
+            if (!device.is_available) continue; // Skip offline devices
+            
+            try {
+                const response = await fetch(`/api/pollers/${device.poller_id}/metrics`, {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(token && { Authorization: `Bearer ${token}` }),
+                    },
+                });
+                
+                if (response.ok) {
+                    const metrics: ServiceMetric[] = await response.json();
+                    // Filter for ICMP metrics matching the device IP
+                    const deviceSpecificMetrics = metrics.filter(m => 
+                        m.service_name === device.ip || m.service_name === device.hostname
+                    );
+                    
+                    if (deviceSpecificMetrics.length > 0) {
+                        metricsMap[device.device_id] = deviceSpecificMetrics;
+                    }
+                }
+            } catch {
+                console.log(`No metrics available for device ${device.ip} on poller ${device.poller_id}`);
+            }
+        }
+        
+        setDeviceMetrics(metricsMap);
+    }, [token]);
+
     useEffect(() => {
         fetchStats();
     }, [fetchStats]);
@@ -150,6 +188,12 @@ const Dashboard = () => {
     useEffect(() => {
         fetchDevices();
     }, [fetchDevices]);
+
+    useEffect(() => {
+        if (devices.length > 0) {
+            fetchDeviceMetrics(devices);
+        }
+    }, [devices, fetchDeviceMetrics]);
 
     const handleSort = (key: SortableKeys) => {
         if (sortBy === key) {
@@ -279,8 +323,28 @@ const Dashboard = () => {
                                             </button>
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap">
-                                            {device.is_available ? <CheckCircle className="h-5 w-5 text-green-500"/> :
-                                                <XCircle className="h-5 w-5 text-red-500"/>}
+                                            <div className="flex items-center gap-2">
+                                                {device.is_available ? <CheckCircle className="h-5 w-5 text-green-500"/> :
+                                                    <XCircle className="h-5 w-5 text-red-500"/>}
+                                                
+                                                {/* ServiceSparkline for ICMP metrics */}
+                                                {deviceMetrics[device.device_id] && (
+                                                    <ServiceSparkline 
+                                                        pollerId={device.poller_id}
+                                                        serviceName={device.ip}
+                                                        initialMetrics={deviceMetrics[device.device_id]}
+                                                    />
+                                                )}
+                                                
+                                                {/* SNMP dashboard link */}
+                                                <a 
+                                                    href={`/service/${device.poller_id}/snmp`}
+                                                    className="text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                                                    title="View SNMP Dashboard"
+                                                >
+                                                    <BarChart3 className="h-4 w-4" />
+                                                </a>
+                                            </div>
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             <div
