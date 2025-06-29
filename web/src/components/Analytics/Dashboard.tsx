@@ -29,6 +29,7 @@ import { Device } from "@/types/devices";
 import { RperfMetric } from "@/types/rperf";
 import HighUtilizationWidget from './HighUtilizationWidget';
 import CriticalEventsWidget from './CriticalEventsWidget';
+import DeviceMetricsWidget from './DeviceMetricsWidget';
 
 const REFRESH_INTERVAL = 60000; // 60 seconds
 
@@ -404,6 +405,7 @@ const Dashboard = () => {
                     </ChartWidget>
                     <HighUtilizationWidget />
                     <CriticalEventsWidget />
+                    <DeviceMetricsWidget />
                     <ChartWidget title="Device Discovery Sources">
                         {chartData.discoveryBySource.length > 0 ? <SimpleBarChart data={chartData.discoveryBySource} /> : <NoData />}
                     </ChartWidget>

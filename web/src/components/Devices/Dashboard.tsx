@@ -20,6 +20,7 @@ import { Device, Pagination, DevicesApiResponse } from '@/types/devices';
 import { Server, CheckCircle, XCircle, ChevronDown, ChevronRight, Search, Loader2, AlertTriangle, ArrowUp, ArrowDown } from 'lucide-react';
 import ReactJson from '@microlink/react-json-view';
 import { useDebounce } from 'use-debounce';
+import Link from 'next/link';
 type SortableKeys = 'ip' | 'hostname' | 'last_seen' | 'first_seen' | 'poller_id';
 const StatCard = ({ title, value, icon, isLoading }: { title: string; value: string | number; icon: React.ReactNode; isLoading: boolean }) => (
     <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 p-4 rounded-lg">
@@ -283,10 +284,17 @@ const Dashboard = () => {
                                                 <XCircle className="h-5 w-5 text-red-500"/>}
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap">
-                                            <div
-                                                className="text-sm font-medium text-gray-900 dark:text-white">{device.hostname || device.ip}</div>
-                                            <div
-                                                className="text-sm text-gray-600 dark:text-gray-400">{device.hostname ? device.ip : device.mac}</div>
+                                            <Link 
+                                                href={`/devices/${encodeURIComponent(device.device_id)}`}
+                                                className="block hover:bg-gray-50 dark:hover:bg-gray-700/50 rounded-md p-1 -m-1 transition-colors"
+                                            >
+                                                <div className="text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300">
+                                                    {device.hostname || device.ip}
+                                                </div>
+                                                <div className="text-sm text-gray-600 dark:text-gray-400">
+                                                    {device.hostname ? device.ip : device.mac}
+                                                </div>
+                                            </Link>
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             <div className="flex flex-wrap gap-1">

@@ -146,6 +146,8 @@ type TimeseriesMetric struct {
 	PollerID       string    `json:"poller_id"` // Unique identifier for the poller that collected this metric
 	Name           string    `json:"name"`
 	TargetDeviceIP string    `json:"target_device_ip"` // IP address of the device this metric is for
+	DeviceID       string    `json:"device_id"`        // Device identifier in format "partition:ip"
+	Partition      string    `json:"partition"`        // Partition identifier for this device
 	IfIndex        int32     `json:"if_index"`
 	Value          string    `json:"value"` // Store as string for flexibility
 	Type           string    `json:"type"`  // Metric type identifier

@@ -27,6 +27,8 @@ func (db *DB) UpdateServiceStatuses(ctx context.Context, statuses []*models.Serv
 			status.Details,
 			status.Timestamp,
 			status.AgentID,
+			"", // device_id - empty for now since services aren't device-specific
+			"", // partition - empty for now since services aren't device-specific
 		)
 		if err != nil {
 			return fmt.Errorf("failed to append service status for %s: %w", status.ServiceName, err)
@@ -54,6 +56,9 @@ func (db *DB) UpdateServiceStatus(ctx context.Context, status *models.ServiceSta
 		status.Available,
 		status.Details,
 		status.Timestamp,
+		status.AgentID,
+		"", // device_id - empty for now since services aren't device-specific
+		"", // partition - empty for now since services aren't device-specific
 	)
 	if err != nil {
 		return fmt.Errorf("failed to append service status: %w", err)
@@ -116,6 +121,8 @@ func (db *DB) StoreServices(ctx context.Context, services []*models.Service) err
 			svc.ServiceType,
 			svc.AgentID,
 			svc.Timestamp,
+			"", // device_id - empty for now since services aren't device-specific
+			"", // partition - empty for now since services aren't device-specific
 		); err != nil {
 			return fmt.Errorf("failed to append service %s: %w", svc.ServiceName, err)
 		}
