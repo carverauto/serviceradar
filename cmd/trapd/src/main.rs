@@ -185,7 +185,7 @@ async fn start_grpc_server(cfg: Config) -> Result<()> {
         None => return Ok(()),
     };
 
-    let service = TrapdAgentService::default();
+    let service = TrapdAgentService;
     let (mut health_reporter, health_service) = health_reporter();
     health_reporter
         .set_serving::<AgentServiceServer<TrapdAgentService>>()

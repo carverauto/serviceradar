@@ -208,7 +208,7 @@ func (ap *AgentPoller) ExecuteChecks(ctx context.Context) []*proto.ServiceStatus
 		go func(check Check) {
 			defer wg.Done()
 
-			svcCheck := newServiceCheck(ap.client, check, ap.poller.config.PollerID)
+			svcCheck := newServiceCheck(ap.client, check, ap.poller.config.PollerID, ap.name)
 			results <- svcCheck.execute(checkCtx)
 		}(check)
 	}
@@ -227,11 +227,12 @@ func (ap *AgentPoller) ExecuteChecks(ctx context.Context) []*proto.ServiceStatus
 	return statuses
 }
 
-func newServiceCheck(client proto.AgentServiceClient, check Check, pollerID string) *ServiceCheck {
+func newServiceCheck(client proto.AgentServiceClient, check Check, pollerID, agentName string) *ServiceCheck {
 	return &ServiceCheck{
-		client:   client,
-		check:    check,
-		pollerID: pollerID,
+		client:    client,
+		check:     check,
+		pollerID:  pollerID,
+		agentName: agentName,
 	}
 }
 
@@ -239,8 +240,9 @@ func (sc *ServiceCheck) execute(ctx context.Context) *proto.ServiceStatus {
 	req := &proto.StatusRequest{
 		ServiceName: sc.check.Name,
 		ServiceType: sc.check.Type,
-		Details:     sc.check.Details,
+		AgentId:     sc.agentName,
 		PollerId:    sc.pollerID,
+		Details:     sc.check.Details,
 	}
 
 	if sc.check.Type == "port" {
@@ -512,6 +514,7 @@ func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStat
 		PollerId:  p.config.PollerID,
 		Timestamp: time.Now().Unix(),
 		Partition: p.config.Partition,
+		SourceIp:  p.config.SourceIP,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to report status to core: %w", err)

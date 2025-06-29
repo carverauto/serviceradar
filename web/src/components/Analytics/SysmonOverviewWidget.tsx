@@ -63,67 +63,101 @@ const SysmonOverviewWidget: React.FC = () => {
         }
     }, [token]);
 
-    const fetchDevicesForPoller = useCallback(async (pollerId: string) => {
+    const fetchSysmonAgentInfo = useCallback(async (pollerId: string) => {
         try {
-            const response = await fetch('/api/query', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...(token && { Authorization: `Bearer ${token}` })
-                },
-                body: JSON.stringify({
-                    query: `SHOW DEVICES WHERE poller_id = '${pollerId}' LIMIT 1`,
+            // Use the dedicated sysmon API endpoints instead of the query API
+            const endTime = new Date();
+            const startTime = new Date(endTime.getTime() - 60 * 60 * 1000); // Last hour
+            
+            const [cpuResponse, memoryResponse, diskResponse] = await Promise.all([
+                fetch(`/api/pollers/${pollerId}/sysmon/cpu?start=${startTime.toISOString()}&end=${endTime.toISOString()}`, {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(token && { Authorization: `Bearer ${token}` })
+                    }
                 }),
-            });
+                fetch(`/api/pollers/${pollerId}/sysmon/memory?start=${startTime.toISOString()}&end=${endTime.toISOString()}`, {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(token && { Authorization: `Bearer ${token}` })
+                    }
+                }),
+                fetch(`/api/pollers/${pollerId}/sysmon/disk?start=${startTime.toISOString()}&end=${endTime.toISOString()}`, {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(token && { Authorization: `Bearer ${token}` })
+                    }
+                })
+            ]);
 
-            if (!response.ok) return null;
-            const data = await response.json();
-            return data.results?.[0] || null;
+            if (!cpuResponse.ok && !memoryResponse.ok && !diskResponse.ok) {
+                return null;
+            }
+
+            const [cpuData, memoryData, diskData] = await Promise.all([
+                cpuResponse.ok ? cpuResponse.json() : [],
+                memoryResponse.ok ? memoryResponse.json() : [],
+                diskResponse.ok ? diskResponse.json() : []
+            ]);
+            
+            console.log(`Sysmon data for ${pollerId}:`, { cpuData, memoryData, diskData });
+
+            // Get the most recent data from each metric type
+            const latestCpu = cpuData.length > 0 ? cpuData[cpuData.length - 1] : null;
+            const latestMemory = memoryData.length > 0 ? memoryData[memoryData.length - 1] : null;
+            const latestDisk = diskData.length > 0 ? diskData[diskData.length - 1] : null;
+
+            if (!latestCpu && !latestMemory && !latestDisk) {
+                return null;
+            }
+
+            // Determine if the agent is active (has data within the last 2 hours)
+            const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+            const isActive = [latestCpu, latestMemory, latestDisk].some(data => 
+                data && new Date(data.timestamp) > twoHoursAgo
+            );
+
+            // Extract agent info from any available metric (CPU cores, memory, or disk)
+            const agentInfo = latestCpu?.cpus?.[0] || latestMemory?.memory || latestDisk;
+            const hostname = agentInfo?.host_id || (pollerId === 'demo-staging' ? 'serviceradar-demo-staging' : 'Unknown Host');
+            const agentId = agentInfo?.agent_id || 'unknown';
+
+            // Calculate average CPU usage from all cores
+            let avgCpuUsage = 0;
+            if (latestCpu?.cpus && latestCpu.cpus.length > 0) {
+                const totalUsage = latestCpu.cpus.reduce((sum: number, core: { usage_percent: number }) => sum + core.usage_percent, 0);
+                avgCpuUsage = totalUsage / latestCpu.cpus.length;
+            }
+
+            // Calculate memory usage percentage
+            let memoryUsagePercent = 0;
+            if (latestMemory?.memory) {
+                const totalMemory = latestMemory.memory.total_bytes;
+                const usedMemory = latestMemory.memory.used_bytes;
+                if (totalMemory && usedMemory) {
+                    memoryUsagePercent = (usedMemory / totalMemory) * 100;
+                }
+            }
+
+            return {
+                hostname: hostname,
+                ip: 'Unknown IP', // IP not available in these endpoints
+                agent_id: agentId,
+                avg_cpu_usage: avgCpuUsage,
+                memory_usage_percent: memoryUsagePercent,
+                total_memory_bytes: latestMemory?.memory?.total_bytes,
+                used_memory_bytes: latestMemory?.memory?.used_bytes,
+                total_disk_bytes: latestDisk?.disk?.total_bytes,
+                used_disk_bytes: latestDisk?.disk?.used_bytes,
+                last_update: latestCpu?.timestamp || latestMemory?.timestamp || latestDisk?.timestamp,
+                is_active: isActive
+            };
         } catch (err) {
-            console.error(`Error fetching device for poller ${pollerId}:`, err);
+            console.error(`Error fetching sysmon agent info for poller ${pollerId}:`, err);
             return null;
         }
     }, [token]);
 
-    const fetchSysmonData = useCallback(async (pollerId: string) => {
-        try {
-            const [cpuResponse, memoryResponse] = await Promise.all([
-                fetch(`/api/pollers/${pollerId}/sysmon/cpu?hours=1`, {
-                    headers: {
-                        'Content-Type': 'application/json',
-                        ...(token && { Authorization: `Bearer ${token}` })
-                    },
-                }),
-                fetch(`/api/pollers/${pollerId}/sysmon/memory?hours=1`, {
-                    headers: {
-                        'Content-Type': 'application/json',
-                        ...(token && { Authorization: `Bearer ${token}` })
-                    },
-                })
-            ]);
-
-            const cpuData = cpuResponse.ok ? await cpuResponse.json() : null;
-            const memoryData = memoryResponse.ok ? await memoryResponse.json() : null;
-
-            const latestCpu = cpuData && cpuData.length > 0 ? cpuData[cpuData.length - 1] : null;
-            const latestMemory = memoryData && memoryData.length > 0 ? memoryData[memoryData.length - 1] : null;
-
-            const lastUpdate = latestCpu?.timestamp || latestMemory?.timestamp;
-            const isActive = lastUpdate ? (new Date().getTime() - new Date(lastUpdate).getTime()) < 10 * 60 * 1000 : false;
-
-            return {
-                lastCpuReading: latestCpu?.value,
-                lastMemoryReading: latestMemory?.value,
-                lastUpdate: lastUpdate ? new Date(lastUpdate) : undefined,
-                isActive
-            };
-        } catch (err) {
-            console.error(`Error fetching sysmon data for ${pollerId}:`, err);
-            return {
-                isActive: false
-            };
-        }
-    }, [token]);
 
     useEffect(() => {
         const loadSysmonOverview = async () => {
@@ -133,19 +167,34 @@ const SysmonOverviewWidget: React.FC = () => {
             try {
                 const pollers = await fetchPollers();
                 const agentPromises = pollers.map(async (poller: { poller_id: string }) => {
-                    const [deviceInfo, sysmonData] = await Promise.all([
-                        fetchDevicesForPoller(poller.poller_id),
-                        fetchSysmonData(poller.poller_id)
-                    ]);
-
+                    // Now we only need to fetch from the unified sysmon metrics
+                    const agentInfo = await fetchSysmonAgentInfo(poller.poller_id);
+                    
                     return {
                         pollerId: poller.poller_id,
-                        deviceInfo,
-                        ...sysmonData
+                        deviceInfo: agentInfo ? {
+                            hostname: agentInfo.hostname,
+                            ip: agentInfo.ip,
+                            agent_id: agentInfo.agent_id
+                        } : null,
+                        lastCpuReading: agentInfo ? agentInfo.avg_cpu_usage : undefined,
+                        lastMemoryReading: agentInfo ? agentInfo.memory_usage_percent : undefined,
+                        lastUpdate: agentInfo ? new Date(agentInfo.last_update) : undefined,
+                        isActive: agentInfo ? agentInfo.is_active : false
                     };
                 });
 
                 const agentsData = await Promise.all(agentPromises);
+                
+                // Debug logging
+                console.log('SysmonOverviewWidget - Agent data:', agentsData.map(agent => ({
+                    pollerId: agent.pollerId,
+                    hostname: agent.deviceInfo?.hostname,
+                    ip: agent.deviceInfo?.ip,
+                    agent_id: agent.deviceInfo?.agent_id,
+                    isActive: agent.isActive
+                })));
+                
                 setAgents(agentsData);
 
                 // Calculate stats
@@ -167,7 +216,7 @@ const SysmonOverviewWidget: React.FC = () => {
         };
 
         loadSysmonOverview();
-    }, [fetchPollers, fetchDevicesForPoller, fetchSysmonData]);
+    }, [fetchPollers, fetchSysmonAgentInfo, token]);
 
     if (loading) {
         return (
@@ -203,7 +252,7 @@ const SysmonOverviewWidget: React.FC = () => {
             <div className="flex justify-between items-start mb-4">
                 <h3 className="font-semibold text-gray-900 dark:text-white">Sysmon Agents</h3>
                 <Link 
-                    href="/metrics"
+                    href={`/metrics${agents.length > 0 ? `?pollerId=${encodeURIComponent(agents[0].pollerId)}${agents[0].deviceInfo?.agent_id ? `&agentId=${encodeURIComponent(agents[0].deviceInfo.agent_id)}` : ''}` : ''}`}
                     className="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
                 >
                     <ExternalLink size={16} />
@@ -239,18 +288,19 @@ const SysmonOverviewWidget: React.FC = () => {
                                     <div className="text-sm font-medium text-gray-900 dark:text-white">
                                         {agent.deviceInfo?.hostname || agent.deviceInfo?.ip || agent.pollerId}
                                     </div>
-                                    {agent.isActive && (
+                                    {(agent.lastCpuReading !== undefined || agent.lastMemoryReading !== undefined) && (
                                         <div className="text-xs text-gray-600 dark:text-gray-400">
-                                            CPU: {agent.lastCpuReading?.toFixed(1)}% | 
-                                            Mem: {agent.lastMemoryReading?.toFixed(1)}%
+                                            CPU: {agent.lastCpuReading?.toFixed(1) || 'N/A'}% | 
+                                            Mem: {agent.lastMemoryReading?.toFixed(1) || 'N/A'}%
                                         </div>
                                     )}
                                 </div>
                             </div>
-                            {agent.isActive && (
+                            {agent.deviceInfo && (
                                 <Link 
-                                    href={`/metrics?pollerId=${agent.pollerId}`}
-                                    className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200"
+                                    href={`/metrics?pollerId=${encodeURIComponent(agent.pollerId)}${agent.deviceInfo?.agent_id ? `&agentId=${encodeURIComponent(agent.deviceInfo.agent_id)}` : ''}`}
+                                    className={`${agent.isActive ? 'text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200' : 'text-gray-400 dark:text-gray-600'}`}
+                                    title={`View metrics for ${agent.deviceInfo?.hostname || agent.pollerId}`}
                                 >
                                     <Activity size={14} />
                                 </Link>
