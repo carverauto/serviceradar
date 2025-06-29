@@ -28,6 +28,7 @@ import {Poller, GenericServiceDetails} from "@/types/types";
 import { Device } from "@/types/devices";
 import { RperfMetric } from "@/types/rperf";
 import HighUtilizationWidget from './HighUtilizationWidget';
+import CriticalEventsWidget from './CriticalEventsWidget';
 
 const REFRESH_INTERVAL = 60000; // 60 seconds
 
@@ -113,13 +114,11 @@ const Dashboard = () => {
     const [chartData, setChartData] = useState<{
         deviceAvailability: { name: string; value: number; color: string }[];
         topLatencyServices: { name: string; value: number; color: string }[];
-        criticalEvents: { name: string; value: number; color: string }[];
         discoveryBySource: { name: string; value: number; color: string }[];
         rperfBandwidth: { name: string; value: number; color: string }[];
     }>({
         deviceAvailability: [],
         topLatencyServices: [],
-        criticalEvents: [],
         discoveryBySource: [],
         rperfBandwidth: [],
     });
@@ -170,19 +169,11 @@ const Dashboard = () => {
             const [
                 totalDevicesRes,
                 offlineDevicesRes,
-                criticalEventsRes,
-                highEventsRes,
-                mediumEventsRes,
-                lowEventsRes,
                 allDevicesRes,
                 pollersData,
             ] = await Promise.all([
                 postQuery('COUNT DEVICES'),
                 postQuery('COUNT DEVICES WHERE is_available = false'),
-                postQuery("COUNT EVENTS WHERE severity = 'Critical'"),
-                postQuery("COUNT EVENTS WHERE severity = 'High'"),
-                postQuery("COUNT EVENTS WHERE severity = 'Medium'"),
-                postQuery("COUNT EVENTS WHERE severity = 'Low'"),
                 postQuery('SHOW DEVICES'),
                 // Fetch pollers to get detailed service status and latency, which is not available in the 'SERVICES' stream
                 fetch('/api/pollers', {
@@ -332,13 +323,6 @@ const Dashboard = () => {
                 .slice(0, 5)
                 .map((item, i) => ({ ...item, color: ['#f59e0b', '#facc15', '#fef08a', '#fde68a', '#fcd34d'][i % 5] }));
 
-            // Prepare critical events data
-            const criticalEventsData = [
-                { name: 'Critical', value: criticalEventsRes.results[0]?.['count()'] || 0, color: '#ef4444' },
-                { name: 'High', value: highEventsRes.results[0]?.['count()'] || 0, color: '#f97316' },
-                { name: 'Medium', value: mediumEventsRes.results[0]?.['count()'] || 0, color: '#eab308' },
-                { name: 'Low', value: lowEventsRes.results[0]?.['count()'] || 0, color: '#3b82f6' }
-            ].filter(item => item.value > 0); // Only show severity levels that have events
 
             setChartData({
                 deviceAvailability: [
@@ -346,7 +330,6 @@ const Dashboard = () => {
                     { name: 'Offline', value: offlineDevices, color: '#ef4444' }
                 ],
                 topLatencyServices: topLatencyServices,
-                criticalEvents: criticalEventsData,
                 discoveryBySource: Object.entries((allDevicesRes.results as Device[]).reduce((acc, d) => {
                     (d.discovery_sources || []).forEach(source => {
                         acc[source] = (acc[source] || 0) + 1;
@@ -420,9 +403,7 @@ const Dashboard = () => {
                         {chartData.topLatencyServices.length > 0 ? <SimpleBarChart data={chartData.topLatencyServices} /> : <NoData />}
                     </ChartWidget>
                     <HighUtilizationWidget />
-                    <ChartWidget title="Events by Severity">
-                        {chartData.criticalEvents.length > 0 ? <SimpleBarChart data={chartData.criticalEvents} /> : <NoData />}
-                    </ChartWidget>
+                    <CriticalEventsWidget />
                     <ChartWidget title="Device Discovery Sources">
                         {chartData.discoveryBySource.length > 0 ? <SimpleBarChart data={chartData.discoveryBySource} /> : <NoData />}
                     </ChartWidget>
