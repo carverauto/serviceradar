@@ -24,10 +24,11 @@ import {
     AlertTriangle, Activity, ServerOff, MoreHorizontal, Server
 } from 'lucide-react';
 import { useAuth } from '../AuthProvider';
-import {ServiceEntry, Poller, GenericServiceDetails} from "@/types/types";
+import {Poller, GenericServiceDetails} from "@/types/types";
 import { Device } from "@/types/devices";
 import { RperfMetric } from "@/types/rperf";
 import HighUtilizationWidget from './HighUtilizationWidget';
+import CriticalEventsWidget from './CriticalEventsWidget';
 
 const REFRESH_INTERVAL = 60000; // 60 seconds
 
@@ -113,13 +114,11 @@ const Dashboard = () => {
     const [chartData, setChartData] = useState<{
         deviceAvailability: { name: string; value: number; color: string }[];
         topLatencyServices: { name: string; value: number; color: string }[];
-        servicesByType: { name: string; value: number; color: string }[];
         discoveryBySource: { name: string; value: number; color: string }[];
         rperfBandwidth: { name: string; value: number; color: string }[];
     }>({
         deviceAvailability: [],
         topLatencyServices: [],
-        servicesByType: [],
         discoveryBySource: [],
         rperfBandwidth: [],
     });
@@ -170,13 +169,11 @@ const Dashboard = () => {
             const [
                 totalDevicesRes,
                 offlineDevicesRes,
-                allServicesRes,
                 allDevicesRes,
                 pollersData,
             ] = await Promise.all([
                 postQuery('COUNT DEVICES'),
                 postQuery('COUNT DEVICES WHERE is_available = false'),
-                postQuery('SHOW SERVICES'),
                 postQuery('SHOW DEVICES'),
                 // Fetch pollers to get detailed service status and latency, which is not available in the 'SERVICES' stream
                 fetch('/api/pollers', {
@@ -326,16 +323,13 @@ const Dashboard = () => {
                 .slice(0, 5)
                 .map((item, i) => ({ ...item, color: ['#f59e0b', '#facc15', '#fef08a', '#fde68a', '#fcd34d'][i % 5] }));
 
+
             setChartData({
                 deviceAvailability: [
                     { name: 'Online', value: totalDevices - offlineDevices, color: '#3b82f6' },
                     { name: 'Offline', value: offlineDevices, color: '#ef4444' }
                 ],
                 topLatencyServices: topLatencyServices,
-                servicesByType: Object.entries((allServicesRes.results as ServiceEntry[]).reduce((acc, s) => {
-                    acc[s.service_type] = (acc[s.service_type] || 0) + 1;
-                    return acc;
-                }, {} as Record<string, number>)).map(([name, value], i) => ({ name, value, color: ['#3b82f6', '#50fa7b', '#60a5fa', '#50fa7b', '#50fa7b'][i % 5] })),
                 discoveryBySource: Object.entries((allDevicesRes.results as Device[]).reduce((acc, d) => {
                     (d.discovery_sources || []).forEach(source => {
                         acc[source] = (acc[source] || 0) + 1;
@@ -409,9 +403,7 @@ const Dashboard = () => {
                         {chartData.topLatencyServices.length > 0 ? <SimpleBarChart data={chartData.topLatencyServices} /> : <NoData />}
                     </ChartWidget>
                     <HighUtilizationWidget />
-                    <ChartWidget title="Services by Type">
-                        {chartData.servicesByType.length > 0 ? <SimpleBarChart data={chartData.servicesByType} /> : <NoData />}
-                    </ChartWidget>
+                    <CriticalEventsWidget />
                     <ChartWidget title="Device Discovery Sources">
                         {chartData.discoveryBySource.length > 0 ? <SimpleBarChart data={chartData.discoveryBySource} /> : <NoData />}
                     </ChartWidget>
