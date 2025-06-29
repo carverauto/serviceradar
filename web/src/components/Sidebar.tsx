@@ -57,12 +57,6 @@ export default function Sidebar() {
                     );
                 })}
             </nav>
-            <div className="mt-auto p-4 border-t border-gray-200 dark:border-gray-700">
-                <button className="w-full flex items-center justify-center py-2.5 rounded-md text-sm font-medium transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 relative">
-                    <MessageCircleQuestion className="h-5 w-5" />
-                    <span className="absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-xs text-white">14</span>
-                </button>
-            </div>
         </aside>
     );
 }
