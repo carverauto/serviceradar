@@ -45,7 +45,9 @@ CREATE STREAM IF NOT EXISTS cpu_metrics (
     host_id string,
     timestamp DateTime64(3) DEFAULT now64(3),
     core_id int32,
-    usage_percent float64
+    usage_percent float64,
+    device_id string,
+    partition string
 );
 
 CREATE STREAM IF NOT EXISTS disk_metrics (
@@ -55,7 +57,9 @@ CREATE STREAM IF NOT EXISTS disk_metrics (
     timestamp DateTime64(3) DEFAULT now64(3),
     mount_point string,
     used_bytes uint64,
-    total_bytes uint64
+    total_bytes uint64,
+    device_id string,
+    partition string
 );
 
 CREATE STREAM IF NOT EXISTS memory_metrics (
@@ -64,7 +68,9 @@ CREATE STREAM IF NOT EXISTS memory_metrics (
     host_id string,
     timestamp DateTime64(3) DEFAULT now64(3),
     used_bytes uint64,
-    total_bytes uint64
+    total_bytes uint64,
+    device_id string,
+    partition string
 );
 
 -- Timeseries Metrics Stream (from 20250612...)
@@ -175,28 +181,28 @@ LEFT JOIN unified_devices AS u ON concat(s.partition, ':', s.ip) = u.device_id;
 -- =================================================================
 -- Step 1: Create intermediate aggregation streams
 CREATE STREAM IF NOT EXISTS cpu_aggregates (
-    window_time DateTime64(3), poller_id string, agent_id string, host_id string, avg_cpu_usage float64
+    window_time DateTime64(3), poller_id string, agent_id string, host_id string, avg_cpu_usage float64, device_id string, partition string
 );
 CREATE STREAM IF NOT EXISTS disk_aggregates (
-    window_time DateTime64(3), poller_id string, agent_id string, host_id string, total_disk_bytes uint64, used_disk_bytes uint64
+    window_time DateTime64(3), poller_id string, agent_id string, host_id string, total_disk_bytes uint64, used_disk_bytes uint64, device_id string, partition string
 );
 CREATE STREAM IF NOT EXISTS memory_aggregates (
-    window_time DateTime64(3), poller_id string, agent_id string, host_id string, total_memory_bytes uint64, used_memory_bytes uint64
+    window_time DateTime64(3), poller_id string, agent_id string, host_id string, total_memory_bytes uint64, used_memory_bytes uint64, device_id string, partition string
 );
 
 -- Step 2: Create materialized views for aggregation
 CREATE MATERIALIZED VIEW IF NOT EXISTS cpu_aggregates_mv INTO cpu_aggregates AS
-SELECT window_start as window_time, poller_id, agent_id, host_id, avg(usage_percent) as avg_cpu_usage
+SELECT window_start as window_time, poller_id, agent_id, host_id, avg(usage_percent) as avg_cpu_usage, any(device_id) as device_id, any(partition) as partition
 FROM tumble(cpu_metrics, timestamp, 10s)
 GROUP BY window_start, poller_id, agent_id, host_id;
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS disk_aggregates_mv INTO disk_aggregates AS
-SELECT window_start as window_time, poller_id, agent_id, host_id, sum(total_bytes) as total_disk_bytes, sum(used_bytes) as used_disk_bytes
+SELECT window_start as window_time, poller_id, agent_id, host_id, sum(total_bytes) as total_disk_bytes, sum(used_bytes) as used_disk_bytes, any(device_id) as device_id, any(partition) as partition
 FROM tumble(disk_metrics, timestamp, 10s)
 GROUP BY window_start, poller_id, agent_id, host_id;
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS memory_aggregates_mv INTO memory_aggregates AS
-SELECT window_start as window_time, poller_id, agent_id, host_id, any(total_bytes) as total_memory_bytes, any(used_bytes) as used_memory_bytes
+SELECT window_start as window_time, poller_id, agent_id, host_id, any(total_bytes) as total_memory_bytes, any(used_bytes) as used_memory_bytes, any(device_id) as device_id, any(partition) as partition
 FROM tumble(memory_metrics, timestamp, 10s)
 GROUP BY window_start, poller_id, agent_id, host_id;
 
@@ -204,7 +210,7 @@ GROUP BY window_start, poller_id, agent_id, host_id;
 CREATE STREAM IF NOT EXISTS unified_sysmon_metrics (
     timestamp DateTime64(3), poller_id string, agent_id string, host_id string,
     avg_cpu_usage float64, total_disk_bytes uint64, used_disk_bytes uint64,
-    total_memory_bytes uint64, used_memory_bytes uint64
+    total_memory_bytes uint64, used_memory_bytes uint64, device_id string, partition string
 );
 
 -- Step 4: Create the final materialized view that joins all aggregated data
@@ -212,7 +218,7 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS unified_sysmon_metrics_mv INTO unified_sy
 SELECT
     c.window_time as timestamp, c.poller_id as poller_id, c.agent_id as agent_id, c.host_id as host_id,
     c.avg_cpu_usage as avg_cpu_usage, d.total_disk_bytes as total_disk_bytes, d.used_disk_bytes as used_disk_bytes,
-    m.total_memory_bytes as total_memory_bytes, m.used_memory_bytes as used_memory_bytes
+    m.total_memory_bytes as total_memory_bytes, m.used_memory_bytes as used_memory_bytes, c.device_id as device_id, c.partition as partition
 FROM cpu_aggregates AS c
-LEFT JOIN disk_aggregates AS d ON c.window_time = d.window_time AND c.poller_id = d.poller_id AND c.agent_id = d.agent_id AND c.host_id = d.host_id
-LEFT JOIN memory_aggregates AS m ON c.window_time = m.window_time AND c.poller_id = m.poller_id AND c.agent_id = m.agent_id AND c.host_id = m.host_id;
+LEFT JOIN disk_aggregates AS d ON c.window_time = d.window_time AND c.poller_id = d.poller_id AND c.agent_id = d.agent_id AND c.host_id = d.host_id AND c.device_id = d.device_id
+LEFT JOIN memory_aggregates AS m ON c.window_time = m.window_time AND c.poller_id = m.poller_id AND c.agent_id = m.agent_id AND c.host_id = m.host_id AND c.device_id = m.device_id;
