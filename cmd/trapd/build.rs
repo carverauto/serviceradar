@@ -16,6 +16,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build_client(false)
         .file_descriptor_set_path(&descriptor_path)
         .compile(&[proto_path], &[proto_dir])?;
-    println!("cargo:rerun-if-changed={}", proto_path);
+    println!("cargo:rerun-if-changed={proto_path}");
     Ok(())
 }
