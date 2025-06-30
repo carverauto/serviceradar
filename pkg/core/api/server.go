@@ -36,6 +36,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/metrics"
 	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"github.com/carverauto/serviceradar/pkg/models"
+	srqlmodels "github.com/carverauto/serviceradar/pkg/srql/models"
 	"github.com/carverauto/serviceradar/pkg/srql/parser"
 	"github.com/carverauto/serviceradar/pkg/swagger"
 	"github.com/gorilla/mux"
@@ -49,6 +50,26 @@ func NewAPIServer(config models.CORSConfig, options ...func(server *APIServer)) 
 		router:     mux.NewRouter(),
 		corsConfig: config,
 	}
+
+	// Initialize with default entity table mapping
+	defaultEntityTableMap := map[srqlmodels.EntityType]string{
+		srqlmodels.Devices:       "devices",
+		srqlmodels.Flows:         "flows",
+		srqlmodels.Traps:         "traps",
+		srqlmodels.Connections:   "connections",
+		srqlmodels.Logs:          "logs",
+		srqlmodels.Services:      "services",
+		srqlmodels.Interfaces:    "interfaces",
+		srqlmodels.SweepResults:  "sweep_results",
+		srqlmodels.ICMPResults:   "icmp_results",
+		srqlmodels.SNMPResults:   "snmp_results",
+		srqlmodels.Events:        "events",
+		srqlmodels.Pollers:       "pollers",
+		srqlmodels.CPUMetrics:    "cpu_metrics",
+		srqlmodels.DiskMetrics:   "disk_metrics",
+		srqlmodels.MemoryMetrics: "memory_metrics",
+	}
+	s.entityTableMap = defaultEntityTableMap
 
 	for _, o := range options {
 		o(s)
@@ -105,6 +126,13 @@ func WithRperfManager(m metricstore.RperfManager) func(server *APIServer) {
 func WithDBService(db db.Service) func(server *APIServer) {
 	return func(server *APIServer) {
 		server.dbService = db
+	}
+}
+
+// WithEntityTableMap initializes the entity table mapping for the API server
+func WithEntityTableMap(entityTableMap map[srqlmodels.EntityType]string) func(server *APIServer) {
+	return func(server *APIServer) {
+		server.entityTableMap = entityTableMap
 	}
 }
 
