@@ -63,11 +63,11 @@ fn parse_rperf_output(output: &[u8], protocol: &str) -> Result<RPerfResult> {
     let json_value: serde_json::Value = match serde_json::from_str(&output_str) {
         Ok(value) => value,
         Err(e) => {
-            error!("Failed to parse JSON: {}", e);
-            error!("Raw output: {}", output_str);
+            error!("Failed to parse JSON: {e}");
+            error!("Raw output: {output_str}");
             return Ok(RPerfResult {
                 success: false,
-                error: Some(format!("Failed to parse rperf JSON output: {}", e)),
+                error: Some(format!("Failed to parse rperf JSON output: {e}")),
                 results_json: output_str,
                 summary: Default::default(),
             });
@@ -134,7 +134,7 @@ fn parse_rperf_output(output: &[u8], protocol: &str) -> Result<RPerfResult> {
         }
     }
 
-    debug!("Parsed rperf result: {:?}", summary);
+    debug!("Parsed rperf result: {summary:?}");
     Ok(RPerfResult {
         success: true,
         error: None,
@@ -230,7 +230,7 @@ impl RPerfRunner {
             owned_args.push("--no-delay".to_string());
         }
 
-        debug!("Executing rperf with args: {:?}", owned_args);
+        debug!("Executing rperf with args: {owned_args:?}");
 
         let output_buffer = Arc::new(Mutex::new(Vec::new()));
         let output_clone = output_buffer.clone();
@@ -255,13 +255,13 @@ impl RPerfRunner {
                 }
                 Ok(Err(e)) => Ok(RPerfResult {
                     success: false,
-                    error: Some(format!("rperf test execution failed: {}", e)),
+                    error: Some(format!("rperf test execution failed: {e}")),
                     results_json: String::new(),
                     summary: Default::default(),
                 }),
                 Err(e) => Ok(RPerfResult {
                     success: false,
-                    error: Some(format!("Task panic: {}", e)),
+                    error: Some(format!("Task panic: {e}")),
                     results_json: String::new(),
                     summary: Default::default(),
                 }),

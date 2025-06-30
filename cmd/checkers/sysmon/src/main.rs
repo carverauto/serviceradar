@@ -52,11 +52,11 @@ async fn main() -> Result<()> {
 
     let config_path = matches.value_of("config").unwrap();
     let config_path = PathBuf::from(config_path);
-    info!("Loading configuration from {:?}", config_path);
+    info!("Loading configuration from {config_path:?}");
 
     debug!("Checking if config file exists and is readable");
     if !config_path.exists() {
-        error!("Config file does not exist: {:?}", config_path);
+        error!("Config file does not exist: {config_path:?}");
         anyhow::bail!("Config file does not exist");
     }
 
@@ -77,33 +77,33 @@ async fn main() -> Result<()> {
         .filter(|fs| fs.monitor)
         .map(|fs| fs.name.clone())
         .collect::<Vec<_>>();
-    debug!("Monitoring filesystems: {:?}", filesystems);
+    debug!("Monitoring filesystems: {filesystems:?}");
 
     let (zfs_pools, zfs_datasets) = config
         .zfs
         .as_ref()
         .map(|z| (z.pools.clone(), z.include_datasets))
         .unwrap_or_default();
-    debug!("ZFS config: pools={:?}, datasets={}", zfs_pools, zfs_datasets);
+    debug!("ZFS config: pools={zfs_pools:?}, datasets={zfs_datasets}");
 
     let host_id = std::env::var("HOSTNAME").unwrap_or_else(|_| {
         // Try to get the actual hostname from the system
         match hostname::get() {
             Ok(hostname) => {
                 let hostname_str = hostname.to_string_lossy().to_string();
-                info!("HOSTNAME env var not set, using system hostname: {}", hostname_str);
+                info!("HOSTNAME env var not set, using system hostname: {hostname_str}");
                 hostname_str
             }
             Err(e) => {
-                warn!("Failed to get system hostname: {}, using 'unknown'", e);
+                warn!("Failed to get system hostname: {e}, using 'unknown'");
                 "unknown".to_string()
             }
         }
     });
-    debug!("Using host_id: {}", host_id);
+    debug!("Using host_id: {host_id}");
 
     let partition = config.partition.clone();
-    debug!("Using partition: {:?}", partition);
+    debug!("Using partition: {partition:?}");
 
     let collector = Arc::new(RwLock::new(MetricsCollector::new(
         host_id,
