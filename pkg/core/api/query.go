@@ -166,8 +166,20 @@ func (s *APIServer) setupOrderFields(query *models.Query) {
 				Field:     "ip",
 				Direction: models.Descending,
 			})
+		case models.CPUMetrics:
+			// Use core_id as a secondary sort key for stability.
+			query.OrderBy = append(query.OrderBy, models.OrderByItem{
+				Field:     "core_id",
+				Direction: models.Descending,
+			})
+		case models.DiskMetrics:
+			// Use mount_point as a secondary sort key.
+			query.OrderBy = append(query.OrderBy, models.OrderByItem{
+				Field:     "mount_point",
+				Direction: models.Descending,
+			})
 		// These entities don't need additional sort fields
-		case models.Flows, models.Traps, models.Connections, models.Logs:
+		case models.Flows, models.Traps, models.Connections, models.Logs, models.MemoryMetrics:
 		}
 	}
 }
@@ -211,6 +223,9 @@ func isValidPaginationEntity(entity models.EntityType) bool {
 		models.SweepResults,
 		models.Events,
 		models.Pollers,
+		models.CPUMetrics,
+		models.DiskMetrics,
+		models.MemoryMetrics,
 	}
 
 	for _, validEntity := range validEntities {
@@ -234,7 +249,8 @@ func (s *APIServer) prepareQuery(req *QueryRequest) (*models.Query, map[string]i
 
 	// Validate entity for pagination. COUNT queries don't need pagination support.
 	if query.Type != models.Count && !isValidPaginationEntity(query.Entity) {
-		return nil, nil, errors.New("pagination is only supported for devices, services, interfaces, sweep_results, events, and pollers")
+		return nil, nil, errors.New("pagination is only supported for devices, services, interfaces, " +
+			"sweep_results, events, pollers, and metric types")
 	}
 
 	// For COUNT queries, pagination ordering is unnecessary and may generate
@@ -340,35 +356,14 @@ func (s *APIServer) executeProtonQuery(ctx context.Context, query string) ([]map
 }
 
 // getTableNameForEntity returns the table name for a given entity type
-func (*APIServer) getTableNameForEntity(entity models.EntityType) (string, error) {
-	switch entity {
-	case models.Devices:
-		return "devices", nil
-	case models.Flows:
-		return "flows", nil
-	case models.Traps:
-		return "traps", nil
-	case models.Connections:
-		return "connections", nil
-	case models.Logs:
-		return "logs", nil
-	case models.Services:
-		return "services", nil
-	case models.Interfaces:
-		return "interfaces", nil
-	case models.SweepResults:
-		return "sweep_results", nil
-	case models.ICMPResults:
-		return "icmp_results", nil
-	case models.SNMPResults:
-		return "snmp_results", nil
-	case models.Events:
-		return "events", nil
-	case models.Pollers:
-		return "pollers", nil
-	default:
+func (s *APIServer) getTableNameForEntity(entity models.EntityType) (string, error) {
+	// Since the entity type is the same in both packages, we can use it directly
+	tableName, exists := s.entityTableMap[entity]
+	if !exists {
 		return "", fmt.Errorf("%w: %s", errUnsupportedEntity, entity)
 	}
+
+	return tableName, nil
 }
 
 // executeQuery executes the translated query against the database.
@@ -527,9 +522,11 @@ func addEntityFields(cursorData, result map[string]interface{}, entity models.En
 		models.Services:     {"service_name"},
 		models.Events:       {"id"},
 		models.Pollers:      {"poller_id"},
+		models.CPUMetrics:   {"core_id"},
+		models.DiskMetrics:  {"mount_point"},
 		// The following entities don't need additional fields:
 		// models.Flows, models.Traps, models.Connections, models.Logs,
-		// models.ICMPResults, models.SNMPResults
+		// models.ICMPResults, models.SNMPResults, models.MemoryMetrics
 	}
 
 	// Get the fields to copy for this entity type

@@ -16,7 +16,7 @@
 
 'use client';
 
-import React, { useState, Fragment } from 'react';
+import React, { useState, Fragment, useEffect, useMemo } from 'react';
 import { CheckCircle, XCircle, ChevronDown, ChevronRight, ArrowUp, ArrowDown } from 'lucide-react';
 import ReactJson from '@microlink/react-json-view';
 import { Device } from '@/types/devices';
@@ -38,6 +38,47 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
     sortOrder = 'desc'
 }) => {
     const [expandedRow, setExpandedRow] = useState<string | null>(null);
+    const [sysmonStatuses, setSysmonStatuses] = useState<Record<string, { hasMetrics: boolean }>>({});
+    const [sysmonStatusesLoading, setSysmonStatusesLoading] = useState(true);
+
+    // Create a stable reference for device IDs
+    const deviceIdsString = useMemo(() => {
+        return devices.map(device => device.device_id).sort().join(',');
+    }, [devices]);
+
+    useEffect(() => {
+        if (!devices || devices.length === 0) return;
+
+        const deviceIds = devices.map(device => device.device_id);
+        console.log(`DeviceTable useEffect triggered with ${devices.length} devices: ${deviceIds.slice(0, 3).join(', ')}...`);
+
+        const fetchSysmonStatuses = async () => {
+            setSysmonStatusesLoading(true);
+            try {
+                console.log(`DeviceTable: Fetching sysmon status for ${deviceIds.length} devices`);
+                const response = await fetch('/api/devices/sysmon/status', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ deviceIds }),
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    setSysmonStatuses(data.statuses || {});
+                } else {
+                    console.error('Failed to fetch bulk sysmon statuses:', response.status);
+                }
+            } catch (error) {
+                console.error('Error fetching bulk sysmon statuses:', error);
+            } finally {
+                setSysmonStatusesLoading(false);
+            }
+        };
+
+        fetchSysmonStatuses();
+    }, [deviceIdsString]);
 
     const getSourceColor = (source: string) => {
         const lowerSource = source.toLowerCase();
@@ -120,6 +161,7 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
                                         <SysmonStatusIndicator 
                                             deviceId={device.device_id} 
                                             compact={true}
+                                            hasMetrics={sysmonStatusesLoading ? undefined : sysmonStatuses[device.device_id]?.hasMetrics}
                                         />
                                     </div>
                                 </td>

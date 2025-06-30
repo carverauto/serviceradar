@@ -108,48 +108,49 @@ const (
 	defaultBoolValueFalse = "false"
 )
 
+// getEntityPrimaryKeyMapData returns a map of entity types to their primary keys and whether they need ROW_NUMBER()
+func getEntityPrimaryKeyMapData() map[models.EntityType]struct {
+	key         string
+	needsRowNum bool
+} {
+	return map[models.EntityType]struct {
+		key         string
+		needsRowNum bool
+	}{
+		// For interfaces, a composite key of device_ip and ifIndex is typically used for uniqueness
+		models.Interfaces: {"device_ip, ifIndex", true},
+		// Devices is a versioned_kv stream, naturally providing latest
+		models.Devices: {"", false},
+		// Assuming flow_id is the primary key for flows
+		models.Flows: {"flow_id", true},
+		// Assuming trap_id or similar is the primary key for traps
+		models.Traps: {"", false},
+		// Assuming connection_id or similar is the primary key for connections
+		models.Connections: {"", false},
+		// Assuming log_id or similar is the primary key for logs
+		models.Logs: {"", false},
+		// Services stream is versioned_kv, latest handled automatically
+		models.Services:      {"", false},
+		models.SweepResults:  {"", false}, // SweepResults is a versioned_kv stream
+		models.ICMPResults:   {"", false}, // ICMPResults is a versioned_kv stream
+		models.SNMPResults:   {"", false}, // SNMPResults is a versioned_kv stream
+		models.Events:        {"", false}, // Events stream is append-only
+		models.Pollers:       {"poller_id", true},
+		models.CPUMetrics:    {"device_id, core_id", true},
+		models.DiskMetrics:   {"device_id, mount_point", true},
+		models.MemoryMetrics: {"device_id", true},
+	}
+}
+
 // getEntityPrimaryKey returns the assumed primary key for an entity, used for LATEST queries.
 // This is used for non-versioned_kv streams that need ROW_NUMBER()
 func (*Translator) getEntityPrimaryKey(entity models.EntityType) (string, bool) {
-	switch entity {
-	case models.Interfaces:
-		// For interfaces, a composite key of device_ip and ifIndex is typically used for uniqueness
-		return "device_ip, ifIndex", true
-	case models.Devices:
-		// Devices is a versioned_kv stream, naturally providing latest
-		return "", false
-	case models.Flows:
-		// Assuming flow_id is the primary key for flows
-		return "flow_id", true
-	case models.Traps:
-		// Assuming trap_id or similar is the primary key for traps
-		return "", false
-	case models.Connections:
-		// Assuming connection_id or similar is the primary key for connections
-		return "", false
-	case models.Logs:
-		// Assuming log_id or similar is the primary key for logs
-		return "", false
-	case models.Services:
-		// Services stream is versioned_kv, latest handled automatically
-		return "", false
-	case models.SweepResults:
-		// SweepResults is a versioned_kv stream
-		return "", false
-	case models.ICMPResults:
-		// ICMPResults is a versioned_kv stream
-		return "", false
-	case models.SNMPResults:
-		// SNMPResults is a versioned_kv stream
-		return "", false
-	case models.Events:
-		// Events stream is append-only
-		return "", false
-	case models.Pollers:
-		return "poller_id", true
-	default:
-		return "", false // Indicate LATEST is not supported for this entity or it's versioned_kv
+	entityPrimaryKeyMap := getEntityPrimaryKeyMapData()
+	if info, exists := entityPrimaryKeyMap[entity]; exists {
+		return info.key, info.needsRowNum
 	}
+
+	return "", false // Indicate LATEST is not supported for this entity or it's versioned_kv
 }
 
 // buildClickHouseQuery builds a SQL query for ClickHouse.
@@ -200,38 +201,35 @@ func (t *Translator) buildClickHouseQuery(query *models.Query) (string, error) {
 	return sql.String(), nil
 }
 
+// getEntityToTableMapData returns a map of entity types to their base table names
+func getEntityToTableMapData() map[models.EntityType]string {
+	return map[models.EntityType]string{
+		models.Devices:       "unified_devices", // Queries for devices should reference the unified stream populated by the materialized view
+		models.Flows:         "netflow_metrics",
+		models.Interfaces:    "discovered_interfaces",
+		models.Traps:         "traps",
+		models.Connections:   "connections",
+		models.Logs:          "logs",
+		models.Services:      "services",
+		models.SweepResults:  "sweep_results",
+		models.ICMPResults:   "icmp_results",
+		models.SNMPResults:   "snmp_results",
+		models.Events:        "events",
+		models.Pollers:       "pollers",
+		models.CPUMetrics:    "cpu_metrics",
+		models.DiskMetrics:   "disk_metrics",
+		models.MemoryMetrics: "memory_metrics",
+	}
+}
+
 // getProtonBaseTableName returns the base table name for a given entity type
 func (*Translator) getProtonBaseTableName(entity models.EntityType) string {
-	switch entity {
-	case models.Devices:
-		// Queries for devices should reference the unified stream
-		// populated by the materialized view.
-		return "unified_devices"
-	case models.Flows:
-		return "netflow_metrics"
-	case models.Interfaces:
-		return "discovered_interfaces"
-	case models.Traps:
-		return "traps"
-	case models.Connections:
-		return "connections"
-	case models.Logs:
-		return "logs"
-	case models.Services:
-		return "services"
-	case models.SweepResults:
-		return "sweep_results"
-	case models.ICMPResults:
-		return "icmp_results"
-	case models.SNMPResults:
-		return "snmp_results"
-	case models.Events:
-		return "events"
-	case models.Pollers:
-		return "pollers"
-	default:
-		return strings.ToLower(string(entity)) // Fallback
+	entityToTableMap := getEntityToTableMapData()
+	if tableName, exists := entityToTableMap[entity]; exists {
+		return tableName
 	}
+
+	return strings.ToLower(string(entity)) // Fallback
 }
 
 // validateLatestQuery checks if the LATEST query is valid for the given entity and query type

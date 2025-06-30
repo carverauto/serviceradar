@@ -224,6 +224,70 @@ func TestPrepareQuery(t *testing.T) {
 			},
 		},
 		{
+			name: "Valid query for cpu_metrics",
+			req: &QueryRequest{
+				Query: "show cpu_metrics",
+				Limit: 20,
+			},
+			dbType:      parser.Proton,
+			expectError: false,
+			setupMock:   func(*APIServer) {},
+			validateQuery: func(t *testing.T, query *models.Query, _ map[string]interface{}) {
+				t.Helper()
+
+				assert.Equal(t, models.CPUMetrics, query.Entity)
+				assert.Equal(t, 20, query.Limit)
+				assert.True(t, query.HasLimit)
+				assert.Len(t, query.OrderBy, 2)
+				assert.Equal(t, "_tp_time", query.OrderBy[0].Field)
+				assert.Equal(t, models.Descending, query.OrderBy[0].Direction)
+				assert.Equal(t, "core_id", query.OrderBy[1].Field)
+				assert.Equal(t, models.Descending, query.OrderBy[1].Direction)
+			},
+		},
+		{
+			name: "Valid query for disk_metrics",
+			req: &QueryRequest{
+				Query: "show disk_metrics",
+				Limit: 15,
+			},
+			dbType:      parser.Proton,
+			expectError: false,
+			setupMock:   func(*APIServer) {},
+			validateQuery: func(t *testing.T, query *models.Query, _ map[string]interface{}) {
+				t.Helper()
+
+				assert.Equal(t, models.DiskMetrics, query.Entity)
+				assert.Equal(t, 15, query.Limit)
+				assert.True(t, query.HasLimit)
+				assert.Len(t, query.OrderBy, 2)
+				assert.Equal(t, "_tp_time", query.OrderBy[0].Field)
+				assert.Equal(t, models.Descending, query.OrderBy[0].Direction)
+				assert.Equal(t, "mount_point", query.OrderBy[1].Field)
+				assert.Equal(t, models.Descending, query.OrderBy[1].Direction)
+			},
+		},
+		{
+			name: "Valid query for memory_metrics",
+			req: &QueryRequest{
+				Query: "show memory_metrics",
+				Limit: 10,
+			},
+			dbType:      parser.Proton,
+			expectError: false,
+			setupMock:   func(*APIServer) {},
+			validateQuery: func(t *testing.T, query *models.Query, _ map[string]interface{}) {
+				t.Helper()
+
+				assert.Equal(t, models.MemoryMetrics, query.Entity)
+				assert.Equal(t, 10, query.Limit)
+				assert.True(t, query.HasLimit)
+				assert.Len(t, query.OrderBy, 1) // No tie-breaker for memory_metrics
+				assert.Equal(t, "_tp_time", query.OrderBy[0].Field)
+				assert.Equal(t, models.Descending, query.OrderBy[0].Direction)
+			},
+		},
+		{
 			name: "Count devices should skip pagination",
 			req: &QueryRequest{
 				Query: "count devices",
