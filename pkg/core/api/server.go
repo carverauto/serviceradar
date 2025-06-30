@@ -371,12 +371,12 @@ func (s *APIServer) setupProtectedRoutes() {
 	protected.HandleFunc("/pollers/{id}/sysmon/cpu", s.getSysmonCPUMetrics).Methods("GET")
 	protected.HandleFunc("/pollers/{id}/sysmon/disk", s.getSysmonDiskMetrics).Methods("GET")
 	protected.HandleFunc("/pollers/{id}/sysmon/memory", s.getSysmonMemoryMetrics).Methods("GET")
-	
+
 	// Device-centric sysmon endpoints
 	protected.HandleFunc("/devices/{id}/sysmon/cpu", s.getDeviceSysmonCPUMetrics).Methods("GET")
 	protected.HandleFunc("/devices/{id}/sysmon/disk", s.getDeviceSysmonDiskMetrics).Methods("GET")
 	protected.HandleFunc("/devices/{id}/sysmon/memory", s.getDeviceSysmonMemoryMetrics).Methods("GET")
-	
+
 	protected.HandleFunc("/query", s.handleSRQLQuery).Methods("POST")
 
 	// Device-centric endpoints
@@ -602,6 +602,7 @@ func (s *APIServer) getPollers(w http.ResponseWriter, _ *http.Request) {
 func (s *APIServer) SetKnownPollers(knownPollers []string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	s.knownPollers = knownPollers
 }
 
@@ -609,6 +610,7 @@ func (s *APIServer) SetKnownPollers(knownPollers []string) {
 func (s *APIServer) getPollerByID(pollerID string) (*PollerStatus, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+
 	poller, exists := s.pollers[pollerID]
 
 	return poller, exists
@@ -796,6 +798,7 @@ func parseTimeRange(query url.Values) (start, end time.Time, err error) {
 		if err != nil {
 			return time.Time{}, time.Time{}, fmt.Errorf("invalid hours parameter: %w", err)
 		}
+
 		end = time.Now()
 		start = end.Add(-time.Duration(hours) * time.Hour)
 	}
@@ -868,7 +871,8 @@ func (s *APIServer) getDevices(w http.ResponseWriter, r *http.Request) {
 
 	// Build SRQL query based on parameters
 	query := "SHOW DEVICES"
-	whereClauses := []string{}
+
+	var whereClauses []string
 
 	// Get query parameters
 	searchTerm := r.URL.Query().Get("search")
@@ -876,7 +880,8 @@ func (s *APIServer) getDevices(w http.ResponseWriter, r *http.Request) {
 
 	// Add search filter
 	if searchTerm != "" {
-		whereClauses = append(whereClauses, fmt.Sprintf("(ip LIKE '%%%s%%' OR hostname LIKE '%%%s%%' OR device_id LIKE '%%%s%%')", 
+		whereClauses = append(whereClauses, fmt.Sprintf("(ip LIKE '%%%s%%' OR hostname "+
+			"LIKE '%%%s%%' OR device_id LIKE '%%%s%%')",
 			searchTerm, searchTerm, searchTerm))
 	}
 
@@ -908,10 +913,12 @@ func (s *APIServer) getDevices(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("Error executing devices query: %v", err)
 		writeError(w, "Failed to retrieve devices", http.StatusInternalServerError)
+
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+
 	if err := json.NewEncoder(w).Encode(result); err != nil {
 		log.Printf("Error encoding devices response: %v", err)
 		writeError(w, "Failed to encode response", http.StatusInternalServerError)
@@ -948,10 +955,12 @@ func (s *APIServer) getDevice(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("Error fetching device %s: %v", deviceID, err)
 		writeError(w, "Device not found", http.StatusNotFound)
+
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+
 	if err := json.NewEncoder(w).Encode(device); err != nil {
 		log.Printf("Error encoding device response: %v", err)
 		writeError(w, "Failed to encode response", http.StatusInternalServerError)
@@ -1010,10 +1019,12 @@ func (s *APIServer) getDeviceMetrics(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("Error fetching metrics for device %s: %v", deviceID, err)
 		writeError(w, "Failed to fetch device metrics", http.StatusInternalServerError)
+
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+
 	if err := json.NewEncoder(w).Encode(metrics); err != nil {
 		log.Printf("Error encoding device metrics response: %v", err)
 		writeError(w, "Failed to encode response", http.StatusInternalServerError)
