@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"sort"
@@ -244,4 +245,296 @@ func groupDiskMetricsByTimestamp(metrics []models.DiskMetric) []models.SysmonDis
 	})
 
 	return result
+}
+
+// Device-centric sysmon handlers
+
+// getDeviceSysmonCPUMetrics retrieves CPU metrics for a specific device.
+func (s *APIServer) getDeviceSysmonCPUMetrics(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	vars := mux.Vars(r)
+	deviceID := vars["id"]
+
+	startTime, endTime, err := parseTimeRange(r.URL.Query())
+	if err != nil {
+		writeError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	metricsProvider, ok := s.metricsManager.(db.SysmonMetricsProvider)
+	if !ok {
+		log.Printf("WARNING: Metrics manager does not implement SysmonMetricsProvider for device %s", deviceID)
+		writeError(w, "System metrics not supported by this server", http.StatusNotImplemented)
+		return
+	}
+
+	// Query CPU metrics by device_id using unified_sysmon_metrics_mv
+	cpuMetrics, err := s.getCPUMetricsForDevice(ctx, metricsProvider, deviceID, startTime, endTime)
+	if err != nil {
+		log.Printf("Error fetching CPU metrics for device %s: %v", deviceID, err)
+		writeError(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if len(cpuMetrics) == 0 {
+		writeError(w, "No metrics found", http.StatusNotFound)
+		return
+	}
+
+	log.Printf("Fetched %d CPU metrics for device %s", len(cpuMetrics), deviceID)
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(cpuMetrics); err != nil {
+		log.Printf("Error encoding CPU metrics response for device %s: %v", deviceID, err)
+		writeError(w, "Error encoding response", http.StatusInternalServerError)
+	}
+}
+
+// getDeviceSysmonMemoryMetrics retrieves memory metrics for a specific device.
+func (s *APIServer) getDeviceSysmonMemoryMetrics(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	vars := mux.Vars(r)
+	deviceID := vars["id"]
+
+	startTime, endTime, err := parseTimeRange(r.URL.Query())
+	if err != nil {
+		writeError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	metricsProvider, ok := s.metricsManager.(db.SysmonMetricsProvider)
+	if !ok {
+		log.Printf("WARNING: Metrics manager does not implement SysmonMetricsProvider for device %s", deviceID)
+		writeError(w, "System metrics not supported by this server", http.StatusNotImplemented)
+		return
+	}
+
+	// Query memory metrics by device_id using unified_sysmon_metrics_mv
+	memoryMetrics, err := s.getMemoryMetricsForDevice(ctx, metricsProvider, deviceID, startTime, endTime)
+	if err != nil {
+		log.Printf("Error fetching memory metrics for device %s: %v", deviceID, err)
+		writeError(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if len(memoryMetrics) == 0 {
+		writeError(w, "No metrics found", http.StatusNotFound)
+		return
+	}
+
+	log.Printf("Fetched %d memory metrics for device %s", len(memoryMetrics), deviceID)
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(memoryMetrics); err != nil {
+		log.Printf("Error encoding memory metrics response for device %s: %v", deviceID, err)
+		writeError(w, "Error encoding response", http.StatusInternalServerError)
+	}
+}
+
+// getDeviceSysmonDiskMetrics retrieves disk metrics for a specific device.
+func (s *APIServer) getDeviceSysmonDiskMetrics(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	vars := mux.Vars(r)
+	deviceID := vars["id"]
+
+	startTime, endTime, err := parseTimeRange(r.URL.Query())
+	if err != nil {
+		writeError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	metricsProvider, ok := s.metricsManager.(db.SysmonMetricsProvider)
+	if !ok {
+		log.Printf("WARNING: Metrics manager does not implement SysmonMetricsProvider for device %s", deviceID)
+		writeError(w, "System metrics not supported by this server", http.StatusNotImplemented)
+		return
+	}
+
+	// Query disk metrics by device_id using unified_sysmon_metrics_mv
+	diskMetrics, err := s.getDiskMetricsForDevice(ctx, metricsProvider, deviceID, startTime, endTime)
+	if err != nil {
+		log.Printf("Error fetching disk metrics for device %s: %v", deviceID, err)
+		writeError(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	if len(diskMetrics) == 0 {
+		writeError(w, "No metrics found", http.StatusNotFound)
+		return
+	}
+
+	log.Printf("Fetched %d disk metrics for device %s", len(diskMetrics), deviceID)
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(diskMetrics); err != nil {
+		log.Printf("Error encoding disk metrics response for device %s: %v", deviceID, err)
+		writeError(w, "Error encoding response", http.StatusInternalServerError)
+	}
+}
+
+// Helper functions for device-centric queries
+
+// getCPUMetricsForDevice queries CPU metrics by device_id from cpu_metrics table
+func (s *APIServer) getCPUMetricsForDevice(ctx context.Context, provider db.SysmonMetricsProvider, deviceID string, start, end time.Time) ([]models.SysmonCPUResponse, error) {
+	// Query cpu_metrics table directly for per-core data by device_id
+	query := fmt.Sprintf(`
+		SELECT timestamp, agent_id, host_id, core_id, usage_percent
+		FROM table(cpu_metrics)
+		WHERE device_id = '%s' AND timestamp BETWEEN '%s' AND '%s'
+		ORDER BY timestamp DESC, core_id ASC`,
+		deviceID, start.Format(time.RFC3339), end.Format(time.RFC3339))
+
+	rows, err := s.dbService.(*db.DB).Conn.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query CPU metrics for device %s: %w", deviceID, err)
+	}
+	defer rows.Close()
+
+	data := make(map[time.Time][]models.CPUMetric)
+
+	for rows.Next() {
+		var timestamp time.Time
+		var agentID, hostID string
+		var coreID int32
+		var usagePercent float64
+
+		if err := rows.Scan(&timestamp, &agentID, &hostID, &coreID, &usagePercent); err != nil {
+			log.Printf("Error scanning CPU metric row for device %s: %v", deviceID, err)
+			continue
+		}
+
+		cpu := models.CPUMetric{
+			Timestamp:    timestamp,
+			AgentID:      agentID,
+			HostID:       hostID,
+			CoreID:       coreID,
+			UsagePercent: usagePercent,
+		}
+		data[timestamp] = append(data[timestamp], cpu)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating CPU metrics rows for device %s: %w", deviceID, err)
+	}
+
+	result := make([]models.SysmonCPUResponse, 0, len(data))
+	for ts, cpus := range data {
+		result = append(result, models.SysmonCPUResponse{
+			Cpus:      cpus,
+			Timestamp: ts,
+		})
+	}
+
+	// Sort by timestamp descending
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Timestamp.After(result[j].Timestamp)
+	})
+
+	return result, nil
+}
+
+// getMemoryMetricsForDevice queries memory metrics by device_id from memory_metrics table
+func (s *APIServer) getMemoryMetricsForDevice(ctx context.Context, provider db.SysmonMetricsProvider, deviceID string, start, end time.Time) ([]models.SysmonMemoryResponse, error) {
+	query := fmt.Sprintf(`
+		SELECT timestamp, agent_id, host_id, used_bytes, total_bytes
+		FROM table(memory_metrics)
+		WHERE device_id = '%s' AND timestamp BETWEEN '%s' AND '%s'
+		ORDER BY timestamp DESC`,
+		deviceID, start.Format(time.RFC3339), end.Format(time.RFC3339))
+
+	rows, err := s.dbService.(*db.DB).Conn.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query memory metrics for device %s: %w", deviceID, err)
+	}
+	defer rows.Close()
+
+	var result []models.SysmonMemoryResponse
+
+	for rows.Next() {
+		var timestamp time.Time
+		var agentID, hostID string
+		var usedBytes, totalBytes uint64
+
+		if err := rows.Scan(&timestamp, &agentID, &hostID, &usedBytes, &totalBytes); err != nil {
+			log.Printf("Error scanning memory metric row for device %s: %v", deviceID, err)
+			continue
+		}
+
+		memory := models.MemoryMetric{
+			Timestamp:  timestamp,
+			AgentID:    agentID,
+			HostID:     hostID,
+			UsedBytes:  usedBytes,
+			TotalBytes: totalBytes,
+		}
+
+		result = append(result, models.SysmonMemoryResponse{
+			Memory:    memory,
+			Timestamp: timestamp,
+		})
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating memory metrics rows for device %s: %w", deviceID, err)
+	}
+
+	return result, nil
+}
+
+// getDiskMetricsForDevice queries disk metrics by device_id from disk_metrics table
+func (s *APIServer) getDiskMetricsForDevice(ctx context.Context, provider db.SysmonMetricsProvider, deviceID string, start, end time.Time) ([]models.SysmonDiskResponse, error) {
+	query := fmt.Sprintf(`
+		SELECT timestamp, agent_id, host_id, mount_point, used_bytes, total_bytes
+		FROM table(disk_metrics)
+		WHERE device_id = '%s' AND timestamp BETWEEN '%s' AND '%s'
+		ORDER BY timestamp DESC, mount_point ASC`,
+		deviceID, start.Format(time.RFC3339), end.Format(time.RFC3339))
+
+	rows, err := s.dbService.(*db.DB).Conn.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query disk metrics for device %s: %w", deviceID, err)
+	}
+	defer rows.Close()
+
+	data := make(map[time.Time][]models.DiskMetric)
+
+	for rows.Next() {
+		var timestamp time.Time
+		var agentID, hostID, mountPoint string
+		var usedBytes, totalBytes uint64
+
+		if err := rows.Scan(&timestamp, &agentID, &hostID, &mountPoint, &usedBytes, &totalBytes); err != nil {
+			log.Printf("Error scanning disk metric row for device %s: %v", deviceID, err)
+			continue
+		}
+
+		disk := models.DiskMetric{
+			Timestamp:  timestamp,
+			AgentID:    agentID,
+			HostID:     hostID,
+			MountPoint: mountPoint,
+			UsedBytes:  usedBytes,
+			TotalBytes: totalBytes,
+		}
+		data[timestamp] = append(data[timestamp], disk)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating disk metrics rows for device %s: %w", deviceID, err)
+	}
+
+	result := make([]models.SysmonDiskResponse, 0, len(data))
+	for ts, disks := range data {
+		result = append(result, models.SysmonDiskResponse{
+			Disks:     disks,
+			Timestamp: ts,
+		})
+	}
+
+	// Sort by timestamp descending
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Timestamp.After(result[j].Timestamp)
+	})
+
+	return result, nil
 }

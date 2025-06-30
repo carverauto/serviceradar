@@ -68,7 +68,7 @@ const SysmonStatusIndicator: React.FC<SysmonStatusIndicatorProps> = ({
                     const data = await response.json();
                     
                     if (data && data.length > 0) {
-                        const latestReading = data[data.length - 1];
+                        const latestReading = data[0]; // API returns data sorted by timestamp DESC, so first item is newest
                         const lastUpdate = new Date(latestReading.timestamp);
                         const now = new Date();
                         const diffMinutes = (now.getTime() - lastUpdate.getTime()) / (1000 * 60);
@@ -78,7 +78,7 @@ const SysmonStatusIndicator: React.FC<SysmonStatusIndicatorProps> = ({
                             setStatus({
                                 hasData: true,
                                 lastUpdate,
-                                cpuUsage: latestReading.value,
+                                cpuUsage: latestReading.cpus?.[0]?.usage_percent || 0, // Extract CPU usage from first core
                             });
                         } else {
                             setStatus({
