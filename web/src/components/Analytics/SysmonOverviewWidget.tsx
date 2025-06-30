@@ -63,6 +63,30 @@ const SysmonOverviewWidget: React.FC = () => {
         }
     }, [token]);
 
+    const fetchBulkSysmonStatus = useCallback(async (pollerIds: string[]) => {
+        try {
+            const response = await fetch('/api/devices/sysmon/status', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(token && { Authorization: `Bearer ${token}` }),
+                },
+                body: JSON.stringify({ deviceIds: pollerIds }),
+            });
+
+            if (!response.ok) {
+                console.error('Failed to fetch bulk sysmon status:', response.status);
+                return {};
+            }
+
+            const data = await response.json();
+            return data.statuses as Record<string, { hasMetrics: boolean; status: number; error?: string }>;
+        } catch (error) {
+            console.error('Error fetching bulk sysmon status:', error);
+            return {};
+        }
+    }, [token]);
+
     const fetchSysmonAgentInfo = useCallback(async (pollerId: string) => {
         try {
             // Use the dedicated sysmon API endpoints instead of the query API
@@ -166,12 +190,32 @@ const SysmonOverviewWidget: React.FC = () => {
 
             try {
                 const pollers = await fetchPollers();
+                const pollerIds = pollers.map((poller: { poller_id: string }) => poller.poller_id);
+                
+                // First, get bulk sysmon status to see which pollers have metrics
+                const sysmonStatuses = await fetchBulkSysmonStatus(pollerIds);
+                
+                // Then fetch detailed info only for pollers that have metrics
                 const agentPromises = pollers.map(async (poller: { poller_id: string }) => {
-                    // Now we only need to fetch from the unified sysmon metrics
-                    const agentInfo = await fetchSysmonAgentInfo(poller.poller_id);
+                    const pollerId = poller.poller_id;
+                    const hasMetrics = sysmonStatuses[pollerId]?.hasMetrics || false;
+                    
+                    if (!hasMetrics) {
+                        return {
+                            pollerId,
+                            deviceInfo: null,
+                            lastCpuReading: undefined,
+                            lastMemoryReading: undefined,
+                            lastUpdate: undefined,
+                            isActive: false
+                        };
+                    }
+                    
+                    // Only fetch detailed metrics for pollers that have sysmon data
+                    const agentInfo = await fetchSysmonAgentInfo(pollerId);
                     
                     return {
-                        pollerId: poller.poller_id,
+                        pollerId,
                         deviceInfo: agentInfo ? {
                             hostname: agentInfo.hostname,
                             ip: agentInfo.ip,
@@ -216,7 +260,7 @@ const SysmonOverviewWidget: React.FC = () => {
         };
 
         loadSysmonOverview();
-    }, [fetchPollers, fetchSysmonAgentInfo, token]);
+    }, [fetchPollers, fetchBulkSysmonStatus, fetchSysmonAgentInfo, token]);
 
     if (loading) {
         return (

@@ -26,6 +26,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/metrics"
 	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"github.com/carverauto/serviceradar/pkg/models"
+	srqlmodels "github.com/carverauto/serviceradar/pkg/srql/models"
 	"github.com/carverauto/serviceradar/pkg/srql/parser"
 	"github.com/gorilla/mux"
 )
@@ -82,4 +83,5 @@ type APIServer struct {
 	authService          auth.AuthService
 	corsConfig           models.CORSConfig
 	dbType               parser.DatabaseType
+	entityTableMap       map[srqlmodels.EntityType]string
 }
