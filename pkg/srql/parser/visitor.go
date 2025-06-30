@@ -503,35 +503,37 @@ func (*QueryVisitor) VisitValue(ctx *gen.ValueContext) interface{} {
 
 // Helper methods
 
+// getEntityTypeMapData returns a map of entity text to EntityType
+func getEntityTypeMapData() map[string]models.EntityType {
+	return map[string]models.EntityType{
+		"devices":        models.Devices,
+		"flows":          models.Flows,
+		"traps":          models.Traps,
+		"connections":    models.Connections,
+		"logs":           models.Logs,
+		"services":       models.Services,
+		"interfaces":     models.Interfaces,
+		"sweep_results":  models.SweepResults,
+		"icmp_results":   models.ICMPResults,
+		"snmp_results":   models.SNMPResults,
+		"events":         models.Events,
+		"pollers":        models.Pollers,
+		"cpu_metrics":    models.CPUMetrics,
+		"disk_metrics":   models.DiskMetrics,
+		"memory_metrics": models.MemoryMetrics,
+	}
+}
+
 func (*QueryVisitor) getEntityType(ctx *gen.EntityContext) models.EntityType {
 	entityText := strings.ToLower(ctx.GetText())
-	switch entityText {
-	case "devices":
-		return models.Devices
-	case "flows":
-		return models.Flows
-	case "traps":
-		return models.Traps
-	case "connections":
-		return models.Connections
-	case "logs":
-		return models.Logs
-	case "services":
-		return models.Services
-	case "interfaces":
-		return models.Interfaces
-	case "sweep_results":
-		return models.SweepResults
-	case "icmp_results":
-		return models.ICMPResults
-	case "snmp_results":
-		return models.SNMPResults
-	case "events":
-		return models.Events
-	case "pollers":
-		return models.Pollers
+
+	// Look up the entity type in the map
+	entityTypeMap := getEntityTypeMapData()
+	if entityType, exists := entityTypeMap[entityText]; exists {
+		return entityType
 	}
 
+	// Default case: return the text as the entity type
 	return models.EntityType(entityText)
 }
 

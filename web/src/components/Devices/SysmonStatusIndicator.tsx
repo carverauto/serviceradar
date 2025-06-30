@@ -25,6 +25,7 @@ interface SysmonStatusIndicatorProps {
     deviceId?: string;
     pollerId?: string; // Keep for backward compatibility
     compact?: boolean;
+    hasMetrics?: boolean; // Pre-fetched status from bulk API
 }
 
 interface SysmonStatus {
@@ -38,7 +39,8 @@ interface SysmonStatus {
 const SysmonStatusIndicator: React.FC<SysmonStatusIndicatorProps> = ({ 
     deviceId,
     pollerId, 
-    compact = false 
+    compact = false,
+    hasMetrics
 }) => {
     // Use deviceId if available, otherwise fall back to pollerId for backward compatibility
     const targetId = deviceId || pollerId;
@@ -49,53 +51,84 @@ const SysmonStatusIndicator: React.FC<SysmonStatusIndicatorProps> = ({
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
+        // If hasMetrics is provided, use that instead of making API call
+        if (hasMetrics !== undefined) {
+            setStatus({ hasData: hasMetrics });
+            setLoading(false);
+            return;
+        }
+
+        // Don't make individual API calls if we're in a context where bulk status should be available
+        // This prevents the N+1 query problem on the devices page
+        if (deviceId && hasMetrics === undefined) {
+            // When hasMetrics is undefined but we have a deviceId, it likely means
+            // the bulk status is still loading. Keep loading state.
+            setLoading(true);
+            return;
+        }
+
+        // If hasMetrics is explicitly false, don't make API call
+        if (deviceId && hasMetrics === false) {
+            setStatus({ hasData: false });
+            setLoading(false);
+            return;
+        }
+
         const checkSysmonStatus = async () => {
             setLoading(true);
             
             try {
-                // Determine API endpoint based on idType
-                const endpoint = idType === 'device' ? 'devices' : 'pollers';
-                
-                // Try to fetch recent CPU data to check if Sysmon is active
-                const response = await fetch(`/api/${endpoint}/${targetId}/sysmon/cpu?hours=1`, {
-                    headers: {
-                        'Content-Type': 'application/json',
-                        ...(token && { Authorization: `Bearer ${token}` })
-                    },
-                });
+                // Only allow individual API calls for pollers (backward compatibility) 
+                // or when explicitly needed (not in bulk context)
+                if (idType === 'poller') {
+                    // Try to fetch recent CPU data to check if Sysmon is active
+                    const response = await fetch(`/api/pollers/${targetId}/sysmon/cpu?hours=1`, {
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...(token && { Authorization: `Bearer ${token}` })
+                        },
+                    });
 
-                if (response.ok) {
-                    const data = await response.json();
-                    
-                    if (data && data.length > 0) {
-                        const latestReading = data[0]; // API returns data sorted by timestamp DESC, so first item is newest
-                        const lastUpdate = new Date(latestReading.timestamp);
-                        const now = new Date();
-                        const diffMinutes = (now.getTime() - lastUpdate.getTime()) / (1000 * 60);
+                    if (response.ok) {
+                        const data = await response.json();
                         
-                        // Consider data stale if older than 10 minutes
-                        if (diffMinutes < 10) {
-                            setStatus({
-                                hasData: true,
-                                lastUpdate,
-                                cpuUsage: latestReading.cpus?.[0]?.usage_percent || 0, // Extract CPU usage from first core
-                            });
+                        if (data && data.length > 0) {
+                            const latestReading = data[0]; // API returns data sorted by timestamp DESC, so first item is newest
+                            const lastUpdate = new Date(latestReading.timestamp);
+                            const now = new Date();
+                            const diffMinutes = (now.getTime() - lastUpdate.getTime()) / (1000 * 60);
+                            
+                            // Consider data stale if older than 10 minutes
+                            if (diffMinutes < 10) {
+                                setStatus({
+                                    hasData: true,
+                                    lastUpdate,
+                                    cpuUsage: latestReading.cpus?.[0]?.usage_percent || 0, // Extract CPU usage from first core
+                                });
+                            } else {
+                                setStatus({
+                                    hasData: false,
+                                    error: 'Data is stale (>10min old)'
+                                });
+                            }
                         } else {
                             setStatus({
                                 hasData: false,
-                                error: 'Data is stale (>10min old)'
+                                error: 'No recent data'
                             });
                         }
                     } else {
                         setStatus({
                             hasData: false,
-                            error: 'No recent data'
+                            error: 'API error'
                         });
                     }
                 } else {
+                    // For devices, we should not make individual API calls
+                    // This prevents the N+1 query problem
                     setStatus({
                         hasData: false,
-                        error: 'API error'
+                        error: 'Use bulk status endpoint'
                     });
                 }
             } catch {
@@ -111,7 +144,7 @@ const SysmonStatusIndicator: React.FC<SysmonStatusIndicatorProps> = ({
         if (targetId) {
             checkSysmonStatus();
         }
-    }, [targetId, idType, token]);
+    }, [targetId, idType, token, hasMetrics, deviceId]);
 
     if (loading) {
         return compact ? (
