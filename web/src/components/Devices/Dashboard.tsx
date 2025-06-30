@@ -20,7 +20,6 @@ import { Device, Pagination, DevicesApiResponse } from '@/types/devices';
 import {Server, Search, Loader2, AlertTriangle, CheckCircle, XCircle} from 'lucide-react';
 import DeviceTable from './DeviceTable';
 import { useDebounce } from 'use-debounce';
-import Link from 'next/link';
 type SortableKeys = 'ip' | 'hostname' | 'last_seen' | 'first_seen' | 'poller_id';
 const StatCard = ({ title, value, icon, isLoading }: { title: string; value: string | number; icon: React.ReactNode; isLoading: boolean }) => (
     <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 p-4 rounded-lg">

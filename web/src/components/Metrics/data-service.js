@@ -16,7 +16,7 @@
 
 // src/components/Metrics/data-service.js - Add getCombinedChartData function
 
-import { fetchFromAPI } from '@/lib/api';
+import { fetchAPI } from '@/lib/client-api';
 
 // Cache store for metrics data
 const metricsCache = new Map();
@@ -64,19 +64,19 @@ export const fetchSystemData = async (targetId, timeRange = '1h', idType = 'poll
         console.log(`Fetching Sysmon data for ${idType} ${targetId} with params: ${queryParams}`);
 
         // Improved error handling with individual try/catch blocks for each API call
-        const cpuPromise = fetchWithTimeout(`/${endpoint}/${targetId}/sysmon/cpu${queryParams}`, 5000)
+        const cpuPromise = fetchWithTimeout(`/api/${endpoint}/${targetId}/sysmon/cpu${queryParams}`, 5000)
             .catch(err => {
                 console.warn(`CPU metrics failed: ${err.message}`);
                 return null;
             });
 
-        const diskPromise = fetchWithTimeout(`/${endpoint}/${targetId}/sysmon/disk${queryParams}`, 5000)
+        const diskPromise = fetchWithTimeout(`/api/${endpoint}/${targetId}/sysmon/disk${queryParams}`, 5000)
             .catch(err => {
                 console.warn(`Disk metrics failed: ${err.message}`);
                 return null;
             });
 
-        const memoryPromise = fetchWithTimeout(`/${endpoint}/${targetId}/sysmon/memory${queryParams}`, 5000)
+        const memoryPromise = fetchWithTimeout(`/api/${endpoint}/${targetId}/sysmon/memory${queryParams}`, 5000)
             .catch(err => {
                 console.warn(`Memory metrics failed: ${err.message}`);
                 return null;
@@ -315,7 +315,7 @@ const fetchWithTimeout = async (url, timeout = 8000) => {
             console.log(`[Fetching] Making API request: ${url}`);
             
             // First try to get from API
-            const apiPromise = fetchFromAPI(url);
+            const apiPromise = fetchAPI(url);
 
             // Set up timeout
             const timeoutPromise = new Promise((_, reject) => {
