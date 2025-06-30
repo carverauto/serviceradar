@@ -370,6 +370,12 @@ func (s *APIServer) setupProtectedRoutes() {
 	protected.HandleFunc("/pollers/{id}/sysmon/cpu", s.getSysmonCPUMetrics).Methods("GET")
 	protected.HandleFunc("/pollers/{id}/sysmon/disk", s.getSysmonDiskMetrics).Methods("GET")
 	protected.HandleFunc("/pollers/{id}/sysmon/memory", s.getSysmonMemoryMetrics).Methods("GET")
+	
+	// Device-centric sysmon endpoints
+	protected.HandleFunc("/devices/{id}/sysmon/cpu", s.getDeviceSysmonCPUMetrics).Methods("GET")
+	protected.HandleFunc("/devices/{id}/sysmon/disk", s.getDeviceSysmonDiskMetrics).Methods("GET")
+	protected.HandleFunc("/devices/{id}/sysmon/memory", s.getDeviceSysmonMemoryMetrics).Methods("GET")
+	
 	protected.HandleFunc("/query", s.handleSRQLQuery).Methods("POST")
 
 	// Device-centric endpoints
@@ -777,10 +783,21 @@ func writeJSONResponse(w http.ResponseWriter, data interface{}, pollerID string)
 func parseTimeRange(query url.Values) (start, end time.Time, err error) {
 	startStr := query.Get("start")
 	endStr := query.Get("end")
+	hoursStr := query.Get("hours")
 
 	// Default to last 24 hours if not specified
 	start = time.Now().Add(-24 * time.Hour)
 	end = time.Now()
+
+	// If hours parameter is provided, use it instead of defaults
+	if hoursStr != "" {
+		hours, err := strconv.Atoi(hoursStr)
+		if err != nil {
+			return time.Time{}, time.Time{}, fmt.Errorf("invalid hours parameter: %w", err)
+		}
+		end = time.Now()
+		start = end.Add(-time.Duration(hours) * time.Hour)
+	}
 
 	if startStr != "" {
 		t, err := time.Parse(time.RFC3339, startStr)

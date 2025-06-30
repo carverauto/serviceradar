@@ -20,6 +20,7 @@ import React, { useState, Fragment } from 'react';
 import { CheckCircle, XCircle, ChevronDown, ChevronRight, ArrowUp, ArrowDown } from 'lucide-react';
 import ReactJson from '@microlink/react-json-view';
 import { Device } from '@/types/devices';
+import SysmonStatusIndicator from './SysmonStatusIndicator';
 
 type SortableKeys = 'ip' | 'hostname' | 'last_seen' | 'first_seen' | 'poller_id';
 
@@ -111,10 +112,16 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
                                     </button>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
-                                    {device.is_available ? 
-                                        <CheckCircle className="h-5 w-5 text-green-500" /> : 
-                                        <XCircle className="h-5 w-5 text-red-500" />
-                                    }
+                                    <div className="flex items-center gap-2">
+                                        {device.is_available ? 
+                                            <CheckCircle className="h-5 w-5 text-green-500" /> : 
+                                            <XCircle className="h-5 w-5 text-red-500" />
+                                        }
+                                        <SysmonStatusIndicator 
+                                            deviceId={device.device_id} 
+                                            compact={true}
+                                        />
+                                    </div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
                                     <div className="text-sm font-medium text-white">
