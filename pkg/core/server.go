@@ -1105,6 +1105,9 @@ func (s *Server) processSysmonMetrics(pollerID, partition, agentID string, detai
 		}
 	}
 
+	// Create device_id for logging and device registration
+	deviceID := fmt.Sprintf("%s:%s", partition, sysmonPayload.Status.HostIP)
+
 	s.bufferMu.Lock()
 	s.sysmonBuffers[pollerID] = append(s.sysmonBuffers[pollerID], &sysmonMetricBuffer{
 		Metrics:   m,
@@ -1112,8 +1115,8 @@ func (s *Server) processSysmonMetrics(pollerID, partition, agentID string, detai
 	})
 	s.bufferMu.Unlock()
 
-	log.Printf("Parsed %d CPU metrics for poller %s with timestamp %s",
-		len(sysmonPayload.Status.CPUs), pollerID, sysmonPayload.Status.Timestamp)
+	log.Printf("Parsed %d CPU metrics for poller %s (device_id: %s, host_ip: %s, partition: %s) with timestamp %s",
+		len(sysmonPayload.Status.CPUs), pollerID, deviceID, sysmonPayload.Status.HostIP, partition, sysmonPayload.Status.Timestamp)
 
 	// Create device record automatically if we have host IP
 	if sysmonPayload.Status.HostIP != "" && sysmonPayload.Status.HostIP != "unknown" {
@@ -1134,9 +1137,9 @@ func (s *Server) processSysmonMetrics(pollerID, partition, agentID string, detai
 
 		// Store the sweep result to automatically create device record
 		if err := s.DB.StoreSweepResults(context.Background(), []*models.SweepResult{sweepResult}); err != nil {
-			log.Printf("Warning: Failed to create device record for sysmon host %s: %v", sysmonPayload.Status.HostIP, err)
+			log.Printf("Warning: Failed to create device record for sysmon device %s: %v", deviceID, err)
 		} else {
-			log.Printf("Created/updated device record for sysmon host %s (hostname: %s)", sysmonPayload.Status.HostIP, sysmonPayload.Status.HostID)
+			log.Printf("Created/updated device record for sysmon device %s (hostname: %s, ip: %s)", deviceID, sysmonPayload.Status.HostID, sysmonPayload.Status.HostIP)
 		}
 	}
 
