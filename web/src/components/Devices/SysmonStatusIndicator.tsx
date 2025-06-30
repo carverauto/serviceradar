@@ -18,11 +18,12 @@
 
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/components/AuthProvider';
-import { Activity, ExternalLink, AlertCircle } from 'lucide-react';
+import { Activity, ExternalLink, AlertCircle, BarChart3 } from 'lucide-react';
 import Link from 'next/link';
 
 interface SysmonStatusIndicatorProps {
-    pollerId: string;
+    deviceId?: string;
+    pollerId?: string; // Keep for backward compatibility
     compact?: boolean;
 }
 
@@ -35,9 +36,14 @@ interface SysmonStatus {
 }
 
 const SysmonStatusIndicator: React.FC<SysmonStatusIndicatorProps> = ({ 
+    deviceId,
     pollerId, 
     compact = false 
 }) => {
+    // Use deviceId if available, otherwise fall back to pollerId for backward compatibility
+    const targetId = deviceId || pollerId;
+    const idType = deviceId ? 'device' : 'poller';
+    
     const { token } = useAuth();
     const [status, setStatus] = useState<SysmonStatus>({ hasData: false });
     const [loading, setLoading] = useState(true);
@@ -47,8 +53,11 @@ const SysmonStatusIndicator: React.FC<SysmonStatusIndicatorProps> = ({
             setLoading(true);
             
             try {
+                // Determine API endpoint based on idType
+                const endpoint = idType === 'device' ? 'devices' : 'pollers';
+                
                 // Try to fetch recent CPU data to check if Sysmon is active
-                const response = await fetch(`/api/pollers/${pollerId}/sysmon/cpu?hours=1`, {
+                const response = await fetch(`/api/${endpoint}/${targetId}/sysmon/cpu?hours=1`, {
                     headers: {
                         'Content-Type': 'application/json',
                         ...(token && { Authorization: `Bearer ${token}` })
@@ -59,7 +68,7 @@ const SysmonStatusIndicator: React.FC<SysmonStatusIndicatorProps> = ({
                     const data = await response.json();
                     
                     if (data && data.length > 0) {
-                        const latestReading = data[data.length - 1];
+                        const latestReading = data[0]; // API returns data sorted by timestamp DESC, so first item is newest
                         const lastUpdate = new Date(latestReading.timestamp);
                         const now = new Date();
                         const diffMinutes = (now.getTime() - lastUpdate.getTime()) / (1000 * 60);
@@ -69,7 +78,7 @@ const SysmonStatusIndicator: React.FC<SysmonStatusIndicatorProps> = ({
                             setStatus({
                                 hasData: true,
                                 lastUpdate,
-                                cpuUsage: latestReading.value,
+                                cpuUsage: latestReading.cpus?.[0]?.usage_percent || 0, // Extract CPU usage from first core
                             });
                         } else {
                             setStatus({
@@ -99,10 +108,10 @@ const SysmonStatusIndicator: React.FC<SysmonStatusIndicatorProps> = ({
             }
         };
 
-        if (pollerId) {
+        if (targetId) {
             checkSysmonStatus();
         }
-    }, [pollerId, token]);
+    }, [targetId, idType, token]);
 
     if (loading) {
         return compact ? (
@@ -127,21 +136,25 @@ const SysmonStatusIndicator: React.FC<SysmonStatusIndicatorProps> = ({
 
     const getTooltipText = () => {
         if (status.hasData) {
-            return `Sysmon active - Last update: ${status.lastUpdate?.toLocaleTimeString()}`;
+            return `View system metrics - Last update: ${status.lastUpdate?.toLocaleTimeString()}`;
         }
-        return `Sysmon inactive${status.error ? ` - ${status.error}` : ''}`;
+        return `No system metrics available${status.error ? ` - ${status.error}` : ''}`;
     };
 
     if (compact) {
+        // Only render in compact mode if there's actual sysmon data
+        if (!status.hasData) {
+            return null;
+        }
+        
         return (
-            <div title={getTooltipText()}>
-                {status.hasData ? (
-                    <Link href={`/metrics?pollerId=${pollerId}`} className="inline-block">
-                        {getStatusIcon()}
-                    </Link>
-                ) : (
-                    getStatusIcon()
-                )}
+            <div title={getTooltipText()} className="flex items-center justify-center">
+                <Link 
+                    href={`/metrics?${idType === 'device' ? 'deviceId' : 'pollerId'}=${targetId}`} 
+                    className="inline-flex items-center justify-center p-1 rounded hover:bg-gray-700/50 transition-colors"
+                >
+                    <BarChart3 className="h-4 w-4 text-green-500" />
+                </Link>
             </div>
         );
     }
@@ -160,7 +173,7 @@ const SysmonStatusIndicator: React.FC<SysmonStatusIndicatorProps> = ({
                 )}
                 {status.hasData && (
                     <Link 
-                        href={`/metrics?pollerId=${pollerId}`}
+                        href={`/metrics?${idType === 'device' ? 'deviceId' : 'pollerId'}=${targetId}`}
                         className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 flex items-center space-x-1 mt-1"
                     >
                         <span>View Metrics</span>

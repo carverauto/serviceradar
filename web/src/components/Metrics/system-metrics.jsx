@@ -32,7 +32,10 @@ import {
     FilesystemDetails,
 } from './metric-components';
 
-const SystemMetrics = ({ pollerId, initialData = null }) => {
+const SystemMetrics = ({ pollerId, targetId, idType = 'poller', initialData = null }) => {
+    // Use targetId if available, otherwise fall back to pollerId for backward compatibility
+    const actualId = targetId || pollerId;
+    const actualIdType = targetId ? idType : 'poller';
     const [data, setData] = useState(initialData);
     const [loading, setLoading] = useState(!initialData);
     const [error, setError] = useState(null);
@@ -46,7 +49,7 @@ const SystemMetrics = ({ pollerId, initialData = null }) => {
             const loadData = async () => {
                 try {
                     setLoading(true);
-                    const result = await fetchSystemData(pollerId, timeRange);
+                    const result = await fetchSystemData(actualId, timeRange, actualIdType);
                     setData(result);
                     setLastUpdated(new Date());
                     setError(null);
@@ -66,12 +69,12 @@ const SystemMetrics = ({ pollerId, initialData = null }) => {
         }, 30000);
 
         return () => clearInterval(intervalId);
-    }, [pollerId, timeRange, initialData]);
+    }, [actualId, actualIdType, timeRange, initialData]);
 
     const handleRefresh = async () => {
         try {
             setRefreshing(true);
-            const result = await fetchSystemData(pollerId, timeRange);
+            const result = await fetchSystemData(actualId, timeRange, actualIdType);
             setData(result);
             setLastUpdated(new Date());
             setError(null);
@@ -100,7 +103,7 @@ const SystemMetrics = ({ pollerId, initialData = null }) => {
     if (!data) {
         return (
             <EmptyState
-                message="No system metrics data available for this poller."
+                message={`No system metrics data available for this ${actualIdType}.`}
                 onAction={handleRefresh}
                 actionLabel="Refresh"
             />
@@ -117,7 +120,7 @@ const SystemMetrics = ({ pollerId, initialData = null }) => {
 
                     <div className="flex items-center">
                         <div className="text-sm text-gray-600 dark:text-gray-400 mr-4">
-                            <span className="mr-2">Poller: {pollerId}</span>
+                            <span className="mr-2">{actualIdType === 'device' ? 'Device' : 'Poller'}: {actualId}</span>
                             {lastUpdated && (
                                 <span>Updated: {lastUpdated.toLocaleTimeString()}</span>
                             )}

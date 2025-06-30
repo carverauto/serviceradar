@@ -1,0 +1,7 @@
+-- =================================================================
+-- == Device-Centric Fields Migration (No longer needed)
+-- =================================================================
+-- This migration is no longer needed as the device_id and partition fields
+-- are now included in the initial schema (migration 00000000000001).
+-- 
+-- This file is kept for reference but contains no operations.

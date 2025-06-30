@@ -22,7 +22,9 @@ import { Server, MapPin, Clock, ExternalLink } from 'lucide-react';
 import Link from 'next/link';
 
 interface DeviceAttributionBannerProps {
-    pollerId: string;
+    pollerId?: string; // Keep for backward compatibility
+    deviceId?: string;
+    idType?: 'device' | 'poller';
 }
 
 interface SysmonAgent {
@@ -33,7 +35,14 @@ interface SysmonAgent {
     memoryTotal?: number;
 }
 
-const DeviceAttributionBanner: React.FC<DeviceAttributionBannerProps> = ({ pollerId }) => {
+const DeviceAttributionBanner: React.FC<DeviceAttributionBannerProps> = ({ 
+    pollerId, 
+    deviceId, 
+    idType = 'poller' 
+}) => {
+    // Use deviceId if available, otherwise fall back to pollerId for backward compatibility
+    const targetId = deviceId || pollerId;
+    const actualIdType = deviceId ? idType : 'poller';
     const { token } = useAuth();
     const [agent, setAgent] = useState<SysmonAgent | null>(null);
     const [loading, setLoading] = useState(true);
@@ -45,8 +54,11 @@ const DeviceAttributionBanner: React.FC<DeviceAttributionBannerProps> = ({ polle
             setError(null);
             
             try {
+                // Determine API endpoint based on idType
+                const endpoint = actualIdType === 'device' ? 'devices' : 'pollers';
+                
                 // Get recent CPU metrics to extract agent and host identification
-                const cpuResponse = await fetch(`/api/pollers/${pollerId}/sysmon/cpu?hours=1`, {
+                const cpuResponse = await fetch(`/api/${endpoint}/${targetId}/sysmon/cpu?hours=1`, {
                     headers: {
                         'Content-Type': 'application/json',
                         ...(token && { Authorization: `Bearer ${token}` })
@@ -65,7 +77,7 @@ const DeviceAttributionBanner: React.FC<DeviceAttributionBannerProps> = ({ polle
                     
                     if (firstMetric.agent_id) {
                         // Get memory data to show additional info
-                        const memoryResponse = await fetch(`/api/pollers/${pollerId}/sysmon/memory?hours=1`, {
+                        const memoryResponse = await fetch(`/api/${endpoint}/${targetId}/sysmon/memory?hours=1`, {
                             headers: {
                                 'Content-Type': 'application/json',
                                 ...(token && { Authorization: `Bearer ${token}` })
@@ -91,7 +103,7 @@ const DeviceAttributionBanner: React.FC<DeviceAttributionBannerProps> = ({ polle
                         throw new Error('No agent_id found in sysmon metrics - backend may not be updated');
                     }
                 } else {
-                    throw new Error('No sysmon metrics found for this poller');
+                    throw new Error(`No sysmon metrics found for this ${actualIdType}`);
                 }
             } catch (err) {
                 setError(err instanceof Error ? err.message : 'Unknown error');
@@ -100,10 +112,10 @@ const DeviceAttributionBanner: React.FC<DeviceAttributionBannerProps> = ({ polle
             }
         };
 
-        if (pollerId) {
+        if (targetId) {
             fetchSysmonAgentInfo();
         }
-    }, [pollerId, token]);
+    }, [targetId, actualIdType, token]);
 
     const formatLastSeen = (dateString: string) => {
         try {
@@ -144,10 +156,10 @@ const DeviceAttributionBanner: React.FC<DeviceAttributionBannerProps> = ({ polle
                             Sysmon Metrics (No recent data)
                         </p>
                         <p className="text-xs text-yellow-600 dark:text-yellow-400">
-                            {error || 'No recent sysmon metrics found for this poller'}
+                            {error || `No recent sysmon metrics found for this ${actualIdType}`}
                         </p>
                         <p className="text-xs text-yellow-600 dark:text-yellow-400">
-                            Poller: {pollerId}
+                            {actualIdType === 'device' ? 'Device' : 'Poller'}: {targetId}
                         </p>
                     </div>
                 </div>

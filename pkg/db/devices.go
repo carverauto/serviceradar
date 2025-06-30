@@ -19,13 +19,13 @@ var (
 
 // GetDevicesByIP retrieves devices with a specific IP address.
 func (db *DB) GetDevicesByIP(ctx context.Context, ip string) ([]*models.Device, error) {
-	query := `SELECT
+	query := fmt.Sprintf(`SELECT
         device_id, agent_id, poller_id, discovery_sources, ip, mac, hostname,
         first_seen, last_seen, is_available, metadata
     FROM table(unified_devices)
-    WHERE ip = ?`
+    WHERE ip = '%s'`, ip)
 
-	rows, err := db.Conn.Query(ctx, query, ip)
+	rows, err := db.Conn.Query(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errFailedToQueryDevice, err)
 	}
@@ -73,14 +73,14 @@ func (db *DB) GetDevicesByIP(ctx context.Context, ip string) ([]*models.Device, 
 
 // GetDeviceByID retrieves a device by its ID.
 func (db *DB) GetDeviceByID(ctx context.Context, deviceID string) (*models.Device, error) {
-	query := `SELECT
+	query := fmt.Sprintf(`SELECT
         device_id, agent_id, poller_id, discovery_sources, ip, mac, hostname,
         first_seen, last_seen, is_available, metadata
     FROM table(unified_devices)
-    WHERE device_id = ?
-    LIMIT 1`
+    WHERE device_id = '%s'
+    LIMIT 1`, deviceID)
 
-	rows, err := db.Conn.Query(ctx, query, deviceID)
+	rows, err := db.Conn.Query(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errFailedToQueryDevice, err)
 	}

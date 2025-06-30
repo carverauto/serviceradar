@@ -54,6 +54,7 @@ pub struct Config {
     pub poll_interval: u64, // seconds
     pub zfs: Option<ZfsConfig>,
     pub filesystems: Vec<FilesystemConfig>,
+    pub partition: Option<String>, // Partition identifier for device-centric model
 }
 
 impl Config {

@@ -77,6 +77,7 @@ type APIServer struct {
 	snmpManager          metricstore.SNMPManager
 	rperfManager         metricstore.RperfManager
 	queryExecutor        db.QueryExecutor
+	dbService            db.Service
 	knownPollers         []string
 	authService          auth.AuthService
 	corsConfig           models.CORSConfig
