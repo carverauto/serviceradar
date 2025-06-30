@@ -132,15 +132,15 @@ async fn main() -> Result<()> {
 
 fn build_message(pdu: &snmp2::Pdu<'_>, addr: SocketAddr) -> TrapMessage {
     let version = match pdu.version() {
-        Ok(v) => format!("{:?}", v),
+        Ok(v) => format!("{v:?}"),
         Err(_) => "unknown".to_string(),
     };
     let community = String::from_utf8_lossy(pdu.community).into_owned();
     let mut varbinds = Vec::new();
     for (oid, value) in pdu.varbinds.clone() {
         varbinds.push(Varbind {
-            oid: format!("{}", oid),
-            value: format!("{:?}", value),
+            oid: format!("{oid}"),
+            value: format!("{value:?}"),
         });
     }
     TrapMessage {

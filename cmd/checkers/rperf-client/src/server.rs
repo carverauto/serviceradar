@@ -71,7 +71,7 @@ impl RPerfTestOrchestrator {
         let addr: SocketAddr = self.config.listen_addr.parse()
             .context("Failed to parse listen address")?;
 
-        info!("Starting gRPC test orchestrator on {}", addr);
+        info!("Starting gRPC test orchestrator on {addr}");
 
         let pollers = self.target_pollers.clone();
         let poller_handle = tokio::spawn(async move {
@@ -136,7 +136,7 @@ impl RPerfTestOrchestrator {
                 let tls_config = tonic::transport::ServerTlsConfig::new()
                     .identity(identity)
                     .client_ca_root(ca);
-                debug!("TLS config created: {:?}", tls_config);
+                debug!("TLS config created: {tls_config:?}");
                 server_builder = server_builder.tls_config(tls_config)?;
                 info!("TLS configured with mTLS enabled");
             }
@@ -152,9 +152,9 @@ impl RPerfTestOrchestrator {
                 .serve(addr)
                 .await
                 .context("gRPC server error");
-            debug!("Service registration completed: {:?}", result);
+            debug!("Service registration completed: {result:?}");
             result?;
-            info!("gRPC server started successfully on {}", addr);
+            info!("gRPC server started successfully on {addr}");
             Ok::<(), anyhow::Error>(())
         });
 
@@ -200,10 +200,10 @@ impl RPerfService for RPerfServiceImpl {
                 Ok(Response::new(response))
             }
             Err(e) => {
-                error!("Error running test: {}", e);
+                error!("Error running test: {e}");
                 Ok(Response::new(TestResponse {
                     success: false,
-                    error: format!("Internal server error: {}", e),
+                    error: format!("Internal server error: {e}"),
                     results_json: String::new(),
                     summary: None,
                 }))
@@ -279,7 +279,7 @@ impl RPerfService for RPerfServiceImpl {
         });
 
         let message_bytes = serde_json::to_vec(&outer_data).unwrap_or_else(|e| {
-            error!("Failed to serialize test results: {}", e);
+            error!("Failed to serialize test results: {e}");
             serde_json::to_vec(&serde_json::json!({
                 "error": "Failed to serialize test results",
                 "response_time": start_time.elapsed().as_nanos() as i64,
@@ -370,7 +370,7 @@ impl AgentService for RPerfServiceImpl {
         });
 
         let message_bytes = serde_json::to_vec(&outer_data).unwrap_or_else(|e| {
-            error!("Failed to serialize test results: {}", e);
+            error!("Failed to serialize test results: {e}");
             serde_json::to_vec(&serde_json::json!({
                 "error": "Failed to serialize test results",
                 "response_time": start_time.elapsed().as_nanos() as i64,

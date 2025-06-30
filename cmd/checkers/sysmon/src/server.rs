@@ -52,7 +52,7 @@ impl SysmonService {
     pub async fn start(&self, config: Arc<Config>) -> Result<ServerHandle> {
         let addr: SocketAddr = config.listen_addr.parse()
             .context("Failed to parse listen address")?;
-        info!("Starting gRPC sysmon service on {}", addr);
+        info!("Starting gRPC sysmon service on {addr}");
         debug!("Server config: TLS={:?}", config.security);
 
         // Start periodic metrics collection
@@ -69,7 +69,7 @@ impl SysmonService {
                         debug!("Periodic collection successful: timestamp={}", metrics.timestamp);
                     }
                     Err(e) => {
-                        error!("Periodic collection failed: {}", e);
+                        error!("Periodic collection failed: {e}");
                     }
                 }
             }
@@ -169,8 +169,8 @@ impl AgentService for SysmonService {
 
         // Serialize the outer_data to bytes
         let message_bytes = serde_json::to_vec(&outer_data).map_err(|e| {
-            error!("Failed to serialize outer data to bytes: {}", e);
-            Status::internal(format!("Failed to serialize outer data: {}", e))
+            error!("Failed to serialize outer data to bytes: {e}");
+            Status::internal(format!("Failed to serialize outer data: {e}"))
         })?;
 
         let response_time_ns = start_time.elapsed().as_nanos() as i64;
