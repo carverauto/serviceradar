@@ -55,6 +55,7 @@ pub struct MetricSample {
     pub timestamp: String,
     pub host_id: String,
     pub host_ip: String,
+    pub partition: Option<String>,
     pub cpus: Vec<CpuMetric>,
     pub disks: Vec<DiskMetric>,
     pub memory: MemoryMetric,
@@ -64,6 +65,7 @@ pub struct MetricSample {
 pub struct MetricsCollector {
     host_id: String,
     host_ip: String,
+    partition: Option<String>,
     filesystems: Vec<String>,
     #[cfg(feature = "zfs")]
     zfs_pools: Vec<String>,
@@ -74,14 +76,14 @@ pub struct MetricsCollector {
 }
 
 impl MetricsCollector {
-    pub fn new(host_id: String, filesystems: Vec<String>, zfs_pools: Vec<String>, zfs_datasets: bool) -> Self {
+    pub fn new(host_id: String, partition: Option<String>, filesystems: Vec<String>, zfs_pools: Vec<String>, zfs_datasets: bool) -> Self {
         let host_ip = Self::get_local_ip().unwrap_or_else(|| {
             warn!("Failed to determine local IP address, using 'unknown'");
             "unknown".to_string()
         });
         
-        debug!("Creating MetricsCollector: host_id={}, host_ip={}, filesystems={:?}, zfs_pools={:?}, zfs_datasets={}",
-            host_id, host_ip, filesystems, zfs_pools, zfs_datasets);
+        debug!("Creating MetricsCollector: host_id={}, host_ip={}, partition={:?}, filesystems={:?}, zfs_pools={:?}, zfs_datasets={}",
+            host_id, host_ip, partition, filesystems, zfs_pools, zfs_datasets);
         let mut system = System::new_all();
         system.refresh_cpu_specifics(CpuRefreshKind::everything()); // Initial CPU refresh
         system.refresh_memory(); // Initial memory refresh
@@ -89,6 +91,7 @@ impl MetricsCollector {
         Self {
             host_id,
             host_ip,
+            partition,
             filesystems,
             #[cfg(feature = "zfs")]
             zfs_pools,
@@ -313,6 +316,7 @@ impl MetricsCollector {
             timestamp,
             host_id: self.host_id.clone(),
             host_ip: self.host_ip.clone(),
+            partition: self.partition.clone(),
             cpus,
             disks,
             memory,

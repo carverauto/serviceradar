@@ -116,6 +116,10 @@ type SysmonMetricData struct {
 	Timestamp string `json:"timestamp" example:"2025-04-24T14:15:22Z"`
 	// Unique identifier for the host
 	HostID string `json:"host_id" example:"server-east-1"`
+	// IP address of the host
+	HostIP string `json:"host_ip" example:"192.168.1.100"`
+	// Partition identifier for device-centric model (optional)
+	Partition *string `json:"partition,omitempty" example:"demo-staging"`
 	// CPU metrics for each core
 	CPUs []struct {
 		// ID number of the CPU core

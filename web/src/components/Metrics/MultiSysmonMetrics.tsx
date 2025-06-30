@@ -33,11 +33,33 @@ interface SysmonService {
 }
 
 interface MultiSysmonMetricsProps {
-    pollerId: string;
+    deviceId?: string;
+    pollerId?: string; // Keep for backward compatibility
+    idType?: 'device' | 'poller';
     preselectedAgentId?: string | null;
 }
 
-const MultiSysmonMetrics: React.FC<MultiSysmonMetricsProps> = ({ pollerId, preselectedAgentId }) => {
+const MultiSysmonMetrics: React.FC<MultiSysmonMetricsProps> = ({ 
+    deviceId, 
+    pollerId, 
+    idType = 'device', 
+    preselectedAgentId 
+}) => {
+    // Use deviceId if available, otherwise fall back to pollerId for backward compatibility
+    const targetId = deviceId || pollerId;
+    
+    if (!targetId) {
+        return (
+            <div className="p-8 text-center">
+                <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-2">
+                    Missing ID
+                </h2>
+                <p className="text-gray-600 dark:text-gray-400">
+                    Please provide a deviceId or pollerId to view metrics.
+                </p>
+            </div>
+        );
+    }
     const { token } = useAuth();
     const [sysmonServices, setSysmonServices] = useState<SysmonService[]>([]);
     const [loading, setLoading] = useState(true);
@@ -56,15 +78,18 @@ const MultiSysmonMetrics: React.FC<MultiSysmonMetricsProps> = ({ pollerId, prese
                 const start = new Date(end.getTime() - 60 * 60 * 1000); // Last hour
                 const queryParams = `?start=${encodeURIComponent(start.toISOString())}&end=${encodeURIComponent(end.toISOString())}`;
                 
+                // Determine API endpoint based on idType
+                const endpoint = idType === 'device' ? 'devices' : 'pollers';
+                
                 // Test if any sysmon data is available
                 const [cpuResponse, memoryResponse] = await Promise.all([
-                    fetch(`/api/pollers/${pollerId}/sysmon/cpu${queryParams}`, {
+                    fetch(`/api/${endpoint}/${targetId}/sysmon/cpu${queryParams}`, {
                         headers: {
                             'Content-Type': 'application/json',
                             ...(token && { Authorization: `Bearer ${token}` })
                         },
                     }).catch(() => null),
-                    fetch(`/api/pollers/${pollerId}/sysmon/memory${queryParams}`, {
+                    fetch(`/api/${endpoint}/${targetId}/sysmon/memory${queryParams}`, {
                         headers: {
                             'Content-Type': 'application/json',
                             ...(token && { Authorization: `Bearer ${token}` })
@@ -80,7 +105,7 @@ const MultiSysmonMetrics: React.FC<MultiSysmonMetricsProps> = ({ pollerId, prese
                     // Create a virtual sysmon service since the data is available
                     const virtualSysmonService: SysmonService = {
                         agent_id: preselectedAgentId || 'default-agent',
-                        poller_id: pollerId,
+                        poller_id: targetId,
                         name: 'sysmon',
                         available: true,
                         type: 'sysmon',
@@ -102,10 +127,10 @@ const MultiSysmonMetrics: React.FC<MultiSysmonMetricsProps> = ({ pollerId, prese
             }
         };
 
-        if (pollerId) {
+        if (targetId) {
             checkSysmonAvailability();
         }
-    }, [pollerId, token, preselectedAgentId]);
+    }, [targetId, idType, token, preselectedAgentId]);
 
     if (loading) {
         return <LoadingState message="Loading sysmon services..." />;
@@ -133,7 +158,7 @@ const MultiSysmonMetrics: React.FC<MultiSysmonMetricsProps> = ({ pollerId, prese
 
     // If only one sysmon service, show it directly
     if (sysmonServices.length === 1) {
-        return <SystemMetrics pollerId={pollerId} />;
+        return <SystemMetrics targetId={targetId} idType={idType} />;
     }
 
     return (
@@ -143,7 +168,7 @@ const MultiSysmonMetrics: React.FC<MultiSysmonMetricsProps> = ({ pollerId, prese
                 <div className="flex items-center space-x-3 mb-4">
                     <Server className="h-5 w-5 text-gray-600 dark:text-gray-400" />
                     <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">
-                        Sysmon Instances for {pollerId}
+                        Sysmon Instances for {targetId}
                     </h2>
                 </div>
                 
@@ -190,7 +215,7 @@ const MultiSysmonMetrics: React.FC<MultiSysmonMetricsProps> = ({ pollerId, prese
 
             {/* Selected service metrics */}
             {selectedService && (
-                <SystemMetrics pollerId={pollerId} key={selectedService} />
+                <SystemMetrics targetId={targetId} idType={idType} key={selectedService} />
             )}
         </div>
     );
