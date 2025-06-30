@@ -71,7 +71,11 @@ type Service interface {
 
 	// Sysmon metric operations.
 
-	StoreSysmonMetrics(ctx context.Context, pollerID, agentID, hostID string, metrics *models.SysmonMetrics, timestamp time.Time) error
+	StoreSysmonMetrics(
+		ctx context.Context,
+		pollerID, agentID, hostID, partition, hostIP string,
+		metrics *models.SysmonMetrics,
+		timestamp time.Time) error
 	GetCPUMetrics(ctx context.Context, pollerID string, coreID int, start, end time.Time) ([]models.CPUMetric, error)
 	GetDiskMetrics(ctx context.Context, pollerID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error)
 	GetMemoryMetrics(ctx context.Context, pollerID string, start, end time.Time) ([]models.MemoryMetric, error)
@@ -109,6 +113,11 @@ type Service interface {
 	StoreDevices(ctx context.Context, devices []*models.Device) error
 	GetDeviceByID(ctx context.Context, deviceID string) (*models.Device, error)
 	GetDevicesByIP(ctx context.Context, ip string) ([]*models.Device, error)
+
+	// Device-centric metric operations.
+	GetMetricsForDevice(ctx context.Context, deviceID string, start, end time.Time) ([]models.TimeseriesMetric, error)
+	GetMetricsForDeviceByType(ctx context.Context, deviceID, metricType string, start, end time.Time) ([]models.TimeseriesMetric, error)
+	GetMetricsForPartition(ctx context.Context, partition string, start, end time.Time) ([]models.TimeseriesMetric, error)
 }
 
 // SysmonMetricsProvider interface defines operations for system monitoring metrics.

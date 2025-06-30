@@ -102,8 +102,12 @@ async fn main() -> Result<()> {
     });
     debug!("Using host_id: {}", host_id);
 
+    let partition = config.partition.clone();
+    debug!("Using partition: {:?}", partition);
+
     let collector = Arc::new(RwLock::new(MetricsCollector::new(
         host_id,
+        partition,
         filesystems,
         zfs_pools,
         zfs_datasets,

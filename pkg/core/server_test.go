@@ -139,7 +139,7 @@ func newServerWithDB(_ context.Context, config *models.DBConfig, database db.Ser
 		metricBuffers:       make(map[string][]*models.TimeseriesMetric),
 		serviceBuffers:      make(map[string][]*models.ServiceStatus),
 		serviceListBuffers:  make(map[string][]*models.Service),
-		sysmonBuffers:       make(map[string][]*models.SysmonMetrics),
+		sysmonBuffers:       make(map[string][]*sysmonMetricBuffer),
 		bufferMu:            sync.RWMutex{},
 		pollerStatusCache:   make(map[string]*models.PollerStatus),
 		pollerStatusUpdates: make(map[string]*models.PollerStatus),
@@ -205,7 +205,7 @@ func TestReportStatus(t *testing.T) {
 		metricBuffers:       make(map[string][]*models.TimeseriesMetric),
 		serviceBuffers:      make(map[string][]*models.ServiceStatus),
 		serviceListBuffers:  make(map[string][]*models.Service),
-		sysmonBuffers:       make(map[string][]*models.SysmonMetrics),
+		sysmonBuffers:       make(map[string][]*sysmonMetricBuffer),
 		pollerStatusCache:   make(map[string]*models.PollerStatus),
 		pollerStatusUpdates: make(map[string]*models.PollerStatus),
 		bufferMu:            sync.RWMutex{},
@@ -441,7 +441,7 @@ func TestProcessSNMPMetrics(t *testing.T) {
 	err := json.Unmarshal([]byte(detailsJSON), &details)
 	require.NoError(t, err)
 
-	err = server.processSNMPMetrics(pollerID, details, now)
+	err = server.processSNMPMetrics(pollerID, "test-partition", details, now)
 	require.NoError(t, err)
 
 	// Trigger flush to store buffered metrics
@@ -698,7 +698,7 @@ func setupTestServer(
 	server.serviceBuffers = make(map[string][]*models.ServiceStatus)
 	server.serviceListBuffers = make(map[string][]*models.Service)
 	server.metricBuffers = make(map[string][]*models.TimeseriesMetric)
-	server.sysmonBuffers = make(map[string][]*models.SysmonMetrics)
+	server.sysmonBuffers = make(map[string][]*sysmonMetricBuffer)
 	t.Logf("Initial serviceBuffers: %+v", server.serviceBuffers)
 	server.bufferMu.Unlock()
 

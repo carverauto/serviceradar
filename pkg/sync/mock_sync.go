@@ -125,14 +125,14 @@ func (mr *MockKVClientMockRecorder) PutMany(ctx, in any, opts ...any) *gomock.Ca
 }
 
 // Watch mocks base method.
-func (m *MockKVClient) Watch(ctx context.Context, in *proto.WatchRequest, opts ...grpc.CallOption) (proto.KVService_WatchClient, error) {
+func (m *MockKVClient) Watch(ctx context.Context, in *proto.WatchRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[proto.WatchResponse], error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, in}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "Watch", varargs...)
-	ret0, _ := ret[0].(proto.KVService_WatchClient)
+	ret0, _ := ret[0].(grpc.ServerStreamingClient[proto.WatchResponse])
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

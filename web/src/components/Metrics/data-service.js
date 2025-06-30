@@ -16,7 +16,7 @@
 
 // src/components/Metrics/data-service.js - Add getCombinedChartData function
 
-import { fetchFromAPI } from '@/lib/api';
+import { fetchAPI } from '@/lib/client-api';
 
 // Cache store for metrics data
 const metricsCache = new Map();
@@ -44,7 +44,7 @@ const safeGet = (obj, path, defaultValue = null) => {
 };
 
 // Fetch system data from API
-export const fetchSystemData = async (pollerId, timeRange = '1h') => {
+export const fetchSystemData = async (targetId, timeRange = '1h', idType = 'poller') => {
     try {
         const end = new Date();
         const start = new Date();
@@ -60,22 +60,23 @@ export const fetchSystemData = async (pollerId, timeRange = '1h') => {
         }
 
         const queryParams = `?start=${encodeURIComponent(start.toISOString())}&end=${encodeURIComponent(end.toISOString())}`;
-        console.log(`Fetching Sysmon data for poller ${pollerId} with params: ${queryParams}`);
+        const endpoint = idType === 'device' ? 'devices' : 'pollers';
+        console.log(`Fetching Sysmon data for ${idType} ${targetId} with params: ${queryParams}`);
 
         // Improved error handling with individual try/catch blocks for each API call
-        const cpuPromise = fetchWithTimeout(`/pollers/${pollerId}/sysmon/cpu${queryParams}`, 5000)
+        const cpuPromise = fetchWithTimeout(`/api/${endpoint}/${targetId}/sysmon/cpu${queryParams}`, 5000)
             .catch(err => {
                 console.warn(`CPU metrics failed: ${err.message}`);
                 return null;
             });
 
-        const diskPromise = fetchWithTimeout(`/pollers/${pollerId}/sysmon/disk${queryParams}`, 5000)
+        const diskPromise = fetchWithTimeout(`/api/${endpoint}/${targetId}/sysmon/disk${queryParams}`, 5000)
             .catch(err => {
                 console.warn(`Disk metrics failed: ${err.message}`);
                 return null;
             });
 
-        const memoryPromise = fetchWithTimeout(`/pollers/${pollerId}/sysmon/memory${queryParams}`, 5000)
+        const memoryPromise = fetchWithTimeout(`/api/${endpoint}/${targetId}/sysmon/memory${queryParams}`, 5000)
             .catch(err => {
                 console.warn(`Memory metrics failed: ${err.message}`);
                 return null;
@@ -314,7 +315,7 @@ const fetchWithTimeout = async (url, timeout = 8000) => {
             console.log(`[Fetching] Making API request: ${url}`);
             
             // First try to get from API
-            const apiPromise = fetchFromAPI(url);
+            const apiPromise = fetchAPI(url);
 
             // Set up timeout
             const timeoutPromise = new Promise((_, reject) => {

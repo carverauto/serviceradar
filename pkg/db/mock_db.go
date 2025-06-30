@@ -270,6 +270,51 @@ func (mr *MockServiceMockRecorder) GetMetricsByType(ctx, pollerID, metricType, s
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMetricsByType", reflect.TypeOf((*MockService)(nil).GetMetricsByType), ctx, pollerID, metricType, start, end)
 }
 
+// GetMetricsForDevice mocks base method.
+func (m *MockService) GetMetricsForDevice(ctx context.Context, deviceID string, start, end time.Time) ([]models.TimeseriesMetric, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetMetricsForDevice", ctx, deviceID, start, end)
+	ret0, _ := ret[0].([]models.TimeseriesMetric)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetMetricsForDevice indicates an expected call of GetMetricsForDevice.
+func (mr *MockServiceMockRecorder) GetMetricsForDevice(ctx, deviceID, start, end any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMetricsForDevice", reflect.TypeOf((*MockService)(nil).GetMetricsForDevice), ctx, deviceID, start, end)
+}
+
+// GetMetricsForDeviceByType mocks base method.
+func (m *MockService) GetMetricsForDeviceByType(ctx context.Context, deviceID, metricType string, start, end time.Time) ([]models.TimeseriesMetric, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetMetricsForDeviceByType", ctx, deviceID, metricType, start, end)
+	ret0, _ := ret[0].([]models.TimeseriesMetric)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetMetricsForDeviceByType indicates an expected call of GetMetricsForDeviceByType.
+func (mr *MockServiceMockRecorder) GetMetricsForDeviceByType(ctx, deviceID, metricType, start, end any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMetricsForDeviceByType", reflect.TypeOf((*MockService)(nil).GetMetricsForDeviceByType), ctx, deviceID, metricType, start, end)
+}
+
+// GetMetricsForPartition mocks base method.
+func (m *MockService) GetMetricsForPartition(ctx context.Context, partition string, start, end time.Time) ([]models.TimeseriesMetric, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetMetricsForPartition", ctx, partition, start, end)
+	ret0, _ := ret[0].([]models.TimeseriesMetric)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetMetricsForPartition indicates an expected call of GetMetricsForPartition.
+func (mr *MockServiceMockRecorder) GetMetricsForPartition(ctx, partition, start, end any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMetricsForPartition", reflect.TypeOf((*MockService)(nil).GetMetricsForPartition), ctx, partition, start, end)
+}
+
 // GetPollerHistory mocks base method.
 func (m *MockService) GetPollerHistory(ctx context.Context, pollerID string) ([]models.PollerStatus, error) {
 	m.ctrl.T.Helper()
@@ -575,17 +620,17 @@ func (mr *MockServiceMockRecorder) StoreSweepResults(ctx, results any) *gomock.C
 }
 
 // StoreSysmonMetrics mocks base method.
-func (m *MockService) StoreSysmonMetrics(ctx context.Context, pollerID, agentID, hostID string, metrics *models.SysmonMetrics, timestamp time.Time) error {
+func (m *MockService) StoreSysmonMetrics(ctx context.Context, pollerID, agentID, hostID, partition, hostIP string, metrics *models.SysmonMetrics, timestamp time.Time) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "StoreSysmonMetrics", ctx, pollerID, agentID, hostID, metrics, timestamp)
+	ret := m.ctrl.Call(m, "StoreSysmonMetrics", ctx, pollerID, agentID, hostID, partition, hostIP, metrics, timestamp)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // StoreSysmonMetrics indicates an expected call of StoreSysmonMetrics.
-func (mr *MockServiceMockRecorder) StoreSysmonMetrics(ctx, pollerID, agentID, hostID, metrics, timestamp any) *gomock.Call {
+func (mr *MockServiceMockRecorder) StoreSysmonMetrics(ctx, pollerID, agentID, hostID, partition, hostIP, metrics, timestamp any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreSysmonMetrics", reflect.TypeOf((*MockService)(nil).StoreSysmonMetrics), ctx, pollerID, agentID, hostID, metrics, timestamp)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreSysmonMetrics", reflect.TypeOf((*MockService)(nil).StoreSysmonMetrics), ctx, pollerID, agentID, hostID, partition, hostIP, metrics, timestamp)
 }
 
 // StoreUser mocks base method.

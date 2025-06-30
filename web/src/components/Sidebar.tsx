@@ -24,7 +24,6 @@ import {
     BarChart3,
     Server,
     MessageSquareCode,
-    MessageCircleQuestion,
     Globe,
 } from 'lucide-react';
 
