@@ -97,7 +97,7 @@ func NewServer(ctx context.Context, config *models.DBConfig) (*Server, error) {
 		metricBuffers:       make(map[string][]*models.TimeseriesMetric),
 		serviceBuffers:      make(map[string][]*models.ServiceStatus),
 		serviceListBuffers:  make(map[string][]*models.Service),
-		sysmonBuffers:       make(map[string][]*models.SysmonMetrics),
+		sysmonBuffers:       make(map[string][]*sysmonMetricBuffer),
 		bufferMu:            sync.RWMutex{},
 		pollerStatusCache:   make(map[string]*models.PollerStatus),
 		pollerStatusUpdates: make(map[string]*models.PollerStatus),
@@ -232,27 +232,33 @@ func (s *Server) flushSysmonMetrics(ctx context.Context) {
 			continue
 		}
 
-		for _, metric := range sysmonMetrics {
+		for _, metricBuffer := range sysmonMetrics {
+			metric := metricBuffer.Metrics
+			partition := metricBuffer.Partition
+			
 			var ts time.Time
+			var agentID, hostID, hostIP string
 
-			var agentID, hostID string
-
+			// Extract information from the first available metric type
 			switch {
 			case len(metric.CPUs) > 0:
 				ts = metric.CPUs[0].Timestamp
 				agentID = metric.CPUs[0].AgentID
 				hostID = metric.CPUs[0].HostID
+				hostIP = metric.CPUs[0].HostIP
 			case len(metric.Disks) > 0:
 				ts = metric.Disks[0].Timestamp
 				agentID = metric.Disks[0].AgentID
 				hostID = metric.Disks[0].HostID
+				hostIP = metric.Disks[0].HostIP
 			default:
 				ts = metric.Memory.Timestamp
 				agentID = metric.Memory.AgentID
 				hostID = metric.Memory.HostID
+				hostIP = metric.Memory.HostIP
 			}
 
-			if err := s.DB.StoreSysmonMetrics(ctx, pollerID, agentID, hostID, metric, ts); err != nil {
+			if err := s.DB.StoreSysmonMetrics(ctx, pollerID, agentID, hostID, partition, hostIP, metric, ts); err != nil {
 				log.Printf("Failed to flush sysmon metrics for poller %s: %v", pollerID, err)
 			}
 		}
@@ -1100,7 +1106,10 @@ func (s *Server) processSysmonMetrics(pollerID, partition, agentID string, detai
 	}
 
 	s.bufferMu.Lock()
-	s.sysmonBuffers[pollerID] = append(s.sysmonBuffers[pollerID], m)
+	s.sysmonBuffers[pollerID] = append(s.sysmonBuffers[pollerID], &sysmonMetricBuffer{
+		Metrics:   m,
+		Partition: partition,
+	})
 	s.bufferMu.Unlock()
 
 	log.Printf("Parsed %d CPU metrics for poller %s with timestamp %s",

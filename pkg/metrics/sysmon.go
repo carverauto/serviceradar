@@ -9,7 +9,7 @@ import (
 )
 
 func (m *Manager) StoreSysmonMetrics(
-	ctx context.Context, pollerID, agentID, hostID string, metrics *models.SysmonMetrics, timestamp time.Time) error {
+	ctx context.Context, pollerID, agentID, hostID, partition, hostIP string, metrics *models.SysmonMetrics, timestamp time.Time) error {
 	dbMetrics := &models.SysmonMetrics{
 		CPUs:   make([]models.CPUMetric, len(metrics.CPUs)),
 		Disks:  make([]models.DiskMetric, len(metrics.Disks)),
@@ -22,6 +22,7 @@ func (m *Manager) StoreSysmonMetrics(
 			UsagePercent: cpu.UsagePercent,
 			Timestamp:    timestamp,
 			HostID:       hostID,
+			HostIP:       hostIP,
 			AgentID:      agentID,
 		}
 	}
@@ -33,6 +34,7 @@ func (m *Manager) StoreSysmonMetrics(
 			TotalBytes: disk.TotalBytes,
 			Timestamp:  timestamp,
 			HostID:     hostID,
+			HostIP:     hostIP,
 			AgentID:    agentID,
 		}
 	}
@@ -42,10 +44,11 @@ func (m *Manager) StoreSysmonMetrics(
 		TotalBytes: metrics.Memory.TotalBytes,
 		Timestamp:  timestamp,
 		HostID:     hostID,
+		HostIP:     hostIP,
 		AgentID:    agentID,
 	}
 
-	if err := m.db.StoreSysmonMetrics(ctx, pollerID, agentID, hostID, dbMetrics, timestamp); err != nil {
+	if err := m.db.StoreSysmonMetrics(ctx, pollerID, agentID, hostID, partition, hostIP, dbMetrics, timestamp); err != nil {
 		log.Printf("Failed to store sysmon metrics for poller %s: %v", pollerID, err)
 		return err
 	}

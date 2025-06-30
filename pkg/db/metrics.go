@@ -444,16 +444,17 @@ func (db *DB) StoreMetrics(ctx context.Context, pollerID string, metrics []*mode
 
 // StoreSysmonMetrics stores sysmon metrics for CPU, disk, and memory.
 func (db *DB) StoreSysmonMetrics(
-	ctx context.Context, pollerID, agentID, hostID string, metrics *models.SysmonMetrics, timestamp time.Time) error {
-	if err := db.storeCPUMetrics(ctx, pollerID, agentID, hostID, metrics.CPUs, timestamp); err != nil {
+	ctx context.Context, pollerID, agentID, hostID, partition, hostIP string, metrics *models.SysmonMetrics, timestamp time.Time) error {
+	deviceID := fmt.Sprintf("%s:%s", partition, hostIP)
+	if err := db.storeCPUMetrics(ctx, pollerID, agentID, hostID, deviceID, partition, metrics.CPUs, timestamp); err != nil {
 		return fmt.Errorf("failed to store CPU metrics: %w", err)
 	}
 
-	if err := db.storeDiskMetrics(ctx, pollerID, agentID, hostID, metrics.Disks, timestamp); err != nil {
+	if err := db.storeDiskMetrics(ctx, pollerID, agentID, hostID, deviceID, partition, metrics.Disks, timestamp); err != nil {
 		return fmt.Errorf("failed to store disk metrics: %w", err)
 	}
 
-	if err := db.storeMemoryMetrics(ctx, pollerID, agentID, hostID, metrics.Memory, timestamp); err != nil {
+	if err := db.storeMemoryMetrics(ctx, pollerID, agentID, hostID, deviceID, partition, metrics.Memory, timestamp); err != nil {
 		return fmt.Errorf("failed to store memory metrics: %w", err)
 	}
 
@@ -461,14 +462,14 @@ func (db *DB) StoreSysmonMetrics(
 }
 
 // storeCPUMetrics stores CPU metrics in a batch.
-func (db *DB) storeCPUMetrics(ctx context.Context, pollerID, agentID, hostID string, cpus []models.CPUMetric, timestamp time.Time) error {
+func (db *DB) storeCPUMetrics(ctx context.Context, pollerID, agentID, hostID, deviceID, partition string, cpus []models.CPUMetric, timestamp time.Time) error {
 	if len(cpus) == 0 {
 		return nil
 	}
 
 	return db.executeBatch(ctx, "INSERT INTO cpu_metrics (* except _tp_time)", func(batch driver.Batch) error {
 		for _, cpu := range cpus {
-			if err := batch.Append(pollerID, agentID, hostID, timestamp, cpu.CoreID, cpu.UsagePercent); err != nil {
+			if err := batch.Append(pollerID, agentID, hostID, timestamp, cpu.CoreID, cpu.UsagePercent, deviceID, partition); err != nil {
 				log.Printf("Failed to append CPU metric for core %d: %v", cpu.CoreID, err)
 				continue
 			}
@@ -480,7 +481,7 @@ func (db *DB) storeCPUMetrics(ctx context.Context, pollerID, agentID, hostID str
 
 // storeDiskMetrics stores disk metrics in a batch.
 func (db *DB) storeDiskMetrics(
-	ctx context.Context, pollerID, agentID, hostID string, disks []models.DiskMetric, timestamp time.Time) error {
+	ctx context.Context, pollerID, agentID, hostID, deviceID, partition string, disks []models.DiskMetric, timestamp time.Time) error {
 	if len(disks) == 0 {
 		return nil
 	}
@@ -488,7 +489,7 @@ func (db *DB) storeDiskMetrics(
 	return db.executeBatch(ctx, "INSERT INTO disk_metrics (* except _tp_time)", func(batch driver.Batch) error {
 		for _, disk := range disks {
 			if err := batch.Append(pollerID, agentID, hostID, timestamp, disk.MountPoint,
-				disk.UsedBytes, disk.TotalBytes); err != nil {
+				disk.UsedBytes, disk.TotalBytes, deviceID, partition); err != nil {
 				log.Printf("Failed to append disk metric for %s: %v", disk.MountPoint, err)
 				continue
 			}
@@ -500,13 +501,13 @@ func (db *DB) storeDiskMetrics(
 
 // storeMemoryMetrics stores memory metrics in a batch.
 func (db *DB) storeMemoryMetrics(
-	ctx context.Context, pollerID, agentID, hostID string, memory *models.MemoryMetric, timestamp time.Time) error {
+	ctx context.Context, pollerID, agentID, hostID, deviceID, partition string, memory *models.MemoryMetric, timestamp time.Time) error {
 	if memory.UsedBytes == 0 && memory.TotalBytes == 0 {
 		return nil
 	}
 
 	return db.executeBatch(ctx, "INSERT INTO memory_metrics (* except _tp_time)", func(batch driver.Batch) error {
-		return batch.Append(pollerID, agentID, hostID, timestamp, memory.UsedBytes, memory.TotalBytes)
+		return batch.Append(pollerID, agentID, hostID, timestamp, memory.UsedBytes, memory.TotalBytes, deviceID, partition)
 	})
 }
 
