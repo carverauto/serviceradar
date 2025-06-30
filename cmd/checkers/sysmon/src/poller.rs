@@ -82,8 +82,7 @@ impl MetricsCollector {
             "unknown".to_string()
         });
         
-        debug!("Creating MetricsCollector: host_id={}, host_ip={}, partition={:?}, filesystems={:?}, zfs_pools={:?}, zfs_datasets={}",
-            host_id, host_ip, partition, filesystems, zfs_pools, zfs_datasets);
+        debug!("Creating MetricsCollector: host_id={host_id}, host_ip={host_ip}, partition={partition:?}, filesystems={filesystems:?}, zfs_pools={zfs_pools:?}, zfs_datasets={zfs_datasets}");
         let mut system = System::new_all();
         system.refresh_cpu_specifics(CpuRefreshKind::everything()); // Initial CPU refresh
         system.refresh_memory(); // Initial memory refresh
@@ -112,23 +111,23 @@ impl MetricsCollector {
                         match socket.local_addr() {
                             Ok(addr) => {
                                 let ip = addr.ip().to_string();
-                                info!("Detected local IP address: {}", ip);
+                                info!("Detected local IP address: {ip}");
                                 Some(ip)
                             }
                             Err(e) => {
-                                warn!("Failed to get local address: {}", e);
+                                warn!("Failed to get local address: {e}");
                                 None
                             }
                         }
                     }
                     Err(e) => {
-                        warn!("Failed to connect to determine local IP: {}", e);
+                        warn!("Failed to connect to determine local IP: {e}");
                         None
                     }
                 }
             }
             Err(e) => {
-                warn!("Failed to bind UDP socket: {}", e);
+                warn!("Failed to bind UDP socket: {e}");
                 None
             }
         }
@@ -148,7 +147,7 @@ impl MetricsCollector {
             let mut cpus = Vec::new();
             for (idx, cpu) in system.cpus().iter().enumerate() {
                 let usage = cpu.cpu_usage();
-                debug!("CPU core {}: usage={:.2}% (raw={})", idx, usage, usage);
+                debug!("CPU core {idx}: usage={usage:.2}% (raw={usage})");
                 cpus.push(CpuMetric {
                     core_id: idx as i32,
                     usage_percent: usage,
@@ -175,7 +174,7 @@ impl MetricsCollector {
         debug!("Memory: used={} bytes, total={} bytes", memory.used_bytes, memory.total_bytes);
 
         let timestamp = Utc::now().to_rfc3339();
-        debug!("Timestamp: {}", timestamp);
+        debug!("Timestamp: {timestamp}");
 
         // Disk metrics (run in spawn_blocking to avoid Send issues)
         debug!("Collecting disk metrics for filesystems: {:?}", self.filesystems);
