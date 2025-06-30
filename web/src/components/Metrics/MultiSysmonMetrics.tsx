@@ -20,7 +20,18 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 import { Activity, Server } from 'lucide-react';
 import { ErrorMessage, EmptyState, LoadingState } from './error-components';
+import { fetchAPI } from '@/lib/client-api';
 import SystemMetrics from './system-metrics';
+
+// Type annotation for the SystemMetrics component
+interface SystemMetricsProps {
+    targetId?: string;
+    pollerId?: string;
+    idType?: 'device' | 'poller';
+    initialData?: unknown;
+}
+
+const TypedSystemMetrics = SystemMetrics as React.ComponentType<SystemMetricsProps>;
 
 interface SysmonService {
     agent_id: string;
@@ -48,24 +59,13 @@ const MultiSysmonMetrics: React.FC<MultiSysmonMetricsProps> = ({
     // Use deviceId if available, otherwise fall back to pollerId for backward compatibility
     const targetId = deviceId || pollerId;
     
-    if (!targetId) {
-        return (
-            <div className="p-8 text-center">
-                <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-2">
-                    Missing ID
-                </h2>
-                <p className="text-gray-600 dark:text-gray-400">
-                    Please provide a deviceId or pollerId to view metrics.
-                </p>
-            </div>
-        );
-    }
-    const { token } = useAuth();
+    // Always call hooks at the top level
+    useAuth(); // Still need to call this to ensure auth context is available
     const [sysmonServices, setSysmonServices] = useState<SysmonService[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [selectedService, setSelectedService] = useState<string | null>(null);
-
+    
     useEffect(() => {
         const checkSysmonAvailability = async () => {
             setLoading(true);
@@ -82,30 +82,20 @@ const MultiSysmonMetrics: React.FC<MultiSysmonMetricsProps> = ({
                 const endpoint = idType === 'device' ? 'devices' : 'pollers';
                 
                 // Test if any sysmon data is available
-                const [cpuResponse, memoryResponse] = await Promise.all([
-                    fetch(`/api/${endpoint}/${targetId}/sysmon/cpu${queryParams}`, {
-                        headers: {
-                            'Content-Type': 'application/json',
-                            ...(token && { Authorization: `Bearer ${token}` })
-                        },
-                    }).catch(() => null),
-                    fetch(`/api/${endpoint}/${targetId}/sysmon/memory${queryParams}`, {
-                        headers: {
-                            'Content-Type': 'application/json',
-                            ...(token && { Authorization: `Bearer ${token}` })
-                        },
-                    }).catch(() => null)
+                const [cpuData, memoryData] = await Promise.all([
+                    fetchAPI(`/api/${endpoint}/${targetId}/sysmon/cpu${queryParams}`).catch(() => null),
+                    fetchAPI(`/api/${endpoint}/${targetId}/sysmon/memory${queryParams}`).catch(() => null)
                 ]);
 
                 // Check if we got any sysmon data
-                const hasCpuData = cpuResponse?.ok;
-                const hasMemoryData = memoryResponse?.ok;
+                const hasCpuData = cpuData !== null;
+                const hasMemoryData = memoryData !== null;
                 
                 if (hasCpuData || hasMemoryData) {
                     // Create a virtual sysmon service since the data is available
                     const virtualSysmonService: SysmonService = {
                         agent_id: preselectedAgentId || 'default-agent',
-                        poller_id: targetId,
+                        poller_id: targetId || '',
                         name: 'sysmon',
                         available: true,
                         type: 'sysmon',
@@ -130,7 +120,20 @@ const MultiSysmonMetrics: React.FC<MultiSysmonMetricsProps> = ({
         if (targetId) {
             checkSysmonAvailability();
         }
-    }, [targetId, idType, token, preselectedAgentId]);
+    }, [targetId, idType, preselectedAgentId]);
+
+    if (!targetId) {
+        return (
+            <div className="p-8 text-center">
+                <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-2">
+                    Missing ID
+                </h2>
+                <p className="text-gray-600 dark:text-gray-400">
+                    Please provide a deviceId or pollerId to view metrics.
+                </p>
+            </div>
+        );
+    }
 
     if (loading) {
         return <LoadingState message="Loading sysmon services..." />;
@@ -158,7 +161,7 @@ const MultiSysmonMetrics: React.FC<MultiSysmonMetricsProps> = ({
 
     // If only one sysmon service, show it directly
     if (sysmonServices.length === 1) {
-        return <SystemMetrics targetId={targetId} idType={idType} />;
+        return <TypedSystemMetrics targetId={targetId} idType={idType} />;
     }
 
     return (
@@ -215,7 +218,7 @@ const MultiSysmonMetrics: React.FC<MultiSysmonMetricsProps> = ({
 
             {/* Selected service metrics */}
             {selectedService && (
-                <SystemMetrics targetId={targetId} idType={idType} key={selectedService} />
+                <TypedSystemMetrics targetId={targetId} idType={idType} key={selectedService} />
             )}
         </div>
     );

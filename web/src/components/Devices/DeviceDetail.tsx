@@ -23,9 +23,6 @@ import {
     CheckCircle, 
     XCircle, 
     Activity,
-    Network,
-    HardDrive,
-    Cpu,
     BarChart3,
     Clock,
     MapPin,
@@ -36,6 +33,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { fetchAPI } from '@/lib/client-api';
 
 interface TimeseriesMetric {
     name: string;
@@ -83,7 +81,7 @@ const MetricCard = ({
 );
 
 const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
-    const { token } = useAuth();
+    useAuth(); // Ensure auth context is available
     const [device, setDevice] = useState<Device | null>(null);
     const [metrics, setMetrics] = useState<TimeseriesMetric[]>([]);
     const [loading, setLoading] = useState(true);
@@ -96,25 +94,14 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
         setLoading(true);
         setError(null);
         try {
-            const response = await fetch(`/api/devices/${encodeURIComponent(deviceId)}`, {
-                headers: {
-                    ...(token && { Authorization: `Bearer ${token}` }),
-                },
-                cache: 'no-store',
-            });
-
-            if (!response.ok) {
-                throw new Error(`Failed to fetch device: ${response.status}`);
-            }
-
-            const deviceData = await response.json();
+            const deviceData = await fetchAPI<Device>(`devices/${encodeURIComponent(deviceId)}`);
             setDevice(deviceData);
         } catch (e) {
             setError(e instanceof Error ? e.message : "Failed to fetch device");
         } finally {
             setLoading(false);
         }
-    }, [deviceId, token]);
+    }, [deviceId]);
 
     const fetchMetrics = useCallback(async () => {
         setMetricsLoading(true);
@@ -148,25 +135,14 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
                 params.set('type', selectedMetricType);
             }
 
-            const response = await fetch(`/api/devices/${encodeURIComponent(deviceId)}/metrics?${params}`, {
-                headers: {
-                    ...(token && { Authorization: `Bearer ${token}` }),
-                },
-                cache: 'no-store',
-            });
-
-            if (!response.ok) {
-                throw new Error(`Failed to fetch metrics: ${response.status}`);
-            }
-
-            const metricsData = await response.json();
+            const metricsData = await fetchAPI<TimeseriesMetric[]>(`devices/${encodeURIComponent(deviceId)}/metrics?${params}`);
             setMetrics(metricsData || []);
         } catch (e) {
             console.error("Error fetching metrics:", e);
         } finally {
             setMetricsLoading(false);
         }
-    }, [deviceId, token, selectedMetricType, timeRange]);
+    }, [deviceId, selectedMetricType, timeRange]);
 
     useEffect(() => {
         fetchDevice();
@@ -201,7 +177,7 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
             }
             
             return acc;
-        }, {} as Record<string, any>);
+        }, {} as Record<string, { timestamp: number; time: string; [key: string]: number | string }>);
 
         return Object.values(groupedData).sort((a, b) => a.timestamp - b.timestamp);
     }, [metrics]);
