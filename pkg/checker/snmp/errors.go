@@ -30,6 +30,7 @@ var (
 	errOIDDuplicate        = errors.New("duplicate OID name")
 	errNodeAddressRequired = fmt.Errorf("node_address is required")
 	errListenAddrRequired  = fmt.Errorf("listen_addr is required")
+	errPartitionRequired   = fmt.Errorf("partition is required")
 	errNoTargets           = fmt.Errorf("at least one target must be configured")
 	errNoOIDs              = fmt.Errorf("at least one OID must be configured")
 	errInvalidOID          = fmt.Errorf("invalid OID format")

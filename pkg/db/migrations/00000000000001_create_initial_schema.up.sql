@@ -167,7 +167,7 @@ AS SELECT
     concat(s.partition, ':', s.ip) AS device_id, s.ip, s.poller_id,
     if(s.hostname IS NOT NULL AND s.hostname != '', s.hostname, u.hostname) AS hostname,
     if(s.mac IS NOT NULL AND s.mac != '', s.mac, u.mac) AS mac,
-    if( index_of(if_null(u.discovery_sources, []), s.discovery_source) > 0, u.discovery_sources, array_push_back(if_null(u.discovery_sources, []), s.discovery_source) ) AS discovery_sources,
+    if( index_of(if_null(u.discovery_sources, []), s.discovery_source) = 0, array_push_back(if_null(u.discovery_sources, []), s.discovery_source), u.discovery_sources ) AS discovery_sources,
     s.available AS is_available, coalesce(u.first_seen, s.timestamp) AS first_seen, s.timestamp AS last_seen,
     if( length(s.metadata) > 0, if(u.metadata IS NULL, s.metadata, map_update(u.metadata, s.metadata)), u.metadata ) AS metadata,
     s.agent_id, if(u.device_id IS NULL, 'network_device', u.device_type) AS device_type,

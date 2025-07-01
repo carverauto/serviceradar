@@ -25,6 +25,10 @@ export interface GenericServiceDetails {
   available?: boolean;
   round_trip?: number;
   last_update?: string;
+  data?: {
+    response_time?: number;
+    [key: string]: unknown;
+  };
   [key: string]: unknown; // Allow for other fields not explicitly listed
 }
 

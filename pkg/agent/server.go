@@ -675,7 +675,36 @@ func (s *Server) getChecker(ctx context.Context, req *proto.StatusRequest) (chec
 		return check, nil
 	}
 
-	check, err := s.registry.Get(ctx, req.ServiceType, req.ServiceName, req.Details, s.config.Security)
+	var check checker.Checker
+
+	var err error
+
+	if req.ServiceType == "icmp" {
+		log.Printf("ICMP checker requested for host: %s", req.Details)
+
+		host := req.Details
+		if host == "" {
+			host = "127.0.0.1"
+		}
+
+		// Construct device ID for the TARGET being pinged (partition:target_ip)
+		var deviceID string
+
+		if s.config.Partition != "" {
+			deviceID = fmt.Sprintf("%s:%s", s.config.Partition, s.config.HostIP)
+			log.Printf("Creating ICMP checker with target device ID: %s (partition=%s, target_ip=%s)",
+				deviceID, s.config.Partition, host)
+		} else {
+			log.Printf("Creating ICMP checker without device ID - missing partition (%s)",
+				s.config.Partition)
+		}
+
+		check, err = NewICMPCheckerWithDeviceID(host, deviceID)
+	} else {
+		// Use registry for other service types
+		check, err = s.registry.Get(ctx, req.ServiceType, req.ServiceName, req.Details, s.config.Security)
+	}
+
 	if err != nil {
 		log.Printf("Failed to create checker for key %s: %v", key, err)
 		return nil, fmt.Errorf("failed to create checker: %w", err)

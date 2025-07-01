@@ -102,6 +102,33 @@ func validateQueryRequest(req *QueryRequest) (errMsg string, statusCode int, ok 
 	return errMsg, statusCode, ok
 }
 
+// getSecondaryOrderField returns the appropriate secondary order field for a given entity type
+func (*APIServer) getSecondaryOrderField(entityType models.EntityType) (string, bool) {
+	switch entityType {
+	case models.SweepResults, models.Devices, models.ICMPResults, models.SNMPResults:
+		return "ip", true
+	case models.Services:
+		return "service_name", true
+	case models.Interfaces:
+		return "device_ip", true
+	case models.Events:
+		return "id", true
+	case models.Pollers:
+		return "poller_id", true
+	case models.CPUMetrics:
+		return "core_id", true
+	case models.DiskMetrics:
+		return "mount_point", true
+	case models.SNMPMetrics:
+		return "oid_name", true
+	// These entities don't need additional sort fields
+	case models.Flows, models.Traps, models.Connections, models.Logs, models.MemoryMetrics:
+		return "", false
+	default:
+		return "", false
+	}
+}
+
 // setupOrderFields configures the order fields for a query
 func (s *APIServer) setupOrderFields(query *models.Query) {
 	var defaultOrderField string
@@ -123,63 +150,12 @@ func (s *APIServer) setupOrderFields(query *models.Query) {
 	// Step 2: Ensure the sort order is stable by adding a tie-breaker field.
 	// This runs after the default is set, ensuring stability for all paginated queries.
 	if len(query.OrderBy) == 1 && query.OrderBy[0].Field == defaultOrderField {
-		switch query.Entity {
-		case models.SweepResults, models.Devices:
-			// Add 'ip' as a default secondary sort key for stable pagination.
+		secondaryField, hasSecondaryField := s.getSecondaryOrderField(query.Entity)
+		if hasSecondaryField {
 			query.OrderBy = append(query.OrderBy, models.OrderByItem{
-				Field:     "ip",
+				Field:     secondaryField,
 				Direction: models.Descending, // Must be consistent
 			})
-		case models.Services:
-			// Use service_name as the secondary sort key for services.
-			query.OrderBy = append(query.OrderBy, models.OrderByItem{
-				Field:     "service_name",
-				Direction: models.Descending,
-			})
-		case models.Interfaces:
-			// Use device_ip as the secondary sort key for interfaces.
-			query.OrderBy = append(query.OrderBy, models.OrderByItem{
-				Field:     "device_ip",
-				Direction: models.Descending,
-			})
-		case models.Events:
-			// Use id as the secondary sort key for events.
-			query.OrderBy = append(query.OrderBy, models.OrderByItem{
-				Field:     "id",
-				Direction: models.Descending,
-			})
-		case models.Pollers:
-			// Use poller_id as the secondary sort key for pollers.
-			query.OrderBy = append(query.OrderBy, models.OrderByItem{
-				Field:     "poller_id",
-				Direction: models.Descending,
-			})
-		case models.ICMPResults:
-			// Use ip as the secondary sort key for ICMP results.
-			query.OrderBy = append(query.OrderBy, models.OrderByItem{
-				Field:     "ip",
-				Direction: models.Descending,
-			})
-		case models.SNMPResults:
-			// Use ip as the secondary sort key for SNMP results.
-			query.OrderBy = append(query.OrderBy, models.OrderByItem{
-				Field:     "ip",
-				Direction: models.Descending,
-			})
-		case models.CPUMetrics:
-			// Use core_id as a secondary sort key for stability.
-			query.OrderBy = append(query.OrderBy, models.OrderByItem{
-				Field:     "core_id",
-				Direction: models.Descending,
-			})
-		case models.DiskMetrics:
-			// Use mount_point as a secondary sort key.
-			query.OrderBy = append(query.OrderBy, models.OrderByItem{
-				Field:     "mount_point",
-				Direction: models.Descending,
-			})
-		// These entities don't need additional sort fields
-		case models.Flows, models.Traps, models.Connections, models.Logs, models.MemoryMetrics:
 		}
 	}
 }
@@ -226,6 +202,7 @@ func isValidPaginationEntity(entity models.EntityType) bool {
 		models.CPUMetrics,
 		models.DiskMetrics,
 		models.MemoryMetrics,
+		models.SNMPMetrics,
 	}
 
 	for _, validEntity := range validEntities {

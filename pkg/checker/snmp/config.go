@@ -34,6 +34,7 @@ type SNMPConfig struct {
 	ListenAddr  string                 `json:"listen_addr"`
 	Security    *models.SecurityConfig `json:"security"`
 	Targets     []Target               `json:"targets"`
+	Partition   string                 `json:"partition"`
 }
 
 const (
@@ -54,6 +55,10 @@ func (c *SNMPConfig) Validate() error {
 
 	if c.ListenAddr == "" {
 		return errListenAddrRequired
+	}
+
+	if c.Partition == "" {
+		return errPartitionRequired
 	}
 
 	if len(c.Targets) == 0 {

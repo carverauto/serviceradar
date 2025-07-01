@@ -21,6 +21,8 @@ import { CheckCircle, XCircle, ChevronDown, ChevronRight, ArrowUp, ArrowDown } f
 import ReactJson from '@microlink/react-json-view';
 import { Device } from '@/types/devices';
 import SysmonStatusIndicator from './SysmonStatusIndicator';
+import SNMPStatusIndicator from './SNMPStatusIndicator';
+import ICMPSparkline from './ICMPSparkline';
 
 type SortableKeys = 'ip' | 'hostname' | 'last_seen' | 'first_seen' | 'poller_id';
 
@@ -40,6 +42,10 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
     const [expandedRow, setExpandedRow] = useState<string | null>(null);
     const [sysmonStatuses, setSysmonStatuses] = useState<Record<string, { hasMetrics: boolean }>>({});
     const [sysmonStatusesLoading, setSysmonStatusesLoading] = useState(true);
+    const [snmpStatuses, setSnmpStatuses] = useState<Record<string, { hasMetrics: boolean }>>({});
+    const [snmpStatusesLoading, setSnmpStatusesLoading] = useState(true);
+    const [icmpStatuses, setIcmpStatuses] = useState<Record<string, { hasMetrics: boolean }>>({});
+    const [icmpStatusesLoading, setIcmpStatusesLoading] = useState(true);
 
     // Create a stable reference for device IDs
     const deviceIdsString = useMemo(() => {
@@ -77,8 +83,60 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
             }
         };
 
+        const fetchSnmpStatuses = async () => {
+            setSnmpStatusesLoading(true);
+            try {
+                console.log(`DeviceTable: Fetching SNMP status for ${deviceIds.length} devices`);
+                const response = await fetch('/api/devices/snmp/status', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ deviceIds }),
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    setSnmpStatuses(data.statuses || {});
+                } else {
+                    console.error('Failed to fetch bulk SNMP statuses:', response.status);
+                }
+            } catch (error) {
+                console.error('Error fetching bulk SNMP statuses:', error);
+            } finally {
+                setSnmpStatusesLoading(false);
+            }
+        };
+
+        const fetchIcmpStatuses = async () => {
+            setIcmpStatusesLoading(true);
+            try {
+                console.log(`DeviceTable: Fetching ICMP status for ${deviceIds.length} devices:`, deviceIds);
+                const response = await fetch('/api/devices/icmp/status', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ deviceIds }),
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    setIcmpStatuses(data.statuses || {});
+                } else {
+                    console.error('Failed to fetch bulk ICMP statuses:', response.status);
+                }
+            } catch (error) {
+                console.error('Error fetching bulk ICMP statuses:', error);
+            } finally {
+                setIcmpStatusesLoading(false);
+            }
+        };
+
         fetchSysmonStatuses();
-    }, [deviceIdsString]);
+        fetchSnmpStatuses();
+        fetchIcmpStatuses();
+    }, [deviceIdsString, devices]);
 
     const getSourceColor = (source: string) => {
         const lowerSource = source.toLowerCase();
@@ -162,6 +220,16 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
                                             deviceId={device.device_id} 
                                             compact={true}
                                             hasMetrics={sysmonStatusesLoading ? undefined : sysmonStatuses[device.device_id]?.hasMetrics}
+                                        />
+                                        <SNMPStatusIndicator 
+                                            deviceId={device.device_id} 
+                                            compact={true}
+                                            hasMetrics={snmpStatusesLoading ? undefined : snmpStatuses[device.device_id]?.hasMetrics}
+                                        />
+                                        <ICMPSparkline 
+                                            deviceId={device.device_id} 
+                                            compact={false}
+                                            hasMetrics={icmpStatusesLoading ? undefined : icmpStatuses[device.device_id]?.hasMetrics}
                                         />
                                     </div>
                                 </td>
