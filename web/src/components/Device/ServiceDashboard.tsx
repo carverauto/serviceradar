@@ -16,7 +16,7 @@
 
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { ChevronLeft, Network, BarChart3 } from 'lucide-react';
 import Link from 'next/link';
 import { useAuth } from '@/components/AuthProvider';
@@ -24,7 +24,7 @@ import { useAuth } from '@/components/AuthProvider';
 interface DeviceServiceDashboardProps {
     deviceId: string;
     serviceName: string;
-    initialData: any[];
+    initialData: unknown[];
     initialError: string | null;
     initialTimeRange: string;
 }

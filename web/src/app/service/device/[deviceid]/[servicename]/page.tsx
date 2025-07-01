@@ -64,7 +64,8 @@ async function fetchDeviceServiceData(
             console.log(`SNMP data is array:`, Array.isArray(snmpData));
             
             // Transform data to match SNMPDashboard expected format
-            const transformedData = (snmpData || []).map(item => ({
+            const snmpDataArray = Array.isArray(snmpData) ? snmpData : [];
+            const transformedData = snmpDataArray.map(item => ({
                 ...item,
                 oid_name: item.if_index !== undefined ? `${item.name}_${item.if_index}` : item.name,
                 // Ensure other fields are compatible
@@ -175,7 +176,7 @@ export default async function Page(props: PageProps) {
                     <DeviceServiceDashboard
                         deviceId={deviceid}
                         serviceName={servicename}
-                        initialData={initialData.data}
+                        initialData={Array.isArray(initialData.data) ? initialData.data : []}
                         initialError={initialData.error}
                         initialTimeRange={initialData.timeRange}
                     />

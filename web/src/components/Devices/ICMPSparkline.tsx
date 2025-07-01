@@ -16,7 +16,7 @@
 
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { AreaChart, Area, YAxis, ResponsiveContainer } from 'recharts';
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import _ from 'lodash';
@@ -51,18 +51,7 @@ const ICMPSparkline: React.FC<ICMPSparklineProps> = ({
     const [isLoading, setIsLoading] = useState(false);
     const [hasData, setHasData] = useState(false);
 
-    useEffect(() => {
-        if (hasMetrics === false) {
-            setHasData(false);
-            return;
-        }
-        
-        fetchMetrics();
-        const interval = setInterval(fetchMetrics, REFRESH_INTERVAL);
-        return () => clearInterval(interval);
-    }, [deviceId, hasMetrics]);
-
-    const fetchMetrics = async () => {
+    const fetchMetrics = useCallback(async () => {
         if (!deviceId || hasMetrics === false) return;
         
         setIsLoading(true);
@@ -93,7 +82,18 @@ const ICMPSparkline: React.FC<ICMPSparklineProps> = ({
         } finally {
             setIsLoading(false);
         }
-    };
+    }, [deviceId, hasMetrics]);
+
+    useEffect(() => {
+        if (hasMetrics === false) {
+            setHasData(false);
+            return;
+        }
+        
+        fetchMetrics();
+        const interval = setInterval(fetchMetrics, REFRESH_INTERVAL);
+        return () => clearInterval(interval);
+    }, [deviceId, hasMetrics, fetchMetrics]);
 
     const processedMetrics = useMemo(() => {
         if (!metrics || metrics.length === 0) {

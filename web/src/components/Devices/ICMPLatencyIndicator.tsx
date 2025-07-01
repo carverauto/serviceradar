@@ -16,7 +16,7 @@
 
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Timer, Wifi, WifiOff } from 'lucide-react';
 
 interface ICMPLatencyIndicatorProps {
@@ -41,16 +41,7 @@ const ICMPLatencyIndicator: React.FC<ICMPLatencyIndicatorProps> = ({
     const [status, setStatus] = useState<ICMPLatencyStatus>({ hasData: false });
     const [isLoading, setIsLoading] = useState(false);
 
-    useEffect(() => {
-        if (hasMetrics === undefined) {
-            // Only fetch if hasMetrics not provided from bulk API
-            fetchLatencyStatus();
-        } else {
-            setStatus({ hasData: hasMetrics });
-        }
-    }, [deviceId, hasMetrics]);
-
-    const fetchLatencyStatus = async () => {
+    const fetchLatencyStatus = useCallback(async () => {
         if (!deviceId) return;
         
         console.log(`ICMPLatencyIndicator: Fetching latency for device ${deviceId}`);
@@ -99,7 +90,16 @@ const ICMPLatencyIndicator: React.FC<ICMPLatencyIndicatorProps> = ({
         } finally {
             setIsLoading(false);
         }
-    };
+    }, [deviceId]);
+
+    useEffect(() => {
+        if (hasMetrics === undefined) {
+            // Only fetch if hasMetrics not provided from bulk API
+            fetchLatencyStatus();
+        } else {
+            setStatus({ hasData: hasMetrics });
+        }
+    }, [deviceId, hasMetrics, fetchLatencyStatus]);
 
     if (compact) {
         // Only show the indicator if we have ICMP metrics
