@@ -95,7 +95,7 @@ export async function POST(req: NextRequest) {
                 // Create SRQL query to find devices with recent SNMP metrics (last 2 hours for faster query)
                 const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
                 
-                // Query SNMP metrics table for devices with recent network interface data
+                // Query SNMP metrics for devices with recent SNMP data
                 const srqlQuery = {
                     query: `show snmp_metrics where timestamp >= '${twoHoursAgo}' and device_id in (${deviceIds.map(id => `'${id}'`).join(', ')}) order by timestamp desc`,
                     limit: deviceIds.length * 2 // Reasonable limit based on number of devices
