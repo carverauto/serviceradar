@@ -676,10 +676,12 @@ func (s *Server) getChecker(ctx context.Context, req *proto.StatusRequest) (chec
 	}
 
 	var check checker.Checker
+
 	var err error
 
 	// Handle ICMP specially to include device ID
 	log.Printf("DEBUG: getChecker called with ServiceType=%s, Details=%s", req.ServiceType, req.Details)
+
 	if req.ServiceType == "icmp" {
 		log.Printf("ICMP checker requested for host: %s", req.Details)
 

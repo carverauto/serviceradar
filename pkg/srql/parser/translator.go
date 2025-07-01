@@ -36,7 +36,7 @@ func (*Translator) applyDefaultFilters(q *models.Query) {
 	if q.Entity == models.SweepResults {
 		applySweepResultsDefaultFilter(q)
 	}
-	
+
 	// SNMP entities need metric_type filtering since they use timeseries_metrics table
 	if q.Entity == models.SNMPResults || q.Entity == models.SNMPMetrics {
 		applySNMPDefaultFilter(q)

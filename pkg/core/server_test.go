@@ -441,7 +441,8 @@ func TestProcessSNMPMetrics(t *testing.T) {
 	err := json.Unmarshal([]byte(detailsJSON), &details)
 	require.NoError(t, err)
 
-	err = server.processSNMPMetrics(pollerID, "test-partition", details, now)
+	err = server.processSNMPMetrics(
+		context.Background(), pollerID, "test-partition", "127.0.0.1", "test-agent", details, now)
 	require.NoError(t, err)
 
 	// Trigger flush to store buffered metrics
