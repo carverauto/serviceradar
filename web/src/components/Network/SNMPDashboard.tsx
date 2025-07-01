@@ -28,6 +28,7 @@ interface SNMPDashboardProps {
     serviceName: string;
     initialData?: SnmpDataPoint[];
     initialTimeRange?: string;
+    useDeviceId?: boolean; // New prop to indicate if pollerId is actually a deviceId
 }
 
 // Define types for processed data
@@ -55,6 +56,7 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
                                                          serviceName,
                                                          initialData = [],
                                                          initialTimeRange = '1h',
+                                                         useDeviceId = false,
                                                      }) => {
     const router = useRouter();
     const searchParams = useSearchParams();
@@ -96,7 +98,7 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
         // Pass 2: Handle indexed metrics (e.g., ifInOctets_4, ifOutOctets_4)
         const indexedMetricsMap: { [key: string]: string[] } = {};
         availableMetrics.forEach(metric => {
-            if (processedMetrics.has(metric)) return;
+            if (!metric || processedMetrics.has(metric)) return;
 
             const match = metric.match(/^(if)(In|Out)(Octets|Errors|Discards|Packets)_(\d+)$/i);
             if (match) {
@@ -120,7 +122,7 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
 
         // Pass 3: Add any remaining metrics as individual groups
         availableMetrics.forEach(metric => {
-            if (!processedMetrics.has(metric)) {
+            if (!metric || !processedMetrics.has(metric)) {
                 let alreadyGrouped = false;
                 for(const groupData of Object.values(groups)){
                     if(groupData.metrics.includes(metric)){
@@ -200,7 +202,9 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
                         start.setHours(end.getHours() - 1);
                 }
 
-                const snmpUrl = `/api/pollers/${pollerId}/snmp?start=${start.toISOString()}&end=${end.toISOString()}`;
+                const snmpUrl = useDeviceId 
+                    ? `/api/devices/${pollerId}/metrics?type=snmp&start=${start.toISOString()}&end=${end.toISOString()}`
+                    : `/api/pollers/${pollerId}/snmp?start=${start.toISOString()}&end=${end.toISOString()}`;
                 const headers: HeadersInit = {
                     'Content-Type': 'application/json',
                 };
@@ -215,9 +219,14 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
                 });
 
                 if (response.ok) {
-                    const newData: SnmpDataPoint[] = await response.json();
-                    if (Array.isArray(newData)) {
-                        setSNMPData(newData);
+                    const rawData = await response.json();
+                    if (Array.isArray(rawData)) {
+                        // Transform device metrics data to match expected format if using device endpoint
+                        const transformedData = useDeviceId ? rawData.map(item => ({
+                            ...item,
+                            oid_name: item.if_index !== undefined ? `${item.name}_${item.if_index}` : item.name
+                        })) : rawData;
+                        setSNMPData(transformedData);
                     }
                 } else {
                     console.warn('Failed to refresh SNMP data:', response.status, response.statusText);
@@ -233,7 +242,7 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
 
         const interval = setInterval(fetchUpdatedData, REFRESH_INTERVAL);
         return () => clearInterval(interval);
-    }, [pollerId, timeRange, snmpData.length, token]);
+    }, [pollerId, timeRange, snmpData.length, token, useDeviceId]);
 
     // Update SNMP data when initialData changes from server
     useEffect(() => {
@@ -244,33 +253,71 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
 
     // Process SNMP counter data to show rates instead of raw values
     const processCounterData = useCallback((data: SnmpDataPoint[]): ProcessedSnmpDataPoint[] => {
-        if (!data || data.length < 2) return data as ProcessedSnmpDataPoint[] || [];
+        console.log('processCounterData: Input data length:', data?.length || 0);
+        console.log('processCounterData: Sample data points:', data?.slice(0, 3));
+        
+        if (!data || data.length === 0) {
+            console.log('processCounterData: No data provided');
+            return [];
+        }
+        
+        // Sort data by timestamp to ensure proper order for rate calculation
+        const sortedData = [...data].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+        console.log('processCounterData: Sorted data timestamps:', sortedData.map(p => p.timestamp));
+        
+        if (sortedData.length < 2) {
+            console.log('processCounterData: Not enough data points for rate calculation, showing raw values');
+            // Show raw values when we don't have enough data for rate calculation
+            const processedRaw = sortedData.map(point => ({
+                ...point,
+                rate: parseFloat(point.value as string) || 0
+            }));
+            console.log('processCounterData: Raw values output:', processedRaw);
+            return processedRaw;
+        }
 
         try {
-            return data.map((point, index) => {
+            const processed = sortedData.map((point, index) => {
                 if (index === 0) return { ...point, rate: 0 };
 
-                const prevPoint = data[index - 1];
+                const prevPoint = sortedData[index - 1];
                 const timeDiff = (new Date(point.timestamp).getTime() - new Date(prevPoint.timestamp).getTime()) / 1000;
+                console.log(`processCounterData: Point ${index} - timeDiff: ${timeDiff}s`);
+                
                 if (timeDiff <= 0) return { ...point, rate: 0 };
 
                 const currentValue = parseFloat(point.value as string) || 0;
                 const prevValue = parseFloat(prevPoint.value as string) || 0;
+                console.log(`processCounterData: Point ${index} - currentValue: ${currentValue}, prevValue: ${prevValue}`);
+                console.log(`processCounterData: Point ${index} - raw values: "${point.value}" -> ${currentValue}, "${prevPoint.value}" -> ${prevValue}`);
 
                 let rate = 0;
                 if (currentValue >= prevValue) {
                     rate = (currentValue - prevValue) / timeDiff;
+                    console.log(`processCounterData: Point ${index} - calculated rate: ${rate}`);
                 } else {
                     // Check for rollover or reset
                     const is32Bit = prevValue <= 4294967295;
                     const maxVal = is32Bit ? 4294967295 : 18446744073709551615; // Support 64-bit counters
                     if (currentValue < prevValue && (maxVal - prevValue) > 0) {
                         rate = ((maxVal - prevValue) + currentValue) / timeDiff;
+                        console.log(`processCounterData: Point ${index} - rollover rate: ${rate}`);
                     } else {
                         // Likely a reset (e.g., device reboot), skip this interval
                         rate = 0;
+                        console.log(`processCounterData: Point ${index} - reset detected, rate: 0`);
                     }
                 }
+
+                // Log the actual calculated rate before any scaling
+                console.log(`processCounterData: Point ${index} - actual calculated rate: ${rate} B/s`);
+                
+                // If rate is very small or 0, it might be real - don't scale yet
+                // if (rate === 0 || rate < 0.01) {
+                //     // Use current value scaled down to a reasonable range for visualization
+                //     rate = currentValue / 1000000; // Scale down by 1M to make it visible
+                //     console.log(`processCounterData: Point ${index} - using scaled raw value: ${rate} (from ${currentValue})`);
+                // }
 
                 // Sanity check: Cap unrealistic rates
                 if (rate > 10000000) { // 10 MB/s threshold - adjust based on your network
@@ -283,21 +330,30 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
                     rate,
                 };
             });
+            
+            console.log('processCounterData: Final processed data sample:', processed.slice(0, 3));
+            return processed;
         } catch (error) {
             console.error("Error processing counter data:", error);
-            return data as ProcessedSnmpDataPoint[];
+            return sortedData as ProcessedSnmpDataPoint[];
         }
     }, []);
 
     // Initialize metrics and selection
     useEffect(() => {
         if (snmpData.length > 0) {
-            const metrics = [...new Set(snmpData.map(item => item.oid_name))];
+            console.log('SNMPDashboard: Processing data, length:', snmpData.length);
+            console.log('SNMPDashboard: Sample data:', snmpData.slice(0, 3));
+            const metrics = [...new Set(snmpData.map(item => item.oid_name).filter(Boolean))];
+            console.log('SNMPDashboard: Available metrics:', metrics);
             setAvailableMetrics(metrics);
 
             if (!selectedMetric && metrics.length > 0) {
                 setSelectedMetric(metrics[0]);
+                console.log('SNMPDashboard: Selected metric:', metrics[0]);
             }
+        } else {
+            console.log('SNMPDashboard: No SNMP data available');
         }
     }, [snmpData, selectedMetric]);
 
@@ -383,6 +439,8 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
                 const combinedArray = Object.values(allMetricsData)
                     .sort((a, b) => a.timestamp - b.timestamp);
 
+                console.log('SNMPDashboard: Combined data sample:', combinedArray.slice(0, 3));
+                console.log('SNMPDashboard: Combined data length:', combinedArray.length);
                 setCombinedData(combinedArray);
 
                 if (metricsToShow.length > 0 && (!selectedMetric || !metricsToShow.includes(selectedMetric))) {
@@ -407,7 +465,9 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
         if (absRate >= 1000000000) return `${(rate / 1000000000).toFixed(2)} GB/s`;
         else if (absRate >= 1000000) return `${(rate / 1000000).toFixed(2)} MB/s`;
         else if (absRate >= 1000) return `${(rate / 1000).toFixed(2)} KB/s`;
-        else return `${rate.toFixed(2)} B/s`;
+        else if (absRate >= 1) return `${rate.toFixed(2)} B/s`;
+        else if (absRate > 0) return `${(rate * 1000000).toFixed(0)} (scaled)`;
+        else return "0.00 B/s";
     };
 
     const getMetricColor = (metric: string, index: number): { stroke: string; fill: string } => {

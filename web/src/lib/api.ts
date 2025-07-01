@@ -60,18 +60,29 @@ export async function fetchFromAPI<T>(
       credentials: "include",
     });
 
+    let responseText: string;
+    try {
+        responseText = await response.text();
+    } catch {
+        throw new Error('Failed to read response body');
+    }
+
     if (!response.ok) {
         let errorBody;
         try {
-            errorBody = await response.json();
+            errorBody = JSON.parse(responseText);
         } catch {
-            errorBody = await response.text();
+            errorBody = responseText;
         }
         console.error(`API request to ${apiUrl} failed with status ${response.status}:`, errorBody);
         throw new Error(`API request failed: ${response.status}`);
     }
 
-    return response.json();
+    try {
+        return JSON.parse(responseText);
+    } catch {
+        throw new Error('Failed to parse response as JSON');
+    }
   } catch (error) {
     console.error("Error fetching from API:", error);
     return null;

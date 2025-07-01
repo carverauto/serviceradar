@@ -32,13 +32,14 @@ func (*Translator) applyDefaultFilters(q *models.Query) {
 		return
 	}
 
-	// Other entity types don't have default filters:
-	// - Devices, Flows, Traps, Connections, Logs, Interfaces
-	// - ICMPResults, SNMPResults, Services, Pollers, Events
-
-	// Currently, only SweepResults needs a default filter
+	// Apply default filters for entities that need them
 	if q.Entity == models.SweepResults {
 		applySweepResultsDefaultFilter(q)
+	}
+	
+	// SNMP entities need metric_type filtering since they use timeseries_metrics table
+	if q.Entity == models.SNMPResults || q.Entity == models.SNMPMetrics {
+		applySNMPDefaultFilter(q)
 	}
 }
 
@@ -59,12 +60,42 @@ func applySweepResultsDefaultFilter(q *models.Query) {
 	}
 }
 
+// applySNMPDefaultFilter adds the default metric_type filter for SNMP entities
+func applySNMPDefaultFilter(q *models.Query) {
+	if !hasMetricTypeCondition(q.Conditions) {
+		cond := models.Condition{
+			Field:    "metric_type",
+			Operator: models.Equals,
+			Value:    "snmp",
+		}
+
+		if len(q.Conditions) > 0 {
+			cond.LogicalOp = models.And
+		}
+
+		q.Conditions = append(q.Conditions, cond)
+	}
+}
+
 // hasDiscoverySourceCondition checks if a condition on discovery_source already
 // exists in the provided slice. Nested conditions are not inspected to keep the
 // check simple.
 func hasDiscoverySourceCondition(conds []models.Condition) bool {
 	for _, c := range conds {
 		if strings.EqualFold(c.Field, "discovery_source") {
+			return true
+		}
+	}
+
+	return false
+}
+
+// hasMetricTypeCondition checks if a condition on metric_type already
+// exists in the provided slice. Nested conditions are not inspected to keep the
+// check simple.
+func hasMetricTypeCondition(conds []models.Condition) bool {
+	for _, c := range conds {
+		if strings.EqualFold(c.Field, "metric_type") {
 			return true
 		}
 	}
@@ -213,13 +244,13 @@ func getEntityToTableMapData() map[models.EntityType]string {
 		models.Services:      "services",
 		models.SweepResults:  "sweep_results",
 		models.ICMPResults:   "icmp_results",
-		models.SNMPResults:   "snmp_results",
+		models.SNMPResults:   "timeseries_metrics",
 		models.Events:        "events",
 		models.Pollers:       "pollers",
 		models.CPUMetrics:    "cpu_metrics",
 		models.DiskMetrics:   "disk_metrics",
 		models.MemoryMetrics: "memory_metrics",
-		models.SNMPMetrics:   "snmp_metrics",
+		models.SNMPMetrics:   "timeseries_metrics",
 	}
 }
 
