@@ -42,12 +42,12 @@ func TestManager(t *testing.T) {
 		now := time.Now()
 
 		// Add metrics for two nodes
-		err := manager.AddMetric("node1", now, 100, "service1")
+		err := manager.AddMetric("node1", now, 100, "service1", "device1", "partition1", "agent1")
 		if err != nil {
 			t.Fatalf("AddMetric failed: %v", err)
 		}
 
-		err = manager.AddMetric("node2", now, 200, "service2")
+		err = manager.AddMetric("node2", now, 200, "service2", "device2", "partition1", "agent1")
 		if err != nil {
 			t.Fatalf("AddMetric failed: %v", err)
 		}
@@ -68,7 +68,7 @@ func TestManager(t *testing.T) {
 		disabledCfg := models.MetricsConfig{Enabled: false}
 		manager := NewManager(disabledCfg, mockDB)
 
-		err := manager.AddMetric("node1", time.Now(), 100, "service")
+		err := manager.AddMetric("node1", time.Now(), 100, "service", "device1", "partition1", "agent1")
 		if err != nil {
 			t.Errorf("expected nil error for disabled metrics, got %v", err)
 		}
@@ -90,7 +90,7 @@ func TestManager(t *testing.T) {
 		for i := 0; i < goroutines; i++ {
 			go func(id int) {
 				for j := 0; j < iterations; j++ {
-					_ = manager.AddMetric("node1", time.Now(), int64(id*1000+j), "test")
+					_ = manager.AddMetric("node1", time.Now(), int64(id*1000+j), "test", "device1", "partition1", "agent1")
 				}
 				done <- true
 			}(i)

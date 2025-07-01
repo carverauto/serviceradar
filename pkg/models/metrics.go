@@ -200,6 +200,7 @@ type SweepResult struct {
 	AgentID         string            `json:"agent_id"`
 	PollerID        string            `json:"poller_id"`
 	Partition       string            `json:"partition"`
+	DeviceID        string            `json:"device_id"`
 	DiscoverySource string            `json:"discovery_source"`
 	IP              string            `json:"ip"`
 	MAC             *string           `json:"mac,omitempty"`

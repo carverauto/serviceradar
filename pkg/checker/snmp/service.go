@@ -193,7 +193,7 @@ func (s *SNMPService) GetStatus(_ context.Context) (map[string]TargetStatus, err
 			mergedStatus.OIDStatus = collectorStatus.OIDStatus
 			mergedStatus.Error = collectorStatus.Error
 			// HostIP and HostName are preserved from serviceStatus
-			
+
 			status[name] = mergedStatus
 			log.Printf("Merged status for %s: HostIP=%s, HostName=%s", name, mergedStatus.HostIP, mergedStatus.HostName)
 		} else {
@@ -298,7 +298,7 @@ func (s *SNMPService) initializeTarget(ctx context.Context, target *Target) erro
 		HostName:  target.Name, // Target name for display
 		Target:    target,      // Include target configuration for internal use
 	}
-	
+
 	log.Printf("Initialized service status for %s: HostIP=%s, HostName=%s", target.Name, target.Host, target.Name)
 
 	// Start processing results

@@ -40,8 +40,8 @@ type ServiceMetricsPayload struct {
 // It includes metadata about the collector infrastructure along with the target data.
 // Deprecated: Use ServiceMetricsPayload instead
 type SNMPMetricsPayload struct {
-	PollerID  string          `json:"poller_id"`  // Poller that collected the metrics
-	AgentID   string          `json:"agent_id"`   // Agent that the poller belongs to
-	Partition string          `json:"partition"`  // Partition from SNMP checker config
-	Targets   json.RawMessage `json:"targets"`    // Target statuses and metrics (map[string]snmp.TargetStatus)
+	PollerID  string          `json:"poller_id"` // Poller that collected the metrics
+	AgentID   string          `json:"agent_id"`  // Agent that the poller belongs to
+	Partition string          `json:"partition"` // Partition from SNMP checker config
+	Targets   json.RawMessage `json:"targets"`   // Target statuses and metrics (map[string]snmp.TargetStatus)
 }

@@ -504,8 +504,6 @@ func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStat
 		agentID := status.AgentId
 		if agentID == "" {
 			log.Printf("Warning: AgentID empty in response for service %s, using configured agent name as fallback", status.ServiceName)
-			// We need to extract this from the service status creation context
-			// For now, we'll handle this in the enhancement function
 		}
 
 		// Enhance ALL service responses with infrastructure identity
@@ -547,14 +545,15 @@ func (p *Poller) enhanceServicePayload(originalMessage, agentID, partition, serv
 	if serviceType == "snmp" {
 		log.Printf("SNMP original message: AgentID='%s', Message='%s'", agentID, originalMessage)
 	}
-	
+
 	// Validate and normalize the original message to ensure it's valid JSON
 	var serviceData json.RawMessage
-	
+
 	// Try to parse original message as JSON
 	if originalMessage == "" {
 		// Empty message - use empty JSON object
 		log.Printf("Warning: Empty message for service %s/%s", serviceType, serviceName)
+
 		serviceData = json.RawMessage("{}")
 	} else if json.Valid([]byte(originalMessage)) {
 		// Valid JSON - use as-is
@@ -562,12 +561,15 @@ func (p *Poller) enhanceServicePayload(originalMessage, agentID, partition, serv
 	} else {
 		// Invalid JSON (likely plain text error) - wrap in JSON object
 		log.Printf("Warning: Invalid JSON for service %s/%s, wrapping: %s", serviceType, serviceName, originalMessage)
+
 		errorWrapper := map[string]string{"message": originalMessage}
+
 		wrappedJSON, err := json.Marshal(errorWrapper)
 		if err != nil {
 			return "", fmt.Errorf("failed to wrap non-JSON message: %w", err)
 		}
-		serviceData = json.RawMessage(wrappedJSON)
+
+		serviceData = wrappedJSON
 	}
 
 	// Create enhanced payload with infrastructure identity for ANY service type

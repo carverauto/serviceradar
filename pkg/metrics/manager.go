@@ -83,7 +83,8 @@ func (m *Manager) CleanupStalePollers(staleDuration time.Duration) {
 	})
 }
 
-func (m *Manager) AddMetric(nodeID string, timestamp time.Time, responseTime int64, serviceName, deviceID, partition, agentID string) error {
+func (m *Manager) AddMetric(
+	nodeID string, timestamp time.Time, responseTime int64, serviceName, deviceID, partition, agentID string) error {
 	if !m.config.Enabled {
 		return nil
 	}
@@ -164,17 +165,17 @@ func (m *Manager) GetMetricsByDevice(deviceID string) []models.MetricPoint {
 	var allPoints []models.MetricPoint
 
 	// Search across all nodes for metrics with the specified device ID
-	m.nodes.Range(func(key, value interface{}) bool {
+	m.nodes.Range(func(_, value interface{}) bool {
 		store := value.(MetricStore)
 		points := store.GetPoints()
-		
+
 		// Filter points by device ID
 		for _, point := range points {
 			if point.DeviceID == deviceID {
 				allPoints = append(allPoints, point)
 			}
 		}
-		
+
 		return true // Continue iteration
 	})
 
