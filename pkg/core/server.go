@@ -874,6 +874,82 @@ func (*Server) createPollerStatus(req *proto.PollerStatusRequest, now time.Time)
 	}
 }
 
+// extractDeviceContext extracts device context for service correlation.
+// For services like ping/icmp, this correlates them to the source device (agent).
+// Returns the device_id and partition for the device that performed the service check.
+func (s *Server) extractDeviceContext(agentID, defaultPartition, enhancedPayload string) (deviceID, partition string) {
+	// Parse the enhanced service payload to extract device context
+	var payload struct {
+		PollerID  string `json:"poller_id"`
+		AgentID   string `json:"agent_id"`
+		Partition string `json:"partition"`
+		Data      struct {
+			HostIP string `json:"host_ip,omitempty"`
+		} `json:"data,omitempty"`
+	}
+	
+	if err := json.Unmarshal([]byte(enhancedPayload), &payload); err != nil {
+		// If we can't parse the enhanced payload, use defaults
+		log.Printf("Warning: Failed to parse enhanced payload for device context: %v", err)
+		return "", defaultPartition
+	}
+	
+	// Use partition from enhanced payload if available, otherwise use default
+	partition = payload.Partition
+	if partition == "" {
+		partition = defaultPartition
+	}
+	
+	// For service correlation, we need to determine the source device
+	// This is typically the agent that performed the service check
+	
+	// First, try to get host_ip from the service data (if available)
+	if payload.Data.HostIP != "" {
+		deviceID = fmt.Sprintf("%s:%s", partition, payload.Data.HostIP)
+		return deviceID, partition
+	}
+	
+	// If no host_ip in service data, try to look up the agent's device record
+	// This handles cases where the agent doesn't include host_ip in service responses
+	agentDeviceID := s.findAgentDeviceID(agentID, partition)
+	if agentDeviceID != "" {
+		return agentDeviceID, partition
+	}
+	
+	// Fallback: return empty deviceID but valid partition
+	return "", partition
+}
+
+// findAgentDeviceID attempts to find the device_id associated with an agent.
+// This looks up device records that have the specified agent_id.
+func (s *Server) findAgentDeviceID(agentID, partition string) string {
+	// Query unified_devices to find device with this agent_id
+	// This is a best-effort lookup and may not always succeed
+	query := `
+		SELECT device_id 
+		FROM table(unified_devices) 
+		WHERE agent_id = $1 AND device_id LIKE $2 
+		LIMIT 1`
+	
+	results, err := s.DB.ExecuteQuery(context.Background(), query, agentID, partition+":%")
+	if err != nil {
+		// This is expected when no device record exists yet
+		log.Printf("Debug: No device record found for agent_id=%s, partition=%s: %v", agentID, partition, err)
+		return ""
+	}
+	
+	if len(results) == 0 {
+		log.Printf("Debug: No device record found for agent_id=%s, partition=%s", agentID, partition)
+		return ""
+	}
+	
+	if deviceID, ok := results[0]["device_id"].(string); ok {
+		return deviceID
+	}
+	
+	return ""
+}
+
 // processServices processes service statuses for a poller and updates the API status.
 func (s *Server) processServices(
 	ctx context.Context,
@@ -899,6 +975,9 @@ func (s *Server) processServices(
 				svc.ServiceName, pollerID, err)
 		}
 
+		// Extract device context from enhanced payload for device correlation
+		deviceID, devicePartition := s.extractDeviceContext(svc.AgentId, partition, string(apiService.Message))
+		
 		serviceStatuses = append(serviceStatuses, &models.ServiceStatus{
 			AgentID:     svc.AgentId,
 			PollerID:    svc.PollerId,
@@ -906,6 +985,8 @@ func (s *Server) processServices(
 			ServiceType: apiService.Type,
 			Available:   apiService.Available,
 			Details:     apiService.Message,
+			DeviceID:    deviceID,
+			Partition:   devicePartition,
 			Timestamp:   now,
 		})
 
@@ -914,6 +995,8 @@ func (s *Server) processServices(
 			ServiceName: svc.ServiceName,
 			ServiceType: svc.ServiceType,
 			AgentID:     svc.AgentId,
+			DeviceID:    deviceID,
+			Partition:   devicePartition,
 			Timestamp:   now,
 		})
 
@@ -977,6 +1060,23 @@ func (s *Server) processServiceDetails(
 	return s.handleService(ctx, apiService, partition, now)
 }
 
+// extractServicePayload extracts the enhanced service payload or returns original details.
+// All service messages now include infrastructure context from the poller.
+func (s *Server) extractServicePayload(details json.RawMessage) (*models.ServiceMetricsPayload, json.RawMessage, error) {
+	// Try to parse as enhanced payload first
+	var enhancedPayload models.ServiceMetricsPayload
+	if err := json.Unmarshal(details, &enhancedPayload); err == nil {
+		// Validate it's actually an enhanced payload by checking required fields
+		if enhancedPayload.PollerID != "" && enhancedPayload.AgentID != "" {
+			return &enhancedPayload, enhancedPayload.Data, nil
+		}
+	}
+	
+	// Fallback: treat as original non-enhanced payload
+	// This handles backwards compatibility during transition
+	return nil, details, nil
+}
+
 // processMetrics handles metrics processing for all service types.
 func (s *Server) processMetrics(
 	ctx context.Context,
@@ -986,20 +1086,40 @@ func (s *Server) processMetrics(
 	svc *proto.ServiceStatus,
 	details json.RawMessage,
 	now time.Time) error {
+	
+	// Extract enhanced payload if present, or use original data
+	enhancedPayload, serviceData, err := s.extractServicePayload(details)
+	if err != nil {
+		log.Printf("Warning: Failed to extract service payload for %s: %v", svc.ServiceType, err)
+		serviceData = details // fallback to original
+	}
+	
+	// Use enhanced context if available, otherwise fall back to gRPC parameters
+	contextPollerID := pollerID
+	contextPartition := partition
+	contextAgentID := svc.AgentId
+	
+	if enhancedPayload != nil {
+		contextPollerID = enhancedPayload.PollerID
+		contextPartition = enhancedPayload.Partition
+		contextAgentID = enhancedPayload.AgentID
+		log.Printf("Using enhanced payload context: PollerID=%s, Partition=%s, AgentID=%s", 
+			contextPollerID, contextPartition, contextAgentID)
+	}
 	switch svc.ServiceType {
 	case snmpServiceType:
-		return s.processSNMPMetrics(pollerID, partition, details, now)
+		return s.processSNMPMetrics(contextPollerID, contextPartition, sourceIP, contextAgentID, serviceData, now)
 	case grpcServiceType:
 		switch svc.ServiceName {
 		case rperfServiceType:
-			return s.processRperfMetrics(pollerID, partition, details, now)
+			return s.processRperfMetrics(contextPollerID, contextPartition, serviceData, now)
 		case sysmonServiceType:
-			return s.processSysmonMetrics(pollerID, partition, svc.AgentId, details, now)
+			return s.processSysmonMetrics(contextPollerID, contextPartition, contextAgentID, serviceData, now)
 		}
 	case icmpServiceType:
-		return s.processICMPMetrics(pollerID, partition, sourceIP, svc, details, now)
+		return s.processICMPMetrics(contextPollerID, contextPartition, sourceIP, svc, serviceData, now)
 	case snmpDiscoveryResultsServiceType, mapperDiscoveryServiceType:
-		return s.processSNMPDiscoveryResults(ctx, pollerID, partition, svc, details, now)
+		return s.processSNMPDiscoveryResults(ctx, contextPollerID, contextPartition, svc, serviceData, now)
 	}
 
 	return nil
@@ -1170,6 +1290,41 @@ func (s *Server) createSysmonDeviceRecord(
 	} else {
 		log.Printf("Created/updated device record for sysmon device %s (hostname: %s, ip: %s)",
 			deviceID, payload.Status.HostID, payload.Status.HostIP)
+	}
+}
+
+// createSnmpTargetDeviceRecord creates a device record for an SNMP target device.
+// This ensures SNMP targets appear in the unified devices view and can be merged with other discovery sources.
+func (s *Server) createSnmpTargetDeviceRecord(
+	agentID, pollerID, partition, targetIP, hostname string, timestamp time.Time, available bool) {
+	
+	if targetIP == "" {
+		log.Printf("Warning: Cannot create SNMP target device record; target IP is missing.")
+		return
+	}
+
+	sweepResult := &models.SweepResult{
+		AgentID:         agentID,
+		PollerID:        pollerID,
+		Partition:       partition,
+		DiscoverySource: "snmp", // Will merge with other discovery sources in unified_devices
+		IP:              targetIP,
+		Hostname:        &hostname,
+		Timestamp:       timestamp,
+		Available:       available,
+		Metadata: map[string]string{
+			"source":           "snmp-target",
+			"snmp_monitoring":  "active",
+			"last_poll":        timestamp.Format(time.RFC3339),
+		},
+	}
+
+	if err := s.DB.StoreSweepResults(context.Background(), []*models.SweepResult{sweepResult}); err != nil {
+		log.Printf("Warning: Failed to create device record for SNMP target %s: %v", targetIP, err)
+	} else {
+		deviceID := fmt.Sprintf("%s:%s", partition, targetIP)
+		log.Printf("Created/updated device record for SNMP target %s (hostname: %s, ip: %s)",
+			deviceID, hostname, targetIP)
 	}
 }
 
@@ -1512,30 +1667,82 @@ func (s *Server) bufferMetrics(pollerID string, metrics []*models.TimeseriesMetr
 	s.metricBuffers[pollerID] = append(s.metricBuffers[pollerID], metrics...)
 }
 
-func (s *Server) processSNMPMetrics(pollerID, partition string, details json.RawMessage, timestamp time.Time) error {
-	// 'details' is the JSON string from SNMPService.Check(), which is a map[string]snmp.TargetStatus
-	var snmpReportData map[string]snmp.TargetStatus
-
-	if err := json.Unmarshal(details, &snmpReportData); err != nil {
-		log.Printf("Error unmarshaling SNMP report data for poller %s: %v. Details: %s",
+func (s *Server) processSNMPMetrics(pollerID, partition, sourceIP, agentID string, details json.RawMessage, timestamp time.Time) error {
+	// 'details' may be either enhanced ServiceMetricsPayload data or raw SNMP data
+	// Parse directly as SNMP target status map (works for both enhanced and legacy)
+	var targetStatusMap map[string]snmp.TargetStatus
+	if err := json.Unmarshal(details, &targetStatusMap); err != nil {
+		log.Printf("Error unmarshaling SNMP targets for poller %s: %v. Details: %s",
 			pollerID, err, string(details))
-		return fmt.Errorf("failed to parse SNMP report data: %w", err)
+		
+		// Check if it's an error message wrapped in JSON
+		var errorWrapper map[string]string
+		if errParseErr := json.Unmarshal(details, &errorWrapper); errParseErr == nil {
+			if msg, exists := errorWrapper["message"]; exists {
+				log.Printf("SNMP service returned error for poller %s: %s", pollerID, msg)
+				return nil // Don't fail processing for service errors
+			}
+			if errMsg, exists := errorWrapper["error"]; exists {
+				log.Printf("SNMP service returned error for poller %s: %s", pollerID, errMsg)
+				return nil // Don't fail processing for service errors
+			}
+		}
+		
+		return fmt.Errorf("failed to parse SNMP targets: %w", err)
+	}
+	
+	// Skip processing if no targets (empty map)
+	if len(targetStatusMap) == 0 {
+		log.Printf("SNMP service for poller %s returned no targets", pollerID)
+		return nil
+	}
+
+	// Register each SNMP target as a device (for unified devices view integration)
+	for targetName, targetData := range targetStatusMap {
+		// Use HostIP for device registration, fall back to target name if not available
+		deviceIP := targetData.HostIP
+		if deviceIP == "" {
+			log.Printf("Warning: HostIP missing for target %s, using target name as fallback", targetName)
+			deviceIP = targetName
+		}
+		
+		// Use HostName for display, fall back to target name if not available
+		deviceHostname := targetData.HostName
+		if deviceHostname == "" {
+			deviceHostname = targetName
+		}
+		
+		s.createSnmpTargetDeviceRecord(
+			agentID,        // Use context agentID (enhanced or fallback)
+			pollerID,       // Use context pollerID (enhanced or fallback)  
+			partition,      // Use context partition (enhanced or fallback)
+			deviceIP,       // Actual IP address (e.g., "192.168.2.1")
+			deviceHostname, // Display name (e.g., "farm01")
+			timestamp,
+			targetData.Available,
+		)
 	}
 
 	var newTimeseriesMetrics []*models.TimeseriesMetric
 
-	for targetName, targetData := range snmpReportData { // targetName here is your target_device_ip
+	for targetName, targetData := range targetStatusMap { // targetName is target config name
 		if !targetData.Available {
 			continue
+		}
+
+		// Use HostIP for device ID consistency, fall back to target name if not available
+		deviceIP := targetData.HostIP
+		if deviceIP == "" {
+			deviceIP = targetName
 		}
 
 		for oidConfigName, oidStatus := range targetData.OIDStatus { // oidConfigName is like "ifInOctets_4" or "sysUpTimeInstance"
 			baseMetricName, parsedIfIndex := parseOIDConfigName(oidConfigName)
 
 			metric := createSNMPMetric(
-				pollerID,
-				partition,
-				targetName,
+				pollerID,   // Use context pollerID
+				partition,  // Use context partition
+				deviceIP,   // Use actual IP address for device ID consistency
 				oidConfigName,
 				oidStatus,
 				targetData,

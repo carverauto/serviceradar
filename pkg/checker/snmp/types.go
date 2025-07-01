@@ -157,6 +157,8 @@ type TargetStatus struct {
 	LastPoll  time.Time            `json:"last_poll"`
 	OIDStatus map[string]OIDStatus `json:"oid_status"`
 	Error     string               `json:"error,omitempty"`
+	HostIP    string               `json:"host_ip"`           // IP address for device registration
+	HostName  string               `json:"host_name"`         // Target name for display
 	Target    *Target              `json:"-"`
 }
 

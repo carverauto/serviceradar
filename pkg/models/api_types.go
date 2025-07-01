@@ -39,6 +39,8 @@ type ServiceStatus struct {
 	AgentID     string          `json:"agent_id" example:"agent-prod-east-01"`
 	ServiceName string          `json:"service_name" example:"postgres"`
 	ServiceType string          `json:"service_type" example:"database"`
+	DeviceID    string          `json:"device_id,omitempty" example:"default:192.168.1.100"`
+	Partition   string          `json:"partition,omitempty" example:"default"`
 	Timestamp   time.Time       `json:"timestamp" example:"2020-11-10T23:00:00+09:00"`
 }
 
