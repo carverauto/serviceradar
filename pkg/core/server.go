@@ -1536,9 +1536,6 @@ func (s *Server) processICMPMetrics(
 	svc *proto.ServiceStatus,
 	details json.RawMessage,
 	now time.Time) error {
-	log.Printf("DEBUG: processICMPMetrics called - pollerID=%s, partition=%s, sourceIP=%s, agentID=%s, serviceName=%s",
-		pollerID, partition, sourceIP, agentID, svc.ServiceName)
-	log.Printf("DEBUG: Raw ICMP details: %s", string(details))
 
 	var pingResult struct {
 		Host         string  `json:"host"`
@@ -1555,9 +1552,6 @@ func (s *Server) processICMPMetrics(
 
 	// build deviceId based on "partition:sourceIP"
 	deviceID := fmt.Sprintf("%s:%s", partition, sourceIP)
-
-	log.Printf("DEBUG: Parsed ICMP result - Host=%s, ResponseTime=%d, Available=%t, DeviceID=%s",
-		pingResult.Host, pingResult.ResponseTime, pingResult.Available, pingResult.DeviceID)
 
 	// Create metadata map
 	metadata := map[string]string{
@@ -1596,10 +1590,6 @@ func (s *Server) processICMPMetrics(
 	s.metricBuffers[pollerID] = append(s.metricBuffers[pollerID], metric)
 	s.bufferMu.Unlock()
 
-	// Add to in-memory ring buffer for dashboard display
-	log.Printf("DEBUG: Adding ICMP metric to ring buffer - deviceID=%s, partition=%s, pollerID=%s, serviceName=%s, responseTime=%d",
-		deviceID, partition, pollerID, svc.ServiceName, pingResult.ResponseTime)
-
 	if s.metrics != nil {
 		err := s.metrics.AddMetric(
 			pollerID,
@@ -1612,8 +1602,6 @@ func (s *Server) processICMPMetrics(
 		)
 		if err != nil {
 			log.Printf("ERROR: Failed to add ICMP metric to in-memory buffer for %s: %v", svc.ServiceName, err)
-		} else {
-			log.Printf("DEBUG: Successfully added ICMP metric to ring buffer for deviceID=%s, serviceName=%s", deviceID, svc.ServiceName)
 		}
 	} else {
 		log.Printf("ERROR: Metrics manager is nil in processICMPMetrics for poller %s", pollerID)

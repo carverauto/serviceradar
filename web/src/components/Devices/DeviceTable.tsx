@@ -136,7 +136,7 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
         fetchSysmonStatuses();
         fetchSnmpStatuses();
         fetchIcmpStatuses();
-    }, [deviceIdsString]);
+    }, [deviceIdsString, devices]);
 
     const getSourceColor = (source: string) => {
         const lowerSource = source.toLowerCase();
