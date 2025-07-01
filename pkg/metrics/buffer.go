@@ -29,6 +29,10 @@ type metricPoint struct {
 	timestamp    int64
 	responseTime int64
 	serviceName  string
+	deviceID     string
+	partition    string
+	agentID      string
+	pollerID     string
 }
 
 // LockFreeRingBuffer is a lock-free ring buffer implementation.
@@ -65,12 +69,16 @@ func NewLockFreeBuffer(size int) MetricStore {
 }
 
 // Add adds a new metric point to the buffer.
-func (b *LockFreeRingBuffer) Add(timestamp time.Time, responseTime int64, serviceName string) {
+func (b *LockFreeRingBuffer) Add(timestamp time.Time, responseTime int64, serviceName, deviceID, partition, agentID, pollerID string) {
 	// Create new point
 	newPoint := &metricPoint{
 		timestamp:    timestamp.UnixNano(),
 		responseTime: responseTime,
 		serviceName:  serviceName,
+		deviceID:     deviceID,
+		partition:    partition,
+		agentID:      agentID,
+		pollerID:     pollerID,
 	}
 
 	// Atomically increment the position and get the index
@@ -102,6 +110,10 @@ func (b *LockFreeRingBuffer) GetPoints() []models.MetricPoint {
 		mp.Timestamp = time.Unix(0, p.timestamp)
 		mp.ResponseTime = p.responseTime
 		mp.ServiceName = p.serviceName
+		mp.DeviceID = p.deviceID
+		mp.Partition = p.partition
+		mp.AgentID = p.agentID
+		mp.PollerID = p.pollerID
 
 		points[i] = *mp
 
@@ -129,6 +141,10 @@ func (b *LockFreeRingBuffer) GetLastPoint() *models.MetricPoint {
 		Timestamp:    time.Unix(0, point.timestamp),
 		ResponseTime: point.responseTime,
 		ServiceName:  point.serviceName,
+		DeviceID:     point.deviceID,
+		Partition:    point.partition,
+		AgentID:      point.agentID,
+		PollerID:     point.pollerID,
 	}
 
 	return mp

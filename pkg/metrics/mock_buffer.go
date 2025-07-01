@@ -43,15 +43,15 @@ func (m *MockMetricStore) EXPECT() *MockMetricStoreMockRecorder {
 }
 
 // Add mocks base method.
-func (m *MockMetricStore) Add(timestamp time.Time, responseTime int64, serviceName string) {
+func (m *MockMetricStore) Add(timestamp time.Time, responseTime int64, serviceName, deviceID, partition, agentID, pollerID string) {
 	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "Add", timestamp, responseTime, serviceName)
+	m.ctrl.Call(m, "Add", timestamp, responseTime, serviceName, deviceID, partition, agentID, pollerID)
 }
 
 // Add indicates an expected call of Add.
-func (mr *MockMetricStoreMockRecorder) Add(timestamp, responseTime, serviceName any) *gomock.Call {
+func (mr *MockMetricStoreMockRecorder) Add(timestamp, responseTime, serviceName, deviceID, partition, agentID, pollerID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Add", reflect.TypeOf((*MockMetricStore)(nil).Add), timestamp, responseTime, serviceName)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Add", reflect.TypeOf((*MockMetricStore)(nil).Add), timestamp, responseTime, serviceName, deviceID, partition, agentID, pollerID)
 }
 
 // GetLastPoint mocks base method.
@@ -107,17 +107,17 @@ func (m *MockMetricCollector) EXPECT() *MockMetricCollectorMockRecorder {
 }
 
 // AddMetric mocks base method.
-func (m *MockMetricCollector) AddMetric(nodeID string, timestamp time.Time, responseTime int64, serviceName string) error {
+func (m *MockMetricCollector) AddMetric(nodeID string, timestamp time.Time, responseTime int64, serviceName, deviceID, partition, agentID string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "AddMetric", nodeID, timestamp, responseTime, serviceName)
+	ret := m.ctrl.Call(m, "AddMetric", nodeID, timestamp, responseTime, serviceName, deviceID, partition, agentID)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // AddMetric indicates an expected call of AddMetric.
-func (mr *MockMetricCollectorMockRecorder) AddMetric(nodeID, timestamp, responseTime, serviceName any) *gomock.Call {
+func (mr *MockMetricCollectorMockRecorder) AddMetric(nodeID, timestamp, responseTime, serviceName, deviceID, partition, agentID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddMetric", reflect.TypeOf((*MockMetricCollector)(nil).AddMetric), nodeID, timestamp, responseTime, serviceName)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddMetric", reflect.TypeOf((*MockMetricCollector)(nil).AddMetric), nodeID, timestamp, responseTime, serviceName, deviceID, partition, agentID)
 }
 
 // CleanupStalePollers mocks base method.
@@ -144,6 +144,20 @@ func (m *MockMetricCollector) GetMetrics(nodeID string) []models.MetricPoint {
 func (mr *MockMetricCollectorMockRecorder) GetMetrics(nodeID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMetrics", reflect.TypeOf((*MockMetricCollector)(nil).GetMetrics), nodeID)
+}
+
+// GetMetricsByDevice mocks base method.
+func (m *MockMetricCollector) GetMetricsByDevice(deviceID string) []models.MetricPoint {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetMetricsByDevice", deviceID)
+	ret0, _ := ret[0].([]models.MetricPoint)
+	return ret0
+}
+
+// GetMetricsByDevice indicates an expected call of GetMetricsByDevice.
+func (mr *MockMetricCollectorMockRecorder) GetMetricsByDevice(deviceID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMetricsByDevice", reflect.TypeOf((*MockMetricCollector)(nil).GetMetricsByDevice), deviceID)
 }
 
 // MockStructuredMetricCollector is a mock of StructuredMetricCollector interface.

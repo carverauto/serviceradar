@@ -30,6 +30,14 @@ type MetricPoint struct {
 	ResponseTime int64 `json:"response_time" example:"42"`
 	// The name of the service this metric is for
 	ServiceName string `json:"service_name" example:"postgres"`
+	// The device ID this metric is associated with (partition:ip)
+	DeviceID string `json:"device_id,omitempty" example:"default:192.168.1.100"`
+	// The partition this metric belongs to
+	Partition string `json:"partition,omitempty" example:"default"`
+	// The agent ID that collected this metric
+	AgentID string `json:"agent_id,omitempty" example:"agent-1234"`
+	// The poller ID that requested this metric
+	PollerID string `json:"poller_id,omitempty" example:"demo-staging"`
 }
 
 // MetricsConfig contains configuration for metrics collection.
@@ -192,6 +200,7 @@ type SweepResult struct {
 	AgentID         string            `json:"agent_id"`
 	PollerID        string            `json:"poller_id"`
 	Partition       string            `json:"partition"`
+	DeviceID        string            `json:"device_id"`
 	DiscoverySource string            `json:"discovery_source"`
 	IP              string            `json:"ip"`
 	MAC             *string           `json:"mac,omitempty"`

@@ -42,6 +42,15 @@ func NewICMPChecker(host string) (*ICMPChecker, error) {
 	return &ICMPChecker{Host: host, scanner: scanner}, nil
 }
 
+func NewICMPCheckerWithDeviceID(host, deviceID string) (*ICMPChecker, error) {
+	scanner, err := scan.NewICMPSweeper(defaultICMPSweeperTimeout, defaultICMPSweeperRateLimit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create ICMP scanner: %w", err)
+	}
+
+	return &ICMPChecker{Host: host, DeviceID: deviceID, scanner: scanner}, nil
+}
+
 func (p *ICMPChecker) Check(ctx context.Context, req *proto.StatusRequest) (isAccessible bool, statusMsg json.RawMessage) {
 	target := models.Target{Host: p.Host, Mode: models.ModeICMP}
 
@@ -64,6 +73,7 @@ func (p *ICMPChecker) Check(ctx context.Context, req *proto.StatusRequest) (isAc
 		Available:    result.Available,
 		AgentID:      req.AgentId,
 		PollerID:     req.PollerId,
+		DeviceID:     p.DeviceID,
 	}
 
 	data, err := json.Marshal(resp)

@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/grpc"
+	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
@@ -499,6 +500,20 @@ func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStat
 		// add the partition to each status
 		status.Partition = p.config.Partition
 
+		// Determine the correct AgentID to use - prefer response AgentId, fall back to configured agent name
+		agentID := status.AgentId
+		if agentID == "" {
+			log.Printf("Warning: AgentID empty in response for service %s, using configured agent name as fallback", status.ServiceName)
+		}
+
+		// Enhance ALL service responses with infrastructure identity
+		enhancedMessage, err := p.enhanceServicePayload(string(status.Message), agentID, status.Partition, status.ServiceType, status.ServiceName)
+		if err != nil {
+			log.Printf("Warning: Failed to enhance payload for service %s: %v", status.ServiceName, err)
+		} else {
+			status.Message = []byte(enhancedMessage)
+		}
+
 		log.Printf("Partition: %s, PollerID: %s, ServiceName: %s, AgentID: %s",
 			status.Partition, status.PollerId, status.ServiceName, status.AgentId)
 
@@ -521,4 +536,57 @@ func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStat
 	}
 
 	return nil
+}
+
+// enhanceServicePayload wraps ANY service response with infrastructure identity information.
+// This is a fundamental feature that adds poller context to all service messages.
+func (p *Poller) enhanceServicePayload(originalMessage, agentID, partition, serviceType, serviceName string) (string, error) {
+	// Debug logging for SNMP service to understand what we're getting
+	if serviceType == "snmp" {
+		log.Printf("SNMP original message: AgentID='%s', Message='%s'", agentID, originalMessage)
+	}
+
+	// Validate and normalize the original message to ensure it's valid JSON
+	var serviceData json.RawMessage
+
+	// Try to parse original message as JSON
+	if originalMessage == "" {
+		// Empty message - use empty JSON object
+		log.Printf("Warning: Empty message for service %s/%s", serviceType, serviceName)
+
+		serviceData = json.RawMessage("{}")
+	} else if json.Valid([]byte(originalMessage)) {
+		// Valid JSON - use as-is
+		serviceData = json.RawMessage(originalMessage)
+	} else {
+		// Invalid JSON (likely plain text error) - wrap in JSON object
+		log.Printf("Warning: Invalid JSON for service %s/%s, wrapping: %s", serviceType, serviceName, originalMessage)
+
+		errorWrapper := map[string]string{"message": originalMessage}
+
+		wrappedJSON, err := json.Marshal(errorWrapper)
+		if err != nil {
+			return "", fmt.Errorf("failed to wrap non-JSON message: %w", err)
+		}
+
+		serviceData = wrappedJSON
+	}
+
+	// Create enhanced payload with infrastructure identity for ANY service type
+	enhancedPayload := models.ServiceMetricsPayload{
+		PollerID:    p.config.PollerID,
+		AgentID:     agentID,
+		Partition:   partition,
+		ServiceType: serviceType,
+		ServiceName: serviceName,
+		Data:        serviceData, // Guaranteed valid JSON
+	}
+
+	// Marshal enhanced payload back to JSON
+	enhancedJSON, err := json.Marshal(enhancedPayload)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal enhanced service payload: %w", err)
+	}
+
+	return string(enhancedJSON), nil
 }

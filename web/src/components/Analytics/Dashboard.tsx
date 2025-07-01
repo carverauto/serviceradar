@@ -238,10 +238,16 @@ const Dashboard = () => {
                     if (service.type === 'icmp' && service.available && service.details) {
                         try {
                             const details = (typeof service.details === 'string' ? JSON.parse(service.details) : service.details) as GenericServiceDetails;
-                            if (details?.response_time) {
-                                const responseTimeMs = details.response_time / 1000000;
+                            // Handle both direct response_time and nested data.response_time (enhanced payload)
+                            let responseTime = details?.response_time;
+                            if (!responseTime && details?.data?.response_time) {
+                                responseTime = details.data.response_time;
+                            }
+                            
+                            if (responseTime) {
+                                const responseTimeMs = responseTime / 1000000;
                                 latencyData.push({ name: service.name, value: responseTimeMs });
-                                if (details.response_time > latencyThreshold) {
+                                if (responseTime > latencyThreshold) {
                                     highLatencyServices++;
                                 }
                             }
