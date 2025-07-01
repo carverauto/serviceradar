@@ -1020,16 +1020,6 @@ func (s *Server) processServices(
 		})
 
 		apiStatus.Services = append(apiStatus.Services, apiService)
-
-		if svc.AgentId == "" {
-			log.Printf("Warning: Service %s on poller %s has empty AgentID", svc.ServiceName, svc.PollerId)
-		} else {
-			log.Printf("Service %s on poller %s has AgentID: %s", svc.ServiceName, svc.PollerId, svc.AgentId)
-		}
-
-		if svc.PollerId == "" {
-			log.Printf("Warning: Service %s has empty PollerID, using fallback %s", svc.ServiceName, pollerID)
-		}
 	}
 
 	s.bufferMu.Lock()
@@ -1118,9 +1108,6 @@ func (s *Server) processMetrics(
 		contextPollerID = enhancedPayload.PollerID
 		contextPartition = enhancedPayload.Partition
 		contextAgentID = enhancedPayload.AgentID
-
-		log.Printf("Using enhanced payload context: PollerID=%s, Partition=%s, AgentID=%s",
-			contextPollerID, contextPartition, contextAgentID)
 	}
 
 	switch svc.ServiceType {
@@ -1195,8 +1182,6 @@ const (
 )
 
 func (s *Server) processSysmonMetrics(pollerID, partition, agentID string, details json.RawMessage, timestamp time.Time) error {
-	log.Printf("Processing sysmon metrics for poller %s, agent %s with details: %s", pollerID, agentID, string(details))
-
 	sysmonPayload, pollerTimestamp, err := s.parseSysmonPayload(details, pollerID, timestamp)
 	if err != nil {
 		return err
@@ -1502,8 +1487,6 @@ func (s *Server) bufferRperfMetrics(pollerID string, metrics []*models.Timeserie
 }
 
 func (s *Server) processRperfMetrics(pollerID, partition string, details json.RawMessage, timestamp time.Time) error {
-	log.Printf("Processing rperf metrics for poller %s with details: %s", pollerID, string(details))
-
 	rperfPayload, pollerTimestamp, err := s.parseRperfPayload(details, timestamp)
 	if err != nil {
 		log.Printf("Error unmarshaling rperf data for poller %s: %v", pollerID, err)
@@ -1843,8 +1826,6 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 		contextPollerID = enhancedPayload.PollerID
 		contextPartition = enhancedPayload.Partition
 		contextAgentID = enhancedPayload.AgentID
-		log.Printf("Using enhanced payload context for sweep: PollerID=%s, Partition=%s, AgentID=%s",
-			contextPollerID, contextPartition, contextAgentID)
 	}
 
 	var sweepData struct {
