@@ -719,7 +719,7 @@ func (s *Server) registerServiceDevice(ctx context.Context, pollerID, agentID, p
 	firstSeen := timestamp
 
 	existingDevice, err := s.DB.GetDeviceByID(ctx, deviceID)
-	if err == nil && !existingDevice.FirstSeen.IsZero() {
+	if err == nil && existingDevice != nil && !existingDevice.FirstSeen.IsZero() {
 		firstSeen = existingDevice.FirstSeen
 	}
 

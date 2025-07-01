@@ -34,6 +34,7 @@ func TestSNMPService(t *testing.T) {
 	config := &SNMPConfig{
 		NodeAddress: "localhost:50051",
 		ListenAddr:  ":50052",
+		Partition:   "test-partition",
 		Targets: []Target{
 			{
 				Name:      "test-target",
