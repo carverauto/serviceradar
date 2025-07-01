@@ -188,6 +188,18 @@ func TestReportStatus(t *testing.T) {
 		return nil
 	}).AnyTimes()
 
+	// Mock ExecuteQuery for device lookup
+	mockDB.EXPECT().ExecuteQuery(gomock.Any(), gomock.Any(), gomock.Any()).Return([]map[string]interface{}{}, nil).AnyTimes()
+
+	// Mock GetDeviceByID for device lookup
+	mockDB.EXPECT().GetDeviceByID(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
+
+	// Mock StoreDevices for device registration
+	mockDB.EXPECT().StoreDevices(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, devices []*models.Device) error {
+		t.Logf("StoreDevices called with %d devices", len(devices))
+		return nil
+	}).AnyTimes()
+
 	// Expect StoreMetrics for icmp-service
 	mockDB.EXPECT().StoreMetrics(gomock.Any(), "test-poller",
 		gomock.Any()).DoAndReturn(func(_ context.Context, pollerID string, metrics []*models.TimeseriesMetric) error {
@@ -218,7 +230,11 @@ func TestReportStatus(t *testing.T) {
 	t.Logf("TestReportStatus: serviceBuffers before unknown-poller: %+v", server.serviceBuffers)
 	server.bufferMu.Unlock()
 
-	resp, err := server.ReportStatus(context.Background(), &proto.PollerStatusRequest{PollerId: "unknown-poller"})
+	resp, err := server.ReportStatus(context.Background(), &proto.PollerStatusRequest{
+		PollerId:  "unknown-poller",
+		Partition: "test-partition",
+		SourceIp:  "192.168.1.100",
+	})
 	require.NoError(t, err)
 	assert.NotNil(t, resp)
 	assert.True(t, resp.Received)
@@ -241,6 +257,8 @@ func TestReportStatus(t *testing.T) {
 	resp, err = server.ReportStatus(context.Background(), &proto.PollerStatusRequest{
 		PollerId:  "test-poller",
 		Timestamp: time.Now().Unix(),
+		Partition: "test-partition",
+		SourceIp:  "192.168.1.100",
 		Services: []*proto.ServiceStatus{
 			{
 				ServiceName: "icmp-service",
@@ -407,6 +425,8 @@ func TestProcessSNMPMetrics(t *testing.T) {
 	mockDB := db.NewMockService(ctrl)
 	// Expect StoreMetrics to be called once with two metrics
 	mockDB.EXPECT().StoreMetrics(gomock.Any(), gomock.Eq("test-poller"), gomock.Len(2)).Return(nil)
+	// Mock StoreSweepResults for sweep results storage
+	mockDB.EXPECT().StoreSweepResults(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 
 	server := &Server{
 		DB:            mockDB,
@@ -726,6 +746,8 @@ func createTestRequest(pollerID, agentID string, now time.Time) *proto.PollerSta
 	return &proto.PollerStatusRequest{
 		PollerId:  pollerID,
 		Timestamp: now.Unix(),
+		Partition: "test-partition",
+		SourceIp:  "192.168.1.100",
 		Services: []*proto.ServiceStatus{
 			{
 				ServiceName: "test-service",
@@ -757,6 +779,8 @@ func TestProcessStatusReportWithAgentID(t *testing.T) {
 		FirstSeen: now.Add(-1 * time.Hour),
 		LastSeen:  now.Add(-10 * time.Minute),
 	}, nil).Times(1)
+	mockDB.EXPECT().ExecuteQuery(gomock.Any(), gomock.Any(), gomock.Any()).Return([]map[string]interface{}{}, nil).AnyTimes()
+	mockDB.EXPECT().GetDeviceByID(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 	mockDB.EXPECT().UpdatePollerStatus(gomock.Any(), gomock.Any()).Return(nil).Times(2)
 	mockDB.EXPECT().UpdateServiceStatuses(gomock.Any(),
 		gomock.Any()).DoAndReturn(func(_ context.Context, statuses []*models.ServiceStatus) error {
@@ -772,6 +796,10 @@ func TestProcessStatusReportWithAgentID(t *testing.T) {
 	}).Times(1)
 	mockDB.EXPECT().StoreServices(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, services []*models.Service) error {
 		t.Logf("StoreServices called with %d services", len(services))
+		return nil
+	}).AnyTimes()
+	mockDB.EXPECT().StoreDevices(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, devices []*models.Device) error {
+		t.Logf("StoreDevices called with %d devices", len(devices))
 		return nil
 	}).AnyTimes()
 	mockAPIServer.EXPECT().UpdatePollerStatus(pollerID, gomock.Any()).Return().Times(1)
