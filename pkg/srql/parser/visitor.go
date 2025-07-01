@@ -521,6 +521,7 @@ func getEntityTypeMapData() map[string]models.EntityType {
 		"cpu_metrics":    models.CPUMetrics,
 		"disk_metrics":   models.DiskMetrics,
 		"memory_metrics": models.MemoryMetrics,
+		"snmp_metrics":   models.SNMPMetrics,
 	}
 }
 

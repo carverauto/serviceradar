@@ -34,13 +34,13 @@ func (s *SNMPService) Check(ctx context.Context) (available bool, msg string) {
 	// Re-using the GetStatus logic to get the detailed map
 	statusMap, err := s.GetStatus(ctx)
 	if err != nil {
-		return false, fmt.Sprintf("Error getting detailed SNMP status: %v", err)
+		return false, string(jsonError(fmt.Sprintf("Error getting detailed SNMP status: %v", err)))
 	}
 
 	// Marshal the status map to JSON for the message content
 	statusJSON, err := json.Marshal(statusMap)
 	if err != nil {
-		return false, fmt.Sprintf("Error marshaling SNMP status to JSON: %v", err)
+		return false, string(jsonError(fmt.Sprintf("Error marshaling SNMP status to JSON: %v", err)))
 	}
 
 	// Determine overall availability
@@ -183,7 +183,24 @@ func (s *SNMPService) GetStatus(_ context.Context) (map[string]TargetStatus, err
 		collectorStatus := collector.GetStatus()
 		log.Printf("Collector %s status: %+v", name, collectorStatus)
 
-		status[name] = collectorStatus
+		// Merge collector status with service status to preserve HostIP and HostName
+		if serviceStatus, exists := s.status[name]; exists {
+			log.Printf("Merging status for %s: service HostIP=%s, HostName=%s", name, serviceStatus.HostIP, serviceStatus.HostName)
+			// Use service status as base and update with collector data
+			mergedStatus := serviceStatus
+			mergedStatus.Available = collectorStatus.Available
+			mergedStatus.LastPoll = collectorStatus.LastPoll
+			mergedStatus.OIDStatus = collectorStatus.OIDStatus
+			mergedStatus.Error = collectorStatus.Error
+			// HostIP and HostName are preserved from serviceStatus
+			
+			status[name] = mergedStatus
+			log.Printf("Merged status for %s: HostIP=%s, HostName=%s", name, mergedStatus.HostIP, mergedStatus.HostName)
+		} else {
+			log.Printf("Warning: No service status found for %s, using collector status only", name)
+			// Fallback to collector status if service status doesn't exist
+			status[name] = collectorStatus
+		}
 	}
 
 	if len(status) == 0 {
@@ -277,7 +294,12 @@ func (s *SNMPService) initializeTarget(ctx context.Context, target *Target) erro
 		Available: true,
 		LastPoll:  time.Now(),
 		OIDStatus: make(map[string]OIDStatus),
+		HostIP:    target.Host, // Actual IP address for device registration
+		HostName:  target.Name, // Target name for display
+		Target:    target,      // Include target configuration for internal use
 	}
+	
+	log.Printf("Initialized service status for %s: HostIP=%s, HostName=%s", target.Name, target.Host, target.Name)
 
 	// Start processing results
 	go s.processResults(ctx, target.Name, collector, aggregator)

@@ -219,6 +219,7 @@ func getEntityToTableMapData() map[models.EntityType]string {
 		models.CPUMetrics:    "cpu_metrics",
 		models.DiskMetrics:   "disk_metrics",
 		models.MemoryMetrics: "memory_metrics",
+		models.SNMPMetrics:   "snmp_metrics",
 	}
 }
 

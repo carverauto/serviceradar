@@ -226,6 +226,7 @@ func isValidPaginationEntity(entity models.EntityType) bool {
 		models.CPUMetrics,
 		models.DiskMetrics,
 		models.MemoryMetrics,
+		models.SNMPMetrics,
 	}
 
 	for _, validEntity := range validEntities {
