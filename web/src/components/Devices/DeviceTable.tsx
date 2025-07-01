@@ -22,7 +22,7 @@ import ReactJson from '@microlink/react-json-view';
 import { Device } from '@/types/devices';
 import SysmonStatusIndicator from './SysmonStatusIndicator';
 import SNMPStatusIndicator from './SNMPStatusIndicator';
-import ICMPLatencyIndicator from './ICMPLatencyIndicator';
+import ICMPSparkline from './ICMPSparkline';
 
 type SortableKeys = 'ip' | 'hostname' | 'last_seen' | 'first_seen' | 'poller_id';
 
@@ -226,9 +226,9 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
                                             compact={true}
                                             hasMetrics={snmpStatusesLoading ? undefined : snmpStatuses[device.device_id]?.hasMetrics}
                                         />
-                                        <ICMPLatencyIndicator 
+                                        <ICMPSparkline 
                                             deviceId={device.device_id} 
-                                            compact={true}
+                                            compact={false}
                                             hasMetrics={icmpStatusesLoading ? undefined : icmpStatuses[device.device_id]?.hasMetrics}
                                         />
                                     </div>

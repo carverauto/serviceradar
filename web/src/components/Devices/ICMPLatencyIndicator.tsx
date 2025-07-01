@@ -65,7 +65,7 @@ const ICMPLatencyIndicator: React.FC<ICMPLatencyIndicatorProps> = ({
                     const latestMetric = data.metrics[0];
                     
                     // Parse metadata for additional info
-                    let metadata = {};
+                    let metadata: { available?: string | boolean; [key: string]: unknown } = {};
                     try {
                         metadata = typeof latestMetric.metadata === 'string' 
                             ? JSON.parse(latestMetric.metadata) 
