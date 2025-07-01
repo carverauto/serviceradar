@@ -679,21 +679,25 @@ func (s *Server) getChecker(ctx context.Context, req *proto.StatusRequest) (chec
 	var err error
 
 	// Handle ICMP specially to include device ID
+	log.Printf("DEBUG: getChecker called with ServiceType=%s, Details=%s", req.ServiceType, req.Details)
 	if req.ServiceType == "icmp" {
+		log.Printf("ICMP checker requested for host: %s", req.Details)
+
 		host := req.Details
 		if host == "" {
 			host = "127.0.0.1"
 		}
 
-		// Construct device ID from agent config (partition:host_ip)
+		// Construct device ID for the TARGET being pinged (partition:target_ip)
 		var deviceID string
-		if s.config.Partition != "" && s.config.HostIP != "" {
+
+		if s.config.Partition != "" {
 			deviceID = fmt.Sprintf("%s:%s", s.config.Partition, s.config.HostIP)
-			log.Printf("Creating ICMP checker with device ID: %s (partition=%s, host_ip=%s)", 
-				deviceID, s.config.Partition, s.config.HostIP)
+			log.Printf("Creating ICMP checker with target device ID: %s (partition=%s, target_ip=%s)",
+				deviceID, s.config.Partition, host)
 		} else {
-			log.Printf("Creating ICMP checker without device ID - missing partition (%s) or host_ip (%s)", 
-				s.config.Partition, s.config.HostIP)
+			log.Printf("Creating ICMP checker without device ID - missing partition (%s)",
+				s.config.Partition)
 		}
 
 		check, err = NewICMPCheckerWithDeviceID(host, deviceID)
