@@ -78,6 +78,8 @@ type CheckerConfig struct {
 type ServerConfig struct {
 	AgentID     string                 `json:"agent_id"`             // Unique identifier for this agent
 	AgentName   string                 `json:"agent_name,omitempty"` // Explicit name for KV namespacing
+	HostIP      string                 `json:"host_ip,omitempty"`    // Host IP address for device correlation
+	Partition   string                 `json:"partition,omitempty"`  // Partition for device correlation
 	ListenAddr  string                 `json:"listen_addr"`
 	Security    *models.SecurityConfig `json:"security"`
 	KVAddress   string                 `json:"kv_address,omitempty"`  // Optional KV store address
@@ -101,8 +103,9 @@ type ServiceError struct {
 
 // ICMPChecker performs ICMP checks using a pre-configured scanner.
 type ICMPChecker struct {
-	Host    string
-	scanner scan.Scanner
+	Host     string
+	DeviceID string
+	scanner  scan.Scanner
 }
 
 // ICMPResponse defines the structure of the ICMP check result.
@@ -113,6 +116,7 @@ type ICMPResponse struct {
 	Available    bool    `json:"available"`
 	AgentID      string  `json:"agent_id,omitempty"`  // Optional agent ID for context
 	PollerID     string  `json:"poller_id,omitempty"` // Optional poller ID for context
+	DeviceID     string  `json:"device_id,omitempty"` // Device ID for proper correlation (partition:host_ip)
 }
 
 // UnmarshalJSON implements the json.Unmarshaler interface to allow parsing of a Duration from a JSON string or number.

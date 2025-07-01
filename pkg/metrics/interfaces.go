@@ -26,14 +26,15 @@ import (
 //go:generate mockgen -destination=mock_buffer.go -package=metrics github.com/carverauto/serviceradar/pkg/metrics MetricStore,MetricCollector,StructuredMetricCollector,SysmonMetricsProvider
 
 type MetricStore interface {
-	Add(timestamp time.Time, responseTime int64, serviceName string)
+	Add(timestamp time.Time, responseTime int64, serviceName, deviceID, partition, agentID, pollerID string)
 	GetPoints() []models.MetricPoint
 	GetLastPoint() *models.MetricPoint // New method
 }
 
 type MetricCollector interface {
-	AddMetric(nodeID string, timestamp time.Time, responseTime int64, serviceName string) error
+	AddMetric(nodeID string, timestamp time.Time, responseTime int64, serviceName, deviceID, partition, agentID string) error
 	GetMetrics(nodeID string) []models.MetricPoint
+	GetMetricsByDevice(deviceID string) []models.MetricPoint
 	CleanupStalePollers(staleDuration time.Duration)
 }
 
