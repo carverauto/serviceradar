@@ -1036,19 +1036,47 @@ func (s *APIServer) getDeviceMetrics(w http.ResponseWriter, r *http.Request) {
 
 	var metrics []models.TimeseriesMetric
 
-	if metricType != "" {
-		// Get metrics filtered by type
-		metrics, err = s.dbService.GetMetricsForDeviceByType(ctx, deviceID, metricType, startTime, endTime)
+	// For ICMP metrics, use the in-memory ring buffer instead of database
+	if metricType == "icmp" && s.metricsManager != nil {
+		log.Printf("Fetching ICMP metrics from ring buffer for device %s", deviceID)
+		
+		// Get metrics from ring buffer
+		ringBufferMetrics := s.metricsManager.GetMetricsByDevice(deviceID)
+		
+		// Convert MetricPoint to TimeseriesMetric and filter by time range
+		for _, mp := range ringBufferMetrics {
+			// Filter by time range
+			if mp.Timestamp.After(startTime) && mp.Timestamp.Before(endTime) {
+				// Convert from MetricPoint to TimeseriesMetric
+				metrics = append(metrics, models.TimeseriesMetric{
+					PollerID:    mp.PollerID,
+					DeviceID:    mp.DeviceID,
+					Partition:   mp.Partition,
+					Name:        fmt.Sprintf("icmp_%s_response_time_ms", mp.ServiceName),
+					Value:       fmt.Sprintf("%d", mp.ResponseTime),
+					Type:        "icmp",
+					Timestamp:   mp.Timestamp,
+					Metadata:    fmt.Sprintf(`{"host":"unknown","response_time":"%d","available":"true"}`, mp.ResponseTime),
+				})
+			}
+		}
+		
+		log.Printf("Found %d ICMP metrics in ring buffer for device %s", len(metrics), deviceID)
 	} else {
-		// Get all metrics for the device
-		metrics, err = s.dbService.GetMetricsForDevice(ctx, deviceID, startTime, endTime)
-	}
+		// Use database for non-ICMP metrics or when ring buffer not available
+		if metricType != "" {
+			// Get metrics filtered by type
+			metrics, err = s.dbService.GetMetricsForDeviceByType(ctx, deviceID, metricType, startTime, endTime)
+		} else {
+			// Get all metrics for the device
+			metrics, err = s.dbService.GetMetricsForDevice(ctx, deviceID, startTime, endTime)
+		}
 
-	if err != nil {
-		log.Printf("Error fetching metrics for device %s: %v", deviceID, err)
-		writeError(w, "Failed to fetch device metrics", http.StatusInternalServerError)
-
-		return
+		if err != nil {
+			log.Printf("Error fetching metrics for device %s: %v", deviceID, err)
+			writeError(w, "Failed to fetch device metrics", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")

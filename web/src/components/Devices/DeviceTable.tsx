@@ -22,6 +22,7 @@ import ReactJson from '@microlink/react-json-view';
 import { Device } from '@/types/devices';
 import SysmonStatusIndicator from './SysmonStatusIndicator';
 import SNMPStatusIndicator from './SNMPStatusIndicator';
+import ICMPLatencyIndicator from './ICMPLatencyIndicator';
 
 type SortableKeys = 'ip' | 'hostname' | 'last_seen' | 'first_seen' | 'poller_id';
 
@@ -43,6 +44,8 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
     const [sysmonStatusesLoading, setSysmonStatusesLoading] = useState(true);
     const [snmpStatuses, setSnmpStatuses] = useState<Record<string, { hasMetrics: boolean }>>({});
     const [snmpStatusesLoading, setSnmpStatusesLoading] = useState(true);
+    const [icmpStatuses, setIcmpStatuses] = useState<Record<string, { hasMetrics: boolean }>>({});
+    const [icmpStatusesLoading, setIcmpStatusesLoading] = useState(true);
 
     // Create a stable reference for device IDs
     const deviceIdsString = useMemo(() => {
@@ -105,8 +108,34 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
             }
         };
 
+        const fetchIcmpStatuses = async () => {
+            setIcmpStatusesLoading(true);
+            try {
+                console.log(`DeviceTable: Fetching ICMP status for ${deviceIds.length} devices:`, deviceIds);
+                const response = await fetch('/api/devices/icmp/status', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ deviceIds }),
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    setIcmpStatuses(data.statuses || {});
+                } else {
+                    console.error('Failed to fetch bulk ICMP statuses:', response.status);
+                }
+            } catch (error) {
+                console.error('Error fetching bulk ICMP statuses:', error);
+            } finally {
+                setIcmpStatusesLoading(false);
+            }
+        };
+
         fetchSysmonStatuses();
         fetchSnmpStatuses();
+        fetchIcmpStatuses();
     }, [deviceIdsString]);
 
     const getSourceColor = (source: string) => {
@@ -196,6 +225,11 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
                                             deviceId={device.device_id} 
                                             compact={true}
                                             hasMetrics={snmpStatusesLoading ? undefined : snmpStatuses[device.device_id]?.hasMetrics}
+                                        />
+                                        <ICMPLatencyIndicator 
+                                            deviceId={device.device_id} 
+                                            compact={true}
+                                            hasMetrics={icmpStatusesLoading ? undefined : icmpStatuses[device.device_id]?.hasMetrics}
                                         />
                                     </div>
                                 </td>

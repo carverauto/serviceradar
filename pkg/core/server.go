@@ -878,7 +878,25 @@ func (*Server) createPollerStatus(req *proto.PollerStatusRequest, now time.Time)
 // For services like ping/icmp, this correlates them to the source device (agent).
 // Returns the device_id and partition for the device that performed the service check.
 func (s *Server) extractDeviceContext(agentID, defaultPartition, enhancedPayload string) (deviceID, partition string) {
-	// Parse the enhanced service payload to extract device context
+	// First, try to parse the service message to check for a direct device_id field
+	// This handles ICMP and other service responses that now include device_id directly
+	var directMessage struct {
+		DeviceID  string `json:"device_id,omitempty"`
+		Partition string `json:"partition,omitempty"`
+	}
+	
+	if err := json.Unmarshal([]byte(enhancedPayload), &directMessage); err == nil {
+		// Check if the service message contains a direct device_id field
+		if directMessage.DeviceID != "" {
+			partition = directMessage.Partition
+			if partition == "" {
+				partition = defaultPartition
+			}
+			return directMessage.DeviceID, partition
+		}
+	}
+	
+	// Fallback to parsing the enhanced payload structure for backward compatibility
 	var payload struct {
 		PollerID  string `json:"poller_id"`
 		AgentID   string `json:"agent_id"`
@@ -1117,7 +1135,7 @@ func (s *Server) processMetrics(
 			return s.processSysmonMetrics(contextPollerID, contextPartition, contextAgentID, serviceData, now)
 		}
 	case icmpServiceType:
-		return s.processICMPMetrics(contextPollerID, contextPartition, sourceIP, svc, serviceData, now)
+		return s.processICMPMetrics(contextPollerID, contextPartition, sourceIP, contextAgentID, svc, serviceData, now)
 	case snmpDiscoveryResultsServiceType, mapperDiscoveryServiceType:
 		return s.processSNMPDiscoveryResults(ctx, contextPollerID, contextPartition, svc, serviceData, now)
 	}
@@ -1125,8 +1143,8 @@ func (s *Server) processMetrics(
 	return nil
 }
 
-func (*Server) createAPIService(svc *proto.ServiceStatus) api.ServiceStatus {
-	return api.ServiceStatus{
+func (s *Server) createAPIService(svc *proto.ServiceStatus) api.ServiceStatus {
+	apiService := api.ServiceStatus{
 		Name:      svc.ServiceName,
 		Type:      svc.ServiceType,
 		Available: svc.Available,
@@ -1134,6 +1152,28 @@ func (*Server) createAPIService(svc *proto.ServiceStatus) api.ServiceStatus {
 		AgentID:   svc.AgentId,
 		PollerID:  svc.PollerId,
 	}
+
+	// Parse the message to populate Details field for dashboard consumption
+	// Handle enhanced payload wrapper for new architecture
+	if len(svc.Message) > 0 {
+		// Check if this is an enhanced payload by trying to parse it
+		var enhancedPayload models.ServiceMetricsPayload
+		if err := json.Unmarshal(svc.Message, &enhancedPayload); err == nil {
+			// Check if it has the enhanced payload structure
+			if enhancedPayload.PollerID != "" && enhancedPayload.AgentID != "" && len(enhancedPayload.Data) > 0 {
+				// This is an enhanced payload - use the inner data for Details
+				apiService.Details = enhancedPayload.Data
+			} else {
+				// Not an enhanced payload - use the entire message as details
+				apiService.Details = svc.Message
+			}
+		} else {
+			// Failed to parse as JSON - use as raw message
+			apiService.Details = svc.Message
+		}
+	}
+
+	return apiService
 }
 
 func (*Server) parseServiceDetails(svc *proto.ServiceStatus) (json.RawMessage, error) {
@@ -1492,12 +1532,13 @@ func (s *Server) processRperfMetrics(pollerID, partition string, details json.Ra
 }
 
 func (s *Server) processICMPMetrics(
-	pollerID string, partition string, sourceIP string, svc *proto.ServiceStatus, details json.RawMessage, now time.Time) error {
+	pollerID string, partition string, sourceIP string, agentID string, svc *proto.ServiceStatus, details json.RawMessage, now time.Time) error {
 	var pingResult struct {
 		Host         string  `json:"host"`
 		ResponseTime int64   `json:"response_time"`
 		PacketLoss   float64 `json:"packet_loss"`
 		Available    bool    `json:"available"`
+		DeviceID     string  `json:"device_id,omitempty"`
 	}
 
 	if err := json.Unmarshal(details, &pingResult); err != nil {
@@ -1523,6 +1564,19 @@ func (s *Server) processICMPMetrics(
 
 	metadataStr := string(metadataBytes)
 
+	// Use device_id from agent response if available, otherwise construct from agentID or sourceIP
+	var deviceID string
+	if pingResult.DeviceID != "" {
+		deviceID = pingResult.DeviceID
+		log.Printf("ICMP: Using device_id from agent response: %s", deviceID)
+	} else if agentID != "" {
+		deviceID = fmt.Sprintf("%s:%s", partition, agentID)
+		log.Printf("ICMP: Using agentID for deviceID: %s (agentID=%s, partition=%s)", deviceID, agentID, partition)
+	} else {
+		deviceID = fmt.Sprintf("%s:%s", partition, sourceIP)
+		log.Printf("ICMP: Using sourceIP for deviceID: %s (sourceIP=%s, partition=%s)", deviceID, sourceIP, partition)
+	}
+
 	metric := &models.TimeseriesMetric{
 		Name:           fmt.Sprintf("icmp_%s_response_time_ms", svc.ServiceName),
 		Value:          fmt.Sprintf("%d", pingResult.ResponseTime),
@@ -1530,7 +1584,7 @@ func (s *Server) processICMPMetrics(
 		Timestamp:      now,
 		Metadata:       metadataStr, // Use JSON string
 		TargetDeviceIP: pingResult.Host,
-		DeviceID:       fmt.Sprintf("%s:%s", partition, sourceIP),
+		DeviceID:       deviceID,
 		Partition:      partition,
 		IfIndex:        0,
 		PollerID:       pollerID,
@@ -1548,6 +1602,9 @@ func (s *Server) processICMPMetrics(
 			now,
 			pingResult.ResponseTime,
 			svc.ServiceName,
+			deviceID,
+			partition,
+			agentID,
 		)
 		if err != nil {
 			log.Printf("Failed to add ICMP metric to in-memory buffer for %s: %v", svc.ServiceName, err)
