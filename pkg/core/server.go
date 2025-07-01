@@ -1771,6 +1771,27 @@ func (s *Server) handleService(ctx context.Context, svc *api.ServiceStatus, part
 }
 
 func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, partition string, now time.Time) error {
+	// Extract enhanced payload if present, or use original data
+	enhancedPayload, sweepMessage, err := s.extractServicePayload(svc.Message)
+	if err != nil {
+		// Even if unwrapping fails, we can try to process the original message for backward compatibility
+		log.Printf("Warning: could not extract enhanced sweep payload, falling back to original message: %v", err)
+		sweepMessage = svc.Message
+	}
+	
+	// Update context from enhanced payload if available
+	contextPollerID := svc.PollerID
+	contextPartition := partition
+	contextAgentID := svc.AgentID
+	
+	if enhancedPayload != nil {
+		contextPollerID = enhancedPayload.PollerID
+		contextPartition = enhancedPayload.Partition
+		contextAgentID = enhancedPayload.AgentID
+		log.Printf("Using enhanced payload context for sweep: PollerID=%s, Partition=%s, AgentID=%s", 
+			contextPollerID, contextPartition, contextAgentID)
+	}
+
 	var sweepData struct {
 		proto.SweepServiceStatus
 		Hosts []struct {
@@ -1782,8 +1803,8 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 		} `json:"hosts"`
 	}
 
-	if err := json.Unmarshal(svc.Message, &sweepData); err != nil {
-		return fmt.Errorf("%w: %w", errInvalidSweepData, err)
+	if err := json.Unmarshal(sweepMessage, &sweepData); err != nil {
+		return fmt.Errorf("%w: failed to unmarshal sweep data: %w", errInvalidSweepData, err)
 	}
 
 	if sweepData.LastSweep > now.Add(oneDay).Unix() {
@@ -1810,14 +1831,14 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 
 	for _, host := range sweepData.Hosts {
 		if host.IP == "" {
-			log.Printf("Skipping host with empty IP for poller %s", svc.PollerID)
+			log.Printf("Skipping host with empty IP for poller %s", contextPollerID)
 			continue
 		}
 
 		result := &models.SweepResult{
-			AgentID:         svc.AgentID,
-			PollerID:        svc.PollerID,
-			Partition:       partition,
+			AgentID:         contextAgentID,
+			PollerID:        contextPollerID,
+			Partition:       contextPartition,
 			DiscoverySource: "sweep",
 			IP:              host.IP,
 			MAC:             host.MAC,
@@ -1830,7 +1851,7 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 	}
 
 	if len(resultsToStore) == 0 {
-		log.Printf("No sweep results to store for poller %s", svc.PollerID)
+		log.Printf("No sweep results to store for poller %s", contextPollerID)
 
 		return nil
 	}
