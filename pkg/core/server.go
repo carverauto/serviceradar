@@ -877,7 +877,8 @@ func (*Server) createPollerStatus(req *proto.PollerStatusRequest, now time.Time)
 // extractDeviceContext extracts device context for service correlation.
 // For services like ping/icmp, this correlates them to the source device (agent).
 // Returns the device_id and partition for the device that performed the service check.
-func (s *Server) extractDeviceContext(agentID, defaultPartition, enhancedPayload string) (deviceID, partition string) {
+func (s *Server) extractDeviceContext(
+	ctx context.Context, agentID, defaultPartition, enhancedPayload string) (deviceID, partition string) {
 	// First, try to parse the service message to check for a direct device_id field
 	// This handles ICMP and other service responses that now include device_id directly
 	var directMessage struct {
@@ -930,7 +931,7 @@ func (s *Server) extractDeviceContext(agentID, defaultPartition, enhancedPayload
 
 	// If no host_ip in service data, try to look up the agent's device record
 	// This handles cases where the agent doesn't include host_ip in service responses
-	agentDeviceID := s.findAgentDeviceID(agentID, partition)
+	agentDeviceID := s.findAgentDeviceID(ctx, agentID, partition)
 	if agentDeviceID != "" {
 		return agentDeviceID, partition
 	}
@@ -941,7 +942,7 @@ func (s *Server) extractDeviceContext(agentID, defaultPartition, enhancedPayload
 
 // findAgentDeviceID attempts to find the device_id associated with an agent.
 // This looks up device records that have the specified agent_id.
-func (s *Server) findAgentDeviceID(agentID, partition string) string {
+func (s *Server) findAgentDeviceID(ctx context.Context, agentID, partition string) string {
 	// Query unified_devices to find device with this agent_id
 	// This is a best-effort lookup and may not always succeed
 	query := `
@@ -950,7 +951,7 @@ func (s *Server) findAgentDeviceID(agentID, partition string) string {
 		WHERE agent_id = $1 AND device_id LIKE $2 
 		LIMIT 1`
 
-	results, err := s.DB.ExecuteQuery(context.Background(), query, agentID, partition+":%")
+	results, err := s.DB.ExecuteQuery(ctx, query, agentID, partition+":%")
 	if err != nil {
 		// This is expected when no device record exists yet
 		log.Printf("Debug: No device record found for agent_id=%s, partition=%s: %v", agentID, partition, err)
@@ -995,7 +996,7 @@ func (s *Server) processServices(
 		}
 
 		// Extract device context from enhanced payload for device correlation
-		deviceID, devicePartition := s.extractDeviceContext(svc.AgentId, partition, string(apiService.Message))
+		deviceID, devicePartition := s.extractDeviceContext(ctx, svc.AgentId, partition, string(apiService.Message))
 
 		serviceStatuses = append(serviceStatuses, &models.ServiceStatus{
 			AgentID:     svc.AgentId,
@@ -1118,7 +1119,7 @@ func (s *Server) processMetrics(
 		case rperfServiceType:
 			return s.processRperfMetrics(contextPollerID, contextPartition, serviceData, now)
 		case sysmonServiceType:
-			return s.processSysmonMetrics(contextPollerID, contextPartition, contextAgentID, serviceData, now)
+			return s.processSysmonMetrics(ctx, contextPollerID, contextPartition, contextAgentID, serviceData, now)
 		}
 	case icmpServiceType:
 		return s.processICMPMetrics(contextPollerID, contextPartition, sourceIP, contextAgentID, svc, serviceData, now)
@@ -1181,7 +1182,11 @@ const (
 	sysmonServiceType = "sysmon"
 )
 
-func (s *Server) processSysmonMetrics(pollerID, partition, agentID string, details json.RawMessage, timestamp time.Time) error {
+func (s *Server) processSysmonMetrics(
+	ctx context.Context,
+	pollerID, partition, agentID string,
+	details json.RawMessage,
+	timestamp time.Time) error {
 	sysmonPayload, pollerTimestamp, err := s.parseSysmonPayload(details, pollerID, timestamp)
 	if err != nil {
 		return err
@@ -1197,7 +1202,7 @@ func (s *Server) processSysmonMetrics(pollerID, partition, agentID string, detai
 	log.Printf("Parsed %d CPU metrics for poller %s (device_id: %s, host_ip: %s, partition: %s) with timestamp %s",
 		len(sysmonPayload.Status.CPUs), pollerID, deviceID, sysmonPayload.Status.HostIP, partition, sysmonPayload.Status.Timestamp)
 
-	s.createSysmonDeviceRecord(agentID, pollerID, partition, deviceID, sysmonPayload, pollerTimestamp)
+	s.createSysmonDeviceRecord(ctx, agentID, pollerID, partition, deviceID, sysmonPayload, pollerTimestamp)
 
 	return nil
 }
@@ -1289,6 +1294,7 @@ func (s *Server) bufferSysmonMetrics(pollerID, partition string, metrics *models
 }
 
 func (s *Server) createSysmonDeviceRecord(
+	ctx context.Context,
 	agentID, pollerID, partition, deviceID string, payload *sysmonPayload, pollerTimestamp time.Time) {
 	if payload.Status.HostIP == "" || payload.Status.HostIP == "unknown" {
 		return
@@ -1309,7 +1315,7 @@ func (s *Server) createSysmonDeviceRecord(
 		},
 	}
 
-	if err := s.DB.StoreSweepResults(context.Background(), []*models.SweepResult{sweepResult}); err != nil {
+	if err := s.DB.StoreSweepResults(ctx, []*models.SweepResult{sweepResult}); err != nil {
 		log.Printf("Warning: Failed to create device record for sysmon device %s: %v", deviceID, err)
 	} else {
 		log.Printf("Created/updated device record for sysmon device %s (hostname: %s, ip: %s)",
@@ -1519,7 +1525,6 @@ func (s *Server) processICMPMetrics(
 	svc *proto.ServiceStatus,
 	details json.RawMessage,
 	now time.Time) error {
-
 	var pingResult struct {
 		Host         string  `json:"host"`
 		ResponseTime int64   `json:"response_time"`
