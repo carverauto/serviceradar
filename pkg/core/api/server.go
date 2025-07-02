@@ -68,6 +68,7 @@ func NewAPIServer(config models.CORSConfig, options ...func(server *APIServer)) 
 		srqlmodels.CPUMetrics:    "cpu_metrics",
 		srqlmodels.DiskMetrics:   "disk_metrics",
 		srqlmodels.MemoryMetrics: "memory_metrics",
+		srqlmodels.SNMPMetrics:   "snmp_metrics",
 	}
 	s.entityTableMap = defaultEntityTableMap
 
