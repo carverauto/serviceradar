@@ -144,15 +144,7 @@ const ICMPSparkline: React.FC<ICMPSparklineProps> = ({
     }, [processedMetrics]);
 
     // Only show if we have ICMP metrics
-    if (hasMetrics === false) {
-        return null;
-    }
-    
-    // Show loading state while metrics status is being determined
-    if (hasMetrics === undefined) {
-        if (compact) {
-            return <div className="h-4 w-6 bg-gray-600/30 animate-pulse rounded"></div>;
-        }
+    if (hasMetrics === false || hasMetrics === undefined) {
         return null;
     }
 
