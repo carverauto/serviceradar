@@ -2,6 +2,7 @@
 -- == ServiceRadar Consolidated Initial Schema
 -- =================================================================
 -- This single migration creates the entire database schema from scratch.
+-- Includes the fix for unified_device_pipeline_mv race condition.
 
 -- Foundational Streams (from 20250610...)
 CREATE STREAM IF NOT EXISTS pollers (
@@ -143,7 +144,7 @@ CREATE STREAM IF NOT EXISTS services (
 ) PRIMARY KEY (poller_id, service_name)
 SETTINGS mode='versioned_kv', version_column='_tp_time';
 
--- Unified Device Pipeline (latest correct versions)
+-- Unified Device Pipeline (with corrected race condition fix)
 CREATE STREAM IF NOT EXISTS sweep_results (
     agent_id string, poller_id string, partition string,
     discovery_source string, ip string, mac nullable(string),
@@ -161,16 +162,30 @@ CREATE STREAM IF NOT EXISTS unified_devices (
 ) PRIMARY KEY (device_id)
 SETTINGS mode='versioned_kv', version_column='_tp_time';
 
+-- Fixed materialized view with "preserve existing" merge strategy
 CREATE MATERIALIZED VIEW IF NOT EXISTS unified_device_pipeline_mv
 INTO unified_devices
 AS SELECT
-    concat(s.partition, ':', s.ip) AS device_id, s.ip, s.poller_id,
-    if(s.hostname IS NOT NULL AND s.hostname != '', s.hostname, u.hostname) AS hostname,
-    if(s.mac IS NOT NULL AND s.mac != '', s.mac, u.mac) AS mac,
+    concat(s.partition, ':', s.ip) AS device_id,
+    s.ip,
+    -- Change: Prefer existing poller_id if it's populated
+    if(u.poller_id IS NOT NULL AND u.poller_id != '', u.poller_id, s.poller_id) AS poller_id,
+    -- Change: Prefer existing hostname if it's populated
+    if(u.hostname IS NOT NULL AND u.hostname != '', u.hostname, s.hostname) AS hostname,
+    -- Change: Prefer existing mac if it's populated
+    if(u.mac IS NOT NULL AND u.mac != '', u.mac, s.mac) AS mac,
+    -- This logic for discovery_sources is correct and remains unchanged
     if( index_of(if_null(u.discovery_sources, []), s.discovery_source) = 0, array_push_back(if_null(u.discovery_sources, []), s.discovery_source), u.discovery_sources ) AS discovery_sources,
-    s.available AS is_available, coalesce(u.first_seen, s.timestamp) AS first_seen, s.timestamp AS last_seen,
+    s.available AS is_available,
+    coalesce(u.first_seen, s.timestamp) AS first_seen,
+    s.timestamp AS last_seen,
+    -- This metadata merge logic is correct and remains unchanged
     if( length(s.metadata) > 0, if(u.metadata IS NULL, s.metadata, map_update(u.metadata, s.metadata)), u.metadata ) AS metadata,
-    s.agent_id, if(u.device_id IS NULL, 'network_device', u.device_type) AS device_type,
+    -- Change: Prefer existing agent_id if it's populated
+    if(u.agent_id IS NOT NULL AND u.agent_id != '', u.agent_id, s.agent_id) AS agent_id,
+    -- This device_type logic is correct for preserving the existing type
+    if(u.device_id IS NULL, 'network_device', u.device_type) AS device_type,
+    -- These fields are correctly preserved from the existing record
     u.service_type, u.service_status, u.last_heartbeat, u.os_info, u.version_info
 FROM sweep_results AS s
 LEFT JOIN unified_devices AS u ON concat(s.partition, ':', s.ip) = u.device_id;
