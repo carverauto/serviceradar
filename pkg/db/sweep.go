@@ -19,6 +19,7 @@ package db
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 
@@ -52,11 +53,18 @@ func (db *DB) StoreSweepResults(ctx context.Context, results []*models.SweepResu
 			continue
 		}
 
-		// Ensure Metadata is a map[string]string; use empty map if nil
+		// Convert metadata map to JSON string
 		metadata := result.Metadata
 		if metadata == nil {
 			metadata = make(map[string]string)
 		}
+		
+		metadataBytes, err := json.Marshal(metadata)
+		if err != nil {
+			log.Printf("Failed to marshal metadata for IP %s: %v", result.IP, err)
+			continue
+		}
+		metadataStr := string(metadataBytes)
 
 		err = batch.Append(
 			result.AgentID,
@@ -68,7 +76,7 @@ func (db *DB) StoreSweepResults(ctx context.Context, results []*models.SweepResu
 			result.Hostname,
 			result.Timestamp,
 			result.Available,
-			metadata, // Pass map[string]string directly
+			metadataStr, // Pass as JSON string
 		)
 		if err != nil {
 			log.Printf("Failed to append sweep result for IP %s: %v", result.IP, err)

@@ -128,8 +128,7 @@ func (db *DB) StoreDevices(ctx context.Context, devices []*models.Device) error 
 
 	log.Printf("Storing %d devices", len(devices))
 
-	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO unified_devices (device_id, agent_id, "+
-		"poller_id, discovery_sources, ip, mac, hostname, first_seen, last_seen, is_available, metadata)")
+	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO unified_devices (* except _tp_time)")
 	if err != nil {
 		return fmt.Errorf("failed to prepare batch: %w", err)
 	}
@@ -140,25 +139,40 @@ func (db *DB) StoreDevices(ctx context.Context, devices []*models.Device) error 
 			meta[k] = fmt.Sprintf("%v", v)
 		}
 
+		// Convert metadata map to JSON string
+		metadataBytes, err := json.Marshal(meta)
+		if err != nil {
+			log.Printf("Failed to marshal metadata for device %s: %v", d.DeviceID, err)
+			return fmt.Errorf("failed to marshal metadata for device %s: %w", d.DeviceID, err)
+		}
+		metadataStr := string(metadataBytes)
+
 		if err := batch.Append(
-			d.DeviceID,
-			d.AgentID,
-			d.PollerID,
-			d.DiscoverySources,
-			d.IP,
-			d.MAC,
-			d.Hostname,
-			d.FirstSeen,
-			d.LastSeen,
-			d.IsAvailable,
-			meta,
+			d.AgentID,         // agent_id
+			d.PollerID,        // poller_id
+			"default",         // partition
+			d.DeviceID,        // device_id
+			d.IP,              // ip
+			d.Hostname,        // hostname
+			d.MAC,             // mac
+			d.FirstSeen,       // first_seen
+			d.LastSeen,        // last_seen
+			d.IsAvailable,     // is_available
+			"unknown",         // device_type
+			"",                // service_type (nullable)
+			"",                // service_status (nullable)
+			nil,               // last_heartbeat (nullable)
+			"",                // os_info (nullable)
+			"",                // version_info (nullable)
+			metadataStr,       // metadata
+			d.DiscoverySources, // discovery_sources
 		); err != nil {
-			err := batch.Abort()
-			if err != nil {
-				return err
+			appendErr := err
+			if abortErr := batch.Abort(); abortErr != nil {
+				return fmt.Errorf("failed to abort batch after append error: %w", abortErr)
 			}
 
-			return fmt.Errorf("failed to append device %s: %w", d.DeviceID, err)
+			return fmt.Errorf("failed to append device %s: %w", d.DeviceID, appendErr)
 		}
 	}
 
