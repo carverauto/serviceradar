@@ -186,6 +186,34 @@ func (m *Manager) GetActiveNodes() int64 {
 	return m.activeNodes.Load()
 }
 
+func (m *Manager) GetDevicesWithActiveMetrics() []string {
+	if !m.config.Enabled {
+		return []string{}
+	}
+
+	deviceMap := make(map[string]bool)
+
+	m.nodes.Range(func(_, value interface{}) bool {
+		store := value.(MetricStore)
+		points := store.GetPoints()
+
+		for _, point := range points {
+			if point.DeviceID != "" {
+				deviceMap[point.DeviceID] = true
+			}
+		}
+
+		return true
+	})
+
+	deviceIDs := make([]string, 0, len(deviceMap))
+	for deviceID := range deviceMap {
+		deviceIDs = append(deviceIDs, deviceID)
+	}
+
+	return deviceIDs
+}
+
 // GetAllMountPoints retrieves all unique mount points for a given poller.
 func (m *Manager) GetAllMountPoints(ctx context.Context, pollerID string) ([]string, error) {
 	log.Printf("Retrieving all mount points for poller %s", pollerID)

@@ -69,6 +69,10 @@ type PollerHistoryPoint struct {
 	IsHealthy bool      `json:"is_healthy"`
 }
 
+type DeviceMetricsStatusResponse struct {
+	DeviceIDs []string `json:"device_ids"`
+}
+
 type APIServer struct {
 	mu                   sync.RWMutex
 	pollers              map[string]*PollerStatus

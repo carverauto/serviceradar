@@ -42,8 +42,8 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
     const [expandedRow, setExpandedRow] = useState<string | null>(null);
     const [sysmonStatuses, setSysmonStatuses] = useState<Record<string, { hasMetrics: boolean }>>({});
     const [sysmonStatusesLoading, setSysmonStatusesLoading] = useState(true);
-    const [icmpStatuses, setIcmpStatuses] = useState<Record<string, { hasMetrics: boolean }>>({});
-    const [icmpStatusesLoading, setIcmpStatusesLoading] = useState(true);
+    const [metricsStatuses, setMetricsStatuses] = useState<Set<string>>(new Set());
+    const [metricsStatusesLoading, setMetricsStatusesLoading] = useState(true);
 
     // Create a stable reference for device IDs
     const deviceIdsString = useMemo(() => {
@@ -81,34 +81,26 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
             }
         };
 
-
-        const fetchIcmpStatuses = async () => {
-            setIcmpStatusesLoading(true);
+        const fetchMetricsStatuses = async () => {
+            setMetricsStatusesLoading(true);
             try {
-                console.log(`DeviceTable: Fetching ICMP status for ${deviceIds.length} devices:`, deviceIds);
-                const response = await fetch('/api/devices/icmp/status', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ deviceIds }),
-                });
-
+                const response = await fetch('/api/devices/metrics/status');
+                
                 if (response.ok) {
                     const data = await response.json();
-                    setIcmpStatuses(data.statuses || {});
+                    setMetricsStatuses(new Set(data.device_ids || []));
                 } else {
-                    console.error('Failed to fetch bulk ICMP statuses:', response.status);
+                    console.error('Failed to fetch metrics statuses:', response.status);
                 }
             } catch (error) {
-                console.error('Error fetching bulk ICMP statuses:', error);
+                console.error('Error fetching metrics statuses:', error);
             } finally {
-                setIcmpStatusesLoading(false);
+                setMetricsStatusesLoading(false);
             }
         };
 
         fetchSysmonStatuses();
-        fetchIcmpStatuses();
+        fetchMetricsStatuses();
     }, [deviceIdsString, devices]);
 
     const getSourceColor = (source: string) => {
@@ -202,7 +194,7 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
                                         <ICMPSparkline 
                                             deviceId={device.device_id} 
                                             compact={false}
-                                            hasMetrics={icmpStatusesLoading ? undefined : icmpStatuses[device.device_id]?.hasMetrics}
+                                            hasMetrics={metricsStatusesLoading ? undefined : metricsStatuses.has(device.device_id)}
                                         />
                                     </div>
                                 </td>

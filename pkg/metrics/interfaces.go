@@ -35,6 +35,7 @@ type MetricCollector interface {
 	AddMetric(nodeID string, timestamp time.Time, responseTime int64, serviceName, deviceID, partition, agentID string) error
 	GetMetrics(nodeID string) []models.MetricPoint
 	GetMetricsByDevice(deviceID string) []models.MetricPoint
+	GetDevicesWithActiveMetrics() []string
 	CleanupStalePollers(staleDuration time.Duration)
 }
 
