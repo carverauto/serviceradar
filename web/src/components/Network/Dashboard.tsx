@@ -16,7 +16,7 @@
 
 'use client';
 
-import React, { useState, useMemo, useEffect, useCallback, Fragment } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Poller, Service } from '@/types/types';
 import { Device, DevicesApiResponse, Pagination } from '@/types/devices';
 import { useAuth } from '@/components/AuthProvider';
@@ -26,25 +26,17 @@ import {
     Network,
     Scan,
     Server,
-    CheckCircle,
-    XCircle,
     ChevronRight,
     Activity,
     Globe,
     Rss,
-    
-    
     AlertTriangle,
-    Loader2,
-    Search,
-    ArrowUp,
-    ArrowDown,
-    ChevronDown
+    Search
 } from 'lucide-react';
-import ReactJson from '@microlink/react-json-view';
 import { useDebounce } from 'use-debounce';
 import { cachedQuery } from '@/lib/cached-query';
 import DeviceBasedDiscoveryDashboard from './DeviceBasedDiscoveryDashboard';
+import DeviceTable from '@/components/Devices/DeviceTable';
 
 interface NetworkDashboardProps {
     initialPollers: Poller[];
@@ -124,27 +116,19 @@ const TabButton = ({
     </button>
 );
 
-// SNMP Device List Component (for the SNMP Tab)
-type SortableKeys = 'ip' | 'hostname' | 'last_seen' | 'first_seen' | 'poller_id';
-
-interface SNMPDeviceListProps {
-    initialStats?: { online: number; offline: number };
-}
-
-const SNMPDeviceList: React.FC<SNMPDeviceListProps> = React.memo(({ initialStats }) => {
+// SNMP Devices View using shared DeviceTable component
+const SNMPDevicesView: React.FC = React.memo(() => {
     const { token } = useAuth();
     const [devices, setDevices] = useState<Device[]>([]);
     const [pagination, setPagination] = useState<Pagination | null>(null);
-    const [stats, setStats] = useState(initialStats || { online: 0, offline: 0 });
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [debouncedSearchTerm] = useDebounce(searchTerm, 300);
-    const [sortBy, setSortBy] = useState<SortableKeys>('last_seen');
+    const [sortBy, setSortBy] = useState<'ip' | 'hostname' | 'last_seen' | 'first_seen' | 'poller_id'>('last_seen');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
-    const [expandedRow, setExpandedRow] = useState<string | null>(null);
 
-    const postQuery = useCallback(async <T extends DevicesApiResponse | { results: { 'count()': number }[] | { 'count()': number }[] }>(
+    const postQuery = useCallback(async <T extends DevicesApiResponse>(
         query: string,
         cursor?: string,
         direction?: 'next' | 'prev'
@@ -174,9 +158,7 @@ const SNMPDeviceList: React.FC<SNMPDeviceListProps> = React.memo(({ initialStats
         setError(null);
 
         try {
-            // Show all devices for now since SNMP array query syntax
-            // is not supported in current SRQL version
-            const whereClauses = ["device_id IS NOT NULL"];
+            const whereClauses = ["discovery_sources LIKE '%\"source\":\"snmp\"%'"];
 
             if (debouncedSearchTerm) {
                 whereClauses.push(`(ip LIKE '%${debouncedSearchTerm}%' OR hostname LIKE '%${debouncedSearchTerm}%')`);
@@ -187,220 +169,99 @@ const SNMPDeviceList: React.FC<SNMPDeviceListProps> = React.memo(({ initialStats
 
             setDevices(data.results || []);
             setPagination(data.pagination || null);
-
-            // Only fetch stats if not provided as initial stats
-            if (!initialStats) {
-                // Use cached queries to prevent duplicates
-                const [onlineRes, offlineRes] = await Promise.all([
-                    cachedQuery<{ results: { 'count()': number }[] }>(
-                        "COUNT DEVICES WHERE is_available = true",
-                        token || undefined,
-                        30000
-                    ),
-                    cachedQuery<{ results: { 'count()': number }[] }>(
-                        "COUNT DEVICES WHERE is_available = false",
-                        token || undefined,
-                        30000
-                    ),
-                ]);
-
-                setStats({
-                    online: onlineRes.results[0]?.['count()'] || 0,
-                    offline: offlineRes.results[0]?.['count()'] || 0,
-                });
-            }
         } catch (e) {
             setError(e instanceof Error ? e.message : "An unknown error occurred.");
         } finally {
             setLoading(false);
         }
-    }, [postQuery, debouncedSearchTerm, sortBy, sortOrder, initialStats, token]);
+    }, [postQuery, debouncedSearchTerm, sortBy, sortOrder]);
 
     useEffect(() => {
         fetchDevices();
     }, [fetchDevices]);
 
-    const handleSort = (key: SortableKeys) => {
+    const handleSort = (key: 'ip' | 'hostname' | 'last_seen' | 'first_seen' | 'poller_id') => {
         setSortBy(key);
         setSortOrder(sortBy === key && sortOrder === 'desc' ? 'asc' : 'desc');
     };
 
-    const formatDate = (dateString: string) => new Date(dateString).toLocaleString();
-
-    const getSourceColor = (source: string) => {
-        const lowerSource = source.toLowerCase();
-        if (lowerSource.includes('netbox')) return 'bg-blue-600/50 text-blue-200';
-        if (lowerSource.includes('sweep')) return 'bg-green-600/50 text-green-200';
-        if (lowerSource.includes('snmp')) return 'bg-teal-600/50 text-teal-200';
-        return 'bg-gray-600/50 text-gray-200';
+    const handlePagination = (cursor: string | undefined, direction: 'next' | 'prev') => {
+        fetchDevices(cursor, direction);
     };
+
+    if (loading) {
+        return (
+            <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-8">
+                <div className="text-center">
+                    <div className="animate-pulse flex space-x-4">
+                        <div className="rounded-full bg-gray-200 dark:bg-gray-700 h-12 w-12"></div>
+                        <div className="flex-1 space-y-2 py-1">
+                            <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4"></div>
+                            <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/2"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-8">
+                <div className="text-center text-red-500 dark:text-red-400">
+                    <AlertTriangle className="mx-auto h-6 w-6 mb-2" />
+                    {error}
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <StatCard
-                    title="Total Devices"
-                    value={(stats.online + stats.offline).toLocaleString()}
-                    icon={<Server size={24} />}
-                    isLoading={loading}
-                />
-                <StatCard
-                    title="Online"
-                    value={stats.online.toLocaleString()}
-                    icon={<CheckCircle size={24} />}
-                    isLoading={loading}
-                />
-                <StatCard
-                    title="Offline"
-                    value={stats.offline.toLocaleString()}
-                    icon={<XCircle size={24} />}
-                    isLoading={loading}
-                />
-            </div>
-
             <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg">
                 <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-                    <div className="relative w-full md:w-1/3">
-                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                        <input
-                            type="text"
-                            placeholder="Search devices..."
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-green-500 focus:border-green-500"
-                        />
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                            SNMP Devices ({devices.length})
+                        </h3>
+                        <div className="relative w-full sm:w-1/3">
+                            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                            <input
+                                type="text"
+                                placeholder="Search SNMP devices..."
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-teal-500 focus:border-teal-500"
+                            />
+                        </div>
                     </div>
                 </div>
 
-                {loading ? (
-                    <div className="text-center p-8">
-                        <Loader2 className="h-8 w-8 text-gray-400 animate-spin mx-auto" />
-                    </div>
-                ) : error ? (
-                    <div className="text-center p-8 text-red-500 dark:text-red-400">
-                        <AlertTriangle className="mx-auto h-6 w-6 mb-2" />
-                        {error}
-                    </div>
-                ) : devices.length === 0 ? (
+                {devices.length === 0 ? (
                     <div className="text-center p-8 text-gray-600 dark:text-gray-400">
-                        No devices found.
+                        No SNMP devices found.
                     </div>
                 ) : (
-                    <div className="overflow-x-auto">
-                        <table className="min-w-full divide-y divide-gray-700">
-                            <thead className="bg-gray-100 dark:bg-gray-800/50">
-                            <tr>
-                                <th className="w-12"></th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                                    Status
-                                </th>
-                                <th
-                                    onClick={() => handleSort('hostname')}
-                                    className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider cursor-pointer flex items-center"
-                                >
-                                    Device
-                                    {sortBy === 'hostname' && (
-                                        sortOrder === 'asc' ?
-                                            <ArrowUp size={12} className="ml-1" /> :
-                                            <ArrowDown size={12} className="ml-1" />
-                                    )}
-                                </th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                                    Sources
-                                </th>
-                                <th
-                                    onClick={() => handleSort('last_seen')}
-                                    className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider cursor-pointer flex items-center"
-                                >
-                                    Last Seen
-                                    {sortBy === 'last_seen' && (
-                                        sortOrder === 'asc' ?
-                                            <ArrowUp size={12} className="ml-1" /> :
-                                            <ArrowDown size={12} className="ml-1" />
-                                    )}
-                                </th>
-                            </tr>
-                            </thead>
-                            <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                            {devices.map(device => (
-                                <Fragment key={device.device_id}>
-                                    <tr className="hover:bg-gray-700/30">
-                                        <td className="pl-4">
-                                            <button
-                                                onClick={() => setExpandedRow(expandedRow === device.device_id ? null : device.device_id)}
-                                                className="p-1 rounded-full hover:bg-gray-600"
-                                            >
-                                                {expandedRow === device.device_id ?
-                                                    <ChevronDown size={20} /> :
-                                                    <ChevronRight size={20} />
-                                                }
-                                            </button>
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            {device.is_available ?
-                                                <CheckCircle className="h-5 w-5 text-green-500" /> :
-                                                <XCircle className="h-5 w-5 text-red-500" />
-                                            }
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <div className="text-sm font-medium text-gray-900 dark:text-white">
-                                                {device.hostname || device.ip}
-                                            </div>
-                                            <div className="text-sm text-gray-600 dark:text-gray-400">
-                                                {device.hostname ? device.ip : device.mac}
-                                            </div>
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <div className="flex flex-wrap gap-1">
-                                                {Array.isArray(device.discovery_sources) ? device.discovery_sources.map(source => (
-                                                    <span
-                                                        key={source}
-                                                        className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getSourceColor(source)}`}
-                                                    >
-                                                            {source}
-                                                        </span>
-                                                )) : null}
-                                            </div>
-                                        </td>
-                                        <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">
-                                            {formatDate(device.last_seen)}
-                                        </td>
-                                    </tr>
-                                    {expandedRow === device.device_id && (
-                                        <tr className="bg-gray-100 dark:bg-gray-800/50">
-                                            <td colSpan={5} className="p-0">
-                                                <div className="p-4">
-                                                    <ReactJson
-                                                        src={device.metadata}
-                                                        theme="pop"
-                                                        collapsed={false}
-                                                        style={{
-                                                            padding: '1rem',
-                                                            borderRadius: '0.375rem',
-                                                            backgroundColor: '#1C1B22'
-                                                        }}
-                                                    />
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    )}
-                                </Fragment>
-                            ))}
-                            </tbody>
-                        </table>
+                    <div>
+                        <DeviceTable
+                            devices={devices}
+                            onSort={handleSort}
+                            sortBy={sortBy}
+                            sortOrder={sortOrder}
+                        />
 
                         {/* Pagination */}
                         {pagination && (pagination.prev_cursor || pagination.next_cursor) && (
                             <div className="p-4 flex items-center justify-between border-t border-gray-200 dark:border-gray-700">
                                 <button
-                                    onClick={() => fetchDevices(pagination.prev_cursor, 'prev')}
+                                    onClick={() => handlePagination(pagination.prev_cursor, 'prev')}
                                     disabled={!pagination.prev_cursor || loading}
                                     className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white rounded-md disabled:opacity-50"
                                 >
                                     Previous
                                 </button>
                                 <button
-                                    onClick={() => fetchDevices(pagination.next_cursor, 'next')}
+                                    onClick={() => handlePagination(pagination.next_cursor, 'next')}
                                     disabled={!pagination.next_cursor || loading}
                                     className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white rounded-md disabled:opacity-50"
                                 >
@@ -415,7 +276,8 @@ const SNMPDeviceList: React.FC<SNMPDeviceListProps> = React.memo(({ initialStats
     );
 });
 
-SNMPDeviceList.displayName = 'SNMPDeviceList';
+SNMPDevicesView.displayName = 'SNMPDevicesView';
+
 
 // Main Network Dashboard Component
 const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
@@ -654,37 +516,9 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
             case 'snmp':
                 return (
                     <div className="space-y-6">
-                        <div>
-                            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">SNMP Services</h2>
-                            {snmpServices.length === 0 ? (
-                                <div className="text-center p-8 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg">
-                                    <p className="text-gray-600 dark:text-gray-400">No active SNMP monitoring services found.</p>
-                                </div>
-                            ) : (
-                                <div className="space-y-4">
-                                    {snmpServices.map(service => (
-                                        <div key={service.id || service.name} className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-4 flex justify-between items-center">
-                                            <div className="flex items-center gap-3">
-                                                <Rss size={24} className="text-teal-600 dark:text-teal-400" />
-                                                <div>
-                                                    <p className="font-semibold text-gray-900 dark:text-white">{service.name}</p>
-                                                    <p className="text-sm text-gray-600 dark:text-gray-400">{service.poller_id}</p>
-                                                </div>
-                                            </div>
-                                            <button
-                                                onClick={() => router.push(`/service/${service.poller_id}/${service.name}`)}
-                                                className="text-sm bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white px-3 py-1.5 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
-                                            >
-                                                View Dashboard
-                                            </button>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                        {/* Only render SNMPDeviceList when SNMP tab is active and we have stats */}
+                        {/* Use shared DeviceTable component for SNMP devices */}
                         {activeTab === 'snmp' && !loadingStats && (
-                            <SNMPDeviceList initialStats={{ online: deviceStats.online, offline: deviceStats.offline }} />
+                            <SNMPDevicesView />
                         )}
                     </div>
                 );
