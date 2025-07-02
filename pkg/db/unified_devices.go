@@ -33,12 +33,23 @@ var (
 )
 
 // StoreUnifiedDevice stores a unified device into the unified_devices_registry stream
+// This method now handles merging with existing devices to preserve discovery sources
 func (db *DB) StoreUnifiedDevice(ctx context.Context, device *models.UnifiedDevice) error {
 	if device.DeviceID == "" {
 		return fmt.Errorf("device ID is required")
 	}
 
 	log.Printf("Storing unified device %s", device.DeviceID)
+
+	// Try to get existing device for merging
+	existing, err := db.GetUnifiedDevice(ctx, device.DeviceID)
+	if err == nil && existing != nil {
+		// Merge discovery sources from both devices
+		device = db.mergeUnifiedDevices(existing, device)
+		log.Printf("Merged discovery sources for device %s", device.DeviceID)
+	} else {
+		log.Printf("Creating new unified device %s", device.DeviceID)
+	}
 
 	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO unified_devices_registry (* except _tp_time)")
 	if err != nil {
@@ -260,4 +271,128 @@ func (db *DB) scanUnifiedDevice(rows Rows) (*models.UnifiedDevice, error) {
 	}
 
 	return &d, nil
+}
+
+// mergeUnifiedDevices merges two unified devices, preserving discovery sources and updating fields
+func (db *DB) mergeUnifiedDevices(existing, new *models.UnifiedDevice) *models.UnifiedDevice {
+	// Start with the new device as base
+	merged := &models.UnifiedDevice{
+		DeviceID:       new.DeviceID,
+		IP:             new.IP,
+		FirstSeen:      existing.FirstSeen, // Keep original first seen
+		LastSeen:       new.LastSeen,       // Update to latest
+		IsAvailable:    new.IsAvailable,    // Update availability
+		DeviceType:     new.DeviceType,
+		ServiceType:    new.ServiceType,
+		ServiceStatus:  new.ServiceStatus,
+		LastHeartbeat:  new.LastHeartbeat,
+		OSInfo:         new.OSInfo,
+		VersionInfo:    new.VersionInfo,
+	}
+
+	// Merge discovery sources - create a map to avoid duplicates
+	sourceMap := make(map[string]models.DiscoverySourceInfo)
+	
+	// Add existing sources
+	for _, source := range existing.DiscoverySources {
+		key := fmt.Sprintf("%s-%s-%s", source.Source, source.AgentID, source.PollerID)
+		sourceMap[key] = source
+	}
+	
+	// Add new sources, updating last seen if they already exist
+	for _, source := range new.DiscoverySources {
+		key := fmt.Sprintf("%s-%s-%s", source.Source, source.AgentID, source.PollerID)
+		if existingSource, exists := sourceMap[key]; exists {
+			// Update existing source with latest timestamp
+			existingSource.LastSeen = source.LastSeen
+			sourceMap[key] = existingSource
+		} else {
+			// Add new source
+			sourceMap[key] = source
+		}
+	}
+	
+	// Convert map back to slice
+	merged.DiscoverySources = make([]models.DiscoverySourceInfo, 0, len(sourceMap))
+	for _, source := range sourceMap {
+		merged.DiscoverySources = append(merged.DiscoverySources, source)
+	}
+
+	// Merge hostname - prefer higher confidence or newer data
+	if new.Hostname != nil {
+		if existing.Hostname == nil || db.shouldUpdateDiscoveredField(existing.Hostname, new.Hostname) {
+			merged.Hostname = new.Hostname
+		} else {
+			merged.Hostname = existing.Hostname
+		}
+	} else {
+		merged.Hostname = existing.Hostname
+	}
+
+	// Merge MAC - prefer higher confidence or newer data
+	if new.MAC != nil {
+		if existing.MAC == nil || db.shouldUpdateDiscoveredField(existing.MAC, new.MAC) {
+			merged.MAC = new.MAC
+		} else {
+			merged.MAC = existing.MAC
+		}
+	} else {
+		merged.MAC = existing.MAC
+	}
+
+	// Merge metadata - combine both, with new values taking precedence
+	if new.Metadata != nil || existing.Metadata != nil {
+		mergedMetadata := make(map[string]string)
+		
+		// Start with existing metadata
+		if existing.Metadata != nil {
+			for k, v := range existing.Metadata.Value {
+				mergedMetadata[k] = v
+			}
+		}
+		
+		// Overlay new metadata
+		if new.Metadata != nil {
+			for k, v := range new.Metadata.Value {
+				mergedMetadata[k] = v
+			}
+			
+			// Use new metadata field properties but with merged values
+			merged.Metadata = &models.DiscoveredField[map[string]string]{
+				Value:       mergedMetadata,
+				Source:      new.Metadata.Source,
+				LastUpdated: new.Metadata.LastUpdated,
+				Confidence:  new.Metadata.Confidence,
+				AgentID:     new.Metadata.AgentID,
+				PollerID:    new.Metadata.PollerID,
+			}
+		} else if existing.Metadata != nil {
+			merged.Metadata = existing.Metadata
+		}
+	}
+
+	log.Printf("Merged device %s: %d discovery sources", merged.DeviceID, len(merged.DiscoverySources))
+	return merged
+}
+
+// shouldUpdateDiscoveredField determines if a discovered field should be updated based on confidence
+func (db *DB) shouldUpdateDiscoveredField(existing, new *models.DiscoveredField[string]) bool {
+	if existing == nil {
+		return true // Always update if no existing field
+	}
+	if new == nil {
+		return false // Don't update if new field is nil
+	}
+	
+	// Update if new confidence is higher
+	if new.Confidence > existing.Confidence {
+		return true
+	}
+	
+	// Update if same confidence but newer timestamp
+	if new.Confidence == existing.Confidence && new.LastUpdated.After(existing.LastUpdated) {
+		return true
+	}
+	
+	return false
 }

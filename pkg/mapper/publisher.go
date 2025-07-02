@@ -62,12 +62,18 @@ func (p *ProtonPublisher) PublishDevice(ctx context.Context, device *DiscoveredD
 		metadata[k] = v
 	}
 
+	// Determine discovery source from device metadata, default to "mapper"
+	discoverySource := "mapper"
+	if source, exists := device.Metadata["source"]; exists {
+		discoverySource = source
+	}
+
 	// Create sweep result
 	result := &models.SweepResult{
 		AgentID:         p.config.AgentID,
 		PollerID:        p.config.PollerID,
 		Partition:       p.config.Partition,
-		DiscoverySource: "mapper",
+		DiscoverySource: discoverySource,
 		IP:              device.IP,
 		MAC:             &device.MAC,
 		Hostname:        &device.Hostname,
@@ -202,6 +208,12 @@ func (p *ProtonPublisher) PublishBatchDevices(ctx context.Context, devices []*Di
 			metadata[k] = v
 		}
 
+		// Determine discovery source from device metadata, default to "mapper"
+		discoverySource := "mapper"
+		if source, exists := device.Metadata["source"]; exists {
+			discoverySource = source
+		}
+
 		// Create sweep result
 		hostname := device.Hostname
 		mac := device.MAC
@@ -210,7 +222,7 @@ func (p *ProtonPublisher) PublishBatchDevices(ctx context.Context, devices []*Di
 			AgentID:         p.config.AgentID,
 			PollerID:        p.config.PollerID,
 			Partition:       p.config.Partition,
-			DiscoverySource: "mapper",
+			DiscoverySource: discoverySource,
 			IP:              device.IP,
 			MAC:             &mac,
 			Hostname:        &hostname,

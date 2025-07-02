@@ -108,12 +108,12 @@ func (s *Server) processDiscoveredDevices(
 			AgentID:         discoveryAgentID,
 			PollerID:        discoveryInitiatorPollerID,
 			Partition:       partition,
-			DiscoverySource: "snmp", // Fixed: was hardcoded as "mapper", now reflects actual SNMP discovery
+			DiscoverySource: "mapper", // Mapper discovery: devices found by the mapper component using SNMP
 			IP:              protoDevice.Ip,
 			MAC:             &mac,
 			Hostname:        &hostname,
 			Timestamp:       timestamp,
-			Available:       true, // Assumed true if discovered via SNMP
+			Available:       true, // Assumed true if discovered via mapper
 			Metadata:        deviceMetadata,
 		}
 		resultsToStore = append(resultsToStore, result)

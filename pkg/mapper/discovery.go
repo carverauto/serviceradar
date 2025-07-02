@@ -1425,7 +1425,7 @@ func (e *DiscoveryEngine) trackJobProgress(
 }
 
 // finalizeDevice performs final setup on the device before returning it
-func (*DiscoveryEngine) finalizeDevice(device *DiscoveredDevice, target, jobID string) {
+func (*DiscoveryEngine) finalizeDevice(device *DiscoveredDevice, target, jobID, source string) {
 	// Use IP as hostname if not provided
 	if device.Hostname == "" {
 		device.Hostname = target
@@ -1434,6 +1434,7 @@ func (*DiscoveryEngine) finalizeDevice(device *DiscoveredDevice, target, jobID s
 	// Add job metadata
 	device.Metadata["discovery_id"] = jobID
 	device.Metadata["discovery_time"] = time.Now().Format(time.RFC3339)
+	device.Metadata["source"] = source
 }
 
 // finalizeInterfaces finalizes the interfaces by ensuring they have names and adding metadata

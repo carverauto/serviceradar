@@ -352,14 +352,14 @@ const SNMPDeviceList: React.FC<SNMPDeviceListProps> = React.memo(({ initialStats
                                         </td>
                                         <td className="px-6 py-4">
                                             <div className="flex flex-wrap gap-1">
-                                                {device.discovery_sources.map(source => (
+                                                {Array.isArray(device.discovery_sources) ? device.discovery_sources.map(source => (
                                                     <span
                                                         key={source}
                                                         className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getSourceColor(source)}`}
                                                     >
                                                             {source}
                                                         </span>
-                                                ))}
+                                                )) : null}
                                             </div>
                                         </td>
                                         <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">
