@@ -42,8 +42,6 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
     const [expandedRow, setExpandedRow] = useState<string | null>(null);
     const [sysmonStatuses, setSysmonStatuses] = useState<Record<string, { hasMetrics: boolean }>>({});
     const [sysmonStatusesLoading, setSysmonStatusesLoading] = useState(true);
-    const [snmpStatuses, setSnmpStatuses] = useState<Record<string, { hasMetrics: boolean }>>({});
-    const [snmpStatusesLoading, setSnmpStatusesLoading] = useState(true);
     const [icmpStatuses, setIcmpStatuses] = useState<Record<string, { hasMetrics: boolean }>>({});
     const [icmpStatusesLoading, setIcmpStatusesLoading] = useState(true);
 
@@ -83,30 +81,6 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
             }
         };
 
-        const fetchSnmpStatuses = async () => {
-            setSnmpStatusesLoading(true);
-            try {
-                console.log(`DeviceTable: Fetching SNMP status for ${deviceIds.length} devices`);
-                const response = await fetch('/api/devices/snmp/status', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ deviceIds }),
-                });
-
-                if (response.ok) {
-                    const data = await response.json();
-                    setSnmpStatuses(data.statuses || {});
-                } else {
-                    console.error('Failed to fetch bulk SNMP statuses:', response.status);
-                }
-            } catch (error) {
-                console.error('Error fetching bulk SNMP statuses:', error);
-            } finally {
-                setSnmpStatusesLoading(false);
-            }
-        };
 
         const fetchIcmpStatuses = async () => {
             setIcmpStatusesLoading(true);
@@ -134,7 +108,6 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
         };
 
         fetchSysmonStatuses();
-        fetchSnmpStatuses();
         fetchIcmpStatuses();
     }, [deviceIdsString, devices]);
 
@@ -224,7 +197,7 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
                                         <SNMPStatusIndicator 
                                             deviceId={device.device_id} 
                                             compact={true}
-                                            hasMetrics={snmpStatusesLoading ? undefined : snmpStatuses[device.device_id]?.hasMetrics}
+                                            hasSnmpSource={device.discovery_sources.includes('snmp')}
                                         />
                                         <ICMPSparkline 
                                             deviceId={device.device_id} 
