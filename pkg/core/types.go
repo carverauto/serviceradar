@@ -18,6 +18,7 @@
 package core
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -42,6 +43,7 @@ type Server struct {
 	proto.UnimplementedPollerServiceServer
 	mu                      sync.RWMutex
 	DB                      db.Service
+	DeviceRegistry          DeviceRegistryService
 	alertThreshold          time.Duration
 	webhooks                []alerts.AlertService
 	apiServer               api.Service
@@ -63,6 +65,15 @@ type Server struct {
 	pollerStatusUpdateMutex sync.Mutex
 	cacheLastUpdated        time.Time
 	cacheMutex              sync.RWMutex
+}
+
+// DeviceRegistryService interface for device registry operations
+type DeviceRegistryService interface {
+	ProcessSweepResult(ctx context.Context, result *models.SweepResult) error
+	UpdateDevice(ctx context.Context, update *models.DeviceUpdate) error
+	GetDevice(ctx context.Context, deviceID string) (*models.UnifiedDevice, error)
+	GetDevicesByIP(ctx context.Context, ip string) ([]*models.UnifiedDevice, error)
+	ListDevices(ctx context.Context, limit, offset int) ([]*models.UnifiedDevice, error)
 }
 
 // OIDStatusData represents the structure of OID status data.

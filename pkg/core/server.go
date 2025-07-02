@@ -38,6 +38,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/metrics"
 	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/registry"
 	"github.com/carverauto/serviceradar/proto"
 )
 
@@ -83,8 +84,16 @@ func NewServer(ctx context.Context, config *models.DBConfig) (*Server, error) {
 	}
 	metricsManager := metrics.NewManager(metricsConfig, database)
 
+	// Initialize device registry for unified device management
+	deviceRegistry, err := registry.SetupDeviceRegistry(ctx, database)
+	if err != nil {
+		log.Printf("Warning: Failed to initialize device registry: %v", err)
+		// Continue without device registry - fallback to legacy system
+	}
+
 	server := &Server{
 		DB:                  database,
+		DeviceRegistry:      deviceRegistry,
 		alertThreshold:      normalizedConfig.AlertThreshold,
 		webhooks:            make([]alerts.AlertService, 0),
 		ShutdownChan:        make(chan struct{}),
@@ -434,6 +443,10 @@ func (s *Server) GetMetricsManager() metrics.MetricCollector {
 
 func (s *Server) GetSNMPManager() metricstore.SNMPManager {
 	return s.snmpManager
+}
+
+func (s *Server) GetDeviceRegistry() DeviceRegistryService {
+	return s.DeviceRegistry
 }
 
 func (s *Server) runMetricsCleanup(ctx context.Context) {
@@ -1321,6 +1334,13 @@ func (s *Server) createSysmonDeviceRecord(
 		log.Printf("Created/updated device record for sysmon device %s (hostname: %s, ip: %s)",
 			deviceID, payload.Status.HostID, payload.Status.HostIP)
 	}
+
+	// Also process through device registry for unified device management
+	if s.DeviceRegistry != nil {
+		if err := s.DeviceRegistry.ProcessSweepResult(ctx, sweepResult); err != nil {
+			log.Printf("Warning: Failed to process sysmon device through device registry for %s: %v", deviceID, err)
+		}
+	}
 }
 
 // createSnmpTargetDeviceRecord creates a device record for an SNMP target device.
@@ -1356,6 +1376,13 @@ func (s *Server) createSnmpTargetDeviceRecord(
 		deviceID := fmt.Sprintf("%s:%s", partition, targetIP)
 		log.Printf("Created/updated device record for SNMP target %s (hostname: %s, ip: %s)",
 			deviceID, hostname, targetIP)
+	}
+
+	// Also process through device registry for unified device management
+	if s.DeviceRegistry != nil {
+		if err := s.DeviceRegistry.ProcessSweepResult(ctx, sweepResult); err != nil {
+			log.Printf("Warning: Failed to process SNMP target device through device registry for %s: %v", targetIP, err)
+		}
 	}
 }
 

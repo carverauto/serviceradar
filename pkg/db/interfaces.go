@@ -114,6 +114,12 @@ type Service interface {
 	GetDeviceByID(ctx context.Context, deviceID string) (*models.Device, error)
 	GetDevicesByIP(ctx context.Context, ip string) ([]*models.Device, error)
 
+	// Unified Device operations.
+	StoreUnifiedDevice(ctx context.Context, device *models.UnifiedDevice) error
+	GetUnifiedDevice(ctx context.Context, deviceID string) (*models.UnifiedDevice, error)
+	GetUnifiedDevicesByIP(ctx context.Context, ip string) ([]*models.UnifiedDevice, error)
+	ListUnifiedDevices(ctx context.Context, limit, offset int) ([]*models.UnifiedDevice, error)
+
 	// Device-centric metric operations.
 	GetMetricsForDevice(ctx context.Context, deviceID string, start, end time.Time) ([]models.TimeseriesMetric, error)
 	GetMetricsForDeviceByType(ctx context.Context, deviceID, metricType string, start, end time.Time) ([]models.TimeseriesMetric, error)
