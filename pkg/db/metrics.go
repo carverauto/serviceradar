@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"log"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -32,6 +33,23 @@ import (
 const (
 	rperfBitsPerSecondDivisor = 1e6 // To convert bps to Mbps
 )
+
+
+// convertValueToFloat64 converts a string value to float64, logging errors but not failing the operation
+func convertValueToFloat64(value string, metricName string) float64 {
+	if value == "" {
+		return 0.0
+	}
+	
+	floatVal, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		log.Printf("Warning: failed to convert metric value '%s' to float64 for metric %s: %v. Using 0.0", 
+			value, metricName, err)
+		return 0.0
+	}
+	
+	return floatVal
+}
 
 // rperfWrapper defines the outer structure received from the agent for rperf checks.
 type rperfWrapper struct {
@@ -65,14 +83,15 @@ func (db *DB) queryTimeseriesMetrics(
 	for rows.Next() {
 		var metric models.TimeseriesMetric
 
-		// Scan metadata as a string
+		// Scan metadata as string and value as float64
 		var metadataStr string
+		var valueFloat float64
 
 		err := rows.Scan(
 			&metric.Name,
 			&metric.Type,
-			&metric.Value,
-			&metadataStr, // Scan into string
+			&valueFloat,      // Scan as float64 from database
+			&metadataStr,     // Scan as string from database
 			&metric.Timestamp,
 			&metric.TargetDeviceIP,
 			&metric.IfIndex,
@@ -83,7 +102,10 @@ func (db *DB) queryTimeseriesMetrics(
 			return nil, fmt.Errorf("failed to scan metric row: %w", err)
 		}
 
-		// Assign the scanned string to metric.Metadata
+		// Convert float64 value back to string for the model
+		metric.Value = fmt.Sprintf("%g", valueFloat)
+
+		// Assign the scanned metadata string directly
 		metric.Metadata = metadataStr
 
 		metrics = append(metrics, metric)
@@ -147,16 +169,21 @@ func (db *DB) storeRperfMetricsToBatch(
 
 		for _, m := range metricsToStore {
 			err = batch.Append(
-				pollerID,
-				result.Target, // target_device_ip
-				0,             // ifIndex (not applicable for rperf)
-				m.Name,
-				"rperf",
-				m.Value,
-				metadataStr,
-				timestamp,
-				"", // device_id (to be populated later)
-				"", // partition (to be populated later)
+				timestamp,        // timestamp
+				pollerID,         // poller_id
+				"",               // agent_id
+				m.Name,           // metric_name
+				"rperf",          // metric_type
+				"",               // device_id (to be populated later)
+				convertValueToFloat64(m.Value, m.Name), // value (converted to float64)
+				"",               // unit
+				map[string]string{}, // tags
+				"",               // partition (to be populated later)
+				1.0,              // scale
+				false,            // is_delta
+				result.Target,    // target_device_ip
+				int32(0),         // ifIndex (not applicable for rperf)
+				metadataStr,      // metadata
 			)
 			if err != nil {
 				log.Printf("Failed to append rperf metric %s for poller %s: %v", m.Name, pollerID, err)
@@ -321,16 +348,21 @@ func (db *DB) StoreMetric(ctx context.Context, pollerID string, metric *models.T
 	}
 
 	err = batch.Append(
-		pollerID,
-		metric.TargetDeviceIP,
-		metric.IfIndex,
-		metric.Name,
-		metric.Type,
-		metric.Value,
-		metadataStr, // Use metadata string directly
-		metric.Timestamp,
-		metric.DeviceID,
-		metric.Partition,
+		metric.Timestamp,    // timestamp
+		pollerID,            // poller_id
+		"",                  // agent_id
+		metric.Name,         // metric_name
+		metric.Type,         // metric_type
+		metric.DeviceID,     // device_id
+		convertValueToFloat64(metric.Value, metric.Name), // value (converted to float64)
+		"",                  // unit
+		map[string]string{}, // tags
+		metric.Partition,    // partition
+		1.0,                 // scale
+		false,               // is_delta
+		metric.TargetDeviceIP, // target_device_ip
+		metric.IfIndex,      // ifIndex
+		metadataStr,         // metadata
 	)
 	if err != nil {
 		log.Printf("Failed to append single metric %s (poller: %s, target: %s) to batch: %v. Metadata: %s",
@@ -373,16 +405,21 @@ func (db *DB) BatchMetricsOperation(ctx context.Context, pollerID string, metric
 		}
 
 		err = batch.Append(
-			pollerID,
-			metric.TargetDeviceIP,
-			metric.IfIndex,
-			metric.Name,
-			metric.Type,
-			metric.Value,
-			metadataStr,
-			metric.Timestamp,
-			metric.DeviceID,
-			metric.Partition,
+			metric.Timestamp,    // timestamp
+			pollerID,            // poller_id
+			"",                  // agent_id
+			metric.Name,         // metric_name
+			metric.Type,         // metric_type
+			metric.DeviceID,     // device_id
+			convertValueToFloat64(metric.Value, metric.Name), // value (converted to float64)
+			"",                  // unit
+			map[string]string{}, // tags
+			metric.Partition,    // partition
+			1.0,                 // scale
+			false,               // is_delta
+			metric.TargetDeviceIP, // target_device_ip
+			metric.IfIndex,      // ifIndex
+			metadataStr,         // metadata
 		)
 		if err != nil {
 			log.Printf("Failed to append metric %s to batch: %v", metric.Name, err)
@@ -423,16 +460,21 @@ func (db *DB) StoreMetrics(ctx context.Context, pollerID string, metrics []*mode
 		}
 
 		err = batch.Append(
-			pollerID,
-			metric.TargetDeviceIP,
-			metric.IfIndex,
-			metric.Name,
-			metric.Type,
-			metric.Value,
-			metadataStr,
-			metric.Timestamp,
-			metric.DeviceID,
-			metric.Partition,
+			metric.Timestamp,    // timestamp
+			pollerID,            // poller_id
+			"",                  // agent_id
+			metric.Name,         // metric_name
+			metric.Type,         // metric_type
+			metric.DeviceID,     // device_id
+			convertValueToFloat64(metric.Value, metric.Name), // value (converted to float64)
+			"",                  // unit
+			map[string]string{}, // tags
+			metric.Partition,    // partition
+			1.0,                 // scale
+			false,               // is_delta
+			metric.TargetDeviceIP, // target_device_ip
+			metric.IfIndex,      // ifIndex
+			metadataStr,         // metadata
 		)
 		if err != nil {
 			log.Printf("Failed to append metric %s (poller: %s, target: %s) to batch: %v. Metadata: %s",
@@ -485,7 +527,7 @@ func (db *DB) storeCPUMetrics(
 
 	return db.executeBatch(ctx, "INSERT INTO cpu_metrics (* except _tp_time)", func(batch driver.Batch) error {
 		for _, cpu := range cpus {
-			if err := batch.Append(pollerID, agentID, hostID, timestamp,
+			if err := batch.Append(timestamp, pollerID, agentID, hostID,
 				cpu.CoreID, cpu.UsagePercent, deviceID, partition); err != nil {
 				log.Printf("Failed to append CPU metric for core %d: %v", cpu.CoreID, err)
 				continue
@@ -508,8 +550,33 @@ func (db *DB) storeDiskMetrics(
 
 	return db.executeBatch(ctx, "INSERT INTO disk_metrics (* except _tp_time)", func(batch driver.Batch) error {
 		for _, disk := range disks {
-			if err := batch.Append(pollerID, agentID, hostID, timestamp, disk.MountPoint,
-				disk.UsedBytes, disk.TotalBytes, deviceID, partition); err != nil {
+			// Calculate missing fields for the 12-column schema
+			availableBytes := uint64(0)
+			if disk.TotalBytes > disk.UsedBytes {
+				availableBytes = disk.TotalBytes - disk.UsedBytes
+			}
+			
+			usagePercent := 0.0
+			if disk.TotalBytes > 0 {
+				usagePercent = (float64(disk.UsedBytes) / float64(disk.TotalBytes)) * 100.0
+			}
+			
+			deviceName := disk.MountPoint // Use mount point as device name if not available
+			
+			if err := batch.Append(
+				timestamp,         // timestamp
+				pollerID,          // poller_id
+				agentID,           // agent_id
+				hostID,            // host_id
+				disk.MountPoint,   // mount_point
+				deviceName,        // device_name
+				disk.TotalBytes,   // total_bytes
+				disk.UsedBytes,    // used_bytes
+				availableBytes,    // available_bytes
+				usagePercent,      // usage_percent
+				deviceID,          // device_id
+				partition,         // partition
+			); err != nil {
 				log.Printf("Failed to append disk metric for %s: %v", disk.MountPoint, err)
 				continue
 			}
@@ -530,8 +597,29 @@ func (db *DB) storeMemoryMetrics(
 	}
 
 	return db.executeBatch(ctx, "INSERT INTO memory_metrics (* except _tp_time)", func(batch driver.Batch) error {
-		return batch.Append(pollerID, agentID, hostID, timestamp,
-			memory.UsedBytes, memory.TotalBytes, deviceID, partition)
+		// Calculate missing fields for the memory_metrics schema
+		availableBytes := uint64(0)
+		if memory.TotalBytes > memory.UsedBytes {
+			availableBytes = memory.TotalBytes - memory.UsedBytes
+		}
+		
+		usagePercent := 0.0
+		if memory.TotalBytes > 0 {
+			usagePercent = (float64(memory.UsedBytes) / float64(memory.TotalBytes)) * 100.0
+		}
+		
+		return batch.Append(
+			timestamp,         // timestamp
+			pollerID,          // poller_id
+			agentID,           // agent_id
+			hostID,            // host_id
+			memory.TotalBytes, // total_bytes
+			memory.UsedBytes,  // used_bytes
+			availableBytes,    // available_bytes
+			usagePercent,      // usage_percent
+			deviceID,          // device_id
+			partition,         // partition
+		)
 	})
 }
 
@@ -855,12 +943,14 @@ func (db *DB) getTimeseriesMetricsByFilters(
 
 	for rows.Next() {
 		var m models.TimeseriesMetric
+		var valueFloat float64
+		var metadataStr string
 
 		if err := rows.Scan(
 			&m.Name,
 			&m.Type,
-			&m.Value,
-			&m.Metadata,
+			&valueFloat,    // Scan as float64 from database
+			&metadataStr,   // Scan as string from database
 			&m.Timestamp,
 			&m.TargetDeviceIP,
 			&m.IfIndex,
@@ -870,6 +960,12 @@ func (db *DB) getTimeseriesMetricsByFilters(
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan metric with filters %v: %w", filters, err)
 		}
+
+		// Convert float64 value back to string for the model
+		m.Value = fmt.Sprintf("%g", valueFloat)
+
+		// Assign the scanned metadata string directly
+		m.Metadata = metadataStr
 
 		metrics = append(metrics, m)
 	}

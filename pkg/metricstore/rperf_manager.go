@@ -124,80 +124,6 @@ func parseInt64Field(value string) (int64, error) {
 }
 
 // parseLegacyRperfMetadata attempts to parse legacy string-based metadata into an RperfMetric.
-func parseLegacyRperfMetadata(metricName, pollerID, metadataStr string) (*models.RperfMetric, bool) {
-	var legacyMetadata map[string]string
-
-	if err := json.Unmarshal([]byte(metadataStr), &legacyMetadata); err != nil {
-		log.Printf("Warning: failed to unmarshal legacy rperf metadata for metric %s on poller %s: %v", metricName, pollerID, err)
-		return nil, false
-	}
-
-	var rperfMetric models.RperfMetric
-
-	// Parse string fields
-	rperfMetric.Target = legacyMetadata["target"]
-	rperfMetric.Success = legacyMetadata["success"] == "true"
-
-	if legacyMetadata["error"] != "" {
-		errStr := legacyMetadata["error"]
-		rperfMetric.Error = &errStr
-	}
-
-	// Parse required float64 field
-	bitsPerSec, err := parseFloat64Field(legacyMetadata["bits_per_second"])
-	if err != nil {
-		log.Printf("Warning: invalid bits_per_second in legacy metadata for metric %s: %v", metricName, err)
-		return nil, false
-	}
-
-	rperfMetric.BitsPerSec = bitsPerSec
-
-	// Parse optional float64 fields
-	if val, err := parseFloat64Field(legacyMetadata["duration"]); err == nil {
-		rperfMetric.Duration = val
-	}
-
-	if val, err := parseFloat64Field(legacyMetadata["jitter_ms"]); err == nil {
-		rperfMetric.JitterMs = val
-	}
-
-	if val, err := parseFloat64Field(legacyMetadata["loss_percent"]); err == nil {
-		rperfMetric.LossPercent = val
-	}
-
-	// Parse optional int64 fields
-	if val, err := parseInt64Field(legacyMetadata["bytes_received"]); err == nil {
-		rperfMetric.BytesReceived = val
-	}
-
-	if val, err := parseInt64Field(legacyMetadata["bytes_sent"]); err == nil {
-		rperfMetric.BytesSent = val
-	}
-
-	if val, err := parseInt64Field(legacyMetadata["packets_lost"]); err == nil {
-		rperfMetric.PacketsLost = val
-	}
-
-	if val, err := parseInt64Field(legacyMetadata["packets_received"]); err == nil {
-		rperfMetric.PacketsReceived = val
-	}
-
-	if val, err := parseInt64Field(legacyMetadata["packets_sent"]); err == nil {
-		rperfMetric.PacketsSent = val
-	}
-
-	if val, err := parseInt64Field(legacyMetadata["response_time"]); err == nil {
-		rperfMetric.ResponseTime = val
-	}
-
-	// Set optional string fields
-	rperfMetric.AgentID = legacyMetadata["agent_id"]
-	rperfMetric.ServiceName = legacyMetadata["service_name"]
-	rperfMetric.ServiceType = legacyMetadata["service_type"]
-	rperfMetric.Version = legacyMetadata["version"]
-
-	return &rperfMetric, true
-}
 
 // GetRperfMetrics retrieves rperf metrics for a poller within a time range.
 func (m *rperfManagerImpl) GetRperfMetrics(
@@ -219,19 +145,13 @@ func (m *rperfManagerImpl) GetRperfMetrics(
 
 		var rperfMetric models.RperfMetric
 
-		if err := json.Unmarshal([]byte(tsMetrics[i].Metadata), &rperfMetric); err == nil {
-			rperfMetric.Timestamp = tsMetrics[i].Timestamp // Ensure timestamp is set
-			rperfMetrics = append(rperfMetrics, &rperfMetric)
-
+		if err := json.Unmarshal([]byte(tsMetrics[i].Metadata), &rperfMetric); err != nil {
+			log.Printf("Failed to unmarshal rperf metadata for metric %s on poller %s: %v", tsMetrics[i].Name, pollerID, err)
 			continue
 		}
 
-		log.Printf("Failed to unmarshal rperf metadata for metric %s on poller %s, attempting legacy parsing", tsMetrics[i].Name, pollerID)
-
-		if parsedMetric, success := parseLegacyRperfMetadata(tsMetrics[i].Name, pollerID, tsMetrics[i].Metadata); success {
-			parsedMetric.Timestamp = tsMetrics[i].Timestamp
-			rperfMetrics = append(rperfMetrics, parsedMetric)
-		}
+		rperfMetric.Timestamp = tsMetrics[i].Timestamp // Ensure timestamp is set
+		rperfMetrics = append(rperfMetrics, &rperfMetric)
 	}
 
 	log.Printf("Retrieved %d rperf metrics for poller %s", len(rperfMetrics), pollerID)
