@@ -1099,7 +1099,7 @@ func (s *APIServer) getDeviceMetrics(w http.ResponseWriter, r *http.Request) {
 // @Failure 500 {object} models.ErrorResponse "Internal server error or metrics not configured"
 // @Router /api/devices/metrics/status [get]
 // @Security ApiKeyAuth
-func (s *APIServer) getDeviceMetricsStatus(w http.ResponseWriter, r *http.Request) {
+func (s *APIServer) getDeviceMetricsStatus(w http.ResponseWriter, _ *http.Request) {
 	if s.metricsManager == nil {
 		writeError(w, "Metrics not configured", http.StatusInternalServerError)
 		return
@@ -1112,8 +1112,10 @@ func (s *APIServer) getDeviceMetricsStatus(w http.ResponseWriter, r *http.Reques
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		log.Printf("Error encoding device metrics status response: %v", err)
+
 		writeError(w, "Failed to encode response", http.StatusInternalServerError)
 	}
 }
