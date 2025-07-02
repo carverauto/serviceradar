@@ -208,14 +208,16 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
                                     <div className="flex flex-wrap gap-1">
-                                        {Array.isArray(device.discovery_sources) ? device.discovery_sources.map(source => (
-                                            <span 
-                                                key={source}
-                                                className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getSourceColor(source)}`}
-                                            >
-                                                {source}
-                                            </span>
-                                        )) : null}
+                                        {Array.isArray(device.discovery_sources) ? device.discovery_sources
+                                            .sort((a, b) => a.localeCompare(b))
+                                            .map(source => (
+                                                <span 
+                                                    key={source}
+                                                    className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getSourceColor(source)}`}
+                                                >
+                                                    {source}
+                                                </span>
+                                            )) : null}
                                     </div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
