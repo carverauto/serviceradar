@@ -49,10 +49,12 @@ const ICMPSparkline: React.FC<ICMPSparklineProps> = ({
 }) => {
     const [metrics, setMetrics] = useState<ICMPMetric[]>([]);
     const [isLoading, setIsLoading] = useState(false);
-    const [hasData, setHasData] = useState(false);
 
     const fetchMetrics = useCallback(async () => {
-        if (!deviceId || hasMetrics === false) return;
+        if (!deviceId) return;
+        if (hasMetrics === false) return;
+        // Skip fetching if hasMetrics is still undefined (bulk status loading)
+        if (hasMetrics === undefined) return;
         
         setIsLoading(true);
         try {
@@ -70,15 +72,12 @@ const ICMPSparkline: React.FC<ICMPSparklineProps> = ({
             if (response.ok) {
                 const data = await response.json() as ICMPMetric[];
                 setMetrics(data || []);
-                setHasData(data && data.length > 0);
             } else {
                 setMetrics([]);
-                setHasData(false);
             }
         } catch (error) {
             console.error(`Error fetching ICMP metrics for device ${deviceId}:`, error);
             setMetrics([]);
-            setHasData(false);
         } finally {
             setIsLoading(false);
         }
@@ -86,7 +85,11 @@ const ICMPSparkline: React.FC<ICMPSparklineProps> = ({
 
     useEffect(() => {
         if (hasMetrics === false) {
-            setHasData(false);
+            return;
+        }
+        
+        // Don't start fetching until we know the metrics status
+        if (hasMetrics === undefined) {
             return;
         }
         
@@ -141,7 +144,7 @@ const ICMPSparkline: React.FC<ICMPSparklineProps> = ({
     }, [processedMetrics]);
 
     // Only show if we have ICMP metrics
-    if (hasMetrics === false || (!isLoading && hasMetrics === undefined && !hasData)) {
+    if (hasMetrics === false || hasMetrics === undefined) {
         return null;
     }
 
