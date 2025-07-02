@@ -95,10 +95,10 @@ export async function POST(req: NextRequest) {
                 // Create SRQL query to find devices with recent SNMP metrics (last 2 hours for faster query)
                 const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
                 
-                // Query SNMP metrics for devices with recent SNMP data
+                // Query SNMP data using snmp_metrics entity (maps to timeseries_metrics with metric_type='snmp' filter)
+                // Note: limit/pagination not supported for most SNMP entities
                 const srqlQuery = {
-                    query: `show snmp_metrics where timestamp >= '${twoHoursAgo}' and device_id in (${deviceIds.map(id => `'${id}'`).join(', ')}) order by timestamp desc`,
-                    limit: deviceIds.length * 2 // Reasonable limit based on number of devices
+                    query: `show snmp_metrics where timestamp >= '${twoHoursAgo}' and device_id in (${deviceIds.map(id => `'${id}'`).join(', ')}) order by timestamp desc`
                 };
 
             const queryResponse = await fetch(`${apiUrl}/api/query`, {
@@ -119,24 +119,10 @@ export async function POST(req: NextRequest) {
                 console.log(`SNMP SRQL query successful: found ${devicesWithMetrics.length} devices with recent SNMP metrics`);
             } else {
                 console.error('SNMP SRQL query failed:', queryResponse.status, await queryResponse.text());
-                // Fall back to individual API calls if SRQL query fails
-                const statusPromises = deviceIds.map(async (deviceId: string) => {
-                    try {
-                        const url = `${apiUrl}/api/devices/${encodeURIComponent(deviceId)}/snmp?hours=1`;
-                        const response = await fetch(url, { 
-                            headers, 
-                            cache: 'no-store',
-                            signal: AbortSignal.timeout(5000)
-                        });
-                        return { deviceId, hasMetrics: response.ok };
-                    } catch {
-                        return { deviceId, hasMetrics: false };
-                    }
-                });
-                
-                const results = await Promise.all(statusPromises);
-                devicesWithMetrics = results.filter(r => r.hasMetrics).map(r => r.deviceId);
-                console.log(`SNMP fallback to individual calls: ${devicesWithMetrics.length}/${deviceIds.length} devices have metrics`);
+                // If SRQL query fails, we'll return empty results rather than attempting 
+                // to call non-existent endpoints
+                devicesWithMetrics = [];
+                console.log('SNMP SRQL query failed, returning no devices with metrics');
             }
 
             // Create status map for all requested devices
@@ -168,43 +154,16 @@ export async function POST(req: NextRequest) {
             
         } catch (error) {
             console.error('Error in SRQL SNMP query:', error);
-            // Final fallback to individual API calls
-            const statusPromises = deviceIds.map(async (deviceId: string) => {
-                try {
-                    const url = `${apiUrl}/api/devices/${encodeURIComponent(deviceId)}/snmp?hours=1`;
-                    const response = await fetch(url, { 
-                        headers, 
-                        cache: 'no-store',
-                        signal: AbortSignal.timeout(5000)
-                    });
-                    
-                    return {
-                        deviceId,
-                        hasMetrics: response.ok,
-                        status: response.status
-                    };
-                } catch (error) {
-                    return {
-                        deviceId,
-                        hasMetrics: false,
-                        status: 500,
-                        error: error instanceof Error ? error.message : 'Request failed'
-                    };
-                }
-            });
-
-            const results = await Promise.all(statusPromises);
-            
-            const statusMap = results.reduce((acc, result) => {
-                acc[result.deviceId] = {
-                    hasMetrics: result.hasMetrics,
-                    status: result.status,
-                    ...(result.error && { error: result.error })
+            // If SRQL query fails, return empty results for all devices
+            const statusMap = deviceIds.reduce((acc, deviceId) => {
+                acc[deviceId] = {
+                    hasMetrics: false,
+                    status: 500
                 };
                 return acc;
-            }, {} as Record<string, { hasMetrics: boolean; status: number; error?: string }>);
+            }, {} as Record<string, { hasMetrics: boolean; status: number }>);
 
-            console.log(`SNMP final fallback completed: ${results.filter(r => r.hasMetrics).length}/${deviceIds.length} devices have metrics`);
+            console.log('SNMP SRQL query error, returning no devices with metrics');
             return statusMap;
         }
         };
