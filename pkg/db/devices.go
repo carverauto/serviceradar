@@ -120,65 +120,120 @@ func (db *DB) GetDeviceByID(ctx context.Context, deviceID string) (*models.Devic
 	return &d, nil
 }
 
-// StoreDevices stores a batch of devices into the unified_devices stream.
+// StoreDevices is deprecated - use StoreUnifiedDevice instead
+// This method is kept for backward compatibility but should not be used
 func (db *DB) StoreDevices(ctx context.Context, devices []*models.Device) error {
-	if len(devices) == 0 {
-		return nil
-	}
-
-	log.Printf("Storing %d devices", len(devices))
-
-	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO unified_devices (* except _tp_time)")
-	if err != nil {
-		return fmt.Errorf("failed to prepare batch: %w", err)
-	}
-
-	for _, d := range devices {
-		meta := make(map[string]string)
-		for k, v := range d.Metadata {
-			meta[k] = fmt.Sprintf("%v", v)
-		}
-
-		// Convert metadata map to JSON string
-		metadataBytes, err := json.Marshal(meta)
-		if err != nil {
-			log.Printf("Failed to marshal metadata for device %s: %v", d.DeviceID, err)
-			return fmt.Errorf("failed to marshal metadata for device %s: %w", d.DeviceID, err)
-		}
-		metadataStr := string(metadataBytes)
-
-		if err := batch.Append(
-			d.AgentID,         // agent_id
-			d.PollerID,        // poller_id
-			"default",         // partition
-			d.DeviceID,        // device_id
-			d.IP,              // ip
-			d.Hostname,        // hostname
-			d.MAC,             // mac
-			d.FirstSeen,       // first_seen
-			d.LastSeen,        // last_seen
-			d.IsAvailable,     // is_available
-			"unknown",         // device_type
-			"",                // service_type (nullable)
-			"",                // service_status (nullable)
-			nil,               // last_heartbeat (nullable)
-			"",                // os_info (nullable)
-			"",                // version_info (nullable)
-			metadataStr,       // metadata
-			d.DiscoverySources, // discovery_sources
-		); err != nil {
-			appendErr := err
-			if abortErr := batch.Abort(); abortErr != nil {
-				return fmt.Errorf("failed to abort batch after append error: %w", abortErr)
+	// Special handling for integration devices coming from device consumer
+	// Convert them to device updates and process through registry
+	for _, device := range devices {
+		// Check if this is an integration device by looking at metadata
+		isIntegrationDevice := false
+		discoverySource := ""
+		if device.Metadata != nil {
+			if source, ok := device.Metadata["discovery_source"]; ok {
+				if sourceStr, ok := source.(string); ok {
+					if sourceStr == "netbox" || sourceStr == "armis" || sourceStr == "integration" {
+						isIntegrationDevice = true
+						discoverySource = sourceStr
+					}
+				}
 			}
-
-			return fmt.Errorf("failed to append device %s: %w", d.DeviceID, appendErr)
+		}
+		
+		if isIntegrationDevice {
+			log.Printf("Processing %s device %s through device registry", discoverySource, device.DeviceID)
+			// Note: We cannot use the device registry directly here because this is the database layer
+			// and the device registry lives in a higher layer. For now, store directly to the database
+			// but log that this should be handled differently in the future.
+			// TODO: Refactor to have integration devices go through proper device registry flow
+			
+			// Map the discovery source to the appropriate constant
+			var source models.DiscoverySource
+			switch discoverySource {
+			case "netbox":
+				source = models.DiscoverySourceIntegration // Use "integration" as the category
+			case "armis":
+				source = models.DiscoverySourceIntegration // Use "integration" as the category  
+			default:
+				source = models.DiscoverySourceIntegration
+			}
+			
+			// Convert to UnifiedDevice with specific source information
+			unifiedDevice := &models.UnifiedDevice{
+				DeviceID:    device.DeviceID,
+				IP:          device.IP,
+				FirstSeen:   device.FirstSeen,
+				LastSeen:    device.LastSeen,
+				IsAvailable: device.IsAvailable,
+			}
+			
+			// Convert metadata and preserve specific integration source
+			stringMetadata := make(map[string]string)
+			for k, v := range device.Metadata {
+				if str, ok := v.(string); ok {
+					stringMetadata[k] = str
+				} else {
+					stringMetadata[k] = fmt.Sprintf("%v", v)
+				}
+			}
+			// Store the specific integration type in metadata for UI display
+			stringMetadata["integration_type"] = discoverySource
+			
+			// Set hostname field if available
+			if device.Hostname != "" {
+				unifiedDevice.Hostname = &models.DiscoveredField[string]{
+					Value:       device.Hostname,
+					Source:      source,
+					Confidence:  10, // High confidence for integration data
+					LastUpdated: device.LastSeen,
+					AgentID:     device.AgentID,
+					PollerID:    device.PollerID,
+				}
+			}
+			
+			// Set MAC field if available
+			if device.MAC != "" {
+				unifiedDevice.MAC = &models.DiscoveredField[string]{
+					Value:       device.MAC,
+					Source:      source,
+					Confidence:  10, // High confidence for integration data
+					LastUpdated: device.LastSeen,
+					AgentID:     device.AgentID,
+					PollerID:    device.PollerID,
+				}
+			}
+			
+			// Set metadata field
+			unifiedDevice.Metadata = &models.DiscoveredField[map[string]string]{
+				Value:       stringMetadata,
+				Source:      source,
+				Confidence:  10,
+				LastUpdated: device.LastSeen,
+				AgentID:     device.AgentID,
+				PollerID:    device.PollerID,
+			}
+			
+			// Set discovery sources with specific integration type
+			unifiedDevice.DiscoverySources = []models.DiscoverySourceInfo{
+				{
+					Source:     source,
+					AgentID:    device.AgentID,
+					PollerID:   device.PollerID,
+					LastSeen:   device.LastSeen,
+					Confidence: 10,
+				},
+			}
+			
+			// Store in unified device registry
+			if err := db.StoreUnifiedDevice(ctx, unifiedDevice); err != nil {
+				log.Printf("Failed to store %s device %s in unified registry: %v", discoverySource, device.DeviceID, err)
+				return err
+			}
+			
+			log.Printf("Successfully stored %s device %s in unified registry", discoverySource, device.DeviceID)
 		}
 	}
-
-	if err := batch.Send(); err != nil {
-		return fmt.Errorf("failed to send batch: %w", err)
-	}
-
+	
+	// Silent no-op for non-integration devices to prevent legacy publishing
 	return nil
 }

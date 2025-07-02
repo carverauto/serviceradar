@@ -34,19 +34,29 @@ const (
 	defaultResultTimeout = 500 * time.Millisecond
 )
 
+// DeviceRegistryService interface for device registry operations
+type DeviceRegistryService interface {
+	ProcessSweepResult(ctx context.Context, result *models.SweepResult) error
+	UpdateDevice(ctx context.Context, update *models.DeviceUpdate) error
+	GetDevice(ctx context.Context, deviceID string) (*models.UnifiedDevice, error)
+	GetDevicesByIP(ctx context.Context, ip string) ([]*models.UnifiedDevice, error)
+	ListDevices(ctx context.Context, limit, offset int) ([]*models.UnifiedDevice, error)
+}
+
 // NetworkSweeper implements both Sweeper and SweepService interfaces.
 type NetworkSweeper struct {
-	config      *models.Config
-	icmpScanner scan.Scanner
-	tcpScanner  scan.Scanner
-	store       Store
-	processor   ResultProcessor
-	kvStore     KVStore
-	configKey   string
-	mu          sync.RWMutex
-	done        chan struct{}
-	watchDone   chan struct{}
-	lastSweep   time.Time
+	config         *models.Config
+	icmpScanner    scan.Scanner
+	tcpScanner     scan.Scanner
+	store          Store
+	processor      ResultProcessor
+	kvStore        KVStore
+	deviceRegistry DeviceRegistryService
+	configKey      string
+	mu             sync.RWMutex
+	done           chan struct{}
+	watchDone      chan struct{}
+	lastSweep      time.Time
 }
 
 var (
@@ -64,6 +74,7 @@ func NewNetworkSweeper(
 	store Store,
 	processor ResultProcessor,
 	kvStore KVStore,
+	deviceRegistry DeviceRegistryService,
 	configKey string) (*NetworkSweeper, error) {
 	if config == nil {
 		return nil, errNilConfig
@@ -97,15 +108,16 @@ func NewNetworkSweeper(
 	log.Printf("Creating NetworkSweeper with interval: %v", config.Interval)
 
 	return &NetworkSweeper{
-		config:      config,
-		icmpScanner: icmpScanner,
-		tcpScanner:  tcpScanner,
-		store:       store,
-		processor:   processor,
-		kvStore:     kvStore,
-		configKey:   configKey,
-		done:        make(chan struct{}),
-		watchDone:   make(chan struct{}),
+		config:         config,
+		icmpScanner:    icmpScanner,
+		tcpScanner:     tcpScanner,
+		store:          store,
+		processor:      processor,
+		kvStore:        kvStore,
+		deviceRegistry: deviceRegistry,
+		configKey:      configKey,
+		done:           make(chan struct{}),
+		watchDone:      make(chan struct{}),
 	}, nil
 }
 
@@ -423,12 +435,75 @@ func (s *NetworkSweeper) processResult(ctx context.Context, result *models.Resul
 	ctx, cancel := context.WithTimeout(ctx, defaultResultTimeout)
 	defer cancel()
 
+	// Process through existing pipeline
 	if err := s.processor.Process(result); err != nil {
 		return fmt.Errorf("processor error: %w", err)
 	}
 
 	if err := s.store.SaveResult(ctx, result); err != nil {
 		return fmt.Errorf("store error: %w", err)
+	}
+
+	// Process through unified device registry if available
+	if s.deviceRegistry != nil && result.Available {
+		// Need to get agent/poller info from context or config
+		// For now, use defaults or empty values since this info isn't in the Result struct
+		agentID := "default"
+		pollerID := "default"
+		partition := "default"
+		
+		// Extract from metadata if available
+		if result.Target.Metadata != nil {
+			if id, ok := result.Target.Metadata["agent_id"].(string); ok {
+				agentID = id
+			}
+			if id, ok := result.Target.Metadata["poller_id"].(string); ok {
+				pollerID = id
+			}
+			if p, ok := result.Target.Metadata["partition"].(string); ok {
+				partition = p
+			}
+		}
+
+		sweepResult := &models.SweepResult{
+			AgentID:         agentID,
+			PollerID:        pollerID,
+			Partition:       partition,
+			DeviceID:        fmt.Sprintf("%s:%s", partition, result.Target.Host),
+			DiscoverySource: string(models.DiscoverySourceSweep),
+			IP:              result.Target.Host,
+			Timestamp:       result.LastSeen,
+			Available:       result.Available,
+			Metadata:        make(map[string]string),
+		}
+
+		// Convert metadata to string map
+		if result.Target.Metadata != nil {
+			for key, value := range result.Target.Metadata {
+				if strVal, ok := value.(string); ok {
+					sweepResult.Metadata[key] = strVal
+				} else {
+					sweepResult.Metadata[key] = fmt.Sprintf("%v", value)
+				}
+			}
+		}
+
+		// Add sweep mode to metadata
+		sweepResult.Metadata["sweep_mode"] = string(result.Target.Mode)
+		if result.Target.Port > 0 {
+			sweepResult.Metadata["port"] = fmt.Sprintf("%d", result.Target.Port)
+		}
+		
+		// Add timing metadata
+		sweepResult.Metadata["response_time"] = result.RespTime.String()
+		sweepResult.Metadata["packet_loss"] = fmt.Sprintf("%.2f", result.PacketLoss)
+
+		// Use background context to avoid cancellation
+		bgCtx := context.Background()
+		if err := s.deviceRegistry.ProcessSweepResult(bgCtx, sweepResult); err != nil {
+			// Log error but don't fail the entire operation
+			log.Printf("Failed to process sweep result through device registry for %s: %v", result.Target.Host, err)
+		}
 	}
 
 	return nil

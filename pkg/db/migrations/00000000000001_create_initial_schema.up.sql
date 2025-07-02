@@ -69,7 +69,7 @@ CREATE STREAM IF NOT EXISTS unified_devices (
 -- == Network Discovery Streams
 -- =================================================================
 
--- SNMP discovery results
+-- SNMP discovery results (versioned key-value to prevent duplicates)
 CREATE STREAM IF NOT EXISTS discovered_interfaces (
     timestamp         DateTime64(3),
     agent_id          string,
@@ -86,7 +86,8 @@ CREATE STREAM IF NOT EXISTS discovered_interfaces (
     if_admin_status   int32,
     if_oper_status    int32,
     metadata          string
-);
+) PRIMARY KEY (device_id, if_index)
+  SETTINGS mode='versioned_kv', version_column='_tp_time';
 
 -- Network topology discovery
 CREATE STREAM IF NOT EXISTS topology_discovery_events (

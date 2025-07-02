@@ -26,6 +26,7 @@ import (
 	"net/http"
 	"time"
 
+	devicemodels "github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/srql"
 	"github.com/carverauto/serviceradar/pkg/srql/models"
 	"github.com/carverauto/serviceradar/pkg/srql/parser"
@@ -264,6 +265,9 @@ func (s *APIServer) executeQueryAndBuildResponse(ctx context.Context, query *mod
 		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
 
+	// Post-process results for specific entity types
+	results = s.postProcessResults(results, query.Entity)
+
 	// Generate cursors
 	nextCursor, prevCursor := generateCursors(query, results, s.dbType)
 
@@ -363,6 +367,115 @@ func (s *APIServer) executeQuery(ctx context.Context, query string, entity model
 	}
 
 	return results, nil
+}
+
+// postProcessResults processes query results for specific entity types
+func (s *APIServer) postProcessResults(results []map[string]interface{}, entity models.EntityType) []map[string]interface{} {
+	if entity == models.Devices {
+		return s.postProcessDeviceResults(results)
+	}
+	return results
+}
+
+// postProcessDeviceResults processes device query results to parse JSON fields
+func (s *APIServer) postProcessDeviceResults(results []map[string]interface{}) []map[string]interface{} {
+	for _, result := range results {
+		// Parse discovery_sources JSON field to extract source names and poller/agent IDs
+		if discoverySourcesStr, ok := result["discovery_sources"].(string); ok && discoverySourcesStr != "" {
+			var discoverySourcesInfo []devicemodels.DiscoverySourceInfo
+			if err := json.Unmarshal([]byte(discoverySourcesStr), &discoverySourcesInfo); err != nil {
+				log.Printf("Warning: failed to unmarshal discovery_sources for device: %v", err)
+				result["discovery_sources"] = []string{}
+				result["agent_id"] = ""
+				result["poller_id"] = ""
+			} else {
+				// Extract source names
+				sources := make([]string, len(discoverySourcesInfo))
+				for i, source := range discoverySourcesInfo {
+					sources[i] = string(source.Source)
+				}
+				result["discovery_sources"] = sources
+				
+				// Use the first (highest confidence) source for agent_id and poller_id
+				if len(discoverySourcesInfo) > 0 {
+					result["agent_id"] = discoverySourcesInfo[0].AgentID
+					result["poller_id"] = discoverySourcesInfo[0].PollerID
+				} else {
+					result["agent_id"] = ""
+					result["poller_id"] = ""
+				}
+			}
+		} else {
+			result["discovery_sources"] = []string{}
+			result["agent_id"] = ""
+			result["poller_id"] = ""
+		}
+
+		// Parse hostname_field JSON to extract hostname value
+		if hostnameFieldStr, ok := result["hostname_field"].(string); ok && hostnameFieldStr != "" && hostnameFieldStr != "{}" {
+			var hostnameField devicemodels.DiscoveredField[string]
+			if err := json.Unmarshal([]byte(hostnameFieldStr), &hostnameField); err != nil {
+				log.Printf("Warning: failed to unmarshal hostname_field for device: %v", err)
+				result["hostname"] = nil
+			} else {
+				result["hostname"] = hostnameField.Value
+			}
+		} else {
+			result["hostname"] = nil
+		}
+
+		// Parse mac_field JSON to extract MAC value
+		if macFieldStr, ok := result["mac_field"].(string); ok && macFieldStr != "" && macFieldStr != "{}" {
+			var macField devicemodels.DiscoveredField[string]
+			if err := json.Unmarshal([]byte(macFieldStr), &macField); err != nil {
+				log.Printf("Warning: failed to unmarshal mac_field for device: %v", err)
+				result["mac"] = nil
+			} else {
+				result["mac"] = macField.Value
+			}
+		} else {
+			result["mac"] = nil
+		}
+
+		// Parse metadata_field JSON to extract metadata map
+		if metadataFieldStr, ok := result["metadata_field"].(string); ok && metadataFieldStr != "" && metadataFieldStr != "{}" {
+			var metadataField devicemodels.DiscoveredField[map[string]string]
+			if err := json.Unmarshal([]byte(metadataFieldStr), &metadataField); err != nil {
+				log.Printf("Warning: failed to unmarshal metadata_field for device: %v", err)
+				result["metadata"] = map[string]interface{}{}
+			} else {
+				// Convert map[string]string to map[string]interface{} for JSON compatibility
+				metadata := make(map[string]interface{})
+				for k, v := range metadataField.Value {
+					metadata[k] = v
+				}
+				result["metadata"] = metadata
+			}
+		} else {
+			result["metadata"] = map[string]interface{}{}
+		}
+
+		// Replace generic "integration" discovery source with specific integration type
+		if sources, ok := result["discovery_sources"].([]string); ok {
+			if metadata, ok := result["metadata"].(map[string]interface{}); ok {
+				if integrationType, ok := metadata["integration_type"].(string); ok && integrationType != "" {
+					// Replace "integration" with specific type (e.g., "netbox", "armis")
+					for i, source := range sources {
+						if source == "integration" {
+							sources[i] = integrationType
+						}
+					}
+					result["discovery_sources"] = sources
+				}
+			}
+		}
+
+		// Remove the raw JSON fields that are no longer needed
+		delete(result, "hostname_field")
+		delete(result, "mac_field")
+		delete(result, "metadata_field")
+	}
+	return results
 }
 
 // decodeCursor decodes a Base64-encoded cursor into a map

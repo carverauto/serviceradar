@@ -728,17 +728,9 @@ func (s *Server) registerServiceDevice(ctx context.Context, pollerID, agentID, p
 		primaryServiceID = agentID
 	}
 
-	// Check if device already exists to determine FirstSeen timestamp
-	firstSeen := timestamp
-
-	existingDevice, err := s.DB.GetDeviceByID(ctx, deviceID)
-	if err == nil && existingDevice != nil && !existingDevice.FirstSeen.IsZero() {
-		firstSeen = existingDevice.FirstSeen
-	}
-
 	// Create the device metadata including service information
-	// Note: metadata must be map[string]string per database schema
-	metadata := map[string]interface{}{
+	// Note: metadata must be map[string]string per DeviceUpdate schema
+	metadata := map[string]string{
 		"device_type":     "host",
 		"service_types":   strings.Join(serviceTypes, ","), // Convert array to comma-separated string
 		"service_status":  "online",
@@ -761,23 +753,29 @@ func (s *Server) registerServiceDevice(ctx context.Context, pollerID, agentID, p
 	// Try to get hostname from the service ID or use IP as fallback
 	hostname := s.getServiceHostname(primaryServiceID, sourceIP)
 
-	// Construct the Device object representing the host device
-	device := &models.Device{
-		DeviceID:         deviceID,
-		PollerID:         pollerID, // The poller managing this device (may be itself)
-		AgentID:          agentID,  // The agent running on this device (may be empty)
-		IP:               sourceIP, // Host IP as reported by the service
-		Hostname:         hostname, // Real or derived hostname
-		DiscoverySources: []string{"self-reported"},
-		IsAvailable:      true,
-		LastSeen:         timestamp,
-		FirstSeen:        firstSeen,
-		Metadata:         metadata,
+	// Create device update for the unified device registry
+	deviceUpdate := &models.DeviceUpdate{
+		DeviceID:    deviceID,
+		IP:          sourceIP,
+		Source:      models.DiscoverySourceSelfReported,
+		AgentID:     agentID,
+		PollerID:    pollerID,
+		Timestamp:   timestamp,
+		IsAvailable: true,
+		Metadata:    metadata,
 	}
 
-	// Store the device using the existing StoreDevices function
-	if err := s.DB.StoreDevices(ctx, []*models.Device{device}); err != nil {
-		return fmt.Errorf("failed to store service device: %w", err)
+	if hostname != "" {
+		deviceUpdate.Hostname = &hostname
+	}
+
+	// Register through the unified device registry
+	if s.DeviceRegistry != nil {
+		if err := s.DeviceRegistry.UpdateDevice(ctx, deviceUpdate); err != nil {
+			return fmt.Errorf("failed to register service device: %w", err)
+		}
+	} else {
+		log.Printf("Warning: DeviceRegistry not available for device registration")
 	}
 
 	log.Printf("Successfully registered host device %s (services: %v) for poller %s",
@@ -954,10 +952,26 @@ func (s *Server) extractDeviceContext(
 }
 
 // findAgentDeviceID attempts to find the device_id associated with an agent.
-// This looks up device records that have the specified agent_id.
+// This uses the device registry to find devices that have this agent_id in their discovery sources.
 func (s *Server) findAgentDeviceID(ctx context.Context, agentID, partition string) string {
-	// Query unified_devices to find device with this agent_id
-	// This is a best-effort lookup and may not always succeed
+	// Use device registry if available (preferred method)
+	if s.DeviceRegistry != nil {
+		// Get all devices and check which ones have this agent_id
+		// This is not the most efficient but works with the current registry API
+		devices, err := s.DeviceRegistry.ListDevices(ctx, 1000, 0) // Get first 1000 devices
+		if err == nil {
+			for _, device := range devices {
+				// Check if any discovery source has this agent_id
+				for _, source := range device.DiscoverySources {
+					if source.AgentID == agentID && strings.HasPrefix(device.DeviceID, partition+":") {
+						return device.DeviceID
+					}
+				}
+			}
+		}
+	}
+
+	// Fallback to legacy query if registry not available
 	query := `
 		SELECT device_id 
 		FROM table(unified_devices) 
@@ -1926,6 +1940,15 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 
 	if err := s.DB.StoreSweepResults(ctx, resultsToStore); err != nil {
 		return fmt.Errorf("failed to store sweep results: %w", err)
+	}
+
+	// Process through device registry for unified device management
+	if s.DeviceRegistry != nil {
+		for _, result := range resultsToStore {
+			if err := s.DeviceRegistry.ProcessSweepResult(ctx, result); err != nil {
+				log.Printf("Warning: Failed to process sweep result through device registry for device %s: %v", result.IP, err)
+			}
+		}
 	}
 
 	return nil
