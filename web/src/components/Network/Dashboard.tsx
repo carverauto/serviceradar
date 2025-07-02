@@ -18,7 +18,6 @@
 
 import React, { useState, useMemo, useEffect, useCallback, Fragment } from 'react';
 import { Poller, Service } from '@/types/types';
-import { RawBackendLanDiscoveryData } from '@/types/lan_discovery';
 import { Device, DevicesApiResponse, Pagination } from '@/types/devices';
 import { useAuth } from '@/components/AuthProvider';
 import { useRouter } from 'next/navigation';
@@ -45,6 +44,7 @@ import {
 import ReactJson from '@microlink/react-json-view';
 import { useDebounce } from 'use-debounce';
 import { cachedQuery } from '@/lib/cached-query';
+import DeviceBasedDiscoveryDashboard from './DeviceBasedDiscoveryDashboard';
 
 interface NetworkDashboardProps {
     initialPollers: Poller[];
@@ -427,11 +427,11 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
 
     // Click handlers for stat cards
     const handleDiscoveredDevicesClick = () => {
-        router.push('/query?q=' + encodeURIComponent('show devices'));
+        router.push('/query?q=' + encodeURIComponent('SHOW DEVICES WHERE discovery_sources IS NOT NULL'));
     };
 
     const handleDiscoveredInterfacesClick = () => {
-        router.push('/query?q=' + encodeURIComponent('show interfaces'));
+        router.push('/query?q=' + encodeURIComponent('SHOW INTERFACES'));
     };
 
     const handleActiveSweepsClick = () => {
@@ -471,49 +471,39 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
         };
     }, [initialPollers]);
 
-    const totalDiscoveredDevices = useMemo(() => {
-        return discoveryServices.reduce((acc, service) => {
-            if (service.details) {
-                try {
-                    const details: RawBackendLanDiscoveryData = typeof service.details === 'string'
-                        ? JSON.parse(service.details)
-                        : service.details;
+    const [discoveryStats, setDiscoveryStats] = useState<{ discoveredDevices: number; discoveredInterfaces: number }>({ 
+        discoveredDevices: 0, 
+        discoveredInterfaces: 0 
+    });
+    const [loadingDiscoveryStats, setLoadingDiscoveryStats] = useState(true);
 
-                    const deviceCount = details.total_devices !== undefined
-                        ? details.total_devices
-                        : Array.isArray(details.devices)
-                            ? details.devices.length
-                            : 0;
+    const fetchDiscoveryStats = useCallback(async () => {
+        setLoadingDiscoveryStats(true);
+        try {
+            // Use cached queries to prevent duplicates
+            const [devicesRes, interfacesRes] = await Promise.all([
+                cachedQuery<{ results: [{ 'count()': number }] }>(
+                    "COUNT DEVICES WHERE discovery_sources IS NOT NULL",
+                    token || undefined,
+                    30000 // 30 second cache
+                ),
+                cachedQuery<{ results: [{ 'count()': number }] }>(
+                    "COUNT INTERFACES",
+                    token || undefined,
+                    30000
+                ),
+            ]);
 
-                    return acc + deviceCount;
-                } catch {
-                    return acc;
-                }
-            }
-            return acc;
-        }, 0);
-    }, [discoveryServices]);
-
-    const totalDiscoveredInterfaces = useMemo(() => {
-        return discoveryServices.reduce((acc, service) => {
-            if (service.details) {
-                try {
-                    const details: RawBackendLanDiscoveryData = typeof service.details === 'string'
-                        ? JSON.parse(service.details)
-                        : service.details;
-
-                    const ifaceCount = Array.isArray(details.interfaces)
-                        ? details.interfaces.length
-                        : 0;
-
-                    return acc + ifaceCount;
-                } catch {
-                    return acc;
-                }
-            }
-            return acc;
-        }, 0);
-    }, [discoveryServices]);
+            setDiscoveryStats({
+                discoveredDevices: devicesRes.results[0]?.['count()'] || 0,
+                discoveredInterfaces: interfacesRes.results[0]?.['count()'] || 0,
+            });
+        } catch (error) {
+            console.error('Failed to fetch discovery stats:', error);
+        } finally {
+            setLoadingDiscoveryStats(false);
+        }
+    }, [token]);
 
     const fetchDeviceStats = useCallback(async () => {
         setLoadingStats(true);
@@ -551,7 +541,8 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
 
     useEffect(() => {
         fetchDeviceStats();
-    }, [fetchDeviceStats]);
+        fetchDiscoveryStats();
+    }, [fetchDeviceStats, fetchDiscoveryStats]);
 
     const renderTabContent = () => {
         switch (activeTab) {
@@ -561,14 +552,16 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                             <StatCard
                                 title="Discovered Devices"
-                                value={totalDiscoveredDevices.toLocaleString()}
+                                value={discoveryStats.discoveredDevices.toLocaleString()}
                                 icon={<RouterIcon size={24} />}
+                                isLoading={loadingDiscoveryStats}
                                 onClick={handleDiscoveredDevicesClick}
                             />
                             <StatCard
                                 title="Discovered Interfaces"
-                                value={totalDiscoveredInterfaces.toLocaleString()}
+                                value={discoveryStats.discoveredInterfaces.toLocaleString()}
                                 icon={<Network size={24} />}
+                                isLoading={loadingDiscoveryStats}
                                 onClick={handleDiscoveredInterfacesClick}
                             />
                             <StatCard
@@ -624,36 +617,7 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
                 );
 
             case 'discovery':
-                return (
-                    <div className="space-y-4">
-                        {discoveryServices.length === 0 ? (
-                            <p className="text-gray-600 dark:text-gray-400 text-center p-8">
-                                No Network Discovery services found.
-                            </p>
-                        ) : (
-                            discoveryServices.map(service => (
-                                <div
-                                    key={service.id || service.name}
-                                    className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-4 flex justify-between items-center"
-                                >
-                                    <div className="flex items-center gap-3">
-                                        <Globe size={24} className="text-blue-600 dark:text-blue-400" />
-                                        <div>
-                                            <p className="font-semibold text-gray-900 dark:text-white">{service.name}</p>
-                                            <p className="text-sm text-gray-600 dark:text-gray-400">{service.poller_id}</p>
-                                        </div>
-                                    </div>
-                                    <button
-                                        onClick={() => router.push(`/service/${service.poller_id}/${service.name}`)}
-                                        className="text-sm bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white px-3 py-1.5 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
-                                    >
-                                        View Details
-                                    </button>
-                                </div>
-                            ))
-                        )}
-                    </div>
-                );
+                return <DeviceBasedDiscoveryDashboard />;
 
             case 'sweeps':
                 return (

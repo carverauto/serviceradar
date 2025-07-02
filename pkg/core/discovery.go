@@ -108,7 +108,7 @@ func (s *Server) processDiscoveredDevices(
 			AgentID:         discoveryAgentID,
 			PollerID:        discoveryInitiatorPollerID,
 			Partition:       partition,
-			DiscoverySource: "mapper",
+			DiscoverySource: "snmp", // Fixed: was hardcoded as "mapper", now reflects actual SNMP discovery
 			IP:              protoDevice.Ip,
 			MAC:             &mac,
 			Hostname:        &hostname,
@@ -119,8 +119,18 @@ func (s *Server) processDiscoveredDevices(
 		resultsToStore = append(resultsToStore, result)
 	}
 
+	// Store sweep results to database for backward compatibility
 	if err := s.DB.StoreSweepResults(ctx, resultsToStore); err != nil {
 		log.Printf("Error storing batch discovered results for poller %s: %v", reportingPollerID, err)
+	}
+
+	// Process through device registry for unified device management
+	if s.DeviceRegistry != nil {
+		for _, result := range resultsToStore {
+			if err := s.DeviceRegistry.ProcessSweepResult(ctx, result); err != nil {
+				log.Printf("Error processing sweep result through device registry for device %s: %v", result.IP, err)
+			}
+		}
 	}
 }
 
