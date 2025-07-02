@@ -412,6 +412,7 @@ func (s *APIServer) setupProtectedRoutes() {
 	protected.HandleFunc("/devices", s.getDevices).Methods("GET")
 	protected.HandleFunc("/devices/{id}", s.getDevice).Methods("GET")
 	protected.HandleFunc("/devices/{id}/metrics", s.getDeviceMetrics).Methods("GET")
+	protected.HandleFunc("/devices/metrics/status", s.getDeviceMetricsStatus).Methods("GET")
 }
 
 // @Summary Get SNMP data
@@ -1085,6 +1086,34 @@ func (s *APIServer) getDeviceMetrics(w http.ResponseWriter, r *http.Request) {
 
 	if err := json.NewEncoder(w).Encode(metrics); err != nil {
 		log.Printf("Error encoding device metrics response: %v", err)
+		writeError(w, "Failed to encode response", http.StatusInternalServerError)
+	}
+}
+
+// @Summary Get status of which devices have metrics
+// @Description Retrieves a list of device IDs that have recent metrics available in the ring buffer
+// @Tags Devices
+// @Accept json
+// @Produce json
+// @Success 200 {object} DeviceMetricsStatusResponse "List of device IDs with available metrics"
+// @Failure 500 {object} models.ErrorResponse "Internal server error or metrics not configured"
+// @Router /api/devices/metrics/status [get]
+// @Security ApiKeyAuth
+func (s *APIServer) getDeviceMetricsStatus(w http.ResponseWriter, r *http.Request) {
+	if s.metricsManager == nil {
+		writeError(w, "Metrics not configured", http.StatusInternalServerError)
+		return
+	}
+
+	deviceIDs := s.metricsManager.GetDevicesWithActiveMetrics()
+
+	response := DeviceMetricsStatusResponse{
+		DeviceIDs: deviceIDs,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("Error encoding device metrics status response: %v", err)
 		writeError(w, "Failed to encode response", http.StatusInternalServerError)
 	}
 }

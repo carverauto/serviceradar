@@ -132,6 +132,20 @@ func (mr *MockMetricCollectorMockRecorder) CleanupStalePollers(staleDuration any
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CleanupStalePollers", reflect.TypeOf((*MockMetricCollector)(nil).CleanupStalePollers), staleDuration)
 }
 
+// GetDevicesWithActiveMetrics mocks base method.
+func (m *MockMetricCollector) GetDevicesWithActiveMetrics() []string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDevicesWithActiveMetrics")
+	ret0, _ := ret[0].([]string)
+	return ret0
+}
+
+// GetDevicesWithActiveMetrics indicates an expected call of GetDevicesWithActiveMetrics.
+func (mr *MockMetricCollectorMockRecorder) GetDevicesWithActiveMetrics() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDevicesWithActiveMetrics", reflect.TypeOf((*MockMetricCollector)(nil).GetDevicesWithActiveMetrics))
+}
+
 // GetMetrics mocks base method.
 func (m *MockMetricCollector) GetMetrics(nodeID string) []models.MetricPoint {
 	m.ctrl.T.Helper()
