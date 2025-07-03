@@ -1349,9 +1349,9 @@ func (s *Server) createSysmonDeviceRecord(
 	}
 }
 
-// createSnmpTargetDeviceRecord creates a device record for an SNMP target device.
+// createSNMPTargetDeviceRecord creates a device record for an SNMP target device.
 // This ensures SNMP targets appear in the unified devices view and can be merged with other discovery sources.
-func (s *Server) createSnmpTargetDeviceRecord(
+func (s *Server) createSNMPTargetDeviceRecord(
 	ctx context.Context,
 	agentID, pollerID, partition, targetIP, hostname, sourceIP string, timestamp time.Time, available bool) {
 	if targetIP == "" {
@@ -1359,13 +1359,17 @@ func (s *Server) createSnmpTargetDeviceRecord(
 		return
 	}
 
+	log.Printf("Creating SNMP target device record for IP %s (hostname: %s, source IP: %s)", targetIP, hostname, sourceIP)
+	deviceID := fmt.Sprintf("%s:%s", partition, targetIP)
+	log.Printf("Using device ID %s for SNMP target", deviceID)
+
 	sweepResult := &models.SweepResult{
 		AgentID:         agentID,
 		PollerID:        pollerID,
 		Partition:       partition,
 		DiscoverySource: "snmp", // Will merge with other discovery sources in unified_devices
 		IP:              targetIP,
-		DeviceID:        fmt.Sprintf("%s:%s", partition, sourceIP),
+		DeviceID:        deviceID,
 		Hostname:        &hostname,
 		Timestamp:       timestamp,
 		Available:       available,
@@ -1768,6 +1772,19 @@ func (s *Server) processSNMPMetrics(
 		return fmt.Errorf("failed to parse SNMP targets: %w", err)
 	}
 
+	// iterate through the targetStatusMap to log each target's status
+	for targetName, targetData := range targetStatusMap {
+		log.Printf("SNMP Target: %s, Available: %t, HostIP: %s, HostName: %s",
+			targetName, targetData.Available, targetData.HostIP, targetData.HostName)
+
+		// Log OID statuses for each target
+		for oidConfigName, oidStatus := range targetData.OIDStatus {
+			log.Printf("  OID: %s, LastValue: %v, LastUpdate: %s, ErrorCount: %d",
+				oidConfigName, oidStatus.LastValue,
+				oidStatus.LastUpdate.Format(time.RFC3339Nano), oidStatus.ErrorCount)
+		}
+	}
+
 	// Skip processing if no targets (empty map)
 	if len(targetStatusMap) == 0 {
 		log.Printf("SNMP service for poller %s returned no targets", pollerID)
@@ -1789,7 +1806,7 @@ func (s *Server) processSNMPMetrics(
 			deviceHostname = targetName
 		}
 
-		s.createSnmpTargetDeviceRecord(
+		s.createSNMPTargetDeviceRecord(
 			ctx,
 			agentID,        // Use context agentID (enhanced or fallback)
 			pollerID,       // Use context pollerID (enhanced or fallback)
@@ -1903,24 +1920,24 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 
 		// Build rich metadata from HostResult
 		metadata := make(map[string]string)
-		
+
 		// Add response time if available
 		if host.ResponseTime > 0 {
 			metadata["response_time_ns"] = fmt.Sprintf("%d", host.ResponseTime.Nanoseconds())
 		}
-		
+
 		// Add ICMP status if available
 		if host.ICMPStatus != nil {
 			metadata["icmp_available"] = fmt.Sprintf("%t", host.ICMPStatus.Available)
 			metadata["icmp_round_trip_ns"] = fmt.Sprintf("%d", host.ICMPStatus.RoundTrip.Nanoseconds())
 			metadata["icmp_packet_loss"] = fmt.Sprintf("%f", host.ICMPStatus.PacketLoss)
 		}
-		
+
 		// Add port results if available
 		if len(host.PortResults) > 0 {
 			portData, _ := json.Marshal(host.PortResults)
 			metadata["port_results"] = string(portData)
-			
+
 			// Also store open ports list for quick reference
 			var openPorts []int
 			for _, pr := range host.PortResults {
@@ -1955,7 +1972,6 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 
 		return nil
 	}
-
 
 	// Process through device registry for unified device management
 	if s.DeviceRegistry != nil {
