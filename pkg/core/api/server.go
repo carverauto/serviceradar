@@ -1050,12 +1050,15 @@ func (s *APIServer) getDevice(w http.ResponseWriter, r *http.Request) {
 			}
 
 			w.Header().Set("Content-Type", "application/json")
+
 			if err := json.NewEncoder(w).Encode(response); err != nil {
 				log.Printf("Error encoding enhanced device response: %v", err)
+
 				writeError(w, "Failed to encode response", http.StatusInternalServerError)
 			}
 			return
 		}
+
 		log.Printf("Device registry lookup failed for %s, falling back to legacy: %v", deviceID, err)
 	}
 
