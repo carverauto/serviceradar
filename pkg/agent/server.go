@@ -140,6 +140,15 @@ func createSweepService(sweepConfig *SweepConfig, kvStore KVStore, cfg *ServerCo
 		return nil, errSweepConfigNil
 	}
 
+	// Validate required configuration
+	if cfg.Partition == "" {
+		log.Printf("Warning: Partition not configured, using 'default'. Consider setting partition in agent config")
+		cfg.Partition = "default"
+	}
+	if cfg.AgentID == "" {
+		return nil, fmt.Errorf("agent_id is required in configuration")
+	}
+
 	c := &models.Config{
 		Networks:    sweepConfig.Networks,
 		Ports:       sweepConfig.Ports,
@@ -147,6 +156,9 @@ func createSweepService(sweepConfig *SweepConfig, kvStore KVStore, cfg *ServerCo
 		Interval:    time.Duration(sweepConfig.Interval),
 		Concurrency: sweepConfig.Concurrency,
 		Timeout:     time.Duration(sweepConfig.Timeout),
+		AgentID:     cfg.AgentID,
+		PollerID:    cfg.AgentID, // Use AgentID as PollerID for now
+		Partition:   cfg.Partition,
 	}
 
 	// Prioritize AgentID as the unique identifier for the KV path.

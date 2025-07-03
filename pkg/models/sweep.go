@@ -46,6 +46,10 @@ type Config struct {
 	MaxIdle      int           `json:"max_idle"`
 	MaxLifetime  time.Duration `json:"max_lifetime"`
 	IdleTimeout  time.Duration `json:"idle_timeout"`
+	// Agent/Partition information for proper device identification
+	AgentID      string        `json:"agent_id,omitempty"`
+	PollerID     string        `json:"poller_id,omitempty"`
+	Partition    string        `json:"partition,omitempty"`
 	ICMPSettings struct {
 		RateLimit int // Packets per second
 		Timeout   time.Duration

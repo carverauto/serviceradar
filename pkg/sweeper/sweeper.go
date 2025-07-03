@@ -446,30 +446,43 @@ func (s *NetworkSweeper) processResult(ctx context.Context, result *models.Resul
 
 	// Process through unified device registry if available
 	if s.deviceRegistry != nil && result.Available {
-		// Need to get agent/poller info from context or config
-		// For now, use defaults or empty values since this info isn't in the Result struct
+		// Get agent/poller info from config first, then try metadata
 		agentID := "default"
 		pollerID := "default"
 		partition := "default"
 		
-		// Extract from metadata if available
+		// Use config values if available
+		if s.config.AgentID != "" {
+			agentID = s.config.AgentID
+		}
+		if s.config.PollerID != "" {
+			pollerID = s.config.PollerID
+		}
+		if s.config.Partition != "" {
+			partition = s.config.Partition
+		}
+		
+		// Extract from metadata if available (metadata can override config)
 		if result.Target.Metadata != nil {
-			if id, ok := result.Target.Metadata["agent_id"].(string); ok {
+			if id, ok := result.Target.Metadata["agent_id"].(string); ok && id != "" {
 				agentID = id
 			}
-			if id, ok := result.Target.Metadata["poller_id"].(string); ok {
+			if id, ok := result.Target.Metadata["poller_id"].(string); ok && id != "" {
 				pollerID = id
 			}
-			if p, ok := result.Target.Metadata["partition"].(string); ok {
+			if p, ok := result.Target.Metadata["partition"].(string); ok && p != "" {
 				partition = p
 			}
 		}
+		
+		// Always generate a valid device ID with partition
+		deviceID := fmt.Sprintf("%s:%s", partition, result.Target.Host)
 
 		sweepResult := &models.SweepResult{
 			AgentID:         agentID,
 			PollerID:        pollerID,
 			Partition:       partition,
-			DeviceID:        fmt.Sprintf("%s:%s", partition, result.Target.Host),
+			DeviceID:        deviceID,
 			DiscoverySource: string(models.DiscoverySourceSweep),
 			IP:              result.Target.Host,
 			Timestamp:       result.LastSeen,

@@ -62,10 +62,15 @@ func (p *ProtonPublisher) PublishDevice(ctx context.Context, device *DiscoveredD
 		metadata[k] = v
 	}
 
-	// Determine discovery source from device metadata, default to "mapper"
-	discoverySource := "mapper"
+	// Determine discovery source from device metadata, default to SNMP
+	discoverySource := string(models.DiscoverySourceSNMP)
 	if source, exists := device.Metadata["source"]; exists {
 		discoverySource = source
+	}
+	
+	// Map legacy "mapper" to proper SNMP source for backward compatibility
+	if discoverySource == "mapper" {
+		discoverySource = string(models.DiscoverySourceSNMP)
 	}
 
 	// Create sweep result
