@@ -101,6 +101,8 @@ type Service interface {
 	// Sweep operations.
 
 	StoreSweepResults(ctx context.Context, results []*models.SweepResult) error
+	StoreSweepHostStates(ctx context.Context, states []*models.SweepHostState) error
+	GetSweepHostStates(ctx context.Context, pollerID string, limit int) ([]*models.SweepHostState, error)
 
 	// Discovery operations.
 
