@@ -102,6 +102,7 @@ func NewServer(ctx context.Context, config *models.DBConfig) (*Server, error) {
 		serviceBuffers:      make(map[string][]*models.ServiceStatus),
 		serviceListBuffers:  make(map[string][]*models.Service),
 		sysmonBuffers:       make(map[string][]*sysmonMetricBuffer),
+		sweepResultBuffers:  make(map[string][]*models.SweepResult),
 		bufferMu:            sync.RWMutex{},
 		pollerStatusCache:   make(map[string]*models.PollerStatus),
 		pollerStatusUpdates: make(map[string]*models.PollerStatus),
@@ -173,6 +174,7 @@ func (s *Server) flushAllBuffers(ctx context.Context) {
 	s.flushServiceStatuses(ctx)
 	s.flushServices(ctx)
 	s.flushSysmonMetrics(ctx)
+	s.flushSweepResults(ctx)
 }
 
 // flushMetrics flushes metric buffers to the database.
@@ -269,6 +271,25 @@ func (s *Server) flushSysmonMetrics(ctx context.Context) {
 		}
 
 		s.sysmonBuffers[pollerID] = nil
+	}
+}
+
+// flushSweepResults flushes sweep result buffers to the database.
+func (s *Server) flushSweepResults(ctx context.Context) {
+	for pollerID, results := range s.sweepResultBuffers {
+		if len(results) == 0 {
+			continue
+		}
+
+		if s.DeviceRegistry != nil {
+			if err := s.DeviceRegistry.ProcessBatchSweepResults(ctx, results); err != nil {
+				log.Printf("Error processing batch sweep results for poller %s: %v", pollerID, err)
+			} else {
+				log.Printf("Successfully flushed %d sweep results for poller %s", len(results), pollerID)
+			}
+		}
+
+		s.sweepResultBuffers[pollerID] = nil
 	}
 }
 
@@ -1940,11 +1961,13 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 
 			// Also store open ports list for quick reference
 			var openPorts []int
+
 			for _, pr := range host.PortResults {
 				if pr.Available {
 					openPorts = append(openPorts, pr.Port)
 				}
 			}
+
 			if len(openPorts) > 0 {
 				openPortsData, _ := json.Marshal(openPorts)
 				metadata["open_ports"] = string(openPortsData)
@@ -1973,14 +1996,16 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 		return nil
 	}
 
-	// Process through device registry for unified device management
-	if s.DeviceRegistry != nil {
-		for _, result := range resultsToStore {
-			if err := s.DeviceRegistry.ProcessSweepResult(ctx, result); err != nil {
-				log.Printf("Warning: Failed to process sweep result through device registry for device %s: %v", result.IP, err)
-			}
-		}
+	// Buffer the results instead of processing them individually
+	s.bufferMu.Lock()
+	if s.sweepResultBuffers == nil {
+		s.sweepResultBuffers = make(map[string][]*models.SweepResult)
 	}
+	if _, ok := s.sweepResultBuffers[contextPollerID]; !ok {
+		s.sweepResultBuffers[contextPollerID] = []*models.SweepResult{}
+	}
+	s.sweepResultBuffers[contextPollerID] = append(s.sweepResultBuffers[contextPollerID], resultsToStore...)
+	s.bufferMu.Unlock()
 
 	return nil
 }

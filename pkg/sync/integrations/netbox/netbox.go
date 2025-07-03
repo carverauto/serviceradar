@@ -161,12 +161,15 @@ func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[
 			AgentID:         agentID,
 			PollerID:        pollerID,
 			Partition:       partition,
-			DiscoverySource: "netbox",
+			DiscoverySource: "integration",
 			IP:              ipStr,
 			Hostname:        &hostname,
 			Timestamp:       now,
 			Available:       true,
-			Metadata:        map[string]string{},
+			Metadata:        map[string]string{
+				"integration_type": "netbox",
+				"integration_id":   fmt.Sprintf("%d", device.ID),
+			},
 		}
 
 		for k, v := range metadata {
