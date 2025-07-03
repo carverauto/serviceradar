@@ -1943,6 +1943,7 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 			AgentID:         contextAgentID,
 			PollerID:        contextPollerID,
 			Partition:       contextPartition,
+			DeviceID:        fmt.Sprintf("%s:%s", contextPartition, host.Host),
 			DiscoverySource: "sweep",
 			IP:              host.Host,
 			MAC:             nil, // HostResult doesn't have MAC field
@@ -1965,13 +1966,13 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 	}
 
 	// Process through device registry for unified device management
-	// if s.DeviceRegistry != nil {
-	//	for _, result := range resultsToStore {
-	//		if err := s.DeviceRegistry.ProcessSweepResult(ctx, result); err != nil {
-	//			log.Printf("Warning: Failed to process sweep result through device registry for device %s: %v", result.IP, err)
-	//		}
-	//	}
-	// }
+	if s.DeviceRegistry != nil {
+		for _, result := range resultsToStore {
+			if err := s.DeviceRegistry.ProcessSweepResult(ctx, result); err != nil {
+				log.Printf("Warning: Failed to process sweep result through device registry for device %s: %v", result.IP, err)
+			}
+		}
+	}
 
 	return nil
 }

@@ -24,8 +24,8 @@ interface SNMPStatusIndicatorProps {
     deviceId?: string;
     pollerId?: string; // Keep for backward compatibility
     compact?: boolean;
-    hasMetrics?: boolean; // Pre-fetched status from bulk API (deprecated)
-    hasSnmpSource?: boolean; // New: indicates device was discovered via SNMP
+    hasMetrics?: boolean; // Pre-fetched status from bulk API (preferred method)
+    hasSnmpSource?: boolean; // Legacy: indicates device was discovered via SNMP (deprecated - use hasMetrics)
 }
 
 interface SNMPStatus {
@@ -50,24 +50,17 @@ const SNMPStatusIndicator: React.FC<SNMPStatusIndicatorProps> = ({
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        // Use discovery source if available (preferred method)
-        if (hasSnmpSource !== undefined) {
-            setStatus({ hasData: hasSnmpSource });
-            setLoading(false);
-            return;
-        }
-
-        // Fallback to metrics check for backward compatibility
+        // Use hasMetrics prop if provided (from bulk API call)
         if (hasMetrics !== undefined) {
             setStatus({ hasData: hasMetrics });
             setLoading(false);
             return;
         }
 
-        // Default to no SNMP data
+        // Fallback: Don't show SNMP indicators without actual data
         setStatus({ hasData: false });
         setLoading(false);
-    }, [hasSnmpSource, hasMetrics]);
+    }, [hasMetrics]);
 
     if (loading) {
         return compact ? (
