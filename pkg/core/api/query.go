@@ -437,8 +437,16 @@ func (s *APIServer) postProcessDeviceResults(results []map[string]interface{}) [
 			result["mac"] = nil
 		}
 
-		// Parse metadata_field JSON to extract metadata map
-		if metadataFieldStr, ok := result["metadata_field"].(string); ok && metadataFieldStr != "" && metadataFieldStr != "{}" {
+		// Handle metadata from materialized view (new schema) or metadata_field (old schema)
+		if metadataMap, ok := result["metadata"].(map[string]string); ok && len(metadataMap) > 0 {
+			// New materialized view schema: metadata is directly a map[string]string
+			metadata := make(map[string]interface{})
+			for k, v := range metadataMap {
+				metadata[k] = v
+			}
+			result["metadata"] = metadata
+		} else if metadataFieldStr, ok := result["metadata_field"].(string); ok && metadataFieldStr != "" && metadataFieldStr != "{}" {
+			// Old schema: metadata_field is a JSON string containing DiscoveredField
 			var metadataField devicemodels.DiscoveredField[map[string]string]
 			if err := json.Unmarshal([]byte(metadataFieldStr), &metadataField); err != nil {
 				log.Printf("Warning: failed to unmarshal metadata_field for device: %v", err)
