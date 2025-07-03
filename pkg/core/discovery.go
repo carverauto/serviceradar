@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"strings"
 	"time"
 
@@ -28,6 +29,15 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 	discoverypb "github.com/carverauto/serviceradar/proto/discovery"
 )
+
+// isLoopbackIP checks if an IP address is a loopback address
+func isLoopbackIP(ipStr string) bool {
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return false
+	}
+	return ip.IsLoopback()
+}
 
 // processSNMPDiscoveryResults handles the data from SNMP discovery.
 func (s *Server) processSNMPDiscoveryResults(
@@ -121,14 +131,16 @@ func (s *Server) processDiscoveredDevices(
 	}
 
 
-	// Process through device registry for unified device management
-	if s.DeviceRegistry != nil {
-		for _, result := range resultsToStore {
-			if err := s.DeviceRegistry.ProcessSweepResult(ctx, result); err != nil {
-				log.Printf("Error processing sweep result through device registry for device %s: %v", result.IP, err)
-			}
-		}
+	// Buffer the results instead of processing them individually
+	s.bufferMu.Lock()
+	if s.sweepResultBuffers == nil {
+		s.sweepResultBuffers = make(map[string][]*models.SweepResult)
 	}
+	if _, ok := s.sweepResultBuffers[reportingPollerID]; !ok {
+		s.sweepResultBuffers[reportingPollerID] = []*models.SweepResult{}
+	}
+	s.sweepResultBuffers[reportingPollerID] = append(s.sweepResultBuffers[reportingPollerID], resultsToStore...)
+	s.bufferMu.Unlock()
 }
 
 // extractDeviceMetadata extracts and formats metadata from a discovered device.
@@ -314,6 +326,9 @@ func (s *Server) processDiscoveredInterfaces(
 	timestamp time.Time,
 ) {
 	modelInterfaces := make([]*models.DiscoveredInterface, 0, len(interfaces))
+	// Map to group all IPs by the primary device IP to handle correlation
+	// The value is a set (map[string]struct{}) to ensure unique IPs.
+	deviceIPs := make(map[string]map[string]struct{})
 
 	for _, protoIface := range interfaces {
 		if protoIface == nil {
@@ -321,6 +336,21 @@ func (s *Server) processDiscoveredInterfaces(
 		}
 
 		deviceID := s.getOrGenerateDeviceID(protoIface, partition)
+
+		// --- Start of new logic for IP correlation ---
+		// Initialize the set if it's the first time seeing this device IP
+		if _, ok := deviceIPs[protoIface.DeviceIp]; !ok {
+			deviceIPs[protoIface.DeviceIp] = make(map[string]struct{})
+		}
+
+		// Add all IPs from the interface to the device's IP set for correlation
+		for _, ip := range protoIface.IpAddresses {
+			if ip != "" && !isLoopbackIP(ip) {
+				deviceIPs[protoIface.DeviceIp][ip] = struct{}{}
+			}
+		}
+		// --- End of new logic for IP correlation ---
+
 		metadataJSON := s.prepareInterfaceMetadata(protoIface)
 
 		modelIface := &models.DiscoveredInterface{
@@ -343,6 +373,45 @@ func (s *Server) processDiscoveredInterfaces(
 
 		modelInterfaces = append(modelInterfaces, modelIface)
 	}
+
+	// --- Start of new logic to update device registry ---
+	// Now, update the device registry with the collected alternate IPs to drive merging
+	for deviceIP, ipSet := range deviceIPs {
+		// Convert the set of IPs to a slice
+		allIPs := make([]string, 0, len(ipSet))
+		for ip := range ipSet {
+			allIPs = append(allIPs, ip)
+		}
+
+		// Marshal the IPs into a JSON string
+		alternateIPsJSON, err := json.Marshal(allIPs)
+		if err != nil {
+			log.Printf("Error marshaling alternate IPs for device %s: %v", deviceIP, err)
+			continue
+		}
+
+		// Create a device update to feed this correlation info into the registry
+		deviceUpdate := &models.DeviceUpdate{
+			DeviceID:   fmt.Sprintf("%s:%s", partition, deviceIP),
+			IP:         deviceIP,
+			Timestamp:  timestamp,
+			Source:     models.DiscoverySourceMapper, // Use the mapper source for interface discovery
+			AgentID:    discoveryAgentID,
+			PollerID:   discoveryInitiatorPollerID,
+			Confidence: models.GetSourceConfidence(models.DiscoverySourceMapper),
+			Metadata: map[string]string{
+				"alternate_ips": string(alternateIPsJSON),
+			},
+		}
+
+		// Use the device registry to process this update, triggering the merge logic.
+		if s.DeviceRegistry != nil {
+			if err := s.DeviceRegistry.UpdateDevice(ctx, deviceUpdate); err != nil {
+				log.Printf("Error updating device registry with alternate IPs for %s: %v", deviceIP, err)
+			}
+		}
+	}
+	// --- End of new logic to update device registry ---
 
 	if err := s.DB.PublishBatchDiscoveredInterfaces(ctx, modelInterfaces); err != nil {
 		log.Printf("Error publishing batch discovered interfaces for poller %s: %v", reportingPollerID, err)

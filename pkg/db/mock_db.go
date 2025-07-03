@@ -390,6 +390,51 @@ func (mr *MockServiceMockRecorder) GetServiceHistory(ctx, pollerID, serviceName,
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetServiceHistory", reflect.TypeOf((*MockService)(nil).GetServiceHistory), ctx, pollerID, serviceName, limit)
 }
 
+// GetSweepHostStates mocks base method.
+func (m *MockService) GetSweepHostStates(ctx context.Context, pollerID string, limit int) ([]*models.SweepHostState, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetSweepHostStates", ctx, pollerID, limit)
+	ret0, _ := ret[0].([]*models.SweepHostState)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetSweepHostStates indicates an expected call of GetSweepHostStates.
+func (mr *MockServiceMockRecorder) GetSweepHostStates(ctx, pollerID, limit any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetSweepHostStates", reflect.TypeOf((*MockService)(nil).GetSweepHostStates), ctx, pollerID, limit)
+}
+
+// GetUnifiedDevice mocks base method.
+func (m *MockService) GetUnifiedDevice(ctx context.Context, deviceID string) (*models.UnifiedDevice, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetUnifiedDevice", ctx, deviceID)
+	ret0, _ := ret[0].(*models.UnifiedDevice)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetUnifiedDevice indicates an expected call of GetUnifiedDevice.
+func (mr *MockServiceMockRecorder) GetUnifiedDevice(ctx, deviceID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUnifiedDevice", reflect.TypeOf((*MockService)(nil).GetUnifiedDevice), ctx, deviceID)
+}
+
+// GetUnifiedDevicesByIP mocks base method.
+func (m *MockService) GetUnifiedDevicesByIP(ctx context.Context, ip string) ([]*models.UnifiedDevice, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetUnifiedDevicesByIP", ctx, ip)
+	ret0, _ := ret[0].([]*models.UnifiedDevice)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetUnifiedDevicesByIP indicates an expected call of GetUnifiedDevicesByIP.
+func (mr *MockServiceMockRecorder) GetUnifiedDevicesByIP(ctx, ip any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUnifiedDevicesByIP", reflect.TypeOf((*MockService)(nil).GetUnifiedDevicesByIP), ctx, ip)
+}
+
 // GetUserByID mocks base method.
 func (m *MockService) GetUserByID(ctx context.Context, id string) (*models.User, error) {
 	m.ctrl.T.Helper()
@@ -465,6 +510,35 @@ func (mr *MockServiceMockRecorder) ListPollers(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListPollers", reflect.TypeOf((*MockService)(nil).ListPollers), ctx)
 }
 
+// ListUnifiedDevices mocks base method.
+func (m *MockService) ListUnifiedDevices(ctx context.Context, limit, offset int) ([]*models.UnifiedDevice, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListUnifiedDevices", ctx, limit, offset)
+	ret0, _ := ret[0].([]*models.UnifiedDevice)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListUnifiedDevices indicates an expected call of ListUnifiedDevices.
+func (mr *MockServiceMockRecorder) ListUnifiedDevices(ctx, limit, offset any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListUnifiedDevices", reflect.TypeOf((*MockService)(nil).ListUnifiedDevices), ctx, limit, offset)
+}
+
+// MarkDeviceAsMerged mocks base method.
+func (m *MockService) MarkDeviceAsMerged(ctx context.Context, deviceID, mergedIntoDeviceID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkDeviceAsMerged", ctx, deviceID, mergedIntoDeviceID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// MarkDeviceAsMerged indicates an expected call of MarkDeviceAsMerged.
+func (mr *MockServiceMockRecorder) MarkDeviceAsMerged(ctx, deviceID, mergedIntoDeviceID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkDeviceAsMerged", reflect.TypeOf((*MockService)(nil).MarkDeviceAsMerged), ctx, deviceID, mergedIntoDeviceID)
+}
+
 // PublishBatchDiscoveredInterfaces mocks base method.
 func (m *MockService) PublishBatchDiscoveredInterfaces(ctx context.Context, interfaces []*models.DiscoveredInterface) error {
 	m.ctrl.T.Helper()
@@ -519,6 +593,20 @@ func (m *MockService) PublishTopologyDiscoveryEvent(ctx context.Context, event *
 func (mr *MockServiceMockRecorder) PublishTopologyDiscoveryEvent(ctx, event any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublishTopologyDiscoveryEvent", reflect.TypeOf((*MockService)(nil).PublishTopologyDiscoveryEvent), ctx, event)
+}
+
+// StoreBatchUnifiedDevices mocks base method.
+func (m *MockService) StoreBatchUnifiedDevices(ctx context.Context, devices []*models.UnifiedDevice) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "StoreBatchUnifiedDevices", ctx, devices)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// StoreBatchUnifiedDevices indicates an expected call of StoreBatchUnifiedDevices.
+func (mr *MockServiceMockRecorder) StoreBatchUnifiedDevices(ctx, devices any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreBatchUnifiedDevices", reflect.TypeOf((*MockService)(nil).StoreBatchUnifiedDevices), ctx, devices)
 }
 
 // StoreDevices mocks base method.
@@ -605,6 +693,20 @@ func (mr *MockServiceMockRecorder) StoreServices(ctx, services any) *gomock.Call
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreServices", reflect.TypeOf((*MockService)(nil).StoreServices), ctx, services)
 }
 
+// StoreSweepHostStates mocks base method.
+func (m *MockService) StoreSweepHostStates(ctx context.Context, states []*models.SweepHostState) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "StoreSweepHostStates", ctx, states)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// StoreSweepHostStates indicates an expected call of StoreSweepHostStates.
+func (mr *MockServiceMockRecorder) StoreSweepHostStates(ctx, states any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreSweepHostStates", reflect.TypeOf((*MockService)(nil).StoreSweepHostStates), ctx, states)
+}
+
 // StoreSweepResults mocks base method.
 func (m *MockService) StoreSweepResults(ctx context.Context, results []*models.SweepResult) error {
 	m.ctrl.T.Helper()
@@ -631,6 +733,20 @@ func (m *MockService) StoreSysmonMetrics(ctx context.Context, pollerID, agentID,
 func (mr *MockServiceMockRecorder) StoreSysmonMetrics(ctx, pollerID, agentID, hostID, partition, hostIP, metrics, timestamp any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreSysmonMetrics", reflect.TypeOf((*MockService)(nil).StoreSysmonMetrics), ctx, pollerID, agentID, hostID, partition, hostIP, metrics, timestamp)
+}
+
+// StoreUnifiedDevice mocks base method.
+func (m *MockService) StoreUnifiedDevice(ctx context.Context, device *models.UnifiedDevice) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "StoreUnifiedDevice", ctx, device)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// StoreUnifiedDevice indicates an expected call of StoreUnifiedDevice.
+func (mr *MockServiceMockRecorder) StoreUnifiedDevice(ctx, device any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreUnifiedDevice", reflect.TypeOf((*MockService)(nil).StoreUnifiedDevice), ctx, device)
 }
 
 // StoreUser mocks base method.

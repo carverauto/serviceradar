@@ -59,6 +59,7 @@ type Server struct {
 	serviceBuffers          map[string][]*models.ServiceStatus
 	serviceListBuffers      map[string][]*models.Service
 	sysmonBuffers           map[string][]*sysmonMetricBuffer
+	sweepResultBuffers      map[string][]*models.SweepResult
 	bufferMu                sync.RWMutex
 	pollerStatusCache       map[string]*models.PollerStatus
 	pollerStatusUpdates     map[string]*models.PollerStatus
@@ -70,6 +71,7 @@ type Server struct {
 // DeviceRegistryService interface for device registry operations
 type DeviceRegistryService interface {
 	ProcessSweepResult(ctx context.Context, result *models.SweepResult) error
+	ProcessBatchSweepResults(ctx context.Context, results []*models.SweepResult) error
 	UpdateDevice(ctx context.Context, update *models.DeviceUpdate) error
 	GetDevice(ctx context.Context, deviceID string) (*models.UnifiedDevice, error)
 	GetDevicesByIP(ctx context.Context, ip string) ([]*models.UnifiedDevice, error)
