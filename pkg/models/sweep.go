@@ -160,3 +160,23 @@ type SweepConfig struct {
 	HighPerfIcmp  bool     `json:"high_perf_icmp"`
 	IcmpRateLimit int      `json:"icmp_rate_limit"`
 }
+
+// SweepHostState represents the latest sweep state for a host in the versioned KV store.
+type SweepHostState struct {
+	HostIP            string        `json:"host_ip"`
+	PollerID          string        `json:"poller_id"`
+	AgentID           string        `json:"agent_id"`
+	Partition         string        `json:"partition"`
+	NetworkCIDR       *string       `json:"network_cidr,omitempty"`
+	Hostname          *string       `json:"hostname,omitempty"`
+	MAC               *string       `json:"mac,omitempty"`
+	ICMPAvailable     bool          `json:"icmp_available"`
+	ICMPResponseTime  *int64        `json:"icmp_response_time_ns,omitempty"` // nanoseconds
+	ICMPPacketLoss    *float64      `json:"icmp_packet_loss,omitempty"`
+	TCPPortsScanned   []int         `json:"tcp_ports_scanned,omitempty"`
+	TCPPortsOpen      []int         `json:"tcp_ports_open,omitempty"`
+	PortScanResults   []PortResult  `json:"port_scan_results,omitempty"`
+	LastSweepTime     time.Time     `json:"last_sweep_time"`
+	FirstSeen         time.Time     `json:"first_seen"`
+	Metadata          map[string]string `json:"metadata,omitempty"`
+}

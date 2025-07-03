@@ -101,15 +101,17 @@ const HostDetailsView = ({ host }) => {
                 )}
 
                 {/* Port Results */}
-                {host.port_results?.length > 0 && (
-                    <div className="mt-4">
-                        <h5 className="font-medium text-gray-800 dark:text-gray-200">
-                            Open Ports
-                        </h5>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
-                            {host.port_results
-                                .filter((port) => port.available)
-                                .map((port) => (
+                {(() => {
+                    const portResults = parsePortResults(host.port_results);
+                    return portResults.length > 0 && (
+                        <div className="mt-4">
+                            <h5 className="font-medium text-gray-800 dark:text-gray-200">
+                                Open Ports
+                            </h5>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+                                {portResults
+                                    .filter((port) => port.available)
+                                    .map((port) => (
                                     <div
                                         key={port.port}
                                         className="text-sm bg-gray-50 dark:bg-gray-700 p-2 rounded transition-colors"
@@ -123,10 +125,11 @@ const HostDetailsView = ({ host }) => {
                                             </span>
                                         )}
                                     </div>
-                                ))}
+                                    ))}
+                            </div>
                         </div>
-                    </div>
-                )}
+                    );
+                })()}
 
                 <div className="mt-4 text-xs text-gray-500 dark:text-gray-400">
                     <div>First seen: {new Date(host.first_seen).toLocaleString()}</div>
@@ -150,6 +153,24 @@ const NetworkSweepView = ({ pollerId: pollerId, service, standalone = false }) =
     const sweepDetails = typeof service.details === 'string'
         ? JSON.parse(service.details)
         : service.details;
+
+    // Helper function to parse port results
+    const parsePortResults = (portResults) => {
+        if (!portResults) return [];
+        
+        // If port_results is a string, parse it as JSON
+        if (typeof portResults === 'string') {
+            try {
+                const parsed = JSON.parse(portResults);
+                return Array.isArray(parsed) ? parsed : [];
+            } catch {
+                return [];
+            }
+        }
+        
+        // Ensure it's an array
+        return Array.isArray(portResults) ? portResults : [];
+    };
 
     // Network list handling
     const networks = useMemo(() => {
@@ -189,7 +210,8 @@ const NetworkSweepView = ({ pollerId: pollerId, service, standalone = false }) =
             }
 
             // Check for available port results
-            const hasOpenPorts = host.port_results?.some((port) => port.available);
+            const portResults = parsePortResults(host.port_results);
+            const hasOpenPorts = portResults.some((port) => port.available);
 
             // Simpler ICMP check that doesn't impose arbitrary time limits
             const hasICMPResponse = host.icmp_status?.available === true;
@@ -433,10 +455,10 @@ const NetworkSweepView = ({ pollerId: pollerId, service, standalone = false }) =
                             </div>
                             <div className="text-xl sm:text-2xl font-bold text-gray-800 dark:text-gray-100">
                                 {respondingHosts.reduce(
-                                    (acc, host) =>
-                                        acc +
-                                        (host.port_results?.filter((port) => port.available)
-                                            ?.length || 0),
+                                    (acc, host) => {
+                                        const portResults = parsePortResults(host.port_results);
+                                        return acc + portResults.filter((port) => port.available).length;
+                                    },
                                     0
                                 )}
                                 <span className="text-sm text-gray-500 dark:text-gray-300 ml-2">

@@ -22,6 +22,27 @@ CREATE STREAM IF NOT EXISTS sweep_results (
     metadata          string
 );
 
+-- Versioned sweep host states - latest status per host with rich metadata
+CREATE STREAM IF NOT EXISTS sweep_host_states (
+    host_ip           string,
+    poller_id         string,
+    agent_id          string,
+    partition         string,
+    network_cidr      nullable(string),
+    hostname          nullable(string),
+    mac               nullable(string),
+    icmp_available    bool,
+    icmp_response_time_ns nullable(int64),
+    icmp_packet_loss  nullable(float64),
+    tcp_ports_scanned string,  -- JSON array of scanned ports
+    tcp_ports_open    string,  -- JSON array of open ports with service info
+    port_scan_results string,  -- JSON encoded PortResult array
+    last_sweep_time   DateTime64(3),
+    first_seen        DateTime64(3),
+    metadata          string    -- Additional sweep metadata
+) PRIMARY KEY (host_ip, poller_id, partition)
+  SETTINGS mode='versioned_kv', version_column='_tp_time';
+
 -- Unified device registry - application-managed device inventory
 CREATE STREAM IF NOT EXISTS unified_devices_registry (
     device_id         string,

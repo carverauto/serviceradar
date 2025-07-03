@@ -38,7 +38,6 @@ import (
 	"github.com/carverauto/serviceradar/pkg/metrics"
 	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/carverauto/serviceradar/pkg/registry"
 	"github.com/carverauto/serviceradar/proto"
 )
 
@@ -85,15 +84,15 @@ func NewServer(ctx context.Context, config *models.DBConfig) (*Server, error) {
 	metricsManager := metrics.NewManager(metricsConfig, database)
 
 	// Initialize device registry for unified device management
-	deviceRegistry, err := registry.SetupDeviceRegistry(ctx, database)
-	if err != nil {
-		log.Printf("Warning: Failed to initialize device registry: %v", err)
-		// Continue without device registry - fallback to legacy system
-	}
+	// deviceRegistry, err := registry.SetupDeviceRegistry(ctx, database)
+	// if err != nil {
+	//	log.Printf("Warning: Failed to initialize device registry: %v", err)
+	//	// Continue without device registry - fallback to legacy system
+	// }
 
 	server := &Server{
 		DB:                  database,
-		DeviceRegistry:      deviceRegistry,
+		// DeviceRegistry:      deviceRegistry,
 		alertThreshold:      normalizedConfig.AlertThreshold,
 		webhooks:            make([]alerts.AlertService, 0),
 		ShutdownChan:        make(chan struct{}),
@@ -446,7 +445,7 @@ func (s *Server) GetSNMPManager() metricstore.SNMPManager {
 }
 
 func (s *Server) GetDeviceRegistry() DeviceRegistryService {
-	return s.DeviceRegistry
+	return nil // s.DeviceRegistry
 }
 
 func (s *Server) runMetricsCleanup(ctx context.Context) {
@@ -1876,13 +1875,7 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 
 	var sweepData struct {
 		proto.SweepServiceStatus
-		Hosts []struct {
-			IP        string            `json:"host"`
-			Available bool              `json:"available"`
-			MAC       *string           `json:"mac"`
-			Hostname  *string           `json:"hostname"`
-			Metadata  map[string]string `json:"metadata"`
-		} `json:"hosts"`
+		Hosts []models.HostResult `json:"hosts"`
 	}
 
 	if err := json.Unmarshal(sweepMessage, &sweepData); err != nil {
@@ -1912,9 +1905,42 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 	resultsToStore := make([]*models.SweepResult, 0, len(sweepData.Hosts))
 
 	for _, host := range sweepData.Hosts {
-		if host.IP == "" {
+		if host.Host == "" {
 			log.Printf("Skipping host with empty IP for poller %s", contextPollerID)
 			continue
+		}
+
+		// Build rich metadata from HostResult
+		metadata := make(map[string]string)
+		
+		// Add response time if available
+		if host.ResponseTime > 0 {
+			metadata["response_time_ns"] = fmt.Sprintf("%d", host.ResponseTime.Nanoseconds())
+		}
+		
+		// Add ICMP status if available
+		if host.ICMPStatus != nil {
+			metadata["icmp_available"] = fmt.Sprintf("%t", host.ICMPStatus.Available)
+			metadata["icmp_round_trip_ns"] = fmt.Sprintf("%d", host.ICMPStatus.RoundTrip.Nanoseconds())
+			metadata["icmp_packet_loss"] = fmt.Sprintf("%f", host.ICMPStatus.PacketLoss)
+		}
+		
+		// Add port results if available
+		if len(host.PortResults) > 0 {
+			portData, _ := json.Marshal(host.PortResults)
+			metadata["port_results"] = string(portData)
+			
+			// Also store open ports list for quick reference
+			var openPorts []int
+			for _, pr := range host.PortResults {
+				if pr.Available {
+					openPorts = append(openPorts, pr.Port)
+				}
+			}
+			if len(openPorts) > 0 {
+				openPortsData, _ := json.Marshal(openPorts)
+				metadata["open_ports"] = string(openPortsData)
+			}
 		}
 
 		result := &models.SweepResult{
@@ -1922,12 +1948,12 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 			PollerID:        contextPollerID,
 			Partition:       contextPartition,
 			DiscoverySource: "sweep",
-			IP:              host.IP,
-			MAC:             host.MAC,
-			Hostname:        host.Hostname,
+			IP:              host.Host,
+			MAC:             nil, // HostResult doesn't have MAC field
+			Hostname:        nil, // HostResult doesn't have Hostname field
 			Timestamp:       now,
 			Available:       host.Available,
-			Metadata:        host.Metadata,
+			Metadata:        metadata,
 		}
 		resultsToStore = append(resultsToStore, result)
 	}
@@ -1943,13 +1969,13 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 	}
 
 	// Process through device registry for unified device management
-	if s.DeviceRegistry != nil {
-		for _, result := range resultsToStore {
-			if err := s.DeviceRegistry.ProcessSweepResult(ctx, result); err != nil {
-				log.Printf("Warning: Failed to process sweep result through device registry for device %s: %v", result.IP, err)
-			}
-		}
-	}
+	// if s.DeviceRegistry != nil {
+	//	for _, result := range resultsToStore {
+	//		if err := s.DeviceRegistry.ProcessSweepResult(ctx, result); err != nil {
+	//			log.Printf("Warning: Failed to process sweep result through device registry for device %s: %v", result.IP, err)
+	//		}
+	//	}
+	// }
 
 	return nil
 }
