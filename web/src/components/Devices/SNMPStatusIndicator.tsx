@@ -57,10 +57,17 @@ const SNMPStatusIndicator: React.FC<SNMPStatusIndicatorProps> = ({
             return;
         }
 
-        // Fallback: Don't show SNMP indicators without actual data
+        // Fallback to discovery source if no metrics data available
+        if (hasSnmpSource !== undefined) {
+            setStatus({ hasData: hasSnmpSource });
+            setLoading(false);
+            return;
+        }
+
+        // Default: Don't show SNMP indicators without any indication
         setStatus({ hasData: false });
         setLoading(false);
-    }, [hasMetrics]);
+    }, [hasMetrics, hasSnmpSource]);
 
     if (loading) {
         return compact ? (
