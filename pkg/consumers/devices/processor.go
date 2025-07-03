@@ -91,7 +91,7 @@ func (p *Processor) convertSweepResultToDevice(sweep *models.SweepResult) *model
 	for k, v := range sweep.Metadata {
 		device.Metadata[k] = v
 	}
-	
+
 	// Add discovery source to metadata for downstream processing
 	device.Metadata["discovery_source"] = sweep.DiscoverySource
 
@@ -123,87 +123,79 @@ func (p *Processor) setDeviceDefaults(device *models.Device) {
 	device.LastSeen = time.Now()
 }
 
-// storeBatch persists a slice of devices using the unified device registry.
+// storeBatch persists a slice of devices using the modern sweep results pipeline.
 func (p *Processor) storeBatch(ctx context.Context, devices []*models.Device) error {
 	if len(devices) == 0 {
 		return nil
 	}
 
-	// Convert devices to unified devices and store them individually
+	// Convert devices to sweep results for the materialized view pipeline
+	var sweepResults []*models.SweepResult
 	for _, device := range devices {
-		unifiedDevice := &models.UnifiedDevice{
-			DeviceID:    device.DeviceID,
-			IP:          device.IP,
-			FirstSeen:   device.FirstSeen,
-			LastSeen:    device.LastSeen,
-			IsAvailable: device.IsAvailable,
+		// Convert metadata from interface{} to map[string]string
+		metadata := make(map[string]string)
+		for k, v := range device.Metadata {
+			if strVal, ok := v.(string); ok {
+				metadata[k] = strVal
+			}
 		}
 
-		// Convert hostname if present
+		// Create sweep result from device
+		sweep := &models.SweepResult{
+			AgentID:         device.AgentID,
+			PollerID:        device.PollerID,
+			Partition:       extractPartitionFromDeviceID(device.DeviceID),
+			DiscoverySource: extractDiscoverySource(device.DiscoverySources),
+			IP:              device.IP,
+			Timestamp:       device.LastSeen,
+			Available:       device.IsAvailable,
+			Metadata:        metadata,
+		}
+
+		// Set hostname if present
 		if device.Hostname != "" {
-			unifiedDevice.Hostname = &models.DiscoveredField[string]{
-				Value:       device.Hostname,
-				Source:      models.DiscoverySource(device.DiscoverySources[0]), // Use first discovery source
-				LastUpdated: device.LastSeen,
-				Confidence:  models.GetSourceConfidence(models.DiscoverySource(device.DiscoverySources[0])),
-				AgentID:     device.AgentID,
-				PollerID:    device.PollerID,
-			}
+			sweep.Hostname = &device.Hostname
 		}
 
-		// Convert MAC if present
+		// Set MAC if present
 		if device.MAC != "" {
-			unifiedDevice.MAC = &models.DiscoveredField[string]{
-				Value:       device.MAC,
-				Source:      models.DiscoverySource(device.DiscoverySources[0]),
-				LastUpdated: device.LastSeen,
-				Confidence:  models.GetSourceConfidence(models.DiscoverySource(device.DiscoverySources[0])),
-				AgentID:     device.AgentID,
-				PollerID:    device.PollerID,
-			}
+			sweep.MAC = &device.MAC
 		}
 
-		// Convert metadata
-		if len(device.Metadata) > 0 {
-			stringMetadata := make(map[string]string)
-			for k, v := range device.Metadata {
-				if strVal, ok := v.(string); ok {
-					stringMetadata[k] = strVal
-				}
-			}
-			if len(stringMetadata) > 0 {
-				unifiedDevice.Metadata = &models.DiscoveredField[map[string]string]{
-					Value:       stringMetadata,
-					Source:      models.DiscoverySource(device.DiscoverySources[0]),
-					LastUpdated: device.LastSeen,
-					Confidence:  models.GetSourceConfidence(models.DiscoverySource(device.DiscoverySources[0])),
-					AgentID:     device.AgentID,
-					PollerID:    device.PollerID,
-				}
-			}
-		}
+		sweepResults = append(sweepResults, sweep)
+	}
 
-		// Set discovery sources
-		for _, sourceStr := range device.DiscoverySources {
-			source := models.DiscoverySource(sourceStr)
-			unifiedDevice.DiscoverySources = append(unifiedDevice.DiscoverySources, models.DiscoverySourceInfo{
-				Source:     source,
-				AgentID:    device.AgentID,
-				PollerID:   device.PollerID,
-				FirstSeen:  device.FirstSeen,
-				LastSeen:   device.LastSeen,
-				Confidence: models.GetSourceConfidence(source),
-			})
-		}
-
-		// Store the unified device
-		if err := p.db.StoreUnifiedDevice(ctx, unifiedDevice); err != nil {
-			log.Printf("Failed to store unified device %s: %v", device.DeviceID, err)
-			return ErrStoreDevice
-		}
+	// Use the materialized view pipeline
+	if err := p.db.PublishBatchSweepResults(ctx, sweepResults); err != nil {
+		log.Printf("Failed to publish sweep results: %v", err)
+		return ErrStoreDevice
 	}
 
 	return nil
+}
+
+// extractPartitionFromDeviceID extracts the partition from a device ID (format: partition:ip)
+func extractPartitionFromDeviceID(deviceID string) string {
+	if deviceID == "" {
+		return "default"
+	}
+
+	// Split on first colon to get partition
+	for i, c := range deviceID {
+		if c == ':' {
+			return deviceID[:i]
+		}
+	}
+
+	return "default"
+}
+
+// extractDiscoverySource gets the primary discovery source from the sources list
+func extractDiscoverySource(sources []string) string {
+	if len(sources) == 0 {
+		return "device-consumer"
+	}
+	return sources[0]
 }
 
 // Process converts and stores a single JetStream message.
