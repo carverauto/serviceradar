@@ -17,7 +17,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Router, ExternalLink, AlertCircle, Network } from 'lucide-react';
+import { Router, ExternalLink, AlertCircle, ChartLine } from 'lucide-react';
 import Link from 'next/link';
 
 interface SNMPStatusIndicatorProps {
@@ -109,7 +109,7 @@ const SNMPStatusIndicator: React.FC<SNMPStatusIndicatorProps> = ({
                     href={idType === 'device' ? `/service/device/${encodeURIComponent(targetId!)}/snmp` : `/network?pollerId=${targetId}`} 
                     className="inline-flex items-center justify-center p-1 rounded hover:bg-gray-700/50 transition-colors"
                 >
-                    <Network className="h-4 w-4 text-blue-500" />
+                    <ChartLine className="h-4 w-4 text-blue-500" />
                 </Link>
             </div>
         );

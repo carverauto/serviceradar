@@ -84,15 +84,11 @@ func NewServer(ctx context.Context, config *models.DBConfig) (*Server, error) {
 	metricsManager := metrics.NewManager(metricsConfig, database)
 
 	// Initialize device registry for unified device management
-	// deviceRegistry, err := registry.SetupDeviceRegistry(ctx, database)
-	// if err != nil {
-	//	log.Printf("Warning: Failed to initialize device registry: %v", err)
-	//	// Continue without device registry - fallback to legacy system
-	// }
+	deviceRegistry := NewDeviceRegistry(database)
 
 	server := &Server{
 		DB:                  database,
-		// DeviceRegistry:      deviceRegistry,
+		DeviceRegistry:      deviceRegistry,
 		alertThreshold:      normalizedConfig.AlertThreshold,
 		webhooks:            make([]alerts.AlertService, 0),
 		ShutdownChan:        make(chan struct{}),
