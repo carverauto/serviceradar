@@ -56,6 +56,7 @@ func (r *DeviceRegistry) ProcessSweepResult(ctx context.Context, result *models.
 		AgentID:     result.AgentID,
 		PollerID:    result.PollerID,
 		Confidence:  models.GetSourceConfidence(models.DiscoverySource(result.DiscoverySource)),
+		Metadata:    result.Metadata,
 	}
 
 	// Apply the device update
@@ -109,15 +110,38 @@ func (r *DeviceRegistry) UpdateDevice(ctx context.Context, update *models.Device
 		device.DiscoverySources = append(device.DiscoverySources, newSource)
 	}
 
-	// Update metadata field with discovery source tracking
+	// Update metadata field by merging instead of overwriting
 	if update.Metadata != nil && len(update.Metadata) > 0 {
-		device.Metadata = &models.DiscoveredField[map[string]string]{
-			Value:       update.Metadata,
-			Source:      update.Source,
-			LastUpdated: update.Timestamp,
-			Confidence:  update.Confidence,
-			AgentID:     update.AgentID,
-			PollerID:    update.PollerID,
+		// If there's no existing metadata, the new update becomes the metadata.
+		if device.Metadata == nil {
+			device.Metadata = &models.DiscoveredField[map[string]string]{
+				Value:       update.Metadata,
+				Source:      update.Source,
+				LastUpdated: update.Timestamp,
+				Confidence:  update.Confidence,
+				AgentID:     update.AgentID,
+				PollerID:    update.PollerID,
+			}
+		} else {
+			// There is existing metadata, so we need to merge.
+			// First, merge the key-value pairs. New values from the update overwrite old ones.
+			if device.Metadata.Value == nil {
+				device.Metadata.Value = make(map[string]string)
+			}
+			for k, v := range update.Metadata {
+				device.Metadata.Value[k] = v
+			}
+
+			// Now, decide whether to update the attribution of the entire metadata block.
+			// Higher confidence source wins. If confidence is equal, the newer timestamp wins.
+			if update.Confidence > device.Metadata.Confidence ||
+				(update.Confidence == device.Metadata.Confidence && update.Timestamp.After(device.Metadata.LastUpdated)) {
+				device.Metadata.Source = update.Source
+				device.Metadata.LastUpdated = update.Timestamp
+				device.Metadata.Confidence = update.Confidence
+				device.Metadata.AgentID = update.AgentID
+				device.Metadata.PollerID = update.PollerID
+			}
 		}
 	}
 
