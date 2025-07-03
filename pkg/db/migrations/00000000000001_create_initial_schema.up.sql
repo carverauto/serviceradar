@@ -8,20 +8,6 @@
 -- == Core Data Streams
 -- =================================================================
 
--- Raw sweep results from network discovery
-CREATE STREAM IF NOT EXISTS sweep_results (
-    agent_id          string,
-    poller_id         string,
-    partition         string,
-    discovery_source  string,
-    ip                string,
-    mac               nullable(string),
-    hostname          nullable(string),
-    timestamp         DateTime64(3),
-    available         bool,
-    metadata          string
-);
-
 -- Versioned sweep host states - latest status per host with rich metadata
 CREATE STREAM IF NOT EXISTS sweep_host_states (
     host_ip           string,
@@ -43,48 +29,69 @@ CREATE STREAM IF NOT EXISTS sweep_host_states (
 ) PRIMARY KEY (host_ip, poller_id, partition)
   SETTINGS mode='versioned_kv', version_column='_tp_time';
 
--- Unified device registry - application-managed device inventory
-CREATE STREAM IF NOT EXISTS unified_devices_registry (
-    device_id         string,
-    ip                string,
-    hostname_field    string,  -- JSON-encoded DiscoveredField[string]
-    mac_field         string,  -- JSON-encoded DiscoveredField[string]
-    metadata_field    string,  -- JSON-encoded DiscoveredField[map[string]string]
-    discovery_sources string,  -- JSON-encoded []DiscoverySourceInfo
-    first_seen        DateTime64(3),
-    last_seen         DateTime64(3),
-    is_available      bool,
-    device_type       string,
-    service_type      nullable(string),
-    service_status    nullable(string),
-    last_heartbeat    nullable(DateTime64(3)),
-    os_info           nullable(string),
-    version_info      nullable(string)
+-- Raw sweep results from discovery sources
+CREATE STREAM IF NOT EXISTS sweep_results (
+    agent_id string,
+    poller_id string, 
+    partition string,
+    discovery_source string,
+    ip string,
+    mac nullable(string),
+    hostname nullable(string),
+    timestamp DateTime64(3),
+    available boolean,
+    metadata map(string, string)
+);
+
+-- Current device inventory - only latest state via materialized view
+CREATE STREAM IF NOT EXISTS unified_devices (
+    device_id string,
+    ip string,
+    poller_id string,
+    hostname nullable(string),
+    mac nullable(string),
+    discovery_sources array(string),
+    is_available boolean,
+    first_seen DateTime64(3),
+    last_seen DateTime64(3),
+    metadata map(string, string),
+    agent_id string,
+    device_type string DEFAULT 'network_device',
+    service_type nullable(string),
+    service_status nullable(string),
+    last_heartbeat nullable(DateTime64(3)),
+    os_info nullable(string),
+    version_info nullable(string)
 ) PRIMARY KEY (device_id)
   SETTINGS mode='versioned_kv', version_column='_tp_time';
 
--- Legacy unified devices stream (for backward compatibility)
-CREATE STREAM IF NOT EXISTS unified_devices (
-    agent_id          string,
-    poller_id         string,
-    partition         string,
-    device_id         string,
-    ip                string,
-    hostname          nullable(string),
-    mac               nullable(string),
-    first_seen        DateTime64(3),
-    last_seen         DateTime64(3),
-    is_available      bool,
-    device_type       string,
-    service_type      nullable(string),
-    service_status    nullable(string),
-    last_heartbeat    nullable(DateTime64(3)),
-    os_info           nullable(string),
-    version_info      nullable(string),
-    metadata          string,
-    discovery_sources array(string)
-) PRIMARY KEY (device_id)
-  SETTINGS mode='versioned_kv', version_column='_tp_time';
+-- Materialized view that maintains only current device state
+CREATE MATERIALIZED VIEW IF NOT EXISTS unified_device_pipeline_mv
+INTO unified_devices
+AS SELECT
+    concat(s.partition, ':', s.ip) AS device_id,
+    s.ip,
+    s.poller_id,
+    if(s.hostname IS NOT NULL AND s.hostname != '', s.hostname, u.hostname) AS hostname,
+    if(s.mac IS NOT NULL AND s.mac != '', s.mac, u.mac) AS mac,
+    if(index_of(if_null(u.discovery_sources, []), s.discovery_source) > 0, 
+       u.discovery_sources, 
+       array_push_back(if_null(u.discovery_sources, []), s.discovery_source)) AS discovery_sources,
+    s.available AS is_available,
+    coalesce(u.first_seen, s.timestamp) AS first_seen,
+    s.timestamp AS last_seen,
+    if(length(s.metadata) > 0, 
+       if(u.metadata IS NULL, s.metadata, map_update(u.metadata, s.metadata)), 
+       u.metadata) AS metadata,
+    s.agent_id,
+    if(u.device_id IS NULL, 'network_device', u.device_type) AS device_type,
+    u.service_type,
+    u.service_status,
+    u.last_heartbeat,
+    u.os_info,
+    u.version_info
+FROM sweep_results AS s
+LEFT JOIN unified_devices AS u ON concat(s.partition, ':', s.ip) = u.device_id;
 
 -- =================================================================
 -- == Network Discovery Streams

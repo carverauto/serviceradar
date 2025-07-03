@@ -121,8 +121,13 @@ type Service interface {
 	StoreBatchUnifiedDevices(ctx context.Context, devices []*models.UnifiedDevice) error
 	GetUnifiedDevice(ctx context.Context, deviceID string) (*models.UnifiedDevice, error)
 	GetUnifiedDevicesByIP(ctx context.Context, ip string) ([]*models.UnifiedDevice, error)
+	GetUnifiedDevicesByIPsOrIDs(ctx context.Context, ips []string, deviceIDs []string) ([]*models.UnifiedDevice, error)
 	ListUnifiedDevices(ctx context.Context, limit, offset int) ([]*models.UnifiedDevice, error)
 	MarkDeviceAsMerged(ctx context.Context, deviceID, mergedIntoDeviceID string) error
+
+	// Sweep Result operations (materialized view approach).
+	PublishSweepResult(ctx context.Context, result *models.SweepResult) error
+	PublishBatchSweepResults(ctx context.Context, results []*models.SweepResult) error
 
 	// Device-centric metric operations.
 	GetMetricsForDevice(ctx context.Context, deviceID string, start, end time.Time) ([]models.TimeseriesMetric, error)

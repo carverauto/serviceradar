@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -33,198 +34,30 @@ var (
 	errFailedToQueryUnifiedDevice   = errors.New("failed to query unified device")
 )
 
-// StoreUnifiedDevice stores a unified device into the unified_devices_registry stream
-// This method now handles merging with existing devices to preserve discovery sources
+// StoreUnifiedDevice is deprecated with materialized view approach
+// Use PublishSweepResult instead - the materialized view handles device creation/updates
 func (db *DB) StoreUnifiedDevice(ctx context.Context, device *models.UnifiedDevice) error {
-	if device.DeviceID == "" {
-		return fmt.Errorf("device ID is required")
-	}
-
-	log.Printf("Storing unified device %s", device.DeviceID)
-
-	// Try to get existing device for merging
-	existing, err := db.GetUnifiedDevice(ctx, device.DeviceID)
-	if err == nil && existing != nil {
-		// Merge discovery sources from both devices
-		device = db.mergeUnifiedDevices(existing, device)
-		log.Printf("Merged discovery sources for device %s", device.DeviceID)
-	} else {
-		log.Printf("Creating new unified device %s", device.DeviceID)
-	}
-
-	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO unified_devices_registry (* except _tp_time)")
-	if err != nil {
-		return fmt.Errorf("failed to prepare batch: %w", err)
-	}
-
-	// Convert discovery sources to JSON
-	discoverySourcesJSON, err := json.Marshal(device.DiscoverySources)
-	if err != nil {
-		return fmt.Errorf("failed to marshal discovery sources: %w", err)
-	}
-
-	// Convert discovered fields to JSON
-	hostnameJSON := "{}"
-	if device.Hostname != nil {
-		if data, err := json.Marshal(device.Hostname); err == nil {
-			hostnameJSON = string(data)
-		}
-	}
-
-	macJSON := "{}"
-	if device.MAC != nil {
-		if data, err := json.Marshal(device.MAC); err == nil {
-			macJSON = string(data)
-		}
-	}
-
-	metadataJSON := "{}"
-	if device.Metadata != nil {
-		if data, err := json.Marshal(device.Metadata); err == nil {
-			metadataJSON = string(data)
-		}
-	}
-
-	var lastHeartbeat interface{}
-	if device.LastHeartbeat != nil {
-		lastHeartbeat = *device.LastHeartbeat
-	}
-
-	if err := batch.Append(
-		device.DeviceID,
-		device.IP,
-		hostnameJSON,
-		macJSON,
-		metadataJSON,
-		string(discoverySourcesJSON),
-		device.FirstSeen,
-		device.LastSeen,
-		device.IsAvailable,
-		device.DeviceType,
-		device.ServiceType,
-		device.ServiceStatus,
-		lastHeartbeat,
-		device.OSInfo,
-		device.VersionInfo,
-	); err != nil {
-		if batchErr := batch.Abort(); batchErr != nil {
-			return batchErr
-		}
-		return fmt.Errorf("failed to append unified device %s: %w", device.DeviceID, err)
-	}
-
-	if err := batch.Send(); err != nil {
-		return fmt.Errorf("failed to send batch: %w", err)
-	}
-
-	return nil
+	log.Printf("WARNING: StoreUnifiedDevice is deprecated with materialized view approach. Use PublishSweepResult instead.")
+	return fmt.Errorf("StoreUnifiedDevice is deprecated - use PublishSweepResult instead")
 }
 
-// StoreBatchUnifiedDevices stores multiple unified devices in a single batch operation
-// Each device is merged with any existing device data before storage
+// StoreBatchUnifiedDevices is deprecated with materialized view approach  
+// Use PublishBatchSweepResults instead - the materialized view handles device creation/updates
 func (db *DB) StoreBatchUnifiedDevices(ctx context.Context, devices []*models.UnifiedDevice) error {
-	if len(devices) == 0 {
-		return nil
-	}
-
-	log.Printf("Storing batch of %d unified devices with database-level merging", len(devices))
-
-	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO unified_devices_registry (* except _tp_time)")
-	if err != nil {
-		return fmt.Errorf("failed to prepare batch: %w", err)
-	}
-
-	for _, device := range devices {
-		if device.DeviceID == "" {
-			log.Printf("Skipping device with empty ID in batch")
-			continue
-		}
-
-		// Merge with existing device data, same as StoreUnifiedDevice does
-		finalDevice := device
-		if existing, err := db.GetUnifiedDevice(ctx, device.DeviceID); err == nil && existing != nil {
-			// Merge discovery sources from both devices
-			finalDevice = db.mergeUnifiedDevices(existing, device)
-			log.Printf("Merged discovery sources for batch device %s", device.DeviceID)
-		} else {
-			log.Printf("Creating new unified device in batch %s", device.DeviceID)
-		}
-
-		// Convert discovery sources to JSON
-		discoverySourcesJSON, err := json.Marshal(finalDevice.DiscoverySources)
-		if err != nil {
-			log.Printf("Failed to marshal discovery sources for device %s: %v", finalDevice.DeviceID, err)
-			continue
-		}
-
-		// Convert discovered fields to JSON
-		hostnameJSON := "{}"
-		if finalDevice.Hostname != nil {
-			if data, err := json.Marshal(finalDevice.Hostname); err == nil {
-				hostnameJSON = string(data)
-			}
-		}
-
-		macJSON := "{}"
-		if finalDevice.MAC != nil {
-			if data, err := json.Marshal(finalDevice.MAC); err == nil {
-				macJSON = string(data)
-			}
-		}
-
-		metadataJSON := "{}"
-		if finalDevice.Metadata != nil {
-			if data, err := json.Marshal(finalDevice.Metadata); err == nil {
-				metadataJSON = string(data)
-			}
-		}
-
-		var lastHeartbeat interface{}
-		if finalDevice.LastHeartbeat != nil {
-			lastHeartbeat = *finalDevice.LastHeartbeat
-		}
-
-		if err := batch.Append(
-			finalDevice.DeviceID,
-			finalDevice.IP,
-			hostnameJSON,
-			macJSON,
-			metadataJSON,
-			string(discoverySourcesJSON),
-			finalDevice.FirstSeen,
-			finalDevice.LastSeen,
-			finalDevice.IsAvailable,
-			finalDevice.DeviceType,
-			finalDevice.ServiceType,
-			finalDevice.ServiceStatus,
-			lastHeartbeat,
-			finalDevice.OSInfo,
-			finalDevice.VersionInfo,
-		); err != nil {
-			log.Printf("Failed to append device %s to batch: %v", finalDevice.DeviceID, err)
-			continue
-		}
-	}
-
-	if err := batch.Send(); err != nil {
-		if batchErr := batch.Abort(); batchErr != nil {
-			return fmt.Errorf("failed to abort batch after send error: %w", batchErr)
-		}
-		return fmt.Errorf("failed to send batch: %w", err)
-	}
-
-	log.Printf("Successfully stored batch of %d unified devices", len(devices))
-	return nil
+	log.Printf("WARNING: StoreBatchUnifiedDevices is deprecated with materialized view approach. Use PublishBatchSweepResults instead.")
+	return fmt.Errorf("StoreBatchUnifiedDevices is deprecated - use PublishBatchSweepResults instead")
 }
 
-// GetUnifiedDevice retrieves a unified device by its ID
+// GetUnifiedDevice retrieves a unified device by its ID (latest version)
+// Uses materialized view approach - reads from unified_devices stream
 func (db *DB) GetUnifiedDevice(ctx context.Context, deviceID string) (*models.UnifiedDevice, error) {
 	query := fmt.Sprintf(`SELECT
-        device_id, ip, hostname_field, mac_field, metadata_field, discovery_sources,
-        first_seen, last_seen, is_available, device_type, service_type, service_status,
-        last_heartbeat, os_info, version_info
-    FROM table(unified_devices_registry)
+        device_id, ip, poller_id, hostname, mac, discovery_sources,
+        is_available, first_seen, last_seen, metadata, agent_id, device_type, 
+        service_type, service_status, last_heartbeat, os_info, version_info
+    FROM table(unified_devices)
     WHERE device_id = '%s'
+    ORDER BY _tp_time DESC
     LIMIT 1`, deviceID)
 
 	rows, err := db.Conn.Query(ctx, query)
@@ -237,7 +70,7 @@ func (db *DB) GetUnifiedDevice(ctx context.Context, deviceID string) (*models.Un
 		return nil, fmt.Errorf("%w: %s", errUnifiedDeviceNotFound, deviceID)
 	}
 
-	device, err := db.scanUnifiedDevice(rows)
+	device, err := db.scanUnifiedDeviceSimple(rows)
 	if err != nil {
 		return nil, err
 	}
@@ -246,15 +79,15 @@ func (db *DB) GetUnifiedDevice(ctx context.Context, deviceID string) (*models.Un
 }
 
 // GetUnifiedDevicesByIP retrieves unified devices with a specific IP address
-// This function searches both the primary IP field and alternate IPs in metadata
+// Searches both primary IP field and alternate IPs in metadata using materialized view approach
 func (db *DB) GetUnifiedDevicesByIP(ctx context.Context, ip string) ([]*models.UnifiedDevice, error) {
 	query := fmt.Sprintf(`SELECT
-        device_id, ip, hostname_field, mac_field, metadata_field, discovery_sources,
-        first_seen, last_seen, is_available, device_type, service_type, service_status,
-        last_heartbeat, os_info, version_info
-    FROM table(unified_devices_registry)
-    WHERE ip = '%s' 
-       OR JSON_EXTRACT_STRING(metadata_field, '$.Value.alternate_ips') LIKE '%%"%s"%%'`, ip, ip)
+        device_id, ip, poller_id, hostname, mac, discovery_sources,
+        is_available, first_seen, last_seen, metadata, agent_id, device_type, 
+        service_type, service_status, last_heartbeat, os_info, version_info
+    FROM table(unified_devices)
+    WHERE ip = '%s' OR has(map_keys(metadata), 'alternate_ips') AND position(metadata['alternate_ips'], '%s') > 0
+    ORDER BY _tp_time DESC`, ip, ip)
 
 	rows, err := db.Conn.Query(ctx, query)
 	if err != nil {
@@ -264,7 +97,7 @@ func (db *DB) GetUnifiedDevicesByIP(ctx context.Context, ip string) ([]*models.U
 
 	var devices []*models.UnifiedDevice
 	for rows.Next() {
-		device, err := db.scanUnifiedDevice(rows)
+		device, err := db.scanUnifiedDeviceSimple(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -278,13 +111,14 @@ func (db *DB) GetUnifiedDevicesByIP(ctx context.Context, ip string) ([]*models.U
 	return devices, nil
 }
 
-// ListUnifiedDevices returns a list of unified devices with pagination
+// ListUnifiedDevices returns a list of unified devices with pagination using materialized view approach
 func (db *DB) ListUnifiedDevices(ctx context.Context, limit, offset int) ([]*models.UnifiedDevice, error) {
 	query := fmt.Sprintf(`SELECT
-        device_id, ip, hostname_field, mac_field, metadata_field, discovery_sources,
-        first_seen, last_seen, is_available, device_type, service_type, service_status,
-        last_heartbeat, os_info, version_info
-    FROM table(unified_devices_registry)
+        device_id, ip, poller_id, hostname, mac, discovery_sources,
+        is_available, first_seen, last_seen, metadata, agent_id, device_type, 
+        service_type, service_status, last_heartbeat, os_info, version_info
+    FROM table(unified_devices)
+    WHERE NOT has(map_keys(metadata), '_merged_into')
     ORDER BY last_seen DESC
     LIMIT %d OFFSET %d`, limit, offset)
 
@@ -296,7 +130,7 @@ func (db *DB) ListUnifiedDevices(ctx context.Context, limit, offset int) ([]*mod
 
 	var devices []*models.UnifiedDevice
 	for rows.Next() {
-		device, err := db.scanUnifiedDevice(rows)
+		device, err := db.scanUnifiedDeviceSimple(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -367,6 +201,89 @@ func (db *DB) scanUnifiedDevice(rows Rows) (*models.UnifiedDevice, error) {
 		if ts, ok := lastHeartbeat.(string); ok {
 			// Handle different timestamp formats if needed
 			log.Printf("LastHeartbeat timestamp: %s for device %s", ts, d.DeviceID)
+		}
+	}
+
+	return &d, nil
+}
+
+// scanUnifiedDeviceSimple scans a database row from the new unified_devices stream into a UnifiedDevice struct
+// This works with the materialized view approach using simpler data types
+func (db *DB) scanUnifiedDeviceSimple(rows Rows) (*models.UnifiedDevice, error) {
+	var d models.UnifiedDevice
+	var hostname, mac, serviceType, serviceStatus, osInfo, versionInfo *string
+	var lastHeartbeat *time.Time
+	var discoverySources []string
+	var metadata map[string]string
+	var pollerID, agentID string
+
+	err := rows.Scan(
+		&d.DeviceID,
+		&d.IP,
+		&pollerID,
+		&hostname,
+		&mac,
+		&discoverySources,
+		&d.IsAvailable,
+		&d.FirstSeen,
+		&d.LastSeen,
+		&metadata,
+		&agentID,
+		&d.DeviceType,
+		&serviceType,
+		&serviceStatus,
+		&lastHeartbeat,
+		&osInfo,
+		&versionInfo,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", errFailedToScanUnifiedDeviceRow, err)
+	}
+
+	// Set optional string fields
+	if serviceType != nil {
+		d.ServiceType = *serviceType
+	}
+	if serviceStatus != nil {
+		d.ServiceStatus = *serviceStatus
+	}
+	if osInfo != nil {
+		d.OSInfo = *osInfo
+	}
+	if versionInfo != nil {
+		d.VersionInfo = *versionInfo
+	}
+	d.LastHeartbeat = lastHeartbeat
+
+	// Convert simple hostname to DiscoveredField if needed
+	if hostname != nil && *hostname != "" {
+		d.Hostname = &models.DiscoveredField[string]{
+			Value: *hostname,
+		}
+	}
+
+	// Convert simple MAC to DiscoveredField if needed
+	if mac != nil && *mac != "" {
+		d.MAC = &models.DiscoveredField[string]{
+			Value: *mac,
+		}
+	}
+
+	// Convert simple metadata map to DiscoveredField if needed
+	if metadata != nil && len(metadata) > 0 {
+		d.Metadata = &models.DiscoveredField[map[string]string]{
+			Value: metadata,
+		}
+	}
+
+	// Parse discovery sources - ClickHouse returns array(string) as []string directly
+	if len(discoverySources) > 0 {
+		// Convert simple strings to DiscoverySourceInfo structs
+		d.DiscoverySources = make([]models.DiscoverySourceInfo, len(discoverySources))
+		for i, source := range discoverySources {
+			d.DiscoverySources[i] = models.DiscoverySourceInfo{
+				Source: models.DiscoverySource(source),
+			}
 		}
 	}
 
@@ -497,30 +414,73 @@ func (db *DB) shouldUpdateDiscoveredField(existing, new *models.DiscoveredField[
 	return false
 }
 
-// MarkDeviceAsMerged adds metadata to indicate a device has been merged into another device
+// MarkDeviceAsMerged is deprecated with materialized view approach
+// Device merging is handled automatically by the materialized view
 func (db *DB) MarkDeviceAsMerged(ctx context.Context, deviceID, mergedIntoDeviceID string) error {
-	if deviceID == "" || mergedIntoDeviceID == "" {
-		return fmt.Errorf("both device IDs are required")
+	log.Printf("WARNING: MarkDeviceAsMerged is deprecated with materialized view approach. Device merging is automatic.")
+	return nil // Don't fail, just ignore since merging is automatic
+}
+
+// GetUnifiedDevicesByIPsOrIDs fetches all potential candidate devices for a batch of IPs and Device IDs.
+// Uses materialized view approach for efficient batch lookups
+func (db *DB) GetUnifiedDevicesByIPsOrIDs(ctx context.Context, ips []string, deviceIDs []string) ([]*models.UnifiedDevice, error) {
+	if len(ips) == 0 && len(deviceIDs) == 0 {
+		return nil, nil
 	}
 
-	log.Printf("Marking device %s as merged into %s", deviceID, mergedIntoDeviceID)
-
-	// Get the existing device first
-	device, err := db.GetUnifiedDevice(ctx, deviceID)
-	if err != nil {
-		return fmt.Errorf("failed to get device to mark as merged: %w", err)
-	}
-
-	// Add merge metadata
-	if device.Metadata == nil {
-		device.Metadata = &models.DiscoveredField[map[string]string]{
-			Value: make(map[string]string),
+	// Build the WHERE clause dynamically
+	var conditions []string
+	
+	// Add device ID conditions
+	if len(deviceIDs) > 0 {
+		deviceIDList := make([]string, len(deviceIDs))
+		for i, id := range deviceIDs {
+			deviceIDList[i] = fmt.Sprintf("'%s'", id)
 		}
+		conditions = append(conditions, fmt.Sprintf("device_id IN (%s)", strings.Join(deviceIDList, ",")))
 	}
 	
-	device.Metadata.Value["_merged_into"] = mergedIntoDeviceID
-	device.Metadata.Value["_merged_at"] = time.Now().Format(time.RFC3339)
+	// Add IP conditions (both primary IP and alternate IPs)
+	if len(ips) > 0 {
+		ipList := make([]string, len(ips))
+		for i, ip := range ips {
+			ipList[i] = fmt.Sprintf("'%s'", ip)
+		}
+		conditions = append(conditions, fmt.Sprintf("ip IN (%s)", strings.Join(ipList, ",")))
+		
+		// Also check if any of the incoming IPs exist in the 'alternate_ips' metadata
+		for _, ip := range ips {
+			conditions = append(conditions, fmt.Sprintf("has(map_keys(metadata), 'alternate_ips') AND position(metadata['alternate_ips'], '%s') > 0", ip))
+		}
+	}
 
-	// Store the updated device
-	return db.StoreUnifiedDevice(ctx, device)
+	query := fmt.Sprintf(`SELECT
+        device_id, ip, poller_id, hostname, mac, discovery_sources,
+        is_available, first_seen, last_seen, metadata, agent_id, device_type, 
+        service_type, service_status, last_heartbeat, os_info, version_info
+    FROM table(unified_devices)
+    WHERE %s
+    ORDER BY _tp_time DESC`, strings.Join(conditions, " OR "))
+
+	rows, err := db.Conn.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to batch query unified devices: %w", err)
+	}
+	defer rows.Close()
+
+	var devices []*models.UnifiedDevice
+	for rows.Next() {
+		device, err := db.scanUnifiedDeviceSimple(rows)
+		if err != nil {
+			log.Printf("Warning: failed to scan unified device in batch fetch: %v", err)
+			continue
+		}
+		devices = append(devices, device)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("%w: %w", errIterRows, err)
+	}
+
+	return devices, nil
 }

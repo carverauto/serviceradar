@@ -206,6 +206,21 @@ func (m *MockDeviceRegistryService) EXPECT() *MockDeviceRegistryServiceMockRecor
 	return m.recorder
 }
 
+// FindCanonicalDevicesByIPs mocks base method.
+func (m *MockDeviceRegistryService) FindCanonicalDevicesByIPs(ctx context.Context, ips []string) (map[string]*models.UnifiedDevice, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FindCanonicalDevicesByIPs", ctx, ips)
+	ret0, _ := ret[0].(map[string]*models.UnifiedDevice)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FindCanonicalDevicesByIPs indicates an expected call of FindCanonicalDevicesByIPs.
+func (mr *MockDeviceRegistryServiceMockRecorder) FindCanonicalDevicesByIPs(ctx, ips any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindCanonicalDevicesByIPs", reflect.TypeOf((*MockDeviceRegistryService)(nil).FindCanonicalDevicesByIPs), ctx, ips)
+}
+
 // GetDevice mocks base method.
 func (m *MockDeviceRegistryService) GetDevice(ctx context.Context, deviceID string) (*models.UnifiedDevice, error) {
 	m.ctrl.T.Helper()
