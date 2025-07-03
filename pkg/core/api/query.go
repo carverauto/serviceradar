@@ -381,8 +381,13 @@ func (s *APIServer) postProcessResults(results []map[string]interface{}, entity 
 func (s *APIServer) postProcessDeviceResults(results []map[string]interface{}) []map[string]interface{} {
 	for _, result := range results {
 		// Handle discovery_sources field - in new schema it's array(string), in old schema it might be JSON
-		if discoverySourcesArray, ok := result["discovery_sources"].([]interface{}); ok {
-			// New schema: discovery_sources is array(string) from unified_devices
+		if discoverySourcesArray, ok := result["discovery_sources"].([]string); ok && len(discoverySourcesArray) > 0 {
+			// New schema: discovery_sources is already []string from unified_devices
+			log.Printf("DEBUG API: Device %v has discovery_sources from string array: %v", result["device_id"], discoverySourcesArray)
+			result["discovery_sources"] = discoverySourcesArray
+		} else if discoverySourcesArray, ok := result["discovery_sources"].([]interface{}); ok {
+			// Fallback: discovery_sources as []interface{}
+			log.Printf("DEBUG API: Device %v has discovery_sources from interface array: %v", result["device_id"], discoverySourcesArray)
 			sources := make([]string, len(discoverySourcesArray))
 			for i, source := range discoverySourcesArray {
 				if sourceStr, ok := source.(string); ok {
@@ -413,6 +418,7 @@ func (s *APIServer) postProcessDeviceResults(results []map[string]interface{}) [
 				}
 			}
 		} else {
+			log.Printf("DEBUG API: Device %v has NO discovery_sources (type: %T, value: %v)", result["device_id"], result["discovery_sources"], result["discovery_sources"])
 			result["discovery_sources"] = []string{}
 		}
 		
@@ -426,8 +432,13 @@ func (s *APIServer) postProcessDeviceResults(results []map[string]interface{}) [
 
 		// Handle hostname field - in new schema it's nullable(string), in old schema it might be JSON
 		if hostnameStr, ok := result["hostname"].(string); ok && hostnameStr != "" {
-			// New schema: hostname is direct nullable string from unified_devices
+			// New schema: hostname is direct string from unified_devices
+			log.Printf("DEBUG API: Device %v has hostname from direct string field: %s", result["device_id"], hostnameStr)
 			result["hostname"] = hostnameStr
+		} else if hostnamePtr, ok := result["hostname"].(*string); ok && hostnamePtr != nil && *hostnamePtr != "" {
+			// New schema: hostname is nullable string (*string) from unified_devices  
+			log.Printf("DEBUG API: Device %v has hostname from pointer field: %s", result["device_id"], *hostnamePtr)
+			result["hostname"] = *hostnamePtr
 		} else if hostnameFieldStr, ok := result["hostname_field"].(string); ok && hostnameFieldStr != "" && hostnameFieldStr != "{}" {
 			// Old schema: hostname_field is JSON string - parse it
 			var hostnameField devicemodels.DiscoveredField[string]
@@ -435,16 +446,21 @@ func (s *APIServer) postProcessDeviceResults(results []map[string]interface{}) [
 				log.Printf("Warning: failed to unmarshal hostname_field for device: %v", err)
 				result["hostname"] = nil
 			} else {
+				log.Printf("DEBUG API: Device %v has hostname from JSON field: %s", result["device_id"], hostnameField.Value)
 				result["hostname"] = hostnameField.Value
 			}
 		} else {
+			log.Printf("DEBUG API: Device %v has NO hostname (hostname: %v, hostname_field: %v)", result["device_id"], result["hostname"], result["hostname_field"])
 			result["hostname"] = nil
 		}
 
 		// Handle mac field - in new schema it's nullable(string), in old schema it might be JSON
 		if macStr, ok := result["mac"].(string); ok && macStr != "" {
-			// New schema: mac is direct nullable string from unified_devices
+			// New schema: mac is direct string from unified_devices
 			result["mac"] = macStr
+		} else if macPtr, ok := result["mac"].(*string); ok && macPtr != nil && *macPtr != "" {
+			// New schema: mac is nullable string (*string) from unified_devices
+			result["mac"] = *macPtr
 		} else if macFieldStr, ok := result["mac_field"].(string); ok && macFieldStr != "" && macFieldStr != "{}" {
 			// Old schema: mac_field is JSON string - parse it
 			var macField devicemodels.DiscoveredField[string]
