@@ -66,6 +66,7 @@ CREATE STREAM IF NOT EXISTS unified_devices (
   SETTINGS mode='versioned_kv', version_column='_tp_time';
 
 -- Materialized view that maintains only current device state
+-- Fixed to properly handle metadata even when maps are empty
 CREATE MATERIALIZED VIEW IF NOT EXISTS unified_device_pipeline_mv
 INTO unified_devices
 AS SELECT
@@ -80,7 +81,7 @@ AS SELECT
     s.available AS is_available,
     coalesce(u.first_seen, s.timestamp) AS first_seen,
     s.timestamp AS last_seen,
-    if(length(s.metadata) > 0, 
+    if(s.metadata IS NOT NULL, 
        if(u.metadata IS NULL, s.metadata, map_update(u.metadata, s.metadata)), 
        u.metadata) AS metadata,
     s.agent_id,
