@@ -126,10 +126,12 @@ type Service interface {
 	MarkDeviceAsMerged(ctx context.Context, deviceID, mergedIntoDeviceID string) error
 
 	// Sweep Result operations (materialized view approach).
+
 	PublishSweepResult(ctx context.Context, result *models.SweepResult) error
 	PublishBatchSweepResults(ctx context.Context, results []*models.SweepResult) error
 
 	// Device-centric metric operations.
+
 	GetMetricsForDevice(ctx context.Context, deviceID string, start, end time.Time) ([]models.TimeseriesMetric, error)
 	GetMetricsForDeviceByType(ctx context.Context, deviceID, metricType string, start, end time.Time) ([]models.TimeseriesMetric, error)
 	GetMetricsForPartition(ctx context.Context, partition string, start, end time.Time) ([]models.TimeseriesMetric, error)
