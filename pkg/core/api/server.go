@@ -1217,12 +1217,16 @@ func getFieldValue[T any](field *models.DiscoveredField[T]) interface{} {
 
 // filterDevices filters unified devices based on search term and status
 func filterDevices(devices []*models.UnifiedDevice, searchTerm, status string) []*models.UnifiedDevice {
-	if searchTerm == "" && status == "" {
-		return devices
-	}
-
 	var filtered []*models.UnifiedDevice
 	for _, device := range devices {
+		// Filter out merged devices (safety net) - ALWAYS apply this filter
+		if device.Metadata != nil && device.Metadata.Value != nil {
+			if mergedInto, hasMerged := device.Metadata.Value["_merged_into"]; hasMerged {
+				log.Printf("API: Filtering out merged device %s (merged into %s)", device.DeviceID, mergedInto)
+				continue // Skip merged devices
+			}
+		}
+		
 		// Apply search filter
 		if searchTerm != "" {
 			searchLower := strings.ToLower(searchTerm)

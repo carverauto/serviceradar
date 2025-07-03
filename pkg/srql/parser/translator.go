@@ -235,7 +235,7 @@ func (t *Translator) buildClickHouseQuery(query *models.Query) (string, error) {
 // getEntityToTableMapData returns a map of entity types to their base table names
 func getEntityToTableMapData() map[models.EntityType]string {
 	return map[models.EntityType]string{
-		models.Devices:       "unified_devices_registry", // Queries for devices should reference the new unified device registry
+		models.Devices:       "unified_devices", // Materialized view approach uses unified_devices stream
 		models.Flows:         "netflow_metrics",
 		models.Interfaces:    "discovered_interfaces",
 		models.Traps:         "traps",

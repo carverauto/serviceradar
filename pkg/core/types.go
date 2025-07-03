@@ -76,6 +76,7 @@ type DeviceRegistryService interface {
 	GetDevice(ctx context.Context, deviceID string) (*models.UnifiedDevice, error)
 	GetDevicesByIP(ctx context.Context, ip string) ([]*models.UnifiedDevice, error)
 	ListDevices(ctx context.Context, limit, offset int) ([]*models.UnifiedDevice, error)
+	FindCanonicalDevicesByIPs(ctx context.Context, ips []string) (map[string]*models.UnifiedDevice, error)
 }
 
 // OIDStatusData represents the structure of OID status data.

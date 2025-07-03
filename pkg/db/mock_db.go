@@ -435,6 +435,21 @@ func (mr *MockServiceMockRecorder) GetUnifiedDevicesByIP(ctx, ip any) *gomock.Ca
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUnifiedDevicesByIP", reflect.TypeOf((*MockService)(nil).GetUnifiedDevicesByIP), ctx, ip)
 }
 
+// GetUnifiedDevicesByIPsOrIDs mocks base method.
+func (m *MockService) GetUnifiedDevicesByIPsOrIDs(ctx context.Context, ips, deviceIDs []string) ([]*models.UnifiedDevice, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetUnifiedDevicesByIPsOrIDs", ctx, ips, deviceIDs)
+	ret0, _ := ret[0].([]*models.UnifiedDevice)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetUnifiedDevicesByIPsOrIDs indicates an expected call of GetUnifiedDevicesByIPsOrIDs.
+func (mr *MockServiceMockRecorder) GetUnifiedDevicesByIPsOrIDs(ctx, ips, deviceIDs any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUnifiedDevicesByIPsOrIDs", reflect.TypeOf((*MockService)(nil).GetUnifiedDevicesByIPsOrIDs), ctx, ips, deviceIDs)
+}
+
 // GetUserByID mocks base method.
 func (m *MockService) GetUserByID(ctx context.Context, id string) (*models.User, error) {
 	m.ctrl.T.Helper()
