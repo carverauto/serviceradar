@@ -380,14 +380,22 @@ func (s *APIServer) postProcessResults(results []map[string]interface{}, entity 
 // postProcessDeviceResults processes device query results to parse JSON fields
 func (s *APIServer) postProcessDeviceResults(results []map[string]interface{}) []map[string]interface{} {
 	for _, result := range results {
-		// Parse discovery_sources JSON field to extract source names and poller/agent IDs
-		if discoverySourcesStr, ok := result["discovery_sources"].(string); ok && discoverySourcesStr != "" {
+		// Handle discovery_sources field - in new schema it's array(string), in old schema it might be JSON
+		if discoverySourcesArray, ok := result["discovery_sources"].([]interface{}); ok {
+			// New schema: discovery_sources is array(string) from unified_devices
+			sources := make([]string, len(discoverySourcesArray))
+			for i, source := range discoverySourcesArray {
+				if sourceStr, ok := source.(string); ok {
+					sources[i] = sourceStr
+				}
+			}
+			result["discovery_sources"] = sources
+		} else if discoverySourcesStr, ok := result["discovery_sources"].(string); ok && discoverySourcesStr != "" {
+			// Old schema: discovery_sources is JSON string - parse it
 			var discoverySourcesInfo []devicemodels.DiscoverySourceInfo
 			if err := json.Unmarshal([]byte(discoverySourcesStr), &discoverySourcesInfo); err != nil {
 				log.Printf("Warning: failed to unmarshal discovery_sources for device: %v", err)
 				result["discovery_sources"] = []string{}
-				result["agent_id"] = ""
-				result["poller_id"] = ""
 			} else {
 				// Extract source names
 				sources := make([]string, len(discoverySourcesInfo))
@@ -396,23 +404,32 @@ func (s *APIServer) postProcessDeviceResults(results []map[string]interface{}) [
 				}
 				result["discovery_sources"] = sources
 				
-				// Use the first (highest confidence) source for agent_id and poller_id
-				if len(discoverySourcesInfo) > 0 {
+				// For old schema, extract agent_id and poller_id from first source if not already present
+				if _, hasAgentID := result["agent_id"]; !hasAgentID && len(discoverySourcesInfo) > 0 {
 					result["agent_id"] = discoverySourcesInfo[0].AgentID
+				}
+				if _, hasPollerID := result["poller_id"]; !hasPollerID && len(discoverySourcesInfo) > 0 {
 					result["poller_id"] = discoverySourcesInfo[0].PollerID
-				} else {
-					result["agent_id"] = ""
-					result["poller_id"] = ""
 				}
 			}
 		} else {
 			result["discovery_sources"] = []string{}
+		}
+		
+		// Ensure agent_id and poller_id are set - in new schema they're direct columns
+		if _, hasAgentID := result["agent_id"]; !hasAgentID {
 			result["agent_id"] = ""
+		}
+		if _, hasPollerID := result["poller_id"]; !hasPollerID {
 			result["poller_id"] = ""
 		}
 
-		// Parse hostname_field JSON to extract hostname value
-		if hostnameFieldStr, ok := result["hostname_field"].(string); ok && hostnameFieldStr != "" && hostnameFieldStr != "{}" {
+		// Handle hostname field - in new schema it's nullable(string), in old schema it might be JSON
+		if hostnameStr, ok := result["hostname"].(string); ok && hostnameStr != "" {
+			// New schema: hostname is direct nullable string from unified_devices
+			result["hostname"] = hostnameStr
+		} else if hostnameFieldStr, ok := result["hostname_field"].(string); ok && hostnameFieldStr != "" && hostnameFieldStr != "{}" {
+			// Old schema: hostname_field is JSON string - parse it
 			var hostnameField devicemodels.DiscoveredField[string]
 			if err := json.Unmarshal([]byte(hostnameFieldStr), &hostnameField); err != nil {
 				log.Printf("Warning: failed to unmarshal hostname_field for device: %v", err)
@@ -424,8 +441,12 @@ func (s *APIServer) postProcessDeviceResults(results []map[string]interface{}) [
 			result["hostname"] = nil
 		}
 
-		// Parse mac_field JSON to extract MAC value
-		if macFieldStr, ok := result["mac_field"].(string); ok && macFieldStr != "" && macFieldStr != "{}" {
+		// Handle mac field - in new schema it's nullable(string), in old schema it might be JSON
+		if macStr, ok := result["mac"].(string); ok && macStr != "" {
+			// New schema: mac is direct nullable string from unified_devices
+			result["mac"] = macStr
+		} else if macFieldStr, ok := result["mac_field"].(string); ok && macFieldStr != "" && macFieldStr != "{}" {
+			// Old schema: mac_field is JSON string - parse it
 			var macField devicemodels.DiscoveredField[string]
 			if err := json.Unmarshal([]byte(macFieldStr), &macField); err != nil {
 				log.Printf("Warning: failed to unmarshal mac_field for device: %v", err)
