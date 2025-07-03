@@ -218,6 +218,7 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
                                             deviceId={device.device_id} 
                                             compact={true}
                                             hasMetrics={snmpStatusesLoading ? undefined : snmpStatuses[device.device_id]?.hasMetrics}
+                                            hasSnmpSource={Array.isArray(device.discovery_sources) && (device.discovery_sources.includes('snmp') || device.discovery_sources.includes('mapper'))}
                                         />
                                         <ICMPSparkline 
                                             deviceId={device.device_id} 

@@ -43,7 +43,7 @@ func (r *DeviceRegistry) ProcessSweepResult(ctx context.Context, result *models.
 		return fmt.Errorf("sweep result is nil")
 	}
 
-	log.Printf("Processing sweep result for device %s (IP: %s, Available: %t, AgentID: %s, PollerID: %s)", 
+	log.Printf("Processing sweep result for device %s (IP: %s, Available: %t, AgentID: %s, PollerID: %s)",
 		result.DeviceID, result.IP, result.Available, result.AgentID, result.PollerID)
 
 	// Convert sweep result to device update
@@ -139,4 +139,3 @@ func (r *DeviceRegistry) GetDevicesByIP(ctx context.Context, ip string) ([]*mode
 func (r *DeviceRegistry) ListDevices(ctx context.Context, limit, offset int) ([]*models.UnifiedDevice, error) {
 	return r.db.ListUnifiedDevices(ctx, limit, offset)
 }
-

@@ -107,6 +107,7 @@ func (s *Server) processDiscoveredDevices(
 		result := &models.SweepResult{
 			AgentID:         discoveryAgentID,
 			PollerID:        discoveryInitiatorPollerID,
+			DeviceID:        fmt.Sprintf("%s:%s", partition, protoDevice.Ip),
 			Partition:       partition,
 			DiscoverySource: "mapper", // Mapper discovery: devices found by the mapper component using SNMP
 			IP:              protoDevice.Ip,

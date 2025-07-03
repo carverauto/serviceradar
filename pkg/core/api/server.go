@@ -914,6 +914,7 @@ func (s *APIServer) getDevices(w http.ResponseWriter, r *http.Request) {
 
 	// Parse pagination parameters
 	limit := 100 // Default limit
+
 	if limitStr != "" {
 		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
 			limit = parsedLimit
@@ -926,6 +927,7 @@ func (s *APIServer) getDevices(w http.ResponseWriter, r *http.Request) {
 			page = parsedPage
 		}
 	}
+
 	offset := (page - 1) * limit
 
 	// Try device registry first (enhanced device data with discovery sources)
@@ -953,17 +955,22 @@ func (s *APIServer) getDevices(w http.ResponseWriter, r *http.Request) {
 			}
 
 			w.Header().Set("Content-Type", "application/json")
+
 			if err := json.NewEncoder(w).Encode(response); err != nil {
 				log.Printf("Error encoding enhanced devices response: %v", err)
+
 				writeError(w, "Failed to encode response", http.StatusInternalServerError)
 			}
+
 			return
 		}
+
 		log.Printf("Device registry listing failed, falling back to SRQL: %v", err)
 	}
 
 	// Fallback to SRQL query
 	query := "SHOW DEVICES"
+
 	var whereClauses []string
 
 	// Add search filter
@@ -996,10 +1003,12 @@ func (s *APIServer) getDevices(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("Error executing devices query: %v", err)
 		writeError(w, "Failed to retrieve devices", http.StatusInternalServerError)
+
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+
 	if err := json.NewEncoder(w).Encode(result); err != nil {
 		log.Printf("Error encoding devices response: %v", err)
 		writeError(w, "Failed to encode response", http.StatusInternalServerError)
@@ -1020,6 +1029,7 @@ func (s *APIServer) getDevices(w http.ResponseWriter, r *http.Request) {
 // @Security ApiKeyAuth
 func (s *APIServer) getDevice(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
+
 	deviceID := vars["id"]
 
 	// Set a timeout for the request
@@ -1215,7 +1225,7 @@ func filterDevices(devices []*models.UnifiedDevice, searchTerm, status string) [
 			searchLower := strings.ToLower(searchTerm)
 			if !strings.Contains(strings.ToLower(device.IP), searchLower) &&
 				!strings.Contains(strings.ToLower(device.DeviceID), searchLower) {
-				
+
 				// Check hostname if available
 				if device.Hostname == nil || !strings.Contains(strings.ToLower(device.Hostname.Value), searchLower) {
 					continue
