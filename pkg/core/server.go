@@ -1326,6 +1326,7 @@ func (s *Server) createSysmonDeviceRecord(
 		AgentID:         agentID,
 		PollerID:        pollerID,
 		Partition:       partition,
+		DeviceID:        deviceID,
 		DiscoverySource: "sysmon",
 		IP:              payload.Status.HostIP,
 		Hostname:        &payload.Status.HostID,
@@ -1337,12 +1338,8 @@ func (s *Server) createSysmonDeviceRecord(
 		},
 	}
 
-	if err := s.DB.StoreSweepResults(ctx, []*models.SweepResult{sweepResult}); err != nil {
-		log.Printf("Warning: Failed to create device record for sysmon device %s: %v", deviceID, err)
-	} else {
-		log.Printf("Created/updated device record for sysmon device %s (hostname: %s, ip: %s)",
-			deviceID, payload.Status.HostID, payload.Status.HostIP)
-	}
+	log.Printf("Created/updated device record for sysmon device %s (hostname: %s, ip: %s)",
+		deviceID, payload.Status.HostID, payload.Status.HostIP)
 
 	// Also process through device registry for unified device management
 	if s.DeviceRegistry != nil {
@@ -1379,9 +1376,7 @@ func (s *Server) createSnmpTargetDeviceRecord(
 		},
 	}
 
-	if err := s.DB.StoreSweepResults(ctx, []*models.SweepResult{sweepResult}); err != nil {
-		log.Printf("Warning: Failed to create device record for SNMP target %s: %v", targetIP, err)
-	} else {
+	{
 		deviceID := fmt.Sprintf("%s:%s", partition, targetIP)
 		log.Printf("Created/updated device record for SNMP target %s (hostname: %s, ip: %s)",
 			deviceID, hostname, targetIP)
@@ -1961,9 +1956,6 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 		return nil
 	}
 
-	if err := s.DB.StoreSweepResults(ctx, resultsToStore); err != nil {
-		return fmt.Errorf("failed to store sweep results: %w", err)
-	}
 
 	// Process through device registry for unified device management
 	if s.DeviceRegistry != nil {

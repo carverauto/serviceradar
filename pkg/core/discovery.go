@@ -120,10 +120,6 @@ func (s *Server) processDiscoveredDevices(
 		resultsToStore = append(resultsToStore, result)
 	}
 
-	// Store sweep results to database for backward compatibility
-	if err := s.DB.StoreSweepResults(ctx, resultsToStore); err != nil {
-		log.Printf("Error storing batch discovered results for poller %s: %v", reportingPollerID, err)
-	}
 
 	// Process through device registry for unified device management
 	if s.DeviceRegistry != nil {
