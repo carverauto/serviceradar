@@ -51,24 +51,24 @@ func NewAPIServer(config models.CORSConfig, options ...func(server *APIServer)) 
 		corsConfig: config,
 	}
 
-	// Initialize with default entity table mapping
+	// Initialize with default entity table mapping to match SRQL translator
 	defaultEntityTableMap := map[srqlmodels.EntityType]string{
-		srqlmodels.Devices:       "devices",
-		srqlmodels.Flows:         "flows",
+		srqlmodels.Devices:       "unified_devices", // Fixed: Use unified_devices to match SRQL translator
+		srqlmodels.Flows:         "netflow_metrics", // Fixed: Use netflow_metrics to match SRQL translator
 		srqlmodels.Traps:         "traps",
 		srqlmodels.Connections:   "connections",
 		srqlmodels.Logs:          "logs",
 		srqlmodels.Services:      "services",
-		srqlmodels.Interfaces:    "interfaces",
+		srqlmodels.Interfaces:    "discovered_interfaces", // Fixed: Use discovered_interfaces to match SRQL translator
 		srqlmodels.SweepResults:  "sweep_results",
 		srqlmodels.ICMPResults:   "icmp_results",
-		srqlmodels.SNMPResults:   "snmp_results",
+		srqlmodels.SNMPResults:   "timeseries_metrics", // Fixed: Use timeseries_metrics to match SRQL translator
 		srqlmodels.Events:        "events",
 		srqlmodels.Pollers:       "pollers",
 		srqlmodels.CPUMetrics:    "cpu_metrics",
 		srqlmodels.DiskMetrics:   "disk_metrics",
 		srqlmodels.MemoryMetrics: "memory_metrics",
-		srqlmodels.SNMPMetrics:   "snmp_metrics",
+		srqlmodels.SNMPMetrics:   "timeseries_metrics", // Fixed: Use timeseries_metrics to match SRQL translator
 	}
 	s.entityTableMap = defaultEntityTableMap
 
