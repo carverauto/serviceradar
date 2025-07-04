@@ -110,7 +110,7 @@ CREATE STREAM IF NOT EXISTS unified_devices_registry (
   SETTINGS mode='versioned_kv', version_column='_tp_time';
 
 -- Materialized view that maintains only current device state
--- Fixed to properly handle metadata even when maps are empty
+-- Simple approach: each IP gets its own device record, merging happens at application level
 CREATE MATERIALIZED VIEW IF NOT EXISTS unified_device_pipeline_mv
 INTO unified_devices
 AS SELECT
