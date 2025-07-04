@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/db"
@@ -162,6 +163,13 @@ func (p *Processor) storeBatch(ctx context.Context, devices []*models.Device) er
 			sweep.MAC = &device.MAC
 		}
 
+		// CRITICAL: Enrich with alternate IPs before publishing
+		// This is the "application-side enrichment" step that solves the look-ahead problem
+		if err := p.enrichSweepResultWithAlternateIPs(ctx, sweep); err != nil {
+			log.Printf("Failed to enrich sweep result for %s: %v", sweep.IP, err)
+			// Continue processing - enrichment failure shouldn't block device storage
+		}
+
 		sweepResults = append(sweepResults, sweep)
 	}
 
@@ -196,6 +204,114 @@ func extractDiscoverySource(sources []string) string {
 		return "device-consumer"
 	}
 	return sources[0]
+}
+
+// extractAlternateIPs extracts alternate IPs from device metadata
+func extractAlternateIPs(metadata map[string]string) []string {
+	const key = "alternate_ips"
+	
+	existing, ok := metadata[key]
+	if !ok || existing == "" {
+		return nil
+	}
+	
+	var ips []string
+	
+	// Try to parse as JSON array first
+	if err := json.Unmarshal([]byte(existing), &ips); err != nil {
+		// Fall back to comma-separated format for backward compatibility
+		ips = strings.Split(existing, ",")
+		for i, ip := range ips {
+			ips[i] = strings.TrimSpace(ip)
+		}
+	}
+	
+	return ips
+}
+
+// addAlternateIP adds an alternate IP to metadata, following the same pattern as the mapper utils
+func addAlternateIP(metadata map[string]string, ip string) map[string]string {
+	if ip == "" {
+		return metadata
+	}
+	
+	if metadata == nil {
+		metadata = make(map[string]string)
+	}
+	
+	const key = "alternate_ips"
+	ips := extractAlternateIPs(metadata)
+	
+	// Check if IP already exists
+	for _, existing := range ips {
+		if existing == ip {
+			return metadata
+		}
+	}
+	
+	ips = append(ips, ip)
+	if data, err := json.Marshal(ips); err == nil {
+		metadata[key] = string(data)
+	}
+	
+	return metadata
+}
+
+// enrichSweepResultWithAlternateIPs queries existing unified devices and enriches the sweep result
+// with known alternate IPs to enable proper device merging in the materialized view pipeline
+func (p *Processor) enrichSweepResultWithAlternateIPs(ctx context.Context, sweep *models.SweepResult) error {
+	// Get all IPs to check (primary IP plus any existing alternate IPs)
+	ipsToCheck := []string{sweep.IP}
+	existingAlternateIPs := extractAlternateIPs(sweep.Metadata)
+	ipsToCheck = append(ipsToCheck, existingAlternateIPs...)
+	
+	// Query for existing unified devices that match any of these IPs
+	existingDevices, err := p.db.GetUnifiedDevicesByIPsOrIDs(ctx, ipsToCheck, nil)
+	if err != nil {
+		log.Printf("Warning: Failed to query existing devices for enrichment: %v", err)
+		return nil // Don't fail the whole operation for enrichment issues
+	}
+	
+	if len(existingDevices) == 0 {
+		return nil // No existing devices found, no enrichment needed
+	}
+	
+	// Collect all known alternate IPs from existing devices
+	var allKnownIPs []string
+	seenIPs := make(map[string]bool)
+	
+	for _, device := range existingDevices {
+		// Add the device's primary IP
+		if device.IP != "" && !seenIPs[device.IP] {
+			allKnownIPs = append(allKnownIPs, device.IP)
+			seenIPs[device.IP] = true
+		}
+		
+		// Add any alternate IPs from the device's metadata
+		if device.Metadata != nil {
+			deviceAlternateIPs := extractAlternateIPs(device.Metadata.Value)
+			for _, ip := range deviceAlternateIPs {
+				if ip != "" && !seenIPs[ip] {
+					allKnownIPs = append(allKnownIPs, ip)
+					seenIPs[ip] = true
+				}
+			}
+		}
+	}
+	
+	// Enrich the sweep result's metadata with all known alternate IPs
+	if sweep.Metadata == nil {
+		sweep.Metadata = make(map[string]string)
+	}
+	
+	for _, ip := range allKnownIPs {
+		if ip != sweep.IP { // Don't add the primary IP as an alternate
+			sweep.Metadata = addAlternateIP(sweep.Metadata, ip)
+		}
+	}
+	
+	log.Printf("Enriched device %s with %d alternate IPs", sweep.IP, len(allKnownIPs)-1)
+	return nil
 }
 
 // Process converts and stores a single JetStream message.

@@ -18,10 +18,13 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"log"
+	"strings"
+
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/models"
-	"log"
 )
 
 // DeviceRegistry is a concrete implementation of DeviceRegistryService
@@ -45,12 +48,24 @@ func (r *DeviceRegistry) ProcessSweepResult(ctx context.Context, result *models.
 	log.Printf("Processing sweep result for device %s (IP: %s, Available: %t) using materialized view pipeline",
 		result.DeviceID, result.IP, result.Available)
 
-	// Simply publish to sweep_results - the materialized view handles the rest
-	return r.db.PublishSweepResult(ctx, result)
+	// Create a copy for enrichment
+	enrichedResult := *result
+	
+	// Enrich with alternate IPs from existing devices
+	if err := r.enrichSweepResultWithAlternateIPs(ctx, &enrichedResult); err != nil {
+		log.Printf("Warning: Failed to enrich sweep result for %s: %v", result.IP, err)
+		// Continue with original result if enrichment fails
+		return r.db.PublishSweepResult(ctx, result)
+	}
+
+	// Publish enriched result to sweep_results stream
+	return r.db.PublishSweepResult(ctx, &enrichedResult)
 }
 
 // ProcessBatchSweepResults processes multiple sweep results using materialized view approach
-// Publishes to sweep_results stream and lets the materialized view handle device reconciliation
+// CRITICAL: This is the single chokepoint where ALL SweepResults pass through before
+// being published to the materialized view. This is where we implement the application-side
+// enrichment logic to solve the "look-ahead" problem described in the architectural decision record.
 func (r *DeviceRegistry) ProcessBatchSweepResults(ctx context.Context, results []*models.SweepResult) error {
 	if len(results) == 0 {
 		return nil
@@ -58,8 +73,26 @@ func (r *DeviceRegistry) ProcessBatchSweepResults(ctx context.Context, results [
 
 	log.Printf("Processing batch of %d sweep results using materialized view pipeline", len(results))
 
-	// Simply publish to sweep_results - the materialized view handles the rest
-	return r.db.PublishBatchSweepResults(ctx, results)
+	// STEP 1: Enrich each sweep result with known alternate IPs
+	// This is the "application-side enrichment" that enables the materialized view pipeline to work
+	enrichedResults := make([]*models.SweepResult, len(results))
+	for i, result := range results {
+		enrichedResult := *result // Copy the result
+		
+		// Enrich with alternate IPs from existing devices
+		if err := r.enrichSweepResultWithAlternateIPs(ctx, &enrichedResult); err != nil {
+			log.Printf("Warning: Failed to enrich sweep result for %s: %v", result.IP, err)
+			// Continue with original result if enrichment fails
+			enrichedResults[i] = result
+		} else {
+			enrichedResults[i] = &enrichedResult
+		}
+	}
+
+	// STEP 2: Publish enriched results to sweep_results stream
+	// The materialized view pipeline can now properly merge devices because each sweep result
+	// contains all the historical alternate IP context it needs
+	return r.db.PublishBatchSweepResults(ctx, enrichedResults)
 }
 
 // UpdateDevice processes a device update using materialized view approach  
@@ -129,4 +162,124 @@ func (r *DeviceRegistry) FindCanonicalDevicesByIPs(ctx context.Context, ips []st
 	}
 	
 	return result, nil
+}
+
+// ========================================================================
+// Device Unification Enrichment Logic
+// ========================================================================
+// The following functions implement the "application-side enrichment" described
+// in the hybrid device unification architectural decision record.
+
+// extractAlternateIPs extracts alternate IPs from device metadata
+func extractAlternateIPs(metadata map[string]string) []string {
+	const key = "alternate_ips"
+	
+	existing, ok := metadata[key]
+	if !ok || existing == "" {
+		return nil
+	}
+	
+	var ips []string
+	
+	// Try to parse as JSON array first
+	if err := json.Unmarshal([]byte(existing), &ips); err != nil {
+		// Fall back to comma-separated format for backward compatibility
+		ips = strings.Split(existing, ",")
+		for i, ip := range ips {
+			ips[i] = strings.TrimSpace(ip)
+		}
+	}
+	
+	return ips
+}
+
+// addAlternateIP adds an alternate IP to metadata, following the same pattern as the mapper utils
+func addAlternateIP(metadata map[string]string, ip string) map[string]string {
+	if ip == "" {
+		return metadata
+	}
+	
+	if metadata == nil {
+		metadata = make(map[string]string)
+	}
+	
+	const key = "alternate_ips"
+	ips := extractAlternateIPs(metadata)
+	
+	// Check if IP already exists
+	for _, existing := range ips {
+		if existing == ip {
+			return metadata
+		}
+	}
+	
+	ips = append(ips, ip)
+	if data, err := json.Marshal(ips); err == nil {
+		metadata[key] = string(data)
+	}
+	
+	return metadata
+}
+
+// enrichSweepResultWithAlternateIPs queries existing unified devices and enriches the sweep result
+// with known alternate IPs. This provides context for the database materialized view and enables
+// application-level device unification when devices are queried.
+func (r *DeviceRegistry) enrichSweepResultWithAlternateIPs(ctx context.Context, sweep *models.SweepResult) error {
+	// Get all IPs to check (primary IP plus any existing alternate IPs)
+	ipsToCheck := []string{sweep.IP}
+	existingAlternateIPs := extractAlternateIPs(sweep.Metadata)
+	ipsToCheck = append(ipsToCheck, existingAlternateIPs...)
+	
+	// Query for existing unified devices that match any of these IPs
+	existingDevices, err := r.db.GetUnifiedDevicesByIPsOrIDs(ctx, ipsToCheck, nil)
+	if err != nil {
+		log.Printf("Warning: Failed to query existing devices for enrichment: %v", err)
+		return nil // Don't fail the whole operation for enrichment issues
+	}
+	
+	if len(existingDevices) == 0 {
+		return nil // No existing devices found, no enrichment needed
+	}
+	
+	// Collect all known alternate IPs from existing devices
+	var allKnownIPs []string
+	seenIPs := make(map[string]bool)
+	
+	for _, device := range existingDevices {
+		// Add the device's primary IP
+		if device.IP != "" && !seenIPs[device.IP] {
+			allKnownIPs = append(allKnownIPs, device.IP)
+			seenIPs[device.IP] = true
+		}
+		
+		// Add any alternate IPs from the device's metadata
+		if device.Metadata != nil {
+			deviceAlternateIPs := extractAlternateIPs(device.Metadata.Value)
+			for _, ip := range deviceAlternateIPs {
+				if ip != "" && !seenIPs[ip] {
+					allKnownIPs = append(allKnownIPs, ip)
+					seenIPs[ip] = true
+				}
+			}
+		}
+	}
+	
+	// Enrich the sweep result's metadata with all known alternate IPs
+	if sweep.Metadata == nil {
+		sweep.Metadata = make(map[string]string)
+	}
+	
+	enrichmentCount := 0
+	for _, ip := range allKnownIPs {
+		if ip != sweep.IP { // Don't add the primary IP as an alternate
+			sweep.Metadata = addAlternateIP(sweep.Metadata, ip)
+			enrichmentCount++
+		}
+	}
+	
+	if enrichmentCount > 0 {
+		log.Printf("Enriched device %s with %d alternate IPs", sweep.IP, enrichmentCount)
+	}
+	
+	return nil
 }
