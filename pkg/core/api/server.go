@@ -419,6 +419,7 @@ func (s *APIServer) setupProtectedRoutes() {
 	protected.HandleFunc("/devices", s.getDevices).Methods("GET")
 	protected.HandleFunc("/devices/{id}", s.getDevice).Methods("GET")
 	protected.HandleFunc("/devices/{id}/metrics", s.getDeviceMetrics).Methods("GET")
+	protected.HandleFunc("/devices/cleanup-duplicates", s.cleanupDuplicateDevices).Methods("POST")
 	protected.HandleFunc("/devices/metrics/status", s.getDeviceMetricsStatus).Methods("GET")
 }
 
@@ -911,6 +912,7 @@ func (s *APIServer) getDevices(w http.ResponseWriter, r *http.Request) {
 	status := r.URL.Query().Get("status")
 	limitStr := r.URL.Query().Get("limit")
 	pageStr := r.URL.Query().Get("page")
+	mergedStr := r.URL.Query().Get("merged")
 
 	// Parse pagination parameters
 	limit := 100 // Default limit
@@ -936,6 +938,11 @@ func (s *APIServer) getDevices(w http.ResponseWriter, r *http.Request) {
 		if err == nil {
 			// Filter devices based on search and status parameters
 			filteredDevices := filterDevices(devices, searchTerm, status)
+			
+			// Apply device merging if requested
+			if mergedStr == "true" {
+				filteredDevices = mergeRelatedDevices(ctx, s.deviceRegistry, filteredDevices)
+			}
 
 			// Convert to response format with discovery information
 			response := make([]map[string]interface{}, len(filteredDevices))
@@ -1038,7 +1045,7 @@ func (s *APIServer) getDevice(w http.ResponseWriter, r *http.Request) {
 
 	// Try device registry first (enhanced device data with discovery sources)
 	if s.deviceRegistry != nil {
-		unifiedDevice, err := s.deviceRegistry.GetDevice(ctx, deviceID)
+		unifiedDevice, err := s.deviceRegistry.GetMergedDevice(ctx, deviceID)
 		if err == nil {
 			// Convert to legacy device format and add discovery source information
 			response := struct {
@@ -1078,6 +1085,46 @@ func (s *APIServer) getDevice(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(device); err != nil {
 		log.Printf("Error encoding device response: %v", err)
+		writeError(w, "Failed to encode response", http.StatusInternalServerError)
+	}
+}
+
+// @Summary Cleanup duplicate devices
+// @Description Removes duplicate devices by consolidating them using canonical device IDs
+// @Tags Devices
+// @Accept json
+// @Produce json
+// @Success 200 {object} map[string]string "Cleanup status"
+// @Failure 500 {object} models.ErrorResponse "Internal server error"
+// @Router /api/devices/cleanup-duplicates [post]
+// @Security ApiKeyAuth
+func (s *APIServer) cleanupDuplicateDevices(w http.ResponseWriter, r *http.Request) {
+	// Set a timeout for the request
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute) // Longer timeout for cleanup
+	defer cancel()
+
+	if s.deviceRegistry == nil {
+		writeError(w, "Device registry not configured", http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("API: Starting device cleanup process...")
+	
+	err := s.deviceRegistry.CleanupDuplicateDevices(ctx)
+	if err != nil {
+		log.Printf("Error during device cleanup: %v", err)
+		writeError(w, fmt.Sprintf("Device cleanup failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	response := map[string]string{
+		"status":  "success",
+		"message": "Device cleanup completed successfully",
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("Error encoding cleanup response: %v", err)
 		writeError(w, "Failed to encode response", http.StatusInternalServerError)
 	}
 }
@@ -1251,4 +1298,47 @@ func filterDevices(devices []*models.UnifiedDevice, searchTerm, status string) [
 		filtered = append(filtered, device)
 	}
 	return filtered
+}
+
+// mergeRelatedDevices merges devices that share IPs into unified views
+// This provides application-level device unification for the device listing API
+func mergeRelatedDevices(ctx context.Context, registry DeviceRegistryService, devices []*models.UnifiedDevice) []*models.UnifiedDevice {
+	if registry == nil || len(devices) == 0 {
+		return devices
+	}
+	
+	// Track which devices have been processed to avoid duplicates
+	processed := make(map[string]bool)
+	var mergedDevices []*models.UnifiedDevice
+	
+	for _, device := range devices {
+		if processed[device.DeviceID] {
+			continue // Skip if already processed as part of a merge
+		}
+		
+		// Try to get the merged view of this device
+		mergedDevice, err := registry.GetMergedDevice(ctx, device.DeviceID)
+		if err != nil {
+			log.Printf("Warning: Failed to get merged device for %s: %v", device.DeviceID, err)
+			// Fallback to original device if merging fails
+			mergedDevices = append(mergedDevices, device)
+			processed[device.DeviceID] = true
+			continue
+		}
+		
+		// Find all related devices in the original list and mark them as processed
+		relatedDevices, err := registry.FindRelatedDevices(ctx, device.DeviceID)
+		if err != nil {
+			log.Printf("Warning: Failed to find related devices for %s: %v", device.DeviceID, err)
+		} else {
+			for _, related := range relatedDevices {
+				processed[related.DeviceID] = true
+			}
+		}
+		
+		mergedDevices = append(mergedDevices, mergedDevice)
+	}
+	
+	log.Printf("Device merging: %d original devices merged into %d unified devices", len(devices), len(mergedDevices))
+	return mergedDevices
 }
