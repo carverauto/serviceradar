@@ -65,6 +65,50 @@ CREATE STREAM IF NOT EXISTS unified_devices (
 ) PRIMARY KEY (device_id)
   SETTINGS mode='versioned_kv', version_column='_tp_time';
 
+-- Create the unified_devices_registry stream that device-mgr expects
+CREATE STREAM IF NOT EXISTS unified_devices_registry (
+    device_id string,
+    ip string,
+    poller_id string,
+    hostname nullable(string),
+    mac nullable(string),
+    discovery_sources array(string),
+    is_available boolean,
+    first_seen DateTime64(3),
+    last_seen DateTime64(3),
+    metadata map(string, string),
+    agent_id string,
+    device_type string DEFAULT 'network_device',
+    service_type nullable(string),
+    service_status nullable(string),
+    last_heartbeat nullable(DateTime64(3)),
+    os_info nullable(string),
+    version_info nullable(string)
+) PRIMARY KEY (device_id)
+  SETTINGS mode='versioned_kv', version_column='_tp_time';
+
+-- Create the unified_devices_registry stream that device-mgr expects
+CREATE STREAM IF NOT EXISTS unified_devices_registry (
+    device_id string,
+    ip string,
+    poller_id string,
+    hostname nullable(string),
+    mac nullable(string),
+    discovery_sources array(string),
+    is_available boolean,
+    first_seen DateTime64(3),
+    last_seen DateTime64(3),
+    metadata map(string, string),
+    agent_id string,
+    device_type string DEFAULT 'network_device',
+    service_type nullable(string),
+    service_status nullable(string),
+    last_heartbeat nullable(DateTime64(3)),
+    os_info nullable(string),
+    version_info nullable(string)
+) PRIMARY KEY (device_id)
+  SETTINGS mode='versioned_kv', version_column='_tp_time';
+
 -- Materialized view that maintains only current device state
 -- Fixed to properly handle metadata even when maps are empty
 CREATE MATERIALIZED VIEW IF NOT EXISTS unified_device_pipeline_mv
