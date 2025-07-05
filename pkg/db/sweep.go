@@ -31,7 +31,7 @@ func (db *DB) StoreSweepResults(ctx context.Context, results []*models.SweepResu
 		return nil
 	}
 
-	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO sweep_results (* except _tp_time)")
+	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO sweep_results (agent_id, poller_id, partition, device_id, discovery_source, ip, mac, hostname, timestamp, available, metadata)")
 	if err != nil {
 		return fmt.Errorf("failed to prepare batch: %w", err)
 	}
@@ -53,6 +53,11 @@ func (db *DB) StoreSweepResults(ctx context.Context, results []*models.SweepResu
 			continue
 		}
 
+		// Generate device_id if not provided
+		if result.DeviceID == "" {
+			result.DeviceID = fmt.Sprintf("%s:%s", result.Partition, result.IP)
+		}
+
 		// Convert metadata map to JSON string
 		metadata := result.Metadata
 		if metadata == nil {
@@ -70,6 +75,7 @@ func (db *DB) StoreSweepResults(ctx context.Context, results []*models.SweepResu
 			result.AgentID,
 			result.PollerID,
 			result.Partition,
+			result.DeviceID,
 			result.DiscoverySource,
 			result.IP,
 			result.MAC,

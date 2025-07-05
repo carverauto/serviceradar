@@ -905,27 +905,25 @@ func (*Server) createPollerStatus(req *proto.PollerStatusRequest, now time.Time)
 // For services like ping/icmp, this correlates them to the source device (agent).
 // Returns the device_id and partition for the device that performed the service check.
 func (s *Server) extractDeviceContext(
-	ctx context.Context, agentID, defaultPartition, enhancedPayload string) (deviceID, partition string) {
-	// First, try to parse the service message to check for a direct device_id field
-	// This handles ICMP and other service responses that now include device_id directly
+	ctx context.Context, agentID, defaultPartition, sourceIP, enhancedPayload string) (deviceID, partition string) {
+	// First, try to parse the service message to check for a direct device_id field.
+	// This handles ICMP and other service responses that now include device_id directly.
 	var directMessage struct {
 		DeviceID  string `json:"device_id,omitempty"`
 		Partition string `json:"partition,omitempty"`
 	}
 
 	if err := json.Unmarshal([]byte(enhancedPayload), &directMessage); err == nil {
-		// Check if the service message contains a direct device_id field
 		if directMessage.DeviceID != "" {
 			partition = directMessage.Partition
 			if partition == "" {
 				partition = defaultPartition
 			}
-
 			return directMessage.DeviceID, partition
 		}
 	}
 
-	// Fallback to parsing the enhanced payload structure for backward compatibility
+	// Fallback to parsing the enhanced payload structure for backward compatibility or proxied checks.
 	var payload struct {
 		PollerID  string `json:"poller_id"`
 		AgentID   string `json:"agent_id"`
@@ -935,35 +933,30 @@ func (s *Server) extractDeviceContext(
 		} `json:"data,omitempty"`
 	}
 
-	if err := json.Unmarshal([]byte(enhancedPayload), &payload); err != nil {
-		// If we can't parse the enhanced payload, use defaults
-		log.Printf("Warning: Failed to parse enhanced payload for device context: %v", err)
-		return "", defaultPartition
+	// Default to the partition from the gRPC request context.
+	partition = defaultPartition
+
+	if err := json.Unmarshal([]byte(enhancedPayload), &payload); err == nil {
+		// The payload's partition takes precedence if provided.
+		if payload.Partition != "" {
+			partition = payload.Partition
+		}
+		// The payload's HostIP (for proxied checks) is the most specific identifier.
+		if payload.Data.HostIP != "" {
+			deviceID = fmt.Sprintf("%s:%s", partition, payload.Data.HostIP)
+			return deviceID, partition
+		}
 	}
 
-	// Use partition from enhanced payload if available, otherwise use default
-	partition = payload.Partition
-	if partition == "" {
-		partition = defaultPartition
-	}
-
-	// For service correlation, we need to determine the source device
-	// This is typically the agent that performed the service check
-
-	// First, try to get host_ip from the service data (if available)
-	if payload.Data.HostIP != "" {
-		deviceID = fmt.Sprintf("%s:%s", partition, payload.Data.HostIP)
+	// If the payload doesn't specify a device, the service is related to the agent that sent the report.
+	// The sourceIP from the gRPC request is the most reliable identifier for this agent's device.
+	if sourceIP != "" {
+		deviceID = fmt.Sprintf("%s:%s", partition, sourceIP)
 		return deviceID, partition
 	}
 
-	// If no host_ip in service data, try to look up the agent's device record
-	// This handles cases where the agent doesn't include host_ip in service responses
-	agentDeviceID := s.findAgentDeviceID(ctx, agentID, partition)
-	if agentDeviceID != "" {
-		return agentDeviceID, partition
-	}
-
-	// Fallback: return empty deviceID but valid partition
+	// If we've reached this point, sourceIP was empty, which is a critical configuration issue.
+	log.Printf("CRITICAL: Unable to determine device_id for agent %s in partition %s because sourceIP was empty. Service records will not be associated with a device.", agentID, partition)
 	return "", partition
 }
 
@@ -1039,7 +1032,7 @@ func (s *Server) processServices(
 		}
 
 		// Extract device context from enhanced payload for device correlation
-		deviceID, devicePartition := s.extractDeviceContext(ctx, svc.AgentId, partition, string(apiService.Message))
+		deviceID, devicePartition := s.extractDeviceContext(ctx, svc.AgentId, partition, sourceIP, string(apiService.Message))
 
 		serviceStatuses = append(serviceStatuses, &models.ServiceStatus{
 			AgentID:     svc.AgentId,

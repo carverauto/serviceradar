@@ -130,7 +130,6 @@ func (s *Server) processDiscoveredDevices(
 		resultsToStore = append(resultsToStore, result)
 	}
 
-
 	// Process devices immediately to ensure they exist before interfaces reference them
 	if s.DeviceRegistry != nil {
 		if err := s.DeviceRegistry.ProcessBatchSweepResults(ctx, resultsToStore); err != nil {
@@ -327,124 +326,153 @@ func (s *Server) processDiscoveredInterfaces(
 		return
 	}
 
-	// Step 1: Collect all unique Device IPs from the interface batch
-	deviceIPSet := make(map[string]struct{})
-	// Map to group all IPs by the primary device IP to handle correlation
-	deviceIPs := make(map[string]map[string]struct{})
-	
+	// Group interfaces by the device they were discovered on.
+	// This is key to preventing cross-contamination between devices in the same report.
+	deviceToInterfacesMap := make(map[string][]*discoverypb.DiscoveredInterface)
 	for _, protoIface := range interfaces {
-		if protoIface != nil && protoIface.DeviceIp != "" {
-			deviceIPSet[protoIface.DeviceIp] = struct{}{}
-			
-			// Initialize the set if it's the first time seeing this device IP
-			if _, ok := deviceIPs[protoIface.DeviceIp]; !ok {
-				deviceIPs[protoIface.DeviceIp] = make(map[string]struct{})
-			}
-
-			// Add all IPs from the interface to the device's IP set for correlation
-			for _, ip := range protoIface.IpAddresses {
-				if ip != "" && !isLoopbackIP(ip) {
-					deviceIPs[protoIface.DeviceIp][ip] = struct{}{}
-				}
-			}
-		}
-	}
-	
-	ipsToLookup := make([]string, 0, len(deviceIPSet))
-	for ip := range deviceIPSet {
-		ipsToLookup = append(ipsToLookup, ip)
-	}
-
-	// Step 2: Use the Device Registry to find the canonical device for each IP in one batch
-	canonicalDeviceMap, err := s.DeviceRegistry.FindCanonicalDevicesByIPs(ctx, ipsToLookup)
-	if err != nil {
-		log.Printf("Error finding canonical devices for interfaces: %v", err)
-		// Continue processing even if lookup fails
-	}
-
-	modelInterfaces := make([]*models.DiscoveredInterface, 0, len(interfaces))
-	for _, protoIface := range interfaces {
-		if protoIface == nil {
+		if protoIface == nil || protoIface.DeviceIp == "" {
 			continue
 		}
 
-		// Step 3: Determine the canonical DeviceID
-		var canonicalDeviceID string
-		if canonicalDevice, ok := canonicalDeviceMap[protoIface.DeviceIp]; ok {
-			canonicalDeviceID = canonicalDevice.DeviceID
-		} else {
-			// With materialized view approach, use the partition:ip format
-			// The materialized view will handle device reconciliation automatically
-			canonicalDeviceID = fmt.Sprintf("%s:%s", partition, protoIface.DeviceIp)
-		}
-
-		metadataJSON := s.prepareInterfaceMetadata(protoIface)
-
-		modelIface := &models.DiscoveredInterface{
-			Timestamp:     timestamp,
-			AgentID:       discoveryAgentID,
-			PollerID:      discoveryInitiatorPollerID,
-			DeviceIP:      protoIface.DeviceIp, // This is the IP we discovered it on
-			DeviceID:      canonicalDeviceID,   // THIS IS THE CRITICAL CHANGE - using canonical ID
-			IfIndex:       protoIface.IfIndex,
-			IfName:        protoIface.IfName,
-			IfDescr:       protoIface.IfDescr,
-			IfAlias:       protoIface.IfAlias,
-			IfSpeed:       protoIface.IfSpeed.GetValue(), // Unwrap the uint64 value
-			IfPhysAddress: protoIface.IfPhysAddress,
-			IPAddresses:   protoIface.IpAddresses,
-			IfAdminStatus: protoIface.IfAdminStatus,
-			IfOperStatus:  protoIface.IfOperStatus,
-			Metadata:      metadataJSON,
-		}
-
-		modelInterfaces = append(modelInterfaces, modelIface)
+		deviceToInterfacesMap[protoIface.DeviceIp] = append(deviceToInterfacesMap[protoIface.DeviceIp], protoIface)
 	}
 
-	// --- Start of alternate IP correlation logic ---
-	// Update device registry with alternate IPs using materialized view approach
-	correlationResults := make([]*models.SweepResult, 0, len(deviceIPs))
-	
-	for deviceIP, ipSet := range deviceIPs {
-		// Convert the set of IPs to a slice
-		allIPs := make([]string, 0, len(ipSet))
-		for ip := range ipSet {
-			allIPs = append(allIPs, ip)
+	// --- Process Interfaces for Storage (less critical path) ---
+	// This part stores the detailed interface data.
+	allModelInterfaces := make([]*models.DiscoveredInterface, 0, len(interfaces))
+	for deviceIP, deviceInterfaces := range deviceToInterfacesMap {
+		// Find canonical device ID specifically for THIS deviceIP.
+		canonicalDeviceMap, err := s.DeviceRegistry.FindCanonicalDevicesByIPs(ctx, []string{deviceIP})
+		if err != nil {
+			log.Printf("Warning: Error finding canonical device for %s, will generate ID: %v", deviceIP, err)
+			canonicalDeviceMap = make(map[string]*models.UnifiedDevice)
 		}
 
-		// Marshal the IPs into a JSON string for metadata
-		alternateIPsJSON, err := json.Marshal(allIPs)
+		var canonicalDeviceID string
+
+		if canonicalDevice, ok := canonicalDeviceMap[deviceIP]; ok {
+			canonicalDeviceID = canonicalDevice.DeviceID
+		} else {
+			// Materialized view will handle reconciliation.
+			canonicalDeviceID = fmt.Sprintf("%s:%s", partition, deviceIP)
+		}
+
+		// Prepare the detailed interface models for this device
+		for _, protoIface := range deviceInterfaces {
+			metadataJSON := s.prepareInterfaceMetadata(protoIface)
+			modelIface := &models.DiscoveredInterface{
+				Timestamp:     timestamp,
+				AgentID:       discoveryAgentID,
+				PollerID:      discoveryInitiatorPollerID,
+				DeviceIP:      protoIface.DeviceIp,
+				DeviceID:      canonicalDeviceID, // Use the determined canonical ID
+				IfIndex:       protoIface.IfIndex,
+				IfName:        protoIface.IfName,
+				IfDescr:       protoIface.IfDescr,
+				IfAlias:       protoIface.IfAlias,
+				IfSpeed:       protoIface.IfSpeed.GetValue(),
+				IfPhysAddress: protoIface.IfPhysAddress,
+				IPAddresses:   protoIface.IpAddresses,
+				IfAdminStatus: protoIface.IfAdminStatus,
+				IfOperStatus:  protoIface.IfOperStatus,
+				Metadata:      metadataJSON,
+			}
+
+			allModelInterfaces = append(allModelInterfaces, modelIface)
+		}
+	}
+
+	if err := s.DB.PublishBatchDiscoveredInterfaces(ctx, allModelInterfaces); err != nil {
+		log.Printf("Error publishing batch discovered interfaces for poller %s: %v", reportingPollerID, err)
+	}
+
+	// --- Process Devices for Correlation (CRITICAL PATH) ---
+	// This path creates the SweepResults that drive the unified_devices view.
+	correlationResults := make([]*models.SweepResult, 0, len(deviceToInterfacesMap))
+
+	for deviceIP, deviceInterfaces := range deviceToInterfacesMap {
+		// Step 1: Collect ALL IPs associated with THIS specific device from the report.
+		ipSet := make(map[string]struct{})
+		ipSet[deviceIP] = struct{}{}
+
+		for _, iface := range deviceInterfaces {
+			for _, ip := range iface.IpAddresses {
+				if ip != "" && !isLoopbackIP(ip) {
+					ipSet[ip] = struct{}{}
+				}
+			}
+		}
+
+		allIPsForThisDevice := make([]string, 0, len(ipSet))
+
+		for ip := range ipSet {
+			allIPsForThisDevice = append(allIPsForThisDevice, ip)
+		}
+
+		// Step 2: Find the canonical device by looking up ALL associated IPs for THIS device.
+		canonicalDeviceMap, err := s.DeviceRegistry.FindCanonicalDevicesByIPs(ctx, allIPsForThisDevice)
+		if err != nil {
+			log.Printf("Error finding canonical devices for IP set %v: %v", allIPsForThisDevice, err)
+			canonicalDeviceMap = make(map[string]*models.UnifiedDevice)
+		}
+
+		// Step 3: Determine the single canonical ID for this device.
+		var canonicalDevice *models.UnifiedDevice
+
+		foundCanonicalIDs := make(map[string]struct{})
+		for _, dev := range canonicalDeviceMap {
+			if _, exists := foundCanonicalIDs[dev.DeviceID]; !exists {
+				if canonicalDevice == nil {
+					canonicalDevice = dev // Pick the first one we find
+				} else {
+					log.Printf("Warning: Discovered device %s links to multiple canonical devices (%s and %s). Sticking with first: %s",
+						deviceIP, canonicalDevice.DeviceID, dev.DeviceID, canonicalDevice.DeviceID)
+				}
+
+				foundCanonicalIDs[dev.DeviceID] = struct{}{}
+			}
+		}
+
+		var canonicalDeviceID string
+
+		if canonicalDevice != nil {
+			canonicalDeviceID = canonicalDevice.DeviceID
+			log.Printf("Found canonical device %s for discovered IP %s (linked via one of its IPs)", canonicalDeviceID, deviceIP)
+		} else {
+			canonicalDeviceID = fmt.Sprintf("%s:%s", partition, deviceIP)
+			log.Printf("No canonical device for IP set of %s, generating new ID: %s", deviceIP, canonicalDeviceID)
+		}
+
+		// Marshal alternate IPs for metadata
+		alternateIPsJSON, err := json.Marshal(allIPsForThisDevice)
 		if err != nil {
 			log.Printf("Error marshaling alternate IPs for device %s: %v", deviceIP, err)
 			continue
 		}
 
-		// Create a sweep result with alternate IP metadata
+		// Create the sweep result with the correct canonical ID and all its discovered IPs.
 		result := &models.SweepResult{
 			AgentID:         discoveryAgentID,
 			PollerID:        discoveryInitiatorPollerID,
-			DeviceID:        fmt.Sprintf("%s:%s", partition, deviceIP),
-			IP:              deviceIP,
-			Available:       true, // Assume available since we discovered interfaces
+			DeviceID:        canonicalDeviceID, // **CRITICAL FIX: Use the correctly scoped ID**
+			Partition:       partition,
+			IP:              deviceIP, // The primary IP from this discovery event.
+			Available:       true,
 			Timestamp:       timestamp,
-			DiscoverySource: "mapper", 
+			DiscoverySource: "mapper",
 			Metadata: map[string]string{
 				"alternate_ips": string(alternateIPsJSON),
 			},
 		}
+
 		correlationResults = append(correlationResults, result)
 	}
 
-	// Process correlation results using materialized view pipeline
+	// Step 4: Process the correlation results.
 	if len(correlationResults) > 0 && s.DeviceRegistry != nil {
 		if err := s.DeviceRegistry.ProcessBatchSweepResults(ctx, correlationResults); err != nil {
 			log.Printf("Error processing alternate IP correlation results: %v", err)
 		}
-	}
-	// --- End of alternate IP correlation logic ---
-
-	if err := s.DB.PublishBatchDiscoveredInterfaces(ctx, modelInterfaces); err != nil {
-		log.Printf("Error publishing batch discovered interfaces for poller %s: %v", reportingPollerID, err)
 	}
 }
 

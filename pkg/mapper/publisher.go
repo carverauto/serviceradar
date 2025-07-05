@@ -222,11 +222,17 @@ func (p *ProtonPublisher) PublishBatchDevices(ctx context.Context, devices []*Di
 		// Create sweep result
 		hostname := device.Hostname
 		mac := device.MAC
+		partition := p.config.Partition
+		if partition == "" {
+			partition = "default"
+		}
+		deviceID := fmt.Sprintf("%s:%s", partition, device.IP)
 
 		results[i] = &models.SweepResult{
 			AgentID:         p.config.AgentID,
 			PollerID:        p.config.PollerID,
-			Partition:       p.config.Partition,
+			Partition:       partition,
+			DeviceID:        deviceID,
 			DiscoverySource: discoverySource,
 			IP:              device.IP,
 			MAC:             &mac,
