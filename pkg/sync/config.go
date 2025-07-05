@@ -30,23 +30,19 @@ const (
 )
 
 var (
-	errMissingSources = errors.New("at least one source must be defined")
-	errMissingFields  = errors.New("source missing required fields (type, endpoint, prefix)")
-	errMissingStream  = errors.New("stream_name is required")
+	errMissingSources     = errors.New("at least one source must be defined")
+	errMissingFields      = errors.New("source missing required fields (type, endpoint, prefix)")
+	errListenAddrRequired = errors.New("listen_addr is required for the gRPC server")
 )
 
 type Config struct {
 	Sources      map[string]*models.SourceConfig `json:"sources"`       // e.g., "armis": {...}, "netbox": {...}
 	KVAddress    string                          `json:"kv_address"`    // KV gRPC server address (optional)
-	NATSURL      string                          `json:"nats_url"`      // NATS server URL for JetStream
-	Domain       string                          `json:"domain"`        // JetStream domain (optional)
-	StreamName   string                          `json:"stream_name"`   // JetStream stream name
-	Subject      string                          `json:"subject"`       // Subject prefix for device publishes
+	ListenAddr   string                          `json:"listen_addr"`   // gRPC listen address for the discovery service
 	PollInterval models.Duration                 `json:"poll_interval"` // Polling interval
-	AgentID      string                          `json:"agent_id"`      // Agent ID for device records
-	PollerID     string                          `json:"poller_id"`     // Poller ID for device records
-	Security     *models.SecurityConfig          `json:"security"`      // mTLS config for gRPC/KV
-	NATSSecurity *models.SecurityConfig          `json:"nats_security"` // Optional mTLS config for NATS
+	AgentID      string                          `json:"agent_id"`      // Default Agent ID for device records
+	PollerID     string                          `json:"poller_id"`     // Default Poller ID for device records
+	Security     *models.SecurityConfig          `json:"security"`      // mTLS config for gRPC
 }
 
 func (c *Config) Validate() error {
@@ -54,16 +50,8 @@ func (c *Config) Validate() error {
 		return errMissingSources
 	}
 
-	if c.NATSURL == "" {
-		c.NATSURL = "nats://localhost:4222"
-	}
-
-	if c.StreamName == "" {
-		return errMissingStream
-	}
-
-	if c.Subject == "" {
-		c.Subject = "discovery.devices"
+	if c.ListenAddr == "" {
+		return errListenAddrRequired
 	}
 
 	if time.Duration(c.PollInterval) == 0 {
@@ -76,27 +64,20 @@ func (c *Config) Validate() error {
 		}
 	}
 
-	// Normalize TLS paths if security is configured
 	if c.Security != nil {
 		c.normalizeCertPaths(c.Security)
-	}
-
-	if c.NATSSecurity != nil {
-		c.normalizeCertPaths(c.NATSSecurity)
 	}
 
 	return nil
 }
 
-// normalizeCertPaths ensures all TLS file paths are absolute by prepending CertDir.
 func (*Config) normalizeCertPaths(sec *models.SecurityConfig) {
 	certDir := sec.CertDir
 	if certDir == "" {
 		return
 	}
 
-	tls := &sec.TLS // Use pointer to modify the original struct
-
+	tls := &sec.TLS
 	if !filepath.IsAbs(tls.CertFile) {
 		tls.CertFile = filepath.Join(certDir, tls.CertFile)
 	}
@@ -112,6 +93,6 @@ func (*Config) normalizeCertPaths(sec *models.SecurityConfig) {
 	if tls.ClientCAFile != "" && !filepath.IsAbs(tls.ClientCAFile) {
 		tls.ClientCAFile = filepath.Join(certDir, tls.ClientCAFile)
 	} else if tls.ClientCAFile == "" {
-		tls.ClientCAFile = tls.CAFile // Fallback to CAFile if unset
+		tls.ClientCAFile = tls.CAFile
 	}
 }

@@ -158,6 +158,15 @@ func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[
 		// Create discovery event (sweep result style)
 		hostname := device.Name
 		deviceID := fmt.Sprintf("%s:%s", partition, ipStr)
+		
+		log.Printf("DEBUG [netbox]: Creating SweepResult from Netbox device:")
+		log.Printf("  - Netbox Device ID: %d", device.ID)
+		log.Printf("  - Netbox Device Name: %s", device.Name)
+		log.Printf("  - Netbox Device IP: %s", ipStr)
+		log.Printf("  - Generated DeviceID: %s", deviceID)
+		log.Printf("  - Role: %s", device.Role.Name)
+		log.Printf("  - Site: %s", device.Site.Name)
+		
 		event := &models.SweepResult{
 			AgentID:         agentID,
 			PollerID:        pollerID,
@@ -180,6 +189,15 @@ func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[
 			} else {
 				event.Metadata[k] = fmt.Sprintf("%v", v)
 			}
+		}
+
+		log.Printf("DEBUG [netbox]: Final SweepResult created:")
+		log.Printf("  - SweepResult IP: %s", event.IP)
+		log.Printf("  - SweepResult DeviceID: %s", event.DeviceID)
+		log.Printf("  - SweepResult DiscoverySource: %s", event.DiscoverySource)
+		log.Printf("  - SweepResult Hostname: %s", *event.Hostname)
+		if metaJSON, err := json.Marshal(event.Metadata); err == nil {
+			log.Printf("  - SweepResult Metadata: %s", string(metaJSON))
 		}
 
 		value, err := json.Marshal(event)

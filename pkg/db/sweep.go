@@ -31,12 +31,27 @@ func (db *DB) StoreSweepResults(ctx context.Context, results []*models.SweepResu
 		return nil
 	}
 
+	log.Printf("DEBUG [database]: StoreSweepResults called with %d results", len(results))
+
 	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO sweep_results (agent_id, poller_id, partition, device_id, discovery_source, ip, mac, hostname, timestamp, available, metadata)")
 	if err != nil {
 		return fmt.Errorf("failed to prepare batch: %w", err)
 	}
 
-	for _, result := range results {
+	for i, result := range results {
+		log.Printf("DEBUG [database]: Storing SweepResult %d:", i+1)
+		log.Printf("  - IP: %s", result.IP)
+		log.Printf("  - DeviceID: %s", result.DeviceID)
+		log.Printf("  - DiscoverySource: %s", result.DiscoverySource)
+		log.Printf("  - Partition: %s", result.Partition)
+		if result.Hostname != nil {
+			log.Printf("  - Hostname: %s", *result.Hostname)
+		}
+		if result.Metadata != nil {
+			if metaJSON, err := json.Marshal(result.Metadata); err == nil {
+				log.Printf("  - Metadata: %s", string(metaJSON))
+			}
+		}
 		// Validate required fields
 		if result.IP == "" {
 			log.Printf("Skipping sweep result with empty IP for poller %s", result.PollerID)
@@ -58,18 +73,11 @@ func (db *DB) StoreSweepResults(ctx context.Context, results []*models.SweepResu
 			result.DeviceID = fmt.Sprintf("%s:%s", result.Partition, result.IP)
 		}
 
-		// Convert metadata map to JSON string
+		// Ensure metadata is not nil for map(string, string) column
 		metadata := result.Metadata
 		if metadata == nil {
 			metadata = make(map[string]string)
 		}
-		
-		metadataBytes, err := json.Marshal(metadata)
-		if err != nil {
-			log.Printf("Failed to marshal metadata for IP %s: %v", result.IP, err)
-			continue
-		}
-		metadataStr := string(metadataBytes)
 
 		err = batch.Append(
 			result.AgentID,
@@ -82,7 +90,7 @@ func (db *DB) StoreSweepResults(ctx context.Context, results []*models.SweepResu
 			result.Hostname,
 			result.Timestamp,
 			result.Available,
-			metadataStr, // Pass as JSON string
+			metadata, // Pass as map[string]string directly
 		)
 		if err != nil {
 			log.Printf("Failed to append sweep result for IP %s: %v", result.IP, err)

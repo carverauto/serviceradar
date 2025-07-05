@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/carverauto/serviceradar/pkg/registry"
 	"log"
 	"os"
 	"path/filepath"
@@ -81,10 +82,11 @@ func NewServer(ctx context.Context, config *models.DBConfig) (*Server, error) {
 		Retention:  normalizedConfig.Metrics.Retention,
 		MaxPollers: normalizedConfig.Metrics.MaxPollers,
 	}
+
 	metricsManager := metrics.NewManager(metricsConfig, database)
 
-	// Initialize device registry for unified device management
-	deviceRegistry := NewDeviceRegistry(database)
+	// Initialize the NEW authoritative device registry
+	deviceRegistry := registry.NewDeviceRegistry(database)
 
 	server := &Server{
 		DB:                  database,
@@ -461,8 +463,8 @@ func (s *Server) GetSNMPManager() metricstore.SNMPManager {
 	return s.snmpManager
 }
 
-func (s *Server) GetDeviceRegistry() DeviceRegistryService {
-	return nil // s.DeviceRegistry
+func (s *Server) GetDeviceRegistry() registry.Manager {
+	return s.DeviceRegistry
 }
 
 func (s *Server) runMetricsCleanup(ctx context.Context) {
@@ -1393,17 +1395,16 @@ func (s *Server) createSNMPTargetDeviceRecord(
 			"last_poll":       timestamp.Format(time.RFC3339),
 		},
 	}
-
 	{
 		deviceID := fmt.Sprintf("%s:%s", partition, targetIP)
 		log.Printf("Created/updated device record for SNMP target %s (hostname: %s, ip: %s)",
 			deviceID, hostname, targetIP)
 	}
 
-	// Also process through device registry for unified device management
+	// Process through the new device registry
 	if s.DeviceRegistry != nil {
-		if err := s.DeviceRegistry.ProcessSweepResult(ctx, sweepResult); err != nil {
-			log.Printf("Warning: Failed to process SNMP target device through device registry for %s: %v", targetIP, err)
+		if err := s.DeviceRegistry.ProcessSighting(ctx, sweepResult); err != nil {
+			log.Printf("Warning: Failed to process SNMP target device sighting for %s: %v", targetIP, err)
 		}
 	}
 }
@@ -1983,22 +1984,14 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 		resultsToStore = append(resultsToStore, result)
 	}
 
-	if len(resultsToStore) == 0 {
-		log.Printf("No sweep results to store for poller %s", contextPollerID)
+	if len(resultsToStore) > 0 {
+		// Delegate directly to the new registry
+		if err := s.DeviceRegistry.ProcessBatchSightings(ctx, resultsToStore); err != nil {
+			log.Printf("Error processing batch sweep results: %v", err)
 
-		return nil
+			return err
+		}
 	}
-
-	// Buffer the results instead of processing them individually
-	s.bufferMu.Lock()
-	if s.sweepResultBuffers == nil {
-		s.sweepResultBuffers = make(map[string][]*models.SweepResult)
-	}
-	if _, ok := s.sweepResultBuffers[contextPollerID]; !ok {
-		s.sweepResultBuffers[contextPollerID] = []*models.SweepResult{}
-	}
-	s.sweepResultBuffers[contextPollerID] = append(s.sweepResultBuffers[contextPollerID], resultsToStore...)
-	s.bufferMu.Unlock()
 
 	return nil
 }

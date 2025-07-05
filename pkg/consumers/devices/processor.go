@@ -63,6 +63,14 @@ func (p *Processor) prepareDevice(msg jetstream.Msg) (*models.Device, error) {
 
 // convertSweepResultToDevice converts a SweepResult to a Device.
 func (p *Processor) convertSweepResultToDevice(sweep *models.SweepResult) *models.Device {
+	log.Printf("DEBUG [device-consumer]: Converting SweepResult to Device:")
+	log.Printf("  - SweepResult IP: %s", sweep.IP)
+	log.Printf("  - SweepResult DeviceID: %s", sweep.DeviceID)
+	log.Printf("  - SweepResult DiscoverySource: %s", sweep.DiscoverySource)
+	if sweep.Hostname != nil {
+		log.Printf("  - SweepResult Hostname: %s", *sweep.Hostname)
+	}
+	
 	device := &models.Device{
 		DeviceID:         "",
 		AgentID:          sweep.AgentID,
@@ -103,6 +111,12 @@ func (p *Processor) convertSweepResultToDevice(sweep *models.SweepResult) *model
 		device.DeviceID = fmt.Sprintf("%s:%s", sweep.Partition, sweep.IP)
 	}
 
+	log.Printf("DEBUG [device-consumer]: Converted Device:")
+	log.Printf("  - Device IP: %s", device.IP)
+	log.Printf("  - Device DeviceID: %s", device.DeviceID)
+	log.Printf("  - Device Hostname: %s", device.Hostname)
+	log.Printf("  - Device DiscoverySources: %v", device.DiscoverySources)
+
 	return device
 }
 
@@ -130,9 +144,16 @@ func (p *Processor) storeBatch(ctx context.Context, devices []*models.Device) er
 		return nil
 	}
 
+	log.Printf("DEBUG [device-consumer]: storeBatch called with %d devices", len(devices))
+
 	// Convert devices to sweep results for the materialized view pipeline
 	var sweepResults []*models.SweepResult
-	for _, device := range devices {
+	for i, device := range devices {
+		log.Printf("DEBUG [device-consumer]: Converting Device %d back to SweepResult:", i+1)
+		log.Printf("  - Device IP: %s", device.IP)
+		log.Printf("  - Device DeviceID: %s", device.DeviceID)
+		log.Printf("  - Device Hostname: %s", device.Hostname)
+		log.Printf("  - Device DiscoverySources: %v", device.DiscoverySources)
 		// Convert metadata from interface{} to map[string]string
 		metadata := make(map[string]string)
 		for k, v := range device.Metadata {
@@ -164,11 +185,25 @@ func (p *Processor) storeBatch(ctx context.Context, devices []*models.Device) er
 			sweep.MAC = &device.MAC
 		}
 
+		log.Printf("DEBUG [device-consumer]: Created SweepResult:")
+		log.Printf("  - SweepResult IP: %s", sweep.IP)
+		log.Printf("  - SweepResult DeviceID: %s", sweep.DeviceID)
+		log.Printf("  - SweepResult DiscoverySource: %s", sweep.DiscoverySource)
+		if sweep.Hostname != nil {
+			log.Printf("  - SweepResult Hostname: %s", *sweep.Hostname)
+		}
+
 		// CRITICAL: Enrich with alternate IPs before publishing
 		// This is the "application-side enrichment" step that solves the look-ahead problem
 		if err := p.enrichSweepResultWithAlternateIPs(ctx, sweep); err != nil {
 			log.Printf("Failed to enrich sweep result for %s: %v", sweep.IP, err)
 			// Continue processing - enrichment failure shouldn't block device storage
+		}
+
+		log.Printf("DEBUG [device-consumer]: After enrichment:")
+		log.Printf("  - SweepResult DeviceID: %s", sweep.DeviceID)
+		if enrichMetaJSON, err := json.Marshal(sweep.Metadata); err == nil {
+			log.Printf("  - SweepResult Metadata: %s", string(enrichMetaJSON))
 		}
 
 		sweepResults = append(sweepResults, sweep)

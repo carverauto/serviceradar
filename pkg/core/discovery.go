@@ -74,6 +74,15 @@ func (s *Server) processSNMPDiscoveryResults(
 		discoveryInitiatorPollerID = reportingPollerID
 	}
 
+	// Create a map of discovered devices for easy lookup by IP.
+	// This allows us to enrich interface data with device metadata.
+	deviceMap := make(map[string]*discoverypb.DiscoveredDevice)
+	for _, dev := range payload.Devices {
+		if dev != nil && dev.Ip != "" {
+			deviceMap[dev.Ip] = dev
+		}
+	}
+
 	// Process each type of discovery data
 	if len(payload.Devices) > 0 {
 		s.processDiscoveredDevices(ctx, payload.Devices, discoveryAgentID, discoveryInitiatorPollerID,
@@ -81,7 +90,8 @@ func (s *Server) processSNMPDiscoveryResults(
 	}
 
 	if len(payload.Interfaces) > 0 {
-		s.processDiscoveredInterfaces(ctx, payload.Interfaces, discoveryAgentID, discoveryInitiatorPollerID,
+		// Pass the deviceMap to the interface processor to enrich sightings.
+		s.processDiscoveredInterfaces(ctx, payload.Interfaces, deviceMap, discoveryAgentID, discoveryInitiatorPollerID,
 			partition, reportingPollerID, timestamp)
 	}
 
@@ -130,12 +140,10 @@ func (s *Server) processDiscoveredDevices(
 		resultsToStore = append(resultsToStore, result)
 	}
 
-	// Process devices immediately to ensure they exist before interfaces reference them
 	if s.DeviceRegistry != nil {
-		if err := s.DeviceRegistry.ProcessBatchSweepResults(ctx, resultsToStore); err != nil {
-			log.Printf("Error processing batch sweep results from discovery for poller %s: %v", reportingPollerID, err)
-		} else {
-			log.Printf("Successfully processed %d discovered devices for poller %s", len(resultsToStore), reportingPollerID)
+		// Delegate to the new registry
+		if err := s.DeviceRegistry.ProcessBatchSightings(ctx, resultsToStore); err != nil {
+			log.Printf("Error processing discovered device sightings for poller %s: %v", reportingPollerID, err)
 		}
 	}
 }
@@ -313,9 +321,18 @@ func classifyDeviceType(hostname, sysDescr, sysObjectID string) string {
 }
 
 // processDiscoveredInterfaces handles processing and storing interface information from SNMP discovery.
+// processDiscoveredInterfaces handles processing interface information from SNMP discovery.
+// Its responsibilities are:
+//  1. (Optional) Store the raw, detailed interface data for historical/diagnostic purposes.
+//  2. Create one "sighting" (SweepResult) for each device discovered in the report. This sighting
+//     is enriched with all IPs found on the device's interfaces, which is critical context for the registry.
+//  3. Pass these sightings to the authoritative DeviceRegistry for correlation and processing.
+//
+// This function NO LONGER performs any lookups or correlation itself.
 func (s *Server) processDiscoveredInterfaces(
 	ctx context.Context,
 	interfaces []*discoverypb.DiscoveredInterface,
+	deviceMap map[string]*discoverypb.DiscoveredDevice,
 	discoveryAgentID string,
 	discoveryInitiatorPollerID string,
 	partition string,
@@ -326,38 +343,23 @@ func (s *Server) processDiscoveredInterfaces(
 		return
 	}
 
-	// Group interfaces by the device they were discovered on.
-	// This is key to preventing cross-contamination between devices in the same report.
+	// --- Group interfaces by the device they were discovered on ---
+	// This is the essential first step to process data per-device.
 	deviceToInterfacesMap := make(map[string][]*discoverypb.DiscoveredInterface)
 	for _, protoIface := range interfaces {
 		if protoIface == nil || protoIface.DeviceIp == "" {
 			continue
 		}
-
 		deviceToInterfacesMap[protoIface.DeviceIp] = append(deviceToInterfacesMap[protoIface.DeviceIp], protoIface)
 	}
 
-	// --- Process Interfaces for Storage (less critical path) ---
-	// This part stores the detailed interface data.
+	// --- Path 1: Persist Raw Interface Data (for historical/detailed views) ---
+	// This path stores the granular interface data. It uses a provisional DeviceID,
+	// as the final canonical ID will be determined by the registry.
 	allModelInterfaces := make([]*models.DiscoveredInterface, 0, len(interfaces))
 	for deviceIP, deviceInterfaces := range deviceToInterfacesMap {
-		// Find canonical device ID specifically for THIS deviceIP.
-		canonicalDeviceMap, err := s.DeviceRegistry.FindCanonicalDevicesByIPs(ctx, []string{deviceIP})
-		if err != nil {
-			log.Printf("Warning: Error finding canonical device for %s, will generate ID: %v", deviceIP, err)
-			canonicalDeviceMap = make(map[string]*models.UnifiedDevice)
-		}
+		provisionalDeviceID := fmt.Sprintf("%s:%s", partition, deviceIP)
 
-		var canonicalDeviceID string
-
-		if canonicalDevice, ok := canonicalDeviceMap[deviceIP]; ok {
-			canonicalDeviceID = canonicalDevice.DeviceID
-		} else {
-			// Materialized view will handle reconciliation.
-			canonicalDeviceID = fmt.Sprintf("%s:%s", partition, deviceIP)
-		}
-
-		// Prepare the detailed interface models for this device
 		for _, protoIface := range deviceInterfaces {
 			metadataJSON := s.prepareInterfaceMetadata(protoIface)
 			modelIface := &models.DiscoveredInterface{
@@ -365,7 +367,7 @@ func (s *Server) processDiscoveredInterfaces(
 				AgentID:       discoveryAgentID,
 				PollerID:      discoveryInitiatorPollerID,
 				DeviceIP:      protoIface.DeviceIp,
-				DeviceID:      canonicalDeviceID, // Use the determined canonical ID
+				DeviceID:      provisionalDeviceID, // Use the provisional ID for this raw data.
 				IfIndex:       protoIface.IfIndex,
 				IfName:        protoIface.IfName,
 				IfDescr:       protoIface.IfDescr,
@@ -377,7 +379,6 @@ func (s *Server) processDiscoveredInterfaces(
 				IfOperStatus:  protoIface.IfOperStatus,
 				Metadata:      metadataJSON,
 			}
-
 			allModelInterfaces = append(allModelInterfaces, modelIface)
 		}
 	}
@@ -386,15 +387,15 @@ func (s *Server) processDiscoveredInterfaces(
 		log.Printf("Error publishing batch discovered interfaces for poller %s: %v", reportingPollerID, err)
 	}
 
-	// --- Process Devices for Correlation (CRITICAL PATH) ---
-	// This path creates the SweepResults that drive the unified_devices view.
-	correlationResults := make([]*models.SweepResult, 0, len(deviceToInterfacesMap))
+	// --- Path 2: Create Correlation Sightings for the Device Registry (CRITICAL PATH) ---
+	// This path creates the SweepResult events that drive the unified_devices view.
+	correlationSightings := make([]*models.SweepResult, 0, len(deviceToInterfacesMap))
 
 	for deviceIP, deviceInterfaces := range deviceToInterfacesMap {
-		// Step 1: Collect ALL IPs associated with THIS specific device from the report.
+		// Step A: Collect ALL unique IPs associated with THIS specific device from the report.
 		ipSet := make(map[string]struct{})
+		// Always include the primary IP the device was discovered with.
 		ipSet[deviceIP] = struct{}{}
-
 		for _, iface := range deviceInterfaces {
 			for _, ip := range iface.IpAddresses {
 				if ip != "" && !isLoopbackIP(ip) {
@@ -403,93 +404,57 @@ func (s *Server) processDiscoveredInterfaces(
 			}
 		}
 
-		allIPsForThisDevice := make([]string, 0, len(ipSet))
-
+		// Step B: Package these IPs into the metadata. This is the key context for the registry.
+		alternateIPs := make([]string, 0, len(ipSet)-1)
 		for ip := range ipSet {
-			allIPsForThisDevice = append(allIPsForThisDevice, ip)
-		}
-
-		// Step 2: Find the canonical device by looking up ALL associated IPs for THIS device.
-		canonicalDeviceMap, err := s.DeviceRegistry.FindCanonicalDevicesByIPs(ctx, allIPsForThisDevice)
-		if err != nil {
-			log.Printf("Error finding canonical devices for IP set %v: %v", allIPsForThisDevice, err)
-			canonicalDeviceMap = make(map[string]*models.UnifiedDevice)
-		}
-
-		// Step 3: Determine the single canonical ID for this device.
-		// This was previously non-deterministic when multiple devices were found.
-		// The new logic deterministically picks the most recently seen device as canonical.
-		var canonicalDevice *models.UnifiedDevice
-		uniqueDevices := make(map[string]*models.UnifiedDevice)
-		for _, dev := range canonicalDeviceMap {
-			uniqueDevices[dev.DeviceID] = dev
-		}
-
-		if len(uniqueDevices) > 1 {
-			log.Printf("Warning: Discovered device %s links to multiple canonical devices. Selecting the most recently seen one.", deviceIP)
-		}
-		for _, dev := range uniqueDevices {
-			if canonicalDevice == nil {
-				canonicalDevice = dev
-			} else if dev.LastSeen.After(canonicalDevice.LastSeen) {
-				canonicalDevice = dev
+			if ip != deviceIP { // The primary IP is not an "alternate" of itself.
+				alternateIPs = append(alternateIPs, ip)
 			}
 		}
 
-		var canonicalDeviceID string
-
-		if canonicalDevice != nil {
-			canonicalDeviceID = canonicalDevice.DeviceID
-			log.Printf("Found canonical device %s for discovered IP %s (linked via one of its IPs)", canonicalDeviceID, deviceIP)
+		// FIX: Initialize metadata from the parent device, if it exists in the map.
+		var metadata map[string]string
+		if parentDevice, ok := deviceMap[deviceIP]; ok {
+			metadata = s.extractDeviceMetadata(parentDevice)
 		} else {
-			canonicalDeviceID = fmt.Sprintf("%s:%s", partition, deviceIP)
-			log.Printf("No canonical device for IP set of %s, generating new ID: %s", deviceIP, canonicalDeviceID)
+			// Fallback if no corresponding device entry was found.
+			metadata = make(map[string]string)
+		}
+		
+		if len(alternateIPs) > 0 {
+			alternateIPsJSON, err := json.Marshal(alternateIPs)
+			if err != nil {
+				log.Printf("Error marshaling alternate IPs for device %s: %v", deviceIP, err)
+				// Continue without alternate_ips if marshaling fails.
+			} else {
+				metadata["alternate_ips"] = string(alternateIPsJSON)
+			}
 		}
 
-		// Marshal alternate IPs for metadata
-		alternateIPsJSON, err := json.Marshal(allIPsForThisDevice)
-		if err != nil {
-			log.Printf("Error marshaling alternate IPs for device %s: %v", deviceIP, err)
-			continue
-		}
-
-		// Create the sweep result with the correct canonical ID and all its discovered IPs.
-		result := &models.SweepResult{
+		// Step C: Create the single, enriched sighting for this device.
+		sighting := &models.SweepResult{
 			AgentID:         discoveryAgentID,
 			PollerID:        discoveryInitiatorPollerID,
-			DeviceID:        canonicalDeviceID, // **CRITICAL FIX: Use the correctly scoped ID**
+			DeviceID:        fmt.Sprintf("%s:%s", partition, deviceIP), // The registry will resolve the canonical ID.
 			Partition:       partition,
 			IP:              deviceIP, // The primary IP from this discovery event.
 			Available:       true,
 			Timestamp:       timestamp,
 			DiscoverySource: "mapper",
-			Metadata: map[string]string{
-				"alternate_ips": string(alternateIPsJSON),
-			},
+			Metadata:        metadata,
 		}
-
-		correlationResults = append(correlationResults, result)
+		correlationSightings = append(correlationSightings, sighting)
 	}
 
-	// Step 4: Process the correlation results.
-	if len(correlationResults) > 0 && s.DeviceRegistry != nil {
-		if err := s.DeviceRegistry.ProcessBatchSweepResults(ctx, correlationResults); err != nil {
-			log.Printf("Error processing alternate IP correlation results: %v", err)
+	// Step D: Process the batch of sightings through the authoritative registry.
+	if len(correlationSightings) > 0 && s.DeviceRegistry != nil {
+		if err := s.DeviceRegistry.ProcessBatchSightings(ctx, correlationSightings); err != nil {
+			log.Printf("Error processing mapper correlation sightings: %v", err)
 		}
 	}
 }
 
-// getOrGenerateDeviceID returns the device ID from the interface or generates one if not present.
-func (*Server) getOrGenerateDeviceID(protoIface *discoverypb.DiscoveredInterface, partition string) string {
-	deviceID := protoIface.DeviceId
-	if deviceID == "" && protoIface.DeviceIp != "" {
-		deviceID = fmt.Sprintf("%s:%s", partition, protoIface.DeviceIp)
-	}
-
-	return deviceID
-}
-
-// prepareInterfaceMetadata prepares the metadata JSON for an interface.
+// prepareInterfaceMetadata prepares the metadata JSON for an interface. (Helper function, remains unchanged)
 func (*Server) prepareInterfaceMetadata(protoIface *discoverypb.DiscoveredInterface) json.RawMessage {
 	finalMetadataMap := make(map[string]string)
 
@@ -512,6 +477,16 @@ func (*Server) prepareInterfaceMetadata(protoIface *discoverypb.DiscoveredInterf
 	}
 
 	return metadataJSON
+}
+
+// getOrGenerateDeviceID returns the device ID from the interface or generates one if not present.
+func (*Server) getOrGenerateDeviceID(protoIface *discoverypb.DiscoveredInterface, partition string) string {
+	deviceID := protoIface.DeviceId
+	if deviceID == "" && protoIface.DeviceIp != "" {
+		deviceID = fmt.Sprintf("%s:%s", partition, protoIface.DeviceIp)
+	}
+
+	return deviceID
 }
 
 // processDiscoveredTopology handles processing and storing topology information from SNMP discovery.
