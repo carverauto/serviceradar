@@ -62,6 +62,7 @@ func (db *DB) StoreSweepResults(ctx context.Context, results []*models.SweepResu
 			result.AgentID,
 			result.PollerID,
 			result.Partition,
+			result.DeviceID,
 			result.DiscoverySource,
 			result.IP,
 			result.MAC,

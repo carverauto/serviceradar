@@ -116,6 +116,7 @@ func (s *Server) processDiscoveredDevices(
 			Available:       true, // Assumed true if discovered via SNMP
 			Metadata:        deviceMetadata,
 		}
+	
 		resultsToStore = append(resultsToStore, result)
 	}
 
