@@ -18,7 +18,7 @@
 package core
 
 import (
-	"context"
+	"github.com/carverauto/serviceradar/pkg/registry"
 	"sync"
 	"time"
 
@@ -43,7 +43,6 @@ type Server struct {
 	proto.UnimplementedPollerServiceServer
 	mu                      sync.RWMutex
 	DB                      db.Service
-	DeviceRegistry          DeviceRegistryService
 	alertThreshold          time.Duration
 	webhooks                []alerts.AlertService
 	apiServer               api.Service
@@ -55,6 +54,7 @@ type Server struct {
 	rperfManager            metricstore.RperfManager
 	config                  *models.DBConfig
 	authService             *auth.Auth
+	DeviceRegistry          registry.Manager
 	metricBuffers           map[string][]*models.TimeseriesMetric
 	serviceBuffers          map[string][]*models.ServiceStatus
 	serviceListBuffers      map[string][]*models.Service
@@ -66,20 +66,6 @@ type Server struct {
 	pollerStatusUpdateMutex sync.Mutex
 	cacheLastUpdated        time.Time
 	cacheMutex              sync.RWMutex
-}
-
-// DeviceRegistryService interface for device registry operations
-type DeviceRegistryService interface {
-	ProcessSweepResult(ctx context.Context, result *models.SweepResult) error
-	ProcessBatchSweepResults(ctx context.Context, results []*models.SweepResult) error
-	UpdateDevice(ctx context.Context, update *models.DeviceUpdate) error
-	GetDevice(ctx context.Context, deviceID string) (*models.UnifiedDevice, error)
-	GetDevicesByIP(ctx context.Context, ip string) ([]*models.UnifiedDevice, error)
-	ListDevices(ctx context.Context, limit, offset int) ([]*models.UnifiedDevice, error)
-	FindCanonicalDevicesByIPs(ctx context.Context, ips []string) (map[string]*models.UnifiedDevice, error)
-	GetMergedDevice(ctx context.Context, deviceIDOrIP string) (*models.UnifiedDevice, error)
-	FindRelatedDevices(ctx context.Context, deviceID string) ([]*models.UnifiedDevice, error)
-	CleanupDuplicateDevices(ctx context.Context) error
 }
 
 // OIDStatusData represents the structure of OID status data.

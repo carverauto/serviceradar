@@ -348,6 +348,14 @@ func (s *SNMPService) handleDataPoint(targetName string, point *DataPoint, aggre
 			LastUpdate: point.Timestamp,
 		}
 
+		// Update hostname if this is the sysName OID
+		if point.OIDName == ".1.3.6.1.2.1.1.5.0" || point.OIDName == "sysName" {
+			if stringValue, ok := point.Value.(string); ok && stringValue != "" {
+				log.Printf("SNMP: Updating hostname for %s from %s to %s", targetName, status.HostName, stringValue)
+				status.HostName = stringValue
+			}
+		}
+
 		status.LastPoll = point.Timestamp
 		s.status[targetName] = status
 
