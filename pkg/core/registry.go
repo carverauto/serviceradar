@@ -45,6 +45,21 @@ func (r *DeviceRegistry) ProcessSweepResult(ctx context.Context, result *models.
 		return fmt.Errorf("sweep result is nil")
 	}
 
+	// Ensure the result has a DeviceID before enrichment.
+	// An empty DeviceID can lead to incorrect merging of unrelated devices.
+	if result.DeviceID == "" {
+		if result.IP != "" {
+			partition := result.Partition
+			if partition == "" {
+				partition = "default" // Fallback partition
+			}
+			result.DeviceID = fmt.Sprintf("%s:%s", partition, result.IP)
+			log.Printf("Warning: SweepResult for IP %s had an empty DeviceID. Generated default: %s", result.IP, result.DeviceID)
+		} else {
+			return fmt.Errorf("SweepResult has no DeviceID and no IP")
+		}
+	}
+
 	// Create a copy for enrichment
 	enrichedResult := *result
 
@@ -74,16 +89,32 @@ func (r *DeviceRegistry) ProcessBatchSweepResults(ctx context.Context, results [
 	log.Printf("Processing batch of %d sweep results using materialized view pipeline", len(results))
 
 	// STEP 1: Enrich each sweep result with known alternate IPs and discovery sources.
-	enrichedResults := make([]*models.SweepResult, len(results))
-	for i, result := range results {
+	enrichedResults := make([]*models.SweepResult, 0, len(results))
+	for _, result := range results {
+		// Ensure the result has a DeviceID before enrichment.
+		// An empty DeviceID can lead to incorrect merging of unrelated devices.
+		if result.DeviceID == "" {
+			if result.IP != "" {
+				partition := result.Partition
+				if partition == "" {
+					partition = "default" // Fallback partition
+				}
+				result.DeviceID = fmt.Sprintf("%s:%s", partition, result.IP)
+				log.Printf("Warning: SweepResult for IP %s had an empty DeviceID. Generated default: %s", result.IP, result.DeviceID)
+			} else {
+				log.Printf("Error: SweepResult has no DeviceID and no IP. Skipping invalid record.")
+				continue // Skip this invalid result
+			}
+		}
+
 		enrichedResult := *result // Copy the result
 
 		if err := r.enrichSweepResult(ctx, &enrichedResult); err != nil {
 			log.Printf("Warning: Failed to enrich sweep result for %s: %v", result.IP, err)
 			// Continue with original result if enrichment fails
-			enrichedResults[i] = result
+			enrichedResults = append(enrichedResults, result)
 		} else {
-			enrichedResults[i] = &enrichedResult
+			enrichedResults = append(enrichedResults, &enrichedResult)
 		}
 	}
 

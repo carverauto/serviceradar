@@ -417,19 +417,22 @@ func (s *Server) processDiscoveredInterfaces(
 		}
 
 		// Step 3: Determine the single canonical ID for this device.
+		// This was previously non-deterministic when multiple devices were found.
+		// The new logic deterministically picks the most recently seen device as canonical.
 		var canonicalDevice *models.UnifiedDevice
-
-		foundCanonicalIDs := make(map[string]struct{})
+		uniqueDevices := make(map[string]*models.UnifiedDevice)
 		for _, dev := range canonicalDeviceMap {
-			if _, exists := foundCanonicalIDs[dev.DeviceID]; !exists {
-				if canonicalDevice == nil {
-					canonicalDevice = dev // Pick the first one we find
-				} else {
-					log.Printf("Warning: Discovered device %s links to multiple canonical devices (%s and %s). Sticking with first: %s",
-						deviceIP, canonicalDevice.DeviceID, dev.DeviceID, canonicalDevice.DeviceID)
-				}
+			uniqueDevices[dev.DeviceID] = dev
+		}
 
-				foundCanonicalIDs[dev.DeviceID] = struct{}{}
+		if len(uniqueDevices) > 1 {
+			log.Printf("Warning: Discovered device %s links to multiple canonical devices. Selecting the most recently seen one.", deviceIP)
+		}
+		for _, dev := range uniqueDevices {
+			if canonicalDevice == nil {
+				canonicalDevice = dev
+			} else if dev.LastSeen.After(canonicalDevice.LastSeen) {
+				canonicalDevice = dev
 			}
 		}
 

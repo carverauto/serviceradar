@@ -143,6 +143,7 @@ func (p *Processor) storeBatch(ctx context.Context, devices []*models.Device) er
 
 		// Create sweep result from device
 		sweep := &models.SweepResult{
+			DeviceID:        device.DeviceID,
 			AgentID:         device.AgentID,
 			PollerID:        device.PollerID,
 			Partition:       extractPartitionFromDeviceID(device.DeviceID),
