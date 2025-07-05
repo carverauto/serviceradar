@@ -34,6 +34,7 @@ CREATE STREAM IF NOT EXISTS sweep_results (
     agent_id string,
     poller_id string, 
     partition string,
+    device_id string,  -- Canonical device ID to prevent duplicates
     discovery_source string,
     ip string,
     mac nullable(string),
@@ -87,34 +88,12 @@ CREATE STREAM IF NOT EXISTS unified_devices_registry (
 ) PRIMARY KEY (device_id)
   SETTINGS mode='versioned_kv', version_column='_tp_time';
 
--- Create the unified_devices_registry stream that device-mgr expects
-CREATE STREAM IF NOT EXISTS unified_devices_registry (
-    device_id string,
-    ip string,
-    poller_id string,
-    hostname nullable(string),
-    mac nullable(string),
-    discovery_sources array(string),
-    is_available boolean,
-    first_seen DateTime64(3),
-    last_seen DateTime64(3),
-    metadata map(string, string),
-    agent_id string,
-    device_type string DEFAULT 'network_device',
-    service_type nullable(string),
-    service_status nullable(string),
-    last_heartbeat nullable(DateTime64(3)),
-    os_info nullable(string),
-    version_info nullable(string)
-) PRIMARY KEY (device_id)
-  SETTINGS mode='versioned_kv', version_column='_tp_time';
-
 -- Materialized view that maintains only current device state
--- Simple approach: each IP gets its own device record, merging happens at application level
+-- Uses the provided device_id to prevent duplicates when devices have multiple IPs
 CREATE MATERIALIZED VIEW IF NOT EXISTS unified_device_pipeline_mv
 INTO unified_devices
 AS SELECT
-    concat(s.partition, ':', s.ip) AS device_id,
+    s.device_id AS device_id,  -- Use provided device_id instead of constructing it
     s.ip,
     s.poller_id,
     if(s.hostname IS NOT NULL AND s.hostname != '', s.hostname, u.hostname) AS hostname,
@@ -136,7 +115,7 @@ AS SELECT
     u.os_info,
     u.version_info
 FROM sweep_results AS s
-LEFT JOIN unified_devices AS u ON concat(s.partition, ':', s.ip) = u.device_id;
+LEFT JOIN unified_devices AS u ON s.device_id = u.device_id;
 
 -- =================================================================
 -- == Network Discovery Streams

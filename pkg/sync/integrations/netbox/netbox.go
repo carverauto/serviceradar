@@ -157,11 +157,13 @@ func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[
 
 		// Create discovery event (sweep result style)
 		hostname := device.Name
+		deviceID := fmt.Sprintf("%s:%s", partition, ipStr)
 		event := &models.SweepResult{
 			AgentID:         agentID,
 			PollerID:        pollerID,
 			Partition:       partition,
-			DiscoverySource: "integration",
+			DeviceID:        deviceID,
+			DiscoverySource: "netbox",
 			IP:              ipStr,
 			Hostname:        &hostname,
 			Timestamp:       now,

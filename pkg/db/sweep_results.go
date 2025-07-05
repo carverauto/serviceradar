@@ -35,7 +35,7 @@ func (db *DB) PublishSweepResult(ctx context.Context, result *models.SweepResult
 	log.Printf("Publishing sweep result for device %s (IP: %s, Available: %t)", 
 		result.DeviceID, result.IP, result.Available)
 
-	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO sweep_results (agent_id, poller_id, partition, discovery_source, ip, mac, hostname, timestamp, available, metadata)")
+	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO sweep_results (agent_id, poller_id, partition, device_id, discovery_source, ip, mac, hostname, timestamp, available, metadata)")
 	if err != nil {
 		return fmt.Errorf("failed to prepare batch: %w", err)
 	}
@@ -51,6 +51,7 @@ func (db *DB) PublishSweepResult(ctx context.Context, result *models.SweepResult
 		result.AgentID,
 		result.PollerID,
 		partition,
+		result.DeviceID,
 		result.DiscoverySource,
 		result.IP,
 		result.MAC,
@@ -81,7 +82,7 @@ func (db *DB) PublishBatchSweepResults(ctx context.Context, results []*models.Sw
 
 	log.Printf("Publishing batch of %d sweep results to materialized view pipeline", len(results))
 
-	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO sweep_results (agent_id, poller_id, partition, discovery_source, ip, mac, hostname, timestamp, available, metadata)")
+	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO sweep_results (agent_id, poller_id, partition, device_id, discovery_source, ip, mac, hostname, timestamp, available, metadata)")
 	if err != nil {
 		return fmt.Errorf("failed to prepare batch: %w", err)
 	}
@@ -102,6 +103,7 @@ func (db *DB) PublishBatchSweepResults(ctx context.Context, results []*models.Sw
 			result.AgentID,
 			result.PollerID,
 			partition,
+			result.DeviceID,
 			result.DiscoverySource,
 			result.IP,
 			result.MAC,
