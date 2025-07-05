@@ -18,6 +18,7 @@
 package core
 
 import (
+	"github.com/carverauto/serviceradar/pkg/registry"
 	"sync"
 	"time"
 
@@ -53,10 +54,12 @@ type Server struct {
 	rperfManager            metricstore.RperfManager
 	config                  *models.DBConfig
 	authService             *auth.Auth
+	DeviceRegistry          registry.Manager
 	metricBuffers           map[string][]*models.TimeseriesMetric
 	serviceBuffers          map[string][]*models.ServiceStatus
 	serviceListBuffers      map[string][]*models.Service
 	sysmonBuffers           map[string][]*sysmonMetricBuffer
+	sweepResultBuffers      map[string][]*models.SweepResult
 	bufferMu                sync.RWMutex
 	pollerStatusCache       map[string]*models.PollerStatus
 	pollerStatusUpdates     map[string]*models.PollerStatus

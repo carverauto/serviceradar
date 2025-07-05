@@ -26,6 +26,7 @@ import (
 	"net/http"
 	"time"
 
+	devicemodels "github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/srql"
 	"github.com/carverauto/serviceradar/pkg/srql/models"
 	"github.com/carverauto/serviceradar/pkg/srql/parser"
@@ -264,6 +265,9 @@ func (s *APIServer) executeQueryAndBuildResponse(ctx context.Context, query *mod
 		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
 
+	// Post-process results for specific entity types
+	results = s.postProcessResults(results, query.Entity)
+
 	// Generate cursors
 	nextCursor, prevCursor := generateCursors(query, results, s.dbType)
 
@@ -363,6 +367,160 @@ func (s *APIServer) executeQuery(ctx context.Context, query string, entity model
 	}
 
 	return results, nil
+}
+
+// postProcessResults processes query results for specific entity types
+func (s *APIServer) postProcessResults(results []map[string]interface{}, entity models.EntityType) []map[string]interface{} {
+	if entity == models.Devices {
+		return s.postProcessDeviceResults(results)
+	}
+	return results
+}
+
+// postProcessDeviceResults processes device query results to parse JSON fields
+func (s *APIServer) postProcessDeviceResults(results []map[string]interface{}) []map[string]interface{} {
+	for _, result := range results {
+		// Handle discovery_sources field - in new schema it's array(string), in old schema it might be JSON
+		if discoverySourcesArray, ok := result["discovery_sources"].([]string); ok && len(discoverySourcesArray) > 0 {
+			// New schema: discovery_sources is already []string from unified_devices
+			log.Printf("DEBUG API: Device %v has discovery_sources from string array: %v", result["device_id"], discoverySourcesArray)
+			result["discovery_sources"] = discoverySourcesArray
+		} else if discoverySourcesArray, ok := result["discovery_sources"].([]interface{}); ok {
+			// Fallback: discovery_sources as []interface{}
+			log.Printf("DEBUG API: Device %v has discovery_sources from interface array: %v", result["device_id"], discoverySourcesArray)
+			sources := make([]string, len(discoverySourcesArray))
+			for i, source := range discoverySourcesArray {
+				if sourceStr, ok := source.(string); ok {
+					sources[i] = sourceStr
+				}
+			}
+			result["discovery_sources"] = sources
+		} else if discoverySourcesStr, ok := result["discovery_sources"].(string); ok && discoverySourcesStr != "" {
+			// Old schema: discovery_sources is JSON string - parse it
+			var discoverySourcesInfo []devicemodels.DiscoverySourceInfo
+			if err := json.Unmarshal([]byte(discoverySourcesStr), &discoverySourcesInfo); err != nil {
+				log.Printf("Warning: failed to unmarshal discovery_sources for device: %v", err)
+				result["discovery_sources"] = []string{}
+			} else {
+				// Extract source names
+				sources := make([]string, len(discoverySourcesInfo))
+				for i, source := range discoverySourcesInfo {
+					sources[i] = string(source.Source)
+				}
+				result["discovery_sources"] = sources
+				
+				// For old schema, extract agent_id and poller_id from first source if not already present
+				if _, hasAgentID := result["agent_id"]; !hasAgentID && len(discoverySourcesInfo) > 0 {
+					result["agent_id"] = discoverySourcesInfo[0].AgentID
+				}
+				if _, hasPollerID := result["poller_id"]; !hasPollerID && len(discoverySourcesInfo) > 0 {
+					result["poller_id"] = discoverySourcesInfo[0].PollerID
+				}
+			}
+		} else {
+			log.Printf("DEBUG API: Device %v has NO discovery_sources (type: %T, value: %v)", result["device_id"], result["discovery_sources"], result["discovery_sources"])
+			result["discovery_sources"] = []string{}
+		}
+		
+		// Ensure agent_id and poller_id are set - in new schema they're direct columns
+		if _, hasAgentID := result["agent_id"]; !hasAgentID {
+			result["agent_id"] = ""
+		}
+		if _, hasPollerID := result["poller_id"]; !hasPollerID {
+			result["poller_id"] = ""
+		}
+
+		// Handle hostname field - in new schema it's nullable(string), in old schema it might be JSON
+		if hostnameStr, ok := result["hostname"].(string); ok && hostnameStr != "" {
+			// New schema: hostname is direct string from unified_devices
+			log.Printf("DEBUG API: Device %v has hostname from direct string field: %s", result["device_id"], hostnameStr)
+			result["hostname"] = hostnameStr
+		} else if hostnamePtr, ok := result["hostname"].(*string); ok && hostnamePtr != nil && *hostnamePtr != "" {
+			// New schema: hostname is nullable string (*string) from unified_devices  
+			log.Printf("DEBUG API: Device %v has hostname from pointer field: %s", result["device_id"], *hostnamePtr)
+			result["hostname"] = *hostnamePtr
+		} else if hostnameFieldStr, ok := result["hostname_field"].(string); ok && hostnameFieldStr != "" && hostnameFieldStr != "{}" {
+			// Old schema: hostname_field is JSON string - parse it
+			var hostnameField devicemodels.DiscoveredField[string]
+			if err := json.Unmarshal([]byte(hostnameFieldStr), &hostnameField); err != nil {
+				log.Printf("Warning: failed to unmarshal hostname_field for device: %v", err)
+				result["hostname"] = nil
+			} else {
+				log.Printf("DEBUG API: Device %v has hostname from JSON field: %s", result["device_id"], hostnameField.Value)
+				result["hostname"] = hostnameField.Value
+			}
+		} else {
+			log.Printf("DEBUG API: Device %v has NO hostname (hostname: %v, hostname_field: %v)", result["device_id"], result["hostname"], result["hostname_field"])
+			result["hostname"] = nil
+		}
+
+		// Handle mac field - in new schema it's nullable(string), in old schema it might be JSON
+		if macStr, ok := result["mac"].(string); ok && macStr != "" {
+			// New schema: mac is direct string from unified_devices
+			result["mac"] = macStr
+		} else if macPtr, ok := result["mac"].(*string); ok && macPtr != nil && *macPtr != "" {
+			// New schema: mac is nullable string (*string) from unified_devices
+			result["mac"] = *macPtr
+		} else if macFieldStr, ok := result["mac_field"].(string); ok && macFieldStr != "" && macFieldStr != "{}" {
+			// Old schema: mac_field is JSON string - parse it
+			var macField devicemodels.DiscoveredField[string]
+			if err := json.Unmarshal([]byte(macFieldStr), &macField); err != nil {
+				log.Printf("Warning: failed to unmarshal mac_field for device: %v", err)
+				result["mac"] = nil
+			} else {
+				result["mac"] = macField.Value
+			}
+		} else {
+			result["mac"] = nil
+		}
+
+		// Handle metadata from materialized view (new schema) or metadata_field (old schema)
+		if metadataMap, ok := result["metadata"].(map[string]string); ok && len(metadataMap) > 0 {
+			// New materialized view schema: metadata is directly a map[string]string
+			metadata := make(map[string]interface{})
+			for k, v := range metadataMap {
+				metadata[k] = v
+			}
+			result["metadata"] = metadata
+		} else if metadataFieldStr, ok := result["metadata_field"].(string); ok && metadataFieldStr != "" && metadataFieldStr != "{}" {
+			// Old schema: metadata_field is a JSON string containing DiscoveredField
+			var metadataField devicemodels.DiscoveredField[map[string]string]
+			if err := json.Unmarshal([]byte(metadataFieldStr), &metadataField); err != nil {
+				log.Printf("Warning: failed to unmarshal metadata_field for device: %v", err)
+				result["metadata"] = map[string]interface{}{}
+			} else {
+				// Convert map[string]string to map[string]interface{} for JSON compatibility
+				metadata := make(map[string]interface{})
+				for k, v := range metadataField.Value {
+					metadata[k] = v
+				}
+				result["metadata"] = metadata
+			}
+		} else {
+			result["metadata"] = map[string]interface{}{}
+		}
+
+		// Replace generic "integration" discovery source with specific integration type
+		if sources, ok := result["discovery_sources"].([]string); ok {
+			if metadata, ok := result["metadata"].(map[string]interface{}); ok {
+				if integrationType, ok := metadata["integration_type"].(string); ok && integrationType != "" {
+					// Replace "integration" with specific type (e.g., "netbox", "armis")
+					for i, source := range sources {
+						if source == "integration" {
+							sources[i] = integrationType
+						}
+					}
+					result["discovery_sources"] = sources
+				}
+			}
+		}
+
+		// Remove the raw JSON fields that are no longer needed
+		delete(result, "hostname_field")
+		delete(result, "mac_field")
+		delete(result, "metadata_field")
+	}
+	return results
 }
 
 // decodeCursor decodes a Base64-encoded cursor into a map

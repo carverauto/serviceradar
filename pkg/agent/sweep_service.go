@@ -45,7 +45,7 @@ func NewSweepService(config *models.Config, kvStore KVStore, configKey string) (
 	processor := sweeper.NewBaseProcessor(config)
 	store := sweeper.NewInMemoryStore(processor)
 
-	sweeperInstance, err := sweeper.NewNetworkSweeper(config, store, processor, kvStore, configKey)
+	sweeperInstance, err := sweeper.NewNetworkSweeper(config, store, processor, kvStore, nil, configKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create network sweeper: %w", err)
 	}

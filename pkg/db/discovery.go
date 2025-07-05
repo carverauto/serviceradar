@@ -68,6 +68,14 @@ func (db *DB) PublishDiscoveredInterface(ctx context.Context, iface *models.Disc
 		metadata = make(map[string]string)
 	}
 
+	// Convert metadata map to JSON string
+	metadataBytes, err := json.Marshal(metadata)
+	if err != nil {
+		log.Printf("Failed to marshal interface metadata: %v", err)
+		return fmt.Errorf("failed to marshal metadata: %w", err)
+	}
+	metadataStr := string(metadataBytes)
+
 	// Append to batch
 	err = batch.Append(
 		iface.Timestamp,
@@ -84,7 +92,7 @@ func (db *DB) PublishDiscoveredInterface(ctx context.Context, iface *models.Disc
 		ipAddresses,
 		iface.IfAdminStatus,
 		iface.IfOperStatus,
-		metadata,
+		metadataStr,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to append interface data: %w", err)
@@ -146,6 +154,14 @@ func (db *DB) PublishTopologyDiscoveryEvent(ctx context.Context, event *models.T
 		metadata = make(map[string]string)
 	}
 
+	// Convert metadata map to JSON string
+	metadataBytes, err := json.Marshal(metadata)
+	if err != nil {
+		log.Printf("Failed to marshal topology event metadata: %v", err)
+		return fmt.Errorf("failed to marshal metadata: %w", err)
+	}
+	metadataStr := string(metadataBytes)
+
 	// Append to batch - ensuring all 18 arguments are provided
 	err = batch.Append(
 		event.Timestamp,              // 1
@@ -167,7 +183,7 @@ func (db *DB) PublishTopologyDiscoveryEvent(ctx context.Context, event *models.T
 		event.NeighborAS,          // 16
 		event.BGPSessionState,     // 17
 		// Metadata
-		metadata, // 18
+		metadataStr, // 18
 	)
 	if err != nil {
 		return fmt.Errorf("failed to append topology data: %w", err)

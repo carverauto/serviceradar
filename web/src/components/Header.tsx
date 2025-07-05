@@ -78,9 +78,19 @@ export default function Header() {
                     'SHOW SWEEP_RESULTS',
                     token || undefined
                 );
-                setPartitions(Array.from(new Set(data.results.map((p: Partition) => p.partition))).map((p: string) => ({ partition: p })) || []);
+                
+                // Ensure data.results exists and is an array before processing
+                if (data && data.results && Array.isArray(data.results)) {
+                    const uniquePartitions = Array.from(new Set(data.results.map((p: Partition) => p.partition)))
+                        .map((p: string) => ({ partition: p }));
+                    setPartitions(uniquePartitions);
+                } else {
+                    console.warn('No partition results found or invalid data structure');
+                    setPartitions([]);
+                }
             } catch (error) {
                 console.error('Failed to fetch partitions:', error);
+                setPartitions([]);
             }
         };
 

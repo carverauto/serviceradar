@@ -268,6 +268,16 @@ func isValidTimestamp(t time.Time) bool {
 	return t.After(minTime) && t.Before(maxTime)
 }
 
+// PublishBatchSweepResults publishes a batch of sweep results to the sweep_results stream.
+func (db *DB) PublishBatchSweepResults(ctx context.Context, results []*models.SweepResult) error {
+	return db.StoreSweepResults(ctx, results)
+}
+
+// PublishSweepResult publishes a single sweep result to the sweep_results stream.
+func (db *DB) PublishSweepResult(ctx context.Context, result *models.SweepResult) error {
+	return db.StoreSweepResults(ctx, []*models.SweepResult{result})
+}
+
 // CloseRows safely closes a Rows type and logs any error.
 func CloseRows(rows Rows) {
 	if err := rows.Close(); err != nil {
