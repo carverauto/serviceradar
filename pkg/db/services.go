@@ -20,15 +20,15 @@ func (db *DB) UpdateServiceStatuses(ctx context.Context, statuses []*models.Serv
 
 	for _, status := range statuses {
 		err = batch.Append(
-			status.PollerID,
-			status.ServiceName,
-			status.ServiceType,
-			status.Available,
-			status.Details,
-			status.Timestamp,
-			status.AgentID,
-			status.DeviceID,
-			status.Partition,
+			status.Timestamp,   // timestamp
+			status.PollerID,    // poller_id
+			status.AgentID,     // agent_id
+			status.ServiceName, // service_name
+			status.ServiceType, // service_type
+			status.Available,   // available
+			"",                 // message
+			status.Details,     // details
+			status.Partition,   // partition
 		)
 		if err != nil {
 			return fmt.Errorf("failed to append service status for %s: %w", status.ServiceName, err)
@@ -50,15 +50,15 @@ func (db *DB) UpdateServiceStatus(ctx context.Context, status *models.ServiceSta
 	}
 
 	err = batch.Append(
-		status.PollerID,
-		status.ServiceName,
-		status.ServiceType,
-		status.Available,
-		status.Details,
-		status.Timestamp,
-		status.AgentID,
-		status.DeviceID,
-		status.Partition,
+		status.Timestamp,   // timestamp
+		status.PollerID,    // poller_id
+		status.AgentID,     // agent_id
+		status.ServiceName, // service_name
+		status.ServiceType, // service_type
+		status.Available,   // available
+		"",                 // message
+		status.Details,     // details
+		status.Partition,   // partition
 	)
 	if err != nil {
 		return fmt.Errorf("failed to append service status: %w", err)
@@ -116,13 +116,13 @@ func (db *DB) StoreServices(ctx context.Context, services []*models.Service) err
 
 	for _, svc := range services {
 		if err := batch.Append(
-			svc.PollerID,
-			svc.ServiceName,
-			svc.ServiceType,
-			svc.AgentID,
-			svc.Timestamp,
-			svc.DeviceID,
-			svc.Partition,
+			svc.Timestamp,       // timestamp
+			svc.PollerID,        // poller_id
+			svc.AgentID,         // agent_id
+			svc.ServiceName,     // service_name
+			svc.ServiceType,     // service_type
+			map[string]string{}, // config
+			svc.Partition,       // partition
 		); err != nil {
 			return fmt.Errorf("failed to append service %s: %w", svc.ServiceName, err)
 		}

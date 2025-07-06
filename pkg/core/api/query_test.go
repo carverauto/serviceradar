@@ -814,3 +814,145 @@ func TestCursorFunctions(t *testing.T) {
 		assert.Empty(t, prevCursor)
 	})
 }
+
+// TestPostProcessDeviceResults tests the postProcessDeviceResults function
+func TestPostProcessDeviceResults(t *testing.T) {
+	server := &APIServer{}
+
+	tests := []struct {
+		name     string
+		input    []map[string]interface{}
+		expected []map[string]interface{}
+	}{
+		{
+			name: "New schema with array discovery_sources and direct fields",
+			input: []map[string]interface{}{
+				{
+					"device_id":         "test:192.168.1.1",
+					"ip":                "192.168.1.1",
+					"poller_id":         "test-poller",
+					"agent_id":          "test-agent",
+					"hostname":          "test-host",
+					"mac":               "AA:BB:CC:DD:EE:FF",
+					"discovery_sources": []interface{}{"sweep", "snmp"},
+					"metadata":          map[string]string{"vendor": "cisco"},
+				},
+			},
+			expected: []map[string]interface{}{
+				{
+					"device_id":         "test:192.168.1.1",
+					"ip":                "192.168.1.1",
+					"poller_id":         "test-poller",
+					"agent_id":          "test-agent",
+					"hostname":          "test-host",
+					"mac":               "AA:BB:CC:DD:EE:FF",
+					"discovery_sources": []string{"sweep", "snmp"},
+					"metadata":          map[string]interface{}{"vendor": "cisco"},
+				},
+			},
+		},
+		{
+			name: "Old schema with JSON discovery_sources and field parsing",
+			input: []map[string]interface{}{
+				{
+					"device_id": "test:192.168.1.2",
+					"ip":        "192.168.1.2",
+					"discovery_sources": `[{"source":"sweep","agent_id":"old-agent","poller_id":"old-poller",
+						"last_seen":"2025-01-01T12:00:00Z","confidence":9}]`,
+					"hostname_field": `{"value":"old-host","source":"snmp","last_updated":
+						"2025-01-01T12:00:00Z","confidence":8}`,
+					"mac_field": `{"value":"11:22:33:44:55:66","source":"arp","last_updated":
+						"2025-01-01T12:00:00Z","confidence":7}`,
+					"metadata_field": `{"value":{"device_type":"router"},"source":"snmp","last_updated":
+						"2025-01-01T12:00:00Z"}`,
+				},
+			},
+			expected: []map[string]interface{}{
+				{
+					"device_id":         "test:192.168.1.2",
+					"ip":                "192.168.1.2",
+					"poller_id":         "old-poller",
+					"agent_id":          "old-agent",
+					"hostname":          "old-host",
+					"mac":               "11:22:33:44:55:66",
+					"discovery_sources": []string{"sweep"},
+					"metadata":          map[string]interface{}{"device_type": "router"},
+				},
+			},
+		},
+		{
+			name: "Mixed case - new schema with missing optional fields",
+			input: []map[string]interface{}{
+				{
+					"device_id":         "test:192.168.1.3",
+					"ip":                "192.168.1.3",
+					"poller_id":         "poller-3",
+					"agent_id":          "agent-3",
+					"discovery_sources": []interface{}{"integration"},
+					"metadata":          map[string]string{"integration_type": "netbox"},
+				},
+			},
+			expected: []map[string]interface{}{
+				{
+					"device_id":         "test:192.168.1.3",
+					"ip":                "192.168.1.3",
+					"poller_id":         "poller-3",
+					"agent_id":          "agent-3",
+					"hostname":          nil,
+					"mac":               nil,
+					"discovery_sources": []string{"netbox"}, // integration replaced with netbox from metadata
+					"metadata":          map[string]interface{}{"integration_type": "netbox"},
+				},
+			},
+		},
+		{
+			name: "Error cases - invalid JSON",
+			input: []map[string]interface{}{
+				{
+					"device_id":         "test:192.168.1.4",
+					"ip":                "192.168.1.4",
+					"discovery_sources": `invalid-json`,
+					"hostname_field":    `invalid-json`,
+					"mac_field":         `invalid-json`,
+					"metadata_field":    `invalid-json`,
+				},
+			},
+			expected: []map[string]interface{}{
+				{
+					"device_id":         "test:192.168.1.4",
+					"ip":                "192.168.1.4",
+					"poller_id":         "",
+					"agent_id":          "",
+					"hostname":          nil,
+					"mac":               nil,
+					"discovery_sources": []string{},
+					"metadata":          map[string]interface{}{},
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := server.postProcessDeviceResults(tt.input)
+
+			require.Len(t, result, len(tt.expected))
+
+			for i, expectedItem := range tt.expected {
+				actualItem := result[i]
+
+				// Check each expected field
+				for key, expectedValue := range expectedItem {
+					actualValue, exists := actualItem[key]
+					assert.True(t, exists, "Field %s should exist", key)
+					assert.Equal(t, expectedValue, actualValue, "Field %s should match", key)
+				}
+
+				// Ensure no unexpected raw JSON fields remain
+				assert.NotContains(t, actualItem, "hostname_field")
+				assert.NotContains(t, actualItem, "mac_field")
+				assert.NotContains(t, actualItem, "metadata_field")
+			}
+		})
+	}
+}

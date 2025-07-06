@@ -44,6 +44,8 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
     const [sysmonStatusesLoading, setSysmonStatusesLoading] = useState(true);
     const [metricsStatuses, setMetricsStatuses] = useState<Set<string>>(new Set());
     const [metricsStatusesLoading, setMetricsStatusesLoading] = useState(true);
+    const [snmpStatuses, setSnmpStatuses] = useState<Record<string, { hasMetrics: boolean }>>({});
+    const [snmpStatusesLoading, setSnmpStatusesLoading] = useState(true);
 
     // Create a stable reference for device IDs
     const deviceIdsString = useMemo(() => {
@@ -99,8 +101,34 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
             }
         };
 
+        const fetchSnmpStatuses = async () => {
+            setSnmpStatusesLoading(true);
+            try {
+                console.log(`DeviceTable: Fetching SNMP status for ${deviceIds.length} devices`);
+                const response = await fetch('/api/devices/snmp/status', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ deviceIds }),
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    setSnmpStatuses(data.statuses || {});
+                } else {
+                    console.error('Failed to fetch bulk SNMP statuses:', response.status);
+                }
+            } catch (error) {
+                console.error('Error fetching bulk SNMP statuses:', error);
+            } finally {
+                setSnmpStatusesLoading(false);
+            }
+        };
+
         fetchSysmonStatuses();
         fetchMetricsStatuses();
+        fetchSnmpStatuses();
     }, [deviceIdsString, devices]);
 
     const getSourceColor = (source: string) => {
@@ -189,7 +217,8 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
                                         <SNMPStatusIndicator 
                                             deviceId={device.device_id} 
                                             compact={true}
-                                            hasSnmpSource={device.discovery_sources.includes('snmp')}
+                                            hasMetrics={snmpStatusesLoading ? undefined : snmpStatuses[device.device_id]?.hasMetrics}
+                                            hasSnmpSource={Array.isArray(device.discovery_sources) && (device.discovery_sources.includes('snmp') || device.discovery_sources.includes('mapper'))}
                                         />
                                         <ICMPSparkline 
                                             deviceId={device.device_id} 
@@ -208,14 +237,16 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
                                     <div className="flex flex-wrap gap-1">
-                                        {device.discovery_sources.map(source => (
-                                            <span 
-                                                key={source}
-                                                className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getSourceColor(source)}`}
-                                            >
-                                                {source}
-                                            </span>
-                                        ))}
+                                        {Array.isArray(device.discovery_sources) ? device.discovery_sources
+                                            .sort((a, b) => a.localeCompare(b))
+                                            .map(source => (
+                                                <span 
+                                                    key={source}
+                                                    className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getSourceColor(source)}`}
+                                                >
+                                                    {source}
+                                                </span>
+                                            )) : null}
                                     </div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">

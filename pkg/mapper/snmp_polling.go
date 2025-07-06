@@ -321,7 +321,7 @@ func (e *DiscoveryEngine) querySysInfo(client *gosnmp.GoSNMP, target string, job
 	}
 
 	// Finalize device setup
-	e.finalizeDevice(device, target, job.ID)
+	e.finalizeDevice(device, target, job.ID, string(models.DiscoverySourceSNMP))
 
 	// After getting basic info, try to get MAC if not already set
 	if device.MAC == "" {

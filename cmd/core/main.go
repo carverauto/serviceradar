@@ -94,6 +94,7 @@ func run() error {
 		api.WithRperfManager(server.GetRperfManager()),
 		api.WithQueryExecutor(server.DB),
 		api.WithDBService(server.DB),
+		api.WithDeviceRegistry(server.DeviceRegistry),
 		api.WithDatabaseType(parser.Proton),
 	)
 

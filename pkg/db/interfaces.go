@@ -101,6 +101,8 @@ type Service interface {
 	// Sweep operations.
 
 	StoreSweepResults(ctx context.Context, results []*models.SweepResult) error
+	StoreSweepHostStates(ctx context.Context, states []*models.SweepHostState) error
+	GetSweepHostStates(ctx context.Context, pollerID string, limit int) ([]*models.SweepHostState, error)
 
 	// Discovery operations.
 
@@ -110,11 +112,24 @@ type Service interface {
 	PublishBatchTopologyDiscoveryEvents(ctx context.Context, events []*models.TopologyDiscoveryEvent) error
 
 	// Device operations.
-	StoreDevices(ctx context.Context, devices []*models.Device) error
+
 	GetDeviceByID(ctx context.Context, deviceID string) (*models.Device, error)
 	GetDevicesByIP(ctx context.Context, ip string) ([]*models.Device, error)
 
+	// Unified Device operations.
+
+	GetUnifiedDevice(ctx context.Context, deviceID string) (*models.UnifiedDevice, error)
+	GetUnifiedDevicesByIP(ctx context.Context, ip string) ([]*models.UnifiedDevice, error)
+	GetUnifiedDevicesByIPsOrIDs(ctx context.Context, ips []string, deviceIDs []string) ([]*models.UnifiedDevice, error)
+	ListUnifiedDevices(ctx context.Context, limit, offset int) ([]*models.UnifiedDevice, error)
+
+	// Sweep Result operations (materialized view approach).
+
+	PublishSweepResult(ctx context.Context, result *models.SweepResult) error
+	PublishBatchSweepResults(ctx context.Context, results []*models.SweepResult) error
+
 	// Device-centric metric operations.
+
 	GetMetricsForDevice(ctx context.Context, deviceID string, start, end time.Time) ([]models.TimeseriesMetric, error)
 	GetMetricsForDeviceByType(ctx context.Context, deviceID, metricType string, start, end time.Time) ([]models.TimeseriesMetric, error)
 	GetMetricsForPartition(ctx context.Context, partition string, start, end time.Time) ([]models.TimeseriesMetric, error)

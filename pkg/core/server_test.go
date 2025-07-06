@@ -32,6 +32,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/metrics"
 	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/registry"
 	"github.com/carverauto/serviceradar/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -194,12 +195,6 @@ func TestReportStatus(t *testing.T) {
 	// Mock GetDeviceByID for device lookup
 	mockDB.EXPECT().GetDeviceByID(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 
-	// Mock StoreDevices for device registration
-	mockDB.EXPECT().StoreDevices(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, devices []*models.Device) error {
-		t.Logf("StoreDevices called with %d devices", len(devices))
-		return nil
-	}).AnyTimes()
-
 	// Expect StoreMetrics for icmp-service
 	mockDB.EXPECT().StoreMetrics(gomock.Any(), "test-poller",
 		gomock.Any()).DoAndReturn(func(_ context.Context, pollerID string, metrics []*models.TimeseriesMetric) error {
@@ -349,8 +344,10 @@ func TestProcessSweepData(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
+	mockDeviceRegistry := registry.NewMockManager(ctrl)
 	server := &Server{
-		DB: mockDB,
+		DB:             mockDB,
+		DeviceRegistry: mockDeviceRegistry,
 	}
 	now := time.Now()
 	ctx := context.Background()
@@ -363,15 +360,15 @@ func TestProcessSweepData(t *testing.T) {
 				Message: []byte(tt.inputMessage), // Convert string to []byte
 			}
 
-			// Set up mock expectation for StoreSweepResults only when hosts are present
+			// Set up mock expectation for ProcessBatchSightings only when hosts are present
 			if !tt.expectError && tt.hasHosts {
-				mockDB.EXPECT().StoreSweepResults(gomock.Any(), gomock.Any()).DoAndReturn(
+				mockDeviceRegistry.EXPECT().ProcessBatchSightings(gomock.Any(), gomock.Any()).DoAndReturn(
 					func(_ context.Context, results []*models.SweepResult) error {
 						if tt.name == "Valid timestamp with hosts" {
 							assert.Len(t, results, 1, "Expected one sweep result")
 							assert.Equal(t, "192.168.1.1", results[0].IP, "Expected correct IP")
-							assert.Equal(t, "00:11:22:33:44:55", *results[0].MAC, "Expected correct MAC")
-							assert.Equal(t, "host1", *results[0].Hostname, "Expected correct hostname")
+							assert.Nil(t, results[0].MAC, "MAC should be nil for HostResult-based sweep results")
+							assert.Nil(t, results[0].Hostname, "Hostname should be nil for HostResult-based sweep results")
 							assert.True(t, results[0].Available, "Expected host to be available")
 						}
 
@@ -796,10 +793,6 @@ func TestProcessStatusReportWithAgentID(t *testing.T) {
 	}).Times(1)
 	mockDB.EXPECT().StoreServices(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, services []*models.Service) error {
 		t.Logf("StoreServices called with %d services", len(services))
-		return nil
-	}).AnyTimes()
-	mockDB.EXPECT().StoreDevices(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, devices []*models.Device) error {
-		t.Logf("StoreDevices called with %d devices", len(devices))
 		return nil
 	}).AnyTimes()
 	mockAPIServer.EXPECT().UpdatePollerStatus(pollerID, gomock.Any()).Return().Times(1)

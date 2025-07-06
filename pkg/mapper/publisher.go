@@ -62,12 +62,23 @@ func (p *ProtonPublisher) PublishDevice(ctx context.Context, device *DiscoveredD
 		metadata[k] = v
 	}
 
+	// Determine discovery source from device metadata, default to SNMP
+	discoverySource := string(models.DiscoverySourceSNMP)
+	if source, exists := device.Metadata["source"]; exists {
+		discoverySource = source
+	}
+
+	// Map legacy "mapper" to proper SNMP source for backward compatibility
+	if discoverySource == "mapper" {
+		discoverySource = string(models.DiscoverySourceSNMP)
+	}
+
 	// Create sweep result
 	result := &models.SweepResult{
 		AgentID:         p.config.AgentID,
 		PollerID:        p.config.PollerID,
 		Partition:       p.config.Partition,
-		DiscoverySource: "mapper",
+		DiscoverySource: discoverySource,
 		IP:              device.IP,
 		MAC:             &device.MAC,
 		Hostname:        &device.Hostname,
@@ -202,15 +213,29 @@ func (p *ProtonPublisher) PublishBatchDevices(ctx context.Context, devices []*Di
 			metadata[k] = v
 		}
 
+		// Determine discovery source from device metadata, default to "mapper"
+		discoverySource := "mapper"
+		if source, exists := device.Metadata["source"]; exists {
+			discoverySource = source
+		}
+
 		// Create sweep result
 		hostname := device.Hostname
 		mac := device.MAC
+		partition := p.config.Partition
+
+		if partition == "" {
+			partition = "default"
+		}
+
+		deviceID := fmt.Sprintf("%s:%s", partition, device.IP)
 
 		results[i] = &models.SweepResult{
 			AgentID:         p.config.AgentID,
 			PollerID:        p.config.PollerID,
-			Partition:       p.config.Partition,
-			DiscoverySource: "mapper",
+			Partition:       partition,
+			DeviceID:        deviceID,
+			DiscoverySource: discoverySource,
 			IP:              device.IP,
 			MAC:             &mac,
 			Hostname:        &hostname,
