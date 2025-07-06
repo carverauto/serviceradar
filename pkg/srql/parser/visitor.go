@@ -503,66 +503,38 @@ func (*QueryVisitor) VisitValue(ctx *gen.ValueContext) interface{} {
 
 // Helper methods
 
+// getEntityTypeMapData returns a map of entity text to EntityType
+func getEntityTypeMapData() map[string]models.EntityType {
+	return map[string]models.EntityType{
+		"devices":        models.Devices,
+		"flows":          models.Flows,
+		"traps":          models.Traps,
+		"connections":    models.Connections,
+		"logs":           models.Logs,
+		"services":       models.Services,
+		"interfaces":     models.Interfaces,
+		"sweep_results":  models.SweepResults,
+		"icmp_results":   models.ICMPResults,
+		"snmp_results":   models.SNMPResults,
+		"events":         models.Events,
+		"pollers":        models.Pollers,
+		"cpu_metrics":    models.CPUMetrics,
+		"disk_metrics":   models.DiskMetrics,
+		"memory_metrics": models.MemoryMetrics,
+	}
+}
+
 func (*QueryVisitor) getEntityType(ctx *gen.EntityContext) models.EntityType {
-	if ctx.DEVICES() != nil {
-		return models.Devices
-	}
-
-	if ctx.FLOWS() != nil {
-		return models.Flows
-	}
-
-	if ctx.TRAPS() != nil {
-		return models.Traps
-	}
-
-	if ctx.CONNECTIONS() != nil {
-		return models.Connections
-	}
-
-	if ctx.LOGS() != nil {
-		return models.Logs
-	}
-
-	if ctx.INTERFACES() != nil {
-		return models.Interfaces
-	}
-
-	if ctx.SWEEP_RESULTS() != nil { // Check for the new token
-		return models.SweepResults
-	}
-
-	if ctx.ICMP_RESULTS() != nil { // Check for the new token
-		return models.ICMPResults
-	}
-
-	if ctx.SNMP_RESULTS() != nil { // Check for the new token
-		return models.SNMPResults
-	}
-
-	// If 'sweep_results' is not a keyword but matched as a general ID within the entity rule
-	// you might need a more generic way if your 'entity' rule is just 'ID'
-	// For instance, if entity: ID; then ctx.GetText() is the way.
-	// The current entity rule is: DEVICES | FLOWS | TRAPS | CONNECTIONS | LOGS | INTERFACES ;
-	// To support 'sweep_results' as an entity for SHOW/FIND, it must be added to this rule,
-	// e.g., entity: ... | INTERFACES | SWEEP_RESULTS ;
-	// And SWEEP_RESULTS : S W E E P R E S U L T S ; in the lexer.
-	// Then a check like: if ctx.SWEEP_RESULTS() != nil { return models.SweepResults } would work.
-
-	// If it's not added as a keyword and your `entity` rule somehow captures it
-	// (e.g., if `entity` could be an `ID`), then this fallback might catch it.
-	// But it's better to be explicit in the grammar for entities.
 	entityText := strings.ToLower(ctx.GetText())
-	switch entityText {
-	case "sweep_results":
-		return models.SweepResults
-	case "icmp_results":
-		return models.ICMPResults
-	case "snmp_results":
-		return models.SNMPResults
+
+	// Look up the entity type in the map
+	entityTypeMap := getEntityTypeMapData()
+	if entityType, exists := entityTypeMap[entityText]; exists {
+		return entityType
 	}
 
-	return models.EntityType(entityText) // Fallback for entities potentially parsed as ID
+	// Default case: return the text as the entity type
+	return models.EntityType(entityText)
 }
 
 func (*QueryVisitor) getOperatorType(ctx *gen.ComparisonOperatorContext) models.OperatorType {

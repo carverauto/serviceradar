@@ -93,6 +93,7 @@ func run() error {
 		api.WithAuthService(server.GetAuth()),
 		api.WithRperfManager(server.GetRperfManager()),
 		api.WithQueryExecutor(server.DB),
+		api.WithDBService(server.DB),
 		api.WithDatabaseType(parser.Proton),
 	)
 

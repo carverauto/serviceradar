@@ -9,6 +9,7 @@ import (
 )
 
 func (m *Manager) StoreSysmonMetrics(
+<<<<<<< HEAD
 	ctx context.Context, pollerID string, metrics *models.SysmonMetrics, agentID string, hostID string, timestamp time.Time) error {
 	dbMetrics := &models.SysmonMetrics{
 		AgentID: agentID,
@@ -16,6 +17,13 @@ func (m *Manager) StoreSysmonMetrics(
 		CPUs:    make([]models.CPUMetric, len(metrics.CPUs)),
 		Disks:   make([]models.DiskMetric, len(metrics.Disks)),
 		Memory:  models.MemoryMetric{},
+=======
+	ctx context.Context, pollerID, agentID, hostID, partition, hostIP string, metrics *models.SysmonMetrics, timestamp time.Time) error {
+	dbMetrics := &models.SysmonMetrics{
+		CPUs:   make([]models.CPUMetric, len(metrics.CPUs)),
+		Disks:  make([]models.DiskMetric, len(metrics.Disks)),
+		Memory: &models.MemoryMetric{},
+>>>>>>> origin/production
 	}
 
 	for i, cpu := range metrics.CPUs {
@@ -23,6 +31,9 @@ func (m *Manager) StoreSysmonMetrics(
 			CoreID:       cpu.CoreID,
 			UsagePercent: cpu.UsagePercent,
 			Timestamp:    timestamp,
+			HostID:       hostID,
+			HostIP:       hostIP,
+			AgentID:      agentID,
 		}
 	}
 
@@ -32,16 +43,26 @@ func (m *Manager) StoreSysmonMetrics(
 			UsedBytes:  disk.UsedBytes,
 			TotalBytes: disk.TotalBytes,
 			Timestamp:  timestamp,
+			HostID:     hostID,
+			HostIP:     hostIP,
+			AgentID:    agentID,
 		}
 	}
 
-	dbMetrics.Memory = models.MemoryMetric{
+	dbMetrics.Memory = &models.MemoryMetric{
 		UsedBytes:  metrics.Memory.UsedBytes,
 		TotalBytes: metrics.Memory.TotalBytes,
 		Timestamp:  timestamp,
+		HostID:     hostID,
+		HostIP:     hostIP,
+		AgentID:    agentID,
 	}
 
+<<<<<<< HEAD
 	if err := m.db.StoreSysmonMetrics(ctx, pollerID, dbMetrics, agentID, hostID, timestamp); err != nil {
+=======
+	if err := m.db.StoreSysmonMetrics(ctx, pollerID, agentID, hostID, partition, hostIP, dbMetrics, timestamp); err != nil {
+>>>>>>> origin/production
 		log.Printf("Failed to store sysmon metrics for poller %s: %v", pollerID, err)
 		return err
 	}
@@ -62,6 +83,8 @@ func (m *Manager) GetCPUMetrics(
 			CoreID:       dm.CoreID,
 			UsagePercent: dm.UsagePercent,
 			Timestamp:    dm.Timestamp,
+			HostID:       dm.HostID,
+			AgentID:      dm.AgentID,
 		}
 	}
 
@@ -82,6 +105,8 @@ func (m *Manager) GetDiskMetrics(
 			UsedBytes:  dm.UsedBytes,
 			TotalBytes: dm.TotalBytes,
 			Timestamp:  dm.Timestamp,
+			HostID:     dm.HostID,
+			AgentID:    dm.AgentID,
 		}
 	}
 
@@ -111,6 +136,8 @@ func (m *Manager) GetAllDiskMetrics(
 			UsedBytes:  dm.UsedBytes,
 			TotalBytes: dm.TotalBytes,
 			Timestamp:  dm.Timestamp,
+			HostID:     dm.HostID,
+			AgentID:    dm.AgentID,
 		}
 	}
 
@@ -130,6 +157,8 @@ func (m *Manager) GetMemoryMetrics(
 			UsedBytes:  dm.UsedBytes,
 			TotalBytes: dm.TotalBytes,
 			Timestamp:  dm.Timestamp,
+			HostID:     dm.HostID,
+			AgentID:    dm.AgentID,
 		}
 	}
 

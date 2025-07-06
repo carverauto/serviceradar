@@ -52,10 +52,8 @@ export function useAPIData(
   }, []);
 
   useEffect(() => {
-    // const apiUrl = endpoint.startsWith('/api/') ? endpoint : `/api/${endpoint}`;
-    const apiUrl = endpoint.startsWith("http")
-      ? endpoint
-      : `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8090"}${endpoint}`;
+    // Always use relative paths for API calls to ensure they go through middleware
+    const apiUrl = endpoint.startsWith('/api/') ? endpoint : `/api/${endpoint}`;
     let intervalId: NodeJS.Timeout;
 
     const fetchData = async () => {
@@ -119,8 +117,8 @@ export async function fetchWithCache(
   }
 
   // Create a new request and store it
-  const fetchPromise = fetchAPI(apiUrl, options)
-    .then((data) => {
+  const fetchPromise = fetchAPI<SystemStatus>(apiUrl, options)
+    .then((data: SystemStatus) => {
       // Store in cache
       apiCache.set(cacheKey, {
         data,
@@ -145,11 +143,19 @@ export async function fetchWithCache(
 /**
  * Simple fetch with API key and optional token
  */
-export async function fetchAPI(
+export async function fetchAPI<T>( 
   endpoint: string,
   customOptions: RequestInit = {},
-): Promise<SystemStatus> {
-  const apiUrl = endpoint.startsWith("/api/") ? endpoint : `/api/${endpoint}`;
+): Promise<T> {
+  // Force all client-side requests to use relative URLs
+  let apiUrl: string;
+  if (endpoint.startsWith("http://") || endpoint.startsWith("https://")) {
+    // If absolute URL is passed, convert to relative
+    const url = new URL(endpoint);
+    apiUrl = url.pathname + url.search;
+  } else {
+    apiUrl = endpoint.startsWith("/api/") ? endpoint : `/api/${endpoint}`;
+  }
 
   const defaultOptions: RequestInit = {
     headers: {

@@ -165,6 +165,36 @@ func (mr *MockServiceMockRecorder) GetCPUMetrics(ctx, pollerID, coreID, start, e
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCPUMetrics", reflect.TypeOf((*MockService)(nil).GetCPUMetrics), ctx, pollerID, coreID, start, end)
 }
 
+// GetDeviceByID mocks base method.
+func (m *MockService) GetDeviceByID(ctx context.Context, deviceID string) (*models.Device, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDeviceByID", ctx, deviceID)
+	ret0, _ := ret[0].(*models.Device)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDeviceByID indicates an expected call of GetDeviceByID.
+func (mr *MockServiceMockRecorder) GetDeviceByID(ctx, deviceID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceByID", reflect.TypeOf((*MockService)(nil).GetDeviceByID), ctx, deviceID)
+}
+
+// GetDevicesByIP mocks base method.
+func (m *MockService) GetDevicesByIP(ctx context.Context, ip string) ([]*models.Device, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDevicesByIP", ctx, ip)
+	ret0, _ := ret[0].([]*models.Device)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDevicesByIP indicates an expected call of GetDevicesByIP.
+func (mr *MockServiceMockRecorder) GetDevicesByIP(ctx, ip any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDevicesByIP", reflect.TypeOf((*MockService)(nil).GetDevicesByIP), ctx, ip)
+}
+
 // GetDiskMetrics mocks base method.
 func (m *MockService) GetDiskMetrics(ctx context.Context, pollerID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error) {
 	m.ctrl.T.Helper()
@@ -238,6 +268,51 @@ func (m *MockService) GetMetricsByType(ctx context.Context, pollerID, metricType
 func (mr *MockServiceMockRecorder) GetMetricsByType(ctx, pollerID, metricType, start, end any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMetricsByType", reflect.TypeOf((*MockService)(nil).GetMetricsByType), ctx, pollerID, metricType, start, end)
+}
+
+// GetMetricsForDevice mocks base method.
+func (m *MockService) GetMetricsForDevice(ctx context.Context, deviceID string, start, end time.Time) ([]models.TimeseriesMetric, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetMetricsForDevice", ctx, deviceID, start, end)
+	ret0, _ := ret[0].([]models.TimeseriesMetric)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetMetricsForDevice indicates an expected call of GetMetricsForDevice.
+func (mr *MockServiceMockRecorder) GetMetricsForDevice(ctx, deviceID, start, end any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMetricsForDevice", reflect.TypeOf((*MockService)(nil).GetMetricsForDevice), ctx, deviceID, start, end)
+}
+
+// GetMetricsForDeviceByType mocks base method.
+func (m *MockService) GetMetricsForDeviceByType(ctx context.Context, deviceID, metricType string, start, end time.Time) ([]models.TimeseriesMetric, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetMetricsForDeviceByType", ctx, deviceID, metricType, start, end)
+	ret0, _ := ret[0].([]models.TimeseriesMetric)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetMetricsForDeviceByType indicates an expected call of GetMetricsForDeviceByType.
+func (mr *MockServiceMockRecorder) GetMetricsForDeviceByType(ctx, deviceID, metricType, start, end any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMetricsForDeviceByType", reflect.TypeOf((*MockService)(nil).GetMetricsForDeviceByType), ctx, deviceID, metricType, start, end)
+}
+
+// GetMetricsForPartition mocks base method.
+func (m *MockService) GetMetricsForPartition(ctx context.Context, partition string, start, end time.Time) ([]models.TimeseriesMetric, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetMetricsForPartition", ctx, partition, start, end)
+	ret0, _ := ret[0].([]models.TimeseriesMetric)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetMetricsForPartition indicates an expected call of GetMetricsForPartition.
+func (mr *MockServiceMockRecorder) GetMetricsForPartition(ctx, partition, start, end any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetMetricsForPartition", reflect.TypeOf((*MockService)(nil).GetMetricsForPartition), ctx, partition, start, end)
 }
 
 // GetPollerHistory mocks base method.
@@ -516,6 +591,20 @@ func (mr *MockServiceMockRecorder) StoreRperfMetrics(ctx, pollerID, serviceName,
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreRperfMetrics", reflect.TypeOf((*MockService)(nil).StoreRperfMetrics), ctx, pollerID, serviceName, message, timestamp)
 }
 
+// StoreServices mocks base method.
+func (m *MockService) StoreServices(ctx context.Context, services []*models.Service) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "StoreServices", ctx, services)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// StoreServices indicates an expected call of StoreServices.
+func (mr *MockServiceMockRecorder) StoreServices(ctx, services any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreServices", reflect.TypeOf((*MockService)(nil).StoreServices), ctx, services)
+}
+
 // StoreSweepResults mocks base method.
 func (m *MockService) StoreSweepResults(ctx context.Context, results []*models.SweepResult) error {
 	m.ctrl.T.Helper()
@@ -531,17 +620,29 @@ func (mr *MockServiceMockRecorder) StoreSweepResults(ctx, results any) *gomock.C
 }
 
 // StoreSysmonMetrics mocks base method.
+<<<<<<< HEAD
 func (m *MockService) StoreSysmonMetrics(ctx context.Context, pollerID string, metrics *models.SysmonMetrics, agentID string, hostID string, timestamp time.Time) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "StoreSysmonMetrics", ctx, pollerID, metrics, agentID, hostID, timestamp)
+=======
+func (m *MockService) StoreSysmonMetrics(ctx context.Context, pollerID, agentID, hostID, partition, hostIP string, metrics *models.SysmonMetrics, timestamp time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "StoreSysmonMetrics", ctx, pollerID, agentID, hostID, partition, hostIP, metrics, timestamp)
+>>>>>>> origin/production
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // StoreSysmonMetrics indicates an expected call of StoreSysmonMetrics.
+<<<<<<< HEAD
 func (mr *MockServiceMockRecorder) StoreSysmonMetrics(ctx, pollerID, metrics, agentID, hostID, timestamp any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreSysmonMetrics", reflect.TypeOf((*MockService)(nil).StoreSysmonMetrics), ctx, pollerID, metrics, agentID, hostID, timestamp)
+=======
+func (mr *MockServiceMockRecorder) StoreSysmonMetrics(ctx, pollerID, agentID, hostID, partition, hostIP, metrics, timestamp any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreSysmonMetrics", reflect.TypeOf((*MockService)(nil).StoreSysmonMetrics), ctx, pollerID, agentID, hostID, partition, hostIP, metrics, timestamp)
+>>>>>>> origin/production
 }
 
 // StoreUser mocks base method.

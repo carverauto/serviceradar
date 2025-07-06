@@ -27,6 +27,7 @@ var (
 	errAgentAddressRequired = fmt.Errorf("agent address is required")
 	errPollerIDRequired     = fmt.Errorf("poller id is required")
 	errCoreAddressRequired  = fmt.Errorf("core address is required")
+	errSourceIPRequired     = fmt.Errorf("source_ip is required")
 )
 
 const (
@@ -57,6 +58,7 @@ type Config struct {
 	PollInterval models.Duration        `json:"poll_interval"`
 	PollerID     string                 `json:"poller_id"`
 	Partition    string                 `json:"partition"`
+	SourceIP     string                 `json:"source_ip"`
 	Security     *models.SecurityConfig `json:"security"`
 }
 
@@ -68,6 +70,10 @@ func (c *Config) Validate() error {
 
 	if c.PollerID == "" {
 		return errPollerIDRequired
+	}
+
+	if c.SourceIP == "" {
+		return errSourceIPRequired
 	}
 
 	if c.Partition == "" {

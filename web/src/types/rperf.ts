@@ -19,6 +19,11 @@ export interface RperfMetric {
     timestamp: string; // ISO string
     name: string;      // e.g., "rperf_tcp_bandwidth"
     target: string;    // e.g., target IP or hostname
+    agent_id: string;  // ID of the agent/poller that performed this measurement
+    service_name: string; // Name of the service that performed the test
+    service_type: string; // Type of the service that performed the test
+    version: string;   // Version of the rperf service
+    response_time: number; // Response time in milliseconds
     success: boolean;
     error?: string | null;
     bits_per_second: number;

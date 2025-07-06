@@ -41,6 +41,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const refreshTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const router = useRouter();
 
+  // Helper function to get cookie flags based on environment
+  const getCookieFlags = () => {
+    const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
+    const secureFlag = isHttps ? '; Secure' : '';
+    return `; path=/; SameSite=Strict${secureFlag}`;
+  };
+
   // Extract expiration from JWT
   const getTokenExpiration = (tokenStr: string): number => {
     try {
@@ -89,8 +96,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = useCallback(() => {
     clearRefreshTimeout();
-    document.cookie = "accessToken=; Max-Age=0; path=/";
-    document.cookie = "refreshToken=; Max-Age=0; path=/";
+    const cookieFlags = getCookieFlags();
+    document.cookie = `accessToken=${cookieFlags}; Max-Age=0`;
+    document.cookie = `refreshToken=${cookieFlags}; Max-Age=0`;
     setToken(null);
     setUser(null);
     setIsAuthenticated(false);
@@ -126,8 +134,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const newRefreshToken = data.refresh_token || data.refreshToken;
 
       // Set cookies with secure flags
-      document.cookie = `accessToken=${accessToken}; path=/; max-age=${24 * 60 * 60}; SameSite=Strict`;
-      document.cookie = `refreshToken=${newRefreshToken}; path=/; max-age=${7 * 24 * 60 * 60}; SameSite=Strict`;
+      const cookieFlags = getCookieFlags();
+      document.cookie = `accessToken=${accessToken}${cookieFlags}; max-age=${24 * 60 * 60}`;
+      document.cookie = `refreshToken=${newRefreshToken}${cookieFlags}; max-age=${7 * 24 * 60 * 60}`;
 
       setToken(accessToken);
 
@@ -186,8 +195,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       // Set cookies with secure flags
-      document.cookie = `accessToken=${accessToken}; path=/; max-age=${24 * 60 * 60}; SameSite=Strict`;
-      document.cookie = `refreshToken=${refreshTokenValue}; path=/; max-age=${7 * 24 * 60 * 60}; SameSite=Strict`;
+      const cookieFlags = getCookieFlags();
+      document.cookie = `accessToken=${accessToken}${cookieFlags}; max-age=${24 * 60 * 60}`;
+      document.cookie = `refreshToken=${refreshTokenValue}${cookieFlags}; max-age=${7 * 24 * 60 * 60}`;
 
       setToken(accessToken);
 
@@ -248,8 +258,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             } catch (refreshError) {
               console.error("Token refresh failed:", refreshError);
               // Clear invalid credentials and redirect to login
-              document.cookie = "accessToken=; Max-Age=0; path=/";
-              document.cookie = "refreshToken=; Max-Age=0; path=/";
+              const cookieFlags = getCookieFlags();
+              document.cookie = `accessToken=${cookieFlags}; Max-Age=0`;
+              document.cookie = `refreshToken=${cookieFlags}; Max-Age=0`;
               router.push("/login");
             }
           }

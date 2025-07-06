@@ -32,6 +32,12 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
+// sysmonMetricBuffer holds sysmon metrics with their associated partition
+type sysmonMetricBuffer struct {
+	Metrics   *models.SysmonMetrics
+	Partition string
+}
+
 type Server struct {
 	proto.UnimplementedPollerServiceServer
 	mu                      sync.RWMutex
@@ -49,7 +55,8 @@ type Server struct {
 	authService             *auth.Auth
 	metricBuffers           map[string][]*models.TimeseriesMetric
 	serviceBuffers          map[string][]*models.ServiceStatus
-	sysmonBuffers           map[string][]*models.SysmonMetrics
+	serviceListBuffers      map[string][]*models.Service
+	sysmonBuffers           map[string][]*sysmonMetricBuffer
 	bufferMu                sync.RWMutex
 	pollerStatusCache       map[string]*models.PollerStatus
 	pollerStatusUpdates     map[string]*models.PollerStatus

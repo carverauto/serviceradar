@@ -260,17 +260,29 @@ func (mr *MockStructuredMetricCollectorMockRecorder) StoreRperfMetrics(ctx, poll
 }
 
 // StoreSysmonMetrics mocks base method.
+<<<<<<< HEAD
 func (m *MockStructuredMetricCollector) StoreSysmonMetrics(ctx context.Context, pollerID string, metrics *models.SysmonMetrics, agentID string, hostID string, timestamp time.Time) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "StoreSysmonMetrics", ctx, pollerID, metrics, agentID, hostID, timestamp)
+=======
+func (m *MockStructuredMetricCollector) StoreSysmonMetrics(ctx context.Context, pollerID, agentID, hostID string, metrics *models.SysmonMetrics, timestamp time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "StoreSysmonMetrics", ctx, pollerID, agentID, hostID, metrics, timestamp)
+>>>>>>> origin/production
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // StoreSysmonMetrics indicates an expected call of StoreSysmonMetrics.
+<<<<<<< HEAD
 func (mr *MockStructuredMetricCollectorMockRecorder) StoreSysmonMetrics(ctx, pollerID, metrics, agentID, hostID, timestamp any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreSysmonMetrics", reflect.TypeOf((*MockStructuredMetricCollector)(nil).StoreSysmonMetrics), ctx, pollerID, metrics, agentID, hostID, timestamp)
+=======
+func (mr *MockStructuredMetricCollectorMockRecorder) StoreSysmonMetrics(ctx, pollerID, agentID, hostID, metrics, timestamp any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreSysmonMetrics", reflect.TypeOf((*MockStructuredMetricCollector)(nil).StoreSysmonMetrics), ctx, pollerID, agentID, hostID, metrics, timestamp)
+>>>>>>> origin/production
 }
 
 // MockSysmonMetricsProvider is a mock of SysmonMetricsProvider interface.

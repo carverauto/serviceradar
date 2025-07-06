@@ -208,3 +208,4 @@ target/
 
 .venv
 #.bin
+.gemini/

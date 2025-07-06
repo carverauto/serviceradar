@@ -16,7 +16,15 @@
 
 // src/components/Metrics/data-service.js - Add getCombinedChartData function
 
-import { fetchFromAPI } from '@/lib/api';
+import { fetchAPI } from '@/lib/client-api';
+
+// Cache store for metrics data
+const metricsCache = new Map();
+const pendingRequests = new Map();
+
+// Cache configuration
+const CACHE_TTL = 10000; // 10 seconds cache TTL
+const MIN_FETCH_INTERVAL = 1000; // Minimum 1 second between fetches for the same key
 
 // Helper function to convert bytes to GB, handling string inputs
 const bytesToGB = (bytes) => {
@@ -36,7 +44,7 @@ const safeGet = (obj, path, defaultValue = null) => {
 };
 
 // Fetch system data from API
-export const fetchSystemData = async (pollerId, timeRange = '1h') => {
+export const fetchSystemData = async (targetId, timeRange = '1h', idType = 'poller') => {
     try {
         const end = new Date();
         const start = new Date();
@@ -52,22 +60,23 @@ export const fetchSystemData = async (pollerId, timeRange = '1h') => {
         }
 
         const queryParams = `?start=${encodeURIComponent(start.toISOString())}&end=${encodeURIComponent(end.toISOString())}`;
-        console.log(`Fetching Sysmon data for poller ${pollerId} with params: ${queryParams}`);
+        const endpoint = idType === 'device' ? 'devices' : 'pollers';
+        console.log(`Fetching Sysmon data for ${idType} ${targetId} with params: ${queryParams}`);
 
         // Improved error handling with individual try/catch blocks for each API call
-        const cpuPromise = fetchWithTimeout(`/pollers/${pollerId}/sysmon/cpu${queryParams}`, 5000)
+        const cpuPromise = fetchWithTimeout(`/api/${endpoint}/${targetId}/sysmon/cpu${queryParams}`, 5000)
             .catch(err => {
                 console.warn(`CPU metrics failed: ${err.message}`);
                 return null;
             });
 
-        const diskPromise = fetchWithTimeout(`/pollers/${pollerId}/sysmon/disk${queryParams}`, 5000)
+        const diskPromise = fetchWithTimeout(`/api/${endpoint}/${targetId}/sysmon/disk${queryParams}`, 5000)
             .catch(err => {
                 console.warn(`Disk metrics failed: ${err.message}`);
                 return null;
             });
 
-        const memoryPromise = fetchWithTimeout(`/pollers/${pollerId}/sysmon/memory${queryParams}`, 5000)
+        const memoryPromise = fetchWithTimeout(`/api/${endpoint}/${targetId}/sysmon/memory${queryParams}`, 5000)
             .catch(err => {
                 console.warn(`Memory metrics failed: ${err.message}`);
                 return null;
@@ -276,26 +285,97 @@ export const fetchSystemData = async (pollerId, timeRange = '1h') => {
     }
 };
 
-// Custom fetch with timeout
+// Custom fetch with timeout and caching
 const fetchWithTimeout = async (url, timeout = 8000) => {
-    try {
-        // First try to get from API
-        const fetchPromise = fetchFromAPI(url);
-
-        // Set up timeout
-        const timeoutPromise = new Promise((_, reject) => {
-            setTimeout(() => {
-                reject(new Error(`Request timed out after ${timeout}ms`));
-            }, timeout);
-        });
-
-        // Race between fetch and timeout
-        return Promise.race([fetchPromise, timeoutPromise]);
-    } catch (error) {
-        console.error(`Fetch error for ${url}:`, error);
-        throw error;
+    const cacheKey = url;
+    const now = Date.now();
+    
+    // Check if we have valid cached data
+    const cached = metricsCache.get(cacheKey);
+    if (cached && (now - cached.timestamp) < CACHE_TTL) {
+        console.log(`[Cache Hit] Returning cached data for: ${url}`);
+        return cached.data;
     }
+    
+    // Check if there's already a pending request for this URL
+    if (pendingRequests.has(cacheKey)) {
+        console.log(`[Request Dedup] Waiting for existing request: ${url}`);
+        return pendingRequests.get(cacheKey);
+    }
+    
+    // Create the fetch promise
+    const fetchPromise = (async () => {
+        try {
+            // Check if we need to throttle requests
+            if (cached && (now - cached.timestamp) < MIN_FETCH_INTERVAL) {
+                console.log(`[Throttled] Using stale cache for: ${url}`);
+                return cached.data;
+            }
+            
+            console.log(`[Fetching] Making API request: ${url}`);
+            
+            // First try to get from API
+            const apiPromise = fetchAPI(url);
+
+            // Set up timeout
+            const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => {
+                    reject(new Error(`Request timed out after ${timeout}ms`));
+                }, timeout);
+            });
+
+            // Race between fetch and timeout
+            const data = await Promise.race([apiPromise, timeoutPromise]);
+            
+            // Cache the successful response
+            metricsCache.set(cacheKey, {
+                data,
+                timestamp: now
+            });
+            
+            // Clean up pending request
+            pendingRequests.delete(cacheKey);
+            
+            return data;
+        } catch (error) {
+            // Clean up pending request on error
+            pendingRequests.delete(cacheKey);
+            
+            // If we have stale cached data, return it instead of failing
+            if (cached) {
+                console.warn(`[Fallback] Using stale cache due to error: ${error.message}`);
+                return cached.data;
+            }
+            
+            throw error;
+        }
+    })();
+    
+    // Store the pending request
+    pendingRequests.set(cacheKey, fetchPromise);
+    
+    return fetchPromise;
 };
+
+// Cleanup old cache entries periodically
+const cleanupCache = () => {
+    const now = Date.now();
+    const expiredKeys = [];
+    
+    metricsCache.forEach((value, key) => {
+        if (now - value.timestamp > CACHE_TTL * 2) {
+            expiredKeys.push(key);
+        }
+    });
+    
+    expiredKeys.forEach(key => {
+        metricsCache.delete(key);
+        console.log(`[Cache Cleanup] Removed expired entry: ${key}`);
+    });
+};
+
+// Run cache cleanup every 30 seconds
+setInterval(cleanupCache, 30000);
 
 // Generate default data points if API fails
 const generateDefaultDataPoints = () => {
@@ -314,6 +394,13 @@ const generateDefaultDataPoints = () => {
     }
 
     return points.reverse();
+};
+
+// Clear all cached metrics data
+export const clearMetricsCache = () => {
+    metricsCache.clear();
+    pendingRequests.clear();
+    console.log('[Cache] Cleared all metrics cache');
 };
 
 // Combines data from CPU, memory, and disk metrics for the combined chart

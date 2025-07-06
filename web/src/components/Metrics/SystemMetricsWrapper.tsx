@@ -20,17 +20,52 @@
 import React from 'react';
 import dynamic from 'next/dynamic';
 import { useSearchParams } from 'next/navigation';
+import DeviceAttributionBanner from './DeviceAttributionBanner';
 
-const SystemMetrics = dynamic(() => import('./system-metrics'), {
+const MultiSysmonMetrics = dynamic(() => import('./MultiSysmonMetrics'), {
     ssr: false,
     loading: () => <div className="p-8 text-center">Loading system metrics...</div>,
 });
 
 const SystemMetricsWrapper = () => {
     const searchParams = useSearchParams();
-    const pollerId = searchParams.get('pollerId') || 'poller-01'; // Fallback to 'poller-01' if not provided
+    const deviceId = searchParams.get('deviceId');
+    const pollerId = searchParams.get('pollerId'); // Keep for backward compatibility
+    const agentId = searchParams.get('agentId');
+    
+    // Use deviceId if available, otherwise fall back to pollerId for backward compatibility
+    const targetId = deviceId || pollerId;
+    const idType = deviceId ? 'device' : 'poller';
+    
+    // Debug logging
+    console.log('SystemMetricsWrapper - All search params:', Array.from(searchParams.entries()));
+    console.log('SystemMetricsWrapper - deviceId:', deviceId);
+    console.log('SystemMetricsWrapper - pollerId:', pollerId);
+    console.log('SystemMetricsWrapper - agentId:', agentId);
+    console.log('SystemMetricsWrapper - targetId:', targetId, 'idType:', idType);
 
-    return <SystemMetrics pollerId={pollerId} />;
+    if (!targetId) {
+        return (
+            <div className="p-8 text-center">
+                <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-2">
+                    Missing Device ID
+                </h2>
+                <p className="text-gray-600 dark:text-gray-400">
+                    Please provide a deviceId parameter to view metrics.
+                </p>
+                <div className="mt-4 text-sm text-gray-500">
+                    Current URL params: {Array.from(searchParams.entries()).map(([key, value]) => `${key}=${value}`).join(', ') || 'none'}
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div>
+            <DeviceAttributionBanner deviceId={targetId} idType={idType} />
+            <MultiSysmonMetrics deviceId={targetId} idType={idType} preselectedAgentId={agentId} />
+        </div>
+    );
 };
 
 export default SystemMetricsWrapper;

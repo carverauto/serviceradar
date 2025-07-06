@@ -57,7 +57,7 @@ type SysmonMetrics struct {
 	// Disk usage metrics for various mount points
 	Disks []DiskMetric `json:"disks"`
 	// Memory usage metrics
-	Memory MemoryMetric `json:"memory"`
+	Memory *MemoryMetric `json:"memory"`
 }
 
 // CPUMetric represents CPU utilization for a single core.
@@ -69,6 +69,12 @@ type CPUMetric struct {
 	UsagePercent float64 `json:"usage_percent" example:"45.2"`
 	// When this metric was collected
 	Timestamp time.Time `json:"timestamp" example:"2025-04-24T14:15:22Z"`
+	// Host identifier for the agent that collected this metric
+	HostID string `json:"host_id,omitempty" example:"server-east-1"`
+	// Host IP address for the agent that collected this metric
+	HostIP string `json:"host_ip,omitempty" example:"192.168.1.100"`
+	// ServiceRadar agent identifier
+	AgentID string `json:"agent_id,omitempty" example:"agent-1234"`
 }
 
 // DiskMetric represents disk usage for a single mount point.
@@ -82,6 +88,12 @@ type DiskMetric struct {
 	TotalBytes uint64 `json:"total_bytes" example:"107374182400"`
 	// When this metric was collected
 	Timestamp time.Time `json:"timestamp" example:"2025-04-24T14:15:22Z"`
+	// Host identifier for the agent that collected this metric
+	HostID string `json:"host_id,omitempty" example:"server-east-1"`
+	// Host IP address for the agent that collected this metric
+	HostIP string `json:"host_ip,omitempty" example:"192.168.1.100"`
+	// ServiceRadar agent identifier
+	AgentID string `json:"agent_id,omitempty" example:"agent-1234"`
 }
 
 // MemoryMetric represents system memory usage.
@@ -93,6 +105,12 @@ type MemoryMetric struct {
 	TotalBytes uint64 `json:"total_bytes" example:"17179869184"`
 	// When this metric was collected
 	Timestamp time.Time `json:"timestamp" example:"2025-04-24T14:15:22Z"`
+	// Host identifier for the agent that collected this metric
+	HostID string `json:"host_id,omitempty" example:"server-east-1"`
+	// Host IP address for the agent that collected this metric
+	HostIP string `json:"host_ip,omitempty" example:"192.168.1.100"`
+	// ServiceRadar agent identifier
+	AgentID string `json:"agent_id,omitempty" example:"agent-1234"`
 }
 
 // SysmonMetricData represents the raw data received from the sysmon service.
@@ -102,6 +120,10 @@ type SysmonMetricData struct {
 	Timestamp string `json:"timestamp" example:"2025-04-24T14:15:22Z"`
 	// Unique identifier for the host
 	HostID string `json:"host_id" example:"server-east-1"`
+	// IP address of the host
+	HostIP string `json:"host_ip" example:"192.168.1.100"`
+	// Partition identifier for device-centric model (optional)
+	Partition *string `json:"partition,omitempty" example:"demo-staging"`
 	// CPU metrics for each core
 	CPUs []struct {
 		// ID number of the CPU core
@@ -132,6 +154,8 @@ type TimeseriesMetric struct {
 	PollerID       string    `json:"poller_id"` // Unique identifier for the poller that collected this metric
 	Name           string    `json:"name"`
 	TargetDeviceIP string    `json:"target_device_ip"` // IP address of the device this metric is for
+	DeviceID       string    `json:"device_id"`        // Device identifier in format "partition:ip"
+	Partition      string    `json:"partition"`        // Partition identifier for this device
 	IfIndex        int32     `json:"if_index"`
 	Value          string    `json:"value"` // Store as string for flexibility
 	Type           string    `json:"type"`  // Metric type identifier

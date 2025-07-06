@@ -49,7 +49,7 @@ async fn main() -> Result<()> {
     let config_path = PathBuf::from(config_path);
 
     // Load configuration
-    info!("Loading configuration from {:?}", config_path);
+    info!("Loading configuration from {config_path:?}");
     let config = Config::from_file(&config_path)
         .context("Failed to load configuration")?;
 
@@ -72,7 +72,7 @@ async fn main() -> Result<()> {
     // Stop the server gracefully
     match server_handle.stop().await {
         Ok(_) => info!("Server stopped gracefully"),
-        Err(e) => warn!("Error during server shutdown: {}", e),
+        Err(e) => warn!("Error during server shutdown: {e}"),
     }
 
     Ok(())

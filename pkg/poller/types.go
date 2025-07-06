@@ -61,9 +61,10 @@ type Poller struct {
 
 // ServiceCheck manages a single service check operation.
 type ServiceCheck struct {
-	client   proto.AgentServiceClient
-	check    Check
-	pollerID string
+	client    proto.AgentServiceClient
+	check     Check
+	pollerID  string
+	agentName string
 }
 
 // Duration is a wrapper around time.Duration for JSON unmarshaling.

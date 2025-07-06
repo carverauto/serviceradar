@@ -96,7 +96,8 @@ func NewServer(ctx context.Context, config *models.DBConfig) (*Server, error) {
 		authService:         auth.NewAuth(authConfig, database),
 		metricBuffers:       make(map[string][]*models.TimeseriesMetric),
 		serviceBuffers:      make(map[string][]*models.ServiceStatus),
-		sysmonBuffers:       make(map[string][]*models.SysmonMetrics),
+		serviceListBuffers:  make(map[string][]*models.Service),
+		sysmonBuffers:       make(map[string][]*sysmonMetricBuffer),
 		bufferMu:            sync.RWMutex{},
 		pollerStatusCache:   make(map[string]*models.PollerStatus),
 		pollerStatusUpdates: make(map[string]*models.PollerStatus),
@@ -166,6 +167,7 @@ func (s *Server) flushAllBuffers(ctx context.Context) {
 
 	s.flushMetrics(ctx)
 	s.flushServiceStatuses(ctx)
+	s.flushServices(ctx)
 	s.flushSysmonMetrics(ctx)
 }
 
@@ -208,6 +210,21 @@ func (s *Server) flushServiceStatuses(ctx context.Context) {
 	}
 }
 
+// flushServices flushes service inventory data to the database.
+func (s *Server) flushServices(ctx context.Context) {
+	for pollerID, services := range s.serviceListBuffers {
+		if len(services) == 0 {
+			continue
+		}
+
+		if err := s.DB.StoreServices(ctx, services); err != nil {
+			log.Printf("Failed to flush services for poller %s: %v", pollerID, err)
+		}
+
+		s.serviceListBuffers[pollerID] = nil
+	}
+}
+
 // flushSysmonMetrics flushes system monitor metrics to the database.
 func (s *Server) flushSysmonMetrics(ctx context.Context) {
 	for pollerID, sysmonMetrics := range s.sysmonBuffers {
@@ -215,19 +232,38 @@ func (s *Server) flushSysmonMetrics(ctx context.Context) {
 			continue
 		}
 
-		for _, metric := range sysmonMetrics {
+		for _, metricBuffer := range sysmonMetrics {
+			metric := metricBuffer.Metrics
+			partition := metricBuffer.Partition
+
 			var ts time.Time
 
+			var agentID, hostID, hostIP string
+
+			// Extract information from the first available metric type
 			switch {
 			case len(metric.CPUs) > 0:
 				ts = metric.CPUs[0].Timestamp
+				agentID = metric.CPUs[0].AgentID
+				hostID = metric.CPUs[0].HostID
+				hostIP = metric.CPUs[0].HostIP
 			case len(metric.Disks) > 0:
 				ts = metric.Disks[0].Timestamp
+				agentID = metric.Disks[0].AgentID
+				hostID = metric.Disks[0].HostID
+				hostIP = metric.Disks[0].HostIP
 			default:
 				ts = metric.Memory.Timestamp
+				agentID = metric.Memory.AgentID
+				hostID = metric.Memory.HostID
+				hostIP = metric.Memory.HostIP
 			}
 
+<<<<<<< HEAD
 			if err := s.DB.StoreSysmonMetrics(ctx, pollerID, metric, metric.AgentID, metric.HostID, ts); err != nil {
+=======
+			if err := s.DB.StoreSysmonMetrics(ctx, pollerID, agentID, hostID, partition, hostIP, metric, ts); err != nil {
+>>>>>>> origin/production
 				log.Printf("Failed to flush sysmon metrics for poller %s: %v", pollerID, err)
 			}
 		}
@@ -626,6 +662,136 @@ func (s *Server) getPollerHealthState(ctx context.Context, pollerID string) (boo
 	return status.IsHealthy, nil
 }
 
+// findAgentID extracts the agent ID from the services if available
+func (*Server) findAgentID(services []*proto.ServiceStatus) string {
+	for _, svc := range services {
+		if svc.AgentId != "" {
+			return svc.AgentId
+		}
+	}
+
+	return ""
+}
+
+// registerServiceDevice creates or updates a device entry for a poller and/or agent
+// This treats the agent/poller as a service running on a real host device within a specific partition
+//
+// Source of Truth Principle:
+// The agent/poller is the ONLY reliable source of truth for its location (partition and host IP).
+// This information MUST be provided by the client in the status report, not inferred by the server.
+//
+// Requirements:
+// - partition: MUST be provided in the PollerStatusRequest
+// - sourceIP: MUST be provided in the PollerStatusRequest
+// - If either is missing, the device registration is rejected to prevent orphaned records
+//
+// This approach ensures:
+// - No duplicate devices with placeholder IPs (e.g., 127.0.0.1)
+// - Stable device IDs from the first check-in
+// - Correct handling of NAT, proxies, and load balancers
+// - Simple, reliable logic with no "magic" convergence
+func (s *Server) registerServiceDevice(ctx context.Context, pollerID, agentID, partition, sourceIP string, timestamp time.Time) error {
+	// Validate required fields - the client MUST provide its location
+	if partition == "" || sourceIP == "" {
+		return fmt.Errorf("CRITICAL: Cannot register device for poller %s - missing required location data (partition=%q, source_ip=%q)",
+			pollerID, partition, sourceIP)
+	}
+
+	// Generate device ID following the partition:ip schema using the reported location
+	deviceID := fmt.Sprintf("%s:%s", partition, sourceIP)
+
+	// Determine service types based on the relationship between poller and agent
+	var serviceTypes []string
+
+	var primaryServiceID string
+
+	if agentID == "" {
+		// Pure poller
+		serviceTypes = []string{"poller"}
+		primaryServiceID = pollerID
+	} else if agentID == pollerID {
+		// Combined poller/agent
+		serviceTypes = []string{"poller", "agent"}
+		primaryServiceID = pollerID
+	} else {
+		// Separate agent
+		serviceTypes = []string{"agent"}
+		primaryServiceID = agentID
+	}
+
+	// Check if device already exists to determine FirstSeen timestamp
+	firstSeen := timestamp
+
+	existingDevice, err := s.DB.GetDeviceByID(ctx, deviceID)
+	if err == nil && !existingDevice.FirstSeen.IsZero() {
+		firstSeen = existingDevice.FirstSeen
+	}
+
+	// Create the device metadata including service information
+	// Note: metadata must be map[string]string per database schema
+	metadata := map[string]interface{}{
+		"device_type":     "host",
+		"service_types":   strings.Join(serviceTypes, ","), // Convert array to comma-separated string
+		"service_status":  "online",
+		"last_heartbeat":  timestamp.Format(time.RFC3339),
+		"primary_service": primaryServiceID,
+	}
+
+	// Add poller-specific metadata if this host runs a poller
+	if pollerID != "" {
+		metadata["poller_id"] = pollerID
+		metadata["poller_status"] = "active"
+	}
+
+	// Add agent-specific metadata if this host runs an agent
+	if agentID != "" && agentID != pollerID {
+		metadata["agent_id"] = agentID
+		metadata["agent_status"] = "active"
+	}
+
+	// Try to get hostname from the service ID or use IP as fallback
+	hostname := s.getServiceHostname(primaryServiceID, sourceIP)
+
+	// Construct the Device object representing the host device
+	device := &models.Device{
+		DeviceID:         deviceID,
+		PollerID:         pollerID, // The poller managing this device (may be itself)
+		AgentID:          agentID,  // The agent running on this device (may be empty)
+		IP:               sourceIP, // Host IP as reported by the service
+		Hostname:         hostname, // Real or derived hostname
+		DiscoverySources: []string{"self-reported"},
+		IsAvailable:      true,
+		LastSeen:         timestamp,
+		FirstSeen:        firstSeen,
+		Metadata:         metadata,
+	}
+
+	// Store the device using the existing StoreDevices function
+	if err := s.DB.StoreDevices(ctx, []*models.Device{device}); err != nil {
+		return fmt.Errorf("failed to store service device: %w", err)
+	}
+
+	log.Printf("Successfully registered host device %s (services: %v) for poller %s",
+		deviceID, serviceTypes, pollerID)
+
+	return nil
+}
+
+// getServiceHostname attempts to determine the hostname for a service
+func (*Server) getServiceHostname(serviceID, hostIP string) string {
+	// TODO: In a real implementation, this could:
+	// 1. Perform reverse DNS lookup on the IP
+	// 2. Query a hostname registry
+	// 3. Use the service ID as hostname if it's already a hostname
+	// For now, use the service ID as hostname if it looks like one,
+	// otherwise use the IP
+	if serviceID != "" && (len(serviceID) > 7) { // Simple heuristic
+		return serviceID
+	}
+
+	return hostIP
+}
+
 func (s *Server) processStatusReport(
 	ctx context.Context, req *proto.PollerStatusRequest, now time.Time) (*api.PollerStatus, error) {
 	pollerStatus := &models.PollerStatus{
@@ -646,13 +812,29 @@ func (s *Server) processStatusReport(
 		}
 
 		apiStatus := s.createPollerStatus(req, now)
-		s.processServices(ctx, req.PollerId, req.Partition, apiStatus, req.Services, now)
+		s.processServices(ctx, req.PollerId, req.Partition, req.SourceIp, apiStatus, req.Services, now)
 
 		if err := s.updatePollerState(ctx, req.PollerId, apiStatus, currentState, now); err != nil {
 			log.Printf("Failed to update poller state for %s: %v", req.PollerId, err)
 
 			return nil, err
 		}
+
+		// Register the poller/agent as a device
+		go func() {
+			// Run in a separate goroutine to not block the main status report flow.
+			// Skip registration if location data is missing. A warning is already logged in ReportStatus.
+			if req.Partition == "" || req.SourceIp == "" {
+				return
+			}
+
+			timeoutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			if err := s.registerServiceDevice(timeoutCtx, req.PollerId, s.findAgentID(req.Services), req.Partition, req.SourceIp, now); err != nil {
+				log.Printf("Failed to register service device for poller %s: %v", req.PollerId, err)
+			}
+		}()
 
 		return apiStatus, nil
 	}
@@ -666,7 +848,23 @@ func (s *Server) processStatusReport(
 	}
 
 	apiStatus := s.createPollerStatus(req, now)
-	s.processServices(ctx, req.PollerId, req.Partition, apiStatus, req.Services, now)
+	s.processServices(ctx, req.PollerId, req.Partition, req.SourceIp, apiStatus, req.Services, now)
+
+	// Register the poller/agent as a device for new pollers too
+	go func() {
+		// Run in a separate goroutine to not block the main status report flow.
+		// Skip registration if location data is missing. A warning is already logged in ReportStatus.
+		if req.Partition == "" || req.SourceIp == "" {
+			return
+		}
+
+		timeoutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		if err := s.registerServiceDevice(timeoutCtx, req.PollerId, s.findAgentID(req.Services), req.Partition, req.SourceIp, now); err != nil {
+			log.Printf("Failed to register service device for poller %s: %v", req.PollerId, err)
+		}
+	}()
 
 	return apiStatus, nil
 }
@@ -685,11 +883,13 @@ func (s *Server) processServices(
 	ctx context.Context,
 	pollerID string,
 	partition string,
+	sourceIP string,
 	apiStatus *api.PollerStatus,
 	services []*proto.ServiceStatus,
 	now time.Time) {
 	allServicesAvailable := true
 	serviceStatuses := make([]*models.ServiceStatus, 0, len(services))
+	serviceList := make([]*models.Service, 0, len(services))
 
 	for _, svc := range services {
 		apiService := s.createAPIService(svc)
@@ -698,7 +898,7 @@ func (s *Server) processServices(
 			allServicesAvailable = false
 		}
 
-		if err := s.processServiceDetails(ctx, pollerID, partition, &apiService, svc, now); err != nil {
+		if err := s.processServiceDetails(ctx, pollerID, partition, sourceIP, &apiService, svc, now); err != nil {
 			log.Printf("Error processing details for service %s on poller %s: %v",
 				svc.ServiceName, pollerID, err)
 		}
@@ -710,6 +910,14 @@ func (s *Server) processServices(
 			ServiceType: apiService.Type,
 			Available:   apiService.Available,
 			Details:     apiService.Message,
+			Timestamp:   now,
+		})
+
+		serviceList = append(serviceList, &models.Service{
+			PollerID:    pollerID,
+			ServiceName: svc.ServiceName,
+			ServiceType: svc.ServiceType,
+			AgentID:     svc.AgentId,
 			Timestamp:   now,
 		})
 
@@ -728,6 +936,7 @@ func (s *Server) processServices(
 
 	s.bufferMu.Lock()
 	s.serviceBuffers[pollerID] = append(s.serviceBuffers[pollerID], serviceStatuses...)
+	s.serviceListBuffers[pollerID] = append(s.serviceListBuffers[pollerID], serviceList...)
 	s.bufferMu.Unlock()
 
 	apiStatus.IsHealthy = allServicesAvailable
@@ -738,6 +947,7 @@ func (s *Server) processServiceDetails(
 	ctx context.Context,
 	pollerID string,
 	partition string,
+	sourceIP string,
 	apiService *api.ServiceStatus,
 	svc *proto.ServiceStatus,
 	now time.Time,
@@ -762,7 +972,7 @@ func (s *Server) processServiceDetails(
 
 	apiService.Details = details
 
-	if err := s.processMetrics(ctx, pollerID, partition, svc, details, now); err != nil {
+	if err := s.processMetrics(ctx, pollerID, partition, sourceIP, svc, details, now); err != nil {
 		log.Printf("Error processing metrics for service %s on poller %s: %v",
 			svc.ServiceName, pollerID, err)
 		return err
@@ -776,21 +986,26 @@ func (s *Server) processMetrics(
 	ctx context.Context,
 	pollerID string,
 	partition string,
+	sourceIP string,
 	svc *proto.ServiceStatus,
 	details json.RawMessage,
 	now time.Time) error {
 	switch svc.ServiceType {
 	case snmpServiceType:
-		return s.processSNMPMetrics(pollerID, details, now)
+		return s.processSNMPMetrics(pollerID, partition, details, now)
 	case grpcServiceType:
 		switch svc.ServiceName {
 		case rperfServiceType:
-			return s.processRperfMetrics(pollerID, details, now)
+			return s.processRperfMetrics(pollerID, partition, details, now)
 		case sysmonServiceType:
+<<<<<<< HEAD
 			return s.processSysmonMetrics(pollerID, svc.AgentId, details, now)
+=======
+			return s.processSysmonMetrics(pollerID, partition, svc.AgentId, details, now)
+>>>>>>> origin/production
 		}
 	case icmpServiceType:
-		return s.processICMPMetrics(pollerID, svc, details, now)
+		return s.processICMPMetrics(pollerID, partition, sourceIP, svc, details, now)
 	case snmpDiscoveryResultsServiceType, mapperDiscoveryServiceType:
 		return s.processSNMPDiscoveryResults(ctx, pollerID, partition, svc, details, now)
 	}
@@ -828,77 +1043,155 @@ const (
 	sysmonServiceType = "sysmon"
 )
 
+<<<<<<< HEAD
 func (s *Server) processSysmonMetrics(pollerID string, agentID string, details json.RawMessage, timestamp time.Time) error {
 	log.Printf("Processing sysmon metrics for poller %s with details: %s", pollerID, string(details))
+=======
+func (s *Server) processSysmonMetrics(pollerID, partition, agentID string, details json.RawMessage, timestamp time.Time) error {
+	log.Printf("Processing sysmon metrics for poller %s, agent %s with details: %s", pollerID, agentID, string(details))
+>>>>>>> origin/production
 
-	// Define the full structure of the message payload
-	var sysmonPayload struct {
-		Available    bool  `json:"available"`
-		ResponseTime int64 `json:"response_time"`
-		Status       struct {
-			Timestamp string              `json:"timestamp"`
-			HostID    string              `json:"host_id"`
-			CPUs      []models.CPUMetric  `json:"cpus"`
-			Disks     []models.DiskMetric `json:"disks"`
-			Memory    models.MemoryMetric `json:"memory"`
-		} `json:"status"`
+	sysmonPayload, pollerTimestamp, err := s.parseSysmonPayload(details, pollerID, timestamp)
+	if err != nil {
+		return err
 	}
 
-	if err := json.Unmarshal(details, &sysmonPayload); err != nil {
+	m := s.buildSysmonMetrics(sysmonPayload, pollerTimestamp, agentID)
+
+	// Create device_id for logging and device registration
+	deviceID := fmt.Sprintf("%s:%s", partition, sysmonPayload.Status.HostIP)
+
+	s.bufferSysmonMetrics(pollerID, partition, m)
+
+	log.Printf("Parsed %d CPU metrics for poller %s (device_id: %s, host_ip: %s, partition: %s) with timestamp %s",
+		len(sysmonPayload.Status.CPUs), pollerID, deviceID, sysmonPayload.Status.HostIP, partition, sysmonPayload.Status.Timestamp)
+
+	s.createSysmonDeviceRecord(agentID, pollerID, partition, deviceID, sysmonPayload, pollerTimestamp)
+
+	return nil
+}
+
+type sysmonPayload struct {
+	Available    bool  `json:"available"`
+	ResponseTime int64 `json:"response_time"`
+	Status       struct {
+		Timestamp string              `json:"timestamp"`
+		HostID    string              `json:"host_id"`
+		HostIP    string              `json:"host_ip"`
+		CPUs      []models.CPUMetric  `json:"cpus"`
+		Disks     []models.DiskMetric `json:"disks"`
+		Memory    models.MemoryMetric `json:"memory"`
+	} `json:"status"`
+}
+
+func (*Server) parseSysmonPayload(details json.RawMessage, pollerID string, timestamp time.Time) (*sysmonPayload, time.Time, error) {
+	var payload sysmonPayload
+
+	if err := json.Unmarshal(details, &payload); err != nil {
 		log.Printf("Error unmarshaling sysmon data for poller %s: %v", pollerID, err)
-		return fmt.Errorf("failed to parse sysmon data: %w", err)
+		return nil, time.Time{}, fmt.Errorf("failed to parse sysmon data: %w", err)
 	}
 
-	// Parse the poller's timestamp
-	pollerTimestamp, err := time.Parse(time.RFC3339Nano, sysmonPayload.Status.Timestamp)
+	pollerTimestamp, err := time.Parse(time.RFC3339Nano, payload.Status.Timestamp)
 	if err != nil {
 		log.Printf("Invalid timestamp in sysmon data for poller %s: %v, using server timestamp", pollerID, err)
 
 		pollerTimestamp = timestamp
 	}
 
-	hasMemoryData := sysmonPayload.Status.Memory.TotalBytes > 0 || sysmonPayload.Status.Memory.UsedBytes > 0
+	return &payload, pollerTimestamp, nil
+}
+
+func (*Server) buildSysmonMetrics(payload *sysmonPayload, pollerTimestamp time.Time, agentID string) *models.SysmonMetrics {
+	hasMemoryData := payload.Status.Memory.TotalBytes > 0 || payload.Status.Memory.UsedBytes > 0
+
 	m := &models.SysmonMetrics{
+<<<<<<< HEAD
 		AgentID: agentID,
 		HostID:  sysmonPayload.Status.HostID,
 		CPUs:    make([]models.CPUMetric, len(sysmonPayload.Status.CPUs)),
 		Disks:   make([]models.DiskMetric, len(sysmonPayload.Status.Disks)),
 		Memory:  models.MemoryMetric{},
+=======
+		CPUs:   make([]models.CPUMetric, len(payload.Status.CPUs)),
+		Disks:  make([]models.DiskMetric, len(payload.Status.Disks)),
+		Memory: &models.MemoryMetric{},
+>>>>>>> origin/production
 	}
 
-	for i, cpu := range sysmonPayload.Status.CPUs {
+	for i, cpu := range payload.Status.CPUs {
 		m.CPUs[i] = models.CPUMetric{
 			CoreID:       cpu.CoreID,
 			UsagePercent: cpu.UsagePercent,
 			Timestamp:    pollerTimestamp,
+			HostID:       payload.Status.HostID,
+			HostIP:       payload.Status.HostIP,
+			AgentID:      agentID,
 		}
 	}
 
-	for i, disk := range sysmonPayload.Status.Disks {
+	for i, disk := range payload.Status.Disks {
 		m.Disks[i] = models.DiskMetric{
 			MountPoint: disk.MountPoint,
 			UsedBytes:  disk.UsedBytes,
 			TotalBytes: disk.TotalBytes,
 			Timestamp:  pollerTimestamp,
+			HostID:     payload.Status.HostID,
+			HostIP:     payload.Status.HostIP,
+			AgentID:    agentID,
 		}
 	}
 
 	if hasMemoryData {
-		m.Memory = models.MemoryMetric{
-			UsedBytes:  sysmonPayload.Status.Memory.UsedBytes,
-			TotalBytes: sysmonPayload.Status.Memory.TotalBytes,
+		m.Memory = &models.MemoryMetric{
+			UsedBytes:  payload.Status.Memory.UsedBytes,
+			TotalBytes: payload.Status.Memory.TotalBytes,
 			Timestamp:  pollerTimestamp,
+			HostID:     payload.Status.HostID,
+			HostIP:     payload.Status.HostIP,
+			AgentID:    agentID,
 		}
 	}
 
+	return m
+}
+
+func (s *Server) bufferSysmonMetrics(pollerID, partition string, metrics *models.SysmonMetrics) {
 	s.bufferMu.Lock()
-	s.sysmonBuffers[pollerID] = append(s.sysmonBuffers[pollerID], m)
+	s.sysmonBuffers[pollerID] = append(s.sysmonBuffers[pollerID], &sysmonMetricBuffer{
+		Metrics:   metrics,
+		Partition: partition,
+	})
 	s.bufferMu.Unlock()
+}
 
-	log.Printf("Parsed %d CPU metrics for poller %s with timestamp %s",
-		len(sysmonPayload.Status.CPUs), pollerID, sysmonPayload.Status.Timestamp)
+func (s *Server) createSysmonDeviceRecord(
+	agentID, pollerID, partition, deviceID string, payload *sysmonPayload, pollerTimestamp time.Time) {
+	if payload.Status.HostIP == "" || payload.Status.HostIP == "unknown" {
+		return
+	}
 
-	return nil
+	sweepResult := &models.SweepResult{
+		AgentID:         agentID,
+		PollerID:        pollerID,
+		Partition:       partition,
+		DiscoverySource: "sysmon",
+		IP:              payload.Status.HostIP,
+		Hostname:        &payload.Status.HostID,
+		Timestamp:       pollerTimestamp,
+		Available:       true,
+		Metadata: map[string]string{
+			"source":      "sysmon",
+			"last_update": pollerTimestamp.Format(time.RFC3339),
+		},
+	}
+
+	if err := s.DB.StoreSweepResults(context.Background(), []*models.SweepResult{sweepResult}); err != nil {
+		log.Printf("Warning: Failed to create device record for sysmon device %s: %v", deviceID, err)
+	} else {
+		log.Printf("Created/updated device record for sysmon device %s (hostname: %s, ip: %s)",
+			deviceID, payload.Status.HostID, payload.Status.HostIP)
+	}
 }
 
 // parseRperfPayload unmarshals the rperf payload and extracts the timestamp
@@ -948,7 +1241,7 @@ func (*Server) processRperfResult(result *struct {
 	Success bool               `json:"success"`
 	Error   *string            `json:"error"`
 	Status  models.RperfMetric `json:"status"`
-}, pollerID string, responseTime int64, pollerTimestamp time.Time) ([]*models.TimeseriesMetric, error) {
+}, pollerID string, partition string, responseTime int64, pollerTimestamp time.Time) ([]*models.TimeseriesMetric, error) {
 	if !result.Success {
 		return nil, fmt.Errorf("skipping failed rperf test (Target: %s). Error: %v", result.Target, result.Error)
 	}
@@ -1010,12 +1303,15 @@ func (*Server) processRperfResult(result *struct {
 
 	for _, m := range metricsToStore {
 		metric := &models.TimeseriesMetric{
-			Name:      m.Name,
-			Value:     m.Value,
-			Type:      "rperf",
-			Timestamp: pollerTimestamp,
-			Metadata:  metadataStr,
-			PollerID:  pollerID,
+			Name:           m.Name,
+			Value:          m.Value,
+			Type:           "rperf",
+			Timestamp:      pollerTimestamp,
+			Metadata:       metadataStr,
+			PollerID:       pollerID,
+			TargetDeviceIP: result.Target,
+			DeviceID:       fmt.Sprintf("%s:%s", partition, result.Target),
+			Partition:      partition,
 		}
 
 		timeseriesMetrics = append(timeseriesMetrics, metric)
@@ -1031,7 +1327,7 @@ func (s *Server) bufferRperfMetrics(pollerID string, metrics []*models.Timeserie
 	s.bufferMu.Unlock()
 }
 
-func (s *Server) processRperfMetrics(pollerID string, details json.RawMessage, timestamp time.Time) error {
+func (s *Server) processRperfMetrics(pollerID, partition string, details json.RawMessage, timestamp time.Time) error {
 	log.Printf("Processing rperf metrics for poller %s with details: %s", pollerID, string(details))
 
 	rperfPayload, pollerTimestamp, err := s.parseRperfPayload(details, timestamp)
@@ -1043,7 +1339,7 @@ func (s *Server) processRperfMetrics(pollerID string, details json.RawMessage, t
 	var allMetrics []*models.TimeseriesMetric
 
 	for i := range rperfPayload.Status.Results {
-		rperfResult, err := s.processRperfResult(rperfPayload.Status.Results[i], pollerID, rperfPayload.ResponseTime, pollerTimestamp)
+		rperfResult, err := s.processRperfResult(rperfPayload.Status.Results[i], pollerID, partition, rperfPayload.ResponseTime, pollerTimestamp)
 		if err != nil {
 			log.Printf("%v", err)
 			continue
@@ -1062,7 +1358,7 @@ func (s *Server) processRperfMetrics(pollerID string, details json.RawMessage, t
 }
 
 func (s *Server) processICMPMetrics(
-	pollerID string, svc *proto.ServiceStatus, details json.RawMessage, now time.Time) error {
+	pollerID string, partition string, sourceIP string, svc *proto.ServiceStatus, details json.RawMessage, now time.Time) error {
 	var pingResult struct {
 		Host         string  `json:"host"`
 		ResponseTime int64   `json:"response_time"`
@@ -1100,6 +1396,8 @@ func (s *Server) processICMPMetrics(
 		Timestamp:      now,
 		Metadata:       metadataStr, // Use JSON string
 		TargetDeviceIP: pingResult.Host,
+		DeviceID:       fmt.Sprintf("%s:%s", partition, sourceIP),
+		Partition:      partition,
 		IfIndex:        0,
 		PollerID:       pollerID,
 	}
@@ -1165,6 +1463,7 @@ func parseOIDConfigName(oidConfigName string) (baseMetricName string, parsedIfIn
 // createSNMPMetric creates a new timeseries metric from SNMP data
 func createSNMPMetric(
 	pollerID string,
+	partition string,
 	targetName string,
 	oidConfigName string,
 	oidStatus snmp.OIDStatus,
@@ -1206,6 +1505,8 @@ func createSNMPMetric(
 	return &models.TimeseriesMetric{
 		PollerID:       pollerID,
 		TargetDeviceIP: targetName,
+		DeviceID:       fmt.Sprintf("%s:%s", partition, targetName),
+		Partition:      partition,
 		IfIndex:        parsedIfIndex,
 		Name:           baseMetricName,
 		Type:           "snmp",
@@ -1232,7 +1533,7 @@ func (s *Server) bufferMetrics(pollerID string, metrics []*models.TimeseriesMetr
 	s.metricBuffers[pollerID] = append(s.metricBuffers[pollerID], metrics...)
 }
 
-func (s *Server) processSNMPMetrics(pollerID string, details json.RawMessage, timestamp time.Time) error {
+func (s *Server) processSNMPMetrics(pollerID, partition string, details json.RawMessage, timestamp time.Time) error {
 	// 'details' is the JSON string from SNMPService.Check(), which is a map[string]snmp.TargetStatus
 	var snmpReportData map[string]snmp.TargetStatus
 
@@ -1254,6 +1555,7 @@ func (s *Server) processSNMPMetrics(pollerID string, details json.RawMessage, ti
 
 			metric := createSNMPMetric(
 				pollerID,
+				partition,
 				targetName,
 				oidConfigName,
 				oidStatus,
@@ -1318,21 +1620,15 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 		svc.Message = updatedMessage
 	}
 
-	sweepResults := make([]*models.SweepResult, 0, len(sweepData.Hosts))
+	resultsToStore := make([]*models.SweepResult, 0, len(sweepData.Hosts))
 
 	for _, host := range sweepData.Hosts {
 		if host.IP == "" {
 			log.Printf("Skipping host with empty IP for poller %s", svc.PollerID)
-
 			continue
 		}
 
-		metadata := host.Metadata
-		if metadata == nil {
-			metadata = make(map[string]string)
-		}
-
-		sweepResult := &models.SweepResult{
+		result := &models.SweepResult{
 			AgentID:         svc.AgentID,
 			PollerID:        svc.PollerID,
 			Partition:       partition,
@@ -1342,20 +1638,18 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 			Hostname:        host.Hostname,
 			Timestamp:       now,
 			Available:       host.Available,
-			Metadata:        metadata,
+			Metadata:        host.Metadata,
 		}
-
-		sweepResults = append(sweepResults, sweepResult)
+		resultsToStore = append(resultsToStore, result)
 	}
 
-	// if sweepResults is empty, we don't need to store anything
-	if len(sweepResults) == 0 {
+	if len(resultsToStore) == 0 {
 		log.Printf("No sweep results to store for poller %s", svc.PollerID)
 
 		return nil
 	}
 
-	if err := s.DB.StoreSweepResults(ctx, sweepResults); err != nil {
+	if err := s.DB.StoreSweepResults(ctx, resultsToStore); err != nil {
 		return fmt.Errorf("failed to store sweep results: %w", err)
 	}
 
@@ -1811,6 +2105,13 @@ func (s *Server) ReportStatus(ctx context.Context, req *proto.PollerStatusReques
 
 	if req.PollerId == "" {
 		return nil, errEmptyPollerID
+	}
+
+	// Validate required location fields - critical for device registration
+	if req.Partition == "" || req.SourceIp == "" {
+		log.Printf("CRITICAL: Status report from poller %s missing required "+
+			"location data (partition=%q, source_ip=%q). Device registration will be skipped.",
+			req.PollerId, req.Partition, req.SourceIp)
 	}
 
 	if !s.isKnownPoller(req.PollerId) {
