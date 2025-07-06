@@ -50,21 +50,9 @@ func TestNew_ValidConfig(t *testing.T) {
 			},
 		},
 		KVAddress:    "localhost:50051",
+		ListenAddr:   ":50053",
 		PollInterval: models.Duration(1 * time.Second),
-		Security: &models.SecurityConfig{
-			Mode: "mtls",
-			Role: models.RolePoller,
-			TLS: struct {
-				CertFile     string `json:"cert_file"`
-				KeyFile      string `json:"key_file"`
-				CAFile       string `json:"ca_file"`
-				ClientCAFile string `json:"client_ca_file"`
-			}{
-				CertFile: "cert.pem",
-				KeyFile:  "key.pem",
-				CAFile:   "ca.pem",
-			},
-		},
+		Security:     &models.SecurityConfig{},
 	}
 
 	registry := map[string]IntegrationFactory{
@@ -101,21 +89,9 @@ func TestSync_Success(t *testing.T) {
 			},
 		},
 		KVAddress:    "localhost:50051",
+		ListenAddr:   ":50052",
 		PollInterval: models.Duration(1 * time.Second),
-		Security: &models.SecurityConfig{
-			Mode: "mtls",
-			Role: models.RolePoller,
-			TLS: struct {
-				CertFile     string `json:"cert_file"`
-				KeyFile      string `json:"key_file"`
-				CAFile       string `json:"ca_file"`
-				ClientCAFile string `json:"client_ca_file"`
-			}{
-				CertFile: "cert.pem",
-				KeyFile:  "key.pem",
-				CAFile:   "ca.pem",
-			},
-		},
+		Security:     &models.SecurityConfig{},
 	}
 
 	registry := map[string]IntegrationFactory{
@@ -159,6 +135,7 @@ func TestStartAndStop(t *testing.T) {
 			},
 		},
 		KVAddress:    "localhost:50051",
+		ListenAddr:   ":50054",
 		PollInterval: models.Duration(500 * time.Millisecond),
 		Security:     &models.SecurityConfig{},
 	}
@@ -245,21 +222,9 @@ func TestStart_ContextCancellation(t *testing.T) {
 			},
 		},
 		KVAddress:    "localhost:50051",
+		ListenAddr:   ":50053",
 		PollInterval: models.Duration(1 * time.Second),
-		Security: &models.SecurityConfig{
-			Mode: "mtls",
-			Role: models.RolePoller,
-			TLS: struct {
-				CertFile     string `json:"cert_file"`
-				KeyFile      string `json:"key_file"`
-				CAFile       string `json:"ca_file"`
-				ClientCAFile string `json:"client_ca_file"`
-			}{
-				CertFile: "cert.pem",
-				KeyFile:  "key.pem",
-				CAFile:   "ca.pem",
-			},
-		},
+		Security:     &models.SecurityConfig{},
 	}
 
 	registry := map[string]IntegrationFactory{
@@ -323,6 +288,7 @@ func TestSync_NetboxSuccess(t *testing.T) {
 			},
 		},
 		KVAddress:    "localhost:50051",
+		ListenAddr:   ":50055",
 		PollInterval: models.Duration(1 * time.Second),
 	}
 
@@ -369,6 +335,7 @@ func TestCreateIntegrationAppliesDefaults(t *testing.T) {
 		AgentID:      "global-agent",
 		PollerID:     "global-poller",
 		KVAddress:    "localhost:50051",
+		ListenAddr:   ":50056",
 		PollInterval: models.Duration(1 * time.Second),
 		Sources: map[string]*models.SourceConfig{
 			"netbox": {
@@ -411,6 +378,7 @@ func TestCreateIntegrationUsesGlobalDefaults(t *testing.T) {
 		AgentID:      "global-agent",
 		PollerID:     "global-poller",
 		KVAddress:    "localhost:50051",
+		ListenAddr:   ":50057",
 		PollInterval: models.Duration(1 * time.Second),
 		Sources: map[string]*models.SourceConfig{
 			"netbox": {
@@ -443,8 +411,9 @@ func TestWriteToKVTransformsDeviceID(t *testing.T) {
 					PollerID: "poller1",
 				},
 			},
-			AgentID:  "agent1",
-			PollerID: "poller1",
+			AgentID:    "agent1",
+			PollerID:   "poller1",
+			ListenAddr: ":50058",
 		},
 		kvClient: mockKV,
 	}
@@ -454,7 +423,7 @@ func TestWriteToKVTransformsDeviceID(t *testing.T) {
 	}
 
 	mockKV.EXPECT().PutMany(gomock.Any(), &proto.PutManyRequest{
-		Entries: []*proto.KeyValueEntry{{Key: "netbox/agent1/poller1/10.0.0.1", Value: []byte("val")}},
+		Entries: []*proto.KeyValueEntry{{Key: "netbox/agent1/poller1/partition1/10.0.0.1", Value: []byte("val")}},
 	}, gomock.Any()).Return(&proto.PutManyResponse{}, nil)
 
 	s.writeToKV(context.Background(), "netbox", data)
@@ -482,6 +451,7 @@ func TestCreateIntegrationSetsDefaultPartition(t *testing.T) {
 		AgentID:      "global-agent",
 		PollerID:     "global-poller",
 		KVAddress:    "localhost:50051",
+		ListenAddr:   ":50057",
 		PollInterval: models.Duration(1 * time.Second),
 		Sources: map[string]*models.SourceConfig{
 			"netbox": {

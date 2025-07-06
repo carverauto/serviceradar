@@ -540,20 +540,6 @@ func (mr *MockServiceMockRecorder) ListUnifiedDevices(ctx, limit, offset any) *g
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListUnifiedDevices", reflect.TypeOf((*MockService)(nil).ListUnifiedDevices), ctx, limit, offset)
 }
 
-// MarkDeviceAsMerged mocks base method.
-func (m *MockService) MarkDeviceAsMerged(ctx context.Context, deviceID, mergedIntoDeviceID string) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "MarkDeviceAsMerged", ctx, deviceID, mergedIntoDeviceID)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// MarkDeviceAsMerged indicates an expected call of MarkDeviceAsMerged.
-func (mr *MockServiceMockRecorder) MarkDeviceAsMerged(ctx, deviceID, mergedIntoDeviceID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkDeviceAsMerged", reflect.TypeOf((*MockService)(nil).MarkDeviceAsMerged), ctx, deviceID, mergedIntoDeviceID)
-}
-
 // PublishBatchDiscoveredInterfaces mocks base method.
 func (m *MockService) PublishBatchDiscoveredInterfaces(ctx context.Context, interfaces []*models.DiscoveredInterface) error {
 	m.ctrl.T.Helper()
@@ -748,20 +734,6 @@ func (m *MockService) StoreSysmonMetrics(ctx context.Context, pollerID, agentID,
 func (mr *MockServiceMockRecorder) StoreSysmonMetrics(ctx, pollerID, agentID, hostID, partition, hostIP, metrics, timestamp any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreSysmonMetrics", reflect.TypeOf((*MockService)(nil).StoreSysmonMetrics), ctx, pollerID, agentID, hostID, partition, hostIP, metrics, timestamp)
-}
-
-// StoreUnifiedDevice mocks base method.
-func (m *MockService) StoreUnifiedDevice(ctx context.Context, device *models.UnifiedDevice) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "StoreUnifiedDevice", ctx, device)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// StoreUnifiedDevice indicates an expected call of StoreUnifiedDevice.
-func (mr *MockServiceMockRecorder) StoreUnifiedDevice(ctx, device any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreUnifiedDevice", reflect.TypeOf((*MockService)(nil).StoreUnifiedDevice), ctx, device)
 }
 
 // StoreUser mocks base method.
