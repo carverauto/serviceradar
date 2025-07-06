@@ -1,5 +1,7 @@
 package registry
 
+//go:generate mockgen -destination=mock_registry.go -package=registry github.com/carverauto/serviceradar/pkg/registry Manager
+
 import (
 	"context"
 

@@ -359,12 +359,12 @@ func TestFarm01MultipleDiscoveryScenario(t *testing.T) {
 	err = registry.ProcessSighting(ctx, mapperSighting)
 	require.NoError(t, err)
 
-	// Test 3: Ensure untrusted sources don't correlate
-	untrustedSighting := &models.SweepResult{
+	// Test 3: Test that sweep sources can also correlate based on alternate IPs
+	sweepSighting := &models.SweepResult{
 		IP:              "203.0.113.1", // Public IP
 		DeviceID:        "default:203.0.113.1",
 		Partition:       "default",
-		DiscoverySource: "sweep",             // Untrusted source
+		DiscoverySource: "sweep",             // Sweep source
 		Hostname:        stringPtr("farm01"), // Same hostname
 		Timestamp:       time.Now(),
 		Available:       true,
@@ -379,25 +379,29 @@ func TestFarm01MultipleDiscoveryScenario(t *testing.T) {
 		"203.0.113.1",
 	).Return([]*models.UnifiedDevice{}, nil)
 
-	// Mock: Should NOT query alternate IPs because it's untrusted source
+	// Mock: Query alternate IPs and find existing farm01 device
+	mockDB.EXPECT().GetUnifiedDevicesByIP(
+		gomock.Any(),
+		"192.168.2.1",
+	).Return([]*models.UnifiedDevice{existingFarm01}, nil)
 
-	// Mock: Publish as separate device
+	// Mock: Publish the correlated sighting
 	mockDB.EXPECT().PublishBatchSweepResults(
 		gomock.Any(),
 		gomock.AssignableToTypeOf([]*models.SweepResult{}),
 	).DoAndReturn(func(_ context.Context, sightings []*models.SweepResult) error {
-		// Verify that untrusted sighting was NOT correlated
+		// Verify that sweep sighting was correlated to the existing device
 		assert.Len(t, sightings, 1, "Should publish exactly one sighting")
 		sighting := sightings[0]
 
-		assert.Equal(t, "default:203.0.113.1", sighting.DeviceID, "Untrusted source should not correlate")
-		t.Logf("✅ Untrusted source correctly NOT correlated: kept device ID %s", sighting.DeviceID)
+		assert.Equal(t, "default:192.168.2.1", sighting.DeviceID, "Sweep source should correlate")
+		t.Logf("✅ Sweep source correctly correlated: kept device ID %s", sighting.DeviceID)
 
 		return nil
 	})
 
-	// Process untrusted sighting
-	err = registry.ProcessSighting(ctx, untrustedSighting)
+	// Process sweep sighting
+	err = registry.ProcessSighting(ctx, sweepSighting)
 	assert.NoError(t, err)
 }
 
@@ -530,19 +534,19 @@ func TestFindCanonicalDeviceIDSimple(t *testing.T) {
 			description: "Should return empty when current IP is already the lowest",
 		},
 		{
-			name: "Untrusted Source",
+			name: "Sweep Source",
 			sighting: &models.SweepResult{
 				IP:              "216.17.46.98",
 				DeviceID:        "default:216.17.46.98",
 				Partition:       "default",
-				DiscoverySource: "sweep", // Untrusted source
+				DiscoverySource: "sweep", // Sweep source
 				Hostname:        stringPtr("tonka01"),
 				Metadata: map[string]string{
 					"alternate_ips": `["192.168.10.1"]`,
 				},
 			},
-			expected:    "",
-			description: "Should not correlate for untrusted sources",
+			expected:    "default:192.168.10.1",
+			description: "Should prefer lowest IP address for sweep sources too",
 		},
 	}
 

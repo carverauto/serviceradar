@@ -205,13 +205,6 @@ func (r *DeviceRegistry) findDeviceByAlternateIPs(ctx context.Context, sighting 
 		return "", false
 	}
 
-	// Only enable alternate IP correlation for trusted sources
-	isTrustedSource := sighting.DiscoverySource == "mapper" || sighting.DiscoverySource == "unifi-api"
-	if !isTrustedSource {
-		log.Printf("Skipping alternate IP correlation for untrusted source: %s", sighting.DiscoverySource)
-		return "", false
-	}
-
 	// Query for devices that have any of the sighting's alternate IPs as primary
 	for _, altIP := range sightingAlternateIPs {
 		altDevices, err := r.db.GetUnifiedDevicesByIP(ctx, altIP)

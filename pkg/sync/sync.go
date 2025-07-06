@@ -325,10 +325,27 @@ func (s *SyncPoller) writeToKV(ctx context.Context, sourceName string, data map[
 	}
 
 	prefix := strings.TrimSuffix(s.config.Sources[sourceName].Prefix, "/")
+	source := s.config.Sources[sourceName]
 	entries := make([]*proto.KeyValueEntry, 0, len(data))
 
 	for key, value := range data {
-		fullKey := prefix + "/" + key
+		var fullKey string
+		
+		// Check if key is in partition:ip format and transform it
+		if strings.Contains(key, ":") {
+			parts := strings.SplitN(key, ":", 2)
+			if len(parts) == 2 {
+				partition := parts[0]
+				ip := parts[1]
+				// Build key as prefix/agentID/pollerID/partition/ip
+				fullKey = fmt.Sprintf("%s/%s/%s/%s/%s", prefix, source.AgentID, source.PollerID, partition, ip)
+			} else {
+				fullKey = prefix + "/" + key
+			}
+		} else {
+			fullKey = prefix + "/" + key
+		}
+		
 		entries = append(entries, &proto.KeyValueEntry{Key: fullKey, Value: value})
 	}
 

@@ -109,6 +109,9 @@ func testStartStopService(ctrl *gomock.Controller, config *SNMPConfig) func(t *t
 		err = service.Start(ctx)
 		require.NoError(t, err)
 
+		// Give time for the processResults goroutine to call GetResults()
+		time.Sleep(10 * time.Millisecond)
+
 		// Test stop
 		err = service.Stop()
 		require.NoError(t, err)
