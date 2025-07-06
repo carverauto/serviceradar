@@ -81,11 +81,13 @@ func (db *DB) StoreUser(ctx context.Context, user *models.User) error {
 
 	err = batch.Append(
 		user.ID,
+		user.Name,                 // username field
 		user.Email,
-		user.Name,
-		user.Provider,
+		"",                       // password_hash (empty for OAuth users)
 		user.CreatedAt,
 		user.UpdatedAt,
+		true,                     // is_active (default to true)
+		[]string{"default"},      // roles (default role)
 	)
 	if err != nil {
 		return fmt.Errorf("failed to append user: %w", err)
@@ -123,11 +125,13 @@ func (db *DB) StoreBatchUsers(ctx context.Context, users []*models.User) error {
 
 		err = batch.Append(
 			user.ID,
+			user.Name,                 // username field
 			user.Email,
-			user.Name,
-			user.Provider,
+			"",                       // password_hash (empty for OAuth users)
 			user.CreatedAt,
 			user.UpdatedAt,
+			true,                     // is_active (default to true)
+			[]string{"default"},      // roles (default role)
 		)
 		if err != nil {
 			return fmt.Errorf("failed to append user %s: %w", user.ID, err)
@@ -173,11 +177,13 @@ func (db *DB) UpdateUser(ctx context.Context, user *models.User) error {
 
 	err = batch.Append(
 		user.ID,
+		user.Name,                 // username field
 		user.Email,
-		user.Name,
-		user.Provider,
+		"",                       // password_hash (empty for OAuth users)
 		user.CreatedAt,
 		user.UpdatedAt,
+		true,                     // is_active (default to true)
+		[]string{"default"},      // roles (default role)
 	)
 	if err != nil {
 		return fmt.Errorf("failed to append user update: %w", err)
