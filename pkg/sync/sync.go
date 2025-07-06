@@ -305,12 +305,12 @@ func (s *SyncPoller) GetStatus(_ context.Context, req *proto.StatusRequest) (*pr
 		return &proto.StatusResponse{
 			Available:   true,
 			Message:     responseJSON,
-			ServiceType: "sweep",
+			ServiceType: "integration",
 			AgentId:     s.config.AgentID,
 		}, nil
 	}
 
-	// Convert SweepResults to the format the core expects for sweep services
+	// Convert SweepResults to the format the core expects for integration services
 	hosts := make([]map[string]interface{}, 0, len(s.lastSyncResults))
 	for _, result := range s.lastSyncResults {
 		host := map[string]interface{}{
@@ -324,10 +324,19 @@ func (s *SyncPoller) GetStatus(_ context.Context, req *proto.StatusRequest) (*pr
 		if result.Hostname != nil {
 			host["hostname"] = *result.Hostname
 		}
+		// Include the original discovery source so core can preserve it
+		if result.DiscoverySource != "" {
+			if host["metadata"] == nil {
+				host["metadata"] = make(map[string]string)
+			}
+			if metadata, ok := host["metadata"].(map[string]string); ok {
+				metadata["source"] = result.DiscoverySource
+			}
+		}
 		hosts = append(hosts, host)
 	}
 
-	// Create a response in the format the core expects for sweep data
+	// Create a response in the format the core expects for integration data
 	response := map[string]interface{}{
 		"message": "Discovery sync completed",
 		"hosts":   hosts,
@@ -339,7 +348,7 @@ func (s *SyncPoller) GetStatus(_ context.Context, req *proto.StatusRequest) (*pr
 		return &proto.StatusResponse{
 			Available:   false,
 			Message:     []byte(`{"error": "Failed to marshal sync results"}`),
-			ServiceType: "sweep",
+			ServiceType: "integration",
 			AgentId:     s.config.AgentID,
 		}, nil
 	}
@@ -349,7 +358,7 @@ func (s *SyncPoller) GetStatus(_ context.Context, req *proto.StatusRequest) (*pr
 	return &proto.StatusResponse{
 		Available:   true,
 		Message:     responseJSON,
-		ServiceType: "sweep",
+		ServiceType: "integration",
 		AgentId:     s.config.AgentID,
 	}, nil
 }

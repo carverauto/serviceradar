@@ -793,6 +793,8 @@ func (s *Server) processMetrics(
 		return s.processICMPMetrics(pollerID, svc, details, now)
 	case snmpDiscoveryResultsServiceType, mapperDiscoveryServiceType:
 		return s.processSNMPDiscoveryResults(ctx, pollerID, partition, svc, details, now)
+	case integrationServiceType:
+		return s.processIntegrationData(ctx, pollerID, partition, svc, details, now)
 	}
 
 	return nil
@@ -821,11 +823,12 @@ func (*Server) parseServiceDetails(svc *proto.ServiceStatus) (json.RawMessage, e
 }
 
 const (
-	grpcServiceType   = "grpc"
-	icmpServiceType   = "icmp"
-	snmpServiceType   = "snmp"
-	rperfServiceType  = "rperf-checker"
-	sysmonServiceType = "sysmon"
+	grpcServiceType       = "grpc"
+	icmpServiceType       = "icmp"
+	snmpServiceType       = "snmp"
+	rperfServiceType      = "rperf-checker"
+	sysmonServiceType     = "sysmon"
+	integrationServiceType = "integration"
 )
 
 func (s *Server) processSysmonMetrics(pollerID string, agentID string, details json.RawMessage, timestamp time.Time) error {

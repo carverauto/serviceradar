@@ -5,7 +5,7 @@ After=network.target
 [Service]
 Type=simple
 User=serviceradar
-ExecStart=/usr/local/bin/serviceradar-sync -config /etc/serviceradar/sync.json
+ExecStart=/usr/local/bin/serviceradar-sync -config /etc/serviceradar/sync.json --agent
 Restart=always
 RestartSec=10
 LimitNPROC=512

@@ -450,6 +450,8 @@ func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*prot
 		response, _ = s.handleICMPCheck(ctx, req)
 	case isSweepRequest(req):
 		response, _ = s.getSweepStatus(ctx)
+	case isIntegrationRequest(req):
+		response, _ = s.handleDefaultChecker(ctx, req)
 	default:
 		response, _ = s.handleDefaultChecker(ctx, req)
 	}
@@ -475,6 +477,10 @@ func isICMPRequest(req *proto.StatusRequest) bool {
 
 func isSweepRequest(req *proto.StatusRequest) bool {
 	return req.ServiceType == "sweep"
+}
+
+func isIntegrationRequest(req *proto.StatusRequest) bool {
+	return req.ServiceType == "integration"
 }
 
 var (

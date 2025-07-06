@@ -177,6 +177,11 @@ func (e *ExternalChecker) getServiceDetails(ctx context.Context) (healthy bool, 
 
 	responseTime := time.Since(start).Nanoseconds()
 
+	// For integration services, return the raw message data from the service
+	if e.serviceType == "integration" {
+		return status.Available, status.Message
+	}
+
 	// Unmarshal the status.Message to preserve its JSON structure
 	var message map[string]interface{}
 	if err = json.Unmarshal(status.Message, &message); err != nil {

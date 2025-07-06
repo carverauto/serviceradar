@@ -313,3 +313,104 @@ func (*Server) prepareTopologyMetadata(protoLink *discoverypb.TopologyLink) json
 
 	return metadataJSON
 }
+
+// IntegrationHost represents a host from integration data (NetBox, Armis, etc.)
+type IntegrationHost struct {
+	Host      string            `json:"host"`
+	Available bool              `json:"available"`
+	Hostname  string            `json:"hostname,omitempty"`
+	MAC       string            `json:"mac,omitempty"`
+	Metadata  map[string]string `json:"metadata,omitempty"`
+}
+
+// IntegrationDataPayload represents the data structure from integration services
+type IntegrationDataPayload struct {
+	Message string            `json:"message"`
+	Hosts   []IntegrationHost `json:"hosts"`
+}
+
+// processIntegrationData handles data from integration services (sync, etc.)
+func (s *Server) processIntegrationData(
+	ctx context.Context,
+	reportingPollerID string,
+	partition string,
+	svc *proto.ServiceStatus,
+	details json.RawMessage,
+	timestamp time.Time,
+) error {
+	var payload IntegrationDataPayload
+
+	if err := json.Unmarshal(details, &payload); err != nil {
+		log.Printf("Error unmarshaling integration data for poller %s, service %s: %v. Payload: %s",
+			reportingPollerID, svc.ServiceName, err, string(details))
+		return fmt.Errorf("failed to parse integration data: %w", err)
+	}
+
+	log.Printf("Processing integration data for service %s: %s with %d hosts",
+		svc.ServiceName, payload.Message, len(payload.Hosts))
+
+	// Convert integration hosts to SweepResult objects
+	sweepResults := make([]*models.SweepResult, 0, len(payload.Hosts))
+
+	for _, host := range payload.Hosts {
+		var hostname *string
+		var mac *string
+
+		if host.Hostname != "" {
+			hostname = &host.Hostname
+		}
+		if host.MAC != "" {
+			mac = &host.MAC
+		}
+
+		// Determine discovery source from service name or metadata
+		discoverySource := "integration"
+		if svc.ServiceName == "sync" {
+			// Check metadata for specific source
+			log.Printf("Processing host %s with metadata: %+v", host.Host, host.Metadata)
+			if source, exists := host.Metadata["source"]; exists {
+				discoverySource = source
+				log.Printf("Found source in metadata: %s", source)
+			} else {
+				// Default to netbox for sync service
+				discoverySource = "netbox"
+				log.Printf("No source in metadata, defaulting to netbox")
+			}
+		}
+		log.Printf("Final discovery source for host %s: %s", host.Host, discoverySource)
+
+		// Add a small offset to integration timestamps to ensure proper ordering
+		// This prevents sweep data from overwriting integration data when they arrive at the same time
+		integrationTimestamp := timestamp
+		if discoverySource != "sweep" {
+			integrationTimestamp = timestamp.Add(100 * time.Millisecond)
+		}
+		
+		sweepResult := &models.SweepResult{
+			AgentID:         svc.AgentId,
+			PollerID:        reportingPollerID,
+			Partition:       partition,
+			DiscoverySource: discoverySource,
+			IP:              host.Host,
+			MAC:             mac,
+			Hostname:        hostname,
+			Timestamp:       integrationTimestamp,
+			Available:       host.Available,
+			Metadata:        host.Metadata,
+		}
+
+		sweepResults = append(sweepResults, sweepResult)
+	}
+
+	// Store the sweep results in the database
+	if err := s.DB.StoreSweepResults(ctx, sweepResults); err != nil {
+		log.Printf("Error storing integration sweep results for poller %s, service %s: %v",
+			reportingPollerID, svc.ServiceName, err)
+		return fmt.Errorf("failed to store integration sweep results: %w", err)
+	}
+
+	log.Printf("Successfully stored %d integration sweep results for service %s",
+		len(sweepResults), svc.ServiceName)
+
+	return nil
+}

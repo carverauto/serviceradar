@@ -101,5 +101,18 @@ func initRegistry() checker.Registry {
 			return NewMapperDiscoveryChecker(ctx, details, security)
 		})
 
+	// Register the integration checker (for sync service and other integration services)
+	registry.Register("integration",
+		func(ctx context.Context, serviceName, details string, security *models.SecurityConfig) (checker.Checker, error) {
+			if details == "" {
+				return nil, errors.New("details field is required for integration checks")
+			}
+
+			// Integration services use the AgentService interface for status checks
+			actualGrpcServiceCheckName := defaultMonitoringServiceName
+			
+			return NewExternalChecker(ctx, serviceName, "integration", details, actualGrpcServiceCheckName, security)
+		})
+
 	return registry
 }
