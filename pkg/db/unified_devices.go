@@ -65,9 +65,9 @@ func (db *DB) GetUnifiedDevice(ctx context.Context, deviceID string) (*models.Un
 	return device, nil
 }
 
-// queryUnifiedDevices executes a query and returns a slice of UnifiedDevice objects
-func (db *DB) queryUnifiedDevices(ctx context.Context, query string) ([]*models.UnifiedDevice, error) {
-	rows, err := db.Conn.Query(ctx, query)
+// queryUnifiedDevicesWithArgs executes a parameterized query and returns a slice of UnifiedDevice objects
+func (db *DB) queryUnifiedDevicesWithArgs(ctx context.Context, query string, args ...interface{}) ([]*models.UnifiedDevice, error) {
+	rows, err := db.Conn.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errFailedToQueryUnifiedDevice, err)
 	}
@@ -102,21 +102,21 @@ func (db *DB) GetUnifiedDevicesByIP(ctx context.Context, ip string) ([]*models.U
     WHERE ip = $1 OR has(map_keys(metadata), 'alternate_ips') AND position(metadata['alternate_ips'], $2) > 0
     ORDER BY _tp_time DESC`
 
-	return db.queryUnifiedDevices(ctx, query, ip, ip)
+	return db.queryUnifiedDevicesWithArgs(ctx, query, ip, ip)
 }
 
 // ListUnifiedDevices returns a list of unified devices with pagination using materialized view approach
 func (db *DB) ListUnifiedDevices(ctx context.Context, limit, offset int) ([]*models.UnifiedDevice, error) {
-	query := fmt.Sprintf(`SELECT
+	query := `SELECT
         device_id, ip, poller_id, hostname, mac, discovery_sources,
         is_available, first_seen, last_seen, metadata, agent_id, device_type, 
         service_type, service_status, last_heartbeat, os_info, version_info
     FROM table(unified_devices)
     WHERE NOT has(map_keys(metadata), '_merged_into')
     ORDER BY last_seen DESC
-    LIMIT %d OFFSET %d`, limit, offset)
+    LIMIT $1 OFFSET $2`
 
-	return db.queryUnifiedDevices(ctx, query)
+	return db.queryUnifiedDevicesWithArgs(ctx, query, limit, offset)
 }
 
 // scanUnifiedDeviceSimple scans a database row from the new unified_devices stream into a UnifiedDevice struct
