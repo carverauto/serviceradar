@@ -330,7 +330,7 @@ func (s *SyncPoller) writeToKV(ctx context.Context, sourceName string, data map[
 
 	for key, value := range data {
 		var fullKey string
-		
+
 		// Check if key is in partition:ip format and transform it
 		if strings.Contains(key, ":") {
 			parts := strings.SplitN(key, ":", 2)
@@ -345,7 +345,7 @@ func (s *SyncPoller) writeToKV(ctx context.Context, sourceName string, data map[
 		} else {
 			fullKey = prefix + "/" + key
 		}
-		
+
 		entries = append(entries, &proto.KeyValueEntry{Key: fullKey, Value: value})
 	}
 
