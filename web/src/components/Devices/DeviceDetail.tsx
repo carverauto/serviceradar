@@ -298,14 +298,14 @@ const DeviceDetail: React.FC<DeviceDetailProps> = ({ deviceId }) => {
                 <div className="mt-4">
                     <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Discovery Sources:</p>
                     <div className="flex flex-wrap gap-2">
-                        {device.discovery_sources.map(source => (
+                        {Array.isArray(device.discovery_sources) ? device.discovery_sources.map(source => (
                             <span 
                                 key={source}
                                 className="px-2 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300"
                             >
                                 {source}
                             </span>
-                        ))}
+                        )) : null}
                     </div>
                 </div>
             </div>

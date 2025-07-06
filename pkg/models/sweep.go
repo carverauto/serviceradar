@@ -36,16 +36,20 @@ type PortStatus struct {
 
 // Config defines sweeper configuration.
 type Config struct {
-	Networks     []string      `json:"networks"`
-	Ports        []int         `json:"ports"`
-	SweepModes   []SweepMode   `json:"sweep_modes"`
-	Interval     time.Duration `json:"interval"`
-	Concurrency  int           `json:"concurrency"`
-	Timeout      time.Duration `json:"timeout"`
-	ICMPCount    int           `json:"icmp_count"`
-	MaxIdle      int           `json:"max_idle"`
-	MaxLifetime  time.Duration `json:"max_lifetime"`
-	IdleTimeout  time.Duration `json:"idle_timeout"`
+	Networks    []string      `json:"networks"`
+	Ports       []int         `json:"ports"`
+	SweepModes  []SweepMode   `json:"sweep_modes"`
+	Interval    time.Duration `json:"interval"`
+	Concurrency int           `json:"concurrency"`
+	Timeout     time.Duration `json:"timeout"`
+	ICMPCount   int           `json:"icmp_count"`
+	MaxIdle     int           `json:"max_idle"`
+	MaxLifetime time.Duration `json:"max_lifetime"`
+	IdleTimeout time.Duration `json:"idle_timeout"`
+	// Agent/Partition information for proper device identification
+	AgentID      string `json:"agent_id,omitempty"`
+	PollerID     string `json:"poller_id,omitempty"`
+	Partition    string `json:"partition,omitempty"`
 	ICMPSettings struct {
 		RateLimit int // Packets per second
 		Timeout   time.Duration
@@ -159,4 +163,24 @@ type SweepConfig struct {
 	IcmpCount     int      `json:"icmp_count"`
 	HighPerfIcmp  bool     `json:"high_perf_icmp"`
 	IcmpRateLimit int      `json:"icmp_rate_limit"`
+}
+
+// SweepHostState represents the latest sweep state for a host in the versioned KV store.
+type SweepHostState struct {
+	HostIP           string            `json:"host_ip"`
+	PollerID         string            `json:"poller_id"`
+	AgentID          string            `json:"agent_id"`
+	Partition        string            `json:"partition"`
+	NetworkCIDR      *string           `json:"network_cidr,omitempty"`
+	Hostname         *string           `json:"hostname,omitempty"`
+	MAC              *string           `json:"mac,omitempty"`
+	ICMPAvailable    bool              `json:"icmp_available"`
+	ICMPResponseTime *int64            `json:"icmp_response_time_ns,omitempty"` // nanoseconds
+	ICMPPacketLoss   *float64          `json:"icmp_packet_loss,omitempty"`
+	TCPPortsScanned  []int             `json:"tcp_ports_scanned,omitempty"`
+	TCPPortsOpen     []int             `json:"tcp_ports_open,omitempty"`
+	PortScanResults  []PortResult      `json:"port_scan_results,omitempty"`
+	LastSweepTime    time.Time         `json:"last_sweep_time"`
+	FirstSeen        time.Time         `json:"first_seen"`
+	Metadata         map[string]string `json:"metadata,omitempty"`
 }

@@ -235,7 +235,7 @@ func (t *Translator) buildClickHouseQuery(query *models.Query) (string, error) {
 // getEntityToTableMapData returns a map of entity types to their base table names
 func getEntityToTableMapData() map[models.EntityType]string {
 	return map[models.EntityType]string{
-		models.Devices:       "unified_devices", // Queries for devices should reference the unified stream populated by the materialized view
+		models.Devices:       "unified_devices", // Materialized view approach uses unified_devices stream
 		models.Flows:         "netflow_metrics",
 		models.Interfaces:    "discovered_interfaces",
 		models.Traps:         "traps",
@@ -544,11 +544,21 @@ func (t *Translator) formatComparisonCondition(fieldName string, op models.Opera
 		switch t.DBType {
 		case Proton, ClickHouse:
 			if op == models.Equals {
-				return fmt.Sprintf("has(discovery_sources, %s)", formatted)
+				// discovery_sources is stored as JSON string, so use string search
+				// We need to construct a pattern that searches for: "source":"netbox"
+				// Extract the raw value without quotes and wrap it in double quotes for JSON
+				rawValue := strings.Trim(formatted, "'\"")
+				pattern := fmt.Sprintf("'%%\"source\":%q%%'", rawValue)
+
+				return "discovery_sources LIKE " + pattern
 			}
 
 			if op == models.NotEquals {
-				return fmt.Sprintf("NOT has(discovery_sources, %s)", formatted)
+				// discovery_sources is stored as JSON string, so use string search
+				rawValue := strings.Trim(formatted, "'\"")
+				pattern := fmt.Sprintf("'%%\"source\":%q%%'", rawValue)
+
+				return "discovery_sources NOT LIKE " + pattern
 			}
 		case ArangoDB:
 			if op == models.Equals {

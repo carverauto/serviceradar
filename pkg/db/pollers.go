@@ -395,10 +395,10 @@ func (db *DB) insertPollerStatus(ctx context.Context, status *models.PollerStatu
 
 // insertPollerHistory logs the poller status in the poller_history table.
 func (db *DB) insertPollerHistory(ctx context.Context, status *models.PollerStatus) error {
-	return db.executeBatch(ctx, "INSERT INTO poller_history (* except _tp_time)", func(batch driver.Batch) error {
+	return db.executeBatch(ctx, "INSERT INTO poller_history (timestamp, poller_id, is_healthy)", func(batch driver.Batch) error {
 		return batch.Append(
-			status.PollerID,
 			status.LastSeen,
+			status.PollerID,
 			status.IsHealthy,
 		)
 	})

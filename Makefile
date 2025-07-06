@@ -366,7 +366,7 @@ build-web: ## Build the Next.js web interface
 	@echo "$(COLOR_BOLD)Building Next.js web interface$(COLOR_RESET)"
 	@cd web && npm install && npm run build
 	@mkdir -p pkg/core/api/web
-	@cp -r web/dist pkg/core/api/web/
+	@cp -r web/.next pkg/core/api/web/
 
 # RPerf plugin specific targets
 .PHONY: build-rperf-checker

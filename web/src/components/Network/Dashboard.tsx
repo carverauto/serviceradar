@@ -16,9 +16,8 @@
 
 'use client';
 
-import React, { useState, useMemo, useEffect, useCallback, Fragment } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { Poller, Service } from '@/types/types';
-import { RawBackendLanDiscoveryData } from '@/types/lan_discovery';
 import { Device, DevicesApiResponse, Pagination } from '@/types/devices';
 import { useAuth } from '@/components/AuthProvider';
 import { useRouter } from 'next/navigation';
@@ -27,24 +26,40 @@ import {
     Network,
     Scan,
     Server,
-    CheckCircle,
-    XCircle,
     ChevronRight,
     Activity,
     Globe,
     Rss,
-    
-    
     AlertTriangle,
-    Loader2,
     Search,
-    ArrowUp,
-    ArrowDown,
-    ChevronDown
+    CheckCircle
 } from 'lucide-react';
-import ReactJson from '@microlink/react-json-view';
 import { useDebounce } from 'use-debounce';
 import { cachedQuery } from '@/lib/cached-query';
+import DeviceBasedDiscoveryDashboard from './DeviceBasedDiscoveryDashboard';
+import DeviceTable from '@/components/Devices/DeviceTable';
+
+// Current sweep results format from SRQL sweep_results
+interface SweepResult {
+    ip: string;
+    poller_id: string;
+    agent_id: string;
+    partition: string;
+    hostname?: string | null;
+    mac?: string | null;
+    available: boolean;
+    discovery_source: string;
+    timestamp: string;
+    metadata: string;           // JSON string
+}
+
+
+interface PortResult {
+    port: number;
+    available: boolean;
+    response_time?: number;     // nanoseconds
+    service?: string;
+}
 
 interface NetworkDashboardProps {
     initialPollers: Poller[];
@@ -124,27 +139,19 @@ const TabButton = ({
     </button>
 );
 
-// SNMP Device List Component (for the SNMP Tab)
-type SortableKeys = 'ip' | 'hostname' | 'last_seen' | 'first_seen' | 'poller_id';
-
-interface SNMPDeviceListProps {
-    initialStats?: { online: number; offline: number };
-}
-
-const SNMPDeviceList: React.FC<SNMPDeviceListProps> = React.memo(({ initialStats }) => {
+// SNMP Devices View using shared DeviceTable component
+const SNMPDevicesView: React.FC = React.memo(() => {
     const { token } = useAuth();
     const [devices, setDevices] = useState<Device[]>([]);
     const [pagination, setPagination] = useState<Pagination | null>(null);
-    const [stats, setStats] = useState(initialStats || { online: 0, offline: 0 });
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [debouncedSearchTerm] = useDebounce(searchTerm, 300);
-    const [sortBy, setSortBy] = useState<SortableKeys>('last_seen');
+    const [sortBy, setSortBy] = useState<'ip' | 'hostname' | 'last_seen' | 'first_seen' | 'poller_id'>('last_seen');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
-    const [expandedRow, setExpandedRow] = useState<string | null>(null);
 
-    const postQuery = useCallback(async <T extends DevicesApiResponse | { results: { 'count()': number }[] | { 'count()': number }[] }>(
+    const postQuery = useCallback(async <T extends DevicesApiResponse>(
         query: string,
         cursor?: string,
         direction?: 'next' | 'prev'
@@ -174,9 +181,7 @@ const SNMPDeviceList: React.FC<SNMPDeviceListProps> = React.memo(({ initialStats
         setError(null);
 
         try {
-            // Show all devices for now since SNMP array query syntax
-            // is not supported in current SRQL version
-            const whereClauses = ["device_id IS NOT NULL"];
+            const whereClauses = ["discovery_sources LIKE '%\"source\":\"snmp\"%'"];
 
             if (debouncedSearchTerm) {
                 whereClauses.push(`(ip LIKE '%${debouncedSearchTerm}%' OR hostname LIKE '%${debouncedSearchTerm}%')`);
@@ -187,220 +192,99 @@ const SNMPDeviceList: React.FC<SNMPDeviceListProps> = React.memo(({ initialStats
 
             setDevices(data.results || []);
             setPagination(data.pagination || null);
-
-            // Only fetch stats if not provided as initial stats
-            if (!initialStats) {
-                // Use cached queries to prevent duplicates
-                const [onlineRes, offlineRes] = await Promise.all([
-                    cachedQuery<{ results: { 'count()': number }[] }>(
-                        "COUNT DEVICES WHERE is_available = true",
-                        token || undefined,
-                        30000
-                    ),
-                    cachedQuery<{ results: { 'count()': number }[] }>(
-                        "COUNT DEVICES WHERE is_available = false",
-                        token || undefined,
-                        30000
-                    ),
-                ]);
-
-                setStats({
-                    online: onlineRes.results[0]?.['count()'] || 0,
-                    offline: offlineRes.results[0]?.['count()'] || 0,
-                });
-            }
         } catch (e) {
             setError(e instanceof Error ? e.message : "An unknown error occurred.");
         } finally {
             setLoading(false);
         }
-    }, [postQuery, debouncedSearchTerm, sortBy, sortOrder, initialStats, token]);
+    }, [postQuery, debouncedSearchTerm, sortBy, sortOrder]);
 
     useEffect(() => {
         fetchDevices();
     }, [fetchDevices]);
 
-    const handleSort = (key: SortableKeys) => {
+    const handleSort = (key: 'ip' | 'hostname' | 'last_seen' | 'first_seen' | 'poller_id') => {
         setSortBy(key);
         setSortOrder(sortBy === key && sortOrder === 'desc' ? 'asc' : 'desc');
     };
 
-    const formatDate = (dateString: string) => new Date(dateString).toLocaleString();
-
-    const getSourceColor = (source: string) => {
-        const lowerSource = source.toLowerCase();
-        if (lowerSource.includes('netbox')) return 'bg-blue-600/50 text-blue-200';
-        if (lowerSource.includes('sweep')) return 'bg-green-600/50 text-green-200';
-        if (lowerSource.includes('snmp')) return 'bg-teal-600/50 text-teal-200';
-        return 'bg-gray-600/50 text-gray-200';
+    const handlePagination = (cursor: string | undefined, direction: 'next' | 'prev') => {
+        fetchDevices(cursor, direction);
     };
+
+    if (loading) {
+        return (
+            <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-8">
+                <div className="text-center">
+                    <div className="animate-pulse flex space-x-4">
+                        <div className="rounded-full bg-gray-200 dark:bg-gray-700 h-12 w-12"></div>
+                        <div className="flex-1 space-y-2 py-1">
+                            <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4"></div>
+                            <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/2"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-8">
+                <div className="text-center text-red-500 dark:text-red-400">
+                    <AlertTriangle className="mx-auto h-6 w-6 mb-2" />
+                    {error}
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <StatCard
-                    title="Total Devices"
-                    value={(stats.online + stats.offline).toLocaleString()}
-                    icon={<Server size={24} />}
-                    isLoading={loading}
-                />
-                <StatCard
-                    title="Online"
-                    value={stats.online.toLocaleString()}
-                    icon={<CheckCircle size={24} />}
-                    isLoading={loading}
-                />
-                <StatCard
-                    title="Offline"
-                    value={stats.offline.toLocaleString()}
-                    icon={<XCircle size={24} />}
-                    isLoading={loading}
-                />
-            </div>
-
             <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg">
                 <div className="p-4 border-b border-gray-200 dark:border-gray-700">
-                    <div className="relative w-full md:w-1/3">
-                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                        <input
-                            type="text"
-                            placeholder="Search devices..."
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-green-500 focus:border-green-500"
-                        />
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                            SNMP Devices ({devices.length})
+                        </h3>
+                        <div className="relative w-full sm:w-1/3">
+                            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                            <input
+                                type="text"
+                                placeholder="Search SNMP devices..."
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-teal-500 focus:border-teal-500"
+                            />
+                        </div>
                     </div>
                 </div>
 
-                {loading ? (
-                    <div className="text-center p-8">
-                        <Loader2 className="h-8 w-8 text-gray-400 animate-spin mx-auto" />
-                    </div>
-                ) : error ? (
-                    <div className="text-center p-8 text-red-500 dark:text-red-400">
-                        <AlertTriangle className="mx-auto h-6 w-6 mb-2" />
-                        {error}
-                    </div>
-                ) : devices.length === 0 ? (
+                {devices.length === 0 ? (
                     <div className="text-center p-8 text-gray-600 dark:text-gray-400">
-                        No devices found.
+                        No SNMP devices found.
                     </div>
                 ) : (
-                    <div className="overflow-x-auto">
-                        <table className="min-w-full divide-y divide-gray-700">
-                            <thead className="bg-gray-100 dark:bg-gray-800/50">
-                            <tr>
-                                <th className="w-12"></th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                                    Status
-                                </th>
-                                <th
-                                    onClick={() => handleSort('hostname')}
-                                    className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider cursor-pointer flex items-center"
-                                >
-                                    Device
-                                    {sortBy === 'hostname' && (
-                                        sortOrder === 'asc' ?
-                                            <ArrowUp size={12} className="ml-1" /> :
-                                            <ArrowDown size={12} className="ml-1" />
-                                    )}
-                                </th>
-                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                                    Sources
-                                </th>
-                                <th
-                                    onClick={() => handleSort('last_seen')}
-                                    className="px-6 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider cursor-pointer flex items-center"
-                                >
-                                    Last Seen
-                                    {sortBy === 'last_seen' && (
-                                        sortOrder === 'asc' ?
-                                            <ArrowUp size={12} className="ml-1" /> :
-                                            <ArrowDown size={12} className="ml-1" />
-                                    )}
-                                </th>
-                            </tr>
-                            </thead>
-                            <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                            {devices.map(device => (
-                                <Fragment key={device.device_id}>
-                                    <tr className="hover:bg-gray-700/30">
-                                        <td className="pl-4">
-                                            <button
-                                                onClick={() => setExpandedRow(expandedRow === device.device_id ? null : device.device_id)}
-                                                className="p-1 rounded-full hover:bg-gray-600"
-                                            >
-                                                {expandedRow === device.device_id ?
-                                                    <ChevronDown size={20} /> :
-                                                    <ChevronRight size={20} />
-                                                }
-                                            </button>
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            {device.is_available ?
-                                                <CheckCircle className="h-5 w-5 text-green-500" /> :
-                                                <XCircle className="h-5 w-5 text-red-500" />
-                                            }
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <div className="text-sm font-medium text-gray-900 dark:text-white">
-                                                {device.hostname || device.ip}
-                                            </div>
-                                            <div className="text-sm text-gray-600 dark:text-gray-400">
-                                                {device.hostname ? device.ip : device.mac}
-                                            </div>
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <div className="flex flex-wrap gap-1">
-                                                {device.discovery_sources.map(source => (
-                                                    <span
-                                                        key={source}
-                                                        className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getSourceColor(source)}`}
-                                                    >
-                                                            {source}
-                                                        </span>
-                                                ))}
-                                            </div>
-                                        </td>
-                                        <td className="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">
-                                            {formatDate(device.last_seen)}
-                                        </td>
-                                    </tr>
-                                    {expandedRow === device.device_id && (
-                                        <tr className="bg-gray-100 dark:bg-gray-800/50">
-                                            <td colSpan={5} className="p-0">
-                                                <div className="p-4">
-                                                    <ReactJson
-                                                        src={device.metadata}
-                                                        theme="pop"
-                                                        collapsed={false}
-                                                        style={{
-                                                            padding: '1rem',
-                                                            borderRadius: '0.375rem',
-                                                            backgroundColor: '#1C1B22'
-                                                        }}
-                                                    />
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    )}
-                                </Fragment>
-                            ))}
-                            </tbody>
-                        </table>
+                    <div>
+                        <DeviceTable
+                            devices={devices}
+                            onSort={handleSort}
+                            sortBy={sortBy}
+                            sortOrder={sortOrder}
+                        />
 
                         {/* Pagination */}
                         {pagination && (pagination.prev_cursor || pagination.next_cursor) && (
                             <div className="p-4 flex items-center justify-between border-t border-gray-200 dark:border-gray-700">
                                 <button
-                                    onClick={() => fetchDevices(pagination.prev_cursor, 'prev')}
+                                    onClick={() => handlePagination(pagination.prev_cursor, 'prev')}
                                     disabled={!pagination.prev_cursor || loading}
                                     className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white rounded-md disabled:opacity-50"
                                 >
                                     Previous
                                 </button>
                                 <button
-                                    onClick={() => fetchDevices(pagination.next_cursor, 'next')}
+                                    onClick={() => handlePagination(pagination.next_cursor, 'next')}
                                     disabled={!pagination.next_cursor || loading}
                                     className="px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white rounded-md disabled:opacity-50"
                                 >
@@ -415,7 +299,424 @@ const SNMPDeviceList: React.FC<SNMPDeviceListProps> = React.memo(({ initialStats
     );
 });
 
-SNMPDeviceList.displayName = 'SNMPDeviceList';
+SNMPDevicesView.displayName = 'SNMPDevicesView';
+
+// Sweep Results View with detailed sweep information
+const SweepResultsView: React.FC = React.memo(() => {
+    const { token } = useAuth();
+    const [sweepResults, setSweepResults] = useState<SweepResult[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [viewMode, setViewMode] = useState<'summary' | 'hosts'>('summary');
+    const [searchTerm, setSearchTerm] = useState('');
+
+    const fetchSweepResults = useCallback(async () => {
+        setLoading(true);
+        setError(null);
+
+        try {
+            const response = await fetch('/api/devices/sweep', {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(token && { Authorization: `Bearer ${token}` })
+                },
+                cache: 'no-store',
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to fetch sweep results');
+            }
+
+            const data = await response.json();
+            setSweepResults(data.results || []);
+        } catch (e) {
+            setError(e instanceof Error ? e.message : "Failed to fetch sweep results.");
+        } finally {
+            setLoading(false);
+        }
+    }, [token]);
+
+    useEffect(() => {
+        fetchSweepResults();
+    }, [fetchSweepResults]);
+
+    const parseMetadata = (metadataString: string) => {
+        try {
+            return JSON.parse(metadataString);
+        } catch {
+            return {};
+        }
+    };
+
+
+    // Create unique hosts from sweep results (deduplicate by IP)
+    const uniqueHosts = useMemo(() => {
+        const hostMap = new Map<string, SweepResult>();
+        sweepResults.forEach(result => {
+            const existing = hostMap.get(result.ip);
+            if (!existing || new Date(result.timestamp) > new Date(existing.timestamp)) {
+                hostMap.set(result.ip, result);
+            }
+        });
+        return Array.from(hostMap.values()).sort((a, b) => 
+            new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+        );
+    }, [sweepResults]);
+
+    const aggregatedStats = useMemo(() => {
+        if (!uniqueHosts.length) return null;
+
+        const totalHosts = uniqueHosts.length;
+        const respondingHosts = uniqueHosts.filter(result => result.available).length;
+        
+        // Try to parse metadata for detailed stats (if available)
+        let totalOpenPorts = 0;
+        let avgResponseTime = 0;
+        
+        try {
+            const hostsWithMetadata = uniqueHosts.filter(result => result.metadata && result.metadata !== '{}');
+            if (hostsWithMetadata.length > 0) {
+                hostsWithMetadata.forEach(result => {
+                    const metadata = parseMetadata(result.metadata);
+                    let openPorts = metadata.open_ports || [];
+                    
+                    // Parse open_ports if it's a JSON string
+                    if (typeof openPorts === 'string') {
+                        try {
+                            openPorts = JSON.parse(openPorts);
+                        } catch {
+                            openPorts = [];
+                        }
+                    }
+                    
+                    totalOpenPorts += Array.isArray(openPorts) ? openPorts.length : 0;
+                });
+                
+                const responseTimes = hostsWithMetadata
+                    .map(result => {
+                        const metadata = parseMetadata(result.metadata);
+                        return metadata.response_time_ns || 0;
+                    })
+                    .filter(time => time > 0);
+                
+                avgResponseTime = responseTimes.length > 0 ?
+                    responseTimes.reduce((acc, time) => acc + time, 0) / responseTimes.length / 1000000 : 0;
+            }
+        } catch (error) {
+            console.warn('Error parsing sweep metadata:', error);
+        }
+
+        return {
+            totalHosts,
+            respondingHosts,
+            totalOpenPorts,
+            avgResponseTime
+        };
+    }, [uniqueHosts]);
+
+    const filteredResults = useMemo(() => {
+        if (!searchTerm) return uniqueHosts;
+        
+        return uniqueHosts.filter(result => 
+            result.ip.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (result.hostname && result.hostname.toLowerCase().includes(searchTerm.toLowerCase()))
+        );
+    }, [uniqueHosts, searchTerm]);
+
+    if (loading) {
+        return (
+            <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-8">
+                <div className="text-center">
+                    <div className="animate-pulse flex space-x-4">
+                        <div className="rounded-full bg-gray-200 dark:bg-gray-700 h-12 w-12"></div>
+                        <div className="flex-1 space-y-2 py-1">
+                            <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4"></div>
+                            <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/2"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-8">
+                <div className="text-center text-red-500 dark:text-red-400">
+                    <AlertTriangle className="mx-auto h-6 w-6 mb-2" />
+                    {error}
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="space-y-6">
+            {/* Summary Stats */}
+            {aggregatedStats && (
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <StatCard
+                        title="Total Hosts Scanned"
+                        value={aggregatedStats.totalHosts.toLocaleString()}
+                        icon={<Server size={24} />}
+                    />
+                    <StatCard
+                        title="Responding Hosts"
+                        value={aggregatedStats.respondingHosts.toLocaleString()}
+                        icon={<CheckCircle size={24} />}
+                    />
+                    <StatCard
+                        title="Open Ports Found"
+                        value={aggregatedStats.totalOpenPorts.toLocaleString()}
+                        icon={<Activity size={24} />}
+                    />
+                    <StatCard
+                        title="Avg Response Time"
+                        value={aggregatedStats.avgResponseTime > 0 ? `${aggregatedStats.avgResponseTime.toFixed(2)}ms` : 'N/A'}
+                        icon={<Activity size={24} />}
+                    />
+                </div>
+            )}
+
+            {/* Controls */}
+            <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-4">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <div className="flex gap-2">
+                        <button
+                            onClick={() => setViewMode('summary')}
+                            className={`px-4 py-2 rounded-md transition-colors ${
+                                viewMode === 'summary'
+                                    ? 'bg-blue-500 text-white'
+                                    : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white'
+                            }`}
+                        >
+                            Summary
+                        </button>
+                        <button
+                            onClick={() => setViewMode('hosts')}
+                            className={`px-4 py-2 rounded-md transition-colors ${
+                                viewMode === 'hosts'
+                                    ? 'bg-blue-500 text-white'
+                                    : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white'
+                            }`}
+                        >
+                            Host Details
+                        </button>
+                    </div>
+                    
+                    {viewMode === 'hosts' && (
+                        <div className="relative w-full sm:w-1/3">
+                            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                            <input
+                                type="text"
+                                placeholder="Search IPs or hostnames..."
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-green-500 focus:border-green-500"
+                            />
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            {/* Content */}
+            {viewMode === 'summary' ? (
+                <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-6">
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                        Recent Sweep Results ({uniqueHosts.length} unique hosts, {sweepResults.length} total records)
+                    </h3>
+                    
+                    {uniqueHosts.length === 0 ? (
+                        <div className="text-center p-8 text-gray-600 dark:text-gray-400">
+                            No sweep results found.
+                        </div>
+                    ) : (
+                        <div className="space-y-4">
+                            {uniqueHosts.slice(0, 10).map((result, index) => {
+                                const metadata = parseMetadata(result.metadata);
+                                const responseTime = metadata.response_time_ns ? metadata.response_time_ns / 1000000 : null;
+                                let openPorts = metadata.open_ports || [];
+                                // Parse open_ports if it's a JSON string  
+                                if (typeof openPorts === 'string') {
+                                    try {
+                                        openPorts = JSON.parse(openPorts);
+                                    } catch {
+                                        openPorts = [];
+                                    }
+                                }
+                                
+                                return (
+                                    <div key={index} className="border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+                                        <div className="flex justify-between items-start mb-2">
+                                            <div>
+                                                <h4 className="font-medium text-gray-900 dark:text-white">
+                                                    {result.hostname || result.ip}
+                                                </h4>
+                                                <p className="text-sm text-gray-600 dark:text-gray-400">
+                                                    {result.ip} • {new Date(result.timestamp).toLocaleString()}
+                                                </p>
+                                            </div>
+                                            <div className="text-right">
+                                                <span className={`px-2 py-1 text-xs rounded ${
+                                                    result.available
+                                                        ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200'
+                                                        : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200'
+                                                }`}>
+                                                    {result.available ? 'Available' : 'Unavailable'}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        
+                                        <div className="flex flex-wrap gap-2 text-xs text-gray-600 dark:text-gray-400">
+                                            {responseTime && (
+                                                <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 rounded">
+                                                    {responseTime.toFixed(2)}ms
+                                                </span>
+                                            )}
+                                            {openPorts.length > 0 && (
+                                                <span className="px-2 py-1 bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-200 rounded">
+                                                    {openPorts.length} open ports
+                                                </span>
+                                            )}
+                                            <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded">
+                                                {result.agent_id}
+                                            </span>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+            ) : (
+                <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg">
+                    <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+                        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                            Detailed Host Results
+                        </h3>
+                    </div>
+                    
+                    <div className="p-4">
+                        {filteredResults.length === 0 ? (
+                            <div className="text-center p-8 text-gray-600 dark:text-gray-400">
+                                No hosts found matching your search.
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                {filteredResults.map((result, index) => {
+                                    const metadata = parseMetadata(typeof result.metadata === 'string' ? result.metadata : JSON.stringify(result.metadata) || '{}');
+                                    const responseTime = metadata.response_time_ns ? metadata.response_time_ns / 1000000 : null;
+                                    // Parse port_results if it's a JSON string
+                                    let portResults = metadata.port_results || [];
+                                    if (typeof portResults === 'string') {
+                                        try {
+                                            portResults = JSON.parse(portResults);
+                                        } catch {
+                                            portResults = [];
+                                        }
+                                    }
+                                    // Ensure it's an array
+                                    if (!Array.isArray(portResults)) {
+                                        portResults = [];
+                                    }
+                                    const packetLoss = metadata.packet_loss || 0;
+                                    
+                                    return (
+                                        <div 
+                                            key={index}
+                                            className="border border-gray-200 dark:border-gray-700 rounded-lg p-4"
+                                        >
+                                            <div className="flex justify-between items-center mb-3">
+                                                <h4 className="font-medium text-gray-900 dark:text-white">
+                                                    {result.hostname || result.ip}
+                                                </h4>
+                                                <span className={`px-2 py-1 text-xs rounded ${
+                                                    result.available
+                                                        ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200'
+                                                        : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200'
+                                                }`}>
+                                                    {result.available ? 'Available' : 'Unavailable'}
+                                                </span>
+                                            </div>
+
+                                            {result.ip !== (result.hostname || result.ip) && (
+                                                <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                                                    {result.ip}
+                                                </p>
+                                            )}
+
+                                            {/* ICMP Status */}
+                                            {result.available && (responseTime !== null || packetLoss > 0) && (
+                                                <div className="mb-3 bg-gray-50 dark:bg-gray-700 p-3 rounded">
+                                                    <h5 className="font-medium mb-2 text-gray-800 dark:text-gray-200 text-sm">
+                                                        ICMP Status
+                                                    </h5>
+                                                    <div className="grid grid-cols-2 gap-2 text-xs">
+                                                        {responseTime !== null && (
+                                                            <div>
+                                                                <span className="text-gray-600 dark:text-gray-400">Response:</span>
+                                                                <span className="ml-1 font-medium text-gray-800 dark:text-gray-200">
+                                                                    {responseTime.toFixed(2)}ms
+                                                                </span>
+                                                            </div>
+                                                        )}
+                                                        {packetLoss > 0 && (
+                                                            <div>
+                                                                <span className="text-gray-600 dark:text-gray-400">Loss:</span>
+                                                                <span className="ml-1 font-medium text-gray-800 dark:text-gray-200">
+                                                                    {packetLoss}%
+                                                                </span>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* Open Ports */}
+                                            {portResults.length > 0 && (
+                                                <div className="mb-3">
+                                                    <h5 className="font-medium text-gray-800 dark:text-gray-200 mb-2 text-sm">
+                                                        Open Ports ({portResults.length})
+                                                    </h5>
+                                                    <div className="flex flex-wrap gap-1">
+                                                        {portResults.slice(0, 8).map((portResult: PortResult, portIndex: number) => (
+                                                            <span 
+                                                                key={portIndex}
+                                                                className="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 text-xs rounded"
+                                                            >
+                                                                {portResult.port}
+                                                                {portResult.service && ` (${portResult.service})`}
+                                                            </span>
+                                                        ))}
+                                                        {portResults.length > 8 && (
+                                                            <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 text-xs rounded">
+                                                                +{portResults.length - 8}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            <div className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+                                                <div>Agent: {result.agent_id}</div>
+                                                <div>Scanned: {new Date(result.timestamp).toLocaleString()}</div>
+                                                {result.mac && <div>MAC: {result.mac}</div>}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+});
+
+SweepResultsView.displayName = 'SweepResultsView';
+
 
 // Main Network Dashboard Component
 const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
@@ -427,11 +728,11 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
 
     // Click handlers for stat cards
     const handleDiscoveredDevicesClick = () => {
-        router.push('/query?q=' + encodeURIComponent('show devices'));
+        router.push('/query?q=' + encodeURIComponent('SHOW DEVICES WHERE discovery_sources IS NOT NULL'));
     };
 
     const handleDiscoveredInterfacesClick = () => {
-        router.push('/query?q=' + encodeURIComponent('show interfaces'));
+        router.push('/query?q=' + encodeURIComponent('SHOW INTERFACES'));
     };
 
     const handleActiveSweepsClick = () => {
@@ -471,49 +772,39 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
         };
     }, [initialPollers]);
 
-    const totalDiscoveredDevices = useMemo(() => {
-        return discoveryServices.reduce((acc, service) => {
-            if (service.details) {
-                try {
-                    const details: RawBackendLanDiscoveryData = typeof service.details === 'string'
-                        ? JSON.parse(service.details)
-                        : service.details;
+    const [discoveryStats, setDiscoveryStats] = useState<{ discoveredDevices: number; discoveredInterfaces: number }>({ 
+        discoveredDevices: 0, 
+        discoveredInterfaces: 0 
+    });
+    const [loadingDiscoveryStats, setLoadingDiscoveryStats] = useState(true);
 
-                    const deviceCount = details.total_devices !== undefined
-                        ? details.total_devices
-                        : Array.isArray(details.devices)
-                            ? details.devices.length
-                            : 0;
+    const fetchDiscoveryStats = useCallback(async () => {
+        setLoadingDiscoveryStats(true);
+        try {
+            // Use cached queries to prevent duplicates
+            const [devicesRes, interfacesRes] = await Promise.all([
+                cachedQuery<{ results: [{ 'count()': number }] }>(
+                    "COUNT DEVICES WHERE discovery_sources IS NOT NULL",
+                    token || undefined,
+                    30000 // 30 second cache
+                ),
+                cachedQuery<{ results: [{ 'count()': number }] }>(
+                    "COUNT INTERFACES",
+                    token || undefined,
+                    30000
+                ),
+            ]);
 
-                    return acc + deviceCount;
-                } catch {
-                    return acc;
-                }
-            }
-            return acc;
-        }, 0);
-    }, [discoveryServices]);
-
-    const totalDiscoveredInterfaces = useMemo(() => {
-        return discoveryServices.reduce((acc, service) => {
-            if (service.details) {
-                try {
-                    const details: RawBackendLanDiscoveryData = typeof service.details === 'string'
-                        ? JSON.parse(service.details)
-                        : service.details;
-
-                    const ifaceCount = Array.isArray(details.interfaces)
-                        ? details.interfaces.length
-                        : 0;
-
-                    return acc + ifaceCount;
-                } catch {
-                    return acc;
-                }
-            }
-            return acc;
-        }, 0);
-    }, [discoveryServices]);
+            setDiscoveryStats({
+                discoveredDevices: devicesRes.results[0]?.['count()'] || 0,
+                discoveredInterfaces: interfacesRes.results[0]?.['count()'] || 0,
+            });
+        } catch (error) {
+            console.error('Failed to fetch discovery stats:', error);
+        } finally {
+            setLoadingDiscoveryStats(false);
+        }
+    }, [token]);
 
     const fetchDeviceStats = useCallback(async () => {
         setLoadingStats(true);
@@ -551,7 +842,8 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
 
     useEffect(() => {
         fetchDeviceStats();
-    }, [fetchDeviceStats]);
+        fetchDiscoveryStats();
+    }, [fetchDeviceStats, fetchDiscoveryStats]);
 
     const renderTabContent = () => {
         switch (activeTab) {
@@ -561,14 +853,16 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                             <StatCard
                                 title="Discovered Devices"
-                                value={totalDiscoveredDevices.toLocaleString()}
+                                value={discoveryStats.discoveredDevices.toLocaleString()}
                                 icon={<RouterIcon size={24} />}
+                                isLoading={loadingDiscoveryStats}
                                 onClick={handleDiscoveredDevicesClick}
                             />
                             <StatCard
                                 title="Discovered Interfaces"
-                                value={totalDiscoveredInterfaces.toLocaleString()}
+                                value={discoveryStats.discoveredInterfaces.toLocaleString()}
                                 icon={<Network size={24} />}
+                                isLoading={loadingDiscoveryStats}
                                 onClick={handleDiscoveredInterfacesClick}
                             />
                             <StatCard
@@ -624,103 +918,43 @@ const Dashboard: React.FC<NetworkDashboardProps> = ({ initialPollers }) => {
                 );
 
             case 'discovery':
-                return (
-                    <div className="space-y-4">
-                        {discoveryServices.length === 0 ? (
-                            <p className="text-gray-600 dark:text-gray-400 text-center p-8">
-                                No Network Discovery services found.
-                            </p>
-                        ) : (
-                            discoveryServices.map(service => (
-                                <div
-                                    key={service.id || service.name}
-                                    className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-4 flex justify-between items-center"
-                                >
-                                    <div className="flex items-center gap-3">
-                                        <Globe size={24} className="text-blue-600 dark:text-blue-400" />
-                                        <div>
-                                            <p className="font-semibold text-gray-900 dark:text-white">{service.name}</p>
-                                            <p className="text-sm text-gray-600 dark:text-gray-400">{service.poller_id}</p>
-                                        </div>
-                                    </div>
-                                    <button
-                                        onClick={() => router.push(`/service/${service.poller_id}/${service.name}`)}
-                                        className="text-sm bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white px-3 py-1.5 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
-                                    >
-                                        View Details
-                                    </button>
-                                </div>
-                            ))
-                        )}
-                    </div>
-                );
+                return <DeviceBasedDiscoveryDashboard />;
 
             case 'sweeps':
                 return (
-                    <div className="space-y-4">
-                        {sweepServices.length === 0 ? (
-                            <p className="text-gray-600 dark:text-gray-400 text-center p-8">
-                                No Network Sweep services found.
-                            </p>
-                        ) : (
-                            sweepServices.map(service => (
-                                <div
-                                    key={service.id || service.name}
-                                    className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-4 flex justify-between items-center"
-                                >
-                                    <div className="flex items-center gap-3">
-                                        <Scan size={24} className="text-green-600 dark:text-green-400" />
-                                        <div>
-                                            <p className="font-semibold text-gray-900 dark:text-white">{service.name}</p>
-                                            <p className="text-sm text-gray-600 dark:text-gray-400">{service.poller_id}</p>
-                                        </div>
-                                    </div>
-                                    <button
-                                        onClick={() => router.push(`/service/${service.poller_id}/${service.name}`)}
-                                        className="text-sm bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white px-3 py-1.5 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
-                                    >
-                                        View Results
-                                    </button>
+                    <div className="space-y-6">
+                        {sweepServices.length > 0 && (
+                            <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-4">
+                                <div className="flex items-center gap-3 mb-2">
+                                    <Scan size={20} className="text-green-600 dark:text-green-400" />
+                                    <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                                        Active Sweep Services
+                                    </h3>
                                 </div>
-                            ))
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                    {sweepServices.map(service => (
+                                        <div key={service.id || service.name} className="flex items-center gap-3 p-3 bg-gray-100 dark:bg-gray-800/50 rounded-md">
+                                            <div className="flex-1">
+                                                <p className="font-medium text-gray-900 dark:text-white">{service.name}</p>
+                                                <p className="text-sm text-gray-600 dark:text-gray-400">{service.poller_id}</p>
+                                            </div>
+                                            <div className="h-2 w-2 bg-green-500 rounded-full"></div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
                         )}
+                        {/* Use detailed sweep results view */}
+                        <SweepResultsView />
                     </div>
                 );
 
             case 'snmp':
                 return (
                     <div className="space-y-6">
-                        <div>
-                            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4">SNMP Services</h2>
-                            {snmpServices.length === 0 ? (
-                                <div className="text-center p-8 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg">
-                                    <p className="text-gray-600 dark:text-gray-400">No active SNMP monitoring services found.</p>
-                                </div>
-                            ) : (
-                                <div className="space-y-4">
-                                    {snmpServices.map(service => (
-                                        <div key={service.id || service.name} className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-4 flex justify-between items-center">
-                                            <div className="flex items-center gap-3">
-                                                <Rss size={24} className="text-teal-600 dark:text-teal-400" />
-                                                <div>
-                                                    <p className="font-semibold text-gray-900 dark:text-white">{service.name}</p>
-                                                    <p className="text-sm text-gray-600 dark:text-gray-400">{service.poller_id}</p>
-                                                </div>
-                                            </div>
-                                            <button
-                                                onClick={() => router.push(`/service/${service.poller_id}/${service.name}`)}
-                                                className="text-sm bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white px-3 py-1.5 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
-                                            >
-                                                View Dashboard
-                                            </button>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                        {/* Only render SNMPDeviceList when SNMP tab is active and we have stats */}
+                        {/* Use shared DeviceTable component for SNMP devices */}
                         {activeTab === 'snmp' && !loadingStats && (
-                            <SNMPDeviceList initialStats={{ online: deviceStats.online, offline: deviceStats.offline }} />
+                            <SNMPDevicesView />
                         )}
                     </div>
                 );

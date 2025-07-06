@@ -17,6 +17,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"sync"
 	"time"
@@ -83,9 +84,19 @@ type APIServer struct {
 	rperfManager         metricstore.RperfManager
 	queryExecutor        db.QueryExecutor
 	dbService            db.Service
+	deviceRegistry       DeviceRegistryService
 	knownPollers         []string
 	authService          auth.AuthService
 	corsConfig           models.CORSConfig
 	dbType               parser.DatabaseType
 	entityTableMap       map[srqlmodels.EntityType]string
+}
+
+// DeviceRegistryService interface for accessing the device registry
+type DeviceRegistryService interface {
+	GetDevice(ctx context.Context, deviceID string) (*models.UnifiedDevice, error)
+	GetDevicesByIP(ctx context.Context, ip string) ([]*models.UnifiedDevice, error)
+	ListDevices(ctx context.Context, limit, offset int) ([]*models.UnifiedDevice, error)
+	GetMergedDevice(ctx context.Context, deviceIDOrIP string) (*models.UnifiedDevice, error)
+	FindRelatedDevices(ctx context.Context, deviceID string) ([]*models.UnifiedDevice, error)
 }
