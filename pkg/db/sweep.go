@@ -33,7 +33,9 @@ func (db *DB) StoreSweepResults(ctx context.Context, results []*models.SweepResu
 
 	log.Printf("DEBUG [database]: StoreSweepResults called with %d results", len(results))
 
-	batch, err := db.Conn.PrepareBatch(ctx, "INSERT INTO sweep_results (agent_id, poller_id, partition, device_id, discovery_source, ip, mac, hostname, timestamp, available, metadata)")
+	batch, err := db.Conn.PrepareBatch(ctx,
+		"INSERT INTO sweep_results (agent_id, poller_id, partition, device_id, "+
+			"discovery_source, ip, mac, hostname, timestamp, available, metadata)")
 	if err != nil {
 		return fmt.Errorf("failed to prepare batch: %w", err)
 	}
@@ -214,8 +216,10 @@ func (db *DB) GetSweepHostStates(ctx context.Context, pollerID string, limit int
 	defer rows.Close()
 
 	var states []*models.SweepHostState
+
 	for rows.Next() {
 		var state models.SweepHostState
+
 		var portsScannedStr, portsOpenStr, portResultsStr, metadataStr string
 
 		err := rows.Scan(

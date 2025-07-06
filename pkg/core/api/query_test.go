@@ -829,7 +829,7 @@ func TestPostProcessDeviceResults(t *testing.T) {
 			input: []map[string]interface{}{
 				{
 					"device_id":         "test:192.168.1.1",
-					"ip":                "192.168.1.1", 
+					"ip":                "192.168.1.1",
 					"poller_id":         "test-poller",
 					"agent_id":          "test-agent",
 					"hostname":          "test-host",
@@ -843,7 +843,7 @@ func TestPostProcessDeviceResults(t *testing.T) {
 					"device_id":         "test:192.168.1.1",
 					"ip":                "192.168.1.1",
 					"poller_id":         "test-poller",
-					"agent_id":          "test-agent", 
+					"agent_id":          "test-agent",
 					"hostname":          "test-host",
 					"mac":               "AA:BB:CC:DD:EE:FF",
 					"discovery_sources": []string{"sweep", "snmp"},
@@ -857,10 +857,14 @@ func TestPostProcessDeviceResults(t *testing.T) {
 				{
 					"device_id": "test:192.168.1.2",
 					"ip":        "192.168.1.2",
-					"discovery_sources": `[{"source":"sweep","agent_id":"old-agent","poller_id":"old-poller","last_seen":"2025-01-01T12:00:00Z","confidence":9}]`,
-					"hostname_field":    `{"value":"old-host","source":"snmp","last_updated":"2025-01-01T12:00:00Z","confidence":8}`,
-					"mac_field":         `{"value":"11:22:33:44:55:66","source":"arp","last_updated":"2025-01-01T12:00:00Z","confidence":7}`,
-					"metadata_field":    `{"value":{"device_type":"router"},"source":"snmp","last_updated":"2025-01-01T12:00:00Z"}`,
+					"discovery_sources": `[{"source":"sweep","agent_id":"old-agent","poller_id":"old-poller",
+						"last_seen":"2025-01-01T12:00:00Z","confidence":9}]`,
+					"hostname_field": `{"value":"old-host","source":"snmp","last_updated":
+						"2025-01-01T12:00:00Z","confidence":8}`,
+					"mac_field": `{"value":"11:22:33:44:55:66","source":"arp","last_updated":
+						"2025-01-01T12:00:00Z","confidence":7}`,
+					"metadata_field": `{"value":{"device_type":"router"},"source":"snmp","last_updated":
+						"2025-01-01T12:00:00Z"}`,
 				},
 			},
 			expected: []map[string]interface{}{
@@ -869,7 +873,7 @@ func TestPostProcessDeviceResults(t *testing.T) {
 					"ip":                "192.168.1.2",
 					"poller_id":         "old-poller",
 					"agent_id":          "old-agent",
-					"hostname":          "old-host", 
+					"hostname":          "old-host",
 					"mac":               "11:22:33:44:55:66",
 					"discovery_sources": []string{"sweep"},
 					"metadata":          map[string]interface{}{"device_type": "router"},
@@ -931,22 +935,22 @@ func TestPostProcessDeviceResults(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := server.postProcessDeviceResults(tt.input)
-			
+
 			require.Len(t, result, len(tt.expected))
-			
+
 			for i, expectedItem := range tt.expected {
 				actualItem := result[i]
-				
+
 				// Check each expected field
 				for key, expectedValue := range expectedItem {
 					actualValue, exists := actualItem[key]
 					assert.True(t, exists, "Field %s should exist", key)
 					assert.Equal(t, expectedValue, actualValue, "Field %s should match", key)
 				}
-				
+
 				// Ensure no unexpected raw JSON fields remain
 				assert.NotContains(t, actualItem, "hostname_field")
-				assert.NotContains(t, actualItem, "mac_field") 
+				assert.NotContains(t, actualItem, "mac_field")
 				assert.NotContains(t, actualItem, "metadata_field")
 			}
 		})

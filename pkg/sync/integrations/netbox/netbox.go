@@ -158,7 +158,7 @@ func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[
 		// Create discovery event (sweep result style)
 		hostname := device.Name
 		deviceID := fmt.Sprintf("%s:%s", partition, ipStr)
-		
+
 		log.Printf("DEBUG [netbox]: Creating SweepResult from Netbox device:")
 		log.Printf("  - Netbox Device ID: %d", device.ID)
 		log.Printf("  - Netbox Device Name: %s", device.Name)
@@ -166,7 +166,7 @@ func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[
 		log.Printf("  - Generated DeviceID: %s", deviceID)
 		log.Printf("  - Role: %s", device.Role.Name)
 		log.Printf("  - Site: %s", device.Site.Name)
-		
+
 		event := &models.SweepResult{
 			AgentID:         agentID,
 			PollerID:        pollerID,
@@ -177,7 +177,7 @@ func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[
 			Hostname:        &hostname,
 			Timestamp:       now,
 			Available:       true,
-			Metadata:        map[string]string{
+			Metadata: map[string]string{
 				"integration_type": "netbox",
 				"integration_id":   fmt.Sprintf("%d", device.ID),
 			},

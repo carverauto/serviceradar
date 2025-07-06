@@ -18,7 +18,6 @@
 package core
 
 import (
-	"github.com/carverauto/serviceradar/pkg/registry"
 	"sync"
 	"time"
 
@@ -30,6 +29,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/metrics"
 	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/registry"
 	"github.com/carverauto/serviceradar/proto"
 )
 

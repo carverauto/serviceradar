@@ -194,12 +194,6 @@ func TestReportStatus(t *testing.T) {
 	// Mock GetDeviceByID for device lookup
 	mockDB.EXPECT().GetDeviceByID(gomock.Any(), gomock.Any()).Return(nil, nil).AnyTimes()
 
-	// Mock StoreDevices for device registration
-	mockDB.EXPECT().StoreDevices(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, devices []*models.Device) error {
-		t.Logf("StoreDevices called with %d devices", len(devices))
-		return nil
-	}).AnyTimes()
-
 	// Expect StoreMetrics for icmp-service
 	mockDB.EXPECT().StoreMetrics(gomock.Any(), "test-poller",
 		gomock.Any()).DoAndReturn(func(_ context.Context, pollerID string, metrics []*models.TimeseriesMetric) error {
@@ -796,10 +790,6 @@ func TestProcessStatusReportWithAgentID(t *testing.T) {
 	}).Times(1)
 	mockDB.EXPECT().StoreServices(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, services []*models.Service) error {
 		t.Logf("StoreServices called with %d services", len(services))
-		return nil
-	}).AnyTimes()
-	mockDB.EXPECT().StoreDevices(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, devices []*models.Device) error {
-		t.Logf("StoreDevices called with %d devices", len(devices))
 		return nil
 	}).AnyTimes()
 	mockAPIServer.EXPECT().UpdatePollerStatus(pollerID, gomock.Any()).Return().Times(1)

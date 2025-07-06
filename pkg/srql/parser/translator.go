@@ -548,14 +548,16 @@ func (t *Translator) formatComparisonCondition(fieldName string, op models.Opera
 				// We need to construct a pattern that searches for: "source":"netbox"
 				// Extract the raw value without quotes and wrap it in double quotes for JSON
 				rawValue := strings.Trim(formatted, "'\"")
-				pattern := fmt.Sprintf("'%%\"source\":\"%s\"%%'", rawValue)
+				pattern := fmt.Sprintf("'%%\"source\":%q%%'", rawValue)
+
 				return "discovery_sources LIKE " + pattern
 			}
 
 			if op == models.NotEquals {
 				// discovery_sources is stored as JSON string, so use string search
 				rawValue := strings.Trim(formatted, "'\"")
-				pattern := fmt.Sprintf("'%%\"source\":\"%s\"%%'", rawValue)
+				pattern := fmt.Sprintf("'%%\"source\":%q%%'", rawValue)
+
 				return "discovery_sources NOT LIKE " + pattern
 			}
 		case ArangoDB:

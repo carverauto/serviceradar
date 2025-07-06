@@ -22,7 +22,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/carverauto/serviceradar/pkg/registry"
 	"log"
 	"os"
 	"path/filepath"
@@ -39,6 +38,7 @@ import (
 	"github.com/carverauto/serviceradar/pkg/metrics"
 	"github.com/carverauto/serviceradar/pkg/metricstore"
 	"github.com/carverauto/serviceradar/pkg/models"
+	"github.com/carverauto/serviceradar/pkg/registry"
 	"github.com/carverauto/serviceradar/proto"
 )
 
@@ -267,7 +267,8 @@ func (s *Server) flushSysmonMetrics(ctx context.Context) {
 				hostIP = metric.Memory.HostIP
 			}
 
-			if err := s.DB.StoreSysmonMetrics(ctx, pollerID, agentID, hostID, partition, hostIP, metric, ts); err != nil {
+			if err := s.DB.StoreSysmonMetrics(
+				ctx, pollerID, agentID, hostID, partition, hostIP, metric, ts); err != nil {
 				log.Printf("Failed to flush sysmon metrics for poller %s: %v", pollerID, err)
 			}
 		}
@@ -717,10 +718,12 @@ func (*Server) findAgentID(services []*proto.ServiceStatus) string {
 // - Stable device IDs from the first check-in
 // - Correct handling of NAT, proxies, and load balancers
 // - Simple, reliable logic with no "magic" convergence
-func (s *Server) registerServiceDevice(ctx context.Context, pollerID, agentID, partition, sourceIP string, timestamp time.Time) error {
+func (s *Server) registerServiceDevice(
+	ctx context.Context, pollerID, agentID, partition, sourceIP string, timestamp time.Time) error {
 	// Validate required fields - the client MUST provide its location
 	if partition == "" || sourceIP == "" {
-		return fmt.Errorf("CRITICAL: Cannot register device for poller %s - missing required location data (partition=%q, source_ip=%q)",
+		return fmt.Errorf("CRITICAL: Cannot register device for poller %s - "+
+			"missing required location data (partition=%q, source_ip=%q)",
 			pollerID, partition, sourceIP)
 	}
 
@@ -856,7 +859,8 @@ func (s *Server) processStatusReport(
 			timeoutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 
-			if err := s.registerServiceDevice(timeoutCtx, req.PollerId, s.findAgentID(req.Services), req.Partition, req.SourceIp, now); err != nil {
+			if err := s.registerServiceDevice(timeoutCtx, req.PollerId, s.findAgentID(req.Services),
+				req.Partition, req.SourceIp, now); err != nil {
 				log.Printf("Failed to register service device for poller %s: %v", req.PollerId, err)
 			}
 		}()
@@ -886,7 +890,8 @@ func (s *Server) processStatusReport(
 		timeoutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		if err := s.registerServiceDevice(timeoutCtx, req.PollerId, s.findAgentID(req.Services), req.Partition, req.SourceIp, now); err != nil {
+		if err := s.registerServiceDevice(timeoutCtx, req.PollerId, s.findAgentID(req.Services),
+			req.Partition, req.SourceIp, now); err != nil {
 			log.Printf("Failed to register service device for poller %s: %v", req.PollerId, err)
 		}
 	}()
@@ -906,8 +911,8 @@ func (*Server) createPollerStatus(req *proto.PollerStatusRequest, now time.Time)
 // extractDeviceContext extracts device context for service correlation.
 // For services like ping/icmp, this correlates them to the source device (agent).
 // Returns the device_id and partition for the device that performed the service check.
-func (s *Server) extractDeviceContext(
-	ctx context.Context, agentID, defaultPartition, sourceIP, enhancedPayload string) (deviceID, partition string) {
+func (*Server) extractDeviceContext(
+	_ context.Context, agentID, defaultPartition, sourceIP, enhancedPayload string) (deviceID, partition string) {
 	// First, try to parse the service message to check for a direct device_id field.
 	// This handles ICMP and other service responses that now include device_id directly.
 	var directMessage struct {
@@ -958,54 +963,9 @@ func (s *Server) extractDeviceContext(
 	}
 
 	// If we've reached this point, sourceIP was empty, which is a critical configuration issue.
-	log.Printf("CRITICAL: Unable to determine device_id for agent %s in partition %s because sourceIP was empty. Service records will not be associated with a device.", agentID, partition)
+	log.Printf("CRITICAL: Unable to determine device_id for agent %s in partition %s because "+
+		"sourceIP was empty. Service records will not be associated with a device.", agentID, partition)
 	return "", partition
-}
-
-// findAgentDeviceID attempts to find the device_id associated with an agent.
-// This uses the device registry to find devices that have this agent_id in their discovery sources.
-func (s *Server) findAgentDeviceID(ctx context.Context, agentID, partition string) string {
-	// Use device registry if available (preferred method)
-	if s.DeviceRegistry != nil {
-		// Get all devices and check which ones have this agent_id
-		// This is not the most efficient but works with the current registry API
-		devices, err := s.DeviceRegistry.ListDevices(ctx, 1000, 0) // Get first 1000 devices
-		if err == nil {
-			for _, device := range devices {
-				// Check if any discovery source has this agent_id
-				for _, source := range device.DiscoverySources {
-					if source.AgentID == agentID && strings.HasPrefix(device.DeviceID, partition+":") {
-						return device.DeviceID
-					}
-				}
-			}
-		}
-	}
-
-	// Fallback to legacy query if registry not available
-	query := `
-		SELECT device_id 
-		FROM table(unified_devices) 
-		WHERE agent_id = $1 AND device_id LIKE $2 
-		LIMIT 1`
-
-	results, err := s.DB.ExecuteQuery(ctx, query, agentID, partition+":%")
-	if err != nil {
-		// This is expected when no device record exists yet
-		log.Printf("Debug: No device record found for agent_id=%s, partition=%s: %v", agentID, partition, err)
-		return ""
-	}
-
-	if len(results) == 0 {
-		log.Printf("Debug: No device record found for agent_id=%s, partition=%s", agentID, partition)
-		return ""
-	}
-
-	if deviceID, ok := results[0]["device_id"].(string); ok {
-		return deviceID
-	}
-
-	return ""
 }
 
 // processServices processes service statuses for a poller and updates the API status.
@@ -1886,15 +1846,7 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 	enhancedPayload, sweepMessage := s.extractServicePayload(svc.Message)
 
 	// Update context from enhanced payload if available
-	contextPollerID := svc.PollerID
-	contextPartition := partition
-	contextAgentID := svc.AgentID
-
-	if enhancedPayload != nil {
-		contextPollerID = enhancedPayload.PollerID
-		contextPartition = enhancedPayload.Partition
-		contextAgentID = enhancedPayload.AgentID
-	}
+	contextPollerID, contextPartition, contextAgentID := s.extractContextInfo(svc, enhancedPayload, partition)
 
 	var sweepData struct {
 		proto.SweepServiceStatus
@@ -1905,6 +1857,45 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 		return fmt.Errorf("%w: failed to unmarshal sweep data: %w", errInvalidSweepData, err)
 	}
 
+	// Validate and potentially correct timestamp
+	if err := s.validateAndCorrectTimestamp(&sweepData, svc, now); err != nil {
+		return err
+	}
+
+	// Process host results and create sweep results
+	resultsToStore := s.processHostResults(sweepData.Hosts, contextPollerID, contextPartition, contextAgentID, now)
+
+	if len(resultsToStore) > 0 {
+		// Delegate directly to the new registry
+		if err := s.DeviceRegistry.ProcessBatchSightings(ctx, resultsToStore); err != nil {
+			log.Printf("Error processing batch sweep results: %v", err)
+			return err
+		}
+	}
+
+	return nil
+}
+
+// extractContextInfo extracts context information from service status and enhanced payload
+func (s *Server) extractContextInfo(svc *api.ServiceStatus, enhancedPayload *models.ServiceMetricsPayload, partition string) (pollerID, partitionID, agentID string) {
+	pollerID = svc.PollerID
+	partitionID = partition
+	agentID = svc.AgentID
+
+	if enhancedPayload != nil {
+		pollerID = enhancedPayload.PollerID
+		partitionID = enhancedPayload.Partition
+		agentID = enhancedPayload.AgentID
+	}
+
+	return pollerID, partitionID, agentID
+}
+
+// validateAndCorrectTimestamp validates the sweep timestamp and corrects it if necessary
+func (s *Server) validateAndCorrectTimestamp(sweepData *struct {
+	proto.SweepServiceStatus
+	Hosts []models.HostResult `json:"hosts"`
+}, svc *api.ServiceStatus, now time.Time) error {
 	if sweepData.LastSweep > now.Add(oneDay).Unix() {
 		log.Printf("Invalid or missing LastSweep timestamp (%d), using current time", sweepData.LastSweep)
 
@@ -1925,54 +1916,26 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 		svc.Message = updatedMessage
 	}
 
-	resultsToStore := make([]*models.SweepResult, 0, len(sweepData.Hosts))
+	return nil
+}
 
-	for _, host := range sweepData.Hosts {
+// processHostResults processes host results and creates sweep results
+func (s *Server) processHostResults(hosts []models.HostResult, pollerID, partition, agentID string, now time.Time) []*models.SweepResult {
+	resultsToStore := make([]*models.SweepResult, 0, len(hosts))
+
+	for _, host := range hosts {
 		if host.Host == "" {
-			log.Printf("Skipping host with empty IP for poller %s", contextPollerID)
+			log.Printf("Skipping host with empty IP for poller %s", pollerID)
 			continue
 		}
 
-		// Build rich metadata from HostResult
-		metadata := make(map[string]string)
-
-		// Add response time if available
-		if host.ResponseTime > 0 {
-			metadata["response_time_ns"] = fmt.Sprintf("%d", host.ResponseTime.Nanoseconds())
-		}
-
-		// Add ICMP status if available
-		if host.ICMPStatus != nil {
-			metadata["icmp_available"] = fmt.Sprintf("%t", host.ICMPStatus.Available)
-			metadata["icmp_round_trip_ns"] = fmt.Sprintf("%d", host.ICMPStatus.RoundTrip.Nanoseconds())
-			metadata["icmp_packet_loss"] = fmt.Sprintf("%f", host.ICMPStatus.PacketLoss)
-		}
-
-		// Add port results if available
-		if len(host.PortResults) > 0 {
-			portData, _ := json.Marshal(host.PortResults)
-			metadata["port_results"] = string(portData)
-
-			// Also store open ports list for quick reference
-			var openPorts []int
-
-			for _, pr := range host.PortResults {
-				if pr.Available {
-					openPorts = append(openPorts, pr.Port)
-				}
-			}
-
-			if len(openPorts) > 0 {
-				openPortsData, _ := json.Marshal(openPorts)
-				metadata["open_ports"] = string(openPortsData)
-			}
-		}
+		metadata := s.buildHostMetadata(host)
 
 		result := &models.SweepResult{
-			AgentID:         contextAgentID,
-			PollerID:        contextPollerID,
-			Partition:       contextPartition,
-			DeviceID:        fmt.Sprintf("%s:%s", contextPartition, host.Host),
+			AgentID:         agentID,
+			PollerID:        pollerID,
+			Partition:       partition,
+			DeviceID:        fmt.Sprintf("%s:%s", partition, host.Host),
 			DiscoverySource: "sweep",
 			IP:              host.Host,
 			MAC:             nil, // HostResult doesn't have MAC field
@@ -1984,16 +1947,46 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 		resultsToStore = append(resultsToStore, result)
 	}
 
-	if len(resultsToStore) > 0 {
-		// Delegate directly to the new registry
-		if err := s.DeviceRegistry.ProcessBatchSightings(ctx, resultsToStore); err != nil {
-			log.Printf("Error processing batch sweep results: %v", err)
+	return resultsToStore
+}
 
-			return err
+// buildHostMetadata builds metadata from host result
+func (s *Server) buildHostMetadata(host models.HostResult) map[string]string {
+	metadata := make(map[string]string)
+
+	// Add response time if available
+	if host.ResponseTime > 0 {
+		metadata["response_time_ns"] = fmt.Sprintf("%d", host.ResponseTime.Nanoseconds())
+	}
+
+	// Add ICMP status if available
+	if host.ICMPStatus != nil {
+		metadata["icmp_available"] = fmt.Sprintf("%t", host.ICMPStatus.Available)
+		metadata["icmp_round_trip_ns"] = fmt.Sprintf("%d", host.ICMPStatus.RoundTrip.Nanoseconds())
+		metadata["icmp_packet_loss"] = fmt.Sprintf("%f", host.ICMPStatus.PacketLoss)
+	}
+
+	// Add port results if available
+	if len(host.PortResults) > 0 {
+		portData, _ := json.Marshal(host.PortResults)
+		metadata["port_results"] = string(portData)
+
+		// Also store open ports list for quick reference
+		var openPorts []int
+
+		for _, pr := range host.PortResults {
+			if pr.Available {
+				openPorts = append(openPorts, pr.Port)
+			}
+		}
+
+		if len(openPorts) > 0 {
+			openPortsData, _ := json.Marshal(openPorts)
+			metadata["open_ports"] = string(openPortsData)
 		}
 	}
 
-	return nil
+	return metadata
 }
 
 func (s *Server) storePollerStatus(ctx context.Context, pollerID string, isHealthy bool, now time.Time) error {

@@ -24,12 +24,12 @@ import (
 type DiscoverySource string
 
 const (
-	DiscoverySourceSNMP        DiscoverySource = "snmp"
-	DiscoverySourceMapper      DiscoverySource = "mapper"
-	DiscoverySourceIntegration DiscoverySource = "integration"
-	DiscoverySourceNetFlow     DiscoverySource = "netflow"
-	DiscoverySourceManual      DiscoverySource = "manual"
-	DiscoverySourceSweep       DiscoverySource = "sweep"
+	DiscoverySourceSNMP         DiscoverySource = "snmp"
+	DiscoverySourceMapper       DiscoverySource = "mapper"
+	DiscoverySourceIntegration  DiscoverySource = "integration"
+	DiscoverySourceNetFlow      DiscoverySource = "netflow"
+	DiscoverySourceManual       DiscoverySource = "manual"
+	DiscoverySourceSweep        DiscoverySource = "sweep"
 	DiscoverySourceSelfReported DiscoverySource = "self-reported"
 )
 
@@ -49,9 +49,9 @@ type UnifiedDevice struct {
 	IP       string `json:"ip" db:"ip"`
 
 	// Fields with discovery source attribution
-	Hostname *DiscoveredField[string]              `json:"hostname,omitempty" db:"hostname"`
-	MAC      *DiscoveredField[string]              `json:"mac,omitempty" db:"mac"`
-	Metadata *DiscoveredField[map[string]string]   `json:"metadata,omitempty" db:"metadata"`
+	Hostname *DiscoveredField[string]            `json:"hostname,omitempty" db:"hostname"`
+	MAC      *DiscoveredField[string]            `json:"mac,omitempty" db:"mac"`
+	Metadata *DiscoveredField[map[string]string] `json:"metadata,omitempty" db:"metadata"`
 
 	// Discovery tracking
 	DiscoverySources []DiscoverySourceInfo `json:"discovery_sources" db:"discovery_sources"`
@@ -60,8 +60,8 @@ type UnifiedDevice struct {
 	IsAvailable      bool                  `json:"is_available" db:"is_available"`
 
 	// Device classification
-	DeviceType   string `json:"device_type,omitempty" db:"device_type"`
-	ServiceType  string `json:"service_type,omitempty" db:"service_type"`
+	DeviceType    string `json:"device_type,omitempty" db:"device_type"`
+	ServiceType   string `json:"service_type,omitempty" db:"service_type"`
 	ServiceStatus string `json:"service_status,omitempty" db:"service_status"`
 
 	// Additional fields
@@ -72,27 +72,27 @@ type UnifiedDevice struct {
 
 // DiscoverySourceInfo tracks when and how a device was discovered by each source
 type DiscoverySourceInfo struct {
-	Source      DiscoverySource `json:"source"`
-	AgentID     string          `json:"agent_id"`
-	PollerID    string          `json:"poller_id"`
-	FirstSeen   time.Time       `json:"first_seen"`
-	LastSeen    time.Time       `json:"last_seen"`
-	Confidence  int             `json:"confidence"`
+	Source     DiscoverySource `json:"source"`
+	AgentID    string          `json:"agent_id"`
+	PollerID   string          `json:"poller_id"`
+	FirstSeen  time.Time       `json:"first_seen"`
+	LastSeen   time.Time       `json:"last_seen"`
+	Confidence int             `json:"confidence"`
 }
 
 // DeviceUpdate represents an update to a device from a discovery source
 type DeviceUpdate struct {
-	DeviceID        string              `json:"device_id"`
-	IP              string              `json:"ip"`
-	Source          DiscoverySource     `json:"source"`
-	AgentID         string              `json:"agent_id"`
-	PollerID        string              `json:"poller_id"`
-	Timestamp       time.Time           `json:"timestamp"`
-	Hostname        *string             `json:"hostname,omitempty"`
-	MAC             *string             `json:"mac,omitempty"`
-	Metadata        map[string]string   `json:"metadata,omitempty"`
-	IsAvailable     bool                `json:"is_available"`
-	Confidence      int                 `json:"confidence"`
+	DeviceID    string            `json:"device_id"`
+	IP          string            `json:"ip"`
+	Source      DiscoverySource   `json:"source"`
+	AgentID     string            `json:"agent_id"`
+	PollerID    string            `json:"poller_id"`
+	Timestamp   time.Time         `json:"timestamp"`
+	Hostname    *string           `json:"hostname,omitempty"`
+	MAC         *string           `json:"mac,omitempty"`
+	Metadata    map[string]string `json:"metadata,omitempty"`
+	IsAvailable bool              `json:"is_available"`
+	Confidence  int               `json:"confidence"`
 }
 
 // GetSourceConfidence returns the confidence level for a discovery source
@@ -132,9 +132,11 @@ func (ud *UnifiedDevice) ToLegacyDevice() *Device {
 	if ud.Hostname != nil {
 		device.Hostname = ud.Hostname.Value
 	}
+
 	if ud.MAC != nil {
 		device.MAC = ud.MAC.Value
 	}
+
 	if ud.Metadata != nil {
 		for k, v := range ud.Metadata.Value {
 			device.Metadata[k] = v
@@ -146,6 +148,7 @@ func (ud *UnifiedDevice) ToLegacyDevice() *Device {
 	for i, source := range ud.DiscoverySources {
 		sources[i] = string(source.Source)
 	}
+
 	device.DiscoverySources = sources
 
 	// Use the most confident agent/poller IDs
@@ -170,12 +173,12 @@ func NewUnifiedDeviceFromUpdate(update *DeviceUpdate) *UnifiedDevice {
 	}
 
 	device := &UnifiedDevice{
-		DeviceID:         update.DeviceID,
-		IP:               update.IP,
-		FirstSeen:        now,
-		LastSeen:         now,
-		IsAvailable:      update.IsAvailable,
-		DeviceType:       "network_device", // Default
+		DeviceID:    update.DeviceID,
+		IP:          update.IP,
+		FirstSeen:   now,
+		LastSeen:    now,
+		IsAvailable: update.IsAvailable,
+		DeviceType:  "network_device", // Default
 		DiscoverySources: []DiscoverySourceInfo{
 			{
 				Source:     update.Source,
@@ -211,7 +214,7 @@ func NewUnifiedDeviceFromUpdate(update *DeviceUpdate) *UnifiedDevice {
 		}
 	}
 
-	if update.Metadata != nil && len(update.Metadata) > 0 {
+	if len(update.Metadata) > 0 {
 		device.Metadata = &DiscoveredField[map[string]string]{
 			Value:       update.Metadata,
 			Source:      update.Source,

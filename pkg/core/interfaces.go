@@ -15,7 +15,7 @@
  */
 
 // Package core pkg/core/interfaces.go
-//go:generate mockgen -destination=mock_server.go -package=core github.com/carverauto/serviceradar/pkg/core NodeService,CoreService,DeviceRegistryService
+//go:generate mockgen -destination=mock_server.go -package=core github.com/carverauto/serviceradar/pkg/core NodeService,CoreService
 
 package core
 

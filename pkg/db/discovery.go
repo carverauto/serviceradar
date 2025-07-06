@@ -74,6 +74,7 @@ func (db *DB) PublishDiscoveredInterface(ctx context.Context, iface *models.Disc
 		log.Printf("Failed to marshal interface metadata: %v", err)
 		return fmt.Errorf("failed to marshal metadata: %w", err)
 	}
+
 	metadataStr := string(metadataBytes)
 
 	// Append to batch
@@ -160,6 +161,7 @@ func (db *DB) PublishTopologyDiscoveryEvent(ctx context.Context, event *models.T
 		log.Printf("Failed to marshal topology event metadata: %v", err)
 		return fmt.Errorf("failed to marshal metadata: %w", err)
 	}
+
 	metadataStr := string(metadataBytes)
 
 	// Append to batch - ensuring all 18 arguments are provided

@@ -116,13 +116,13 @@ func (db *DB) StoreServices(ctx context.Context, services []*models.Service) err
 
 	for _, svc := range services {
 		if err := batch.Append(
-			svc.Timestamp,   // timestamp
-			svc.PollerID,    // poller_id
-			svc.AgentID,     // agent_id
-			svc.ServiceName, // service_name
-			svc.ServiceType, // service_type
+			svc.Timestamp,       // timestamp
+			svc.PollerID,        // poller_id
+			svc.AgentID,         // agent_id
+			svc.ServiceName,     // service_name
+			svc.ServiceType,     // service_type
 			map[string]string{}, // config
-			svc.Partition,   // partition
+			svc.Partition,       // partition
 		); err != nil {
 			return fmt.Errorf("failed to append service %s: %w", svc.ServiceName, err)
 		}
