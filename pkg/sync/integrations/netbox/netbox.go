@@ -127,6 +127,8 @@ func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[
 	now := time.Now()
 
 	for i := range deviceResp.Results {
+		var err error
+
 		device := &deviceResp.Results[i]
 
 		if device.PrimaryIP4.Address == "" {
@@ -191,12 +193,11 @@ func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[
 			}
 		}
 
-		log.Printf("DEBUG [netbox]: Final SweepResult created:")
-		log.Printf("  - SweepResult IP: %s", event.IP)
-		log.Printf("  - SweepResult DeviceID: %s", event.DeviceID)
-		log.Printf("  - SweepResult DiscoverySource: %s", event.DiscoverySource)
-		log.Printf("  - SweepResult Hostname: %s", *event.Hostname)
-		if metaJSON, err := json.Marshal(event.Metadata); err == nil {
+		log.Printf("DEBUG [netbox]: Final SweepResult created: IP=%s, DeviceID=%s, "+
+			"DiscoverySource=%s, Hostname=%s", event.IP, event.DeviceID, event.DiscoverySource, *event.Hostname)
+
+		var metaJSON []byte
+		if metaJSON, err = json.Marshal(event.Metadata); err == nil {
 			log.Printf("  - SweepResult Metadata: %s", string(metaJSON))
 		}
 

@@ -621,6 +621,7 @@ func (s *APIServer) postProcessDeviceResults(results []map[string]interface{}) [
 		if _, hasAgentID := result["agent_id"]; !hasAgentID {
 			result["agent_id"] = ""
 		}
+
 		if _, hasPollerID := result["poller_id"]; !hasPollerID {
 			result["poller_id"] = ""
 		}

@@ -264,6 +264,7 @@ func NewWithGRPC(ctx context.Context, config *Config) (*SyncPoller, error) {
 		if grpcClient != nil {
 			_ = grpcClient.Close()
 		}
+
 		return nil, err
 	}
 
@@ -278,6 +279,7 @@ func createSyncer(
 	grpcClient GRPCClient,
 ) (*SyncPoller, error) {
 	serverName := getServerName(config)
+
 	return New(
 		ctx,
 		config,

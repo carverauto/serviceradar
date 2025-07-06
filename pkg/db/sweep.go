@@ -41,19 +41,20 @@ func (db *DB) StoreSweepResults(ctx context.Context, results []*models.SweepResu
 	}
 
 	for i, result := range results {
-		log.Printf("DEBUG [database]: Storing SweepResult %d:", i+1)
-		log.Printf("  - IP: %s", result.IP)
-		log.Printf("  - DeviceID: %s", result.DeviceID)
-		log.Printf("  - DiscoverySource: %s", result.DiscoverySource)
-		log.Printf("  - Partition: %s", result.Partition)
+		log.Printf("DEBUG [database]: Storing SweepResult %d: IP: %s, DeviceID: %s, "+
+			"DiscoverySource: %s, Partition: %s",
+			i+1, result.IP, result.DeviceID, result.DiscoverySource, result.Partition)
+
 		if result.Hostname != nil {
 			log.Printf("  - Hostname: %s", *result.Hostname)
 		}
+
 		if result.Metadata != nil {
-			if metaJSON, err := json.Marshal(result.Metadata); err == nil {
+			if metaJSON, marshalErr := json.Marshal(result.Metadata); marshalErr == nil {
 				log.Printf("  - Metadata: %s", string(metaJSON))
 			}
 		}
+
 		// Validate required fields
 		if result.IP == "" {
 			log.Printf("Skipping sweep result with empty IP for poller %s", result.PollerID)

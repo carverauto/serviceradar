@@ -971,6 +971,7 @@ func (s *APIServer) tryDeviceRegistryPath(ctx context.Context, w http.ResponseWr
 
 	// Format and send the response
 	s.sendDeviceRegistryResponse(w, filteredDevices)
+
 	return true
 }
 
@@ -1011,6 +1012,7 @@ func (s *APIServer) fallbackToSRQLQuery(ctx context.Context, w http.ResponseWrit
 	if err != nil {
 		log.Printf("Error executing devices query: %v", err)
 		writeError(w, "Failed to retrieve devices", http.StatusInternalServerError)
+
 		return
 	}
 
@@ -1121,6 +1123,7 @@ func (s *APIServer) getDevice(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+
 	if err := json.NewEncoder(w).Encode(device); err != nil {
 		log.Printf("Error encoding device response: %v", err)
 		writeError(w, "Failed to encode response", http.StatusInternalServerError)
@@ -1258,6 +1261,7 @@ func getFieldValue[T any](field *models.DiscoveredField[T]) interface{} {
 	if field == nil {
 		return nil
 	}
+
 	return field.Value
 }
 
