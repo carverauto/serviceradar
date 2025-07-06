@@ -229,12 +229,14 @@ func (r *DeviceRegistry) findDeviceByAlternateIPs(ctx context.Context, sighting 
 					if sighting.Hostname != nil {
 						return *sighting.Hostname
 					}
+
 					return defaultNilHostname
 				}(),
 				func() string {
 					if canonicalDevice.Hostname != nil {
 						return canonicalDevice.Hostname.Value
 					}
+
 					return defaultNilHostname
 				}())
 

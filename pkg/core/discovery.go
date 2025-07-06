@@ -36,6 +36,7 @@ func isLoopbackIP(ipStr string) bool {
 	if ip == nil {
 		return false
 	}
+
 	return ip.IsLoopback()
 }
 

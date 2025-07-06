@@ -347,9 +347,11 @@ func TestFarm01MultipleDiscoveryScenario(t *testing.T) {
 		// Verify that the sighting was correlated to the existing device
 		assert.Len(t, sightings, 1, "Should publish exactly one sighting")
 		correctedSighting := sightings[0]
+
 		assert.Equal(t, "default:192.168.2.1", correctedSighting.DeviceID, "Should use existing farm01 device ID")
 		assert.Equal(t, "152.117.116.178", correctedSighting.IP, "Should keep mapper sighting IP")
 		t.Logf("✅ Mapper sighting correctly correlated: IP %s mapped to existing device %s", correctedSighting.IP, correctedSighting.DeviceID)
+
 		return nil
 	})
 
@@ -450,13 +452,15 @@ func TestU6MeshScenario(t *testing.T) {
 	mockDB.EXPECT().PublishBatchSweepResults(
 		gomock.Any(),
 		gomock.AssignableToTypeOf([]*models.SweepResult{}),
-	).DoAndReturn(func(ctx context.Context, sightings []*models.SweepResult) error {
+	).DoAndReturn(func(_ context.Context, sightings []*models.SweepResult) error {
 		// Verify that the sighting was corrected to use the canonical device ID
 		assert.Len(t, sightings, 1, "Should publish exactly one sighting")
 		correctedSighting := sightings[0]
+
 		assert.Equal(t, "default:192.168.1.204", correctedSighting.DeviceID, "Should use U6 Mesh device ID as canonical")
 		assert.Equal(t, "192.168.1.80", correctedSighting.IP, "Should keep original sighting IP")
 		t.Logf("✅ Sighting correctly correlated: IP %s mapped to canonical device %s", correctedSighting.IP, correctedSighting.DeviceID)
+
 		return nil
 	})
 

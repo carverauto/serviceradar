@@ -465,20 +465,26 @@ func (s *NetworkSweeper) processBasicResult(ctx context.Context, result *models.
 	return nil
 }
 
+const (
+	defaultName = "default"
+)
+
 // extractAgentInfo extracts agent/poller/partition information from config and metadata.
-func (s *NetworkSweeper) extractAgentInfo(result *models.Result) (string, string, string) {
+func (s *NetworkSweeper) extractAgentInfo(result *models.Result) (agentID, pollerID, partition string) {
 	// Get agent/poller info from config first, then try metadata
-	agentID := "default"
-	pollerID := "default"
-	partition := "default"
+	agentID = defaultName
+	pollerID = defaultName
+	partition = defaultName
 
 	// Use config values if available
 	if s.config.AgentID != "" {
 		agentID = s.config.AgentID
 	}
+
 	if s.config.PollerID != "" {
 		pollerID = s.config.PollerID
 	}
+
 	if s.config.Partition != "" {
 		partition = s.config.Partition
 	}
@@ -488,9 +494,11 @@ func (s *NetworkSweeper) extractAgentInfo(result *models.Result) (string, string
 		if id, ok := result.Target.Metadata["agent_id"].(string); ok && id != "" {
 			agentID = id
 		}
+
 		if id, ok := result.Target.Metadata["poller_id"].(string); ok && id != "" {
 			pollerID = id
 		}
+
 		if p, ok := result.Target.Metadata["partition"].(string); ok && p != "" {
 			partition = p
 		}
@@ -500,7 +508,7 @@ func (s *NetworkSweeper) extractAgentInfo(result *models.Result) (string, string
 }
 
 // createSweepResult creates a SweepResult from a Result.
-func (s *NetworkSweeper) createSweepResult(result *models.Result, agentID, pollerID, partition string) *models.SweepResult {
+func (*NetworkSweeper) createSweepResult(result *models.Result, agentID, pollerID, partition string) *models.SweepResult {
 	// Always generate a valid device ID with partition
 	deviceID := fmt.Sprintf("%s:%s", partition, result.Target.Host)
 
@@ -558,6 +566,7 @@ func (s *NetworkSweeper) processDeviceRegistry(result *models.Result) error {
 
 	// Use background context to avoid cancellation
 	bgCtx := context.Background()
+
 	return s.deviceRegistry.ProcessSweepResult(bgCtx, sweepResult)
 }
 

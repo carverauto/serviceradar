@@ -926,6 +926,7 @@ func (*Server) extractDeviceContext(
 			if partition == "" {
 				partition = defaultPartition
 			}
+
 			return directMessage.DeviceID, partition
 		}
 	}
@@ -965,6 +966,7 @@ func (*Server) extractDeviceContext(
 	// If we've reached this point, sourceIP was empty, which is a critical configuration issue.
 	log.Printf("CRITICAL: Unable to determine device_id for agent %s in partition %s because "+
 		"sourceIP was empty. Service records will not be associated with a device.", agentID, partition)
+
 	return "", partition
 }
 
@@ -1877,7 +1879,10 @@ func (s *Server) processSweepData(ctx context.Context, svc *api.ServiceStatus, p
 }
 
 // extractContextInfo extracts context information from service status and enhanced payload
-func (s *Server) extractContextInfo(svc *api.ServiceStatus, enhancedPayload *models.ServiceMetricsPayload, partition string) (pollerID, partitionID, agentID string) {
+func (*Server) extractContextInfo(
+	svc *api.ServiceStatus,
+	enhancedPayload *models.ServiceMetricsPayload,
+	partition string) (pollerID, partitionID, agentID string) {
 	pollerID = svc.PollerID
 	partitionID = partition
 	agentID = svc.AgentID
@@ -1892,7 +1897,7 @@ func (s *Server) extractContextInfo(svc *api.ServiceStatus, enhancedPayload *mod
 }
 
 // validateAndCorrectTimestamp validates the sweep timestamp and corrects it if necessary
-func (s *Server) validateAndCorrectTimestamp(sweepData *struct {
+func (*Server) validateAndCorrectTimestamp(sweepData *struct {
 	proto.SweepServiceStatus
 	Hosts []models.HostResult `json:"hosts"`
 }, svc *api.ServiceStatus, now time.Time) error {
@@ -1929,7 +1934,7 @@ func (s *Server) processHostResults(hosts []models.HostResult, pollerID, partiti
 			continue
 		}
 
-		metadata := s.buildHostMetadata(host)
+		metadata := s.buildHostMetadata(&host)
 
 		result := &models.SweepResult{
 			AgentID:         agentID,
@@ -1951,7 +1956,7 @@ func (s *Server) processHostResults(hosts []models.HostResult, pollerID, partiti
 }
 
 // buildHostMetadata builds metadata from host result
-func (s *Server) buildHostMetadata(host models.HostResult) map[string]string {
+func (*Server) buildHostMetadata(host *models.HostResult) map[string]string {
 	metadata := make(map[string]string)
 
 	// Add response time if available
