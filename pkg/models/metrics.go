@@ -48,6 +48,10 @@ const MetricPointSize = 32 // 8 bytes timestamp + 8 bytes response + 16 bytes na
 // SysmonMetrics represents system monitoring metrics.
 // @Description System monitoring metrics including CPU, disk, and memory usage.
 type SysmonMetrics struct {
+	// Agent ID that collected these metrics
+	AgentID string `json:"agent_id"`
+	// Host ID where metrics were collected
+	HostID string `json:"host_id"`
 	// CPU usage metrics for individual cores
 	CPUs []CPUMetric `json:"cpus"`
 	// Disk usage metrics for various mount points

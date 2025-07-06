@@ -9,11 +9,13 @@ import (
 )
 
 func (m *Manager) StoreSysmonMetrics(
-	ctx context.Context, pollerID string, metrics *models.SysmonMetrics, timestamp time.Time) error {
+	ctx context.Context, pollerID string, metrics *models.SysmonMetrics, agentID string, hostID string, timestamp time.Time) error {
 	dbMetrics := &models.SysmonMetrics{
-		CPUs:   make([]models.CPUMetric, len(metrics.CPUs)),
-		Disks:  make([]models.DiskMetric, len(metrics.Disks)),
-		Memory: models.MemoryMetric{},
+		AgentID: agentID,
+		HostID:  hostID,
+		CPUs:    make([]models.CPUMetric, len(metrics.CPUs)),
+		Disks:   make([]models.DiskMetric, len(metrics.Disks)),
+		Memory:  models.MemoryMetric{},
 	}
 
 	for i, cpu := range metrics.CPUs {
@@ -39,7 +41,7 @@ func (m *Manager) StoreSysmonMetrics(
 		Timestamp:  timestamp,
 	}
 
-	if err := m.db.StoreSysmonMetrics(ctx, pollerID, dbMetrics, timestamp); err != nil {
+	if err := m.db.StoreSysmonMetrics(ctx, pollerID, dbMetrics, agentID, hostID, timestamp); err != nil {
 		log.Printf("Failed to store sysmon metrics for poller %s: %v", pollerID, err)
 		return err
 	}

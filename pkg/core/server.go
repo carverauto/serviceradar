@@ -227,7 +227,7 @@ func (s *Server) flushSysmonMetrics(ctx context.Context) {
 				ts = metric.Memory.Timestamp
 			}
 
-			if err := s.DB.StoreSysmonMetrics(ctx, pollerID, metric, ts); err != nil {
+			if err := s.DB.StoreSysmonMetrics(ctx, pollerID, metric, metric.AgentID, metric.HostID, ts); err != nil {
 				log.Printf("Failed to flush sysmon metrics for poller %s: %v", pollerID, err)
 			}
 		}
@@ -787,7 +787,7 @@ func (s *Server) processMetrics(
 		case rperfServiceType:
 			return s.processRperfMetrics(pollerID, details, now)
 		case sysmonServiceType:
-			return s.processSysmonMetrics(pollerID, details, now)
+			return s.processSysmonMetrics(pollerID, svc.AgentId, details, now)
 		}
 	case icmpServiceType:
 		return s.processICMPMetrics(pollerID, svc, details, now)
@@ -828,7 +828,7 @@ const (
 	sysmonServiceType = "sysmon"
 )
 
-func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, timestamp time.Time) error {
+func (s *Server) processSysmonMetrics(pollerID string, agentID string, details json.RawMessage, timestamp time.Time) error {
 	log.Printf("Processing sysmon metrics for poller %s with details: %s", pollerID, string(details))
 
 	// Define the full structure of the message payload
@@ -859,9 +859,11 @@ func (s *Server) processSysmonMetrics(pollerID string, details json.RawMessage, 
 
 	hasMemoryData := sysmonPayload.Status.Memory.TotalBytes > 0 || sysmonPayload.Status.Memory.UsedBytes > 0
 	m := &models.SysmonMetrics{
-		CPUs:   make([]models.CPUMetric, len(sysmonPayload.Status.CPUs)),
-		Disks:  make([]models.DiskMetric, len(sysmonPayload.Status.Disks)),
-		Memory: models.MemoryMetric{},
+		AgentID: agentID,
+		HostID:  sysmonPayload.Status.HostID,
+		CPUs:    make([]models.CPUMetric, len(sysmonPayload.Status.CPUs)),
+		Disks:   make([]models.DiskMetric, len(sysmonPayload.Status.Disks)),
+		Memory:  models.MemoryMetric{},
 	}
 
 	for i, cpu := range sysmonPayload.Status.CPUs {
