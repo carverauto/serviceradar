@@ -32,19 +32,16 @@ const (
 var (
 	errMissingSources = errors.New("at least one source must be defined")
 	errMissingFields  = errors.New("source missing required fields (type, endpoint, prefix)")
-	errMissingStream  = errors.New("stream_name is required")
 )
 
 type Config struct {
 	Sources      map[string]*models.SourceConfig `json:"sources"`       // e.g., "armis": {...}, "netbox": {...}
 	KVAddress    string                          `json:"kv_address"`    // KV gRPC server address (optional)
-	NATSURL      string                          `json:"nats_url"`      // NATS server URL for JetStream
 	Domain       string                          `json:"domain"`        // JetStream domain (optional)
-	StreamName   string                          `json:"stream_name"`   // JetStream stream name
-	Subject      string                          `json:"subject"`       // Subject prefix for device publishes
 	PollInterval models.Duration                 `json:"poll_interval"` // Polling interval
 	AgentID      string                          `json:"agent_id"`      // Agent ID for device records
 	PollerID     string                          `json:"poller_id"`     // Poller ID for device records
+	ListenAddr   string                          `json:"listen_addr"`   // gRPC server listen address for agent mode
 	Security     *models.SecurityConfig          `json:"security"`      // mTLS config for gRPC/KV
 	NATSSecurity *models.SecurityConfig          `json:"nats_security"` // Optional mTLS config for NATS
 }
@@ -54,20 +51,12 @@ func (c *Config) Validate() error {
 		return errMissingSources
 	}
 
-	if c.NATSURL == "" {
-		c.NATSURL = "nats://localhost:4222"
-	}
-
-	if c.StreamName == "" {
-		return errMissingStream
-	}
-
-	if c.Subject == "" {
-		c.Subject = "discovery.devices"
-	}
-
 	if time.Duration(c.PollInterval) == 0 {
 		c.PollInterval = models.Duration(defaultTimeout)
+	}
+
+	if c.ListenAddr == "" {
+		c.ListenAddr = ":8080"
 	}
 
 	for name, src := range c.Sources {

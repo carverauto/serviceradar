@@ -24,10 +24,13 @@ import (
 	"github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/sync"
+	"github.com/carverauto/serviceradar/proto"
+	"google.golang.org/grpc"
 )
 
 func main() {
 	configPath := flag.String("config", "/etc/serviceradar/sync.json", "Path to config file")
+	agentMode := flag.Bool("agent", false, "Run as agent service (for poller integration)")
 	flag.Parse()
 
 	ctx := context.Background()
@@ -44,12 +47,32 @@ func main() {
 		log.Fatalf("Failed to create syncer: %v", err)
 	}
 
+	var listenAddr string
+	var grpcServices []lifecycle.GRPCServiceRegistrar
+
+	if *agentMode {
+		// Agent mode: expose AgentService for poller integration
+		listenAddr = cfg.ListenAddr
+		grpcServices = []lifecycle.GRPCServiceRegistrar{
+			func(s *grpc.Server) error {
+				proto.RegisterAgentServiceServer(s, syncer)
+				return nil
+			},
+		}
+		log.Printf("Starting sync service in agent mode on %s", listenAddr)
+	} else {
+		// Regular mode: just run the sync loop
+		listenAddr = "localhost:0"
+		log.Printf("Starting sync service in regular mode")
+	}
+
 	opts := &lifecycle.ServerOptions{
-		ListenAddr:        "localhost:0",
-		ServiceName:       "sync",
-		Service:           syncer,
-		EnableHealthCheck: false,
-		Security:          cfg.Security,
+		ListenAddr:           listenAddr,
+		ServiceName:          "sync",
+		Service:              syncer,
+		EnableHealthCheck:    *agentMode, // Enable health checks in agent mode
+		RegisterGRPCServices: grpcServices,
+		Security:             cfg.Security,
 	}
 
 	if err := lifecycle.RunServer(ctx, opts); err != nil {

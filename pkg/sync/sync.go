@@ -19,7 +19,6 @@ package sync
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -27,7 +26,6 @@ import (
 
 	ggrpc "github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/models"
-	"github.com/carverauto/serviceradar/pkg/natsutil"
 	"github.com/carverauto/serviceradar/pkg/poller"
 	"github.com/carverauto/serviceradar/pkg/sync/integrations"
 	"github.com/carverauto/serviceradar/proto"
@@ -43,6 +41,7 @@ const (
 
 // SyncPoller manages synchronization using poller.Poller.
 type SyncPoller struct {
+	proto.UnimplementedAgentServiceServer
 	poller        *poller.Poller
 	config        Config
 	kvClient      KVClient
@@ -52,6 +51,9 @@ type SyncPoller struct {
 	sources       map[string]Integration
 	registry      map[string]IntegrationFactory
 	grpcClient    GRPCClient
+	// Fields for AgentService implementation
+	lastSyncResults []*models.SweepResult
+	lastSyncMutex   sync.RWMutex
 }
 
 // New creates a new SyncPoller with explicit dependencies, leveraging poller.Poller.
@@ -59,8 +61,6 @@ func New(
 	ctx context.Context,
 	config *Config,
 	kvClient KVClient,
-	js jetstream.JetStream,
-	nc *nats.Conn,
 	registry map[string]IntegrationFactory,
 	grpcClient GRPCClient,
 	clock poller.Clock,
@@ -86,15 +86,12 @@ func New(
 	}
 
 	s := &SyncPoller{
-		poller:        p,
-		config:        *config,
-		kvClient:      kvClient,
-		js:            js,
-		natsConn:      nc,
-		subjectPrefix: config.Subject,
-		sources:       make(map[string]Integration),
-		registry:      registry,
-		grpcClient:    grpcClient,
+		poller:     p,
+		config:     *config,
+		kvClient:   kvClient,
+		sources:    make(map[string]Integration),
+		registry:   registry,
+		grpcClient: grpcClient,
 	}
 
 	s.initializeIntegrations(ctx)
@@ -138,97 +135,6 @@ func defaultIntegrationRegistry(
 			return integ
 		},
 	}
-}
-
-// setupNATSConnection creates a NATS connection with the provided configuration.
-func setupNATSConnection(config *Config) (*nats.Conn, error) {
-	var natsOpts []nats.Option
-
-	natsSec := config.Security
-
-	if config.NATSSecurity != nil {
-		natsSec = config.NATSSecurity
-	}
-
-	if natsSec != nil {
-		tlsConf, err := natsutil.TLSConfig(natsSec)
-		if err != nil {
-			return nil, fmt.Errorf("failed to build NATS TLS config: %w", err)
-		}
-
-		natsOpts = append(natsOpts,
-			nats.Secure(tlsConf),
-			nats.RootCAs(natsSec.TLS.CAFile),
-			nats.ClientCert(natsSec.TLS.CertFile, natsSec.TLS.KeyFile),
-		)
-	}
-
-	return nats.Connect(config.NATSURL, natsOpts...)
-}
-
-// setupJetStream creates a JetStream instance from a NATS connection.
-func setupJetStream(ctx context.Context, nc *nats.Conn, config *Config) (jetstream.JetStream, error) {
-	var (
-		js  jetstream.JetStream
-		err error
-	)
-
-	if config.Domain != "" {
-		js, err = jetstream.NewWithDomain(nc, config.Domain)
-	} else {
-		js, err = jetstream.New(nc)
-	}
-
-	if err != nil {
-		return nil, err
-	}
-
-	if config.StreamName != "" {
-		if err := ensureStreamExists(ctx, js, config); err != nil {
-			return nil, err
-		}
-	}
-
-	return js, nil
-}
-
-// ensureStreamExists checks if a stream exists and creates it if it doesn't.
-// It also verifies the stream is accessible by fetching its info.
-func ensureStreamExists(ctx context.Context, js jetstream.JetStream, config *Config) error {
-	stream, err := js.Stream(ctx, config.StreamName)
-
-	if errors.Is(err, jetstream.ErrStreamNotFound) {
-		return createStream(ctx, js, config)
-	} else if err != nil {
-		return fmt.Errorf("failed to get stream %s: %w", config.StreamName, err)
-	}
-
-	// Verify stream is accessible
-	if _, err = stream.Info(ctx); err != nil {
-		return fmt.Errorf("failed to get stream info: %w", err)
-	}
-
-	return nil
-}
-
-// createStream creates a new stream with the configured name and subjects.
-func createStream(ctx context.Context, js jetstream.JetStream, config *Config) error {
-	subject := config.Subject + ".>"
-	if config.Domain != "" {
-		subject = config.Domain + "." + subject
-	}
-
-	sc := jetstream.StreamConfig{
-		Name:     config.StreamName,
-		Subjects: []string{subject},
-	}
-
-	_, err := js.CreateOrUpdateStream(ctx, sc)
-	if err != nil {
-		return fmt.Errorf("failed to create stream %s: %w", config.StreamName, err)
-	}
-
-	return nil
 }
 
 // setupGRPCClient creates a gRPC client for KV service if an address is provided.
@@ -281,13 +187,9 @@ func getServerName(config *Config) string {
 }
 
 // cleanupResources closes the provided resources in case of an error.
-func cleanupResources(nc *nats.Conn, grpcClient GRPCClient) {
+func cleanupResources(grpcClient GRPCClient) {
 	if grpcClient != nil {
 		_ = grpcClient.Close()
-	}
-
-	if nc != nil {
-		nc.Close()
 	}
 }
 
@@ -296,8 +198,6 @@ func createSyncer(
 	ctx context.Context,
 	config *Config,
 	kvClient KVClient,
-	js jetstream.JetStream,
-	nc *nats.Conn,
 	grpcClient GRPCClient,
 ) (*SyncPoller, error) {
 	serverName := getServerName(config)
@@ -306,8 +206,6 @@ func createSyncer(
 		ctx,
 		config,
 		kvClient,
-		js,
-		nc,
 		defaultIntegrationRegistry(kvClient, grpcClient, serverName),
 		grpcClient,
 		nil,
@@ -316,32 +214,18 @@ func createSyncer(
 
 // NewWithGRPC sets up the gRPC client for production use with default integrations.
 func NewWithGRPC(ctx context.Context, config *Config) (*SyncPoller, error) {
-	// Setup NATS connection
-	nc, err := setupNATSConnection(config)
-	if err != nil {
-		return nil, err
-	}
-
-	// Setup JetStream
-	js, err := setupJetStream(ctx, nc, config)
-	if err != nil {
-		cleanupResources(nc, nil)
-
-		return nil, err
-	}
-
 	// Setup gRPC client
 	kvClient, grpcClient, err := setupGRPCClient(ctx, config)
 	if err != nil {
-		cleanupResources(nc, nil)
+		cleanupResources(nil)
 
 		return nil, err
 	}
 
 	// Create syncer
-	syncer, err := createSyncer(ctx, config, kvClient, js, nc, grpcClient)
+	syncer, err := createSyncer(ctx, config, kvClient, grpcClient)
 	if err != nil {
-		cleanupResources(nc, grpcClient)
+		cleanupResources(grpcClient)
 
 		return nil, err
 	}
@@ -404,11 +288,78 @@ func (s *SyncPoller) Stop(ctx context.Context) error {
 	return err
 }
 
+// GetStatus implements proto.AgentServiceServer for poller integration.
+func (s *SyncPoller) GetStatus(_ context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
+	s.lastSyncMutex.RLock()
+	defer s.lastSyncMutex.RUnlock()
+
+	log.Printf("SyncPoller.GetStatus called for service: %s", req.ServiceName)
+
+	// Return the last sync results as JSON in the format the core expects
+	if len(s.lastSyncResults) == 0 {
+		response := map[string]interface{}{
+			"message": "No sync results available yet",
+			"hosts":   []interface{}{},
+		}
+		responseJSON, _ := json.Marshal(response)
+		return &proto.StatusResponse{
+			Available:   true,
+			Message:     responseJSON,
+			ServiceType: "sweep",
+			AgentId:     s.config.AgentID,
+		}, nil
+	}
+
+	// Convert SweepResults to the format the core expects for sweep services
+	hosts := make([]map[string]interface{}, 0, len(s.lastSyncResults))
+	for _, result := range s.lastSyncResults {
+		host := map[string]interface{}{
+			"host":      result.IP,
+			"available": result.Available,
+			"metadata":  result.Metadata,
+		}
+		if result.MAC != nil {
+			host["mac"] = *result.MAC
+		}
+		if result.Hostname != nil {
+			host["hostname"] = *result.Hostname
+		}
+		hosts = append(hosts, host)
+	}
+
+	// Create a response in the format the core expects for sweep data
+	response := map[string]interface{}{
+		"message": "Discovery sync completed",
+		"hosts":   hosts,
+	}
+
+	responseJSON, err := json.Marshal(response)
+	if err != nil {
+		log.Printf("Error marshaling sync status response: %v", err)
+		return &proto.StatusResponse{
+			Available:   false,
+			Message:     []byte(`{"error": "Failed to marshal sync results"}`),
+			ServiceType: "sweep",
+			AgentId:     s.config.AgentID,
+		}, nil
+	}
+
+	log.Printf("SyncPoller: Returning %d hosts from sync results", len(hosts))
+
+	return &proto.StatusResponse{
+		Available:   true,
+		Message:     responseJSON,
+		ServiceType: "sweep",
+		AgentId:     s.config.AgentID,
+	}, nil
+}
+
 // Sync performs the synchronization of data from sources to KV.
 func (s *SyncPoller) Sync(ctx context.Context) error {
 	var wg sync.WaitGroup
 
 	errChan := make(chan error, len(s.sources))
+	resultsChan := make(chan []*models.SweepResult, len(s.sources))
 
 	for name, integration := range s.sources {
 		wg.Add(1)
@@ -423,18 +374,34 @@ func (s *SyncPoller) Sync(ctx context.Context) error {
 			}
 
 			s.writeToKV(ctx, name, data)
-			s.publishEvents(ctx, name, events)
+			// Store events for GetStatus instead of publishing to NATS
+			resultsChan <- events
 		}(name, integration)
 	}
 
 	wg.Wait()
 	close(errChan)
+	close(resultsChan)
 
+	// Check for errors
 	for err := range errChan {
 		if err != nil {
 			return err
 		}
 	}
+
+	// Collect all sweep results
+	var allResults []*models.SweepResult
+	for events := range resultsChan {
+		allResults = append(allResults, events...)
+	}
+
+	// Store results for GetStatus
+	s.lastSyncMutex.Lock()
+	s.lastSyncResults = allResults
+	s.lastSyncMutex.Unlock()
+
+	log.Printf("Sync completed: collected %d sweep results from %d sources", len(allResults), len(s.sources))
 
 	return nil
 }
