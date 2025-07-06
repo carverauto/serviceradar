@@ -130,13 +130,6 @@ func WithDBService(db db.Service) func(server *APIServer) {
 	}
 }
 
-// WithEntityTableMap initializes the entity table mapping for the API server
-func WithEntityTableMap(entityTableMap map[srqlmodels.EntityType]string) func(server *APIServer) {
-	return func(server *APIServer) {
-		server.entityTableMap = entityTableMap
-	}
-}
-
 // WithDeviceRegistry adds a device registry service to the API server
 func WithDeviceRegistry(dr DeviceRegistryService) func(server *APIServer) {
 	return func(server *APIServer) {
@@ -419,7 +412,6 @@ func (s *APIServer) setupProtectedRoutes() {
 	protected.HandleFunc("/devices", s.getDevices).Methods("GET")
 	protected.HandleFunc("/devices/{id}", s.getDevice).Methods("GET")
 	protected.HandleFunc("/devices/{id}/metrics", s.getDeviceMetrics).Methods("GET")
-	protected.HandleFunc("/devices/cleanup-duplicates", s.cleanupDuplicateDevices).Methods("POST")
 	protected.HandleFunc("/devices/metrics/status", s.getDeviceMetricsStatus).Methods("GET")
 }
 
@@ -549,6 +541,7 @@ func (s *APIServer) UpdatePollerStatus(pollerID string, status *PollerStatus) {
 // @Security ApiKeyAuth
 func (s *APIServer) getPollerHistory(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
+
 	pollerID := vars["id"]
 
 	if s.pollerHistoryHandler == nil {
@@ -592,6 +585,7 @@ func (s *APIServer) getSystemStatus(w http.ResponseWriter, _ *http.Request) {
 			status.HealthyPollers++
 		}
 	}
+
 	s.mu.RUnlock()
 
 	log.Printf("System status: total=%d healthy=%d last_update=%s",
@@ -907,15 +901,32 @@ func (s *APIServer) getDevices(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), defaultTimeout)
 	defer cancel()
 
+	// Parse query parameters
+	params := parseDeviceQueryParams(r)
+
+	// Try device registry first (enhanced device data with discovery sources)
+	if s.deviceRegistry != nil {
+		if s.tryDeviceRegistryPath(ctx, w, params) {
+			return
+		}
+	}
+
+	// Fallback to SRQL query
+	s.fallbackToSRQLQuery(ctx, w, params)
+}
+
+// parseDeviceQueryParams extracts and validates query parameters for device listing
+func parseDeviceQueryParams(r *http.Request) map[string]interface{} {
+	params := make(map[string]interface{})
+
 	// Get query parameters
-	searchTerm := r.URL.Query().Get("search")
-	status := r.URL.Query().Get("status")
-	limitStr := r.URL.Query().Get("limit")
-	pageStr := r.URL.Query().Get("page")
-	mergedStr := r.URL.Query().Get("merged")
+	params["searchTerm"] = r.URL.Query().Get("search")
+	params["status"] = r.URL.Query().Get("status")
+	params["mergedStr"] = r.URL.Query().Get("merged")
 
 	// Parse pagination parameters
 	limit := 100 // Default limit
+	limitStr := r.URL.Query().Get("limit")
 
 	if limitStr != "" {
 		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
@@ -923,64 +934,102 @@ func (s *APIServer) getDevices(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	params["limit"] = limit
+
 	page := 1 // Default page
+	pageStr := r.URL.Query().Get("page")
+
 	if pageStr != "" {
 		if parsedPage, err := strconv.Atoi(pageStr); err == nil && parsedPage > 0 {
 			page = parsedPage
 		}
 	}
 
-	offset := (page - 1) * limit
+	params["page"] = page
 
-	// Try device registry first (enhanced device data with discovery sources)
-	if s.deviceRegistry != nil {
-		devices, err := s.deviceRegistry.ListDevices(ctx, limit, offset)
-		if err == nil {
-			// Filter devices based on search and status parameters
-			filteredDevices := filterDevices(devices, searchTerm, status)
-			
-			// Apply device merging if requested
-			if mergedStr == "true" {
-				filteredDevices = mergeRelatedDevices(ctx, s.deviceRegistry, filteredDevices)
-			}
+	params["offset"] = (page - 1) * limit
 
-			// Convert to response format with discovery information
-			response := make([]map[string]interface{}, len(filteredDevices))
-			for i, device := range filteredDevices {
-				response[i] = map[string]interface{}{
-					"device_id":         device.DeviceID,
-					"ip":                device.IP,
-					"hostname":          getFieldValue(device.Hostname),
-					"mac":               getFieldValue(device.MAC),
-					"first_seen":        device.FirstSeen,
-					"last_seen":         device.LastSeen,
-					"is_available":      device.IsAvailable,
-					"device_type":       device.DeviceType,
-					"discovery_sources": device.DiscoverySources,
-					"metadata":          getFieldValue(device.Metadata),
-				}
-			}
+	return params
+}
 
-			w.Header().Set("Content-Type", "application/json")
-
-			if err := json.NewEncoder(w).Encode(response); err != nil {
-				log.Printf("Error encoding enhanced devices response: %v", err)
-
-				writeError(w, "Failed to encode response", http.StatusInternalServerError)
-			}
-
-			return
-		}
-
+// tryDeviceRegistryPath attempts to retrieve and process devices using the device registry
+// Returns true if successful, false if it needs to fall back to SRQL
+func (s *APIServer) tryDeviceRegistryPath(ctx context.Context, w http.ResponseWriter, params map[string]interface{}) bool {
+	devices, err := s.deviceRegistry.ListDevices(ctx, params["limit"].(int), params["offset"].(int))
+	if err != nil {
 		log.Printf("Device registry listing failed, falling back to SRQL: %v", err)
+		return false
 	}
 
-	// Fallback to SRQL query
+	// Filter devices based on search and status parameters
+	filteredDevices := filterDevices(devices, params["searchTerm"].(string), params["status"].(string))
+
+	// Apply device merging if requested
+	if params["mergedStr"].(string) == "true" {
+		filteredDevices = mergeRelatedDevices(ctx, s.deviceRegistry, filteredDevices)
+	}
+
+	// Format and send the response
+	s.sendDeviceRegistryResponse(w, filteredDevices)
+	return true
+}
+
+// sendDeviceRegistryResponse formats and sends the response for device registry path
+func (*APIServer) sendDeviceRegistryResponse(w http.ResponseWriter, devices []*models.UnifiedDevice) {
+	// Convert to response format with discovery information
+	response := make([]map[string]interface{}, len(devices))
+
+	for i, device := range devices {
+		response[i] = map[string]interface{}{
+			"device_id":         device.DeviceID,
+			"ip":                device.IP,
+			"hostname":          getFieldValue(device.Hostname),
+			"mac":               getFieldValue(device.MAC),
+			"first_seen":        device.FirstSeen,
+			"last_seen":         device.LastSeen,
+			"is_available":      device.IsAvailable,
+			"device_type":       device.DeviceType,
+			"discovery_sources": device.DiscoverySources,
+			"metadata":          getFieldValue(device.Metadata),
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("Error encoding enhanced devices response: %v", err)
+		writeError(w, "Failed to encode response", http.StatusInternalServerError)
+	}
+}
+
+// fallbackToSRQLQuery handles the SRQL query fallback path for device listing
+func (s *APIServer) fallbackToSRQLQuery(ctx context.Context, w http.ResponseWriter, params map[string]interface{}) {
+	query := buildDeviceSRQLQuery(params)
+
+	// Execute the SRQL query
+	result, err := s.queryExecutor.ExecuteQuery(ctx, query)
+	if err != nil {
+		log.Printf("Error executing devices query: %v", err)
+		writeError(w, "Failed to retrieve devices", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	if err := json.NewEncoder(w).Encode(result); err != nil {
+		log.Printf("Error encoding devices response: %v", err)
+		writeError(w, "Failed to encode response", http.StatusInternalServerError)
+	}
+}
+
+// buildDeviceSRQLQuery constructs an SRQL query for device listing based on parameters
+func buildDeviceSRQLQuery(params map[string]interface{}) string {
 	query := "SHOW DEVICES"
 
 	var whereClauses []string
 
 	// Add search filter
+	searchTerm := params["searchTerm"].(string)
 	if searchTerm != "" {
 		whereClauses = append(whereClauses, fmt.Sprintf("(ip LIKE '%%%s%%' OR hostname "+
 			"LIKE '%%%s%%' OR device_id LIKE '%%%s%%')",
@@ -988,6 +1037,7 @@ func (s *APIServer) getDevices(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Add status filter
+	status := params["status"].(string)
 	if status == "online" {
 		whereClauses = append(whereClauses, "is_available = true")
 	} else if status == "offline" {
@@ -1003,23 +1053,9 @@ func (s *APIServer) getDevices(w http.ResponseWriter, r *http.Request) {
 	query += " ORDER BY last_seen DESC"
 
 	// Add limit
-	query += fmt.Sprintf(" LIMIT %d", limit)
+	query += fmt.Sprintf(" LIMIT %d", params["limit"].(int))
 
-	// Execute the SRQL query
-	result, err := s.queryExecutor.ExecuteQuery(ctx, query)
-	if err != nil {
-		log.Printf("Error executing devices query: %v", err)
-		writeError(w, "Failed to retrieve devices", http.StatusInternalServerError)
-
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-
-	if err := json.NewEncoder(w).Encode(result); err != nil {
-		log.Printf("Error encoding devices response: %v", err)
-		writeError(w, "Failed to encode response", http.StatusInternalServerError)
-	}
+	return query
 }
 
 // @Summary Get specific device
@@ -1058,11 +1094,12 @@ func (s *APIServer) getDevice(w http.ResponseWriter, r *http.Request) {
 
 			w.Header().Set("Content-Type", "application/json")
 
-			if err := json.NewEncoder(w).Encode(response); err != nil {
+			if err = json.NewEncoder(w).Encode(response); err != nil {
 				log.Printf("Error encoding enhanced device response: %v", err)
 
 				writeError(w, "Failed to encode response", http.StatusInternalServerError)
 			}
+
 			return
 		}
 
@@ -1079,52 +1116,13 @@ func (s *APIServer) getDevice(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("Error fetching device %s: %v", deviceID, err)
 		writeError(w, "Device not found", http.StatusNotFound)
+
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(device); err != nil {
 		log.Printf("Error encoding device response: %v", err)
-		writeError(w, "Failed to encode response", http.StatusInternalServerError)
-	}
-}
-
-// @Summary Cleanup duplicate devices
-// @Description Removes duplicate devices by consolidating them using canonical device IDs
-// @Tags Devices
-// @Accept json
-// @Produce json
-// @Success 200 {object} map[string]string "Cleanup status"
-// @Failure 500 {object} models.ErrorResponse "Internal server error"
-// @Router /api/devices/cleanup-duplicates [post]
-// @Security ApiKeyAuth
-func (s *APIServer) cleanupDuplicateDevices(w http.ResponseWriter, r *http.Request) {
-	// Set a timeout for the request
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute) // Longer timeout for cleanup
-	defer cancel()
-
-	if s.deviceRegistry == nil {
-		writeError(w, "Device registry not configured", http.StatusInternalServerError)
-		return
-	}
-
-	log.Printf("API: Starting device cleanup process...")
-	
-	err := s.deviceRegistry.CleanupDuplicateDevices(ctx)
-	if err != nil {
-		log.Printf("Error during device cleanup: %v", err)
-		writeError(w, fmt.Sprintf("Device cleanup failed: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	response := map[string]string{
-		"status":  "success",
-		"message": "Device cleanup completed successfully",
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		log.Printf("Error encoding cleanup response: %v", err)
 		writeError(w, "Failed to encode response", http.StatusInternalServerError)
 	}
 }
@@ -1168,13 +1166,13 @@ func (s *APIServer) getDeviceMetrics(w http.ResponseWriter, r *http.Request) {
 	// Get metric type filter
 	metricType := r.URL.Query().Get("type")
 
-	var metrics []models.TimeseriesMetric
+	var timeseriesMetrics []models.TimeseriesMetric
 
-	// For ICMP metrics, use the in-memory ring buffer instead of database
+	// For ICMP timeseriesMetrics, use the in-memory ring buffer instead of database
 	if metricType == "icmp" && s.metricsManager != nil {
-		log.Printf("Fetching ICMP metrics from ring buffer for device %s", deviceID)
+		log.Printf("Fetching ICMP timeseriesMetrics from ring buffer for device %s", deviceID)
 
-		// Get metrics from ring buffer
+		// Get timeseriesMetrics from ring buffer
 		ringBufferMetrics := s.metricsManager.GetMetricsByDevice(deviceID)
 
 		// Convert MetricPoint to TimeseriesMetric and filter by time range
@@ -1182,7 +1180,7 @@ func (s *APIServer) getDeviceMetrics(w http.ResponseWriter, r *http.Request) {
 			// Filter by time range
 			if mp.Timestamp.After(startTime) && mp.Timestamp.Before(endTime) {
 				// Convert from MetricPoint to TimeseriesMetric
-				metrics = append(metrics, models.TimeseriesMetric{
+				timeseriesMetrics = append(timeseriesMetrics, models.TimeseriesMetric{
 					PollerID:  mp.PollerID,
 					DeviceID:  mp.DeviceID,
 					Partition: mp.Partition,
@@ -1195,20 +1193,20 @@ func (s *APIServer) getDeviceMetrics(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		log.Printf("Found %d ICMP metrics in ring buffer for device %s", len(metrics), deviceID)
+		log.Printf("Found %d ICMP timeseriesMetrics in ring buffer for device %s", len(timeseriesMetrics), deviceID)
 	} else {
-		// Use database for non-ICMP metrics or when ring buffer not available
+		// Use database for non-ICMP timeseriesMetrics or when ring buffer not available
 		if metricType != "" {
-			// Get metrics filtered by type
-			metrics, err = s.dbService.GetMetricsForDeviceByType(ctx, deviceID, metricType, startTime, endTime)
+			// Get timeseriesMetrics filtered by type
+			timeseriesMetrics, err = s.dbService.GetMetricsForDeviceByType(ctx, deviceID, metricType, startTime, endTime)
 		} else {
-			// Get all metrics for the device
-			metrics, err = s.dbService.GetMetricsForDevice(ctx, deviceID, startTime, endTime)
+			// Get all timeseriesMetrics for the device
+			timeseriesMetrics, err = s.dbService.GetMetricsForDevice(ctx, deviceID, startTime, endTime)
 		}
 
 		if err != nil {
-			log.Printf("Error fetching metrics for device %s: %v", deviceID, err)
-			writeError(w, "Failed to fetch device metrics", http.StatusInternalServerError)
+			log.Printf("Error fetching timeseriesMetrics for device %s: %v", deviceID, err)
+			writeError(w, "Failed to fetch device timeseriesMetrics", http.StatusInternalServerError)
 
 			return
 		}
@@ -1216,8 +1214,8 @@ func (s *APIServer) getDeviceMetrics(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 
-	if err := json.NewEncoder(w).Encode(metrics); err != nil {
-		log.Printf("Error encoding device metrics response: %v", err)
+	if err := json.NewEncoder(w).Encode(timeseriesMetrics); err != nil {
+		log.Printf("Error encoding device timeseriesMetrics response: %v", err)
 		writeError(w, "Failed to encode response", http.StatusInternalServerError)
 	}
 }
@@ -1234,6 +1232,7 @@ func (s *APIServer) getDeviceMetrics(w http.ResponseWriter, r *http.Request) {
 func (s *APIServer) getDeviceMetricsStatus(w http.ResponseWriter, _ *http.Request) {
 	if s.metricsManager == nil {
 		writeError(w, "Metrics not configured", http.StatusInternalServerError)
+
 		return
 	}
 
@@ -1264,22 +1263,23 @@ func getFieldValue[T any](field *models.DiscoveredField[T]) interface{} {
 
 // filterDevices filters unified devices based on search term and status
 func filterDevices(devices []*models.UnifiedDevice, searchTerm, status string) []*models.UnifiedDevice {
-	var filtered []*models.UnifiedDevice
+	filtered := make([]*models.UnifiedDevice, 0, len(devices))
+
 	for _, device := range devices {
 		// Filter out merged devices (safety net) - ALWAYS apply this filter
 		if device.Metadata != nil && device.Metadata.Value != nil {
 			if mergedInto, hasMerged := device.Metadata.Value["_merged_into"]; hasMerged {
 				log.Printf("API: Filtering out merged device %s (merged into %s)", device.DeviceID, mergedInto)
+
 				continue // Skip merged devices
 			}
 		}
-		
+
 		// Apply search filter
 		if searchTerm != "" {
 			searchLower := strings.ToLower(searchTerm)
 			if !strings.Contains(strings.ToLower(device.IP), searchLower) &&
 				!strings.Contains(strings.ToLower(device.DeviceID), searchLower) {
-
 				// Check hostname if available
 				if device.Hostname == nil || !strings.Contains(strings.ToLower(device.Hostname.Value), searchLower) {
 					continue
@@ -1291,12 +1291,14 @@ func filterDevices(devices []*models.UnifiedDevice, searchTerm, status string) [
 		if status == "online" && !device.IsAvailable {
 			continue
 		}
+
 		if status == "offline" && device.IsAvailable {
 			continue
 		}
 
 		filtered = append(filtered, device)
 	}
+
 	return filtered
 }
 
@@ -1306,16 +1308,17 @@ func mergeRelatedDevices(ctx context.Context, registry DeviceRegistryService, de
 	if registry == nil || len(devices) == 0 {
 		return devices
 	}
-	
+
 	// Track which devices have been processed to avoid duplicates
 	processed := make(map[string]bool)
-	var mergedDevices []*models.UnifiedDevice
-	
+
+	mergedDevices := make([]*models.UnifiedDevice, 0, len(devices))
+
 	for _, device := range devices {
 		if processed[device.DeviceID] {
 			continue // Skip if already processed as part of a merge
 		}
-		
+
 		// Try to get the merged view of this device
 		mergedDevice, err := registry.GetMergedDevice(ctx, device.DeviceID)
 		if err != nil {
@@ -1323,9 +1326,10 @@ func mergeRelatedDevices(ctx context.Context, registry DeviceRegistryService, de
 			// Fallback to original device if merging fails
 			mergedDevices = append(mergedDevices, device)
 			processed[device.DeviceID] = true
+
 			continue
 		}
-		
+
 		// Find all related devices in the original list and mark them as processed
 		relatedDevices, err := registry.FindRelatedDevices(ctx, device.DeviceID)
 		if err != nil {
@@ -1335,10 +1339,11 @@ func mergeRelatedDevices(ctx context.Context, registry DeviceRegistryService, de
 				processed[related.DeviceID] = true
 			}
 		}
-		
+
 		mergedDevices = append(mergedDevices, mergedDevice)
 	}
-	
+
 	log.Printf("Device merging: %d original devices merged into %d unified devices", len(devices), len(mergedDevices))
+
 	return mergedDevices
 }

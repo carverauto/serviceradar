@@ -67,7 +67,7 @@ func (p *ProtonPublisher) PublishDevice(ctx context.Context, device *DiscoveredD
 	if source, exists := device.Metadata["source"]; exists {
 		discoverySource = source
 	}
-	
+
 	// Map legacy "mapper" to proper SNMP source for backward compatibility
 	if discoverySource == "mapper" {
 		discoverySource = string(models.DiscoverySourceSNMP)
@@ -223,9 +223,11 @@ func (p *ProtonPublisher) PublishBatchDevices(ctx context.Context, devices []*Di
 		hostname := device.Hostname
 		mac := device.MAC
 		partition := p.config.Partition
+
 		if partition == "" {
 			partition = "default"
 		}
+
 		deviceID := fmt.Sprintf("%s:%s", partition, device.IP)
 
 		results[i] = &models.SweepResult{

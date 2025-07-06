@@ -51,8 +51,6 @@ func TestNew_ValidConfig(t *testing.T) {
 		},
 		KVAddress:    "localhost:50051",
 		PollInterval: models.Duration(1 * time.Second),
-		StreamName:   "devices",
-		Subject:      "discovery.devices",
 		Security: &models.SecurityConfig{
 			Mode: "mtls",
 			Role: models.RolePoller,
@@ -75,7 +73,7 @@ func TestNew_ValidConfig(t *testing.T) {
 		},
 	}
 
-	syncer, err := New(context.Background(), c, mockKV, nil, nil, registry, nil, mockClock)
+	syncer, err := New(context.Background(), c, mockKV, registry, nil, mockClock)
 	require.NoError(t, err)
 	assert.NotNil(t, syncer)
 	assert.NotNil(t, syncer.poller)
@@ -104,8 +102,6 @@ func TestSync_Success(t *testing.T) {
 		},
 		KVAddress:    "localhost:50051",
 		PollInterval: models.Duration(1 * time.Second),
-		StreamName:   "devices",
-		Subject:      "discovery.devices",
 		Security: &models.SecurityConfig{
 			Mode: "mtls",
 			Role: models.RolePoller,
@@ -134,7 +130,7 @@ func TestSync_Success(t *testing.T) {
 		Entries: []*proto.KeyValueEntry{{Key: "armis/devices", Value: []byte("data")}},
 	}, gomock.Any()).Return(&proto.PutManyResponse{}, nil)
 
-	syncer, err := New(context.Background(), c, mockKV, nil, nil, registry, nil, mockClock)
+	syncer, err := New(context.Background(), c, mockKV, registry, nil, mockClock)
 	require.NoError(t, err)
 
 	err = syncer.Sync(context.Background())
@@ -164,8 +160,6 @@ func TestStartAndStop(t *testing.T) {
 		},
 		KVAddress:    "localhost:50051",
 		PollInterval: models.Duration(500 * time.Millisecond),
-		StreamName:   "devices",
-		Subject:      "discovery.devices",
 		Security:     &models.SecurityConfig{},
 	}
 
@@ -187,7 +181,7 @@ func TestStartAndStop(t *testing.T) {
 	mockInteg.EXPECT().Fetch(gomock.Any()).Return(data, nil, nil).Times(2) // Initial poll + 1 tick
 	mockKV.EXPECT().PutMany(gomock.Any(), gomock.Any(), gomock.Any()).Return(&proto.PutManyResponse{}, nil).Times(2)
 
-	syncer, err := New(context.Background(), c, mockKV, nil, nil, registry, nil, mockClock)
+	syncer, err := New(context.Background(), c, mockKV, registry, nil, mockClock)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -252,8 +246,6 @@ func TestStart_ContextCancellation(t *testing.T) {
 		},
 		KVAddress:    "localhost:50051",
 		PollInterval: models.Duration(1 * time.Second),
-		StreamName:   "devices",
-		Subject:      "discovery.devices",
 		Security: &models.SecurityConfig{
 			Mode: "mtls",
 			Role: models.RolePoller,
@@ -290,7 +282,7 @@ func TestStart_ContextCancellation(t *testing.T) {
 		Entries: []*proto.KeyValueEntry{{Key: "armis/devices", Value: []byte("data")}},
 	}, gomock.Any()).Return(&proto.PutManyResponse{}, nil)
 
-	syncer, err := New(context.Background(), c, mockKV, nil, nil, registry, nil, mockClock)
+	syncer, err := New(context.Background(), c, mockKV, registry, nil, mockClock)
 	require.NoError(t, err)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -332,8 +324,6 @@ func TestSync_NetboxSuccess(t *testing.T) {
 		},
 		KVAddress:    "localhost:50051",
 		PollInterval: models.Duration(1 * time.Second),
-		StreamName:   "devices",
-		Subject:      "discovery.devices",
 	}
 
 	registry := map[string]IntegrationFactory{
@@ -348,7 +338,7 @@ func TestSync_NetboxSuccess(t *testing.T) {
 		Entries: []*proto.KeyValueEntry{{Key: "netbox/1", Value: []byte(`{"id":1,"name":"device1","primary_ip4":{"address":"192.168.1.1/24"}}`)}},
 	}, gomock.Any()).Return(&proto.PutManyResponse{}, nil)
 
-	syncer, err := New(context.Background(), c, mockKV, nil, nil, registry, nil, mockClock)
+	syncer, err := New(context.Background(), c, mockKV, registry, nil, mockClock)
 	require.NoError(t, err)
 
 	err = syncer.Sync(context.Background())
@@ -380,8 +370,6 @@ func TestCreateIntegrationAppliesDefaults(t *testing.T) {
 		PollerID:     "global-poller",
 		KVAddress:    "localhost:50051",
 		PollInterval: models.Duration(1 * time.Second),
-		StreamName:   "devices",
-		Subject:      "discovery.devices",
 		Sources: map[string]*models.SourceConfig{
 			"netbox": {
 				Type:     "netbox",
@@ -393,7 +381,7 @@ func TestCreateIntegrationAppliesDefaults(t *testing.T) {
 		},
 	}
 
-	_, err := New(context.Background(), c, mockKV, nil, nil, registry, mockGRPC, mockClock)
+	_, err := New(context.Background(), c, mockKV, registry, mockGRPC, mockClock)
 	require.NoError(t, err)
 
 	assert.Equal(t, "source-agent", gotAgent)
@@ -424,8 +412,6 @@ func TestCreateIntegrationUsesGlobalDefaults(t *testing.T) {
 		PollerID:     "global-poller",
 		KVAddress:    "localhost:50051",
 		PollInterval: models.Duration(1 * time.Second),
-		StreamName:   "devices",
-		Subject:      "discovery.devices",
 		Sources: map[string]*models.SourceConfig{
 			"netbox": {
 				Type:     "netbox",
@@ -435,7 +421,7 @@ func TestCreateIntegrationUsesGlobalDefaults(t *testing.T) {
 		},
 	}
 
-	_, err := New(context.Background(), c, mockKV, nil, nil, registry, mockGRPC, nil)
+	_, err := New(context.Background(), c, mockKV, registry, mockGRPC, nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, "global-agent", gotAgent)
@@ -497,8 +483,6 @@ func TestCreateIntegrationSetsDefaultPartition(t *testing.T) {
 		PollerID:     "global-poller",
 		KVAddress:    "localhost:50051",
 		PollInterval: models.Duration(1 * time.Second),
-		StreamName:   "devices",
-		Subject:      "discovery.devices",
 		Sources: map[string]*models.SourceConfig{
 			"netbox": {
 				Type:     "netbox",
@@ -508,7 +492,7 @@ func TestCreateIntegrationSetsDefaultPartition(t *testing.T) {
 		},
 	}
 
-	_, err := New(context.Background(), c, mockKV, nil, nil, registry, mockGRPC, nil)
+	_, err := New(context.Background(), c, mockKV, registry, mockGRPC, nil)
 	require.NoError(t, err)
 
 	assert.Equal(t, "default", gotPartition)

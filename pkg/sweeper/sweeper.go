@@ -435,6 +435,24 @@ func (s *NetworkSweeper) processResult(ctx context.Context, result *models.Resul
 	ctx, cancel := context.WithTimeout(ctx, defaultResultTimeout)
 	defer cancel()
 
+	// Process basic result handling
+	if err := s.processBasicResult(ctx, result); err != nil {
+		return err
+	}
+
+	// Process through unified device registry if available and result is available
+	if s.deviceRegistry != nil && result.Available {
+		if err := s.processDeviceRegistry(result); err != nil {
+			// Log error but don't fail the entire operation
+			log.Printf("Failed to process sweep result through device registry for %s: %v", result.Target.Host, err)
+		}
+	}
+
+	return nil
+}
+
+// processBasicResult handles the basic processing and saving of the result.
+func (s *NetworkSweeper) processBasicResult(ctx context.Context, result *models.Result) error {
 	// Process through existing pipeline
 	if err := s.processor.Process(result); err != nil {
 		return fmt.Errorf("processor error: %w", err)
@@ -444,82 +462,103 @@ func (s *NetworkSweeper) processResult(ctx context.Context, result *models.Resul
 		return fmt.Errorf("store error: %w", err)
 	}
 
-	// Process through unified device registry if available
-	if s.deviceRegistry != nil && result.Available {
-		// Get agent/poller info from config first, then try metadata
-		agentID := "default"
-		pollerID := "default"
-		partition := "default"
-		
-		// Use config values if available
-		if s.config.AgentID != "" {
-			agentID = s.config.AgentID
-		}
-		if s.config.PollerID != "" {
-			pollerID = s.config.PollerID
-		}
-		if s.config.Partition != "" {
-			partition = s.config.Partition
-		}
-		
-		// Extract from metadata if available (metadata can override config)
-		if result.Target.Metadata != nil {
-			if id, ok := result.Target.Metadata["agent_id"].(string); ok && id != "" {
-				agentID = id
-			}
-			if id, ok := result.Target.Metadata["poller_id"].(string); ok && id != "" {
-				pollerID = id
-			}
-			if p, ok := result.Target.Metadata["partition"].(string); ok && p != "" {
-				partition = p
-			}
-		}
-		
-		// Always generate a valid device ID with partition
-		deviceID := fmt.Sprintf("%s:%s", partition, result.Target.Host)
+	return nil
+}
 
-		sweepResult := &models.SweepResult{
-			AgentID:         agentID,
-			PollerID:        pollerID,
-			Partition:       partition,
-			DeviceID:        deviceID,
-			DiscoverySource: string(models.DiscoverySourceSweep),
-			IP:              result.Target.Host,
-			Timestamp:       result.LastSeen,
-			Available:       result.Available,
-			Metadata:        make(map[string]string),
-		}
+// extractAgentInfo extracts agent/poller/partition information from config and metadata.
+func (s *NetworkSweeper) extractAgentInfo(result *models.Result) (string, string, string) {
+	// Get agent/poller info from config first, then try metadata
+	agentID := "default"
+	pollerID := "default"
+	partition := "default"
 
-		// Convert metadata to string map
-		if result.Target.Metadata != nil {
-			for key, value := range result.Target.Metadata {
-				if strVal, ok := value.(string); ok {
-					sweepResult.Metadata[key] = strVal
-				} else {
-					sweepResult.Metadata[key] = fmt.Sprintf("%v", value)
-				}
-			}
-		}
+	// Use config values if available
+	if s.config.AgentID != "" {
+		agentID = s.config.AgentID
+	}
+	if s.config.PollerID != "" {
+		pollerID = s.config.PollerID
+	}
+	if s.config.Partition != "" {
+		partition = s.config.Partition
+	}
 
-		// Add sweep mode to metadata
-		sweepResult.Metadata["sweep_mode"] = string(result.Target.Mode)
-		if result.Target.Port > 0 {
-			sweepResult.Metadata["port"] = fmt.Sprintf("%d", result.Target.Port)
+	// Extract from metadata if available (metadata can override config)
+	if result.Target.Metadata != nil {
+		if id, ok := result.Target.Metadata["agent_id"].(string); ok && id != "" {
+			agentID = id
 		}
-		
-		// Add timing metadata
-		sweepResult.Metadata["response_time"] = result.RespTime.String()
-		sweepResult.Metadata["packet_loss"] = fmt.Sprintf("%.2f", result.PacketLoss)
-
-		// Use background context to avoid cancellation
-		bgCtx := context.Background()
-		if err := s.deviceRegistry.ProcessSweepResult(bgCtx, sweepResult); err != nil {
-			// Log error but don't fail the entire operation
-			log.Printf("Failed to process sweep result through device registry for %s: %v", result.Target.Host, err)
+		if id, ok := result.Target.Metadata["poller_id"].(string); ok && id != "" {
+			pollerID = id
+		}
+		if p, ok := result.Target.Metadata["partition"].(string); ok && p != "" {
+			partition = p
 		}
 	}
 
-	return nil
+	return agentID, pollerID, partition
+}
+
+// createSweepResult creates a SweepResult from a Result.
+func (s *NetworkSweeper) createSweepResult(result *models.Result, agentID, pollerID, partition string) *models.SweepResult {
+	// Always generate a valid device ID with partition
+	deviceID := fmt.Sprintf("%s:%s", partition, result.Target.Host)
+
+	return &models.SweepResult{
+		AgentID:         agentID,
+		PollerID:        pollerID,
+		Partition:       partition,
+		DeviceID:        deviceID,
+		DiscoverySource: string(models.DiscoverySourceSweep),
+		IP:              result.Target.Host,
+		Timestamp:       result.LastSeen,
+		Available:       result.Available,
+		Metadata:        make(map[string]string),
+	}
+}
+
+// convertMetadataToStringMap converts metadata to a string map.
+func convertMetadataToStringMap(sweepResult *models.SweepResult, metadata map[string]interface{}) {
+	if metadata == nil {
+		return
+	}
+
+	for key, value := range metadata {
+		if strVal, ok := value.(string); ok {
+			sweepResult.Metadata[key] = strVal
+		} else {
+			sweepResult.Metadata[key] = fmt.Sprintf("%v", value)
+		}
+	}
+}
+
+// addAdditionalMetadata adds additional metadata to the SweepResult.
+func addAdditionalMetadata(sweepResult *models.SweepResult, result *models.Result) {
+	// Add sweep mode to metadata
+	sweepResult.Metadata["sweep_mode"] = string(result.Target.Mode)
+	if result.Target.Port > 0 {
+		sweepResult.Metadata["port"] = fmt.Sprintf("%d", result.Target.Port)
+	}
+
+	// Add timing metadata
+	sweepResult.Metadata["response_time"] = result.RespTime.String()
+	sweepResult.Metadata["packet_loss"] = fmt.Sprintf("%.2f", result.PacketLoss)
+}
+
+// processDeviceRegistry processes the sweep result through the device registry.
+func (s *NetworkSweeper) processDeviceRegistry(result *models.Result) error {
+	agentID, pollerID, partition := s.extractAgentInfo(result)
+	sweepResult := s.createSweepResult(result, agentID, pollerID, partition)
+
+	// Convert metadata to string map
+	convertMetadataToStringMap(sweepResult, result.Target.Metadata)
+
+	// Add additional metadata
+	addAdditionalMetadata(sweepResult, result)
+
+	// Use background context to avoid cancellation
+	bgCtx := context.Background()
+	return s.deviceRegistry.ProcessSweepResult(bgCtx, sweepResult)
 }
 
 // generateTargets creates scan targets from the configuration.

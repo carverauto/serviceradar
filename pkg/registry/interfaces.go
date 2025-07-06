@@ -2,6 +2,7 @@ package registry
 
 import (
 	"context"
+
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
@@ -18,15 +19,16 @@ type Manager interface {
 	ProcessBatchSightings(ctx context.Context, sightings []*models.SweepResult) error
 
 	// Legacy compatibility methods for transition period
+
 	ProcessSweepResult(ctx context.Context, result *models.SweepResult) error
 	ProcessBatchSweepResults(ctx context.Context, results []*models.SweepResult) error
 	UpdateDevice(ctx context.Context, update *models.DeviceUpdate) error
 	GetDevice(ctx context.Context, deviceID string) (*models.UnifiedDevice, error)
 	GetDevicesByIP(ctx context.Context, ip string) ([]*models.UnifiedDevice, error)
 	ListDevices(ctx context.Context, limit, offset int) ([]*models.UnifiedDevice, error)
-	
+
 	// Additional methods from DeviceRegistryService interface
+
 	GetMergedDevice(ctx context.Context, deviceIDOrIP string) (*models.UnifiedDevice, error)
 	FindRelatedDevices(ctx context.Context, deviceID string) ([]*models.UnifiedDevice, error)
-	CleanupDuplicateDevices(ctx context.Context) error
 }

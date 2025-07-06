@@ -638,34 +638,6 @@ func (mr *MockServiceMockRecorder) PublishTopologyDiscoveryEvent(ctx, event any)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PublishTopologyDiscoveryEvent", reflect.TypeOf((*MockService)(nil).PublishTopologyDiscoveryEvent), ctx, event)
 }
 
-// StoreBatchUnifiedDevices mocks base method.
-func (m *MockService) StoreBatchUnifiedDevices(ctx context.Context, devices []*models.UnifiedDevice) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "StoreBatchUnifiedDevices", ctx, devices)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// StoreBatchUnifiedDevices indicates an expected call of StoreBatchUnifiedDevices.
-func (mr *MockServiceMockRecorder) StoreBatchUnifiedDevices(ctx, devices any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreBatchUnifiedDevices", reflect.TypeOf((*MockService)(nil).StoreBatchUnifiedDevices), ctx, devices)
-}
-
-// StoreDevices mocks base method.
-func (m *MockService) StoreDevices(ctx context.Context, devices []*models.Device) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "StoreDevices", ctx, devices)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// StoreDevices indicates an expected call of StoreDevices.
-func (mr *MockServiceMockRecorder) StoreDevices(ctx, devices any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StoreDevices", reflect.TypeOf((*MockService)(nil).StoreDevices), ctx, devices)
-}
-
 // StoreMetric mocks base method.
 func (m *MockService) StoreMetric(ctx context.Context, pollerID string, metric *models.TimeseriesMetric) error {
 	m.ctrl.T.Helper()

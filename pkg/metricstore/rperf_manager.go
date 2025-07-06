@@ -22,7 +22,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"strconv"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/db"
@@ -104,26 +103,6 @@ func (m *rperfManagerImpl) StoreRperfMetric(
 
 	return nil
 }
-
-// parseFloat64Field parses a string field into a float64 value.
-func parseFloat64Field(value string) (float64, error) {
-	if value == "" {
-		return 0, fmt.Errorf("empty value")
-	}
-
-	return strconv.ParseFloat(value, 64)
-}
-
-// parseInt64Field parses a string field into an int64 value.
-func parseInt64Field(value string) (int64, error) {
-	if value == "" {
-		return 0, fmt.Errorf("empty value")
-	}
-
-	return strconv.ParseInt(value, 10, 64)
-}
-
-// parseLegacyRperfMetadata attempts to parse legacy string-based metadata into an RperfMetric.
 
 // GetRperfMetrics retrieves rperf metrics for a poller within a time range.
 func (m *rperfManagerImpl) GetRperfMetrics(

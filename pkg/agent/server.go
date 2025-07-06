@@ -143,8 +143,10 @@ func createSweepService(sweepConfig *SweepConfig, kvStore KVStore, cfg *ServerCo
 	// Validate required configuration
 	if cfg.Partition == "" {
 		log.Printf("Warning: Partition not configured, using 'default'. Consider setting partition in agent config")
+
 		cfg.Partition = "default"
 	}
+
 	if cfg.AgentID == "" {
 		return nil, fmt.Errorf("agent_id is required in configuration")
 	}

@@ -24,12 +24,14 @@ import (
 	"github.com/carverauto/serviceradar/pkg/db"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
 
 func TestDeviceRegistry_Tonka01Scenario(t *testing.T) {
 	ctx := context.Background()
 	ctrl := gomock.NewController(t)
+
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
@@ -132,7 +134,7 @@ func TestDeviceRegistry_Tonka01Scenario(t *testing.T) {
 					returns: []interface{}{[]*models.UnifiedDevice{}, nil},
 				},
 				{
-					method:  "GetUnifiedDevicesByIP", 
+					method:  "GetUnifiedDevicesByIP",
 					args:    []interface{}{gomock.Any(), "192.168.10.1"},
 					returns: []interface{}{[]*models.UnifiedDevice{}, nil},
 				},
@@ -157,8 +159,6 @@ func TestDeviceRegistry_Tonka01Scenario(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// No need to reset mock expectations with gomock
-
 			// Set up expectations
 			for _, expectedCall := range tt.expectedCalls {
 				switch expectedCall.method {
@@ -179,7 +179,7 @@ func TestDeviceRegistry_Tonka01Scenario(t *testing.T) {
 			err := registry.ProcessBatchSightings(ctx, tt.sightings)
 
 			// Verify results
-			assert.NoError(t, err, "ProcessBatchSightings should not return error")
+			require.NoError(t, err, "ProcessBatchSightings should not return error")
 
 			t.Logf("✅ Test passed: %s", tt.description)
 		})
@@ -259,6 +259,7 @@ func TestIsPrivateIP(t *testing.T) {
 func TestFarm01MultipleDiscoveryScenario(t *testing.T) {
 	ctx := context.Background()
 	ctrl := gomock.NewController(t)
+
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
@@ -267,7 +268,7 @@ func TestFarm01MultipleDiscoveryScenario(t *testing.T) {
 	// Test the farm01 scenario where device has multiple IPs from different discovery sources
 	// 1. First sighting: SNMP discovers farm01 at 192.168.2.1
 	// 2. Second sighting: Mapper discovers farm01 at 152.117.116.178 with alternate IPs including 192.168.2.1
-	
+
 	// First sighting from SNMP
 	snmpSighting := &models.SweepResult{
 		IP:              "192.168.2.1",
@@ -284,26 +285,26 @@ func TestFarm01MultipleDiscoveryScenario(t *testing.T) {
 
 	// Mock: No existing devices yet
 	mockDB.EXPECT().GetUnifiedDevicesByIP(
-		gomock.Any(), 
+		gomock.Any(),
 		"192.168.2.1",
 	).Return([]*models.UnifiedDevice{}, nil)
 
 	// Mock: Publish first sighting
 	mockDB.EXPECT().PublishBatchSweepResults(
-		gomock.Any(), 
+		gomock.Any(),
 		gomock.Any(),
 	).Return(nil)
 
 	// Process first sighting
 	err := registry.ProcessSighting(ctx, snmpSighting)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Now simulate the device exists in DB after first sighting
 	existingFarm01 := &models.UnifiedDevice{
 		DeviceID: "default:192.168.2.1",
 		IP:       "192.168.2.1",
 		Hostname: &models.DiscoveredField[string]{
-			Value: "farm01",
+			Value:  "farm01",
 			Source: models.DiscoverySourceSNMP,
 		},
 		FirstSeen: time.Now().Add(-5 * time.Minute),
@@ -328,21 +329,21 @@ func TestFarm01MultipleDiscoveryScenario(t *testing.T) {
 
 	// Mock: When mapper sighting comes in, first check for devices with 152.117.116.178
 	mockDB.EXPECT().GetUnifiedDevicesByIP(
-		gomock.Any(), 
+		gomock.Any(),
 		"152.117.116.178",
 	).Return([]*models.UnifiedDevice{}, nil)
-	
+
 	// Mock: Then check for devices with the alternate IPs (192.168.2.1)
 	mockDB.EXPECT().GetUnifiedDevicesByIP(
-		gomock.Any(), 
+		gomock.Any(),
 		"192.168.2.1",
 	).Return([]*models.UnifiedDevice{existingFarm01}, nil)
 
 	// Mock: Publish the correlated sighting
 	mockDB.EXPECT().PublishBatchSweepResults(
-		gomock.Any(), 
+		gomock.Any(),
 		gomock.AssignableToTypeOf([]*models.SweepResult{}),
-	).DoAndReturn(func(ctx context.Context, sightings []*models.SweepResult) error {
+	).DoAndReturn(func(_ context.Context, sightings []*models.SweepResult) error {
 		// Verify that the sighting was correlated to the existing device
 		assert.Len(t, sightings, 1, "Should publish exactly one sighting")
 		correctedSighting := sightings[0]
@@ -354,14 +355,14 @@ func TestFarm01MultipleDiscoveryScenario(t *testing.T) {
 
 	// Process second sighting
 	err = registry.ProcessSighting(ctx, mapperSighting)
-	assert.NoError(t, err)
-	
+	require.NoError(t, err)
+
 	// Test 3: Ensure untrusted sources don't correlate
 	untrustedSighting := &models.SweepResult{
 		IP:              "203.0.113.1", // Public IP
 		DeviceID:        "default:203.0.113.1",
 		Partition:       "default",
-		DiscoverySource: "sweep", // Untrusted source
+		DiscoverySource: "sweep",             // Untrusted source
 		Hostname:        stringPtr("farm01"), // Same hostname
 		Timestamp:       time.Now(),
 		Available:       true,
@@ -372,7 +373,7 @@ func TestFarm01MultipleDiscoveryScenario(t *testing.T) {
 
 	// Mock: Check for devices with 203.0.113.1 (should return empty)
 	mockDB.EXPECT().GetUnifiedDevicesByIP(
-		gomock.Any(), 
+		gomock.Any(),
 		"203.0.113.1",
 	).Return([]*models.UnifiedDevice{}, nil)
 
@@ -380,14 +381,16 @@ func TestFarm01MultipleDiscoveryScenario(t *testing.T) {
 
 	// Mock: Publish as separate device
 	mockDB.EXPECT().PublishBatchSweepResults(
-		gomock.Any(), 
+		gomock.Any(),
 		gomock.AssignableToTypeOf([]*models.SweepResult{}),
-	).DoAndReturn(func(ctx context.Context, sightings []*models.SweepResult) error {
+	).DoAndReturn(func(_ context.Context, sightings []*models.SweepResult) error {
 		// Verify that untrusted sighting was NOT correlated
 		assert.Len(t, sightings, 1, "Should publish exactly one sighting")
 		sighting := sightings[0]
+
 		assert.Equal(t, "default:203.0.113.1", sighting.DeviceID, "Untrusted source should not correlate")
 		t.Logf("✅ Untrusted source correctly NOT correlated: kept device ID %s", sighting.DeviceID)
+
 		return nil
 	})
 
@@ -399,6 +402,7 @@ func TestFarm01MultipleDiscoveryScenario(t *testing.T) {
 func TestU6MeshScenario(t *testing.T) {
 	ctx := context.Background()
 	ctrl := gomock.NewController(t)
+
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
@@ -406,7 +410,7 @@ func TestU6MeshScenario(t *testing.T) {
 
 	// Test the actual U6 Mesh scenario from production logs
 	// Device 192.168.1.80 should be correlated with existing U6 Mesh device at 192.168.1.204
-	
+
 	// Existing U6 Mesh device with alternate IPs
 	existingU6Device := &models.UnifiedDevice{
 		DeviceID: "default:192.168.1.204",
@@ -438,13 +442,13 @@ func TestU6MeshScenario(t *testing.T) {
 	// Mock database calls
 	// First call: Look for devices with IP 192.168.1.80 (should find U6 Mesh device)
 	mockDB.EXPECT().GetUnifiedDevicesByIP(
-		gomock.Any(), 
+		gomock.Any(),
 		"192.168.1.80",
 	).Return([]*models.UnifiedDevice{existingU6Device}, nil)
 
 	// Third call: Publish the corrected sighting (should have device ID changed to U6 Mesh)
 	mockDB.EXPECT().PublishBatchSweepResults(
-		gomock.Any(), 
+		gomock.Any(),
 		gomock.AssignableToTypeOf([]*models.SweepResult{}),
 	).DoAndReturn(func(ctx context.Context, sightings []*models.SweepResult) error {
 		// Verify that the sighting was corrected to use the canonical device ID
@@ -464,6 +468,7 @@ func TestU6MeshScenario(t *testing.T) {
 func TestFindCanonicalDeviceIDSimple(t *testing.T) {
 	ctx := context.Background()
 	ctrl := gomock.NewController(t)
+
 	defer ctrl.Finish()
 
 	mockDB := db.NewMockService(ctrl)
@@ -540,7 +545,7 @@ func TestFindCanonicalDeviceIDSimple(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := registry.findCanonicalDeviceIDSimple(ctx, tt.sighting)
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			assert.Equal(t, tt.expected, result, tt.description)
 		})
 	}

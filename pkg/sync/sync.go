@@ -31,7 +31,6 @@ import (
 	"github.com/carverauto/serviceradar/pkg/sync/integrations"
 	"github.com/carverauto/serviceradar/proto"
 	"google.golang.org/grpc"
-	grpcstd "google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
@@ -60,7 +59,7 @@ type SyncPoller struct {
 // GetStatus implements the AgentService GetStatus method.
 // It returns the cached list of discovered devices as a JSON payload,
 // allowing the poller to treat this service as a standard agent.
-func (s *SyncPoller) GetStatus(ctx context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
+func (s *SyncPoller) GetStatus(_ context.Context, req *proto.StatusRequest) (*proto.StatusResponse, error) {
 	s.resultsMu.RLock()
 	defer s.resultsMu.RUnlock()
 
@@ -142,10 +141,12 @@ func (s *SyncPoller) Start(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("failed to create security provider for gRPC server: %w", err)
 		}
+
 		serverCreds, err := provider.GetServerCredentials(ctx)
 		if err != nil {
 			return fmt.Errorf("failed to get server credentials: %w", err)
 		}
+
 		opts = append(opts, serverCreds)
 	}
 
@@ -231,6 +232,7 @@ func (s *SyncPoller) Sync(ctx context.Context) error {
 	s.resultsMu.Lock()
 	s.resultsCache = allEvents
 	s.resultsMu.Unlock()
+
 	log.Printf("Updated discovery cache with %d devices", len(allEvents))
 
 	// Log any errors that occurred during the sync cycle
@@ -322,6 +324,7 @@ func (s *SyncPoller) writeToKV(ctx context.Context, sourceName string, data map[
 
 	prefix := strings.TrimSuffix(s.config.Sources[sourceName].Prefix, "/")
 	entries := make([]*proto.KeyValueEntry, 0, len(data))
+
 	for key, value := range data {
 		fullKey := prefix + "/" + key
 		entries = append(entries, &proto.KeyValueEntry{Key: fullKey, Value: value})
@@ -341,7 +344,7 @@ func defaultIntegrationRegistry(
 ) map[string]IntegrationFactory {
 	return map[string]IntegrationFactory{
 		integrationTypeArmis: func(ctx context.Context, config *models.SourceConfig) Integration {
-			var conn *grpcstd.ClientConn
+			var conn *grpc.ClientConn
 
 			if grpcClient != nil {
 				conn = grpcClient.GetConnection()
@@ -350,7 +353,7 @@ func defaultIntegrationRegistry(
 			return integrations.NewArmisIntegration(ctx, config, kvClient, conn, serverName)
 		},
 		integrationTypeNetbox: func(ctx context.Context, config *models.SourceConfig) Integration {
-			var conn *grpcstd.ClientConn
+			var conn *grpc.ClientConn
 
 			if grpcClient != nil {
 				conn = grpcClient.GetConnection()
