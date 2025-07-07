@@ -53,22 +53,22 @@ func NewAPIServer(config models.CORSConfig, options ...func(server *APIServer)) 
 
 	// Initialize with default entity table mapping to match SRQL translator
 	defaultEntityTableMap := map[srqlmodels.EntityType]string{
-		srqlmodels.Devices:       "unified_devices", // Fixed: Use unified_devices to match SRQL translator
-		srqlmodels.Flows:         "netflow_metrics", // Fixed: Use netflow_metrics to match SRQL translator
+		srqlmodels.Devices:       "unified_devices",
+		srqlmodels.Flows:         "netflow_metrics",
 		srqlmodels.Traps:         "traps",
 		srqlmodels.Connections:   "connections",
 		srqlmodels.Logs:          "logs",
 		srqlmodels.Services:      "services",
-		srqlmodels.Interfaces:    "discovered_interfaces", // Fixed: Use discovered_interfaces to match SRQL translator
+		srqlmodels.Interfaces:    "discovered_interfaces",
 		srqlmodels.SweepResults:  "sweep_results",
 		srqlmodels.ICMPResults:   "icmp_results",
-		srqlmodels.SNMPResults:   "timeseries_metrics", // Fixed: Use timeseries_metrics to match SRQL translator
+		srqlmodels.SNMPResults:   "timeseries_metrics",
 		srqlmodels.Events:        "events",
 		srqlmodels.Pollers:       "pollers",
 		srqlmodels.CPUMetrics:    "cpu_metrics",
 		srqlmodels.DiskMetrics:   "disk_metrics",
 		srqlmodels.MemoryMetrics: "memory_metrics",
-		srqlmodels.SNMPMetrics:   "timeseries_metrics", // Fixed: Use timeseries_metrics to match SRQL translator
+		srqlmodels.SNMPMetrics:   "timeseries_metrics",
 	}
 	s.entityTableMap = defaultEntityTableMap
 
@@ -413,6 +413,7 @@ func (s *APIServer) setupProtectedRoutes() {
 	protected.HandleFunc("/devices/{id}", s.getDevice).Methods("GET")
 	protected.HandleFunc("/devices/{id}/metrics", s.getDeviceMetrics).Methods("GET")
 	protected.HandleFunc("/devices/metrics/status", s.getDeviceMetricsStatus).Methods("GET")
+	protected.HandleFunc("/devices/snmp/status", s.getDeviceSNMPStatus).Methods("POST")
 }
 
 // @Summary Get SNMP data
