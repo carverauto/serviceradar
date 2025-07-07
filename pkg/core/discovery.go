@@ -40,15 +40,42 @@ func (s *Server) processSyncResults(
 	details json.RawMessage,
 	timestamp time.Time,
 ) error {
-	var payload models.SweepResult
+	log.Println("Processing sync discovery results...")
 
-	if err := json.Unmarshal(details, &payload); err != nil {
+	var sightings []*models.SweepResult
+
+	if err := json.Unmarshal(details, &sightings); err != nil {
 		log.Printf("Error unmarshaling sync discovery data for poller %s, service %s: %v. Payload: %s",
 			reportingPollerID, svc.ServiceName, err, string(details))
 
 		return fmt.Errorf("failed to parse sync discovery data: %w", err)
 	}
 
+	if len(sightings) == 0 {
+		log.Printf("No sightings found in sync discovery data for poller %s, service %s",
+			reportingPollerID, svc.ServiceName)
+		return nil // Nothing to process
+	}
+
+	if s.DeviceRegistry != nil {
+		source := "unknown"
+		if len(sightings) > 0 {
+			source = sightings[0].DiscoverySource // Use the source from the first sighting
+		}
+
+		log.Printf("Processing %d device sightings from sync service (source: %s)",
+			len(sightings), source)
+
+		if err := s.DeviceRegistry.ProcessBatchSightings(ctx, sightings); err != nil {
+			log.Printf("Error processing sync discovery sightings for poller %s: %v", reportingPollerID, err)
+			return err
+		}
+	} else {
+		log.Printf("Warning: DeviceRegistry not available. Skipping Processing of %d sync discovery sightings",
+			len(sightings))
+	}
+
+	return nil
 }
 
 // isLoopbackIP checks if an IP address is a loopback address
