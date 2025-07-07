@@ -830,8 +830,6 @@ func (s *Server) processStatusReport(
 
 	existingStatus, err := s.DB.GetPollerStatus(ctx, req.PollerId)
 	if err == nil {
-		log.Printf("Found existing poller status for %s: last seen %v, first seen %v")
-
 		pollerStatus.FirstSeen = existingStatus.FirstSeen
 		currentState := existingStatus.IsHealthy
 
