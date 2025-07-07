@@ -121,7 +121,7 @@ func (*APIServer) getSecondaryOrderField(entityType models.EntityType) (string, 
 	case models.DiskMetrics:
 		return "mount_point", true
 	case models.SNMPMetrics:
-		return "oid_name", true
+		return "metric_name", true
 	// These entities don't need additional sort fields
 	case models.Flows, models.Traps, models.Connections, models.Logs, models.MemoryMetrics:
 		return "", false
