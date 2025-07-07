@@ -716,9 +716,6 @@ func (s *Server) getChecker(ctx context.Context, req *proto.StatusRequest) (chec
 		check, err = NewICMPCheckerWithDeviceID(host, deviceID)
 	} else {
 		// Use registry for other service types
-		log.Printf("getChecker: req.ServiceType=%s, req.ServiceName=%s, req.Details=%s",
-			req.ServiceType, req.ServiceName, req.Details)
-
 		check, err = s.registry.Get(ctx, req.ServiceType, req.ServiceName, req.Details, s.config.Security)
 	}
 
