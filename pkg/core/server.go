@@ -62,7 +62,6 @@ const (
 
 	snmpDiscoveryResultsServiceType = "snmp-discovery-results"
 	mapperDiscoveryServiceType      = "mapper_discovery"
-	syncDiscoveryResultsServiceType = "integration"
 )
 
 func NewServer(ctx context.Context, config *models.DBConfig) (*Server, error) {
@@ -831,6 +830,8 @@ func (s *Server) processStatusReport(
 
 	existingStatus, err := s.DB.GetPollerStatus(ctx, req.PollerId)
 	if err == nil {
+		log.Printf("Found existing poller status for %s: last seen %v, first seen %v")
+
 		pollerStatus.FirstSeen = existingStatus.FirstSeen
 		currentState := existingStatus.IsHealthy
 
@@ -985,6 +986,8 @@ func (s *Server) processServices(
 	serviceList := make([]*models.Service, 0, len(services))
 
 	for _, svc := range services {
+		log.Printf("Processing Service: %s Message content: %v", svc.ServiceName, string(svc.Message))
+
 		apiService := s.createAPIService(svc)
 
 		if !svc.Available {
@@ -1098,6 +1101,8 @@ func (s *Server) processMetrics(
 	svc *proto.ServiceStatus,
 	details json.RawMessage,
 	now time.Time) error {
+	log.Printf("ServiceName: %s Details: %v ", svc.ServiceName, string(details))
+
 	// Extract enhanced payload if present, or use original data
 	enhancedPayload, serviceData := s.extractServicePayload(details)
 
@@ -1121,13 +1126,21 @@ func (s *Server) processMetrics(
 			return s.processRperfMetrics(contextPollerID, contextPartition, serviceData, now)
 		case sysmonServiceType:
 			return s.processSysmonMetrics(ctx, contextPollerID, contextPartition, contextAgentID, serviceData, now)
+		case syncServiceType:
+			return s.processSyncResults(ctx, contextPollerID, contextPartition, svc, serviceData, now)
+		default:
+			log.Printf("Unknown GRPC service type %s on poller %s", svc.ServiceType, pollerID)
 		}
 	case icmpServiceType:
 		return s.processICMPMetrics(contextPollerID, contextPartition, sourceIP, contextAgentID, svc, serviceData, now)
 	case snmpDiscoveryResultsServiceType, mapperDiscoveryServiceType:
 		return s.processSNMPDiscoveryResults(ctx, contextPollerID, contextPartition, svc, serviceData, now)
-	case syncDiscoveryResultsServiceType:
-		return s.processSyncResults(ctx, contextPollerID, contextPartition, svc, serviceData, now)
+	case sweepService:
+		log.Print("no-op for sweep service, handled in separate flow")
+
+		return nil
+	default:
+		log.Printf("Unknown service type %s on poller %s", svc.ServiceType, pollerID)
 	}
 
 	return nil
@@ -1178,12 +1191,12 @@ func (*Server) parseServiceDetails(svc *proto.ServiceStatus) (json.RawMessage, e
 }
 
 const (
-	grpcServiceType        = "grpc"
-	icmpServiceType        = "icmp"
-	snmpServiceType        = "snmp"
-	rperfServiceType       = "rperf-checker"
-	sysmonServiceType      = "sysmon"
-	integrationServiceType = "integration"
+	grpcServiceType   = "grpc"
+	icmpServiceType   = "icmp"
+	snmpServiceType   = "snmp"
+	rperfServiceType  = "rperf-checker"
+	sysmonServiceType = "sysmon"
+	syncServiceType   = "sync"
 )
 
 func (s *Server) processSysmonMetrics(
