@@ -402,7 +402,7 @@ func TestWriteToKVTransformsDeviceID(t *testing.T) {
 
 	mockKV := NewMockKVClient(ctrl)
 
-	s := &SyncPoller{
+	s := &PollerService{
 		config: Config{
 			Sources: map[string]*models.SourceConfig{
 				"netbox": {

@@ -126,6 +126,8 @@ func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[
 	partition := n.Config.Partition
 	now := time.Now()
 
+	log.Printf("AgentID: %s, PollerID: %s, Partition: %s, Timestamp: %s", agentID, pollerID, partition, now.Format(time.RFC3339))
+
 	for i := range deviceResp.Results {
 		var err error
 
@@ -197,6 +199,7 @@ func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[
 			"DiscoverySource=%s, Hostname=%s", event.IP, event.DeviceID, event.DiscoverySource, *event.Hostname)
 
 		var metaJSON []byte
+
 		if metaJSON, err = json.Marshal(event.Metadata); err == nil {
 			log.Printf("  - SweepResult Metadata: %s", string(metaJSON))
 		}

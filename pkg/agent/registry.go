@@ -74,6 +74,8 @@ func initRegistry() checker.Registry {
 				actualGrpcServiceCheckName = defaultMonitoringServiceName
 			case "rperf-checker":
 				actualGrpcServiceCheckName = defaultMonitoringServiceName
+			case "sync":
+				actualGrpcServiceCheckName = defaultMonitoringServiceName
 			default:
 				// For other services, use the standard health check
 				actualGrpcServiceCheckName = "" // Empty string means use standard gRPC health

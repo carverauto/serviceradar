@@ -995,6 +995,8 @@ func (s *Server) processServices(
 				svc.ServiceName, pollerID, err)
 		}
 
+		log.Println("Processing service:", svc.ServiceName, "on poller:", pollerID)
+
 		// Extract device context from enhanced payload for device correlation
 		deviceID, devicePartition := s.extractDeviceContext(ctx, svc.AgentId, partition, sourceIP, string(apiService.Message))
 
