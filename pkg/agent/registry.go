@@ -20,8 +20,6 @@ package agent
 import (
 	"context"
 	"errors"
-	"log"
-
 	"github.com/carverauto/serviceradar/pkg/checker"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
@@ -59,8 +57,6 @@ func initRegistry() checker.Registry {
 	// Register the gRPC checker
 	registry.Register("grpc",
 		func(ctx context.Context, serviceName, details string, security *models.SecurityConfig) (checker.Checker, error) {
-			log.Printf("Registering gRPC checker for service: %s with details: %s", serviceName, details)
-
 			if details == "" {
 				return nil, errDetailsRequiredGRPC
 			}
