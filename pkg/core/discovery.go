@@ -30,6 +30,27 @@ import (
 	discoverypb "github.com/carverauto/serviceradar/proto/discovery"
 )
 
+// processSyncResults processes the results of a sync discovery operation.
+// It handles the discovery data, extracts relevant information, and stores it in the database.
+func (s *Server) processSyncResults(
+	ctx context.Context,
+	reportingPollerID string,
+	partition string,
+	svc *proto.ServiceStatus,
+	details json.RawMessage,
+	timestamp time.Time,
+) error {
+	var payload models.SweepResult
+
+	if err := json.Unmarshal(details, &payload); err != nil {
+		log.Printf("Error unmarshaling sync discovery data for poller %s, service %s: %v. Payload: %s",
+			reportingPollerID, svc.ServiceName, err, string(details))
+
+		return fmt.Errorf("failed to parse sync discovery data: %w", err)
+	}
+
+}
+
 // isLoopbackIP checks if an IP address is a loopback address
 func isLoopbackIP(ipStr string) bool {
 	ip := net.ParseIP(ipStr)
