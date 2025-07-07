@@ -19,6 +19,8 @@ package main
 import (
 	"context"
 	"flag"
+	"github.com/carverauto/serviceradar/proto"
+	"google.golang.org/grpc"
 	"log"
 
 	"github.com/carverauto/serviceradar/pkg/config"
@@ -39,17 +41,36 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
+	/*
+		syncer, err := sync.NewDefault(ctx, &cfg)
+		if err != nil {
+			log.Fatalf("Failed to create syncer: %v", err)
+		}
+
+			syncService, err := sync.NewWithGRPC(ctx, &cfg)
+			if err != nil {
+				return
+			}
+	*/
+
 	syncer, err := sync.NewDefault(ctx, &cfg)
 	if err != nil {
 		log.Fatalf("Failed to create syncer: %v", err)
 	}
 
+	// Create gRPC service registrar
+	registerServices := func(s *grpc.Server) error { // s is *google.golang.org/grpc.Server due to lifecycle update
+		proto.RegisterAgentServiceServer(s, syncer)
+		return nil
+	}
+
 	opts := &lifecycle.ServerOptions{
-		ListenAddr:        "localhost:0",
-		ServiceName:       "sync",
-		Service:           syncer,
-		EnableHealthCheck: false,
-		Security:          cfg.Security,
+		ListenAddr:           cfg.ListenAddr,
+		ServiceName:          "sync",
+		RegisterGRPCServices: []lifecycle.GRPCServiceRegistrar{registerServices},
+		Service:              syncer,
+		EnableHealthCheck:    true,
+		Security:             cfg.Security,
 	}
 
 	if err := lifecycle.RunServer(ctx, opts); err != nil {
