@@ -39,8 +39,7 @@ const SNMPStatusIndicator: React.FC<SNMPStatusIndicatorProps> = ({
                                                                      deviceId,
                                                                      pollerId,
                                                                      compact = false,
-                                                                     hasMetrics,
-                                                                     hasSnmpSource
+                                                                     hasMetrics
                                                                  }) => {
     // Use deviceId if available, otherwise fall back to pollerId for backward compatibility
     const targetId = deviceId || pollerId;
