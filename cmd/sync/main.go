@@ -46,8 +46,7 @@ func main() {
 		log.Fatalf("Failed to create syncer: %v", err)
 	}
 
-	// Create gRPC service registrar
-	registerServices := func(s *grpc.Server) error { // s is *google.golang.org/grpc.Server due to lifecycle update
+	registerServices := func(s *grpc.Server) error {
 		proto.RegisterAgentServiceServer(s, syncer)
 		return nil
 	}
