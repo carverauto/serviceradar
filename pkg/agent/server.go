@@ -474,6 +474,8 @@ func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*prot
 		if response.PollerId == "" {
 			response.PollerId = req.PollerId
 		}
+
+		response.Available = true
 	}
 
 	return response, nil
