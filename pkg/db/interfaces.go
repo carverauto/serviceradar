@@ -85,6 +85,10 @@ type Service interface {
 	GetAllDiskMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonDiskResponse, error)
 	GetMemoryMetricsGrouped(ctx context.Context, pollerID string, start, end time.Time) ([]models.SysmonMemoryResponse, error)
 
+	// SNMP metric operations.
+
+	GetDevicesWithRecentSNMPMetrics(ctx context.Context, deviceIDs []string) (map[string]bool, error)
+
 	// Rperf.
 
 	StoreRperfMetrics(ctx context.Context, pollerID, serviceName string, message string, timestamp time.Time) error
