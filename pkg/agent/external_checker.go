@@ -164,7 +164,6 @@ func (e *ExternalChecker) Check(ctx context.Context, req *proto.StatusRequest) (
 
 func (e *ExternalChecker) getServiceDetails(ctx context.Context, _ *proto.StatusRequest) (healthy bool, details json.RawMessage) {
 	agentClient := proto.NewAgentServiceClient(e.grpcClient.GetConnection())
-	start := time.Now()
 
 	status, err := agentClient.GetStatus(ctx, &proto.StatusRequest{
 		ServiceName: e.serviceName,
@@ -172,33 +171,11 @@ func (e *ExternalChecker) getServiceDetails(ctx context.Context, _ *proto.Status
 	})
 	if err != nil {
 		log.Printf("ExternalChecker %s: Failed to get status details: %v", e.serviceName, err)
+
 		return false, jsonError(fmt.Sprintf("Failed to get status: %v", err))
 	}
 
-	responseTime := time.Since(start).Nanoseconds()
-
-	// Unmarshal the status.Message to preserve its JSON structure
-	var message map[string]interface{}
-	if err = json.Unmarshal(status.Message, &message); err != nil {
-		log.Printf("ExternalChecker %s: Failed to unmarshal status message: %v, raw message: %s",
-			e.serviceName, err, string(status.Message))
-		return false, jsonError(fmt.Sprintf("Failed to unmarshal status message: %v", err))
-	}
-
-	// Create response with nested status object
-	resp := map[string]interface{}{
-		"status":        message["status"], // Use the nested status field directly
-		"response_time": responseTime,
-		"available":     status.Available,
-	}
-
-	data, err := json.Marshal(resp)
-	if err != nil {
-		log.Printf("ExternalChecker %s: Failed to marshal response: %v", e.serviceName, err)
-		return false, jsonError(fmt.Sprintf("Failed to marshal response: %v", err))
-	}
-
-	return status.Available, data
+	return status.Available, status.Message
 }
 
 func (e *ExternalChecker) canUseCachedStatus() bool {
