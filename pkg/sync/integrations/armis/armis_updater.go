@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -104,6 +105,13 @@ func NewArmisUpdater(config *models.SourceConfig, httpClient HTTPClient, tokenPr
 	}
 }
 
+// setServiceRadarCompliant sets the SERVICERADAR_COMPLIANT attribute based on sweep results
+func setServiceRadarCompliant(ip string, resultMap map[string]SweepResult, attributes map[string]interface{}) {
+	if result, exists := resultMap[ip]; exists {
+		attributes["SERVICERADAR_COMPLIANT"] = strconv.FormatBool(!result.Available)
+	}
+}
+
 // BatchUpdateDeviceAttributes updates multiple devices with sweep result attributes
 func (a *ArmisIntegration) BatchUpdateDeviceAttributes(ctx context.Context, devices []Device, sweepResults []SweepResult) error {
 	// Create a map for quick lookup
@@ -121,9 +129,8 @@ func (a *ArmisIntegration) BatchUpdateDeviceAttributes(ctx context.Context, devi
 
 		attributes := make(map[string]interface{})
 
-		if result, exists := resultMap[ip]; exists {
-			attributes["SERVICERADAR_COMPLIANT"] = result.Available
-		}
+		// Set SERVICERADAR_COMPLIANT based on sweep results
+		setServiceRadarCompliant(ip, resultMap, attributes)
 
 		if len(attributes) > 0 && a.Updater != nil {
 			if err := a.Updater.UpdateDeviceCustomAttributes(ctx, devices[i].ID, attributes); err != nil {
