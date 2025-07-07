@@ -206,7 +206,7 @@ type SweepResult struct {
 	MAC             *string           `json:"mac,omitempty"`
 	Hostname        *string           `json:"hostname,omitempty"`
 	Timestamp       time.Time         `json:"timestamp"`
-	Available       bool              `json:"available"`
+	Available       bool              `json:"available,omitempty"`
 	Metadata        map[string]string `json:"metadata,omitempty"`
 }
 

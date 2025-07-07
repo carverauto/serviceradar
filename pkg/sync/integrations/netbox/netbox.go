@@ -171,7 +171,6 @@ func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[
 			IP:              ipStr,
 			Hostname:        &hostname,
 			Timestamp:       now,
-			Available:       true,
 			Metadata: map[string]string{
 				"integration_type": "netbox",
 				"integration_id":   fmt.Sprintf("%d", device.ID),
