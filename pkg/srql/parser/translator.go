@@ -544,29 +544,21 @@ func (t *Translator) formatComparisonCondition(fieldName string, op models.Opera
 		switch t.DBType {
 		case Proton, ClickHouse:
 			if op == models.Equals {
-				// discovery_sources is stored as JSON string, so use string search
-				// We need to construct a pattern that searches for: "source":"netbox"
-				// Extract the raw value without quotes and wrap it in double quotes for JSON
-				rawValue := strings.Trim(formatted, "'\"")
-				pattern := fmt.Sprintf("'%%\"source\":%q%%'", rawValue)
-
-				return "discovery_sources LIKE " + pattern
+				// Translates to: has(discovery_sources, 'netbox')
+				return fmt.Sprintf("has(%s, %s)", lowerField, formatted)
 			}
 
 			if op == models.NotEquals {
-				// discovery_sources is stored as JSON string, so use string search
-				rawValue := strings.Trim(formatted, "'\"")
-				pattern := fmt.Sprintf("'%%\"source\":%q%%'", rawValue)
-
-				return "discovery_sources NOT LIKE " + pattern
+				// Translates to: NOT has(discovery_sources, 'netbox')
+				return fmt.Sprintf("NOT has(%s, %s)", lowerField, formatted)
 			}
 		case ArangoDB:
 			if op == models.Equals {
-				return fmt.Sprintf("CONTAINS(doc.discovery_sources, %s)", formatted)
+				return fmt.Sprintf("%s IN doc.%s", formatted, lowerField)
 			}
 
 			if op == models.NotEquals {
-				return fmt.Sprintf("NOT CONTAINS(doc.discovery_sources, %s)", formatted)
+				return fmt.Sprintf("%s NOT IN doc.%s", formatted, lowerField)
 			}
 		}
 	}
