@@ -148,6 +148,23 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
         }
     };
 
+    /**
+     * Determines the display status of a device by checking metadata first.
+     * This makes the UI more robust against backend race conditions.
+     * @param device The device object
+     * @returns {boolean} True if the device should be displayed as online, false otherwise.
+     */
+    const getDeviceDisplayStatus = (device: Device): boolean => {
+        // Ping/sweep results are the most reliable indicator of current reachability.
+        // If the metadata explicitly says the device is unavailable via ICMP, trust that.
+        if (device.metadata?.icmp_available === 'false') {
+            return false;
+        }
+
+        // Otherwise, fall back to the general `is_available` flag.
+        return device.is_available;
+    };
+
     const TableHeader = ({ aKey, label }: { aKey: SortableKeys; label: string }) => (
         <th 
             scope="col"
@@ -205,11 +222,11 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
                                     <div className="flex items-center gap-2">
-                                        {device.is_available ? 
-                                            <CheckCircle className="h-5 w-5 text-green-500" /> : 
+                                        {getDeviceDisplayStatus(device) ?
+                                            <CheckCircle className="h-5 w-5 text-green-500" /> :
                                             <XCircle className="h-5 w-5 text-red-500" />
                                         }
-                                        <SysmonStatusIndicator 
+                                        <SysmonStatusIndicator
                                             deviceId={device.device_id} 
                                             compact={true}
                                             hasMetrics={sysmonStatusesLoading ? undefined : sysmonStatuses[device.device_id]?.hasMetrics}
