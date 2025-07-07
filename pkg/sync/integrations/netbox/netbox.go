@@ -108,6 +108,7 @@ func (*NetboxIntegration) closeResponse(resp *http.Response) {
 // decodeResponse decodes the HTTP response into a DeviceResponse.
 func (*NetboxIntegration) decodeResponse(resp *http.Response) (DeviceResponse, error) {
 	var deviceResp DeviceResponse
+
 	if err := json.NewDecoder(resp.Body).Decode(&deviceResp); err != nil {
 		return DeviceResponse{}, err
 	}
@@ -161,14 +162,6 @@ func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[
 		hostname := device.Name
 		deviceID := fmt.Sprintf("%s:%s", partition, ipStr)
 
-		log.Printf("DEBUG [netbox]: Creating SweepResult from Netbox device:")
-		log.Printf("  - Netbox Device ID: %d", device.ID)
-		log.Printf("  - Netbox Device Name: %s", device.Name)
-		log.Printf("  - Netbox Device IP: %s", ipStr)
-		log.Printf("  - Generated DeviceID: %s", deviceID)
-		log.Printf("  - Role: %s", device.Role.Name)
-		log.Printf("  - Site: %s", device.Site.Name)
-
 		event := &models.SweepResult{
 			AgentID:         agentID,
 			PollerID:        pollerID,
@@ -193,10 +186,8 @@ func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[
 			}
 		}
 
-		log.Printf("DEBUG [netbox]: Final SweepResult created: IP=%s, DeviceID=%s, "+
-			"DiscoverySource=%s, Hostname=%s", event.IP, event.DeviceID, event.DiscoverySource, *event.Hostname)
-
 		var metaJSON []byte
+
 		if metaJSON, err = json.Marshal(event.Metadata); err == nil {
 			log.Printf("  - SweepResult Metadata: %s", string(metaJSON))
 		}
@@ -257,14 +248,12 @@ func (n *NetboxIntegration) writeSweepConfig(ctx context.Context, ips []string) 
 		return
 	}
 
-	// The key now uses the explicitly configured AgentID, making it predictable.
 	configKey := fmt.Sprintf("agents/%s/checkers/sweep/sweep.json", agentIDForConfig)
 	_, err = n.KvClient.Put(ctx, &proto.PutRequest{
 		Key:   configKey,
 		Value: configJSON,
 	})
 
-	// log the key/value pair for debugging
 	log.Printf("Writing sweep config to %s: %s", configKey, string(configJSON))
 
 	if err != nil {
