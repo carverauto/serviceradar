@@ -61,7 +61,8 @@ const (
 	defaultFlushInterval              = 10 * time.Second
 
 	snmpDiscoveryResultsServiceType = "snmp-discovery-results"
-	mapperDiscoveryServiceType      = "mapper_discovery" // Add this new constant
+	mapperDiscoveryServiceType      = "mapper_discovery"
+	syncDiscoveryResultsServiceType = "integration"
 )
 
 func NewServer(ctx context.Context, config *models.DBConfig) (*Server, error) {
@@ -1125,6 +1126,8 @@ func (s *Server) processMetrics(
 		return s.processICMPMetrics(contextPollerID, contextPartition, sourceIP, contextAgentID, svc, serviceData, now)
 	case snmpDiscoveryResultsServiceType, mapperDiscoveryServiceType:
 		return s.processSNMPDiscoveryResults(ctx, contextPollerID, contextPartition, svc, serviceData, now)
+	case syncDiscoveryResultsServiceType:
+		return s.processSyncResults(ctx, contextPollerID, contextPartition, svc, serviceData, now)
 	}
 
 	return nil
@@ -1175,11 +1178,12 @@ func (*Server) parseServiceDetails(svc *proto.ServiceStatus) (json.RawMessage, e
 }
 
 const (
-	grpcServiceType   = "grpc"
-	icmpServiceType   = "icmp"
-	snmpServiceType   = "snmp"
-	rperfServiceType  = "rperf-checker"
-	sysmonServiceType = "sysmon"
+	grpcServiceType        = "grpc"
+	icmpServiceType        = "icmp"
+	snmpServiceType        = "snmp"
+	rperfServiceType       = "rperf-checker"
+	sysmonServiceType      = "sysmon"
+	integrationServiceType = "integration"
 )
 
 func (s *Server) processSysmonMetrics(
