@@ -35,10 +35,10 @@ import (
 func (s *Server) processSyncResults(
 	ctx context.Context,
 	reportingPollerID string,
-	partition string,
+	_ string, // partition is not used in sync results
 	svc *proto.ServiceStatus,
 	details json.RawMessage,
-	timestamp time.Time,
+	_ time.Time,
 ) error {
 	log.Println("Processing sync discovery results...")
 
