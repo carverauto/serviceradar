@@ -30,6 +30,54 @@ import (
 	discoverypb "github.com/carverauto/serviceradar/proto/discovery"
 )
 
+// processSyncResults processes the results of a sync discovery operation.
+// It handles the discovery data, extracts relevant information, and stores it in the database.
+func (s *Server) processSyncResults(
+	ctx context.Context,
+	reportingPollerID string,
+	_ string, // partition is not used in sync results
+	svc *proto.ServiceStatus,
+	details json.RawMessage,
+	_ time.Time,
+) error {
+	log.Println("Processing sync discovery results...")
+
+	var sightings []*models.SweepResult
+
+	if err := json.Unmarshal(details, &sightings); err != nil {
+		log.Printf("Error unmarshaling sync discovery data for poller %s, service %s: %v. Payload: %s",
+			reportingPollerID, svc.ServiceName, err, string(details))
+
+		return fmt.Errorf("failed to parse sync discovery data: %w", err)
+	}
+
+	if len(sightings) == 0 {
+		log.Printf("No sightings found in sync discovery data for poller %s, service %s",
+			reportingPollerID, svc.ServiceName)
+		return nil // Nothing to process
+	}
+
+	if s.DeviceRegistry != nil {
+		source := "unknown"
+		if len(sightings) > 0 {
+			source = sightings[0].DiscoverySource // Use the source from the first sighting
+		}
+
+		log.Printf("Processing %d device sightings from sync service (source: %s)",
+			len(sightings), source)
+
+		if err := s.DeviceRegistry.ProcessBatchSightings(ctx, sightings); err != nil {
+			log.Printf("Error processing sync discovery sightings for poller %s: %v", reportingPollerID, err)
+			return err
+		}
+	} else {
+		log.Printf("Warning: DeviceRegistry not available. Skipping Processing of %d sync discovery sightings",
+			len(sightings))
+	}
+
+	return nil
+}
+
 // isLoopbackIP checks if an IP address is a loopback address
 func isLoopbackIP(ipStr string) bool {
 	ip := net.ParseIP(ipStr)
