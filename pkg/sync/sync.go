@@ -84,48 +84,6 @@ func New(
 
 // Start starts the integration polling loop and the gRPC server.
 func (s *PollerService) Start(ctx context.Context) error {
-	/*
-		lis, err := net.Listen("tcp", s.config.ListenAddr)
-		if err != nil {
-			return fmt.Errorf("failed to listen on %s: %w", s.config.ListenAddr, err)
-		}
-
-		var opts []grpc.ServerOption
-
-		if s.config.Security != nil {
-			// Use the SecurityProvider to get the correct server credentials
-			provider, err := ggrpc.NewSecurityProvider(ctx, s.config.Security)
-			if err != nil {
-				return fmt.Errorf("failed to create security provider for gRPC server: %w", err)
-			}
-
-			serverCreds, err := provider.GetServerCredentials(ctx)
-			if err != nil {
-				return fmt.Errorf("failed to get server credentials: %w", err)
-			}
-
-			opts = append(opts, serverCreds)
-		}
-
-		s.grpcServer = grpc.NewServer(opts...)
-
-		// Register this PollerService instance, which implements the AgentServiceServer interface.
-		proto.RegisterAgentServiceServer(s.grpcServer, s)
-
-		// Register a standard health check service.
-		healthServer := health.NewServer()
-		grpc_health_v1.RegisterHealthServer(s.grpcServer, healthServer)
-		healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
-
-		log.Printf("Sync service (as gRPC Agent) listening at %v", lis.Addr())
-
-		go func() {
-			if err := s.grpcServer.Serve(lis); err != nil {
-				log.Printf("gRPC server failed to serve: %v", err)
-			}
-		}()
-	*/
-
 	// Start the background polling of Armis/Netbox etc.
 	return s.poller.Start(ctx)
 }

@@ -3,14 +3,15 @@ package sync
 import (
 	"context"
 	"encoding/json"
+	"log"
+	"sync"
+
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/poller"
 	"github.com/carverauto/serviceradar/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"log"
-	"sync"
 )
 
 // PollerService manages synchronization and serves results via a standard agent gRPC interface.

@@ -19,13 +19,13 @@ package main
 import (
 	"context"
 	"flag"
-	"github.com/carverauto/serviceradar/proto"
-	"google.golang.org/grpc"
 	"log"
 
 	"github.com/carverauto/serviceradar/pkg/config"
 	"github.com/carverauto/serviceradar/pkg/lifecycle"
 	"github.com/carverauto/serviceradar/pkg/sync"
+	"github.com/carverauto/serviceradar/proto"
+	"google.golang.org/grpc"
 )
 
 func main() {
@@ -40,18 +40,6 @@ func main() {
 	if err := cfgLoader.LoadAndValidate(ctx, *configPath, &cfg); err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
-
-	/*
-		syncer, err := sync.NewDefault(ctx, &cfg)
-		if err != nil {
-			log.Fatalf("Failed to create syncer: %v", err)
-		}
-
-			syncService, err := sync.NewWithGRPC(ctx, &cfg)
-			if err != nil {
-				return
-			}
-	*/
 
 	syncer, err := sync.NewDefault(ctx, &cfg)
 	if err != nil {
