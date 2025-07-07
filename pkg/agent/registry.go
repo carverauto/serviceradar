@@ -20,6 +20,7 @@ package agent
 import (
 	"context"
 	"errors"
+
 	"github.com/carverauto/serviceradar/pkg/checker"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
