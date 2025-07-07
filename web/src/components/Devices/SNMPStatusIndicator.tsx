@@ -35,39 +35,35 @@ interface SNMPStatus {
     error?: string;
 }
 
-const SNMPStatusIndicator: React.FC<SNMPStatusIndicatorProps> = ({ 
-    deviceId,
-    pollerId, 
-    compact = false,
-    hasMetrics,
-    hasSnmpSource
-}) => {
+const SNMPStatusIndicator: React.FC<SNMPStatusIndicatorProps> = ({
+                                                                     deviceId,
+                                                                     pollerId,
+                                                                     compact = false,
+                                                                     hasMetrics,
+                                                                     hasSnmpSource
+                                                                 }) => {
     // Use deviceId if available, otherwise fall back to pollerId for backward compatibility
     const targetId = deviceId || pollerId;
     const idType = deviceId ? 'device' : 'poller';
-    
+
     const [status, setStatus] = useState<SNMPStatus>({ hasData: false });
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        // Use hasMetrics prop if provided (from bulk API call)
-        if (hasMetrics !== undefined) {
+        // The component is loading if the primary source of truth, `hasMetrics`, is undefined.
+        const isLoading = hasMetrics === undefined;
+        setLoading(isLoading);
+
+        if (!isLoading) {
+            // Once loading is complete, set the status based on the definitive `hasMetrics` prop.
+            // This prevents a premature decision based on the `hasSnmpSource` fallback.
             setStatus({ hasData: hasMetrics });
-            setLoading(false);
-            return;
+        } else {
+            // While loading, ensure the status is reset to a neutral state to prevent showing a stale icon.
+            setStatus({ hasData: false });
         }
+    }, [hasMetrics]);
 
-        // Fallback to discovery source if no metrics data available
-        if (hasSnmpSource !== undefined) {
-            setStatus({ hasData: hasSnmpSource });
-            setLoading(false);
-            return;
-        }
-
-        // Default: Don't show SNMP indicators without any indication
-        setStatus({ hasData: false });
-        setLoading(false);
-    }, [hasMetrics, hasSnmpSource]);
 
     if (loading) {
         return compact ? (
@@ -102,11 +98,11 @@ const SNMPStatusIndicator: React.FC<SNMPStatusIndicatorProps> = ({
         if (!status.hasData) {
             return null;
         }
-        
+
         return (
             <div title={getTooltipText()} className="flex items-center justify-center">
-                <Link 
-                    href={idType === 'device' ? `/service/device/${encodeURIComponent(targetId!)}/snmp` : `/network?pollerId=${targetId}`} 
+                <Link
+                    href={idType === 'device' ? `/service/device/${encodeURIComponent(targetId!)}/snmp` : `/network?pollerId=${targetId}`}
                     className="inline-flex items-center justify-center p-1 rounded hover:bg-gray-700/50 transition-colors"
                 >
                     <ChartLine className="h-4 w-4 text-blue-500" />
@@ -128,7 +124,7 @@ const SNMPStatusIndicator: React.FC<SNMPStatusIndicatorProps> = ({
                     </span>
                 )}
                 {status.hasData && (
-                    <Link 
+                    <Link
                         href={idType === 'device' ? `/service/device/${encodeURIComponent(targetId!)}/snmp` : `/network?pollerId=${targetId}`}
                         className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 flex items-center space-x-1 mt-1"
                     >

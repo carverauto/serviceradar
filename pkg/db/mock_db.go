@@ -195,6 +195,21 @@ func (mr *MockServiceMockRecorder) GetDevicesByIP(ctx, ip any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDevicesByIP", reflect.TypeOf((*MockService)(nil).GetDevicesByIP), ctx, ip)
 }
 
+// GetDevicesWithRecentSNMPMetrics mocks base method.
+func (m *MockService) GetDevicesWithRecentSNMPMetrics(ctx context.Context, deviceIDs []string) (map[string]bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDevicesWithRecentSNMPMetrics", ctx, deviceIDs)
+	ret0, _ := ret[0].(map[string]bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDevicesWithRecentSNMPMetrics indicates an expected call of GetDevicesWithRecentSNMPMetrics.
+func (mr *MockServiceMockRecorder) GetDevicesWithRecentSNMPMetrics(ctx, deviceIDs any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDevicesWithRecentSNMPMetrics", reflect.TypeOf((*MockService)(nil).GetDevicesWithRecentSNMPMetrics), ctx, deviceIDs)
+}
+
 // GetDiskMetrics mocks base method.
 func (m *MockService) GetDiskMetrics(ctx context.Context, pollerID, mountPoint string, start, end time.Time) ([]models.DiskMetric, error) {
 	m.ctrl.T.Helper()
