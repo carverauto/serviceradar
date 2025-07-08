@@ -160,6 +160,8 @@ const SNMPDevicesView: React.FC = React.memo(() => {
         if (cursor) body.cursor = cursor;
         if (direction) body.direction = direction;
 
+        console.log("Executing query:", body);
+
         const response = await fetch('/api/query', {
             method: 'POST',
             headers: {
@@ -181,7 +183,7 @@ const SNMPDevicesView: React.FC = React.memo(() => {
         setError(null);
 
         try {
-            const whereClauses = ["discovery_sources LIKE '%\"source\":\"snmp\"%'"];
+            const whereClauses = ["discovery_sources = 'snmp'"];
 
             if (debouncedSearchTerm) {
                 whereClauses.push(`(ip LIKE '%${debouncedSearchTerm}%' OR hostname LIKE '%${debouncedSearchTerm}%')`);
