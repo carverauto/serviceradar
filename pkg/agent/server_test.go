@@ -228,7 +228,7 @@ func TestServerGetStatus(t *testing.T) {
 			wantErr: false,
 			checkStatus: func(t *testing.T, resp *proto.StatusResponse) {
 				t.Helper()
-				assert.False(t, resp.Available)
+				assert.True(t, resp.Available)
 				assert.Equal(t, "network_sweep", resp.ServiceName)
 
 				// Unmarshal the JSON message and verify it

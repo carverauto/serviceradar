@@ -361,7 +361,13 @@ func (t *Translator) buildStandardProtonQuery(sql *strings.Builder, query *model
 	var whereClauses []string
 
 	if len(query.Conditions) > 0 {
-		whereClauses = append(whereClauses, fmt.Sprintf("(%s)", t.buildProtonWhere(query.Conditions)))
+		conditionsStr := t.buildProtonWhere(query.Conditions)
+		// Only wrap user conditions in parentheses if there will be additional system filters
+		if query.Entity == models.Devices {
+			whereClauses = append(whereClauses, fmt.Sprintf("(%s)", conditionsStr))
+		} else {
+			whereClauses = append(whereClauses, conditionsStr)
+		}
 	}
 
 	// Add implicit filter for non-deleted devices, only for 'devices' entity.
