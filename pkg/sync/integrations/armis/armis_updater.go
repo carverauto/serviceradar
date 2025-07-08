@@ -132,6 +132,8 @@ func (a *ArmisIntegration) BatchUpdateDeviceAttributes(ctx context.Context, devi
 		// Set SERVICERADAR_COMPLIANT based on sweep results
 		setServiceRadarCompliant(ip, resultMap, attributes)
 
+		log.Println("Attributes for device:", devices[i].ID, "IP:", ip, "Attributes:", attributes)
+
 		if len(attributes) > 0 && a.Updater != nil {
 			if err := a.Updater.UpdateDeviceCustomAttributes(ctx, devices[i].ID, attributes); err != nil {
 				log.Printf("Failed to update attributes for device %d: %v", devices[i].ID, err)
