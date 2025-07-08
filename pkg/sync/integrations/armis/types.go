@@ -18,12 +18,39 @@
 package armis
 
 import (
+	"context"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 	"google.golang.org/grpc"
 )
+
+// SRQLQuerier defines the interface for querying device states from ServiceRadar.
+// This is a local interface to avoid importing pkg/sync and creating a cycle.
+type SRQLQuerier interface {
+	GetDeviceStatesBySource(ctx context.Context, source string) ([]DeviceState, error)
+}
+
+// DeviceState represents the consolidated state of a device from the unified view.
+// It's used by integrations to check for retractions.
+type DeviceState struct {
+	DeviceID    string
+	IP          string
+	IsAvailable bool
+	Metadata    map[string]interface{}
+}
+
+// SweepResult represents a network sweep result
+type SweepResult struct {
+	IP        string    `json:"ip"`
+	Available bool      `json:"available"`
+	Timestamp time.Time `json:"timestamp"`
+	RTT       float64   `json:"rtt,omitempty"`      // Round-trip time in milliseconds
+	Port      int       `json:"port,omitempty"`     // If this was a TCP sweep
+	Protocol  string    `json:"protocol,omitempty"` // "icmp" or "tcp"
+	Error     string    `json:"error,omitempty"`    // Any error encountered
+}
 
 // ArmisIntegration manages the Armis API integration.
 type ArmisIntegration struct {
@@ -43,7 +70,7 @@ type ArmisIntegration struct {
 	KVWriter      KVWriter
 
 	// Interfaces for querying sweep results and updating Armis devices
-	SweepQuerier SweepResultsQuerier
+	SweepQuerier SRQLQuerier
 	Updater      ArmisUpdater
 }
 
@@ -109,11 +136,4 @@ type DefaultKVWriter struct {
 	KVClient   proto.KVServiceClient
 	ServerName string
 	AgentID    string
-}
-
-// DeviceState represents the consolidated state of a device from the unified view.
-type DeviceState struct {
-	IP          string
-	IsAvailable bool
-	Metadata    map[string]interface{}
 }

@@ -27,6 +27,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
 )
@@ -199,6 +200,14 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, []*mod
 
 	log.Printf("Successfully queried %d device states from ServiceRadar.", len(deviceStates))
 
+	// Generate and append retraction events for devices no longer found in Armis
+	retractionEvents := a.generateRetractionEvents(devices, deviceStates)
+	if len(retractionEvents) > 0 {
+		log.Printf("Generated %d retraction events for 'armis' source.", len(retractionEvents))
+
+		modelEvents = append(modelEvents, retractionEvents...)
+	}
+
 	// Prepare updates using the new typed slice
 	updates := a.prepareArmisUpdateFromDeviceStates(deviceStates)
 
@@ -217,6 +226,52 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, []*mod
 	}
 
 	return data, modelEvents, nil
+}
+
+// generateRetractionEvents checks for devices that exist in ServiceRadar but not in the current Armis fetch.
+func (a *ArmisIntegration) generateRetractionEvents(
+	currentDevices []Device, existingDeviceStates []DeviceState) []*models.SweepResult {
+	// Create a map of current device IDs from the Armis API for efficient lookup.
+	currentDeviceIDs := make(map[string]struct{}, len(currentDevices))
+	for i := range currentDevices {
+		currentDeviceIDs[strconv.Itoa(currentDevices[i].ID)] = struct{}{}
+	}
+
+	var retractionEvents []*models.SweepResult
+
+	now := time.Now()
+
+	for _, state := range existingDeviceStates {
+		// Extract the original armis_device_id from the metadata of the device stored in ServiceRadar.
+		armisID, ok := state.Metadata["armis_device_id"].(string)
+		if !ok {
+			continue // Cannot determine retraction status without the original ID.
+		}
+
+		// If a device that was previously discovered is not in the current list, it's considered retracted.
+		if _, found := currentDeviceIDs[armisID]; !found {
+			log.Printf("Device with Armis ID %s (IP: %s) is no longer detected. "+
+				"Generating retraction event.", armisID, state.IP)
+
+			retractionEvent := &models.SweepResult{
+				DeviceID:        state.DeviceID,
+				DiscoverySource: "armis",
+				IP:              state.IP,
+				Available:       false,
+				Timestamp:       now,
+				Metadata: map[string]string{
+					"_deleted": "true",
+				},
+				AgentID:   a.Config.AgentID,
+				PollerID:  a.Config.PollerID,
+				Partition: a.Config.Partition,
+			}
+
+			retractionEvents = append(retractionEvents, retractionEvent)
+		}
+	}
+
+	return retractionEvents
 }
 
 func (*ArmisIntegration) prepareArmisUpdateFromDeviceStates(states []DeviceState) []ArmisDeviceStatus {
