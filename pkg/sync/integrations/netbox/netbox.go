@@ -48,15 +48,84 @@ func (n *NetboxIntegration) Fetch(ctx context.Context) (map[string][]byte, []*mo
 		return nil, nil, err
 	}
 
-	// Call the refactored function and get all consistent data in one go.
-	data, ips, events := n.processDevices(deviceResp)
+	// Process current devices from Netbox API
+	data, ips, currentEvents := n.processDevices(deviceResp)
+
+	allEvents := currentEvents
+
+	// Add retraction logic if querier is available
+	if n.Querier != nil {
+		existingRadarDevices, err := n.Querier.GetDeviceStatesBySource(ctx, "netbox")
+		if err != nil {
+			log.Printf("Failed to query existing Netbox devices from ServiceRadar, skipping retraction: %v", err)
+		} else {
+			log.Printf("Successfully queried %d device states from ServiceRadar for source 'netbox'.",
+				len(existingRadarDevices))
+
+			retractionEvents := n.generateRetractionEvents(currentEvents, existingRadarDevices)
+
+			if len(retractionEvents) > 0 {
+				log.Printf("Generated %d retraction events for 'netbox' source.", len(retractionEvents))
+				allEvents = append(allEvents, retractionEvents...)
+			}
+		}
+	}
 
 	log.Printf("Fetched %d devices from NetBox", len(deviceResp.Results))
 
 	n.writeSweepConfig(ctx, ips)
 
 	// Return the consistent data for both KV store and NATS publishing.
-	return data, events, nil
+	return data, allEvents, nil
+}
+
+// generateRetractionEvents checks for devices that exist in ServiceRadar but not in the current Netbox fetch.
+func (n *NetboxIntegration) generateRetractionEvents(
+	currentEvents []*models.SweepResult, existingDeviceStates []DeviceState) []*models.SweepResult {
+	// Create a map of current device IDs from the Netbox API for efficient lookup.
+	currentDeviceIDs := make(map[string]struct{}, len(currentEvents))
+
+	for _, event := range currentEvents {
+		if integrationID, ok := event.Metadata["integration_id"]; ok {
+			currentDeviceIDs[integrationID] = struct{}{}
+		}
+	}
+
+	var retractionEvents []*models.SweepResult
+
+	now := time.Now()
+
+	for _, state := range existingDeviceStates {
+		// Extract the original integration_id from the metadata.
+		netboxID, ok := state.Metadata["integration_id"].(string)
+		if !ok {
+			continue // Cannot determine retraction status.
+		}
+
+		// If a device that was previously discovered is not in the current list, it's considered retracted.
+		if _, found := currentDeviceIDs[netboxID]; !found {
+			log.Printf("Device with Netbox ID %s (IP: %s) is no longer detected. "+
+				"Generating retraction event.", netboxID, state.IP)
+
+			retractionEvent := &models.SweepResult{
+				DeviceID:        state.DeviceID,
+				DiscoverySource: "netbox",
+				IP:              state.IP,
+				Available:       false,
+				Timestamp:       now,
+				Metadata: map[string]string{
+					"_deleted": "true",
+				},
+				AgentID:   n.Config.AgentID,
+				PollerID:  n.Config.PollerID,
+				Partition: n.Config.Partition,
+			}
+
+			retractionEvents = append(retractionEvents, retractionEvent)
+		}
+	}
+
+	return retractionEvents
 }
 
 // fetchDevices sends the HTTP request to the NetBox API.
