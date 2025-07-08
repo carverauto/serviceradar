@@ -1,21 +1,4 @@
-/*
- * Copyright 2025 Carver Automation Corporation.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-// Package armis pkg/sync/integrations/armis/sweep_results.go
-package armis
+package sync
 
 import (
 	"bytes"
@@ -27,17 +10,6 @@ import (
 	"net/http"
 	"time"
 )
-
-// SweepResult represents a network sweep result
-type SweepResult struct {
-	IP        string    `json:"ip"`
-	Available bool      `json:"available"`
-	Timestamp time.Time `json:"timestamp"`
-	RTT       float64   `json:"rtt,omitempty"`      // Round-trip time in milliseconds
-	Port      int       `json:"port,omitempty"`     // If this was a TCP sweep
-	Protocol  string    `json:"protocol,omitempty"` // "icmp" or "tcp"
-	Error     string    `json:"error,omitempty"`    // Any error encountered
-}
 
 // SweepResultsQuery handles querying sweep results via SRQL
 type SweepResultsQuery struct {
@@ -80,8 +52,11 @@ func NewSweepResultsQuery(apiEndpoint, apiKey string, httpClient HTTPClient) *Sw
 	}
 }
 
+// GetDeviceStatesBySource queries the ServiceRadar API to get the current state of devices for a given discovery source.
 func (s *SweepResultsQuery) GetDeviceStatesBySource(ctx context.Context, source string) ([]DeviceState, error) {
 	// Use a large limit to ensure all devices are fetched.
+	// This query finds devices that originated from the specified source and have also been seen by a sweep.
+	// The `discovery_sources = 'sweep'` part is a useful heuristic to filter for devices that are actually "known" on the network.
 	query := fmt.Sprintf("show devices where discovery_sources = '%s' and discovery_sources = 'sweep'", source)
 	limit := 10000
 
@@ -101,7 +76,6 @@ func (s *SweepResultsQuery) GetDeviceStatesBySource(ctx context.Context, source 
 			return nil, fmt.Errorf("failed to execute device query: %w", err)
 		}
 
-		// Use a new, dedicated converter for device states
 		states := s.convertToDeviceStates(response.Results)
 		allDeviceStates = append(allDeviceStates, states...)
 
@@ -122,6 +96,10 @@ func (*SweepResultsQuery) convertToDeviceStates(rawResults []map[string]interfac
 
 	for _, raw := range rawResults {
 		state := DeviceState{}
+
+		if deviceID, ok := raw["device_id"].(string); ok {
+			state.DeviceID = deviceID
+		}
 
 		if ip, ok := raw["ip"].(string); ok {
 			state.IP = ip
@@ -152,7 +130,6 @@ func (s *SweepResultsQuery) executeQuery(ctx context.Context, queryReq QueryRequ
 
 	// log the request for debugging
 	log.Printf("Executing SRQL query: %s", queryReq.Query)
-	// log the request body
 	log.Printf("Request body: %s", string(reqBody))
 
 	// Create the HTTP request
@@ -187,6 +164,7 @@ func (s *SweepResultsQuery) executeQuery(ctx context.Context, queryReq QueryRequ
 
 	// Parse the response
 	var queryResp QueryResponse
+
 	if err := json.Unmarshal(body, &queryResp); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
 	}
@@ -196,54 +174,4 @@ func (s *SweepResultsQuery) executeQuery(ctx context.Context, queryReq QueryRequ
 	}
 
 	return &queryResp, nil
-}
-
-// convertToSweepResults converts raw query results to SweepResult structs
-func (*SweepResultsQuery) convertToSweepResults(rawResults []map[string]interface{}) []SweepResult {
-	results := make([]SweepResult, 0, len(rawResults))
-
-	for _, raw := range rawResults {
-		result := SweepResult{}
-
-		// Extract IP
-		if ip, ok := raw["ip"].(string); ok {
-			result.IP = ip
-		}
-
-		// Extract availability
-		if available, ok := raw["available"].(bool); ok {
-			result.Available = available
-		}
-
-		// Extract timestamp
-		if ts, ok := raw["timestamp"].(string); ok {
-			if parsed, err := time.Parse(time.RFC3339, ts); err == nil {
-				result.Timestamp = parsed
-			}
-		}
-
-		// Extract RTT (round-trip time)
-		if rtt, ok := raw["rtt"].(float64); ok {
-			result.RTT = rtt
-		}
-
-		// Extract port
-		if port, ok := raw["port"].(float64); ok {
-			result.Port = int(port)
-		}
-
-		// Extract protocol
-		if protocol, ok := raw["protocol"].(string); ok {
-			result.Protocol = protocol
-		}
-
-		// Extract error
-		if errMsg, ok := raw["error"].(string); ok {
-			result.Error = errMsg
-		}
-
-		results = append(results, result)
-	}
-
-	return results
 }

@@ -18,6 +18,7 @@ package sync
 
 import (
 	"context"
+	"net/http"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -67,4 +68,24 @@ type Clock interface {
 type Ticker interface {
 	Chan() <-chan time.Time
 	Stop()
+}
+
+// HTTPClient defines the interface for making HTTP requests.
+// This is used by integrations and the SRQL querier.
+type HTTPClient interface {
+	Do(req *http.Request) (*http.Response, error)
+}
+
+// SRQLQuerier defines the interface for querying device states from ServiceRadar.
+type SRQLQuerier interface {
+	GetDeviceStatesBySource(ctx context.Context, source string) ([]DeviceState, error)
+}
+
+// DeviceState represents the consolidated state of a device from the unified view.
+// It's used by integrations to check for retractions.
+type DeviceState struct {
+	DeviceID    string
+	IP          string
+	IsAvailable bool
+	Metadata    map[string]interface{}
 }
