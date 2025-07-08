@@ -214,6 +214,13 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, []*mod
 	log.Println("Updates:", updates)
 
 	if len(updates) > 0 {
+
+		// log the updates for debugging
+		for _, update := range updates {
+			log.Printf("Preparing update for Armis device ID %d: IP %s, Available: %t",
+				update.DeviceID, update.IP, update.Available)
+		}
+
 		log.Printf("Prepared %d status updates to send to Armis.", len(updates))
 
 		if err := a.Updater.UpdateDeviceStatus(ctx, updates); err != nil {
@@ -297,7 +304,7 @@ func (*ArmisIntegration) prepareArmisUpdateFromDeviceStates(states []DeviceState
 		updates = append(updates, ArmisDeviceStatus{
 			DeviceID:  armisDeviceID,
 			IP:        state.IP,
-			Available: state.IsAvailable,
+			Available: !state.IsAvailable,
 		})
 	}
 
