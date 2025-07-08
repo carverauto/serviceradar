@@ -91,12 +91,16 @@ func TestArmisIntegration_Fetch_WithUpdaterAndCorrelation(t *testing.T) {
 			// Device 1 had a sweep result and was available
 			assert.Equal(t, 1, updates[0].DeviceID)
 			assert.Equal(t, "192.168.1.1", updates[0].IP)
-			assert.True(t, updates[0].Available)
+			// We're updating a tag in Armis to mark the device as compliant if we CANT reach it
+			// otherwise, we mark it as available
+			assert.False(t, updates[0].Available)
 
 			// Device 2 had a sweep result and was not available
 			assert.Equal(t, 2, updates[1].DeviceID)
 			assert.Equal(t, "192.168.1.2", updates[1].IP)
-			assert.False(t, updates[1].Available)
+			// Due to the Armis integration logic, we expect this to be marked as available
+			assert.True(t, updates[1].Available)
+
 			return nil
 		}).Return(nil)
 
@@ -889,7 +893,9 @@ func TestPrepareArmisUpdateFromDeviceStates(t *testing.T) {
 	require.Len(t, updates, 1)
 	assert.Equal(t, 10, updates[0].DeviceID)
 	assert.Equal(t, "1.1.1.1", updates[0].IP)
-	assert.True(t, updates[0].Available)
+	// We're marking devices as SERVICERADAR_COMPLIANT in Armis if we CANT reach them
+	// TODO: this is a bit confusing, we should probably rename this field
+	assert.False(t, updates[0].Available)
 }
 
 func TestPrepareArmisUpdateFromDeviceQuery(t *testing.T) {
