@@ -385,7 +385,7 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
             {/* Show example queries only when no query has been executed yet */}
             {!responseData && !isLoading && !error && (
                 <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 p-4 rounded-lg">
-                    <h3 className="text-sm font-medium text-gray-300 mb-3">Try these example queries:</h3>
+                    <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Try these example queries:</h3>
                     <div className="flex flex-wrap gap-2">
                         {exampleQueries.map((eg) => (
                             <button
@@ -393,7 +393,7 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
                                 onClick={() => {
                                     router.push(`/query?q=${encodeURIComponent(eg.query)}`);
                                 }}
-                                className="px-3 py-1 text-xs bg-gray-700/50 text-gray-300 rounded-full hover:bg-gray-600/50 transition-colors"
+                                className="px-3 py-1 text-xs bg-gray-200 dark:bg-gray-700/50 text-gray-700 dark:text-gray-300 rounded-full hover:bg-gray-300 dark:hover:bg-gray-600/50 transition-colors"
                             >
                                 {eg.name}
                             </button>
@@ -420,34 +420,34 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
                 <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 p-4 rounded-lg text-center">
                     <div className="flex items-center justify-center gap-2">
                         <Loader2 className="animate-spin h-5 w-5 text-green-400" />
-                        <span className="text-sm text-gray-400">Fetching results...</span>
+                        <span className="text-sm text-gray-600 dark:text-gray-400">Fetching results...</span>
                     </div>
                 </div>
             )}
 
             {responseData !== null && !isLoading && (
                 <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg shadow-lg">
-                    <div className="p-4 border-b border-gray-700 flex flex-wrap justify-between items-center gap-4">
+                    <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex flex-wrap justify-between items-center gap-4">
                         <div className="flex items-center gap-4">
-                            <h3 className="text-lg font-semibold text-white">Results</h3>
+                            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Results</h3>
                             {query && (
-                                <code className="text-xs bg-gray-700 px-2 py-1 rounded text-gray-300">{query}</code>
+                                <code className="text-xs bg-gray-200 dark:bg-gray-700 px-2 py-1 rounded text-gray-700 dark:text-gray-300">{query}</code>
                             )}
                         </div>
                         <div className="flex items-center gap-2">
                             {/* View Format Toggle */}
                             <div className="flex items-center rounded-md border border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-900">
-                                <button type="button" onClick={() => setViewFormat('json')} className={`px-2 py-1 text-xs rounded-l-md flex items-center gap-1 ${viewFormat === 'json' ? 'bg-green-600 text-white' : 'text-gray-400 hover:bg-gray-700'}`}>
+                                <button type="button" onClick={() => setViewFormat('json')} className={`px-2 py-1 text-xs rounded-l-md flex items-center gap-1 ${viewFormat === 'json' ? 'bg-green-600 text-white' : 'text-gray-700 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'}`}>
                                     <FileJson size={14} /> JSON
                                 </button>
-                                <button type="button" onClick={() => setViewFormat('table')} className={`px-2 py-1 text-xs rounded-r-md flex items-center gap-1 ${viewFormat === 'table' ? 'bg-green-600 text-white' : 'text-gray-400 hover:bg-gray-700'}`}>
+                                <button type="button" onClick={() => setViewFormat('table')} className={`px-2 py-1 text-xs rounded-r-md flex items-center gap-1 ${viewFormat === 'table' ? 'bg-green-600 text-white' : 'text-gray-700 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'}`}>
                                     <Table size={14} /> Table
                                 </button>
                             </div>
                             
                             {/* JSON View Toggle */}
                             {viewFormat === 'json' && (
-                                <button type="button" onClick={() => setShowRawJson(!showRawJson)} title={showRawJson ? 'Show Rich JSON View' : 'Show Raw JSON'} className="p-1.5 rounded-md hover:bg-gray-700 text-gray-400">
+                                <button type="button" onClick={() => setShowRawJson(!showRawJson)} title={showRawJson ? 'Show Rich JSON View' : 'Show Raw JSON'} className="p-1.5 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-400">
                                     {showRawJson ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
                                 </button>
                             )}
@@ -511,18 +511,18 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
                         )}
 
                         {pagination && (pagination.prev_cursor || pagination.next_cursor) && (
-                            <div className="flex justify-between items-center pt-4 border-t border-gray-700">
+                            <div className="flex justify-between items-center pt-4 border-t border-gray-200 dark:border-gray-700">
                                 <button
                                     onClick={() => handleSubmit(undefined, pagination.prev_cursor, 'prev')}
                                     disabled={!pagination.prev_cursor}
-                                    className="px-3 py-1 rounded bg-gray-700 text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    className="px-3 py-1 rounded bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     Previous
                                 </button>
                                 <button
                                     onClick={() => handleSubmit(undefined, pagination.next_cursor, 'next')}
                                     disabled={!pagination.next_cursor}
-                                    className="px-3 py-1 rounded bg-gray-700 text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    className="px-3 py-1 rounded bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     Next
                                 </button>
