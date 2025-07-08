@@ -114,6 +114,8 @@ func setServiceRadarCompliant(ip string, resultMap map[string]SweepResult, attri
 
 // BatchUpdateDeviceAttributes updates multiple devices with sweep result attributes
 func (a *ArmisIntegration) BatchUpdateDeviceAttributes(ctx context.Context, devices []Device, sweepResults []SweepResult) error {
+	log.Println("Batch updating device attributes for Armis...")
+
 	// Create a map for quick lookup
 	resultMap := make(map[string]SweepResult)
 	for _, result := range sweepResults {
@@ -127,10 +129,17 @@ func (a *ArmisIntegration) BatchUpdateDeviceAttributes(ctx context.Context, devi
 			continue
 		}
 
+		// print the resultMap for debugging
+		log.Printf("Processing device %d with IP %s", devices[i].ID, ip)
+		log.Printf("Result map: %+v", resultMap)
+
 		attributes := make(map[string]interface{})
 
 		// Set SERVICERADAR_COMPLIANT based on sweep results
 		setServiceRadarCompliant(ip, resultMap, attributes)
+
+		// print the new attributes for debugging
+		log.Printf("Attributes for device %d: %+v", devices[i].ID, attributes)
 
 		if len(attributes) > 0 && a.Updater != nil {
 			if err := a.Updater.UpdateDeviceCustomAttributes(ctx, devices[i].ID, attributes); err != nil {
