@@ -155,7 +155,6 @@ func setupArmisIntegration(t *testing.T) (*ArmisIntegration, *armisMocks) {
 			Partition: "test-partition",
 			Credentials: map[string]string{
 				"secret_key": "test-secret-key",
-				"boundary":   "Corporate",
 			},
 			Queries: []models.QueryConfig{
 				{Label: "test", Query: "in:devices orderBy=id boundaries:\"Corporate\""},
