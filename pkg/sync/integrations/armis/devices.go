@@ -297,7 +297,7 @@ func (*ArmisIntegration) prepareArmisUpdateFromDeviceStates(states []DeviceState
 		updates = append(updates, ArmisDeviceStatus{
 			DeviceID:  armisDeviceID,
 			IP:        state.IP,
-			Available: state.IsAvailable,
+			Available: !state.IsAvailable,
 		})
 	}
 
