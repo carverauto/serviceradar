@@ -357,9 +357,23 @@ func (t *Translator) buildStandardProtonQuery(sql *strings.Builder, query *model
 	sql.WriteString(baseTableName)
 	sql.WriteString(")") // Closing table()
 
+	// Build WHERE clause
+	var whereClauses []string
+
 	if len(query.Conditions) > 0 {
+		whereClauses = append(whereClauses, fmt.Sprintf("(%s)", t.buildProtonWhere(query.Conditions)))
+	}
+
+	// Add implicit filter for non-deleted devices, only for 'devices' entity.
+	// This ensures queries like 'show devices' automatically exclude retracted devices.
+	if query.Entity == models.Devices {
+		deletedFilter := "coalesce(metadata['_deleted'], '') != 'true'"
+		whereClauses = append(whereClauses, deletedFilter)
+	}
+
+	if len(whereClauses) > 0 {
 		sql.WriteString(" WHERE ")
-		sql.WriteString(t.buildProtonWhere(query.Conditions))
+		sql.WriteString(strings.Join(whereClauses, " AND "))
 	}
 
 	if len(query.OrderBy) > 0 {
