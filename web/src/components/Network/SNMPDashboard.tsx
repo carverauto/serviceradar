@@ -42,6 +42,12 @@ interface CombinedDataPoint {
     [key: string]: number; // Dynamic metric keys with rate values
 }
 
+// Define type for grouped chart data
+interface GroupedChartData {
+    group: MetricGroup;
+    data: CombinedDataPoint[];
+}
+
 // Define type for metric group
 interface MetricGroup {
     baseKey: string;
@@ -63,7 +69,7 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
     const { token } = useAuth(); // Get authentication token from AuthProvider
     const [snmpData, setSNMPData] = useState<SnmpDataPoint[]>(initialData);
     const [processedData, setProcessedData] = useState<ProcessedSnmpDataPoint[]>([]);
-    const [combinedData, setCombinedData] = useState<CombinedDataPoint[]>([]);
+    const [combinedData, setCombinedData] = useState<GroupedChartData[]>([]);
     const [timeRange, setTimeRange] = useState<string>(searchParams.get('timeRange') || initialTimeRange);
     const [selectedMetric, setSelectedMetric] = useState<string | null>(null);
     const [availableMetrics, setAvailableMetrics] = useState<string[]>([]);
@@ -391,7 +397,7 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
         }
     }, [selectedMetric, snmpData, timeRange, processCounterData, viewMode]);
 
-    // Process data for combined view with timestamp alignment
+    // Process data for combined view with timestamp alignment - now handles all groups
     useEffect(() => {
         if (snmpData.length > 0 && viewMode === 'combined' && metricGroups.length > 0) {
             try {
@@ -416,35 +422,38 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
                     return timestamp >= start && timestamp <= end;
                 });
 
-                const activeGroup = metricGroups[0];
-                const metricsToShow = activeGroup.metrics;
+                // Process data for each metric group separately
+                const groupedData = metricGroups.map(group => {
+                    const allMetricsData: { [key: number]: CombinedDataPoint } = {};
 
-                const allMetricsData: { [key: number]: CombinedDataPoint } = {};
+                    group.metrics.forEach(metric => {
+                        const metricData = timeFilteredData.filter(item => item.oid_name === metric);
+                        const processed = processCounterData(metricData);
 
-                metricsToShow.forEach(metric => {
-                    const metricData = timeFilteredData.filter(item => item.oid_name === metric);
-                    const processed = processCounterData(metricData);
-
-                    processed.forEach(point => {
-                        const timestamp = new Date(point.timestamp).getTime();
-                        // Round to the nearest 10 seconds to align timestamps
-                        const roundedTimestamp = Math.round(timestamp / 10000) * 10000;
-                        if (!allMetricsData[roundedTimestamp]) {
-                            allMetricsData[roundedTimestamp] = { timestamp: roundedTimestamp };
-                        }
-                        allMetricsData[roundedTimestamp][metric] = point.rate || 0;
+                        processed.forEach(point => {
+                            const timestamp = new Date(point.timestamp).getTime();
+                            // Round to the nearest 10 seconds to align timestamps
+                            const roundedTimestamp = Math.round(timestamp / 10000) * 10000;
+                            if (!allMetricsData[roundedTimestamp]) {
+                                allMetricsData[roundedTimestamp] = { timestamp: roundedTimestamp };
+                            }
+                            allMetricsData[roundedTimestamp][metric] = point.rate || 0;
+                        });
                     });
+
+                    return {
+                        group,
+                        data: Object.values(allMetricsData).sort((a, b) => a.timestamp - b.timestamp)
+                    };
                 });
 
-                const combinedArray = Object.values(allMetricsData)
-                    .sort((a, b) => a.timestamp - b.timestamp);
+                console.log('SNMPDashboard: Grouped data:', groupedData.map(g => ({ group: g.group.baseKey, dataLength: g.data.length })));
+                setCombinedData(groupedData);
 
-                console.log('SNMPDashboard: Combined data sample:', combinedArray.slice(0, 3));
-                console.log('SNMPDashboard: Combined data length:', combinedArray.length);
-                setCombinedData(combinedArray);
-
-                if (metricsToShow.length > 0 && (!selectedMetric || !metricsToShow.includes(selectedMetric))) {
-                    setSelectedMetric(metricsToShow[0]);
+                // Set selected metric from first group if needed
+                if (metricGroups.length > 0 && metricGroups[0].metrics.length > 0 && 
+                    (!selectedMetric || !metricGroups[0].metrics.includes(selectedMetric))) {
+                    setSelectedMetric(metricGroups[0].metrics[0]);
                 }
             } catch (err) {
                 console.error('Error processing combined data:', err);
@@ -602,7 +611,7 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
 
                     {viewMode === 'combined' && metricGroups.length > 0 && (
                         <div className="text-xs italic text-gray-500 dark:text-gray-400">
-                            {metricGroups[0].metrics.map(metric => getMetricLabel(metric)).join(' + ')}
+                            {metricGroups.length} interface{metricGroups.length > 1 ? 's' : ''} with {metricGroups[0]?.metrics.length || 0} metrics each
                         </div>
                     )}
                 </div>
@@ -627,49 +636,63 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
             </div>
 
             {viewMode === 'combined' && combinedData.length > 0 && (
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
-                    <div style={{ height: `${chartHeight}px` }}>
-                        <ResponsiveContainer width="100%" height="100%">
-                            <AreaChart data={combinedData}>
-                                <CartesianGrid strokeDasharray="3 3" />
-                                <XAxis
-                                    dataKey="timestamp"
-                                    tickFormatter={(ts) => new Date(ts).toLocaleTimeString()}
-                                />
-                                <YAxis
-                                    tickFormatter={(value) => formatRate(value)}
-                                    domain={['auto', 'auto']}
-                                    scale="linear"
-                                />
-                                <Tooltip
-                                    labelFormatter={(ts) => new Date(ts).toLocaleString()}
-                                    formatter={(value: number, name: string) => [
-                                        formatRate(value),
-                                        getMetricLabel(name),
-                                    ]}
-                                />
-                                <Legend formatter={(value) => getMetricLabel(value)} />
-                                {metricGroups[0]?.metrics
-                                    .sort((a, b) => (a.includes('In') && !b.includes('In') ? 1 : !a.includes('In') && b.includes('In') ? -1 : 0))
-                                    .map((metric, index) => {
-                                        const colors = getMetricColor(metric, index);
-                                        return (
-                                            <Area
-                                                key={metric}
-                                                type="monotone"
-                                                dataKey={metric}
-                                                stroke={colors.stroke}
-                                                fill={colors.fill}
-                                                stackId="1"
-                                                name={metric}
-                                                isAnimationActive={false}
-                                                connectNulls={true} // Smooth out gaps
-                                            />
-                                        );
-                                    })}
-                            </AreaChart>
-                        </ResponsiveContainer>
-                    </div>
+                <div className="space-y-4">
+                    {combinedData.map((groupData, groupIndex) => (
+                        <div key={groupData.group.baseKey} className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+                            <div className="mb-3">
+                                <h4 className="text-lg font-medium text-gray-800 dark:text-gray-200">
+                                    {groupData.group.baseKey === "ifOctets_global" ? "Global Interface Metrics" : 
+                                     groupData.group.baseKey.includes("ifOctets") ? `Interface ${groupData.group.baseKey.split('_')[1]} Metrics` :
+                                     groupData.group.baseKey}
+                                </h4>
+                                <p className="text-sm text-gray-600 dark:text-gray-400">
+                                    {groupData.group.metrics.map(metric => getMetricLabel(metric)).join(' + ')}
+                                </p>
+                            </div>
+                            <div style={{ height: `${chartHeight}px` }}>
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <AreaChart data={groupData.data}>
+                                        <CartesianGrid strokeDasharray="3 3" />
+                                        <XAxis
+                                            dataKey="timestamp"
+                                            tickFormatter={(ts) => new Date(ts).toLocaleTimeString()}
+                                        />
+                                        <YAxis
+                                            tickFormatter={(value) => formatRate(value)}
+                                            domain={['auto', 'auto']}
+                                            scale="linear"
+                                        />
+                                        <Tooltip
+                                            labelFormatter={(ts) => new Date(ts).toLocaleString()}
+                                            formatter={(value: number, name: string) => [
+                                                formatRate(value),
+                                                getMetricLabel(name),
+                                            ]}
+                                        />
+                                        <Legend formatter={(value) => getMetricLabel(value)} />
+                                        {groupData.group.metrics
+                                            .sort((a, b) => (a.includes('In') && !b.includes('In') ? 1 : !a.includes('In') && b.includes('In') ? -1 : 0))
+                                            .map((metric, index) => {
+                                                const colors = getMetricColor(metric, index);
+                                                return (
+                                                    <Area
+                                                        key={metric}
+                                                        type="monotone"
+                                                        dataKey={metric}
+                                                        stroke={colors.stroke}
+                                                        fill={colors.fill}
+                                                        stackId="1"
+                                                        name={metric}
+                                                        isAnimationActive={false}
+                                                        connectNulls={true} // Smooth out gaps
+                                                    />
+                                                );
+                                            })}
+                                    </AreaChart>
+                                </ResponsiveContainer>
+                            </div>
+                        </div>
+                    ))}
                 </div>
             )}
 
