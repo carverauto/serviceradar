@@ -689,7 +689,7 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
                         if (showAllInterfaces) {
                             // Limit to first 5 interfaces for performance
                             const limitedData = combinedData.slice(0, 5);
-                            return limitedData.map((groupData, groupIndex) => (
+                            return limitedData.map((groupData) => (
                                 <div key={groupData.group.baseKey} className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
                                     <div className="mb-3">
                                         <h4 className="text-lg font-medium text-gray-800 dark:text-gray-200">
