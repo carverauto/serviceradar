@@ -26,11 +26,6 @@ import (
 
 //go:generate mockgen -destination=mock_armis.go -package=armis github.com/carverauto/serviceradar/pkg/sync/integrations/armis HTTPClient,TokenProvider,DeviceFetcher,KVWriter,SweepResultsQuerier,ArmisUpdater
 
-// SweepResultsQuerier defines the interface for querying sweep results
-type SweepResultsQuerier interface {
-	GetDeviceStatesBySource(ctx context.Context, source string) ([]DeviceState, error)
-}
-
 // ArmisUpdater defines the interface for updating device status in Armis
 type ArmisUpdater interface {
 	// UpdateDeviceStatus sends device availability status back to Armis

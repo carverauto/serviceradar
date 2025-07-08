@@ -18,6 +18,7 @@
 package armis
 
 import (
+	"github.com/carverauto/serviceradar/pkg/sync"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/models"
@@ -43,7 +44,8 @@ type ArmisIntegration struct {
 	KVWriter      KVWriter
 
 	// Interfaces for querying sweep results and updating Armis devices
-	SweepQuerier SweepResultsQuerier
+	// SweepQuerier SweepResultsQuerier
+	SweepQuerier sync.SRQLQuerier
 	Updater      ArmisUpdater
 }
 
@@ -109,11 +111,4 @@ type DefaultKVWriter struct {
 	KVClient   proto.KVServiceClient
 	ServerName string
 	AgentID    string
-}
-
-// DeviceState represents the consolidated state of a device from the unified view.
-type DeviceState struct {
-	IP          string
-	IsAvailable bool
-	Metadata    map[string]interface{}
 }
