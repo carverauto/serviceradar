@@ -160,8 +160,6 @@ const SNMPDevicesView: React.FC = React.memo(() => {
         if (cursor) body.cursor = cursor;
         if (direction) body.direction = direction;
 
-        console.log("Executing query:", body);
-
         const response = await fetch('/api/query', {
             method: 'POST',
             headers: {
