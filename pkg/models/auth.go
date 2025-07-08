@@ -31,6 +31,8 @@ type User struct {
 	Name string `json:"name" example:"John Doe"`
 	// Authentication provider (e.g., "local", "google", "github")
 	Provider string `json:"provider" example:"google"`
+	// Roles assigned to the user, e.g., "admin", "viewer"
+	Roles []string `json:"roles" example:"['admin', 'viewer']"`
 	// When the user account was created
 	CreatedAt time.Time `json:"created_at" example:"2025-01-01T00:00:00Z"`
 	// When the user account was last updated
@@ -72,4 +74,12 @@ type SSOConfig struct {
 	ClientSecret string `json:"client_secret" example:"oauth-client-secret"`
 	// OAuth scopes requested
 	Scopes []string `json:"scopes" example:"profile,email"`
+}
+
+// Role represents a user role with a set of permissions.
+// @Description Represents a user role with a set of permissions.
+type Role struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name" example:"admin"`
+	Permissions []string `json:"permissions" example:"['read:devices', 'delete:devices']"`
 }

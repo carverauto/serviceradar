@@ -24,9 +24,10 @@ import (
 )
 
 type Claims struct {
-	UserID   string `json:"user_id"`
-	Email    string `json:"email"`
-	Provider string `json:"provider"`
+	UserID   string   `json:"user_id"`
+	Email    string   `json:"email"`
+	Provider string   `json:"provider"`
+	Roles    []string `json:"roles"`
 	jwt.RegisteredClaims
 }
 
