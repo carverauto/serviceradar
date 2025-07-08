@@ -20,13 +20,17 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/http"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	ggrpc "github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/poller"
-	"github.com/carverauto/serviceradar/pkg/sync/integrations"
+	"github.com/carverauto/serviceradar/pkg/sync/integrations/armis"
+	"github.com/carverauto/serviceradar/pkg/sync/integrations/netbox"
 	"github.com/carverauto/serviceradar/proto"
 	"google.golang.org/grpc"
 )
@@ -285,7 +289,7 @@ func defaultIntegrationRegistry(
 				conn = grpcClient.GetConnection()
 			}
 
-			return integrations.NewArmisIntegration(ctx, config, kvClient, conn, serverName)
+			return NewArmisIntegration(ctx, config, kvClient, conn, serverName)
 		},
 		integrationTypeNetbox: func(ctx context.Context, config *models.SourceConfig) Integration {
 			var conn *grpc.ClientConn
@@ -294,7 +298,7 @@ func defaultIntegrationRegistry(
 				conn = grpcClient.GetConnection()
 			}
 
-			integ := integrations.NewNetboxIntegration(ctx, config, kvClient, conn, serverName)
+			integ := NewNetboxIntegration(ctx, config, kvClient, conn, serverName)
 			if val, ok := config.Credentials["expand_subnets"]; ok && val == "true" {
 				integ.ExpandSubnets = true
 			}
@@ -344,4 +348,189 @@ func getServerName(config *Config) string {
 	}
 
 	return ""
+}
+
+// armisDeviceStateAdapter adapts sync.DeviceState to armis.DeviceState
+type armisDeviceStateAdapter struct {
+	querier SRQLQuerier
+}
+
+func (a *armisDeviceStateAdapter) GetDeviceStatesBySource(ctx context.Context, source string) ([]armis.DeviceState, error) {
+	states, err := a.querier.GetDeviceStatesBySource(ctx, source)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]armis.DeviceState, len(states))
+	for i, state := range states {
+		result[i] = armis.DeviceState{
+			DeviceID:    state.DeviceID,
+			IP:          state.IP,
+			IsAvailable: state.IsAvailable,
+			Metadata:    state.Metadata,
+		}
+	}
+
+	return result, nil
+}
+
+// netboxDeviceStateAdapter adapts sync.DeviceState to netbox.DeviceState
+type netboxDeviceStateAdapter struct {
+	querier SRQLQuerier
+}
+
+func (n *netboxDeviceStateAdapter) GetDeviceStatesBySource(ctx context.Context, source string) ([]netbox.DeviceState, error) {
+	states, err := n.querier.GetDeviceStatesBySource(ctx, source)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]netbox.DeviceState, len(states))
+	for i, state := range states {
+		result[i] = netbox.DeviceState{
+			DeviceID:    state.DeviceID,
+			IP:          state.IP,
+			IsAvailable: state.IsAvailable,
+			Metadata:    state.Metadata,
+		}
+	}
+
+	return result, nil
+}
+
+// NewArmisIntegration creates a new ArmisIntegration with a gRPC client.
+func NewArmisIntegration(
+	_ context.Context,
+	config *models.SourceConfig,
+	kvClient proto.KVServiceClient,
+	grpcConn *grpc.ClientConn,
+	serverName string,
+) *armis.ArmisIntegration {
+	// Extract page size if specified
+	pageSize := 100 // default
+
+	if val, ok := config.Credentials["page_size"]; ok {
+		if size, err := strconv.Atoi(val); err == nil && size > 0 {
+			pageSize = size
+		}
+	}
+
+	// Create the default HTTP client
+	httpClient := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	// Create the default implementations
+	defaultImpl := &armis.DefaultArmisIntegration{
+		Config:     config,
+		HTTPClient: httpClient,
+	}
+
+	// Create the default KV writer
+	kvWriter := &armis.DefaultKVWriter{
+		KVClient:   kvClient,
+		ServerName: serverName,
+		AgentID:    config.AgentID,
+	}
+
+	interval := config.SweepInterval
+	if interval == "" {
+		interval = "10m"
+	}
+
+	defaultSweepCfg := &models.SweepConfig{
+		Ports:         []int{22, 80, 443, 3389, 445, 5985, 5986, 8080},
+		SweepModes:    []string{"icmp", "tcp"},
+		Interval:      interval,
+		Concurrency:   100,
+		Timeout:       "15s",
+		IcmpCount:     1,
+		HighPerfIcmp:  true,
+		IcmpRateLimit: 5000,
+	}
+
+	// Initialize SweepResultsQuerier if ServiceRadar API credentials are provided
+	var sweepQuerier armis.SRQLQuerier
+
+	serviceRadarAPIKey := config.Credentials["api_key"]
+	serviceRadarEndpoint := config.Credentials["serviceradar_endpoint"]
+
+	// If no specific ServiceRadar endpoint is provided, assume it's on the same host
+	if serviceRadarEndpoint == "" && serviceRadarAPIKey != "" {
+		// Extract host from Armis endpoint if possible, otherwise use localhost
+		serviceRadarEndpoint = "http://localhost:8080"
+	}
+
+	if serviceRadarAPIKey != "" && serviceRadarEndpoint != "" {
+		baseSweepQuerier := NewSweepResultsQuery(
+			serviceRadarEndpoint,
+			serviceRadarAPIKey,
+			httpClient,
+		)
+		sweepQuerier = &armisDeviceStateAdapter{querier: baseSweepQuerier}
+	}
+
+	// Initialize ArmisUpdater (placeholder - needs actual implementation based on Armis API)
+	var armisUpdater armis.ArmisUpdater
+
+	if config.Credentials["enable_status_updates"] == "true" {
+		armisUpdater = armis.NewArmisUpdater(
+			config,
+			httpClient,
+			defaultImpl, // Using defaultImpl as TokenProvider
+		)
+	}
+
+	return &armis.ArmisIntegration{
+		Config:        config,
+		KVClient:      kvClient,
+		GRPCConn:      grpcConn,
+		ServerName:    serverName,
+		PageSize:      pageSize,
+		HTTPClient:    httpClient,
+		TokenProvider: defaultImpl,
+		DeviceFetcher: defaultImpl,
+		KVWriter:      kvWriter,
+		SweeperConfig: defaultSweepCfg,
+		SweepQuerier:  sweepQuerier,
+		Updater:       armisUpdater,
+	}
+}
+
+// NewNetboxIntegration creates a new NetboxIntegration instance.
+func NewNetboxIntegration(
+	_ context.Context,
+	config *models.SourceConfig,
+	kvClient proto.KVServiceClient,
+	grpcConn *grpc.ClientConn,
+	serverName string,
+) *netbox.NetboxIntegration {
+	// Add SRQL Querier for retraction logic, if configured
+	var sweepQuerier netbox.SRQLQuerier
+
+	serviceRadarAPIKey := config.Credentials["api_key"]
+	serviceRadarEndpoint := config.Credentials["serviceradar_endpoint"]
+
+	if serviceRadarEndpoint == "" && serviceRadarAPIKey != "" {
+		serviceRadarEndpoint = "http://localhost:8080"
+	}
+
+	if serviceRadarAPIKey != "" && serviceRadarEndpoint != "" {
+		httpClient := &http.Client{Timeout: 30 * time.Second}
+		baseSweepQuerier := NewSweepResultsQuery(
+			serviceRadarEndpoint,
+			serviceRadarAPIKey,
+			httpClient,
+		)
+		sweepQuerier = &netboxDeviceStateAdapter{querier: baseSweepQuerier}
+	}
+
+	return &netbox.NetboxIntegration{
+		Config:        config,
+		KvClient:      kvClient,
+		GrpcConn:      grpcConn,
+		ServerName:    serverName,
+		ExpandSubnets: false, // Default: treat as /32 //TODO: make this configurable
+		Querier:       sweepQuerier,
+	}
 }

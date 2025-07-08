@@ -908,39 +908,3 @@ func TestPrepareArmisUpdateFromDeviceQuery(t *testing.T) {
 	assert.Equal(t, "1.1.1.1", updates[0].IP)
 	assert.True(t, updates[0].Available)
 }
-
-func TestConvertToDeviceStates(t *testing.T) {
-	q := &SweepResultsQuery{}
-
-	raw := []map[string]interface{}{
-		{"ip": "1.1.1.1", "is_available": true, "metadata": map[string]interface{}{"x": "y"}},
-	}
-
-	states := q.convertToDeviceStates(raw)
-
-	require.Len(t, states, 1)
-
-	assert.Equal(t, "1.1.1.1", states[0].IP)
-	assert.True(t, states[0].IsAvailable)
-	assert.Equal(t, "y", states[0].Metadata["x"])
-}
-
-func TestConvertToSweepResults(t *testing.T) {
-	q := &SweepResultsQuery{}
-
-	ts := time.Now().UTC()
-
-	raw := []map[string]interface{}{
-		{"ip": "1.1.1.1", "available": true, "timestamp": ts.Format(time.RFC3339), "rtt": 1.5, "port": 80.0, "protocol": "icmp"},
-	}
-
-	res := q.convertToSweepResults(raw)
-
-	require.Len(t, res, 1)
-	assert.Equal(t, "1.1.1.1", res[0].IP)
-	assert.True(t, res[0].Available)
-	assert.WithinDuration(t, ts, res[0].Timestamp, time.Second)
-	assert.InEpsilon(t, 1.5, res[0].RTT, 0.0001)
-	assert.Equal(t, 80, res[0].Port)
-	assert.Equal(t, "icmp", res[0].Protocol)
-}
