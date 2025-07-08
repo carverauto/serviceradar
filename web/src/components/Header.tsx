@@ -16,7 +16,7 @@
 
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Search, Settings, ChevronDown, Send, ExternalLink, Sun, Moon, User, LogOut } from 'lucide-react';
 import { useAuth } from './AuthProvider';
@@ -32,7 +32,6 @@ interface Partition {
 }
 
 export default function Header() {
-    const [query, setQuery] = useState('show devices');
     const [selectedPoller, setSelectedPoller] = useState<string | null>(null);
     const [selectedPartition, setSelectedPartition] = useState<string | null>(null);
     const [pollers, setPollers] = useState<Poller[]>([]);
@@ -41,10 +40,26 @@ export default function Header() {
     const [showPartitions, setShowPartitions] = useState(false);
     const [showSettings, setShowSettings] = useState(false);
     const [showProfile, setShowProfile] = useState(false);
+    const [queryInput, setQueryInput] = useState('');
     const router = useRouter();
     const searchParams = useSearchParams();
     const { token, user, logout } = useAuth();
     const { darkMode, setDarkMode } = useTheme();
+
+    // Derive query from URL params or selections
+    const urlQuery = searchParams.get('q');
+    const derivedQuery = useMemo(() => {
+        if (urlQuery) return urlQuery;
+        
+        let newQuery = 'show devices';
+        if (selectedPoller) {
+            newQuery += ` | where poller_id = '${selectedPoller}'`;
+        }
+        if (selectedPartition) {
+            newQuery += ` | where partition = '${selectedPartition}'`;
+        }
+        return newQuery;
+    }, [urlQuery, selectedPoller, selectedPartition]);
 
     useEffect(() => {
         const fetchPollers = async () => {
@@ -98,24 +113,10 @@ export default function Header() {
         fetchPartitions();
     }, [token]);
 
-    // Sync query input with URL parameters
+    // Initialize query input when derived query changes
     useEffect(() => {
-        const queryParam = searchParams.get('q');
-        if (queryParam) {
-            setQuery(queryParam);
-        }
-    }, [searchParams]);
-
-    useEffect(() => {
-        let newQuery = 'show devices';
-        if (selectedPoller) {
-            newQuery += ` | where poller_id = '${selectedPoller}'`;
-        }
-        if (selectedPartition) {
-            newQuery += ` | where partition = '${selectedPartition}'`;
-        }
-        setQuery(newQuery);
-    }, [selectedPoller, selectedPartition]);
+        setQueryInput(derivedQuery);
+    }, [derivedQuery]);
 
     // Close dropdowns when clicking outside
     useEffect(() => {
@@ -145,8 +146,8 @@ export default function Header() {
 
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();
-        if (query.trim()) {
-            router.push(`/query?q=${encodeURIComponent(query)}`);
+        if (queryInput.trim()) {
+            router.push(`/query?q=${encodeURIComponent(queryInput)}`);
         }
     };
 
@@ -179,8 +180,8 @@ export default function Header() {
                             type="text"
                             placeholder="Search using SRQL query"
                             className="w-full bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-l-md py-2 pl-10 pr-4 text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            value={query}
-                            onChange={(e) => setQuery(e.target.value)}
+                            value={queryInput}
+                            onChange={(e) => setQueryInput(e.target.value)}
                         />
                     </div>
                     <button

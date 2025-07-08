@@ -62,25 +62,25 @@ const Dashboard: React.FC<ServiceDashboardProps> = ({
                                                                initialTimeRange = "1h",
                                                            }) => {
     const router = useRouter();
-    const [serviceData] = useState<ServicePayload | null>(initialService);
-    const [metricsData] = useState<ServiceMetric[]>(initialMetrics);
-    const [snmpData] = useState<SnmpDataPoint[]>(initialSnmpData);
-    const [loading] = useState(!initialService && !initialError);
-    const [error] = useState<string | null>(initialError);
-    const [selectedTimeRange] = useState<string>(initialTimeRange);
     const [chartHeight, setChartHeight] = useState<number>(256);
 
-    // Add state for redirection
-    const [redirectToMetrics] = useState(
-        serviceName.toLowerCase() === "sysmon"
-    );
+    // Use props directly instead of copying to state
+    const serviceData = initialService;
+    const metricsData = initialMetrics;
+    const snmpData = initialSnmpData;
+    const loading = !initialService && !initialError;
+    const error = initialError;
+    const selectedTimeRange = initialTimeRange;
+
+    // Check if we need to redirect
+    const shouldRedirectToMetrics = serviceName.toLowerCase() === "sysmon";
 
     // Handle redirect for sysmon service
     useEffect(() => {
-        if (redirectToMetrics) {
+        if (shouldRedirectToMetrics) {
             router.push(`/metrics?pollerId=${pollerId}`);
         }
-    }, [redirectToMetrics, pollerId, router]);
+    }, [shouldRedirectToMetrics, pollerId, router]);
 
     // Adjust chart height based on screen size
     useEffect(() => {

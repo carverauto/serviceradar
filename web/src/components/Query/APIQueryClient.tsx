@@ -18,7 +18,7 @@
 'use client';
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import {Loader2, AlertTriangle, Eye, EyeOff, FileJson, Table} from 'lucide-react';
 import { useAuth } from '@/components/AuthProvider';
 import ReactJson from '@microlink/react-json-view';
@@ -36,7 +36,7 @@ interface ApiQueryClientProps {
 
 const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) => {
     const searchParams = useSearchParams();
-    const [query, setQuery] = useState<string>(initialQuery);
+    const router = useRouter();
     const [results, setResults] = useState<unknown>(null);
     const [responseData, setResponseData] = useState<unknown>(null);
     const [pagination, setPagination] = useState<{
@@ -50,6 +50,9 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
     const [viewFormat, setViewFormat] = useState<ViewFormat>('table');
     const [showRawJson, setShowRawJson] = useState<boolean>(false);
     const { token } = useAuth();
+    
+    // Derive query from URL params, falling back to initialQuery
+    const query = searchParams.get('q') || initialQuery;
 
 
     const [jsonViewTheme, setJsonViewTheme] = useState<'rjv-default' | 'pop'>('rjv-default');
@@ -59,10 +62,10 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
             e?: React.FormEvent<HTMLFormElement>,
             cursorParam?: string,
             directionParam?: 'next' | 'prev',
-            currentQuery?: string
+            overrideQuery?: string
         ) => {
             if (e) e.preventDefault();
-            const q = currentQuery || query;
+            const q = overrideQuery || query;
             if (!q.trim()) {
                 setError('Query cannot be empty.');
                 return;
@@ -126,15 +129,13 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
         [query, token, limit]
     );
 
+    // Run query on mount if we have one
     useEffect(() => {
-        const initialQueryFromParams = searchParams.get('q');
-        if (initialQueryFromParams) {
-            setQuery(initialQueryFromParams);
-            handleSubmit(undefined, undefined, undefined, initialQueryFromParams);
-        } else {
-            setQuery(initialQuery); // Set initial query from props if no search param
+        if (query) {
+            handleSubmit(undefined, undefined, undefined, query);
         }
-    }, [searchParams, handleSubmit, initialQuery]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []); // Only run on mount - we intentionally don't want to re-run when query changes
 
     useEffect(() => {
         const updateTheme = () => {
@@ -390,8 +391,7 @@ const ApiQueryClient: React.FC<ApiQueryClientProps> = ({ query: initialQuery }) 
                             <button
                                 key={eg.name}
                                 onClick={() => {
-                                    setQuery(eg.query);
-                                    handleSubmit(undefined, undefined, undefined, eg.query);
+                                    router.push(`/query?q=${encodeURIComponent(eg.query)}`);
                                 }}
                                 className="px-3 py-1 text-xs bg-gray-700/50 text-gray-300 rounded-full hover:bg-gray-600/50 transition-colors"
                             >
