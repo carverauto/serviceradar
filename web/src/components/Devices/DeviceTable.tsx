@@ -133,11 +133,11 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
 
     const getSourceColor = (source: string) => {
         const lowerSource = source.toLowerCase();
-        if (lowerSource.includes('netbox')) return 'bg-blue-600/50 text-blue-200';
-        if (lowerSource.includes('sweep')) return 'bg-green-600/50 text-green-200';
-        if (lowerSource.includes('mapper')) return 'bg-green-600/50 text-green-200';
-        if (lowerSource.includes('unifi')) return 'bg-sky-600/50 text-sky-200';
-        return 'bg-gray-600/50 text-gray-200';
+        if (lowerSource.includes('netbox')) return 'bg-blue-100 text-blue-800 dark:bg-blue-600/50 dark:text-blue-200';
+        if (lowerSource.includes('sweep')) return 'bg-green-100 text-green-800 dark:bg-green-600/50 dark:text-green-200';
+        if (lowerSource.includes('mapper')) return 'bg-green-100 text-green-800 dark:bg-green-600/50 dark:text-green-200';
+        if (lowerSource.includes('unifi')) return 'bg-sky-100 text-sky-800 dark:bg-sky-600/50 dark:text-sky-200';
+        return 'bg-gray-100 text-gray-800 dark:bg-gray-600/50 dark:text-gray-200';
     };
 
     const formatDate = (dateString: string) => {
@@ -168,7 +168,7 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
     const TableHeader = ({ aKey, label }: { aKey: SortableKeys; label: string }) => (
         <th 
             scope="col"
-            className={`px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider ${onSort ? 'cursor-pointer' : ''}`}
+            className={`px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider ${onSort ? 'cursor-pointer' : ''}`}
             onClick={() => onSort && onSort(aKey)}
         >
             <div className="flex items-center">
@@ -182,7 +182,7 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
 
     if (!devices || devices.length === 0) {
         return (
-            <div className="text-center p-8 text-gray-400">
+            <div className="text-center p-8 text-gray-600 dark:text-gray-400">
                 No devices found.
             </div>
         );
@@ -191,14 +191,14 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
     return (
         <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-700">
-                <thead className="bg-gray-800/50">
+                <thead className="bg-gray-100 dark:bg-gray-800/50">
                     <tr>
                         <th scope="col" className="w-12"></th>
-                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                             Status
                         </th>
                         <TableHeader aKey="ip" label="Device" />
-                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                        <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                             Sources
                         </th>
                         <TableHeader aKey="poller_id" label="Poller" />
@@ -212,11 +212,11 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
                                 <td className="pl-4">
                                     <button
                                         onClick={() => setExpandedRow(expandedRow === device.device_id ? null : device.device_id)}
-                                        className="p-1 rounded-full hover:bg-gray-600"
+                                        className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600"
                                     >
                                         {expandedRow === device.device_id ? 
-                                            <ChevronDown className="h-5 w-5 text-gray-400" /> : 
-                                            <ChevronRight className="h-5 w-5 text-gray-400" />
+                                            <ChevronDown className="h-5 w-5 text-gray-600 dark:text-gray-400" /> : 
+                                            <ChevronRight className="h-5 w-5 text-gray-600 dark:text-gray-400" />
                                         }
                                     </button>
                                 </td>
@@ -245,10 +245,10 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
                                     </div>
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap">
-                                    <div className="text-sm font-medium text-white">
+                                    <div className="text-sm font-medium text-gray-900 dark:text-white">
                                         {device.hostname || device.ip}
                                     </div>
-                                    <div className="text-sm text-gray-400">
+                                    <div className="text-sm text-gray-500 dark:text-gray-400">
                                         {device.hostname ? device.ip : device.mac}
                                     </div>
                                 </td>
@@ -266,18 +266,18 @@ const DeviceTable: React.FC<DeviceTableProps> = ({
                                             )) : null}
                                     </div>
                                 </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
                                     {device.poller_id}
                                 </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
                                     {formatDate(device.last_seen)}
                                 </td>
                             </tr>
                             {expandedRow === device.device_id && (
-                                <tr className="bg-gray-800/50">
+                                <tr className="bg-gray-50 dark:bg-gray-800/50">
                                     <td colSpan={6} className="p-0">
                                         <div className="p-4">
-                                            <h4 className="text-md font-semibold text-white mb-2">
+                                            <h4 className="text-md font-semibold text-gray-900 dark:text-white mb-2">
                                                 Metadata
                                             </h4>
                                             <ReactJson

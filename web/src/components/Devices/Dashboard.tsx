@@ -21,21 +21,29 @@ import {Server, Search, Loader2, AlertTriangle, CheckCircle, XCircle} from 'luci
 import DeviceTable from './DeviceTable';
 import { useDebounce } from 'use-debounce';
 type SortableKeys = 'ip' | 'hostname' | 'last_seen' | 'first_seen' | 'poller_id';
-const StatCard = ({ title, value, icon, isLoading }: { title: string; value: string | number; icon: React.ReactNode; isLoading: boolean }) => (
-    <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 p-4 rounded-lg">
-        <div className="flex items-center">
-            <div className="p-2 bg-blue-100 dark:bg-gray-700/50 rounded-md mr-4 text-blue-600 dark:text-blue-400">{icon}</div>
-            <div>
-                <p className="text-sm text-gray-600 dark:text-gray-400">{title}</p>
-                {isLoading ? (
-                    <div className="h-7 w-20 bg-gray-200 dark:bg-gray-700 rounded-md animate-pulse mt-1"></div>
-                ) : (
-                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{value}</p>
-                )}
+const StatCard = ({ title, value, icon, isLoading, colorScheme = 'blue' }: { title: string; value: string | number; icon: React.ReactNode; isLoading: boolean; colorScheme?: 'blue' | 'green' | 'red' }) => {
+    const bgColors = {
+        blue: 'bg-blue-50 dark:bg-blue-900/30',
+        green: 'bg-green-50 dark:bg-green-900/30',
+        red: 'bg-red-50 dark:bg-red-900/30'
+    };
+    
+    return (
+        <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 p-4 rounded-lg">
+            <div className="flex items-center">
+                <div className={`p-3 ${bgColors[colorScheme]} rounded-lg mr-4`}>{icon}</div>
+                <div>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">{title}</p>
+                    {isLoading ? (
+                        <div className="h-7 w-20 bg-gray-200 dark:bg-gray-700 rounded-md animate-pulse mt-1"></div>
+                    ) : (
+                        <p className="text-2xl font-bold text-gray-900 dark:text-white">{value}</p>
+                    )}
+                </div>
             </div>
         </div>
-    </div>
-);
+    );
+};
 const Dashboard = () => {
     const {token} = useAuth();
     const [devices, setDevices] = useState<Device[]>([]);
@@ -164,11 +172,17 @@ const Dashboard = () => {
         <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <StatCard title="Total Devices" value={stats.total.toLocaleString()}
-                          icon={<Server className="h-6 w-6 text-blue-600 dark:text-gray-300"/>} isLoading={statsLoading}/>
+                          icon={<Server className="h-6 w-6 text-blue-600 dark:text-blue-400"/>} 
+                          isLoading={statsLoading}
+                          colorScheme="blue"/>
                 <StatCard title="Online" value={stats.online.toLocaleString()}
-                          icon={<CheckCircle className="h-6 w-6 text-green-400"/>} isLoading={statsLoading}/>
+                          icon={<CheckCircle className="h-6 w-6 text-green-600 dark:text-green-400"/>} 
+                          isLoading={statsLoading}
+                          colorScheme="green"/>
                 <StatCard title="Offline" value={stats.offline.toLocaleString()}
-                          icon={<XCircle className="h-6 w-6 text-red-400"/>} isLoading={statsLoading}/>
+                          icon={<XCircle className="h-6 w-6 text-red-600 dark:text-red-400"/>} 
+                          isLoading={statsLoading}
+                          colorScheme="red"/>
             </div>
 
             <div className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg shadow-lg">
