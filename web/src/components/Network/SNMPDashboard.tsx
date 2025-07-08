@@ -19,6 +19,7 @@
 import React, { useCallback, useState, useEffect, useMemo } from 'react';
 import { CartesianGrid, Legend, Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { AlertTriangle } from 'lucide-react';
 import { SnmpDataPoint } from '@/types/snmp';
 import { useAuth } from '@/components/AuthProvider';
 
@@ -42,6 +43,12 @@ interface CombinedDataPoint {
     [key: string]: number; // Dynamic metric keys with rate values
 }
 
+// Define type for grouped chart data
+interface GroupedChartData {
+    group: MetricGroup;
+    data: CombinedDataPoint[];
+}
+
 // Define type for metric group
 interface MetricGroup {
     baseKey: string;
@@ -63,12 +70,14 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
     const { token } = useAuth(); // Get authentication token from AuthProvider
     const [snmpData, setSNMPData] = useState<SnmpDataPoint[]>(initialData);
     const [processedData, setProcessedData] = useState<ProcessedSnmpDataPoint[]>([]);
-    const [combinedData, setCombinedData] = useState<CombinedDataPoint[]>([]);
+    const [combinedData, setCombinedData] = useState<GroupedChartData[]>([]);
     const [timeRange, setTimeRange] = useState<string>(searchParams.get('timeRange') || initialTimeRange);
     const [selectedMetric, setSelectedMetric] = useState<string | null>(null);
     const [availableMetrics, setAvailableMetrics] = useState<string[]>([]);
     const [chartHeight, setChartHeight] = useState<number>(384); // Default height
     const [viewMode, setViewMode] = useState<'combined' | 'single'>('combined'); // Default to combined view
+    const [selectedGroupIndex, setSelectedGroupIndex] = useState<number>(0); // For interface selection
+    const [showAllInterfaces, setShowAllInterfaces] = useState<boolean>(false); // Toggle for showing all vs selected
 
     // Improved metric label formatting
     const getMetricLabel = useCallback((metric: string): string => {
@@ -391,7 +400,7 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
         }
     }, [selectedMetric, snmpData, timeRange, processCounterData, viewMode]);
 
-    // Process data for combined view with timestamp alignment
+    // Process data for combined view with timestamp alignment - now handles all groups
     useEffect(() => {
         if (snmpData.length > 0 && viewMode === 'combined' && metricGroups.length > 0) {
             try {
@@ -416,35 +425,38 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
                     return timestamp >= start && timestamp <= end;
                 });
 
-                const activeGroup = metricGroups[0];
-                const metricsToShow = activeGroup.metrics;
+                // Process data for each metric group separately
+                const groupedData = metricGroups.map(group => {
+                    const allMetricsData: { [key: number]: CombinedDataPoint } = {};
 
-                const allMetricsData: { [key: number]: CombinedDataPoint } = {};
+                    group.metrics.forEach(metric => {
+                        const metricData = timeFilteredData.filter(item => item.oid_name === metric);
+                        const processed = processCounterData(metricData);
 
-                metricsToShow.forEach(metric => {
-                    const metricData = timeFilteredData.filter(item => item.oid_name === metric);
-                    const processed = processCounterData(metricData);
-
-                    processed.forEach(point => {
-                        const timestamp = new Date(point.timestamp).getTime();
-                        // Round to the nearest 10 seconds to align timestamps
-                        const roundedTimestamp = Math.round(timestamp / 10000) * 10000;
-                        if (!allMetricsData[roundedTimestamp]) {
-                            allMetricsData[roundedTimestamp] = { timestamp: roundedTimestamp };
-                        }
-                        allMetricsData[roundedTimestamp][metric] = point.rate || 0;
+                        processed.forEach(point => {
+                            const timestamp = new Date(point.timestamp).getTime();
+                            // Round to the nearest 10 seconds to align timestamps
+                            const roundedTimestamp = Math.round(timestamp / 10000) * 10000;
+                            if (!allMetricsData[roundedTimestamp]) {
+                                allMetricsData[roundedTimestamp] = { timestamp: roundedTimestamp };
+                            }
+                            allMetricsData[roundedTimestamp][metric] = point.rate || 0;
+                        });
                     });
+
+                    return {
+                        group,
+                        data: Object.values(allMetricsData).sort((a, b) => a.timestamp - b.timestamp)
+                    };
                 });
 
-                const combinedArray = Object.values(allMetricsData)
-                    .sort((a, b) => a.timestamp - b.timestamp);
+                console.log('SNMPDashboard: Grouped data:', groupedData.map(g => ({ group: g.group.baseKey, dataLength: g.data.length })));
+                setCombinedData(groupedData);
 
-                console.log('SNMPDashboard: Combined data sample:', combinedArray.slice(0, 3));
-                console.log('SNMPDashboard: Combined data length:', combinedArray.length);
-                setCombinedData(combinedArray);
-
-                if (metricsToShow.length > 0 && (!selectedMetric || !metricsToShow.includes(selectedMetric))) {
-                    setSelectedMetric(metricsToShow[0]);
+                // Set selected metric from first group if needed
+                if (metricGroups.length > 0 && metricGroups[0].metrics.length > 0 && 
+                    (!selectedMetric || !metricGroups[0].metrics.includes(selectedMetric))) {
+                    setSelectedMetric(metricGroups[0].metrics[0]);
                 }
             } catch (err) {
                 console.error('Error processing combined data:', err);
@@ -601,8 +613,39 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
                     )}
 
                     {viewMode === 'combined' && metricGroups.length > 0 && (
-                        <div className="text-xs italic text-gray-500 dark:text-gray-400">
-                            {metricGroups[0].metrics.map(metric => getMetricLabel(metric)).join(' + ')}
+                        <div className="flex items-center gap-4">
+                            <div className="text-xs italic text-gray-500 dark:text-gray-400">
+                                {metricGroups.length} interface{metricGroups.length > 1 ? 's' : ''} available
+                            </div>
+                            
+                            {metricGroups.length > 1 && (
+                                <div className="flex items-center gap-2">
+                                    <label className="text-xs text-gray-600 dark:text-gray-400">
+                                        Show:
+                                    </label>
+                                    <select
+                                        value={showAllInterfaces ? 'all' : selectedGroupIndex.toString()}
+                                        onChange={(e) => {
+                                            if (e.target.value === 'all') {
+                                                setShowAllInterfaces(true);
+                                            } else {
+                                                setShowAllInterfaces(false);
+                                                setSelectedGroupIndex(parseInt(e.target.value));
+                                            }
+                                        }}
+                                        className="px-2 py-1 border rounded text-xs text-gray-800 dark:text-gray-200 dark:bg-gray-700 dark:border-gray-600"
+                                    >
+                                        <option value="all">All Interfaces (first {Math.min(5, metricGroups.length)})</option>
+                                        {metricGroups.map((group, index) => (
+                                            <option key={index} value={index.toString()}>
+                                                {group.baseKey === "ifOctets_global" ? "Global Interface" : 
+                                                 group.baseKey.includes("ifOctets") ? `Interface ${group.baseKey.split('_')[1]}` :
+                                                 group.baseKey}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>
@@ -627,49 +670,154 @@ const SNMPDashboard: React.FC<SNMPDashboardProps> = ({
             </div>
 
             {viewMode === 'combined' && combinedData.length > 0 && (
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
-                    <div style={{ height: `${chartHeight}px` }}>
-                        <ResponsiveContainer width="100%" height="100%">
-                            <AreaChart data={combinedData}>
-                                <CartesianGrid strokeDasharray="3 3" />
-                                <XAxis
-                                    dataKey="timestamp"
-                                    tickFormatter={(ts) => new Date(ts).toLocaleTimeString()}
-                                />
-                                <YAxis
-                                    tickFormatter={(value) => formatRate(value)}
-                                    domain={['auto', 'auto']}
-                                    scale="linear"
-                                />
-                                <Tooltip
-                                    labelFormatter={(ts) => new Date(ts).toLocaleString()}
-                                    formatter={(value: number, name: string) => [
-                                        formatRate(value),
-                                        getMetricLabel(name),
-                                    ]}
-                                />
-                                <Legend formatter={(value) => getMetricLabel(value)} />
-                                {metricGroups[0]?.metrics
-                                    .sort((a, b) => (a.includes('In') && !b.includes('In') ? 1 : !a.includes('In') && b.includes('In') ? -1 : 0))
-                                    .map((metric, index) => {
-                                        const colors = getMetricColor(metric, index);
-                                        return (
-                                            <Area
-                                                key={metric}
-                                                type="monotone"
-                                                dataKey={metric}
-                                                stroke={colors.stroke}
-                                                fill={colors.fill}
-                                                stackId="1"
-                                                name={metric}
-                                                isAnimationActive={false}
-                                                connectNulls={true} // Smooth out gaps
-                                            />
-                                        );
-                                    })}
-                            </AreaChart>
-                        </ResponsiveContainer>
-                    </div>
+                <div className="space-y-4">
+                    {/* Show warning if there are many interfaces */}
+                    {metricGroups.length > 50 && showAllInterfaces && (
+                        <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
+                            <div className="flex items-center gap-2">
+                                <AlertTriangle className="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
+                                <div className="text-sm text-yellow-800 dark:text-yellow-200">
+                                    <p className="font-medium">Performance Warning</p>
+                                    <p>Showing {metricGroups.length} interfaces. Consider selecting a specific interface for better performance.</p>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    
+                    {/* Render charts based on selection */}
+                    {(() => {
+                        if (showAllInterfaces) {
+                            // Limit to first 5 interfaces for performance
+                            const limitedData = combinedData.slice(0, 5);
+                            return limitedData.map((groupData) => (
+                                <div key={groupData.group.baseKey} className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+                                    <div className="mb-3">
+                                        <h4 className="text-lg font-medium text-gray-800 dark:text-gray-200">
+                                            {groupData.group.baseKey === "ifOctets_global" ? "Global Interface Metrics" : 
+                                             groupData.group.baseKey.includes("ifOctets") ? `Interface ${groupData.group.baseKey.split('_')[1]} Metrics` :
+                                             groupData.group.baseKey}
+                                        </h4>
+                                        <p className="text-sm text-gray-600 dark:text-gray-400">
+                                            {groupData.group.metrics.map(metric => getMetricLabel(metric)).join(' + ')}
+                                        </p>
+                                    </div>
+                                    <div style={{ height: `${chartHeight}px` }}>
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <AreaChart data={groupData.data}>
+                                                <CartesianGrid strokeDasharray="3 3" />
+                                                <XAxis
+                                                    dataKey="timestamp"
+                                                    tickFormatter={(ts) => new Date(ts).toLocaleTimeString()}
+                                                />
+                                                <YAxis
+                                                    tickFormatter={(value) => formatRate(value)}
+                                                    domain={['auto', 'auto']}
+                                                    scale="linear"
+                                                />
+                                                <Tooltip
+                                                    labelFormatter={(ts) => new Date(ts).toLocaleString()}
+                                                    formatter={(value: number, name: string) => [
+                                                        formatRate(value),
+                                                        getMetricLabel(name),
+                                                    ]}
+                                                />
+                                                <Legend formatter={(value) => getMetricLabel(value)} />
+                                                {groupData.group.metrics
+                                                    .sort((a, b) => (a.includes('In') && !b.includes('In') ? 1 : !a.includes('In') && b.includes('In') ? -1 : 0))
+                                                    .map((metric, index) => {
+                                                        const colors = getMetricColor(metric, index);
+                                                        return (
+                                                            <Area
+                                                                key={metric}
+                                                                type="monotone"
+                                                                dataKey={metric}
+                                                                stroke={colors.stroke}
+                                                                fill={colors.fill}
+                                                                stackId="1"
+                                                                name={metric}
+                                                                isAnimationActive={false}
+                                                                connectNulls={true} // Smooth out gaps
+                                                            />
+                                                        );
+                                                    })}
+                                            </AreaChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                </div>
+                            ));
+                        } else {
+                            // Show only selected interface
+                            const selectedGroupData = combinedData[selectedGroupIndex];
+                            if (!selectedGroupData) return null;
+                            
+                            return (
+                                <div key={selectedGroupData.group.baseKey} className="bg-white dark:bg-gray-800 rounded-lg shadow p-4">
+                                    <div className="mb-3">
+                                        <h4 className="text-lg font-medium text-gray-800 dark:text-gray-200">
+                                            {selectedGroupData.group.baseKey === "ifOctets_global" ? "Global Interface Metrics" : 
+                                             selectedGroupData.group.baseKey.includes("ifOctets") ? `Interface ${selectedGroupData.group.baseKey.split('_')[1]} Metrics` :
+                                             selectedGroupData.group.baseKey}
+                                        </h4>
+                                        <p className="text-sm text-gray-600 dark:text-gray-400">
+                                            {selectedGroupData.group.metrics.map(metric => getMetricLabel(metric)).join(' + ')}
+                                        </p>
+                                    </div>
+                                    <div style={{ height: `${chartHeight}px` }}>
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <AreaChart data={selectedGroupData.data}>
+                                                <CartesianGrid strokeDasharray="3 3" />
+                                                <XAxis
+                                                    dataKey="timestamp"
+                                                    tickFormatter={(ts) => new Date(ts).toLocaleTimeString()}
+                                                />
+                                                <YAxis
+                                                    tickFormatter={(value) => formatRate(value)}
+                                                    domain={['auto', 'auto']}
+                                                    scale="linear"
+                                                />
+                                                <Tooltip
+                                                    labelFormatter={(ts) => new Date(ts).toLocaleString()}
+                                                    formatter={(value: number, name: string) => [
+                                                        formatRate(value),
+                                                        getMetricLabel(name),
+                                                    ]}
+                                                />
+                                                <Legend formatter={(value) => getMetricLabel(value)} />
+                                                {selectedGroupData.group.metrics
+                                                    .sort((a, b) => (a.includes('In') && !b.includes('In') ? 1 : !a.includes('In') && b.includes('In') ? -1 : 0))
+                                                    .map((metric, index) => {
+                                                        const colors = getMetricColor(metric, index);
+                                                        return (
+                                                            <Area
+                                                                key={metric}
+                                                                type="monotone"
+                                                                dataKey={metric}
+                                                                stroke={colors.stroke}
+                                                                fill={colors.fill}
+                                                                stackId="1"
+                                                                name={metric}
+                                                                isAnimationActive={false}
+                                                                connectNulls={true} // Smooth out gaps
+                                                            />
+                                                        );
+                                                    })}
+                                            </AreaChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                </div>
+                            );
+                        }
+                    })()}
+                    
+                    {/* Show pagination info if there are more interfaces */}
+                    {showAllInterfaces && metricGroups.length > 5 && (
+                        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                            <div className="text-sm text-blue-800 dark:text-blue-200">
+                                <p className="font-medium">Showing first 5 of {metricGroups.length} interfaces</p>
+                                <p>Use the interface selector above to view specific interfaces, or consider filtering your data source.</p>
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
 
