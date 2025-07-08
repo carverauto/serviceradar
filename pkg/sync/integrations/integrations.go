@@ -19,6 +19,7 @@ package integrations
 
 import (
 	"context"
+	"github.com/carverauto/serviceradar/pkg/sync"
 	"net/http"
 	"strconv"
 	"time"
@@ -82,7 +83,7 @@ func NewArmisIntegration(
 	}
 
 	// Initialize SweepResultsQuerier if ServiceRadar API credentials are provided
-	var sweepQuerier armis.SweepResultsQuerier
+	var sweepQuerier sync.SRQLQuerier
 
 	serviceRadarAPIKey := config.Credentials["api_key"]
 	serviceRadarEndpoint := config.Credentials["serviceradar_endpoint"]
@@ -94,7 +95,7 @@ func NewArmisIntegration(
 	}
 
 	if serviceRadarAPIKey != "" && serviceRadarEndpoint != "" {
-		sweepQuerier = armis.NewSweepResultsQuery(
+		sweepQuerier = sync.NewSweepResultsQuery(
 			serviceRadarEndpoint,
 			serviceRadarAPIKey,
 			httpClient,
@@ -103,6 +104,7 @@ func NewArmisIntegration(
 
 	// Initialize ArmisUpdater (placeholder - needs actual implementation based on Armis API)
 	var armisUpdater armis.ArmisUpdater
+
 	if config.Credentials["enable_status_updates"] == "true" {
 		armisUpdater = armis.NewArmisUpdater(
 			config,
@@ -135,11 +137,30 @@ func NewNetboxIntegration(
 	grpcConn *grpc.ClientConn,
 	serverName string,
 ) *netbox.NetboxIntegration {
+	// Add SRQL Querier for retraction logic, if configured
+	var sweepQuerier sync.SRQLQuerier
+
+	serviceRadarAPIKey := config.Credentials["api_key"]
+	serviceRadarEndpoint := config.Credentials["serviceradar_endpoint"]
+	if serviceRadarEndpoint == "" && serviceRadarAPIKey != "" {
+		serviceRadarEndpoint = "http://localhost:8080"
+	}
+
+	if serviceRadarAPIKey != "" && serviceRadarEndpoint != "" {
+		httpClient := &http.Client{Timeout: 30 * time.Second}
+		sweepQuerier = sync.NewSweepResultsQuery(
+			serviceRadarEndpoint,
+			serviceRadarAPIKey,
+			httpClient,
+		)
+	}
+
 	return &netbox.NetboxIntegration{
 		Config:        config,
 		KvClient:      kvClient,
 		GrpcConn:      grpcConn,
 		ServerName:    serverName,
 		ExpandSubnets: false, // Default: treat as /32 //TODO: make this configurable
+		Querier:       sweepQuerier,
 	}
 }
