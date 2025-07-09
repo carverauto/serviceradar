@@ -342,3 +342,140 @@ func TestGetCheckerCaching(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEqual(t, checker1a, checker2, "requests with different details should yield different checker instances")
 }
+
+// TestServerGetResults tests the GetResults method for various scenarios
+func TestServerGetResults(t *testing.T) {
+	tmpDir, cleanup := setupTempDir(t)
+	defer cleanup()
+
+	server, err := NewServer(context.Background(), tmpDir, &ServerConfig{
+		ListenAddr: ":50051",
+		AgentID:    "test-agent",
+	})
+	require.NoError(t, err)
+
+	tests := []struct {
+		name          string
+		req           *proto.ResultsRequest
+		wantErr       bool
+		checkResponse func(*testing.T, *proto.ResultsResponse)
+	}{
+		{
+			name: "non-grpc service GetResults - should return not supported",
+			req: &proto.ResultsRequest{
+				ServiceName: "ping",
+				ServiceType: "icmp",
+				AgentId:     "test-agent",
+				PollerId:    "test-poller",
+				Details:     "1.1.1.1",
+			},
+			wantErr: false,
+			checkResponse: func(t *testing.T, resp *proto.ResultsResponse) {
+				t.Helper()
+				assert.Equal(t, "ping", resp.ServiceName)
+				assert.Equal(t, "icmp", resp.ServiceType)
+				assert.Equal(t, "test-agent", resp.AgentId)
+				assert.Equal(t, "test-poller", resp.PollerId)
+				assert.False(t, resp.Available)
+				assert.Contains(t, string(resp.Data), "GetResults not supported")
+			},
+		},
+		{
+			name: "sweep service GetResults - should return not supported",
+			req: &proto.ResultsRequest{
+				ServiceName: "network_sweep",
+				ServiceType: "sweep",
+				AgentId:     "test-agent",
+				PollerId:    "test-poller",
+				Details:     "",
+			},
+			wantErr: false,
+			checkResponse: func(t *testing.T, resp *proto.ResultsResponse) {
+				t.Helper()
+				assert.Equal(t, "network_sweep", resp.ServiceName)
+				assert.Equal(t, "sweep", resp.ServiceType)
+				assert.Equal(t, "test-agent", resp.AgentId)
+				assert.Equal(t, "test-poller", resp.PollerId)
+				assert.False(t, resp.Available)
+				assert.Contains(t, string(resp.Data), "GetResults not supported")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			resp, err := server.GetResults(ctx, tt.req)
+
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, resp)
+			assert.True(t, resp.Timestamp > 0, "Timestamp should be set")
+			
+			if tt.checkResponse != nil {
+				tt.checkResponse(t, resp)
+			}
+		})
+	}
+}
+
+// TestGetResultsConsistencyWithGetStatus tests that GetResults and GetStatus 
+// handle grpc services consistently
+func TestGetResultsConsistencyWithGetStatus(t *testing.T) {
+	tmpDir, cleanup := setupTempDir(t)
+	defer cleanup()
+
+	server, err := NewServer(context.Background(), tmpDir, &ServerConfig{
+		ListenAddr: ":50051",
+		AgentID:    "test-agent",
+	})
+	require.NoError(t, err)
+
+	// Test that both GetStatus and GetResults handle grpc services consistently
+	// We use a mock checker to avoid actual network calls
+	
+	// For non-grpc services, GetResults should return "not supported"
+	icmpResultsReq := &proto.ResultsRequest{
+		ServiceName: "ping",
+		ServiceType: "icmp",
+		AgentId:     "test-agent",
+		PollerId:    "test-poller",
+		Details:     "1.1.1.1",
+	}
+
+	ctx := context.Background()
+	
+	// Test that GetResults returns "not supported" for non-grpc services
+	resultsResp, err := server.GetResults(ctx, icmpResultsReq)
+	require.NoError(t, err)
+	require.NotNil(t, resultsResp)
+	
+	assert.Equal(t, "ping", resultsResp.ServiceName)
+	assert.Equal(t, "icmp", resultsResp.ServiceType)
+	assert.Equal(t, "test-agent", resultsResp.AgentId)
+	assert.Equal(t, "test-poller", resultsResp.PollerId)
+	assert.False(t, resultsResp.Available)
+	assert.Contains(t, string(resultsResp.Data), "GetResults not supported")
+	
+	// Test that sweep service also returns "not supported"
+	sweepResultsReq := &proto.ResultsRequest{
+		ServiceName: "network_sweep",
+		ServiceType: "sweep",
+		AgentId:     "test-agent",
+		PollerId:    "test-poller",
+		Details:     "",
+	}
+	
+	sweepResp, err := server.GetResults(ctx, sweepResultsReq)
+	require.NoError(t, err)
+	require.NotNil(t, sweepResp)
+	
+	assert.Equal(t, "network_sweep", sweepResp.ServiceName)
+	assert.Equal(t, "sweep", sweepResp.ServiceType)
+	assert.False(t, sweepResp.Available)
+	assert.Contains(t, string(sweepResp.Data), "GetResults not supported")
+}

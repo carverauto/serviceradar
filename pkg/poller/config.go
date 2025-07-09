@@ -43,10 +43,11 @@ type AgentConfig struct {
 
 // Check represents a service check configuration.
 type Check struct {
-	Type    string `json:"service_type"`
-	Name    string `json:"service_name"`
-	Details string `json:"details,omitempty"`
-	Port    int32  `json:"port,omitempty"`
+	Type            string           `json:"service_type"`
+	Name            string           `json:"service_name"`
+	Details         string           `json:"details,omitempty"`
+	Port            int32            `json:"port,omitempty"`
+	ResultsInterval *models.Duration `json:"results_interval,omitempty"` // Optional interval for GetResults calls
 }
 
 // Config represents poller configuration.

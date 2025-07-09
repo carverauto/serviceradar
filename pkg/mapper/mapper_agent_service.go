@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"time"
 
 	"github.com/carverauto/serviceradar/proto"
 )
@@ -76,5 +77,21 @@ func (s *AgentService) GetStatus(_ context.Context, req *proto.StatusRequest) (*
 		ServiceName: serviceName,
 		ServiceType: "service-instance",
 		AgentId:     "serviceradar-mapper-monitor",
+	}, nil
+}
+
+// GetResults implements the AgentService GetResults method.
+// Mapper service doesn't support GetResults, so return a "not supported" response.
+func (s *AgentService) GetResults(ctx context.Context, req *proto.ResultsRequest) (*proto.ResultsResponse, error) {
+	log.Printf("GetResults called for mapper service '%s' (type: '%s') - not supported", req.ServiceName, req.ServiceType)
+	
+	return &proto.ResultsResponse{
+		Available:   false,
+		Data:        []byte(`{"error": "GetResults not supported by mapper service"}`),
+		ServiceName: req.ServiceName,
+		ServiceType: req.ServiceType,
+		AgentId:     "serviceradar-mapper-monitor",
+		PollerId:    req.PollerId,
+		Timestamp:   time.Now().Unix(),
 	}, nil
 }
