@@ -270,9 +270,49 @@ func (s *PollerService) writeToKV(ctx context.Context, sourceName string, data m
 	}
 
 	if len(entries) > 0 {
-		if _, err := s.kvClient.PutMany(ctx, &proto.PutManyRequest{Entries: entries}); err != nil {
-			log.Printf("Failed to write batch to KV for source %s: %v", sourceName, err)
+		// Batch entries to avoid exceeding gRPC message size limit
+		const maxBatchSize = 500              // Adjust based on average entry size
+		const maxBatchBytes = 3 * 1024 * 1024 // 3MB to stay under 4MB limit
+
+		var currentBatch []*proto.KeyValueEntry
+		var currentBatchSize int
+		var batchCount int
+		var successfulWrites int
+
+		for _, entry := range entries {
+			// Estimate size: key length + value length + some overhead for protobuf encoding
+			entrySize := len(entry.Key) + len(entry.Value) + 32
+
+			// If adding this entry would exceed size limits, flush current batch
+			if len(currentBatch) > 0 && (len(currentBatch) >= maxBatchSize || currentBatchSize+entrySize > maxBatchBytes) {
+				batchCount++
+				if _, err := s.kvClient.PutMany(ctx, &proto.PutManyRequest{Entries: currentBatch}); err != nil {
+					log.Printf("Failed to write batch %d to KV for source %s (batch size: %d entries, ~%d bytes): %v",
+						batchCount, sourceName, len(currentBatch), currentBatchSize, err)
+				} else {
+					successfulWrites += len(currentBatch)
+				}
+				currentBatch = nil
+				currentBatchSize = 0
+			}
+
+			currentBatch = append(currentBatch, entry)
+			currentBatchSize += entrySize
 		}
+
+		// Flush remaining entries
+		if len(currentBatch) > 0 {
+			batchCount++
+			if _, err := s.kvClient.PutMany(ctx, &proto.PutManyRequest{Entries: currentBatch}); err != nil {
+				log.Printf("Failed to write batch %d to KV for source %s (batch size: %d entries, ~%d bytes): %v",
+					batchCount, sourceName, len(currentBatch), currentBatchSize, err)
+			} else {
+				successfulWrites += len(currentBatch)
+			}
+		}
+
+		log.Printf("Wrote %d/%d entries to KV for source %s in %d batches",
+			successfulWrites, len(entries), sourceName, batchCount)
 	}
 }
 
