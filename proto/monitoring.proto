@@ -22,6 +22,7 @@ option go_package = "github.com/carverauto/serviceradar/proto";
 
 service AgentService {
   rpc GetStatus(StatusRequest) returns (StatusResponse) {}
+  rpc GetResults(ResultsRequest) returns (ResultsResponse) {}
 }
 
 service PollerService {
@@ -41,6 +42,14 @@ message StatusRequest {
   int32 port = 6;          // Port number for port checks
 }
 
+message ResultsRequest {
+  string service_name = 1; // Name of the service to get results from
+  string service_type = 2; // Type of service (grpc, etc)
+  string agent_id = 3;     // Agent ID for traceability
+  string poller_id = 4;    // Poller ID for traceability
+  string details = 5;      // Additional details
+}
+
 message StatusResponse {
   bool available = 1;
   bytes message = 2; // New field
@@ -49,6 +58,17 @@ message StatusResponse {
   int64 response_time = 5;
   string agent_id = 6;
   string poller_id = 7;
+}
+
+message ResultsResponse {
+  bool available = 1;
+  bytes data = 2;          // Results data (e.g., discovery results)
+  string service_name = 3;
+  string service_type = 4;
+  int64 response_time = 5;
+  string agent_id = 6;
+  string poller_id = 7;
+  int64 timestamp = 8;     // When results were generated
 }
 
 message PollerStatusRequest {

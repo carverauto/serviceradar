@@ -72,7 +72,7 @@ func (*Consumer) handleBatch(ctx context.Context, msgs []jetstream.Msg, processo
 	}
 
 	for _, msg := range processed {
-		log.Println("Message processed successfully:", msg.Subject)
+		log.Println("Message processed successfully:", msg.Subject())
 
 		_ = msg.Ack()
 	}

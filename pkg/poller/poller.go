@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -184,13 +185,30 @@ func newAgentPoller(
 	client proto.AgentServiceClient,
 	timeout time.Duration,
 	poller *Poller) *AgentPoller {
-	return &AgentPoller{
+	
+	ap := &AgentPoller{
 		name:    name,
 		config:  config,
 		client:  client,
 		timeout: timeout,
 		poller:  poller,
 	}
+	
+	// Initialize results pollers for checks that have results_interval configured
+	for _, check := range config.Checks {
+		if check.ResultsInterval != nil {
+			resultsPoller := &ResultsPoller{
+				client:    client,
+				check:     check,
+				pollerID:  poller.config.PollerID,
+				agentName: name,
+				interval:  time.Duration(*check.ResultsInterval),
+			}
+			ap.resultsPollers = append(ap.resultsPollers, resultsPoller)
+		}
+	}
+	
+	return ap
 }
 
 // ExecuteChecks runs all configured service checks for the agent.
@@ -215,6 +233,49 @@ func (ap *AgentPoller) ExecuteChecks(ctx context.Context) []*proto.ServiceStatus
 	}
 
 	// Close results channel when all checks complete
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Collect results
+	for result := range results {
+		statuses = append(statuses, result)
+	}
+
+	return statuses
+}
+
+// ExecuteResults runs GetResults calls for services that need it and are due for polling.
+func (ap *AgentPoller) ExecuteResults(ctx context.Context) []*proto.ServiceStatus {
+	checkCtx, cancel := context.WithTimeout(ctx, ap.timeout)
+	defer cancel()
+
+	results := make(chan *proto.ServiceStatus, len(ap.resultsPollers))
+	statuses := make([]*proto.ServiceStatus, 0, len(ap.resultsPollers))
+
+	var wg sync.WaitGroup
+	now := time.Now()
+
+	for _, resultsPoller := range ap.resultsPollers {
+		// Check if this results poller is due for execution
+		if now.Sub(resultsPoller.lastResults) >= resultsPoller.interval {
+			wg.Add(1)
+
+			go func(rp *ResultsPoller) {
+				defer wg.Done()
+
+				status := rp.executeGetResults(checkCtx)
+				if status != nil {
+					results <- status
+				}
+				// Always update lastResults to prevent continuous retries for unsupported services
+				rp.lastResults = now
+			}(resultsPoller)
+		}
+	}
+
+	// Close results channel when all results complete
 	go func() {
 		wg.Wait()
 		close(results)
@@ -484,8 +545,14 @@ func (p *Poller) pollAgent(
 	poller := newAgentPoller(agentName, agentConfig, client, defaultTimeout, p)
 
 	statuses := poller.ExecuteChecks(ctx)
+	
+	// Execute GetResults calls for services that need it
+	resultsStatuses := poller.ExecuteResults(ctx)
+	
+	// Combine both regular status checks and results
+	allStatuses := append(statuses, resultsStatuses...)
 
-	return statuses, nil
+	return allStatuses, nil
 }
 
 func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStatus) error {
@@ -589,4 +656,55 @@ func (p *Poller) enhanceServicePayload(originalMessage, agentID, partition, serv
 	}
 
 	return string(enhancedJSON), nil
+}
+
+// executeGetResults executes a GetResults call for a service.
+func (rp *ResultsPoller) executeGetResults(ctx context.Context) *proto.ServiceStatus {
+	req := &proto.ResultsRequest{
+		ServiceName: rp.check.Name,
+		ServiceType: rp.check.Type,
+		AgentId:     rp.agentName,
+		PollerId:    rp.pollerID,
+		Details:     rp.check.Details,
+	}
+
+	log.Printf("Sending GetResults request: %+v", req)
+
+	results, err := rp.client.GetResults(ctx, req)
+	if err != nil {
+		// Check if this is an "unimplemented" error, which means the service doesn't support GetResults
+		if strings.Contains(err.Error(), "Unimplemented") || strings.Contains(err.Error(), "not implemented") {
+			log.Printf("GetResults not supported by service %s, skipping", rp.check.Name)
+			return nil // Skip this service for GetResults
+		}
+		
+		log.Printf("GetResults call failed for %s: %v", rp.check.Name, err)
+
+		// Convert GetResults failure to ServiceStatus format
+		return &proto.ServiceStatus{
+			ServiceName: rp.check.Name,
+			Available:   false,
+			Message:     []byte(fmt.Sprintf(`{"error": "GetResults failed: %v"}`, err)),
+			ServiceType: rp.check.Type,
+			PollerId:    rp.pollerID,
+			AgentId:     rp.agentName,
+		}
+	}
+
+	log.Printf("Received GetResults response from %v: available=%v, data size=%d bytes",
+		rp.check.Name,
+		results.Available,
+		len(results.Data),
+	)
+
+	// Convert ResultsResponse to ServiceStatus format for core processing
+	return &proto.ServiceStatus{
+		ServiceName:  rp.check.Name,
+		Available:    results.Available,
+		Message:      results.Data,
+		ServiceType:  rp.check.Type,
+		ResponseTime: results.ResponseTime,
+		AgentId:      results.AgentId,
+		PollerId:     rp.pollerID,
+	}
 }

@@ -481,6 +481,111 @@ func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*prot
 	return response, nil
 }
 
+// GetResults implements the AgentService GetResults method.
+// For grpc services, this forwards the call to the actual service.
+// For other services, this returns a "not supported" response.
+func (s *Server) GetResults(ctx context.Context, req *proto.ResultsRequest) (*proto.ResultsResponse, error) {
+	log.Printf("GetResults called for service '%s' (type: '%s')", req.ServiceName, req.ServiceType)
+	
+	// Handle grpc services by forwarding the call
+	if req.ServiceType == "grpc" {
+		return s.handleGrpcGetResults(ctx, req)
+	}
+	
+	// For non-grpc services, return "not supported"
+	log.Printf("GetResults not supported for service type '%s'", req.ServiceType)
+	return &proto.ResultsResponse{
+		Available:   false,
+		Data:        []byte(`{"error": "GetResults not supported by this service type"}`),
+		ServiceName: req.ServiceName,
+		ServiceType: req.ServiceType,
+		AgentId:     s.config.AgentID,
+		PollerId:    req.PollerId,
+		Timestamp:   time.Now().Unix(),
+	}, nil
+}
+
+// handleGrpcGetResults forwards GetResults calls to grpc services.
+// This works similarly to handleDefaultChecker but for GetResults calls.
+func (s *Server) handleGrpcGetResults(ctx context.Context, req *proto.ResultsRequest) (*proto.ResultsResponse, error) {
+	// Convert ResultsRequest to StatusRequest to reuse existing checker logic
+	statusReq := &proto.StatusRequest{
+		ServiceName: req.ServiceName,
+		ServiceType: req.ServiceType,
+		AgentId:     req.AgentId,
+		PollerId:    req.PollerId,
+		Details:     req.Details,
+	}
+	
+	// Use the same checker lookup logic as GetStatus
+	statusReq.AgentId = s.config.AgentID
+	checker, err := s.getChecker(ctx, statusReq)
+	if err != nil {
+		log.Printf("Failed to get checker for service '%s': %v", req.ServiceName, err)
+		return &proto.ResultsResponse{
+			Available:   false,
+			Data:        []byte(fmt.Sprintf(`{"error": "Failed to get checker: %v"}`, err)),
+			ServiceName: req.ServiceName,
+			ServiceType: req.ServiceType,
+			AgentId:     s.config.AgentID,
+			PollerId:    req.PollerId,
+			Timestamp:   time.Now().Unix(),
+		}, nil
+	}
+	
+	// For grpc checkers, we need to call GetResults on the underlying service
+	// First check if the checker is a grpc checker that supports GetResults
+	if externalChecker, ok := checker.(*ExternalChecker); ok {
+		// Forward GetResults to the external grpc service
+		log.Printf("Forwarding GetResults call to service '%s' at %s", req.ServiceName, req.Details)
+		
+		err := externalChecker.ensureConnected(ctx)
+		if err != nil {
+			log.Printf("Failed to connect to grpc service '%s': %v", req.ServiceName, err)
+			return &proto.ResultsResponse{
+				Available:   false,
+				Data:        []byte(fmt.Sprintf(`{"error": "Failed to connect to service: %v"}`, err)),
+				ServiceName: req.ServiceName,
+				ServiceType: req.ServiceType,
+				AgentId:     s.config.AgentID,
+				PollerId:    req.PollerId,
+				Timestamp:   time.Now().Unix(),
+			}, nil
+		}
+		
+		grpcClient := proto.NewAgentServiceClient(externalChecker.grpcClient.GetConnection())
+		
+		// Forward the GetResults call
+		response, err := grpcClient.GetResults(ctx, req)
+		if err != nil {
+			log.Printf("GetResults call to service '%s' failed: %v", req.ServiceName, err)
+			return &proto.ResultsResponse{
+				Available:   false,
+				Data:        []byte(fmt.Sprintf(`{"error": "GetResults call failed: %v"}`, err)),
+				ServiceName: req.ServiceName,
+				ServiceType: req.ServiceType,
+				AgentId:     s.config.AgentID,
+				PollerId:    req.PollerId,
+				Timestamp:   time.Now().Unix(),
+			}, nil
+		}
+		
+		return response, nil
+	}
+	
+	// If it's not a grpc checker, return not supported
+	log.Printf("GetResults not supported for checker type %T", checker)
+	return &proto.ResultsResponse{
+		Available:   false,
+		Data:        []byte(`{"error": "GetResults not supported by this checker type"}`),
+		ServiceName: req.ServiceName,
+		ServiceType: req.ServiceType,
+		AgentId:     s.config.AgentID,
+		PollerId:    req.PollerId,
+		Timestamp:   time.Now().Unix(),
+	}, nil
+}
+
 func isRperfCheckerRequest(req *proto.StatusRequest) bool {
 	return req.ServiceName == "rperf-checker" && req.ServiceType == "grpc"
 }
