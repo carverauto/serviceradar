@@ -34,7 +34,8 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AgentService_GetStatus_FullMethodName = "/monitoring.AgentService/GetStatus"
+	AgentService_GetStatus_FullMethodName  = "/monitoring.AgentService/GetStatus"
+	AgentService_GetResults_FullMethodName = "/monitoring.AgentService/GetResults"
 )
 
 // AgentServiceClient is the client API for AgentService service.
@@ -42,6 +43,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type AgentServiceClient interface {
 	GetStatus(ctx context.Context, in *StatusRequest, opts ...grpc.CallOption) (*StatusResponse, error)
+	GetResults(ctx context.Context, in *ResultsRequest, opts ...grpc.CallOption) (*ResultsResponse, error)
 }
 
 type agentServiceClient struct {
@@ -62,11 +64,22 @@ func (c *agentServiceClient) GetStatus(ctx context.Context, in *StatusRequest, o
 	return out, nil
 }
 
+func (c *agentServiceClient) GetResults(ctx context.Context, in *ResultsRequest, opts ...grpc.CallOption) (*ResultsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ResultsResponse)
+	err := c.cc.Invoke(ctx, AgentService_GetResults_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AgentServiceServer is the server API for AgentService service.
 // All implementations must embed UnimplementedAgentServiceServer
 // for forward compatibility.
 type AgentServiceServer interface {
 	GetStatus(context.Context, *StatusRequest) (*StatusResponse, error)
+	GetResults(context.Context, *ResultsRequest) (*ResultsResponse, error)
 	mustEmbedUnimplementedAgentServiceServer()
 }
 
@@ -79,6 +92,9 @@ type UnimplementedAgentServiceServer struct{}
 
 func (UnimplementedAgentServiceServer) GetStatus(context.Context, *StatusRequest) (*StatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetStatus not implemented")
+}
+func (UnimplementedAgentServiceServer) GetResults(context.Context, *ResultsRequest) (*ResultsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetResults not implemented")
 }
 func (UnimplementedAgentServiceServer) mustEmbedUnimplementedAgentServiceServer() {}
 func (UnimplementedAgentServiceServer) testEmbeddedByValue()                      {}
@@ -119,6 +135,24 @@ func _AgentService_GetStatus_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AgentService_GetResults_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResultsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AgentServiceServer).GetResults(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AgentService_GetResults_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AgentServiceServer).GetResults(ctx, req.(*ResultsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AgentService_ServiceDesc is the grpc.ServiceDesc for AgentService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -129,6 +163,10 @@ var AgentService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetStatus",
 			Handler:    _AgentService_GetStatus_Handler,
+		},
+		{
+			MethodName: "GetResults",
+			Handler:    _AgentService_GetResults_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

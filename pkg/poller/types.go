@@ -29,11 +29,12 @@ import (
 
 // AgentPoller manages polling operations for a single agent.
 type AgentPoller struct {
-	client  proto.AgentServiceClient
-	name    string
-	config  *AgentConfig
-	timeout time.Duration
-	poller  *Poller
+	client         proto.AgentServiceClient
+	name           string
+	config         *AgentConfig
+	timeout        time.Duration
+	poller         *Poller
+	resultsPollers []*ResultsPoller
 }
 
 // AgentConnection represents a connection to an agent.
@@ -65,6 +66,16 @@ type ServiceCheck struct {
 	check     Check
 	pollerID  string
 	agentName string
+}
+
+// ResultsPoller manages GetResults polling for services that support it.
+type ResultsPoller struct {
+	client      proto.AgentServiceClient
+	check       Check
+	pollerID    string
+	agentName   string
+	lastResults time.Time
+	interval    time.Duration
 }
 
 // Duration is a wrapper around time.Duration for JSON unmarshaling.
