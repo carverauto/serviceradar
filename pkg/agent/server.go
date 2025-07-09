@@ -32,6 +32,8 @@ import (
 	"github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -479,6 +481,101 @@ func (s *Server) GetStatus(ctx context.Context, req *proto.StatusRequest) (*prot
 	}
 
 	return response, nil
+}
+
+// GetResults implements the AgentService GetResults method.
+// For grpc services, this forwards the call to the actual service.
+// For other services, this returns a "not supported" response.
+func (s *Server) GetResults(ctx context.Context, req *proto.ResultsRequest) (*proto.ResultsResponse, error) {
+	log.Printf("GetResults called for service '%s' (type: '%s')", req.ServiceName, req.ServiceType)
+
+	// Handle grpc services by forwarding the call
+	if req.ServiceType == "grpc" {
+		return s.handleGrpcGetResults(ctx, req)
+	}
+
+	// For non-grpc services, return "not supported"
+	log.Printf("GetResults not supported for service type '%s'", req.ServiceType)
+
+	return nil, status.Errorf(codes.Unimplemented, "GetResults not supported for service type '%s'", req.ServiceType)
+}
+
+// handleGrpcGetResults forwards GetResults calls to grpc services.
+// This works similarly to handleDefaultChecker but for GetResults calls.
+func (s *Server) handleGrpcGetResults(ctx context.Context, req *proto.ResultsRequest) (*proto.ResultsResponse, error) {
+	// Convert ResultsRequest to StatusRequest to reuse existing getChecker logic
+	statusReq := &proto.StatusRequest{
+		ServiceName: req.ServiceName,
+		ServiceType: req.ServiceType,
+		AgentId:     req.AgentId,
+		PollerId:    req.PollerId,
+		Details:     req.Details,
+	}
+
+	// Use the same getChecker lookup logic as GetStatus
+	statusReq.AgentId = s.config.AgentID
+
+	getChecker, err := s.getChecker(ctx, statusReq)
+	if err != nil {
+		log.Printf("Failed to get getChecker for service '%s': %v", req.ServiceName, err)
+
+		return &proto.ResultsResponse{
+			Available:   false,
+			Data:        []byte(fmt.Sprintf(`{"error": "Failed to get getChecker: %v"}`, err)),
+			ServiceName: req.ServiceName,
+			ServiceType: req.ServiceType,
+			AgentId:     s.config.AgentID,
+			PollerId:    req.PollerId,
+			Timestamp:   time.Now().Unix(),
+		}, nil
+	}
+
+	// For grpc checkers, we need to call GetResults on the underlying service
+	// First check if the getChecker is a grpc getChecker that supports GetResults
+	if externalChecker, ok := getChecker.(*ExternalChecker); ok {
+		// Forward GetResults to the external grpc service
+		log.Printf("Forwarding GetResults call to service '%s' at %s", req.ServiceName, req.Details)
+
+		err := externalChecker.ensureConnected(ctx)
+		if err != nil {
+			log.Printf("Failed to connect to grpc service '%s': %v", req.ServiceName, err)
+
+			return &proto.ResultsResponse{
+				Available:   false,
+				Data:        []byte(fmt.Sprintf(`{"error": "Failed to connect to service: %v"}`, err)),
+				ServiceName: req.ServiceName,
+				ServiceType: req.ServiceType,
+				AgentId:     s.config.AgentID,
+				PollerId:    req.PollerId,
+				Timestamp:   time.Now().Unix(),
+			}, nil
+		}
+
+		grpcClient := proto.NewAgentServiceClient(externalChecker.grpcClient.GetConnection())
+
+		// Forward the GetResults call
+		response, err := grpcClient.GetResults(ctx, req)
+		if err != nil {
+			log.Printf("GetResults call to service '%s' failed: %v", req.ServiceName, err)
+
+			return &proto.ResultsResponse{
+				Available:   false,
+				Data:        []byte(fmt.Sprintf(`{"error": "GetResults call failed: %v"}`, err)),
+				ServiceName: req.ServiceName,
+				ServiceType: req.ServiceType,
+				AgentId:     s.config.AgentID,
+				PollerId:    req.PollerId,
+				Timestamp:   time.Now().Unix(),
+			}, nil
+		}
+
+		return response, nil
+	}
+
+	// If it's not a grpc getChecker, return not supported
+	log.Printf("GetResults not supported for getChecker type %T", getChecker)
+
+	return nil, status.Errorf(codes.Unimplemented, "GetResults not supported by getChecker type %T", getChecker)
 }
 
 func isRperfCheckerRequest(req *proto.StatusRequest) bool {

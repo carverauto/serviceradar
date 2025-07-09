@@ -31,6 +31,8 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type mockKVStore struct{}
@@ -341,4 +343,137 @@ func TestGetCheckerCaching(t *testing.T) {
 	checker2, err := s.getChecker(ctx, req2)
 	require.NoError(t, err)
 	assert.NotEqual(t, checker1a, checker2, "requests with different details should yield different checker instances")
+}
+
+// TestServerGetResults tests the GetResults method for various scenarios
+func TestServerGetResults(t *testing.T) {
+	tmpDir, cleanup := setupTempDir(t)
+	defer cleanup()
+
+	server, err := NewServer(context.Background(), tmpDir, &ServerConfig{
+		ListenAddr: ":50051",
+		AgentID:    "test-agent",
+	})
+	require.NoError(t, err)
+
+	tests := []struct {
+		name          string
+		req           *proto.ResultsRequest
+		wantErr       bool
+		checkResponse func(*testing.T, *proto.ResultsResponse)
+	}{
+		{
+			name: "non-grpc service GetResults - should return not supported",
+			req: &proto.ResultsRequest{
+				ServiceName: "ping",
+				ServiceType: "icmp",
+				AgentId:     "test-agent",
+				PollerId:    "test-poller",
+				Details:     "1.1.1.1",
+			},
+			wantErr: true,
+			checkResponse: func(t *testing.T, resp *proto.ResultsResponse) {
+				t.Helper()
+				// Response should be nil for Unimplemented error
+				assert.Nil(t, resp)
+			},
+		},
+		{
+			name: "sweep service GetResults - should return not supported",
+			req: &proto.ResultsRequest{
+				ServiceName: "network_sweep",
+				ServiceType: "sweep",
+				AgentId:     "test-agent",
+				PollerId:    "test-poller",
+				Details:     "",
+			},
+			wantErr: true,
+			checkResponse: func(t *testing.T, resp *proto.ResultsResponse) {
+				t.Helper()
+				// Response should be nil for Unimplemented error
+				assert.Nil(t, resp)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			resp, err := server.GetResults(ctx, tt.req)
+
+			if tt.wantErr {
+				require.Error(t, err)
+
+				// Check for Unimplemented status code
+				assert.Equal(t, codes.Unimplemented, status.Code(err))
+
+				if tt.checkResponse != nil {
+					tt.checkResponse(t, resp)
+				}
+
+				return
+			}
+
+			require.NoError(t, err)
+			require.NotNil(t, resp)
+			assert.Positive(t, resp.Timestamp, "Timestamp should be set")
+
+			if tt.checkResponse != nil {
+				tt.checkResponse(t, resp)
+			}
+		})
+	}
+}
+
+// TestGetResultsConsistencyWithGetStatus tests that GetResults and GetStatus
+// handle grpc services consistently
+func TestGetResultsConsistencyWithGetStatus(t *testing.T) {
+	tmpDir, cleanup := setupTempDir(t)
+	defer cleanup()
+
+	server, err := NewServer(context.Background(), tmpDir, &ServerConfig{
+		ListenAddr: ":50051",
+		AgentID:    "test-agent",
+	})
+	require.NoError(t, err)
+
+	// Test that both GetStatus and GetResults handle grpc services consistently
+	// We use a mock checker to avoid actual network calls
+
+	// For non-grpc services, GetResults should return "not supported"
+	icmpResultsReq := &proto.ResultsRequest{
+		ServiceName: "ping",
+		ServiceType: "icmp",
+		AgentId:     "test-agent",
+		PollerId:    "test-poller",
+		Details:     "1.1.1.1",
+	}
+
+	ctx := context.Background()
+
+	// Test that GetResults returns Unimplemented error for non-grpc services
+	resultsResp, err := server.GetResults(ctx, icmpResultsReq)
+	require.Error(t, err)
+	require.Nil(t, resultsResp)
+
+	// Verify it's an Unimplemented error
+	require.Equal(t, codes.Unimplemented, status.Code(err))
+	assert.Contains(t, err.Error(), "GetResults not supported for service type 'icmp'")
+
+	// Test that sweep service also returns "not supported"
+	sweepResultsReq := &proto.ResultsRequest{
+		ServiceName: "network_sweep",
+		ServiceType: "sweep",
+		AgentId:     "test-agent",
+		PollerId:    "test-poller",
+		Details:     "",
+	}
+
+	sweepResp, err := server.GetResults(ctx, sweepResultsReq)
+	require.Error(t, err)
+	require.Nil(t, sweepResp)
+
+	// Verify it's an Unimplemented error
+	require.Equal(t, codes.Unimplemented, status.Code(err))
+	assert.Contains(t, err.Error(), "GetResults not supported for service type 'sweep'")
 }

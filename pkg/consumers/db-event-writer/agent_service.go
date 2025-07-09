@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"time"
 
 	"github.com/carverauto/serviceradar/proto"
 )
@@ -47,5 +48,21 @@ func (s *AgentService) GetStatus(_ context.Context, req *proto.StatusRequest) (*
 		ServiceName: "db-event-writer",
 		ServiceType: "service-instance",
 		AgentId:     "db-event-writer-monitor",
+	}, nil
+}
+
+// GetResults implements the AgentService GetResults method.
+// DB event writer service doesn't support GetResults, so return a "not supported" response.
+func (*AgentService) GetResults(_ context.Context, req *proto.ResultsRequest) (*proto.ResultsResponse, error) {
+	log.Printf("GetResults called for db-event-writer service '%s' (type: '%s') - not supported", req.ServiceName, req.ServiceType)
+
+	return &proto.ResultsResponse{
+		Available:   false,
+		Data:        []byte(`{"error": "GetResults not supported by db-event-writer service"}`),
+		ServiceName: req.ServiceName,
+		ServiceType: req.ServiceType,
+		AgentId:     "db-event-writer-monitor",
+		PollerId:    req.PollerId,
+		Timestamp:   time.Now().Unix(),
 	}, nil
 }
