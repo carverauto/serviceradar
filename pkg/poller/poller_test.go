@@ -27,6 +27,8 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // MockAgentServiceClient is a mock implementation of proto.AgentServiceClient
@@ -186,7 +188,7 @@ func TestAgentPoller_ExecuteResults_UnsupportedService(t *testing.T) {
 		PollerId:    "test-poller",
 		Details:     "127.0.0.1:50059",
 	}).Return((*proto.ResultsResponse)(nil),
-		&mockError{message: "rpc error: code = Unimplemented desc = method GetResults not implemented"})
+		status.Error(codes.Unimplemented, "method GetResults not implemented"))
 
 	// Should skip unsupported service and return no results
 	statuses := agentPoller.ExecuteResults(ctx)
@@ -324,7 +326,7 @@ func TestResultsPoller_executeGetResults_NotImplemented(t *testing.T) {
 		PollerId:    "test-poller",
 		Details:     "127.0.0.1:50059",
 	}).Return((*proto.ResultsResponse)(nil),
-		&mockError{message: "rpc error: code = Unimplemented desc = method GetResults not implemented"})
+		status.Error(codes.Unimplemented, "method GetResults not implemented"))
 
 	// Should return nil for unsupported service
 	status := resultsPoller.executeGetResults(ctx)
