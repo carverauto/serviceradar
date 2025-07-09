@@ -455,7 +455,8 @@ func TestWriteToKVBatchesLargeDataSets(t *testing.T) {
 	// Create a large dataset that would exceed the 4MB limit if sent as one batch
 	data := make(map[string][]byte)
 	largeValue := make([]byte, 2*1024) // 2KB per entry
-	for i := 0; i < 1600; i++ {        // 1600 * 2KB = 3.2MB of values alone
+
+	for i := 0; i < 1600; i++ { // 1600 * 2KB = 3.2MB of values alone
 		key := fmt.Sprintf("partition1:10.0.%d.%d", i/256, i%256)
 		data[key] = largeValue
 	}
@@ -463,8 +464,9 @@ func TestWriteToKVBatchesLargeDataSets(t *testing.T) {
 	// Expect multiple PutMany calls due to batching
 	// With 500 entries per batch, we should see 4 batches (1600 / 500 = 3.2, so 4 batches)
 	batchCount := 0
+
 	mockKV.EXPECT().PutMany(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, req *proto.PutManyRequest, opts ...interface{}) (*proto.PutManyResponse, error) {
+		func(_ context.Context, req *proto.PutManyRequest, _ ...interface{}) (*proto.PutManyResponse, error) {
 			batchCount++
 			// Verify batch size constraints
 			assert.LessOrEqual(t, len(req.Entries), 500, "Batch should not exceed 500 entries")
@@ -474,6 +476,7 @@ func TestWriteToKVBatchesLargeDataSets(t *testing.T) {
 			for _, entry := range req.Entries {
 				batchSize += len(entry.Key) + len(entry.Value) + 32
 			}
+
 			assert.Less(t, batchSize, 3*1024*1024, "Batch size should be less than 3MB")
 
 			return &proto.PutManyResponse{}, nil
