@@ -31,6 +31,8 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type mockKVStore struct{}
@@ -369,15 +371,11 @@ func TestServerGetResults(t *testing.T) {
 				PollerId:    "test-poller",
 				Details:     "1.1.1.1",
 			},
-			wantErr: false,
+			wantErr: true,
 			checkResponse: func(t *testing.T, resp *proto.ResultsResponse) {
 				t.Helper()
-				assert.Equal(t, "ping", resp.ServiceName)
-				assert.Equal(t, "icmp", resp.ServiceType)
-				assert.Equal(t, "test-agent", resp.AgentId)
-				assert.Equal(t, "test-poller", resp.PollerId)
-				assert.False(t, resp.Available)
-				assert.Contains(t, string(resp.Data), "GetResults not supported")
+				// Response should be nil for Unimplemented error
+				assert.Nil(t, resp)
 			},
 		},
 		{
@@ -389,15 +387,11 @@ func TestServerGetResults(t *testing.T) {
 				PollerId:    "test-poller",
 				Details:     "",
 			},
-			wantErr: false,
+			wantErr: true,
 			checkResponse: func(t *testing.T, resp *proto.ResultsResponse) {
 				t.Helper()
-				assert.Equal(t, "network_sweep", resp.ServiceName)
-				assert.Equal(t, "sweep", resp.ServiceType)
-				assert.Equal(t, "test-agent", resp.AgentId)
-				assert.Equal(t, "test-poller", resp.PollerId)
-				assert.False(t, resp.Available)
-				assert.Contains(t, string(resp.Data), "GetResults not supported")
+				// Response should be nil for Unimplemented error
+				assert.Nil(t, resp)
 			},
 		},
 	}
@@ -408,7 +402,15 @@ func TestServerGetResults(t *testing.T) {
 			resp, err := server.GetResults(ctx, tt.req)
 
 			if tt.wantErr {
-				assert.Error(t, err)
+				require.Error(t, err)
+
+				// Check for Unimplemented status code
+				assert.Equal(t, codes.Unimplemented, status.Code(err))
+
+				if tt.checkResponse != nil {
+					tt.checkResponse(t, resp)
+				}
+
 				return
 			}
 
@@ -449,17 +451,14 @@ func TestGetResultsConsistencyWithGetStatus(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Test that GetResults returns "not supported" for non-grpc services
+	// Test that GetResults returns Unimplemented error for non-grpc services
 	resultsResp, err := server.GetResults(ctx, icmpResultsReq)
-	require.NoError(t, err)
-	require.NotNil(t, resultsResp)
+	require.Error(t, err)
+	require.Nil(t, resultsResp)
 
-	assert.Equal(t, "ping", resultsResp.ServiceName)
-	assert.Equal(t, "icmp", resultsResp.ServiceType)
-	assert.Equal(t, "test-agent", resultsResp.AgentId)
-	assert.Equal(t, "test-poller", resultsResp.PollerId)
-	assert.False(t, resultsResp.Available)
-	assert.Contains(t, string(resultsResp.Data), "GetResults not supported")
+	// Verify it's an Unimplemented error
+	require.Equal(t, codes.Unimplemented, status.Code(err))
+	assert.Contains(t, err.Error(), "GetResults not supported for service type 'icmp'")
 
 	// Test that sweep service also returns "not supported"
 	sweepResultsReq := &proto.ResultsRequest{
@@ -471,11 +470,10 @@ func TestGetResultsConsistencyWithGetStatus(t *testing.T) {
 	}
 
 	sweepResp, err := server.GetResults(ctx, sweepResultsReq)
-	require.NoError(t, err)
-	require.NotNil(t, sweepResp)
+	require.Error(t, err)
+	require.Nil(t, sweepResp)
 
-	assert.Equal(t, "network_sweep", sweepResp.ServiceName)
-	assert.Equal(t, "sweep", sweepResp.ServiceType)
-	assert.False(t, sweepResp.Available)
-	assert.Contains(t, string(sweepResp.Data), "GetResults not supported")
+	// Verify it's an Unimplemented error
+	require.Equal(t, codes.Unimplemented, status.Code(err))
+	assert.Contains(t, err.Error(), "GetResults not supported for service type 'sweep'")
 }

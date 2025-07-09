@@ -32,6 +32,8 @@ import (
 	"github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -495,15 +497,7 @@ func (s *Server) GetResults(ctx context.Context, req *proto.ResultsRequest) (*pr
 	// For non-grpc services, return "not supported"
 	log.Printf("GetResults not supported for service type '%s'", req.ServiceType)
 
-	return &proto.ResultsResponse{
-		Available:   false,
-		Data:        []byte(`{"error": "GetResults not supported by this service type"}`),
-		ServiceName: req.ServiceName,
-		ServiceType: req.ServiceType,
-		AgentId:     s.config.AgentID,
-		PollerId:    req.PollerId,
-		Timestamp:   time.Now().Unix(),
-	}, nil
+	return nil, status.Errorf(codes.Unimplemented, "GetResults not supported for service type '%s'", req.ServiceType)
 }
 
 // handleGrpcGetResults forwards GetResults calls to grpc services.
@@ -581,15 +575,7 @@ func (s *Server) handleGrpcGetResults(ctx context.Context, req *proto.ResultsReq
 	// If it's not a grpc getChecker, return not supported
 	log.Printf("GetResults not supported for getChecker type %T", getChecker)
 
-	return &proto.ResultsResponse{
-		Available:   false,
-		Data:        []byte(`{"error": "GetResults not supported by this getChecker type"}`),
-		ServiceName: req.ServiceName,
-		ServiceType: req.ServiceType,
-		AgentId:     s.config.AgentID,
-		PollerId:    req.PollerId,
-		Timestamp:   time.Now().Unix(),
-	}, nil
+	return nil, status.Errorf(codes.Unimplemented, "GetResults not supported by getChecker type %T", getChecker)
 }
 
 func isRperfCheckerRequest(req *proto.StatusRequest) bool {

@@ -21,14 +21,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/carverauto/serviceradar/pkg/grpc"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
+	"google.golang.org/grpc/codes"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -672,7 +673,7 @@ func (rp *ResultsPoller) executeGetResults(ctx context.Context) *proto.ServiceSt
 	results, err := rp.client.GetResults(ctx, req)
 	if err != nil {
 		// Check if this is an "unimplemented" error, which means the service doesn't support GetResults
-		if strings.Contains(err.Error(), "Unimplemented") || strings.Contains(err.Error(), "not implemented") {
+		if status.Code(err) == codes.Unimplemented {
 			log.Printf("GetResults not supported by service %s, skipping", rp.check.Name)
 			return nil // Skip this service for GetResults
 		}
