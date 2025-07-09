@@ -82,9 +82,9 @@ func (s *AgentService) GetStatus(_ context.Context, req *proto.StatusRequest) (*
 
 // GetResults implements the AgentService GetResults method.
 // Mapper service doesn't support GetResults, so return a "not supported" response.
-func (s *AgentService) GetResults(ctx context.Context, req *proto.ResultsRequest) (*proto.ResultsResponse, error) {
+func (*AgentService) GetResults(_ context.Context, req *proto.ResultsRequest) (*proto.ResultsResponse, error) {
 	log.Printf("GetResults called for mapper service '%s' (type: '%s') - not supported", req.ServiceName, req.ServiceType)
-	
+
 	return &proto.ResultsResponse{
 		Available:   false,
 		Data:        []byte(`{"error": "GetResults not supported by mapper service"}`),

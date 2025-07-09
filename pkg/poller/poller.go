@@ -183,17 +183,15 @@ func newAgentPoller(
 	name string,
 	config *AgentConfig,
 	client proto.AgentServiceClient,
-	timeout time.Duration,
 	poller *Poller) *AgentPoller {
-	
 	ap := &AgentPoller{
 		name:    name,
 		config:  config,
 		client:  client,
-		timeout: timeout,
+		timeout: defaultTimeout,
 		poller:  poller,
 	}
-	
+
 	// Initialize results pollers for checks that have results_interval configured
 	for _, check := range config.Checks {
 		if check.ResultsInterval != nil {
@@ -207,7 +205,7 @@ func newAgentPoller(
 			ap.resultsPollers = append(ap.resultsPollers, resultsPoller)
 		}
 	}
-	
+
 	return ap
 }
 
@@ -255,6 +253,7 @@ func (ap *AgentPoller) ExecuteResults(ctx context.Context) []*proto.ServiceStatu
 	statuses := make([]*proto.ServiceStatus, 0, len(ap.resultsPollers))
 
 	var wg sync.WaitGroup
+
 	now := time.Now()
 
 	for _, resultsPoller := range ap.resultsPollers {
@@ -542,17 +541,17 @@ func (p *Poller) pollAgent(
 	}
 
 	client := proto.NewAgentServiceClient(agent.client.GetConnection())
-	poller := newAgentPoller(agentName, agentConfig, client, defaultTimeout, p)
+	poller := newAgentPoller(agentName, agentConfig, client, p)
 
 	statuses := poller.ExecuteChecks(ctx)
-	
+
 	// Execute GetResults calls for services that need it
 	resultsStatuses := poller.ExecuteResults(ctx)
-	
-	// Combine both regular status checks and results
-	allStatuses := append(statuses, resultsStatuses...)
 
-	return allStatuses, nil
+	// Combine both regular status checks and results
+	statuses = append(statuses, resultsStatuses...)
+
+	return statuses, nil
 }
 
 func (p *Poller) reportToCore(ctx context.Context, statuses []*proto.ServiceStatus) error {
@@ -677,7 +676,7 @@ func (rp *ResultsPoller) executeGetResults(ctx context.Context) *proto.ServiceSt
 			log.Printf("GetResults not supported by service %s, skipping", rp.check.Name)
 			return nil // Skip this service for GetResults
 		}
-		
+
 		log.Printf("GetResults call failed for %s: %v", rp.check.Name, err)
 
 		// Convert GetResults failure to ServiceStatus format

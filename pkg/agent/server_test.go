@@ -414,8 +414,8 @@ func TestServerGetResults(t *testing.T) {
 
 			require.NoError(t, err)
 			require.NotNil(t, resp)
-			assert.True(t, resp.Timestamp > 0, "Timestamp should be set")
-			
+			assert.Positive(t, resp.Timestamp, "Timestamp should be set")
+
 			if tt.checkResponse != nil {
 				tt.checkResponse(t, resp)
 			}
@@ -423,7 +423,7 @@ func TestServerGetResults(t *testing.T) {
 	}
 }
 
-// TestGetResultsConsistencyWithGetStatus tests that GetResults and GetStatus 
+// TestGetResultsConsistencyWithGetStatus tests that GetResults and GetStatus
 // handle grpc services consistently
 func TestGetResultsConsistencyWithGetStatus(t *testing.T) {
 	tmpDir, cleanup := setupTempDir(t)
@@ -437,7 +437,7 @@ func TestGetResultsConsistencyWithGetStatus(t *testing.T) {
 
 	// Test that both GetStatus and GetResults handle grpc services consistently
 	// We use a mock checker to avoid actual network calls
-	
+
 	// For non-grpc services, GetResults should return "not supported"
 	icmpResultsReq := &proto.ResultsRequest{
 		ServiceName: "ping",
@@ -448,19 +448,19 @@ func TestGetResultsConsistencyWithGetStatus(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	
+
 	// Test that GetResults returns "not supported" for non-grpc services
 	resultsResp, err := server.GetResults(ctx, icmpResultsReq)
 	require.NoError(t, err)
 	require.NotNil(t, resultsResp)
-	
+
 	assert.Equal(t, "ping", resultsResp.ServiceName)
 	assert.Equal(t, "icmp", resultsResp.ServiceType)
 	assert.Equal(t, "test-agent", resultsResp.AgentId)
 	assert.Equal(t, "test-poller", resultsResp.PollerId)
 	assert.False(t, resultsResp.Available)
 	assert.Contains(t, string(resultsResp.Data), "GetResults not supported")
-	
+
 	// Test that sweep service also returns "not supported"
 	sweepResultsReq := &proto.ResultsRequest{
 		ServiceName: "network_sweep",
@@ -469,11 +469,11 @@ func TestGetResultsConsistencyWithGetStatus(t *testing.T) {
 		PollerId:    "test-poller",
 		Details:     "",
 	}
-	
+
 	sweepResp, err := server.GetResults(ctx, sweepResultsReq)
 	require.NoError(t, err)
 	require.NotNil(t, sweepResp)
-	
+
 	assert.Equal(t, "network_sweep", sweepResp.ServiceName)
 	assert.Equal(t, "sweep", sweepResp.ServiceType)
 	assert.False(t, sweepResp.Available)
