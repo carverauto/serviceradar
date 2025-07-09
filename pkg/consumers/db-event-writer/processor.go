@@ -91,9 +91,19 @@ func buildEventRow(b []byte, subject string) eventRow {
 		}
 	}
 
+	// Validate timestamp is within ClickHouse DateTime64 range
+	// DateTime64 must be between 1925-01-01 00:00:00 and 2283-11-11 00:00:00
+	minTimestamp := time.Date(1925, 1, 1, 0, 0, 0, 0, time.UTC)
+	maxTimestamp := time.Date(2283, 11, 11, 0, 0, 0, 0, time.UTC)
+	
 	sec := int64(payload.Timestamp)
 	nsec := int64((payload.Timestamp - float64(sec)) * float64(time.Second))
 	ts := time.Unix(sec, nsec)
+	
+	// If timestamp is out of range, use current time
+	if ts.Before(minTimestamp) || ts.After(maxTimestamp) {
+		ts = time.Now()
+	}
 
 	return eventRow{
 		SpecVersion:     ce.SpecVersion,

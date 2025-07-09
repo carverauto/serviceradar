@@ -42,6 +42,8 @@ func NewConsumer(ctx context.Context, js jetstream.JetStream, streamName, consum
 		}
 	}
 
+	log.Println("Pull consumer created or retrieved successfully")
+
 	return &Consumer{js: js, streamName: streamName, consumerName: consumerName, consumer: consumer}, nil
 }
 
@@ -70,6 +72,8 @@ func (*Consumer) handleBatch(ctx context.Context, msgs []jetstream.Msg, processo
 	}
 
 	for _, msg := range processed {
+		log.Println("Message processed successfully:", msg.Subject)
+
 		_ = msg.Ack()
 	}
 }
@@ -92,12 +96,17 @@ func (c *Consumer) ProcessMessages(ctx context.Context, processor *Processor) {
 				continue
 			}
 
+			log.Printf("Fetched %d messages from stream %s, consumer %s",
+				len(msgs.Messages()), c.streamName, c.consumerName)
+
 			batch := make([]jetstream.Msg, 0, defaultMaxPullMessages)
 			for msg := range msgs.Messages() {
 				batch = append(batch, msg)
 			}
 
 			if len(batch) > 0 {
+				log.Printf("Processing batch of %d messages", len(batch))
+
 				c.handleBatch(ctx, batch, processor)
 			}
 
