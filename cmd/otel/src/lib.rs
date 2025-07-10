@@ -31,10 +31,10 @@ use opentelemetry::proto::collector::trace::v1::trace_service_server::TraceServi
 use opentelemetry::proto::collector::trace::v1::{ExportTraceServiceRequest, ExportTraceServiceResponse};
 
 #[derive(Debug)]
-pub struct MyCollector {}
+pub struct ServiceRadarCollector {}
 
 #[tonic::async_trait]
-impl TraceService for MyCollector {
+impl TraceService for ServiceRadarCollector {
     async fn export(
         &self,
         request: Request<ExportTraceServiceRequest>,
@@ -123,7 +123,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_export_success() {
-        let collector = MyCollector {};
+        let collector = ServiceRadarCollector {};
         let request = tonic::Request::new(create_test_trace_request());
         
         let response = collector.export(request).await;
@@ -136,7 +136,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_export_empty_request() {
-        let collector = MyCollector {};
+        let collector = ServiceRadarCollector {};
         let request = tonic::Request::new(ExportTraceServiceRequest {
             resource_spans: vec![],
         });
@@ -151,7 +151,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_export_multiple_resource_spans() {
-        let collector = MyCollector {};
+        let collector = ServiceRadarCollector {};
         let mut request_data = create_test_trace_request();
         
         // Add another resource span
@@ -180,14 +180,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_collector_debug_impl() {
-        let collector = MyCollector {};
+        let collector = ServiceRadarCollector {};
         let debug_str = format!("{:?}", collector);
         assert_eq!(debug_str, "MyCollector");
     }
 
     #[tokio::test]
     async fn test_trace_data_validation() {
-        let collector = MyCollector {};
+        let collector = ServiceRadarCollector {};
         
         // Test with malformed trace data
         let malformed_request = ExportTraceServiceRequest {
