@@ -26,13 +26,17 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-var globalLogger zerolog.Logger
+var (
+	globalLogger zerolog.Logger
+	otelWriter   *OTelWriter
+)
 
 type Config struct {
-	Level      string `json:"level" yaml:"level"`
-	Debug      bool   `json:"debug" yaml:"debug"`
-	Output     string `json:"output" yaml:"output"`
-	TimeFormat string `json:"time_format" yaml:"time_format"`
+	Level      string     `json:"level" yaml:"level"`
+	Debug      bool       `json:"debug" yaml:"debug"`
+	Output     string     `json:"output" yaml:"output"`
+	TimeFormat string     `json:"time_format" yaml:"time_format"`
+	OTel       OTelConfig `json:"otel" yaml:"otel"`
 }
 
 func init() {
@@ -62,6 +66,15 @@ func Init(config Config) error {
 
 	if config.TimeFormat != "" {
 		zerolog.TimeFieldFormat = config.TimeFormat
+	}
+
+	if config.OTel.Enabled && config.OTel.Endpoint != "" {
+		var err error
+		otelWriter, err = NewOTelWriter(config.OTel)
+		if err != nil {
+			return err
+		}
+		output = NewMultiWriter(output, otelWriter)
 	}
 
 	globalLogger = zerolog.New(output).
@@ -131,4 +144,8 @@ func WithFields(fields map[string]interface{}) zerolog.Logger {
 	}
 
 	return ctx.Logger()
+}
+
+func Shutdown() error {
+	return ShutdownOTel()
 }

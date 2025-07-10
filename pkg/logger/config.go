@@ -19,6 +19,7 @@ package logger
 import (
 	"os"
 	"strings"
+	"time"
 )
 
 func DefaultConfig() Config {
@@ -27,6 +28,34 @@ func DefaultConfig() Config {
 		Debug:      getEnvBoolOrDefault("DEBUG", false),
 		Output:     getEnvOrDefault("LOG_OUTPUT", "stdout"),
 		TimeFormat: getEnvOrDefault("LOG_TIME_FORMAT", ""),
+		OTel:       DefaultOTelConfig(),
+	}
+}
+
+func DefaultOTelConfig() OTelConfig {
+	headers := make(map[string]string)
+	if headerStr := os.Getenv("OTEL_EXPORTER_OTLP_LOGS_HEADERS"); headerStr != "" {
+		for _, pair := range strings.Split(headerStr, ",") {
+			if kv := strings.SplitN(pair, "=", 2); len(kv) == 2 {
+				headers[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])
+			}
+		}
+	}
+
+	batchTimeout := 5 * time.Second
+	if timeoutStr := os.Getenv("OTEL_EXPORTER_OTLP_LOGS_TIMEOUT"); timeoutStr != "" {
+		if duration, err := time.ParseDuration(timeoutStr); err == nil {
+			batchTimeout = duration
+		}
+	}
+
+	return OTelConfig{
+		Enabled:      getEnvBoolOrDefault("OTEL_LOGS_ENABLED", false),
+		Endpoint:     getEnvOrDefault("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", ""),
+		Headers:      headers,
+		ServiceName:  getEnvOrDefault("OTEL_SERVICE_NAME", "serviceradar"),
+		BatchTimeout: batchTimeout,
+		Insecure:     getEnvBoolOrDefault("OTEL_EXPORTER_OTLP_LOGS_INSECURE", false),
 	}
 }
 

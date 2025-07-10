@@ -7,6 +7,7 @@ This package provides JSON structured logging using [zerolog](https://github.com
 - Easy debug mode toggling
 - Component-based logging
 - Field-based enrichment
+- **OpenTelemetry (OTel) log export** to collectors
 
 ## Quick Start
 
@@ -37,12 +38,22 @@ config := logger.Config{
     Debug:      true,
     Output:     "stdout",
     TimeFormat: "",
+    OTel: logger.OTelConfig{
+        Enabled:      true,
+        Endpoint:     "localhost:4317",
+        ServiceName:  "my-service",
+        BatchTimeout: 5 * time.Second,
+        Insecure:     true,
+    },
 }
 
 err := logger.Init(config)
 if err != nil {
     panic(err)
 }
+
+// Always call Shutdown to flush any pending logs
+defer logger.Shutdown()
 ```
 
 ### Component-based Logging
@@ -78,12 +89,21 @@ The logger can be configured through:
    - `Debug`: Boolean to enable debug mode
    - `Output`: Output destination (stdout, stderr)
    - `TimeFormat`: Custom time format (empty uses RFC3339)
+   - `OTel`: OpenTelemetry configuration
 
 2. **Environment variables**:
    - `LOG_LEVEL`: Set log level
    - `DEBUG`: Enable debug mode (true/false/1/0/yes/no/on/off)
    - `LOG_OUTPUT`: Set output destination
    - `LOG_TIME_FORMAT`: Custom time format
+
+3. **OpenTelemetry Environment Variables** (following OTel conventions):
+   - `OTEL_LOGS_ENABLED`: Enable/disable OTel log export
+   - `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`: OTel collector endpoint (e.g., `localhost:4317`)
+   - `OTEL_EXPORTER_OTLP_LOGS_HEADERS`: Headers for authentication (e.g., `Authorization=Bearer token`)
+   - `OTEL_SERVICE_NAME`: Service name for resource attribution
+   - `OTEL_EXPORTER_OTLP_LOGS_TIMEOUT`: Batch export timeout
+   - `OTEL_EXPORTER_OTLP_LOGS_INSECURE`: Use insecure connection
 
 ## Log Levels
 
@@ -125,6 +145,72 @@ All logs are output in JSON format with these standard fields:
 3. **Use appropriate log levels** - avoid logging sensitive information
 4. **Initialize once** at application startup
 5. **Use field loggers** for consistent field inclusion across related operations
+
+## OpenTelemetry Integration
+
+The logger supports exporting logs to OpenTelemetry collectors for centralized observability.
+
+### Basic OTel Setup
+
+```go
+// Using environment variables (recommended)
+os.Setenv("OTEL_LOGS_ENABLED", "true")
+os.Setenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "localhost:4317")
+os.Setenv("OTEL_SERVICE_NAME", "my-service")
+
+config := logger.DefaultConfig()
+err := logger.Init(config)
+if err != nil {
+    panic(err)
+}
+
+// Important: Always call Shutdown to flush pending logs
+defer logger.Shutdown()
+
+logger.Info().Str("user_id", "123").Msg("User logged in")
+```
+
+### OTel with Authentication
+
+```go
+config := logger.Config{
+    Level: "info",
+    OTel: logger.OTelConfig{
+        Enabled:     true,
+        Endpoint:    "https://otel-collector.example.com:4317",
+        ServiceName: "serviceradar",
+        Headers: map[string]string{
+            "Authorization": "Bearer your-token",
+            "X-API-Key":     "your-api-key",
+        },
+        BatchTimeout: 10 * time.Second,
+        Insecure:     false, // Use TLS
+    },
+}
+
+err := logger.Init(config)
+if err != nil {
+    panic(err)
+}
+defer logger.Shutdown()
+```
+
+### OTel Features
+
+- **Dual Output**: Logs go to both console AND OTel collector
+- **Structured Fields**: All zerolog fields are preserved in OTel
+- **Log Levels**: Properly mapped to OTel severity levels
+- **Batching**: Efficient batch export with configurable timeouts
+- **Error Handling**: Graceful fallback if collector is unavailable
+- **Resource Attribution**: Service name and version automatically included
+
+### Popular OTel Collectors
+
+- **Jaeger**: Set endpoint to `localhost:14250`
+- **OTLP**: Standard endpoint `localhost:4317` (gRPC) or `localhost:4318` (HTTP)
+- **Grafana**: Configure with Grafana Agent or Alloy
+- **Datadog**: Use Datadog Agent with OTLP receiver
+- **New Relic**: Use OTLP endpoint provided by New Relic
 
 ## Thread Safety
 
