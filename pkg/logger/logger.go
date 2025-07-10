@@ -26,10 +26,16 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-var (
-	globalLogger zerolog.Logger
-	otelWriter   *OTelWriter
-)
+// LoggerInstance holds the global logger state
+type LoggerInstance struct {
+	logger     zerolog.Logger
+	otelWriter *OTelWriter
+}
+
+// instance is the singleton logger instance
+//
+//nolint:gochecknoglobals // singleton pattern for logger state
+var instance *LoggerInstance
 
 type Config struct {
 	Level      string     `json:"level" yaml:"level"`
@@ -39,12 +45,19 @@ type Config struct {
 	OTel       OTelConfig `json:"otel" yaml:"otel"`
 }
 
-func init() {
-	globalLogger = zerolog.New(os.Stdout).With().Timestamp().Logger()
-	zerolog.TimeFieldFormat = time.RFC3339
+// initDefaults initializes the default logger instance
+func initDefaults() {
+	if instance == nil {
+		zerolog.TimeFieldFormat = time.RFC3339
+		instance = &LoggerInstance{
+			logger: zerolog.New(os.Stdout).With().Timestamp().Logger(),
+		}
+	}
 }
 
-func Init(config Config) error {
+func Init(config *Config) error {
+	initDefaults()
+
 	var output io.Writer = os.Stdout
 
 	if config.Output == "stderr" {
@@ -69,28 +82,31 @@ func Init(config Config) error {
 	}
 
 	if config.OTel.Enabled && config.OTel.Endpoint != "" {
-		var err error
-		otelWriter, err = NewOTelWriter(config.OTel)
+		otelWriter, err := NewOTelWriter(config.OTel)
 		if err != nil {
 			return err
 		}
+
+		instance.otelWriter = otelWriter
 		output = NewMultiWriter(output, otelWriter)
 	}
 
-	globalLogger = zerolog.New(output).
+	instance.logger = zerolog.New(output).
 		Level(level).
 		With().
 		Timestamp().
 		Logger()
 
-	log.Logger = globalLogger
+	log.Logger = instance.logger
 
 	return nil
 }
 
 func SetLevel(level zerolog.Level) {
-	globalLogger = globalLogger.Level(level)
-	log.Logger = globalLogger
+	initDefaults()
+
+	instance.logger = instance.logger.Level(level)
+	log.Logger = instance.logger
 }
 
 func SetDebug(debug bool) {
@@ -102,43 +118,55 @@ func SetDebug(debug bool) {
 }
 
 func GetLogger() zerolog.Logger {
-	return globalLogger
+	initDefaults()
+	return instance.logger
 }
 
 func Debug() *zerolog.Event {
-	return globalLogger.Debug()
+	initDefaults()
+	return instance.logger.Debug()
 }
 
 func Info() *zerolog.Event {
-	return globalLogger.Info()
+	initDefaults()
+	return instance.logger.Info()
 }
 
 func Warn() *zerolog.Event {
-	return globalLogger.Warn()
+	initDefaults()
+	return instance.logger.Warn()
 }
 
 func Error() *zerolog.Event {
-	return globalLogger.Error()
+	initDefaults()
+	return instance.logger.Error()
 }
 
 func Fatal() *zerolog.Event {
-	return globalLogger.Fatal()
+	initDefaults()
+	return instance.logger.Fatal()
 }
 
 func Panic() *zerolog.Event {
-	return globalLogger.Panic()
+	initDefaults()
+	return instance.logger.Panic()
 }
 
 func With() zerolog.Context {
-	return globalLogger.With()
+	initDefaults()
+	return instance.logger.With()
 }
 
 func WithComponent(component string) zerolog.Logger {
-	return globalLogger.With().Str("component", component).Logger()
+	initDefaults()
+	return instance.logger.With().Str("component", component).Logger()
 }
 
 func WithFields(fields map[string]interface{}) zerolog.Logger {
-	ctx := globalLogger.With()
+	initDefaults()
+
+	ctx := instance.logger.With()
+
 	for key, value := range fields {
 		ctx = ctx.Interface(key, value)
 	}

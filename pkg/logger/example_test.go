@@ -24,7 +24,7 @@ import (
 )
 
 func ExampleInit() {
-	config := logger.Config{
+	config := &logger.Config{
 		Level:      "debug",
 		Debug:      true,
 		Output:     "stdout",
@@ -70,7 +70,7 @@ func ExampleWithFields() {
 
 func ExampleFieldLogger() {
 	baseLogger := logger.GetLogger()
-	fieldLogger := logger.NewFieldLogger(baseLogger)
+	fieldLogger := logger.NewFieldLogger(&baseLogger)
 
 	userLogger := fieldLogger.WithField("user_id", 12345)
 	userLogger.Info("User authenticated")
@@ -104,7 +104,6 @@ func Example_usageInService() {
 			Err(err).
 			Int("user_id", userID).
 			Msg("Failed to process user")
-		return
 	}
 
 	serviceLogger.Info().

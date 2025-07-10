@@ -23,7 +23,7 @@ import (
 )
 
 func TestInit(t *testing.T) {
-	config := Config{
+	config := &Config{
 		Level:  "debug",
 		Debug:  true,
 		Output: "stdout",
@@ -66,7 +66,7 @@ func TestWithComponent(t *testing.T) {
 
 func TestFieldLogger(t *testing.T) {
 	logger := GetLogger()
-	fieldLogger := NewFieldLogger(logger)
+	fieldLogger := NewFieldLogger(&logger)
 
 	if fieldLogger == nil {
 		t.Fatal("FieldLogger should not be nil")

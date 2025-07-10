@@ -46,13 +46,16 @@ type OTelConfig struct {
 	Insecure     bool              `json:"insecure" yaml:"insecure"`
 }
 
+// otelProvider is managed internally for shutdown
+//
+//nolint:gochecknoglobals // needed for proper OTel shutdown handling
 var otelProvider *sdklog.LoggerProvider
 
 func NewOTelWriter(config OTelConfig) (*OTelWriter, error) {
 	if !config.Enabled {
 		return nil, fmt.Errorf("OTel logging is disabled")
 	}
-	
+
 	if config.Endpoint == "" {
 		return nil, fmt.Errorf("OTel endpoint is required when enabled")
 	}
@@ -151,7 +154,7 @@ func (w *OTelWriter) Write(p []byte) (n int, err error) {
 		if key == "time" || key == "level" || key == "message" {
 			continue
 		}
-	
+
 		record.AddAttributes(log.String(key, fmt.Sprintf("%v", value)))
 	}
 
@@ -204,12 +207,12 @@ func (mw *MultiWriter) Write(p []byte) (n int, err error) {
 	for _, w := range mw.writers {
 		n, err = w.Write(p)
 		if err != nil {
-			return
+			return n, err
 		}
 
 		if n != len(p) {
 			err = io.ErrShortWrite
-			return
+			return n, err
 		}
 	}
 

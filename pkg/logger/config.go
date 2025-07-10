@@ -22,8 +22,8 @@ import (
 	"time"
 )
 
-func DefaultConfig() Config {
-	return Config{
+func DefaultConfig() *Config {
+	return &Config{
 		Level:      getEnvOrDefault("LOG_LEVEL", "info"),
 		Debug:      getEnvBoolOrDefault("DEBUG", false),
 		Output:     getEnvOrDefault("LOG_OUTPUT", "stdout"),
@@ -34,6 +34,7 @@ func DefaultConfig() Config {
 
 func DefaultOTelConfig() OTelConfig {
 	headers := make(map[string]string)
+
 	if headerStr := os.Getenv("OTEL_EXPORTER_OTLP_LOGS_HEADERS"); headerStr != "" {
 		for _, pair := range strings.Split(headerStr, ",") {
 			if kv := strings.SplitN(pair, "=", 2); len(kv) == 2 {
@@ -43,6 +44,7 @@ func DefaultOTelConfig() OTelConfig {
 	}
 
 	batchTimeout := 5 * time.Second
+
 	if timeoutStr := os.Getenv("OTEL_EXPORTER_OTLP_LOGS_TIMEOUT"); timeoutStr != "" {
 		if duration, err := time.ParseDuration(timeoutStr); err == nil {
 			batchTimeout = duration
