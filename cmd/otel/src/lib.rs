@@ -1,5 +1,8 @@
 use tonic::{Request, Response, Status};
+use log::{debug, info, error};
 
+pub mod cli;
+pub mod config;
 pub mod nats_output;
 
 pub mod opentelemetry {
@@ -40,12 +43,26 @@ pub struct ServiceRadarCollector {
 
 impl ServiceRadarCollector {
     pub async fn new(nats_config: Option<nats_output::NatsConfig>) -> Result<Self, Box<dyn std::error::Error>> {
+        debug!("Creating ServiceRadarCollector");
+        
         let nats_output = if let Some(config) = nats_config {
-            Some(Arc::new(Mutex::new(nats_output::NatsOutput::new(config).await?)))
+            debug!("Initializing NATS output for collector");
+            match nats_output::NatsOutput::new(config).await {
+                Ok(output) => {
+                    debug!("NATS output created successfully");
+                    Some(Arc::new(Mutex::new(output)))
+                },
+                Err(e) => {
+                    error!("Failed to initialize NATS output: {}", e);
+                    return Err(e.into());
+                }
+            }
         } else {
+            debug!("No NATS configuration provided, collector will not forward traces");
             None
         };
         
+        debug!("ServiceRadarCollector created with NATS output: {}", nats_output.is_some());
         Ok(Self { nats_output })
     }
 }
@@ -66,20 +83,43 @@ impl TraceService for ServiceRadarCollector {
     ) -> Result<Response<ExportTraceServiceResponse>, Status> {
         let trace_data = request.into_inner();
         
-        // Log received traces
-        println!("Received {} resource spans", trace_data.resource_spans.len());
+        let span_count = trace_data.resource_spans.iter()
+            .map(|rs| rs.scope_spans.iter().map(|ss| ss.spans.len()).sum::<usize>())
+            .sum::<usize>();
         
-        // Send to NATS if configured
-        if let Some(nats) = &self.nats_output {
-            let nats_output = nats.lock().await;
-            if let Err(e) = nats_output.publish_traces(&trace_data).await {
-                eprintln!("Failed to publish traces to NATS: {}", e);
-                // Don't fail the request, just log the error
-            } else {
-                println!("Successfully published traces to NATS");
+        info!("Received OTEL export request: {} resource spans, {} total spans", 
+              trace_data.resource_spans.len(), span_count);
+        
+        // Log some debug details about the traces
+        if log::log_enabled!(log::Level::Debug) {
+            for (i, resource_span) in trace_data.resource_spans.iter().enumerate() {
+                let resource_attrs = resource_span.resource.as_ref()
+                    .map(|r| r.attributes.len()).unwrap_or(0);
+                debug!("Resource span {}: {} scope spans, {} resource attributes", 
+                       i, resource_span.scope_spans.len(), resource_attrs);
+                
+                for (j, scope_span) in resource_span.scope_spans.iter().enumerate() {
+                    let scope_name = scope_span.scope.as_ref()
+                        .map(|s| s.name.as_str()).unwrap_or("unknown");
+                    debug!("  Scope span {}: '{}' with {} spans", 
+                           j, scope_name, scope_span.spans.len());
+                }
             }
         }
         
+        // Send to NATS if configured
+        if let Some(nats) = &self.nats_output {
+            debug!("Forwarding traces to NATS");
+            let nats_output = nats.lock().await;
+            if let Err(e) = nats_output.publish_traces(&trace_data).await {
+                error!("Failed to publish traces to NATS: {}", e);
+                // Don't fail the request, just log the error
+            }
+        } else {
+            debug!("No NATS output configured, traces received but not forwarded");
+        }
+        
+        debug!("OTEL export request completed successfully");
         Ok(Response::new(ExportTraceServiceResponse {
             partial_success: None,
         }))

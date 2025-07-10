@@ -47,4 +47,14 @@ else
     exit 1
 fi
 
+# Copy otel.toml from the filesystem
+OTEL_CONF_SRC="${PACKAGING_DIR}/otel.toml"
+if [ -f "$OTEL_CONF_SRC" ]; then
+    cp "$OTEL_CONF_SRC" etc/serviceradar/otel.toml
+    echo "Copied otel.toml from $OTEL_CONF_SRC"
+else
+    echo "Error: otel.toml not found at $OTEL_CONF_SRC"
+    exit 1
+fi
+
 echo "OTEL collector package files prepared successfully"

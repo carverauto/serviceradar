@@ -4,7 +4,7 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/serviceradar-otel
+ExecStart=/usr/local/bin/serviceradar-otel --config /etc/serviceradar/otel.toml
 Restart=on-failure
 User=serviceradar
 Group=serviceradar

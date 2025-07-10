@@ -918,15 +918,25 @@
       "build_method": "rust",
       "output_path": "/usr/local/bin/serviceradar-otel"
     },
-    "config_files": [],
-    "systemd_service": null,
+    "config_files": [
+      {
+        "source": "packaging/otel/config/otel.toml",
+        "dest": "/etc/serviceradar/otel.toml"
+      }
+    ],
+    "systemd_service": {
+      "source": "packaging/otel/systemd/serviceradar-otel.service",
+      "dest": "/lib/systemd/system/serviceradar-otel.service"
+    },
     "postinst": {
       "source": "packaging/otel/scripts/postinstall.sh"
     },
     "prerm": {
       "source": "packaging/otel/scripts/preremove.sh"
     },
-    "conffiles": []
+    "conffiles": [
+      "/etc/serviceradar/otel.toml"
+    ]
   },
   {
     "name": "sysmon",
