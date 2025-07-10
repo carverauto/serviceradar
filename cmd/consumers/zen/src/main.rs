@@ -495,6 +495,27 @@ impl AgentService for ZenAgentService {
             poller_id: req.poller_id,
         }))
     }
+
+    async fn get_results(
+        &self,
+        request: Request<monitoring::ResultsRequest>,
+    ) -> Result<Response<monitoring::ResultsResponse>, Status> {
+        let req = request.into_inner();
+        let start = std::time::Instant::now();
+        Ok(Response::new(monitoring::ResultsResponse {
+            available: true,
+            data: vec![],
+            service_name: req.service_name,
+            service_type: req.service_type,
+            response_time: start.elapsed().as_nanos() as i64,
+            agent_id: req.agent_id,
+            poller_id: req.poller_id,
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64,
+        }))
+    }
 }
 
 async fn start_grpc_server(cfg: Config) -> Result<()> {
