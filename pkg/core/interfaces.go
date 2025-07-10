@@ -15,15 +15,18 @@
  */
 
 // Package core pkg/core/interfaces.go
-//go:generate mockgen -destination=mock_server.go -package=core github.com/carverauto/serviceradar/pkg/core NodeService,CoreService
+//go:generate mockgen -destination=mock_server.go -package=core github.com/carverauto/serviceradar/pkg/core NodeService,CoreService,DiscoveryService
 
 package core
 
 import (
 	"context"
+	"encoding/json"
+	"time"
 
 	"github.com/carverauto/serviceradar/pkg/core/api"
 	"github.com/carverauto/serviceradar/pkg/metrics"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 // NodeService represents node-related operations.
@@ -40,4 +43,20 @@ type CoreService interface {
 	Stop(ctx context.Context) error
 	ReportStatus(ctx context.Context, nodeID string, status *api.PollerStatus) error
 	GetMetricsManager() metrics.MetricCollector
+}
+
+// DiscoveryService handles network discovery operations.
+type DiscoveryService interface {
+	ProcessSyncResults(
+		ctx context.Context,
+		reportingPollerID, partition string,
+		svc *proto.ServiceStatus,
+		details json.RawMessage,
+		timestamp time.Time) error
+	ProcessSNMPDiscoveryResults(
+		ctx context.Context,
+		reportingPollerID, partition string,
+		svc *proto.ServiceStatus,
+		details json.RawMessage,
+		timestamp time.Time) error
 }

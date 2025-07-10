@@ -81,9 +81,13 @@ func NewServer(ctx context.Context, config *models.DBConfig) (*Server, error) {
 	// Initialize the NEW authoritative device registry
 	deviceRegistry := registry.NewDeviceRegistry(database)
 
+	// Initialize the DiscoveryService
+	discoveryService := NewDiscoveryService(database, deviceRegistry)
+
 	server := &Server{
 		DB:                  database,
 		DeviceRegistry:      deviceRegistry,
+		discoveryService:    discoveryService,
 		alertThreshold:      normalizedConfig.AlertThreshold,
 		webhooks:            make([]alerts.AlertService, 0),
 		ShutdownChan:        make(chan struct{}),
