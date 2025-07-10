@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 )
 
@@ -35,6 +36,7 @@ var (
 	errListenAddrRequired = errors.New("listen_addr is required for the gRPC server")
 )
 
+// Config defines the configuration for the sync service including sources, logging, and OTEL settings.
 type Config struct {
 	Sources      map[string]*models.SourceConfig `json:"sources"`       // e.g., "armis": {...}, "netbox": {...}
 	KVAddress    string                          `json:"kv_address"`    // KV gRPC server address (optional)
@@ -43,6 +45,7 @@ type Config struct {
 	AgentID      string                          `json:"agent_id"`      // Default Agent ID for device records
 	PollerID     string                          `json:"poller_id"`     // Default Poller ID for device records
 	Security     *models.SecurityConfig          `json:"security"`      // mTLS config for gRPC
+	Logging      *logger.Config                  `json:"logging"`       // Logger configuration including OTEL settings
 }
 
 func (c *Config) Validate() error {

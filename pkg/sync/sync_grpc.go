@@ -3,10 +3,10 @@ package sync
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"sync"
 	"time"
 
+	"github.com/carverauto/serviceradar/pkg/logger"
 	"github.com/carverauto/serviceradar/pkg/models"
 	"github.com/carverauto/serviceradar/pkg/poller"
 	"github.com/carverauto/serviceradar/proto"
@@ -37,7 +37,7 @@ func (s *PollerService) GetStatus(_ context.Context, req *proto.StatusRequest) (
 	defer s.resultsMu.RUnlock()
 
 	// The poller passes service_name, etc. We can log it for debugging.
-	log.Printf("GetStatus called by poller for service '%s' (type: '%s')", req.ServiceName, req.ServiceType)
+	logger.Debug().Str("service_name", req.ServiceName).Str("service_type", req.ServiceType).Msg("GetStatus called by poller")
 
 	// Return minimal health check data instead of full device list
 	healthData := map[string]interface{}{
@@ -48,11 +48,11 @@ func (s *PollerService) GetStatus(_ context.Context, req *proto.StatusRequest) (
 
 	healthJSON, err := json.Marshal(healthData)
 	if err != nil {
-		log.Printf("Error marshaling health data: %v", err)
+		logger.Error().Err(err).Msg("Error marshaling health data")
 		return nil, status.Errorf(codes.Internal, "failed to marshal health data: %v", err)
 	}
 
-	log.Printf("Returning health check (cached devices: %d)", len(s.resultsCache))
+	logger.Debug().Int("cached_devices", len(s.resultsCache)).Msg("Returning health check")
 
 	return &proto.StatusResponse{
 		Available: true,
@@ -69,15 +69,15 @@ func (s *PollerService) GetResults(_ context.Context, req *proto.ResultsRequest)
 	defer s.resultsMu.RUnlock()
 
 	// The poller passes service_name, etc. We can log it for debugging.
-	log.Printf("GetResults called by poller for service '%s' (type: '%s')", req.ServiceName, req.ServiceType)
+	logger.Debug().Str("service_name", req.ServiceName).Str("service_type", req.ServiceType).Msg("GetResults called by poller")
 
 	resultsJSON, err := json.Marshal(s.resultsCache)
 	if err != nil {
-		log.Printf("Error marshaling sweep results: %v", err)
+		logger.Error().Err(err).Msg("Error marshaling sweep results")
 		return nil, status.Errorf(codes.Internal, "failed to marshal results: %v", err)
 	}
 
-	log.Printf("Returning %d cached devices to the poller.", len(s.resultsCache))
+	logger.Debug().Int("cached_devices", len(s.resultsCache)).Msg("Returning cached devices to poller")
 
 	return &proto.ResultsResponse{
 		Available:   true,

@@ -32,7 +32,7 @@ func TestOTelConfig(t *testing.T) {
 		t.Error("BatchTimeout should have a default value")
 	}
 
-	if config.BatchTimeout != 5*time.Second {
+	if config.BatchTimeout != Duration(5*time.Second) {
 		t.Errorf("Expected default BatchTimeout to be 5s, got %v", config.BatchTimeout)
 	}
 }
