@@ -24,7 +24,7 @@ import (
 )
 
 func Example_otelConfiguration() {
-	config := logger.Config{
+	config := &logger.Config{
 		Level:      "debug",
 		Debug:      true,
 		Output:     "stdout",
@@ -74,7 +74,7 @@ func Example_otelEnvironmentVariables() {
 }
 
 func Example_otelWithoutCollector() {
-	config := logger.Config{
+	config := &logger.Config{
 		Level:  "info",
 		Output: "stdout",
 		OTel: logger.OTelConfig{
@@ -97,7 +97,7 @@ func Example_otelGracefulShutdown() {
 		}
 	}()
 
-	config := logger.Config{
+	config := &logger.Config{
 		Level:  "info",
 		Output: "stdout",
 		OTel: logger.OTelConfig{

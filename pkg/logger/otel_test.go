@@ -23,15 +23,15 @@ import (
 
 func TestOTelConfig(t *testing.T) {
 	config := DefaultOTelConfig()
-	
+
 	if config.ServiceName == "" {
 		t.Error("ServiceName should have a default value")
 	}
-	
+
 	if config.BatchTimeout == 0 {
 		t.Error("BatchTimeout should have a default value")
 	}
-	
+
 	if config.BatchTimeout != 5*time.Second {
 		t.Errorf("Expected default BatchTimeout to be 5s, got %v", config.BatchTimeout)
 	}
@@ -41,12 +41,12 @@ func TestOTelWriter_Disabled(t *testing.T) {
 	config := OTelConfig{
 		Enabled: false,
 	}
-	
+
 	writer, err := NewOTelWriter(config)
 	if err == nil {
 		t.Error("Expected error when OTel is disabled")
 	}
-	
+
 	if writer != nil {
 		t.Error("Writer should be nil when OTel is disabled")
 	}
@@ -57,19 +57,19 @@ func TestOTelWriter_NoEndpoint(t *testing.T) {
 		Enabled:  true,
 		Endpoint: "",
 	}
-	
+
 	writer, err := NewOTelWriter(config)
 	if err == nil {
 		t.Error("Expected error when endpoint is empty")
 	}
-	
+
 	if writer != nil {
 		t.Error("Writer should be nil when endpoint is empty")
 	}
 }
 
 func TestLoggerWithOTelDisabled(t *testing.T) {
-	config := Config{
+	config := &Config{
 		Level:  "info",
 		Debug:  false,
 		Output: "stdout",
@@ -77,17 +77,17 @@ func TestLoggerWithOTelDisabled(t *testing.T) {
 			Enabled: false,
 		},
 	}
-	
+
 	err := Init(config)
 	if err != nil {
 		t.Fatalf("Failed to initialize logger with OTel disabled: %v", err)
 	}
-	
+
 	Info().Str("test", "value").Msg("Test message without OTel")
 }
 
 func TestLoggerWithOTelEnabledButNoEndpoint(t *testing.T) {
-	config := Config{
+	config := &Config{
 		Level:  "info",
 		Debug:  false,
 		Output: "stdout",
@@ -96,12 +96,12 @@ func TestLoggerWithOTelEnabledButNoEndpoint(t *testing.T) {
 			Endpoint: "",
 		},
 	}
-	
+
 	err := Init(config)
 	if err != nil {
 		t.Fatalf("Failed to initialize logger with OTel enabled but no endpoint: %v", err)
 	}
-	
+
 	Info().Str("test", "value").Msg("Test message with OTel enabled but no endpoint")
 }
 
@@ -120,11 +120,11 @@ func TestMapZerologLevelToOTel(t *testing.T) {
 		{"panic", "FATAL"},
 		{"unknown", "INFO"},
 	}
-	
+
 	for _, test := range tests {
 		result := mapZerologLevelToOTel(test.zerologLevel)
 		if result.String() != test.expected {
-			t.Errorf("mapZerologLevelToOTel(%s) = %s, expected %s", 
+			t.Errorf("mapZerologLevelToOTel(%s) = %s, expected %s",
 				test.zerologLevel, result.String(), test.expected)
 		}
 	}

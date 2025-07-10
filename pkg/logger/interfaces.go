@@ -50,8 +50,8 @@ type fieldLogger struct {
 	logger zerolog.Logger
 }
 
-func NewFieldLogger(logger zerolog.Logger) FieldLogger {
-	return &fieldLogger{logger: logger}
+func NewFieldLogger(logger *zerolog.Logger) FieldLogger {
+	return &fieldLogger{logger: *logger}
 }
 
 func (f *fieldLogger) WithField(key string, value interface{}) FieldLogger {
@@ -63,6 +63,7 @@ func (f *fieldLogger) WithFields(fields map[string]interface{}) FieldLogger {
 	for key, value := range fields {
 		ctx = ctx.Interface(key, value)
 	}
+
 	return &fieldLogger{logger: ctx.Logger()}
 }
 
