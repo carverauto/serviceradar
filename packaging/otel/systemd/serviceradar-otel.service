@@ -1,0 +1,13 @@
+[Unit]
+Description=ServiceRadar OTEL Collector
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/serviceradar-otel
+Restart=on-failure
+User=serviceradar
+Group=serviceradar
+
+[Install]
+WantedBy=multi-user.target
