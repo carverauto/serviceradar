@@ -29,6 +29,8 @@ fi
 
 # Set proper ownership and permissions
 chmod 755 /usr/local/bin/serviceradar-otel
+chmod 644 /etc/serviceradar/otel.toml
+chown -R serviceradar:serviceradar /etc/serviceradar/otel.toml
 
 # Enable and start the service
 systemctl daemon-reload
