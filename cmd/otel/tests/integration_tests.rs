@@ -5,7 +5,7 @@ use otel::opentelemetry::proto::collector::trace::v1::trace_service_server::Trac
 use otel::opentelemetry::proto::common::v1::{AnyValue, KeyValue};
 use otel::opentelemetry::proto::resource::v1::Resource;
 use otel::opentelemetry::proto::trace::v1::{ResourceSpans, ScopeSpans, Span, Status as SpanStatus};
-use otel::MyCollector;
+use otel::ServiceRadarCollector;
 
 fn create_test_trace_request() -> ExportTraceServiceRequest {
     ExportTraceServiceRequest {
@@ -109,7 +109,7 @@ fn create_test_trace_request() -> ExportTraceServiceRequest {
 
 #[tokio::test]
 async fn test_trace_service_export() {
-    let collector = MyCollector {};
+    let collector = ServiceRadarCollector {};
     let request = Request::new(create_test_trace_request());
     
     let response = collector.export(request).await;
@@ -122,7 +122,7 @@ async fn test_trace_service_export() {
 
 #[tokio::test]
 async fn test_trace_service_export_empty() {
-    let collector = MyCollector {};
+    let collector = ServiceRadarCollector {};
     let request = Request::new(ExportTraceServiceRequest {
         resource_spans: vec![],
     });
@@ -137,7 +137,7 @@ async fn test_trace_service_export_empty() {
 
 #[tokio::test]
 async fn test_trace_service_export_multiple_batches() {
-    let collector = MyCollector {};
+    let collector = ServiceRadarCollector {};
     
     // Send multiple batches
     for i in 0..5 {
@@ -169,7 +169,7 @@ async fn test_trace_service_concurrent_requests() {
     
     for i in 0..10 {
         let handle = tokio::spawn(async move {
-            let collector = MyCollector {};
+            let collector = ServiceRadarCollector {};
             let mut request_data = create_test_trace_request();
             
             // Make each request unique
