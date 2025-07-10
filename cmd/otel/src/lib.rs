@@ -1,4 +1,9 @@
 use tonic::{Request, Response, Status};
+use log::{debug, info, error};
+
+pub mod cli;
+pub mod config;
+pub mod nats_output;
 
 pub mod opentelemetry {
     pub mod proto {
@@ -29,9 +34,46 @@ pub mod opentelemetry {
 
 use opentelemetry::proto::collector::trace::v1::trace_service_server::TraceService;
 use opentelemetry::proto::collector::trace::v1::{ExportTraceServiceRequest, ExportTraceServiceResponse};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
-#[derive(Debug)]
-pub struct ServiceRadarCollector {}
+pub struct ServiceRadarCollector {
+    nats_output: Option<Arc<Mutex<nats_output::NatsOutput>>>,
+}
+
+impl ServiceRadarCollector {
+    pub async fn new(nats_config: Option<nats_output::NatsConfig>) -> Result<Self, Box<dyn std::error::Error>> {
+        debug!("Creating ServiceRadarCollector");
+        
+        let nats_output = if let Some(config) = nats_config {
+            debug!("Initializing NATS output for collector");
+            match nats_output::NatsOutput::new(config).await {
+                Ok(output) => {
+                    debug!("NATS output created successfully");
+                    Some(Arc::new(Mutex::new(output)))
+                },
+                Err(e) => {
+                    error!("Failed to initialize NATS output: {}", e);
+                    return Err(e.into());
+                }
+            }
+        } else {
+            debug!("No NATS configuration provided, collector will not forward traces");
+            None
+        };
+        
+        debug!("ServiceRadarCollector created with NATS output: {}", nats_output.is_some());
+        Ok(Self { nats_output })
+    }
+}
+
+impl std::fmt::Debug for ServiceRadarCollector {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ServiceRadarCollector")
+            .field("nats_output", &self.nats_output.is_some())
+            .finish()
+    }
+}
 
 #[tonic::async_trait]
 impl TraceService for ServiceRadarCollector {
@@ -40,7 +82,44 @@ impl TraceService for ServiceRadarCollector {
         request: Request<ExportTraceServiceRequest>,
     ) -> Result<Response<ExportTraceServiceResponse>, Status> {
         let trace_data = request.into_inner();
-        println!("Received traces: {:#?}", trace_data);
+        
+        let span_count = trace_data.resource_spans.iter()
+            .map(|rs| rs.scope_spans.iter().map(|ss| ss.spans.len()).sum::<usize>())
+            .sum::<usize>();
+        
+        info!("Received OTEL export request: {} resource spans, {} total spans", 
+              trace_data.resource_spans.len(), span_count);
+        
+        // Log some debug details about the traces
+        if log::log_enabled!(log::Level::Debug) {
+            for (i, resource_span) in trace_data.resource_spans.iter().enumerate() {
+                let resource_attrs = resource_span.resource.as_ref()
+                    .map(|r| r.attributes.len()).unwrap_or(0);
+                debug!("Resource span {}: {} scope spans, {} resource attributes", 
+                       i, resource_span.scope_spans.len(), resource_attrs);
+                
+                for (j, scope_span) in resource_span.scope_spans.iter().enumerate() {
+                    let scope_name = scope_span.scope.as_ref()
+                        .map(|s| s.name.as_str()).unwrap_or("unknown");
+                    debug!("  Scope span {}: '{}' with {} spans", 
+                           j, scope_name, scope_span.spans.len());
+                }
+            }
+        }
+        
+        // Send to NATS if configured
+        if let Some(nats) = &self.nats_output {
+            debug!("Forwarding traces to NATS");
+            let nats_output = nats.lock().await;
+            if let Err(e) = nats_output.publish_traces(&trace_data).await {
+                error!("Failed to publish traces to NATS: {}", e);
+                // Don't fail the request, just log the error
+            }
+        } else {
+            debug!("No NATS output configured, traces received but not forwarded");
+        }
+        
+        debug!("OTEL export request completed successfully");
         Ok(Response::new(ExportTraceServiceResponse {
             partial_success: None,
         }))
@@ -123,7 +202,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_export_success() {
-        let collector = ServiceRadarCollector {};
+        let collector = ServiceRadarCollector::new(None).await.unwrap();
         let request = tonic::Request::new(create_test_trace_request());
         
         let response = collector.export(request).await;
@@ -136,7 +215,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_export_empty_request() {
-        let collector = ServiceRadarCollector {};
+        let collector = ServiceRadarCollector::new(None).await.unwrap();
         let request = tonic::Request::new(ExportTraceServiceRequest {
             resource_spans: vec![],
         });
@@ -151,7 +230,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_export_multiple_resource_spans() {
-        let collector = ServiceRadarCollector {};
+        let collector = ServiceRadarCollector::new(None).await.unwrap();
         let mut request_data = create_test_trace_request();
         
         // Add another resource span
@@ -180,14 +259,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_collector_debug_impl() {
-        let collector = ServiceRadarCollector {};
+        let collector = ServiceRadarCollector::new(None).await.unwrap();
         let debug_str = format!("{:?}", collector);
-        assert_eq!(debug_str, "MyCollector");
+        assert!(debug_str.contains("ServiceRadarCollector"));
     }
 
     #[tokio::test]
     async fn test_trace_data_validation() {
-        let collector = ServiceRadarCollector {};
+        let collector = ServiceRadarCollector::new(None).await.unwrap();
         
         // Test with malformed trace data
         let malformed_request = ExportTraceServiceRequest {
