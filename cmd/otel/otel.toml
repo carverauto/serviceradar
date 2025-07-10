@@ -1,0 +1,9 @@
+[server]
+bind_address = "127.0.0.1"
+port = 4317
+
+[nats]
+url = "nats://localhost:4222"
+subject = "events.otel"
+stream = "events"
+timeout_secs = 30

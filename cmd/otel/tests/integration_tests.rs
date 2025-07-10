@@ -109,7 +109,7 @@ fn create_test_trace_request() -> ExportTraceServiceRequest {
 
 #[tokio::test]
 async fn test_trace_service_export() {
-    let collector = ServiceRadarCollector {};
+    let collector = ServiceRadarCollector::new(None).await.unwrap();
     let request = Request::new(create_test_trace_request());
     
     let response = collector.export(request).await;
@@ -122,7 +122,7 @@ async fn test_trace_service_export() {
 
 #[tokio::test]
 async fn test_trace_service_export_empty() {
-    let collector = ServiceRadarCollector {};
+    let collector = ServiceRadarCollector::new(None).await.unwrap();
     let request = Request::new(ExportTraceServiceRequest {
         resource_spans: vec![],
     });
@@ -137,7 +137,7 @@ async fn test_trace_service_export_empty() {
 
 #[tokio::test]
 async fn test_trace_service_export_multiple_batches() {
-    let collector = ServiceRadarCollector {};
+    let collector = ServiceRadarCollector::new(None).await.unwrap();
     
     // Send multiple batches
     for i in 0..5 {
@@ -169,7 +169,7 @@ async fn test_trace_service_concurrent_requests() {
     
     for i in 0..10 {
         let handle = tokio::spawn(async move {
-            let collector = ServiceRadarCollector {};
+            let collector = ServiceRadarCollector::new(None).await.unwrap();
             let mut request_data = create_test_trace_request();
             
             // Make each request unique
