@@ -74,6 +74,7 @@ func (n *NetboxIntegration) Fetch(ctx context.Context) (map[string][]byte, []*mo
 					Int("retraction_count", len(retractionEvents)).
 					Str("source", "netbox").
 					Msg("Generated retraction events")
+
 				allEvents = append(allEvents, retractionEvents...)
 			}
 		}
@@ -226,6 +227,7 @@ func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[
 				Err(err).
 				Str("ip_address", device.PrimaryIP4.Address).
 				Msg("Failed to parse IP address")
+
 			continue
 		}
 
@@ -286,6 +288,7 @@ func (n *NetboxIntegration) processDevices(deviceResp DeviceResponse) (data map[
 				Err(err).
 				Int("device_id", device.ID).
 				Msg("Failed to marshal device")
+
 			continue
 		}
 

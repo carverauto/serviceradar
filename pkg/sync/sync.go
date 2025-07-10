@@ -59,7 +59,7 @@ func New(
 		// Use defaults if no logging config provided
 		loggerConfig = logger.DefaultConfig()
 	}
-	
+
 	if err := logger.Init(loggerConfig); err != nil {
 		logger.Warn().Err(err).Msg("Failed to initialize logger, using defaults")
 	}

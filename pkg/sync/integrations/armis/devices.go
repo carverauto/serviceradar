@@ -54,6 +54,7 @@ func (a *ArmisIntegration) fetchDevicesForQuery(
 				Err(err).
 				Str("query_label", query.Label).
 				Msg("Failed to fetch devices page")
+
 			return nil, fmt.Errorf("failed query '%s': %w", query.Label, err)
 		}
 
@@ -213,6 +214,7 @@ func (a *ArmisIntegration) Fetch(ctx context.Context) (map[string][]byte, []*mod
 		logger.Error().
 			Err(err).
 			Msg("Failed to query device states from ServiceRadar, skipping update")
+
 		return data, modelEvents, nil
 	}
 
@@ -462,6 +464,7 @@ func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]b
 				Err(err).
 				Int("device_id", d.ID).
 				Msg("Failed to marshal enriched device")
+
 			continue
 		}
 
@@ -500,6 +503,7 @@ func (a *ArmisIntegration) processDevices(devices []Device) (data map[string][]b
 				Err(err).
 				Int("device_id", d.ID).
 				Msg("Failed to marshal model device")
+
 			continue
 		}
 
